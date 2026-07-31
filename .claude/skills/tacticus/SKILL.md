@@ -9,7 +9,10 @@ allowed-tools: Read, Bash, Glob, Grep, Edit, Write, Agent
 
 ## Cible
 
-- **Tacticus PC** : `C:\Users\nicolasv\AppData\Local\tacticus\games\nb3o9lmt6c\Tacticus.exe`
+- **Tacticus PC** : `C:\Users\nicolasv\AppData\Local\tacticus\games\<HASH>\Tacticus.exe` —
+  `<HASH>` change à chaque mise à jour du jeu ; le lire, jamais le recopier
+  (`ls -d /c/Users/nicolasv/AppData/Local/tacticus/games/*/`, et
+  `data/symbols/CURRENT` pour le build contre lequel les symboles sont dumpés)
 - Unity 6000.3.8f1, IL2CPP AOT, GameAssembly.dll ~60 MB
 - Frida injection **locale** via `frida.getLocalDevice()` — pas d'`adb`,
   pas de `frida-server`, pas de device

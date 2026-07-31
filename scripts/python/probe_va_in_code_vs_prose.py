@@ -8,7 +8,16 @@ chaque occurrence en tokenisant reellement le Python (module `tokenize`) :
   - COMMENT / STRING -> prose (migrable) ;
   - NUMBER           -> litteral EXECUTABLE (INTERDIT a la migration).
 
-Pour les fichiers non-Python (.md, .ts) tout est traite comme prose, sauf signalement.
+PERIMETRE -- a lire avant de se fier a un verdict de ce probe : il ne collecte QUE des
+`*.py`. Les `.md` / `.ts` ne sont PAS scannes, et une racine qui n'en contient aucun (ex.
+`docs`) le faisait autrefois imprimer "fichiers Python scannes : 0" puis "AUCUNE occurrence
+dans du code executable : migration sans risque de casse" -- un VERT sur un repertoire
+jamais regarde. Mesure #330 : ce faux vert a laisse `docs/` accumuler 4600 VA absolues,
+dont 4278 PERIMEES, invisibles de la migration de build #251.
+Il DIT desormais ce qu'il n'a pas regarde, et REFUSE de conclure sur une racine muette
+(sortie 2). Pour la PROSE (`.md`, `.txt`, `.tsv`), l'outil est
+`probe_330_prose_va_and_build_stamps.py`.
+
 Sortie ASCII pure.
 """
 from __future__ import annotations
@@ -67,14 +76,41 @@ def main() -> int:
     ap.add_argument("--exclude", default=".claude\\worktrees")
     args = ap.parse_args()
 
+    # L'exclusion se teste sur le chemin RELATIF au depot, jamais sur l'absolu. Sinon, lance
+    # depuis un worktree d'agent (`<repo>/.claude/worktrees/agent-xxx/`), le motif par defaut
+    # `.claude/worktrees` matche la racine elle-meme et le probe s'exclut INTEGRALEMENT --
+    # zero fichier scanne, verdict vert, sur tout le code. Mesure #330 : c'est ce qui arrivait
+    # a tout agent qui le lancait, c.-a-d. au cas nominal.
+    excl = args.exclude.replace("\\", "/")
+
+    def is_excluded(f: Path) -> bool:
+        try:
+            rel = f.relative_to(REPO).as_posix()
+        except ValueError:
+            rel = f.as_posix()
+        return excl in rel
+
     files = []
+    ignored = Counter()          # extension -> nb de fichiers NON scannes (angle mort)
+    mutes = []                   # racines qui n'ont rendu aucun .py
     for root in args.roots:
         p = REPO / root
+        before = len(files)
         if p.is_file():
-            files.append(p)
+            if p.suffix == ".py":
+                files.append(p)
+            else:
+                ignored[p.suffix or "<sans extension>"] += 1
         elif p.is_dir():
-            files += [f for f in p.rglob("*.py") if f.is_file()]
-    files = [f for f in files if args.exclude not in str(f)]
+            for f in p.rglob("*"):
+                if not f.is_file() or is_excluded(f):
+                    continue
+                if f.suffix == ".py":
+                    files.append(f)
+                else:
+                    ignored[f.suffix or "<sans extension>"] += 1
+        if len(files) == before:
+            mutes.append(root)
 
     cats = Counter()
     danger = []
@@ -84,7 +120,21 @@ def main() -> int:
         danger += d
 
     print("fichiers Python scannes : %d" % len(files))
+    if ignored:
+        # DIRE l'angle mort. Un probe qui tait ce qu'il n'a pas regarde se lit comme
+        # "rien a signaler" -- c'est exactement ainsi que le gisement `docs/` est passe.
+        print("fichiers NON scannes (ce probe ne classe que du Python) : %d"
+              % sum(ignored.values()))
+        for ext, n in ignored.most_common(8):
+            print("    %-16s %d" % (ext, n))
+        print("    -> pour la PROSE : probe_330_prose_va_and_build_stamps.py")
     print("")
+    if mutes:
+        print("REFUS DE CONCLURE : aucune racine Python dans %s." % ", ".join(mutes))
+        print("Ce probe ne sait rien dire de ces racines -- ne pas lire son silence comme un vert.")
+        print("Pour la prose : python scripts/python/probe_330_prose_va_and_build_stamps.py %s"
+              % " ".join(mutes))
+        return 2
     for cat, n in sorted(cats.items(), key=lambda kv: -kv[1]):
         print("  %-28s %d" % (cat, n))
     print("")

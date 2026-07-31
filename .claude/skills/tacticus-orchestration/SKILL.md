@@ -178,7 +178,7 @@ Le `.mcp.json` du projet ne fait que **se connecter** à l'URL
 ### Démarrer le serveur
 
 ```bash
-pwsh -File C:\Users\nicolasv\ghidra-mcp\start-ghidra-mcp.ps1   # build courant (gqfc5mff6c)
+pwsh -File C:\Users\nicolasv\ghidra-mcp\start-ghidra-mcp.ps1   # build courant = cat data/symbols/CURRENT
 # autre build : ... start-ghidra-mcp.ps1 -Project <chemin\gameassembly.gpr>
 ```
 
