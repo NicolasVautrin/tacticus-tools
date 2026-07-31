@@ -5,9 +5,9 @@ l'artefact porté côté Python est-il un `Repair` ou un `Heal` — et si c'est 
 faute ?
 
 **Réponse, mesurée** : côté port, **aucun** des 13 n'est câblé sur le soin. Les portés passent tous
-par `RepairUnitOperation` (dont `LivingMetalRepair`, rebranché par #310, et `DawnBlade`, porté par
-cette PR → **5 sur 13**) ; les 8 restants ne sont **pas portés du tout** — ce sont des tranches
-neuves, pas des rescapés du bug #310. Le balayage AST inverse
+par `RepairUnitOperation` (dont `LivingMetalRepair`, rebranché par #310, `DawnBlade`, porté par
+cette PR, et `RelentlessMarch`, porté par #328 → **6 sur 13**) ; les 7 restants ne sont **pas portés
+du tout** — ce sont des tranches neuves, pas des rescapés du bug #310. Le balayage AST inverse
 (`probe_310_heal_vs_repair_callers.py`) le confirme dans l'autre sens : 10 déclarations, **toutes
 `HEAL`**, 0 rescapé.
 
@@ -57,6 +57,9 @@ FIDÈLE du kit déclenché — côté DÉCISION uniquement. Le rail COMBAT
 `scope`/`removeEffects` = `RepairBehaviourOptions+0x10` / `+0x14`. Les deux fabriques statiques,
 relues verbatim sur `rnca9r7q6c` : `$$ForRepair` = `(0, 1)`, `$$ForRegenerate` = `(1, 0)`.
 
+> ⚠ **La ligne 7 de cette table a été CORRIGÉE par #328** — son artefact était FAUX. Détail et
+> désassemblage : `docs/rl/case-328-relentless-march.md` §3, et le paragraphe ci-dessous.
+
 | # | symbole natif (`$$CreateBehaviour` sauf mention) | artefact | options | enum QUALIFIÉ | porté COMBAT |
 |---|---|---|---|---|---|
 | 1 | `…Active.RepairAbility` | `Repair` | ForRepair | `ActiveAbilityType` 28 `Repair` / 1119 `Repair_GalvanicField` | **oui** (#299) |
@@ -65,7 +68,7 @@ relues verbatim sur `rnca9r7q6c` : `$$ForRepair` = `(0, 1)`, `$$ForRegenerate` =
 | 4 | `…Active.Loki.LivingMetalRepairAbility` | `Repair` | **ForRegenerate** | `TriggeredAbilityType` 1010 | **oui** (#310) |
 | 5 | `…Active.Loki.ReanimationBeamAbility$$ExecuteBehaviour` | `Repair` | ForRepair | `ActiveAbilityType` 1223 | non |
 | 6 | `…Active.Loki.ReanimationBeamAbility$$GetRepairBehaviour` | `Repair` | ForRepair | `ActiveAbilityType` 1223 | non |
-| 7 | `…Active.Loki.RelentlessMarchAbility` | `AddEffect(0x3f3) + Repair` | ForRepair | `TriggeredAbilityType` 1004 (**homonyme** d'`ActiveAbilityType` 1004 `MortisRound`) | non |
+| 7 | `…Active.Loki.RelentlessMarchAbility` | `AddEffect(0x3f3) + Repair` | ForRepair | `TriggeredAbilityType` 1004 (**homonyme** d'`ActiveAbilityType` 1004 `MortisRound`) | **oui** (#328) |
 | 8 | `…Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour` | `Repair` | ForRepair | `ActiveAbilityType` 1117 | non (DÉCISION portée) |
 | 9 | `…Triggered.Loki.DawnBlade_HealAbility` | **`Repair`** | ForRepair | `TriggeredAbilityType` 1501 `DawnBlade` (l'`EffectType` 1501 est `DawnBlade_ExtraDmg` — autre enum) | **oui** (#317, §6) |
 | 10 | `…Triggered.Loki.EnhancementRegenerationAbility` | `If(Repairable, Repair, Heal)` | **ctor ad-hoc** `+0x10=1` (scope), `+0x14=0`, `+0x15=1`, `+0x18=1` | `TriggeredAbilityType` 1433 | non |
@@ -79,6 +82,39 @@ relues verbatim sur `rnca9r7q6c` : `$$ForRepair` = `(0, 1)`, `$$ForRegenerate` =
 `Repair`, et la variable qu'elle lit s'appelle `hpToHeal` —
 `GetVariableForLevel(config, 0x20, …)`, et `AbilityVariableType` 32 = `hpToHeal` (les autres
 appelants lisent `0x24` = 36 = `hpToRepair`). Deux noms, deux fois faux : seul l'artefact tranche.
+
+### ⚠ ERRATUM #328 — la ligne 7 était FAUSSE, et le port l'aurait reproduite en silence
+
+Cette fiche écrivait, pour `RelentlessMarchAbility` :
+`Repair(Owner, UnitsWithoutTrait(Friends(AdjacentUnits(Owner)), 0x418), …)`.
+**C'est l'inverse.** Le filtre `UnitsWithoutTrait(0x418 Stationary)` enveloppe la cible de
+l'`AddEffect` ; le `Repair` reçoit l'arbre **NON filtré**. Lecture au **désassemblage** des deux
+call-sites de `...RelentlessMarchAbility$$CreateBehaviour` :
+
+```
+mov rdx, rbx  / mov r8d, 0x418 / call DSLSelectors$$UnitsWithoutTrait / mov r14, rax
+mov r9, r14    ; 4e argument d'AddEffect = targets      <- FILTRÉ
+mov r8, rbx    ; 3e argument de Repair   = selector     <- NON filtré
+```
+
+Conséquence de jeu, **mesurée live** (#328, `probe_328 --stationary`) : un allié adjacent
+`Stationary` est **RÉPARÉ** (+291 PV sur le drone de `tauShadowsun`, live et port) **sans** recevoir
+le +1 Mouvement. Un port « conforme à cette fiche » aurait refusé cette réparation — dégradation
+**restrictive et muette**, invisible sans un montage qui place un porteur du trait.
+
+**Pourquoi c'est passé** : la table ci-dessus résume l'artefact en une cellule, et un `+` entre deux
+feuilles y perd la distinction de leurs arguments. **Sur un `op_Addition` de deux feuilles, lire les
+arguments de CHACUNE au désassemblage** — le décompilé Ghidra réutilise le même nom de variable pour
+l'arbre filtré et l'arbre nu, ce qui rend la confusion facile à la relecture.
+
+**Comment obtenir un `Stationary` pour le tester** (c'est le seul chemin bon marché du build) :
+aucune unité du gameconfig ne porte `Stationary` en statique — `unit_map.py find --trait Stationary`
+rend **0 unité**. Le trait n'est posé **qu'on-appearance**, par l'`AddTrait(<selectors+0x68>, 0x418)`
+rangé dans `SpawnUnitOptions+0x18` de trois abilities de spawn : `ExemplarOfTheKauyonAbility`
+(`tauShadowsun`, **HERO du pool, sans munition**), `DutyEternalAbility` et `AetherStrideAbility`
+(Machines of War — **`DutyEternal` sort `hasAmmo: false` au tour 1**, mesuré). La voie Shadowsun est
+donc la seule immédiate : elle se téléporte et le drone `tauSmnDroneCommandLink`
+(`Summon`/`Flying`/**`Mechanical`**, donc réparable) naît **sur la tuile qu'elle quitte**.
 
 ## 4. Confrontabilité, ventilée porteur par porteur
 
@@ -101,9 +137,13 @@ appelants lisent `0x24` = 36 = `hpToRepair`). Deux noms, deux fois faux : seul l
 
 Par ordre de valeur décroissante (porteur confrontable × écart mesurable) :
 
-1. **`RelentlessMarchAbility`** (triggered 1004, `necroWarden`, **dans le pool**) —
-   `AddEffect(0x3f3)` + `Repair(Owner, UnitsWithoutTrait(Friends(AdjacentUnits(Owner)), 0x418), …)`.
-   Le porteur est directement spawnable : c'est la tranche la moins chère à valider live.
+1. ~~**`RelentlessMarchAbility`**~~ — **PORTÉE par #328**
+   (`docs/rl/case-328-relentless-march.md`, `engine/runner/operations/triggers/loki/relentless_march.py`).
+   Artefact réel :
+   `AddEffect(0x3f3, UnitsWithoutTrait(Friends(AdjacentUnits(Owner)), 0x418), turns = Nullable<int>(1))`
+   **+** `Repair(Owner, Friends(AdjacentUnits(Owner)), Direct(hpToRepair), ForRepair)` — le filtre
+   ne porte QUE sur l'`AddEffect` (cf. l'erratum §3). Effet 1011 porté aussi (+1 MOVEMENT,
+   littéral `Direct(1)` — l'ability n'a AUCUNE constante au gameconfig).
    ⚠ qualifier l'enum : 1004 est **`TriggeredAbilityType.RelentlessMarch`**, homonyme d'id avec
    `ActiveAbilityType.MortisRound`.
 2. **`DefendTheDivineWorkAbility`** (active 1117, `admecManipulus`, **dans le pool**) — face

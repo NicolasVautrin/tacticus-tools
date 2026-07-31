@@ -190,6 +190,42 @@ def test_rm_repair_gates_bite(rm):
             "(l'AddEffect n'a AUCUN gate de reparation)")
 
 
+def test_rm_effect_grants_exactly_one_movement(rm):
+    """L'EFFET 1011 vaut **+1 MOVEMENT**, mesure sur la stat resolue du natif (`combatSnapshot`
+    `GetStat`), et le port le pose par le MEME montant.
+
+    ⚠ C'EST LA GARDE ANTI-« EFFET INERTE ». `IdunBattle.Entities.Effects.Loki.
+    RelentlessMarchEffect$$ApplyInternal` passe le LITTERAL `DSLFormulas$$Direct(1)` ; son voisin
+    `CursedPlagueBell_ExtraMoveEffect` passe, lui, `GetNumberConstant(0xe = extraMovement)`.
+    Transposer le patron du voisin lirait une constante ABSENTE du gameconfig de `RelentlessMarch`
+    -> `applied_stat_mods` rendrait `[]` -> l'effet serait POSE et pourtant sans aucun effet.
+    Un effet inerte ne casse AUCUN test par construction : il faut donc l'attraper ICI."""
+    from engine.entities.effects.loki.relentless_march import RelentlessMarchExtraMoveEffect
+    from engine.entities.effects.magnitude import ability_var
+    from engine.entities.stats import StatType
+    vis = rm["vis_by_id"]
+    for row in rm["rows"]:
+        for uid in row["live"]:
+            assert row["d_mv"].get(uid) == 1, (
+                f"tour #{row['k']} : le natif donne {row['d_mv'].get(uid)} MOVEMENT a "
+                f"{vis.get(uid, uid)} au lieu de +1 -- relire "
+                "`RelentlessMarchEffect$$ApplyInternal`")
+        for uid in row["mv_before"]:
+            if uid not in row["live"]:
+                assert row["d_mv"].get(uid) == 0, (
+                    f"tour #{row['k']} : {vis.get(uid, uid)} gagne du MOVEMENT sans porter 1011")
+    # cote PORT : le meme +1, par le canal eager `applied_stat_mods`.
+    mods = RelentlessMarchExtraMoveEffect("RelentlessMarch_Effect").applied_stat_mods(None)
+    assert mods == [(int(StatType.MOVEMENT), 1)], (
+        f"le port doit poser +1 MOVEMENT (obtenu {mods})")
+    # ... et la preuve que la transposition serait INERTE : la constante n'existe pas.
+    assert ability_var("RelentlessMarch", "extraMovement", is_constant=True) is None, (
+        "`extraMovement` existe desormais au gameconfig de RelentlessMarch : re-lire le decompile "
+        "de `RelentlessMarchEffect$$ApplyInternal` -- si le natif passe maintenant "
+        "`GetNumberConstant`, le port doit suivre ; s'il passe toujours `Direct(1)`, le litteral "
+        "reste, mais ce test ne prouve plus que la transposition serait inerte")
+
+
 @pytest.mark.parametrize("gate", ["friends", "adjacent"])
 def test_rm_gate_counterfactual(rm, gate):
     """(D) CONTREFACTUEL : gate neutralise/elargi -> le port DIVERGE du live sur tous les tours
@@ -237,6 +273,35 @@ def test_rm_stationary_excluded_from_effect(rm_stationary):
         assert drone in row["mut"]["stationary"], (
             f"tour #{row['k']} : la mutation 'stationary' n'ajoute PAS le drone -> le gate n'est "
             "pas exerce par ce montage")
+
+
+def test_rm_stationary_is_still_repaired(rm_stationary):
+    """LE DISCRIMINANT DE LA CORRECTION #317, et il exige un `Stationary` ENDOMMAGE : le drone,
+    exclu de l'`AddEffect`, est **quand meme REPARE** -- donc le `Repair` recoit bien l'arbre NON
+    filtre. Et le contrefactuel `repairfilter` (le `Repair` prenant la cible FILTREE, la faute de
+    la fiche) MORD sur le tour ou il est reparable.
+
+    Le montage l'EGRATIGNE volontairement (`_scratch_drone`) : un summon naît a PV pleins, et le
+    gate `IsDamagedUnit` d'`AttackQuery$$EntityCanBeRepaired` rendrait alors le contrefactuel
+    inerte -- un test qui ne peut pas virer au rouge ne prouve rien."""
+    assert rm_stationary["drone_damaged"], (
+        "le drone n'a pas pu etre endommage : le discriminant `Stationary` REPARE n'est pas "
+        "exerce (re-calibrer `ST_ENEMY_DAMAGE` face a l'armure du drone)")
+    drone = rm_stationary["drone"]
+    repaired = [row["d_live"].get(drone, 0) for row in rm_stationary["rows"]]
+    assert any(d > 0 for d in repaired), (
+        f"le natif ne repare JAMAIS l'allie Stationary (dPV={repaired}) -- si c'est reproductible, "
+        "c'est la fiche #317 qui avait raison et le port est a refaire")
+    for row in rm_stationary["rows"]:
+        assert row["d_live"].get(drone, 0) == row["d_port"].get(drone, 0), (
+            f"tour #{row['k']} : dPV du Stationary live={row['d_live'].get(drone)} "
+            f"port={row['d_port'].get(drone)}")
+    bites = sum(1 for row in rm_stationary["rows"]
+                if any(row["mut_hp"]["repairfilter"].get(i) != row["d_live"].get(i)
+                       for i in row["hp_before"]))
+    assert bites >= 1, (
+        "le contrefactuel 'repairfilter' (la faute de la fiche #317) n'a mordu sur AUCUN tour : "
+        "le montage ne teste pas la correction")
 
 
 def test_rm_stationary_agreement(rm_stationary):

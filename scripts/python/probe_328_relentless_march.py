@@ -115,13 +115,18 @@ SUMMON = "tauSmnDroneCommandLink"
 EXEMPLAR_OF_THE_KAUYON = 1087       # `ActiveAbilityType.ExemplarOfTheKauyon` (enum_maps.py)
 ST_P_UNITS = [CARRIER, SHADOWSUN, FRIEND_MECH]
 ST_A_UNITS = [ENEMY]
+# `Damage` de l'ennemi CALIBRE pour EGRATIGNER le drone : il doit depasser son armure (1091 au kit,
+# sinon `GetDamageWithPiercing` -> `max(0, d - armure, d x pierce%)` rend 0 sur un profil a percage
+# bas) et rester tres loin de ses PV (~3989). Mesure : a 40 le coup passait mais rendait 0 degat.
+ST_ENEMY_DAMAGE = 1500
+ST_ENEMY_EXILE = 4      # distance hex a laquelle on RENVOIE l'ennemi apres l'egratignure
 
 
 def _r(sid, m, b, t=90):
     return (_rpc(sid, m, [b], timeout=t).get("result") or {})
 
 
-def build(seed, board, p_units, a_units, state_file, p_mow=None):
+def build(seed, board, p_units, a_units, state_file, extra_stats=()):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
@@ -133,8 +138,8 @@ def build(seed, board, p_units, a_units, state_file, p_mow=None):
             # `IsDamagedUnit` d'`EntityCanBeRepaired` passe. (`--hp-player` forcerait `Health` ET
             # `RemainingHealth` : l'unite serait a PV PLEINS, et le Repair un no-op.)
             cmd += ["--unit-stat", "%s:RemainingHealth=%d" % (vis, DAMAGED_HP)]
-    if p_mow:
-        cmd += ["--p-mow", p_mow]
+    for spec in extra_stats:
+        cmd += ["--unit-stat", spec]
     proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     if not state_file.exists():
@@ -183,6 +188,19 @@ def carriers_offline(state) -> dict:
 def hp_live(view) -> dict:
     """{id d'unite: PV courants} depuis `decisionView` (unites VIVANTES)."""
     return {int(u["id"]): int(u.get("hp") or 0) for u in (view.get("units") or []) if u.get("alive")}
+
+
+def movement_live(snap) -> dict:
+    """{id d'unite: stat MOVEMENT resolue} depuis `combatSnapshot` (`GetStat`).
+
+    C'est l'observable du LITTERAL `DSLFormulas$$Direct(1)` de
+    `IdunBattle.Entities.Effects.Loki.RelentlessMarchEffect$$ApplyInternal` : le porteur de 1011
+    gagne EXACTEMENT +1. Un port qui aurait transpose le patron du voisin
+    `CursedPlagueBell_ExtraMoveEffect` (`GetNumberConstant(0xe = extraMovement)`) lirait une
+    constante ABSENTE du gameconfig de `RelentlessMarch` -> 0 -> effet INERTE, et rien ne le
+    signalerait sans cette mesure."""
+    return {int(u["entityId"]): int((u.get("stats") or {}).get("movement") or 0)
+            for u in (snap.get("units") or []) if u.get("entityId") is not None}
 
 
 def hp_offline(state) -> dict:
@@ -361,9 +379,11 @@ def measure(sid, seed, board_id, turns, verbose=True, keep=False):
                    "ob": _r(sid, "observeBattle", {"runnerId": rid}, 60),
                    "snap": _r(sid, "combatSnapshot", {"runnerId": rid}, 120), "board": board}
             hp_before = hp_live(cap["dec"])
+            mv_before = movement_live(cap["snap"])
             endturn(sid, rid)                                    # A -> P : turn-start natif
             after_view = dv(sid, rid, all_ab=True)
             live, hp_after = carriers_live(after_view), hp_live(after_view)
+            mv_after = movement_live(_r(sid, "combatSnapshot", {"runnerId": rid}, 120))
             st = offline_fire(cap, p_team)
             off, hp_off = carriers_offline(st), hp_offline(st)
             d_live = {i: hp_after.get(i, 0) - hp_before.get(i, 0) for i in hp_before}
@@ -383,8 +403,13 @@ def measure(sid, seed, board_id, turns, verbose=True, keep=False):
                                  "" if d_live[i] == d_port[i] else "<-- DESACCORD"))
                 if not ok_hp:
                     print("        DESACCORD-PV")
+            d_mv = {i: mv_after.get(i, 0) - mv_before.get(i, 0) for i in mv_before}
+            if verbose:
+                print("        dMOVEMENT (natif) des porteurs de 1011 : %s"
+                      % {vis_by_id.get(i, i): d_mv.get(i) for i in sorted(live)})
             rows.append({"k": k + 1, "live": live, "port": off, "d_live": d_live,
                          "d_port": d_port, "hp_before": hp_before, "cap": cap,
+                         "d_mv": d_mv, "mv_before": mv_before,
                          "ok": bool(ok_eff and ok_hp), "ok_eff": ok_eff, "ok_hp": ok_hp})
         return {"rows": rows, "p_team": p_team, "ids": ids, "vis_by_id": vis_by_id, "rid": rid}
     finally:
@@ -395,6 +420,65 @@ def measure(sid, seed, board_id, turns, verbose=True, keep=False):
 # ================================================================================================
 # VOLET STATIONARY -- le seul chemin du build vers un allie porteur de `UnitTrait.Stationary`
 # ================================================================================================
+def _scratch_drone(sid, rid, ids, p_team, verbose=True) -> bool:
+    """EGRATIGNE le drone : passe au tour ADVERSE, colle l'ennemi au drone et lui fait porter son
+    attaque NORMALE dessus. Rend True si le drone est bien passe sous son maximum.
+
+    POURQUOI : un summon naît a PV PLEINS -> `IsDamagedUnit` refuse la reparation, et le
+    contrefactuel `repairfilter` (le `Repair` recevant la cible FILTREE, la faute de la fiche #317)
+    resterait INERTE faute d'allie `Stationary` REPARABLE. Le `Damage` de l'ennemi a ete rabaisse a
+    `ST_ENEMY_DAMAGE` au build : on egratigne, on ne tue pas."""
+    import hexgeo
+    if dv(sid, rid).get("currentPlayer") == p_team:
+        endturn(sid, rid)                                  # passer au tour de l'ENNEMI
+    bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    by_id = {t["id"]: t for t in bg["tiles"]}
+    dtile = next((t for t in bg["tiles"] if t.get("occupantUnitId") == ids[SUMMON]), None)
+    if dtile is None:
+        return False
+    free = [by_id[n] for n in (dtile.get("neighbours") or [])
+            if n in by_id and by_id[n].get("walkable") and not by_id[n].get("isWall")
+            and by_id[n].get("occupantUnitId") in (None, ids[ENEMY])]
+    if not free:
+        return False
+    move(sid, rid, ids[ENEMY], free[0]["col"], free[0]["row"])
+    view = dv(sid, rid, all_ab=True)
+    normal = None
+    for u in (view.get("units") or []):
+        if int(u["id"]) == ids[ENEMY]:
+            normal = next((int(a["id"]) for a in (u.get("abilities") or [])
+                           if a.get("kind") == "normal"), None)
+    if normal is None:
+        return False
+    hp0 = hp_live(view).get(ids[SUMMON])
+    _r(sid, "applyAction", {"runnerId": rid, "actions": [
+        {"kind": "ability", "casterId": ids[ENEMY], "targetId": ids[SUMMON],
+         "abilityType": normal}]}, 120)
+    after = dv(sid, rid, all_ab=True)
+    hp1 = hp_live(after).get(ids[SUMMON])
+    # EXIL de l'ennemi : colle au drone, il resterait a portee de l'activation AUTOMATIQUE du
+    # summon au turn-start de sa team (`PlayAutomaticUnits`, trait `Summon` -- cf. #291). Cet
+    # etage-la n'est PAS porte, et son delta de PV sur l'ennemi polluerait la confrontation de
+    # CETTE tranche. On le renvoie donc hors de portee AVANT de mesurer.
+    bg2 = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    dpos = next(((t["col"], t["row"]) for t in bg2["tiles"]
+                 if t.get("occupantUnitId") == ids[SUMMON]), None)
+    cpos = next(((t["col"], t["row"]) for t in bg2["tiles"]
+                 if t.get("occupantUnitId") == ids[CARRIER]), None)
+    far = next((t for t in bg2["tiles"]
+                if t.get("walkable") and not t.get("isWall")
+                and t.get("occupantUnitId") is None
+                and hexgeo.distance((t["col"], t["row"]), dpos) >= ST_ENEMY_EXILE
+                and hexgeo.distance((t["col"], t["row"]), cpos) >= ST_ENEMY_EXILE), None)
+    if far is not None:
+        move(sid, rid, ids[ENEMY], far["col"], far["row"])
+    if verbose:
+        print("  scratch drone : attaque normale %s -> PV %s => %s ; ennemi exile a %s"
+              % (normal, hp0, hp1, None if far is None else (far["col"], far["row"])))
+    return hp1 is not None and hp0 is not None and hp1 < hp0
+
+
+
 def measure_stationary(sid, seed, board_id, turns=2, verbose=True, keep=False):
     """Monte `necroWarden` + `tauShadowsun` + `admecRuststalker`, place Shadowsun ADJACENTE au
     porteur, caste `ExemplarOfTheKauyon` (1087) sur une tuile LOINTAINE : Shadowsun se teleporte et
@@ -413,7 +497,10 @@ def measure_stationary(sid, seed, board_id, turns=2, verbose=True, keep=False):
     Rend `None` si le montage n'est pas montable (cast refuse, drone absent, trait absent, adjacence
     non atteinte) -- jamais un resultat degrade."""
     import hexgeo
-    rid = build(seed, board_id, ST_P_UNITS, ST_A_UNITS, STATE_ST)
+    # `Damage` de l'ennemi RABAISSE : il servira a EGRATIGNER le drone (pour exercer le gate
+    # `IsDamagedUnit` sur lui) sans risquer de le TUER, ce qui detruirait le montage.
+    rid = build(seed, board_id, ST_P_UNITS, ST_A_UNITS, STATE_ST,
+                extra_stats=["%s:Damage=%d" % (ENEMY, ST_ENEMY_DAMAGE)])
     if rid is None:
         return None
     if verbose:
@@ -437,42 +524,30 @@ def measure_stationary(sid, seed, board_id, turns=2, verbose=True, keep=False):
         tgts = _r(sid, "abilityTargets",
                   {"runnerId": rid, "unitId": ids[SHADOWSUN],
                    "abilityType": EXEMPLAR_OF_THE_KAUYON}, 120)
+        # `abilityTargets` rend `units[].abilities[]` keye par `abilityId`, et chaque candidat de
+        # `fromHere` est `{"kind": "tile", "tile": {"col", "row"}}` (ability sur-HEX).
         cands = []
         for u in (tgts.get("units") or []):
             for ab in (u.get("abilities") or []):
-                if int(ab.get("abilityType") or ab.get("id") or -1) == EXEMPLAR_OF_THE_KAUYON:
-                    cands += (ab.get("fromHere") or [])
+                if int(ab.get("abilityId") or -1) == EXEMPLAR_OF_THE_KAUYON:
+                    cands += [c.get("tile") for c in (ab.get("fromHere") or [])
+                              if isinstance(c, dict) and c.get("tile")]
         if not cands:
             print("[328-ST] ABORT aucune cible legale pour ExemplarOfTheKauyon(1087)")
             return None
         bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
         cpos = next(((t["col"], t["row"]) for t in bg["tiles"]
                      if t.get("occupantUnitId") == ids[CARRIER]), None)
-        by_pos = {(t["col"], t["row"]): t for t in bg["tiles"]}
-
-        def _tid(c):
-            if isinstance(c, dict):
-                if "tileId" in c:
-                    return int(c["tileId"]), None
-                p = (int(c.get("col")), int(c.get("row")))
-                t = by_pos.get(p)
-                return (int(t["id"]) if t else None), p
-            return int(c), None
-        scored = []
-        for c in cands:
-            tid, p = _tid(c)
-            if tid is None:
-                continue
-            if p is None:
-                t = next((x for x in bg["tiles"] if int(x["id"]) == tid), None)
-                p = (t["col"], t["row"]) if t else None
-            scored.append((hexgeo.distance(p, cpos) if p else 0, tid))
-        if not scored:
-            print("[328-ST] ABORT cibles ExemplarOfTheKauyon non resolubles en tuiles")
-            return None
-        scored.sort(reverse=True)
+        # La tuile la PLUS LOINTAINE du porteur : Shadowsun s'y teleporte et le drone prend sa
+        # place (donc adjacent au porteur). Une destination proche brouillerait le montage.
+        scored = sorted(((hexgeo.distance((int(t["col"]), int(t["row"])), cpos), t)
+                         for t in cands), key=lambda x: -x[0])
+        dst = scored[0][1]
+        # Ability sur-HEX : `applyAction` prend `to = {col, row}` (l'entite-tuile cote hook),
+        # jamais un `targetId` d'unite -- cf. `rl_duel.cmd_act`.
         _r(sid, "applyAction", {"runnerId": rid, "actions": [
-            {"kind": "ability", "casterId": ids[SHADOWSUN], "targetId": scored[0][1],
+            {"kind": "ability", "casterId": ids[SHADOWSUN],
+             "to": {"col": int(dst["col"]), "row": int(dst["row"])},
              "abilityType": EXEMPLAR_OF_THE_KAUYON}]}, 150)
         view = dv(sid, rid)
         ids = {u.get("visualId"): int(u["id"]) for u in (view.get("units") or []) if u.get("alive")}
@@ -500,6 +575,14 @@ def measure_stationary(sid, seed, board_id, turns=2, verbose=True, keep=False):
         if dsum != 1 or dmech != 1:
             print("[328-ST] ABORT adjacence non atteinte (drone=%d mech=%d)" % (dsum, dmech))
             return None
+        # 3) EGRATIGNER le drone : il naît a PV PLEINS, donc `IsDamagedUnit` d'
+        #    `AttackQuery$$EntityCanBeRepaired` le refuserait et le contrefactuel `repairfilter`
+        #    (la faute de la fiche #317) resterait INERTE. On passe au tour ADVERSE et on fait
+        #    frapper l'ennemi (dont le `Damage` a ete rabaisse au build) sur le drone.
+        drone_damaged = _scratch_drone(sid, rid, ids, p_team, verbose)
+        if not drone_damaged:
+            print("[328-ST] NOTE drone NON endommage -> le contrefactuel 'repairfilter' restera "
+                  "inerte (le natif ne repare pas une cible a PV pleins)")
         rows = []
         for k in range(turns):
             if dv(sid, rid).get("currentPlayer") == p_team:
@@ -515,8 +598,12 @@ def measure_stationary(sid, seed, board_id, turns=2, verbose=True, keep=False):
             off, hp_off = carriers_offline(st), hp_offline(st)
             d_live = {i: hp_after.get(i, 0) - hp_before.get(i, 0) for i in hp_before}
             d_port = {i: hp_off.get(i, 0) - hp_before.get(i, 0) for i in hp_before}
-            mut = {g: carriers_offline(offline_fire(cap, p_team, mutate=g))
-                   for g in ("stationary", "nostationary")}
+            mut, mut_hp = {}, {}
+            for g in ("stationary", "nostationary", "repairfilter"):
+                mst = offline_fire(cap, p_team, mutate=g)
+                mut[g] = carriers_offline(mst)
+                mh = hp_offline(mst)
+                mut_hp[g] = {i: mh.get(i, 0) - hp_before.get(i, 0) for i in hp_before}
             ok = (set(live) == set(off)
                   and all(d_live.get(i) == d_port.get(i) for i in hp_before))
             if verbose:
@@ -530,11 +617,12 @@ def measure_stationary(sid, seed, board_id, turns=2, verbose=True, keep=False):
                         print("        dPV u%-5s live=%+d port=%+d %s"
                               % (i, d_live[i], d_port[i],
                                  "" if d_live[i] == d_port[i] else "<-- DESACCORD"))
-            rows.append({"k": k + 1, "live": live, "port": off, "mut": mut,
+            rows.append({"k": k + 1, "live": live, "port": off, "mut": mut, "mut_hp": mut_hp,
                          "d_live": d_live, "d_port": d_port, "hp_before": hp_before,
                          "cap": cap, "ok": ok})
         return {"rows": rows, "p_team": p_team, "ids": ids, "rid": rid,
-                "drone": ids[SUMMON], "mech": ids[FRIEND_MECH], "carrier": ids[CARRIER]}
+                "drone": ids[SUMMON], "mech": ids[FRIEND_MECH], "carrier": ids[CARRIER],
+                "drone_damaged": bool(drone_damaged)}
     finally:
         if not keep:
             dispose(sid, rid)
@@ -547,7 +635,8 @@ def main(argv):
     ap.add_argument("--turns", type=int, default=3, help="nb de tours de P mesures")
     ap.add_argument("--mutate", action="store_true", help="rejoue les contrefactuels par gate")
     ap.add_argument("--stationary", action="store_true",
-                    help="monte le volet MoW/DutyEternal qui exerce UnitsWithoutTrait(0x418)")
+                    help="monte le volet Shadowsun/ExemplarOfTheKauyon qui exerce "
+                         "UnitsWithoutTrait(0x418)")
     ap.add_argument("--keep", action="store_true", help="ne pas disposer le runner en sortie")
     args = ap.parse_args(argv)
 
@@ -556,11 +645,22 @@ def main(argv):
         out = measure_stationary(sid, args.seed, args.board, keep=args.keep)
         if out is None:
             return 2
-        bad = sum(0 if r["ok"] else 1 for r in out["rows"])
-        bites = sum(1 for r in out["rows"] if set(r["mut_stationary"]) != set(r["live"]))
-        print("\n[328-ST] %d tours confrontes, %d desaccords ; la mutation 'stationary' MORD sur "
-              "%d/%d tours" % (len(out["rows"]), bad, bites, len(out["rows"])))
-        return 0 if (bad == 0 and bites == len(out["rows"])) else 1
+        rows, drone = out["rows"], out["drone"]
+        bad = sum(0 if r["ok"] else 1 for r in rows)
+        print("\n[328-ST] contrefactuels (memes captures)")
+        rc = {}
+        for gate in ("stationary", "nostationary", "repairfilter"):
+            bites = sum(1 for r in rows
+                        if set(r["mut"][gate]) != set(r["live"])
+                        or any(r["mut_hp"][gate].get(i) != r["d_live"].get(i)
+                               for i in r["hp_before"]))
+            rc[gate] = bites
+            print("   %-13s mord sur %d/%d tours" % (gate, bites, len(rows)))
+        print("[328-ST] drone endommage = %s ; drone dans 1011 (live) = %s"
+              % (out["drone_damaged"], any(drone in r["live"] for r in rows)))
+        print("[328-ST] %d tours confrontes, %d desaccords" % (len(rows), bad))
+        # Le volet n'a de valeur que si le gate MORD : `stationary` doit diverger a chaque tour.
+        return 0 if (bad == 0 and rc["stationary"] == len(rows)) else 1
 
     out = measure(sid, args.seed, args.board, args.turns, keep=args.keep)
     if out is None:

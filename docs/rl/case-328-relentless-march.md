@@ -191,6 +191,14 @@ affected Mechanical units for {hpToRepair} Health. » — « affected Mechanical
 c'est le gate `IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired` de l'Operation qui écarte
 les cibles non mécaniques. Le `Repair` natif vise TOUS les alliés adjacents.
 
+**Garde anti-« effet inerte »** : un effet qui pose 0 ne casse **aucun** test par construction — il
+est POSÉ, visible dans `decisionView`, et sans conséquence. `test_rm_effect_grants_exactly_one_movement`
+l'attrape par les deux bouts : il mesure le **ΔMOVEMENT natif** (`combatSnapshot`, `GetStat`) sur
+chaque porteur de 1011 (**+1**, mesuré 3/3 tours × 3 unités) et vérifie côté port que
+`applied_stat_mods` rend `[(MOVEMENT, 1)]` — donc **rouge immédiat** si quelqu'un transposait le
+`GetNumberConstant(extraMovement)` du voisin (`ability_var("RelentlessMarch", "extraMovement",
+is_constant=True)` rend `None`, ce que le test assère aussi, pour que sa propre prémisse reste vraie).
+
 ## 6. Le gate `EntityCanBeRepaired` MORD-il ? — OUI, deux fois
 
 Contrairement à `LivingMetal` (gate tautologique : porter `LivingMetal` implique `IsMechanical`), ici
@@ -239,21 +247,61 @@ impérativement dans `matches`, comme `LivingMetal` et `CursedPlagueBell`.
   montage de validation choisit des cibles **Mechanical mais NON-`LivingMetal`** (Adeptus Mechanicus)
   pour que le delta de PV mesuré soit imputable au seul `RelentlessMarch`.
 
-## 9. Validation live
+## 9. Validation live — MESURÉE
 
 Probe : `python scripts/python/probe_328_relentless_march.py` — garde :
-`scripts/python/tests/engine/runner/test_relentless_march_live.py`. Montage (positions DRIVÉES,
-aucune dépendance aux spawns), sur le tour du porteur :
+`scripts/python/tests/engine/runner/test_relentless_march_live.py` (**12 tests, 12 passés, 0 skip**).
+Positions DRIVÉES, aucune dépendance aux spawns. Protocole : capture au tour ADVERSE → `endturn`
+(turn-start natif) → relecture ; côté port `load_state` + `_bump_turns_started` +
+`turn_start_other_triggers`. `applyAction` ne fait pas jouer l'IA ⇒ **aucun bruit adverse**.
 
-| unité | rôle | attendu |
-|---|---|---|
-| `necroWarden` | porteur, dist 0 | ni effet ni réparation (`AdjacentUnits` exclut l'origine) |
-| `admecRuststalker` | allié Mechanical, dist 1 | **effet 1011 (1 tour) + réparation** |
-| `admecDominus` (`Movement = 0` → `Stationary`) | allié Mechanical, dist 1 | **réparation SANS effet 1011** — le discriminant de §3 |
-| `astraBullgryn` | allié organique, dist 1 | **effet 1011 SANS réparation** — le gate `IsAffectedByHealType` |
-| `admecManipulus` | allié Mechanical, dist 2 | rien (gate d'adjacence) |
-| `blackTerminator` | ennemi, dist 1 | rien (gate `Friends`) |
+### Montage A — `--seed 777 --board C1_75 --turns 3`, **3 tours, 0 désaccord**
 
-Contrefactuels (`--mutate`) : `stationary` (filtre de trait retiré), `friends` (gate de camp),
-`adjacent` (rayon élargi), `repairfilter` (le `Repair` prend la cible FILTRÉE = la faute de la
-fiche #317). Un gate qui reste inerte signale un montage aveugle, pas un port juste.
+| unité | rôle | effet 1011 | ΔPV live / port | ΔMOVEMENT natif |
+|---|---|---|---|---|
+| `necroWarden` | porteur, dist 0 | non | — | 0 |
+| `admecRuststalker` | allié Mechanical, ENDOMMAGÉ, dist 1 | oui, `remaining = 1` | **+1996 / +1996** (T3 : +1544, saturation `FillUp`) | **+1** |
+| `astraBullgryn` | allié ORGANIQUE, ENDOMMAGÉ, dist 1 | oui, `remaining = 1` | 0 / 0 — gate `IsAffectedByHealType` | **+1** |
+| `admecDominus` | allié Mechanical, PV PLEINS, dist 1 | oui, `remaining = 1` | 0 / 0 — gate `IsDamagedUnit` | **+1** |
+| `admecManipulus` | allié Mechanical, dist 2 | non | — | 0 |
+| `blackTerminator` | ennemi, dist 1 | non | — | 0 |
+
+`hpToRepair[50] × 180 %` = **1996** au gameconfig — le montant natif mesuré, à l'unité.
+Contrefactuels : `friends` **3/3 MORD**, `adjacent` **3/3 MORD**.
+
+### Montage B — `--stationary`, **2 tours, 0 désaccord** : LE DISCRIMINANT DE §3
+
+`tauShadowsun` (HERO du pool) placée sur le ring-1 du porteur caste `ExemplarOfTheKauyon` (1087)
+sur la tuile légale la plus lointaine : elle se téléporte, et `tauSmnDroneCommandLink`
+(`Summon`/`Flying`/**`Mechanical`** + `AddTrait(0x418)` on-appearance) naît **sur sa tuile**, donc
+adjacent au porteur. Le drone est ensuite ÉGRATIGNÉ (l'ennemi, `Damage` calibré à 1500 — au-dessus
+de son armure 1091, très en dessous de ses 3989 PV) puis l'ennemi est EXILÉ à 4 hex.
+
+| observable | mesure |
+|---|---|
+| drone dans les porteurs de 1011 | **NON**, live ET port, 2/2 tours |
+| allié adjacent non-`Stationary` dans 1011 | **OUI**, live ET port |
+| **ΔPV du drone `Stationary`** | **+291 live / +291 port** — il EST réparé |
+| mutation `stationary` (filtre retiré) | **MORD 2/2** (le drone entre dans 1011) |
+| mutation `repairfilter` (= la faute de la fiche #317) | **MORD 1/2** (T1 ; T2 le drone est déjà à PV pleins) |
+| mutation `nostationary` (filtre sur les DEUX feuilles) | **MORD 1/2**, idem |
+
+C'est la démonstration complète : le `Stationary` adjacent **n'a pas** le +1 Mouvement **et est
+réparé**. Un port conforme à la fiche #317 aurait raté cette réparation.
+
+### Pourquoi l'ennemi est EXILÉ après l'égratignure — et ce que ça révèle
+
+Collé au drone, l'ennemi subissait **−2490 PV au turn-start de P, côté live, 0 côté port**. Ce n'est
+PAS une faute de cette tranche : c'est l'**activation AUTOMATIQUE du summon** au turn-start de sa
+team (`PlayAutomaticUnits`, trait `Summon` — cf. #291), un étage **non porté**. L'éloigner isole la
+mesure au lieu de la maquiller. Le désaccord est reproductible si on le remet à portée.
+
+### Ce qui n'est PAS couvert
+
+* **branche `Custom`** : aucun appelant côté port (§4) — exercée offline seulement
+  (`test_rm_custom_branch_subtracts_heroes`), jamais live ;
+* **`unitSelectionType = 3`** (volet TARGETABLE), **`unique = true`**, **`source = AbilityOrEffect`** :
+  résidus §8, sans observable ;
+* **activation automatique du summon au turn-start** (le −2490 ci-dessus) : étage distinct, non porté,
+  hors périmètre — nommé ici pour qu'il ne soit pas re-découvert comme « bug de #328 » ;
+* **`RelentlessMarchDangerZoneAbility`** et le playbook 1004 : faces DÉCISION/preview, non portées.
