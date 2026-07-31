@@ -151,14 +151,13 @@ Pour entraîner un agent RL / valider le moteur sans toucher au battle in-game, 
 **runner isolé** depuis une **seed BC sur disque** (`rl_duel build`), déployé et pilotable à
 volonté sans casser le jeu actif. Rappel des deux points les plus violés (détail : `runner.md`) :
 
-1. **Warmup une fois par session Frida** (après chaque inject/reinject), AVANT tout RPC/build :
-   `warmupGameSingletons({ force: true })`. **Autonome — aucun clic humain** : pilote la nav
-   (campagne → node → play → capture ctor) et force l'init des singletons/classes.
-   Claude l'appelle directement après chaque (re)inject et NE demande JAMAIS de cliquer une battle.
-   Le cycle **s'arrête à la capture** et laisse le jeu sur l'écran de bataille (`stopAfterCapture`,
-   défaut) : c'est l'état ATTENDU, pas un warmup incomplet. Les runners isolés ne consomment
-   pas l'écran campagne. Pour l'écran rendu propre malgré le risque de wedge :
-   `warmupGameSingletons({ force: true, stopAfterCapture: false })`.
+1. **Warmup une fois par session Frida**, AVANT tout RPC/build. Sans lui : caches `MethodInfo*`
+   vides + init IL2CPP non amorcée → crash `0x2c`. Il est **autonome** (pilote la nav lui-même,
+   rend la main sur l'écran CAMPAGNE, sait sortir seul d'un écran de bataille hérité, ~12 s) :
+   **ne JAMAIS demander à un humain de cliquer une battle ni de ramener la campagne.**
+   Session froide → `warmupGameSingletons({ force: true })`.
+   La PROCÉDURE (inject, endpoints host, fenêtres) est orchestrateur-only : skill
+   `tacticus-orchestration`. Un agent ne (ré)injecte pas — cf. invariant 4 plus bas.
 
    > **RÈGLE INCONDITIONNELLE — warmup après CHAQUE (re)inject, AVANT tout RPC/probe, SANS EXCEPTION**,
    > y compris les probes « self-contained » montés depuis une seed BC sur disque (ex.

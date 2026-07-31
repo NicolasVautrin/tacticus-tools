@@ -364,6 +364,28 @@ export function buildRouter(defaultLogDir: string): Router {
                 metaError = (e as Error).message;
             }
 
+            // WARMUP ENCHAINE — ce n'est PAS une commodite, c'est la suppression
+            // d'un mode d'erreur. Le warmup est OBLIGATOIRE apres chaque inject et
+            // AVANT tout RPC/probe : un reinject repart avec les caches `MethodInfo*`
+            // vides et la couche d'init IL2CPP non ré-amorcée, et un probe lance sans
+            // warmup ne CRASHE PAS forcement — il marche si le jeu etait deja chaud
+            // par hasard, puis part en `0x2c` au premier build froid. C'est-a-dire
+            // que l'oubli est SILENCIEUX, donc il ne faut pas pouvoir l'oublier.
+            // L'appelant qui veut vraiment injecter sans warmer passe `warmup: false`.
+            let warmup: unknown = null;
+            let warmupError: string | null = null;
+            if (req.body?.warmup === false) {
+                warmupError = "saute sur demande explicite (warmup: false) — "
+                    + "aucun RPC/probe ne doit tourner avant un warmup manuel";
+            } else {
+                try {
+                    warmup = await rpcCall(
+                        session.id, "warmupGameSingletons", [{ force: true }], 240000);
+                } catch (e) {
+                    warmupError = (e as Error).message;
+                }
+            }
+
             res.json({
                 ok: true,
                 sessionId: session.id,
@@ -372,6 +394,8 @@ export function buildRouter(defaultLogDir: string): Router {
                 bundleBytes,
                 meta,
                 metaError,
+                warmup,
+                warmupError,
             });
         } catch (e) {
             const msg = (e as Error).message;
@@ -387,6 +411,31 @@ export function buildRouter(defaultLogDir: string): Router {
                 return;
             }
             res.status(500).json({ error: humanizeFridaError(msg) });
+        }
+    });
+
+    // Warmup — POINT D'ENTREE UNIQUE cote host. Il n'y en avait AUCUN jusqu'au
+    // 2026-07-31 : chaque appelant devait connaitre le nom du RPC et le poster a la
+    // main sur `/api/scripts/:id/rpc`, ce qui laissait a chacun le soin de choisir
+    // ses options — donc de se tromper. Ici il n'y a rien a choisir : le cycle rend
+    // la main sur l'ECRAN CAMPAGNE. `/api/admin/inject` l'enchaine deja tout seul ;
+    // cette route sert aux cas ou la session existe deja et parait froide.
+    router.post("/api/admin/warmup", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid === null) {
+                res.status(409).json({
+                    error: "aucune session Frida vivante — injecter d'abord "
+                        + "(POST /api/admin/inject, qui enchaine deja le warmup)",
+                });
+                return;
+            }
+            const result = await rpcCall(
+                sid, "warmupGameSingletons", [{ force: true }], 240000);
+            const ok = (result as { ok?: boolean } | null)?.ok === true;
+            res.status(ok ? 200 : 500).json({ sessionId: sid, ...(result as object) });
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
         }
     });
 

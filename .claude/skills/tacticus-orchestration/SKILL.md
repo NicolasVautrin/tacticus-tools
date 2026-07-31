@@ -28,16 +28,28 @@ Host sur `http://127.0.0.1:8765`. Front sur `http://127.0.0.1:8765/view/`.
    du jeu via le dossier `<basename>_Data/` adjacent à l'exe. (Le bouton INJECT
    du front `/view/` fait le même appel mais **n'est plus utilisé** : l'injection
    passe par l'API / les scripts.)
-4. **Warmup** = appeler le RPC `warmupGameSingletons({ force: true })`.
-   **Autonome** : il pilote toute la nav UI lui-même (campagne → node → play →
-   capture ctor) et capture `lastSource` + `lastUnitProgression` + `IdunUniverse`,
-   push `builder_ready` au front (refresh catalog). **Aucun clic humain ; Claude ne
-   demande JAMAIS à l'utilisateur de cliquer une battle in-game.**
-   **Le cycle s'ARRÊTE à la capture** (`stopAfterCapture`, défaut depuis le
-   2026-07-25) : le jeu reste sur l'écran de bataille, et c'est normal. Le ménage
-   d'écran qui suivait (pause → retreat → retour campagne) était du confort pur et
-   **la seule source de wedge** — 61,2 s / `ok:false` contre 3,9 s / `ok:true`.
-   (Détails : section « Workflow RL ».)
+4. **Warmup — RIEN À FAIRE : l'inject de l'étape 3 l'enchaîne tout seul** (depuis le
+   2026-07-31). Session déjà vivante mais froide → `POST /api/admin/warmup`.
+   Le RPC sous-jacent reste `warmupGameSingletons({ force: true })`, mais ne l'appelle
+   pas à la main après un inject : tu le jouerais deux fois.
+   **Autonome** : pilote toute la nav UI lui-même (campagne → node → play → capture
+   ctor), capture `lastSource` + `lastUnitProgression` + `IdunUniverse`, push
+   `builder_ready` au front, **puis REVIENT SUR LA CAMPAGNE**. **Aucun clic humain :
+   ne JAMAIS demander à l'utilisateur de cliquer une battle ni de ramener la campagne**
+   — le cycle sait aussi sortir seul d'un écran de bataille hérité (`recover-from-battle`).
+   Mesuré le 2026-07-31 : inject + warmup = **14,1 s**, warmup seul = **11,9 s**.
+   `{ warmup: false }` sur l'inject, ou `stopAfterCapture: true` sur le RPC, sont des
+   échappatoires explicites — pas des défauts.
+
+   > **Pourquoi ce n'est plus « le jeu reste en bataille ».** Le 2026-07-25 la sortie
+   > anticipée était devenue le défaut sur `cycle complet 61,2 s / ok:false` contre
+   > `sortie 3,9 s / ok:true`, d'où la conclusion « la transition bataille → campagne
+   > wedge ». **Réfutée** le 2026-07-30 (`97ebf7ac`) : les mêmes clics rejoués à la main,
+   > espacés de ~2 s, ramènent la campagne en moins de 5 s. La cause était un clic
+   > **AVALÉ** — `interactable == true` précède la fin de l'animation du popup, et le clic
+   > émis dans cette fenêtre est perdu **en rapportant `ok:true`**. Parade généralisée aux
+   > deux bras le 2026-07-31 (#332) : chaque clic est validé par son EFFET et rejoué s'il
+   > manque. **Règle générale : ne jamais conclure du retour d'un clic qu'il a porté.**
 5. Builder front : tout est armé. On peut générer la `BattleConfiguration` de
    n'importe quelle node (events inactifs inclus) sans relancer une battle.
 
@@ -127,8 +139,8 @@ fenêtre, et lui seul. Procédure **exécutée et validée le 2026-07-31**, 4 ag
    recoupement propriétaire ↔ processus, **jamais par l'âge** — l'âge condamnerait aussi un
    runner légitimement long. Mesuré : un orphelin d'une passe de validation *de
    l'orchestrateur* a bloqué une fenêtre à lui seul.
-5. **Agir** : `npm run build:hooks` si `frida/hooks/*` a changé → restart host → inject →
-   **warmup obligatoire**.
+5. **Agir** : `npm run build:hooks` si `frida/hooks/*` a changé → restart host → inject
+   (le warmup est enchaîné par l'inject — vérifier `warmupError: null` dans sa réponse).
 6. **Lever le drain**, puis **reprendre les agents par `SendMessage`** (contexte intact),
    en leur donnant l'état du harnais (session, warmup, drain levé, hash de build).
 
@@ -161,9 +173,10 @@ agent est perdu — donc :
   redeviennent `null`
 - Les RPCs `buildCampaignConfig` / `dumpCampaignCatalog` / etc. répondent
   "no live CampaignGameModeSource captured" jusqu'à re-warmup
-- **Ré-armer = appeler `warmupGameSingletons({ force: true })`** (RPC autonome,
-  pilote la nav UI seul — aucun clic humain). **C'est la procédure par défaut
-  pour Claude : ne jamais demander à l'utilisateur de cliquer une battle.**
+- **Ré-armer = `POST /api/admin/warmup`** (l'auto-restore du restart host réinjecte
+  mais NE warme PAS — seul `POST /api/admin/inject` enchaîne le warmup). Autonome :
+  pilote la nav UI seul et rend la main sur la campagne. **Ne jamais demander à
+  l'utilisateur de cliquer une battle ni de ramener la campagne.**
   (Le hook `CampaignGameModeSource..ctor` recapture aussi si l'utilisateur
   navigue manuellement, mais ce n'est pas requis.)
 

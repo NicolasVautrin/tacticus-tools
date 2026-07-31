@@ -33,9 +33,11 @@ Ordre obligatoire (détails CLAUDE.md « Workflow RL ») :
 - **`warmupGameSingletons({ force?, stopAfterCapture? })`** (`warmup-singletons.ts`) — nav UI
   AUTONOME (capture `lastSource` + init classes battle IL2CPP, sinon crash 0x2c).
   1× par session après chaque (ré)inject, avant tout autre RPC. Aucun clic humain.
-  **S'arrête à la capture par défaut** et laisse le jeu sur l'écran de bataille — état
-  ATTENDU, pas un warmup incomplet (3,9 s / `ok:true`). `stopAfterCapture: false` rejoue
-  le ménage d'écran historique (pause → retreat → campagne), 61,2 s et wedge fréquent.
+  **Rend la main sur l'ÉCRAN CAMPAGNE** (`retreat-to-campaign` + `wait-back-to-campaign`), et
+  sait aussi SORTIR SEUL d'un écran de bataille hérité (étape `recover-from-battle`). ~12 s.
+  `stopAfterCapture: true` (explicite) coupe après la capture et laisse le jeu en bataille.
+  ⚠ Ne PAS l'appeler à la main après un `POST /api/admin/inject` : celui-ci l'enchaîne déjà.
+  Session vivante mais froide → `POST /api/admin/warmup`.
 - **`buildNormalizedBC({ baseBcJson, target{Rank,ProgressionIndex,Rarity,Level,StarLevel,AbilityLevel}, boardJson?, spawnPointSetIndex? })`**
   (`normalize-bc.ts`) → `{ ok, configJson, normalized:[unitId], mow:[unitId] }`.
   Résout une BC seed au rank cible ; passage obligé (les UnitId `:pvp` bruts

@@ -114,6 +114,68 @@ async function waitForAndClick(
     return null;
 }
 
+/** Cliquer, puis VERIFIER QUE LE CLIC A PRIS — et recliquer sinon.
+ *
+ * Verifier la PRESENCE du bouton avant de cliquer ne sert a rien : elle etait deja
+ * verifiee (bouton trouve, actif, `interactable`) le jour ou les trois clics de la
+ * retraite se sont perdus. Un clic avale est indiscernable d'un clic reussi du cote
+ * de l'emetteur — la seule preuve qu'il a porte est SON EFFET.
+ *
+ * On attend donc l'effet attendu (`expect`), et s'il ne vient pas on remet un clic.
+ * Le repos avant le clic evite la plupart des pertes, mais il n'est plus ce sur quoi
+ * on COMPTE : c'est la boucle qui garantit.
+ *
+ * Rendu MODULE-LEVEL le 2026-07-31 (#332) : cette parade n'existait qu'en closure
+ * LOCALE de l'etape 1bis, si bien que l'etape 7 — celle qui ramene a la campagne
+ * apres la capture — tournait encore sur `waitForAndClick`, le mecanisme REFUTE. */
+async function clickUntilEffect(
+    r: UiRefs, frag: string, label: string,
+    expect: () => unknown | null, expectLabel: string,
+): Promise<string | null> {
+    for (let attempt = 1; attempt <= CLICK_ATTEMPTS; attempt++) {
+        const found = await waitFor(() => findButtonByContains(r, frag), 8000);
+        if (found === null) {
+            return attempt === 1
+                ? `${label} introuvable`
+                : `${label} a disparu sans que ${expectLabel} apparaisse`;
+        }
+        await sleep(SETTLE_BEFORE_CLICK_MS);
+        const click = await queueOnMainThread(() => clickByPath(r, found.path));
+        if (!click.ok) return click.err ?? `${label} non cliquable`;
+        // LA verification : l'effet, pas le retour du clic.
+        if (await waitFor(expect, CLICK_EFFECT_TIMEOUT_MS, 250) !== null) {
+            return null;
+        }
+        log(`[warmup-singletons] clic sur ${label} sans effet `
+            + `(${expectLabel} absent) — tentative ${attempt}/${CLICK_ATTEMPTS}`);
+    }
+    return `${label} clique ${CLICK_ATTEMPTS} fois sans que ${expectLabel} `
+         + "apparaisse — clic systematiquement avale";
+}
+
+/** `pause -> retraite -> confirmation -> campagne`, chaque clic valide par
+ * l'apparition de l'ETAPE SUIVANTE (le dernier par le retour de la campagne).
+ *
+ * UN SEUL exemplaire de cette chaine, appele par les DEUX chemins qui retirent le
+ * jeu d'une bataille : l'etape 1bis (ecran herite du cycle precedent) et l'etape 7
+ * (menage apres la capture). Les avoir dupliques est ce qui a permis a l'un d'etre
+ * corrige et pas l'autre. Rend `null` si la campagne est revenue, sinon le motif. */
+async function retreatToCampaign(r: UiRefs): Promise<string | null> {
+    const chain: Array<[string, string, () => unknown | null, string]> = [
+        [PAUSE_BUTTON_KEY, "bouton pause",
+            () => findButtonByContains(r, RETREAT_BUTTON_KEY), "le menu pause"],
+        [RETREAT_BUTTON_KEY, "bouton retraite",
+            () => findButtonByContains(r, RETREAT_CONFIRM_KEY), "la confirmation"],
+        [RETREAT_CONFIRM_KEY, "confirmation de retraite",
+            () => findButtonBySuffix(r, NODE_SUFFIX), "la campagne"],
+    ];
+    for (const [frag, label, expect, expectLabel] of chain) {
+        const err = await clickUntilEffect(r, frag, label, expect, expectLabel);
+        if (err !== null) return err;
+    }
+    return null;
+}
+
 /** Find a button whose path ends with `suffix`, on the next main-thread tick.
  * Only considers active & interactable buttons. */
 function findButtonBySuffix(r: UiRefs, suffix: string): ButtonRow | null {
@@ -365,57 +427,10 @@ async function warmupGameSingletons(
         log("[warmup-singletons] ecran de bataille herite detecte "
             + "(ni noeud de campagne, ni IdunNavigation vivant) — retraite");
 
-        /** Cliquer, puis VERIFIER QUE LE CLIC A PRIS — et recliquer sinon.
-         *
-         * Verifier la PRESENCE du bouton avant de cliquer ne sert a rien ici : elle
-         * etait deja verifiee (bouton trouve, actif, `interactable`) le jour ou les
-         * trois clics se sont perdus. Un clic avale est indiscernable d'un clic reussi
-         * du cote de l'emetteur — la seule preuve qu'il a porte est SON EFFET.
-         *
-         * On attend donc l'effet attendu (`expect`), et s'il ne vient pas on remet un
-         * clic. Le repos avant le clic reste utile — il evite la plupart des pertes —
-         * mais il n'est plus ce sur quoi on COMPTE : c'est la boucle qui garantit. */
-        const clickUntilEffect = async (
-            frag: string, label: string,
-            expect: () => unknown | null, expectLabel: string,
-        ): Promise<string | null> => {
-            for (let attempt = 1; attempt <= CLICK_ATTEMPTS; attempt++) {
-                const found = await waitFor(() => findButtonByContains(r, frag), 8000);
-                if (found === null) {
-                    return attempt === 1
-                        ? `${label} introuvable`
-                        : `${label} a disparu sans que ${expectLabel} apparaisse`;
-                }
-                await sleep(SETTLE_BEFORE_CLICK_MS);
-                const click = await queueOnMainThread(() => clickByPath(r, found.path));
-                if (!click.ok) return click.err ?? `${label} non cliquable`;
-                // LA verification : l'effet, pas le retour du clic.
-                if (await waitFor(expect, CLICK_EFFECT_TIMEOUT_MS, 250) !== null) {
-                    return null;
-                }
-                log(`[warmup-singletons] clic sur ${label} sans effet `
-                    + `(${expectLabel} absent) — tentative ${attempt}/${CLICK_ATTEMPTS}`);
-            }
-            return `${label} clique ${CLICK_ATTEMPTS} fois sans que ${expectLabel} `
-                 + "apparaisse — clic systematiquement avale";
-        };
-
-        // Chaque clic est valide par l'apparition de l'ETAPE SUIVANTE ; le dernier par
-        // le retour de la campagne elle-meme. Fenetre finale large (dechargement +
-        // rechargement de scene) — mesure a la main le 2026-07-30 : moins de 5 s.
-        const chain: Array<[string, string, () => unknown | null, string]> = [
-            [PAUSE_BUTTON_KEY, "bouton pause",
-                () => findButtonByContains(r, RETREAT_BUTTON_KEY), "le menu pause"],
-            [RETREAT_BUTTON_KEY, "bouton retraite",
-                () => findButtonByContains(r, RETREAT_CONFIRM_KEY),
-                "la confirmation"],
-            [RETREAT_CONFIRM_KEY, "confirmation de retraite",
-                () => findButtonBySuffix(r, NODE_SUFFIX), "la campagne"],
-        ];
-        for (const [frag, label, expect, expectLabel] of chain) {
-            const err = await clickUntilEffect(frag, label, expect, expectLabel);
-            if (err !== null) return fail("recover-from-battle", err);
-        }
+        // Chaine PARTAGEE avec l'etape 7 (`retreatToCampaign`) : chaque clic est valide
+        // par l'apparition de l'ETAPE SUIVANTE, le dernier par le retour de la campagne.
+        const err = await retreatToCampaign(r);
+        if (err !== null) return fail("recover-from-battle", err);
         steps.push({
             step: "recover-from-battle", ok: true,
             info: "retraite depuis l'ecran de bataille herite, campagne remontee",
@@ -515,34 +530,35 @@ async function warmupGameSingletons(
     });
     log(`[warmup-singletons] CGMS captured @ ${captured}`);
 
-    // 5bis. `stopAfterCapture` — SORTIE ICI, avant toute transition d'ecran.
+    // 5bis. `stopAfterCapture` — sortie AVANT le retour campagne. N'EST PLUS LE DEFAUT.
     //
-    // Le but du warmup est ATTEINT a cette ligne : la capture est faite, le builder est arme,
-    // les runners isoles sont utilisables. Tout ce qui suit (pause -> retreat -> confirm ->
-    // retour campagne) n'est que du MENAGE d'ecran — et c'est precisement la ou le cycle
-    // wedge : `wait-back-to-campaign` echoue (campagne qui ne remonte pas en 45 s), l'UI
-    // reste morte, et `navToCampaign` ne rattrape pas (« no live IdunNavigation instance »).
-    // Observe le 2026-07-22 (3 fois, la game mourait ensuite) et le 2026-07-25 (la game
-    // survit depuis `runtime/freeze-detector.ts`, mais l'UI reste figee).
-    //
-    // En sortant ici on ne NEGOCIE AUCUNE transition, donc il n'y a rien a wedger. Le prix :
-    // le jeu reste sur l'ecran de bataille de warmup, en phase de deploiement. Acceptable —
-    // les runners isoles ne consomment pas l'ecran campagne (cf. `runner.md`).
-    //
-    // C'EST LE DEFAUT depuis le 2026-07-25. Mesure live (session 77, build gqfc5mff6c) :
+    // HISTORIQUE, parce que le chiffre qui a justifie ce defaut ne mesurait pas ce qu'on
+    // croyait. Le 2026-07-25, la sortie anticipee devient le defaut sur :
     //     cycle complet    61,2 s  ok:false (9/10)  UI figee, relance du jeu obligatoire
     //     sortie ici        3,9 s  ok:true          jeu utilisable
-    // Validation FONCTIONNELLE et pas seulement « etape verte » : `dumpCampaignCatalog` rend
-    // les memes 1 230 459 octets qu'apres un cycle complet — le builder EST arme.
-    // L'appelant qui veut vraiment l'ecran campagne rendu propre passe explicitement
-    // `stopAfterCapture: false` ; il herite alors du risque de wedge decrit ci-dessus.
-    if (opts?.stopAfterCapture !== false) {
+    // conclusion tiree : « la transition bataille -> campagne wedge ». Le 2026-07-30
+    // (`97ebf7ac`, #297) cette conclusion est REFUTEE : les MEMES trois clics rejoues a la
+    // main sur le MEME ecran, espaces de ~2 s, ramenent la campagne en MOINS DE 5 s. La
+    // cause n'etait pas la transition mais un clic AVALE — `interactable == true` precede
+    // la fin de l'animation du popup. Depuis que la chaine valide l'EFFET de chaque clic
+    // et reclique (`retreatToCampaign`), le cycle complet rend `ok:true` en ~7,3 s.
+    //
+    // Le defaut est donc REVENU au cycle complet le 2026-07-31 (#332) : le warmup rend la
+    // main sur l'ECRAN CAMPAGNE. C'est ce qu'on veut, et c'est aussi ce qui evite de
+    // laisser le jeu dans l'etat depuis lequel le warmup SUIVANT devait se rattraper.
+    //
+    // `stopAfterCapture: true` reste disponible pour l'appelant qui veut explicitement
+    // economiser les ~3 s de menage : le but fonctionnel du warmup (capture faite, builder
+    // arme, runners isoles utilisables) est bien ATTEINT a cette ligne — `dumpCampaignCatalog`
+    // rend les memes 1 230 459 octets qu'apres un cycle complet. Le prix est que le jeu reste
+    // sur l'ecran de bataille : l'etape 1bis du warmup suivant devra l'en sortir.
+    if (opts?.stopAfterCapture === true) {
         steps.push({
             step: "stop-after-capture", ok: true,
-            info: "menage d'ecran saute (pause/retreat/retour campagne) — aucune transition",
+            info: "menage d'ecran saute SUR DEMANDE EXPLICITE — le jeu reste en bataille",
         });
-        log("[warmup-singletons] stopAfterCapture — cycle arrete apres la capture, "
-            + "le jeu reste sur l'ecran de bataille");
+        log("[warmup-singletons] stopAfterCapture:true demande — cycle arrete apres la "
+            + "capture, le jeu reste sur l'ecran de bataille");
         return { ok: true, capturedAt: captured.toString(), steps };
     }
 
@@ -572,27 +588,19 @@ async function warmupGameSingletons(
     // the major animations are done.
     await sleep(500);
 
-    // 7. Pause → retreat → confirm. Each step polls until the next button
-    //    appears, then clicks it in the same main-thread tick.
-    const pauseClick = await waitForAndClick(r, PAUSE_BUTTON_KEY, 3000);
-    if (pauseClick === null || !pauseClick.ok) {
-        return fail("click-pause", pauseClick?.err ?? "pause button not found");
-    }
-    steps.push({ step: "click-pause", ok: true });
-
-    const retreatClick = await waitForAndClick(r, RETREAT_BUTTON_KEY, 3000);
-    if (retreatClick === null || !retreatClick.ok) {
-        return fail("click-retreat",
-            retreatClick?.err ?? "retreat button not found");
-    }
-    steps.push({ step: "click-retreat", ok: true });
-
-    const confirmClick = await waitForAndClick(r, RETREAT_CONFIRM_KEY, 3000);
-    if (confirmClick === null || !confirmClick.ok) {
-        return fail("click-confirm",
-            confirmClick?.err ?? "confirm button not found");
-    }
-    steps.push({ step: "click-confirm", ok: true });
+    // 7. Pause -> retraite -> confirmation, via la chaine PARTAGEE avec l'etape 1bis.
+    //
+    // Cette etape tournait sur `waitForAndClick` jusqu'au 2026-07-31 (#332), c'est-a-dire
+    // sur le mecanisme REFUTE : elle cliquait un bouton trouve interactable et concluait
+    // du retour du clic qu'il avait porte. Or `interactable == true` precede la fin de
+    // l'animation du popup, et le clic emis dans cette fenetre est AVALE en rapportant
+    // `ok:true`. C'est ce qui avait fait conclure a tort que « la transition bataille ->
+    // campagne wedge » (61,2 s / `ok:false`), et donc parquer le jeu sur la bataille.
+    // La parade existait depuis le 2026-07-30 mais UNIQUEMENT dans l'etape 1bis, en
+    // closure locale : c'est la duplication qui a permis de n'en corriger qu'une.
+    const retreatErr = await retreatToCampaign(r);
+    if (retreatErr !== null) return fail("retreat-to-campaign", retreatErr);
+    steps.push({ step: "retreat-to-campaign", ok: true });
 
     // 8. Verify the post-retreat transition actually COMPLETES (battle scene
     //    unloaded, campaign screen re-mounted with its level nodes). Without

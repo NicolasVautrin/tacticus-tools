@@ -5,13 +5,19 @@
 
 ## 0. Warmup d'abord — INCONDITIONNEL
 
-Après tout (re)inject / host-restart / session froide, **AVANT tout RPC/build/probe** :
-`warmupGameSingletons({ force: true })` (autonome — pilote la nav campagne lui-même, **aucun clic
-humain**). Sans ça : caches `MethodInfo*` Frida-side vides + init IL2CPP non amorcée → build/RPC
-crashent (`0x2c`). Un probe qui « marche » sans warmup ne prouve rien (le jeu était déjà warm d'une
-nav précédente). Le warmup est un **process standalone** : ne pas raisonner sur ses internals, ni
-bâtir un runner « depuis l'état qu'il a capturé » — un runner se construit depuis une **seed BC**
-(§1), indépendamment du warmup.
+Après tout (re)inject / host-restart / session froide, **AVANT tout RPC/build/probe**. Sans ça :
+caches `MethodInfo*` Frida-side vides + init IL2CPP non amorcée → build/RPC crashent (`0x2c`). Un
+probe qui « marche » sans warmup ne prouve rien (le jeu était déjà warm d'une nav précédente).
+
+**Le chemin normal ne demande RIEN** : `POST /api/admin/inject` **enchaîne le warmup tout seul**
+(depuis le 2026-07-31). Pour une session déjà vivante mais froide : `POST /api/admin/warmup`. Le RPC
+sous-jacent reste `warmupGameSingletons({ force: true })`.
+
+Autonome — **aucun clic humain**, ni pour lancer une battle ni pour ramener la campagne : le cycle
+pilote la nav lui-même, **rend la main sur l'écran CAMPAGNE**, et sait SORTIR SEUL d'un écran de
+bataille hérité. ~12 s. Le warmup est un **process standalone** : ne pas raisonner sur ses
+internals, ni bâtir un runner « depuis l'état qu'il a capturé » — un runner se construit depuis une
+**seed BC** (§1), indépendamment du warmup.
 
 ## 1. Construire un runner — `rl_duel build`
 
