@@ -63,17 +63,25 @@ def _r(sid, m, b, t=90):
 
 
 def _build(state_file: Path, seed_bc: Path, seed: int, board: str, level: int, mult: int,
-           hp_player: int) -> int:
+           hp_player: int, hp_current=None) -> int:
     """`--crit/--block-*` a 0 : degat DETERMINISTE et `BlockScenarios` vide cote caster (mesure #372
-    : `blockScenarioCount = 0`), donc `get_WillBeKill` retombe sur le scalaire `rawMin@0x1c`."""
+    : `blockScenarioCount = 0`), donc `get_WillBeKill` retombe sur le scalaire `rawMin@0x1c`.
+
+    `hp_current` DESSOUDE les PV COURANTS du maxPV : `--hp-player` pose `Health` ET
+    `RemainingHealth` (donc courant == max, et l'axe `StatPart` de
+    `StatAmount(Owner, Health, part = 2)` reste INOBSERVABLE) ; un `--unit-stat
+    <graft>:RemainingHealth=<n>` applique APRES (l'ordre est celui de `rl_duel.build`) ne touche que
+    le courant. C'est ce qui rend le bras `--mutate hp-current` DISCRIMINANT."""
     state_file.unlink(missing_ok=True)
+    stat = "%s:ActiveAbilityLevel=%d,AbilityVariablesMultiplierPercentage=%d" % (GRAFT, level, mult)
+    if hp_current is not None:
+        stat += ",RemainingHealth=%d" % int(hp_current)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
            "--state-file", str(state_file), "--board", board, "--rank", "17",
            "--seed-bc", str(seed_bc),
            "--p-units", "%s,%s" % (GRAFT, FILLER_P),
            "--a-units", "%s,%s" % (VICTIM, ENEMY2),
-           "--unit-stat", "%s:ActiveAbilityLevel=%d,AbilityVariablesMultiplierPercentage=%d"
-                          % (GRAFT, level, mult),
+           "--unit-stat", stat,
            "--hp-player", str(int(hp_player)),
            "--crit", "0,0", "--block-target", "0,0", "--block-player", "0,0", "--no-ai"]
     proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
@@ -194,7 +202,8 @@ def _predict_port(scene, cid, tid, here, mutate: str) -> list:
 
 
 def run(seed: int = 38300, level: int = 8, mult: int = 100, board: str = BOARD,
-        hp_player: int = HP_PLAYER, mutate: str = "none", verbose: bool = True) -> dict:
+        hp_player: int = HP_PLAYER, hp_current=None, mutate: str = "none",
+        verbose: bool = True) -> dict:
     sid = _resolve_session()
     logs = ROOT / "logs"
     logs.mkdir(parents=True, exist_ok=True)
@@ -202,11 +211,11 @@ def run(seed: int = 38300, level: int = 8, mult: int = 100, board: str = BOARD,
     sf = logs / ("p383-%s.json" % tag)
     bcf = logs / ("p383-seed-bc-%s.json" % tag)
     out: dict = {"seed": seed, "level": level, "mult": mult, "board": board,
-                 "hp_player": hp_player, "mutation": mutate}
+                 "hp_player": hp_player, "hp_current": hp_current, "mutation": mutate}
     out["graft"] = build_grafted_seed_bc(bcf)
     rid = None
     try:
-        rid = _build(sf, bcf, seed, board, level, mult, hp_player)
+        rid = _build(sf, bcf, seed, board, level, mult, hp_player, hp_current)
         out["runner"] = rid
         state, brd, dv = _load(sid, rid)
         ids = _ids(dv)
@@ -253,12 +262,15 @@ def run(seed: int = 38300, level: int = 8, mult: int = 100, board: str = BOARD,
                                  "healthDmgMin": e.get("healthDmgMin"),
                                  "healthDmgMax": e.get("healthDmgMax"),
                                  "appliedHits": e.get("appliedHits"),
-                                 "willBeKill": e.get("killSure")} for e in nev]
+                                 "willBeKill": e.get("willBeKill")} for e in nev]
         out["native_sig"] = _sig(nev)
         out["n_native"] = len(nev)
+        # TRI-ETAT (#372) : `willBeKill` n'est publie que par le decodeur du capteur ; `None` = NON
+        # MESURE, jamais « la gate est fermee ». Le discriminant de MONTAGE reste le COMPTE natif
+        # (`n_native > 2` = les batchs 3/4 ont ete emis) -- lire un champ absent comme un refus est
+        # exactement le faux vert de `#361`.
         self_ev = next((e for e in nev if e.get("targetId") == cid), None)
-        out["self_will_be_kill"] = (self_ev or {}).get("killSure")
-        out["gate_open"] = (out["self_will_be_kill"] is True)
+        out["self_will_be_kill"] = (self_ev or {}).get("willBeKill")
 
         port = _predict_port(scene, cid, tid, here, mutate)
         out["port_sig"] = _sig_port(port)
@@ -285,16 +297,13 @@ def run(seed: int = 38300, level: int = 8, mult: int = 100, board: str = BOARD,
             "`MovableTilesInRange(Caster, ...)` repart d'un `OrderedSet` VIDE (garde FLAG de "
             "`MovementQuery$$FindAnyOrAllMoveableTiles`) -- on mesurerait le MONTAGE, pas l'arbre."
             % out.get("caster_has_turn"))
-    elif not out.get("gate_open"):
-        out["ok"] = False
-        out["verdict"] = ("BRAS NON DISCRIMINANT : la gate `Any(selfPreds, WillBeKill)` est FERMEE "
-                          "(willBeKill=%s sur l'event du caster) -- le natif s'arrete au 2e batch. "
-                          "Baisser --hp-player." % out.get("self_will_be_kill"))
     elif out.get("n_native", 0) <= 2:
         out["ok"] = False
         out["verdict"] = ("BRAS NON DISCRIMINANT : le natif rend %d events (<= 2) -- les batchs 3/4 "
-                          "sont VIDES cote natif, il n'y a rien a confronter."
-                          % out.get("n_native", 0))
+                          "sont VIDES cote natif, il n'y a rien a confronter (gate "
+                          "`Any(selfPreds, WillBeKill)` : willBeKill=%s sur l'event du caster ; "
+                          "baisser --hp-player si elle est fermee)."
+                          % (out.get("n_native", 0), out.get("self_will_be_kill")))
     elif mutate != "none":
         out["ok"] = not out["match"]
         out["verdict"] = (
@@ -316,10 +325,11 @@ def run(seed: int = 38300, level: int = 8, mult: int = 100, board: str = BOARD,
         print("[383] runner=%s board=%s seed=%s niveau=%s hp_player=%s mutation=%s"
               % (out.get("runner"), board, seed, level, hp_player, mutate))
         print("[383] geo=%s" % json.dumps(out.get("geometry")))
-        print("[383] caster=%s pos=%s hp=%s/%s | main=%s gate=%s | tuile_port=%s amount=%s"
+        print("[383] caster=%s pos=%s hp=%s/%s | main=%s willBeKill=%s | tuile_port=%s amount=%s"
               % (out.get("caster_id"), out.get("caster_pos"), out.get("caster_hp"),
-                 out.get("caster_hpmax"), out.get("caster_has_turn"), out.get("gate_open"),
-                 out.get("port_tile"), out.get("explosion_amount")))
+                 out.get("caster_hpmax"), out.get("caster_has_turn"),
+                 out.get("self_will_be_kill"), out.get("port_tile"),
+                 out.get("explosion_amount")))
         print("[383] playbook natif = %s | erreur = %s"
               % (out.get("native_playbook"), out.get("native_error")))
         for e in out.get("native_events") or []:
@@ -341,12 +351,16 @@ def main() -> int:
     ap.add_argument("--mult", type=int, default=100)
     ap.add_argument("--board", default=BOARD, help="board CHOISI (runner.md sec.2), jamais subi")
     ap.add_argument("--hp-player", type=int, default=HP_PLAYER)
+    ap.add_argument("--hp-current", type=int, default=None,
+                    help="PV COURANTS du greffon (`RemainingHealth`), pose APRES --hp-player : "
+                         "dessoude courant et MAX, seul regime ou l'axe `StatPart` de "
+                         "`StatAmount(Owner, Health, 2)` est observable")
     ap.add_argument("--mutate", choices=MUTATIONS, default="none",
                     help="GARDE ADVERSARIALE : le port est volontairement FAUX, le probe DOIT rougir")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     out = run(seed=a.seed, level=a.level, mult=a.mult, board=a.board, hp_player=a.hp_player,
-              mutate=a.mutate, verbose=not a.json)
+              hp_current=a.hp_current, mutate=a.mutate, verbose=not a.json)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if out.get("ok") else 1

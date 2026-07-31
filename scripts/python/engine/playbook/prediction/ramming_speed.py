@@ -119,19 +119,32 @@ def explodes_damage_tree(explodes_pct: int, ramming_extra_pct):
 def _get_stat_from_scene(scene):
     """`ctx.get_stat(unit, statType, variant, level)` = `UnitExtensions$$GetStat`, substrat `Scene`.
 
-    Repli NOMME sur `Scene.hpmax_by_id` pour le couple (`Health`, `Maximum`) SEULEMENT : c'est la
-    lecture `observeBattle` du meme fait, et une `Scene` reconstruite sans `combatSnapshot` peut
-    porter le maxPV la et pas dans le `UnitContext`. Rendre 0 en silence ferait un degat NUL sur les
-    deux batchs -- une sous-prediction muette, exactement le mode de panne que ce depot bannit."""
+    ⚠ Le couple (`Health`, `Maximum`) NE PASSE PAS par `UnitContext.get_stat`, et c'est MESURE, pas
+    prudentiel. Le natif dispatche `StatType.Health` vers un
+    `IdunBattle.Entities.Components.FillUpStatComponent`, dont `GetStatPart(2)` rend
+    `get_CurrentMaximumValue`. Le port, lui, seede `Health` en `StatComponent` GENERIQUE
+    (`entities/stats.seed_unit_stats` : « les stats fill-up sont seedees en StatComponent generique
+    ... le FillUpStatComponent specifique est pose au besoin »), et `StatComponent.get_stat_part(2)`
+    rend la valeur **COURANTE**. Le canal du maxPV cote `Scene` est `hpmax_by_id` (`observeBattle`).
+
+    MESURE (#383, montage `--hp-player 60 --hp-current 30`, board MC1_67) : le natif rend
+    `[18, 27]` par voisin (base = 25 % de **60**), le port qui lisait `ctx.get_stat(5, 2)` rendait
+    `[9, 15]` (25 % de **30**). L'axe etait INOBSERVABLE tant que `--hp-player` posait `Health` ET
+    `RemainingHealth` -- c'est la generalisation qui l'a rendu visible.
+
+    Repli sur `ctx.get_stat` quand `hpmax` n'est pas capte : ce n'est pas la meme grandeur, mais
+    c'est la seule lecture disponible, et rendre 0 ferait un degat NUL -- une sous-prediction
+    muette."""
     def _get_stat(u, stat_type, variant, level=None) -> int:
         uid = (u or {}).get("id")
         if uid is None:
             return 0
+        if int(stat_type) == int(StatType.HEALTH) and int(variant or 0) == int(StatPart.MAXIMUM):
+            mx = scene.hpmax(uid)
+            if mx:
+                return int(mx)
         uc = scene.ctx(uid)
-        v = int(uc.get_stat(int(stat_type), int(variant or 0))) if uc is not None else 0
-        if not v and int(stat_type) == int(StatType.HEALTH) and int(variant or 0) == int(StatPart.MAXIMUM):
-            v = int(scene.hpmax(uid) or 0)
-        return v
+        return int(uc.get_stat(int(stat_type), int(variant or 0))) if uc is not None else 0
     return _get_stat
 
 
@@ -145,7 +158,11 @@ def _has_effect_from_scene(scene):
     if eff is None:
         return None
 
-    def _has_effect(u, effect_type, source_flag=6, min_level=0) -> bool:
+    def _has_effect(u, effect_type, source_flag=6, min_level=0, active_only=True) -> bool:
+        # Signature imposee par `HasEffectTrigger.should_trigger` : `(unit, effectType, sourceFlags,
+        # minLevel, activeOnly)`. `EffectsState.has_effect` filtre deja les effets CONSOMMES ; le
+        # niveau et le flag actif ne sont pas modelises sur ce substrat (residu commun a toute la
+        # face PREDICTION, cf. la docstring du noeud).
         uid = (u or {}).get("id")
         return uid is not None and bool(eff.has_effect(int(uid), effect_type=int(effect_type)))
     return _has_effect
