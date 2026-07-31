@@ -831,6 +831,33 @@ def _exemplar_capped_attack_vars(state: "State", caster_id: int) -> tuple:
     return (int(cap or 0), int(pct or 0))
 
 
+def sort_attackers_by_damage_prediction_key(pred_min, pred_avg, pred_max) -> int:
+    """`IdunBattle.Entities.Selectors.SortAttackersByDamagePredictionSelector.u003Cu003Ec__DisplayClass8_0$$u003CSelectu003Eb__0`
+    -- la CLE que `Select` passe a `OrderByDescending`. Mirror 1:1 des trois lignes finales du
+    lambda, LUES au decompile (#344-r2) :
+
+        if (DamagePredictionResult$$get_WillBeKill(predMax))  return 0x7fffffff;
+        if (DamagePredictionResult$$get_MightBeKill(predMin)) return 0x7ffffffe;
+        return MinMaxDamage$$Avg(predAvg + 0x60);      # +0x60 = `TotalDamage`
+
+    Les TROIS arguments sont trois `DamagePredictionResult` DISTINCTS, batis avec les bornes
+    `CalculateMin` / `CalculateAverage` / `CalculateMax` (slots 2 / 4 / 3 d'`IAmountFormula`) du
+    noeud de degat -- l'appariement borne <-> test est ASYMETRIQUE et c'est celui du natif :
+    le sure-kill se lit sur la borne HAUTE, le kill possible sur la borne BASSE.
+
+    Fonction SEPAREE parce que le natif en fait une : c'est le seul point ou l'appariement est
+    verifiable sans monter d'etat."""
+    if pred_max.will_be_kill():
+        return 0x7fffffff
+    if pred_min.might_be_kill():
+        return 0x7ffffffe
+    # `IdunBattle.Core.Services.MinMaxDamage$$Avg` = `Fix64.Round(., 0)` demi-vers-le-PAIR. #344
+    # avait corrige l'ARRONDI (c'etait une troncature) ; #344-r2 corrige la SOURCE -- le port
+    # moyennait `raw_health_damage` (= `DefaultScenario.Damage.HealthDamage`, @0x1c/@0x20), le natif
+    # moyenne `TotalDamage` (@0x60). C'est une CLE DE TRI : un ecart d'une unite renverse un ordre.
+    return min_max_avg(pred_avg.total_damage.min, pred_avg.total_damage.max)
+
+
 def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
                                 cap: int, pct: int) -> list:
     """COLLAPSE du selecteur AI-target `IdunBattleLogic.Entities.Abilities.Active.Loki.
@@ -850,23 +877,58 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
       de ciblage cassee DEPUIS SA TUILE COURANTE). Port : unite VIVANTE dont la portee d'arme maximale
       couvre la distance hex a la cible -- la regle DOMINANTE ; LoS/obscurcissement/hauteur = RESIDU flagge.
     - `IdunBattle.Entities.Selectors.SortAttackersByDamagePredictionSelector$$Select` ->
-      `OrderByDescending(key)` avec (lambda `<Select>b__0`, LU) :
-          key(unit) = 0x7fffffff  si DamagePredictionResult.WillBeKill
-                      0x7ffffffe  si DamagePredictionResult.MightBeKill
-                      MinMaxDamage.Avg  sinon    (demi-vers-le-PAIR, #344)
-      ⚠ RESIDU NOMME, non ouvert par #344 (perimetre = l'arrondi) : le natif batit TROIS predictions
-      distinctes -- le noeud de degat y est evalue par les slots 2/4/3 d'`IAmountFormula`
-      (`CalculateMin` / `CalculateAverage` / `CalculateMax`) -- puis lit `WillBeKill` sur celle du MAX,
-      `MightBeKill` sur celle du MIN, et moyenne le champ `+0x60` de celle de l'AVERAGE. Le port n'en
-      batit qu'UNE et moyenne `raw_health_damage`.
-      Port : MEME structure de cle, la prediction etant batie comme celle de `_finaljustice_target`
-      (`get_attack_prediction` PRE-ARMURE armor=0/pierce=100, profil 0 -- cf. l'en-tete de
-      `services/damage_prediction`) mais avec `initial_damage` = l'OVERRIDE (le natif passe justement
-      `GetAttackDamage()` comme noeud de degat au selecteur de tri). `OrderByDescending` LINQ est STABLE
-      -> tie-break = ordre source, approxime par id croissant.
+      `OrderByDescending(key)` avec, pour cle, le lambda
+      `SortAttackersByDamagePredictionSelector.u003Cu003Ec__DisplayClass8_0$$u003CSelectu003Eb__0`.
+      STRUCTURE LUE (#344-r2) -- le lambda batit TROIS `DamagePredictionResult`, une par borne du
+      noeud de degat :
+
+          hits    = damage@+0x40 . slot 1                       # `Calculate`
+          dMin    = damage@+0x30 . slot 2                       # `CalculateMin`
+          dAvg    = damage@+0x30 . slot 4                       # `CalculateAverage`
+          dMax    = damage@+0x30 . slot 3                       # `CalculateMax`
+          predMin = query@+0x48 . slot 0x28 (attacker, target, pos, abilityType, dMin, profile, hits)
+          predAvg = idem avec dAvg ; predMax = idem avec dMax
+          key     = 0x7fffffff  si predMax.WillBeKill
+                    0x7ffffffe  si predMin.MightBeKill
+                    MinMaxDamage$$Avg(predAvg + 0x60)  sinon
+
+      Le mapping des slots d'`IAmountFormula` est DERIVE du binaire, pas herite :
+      `IdunBattle.Entities.Formulas.PercentageOf$$Calculate` appelle le slot 1 sur ses deux enfants,
+      `$$CalculateMin` le slot 2, `$$CalculateMax` le slot 3 -> le slot 4 restant est
+      `CalculateAverage` (seul membre d'`IAmountFormula` non encore attribue, et le seul dont
+      `IdunBattle.DSL.AAmountFormula` porte un corps).
+      `predAvg + 0x60` = le champ `TotalDamage` (table d'offsets NOMMEE de
+      `frida/hooks/game/damage-prediction.ts`), PAS `DefaultScenario.Damage.HealthDamage` (@0x1c/@0x20,
+      les bornes que lisent `get_WillBeKill` / `get_MightBeKill`) ni `AccurateHealthDamage` (@0x40).
+      `TotalDamage` = bloque-par-bouclier NON cape + degat sante pre-scenario : il DIVERGE de la sante
+      des que la cible porte un bouclier. Le port moyennait `raw_health_damage` -- c'etait le bug.
+
+    - Les TROIS bornes COINCIDENT pour CE porteur, et c'est DEMONTRE (pas suppose) : le noeud de degat
+      est `IdunBattle.Entities.Formulas.MinAmount` (bati par
+      `IdunBattleLogic.Entities.DSLFormulas$$PercentageOfAttackCappedAtMax`), qui derive de
+      `IdunBattle.DSL.ASimpleAmountFormula` -- et `ASimpleAmountFormula$$CalculateMax` est
+      `return Calculate(...)` (slot vtable +0x1d8), `CalculateMin` partageant ce corps (dedupe).
+      `AAmountFormula$$CalculateAverage` rend alors `(v + v) / 2 == v`. Le sur-cout des trois appels
+      est donc nul en resultat -- la structure est portee parce qu'elle est la VERITE du natif, pas
+      parce qu'un montage la separe. `SortAttackersByDamagePredictionSelector` n'a qu'UN appelant
+      (`ExemplarOfHateAbility$$GetAttacker`, xrefs LUES) : aucun autre noeud de degat ne l'emprunte.
+
+      Port : la prediction est batie comme celle de `_finaljustice_target` (`get_attack_prediction`
+      PRE-ARMURE armor=0/pierce=100, profil 0 -- cf. l'en-tete de `services/damage_prediction`) mais
+      avec `initial_damage` = l'OVERRIDE (le natif passe justement `GetAttackDamage()` comme noeud de
+      degat au selecteur de tri) et `target_shield` = le bouclier COURANT de la cible, sans lequel
+      `TotalDamage` serait structurellement egal a `raw_health_damage` et la correction ci-dessus
+      inobservable. `OrderByDescending` LINQ est STABLE -> tie-break = ordre source, approxime par id
+      croissant.
+
+    RESIDU NOMME (hors perimetre #344-r2) : le port ne fournit a la prediction ni l'armure/le percage
+    reels ni le `defender_block_amount` de la cible -- donc `block_raw_min` reste `None` et
+    `will_be_kill` retombe sur le scalaire `raw_health_damage.min`, exactement comme le fallback natif
+    "liste `BlockScenarios` vide". Le gate `CannotBeGuaranteedKilled@0x89` n'existe pas dans le port.
 
     Rend la liste ORDONNEE (le `First(...,1)` est applique par l'appelant)."""
-    from ..components import HealthComponent, OwnerComponent, PositionComponent, StatsComponent, UnitComponent
+    from ..components import (HealthComponent, OwnerComponent, PositionComponent, ShieldComponent,
+                              StatsComponent, UnitComponent)
     from ..damage_model import attacker_modifiers, select_weapon_pierce
     from ...entities.effects import hits_bonus_from_effects
     from ...services.damage_prediction import get_attack_prediction
@@ -881,6 +943,11 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
         return []
     tpos = (tpc.col, tpc.row)
     thp = int(thc.hp) if (thc is not None and thc.hp is not None) else 0
+    # `TotalDamage@0x60` = bloque-par-bouclier + degat sante : sans le bouclier COURANT de la cible
+    # (`IdunBattle.Entities.Components.ShieldComponent$$GetTotalShield`), le champ que le natif
+    # moyenne serait indiscernable de `raw_health_damage`.
+    tshc = te.get_component(ShieldComponent) if te is not None else None
+    tshield = int(tshc.get_total_shield()) if tshc is not None else 0
     scored = []
     for uid, e in sorted(state.entities.items()):
         uc = e.get_component(UnitComponent)
@@ -906,21 +973,19 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
         _pierce, is_ranged, whits = select_weapon_pierce(sc.ctx, dist)
         mods, active = attacker_modifiers(state, uid, ahc.hp if ahc else None, is_ranged=is_ranged)
         hits = max(1, whits + sc.ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
-        pred = get_attack_prediction(
-            target_current_health=thp, initial_damage=override, hits=hits,
-            profile_type=0, armor=0, pierce_pct=100, mods=mods, spread_pct=20,
-            attacker_effects=active)                       # PRE-ARMURE (== `_finaljustice_target`)
-        rmin, rmax = pred.raw_health_damage.min, pred.raw_health_damage.max
-        if thp > 0 and rmin >= thp:
-            key = 0x7fffffff                               # WillBeKill
-        elif thp > 0 and rmax >= thp:
-            key = 0x7ffffffe                               # MightBeKill
-        else:
-            # `SortAttackersByDamagePredictionSelector.u003Cu003Ec__DisplayClass8_0$$u003CSelectu003Eb__0`
-            # finit par `IdunBattle.Core.Services.MinMaxDamage$$Avg` = `Fix64.Round(., 0)` demi-vers-le-PAIR.
-            # #344 : c'etait une TRONCATURE, fausse d'exactement 1 quand `rmin + rmax` vaut 3 mod 4 --
-            # et c'est une CLE DE TRI, donc un ecart d'une unite peut renverser l'ordre des attaquants.
-            key = min_max_avg(rmin, rmax)
+        # Slots 2 / 4 / 3 d'`IAmountFormula` sur le noeud de degat `GetAttackDamage()`. Ce noeud est
+        # une `ASimpleAmountFormula` (cf. docstring) : ses trois bornes retombent sur `Calculate`,
+        # donc les trois montants sont EGAUX ici. On les NOMME quand meme, parce que ce sont trois
+        # evaluations distinctes cote natif et que le collapse doit rester lisible comme tel.
+        dmg_min = dmg_avg = dmg_max = override
+
+        def _predict(amount: int):
+            return get_attack_prediction(
+                target_current_health=thp, initial_damage=amount, hits=hits,
+                profile_type=0, armor=0, pierce_pct=100, mods=mods, spread_pct=20,
+                target_shield=tshield, attacker_effects=active)   # PRE-ARMURE (== `_finaljustice_target`)
+        key = sort_attackers_by_damage_prediction_key(
+            _predict(dmg_min), _predict(dmg_avg), _predict(dmg_max))
         scored.append((uid, key))
     scored.sort(key=lambda t: (-t[1], t[0]))               # OrderByDescending(key), tie-break id (stable)
     return [uid for uid, _k in scored]

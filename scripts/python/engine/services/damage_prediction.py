@@ -97,6 +97,35 @@ class DamagePredictionResult:
     # scalaire rawMin@0x24. Consommé par will-be-kill/will-be-overkill (killSure/DefinitelyOverkill).
     block_raw_min: int | None = None
 
+    def will_be_kill(self) -> bool:
+        """`IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` - mirror LU (#344-r2) :
+
+            if (CannotBeGuaranteedKilled@0x89) return false;
+            m = (BlockScenarios@0x38 != null && BlockScenarios.Count >= 1)
+                ? BlockScenarios[0]@+0x0c                       // .Damage.HealthDamage.Min
+                : DefaultScenario.Damage.HealthDamage.Min@0x1c;
+            return CurrentHealth@0x00 <= m;
+
+        `BlockScenarios[0]+0x0c` = `0x04` (`Damage`) + `0x00` (`HealthDamage`) + `0x08` (`Min`) --
+        c'est exactement le `block_raw_min` du port (#54A).
+        RESIDU NOMME : `CannotBeGuaranteedKilled@0x89` n'est PAS un champ du port (aucun ecrivain
+        RE) -- le gate de sortie anticipee manque donc, et cette borne est PERMISSIVE (elle peut
+        rendre True la ou le natif rend False). Le gate `hp > 0` est port-side (harnais/probes sans
+        cible ; le natif est toujours appele avec une cible vivante)."""
+        hp = int(self.current_health)
+        if hp <= 0:
+            return False
+        m = self.block_raw_min if self.block_raw_min is not None else self.raw_health_damage.min
+        return int(m) >= hp
+
+    def might_be_kill(self) -> bool:
+        """`IdunBattle.Core.Services.DamagePredictionResult$$get_MightBeKill` - mirror LU (#344-r2) :
+        `CurrentHealth@0x00 <= DefaultScenario.Damage.HealthDamage.Max@0x20`, SANS aucun gate (ni
+        `CannotBeGuaranteedKilled`, ni la liste `BlockScenarios`) -- l'asymetrie avec `will_be_kill`
+        est native."""
+        hp = int(self.current_health)
+        return hp > 0 and int(self.raw_health_damage.max) >= hp
+
     def default_block_scenario(self) -> "BlockScenario":
         """`IdunBattle.Core.Services.DamagePredictionResult$$get_DefaultBlockScenario — le scénario cumulé (dégât santé/
         bouclier déjà infligé) threadé comme `prev` au coup suivant → ressources RESTANTES de la cible.

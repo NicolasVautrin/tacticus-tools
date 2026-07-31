@@ -75,10 +75,8 @@ FlailSwing niveau 2 (84 vs 81), donc à l'utilité. Aucun renversement d'argmax 
 - ~~**~60 abilities de la face prédiction ne sont dans AUCUN des deux registres**~~ → **FERMÉ par
   #350** (`case-350`) : inventaire clos, **+18** en forme (a), **+1** en (b), **7** abilities dont la
   base n'est pas une moyenne, nommées. Résidus ouverts `#350-r1/r2/r3`.
-- **`SortAttackersByDamagePredictionSelector` bâtit TROIS prédictions** (slots 2/4/3 =
-  `CalculateMin`/`CalculateAverage`/`CalculateMax`), teste `WillBeKill` sur celle du MAX,
-  `MightBeKill` sur celle du MIN, et moyenne le champ `+0x60` de celle de l'AVERAGE ; le port n'en
-  bâtit qu'une et moyenne `raw_health_damage`. Axe CHAMP/COMPTE, distinct de l'arrondi. Backlog `#344-r2`.
+- ~~**`SortAttackersByDamagePredictionSelector` bâtit TROIS prédictions**~~ → **FERMÉ (#344-r2)**,
+  §7 ci-dessous.
 - **Le volet AoE** : plusieurs playbooks émettent 2 events là où le port en émet 1 (mesuré sur
   BringerOfDespair). Le probe isole la cible principale et **affiche** l'écart de compte.
 - **votann et darkangels ne sont pas confrontés live dans le régime `3 mod 4`** : leurs deux sites
@@ -96,3 +94,66 @@ FlailSwing niveau 2 (84 vs 81), donc à l'utilité. Aucun renversement d'argmax 
 **Mutations jouées, toutes rouges** : troncature partout (1 rouge) ; demi-vers-le-pair partout
 (2 rouges) ; `HitDamage` aligné sur `MinMaxDamage$$Avg` (1) ; darkangels dé-câblé (1) ; votann
 re-câblé sur `CalculateAverage` (1) ; `normal_base` remise (1).
+
+## 7. `#344-r2` — TROIS prédictions, et la moyenne porte sur `TotalDamage`
+
+Le lambda `SortAttackersByDamagePredictionSelector.<Select>b__0` évalue le nœud de dégât **trois
+fois** et bâtit **trois** `DamagePredictionResult`, puis apparie chaque borne à SON test :
+
+| borne | slot `IAmountFormula` | prédiction | test qui la lit |
+|---|---|---|---|
+| `CalculateMin` | 2 | `predMin` | `get_MightBeKill` → `0x7ffffffe` |
+| `CalculateAverage` | 4 | `predAvg` | `MinMaxDamage$$Avg(pred + 0x60)` = **`TotalDamage`** |
+| `CalculateMax` | 3 | `predMax` | `get_WillBeKill` → `0x7fffffff` |
+
+L'appariement est **asymétrique** (sure-kill sur la borne HAUTE, kill possible sur la borne BASSE) —
+c'est le natif, pas une inversion de lecture. Le mapping des slots est **re-dérivé** du binaire :
+`PercentageOf$$Calculate` appelle le slot 1 sur ses deux enfants, `$$CalculateMin` le slot 2,
+`$$CalculateMax` le slot 3 ; le slot 4 restant est `CalculateAverage`, seul membre dont
+`AAmountFormula` porte un corps.
+
+**Les trois bornes coïncident TOUJOURS pour l'unique porteur, et c'est démontré.**
+`SortAttackersByDamagePredictionSelector` n'a qu'**un** appelant (`ExemplarOfHateAbility$$GetAttacker`,
+xrefs lues), dont le nœud de dégât est un `Formulas.MinAmount` — donc une `DSL.ASimpleAmountFormula`,
+dont `CalculateMax` est `return Calculate(...)` (vtable +0x1d8) et `CalculateMin` partage ce corps
+(dédupliqué). Réponse au critère du cas : **aucun montage ne sépare les trois par la valeur**. La
+structure est portée parce qu'elle est la vérité du natif, et les gardes discriminent par l'ORDRE des
+appels, seul levier disponible.
+
+**Le bug était ailleurs, sur la même phrase** : le champ moyenné. `pred + 0x60` = `TotalDamage`
+(= bloqué-par-bouclier NON capé + dégât santé pré-scénario) ; le port moyennait `raw_health_damage`
+(= `DefaultScenario.Damage.HealthDamage`, @0x1c/@0x20 — les bornes de `get_WillBeKill`/`get_MightBeKill`).
+Le port ne passait pas non plus le bouclier de la cible au service, et **les deux écarts se
+compensaient exactement sur la branche moyenne** (`blk + (base − blk)` = la base = ce que le port
+calculait en ignorant le bouclier). Ils cessent de se compenser sur la branche KILL : mesuré
+(Attack 100/500, spread 20 %, bouclier 10⁶, cible 50 PV) —
+
+| | `raw_health_damage` | `TotalDamage` |
+|---|---|---|
+| bouclier 0 | (80,120) / (400,600) | (80,120) / (400,600) |
+| bouclier 10⁶ | **(0,0) / (0,0)** | (80,120) / (400,600) |
+
+L'ancien port voyait **deux sure-kills** (`raw.min ≥ 50`), donc deux clés `0x7fffffff` départagées par
+l'id croissant → il élisait le **plus faible**. Le natif ne tue pas à travers un bouclier : aucune
+borne de kill, `Avg(TotalDamage)` classe, le **plus fort** passe devant. Ordre inversé.
+
+Deux mirrors nommés ont été posés au passage sur `DamagePredictionResult` (`will_be_kill` /
+`might_be_kill`), verbatim du décompilé : `get_WillBeKill` préfère `BlockScenarios[0]+0x0c`
+(= `block_raw_min`) au scalaire, `get_MightBeKill` n'a **aucun** gate. Résidu nommé :
+`CannotBeGuaranteedKilled@0x89` n'est pas un champ du port — la borne `will_be_kill` reste donc
+PERMISSIVE.
+
+| garde | ce qu'elle verrouille |
+|---|---|
+| `tests/engine/runner/test_344r2_sort_attackers_prediction_offline.py` (8) | 3 évaluations PAR attaquant ; la clé exacte pour chaque appariement borne↔test ; le câblage bout-en-bout par l'ordre rendu ; le renversement bouclier+cible fragile ; la non-régression sans bouclier ; l'asymétrie `block_raw_min` des deux mirrors |
+
+**Rouges mesurés** — sur le code d'avant `#344-r2` : 4/8 (compte 2≠6 ; moyenne sur la mauvaise
+prédiction ; ordre non inversé ; `will_be_kill` inexistante). Par mutation du code livré :
+permutation `min`↔`max` des deux tests kill (2 rouges), moyenne prise sur `predMin` (2),
+moyenne prise sur `raw_health_damage` (3).
+
+**NON CONFRONTÉ LIVE** : le host Frida n'était pas démarré pendant ce run (port 8765 fermé) et un
+agent n'injecte pas. À rejouer quand la plateforme est montée :
+`tests/engine/runner/test_darkangels_lot1_live.py` (l'élection d'attaquant y est comparée au live).
+Ce test ne discrimine cependant PAS le fix : ses cibles n'ont pas de bouclier, régime où l'ancien et
+le nouveau port coïncident (tableau ci-dessus).
