@@ -214,29 +214,42 @@ def build_ready(hp_target: int, state_name: str, board: str = BOARD) -> int:
 # LA GEOMETRIE, ET POURQUOI ELLE SEPARE (l'argmax DOIT changer, sinon le lot ne conclut rien)
 # -------------------------------------------------------------------------------------------
 # `dir` vaut 1 sur `MC1_67` -> zone(X) = {X, X+S, X+SE}. On monte DEUX ancres candidates :
-#   * `P_COLD` porte DEUX ennemis (sur `P_COLD` et `P_COLD+S`), aucun en feu
-#         -> custom = 2 x 10 = 20, terme de prediction = 0 ;
-#   * `P_HOT`  porte UN ennemi, sur une tuile EN FEU
-#         -> custom = 1 x 10 = 10, terme de prediction = U_dmg > 0.
-# SANS le branchement le port elit `P_COLD` (20 > 10) ; AVEC, il elit `P_HOT` des que U_dmg > 10.
-# Le natif, lui, tranche -- et c'est exactement la question binaire de la tranche.
+#   * `P_COLD` porte TROIS ennemis (toute sa zone), aucun en feu
+#         -> custom = 3 x 10 = 30, terme de prediction = 0 ;
+#   * `P_HOT`  porte DEUX ennemis, tous deux sur une tuile EN FEU
+#         -> custom = 2 x 10 = 20, terme de prediction = 2 x U_dmg.
+# SANS le branchement le port elit `P_COLD` (30 > 20) ; AVEC, il elit `P_HOT` des que
+# 2 x U_dmg > 10. Le natif, lui, tranche -- et c'est exactement la question binaire de la tranche.
+#
+# POURQUOI L'ECART DE CUSTOM EST DE 10, ET PAS 20 (mesure, pas gout) : `U_dmg` est le composite
+# Damage, RELATIF aux PV MAX de la cible. Le faire monter en abaissant les PV monte AUSSI l'utilite
+# de l'ATTAQUE NORMALE, qui vise les memes unites -- mesure a `--hot-hp 8000` :
+# `_best_attack.full = 166.98` contre `70.0` pour 1148, le natif ATTAQUE et 1148 n'est plus elue du
+# tout. On ne cherche donc PAS un gros `U_dmg` : on reduit l'ECART DE CUSTOM a franchir (un ennemi),
+# et on le franchit avec DEUX events sur des cibles increvables.
 #
 # DEUX LEVIERS DE PILOTAGE, tous deux requis :
-#   * `ActiveAbilityLevel = 50` sur le caster : au niveau du rank les bornes saturent au PLANCHER
-#     (`param_8 = null` -> pierce 0, armure PLEINE) et U_dmg serait inobservable ;
-#   * armure 0 sur l'ennemi de `P_HOT` : meme raison, c'est le pierce nul qui l'exige.
+#   * `ActiveAbilityLevel = 50` sur le DECIDEUR : au niveau du rank les bornes saturent au PLANCHER
+#     (`param_8 = null` -> pierce 0, armure PLEINE) et U_dmg serait inobservable -- c'est le meme
+#     regime `(3, 3, 3)` que #359-r1 avait du casser pour separer ses valeurs ;
+#   * armure 0 sur les ennemis CHAUDS : meme raison, c'est le pierce nul qui l'exige.
 # Le feu est pose par un cast REEL (aucun autre chemin ne le pose) et les tours se terminent A VIDE
 # (`act endturn`, l'IA adverse ne joue pas) : les positions craftees survivent.
 
 BURN_LEVEL = 50
+# `AbilityVariablesMultiplierPercentage` du DECIDEUR. `minDmg`/`maxDmg` sont dans
+# `variablesAffectedByRarityBonus` de `DaemonicOrdnance`, donc `AbilityConfiguration` les multiplie
+# par `mult / 100`. C'est le levier qui fait franchir a `2 x U_dmg` l'ecart de custom d'UN ennemi
+# (10) : a 100 % les deux events valent `6.99` a eux deux (mesure), il en faut > 10. Il agit sur la
+# SEULE 1148 -- l'attaque normale, elle, ne lit pas ce champ -- donc il separe sans deformer le
+# comparatif ability/attaque, contrairement a une baisse de PV.
+BURN_MULT = 400
 BURN_ARMOR = 0
-# PV de l'ennemi CHAUD, et c'est un levier de SEPARATION, pas un reglage : le composite Damage est
-# relatif aux PV MAX de la cible, donc c'est lui qui fixe `U_dmg`. Les DEUX ennemis froids gardent
-# `--hp-target` (quasi increvables) pour que l'attaque normale -- qui les vise, eux, parce qu'ils
-# sont les seuls a portee -- reste non competitive. Sans ce DECOUPLAGE, baisser les PV de tout le
-# camp releve l'attaque normale autant que 1148 et le montage ne separe rien (mesure : a
-# `--hp-target 60000`, `_best_attack.full` = 65.3 contre 70.0 pour 1148 -- 4.7 de marge).
-BURN_HOT_HP = 8000
+# PV de TOUTES les cibles. Assez HAUT pour que l'attaque normale reste non competitive (le composite
+# Damage est relatif aux PV max), assez BAS pour que deux events de 1148 pesent plus que l'ennemi de
+# custom qui les separe. Valeur RE-MESUREE par le probe, jamais supposee : il imprime
+# `_best_attack.full` a cote du `full` de 1148, et la garde EXIGE que 1148 l'emporte.
+HP_BURNING = 150000
 # Ancre FROIDE : le couple d'ennemis. Ancre CHAUDE : le solo, sur la tuile qu'on embrase.
 BURN_COLD_ANCHOR = (4, 4)
 BURN_HOT_DIR_STEPS = 3            # nb de pas (direction NORD) entre l'ancre froide et l'ancre chaude
@@ -244,10 +257,17 @@ BURN_CASTER_TILE = (1, 3)         # hors des DEUX zones, hors contact -- positio
 BURN_IGNITER = "deathPutrifier"   # SECOND porteur greffe : il caste (et part en cooldown), le
 BURN_IGNITER_TILE = (2, 2)        # DECIDEUR garde son 1148 pour le MEME tour
 BURN_PARK = (0, 8)                # parking des unites parasites (summons compris)
-# Trois adverses SANS invocation automatique : `astraCreed` faisait apparaitre `astraSmnKell`, qui
-# occupait l'ancre chaude et faussait le placement. Mesure, pas supposition (le probe RE-LIT les
-# positions apres placement et refuse un montage ou une unite n'est pas la ou on l'a mise).
-BURN_A_UNITS = "necroWarden,worldKharn,orksWarboss"
+# CINQ adverses SANS invocation automatique -- les TROIS premieres remplissent la zone FROIDE, les
+# DEUX dernieres la zone CHAUDE. `astraCreed` (montage `--decision`) est ecarte : il fait apparaitre
+# `astraSmnKell`, qui occupait l'ancre chaude et faussait le placement. Mesure, pas supposition (le
+# probe RE-LIT les positions apres placement et refuse un montage ou une unite n'est pas la ou on
+# l'a mise).
+#
+# ⚠ L'ORDRE COMPTE, et il est MESURE : a[3]/a[4] (zone CHAUDE) doivent etre des cibles qui encaissent
+# vraiment. `worldTerminator` y rendait `(0, 76)` la ou `ultraTitus` rendait `(4191, 6288)` -- MEME
+# armure (0, lue), MEME elevation (2), MEMES PV (150000) : la reduction vient de l'UNITE, pas du
+# montage. Il est donc range en zone FROIDE, ou seul son COMPTE importe.
+BURN_A_UNITS = "necroWarden,worldKharn,worldTerminator,ultraTitus,orksWarboss"
 
 
 def _step(pos, direction, n):
@@ -271,21 +291,25 @@ def burn_geometry(groups, team) -> dict:
     d = 1 if int(machine_of_war_position_for_player(groups, int(team))) == 2 else 4
     dirs = _TRIANGLE_SHAPE_DIRECTIONS[d]
     cold = tuple(BURN_COLD_ANCHOR)
-    cold2 = tuple(neighbour_at(cold[0], cold[1], dirs[0]))     # 2e ennemi DANS la zone de `cold`
+    # Zone FROIDE : l'ancre + ses DEUX voisines du coin -> TROIS ennemis, custom 30.
+    cold_slots = [cold] + [tuple(neighbour_at(cold[0], cold[1], k)) for k in dirs]
     hot = _step(cold, 3, BURN_HOT_DIR_STEPS)                   # ancre chaude, hors zone de `cold`
-    zone_cold = {cold, cold2, tuple(neighbour_at(cold[0], cold[1], dirs[1]))}
+    # Zone CHAUDE : l'ancre + UNE voisine du coin -> DEUX ennemis, custom 20. Les deux tuiles sont
+    # dans la zone que le cast de l'ALLUMEUR embrase, donc les deux ennemis brulent.
+    hot_slots = [hot, tuple(neighbour_at(hot[0], hot[1], dirs[0]))]
+    zone_cold = set(cold_slots)
     zone_hot = {hot} | {tuple(neighbour_at(hot[0], hot[1], k)) for k in dirs}
     # Le caster se pose HORS des deux zones (il ne doit ni bruler ni gonfler un custom) et hors
     # contact (sinon l'attaque normale ecrase tout et le montage ne mesure plus le ciblage).
     cpos = tuple(BURN_CASTER_TILE)
-    return {"dir": d, "dirs": dirs, "cold": cold, "cold2": cold2, "hot": hot,
+    return {"dir": d, "dirs": dirs, "cold": cold, "hot": hot,
+            "cold_slots": cold_slots, "hot_slots": hot_slots,
             "caster": cpos, "zone_cold": sorted(zone_cold), "zone_hot": sorted(zone_hot),
             "zones_disjoint": not (zone_cold & zone_hot),
             "caster_outside": cpos not in (zone_cold | zone_hot)}
 
 
-def build_burning(state_name: str, board: str = BOARD, hp_target: int = HP_FAVOURABLE,
-                  hot_hp: int = BURN_HOT_HP) -> tuple:
+def build_burning(state_name: str, board: str = BOARD, hp_target: int = HP_BURNING) -> tuple:
     """Monte le montage BURNING et rend `(rid, geometry, caster_id)`.
 
     DEUX PORTEURS, et c'est la piece centrale du montage : 1148 SORT du kit apres son cast (mesure
@@ -296,9 +320,9 @@ def build_burning(state_name: str, board: str = BOARD, hp_target: int = HP_FAVOU
     mesure la decision DANS LE MEME TOUR d'equipe, 1148 intacte et la zone deja embrasee.
 
     Etapes, dans l'ordre -- chacune est une CONDITION du regime, pas un ornement :
-      1. build (1148 greffee sur les DEUX porteurs, niveau 50 sur le decideur, armure 0 sur
-         l'ennemi chaud) ;
-      2. placement PILOTE des trois ennemis, de l'allumeur et du decideur (`act move`) ;
+      1. build (1148 greffee sur les DEUX porteurs, niveau 50 sur le decideur, armure 0 sur les
+         ennemis chauds) ;
+      2. placement PILOTE des cinq ennemis, de l'allumeur et du decideur (`act move`) ;
       3. purge du `initialCooldownTurns = 1` (`act endturn` A VIDE : l'IA adverse ne joue pas,
          donc les positions craftees survivent) ;
       4. l'ALLUMEUR caste 1148 sur `P_HOT` -- le seul chemin qui pose `Fire` (5) sur la zone. Aucun
@@ -311,14 +335,15 @@ def build_burning(state_name: str, board: str = BOARD, hp_target: int = HP_FAVOU
     _run(["build", "--seed", str(SEED), "--board", board, "--rank", RANK,
           "--seed-bc", str(SEED_BC), "--p-units", P_UNITS, "--a-units", BURN_A_UNITS,
           "--hp-target", str(hp_target),
-          "--unit-stat", "%s:ActiveAbilityLevel=%d,AbilityVariablesMultiplierPercentage=100"
-                         % (CASTER_VID, BURN_LEVEL),
-          # L'ennemi CHAUD (a_units[2]) : armure 0 (`param_8 = null` -> pierce 0, donc l'armure est
-          # PLEINE et un rank normal ecrase le degat au plancher) ET PV bas (cf. `BURN_HOT_HP`).
-          # `--unit-stat` s'applique APRES `--hp-target` sur le MEME BC normalise : c'est ce qui
-          # permet le decouplage froid/chaud.
-          "--unit-stat", "%s:Armor=%d,FixedArmor=%d,Health=%d,RemainingHealth=%d"
-                         % (a_units[2], BURN_ARMOR, BURN_ARMOR, hot_hp, hot_hp),
+          "--unit-stat", "%s:ActiveAbilityLevel=%d,AbilityVariablesMultiplierPercentage=%d"
+                         % (CASTER_VID, BURN_LEVEL, BURN_MULT),
+          # Les ennemis CHAUDS : armure 0. `param_8 = null` donne pierce 0, donc l'armure est PLEINE
+          # et l'armure d'un rank normal ecraserait le degat au plancher `(3, 3, 3)`. `--hp-target`
+          # met deja `Armor = 0` sur tout le camp ; on le REDIT explicitement pour ne pas dependre
+          # d'un effet de bord d'un autre drapeau.
+          "--unit-stat", "%s:Armor=%d,FixedArmor=%d;%s:Armor=%d,FixedArmor=%d"
+                         % (a_units[3], BURN_ARMOR, BURN_ARMOR,
+                            a_units[4], BURN_ARMOR, BURN_ARMOR),
           "--state-file", str(state)])
     rid = int(json.loads(state.read_text(encoding="utf-8"))["runnerId"])
     try:
@@ -337,27 +362,53 @@ def _burn_stage(rid: int, state: Path, state_name: str, geo_units: list) -> tupl
     if not (geo.get("zones_disjoint") and geo.get("caster_outside")):
         raise SystemExit("geometrie invalide (zones jointes ou caster dedans) : %s" % geo)
     ids = {v: i for v, (i, _p) in _units(rid).items()}
-    # A/B = le couple FROID (A sur l'ancre, B dans sa zone) ; C = le solo CHAUD (armure 0).
-    want = {a_units[0]: tuple(geo["cold"]), a_units[1]: tuple(geo["cold2"]),
-            a_units[2]: tuple(geo["hot"]), CASTER_VID: tuple(geo["caster"]),
-            BURN_IGNITER: tuple(BURN_IGNITER_TILE)}
-    # Toute unite NON prevue (summon apparu au premier tour) part au PARKING : le montage ne subit
-    # pas la geometrie de spawn, il la pilote.
-    for vid, uid in ids.items():
-        to = want.get(vid, BURN_PARK)
-        _duel(["act", "move", "--unit", str(uid), "--to", "%d,%d" % to], state, rid)
-    got = {v: p for v, (_i, p) in _units(rid).items()}
-    bad = {v: (got.get(v), p) for v, p in want.items() if got.get(v) != p}
-    if bad:
-        raise SystemExit("placement KO (obtenu, attendu) : %s" % bad)
+
+    def _place(want: dict) -> None:
+        """Place chaque unite NOMMEE ; toute autre (summon apparu au premier tour) part au PARKING.
+        Le montage ne subit pas la geometrie de spawn, il la pilote -- et il RE-LIT le resultat."""
+        for vid, uid in ids.items():
+            _duel(["act", "move", "--unit", str(uid), "--to", "%d,%d" % want.get(vid, BURN_PARK)],
+                  state, rid)
+        got = {v: p for v, (_i, p) in _units(rid).items()}
+        bad = {v: (got.get(v), p) for v, p in want.items() if got.get(v) != p}
+        if bad:
+            raise SystemExit("placement KO (obtenu, attendu) : %s" % bad)
+
+    # PHASE 1 : la zone FROIDE est deja definitive ; les DEUX chauds restent au parking, le temps
+    # que le cast designe les tuiles REELLEMENT embrasees.
+    cold = {a_units[i]: tuple(geo["cold_slots"][i]) for i in range(3)}
+    _place({**cold, CASTER_VID: tuple(geo["caster"]), BURN_IGNITER: tuple(BURN_IGNITER_TILE)})
     _wait_ready(rid, state, BURN_IGNITER)
     igniter = ids[BURN_IGNITER]
-    hot_tile = "%d,%d" % tuple(geo["hot"])
     _duel(["act", "ability", "--caster", str(igniter), "--ability", str(DAEMONIC),
-           "--to", hot_tile], state, rid)
-    # AUCUN endturn ici : le DECIDEUR joue dans le MEME tour d'equipe, 1148 intacte.
+           "--to", "%d,%d" % tuple(geo["hot"])], state, rid)
+    # PHASE 2 : les tuiles en feu sont MESUREES, pas deduites de la geometrie. `GetTargetAreaTiles`
+    # finit par `TilesOnSameElevation(..., maxDiff = 1)` et `AddEffectOperation` n'allume pas une
+    # tuile non marchable (residu #359-r4) : la zone-triangle NOMINALE compte 3 tuiles, la zone
+    # EMBRASEE en compte souvent 2 (mesure : cast sur `(4,1)` -> `{(4,1), (5,2)}`, `(4,2)` exclue).
+    # Placer les chauds sur la geometrie nominale mettait donc l'un des deux HORS du feu, et le
+    # montage rendait UN event au lieu de deux -- en silence.
+    fire = _fire_now(rid)
+    hot_slots = [p for p in fire if p in set(map(tuple, geo["zone_hot"]))]
+    if len(hot_slots) < 2:
+        raise SystemExit("zone chaude : %d tuile(s) en feu seulement (%s) -- il en faut 2"
+                         % (len(hot_slots), fire))
+    geo["hot_slots"] = hot_slots[:2]
+    _place({**cold, a_units[3]: hot_slots[0], a_units[4]: hot_slots[1],
+            CASTER_VID: tuple(geo["caster"]), BURN_IGNITER: tuple(BURN_IGNITER_TILE)})
+    # AUCUN endturn : le DECIDEUR joue dans le MEME tour d'equipe, 1148 intacte.
     caster = _assert_ready(rid, CASTER_VID)
     return rid, geo, caster
+
+
+def _fire_now(rid: int) -> list:
+    """Positions portant `Fire` (5), lues FRAICHES dans `tileMeta` -- le meme canal que
+    `Scene.tile_effects_by_pos`, indexe par NOM d'effet (`effects[].name`)."""
+    import probe_27_3_live as L
+    from engine.entities.effect_type import EffectType
+    tm = L._rpc("tileMeta", [{"runnerId": rid}])
+    return sorted((t.get("col"), t.get("row")) for t in (tm.get("tiles") or [])
+                  if EffectType.Fire.name in [e.get("name") for e in (t.get("effects") or [])])
 
 
 def _current_team(rid: int):
@@ -491,19 +542,27 @@ def burn_diag(scene, caster: int, rows: list) -> dict:
     for tid in tgts:
         uc = scene.ctx(int(tid))
         armor[tid] = int(uc.get_stat(int(StatType.ARMOR), 0)) if uc is not None else None
+    # L'ELEVATION est le 4e etage : `DamageCalculations` applique un modificateur positionnel selon
+    # l'ecart d'elevation attaquant/defenseur. Deux cibles voisines d'armure IDENTIQUE peuvent donc
+    # rendre des bornes qui n'ont rien a voir -- mesure : `(4191, 6288)` contre `(0, 76)`.
+    elev = {}
+    for tid in tgts + [int(caster)]:
+        p = scene.pos(int(tid))
+        elev[tid] = (tuple(p) if p else None,
+                     (scene.elev_by_pos or {}).get(tuple(p)) if p else None)
     return {"ability_level": (ab.level if ab else None),
             "ability_multiplier": (getattr(ab, "multiplier", None) if ab else None),
             "base_damage": (ab.get_damage() if ab else None),
             "hits": (ab.get_special_hits(False) if ab else None),
             "target_armour": armor,
+            "pos_elev": elev,
             "target_hpmax": {t: scene.hpmax(int(t)) for t in tgts}}
 
 
-def measure_burning(state_name: str, board: str = BOARD, hp_target: int = HP_FAVOURABLE,
-                    hot_hp: int = BURN_HOT_HP) -> dict:
+def measure_burning(state_name: str, board: str = BOARD, hp_target: int = HP_BURNING) -> dict:
     """Le runner est dispose par l'APPELANT (`arms` du test, `burning` du CLI) -- mais jamais
     abandonne : un echec APRES le build rend quand meme son `rid` dans l'exception."""
-    rid, geo, caster = build_burning(state_name, board, hp_target, hot_hp)
+    rid, geo, caster = build_burning(state_name, board, hp_target)
     try:
         groups = spawn_groups(state_name)
         pos = {v: p for v, (_i, p) in _units(rid).items()}
@@ -515,15 +574,14 @@ def measure_burning(state_name: str, board: str = BOARD, hp_target: int = HP_FAV
         raise
 
 
-def burning(hp_target: int, board: str = BOARD, hot_hp: int = BURN_HOT_HP,
+def burning(hp_target: int = HP_BURNING, board: str = BOARD,
             state_name: str = "rs_302_3_burn.json") -> int:
-    r = measure_burning(state_name, board, hp_target, hot_hp)
+    r = measure_burning(state_name, board, hp_target)
     try:
         e, g = r["engine"], r["geo"]
         print("\n=== BURNING (runner %d, caster u%s, board %s) ===" % (r["rid"], r["caster"], board))
         print("  dir              = %s (zone = centre + %s)" % (g["dir"], list(g["dirs"])))
-        print("  ancre FROIDE     = %s (+ %s)   ancre CHAUDE = %s" % (g["cold"], g["cold2"],
-                                                                      g["hot"]))
+        print("  zone FROIDE      = %s   zone CHAUDE = %s" % (g["cold_slots"], g["hot_slots"]))
         print("  positions        = %s" % r["positions"])
         print("  tuiles EN FEU    = %s" % (e["fire"],))
         print("  MachineOfWarPos  = %s" % e["mow_position"])
@@ -855,14 +913,13 @@ def main() -> int:
     ap.add_argument("--diag", action="store_true")
     ap.add_argument("--stage", action="store_true")
     ap.add_argument("--board", default=BOARD)
-    ap.add_argument("--hot-hp", type=int, default=BURN_HOT_HP)
     ap.add_argument("--hp-target", type=int, default=HP_FAVOURABLE)
     ap.add_argument("--hp-witness", type=int, default=HP_WITNESS)
     a = ap.parse_args()
     if a.decision:
         return decision(a.hp_target, a.hp_witness)
     if a.burning:
-        return burning(a.hp_target, a.board, a.hot_hp)
+        return burning(a.hp_target if a.hp_target != HP_FAVOURABLE else HP_BURNING, a.board)
     if a.flip:
         return flip(a.hp_target)
     if a.diag:
