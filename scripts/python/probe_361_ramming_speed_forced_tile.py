@@ -109,9 +109,11 @@ def _ids(dv) -> dict:
     return out
 
 
-def scan_saturated(board, max_targets: int = 60):
+def scan_saturated(board, caster_pos, max_targets: int = 60):
     """Cible a 6 voisins marchables ; QUATRE d'entre eux recoivent une unite, DEUX restent libres.
-    Caster hors du ring, a portee de charge (`MOVE_RANGE`)."""
+    Caster hors du ring, a portee de charge (`MOVE_RANGE`), et LE PLUS PRES POSSIBLE de son spawn :
+    une destination lointaine ne se drive pas en un nombre de tours borne (mesure du 1er jet -- le
+    caster restait a (6,2) pour un voulu (6,7), les quatre unites du ring etant, elles, en place)."""
     walk = sorted(board.coord(t) for t in board.by_id if board.walkable(t))
     if not walk:
         return None
@@ -124,12 +126,10 @@ def scan_saturated(board, max_targets: int = 60):
         tp = board.coord(tt)
         ring = sorted(board.coord(n) for n in board.neighbours(tt))
         occupied, free = ring[:4], ring[4:]
-        cands = [p for p in walk
-                 if p != tp and p not in ring and 2 <= hexgeo.distance(p, tp) <= MOVE_RANGE]
-        # Caster LE PLUS LOIN possible des tuiles a occuper : pose entre deux, il bloque le
-        # trajet d'une unite adverse et le drive echoue (mesure du 1er jet de ce montage).
-        caster = max(cands, key=lambda p: (min(hexgeo.distance(p, q) for q in occupied), p),
-                     default=None)
+        cands = sorted((p for p in walk
+                        if p != tp and p not in ring and 2 <= hexgeo.distance(p, tp) <= MOVE_RANGE),
+                       key=lambda p: (hexgeo.distance(p, tuple(caster_pos)), p))
+        caster = cands[0] if cands else None
         if caster is None:
             continue
         return {"target": tp, "occupied": occupied, "free": free, "caster": caster}
@@ -170,7 +170,7 @@ def run(seed: int = 36510, level: int = 8, verbose: bool = True) -> dict:
         out["runner"] = rid
         state, board, dv = _load(sid, rid)
         ids = _ids(dv)
-        geo = scan_saturated(board)
+        geo = scan_saturated(board, _pos(dv, ids[GRAFT]))
         if geo is None:
             out["error"] = "aucune cible a 6 voisins marchables sur %s" % BOARD
             return out
