@@ -36,6 +36,10 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatPart, StatType
 from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAlliance, HasUnit,
                                   TriggerAnd)
+# `IdunBattle.Core.Services.MinMaxDamage$$Avg` (demi-vers-le-PAIR) : la cle de tri de
+# `SortAttackersByDamagePredictionSelector`. Import AU NIVEAU MODULE pour que le cablage soit
+# verifiable sur l'objet importe (garde #344), et non sur le texte du fichier.
+from ...services.min_max_damage import min_max_avg
 from .base import ActiveAbility
 from .behaviours import (AddEffect, AddStatOverrideEffect, AttackWithAttackDamage, RemoveEffect,
                          UseActiveAbility, entities_from_state)
@@ -866,7 +870,6 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
     from ..damage_model import attacker_modifiers, select_weapon_pierce
     from ...entities.effects import hits_bonus_from_effects
     from ...services.damage_prediction import get_attack_prediction
-    from ...services.min_max_damage import min_max_avg
     from ...ai.action_generators import _faction
     import gameconfig as GC
     ce = state.get_entity(caster_id)
