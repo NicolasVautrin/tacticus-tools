@@ -375,6 +375,38 @@ def _round_fix64(value: Fraction, mode: int) -> int:
     return round(value)
 
 
+def calculate_average(min_value: int, max_value: int) -> int:
+    """`IdunBattle.DSL.AAmountFormula$$CalculateAverage` — la MOYENNE d'un nœud VALEUR *à plage*,
+    et elle **TRONQUE**. Mirror du décompilé `rnca9r7q6c`, branche « plage » :
+
+        min = <vtable+0x1e8>(entities)      # CalculateMin
+        max = <vtable+0x1f8>(entities)      # CalculateMax
+        return (max + min) / 2              # division ENTIÈRE C — AUCUN Fix64 sur cette branche
+
+    ⚠ **Ce n'est ni `IdunBattle.Core.Services.MinMaxDamage$$Avg` ni
+    `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamageAverage`**, qui arrondissent tous deux
+    demi-vers-le-PAIR (`Fix64.Round(., midpointRounding = 0)` pour le premier ;
+    `Half(Sum(…))` → `IdunBattle.Entities.Formulas.DivideAmount$$Calculate` →
+    `AAmountFormula$$RoundFix64Result` mode 0 pour le second). Les deux familles divergent dès que
+    `min + max` vaut **3 mod 4** : sur `2761 + 2762` le natif de CETTE fonction rend `2761`, les deux
+    autres rendent `2762`. Ne jamais substituer l'une à l'autre — c'est le sujet de #339.
+
+    L'autre branche du décompilé (booléen `vtable+0x1c8` vrai → `Calculate()` direct) court-circuite
+    la plage ; elle n'est PAS empruntée par un `RandomAmount`, ce que confirme la réconciliation
+    live de `probe_32d_fury.py` (un `Calculate()` de `RandomAmount` est un TIRAGE, il ne pourrait pas
+    tomber sur la moyenne exacte des deux cibles).
+
+    Consommateur porté : `IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction`
+    (slot 4 d'`IAmountFormula` sur le `RandomAmount(minDmg, maxDmg)` rendu par
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage`).
+
+    Division C = troncature vers ZÉRO (pas le plancher Python). Le rail de dégât ne produit pas de
+    somme négative ; la transcription la couvre quand même plutôt que de la laisser diverger en
+    silence."""
+    s = int(min_value) + int(max_value)
+    return -((-s) // 2) if s < 0 else s // 2
+
+
 def _c_mod(a: int, b: int) -> int:
     """Modulo ENTIER signé à la C (`%` tronqué vers zéro, signe du dividende) — ≠ `%` Python (plancher).
     Fidèle à `ModuloAbilityTrigger` (`iVar15 % iVar16`, opérandes signées)."""
