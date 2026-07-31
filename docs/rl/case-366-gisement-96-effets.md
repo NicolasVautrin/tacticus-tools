@@ -124,6 +124,16 @@ l'enjeu du port n'est PAS le calcul : c'est l'ATTRIBUTION PAR SOURCE. Declare, l
 seed reste a vie. Trancher a-t-il un porteur est donc secondaire pour ce groupe -- ce qui compte est
 la duree.
 
+> **TRAITE par #371 -- `docs/rl/case-371-g1-static-stat-modifier.md`** (table RE complete : poseur,
+> stat, montant, `turns`, pour les 11). **3 inscrits** : `1171 SereneUnifierStormOfFire` (`tauAunShi`,
+> le SEUL des onze a porter un vrai timer -- `TurnsFromRounds(1)`), `1251/1256 UnbreakableDuty_*`
+> (`templAncient`, `turns` NULL donc PERMANENTS : leur inscription ferme l'ATTRIBUTION, pas une duree).
+> **8 non inscrits**, avec la raison : `1004/1005/1006 MightOfHeroes_*` DEAD (ability absente du
+> gameconfig -> magnitude irresoluble, un port serait inerte), `1103 KanOpener_ReduceArmor` 0 porteur,
+> `1351/1352/1507 EnvStatBoost_*` environnement ET magnitude CONTEXTUELLE (`PercentageOf(StatAmount(
+> <stat>, part 3), GetNumberConstant(<cle>))`, forme OVERRIDE), `31 StatModifier` toujours non tranche
+> (mais les 6 chemins de pose sont inventories et les 2 non-litteraux elimines -- case-371 §5).
+
 #### G2 -- vivant en binaire, AUCUN porteur d'unite (21)
 
 Aucun de ces effets n'a de porteur au catalogue d'unites (`unit_map`, 5 voies) ; l'ability est soit
@@ -217,8 +227,14 @@ ne pouvait pas trancher -- et `orksKillaKan` porte `DakkaDakkaDakka`, pas `KanOp
   un plafond.
 * **La confrontabilite des 8 effets de TUILE** (G2) n'est pas etablie board par board : elle exige
   de recenser quels boards portent Shrub / DryBush / Vines / LandMine / BrokenIce / Darkness.
-* **`31 StatModifier` : QUI le pose n'est pas tranche.** C'est la cle « anonyme » du nOEud DSL
-  `IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect` ; le balayage d'immediat
-  n'est PAS discriminant a cette valeur (un immediat n'est pas type, et 31 est partout). Il faut un
-  autre angle -- p. ex. lire les arbres DSL qui passent 31 en argument.
+* ~~**`31 StatModifier` : QUI le pose n'est pas tranche.**~~ -- **TRANCHE par #371 : PERSONNE.**
+  Deux balayages qui se recoupent (case-371 §5). (a) Les SIX chemins de pose sont inventories par
+  xrefs ; les deux seuls ou l'`effectType` n'est pas un litteral (`APowerUpAbility$$AddAbsoluteBoost`
+  / `$$AddPctBasedBoost`, qui lisent un champ de record) sont ELIMINES -- leurs trois implementations
+  concretes portent `0x473`/`0x477`/`0x475`. (b) Sur TOUT le binaire, `(void *)0x1f,` n'apparait que
+  dans **5 fonctions sur 65 000**, dont AUCUNE n'est une pose d'effet (`On(0x1f)` = TriggerEvent,
+  `AtomicGroup(0x1f)` x2, deux classes d'effet de TUILE) ; `&DAT_0000001f` = **0 occurrence**.
+  ⇒ la fabrique est enregistree mais **rien ne la reference** : `31` est du **registered-but-dead**,
+  il n'y a rien a porter. (Limite : `search_code` porte sur le pseudo-C INDEXE ; la conclusion tient
+  sur la conjonction (a) ET (b).)
 * **Aucune mesure live** : ce cas est 100 % offline (binaire + tables versionnees + gameconfig).

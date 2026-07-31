@@ -31,6 +31,9 @@ from .loki import (
     DespoiledGroundExtraDamagePctEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
     SereneUnifierSenseOfStoneEffect,
+    SereneUnifierStormOfFireEffect,
+    UnbreakableDutyHealthEffect,
+    UnbreakableDutyDamageEffect,
     VexillaMagnificaDmgReductionEffect,
     StunnedDamageModifierEffect,
     BigTargetAdjacentEffect,
@@ -388,6 +391,22 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # DEFENSEUR standard, PAS un canal aura. Sans cette entree l'effet retombait sur `BaseEffect` nu ->
     # tout banc embarquant Aun'Shi sur-predisait le degat d'un facteur 2,000 EXACT (#192).
     "SereneUnifierSenseOfStone": SereneUnifierSenseOfStoneEffect,
+    # SereneUnifierStormOfFire (0x493=1171) — phase k=0 du MEME cycle `Modulo(PlayerTurnsStarted, 3)`,
+    # mais par l'AUTRE canal : instance GENERIQUE `StaticStatModifierEffect` posee par la feuille
+    # `AddStaticStatModifierEffect(units, 0x493, stat = 0 ATTACK, ConfigVar(8 = extraDmg),
+    # TurnsFromRounds(1))`. Le declarer = l'attribution du seed pose sa `ValueModification` par-source,
+    # donc son EXPIRATION (1 round) la RETIRE (#118) au lieu de coller le +extraDmg d'ATTACK a vie.
+    # Cf. `entities/effects/loki/serene_unifier.py` et `docs/rl/case-371-g1-static-stat-modifier.md`.
+    "SereneUnifierStormOfFire": SereneUnifierStormOfFireEffect,
+    # UnbreakableDuty (active `templAncient`) — les DEUX self-buffs de
+    # `UnbreakableDutyAbility$$ExecuteBehaviour`, poses par `AddStaticStatModifierEffectToOwner` avec
+    # `turns = NULL` donc **PERMANENTS** : 0x4e3=1251 (stat 5 HEALTH, ConfigVar(0x1e = extraHp)) et
+    # 0x4e8=1256 (stat 0 ATTACK, ConfigVar(8 = extraDmg)). Aucune expiration a fermer ici — ce que
+    # l'inscription ferme est l'ATTRIBUTION du seed (residu opaque -> cle par-source, donc
+    # confrontation « somme des magnitudes config == statDelta natif » et revert exact si un chemin de
+    # retrait apparait). Cf. `entities/effects/loki/unbreakable_duty.py`.
+    "UnbreakableDuty_Health": UnbreakableDutyHealthEffect,
+    "UnbreakableDuty_Damage": UnbreakableDutyDamageEffect,
     "ActOfFaith_Effect": ActOfFaithBuffEffect,  # buff crit empilable (1017) — stack seedé = cc/cd_delta 0
     # « Thrilled » (1434, trait ThrillSeekers) : StaticStatModifierEffect CRIT_CHANCE +extraCritChance,
     # a TIMER (TurnsFromRounds(nrOfRounds)). Le declarer ici = l'attribution du seed pose sa
@@ -643,7 +662,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # live), TriggeredAbilityType 1233 = HeavyGravCannon (la config lue via l'AbilityOrEffect 0x4d1 du
     # ctor), TriggeredAbilityType 1291 = SelfRepairMechanism (aucun rapport).
     "HeavyGravCannon": HeavyGravCannonEffect,
-    # KanOpener : nom d'EffectType à confirmer avant inscription.
+    # KanOpener -- les DEUX noms d'EffectType sont TRANCHES depuis #366/#371, et l'inscription reste
+    # VOLONTAIREMENT non faite : `1102 KanOpener_IgnoreArmor` (classe propre, celle qu'ecrit
+    # `KanOpenerEffect` ci-dessus) et `1103 KanOpener_ReduceArmor` (instance generique
+    # `StaticStatModifierEffect`, `IdunBattleLogic.Entities.Abilities.Triggered.Loki.KanOpenerEffect$$
+    # CreateTargetTriggerBehaviour` = `AddStaticStatModifierEffect(<cible>, 0x44f, stat = 0x10
+    # FIXED_ARMOR, -ConfigVar(0x30 = armorReduction), turns = NULL)` -> PERMANENT et NEGATIF).
+    # L'ability existe au gameconfig mais a **0 porteur** sur les 5 voies (`unit_map find --ability
+    # KanOpener` = 0 unites) : aucun effet ne peut donc apparaitre dans `decisionView.effects`, et une
+    # inscription serait un port qu'aucun montage n'exerce. Cf. `docs/rl/case-371-g1-static-stat-modifier.md`.
 }
 
 
