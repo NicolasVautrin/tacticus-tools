@@ -203,10 +203,17 @@ def _tile_verdict(tp) -> tuple:
                     "-- fenetre de reinject en attente, rien n'est conclu du natif" if aged
                     else "")))
     if any(c > 0 for c in counts):
+        # ⚠ CONDITIONNEL, et #381 dit pourquoi. Le capteur mesure le POOL, pas le DEFICIT : il ne
+        # sait pas si des events manquent. Rendre ici « la perte est en AVAL » a fait lire une
+        # perte la ou le bras mesure emettait 5 events pour 5 attendus -- une 5e hypothese fausse,
+        # nee d'une phrase et non d'une mesure. Le constat du deficit appartient au VERDICT DU RUN
+        # (qui compare `n_events` a l'attendu derive) ; le capteur, lui, ne dit que ce qu'il voit.
         return ("pool-non-vide",
                 "capteur #370 ARME : `MovableTilesInRangeSelector$$Select` rend %s tuile(s) => le "
-                "POOL n'est PAS vide, et la perte est en AVAL (`op_BitwiseAnd CanAddUnit` / "
-                "`SortTilesByUtility` / `First`). Tuiles : %s. Formes : %s"
+                "POOL n'est PAS vide. SI des events manquent a cette etape, la cause est alors en "
+                "AVAL (`op_BitwiseAnd CanAddUnit` / `SortTilesByUtility` / `First`) -- mais le "
+                "capteur ne mesure PAS le deficit, c'est au verdict du run de le constater. "
+                "Tuiles : %s. Formes : %s"
                 % (counts, [n.get("returnedTiles") for n in nodes],
                    [_shape(n) for n in nodes]))
 
@@ -453,6 +460,25 @@ def run(seed: int = 37000, level: int = 8, mult: int = None, verbose: bool = Tru
                             "sous-maillon-non-arme", "fenetre-vide"):
         out["ok"] = False
         out["verdict"] = "CAPTEUR NON CONCLUANT SUR LE BRAS B : %s" % b["tile_phrase"]
+    elif b.get("batches_emitted", 0) > 0:
+        # ⚠ LA GARDE QUE CE PROBE N'AVAIT PAS, et qui lui a fait rendre `ok=True` + « MAILLON
+        # TRANCHE ... la perte est en AVAL » sur un bras qui emettait 5 events pour 5 attendus :
+        # il n'y avait RIEN a trancher. Le bras B est cense reproduire le regime DEFICITAIRE ;
+        # s'il ne le reproduit pas, le capteur ne mesure que le regime ou tout marche, et aucune
+        # lecture de son pool ne dit quoi que ce soit d'une perte.
+        # Cause etablie depuis (#381) : le deficit ne tient pas a la geometrie mais au TOUR --
+        # `montage_361` et `probe_361` ne laissent pas la meme parite d'`endturn`, donc le caster
+        # n'a pas la main dans les deux. Le regime deficitaire se monte par `probe_381`
+        # (balayage de tours) ou par `probe_361_ramming_speed_explosion_batches`.
+        out["ok"] = False
+        out["verdict"] = (
+            "REGIME DEFICITAIRE NON REPRODUIT : le bras B emet %d events pour %d attendus "
+            "(batchs 3/4 PRESENTS, exact=%s) -- il n'y a AUCUNE perte a expliquer sur ce bras, "
+            "donc son pool [%s] ne tranche rien. Le pool n'est lisible comme cause que sur un "
+            "bras ou des events MANQUENT : cf. `probe_381_movable_tiles_query_gate.py` (balayage "
+            "de tours, geometrie figee)."
+            % (b.get("n_events"), (b.get("expected") or {}).get("n"), b.get("exact"),
+               b["tile_kind"]))
     else:
         out["ok"] = True
         out["verdict"] = ("MAILLON TRANCHE [%s] : %s (controle positif A : %s)"

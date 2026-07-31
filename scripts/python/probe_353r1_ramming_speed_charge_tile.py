@@ -117,6 +117,50 @@ def _endturn(sid, rid):
     return _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90)
 
 
+def controlled_by_current_player(sid, rid) -> set:
+    """Les `unitId` que le joueur COURANT controle (#381) -- foyer unique de cette lecture.
+
+    Pourquoi elle compte, mesure le 2026-07-31 : `MovableTilesInRangeSelector` interroge
+    `IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor` avec `ignoreUnitFlags = false`
+    (champ `_ignoreFlags = 0`, lu par le capteur #370), et
+    `IdunBattle.Core.Services.MovementQuery$$FindAnyOrAllMoveableTiles` sort AUSSITOT --
+    en laissant l'`OrderedSet` deja alloue VIDE, sans erreur -- des que
+    `UnitFlagsComponent$$Has(unitFlags, 1)` est vrai. Une unite qui n'a pas la main n'a donc
+    AUCUNE tuile de mouvement, et tout arbre DSL qui part de `MovableTilesInRange` rend vide.
+    Un montage qui laisse le caster hors de son tour mesure ce vide-la, pas une propriete de
+    l'arbre : c'est exactement le faux verrou de `#361` (2 events pour 5 attendus).
+
+    On lit le predicat NATIF (`IsControlledByCurrentPlayer`, le filtre `side="friendly"` du RPC
+    `aiMovableTiles`) plutot que de le reconstruire depuis un numero d'equipe suppose. Rend un
+    ensemble VIDE si le RPC ne repond pas -- l'appelant doit traiter ce cas comme « non lu »,
+    jamais comme « aucune unite »."""
+    res = _r(sid, "aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 90)
+    if not res or res.get("ok") is False:
+        return set()
+    return {int(u["unitId"]) for u in (res.get("units") or []) if u.get("unitId") is not None}
+
+
+def ensure_turn(sid, rid, unit_id: int, max_turns: int = 4) -> bool:
+    """Rend la main a `unit_id` (`endturn` jusqu'a ce que son camp joue), sans deplacer personne.
+
+    A appeler APRES `drive_to` par tout montage qui mesure un arbre partant de
+    `MovableTilesInRange` : `drive_to` termine sur un `endturn`, donc la PARITE du nombre de
+    tours consommes decide qui a la main -- et deux montages qui posent la MEME geometrie par des
+    chemins de drive differents ne la laissent pas au meme camp. C'est la difference, longtemps
+    non identifiee, entre les deux montages de `#361` (cf. `controlled_by_current_player`).
+
+    Rend `True` si la main est au camp de l'unite, `False` sinon (l'appelant doit alors declarer
+    son bras NON DISCRIMINANT -- jamais conclure du natif)."""
+    for _ in range(max(0, int(max_turns)) + 1):
+        ctrl = controlled_by_current_player(sid, rid)
+        if not ctrl:
+            return False           # RPC muet : « non lu », surtout pas « aucune unite »
+        if int(unit_id) in ctrl:
+            return True
+        _endturn(sid, rid)
+    return int(unit_id) in controlled_by_current_player(sid, rid)
+
+
 def _move(sid, rid, uid, col, row):
     return _r(sid, "applyAction", {"runnerId": rid, "action": {
         "kind": "move", "unitId": int(uid), "to": {"col": int(col), "row": int(row)}}}, 90)
