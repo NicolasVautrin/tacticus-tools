@@ -42,10 +42,32 @@ CE QUE CE PROBE MESURE
           que le capteur lit la bonne struct sur une face deja connue), puis `via=evaluate` sur les
           NC. Absent du bundle => SKIP NOMME, jamais un zero muet.
 
+⚠ LE MONTAGE DOIT ATTEINDRE LE REGIME, ET LE PROUVER (#356)
+-----------------------------------------------------------
+`1202 VigilanceEternal` porte une PRECONDITION GEOMETRIQUE, lue au decompile dans
+`IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetDynamicInvalidTargetReason` :
+la cible est eligible si (a) ses tuiles sont ADJACENTES a celles du caster, ou (b) le selecteur
+`IdunBattleLogic.Entities.DSLSelectors$$TilesUnitCanMoveToChargeTarget(caster, casterTiles, target,
+movementRange = GetNumberConstant(0x16))` rend >= 1 tuile ; sinon il rend le flag `0x8000000`
+(= `TargetIsInRange`). Aux positions de SPAWN de `MC1_67` aucune cible ne satisfait cela : le bucket
+vide est alors la REPONSE JUSTE du natif, pas un trou de port. Le probe DOIT donc separer
+  (a) MONTAGE non atteint  -> NON CONFRONTE, il le DIT ; ce n'est PAS un echec ;
+  (b) PORT / HARNAIS       -> precondition PROUVEE et capture NULLE -> ECHEC.
+
+Ce que la preuve N'EST PAS : `ncEvaluate.hvt` (`IBattleQuery.HasValidTargets`, slot 0x3f) rendait
+**true aux 13/13 positions** du montage de spawn ou l'eligibilite etait VIDE (mesure 2026-07-31) --
+ce gate ne traverse pas `GetDynamicInvalidTargetReason`. La preuve utilisee ici est
+`abilityTargets` (`fromHere`/`targets` NON VIDES) confirmee par `abilityReason` (`targetReason.hex
+== 0x0` au lieu de `0x8000000`), c.-a-d. exactement le flag du decompile.
+
+Codes de retour : 0 = tout confronte et vert ; 1 = ECHEC ; 2 = rien n'a echoue mais une etape
+n'a PAS ETE CONFRONTEE (typiquement : montage hors regime).
+
 ASCII only (cp1252). Usage (depuis scripts/python) :
     python probe_350r3_noncomparable_oracle.py --offline
     python probe_350r3_noncomparable_oracle.py
     python probe_350r3_noncomparable_oracle.py --json
+    python probe_350r3_noncomparable_oracle.py --max-rounds 1   # exerce la voie NON CONFRONTE
 """
 from __future__ import annotations
 
@@ -85,6 +107,10 @@ _FIXTURE_NC = {
     "caster": "custoKyrus", "victim": "necroWarden",
     "p_units": "custoKyrus,astraBullgryn", "a_units": "necroWarden,ultraTitus",
     "ability": 1202,
+    # Aux tuiles de SPAWN de ce board le caster est a 10-11 hex des cibles : la precondition
+    # geometrique (cf. en-tete) est FAUSSE, et le bucket vide est la reponse JUSTE du natif.
+    # Le montage PILOTE donc les positions (`_approach`) jusqu'au regime, et le PROUVE.
+    "max_rounds": 6,
 }
 
 # Montage du VERROU de l'etape 3 : une ability COMPARABLE dont le port est deja confronte par
@@ -219,6 +245,123 @@ def _pick(units, visual) -> "int | None":
     return int(u["id"]) if u else None
 
 
+# --- PILOTAGE DES POSITIONS + PREUVE DE PRECONDITION (#356) -------------------------------------
+#
+# Ces deux fonctions sont ce qui SEPARE les deux lectures d'une capture nulle. Elles sont donc
+# appelees AVANT toute mesure d'oracle, et leur resultat est publie tel quel dans le verdict.
+
+def _alive(rpc, sid, rid) -> "tuple[dict, list]":
+    """`observeBattle` -- la seule vue qui porte (col,row) ET `teamId` pour TOUTES les unites."""
+    o = _r(rpc, sid, "observeBattle", {"runnerId": rid}, 120)
+    return o, [u for u in (o.get("units") or []) if not u.get("isDead")]
+
+
+def _movable(rpc, sid, rid) -> dict:
+    mv = _r(rpc, sid, "aiMovableTiles", {"runnerId": rid}, 120)
+    return {int(e["unitId"]): [(t["col"], t["row"]) for t in (e.get("tiles") or [])]
+            for e in (mv.get("units") or []) if e.get("unitId") is not None}
+
+
+def _precondition(rpc, sid, rid, cid: int, ability: int, foes: list) -> dict:
+    """La PREUVE que le regime est atteint, par DEUX voies independantes.
+
+    * `abilityTargets` : `fromHere` = `AttackQuery.GetValidTargets(caster, position COURANTE,
+      ability)` ; `targets` = l'union sur les tuiles de move. NON VIDE = au moins une cible passe
+      le filtre d'eligibilite complet -- donc `BasePlaybook$$GetEligibleTargetsSelectable`, qui
+      appelle le MEME slot (0x42), rendra une liste non vide.
+    * `abilityReason` : le flag EXACT rendu par
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetDynamicInvalidTargetReason` --
+      `0x8000000` (`TargetIsInRange`) quand la charge est impossible, `0x0` quand elle l'est.
+
+    ⚠ `ncEvaluate.hvt` (`HasValidTargets`, slot 0x3f) n'est PAS une preuve : mesure 2026-07-31,
+    il valait `true` aux 13/13 positions d'un montage dont l'eligibilite etait VIDE."""
+    at = _r(rpc, sid, "abilityTargets",
+            {"runnerId": rid, "unitId": int(cid), "abilityType": int(ability)}, 120)
+    ab = {}
+    for u in (at.get("units") or []):
+        for a in (u.get("abilities") or []):
+            if a.get("abilityId") == int(ability):
+                ab = a
+    reasons = []
+    for f in foes:
+        rr = _r(rpc, sid, "abilityReason",
+                {"runnerId": rid, "casterId": int(cid), "abilityType": int(ability),
+                 "targetId": int(f["squadId"])}, 60)
+        tr = rr.get("targetReason") or {}
+        reasons.append({"targetId": int(f["squadId"]), "visualId": f.get("visualId"),
+                        "hex": tr.get("hex"), "reasons": tr.get("reasons"),
+                        "eligible": (tr.get("hex") in ("0x0", "0x0000000000000000", 0))})
+    n_here = len(ab.get("fromHere") or [])
+    n_move = len(ab.get("targets") or [])
+    return {"reached": bool(n_here or n_move), "fromHereCount": n_here, "targetsCount": n_move,
+            "fromHere": [t.get("targetId") for t in (ab.get("fromHere") or [])],
+            "targets": [t.get("targetId") for t in (ab.get("targets") or [])],
+            "reasons": reasons}
+
+
+def _approach(rpc, sid, rid, fx: dict, verbose: bool = True) -> dict:
+    """PILOTE LES POSITIONS jusqu'a ce que la precondition soit satisfaite AU DEBUT de mon tour.
+
+    Les deux camps avancent l'un vers l'autre (le runner est monte `--no-ai`, donc AUCUN driver
+    natif ne joue : chaque deplacement est le notre). On s'arrete des que `_precondition` est
+    atteinte alors que c'est MON tour et que le caster n'a pas encore bouge -- c'est le seul etat
+    ou l'oracle mesure la meme chose que le generateur natif (sweep depuis la position d'origine).
+
+    Effet de bord VOULU : au round N le caster a `turnsStarted = N`, donc le gate natif
+    `VigilanceEternalPlaybook$$ShouldEvaluate` (`GetStat(unit, 0xc) > 1`) est lui aussi franchi --
+    le montage est dans le regime ou le generateur natif evaluerait REELLEMENT ce playbook."""
+    import hexgeo
+    cid = None
+    for rnd in range(1, int(fx.get("max_rounds") or 6) + 1):
+        o, us = _alive(rpc, sid, rid)
+        caster = next((u for u in us if u.get("visualId") == fx["caster"]), None)
+        if caster is None:
+            return {"reached": False, "error": "caster %s absent du build" % fx["caster"]}
+        cid = int(caster["squadId"])
+        kpos = (caster["col"], caster["row"])
+        foes = [u for u in us if u.get("teamId") != caster.get("teamId")]
+        mine = [u for u in us if u.get("teamId") == caster.get("teamId")]
+        my_turn = (o.get("currentPlayer") == caster.get("playerId"))
+        pre = _precondition(rpc, sid, rid, cid, fx["ability"], foes)
+        if verbose:
+            print("  [approche] round %d cp=%s caster=%s dmin=%s fromHere=%d targets=%d"
+                  % (rnd, o.get("currentPlayer"), kpos,
+                     min([hexgeo.distance(kpos, (f["col"], f["row"])) for f in foes] or [-1]),
+                     pre["fromHereCount"], pre["targetsCount"]))
+        if my_turn and pre["reached"]:
+            return {"reached": True, "rounds": rnd, "casterId": cid, "casterPos": kpos,
+                    "foes": [(f.get("visualId"), f["col"], f["row"]) for f in foes],
+                    "precondition": pre}
+        # avancer : mon camp vers l'ennemi le plus proche, puis l'ennemi vers le caster
+        mv = _movable(rpc, sid, rid)
+        if my_turn:
+            tgt = min(foes, key=lambda f: hexgeo.distance(kpos, (f["col"], f["row"])))
+            tp = (tgt["col"], tgt["row"])
+            tiles = mv.get(cid) or []
+            if tiles:
+                best = min(tiles, key=lambda t: hexgeo.distance(t, tp))
+                _r(rpc, sid, "applyAction", {"runnerId": rid, "action": {
+                    "kind": "move", "unitId": cid, "to": {"col": best[0], "row": best[1]}}}, 90)
+            _r(rpc, sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90)
+        o2, us2 = _alive(rpc, sid, rid)
+        caster = next((u for u in us2 if u.get("visualId") == fx["caster"]), None)
+        if caster is None or o2.get("currentPlayer") == caster.get("playerId"):
+            continue
+        kpos = (caster["col"], caster["row"])
+        mv2 = _movable(rpc, sid, rid)
+        for f in [u for u in us2 if u.get("teamId") != caster.get("teamId")]:
+            tiles = mv2.get(int(f["squadId"])) or []
+            if not tiles:
+                continue
+            best = min(tiles, key=lambda t: hexgeo.distance(t, kpos))
+            _r(rpc, sid, "applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": int(f["squadId"]),
+                "to": {"col": best[0], "row": best[1]}}}, 90)
+        _r(rpc, sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90)
+        _ = mine
+    return {"reached": False, "rounds": int(fx.get("max_rounds") or 6), "casterId": cid}
+
+
 # --- etape 1 : la VALEUR DE RETOUR d'aiPlaybookPredict -------------------------------------------
 
 def step1_return_value(rpc, sid, logs: Path, verbose: bool = True) -> dict:
@@ -266,35 +409,40 @@ def step1_return_value(rpc, sid, logs: Path, verbose: bool = True) -> dict:
 
 # --- etape 2 : ncEvaluate, la face NC est-elle VIVANTE ? -----------------------------------------
 
-def step2_nc_evaluate(rpc, sid, logs: Path, verbose: bool = True) -> dict:
-    sf = logs / "p350r3_nceval.json"
-    rid = None
-    out = {}
-    try:
-        rid = _build(sf, _FIXTURE_NC)
-        units = _units(rpc, sid, rid)
-        cid = _pick(units, _FIXTURE_NC["caster"])
-        if cid is None:
-            return {"ok": False, "error": "montage : %s absent du build" % _FIXTURE_NC["caster"]}
-        r = _r(rpc, sid, "ncEvaluate",
-               {"runnerId": rid, "unitId": cid, "abilityType": _FIXTURE_NC["ability"],
-                "sweep": True}, 180)
-        positions = r.get("positions") or []
-        scored = [p for p in positions if isinstance(p.get("util"), (int, float))]
-        out = {"ok": bool(r.get("ok")) and bool(scored),
-               "playbookClass": r.get("playbookClass"), "evalName": r.get("evalName"),
-               "nPositions": len(positions), "nScored": len(scored),
-               "utils": [round(float(p["util"]), 4) for p in scored[:8]],
-               "error": r.get("error")}
-    finally:
-        if rid is not None:
-            _r(rpc, sid, "disposeRunner", {"runnerId": rid}, 30)
+def step2_nc_evaluate(rpc, sid, rid: int, appr: dict, verbose: bool = True) -> dict:
+    """`ncEvaluate` sur le montage PILOTE. Trois issues, jamais deux :
+       * regime NON atteint      -> `regime_reached: False`, `ok: None` = NON CONFRONTE ;
+       * regime atteint + scores -> OK ;
+       * regime atteint + AUCUN score -> ECHEC (et c'est alors le port/harnais qui est en cause)."""
+    out = {"regime_reached": bool(appr.get("reached")),
+           "precondition": appr.get("precondition")}
+    if not appr.get("reached"):
+        out["ok"] = None
+        out["skipped"] = ("MONTAGE NON ATTEINT en %s round(s) -- precondition geometrique de "
+                          "GetDynamicInvalidTargetReason non satisfaite" % appr.get("rounds"))
+        if verbose:
+            print("\n[350-r3/2] ncEvaluate -- %s" % out["skipped"])
+            print("  -> NON CONFRONTE (ce n'est PAS un echec de port)")
+        return out
+    cid = int(appr["casterId"])
+    r = _r(rpc, sid, "ncEvaluate",
+           {"runnerId": rid, "unitId": cid, "abilityType": _FIXTURE_NC["ability"],
+            "sweep": True}, 240)
+    positions = r.get("positions") or []
+    scored = [p for p in positions if isinstance(p.get("util"), (int, float))]
+    # `hvt` est publie POUR MEMOIRE : il valait true 13/13 sur un montage a eligibilite VIDE.
+    hvt_true = sum(1 for p in positions if p.get("hvt") is True)
+    out.update({"ok": bool(r.get("ok")) and bool(scored),
+                "playbookClass": r.get("playbookClass"), "evalName": r.get("evalName"),
+                "nPositions": len(positions), "nScored": len(scored), "nHvtTrue": hvt_true,
+                "utils": [round(float(p["util"]), 4) for p in scored[:8]],
+                "error": r.get("error")})
     if verbose:
-        print("\n[350-r3/2] ncEvaluate sur %s / ability %d"
-              % (_FIXTURE_NC["caster"], _FIXTURE_NC["ability"]))
-        print("  playbook=%s eval=%s positions=%s scorees=%s"
+        print("\n[350-r3/2] ncEvaluate sur %s / ability %d (regime ATTEINT en %s rounds)"
+              % (_FIXTURE_NC["caster"], _FIXTURE_NC["ability"], appr.get("rounds")))
+        print("  playbook=%s eval=%s positions=%s scorees=%s hvt_true=%s"
               % (out.get("playbookClass"), out.get("evalName"),
-                 out.get("nPositions"), out.get("nScored")))
+                 out.get("nPositions"), out.get("nScored"), hvt_true))
         print("  utilites (8 premieres) : %s" % out.get("utils"))
         print("  -> %s" % ("OK" if out.get("ok") else "ECHEC"))
     return out
@@ -308,12 +456,12 @@ def _same_events(a: "list[dict]", b: "list[dict]") -> bool:
     return [key(x) for x in a] == [key(x) for x in b]
 
 
-def step3_capteur(rpc, sid, logs: Path, verbose: bool = True) -> dict:
-    """VERROU d'abord (ability COMPARABLE : capture == liste rendue), puis les NC."""
+def step3_lock(rpc, sid, logs: Path, verbose: bool = True) -> dict:
+    """VERROU d'AUTO-VALIDATION du capteur, sur une ability COMPARABLE : la capture (par le
+    trampoline sur `ProbableDamageEvent$$.ctor`) doit EGALER la liste RENDUE par
+    `MakeDamagePredictions`. C'est ce qui prouve que le capteur lit la BONNE struct."""
     sf = logs / "p350r3_capteur.json"
     rid = None
-    lock = {}
-    nc_rows = []
     try:
         rid = _build(sf, _FIXTURE_LOCK)
         units = _units(rpc, sid, rid)
@@ -336,45 +484,53 @@ def step3_capteur(rpc, sid, logs: Path, verbose: bool = True) -> dict:
     finally:
         if rid is not None:
             _r(rpc, sid, "disposeRunner", {"runnerId": rid}, 30)
-
-    sf2 = logs / "p350r3_capteur_nc.json"
-    rid2 = None
-    try:
-        rid2 = _build(sf2, _FIXTURE_NC)
-        units = _units(rpc, sid, rid2)
-        cid = _pick(units, _FIXTURE_NC["caster"])
-        if cid is not None:
-            r = _r(rpc, sid, "ncPlaybookPredict",
-                   {"runnerId": rid2, "unitId": cid,
-                    "abilityType": _FIXTURE_NC["ability"], "via": "evaluate"}, 180)
-            cap = r.get("captured") or []
-            nc_rows.append({"ability": _FIXTURE_NC["ability"],
-                            "playbookClass": r.get("playbookClass"),
-                            "capturedCount": len(cap),
-                            "first": cap[0] if cap else None,
-                            "bucketUtil": r.get("bucketUtil"), "error": r.get("error")})
-    finally:
-        if rid2 is not None:
-            _r(rpc, sid, "disposeRunner", {"runnerId": rid2}, 30)
-
-    ok = bool(lock.get("identical") and lock.get("nonEmpty")
-              and nc_rows and nc_rows[0]["capturedCount"] > 0)
+    lock["ok"] = bool(lock.get("identical") and lock.get("nonEmpty"))
     if verbose:
-        print("\n[350-r3/3] capteur ncPlaybookPredict")
-        print("  VERROU (%s / %d, COMPARABLE) : capture=%s rendue=%s identiques=%s"
-              % (_FIXTURE_LOCK["caster"], _FIXTURE_LOCK["ability"],
-                 lock.get("capturedCount"), lock.get("returnedCount"), lock.get("identical")))
-        for x in nc_rows:
-            print("  NC %-5d %-28s capture=%d util=%s"
-                  % (x["ability"], (x["playbookClass"] or "?"), x["capturedCount"],
-                     x.get("bucketUtil")))
-            if x["first"]:
-                print("     1er event : %s" % json.dumps(x["first"], sort_keys=True)[:220])
-        print("  -> %s" % ("OK" if ok else "ECHEC"))
-    return {"ok": ok, "lock": lock, "nc": nc_rows}
+        print("\n[350-r3/3a] VERROU du capteur (%s / %d, COMPARABLE)"
+              % (_FIXTURE_LOCK["caster"], _FIXTURE_LOCK["ability"]))
+        print("  capture=%s rendue=%s identiques=%s"
+              % (lock.get("capturedCount"), lock.get("returnedCount"), lock.get("identical")))
+        print("  -> %s" % ("OK" if lock["ok"] else "ECHEC"))
+    return lock
 
 
-def run(offline: bool = False, verbose: bool = True) -> dict:
+def step3_nc(rpc, sid, rid: int, appr: dict, verbose: bool = True) -> dict:
+    """L'ORACLE NC lui-meme, sur le montage PILOTE. Memes trois issues qu'a l'etape 2 : un montage
+    qui n'atteint pas le regime se DIT `NON CONFRONTE`, il ne rougit pas comme un bug de port."""
+    out = {"regime_reached": bool(appr.get("reached")),
+           "precondition": appr.get("precondition")}
+    if not appr.get("reached"):
+        out["ok"] = None
+        out["skipped"] = "MONTAGE NON ATTEINT -- cf. etape 2"
+        if verbose:
+            print("\n[350-r3/3b] oracle NC -- %s" % out["skipped"])
+            print("  -> NON CONFRONTE (ce n'est PAS un echec de port)")
+        return out
+    cid = int(appr["casterId"])
+    r = _r(rpc, sid, "ncPlaybookPredict",
+           {"runnerId": rid, "unitId": cid,
+            "abilityType": _FIXTURE_NC["ability"], "via": "evaluate"}, 240)
+    cap = r.get("captured") or []
+    out.update({"ability": _FIXTURE_NC["ability"], "playbookClass": r.get("playbookClass"),
+                "capturedCount": len(cap), "events": cap, "first": cap[0] if cap else None,
+                "bucketUtil": r.get("bucketUtil"), "error": r.get("error"),
+                "ok": bool(cap)})
+    if verbose:
+        print("\n[350-r3/3b] oracle NC %d %s (regime ATTEINT)"
+              % (out["ability"], out.get("playbookClass") or "?"))
+        print("  capture=%d bucketUtil=%s" % (out["capturedCount"], out.get("bucketUtil")))
+        for e in cap[:4]:
+            print("     event : tgt=%s dmg=[%s,%s] hits=%s prob=%s"
+                  % (e.get("targetId"), e.get("healthDmgMin"), e.get("healthDmgMax"),
+                     e.get("appliedHits"), e.get("probability")))
+        if not cap:
+            print("  !! capture NULLE alors que la precondition est PROUVEE -> lecture (b) :")
+            print("     le triplet est consomme sans passer par ProbableDamageEvent$$.ctor")
+        print("  -> %s" % ("OK" if out["ok"] else "ECHEC"))
+    return out
+
+
+def run(offline: bool = False, verbose: bool = True, max_rounds: "int | None" = None) -> dict:
     out = {"step0": step0_structure(verbose)}
     if offline:
         out["live"] = "SKIP -- --offline"
@@ -396,20 +552,42 @@ def run(offline: bool = False, verbose: bool = True) -> dict:
             print("  (les etapes 1-3 exigent une session Frida ; l'etape 0 est offline)")
         return out
     out["step1"] = step1_return_value(rpc, sid, logs, verbose)
-    out["step2"] = step2_nc_evaluate(rpc, sid, logs, verbose)
-    out["step3"] = step3_capteur(rpc, sid, logs, verbose)
-    parts = [out["step0"].get("ok"), out["step1"].get("ok"), out["step2"].get("ok")]
-    if "skipped" in out["step3"]:
-        out["ok"] = all(parts)
-    else:
-        out["ok"] = all(parts + [out["step3"].get("ok")])
+    out["step3a"] = step3_lock(rpc, sid, logs, verbose)
+    # UN SEUL runner pour les etapes 2 et 3b : le pilotage de positions coute plusieurs rounds,
+    # et les deux oracles doivent parler du MEME etat.
+    sf = logs / "p350r3_nc.json"
+    fx = dict(_FIXTURE_NC)
+    if max_rounds is not None:
+        fx["max_rounds"] = int(max_rounds)      # levier de TEST du separateur (cf. --max-rounds)
+    rid = None
+    try:
+        rid = _build(sf, fx)
+        if verbose:
+            print("\n[350-r3] montage NC : pilotage des positions (board %s, %s vs %s)"
+                  % (fx["board"], fx["p_units"], fx["a_units"]))
+        appr = _approach(rpc, sid, rid, fx, verbose)
+        out["approach"] = {k: v for k, v in appr.items() if k != "precondition"}
+        out["step2"] = step2_nc_evaluate(rpc, sid, rid, appr, verbose)
+        out["step3b"] = step3_nc(rpc, sid, rid, appr, verbose)
+    finally:
+        if rid is not None:
+            _r(rpc, sid, "disposeRunner", {"runnerId": rid}, 30)
+
+    # Verdict : un `None` (NON CONFRONTE) ne vaut ni OK ni ECHEC -- il est REPORTE tel quel.
+    steps = {"0 structure": out["step0"].get("ok"),
+             "1 valeur de retour": out["step1"].get("ok"),
+             "3a verrou capteur": (out["step3a"].get("skipped") or out["step3a"].get("ok")),
+             "2 ncEvaluate (vie NC)": out["step2"].get("ok"),
+             "3b oracle NC": out["step3b"].get("ok")}
+    hard = [v for v in steps.values() if v is not None and not isinstance(v, str)]
+    out["ok"] = all(hard)
+    out["not_confronted"] = [k for k, v in steps.items() if v is None or isinstance(v, str)]
     if verbose:
         print("\n=== VERDICT ===")
-        print("  0 structure           : %s" % out["step0"].get("ok"))
-        print("  1 valeur de retour    : %s" % out["step1"].get("ok"))
-        print("  2 ncEvaluate (vie NC) : %s" % out["step2"].get("ok"))
-        print("  3 capteur             : %s" % (out["step3"].get("skipped")
-                                                or out["step3"].get("ok")))
+        for k, v in steps.items():
+            print("  %-22s : %s" % (k, "NON CONFRONTE" if v is None else v))
+        if out["not_confronted"]:
+            print("  (non confronte : %s)" % ", ".join(out["not_confronted"]))
         print("  -> %s" % ("OK" if out["ok"] else "ECHEC"))
     return out
 
@@ -419,12 +597,21 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--offline", action="store_true",
                     help="etape 0 seule (structure) -- aucune plateforme requise")
+    ap.add_argument("--max-rounds", type=int, default=None,
+                    help="bornes du pilotage de positions. `--max-rounds 1` EXERCE la voie "
+                         "MONTAGE NON ATTEINT : le probe doit alors rendre NON CONFRONTE, "
+                         "PAS un echec de port (c'est le separateur des deux lectures de #356)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    out = run(offline=a.offline)
+    out = run(offline=a.offline, max_rounds=a.max_rounds)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
-    return 0 if out.get("ok") else 1
+    if not out.get("ok"):
+        return 1
+    # rc 2 = « rien n'a echoue, mais une etape n'a PAS ETE CONFRONTEE ». Sans lui, un montage qui
+    # n'atteint pas le regime rendrait 0 et se lirait VERT -- exactement le silence que ce probe
+    # existe pour empecher.
+    return 2 if out.get("not_confronted") else 0
 
 
 if __name__ == "__main__":

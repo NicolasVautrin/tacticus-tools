@@ -139,9 +139,16 @@ borne de kill, `Avg(TotalDamage)` classe, le **plus fort** passe devant. Ordre i
 
 Deux mirrors nommés ont été posés au passage sur `DamagePredictionResult` (`will_be_kill` /
 `might_be_kill`), verbatim du décompilé : `get_WillBeKill` préfère `BlockScenarios[0]+0x0c`
-(= `block_raw_min`) au scalaire, `get_MightBeKill` n'a **aucun** gate. Résidu nommé :
-`CannotBeGuaranteedKilled@0x89` n'est pas un champ du port — la borne `will_be_kill` reste donc
-PERMISSIVE.
+(= `block_raw_min`) au scalaire, `get_MightBeKill` n'a **aucun** gate.
+
+**Le résidu `CannotBeGuaranteedKilled@0x89` est FERMÉ par #372, et le verdict est « INERTE ICI »** —
+pas « permissive ». Le champ existe désormais (`cannot_be_guaranteed_killed`) et `will_be_kill()` le
+lit, mais sur CE site il vaut structurellement `0` : le lambda natif appelle `IBattleQuery` slot
+`0x28` = `BattleQuery$$GetMultiHitAttackPrediction`, qui fait `memset(result, 0, 0xa0)` puis délègue
+au slot `0xb` (`PredictAttack`). Le SEUL écrivain du champ dans tout le binaire est
+`DamagePrediction$$PredictNormalAttack` (slot 9), que ce lambda n'emprunte pas ; et
+`DamagePredictionResult$$Add` ne fusionne aucun des cinq booléens `@0x88..0x8c`. La borne n'était
+donc pas permissive — elle était **exacte sans preuve**. Détail et gardes : `case-372`.
 
 | garde | ce qu'elle verrouille |
 |---|---|

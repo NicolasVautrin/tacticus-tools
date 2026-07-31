@@ -96,9 +96,38 @@ class DamagePredictionResult:
     # source de block chez le défenseur (liste vide) → `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` retombe sur le
     # scalaire rawMin@0x24. Consommé par will-be-kill/will-be-overkill (killSure/DefinitelyOverkill).
     block_raw_min: int | None = None
+    # #372 -- `CannotBeGuaranteedKilled@0x89`, le gate de sortie anticipee de
+    # `get_WillBeKill`. UN SEUL ECRIVAIN dans tout le binaire :
+    # `IdunBattle.Core.Services.DamagePrediction$$PredictNormalAttack`, derniere instruction
+    # avant son `return` (`*(char*)(this+0x89) = DamagePrediction$$CannotBeGuaranteedKilled(
+    # attacker, defender, predictionCopy)`) -- et `DamagePrediction$$CannotBeGuaranteedKilled`
+    # n'a lui-meme que CE seul appelant (xrefs LUES).
+    #
+    # Consequence, et c'est ce qui rend le defaut `False` EXACT et non permissif sur les voies
+    # portees :
+    #   * `BattleQuery$$GetNormalAttackPrediction` invoque `IDamagePrediction` slot 9 =
+    #     `PredictNormalAttack` -> le flag y est VIVANT ;
+    #   * `BattleQuery$$GetAttackPrediction` invoque le slot 0xb (`PredictAttack`), et
+    #     `BattleQuery$$GetMultiHitAttackPrediction` (= `get_multi_hit_attack_prediction`,
+    #     CE module) commence par `memset(result, 0, 0xa0)` puis delegue a `GetAttackPrediction`
+    #     -> le flag y reste STRUCTURELLEMENT 0 ;
+    #   * `DamagePredictionResult$$Add` ne fusionne AUCUN des flags @0x88..0x8c (il ne somme
+    #     que les bornes, `AppliedHits@0x98`, la liste `IndividualHitDamage@0x80`, et fusionne
+    #     `BlockScenarios@0x38` par index) -> le cumul multi-coups ne peut pas le rallumer.
+    #
+    # RESIDU NOMME (ce qui reste ouvert) : le CALCUL de
+    # `DamagePrediction$$CannotBeGuaranteedKilled` n'est pas porte. Structure lue -- il balaie
+    # les abilities TRIGGERED du defenseur et interroge chacune ; le seul override du binaire est
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HarlequinsPanoplyAbility$$CannotBeGuaranteedKilled`
+    # (qui fourche sur `HarlequinsPanoplyAbility$$SurvivesByDiscardingHits`). Tant que ce calcul
+    # n'est pas porte, les appelants d'une prediction d'attaque NORMALE laissent le flag a False
+    # -- borne inferieure assumee, et le capteur `frida/hooks/game/damage-prediction.ts` (#372)
+    # est ce qui permettra de mesurer s'il vaut jamais 1 en bataille.
+    cannot_be_guaranteed_killed: bool = False
 
     def will_be_kill(self) -> bool:
-        """`IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` - mirror LU (#344-r2) :
+        """`IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` - mirror LU
+        (#344-r2, complete #372) :
 
             if (CannotBeGuaranteedKilled@0x89) return false;
             m = (BlockScenarios@0x38 != null && BlockScenarios.Count >= 1)
@@ -107,11 +136,16 @@ class DamagePredictionResult:
             return CurrentHealth@0x00 <= m;
 
         `BlockScenarios[0]+0x0c` = `0x04` (`Damage`) + `0x00` (`HealthDamage`) + `0x08` (`Min`) --
-        c'est exactement le `block_raw_min` du port (#54A).
-        RESIDU NOMME : `CannotBeGuaranteedKilled@0x89` n'est PAS un champ du port (aucun ecrivain
-        RE) -- le gate de sortie anticipee manque donc, et cette borne est PERMISSIVE (elle peut
-        rendre True la ou le natif rend False). Le gate `hp > 0` est port-side (harnais/probes sans
-        cible ; le natif est toujours appele avec une cible vivante)."""
+        c'est exactement le `block_raw_min` du port (#54A). L'offset est RE-DERIVE, pas recopie :
+        `DamagePredictionResult$$GetBlockScenarioOrDefault` prouve que l'element de la liste est
+        du MEME type que `DefaultScenario` (son fallback recopie les 36 octets de `+0x10`), et
+        `get_HealthDamageWithBlock` recoupe la paire `+0x0c`/`+0x10`.
+
+        Le gate `hp > 0` est PORT-SIDE (harnais/probes sans cible ; le natif est toujours appele
+        avec une cible vivante, et lui rendrait `true` a `hp == 0`). Il est en AVAL du gate natif :
+        les deux rendent False, l'ordre n'a donc aucun effet observable."""
+        if self.cannot_be_guaranteed_killed:
+            return False
         hp = int(self.current_health)
         if hp <= 0:
             return False
@@ -122,7 +156,8 @@ class DamagePredictionResult:
         """`IdunBattle.Core.Services.DamagePredictionResult$$get_MightBeKill` - mirror LU (#344-r2) :
         `CurrentHealth@0x00 <= DefaultScenario.Damage.HealthDamage.Max@0x20`, SANS aucun gate (ni
         `CannotBeGuaranteedKilled`, ni la liste `BlockScenarios`) -- l'asymetrie avec `will_be_kill`
-        est native."""
+        est native. Le corps entier tient en UNE comparaison au decompile : c'est la preuve
+        d'absence, pas un oubli de lecture (re-verifie #372)."""
         hp = int(self.current_health)
         return hp > 0 and int(self.raw_health_damage.max) >= hp
 
@@ -175,9 +210,13 @@ class DamagePredictionResult:
         t.apply_cap()
         self.total_damage = t
         self.applied_hits += other.applied_hits
-        # #R34 : le natif `Add` ne fusionne AUCUN des quatre flags @0xB0..@0xB3 (LimitedByMinHp /
-        # MightCrit / ForceOverkill / HasFlag(target,0x13)) — il ne somme que les champs de dégât et
-        # le dword @0xBC (AppliedHits). Les flags gardent donc la valeur du PREMIER
+        # #R34 : le natif `Add` ne fusionne AUCUN des flags booléens — RE-LU intégralement au #372
+        # sur `rnca9r7q6c`, ils sont CINQ et contigus, `LimitedByMinHp@0x88` /
+        # `CannotBeGuaranteedKilled@0x89` / `MightCrit@0x8a` / `ForceOverkill@0x8b` /
+        # `PreventOverkill@0x8c` (les offsets `@0xB0..@0xB3` du commentaire d'origine sont ceux d'un
+        # build antérieur). `Add` ne somme que les bornes, le dword `AppliedHits@0x98`, concatène
+        # `IndividualHitDamage@0x80` et fusionne `BlockScenarios@0x38` par index.
+        # Les flags gardent donc la valeur du PREMIER
         # `PredictAttackRaw` (= `self`, le coup 1 de `get_multi_hit_attack_prediction`). L'ancien
         # `self.might_crit or other.might_crit` était un fork de port : sans effet numérique (tous
         # les coups d'une attaque ont le MÊME attaquant, donc le même `CouldCrit`), mais il aurait

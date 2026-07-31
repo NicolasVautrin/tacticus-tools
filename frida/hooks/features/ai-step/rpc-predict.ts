@@ -217,14 +217,20 @@ export function registerViewPredict(ctx: Ctx): void {
             unitId: body?.unitId, targetId: body?.targetId,
             ability, abilityName: abilityName(ability), tile: readTileCoord(tile),
             dictNull: dict.isNull(), dictCount, pred,
+            // Deux formules HISTORIQUES, conservées telles quelles : elles portent sur
+            // `AccurateHealthDamage@0x40` (le dégât santé CAPÉ), PAS sur les bornes que
+            // lisent les getters natifs. Ce ne sont donc PAS `get_MightBeKill` /
+            // `get_WillBeKill` — ne pas les confondre avec les deux champs ci-dessous.
             kill: pred ? (pred.healthDmgMax >= pred.hpBefore) : null,
             killSure: pred ? (pred.healthDmgMin >= pred.hpBefore) : null,
-            // Mirror EXACT des deux getters natifs, sur les bornes du
-            // `DefaultBlockScenario` (`get_MightBeKill` = `CurrentHealth <= Max`,
-            // `get_WillBeKill` = `CurrentHealth <= Min`) — à côté des deux formules
-            // historiques ci-dessus, qui portent sur `HealthDamage@0x40`.
-            mightBeKill: pred ? (pred.hpBefore <= pred.mightKillDmg) : null,
-            willBeKill: pred ? (pred.hpBefore <= pred.willKillDmg) : null,
+            // Mirror EXACT des deux getters natifs. #372 : ces deux champs REJOUAIENT la
+            // comparaison ici (`hpBefore <= willKillDmg`), donc SANS le gate
+            // `CannotBeGuaranteedKilled@0x89` ni la préférence pour `BlockScenarios[0]+0x0c`
+            // — un mirror qui se disait « EXACT » et ne l'était pas. Ils lisent maintenant le
+            // verdict calculé par le décodeur, foyer unique. `willBeKill` est TRI-ÉTAT :
+            // `null` = une entrée n'a pas pu être mesurée (cf. `blockScenarioCount`).
+            mightBeKill: pred ? pred.mightBeKill : null,
+            willBeKill: pred ? pred.willBeKill : null,
             // #276 — non nul dès que la garde de layout échoue : le décodeur ne
             // décode plus ce build, `pred` n'est PAS une mesure.
             layoutError: predictionLayoutError(),
