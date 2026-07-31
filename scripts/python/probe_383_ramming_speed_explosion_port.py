@@ -45,7 +45,7 @@ ROOT = PYDIR.parents[1]
 from rl_collect_batch import _resolve_session, _rpc                          # noqa: E402
 from probe_353_ramming_speed_prediction import build_grafted_seed_bc         # noqa: E402
 from probe_353r1_ramming_speed_charge_tile import (                          # noqa: E402
-    ENEMY2, FILLER_P, GRAFT, VICTIM, _ids, _pos, _view,
+    ENEMY2, FILLER_P, GRAFT, VICTIM, _cast, _ids, _pos, _view,
     controlled_by_current_player, drive_to, ensure_turn)
 from probe_361_ramming_speed_explosion_batches import _load, _scan_geometry  # noqa: E402
 
@@ -103,6 +103,91 @@ def _sig_port(events) -> list:
                    min(e.prediction.accurate_health_damage.min, e.prediction.current_health),
                    min(e.prediction.accurate_health_damage.max, e.prediction.current_health),
                    e.prediction.applied_hits) for e in events)
+
+
+def _ring(board, dv, tile_pos, caster_id) -> dict:
+    """Les DEUX ensembles que les batchs 3/4 selectionnent autour de `tile_pos`, derives de la
+    composition native `AdjacentUnits(origin) = Units(AdjacentTiles(origin), 1, 3) - origin` :
+    unites VIVANTES posees sur une tuile hex-adjacente, ventilees par camp RELATIVEMENT au caster
+    (`UnitsByTeamSelector$$CountOrAdd` -> `UnitExtensions$$IsFriend(referent, other)`)."""
+    units = {int(u["id"]): u for u in (dv.get("units") or []) if u.get("alive")}
+    cteam = (units.get(int(caster_id)) or {}).get("team")
+    tid = board.id_at(tile_pos[0], tile_pos[1])
+    ring = {board.coord(n) for n in board.neighbours(tid)} if tid is not None else set()
+    friends, enemies = [], []
+    for uid, u in sorted(units.items()):
+        p = u.get("pos") or {}
+        if (p.get("col"), p.get("row")) not in ring:
+            continue
+        (friends if u.get("team") == cteam else enemies).append(uid)
+    return {"friends": friends, "enemies": enemies}
+
+
+def _pool(scene, cid, tid, here, board):
+    """Le POOL candidat de `RammingSpeedAbility$$GetTileToMoveTo`, cote PORT et depuis la `Scene` :
+    `MovableTilesInRange(caster, casterTile, Direct(range), 0, 0) op_BitwiseAnd
+    CanAddUnit(AdjacentTiles(target))`, AVANT tri d'utilite. Rend une liste de `(col,row)`."""
+    import gameconfig as GC
+    from engine.playbook.prediction import ramming_speed as RS
+    from engine.runner.abilities.orks import ramming_speed_charge_tiles_selector
+    dctx = RS.dsl_context(scene, cid, tid, here)
+    if dctx is None or board is None:
+        return None
+    consts = (GC.ability(RS.RAMMING_SPEED_ABILITY) or {}).get("constants") or {}
+    rng = int(consts.get(RS.RAMMING_SPEED_RANGE_KEY) or 0)
+    return [list(board.coord(t)) for t in ramming_speed_charge_tiles_selector(rng).evaluate(dctx)]
+
+
+def _native_movable(sid, rid, unit_id, override_range):
+    """Le pool de MOUVEMENT du natif pour `unit_id`, a la portee du selecteur.
+
+    Le RPC `aiMovableTiles` appelle la MEME `MovementQuery$$GetMovableTilesFor(unit,
+    ignoreUnitFlags: false, options)` que `MovableTilesInRangeSelector$$Select` (#381), avec
+    `side="all"` (il couvre les unites que le joueur courant ne controle pas) et `overrideRange`
+    (= le `Direct(GetNumberConstant(0x16))` du selecteur). C'est LE capteur qui separe « pool natif
+    plus petit » (residu `#381-r1`) de « meme pool, tri different ».
+
+    Rend une liste de `[col,row]`, ou `None` si l'unite n'est pas listee (= NON MESURE)."""
+    res = _r(sid, "aiMovableTiles",
+             {"runnerId": rid, "side": "all", "overrideRange": int(override_range)}, 90)
+    if not res or res.get("ok") is False:
+        return None
+    for u in (res.get("units") or []):
+        if int(u.get("unitId") or -1) == int(unit_id):
+            return sorted([int(t["col"]), int(t["row"])] for t in (u.get("tiles") or [])
+                          if t.get("col") is not None)
+    return None
+
+
+def _decompose(scene, board, pool_pos, cid) -> dict:
+    """Terme par terme sur le pool, substrat `Scene` : `Tile(7)` d'un cote, la feuille 54
+    (`RammingSpeed_MostAdjacentEnemies`) de l'autre. Jumeau de `probe_353r1._decompose`, qui part
+    d'un `State` de runner. C'est ce qui rend un ecart de TUILE ATTRIBUABLE au lieu d'etre constate.
+
+    ⚠ Le `meta` par tuile est reconstruit EXACTEMENT comme dans `sort_tiles_by_utility` -- un `meta`
+    vide afficherait un `Tile(7)` PLAT qui n'existe pas."""
+    from engine import weights as W
+    from engine.utilities.ramming_speed import RAMMING_SPEED_MOST_ADJACENT_ENEMIES as U54
+    from engine.utilities.tile import (SceneTileState, TILE_UTILITY, scene_tile_leaf_ctx,
+                                       terrain_tile_effects)
+    wt = W.load()
+    ctx = scene_tile_leaf_ctx(scene, cid)
+    st = SceneTileState(scene)
+    elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
+    emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
+    out = {}
+    for p in (pool_pos or []):
+        p = (int(p[0]), int(p[1]))
+        t = board.id_at(p[0], p[1])
+        info = board.by_id.get(t) or {}
+        effs = [e.name for e in st.effects.by_unit.get(int(t), []) if not e.consumed and e.name]
+        effs += terrain_tile_effects(board.tile_def_id(t), effs)
+        meta = {"elevation": info.get("elevation"), "elevation_max": emax, "elevation_min": emin,
+                "effects": effs}
+        t7, u54 = TILE_UTILITY.evaluate(p, meta, ctx, wt), U54.evaluate(p, meta, ctx, wt)
+        out[str(list(p))] = {"tile7": t7, "u54": u54, "total": t7 + u54,
+                             "elev": info.get("elevation"), "terrain": board.tile_def_id(t)}
+    return out
 
 
 def _ctx(sid, rid, cid):
@@ -234,6 +319,7 @@ def run(seed: int = 38300, level: int = 8, mult: int = 100, board: str = BOARD,
                 {k: list(v) for k, v in wanted.items()}, {u: _pos(dv, u) for u in wanted})
             return out
         out["turn_given"] = ensure_turn(sid, rid, ids[GRAFT])
+        dv = _view(sid, rid)          # RELIRE : `dv` datait d'AVANT le drive (positions perimees)
 
         cid, tid = ids[GRAFT], ids[VICTIM]
         out["caster_id"], out["target_id"] = cid, tid
@@ -277,6 +363,40 @@ def run(seed: int = 38300, level: int = 8, mult: int = 100, board: str = BOARD,
         out["n_port"] = len(port)
         out["port_events"] = [{"target": e.target, "friendly": bool(e.friendly)} for e in port]
         out["match"] = (out["port_sig"] == out["native_sig"])
+
+        # --- POOL NATIF de mouvement, LU AVANT le cast (qui deplace le caster).
+        import gameconfig as _GC
+        _rng = int(((_GC.ability(ABILITY_NAME) or {}).get("constants") or {}).get("range") or 0)
+        out["native_movable"] = _native_movable(sid, rid, cid, _rng)
+        out["port_movable_n"] = None
+
+        # --- DECOMPOSITION PAR ETAGE : la TUILE. Le cast REEL pose le caster sur la tuile que
+        # `GetTileToMoveTo` a designee (`ExecuteBehaviour` = `If(!IsAdjacent(caster, target),
+        # MoveUnit(caster, GetTileToMoveTo()))`) -- c'est le SEUL canal qui l'expose, et il est deja
+        # confronte 2/2 par `#353-r1`. Il vient APRES la prediction (il consomme le tour).
+        # Sans lui, un ecart d'events ne dit pas s'il vient de la TUILE ou du SELECTEUR.
+        _, landed = _cast(sid, rid, cid, tid)
+        out["native_tile"] = list(landed) if landed else None
+        out["tile_match"] = (bool(landed) and port_tile is not None
+                             and tuple(landed) == tuple(port_tile))
+        if landed:
+            out["ring_native"] = _ring(brd, dv, tuple(landed), cid)
+        if port_tile:
+            out["ring_port"] = _ring(brd, dv, tuple(port_tile), cid)
+        # UN CRAN DE PLUS quand la tuile diverge : la tuile NATIVE est-elle seulement DANS le pool
+        # candidat du port ? Absente -> l'ecart est le POOL (`MovableTilesInRange` : le port rend le
+        # `visited` d'un BFS qui TRAVERSE, le natif un PATHFINDING, cf. `#381-r1`). Presente mais
+        # perdante -> l'ecart est le TRI (utilite / ordre source).
+        out["pool"], out["native_tile_in_pool"] = _pool(scene, cid, tid, here, brd), None
+        if out["pool"] is not None and landed:
+            out["native_tile_in_pool"] = (list(landed) in out["pool"])
+        if not out.get("tile_match"):
+            out["utilities"] = _decompose(scene, brd, out.get("pool"), cid)
+            # Le pool du PORT prive du pool de mouvement NATIF = les candidates que le port croit
+            # atteignables et que le natif n'atteint pas. Non vide => residu `#381-r1` (POOL).
+            nm = out.get("native_movable")
+            out["pool_not_native_movable"] = (
+                None if nm is None else [p for p in (out.get("pool") or []) if p not in nm])
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -315,11 +435,40 @@ def run(seed: int = 38300, level: int = 8, mult: int = 100, board: str = BOARD,
         out["ok"] = True
         out["verdict"] = ("PORT == NATIF sur %d events (dont %d d'EXPLOSION) : %s"
                           % (out["n_native"], max(0, out["n_native"] - 2), out["native_sig"]))
+    elif out.get("tile_match") is False and out.get("native_tile"):
+        out["ok"] = False
+        # L'anneau NATIF est-il exactement ce que le natif a emis ? Si oui, les SELECTEURS des
+        # batchs 3/4 sont hors de cause et l'ecart est ENTIEREMENT a l'etage TUILE.
+        nat_expl = sorted(t for t, *_ in out["native_sig"] if t != cid)
+        rn = out.get("ring_native") or {}
+        ring_ids = sorted((rn.get("friends") or []) + (rn.get("enemies") or []))
+        out["selectors_exonerated"] = (sorted(set(nat_expl)) == sorted(set(ring_ids + [tid])))
+        extra = out.get("pool_not_native_movable")
+        if extra is None:
+            cause = ("pool de mouvement natif NON LU (`aiMovableTiles` muet) -- l'etage TUILE n'est "
+                     "pas decompose plus loin")
+        elif extra:
+            cause = ("le POOL : %s sont dans le pool du port mais HORS du pool de mouvement NATIF "
+                     "(%d tuiles). `MovableTilesInRange` rend cote port le `visited` d'un BFS qui "
+                     "TRAVERSE, cote natif un PATHFINDING -- RESIDU `#381-r1`, non traite ici"
+                     % (extra, len(out.get("native_movable") or [])))
+        else:
+            cause = ("le TRI d'utilite / l'ordre source : la tuile native est %s le pool du port et "
+                     "tout le pool du port est atteignable par le natif"
+                     % ("DANS" if out.get("native_tile_in_pool") else "HORS DE"))
+        out["verdict"] = (
+            "PORT != NATIF, et l'ECART EST ENTIEREMENT SUR LA TUILE : le port designe %s, le natif "
+            "POSE le caster en %s (cast reel). Anneaux : port=%s natif=%s -- et les events "
+            "d'EXPLOSION du natif sont EXACTEMENT l'anneau de SA tuile (%s), donc les selecteurs "
+            "`Friends`/`Enemies(AdjacentUnits(...))` des batchs 3/4 sont HORS DE CAUSE. Cause : %s."
+            % (out.get("port_tile"), out.get("native_tile"), out.get("ring_port"),
+               out.get("ring_native"), out.get("selectors_exonerated"), cause))
     else:
         out["ok"] = False
-        out["verdict"] = ("PORT != NATIF : port=%s natif=%s (amount=%s, tuile du port=%s)"
-                          % (out["port_sig"], out["native_sig"], out.get("explosion_amount"),
-                             out.get("port_tile")))
+        out["verdict"] = ("PORT != NATIF a TUILE EGALE (%s) : port=%s natif=%s (amount=%s, "
+                          "voisinage=%s) -- l'ecart est dans les SELECTEURS ou le degat."
+                          % (out.get("port_tile"), out["port_sig"], out["native_sig"],
+                             out.get("explosion_amount"), out.get("ring_port")))
 
     if verbose:
         print("[383] runner=%s board=%s seed=%s niveau=%s hp_player=%s mutation=%s"
@@ -338,6 +487,17 @@ def run(seed: int = 38300, level: int = 8, mult: int = 100, board: str = BOARD,
             print("        port  %s" % json.dumps(e, sort_keys=True))
         print("  natif = %s" % (out.get("native_sig"),))
         print("  port  = %s" % (out.get("port_sig"),))
+        print("[383] tuile : port=%s natif(cast)=%s match=%s | anneau port=%s natif=%s"
+              % (out.get("port_tile"), out.get("native_tile"), out.get("tile_match"),
+                 json.dumps(out.get("ring_port")), json.dumps(out.get("ring_native"))))
+        if out.get("utilities"):
+            print("[383] pool=%s | natif_dans_pool=%s | pool_hors_mouvement_natif=%s "
+                  "| |mouvement natif|=%s"
+                  % (out.get("pool"), out.get("native_tile_in_pool"),
+                     out.get("pool_not_native_movable"),
+                     None if out.get("native_movable") is None else len(out["native_movable"])))
+            for k, v in sorted(out["utilities"].items()):
+                print("        util %s %s" % (k, json.dumps(v, sort_keys=True)))
         print("[383] %s" % out.get("verdict"))
         print("[383] -> %s" % ("OK" if out.get("ok") else "ECHEC"))
     return out
