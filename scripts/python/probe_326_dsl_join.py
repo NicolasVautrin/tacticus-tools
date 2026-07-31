@@ -84,7 +84,11 @@ def native_ability_classes(build):
             continue
         is_ability_ns = ".Abilities." in full
         is_ability_base = "Abilities." in parent and "Ability" in parent.rsplit(".", 1)[-1]
-        if not (is_ability_ns or is_ability_base):
+        # Les EFFETS comptent aussi : la table de xrefs attribue 2474 aretes sur 11180 a un
+        # `owner_kind == effect`. Un effet appartient a l'ability qui le pose ; l'exclure
+        # amputerait le levier de 22 % des aretes.
+        is_effect_ns = ".Effects." in full
+        if not (is_ability_ns or is_ability_base or is_effect_ns):
             continue
         out.setdefault(full.rsplit(".", 1)[-1], full)
     return out
@@ -136,14 +140,14 @@ def read_tsv(path):
     return rows
 
 
-def read_p1(path, col_prim, col_abil):
-    """Relations (primitive, ability_raw) depuis la table de la phase 1 (TSV ou JSON)."""
+def read_p1(path, col_prim, col_abil, col_family=None):
+    """Relations (primitive_raw, famille_declaree, owner_raw) depuis la table de la phase 1."""
     if path.lower().endswith(".json"):
         doc = json.load(io.open(path, encoding="utf-8"))
         items = doc if isinstance(doc, list) else (doc.get("rows") or doc.get("data") or [])
         if isinstance(doc, dict) and not items:
             # forme {primitive: [abilities]}
-            return [(k, a) for k, v in doc.items() if isinstance(v, list) for a in v], None
+            return [(k, "", a, "") for k, v in doc.items() if isinstance(v, list) for a in v], None
         rows = items
         cols = sorted({k for r in rows if isinstance(r, dict) for k in r})
     else:
@@ -152,7 +156,12 @@ def read_p1(path, col_prim, col_abil):
     if not rows:
         return [], cols
     cp = col_prim or _guess(cols, ("primitive", "node", "dsl", "method", "factory"))
-    ca = col_abil or _guess(cols, ("ability", "caller", "class", "abilities", "callers"))
+    # `owner` est le nom retenu par la phase 1 (#325) pour le COMPOSEUR d'un arbre DSL : c'est la
+    # colonne d'appariement de `dsl-usage-edges.tsv`. Un composeur n'est pas toujours une ability
+    # (`owner_kind` vaut aussi `effect`, `utility`, `dsl-internal`) -- la resolution s'en charge.
+    ca = col_abil or _guess(cols, ("ability", "owner", "caller", "class", "abilities", "callers"))
+    cf = col_family or ("primitive_family" if "primitive_family" in cols else None)
+    ck = "owner_kind" if "owner_kind" in cols else None
     if cp is None or ca is None:
         raise SystemExit("[p1] colonnes non identifiees (vues: %s) -- passe --col-primitive/--col-ability"
                          % ", ".join(cols))
@@ -161,9 +170,11 @@ def read_p1(path, col_prim, col_abil):
         prim, abil = r.get(cp, ""), r.get(ca, "")
         if not prim or not abil:
             continue
+        fam = str(r.get(cf, "")) if cf else ""
+        kind = str(r.get(ck, "")) if ck else ""
         for a in re.split(r"[,;|]\s*", str(abil)):
             if a.strip():
-                out.append((str(prim), a.strip()))
+                out.append((str(prim), fam, a.strip(), kind))
     return out, cols
 
 
@@ -176,15 +187,39 @@ def _guess(cols, needles):
     return None
 
 
-def norm_primitive(raw):
-    m = PRIM_RE.search(raw)
+def norm_primitive(raw, family=""):
+    """-> (famille, nom de methode). La FAMILLE est indispensable : `If` existe dans QUATRE
+    familles (`DSLBehaviors`, `DSLSelectors`, `DSLFormulas`, `DSLTriggers`) et `op_BitwiseAnd`
+    dans TROIS (`AbilityTrigger`, `AbilityBehaviour`, `TargetsSelector`). Keyer par le seul nom
+    fusionnerait leurs leviers et attribuerait a chacune la somme des autres."""
+    s = raw.strip()
+    if "$$" in s:
+        cls, meth = s.split("$$", 1)
+        return (family or cls.rsplit(".", 1)[-1]), meth
+    m = PRIM_RE.search(s)
     if m:
-        return m.group(1)
-    return raw.strip().rsplit(".", 1)[-1].split("$$")[-1]
+        return family, m.group(1)
+    return family, s.rsplit(".", 1)[-1]
 
 
-def norm_ability(raw, rev, gc_names):
-    """-> nom d'ability gameconfig, ou None si non resolu (compte comme UNMATCHED, jamais ignore)."""
+def trait_names():
+    """Traits EFFECTIVEMENT portes par au moins une unite du catalogue."""
+    c = gc._cfg()
+    out = set()
+    for kind in ("lineup", "npc", "summons"):
+        for u in c["units"][kind].values():
+            out |= set(u.get("traits") or [])
+    return out
+
+
+def norm_ability(raw, rev, gc_names, traits=frozenset()):
+    """-> nom d'ability gameconfig, ou None si non resolu (compte comme UNMATCHED, jamais ignore).
+
+    Le composeur d'un arbre DSL n'est pas toujours une classe d'ability : la table de xrefs de la
+    phase 1 attribue 2474 aretes sur 11180 a un EFFET (`owner_kind == effect`). Un effet appartient
+    a une ability (`HealingBalmsEffect` <- `HealingBalms`), et l'ignorer amputerait le levier de
+    22 % des aretes. `rev` porte donc AUSSI les classes d'effet -- construites par le meme
+    rapprochement prefixe strict, voie tracee separement dans le rapport."""
     s = raw.strip()
     if s in gc_names:
         return s
@@ -196,8 +231,18 @@ def norm_ability(raw, rev, gc_names):
     hit = rev.get(short)
     if hit:
         return sorted(hit)[0]
-    if short.endswith("Ability") and short[:-len("Ability")] in gc_names:
-        return short[:-len("Ability")]
+    for suffix in ("Ability", "Effect"):
+        if short.endswith(suffix) and short[:-len(suffix)] in gc_names:
+            return short[:-len(suffix)]
+    # Voie TRAIT : un trait accorde une ability sans aucune entree `units.*Abilities` -- la classe
+    # native existe (`FinalJusticeAbility` <- trait `FinalJustice`) mais aucun nom gameconfig ne
+    # lui repond. L'ecarter sous-estimerait le levier des primitives qu'elle compose (300 aretes
+    # mesurees). L'etage B publie ces porteurs en lignes `trait:<Nom>`.
+    for suffix in ("Ability", "Effect"):
+        if short.endswith(suffix):
+            base = short[:-len(suffix)].rstrip("_")
+            if base in traits:
+                return "trait:" + base
     return None
 
 
@@ -260,7 +305,7 @@ def stale_citations(build, rows, citations_path):
 
 
 def write_doc(path, build, rows, reach, p1, fwd, unmatched_prim, unmatched_abil, n_rel,
-              stale=None):
+              stale=None, n_edges=0, by_kind=None):
     """Carte lisible. Elle DIT ce qui n'est pas mesure au lieu de rendre un zero."""
     fam = defaultdict(lambda: defaultdict(int))
     for r in rows:
@@ -276,7 +321,7 @@ def write_doc(path, build, rows, reach, p1, fwd, unmatched_prim, unmatched_abil,
     tot = defaultdict(int)
     for f in sorted(fam):
         n = sum(fam[f].values())
-        L.append("| DSL%s | %s | %d |" % (f, " | ".join(str(fam[f][v]) for v in verdicts), n))
+        L.append("| %s | %s | %d |" % (f, " | ".join(str(fam[f][v]) for v in verdicts), n))
         for v in verdicts:
             tot[v] += fam[f][v]
     L.append("| **TOTAL** | %s | **%d** |" % (
@@ -307,15 +352,41 @@ def write_doc(path, build, rows, reach, p1, fwd, unmatched_prim, unmatched_abil,
               "changement (le lecteur accepte TSV/JSON et trois formes de nom de chaque cote ;",
               "cf. `scripts/python/tests/test_326_dsl_join_offline.py`).", ""]
     else:
-        L += ["Relations retenues : **%d** | primitives non resolues : **%d** | abilities non "
-              "resolues : **%d** (comptees, jamais jetees)." % (
-                  n_rel, len(unmatched_prim), len(unmatched_abil)), "",
+        L += ["Aretes de la table phase 1 : **%d** | **retenues : %d (%.1f %%)** | rejetees cote "
+              "primitive : %d | rejetees cote owner : %d." % (
+                  n_edges, n_rel, 100.0 * n_rel / n_edges if n_edges else 0.0,
+                  sum(unmatched_prim.values()), sum(unmatched_abil.values())), ""]
+        if by_kind:
+            L += ["Les rejets sont VENTILES, pas jetes -- par `owner_kind` de la phase 1 : %s."
+                  % ", ".join("`%s` %d" % kv for kv in sorted(by_kind.items(),
+                                                              key=lambda x: -x[1])), "",
+                  "Ce qui reste non resolu est **structurel** : bases abstraites (`A*Ability`,",
+                  "`*Base`), abilities d'ENVIRONNEMENT (`Env*`, `PowerUp*`), internes du DSL",
+                  "lui-meme, et couche `utility`. Aucune ne repond a un nom d'ability du",
+                  "gameconfig -- ce n'est pas un defaut de lecture, c'est qu'elles n'en ont pas.", ""]
+        L += ["",
               "| # | famille | primitive | verdict port | abilities | dont confrontables | dont pool |",
               "|---:|---|---|---|---:|---:|---:|"]
         top = [r for r in rows if r["verdict"] not in PORTE_STATES]
         for i, r in enumerate(top[:40], 1):
-            L.append("| %d | DSL%s | `%s` | %s | %s | %s | %s |" % (
+            L.append("| %d | %s | `%s` | %s | %s | %s | %s |" % (
                 i, r["family"], r["name"], r["verdict"], r["n_abilities"],
+                r["n_confrontables"], r["n_pool"]))
+        L += ["", "Lire la colonne **verdict port** : ce tableau melange volontairement les trois",
+              "etats non attestes. `PORTE_SANS_CITATION` (`Sum`, `Min`, `Multiply`) est du code qui",
+              "EXISTE mais ne cite aucun artefact -- l'action y est d'ATTESTER, pas de porter.",
+              "`CITE_A_QUALIFIER` demande une relecture. Seul `NON_PORTE` est du portage sec :", ""]
+        strict = [r for r in rows if r["verdict"] == "NON_PORTE" and r["n_confrontables"]]
+        L += ["### 3bis. Le backlog SEC : primitives `NON_PORTE` avec un levier mesure", "",
+              "**%d primitives** `NON_PORTE` debloquent au moins une ability confrontable "
+              "(sur %d `NON_PORTE` au total -- les autres ont un levier mesure a zero, ce qui est"
+              " une mesure, pas une ignorance)." % (
+                  len(strict), sum(1 for r in rows if r["verdict"] == "NON_PORTE")), "",
+              "| # | famille | primitive | symbole | abilities | dont confrontables | dont pool |",
+              "|---:|---|---|---|---:|---:|---:|"]
+        for i, r in enumerate(strict[:30], 1):
+            L.append("| %d | %s | `%s` | `%s` | %s | %s | %s |" % (
+                i, r["family"], r["name"], r["symbol"], r["n_abilities"],
                 r["n_confrontables"], r["n_pool"]))
         L.append("")
 
@@ -328,7 +399,7 @@ def write_doc(path, build, rows, reach, p1, fwd, unmatched_prim, unmatched_abil,
         if r["verdict"] == "NON_PORTE":
             npf[r["family"]].append(r["name"])
     for f in sorted(npf):
-        L += ["**DSL%s** (%d) : %s" % (f, len(npf[f]),
+        L += ["**%s** (%d) : %s" % (f, len(npf[f]),
                                        ", ".join("`%s`" % n for n in sorted(npf[f]))), ""]
 
     n_map0 = sum(1 for a in fwd if not fwd[a])
@@ -352,6 +423,22 @@ def write_doc(path, build, rows, reach, p1, fwd, unmatched_prim, unmatched_abil,
           "|---|---:|---:|",
           "| `ghidra/functions.tsv`, marqueur `__Il2CppFullySharedGeneric` | 4882 | 4874 |",
           "| `frida/methods.tsv`, meme marqueur | 0 | 0 |",
+          "",
+          "**Un chiffre gshared sans son MOTIF n'est pas une mesure.** Les motifs sont EMBOITES,",
+          "donc deux lectures honnetes different d'un facteur 1,7 sans se contredire. Sur",
+          "`rnca9r7q6c`, colonne SYMBOLE de `ghidra/functions.tsv`, test sous-chaine :",
+          "",
+          "| motif | ghidra | frida |",
+          "|---|---:|---:|",
+          "| `__Il2CppFullySharedGeneric` (prefixe -- celui de `probe_259`) | 4874 | 0 |",
+          "| `FullySharedGenericType` | 4011 | 0 |",
+          "| `FullySharedGenericStructType` | 912 | 0 |",
+          "| `u003C__Il2CppFullySharedGenericTypeu003E` (forme delimitee) | 2830 | 0 |",
+          "",
+          "Le `2830` et le `4874` sont donc **la meme realite lue a deux granularites** : le second",
+          "est un prefixe qui englobe `StructType` et les formes non delimitees. Aucun motif ne",
+          "rend zero cote Ghidra. Re-deriver :",
+          "`python scripts/python/probe_326_dsl_primitive_inventory.py --compare gqfc5mff6c`.",
           "",
           "Le `0` cote Frida est STRUCTUREL et vaut pour les deux builds (le `methodPointer` d'une",
           "definition generique est un thunk, pas le corps) : le lire comme l'effondrement decrit",
@@ -423,6 +510,7 @@ def main():
     cov = read_tsv(os.path.join(REPO, args.coverage))
     reach = {r["ability"]: r for r in read_tsv(os.path.join(REPO, args.reach))}
     gc_names = set(gc._cfg()["units"]["abilities"])
+    traits = trait_names()
     fwd, rev = ability_class_map(build)
 
     map_path = os.path.join(REPO, args.map_out)
@@ -434,28 +522,41 @@ def main():
             fh.write("%s\t%d\t%s\n" % (aid, len(cs), ",".join(cs) or "-"))
 
     rel, p1_cols, unmatched_prim, unmatched_abil = [], None, defaultdict(int), defaultdict(int)
+    n_edges, by_kind_unres = 0, defaultdict(int)
     if args.p1:
         raw, p1_cols = read_p1(os.path.join(REPO, args.p1) if not os.path.isabs(args.p1) else args.p1,
                                args.col_primitive, args.col_ability)
-        known_prims = {r["name"] for r in cov}
-        for p, a in raw:
-            np_, na = norm_primitive(p), norm_ability(a, rev, gc_names)
-            if np_ not in known_prims:
-                unmatched_prim[p] += 1
-                continue
+        n_edges = len(raw)
+        # La cle est le COUPLE (famille, nom) -- cf. `norm_primitive`. On tolere une famille
+        # absente de la table en repliant sur le nom seul, mais on le SIGNALE au lieu de le taire.
+        known = {(r["family"], r["name"]) for r in cov}
+        by_name = defaultdict(set)
+        for r in cov:
+            by_name[r["name"]].add(r["family"])
+        for p, fam, a, kind in raw:
+            pf, pn = norm_primitive(p, fam)
+            if (pf, pn) not in known:
+                cand = by_name.get(pn)
+                if cand and len(cand) == 1:
+                    pf = next(iter(cand))
+                else:
+                    unmatched_prim[p] += 1
+                    continue
+            na = norm_ability(a, rev, gc_names, traits)
             if na is None:
                 unmatched_abil[a] += 1
+                by_kind_unres[kind or "?"] += 1
                 continue
-            rel.append((np_, na))
+            rel.append(((pf, pn), na))
 
     by_prim = defaultdict(set)
-    for p, a in rel:
-        by_prim[p].add(a)
+    for key, a in rel:
+        by_prim[key].add(a)
 
     rows = []
     for r in cov:
         name = r["name"]
-        abils = sorted(by_prim.get(name, ()))
+        abils = sorted(by_prim.get((r["family"], name), ()))
         conf = [a for a in abils if (reach.get(a) or {}).get("verdict") in CONFRONTABLE]
         pool = [a for a in abils if (reach.get(a) or {}).get("verdict") == "CONFRONTABLE_POOL"]
         rows.append({
@@ -486,13 +587,22 @@ def main():
     stale = stale_citations(build, rows,
                             os.path.join(REPO, "logs", "326_dsl_port_citations.tsv"))
     write_doc(os.path.join(REPO, args.doc), build, rows, reach, args.p1, fwd,
-              unmatched_prim, unmatched_abil, len(rel), stale)
+              unmatched_prim, unmatched_abil, len(rel), stale, n_edges, by_kind_unres)
 
     print("build=%s | primitives=%d | table phase 1 : %s"
           % (build, len(rows), args.p1 or "ABSENTE -> leverage NON_MESURABLE_P1"))
     if args.p1:
-        print("relations phase 1 retenues : %d | primitives non resolues : %d | abilities non resolues : %d"
-              % (len(rel), len(unmatched_prim), len(unmatched_abil)))
+        n_up = sum(unmatched_prim.values())
+        n_ua = sum(unmatched_abil.values())
+        print("aretes phase 1 : %d | retenues : %d (%.1f %%) | rejetees primitive : %d | "
+              "rejetees owner : %d" % (n_edges, len(rel),
+                                       100.0 * len(rel) / n_edges if n_edges else 0.0, n_up, n_ua))
+        if by_kind_unres:
+            print("  owners non resolus par owner_kind : %s"
+                  % ", ".join("%s=%d" % kv for kv in sorted(by_kind_unres.items(),
+                                                            key=lambda x: -x[1])))
+        print("primitives non resolues (cles distinctes) : %d | owners non resolus : %d"
+              % (len(unmatched_prim), len(unmatched_abil)))
         if unmatched_prim:
             print("  primitives inconnues (top) : %s"
                   % ", ".join(k for k, _ in sorted(unmatched_prim.items(), key=lambda x: -x[1])[:8]))
@@ -502,7 +612,7 @@ def main():
         top = [r for r in rows if r["verdict"] in ("NON_PORTE", "PORTE_HORS_FACADE")][:20]
         print("TOP primitives NON PORTEES par abilities CONFRONTABLES debloquees :")
         for r in top:
-            print("  %-6s %-34s %-18s conf=%-4s pool=%-4s"
+            print("  %-18s %-34s %-18s conf=%-4s pool=%-4s"
                   % (r["family"], r["name"], r["verdict"], r["n_confrontables"], r["n_pool"]))
     print("ecrit : %s" % args.out)
     print("ecrit : %s" % args.map_out)

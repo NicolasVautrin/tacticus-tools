@@ -41,6 +41,21 @@ DSL_FACTORY_CLASSES = [
     "IdunBattleLogic.Entities.DSLFactory",
 ]
 
+# Les COMBINATEURS du DSL ne sont pas des methodes de factory : ce sont les OPERATEURS surcharges
+# des 4 bases (`a & b`, `a | b`, `!a`, `a + b`, `a - b`). Les omettre a coute une erreur MESUREE :
+# mon premier inventaire, restreint aux classes-factory, ratait
+# `IdunBattle.DSL.AbilityTrigger$$op_BitwiseAnd` -- **540 composeurs**, la primitive la PLUS
+# utilisee du binaire selon la table de xrefs de la phase 1 (#325). Un vocabulaire dont il manque
+# le point de composition le plus frequent n'est pas un vocabulaire.
+# On ne prend QUE les `op_*` : les autres methodes de ces bases (`Select*`, `Calculate`,
+# `ShouldTrigger`, `ctor`) sont l'EVALUATION du noeud, pas du vocabulaire de composition.
+DSL_BASE_CLASSES = [
+    "IdunBattle.DSL.AbilityTrigger",
+    "IdunBattle.DSL.AbilityBehaviour",
+    "IdunBattle.DSL.TargetsSelector",
+    "IdunBattle.DSL.AAmountFormula",
+]
+
 # Namespaces des CLASSES DE NOEUD (le type construit par la factory). Le port cite tantot la
 # factory (`DSLFactory$$Filter`), tantot la classe de noeud (`...Selectors.XSelector$$Select`).
 NODE_NAMESPACES = (
@@ -100,14 +115,19 @@ def native_primitives(build: str):
     for p in load_methods(build):
         full = p[1]
         decl = p[2]
-        if decl not in DSL_FACTORY_CLASSES:
+        meth = full.rsplit(".", 1)[-1]
+        if decl in DSL_FACTORY_CLASSES:
+            pass
+        elif decl in DSL_BASE_CLASSES and meth.startswith("op_"):
+            pass
+        else:
             continue
-        fam = decl.rsplit(".", 1)[-1].replace("DSL", "")
-        name = full[len(decl) + 1:] if full.startswith(decl + ".") else full.rsplit(".", 1)[-1]
+        fam = decl.rsplit(".", 1)[-1]
+        name = full[len(decl) + 1:] if full.startswith(decl + ".") else meth
         key = (fam, name)
         e = prim.setdefault(key, {
             "family": fam, "name": name, "overloads_frida": 0, "overloads_ghidra": 0,
-            "symbol": "%s$$%s" % (decl, name), "sigs": [],
+            "symbol": "%s$$%s" % (decl, name), "sigs": [], "decl": decl,
         })
         e["overloads_frida"] += 1
         if len(p) > 5:
@@ -116,19 +136,26 @@ def native_primitives(build: str):
             e["sigs"].append("")
 
     ghidra_seen = defaultdict(int)
+    ghidra_decl = {}
     for sym in load_functions(build):
         if "$$" not in sym:
             continue
         cls, meth = sym.split("$$", 1)
-        if cls not in DSL_FACTORY_CLASSES:
+        if cls in DSL_FACTORY_CLASSES:
+            pass
+        elif cls in DSL_BASE_CLASSES and meth.startswith("op_"):
+            pass
+        else:
             continue
-        fam = cls.rsplit(".", 1)[-1].replace("DSL", "")
+        fam = cls.rsplit(".", 1)[-1]
         ghidra_seen[(fam, meth)] += 1
+        ghidra_decl[(fam, meth)] = cls
 
     for key, n in ghidra_seen.items():
         e = prim.setdefault(key, {
             "family": key[0], "name": key[1], "overloads_frida": 0, "overloads_ghidra": 0,
-            "symbol": "IdunBattleLogic.Entities.DSL%s$$%s" % (key[0], key[1]), "sigs": [],
+            "symbol": "%s$$%s" % (ghidra_decl[key], key[1]), "sigs": [],
+            "decl": ghidra_decl[key],
         })
         e["overloads_ghidra"] = n
     for key, e in prim.items():
@@ -198,6 +225,18 @@ def scan_port(root):
 
 
 MARQUEUR_GSHARED = "__Il2CppFullySharedGeneric"     # meme marqueur que probe_259
+
+# Le compte gshared depend du MOTIF, et deux lectures honnetes peuvent differer d'un facteur 1,7
+# sans se contredire : les motifs sont EMBOITES. Mesure sur `rnca9r7q6c`, colonne SYMBOLE de
+# `ghidra/functions.tsv`, test `in` (sous-chaine, pas regex) -- 4874 / 4011 / 912 / 2830. On les
+# publie tous les quatre plutot que d'en imposer un : un chiffre gshared sans son motif n'est pas
+# une mesure, c'est une opinion.
+MOTIFS_GSHARED = (
+    "__Il2CppFullySharedGeneric",                    # prefixe -- celui de probe_259
+    "FullySharedGenericType",
+    "FullySharedGenericStructType",
+    "u003C__Il2CppFullySharedGenericTypeu003E",      # forme delimitee complete
+)
 
 
 def gshared_axis_check(build):
@@ -276,8 +315,8 @@ def main():
     print("build=%s" % build)
     print("primitives DSL natives par famille :")
     for fam in sorted(fam_counts):
-        print("  DSL%-10s %4d" % (fam, fam_counts[fam]))
-    print("  TOTAL      %4d" % len(prim))
+        print("  %-22s %4d" % (fam, fam_counts[fam]))
+    print("  %-22s %4d" % ("TOTAL", len(prim)))
     print("classes de NOEUD natives (namespaces Selectors/Formulas/Behaviours/Triggers/DSL) : %d" % n_node_cls)
     print("citations de symbole natif dans scripts/python/engine/** : %d" % len(cites))
 
@@ -288,6 +327,12 @@ def main():
             state = ("attendu -- cette table ne porte JAMAIS ces corps" if ok is None
                      else ("MESURABLE" if ok else "NON MESURABLE (aucun corps nomme)"))
             print("     %-48s %5d  %s" % (label, n, state))
+        syms = load_functions(b)
+        meths = ["\t".join(p) for p in load_methods(b)]
+        print("     -- decomposition par MOTIF (un chiffre gshared sans son motif n'est pas une mesure)")
+        for m in MOTIFS_GSHARED:
+            print("        %-44s ghidra=%5d  frida=%5d"
+                  % (m, sum(1 for s in syms if m in s), sum(1 for s in meths if m in s)))
 
     if args.compare:
         lost, gained, na, nb = compare_builds(args.compare, build)

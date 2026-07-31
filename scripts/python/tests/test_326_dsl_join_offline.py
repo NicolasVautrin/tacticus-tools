@@ -23,11 +23,32 @@ import probe_326_dsl_join as J     # noqa: E402
 
 
 def test_norm_primitive_accepte_les_trois_formes():
-    """Nom nu, symbole `$$`, forme pointee -- meme primitive."""
-    assert J.norm_primitive("Filter") == "Filter"
-    assert J.norm_primitive("IdunBattleLogic.Entities.DSLSelectors$$Filter") == "Filter"
-    assert J.norm_primitive("DSLSelectors.Filter") == "Filter"
-    assert J.norm_primitive("IdunBattleLogic.Entities.DSLBehaviors$$AddEffect") == "AddEffect"
+    """Nom nu, symbole `$$`, forme pointee -- meme primitive, et la FAMILLE est conservee."""
+    assert J.norm_primitive("Filter") == ("", "Filter")
+    assert J.norm_primitive("IdunBattleLogic.Entities.DSLSelectors$$Filter") == ("DSLSelectors", "Filter")
+    assert J.norm_primitive("DSLSelectors.Filter") == ("", "Filter")
+    assert J.norm_primitive("IdunBattleLogic.Entities.DSLBehaviors$$AddEffect") == ("DSLBehaviors", "AddEffect")
+    # La famille DECLAREE par la table prime sur celle deduite du symbole.
+    assert J.norm_primitive("IdunBattleLogic.Entities.DSLSelectors$$If", "DSLSelectors") == ("DSLSelectors", "If")
+
+
+def test_famille_discrimine_les_homonymes():
+    """`If` existe dans QUATRE familles et `op_BitwiseAnd` dans TROIS. Keyer par le seul nom
+    fusionnerait leurs leviers -- chaque famille heriterait de la somme des autres."""
+    rows = J.read_tsv(str(ROOT / "logs" / "326_dsl_primitive_coverage.tsv"))
+    fams_if = {r["family"] for r in rows if r["name"] == "If"}
+    fams_and = {r["family"] for r in rows if r["name"] == "op_BitwiseAnd"}
+    assert len(fams_if) >= 3, fams_if
+    assert len(fams_and) >= 3, fams_and
+
+
+def test_les_operateurs_sont_dans_le_vocabulaire():
+    """Les combinateurs `a & b` / `!a` ne sont pas des methodes de factory mais des OPERATEURS des
+    bases. Les omettre retirait du vocabulaire la primitive la plus utilisee du binaire."""
+    rows = J.read_tsv(str(ROOT / "logs" / "326_dsl_primitive_coverage.tsv"))
+    ops = {(r["family"], r["name"]) for r in rows if r["name"].startswith("op_")}
+    assert ("AbilityTrigger", "op_BitwiseAnd") in ops
+    assert ("TargetsSelector", "op_Subtraction") in ops
 
 
 def test_ability_class_map_couvre_les_formes_composees():
@@ -53,14 +74,19 @@ def test_norm_ability_resout_les_trois_formes():
     build = J._current_build()
     import gameconfig as gc
     gc_names = set(gc._cfg()["units"]["abilities"])
+    traits = J.trait_names()
     _fwd, rev = J.ability_class_map(build)
     assert J.norm_ability("DawnBlade", rev, gc_names) == "DawnBlade"
     assert J.norm_ability("DawnBlade_HealAbility", rev, gc_names) == "DawnBlade"
     assert J.norm_ability(
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.DawnBlade_HealAbility$$CreateTrigger",
         rev, gc_names) == "DawnBlade"
+    # Voie TRAIT : le composeur natif existe, mais AUCUN nom d'ability gameconfig ne lui repond.
+    assert J.norm_ability("FinalJusticeAbility", rev, gc_names, traits) == "trait:FinalJustice"
+    # ... et sans la table des traits, il reste NON RESOLU (on ne devine pas).
+    assert J.norm_ability("FinalJusticeAbility", rev, gc_names) is None
     # inconnu -> None, JAMAIS une valeur inventee
-    assert J.norm_ability("CeciNEstPasUneAbility", rev, gc_names) is None
+    assert J.norm_ability("CeciNEstPasUneAbility", rev, gc_names, traits) is None
 
 
 def test_jointure_compte_les_non_resolus(tmp_path, capsys):
@@ -75,15 +101,19 @@ def test_jointure_compte_les_non_resolus(tmp_path, capsys):
     out = tmp_path / "lev.tsv"
     argv = sys.argv
     sys.argv = ["probe_326_dsl_join.py", "--p1", str(p1), "--out", str(out),
-                "--map-out", str(tmp_path / "map.tsv")]
+                "--map-out", str(tmp_path / "map.tsv"),
+                # `--doc` DOIT etre redirige : sans lui le test REGENERE le document versionne
+                # `docs/rl/dsl-primitive-leverage.md` avec ses donnees jouet, et le livrable se
+                # retrouve marque « phase 1 ABSENTE » alors qu'elle a ete jointe. Constate.
+                "--doc", str(tmp_path / "doc.md")]
     try:
         J.main()
     finally:
         sys.argv = argv
     txt = capsys.readouterr().out
-    assert "relations phase 1 retenues : 2" in txt
-    assert "primitives non resolues : 1" in txt
-    assert "abilities non resolues : 1" in txt
+    assert "aretes phase 1 : 4 | retenues : 2" in txt
+    assert "rejetees primitive : 1" in txt
+    assert "rejetees owner : 1" in txt
     assert "PrimitiveQuiNExistePas" in txt
     assert "AbilityQuiNExistePas" in txt
 

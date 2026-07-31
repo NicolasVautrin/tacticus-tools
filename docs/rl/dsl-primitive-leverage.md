@@ -20,27 +20,30 @@ Build mesure : `rnca9r7q6c`. Table phase 1 (#325) : **ABSENTE -- la colonne de l
 
 | famille | PORTE | PORTE_ALIAS_FACADE | PORTE_HORS_FACADE | PORTE_ARTEFACT_AUTRE | PORTE_SANS_CITATION | CITE_A_QUALIFIER | NON_PORTE | total |
 |---|---|---|---|---|---|---|---|---|
+| AbilityBehaviour | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
+| AbilityTrigger | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
 | DSLBehaviors | 46 | 5 | 3 | 0 | 0 | 16 | 57 | 127 |
 | DSLFactory | 0 | 0 | 0 | 0 | 0 | 2 | 3 | 5 |
 | DSLFormulas | 30 | 1 | 1 | 0 | 3 | 18 | 60 | 113 |
 | DSLSelectors | 64 | 3 | 2 | 0 | 0 | 20 | 106 | 195 |
 | DSLTriggers | 32 | 1 | 1 | 1 | 0 | 46 | 84 | 165 |
-| **TOTAL** | **172** | **10** | **7** | **1** | **3** | **102** | **310** | **605** |
+| TargetsSelector | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
+| **TOTAL** | **172** | **18** | **7** | **1** | **3** | **102** | **310** | **613** |
 
-**Porte atteste** (`PORTE` + `PORTE_ALIAS_FACADE` + `PORTE_HORS_FACADE`) = **189 / 605**.
+**Porte atteste** (`PORTE` + `PORTE_ALIAS_FACADE` + `PORTE_HORS_FACADE`) = **197 / 613**.
 `CITE_A_QUALIFIER` (102) n'est NI porte NI absent : l'artefact apparait dans `engine/**` sans porteur Python identifiable. C'est un etat A TRANCHER, pas un zero.
 
 ## 2. Joignabilite des abilities (etage B)
 
 | verdict | abilities |
 |---|---:|
-| CONFRONTABLE_POOL | 221 |
+| CONFRONTABLE_POOL | 263 |
 | SANS_PORTEUR_MESURE | 82 |
 | HORS_KIT_UNITE | 82 |
-| CONFRONTABLE_INJECTION | 52 |
-| NON_PERTINENT_NPC | 50 |
+| NON_PERTINENT_NPC | 57 |
+| CONFRONTABLE_INJECTION | 53 |
+| CONFRONTABLE_SUMMON | 36 |
 | SUMMON_SANS_SUMMONER_MESURE | 32 |
-| CONFRONTABLE_SUMMON | 25 |
 | CONFRONTABLE_RELIQUE_A_EQUIPER | 24 |
 | CONFRONTABLE_SUMMON_INJECTION | 4 |
 
@@ -92,6 +95,22 @@ tables VERSIONNEES, ce n'est pas l'etat courant** :
 | `ghidra/functions.tsv`, marqueur `__Il2CppFullySharedGeneric` | 4882 | 4874 |
 | `frida/methods.tsv`, meme marqueur | 0 | 0 |
 
+**Un chiffre gshared sans son MOTIF n'est pas une mesure.** Les motifs sont EMBOITES,
+donc deux lectures honnetes different d'un facteur 1,7 sans se contredire. Sur
+`rnca9r7q6c`, colonne SYMBOLE de `ghidra/functions.tsv`, test sous-chaine :
+
+| motif | ghidra | frida |
+|---|---:|---:|
+| `__Il2CppFullySharedGeneric` (prefixe -- celui de `probe_259`) | 4874 | 0 |
+| `FullySharedGenericType` | 4011 | 0 |
+| `FullySharedGenericStructType` | 912 | 0 |
+| `u003C__Il2CppFullySharedGenericTypeu003E` (forme delimitee) | 2830 | 0 |
+
+Le `2830` et le `4874` sont donc **la meme realite lue a deux granularites** : le second
+est un prefixe qui englobe `StructType` et les formes non delimitees. Aucun motif ne
+rend zero cote Ghidra. Re-deriver :
+`python scripts/python/probe_326_dsl_primitive_inventory.py --compare gqfc5mff6c`.
+
 Le `0` cote Frida est STRUCTUREL et vaut pour les deux builds (le `methodPointer` d'une
 definition generique est un thunk, pas le corps) : le lire comme l'effondrement decrit
 par #259 serait un faux. `probe_259_gshared_coverage.py` re-joue confirme -- famille
@@ -117,11 +136,10 @@ Un nom Python sans primitive homonyme n'est pas fautif en soi : il peut porter l
 CLASSE DE NOEUD (alias), un SLOT de la factory ou une piece d'infrastructure. Mais
 c'est aussi la ou se logerait un nom INVENTE, alors on le compte.
 
-**69 exports**, dont **56 citent un artefact natif** (alias) et **13 n'en citent aucun** :
+**69 exports**, dont **57 citent un artefact natif** (alias) et **12 n'en citent aucun** :
 
 | export | site | ce que la docstring en dit |
 |---|---|---|
-| `And` | `scripts/python/engine/entities/selectors/units.py:98` | `TargetsSelector.op_BitwiseAnd` : intersection par id. |
 | `Caster` | `scripts/python/engine/entities/selectors/tiles.py:21` | L'unite CASTER (`caster@+0x168`, ref passee aux selecteurs). Accesseur unit-domain = |
 | `CasterTile` | `scripts/python/engine/entities/selectors/accessors.py:19` | Tuile du caster (`UnitPosition.MainTile` du casterPosition passé par le generator) — pour une |
 | `Emit` | `scripts/python/engine/entities/behaviours.py:152` | Feuille GENERIQUE emettant UNE Operation : patron des feuilles concretes (`SpawnUnit`, |
@@ -135,7 +153,7 @@ c'est aussi la ou se logerait un nom INVENTE, alors on le compte.
 | `first_triggered_ability_of` | `scripts/python/engine/runner/abilities/behaviours/grants.py:119` | `Enumerable.First(caster.GetComponent<TriggeredAbilityComponent>().<coll @+0x18>)` -- la |
 | `resolve_unit` | `scripts/python/engine/dsl/base.py:64` | Evalue un noeud (souvent `Subject()`/`Target()`) en UN dict d'unite : dict direct, ou 1er dict d'une |
 
-Re-derive le 2026-07-31 : **aucun de ces 13 n'est un nom invente** -- ce sont
+Re-derive le 2026-07-31 : **aucun de ces 12 n'est un nom invente** -- ce sont
 des slots de la factory (`Caster`, `CasterTile`, `Subject`, `Target`, `TargetTile`,
 cf. `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`), des OPERATEURS
 (`And`/`TileIntersect` = `TargetsSelector.op_BitwiseAnd`), de l'infrastructure de

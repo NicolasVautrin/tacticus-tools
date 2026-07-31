@@ -57,6 +57,13 @@ DOTTED_RE = re.compile(r"\bDSL(?:Factory|Behaviors|Selectors|Formulas|Triggers)\
 NODECLS_RE = re.compile(
     r"\b(?:[A-Za-z_][A-Za-z0-9_]*\.)*(?:Entities\.(?:Selectors|Formulas|Behaviours|Triggers)|DSL)\."
     r"([A-Za-z_][A-Za-z0-9_]*)")
+# OPERATEURS surcharges des 4 bases DSL (`a & b`, `a | b`, `!a`, `a + b`, `a - b`). Le port ne les
+# nomme JAMAIS `op_*` -- il les appelle `And`, `Or`, `Not`, `Seq`, `TileIntersect`. Les apparier
+# par homonymie les declarerait tous NON PORTES, alors que ce sont les primitives de composition
+# les plus utilisees du binaire (`AbilityTrigger$$op_BitwiseAnd` : 540 composeurs). On les
+# apparie donc sur le COUPLE (base, operateur) tel que le port le CITE.
+OP_RE = re.compile(r"\b(AbilityTrigger|AbilityBehaviour|TargetsSelector|AAmountFormula)"
+                   r"(?:\$\$|\.)(op_[A-Za-z0-9_]+)")
 
 
 def read_native(path):
@@ -120,6 +127,8 @@ def cited_symbols(src):
         dotted.add(m.group(1))
     for m in NODECLS_RE.finditer(src):
         nodecls.add(m.group(1))
+    for m in OP_RE.finditer(src):
+        pairs.add((m.group(1), m.group(2)))
     return pairs, dotted, nodecls
 
 
@@ -191,11 +200,14 @@ def main():
     # Cet index est ce qui permet de reconnaitre un port sous un NOM PYTHON DIFFERENT : le port
     # `PushUnit`/`MoveUnit` mirrore `DisplaceUnitBehaviour`, donc la primitive `DisplaceUnit` EST
     # portee -- la chercher par homonymie seule la declarerait absente.
-    cited, facade_by_nodecls = {}, defaultdict(list)
+    cited, facade_by_nodecls, facade_by_op = {}, defaultdict(list), defaultdict(list)
     for name, e in exports.items():
         cited[name] = cited_symbols(e["source"])
         for nc in cited[name][2]:
             facade_by_nodecls[nc].append(name)
+        for (c, m) in cited[name][0]:
+            if m.startswith("op_"):
+                facade_by_op[(c.rsplit(".", 1)[-1], m)].append(name)
 
     rows = []
     for prim in native:
@@ -225,12 +237,19 @@ def main():
             #      (son nom apparait dans le fichier ou la classe englobante) -> port inline ;
             #  (c) citee sans porteur plausible -> A QUALIFIER (mention documentaire ou port sous
             #      un nom trop eloigne). Ce n'est PAS « non porte » : c'est non tranche.
+            alias_op = facade_by_op.get((fam, name)) if name.startswith("op_") else None
             alias_nc = _matches_node_class(name, set(facade_by_nodecls))
             cites = list(port_hits.get(name, ()))
             nc = _matches_node_class(name, set(node_hits))
             if nc:
                 cites += list(node_hits[nc])
-            if alias_nc:
+            if alias_op:
+                alias = sorted(alias_op)[0]
+                verdict = "PORTE_ALIAS_FACADE"
+                evidence = "operateur %s$$%s porte par `%s`" % (fam, name, alias)
+                ex = exports[alias]
+                where = "%s:%d" % (ex["file"], ex["line"])
+            elif alias_nc:
                 alias = sorted(facade_by_nodecls[alias_nc])[0]
                 verdict = "PORTE_ALIAS_FACADE"
                 evidence = "noeud:%s porte par `%s`" % (alias_nc, alias)
@@ -304,13 +323,13 @@ def main():
     if unknown:
         raise SystemExit("verdicts non listes dans le tableau : %s" % ", ".join(sorted(unknown)))
     print("primitives natives : %d" % len(rows))
-    print("%-12s %s" % ("famille", " ".join("%-20s" % v for v in verdicts)))
+    print("%-20s %s" % ("famille", " ".join("%-20s" % v for v in verdicts)))
     tot = defaultdict(int)
     for fam in sorted(counts):
-        print("%-12s %s" % ("DSL" + fam, " ".join("%-20d" % counts[fam][v] for v in verdicts)))
+        print("%-20s %s" % (fam, " ".join("%-20d" % counts[fam][v] for v in verdicts)))
         for v in verdicts:
             tot[v] += counts[fam][v]
-    print("%-12s %s" % ("TOTAL", " ".join("%-20d" % tot[v] for v in verdicts)))
+    print("%-20s %s" % ("TOTAL", " ".join("%-20d" % tot[v] for v in verdicts)))
     assert sum(tot.values()) == len(rows), "total != nombre de primitives"
     n_sans = sum(1 for r in orphan_rows if r[1] == "SANS_ARTEFACT_CITE")
     print("exports Python sans primitive native homonyme : %d "

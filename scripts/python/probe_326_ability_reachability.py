@@ -154,8 +154,12 @@ def build_index():
     amb = tv.get("ambushUnitToSpawn")
     if isinstance(amb, str) and amb in summons:
         spawned_by[amb].add("trait:Ambush")
+    trait_carriers = defaultdict(set)
+    for k in kits:
+        for tid in (k.get("traits") or []):
+            trait_carriers[tid].add(k["id"])
     return {"abilities": abilities, "cat": cat, "carriers": carriers,
-            "spawned_by": spawned_by, "summons": summons}
+            "spawned_by": spawned_by, "summons": summons, "trait_carriers": trait_carriers}
 
 
 def summoner_units(aid, idx, depth=0, seen=None):
@@ -194,6 +198,43 @@ def main():
     non_couvertes = ",".join(n for n, _ in unit_map.VOIES_NON_COUVERTES)
 
     rows = []
+    # --- Les TRAITS, entrees a part entiere -------------------------------------------------
+    # `unit_map` classe `trait` parmi les voies NON couvertes : un trait accorde une ability sans
+    # aucune entree `units.*Abilities`. Cote natif, ces abilities existent bel et bien
+    # (`FinalJusticeAbility`, `ActOfFaithAbility`, `BattleFatigueAbility`, ...) et composent des
+    # arbres DSL -- la table de xrefs de la phase 1 leur attribue 300 aretes. Les laisser hors du
+    # denominateur SOUS-ESTIME le levier des primitives qu'elles utilisent. On les rend donc en
+    # lignes `trait:<Nom>`, avec la meme gate de confrontabilite que les abilities.
+    for tid in sorted(idx["trait_carriers"]):
+        carriers = idx["trait_carriers"][tid]
+        by_cat = defaultdict(set)
+        for uid in carriers:
+            by_cat[idx["cat"].get(uid, "?")].add(uid)
+        hero_mow = by_cat["hero"] | by_cat["mow"]
+        in_pool = (hero_mow & pool_all) if pool_measured else set()
+        off_pool = hero_mow - in_pool
+        if in_pool:
+            verdict = "CONFRONTABLE_POOL"
+        elif off_pool:
+            verdict = "CONFRONTABLE_INJECTION"
+        elif by_cat["summon"]:
+            verdict = "CONFRONTABLE_SUMMON"
+        elif by_cat["npc"]:
+            verdict = "NON_PERTINENT_NPC"
+        else:
+            verdict = "SANS_PORTEUR_MESURE"
+        if not pool_measured and verdict.startswith("CONFRONTABLE"):
+            verdict = "NON_MESURABLE_POOL"
+        rows.append({
+            "ability": "trait:" + tid, "verdict": verdict, "relic_state": "-",
+            "hero_pool": len(in_pool), "hero_offpool": len(off_pool),
+            "n_hero": len(by_cat["hero"]), "n_mow": len(by_cat["mow"]),
+            "n_summon": len(by_cat["summon"]), "n_npc": len(by_cat["npc"]),
+            "voies": "trait", "summoners": "-",
+            "sample_carrier": ",".join(sorted(in_pool or off_pool or carriers)[:3]) or "-",
+            "variante_portee": "-", "voies_non_couvertes": "-",
+        })
+
     for aid in sorted(idx["abilities"]):
         chans = idx["carriers"].get(aid, {})
         by_cat = defaultdict(set)
@@ -306,7 +347,9 @@ def main():
         counts[r["verdict"]] += 1
         if r["relic_state"] != "-":
             relics[r["relic_state"]] += 1
-    print("abilities gameconfig : %d" % len(rows))
+    n_traits = sum(1 for r in rows if r["ability"].startswith("trait:"))
+    print("entrees : %d (%d abilities gameconfig + %d traits)"
+          % (len(rows), len(rows) - n_traits, n_traits))
     print("pool mesure : %s (%s units + %s MoW)" % (
         "oui" if pool_measured else "NON -- verdicts rabattus en NON_MESURABLE_POOL",
         len(pool_units) if pool_measured else "?", len(pool_mow) if pool_measured else "?"))
