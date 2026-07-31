@@ -126,13 +126,23 @@ def test_the_regime_is_not_degenerate(measured):
 
 
 def test_port_matches_the_native_on_both_arms(measured):
-    """D : le terme degat du port == `pairUtility` natif, sur les DEUX parites."""
+    """D : le terme degat du port == `pairUtility` natif, sur les DEUX parites.
+
+    Deux mesures, et il FAUT les deux : `to_even` prouve que le MODE lu au decompile est le bon,
+    `current` prouve que c'est bien CE mode que le moteur applique aujourd'hui. Les quatre
+    variantes REMPLACENT `DamageUtility.get_shield_damage` : sans `current`, une regression du
+    code reel ne rougirait nulle part."""
     for key, arm in measured["arms"].items():
         d = arm["measured_steps"]["to_even"]
         assert abs(d) < TOL_STEPS, (
             "bras %s : port %s != natif %s (ecart %s = %+.3f pas) -- l'arrondi demi-vers-le-pair "
-            "n'est pas (ou plus) applique par `DamageUtility.get_shield_damage`"
+            "n'est pas le mode du natif sur le terme BOUCLIER"
             % (key, arm["ports"]["to_even"], arm["native"], arm["deltas"]["to_even"], d))
+        c = arm["measured_steps"]["current"]
+        assert abs(c) < TOL_STEPS, (
+            "bras %s : le moteur EN VIGUEUR rend %s la ou le natif rend %s (ecart %+.3f pas) -- "
+            "`DamageUtility.get_shield_damage` n'applique plus `min_max_avg`"
+            % (key, arm["ports"]["current"], arm["native"], c))
 
 
 def test_round_to_even_is_the_only_mode_null_on_both_arms(measured):

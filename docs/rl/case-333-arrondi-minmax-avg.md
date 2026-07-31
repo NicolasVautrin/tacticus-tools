@@ -192,11 +192,11 @@ et `engine/runner/abilities/votann.py:388` (`first_by_damage_utility(..., avg, a
 
 ## 7. Ce qui n'est PAS couvert
 
-- **Le terme BOUCLIER n'est pas exercé LIVE.** `AccurateShieldDamage` vaut `[0,0]` sur tous les
-  montages : `BC.Units[].Shield` existe mais **n'est pas honoré au déploiement** (mesuré —
-  `--unit-stat "genesPrimus:Shield=6000"` rend `shieldBefore = 0`). La route pour l'exercer est de
-  POSER un bouclier en bataille (vecteur `ArcaneShield`, cf. `case-n1-arcane-shield-vector.md`)
-  avant de prédire. C'est le MÊME appel `min_max_avg`, couvert offline.
+- **Le terme BOUCLIER est confronté par #342**, pas ici. `AccurateShieldDamage` valait `[0,0]` sur
+  tous les montages de ce cas ; le levier manquait (`BC.Units[].Shield` n'est lu par aucun chemin de
+  déploiement). #342 l'obtient en faisant POSER le bouclier en bataille (`ArcaneShield`) et pilote
+  la parité par le CAP de la borne haute : `to_even` y est la seule variante nulle sur les deux
+  bras, sur trois montages. Détail : `case-342-shield-lever.md`.
 - **La branche `LimitedByMinHp`** court-circuite `Avg` : elle est gardée offline, jamais atteinte
   live sur ces montages.
 - **Les bornes NÉGATIVES** (`floor` vers −inf) sont transcrites et gardées offline ; le rail de

@@ -151,6 +151,10 @@ def _measure(sid, sf, seed, roster, board, center, damage, wt, label) -> dict:
         my_team = team_by_id.get(ids[att])
         ports = {name: _port_utility(evs, hpmax, team_by_id, my_team, wt, fn)
                  for name, fn in VARIANTS}
+        # `current` = le port TEL QU'IL EST, SANS aucun patch. Les quatre variantes REMPLACENT
+        # `get_shield_damage` : sans cette 5e mesure, une regression du code REEL passerait
+        # inapercue (la garde ne verrouillerait que le catalogue de variantes, pas le moteur).
+        ports["current"] = port_pair_utility(evs, hpmax, team_by_id, my_team, wt)
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -366,12 +370,13 @@ def run(seed: int = 34201, state_file=None, verbose: bool = True,
                 print("[342] bras %s : ERREUR %s" % (key, arm["error"]))
             continue
         exp = _expected(arm)
+        exp["current"] = 0.0          # le port en vigueur DOIT egaler le natif
         arm["expected_steps"] = exp
         arm["measured_steps"] = {k: (None if d is None or not arm["step"] else d / arm["step"])
                                  for k, d in arm["deltas"].items()}
         arm["ok"] = all(
             arm["measured_steps"][k] is not None and abs(arm["measured_steps"][k] - exp[k]) < 0.02
-            for k, _ in VARIANTS)
+            for k in tuple(n for n, _ in VARIANTS) + ("current",))
         # Le regime doit etre NON DEGENERE : bouclier reellement pose, borne haute CAPEE (c'est
         # ce qui produit l'imparite), somme impaire, et pas de court-circuit `LimitedByMinHp`.
         arm["ok"] = bool(arm["ok"] and arm["sum_odd"] and arm["shieldBefore"] > 0
@@ -386,7 +391,7 @@ def run(seed: int = 34201, state_file=None, verbose: bool = True,
                      arm["healthDmgMin"], arm["healthDmgMax"], arm["combinedMax"], arm["step"]))
             print("  kill=%s killSure=%s limitedByMinHp=%s  natif=%s"
                   % (arm["kill"], arm["killSure"], arm["limitedByMinHp"], _f(arm["native"])))
-            for name, _fn in VARIANTS:
+            for name in tuple(n for n, _ in VARIANTS) + ("current",):
                 print("    %-10s port=%-14s delta=%-14s = %+.3f pas (attendu %+.3f)"
                       % (name, _f(arm["ports"][name]), _f(arm["deltas"][name]),
                          arm["measured_steps"][name] or 0.0, exp[name]))
