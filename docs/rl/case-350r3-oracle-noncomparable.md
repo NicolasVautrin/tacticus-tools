@@ -114,6 +114,12 @@ Ancrage : **`IdunBattle.AI.Playbook.ProbableDamageEvent$$.ctor`**, corps UNIQUE,
 `(target: IEntity, damagePrediction: DamagePredictionResult, probability: Nullable<Fix64>,
 weight: Nullable<Fix64>)` — donc résoluble par `findClassAnywhere` + `findMethod`, **sans aucune RVA**.
 
+Le ctor écrit dans `this` (= `args[0]`) : `Target` à `+0x00`, les **0xa0** octets du
+`DamagePredictionResult` de `+0x08` à `+0xa4`, `Probability` à `+0xa8`, `Weight` à `+0xb0` — donc
+exactement ce que `readDamageEvent` lit, et la capture se fait en `onLeave` (la struct vit sur la pile
+de l'appelant et n'est remplie qu'au retour). Les deux `Nullable<Fix64>` sont **résolues par le ctor
+lui-même** (`Fix64(1)` quand `hasValue` est faux), donc le champ capturé est la valeur effective.
+
 Le RPC est **fenêtré**, pas armé en permanence : il attache le trampoline, invoque le wrapper
 `Evaluate` du playbook (même résolution que `ncEvaluate` — appeler la leaf nue crashe, l'`AbilityState`
 manque), détache immédiatement, puis décode le buffer avec `readDamageEvent`. Il n'existe donc à aucun
