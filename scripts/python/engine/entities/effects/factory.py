@@ -135,6 +135,7 @@ from .loki import (
     VisionsOfHeresyExtraPierceMeleeEffect,
     VisionsOfHeresyExtraPierceRangedEffect,
     WarHowlExtraDamageUnstoppableEffect,
+    InescapableAccuracyExtraCritChanceEffect,
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
@@ -729,6 +730,21 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Unstoppable`, isTemporary) est LU par le substrat d'entite (`combatSnapshot.units[].traits`,
     # MESURE : u81 gagne 1042 au cast) ; sa POSE offline attend le port de l'ability 1106.
     "WarHowl_ExtraDamage_Unstoppable": WarHowlExtraDamageUnstoppableEffect,
+    # 1115 InescapableAccuracy_extraCritChance (case-366-r1) : volet CHANCE DE CRIT du passif
+    # `InescapableAccuracy` (TriggeredAbilityType 0x45b = 1115) d'`eldarMauganRa`.
+    # `InescapableAccuracyAbility$$CreateBehaviour` pose les TROIS effets d'un bloc sur l'Owner
+    # (`AddEffect(0x45b) + AddEffect(0x45c) + AddEffect(0x45d)`, `turns = NULL` -> PERMANENTS).
+    # TROIS classes natives et non une, tranche par le SLOT `Il2CppClass*` : les fabriques
+    # `EffectsDatabase.<>c$$<InitializeEffects>b__14_141/142/143` allouent depuis TROIS slots
+    # DIFFERENTS puis appellent le MEME corps de `$$.ctor` (dedup IL2CPP d'un corps bit-identique --
+    # le nom du ctor ne dit donc RIEN de l'identite de classe). Seul le chemin de 1115 est porte ici :
+    #   `...InescapableAccuracy_ExtraCritChanceEffect$$CreateCritChanceBonus`
+    #       = ForAddition(get_OwnerIsCaster & IsRangedAttack, ConfigVar(0x41 = extraCritChance))
+    #   + `CreateActiveCondition` (corps PARTAGE par les trois) = NOT HasFlag(Owner, 0 = UnitFlag.Moved).
+    # N'HERITE RIEN de son voisin 1222 : pas de `IsNormalAttack`, pas d'`AmountIsGreaterThanZero`,
+    # et le gate d'attaque est l'INVERSE (RANGED). 1116 (`CreateCritDamageBonus`, ConfigVar 0x42) et
+    # 1117 (`ActiveCondition` + `CreateBlockHitReductionTrigger`) restent NON portes.
+    "InescapableAccuracy_extraCritChance": InescapableAccuracyExtraCritChanceEffect,
     # 1291 HeavyGravCannon : owner-effect du PASSIF homonyme d'admecDestroyer <<Sy-Gex>>. Classe DEDIEE
     # `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect` a DEUX canaux partageant UNE condition
     # (`...$$DamageCondition` = OwnerIsActor & IsRangedAttack & (HasTrait(target,5=Mechanical) |
