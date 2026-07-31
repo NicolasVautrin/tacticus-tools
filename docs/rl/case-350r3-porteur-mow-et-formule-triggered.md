@@ -221,6 +221,73 @@ port est fidèle, et l'écart est dans la **POSE** de l'effet (face COMBAT), hor
 `Units(<tuile non marchable>)` rend vide de toute façon. D'où une garde par **inclusion** (les
 tuiles allumées sont dans le triangle attendu, centre compris), pas par égalité.
 
+### Le **BRANCHEMENT** de cette prédiction sur la route de DÉCISION (#359-r3)
+
+La mécanique ci-dessus était portée et confrontée ; elle n'était **branchée nulle part**.
+`DaemonicOrdnancePlaybook` (port) héritait de `NonAttackComparablePlaybook.make_damage_predictions`,
+qui rend `[]` — donc terme de prédiction **nul partout**, y compris là où le natif prédit.
+
+`DaemonicOrdnancePlaybook$$MakeDamagePredictions` **relu** : liste vide, puis, pour chaque entité de
+`GetEntitiesFromSelector(GetAllDamageableTargets, caster, casterPosition, target)`,
+`AddRange(GenerateMultiHitAttackPredictions(caster, casterPosition, e, DSLSelectors$$Entity(e),
+GetDamage(…), GetHits(), 0, Nullable<DamageProfile>(null), 0))`. **Il n'y a pas de « cible
+principale »** — et ce n'est pas un détail de forme : `<Target>` est ici une entité **TUILE**
+(`0x46000040`, bit 6), qui ne prend aucun dégât. La forme « main + AoE » de
+`prediction.make_damage_predictions` est le mirror du régime à cible **UNITÉ** (celui de l'oracle
+`aiPlaybookPredict`, #359-r1) ; sur la route de DÉCISION c'est la **BOUCLE** qui est le mirror. D'où
+un override dans le playbook, exactement comme `PlagueburstMortarPlaybook.make_damage_predictions`.
+`param_8 = null` est **lu** dans `_PLAYBOOK_PROFILE_OVERRIDE[1148]` (foyer unique déjà confronté),
+jamais recopié en littéral.
+
+Le sélecteur est TILE-DOMAIN : il exigeait `tile_has_effect` au `DslContext` de la route tuile
+(`playbook/tile_targets.py`), par le **même** `_tile_has_effect_from_scene` que la face PRÉDICTION.
+Inerte pour `1169`, dont aucun nœud ne lit d'effet de tuile.
+
+**Montage** (`probe_302_3_daemonic_ordnance.py --burning`), et il tient à **deux** trouvailles :
+
+1. **1148 SORT du kit après son cast** (`decisionView.abilities = [69]` seul, `allAbilities: True`
+   compris) et le feu ne dure que `DefaultAmountOfRounds(5) = 2` rounds : un mono-porteur devrait
+   attendre un cooldown qui **survit au feu** — régime inatteignable. On greffe donc 1148 sur
+   **deux** unités : un ALLUMEUR, qui caste et part en cooldown, et le DÉCIDEUR, mesuré **dans le
+   même tour**. ⚠ Lire le seul `cooldown` d'une entrée ABSENTE rend `None`, qui se lit exactement
+   comme « purgé » — le probe teste désormais la PRÉSENCE.
+2. **Les tuiles embrasées sont MESURÉES, pas déduites** : la zone-triangle nominale compte 3 tuiles,
+   celle qui brûle en compte 2 (cast sur `(4,1)` → `{(4,1), (5,2)}`). Placer sur la géométrie
+   nominale mettait un ennemi hors du feu, et le montage rendait **1** event au lieu de 2, en
+   silence.
+
+Deux ancres, l'ordre s'**inverse** selon que le terme est branché : FROIDE 3 ennemis (custom **30**,
+prédiction 0) contre CHAUDE 2 ennemis brûlants (custom **20** + 2 events). L'écart de custom est
+d'**un** ennemi, franchi par `AbilityVariablesMultiplierPercentage = 400` sur le décideur — levier
+qui n'agit **que** sur 1148 ; baisser les PV relèverait l'attaque normale autant (mesuré : PV de
+l'ennemi chaud à `8000` → `_best_attack.full = 166.98` contre `70.0` pour 1148, le natif ATTAQUE et
+1148 n'est plus élue du tout — c'est pourquoi ce levier a été abandonné et n'a pas d'option CLI).
+
+**Bras TÉMOIN, et il est indispensable** : avec **UN SEUL** ennemi brûlant, l'écart de custom vaut
+DEUX ennemis (30 contre 10) et le terme (`U = 13.96`) ne suffit pas — le natif COMME le port restent
+sur l'ancre FROIDE. Le terme ne renverse donc pas *par principe*, il renverse quand il PÈSE plus que
+l'écart. Sans ce bras, un port qui préférerait la zone brûlante systématiquement passerait le bras
+séparant.
+
+| mesure | natif | port APRÈS | port AVANT (débranché) |
+|---|---|---|---|
+| tuile élue, **2** brûlants (custom 30 vs 20) | `(1148, 49)` = `(4,1)` | = natif | **`(1148, 52)` = `(4,4)`** |
+| tuile élue, **1** brûlant (custom 30 vs 10) — TÉMOIN | `(1148, 52)` = `(4,4)` | = natif | = natif |
+| agreement, marche entière | — | **11/11** casts, 7/7 pos, 4/4 stay | **10/11** casts |
+
+Le désaccord du bras débranché, verbatim :
+`step 0 u87: ABIL native(ab=1148,tgt=49) engine=ability(ab=1148,tgt=52) [MISS]`.
+
+⚠ `engine_validate.run_agreement` accepte désormais `spawn_groups` (défaut `None` = inchangé) :
+sans lui, `IsPositionMachineForCurrentPlayer` retombe sur son repli et 1148 marche sur le mauvais
+triangle — le désaccord n'accuserait alors que le harnais.
+
+**La garde qui semblait devoir tomber ne tombe pas.**
+`test_prediction_term_is_zero_because_the_area_is_not_burning` reste **verte** : ce que le
+branchement change, c'est le régime BRÛLANT, pas le régime froid, où le sélecteur reste vide **par
+construction native**. Seule sa docstring encodait l'ancien comportement (« ce test DOIT tomber ») ;
+l'assertion garde désormais le **gate de sélecteur**.
+
 ---
 
 ## (c) `1160 HeavyRailRifle` — l'objet évalué est la TriggeredAbility `1260`
@@ -278,6 +345,8 @@ Hors périmètre `#350-r3`.
 | `tests/engine/test_350r3_mow_carrier_live.py` (6) | pools disjoints + chemin MoW câblé ; la MoW-caster est MESURABLE par l'oracle qui passe la position du CASTER (#360) ; 1147 `to_even` seule nulle sur deux bras ; 1148 en accord dans les **deux** régimes de feu ; **(#359)** le volet AoE sur 4 régimes + sa généralisation (autre board, caster allié) |
 | idem — **(7)(8)** (#359-r1) | le SET AoE de 1148 sur 3 régimes, dont celui où la cible demandée n'a AUCUN event natif ; les VALEURS séparées par cible (armures pilotées) ; le port d'AVANT EXIGÉ différent ; et **(8)** le même montage sur un board où `dir` bascule — les deux ensemble bornent les deux branches du `If` |
 | `probe_350r3_mow_caster.py` | le montage (`--only-scan`, `--step 1|2|3|4|5|6|7`) ; `--step 6` imprime la DÉCOMPOSITION PAR ÉTAGE du set (classe routée, board, `mow_position`, triangle brut + élévations + marchabilité, zone, tuiles en feu, AoE) — c'est elle qui a désigné le canal manquant au lieu d'un `[]` muet |
+| `tests/engine/test_daemonic_ordnance_decision_live.py` — **H** (#359-r3) | le régime BRÛLANT de la route de DÉCISION : le montage brûle vraiment (2 tuiles chaudes en feu, 0 froide, 2 events contre 0) et le custom FAVORISE la froide ; 1148 bat l'attaque normale (sinon la mesure porterait sur l'arbitrage, pas le ciblage) ; accord natif/port sur la tuile élue ; et la VUE ROUGE — `make_damage_predictions` remis sur le corps de base élit l'ancre FROIDE |
+| `probe_302_3_daemonic_ordnance.py --burning \| --agreement [--unbranched]` | le montage à DEUX porteurs + la marche entière (11/11 contre 10/11) |
 
 **Mutations jouées, toutes rouges** :
 
@@ -293,6 +362,7 @@ Hors périmètre `#350-r3`.
 | **(#359-r1)** retirer `1148` de `_MAKE_DMG_TARGET_GATE` | live R\_B : le port ajoute un event sur la cible FROIDE — `port [{'target': 79, …}, {'target': 77, …}] != natif [{'target': 77, …}]` |
 | **(#359-r1)** débrancher `current_player_machine_position` | live R\_B sur `MC1_67` : `port [] != natif […]` — et **VERT sur `C1_15`**, où la dégradation coïncide avec `dir = 4` |
 | **(#359-r1)** débrancher `tile_has_effect` | live R\_B : `port [] != natif […]` |
+| **(#359-r3)** remettre `make_damage_predictions` sur le corps de base (= le port d'AVANT) | live, zone en feu : `step 0 u87: ABIL native(ab=1148,tgt=49) engine=ability(ab=1148,tgt=52) [MISS]` — agreement 10/11 au lieu de 11/11 |
 
 ## Ce qui n'est PAS couvert
 
@@ -321,13 +391,13 @@ Hors périmètre `#350-r3`.
 - **La tuile NON MARCHABLE du triangle** (`C1_15`, `(2,3)`) : le natif ne l'allume pas alors qu'aucun
   des deux sélecteurs lus ne filtre la marchabilité. L'écart est dans la POSE de l'effet (face
   COMBAT, `AddEffectOperation` sur une entité-tuile) — **non tranché**, inerte pour la prédiction.
-- **Le BRANCHEMENT de la prédiction de 1148 sur sa route de DÉCISION** — résidu **NEUF**, et c'est
-  désormais le seul qui reste sur cette ability. `DaemonicOrdnancePlaybook` (port) hérite de
-  `NonAttackComparablePlaybook`, dont `make_damage_predictions` rend `[]` par construction ; le
-  natif, lui, a un `MakeDamagePredictions` **bespoke**. Le terme de prédiction de son
-  `CalculateActionUtility` vaut donc toujours 0 côté port, ce qui SOUS-ESTIME l'utilité de 1148 dès
-  que la zone brûle. La mécanique, elle, n'est plus le verrou : `prediction.make_damage_predictions`
-  rend les bons events. Y router change une utilité de décision et fait tomber
-  `test_daemonic_ordnance_decision_live.py::test_prediction_term_is_zero_because_the_area_is_not_burning`
-  → tranche à part, avec son propre montage d'utilité.
+- ~~**Le BRANCHEMENT de la prédiction de 1148 sur sa route de DÉCISION**~~ — **FERMÉ (#359-r3)**,
+  section dédiée ci-dessus.
+- **La généralisation du montage BRÛLANT à un board où `dir` bascule** (#359-r3) : **NON COUVERTE**.
+  Le placement piloté échoue sur `C1_03` — `act move` respecte la portée de déplacement de l'unité,
+  et les spawns y sont trop loin des ancres (`worldTerminator` reste à `(1,3)` au lieu de `(4,3)`) ;
+  le probe le REFUSE (`placement KO (obtenu, attendu)`) au lieu de mesurer un montage dégradé.
+  Portée bornée : le branchement lui-même ne lit pas `dir`, et les DEUX branches du `If` sont déjà
+  gardées ailleurs — bras `--flip` (`C1_03`) côté custom, `C1_15` côté prédiction (#359-r1). Ce qui
+  manque est une confrontation du branchement sous `dir = 4`, pas une lecture.
 - **La couche TRIGGERED** (tableau ci-dessus) : lue, non portée, non confrontée.

@@ -94,9 +94,22 @@ def dsl_context_for_tile_target(ctx):
     # `MC1_67`/`SpawnPointSetIndex 1`, le natif vise le triangle `{S, SE}`, donc position 2.
     mow_pos = ctx.machine_of_war_position() if hasattr(ctx, "machine_of_war_position") else None
 
+    # `HasEffect(<entite-tuile>, 5 = Fire)` -- branche TUILE de
+    # `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects`, lue par le `Filter` de
+    # `DaemonicOrdnanceAbility$$GetAllDamageableTargets`. Le substrat est le MEME
+    # `Scene.tile_effects_by_pos` que le gate de cible principale et que le set AoE de la face
+    # PREDICTION : un seul foyer (`_tile_has_effect_from_scene`, #359-r1), donc la route de DECISION
+    # et la face PREDICTION ne peuvent pas se contredire sur « cette tuile brule ».
+    # Carte d'effets absente -> l'helper rend `None` -> le noeud `HasEffect` rend False lui-meme
+    # (feu INCONNU, jamais suppose) : c'est le regime du natif sur tout board frais.
+    # Import LOCAL : `playbook.prediction` tire tout le registre d'abilities, dont ce socle n'a pas
+    # besoin au chargement.
+    from .prediction.abilities import _tile_has_effect_from_scene
+
     return dsl.DslContext(units=units, caster=caster, board=scene.board,
                           elev_by_pos=scene.elev_by_pos,
                           current_player_machine_position=mow_pos,
+                          tile_has_effect=_tile_has_effect_from_scene(scene),
                           has_trait=_has_trait, get_stat=_get_stat,
                           has_negative_modifier=_has_negative_modifier,
                           is_in_team_aura=_is_in_team_aura)

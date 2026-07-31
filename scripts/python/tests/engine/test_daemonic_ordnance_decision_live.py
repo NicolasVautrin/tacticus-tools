@@ -28,6 +28,9 @@ G. **La DIRECTION du triangle suit le PLATEAU, et c'est mesure des DEUX cotes.**
    Le natif change de cible entre les deux ; le moteur doit changer AVEC lui. Le bras `nogroups`
    (canal coupe) DIVERGE sur `MC1_67` : c'est le ROUGE vu AVANT le correctif, conserve comme garde.
 
+H. **Le terme de PREDICTION est BRANCHE et il change l'elu** (#359-r3). Detail au-dessus des gardes
+   du regime BRULANT, en bas de fichier.
+
 PORTEUR : 1148 est portee par `blackForgefiend` (MACHINE OF WAR, hors `decisionView.units`). Le
 montage la GREFFE sur `deathTyphus` (Death Guard, DANS le pool rank 17) -- le natif charge le
 playbook PAR ABILITY, jamais par unite (`case-92` §5bis), et le custom de 1148 ne lit NI stat NI
@@ -159,11 +162,18 @@ def test_custom_is_linear_not_boolean(arms):
 
 
 def test_prediction_term_is_zero_because_the_area_is_not_burning(arms):
-    """RESIDU NOMME (tranche 2) rendu VISIBLE : `MakeDamagePredictions` boucle sur
-    `GetAllDamageableTargets` = les ennemis sur une tuile DEJA EN FEU. La zone ne brule pas encore
-    (c'est ce meme cast qui pose le feu, en DERNIER etage de son behaviour), donc la somme des
-    predictions vaut REELLEMENT 0 et le port est exact dans ce regime. Le jour ou la tranche 2
-    porte le terme, ce test DOIT tomber -- c'est son role."""
+    """REGIME FROID : `MakeDamagePredictions` boucle sur `GetAllDamageableTargets` = les ennemis sur
+    une tuile DEJA EN FEU. Sur un board frais aucune tuile ne brule -- c'est ce meme cast qui pose le
+    feu, en DERNIER etage de son behaviour --, donc le selecteur rend l'ensemble VIDE et la somme des
+    predictions vaut REELLEMENT 0.
+
+    ⚠ HISTORIQUE, parce que la lecture de cette garde a change (#359-r3). Elle a ete ecrite quand le
+    terme n'etait PAS branche, avec la note « le jour ou la tranche 2 porte le terme, ce test DOIT
+    tomber -- c'est son role ». C'etait FAUX : ce que le branchement change, c'est le regime
+    BRULANT, pas celui-ci. L'ASSERTION, elle, n'a pas bouge d'un iota et reste verte -- elle garde
+    desormais le GATE DE SELECTEUR (un port qui emettrait un event generique par cible, l'etat
+    d'avant #350-r3, la fait rougir). Le regime ou le terme MORD est garde separement, par
+    `test_engine_matches_native_when_the_area_burns` et sa vue rouge."""
     for k, r in arms.items():
         nz = [t for t, n in (r["engine"]["pred_counts"] or {}).items() if n]
         assert not nz, (
@@ -187,6 +197,118 @@ def test_spawn_group_channel_drives_the_triangle_direction(arms):
         "triangle {S,SE} attendu sur MC1_67 : le custom maximal devrait etre 30")
     assert max(c for _t, c in flip["engine"]["per_target"]) == 2 * AB.ENEMY_STEP, (
         "triangle {NW,N} attendu sur C1_03 : le custom maximal devrait etre 20")
+
+
+# ------------------------------------------------------------------ REGIME BRULANT (#359-r3)
+#
+# H. **Le terme de PREDICTION est branche sur la route de DECISION, et il CHANGE l'elu.**
+#    `DaemonicOrdnancePlaybook$$MakeDamagePredictions` est BESPOKE : il boucle sur
+#    `GetEntitiesFromSelector(DaemonicOrdnanceAbility$$GetAllDamageableTargets, ...)` = les ennemis
+#    debout sur une tuile DEJA EN FEU. Le port heritait de `NonAttackComparablePlaybook`, dont le
+#    corps rend `[]` -- terme nul PARTOUT, y compris la ou le natif predit.
+#    Le montage (probe `--burning`) pose DEUX ancres :
+#      * FROIDE, trois ennemis, aucun feu   -> custom 30, prediction 0
+#      * CHAUDE, deux ennemis, tous en feu  -> custom 20, prediction 2 evenements
+#    L'ordre des deux s'INVERSE selon que le terme est branche ou non -- c'est la vue rouge, et elle
+#    est MESUREE (`nopred`, qui remet le corps de base), pas supposee.
+
+
+@pytest.fixture(scope="module")
+def burning():
+    """DEUX bras, montes l'un apres l'autre (jamais deux runners vivants a la fois -- la fixture
+    `arms` en garde deja trois, plafond MAX_RUNNERS partage) :
+
+      * `sep`    : DEUX ennemis brulants -> le terme renverse l'ecart de custom ;
+      * `temoin` : UN SEUL -> l'ecart vaut DEUX ennemis, un event ne suffit pas, et le natif COMME
+                   le port restent sur l'ancre FROIDE. Sans lui, un port qui prefererait la zone
+                   brulante SYSTEMATIQUEMENT passerait le bras separant."""
+    out = {}
+    for tag, n in (("sep", 2), ("temoin", 1)):
+        r = AB.measure_burning("rs_302_3_t_burn_%s.json" % tag, hot_count=n)
+        AB.dispose(r["rid"])
+        out[tag] = r
+    yield out
+
+
+def test_burning_montage_really_burns_and_separates(burning):
+    """Le montage n'est pas complaisant : les tuiles chaudes portent TOUTES `Fire`, AUCUNE froide ne
+    le porte, l'ancre chaude rend UN event PAR ennemi brulant et la froide ZERO, et le custom
+    FAVORISE la froide dans les deux bras."""
+    for tag, r in burning.items():
+        g, e = r["geo"], r["engine"]
+        fire = set(map(tuple, e["fire"]))
+        hot = [tuple(p) for p in g["hot_slots"]]
+        cold = [tuple(p) for p in g["cold_slots"]]
+        assert set(hot) <= fire, "bras %s : zone chaude %s hors du feu %s" % (tag, hot, sorted(fire))
+        assert not (set(cold) & fire), "bras %s : zone froide %s en feu" % (tag, cold)
+        hot_row = next(x for x in e["rows"] if tuple(x["pos"] or ()) == hot[0])
+        cold_row = next(x for x in e["rows"] if tuple(x["pos"] or ()) == cold[0])
+        assert (hot_row["n_events"], cold_row["n_events"]) == (len(hot), 0), (
+            "bras %s : events attendus (chaude %d, froide 0), mesures (%s, %s)"
+            % (tag, len(hot), hot_row["n_events"], cold_row["n_events"]))
+        assert cold_row["custom"] > hot_row["custom"], (
+            "bras %s : le custom doit FAVORISER la froide, sinon la bascule ne prouve rien "
+            "(%s vs %s)" % (tag, cold_row["custom"], hot_row["custom"]))
+
+
+def test_the_ordnance_beats_the_normal_attack_in_the_burning_arm(burning):
+    """Sans cela, la mesure porterait sur l'arbitrage ability/attaque et non sur le CIBLAGE."""
+    for tag, r in burning.items():
+        e = r["engine"]
+        assert r["native"][0] == DO, (
+            "bras %s : le natif ne caste pas 1148 (%s) -- le montage ne mord plus"
+            % (tag, r["native"]))
+        assert e["cand_1148"] and e["best_attack"], "bras %s : candidat 1148/_best_attack absent" % tag
+        assert e["cand_1148"][0]["full"] > e["best_attack"]["full"], (
+            "bras %s : 1148 (%.3f) ne bat plus l'attaque normale (%.3f)"
+            % (tag, e["cand_1148"][0]["full"], e["best_attack"]["full"]))
+
+
+def test_engine_matches_native_when_the_area_burns(burning):
+    """H : LA question binaire de la tranche -- ability ET cible elues, port contre natif, dans les
+    DEUX bras (celui qui renverse et le TEMOIN qui ne renverse pas)."""
+    for tag, r in burning.items():
+        assert r["engine"]["on"] == r["native"], (
+            "bras %s : moteur %s != natif %s (zone en feu)"
+            % (tag, r["engine"]["on"], r["native"]))
+
+
+def test_two_burning_enemies_flip_the_elected_tile_but_one_does_not(burning):
+    """Le terme ne renverse PAS par principe : il renverse quand il PESE plus que l'ecart de custom.
+
+    * `sep`    (2 brulants) : ecart de custom = 1 ennemi (30 vs 20) -> l'elu passe a la CHAUDE ;
+    * `temoin` (1 brulant)  : ecart = 2 ennemis (30 vs 10) -> l'elu RESTE la FROIDE.
+    Le natif tranche pareil dans les deux cas (`test_engine_matches_native_when_the_area_burns`)."""
+    sep, tem = burning["sep"], burning["temoin"]
+    assert tuple(sep["engine"]["pos_by_tid"].get(sep["engine"]["on"][1]) or ()) \
+        == tuple(sep["geo"]["hot_slots"][0]), (
+        "bras sep : la tuile elue %s n'est pas l'ancre CHAUDE %s"
+        % (sep["engine"]["pos_by_tid"].get(sep["engine"]["on"][1]), sep["geo"]["hot_slots"][0]))
+    assert tuple(tem["engine"]["pos_by_tid"].get(tem["engine"]["on"][1]) or ()) \
+        == tuple(tem["geo"]["cold_slots"][0]), (
+        "bras TEMOIN : la tuile elue %s n'est pas l'ancre FROIDE %s -- le port prefere donc la zone "
+        "brulante SYSTEMATIQUEMENT, et l'accord du bras separant ne prouve rien"
+        % (tem["engine"]["pos_by_tid"].get(tem["engine"]["on"][1]), tem["geo"]["cold_slots"][0]))
+
+
+def test_unbranching_the_prediction_elects_another_tile(burning):
+    """VUE ROUGE, MESUREE : `make_damage_predictions` remis sur le corps de BASE de
+    `NonAttackComparablePlaybook` (`return []`) -- litteralement le port d'AVANT #359-r3 -- fait
+    elire l'ancre FROIDE, la ou le natif vise la CHAUDE. Si ce test cessait de mordre, l'accord de
+    `test_engine_matches_native_when_the_area_burns` viendrait d'ailleurs que de ce branchement.
+
+    Le bras TEMOIN, lui, n'est PAS concerne : il n'y a rien a renverser (le port debranche y elit
+    deja la bonne tuile) -- c'est precisement ce qui en fait un temoin."""
+    e, g = burning["sep"]["engine"], burning["sep"]["geo"]
+    assert e["nopred"] != e["on"], (
+        "prediction debranchee : le moteur rend %s, identique au bras cable -- le branchement "
+        "n'est donc pas ce qui produit l'accord" % (e["nopred"],))
+    assert e["nopred"][0] == DO, (
+        "sans le terme, le moteur devrait quand meme caster 1148 (seule la CIBLE change) ; il rend "
+        "%s -- le bras ne mesure plus le ciblage" % (e["nopred"],))
+    assert tuple(e["pos_by_tid"].get(e["nopred"][1]) or ()) == tuple(g["cold_slots"][0]), (
+        "sans le terme, l'elu devrait etre l'ancre FROIDE %s ; mesure %s"
+        % (g["cold_slots"][0], e["pos_by_tid"].get(e["nopred"][1])))
 
 
 def test_cutting_the_spawn_group_channel_makes_the_engine_diverge(arms):
