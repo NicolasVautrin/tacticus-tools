@@ -87,11 +87,20 @@ l'un ou l'autre donne le même chiffre. En les dissociant
 Cause : `EffectsState.seed` ne propageait **que** le niveau PASSIF. La cascade
 `active_ability_level -> ability_level -> level`, qu'écrivent **19 classes d'effet** (dont
 `OverwhelmingWrath_RangeDmgReduction`, `SmashaEad`, `Waaagh_ExtraDamage`, `Hailstrike_ExtraPierce`,
-`ConquerorImperative`…), retombait donc TOUJOURS sur le passif. Le fix ajoute
-`active_ability_level_by_unit` au seed et l'alimente **des deux côtés avec la même clé** — COMBAT
-(`runner/snapshot.py::_load_stats_and_effects`) et DÉCISION
-(`playbook/scene.py::build_predictor` / `_hydrate_static_unit` → `step_context`) — pour ne pas
-rouvrir le fork « ce que le moteur fait ≠ ce que la prédiction annonce ».
+`ConquerorImperative`…), retombait donc TOUJOURS sur le passif.
+
+**Le fix a été RÉ-ÉCRIT au rebase, et c'est le rebase qui a donné la bonne forme.** `#382`
+(`case-382-effect-source-ability-state.md`), mergé pendant ce cas, a introduit dans
+`EffectsState.seed` un `ability_state_by_unit = {uid: (multiplier, abilityLevel,
+activeAbilityLevel)}` — le triple **complet**, par entité — consulté **par la SOURCE** de chaque
+effet (`baked_ability_state`). Il laissait explicitement le troisième membre à `None` pour le
+**REPLI porteur** (« l'élargir ici déborderait du cas »). Or c'est exactement ce repli que prend un
+owner-effect comme `1110` (source == porteur). Le fix se réduit donc à **une seule ligne de
+sémantique** : le repli tire le triple d'`ability_state_by_unit[porteur]` quand il y est, au lieu
+de forcer `None`. Aucune table nouvelle, aucun paramètre nouveau — les DEUX faces alimentaient déjà
+ce triple (COMBAT `runner/snapshot.py::_ability_state_from_config`, DÉCISION
+`playbook/scene.py::_effect_source_ability_states`), et le fork « moteur ≠ prédiction » ne peut donc
+pas se rouvrir.
 
 ## 4. La pose
 
@@ -149,10 +158,11 @@ que la réduction change quoi que ce soit dans ce montage.
 | **M1** inscription `EFFECT_CLASSES` retirée | `1110 est route sur BaseEffect` + `le contrefactuel ne CHANGE rien` |
 | **M2** gate `NOT IsTurnOf(Owner)` neutralisé | `le gate NOT IsTurnOf(Owner) ne ferme pas` + `au tour du PORTEUR la reduction s'applique encore ([17433, 17920] au lieu de [20425, 20912])` |
 | **M3** gate `IsRangedAttack` neutralisé | `le gate IsRangedAttack ne ferme pas (['Subtraction', 2992])`, sur les 4 axes |
-| **M4** `EffectsState.seed` sans `active_ability_level` | `le port a seede active_ability_level=None alors que le natif expose L30 pour l'ACTIVE` |
+| **M4** `EffectsState.seed` sans le niveau ACTIF (repli porteur forcé à `None`) | `le port a seede active_ability_level=None alors que le natif expose L30 pour l'ACTIVE` |
 
-M4 est la mutation qui compte : elle remet le port dans l'état **d'avant ce cas**, et c'est un état
-que le régime nominal déclare vert.
+M4 est la mutation qui compte : elle remet le port dans l'état **d'avant ce cas** — qui est aussi,
+littéralement, l'état dans lequel `#382` l'avait laissé — et c'est un état que le régime nominal
+déclare vert.
 
 ## 7. Ce qui n'est PAS couvert
 
@@ -187,6 +197,6 @@ que le régime nominal déclare vert.
 | foyer du gate de tour | `scripts/python/engine/entities/effects/base.py` (`is_turn_of_owner`) |
 | fil COMBAT | `scripts/python/engine/runner/damage_model.py` (`_owner_turn_flag`, `defender_modifiers`) |
 | fil DÉCISION | `scripts/python/engine/playbook/scene.py` (`Scene.is_turn_of`, `from_state`), `playbook/prediction/_shared.py` |
-| niveau d'ability ACTIVE | `scripts/python/engine/entities/effects_state.py` (`seed`), `runner/snapshot.py`, `playbook/scene.py` |
+| niveau d'ability ACTIVE | `scripts/python/engine/entities/effects_state.py` (`seed` : le REPLI porteur tire le triple d'`ability_state_by_unit`), `playbook/scene.py` (`_seed_condition_gated_owner_effects`) |
 | montage live | `scripts/python/probe_366_r1_fire_and_reposition.py` |
 | gardes | `scripts/python/tests/engine/runner/test_fire_and_reposition_reduce_dmg_live.py` (8 : 4 axes × 2 couples) |

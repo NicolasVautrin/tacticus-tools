@@ -96,8 +96,9 @@ def _assert_port_view(r, expected_amount):
         "1110 est route sur %s (attendu FireAndRepositionReduceDmgEffect)" % pv.get("cls"))
     assert pv.get("active_ability_level") == r["active_level"], (
         "le port a seede active_ability_level=%s alors que le natif expose L%s pour l'ACTIVE : le "
-        "canal `EffectsState.seed(active_ability_level_by_unit)` n'est pas alimente, et la "
-        "magnitude retombe sur le niveau PASSIF (L%s)"
+        "REPLI PORTEUR d'`EffectsState.seed` ne tire pas le 3e membre du triple "
+        "`ability_state_by_unit` (case-366-r1 ; c'est l'etat dans lequel #382 avait laisse le "
+        "code), et la magnitude retombe sur le niveau PASSIF (L%s)"
         % (pv.get("active_ability_level"), r["active_level"], r["passive_level"]))
     assert pv.get("ranged_enemy_turn") == ["Subtraction", expected_amount], (
         "port : bonus RANGED/tour-ennemi = %s, attendu ['Subtraction', %s] = dmgReduction[L%s] x %s"
@@ -194,8 +195,9 @@ def test_fire_and_reposition_magnitude_indexed_by_active_level(far_case, board, 
     lectures possibles de `ConfigVar(0x12)`.
 
     MESURE qui a refute le port initial (MC1_67, actif 30 / passif 50) : le natif retire 716
-    (= dmgReduction[30] x 1.8), le port retirait 2992 (= dmgReduction[50] x 1.8) parce que
-    `EffectsState.seed` ne propageait QUE le niveau passif."""
+    (= dmgReduction[30] x 1.8), le port retirait 2992 (= dmgReduction[50] x 1.8) parce que le REPLI
+    PORTEUR d'`EffectsState.seed` forcait `activeAbilityLevel = None` -- l'etat exact dans lequel
+    `#382` avait laisse le code ("l'elargir ici deborderait du cas")."""
     lvl = ACTIVE_LEVELS[board]
     r = far_case("ranged", board, seed, lvl)
     amount = r["dmg_reduction_config"]
