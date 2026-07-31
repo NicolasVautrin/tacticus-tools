@@ -227,30 +227,52 @@ def main() -> int:
                               % (n1 - n0))
                     # (B) EXPIRATION : on echantillonne apres CHAQUE endturn.
                     approached = mover
-                    seen = []
-                    base = n1
-                    for k in range(6):
-                        endturn(s, rid)
+                    # (B) EXPIRATION -- test COMPORTEMENTAL, le seul observable qui compte.
+                    # Le compte GLOBAL d'entites-effet est trop bruite pour servir d'horloge (Angrax
+                    # porte `LetTheGalaxyBurn` : chaque attaque pose une tuile `DespoiledGround`, et
+                    # des effets de tuile naissent au fil des tours). Ce qui TRANCHE « marqueur
+                    # retire » contre « marqueur A VIE », c'est : LA MEME unite, ecartee A NOUVEAU du
+                    # meme hex adjacent un tour plus tard, encaisse-t-elle encore ?
+                    # ⚠ TurnEnd et PhaseEnd ne sont PAS separables ici, et ce n'est pas un aveu :
+                    # entre la pose (mon tour) et le prochain deplacement de cette unite (mon tour
+                    # suivant) le jeu franchit LES DEUX dates. Le regime qui les separerait exige un
+                    # deplacement supplementaire APRES la fin du tour d'equipe.
+                    d2, redone = None, False
+                    for k in range(2 * a.turns):
                         sk = snap(s, rid)
-                        nk = eff_count(s, rid)
+                        ak = sk["units"].get(angrax) or {}
                         uk = sk["units"].get(mover) or {}
-                        # DEUX capteurs, et on exige leur ACCORD : la vue projetee (qui filtre les
-                        # inactifs) ET le compte d'entites-effet (qui ne filtre rien). Le marqueur est
-                        # PARTI quand il a quitte la vue ET que le compte est redescendu.
-                        still = has_eff(uk, ALREADY_ATTACKED) or nk >= base
-                        seen.append((k, sk["turn"], sk["currentPlayer"], still))
-                        print("    == B. apres endturn #%d : turn=%s player=%s  1175 en vue=%s"
-                              "  entites-effet=%d (pose a %d)"
-                              % (k, sk["turn"], sk["currentPlayer"],
-                                 has_eff(uk, ALREADY_ATTACKED), nk, base))
-                        if not still:
+                        if sk["currentPlayer"] != my_player or not uk.get("hasAction"):
+                            endturn(s, rid)
+                            continue
+                        d = hexdist(uk.get("pos"), ak.get("pos"))
+                        if d == 1:                        # au contact -> on RE-ECARTE
+                            out2 = [t2 for t2 in movable(s, rid, mover)
+                                    if hexdist({"col": t2[0], "row": t2[1]}, ak.get("pos")) >= 2]
+                            if not out2:
+                                endturn(s, rid)
+                                continue
+                            hp0 = int(uk.get("hp") or 0)
+                            move(s, rid, mover, out2[0][0], out2[0][1])
+                            hp1 = int((snap(s, rid)["units"].get(mover) or {}).get("hp") or 0)
+                            d2, redone = hp0 - hp1, True
                             break
-                    gone = next((x for x in seen if not x[3]), None)
-                    print("    == B. VERDICT : 1175 disparait apres %s endturn(s) -> %s"
-                          % ((gone[0] + 1) if gone else ">6",
-                             "TurnEnd" if (gone and gone[0] == 0) else
-                             ("PhaseEnd ou autre" if gone else "JAMAIS (marqueur A VIE)")))
-                    verdict = 0 if gone else 6
+                        # sinon : on REVIENT au contact (ce pas ne part pas d'un hex adjacent)
+                        back = [t2 for t2 in movable(s, rid, mover)
+                                if hexdist({"col": t2[0], "row": t2[1]}, ak.get("pos")) == 1]
+                        if back:
+                            move(s, rid, mover, back[0][0], back[0][1])
+                        endturn(s, rid)
+                    if not redone:
+                        print("    == B. NON CONFRONTE : impossible de re-ecarter la meme unite")
+                        verdict = 6
+                    else:
+                        print("    == B. 2e ecart (tour ULTERIEUR) : degat subi=%d" % d2)
+                        print("    == B. VERDICT : %s"
+                              % ("marqueur RETIRE entre les deux tours (l'attaque REPART)"
+                                 if d2 > 0 else
+                                 "marqueur A VIE -- l'unite n'est plus JAMAIS frappee"))
+                        verdict = 0 if d2 > 0 else 6
                     break
                 print("    (adjacent mais aucune tuile d'ecart atteignable)")
 

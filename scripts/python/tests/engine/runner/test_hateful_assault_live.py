@@ -72,6 +72,7 @@ def hateful_case(live_session, tmp_path_factory):
         my_player = next((u["owner"] for u in sn["units"].values() if u.get("ctrl")), None)
 
         mover, before, tile_out = None, None, None
+        witness = []            # cout des pas d'APPROCHE (aucun ne part d'un hex adjacent)
         for _ in range(MAX_STAGING_TURNS):
             sn = P.snap(s, rid)
             au = sn["units"].get(angrax) or {}
@@ -98,7 +99,10 @@ def hateful_case(live_session, tmp_path_factory):
                     if d < bestd:
                         best, bestd = (uid, c, r), d
             if best is not None and bestd < 99:
+                hp0 = int((sn["units"][best[0]] or {}).get("hp") or 0)
                 P.move(s, rid, best[0], best[1], best[2])
+                hp1 = int((P.snap(s, rid)["units"].get(best[0]) or {}).get("hp") or 0)
+                witness.append((int(best[0]), bestd, hp0 - hp1))
             P.endturn(s, rid)
 
         if mover is None:
@@ -117,7 +121,34 @@ def hateful_case(live_session, tmp_path_factory):
         sn_after = P.snap(s, rid)
         n_after = P.eff_count(s, rid)
 
+        # 2e ECART, un tour PLUS TARD, par la MEME unite depuis le meme hex adjacent. C'est le seul
+        # observable qui separe « marqueur retire » de « marqueur A VIE » : le compte GLOBAL
+        # d'entites-effet ne peut pas servir d'horloge (Angrax porte `LetTheGalaxyBurn`, qui pose une
+        # tuile `DespoiledGround` a chaque attaque, et des effets de tuile naissent au fil des tours).
+        dmg2 = None
+        for _ in range(2 * MAX_STAGING_TURNS):
+            sk = P.snap(s, rid)
+            ak, uk = sk["units"].get(angrax) or {}, sk["units"].get(mover) or {}
+            if sk["currentPlayer"] != my_player or not uk.get("hasAction") or not uk.get("alive"):
+                P.endturn(s, rid)
+                continue
+            if P.hexdist(uk.get("pos"), ak.get("pos")) == 1:
+                out2 = [t for t in P.movable(s, rid, mover)
+                        if P.hexdist({"col": t[0], "row": t[1]}, ak.get("pos")) >= 2]
+                if out2:
+                    hp0 = int(uk.get("hp") or 0)
+                    P.move(s, rid, mover, out2[0][0], out2[0][1])
+                    dmg2 = hp0 - int((P.snap(s, rid)["units"].get(mover) or {}).get("hp") or 0)
+                    break
+            else:
+                back = [t for t in P.movable(s, rid, mover)
+                        if P.hexdist({"col": t[0], "row": t[1]}, ak.get("pos")) == 1]
+                if back:
+                    P.move(s, rid, mover, back[0][0], back[0][1])
+            P.endturn(s, rid)
+
         yield {
+            "dmg2": dmg2, "witness": witness,
             "sid": s, "rid": rid, "angrax": angrax, "mover": mover, "board": board,
             "dv_before": dv_before, "ob_before": ob_before, "cs_before": cs_before,
             "hp_before": int(before.get("hp") or 0),
@@ -151,6 +182,22 @@ def test_live_opportunity_attack_hits_the_unit_that_steps_away(hateful_case):
                      % (hateful_case["hp_before"], hateful_case["hp_after"]))
 
 
+def test_live_approach_costs_nothing(hateful_case):
+    """ATTRIBUTION -- BRAS TEMOIN LIVE. Les pas d'APPROCHE (aucun ne PART d'un hex adjacent, y
+    compris celui qui ARRIVE au contact) doivent coûter ZERO. C'est ce qui transforme le « degat > 0 »
+    du test precedent en « SEUL le move qui part d'un hex adjacent coute » -- sans lui, n'importe quel
+    canal de degat rendrait ce fichier vert.
+
+    ⚠ LIMITE DU MONTAGE, mesuree : ce bras n'est propre que si le camp adverse n'a AUCUNE unite a
+    tir d'opportunite. Sur `C1_14`/31337 avec `eldarRanger` en face, une approche a d=1 coute 4197
+    (l'overwatch, effet 1009) -- et ce n'est PAS 1038. D'ou `A_UNITS` melee ici."""
+    if not hateful_case["witness"]:
+        pytest.fail("montage KO : aucun pas d'approche enregistre")
+    bad = [w for w in hateful_case["witness"] if w[2] != 0]
+    assert not bad, ("des pas d'approche ont coute des PV %s -- un autre canal frappe le mover, "
+                     "l'attribution du bras pose n'est plus etablie" % bad)
+
+
 def test_live_marker_entity_is_created(hateful_case):
     """La POSE de 1175, mesuree par le compte d'ENTITES-EFFET -- pas par `decisionView`.
 
@@ -161,6 +208,22 @@ def test_live_marker_entity_is_created(hateful_case):
         "aucune entite-effet creee par l'attaque d'opportunite (%d -> %d) : le `AddEffect(0x497)` "
         "du behaviour natif n'a pas eu lieu"
         % (hateful_case["eff_before"], hateful_case["eff_after"]))
+
+
+def test_live_attack_repeats_on_a_later_turn(hateful_case):
+    """LE RETRAIT, mesure par le COMPORTEMENT : la MEME unite, ecartee A NOUVEAU du meme hex un tour
+    plus tard, encaisse ENCORE. Zero ici = le marqueur est reste colle et 1038 est ETEINT pour cette
+    unite jusqu'a la fin de la bataille -- la faute n°3, invisible de toute autre facon.
+
+    ⚠ CE QUE CE BRAS NE SEPARE PAS : `On(TurnEnd)` de `On(PhaseEnd)`. Entre la pose (mon tour) et le
+    prochain deplacement de cette unite (mon tour suivant), le jeu franchit LES DEUX dates. Le regime
+    qui les separerait exige un deplacement supplementaire APRES la fin du tour d'equipe -- hors de
+    ce montage. C'est mesure, pas suppose (cf. `case-366-r1-hateful-assault-marker.md` §5)."""
+    if hateful_case["dmg2"] is None:
+        pytest.fail("montage KO : la meme unite n'a pas pu se re-ecarter d'un hex adjacent")
+    assert hateful_case["dmg2"] > 0, (
+        "2e ecart au tour ulterieur : degat=%d -> le marqueur 1175 n'a PAS ete retire"
+        % hateful_case["dmg2"])
 
 
 # ------------------------------------------------------------------ (2) les GATES du port
