@@ -996,6 +996,9 @@ def _seed_condition_gated_owner_effects(eff_state, units, predictor) -> None:
                 and getattr(k, "seed_witness_effect", None)]
     if not seedable:
         return
+    # case-366-r1 : le MEME triple `(mult, passif, ACTIF)` que `EffectsState.seed` consomme --
+    # calcule UNE fois, pas par unite.
+    states = _effect_source_ability_states(predictor)
     for u in units:
         uid = u.get("id")
         for name, klass in seedable:
@@ -1008,7 +1011,10 @@ def _seed_condition_gated_owner_effects(eff_state, units, predictor) -> None:
                 {"name": name, "effectType": (int(etype) if etype is not None else None),
                  "remaining": 0, "source": uid},              # rem 0 -> permanent (owner-effect)
                 ability_variables_multiplier=int(predictor["mult_by_id"].get(uid, 100) or 100),
-                ability_level=predictor["ablvl_by_id"].get(uid))
+                ability_level=predictor["ablvl_by_id"].get(uid),
+                # case-366-r1 : le niveau de l'ACTIVE, LU du meme triple que `EffectsState.seed`
+                # -- un owner-effect est pose par SON porteur, donc c'est bien l'etat de `uid`.
+                active_ability_level=(states.get(uid) or (None, None, None))[2])
             eff.target = uid
             eff_state.add_effect(uid, eff)
 
@@ -1059,6 +1065,9 @@ def step_context(predictor, dv):
     eff_state = EffectsState.seed(
         {u["id"]: (u.get("effects") or []) for u in units},
         predictor["mult_by_id"], predictor["ablvl_by_id"],
+        # Le triple porte AUSSI `activeAbilityLevel` (lu du `ctx`), et `EffectsState.seed` s'en sert
+        # desormais pour le PORTEUR en repli, pas seulement pour la SOURCE (case-366-r1) : c'est le
+        # MEME canal que la face COMBAT (`snapshot.abstate_by_id`), donc pas de fork.
         _effect_source_ability_states(predictor))
     _seed_condition_gated_owner_effects(eff_state, units, predictor)
     hp_by_id = {u["id"]: u.get("hp") for u in units}
