@@ -1,6 +1,23 @@
 """MartialApotheosis (TriggeredAbilityType 0x415=1045, passif de `necroOverlord`) -- attaque un ennemi
 adjacent ALEATOIRE au debut de son tour (case-220 Necrons, roadmap [opus] direct).
 
+>>> INERTE DEPUIS LE BUILD `rnca9r7q6c` -- 0 PORTEUR, ET CE N'EST PAS UN BUG DE CE PORT (case-354).
+    Le jeu a retire cette ability de son unique porteur `necroOverlord`, remplacee par
+    `MyWillBeDoneOverlord`. Mesure (`probe_354_martial_apotheosis_carrier.py`) : 0 porteur sur les
+    3 sections d'unites x 4 voies d'attribution, dans les DEUX instantanes de gameconfig presents ;
+    et aucun trait ne l'accorde -- le dict de `StaticBattleRules.Trait$$.cctor` (41 paires
+    trait -> TriggeredAbilityType) ne contient PAS `0x415`. `collect_triggered_abilities` ne
+    l'instancie donc plus, et c'est le comportement FIDELE.
+    CE PORT EST CONSERVE, ET NE DOIT PAS ETRE SUPPRIME : la config d'ability existe toujours
+    (`nrOfHits: 2`, `damageProfile: Energy`) et `MartialApotheosisAbility$$CreateTrigger` existe
+    toujours au binaire -- il redevient vivant si un kit reprend l'ability.
+    ⚠ Le build lui a donne SON PROPRE `CreateTrigger`/`GetPossibleTargets` la ou le RE ci-dessous
+    les lit comme HERITES de `DestroyerHiveAbility` (build gqfc5mff6c). La STRUCTURE relue au
+    build courant est identique (`On(0x16) & <predicat> & AmountIsGreaterThanZero(...)`) : seule
+    la provenance des symboles change, le mirror reste juste.
+    Consequence a connaitre : `tests/engine/runner/test_martial_apotheosis_live.py` est ROUGE sur
+    ses 3 tests qui passent par `start_turn_triggers`, faute de porteur -- pas faute de port.
+
 RE ghidra gqfc5mff6c (decompile = verite). La classe native `MartialApotheosisAbility` ETEND
 `DestroyerHiveAbility` (namespace `IdunBattleLogic.Entities.Abilities.Active.Loki`) : son
 `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour` appelle `IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets(this)` sur `this`
