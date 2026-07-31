@@ -1345,17 +1345,32 @@ class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
     a `GetCritDamageBonusFromEffects`, qui batit son `AbilityEntities` avec les deux. Le contexte est
     desormais threade en UN point (`runner/operations/damage.py::AttackDamageOperation._crit_params`).
 
-    NIVEAU D'ABILITY — le seul point ou 1224 SOLLICITE le port autrement que 1223. Le natif lit
+    NIVEAU D'ABILITY — le seul point ou 1224 SOLLICITE le port autrement que 1223, et un ECART REEL
+    (mesure, pas suppose). Le natif lit
     `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState` =
     `IdunBattleLogic.Entities.DSLSelectors$$AbilityStateFromEffect(<noeud EFFET>)`, c.-a-d.
     l'`AbilityStateReference` BAKEE DANS L'EFFET a la pose, donc celle de la SOURCE (Ragnar). Le
     port, lui, seede `ability_level` depuis le `unitConfig` du PORTEUR (`EffectsState.seed`, cle par
-    porteur) — approximation deja documentee dans `runner/snapshot.py::_source_ability_state`. Pour
-    1223 les deux coincident (porteur == source). Pour **1224 ils different par construction** : le
-    porteur est un Space Wolf qui n'a PAS l'ability. Sous `buildNormalizedBC` les deux valent 50, donc
-    l'ecart est NUMERIQUEMENT NUL sur tout montage normalise — il ne se reveille que si les deux
-    unites portent des niveaux passifs distincts. Residu nomme, MESURE (case-366-r1 §5), pas corrige
-    ici : le canal `EffectsState.seed` est partage par tout le registre."""
+    porteur) — approximation deja nommee dans `runner/snapshot.py::_source_ability_state`. Pour 1223
+    les deux coincident (porteur == source) : l'ecart y est INOBSERVABLE. Pour **1224 ils different
+    par construction** — le porteur est un Space Wolf qui n'a PAS l'ability.
+
+    Sous `buildNormalizedBC` les deux valent 50, donc l'ecart est numeriquement nul sur tout montage
+    normalise. DISSOCIES, il apparait (MC1_67 / 777, Ragnar `PassiveAbilityLevel=1`, Ulf 50) :
+
+        natif   n=4  [2679, 3724, 2879, 3771]                      # extraHits[1] = 1, niveau SOURCE
+        port    n=6  [2679, 3724, 2879, 3771, 3273, 3750]          # extraHits[50] = 3, niveau PORTEUR
+
+    Repro : `probe_366_r1_saga_other_space_wolves.py --arms KILL --regimes CHARGE
+    --extra="--unit-stat" --extra="spaceBlackmane:PassiveAbilityLevel=1"`.
+    Le meme ecart porte sur le MULTIPLIER de rarete (mesure : source 200, porteur 180), donc il
+    touche AUSSI la face CRIT (`extraCritDmg` est la seule variable scalee par le multiplier).
+
+    NON CORRIGE ICI, et actionnable : le capteur publie deja la source sur l'effet
+    (`{"effectType": 1224, …, "source": 81}`) et `_source_ability_state(state, source_id)` fait deja
+    exactement ce calcul pour les effets de TUILE. Ce qui manque est le CABLAGE de cette voie sur les
+    effets d'UNITE — un changement du canal de seed partage par les 135 entrees d'`EFFECT_CLASSES`,
+    donc une tranche a part entiere avec sa propre validation, pas un ajout a ce port."""
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
                                             att_ctx: "Mapping | None" = None) -> EffectBonus | None:
