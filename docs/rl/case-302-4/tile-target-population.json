@@ -30,9 +30,9 @@
   "0x3c0": "0x200000000000004"
  },
  "crosscheck_vs_port_registry": {
-  "agree": 97,
+  "agree": 98,
   "disagree": [],
-  "not_in_registry": 159,
+  "not_in_registry": 158,
   "registry_but_unreadable": [
    [
     1076,
@@ -53,7 +53,7 @@
   "targets_tile_route_emits_tile_target": 7,
   "targets_tile_route_non_tile": 2,
   "targets_tile_no_route": 32,
-  "ability_classes": 97
+  "ability_classes": 98
  },
  "enum_values_without_registry_entry": [
   1079,
@@ -2305,7 +2305,7 @@
    "state": "measured",
    "rules": 35842,
    "form": "literal",
-   "in_ability_classes": false,
+   "in_ability_classes": true,
    "decision_route": "noncomparable:DefendTheDivineWorkPlaybook",
    "route_emits_tile_target": true
   },

@@ -101,7 +101,7 @@ independant. C'est pourquoi la regle est de lire **ability par ability**, jamais
   verification l'ability ressortait `not_measurable`.
 - **`TargetingRule.TargetIsTile` vaut le MASQUE `0x40`, pas l'index 6.** Le confondre fait
   `(rules >> 64) & 1 == 0` pour tout le monde : un inventaire VIDE qui se lit « rien a signaler ».
-  Mesure : le controle croise rendait `0 / 97` avant correction.
+  Mesure : le controle croise rendait `0` accord sur tout le registre du port avant correction.
 
 ---
 
@@ -116,7 +116,7 @@ independant. C'est pourquoi la regle est de lire **ability par ability**, jamais
 | **entrees du registre natif** (le denominateur) | **257** |
 | valeurs d'enum SANS entree de registre | **3** — `1079`, `1130`, `9999` : `GetActive` leur rend `NoneAbility` |
 | entrees de registre sans valeur d'enum | **0** |
-| registre COMBAT du port (`ABILITY_CLASSES`) | **97** |
+| registre COMBAT du port (`ABILITY_CLASSES`) | **98** — se perime a chaque port ; le probe le relit |
 
 ### 4.2 Etat de lecture du masque — TRI-ETAT, jamais un zero
 
@@ -200,9 +200,10 @@ lui aussi une cible nulle demande un tour IA observe sur chacune ; **non confron
 
 ### 5.3 Ce que la mesure a corrige au passage — un masque FAUX au registre
 
-Le controle croise « masque decompile vs `TARGETING_OPTIONS` du port » a rendu **97 accords, 0
-desaccord** — mais seulement APRES correction de `1029 Drachnyen`, qui portait `TargetIsNotAnObject`
-(`0x200000000`) en trop.
+Le controle croise « masque decompile vs `TARGETING_OPTIONS` du port » a rendu **98 accords, 0
+desaccord** (re-joue apres rebase : la 98e ability entree entre-temps concorde elle aussi) — mais
+seulement APRES correction de `1029 Drachnyen`, qui portait `TargetIsNotAnObject` (`0x200000000`)
+en trop.
 
 Le commentaire du port attribuait a `...Loki.DrachnyenAbility$$.ctor` un
 `TargetingOptions..ctor(&out, &preset, 0x200000000, 0)` — l'overload PRESET + flags. **Ce n'est pas
@@ -212,7 +213,7 @@ ceux de la surcharge 3 arguments. Masque effectif : `0x4000` = `TargetIsEnemy` s
 
 Le bit retire n'etant pas porte (`TargetIsNotAnObject` n'est pas implementee), **aucun verdict de
 ciblage ne change** : `probe_249` passe de 4 a 3 porteurs pour cette regle et de 6 a 5 abilities
-touchees, `probe_181` reste a 97/97 masques poses. La correction retire une fausse verite, elle ne
+touchees, `probe_181` reste a 98/98 masques poses. La correction retire une fausse verite, elle ne
 deplace pas un comportement.
 
 ---

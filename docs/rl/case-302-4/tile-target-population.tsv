@@ -126,7 +126,7 @@ id	enum_name	ability_class	state	form	rules	targets_tile	in_ability_classes	deci
 1114	BlisteringAssault_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.BlisteringAssault_NormalAttackAbility	measured	static-copy	0x4000	0	0		0	
 1115	FearOfTheUnseen	IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility	measured	literal	0x18	0	1		0	
 1116	RadBombardment	IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility	measured	literal	0xa0000000042	1	1		0	
-1117	DefendTheDivineWork	IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility	measured	literal	0x8c02	0	0	noncomparable:DefendTheDivineWorkPlaybook	1	
+1117	DefendTheDivineWork	IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility	measured	literal	0x8c02	0	1	noncomparable:DefendTheDivineWorkPlaybook	1	
 1118	DoctrinaImperatives	IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility	measured	literal	0x80	0	1	noncomparable:DoctrinaImperativesPlaybook	0	
 1119	Repair_GalvanicField	IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility	measured	literal	0x8002	0	1	bespoke repair_galvanic	0	
 1120	FeederTendrils_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
