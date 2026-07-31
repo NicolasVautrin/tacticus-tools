@@ -37,6 +37,46 @@ _TRIANGLE_ODD_COL = {
 }
 
 
+# `IdunBattle.Core.Services.MovementQuery$$GetDistance(originTiles, destinationTiles)` rend
+# `int.MaxValue` quand l'une des deux enumerations est VIDE : le minimum n'est jamais abaisse et la
+# fonction rend sa valeur d'initialisation. Les deux surcharges qui prennent des ENTITES
+# (`GetDistance(origin, destination)` / `GetDistance(originTiles, destination)`) rendent la meme
+# sentinelle sur un argument nul, AVANT meme d'appeler `GetTiles`.
+DISTANCE_UNREACHABLE = 0x7FFFFFFF
+
+
+def get_distance(origin_tiles, destination_tiles) -> int:
+    """`IdunBattle.Core.Services.MovementQuery$$GetDistance(originTiles, destinationTiles)` — mirror
+    1:1 du corps, celui auquel les quatre surcharges de
+    `IdunBattle.Core.Services.BattleQuery$$GetDistance` delegent (slots 9 / 10 / 0xb de l'interface
+    de `MovementQuery` ; les surcharges a entites passent d'abord par
+    `IdunBattle.Entities.EntityExtensions$$GetTiles`) :
+
+        min = int.MaxValue
+        foreach (a in originTiles)
+            foreach (b in destinationTiles)
+                min = Min(min, CubeCoordinate.Distance(a.Position.GetCubeCoordinate(),
+                                                       b.Position.GetCubeCoordinate()))
+        return min
+
+    C'est la distance HEXAGONALE minimale entre deux ENSEMBLES de tuiles : **aucun pathfinding**,
+    aucun contournement d'obstacle, aucune elevation. A ne pas confondre avec
+    `IdunBattle.Core.Services.BattleQuery$$GetNumTilesMoved` (= `path.Count - 1`, la longueur du
+    CHEMIN), que `IdunBattle.Operations.MoveUnitOperation$$Execute` utilise. Les deux repondent a
+    des questions differentes et divergent des qu'un detour existe (mesure #335 : un pas de
+    distance 3 peut couter 4 tuiles de chemin).
+
+    Entrees = des `(col, row)` (le port collapse une `UnitPosition` en sa tuile principale).
+    Ensemble vide d'un cote -> `DISTANCE_UNREACHABLE`, exactement comme le natif."""
+    best = DISTANCE_UNREACHABLE
+    for a in (origin_tiles or ()):
+        for b in (destination_tiles or ()):
+            d = hexgeo.distance((a[0], a[1]), (b[0], b[1]))
+            if d < best:
+                best = d
+    return best
+
+
 def get_tiles_in_triangle_shape(anchor: tuple, direction: int) -> list:
     """`IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape(tile, direction)` — mirror :
 

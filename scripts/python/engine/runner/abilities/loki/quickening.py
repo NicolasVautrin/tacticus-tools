@@ -254,14 +254,31 @@ class TheQuickeningAbility(ActiveAbility):
         # --- phases 1-2 : SWAP (MoveOut+MoveIn ; effets Untargetable transitoires = net-zero) ---------
         # natif = lift-off (MoveUnit -> Null) puis MoveIn ; MoveUnitOperation pose la position sans check
         # d'occupation -> l'echange direct (caster->target, swap->origin) rend l'etat NET identique.
-        # `record_tiles=False` (case-322-r1) : le natif fait un LIFT-OFF (`MoveUnit` vers une
-        # `UnitPosition` VIDE) puis un `MoveIn`. Sur ce lift-off,
-        # `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` prend sa branche
-        # `Count(movementStartPosition) == 0` et rend `[endTile, endTile]` -- un chemin de DEUX
-        # noeuds, quelle que soit la distance. Le port faisant l'echange DIRECT, le
-        # `connectedPath` natif n'est pas reproductible depuis ce montage : on n'enregistre RIEN
-        # plutot que de facturer une distance de MARCHE que le natif ne calcule jamais.
-        # RESIDU NOMME (sous-comptage, jamais sur-comptage).
+        # `record_tiles=False` (case-322-r1). Le natif fait un LIFT-OFF (`MoveUnit` vers une
+        # `UnitPosition` VIDE, via `IdunBattleLogic.Entities.DSLBehaviors$$MoveUnit` avec un
+        # selecteur de tuiles `None()`) puis un MOVE-IN. #347 a relu les deux moities, et
+        # l'explication portee ici jusque-la etait FAUSSE (elle attribuait au lift-off la branche
+        # degeneree de `CalculatePaths`) :
+        #   * LIFT-OFF -> **0 tuile**. `IdunBattle.Operations.MoveUnitOperation$$Execute` teste
+        #     `Count(position) == 0` ET l'octet `MoveUnitOptions+0x15` (`allowNullTargetPosition`,
+        #     que `GetMoveOutBehaviour` pose via son 6e selecteur d'options) : il retire l'unite du
+        #     board et **RETOURNE** par `EvaluateAfterMoveTriggers`, AVANT `CalculatePaths` et
+        #     avant tout `RecordTilesMoved`.
+        #   * MOVE-IN -> `GetNumTilesMoved(connectedPath)`, avec
+        #     `movementStartPosition = GetPreviousPositionThisTurn(unit)` quand la position
+        #     COURANTE est vide (elle l'est : l'unite est hors board). Ce champ
+        #     (`UnitComponent+0x98`) est ecrit par `IdunBattle.Operations.SetUnitPositionOperation
+        #     $$SavePreviousPosition` et efface par `IdunBattle.Entities.Behaviours.
+        #     ResetPreviousPositionBehaviour$$Execute` : la quantite facturee depend donc de
+        #     l'HISTORIQUE de mouvement du tour, pas seulement de la geometrie du cast. S'il est
+        #     vide, `CalculatePaths` prend sa branche `Count(movementStartPosition) == 0` et rend
+        #     `[endTile, endTile]` -> 1 tuile.
+        # Le port fait l'echange DIRECT (pas de lift-off), donc ce `connectedPath` n'est pas
+        # reproductible depuis ce montage, et la valeur native n'est pas MESURABLE non plus (aucun
+        # consommateur du compteur n'est atteignable par ce chemin, cf. `docs/rl/
+        # case-347-tiles-moved-call-sites.md` SS5). On n'enregistre donc RIEN plutot que de
+        # facturer une valeur devinee. RESIDU NOMME `#347-r1` (sous-comptage, jamais
+        # sur-comptage).
         MoveUnitOperation(caster_id, target_pos, record_tiles=False).execute(state, ectx.bus)
         if swap_id is not None:
             MoveUnitOperation(swap_id, origin, record_tiles=False).execute(state, ectx.bus)

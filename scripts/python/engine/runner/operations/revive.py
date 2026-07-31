@@ -129,6 +129,8 @@ def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
         newTiles = BattleQuery.<slot 0x8d>(pos)
         processor.<slot 0x7e = MoveUnit>(unit, pos, false)  <- ECRITURE de la position
         KillSteppableUnits(unit, newTiles)                  <- ce qui trainait sur la tuile est ecrase
+        if (mainTile != null && pos.MainTile != null)                                   # <- #347
+            RecordTilesMoved(unit, BattleQuery.GetDistance(mainTile, pos.MainTile), state)
         AbilityEntities.ctor(unit, unit, unit, …, feet, …, pos, …)
         publie On(0x24 = UnitPositionChanged_1)
         publie On(0x1d = UnitPositionChanged_2)
@@ -136,8 +138,16 @@ def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
     Le port n'a ni entites-pieds ni reservation de tuile -> `ResetPreviousTileIfStillOwned`/`ResetFeet`
     n'ont pas d'equivalent observable (la position exclusive du port suffit : ecrire la nouvelle tuile
     libere l'ancienne). Le reste est porte tel quel : ecriture de `PositionComponent`, crush des
-    Steppable de la tuile d'arrivee (MEME helper que le move, `movement._kill_steppable_units`), puis
-    les DEUX events de position.
+    Steppable de la tuile d'arrivee (MEME helper que le move, `movement._kill_steppable_units`), le
+    comptage de tuiles, puis les DEUX events de position.
+
+    #347 -- **le 4e call-site de `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`** : un revive
+    A POSITION facture la **distance HEXAGONALE** entre la tuile d'avant et celle d'apres
+    (`GetDistance(Tile, Tile)`, slot 0x6c de `IBattleQuery` -> mirror `battle_query.get_distance`),
+    **pas** la longueur d'un chemin -- contrairement a `MoveUnitOperation$$Execute`, qui facture
+    `GetNumTilesMoved(connectedPath)`. Un revive IN-PLACE (`revivePosition` sans valeur) sort avant
+    et n'enregistre rien ; le seul poseur non-nul du build est
+    `IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateTargetTriggerBehaviour`.
 
     ⚠ `On(0x24)` est precisement l'un des cinq retraits de `GhostEffect` (« une autre unite arrive sur
     la tuile du ghost ») : une resurrection sur un ghost peut donc en retirer un AUTRE. Le ghost sur
@@ -149,9 +159,11 @@ def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
     e = state.get_entity(unit_id)
     if e is None:
         return None
-    from ..components import PositionComponent
+    from ..components import PositionComponent, record_tiles_moved
     to = (int(pos[0]), int(pos[1]))
     pc = e.get_component(PositionComponent)
+    # `mainTile = GetMainTile(unit, state)` -- LU EN TETE, avant toute ecriture de position.
+    main_tile_before = (pc.col, pc.row) if pc is not None else None
     if pc is None:
         e.add_component(PositionComponent(to[0], to[1]))
     else:
@@ -161,6 +173,16 @@ def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
     # PROPRE (aucun death-trigger).
     from .movement import _kill_steppable_units
     _kill_steppable_units(state, to, unit_id)
+    # #347 -- `if (mainTile != null) { if (revivePosition.Value.MainTile != null) {
+    #     RecordTilesMoved(unit, battleQuery.GetDistance(mainTile, revivePosition.Value.MainTile),
+    #                      state); } }`
+    # RANG NATIF EXACT : apres `KillSteppableUnits`, AVANT la construction des `AbilityEntities` et
+    # les deux events de position. La garde native est double (les DEUX tuiles doivent exister) ;
+    # `record_tiles_moved` re-applique par ailleurs son propre `< 1 -> no-op`, ce qui neutralise le
+    # cas « meme tuile » (distance 0).
+    if main_tile_before is not None:
+        from ...battle_query import get_distance
+        record_tiles_moved(state, unit_id, get_distance([main_tile_before], [to]))
     # `On(0x24 = UnitPositionChanged_1)` puis `On(0x1d = UnitPositionChanged_2)`, {actor = target =
     # l'unite ressuscitee} (`AbilityEntities.ctor(unit, unit, unit, …)` lu au decompile).
     from .triggers import unit_position_changed_1_triggers, unit_position_changed_2_triggers
