@@ -1001,8 +1001,11 @@ ecrite de 1222 dans le depot, et le prochain lecteur la re-porterait. Deux cliqu
 
 - **N14** — le terme de tuile `ModifiedExoarmourPlaybook` (5 x longueur du chemin), non porte :
   il RETOURNE la decision de Kimm des que son passif est actif (mesure ci-dessus).
-- **N15** — `MassDriverAcceleratorPlaybook$$MakeDamagePredictions` (splash par ennemi adjacent a la
-  cible, `GetHits2`/`DamageProfile2`), non porte ; ecart nul dans ce montage par construction.
+- ~~**N15**~~ — `MassDriverAcceleratorPlaybook$$MakeDamagePredictions` (splash par ennemi adjacent a
+  la cible, `GetHits2`/`DamageProfile2`) : **FERME le 2026-07-31 par #305**,
+  `case-305-massdriver-splash-prediction.md`. L'ecart etait nul dans CE montage par construction (la
+  cible n'y a aucun ennemi adjacent) ; chiffre ailleurs, il vaut un event de degat entier par ennemi
+  adjacent, avec le profil `Physical` (pierce 1) au lieu de `DirectDamage` (pierce 100).
 - La face COMBAT de 1222 (`ExecuteBehaviour` : buff de mouvement + `MoveUnit` + double attaque) n'est
   pas dans le perimetre de #27 et n'a pas ete confrontee ici.
 

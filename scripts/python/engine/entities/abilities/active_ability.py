@@ -574,6 +574,73 @@ class SavageEchoesAbility(AActiveAbility):
                                     dsl.Count(dsl.CanAddUnit(dsl.AdjacentTiles(dsl.Caster())))))
 
 
+class MassDriverAcceleratorAbility(AActiveAbility):
+    """`MassDriverAcceleratorAbility` (votanChampion « Kimm », id 1222) — CHARGE a splash.
+    `IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$MakeDamagePredictions` emet **DEUX**
+    batchs `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`,
+    concatenes dans une seule `List<ProbableDamageEvent>` :
+
+      1. cible PRINCIPALE — `param_4 = target`, `param_5 = <selecteur Target>` (`DSLSelectors+0x60`),
+         `param_6 = <GetDamage>`, `param_7 = AActiveAbility$$GetHits`,
+         `param_8 = Nullable(AActiveAbility$$GetDamageProfile)` ;
+      2. **volet SPLASH** — pour CHAQUE entite de
+         `IdunBattleLogic.Entities.Abilities.Active.Loki.MassDriverAcceleratorAbility$$GetAdjacentAttackTargets` :
+         `param_4 = <cette entite>`, `param_5 = IdunBattleLogic.Entities.DSLSelectors$$Entity(<cette
+         entite>)`, `param_6 = <LA MEME valeur de degat>`, `param_7 = AActiveAbility$$GetHits2`,
+         `param_8 = Nullable(AActiveAbility$$GetDamageProfile2)`.
+
+    Le SET est `GetAdjacentAttackTargets` =
+    `Enemies(DSLSelectors+0x48 = caster, AdjacentUnits(DSLSelectors+0x60 = target, unique: 1, sel: 3), 3)`
+    -- les ENNEMIS DU CASTER poses sur les tuiles ADJACENTES A LA CIBLE (la cible elle-meme est deja
+    retiree par `AdjacentUnits`). C'est le MEME artefact natif que la face COMBAT :
+    `...MassDriverAcceleratorAbility$$ExecuteBehaviour` re-inline exactement
+    `Enemies(caster@0x48, AdjacentUnits(target@0x60, 1, 3), 3)`, le passe a `DSLSelectors$$Cache` /
+    `DSLBehaviors$$SetCache`, puis attaque `DSLSelectors$$Alive(<cache>)` avec son 2e
+    `DSLBehaviors$$AttackWithAttackDamage`. Le filtre VIVANT n'est pas un noeud du set : il vient de
+    `Units(...)` (`IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select`, occupation de tuile --
+    un mort n'est plus sur le board), que `_within` mirrore deja (#57m). D'ou `AdjacentEnemies` NU.
+
+    TROIS lectures que le decompile impose, et qu'on ne devine pas :
+
+    1. **Le splash porte sur l'ENNEMI ADJACENT, pas sur la cible principale.** `param_5` est
+       `DSLSelectors$$Entity(<entite iteree>)`, un selecteur MONO-ENTITE construit A CHAQUE tour de
+       boucle -- alors que
+       `IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$MakeDamagePredictions` et
+       `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility` repassent, EUX, le
+       selecteur `Target` (d'ou leur quirk « n events identiques sur la cible principale », cf.
+       `prediction.make_secondary_multihit_event`). Ici les events sont DISTINCTS : chacun est predit
+       contre les PV / l'armure / les traits de SON ennemi. `GenerateMultiHitAttackPredictions` le
+       confirme etage par etage : `param_4` ne sert qu'a peupler l'`AbilityEntities`
+       (`Target` + `EntityExtensions$$GetTiles(param_4)`), et les cibles reellement predites sont
+       celles que rend `SelectUniqueUnits(param_5, entities, 3)`.
+    2. **Le degat du splash est celui du batch PRINCIPAL, pas `MinMaxDamage2`.** Le playbook evalue
+       `<GetDamage>` = `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(abilityState,
+       isPrediction: false)` UNE SEULE FOIS, dans une locale, et repasse CETTE locale en `param_6` aux
+       deux batchs. La face COMBAT, elle, appelle bien `MinMaxDamage2` pour son 2e
+       `AttackWithAttackDamage` -- c'est une DIVERGENCE natif/natif entre decision et execution.
+       Sans consequence NUMERIQUE sur cette config (`minDmg_2`/`maxDmg_2` y sont egaux a
+       `minDmg`/`maxDmg`), mais la garder explicite evite de re-deriver la base du splash depuis
+       `minDmg_2` -- ce qui serait faux des qu'un build les desaccorderait.
+    3. **Seuls les COUPS et le PROFIL different entre les deux batchs** : `GetHits2` =
+       `GetNumberConstant(0x32 = nrOfHits_2)` et `GetDamageProfile2` = `GetEnumConstant(0x3f =
+       damageProfile_2)`. Sur 1222 : `nrOfHits` = `nrOfHits_2` = 1, mais `damageProfile` =
+       `DirectDamage` et `damageProfile_2` = **Physical** -- deux `PiercingRatio` distincts, donc
+       deux degats predits distincts contre une meme armure. C'est ce profil qui rend le volet
+       observable.
+
+    `param_10` (fournisseur de poids Fix64) = **0** sur les DEUX batchs -> `Fix64.FromInt(1)`, donc
+    AUCUNE ponderation `GetMaxSecondaryTargets` (`get_max_secondary_targets` reste None).
+    Les entrees per-batch sont fournies par `engine.playbook.prediction.abilities.
+    _mass_driver_accelerator_inputs` ; cette classe ne porte que le SET."""
+
+    # `...MassDriverAcceleratorAbility$$GetAdjacentAttackTargets` (le referent d'equipe de `Enemies`
+    # est le CASTER -- `DSLSelectors+0x48` --, ce que `AdjacentEnemies` mirrore par construction).
+    _AOE = dsl.AdjacentEnemies(dsl.TargetTile(), dsl.Const(1))
+
+    def get_aoe_targets(self, ctx):
+        return self._AOE.evaluate(ctx)
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
@@ -584,6 +651,7 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "MultiThreatEliminator": MultiThreatEliminatorAbility,
     "FrenziedFiring": FrenziedFiringAbility,
     "SavageEchoes": SavageEchoesAbility,
+    "MassDriverAccelerator": MassDriverAcceleratorAbility,
 }
 
 
