@@ -41,14 +41,29 @@ class VigilanceEternalPlaybook(_PlanTargetPlaybook):
         `turnsStarted > 1` — 1202 n'est jamais évaluée au 1er tour de l'unité."""
         return _turns_started_gate(ctx)
 
+    def _ability_prediction(self, tile, target, ctx: NCContext):
+        """`GetDamageFormula(position)` + `GetDamageProfile` + `GetHits` -> le `DamagePredictionResult`
+        que `CalculateUtilityFromDamageEvent` score. Foyer UNIQUE, partage par `damage_predictions`
+        (trace de construction) et `evaluate_non_comparable` (utilite) -- pas de derive possible."""
+        from engine.playbook.prediction import generate_multi_hit_attack_prediction
+        return generate_multi_hit_attack_prediction(ctx.scene, ctx.uid, target, self.ABILITY_ID,
+                                                    _ABILITY_NAME, attack_pos=tile)
+
+    def damage_predictions(self, tile, target, ctx: NCContext) -> list:
+        """UN SEUL `ProbableDamageEvent` par cible : `VigilanceEternalPlaybook$$EvaluateNonComparable`
+        n'a AUCUN gate predictif avant `CalculateUtilityFromDamageEvent` (contraste avec
+        `KillMaimBurnPlaybook`, dont `WillNormalAttackKill` en construit un premier)."""
+        if tile is None or ctx.scene is None or target is None:
+            return []
+        dp = self._ability_prediction(tile, target, ctx)
+        return [] if dp is None else [("ability", dp)]
+
     def evaluate_non_comparable(self, tile, target, ctx: NCContext):
         if tile is None or ctx.scene is None or target is None:
             return None
-        from engine.playbook.prediction import generate_multi_hit_attack_prediction
         from engine.playbook.probable_damage_event import (ProbableDamageEvent,
                                                            calculate_utility_from_damage_event)
-        dp = generate_multi_hit_attack_prediction(ctx.scene, ctx.uid, target, self.ABILITY_ID,
-                                                  _ABILITY_NAME, attack_pos=tile)
+        dp = self._ability_prediction(tile, target, ctx)
         if dp is None:
             return None
         ev = ProbableDamageEvent(target=target, prediction=dp)

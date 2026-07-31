@@ -70,10 +70,19 @@ construit le MEME `ProbableDamageEvent` avant de le passer a `CalculateUtilityFr
 le CONSOMME au lieu de le RENDRE. Le RPC `ncPlaybookPredict` (`via: "evaluate"`) le CAPTURE au
 ctor. `--oracle nc` (auto des que l'ability a un playbook NC porte) commute donc :
   * cote natif : `ncPlaybookPredict` au lieu d'`aiPlaybookPredict` ;
-  * cote port  : `engine.playbook.prediction.generate_multi_hit_attack_prediction` -- exactement ce
-    qu'appelle le playbook NC porte -- au lieu de `make_damage_predictions`.
+  * cote port  : `playbook.damage_predictions(position, cible, ctx)` -- la SEQUENCE que le playbook
+    NC porte CONSTRUIT, dans l'ordre natif -- au lieu de `make_damage_predictions`.
 Le point de branchement patche est le MEME (`AActiveAbility.get_damage`), donc le verdict d'arrondi
 se lit a l'identique sur les deux faces.
+
+⚠ LA CAPTURE N'EST PAS « LA PREDICTION DE L'ABILITY » (#362). Le trampoline est sur le CTOR : il
+voit TOUT ce que l'evaluation construit, y compris ce qu'un GATE construit sans le scorer.
+`IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill` -- premiere instruction du corps de
+boucle de `KillMaimBurnPlaybook$$EvaluateNonComparable` -- predit l'attaque NORMALE, en fait un
+`ProbableDamageEvent` avec le MEME `targetId`, et n'en retient que `get_WillBeKill`. D'ou DEUX
+consequences que ce probe modelise : la comparaison porte sur la SEQUENCE (gate compris), et un
+montage ou le gate MORD ne construit AUCUNE prediction d'ability -> NON CONFRONTE (rc 2), avec
+`--victim-hp` comme levier de regime.
 
 ⚠ REGIME : une ability NC peut porter une precondition d'eligibilite (1202 VigilanceEternal exige une
 cible ADJACENTE ou chargeable a portee 2 -- `VigilanceEternalAbility$$GetDynamicInvalidTargetReason`).
@@ -153,14 +162,22 @@ VARIANTS = (("to_even", _v_to_even), ("trunc", _v_trunc),
 
 
 def _build(state_file: Path, seed: int, caster: str, victim: str, board: str,
-           level: int, mult: int, armor_target=None) -> int:
+           level: int, mult: int, armor_target=None, victim_hp=None) -> int:
     """`rl_duel build` -- board CHOISI (runner.md sec.2) et NIVEAU D'ABILITY PILOTE (`--unit-stat`,
     ecrit VERBATIM dans `BC.Units[]`), qui est le levier de la parite mesuree ici.
 
     `armor_target = 0` retire l'etage ARMURE de la cible. C'est le second levier de PILOTAGE :
     sur une cible blindee, la reduction d'armure ABSORBE souvent l'ecart d'une unite de la base
     (mesure : BringerOfDespair niveau 2, les quatre variantes rendent (36,56)) -- le bras est alors
-    muet et ne prouve rien. Sans armure, l'ecart de base traverse jusqu'aux bornes observees."""
+    muet et ne prouve rien. Sans armure, l'ecart de base traverse jusqu'aux bornes observees.
+
+    `victim_hp` = TROISIEME levier, requis par les playbooks NC a gate predictif (#362). Un playbook
+    dont le corps commence par `IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill` SAUTE
+    toute cible que l'attaque NORMALE du caster tue deja a coup sur -- et ne construit alors AUCUNE
+    prediction d'ability. Aux PV du seed, `worldKharn` (rank 17, 4 coups Eviscerate) sur-tue tout le
+    pool : le regime de #344 y est INATTEIGNABLE. Forcer `Health`/`RemainingHealth` de la cible
+    deplace le SEUL verdict `get_WillBeKill`, sans toucher ni la formule de degat, ni l'armure, ni
+    le crit."""
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
            "--state-file", str(state_file), "--board", board, "--rank", "17",
@@ -171,6 +188,9 @@ def _build(state_file: Path, seed: int, caster: str, victim: str, board: str,
            "--crit", "0,0", "--block-target", "0,0", "--no-ai"]
     if armor_target is not None:
         cmd += ["--armor-target", str(int(armor_target))]
+    if victim_hp is not None:
+        cmd += ["--unit-stat", "%s:Health=%d,RemainingHealth=%d"
+                               % (victim, int(victim_hp), int(victim_hp))]
     proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     if not state_file.exists():
@@ -256,7 +276,13 @@ def _native_nc(sid, rid, cid, tid, ability):
     """Pendant NonComparable de `_native` : `ncPlaybookPredict(via="evaluate")` invoque le wrapper
     `Evaluate` du playbook sous un trampoline FENETRE sur `ProbableDamageEvent$$.ctor` et rend les
     events CONSTRUITS pendant l'evaluation. Meme filtre que `_native` : la SEQUENCE des events de la
-    cible principale, plus le compte total (les autres cibles eligibles sont un axe distinct)."""
+    cible principale, plus le compte total (les autres cibles eligibles sont un axe distinct).
+
+    ⚠ La capture n'est PAS « la prediction de l'ability » : le trampoline est sur le CTOR, donc il
+    voit aussi ce qu'un GATE construit sans le scorer (#362 --
+    `IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill` predit l'attaque NORMALE et en fait
+    un `ProbableDamageEvent` avec le MEME `targetId`). D'ou la comparaison a la SEQUENCE portee
+    (`playbook.damage_predictions`) et non a la seule prediction d'ability."""
     r = _r(sid, "ncPlaybookPredict", {"runnerId": rid, "unitId": int(cid),
                                       "abilityType": int(ability), "via": "evaluate"}, 240)
     evs = (r or {}).get("captured") or []
@@ -267,29 +293,46 @@ def _native_nc(sid, rid, cid, tid, ability):
                   for e in mains), len(evs))
 
 
-def _offline_nc(scene, cid, tid, ability, ability_name, here, fn=None, all_targets=None):
-    """Pendant NonComparable de `_offline` : le chemin EXACT du playbook NC porte --
-    `engine.playbook.prediction.generate_multi_hit_attack_prediction`, appele DIRECTEMENT (cf.
-    `engine/playbook/noncomparable/vigilance_eternal.py`), et non `make_damage_predictions` (dont
-    le gate d'affichage #109 rend `[]` pour toute NonComparable). Le point de branchement patche
-    (`AActiveAbility.get_damage`) est le meme, donc la variante d'arrondi se mesure a l'identique."""
-    from engine.playbook.prediction import generate_multi_hit_attack_prediction as G
+def _nc_context(scene, ctx, cid, here):
+    """`NCContext` MINIMAL (uid + position + scene + poids + units) : c'est tout ce que
+    `damage_predictions` consomme. Construit explicitement plutot que de faire passer l'
+    `AiDecisionContext` pour un `NCContext` par duck-typing."""
+    from engine.playbook.noncomparable import NCContext
+    return NCContext(uid=int(cid), origin=here, reach_nc=[here], epos=[], fpos=[], plan={},
+                     hp_cur_by_id={}, scene=scene, wt=ctx.wt, units=ctx.units)
+
+
+def _offline_nc(scene, ctx, cid, tid, ability, ability_name, here, fn=None, all_targets=None):
+    """Pendant NonComparable de `_offline` : la SEQUENCE que le playbook NC PORTE **construit** pour
+    la cible principale -- `playbook.damage_predictions(position, cible, ctx)`, qui rend
+    `[(tag, DamagePredictionResult)]` dans l'ordre natif (cf.
+    `engine/playbook/noncomparable/_base.py`). C'est le pendant EXACT de ce que l'oracle capture au
+    ctor, gate compris, et non `make_damage_predictions` (dont le gate d'affichage #109 rend `[]`
+    pour toute NonComparable). Le point de branchement patche (`AActiveAbility.get_damage`) reste le
+    meme, donc la variante d'arrondi se mesure a l'identique.
+
+    Rend `(sequence, n_events_total, has_ability)` : `has_ability` dit si le montage a laisse le
+    playbook construire sa prediction d'ABILITY -- la SEULE porteuse de la moyenne minDmg/maxDmg.
+    Faux = regime non atteint (le gate a mordu), pas un ecart d'arrondi."""
+    from engine.playbook import noncomparable as NCPB
+    pb = NCPB.playbook_for(int(ability))
+    nc = _nc_context(scene, ctx, cid, here)
     o_round, o_avg = AA._round_fix64, AA.calculate_average
     if fn is not None:
         AA._round_fix64 = fn
         AA.calculate_average = lambda mn, mx: fn(Fraction(int(mn) + int(mx), 2), 0)
     try:
-        dp = G(scene, int(cid), int(tid), int(ability), ability_name, attack_pos=here)
+        seq = pb.damage_predictions(here, int(tid), nc)
         n = 0
         for other in (all_targets or [int(tid)]):
-            if G(scene, int(cid), int(other), int(ability), ability_name,
-                 attack_pos=here) is not None:
-                n += 1
+            n += len(pb.damage_predictions(here, int(other), nc))
     finally:
         AA._round_fix64, AA.calculate_average = o_round, o_avg
-    if dp is None:
-        return None, n
-    return ((dp.accurate_health_damage.min, dp.accurate_health_damage.max, dp.applied_hits),), n
+    has_ability = any(tag == "ability" for tag, _dp in seq)
+    if not seq:
+        return None, n, has_ability
+    return (tuple((dp.accurate_health_damage.min, dp.accurate_health_damage.max, dp.applied_hits)
+                  for _tag, dp in seq), n, has_ability)
 
 
 def _native(sid, rid, cid, tid, ability):
@@ -370,11 +413,12 @@ def _offline(scene, cid, tid, ability, ability_name, here, fn=None):
 
 
 def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_name,
-                 board, center, mult, armor_target=None, nc: bool = False) -> dict:
+                 board, center, mult, armor_target=None, nc: bool = False,
+                 victim_hp=None) -> dict:
     rid = None
     regime = None
     try:
-        rid = _build(sf, seed, caster, victim, board, level, mult, armor_target)
+        rid = _build(sf, seed, caster, victim, board, level, mult, armor_target, victim_hp)
         dv = _view(sid, rid)
         ids = {}
         for v in (caster, FILLER_P, victim, FILLER_A):
@@ -397,14 +441,24 @@ def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_n
             # Le REGIME d'abord : hors regime, une capture nulle accuserait le MONTAGE, pas le port.
             regime = _nc_regime(sid, rid, cid, tid, ability)
             if not regime.get("reached"):
-                return {"label": label, "regime": regime,
+                return {"label": label, "regime": regime, "no_regime": True,
                         "error": "MONTAGE HORS REGIME NC : %s" % regime.get("why")}
             foes = [ids[victim], ids[FILLER_A]]
             nat, n_nat = _native_nc(sid, rid, cid, tid, ability)
-            _p = {name: _offline_nc(scene, cid, tid, ability, ability_name, here, fn, foes)
+            _p = {name: _offline_nc(scene, ctx, cid, tid, ability, ability_name, here, fn, foes)
                   for name, fn in VARIANTS}
             ports = {k: v[0] for k, v in _p.items()}
-            shipped, n_port = _offline_nc(scene, cid, tid, ability, ability_name, here, None, foes)
+            shipped, n_port, has_ability = _offline_nc(scene, ctx, cid, tid, ability, ability_name,
+                                                       here, None, foes)
+            if not has_ability:
+                # TROISIEME issue (#362) : le playbook NC n'a construit AUCUNE prediction d'ABILITY
+                # -- son gate predictif a mordu (`WillNormalAttackKill` -> `continue`). Le natif a
+                # RAISON, il n'y a simplement rien de l'arrondi a mesurer ici. Rougir accuserait le
+                # port ; c'est le MONTAGE qui n'atteint pas le regime.
+                return {"label": label, "regime": regime, "no_regime": True,
+                        "error": "MONTAGE HORS REGIME NC : le gate predictif du playbook a saute "
+                                 "la cible (aucune prediction d'ability construite) -- piloter les "
+                                 "PV de la cible (--victim-hp)"}
         else:
             nat, n_nat = _native(sid, rid, cid, tid, ability)
             _p = {name: _offline(scene, cid, tid, ability, ability_name, here, fn)
@@ -446,7 +500,7 @@ def _grade(arm: dict) -> dict:
 def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = CASTER,
         victim: str = VICTIM, ability: int = ABILITY, ability_name: str = ABILITY_NAME,
         board: str = BOARD, center=CENTER, lvl_a: int = LVL_A, lvl_b: int = LVL_B,
-        mult: int = MULT, armor_target=None, oracle: str = "auto") -> dict:
+        mult: int = MULT, armor_target=None, oracle: str = "auto", victim_hp=None) -> dict:
     # GATE DE PERIMETRE (#356). `expected` se DEDUIT d'une dichotomie a deux registres ; une ability
     # ABSENTE DES DEUX n'a pas de reponse -- le `else "trunc"` en fabriquerait une. Le trou etait
     # inatteignable tant que le probe ne parlait qu'aux Comparables ; `--oracle auto` ouvre les
@@ -469,13 +523,15 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
 
     # `auto` = la face que le natif IMPOSE (playbook NonComparable -> aucun `Make*Predictions`).
     nc = _is_nc(ability) if oracle == "auto" else (oracle == "nc")
-    # DEUXIEME GATE DE PERIMETRE (#356). Cote OFFLINE, la face NC est mesuree par
-    # `generate_multi_hit_attack_prediction` parce que c'est ce qu'appelle le playbook NC PORTE.
-    # Sans playbook porte, ce chemin n'est PAS celui de l'ability et la comparaison ne mesure plus
-    # l'arrondi. Mesure 2026-07-31 sur `worldKharn`/`1132 KillMaimBurn` (aucun port) : natif
-    # `(8536, 8536, 4)` -- borne aux PV MAX de la cible, 4 coups appliques, trois profils
-    # (`Piercing`/`Eviscerate`/`Plasma`) -- contre `(86, 129, 1)` pour le chemin generique. Le probe
-    # aurait rougi comme un ecart d'ARRONDI ce qui est un PORT MANQUANT.
+    # DEUXIEME GATE DE PERIMETRE (#356). Cote OFFLINE, la face NC est mesuree par la SEQUENCE que
+    # le playbook NC PORTE construit (`playbook.damage_predictions`). Sans playbook porte il n'y a
+    # aucune sequence a opposer a la capture, et une comparaison ad hoc ne mesurerait plus
+    # l'arrondi. Mesure 2026-07-31 sur `worldKharn`/`1132 KillMaimBurn`, avant son port : natif
+    # `(8536, 8536, 4)` contre `(86, 129, 1)` pour le chemin generique -- lu a l'epoque comme un
+    # ecart de formule. #362 a tranche : `(8536, 8536, 4)` etait l'attaque NORMALE de Kharn
+    # (`weapons[0].hits` = 4, bornes CAPEES a la sante restante), construite par le gate
+    # `WillNormalAttackKill` et captee par le meme ctor. Le probe aurait rougi comme un ecart
+    # d'ARRONDI ce qui etait un PORT MANQUANT *et* une confusion d'event.
     if nc and not _is_nc(ability):
         msg = ("HORS PERIMETRE : %s (%d) n'a AUCUN playbook NonComparable porte "
                "(engine.playbook.noncomparable.PLAYBOOKS) -- le cote offline mesurerait un chemin "
@@ -495,10 +551,25 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
     for key, label, lvl, sd in (("a", "A (3 mod 4 -- le natif MONTE)", lvl_a, seed),
                                 ("b", "B (1 mod 4 -- le natif DESCEND)", lvl_b, seed + 1)):
         arm = _measure_arm(sid, sf, sd, label, lvl, caster, victim, ability, ability_name,
-                           board, center, mult, armor_target, nc=nc)
+                           board, center, mult, armor_target, nc=nc, victim_hp=victim_hp)
         if not arm.get("error"):
             _grade(arm)
         arms[key] = arm
+
+    # TROIS ISSUES, JAMAIS DEUX (#356 sec.6, etendu #362) : un bras hors REGIME ne rougit pas comme
+    # un ecart d'arrondi -- il rend NON CONFRONTE (rc 2), et NOMME le levier de pilotage manquant.
+    no_regime = [k for k in ("a", "b") if arms[k].get("no_regime")]
+    if no_regime:
+        msg = ("NON CONFRONTE : bras %s hors regime NC -- %s"
+               % (",".join(no_regime), arms[no_regime[0]].get("error")))
+        if verbose:
+            print("[344] %s" % msg)
+        return {"ok": None, "not_confronted": True, "reason": msg, "arms": arms,
+                "oracle": "nc" if nc else "comparable",
+                "montage": {"caster": caster, "victim": victim, "ability": ability,
+                            "ability_name": ability_name, "board": board, "center": tuple(center),
+                            "lvl_a": lvl_a, "lvl_b": lvl_b, "mult": mult,
+                            "armor_target": armor_target, "victim_hp": victim_hp}}
 
     # Les DEUX bras doivent etre dans le regime ANNONCE, sinon le pilotage du niveau n'a pas pris.
     regimes_ok = (arms["a"].get("sum_mod4") == 3 and arms["b"].get("sum_mod4") == 1)
@@ -556,7 +627,7 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
             "montage": {"caster": caster, "victim": victim, "ability": ability,
                         "ability_name": ability_name, "board": board, "center": tuple(center),
                         "lvl_a": lvl_a, "lvl_b": lvl_b, "mult": mult,
-                        "armor_target": armor_target}}
+                        "armor_target": armor_target, "victim_hp": victim_hp}}
 
 
 def main() -> int:
@@ -576,6 +647,10 @@ def main() -> int:
     ap.add_argument("--mult", type=int, default=MULT)
     ap.add_argument("--armor-target", type=int, default=None,
                     help="armure FORCEE de la cible (0 = etage armure retire, cf. _build)")
+    ap.add_argument("--victim-hp", type=int, default=None,
+                    help="PV FORCES de la cible (Health+RemainingHealth). Levier de REGIME des "
+                         "playbooks NC a gate predictif : sans lui, WillNormalAttackKill saute la "
+                         "cible et aucune prediction d'ability n'est construite (#362)")
     ap.add_argument("--oracle", choices=("auto", "comparable", "nc"), default="auto",
                     help="face mesuree : `auto` = `nc` des que l'ability a un playbook "
                          "NonComparable porte (#356), sinon `comparable`")
@@ -589,11 +664,11 @@ def main() -> int:
               ability=a.ability, ability_name=name, board=a.board,
               center=tuple(int(x) for x in a.center.split(",")),
               lvl_a=a.lvl_a, lvl_b=a.lvl_b, mult=a.mult, armor_target=a.armor_target,
-              oracle=a.oracle)
+              oracle=a.oracle, victim_hp=a.victim_hp)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
-    if out.get("out_of_scope"):
-        return 2            # ni OK ni ECHEC : rien de mesurable sur cette ability
+    if out.get("out_of_scope") or out.get("not_confronted"):
+        return 2            # ni OK ni ECHEC : rien de mesurable / regime non atteint
     return 0 if out.get("ok") else 1
 
 

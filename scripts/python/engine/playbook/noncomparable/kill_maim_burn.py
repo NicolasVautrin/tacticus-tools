@@ -76,16 +76,51 @@ class KillMaimBurnPlaybook(_PlanTargetPlaybook):
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.KillMaimBurnPlaybook$$.cctor = Fix64(1)
     PRIORITY = 0
 
+    def _ability_prediction(self, tile, target, ctx: NCContext):
+        """`GetDamage(state, isPrediction: TRUE)` + `GetDamageProfile` + `GetHitsFormula` -> le
+        `DamagePredictionResult` que `CalculateUtilityFromDamageEvent` score. Foyer UNIQUE, partage
+        par `damage_predictions` (trace de construction) et `evaluate_non_comparable` (utilite)."""
+        from engine.playbook.prediction import generate_multi_hit_attack_prediction
+        return generate_multi_hit_attack_prediction(ctx.scene, ctx.uid, target, self.ABILITY_ID,
+                                                    _ABILITY_NAME, attack_pos=tile)
+
+    def damage_predictions(self, tile, target, ctx: NCContext) -> list:
+        """DEUX events par cible, ou UN SEUL quand le gate mord -- l'ordre est celui du corps natif.
+
+        `BasePlaybook$$WillNormalAttackKill` est la PREMIERE instruction du corps de boucle et il
+        construit son propre `ProbableDamageEvent` (prediction de l'attaque NORMALE depuis
+        `entities+0x40` = la tuile du caster). S'il rend vrai, le `continue` natif tombe et AUCUNE
+        prediction d'ability n'est construite pour cette cible.
+
+        MESURE (`probe_362_kill_maim_burn_nc.py`, `worldKharn` rank 17 vs `necroWarden`, anneau
+        centre en (3,4), niveau 3) :
+          * PV du seed (8536) -> capture `[(8536, 8536, 4)]`, bucket VIDE -- l'attaque normale de
+            Kharn sur-tue, la cible est sautee ;
+          * PV forces a 400000 -> capture `[(10052, 15072, 4), (86, 129, 1)]` -- le gate ne mord
+            plus, l'ability est evaluee ensuite. Le port rend les MEMES deux tuples, dans le meme
+            ordre."""
+        if tile is None or ctx.scene is None or target is None:
+            return []
+        from engine.playbook.prediction import make_normal_attack_predictions
+        seq = []
+        na = make_normal_attack_predictions(ctx.scene, ctx.uid, target, tile)
+        if na is not None:
+            seq.append(("WillNormalAttackKill", na.prediction))
+            if na.prediction.will_be_kill():
+                return seq                 # `continue` natif : pas d'event d'ability
+        dp = self._ability_prediction(tile, target, ctx)
+        if dp is not None:
+            seq.append(("ability", dp))
+        return seq
+
     def evaluate_non_comparable(self, tile, target, ctx: NCContext):
         if tile is None or ctx.scene is None or target is None:
             return None
         if _will_normal_attack_kill(ctx, target, tile):
             return None      # `continue` natif : l'attaque normale sure-kill deja cette cible
-        from engine.playbook.prediction import generate_multi_hit_attack_prediction
         from engine.playbook.probable_damage_event import (ProbableDamageEvent,
                                                            calculate_utility_from_damage_event)
-        dp = generate_multi_hit_attack_prediction(ctx.scene, ctx.uid, target, self.ABILITY_ID,
-                                                  _ABILITY_NAME, attack_pos=tile)
+        dp = self._ability_prediction(tile, target, ctx)
         if dp is None:
             return None
         ev = ProbableDamageEvent(target=target, prediction=dp)
