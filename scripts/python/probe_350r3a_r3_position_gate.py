@@ -306,8 +306,12 @@ def _native_map(rpc, sid, rid, cid: int, ability: int, positions: list,
                 verbose: bool = True) -> dict:
     """LE MODELE DU NATIF, position par position. `targets` = les cibles que
     `GetEligibleTargetsSelectable` a retenues A CETTE POSITION (un `ProbableDamageEvent` par cible,
-    1202 n'ayant aucun gate predictif intermediaire) ; `bucketUtil`/`bucketAction` = l'ARGMAX que le
-    natif attribue LUI-MEME a cette position -- c'est du MESURE, pas du reconstruit."""
+    1202 n'ayant aucun gate predictif intermediaire) ; `bucketUtil` = l'utilite que le natif attribue
+    LUI-MEME a cette position -- son argmax est donc MESURE, pas reconstruit.
+
+    WARN `bucketAction.targetLow` est le dword BAS d'un POINTEUR d'entite, pas un `unitId` (mesure
+    #362, `case-350r3-oracle-noncomparable.md` sec.8.5) : publie pour diagnostic, il n'identifie RIEN
+    offline. La cible native se lit sur les events CAPTURES (`targets`)."""
     out = {}
     for p in positions:
         r = _r(rpc, sid, "ncPlaybookPredict",

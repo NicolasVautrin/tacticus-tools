@@ -374,3 +374,46 @@ MISS restant (pas 6, `u87` / `ab=1154`) est étranger à ce cas et inchangé ent
   d'exploitable offline. C'est `bucketUtil` qui sert de cadran.
 
 **Aucune réinjection n'a été requise** : le capteur `ncPlaybookPredict` est celui de #356, inchangé.
+
+## 9. `#350-r3a-r3` — le gate per-position : l'écart n'était pas le prédicat, c'était la TRONCATURE
+
+**Énoncé hérité, RÉFUTÉ** : « le port gate sur une UNION de positions (`P in ranked(tgt)` du plan)
+là où le natif interroge `GetValidTargets(caster, position, ability)` par position ». Les DEUX côtés
+sont per-position, et ils portent le MÊME prédicat :
+`BasePlaybook$$GetEligibleTargetsSelectable` appelle `AttackQuery$$GetValidTargets` une fois par
+position ; `computeAttackPlans` (`frida/hooks/features/ai-step/projection.ts`) fait un
+shrink-and-recall sur `AttackQuery$$GetBestTileToAttackFrom`, dont le corps garde une tuile ssi
+`AttackQuery$$GetInvalidTargetReason` n'est pas invalide. **Écart de prédicat mesuré : 0 position sur
+33, à tous les rangs** (`castFromTiles` == éligibilité native, y compris le flag `0x8000000`
+`TargetIsInRange` de `VigilanceEternalAbility$$GetDynamicInvalidTargetReason`).
+
+**Le vrai écart** : `computeAttackPlans` PLAFONNE le résultat — `for (let r = 0; r < maxRank; r++)`.
+Ce plafond n'existe nulle part côté natif. Mesure sur **un seul état** (`probe_350r3a_r3_position_gate.py`,
+fixture `carte` : `custoKyrus` en `(3,4)`, `necroWarden` à 1 hex, `ultraTitus` à 3 hex, board `MC1_67`) :
+
+| `maxRank` | positions perdues par le port | argmax |
+|---|---|---|
+| 32 | 0 / 33 | natif `(1,3)` = port `(1,3)` |
+| **8** (défaut `rl_duel._decision`) | **19 / 33** | identique — **par coïncidence de géométrie** |
+| **6** (défaut du RPC `decisionView`) | **21 / 33** | **natif `(1,3)` vs port `(0,3)`** |
+
+Le régime fautif est donc celui de **production**, et l'écart est à sens unique (le port est plus
+PAUVRE, jamais plus permissif : `diff_port_only` = `[]` partout).
+
+**Pourquoi il avait résisté deux fois** : le relevé de #356 et le `0/33` du WIP mesuraient un écart de
+COMPTE d'éligibilité à une position, jamais un écart de DÉCISION. Un montage où les deux modèles
+rendent le même argmax ne conclut rien — la position gagnante y voyait les deux cibles.
+
+**Fix** : `_PlanTargetPlaybook.eligible_positions` (foyer neuf, `engine/playbook/noncomparable/_base.py`,
+7 sous-classes) lit `castFromTiles` — même prédicat, SANS troncature — au lieu de `ranked(tgt)`.
+Repli NOMMÉ sur `ranked` si la seam est absente, en erreur, ou rend un ensemble vide malgré
+`rankCount >= 1`. L'énumération des CIBLES reste celle du plan : aucune n'est perdue par la
+troncature (`rankCount >= 1` dès qu'une position est valide, le harnais bornant `maxRank >= 1`).
+
+**Ce que le fix ne fait PAS** : il ne détronque pas `attackPlans`. Tout autre consommateur de
+`ranked` reste exposé au plafond — c'est un défaut du **harnais**, et le corriger demanderait une
+réinjection.
+
+Garde : `tests/engine/test_350r3a_r3_position_gate_live.py` — **9 passed** (était 2 failed / 4 passed
+avant le fix ; 4 failed sous mutation adversariale du gate). Elle exige l'égalité des ENSEMBLES
+d'éligibilité aux 33 positions et des ARGMAX, aux trois rangs `32 / 8 / 6`.
