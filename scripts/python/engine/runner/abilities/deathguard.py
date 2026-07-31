@@ -707,6 +707,37 @@ def plagueburst_is_valid_adjacent_enemy_trigger() -> TriggerOr:
     return TriggerOr(aura, armor)
 
 
+def plagueburst_main_damage_target(target_sel) -> Filter:
+    """`IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$GetMainDamageTarget`
+    = `Filter( Enemies(caster@0x48, target@0x60, 3), GetIsValidAdjacentEnemyTrigger )` (MIRROR 1:1).
+
+    UN artefact natif, DEUX consommateurs -- d'ou la fonction nommee a part :
+
+      * face COMBAT   -> 1er terme de `plagueburst_damage_targets` (qui l'unit aux adjacents) ;
+      * face DECISION -> le `targetsSelector` que
+        `IdunBattle.AI.Playbook.PlagueburstMortarPlaybook$$MakeDamagePredictions` passe a
+        `...ComparablePlaybook...$$GenerateMultiHitAttackPredictions` -- et c'est le SEUL ensemble
+        que la PREDICTION couvre : `GetAdjacentDamageTargets` n'entre PAS dans le batch de
+        prediction, alors qu'il entre dans `ExecuteBehaviour`.
+
+    Le `Units(target_sel)` materialise la resolution tuile -> occupant que le natif fait dans
+    `IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd` (`GetUnitOrMachine(entity)` pour
+    le test d'equipe, `Add(entity)` pour le resultat) : cf. la note de `plagueburst_damage_targets`.
+    MESURE (probe #302-2) : le natif rend la MEME utilite de paire qu'on lui passe la TUILE (entite
+    de type `Tile`) ou l'UNITE qui l'occupe -- 1.1779941 dans les deux cas sur `orksWarboss` --,
+    donc la resolution materialisee est value-identique sur ce chemin."""
+    return Filter(Enemies(Units(target_sel)), plagueburst_is_valid_adjacent_enemy_trigger())
+
+
+def plagueburst_adjacent_damage_targets(target_sel) -> Filter:
+    """`IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$GetAdjacentDamageTargets`
+    = `Filter( Enemies(caster@0x48, Units(AdjacentTiles(target@0x60), 1), 3),
+    GetIsValidAdjacentEnemyTrigger )` (MIRROR 1:1). C'est `plagueburst_adjacent_enemies` AVEC le
+    Filter -- la face COMBAT l'utilise, la face DECISION ne l'utilise PAS (cf. ci-dessus)."""
+    return Filter(plagueburst_adjacent_enemies(target_sel),
+                  plagueburst_is_valid_adjacent_enemy_trigger())
+
+
 def plagueburst_damage_targets(target_sel) -> Unique:
     """`Unique(GetMainDamageTarget + GetAdjacentDamageTargets)` (MIRROR) : l'occupant de la tuile ciblee
     ET les ennemis des tuiles adjacentes, TOUS filtres par le predicat de validite. Le `Unique` natif
@@ -720,10 +751,8 @@ def plagueburst_damage_targets(target_sel) -> Unique:
     DEGAT, et pour le volet `Pinned` cela pose l'effet sur l'UNITE plutot que sur la TUILE.
     RESIDU EXPLICITE (non discriminable sur un runner frais, ou le predicat vide l'ensemble) : si le
     natif posait `Pinned` sur l'entite-tuile, l'empreinte differerait sur ce point precis."""
-    pred = plagueburst_is_valid_adjacent_enemy_trigger()
-    main = Filter(Enemies(Units(target_sel)), pred)
-    adj = Filter(Enemies(Units(AdjacentTiles(target_sel))), pred)
-    return Unique(Union(main, adj))
+    return Unique(Union(plagueburst_main_damage_target(target_sel),
+                        plagueburst_adjacent_damage_targets(target_sel)))
 
 
 def plagueburst_adjacent_enemies(target_sel) -> Enemies:
