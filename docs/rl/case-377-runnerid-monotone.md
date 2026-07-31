@@ -59,6 +59,12 @@ Trois runners **à moi**, dispose du premier, quatrième mesure sur l'id mort :
 | `battleStatus({runnerId: 145})` | `{ok:false, error:"runner 145 not found"}` — l'id est **nommé** |
 | `battleStatus({runnerId: 147})` depuis un autre contexte | **accepté** — cf. §4 |
 
+Re-jeu après rebase, même séquence : `156`, **`158`**, dispose(156), **`159`**, puis
+`runner 156 not found`. Le **trou à `157`** n'est pas un artefact — c'est un **autre agent** qui a
+construit son runner entre mes deux builds. La mesure porte donc en elle la démonstration que le
+compteur est **partagé et croissant sous concurrence réelle** : deux builds d'un même acteur
+n'obtiennent pas des ids consécutifs, et personne ne récupère l'id de personne.
+
 ## 4. Ce qui n'est PAS fermé, et pourquoi ce n'est pas ce cas
 
 * **Cross-drive VOLONTAIRE** : aucun contrôle d'`owner` sur les RPC de pilotage. L'`owner` est bien
