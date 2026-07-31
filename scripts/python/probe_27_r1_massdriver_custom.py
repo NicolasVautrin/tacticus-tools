@@ -75,6 +75,12 @@ VID_TARGET = "tauCrisis"
 VID_AURA1, VID_AURA2 = "ultraCalgar", "astraOrdnance"     # porteurs d'aura de degat : figes loin
 VID_BAIT1, VID_BAIT2 = "necroWarden", "bloodIntercessor"  # les deux leviers d'adjacence
 
+# Rosters de la fixture de REFERENCE. Extraits en constantes pour qu'un montage derive puisse
+# changer le camp ADVERSE (`a_units=`) sans dupliquer `build_fixture` -- le camp JOUEUR, lui, est
+# fige : c'est lui qui porte le caster, les deux appats et les deux auras a neutraliser.
+P_UNITS = "votanChampion,ultraCalgar,necroWarden,astraOrdnance,bloodIntercessor"
+A_UNITS = "tauCrisis"
+
 CASTER = 79
 TARGET = 77
 AURA1, AURA2 = 81, 85
@@ -95,13 +101,27 @@ ATTACK_TILE = (3, 0)           # tuile d'attaque choisie par le natif pour 69 au
 
 
 # ------------------------------------------------------------------ harnais runner
-def _run(args) -> None:
-    subprocess.run([sys.executable, "rl_duel.py"] + args, cwd=str(HERE),
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+def _run(args, capture: bool = False):
+    """Lance `rl_duel.py <args>`. `capture=True` REND la sortie (stdout+stderr fusionnes) au lieu
+    de la jeter -- indispensable pour qu'un build REFUSE puisse etre RAPPORTE (cf. `build_fixture`)."""
+    return subprocess.run(
+        [sys.executable, "rl_duel.py"] + args, cwd=str(HERE),
+        stdout=(subprocess.PIPE if capture else subprocess.DEVNULL),
+        stderr=(subprocess.STDOUT if capture else subprocess.DEVNULL),
+        text=True, encoding="utf-8", errors="replace", check=False)
 
 
 def _runner_id() -> int:
     return int(json.loads(STATE.read_text(encoding="utf-8"))["runnerId"])
+
+
+def _runner_id_or_none():
+    """`_runner_id()` TOLERANT : None si le state-file n'existe pas encore ou est illisible.
+    Sert d'ANCRE avant un build (cf. le garde-fou de `build_fixture`)."""
+    try:
+        return _runner_id()
+    except Exception:                          # noqa: BLE001  (fichier absent/tronque/sans runnerId)
+        return None
 
 
 def _move(rid: int, unit: int, to: str) -> None:
@@ -167,6 +187,13 @@ def ensure_seed_bcs() -> None:
 # deplacee), prend ses voisins WALKABLE via `boardGraph` (adjacence NATIVE, pas hexgeo), en reserve
 # UN comme chemin de charge et transforme les autres en emplacements d'appat, puis choisit une tuile
 # ennemie a distance hex 2. Les memes invariants sont EXIGES qu'en dur, sinon on refuse de mesurer.
+#
+# TUILES OCCUPEES PAR DES UNITES HORS-ROLES (#305) : des qu'un montage ajoute des unites au roster
+# (ici deux ennemis-leviers), leurs tuiles de SPAWN ne sont pas libres. `act move` vers une tuile
+# occupee est REFUSE, `_assert_placed` leve, et le bras ne mesure rien -- vecu au premier lancement
+# de `probe_305` : `ultraTitus` spawnait exactement sur le `aura_far` FIGE de la fixture (6,7).
+# On les EXCLUT donc de toutes les tuiles choisies ici. Les six roles de la fixture, eux, sont
+# deplaces par `build_fixture` : leurs tuiles de spawn restent choisissables.
 def derive_geometry(rid: int) -> dict:
     import hexgeo
     bg = L._rpc("boardGraph", [{"runnerId": rid}])
@@ -174,12 +201,16 @@ def derive_geometry(rid: int) -> dict:
     by_id = {t.get("id"): t for t in tiles}
     walk = {(t.get("col"), t.get("row")): bool(t.get("walkable")) for t in tiles}
     pos = _positions(rid)
+    roles = {CASTER, TARGET, AURA1, AURA2, BAIT1, BAIT2}
+    taken = {p for u, p in pos.items() if u not in roles and p and p[0] is not None}
+    for p in taken:
+        walk[p] = False                    # occupee par une unite que la fixture ne pilote pas
     kimm = pos.get(CASTER)
     ktile = next((t for t in tiles if (t.get("col"), t.get("row")) == kimm), None)
     if ktile is None:
         raise SystemExit("tuile de spawn de Kimm introuvable au boardGraph")
     neigh = [(by_id[i]["col"], by_id[i]["row"]) for i in (ktile.get("neighbours") or [])
-             if i in by_id and by_id[i].get("walkable")]
+             if i in by_id and walk.get((by_id[i]["col"], by_id[i]["row"]))]
     if len(neigh) < 3:
         raise SystemExit("spawn de Kimm a %d voisin(s) walkable : il en faut >= 3 (2 appats + 1 "
                          "chemin de charge) -- changer de board/seed" % len(neigh))
@@ -229,26 +260,56 @@ def _geom_ref() -> dict:
 
 
 def build_fixture(damage: int, with_passive: bool = False, board: str = BOARD, seed: int = SEED,
-                  geom: dict | None = None, unit_stats=None) -> tuple[int, dict]:
+                  geom: dict | None = None, unit_stats=None, a_units: str = A_UNITS,
+                  extra_args=None, derive: bool = False) -> tuple[int, dict]:
     """`MDA_FIXTURE` -- monte le runner et POSE les positions (cf. docstring du module).
     Kimm n'est JAMAIS deplacee : elle reste sur sa tuile de spawn, sinon 1222 devient illegale.
     `geom=None` + `board/seed` non standard -> la geometrie est DERIVEE du board vivant.
     `unit_stats` = patchs `--unit-stat` SUPPLEMENTAIRES (`"VisualId:Champ=Valeur"`), ADDITIFS au
     `Damage` du curseur -- c'est le levier qui fait varier une entree de CONFIG (niveau de passif,
-    multiplicateur de rarete) sans toucher a la geometrie du montage (#312)."""
+    multiplicateur de rarete) sans toucher a la geometrie du montage (#312).
+    `a_units` / `extra_args` : roster ADVERSE et options `rl_duel build` supplementaires -- ce qui
+    permet a un montage de poser PLUSIEURS ennemis (volet splash de `MakeDamagePredictions`, #305)
+    sans dupliquer la fixture ; les SIX roles de la fixture de reference restent presents et
+    resolus, un appelant qui ajoute des unites resout SES roles lui-meme.
+    `derive=True` FORCE la geometrie derivee meme sur `MC1_67 / 909` -- OBLIGATOIRE des qu'on
+    etend le roster : les tuiles FIGEES de `_geom_ref()` supposent le roster de reference, et une
+    unite ajoutee peut spawner exactement dessus (MESURE : `ultraTitus` spawne en (6,7), le
+    `aura_far` fige -> `act move` refuse, `_assert_placed` leve, aucun bras ne se monte).
+
+    GARDE-FOU DE MONTAGE (#322, cause racine traitee ICI, #305) -- ce corps lancait `rl_duel build`
+    avec `check=False` ET `stdout=DEVNULL`, puis relisait le `--state-file`. **Un build REFUSE ne
+    levait donc RIEN** : le state-file gardait l'ANCIEN `runnerId`, et l'appelant mesurait un bras
+    qu'il croyait neuf en rendant, a la ligne pres, les chiffres du bras PRECEDENT. VECU sur ce cas
+    (`--board C2_19`, 3 spawns joueur < 5 unites -> `[error]` du builder, valeurs du bras `C4_09`
+    d'avant re-servies, `Damage` inclus). #322 avait durci SON appelant (`probe_312.build_arm`) ;
+    la fixture PARTAGEE, elle, restait permissive -- donc tout NOUVEAU montage la re-heritait.
+    On exige desormais un runner NEUF a chaque build et on REMONTE la sortie du builder : un echec
+    RENDU ne doit jamais pouvoir se lire comme une mesure."""
     ensure_seed_bcs()
+    before = _runner_id_or_none()
     extra = []
     for s in (unit_stats or ()):
         extra += ["--unit-stat", str(s)]
-    _run(["build", "--seed", str(seed), "--board", board,
-          "--seed-bc", str(SEED_BC if with_passive else SEED_BC_NP),
-          "--p-units", "votanChampion,ultraCalgar,necroWarden,astraOrdnance,bloodIntercessor",
-          "--a-units", "tauCrisis", "--state-file", str(STATE),
-          "--unit-stat", "votanChampion:Damage=%d" % damage] + extra)
-    rid = _runner_id()
+    extra += [str(a) for a in (extra_args or ())]
+    proc = _run(["build", "--seed", str(seed), "--board", board,
+                 "--seed-bc", str(SEED_BC if with_passive else SEED_BC_NP),
+                 "--p-units", P_UNITS,
+                 "--a-units", a_units, "--state-file", str(STATE),
+                 "--unit-stat", "votanChampion:Damage=%d" % damage] + extra, capture=True)
+    rid = _runner_id_or_none()
+    if rid is None or (before is not None and rid == before):
+        tail = (proc.stdout or "").strip()[-2500:]
+        raise SystemExit(
+            "build REFUSE (runner %s) pour board=%s seed=%d Damage=%d a-units=%s -- le bras "
+            "mesurerait le runner PRECEDENT, on ne mesure PAS.\n"
+            "--- sortie de `rl_duel build` ---\n%s"
+            % ("inchange : %d" % rid if rid is not None else "absent du state-file",
+               board, seed, damage, a_units, tail or "(vide)"))
     _resolve_units(rid)                       # ids d'entite reels AVANT tout `act move`
     if geom is None:
-        geom = _geom_ref() if (board == BOARD and seed == SEED) else derive_geometry(rid)
+        geom = (_geom_ref() if (board == BOARD and seed == SEED and not derive)
+                else derive_geometry(rid))
     for u, to in geom["aura_far"].items():
         _move(rid, u, _t(to))
     _move(rid, TARGET, _t(geom["enemy"]))
