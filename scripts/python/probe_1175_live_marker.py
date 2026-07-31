@@ -62,8 +62,22 @@ def rpc(s: int, method: str, args=None, timeout: int = 90):
     return body.get("result")
 
 
+def eff_count(s: int, rid: int) -> int:
+    """Nombre d'ENTITES de type `Effect` sur le plateau (`observeBattle.counts.effects`).
+
+    C'est le SEUL capteur qui voie un effet INACTIF : `AddEffectOperation$$AddNewEffect` n'ecrit
+    jamais `EffectComponent.IsActive @+0x5c` (l'effet nait faux, cf. `hateful_assault.py`), et la
+    projection `decisionView` FILTRE les inactifs. Un marqueur absent de `decisionView` peut donc
+    etre bien POSE : sans ce compteur, on lirait le verdict d'un outil comme une mesure."""
+    ob = rpc(s, "observeBattle", {"runnerId": rid}, 90) or {}
+    return int(((ob.get("counts") or {}).get("effects")) or 0)
+
+
 def snap(s: int, rid: int) -> dict:
-    dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+    # `includeInactive` : demande explicite des effets INACTIFS. Si la projection ne connait pas
+    # l'option elle l'ignore -- cout nul, et le compteur d'entites-effet reste l'arbitre.
+    dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True,
+                                 "includeInactive": True}, 120)
     return {
         "currentPlayer": dv.get("currentPlayer"), "turn": dv.get("turn"),
         "toActivate": list(dv.get("toActivate") or []),
@@ -180,7 +194,11 @@ def main() -> int:
                 if tiles:
                     print("    -> BRAS POSE : %s (%s) s'ecarte de l'hex adjacent vers %s"
                           % (mover, before["visualId"], tiles[0]))
+                    n0 = eff_count(s, rid)
                     res = move(s, rid, mover, tiles[0][0], tiles[0][1], events=True)
+                    n1 = eff_count(s, rid)
+                    print("    == A. entites-effet sur le plateau : %d -> %d (delta %+d)"
+                          % (n0, n1, n1 - n0))
                     sn2 = snap(s, rid)
                     after = sn2["units"].get(mover) or {}
                     dmg = int(before.get("hp") or 0) - int(after.get("hp") or 0)
@@ -198,23 +216,33 @@ def main() -> int:
                              for uid2, u2 in sn2["units"].items()}
                     print("    == A. 1175 par unite : %s"
                           % {k: v for k, v in where.items() if v} or "(nulle part)")
-                    if not marked:
-                        print("    !! marqueur ABSENT de decisionView -- a departager :"
-                              " (a) trigger non fire, (b) pose sur une autre entite,"
-                              " (c) effet non PUBLIE par la projection. Verdict A = A INSTRUIRE.")
+                    if not marked and (n1 - n0) <= 0:
+                        print("    !! marqueur ABSENT de decisionView ET aucune entite-effet creee"
+                              " -> le trigger n'a PAS pose 1175. Verdict A = ECHEC.")
                         verdict = 5
                         break
+                    if not marked:
+                        print("    (marqueur absent de decisionView mais %+d entite(s)-effet creee(s)"
+                              " : effet POSE et INACTIF -- limite du CAPTEUR, pas une absence.)"
+                              % (n1 - n0))
                     # (B) EXPIRATION : on echantillonne apres CHAQUE endturn.
                     approached = mover
                     seen = []
+                    base = n1
                     for k in range(6):
                         endturn(s, rid)
                         sk = snap(s, rid)
+                        nk = eff_count(s, rid)
                         uk = sk["units"].get(mover) or {}
-                        still = has_eff(uk, ALREADY_ATTACKED)
+                        # DEUX capteurs, et on exige leur ACCORD : la vue projetee (qui filtre les
+                        # inactifs) ET le compte d'entites-effet (qui ne filtre rien). Le marqueur est
+                        # PARTI quand il a quitte la vue ET que le compte est redescendu.
+                        still = has_eff(uk, ALREADY_ATTACKED) or nk >= base
                         seen.append((k, sk["turn"], sk["currentPlayer"], still))
-                        print("    == B. apres endturn #%d : turn=%s player=%s  1175 present=%s"
-                              % (k, sk["turn"], sk["currentPlayer"], still))
+                        print("    == B. apres endturn #%d : turn=%s player=%s  1175 en vue=%s"
+                              "  entites-effet=%d (pose a %d)"
+                              % (k, sk["turn"], sk["currentPlayer"],
+                                 has_eff(uk, ALREADY_ATTACKED), nk, base))
                         if not still:
                             break
                     gone = next((x for x in seen if not x[3]), None)

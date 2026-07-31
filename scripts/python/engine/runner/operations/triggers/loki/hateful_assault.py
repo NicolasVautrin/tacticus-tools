@@ -189,10 +189,19 @@ class HatefulAssaultAttackAbility(TriggeredAbility):
         ot, mt = _unit_tile(state, board, self.owner_id), _unit_tile(state, board, mover_id)
         if ot is None or mt is None or mt not in set(board.neighbours(ot)):
             return False                                  # dist hex != 1
-        # `NOT HasEffect(Actor, 0x497, onlyActive: false, Both)` -- PRESENCE seule (`onlyActive` faux :
-        # un marqueur desactive compterait quand meme). `Both` = l'entite peut etre owner OU target de
-        # l'effet ; ici les deux sont le mover (la surcharge d'`AddEffect` sans `source` retombe sur la
-        # cible), donc l'indexation par PORTEUR d'`EffectsState` suffit.
+        # `NOT HasEffect(Actor, 0x497, onlyActive: false, Both)` -- PRESENCE seule, et ce `false`
+        # n'est PAS decoratif : `IdunBattle.Operations.AddEffectOperation$$AddNewEffect` ecrit
+        # `EffectComponent` +0x10 (source), +0x14 (owner), +0x6c (level=1) et, si `turns` a une
+        # valeur, +0x5d/+0x60/+0x64 -- il **n'ecrit JAMAIS `IsActive @+0x5c`**. Un effet frais nait
+        # donc INACTIF jusqu'au premier `RefreshEffectsOperation$$RefreshEffect`. Un gate
+        # `onlyActive: true` ne verrait pas le marqueur qu'on vient de poser ; le natif a mis `false`
+        # exactement pour ca. Cote port, `EffectsState.has_effect` ne filtre pas sur l'activite --
+        # meme semantique. (Corollaire de CAPTEUR : `decisionView.units[].effects` filtre les
+        # inactifs par defaut -- un marqueur absent de cette vue n'est PAS une preuve d'absence.)
+        # `Both` = l'entite peut etre owner OU target de l'effet ; ici les deux sont le mover (la
+        # surcharge d'`AddEffect` sans `source` retombe sur la cible, et `AddNewEffect` inscrit
+        # l'entite-effet dans l'`EffectsOwnedComponent.ActiveEffectIds` de la CIBLE), donc
+        # l'indexation par PORTEUR d'`EffectsState` suffit.
         if state.effects is not None and state.effects.has_effect(int(mover_id),
                                                                   effect_type=ALREADY_ATTACKED):
             return False
