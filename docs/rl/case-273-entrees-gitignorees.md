@@ -249,9 +249,9 @@ gitignoré** (donc hors du verdict de l'étape 0). Une sortie qui y atterrit sal
 sans qu'aucun fichier n'ait été édité — c'est-à-dire qu'elle brouille le **signal même** dont
 l'isolation par worktree se sert comme garde-fou.
 
-**Mesure** (balayage `scripts/python/**`, ce checkout) : **26 sites sur 19 fichiers** — 16
-probes et 4 tests live, soit des state-files de runner, des seed BC augmentés et trois dumps de
-probe. Résidu de la migration `f467e64`, qui n'avait déplacé que les sous-répertoires
+**Mesure** (balayage `scripts/python/**` sur `origin/master` @ `ac88bc47`) : **25 sites sur 19
+fichiers** — 15 probes et 4 tests live, soit des state-files de runner, des seed BC augmentés et
+trois dumps de probe. Résidu de la migration `f467e64`, qui n'avait déplacé que les sous-répertoires
 `data/rl-state[s]` et `data/selfplay-logs`, pas les fichiers posés à la racine de `data/`. Tous
 déplacés sous `logs/runners/` (ou `logs/` pour les dumps). Hors Python, un appelant faisait la
 même chose : `.claude/workflows/tacticus-selfplay.js` construisait `data/_sp_<seed>_{A,B}.json`

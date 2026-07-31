@@ -391,7 +391,7 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    discipline « nom unique par agent » sur les state-files, et un `worktree remove`
    ne peut plus rien détruire de partagé. **Rien de produit par un run ne va dans
    `data/`** — s'il y atterrit, il apparaît dans `git status`, et c'est le garde-fou.
-   Deux gardes le tiennent (#349, après **26** sites trouvés sur **19** fichiers) :
+   Deux gardes le tiennent (#349, après **25** sites trouvés sur **19** fichiers) :
    `probe_273 --only-scan` **étape 0c** rougit si un chemin `data/<x>` construit dans
    `scripts/python/**` ne désigne pas une entrée VERSIONNÉE, et `rl_duel --state-file` /
    `catalog_inject --out` **refusent** (rc 2) un chemin sous `data/` — ce second garde
