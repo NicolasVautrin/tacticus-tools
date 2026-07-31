@@ -103,6 +103,20 @@ def test_probe_344_refuses_an_ability_outside_both_rounding_registries():
     assert 1092 not in (set(_PREDICTION_MINMAX_AVERAGE) | set(_PREDICTION_MINMAX_RANDOM_READ))
 
 
+def test_probe_344_refuses_an_nc_ability_without_a_ported_playbook():
+    """F (second volet) : `1132 KillMaimBurn` EST dans un registre d'arrondi et son playbook natif
+    EST NonComparable, mais aucun playbook NC n'est porte cote Python -- l'offline mesurerait
+    `generate_multi_hit_attack_prediction`, qui n'est pas sa chaine. Mesure : natif
+    `(8536, 8536, 4)` (borne aux PV MAX, 4 coups, trois profils) contre `(86, 129, 1)` pour le
+    chemin generique. Sans ce refus, le probe rougirait comme un ecart d'ARRONDI ce qui est un
+    PORT MANQUANT. Refus PRE-live."""
+    assert 1132 in _PREDICTION_MINMAX_AVERAGE and not NCPB.is_noncomp(1132)
+    out = P344.run(verbose=False, caster="worldKharn", ability=1132,
+                   ability_name="KillMaimBurn", oracle="nc")
+    assert out.get("out_of_scope") is True
+    assert "playbook NonComparable porte" in (out.get("reason") or "")
+
+
 # --- A/B/D : l'oracle NC lui-meme ---------------------------------------------------------------
 
 def test_capteur_lock_holds_on_a_comparable_ability(reached):

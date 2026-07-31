@@ -228,5 +228,22 @@ d'arrondi : sur celles-là son `expected` (`to_even` si dans `_PREDICTION_MINMAX
 sinon) serait une **fabrication**. Des 13 abilities à `minDmg`/`maxDmg` dont le playbook NC est porté,
 **seule `1202`** est dans un registre.
 
+### 7.3 Second garde-fou : un oracle ouvert ne remplace pas un port
+
+`1132 KillMaimBurn` (`worldKharn`, **dans le pool**) est dans `_PREDICTION_MINMAX_AVERAGE` et son
+playbook natif est NonComparable : l'oracle répond maintenant pour elle. Mais **aucun playbook NC
+n'est porté côté Python**, donc le côté offline ne peut proposer que le chemin GÉNÉRIQUE
+(`generate_multi_hit_attack_prediction`), qui n'est pas le sien. Mesuré (anneau `(3,4)`, niveau 3) :
+
+| | bornes | coups |
+|---|---|---|
+| natif (`ncPlaybookPredict`) | **(8536, 8536)** — les PV **MAX** de la cible | **4** |
+| chemin générique du port | (86, 129) | 1 |
+
+Le kit de `KillMaimBurn` porte **trois** profils/comptes (`nrOfHits:1 Piercing`, `nrOfHits_2:6
+Eviscerate`, `nrOfHits_3:1 Plasma`) ; le chemin générique ne lit que le premier. `probe_344` refuse
+donc **aussi** (rc 2) une ability NC **sans playbook porté** : sinon il rougirait comme un écart
+d'**arrondi** ce qui est un **port manquant**. Résidu ouvert : `#356-r1`.
+
 **Le capteur est DÉPLOYÉ** (session Frida 2) et **inchangé par ce travail** — aucune réinjection
 n'est requise pour rejouer ce qui précède.

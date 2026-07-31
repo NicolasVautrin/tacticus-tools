@@ -467,11 +467,29 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
                 "montage": {"caster": caster, "victim": victim, "ability": ability,
                             "ability_name": ability_name}}
 
+    # `auto` = la face que le natif IMPOSE (playbook NonComparable -> aucun `Make*Predictions`).
+    nc = _is_nc(ability) if oracle == "auto" else (oracle == "nc")
+    # DEUXIEME GATE DE PERIMETRE (#356). Cote OFFLINE, la face NC est mesuree par
+    # `generate_multi_hit_attack_prediction` parce que c'est ce qu'appelle le playbook NC PORTE.
+    # Sans playbook porte, ce chemin n'est PAS celui de l'ability et la comparaison ne mesure plus
+    # l'arrondi. Mesure 2026-07-31 sur `worldKharn`/`1132 KillMaimBurn` (aucun port) : natif
+    # `(8536, 8536, 4)` -- borne aux PV MAX de la cible, 4 coups appliques, trois profils
+    # (`Piercing`/`Eviscerate`/`Plasma`) -- contre `(86, 129, 1)` pour le chemin generique. Le probe
+    # aurait rougi comme un ecart d'ARRONDI ce qui est un PORT MANQUANT.
+    if nc and not _is_nc(ability):
+        msg = ("HORS PERIMETRE : %s (%d) n'a AUCUN playbook NonComparable porte "
+               "(engine.playbook.noncomparable.PLAYBOOKS) -- le cote offline mesurerait un chemin "
+               "qui n'est pas le sien. L'oracle natif, lui, repond : le porter d'abord."
+               % (ability_name, ability))
+        if verbose:
+            print("[344] %s" % msg)
+        return {"ok": None, "out_of_scope": True, "reason": msg, "arms": {},
+                "montage": {"caster": caster, "victim": victim, "ability": ability,
+                            "ability_name": ability_name}}
+
     sid = _resolve_session()
     sf = Path(state_file) if state_file else (PYDIR.parents[1] / "logs" / "p344.json")
     sf.parent.mkdir(parents=True, exist_ok=True)
-    # `auto` = la face que le natif IMPOSE (playbook NonComparable -> aucun `Make*Predictions`).
-    nc = _is_nc(ability) if oracle == "auto" else (oracle == "nc")
 
     arms = {}
     for key, label, lvl, sd in (("a", "A (3 mod 4 -- le natif MONTE)", lvl_a, seed),
