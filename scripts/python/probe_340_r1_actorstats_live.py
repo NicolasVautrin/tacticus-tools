@@ -27,7 +27,7 @@ Question binaire, en trois volets qui se lisent chacun tout seul :
       compteur ne peut venir que du capteur.
 
   V3 -- LA VOIE LIVE-CAPTURE de la PREDICTION (`build_predictor` -> `from_predictor_sctx`), celle
-      dont #340 disait « le cablage est pose et inerte tant que le hook n'est pas deploye ».
+      dont #340 disait "le cablage est pose et inerte tant que le hook n'est pas deploye".
       `Scene.tiles_moved_this_turn` doit rendre k, et la prediction doit etre bit-exacte contre
       `aiPlaybookPredict`.
 
@@ -83,8 +83,8 @@ STATE = LOGS / "rs_340r1_actorstats.json"
 def actor_stats(rid: int) -> dict | None:
     """`{entityId: {battle, turn, last, attacks}}` depuis le RPC `actorStats`.
 
-    Rend **None** si le RPC echoue -- jamais `{}` : un dict vide se lirait comme « mesure faite,
-    rien a signaler » alors que c'est « pas mesure ». Meme discipline tri-etat que
+    Rend **None** si le RPC echoue -- jamais `{}` : un dict vide se lirait comme "mesure faite,
+    rien a signaler" alors que c'est "pas mesure". Meme discipline tri-etat que
     `scene._tiles_moved_from_actor_stats`, pour la meme raison (un echec RENDU ne doit pas pouvoir
     se lire comme une mesure)."""
     r = P335._rpc("actorStats", {"runnerId": int(rid)}, 40000)

@@ -163,7 +163,7 @@ def test_sensor_counts_path_not_hex_distance(nominal):
 def test_load_state_seeds_the_counter(nominal):
     """FOYER 1 -- un `State` recharge d'une capture live porte le compteur.
 
-    C'est le residu nomme « `load_state` ne seede pas le compteur » de #340 SS6. Le rejeu offline
+    C'est le residu nomme "`load_state` ne seede pas le compteur" de #340 SS6. Le rejeu offline
     d'un `MoveUnitMessage` le MASQUAIT (c'est le moteur qui reposait le compteur) : ici l'etat est
     CHARGE, jamais rejoue, donc la valeur ne peut venir que du capteur."""
     for arm in _arms(nominal):
@@ -187,14 +187,14 @@ def test_load_state_without_the_channel_keeps_the_prior_behaviour(nominal):
 # --------------------------------------------------------------------- V3 : la voie live-capture
 def test_live_capture_scene_reads_the_counter(nominal):
     """FOYER 2 -- la voie `build_predictor` -> `from_predictor_sctx`, celle que #340 declarait
-    « posee et inerte tant que le hook n'est pas deploye ».
+    "posee et inerte tant que le hook n'est pas deploye".
 
     `refresh_shields` est inclus dans le montage : c'est LUI que la boucle de decision appelle par
     pas, donc lui qui doit tenir le compteur a jour au fil des deplacements."""
     for arm in _arms(nominal):
         assert arm["tiles_moved_by_id"], (
             "bras pas=%d : la table `tiles_moved_by_id` de la voie live est VIDE -- l'accesseur "
-            "rendrait `None` et la prediction garderait le seul terme « pas simule »" % arm["steps"])
+            "rendrait `None` et la prediction garderait le seul terme \"pas simule\"" % arm["steps"])
         assert arm["n_scene"] == arm["n_ref"], (
             "bras pas=%d : `Scene.tiles_moved_this_turn` rend %s au lieu de %d"
             % (arm["steps"], arm["n_scene"], arm["n_ref"]))

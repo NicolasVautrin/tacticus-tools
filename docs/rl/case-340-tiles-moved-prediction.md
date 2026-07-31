@@ -10,8 +10,9 @@ le capteur lisait **deux de ses trois champs à `comp - 1`** — un bug de repli
 reconstruisait à zéro. Même forme que **#267** (traits reconstruits alors que le runner les tenait)
 et **#266** (flag `Moved` non câblé) : *une face qui LIT ce que l'autre TIENT*.
 
-Ce qui reste vraiment bloqué par un capteur : la voie **live-capture** (`from_predictor_sctx`), dont
-le câblage Python est posé et inerte (tri-état) tant que le hook n'est pas déployé.
+Ce qui restait bloqué par un capteur : la voie **live-capture** (`from_predictor_sctx`), dont le
+câblage Python était posé et inerte (tri-état) tant que le hook n'était pas déployé. **C'est le
+volet `#340-r1`, fermé au §8.**
 
 ## 1. Le fait, lu au décompilé (`rnca9r7q6c`)
 
