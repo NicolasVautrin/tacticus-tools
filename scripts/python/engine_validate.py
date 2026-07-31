@@ -102,7 +102,8 @@ def native_chunk(action: dict) -> dict:
     return {"move": move, "ability": ability, "finish": finish, "unit": unit}
 
 
-def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None) -> dict:
+def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None,
+                  spawn_groups=None) -> dict:
     """Marche la trajectoire NATIVE sur `steps` pas (aiStepDryRun → applyAction) et
     compare la décision du MOTEUR à chaque chunk décisionnel (move/ability). SOURCE
     UNIQUE de la comparaison — réutilisée par `main` ET la suite pytest
@@ -120,7 +121,15 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None) -> 
     `stay` (R1) ferme l'angle mort de `pos` : quand le natif AGIT SANS BOUGER, `pos` ne compare
     RIEN — un port qui déplace l'unité alors que le natif restait sur place restait donc invisible
     (son `ability` matchait). `stay` compte ces chunks et vérifie que le moteur ne propose pas de
-    déplacement non plus."""
+    déplacement non plus.
+
+    `spawn_groups` (#359-r3, OPTIONNEL, défaut `None` = comportement STRICTEMENT inchangé) : les
+    `SpawnPointGroups` du SpawnPointSet ACTIF de la BC du runner, forwardées telles quelles à
+    `engine_decide`. Aucun RPC ne les expose par runner (résidu d'outillage `case-302`) : seul
+    l'appelant qui MONTE le runner les connaît, et il les lit dans son `--state-file`. Sans elles,
+    tout arbre dont la géométrie dépend du côté du plateau — `1148 DaemonicOrdnance` en tête —
+    marche sur la branche `else` de son `If`, donc sur le MAUVAIS triangle, et l'agreement compte
+    un désaccord qui n'accuse que le harnais."""
     # Prédicteur OFFLINE capturé 1×/runner (combatSnapshot cold) — nourrit le scoring d'attaque
     # d'engine_decide SANS aiPredict live. None si combatSnapshot KO (le scoring d'attaque saute alors).
     predictor = _scene.build_predictor(lambda m, b, t: _r(sid, m, b, t), rid)
@@ -149,7 +158,8 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None) -> 
             if predictor is not None:
                 _scene.refresh_shields(predictor, lambda m, b, t: _r(sid, m, b, t), rid)
             mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
-            eng = engine_decide(sid, rid, dv, mov_by_unit, uid, wt, predictor)
+            eng = engine_decide(sid, rid, dv, mov_by_unit, uid, wt, predictor,
+                                spawn_groups=spawn_groups)
             eng_to = eng.get("to")
             # Chunk COMPOSÉ → on compare les DEUX dimensions présentes (move ET/OU ability).
             # POSITIONING — SSI le natif a bougé (l'`eng.to` porte la tuile move-to, y compris

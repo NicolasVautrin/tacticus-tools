@@ -617,6 +617,61 @@ def burning(hp_target: int = HP_BURNING, board: str = BOARD,
     return 0
 
 
+def agreement(steps: int = 24, board: str = BOARD, unbranched: bool = False,
+              state_name: str = "rs_302_3_agree.json") -> int:
+    """AGREEMENT sur une MARCHE ENTIERE du montage BURNING (#359-r3).
+
+    Un accord per-event ne suffit pas ici : brancher la prediction change une UTILITE, donc
+    potentiellement tout ce qui vient apres dans la trajectoire. On marche la trajectoire NATIVE
+    (`aiStepDryRun` -> `applyAction`) et on compare la decision du moteur a CHAQUE pas -- 1148 est
+    greffee sur DEUX unites du camp joueur, elle est donc jouee plusieurs fois dans la marche.
+
+    `spawn_groups` est PASSE : sans lui `IsPositionMachineForCurrentPlayer` retombe sur son repli et
+    1148 marche sur le mauvais triangle -- le desaccord n'accuserait alors que le harnais.
+    ⚠ `run_agreement` MUTE le runner : montage dedie, jamais celui d'une mesure."""
+    import engine_validate as EV
+    import probe_27_3_live as L
+    import engine.playbook as PB
+    from engine import weights as W
+    from engine.playbook.nonattack import NonAttackComparablePlaybook
+    rid, geo, caster = build_burning(state_name, board)
+    pb = PB.REGISTRY[DAEMONIC]
+    saved = type(pb).__dict__.get("make_damage_predictions")
+    if unbranched:                     # CONTRE-MESURE : la MEME marche avec le port d'AVANT
+        type(pb).make_damage_predictions = NonAttackComparablePlaybook.make_damage_predictions
+    try:
+        sid = L.INV._session_id()
+        res = EV.run_agreement(sid, rid, steps, W.load(),
+                               spawn_groups=spawn_groups(state_name))
+        pos, ab, stay = res["pos"], res["ability"], res["stay"]
+        print("\n=== AGREEMENT (montage BURNING%s, runner %d, %d pas demandes) ==="
+              % (" -- PORT D'AVANT (prediction DEBRANCHEE)" if unbranched else "", rid, steps))
+        print("  geometrie        : FROIDE %s  CHAUDE %s" % (geo["cold_slots"], geo["hot_slots"]))
+        print("  [positioning] %s moves : exact=%s  <=1hex=%s" % (pos["n"], pos["exact"],
+                                                                  pos["near"]))
+        print("  [ability]     %s casts : match=%s" % (ab["n"], ab["match"]))
+        print("  [stay]        %s chunks : match=%s" % (stay["n"], stay["match"]))
+        abil = [r for r in res["records"] if r.get("kind") == "ability"]
+        bad = [r for r in abil if r.get("match") is False]
+        print("  casts en DESACCORD = %d" % len(bad))
+        for r in bad[:6]:
+            print("    %s" % {k: r.get(k) for k in ("step", "uid", "native", "engine")})
+        c1148 = [r for r in abil
+                 if DAEMONIC in (tuple(r.get("native") or ()) + tuple(r.get("engine") or ()))]
+        print("  casts impliquant 1148 = %d (match=%d)"
+              % (len(c1148), sum(1 for r in c1148 if r.get("match"))))
+        for r in c1148[:8]:
+            print("    %s" % {k: r.get(k) for k in ("step", "uid", "native", "engine", "match")})
+    finally:
+        if unbranched:
+            if saved is not None:
+                type(pb).make_damage_predictions = saved
+            else:
+                del type(pb).make_damage_predictions
+        dispose(rid)
+    return 0
+
+
 # ----------------------------------------------------------------------------- etages mesures
 
 def stage(rid: int, caster: int) -> dict:
@@ -910,6 +965,9 @@ def main() -> int:
     ap.add_argument("--decision", action="store_true")
     ap.add_argument("--flip", action="store_true")
     ap.add_argument("--burning", action="store_true")
+    ap.add_argument("--agreement", action="store_true")
+    ap.add_argument("--steps", type=int, default=24)
+    ap.add_argument("--unbranched", action="store_true")
     ap.add_argument("--diag", action="store_true")
     ap.add_argument("--stage", action="store_true")
     ap.add_argument("--board", default=BOARD)
@@ -918,6 +976,8 @@ def main() -> int:
     a = ap.parse_args()
     if a.decision:
         return decision(a.hp_target, a.hp_witness)
+    if a.agreement:
+        return agreement(a.steps, a.board, a.unbranched)
     if a.burning:
         return burning(a.hp_target if a.hp_target != HP_FAVOURABLE else HP_BURNING, a.board)
     if a.flip:
