@@ -116,36 +116,34 @@ def va_to_off(secs, va) -> "int | None":
     return None
 
 
-def scan_registrations(buf, secs, start_va, end_va):
-    """Rend (`{effectType: N}`, `[effectType]` dans l'ordre des Add, `{cible d'appel: compte}`)."""
-    s, e = va_to_off(secs, start_va), va_to_off(secs, end_va)
-    by_effect, adds, targets = {}, [], {}
-    # (1) motif COMPLET : store du delegate + Add -> relie `<>9__14_N` a l'effectType.
-    pos = s
-    while True:
-        k = buf.find(bytes.fromhex("4889b1"), pos, e)
-        if k < 0:
-            break
-        pos = k + 1
-        off = struct.unpack_from("<I", buf, k + 3)[0]
-        t = buf[k + 7:k + 7 + 24]
-        if (t[0:3] == bytes.fromhex("4c8b0d") and t[7:10] == bytes.fromhex("4c8bc6")
-                and t[10] == 0xBA and off % 8 == 0):
-            by_effect[struct.unpack_from("<I", t, 11)[0]] = off // 8 - 1
-    # (2) motif REDUIT : tous les Add, meme sans creation de delegate juste avant.
-    pos = s
-    while True:
-        k = buf.find(bytes.fromhex("4c8bc6"), pos, e)
-        if k < 0:
-            break
-        pos = k + 1
-        if buf[k + 3] != 0xBA or buf[k + 8:k + 11] != bytes.fromhex("488bcf") or buf[k + 11] != 0xE8:
-            continue
-        rel = struct.unpack_from("<i", buf, k + 12)[0]
-        tgt = start_va + (k - s) + 16 + rel
-        targets[tgt] = targets.get(tgt, 0) + 1
-        adds.append(struct.unpack_from("<I", buf, k + 4)[0])
-    return by_effect, adds, targets
+def scan_registrations(buf, secs, start_va, end_va, rows=None):
+    """Rend (`{effectType: N}`, `[effectType]` dans l'ordre des Add, `{cible d'appel: compte}`).
+
+    CORRIGE PAR #364 -- ce balayage etait INCOMPLET, et son incompletude etait invisible.
+
+    Les deux motifs d'octets ci-dessous partagent la meme cle `4c 8b c6` (`mov r8, rsi`) : ils ne
+    sont donc PAS independants, et l'accord parfait qu'ils affichaient (511 == 511) etait un accord
+    sur la MEME cecite. Mesure du 2026-07-31 : `InitializeEffects` fait **607** enregistrements, pas
+    511. Les **96** manquants passent leur cle PAR ADRESSE (`lea rdx, [slot]` +
+    `mov dword ptr [slot], imm32`, dictionnaire gshared a cle ValueType) et appellent
+    `Dictionary<,>$$Add` DIRECTEMENT, sans passer par le thunk.
+
+    Consequence de l'ancien balayage : 96 `EffectType` etaient rendus « NON ENREGISTRE -> aucune
+    classe d'effet native », dont `5 Fire`, `17 Ice`, `31 StatModifier`, `1004 MightOfHeroes_ExtraHits`,
+    `1099 Waaagh_ExtraMovement`, `1244 Contaminated` -- tous parfaitement vivants. C'est exactement
+    le faux negatif que le CLAUDE.md interdit de traiter comme une preuve de mort.
+
+    La resolution vit desormais dans `probe_364.registry` (implementation UNIQUE de la loi)."""
+    if rows is None:
+        rows = functions(build_hash())
+    import probe_364_effect_1582_registration as p364
+    by_effect, unresolved, total = p364.registry(buf, secs, rows)
+    if unresolved:
+        raise SystemExit(
+            "[358] %d appel(s) d'ajout sur %d n'ont pas de cle resolue : l'inventaire est INCOMPLET, "
+            "il ne peut pas servir a conclure qu'un EffectType est absent." % (unresolved, total))
+    adds = sorted(by_effect)
+    return by_effect, adds, {"(via probe_364.registry)": total}
 
 
 DYN_CTOR = "IdunBattle.Entities.Effects.DynamicStatModifierEffect$$.ctor"
@@ -223,17 +221,20 @@ def main() -> int:
     secs = sections(buf)
     rows = functions(bhash)
     start_va, end_va = span(rows, INIT_EFFECTS)
-    by_effect, adds, targets = scan_registrations(buf, secs, start_va, end_va)
+    by_effect, adds, targets = scan_registrations(buf, secs, start_va, end_va, rows)
     lam = {name: addr for addr, name in rows if name.startswith(LAMBDA_PREFIX)}
     nxt = {addr: rows[i + 1][0] for i, (addr, _n) in enumerate(rows) if i + 1 < len(rows)}
 
     print("[358] build %s -- %s" % (bhash, INIT_EFFECTS))
-    print("[358] Add(dict, effectType, delegate) : %d appels, %d effectType distincts, %d cible(s)"
-          % (len(adds), len(set(adds)), len(targets)))
+    print("[358] Add(dict, effectType, delegate) : %d appels, %d effectType distincts"
+          % (len(adds), len(set(adds))))
     print("[358] stores de delegate <>9__14_N  : %d, indices distincts %d"
           % (len(by_effect), len(set(by_effect.values()))))
+    # La coherence se mesure sur la BIJECTION effectType <-> N, plus sur le nombre de cibles
+    # d'appel : depuis #364 on sait qu'il y en a DEUX (le thunk et l'appel direct), et exiger
+    # `len(targets) == 1` etait precisement ce qui masquait les 96 enregistrements manquants.
     ok = (len(adds) == len(set(adds)) == len(by_effect) == len(set(by_effect.values()))
-          and len(targets) == 1)
+          and all(n is not None for n in by_effect.values()))
     print("[358] LOI off = 8*(N+1) : %s" % ("COHERENTE" if ok else "INCOHERENTE -- ne pas s'en servir"))
     print("[358] plage effectType enregistree : %d..%d" % (min(adds), max(adds)))
     rc = 0 if ok else 1
