@@ -985,6 +985,28 @@ def _seed_condition_gated_owner_effects(eff_state, units, predictor) -> None:
             eff_state.add_effect(uid, eff)
 
 
+def _effect_source_ability_states(predictor) -> dict:
+    """`{entity_id: (multiplier, passiveAbilityLevel, activeAbilityLevel)}` pour
+    `EffectsState.seed` — l'état d'ability consulté par la **SOURCE** de chaque effet, pas par son
+    porteur (le natif BAKE l'`AbilityStateReference` du caster dans l'entité-effet à la pose ; cf.
+    `engine.entities.effects_state.baked_ability_state`). PENDANT EXACT, sur le seam de PRÉDICTION,
+    de la passe 1 de `runner/snapshot.py::_load_stats_and_effects` sur le seam COMBAT.
+
+    Domaine = les entités dont le `unitConfig` a réellement été lu (`mult_by_id`), donc les
+    `EntityType.Unit`. Une MACHINE en est ABSENTE volontairement : son `unitConfig` est en erreur
+    (`{"error": "visualId introuvable"}`), son état vit dans `abstate_by_id` PAR ABILITY, et rien
+    ici ne dit QUELLE ability a posé l'effet — l'inclure avec le neutre `(100, None, None)` serait
+    PIRE que le repli. Une MoW-source retombe donc sur le porteur, à l'identique d'avant."""
+    ctx_by_id = predictor.get("ctx_by_id") or {}
+    ablvl = predictor.get("ablvl_by_id") or {}
+    out = {}
+    for eid, mult in (predictor.get("mult_by_id") or {}).items():
+        c = ctx_by_id.get(eid)
+        actl = int(getattr(c, "active_ability_level", 0) or 0) if c is not None else 0
+        out[int(eid)] = (int(mult or 100), ablvl.get(eid) or None, actl or None)
+    return out
+
+
 def step_context(predictor, dv):
     """État COURANT du pas (hp/pos/team + effets matérialisés seed) — reconstruit à chaque pas car
     l'état mute. (Ex-`PV.step_context`.)
@@ -1008,7 +1030,8 @@ def step_context(predictor, dv):
     mows = dv.get("mows") or []
     eff_state = EffectsState.seed(
         {u["id"]: (u.get("effects") or []) for u in units},
-        predictor["mult_by_id"], predictor["ablvl_by_id"])
+        predictor["mult_by_id"], predictor["ablvl_by_id"],
+        _effect_source_ability_states(predictor))
     _seed_condition_gated_owner_effects(eff_state, units, predictor)
     hp_by_id = {u["id"]: u.get("hp") for u in units}
     pos_by_id = {u["id"]: (u["pos"]["col"], u["pos"]["row"]) for u in units if u.get("pos")}

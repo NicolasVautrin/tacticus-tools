@@ -1052,6 +1052,23 @@ def _load_unit_traits(state: State, snapshot: dict) -> None:
         sc.ctx.traits_measured = True
 
 
+def _ability_state_from_config(uc) -> tuple:
+    """`(multiplier, passiveAbilityLevel, activeAbilityLevel)` lus dans le `unitConfig` d'une ligne
+    `combatSnapshot` — l'`AbilityState` de CETTE unité (`UnitConfiguration` : mult@0x74,
+    ActiveAbilityLevel@0xB8, PassiveAbilityLevel@0xBC, cf. `rpc-snapshot.ts`).
+
+    Le gate est le MULTIPLICATEUR : sur une ligne sans `unitConfig` exploitable (MoW — le capteur
+    rend `{"error": "visualId introuvable"}`), on rend le neutre `(100, None, None)`. C'est
+    exactement le triplet que la boucle de `_load_stats_and_effects` calculait en ligne ; il est
+    extrait ici parce que la PASSE 1 (table par entité, pour résoudre la SOURCE d'un effet) et la
+    boucle de matérialisation doivent en donner la MÊME lecture."""
+    if not isinstance(uc, dict) or uc.get("abilityVariablesMultiplier") is None:
+        return (100, None, None)
+    return (int(uc["abilityVariablesMultiplier"]),
+            int(uc["passiveAbilityLevel"]) if uc.get("passiveAbilityLevel") else None,
+            int(uc["activeAbilityLevel"]) if uc.get("activeAbilityLevel") else None)
+
+
 def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> None:
     """Peuple `StatsComponent` (par unité) + `State.effects` (EffectsState matérialisé)
     depuis `combatSnapshot` + `decisionView`. Jointure : `combatSnapshot.entityId` ==
@@ -1063,7 +1080,7 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     ci-dessous ne traite QUE les premières ; les MoW sont déléguées à `_load_machine_stats` — elles
     n'ont ni `unitConfig` ni VisualId sur cette ligne, et leur niveau vit ailleurs (#174)."""
     import gameconfig as GC                      # données offline (traits/arme/profil)
-    from ..entities import UnitContext, EffectsState, EffectFactory
+    from ..entities import UnitContext, EffectsState, EffectFactory, baked_ability_state
 
     vis_by_id = {u.get("id"): u.get("visualId") for u in (decision.get("units") or [])}
     effects_by_id = {u.get("id"): (u.get("effects") or []) for u in (decision.get("units") or [])}
@@ -1074,6 +1091,23 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
         effects_by_id[int(_m["casterId"])] = _m.get("effects") or []
     mult_by_id: Dict[int, int] = {}
     ablvl_by_id: Dict[int, Optional[int]] = {}
+    # PASSE 1 — l'`AbilityState` de CHAQUE entité, AVANT toute matérialisation d'effet.
+    # Un effet est baké avec l'état de sa SOURCE (`AddEffectBehaviour$$DefaultEffectBuilder` copie
+    # l'`AbilityStateReference` dans `EffectComponent+0x18` À LA POSE, cf. `baked_ability_state`) :
+    # matérialiser les effets du porteur A exige donc l'état du porteur B qui les a posés. Cette
+    # table est PURE DONNÉE (`unitConfig` / `AbilityState` per-ability des MoW) : elle ne dépend
+    # d'aucun `StatsComponent`, donc elle peut être construite avant la boucle qui les pose.
+    abstate_by_id: Dict[int, tuple] = {}
+    for su in (snapshot.get("units") or []):
+        if su.get("entityId") is None or su.get("entityType") == _ENTITY_TYPE_MACHINE:
+            continue
+        abstate_by_id[int(su["entityId"])] = _ability_state_from_config(su.get("unitConfig"))
+    for _m in _machine_rows(decision):
+        # MoW : `unitConfig` est en erreur sur une ligne Machine — le SEUL canal est l'`AbilityState`
+        # per-ability (cf. `_machine_ability_state`). Une MoW POSE des effets sur des unités
+        # (`HeavyRailRifle_PendingAttack`), elle doit donc être résolvable comme source.
+        _lvl, _mlt = _machine_ability_state(_m)
+        abstate_by_id[int(_m["casterId"])] = (int(_mlt or 100), None, _lvl or None)
     for su in (snapshot.get("units") or []):
         eid = su.get("entityId")
         if eid is None:
@@ -1100,14 +1134,15 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
         # ou une cible hors portée à la capture n'avait pas de StatsComponent → vecteur after-move/hit KO.)
         uc = su.get("unitConfig") or {}
         # Effets matérialisés de l'unité → attribution stat-mod dans ctx.stats (via from_snapshot).
-        # mult/ablvl captés EARLY. ⚠ Pour un buff CROSS-UNITÉ (ex. RitesOfBattle), le niveau exact
-        # est celui du SOURCE, absent de la capture → on utilise l'ablvl de l'unité PORTEUSE ; le
-        # RÉSIDU opaque absorbe l'écart, `get_stat(Current)` reste EXACT (zéro régression).
-        _has_mult = isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None
-        _emult = int(uc["abilityVariablesMultiplier"]) if _has_mult else 100
-        _eablvl = int(uc["passiveAbilityLevel"]) if (_has_mult and uc.get("passiveAbilityLevel")) else None
-        _eactive = int(uc["activeAbilityLevel"]) if (_has_mult and uc.get("activeAbilityLevel")) else None
-        _effs = EffectFactory.create_many(effects_by_id.get(eid) or [], _emult, _eablvl, _eactive)
+        # L'état d'ability est pris sur la SOURCE de CHAQUE effet (`EffectComponent.SourceUnitId`,
+        # publié par le capteur), pas sur le porteur : le natif BAKE l'`AbilityStateReference` du
+        # caster dans l'entité-effet à la pose. Repli = le porteur (source absente/non chargée).
+        # cf. `engine.entities.effects_state.baked_ability_state` pour la chaîne native complète.
+        _carrier = _ability_state_from_config(uc)
+        _emult, _eablvl, _eactive = _carrier
+        _effs = [EffectFactory.create(c, *baked_ability_state(c, eid, _carrier, abstate_by_id))
+                 for c in (effects_by_id.get(eid) or [])
+                 if isinstance(c, dict) and c.get("name")]
         ctx = UnitContext.from_snapshot(su, GC.unit(vis or ""), snapshot.get("statTypes"), _effs)
         if isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None:
             ctx.ability_variables_multiplier = int(uc["abilityVariablesMultiplier"])
@@ -1136,7 +1171,9 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
                     ent.add_component(ShieldComponent(shields=insts))
     _load_machine_stats(state, decision, snapshot, mult_by_id)
     # effets ACTIFS structurés (decisionView.effects), matérialisés + propagés mult/level.
-    state.effects = EffectsState.seed(effects_by_id, mult_by_id, ablvl_by_id)
+    # `abstate_by_id` : l'état d'ability de chaque entité, consulté par la SOURCE de chaque effet
+    # (mirror du bake natif). Les deux tables par PORTEUR restent le REPLI.
+    state.effects = EffectsState.seed(effects_by_id, mult_by_id, ablvl_by_id, abstate_by_id)
     # `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` (boucle ABILITIES) : à la création de CHAQUE
     # unité, l'owner-effect posé par le `CreateBehaviour` de ses abilities (DSL `AddEffect(owner)`). Le
     # SEED live (decisionView.effects) ne capte QUE les effets ACTIFS à l'instant T -> il RATE les

@@ -18,6 +18,62 @@ from dataclasses import dataclass, field
 
 from .effects import BaseEffect, EffectFactory
 
+#: `(multiplier %, abilityLevel, activeAbilityLevel)` — l'`AbilityState` applique a UN effet.
+AbilityStateTriple = tuple
+
+
+def baked_ability_state(captured: Mapping, carrier_id: int,
+                        carrier_state: tuple,
+                        ability_state_by_unit: Mapping | None) -> tuple:
+    """`(multiplier, abilityLevel, activeAbilityLevel)` d'UN effet capte -- celui de sa **SOURCE**,
+    pas celui de son PORTEUR. Foyer UNIQUE : `EffectsState.seed` et
+    `runner/snapshot.py::_load_stats_and_effects` passent tous les deux par ici.
+
+    MIRROR de la **POSE**, pas de la lecture -- le natif *bake*.
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultEffectBuilder(id, abilityState)`
+    construit l'entite-effet (`IdunBattle.Entities.Blueprints$$Effect`), prend son `EffectComponent`
+    et y **COPIE les 0x24 octets** de l'`AbilityStateReference` recue, a `+0x18`..`+0x38`. Cette
+    reference vient du noeud DSL `AddEffect(<type>, <abilityStateReference>, source, targets, turns)`,
+    ou elle est evaluee sur l'ability QUI POSE
+    (`IdunBattle.Entities.Abilities.BaseTriggeredAbility$$get_AbilityStateReference` ->
+    `IdunBattleLogic.Entities.DSLSelectors$$AbilityState(entities, owner, abilityType)`, owner =
+    `AbilityEntities.Owner`) -- donc sur le CASTER. A la lecture,
+    `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` /
+    `IdunBattle.DSL.AbilityStateFromEffectSelector$$Select` relisent ce MEME `EffectComponent+0x18`
+    et rien d'autre : **l'effet ne consulte JAMAIS son porteur**.
+
+    Porteur == source uniquement pour un owner-effect. Des que le behaviour pose sur AUTRUI
+    (`SagaOfTheWarriorBorn_OtherSpaceWolves` 1224 :
+    `targets = UnitsFromFaction(Friends(Owner, <pool>, OnlyAlive) - Owner, ...)`), les deux different
+    PAR CONSTRUCTION. `buildNormalizedBC` MASQUE la moitie de l'ecart -- il ecrit le MEME
+    `targetAbilityLevel` dans `ActiveAbilityLevel` et `PassiveAbilityLevel` de toutes les unites
+    (`normalize-bc/json-build.ts`) -- mais PAS le multiplicateur de rarete, qui reste per-unite.
+
+    `captured["source"]` = `EffectComponent.SourceUnitId @+0x10`, ecrit par
+    `IdunBattle.Operations.AddEffectOperation$$AddNewEffect` depuis le meme `source` que le noeud DSL.
+    C'est le seul canal de la capture qui designe l'entite-poseuse.
+
+    REPLI = le PORTEUR (`carrier_state`), **jamais un neutre** : source absente de la capture
+    (`None`), non entiere, ou non chargee (posee par une entite hors snapshot). C'est le
+    comportement anterieur, conserve a l'identique -- le changement ne mord QUE quand la source est
+    RESOLVABLE et DIFFERENTE du porteur. (Une TUILE n'a, elle, aucun porteur a qui se replier : sa
+    voie est `runner/snapshot.py::_source_ability_state`, dont le repli est neutre.)"""
+    if ability_state_by_unit is None or not isinstance(captured, Mapping):
+        return carrier_state
+    src = captured.get("source")
+    if src is None:
+        return carrier_state
+    try:
+        src = int(src)
+    except (TypeError, ValueError):
+        return carrier_state
+    if src == int(carrier_id):
+        return carrier_state
+    st = ability_state_by_unit.get(src)
+    if st is None:
+        return carrier_state
+    return (int(st[0] or 100), st[1], st[2])
+
 
 @dataclass
 class EffectsState:
@@ -29,16 +85,31 @@ class EffectsState:
 
     @classmethod
     def seed(cls, effects_by_unit: Mapping | None, mult_by_unit: Mapping | None = None,
-             ability_level_by_unit: Mapping | None = None) -> "EffectsState":
+             ability_level_by_unit: Mapping | None = None,
+             ability_state_by_unit: Mapping | None = None) -> "EffectsState":
         """`mult_by_unit` = {unit_id: AbilityVariablesMultiplierPercentage} (BC, défaut 100) ;
         `ability_level_by_unit` = {unit_id: niveau d'ability source} (indexe les `variables[level]`,
-        ≠ stack level capté) — tous deux propagés aux effets matérialisés (§17.21)."""
+        ≠ stack level capté) — tous deux propagés aux effets matérialisés (§17.21). Ces deux tables
+        sont clées par PORTEUR : elles décrivent le REPLI.
+
+        `ability_state_by_unit` = {unit_id: (multiplier, abilityLevel, activeAbilityLevel)} — l'état
+        d'ability de CHAQUE entité, consulté **par la SOURCE de l'effet** (`captured["source"]`).
+        C'est le mirror du bake natif : cf. `baked_ability_state`. Absent (défaut) → comportement
+        strictement antérieur, l'état du PORTEUR pour tous ses effets."""
         bu: dict[int, list[BaseEffect]] = {}
         for uid, effs in (effects_by_unit or {}).items():
-            mult = int((mult_by_unit or {}).get(int(uid), 100) or 100)
-            albl = (ability_level_by_unit or {}).get(int(uid))
-            bu[int(uid)] = EffectFactory.create_many(
-                effs, ability_variables_multiplier=mult, ability_level=albl)
+            uid = int(uid)
+            # REPLI = le porteur, à l'identique de l'ancien code (`active_ability_level` reste None :
+            # `seed` ne l'a jamais propagé pour le porteur, et l'élargir ici déborderait du cas).
+            carrier = (int((mult_by_unit or {}).get(uid, 100) or 100),
+                       (ability_level_by_unit or {}).get(uid), None)
+            out: list[BaseEffect] = []
+            for c in (effs or []):
+                if not (isinstance(c, Mapping) and c.get("name")):
+                    continue
+                mult, albl, actl = baked_ability_state(c, uid, carrier, ability_state_by_unit)
+                out.append(EffectFactory.create(c, mult, albl, actl))
+            bu[uid] = out
         return cls(by_unit=bu)
 
     def active_effects(self, unit_id: int, unit_state: Mapping | None = None) -> list[BaseEffect]:
