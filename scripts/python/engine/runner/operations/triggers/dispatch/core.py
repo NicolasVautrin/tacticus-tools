@@ -21,7 +21,11 @@ from .registry import (TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS
 def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
     """Mirror du registre `AbilityAndEffectCache` (volet ability-trigger) : itère TOUTES les entités et,
     pour chaque trait à trigger porté, instancie l'ability correspondante (owner = l'entité). (Le volet
-    effet-trigger — Overwatch, on-hit — n'est pas encore collecté ici.)"""
+    effet-trigger — Overwatch, on-hit — n'est pas encore collecté ici.)
+
+    CINQ chemins de registration, tous mirrors de `IdunBattle.Entities.Factories.UnitFactory$$Add*
+    Abilities` : trait, passiveAbility, activeAbility (dérivée), relicAbility EN DUR (gameconfig) et
+    -- depuis #357 -- l'item RELIQUE ÉQUIPÉ (`UnitConfiguration.TertiaryAbility`, cf. plus bas)."""
     import gameconfig as GC
     from ...behaviour import BEHAVIOUR_TRAIT_TRIGGERS            # lazy : evite circular import behaviour<->triggers
     out: list[TriggeredAbility] = []
@@ -36,6 +40,7 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
                 out.append(cls(eid))
         # passiveAbilities (TheBetrayer…) — résolues via gameconfig par visualId.
         vid = getattr(sc.ctx, "visual_id", None)
+        relics: list[str] = []
         if vid:
             gu = GC.unit(vid) or {}
             for pa in (gu.get("passiveAbilities") or []):
@@ -46,12 +51,26 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
             for aa in (gu.get("activeAbilities") or []):
                 for cls in ACTIVE_ABILITY_TRIGGERS.get(aa, ()):
                     out.append(cls(eid))
-            # relicAbilities -> triggered-ability(s) accordee(s) par une RELIQUE (#317). QUATRIEME
-            # chemin de registration ; la voie « item EQUIPE » (`BC.Units[].TertiaryAbility`) n'est
-            # PAS lisible d'ici -- residu NOMME dans `registry.RELIC_ABILITY_TRIGGERS`.
-            for ra in (gu.get("relicAbilities") or []):
-                for cls in RELIC_ABILITY_TRIGGERS.get(ra, ()):
-                    out.append(cls(eid))
+            # relicAbilities -> triggered-ability(s) accordee(s) par une RELIQUE cablee EN DUR sur
+            # l'unite (#317). QUATRIEME chemin de registration ; les 25 abilities dans ce cas sont
+            # TOUTES sur des npc.
+            relics = list(gu.get("relicAbilities") or [])
+        # CINQUIEME chemin (#357) : l'item RELIQUE **EQUIPE**, `UnitConfiguration.TertiaryAbility`
+        # (+0xb0). C'est la branche TERTIAIRE d'`IdunBattle.Entities.Factories.UnitFactory$$
+        # AddConfiguredAbilities` : `if (config.TertiaryAbility.HasValue) TriggeredAbilityComponent
+        # $$TryAdd(id, tertiaryAbilityState, 3)`. Etat JOUEUR, invisible du gameconfig -- d'ou un
+        # canal PROPRE (`snapshot._load_tertiary_abilities`, RPC `unitAbilityStates`) et non une
+        # derivation. Sans ce canal (etat charge sans `load_state(ability_states=...)`, State nu),
+        # `tertiary_ability` vaut None et cette branche est un no-op : le comportement d'avant.
+        # DEDUPLICATION -- le natif TryAdd sur une `KeyedCollection` indexee par l'ability-type :
+        # monter DEUX FOIS la meme ability n'ajoute qu'UNE entree. Un npc qui porte la relique en dur
+        # ET se la voit equipee (montage synthetique) ne doit donc etre inscrit qu'une fois.
+        tertiary = getattr(sc.ctx, "tertiary_ability", None)
+        if tertiary and tertiary not in relics:
+            relics.append(tertiary)
+        for ra in relics:
+            for cls in RELIC_ABILITY_TRIGGERS.get(ra, ()):
+                out.append(cls(eid))
     return out
 
 

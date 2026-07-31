@@ -45,6 +45,7 @@ import probe_306_effect_trigger_channels as EFC
 import probe_338_ai_target_choice as AITC
 import probe_348_ai_approach as AIAP
 import probe_270d_lysander_deploy as LYS
+import probe_357_relic_rail as RELIC
 
 
 @pytest.fixture
@@ -469,6 +470,43 @@ def trait_hors_enum_cross_case(live_session):
             r = LYS.run_cross(porteur, seed=seed, board=board, verbose=True)
             if r.get("why"):
                 pytest.fail("contre-epreuve croisee NON INSTALLEE : %s" % r["why"])
+            cache[key] = r
+        return cache[key]
+
+    return _case
+
+
+# ── #357 — le rail de la relique EQUIPEE (`BC.Units[].TertiaryAbility`) ──────────────────────────
+
+@pytest.fixture(scope="module")
+def relic_rail_case(build_runner, rpc):
+    """Fabrique : `relic_rail_case(8)` / `relic_rail_case(8, "ranged")` -> le dict de mesure du
+    montage #357.
+
+    PORTE pytest de `scripts/python/probe_357_relic_rail.py` : `tauFarsight` (ETAT 3, injecte au
+    catalogue) equipe de `DawnBlade` au niveau EXACT demande (montage #237), amene au CONTACT d'une
+    victime a 1 PV, puis kill REEL. La MEME capture pre-kill est rejouee TROIS fois cote port --
+    canal #357 fourni / non fourni / fourni mais niveau lu sur le PASSIF -- et c'est le CONTRASTE
+    des trois contre le delta de PV NATIF qui prouve quelque chose : la lecture nominale seule
+    serait un vert que ni l'absence de rail ni un mauvais palier ne feraient rougir.
+
+    Trois regimes (`probe_357_relic_rail.REGIMES`), dont DEUX negatifs : `melee` (nominal),
+    `ranged` (kill a d=2 -> `IsDefeatedByMeleeAttack` refuse) et `fullhp` (porteur a PV pleins ->
+    `EntityCanBeRepaired` refuse). Les negatifs verrouillent qu'inscrire la relique n'a pas rendu
+    le port PERMISSIF -- l'autre facon de se tromper.
+
+    Portee MODULE (chaque couple niveau/regime = un build + une conduite de positions + un kill).
+    ⚠ Montage non installe => ECHEC, jamais skip (#268)."""
+    cache: dict = {}
+
+    def _case(level: int = 8, regime: str = "melee") -> dict:
+        key = (level, regime)
+        if key not in cache:
+            # `keep=True` : le runner appartient a `build_runner` (teardown du module).
+            r = RELIC.run(rpc, level=level, regime=regime, build_runner=build_runner, keep=True)
+            if not r.get("ok"):
+                pytest.fail("montage relic-rail NON INSTALLE (niveau %d, regime %s) : %s"
+                            % (level, regime, r.get("why")))
             cache[key] = r
         return cache[key]
 

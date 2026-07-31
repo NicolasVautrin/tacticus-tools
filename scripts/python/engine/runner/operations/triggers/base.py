@@ -223,6 +223,41 @@ class TileEffectTrigger(EffectTrigger):
         return None
 
 
+def triggered_ability_state(state: State, unit_id: int, ability_name: str):
+    """`(level, multiplier)` de l'`AbilityState` sous lequel `ability_name` est MONTEE sur `unit_id`.
+
+    MIRROR de `IdunBattle.Entities.Factories.UnitFactory$$Build`, qui fabrique TROIS `AbilityState`
+    depuis la `UnitConfiguration` et les distribue par `AddConfiguredAbilities` :
+
+        activeAbilityState   = (config+0xb8 ActiveAbilityLevel,   config+0x74)  -> les actives
+        passiveAbilityState  = (config+0xbc PassiveAbilityLevel,  config+0x74)  -> les passives (hier. 2)
+        tertiaryAbilityState = (config+0xc0 TertiaryAbilityLevel, config+0x78)  -> la RELIQUE (hier. 3)
+
+    C'est CE couple que `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` consomme
+    (index `Idun.Shared.Level$$ToZeroBasedIndex(level)` clampe au dernier palier, puis
+    `x mult/100` SSI la variable est dans `variablesAffectedByRarityBonus`).
+
+    La MEME ability peut arriver par les deux voies, et le couple n'est PAS le meme :
+      * relique EQUIPEE (`UnitContext.tertiary_ability`) -> etat TERTIAIRE ;
+      * relique cablee EN DUR (`gameconfig.units.<id>.relicAbilities`, npc) ou passif de kit ->
+        etat PASSIF, qui est aussi le repli quand le canal tertiaire n'est pas fourni.
+    Sans ce discriminant, une relique montee au niveau 8 lirait le niveau des PASSIFS du porteur
+    (50 dans tout runner normalise), donc le dernier palier -- un ecart SILENCIEUX de magnitude.
+
+    Rend `(None, 100)` si l'unite / son contexte manquent : l'appelant retombe alors sur une
+    variable a 0, et la feuille DSL qui la consomme est un no-op (sa garde `amount > 0`)."""
+    e = state.get_entity(unit_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    if ctx is None:
+        return (None, 100)
+    if getattr(ctx, "tertiary_ability", None) == ability_name:
+        return (int(getattr(ctx, "tertiary_ability_level", 0) or 0),
+                int(getattr(ctx, "tertiary_ability_variables_multiplier", 100) or 100))
+    return (getattr(ctx, "passive_ability_level", None),
+            int(getattr(ctx, "ability_variables_multiplier", 100) or 100))
+
+
 # --- Sélecteurs DSL partagés (mirror `DSLFactory.*`) : géométrie / adjacence / faction ------------
 def _unit_trait_names(state: State, unit_id: int) -> list:
     """Noms de traits gameconfig de l'unité (`StatsComponent.ctx.traits` = NOMS, cf. unit_context.py:191).
