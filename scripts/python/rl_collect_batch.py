@@ -978,7 +978,23 @@ def _load_seed_bc(path=None) -> dict:
             f"Regenere-le : `python dump_boards.py` (capture live via dumpBattleConfig).")
     bc = json.loads(p.read_text(encoding="utf-8"))
     import catalog_inject                                       # import tardif : charge le gameconfig
-    refreshed, added = catalog_inject.refresh_ability_configs(bc)
+    # #375 -- SIDECAR D'EPINGLAGE. Le rattrapage ci-dessus ECRASAIT en silence toute variable
+    # deliberement patchee par une fixture : mesure du 2026-07-31, `LightImUp.minDmg[49]` ecrit a
+    # `20000` dans un seed BC custom, relu a `831` ici meme. Le regime discriminant de #369 n'a
+    # donc JAMAIS ete joue, sans le moindre message. `<seed-bc>.pins.json` nomme les configs a ne
+    # pas rattraper ; une epingle qui ne designe RIEN leve, elle ne se tait pas.
+    pins = catalog_inject.read_pins(p) if path else []
+    if pins:
+        node = bc.get("Abilities") or {}
+        orphans = [k for k in pins
+                   if k.split("/", 1)[-1] not in (node.get(k.split("/", 1)[0]) or {})]
+        if orphans:
+            raise RuntimeError(
+                f"seed BC {p}: epingles introuvables dans BC.Abilities: {orphans} "
+                f"(sidecar {catalog_inject.pins_path(p)})")
+        print(f"[seed-bc] configs d'ability EPINGLEES (patch delibere, #375), non rattrapees: "
+              f"{pins}", file=sys.stderr)
+    refreshed, added = catalog_inject.refresh_ability_configs(bc, skip=pins)
     if refreshed or added:
         print(f"[seed-bc] configs d'ability re-synthetisees depuis le gameconfig courant: "
               f"{len(refreshed)} rafraichies {refreshed} / {len(added)} ajoutees {added}",

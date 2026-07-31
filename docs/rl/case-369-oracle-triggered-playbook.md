@@ -229,28 +229,37 @@ supprimer l'écho du chemin SUCCÈS ne la faisait pas bouger. Corrigé par une e
 littéral `out` (`_success_payload`), et figé par un test sur sources synthétiques.
 **Une garde qui matche n'importe où dans un fichier ne garde rien.**
 
-### NON CONFRONTÉ — nommé
+### Confronté après reinject (2026-07-31) — les TROIS contrôles sont joués
 
-**Le correctif lui-même n'a pas été exercé.** Il vit dans `frida/hooks/*`, donc il exige une fenêtre
-de reinject qui n'appartient pas à un agent. **Capteur et correctif LIVRÉS, INERTES, en attente
-d'une fenêtre de reinject.** Le bundle compile (`frida-compile hooks/main.ts`, rc 0).
+Le correctif a été réinjecté, puis exercé. `probe_369_playbook_keyspace.py` rend **`rc = 0`** sur ses
+cinq étapes. Détail des deux verrous qui restaient, et de leur levée : **`case-375-capteur-triggered-muet.md`**.
 
-`probe_369_playbook_keyspace.py` rend **`rc = 2`** — « rien n'a échoué, une étape n'a PAS ÉTÉ
-CONFRONTÉE » — et publie le message
-`#369 NON CONFRONTE : le hook deploye ignore 'abilityKind' … fenetre de reinject requise`.
-Il ne lit AUCUN chiffre dans ce cas : les `captured` d'un hook antérieur viendraient de la mauvaise
-ability, et un accord obtenu sur eux serait le pire résultat possible.
+1. **Routage** — VERT : `1103 → LightImUpPlaybook`, `1054 → MassiveScythingTalonsPlaybook`,
+   `1247 → FuryOfTheAncientsPlaybook`.
+2. **L'invocation `CalculateAttackUtilityInSteps` aboutit** — le doute portait sur la résolution du
+   corps **gshared** depuis la classe concrète : il est levé, `findMethodByParamCount` remonte
+   jusqu'au parent INFLATÉ et l'`IEnumerator<Fix64>` s'itère. Elle rend `[0]` et ne capture rien, et
+   **c'est la réponse correcte du natif** : le `UtilityAttackCase` construit par le harnais ne NOMME
+   aucune ability, donc `TriggeredAbilityPlaybook<T>$$IsRegularAttack` refuse en tête des deux
+   machines à états (#375 §1). `1247` est muet pour une raison DIFFÉRENTE — son playbook ne surcharge
+   pas la voie attaque.
+3. **Les `captured` portent 972, pas 971** — CONFRONTÉ par
+   `via: "attackUtilityForMainTarget"` (call-site natif qui appelle `ProbableDamageEvent$$.ctor`
+   directement, sans gate), sur une échelle à trois montages :
+   `831+1111 → (1166, 1748…)`, `831+1112 → (1167, 1749…)`, `831+1113 → (1167, 1749…)`.
+   Le régime discriminant tombe sur la référence HAUTE. Reproduit sur un second couple discriminant
+   (`700+1003`) et un second couple (board, seed) (`C4_09`/999).
 
-Restent donc ouverts, dans l'ordre où les jouer après le reinject :
+⚠ **La fixture de cette fiche était ÉCRITE mais jamais JOUÉE** jusqu'à #375 :
+`rl_collect_batch._load_seed_bc` re-synthétisait `LightImUp` depuis le gameconfig vivant et revertait
+`minDmg`/`maxDmg`, EN SILENCE (le couple réellement joué était le nominal `831+1109 ≡ 0 mod 4`, non
+discriminant). Le montage exige donc, désormais, le sidecar d'épinglage
+`<seed-bc>.pins.json` — que `write_variable_patched_seed_bc` pose tout seul.
 
-1. `1103` doit rendre `LightImUpPlaybook` (et `1054` / `1247` leurs playbooks) ;
-2. l'invocation `CalculateAttackUtilityInSteps` doit aboutir — le doute réel porte sur la
-   résolution du corps **gshared** depuis la classe concrète (`findMethodByParamCount` remonte la
-   chaîne d'héritage, mais le parent est une définition générique) ; en cas d'échec l'erreur est
-   NOMMÉE, pas silencieuse ;
-3. sur le seed BC patché, les `captured` doivent porter **972** (demi-vers-le-pair) et non **971**
-   (troncature) — c'est la confrontation live de la face demi-vers-le-pair de #350-r3b.
+⚠ **Et l'écart de 1 n'est observable qu'armure de la cible à 0** : à l'armure nominale l'étage aval
+(profil × armure) écrase l'écart, les trois montages coïncident, et le verdict serait vert et vide.
 
-Non couvert et non tenté : `getUtilityVal` n'est pas fourni, donc l'UTILITÉ rendue est minorée
-(chaque poids vaut 0). La réponse le dit (`utilityWeightsProvided: false`). Les `captured`, eux, ne
-dépendent pas des poids.
+Non couvert : `getUtilityVal` n'est pas fourni, donc l'UTILITÉ rendue est minorée (chaque poids vaut
+0). La réponse le dit (`utilityWeightsProvided: false`). Les `captured`, eux, ne dépendent pas des
+poids. La voie `attackUtilityInSteps` reste muette tant que le correctif `attackAbility` de #375
+n'est pas réinjecté.
