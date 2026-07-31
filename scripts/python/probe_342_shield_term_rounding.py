@@ -214,6 +214,62 @@ def _port_utility(events, hpmax, team_by_id, my_team, wt, fn):
         DMG.DamageUtility.get_shield_damage = orig
 
 
+def check_bc_shield_field(seed: int = 34209, state_file=None, victim: str = VICTIM,
+                          board: str = BOARD, amount: int = 6000, verbose: bool = True) -> dict:
+    """MESURE (a) -- OU la valeur `--unit-stat "<u>:Shield=N"` se perd, tranchee aux DEUX BOUTS.
+
+    On compare le BC REELLEMENT ENVOYE a `initAndStart` (que `rl_duel build` archive tel quel dans
+    son `--state-file`) a ce que la bataille contient (`combatSnapshot.shields`). Les trois
+    hypotheses se separent d'elles-memes :
+
+      * `bc_shield != amount`     -> l'outil Python n'ecrit pas (ou `buildNormalizedBC` ecrase) ;
+      * `bc_shield == amount` et `shields == []` -> le BC porte la valeur et le NATIF l'ignore.
+
+    Le second cas est celui qui est mesure, et il est CLOS au decompile : voir l'en-tete du module.
+    """
+    sid = _resolve_session()
+    sf = Path(state_file) if state_file else (PYDIR.parents[1] / "logs" / "p342field.json")
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    sf.unlink(missing_ok=True)
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
+           "--state-file", str(sf), "--board", board, "--rank", "17",
+           "--p-units", ATTACKER, "--a-units", victim, "--no-ai",
+           "--unit-stat", "%s:Shield=%d" % (victim, amount)]
+    proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+    if not sf.exists():
+        return {"error": "build KO : %s" % ((proc.stderr or proc.stdout or "")[-900:])}
+    st = json.loads(sf.read_text(encoding="utf-8"))
+    rid = int(st["runnerId"])
+    bc_units = [u for u in ((st.get("bc") or {}).get("Units") or [])
+                if u.get("VisualId") == victim]
+    bc_shield = int(bc_units[0].get("Shield") or 0) if bc_units else None
+    try:
+        dv = view(sid, rid)
+        u = by_visual(dv, victim)
+        vic_id = None if u is None else int(u["id"])
+        snap = _r(sid, "combatSnapshot", {"runnerId": rid}, 120)
+        by_ent = {int(x.get("entityId")): x for x in (snap.get("units") or [])
+                  if x.get("entityId") is not None}
+        shields = (by_ent.get(vic_id) or {}).get("shields")
+        all_shields = {int(k): v.get("shields") for k, v in by_ent.items()}
+    finally:
+        _r(sid, "disposeRunner", {"runnerId": rid}, 30)
+    out = {"asked": amount, "bc_shield": bc_shield, "shields": shields,
+           "all_shields": all_shields, "build_accepted": True,
+           "written_to_bc": bc_shield == amount,
+           "materialised": bool(shields)}
+    if verbose:
+        print("[342a] --unit-stat %s:Shield=%d -> accepte par le montage : OUI"
+              % (victim, amount))
+        print("[342a]   BC ENVOYE a initAndStart : Units[%s].Shield = %s  (%s)"
+              % (victim, bc_shield,
+                 "ECRIT" if out["written_to_bc"] else "PERDU cote outil/normalisation"))
+        print("[342a]   bataille (combatSnapshot) : shields = %s  (%s)"
+              % (shields, "MATERIALISE" if out["materialised"] else "AUCUN bouclier"))
+    return out
+
+
 def _expected(arm: dict) -> dict:
     """Ce que le decompile PREDIT pour chaque variante, en multiples du pas d'utilite."""
     if not arm.get("sum_odd"):
@@ -368,7 +424,13 @@ def main() -> int:
     ap.add_argument("--center", default="%d,%d" % CENTER,
                     help="centre de l'anneau (col,row) -- a adapter au board")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--part", default="rounding", choices=("rounding", "field", "all"),
+                    help="`field` = la mesure (a) : ou se perd `--unit-stat <u>:Shield=N`")
     a = ap.parse_args()
+    if a.part in ("field", "all"):
+        f = check_bc_shield_field(victim=a.victim, board=a.board)
+        if a.part == "field":
+            return 0 if (f.get("written_to_bc") and not f.get("materialised")) else 1
     out = run(seed=a.seed, state_file=a.state_file, attacker=a.attacker, victim=a.victim,
               shielder=a.shielder, board=a.board,
               center=tuple(int(x) for x in a.center.split(",")))

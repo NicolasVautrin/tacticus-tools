@@ -417,6 +417,23 @@ def cmd_build(sid: int, a) -> int:
                     return 2
                 for u in touched:
                     u[key] = parsed
+                if key == "Shield" and parsed:
+                    # #342 -- MESURE, pas supposition : le champ est bien ECRIT dans le BC envoye
+                    # a `initAndStart`, et le NATIF ne le lit jamais.
+                    # `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration` (la
+                    # fonction qui REMPLIT chaque `BC.Units[]`) ecrit 29 champs et saute
+                    # `UnitConfiguration.Shield@+0x4c` ;
+                    # `IdunBattle.Operations.AddUnitOperation$$Execute` n'y accede pas ;
+                    # `IdunBattle.Entities.Components.ShieldComponent$$.ctor` n'alloue qu'une
+                    # `List` VIDE et son unique ecrivain
+                    # (`...ShieldComponent$$AddOrUpdateShield`) n'a qu'un appelant,
+                    # `IdunBattle.Operations.CreateShieldOperation$$Execute`.
+                    # Sans ce warn le montage se lit comme un succes : ni erreur, ni bouclier.
+                    print(f"[warn] --unit-stat {vis}:Shield={parsed} sera IGNORE au deploiement "
+                          "(le natif ne lit jamais BC.Units[].Shield). Pour un bouclier REEL, "
+                          "faire POSER le bouclier en bataille -- ex. `thousSorcerer` "
+                          "(ArcaneShield) dans l'equipe de la cible ; cf. "
+                          "docs/rl/case-342-shield-lever.md", file=sys.stderr)
             print(f"[build] --unit-stat {vis}: " + ", ".join(
                 f"{kv.partition('=')[0].strip()}={touched[0].get(kv.partition('=')[0].strip())}"
                 for kv in fields.split(",") if kv.partition("=")[0].strip()))
