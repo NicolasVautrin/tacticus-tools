@@ -1,60 +1,69 @@
 #!/usr/bin/env python
-"""Probe #344 -- `AActiveAbility$$MinMaxDamage(isPrediction: true)` ARRONDIT, il ne TRONQUE pas.
+"""Probe #344 -- la PREDICTION d'ability moyenne minDmg/maxDmg par DEUX chaines natives distinctes.
 
 CE QUE LE DECOMPILE DIT (`rnca9r7q6c`, lu VERBATIM)
 ---------------------------------------------------
+Le 6e argument que `<X>Playbook$$MakeDamagePredictions` passe a
+`ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` prend l'une de DEUX formes. Chacune est
+portee par UN corps DEDUPLIQUE (donc UN SEUL nom ghidra pour tous ses proprietaires) :
 
-    IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(this, state, isPrediction) :
-        isPrediction == 0 -> DSLFormulas.RandomAmount(GetVariableForLevel(0xc), GetVariableForLevel(0xd))
-        sinon             -> DSLFormulas.Half( DSLFormulas.Sum(
-                                 Direct(GetVariableForLevel(0xc = minDmg)),
-                                 Direct(GetVariableForLevel(0xd = maxDmg)) ), rule = 0 )
+  (a) `<X>Ability$$GetDamageAmountMain`, corps partage etiquete
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility$$GetDamageAmountMain`
+      -> `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamageAverage`
+      =  `DSLFormulas.Half( DSLFormulas.Sum(Direct(minDmg 0xc), Direct(maxDmg 0xd)), rule = 0 )`
+      -> `IdunBattle.Entities.Formulas.DivideAmount$$Calculate`
+      -> `IdunBattle.DSL.AAmountFormula$$RoundFix64Result(., 0)` = `Fix64.Round(., 0)`
+      = DEMI-VERS-LE-PAIR.
 
-    (corps IDENTIQUE a `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamageAverage`)
+  (b) `<X>Ability$$GetDamage`, corps partage etiquete
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetDamage`
+      -> `AActiveAbility$$MinMaxDamage(state, isPrediction: FALSE)` = `RandomAmount(minDmg, maxDmg)`,
+      dont le playbook prend le slot 4 d'`IAmountFormula` =
+      `IdunBattle.DSL.AAmountFormula$$CalculateAverage` = `(min + max) / 2` ENTIER = TRONCATURE.
 
-    DSLFormulas$$Half(a, rule) = new <Divide>(a, Direct(2), rule)
-    IdunBattle.Entities.Formulas.DivideAmount$$Calculate :
-        Fix64.op_Division(Fix64(a), Fix64(b)) puis
-        IdunBattle.DSL.AAmountFormula$$RoundFix64Result(., rule = this@+0x20)
-    IdunBattle.DSL.AAmountFormula$$RoundFix64Result : 1 -> Ceiling, 2 -> Floor, sinon Fix64.Round(., 0)
-
-`Fix64.Round(., midpointRounding = 0)` = demi-vers-le-PAIR (cf. probe_333). Le port TRONQUAIT
-(`(mn + mx) // 2`), donc il rendait UNE unite de MOINS des que `minDmg + maxDmg` vaut 3 mod 4.
+Les xrefs de ces deux corps donnent 18 abilities de chaque cote (registres
+`_PREDICTION_MINMAX_AVERAGE` / `_PREDICTION_MINMAX_RANDOM_READ` d'`entities/abilities/active_ability`).
+Les deux formes ne divergent que sur `minDmg + maxDmg = 3 mod 4`, d'exactement 1 : un port qui
+mettrait tout le monde d'un seul cote est faux dans l'autre moitie, et invisible deux fois sur trois.
 
 CE QUE CE PROBE MESURE, ET POURQUOI IL FAUT DEUX BRAS
 ----------------------------------------------------
 Une somme PAIRE ne separe aucun mode. Une somme IMPAIRE en separe deux groupes selon la parite du
-FLOOR, et il faut les DEUX pour isoler `to_even` :
+FLOOR, et il faut les DEUX pour isoler UN mode :
 
-  bras A : `mn + mx = 3 mod 4` (floor IMPAIR) -> natif = floor + 1 ; `trunc` rend floor = FAUX
-  bras B : `mn + mx = 1 mod 4` (floor PAIR)   -> natif = floor     ; `half_up`/`ceil` rendent floor+1 = FAUX
+  bras A : `mn + mx = 3 mod 4` (floor IMPAIR) -> `to_even` = floor+1, `trunc` = floor
+  bras B : `mn + mx = 1 mod 4` (floor PAIR)   -> `to_even` = `trunc` = floor, `half_up`/`ceil` = floor+1
 
-  | variante          | bras A (floor impair) | bras B (floor pair) |
-  |-------------------|-----------------------|---------------------|
-  | `to_even` (NATIF) |           0           |          0          |
-  | `trunc` (le port d'avant #344) |     != 0 |          0          |
-  | `half_up`         |           0           |        != 0         |
-  | `ceil`            |           0           |        != 0         |
+  | variante  | bras A (floor impair) | bras B (floor pair) |
+  |-----------|-----------------------|---------------------|
+  | `to_even` |        floor+1        |        floor        |
+  | `trunc`   |        floor          |        floor        |
+  | `half_up` |        floor+1        |        floor+1      |
+  | `ceil`    |        floor+1        |        floor+1      |
 
-**Aucune autre variante n'est nulle sur les DEUX bras.**
+=> une SEULE variante egale le natif sur les DEUX bras, et laquelle DEPEND DE LA FAMILLE :
+`to_even` pour (a), `trunc` pour (b). Le probe la compare a ce que le REGISTRE prevoit ; il verifie
+en outre que le code LIVRE (sans aucun patch) egale le natif sur les deux bras.
 
-La parite est PILOTEE, pas subie : `--unit-stat '<vis>:ActiveAbilityLevel=<L>'` choisit le niveau,
-donc le couple (minDmg, maxDmg) de la config, donc la classe de `mn + mx` modulo 4. Le regime
-EFFECTIVEMENT obtenu est RE-DERIVE du live (l'objet ability du port, nourri de l'`abilityState`
-capte) -- si le pilotage ne prend pas, le probe le DIT au lieu de conclure.
+Deux leviers de PILOTAGE (la parite et la survie de l'ecart sont choisies, jamais subies) :
+  - `--unit-stat '<vis>:ActiveAbilityLevel=<L>'` choisit le niveau, donc (minDmg, maxDmg), donc la
+    classe de `mn + mx` modulo 4. Le regime obtenu est RE-DERIVE du live (l'objet ability du port,
+    nourri de l'`abilityState` capte) : si le pilotage ne prend pas, le probe le DIT.
+  - `--armor-target 0` retire l'etage armure. Piege herite de #339 sec.4 : un arrondi AVAL peut
+    ABSORBER l'ecart d'une unite (mesure : BringerOfDespair niveau 2 sur cible blindee, les quatre
+    variantes rendent (36,56)). Un bras ou tout coincide est declare NON DISCRIMINANT et fait
+    ECHOUER le verdict au lieu de le verdir.
 
-Piege herite de #339 (sec.4) : un arrondi AVAL peut ABSORBER l'ecart d'une unite. Le probe exige
-donc, sur chaque bras, que les variantes rendent des bornes de prediction DISTINCTES ; un bras ou
-tout coincide est declare NON DISCRIMINANT et fait ECHOUER le verdict au lieu de le verdir.
-
-Oracle = `aiPlaybookPredict` (invocation DIRECTE de `<Ability>Playbook.MakeDamagePredictions`),
-compare a `engine.playbook.prediction.abilities.make_damage_predictions` sur le MEME etat live.
-Le seul point de branchement patche est `_round_fix64` tel qu'IMPORTE dans
-`engine.entities.abilities.active_ability` -- c'est le seul endroit ou `GetDamage` consulte l'arrondi.
+Oracle = `aiPlaybookPredict` (invocation DIRECTE de `<X>Playbook$$MakeDamagePredictions`), compare a
+`engine.playbook.prediction.abilities.make_damage_predictions` sur le MEME etat live, sur l'event de
+la CIBLE PRINCIPALE (le COMPTE d'events -- volet AoE -- est un axe distinct, affiche pour diagnostic).
+Les points de branchement patches sont les DEUX moyennes telles qu'IMPORTEES dans
+`engine.entities.abilities.active_ability` (`_round_fix64`, `calculate_average`).
 
 ASCII only (cp1252). Usage (depuis scripts/python) :
     python probe_344_ability_damage_average.py
     python probe_344_ability_damage_average.py --caster darkaTerminator --ability 1150 --lvl-a 3 --lvl-b 2
+    python probe_344_ability_damage_average.py --caster blackTerminator --ability 1022 --lvl-a 3 --lvl-b 2 --armor-target 0
 """
 from __future__ import annotations
 
@@ -116,9 +125,14 @@ VARIANTS = (("to_even", _v_to_even), ("trunc", _v_trunc),
 
 
 def _build(state_file: Path, seed: int, caster: str, victim: str, board: str,
-           level: int, mult: int) -> int:
+           level: int, mult: int, armor_target=None) -> int:
     """`rl_duel build` -- board CHOISI (runner.md sec.2) et NIVEAU D'ABILITY PILOTE (`--unit-stat`,
-    ecrit VERBATIM dans `BC.Units[]`), qui est le levier de la parite mesuree ici."""
+    ecrit VERBATIM dans `BC.Units[]`), qui est le levier de la parite mesuree ici.
+
+    `armor_target = 0` retire l'etage ARMURE de la cible. C'est le second levier de PILOTAGE :
+    sur une cible blindee, la reduction d'armure ABSORBE souvent l'ecart d'une unite de la base
+    (mesure : BringerOfDespair niveau 2, les quatre variantes rendent (36,56)) -- le bras est alors
+    muet et ne prouve rien. Sans armure, l'ecart de base traverse jusqu'aux bornes observees."""
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
            "--state-file", str(state_file), "--board", board, "--rank", "17",
@@ -127,6 +141,8 @@ def _build(state_file: Path, seed: int, caster: str, victim: str, board: str,
            "--unit-stat", "%s:ActiveAbilityLevel=%d,AbilityVariablesMultiplierPercentage=%d"
                           % (caster, level, mult),
            "--crit", "0,0", "--block-target", "0,0", "--no-ai"]
+    if armor_target is not None:
+        cmd += ["--armor-target", str(int(armor_target))]
     proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     if not state_file.exists():
@@ -162,10 +178,16 @@ def _place_ring(sid, rid, ids, center_visual, center):
 
 
 def _native(sid, rid, cid, tid, ability):
+    """(bornes de l'event de la CIBLE PRINCIPALE, nombre total d'events). On isole la cible
+    principale : le compte d'events (volet AoE) est un AXE DISTINCT de l'arrondi mesure ici --
+    plusieurs playbooks emettent un batch secondaire que le port ne reproduit pas encore."""
     r = _r(sid, "aiPlaybookPredict", {"runnerId": rid, "unitId": int(cid),
                                       "targetId": int(tid), "abilityType": int(ability)}, 120)
-    return [(e.get("healthDmgMin"), e.get("healthDmgMax"), e.get("appliedHits"))
-            for e in ((r or {}).get("events") or [])]
+    evs = (r or {}).get("events") or []
+    main = next((e for e in evs if e.get("targetId") == int(tid)), evs[0] if evs else None)
+    if main is None:
+        return None, 0
+    return (main.get("healthDmgMin"), main.get("healthDmgMax"), main.get("appliedHits")), len(evs)
 
 
 def _ctx(sid, rid, cid):
@@ -211,15 +233,19 @@ def _offline(scene, cid, tid, ability, ability_name, here, fn=None):
                                          attack_pos=here)
     finally:
         AA._round_fix64, AA.calculate_average = o_round, o_avg
-    return [(e.prediction.accurate_health_damage.min, e.prediction.accurate_health_damage.max,
-             e.prediction.applied_hits) for e in evs]
+    main = next((e for e in evs if e.target == int(tid)), evs[0] if evs else None)
+    if main is None:
+        return None, 0
+    return ((main.prediction.accurate_health_damage.min,
+             main.prediction.accurate_health_damage.max,
+             main.prediction.applied_hits), len(evs))
 
 
 def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_name,
-                 board, center, mult) -> dict:
+                 board, center, mult, armor_target=None) -> dict:
     rid = None
     try:
-        rid = _build(sf, seed, caster, victim, board, level, mult)
+        rid = _build(sf, seed, caster, victim, board, level, mult, armor_target)
         dv = _view(sid, rid)
         ids = {}
         for v in (caster, FILLER_P, victim, FILLER_A):
@@ -238,10 +264,11 @@ def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_n
         mn, mx, lvl_eff, mult_eff = mm
         mp = ctx.me.get("pos") or {}
         here = (mp.get("col"), mp.get("row"))
-        nat = _native(sid, rid, cid, tid, ability)
-        ports = {name: _offline(scene, cid, tid, ability, ability_name, here, fn)
-                 for name, fn in VARIANTS}
-        shipped = _offline(scene, cid, tid, ability, ability_name, here, None)
+        nat, n_nat = _native(sid, rid, cid, tid, ability)
+        _p = {name: _offline(scene, cid, tid, ability, ability_name, here, fn)
+              for name, fn in VARIANTS}
+        ports = {k: v[0] for k, v in _p.items()}
+        shipped, n_port = _offline(scene, cid, tid, ability, ability_name, here, None)
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -250,12 +277,12 @@ def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_n
     return {"label": label, "runner": rid, "level_asked": level, "level_eff": lvl_eff,
             "mult_eff": mult_eff, "minDmg": int(mn), "maxDmg": int(mx), "sum": s,
             "sum_mod4": s % 4, "floor": s // 2, "native": nat, "ports": ports,
-            "shipped": shipped}
+            "shipped": shipped, "n_events_native": n_nat, "n_events_port": n_port}
 
 
 def _grade(arm: dict) -> dict:
     """Verdict d'UN bras : quelles variantes egalent le natif, et le bras DISCRIMINE-t-il ?"""
-    nat = arm.get("native") or []
+    nat = arm.get("native")
     if not nat:
         arm["error"] = "aiPlaybookPredict n'a rendu AUCUN event"
         return arm
@@ -272,7 +299,7 @@ def _grade(arm: dict) -> dict:
 def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = CASTER,
         victim: str = VICTIM, ability: int = ABILITY, ability_name: str = ABILITY_NAME,
         board: str = BOARD, center=CENTER, lvl_a: int = LVL_A, lvl_b: int = LVL_B,
-        mult: int = MULT) -> dict:
+        mult: int = MULT, armor_target=None) -> dict:
     sid = _resolve_session()
     sf = Path(state_file) if state_file else (PYDIR.parents[1] / "logs" / "p344.json")
     sf.parent.mkdir(parents=True, exist_ok=True)
@@ -281,7 +308,7 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
     for key, label, lvl, sd in (("a", "A (3 mod 4 -- le natif MONTE)", lvl_a, seed),
                                 ("b", "B (1 mod 4 -- le natif DESCEND)", lvl_b, seed + 1)):
         arm = _measure_arm(sid, sf, sd, label, lvl, caster, victim, ability, ability_name,
-                           board, center, mult)
+                           board, center, mult, armor_target)
         if not arm.get("error"):
             _grade(arm)
         arms[key] = arm
@@ -314,7 +341,8 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
                   "(mod4=%d) floor=%d"
                   % (arm["level_asked"], arm["level_eff"], arm["mult_eff"], arm["minDmg"],
                      arm["maxDmg"], arm["sum"], arm["sum_mod4"], arm["floor"]))
-            print("  natif   = %s" % (arm["native"],))
+            print("  natif   = %-34s (events natif=%d port=%d)"
+                  % (str(arm["native"]), arm["n_events_native"], arm["n_events_port"]))
             print("  LIVRE   = %-34s %s"
                   % (str(arm["shipped"]), "== NATIF" if arm["shipped_ok"] else "!= NATIF"))
             for name, _fn in VARIANTS:
@@ -331,7 +359,8 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
             "expected_variant": expected, "family": family,
             "montage": {"caster": caster, "victim": victim, "ability": ability,
                         "ability_name": ability_name, "board": board, "center": tuple(center),
-                        "lvl_a": lvl_a, "lvl_b": lvl_b, "mult": mult}}
+                        "lvl_a": lvl_a, "lvl_b": lvl_b, "mult": mult,
+                        "armor_target": armor_target}}
 
 
 def main() -> int:
@@ -349,6 +378,8 @@ def main() -> int:
     ap.add_argument("--lvl-a", type=int, default=LVL_A, help="niveau dont minDmg+maxDmg = 3 mod 4")
     ap.add_argument("--lvl-b", type=int, default=LVL_B, help="niveau dont minDmg+maxDmg = 1 mod 4")
     ap.add_argument("--mult", type=int, default=MULT)
+    ap.add_argument("--armor-target", type=int, default=None,
+                    help="armure FORCEE de la cible (0 = etage armure retire, cf. _build)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     name = a.ability_name
@@ -358,7 +389,7 @@ def main() -> int:
     out = run(seed=a.seed, state_file=a.state_file, caster=a.caster, victim=a.victim,
               ability=a.ability, ability_name=name, board=a.board,
               center=tuple(int(x) for x in a.center.split(",")),
-              lvl_a=a.lvl_a, lvl_b=a.lvl_b, mult=a.mult)
+              lvl_a=a.lvl_a, lvl_b=a.lvl_b, mult=a.mult, armor_target=a.armor_target)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if out.get("ok") else 1
