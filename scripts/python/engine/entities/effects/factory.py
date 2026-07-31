@@ -94,6 +94,7 @@ from .loki import (
     FearOfTheUnseenExtraDamageEffect,
     FoulInfusionExtraHitsEffect,
     CyclicIonBlasterAdditionalHitsEffect,
+    ExemplarOfTheKauyonAdditionalHitsEffect,
     FleshmetalGunsFocusedMaliceEffect,
     FleshmetalGunsRuinousSalvoEffect,
     FleshmetalGunsWarpHailEffect,
@@ -187,6 +188,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (IdunBattleLogic.Entities.Abilities.Triggered.Loki.CyclicIonBlaster_AdditionalHitsEffect$$CreateAdditionalHits, canal #179 forme "amount" : display n'evalue que le noeud MIN, spread pipeline).
     # Valide 54321 s19 (#57e).
     "CyclicIonBlaster_AdditionalHits": CyclicIonBlasterAdditionalHitsEffect,
+    # ExemplarOfTheKauyon (`tauShadowsun`, effet 0x49d=1181 pose sur ELLE-MEME par le cast de 1087,
+    # le temps de l'attaque normale que l'ability declenche puis RETIRE) : +nrOfHits=2 coups Blast de
+    # `ConfigVar(0xb = dmg)` (`...ExemplarOfTheKauyon_AdditionalHitsEffectEffect$$CreateAdditionalHits`
+    # -> `EffectAdditionalHits$$Create`, canal #179, trigger `get_OwnerIsCaster` SEUL, param_8 = 0 donc
+    # cellule DEGENEREE). ⚠ CANAL DIFFERENT de `1183 DefenderOfTheGreaterGood_ExtraHits` (#372), qui
+    # partage le porteur mais passe par `CreateEffectHitsBonusForAttack` (coups d'ARME). #366-r1 G3.
+    "ExemplarOfTheKauyon_AdditionalHits": ExemplarOfTheKauyonAdditionalHitsEffect,
     # FleshmetalGuns (Volk blackObliterator, passif 0x429=1065) : effet CYCLIQUE au debut de son tour
     # (behaviour IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour, UnitTurnsStarted % 3) -> +nrOfHits{,_2,_3}=2 coups PREDEFINED
     # [minDmg,maxDmg]{,_2,_3} Melta/Flame/HeavyRound aux attaques RANGED du porteur

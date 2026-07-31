@@ -227,6 +227,77 @@ class FoulInfusionExtraHitsEffect(BaseEffect):
                  "min": int(amt), "max": int(amt), "profile": profile}]
 
 
+class ExemplarOfTheKauyonAdditionalHitsEffect(BaseEffect):
+    """`ExemplarOfTheKauyon_AdditionalHits` (effet 0x49d=1181, `tauShadowsun`) — classe native
+    `IdunBattle.Entities.Effects.Loki.ExemplarOfTheKauyon_AdditionalHitsEffectEffect` (le suffixe
+    `EffectEffect` est celui du BINAIRE, pas une coquille). i2 : « ... reappears on a target hex
+    adjacent to an allied unit and immediately performs a normal attack against the closest enemy
+    target. **This attack deals an additional {nrOfHits}x {dmg} Blast Damage.** »
+
+    ⚠ CANAL — ce n'est PAS celui de `1183 DefenderOfTheGreaterGood_ExtraHits` (#372), qui partage
+    pourtant le porteur. Le marqueur natif est ici
+    `...ExemplarOfTheKauyon_AdditionalHitsEffectEffect$$CreateAdditionalHits` ->
+    `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` = canal #179, un GROUPE de coups a
+    degat et profil PROPRES ; `1183` passe par `CreateEffectHitsBonusForAttack`, terme de
+    `IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate`, donc des coups d'ARME
+    en plus. La colonne « COUPS » de l'inventaire #366 confond les deux ; le decompile les separe.
+
+    Appel natif lu VERBATIM (ordre des `DSLFactory` du corps) :
+
+        amount  = DSLFormulas.ConfigVar( 0xb = dmg, GetAbilityState(effet), config@0x60 )
+        nrOfHits= AbilityConfiguration.GetNumberConstant( config, 0x2f = nrOfHits )   # = 2
+        profile = AbilityConfiguration.GetDamageProfile( config ).Value               # = Blast
+        trigger = DSLTriggers.get_OwnerIsCaster                                       # SEUL conjoint
+        hits    = DSLFormulas.Get( nrOfHits )
+        EffectAdditionalHits.Create( &out, trigger, amount, 1, profile, hits,
+                                     forceOverkill = false, param_8 = **0** )
+
+    `.ctor` = `BaseEffect(AbilityOrEffect(0x43f = 1087 ExemplarOfTheKauyon),
+    hasAutomaticActivation = 1)` (immediat `mov edx, 0x43f` lu a l'octet) -> les `ConfigVar` sont
+    lues sur la config de l'ABILITY 1087, indexees par l'`AbilityStateFromEffect` (= `ability_level`
+    cote port). `dmg` est dans `variablesAffectedByRarityBonus` -> x multiplier ; `nrOfHits` est un
+    numberConstant, donc NI leveled NI rarity-scale.
+
+    Pas de gate melee/ranged (contrairement a `FoulInfusion`/`FearOfTheUnseen`) : `OwnerIsCaster` est
+    le SEUL noeud du trigger, et il est rendu par le canal PORTEUR lui-meme.
+
+    R6-c — CELLULE COMBAT **DEGENEREE**, exactement comme `FoulInfusion_ExtraHits` : le 8e argument
+    (noeud DISPLAY) vaut **0**, donc `EffectAdditionalHits$$Create` execute son repli
+    `if (param_8 != 0) param_3 = param_8; param_1[2] = param_3` -> `minNode` (+0x10) retombe sur
+    l'`amountNode` (+0x08), et ce noeud unique est un SCALAIRE
+    (`IdunBattleLogic.Entities.DSLFactory$$ConfigVar` -> `IdunBattle.Entities.Formulas.ConfigAmount`,
+    sans `CalculateMin`/`CalculateMax` propres). La face COMBAT (`BaseEffect$$AdditionalHits`,
+    `useDisplay = false`) lit donc slot 2 ET slot 3 du MEME noeud => `MinMaxDamage(v, v)`, et
+    `IdunBattle.Core.HitDamage$$GetDamage` ouvre sur `if (*param_1 == param_1[1]) return *param_1;`
+    -> **0 tirage**. La face PREDICTION lit `amount` et laisse le pipeline etaler a +/-20 %.
+
+    ⚠ POSEUR NON PORTE : le seul site de pose est
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility$$ExecuteBehaviour`
+    (`AddEffect(0x49d, AbilityStateReference, Caster, Caster)` -> `PerformAIAttackFromCurrentPosition`
+    -> `RemoveEffect(0x49d)`), et l'ability 1087 est encore un NO-OP combat cote port
+    (`docs/rl/combat-ability-coverage.md`). L'inscription est donc DORMANTE dans le pipeline tant que
+    1087 n'est pas porte -- elle est confrontee live par decomposition d'etage
+    (`tests/engine/runner/test_exemplar_of_the_kauyon_hits_live.py`)."""
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        amt = ability_var("ExemplarOfTheKauyon", "dmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("ExemplarOfTheKauyon", "nrOfHits", is_constant=True)  # numberConstant 0x2f
+        if amt is None or amt <= 0 or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("ExemplarOfTheKauyon") or {}).get("constants") or {}) \
+                .get("damageProfile") or "Blast"
+        except Exception:
+            profile = "Blast"
+        # param_8 = 0 -> cellule DEGENEREE : `amount` (face PREDICTION) et `min`/`max` (face COMBAT)
+        # sont le MEME noeud scalaire `ConfigVar(0xb = dmg)`. Cf. docstring (R6-c).
+        return [{"count": int(count), "amount": int(amt),
+                 "min": int(amt), "max": int(amt), "profile": profile}]
+
+
 class CyclicIonBlasterAdditionalHitsEffect(BaseEffect):
     """`CyclicIonBlaster_AdditionalHitsEffect` (effet 0x47c=1148, classe native
     `IdunBattleLogic.Entities.Abilities.Triggered.Loki`, Tau) — i2 : « All attacks deal an additional
