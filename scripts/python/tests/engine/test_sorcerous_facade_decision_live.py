@@ -19,9 +19,11 @@ D. **La route ENNEMIE reste FERMEE (non-regression #217), dans le MEME montage**
    port, `_is_attack_ability` reste False, `_ability_kind` reste `ally`, et 1100 n'entre pas dans
    les abilities d'attaque du porteur.
 E. **L'etage PREDICTION coincide avec le natif** : `pairUtility(1100)` natif vs la somme
-   `CalculateUtilityFromPredictions` du port, a 1e-6. C'est ce qui attrape le piege
-   `_PREDICT_VIA_NORMAL_ATTACK` (deleguer au chemin generique rend DEUX fois l'attaque normale,
-   soit le double exact -- mesure du 2026-07-30).
+   `CalculateUtilityFromPredictions` du port, a 1e-6. C'etait le piege du chemin generique --
+   quand il SUBSTITUAIT l'attaque normale au batch, y deleguer rendait DEUX fois l'attaque
+   normale, soit le double exact (mesure du 2026-07-30 : 54.660 contre 27.340). Depuis #351 le
+   chemin generique AJOUTE au lieu de substituer (`_PREPEND_NORMAL_ATTACK_EVENT`) et le playbook y
+   delegue ; ce test est ce qui garde le chiffre.
 
 Le confond de prediction est MESURE : les `pairUtility` natives sont bit-identiques d'un bras a
 l'autre d'une meme configuration (seul l'allie bouge, et il reste a distance 4 du caster dans les
@@ -74,8 +76,8 @@ def test_prediction_stage_matches_native(rows):
         got = row["engine"]["u_pred"]
         assert nat is not None and abs(got - nat) < 1e-6, (
             "bras %s : u_pred moteur %r != pairUtility(1100) natif %r -- un facteur 2 signale que "
-            "la prediction a ete deleguee au chemin generique (`_PREDICT_VIA_NORMAL_ATTACK`)"
-            % (k, got, nat))
+            "le chemin generique s'est remis a SUBSTITUER l'attaque normale au lieu de l'AJOUTER "
+            "en tete (`_PREPEND_NORMAL_ATTACK_EVENT`)" % (k, got, nat))
 
 
 def test_native_switches_with_the_tile_difference(rows):

@@ -604,8 +604,12 @@ def get_multi_hit_attack_prediction(
     IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64 slots 8/9 = 0.8/1.2). `initial_damage` = stat Attack (NORMALE) OU `GetDamage` avg(minDmg,maxDmg)
     scalé rareté (SPÉCIALE générique). ⚠ L'ancien chemin `damage=`/plage empirique `(0.8·d/hits, 2.2·d/hits)`
     est SUPPRIMÉ : RE IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw = base 1 SEUL int -> GetBaseDamageFix64 ±20% (OU flat via
-    byte @param_3+0x6a), aucun facteur 2.2, aucune paire {minDmg,maxDmg}. Les specials Attack-based
-    (PlasmaCannon/SpiritLeech) ne passent PAS ici (routés via _PREDICT_VIA_NORMAL_ATTACK)."""
+    byte @param_3+0x6a), aucun facteur 2.2, aucune paire {minDmg,maxDmg}. ⚠ La phrase « les specials
+    Attack-based (PlasmaCannon/SpiritLeech) ne passent PAS ici, routés via
+    _PREDICT_VIA_NORMAL_ATTACK » est PÉRIMÉE DEUX FOIS : #99 a RÉFUTÉ l'hérédité Attack-based et
+    retiré les deux du registre (tout special passe donc bien ici), et #351 a renommé ce registre
+    `_PREPEND_NORMAL_ATTACK_EVENT` — son unique membre, `SorcerousFacade`, n'y REMPLACE rien : il
+    AJOUTE l'attaque normale en tête de sa liste d'events."""
     hits = max(1, hits)
 
     # #54A : scénario BLOCK per-coup (mirror `IdunBattle.Core.Services.DamagePrediction$$CalculateDamagePredictionScenario` →

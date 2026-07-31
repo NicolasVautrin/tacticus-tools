@@ -55,10 +55,18 @@ Deux leviers de PILOTAGE (la parite et la survie de l'ecart sont choisies, jamai
     ECHOUER le verdict au lieu de le verdir.
 
 Oracle = `aiPlaybookPredict` (invocation DIRECTE de `<X>Playbook$$MakeDamagePredictions`), compare a
-`engine.playbook.prediction.abilities.make_damage_predictions` sur le MEME etat live, sur l'event de
-la CIBLE PRINCIPALE (le COMPTE d'events -- volet AoE -- est un axe distinct, affiche pour diagnostic).
-Les points de branchement patches sont les DEUX moyennes telles qu'IMPORTEES dans
-`engine.entities.abilities.active_ability` (`_round_fix64`, `calculate_average`).
+`engine.playbook.prediction.abilities.make_damage_predictions` sur le MEME etat live, sur la SEQUENCE
+des events de la CIBLE PRINCIPALE (le volet AoE -- les cibles SECONDAIRES -- est un axe distinct,
+affiche pour diagnostic via le compte total). Les points de branchement patches sont les DEUX moyennes
+telles qu'IMPORTEES dans `engine.entities.abilities.active_ability` (`_round_fix64`,
+`calculate_average`).
+
+⚠ SEQUENCE, ET NON « le premier event » (#351). Un playbook peut emettre PLUSIEURS events sur la MEME
+cible : `...SorcerousFacadePlaybook$$MakeDamagePredictions` construit `[normale]` puis `AddRange(batch)`,
+les deux sur `sel`. En ne lisant que le premier, le probe comparait l'ATTAQUE NORMALE -- qui ne lit
+aucune moyenne minDmg/maxDmg -- et rendait donc un bras NON DISCRIMINANT (les quatre variantes egales),
+c.-a-d. un ECHEC qui n'accusait pas la bonne chose. Comparer la sequence RETIENT du meme coup le COMPTE
+d'events de la cible principale : c'est ce compte qui etait faux (natif 2, port 1).
 
 ASCII only (cp1252). Usage (depuis scripts/python) :
     python probe_344_ability_damage_average.py
@@ -178,16 +186,28 @@ def _place_ring(sid, rid, ids, center_visual, center):
 
 
 def _native(sid, rid, cid, tid, ability):
-    """(bornes de l'event de la CIBLE PRINCIPALE, nombre total d'events). On isole la cible
-    principale : le compte d'events (volet AoE) est un AXE DISTINCT de l'arrondi mesure ici --
-    plusieurs playbooks emettent un batch secondaire que le port ne reproduit pas encore."""
+    """(bornes de TOUS les events de la CIBLE PRINCIPALE, nombre total d'events).
+
+    On isole la cible PRINCIPALE : les events des cibles SECONDAIRES (volet AoE) sont un AXE
+    DISTINCT de l'arrondi mesure ici -- plusieurs playbooks emettent un batch secondaire que le port
+    ne reproduit pas encore.
+
+    ⚠ Mais « la cible principale » n'est PAS « le premier event » : un playbook peut emettre
+    PLUSIEURS events sur la MEME cible. `...SorcerousFacadePlaybook$$MakeDamagePredictions` en emet
+    deux -- `[ProbableDamageEvent(sel, attaque normale)]` puis `AddRange(GenerateMultiHit
+    AttackPredictions(...))`, tous deux sur `sel` (MESURE #351 : `count = 2`, meme `targetId`). Ne
+    garder que le premier rendait le bras MUET : l'attaque normale ne lit aucune moyenne minDmg/
+    maxDmg, donc les quatre variantes d'arrondi y coincident. La comparaison porte donc sur la
+    SEQUENCE (l'ordre est celui du natif, et il est observable). Pour toute ability mono-event par
+    cible -- toutes les autres du registre -- le tuple a un seul element : comportement inchange."""
     r = _r(sid, "aiPlaybookPredict", {"runnerId": rid, "unitId": int(cid),
                                       "targetId": int(tid), "abilityType": int(ability)}, 120)
     evs = (r or {}).get("events") or []
-    main = next((e for e in evs if e.get("targetId") == int(tid)), evs[0] if evs else None)
-    if main is None:
+    mains = [e for e in evs if e.get("targetId") == int(tid)] or (evs[:1] if evs else [])
+    if not mains:
         return None, 0
-    return (main.get("healthDmgMin"), main.get("healthDmgMax"), main.get("appliedHits")), len(evs)
+    return (tuple((e.get("healthDmgMin"), e.get("healthDmgMax"), e.get("appliedHits"))
+                  for e in mains), len(evs))
 
 
 def _ctx(sid, rid, cid):
@@ -233,12 +253,13 @@ def _offline(scene, cid, tid, ability, ability_name, here, fn=None):
                                          attack_pos=here)
     finally:
         AA._round_fix64, AA.calculate_average = o_round, o_avg
-    main = next((e for e in evs if e.target == int(tid)), evs[0] if evs else None)
-    if main is None:
+    # MEME regle de selection que `_native` : TOUS les events de la cible principale, dans l'ordre.
+    mains = [e for e in evs if e.target == int(tid)] or (evs[:1] if evs else [])
+    if not mains:
         return None, 0
-    return ((main.prediction.accurate_health_damage.min,
-             main.prediction.accurate_health_damage.max,
-             main.prediction.applied_hits), len(evs))
+    return (tuple((e.prediction.accurate_health_damage.min,
+                   e.prediction.accurate_health_damage.max,
+                   e.prediction.applied_hits) for e in mains), len(evs))
 
 
 def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_name,

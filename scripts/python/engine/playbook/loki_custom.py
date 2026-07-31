@@ -31,16 +31,14 @@ from . import prediction
 from .common import DefaultActiveAbilityPlaybook
 from .base import NO_ACTION, register
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
-from .probable_damage_event import ProbableDamageEvent
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.effect_type import EffectType
 from ..utilities.damage import will_be_overkill
 
-# `param_8` VIDE du call-site `GenerateMultiHitAttackPredictions` : le port encode un profil absent
-# par la chaine "None" (`_PROFILE_INDEX` -> enum -1 : percage 0, armure PLEINE), meme convention que
-# `engine.playbook.prediction.abilities._PLAYBOOK_PROFILE_OVERRIDE`.
-_PROFILE_NONE = "None"
+# `_PROFILE_NONE` VIVAIT ICI (le `param_8` VIDE du call-site `GenerateMultiHitAttackPredictions` de
+# 1100). Il a MIGRE dans `prediction.abilities._PLAYBOOK_PROFILE_OVERRIDE[1100]` avec la fin du fork
+# de port (#351) : le profil du 2e batch se lit desormais la ou se lisent les onze autres.
 
 
 class _CustomOnlyPlaybook(DefaultActiveAbilityPlaybook):
@@ -1015,6 +1013,10 @@ class SorcerousFacadePlaybook(NonAttackComparablePlaybook):
        Le SEUL ecart au generique est le profil de degat, passe VIDE par le playbook -> entree
        `_PLAYBOOK_PROFILE_OVERRIDE[1100] = "None"` (pierce 0, armure pleine), meme quirk que
        1020/1062/1147/1148.
+    3. **`AddRange` AJOUTE, il ne SUBSTITUE pas** (#351). Le `list = [normale]` puis
+       `list.AddRange(batch)` rend DEUX events, tous deux sur `sel`. Mesure `aiPlaybookPredict` :
+       `count = 2`, meme `targetId`. Le chemin generique substituait l'un a l'autre et rendait UN
+       event -- residu ferme par `_PREPEND_NORMAL_ATTACK_EVENT`.
 
     ## Route et masque
 
@@ -1113,37 +1115,39 @@ class SorcerousFacadePlaybook(NonAttackComparablePlaybook):
         return not self._will_normal_attack_kill(ctx, target, caster_tile)
 
     def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
-        """Les DEUX events du natif, construits ICI et pas par le chemin generique.
+        """`...SorcerousFacadePlaybook$$MakeDamagePredictions` — la SEULE chose que cet override
+        ajoute au chemin generique est la SUBSTITUTION DE CIBLE :
 
-        ⚠ NE PAS deleguer a `prediction.make_damage_predictions` : `SorcerousFacade` est dans
-        `_PREDICT_VIA_NORMAL_ATTACK` (pose par #171), donc ce chemin-la rend l'attaque NORMALE et
-        RIEN d'autre -- c'est voulu pour l'oracle `aiPlaybookPredict`, qui ne remonte que cet
-        event-la (dedup aval, cf. `docs/rl/case-171-sorcerousfacade-normal-attack.md`). Le
-        deleguer ici produirait DEUX fois l'attaque normale : mesure du 2026-07-30, `u_pred`
-        moteur = 54.660 contre `pairUtility(1100)` natif = 27.340, soit exactement le double.
+            sel = SelectFirst(GetTarget(ability), entities{Caster, CasterTile, CasterTiles})
+            if (sel == null) return <liste VIDE statique>;
+            <la suite est le regime generique, evalue sur `sel`>
 
-        Le second event, lui, existe bel et bien dans `CalculateUtilityFromPredictions` : c'est le
-        `GenerateMultiHitAttackPredictions(base = Half(Sum(minDmg, maxDmg)), hits = nrOfHits,
-        profil = <vide>)` du call-site. Son profil VIDE (`param_8` nul, meme quirk que 1020/1062/
-        1147/1148) laisse l'armure PLEINE et le percage a 0 : sur une cible blindee il vaut ~1 point
-        de degat, d'ou les +0.0105 d'utilite que le natif ajoute a l'attaque normale."""
+        La cible passee en argument (l'ALLIE Psyker) n'entre PAS dans la prediction : le natif la
+        remplace par `sel`, l'ENNEMI le plus proche attaquable a l'attaque normale. Tout le reste --
+        l'event d'attaque normale EN TETE, puis l'`AddRange` du batch `GenerateMultiHitAttack
+        Predictions(base = Half(Sum(minDmg, maxDmg)), hits = nrOfHits, profil = <vide>)` -- est le
+        corps GENERIQUE, porte par `prediction.make_damage_predictions`
+        (`_PREPEND_NORMAL_ATTACK_EVENT` + `_PLAYBOOK_PROFILE_OVERRIDE[1100]`).
+
+        ⚠ CE CORPS RECONSTRUISAIT LES DEUX EVENTS A LA MAIN, et c'etait un FORK DE PORT : le meme
+        artefact natif avait DEUX implementations Python, dont une seule etait juste. Le chemin
+        generique, lui, rendait UN event (il SUBSTITUAIT l'attaque normale au batch au lieu de l'y
+        AJOUTER) -- c'est le residu #351, mesure par `probe_351_facade_event_count.py` : natif
+        `count = 2`, chemin generique 1. La reparation a eu lieu la-bas ; ici il ne reste que la
+        substitution de cible, qui est la seule chose que le natif ecrit de special.
+
+        L'ancienne mise en garde « ne pas deleguer : ca produirait DEUX fois l'attaque normale »
+        etait vraie DU TEMPS de la substitution (`u_pred` 54.660 vs `pairUtility(1100)` natif
+        27.340). Elle ne l'est plus : le chemin generique ne produit l'attaque normale qu'UNE fois,
+        en tete, et le test `test_prediction_stage_matches_native` garde ce chiffre."""
         if ctx.scene is None:
             return []
         sel = self._get_target(ctx, caster_tile)
         if sel is None:
             return []                        # la liste VIDE statique du natif
-        out = []
-        # event #1 -- `ProbableDamageEvent(sel, battleQuery.<slot 0x22>(caster, sel, casterPosition))`
-        ev = prediction.make_normal_attack_predictions(ctx.scene, ctx.uid, sel, caster_tile)
-        if ev is not None:
-            out.append(ev)
-        # event #2 -- le batch `GenerateMultiHitAttackPredictions` propre a l'ability.
-        dp = prediction.generate_multi_hit_attack_prediction(
-            ctx.scene, ctx.uid, sel, self.ability_id, ctx.ab_name_by_id.get(self.ability_id),
-            attack_pos=caster_tile, profile_override=_PROFILE_NONE)
-        if dp is not None:
-            out.append(ProbableDamageEvent(target=sel, prediction=dp))
-        return out
+        return prediction.make_damage_predictions(
+            ctx.scene, ctx.uid, sel, self.ability_id,
+            ctx.ab_name_by_id.get(self.ability_id), attack_pos=caster_tile)
 
 
 # --- Registry : dispatch par ability_id via get_playbook_or_default (base.REGISTRY) ---
