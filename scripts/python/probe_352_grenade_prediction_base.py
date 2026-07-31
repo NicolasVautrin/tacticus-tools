@@ -145,16 +145,23 @@ def _state_file(tag: str) -> Path:
     return p
 
 
-def _build_pool(carrier: str, seed: int, board: str):
+def _build_pool(carrier: str, seed: int, board: str, target_hp=None):
     """Porteur PRESENT au pool -> `rl_duel build` standard. Pas de `--hp-target` : il mettrait
     l'ARMURE de la cible a 0 (runner.md sec.3), or c'est justement l'etage qui separe `1 x 13098`
-    de `6 x 1964` le plus nettement."""
+    de `6 x 1964` le plus nettement.
+
+    `target_hp` passe par `--unit-stat` (patch PER-UNIT du BC deja normalise) et NON par
+    `--hp-target`, pour la meme raison : il faut une cible qui SURVIT au coup sans perdre son
+    armure. Sans lui, les deux bornes sont clampees aux PV (`min == max`) et le spread +/-20%
+    n'est pas observable -- un bras qui ne montre plus qu'un plancher."""
     sf = _state_file("pool")
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
            "--board", board, "--rank", str(RANK),
            "--p-units", "%s,%s" % (carrier, FILLER_P),
            "--a-units", ",".join([ENEMY] * 3),
            "--crit", "0,0", "--block-target", "0,0", "--no-ai"]
+    if target_hp:
+        cmd += ["--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (ENEMY, target_hp, target_hp)]
     proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     if not sf.exists():
@@ -357,13 +364,13 @@ def _config_view(scene, cid, ability, ability_name):
 
 def _measure(sid, ability: int, ability_name: str, carrier: str, injected: bool,
              center, n_adj_foes: int, seed: int, board: str, level: int, mult: int,
-             expected_events: int) -> dict:
+             expected_events: int, target_hp=None) -> dict:
     rid = sf = None
     try:
         if injected:
             rid, sf = _build_injected(sid, carrier, seed, board, level, mult)
         else:
-            rid, sf = _build_pool(carrier, seed, board)
+            rid, sf = _build_pool(carrier, seed, board, target_hp)
         carrier_vis = _spawn_visual(carrier)
         dv, cid, tid, dist, n_adj_t, n_near_c = _place(sid, rid, carrier_vis, center, n_adj_foes)
         scene = _ctx(sid, rid, cid).scene
@@ -410,27 +417,36 @@ def _measure(sid, ability: int, ability_name: str, carrier: str, injected: bool,
 #               depend du caster ET de la cible -> vide lui aussi. Le gate `result.WillBeKill` est
 #               par ailleurs FRANCHI sur ce montage (le natif rend min == max == PV de la cible).
 MONTAGES = [
-    # (ability, nom, porteur, injecte ?, centre, nb d'ennemis colles, level, mult, expected_events)
-    (1048, "FragstormGrenadeLauncher", "templAggressor", False, (3, 4), 2, 0, 100, 1),
-    (1098, "PlasmaGrenade", "eldarSmnGuardian", True, (3, 4), 2, 50, 100, 1),
+    # (ability, nom, porteur, injecte ?, centre, nb ennemis colles, level, mult, events, PV cible)
+    (1048, "FragstormGrenadeLauncher", "templAggressor", False, (3, 4), 2, 0, 100, 1, None),
+    # Le MEME 1048 sur une cible qui SURVIT : sans ce bras les deux bornes sont clampees aux PV
+    # (`min == max`) et l'on ne verifie qu'un plancher. Avec, le spread +/-20% et l'armure
+    # traversent -- c'est la que `1 coup de nrOfHits x maxDmg` et `nrOfHits coups d'une moyenne`
+    # divergent le plus (l'armure est deduite UNE fois au lieu de SIX).
+    (1048, "FragstormGrenadeLauncher", "templAggressor", False, (3, 4), 2, 0, 100, 1, 400000),
+    (1098, "PlasmaGrenade", "eldarSmnGuardian", True, (3, 4), 2, 50, 100, 1, None),
     # TEMOIN + NON-REGRESSION : meme mold de batch principal (base `Get(minDmg)` + `nrOfHits`
     # LITTERAL, deja porte par `_stikkbomb_inputs`), mais volet secondaire VIVANT.
-    (1051, "Stikkbomb", "orksOrkBoys", True, (3, 4), 2, 50, 100, 3),
+    (1051, "Stikkbomb", "orksOrkBoys", True, (3, 4), 2, 50, 100, 3, None),
 ]
 
 
-def run(only=None, seed: int = SEED, board: str = BOARD, verbose: bool = True) -> dict:
+def run(only=None, seed: int = SEED, board: str = BOARD, verbose: bool = True,
+        center_override=None) -> dict:
     sid = _resolve_session()
     rows = []
-    for ability, name, carrier, injected, center, n_adj, level, mult, exp_ev in MONTAGES:
+    for ability, name, carrier, injected, center, n_adj, level, mult, exp_ev, thp in MONTAGES:
         if only and int(ability) != int(only):
             continue
+        if center_override is not None:
+            center = tuple(center_override)
         if verbose:
-            print("\n=== %d %s -- porteur %s (%s) sur %s ==="
-                  % (ability, name, carrier, "catalogue injecte" if injected else "pool", board))
+            print("\n=== %d %s -- porteur %s (%s) sur %s%s ==="
+                  % (ability, name, carrier, "catalogue injecte" if injected else "pool", board,
+                     "" if not thp else " -- cible a %d PV (survit)" % thp))
         try:
             row = _measure(sid, ability, name, carrier, injected, center, n_adj, seed, board,
-                           level, mult, exp_ev)
+                           level, mult, exp_ev, thp)
         except Exception as exc:                                    # noqa: BLE001
             row = {"ability": ability, "name": name, "carrier": carrier,
                    "error": "%s: %s" % (type(exc).__name__, exc), "ok": False}
@@ -473,9 +489,12 @@ def main() -> int:
     ap.add_argument("--only", type=int, default=None, help="ne jouer qu'une ability (1048|1098)")
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--board", default=BOARD, help="board CHOISI (runner.md sec.2), jamais subi")
+    ap.add_argument("--center", default=None,
+                    help="tuile 'col,row' ou planter le caster (defaut : celle du montage)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    out = run(only=a.only, seed=a.seed, board=a.board)
+    ctr = tuple(int(x) for x in a.center.split(",")) if a.center else None
+    out = run(only=a.only, seed=a.seed, board=a.board, center_override=ctr)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if out.get("ok") else 1

@@ -335,7 +335,21 @@ def _plasma_grenade_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # tar
         qui AJOUTE la stat `ExtraHits` du caster -- que ce playbook n'ajoute pas.
 
     Le PROFIL n'est pas surcharge : `GetDamageProfile(config)` -> `Nullable` NON vide (Plasma), pas
-    le quirk `param_8 = null` de #164/#165."""
+    le quirk `param_8 = null` de #164/#165.
+
+    ⚠ LE VOLET SECONDAIRE DE CE PLAYBOOK EST MORT -- ne pas le « reparer ». Le playbook boucle bien
+    sur `TargetsSelector.SelectUniqueUnits(...GetOtherTargets, entities, 3)` avec `hits2`, mais il
+    construit son contexte par
+    `AbilityEntities..ctor(entities, caster: 0, actor: 0, target: target, ...)` -- **caster NUL**.
+    Or `...PlasmaGrenadeAbility$$GetOtherTargets` = `Enemies(caster@0x30, AdjacentUnits(Target@0x60,
+    1, 3), 1)` filtre par l'equipe du CASTER : le set est donc TOUJOURS vide, et 1098 n'emet JAMAIS
+    qu'UN event. C'est la difference avec Stikkbomb (1051), dont le set
+    `...StikkbombAbility$$GetAdjacentDamageTargets` = `AdjacentUnits(Target, unique, sel)` ne depend
+    que de `Target` et reste VIVANT (son volet est porte dans
+    `engine.playbook.loki_custom.StikkbombPlaybook.make_damage_predictions`).
+    MESURE (`probe_352_grenade_prediction_base.py`, MEME geometrie -- 2 ennemis colles a la cible,
+    deux couples board/seed) : natif 1051 = **3 events**, natif 1098 = **1 event**. Le port, qui
+    n'en emet qu'un, est donc FIDELE ; y ajouter un volet le rendrait FAUX."""
     lvl, mult = ab.level, ab.multiplier
     base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)      # var 0xc = minDmg (Get == Direct)
     hits = int((cfg.constants or {}).get("nrOfHits") or 0)         # const 0x2f = nrOfHits (LITTERAL)
@@ -377,6 +391,21 @@ def _fragstorm_grenade_launcher_inputs(scene, caster_id, target_id, ab, cfg) -> 
     L'ecart n'est donc PAS un arrondi mais une GRANDEUR et une STRUCTURE : `1 x 13098` contre
     `6 x 1964`. Les deux ne coincident sur AUCUN axe -- ni le centre (13098 vs 11784), ni surtout
     l'armure, soustraite UNE fois au lieu de SIX (`predict_attack_raw` deduit l'armure par coup).
+
+    ⚠ LE VOLET SECONDAIRE DE CE PLAYBOOK EST MORT LUI AUSSI -- ne pas le porter. Sous le gate
+    `result.WillBeKill`, le playbook boucle sur
+    `SelectUniqueUnits(...FragstormGrenadeLauncherAbility$$GetOtherTargets, entities, 3)`, mais son
+    `entities` est un **memset(0) COMPLET** (`FUN_1802abdd0(&local_248, 0, 0x128)`) : ni caster ni
+    target. Or ce set vaut
+    `Damageable(SurroundingEnemies(caster@0x30, ConfigConst(0x16), 1, 3) - Target@0x60)` -- il
+    depend des DEUX. Le set est donc toujours vide.
+    MESURE (`probe_352_grenade_prediction_base.py`) : sur un montage ou le gate `WillBeKill` est
+    FRANCHI (le natif rend `min == max == PV de la cible`) et ou deux ennemis sont a portee 2 du
+    caster, le natif rend **1 event**. Le port, qui n'en emet qu'un, est FIDELE.
+    Second quirk lu au passage, et sans effet tant que le set est vide : dans cette boucle le natif
+    passe l'unite ITEREE en `caster` et garde `target` en cible (verifie a l'assembleur -- `r8` recoit
+    `IEnumerator.get_Current()`, `r9` le home slot du 4e parametre), alors que le batch principal y
+    passe le vrai `caster`. Les arguments sont inverses cote natif.
 
     Config absente -> `{}` = chemin generique inchange (aucune sur-prediction inventee), meme
     convention que `_frenzied_firing_inputs` / `_mass_driver_accelerator_inputs`. `nrOfHits` absent
