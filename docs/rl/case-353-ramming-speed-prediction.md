@@ -98,7 +98,7 @@ niveau piloté par `--unit-stat` prend).
 |---|---|---|
 | 1 CIBLE | base `minDmg`, hits `nrOfHits` LITTÉRAL | `_ramming_speed_inputs` (`_MAKE_DMG_INPUT_OVERRIDES`) |
 | 2 CASTER | mêmes base/profil, hits `nrOfHits_2`, `friendly=True` | `_ramming_speed_self_events` (nouveau registre `_MAKE_DMG_EXTRA_EVENTS`) |
-| 3/4 EXPLOSION | **résidu nommé** (§5) | — |
+| 3/4 EXPLOSION | **PORTÉS (#383)** — gate `WillBeKill`, `amount` = % du **maxPV**, 1 coup, `DirectDamage`, `friendly` par batch. Confrontés 4/4 couples (board, seed) | `prediction/ramming_speed.py` + le même `_ramming_speed_self_events` (les trois batchs sortent du MÊME `MakeDamagePredictions`) |
 
 `friendly=True` n'est pas une convention de port : `DamageUtility.<EvaluateAttackInSteps>d__2$$MoveNext`
 finit par `if (IsFriend(caster, actor)) u = u * -1` (branche `HasFriendlyFire` → `IsEnemy` sinon). Le
@@ -118,9 +118,14 @@ Les quatre bras **discriminent** sur les deux axes du correctif : la base (`minD
 **nombre d'events** (le port n'émettait pas le 2ᵉ). Le bras armure 2312 vérifie que le correctif tient
 quand le plancher écrase le dégât — régime où un écart de base est souvent absorbé (piège #339 §4).
 
-## 5. Résidu nommé — les batchs 3/4 (EXPLOSION)
+## 5. Résidu nommé — les batchs 3/4 (EXPLOSION) — **FERMÉ (#381 pour la mesure, #383 pour le port)**
 
 Deux verrous : l'un de port — **FERMÉ** par #353-r1 volet (a), §5bis — l'autre de mesure.
+
+**État FINAL** : le verrou (b) était un **artefact de montage** (`case-361`), et les batchs 3/4 sont
+désormais **portés et confrontés 4/4** (`case-383`). Le récit ci-dessous garde sa valeur de méthode
+(comment neuf causes sont tombées), pas de verdict. Ce qui reste ouvert : `#381-r1` (l'étage TUILE,
+mordant — `case-383` §5) et `#383-r1` (la face COMBAT, hors `ABILITY_CLASSES` — `case-383` §6).
 
 **(a) Port : `GetTileToMoveTo`.** Porté et CONFRONTÉ (2/2 par cast réel) — le détail, les trois
 lectures qui ont corrigé l'énoncé hérité et les deux bras discriminants sont au §5bis.
@@ -270,8 +275,9 @@ ce qui a fait corriger la méthode plutôt qu'accepter un accord sans valeur). M
 | `tests/engine/runner/test_353r1_ramming_speed_charge_tile_offline.py` (10) | **#353-r1 volet (a)**, 100 % offline sur le montage nommé `_ramming_speed_charge_montage.py` : 54 au registre (par MEMBRE d'enum) ; feuille = `#ennemis adjacents × poids BC` (poids RELU, pas figé) ; muette sans sujet ; bucket = 2 termes de poids 1, `minDiff` 0, UN seul `Buckets[0]` ; **le 2ᵉ terme change la tuile** ; poids 0 ≡ amputation (la composition est bien une somme pondérée) ; type inconnu → LÈVE (jamais 0 silencieux) ; opérandes `MovableTilesInRange` À GAUCHE ; **l'ordre change la tuile à égalité** ; intersection vide → `None` |
 | `probe_353r1_ramming_speed_charge_tile.py` (2 bras) | **la confrontation** : la tuile du port == celle où le natif POSE le caster, sur deux géométries dont l'une isole le terme 54 et l'autre l'ordre des opérandes ; chaque bras muté DIVERGE (sinon le probe écrit `[NON DISCRIMINANT]` au lieu de compter un accord sans valeur) |
 
-**Ce qui n'est PAS couvert** : les batchs 3/4 — la gate est HORS DE CAUSE (§5ter), le résidu et son
-capteur sont dans `case-361-explosion-batches-gate.md` ;
+**Ce qui n'est PAS couvert** : ~~les batchs 3/4~~ (PORTÉS par #383 — gardes
+`tests/engine/test_383_ramming_speed_explosion_offline.py` (14) et `…_live.py` (4), probe
+`probe_383_ramming_speed_explosion_port.py` ; détail `case-383`) ;
 l'ORDRE natif de `MovableTilesInRange` (le port rend les ids croissants, le natif l'ordre de visite du
 BFS — inobservable tant que ce nœud était à DROITE de toutes les intersections portées, il devient ici
 l'ordre source et ne départage que des utilités STRICTEMENT égales ; les deux bras live sont tranchés
