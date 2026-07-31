@@ -42,6 +42,24 @@ CE QUE CE PROBE MESURE
           que le capteur lit la bonne struct sur une face deja connue), puis `via=evaluate` sur les
           NC. Absent du bundle => SKIP NOMME, jamais un zero muet.
 
+⚠ LE MONTAGE DOIT ATTEINDRE LE REGIME, ET LE PROUVER (#356)
+-----------------------------------------------------------
+`1202 VigilanceEternal` porte une PRECONDITION GEOMETRIQUE, lue au decompile dans
+`IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetDynamicInvalidTargetReason` :
+la cible est eligible si (a) ses tuiles sont ADJACENTES a celles du caster, ou (b) le selecteur
+`IdunBattleLogic.Entities.DSLSelectors$$TilesUnitCanMoveToChargeTarget(caster, casterTiles, target,
+movementRange = GetNumberConstant(0x16))` rend >= 1 tuile ; sinon il rend le flag `0x8000000`
+(= `TargetIsInRange`). Aux positions de SPAWN de `MC1_67` aucune cible ne satisfait cela : le bucket
+vide est alors la REPONSE JUSTE du natif, pas un trou de port. Le probe DOIT donc separer
+  (a) MONTAGE non atteint  -> NON CONFRONTE, il le DIT ; ce n'est PAS un echec ;
+  (b) PORT / HARNAIS       -> precondition PROUVEE et capture NULLE -> ECHEC.
+
+Ce que la preuve N'EST PAS : `ncEvaluate.hvt` (`IBattleQuery.HasValidTargets`, slot 0x3f) rendait
+**true aux 13/13 positions** du montage de spawn ou l'eligibilite etait VIDE (mesure 2026-07-31) --
+ce gate ne traverse pas `GetDynamicInvalidTargetReason`. La preuve utilisee ici est
+`abilityTargets` (`fromHere`/`targets` NON VIDES) confirmee par `abilityReason` (`targetReason.hex
+== 0x0` au lieu de `0x8000000`), c.-a-d. exactement le flag du decompile.
+
 ASCII only (cp1252). Usage (depuis scripts/python) :
     python probe_350r3_noncomparable_oracle.py --offline
     python probe_350r3_noncomparable_oracle.py
