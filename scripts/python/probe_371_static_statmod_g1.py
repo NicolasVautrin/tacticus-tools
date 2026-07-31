@@ -31,8 +31,10 @@ import sys
 # --------------------------------------------------------------------------------------------------
 G1 = [
     # (effectType, nom capte, poseur natif, ability gameconfig, statType, amount, turns, note)
-    (31, "StatModifier", "<NON TRANCHE>", None, None, None, None,
-     "cle anonyme du nOEud DSL AddStaticStatModifierEffect ; poseur non tranche (case-366 5.)"),
+    (31, "StatModifier", "<AUCUN>", None, None, None, None,
+     "REGISTERED-BUT-DEAD : aucun chemin lisible ne le pose (case-371 5.) -- les 6 feuilles de pose "
+     "inventoriees par xrefs, les 2 non-litterales eliminees, et `(void *)0x1f,` n'apparait que dans "
+     "5 fonctions sur 65000, aucune n'etant une pose d'effet"),
     (1004, "MightOfHeroes_ExtraHits",
      "IdunBattleLogic.Entities.Abilities.Active.Loki.MightOfHeroesAbility$$ExecuteBehaviour",
      "MightOfHeroes", 17, ("const", "extraHit"), "Nullable(2)", ""),
@@ -98,7 +100,7 @@ def etage_1_et_2():
         if ability is None and amount is not None and amount[0] == "ctx":
             magn, statut = amount[1], "ENVIRONNEMENT (magnitude contextuelle)"
         elif ability is None:
-            magn, statut = "-", "POSEUR NON TRANCHE"
+            magn, statut = "-", "REGISTERED-BUT-DEAD (aucun poseur)"
         else:
             cfg = GC.ability(ability) or {}
             if not cfg:

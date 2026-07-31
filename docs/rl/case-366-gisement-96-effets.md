@@ -227,12 +227,14 @@ ne pouvait pas trancher -- et `orksKillaKan` porte `DakkaDakkaDakka`, pas `KanOp
   un plafond.
 * **La confrontabilite des 8 effets de TUILE** (G2) n'est pas etablie board par board : elle exige
   de recenser quels boards portent Shrub / DryBush / Vines / LandMine / BrokenIce / Darkness.
-* **`31 StatModifier` : QUI le pose n'est pas tranche.** C'est la cle « anonyme » du nOEud DSL
-  `IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect` ; le balayage d'immediat
-  n'est PAS discriminant a cette valeur (un immediat n'est pas type, et 31 est partout). Il faut un
-  autre angle -- p. ex. lire les arbres DSL qui passent 31 en argument.
-  ⚠ **Champ REDUIT par #371** (case-371 §5) : les SIX chemins de pose sont inventories par xrefs, et
-  les deux seuls ou l'`effectType` n'est pas un litteral (`APowerUpAbility$$AddAbsoluteBoost` /
-  `$$AddPctBasedBoost`, qui lisent un champ de record) sont ELIMINES -- leurs trois implementations
-  concretes portent `0x473`/`0x477`/`0x475`. Reste a balayer les ~60 call-sites litteraux.
+* ~~**`31 StatModifier` : QUI le pose n'est pas tranche.**~~ -- **TRANCHE par #371 : PERSONNE.**
+  Deux balayages qui se recoupent (case-371 §5). (a) Les SIX chemins de pose sont inventories par
+  xrefs ; les deux seuls ou l'`effectType` n'est pas un litteral (`APowerUpAbility$$AddAbsoluteBoost`
+  / `$$AddPctBasedBoost`, qui lisent un champ de record) sont ELIMINES -- leurs trois implementations
+  concretes portent `0x473`/`0x477`/`0x475`. (b) Sur TOUT le binaire, `(void *)0x1f,` n'apparait que
+  dans **5 fonctions sur 65 000**, dont AUCUNE n'est une pose d'effet (`On(0x1f)` = TriggerEvent,
+  `AtomicGroup(0x1f)` x2, deux classes d'effet de TUILE) ; `&DAT_0000001f` = **0 occurrence**.
+  ⇒ la fabrique est enregistree mais **rien ne la reference** : `31` est du **registered-but-dead**,
+  il n'y a rien a porter. (Limite : `search_code` porte sur le pseudo-C INDEXE ; la conclusion tient
+  sur la conjonction (a) ET (b).)
 * **Aucune mesure live** : ce cas est 100 % offline (binaire + tables versionnees + gameconfig).

@@ -43,7 +43,7 @@ Feuille commune : `IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierE
 | 1351 `EnvStatBoost_Damage` | `BaseStatBoostAbility$$GetInitBuffBehaviour` (+`GetUpdateBuffBehaviour`) | 0 ATTACK | `PercentageOf(StatAmount(ATTACK, part 3), GetNumberConstant(0x3b))` | NULL | **ENVIRONNEMENT** |
 | 1352 `EnvStatBoost_Health` | idem (+ un `ChangeStat` sur la santé COURANTE) | 5 HEALTH | `PercentageOf(StatAmount(HEALTH, part 3), GetNumberConstant(0x4f))` | NULL | **ENVIRONNEMENT** |
 | 1507 `EnvStatBoost_Armor` | idem | 16 FIXED_ARMOR | `PercentageOf(StatAmount(FIXED_ARMOR, part 3), GetNumberConstant(0x87))` | NULL | **ENVIRONNEMENT** |
-| 31 `StatModifier` | — | — | — | — | **NON TRANCHÉ** (§5) |
+| 31 `StatModifier` | **aucun** | — | — | — | **REGISTERED-BUT-DEAD** (§5) |
 
 **UN SEUL des onze porte un vrai timer** (`1171`) — c'est lui qui porte le bug de durée. Les deux
 autres inscrits sont PERMANENTS : ce que leur inscription ferme est l'**ATTRIBUTION**, pas une durée.
@@ -130,18 +130,39 @@ change, pas la valeur — d'où le caractère silencieux du défaut.
   OVERRIDE (`applied_stat_mods`, magnitude lue sur le ctx du porteur), pas le couple mono-stat de la
   base. Deux travaux distincts, aucun exercé ici.
 
-## 5. `31 StatModifier` — non tranché, mais le champ est réduit
+## 5. `31 StatModifier` — TRANCHÉ : aucun poseur, l'`EffectType` est *registered-but-dead*
 
-Les **six** chemins de pose sont inventoriés (les 5 surcharges `AddStaticStatModifierEffect{,ToOwner}`
-+ `AddOrUpdateStaticStatModifierEffect`) et leurs call-sites énumérés par xrefs. Deux seulement ne
-passent PAS un `EffectType` littéral — ils lisent un champ de record via un getter virtuel :
-`APowerUpAbility$$AddAbsoluteBoost` et `$$AddPctBasedBoost`. **Ces deux-là sont éliminés** : les trois
-implémentations concrètes (`PowerUp_DamageAbility$$get_PctBasedStatBoost`,
-`PowerUp_HealthAbility$$get_PctBasedStatBoost`, `PowerUp_HitsAbility$$get_AbsoluteStatBoost`) portent
-`0x473`, `0x477`, `0x475` — pas `0x1f`. Tous les autres call-sites posent un littéral spécifique.
+Deux balayages indépendants, qui se recoupent.
 
-Reste à balayer : les ~60 call-sites littéraux un par un (le poseur de 31 serait alors un call-site
-qui OMET le paramètre `effectType`, valeur par défaut insérée au call-site par le compilateur).
+**(a) Les six chemins de pose, par xrefs.** Les 5 surcharges `AddStaticStatModifierEffect{,ToOwner}`
++ `AddOrUpdateStaticStatModifierEffect` ; tous leurs call-sites énumérés. Deux seulement ne passent
+PAS un `EffectType` littéral — ils lisent un champ de record via un getter virtuel :
+`APowerUpAbility$$AddAbsoluteBoost` et `$$AddPctBasedBoost`. **Éliminés** : les trois implémentations
+concrètes (`PowerUp_DamageAbility$$get_PctBasedStatBoost`, `PowerUp_HealthAbility$$get_PctBasedStatBoost`,
+`PowerUp_HitsAbility$$get_AbsoluteStatBoost`) portent `0x473`, `0x477`, `0x475` — pas `0x1f`.
+
+**(b) Le littéral, sur TOUT le binaire.** `(void *)0x1f,` (la forme sous laquelle Ghidra rend un
+argument `void*` non final, celle qu'on lit sur `0x493`, `0x3ec`, `0x4e3`…) apparaît dans **5
+fonctions sur 65 000**, et **aucune** n'est une pose d'effet :
+
+| fonction | ce que `0x1f` y est |
+|---|---|
+| `LivingLightningMoveEffectAbility$$CreateTrigger` | `On(0x1f)` — un `TriggerEvent` |
+| `RevitalizingMalignancyAbility$$ExecuteBehaviour` | `AtomicGroup(0x1f, …)` — un id de groupe |
+| `CombatRestorativesAbility$$ExecuteBehaviour` | idem |
+| `LightCoverEffect$$…`, `TrenchEffect$$Create…` | classes d'effet de TUILE (id de tuile) |
+
+`&DAT_0000001f` (l'autre forme que Ghidra emploie pour les petites constantes, cf. `&DAT_00000008`
+= `extraDmg`) : **0 occurrence**. Les 244 hits de `0x1f)` sont des `GetNumberConstant(0x1f)` — un
+index de constante d'ability (ex. `BasiliskBarrageAbility$$GetNumShellsTotal`), autre enum.
+
+⇒ **Aucun chemin lisible ne pose `31`.** Sa fabrique existe dans `EffectsDatabase$$InitializeEffects`
+(c'est ce qui le fait apparaître dans l'inventaire de #366) mais rien ne la référence : c'est du
+**registered-but-dead**, et il n'y a rien à porter.
+
+⚠ **Limite de la méthode** : `search_code` porte sur le pseudo-C INDEXÉ ; un corps pleinement
+partagé (`__Il2CppFullySharedGeneric`) ou une fonction non indexée y échapperait. La conclusion tient
+sur la conjonction (a) ∧ (b), pas sur (b) seul.
 
 ## 6. Ce qui n'est PAS couvert
 
