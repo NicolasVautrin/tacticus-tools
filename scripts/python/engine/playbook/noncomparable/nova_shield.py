@@ -20,9 +20,16 @@ class NovaShieldPlaybook(NonComparablePlaybook):
     Par (casterPos ∈ reach, center ∈ cibles-éligibles) :
         marked(center) = {center} ∪ neighbors(center) \\ trench          # IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility$$GetMarkedTiles
         util = 100*CountEnemiesOnTiles(marked) + Count(marked)            # IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CountEnemiesOnTiles (non-alliés) + get_Count
-               + Tile(7)@casterPos + DislikeStartingTiles(27)@casterPos   # IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetMovementUtility
+               + Tile(7)@casterPos + DislikeStartingTiles(28)@casterPos   # IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetMovementUtility
     Les 2 termes mouvement dépendent de `casterPos` SEUL (constants sur la boucle center). `ChooseAction`
     = argmax STRICT `>`, gate util >= 1. Cible native = le CENTRE marqué (kind=tile).
+    MESURE #343 (decompile) : l'action emise est
+    `IdunBattle.AI.Playbook.BasePlaybook$$GenerateAction(casterPosition, target, utility)` ->
+    `IdunBattle.AI.ActionGenerators.UnitAction$$.ctor(position, target, abilityType)`, ou `target`
+    est le champ `+0x10` de l'element du selector `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable`
+    (struct de 0x128 octets ; `+0x10` = l'ENTITE cible, ecrite juste apres `GetEligibleTargetsEntities`).
+    Le port rendait `target: None` : il gardait l'argmax d'utilite mais JETAIT le centre argmax.
+    Le natif n'emet JAMAIS de cible nulle ici — la cible EST le centre (entite-tuile, `ctx.tile_id_by_pos`).
     HYPOTHÈSE(trench) : flag isTrench non capturé -> ring géométrique complet (biais <=6 sur Count,
     écrasé par 100*enemies).
     STATUT : DECOMPILE-PROVEN, ARENE-INAGREABLE (Riptide non spawnable). L'ancienne note « classe
@@ -44,7 +51,7 @@ class NovaShieldPlaybook(NonComparablePlaybook):
             return []
         epos = set(ctx.epos or [])
         board = ctx.elev_by_pos or {}
-        best = None  # (caster_pos, util)
+        best = None  # (caster_pos, center, util)
         for caster_pos in ctx.reach_nc:
             # GetMovementUtility(Tile) + IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetMovementUtility(DislikeStartingTiles) (2 appels natifs).
             move_term = (get_movement_utility(ctx, caster_pos, UtilityType.Tile)
@@ -54,16 +61,17 @@ class NovaShieldPlaybook(NonComparablePlaybook):
                                      if (not board) or (n in board)]        # GetMarkedTiles \ trench
                 n_enemy = sum(1 for t in marked if t in epos)               # IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CountEnemiesOnTiles
                 u = 100.0 * n_enemy + len(marked) + move_term              # 100*enemies + get_Count(marked)
-                if best is None or u > best[1]:   # strict > : 1er max garde
-                    best = (caster_pos, u)
-        if best is None or best[1] < self.MIN_UTILITY:
+                if best is None or u > best[2]:   # strict > : 1re paire (pos, centre) du max garde
+                    best = (caster_pos, center, u)
+        if best is None or best[2] < self.MIN_UTILITY:
             return []
-        caster_pos, u = best
+        caster_pos, center, u = best
+        tid = (ctx.tile_id_by_pos or {}).get(center)
         if ctx.debug:
             import sys
             print(f"    [dbg NC u{ctx.uid}] NovaShield centers={len(centers)} best_to={caster_pos} "
-                  f"u={u} min={self.MIN_UTILITY}", file=sys.stderr)
-        return [{"target": None, "ability": self.ABILITY_ID,
+                  f"center={center} tid={tid} u={u} min={self.MIN_UTILITY}", file=sys.stderr)
+        return [{"target": (tid if tid is not None else center), "ability": self.ABILITY_ID,
                  "to": (caster_pos if caster_pos != ctx.origin else None), "pred": u}]
 
     def _eligible_mark_centers(self, ctx: NCContext) -> list[tuple]:
