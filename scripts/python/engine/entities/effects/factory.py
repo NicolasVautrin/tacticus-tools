@@ -128,6 +128,7 @@ from .loki import (
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
     CursedPlagueBellExtraMoveEffect,
+    RelentlessMarchExtraMoveEffect,
     LionHelmExtraDmgEffect,
     LionHelmExtraBlockDamageEffect,
     LionHelmExtraBlockChanceEffect,
@@ -228,6 +229,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `applied_stat_mods` + `reverted_stats` (part 6 = ResetModification au revert). Cf.
     # `loki/cursed_plague_bell.py`.
     "CursedPlagueBell_ExtraMove": CursedPlagueBellExtraMoveEffect,
+    # RelentlessMarch (necroWarden "Makhotep", passif `TriggeredAbilityType` 1004) : effet
+    # 0x3f3=1011 pose pour UN tour sur les allies ADJACENTS non-`Stationary` (vecteur
+    # `RelentlessMarchAbility$$CreateBehaviour` = `AddEffect(0x3f3, ..., UnitsWithoutTrait(
+    # Friends(AdjacentUnits(Owner)), 0x418), turns = Nullable<int>(1))`, #328).
+    # MEME forme OVERRIDE que CursedPlagueBell, mais le montant est le LITTERAL `Direct(1)` du
+    # decompile -- l'ability n'a AUCUNE constante au gameconfig, donc transposer le
+    # `GetNumberConstant(0xe = extraMovement)` du voisin aurait rendu 0 (effet inerte).
+    # Cf. `loki/relentless_march.py` et `docs/rl/case-328-relentless-march.md`.
+    "RelentlessMarch_Effect": RelentlessMarchExtraMoveEffect,
     # SpotterReworked (Thaddeus astraOrdnance, 2 effets sur le PORTEUR IdunBattleLogic.Entities.Abilities.Triggered.Loki.SpotterReworkedAbility$$CreateBehaviour) : aura
     # +extraDmg[ablvl]xmult additif pre-percage aux attaques RANGED des amis SANS HeavyWeapon
     # rayon 2 (IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateEffectDamageBonusForAttack) ; +extraDmg_2 aux amis AVEC HeavyWeapon, toutes attaques (IdunBattle.Entities.Effects.Loki.SpotterReworked_HeavyWeaponEffect$$CreateEffectDamageBonusForAttack).

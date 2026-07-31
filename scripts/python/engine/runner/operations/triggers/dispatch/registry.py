@@ -98,6 +98,7 @@ from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif 
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
 from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
+from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -348,6 +349,19 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/fabricator_claw_array.py (IdunBattleLogic.Entities.Abilities.Active.Loki.FabricatorClawArrayAbility$$CreateTrigger /
     # ...$$CreateBehaviour / ...$$GetTargetSelector).
     "FabricatorClawArray": [FabricatorClawArrayAbility],
+    # RelentlessMarch (passif `necroWarden` << Makhotep >>, `TriggeredAbilityType` 0x3ec = 1004 --
+    # HOMONYME d'id avec `ActiveAbilityType` 1004 `MortisRound`, #328) :
+    # `On(TurnStart_Other=0x13) & <DSLTriggers+0x28 = IsTurnOf(Owner)>` ->
+    #   `AddEffect(0x3f3 RelentlessMarch_Effect, turns = Nullable<int>(1))` sur
+    #   `UnitsWithoutTrait(Friends(AdjacentUnits(Owner)), 0x418 Stationary)`
+    # + `Repair(Owner, Friends(AdjacentUnits(Owner)), Direct(hpToRepair[lvl]), ForRepair)`.
+    # ⚠ Le filtre `Stationary` ne porte QUE sur la cible de l'`AddEffect` -- le `Repair` recoit
+    # l'arbre NON filtre (la fiche #317 disait l'inverse ; lu au desassemblage des deux call-sites).
+    # Les allies NON mecaniques sont ecartes de la reparation par le gate `EntityCanBeRepaired` de
+    # l'Operation, pas par un selecteur. Branche `triggerType == Custom` (exclusion des HEROS) portee
+    # mais SANS appelant cote port tant qu'`AdaptiveStrategy` (1005) n'est pas dans `ABILITY_CLASSES`.
+    # Cf. loki/relentless_march.py + `docs/rl/case-328-relentless-march.md`.
+    "RelentlessMarch": [RelentlessMarchAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
