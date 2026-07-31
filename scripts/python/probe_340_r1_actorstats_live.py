@@ -142,12 +142,33 @@ def _live_capture_scene(rid: int, caster: int):
 
 
 # ---------------------------------------------------------------- un bras
-def arm(h, steps: int) -> dict:
+def arm(h, steps: int, with_rival: bool = False) -> dict:
     """Monte le regime `steps`, mesure le capteur AVANT/APRES le pas, confronte les deux voies
-    LIVE, puis fait ROULER le tour pour lire le reset."""
+    LIVE, puis fait ROULER le tour pour lire le reset.
+
+    `with_rival` RAMENE le second ennemi au contact de la tuile d'arrivee (repris de #340) : il
+    BLOQUE le passage (`WalkPathfinder$$UnitIsBlockedByEnemyUnit`), donc un pas de 2 hex coute 6
+    tuiles de CHEMIN. C'est le discriminant CHEMIN-vs-HEX du capteur : un `+0xf0` qui compterait en
+    distance hexagonale rendrait 2 la ou le natif en met 6."""
     plan = h.arrange(int(steps))
     if plan is None:
         raise RuntimeError("geometrie NON INSTALLEE pour un pas de %d tuile(s)" % steps)
+    plan["rival"] = None
+    if with_rival:
+        # On DEPLACE les unites pour obtenir le regime voulu ; on ne subit pas la geometrie de spawn.
+        others = [u for u in h.enemies_of(h.my_player) if u.get("id") != plan["target"]]
+        if others:
+            for cand in h.free_tiles(plan["step_to"], 1,
+                                     exclude=(others[0]["id"], plan["caster"], plan["target"])):
+                if tuple(cand) == tuple(plan["start"]) or tuple(cand) == tuple(plan["anchor"]):
+                    continue
+                if h.place(others[0]["id"], cand):
+                    plan["rival"] = others[0]["id"]
+                    plan["rival_pos"] = tuple(cand)
+                    break
+        if plan["rival"] is None:
+            raise RuntimeError("RIVAL non installe (steps=%d) -- le discriminant chemin-vs-hex ne "
+                               "serait pas mesure" % steps)
     if h.reach_my_turn(force_cycle=True) is None:
         raise RuntimeError("mon tour non atteint pour un pas de %d tuile(s)" % steps)
     dv = h.dview()
@@ -191,6 +212,15 @@ def arm(h, steps: int) -> dict:
     n_seeded = unit_tiles_moved_this_turn(st_seeded, caster)
     n_bare = unit_tiles_moved_this_turn(st_bare, caster)
 
+    # ---- V4 : le GARDE `< 0` du seeder. Tant que le correctif du hook n'est pas reinjecte, deux
+    # des trois champs publient du garbage NEGATIF ; un seeder naif l'ecrirait dans l'ECS, ou il
+    # deviendrait indistinguable d'un etat de jeu. On verifie ce que le seeder a REELLEMENT pose.
+    from engine.runner.components import UnitComponent as _UC
+    _uc = st_seeded.get_entity(caster).get_component(_UC)
+    guard = {"battle": _uc.tiles_moved_this_battle, "last": _uc.tiles_moved_last_turn,
+             "published_battle": (ast_after or {}).get(caster, {}).get("battle"),
+             "published_last": (ast_after or {}).get(caster, {}).get("last")}
+
     # ---- V3 : la voie live-capture de la PREDICTION
     ctx_live, predictor = _live_capture_scene(h.rid, caster)
     n_scene = ctx_live.scene.tiles_moved_this_turn(caster)
@@ -218,7 +248,7 @@ def arm(h, steps: int) -> dict:
     return {"steps": int(steps), "plan": plan, "step_to": step_to, "caster": caster,
             "n_ref": n_ref, "n_seeded": n_seeded, "n_bare": n_bare, "n_scene": n_scene,
             "ast_before": ast_before, "ast_after": ast_after, "ast_reset": ast_reset,
-            "rows": rows, "ab_nat": ab_nat,
+            "rows": rows, "ab_nat": ab_nat, "guard": guard, "with_rival": with_rival,
             "tiles_moved_by_id": dict(predictor.get("tiles_moved_by_id") or {})}
 
 
@@ -280,8 +310,18 @@ def report(res: dict) -> bool:
     for s in sorted(res["arms"]):
         a = res["arms"][s]
         c = a["caster"]
-        print("\n  BRAS %s -- pas de %d hex vers %s ; n de reference (pathfinder, rejeu offline) = %d"
-              % (s, a["steps"], a["step_to"], a["n_ref"]))
+        print("\n  BRAS %s -- pas de %d hex vers %s%s ; n de reference (pathfinder, rejeu offline)"
+              " = %d" % (s, a["steps"], a["step_to"],
+                         (" ; RIVAL bloquant en %s" % (a["plan"].get("rival_pos"),))
+                         if a.get("with_rival") else "", a["n_ref"]))
+        if a.get("with_rival") and a["n_ref"] <= a["steps"]:
+            ok = False
+            print("    [X] le rival ne BLOQUE pas (n=%d <= pas de %d hex) -- ce bras ne separe donc "
+                  "pas CHEMIN de DISTANCE HEX" % (a["n_ref"], a["steps"]))
+        elif a.get("with_rival"):
+            print("    [OK] discriminant CHEMIN-vs-HEX : %d hex de pas coutent %d tuiles de chemin "
+                  "-- un capteur qui compterait en distance hex rendrait %d"
+                  % (a["steps"], a["n_ref"], a["steps"]))
 
         # ---- V1
         if not sensor_publishes_tiles(a["ast_after"]):
@@ -332,6 +372,20 @@ def report(res: dict) -> bool:
             ok = False
             print("      [X] V3 : la voie live-capture rend %s au lieu de %d"
                   % (a["n_scene"], a["n_ref"]))
+        g = a["guard"]
+        pub = [v for v in (g["published_battle"], g["published_last"]) if v is not None]
+        if pub and min(pub) < 0:
+            if g["battle"] or g["last"]:
+                ok = False
+                print("      [X] V4 GARDE : du garbage NEGATIF publie (%s) a ete INGERE dans l'ECS "
+                      "(battle=%s last=%s)" % (pub, g["battle"], g["last"]))
+            else:
+                print("      [OK] V4 GARDE : le garbage negatif publie (%s) n'entre PAS dans l'ECS "
+                      "(battle=%s last=%s restent a leur 0 de construction)"
+                      % (pub, g["battle"], g["last"]))
+        else:
+            print("      V4 GARDE : non exerce (aucune valeur negative publiee) -- battle=%s last=%s"
+                  % (g["battle"], g["last"]))
 
         print("    PREDICTION depuis les tuiles de MELEE")
         print("      %-10s %-6s %-16s %-16s %-16s %-16s"
@@ -367,13 +421,25 @@ def report(res: dict) -> bool:
     return ok
 
 
-def scenario(steps=(1, 2), board: str = P335.BOARD, seed: int = P335.SEED) -> dict:
+def scenario(steps=(1, 2), board: str = P335.BOARD, seed: int = P335.SEED,
+             rival_step: int | None = None) -> dict:
     P335.STATE = STATE                       # state-file PROPRE (les modules #335/#340 ont le leur)
     h = P335.build(board=board, seed=seed)
     out = {"board": board, "seed": seed, "rid": h.rid, "arms": {}, "harness": h}
     for s in steps:
         out["arms"]["%d" % int(s)] = arm(h, int(s))
+    if rival_step is not None:
+        out["arms"]["%d+rival" % int(rival_step)] = arm(h, int(rival_step), with_rival=True)
     return out
+
+
+def dispose(res: dict) -> None:
+    h = (res or {}).get("harness")
+    if h is not None:
+        try:
+            h.dispose()
+        except Exception:                                # noqa: BLE001 -- best effort de cleanup
+            pass
 
 
 def main() -> int:
@@ -381,10 +447,12 @@ def main() -> int:
     ap.add_argument("--board", default=P335.BOARD)
     ap.add_argument("--seed", type=int, default=P335.SEED)
     ap.add_argument("--steps", default="1,2")
+    ap.add_argument("--rival-step", type=int, default=2,
+                    help="pas du bras CHEMIN-vs-HEX (rival bloquant) ; 0 = pas de bras rival")
     ap.add_argument("--keep", action="store_true", help="ne pas disposer le runner")
     a = ap.parse_args()
     steps = tuple(int(x) for x in a.steps.split(",") if x.strip())
-    res = scenario(steps=steps, board=a.board, seed=a.seed)
+    res = scenario(steps=steps, board=a.board, seed=a.seed, rival_step=(a.rival_step or None))
     try:
         ok = report(res)
     finally:
