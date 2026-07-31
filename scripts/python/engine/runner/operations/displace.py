@@ -50,9 +50,11 @@ from __future__ import annotations
 
 from ..state import State
 from ..events import EventBus
-from ..components import PositionComponent, UnitComponent, StatsComponent, OwnerComponent
+from ..components import (PositionComponent, UnitComponent, StatsComponent, OwnerComponent,
+                          record_tiles_moved)
 from .base import Operation
 from .movement import MoveUnitOperation
+from ...battle_query import get_distance
 from ...entities.pathfinding.board import EVENQ_EVEN, EVENQ_ODD
 from ...entities.traits.unit_trait import UnitTrait, has_any_trait
 
@@ -178,6 +180,64 @@ def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: in
     return {"unit": unit_id, "amount": amount, "shield": dmg.shield, "health": dmg.health}
 
 
+def _is_enemy(state: State, a_id, b_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsEnemy(a, b, state)` — camps opposes. Une unite n'est
+    JAMAIS son propre ennemi (`a_id == b_id` -> False), et c'est ce qui rend le second
+    `AddTilesMoved` de `SwitchPosition` (qui passe `target = caster`) toujours passant."""
+    if a_id is None or b_id is None:
+        return False
+    ae, be = state.get_entity(int(a_id)), state.get_entity(int(b_id))
+    ao = ae.get_component(OwnerComponent) if ae is not None else None
+    bo = be.get_component(OwnerComponent) if be is not None else None
+    if ao is None or bo is None:
+        return False
+    return ao.team != bo.team
+
+
+def _add_tiles_moved(state: State, caster_id, target_id, previous_tiles, tile_to_displace,
+                     record_tiles: bool) -> int:
+    """`IdunBattle.Operations.DisplaceUnitOperation$$AddTilesMoved(caster, target, previousTiles,
+    tileToDisplace, options)` — MIRROR 1:1 :
+
+        if (options.<+0x10>)                                            // le gate d'OPTIONS
+            if (!UnitExtensions.IsEnemy(caster, target, state))         // deplacement AMICAL seul
+                RecordTilesMoved(target,
+                                 battleQuery.GetDistance(previousTiles,
+                                                         TExtensions.ToList(tileToDisplace)),
+                                 state);
+
+    TROIS faits qu'il faut tenir ensemble, sinon le port sur-compte :
+
+    1. **La quantite est une DISTANCE HEX**, pas une longueur de chemin (`get_distance` = mirror de
+       `IdunBattle.Core.Services.MovementQuery$$GetDistance`). C'est l'inverse de
+       `MoveUnitOperation$$Execute`, qui facture `GetNumTilesMoved(connectedPath)`.
+    2. **`record_tiles` est le champ `+0x1c` du `DisplaceUnitBehaviourOptions`**, recopie en
+       `+0x10` de l'option d'operation par `IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour
+       $$Execute`. Balayage EXHAUSTIF des 8 feuilles qui construisent un `DisplaceUnitBehaviour` :
+       seules `IdunBattleLogic.Entities.DSLBehaviors$$SwitchPosition` et
+       `IdunBattleLogic.Entities.DSLBehaviors$$Teleport` le posent a 1 ; `PushUnit`,
+       `PushAwayFromBlacklistTiles`, `PushToPrioritizedTiles`, `DisplaceUnitInAdjacentDirection`,
+       `DisplaceUnit` et `PullUnitOneTile` le laissent a 0. **Un PUSH n'enregistre donc RIEN** --
+       et c'est ce qui rend juste le `record_tiles=False` que les `MoveUnitOperation` de
+       `DisplaceUnitOperation` posent depuis case-322-r1 : il n'y a pas de second comptage a
+       eteindre, il n'y en a jamais eu.
+    3. **`!IsEnemy(caster, target)`** : seul un deplacement AMICAL compte. Sur un `SwitchPosition`,
+       la moitie « caster » passe `target = caster` -> toujours passante ; la moitie « cible » ne
+       passe que si la cible est une ALLIEE (ce qui est le cas de `SorcerousFacade`, dont le
+       ciblage est `TargetIsFriendly`).
+
+    Renvoie le nombre de tuiles REELLEMENT enregistrees (0 si un gate a ferme)."""
+    if not record_tiles:
+        return 0
+    if _is_enemy(state, caster_id, target_id):
+        return 0
+    n = get_distance(previous_tiles, [tile_to_displace] if tile_to_displace is not None else [])
+    # `RecordTilesMoved` no-op sous 1 -- la sentinelle `int.MaxValue` de `GetDistance` sur un
+    # ensemble vide ne peut donc pas etre filtree ici ; le port ne l'atteint pas (les deux
+    # ensembles viennent de `PositionComponent`, jamais vides quand l'appel a lieu).
+    return record_tiles_moved(state, target_id, n)
+
+
 class SwitchPositionOperation(Operation):
     """`IdunBattle.Operations.DisplaceUnitOperation$$SwitchPosition` — le case **5** du switch
     d'`IdunBattle.Operations.DisplaceUnitOperation$$Execute` (`DisplaceDirection.SwitchPosition`),
@@ -210,15 +270,21 @@ class SwitchPositionOperation(Operation):
     D'ou `set_moved=False` sur les deux `MoveUnitOperation` ci-dessous -- les deux appels natifs
     partagent la MEME struct d'options, donc le skip vaut pour les deux moities.
 
+    `record_tiles` = le champ `+0x1c` du `DisplaceUnitBehaviourOptions`, que
+    `IdunBattleLogic.Entities.DSLBehaviors$$SwitchPosition` pose a **1** (relu au decompile, comme
+    l'octet `+0x10` qu'il laisse a 0). C'est ce qui ouvre les deux `AddTilesMoved` ci-dessous ;
+    defaut `True` parce que la SEULE feuille DSL qui construit un switch le pose.
+
     NON PORTE (residu nomme) : la garde `IsTemporary` des tuiles + son slot d'interface 0x92 (le port
     n'a pas de tuile TEMPORAIRE -- `board` est statique).
 
-    Retour {switched, caster_to, target_to} pour `ectx.emit` (replay-diff)."""
-    __slots__ = ("caster_id", "target_id")
+    Retour {switched, caster_to, target_to, tiles_moved} pour `ectx.emit` (replay-diff)."""
+    __slots__ = ("caster_id", "target_id", "record_tiles")
 
-    def __init__(self, caster_id: int, target_id: int):
+    def __init__(self, caster_id: int, target_id: int, record_tiles: bool = True):
         self.caster_id = caster_id
         self.target_id = target_id
+        self.record_tiles = bool(record_tiles)
 
     def execute(self, state: State, bus: EventBus) -> dict:
         from ..components import unit_is_dead
@@ -237,22 +303,34 @@ class SwitchPositionOperation(Operation):
         dead_caster = unit_is_dead(caster)
         dead_target = unit_is_dead(target)
         res = {"switched": False, "caster_to": None, "target_to": None}
-        # `record_tiles=False` (case-322-r1) : le natif ne compte PAS les tuiles d'un switch dans
-        # `MoveUnitOperation` -- `IdunBattle.Operations.DisplaceUnitOperation$$SwitchPosition`
-        # appelle `processor.MoveUnit(...)` PUIS
-        # `IdunBattle.Operations.DisplaceUnitOperation$$AddTilesMoved`, qui refait le
-        # `RecordTilesMoved` avec SES propres gates (`options+0x10` et `!IsEnemy(caster,target)`).
-        # Le laisser a `True` compterait DEUX FOIS cote natif -- d'ou l'octet `MoveUnitOptions+0x16`.
-        # RESIDU NOMME : `AddTilesMoved` lui-meme n'est pas porte (sous-comptage sur un switch
-        # AMICAL, seul cas ou le natif enregistre quelque chose ici).
+        # `record_tiles=False` sur le `MoveUnitOperation` (case-322-r1) : le comptage d'un switch
+        # n'appartient PAS au move mais a `IdunBattle.Operations.DisplaceUnitOperation$$
+        # AddTilesMoved`, appele JUSTE APRES chaque `processor.MoveUnit(...)` -- c'est le rang natif
+        # exact, reproduit ci-dessous. #347 : cet `AddTilesMoved` est desormais PORTE, avec ses
+        # deux gates.
+        # ⚠ Les deux moities ne sont PAS symetriques : la moitie « caster » passe `target = caster`
+        # a `AddTilesMoved`, donc son gate `!IsEnemy(caster, target)` est TOUJOURS passant -- le
+        # caster enregistre sa distance quel que soit le camp de la cible. La moitie « cible », elle,
+        # n'enregistre que si la cible est ALLIEE.
+        moved_tiles = {}
         if not dead_target:
             MoveUnitOperation(self.target_id, tile_caster, set_moved=False,
                               record_tiles=False).execute(state, bus)
             res["target_to"] = tile_caster
+            n = _add_tiles_moved(state, self.caster_id, self.target_id, [tile_target], tile_caster,
+                                 self.record_tiles)
+            if n:
+                moved_tiles[self.target_id] = n
         if not dead_caster:
             MoveUnitOperation(self.caster_id, tile_target, set_moved=False,
                               record_tiles=False).execute(state, bus)
             res["caster_to"] = tile_target
+            n = _add_tiles_moved(state, self.caster_id, self.caster_id, [tile_caster], tile_target,
+                                 self.record_tiles)
+            if n:
+                moved_tiles[self.caster_id] = n
+        if moved_tiles:
+            res["tiles_moved"] = moved_tiles
         res["switched"] = res["caster_to"] is not None or res["target_to"] is not None
         # `EventAndAbilitiesAndEffects` (le MEME appel que la queue du push) : le vecteur
         # `On(UnitDisplaced)`, une fois par unite REELLEMENT deplacee, dans l'ordre natif.
@@ -270,12 +348,21 @@ class SwitchPositionOperation(Operation):
 class DisplaceUnitOperation(Operation):
     """IdunBattle.Operations.DisplaceUnitOperation$$Execute (type=1=FindTileToPush) — push 1-hex away-from-pusher. Delegue le deplacement effectif
     a `MoveUnitOperation` (mirror natif : DisplaceUnit emet MoveUnit@0x7e, ne reecrit pas la position).
-    Retour dict {moved, to, reason} pour le journal `ectx.emit` (replay-diff live)."""
-    __slots__ = ("pusher_id", "pushed_id")
 
-    def __init__(self, pusher_id: int, pushed_id: int):
+    `record_tiles` = le champ `+0x1c` du `DisplaceUnitBehaviourOptions`. Defaut **False** : les
+    QUATRE feuilles DSL qui produisent un push (`IdunBattleLogic.Entities.DSLBehaviors$$PushUnit`,
+    `$$PushAwayFromBlacklistTiles`, `$$PushToPrioritizedTiles`, `$$DisplaceUnitInAdjacentDirection`)
+    ainsi que `$$DisplaceUnit` et `$$PullUnitOneTile` le laissent a 0 -- **un push n'enregistre
+    aucune tuile**. Le parametre existe pour que la seule feuille `Direct` qui l'active
+    (`IdunBattleLogic.Entities.DSLBehaviors$$Teleport`, non encore portee) trouve son gate en place.
+
+    Retour dict {moved, to, reason} pour le journal `ectx.emit` (replay-diff live)."""
+    __slots__ = ("pusher_id", "pushed_id", "record_tiles")
+
+    def __init__(self, pusher_id: int, pushed_id: int, record_tiles: bool = False):
         self.pusher_id = pusher_id
         self.pushed_id = pushed_id
+        self.record_tiles = bool(record_tiles)
 
     def execute(self, state: State, bus: EventBus) -> dict:
         board = getattr(state, "board", None)
@@ -340,18 +427,27 @@ class DisplaceUnitOperation(Operation):
             if kbs:
                 res["knockback"] = kbs
             return res
-        # `record_tiles=False` (case-322-r1, MEME raison que `SwitchPositionOperation`) :
+        # `record_tiles=False` sur le `MoveUnitOperation` (case-322-r1) :
         # `IdunBattle.Operations.DisplaceUnitOperation$$Execute` fait `processor.MoveUnit(...)` PUIS
         # `$$AddTilesMoved` -- le comptage d'un DEPLACEMENT FORCE appartient a `AddTilesMoved`, pas
-        # a `MoveUnitOperation`. Et ses gates l'eteignent pour un push ORDINAIRE : `!IsEnemy(caster,
-        # target)` (on ne pousse pas un allie, en general) -> le natif n'enregistre alors RIEN.
+        # a `MoveUnitOperation`.
+        prev_tiles = [(ppos.col, ppos.row)]              # `GetTiles(target)` LU AVANT le move
         MoveUnitOperation(self.pushed_id, dest, record_tiles=False).execute(state, bus)
+        # `AddTilesMoved(caster=pusher, target=pushed, previousTiles, tileToDisplace=dest, options)`,
+        # au RANG NATIF (entre `MoveUnit` et `EventAndAbilitiesAndEffects`). NO-OP pour tout push :
+        # `self.record_tiles` vaut False parce qu'aucune feuille DSL de push ne pose `+0x1c` (cf. le
+        # ctor). Porte quand meme, pour que la structure soit lisible et que le jour ou une feuille
+        # `Direct` activee (Teleport) passera ici, le comptage soit deja au bon endroit.
+        n = _add_tiles_moved(state, self.pusher_id, self.pushed_id, prev_tiles, dest,
+                             self.record_tiles)
         # Mirror `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects` : APRES le MoveUnit du push, le
         # natif emet On(UnitDisplaced) {actor=pusher, target=pushed}. On dispatche ce vecteur -> RadSaturation
         # branche 2 (`OwnerIsTarget`) : un Skitarii Vanguard POUSSE contamine sa tuile d'atterrissage. Import
         # lazy (evite le cycle triggers<->operations). No-op si aucun trigger UnitDisplaced ne matche.
         from .triggers import displace_triggers
         res = {"moved": True, "to": dest}
+        if n:
+            res["tiles_moved"] = {self.pushed_id: n}
         trg = displace_triggers(state, self.pusher_id, self.pushed_id)
         if trg:
             res["displaced_triggers"] = trg
