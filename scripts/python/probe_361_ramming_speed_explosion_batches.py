@@ -156,8 +156,14 @@ def _predict(sid, rid, cid, tid):
     # `gateProbe` (#361, `frida/hooks/features/ai-step/playbook-gate-probe.ts`) : arme le capteur
     # de gate LE TEMPS de l'invocation. TRI-ETAT -- `None` tant que le bundle injecte ne le porte
     # pas, jamais un zero qui se lirait « aucun appel ».
+    # `tileProbe` (#370, `frida/hooks/features/ai-step/movable-tiles-probe.ts`) : arme, DANS LA
+    # MEME invocation, le capteur du maillon interne de `GetTileToMoveTo`. C'est CE montage-ci qui
+    # rend 2 events -- `probe_361_movable_tiles_selector` a mesure que la MEME geometrie, montee
+    # par `montage_361.build_montage`, en rend 5 -- donc c'est ICI que le capteur a quelque chose
+    # a trancher. Meme TRI-ETAT : `None` tant que le bundle injecte ne le porte pas.
     nat = _r(sid, "aiPlaybookPredict", {"runnerId": rid, "unitId": cid, "targetId": tid,
-                                        "abilityType": ABILITY, "gateProbe": True}, 120)
+                                        "abilityType": ABILITY,
+                                        "gateProbe": True, "tileProbe": True}, 150)
     rows = [{"targetId": e.get("targetId"), "hpBefore": e.get("hpBefore"),
              "healthDmgMin": e.get("healthDmgMin"), "healthDmgMax": e.get("healthDmgMax"),
              "appliedHits": e.get("appliedHits"), "willBeKill": e.get("willBeKill"),
@@ -276,6 +282,11 @@ def _measure(sid, rid, state, board, dv, ids, tag: str) -> dict:
     out["native_error"] = nat.get("error")
     out["gate_probe"] = nat.get("gateProbe")
     out["gate_kind"], out["gate_phrase"] = _gate_verdict(nat.get("gateProbe"))
+    # Import LOCAL : `probe_361_movable_tiles_selector` importe `_gate_verdict` d'ici -- au niveau
+    # module, les deux s'importeraient en cycle.
+    from probe_361_movable_tiles_selector import _tile_verdict
+    out["tile_probe"] = nat.get("tileProbe")
+    out["tile_kind"], out["tile_phrase"] = _tile_verdict(nat.get("tileProbe"))
     self_ev = next((r for r in rows if r["targetId"] == caster), None)
     out["self_will_be_kill"] = (self_ev or {}).get("willBeKill")
     out["gate_open"] = (out["self_will_be_kill"] is True)
@@ -406,6 +417,7 @@ def run(seed: int = 36100, level: int = 8, mult: int = 100, verbose: bool = True
         for r in a.get("events") or []:
             print("        %s" % json.dumps(r, sort_keys=True))
         print("        capteur gate [%s] : %s" % (a.get("gate_kind"), a.get("gate_phrase")))
+        print("        capteur tuile [%s] : %s" % (a.get("tile_kind"), a.get("tile_phrase")))
         print("[361] contre-epreuve cast : mutated=%s erreur=%s tuile_port=%s natif_atterrit=%s "
               "-> %s" % (c.get("mutated"), c.get("error"), c.get("tile_predite"), c.get("landed"),
                          "MATCH" if c.get("match") else "MISMATCH"))

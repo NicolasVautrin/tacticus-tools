@@ -207,86 +207,199 @@ def _port_tile(sid, rid, ids):
     snap = _r(sid, "combatSnapshot", {"runnerId": rid}, 60)
     state = load_state(dv, ob, snap, board=board)
     t = ramming_speed_tile_to_move_to(state, ids[GRAFT], ids[VICTIM], RAMMING_MOVE_RANGE)
-    return (list(t) if t else None), dv
+    return (list(t) if t else None), dv, board
 
 
-def run(seed: int = 37000, level: int = 8, verbose: bool = True) -> dict:
+def _expected_events(board, dv, tile, caster_id):
+    """L'attendu DERIVE de la composition native, jamais un nombre ecrit d'avance :
+
+        batch 1 : la CIBLE                                       -> 1
+        batch 2 : le CASTER (recul)                              -> 1
+        batch 3 : Friends(Caster, AdjacentUnits(tile, 1, 3), 3)  -> amis adjacents a `tile`
+        batch 4 : Enemies(Caster, AdjacentUnits(tile, 1, 3), 3)  -> ennemis adjacents a `tile`
+
+    ⚠ `AdjacentUnits(tile, ...)` = `Units(AdjacentTiles(tile)) - tile` : la soustraction retire
+    l'ORIGIN (une TUILE), pas le caster. La CIBLE, elle, est TOUJOURS adjacente a `tile` -- la
+    tuile d'arrivee sort de `CanAddUnit(AdjacentTiles(Target))` -- donc elle est comptee DEUX fois
+    (batch 1 puis batch 4). C'est une propriete du natif, pas un doublon du probe."""
+    from probe_361_ramming_speed_explosion_batches import _neighbourhood
+    fr, en = _neighbourhood(board, dv, tuple(tile), caster_id)
+    return {"friends": fr, "enemies": en, "n": 2 + len(fr) + len(en)}
+
+
+def _measure(sid, m, tag: str) -> dict:
+    """UN point de mesure sur l'etat COURANT du runner : tuile du port, attendu DERIVE, events
+    natifs attribues, capteur de gate, capteur de tuile."""
+    caster, target = m.ids[GRAFT], m.ids[VICTIM]
+    tile, dv, board = _port_tile(sid, m.runner, m.ids)
+    cp, tp_ = _pos(dv, caster), _pos(dv, target)
+    o: dict = {"tag": tag, "port_tile": tile, "caster_pos": cp, "target_pos": tp_,
+               "caster_target_dist": (hexgeo.distance(tuple(cp), tuple(tp_))
+                                      if cp and tp_ else None),
+               # LA variable candidate (#370) : le pool est `MovableTilesInRange(range=5)`, donc
+               # une tuile d'arrivee a distance EXACTEMENT 5 n'y entre que si le chemin ne devie
+               # pas d'un seul hexagone. C'est la seule difference MESUREE entre le regime ou les
+               # batchs sortent (dist 4) et celui ou ils tombent (dist 5).
+               "caster_tile_dist": (hexgeo.distance(tuple(cp), tuple(tile))
+                                    if cp and tile else None)}
+    o["expected"] = _expected_events(board, dv, tile, caster) if tile else None
+    nat = _predict(sid, m.runner, caster, target)
+    o["playbook"] = nat.get("playbookClass")
+    o["native_error"] = nat.get("error")
+    evs = nat.get("events") or []
+    vis = {int(u["id"]): u.get("visualId") for u in (dv.get("units") or [])}
+    o["events"] = [{"targetId": e.get("targetId"), "visualId": vis.get(e.get("targetId")),
+                    "healthDmgMax": e.get("healthDmgMax"),
+                    "willBeKill": e.get("willBeKill")} for e in evs]
+    o["n_events"] = len(evs)
+    self_ev = next((e for e in evs if e.get("targetId") == caster), None)
+    o["self_will_be_kill"] = (self_ev or {}).get("willBeKill")
+    o["gate_kind"], o["gate_phrase"] = _gate_verdict(nat.get("gateProbe"))
+    o["tile_probe"] = nat.get("tileProbe")
+    o["tile_kind"], o["tile_phrase"] = _tile_verdict(nat.get("tileProbe"))
+    # --- discriminance du BRAS, evaluee avant toute lecture du capteur
+    d, exp = o["caster_target_dist"], (o["expected"] or {})
+    if d is None or d < 2 or d > RAMMING_MOVE_RANGE:
+        o["discriminant"] = False
+        o["why"] = ("distance caster->cible = %s, hors de [2, %d] : un caster hors portee vide le "
+                    "pool POUR UNE RAISON DE MONTAGE" % (d, RAMMING_MOVE_RANGE))
+    elif o["self_will_be_kill"] is not True:
+        o["discriminant"] = False
+        o["why"] = ("gate FERMEE (willBeKill=%s sur l'event du caster) : `GetTileToMoveTo` n'est "
+                    "meme pas construite -- baisser --hp-player" % o["self_will_be_kill"])
+    elif int(exp.get("n") or 0) <= 2:
+        o["discriminant"] = False
+        o["why"] = ("le voisinage de la tuile d'arrivee est VIDE (amis=%d ennemis=%d) : les batchs "
+                    "3/4 n'auraient rien a emettre"
+                    % (len(exp.get("friends") or []), len(exp.get("enemies") or [])))
+    else:
+        o["discriminant"] = True
+        o["why"] = ""
+    o["batches_emitted"] = max(0, o["n_events"] - 2)
+    o["exact"] = (o["n_events"] == exp.get("n"))
+    return o
+
+
+# La geometrie de `#386` sec.1, LITTERALE (`case-361` sec.1, re-mesuree le 2026-07-31 :
+# `probe_361_ramming_speed_explosion_batches` la retrouve et y lit 2 events pour 5 attendus).
+# Elle est FIGEE et non re-scannee : `_scan_geometry` trie par distance aux positions COURANTES,
+# donc relance depuis un autre etat il rend une AUTRE geometrie -- mesure du 1er jet de ce probe,
+# qui a ainsi obtenu 5 events la ou #386 en lit 2. Une geometrie de reference se REPRODUIT, elle
+# ne se re-derive pas.
+GEO_386 = {"target": (4, 7), "ally": (4, 6), "enemy2": (5, 8), "caster": (1, 4)}
+
+
+def _redrive(sid, m, geo: dict) -> dict:
+    """Repose une geometrie LITTERALE sur le MEME runner. Rejouer les deux geometries sur le meme
+    build est ce qui rend leur ecart ATTRIBUABLE a la geometrie, et a rien d'autre (meme seed,
+    meme rank, memes unites, meme session)."""
+    from probe_353r1_ramming_speed_charge_tile import drive_to
+    wanted = {m.ids[VICTIM]: geo["target"], m.ids[ENEMY2]: geo["enemy2"],
+              m.ids[FILLER_P]: geo["ally"]}
+    drive_to(sid, m.runner, wanted)          # le voisinage d'abord (cf. montage_361)
+    wanted[m.ids[GRAFT]] = geo["caster"]
+    if not drive_to(sid, m.runner, wanted):
+        return {"error": "drive KO vers %s" % json.dumps({k: list(v) for k, v in geo.items()})}
+    return {"geometry": {k: list(v) for k, v in geo.items()}}
+
+
+def run(seed: int = 37000, level: int = 8, mult: int = None, verbose: bool = True) -> dict:
     sid = _resolve_session()
     arm = ARMS["ramming"]
-    out: dict = {"seed": seed, "level": level, "ability": arm.ability,
+    out: dict = {"seed": seed, "level": level, "mult": mult, "ability": arm.ability,
                  "selector": arm.selector, "hp_player": HP_PLAYER,
                  "move_range": RAMMING_MOVE_RANGE}
     m = None
     try:
         m = build_montage(sid, arm, seed=seed, level=level, hp_player=HP_PLAYER,
-                          caster_max_dist=RAMMING_MOVE_RANGE)
+                          caster_max_dist=RAMMING_MOVE_RANGE, mult=mult)
         out["runner"] = m.runner
         out["geometry"] = {k: list(v) for k, v in (m.geometry or {}).items()}
-        out["montage_errors"] = list(m.errors)
         if m.errors:
             out["error"] = "; ".join(m.errors)
             return out
-        caster, target = m.ids[GRAFT], m.ids[VICTIM]
-        tile, dv = _port_tile(sid, m.runner, m.ids)
-        out["port_tile"] = tile
-        cp, tp_ = _pos(dv, caster), _pos(dv, target)
-        out["caster_pos"], out["target_pos"] = cp, tp_
-        out["caster_target_dist"] = (hexgeo.distance(tuple(cp), tuple(tp_))
-                                     if cp and tp_ else None)
-        nat = _predict(sid, m.runner, caster, target)
-        out["playbook"] = nat.get("playbookClass")
-        out["native_error"] = nat.get("error")
-        out["n_events"] = len(nat.get("events") or [])
-        self_ev = next((e for e in (nat.get("events") or [])
-                        if e.get("targetId") == caster), None)
-        out["self_will_be_kill"] = (self_ev or {}).get("willBeKill")
-        out["gate_kind"], out["gate_phrase"] = _gate_verdict(nat.get("gateProbe"))
-        out["tile_probe"] = nat.get("tileProbe")
-        out["tile_kind"], out["tile_phrase"] = _tile_verdict(nat.get("tileProbe"))
+        # --- bras A : la geometrie du montage. C'est le CONTROLE POSITIF -- le natif Y EMET les
+        #     batchs 3/4 (mesure #370), donc le capteur doit y voir un pool NON VIDE.
+        out["arm_montage"] = _measure(sid, m, "montage")
+        # --- bras B : la geometrie de #386 sec.1, ou le natif rend 2 events. C'est le bras que le
+        #     capteur doit TRANCHER.
+        rd = _redrive(sid, m, GEO_386)
+        out["geometry_386"] = rd.get("geometry")
+        if rd.get("error"):
+            out["arm_386"] = {"error": rd["error"]}
+        else:
+            out["arm_386"] = _measure(sid, m, "386")
     finally:
         if m is not None:
             dispose_montage(sid, m)
 
+    a, b = out.get("arm_montage") or {}, out.get("arm_386") or {}
     # --- VERDICT DERIVE DES CHAMPS (jamais un recit ecrit d'avance)
-    d = out.get("caster_target_dist")
     if out.get("error"):
         out["ok"] = False
         out["verdict"] = "MONTAGE KO : %s" % out["error"]
-    elif d is None or d < 2 or d > RAMMING_MOVE_RANGE:
+    elif not a.get("discriminant"):
         out["ok"] = False
-        out["verdict"] = ("BRAS NON DISCRIMINANT : distance caster->cible = %s, hors de "
-                          "[2, %d]. Un caster hors portee vide le pool POUR UNE RAISON DE MONTAGE."
-                          % (d, RAMMING_MOVE_RANGE))
-    elif out.get("self_will_be_kill") is not True:
+        out["verdict"] = "BRAS A (controle positif) NON DISCRIMINANT : %s" % a.get("why")
+    elif b.get("error"):
         out["ok"] = False
-        out["verdict"] = ("BRAS NON DISCRIMINANT : la gate n'est pas ouverte (willBeKill=%s sur "
-                          "l'event du caster) -- `GetTileToMoveTo` n'est meme pas construite. "
-                          "Baisser --hp-player. Capteur gate : %s"
-                          % (out.get("self_will_be_kill"), out.get("gate_phrase")))
-    elif out["tile_kind"] in ("absent", "non-arme"):
+        out["verdict"] = "BRAS B (reference #386) NON MONTE : %s" % b["error"]
+    elif not b.get("discriminant"):
         out["ok"] = False
-        out["verdict"] = ("NON CONFRONTE : %s. Le montage est PRET et DISCRIMINANT (gate ouverte, "
-                          "caster a distance %s) -- il ne manque que la fenetre de reinject."
-                          % (out["tile_phrase"], d))
-    elif out["tile_kind"] in ("retour-illisible", "structure-inattendue",
-                              "sous-maillon-non-arme", "fenetre-vide"):
+        out["verdict"] = "BRAS B (reference #386) NON DISCRIMINANT : %s" % b.get("why")
+    elif a.get("batches_emitted", 0) == 0:
         out["ok"] = False
-        out["verdict"] = "CAPTEUR NON CONCLUANT : %s" % out["tile_phrase"]
+        out["verdict"] = ("CONTROLE POSITIF PERDU : le bras A n'emet plus les batchs 3/4 (%d "
+                          "events pour %d attendus). Le montage a derive -- rien n'est conclu."
+                          % (a.get("n_events"), (a.get("expected") or {}).get("n")))
+    elif a["tile_kind"] in ("absent", "non-arme"):
+        out["ok"] = False
+        out["verdict"] = (
+            "NON CONFRONTE : %s. Les DEUX bras sont PRETS et DISCRIMINANTS, et ils ENCADRENT la "
+            "question : bras A (%s) emet %d events == %d attendus (les batchs 3/4 SORTENT), bras B "
+            "(%s, geometrie de #386) en rend %d pour %d attendus. Il ne manque que la fenetre de "
+            "reinject pour dire QUEL maillon rend vide dans B."
+            % (a["tile_phrase"], a.get("caster_pos"), a.get("n_events"),
+               (a.get("expected") or {}).get("n"), b.get("caster_pos"), b.get("n_events"),
+               (b.get("expected") or {}).get("n")))
+    elif a["tile_kind"] != "pool-non-vide":
+        out["ok"] = False
+        out["verdict"] = ("CAPTEUR INCOHERENT AVEC LE CONTROLE POSITIF : le bras A emet %d events "
+                          "(batchs 3/4 presents) mais le capteur y dit [%s] -- %s"
+                          % (a.get("n_events"), a["tile_kind"], a["tile_phrase"]))
+    elif b["tile_kind"] in ("retour-illisible", "structure-inattendue",
+                            "sous-maillon-non-arme", "fenetre-vide"):
+        out["ok"] = False
+        out["verdict"] = "CAPTEUR NON CONCLUANT SUR LE BRAS B : %s" % b["tile_phrase"]
     else:
         out["ok"] = True
-        out["verdict"] = ("MAILLON TRANCHE [%s] : %s" % (out["tile_kind"], out["tile_phrase"]))
+        out["verdict"] = ("MAILLON TRANCHE [%s] : %s (controle positif A : %s)"
+                          % (b["tile_kind"], b["tile_phrase"], a["tile_kind"]))
 
     if verbose:
-        print("[370] runner=%s ability=%s niveau=%s | geo=%s"
-              % (out.get("runner"), arm.ability, level, json.dumps(out.get("geometry"))))
-        print("[370] caster=%s cible=%s dist=%s tuile_port=%s"
-              % (out.get("caster_pos"), out.get("target_pos"),
-                 out.get("caster_target_dist"), out.get("port_tile")))
-        print("[370] playbook=%s events=%s erreur=%s willBeKill(self)=%s"
-              % (out.get("playbook"), out.get("n_events"), out.get("native_error"),
-                 out.get("self_will_be_kill")))
-        print("[370] capteur gate [%s] : %s" % (out.get("gate_kind"), out.get("gate_phrase")))
-        print("[370] capteur tuile [%s] : %s" % (out.get("tile_kind"), out.get("tile_phrase")))
+        print("[370] runner=%s ability=%s niveau=%s" % (out.get("runner"), arm.ability, level))
+        for key, geo in (("A/montage", out.get("geometry")),
+                         ("B/386", out.get("geometry_386"))):
+            print("[370] geometrie %s = %s" % (key, json.dumps(geo)))
+        for key, o in (("A/montage", a), ("B/386", b)):
+            if o.get("error"):
+                print("[370] bras %s : ERREUR %s" % (key, o["error"]))
+                continue
+            exp = o.get("expected") or {}
+            print("[370] bras %s caster=%s cible=%s d(c,cible)=%s d(c,tuile)=%s tuile_port=%s "
+                  "discriminant=%s %s"
+                  % (key, o.get("caster_pos"), o.get("target_pos"), o.get("caster_target_dist"),
+                     o.get("caster_tile_dist"), o.get("port_tile"), o.get("discriminant"),
+                     o.get("why")))
+            print("        events=%s attendu=%s (2 + amis=%s + ennemis=%s) exact=%s erreur=%s"
+                  % (o.get("n_events"), exp.get("n"),
+                     [x["visualId"] for x in (exp.get("friends") or [])],
+                     [x["visualId"] for x in (exp.get("enemies") or [])],
+                     o.get("exact"), o.get("native_error")))
+            for e in o.get("events") or []:
+                print("        %s" % json.dumps(e, sort_keys=True))
+            print("        gate  [%s] : %s" % (o.get("gate_kind"), o.get("gate_phrase")))
+            print("        tuile [%s] : %s" % (o.get("tile_kind"), o.get("tile_phrase")))
         print("[370] %s" % out.get("verdict"))
         print("[370] -> %s" % ("OK" if out.get("ok") else "ECHEC"))
     return out
@@ -297,9 +410,12 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seed", type=int, default=37000)
     ap.add_argument("--level", type=int, default=8)
+    ap.add_argument("--mult", type=int, default=None,
+                    help="AbilityVariablesMultiplierPercentage du greffon "
+                         "(absent = valeur du seed ; `probe_361` force 100)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    out = run(seed=a.seed, level=a.level, verbose=not a.json)
+    out = run(seed=a.seed, level=a.level, mult=a.mult, verbose=not a.json)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if out.get("ok") else 1

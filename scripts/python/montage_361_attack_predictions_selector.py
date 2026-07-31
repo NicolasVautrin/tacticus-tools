@@ -134,7 +134,7 @@ def _r(sid, m, b, t=90):
 
 
 def _build(state_file: Path, seed_bc: Path, seed: int, level: int,
-           hp_player: int = None) -> int:
+           hp_player: int = None, mult: int = None) -> int:
     """`--crit/--block-*` a 0 et PV genereux : on compte des EVENTS, pas des degats -- aucun
     aleatoire ne doit pouvoir tuer une unite entre le drive et la mesure.
 
@@ -149,7 +149,9 @@ def _build(state_file: Path, seed_bc: Path, seed: int, level: int,
            "--seed-bc", str(seed_bc),
            "--p-units", "%s,%s" % (GRAFT, FILLER_P),
            "--a-units", "%s,%s" % (VICTIM, ENEMY2),
-           "--unit-stat", "%s:ActiveAbilityLevel=%d" % (GRAFT, level),
+           "--unit-stat", ("%s:ActiveAbilityLevel=%d" % (GRAFT, level)
+                           + ("" if mult is None
+                              else ",AbilityVariablesMultiplierPercentage=%d" % int(mult))),
            "--crit", "0,0", "--block-target", "0,0", "--block-player", "0,0", "--no-ai"]
     if hp_player is not None:
         cmd += ["--hp-player", str(int(hp_player))]
@@ -226,7 +228,7 @@ def scan_geometry(board, dv, caster_adjacent: bool = False, max_targets: int = 4
 
 def build_montage(sid, arm: SelectorArm, seed: int, level: int = 8,
                   caster_adjacent: bool = False, hp_player: int = None,
-                  caster_max_dist: int = None) -> Montage:
+                  caster_max_dist: int = None, mult: int = None) -> Montage:
     """Monte un runner ou `arm.ability` est GREFFEE sur `GRAFT`, puis DRIVE la geometrie.
 
     `hp_player` / `caster_max_dist` : cf. `_build` et `scan_geometry` -- les deux garde-fous que
@@ -240,7 +242,7 @@ def build_montage(sid, arm: SelectorArm, seed: int, level: int = 8,
     bcf = logs / ("m361-seed-bc-%s-%s.json" % (arm.key, tag))
     graft = build_grafted_seed_bc(bcf, graft=GRAFT, ability_id=arm.ability,
                                   ability_name=arm.ability_name)
-    rid = _build(sf, bcf, seed, level, hp_player=hp_player)
+    rid = _build(sf, bcf, seed, level, hp_player=hp_player, mult=mult)
     state, board, dv = _load(sid, rid)
     ids = _ids(dv)
     errors = []
