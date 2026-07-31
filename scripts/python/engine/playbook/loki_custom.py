@@ -593,6 +593,18 @@ class PlasmaGrenadePlaybook(_CustomOnlyPlaybook):
     AUCUN poids `BC.Utilities` n'intervient (ce custom n'appelle pas `GetUtilityValue`), comme Stikkbomb.
     Config 1098 : `nrOfHits` = 2, `nrOfHits_2` = 1, `damageProfile` = Plasma, `range` = 2.
 
+    ⚠ ASYMETRIE AVEC `MakeDamagePredictions`, et elle est VOULUE (#352). Ce CUSTOM est vivant parce
+    que son set est un appel de SERVICE (`battleQuery.GetAdjacentEnemies(target, ownerId, false)`),
+    qui recoit la cible et le joueur du caster en ARGUMENTS. `...PlasmaGrenadePlaybook$$
+    MakeDamagePredictions`, lui, resout son set par un ARBRE DSL
+    (`...PlasmaGrenadeAbility$$GetOtherTargets` = `Enemies(caster@0x30, AdjacentUnits(Target@0x60,
+    1, 3), 1)`) evalue sur un `AbilityEntities..ctor(entities, caster: 0, actor: 0, target: target,
+    ...)` au **caster NUL** -> set toujours vide, donc AUCUN event secondaire. Cette classe n'a
+    ainsi PAS de `make_damage_predictions` (contrairement a `StikkbombPlaybook`), et ce n'est pas un
+    oubli : MESURE `probe_352_grenade_prediction_base.py`, MEME geometrie -- natif 1051 = 3 events,
+    natif 1098 = 1 event. La base du batch principal, elle, est corrigee en amont par
+    `prediction.abilities._plasma_grenade_inputs` (minDmg SEUL + `nrOfHits` LITTERAL).
+
     Porteurs : `eldarSmnGuardian` (SUMMON **sans invocateur** -- aucune unite du gameconfig ne porte
     l'ability qui le declare) et `eldarNpc1Guardian` [npc] ; tous deux refuses par `buildNormalizedBC`.
     Porteur GREFFE sur une unite du pool (`case-92` §5bis) -- le natif charge le playbook PAR ABILITY.

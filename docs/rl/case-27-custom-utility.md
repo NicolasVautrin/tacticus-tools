@@ -2516,10 +2516,14 @@ en dur, sans `GetUtilityValue` —, et sa zone est un `TilesInTriangleShape` non
 - **La greffe ne couvre pas** les stats, traits et armes du VRAI porteur d'1098 (`eldarSmnGuardian`).
   Elle est legitime ici parce que le terme ne lit ni stat ni trait du caster ; elle ne le serait pas
   pour une prediction de degat.
-- **`MakeDamagePredictions` de 1098 n'est pas re-porte** : le playbook l'override
-  (`IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$MakeDamagePredictions`), et le port herite du
-  chemin generique. L'ecart n'a pas ete mesure — les `pairUtility` natives servent d'etage de
-  reference dans l'A/B, donc il ne contamine pas la conclusion sur le custom, mais il reste ouvert.
+- ~~**`MakeDamagePredictions` de 1098 n'est pas re-porte**~~ — **FERME (#352, `case-352`)** : le
+  playbook l'override bien, et l'ecart est desormais MESURE. Base = `Get(minDmg)` SEUL et hits =
+  `GetNumberConstant(0x2f)` LITTERAL (porte par
+  `prediction.abilities._plasma_grenade_inputs`) : natif `(402, 606, 2)` contre `(490, 734, 2)`
+  pour le chemin generique. Son volet SECONDAIRE, lui, est **structurellement mort** (sélecteur
+  `Enemies(caster@0x30, ...)` evalue sur un `AbilityEntities` au caster NUL) — 1 seul event, la ou
+  1051 en rend 3 sur la MEME geometrie. Cette classe n'a donc PAS de `make_damage_predictions`,
+  contrairement a `StikkbombPlaybook`, et c'est VOULU.
 - **1004 `MortisRound`** reste un residu d'une nature encore differente :
   `IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` =
   `(Fix64)(int)(Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetTargetUtilityDiffOnDisplace(caster, casterPosition.MainTile, <liste>, target).<+0x18>)`

@@ -168,8 +168,13 @@ _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE = {
     1051: ("StikkbombPlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
     1191: ("MartialInspirationPlaybook.u003CMakeDamagePredictionsu003Ed__2$$MoveNext",
            "round(minDmg * buff), hits = 1", True),
-    1098: ("PlasmaGrenadePlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", False),
-    1048: ("FragstormGrenadeLauncherPlaybook$$MakeDamagePredictions", "maxDmg (var 0xd) SEUL", False),
+    1098: ("PlasmaGrenadePlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
+    # #352 : la lecture « maxDmg SEUL » de #350 etait INCOMPLETE. Le playbook n'appelle pas
+    # `GenerateMultiHitAttackPredictions` : il appelle la surcharge « amount » de
+    # `IBattleQuery.GetAttackPrediction` avec `nrOfHits x maxDmg` en UN coup (la surcharge pose
+    # `hits: 1` en dur). Ce n'est donc ni la bonne grandeur NI la bonne structure.
+    1048: ("FragstormGrenadeLauncherPlaybook$$MakeDamagePredictions",
+           "nrOfHits x maxDmg (var 0xd) en UN coup -- hits=1 pose par la surcharge appelee", True),
     # #353 — RECTIFICATION de la ligne posee par #350. Elle nommait `ExplodesAbility$$GetDamage`
     # (`PercentageOf(StatAmount(Health), ...)`) comme LA formule de 1059 : lecture PARTIELLE, prise
     # sur les xrefs de ce corps. `RammingSpeedPlaybook$$MakeDamagePredictions` emet QUATRE batchs,

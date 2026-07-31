@@ -50,8 +50,8 @@ l'erreur y est **plus profonde que l'arrondi**.
 | 1089 GreatFrostAxe | `Get(minDmg)` seul | oui |
 | 1051 Stikkbomb | `Get(minDmg)` seul | oui |
 | 1191 MartialInspiration | `round(minDmg × buff)`, hits = 1 | oui |
-| **1098 PlasmaGrenade** | `Get(minDmg)` seul, hits const `0x2f` / secondaires `0x32` | **non → `#350-r2`** |
-| **1048 FragstormGrenadeLauncher** | `maxDmg` (var `0xd`) seul | **non → `#350-r2`** |
+| **1098 PlasmaGrenade** | `Get(minDmg)` seul, hits const `0x2f` LITTÉRAL | **oui (#352)** — `_plasma_grenade_inputs` |
+| **1048 FragstormGrenadeLauncher** | ~~`maxDmg` seul~~ → **`nrOfHits × maxDmg` en UN coup** (le playbook n'appelle pas `GenerateMultiHitAttackPredictions` mais la surcharge « amount » de `IBattleQuery.GetAttackPrediction`, qui pose `hits: 1` en dur) | **oui (#352)** — `_fragstorm_grenade_launcher_inputs` |
 | **1059 RammingSpeed** | `ExplodesAbility$$GetDamage` = `PercentageOf(StatAmount(Health), …)` — aucun min/max | **non → `#350-r2`** |
 
 Hors table (pas de `minDmg`/`maxDmg` en config, donc le port n'émet rien) : `1010 StormOfFlensingBlades`
