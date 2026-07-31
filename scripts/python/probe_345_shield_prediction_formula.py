@@ -136,6 +136,32 @@ def _port_prediction(sid, rid, wt, att_id, tgt_id, ability):
             "shieldBefore": dp.shield, "appliedHits": dp.applied_hits}
 
 
+def _trace_hits(fn):
+    """Enveloppe `predict_attack_raw` pour capturer le PAR-COUP (le seul niveau ou une
+    divergence est attribuable : `prev` recu, base, bloque, restant). Decomposition par etage
+    -- on ne fitte jamais un scalaire agrege."""
+    import engine.services.damage_prediction as DP
+    orig = DP.predict_attack_raw
+    log = []
+
+    def _wrapped(prev, initial_damage, *a, **kw):
+        res = orig(prev, initial_damage, *a, **kw)
+        log.append({"prev_shield_min": prev.shield_min, "prev_shield_max": prev.shield_max,
+                    "prev_health": prev.health, "target_shield": kw.get("target_shield"),
+                    "initial_damage": initial_damage,
+                    "shield": [res.accurate_shield_damage.min, res.accurate_shield_damage.max],
+                    "health": [res.accurate_health_damage.min, res.accurate_health_damage.max],
+                    "raw": [res.raw_health_damage.min, res.raw_health_damage.max],
+                    "total": [res.total_damage.min, res.total_damage.max]})
+        return res
+
+    DP.predict_attack_raw = _wrapped
+    try:
+        return fn(), log
+    finally:
+        DP.predict_attack_raw = orig
+
+
 def _native_prediction(sid, rid, att_id, tgt_id, ability) -> dict | None:
     """Les champs BRUTS de l'event natif -- `AccurateShieldDamage`, `TotalDamage`,
     `CurrentShield`, lus par le decodeur PAR NOM (#279)."""
@@ -184,7 +210,7 @@ def _regime(nat: dict) -> str:
     return "SOUS-CAP"
 
 
-def _measure(sid, sf, seed, roster, board, center, damage, wt, verbose) -> dict:
+def _measure(sid, sf, seed, roster, board, center, damage, wt, verbose, trace=False) -> dict:
     att, vic = roster["p"][0], roster["a"][0]
     rid = None
     try:
@@ -203,7 +229,11 @@ def _measure(sid, sf, seed, roster, board, center, damage, wt, verbose) -> dict:
         nat = _native_prediction(sid, rid, ids[att], ids[vic], ability)
         if nat is None:
             return {"damage": damage, "error": "aucun event natif pour la paire"}
-        port = _port_prediction(sid, rid, wt, ids[att], ids[vic], ability)
+        if trace:
+            port, hits = _trace_hits(
+                lambda: _port_prediction(sid, rid, wt, ids[att], ids[vic], ability))
+        else:
+            port, hits = _port_prediction(sid, rid, wt, ids[att], ids[vic], ability), None
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -219,7 +249,8 @@ def _measure(sid, sf, seed, roster, board, center, damage, wt, verbose) -> dict:
                                and port["totalDmgMax"] == nat["totalDmgMax"]),
            "health_match": bool(port["healthDmgMin"] == nat["healthDmgMin"]
                                 and port["healthDmgMax"] == nat["healthDmgMax"]),
-           "rivals_match": {k: bool(v == nat_pair) for k, v in rivals.items()}}
+           "rivals_match": {k: bool(v == nat_pair) for k, v in rivals.items()},
+           "port_hits": hits}
     if verbose:
         print("[345] Damage=%-6d %-11s bouclier=%-6d hits=%d" %
               (damage, out["regime"], nat["shieldBefore"], nat["appliedHits"]))
@@ -235,6 +266,11 @@ def _measure(sid, sf, seed, roster, board, center, damage, wt, verbose) -> dict:
         for k, v in rivals.items():
             print("        %-32s = [%5d,%5d]  %s"
                   % (k, v[0], v[1], "match" if out["rivals_match"][k] else "REFUTE"))
+        for i, h in enumerate(out.get("port_hits") or [], 1):
+            print("        coup %d : prev_shield=[%d,%d] -> shield=[%d,%d] health=[%d,%d] "
+                  "total=[%d,%d]" % (i, h["prev_shield_min"], h["prev_shield_max"],
+                                     h["shield"][0], h["shield"][1], h["health"][0],
+                                     h["health"][1], h["total"][0], h["total"][1]))
     return out
 
 
@@ -271,7 +307,7 @@ def _damage_grid(sid, sf, seed, roster, board, center, wt, verbose):
 
 def run(seed: int = 34501, state_file=None, verbose: bool = True,
         attacker: str = ATTACKER, victim: str = VICTIM, shielder: str = SHIELDER,
-        board: str = BOARD, center=CENTER, damages=None) -> dict:
+        board: str = BOARD, center=CENTER, damages=None, trace: bool = False) -> dict:
     sid = _resolve_session()
     sf = Path(state_file) if state_file else (PYDIR.parents[1] / "logs" / "p345.json")
     sf.parent.mkdir(parents=True, exist_ok=True)
@@ -291,7 +327,7 @@ def run(seed: int = 34501, state_file=None, verbose: bool = True,
 
     rows = []
     for i, d in enumerate(grid):
-        rows.append(_measure(sid, sf, seed + i, roster, board, center, d, wt, verbose))
+        rows.append(_measure(sid, sf, seed + i, roster, board, center, d, wt, verbose, trace))
 
     good = [r for r in rows if not r.get("error")]
     regimes = sorted({r["regime"] for r in good})
@@ -336,10 +372,12 @@ def main() -> int:
     ap.add_argument("--damages", default=None,
                     help="liste de Damage explicite (ex. 400,800,2400) au lieu de la grille")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--trace", action="store_true",
+                    help="imprime le PAR-COUP du port (prev/bouclier/sante) -- attribution d'ecart")
     a = ap.parse_args()
     dmg = [int(x) for x in a.damages.split(",")] if a.damages else None
     out = run(seed=a.seed, state_file=a.state_file, attacker=a.attacker, victim=a.victim,
-              shielder=a.shielder, board=a.board, damages=dmg,
+              shielder=a.shielder, board=a.board, damages=dmg, trace=a.trace,
               center=tuple(int(x) for x in a.center.split(",")))
     if out.get("error"):
         print("[345] ERREUR : %s" % out["error"])
