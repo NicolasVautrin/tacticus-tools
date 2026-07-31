@@ -61,6 +61,15 @@ l'override est retire (net-zero). MEME patron, feuille pour feuille, que
 `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour`
 (`abilities/loki/quickening.py`), qui est le gabarit deja valide live de ce triptyque.
 
+⚠ `CreateAttackBehavior` prend le **`dsl`** en `this`, pas l'ability : c'est une FONCTION du dsl, et
+elle a DEUX appelants natifs. Le port la sort donc de la classe (`galvanic_field_attack_behavior`,
+plus bas), parametree par l'`actingUnits` de chaque call-site :
+  * `Repair_GalvanicFieldAbility$$CreateBehaviour` (1119) : `<Target@0x60> - <Caster@0x48>` ;
+  * `IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour`
+    (1117, MEME porteur `admecManipulus`, porte par #334 dans `abilities/admec.py`) :
+    `Friends(Caster@0x48, AdjacentUnits(CasterTile@0x50, 1, 3))` -- les amis adjacents, SANS le
+    caster. Detail et desassemblage : `docs/rl/case-334-defend-the-divine-work.md`.
+
 RESIDU NOMME, MESURE (case-299 §5, inventaire N20) -- `FabricatorClawArray`, le PASSIF du
 `necroSpyder` (3e porteur du trait `Mechanic`), n'est PAS porte :
 
