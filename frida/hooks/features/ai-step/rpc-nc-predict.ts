@@ -59,10 +59,14 @@ import {
     unitAbilityTypes,
 } from "./internals.js";
 import {
-    classNameAt, DamageEvent, decodeDamageEvents, loadPlaybook, makeDamagePredictions,
+    classNameAt, DamageEvent, decodeDamageEvents, makeDamagePredictions,
     nullUnitPosition, readDamageEvent, resolvePlaybookDatabase, unitPositionAtTile,
     unitPositionCurrent,
 } from "./playbook-predict.js";
+import {
+    AbilityKeySpace, buildUtilityAttackCase, invokeTriggeredAttackUtility, isAbilityKeySpace,
+    isTriggeredVia, loadPlaybookByKeySpace, TriggeredVia,
+} from "./triggered-predict.js";
 
 /** Borne dure du buffer de capture : au-delà on marque `truncated` plutôt que d'allouer sans fin
  *  (une évaluation NC produit un event par cible éligible — quelques unités, pas des centaines). */
@@ -131,22 +135,78 @@ function captureAround(
 }
 
 export function registerViewNcPredict(ctx: Ctx): void {
-    /** ORACLE NONCOMPARABLE (#350-r3). body: { runnerId?, unitId, abilityType,
-     *  via? ("evaluate" | "makeDamagePredictions", défaut "evaluate"), targetId? (requis pour
-     *  "makeDamagePredictions"), col?, row? (tuile candidate du movable set ; défaut = tuile
-     *  courante), level?, multiplier? } */
+    /** ORACLE NONCOMPARABLE (#350-r3) + face TRIGGERED (#369).
+     *
+     *  body: { runnerId?, unitId, abilityType,
+     *    abilityKind? ("active" | "triggered" | "triggeredNonOwner", défaut "active"),
+     *    via? — face ACTIVE : "evaluate" (défaut) | "makeDamagePredictions" ;
+     *           face TRIGGERED : "attackUtilityInSteps" (défaut) | "attackUtilityForMainTarget"
+     *           | "attackUtilityForSecondaryTarget",
+     *    targetId? (requis pour "makeDamagePredictions" ET pour toute voie TRIGGERED),
+     *    hits? (voies triggered, défaut 1), allowDefault? (face ACTIVE, défaut FALSE),
+     *    col?, row? (tuile candidate du movable set ; défaut = tuile courante),
+     *    level?, multiplier? }
+     *
+     *  ⚠ `abilityKind` N'EST PAS COSMÉTIQUE : à id égal, `ActiveAbilityType` et
+     *  `TriggeredAbilityType` désignent des abilities DIFFÉRENTES, et jusqu'à #369 ce RPC
+     *  répondait toujours par le key-space ACTIVE — donc une valeur plausible pour la MAUVAISE
+     *  ability, sans jamais d'erreur (`1103` -> `SuperchargePlaybook` au lieu de
+     *  `LightImUpPlaybook`). Le champ `abilityKind` est ÉCHOÉ dans la réponse : un appelant peut
+     *  ainsi détecter un hook antérieur au correctif (champ absent) au lieu de croire un chiffre.
+     *
+     *  ⚠ `allowDefault` vaut FALSE par défaut, et c'est le durcissement : sans lui,
+     *  `LoadPlaybook(ActiveAbilityType, fallbackToDefault: true)` rend un
+     *  `DefaultActiveAbilityPlaybook` pour tout id inconnu — un oracle qui répond « quelque chose »
+     *  à une question sans réponse. Les faces triggered n'ont AUCUN fallback natif : là, un id
+     *  inconnu rend toujours une erreur. */
     ctx.rpc.ncPlaybookPredict = (
         body?: {
             runnerId?: number; unitId?: number; abilityType?: number; targetId?: number;
-            via?: string; col?: number; row?: number; level?: number; multiplier?: number;
+            abilityKind?: string; via?: string; hits?: number; allowDefault?: boolean;
+            col?: number; row?: number; level?: number; multiplier?: number;
         },
     ): Promise<unknown> => queueOnMainThread(() => {
         if (typeof body?.unitId !== "number" || typeof body?.abilityType !== "number") {
             return { ok: false, error: "need unitId + abilityType" };
         }
-        const via = body?.via === "makeDamagePredictions" ? "makeDamagePredictions" : "evaluate";
-        if (via === "makeDamagePredictions" && typeof body?.targetId !== "number") {
-            return { ok: false, error: "via=makeDamagePredictions exige targetId" };
+        let keySpace: AbilityKeySpace = "active";
+        if (body?.abilityKind !== undefined) {
+            if (!isAbilityKeySpace(body.abilityKind)) {
+                return { ok: false, error: "abilityKind inconnu: " + String(body.abilityKind)
+                    + " (attendu active | triggered | triggeredNonOwner)" };
+            }
+            keySpace = body.abilityKind;
+        }
+        const isTriggered = keySpace !== "active";
+        // Les deux familles de `via` ne sont PAS interchangeables : la face triggered n'a ni
+        // `Evaluate` ni `Make*Predictions` (hiérarchie séparée), la face active n'a pas de
+        // `CalculateAttackUtility*`. Un `via` de l'autre famille est une ERREUR, pas un défaut
+        // silencieux — sinon on retomberait exactement sur le mode de panne que #369 ferme.
+        let via: string;
+        let triggeredVia: TriggeredVia = "attackUtilityInSteps";
+        if (isTriggered) {
+            if (body?.via !== undefined) {
+                if (!isTriggeredVia(body.via)) {
+                    return { ok: false, error: "via=" + String(body.via) + " n'existe pas sur la face "
+                        + keySpace + " (attendu attackUtilityInSteps | attackUtilityForMainTarget"
+                        + " | attackUtilityForSecondaryTarget)" };
+                }
+                triggeredVia = body.via;
+            }
+            via = triggeredVia;
+            if (typeof body?.targetId !== "number") {
+                return { ok: false, error: "abilityKind=" + keySpace
+                    + " exige targetId (UtilityAttackCase.Base prend une cible)" };
+            }
+        } else {
+            if (isTriggeredVia(body?.via)) {
+                return { ok: false, error: "via=" + String(body?.via)
+                    + " est une voie TRIGGERED — passe abilityKind:\"triggered\"" };
+            }
+            via = body?.via === "makeDamagePredictions" ? "makeDamagePredictions" : "evaluate";
+            if (via === "makeDamagePredictions" && typeof body?.targetId !== "number") {
+                return { ok: false, error: "via=makeDamagePredictions exige targetId" };
+            }
         }
         let runner: NativePointer; let label: string;
         if (typeof body?.runnerId === "number") {
@@ -169,10 +229,13 @@ export function registerViewNcPredict(ctx: Ctx): void {
 
         const dbHit = resolvePlaybookDatabase(runner);
         if (!dbHit) return { ok: false, error: "PlaybookDatabase introuvable" };
-        const playbook = loadPlaybook(dbHit.db, body.abilityType);
-        if (playbook.isNull()) {
-            return { ok: false, error: "pas de playbook pour ability " + body.abilityType };
+        const load = loadPlaybookByKeySpace(
+            dbHit.db, body.abilityType, keySpace, body?.allowDefault === true);
+        if (load.playbook.isNull()) {
+            return { ok: false, abilityKind: keySpace, via,
+                ability: body.abilityType, error: load.error };
         }
+        const playbook = load.playbook;
         const playbookClass = classNameAt(playbook);
 
         // Entités : caster (unité OU machine, cf. aiPlaybookPredict), cible, et la map ptr→id qui
@@ -187,7 +250,7 @@ export function registerViewNcPredict(ctx: Ctx): void {
             if (ty === EntityType.Unit && id === body.targetId) target = e;
         });
         if (unit.isNull()) return { ok: false, error: "unit " + body.unitId + " not found" };
-        if (via === "makeDamagePredictions" && target.isNull()) {
+        if ((via === "makeDamagePredictions" || isTriggered) && target.isNull()) {
             return { ok: false, error: "target " + body.targetId + " not found" };
         }
 
@@ -254,7 +317,32 @@ export function registerViewNcPredict(ctx: Ctx): void {
 
         let evalName: string | null = null;
         let cap: CaptureResult;
-        if (via === "evaluate") {
+        let triggeredUtil: { utilities: number[]; total: number | null; arity: number;
+            error?: string } | null = null;
+        if (isTriggered) {
+            // Face TRIGGERED — mirror de la boucle native
+            // `TriggeredAbilitiesUtility.u003CEvaluateAttackInStepsInternalu003Ed__3$$MoveNext` :
+            // un `UtilityAttackCase` monté par sa factory, puis l'entrée du playbook. Le capteur
+            // reste le MÊME `ProbableDamageEvent$$.ctor` — re-confronté sur les quatre call-sites
+            // demi-vers-le-pair (#369 §5) : trois l'appellent directement, le quatrième via ses
+            // délégations à `…ForMainTarget`/`…ForSecondaryTarget`.
+            const built = buildUtilityAttackCase(unit, pos, target);
+            if (built.kase.isNull()) {
+                return { ok: false, abilityKind: keySpace, via, playbookClass,
+                    ability: body.abilityType, error: built.error };
+            }
+            evalName = "CalculateAttackUtility/" + triggeredVia;
+            const kase = built.kase;
+            const hits = typeof body?.hits === "number" ? body.hits : 1;
+            cap = captureAround(ctorPtr, idByPtr, () => {
+                triggeredUtil = invokeTriggeredAttackUtility(playbook, kase, triggeredVia, hits);
+                return ptr(0);   // la voie triggered rend une UTILITÉ, pas une liste d'events
+            });
+            if (cap.error === undefined && triggeredUtil !== null) {
+                const tu = triggeredUtil as { error?: string };
+                if (tu.error !== undefined) cap = { ...cap, error: tu.error };
+            }
+        } else if (via === "evaluate") {
             // Voie du GÉNÉRATEUR : le wrapper `Evaluate` monte l'AbilityState + DisallowRandom puis
             // appelle `EvaluateInternal` → `EvaluateNonComparable` (slot de vtable +0x318). Appeler
             // la leaf nue crashe (AV 0x0) — mêmes résolutions ordonnées que `ncEvaluate`.
@@ -277,6 +365,10 @@ export function registerViewNcPredict(ctx: Ctx): void {
 
         const out: Record<string, unknown> = {
             ok: cap.error === undefined, runner: label, via, playbookClass, evalName, posSrc,
+            // `abilityKind` + `playbookSource` sont ÉCHOÉS pour que l'appelant puisse vérifier ce
+            // qu'il a réellement interrogé — leur ABSENCE de la réponse identifie un hook antérieur
+            // à #369, qui répondait toujours par le key-space ACTIVE.
+            abilityKind: keySpace, playbookSource: load.source,
             unitId: body.unitId, targetId: body?.targetId ?? null,
             ability: body.abilityType, abilityName: abilityName(body.abilityType),
             abilityState: { level: lvl, multiplier: mult, source: stSrc },
@@ -284,7 +376,17 @@ export function registerViewNcPredict(ctx: Ctx): void {
         };
         if (cap.error !== undefined) out.error = cap.error;
 
-        if (via === "makeDamagePredictions") {
+        if (isTriggered) {
+            // L'utilité rendue par la face triggered. ⚠ MINORÉE : `getUtilityVal` n'est pas fourni,
+            // et `TriggeredAbilityPlaybook<T>$$GetUtilityValue` rend alors 0 pour chaque poids (il
+            // le tolère explicitement, cf. `triggered-predict.ts`). C'est `captured` qui porte la
+            // prédiction fidèle, pas ce scalaire — d'où le flag qui le dit dans la réponse.
+            const tu = triggeredUtil as {
+                utilities: number[]; total: number | null; arity: number } | null;
+            out.triggeredUtilities = tu ? tu.utilities : [];
+            out.triggeredUtilityTotal = tu ? tu.total : null;
+            out.utilityWeightsProvided = false;
+        } else if (via === "makeDamagePredictions") {
             // VERROU : la liste RENDUE, décodée par le chemin déjà éprouvé. Sur un Comparable elle
             // doit égaler la capture — c'est la preuve que le capteur lit la bonne struct.
             const dec = decodeDamageEvents(cap.ret, idByPtr);

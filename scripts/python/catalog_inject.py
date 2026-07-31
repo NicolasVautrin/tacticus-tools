@@ -626,6 +626,95 @@ def write_relic_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
     return p, reports
 
 
+# ------------------------------------------------- #369 : forcer un REGIME de variables d'ability
+#
+# POURQUOI CE MONTAGE EXISTE. Les deux formes de moyenne de la couche TRIGGERED (#350-r3b) ne
+# divergent QUE lorsque `minDmg + maxDmg` vaut 3 mod 4 -- et au niveau 50 nominal AUCUNE des trois
+# abilities concernees n'y est (`LightImUp` 831+1109 et 1496+1996, `MassiveScythingTalons`,
+# `FuryOfTheAncients` : toutes ≡ 0, 1 ou 2). Un run live au niveau nominal ne conclurait donc RIEN.
+# Atteindre le regime demande d'ECRIRE le couple dans le seed BC, exactement comme #237 ecrit une
+# relique -- c'est le meme genre de montage, sur le meme catalogue.
+#
+# OU IL FAUT ECRIRE, lu au decompile : `IdunBattle.Configuration.AbilityConfiguration` porte
+# `Variables[<nom>]` = un tableau PAR NIVEAU, et c'est ce que
+# `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` indexe apres conversion par
+# `Idun.Shared.Level$$ToZeroBasedIndex` (clamp haut sur le dernier palier). Dans le BC c'est
+# `BC.Abilities.PassiveAbilities[<ability>]["Variables"][<var>][level-1]`, en CHAINES.
+#
+# ⚠ LE MULTIPLICATEUR DE RARETE, ET POURQUOI ON LE NEUTRALISE. Une variable listee dans
+# `VariablesAffectedByUnitRarityMultiplier` est lue `round(base * AbilityVariablesMultiplierPercentage
+# / 100)` -- et `minDmg`/`maxDmg` y sont. Ecrire une valeur brute ne donnerait donc PAS la valeur
+# effective, et la parite visee (le seul axe qui discrimine) serait perdue en silence. On retire donc
+# ces deux variables de la liste : la valeur ecrite devient la valeur LUE, exactement.
+# Ce que ce retrait NE change PAS : la STRUCTURE du noeud construit par
+# `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage{,Average}` ni le SLOT
+# d'`IAmountFormula` que le playbook invoque -- c'est-a-dire precisement les deux etages que la
+# mesure separe. Le montage deplace la VALEUR, pas la FORME.
+
+def patch_ability_variables(bc: dict, ability_name: str, level: int, values: dict,
+                            *, node: str = "PassiveAbilities",
+                            neutralize_rarity: bool = True) -> dict:
+    """Pose des variables d'ability A UN NIVEAU dans un BC. Rend le rapport de ce qui a ete ecrit.
+
+    `values` = `{nom_de_variable: valeur_entiere}`. Le niveau est 1-based (mirror de
+    `ToZeroBasedIndex`) et l'index est clampe au dernier palier, comme le natif.
+
+    Leve si l'ability ou la variable est absente du BC : un patch qui ne s'applique pas doit
+    ROUGIR, jamais rendre un BC inchange qu'on croirait patche (meme discipline que #237, ou deux
+    des trois ecritures echouaient EN SILENCE).
+    """
+    cfgs = (bc.get("Abilities") or {}).get(node) or {}
+    cfg = cfgs.get(ability_name)
+    if cfg is None:
+        raise KeyError("ability %r absente de BC.Abilities.%s -- injecter sa config d'abord "
+                       "(catalog_inject.augment)" % (ability_name, node))
+    variables = cfg.get("Variables")
+    if not isinstance(variables, dict):
+        raise KeyError("BC.Abilities.%s[%r] n'a pas de noeud Variables" % (node, ability_name))
+    written = {}
+    for var, val in values.items():
+        arr = variables.get(var)
+        if not isinstance(arr, list) or not arr:
+            raise KeyError("variable %r absente (ou vide) de %s[%r].Variables"
+                           % (var, node, ability_name))
+        idx = max(0, min((level - 1) if level and level > 0 else 0, len(arr) - 1))
+        arr[idx] = str(int(val))
+        written[var] = {"index": idx, "value": int(val), "levels": len(arr)}
+    deaffected = []
+    if neutralize_rarity:
+        affected = cfg.get("VariablesAffectedByUnitRarityMultiplier")
+        if isinstance(affected, list):
+            drop = set()
+            for var in values:
+                try:
+                    drop.add(ability_variable_id(var))
+                except Exception:
+                    continue
+            if drop:
+                keep = [x for x in affected if x not in drop]
+                deaffected = [x for x in affected if x in drop]
+                cfg["VariablesAffectedByUnitRarityMultiplier"] = keep
+    return {"ability": ability_name, "node": node, "level": level,
+            "written": written, "deaffected": deaffected,
+            "rarity_neutralized": bool(deaffected)}
+
+
+def write_variable_patched_seed_bc(out_path, patches, *, seed_bc: dict | None = None,
+                                   unit_ids=(), rank: int = 17, ability_level: int = 50):
+    """FIXTURE : ecrit un seed BC dont les variables d'ability demandees sont FORCEES.
+
+    `patches` = iterable de `(ability_name, level, {var: value})`. `unit_ids` injecte au prealable
+    les porteurs manquants (meme voie qu'une relique hors catalogue). Rend `(Path, rapports)`.
+    """
+    seed = seed_bc if seed_bc is not None else _load_seed(None)
+    bc, _a, _b, _c = augment(seed, list(unit_ids), rank, ability_level)
+    reports = [patch_ability_variables(bc, name, lvl, vals) for name, lvl, vals in patches]
+    p = host_inputs.reject_data_output(out_path, "write_variable_patched_seed_bc(out_path=...)")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(bc), encoding="utf-8")
+    return p, reports
+
+
 def relic_state_of_seed_bc(seed_bc: dict) -> dict:
     """Ventilation des TROIS etats de la gate « ability de relique » sur un BC donne.
 
