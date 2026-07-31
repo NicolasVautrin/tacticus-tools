@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from ....services.effect_bonus import (EffectBonus, for_addition, for_piercing, for_subtraction,
                                        for_percent_decrease, for_percent_increase,
                                        for_percent_subtraction_capped)
-from ..base import BaseEffect
+from ..base import BaseEffect, is_turn_of_owner
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 
 
@@ -647,6 +647,66 @@ class OverwhelmingWrathRangeDmgReductionEffect(BaseEffect):
         if not pct:
             return None
         return for_percent_decrease(False, abs(int(pct)))   # owner=défenseur (l'effet est sur la cible)
+
+
+class FireAndRepositionReduceDmgEffect(BaseEffect):
+    """`FireAndReposition_ReduceDmgEffect` (EffectType 0x456=1110, nom capte
+    "FireAndReposition_ReduceDmg") -- pose sur ELLE-MEME par l'active `FireAndReposition` (0x427=1063)
+    de `eldarRanger` (Calandis). i2 : « May move as normal and attack. After attacking, she may make
+    one more normal movement. **In the following enemy turn, she takes -{dmgReduction} Damage from
+    ranged attacks.** Can only be used if Calandis has a target in range. »
+
+    MIRROR 1:1 de
+    `IdunBattle.Entities.Effects.Loki.FireAndReposition_ReduceDmgEffect$$CreateEffectDamageMalusForDefense` :
+
+        EffectBonus.ForSubtraction(
+            get_OwnerIsTarget & IsRangedAttack & NOT <DSLTriggers+0x28>,
+            ConfigVar(0x12 = dmgReduction, GetAbilityState(effet), config@+0x60) )
+
+    * **Canal = LECTURE PAR COUP cote DEFENSE**, pas une stat ni une aura : `ForSubtraction` sur le
+      slot `EffectBonus` @+0x18, agrege par
+      `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` ->
+      cote port `flat_reductions`, additif DEFENSEUR **PRE-percage** (meme placement exact que
+      `NightshroudDmgReductionEffect`, ground truth #120/#111) -- donc DILUE par percage/armure puis
+      scale x%-list UNE fois. Le montant config n'est PAS le degat sante retire.
+    * **`DSLTriggers+0x28` = `IsTurnOf(Owner)`** : le champ est ecrit par
+      `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` avec la MEME classe
+      (`DAT_1833ab568`) et la meme forme d'appel que
+      `IdunBattleLogic.Entities.DSLTriggers$$IsTurnOf(selector)`, sur `DSLSelectors+0x30` = **Owner**
+      (identification etablie, `entities/selectors/accessors.py`). Donc le gate est
+      **`NOT IsTurnOf(Owner)`** = « pas pendant le tour du porteur ». Il n'est PAS redondant avec la
+      duree `TurnsFromRounds(1)` : il ferme la fenetre du RESTE du tour de Calandis, ou un tir
+      ennemi peut la toucher -- l'**OVERWATCH** (elle-meme porte le trait `Overwatch`, ses cibles
+      aussi). Lu du contexte par `is_turn_of_owner(attacker_ctx)` ; non threade -> AUCUNE reduction.
+    * **`IsRangedAttack`** (`is_melee is False`) : une attaque de melee reçue n'est PAS reduite ;
+      nature du coup inconnue (`None`) -> no-op (convention #106).
+    * **MAGNITUDE** : `ConfigVar(0x12)` = `variables["dmgReduction"][level]` (65 niveaux, 30 -> 2183)
+      **x mult de rarete** (`dmgReduction` est dans `variablesAffectedByRarityBonus`). Le `.ctor`
+      ecrit `mov edx, 0x427` avant la surcharge `AbilityOrEffect$$op_Implicit` qui appelle
+      `set_ActiveAbility` (tranchee par son corps, pas par son nom) => l'`AbilityState` que resout
+      `GetAbilityState(effet)` est celle de l'ability **ACTIVE** -> `active_ability_level` d'abord
+      (meme cascade que `OverwhelmingWrathRangeDmgReductionEffect`).
+
+    Pose (`IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility$$ExecuteBehaviour`) :
+    `UseActiveAbility(Owner, Target, UnitNormalAttackType(Owner)) + ResetMovement(...)
+    + AddEffect(0x456, <AbilityStateReference>, source=Owner, targets=Owner, TurnsFromRounds(1))`.
+    Source == porteur => l'`AbilityState` bakee par le natif est bien celle du porteur (ce cas n'est
+    PAS dans le regime « porteur != source » de #382)."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        if is_melee is not False:                      # IsRangedAttack (None = nature inconnue)
+            return None
+        if is_turn_of_owner(attacker_ctx) is not False:  # NOT IsTurnOf(Owner) -- non threade => muet
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        red = ability_var("FireAndReposition", "dmgReduction", lvl,   # ConfigVar 0x12 (rarity-scale)
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not red:
+            return None
+        return for_subtraction(False, abs(int(red)))   # owner=defenseur ; plat PRE-percage (#120)
 
 
 class SereneUnifierSenseOfStoneEffect(BaseEffect):
