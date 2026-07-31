@@ -22,16 +22,18 @@ Build mesure : `rnca9r7q6c`. Table phase 1 (#325) : **`docs/rl/dsl-usage/dsl-usa
 |---|---|---|---|---|---|---|---|---|
 | AbilityBehaviour | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
 | AbilityTrigger | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
-| DSLBehaviors | 46 | 5 | 3 | 0 | 0 | 16 | 57 | 127 |
+| DSLBehaviors | 48 | 5 | 5 | 0 | 0 | 12 | 57 | 127 |
 | DSLFactory | 0 | 0 | 0 | 0 | 0 | 2 | 3 | 5 |
-| DSLFormulas | 30 | 1 | 1 | 0 | 3 | 18 | 60 | 113 |
-| DSLSelectors | 64 | 3 | 2 | 0 | 0 | 20 | 106 | 195 |
-| DSLTriggers | 32 | 1 | 1 | 1 | 0 | 46 | 84 | 165 |
+| DSLFormulas | 31 | 1 | 9 | 0 | 3 | 11 | 58 | 113 |
+| DSLSelectors | 67 | 3 | 7 | 0 | 0 | 12 | 106 | 195 |
+| DSLTriggers | 36 | 3 | 38 | 1 | 0 | 0 | 87 | 165 |
 | TargetsSelector | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
-| **TOTAL** | **172** | **18** | **7** | **1** | **3** | **102** | **310** | **613** |
+| **TOTAL** | **182** | **20** | **59** | **1** | **3** | **37** | **311** | **613** |
 
-**Porte atteste** (`PORTE` + `PORTE_ALIAS_FACADE` + `PORTE_HORS_FACADE`) = **197 / 613**.
-`CITE_A_QUALIFIER` (102) n'est NI porte NI absent : l'artefact apparait dans `engine/**` sans porteur Python identifiable. C'est un etat A TRANCHER, pas un zero.
+**Porte atteste** (`PORTE` + `PORTE_ALIAS_FACADE` + `PORTE_HORS_FACADE`) = **261 / 613**.
+`CITE_A_QUALIFIER` (37) n'est NI porte NI absent : l'artefact apparait dans `engine/**` sans porteur Python identifiable. C'est un etat A TRANCHER, pas un zero.
+
+**31 verdicts viennent de `docs/rl/dsl-port-attestations.tsv`** -- le canal ou un HUMAIN tranche ce qu'aucune heuristique de nom ne peut apparier (un PREDICAT collapse dans un `matches()`). Chaque ligne est re-verifiee a chaque run (symbole present dans le build, ancre resolue, primitive citee) ; detail : `docs/rl/case-337-dsl-triggers-attestation.md`.
 
 ## 2. Joignabilite des abilities (etage B)
 
@@ -63,46 +65,46 @@ gameconfig -- ce n'est pas un defaut de lecture, c'est qu'elles n'en ont pas.
 
 | # | famille | primitive | verdict port | abilities | dont confrontables | dont pool |
 |---:|---|---|---|---:|---:|---:|
-| 1 | DSLTriggers | `get_OwnerIsCaster` | CITE_A_QUALIFIER | 128 | 104 | 66 |
-| 2 | DSLFormulas | `Direct` | CITE_A_QUALIFIER | 149 | 101 | 83 |
-| 3 | DSLTriggers | `get_OwnerIsTarget` | CITE_A_QUALIFIER | 128 | 78 | 45 |
-| 4 | DSLFormulas | `Multiply` | PORTE_SANS_CITATION | 65 | 54 | 35 |
-| 5 | DSLTriggers | `get_OwnerIsActor` | CITE_A_QUALIFIER | 67 | 53 | 36 |
-| 6 | DSLFormulas | `Sum` | PORTE_SANS_CITATION | 58 | 43 | 32 |
-| 7 | DSLSelectors | `Direct` | CITE_A_QUALIFIER | 42 | 33 | 28 |
-| 8 | DSLTriggers | `TriggeringAbilityIs` | CITE_A_QUALIFIER | 22 | 19 | 13 |
-| 9 | DSLFormulas | `Min` | PORTE_SANS_CITATION | 18 | 17 | 13 |
-| 10 | DSLBehaviors | `IfAlive` | CITE_A_QUALIFIER | 20 | 14 | 11 |
-| 11 | DSLBehaviors | `PerformAIAttackFromCurrentPosition` | CITE_A_QUALIFIER | 19 | 14 | 11 |
-| 12 | DSLFormulas | `Subtract` | NON_PORTE | 14 | 13 | 6 |
-| 13 | DSLSelectors | `SortTilesByUtility` | CITE_A_QUALIFIER | 18 | 13 | 9 |
-| 14 | DSLSelectors | `SortTilesByUtilityForSummon` | CITE_A_QUALIFIER | 14 | 13 | 10 |
-| 15 | DSLTriggers | `OnOwnerSpecificAbilityInit` | CITE_A_QUALIFIER | 14 | 13 | 6 |
-| 16 | DSLFactory | `Triggered` | NON_PORTE | 19 | 12 | 8 |
-| 17 | DSLFormulas | `GetPersistentData` | CITE_A_QUALIFIER | 19 | 12 | 3 |
-| 18 | DSLTriggers | `CurrentAbilityIs` | CITE_A_QUALIFIER | 14 | 12 | 6 |
-| 19 | DSLBehaviors | `AddDynamicStatModifierEffectToOwner` | CITE_A_QUALIFIER | 12 | 9 | 6 |
-| 20 | DSLBehaviors | `SetPersistentData` | CITE_A_QUALIFIER | 15 | 9 | 4 |
-| 21 | DSLSelectors | `DamageProfileFromConfig` | CITE_A_QUALIFIER | 16 | 9 | 6 |
-| 22 | DSLSelectors | `SortUnitsByDamageUtility` | CITE_A_QUALIFIER | 10 | 9 | 5 |
-| 23 | DSLTriggers | `IsUnit` | CITE_A_QUALIFIER | 10 | 9 | 6 |
-| 24 | DSLBehaviors | `AddFlag` | NON_PORTE | 9 | 8 | 4 |
-| 25 | DSLSelectors | `NonSteppableOrObjectUnits` | CITE_A_QUALIFIER | 12 | 8 | 8 |
-| 26 | DSLTriggers | `OnDeath` | NON_PORTE | 12 | 8 | 6 |
-| 27 | DSLBehaviors | `AddStaticStatModifierEffectToOwner` | NON_PORTE | 10 | 7 | 3 |
-| 28 | DSLBehaviors | `ClearPersistentData` | CITE_A_QUALIFIER | 8 | 7 | 1 |
-| 29 | DSLBehaviors | `UseNormalAttackIfAble` | CITE_A_QUALIFIER | 8 | 7 | 6 |
-| 30 | DSLSelectors | `None` | NON_PORTE | 8 | 7 | 6 |
-| 31 | DSLSelectors | `NormalUnits` | CITE_A_QUALIFIER | 10 | 7 | 6 |
-| 32 | DSLSelectors | `UnitsWithRarity` | NON_PORTE | 7 | 7 | 5 |
-| 33 | DSLTriggers | `DamageProfileIs` | NON_PORTE | 11 | 7 | 5 |
-| 34 | DSLTriggers | `HealthPctIsBelowOrEqual` | CITE_A_QUALIFIER | 7 | 7 | 4 |
-| 35 | DSLTriggers | `IsObjectOrSteppable` | CITE_A_QUALIFIER | 8 | 7 | 4 |
-| 36 | DSLBehaviors | `AddPersistentData` | NON_PORTE | 10 | 6 | 0 |
-| 37 | DSLSelectors | `CreateSnapshot` | NON_PORTE | 6 | 6 | 4 |
-| 38 | DSLSelectors | `FreeTilesOrAdjacentFreeTiles` | NON_PORTE | 6 | 6 | 3 |
-| 39 | DSLSelectors | `SortTargetsByDamagePredictionSelector` | NON_PORTE | 6 | 6 | 5 |
-| 40 | DSLTriggers | `CurrentAttackDamageProfilesContain` | NON_PORTE | 7 | 6 | 4 |
+| 1 | DSLFormulas | `Direct` | CITE_A_QUALIFIER | 149 | 101 | 83 |
+| 2 | DSLFormulas | `Multiply` | PORTE_SANS_CITATION | 65 | 54 | 35 |
+| 3 | DSLFormulas | `Sum` | PORTE_SANS_CITATION | 58 | 43 | 32 |
+| 4 | DSLSelectors | `Direct` | CITE_A_QUALIFIER | 42 | 33 | 28 |
+| 5 | DSLFormulas | `Min` | PORTE_SANS_CITATION | 18 | 17 | 13 |
+| 6 | DSLBehaviors | `IfAlive` | CITE_A_QUALIFIER | 20 | 14 | 11 |
+| 7 | DSLFormulas | `Subtract` | NON_PORTE | 14 | 13 | 6 |
+| 8 | DSLFactory | `Triggered` | NON_PORTE | 19 | 12 | 8 |
+| 9 | DSLFormulas | `GetPersistentData` | CITE_A_QUALIFIER | 19 | 12 | 3 |
+| 10 | DSLBehaviors | `AddDynamicStatModifierEffectToOwner` | CITE_A_QUALIFIER | 12 | 9 | 6 |
+| 11 | DSLBehaviors | `SetPersistentData` | CITE_A_QUALIFIER | 15 | 9 | 4 |
+| 12 | DSLSelectors | `DamageProfileFromConfig` | CITE_A_QUALIFIER | 16 | 9 | 6 |
+| 13 | DSLBehaviors | `AddFlag` | NON_PORTE | 9 | 8 | 4 |
+| 14 | DSLTriggers | `OnDeath` | NON_PORTE | 12 | 8 | 6 |
+| 15 | DSLBehaviors | `AddStaticStatModifierEffectToOwner` | NON_PORTE | 10 | 7 | 3 |
+| 16 | DSLBehaviors | `ClearPersistentData` | CITE_A_QUALIFIER | 8 | 7 | 1 |
+| 17 | DSLBehaviors | `UseNormalAttackIfAble` | CITE_A_QUALIFIER | 8 | 7 | 6 |
+| 18 | DSLSelectors | `None` | NON_PORTE | 8 | 7 | 6 |
+| 19 | DSLSelectors | `NormalUnits` | CITE_A_QUALIFIER | 10 | 7 | 6 |
+| 20 | DSLSelectors | `UnitsWithRarity` | NON_PORTE | 7 | 7 | 5 |
+| 21 | DSLTriggers | `DamageProfileIs` | NON_PORTE | 11 | 7 | 5 |
+| 22 | DSLBehaviors | `AddPersistentData` | NON_PORTE | 10 | 6 | 0 |
+| 23 | DSLSelectors | `CreateSnapshot` | NON_PORTE | 6 | 6 | 4 |
+| 24 | DSLSelectors | `FreeTilesOrAdjacentFreeTiles` | NON_PORTE | 6 | 6 | 3 |
+| 25 | DSLSelectors | `SortTargetsByDamagePredictionSelector` | NON_PORTE | 6 | 6 | 5 |
+| 26 | DSLTriggers | `CurrentAttackDamageProfilesContain` | NON_PORTE | 7 | 6 | 4 |
+| 27 | DSLTriggers | `HasRarity` | NON_PORTE | 6 | 6 | 5 |
+| 28 | DSLTriggers | `IsNormalUnit` | NON_PORTE | 6 | 6 | 2 |
+| 29 | DSLTriggers | `get_OwnerOrOwnerTileIsTarget` | NON_PORTE | 6 | 6 | 6 |
+| 30 | DSLBehaviors | `AddTemporaryAttackOverrideEffect` | NON_PORTE | 5 | 5 | 3 |
+| 31 | DSLBehaviors | `ResetTemporaryAttackOverrideEffect` | NON_PORTE | 5 | 5 | 3 |
+| 32 | DSLTriggers | `Contains` | NON_PORTE | 9 | 5 | 3 |
+| 33 | DSLTriggers | `HasAdjacentEnemies` | NON_PORTE | 8 | 5 | 5 |
+| 34 | DSLTriggers | `IsOverwatchAttack` | NON_PORTE | 5 | 5 | 4 |
+| 35 | DSLTriggers | `IsUnitWithVisualId` | NON_PORTE | 6 | 5 | 3 |
+| 36 | DSLBehaviors | `AddExtraBlockEffectToOwner` | CITE_A_QUALIFIER | 5 | 4 | 3 |
+| 37 | DSLBehaviors | `Repeat` | NON_PORTE | 6 | 4 | 3 |
+| 38 | DSLBehaviors | `ResetMovement` | NON_PORTE | 4 | 4 | 2 |
+| 39 | DSLBehaviors | `UseNormalAttack` | NON_PORTE | 6 | 4 | 1 |
+| 40 | DSLFormulas | `NormalAttackDamage` | CITE_A_QUALIFIER | 5 | 4 | 1 |
 
 Lire la colonne **verdict port** : ce tableau melange volontairement les trois
 etats non attestes. `PORTE_SANS_CITATION` (`Sum`, `Min`, `Multiply`) est du code qui
@@ -111,7 +113,7 @@ EXISTE mais ne cite aucun artefact -- l'action y est d'ATTESTER, pas de porter.
 
 ### 3bis. Le backlog SEC : primitives `NON_PORTE` avec un levier mesure
 
-**176 primitives** `NON_PORTE` debloquent au moins une ability confrontable (sur 310 `NON_PORTE` au total -- les autres ont un levier mesure a zero, ce qui est une mesure, pas une ignorance).
+**177 primitives** `NON_PORTE` debloquent au moins une ability confrontable (sur 311 `NON_PORTE` au total -- les autres ont un levier mesure a zero, ce qui est une mesure, pas une ignorance).
 
 | # | famille | primitive | symbole | abilities | dont confrontables | dont pool |
 |---:|---|---|---|---:|---:|---:|
@@ -140,11 +142,11 @@ EXISTE mais ne cite aucun artefact -- l'action y est d'ATTESTER, pas de porter.
 | 23 | DSLBehaviors | `Repeat` | `IdunBattleLogic.Entities.DSLBehaviors$$Repeat` | 6 | 4 | 3 |
 | 24 | DSLBehaviors | `ResetMovement` | `IdunBattleLogic.Entities.DSLBehaviors$$ResetMovement` | 4 | 4 | 2 |
 | 25 | DSLBehaviors | `UseNormalAttack` | `IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttack` | 6 | 4 | 1 |
-| 26 | DSLFormulas | `TilesMovedThisTurn` | `IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn` | 4 | 4 | 1 |
-| 27 | DSLSelectors | `Attackable` | `IdunBattleLogic.Entities.DSLSelectors$$Attackable` | 4 | 4 | 4 |
-| 28 | DSLSelectors | `ConditionalSelector` | `IdunBattleLogic.Entities.DSLSelectors$$ConditionalSelector` | 5 | 4 | 2 |
-| 29 | DSLSelectors | `UnitsWithRangedWeapons` | `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRangedWeapons` | 4 | 4 | 2 |
-| 30 | DSLTriggers | `ActorHasTriggeredAbility` | `IdunBattleLogic.Entities.DSLTriggers$$ActorHasTriggeredAbility` | 7 | 4 | 2 |
+| 26 | DSLSelectors | `Attackable` | `IdunBattleLogic.Entities.DSLSelectors$$Attackable` | 4 | 4 | 4 |
+| 27 | DSLSelectors | `ConditionalSelector` | `IdunBattleLogic.Entities.DSLSelectors$$ConditionalSelector` | 5 | 4 | 2 |
+| 28 | DSLSelectors | `UnitsWithRangedWeapons` | `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRangedWeapons` | 4 | 4 | 2 |
+| 29 | DSLTriggers | `ActorHasTriggeredAbility` | `IdunBattleLogic.Entities.DSLTriggers$$ActorHasTriggeredAbility` | 7 | 4 | 2 |
+| 30 | DSLBehaviors | `AddActiveAbility` | `IdunBattleLogic.Entities.DSLBehaviors$$AddActiveAbility` | 3 | 3 | 2 |
 
 ### Inventaire brut des primitives NON PORTEES (matiere de la jointure)
 
@@ -156,11 +158,11 @@ deja ce qui manquait. Table complete (avec les `CITE_A_QUALIFIER`, non listees i
 
 **DSLFactory** (3) : `.ctor`, `Init`, `Triggered`
 
-**DSLFormulas** (60) : `.ctor`, `AbilityLevelFromPlayerCurrentRarity`, `AttackPiercingRatio`, `AttackWeaponRange`, `AverageDistance`, `BlockedHits`, `CasterEffectPierceAddition`, `ConfigConstString`, `CriticalHitsThisTurn`, `CurrentDamage`, `CurrentPlayerTurnsStarted`, `CurrentShieldAmount`, `DamagePredictionFormula`, `DirectionTo`, `EffectRemainingTurns`, `EnhancementStack`, `EnhancementStackForTarget`, `GetAllPersistentDataCombined`, `HealthDamageFromEvent`, `IncreasedAmount`, `LastAttackDamageMade`, `MeleeAttackHits`, `MeleeWeaponHits`, `MinPathLength`, `MovementSteps`, `MultiStatValueFromEffect`, `MultiplyPercentageRecursively`, `NonLethalDamage`, `NormalAttackRange`, `NumControlledTerritory`, `Percent`, `PercentageOfStatCappedAtMax`, `PlayerAverageUnitLevel`, `PlayerTurnOrder`, `PlayerTurnsStarted`, `ReducedAmount`, `RotateVector`, `RowWithMostUnits`, `StatNegativeModification`, `Subtract`, `TilesMovedLastTurn`, `TilesMovedThisTurn`, `TimesAttackMadeThisTurn`, `TimesBlockedThisTurn`, `TimesHealedThisTurn`, `TimesReceivedAttackedThisTurn`, `TotalDamageDealt`, `TotalTurnsFinished`, `TotalTurnsWithAttacksMade`, `TriggerBoolNumber`, `TurnDefeated`, `UnitCurrentDirection`, `UnitIdFromUnit`, `UnitLevel`, `UnitRow`, `UnitsDefeatedAmount`, `UnitsTeamId`, `VectorFromAdjacentTo`, `VisualUnitIdFromUnit`, `WeaponHighestHits`
+**DSLFormulas** (58) : `.ctor`, `AbilityLevelFromPlayerCurrentRarity`, `AttackPiercingRatio`, `AttackWeaponRange`, `AverageDistance`, `BlockedHits`, `CasterEffectPierceAddition`, `ConfigConstString`, `CriticalHitsThisTurn`, `CurrentDamage`, `CurrentPlayerTurnsStarted`, `CurrentShieldAmount`, `DamagePredictionFormula`, `DirectionTo`, `EffectRemainingTurns`, `EnhancementStack`, `EnhancementStackForTarget`, `GetAllPersistentDataCombined`, `HealthDamageFromEvent`, `IncreasedAmount`, `LastAttackDamageMade`, `MeleeAttackHits`, `MeleeWeaponHits`, `MinPathLength`, `MovementSteps`, `MultiStatValueFromEffect`, `MultiplyPercentageRecursively`, `NonLethalDamage`, `NormalAttackRange`, `NumControlledTerritory`, `Percent`, `PercentageOfStatCappedAtMax`, `PlayerAverageUnitLevel`, `PlayerTurnOrder`, `PlayerTurnsStarted`, `ReducedAmount`, `RotateVector`, `RowWithMostUnits`, `StatNegativeModification`, `Subtract`, `TimesAttackMadeThisTurn`, `TimesBlockedThisTurn`, `TimesHealedThisTurn`, `TimesReceivedAttackedThisTurn`, `TotalDamageDealt`, `TotalTurnsFinished`, `TotalTurnsWithAttacksMade`, `TriggerBoolNumber`, `TurnDefeated`, `UnitCurrentDirection`, `UnitIdFromUnit`, `UnitLevel`, `UnitRow`, `UnitsDefeatedAmount`, `UnitsTeamId`, `VectorFromAdjacentTo`, `VisualUnitIdFromUnit`, `WeaponHighestHits`
 
 **DSLSelectors** (106) : `.ctor`, `AbilityState`, `AbilityStateFromEffect`, `AbilityStateFromLevel`, `AdjacentTilesIntersection`, `AtIndex`, `Attackable`, `AttackableEnemies`, `AttackableFriends`, `Attacker`, `BloodRunsAngerRisesWarCallsSelector`, `BondEffects`, `CanAddMultiTileUnit`, `CenterTiles`, `ClosestPositionToTarget`, `ConditionalSelector`, `CornerTiles`, `CreateSnapshot`, `CurrentAttackDamageProfile`, `CurrentPlayer`, `DeadUnits`, `Duplicate`, `EdgeTiles`, `EdgeTilesByDirection`, `EffectTarget`, `EmptyOrHasSteppableUnit`, `EmptyTiles`, `EnemyMachine`, `EnhancementTarget`, `Entities`, `EntitiesIsNotTargetOfEffect`, `EntitiesWithBondEffect`, `FilterTilesIfCanAttackTargetTileFrom`, `ForcedAttackTargets`, `FreeTilesNearUnits`, `FreeTilesOrAdjacentFreeTiles`, `GetDefaultUnitSelectionType`, `GetPersistentDataListAsEntities`, `Healable`, `Killer`, `KillingDamageProfile`, `Last`, `LimitUnitDuplications`, `MachinePrimaryAbilityType`, `MachineSecondaryAbilityType`, `MainTileFromBossPlatform`, `MainTileOfUnits`, `Nearest`, `NearestAttackableEnemies`, `NearestFreeTilesAmount`, `NextTileClockwise`, `NextTileInLine`, `NonSteppableUnits`, `None`, `NormalAttackDamageProfile`, `NormalMeleeAttackDamageProfile`, `OriginalOwner`, `PendingMovingTile`, `Player`, `PlayersByTeam`, `PreviousTile`, `RandomAdjacentFreeTile`, `SafestTiles`, `SortByMinDistance`, `SortByRow`, `SortTargetsByDamagePredictionSelector`, `SpawnPointTilesOfPlayer`, `SpawnTiles`, `TargetableUnits`, `TerritoryOwner`, `TerritoryTiles`, `TileBehindFilled`, `TileBehindTargetFromSourceDirection`, `TilesAtRow`, `TilesForUnitAtTile`, `TilesInConeShapeForBossWide`, `TilesInDiamondShape`, `TilesInLineFromUnit`, `TilesInPath`, `TilesUnitCanAttackFrom`, `TilesWithEnemies`, `TilesWithTriggeredAbility`, `TilesWithoutPowerUps`, `TurnStartTile`, `UnitNormalRepairType`, `UnitsAttackedThisTurn`, `UnitsDefeatedBy`, `UnitsFromPlayer`, `UnitsFromTeam`, `UnitsNotFromFaction`, `UnitsWhoCanAttack`, `UnitsWithAnyValidTarget`, `UnitsWithFlag`, `UnitsWithRangedAbilities`, `UnitsWithRangedWeapons`, `UnitsWithRangedWeaponsExcludingDamageProfile`, `UnitsWithRarity`, `UnitsWithSameVisualId`, `UnitsWithStatBiggerThan`, `UnitsWithTraits`, `UnitsWithTriggeredAbility`, `UnitsWithoutFlag`, `UnitsWithoutRangedWeapons`, `UnitsWithoutTraits`, `UnobscuredTiles`, `WalkableAndBrokenIce`
 
-**DSLTriggers** (84) : `.ctor`, `ActorHasTriggeredAbility`, `All`, `AmountIsEven`, `Any`, `AreEquivalent`, `AttackUsedAttackDamage`, `CanBeDisplaced`, `CanMove`, `CanUseAbility`, `Contains`, `CurrentAttackDamageProfileIs`, `CurrentAttackDamageProfilesContain`, `CurrentAttackDamageProfilesContainOtherThan`, `DamageProfileHasTrait`, `DamageProfileIs`, `HasAdjacentEnemies`, `HasAdjacentFreeTiles`, `HasBeenDefeated`, `HasBlockedThisTurn`, `HasPersistentData`, `HasRarity`, `HasTakenDamageOfDamageProfileThisTurn`, `HasTile`, `HasTriggeredAbilityBeenTriggered`, `IsAIPlayer`, `IsAdjacentTiles`, `IsAtRange`, `IsAttackAbility`, `IsDamageEventOverkilledTarget`, `IsEffectCreatedThisTurn`, `IsEffectTarget`, `IsEmptyOrSteppable`, `IsEnemyTurn`, `IsEnhancementTarget`, `IsEntityWithIdTarget`, `IsFirstDamagingHitInSeries`, `IsHero`, `IsHumanPlayer`, `IsInAttackOrAbilityRange`, `IsInPersistentDataList`, `IsInStraightLine`, `IsInTeam`, `IsKilledThisTurn`, `IsMachine`, `IsMoving`, `IsNormalAttackOrHealOrRepair`, `IsNormalUnit`, `IsObscured`, `IsOverwatchAttack`, `IsOwnerOfEffect`, `IsOwnerTileReserved`, `IsPartialAttackAbility`, `IsPlayerDefeated`, `IsReplacedUnit`, `IsSameFaction`, `IsSpawnTile`, `IsSpawnedByRoomRevealUnit`, `IsSpecialActiveAbility`, `IsSteppableUnit`, `IsTargetable`, `IsTeamDefeated`, `IsTerritoryTile`, `IsTrenchTile`, `IsTriggeringAbilityNormalAttackOrHealOrRepair`, `IsUnitOnTileWithEffect`, `IsUnitWithId`, `IsUnitWithStatAmount`, `IsUnitWithVisualId`, `IsWalkable`, `OnAttackFromAbility`, `OnDeath`, `StatPercentageIsBelowOrEqual`, `TriggeringAbilityHasAttackType`, `TriggeringAbilityIsNone`, `TriggeringAbilityIsNormalAttack`, `WasBlock`, `WasCrit`, `get_CasterIsCasterTile`, `get_CasterIsTarget`, `get_OwnerIsCasterTile`, `get_OwnerIsTargetTile`, `get_OwnerOrOwnerTileIsTarget`, `get_OwnerTileIsTarget`
+**DSLTriggers** (87) : `.ctor`, `ActorHasTriggeredAbility`, `All`, `AmountIsEven`, `Any`, `AreEquivalent`, `AttackUsedAttackDamage`, `CanBeDisplaced`, `CanMove`, `CanUseAbility`, `Contains`, `CurrentAttackDamageProfileIs`, `CurrentAttackDamageProfilesContain`, `CurrentAttackDamageProfilesContainOtherThan`, `DamageProfileHasTrait`, `DamageProfileIs`, `Direct`, `HasAdjacentEnemies`, `HasAdjacentFreeTiles`, `HasBeenDefeated`, `HasBlockedThisTurn`, `HasPersistentData`, `HasRarity`, `HasTakenDamageOfDamageProfileThisTurn`, `HasTile`, `HasTriggeredAbilityBeenTriggered`, `IsAIPlayer`, `IsAdjacentTiles`, `IsAtRange`, `IsAttackAbility`, `IsDamageEventOverkilledTarget`, `IsEffectCreatedThisTurn`, `IsEffectTarget`, `IsEmptyOrSteppable`, `IsEnemyTurn`, `IsEnhancementTarget`, `IsEntityWithIdTarget`, `IsFirstDamagingHitInSeries`, `IsFirstHitGroupInAttack`, `IsHero`, `IsHumanPlayer`, `IsInAttackOrAbilityRange`, `IsInPersistentDataList`, `IsInStraightLine`, `IsInTeam`, `IsInTeamSynapseRange`, `IsKilledThisTurn`, `IsMachine`, `IsMoving`, `IsNormalAttackOrHealOrRepair`, `IsNormalUnit`, `IsObscured`, `IsOverwatchAttack`, `IsOwnerOfEffect`, `IsOwnerTileReserved`, `IsPartialAttackAbility`, `IsPlayerDefeated`, `IsReplacedUnit`, `IsSameFaction`, `IsSpawnTile`, `IsSpawnedByRoomRevealUnit`, `IsSpecialActiveAbility`, `IsSteppableUnit`, `IsTargetable`, `IsTeamDefeated`, `IsTerritoryTile`, `IsTrenchTile`, `IsTriggeringAbilityNormalAttackOrHealOrRepair`, `IsUnitOnTileWithEffect`, `IsUnitWithId`, `IsUnitWithStatAmount`, `IsUnitWithVisualId`, `IsWalkable`, `OnAttackFromAbility`, `OnDeath`, `StatPercentageIsBelowOrEqual`, `TriggeringAbilityHasAttackType`, `TriggeringAbilityIsNone`, `TriggeringAbilityIsNormalAttack`, `WasBlock`, `WasCrit`, `get_CasterIsCasterTile`, `get_CasterIsTarget`, `get_OwnerIsCasterTile`, `get_OwnerIsTargetTile`, `get_OwnerOrOwnerTileIsTarget`, `get_OwnerTileIsTarget`
 
 ## 4. Ce qui n'est PAS mesurable, et pourquoi
 

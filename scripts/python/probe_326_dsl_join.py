@@ -327,11 +327,17 @@ def write_doc(path, build, rows, reach, p1, fwd, unmatched_prim, unmatched_abil,
     L.append("| **TOTAL** | %s | **%d** |" % (
         " | ".join("**%d**" % tot[v] for v in verdicts), len(rows)))
     porte = sum(tot[v] for v in PORTE_STATES)
+    n_att = sum(1 for r in rows if str(r.get("evidence", "")).startswith("attestation:"))
     L += ["", "**Porte atteste** (`PORTE` + `PORTE_ALIAS_FACADE` + `PORTE_HORS_FACADE`) = **%d / %d**."
           % (porte, len(rows)),
           "`CITE_A_QUALIFIER` (%d) n'est NI porte NI absent : l'artefact apparait dans `engine/**` "
           "sans porteur Python identifiable. C'est un etat A TRANCHER, pas un zero." % tot["CITE_A_QUALIFIER"],
-          ""]
+          "",
+          "**%d verdicts viennent de `docs/rl/dsl-port-attestations.tsv`** -- le canal ou un HUMAIN"
+          " tranche ce qu'aucune heuristique de nom ne peut apparier (un PREDICAT collapse dans un"
+          " `matches()`). Chaque ligne est re-verifiee a chaque run (symbole present dans le build,"
+          " ancre resolue, primitive citee) ; detail : `docs/rl/case-337-dsl-triggers-attestation.md`."
+          % n_att, ""]
 
     L += ["## 2. Joignabilite des abilities (etage B)", "",
           "| verdict | abilities |", "|---|---:|"]
@@ -561,7 +567,7 @@ def main():
         pool = [a for a in abils if (reach.get(a) or {}).get("verdict") == "CONFRONTABLE_POOL"]
         rows.append({
             "family": r["family"], "name": name, "symbol": r["symbol"], "verdict": r["verdict"],
-            "port_site": r.get("port_site", ""),
+            "port_site": r.get("port_site", ""), "evidence": r.get("evidence", ""),
             "n_abilities": len(abils) if args.p1 else "NON_MESURABLE_P1",
             "n_confrontables": len(conf) if args.p1 else "NON_MESURABLE_P1",
             "n_pool": len(pool) if args.p1 else "NON_MESURABLE_P1",
@@ -609,8 +615,11 @@ def main():
         if unmatched_abil:
             print("  abilities non resolues (top) : %s"
                   % ", ".join(k for k, _ in sorted(unmatched_abil.items(), key=lambda x: -x[1])[:8]))
-        top = [r for r in rows if r["verdict"] in ("NON_PORTE", "PORTE_HORS_FACADE")][:20]
-        print("TOP primitives NON PORTEES par abilities CONFRONTABLES debloquees :")
+        # MEME filtre que la section 3 du document : tout ce qui n'est PAS atteste porte. L'ancien
+        # filtre listait aussi `PORTE_HORS_FACADE` -- inoffensif tant qu'il n'y en avait que 7,
+        # trompeur des que l'attestation de #337 en a produit 59 : le titre annonce « NON PORTEES ».
+        top = [r for r in rows if r["verdict"] not in PORTE_STATES][:20]
+        print("TOP primitives NON ATTESTEES PORTEES, par abilities CONFRONTABLES debloquees :")
         for r in top:
             print("  %-18s %-34s %-18s conf=%-4s pool=%-4s"
                   % (r["family"], r["name"], r["verdict"], r["n_confrontables"], r["n_pool"]))

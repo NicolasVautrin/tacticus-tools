@@ -1,0 +1,86 @@
+# case-337 -- les 47 `CITE_A_QUALIFIER` de `DSLTriggers`, tranchees
+
+**Tache d'ATTESTATION, pas de portage.** Rien n'a ete porte. Perimetre : la famille `DSLTriggers`
+(165 primitives), dont **47** sortaient `CITE_A_QUALIFIER` de `probe_326_dsl_port_matching.py` --
+ni portees, ni absentes : l'aveu que l'outil ne savait pas attribuer. Elles sont desormais **0**.
+
+| | avant | apres |
+|---|---:|---:|
+| `DSLTriggers` `CITE_A_QUALIFIER` | 47 | **0** |
+| toutes familles `CITE_A_QUALIFIER` | 104 | **37** |
+| porte atteste (toutes familles) | 197 | **261 / 613** |
+
+(Le doc genere partait de 46/102/197 : `master` avait bouge entre-temps, et rebouge apres rebase.
+Re-deriver, ne pas citer -- `probe_326_dsl_primitive_inventory` -> `_port_matching` ->
+`_ability_reachability` -> `_dsl_join --p1 docs/rl/dsl-usage/dsl-usage-edges.tsv`.)
+
+## Verdict : 43 PORTEES, 4 NON PORTEES
+
+Les quatre **NON PORTEES** sont des mentions documentaires CONFIRMEES par lecture, pas des
+silences -- elles portent une ligne d'attestation avec leur motif :
+
+| primitive | pourquoi la citation n'est qu'une mention |
+|---|---|
+| `Direct` | **piege d'homonymie entre familles** : `DSLTriggers$$Direct(bool)` rend le TRIGGER CONSTANT cache par `DSLTriggers$$.ctor` (`+0x40` vrai / `+0x48` `Not(vrai)`), pas le noeud VALEUR `DSLFormulas$$Direct` que porte `Const`. Levier propre non nul, mais l'action serait un noeud neuf. |
+| `ActorHasTriggeredAbility` | cite pour NOMMER le producteur du `triggerType = Custom` (`AdaptiveStrategyAbility`, active 1005), hors `ABILITY_CLASSES`. |
+| `IsFirstHitGroupInAttack` | frere de `IsFirstHitInSeries` sur `AbilityEntities+0x118` (contre `+0x110`) -- le port le dit deja « NON porte ». |
+| `IsInTeamSynapseRange` | face CIBLAGE d'AlphaWarrior (`GetDynamicInvalidTargetReason`), hors `ExecuteBehaviour` -- residu deja nomme, l'IA offline est SUR-PERMISSIVE. |
+
+Les 43 autres sont portees. La raison pour laquelle l'heuristique les ratait TOUTES est structurelle
+et vaut d'etre retenue : **`DSLTriggers` est la famille des PREDICATS, et la doctrine du port les
+COLLAPSE imperativement dans un `matches()` / un gate.** Aucun rapprochement lexical ne peut relier
+`IdunBattleLogic.Entities.DSLTriggers$$TargetIsOverkilled` a `if ev.overkill:` de `final_justice.py`.
+
+Trois sont PORTEES AVEC ECART, nomme :
+
+* `IsDefeatedByMeleeAttack` -- branche `IsDead` mirroree, marqueur « MELEE » approxime
+  POSITIONNELLEMENT (`_is_ranged_position`) faute de canal natif sur `On(UnitDeath)` ;
+* `TileHasTriggeredAbility` -- mirror structurel qui rend **toujours False** : la table
+  `TriggeredAbilityType -> tileDefId` vit dans les assets Unity de tuile, hors gameconfig ;
+* `OnOwnerSpecificAbilityInit` -- COLLAPSE assume : la pose est SEEDEE au spawn
+  (`ABILITY_INIT_OWNER_EFFECTS`) au lieu d'emettre un vecteur `On(49)`.
+
+## Comment le verdict est RE-DERIVABLE
+
+**1. Deux corrections systematiques de l'heuristique** (`probe_326_dsl_port_matching.py`) --
+elles ferment aussi **21 items des autres familles**, mesure :
+
+* `_norm_ident` : l'homonymie se lit modulo casse, separateurs et prefixe d'accesseur C#. Ferme
+  d'un coup les rangs 1/3/5 du classement par levier (`get_OwnerIsCaster` <-> `OwnerIsCaster`,
+  128 abilities / 104 confrontables), `IsMechanical` <-> `is_mechanical`, et tous les porteurs
+  snake_case (`AbilityHasAttackType` <-> `ability_has_attack_type`). La condition « l'export CITE
+  la primitive » est INCHANGEE : la normalisation n'assouplit que le premier des deux signaux.
+* `_family_ok` : le build a eclate `DSLFactory` en quatre classes-factory, mais l'index de
+  citations est keye par NOM DE METHODE. Les 14 citations de `DSLFormulas$$Direct` etaient donc
+  comptees aussi pour `DSLTriggers$$Direct`. Filtre applique aux seuls noms portes par PLUSIEURS
+  familles ; l'orthographe heritee `DSLFactory` reste acceptee partout (ambigue par construction).
+
+Diff item par item contre `origin/master` : **68 changements, 0 regression** (aucun verdict
+`PORTE*` n'est retrograde ; les 68 partent tous de `CITE_A_QUALIFIER`).
+
+**2. Une table d'attestation** -- `docs/rl/dsl-port-attestations.tsv`, 31 lignes, chacune issue
+d'une lecture (decompile natif + code du port). Quatre cliquets FATAUX a chaque run : symbole
+present dans le vocabulaire du build, fichier porteur existant, **ancre** (nom de `class`/`def`/
+constante, jamais un numero de ligne) resolue, et le fichier doit CITER la primitive. Une
+attestation ne s'applique QUE sur un verdict non atteste -- elle ne peut donc jamais degrader une
+mesure qui tient toute seule ; le probe imprime les lignes devenues redondantes.
+
+Garde : `scripts/python/tests/test_337_dsl_triggers_attestation_offline.py` (11 tests, offline,
+auto-portants) -- dont le cliquet de livraison « `DSLTriggers` ne contient plus aucun
+`CITE_A_QUALIFIER` », qui rejoue la chaine sur un inventaire re-derive des tables versionnees.
+
+## Ce qui n'est PAS couvert
+
+* **Aucune confrontation live** : la tache ne modifie aucun code de `engine/**` (seulement de
+  l'outillage de mesure et de la doc), et le host Frida etait injoignable pendant le run
+  (`127.0.0.1:8787` refuse). Rien ici ne change un observable de bataille.
+* **Les 37 `CITE_A_QUALIFIER` restants** sont hors perimetre (`DSLBehaviors` 12, `DSLFormulas` 11,
+  `DSLSelectors` 12, `DSLFactory` 2) -- le meme travail reste a faire, et le mecanisme est pret.
+* **`DSLTriggers$$Not`** reste `PORTE_ARTEFACT_AUTRE` (verdict anterieur, hors des 47 ; levier
+  mesure a zero).
+* **Le backlog SEC de la famille est INCHANGE** -- ces primitives etaient deja `NON_PORTE` avant
+  #337, et le restent : `OnDeath` (8 abilities confrontables), `DamageProfileIs` (7),
+  `CurrentAttackDamageProfilesContain` (6), `HasRarity` (6), `IsNormalUnit` (6),
+  `get_OwnerOrOwnerTileIsTarget` (6).
+* Apres desambiguisation de famille, `DSLTriggers$$Direct` tombe a **1 ability / 1 confrontable** :
+  les 149/101 du classement appartiennent a `DSLFormulas$$Direct`, pas a lui.
