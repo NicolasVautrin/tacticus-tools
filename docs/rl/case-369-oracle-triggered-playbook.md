@@ -163,3 +163,94 @@ C'est précisément ce que le capteur lit — il est discriminant, pas seulement
 ⚠ Nuance mesurée : `LightImUpPlaybook.u003C…u003Ed__2$$MoveNext` appelle AUSSI `GetAverageDamage`
 sur un chemin qui ne construit AUCUN `ProbableDamageEvent`. **Cette lecture-là n'est pas
 observable par ce capteur** — résidu nommé, hors périmètre.
+
+## 6. Ce qui est livré
+
+- **`frida/hooks/features/ai-step/triggered-predict.ts`** (NEUF) — `loadPlaybookByKeySpace`
+  (`active` | `triggered` | `triggeredNonOwner`), `buildUtilityAttackCase`,
+  `invokeTriggeredAttackUtility`. Tout est résolu par `findMethodByParamClasses` sur le TYPE du
+  paramètre : c'est la seule chose qui sépare les overloads homonymes.
+- **`frida/hooks/features/ai-step/rpc-nc-predict.ts`** — champ `abilityKind` (défaut `active`,
+  **ÉCHOÉ dans la réponse**), refus explicite d'un `via` de l'autre famille, et **`allowDefault`
+  à `false` par défaut** : un id ACTIVE sans playbook bespoke rend désormais une ERREUR au lieu du
+  `DefaultActiveAbilityPlaybook`.
+- **`scripts/python/catalog_inject.py`** — `patch_ability_variables` /
+  `write_variable_patched_seed_bc` : le montage nommé qui force un régime `minDmg + maxDmg ==
+  3 mod 4`. Il **neutralise le multiplicateur de rareté** (`minDmg`/`maxDmg` sont dans
+  `VariablesAffectedByUnitRarityMultiplier`) pour que la valeur ÉCRITE soit la valeur LUE — sans
+  quoi la parité visée, seul axe discriminant, serait perdue en silence.
+- **`scripts/python/probe_369_playbook_keyspace.py`** + **`tests/test_369_playbook_keyspace_offline.py`**.
+
+⚠ **L'ÉCHO D'`abilityKind` EST LA PIÈCE QUI REND LE RESTE HONNÊTE.** Sans lui, un appelant ne peut
+pas distinguer « le hook a interrogé le key-space triggered » de « le hook est antérieur et a
+répondu par l'ACTIVE ». Il lirait alors des `captured` fidèles… d'une autre ability.
+
+## 7. Validation
+
+### Confronté (mesuré ce jour, runner `MC1_67`, seed 36901, `orksWarboss` u81)
+
+**Le mode de panne, re-mesuré sur mon propre montage** — pas hérité de #384 :
+
+| id demandé (`abilityKind: "triggered"`) | `playbookClass` rendu par le hook DÉPLOYÉ | `abilityKind` dans la réponse |
+|---|---|---|
+| `1103` | `SuperchargePlaybook` | **absent** |
+| `1054` | `CallRipperSwarmsPlaybook` | **absent** |
+| `1247` | `DefaultActiveAbilityPlaybook` | **absent** |
+
+**Le durcissement ne casse aucun consommateur** — les **8** abilities interrogées par tous les
+appelants existants de `ncPlaybookPredict` (`probe_344`, `probe_350r3*`, `probe_360`, `probe_362`,
+`test_356`, `test_350r3`, `test_360`) chargent un playbook BESPOKE, donc aucune ne dépend du
+fallback :
+
+```
+1040 SpawnPoxwalkersPlaybook   1042 FlailSwingPlaybook        1111 LivingBatteringRamPlaybook
+1132 KillMaimBurnPlaybook      1147 HadesAutocannonsPlaybook  1148 DaemonicOrdnancePlaybook
+1173 ArcScourgePlaybook        1202 VigilanceEternalPlaybook
+```
+
+**Le montage s'installe** : `rl_duel build --seed-bc <seed patché>` monte une bataille saine avec
+`orksWarboss` déployé, sans « system error ».
+
+**La collision est massive** (`data/symbols/rnca9r7q6c/frida/enums.tsv`) : **233** ids présents dans
+les deux enums, dont **231** désignant des membres de nom différent. Ce n'est pas un cas limite.
+
+### Garde vue ROUGE — trois mutations adversariales
+
+| mutation | résultat |
+|---|---|
+| (a) `triggered: "TriggeredAbilityType"` → `"ActiveAbilityType"` (le bug, réintroduit) | **1 failed, 9 passed** |
+| (b) suppression de l'écho `abilityKind: keySpace` du littéral `out` | **1 failed, 10 passed** |
+| (c) montage reposé sur le couple nominal `831 + 1109` (≡ 0 mod 4) | **1 failed, 10 passed** |
+
+⚠ **La mutation (b) est passée VERTE au premier essai, et c'est le fait le plus utile de cette
+validation.** La garde cherchait `"abilityKind: keySpace"` dans TOUT le fichier ; comme la même
+chaîne apparaît dans les retours d'ERREUR (`return { ok: false, abilityKind: keySpace, … }`),
+supprimer l'écho du chemin SUCCÈS ne la faisait pas bouger. Corrigé par une extraction ciblée du
+littéral `out` (`_success_payload`), et figé par un test sur sources synthétiques.
+**Une garde qui matche n'importe où dans un fichier ne garde rien.**
+
+### NON CONFRONTÉ — nommé
+
+**Le correctif lui-même n'a pas été exercé.** Il vit dans `frida/hooks/*`, donc il exige une fenêtre
+de reinject qui n'appartient pas à un agent. **Capteur et correctif LIVRÉS, INERTES, en attente
+d'une fenêtre de reinject.** Le bundle compile (`frida-compile hooks/main.ts`, rc 0).
+
+`probe_369_playbook_keyspace.py` rend **`rc = 2`** — « rien n'a échoué, une étape n'a PAS ÉTÉ
+CONFRONTÉE » — et publie le message
+`#369 NON CONFRONTE : le hook deploye ignore 'abilityKind' … fenetre de reinject requise`.
+Il ne lit AUCUN chiffre dans ce cas : les `captured` d'un hook antérieur viendraient de la mauvaise
+ability, et un accord obtenu sur eux serait le pire résultat possible.
+
+Restent donc ouverts, dans l'ordre où les jouer après le reinject :
+
+1. `1103` doit rendre `LightImUpPlaybook` (et `1054` / `1247` leurs playbooks) ;
+2. l'invocation `CalculateAttackUtilityInSteps` doit aboutir — le doute réel porte sur la
+   résolution du corps **gshared** depuis la classe concrète (`findMethodByParamCount` remonte la
+   chaîne d'héritage, mais le parent est une définition générique) ; en cas d'échec l'erreur est
+   NOMMÉE, pas silencieuse ;
+3. sur le seed BC patché, les `captured` doivent porter **972** (demi-vers-le-pair) et non **971**
+   (troncature) — c'est la confrontation live de la face demi-vers-le-pair de #350-r3b.
+
+Non couvert et non tenté : `getUtilityVal` n'est pas fourni, donc l'UTILITÉ rendue est minorée
+(chaque poids vaut 0). La réponse le dit (`utilityWeightsProvided: false`). Les `captured`, eux, ne
+dépendent pas des poids.

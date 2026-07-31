@@ -82,7 +82,7 @@ dans les deux chaînes ci-dessus, ils sont hors périmètre.
 | Playbook | forme native | état du port |
 |---|---|---|
 | `FuryOfTheAncientsPlaybook` (1247) | TRONCATURE | **PORTÉ, CORRECT** — `engine/playbook/fury_of_the_ancients.py` |
-| `HeavyRailRiflePlaybook` (1160 → ability 1260) | TRONCATURE | **NON PORTÉ** (playbook absent ; documenté `_PREDICTION_FORMULA_ON_TRIGGERED_ABILITY`) |
+| `HeavyRailRiflePlaybook` (1160 → ability 1260) | TRONCATURE | **NON PORTÉ** (playbook absent ; documenté `_PREDICTION_FORMULA_ON_TRIGGERED_ABILITY`). ⚠ **Ce playbook n'est PAS de la branche triggered** : `classes.tsv` donne `parent = NonComparablePlaybook`1` — c'est un playbook ACTIF qui va chercher une ability triggered par `Playbook<T>$$GetAbility<T>`. Il répond donc déjà à `ncPlaybookPredict` par la voie `evaluate`, sans `abilityKind` (#369) |
 | `LightImUpPlaybook` (1103) | HALF-TO-EVEN | **NON PORTÉ** |
 | `MassiveScythingTalonsPlaybook` (1054) | HALF-TO-EVEN | **NON PORTÉ** |
 
@@ -131,12 +131,20 @@ d'accord qu'il ne faut pas maquiller.
   (`probe_32d_fury.py`, #32/#339, delta ~1e-8). C'est la face TRONCATURE. La voie est la feuille L3
   (`TriggeredAbilitiesUtility`), donc `--l3` : **hooks session-globaux**, interdits tant que d'autres
   agents walkent l'IA.
-- **NE RÉPOND PAS** : la face HALF-TO-EVEN. Point d'ancrage natif qu'il faudrait hooker :
-  `IdunBattle.AI.Playbook.TriggeredAbilityPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent`,
-  ou plus simplement une variante de `ncPlaybookPredict` chargeant le playbook par
-  `TriggeredAbilityType` (le capteur `ProbableDamageEvent$$.ctor` qu'il pose EST le bon : les quatre
-  call-sites half-to-even le traversent — lu dans `LightImUpPlaybook$$CalculateAttackUtilityForMainTarget`).
-  Capteur ABSENT côté triggered, et un agent ne réinjecte pas.
+- **NE RÉPOND PAS** : la face HALF-TO-EVEN. ⚠ **Repris par #369, qui corrige deux points de cette
+  section** (`docs/rl/case-369-oracle-triggered-playbook.md`) :
+  - **aucun hook neuf n'est nécessaire.** Le capteur `ProbableDamageEvent$$.ctor` déjà posé EST le
+    bon, re-confronté aux xrefs entrantes : `…ForMainTarget`, `…ForSecondaryTarget` et
+    `MassiveScythingTalonsPlaybook.u003C…u003Ed__2$$MoveNext` l'appellent DIRECTEMENT, et
+    `LightImUpPlaybook.u003C…u003Ed__2$$MoveNext` le traverse via ses délégations aux deux premiers.
+    La valeur half-to-even entre dans le `DamagePredictionResult` capturé par l'argument `damage`
+    de `GetAttackPrediction` — le capteur est donc DISCRIMINANT, pas seulement présent. Hooker
+    `…$$CalculateUtilityFromDamageEvent` serait redondant.
+  - **le verrou n'était pas le capteur mais le KEY-SPACE** : `ncPlaybookPredict` chargeait par
+    `ActiveAbilityType`. Correctif livré (`abilityKind`), INERTE en attente d'une fenêtre de
+    reinject. Et l'entrée invocable n'est pas `Evaluate` : `TriggeredAbilityPlaybook`1` dérive de
+    `System.Object`, hiérarchie SÉPARÉE de `Playbook`1` — c'est
+    `CalculateAttackUtilityInSteps(UtilityAttackCase, getUtilityVal)`.
 
 **Second verrou, à ne pas oublier si l'oracle arrive** : `buildNormalizedBC` force
 `targetAbilityLevel = 50`, et à ce niveau **aucune** des trois abilities n'est discriminante
