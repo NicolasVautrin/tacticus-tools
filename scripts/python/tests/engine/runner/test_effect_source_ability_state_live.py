@@ -113,7 +113,7 @@ def test_baked_state_is_source_not_carrier_offline():
 
 def test_seed_defaults_are_unchanged_offline():
     """NON-REGRESSION du canal partage : sans table d'etats, `EffectsState.seed` rend EXACTEMENT
-    ce qu'il rendait -- l'etat du PORTEUR, `active_ability_level` a None. 135 entrees passent par
+    ce qu'il rendait -- l'etat du PORTEUR, `active_ability_level` a None. TOUTES les entrees passent par
     la, et tous les appelants historiques (playbook `scene`, probes, tests) appellent la forme a
     trois arguments."""
     from engine.entities import EffectsState
@@ -183,7 +183,7 @@ def test_cross_unit_invariant_holds(dissociated):
     """INVARIANT TRANSVERSE -- il ne parle pas que de 1224 : **toute** instance materialisee dont la
     source est resolvable et differente du porteur doit porter le triplet de sa SOURCE.
 
-    C'est ce qui verrouille le canal PARTAGE (135 entrees d'`EFFECT_CLASSES` passent par
+    C'est ce qui verrouille le canal PARTAGE (toute entree d'`EFFECT_CLASSES` passe par
     `EffectsState.seed`), pas seulement l'effet du montage."""
     r = dissociated()
     rows = r["cross_unit"]

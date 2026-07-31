@@ -1,7 +1,7 @@
 # case-382 — l'`AbilityState` d'un effet vient de sa SOURCE, jamais de son PORTEUR
 
 > Ferme le residu `#366-r1-src` (`case-366-r1-saga-other-space-wolves.md` §5). Le canal touche est
-> **partage par les 135 entrees d'`EFFECT_CLASSES`** — d'ou le recensement du §3 et le re-jeu large
+> **partage par TOUTES les entrees d'`EFFECT_CLASSES`** — d'ou le recensement du §3 et le re-jeu large
 > du §6.
 
 ## 1. Ce que le natif fait — il *BAKE*, a la POSE
@@ -69,10 +69,13 @@ listee dans `variablesAffectedByRarityBonus`) meme sans dissocier les niveaux.
 la classe (corps propre + bases jusqu'a `BaseEffect` exclu + helpers de MODULE appeles, profondeur
 2) mentionne-t-elle `ability_level` / `active_ability_level` / `ability_variables_multiplier` ?
 
+Mesure du 2026-07-31, APRES rebase sur `origin/master` (`91a0c429` — `visions_of_heresy` a ajoute
+deux entrees entre-temps ; ces chiffres se periment, les RE-DERIVER plutot que citer cette ligne) :
+
 | | |
 |---|---|
-| `EFFECT_CLASSES` | **135** entrees, **132** classes distinctes |
-| SENSIBLES au canal | **78** entrees |
+| `EFFECT_CLASSES` | **137** entrees, **134** classes distinctes |
+| SENSIBLES au canal | **80** entrees |
 | INDIFFERENTES | **57** entrees (le correctif y est un no-op quel que soit l'ecart) |
 
 Ce que ce balayage NE dit PAS, et qui est la limite assumee : il ne suit que les helpers du **MEME
