@@ -97,7 +97,22 @@ ARMS = {
         playbook="ExplosivePresentsPlaybook",
         selector="(Target@0x60 + AdjacentUnits(Target@0x60, 1, 3)) - Caster@0x48",
         kind="adjacent"),
+    # #370 -- le bras que #386 a laisse ouvert : le SEUL des trois appelants de
+    # `GenerateAttackPredictions` dont l'`origin` est un ARBRE (les deux autres sont des feuilles
+    # `Entity`/`Target@0x60`). C'est l'evaluation de cet arbre que le capteur `tileProbe` observe ;
+    # `expected_targets` ne s'y applique pas (on ne compte pas des events, on lit un POOL).
+    "ramming": SelectorArm(
+        key="ramming", ability=1059, ability_name="RammingSpeed",
+        playbook="RammingSpeedPlaybook",
+        selector="Friends/Enemies(Caster@0x48, AdjacentUnits(GetTileToMoveTo(), 1, 3), 3)",
+        kind="origin-tree"),
 }
+
+# `abilities.RammingSpeed.constants.range` = `GetNumberConstant(config, 0x16)`, le litteral que
+# `RammingSpeedAbility$$GetTileToMoveTo` passe a `DSLFormulas$$Direct`, donc la portee EFFECTIVE du
+# pool `MovableTilesInRange`. Un caster pose au-dela rendrait ce pool vide POUR UNE RAISON DE
+# MONTAGE -- les appelants du bras `ramming` DOIVENT borner la distance par cette valeur.
+RAMMING_MOVE_RANGE = 5
 
 
 @dataclass
@@ -118,9 +133,16 @@ def _r(sid, m, b, t=90):
     return (_rpc(sid, m, [b], timeout=t).get("result") or {})
 
 
-def _build(state_file: Path, seed_bc: Path, seed: int, level: int) -> int:
+def _build(state_file: Path, seed_bc: Path, seed: int, level: int,
+           hp_player: int = None) -> int:
     """`--crit/--block-*` a 0 et PV genereux : on compte des EVENTS, pas des degats -- aucun
-    aleatoire ne doit pouvoir tuer une unite entre le drive et la mesure."""
+    aleatoire ne doit pouvoir tuer une unite entre le drive et la mesure.
+
+    `hp_player` (#370) : abaisse les PV du camp JOUEUR. Necessaire au SEUL bras dont le playbook
+    porte une GATE en amont du batch mesure -- `RammingSpeedPlaybook$$MakeDamagePredictions` ne
+    construit `GetTileToMoveTo()` qu'APRES `Any(selfPreds, p => p.WillBeKill)`. Sans PV bas, la
+    gate reste fermee, l'arbre n'est jamais evalue, et un capteur pose dessus mesurerait « 0 appel »
+    pour une raison de MONTAGE. Absent = PV du seed (les autres bras n'ont aucune gate)."""
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
            "--state-file", str(state_file), "--board", BOARD, "--rank", RANK,
@@ -129,6 +151,8 @@ def _build(state_file: Path, seed_bc: Path, seed: int, level: int) -> int:
            "--a-units", "%s,%s" % (VICTIM, ENEMY2),
            "--unit-stat", "%s:ActiveAbilityLevel=%d" % (GRAFT, level),
            "--crit", "0,0", "--block-target", "0,0", "--block-player", "0,0", "--no-ai"]
+    if hp_player is not None:
+        cmd += ["--hp-player", str(int(hp_player))]
     proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     if not state_file.exists():
@@ -147,7 +171,8 @@ def _load(sid, rid):
     return load_state(dv, ob, snap, board=board), board, dv
 
 
-def scan_geometry(board, dv, caster_adjacent: bool = False, max_targets: int = 40):
+def scan_geometry(board, dv, caster_adjacent: bool = False, max_targets: int = 40,
+                  caster_max_dist: int = None):
     """Cherche une geometrie ou le VOISINAGE DE LA CIBLE est peuple -- c'est ce que
     `AdjacentUnits(Target, 1, 3)` selectionne, donc c'est la seule chose que la geometrie doit
     garantir. On DEPLACE les unites pour l'obtenir (jamais « bloque par le spawn »).
@@ -156,6 +181,12 @@ def scan_geometry(board, dv, caster_adjacent: bool = False, max_targets: int = 4
     `caster_adjacent=True`  : caster POSE sur un 3e voisin de la cible. Le natif le RETIRE
         (`op_Subtraction Caster@0x48`), donc l'attendu ne bouge PAS -- c'est le bras qui
         DISCRIMINE la soustraction (un port qui l'oublierait rendrait un event de plus).
+
+    `caster_max_dist` (#370) : borne SUPERIEURE de la distance caster->cible. Le bras `ramming`
+        l'exige -- son `origin` est `MovableTilesInRange(..., Direct(range)) & CanAddUnit(
+        AdjacentTiles(Target))`, donc un caster hors portee rend ce pool vide POUR UNE RAISON DE
+        MONTAGE. Sans borne, le choix « le plus loin possible » ci-dessous produit exactement ce
+        faux positif. Absent = aucune borne (comportement des deux premiers bras, inchange).
 
     Rend un dict {target, ally, enemy2, caster} de positions, ou None.
     """
@@ -181,7 +212,9 @@ def scan_geometry(board, dv, caster_adjacent: bool = False, max_targets: int = 4
             # une tuile intermediaire, il bloque leur trajet (une unite adverse interdit la
             # traversee) et le drive echoue -- mesure du 1er jet de ce montage.
             cands = [p for p in walk
-                     if p != tp and p not in ring and hexgeo.distance(p, tp) >= 2]
+                     if p != tp and p not in ring and hexgeo.distance(p, tp) >= 2
+                     and (caster_max_dist is None
+                          or hexgeo.distance(p, tp) <= int(caster_max_dist))]
             caster = max(cands, key=lambda p: (min(hexgeo.distance(p, ally),
                                                    hexgeo.distance(p, enemy2)), p),
                          default=None)
@@ -192,8 +225,12 @@ def scan_geometry(board, dv, caster_adjacent: bool = False, max_targets: int = 4
 
 
 def build_montage(sid, arm: SelectorArm, seed: int, level: int = 8,
-                  caster_adjacent: bool = False) -> Montage:
+                  caster_adjacent: bool = False, hp_player: int = None,
+                  caster_max_dist: int = None) -> Montage:
     """Monte un runner ou `arm.ability` est GREFFEE sur `GRAFT`, puis DRIVE la geometrie.
+
+    `hp_player` / `caster_max_dist` : cf. `_build` et `scan_geometry` -- les deux garde-fous que
+    le bras `ramming` (#370) exige et que les deux premiers bras n'ont jamais eus.
 
     L'appelant est responsable de disposer le runner (`dispose_montage`)."""
     logs = ROOT / "logs"
@@ -203,11 +240,12 @@ def build_montage(sid, arm: SelectorArm, seed: int, level: int = 8,
     bcf = logs / ("m361-seed-bc-%s-%s.json" % (arm.key, tag))
     graft = build_grafted_seed_bc(bcf, graft=GRAFT, ability_id=arm.ability,
                                   ability_name=arm.ability_name)
-    rid = _build(sf, bcf, seed, level)
+    rid = _build(sf, bcf, seed, level, hp_player=hp_player)
     state, board, dv = _load(sid, rid)
     ids = _ids(dv)
     errors = []
-    geo = scan_geometry(board, dv, caster_adjacent=caster_adjacent)
+    geo = scan_geometry(board, dv, caster_adjacent=caster_adjacent,
+                        caster_max_dist=caster_max_dist)
     if geo is None:
         errors.append("aucune geometrie a 6 voisins marchables sur %s" % BOARD)
     else:
