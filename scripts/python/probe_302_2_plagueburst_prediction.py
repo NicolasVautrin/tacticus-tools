@@ -237,15 +237,18 @@ def stage(hp_target: int) -> int:
                   % (r["pos"], r["nat"], uid, ru.get("utility"),
                      abs((ru.get("utility") or 0) - (r["nat"] or 0)) < 1e-12))
 
-        # [3] ATTRIBUTION du residu : `MinMaxDamage$$Avg` arrondit, le port garde le .5
-        print("\n[3] attribution du residu (`IdunBattle.Core.Services.MinMaxDamage$$Avg`) :")
+        # [3] `MinMaxDamage$$Avg` arrondit -- residu REFERME par #333 (le port l'applique au foyer)
+        from engine.services.min_max_damage import min_max_avg
+        print("\n[3] arrondi `IdunBattle.Core.Services.MinMaxDamage$$Avg` (referme par #333) :")
         for r in nz:
             for f in r["fields"]:
                 s = int(f["healthDmgMin"]) + int(f["healthDmgMax"])
-                print("    pos=%-8s min=%-6d max=%-6d somme %s -> port avg=%.1f, natif Round(avg,"
-                      "MidpointRounding=0)=%d" % (r["pos"], f["healthDmgMin"], f["healthDmgMax"],
-                                                  "PAIRE" if s % 2 == 0 else "IMPAIRE", s / 2.0,
-                                                  _banker(s / 2.0)))
+                print("    pos=%-8s min=%-6d max=%-6d somme %s -> port avg=%d, natif Round(avg,"
+                      "midpointRounding=0)=%d  (port d'AVANT #333 : %.1f)"
+                      % (r["pos"], f["healthDmgMin"], f["healthDmgMax"],
+                         "PAIRE" if s % 2 == 0 else "IMPAIRE",
+                         min_max_avg(f["healthDmgMin"], f["healthDmgMax"]), _banker(s / 2.0),
+                         s / 2.0))
         return 0
     finally:
         dispose(rid)
