@@ -153,14 +153,17 @@ def waaagh_possible_movement_tiles_selector(move_range: int):
         TilesUnitCanMoveToChargeTarget( caster@0x160, casterTile@0x168, target,
                                         UnitMovementRangeWithBonus(caster, 1099,
                                                                    Direct(GetNumberConstant(0xe))),
-                                        canReachOnly = 0 )
+                                        ignoreFlags = 0 )
         = CanAddUnit(AdjacentTiles(target)) op_BitwiseAnd MovableTilesInRange(caster, casterTile,
-                                                                             range, canReachOnly=0)
+                                                                              range, ignoreFlags=0,
+                                                                              ignoreUnitsOnTiles=0)
 
-    `canReachOnly=0` (CONTRASTE avec VigilanceEternal/HeroicFusillade qui passent 1) -> l'ensemble
-    « movable » est le `visited` du BFS (toutes les tuiles ATTEINTES en <= range pas) et non le
-    `stop_set` ; la difference (tuiles traversables mais occupees) est de toute facon eliminee par le
-    `CanAddUnit(AdjacentTiles(target))` en amont.
+    `ignoreFlags=0` (CONTRASTE avec VigilanceEternal, qui passe 1). ⚠ #381-r1 : ce 5e argument du
+    helper natif N'EST PAS un `canReachOnly` — il ne touche que la garde d'entree de
+    `MovementQuery$$FindAnyOrAllMoveableTiles` et ne change PAS l'ensemble rendu. L'ensemble
+    « movable » est TOUJOURS le `stop_set` (tuiles LIBRES), parce que
+    `MovementQuery$$AnyOrFillMoveableTiles` termine par
+    `RemoveAll(t => !IsMovableTile(unit, t, ignoreUnitsOnTiles=0))`.
 
     `move_range` arrive DEJA CALCULE (`waaagh_move_range`, collapse documente du noeud
     `UnitMovementRangeWithBonus` — il lit l'effet 1099 deja pose, cf. sa docstring) et est presente
@@ -172,7 +175,7 @@ def waaagh_possible_movement_tiles_selector(move_range: int):
       * le gate de ciblage `WaaaghAbility$$GetDynamicInvalidTargetReason` (qui n'en prend que le
         `Count`). Les deux voient donc TOUJOURS le meme ensemble."""
     return tiles_unit_can_move_to_charge_target(Caster(), CasterTile(), Target(),
-                                                Const(int(move_range)), can_reach_only=False)
+                                                Const(int(move_range)), ignore_flags=False)
 
 
 def waaagh_charge_tile(state: "State", caster_id: int, target_id: int, move_range: int):
@@ -296,7 +299,7 @@ def ramming_speed_charge_tiles_selector(move_range: int) -> TileIntersect:
     inobservable ; ici il devient l'ordre source du tri. Il ne departage que des utilites
     STRICTEMENT egales."""
     return TileIntersect(MovableTilesInRange(Caster(), CasterTile(), Const(int(move_range)),
-                                             can_reach_only=False),
+                                             ignore_flags=False, ignore_units_on_tiles=False),
                          CanAddUnit(AdjacentTiles(Target())))
 
 

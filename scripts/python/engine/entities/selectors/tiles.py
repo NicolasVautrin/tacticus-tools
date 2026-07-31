@@ -216,35 +216,173 @@ class TileIntersect(TargetsSelector):
         return out
 
 
+def _movement_can_continue(ctx, board, mover_traits):
+    """Gate d'EXPANSION `IdunBattle.Entities.Pathfinding.BasePathfinder$$NodesInNextLevel` ->
+    `WalkPathfinder$$IsValidContinuePathTile` (#131), monte sur le SUBSTRAT DSL.
+
+        if (currentTile != startTile && !IsValidContinuePathTile(this, unit, currentTile))
+            return <liste vide>;          // aucun voisin -> la tuile est un CUL-DE-SAC
+
+    Le prédicat lui-meme est `GetTileBlockingReasons(tile, unit) == 0` ; son bit `0x1` vient d'un
+    effet de tuile BLOQUEUR NEUTRE (`BlockEnteringUnitsTileEffect` et ses cinq freres, cf.
+    `pathfinding/tile_blocking.TILE_MOVEMENT_BLOCKING_EFFECT_TYPES`) dont l'unite n'est pas exemptee
+    (`StaticBattleRules.Effect$$NotBlockingMovementOfTraits`).
+
+    DEUX sources, en UNION, evaluees PAR TUILE et memoisees (le BFS n'interroge que les tuiles qu'il
+    atteint — balayer le board entier a chaque evaluation de selecteur serait un cout inutile) :
+
+      1. le canal DYNAMIQUE `ctx.tile_has_effect(tileId, effectType)` — le meme accesseur que le
+         noeud `HasEffect` en domaine tuile ;
+      2. le repli TERRAIN `tile_blocking.terrain_blocks_entering` (le tile-def `Swamp` heberge
+         `ThornsBlockMovementAbility`, qui pose l'effet AU SETUP), indispensable parce que la
+         plupart des contextes DSL sont montes SANS le canal opt-in des effets de tuile — sans lui
+         le gate serait INERTE en silence, exactement le residu ferme par case-224 §4.
+
+    ⚠ Ce que ce substrat ne sait PAS distinguer, et que `tile_blocking.tile_blocks_entering` sait,
+    lui, sur un `EffectsState` : la NEUTRALITE du bloqueur (`blockerId == 0`, cote port
+    `e.source == tile_id`). `ctx.tile_has_effect` n'expose pas la source -> un bloqueur pose par une
+    UNITE (bit `0x4`, qui ne bloque que ses ennemis) compterait ici comme neutre. Aucun poseur de ce
+    genre n'existe dans les effets listes ; degradation RESTRICTIVE et nommee, a rouvrir si un
+    `BlockTileMovementEffect` unit-owned apparait.
+
+    Rend `None` quand aucun canal n'est disponible (pas de board) — soit « aucun gate », le
+    comportement d'avant #131."""
+    from ...services.static_battle_rules import not_blocking_movement_of_traits
+    from ..pathfinding.tile_blocking import (TILE_MOVEMENT_BLOCKING_EFFECT_TYPES,
+                                             terrain_blocks_entering)
+    from ..traits.unit_trait import has_any_trait
+    if board is None:
+        return None
+    tile_has_effect = getattr(ctx, "tile_has_effect", None)
+    # Types de bloqueur dont CE mover n'est PAS exempte (`Any(exemptTraits, t => HasTrait(unit, t))`).
+    types = tuple(et for et in sorted(TILE_MOVEMENT_BLOCKING_EFFECT_TYPES)
+                  if not has_any_trait(mover_traits, not_blocking_movement_of_traits(et)))
+    cache: dict = {}
+
+    def _blocks(tid: int) -> bool:
+        tid = int(tid)
+        hit = cache.get(tid)
+        if hit is None:
+            hit = bool(tile_has_effect is not None
+                       and any(tile_has_effect(tid, int(et)) for et in types))
+            if not hit:
+                hit = terrain_blocks_entering(board, tid, mover_traits)
+            cache[tid] = hit
+        return hit
+
+    return lambda tid: not _blocks(tid)
+
+
 class MovableTilesInRange(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$MovableTilesInRange(unit, fromTile, range, canReachOnly,
-    …)` -> `IdunBattle.Entities.Selectors.MovableTilesInRangeSelector$$Select`, qui resout
-    `unit` (@+0x20), `fromTile` (@+0x28, a defaut `GetMainTile(unit)`), `range` (formule @+0x30,
-    `Nullable<int>`) puis delegue au slot 0xc de la `PathfindingQuery` avec `canReachOnly` (@+0x38).
+    """`IdunBattleLogic.Entities.DSLSelectors$$MovableTilesInRange(unitSelector, unitTileSelector,
+    overrideRange, ignoreFlags, ignoreUnitsOnTiles)` -> `IdunBattle.Entities.Selectors.
+    MovableTilesInRangeSelector$$Select`. CINQ arguments, pas quatre — le `.ctor` les range en
+    `+0x20 unitSelector`, `+0x28 unitTileSelector`, `+0x30 overrideRange`, `+0x38 ignoreFlags`,
+    `+0x39 ignoreUnitsOnTiles`.
 
-    Le calcul est le PATHFINDER (impératif, `entities/pathfinding/walk_pathfinder.py` — mirror de
-    `IdunBattle.Entities.Pathfinding.BasePathfinder$$GetMovablePositions`) : ce noeud est la FEUILLE
-    DSL qui l'appelle, comme `CanAddUnit` est la feuille qui appelle les predicats de board.
+    LA CHAINE NATIVE COMPLETE (#381-r1), lue de bout en bout
+    ------------------------------------------------------
+    `Select` resout `entity` (slot 7 du `unitSelector`), `fromTile` (`GetMainTile(entity)`, remplace
+    par `SelectTile` du `unitTileSelector` s'il existe), `overrideRange` (`Nullable<int>`) puis
+    appelle **`IdunBattle.Core.Services.BattleQuery$$GetMovableTilesFor(entity, fromTile,
+    ignoreFlags, options)`** — `options` etant une struct dont le port lit trois champs :
+    `+0x00 pathfinderTypeOverride` (0), `+0x01 = ignoreUnitsOnTiles` (le champ `+0x39` du noeud),
+    `+0x04 = overrideRange`. De la :
 
-    `can_reach_only` :
-      * `False` (natif `0`) -> le `visited` du BFS = TOUTES les tuiles ATTEINTES en <= range pas
-        (traversables, y compris occupees par un allie) ;
-      * `True`  (natif `1`) -> le `stop_set` = celles ou l'unite peut S'ARRETER (libres, start exclu).
-    Contraste mesure : `WaaaghAbility$$GetPossibleMovementTiles` passe `0`,
-    `VigilanceEternal`/`HeroicFusillade` passent `1`.
+        BattleQuery$$GetMovableTilesFor  ->  MovementQuery$$GetMovableTilesFor(unit, [fromTile],
+                                                                              ignoreFlags, options)
+          -> MovementQuery$$FindAnyOrAllMoveableTiles :
+                 if ((UnitFlagsComponent$$Has(unitFlags, 1) && ignoreFlags == 0)
+                     || !UnitExtensions$$CanMove(unit))            return;   // set VIDE
+                 type  = GetPathfinderTypeForUnit(unit, options.pathfinderTypeOverride)
+                 range = options.overrideRange ?? StatComponent(Movement).CurrentValue
+                 bonus = options.rangeBonusesOverride ?? GetRangeBonusForUnit(unit, ...)
+          -> MovementQuery$$AnyOrFillMoveableTiles(tiles, type, unit, range, bonus,
+                                                   ignoreUnitsOnTiles, out) :
+                 range = MovementRangeWithAppliedBonus(unit, range, bonus)
+                 foreach (start in tiles) {
+                     r = GetReachableTiles(start, type, range, unit)          // le PATHFINDING
+                     r.RemoveAll(t => !IsMovableTile(this, unit, t, ignoreUnitsOnTiles))
+                     result.AddRange(r) }
 
-    Occupation = les unites VIVANTES de `ctx.units` (meme modele que `CanAddUnit`) ; `moving_team` =
-    l'equipe de `unit` (un ENNEMI sur la tuile bloque la traversee, un allie non). Ordre de sortie =
-    id de tuile croissant (le natif rend un `List<Tile>` issu d'un BFS ; ce noeud n'est consomme
-    qu'a travers une INTERSECTION `op_BitwiseAnd`, cf. `tiles_unit_can_move_to_charge_target`, ou
-    seul l'ordre de l'operande GAUCHE est observable). `board` absent -> []."""
+    Les TROIS `RemoveAll` de `AnyOrFillMoveableTiles` partagent le MEME corps
+    (`MovementQuery.<>c__DisplayClass11_0$$<AnyOrFillMoveableTiles>b__2`, dedupliqué) :
+
+        IsMovableTile(unit, tile, ignoreUnitsOnTiles) =
+              (!IsTileReserved(tile) || IsTileReservedForUnit(tile, unit))
+           && !IsTilePendingDrafting(tile, state, null)
+           && IsFreeTile(tile, state, allowSteppable: 1, allowTemporaryTile: 0,
+                         allowAnyUnit: ignoreUnitsOnTiles)
+           && !IsTemporary(tile)
+
+    ⇒ **le pool rendu par ce noeud est TOUJOURS filtre par l'occupation** (sauf
+    `ignoreUnitsOnTiles`), et la tuile de DEPART en sort avec les autres (elle porte l'unite).
+    C'est exactement le `stop_set` du BFS porte.
+
+    `ignore_flags` N'EST PAS `canReachOnly` — c'est le bug ferme ici (`#381-r1`)
+    -------------------------------------------------------------------------
+    Le port lisait le 4e argument comme un `canReachOnly` qui aurait choisi entre `visited` et
+    `stop_set`. **Cet axe n'existe pas dans le natif** : le 4e argument est `ignoreFlags`, qui ne
+    touche QUE la garde d'entree de `FindAnyOrAllMoveableTiles` (elle rend un set VIDE, pas un set
+    plus large), et le 5e — le seul qui elargisse l'ensemble — vaut `0` sur les CINQ call-sites lus
+    (`RammingSpeedAbility$$GetTileToMoveTo`, `VigilanceEternalAbility$$GetPossibleMovementTiles`,
+    `HeroicFusilladeAbility$$ExecuteBehaviour`, `DSLSelectors$$TilesUnitCanMoveToChargeTarget` —
+    qui force `ignoreUnitsOnTiles = 0` en dur — et `VigilanceEternalAbility$$
+    GetPossibleAdditionalTargetTilesForDangerZone`).
+    Consequence mesuree : sur les call-sites `ignoreFlags = 0` (Waaagh, RammingSpeed, BlackRage) le
+    port rendait le `visited` — un DISQUE incluant les tuiles occupees et la tuile de depart — la
+    ou le natif rend le `stop_set`.
+
+    Le PATHFINDING est le meme foyer que partout ailleurs
+    ----------------------------------------------------
+    `GetReachableTiles` -> `Pathfinders$$FindReachableTiles(type, start, depth, unit)` ->
+    `BasePathfinder$$FindReachableTiles` = `ListPool(IterateReachableTiles(start, depth, unit))`,
+    qui delegue a `BasePathfinder$$GetMovablePositions` (le BFS par niveaux porte dans
+    `entities/pathfinding/walk_pathfinder.py`). Ce noeud est donc la FEUILLE DSL qui appelle le
+    pathfinder, comme `CanAddUnit` est la feuille qui appelle les predicats de board — et il doit
+    l'appeler avec LES MEMES trois etages que `ai/state_bridge._move_tiles`, le mirror deja
+    confronte d'`aiMovableTiles` (qui est litteralement `MovementQuery$$GetMovableTilesFor`) :
+
+      1. **le TYPE de pathfinder** (`GetPathfinderTypeForUnit` -> `UnitExtensions$$IsLikeFlying`)
+         — un volant traverse tout et ignore l'elevation ;
+      2. **le gate d'EXPANSION #131** (`BasePathfinder$$NodesInNextLevel` ->
+         `IsValidContinuePathTile`) — une tuile block-entering (Swamp/Fire/Ice/...) reste un STOP
+         legal mais devient un CUL-DE-SAC. Sans lui le port SUR-ATTEINT (mesure #131 : 6/17/27
+         contre 6/16/25 au natif) ;
+      3. **l'occupation par EMPREINTE** (`GetTileContent` lit le contenu de la tuile, peuple par
+         TOUS les pieds) — meme lecture que `CanAddUnit` (#91), pas la seule main tile.
+
+    RESIDUS NOMMES (degradation PERMISSIVE dans les trois cas — le port sur-atteint, jamais
+    l'inverse, donc l'ecart reste mesurable) :
+      * la garde d'entree `UnitFlagsComponent$$Has(unitFlags, 1) && ignoreFlags == 0` (#381) et
+        `UnitExtensions$$CanMove` : `unitFlags` n'a pas de substrat cote port -> jamais de set vide
+        par cette voie. C'est pour ca que `ignore_flags` est STOCKE mais ne change rien ici ;
+      * `IsTileReserved` / `IsTilePendingDrafting` / `IsTemporary` : aucun canal offline ;
+      * le trait `Steppable` (0x1b) de `IsFreeTile(allowSteppable: 1)` : une tuile sous un Steppable
+        reste un arret legal cote natif. Non porte — meme residu, et surtout meme CONVENTION, que
+        `CanAddUnit` : les deux noeuds s'intersectent, un ecart entre eux serait pire que l'ecart
+        commun au natif ;
+      * `MovementQuery$$GetRangeBonusForUnit` / `MovementRangeWithAppliedBonus` : tous les
+        call-sites portes passent un `overrideRange` explicite, et la boucle de bonus est un no-op
+        sur une liste vide. Le volet `HasTriggeredAbility(0x4b8) || HasTrait(0x418) -> range 0`
+        n'est pas porte ici (`GetMovablePositionsFor` le porte deja pour la face empreinte).
+
+    ORDRE : `sorted(...)` (id de tuile croissant) la ou le natif rend l'ordre de visite du BFS.
+    Residu herite de `#353-r1`, INCHANGE par ce correctif (il ne departage que des utilites
+    STRICTEMENT egales, cf. `ramming_speed_charge_tiles_selector`). `board` absent -> []."""
     def __init__(self, unit: TargetsSelector, from_tile: TargetsSelector,
-                 range_amount, can_reach_only: bool = False):
+                 range_amount, ignore_flags: bool = False,
+                 ignore_units_on_tiles: bool = False):
         self.unit, self.from_tile = unit, from_tile
-        self.range_amount, self.can_reach_only = range_amount, bool(can_reach_only)
+        self.range_amount = range_amount
+        self.ignore_flags = bool(ignore_flags)
+        self.ignore_units_on_tiles = bool(ignore_units_on_tiles)
 
     def select(self, ctx):
+        from ..pathfinding.fly_pathfinder import (
+            is_like_flying, get_movable_positions as fly_get_movable_positions)
         from ..pathfinding.walk_pathfinder import get_movable_positions
+        from ..traits.unit_trait import unit_trait_names
         board = getattr(ctx, "board", None)
         if board is None:
             return []
@@ -260,32 +398,55 @@ class MovableTilesInRange(TargetsSelector):
         start = board.id_at(start_pos[0], start_pos[1]) if start_pos is not None else None
         if start is None:
             return []
+        # `WalkPathfinder$$UnitIsBlockedByEnemyUnit` lit `TileExtensions$$GetTileContent`, que TOUS
+        # les pieds d'une unite peuplent -> occupation par EMPREINTE (#91, meme lecture que
+        # `CanAddUnit`), pas par la seule main tile.
         occ: dict = {}
         for other in ctx.units:
             if not _is_alive(other):
                 continue
-            p = _pos(other)
-            if p is None:
-                continue
-            t = board.id_at(p[0], p[1])
-            if t is not None:
-                occ[t] = other.get("team")
-        visited, stop = get_movable_positions(board, start, int(self.range_amount.evaluate(ctx)),
-                                              occ, u.get("team"))
-        return sorted(stop if self.can_reach_only else visited)
+            feet = (other or {}).get("feet")
+            if not feet:
+                p = _pos(other)
+                feet = [] if p is None else [p]
+            for f in feet:
+                t = board.id_at(f[0], f[1])
+                if t is not None:
+                    occ[t] = other.get("team")
+        traits = unit_trait_names(u.get("visualId"))
+        # `MovementQuery$$GetPathfinderTypeForUnit` -> `UnitExtensions$$IsLikeFlying` : meme
+        # dispatch que `ai/state_bridge._move_tiles`.
+        mv = fly_get_movable_positions if is_like_flying(traits) else get_movable_positions
+        visited, stop = mv(board, start, int(self.range_amount.evaluate(ctx)),
+                           occ, u.get("team"),
+                           can_continue=_movement_can_continue(ctx, board, traits))
+        # `RemoveAll(t => !IsMovableTile(..., ignoreUnitsOnTiles))` : sans `ignoreUnitsOnTiles` le
+        # natif ne garde que les tuiles LIBRES (`IsFreeTile`), depart compris — c'est le stop_set.
+        return sorted(visited if self.ignore_units_on_tiles else stop)
 
 
 def tiles_unit_can_move_to_charge_target(unit: TargetsSelector, from_tile: TargetsSelector,
                                          target: TargetsSelector, range_amount,
-                                         can_reach_only: bool = False) -> TargetsSelector:
-    """`IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(unit, fromTile, target,
-    range, canReachOnly)` — MIRROR du decompile, qui n'assemble QUE deux noeuds :
+                                         ignore_flags: bool = False) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLSelectors$$TilesUnitCanMoveToChargeTarget(caster, casterTiles,
+    target, movementRange, ignoreFlags)` — MIRROR du decompile, qui n'assemble QUE deux noeuds :
 
-        CanAddUnit(AdjacentTiles(target))  op_BitwiseAnd  MovableTilesInRange(unit, fromTile,
-                                                                             range, canReachOnly)
+        CanAddUnit(AdjacentTiles(target))  op_BitwiseAnd  MovableTilesInRange(caster, casterTiles,
+                                                                              movementRange,
+                                                                              ignoreFlags,
+                                                                              ignoreUnitsOnTiles = 0)
 
     = « tuiles LIBRES et marchables hex-adjacentes a la cible, que l'unite peut atteindre en <=
     `range` pas ». `op_BitwiseAnd` du domaine TILE = `TileIntersect` (ordre de l'operande GAUCHE
-    preserve). Helper de FACTORY (comme `get_spawn_tile_selector`), pas une classe native."""
+    preserve). Helper de FACTORY (comme `get_spawn_tile_selector`), pas une classe native.
+
+    ⚠ `ignoreUnitsOnTiles` est ecrit **EN DUR a 0** par ce helper natif (le 8e argument du
+    `MovableTilesInRangeSelector$$.ctor` y est un octet nul) : seul `ignoreFlags` remonte a
+    l'appelant. `WaaaghAbility$$GetPossibleMovementTiles` et `BlackRage_MoveAbility` passent `0`,
+    `VigilanceEternalAbility$$GetPossibleMovementTiles` passe `1` — et ce booleen ne change PAS
+    l'ensemble rendu (il desarme la garde d'entree de `FindAnyOrAllMoveableTiles`, cf.
+    `MovableTilesInRange`)."""
     return TileIntersect(CanAddUnit(AdjacentTiles(target)),
-                         MovableTilesInRange(unit, from_tile, range_amount, can_reach_only))
+                         MovableTilesInRange(unit, from_tile, range_amount,
+                                             ignore_flags=ignore_flags,
+                                             ignore_units_on_tiles=False))
