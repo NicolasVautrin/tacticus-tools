@@ -133,6 +133,7 @@ from .loki import (
     HailstrikeExtraPierceEffect,
     VisionsOfHeresyExtraPierceMeleeEffect,
     VisionsOfHeresyExtraPierceRangedEffect,
+    WarHowlExtraDamageUnstoppableEffect,
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
@@ -703,6 +704,23 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `refresh_stat_modifier_effects`. Cf. `entities/effects/loki/visions_of_heresy.py`.
     "VisionsOfHeresy_ExtraPierceMelee": VisionsOfHeresyExtraPierceMeleeEffect,
     "VisionsOfHeresy_ExtraPierceRanged": VisionsOfHeresyExtraPierceRangedEffect,
+    # 1222 WarHowl_ExtraDamage_Unstoppable (case-366-r1) : buff a DUREE 1 TOUR pose par l'ACTIVE
+    # `WarHowl` (0x452 = 1106) de `spaceBlackmane` <<Ragnar>> sur LUI-MEME + tout ami MELEE non-Summon
+    # (`WarHowlAbility$$ExecuteBehaviour` : `AddEffect(0x4c6, CreateSnapshot(abilityState),
+    #  source = Caster, targets = Caster + UnitsWithoutTrait(UnitsWithoutRangedWeapons(Friends(...)),
+    #  0x2 = Summon), turns = Get(1))` -- ni faction ni rayon). Classe DEDIEE : le slot `Il2CppClass*`
+    # `0x1833908e8` n'est partage par aucun autre id, et le `$$.ctor` n'a qu'UN appelant parmi les 607
+    # fabriques (`...EffectsDatabase.<>c$$<InitializeEffects>b__14_240`).
+    # DEUX canaux de LECTURE portes, tous deux gates `get_OwnerIsCaster & IsMeleeAttack & IsNormalAttack` :
+    #   `...WarHowl_ExtraDamage_UnstoppableEffect$$CreateEffectDamageBonusForAttack`
+    #       = ForAddition(<3 noeuds>, ConfigVar(0x08 = extraDmg))          -> additif per-coup ;
+    #   `...WarHowl_ExtraDamage_UnstoppableEffect$$CreateCritChanceBonus`
+    #       = ForAddition(<3 noeuds> & AmountIsGreaterThanZero(StatAmount(Caster, 0x9 CriticalChance,
+    #                     StatPart.Current)), ConfigVar(0x41 = extraCritChance)).
+    # Le 3e artefact (`ApplyInternal`/`RevertInternal` = AddTrait/RemoveTrait `0x412 = 1042
+    # Unstoppable`, isTemporary) est LU par le substrat d'entite (`combatSnapshot.units[].traits`,
+    # MESURE : u81 gagne 1042 au cast) ; sa POSE offline attend le port de l'ability 1106.
+    "WarHowl_ExtraDamage_Unstoppable": WarHowlExtraDamageUnstoppableEffect,
     # 1291 HeavyGravCannon : owner-effect du PASSIF homonyme d'admecDestroyer <<Sy-Gex>>. Classe DEDIEE
     # `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect` a DEUX canaux partageant UNE condition
     # (`...$$DamageCondition` = OwnerIsActor & IsRangedAttack & (HasTrait(target,5=Mechanical) |
