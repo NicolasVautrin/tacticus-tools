@@ -73,9 +73,10 @@ def _predict(sid, rid, cid, tid, ability):
     return rows, nat
 
 
-def measure(sid, arm_key: str, seed: int, level: int, caster_adjacent: bool) -> dict:
+def measure(sid, arm_key: str, seed: int, level: int, caster_adjacent: bool,
+            mutate: str = "none") -> dict:
     arm = M.ARMS[arm_key]
-    out: dict = {"arm": arm.key, "caster_adjacent": bool(caster_adjacent),
+    out: dict = {"arm": arm.key, "caster_adjacent": bool(caster_adjacent), "mutation": mutate,
                  "ability": arm.ability, "ability_name": arm.ability_name,
                  "selector": arm.selector, "seed": seed, "level": level}
     m = None
@@ -90,7 +91,7 @@ def measure(sid, arm_key: str, seed: int, level: int, caster_adjacent: bool) -> 
         caster, target = m.ids[GRAFT], m.ids[VICTIM]
         out["caster_pos"] = list(_pos(m.dv, caster) or [])
         out["target_pos"] = list(_pos(m.dv, target) or [])
-        exp = M.expected_targets(arm, m.board, m.dv, caster, target)
+        exp = M.expected_targets(arm, m.board, m.dv, caster, target, mutate=mutate)
         out["expected"] = exp
         rows, nat = _predict(sid, m.runner, caster, target, arm.ability)
         out["events"] = rows
@@ -137,15 +138,32 @@ def measure(sid, arm_key: str, seed: int, level: int, caster_adjacent: bool) -> 
     return out
 
 
-def run(seed: int = 36500, level: int = 8, verbose: bool = True) -> dict:
+def run(seed: int = 36500, level: int = 8, verbose: bool = True,
+        mutate: str = "none") -> dict:
     sid = _resolve_session()
-    out: dict = {"seed": seed, "level": level, "board": M.BOARD, "arms": []}
-    plan = [("control", False), ("adjacent", False), ("adjacent", True)]
+    out: dict = {"seed": seed, "level": level, "board": M.BOARD, "mutation": mutate, "arms": []}
+    if mutate != "none":
+        # GARDE ADVERSARIALE : un seul bras suffit, celui ou le terme mute PORTE.
+        plan = [("adjacent", True)]
+    else:
+        plan = [("control", False), ("adjacent", False), ("adjacent", True)]
     for key, cadj in plan:
-        res = measure(sid, key, seed, level, cadj)
+        res = measure(sid, key, seed, level, cadj, mutate=mutate)
         out["arms"].append(res)
         if verbose:
             _print(res)
+    if mutate != "none":
+        rouge = [a for a in out["arms"] if not a.get("ok")]
+        out["ok"] = bool(rouge)
+        out["conclusion"] = (
+            "MUTATION %r : le probe ROUGIT (%d/%d bras) -- le bras DISCRIMINE bien ce terme."
+            % (mutate, len(rouge), len(out["arms"])) if rouge else
+            "MUTATION %r : le probe reste VERT -- le bras NE DISCRIMINE PAS ce terme, son accord "
+            "ne prouve rien." % mutate)
+        if verbose:
+            print("[365] %s" % out["conclusion"])
+            print("[365] -> %s" % ("OK" if out["ok"] else "ECHEC"))
+        return out
 
     ctrl = next((a for a in out["arms"] if a["arm"] == "control"), {})
     adjs = [a for a in out["arms"] if a["arm"] == "adjacent"]
@@ -204,9 +222,11 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seed", type=int, default=36500)
     ap.add_argument("--level", type=int, default=8)
+    ap.add_argument("--mutate", choices=sorted(M.MUTATIONS), default="none",
+                    help="garde adversariale : attendu volontairement FAUX, le probe DOIT rougir")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    out = run(seed=a.seed, level=a.level, verbose=not a.json)
+    out = run(seed=a.seed, level=a.level, verbose=not a.json, mutate=a.mutate)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if out.get("ok") else 1

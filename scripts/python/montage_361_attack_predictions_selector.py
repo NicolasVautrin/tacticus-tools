@@ -238,16 +238,26 @@ def dispose_montage(sid, m: Montage) -> None:
     m.seed_bc.unlink(missing_ok=True)
 
 
-def expected_targets(arm: SelectorArm, board, dv, caster_id: int, target_id: int) -> dict:
+MUTATIONS = {
+    "none": "aucune -- l'attendu mirrore le selecteur natif",
+    "no-subtraction": "attendu SANS `op_Subtraction Caster@0x48` : le caster adjacent est compte",
+    "no-adjacency": "attendu SANS `AdjacentUnits` : la cible seule",
+}
+
+
+def expected_targets(arm: SelectorArm, board, dv, caster_id: int, target_id: int,
+                     mutate: str = "none") -> dict:
     """Derive l'ensemble ATTENDU du selecteur NATIF (jamais un nombre ecrit d'avance).
 
     `entity`   -> {target}.
     `adjacent` -> {target} UNION {unites VIVANTES sur une tuile adjacente a target} MOINS {caster}.
                   `MatchesUnitSelectionType(u, 3)` = vivante ET sans le flag 0x11 ; aucune unite du
                   montage ne le porte, donc le filtre se reduit a « vivante ».
-    """
+
+    `mutate` sert la GARDE ADVERSARIALE : un attendu volontairement FAUX doit faire ROUGIR le probe.
+    Un bras qui reste vert sous mutation ne discrimine pas le terme mute, et ne prouve donc rien."""
     units = {int(u["id"]): u for u in (dv.get("units") or []) if u.get("alive")}
-    if arm.kind == "entity":
+    if arm.kind == "entity" or mutate == "no-adjacency":
         picked = [int(target_id)]
     else:
         tp = _pos(dv, target_id)
@@ -255,11 +265,13 @@ def expected_targets(arm: SelectorArm, board, dv, caster_id: int, target_id: int
         ring = {board.coord(n) for n in board.neighbours(tid)} if tid is not None else set()
         picked = [int(target_id)]
         for uid, u in sorted(units.items()):
-            if uid == int(target_id) or uid == int(caster_id):
+            if uid == int(target_id):
+                continue
+            if uid == int(caster_id) and mutate != "no-subtraction":
                 continue
             p = u.get("pos") or {}
             if (p.get("col"), p.get("row")) in ring:
                 picked.append(uid)
-    return {"ids": picked, "n": len(picked),
+    return {"ids": picked, "n": len(picked), "mutation": mutate,
             "detail": [{"id": i, "visualId": (units.get(i) or {}).get("visualId"),
                         "pos": list(_pos(dv, i) or [])} for i in picked]}
