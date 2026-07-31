@@ -42,6 +42,7 @@ import probe_o5_unit_flags as O5
 import probe_294_trigger_ability_channels as TAC
 import probe_301_kill_unit_trigger_channels as KUC
 import probe_306_effect_trigger_channels as EFC
+import probe_338_ai_target_choice as AITC
 
 
 @pytest.fixture
@@ -349,6 +350,35 @@ def defend_the_divine_work_case(build_runner, rpc):
                             % (scenario, r.get("why")))
             cache[scenario] = r
         return cache[scenario]
+
+    return _case
+
+
+# ── #338 — le CHOIX DE CIBLE de `PerformAIAbilityUnitBehaviour$$Execute` ─────────────────────────
+
+@pytest.fixture(scope="module")
+def ai_target_choice_case(build_runner, rpc):
+    """Fabrique : `ai_target_choice_case("orksKillaKan")` -> le dict de mesure du montage #338.
+
+    PORTE pytest de `scripts/python/probe_338_ai_target_choice.py` : DEUX ennemis a distance EGALE
+    de la tuile de spawn d'un summon melee (`AberrantHypermorph` 1166), avec des `maxHP` d'un ordre
+    de grandeur d'ecart. Le raccourci historique (`_nearest_enemy`) ne peut les departager que par
+    son tie-break `id` ; le moteur d'utilite, lui, suit le `maxHP`. Le parametre est le visualId de
+    l'ennemi a PETIT maxHP -- l'echanger doit faire BASCULER la victime, live comme offline.
+
+    Portee MODULE (chaque regime = un build + une conduite de position + deux casts).
+    ⚠ Montage non installe => ECHEC, jamais skip (#268)."""
+    cache: dict = {}
+
+    def _case(low_vis: str) -> dict:
+        if low_vis not in cache:
+            # `keep=True` : le runner appartient a `build_runner` (teardown du module).
+            r = AITC.run(rpc, low_vis=low_vis, build_runner=build_runner, keep=True)
+            if not r.get("ok"):
+                pytest.fail("montage AI-target-choice NON INSTALLE (low=%s) : %s"
+                            % (low_vis, r.get("why")))
+            cache[low_vis] = r
+        return cache[low_vis]
 
     return _case
 
