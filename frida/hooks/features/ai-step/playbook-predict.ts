@@ -43,9 +43,9 @@
  *  par défaut). Repair : PAS d'event — `MakeRepairPredictions` rend un Dictionary
  *  (décodage non porté, v2). */
 import {
-    class_get_name, class_instance_size, field_get_type, findMethodByNameSuffix,
-    findMethodByParamClasses, findMethodByParamCount, getFieldInfo, getFieldOffset, s,
-    type_get_class_or_element_class,
+    class_get_name, class_instance_size, field_get_type, findClassAnywhere,
+    findMethodByNameSuffix, findMethodByParamClasses, findMethodByParamCount, getFieldInfo,
+    getFieldOffset, s, type_get_class_or_element_class,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { runnerOff } from "../../game/runner.js";
@@ -167,6 +167,41 @@ export function unitPositionCurrent(
     if (!mi) return null;
     try {
         const pos = invokeMethod(mi.info, null, [unit, statePtr]);
+        if (pos.isNull()) return null;
+        return pos.add(0x10);
+    } catch { return null; }
+}
+
+/** #360 — `IdunBattle.Core.UnitPosition$$NullPosition()`, LA position que le natif passe pour un
+ *  caster MACHINE OF WAR.
+ *
+ *  Lu au décompilé, sans interprétation :
+ *  `IdunBattle.AI.Tactics.DefaultMachineTactic.u003CCalculateNextActionForUnitu003Ed__5$$MoveNext`
+ *  appelle, pour CHAQUE générateur, `GenerateActions(machine, UnitPosition$$NullPosition(),
+ *  new OrderedSet<…>(), 0)`. Et `UnitPosition$$NullPosition` n'est PAS un struct nul : son corps
+ *  est `new List<ITile>()` — une position dont la liste de tuiles est VIDE mais NON NULLE.
+ *  `UnitPosition$$get_MainTile` la traite sans lever (il teste `Count` avant d'indexer, et rend
+ *  `null` sur zéro) : c'est donc un argument LÉGAL partout où le natif la passe lui-même.
+ *
+ *  ⚠ Ce qu'elle REMPLACE, et pourquoi c'est une correction et pas un raffinement : le harnais
+ *  substituait la `UnitPosition` de la CIBLE au caster off-board. Cette substitution n'a aucun
+ *  antécédent natif, et elle CASSE l'oracle — mesuré #360 sur `blackForgefiend` / `1147
+ *  HadesAutocannons` avec un summon en jeu : `MakeDamagePredictions` LÈVE (le RPC rendait
+ *  `count = -1`, `listNull = true`), là où la même invocation avec la position du caster rend
+ *  l'event `(324, 492, 6)`. `Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetEntitiesFromSelector`
+ *  écrit `ctx.<+0xc0> = UnitPosition$$get_MainTile(casterPosition)` : lui donner la tuile de la
+ *  cible fait résoudre le sélecteur depuis un point de vue qui n'existe pas.
+ *
+ *  Null si la classe/méthode n'est pas résolue — l'appelant retombe alors sur
+ *  `unitPositionCurrent(caster)`, qui pour une MoW off-board rend elle aussi une liste VIDE
+ *  (`GetUnitPosition` = `GetTiles`, et une Machine n'a pas de tuile). */
+export function nullUnitPosition(): NativePointer | null {
+    const klass = findClassAnywhere("IdunBattle.Core", "UnitPosition");
+    if (!klass) return null;
+    const mi = findMethodByParamCount(klass, "NullPosition", 0);
+    if (!mi) return null;
+    try {
+        const pos = invokeMethod(mi.info, null, null);
         if (pos.isNull()) return null;
         return pos.add(0x10);
     } catch { return null; }

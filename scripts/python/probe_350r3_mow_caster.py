@@ -12,22 +12,26 @@ La question etait : garde EXPLICITE de notre outil, ou chemin de deploiement MoW
 est refusee par `--p-units` -- alors que `--p-mow` / `--a-mow` la poussent par
 `BC.PredefinedMachines` (`_patch_predefined_machines`). L'etape 0 le MESURE.
 
-CE QUI COINCE ENSUITE, ET QUI N'EST PAS LE DEPLOIEMENT (etape 1, mesuree)
-------------------------------------------------------------------------
+CE QUI COINCAIT ENSUITE -- ET QUI ETAIT LE HARNAIS, PAS LE JEU (tranche par #360)
+--------------------------------------------------------------------------------
 La MoW se deploie, `aiPlaybookPredict` resout bien ses playbooks (`HadesAutocannonsPlaybook` /
 `DaemonicOrdnancePlaybook`) et le capteur d'`abilityState` PREND (`--unit-stat <mow>:
-ActiveAbilityLevel=L` -> `level` capte). Mais avec la MoW COMME CASTER :
+ActiveAbilityLevel=L` -> `level` capte). Avec la MoW COMME CASTER, cette etape constatait pourtant
+un oracle `null` et un port sans contexte. Les deux constats etaient des artefacts DE MESURE :
 
-  * cote NATIF, `MakeDamagePredictions` rend une liste VIDE si aucun summon n'est en jeu, et
-    carrement `null` (`listNull`, `count = -1`) des qu'il y en a un -- une MoW est off-board, et le
-    harnais lui substitue la `UnitPosition` de la CIBLE (`rpc-predict.ts`, RE #172) ;
-  * cote PORT, `engine.ai.context.build` ne construit AUCUN contexte pour une MoW (`ctx.me is None`) :
-    une MoW n'est pas dans `decisionView.units`.
+  * `aiPlaybookPredict` SUBSTITUAIT la `UnitPosition` de la CIBLE au caster off-board. Le natif ne
+    fait jamais cela : `DefaultMachineTactic.u003CCalculateNextActionForUnitu003Ed__5$$MoveNext`
+    passe `UnitPosition$$NullPosition()` (= une liste de tuiles VIDE). Invoque avec la position du
+    CASTER, le MEME `MakeDamagePredictions` REND l'event -- `(324, 492, 6)` au niveau 4, identique
+    a la voie greffee. `ncPlaybookPredict(via = "makeDamagePredictions")` le fait deja ;
+  * `engine.ai.context.build` rend `me = None` sur une Machine parce que c'est la fonction des
+    UNITES ; `build_machine` est celle des MACHINES, elle existe, et `engine_validate.py` route deja
+    dessus via `machine_row`. Le probe appelait simplement la mauvaise.
 
-Donc la confrontation d'ARRONDI passe par la GREFFE (`case-92` §5bis) : le natif charge le playbook
-PAR ABILITY (`PlaybookDatabase.LoadPlaybook(ActiveAbilityType)`), et la formule de 1147
-(`StaffOfStarsAbility$$GetDamage(state, isPrediction = 1)`) ne lit NI stat NI trait du caster --
-seulement la config de l'ability et son `AbilityState`. La greffe est donc legitime ICI.
+La GREFFE (`case-92` §5bis) reste legitime -- le natif charge le playbook PAR ABILITY, et la formule
+de 1147 (`StaffOfStarsAbility$$GetDamage(state, isPrediction = 1)`) ne lit NI stat NI trait du
+caster -- et elle est desormais VALIDEE : `probe_360_mow_caster_oracle.py` rejoue les deux bras avec
+le porteur MoW REEL et retrouve les memes couples, au chiffre pres.
 
 ETAPE 2 -- `1147 HadesAutocannons`, CONFRONTEE
 ----------------------------------------------
@@ -175,6 +179,23 @@ def _ids(sid, rid) -> tuple[dict, dict]:
     return ({u.get("visualId"): u["id"] for u in (dv.get("units") or []) if u.get("alive")}, dv)
 
 
+def ctx_machine(sid, rid, cid):
+    """`AiDecisionContext` d'un caster MACHINE -- `engine.ai.context.build_machine`, le mirror de
+    `IdunBattle.AI.Tactics.DefaultMachineTactic.u003CCalculateNextActionForUnitu003Ed__5$$MoveNext`.
+
+    C'est la fonction que le spine appelle DEJA pour une MoW (`engine_validate.py` :
+    `if machine_row(dv, uid) is not None: build_machine(...)`). `build`, elle, est celle des UNITES
+    et rend `me = None` sur une Machine -- ce qui est CORRECT (le natif expose les MoW dans un canal
+    `.mows` separe de `.units`), et n'a jamais voulu dire que le port ignorait les MoW."""
+    from engine import weights as W
+    from engine.playbook import scene as _scene
+    from engine.ai import context as AICTX
+    rpc = lambda m, b, t=60: _r(sid, rid, m, b, t)                              # noqa: E731
+    dv = _r(sid, rid, "decisionView", {"allAbilities": True, "maxRank": 8}, 180)
+    return AICTX.build_machine(rpc, rid, dv, int(cid), W.load(),
+                               _scene.build_predictor(rpc, rid)), dv
+
+
 def _move(sid, rid, uid, col, row):
     return _r(sid, rid, "applyAction",
               {"action": {"kind": "move", "unitId": int(uid), "to": {"col": int(col), "row": int(row)}}})
@@ -184,7 +205,24 @@ def _move(sid, rid, uid, col, row):
 
 def step1_mow_caster(seed: int = 35030, verbose: bool = True) -> dict:
     """Deploie la MoW pour de vrai (`--a-mow`), pose des summons en face, et MESURE ce que
-    l'oracle et le port rendent avec elle comme caster."""
+    l'oracle et le port rendent avec elle comme caster.
+
+    ⚠ RE-MESURE #360 -- ce que cette etape croyait constater a ete tranche, et dans l'autre sens :
+
+      * l'oracle n'etait pas ferme par le caster Machine mais par la SUBSTITUTION de la
+        `UnitPosition` de la CIBLE que faisait `rpc-predict.ts`. Le natif, lui, passe
+        `UnitPosition$$NullPosition()` (`DefaultMachineTactic`). Le MEME
+        `<X>Playbook$$MakeDamagePredictions` invoque avec la position du CASTER
+        (`ncPlaybookPredict(via = "makeDamagePredictions")`) REND l'event -- mesure : `(324, 492, 6)`,
+        exactement ce que rendait la voie GREFFE ;
+      * le port a un contexte pour une MoW depuis `engine.ai.context.build_machine`. C'est `build`
+        (la fonction des UNITES) qui rend `me = None`, et c'est correct : `decisionView.units` ne
+        contient jamais de Machine.
+
+    L'etape mesure donc les DEUX oracles et les DEUX constructeurs de contexte, et son verdict est
+    l'ACCORD des oracles -- pas le silence de l'un d'eux. Elle reste valide AVANT comme APRES la
+    fenetre de reinject qui portera le correctif : `aiPlaybookPredict` publie `posSrc`, et
+    `machine:*` signe le bundle corrige."""
     sid = _resolve_session()
     sf = LOGS / "p350r3b_step1.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
@@ -214,7 +252,7 @@ def step1_mow_caster(seed: int = 35030, verbose: bool = True) -> dict:
                   {"unitId": cid, "targetId": ids[SUMMONER], "abilityType": 1147})
         out["cold"] = {"count": cold.get("count"), "listNull": cold.get("listNull"),
                        "abilityState": cold.get("abilityState")}
-        # On pose deux summons (self-cast), PUIS on redemande.
+        # On pose deux summons (self-cast), PUIS on redemande -- aux DEUX oracles.
         _r(sid, rid, "applyAction",
            {"action": {"kind": "ability", "casterId": ids[SUMMONER],
                        "targetId": ids[SUMMONER], "abilityType": SPAWN_POXWALKERS}}, 180)
@@ -224,22 +262,52 @@ def step1_mow_caster(seed: int = 35030, verbose: bool = True) -> dict:
         if smn:
             hot = _r(sid, rid, "aiPlaybookPredict",
                      {"unitId": cid, "targetId": smn[0], "abilityType": 1147})
-            out["hot"] = {"count": hot.get("count"), "listNull": hot.get("listNull")}
-        # Cote PORT : aucun contexte AI pour une MoW.
+            out["hot"] = {"count": hot.get("count"), "listNull": hot.get("listNull"),
+                          "posSrc": hot.get("posSrc"),
+                          "events": [(e.get("healthDmgMin"), e.get("healthDmgMax"),
+                                      e.get("appliedHits")) for e in (hot.get("events") or [])]}
+            # L'oracle qui passe la position du CASTER (= `NullPosition` pour une MoW). Il ne
+            # depend PAS du correctif de `rpc-predict.ts` : il est deja dans le bundle.
+            nc = _r(sid, rid, "ncPlaybookPredict",
+                    {"unitId": cid, "targetId": smn[0], "abilityType": 1147,
+                     "via": "makeDamagePredictions"}, 240)
+            out["hot_nc"] = {"returnedCount": nc.get("returnedCount"), "posSrc": nc.get("posSrc"),
+                             "error": nc.get("error"),
+                             "events": [(e.get("healthDmgMin"), e.get("healthDmgMax"),
+                                         e.get("appliedHits"))
+                                        for e in (nc.get("returned") or [])]}
+        # Cote PORT : `build` (unites) rend None -- correct, une Machine n'est pas dans `.units` ;
+        # `build_machine` (machines) rend le contexte REEL.
         try:
             ctx, _ = P344._ctx(sid, rid, cid)
             out["port_ctx_me"] = None if ctx.me is None else ctx.me.get("visualId")
         except Exception as e:                                   # noqa: BLE001 -- on RAPPORTE
             out["port_ctx_me"] = "exception: %s" % type(e).__name__
+        try:
+            ctxm, _ = ctx_machine(sid, rid, cid)
+            out["port_machine_ctx_me"] = None if ctxm.me is None else ctxm.me.get("visualId")
+            out["port_machine_abilities"] = [a.get("id") for a in (ctxm.me or {}).get("abilities", [])]
+            out["port_machine_scene_ctx"] = (ctxm.scene is not None
+                                             and ctxm.scene.ctx(cid) is not None)
+        except Exception as e:                                   # noqa: BLE001
+            out["port_machine_ctx_me"] = "exception: %s" % type(e).__name__
+            out["port_machine_scene_ctx"] = None
     finally:
         if rid is not None:
             _r(sid, rid, "disposeRunner", {}, 30)
-    # Le CONSTAT attendu : deploiement OK, playbook resolu, niveau capte -- et pourtant l'oracle
-    # rend une liste vide puis NULL, et le port n'a pas de contexte. C'est CELA le mur restant.
+    hot, hot_nc = (out.get("hot") or {}), (out.get("hot_nc") or {})
+    # Le bundle Frida injecte porte-t-il le correctif #360 ? `posSrc` le SIGNE (`machine:*`).
+    out["bundle_has_360_fix"] = str(hot.get("posSrc") or "").startswith("machine:")
+    # VERDICT. L'oracle par la position du CASTER doit repondre -- il ne depend d'aucune fenetre.
+    # `aiPlaybookPredict` n'est exige d'ACCORDER que si le bundle porte le correctif ; sinon on
+    # constate (et on IMPRIME) qu'il rend `null`, sans en faire un echec ni une verite durable.
+    oracle_ok = (not hot_nc.get("error")) and bool(hot_nc.get("events"))
+    ai_ok = (hot.get("events") == hot_nc.get("events")) if out["bundle_has_360_fix"] else True
+    out["oracles_agree"] = bool(oracle_ok and ai_ok)
     out["ok"] = bool(out["deployed"] and out["abilities"]
                      and out["cold"]["count"] == 0
-                     and (out.get("hot") or {}).get("listNull") is True
-                     and out["port_ctx_me"] is None)
+                     and out["oracles_agree"]
+                     and out.get("port_machine_ctx_me") == MOW)
     if verbose:
         print("\n[350r3b/1] la MoW %s COMME CASTER" % MOW)
         print("  deployee               : %s (casterId=%s, abilities=%s)"
@@ -247,9 +315,18 @@ def step1_mow_caster(seed: int = 35030, verbose: bool = True) -> dict:
         print("  1147 sans summon       : count=%s listNull=%s abilityState=%s"
               % (out["cold"]["count"], out["cold"]["listNull"], out["cold"]["abilityState"]))
         print("  summons poses          : %s" % out.get("summons"))
-        print("  1147 avec summon       : %s" % out.get("hot"))
-        print("  contexte PORT (ctx.me) : %s" % out["port_ctx_me"])
-        print("  -> %s" % ("CONSTAT CONFIRME" if out["ok"] else "CONSTAT NON REPRODUIT"))
+        print("  1147 aiPlaybookPredict : count=%s listNull=%s posSrc=%s events=%s"
+              % (hot.get("count"), hot.get("listNull"), hot.get("posSrc"), hot.get("events")))
+        print("  1147 ncPlaybookPredict : returned=%s posSrc=%s err=%s events=%s"
+              % (hot_nc.get("returnedCount"), hot_nc.get("posSrc"), hot_nc.get("error"),
+                 hot_nc.get("events")))
+        print("  bundle porte le fix #360 : %s" % out["bundle_has_360_fix"])
+        print("  contexte PORT build()         : ctx.me = %s (None ATTENDU : canal .units)"
+              % out["port_ctx_me"])
+        print("  contexte PORT build_machine() : ctx.me = %s | abilities=%s | scene.ctx=%s"
+              % (out.get("port_machine_ctx_me"), out.get("port_machine_abilities"),
+                 out.get("port_machine_scene_ctx")))
+        print("  -> %s" % ("OK" if out["ok"] else "ECHEC"))
     return out
 
 
