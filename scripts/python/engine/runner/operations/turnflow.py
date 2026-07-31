@@ -105,6 +105,15 @@ class FinishUnitTurnOperation:
             from .triggers import arrived_at_final_tile_triggers
             out["arrived_triggers"] = arrived_at_final_tile_triggers(
                 state, int(unit_id), gate_already_consumed=True)
+        # `Add(TurnFinished=3)` nouvellement pose -> le natif publie `On(0x28 = UnitFinishedTurn)`
+        # PUIS, si `!isTerminated`, `On(0x29 = UnitFinishedTurnNormally)`. Les DEUX gates sont ceux du
+        # decompile (#354) ; l'ordre relatif a `On(0x1c)` (au-dessus) est celui du natif.
+        # `On(0x28)` reste NON EMIS (aucun consommateur porte -- residu nomme, cf. le vecteur).
+        # Consommateur de `On(0x29)` : `MyWillBeDoneOverlordAttackAbility` (passif `necroOverlord`).
+        if newly_finished and not forced:
+            from .triggers import unit_finished_turn_normally_triggers
+            out["finished_normally_triggers"] = unit_finished_turn_normally_triggers(
+                state, int(unit_id))
         return out
 
 

@@ -470,6 +470,54 @@ class HasFaction(AbilityTrigger):
 
 
 
+class IsUnitWithVisualId(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsUnitWithVisualId(unit, visualIdFormula)` : l'unite
+    resolue par `unit` porte-t-elle le `visualId` rendu par la formule ? Le call-site porte
+    (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MyWillBeDoneOverlordAbility$$GetTargetFriend`)
+    nourrit la formule par `VisualUnitIdFromUnitId(ConfigConstString(<config>, 0))`, donc une CHAINE.
+    Entite absente / formule nulle -> False (degradation fidele)."""
+    def __init__(self, unit: AbilityTrigger, visual_id):
+        self.unit, self.visual_id = unit, visual_id
+
+    def should_trigger(self, ctx):
+        vid = self.visual_id.evaluate(ctx) if hasattr(self.visual_id, "evaluate") else self.visual_id
+        if vid is None:
+            return False
+        return any((u or {}).get("visualId") == vid for u in _units_of(self.unit, ctx))
+
+
+class IsInPersistentDataList(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsInPersistentDataList(abilityOrEffect, unit, dataKey,
+    value)` -> `Idun.Source.IdunBattle.Logic.Entities.Triggers.IsInPersistentDataListTrigger$$ShouldTrigger`
+    — MIRROR du decompile, dont le corps utile tient en trois gestes :
+
+        entity = <selecteur @+0x28>.SelectSingle(entities)          # null -> pas de verdict
+        key    = <formule @+0x38 (ou @+0x30)>.Calculate(entities)   # la dataKey (string)
+        v      = <formule @+0x40>.Calculate(entities)               # la VALEUR cherchee
+        list   = entity.GetComponent<PersistentDataComponent>()
+                       .TryGetPersistDataList(GetPersistentDataId(abilityOrEffect@+0x10), key)
+                 ?? new List<T>()
+        return list.Contains(v)
+
+    Le port range la liste sous la MEME cle composite que le scalaire (`(abilityOrEffect, dataKey)`,
+    cf. `PersistentDataComponent`) et lit via l'accesseur `ctx.persistent_data_list` — absent (contexte
+    hors runner) -> liste VIDE -> False, ce qui est la reponse du natif quand la cle n'existe pas."""
+    def __init__(self, ability_or_effect: int, unit: AbilityTrigger, data_key, value):
+        self.ability_or_effect = int(ability_or_effect)
+        self.unit, self.data_key, self.value = unit, data_key, value
+
+    def should_trigger(self, ctx):
+        fn = ctx.persistent_data_list
+        if fn is None:
+            return False
+        key = self.data_key.evaluate(ctx) if hasattr(self.data_key, "evaluate") else self.data_key
+        val = self.value.evaluate(ctx) if hasattr(self.value, "evaluate") else self.value
+        if val is None:
+            return False
+        ck = (self.ability_or_effect, key)
+        return any(val in (fn(u, ck) or ()) for u in _units_of(self.unit, ctx))
+
+
 class HasUnit(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$HasUnit(tiles, mode)` : la/les TUILE(s) du selecteur portent-elles
     une unite (`GetUnitOrMachine(tile) != null`) ? Predicat TILE-domain -- consomme sous un `Filter`/

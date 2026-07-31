@@ -59,6 +59,36 @@ def turn_start_other_triggers(state: State, player_id: int) -> list[dict]:
     return evaluate_trigger_operation(state, ev)
 
 
+def unit_finished_turn_normally_triggers(state: State, unit_id: int) -> list[dict]:
+    """Vecteur `On(0x29 = UnitFinishedTurnNormally = 41)` — le TROISIEME et dernier evenement que
+    `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` publie, dans cet ordre (decompile relu,
+    #354) :
+
+        if (flags.Add(0x01 = ArrivedAtFinalTile) && !isTerminated)  publish On(0x1c)
+        if (flags.Add(0x03 = TurnFinished)) {
+            publish On(0x28 = UnitFinishedTurn)
+            if (!isTerminated) publish On(0x29 = UnitFinishedTurnNormally)
+        }
+
+    Les DEUX gates sont donc « le flag TurnFinished vient d'etre POSE » et « la terminaison n'est pas
+    FORCEE » ; ils vivent chez l'appelant (`operations/turnflow.py::FinishUnitTurnOperation.execute`),
+    exactement comme le gate d'`arrived_at_final_tile_triggers`. `actor` = `target` = l'unite qui
+    clot (le natif passe `unit` dans les TROIS slots de l'`AbilityEntities`).
+
+    ⚠ `On(0x28 = UnitFinishedTurn)` n'est PAS emis par le port : aucun consommateur porte. Residu
+    NOMME -- le jour ou une ability l'ecoute, elle s'ajoute ICI, pas dans un fork.
+
+    Consommateur : `MyWillBeDoneOverlordAttackAbility` (passif `necroOverlord` : un allie adjacent
+    attaque quand l'Overlord clot son activation). No-op si personne n'ecoute.
+
+    Le canal `TriggeringAbility` est VIDE sur cet evenement (le natif publie un
+    `Nullable<AbilityOrEffect>` a ZERO -- controle fait au desassemblage) : on ne threade donc
+    AUCUN `triggering_ability`, et c'est le mirror exact."""
+    ev = TriggerEvent(EventTriggerType.UnitFinishedTurnNormally, int(unit_id), int(unit_id),
+                      ranged=False, profile=None)
+    return evaluate_trigger_operation(state, ev)
+
+
 PILEIN_MIN_OWNER_TURNS = 2      # `OwnerHasFinishedMinTurns(2)` — gate du trigger PileIn IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger
 
 
