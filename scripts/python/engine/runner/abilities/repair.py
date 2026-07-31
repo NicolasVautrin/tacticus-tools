@@ -300,9 +300,10 @@ def galvanic_field_attack_behavior(state: "State", caster_id: int,
     FromCurrentPosition` n'en est pas une -> la boucle d'attaque est ecrite imperativement ENTRE les
     deux feuilles. Meme forme, meme ordre, memes observables.
 
-    RESIDU NOMME (herite du meme precedent) : le CHOIX de cible de l'attaque IA est approxime par
-    `perform_ai_attack_from_current_position` (ennemi le plus proche a portee), pas par le moteur
-    d'utilite natif ; et le roll de degat reste RNG.
+    Le CHOIX de cible n'est PLUS approxime (#338) : `perform_ai_attack_from_current_position` passe
+    par le moteur d'utilite natif (`AiControl$$ExecuteAbilityActionFor` ->
+    `DefaultAiUnitTactic.u003CCalculateAbilityActionForUnitu003Ed__6$$MoveNext`). RESIDU restant :
+    le roll de degat RNG.
 
     `node is None` (config `GalvanicField` illisible) -> AUCUN override invente, aucune attaque :
     degradation fidele. Rend la liste des attaques declenchees."""

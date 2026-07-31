@@ -224,13 +224,14 @@ Ce que chaque ligne établit, et qu'aucune autre ne donne :
   amie adjacente **à pleine vie**, que `RepairUnitOperation` REFUSE de réparer (gate
   `EntityCanBeRepaired` → `IsDamagedUnit`), attaque quand même. L'i2 dit « whenever Actus repairs
   another unit » ; le décompilé fait foi, le port suit le décompilé.
-* **Choix de cible de l'attaque gratuite — résidu hérité de #299 / `TheQuickening`.**
-  `perform_ai_attack_from_current_position` approxime le choix natif (ennemi le plus proche à
-  portée) au lieu d'invoquer le moteur d'utilité. MESURÉ sur le régime `attack` : le port frappe
-  `orksWarboss` là où le natif frappe `orksKillaKan` — **même montant total**, victime différente.
-  Sur `two`, la RÉPARTITION diffère aussi (port : 18038 sur un seul ennemi ; natif : 7795 + 10243),
-  pour un total identique. Les tests verrouillent donc le montant TOTAL et l'identité de
-  l'ATTAQUANT, jamais celle de la victime.
+* ~~**Choix de cible de l'attaque gratuite — résidu hérité de #299 / `TheQuickening`.**~~
+  **FERMÉ (#338)** : `perform_ai_ability_unit_behaviour` passe désormais par le moteur d'utilité
+  (`AiControl$$ExecuteAbilityActionFor` → `DefaultAiUnitTactic.<CalculateAbilityActionForUnit>d__6`).
+  Énoncé d'origine, qui est la MESURE ayant révélé l'écart : le port frappait `orksWarboss` là où le
+  natif frappe `orksKillaKan` (régime `attack`), et sur `two` la RÉPARTITION divergeait — port
+  **18038 sur un seul** ennemi, natif **7795 + 10243** sur deux, pour un total identique. Aucun test
+  ne l'attrapait, puisque seul le total était comparé. Après #338 : répartition **exacte**, et les
+  tests verrouillent le delta HP **par ennemi**. Détail : `case-338-ai-target-choice.md`.
 * **`groupType = 0x2a` d'`ExecuteAtomic`** : donnée de VUE (`DSLBehaviors$$AtomicGroup`), sans
   observable d'état porté — `AtomicGroup` est un pass-through côté port (RE #201).
 * **`source` / `AbilityOrEffect(1117)`** de la feuille `Repair` : l'attribution n'a pas d'observable

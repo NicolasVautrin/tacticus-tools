@@ -1,6 +1,7 @@
 """Abilities actives de SUMMON du namespace natif `Abilities.Active.Loki.*` — spawn d'unites :
 ScarabHive (necroSpyder), ScarabSummon (auto-dedoublement necroSmnSwarm), GetEmRuntz (orksRuntherd).
-+ les helpers on-appearance partages (`_summon_on_appearance_attack`, `_nearest_enemy`) consommes par
++ le helper on-appearance partage `_summon_on_appearance_attack` (et `_nearest_enemy`, devenu un simple
+outil GEOMETRIQUE de test depuis #338) consommes par
 les feuilles `SpawnSummon`/`SpawnReplica`/`PerformAIAttack` (`../behaviours.py`). Cf. `loki/__init__.py`."""
 from __future__ import annotations
 
@@ -77,8 +78,8 @@ def scarab_summon_tree() -> SpawnReplica:
     Port = feuille `SpawnReplica` (cf. behaviours.py) qui delegue le SPAWN a l'Operation VALIDEE
     `SpawnUnitOperation.execute_self_replica` (`IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner` = clone owner+stats du parent, tuiles
     libres adjacentes au caster) puis l'ON-APPEARANCE via le CORPS UNIQUE `perform_ai_attack(..., True, None)`
-    (gate de portee `_in_attack_range` + attaque normale complete + dispatch after-hit ; cible approximee par
-    `_nearest_enemy`). L'imperatif `ScarabSummonAbility.execute_behaviour` (spawn + boucle on-appearance cables
+    (gate de portee `_in_attack_range` + attaque normale complete + dispatch after-hit ; cible choisie par le
+    MOTEUR D'UTILITE natif depuis #338). L'imperatif `ScarabSummonAbility.execute_behaviour` (spawn + boucle on-appearance cables
     a la main) est REMPLACE par cet arbre. DISTINCT de `scarab_hive_tree` (WithStatsFromConfig summoner-scaled +
     AddEffect(0x4a3) + attaque de la CIBLE ; ici CopyOwner clone-du-parent + tour AI du double, sans effet).
     GAPS (inchanges) : le cap de duplication (`UnitDuplicationLimitSelector`) n'est pas porte — recurrence non

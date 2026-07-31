@@ -175,8 +175,9 @@ class PerformAIAttack(AbilityBehaviour):
         sous-behaviour on-appearance du `Spawn`) -> le dict d'unite est utilise TEL QUEL.
 
     ACTION PAR ACTEUR : la feuille ne fait que RESOUDRE LE DOMAINE puis delegue a l'UNIQUE corps,
-    `perform_ai_ability_unit_behaviour` (`../loki/summon.py` — cible `_nearest_enemy`, gate de portee
-    `_in_attack_range` mirror `IdunBattle.Core.Services.TargetingQuery$$GetRange` clamp `ForcedInMelee`
+    `perform_ai_ability_unit_behaviour` (`../loki/summon.py` — cible choisie par le MOTEUR D'UTILITE
+    natif depuis #338 (`AiControl$$ExecuteAbilityActionFor`), gate de portee `_in_attack_range` mirror
+    `IdunBattle.Core.Services.TargetingQuery$$GetRange` clamp `ForcedInMelee`
     inclus, attaque normale COMPLETE, puis dispatch after-hit `On(0x26)`/`On(8)`/`On(9)`). Il n'existe
     donc plus qu'UN corps pour ce noeud (de-fork : la feuille dupliquait auparavant cible+gate+attaque
     SANS le vecteur after-hit -> les grots/Poxwalkers/Cadians ne pompaient aucun trigger post-attaque,
