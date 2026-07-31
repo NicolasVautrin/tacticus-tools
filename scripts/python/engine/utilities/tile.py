@@ -917,7 +917,8 @@ _SORT_WEIGHTS: Weights | None = None
 def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None,
                           utility_type: int = int(UtilityType.Tile),
                           parent_id: int | None = None,
-                          utility_definition: UtilityDefinition | None = None) -> list:
+                          utility_definition: UtilityDefinition | None = None,
+                          leaf_ctx: dict | None = None) -> list:
     """`IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` — FOYER UNIQUE.
 
     Le natif, remis en C# depuis le décompilé :
@@ -1008,6 +1009,13 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     + le repli statique du Loop1 non hydraté. Le 2ᵉ argument est OBLIGATOIRE : sans lui le -25 de la
     Swamp serait compté DEUX fois.
 
+    `leaf_ctx` (#383) = le dict PAR-DÉCISION des feuilles, FOURNI par l'appelant au lieu d'être
+    dérivé d'un `State` de runner. `None` (défaut) = comportement inchangé (`runner_tile_leaf_ctx`).
+    Il existe car ce foyer a désormais TROIS substrats d'état, et un seul est un `State` :
+    `runner_tile_leaf_ctx` (runner ECS), `tile_leaf_ctx` (AiDecisionContext) et
+    `scene_tile_leaf_ctx` (la `Scene` de PRÉDICTION, seule chose que
+    `playbook.prediction.make_damage_predictions` reçoit). Le foyer de TRI reste unique.
+
     Rend une NOUVELLE liste ; `state.board`/`tiles` vides -> copie inchangée."""
     board = getattr(state, "board", None)
     if board is None or not tiles:
@@ -1025,7 +1033,8 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     emax = max(elevs) if elevs else None
     emin = min(elevs) if elevs else None
     fx = getattr(state, "effects", None)
-    leaf_ctx = runner_tile_leaf_ctx(state, unit_id, parent_id)
+    if leaf_ctx is None:
+        leaf_ctx = runner_tile_leaf_ctx(state, unit_id, parent_id)
 
     def _u(t) -> float:
         info = board.by_id.get(t) or {}
@@ -1055,7 +1064,8 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
 def first_tile_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None,
                           utility_type: int = int(UtilityType.Tile),
                           parent_id: int | None = None,
-                          utility_definition: UtilityDefinition | None = None):
+                          utility_definition: UtilityDefinition | None = None,
+                          leaf_ctx: dict | None = None):
     """`First(SortTilesByUtility(<tiles>, <unit>, <definition>, <parent>), 1)` — la MEILLEURE tuile
     au sens de la définition demandée, égalités tranchées par l'ordre du sélecteur source (tri
     stable). `unit_id` = `dc.unit`, `parent_id` = `dc.parent`, `utility_type` = le littéral du
@@ -1063,7 +1073,7 @@ def first_tile_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     (cf. `sort_tiles_by_utility`).
     Rend l'id de tuile, ou None si `tiles` est vide (le `MoveUnit`/`Spawn` en aval est alors no-op)."""
     ranked = sort_tiles_by_utility(state, tiles, wt, unit_id, utility_type, parent_id,
-                                   utility_definition)
+                                   utility_definition, leaf_ctx)
     return ranked[0] if ranked else None
 
 
@@ -1156,6 +1166,124 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
             "elev_by_pos": elev_by_pos, "neigh_by_pos": neigh_by_pos,
             "walkable_by_pos": walkable_by_pos}
+
+
+class _SceneTileEffect:
+    """Effet de TUILE vu par `sort_tiles_by_utility` (Loop1 de `TileEffectsUtility`) — duck-type
+    minimal (`.name`, `.consumed`) de ce que le canal runner range dans `EffectsState.by_unit`
+    indexé par id de TUILE (l'entité-tuile porte ses effets comme une unité, case-102). Le canal
+    de la face PRÉDICTION est `Scene.tile_effects_by_pos` (`tileMeta.effects[].name`), indexé par
+    POSITION : cette classe n'existe que pour le re-présenter sous la MÊME forme, sans dupliquer
+    la logique de `sort_tiles_by_utility`."""
+    __slots__ = ("name", "consumed")
+
+    def __init__(self, name: str):
+        self.name, self.consumed = name, False
+
+
+class SceneTileState:
+    """Adaptateur `Scene` -> l'objet d'état que `sort_tiles_by_utility` interroge (`.board` et
+    `.effects.by_unit[tileId]`).
+
+    Il ne peut PAS être la `Scene` elle-même : `Scene.effects` est une MÉTHODE (`effects(uid)`),
+    alors que le foyer de tri attend l'`EffectsState` (attribut `.by_unit`). Passer la `Scene` nue
+    ferait donc lever `getattr(state, "effects")` sur une bound method — dégradation silencieuse
+    exactement du genre que ce dépôt bannit.
+
+    `by_unit` est construit UNE FOIS depuis `Scene.tile_effects_by_pos` (canal `tileMeta`, DYNAMIQUE)
+    croisé avec `Scene.board` pour passer de la POSITION à l'id de tuile. Carte absente -> dict vide
+    -> le foyer retombe sur le seul `terrain_tile_effects` (repli statique déjà en place)."""
+    __slots__ = ("board", "effects")
+
+    class _Effects:
+        __slots__ = ("by_unit",)
+
+        def __init__(self, by_unit):
+            self.by_unit = by_unit
+
+    def __init__(self, scene):
+        self.board = getattr(scene, "board", None)
+        by_unit: dict = {}
+        fx = getattr(scene, "tile_effects_by_pos", None)
+        if fx and self.board is not None:
+            for pos, names in fx.items():
+                if not names:
+                    continue
+                tid = self.board.id_at(pos[0], pos[1])
+                if tid is None:
+                    continue
+                by_unit[int(tid)] = [_SceneTileEffect(n) for n in names if n]
+        self.effects = SceneTileState._Effects(by_unit)
+
+
+def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
+    """Dict `ctx` PAR-DÉCISION des feuilles `Tile(7)`, construit depuis la `Scene` de PRÉDICTION —
+    TROISIÈME jumeau de `runner_tile_leaf_ctx` (State de runner) et `tile_leaf_ctx`
+    (AiDecisionContext). MÊMES clés, MÊME sémantique d'absence.
+
+    Il existe parce que `playbook.prediction.make_damage_predictions` ne reçoit QUE la `Scene` : le
+    batch EXPLOSION de `IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions`
+    (#383) appelle `RammingSpeedAbility$$GetTileToMoveTo`, donc le foyer de tri, donc ce `ctx`. Sans
+    lui la feuille `RammingSpeed_MostAdjacentEnemies` (54) rendrait 0 partout et le bucket
+    dégénérerait en `Tile(7)` seul — MESURÉ changeant la tuile en #353-r1 (le port livré rend (5,7),
+    `Tile(7)` seul rend (3,7)), donc un voisinage FAUX et des events FAUX.
+
+    Le tri ami/ennemi est celui de `runner_tile_leaf_ctx` — l'ÉQUIPE du sujet (`case.unit`), pas le
+    `ctrl` de la face décision : `RammingSpeed_MostAdjacentEnemies` compte
+    `BattleQuery$$GetAdjacentEnemies(tuile, case.unit, false)`, qui résout le camp par
+    `OwnerComponent.get_CurrentPlayerEntityId(case.unit)`. Un caster du camp adverse (régime courant
+    de `aiPlaybookPredict`) inverserait les deux listes si on lisait `ctrl`.
+
+    `unit_id is None` -> `{}` (pas de sujet ; ce foyer n'a pas de call-site SUMMON côté prédiction,
+    donc jamais le régime `is_spawning` de case-205)."""
+    if unit_id is None:
+        return {}
+    from ..entities.triggered_ability_type import triggered_ability_ids
+    from ..entities.traits.unit_trait import entity_trait_ids, entity_trait_names
+    units = list(getattr(scene, "units", None) or [])
+    my_team = scene.team(unit_id)
+    my_vis = (scene.vis_by_id or {}).get(unit_id)
+    eff = getattr(scene, "eff_state", None)
+    fx_by_unit = getattr(eff, "by_unit", None) or {}
+
+    def _effect_names(uid):
+        return tuple(e.name for e in fx_by_unit.get(int(uid), []) if not e.consumed and e.name)
+
+    friends, enemies, fpos = [], [], []
+    for u in units:
+        uid = u.get("id")
+        p = u.get("pos") or {}
+        if uid is None or uid == unit_id or not u.get("alive") or p.get("col") is None:
+            continue
+        vis = u.get("visualId")
+        rec = {"pos": (p["col"], p["row"]), "vis": vis, "id": uid,
+               "triggered": tuple(triggered_ability_ids(vis)),
+               "traits": entity_trait_names(scene.ctx(uid), vis),
+               "effects": _effect_names(uid)}
+        if my_team is not None and u.get("team") == my_team:
+            friends.append(rec)
+            fpos.append(rec["pos"])
+        else:
+            enemies.append(rec)
+    board = getattr(scene, "board", None)
+    elev_by_pos, neigh_by_pos, walkable_by_pos = {}, {}, {}
+    if board is not None:
+        for tid, t in board.by_id.items():
+            pp = (t["col"], t["row"])
+            elev_by_pos[pp] = t.get("elevation")
+            walkable_by_pos[pp] = bool(t.get("walkable"))
+            neigh_by_pos[pp] = [board.coord(n) for n in board.neighbours_native(tid)]
+    return {"unit_triggered_abilities": list(triggered_ability_ids(my_vis)),
+            "unit_traits": entity_trait_ids(scene.ctx(unit_id), my_vis),
+            "uid": unit_id,
+            "unit_faction": faction_value(my_vis),
+            "is_spawning": False,
+            "self_pos": scene.pos(unit_id),
+            "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
+            "elev_by_pos": (getattr(scene, "elev_by_pos", None) or elev_by_pos),
+            "neigh_by_pos": neigh_by_pos, "walkable_by_pos": walkable_by_pos,
+            "scene": scene,
+            "hpmax_by_id": dict(getattr(scene, "hpmax_by_id", None) or {})}
 
 
 def _adjacent_units(ctx, uid):

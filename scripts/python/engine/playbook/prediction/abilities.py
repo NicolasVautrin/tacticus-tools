@@ -703,8 +703,9 @@ def _ramming_speed_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids 
 # l'ability (les deux que `make_damage_predictions` couvre deja). Consomme APRES la boucle AoE --
 # c'est l'ordre du natif pour le seul membre actuel (1059 : la boucle AoE y est vide).
 def _ramming_speed_self_events(scene, caster_id, target_id, ability_id, ability_name,
-                               attack_pos, ab, cfg) -> list:  # target_id ignore (contrat registre)
-    """`RammingSpeedPlaybook$$MakeDamagePredictions` -- **2e batch : le CASTER LUI-MEME**.
+                               attack_pos, ab, cfg) -> list:
+    """`RammingSpeedPlaybook$$MakeDamagePredictions` -- **2e batch (le CASTER LUI-MEME) + les batchs
+    3/4 (EXPLOSION)**, c.-a-d. tout ce que le playbook emet APRES le batch de la cible principale.
 
     Le playbook enchaine un SECOND `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullyShared
     GenericTypeu003E$$GenerateMultiHitAttackPredictions` dont le `param_4` ET le selecteur `param_5`
@@ -728,7 +729,24 @@ def _ramming_speed_self_events(scene, caster_id, target_id, ability_id, ability_
     est son propre ami : l'utilite de ce batch est NEGATIVE, exactement comme l'event de cout self.
 
     Config incomplete -> `[]` (degradation fidele, aucun event invente), meme convention que
-    `_frenzied_firing_inputs`."""
+    `_frenzied_firing_inputs`.
+
+    ── BATCHS 3/4 (EXPLOSION), #383 ────────────────────────────────────────────────────────────
+    Le natif enchaine, DANS CETTE FONCTION-CI parce que c'est le meme `MakeDamagePredictions` :
+
+        list.AddRange(self)
+        if (!self.Any(p => p.Prediction.WillBeKill)) return list;   // <>c$$<MakeDamagePredictions>b__2_0
+        <les deux batchs EXPLOSION>                                 // cf. `prediction/ramming_speed.py`
+
+    La gate est portee ICI, sur l'event du CASTER qu'on vient de construire : `will_be_kill()` est
+    le mirror de `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill`
+    (`CannotBeGuaranteedKilled@0x89` -> false ; sinon `CurrentHealth <= BlockScenarios[0]+0x0c ??
+    rawMin@0x1c`). `Enumerable.Any` sur une liste d'UN element == ce predicat sur cet element.
+
+    Elle a ete MESUREE gouvernante et NON causale du verrou (`#372` : capteur `get_WillBeKill ->
+    TRUE`, 1 appel, `blockScenarioCount = 0`, `cannotBeGuaranteedKilled = 0`) ; le verrou etait un
+    ARTEFACT DE MONTAGE (le caster n'avait pas la main, donc `MovementQuery$$
+    FindAnyOrAllMoveableTiles` repartait sur un `OrderedSet` VIDE) -- cf. `case-361`."""
     lvl, mult = ab.level, ab.multiplier
     base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)       # var 0xc = minDmg (Get == Direct)
     hits2 = int((cfg.constants or {}).get("nrOfHits_2") or 0)       # const 0x32 = nrOfHits_2
@@ -737,7 +755,15 @@ def _ramming_speed_self_events(scene, caster_id, target_id, ability_id, ability_
     dp = generate_multi_hit_attack_prediction(scene, caster_id, caster_id, ability_id, ability_name,
                                               attack_pos=attack_pos, base_override=base,
                                               hits_override=hits2)
-    return [ProbableDamageEvent(target=caster_id, prediction=dp, friendly=True)] if dp is not None else []
+    if dp is None:
+        return []
+    events = [ProbableDamageEvent(target=caster_id, prediction=dp, friendly=True)]
+    # `if (!self.Any(p => p.Prediction.WillBeKill)) return list;` — le recul doit TUER le caster.
+    if not any(e.prediction.will_be_kill() for e in events):
+        return events
+    from .ramming_speed import explosion_events
+    return events + explosion_events(scene, caster_id, target_id, ability_id, ability_name,
+                                     attack_pos)
 
 
 # `EffectType.Fire` (5) — `scene.tile_effects_by_pos` est indexee par NOM d'effet (`tileMeta`
@@ -873,7 +899,9 @@ _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_
                              1059: _ramming_speed_inputs}
 
 # Batchs SUPPLEMENTAIRES per-ability (cf. `_ramming_speed_self_events`) : le playbook emet des events
-# sur un selecteur AUTRE que la cible principale et l'AoE de l'ability.
+# sur un selecteur AUTRE que la cible principale et l'AoE de l'ability. Pour 1059 le handler rend les
+# TROIS batchs restants -- le CASTER, puis (sous la gate `WillBeKill`) les deux batchs EXPLOSION --
+# parce qu'ils sortent du MEME `MakeDamagePredictions` et que leur ordre y est significatif.
 _MAKE_DMG_EXTRA_EVENTS = {1059: _ramming_speed_self_events}
 
 
