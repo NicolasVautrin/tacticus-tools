@@ -59,10 +59,13 @@ class HailstrikeExtraPierceEffect(BaseEffect):
         materialisation cote port, dans cet ordre :
           1. effet POSE offline par `AddEffectOperation` avec `scale_from_source=True` -> le niveau
              actif de la source est deja seede sur l'instance (`active_ability_level`) ;
-          2. effet CAPTE depuis le live (`EffectsState.seed`) -> l'instance ne porte QUE le niveau du
-             PORTEUR (mauvaise unite) ; on re-resout depuis `self.source` via le resolveur
-             `unit_ctx_of` que l'agregateur cote runner depose dans le `ctx` du coup (l'inversion de
-             dependance evite a `engine/entities` de connaitre l'ECS `engine/runner`).
+          2. effet CAPTE depuis le live (`EffectsState.seed`) -> depuis #382 l'instance porte deja
+             l'`active_ability_level` de sa SOURCE quand celle-ci differe du porteur
+             (`baked_ability_state`) ; le repli `unit_ctx_of` reste indispensable pour les autres
+             cas (source == porteur : `seed` laisse `active_ability_level` a None), et il resout
+             `self.source` via le resolveur que l'agregateur cote runner depose dans le `ctx` du
+             coup (l'inversion de dependance evite a `engine/entities` de connaitre l'ECS
+             `engine/runner`).
         Aucun repli sur `self.ability_level` (= le niveau du PORTEUR) : ce serait la mauvaise unite,
         et `extraPierceRatio` VARIE avec le niveau (10 / 12 / 15 selon la config 1214). Faute de
         source resolvable -> (0, 100) = premiere entree de la courbe, jamais un niveau invente.

@@ -94,34 +94,36 @@ a leur valeur. Sous la meme mutation, le cliquet rend **3 failed / 5 passed** �
 structurel et les deux CHARGE (deux boards) ; `STEP_ADJACENT`, le temoin et le gate tri-etat restent
 VERTS. La garde discrimine donc l'inscription de `1224`, et rien d'autre.
 
-## 5. Residu NOMME et MESURE — le niveau d'ability vient de la SOURCE, le port lit le PORTEUR
+## 5. ~~Residu NOMME et MESURE~~ — FERME par #382 (`case-382-effect-source-ability-state.md`)
 
-C'est le seul point ou `1224` sollicite le port autrement que `1223`, et **c'est un ecart reel**.
+C'est le seul point ou `1224` sollicite le port autrement que `1223` — c'est ce cas qui a EXPOSE
+l'ecart, #382 le ferme.
 
-Le natif : `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState` =
-`IdunBattleLogic.Entities.DSLSelectors$$AbilityStateFromEffect(<noeud EFFET>)` — l'`AbilityState`
-**bakee dans l'effet a la pose**, donc celle de la SOURCE. Le port seede `ability_level` depuis le
-`unitConfig` du PORTEUR (`EffectsState.seed`, cle par porteur). Pour `1223` porteur == source :
-inobservable. Pour `1224` ils different **par construction**.
+Le natif BAKE : `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultEffectBuilder` copie les
+0x24 octets de l'`AbilityStateReference` dans `EffectComponent[+0x18..+0x38]` **a la pose**, et
+`IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` /
+`IdunBattle.DSL.AbilityStateFromEffectSelector$$Select` relisent ce meme champ — donc l'etat de la
+SOURCE. Pour `1223` porteur == source (inobservable) ; pour `1224` ils different **par
+construction**.
 
-Sous `buildNormalizedBC` les deux valent 50 -> ecart numeriquement nul. DISSOCIES, il apparait
-(MC1_67 / 777, Ragnar `PassiveAbilityLevel=1`, Ulf 50) :
+Sous `buildNormalizedBC` les niveaux valent 50 des deux cotes -> ecart numeriquement nul, ce qui est
+la raison pour laquelle aucune garde ne l'avait vu. DISSOCIES (MC1_67 / 777, Ragnar
+`PassiveAbilityLevel=1`, Ulf 50), il apparait :
 
 ```
-natif   n=4  [2679, 3724, 2879, 3771]                 # extraHits[1]  = 1  (niveau SOURCE)
-port    n=6  [2679, 3724, 2879, 3771, 3273, 3750]     # extraHits[50] = 3  (niveau PORTEUR)
+natif    n=4  [2679, 3724, 2879, 3771]                 # extraHits[1]  = 1  (niveau SOURCE)
+port     n=4  [2679, 3724, 2879, 3771]                 # apres #382 : ability_level=1, mult=200
+(avant)  n=6  [2679, 3724, 2879, 3771, 3273, 3750]     # extraHits[50] = 3  (niveau PORTEUR)
 ```
 
-Repro : `probe_366_r1_saga_other_space_wolves.py --arms KILL --regimes CHARGE
---extra="--unit-stat" --extra="spaceBlackmane:PassiveAbilityLevel=1"`.
-Le meme ecart porte sur le **multiplier de rarete** (mesure : source 200, porteur 180) — il touche
-donc AUSSI la face CRIT (`extraCritDmg` est la seule variable scalee par le multiplier).
+Le **multiplier de rarete** est dissocie lui aussi (source 200, porteur 180) — et il l'est meme sans
+`--unit-stat`, donc il touche AUSSI la face CRIT (`extraCritDmg` est la seule variable scalee).
 
-**Actionnable** : le capteur publie deja la source sur l'effet
-(`{"effectType": 1224, …, "source": 81}`), et `runner/snapshot.py::_source_ability_state(state,
-source_id)` fait deja exactement ce calcul — pour les effets de TUILE. Ce qui manque est le CABLAGE
-de cette voie sur les effets d'UNITE : un changement du canal de seed **partage par les 135 entrees**
-d'`EFFECT_CLASSES`, donc une tranche a part entiere avec sa propre validation. Non fait ici.
+Repro : `probe_382_effect_source_ability_state.py` (montage dedie) ou
+`probe_366_r1_saga_other_space_wolves.py --arms KILL --regimes CHARGE --extra="--unit-stat"
+--extra="spaceBlackmane:PassiveAbilityLevel=1"`. Foyer du correctif :
+`engine.entities.effects_state.baked_ability_state`, alimente par les DEUX seams (COMBAT
+`runner/snapshot.py`, PREDICTION `playbook/scene.py`).
 
 ## 6. Ce qui n'est PAS couvert
 
@@ -132,7 +134,7 @@ d'`EFFECT_CLASSES`, donc une tranche a part entiere avec sa propre validation. N
   (`create_effect_crit_damage_bonus_for_attack`) est celui de `1223`, deja valide
   (`case-ischarging-crit-channel`), et la classe est PARTAGEE — la couverture est donc structurelle,
   pas experimentale. Le montage manquant : `--crit` sur le receveur (la normalisation met le crit a 0).
-* **Le residu §5** (niveau/multiplier lus sur le porteur au lieu de la source).
+* ~~Le residu §5~~ — FERME par #382.
 * **Les Space Wolves qui APPARAISSENT apres le kill** (summons) ne recoivent rien : le behaviour
   n'est evalue qu'au trigger. Conforme au natif, non teste.
 * **Un seul receveur mesure** (`spaceWulfen`). Les trois autres receveurs du pool ne sont pas
