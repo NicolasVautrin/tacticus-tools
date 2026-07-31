@@ -73,6 +73,8 @@ from __future__ import annotations
 
 from ..weights import Weights
 from .base import BaseUtility, ComposedUtility
+from .decider import UtilityBucket, UtilityDefinition, calculate_utility
+from .ramming_speed import RAMMING_SPEED_MOST_ADJACENT_ENEMIES
 from .utility_type import UtilityType
 from ..entities.effect_type import EffectType
 from ..entities.active_ability_type import ActiveAbilityType
@@ -884,12 +886,28 @@ MOVEMENT_SUGGESTION_UTILITY = ComposedUtility(
     [TILE_UTILITY, TileDistanceUtility()], utility_type=UtilityType.MovementSuggestion)
 
 # Mirror de `UtilitiesDatabase$$GetUtility` réduit aux types que les call-sites portés demandent.
-# `SortTilesByUtility` construit `UtilityDefinition(<literal>)` -> `Buckets[0].Utilities[0] =
-# WeightedUtility(<literal>, weight=1)`, et l'utilité résolue est l'entrée de cette table.
-UTILITY_BY_TYPE: dict[int, ComposedUtility] = {
+# La surcharge INT de `SortTilesByUtility` construit `UtilityDefinition(<literal>)` ->
+# `Buckets[0].Utilities[0] = WeightedUtility(<literal>, weight=1)`, et l'utilité résolue est
+# l'entrée de cette table. Un call-site peut aussi bâtir la définition À LA MAIN, avec PLUSIEURS
+# `WeightedUtility` dans le même bucket (`RammingSpeedAbility$$GetTileToMoveTo`, #353-r1) : la table
+# est alors interrogée UNE FOIS PAR TERME, et `UtilityDecider.CalculateUtility` en fait la somme
+# pondérée (`engine/utilities/decider.py`).
+UTILITY_BY_TYPE: dict[int, BaseUtility] = {
     int(UtilityType.Tile): TILE_UTILITY,                                # 7  — SkyStrike/HeroicFusillade/…
     int(UtilityType.MovementSuggestion): MOVEMENT_SUGGESTION_UTILITY,   # 32 — VigilanceEternal
+    # 54 — 2e terme du bucket de `RammingSpeedAbility$$GetTileToMoveTo` (#353-r1). FEUILLE, pas
+    # composite : `UtilitiesDatabase$$InitializeUtilities` ne compose que les types qui ont une
+    # entrée dans son `Dictionary<UtilityType, UtilityType[]>` ; 54 n'en a pas, `GetUtility` rend
+    # donc directement l'instance de la classe.
+    int(UtilityType.RammingSpeed_MostAdjacentEnemies): RAMMING_SPEED_MOST_ADJACENT_ENEMIES,
 }
+
+
+def utilities_database(utility_type: int) -> BaseUtility | None:
+    """`IdunBattle.Core.Services.UtilitiesDatabase$$GetUtility(utilityType)` réduit aux types que
+    les call-sites portés demandent (`UTILITY_BY_TYPE`). `None` = type non porté — l'appelant
+    (`UtilityDecider.CalculateUtility`) LÈVE plutôt que de rendre 0 en silence."""
+    return UTILITY_BY_TYPE.get(int(utility_type))
 
 
 # ── FOYER UNIQUE du sélecteur `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector` ─────────────
@@ -898,7 +916,8 @@ _SORT_WEIGHTS: Weights | None = None
 
 def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None,
                           utility_type: int = int(UtilityType.Tile),
-                          parent_id: int | None = None) -> list:
+                          parent_id: int | None = None,
+                          utility_definition: UtilityDefinition | None = None) -> list:
     """`IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` — FOYER UNIQUE.
 
     Le natif, remis en C# depuis le décompilé :
@@ -908,7 +927,8 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
         dc.parent = this.parent?.<Select*>(entities, 0)       // IEntity, null si le sélecteur est nul
         dc.dict   = new Dictionary<Tile, Fix64>()
         foreach (tile in dc.tiles)
-            dc.dict[tile] = UtilityDecider.CalculateUtility(tile, this.definition.Buckets[0], cache)
+            dc.dict[tile] = UtilityDecider.CalculateUtility(this.utilitiesDatabase, tile,
+                                                            this.definition.Buckets[0], dc.<Select>b__1)
         return dc.tiles.OrderBy(dc.<Select>b__0).ToList()      // b__0 = Fix64.op_UnaryNegation(dict[t])
 
     `<Select>b__0` rend l'OPPOSÉ de l'utilité -> **tri DÉCROISSANT**, et `OrderBy` LINQ est **STABLE**
@@ -936,6 +956,17 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     `UtilityDefinition(0x20 = MovementSuggestion)` -> composite `[Tile(7), TileDistance(34)]` (#201,
     carte de composition relue dans `UtilitiesDatabase$$InitializeUtilities`). Les DEUX passent
     désormais par ici — le contournement « ce call-site ne passe pas par le foyer » est LEVÉ.
+
+    `utility_definition` (#353-r1) = la définition BÂTIE À LA MAIN par le call-site, quand il
+    n'emprunte PAS la surcharge int. Elle prime sur `utility_type`.
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$GetTileToMoveTo` est le
+    premier call-site porté dans ce cas : il alloue un `WeightedUtility[2]`
+    (`[ WeightedUtility(7 = Tile, null), WeightedUtility(0x36 = 54
+    RammingSpeed_MostAdjacentEnemies, null) ]`), l'enveloppe dans UN `UtilityBucket(…, null)` puis
+    dans un `UtilityDefinition`. Le scalaire `utility_type` ne peut pas exprimer ce bucket — d'où ce
+    paramètre. La composition (somme PONDÉRÉE, poids par défaut 1, quatre sentinelles de
+    court-circuit non portées) est lue au décompilé dans `engine/utilities/decider.py`, jamais
+    supposée depuis le nom « bucket ».
 
     `unit_id` = le sélecteur d'unités `dc.unit` du natif (`caster@0x160` sur les call-sites de
     charge). Il est passé au `UtilityMovementCase`, donc les feuilles GATÉES SUR L'UNITÉ le voient :
@@ -987,9 +1018,9 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
             from ..weights import load as _load_weights
             _SORT_WEIGHTS = _load_weights()
         wt = _SORT_WEIGHTS
-    utility = UTILITY_BY_TYPE.get(int(utility_type))
-    if utility is None:
-        raise KeyError("SortTilesByUtility: UtilityType %r hors UTILITY_BY_TYPE" % (utility_type,))
+    definition = (utility_definition if utility_definition is not None
+                  else UtilityDefinition.from_utility_type(int(utility_type)))
+    bucket = definition.bucket          # `Buckets[0]` — le SEUL que `Select` lit (Length==0 -> throw)
     elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
     emax = max(elevs) if elevs else None
     emin = min(elevs) if elevs else None
@@ -1010,7 +1041,12 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
         # qu'attendent les playbooks de la feuille TriggeredAbilities(2) (`hexgeo`/`battle_query`).
         # Inerte tant que `leaf_ctx` était vide (aucune feuille active ne lit `tile`), décisif dès
         # que `unit_id` est fourni. `TileDistance(34)` (composite 32) le lit TOUJOURS.
-        return utility.evaluate(board.coord(t), meta, leaf_ctx, wt)
+        #
+        # `case` = le `UtilityMovementCase(dc.unit, tile, null, null, dc.parent)` du natif, réduit à
+        # ce que les feuilles portées consomment ; `dc.unit`/`dc.parent` sont déjà dans `leaf_ctx`.
+        case = (board.coord(t), meta)
+        return calculate_utility(utilities_database, case, bucket,
+                                 lambda cse, u: u.evaluate(cse[0], cse[1], leaf_ctx, wt))
 
     util = {t: _u(t) for t in tiles}
     return sorted(tiles, key=lambda t: -util[t])   # b__0 = op_UnaryNegation -> DÉCROISSANT, stable
@@ -1018,13 +1054,16 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
 
 def first_tile_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None,
                           utility_type: int = int(UtilityType.Tile),
-                          parent_id: int | None = None):
-    """`First(SortTilesByUtility(<tiles>, <unit>, UtilityDefinition(<utility_type>), <parent>), 1)` — la
-    MEILLEURE tuile au sens du composite demandé, égalités tranchées par l'ordre du sélecteur source
-    (tri stable). `unit_id` = `dc.unit`, `parent_id` = `dc.parent`, `utility_type` = le littéral du
-    call-site (cf. `sort_tiles_by_utility`).
+                          parent_id: int | None = None,
+                          utility_definition: UtilityDefinition | None = None):
+    """`First(SortTilesByUtility(<tiles>, <unit>, <definition>, <parent>), 1)` — la MEILLEURE tuile
+    au sens de la définition demandée, égalités tranchées par l'ordre du sélecteur source (tri
+    stable). `unit_id` = `dc.unit`, `parent_id` = `dc.parent`, `utility_type` = le littéral du
+    call-site, `utility_definition` = la définition bâtie à la main quand il y en a une
+    (cf. `sort_tiles_by_utility`).
     Rend l'id de tuile, ou None si `tiles` est vide (le `MoveUnit`/`Spawn` en aval est alors no-op)."""
-    ranked = sort_tiles_by_utility(state, tiles, wt, unit_id, utility_type, parent_id)
+    ranked = sort_tiles_by_utility(state, tiles, wt, unit_id, utility_type, parent_id,
+                                   utility_definition)
     return ranked[0] if ranked else None
 
 

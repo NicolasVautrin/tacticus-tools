@@ -157,12 +157,86 @@ cause reste donc **non tranchée**, et c'est le seul point du cas qui l'est.
 > déjà DOCUMENTÉS dans la table du fichier ; il ne manque que la lecture. Sans eux, tout verdict sur
 > une gate `WillBeKill` se prend en aveugle — et pas seulement pour 1059.
 
+## 5bis. `GetTileToMoveTo` — porté (#353-r1, volet a)
+
+Le volet (a) du §5 est FERMÉ. Trois lectures ont corrigé l'énoncé hérité, et deux d'entre elles
+changent la tuile rendue.
+
+**Le décompilé, relu.** `RammingSpeedAbility$$GetTileToMoveTo` n'appelle **pas**
+`DSLSelectors$$TilesUnitCanMoveToChargeTarget` : il assemble les deux mêmes nœuds à la main.
+
+```
+First( SortTilesByUtility(
+           MovableTilesInRange(caster@0x48, casterTile@0x50,
+                               Direct(GetNumberConstant(0x16 = range)), 0, 0)
+           op_BitwiseAnd  CanAddUnit(AdjacentTiles(target@0x60)),
+           caster@0x48,
+           UtilityDefinition( UtilityBucket([ WeightedUtility(7 = Tile, null),
+                                              WeightedUtility(0x36 = 54, null) ], null) ),
+           null),
+       1 )
+```
+
+1. **L'ordre des opérandes est INVERSE** de celui du helper (§5 l'écrivait dans l'ordre du helper) :
+   `MovableTilesInRange` est à GAUCHE. `TargetsSelector$$op_BitwiseAnd(left, right)` garde l'ordre de
+   GAUCHE, et l'`OrderBy` de `SortTilesByUtilitySelector$$Select` est STABLE ⇒ **à utilité égale, les
+   deux ordres désignent des tuiles différentes**. Mesuré (montage `_ramming_speed_charge_montage`,
+   board plat, 2ᵉ ennemi en (2,3)) : ordre natif → `(2,2)`, ordre du helper → `(3,4)`.
+2. **La composition du bucket est une SOMME PONDÉRÉE, poids 1 chacun** — lu, pas supposé.
+   `WeightedUtility$$.ctor` pose `Weight = weight ?? Fix64.FromInt(1)` et les deux termes sont
+   construits avec un `Nullable<Fix64>` VIDE ; `UtilityBucket$$.ctor` pose
+   `MinUtilityDifference = m ?? 0` (non lu par ce chemin — il sert à `UtilityDecider$$Decide`) ;
+   `UtilityDecider.<CalculateUtilityInSteps>d__9<T>` fait `total += r * wu.Weight` par terme.
+   ⚠ **Quatre SENTINELLES** (statiques de `BaseUtility`, `+0x10/+0x18/+0x20/+0x28`) court-circuitent
+   la boucle et deviennent le total. Aucune utilité portée n'en rend une → **non modélisées**, résidu
+   nommé dans `engine/utilities/decider.py`.
+3. **`54` est re-dérivé du build**, pas recopié : `enums.tsv` de `rnca9r7q6c` donne
+   `54=RammingSpeed_MostAdjacentEnemies` (le port passe par le MEMBRE `UtilityType.*`, jamais par le
+   littéral — #252/#283 ont renuméroté quatre enums).
+4. **La clé BC de la feuille était INDEVINABLE au préfixe** :
+   `probe_212_bc_key_literals.py --symbol "IdunBattle.AI.Utilities.RammingSpeed_MostAdjacentEnemies.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext"`
+   → `'RAMMINGSPEED_AdjacentEnemy'` (majuscules collées), recroisé avec `seed-bc` :
+   `Utilities.Default.RammingSpeed_MostAdjacentEnemies` = **20**. C'est une DONNÉE.
+5. **La query est bien `GetAdjacentEnemies`, pas `GetAdjacentUnits`** — tranché par l'ARITÉ, pas par
+   un numéro de slot recopié (ils ont bougé entre builds, cf. `case-27`) : l'appel a TROIS arguments
+   (`from`, `unit`, `ignoreSteppables`) là où `BattleQuery$$GetAdjacentUnits` en a QUATRE
+   (`tiles, friendsOf, enemiesOf, ignoreSteppables`). Le 2ᵉ argument est le POINTEUR `case.unit`
+   (`case+0x10`) ⇒ la surcharge `(IEntity from, IEntity unit, bool)`. L'ancre est la tuile
+   **CANDIDATE** (`case.position.MainTile`), ce qui rend le terme discriminant d'une tuile à l'autre.
+   Conséquence de géométrie : toute candidate touche la cible (elle sort de
+   `CanAddUnit(AdjacentTiles(Target))`), donc vaut au minimum `1 × 20`.
+
+**Ce que ça change, chiffré** (montage plat, 2ᵉ ennemi en (4,3), pool
+`[(2,2), (2,3), (3,2), (3,4), (4,2)]`) : `u54 = [20, 20, 20, 40, 40]`, `Tile(7) = 0` partout.
+Bucket → `(3,4)` ; `Tile(7)` seul (ce que le port savait exprimer) → `(2,2)`, la 1ʳᵉ du pool.
+
+**Livré** : `engine/utilities/decider.py` (les 3 mirrors + `calculate_utility`),
+`engine/utilities/ramming_speed.py` (la feuille 54), `UTILITY_BY_TYPE[54]` + `utilities_database()`,
+`sort_tiles_by_utility(..., utility_definition=)`, et
+`engine/runner/abilities/orks.py::ramming_speed_tile_to_move_to` (+ son sélecteur).
+1059 **n'entre pas** dans `ABILITY_CLASSES` : seule `GetTileToMoveTo` est portée.
+
+**Non confronté LIVE** — la plateforme était hors service pendant la tranche (host `127.0.0.1:8765`
+éteint, aucune session Frida ; un agent n'injecte pas). Le probe est écrit et prêt :
+`probe_353r1_ramming_speed_charge_tile.py`. Il n'utilise **aucun capteur neuf** — la face COMBAT
+expose la tuile directement (`ExecuteBehaviour` = `If(!IsAdjacent(caster, target, 3), MoveUnit(caster,
+GetTileToMoveTo()))`), donc **la position d'arrivée du caster après un cast natif de 1059 EST la
+réponse**. Deux conditions de montage, lues au décompilé : caster NON adjacent à la cible (sinon le
+`If` court-circuite) et caster n'ayant pas bougé ce tour (sinon
+`GetDynamicInvalidTargetReason` rend `0x10` — d'où le `endturn` après le drive).
+
 ## 6. Gardes
 
 | garde | ce qu'elle verrouille |
 |---|---|
 | `tests/engine/test_353_ramming_speed_prediction_offline.py` (6) | le registre + la ligne de table rectifiée ; base = `minDmg` sur 4 niveaux avec écart NON NUL ; coups = littéral même avec `ExtraHits`/`ExtraHitsMelee` (l'axe que le live n'exerce pas) ; câblage du 2ᵉ batch (ordre, cible = caster, `nrOfHits_2`, `friendly`) ; dégradation `[]` sans config ; **0 porteur de 1059 dans tout le gameconfig** |
 | `tests/engine/test_353_ramming_speed_prediction_live.py` (4) | greffe appliquée + config injectée + `playbookClass` + `AbilityState` du capteur ; port == natif event pour event ; le natif émet bien l'event SELF à `nrOfHits_2` coups et le port d'AVANT n'en émettait qu'un ; chaque bras DISCRIMINE |
+| `tests/engine/runner/test_353r1_ramming_speed_charge_tile_offline.py` (10) | **#353-r1 volet (a)**, 100 % offline sur le montage nommé `_ramming_speed_charge_montage.py` : 54 au registre (par MEMBRE d'enum) ; feuille = `#ennemis adjacents × poids BC` (poids RELU, pas figé) ; muette sans sujet ; bucket = 2 termes de poids 1, `minDiff` 0, UN seul `Buckets[0]` ; **le 2ᵉ terme change la tuile** ; poids 0 ≡ amputation (la composition est bien une somme pondérée) ; type inconnu → LÈVE (jamais 0 silencieux) ; opérandes `MovableTilesInRange` À GAUCHE ; **l'ordre change la tuile à égalité** ; intersection vide → `None` |
 
-**Ce qui n'est PAS couvert** : les batchs 3/4 (§5) ; l'axe COUPS en live (le greffon a 0 `ExtraHits` —
-couvert offline seulement) ; le `multiplier` per-ability (les 4 bras sont à 100).
+**Ce qui n'est PAS couvert** : les batchs 3/4 (§5 (b) — gate `WillBeKill`, hors périmètre #353-r1) ;
+la confrontation LIVE de `GetTileToMoveTo` (probe écrit, plateforme éteinte) ; le régime où `Tile(7)`
+n'est PAS constant (le montage est plat EXPRÈS, pour que le terme qui tranche soit nommable) ;
+l'ORDRE natif de `MovableTilesInRange` (le port rend les ids croissants, le natif l'ordre de visite du
+BFS — inobservable tant que ce nœud était à DROITE de toutes les intersections portées, il devient ici
+l'ordre source et ne départage que des utilités STRICTEMENT égales) ; l'axe COUPS en live (le greffon
+a 0 `ExtraHits` — couvert offline seulement) ; le `multiplier` per-ability (les 4 bras sont à 100).
