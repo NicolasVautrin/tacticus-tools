@@ -232,19 +232,27 @@ l'ability. C'est la forme de rouge qu'on voulait : elle teste la CIBLE, pas 1169
 ### 4.4 Gardes
 
 `scripts/python/tests/engine/test_plagueburst_mortar_prediction_live.py` — **9 tests, 9 verts**
-(98 s). Chacune porte un enonce falsifiable : disponibilite de l'oracle par etage (ECHEC explicite,
+(147 s, re-joues APRES rebase sur `origin/master` `7166cbfa`, qui contient #337 — lequel a modifie
+le foyer per-cible `generate_multi_hit_attack_prediction` que ce port appelle). Non-regression des
+tranches voisines, re-jouee elle aussi apres rebase : `test_plagueburst_mortar_decision_live.py` +
+`test_deathguard_targeting_live.py` **16/16**, `test_daemonic_ordnance_decision_live.py` **13/13**.
+Chaque garde porte un enonce falsifiable : disponibilite de l'oracle par etage (ECHEC explicite,
 jamais un skip), montage qui atteint REELLEMENT le predicat, `nev <= 1` par tuile (les adjacents
 n'entrent pas), bit-exactitude des champs, attribution du residu (§5), accord sur les deux bras,
 mutation qui change la tuile, inertie hors regime.
 
-> ⚠ **La mutation ADVERSARIALE du port lui-meme (M1 : predicat retire de `GetMainDamageTarget`)
-> n'a PAS pu etre jouee** : la fenetre DRAIN du host est tombee pendant la passe (creation de runner
-> refusee), et la passe a erre en teardown de fixture au lieu de rendre un rouge. **NON CONFRONTE —
-> fenetre DRAIN**, a rejouer telle quelle a la relance :
-> remplacer `plagueburst_main_damage_target(...)` par `Enemies(Units(FixedTileIds([...])))` dans
-> `plagueburst_mortar.make_damage_predictions` ; attendu ROUGE sur
-> `test_prediction_term_is_inert_outside_the_regime` (le port predirait du degat dans le bras temoin).
-> La mutation « terme vide », elle, est jouee EN CONTINU par la garde D (bras `mutated`).
+### 4.5 Preuve par MUTATION — la garde SAIT virer au rouge
+
+Deux mutations, deux signatures DISJOINTES. Une garde jamais vue rouge ne prouve rien.
+
+| mutation | resultat MESURE |
+|---|---|
+| **M0 — terme de prediction VIDE** (`MakeDamagePredictions` -> `[]`) | jouee EN CONTINU par la garde D (bras `mutated`) : bras discriminant `(1169, tile 52)` -> `(1169, tile 43)`, **meme ability, AUTRE tuile** ; bras temoin INCHANGE |
+| **M1 — predicat retire de `GetMainDamageTarget`** (`Filter(...)` remplace par `Enemies(Units(...))` nu) | **2 rouges / 9** : `test_prediction_term_is_inert_outside_the_regime` (bras TEMOIN : moteur `(1169, 52)` vs natif `(1169, 43)`) et `test_engine_matches_native_on_both_arms`. Les 7 autres restent verts — le rouge est LOCALISE sur le canal du predicat, pas diffus |
+
+M1 est la mutation qui compte : elle attaque precisement le cablage neuf (`has_negative_modifier` /
+`is_in_team_aura`). Sans le predicat, le port predit du degat sur un occupant que le natif REFUSE,
+et c'est le bras TEMOIN — celui qui « passe tout seul » quand tout vaut 0 — qui le detecte.
 
 ---
 
