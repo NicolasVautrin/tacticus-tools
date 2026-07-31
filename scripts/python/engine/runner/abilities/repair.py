@@ -86,7 +86,7 @@ from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.formulas import percentage_of_attack_capped_at_max
-from ...entities.selectors import Subject, Target
+from ...entities.selectors import Caster, Sub, Subject, Target
 from ...entities.stats import StatPart, StatType
 from .base import ActiveAbility
 from .behaviours import AddStatOverrideEffect, RemoveEffect, Repair, entities_from_state
@@ -94,6 +94,7 @@ from .targeting import (RANGE_ADJACENT, RANGED_BOOL_IF_RANGED_CASTER, TargetingO
 from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
+    from ...dsl.base import TargetsSelector
     from ..state import State
 
 # `idun...StaticBattleRules.ActiveAbility$$IsRegularRepair` : les DEUX seules valeurs comparees.
@@ -259,6 +260,70 @@ def galvanic_override_amount(state: "State", caster_id: int):
                                               stat_part=int(StatPart.INITIAL))
 
 
+def galvanic_field_attack_behavior(state: "State", caster_id: int,
+                                   acting_sel: "TargetsSelector") -> list:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility$$CreateAttackBehavior(dsl, actingUnits)`
+    — MIRROR du decompile, feuille par feuille. Fonction MODULE (et non methode) parce que le natif
+    l'est aussi : le `this` du call est le **`dsl`**, pas l'ability -> DEUX appelants distincts la
+    partagent, avec des `actingUnits` DIFFERENTS :
+
+      * `Repair_GalvanicFieldAbility$$CreateBehaviour` : `actingUnits = <Target@0x60> - <Caster@0x48>` ;
+      * `IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour`
+        (1117, MEME porteur `admecManipulus`) : `actingUnits = Friends(Caster@0x48,
+        AdjacentUnits(CasterTile@0x50, 1, 3))` -- les amis adjacents, **SANS** le caster.
+
+    Corps natif (relu verbatim) :
+
+        affected = DSLSelectors.UnitsAffectedByHealType(actingUnits, 1 = Mechanical)
+        node     = PercentageOfAttackCappedAtMax(Subject, 3 = Initial,
+                                                 ConfigVar(0x4af = 1199 GalvanicField, Owner@0x30, 0xd),
+                                                 ConfigVar(0x4af,                       Owner@0x30, 0x4a))
+        return ( AddStatOverrideEffect(affected, 0x4da = 1242, 0 = ATTACK, node, duree 0, modifiable 1)
+               & PerformAIAttackFromCurrentPosition(affected, <Owner@0x30>, 0, false) )
+               & RemoveEffect(affected, Nullable(0x4da), 0)
+
+    L'ORDRE d'execution est celui des deux `op_BitwiseAnd` : override POSE sur toutes les unites
+    affectees, PUIS une attaque par unite (ordre du selecteur), PUIS retrait de l'override -> net-zero.
+
+    ECART DE FORME ASSUME, precedent `TheQuickeningAbility$$GetTriggerAttackBehaviour`
+    (`abilities/loki/quickening.py::_free_melee_attack`) : les etages 1 et 3 sont des feuilles DSL
+    portees (et le filtre `UnitsAffectedByHealType` est bien le noeud NATIF), mais `PerformAIAttack-
+    FromCurrentPosition` n'en est pas une -> la boucle d'attaque est ecrite imperativement ENTRE les
+    deux feuilles. Meme forme, meme ordre, memes observables.
+
+    RESIDU NOMME (herite du meme precedent) : le CHOIX de cible de l'attaque IA est approxime par
+    `perform_ai_attack_from_current_position` (ennemi le plus proche a portee), pas par le moteur
+    d'utilite natif ; et le roll de degat reste RNG.
+
+    `node is None` (config `GalvanicField` illisible) -> AUCUN override invente, aucune attaque :
+    degradation fidele. Rend la liste des attaques declenchees."""
+    from .behaviours import entities_from_state
+    from .loki.summon import perform_ai_attack_from_current_position
+    from ...entities.selectors import UnitsAffectedByHealType
+    out: list = []
+    node = galvanic_override_amount(state, caster_id)
+    if node is None:
+        return out
+    ents = entities_from_state(state, caster_id)
+    affected = UnitsAffectedByHealType(acting_sel, 1)          # `UnitsAffectedByHealType(..., 1)`
+    acting_ids = [u.get("id") for u in affected.evaluate(ents)
+                  if isinstance(u, dict) and u.get("id") is not None]
+    if not acting_ids:
+        return out
+    ectx = ExecutionContext(state=state, rng=state.rng)
+    AddStatOverrideEffect(affected, GALVANIC_DMG_OVERRIDE, int(StatType.ATTACK), node,
+                          name="GalvanicField_DmgOverride").execute(ents, ectx)
+    try:
+        for uid in acting_ids:                                 # ordre du SELECTEUR (natif : idem)
+            r = perform_ai_attack_from_current_position(state, int(uid))
+            if r is not None:
+                out.append({"attacker": int(uid), "target": r.get("target"),
+                            "total": r.get("total")})
+    finally:
+        RemoveEffect(GALVANIC_DMG_OVERRIDE, affected).execute(ents, ectx)
+    return out
+
+
 class Repair_GalvanicFieldAbility(RepairAbility):
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility` (id 1119,
     `admecManipulus` — le passif `GalvanicField` SPECIALISE la reparation derivee du trait `Mechanic`).
@@ -284,50 +349,26 @@ class Repair_GalvanicFieldAbility(RepairAbility):
         return out
 
     def _attack_behavior(self, state: "State", caster_id: int, target_id: int) -> list:
-        """`Repair_GalvanicFieldAbility$$CreateAttackBehavior` — MIRROR, feuille par feuille.
+        """`Repair_GalvanicFieldAbility$$CreateAttackBehavior` applique au call-site de CETTE ability.
 
-        `actingUnits = <selector@0x60> - <mechanic@0x48>` = `ActiveTarget - Caster` : sur un cast
-        mono-cible, la cible SI elle n'est pas le caster (le masque `CasterIsPossibleTarget` autorise
-        le self-cast, et c'est cette soustraction qui empeche alors le caster de s'auto-attaquer).
-        `affected = UnitsAffectedByHealType(actingUnits, 1)` = filtre MECANIQUE
-        (`is_affected_by_heal_type(u, 1)`).
+        `actingUnits = <Target@0x60> - <Caster@0x48>` : sur un cast mono-cible, la cible SI elle n'est
+        pas le caster (le masque `CasterIsPossibleTarget` autorise le self-cast, et c'est cette
+        soustraction qui empeche alors le caster de s'auto-attaquer). Tout le reste du behaviour
+        (`UnitsAffectedByHealType`, l'override, l'attaque, le retrait) vit dans
+        `galvanic_field_attack_behavior`, MIRROR partage avec l'autre appelant natif (1117
+        `DefendTheDivineWork`) -- comme le natif, dont `CreateAttackBehavior` est une fonction du
+        `dsl`, pas une methode de l'ability.
 
-        Puis, dans l'ORDRE de la chaine `op_BitwiseAnd` relue :
-          1. `AddStatOverrideEffect(affected, 1242 GalvanicField_DmgOverride, ATTACK, node, 0, 1)`
-          2. `PerformAIAttackFromCurrentPosition(affected, ...)`
-          3. `RemoveEffect(affected, Nullable(1242))`                      -> net-zero
-
-        ECART DE FORME ASSUME, et c'est le PRECEDENT `TheQuickeningAbility$$GetTriggerAttackBehaviour`
-        (`abilities/loki/quickening.py::_free_melee_attack`) : les etapes 1 et 3 sont des feuilles DSL
-        portees, mais l'etape 2 n'en est pas une (`perform_ai_attack_from_current_position` est une
-        fonction du runner). La sequence est donc ecrite imperativement AUTOUR des feuilles, plutot
-        qu'assemblee en `op_and` -- meme forme, meme ordre, memes observables.
-
-        RESIDU NOMME (herite du meme precedent) : le CHOIX de cible de l'attaque IA est approxime par
-        `perform_ai_attack_from_current_position` (ennemi le plus proche a portee), pas par le moteur
-        d'utilite natif ; et le roll de degat reste RNG. Le volet REPARATION, lui, est deterministe."""
-        from .attack_query import is_affected_by_heal_type
-        from .loki.summon import perform_ai_attack_from_current_position
-        out: list = []
+        `entities_from_state(state, caster_id, target_id)` : le mirror partage rebatit son propre
+        contexte SANS cible (le natif n'a pas besoin de `Target` dans `CreateAttackBehavior` -- il ne
+        lit que `Owner@0x30`), donc on lui passe le selecteur DEJA resolu en `UnitSet` pour ce
+        call-site mono-cible."""
+        from ...entities.selectors import UnitSet
         if target_id is None or int(target_id) == int(caster_id):
-            return out                                   # `ActiveTarget - Caster` = ensemble VIDE
-        if not is_affected_by_heal_type(state, int(target_id), 1):
-            return out                                   # `UnitsAffectedByHealType(..., 1)`
-        node = galvanic_override_amount(state, caster_id)
-        if node is None:
-            return out                                   # config illisible -> aucun override invente
-        ectx = ExecutionContext(state=state, rng=state.rng)
+            return []                                    # `Target - Caster` = ensemble VIDE
         ents = entities_from_state(state, caster_id, int(target_id))
-        AddStatOverrideEffect(Target(), GALVANIC_DMG_OVERRIDE, int(StatType.ATTACK), node,
-                              name="GalvanicField_DmgOverride").execute(ents, ectx)
-        try:
-            r = perform_ai_attack_from_current_position(state, int(target_id))
-        finally:
-            RemoveEffect(GALVANIC_DMG_OVERRIDE, Target()).execute(ents, ectx)
-        if r is not None:
-            out.append({"attacker": int(target_id), "target": r.get("target"),
-                        "total": r.get("total")})
-        return out
+        acting = Sub(Target(), Caster()).evaluate(ents)   # `<Target@0x60> - <Caster@0x48>`
+        return galvanic_field_attack_behavior(state, caster_id, UnitSet(list(acting)))
 
     def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
                                           target_id: Optional[int]) -> int:

@@ -225,6 +225,10 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # RepairAbility..ctor(this)` -> MEME litteral, herite et non recopie a l'aveugle.
     28:   AbilityAttackType.Others,   # RepairAbility (derivee du trait Mechanic)
     1119: AbilityAttackType.Others,   # Repair_GalvanicFieldAbility (passif GalvanicField)
+    # `DefendTheDivineWorkAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 2)` : le litteral EST
+    # `2`, relu au decompile (et NON deduit du fait que l'ability ne fait pas de degat direct -- le
+    # coup gratuit de GalvanicField, lui, en fait).
+    1117: AbilityAttackType.Others,   # DefendTheDivineWorkAbility (admecManipulus)
     1000: AbilityAttackType.Others,   # GauntletsOfUltramarAbility
     1002: AbilityAttackType.Others,   # CombatRestorativesAbility
     1009: AbilityAttackType.Others,   # ResurrectionOrbAbility
