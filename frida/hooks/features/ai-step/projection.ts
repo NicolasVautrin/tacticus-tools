@@ -309,12 +309,43 @@ export interface FullUnit {
      *  reconstruisant depuis la config (`_kit_spawn_visual_ids`), exact tant
      *  qu'une équipe ne porte pas deux summoners du même summon. */
     parentId: number | null;
+    /** TRI-ÉTAT du champ ci-dessus (#378) : `false` = capteur MUET (classe
+     *  `ChildComponent` irrésolue ou lecture en erreur) — `parentId: null` n'y
+     *  veut PAS dire « pas de parent ». `true` = mesure faite ; `parentId: null`
+     *  y signifie « cette unité n'est l'enfant de personne ». cf. `readParentLink`. */
+    parentMeasured: boolean;
     abilities: AbilityInfo[];
 }
 
-// ChildComponent : lien enfant -> invocateur. `ParentId` (BEntityId) résolu par
-// nom au runtime ; repli sur +0x10 (offset confirmé live, cf. case-perform-ai-action
-// §6.2) si la table de champs n'est pas énumérable.
+/** Lien enfant -> invocateur, TRI-ÉTAT. Source UNIQUE des deux canaux qui le publient
+ *  (`decisionView.units[]` via `projectUnitsFull`, `combatSnapshot.units[]` via
+ *  `rpc-snapshot.ts`) — un seul point de RE, donc pas de divergence possible entre eux.
+ *
+ *  MIRROR : `IdunBattle.Entities.Components.ChildComponent`, champ `ParentId` (`BEntityId`
+ *  = int32). C'est CE champ que lit `IdunBattle.Entities.UnitExtensions$$GetParent` —
+ *  `TryGetComponent<ChildComponent>(child)` puis `state.GetEntity(comp.ParentId)`, et la
+ *  RÉCURSION vers la racine n'a lieu que si son 3e argument `root` est vrai (le nœud DSL
+ *  `IdunBattleLogic.Entities.DSLSelectors$$Parent` le passe explicitement). On publie le lien
+ *  DIRECT ; remonter la chaîne est l'affaire du consommateur.
+ *
+ *  ⚠ Ne PAS confondre avec `IdunBattle.Entities.Components.ParentComponent`, dont le champ
+ *  `+0x10` est `ChildrenIds` (une `List`, le sens PARENT -> enfants) : son `$$.ctor` y construit
+ *  une liste et son `$$ToString` la formate. C'est l'ancrage que le résidu de #372 nommait, et
+ *  il désigne l'autre bout du lien. Le lien enfant -> parent, celui dont on a besoin, est bien
+ *  `ChildComponent.ParentId`. Vérifié sur `rnca9r7q6c` par DEUX sources indépendantes : le RPC
+ *  `classFields` (`ParentId`, offset 16, type `BEntityId`) et le décompilé de
+ *  `IdunBattle.Entities.Components.ChildComponent$$ToString` (`il2cpp_value_box(Int32,
+ *  *(int *)(this + 0x10))`).
+ *
+ *  POURQUOI LE TRI-ÉTAT. « Pas de `ChildComponent` » = l'unité n'est l'enfant de personne, un
+ *  FAIT ; « classe irrésolue » = on n'a rien lu. Les rabattre tous deux sur `null` ferait passer
+ *  un capteur MORT pour un board sans aucun summon, et le consommateur écraserait en silence un
+ *  `parent_id` que la simulation offline avait, lui, correctement posé. Même discipline que
+ *  `unitFlags` / `traits` (`null` = non mesuré, `[]` = mesuré et vide). */
+export interface ParentLink { parentId: number | null; parentMeasured: boolean }
+
+// `ParentId` (BEntityId) résolu par NOM au runtime ; repli sur +0x10 (offset mesuré, cf. le
+// commentaire ci-dessus) si la table de champs n'est pas énumérable.
 const childComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "ChildComponent");
 // `fieldOffsetOr` et NON `getFieldOffset(...) || …` : le « nom absent » vaut **-1**, truthy en JS,
@@ -322,15 +353,21 @@ const childComponentClass = findClassAnywhere(
 const childParentIdOff = childComponentClass
     ? fieldOffsetOr(childComponentClass, "ParentId", 0x10) : 0x10;
 
-function readParentId(entityPtr: NativePointer): number | null {
-    if (!childComponentClass) return null;
+export function readParentLink(entityPtr: NativePointer): ParentLink {
+    // Classe irrésolue -> AUCUNE mesure possible. Le distinguer de « composant absent » est
+    // tout l'objet du champ `parentMeasured` : sans lui les deux rendaient `null`.
+    if (!childComponentClass) return { parentId: null, parentMeasured: false };
     let comp: NativePointer | null = null;
     forEachComponent(entityPtr, (c, klass) => {
         if (comp === null && klass.equals(childComponentClass)) comp = c;
     });
-    if (comp === null) return null;
-    try { return (comp as NativePointer).add(childParentIdOff).readS32(); }
-    catch { return null; }
+    // Composant absent = mesure FAITE, et son résultat est « cette unité n'a pas de parent » —
+    // c'est exactement la sortie `TryGetComponent == false` de `UnitExtensions$$GetParent`.
+    if (comp === null) return { parentId: null, parentMeasured: true };
+    try {
+        return { parentId: (comp as NativePointer).add(childParentIdOff).readS32(),
+                 parentMeasured: true };
+    } catch { return { parentId: null, parentMeasured: false }; }
 }
 
 /** Projection de TOUTES les units (2 camps) : flags vivants + abilities concrètes. */
@@ -346,7 +383,7 @@ export function projectUnitsFull(statePtr: NativePointer, allAbilities: boolean)
         out.push({
             id, visualId: b?.visualId ?? null, pos: b?.pos ?? null,
             hp: b?.hp ?? null, owner: b?.ownerId ?? null, team: b?.teamId ?? null,
-            parentId: readParentId(e),
+            ...readParentLink(e),
             alive: invokeBool(isAliveMi, [e, statePtr]),
             ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
             hasAction: invokeBool(hasActionLeftMi, [e]),
