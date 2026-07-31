@@ -716,6 +716,25 @@ def patch_ability_variables(bc: dict, ability_name: str, level: int, values: dic
 #     patch -- on ne fige jamais une capture perimee, ce que #254 existe precisement pour eviter.
 # Le sidecar vit HORS du BC : rien de non-jeu n'entre dans le payload envoye au runner.
 
+# DEUXIEME FORME D'ECRASEMENT, MESUREE PAR #380 : ce n'est pas toujours une VALEUR qui est
+# ecrasee -- c'est parfois une ABSENCE qui est COMBLEE. La 2e boucle de `refresh_ability_configs`
+# balaie `bc["Units"]` et POSE toute config d'ability que le gameconfig attribue a une unite du
+# catalogue. Une fixture dont le POINT EST l'absence d'une config voit donc son bras negatif
+# NEUTRALISE, sans un mot -- exactement la meme signature que #375, sur l'axe oppose.
+# MESURE du 2026-07-31 (`probe_380 --measure`) : `probe_226_seed_bc_ability_configs` bras A
+# (« AUCUNE config d'ability posee, etat AVANT correctif ») repart du chargeur avec
+# `ActiveAbilities/SavageEchoes` ET `PassiveAbilities/RedRampage` en place. Ses trois bras
+# livrent alors la MEME chose au runner : la discrimination A KO / B OK / C OK a disparu.
+# (Le verdict #226 lui-meme reste juste : il a ete mesure le 2026-07-29 a 00h38, et le rattrapage
+#  #254 a ete pose a 19h17 le MEME jour -- 18 h plus tard. C'est le probe qui a cesse d'etre
+#  reproductible, pas la conclusion qui a change.)
+#
+# Parade SYMETRIQUE de l'epingle, et de la meme nature : une cle `withheldAbilityConfigs` dans le
+# MEME sidecar, OPT-IN et NOMMEE. Elle n'eteint rien globalement -- le filet #226 continue de
+# couvrir toutes les autres abilities du meme BC. Une retenue CONTRADICTOIRE (la config est en
+# fait presente dans le BC) LEVE, comme une epingle orpheline : une retenue qui ne retient rien
+# est un montage faux, pas un no-op.
+
 PINS_SUFFIX = ".pins.json"
 
 
@@ -724,22 +743,49 @@ def pins_path(seed_bc_path) -> Path:
     return Path(str(seed_bc_path) + PINS_SUFFIX)
 
 
-def read_pins(seed_bc_path) -> list:
-    """Les cles `"<node>/<ability>"` epinglees pour ce seed BC. `[]` si aucun sidecar."""
+def _read_sidecar(seed_bc_path) -> dict:
     p = pins_path(seed_bc_path)
     if not p.is_file():
+        return {}
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def read_pins(seed_bc_path) -> list:
+    """Les cles `"<node>/<ability>"` epinglees pour ce seed BC. `[]` si aucun sidecar."""
+    data = _read_sidecar(seed_bc_path)
+    if not data:
         return []
-    data = json.loads(p.read_text(encoding="utf-8"))
     pins = data.get("pinnedAbilityConfigs")
     if not isinstance(pins, list):
-        raise ValueError("%s : cle 'pinnedAbilityConfigs' absente ou non-liste" % p)
+        raise ValueError("%s : cle 'pinnedAbilityConfigs' absente ou non-liste"
+                         % pins_path(seed_bc_path))
     return [str(x) for x in pins]
 
 
-def write_pins(seed_bc_path, pins) -> Path:
-    """Ecrit le sidecar. `pins` = iterable de `"<node>/<ability>"`."""
+def read_withheld(seed_bc_path) -> list:
+    """Les cles `"<node>/<ability>"` dont l'ABSENCE est deliberee (#380). `[]` si aucun sidecar.
+
+    Tolerante a la cle manquante : les sidecars ecrits avant #380 ne portent que les epingles.
+    """
+    data = _read_sidecar(seed_bc_path)
+    if not data:
+        return []
+    w = data.get("withheldAbilityConfigs", [])
+    if not isinstance(w, list):
+        raise ValueError("%s : cle 'withheldAbilityConfigs' non-liste" % pins_path(seed_bc_path))
+    return [str(x) for x in w]
+
+
+def write_pins(seed_bc_path, pins, withheld=()) -> Path:
+    """Ecrit le sidecar. `pins` / `withheld` = iterables de `"<node>/<ability>"`.
+
+    Les DEUX cles sont toujours ecrites (une liste vide reste une liste) : `read_pins` exige
+    `pinnedAbilityConfigs`, et un sidecar qui ne porterait qu'une retenue la ferait lever.
+    """
     p = pins_path(seed_bc_path)
-    p.write_text(json.dumps({"pinnedAbilityConfigs": sorted(set(pins))}), encoding="utf-8")
+    p.write_text(json.dumps({"pinnedAbilityConfigs": sorted(set(pins)),
+                             "withheldAbilityConfigs": sorted(set(withheld))}),
+                 encoding="utf-8")
     return p
 
 
@@ -793,13 +839,16 @@ def relic_state_of_seed_bc(seed_bc: dict) -> dict:
 
 # ------------------------------------------------- rafraichissement du 2e catalogue (#254)
 
-def refresh_ability_configs(bc: dict, skip=()) -> tuple[list, list]:
+def refresh_ability_configs(bc: dict, skip=(), withhold=()) -> tuple[list, list]:
     """RE-SYNTHETISE `BC.Abilities` depuis le gameconfig VIVANT, EN PLACE. Rend (rafraichies,
     ajoutees).
 
     `skip` (#375) = cles `"<node>/<ability>"` EPINGLEES : configs deliberement patchees par une
     fixture, que le rattrapage ne doit PAS ecraser. Opt-in et nomme -- jamais un interrupteur
     global. Cf. `write_variable_patched_seed_bc` / `read_pins`.
+
+    `withhold` (#380) = cles `"<node>/<ability>"` dont l'ABSENCE est deliberee : la 2e boucle ne
+    les pose pas. Meme discipline (opt-in, nomme) pour l'axe symetrique -- cf. `read_withheld`.
 
     POURQUOI (#254, MIGRATION DE BUILD). `data/seed-bc.json` est la capture d'UNE bataille, faite
     sur UN build ; `scripts/python/gameconfig.py`, lui, lit le fichier VIVANT de
@@ -852,11 +901,15 @@ def refresh_ability_configs(bc: dict, skip=()) -> tuple[list, list]:
                 refreshed.append(name)
     # Une ability AJOUTEE a une unite deja au catalogue n'a aucune config : meme faute, cause
     # symetrique. Mirror du peuplement de `BC.Abilities` (cf. `_ability_names`).
+    held = set(withhold or ())
     for u in (bc.get("Units") or []):
         act, pas = _ability_names(u.get("Id") or "")
-        for names, target in ((act, act_node), (pas, pas_node)):
+        for names, node_name, target in ((act, "ActiveAbilities", act_node),
+                                         (pas, "PassiveAbilities", pas_node)):
             for n in names:
                 if n in target:
+                    continue
+                if node_name + "/" + n in held:      # #380 : absence DELIBEREE, on ne comble pas
                     continue
                 try:
                     target[n] = synthesize_ability(n)

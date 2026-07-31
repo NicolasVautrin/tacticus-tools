@@ -994,7 +994,25 @@ def _load_seed_bc(path=None) -> dict:
                 f"(sidecar {catalog_inject.pins_path(p)})")
         print(f"[seed-bc] configs d'ability EPINGLEES (patch delibere, #375), non rattrapees: "
               f"{pins}", file=sys.stderr)
-    refreshed, added = catalog_inject.refresh_ability_configs(bc, skip=pins)
+    # #380 -- AXE SYMETRIQUE. Le rattrapage ne fait pas que reecrire des valeurs : sa 2e boucle
+    # POSE toute config qu'une entree `Units` reclame au gameconfig. Une fixture dont le point EST
+    # l'absence d'une config voit donc son bras negatif comble, sans un mot (mesure : le bras A de
+    # `probe_226_seed_bc_ability_configs` repartait avec `SavageEchoes` en place, donc identique a
+    # ses deux bras temoins). `withheldAbilityConfigs` NOMME ces absences. Une retenue qui ne
+    # retient rien -- la config est en fait presente -- LEVE, comme une epingle orpheline : c'est
+    # un montage faux, pas un no-op.
+    withheld = catalog_inject.read_withheld(p) if path else []
+    if withheld:
+        node = bc.get("Abilities") or {}
+        present = [k for k in withheld
+                   if k.split("/", 1)[-1] in (node.get(k.split("/", 1)[0]) or {})]
+        if present:
+            raise RuntimeError(
+                f"seed BC {p}: retenues CONTRADICTOIRES -- ces configs sont presentes dans "
+                f"BC.Abilities: {present} (sidecar {catalog_inject.pins_path(p)})")
+        print(f"[seed-bc] configs d'ability RETENUES (absence deliberee, #380), non comblees: "
+              f"{withheld}", file=sys.stderr)
+    refreshed, added = catalog_inject.refresh_ability_configs(bc, skip=pins, withhold=withheld)
     if refreshed or added:
         print(f"[seed-bc] configs d'ability re-synthetisees depuis le gameconfig courant: "
               f"{len(refreshed)} rafraichies {refreshed} / {len(added)} ajoutees {added}",
