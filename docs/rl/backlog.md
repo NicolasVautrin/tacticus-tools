@@ -723,14 +723,18 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   +0x14 montant) de l'entité-effet dans `frida/hooks/game/effects.ts` → plus aucune magnitude
   re-dérivée offline. **Exige rebuild + reinject.** `[opus]`.
 
-- **`ChildComponent.ParentId` non publié par les RPC** (`case-perform-ai-action` §6.2, mesuré #119) :
-  ni `projectUnitsFull` (decisionView), ni `observeBattle`, ni `combatSnapshot` n'émettent le lien
-  enfant→parent (`BEntityId` @+0x10, offset confirmé live). Conséquence : tout gate natif de la forme
-  « u est un enfant de X » doit être reconstruit depuis la config (`_kit_spawn_visual_ids`), exact tant
-  qu'une équipe ne porte pas deux summoners du même summon. **Fix** = ajouter `parentId` à
-  `projectUnitsFull` (le port a déjà la clé, `engine/entities/selectors.py::Parent`) — **exige
-  rebuild+reinject** : même fenêtre « atelier vide » que le résidu `StatModificationComponent`
-  ci-dessus et que « stats des MoW non captables ». `[opus]`.
+- ~~**`ChildComponent.ParentId` non publié par les RPC**~~ — **CODE LIVRÉ (#378), EN ATTENTE DE
+  FENÊTRE** : `case-378-parent-link.md`. `combatSnapshot.units[]` porte désormais `parentId` +
+  `parentMeasured` (lecteur UNIQUE `readParentLink`, partagé avec `decisionView`), et le port le
+  consomme sur les DEUX faces (`snapshot._load_unit_parent`, `Scene.parent_by_id` →
+  `normal_attack`) plus le gate `IsFriendlyKell`, qui LIT au lieu de dériver de la config. Deux
+  faits **mesurés en passant, qui ne dépendaient pas de la fenêtre** : (a) l'ancrage hérité de #372
+  (« `ParentComponent` id @+0x10 ») désignait l'AUTRE bout du lien — `ParentComponent+0x10` est
+  `ChildrenIds`, une `List` ; (b) `ParentId == 0` vaut « pas de parent » et doit être normalisé —
+  `MatchComponent$$NextId` pré-incrémente un champ zéroé, donc le premier id est `1` et `0` n'est
+  jamais une entité (`dumpEntityComponents(0)` → `entity 0 not found`). Le hook courant publiait ce
+  `0` brut. **Reste** : la fenêtre de reinject — `probe_378_parent_link.py` rend `NON CONFRONTÉ`
+  (rc 7) en la nommant, et s'inversera seul. `[opus]`.
 
 - **Résidus de `PickRandomly` après #130** (`case-130-pick-randomly-rng.md`). La **loi de
   consommation** est close : le sélecteur tire `min(len(pool), amount)` fois, bornes décroissantes,
