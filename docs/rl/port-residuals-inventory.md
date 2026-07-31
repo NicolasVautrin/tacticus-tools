@@ -321,7 +321,7 @@ summon** dans ce gisement :
 | 9 | 1039 | RitesOfRestoration | Sisterhood | `adeptHospitaller` « Isabella » ✅ | 3 | — | ~976 o + **6 helpers revive** |
 | ~~10~~ | ~~1100~~ | ~~SorcerousFacade~~ | ThousandSons | `thousTzaangor` « Yazaghor » ✅ | 4 | — | **FERMÉ** (`case-287-sorcerous-facade-combat.md`) |
 | 11 | 1038 | FoulInfusion | DeathGuard | `deathPutrifier` « Pestillian » ✅ | 3 | — | ~880 o |
-| 12 | 1117 | DefendTheDivineWork | AdeptusMechanicus | `admecManipulus` « Actus » ✅ | 5 | — | ~752 o + `GetAdjacentFriends` |
+| ~~12~~ | ~~1117~~ | ~~DefendTheDivineWork~~ | AdeptusMechanicus | `admecManipulus` « Actus » ✅ | 5 | — | **FERMÉ** (#334, `case-334-defend-the-divine-work.md`) — au registre COMBAT, deux Operations enchaînées |
 | ~~13~~ | ~~28~~ | ~~Repair (**dérivée du trait `Mechanic`**, pas du gameconfig)~~ | multi | `admecDominus`, `necroSpyder`, `orksBigMek` ✅ | plusieurs | — | **FERMÉ** (#299, `case-299-repair-execution.md`) — `RepairUnitOperation$$Execute` porté ; ⚠ `RepairMachineOperation` **n'existe pas** dans le binaire (`search_symbols_by_name` = 0 résultat), la mention de #298 était une supposition |
 | — | 1192 | NovaBoost | Tau | **aucun** | `tauBossRiptide` | — | **NON PERTINENT** |
 | — | 1194 | NovaShield | Tau | **aucun** | `tauBossRiptide` | — | **NON PERTINENT** |
