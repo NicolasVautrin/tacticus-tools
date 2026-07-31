@@ -368,13 +368,87 @@ Le piège que la garde verrouille : **`nodes == []` et `returnedCount == 0` port
 OPPOSÉS** (amont vs pool). Mutation adversariale jouée, message ROUGE verbatim :
 `AssertionError: assert 'zero-appel' != 'zero-appel'`.
 
+### 9.3 Le retour se lit en DEUX formes — le capteur n'en décodait qu'une (#374)
+
+Premier tir **armé** (session 3) : le capteur fire — **4 appels de
+`MovableTilesInRangeSelector$$Select` sur chacun des deux bras** — et rend `[retour-illisible]`
+partout, `classes = ['OrderedSet`1' ×4]`. Le contrôle positif disait l'inverse (bras A : 4 events
+== 4 attendus ; bras B : 5 == 5), d'où le verdict `CAPTEUR INCOHERENT AVEC LE CONTROLE POSITIF`.
+
+**Le tri-état a fait exactement son travail** : il a refusé de rendre `[vide]`. Un décodeur
+permissif aurait ici re-fabriqué le faux « pool vide » que §8.5 venait de réfuter.
+
+La cause, lue au décompilé — `MovableTilesInRangeSelector$$Select` rend **deux types différents** :
+
+| issue | ce qui est rendu |
+|---|---|
+| `entity == null` | la `System.Collections.Generic.List`1` VIDE que le corps vient d'allouer |
+| `fromTile == null` | la **même** `List`1` vide |
+| la requête a répondu | le retour d'`IBattleQuery.GetMovableTilesInRange` = un **`idun.shared.collections.OrderedSet`1`** |
+
+⇒ La **classe du retour est elle-même discriminante**, et c'était l'information manquante.
+
+**`OrderedSet<T>` DÉRIVE de `List<T>`** — établi sur le binaire, pas supposé :
+
+* `idun.shared.collections.OrderedSet<T>$$.ctor` appelle
+  `System.Collections.Generic.List<T>$$.ctor` **sur le même `this`**, puis n'ajoute que son
+  `HashSet<T>` propre à `this+0x28` ;
+* `OrderedSet<T>$$get_Item` **délègue** à `List<T>$$get_Item(this, index, …)` ;
+* `List<T>$$get_Item` donne le layout VERBATIM : borne `_size` = `*(uint*)(this+0x18)`, tableau
+  `_items` = `*(this+0x10)`, élément à `items + 0x20 + element_size * i`.
+
+**Confirmé LIVE sur la session courante**, deux voies indépendantes (aucun reinject requis) :
+
+| voie | mesure |
+|---|---|
+| RPC `classFields("idun.shared.collections", "OrderedSet`1")` | `_items` **@+0x10** et `_size` **@+0x18**, tous deux `declaredBy = List`1` ; `_set` (`HashSet`1`) déclaré par `OrderedSet`1` |
+| RPC `aiMovableTiles` (runner 111, `MC1_67`) | **166 tuiles** décodées sur 10 unités, **0 coordonnée invalide** — `internals.extractTiles` lit déjà un `IOrderedSet<IEntity>` natif à ce layout exact |
+
+**Le correctif** (`readRefList`) reconnaît la forme par la **chaîne d'héritage IL2CPP**
+(`class_get_parent` jusqu'à `List`1`), jamais par une liste de noms en dur : toute sous-classe se
+décode, et ce qui n'en est pas une reste une ERREUR NOMMÉE. Le **stride n'est pas supposé** non
+plus — la classe d'élément est interrogée (`class_get_element_class` + `class_is_valuetype`) et un
+élément de type VALEUR fait répondre `-1` plutôt que des coordonnées plausibles.
+
+**Ce qui NE change pas** : les 11 états restent 11, et `[retour-illisible]` reste strictement
+distinct de `[vide]`. Ce qui s'ajoute est de l'information, pas de la permissivité — le capteur
+publie la forme de stockage retenue, le chemin d'héritage, la classe d'élément et la **raison
+nommée** d'un refus. Garde portée à **16 tests** offline.
+
+⚠ **Un `[retour-illisible]` a désormais DEUX lectures, et le décodeur les sépare** : le capteur à
+jour qui refuse un type inconnu, contre un **bundle injecté antérieur au correctif** (le code est
+livré, pas chargé). Discriminant : le capteur corrigé pose toujours `returnedStorage`
+(`probe_predates_374`). Sans cette distinction, un rouge post-correctif se lirait « le correctif ne
+marche pas » — l'ambiguïté même qui fait tourner ce résidu en rond. Le **verdict du run** en tient
+compte : un capteur armé mais non corrigé bascule en **`NON CONFRONTÉ`**, plus en
+`CAPTEUR INCOHERENT AVEC LE CONTROLE POSITIF` — accuser le capteur quand la correction n'est pas
+chargée est un faux diagnostic. `ok` reste `False` dans les deux cas : aucune permissivité gagnée.
+
+État mesuré après correctif (session 3, bundle **non** rebuildé) :
+
+```
+[370] NON CONFRONTE : ... Le capteur INJECTE est ANTERIEUR a #374 (il ne publie pas
+      `returnedStorage`) : la lecture d'`OrderedSet` est livree mais PAS CHARGEE -- fenetre de
+      reinject en attente, rien n'est conclu du natif. Les DEUX bras sont PRETS et DISCRIMINANTS
+      ... bras A ((6,7)) emet 4 events == 4 attendus, bras B ((1,4), geometrie de #386) 5 pour 5.
+```
+
+**Ce que la garde offline ne couvre PAS** : elle verrouille le **décodeur** (`_tile_verdict`,
+`probe_predates_374`), pas le **capteur TS**. Un capteur qui rendrait `0` là où il ne sait pas lire
+tromperait le décodeur sans qu'aucun test offline ne le voie — c'est précisément pourquoi
+`readRefList` ne possède **aucun** chemin qui produise `0` sur une forme non reconnue.
+
 ## 10. Ce qui n'est PAS couvert
 
 * **`1059` n'entre toujours pas dans `ABILITY_CLASSES`** (seule `GetTileToMoveTo` est portée,
   #353-r1 volet a). Mais la justification de #386 (« le natif n'émet aucun batch ») **tombe** :
   §8.5 mesure 4/4 et 5/5. Le port des batchs 3/4 redevient une tâche ouverte, pas un refus étayé.
-* **Le capteur de §9 est INERTE** — livré, compilé (`frida-compile`, rc 0), jamais injecté : il
-  demande une fenêtre de reinject. Tout ce qui suit reste donc **NON CONFRONTÉ**.
+* **Le capteur de §9 a été armé une fois (session 3) et n'a rien pu LIRE** — sa correction (§9.3)
+  est à son tour livrée, compilée (`frida-compile`, rc 0) et **NON CHARGÉE** : elle vit dans
+  `frida/hooks/*` et demande une fenêtre de reinject. Le verdict cohérent avec le contrôle positif
+  reste donc **NON CONFRONTÉ**. Ce qui EST confronté sur la session courante : la structure lue
+  (`classFields` → `_items`@+0x10 / `_size`@+0x18 `declaredBy = List`1`) et le décodage à ce layout
+  d'un `IOrderedSet` natif (`aiMovableTiles` → 166 tuiles, 0 coordonnée invalide).
 * **Quel élément du montage de `probe_361` vide le pool** (§8.5) : résidu nommé, non tranché. Seule
   différence constatée : le chemin de drive (un `drive_to` groupé contre deux en cascade).
 * **La gate de Fragstorm** (§5) : son ouverture reste indéterminée, son batch étant mort en aval.
