@@ -60,7 +60,8 @@ import {
 } from "./internals.js";
 import {
     classNameAt, DamageEvent, decodeDamageEvents, loadPlaybook, makeDamagePredictions,
-    readDamageEvent, resolvePlaybookDatabase, unitPositionAtTile, unitPositionCurrent,
+    nullUnitPosition, readDamageEvent, resolvePlaybookDatabase, unitPositionAtTile,
+    unitPositionCurrent,
 } from "./playbook-predict.js";
 
 /** Borne dure du buffer de capture : au-delà on marque `truncated` plutôt que d'allouer sans fin
@@ -176,12 +177,12 @@ export function registerViewNcPredict(ctx: Ctx): void {
 
         // Entités : caster (unité OU machine, cf. aiPlaybookPredict), cible, et la map ptr→id qui
         // résout le `IEntity Target` de chaque event capturé.
-        let unit = ptr(0); let target = ptr(0);
+        let unit = ptr(0); let target = ptr(0); let casterIsMachine = false;
         const idByPtr = new Map<string, number>();
         forEachEntity(statePtr, (e, id, ty) => {
             if (ty === EntityType.Unit || ty === EntityType.Machine) {
                 idByPtr.set(e.toString(), id);
-                if (id === body.unitId) unit = e;
+                if (id === body.unitId) { unit = e; casterIsMachine = ty === EntityType.Machine; }
             }
             if (ty === EntityType.Unit && id === body.targetId) target = e;
         });
@@ -201,8 +202,18 @@ export function registerViewNcPredict(ctx: Ctx): void {
             try { tilesObj = invokeMethod(getMovableTilesMi.info, movementQuery,
                 [unit, boolFalse, optsZero]); } catch { /* best-effort */ }
         }
-        let posPtr = unitPositionCurrent(unit, statePtr);
-        let posSrc = "current";
+        // Caster MACHINE OF WAR → `UnitPosition$$NullPosition()`, ce que passe littéralement
+        // `DefaultMachineTactic.u003CCalculateNextActionForUnitu003Ed__5$$MoveNext` (#360). Ce RPC
+        // marchait DÉJÀ sur une MoW — parce que `GetUnitPosition(machine)` rend la même liste VIDE
+        // — mais par coïncidence de valeur, pas par mirror : on nomme donc la source. C'est en le
+        // comparant à `aiPlaybookPredict` (qui, lui, substituait la position de la CIBLE) que le
+        // verrou de l'oracle MoW a été localisé.
+        let posSrc = casterIsMachine ? "machine:NullPosition" : "current";
+        let posPtr = casterIsMachine ? nullUnitPosition() : unitPositionCurrent(unit, statePtr);
+        if (!posPtr && casterIsMachine) {
+            posPtr = unitPositionCurrent(unit, statePtr);
+            posSrc = "machine:GetUnitPosition(empty)";
+        }
         const wantCol = body?.col; const wantRow = body?.row;
         if (typeof wantCol === "number" && typeof wantRow === "number") {
             let tile = ptr(0);

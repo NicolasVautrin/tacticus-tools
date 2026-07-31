@@ -43,7 +43,7 @@ import {
 } from "./projection.js";
 import {
     classNameAt, decodeDamageEvents, decodeEffectEvents, decodeHealEvents,
-    decodeRepairDict, loadPlaybook, makeDamagePredictions,
+    decodeRepairDict, loadPlaybook, makeDamagePredictions, nullUnitPosition,
     resolvePlaybookDatabase, unitPositionAtTile, unitPositionCurrent,
 } from "./playbook-predict.js";
 
@@ -339,18 +339,32 @@ export function registerViewPredict(ctx: Ctx): void {
             return { ok: false, error: "unit " + body.unitId + " not found (unit/machine)" };
         }
         if (target.isNull()) return { ok: false, error: "target " + body.targetId + " not found" };
-        // UnitPosition (point de calcul). Pour une UNITÉ = sa tuile courante. Pour un MoW (off-board),
-        // GetUnitPosition rend une UnitPosition VIDE (Tiles=[]) → le bombard `GetTargetAreaTiles` part
-        // de rien → 0 cible. Le bombard MoW s'AIME sur une tuile : pour la confrontation on passe la
-        // UnitPosition de la CIBLE comme point de visée (le selector monte la zone autour). (RE #172)
-        let posPtr = casterIsMachine
-            ? unitPositionCurrent(target, statePtr)
-            : unitPositionCurrent(unit, statePtr);
-        if (!posPtr) posPtr = unitPositionCurrent(unit, statePtr);
+        // UnitPosition (point de calcul). Pour une UNITÉ = sa tuile courante. Pour une MACHINE OF
+        // WAR = `UnitPosition$$NullPosition()` — ce que passe littéralement
+        // `DefaultMachineTactic.u003CCalculateNextActionForUnitu003Ed__5$$MoveNext` (cf.
+        // `nullUnitPosition`), c.-à-d. une position dont la liste de tuiles est VIDE.
+        //
+        // ⚠ #360 — CE CHEMIN SUBSTITUAIT LA `UnitPosition` DE LA **CIBLE**, et c'est ce qui fermait
+        // l'oracle MoW. Aucun antécédent natif : le tactic Machine ne vise pas la cible, il passe
+        // NullPosition. Mesuré sur `blackForgefiend` / `1147 HadesAutocannons`, un summon en jeu :
+        // avec la position de la cible `MakeDamagePredictions` LÈVE (`count = -1`, `listNull = true`,
+        // l'exception étant avalée par `makeDamagePredictions`) ; avec NullPosition la MÊME invocation
+        // rend `(324, 492, 6)`. La cause est lisible dans
+        // `Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetEntitiesFromSelector`, qui pose
+        // `ctx.<+0xc0> = UnitPosition$$get_MainTile(casterPosition)` : donner la tuile de la cible
+        // fait évaluer le sélecteur depuis un point de vue qui n'existe pas.
+        let posSrc = casterIsMachine ? "machine:NullPosition" : "current";
+        let posPtr = casterIsMachine ? nullUnitPosition() : unitPositionCurrent(unit, statePtr);
+        if (!posPtr && casterIsMachine) {
+            // Repli : `GetUnitPosition(machine)` = `GetTiles(machine)` rend elle aussi une liste
+            // VIDE (une Machine n'a pas de tuile) — même valeur, résolution différente.
+            posPtr = unitPositionCurrent(unit, statePtr);
+            posSrc = "machine:GetUnitPosition(empty)";
+        }
         // Tuile CANDIDATE (col,row) : UnitPosition à cette tuile (GetUnitPositionAtTile),
         // résolution mirror d'aiPredict (movable set via GetMovableTilesFor(3), sinon la
-        // tuile courante). Unités seulement (le MoW off-board garde la visée sur la cible).
-        let posSrc = "current";
+        // tuile courante). Unités seulement (une MoW n'a pas de tuile candidate — son tactic
+        // passe `new OrderedSet()`, l'ensemble VIDE).
         const wantCol = body?.col; const wantRow = body?.row;
         if (!casterIsMachine && typeof wantCol === "number" && typeof wantRow === "number") {
             let tile = ptr(0);
@@ -503,11 +517,12 @@ export function registerViewPredict(ctx: Ctx): void {
         // une tuile doit pouvoir le voir, plutôt que de le découvrir dans un chiffre faux.
         // Départage déterministe si deux entités portaient le même id : `Unit` gagne.
         let unit = ptr(0); let target = ptr(0);
+        let casterIsMachine = false;
         let targetType: number | null = null;
         const idTypesSeen: number[] = [];
         forEachEntity(statePtr, (e, id, ty) => {
             if (ty === EntityType.Unit || ty === EntityType.Machine) {
-                if (id === body.unitId) unit = e;
+                if (id === body.unitId) { unit = e; casterIsMachine = ty === EntityType.Machine; }
             }
             if (id === body.targetId) {
                 idTypesSeen.push(ty);
@@ -517,9 +532,15 @@ export function registerViewPredict(ctx: Ctx): void {
         if (unit.isNull()) return { ok: false, error: "unit " + body.unitId + " not found" };
         if (target.isNull()) return { ok: false, error: "target " + body.targetId + " not found" };
         // UnitPosition : tuile courante, ou tuile CANDIDATE (col,row) du movable set
-        // (mirror aiPlaybookPredict).
-        let posPtr = unitPositionCurrent(unit, statePtr);
-        let posSrc = "current";
+        // (mirror aiPlaybookPredict). Caster MACHINE → `NullPosition()`, ce que passe le tactic
+        // natif (#360) : les TROIS oracles (aiPlaybookPredict / pairUtility / ncPlaybookPredict)
+        // doivent partir de la MÊME position, sans quoi ils scorent des scènes différentes.
+        let posSrc = casterIsMachine ? "machine:NullPosition" : "current";
+        let posPtr = casterIsMachine ? nullUnitPosition() : unitPositionCurrent(unit, statePtr);
+        if (!posPtr && casterIsMachine) {
+            posPtr = unitPositionCurrent(unit, statePtr);
+            posSrc = "machine:GetUnitPosition(empty)";
+        }
         if (typeof body?.col === "number" && typeof body?.row === "number") {
             let tile = ptr(0);
             if (getMovableTilesMi) {
