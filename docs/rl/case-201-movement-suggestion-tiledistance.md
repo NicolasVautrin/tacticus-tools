@@ -147,9 +147,15 @@ Aucune geometrie ou le natif suit l'ANCIEN collapse contre le composite. 5/5 pou
   * **`MOVEMENT_SUGGESTION_UTILITY`** = `ComposedUtility([TILE_UTILITY, TileDistanceUtility()],
     utility_type=MovementSuggestion)`.
   * **`UTILITY_BY_TYPE`** = mirror reduit de `UtilitiesDatabase$$GetUtility` (`{7: Tile,
-    32: MovementSuggestion}`). `sort_tiles_by_utility` / `first_tile_by_utility` prennent un
+    MovementSuggestion, ...}`). `sort_tiles_by_utility` / `first_tile_by_utility` prennent un
     `utility_type` (defaut `Tile(7)` — tous les appelants existants sont inchanges) et **levent**
     sur un type absent de la table plutot que de degrader silencieusement.
+    MAJ **#353-r1** : la table s'interroge desormais par `utilities_database(<type>)`, et les deux
+    fonctions acceptent AUSSI un `utility_definition` — un call-site peut batir son
+    `UtilityDefinition` A LA MAIN avec PLUSIEURS `WeightedUtility` dans le meme bucket
+    (`RammingSpeedAbility$$GetTileToMoveTo` : `[Tile(7), RammingSpeed_MostAdjacentEnemies(54)]`),
+    ce que le scalaire `utility_type` ne peut pas exprimer. La composition (somme PONDEREE, poids
+    par defaut 1) vit dans `engine/utilities/decider.py`.
 * `engine/runner/abilities/genestealer.py::_vigilance_move_dest_tile` — le collapse et son
   tie-break par id sont SUPPRIMES ; l'appel devient
   `first_tile_by_utility(state, cands, unit_id=caster_id, utility_type=MovementSuggestion)`.

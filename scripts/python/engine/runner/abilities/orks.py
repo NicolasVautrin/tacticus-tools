@@ -25,12 +25,14 @@ from ...entities.formulas import Count, Get, VisualUnitIdFromUnitId
 from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles, AdjacentUnits,
                                    AllUnits, Cache, CanAddUnit, Caster, CasterTile, Damageable,
                                    EntitiesWithoutEffects, FixedTileIds, FixedTiles, Friends,
-                                   SurroundingEnemies, SurroundingTiles, Target, TargetTile, Union,
-                                   Unique, UnitSet, UnitsFromFaction, UnitsWithVisualId, Unobscured,
+                                   MovableTilesInRange, SurroundingEnemies, SurroundingTiles, Target,
+                                   TargetTile, TileIntersect, Union, Unique, UnitSet,
+                                   UnitsFromFaction, UnitsWithVisualId, Unobscured,
                                    non_steppable_or_object_units,
                                    tiles_unit_can_move_to_charge_target)
 from ...entities.stats import StatType
 from ...entities.triggers import AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, TriggerOr
+from ...utilities.decider import UtilityBucket, UtilityDefinition, WeightedUtility
 from ...utilities.tile import first_tile_by_utility
 from ...utilities.utility_type import UtilityType
 from .behaviours import (AddEffect, AttackWithAttackDamage, KillDeadUnits, MoveUnit, PerformAIAction,
@@ -240,6 +242,107 @@ def waaagh_attack_tree():
       `ActiveTarget@0x180`."""
     return op_and(If(IsAdjacent(Caster(), Target()), UseActiveAbility(Caster(), Target())),
                   KillDeadUnits(ActiveTarget(), AllUnits()))
+
+
+# ------------------------------------------------------------------------------------------------ #
+# RammingSpeed (1059) — l'etage de CHARGE. `#353-r1`, volet (a).
+#
+# CE N'EST PAS le meme assemblage que Waaagh, et la difference est OBSERVABLE :
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$GetTileToMoveTo` n'appelle PAS
+# `IdunBattleLogic.Entities.DSLSelectors$$TilesUnitCanMoveToChargeTarget` — il assemble les memes deux
+# noeuds A LA MAIN, dans l'ORDRE INVERSE, et trie avec une definition d'utilite a DEUX termes.
+# ------------------------------------------------------------------------------------------------ #
+
+RAMMING_SPEED_CONST_RANGE = 0x16   # GetNumberConstant(0x16) -> "range" = 5 (AbilityConstantType.range)
+
+# `UtilityDefinition( UtilityBucket([ WeightedUtility(7 = Tile, null),
+#                                     WeightedUtility(0x36 = 54 RammingSpeed_MostAdjacentEnemies,
+#                                                     null) ], null) )`
+# — BATI A LA MAIN par `GetTileToMoveTo` (allocation d'un `WeightedUtility[2]`, deux
+# `WeightedUtility$$.ctor` avec un `Nullable<Fix64>` VIDE, un `UtilityBucket$$.ctor`, un
+# `TExtensions$$ToArray` puis `UtilityDefinition$$.ctor(bucket)`), et non par la surcharge INT de
+# `SortTilesByUtility` que prennent tous les autres call-sites portes. Poids effectifs = 1 et 1
+# (le `?? Fix64.FromInt(1)` du ctor), difference minimale = 0 : la composition est la SOMME NUE des
+# deux utilites (lecture du decompile, cf. `engine/utilities/decider.py`).
+RAMMING_SPEED_TILE_UTILITY = UtilityDefinition(UtilityBucket([
+    WeightedUtility(utility_type=int(UtilityType.Tile)),
+    WeightedUtility(utility_type=int(UtilityType.RammingSpeed_MostAdjacentEnemies)),
+]))
+
+
+def ramming_speed_charge_tiles_selector(move_range: int) -> TileIntersect:
+    """Operande de tri de `RammingSpeedAbility$$GetTileToMoveTo` — ARBRE DSL, mirror 1:1 :
+
+        MovableTilesInRange( caster@0x48, casterTile@0x50, Direct(GetNumberConstant(0x16 = range)),
+                             ignoreFlags = 0, ignoreUnitsOnTiles = 0 )
+        op_BitwiseAnd
+        CanAddUnit( AdjacentTiles( target@0x60 ) )
+
+    ⚠ **L'ORDRE DES OPERANDES EST INVERSE** par rapport a
+    `DSLSelectors$$TilesUnitCanMoveToChargeTarget` (= `CanAddUnit(AdjacentTiles(target))` A GAUCHE,
+    ce que porte `tiles_unit_can_move_to_charge_target` et qu'utilise Waaagh). Ici c'est
+    `MovableTilesInRange` qui est a GAUCHE.
+
+    Ce n'est PAS cosmetique : `IdunBattle.DSL.TargetsSelector$$op_BitwiseAnd(left, right)` construit
+    un `CombinedSelector{ +0x18 = left, +0x20 = right }` dont la sortie suit l'operande GAUCHE, et
+    `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` termine par un `OrderBy` LINQ
+    **STABLE** — a utilite EGALE, c'est le premier de l'ordre SOURCE que `First(..., 1)` emet. Donc
+    reutiliser le helper aurait change la tuile rendue sur toute egalite d'utilite.
+
+    RESIDU NOMME, herite du port de `MovableTilesInRange` : ce noeud rend `sorted(...)` (id de tuile
+    croissant) la ou le natif rend l'ordre de visite du BFS de
+    `IdunBattle.Entities.Pathfinding.BasePathfinder$$GetMovablePositions`. Tant que
+    `MovableTilesInRange` etait a DROITE de toutes les intersections portees, cet ordre etait
+    inobservable ; ici il devient l'ordre source du tri. Il ne departage que des utilites
+    STRICTEMENT egales."""
+    return TileIntersect(MovableTilesInRange(Caster(), CasterTile(), Const(int(move_range)),
+                                             can_reach_only=False),
+                         CanAddUnit(AdjacentTiles(Target())))
+
+
+def ramming_speed_tile_to_move_to(state: "State", caster_id: int, target_id: int,
+                                  move_range: Optional[int] = None):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$GetTileToMoveTo` —
+    MIRROR du decompile :
+
+        First( SortTilesByUtility( <ramming_speed_charge_tiles_selector>,
+                                   caster@0x48,
+                                   UtilityDefinition( UtilityBucket([ WeightedUtility(7),
+                                                                      WeightedUtility(0x36) ], null) ),
+                                   parent = null ),
+               1 )
+
+    DEUX consommateurs natifs, exactement comme pour Waaagh :
+      * l'etage MOVE de `RammingSpeedAbility$$ExecuteBehaviour` —
+        `If( !IsAdjacent(caster@0x48, target@0x60, 3), MoveUnit(caster@0x48, <cette tuile>, …) )` ;
+      * le gate de ciblage `RammingSpeedAbility$$GetDynamicInvalidTargetReason`, qui appelle
+        `SelectTile` sur CE selecteur et rend `0x8000000` quand il ne rend rien.
+    Les deux voient donc TOUJOURS la meme tuile.
+
+    `move_range` absent -> lu au gameconfig (`abilities.RammingSpeed.constants.range` = 5), qui est
+    la source de `GetNumberConstant(0x16)`. Rend une `(col, row)`, ou None si l'intersection est
+    vide (le `MoveUnit` en aval est alors no-op, et le gate de ciblage refuse le cast).
+
+    ⚠ La face COMBAT de 1059 n'est PAS au registre `ABILITY_CLASSES` : ce port ne couvre que
+    `GetTileToMoveTo`, la fonction que le batch EXPLOSION de
+    `IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions` reclame (residu #353) et
+    qui est confrontable seule (la position d'arrivee du caster APRES le cast natif l'expose)."""
+    board = getattr(state, "board", None)
+    ce = state.get_entity(caster_id)
+    if board is None or ce is None or state.get_entity(target_id) is None:
+        return None
+    if move_range is None:
+        consts = (GC.ability("RammingSpeed") or {}).get("constants") or {}
+        move_range = int(consts.get("range") or 0)               # GetNumberConstant(0x16 = range)
+    cands = ramming_speed_charge_tiles_selector(int(move_range)).evaluate(
+        entities_from_state(state, caster_id, target_id))
+    if not cands:
+        return None
+    # `caster@0x48` = le `unit` du selecteur -> `case.unit`, celui dont
+    # `RammingSpeed_MostAdjacentEnemies` resout le camp (`GetAdjacentEnemies(tile, case.unit, false)`).
+    best = first_tile_by_utility(state, cands, unit_id=caster_id,
+                                 utility_definition=RAMMING_SPEED_TILE_UTILITY)
+    return board.coord(best) if best is not None else None
 
 
 def waaagh_ai_tree(unit_id: str) -> PerformAIAction:
