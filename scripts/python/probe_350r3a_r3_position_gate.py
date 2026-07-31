@@ -407,7 +407,14 @@ def _native_argmax(positions: list, nat: dict) -> dict:
 # --- etape 1 : LA CARTE + LES DEUX ARGMAX --------------------------------------------------------
 
 def step1(rpc, sid, logs: Path, fx: dict, verbose: bool = True) -> dict:
+    """UN montage, N valeurs de `maxRank`.
+
+    Le NATIF ne connait pas `maxRank` : sa carte d'eligibilite est mesuree UNE fois. Seul le PORT en
+    depend (`computeAttackPlans` tronque a `maxRank`). Balayer les rangs sur le MEME etat -- plutot
+    qu'un build par rang -- est donc a la fois moins couteux et plus rigoureux : la geometrie est
+    EXACTEMENT la meme, l'ecart ne peut venir que du rang."""
     sf = logs / ("p350r3a_r3_%s.json" % fx["name"])
+    ranks = tuple(fx.get("ranks") or (fx["max_rank"],))
     rid = None
     try:
         rid = _build(sf, fx)
@@ -415,13 +422,11 @@ def step1(rpc, sid, logs: Path, fx: dict, verbose: bool = True) -> dict:
         if not st.get("ok"):
             return {"ok": False, "error": st.get("error")}
         cid = st["casterId"]
-        dv = _view(rpc, sid, rid, fx["max_rank"])
-        positions, origin = _reach(rpc, sid, rid, cid, dv)
-        port_rk = _port_ranked(dv, cid, fx["ability"])
+        dv0 = _view(rpc, sid, rid, max(ranks))
+        positions, origin = _reach(rpc, sid, rid, cid, dv0)
         if verbose:
-            print("  reach = %d positions (origine %s en tete) ; maxRank=%d"
-                  % (len(positions), origin, fx["max_rank"]))
-            print("  PORT ranked(tgt) : %s" % {t: len(s) for t, s in sorted(port_rk.items())})
+            print("  reach = %d positions (origine %s en tete) ; rangs balayes %s"
+                  % (len(positions), origin, list(ranks)))
         nat = _native_map(rpc, sid, rid, cid, fx["ability"], positions, verbose)
         cft = {int(f["id"]): _cast_from_tiles(rpc, sid, rid, cid, f["id"], fx["ability"])
                for f in st["foes"]}
@@ -441,11 +446,49 @@ def step1(rpc, sid, logs: Path, fx: dict, verbose: bool = True) -> dict:
                      "targetId": int(f["id"])}, 60)
             tr = rr.get("targetReason") or {}
             reasons[f["id"]] = {"hex": tr.get("hex"), "reasons": tr.get("reasons")}
-        port = _port_candidate(rpc, sid, rid, cid, dv)
+        nat_arg = _native_argmax(positions, nat)
+        by_rank = []
+        for mr in ranks:
+            dv = dv0 if mr == max(ranks) else _view(rpc, sid, rid, mr)
+            by_rank.append(_one_rank(rpc, sid, rid, cid, fx, dv, mr, positions, origin,
+                                     nat, cft, nat_arg, verbose))
     finally:
         if rid is not None:
             _r(rpc, sid, "disposeRunner", {"runnerId": rid}, 30)
 
+    sep = [x for x in by_rank if x["separates"]]
+    out = {"ok": True, "fixture": fx["name"], "casterId": cid, "origin": list(origin or ()),
+           "foes": st["foes"], "positions": len(positions), "byRank": by_rank,
+           "argmaxNative": nat_arg, "separatingRanks": [x["maxRank"] for x in sep],
+           "separates": bool(sep),
+           "fromHere": from_here, "union": union, "abilityReason": reasons,
+           "castFromTiles": {str(k): v for k, v in cft.items()},
+           # compat mono-rang (le dernier rang balaye) -- le sweep lit ces cles
+           "maxRank": by_rank[-1]["maxRank"], "rows": by_rank[-1]["rows"],
+           "divergentPositions": by_rank[-1]["divergentPositions"],
+           "e1_predicat": by_rank[-1]["e1_predicat"], "e2_troncature": by_rank[-1]["e2_troncature"],
+           "argmaxPort": by_rank[-1]["argmaxPort"]}
+    if verbose:
+        print("\n  [recoupement origine] fromHere(GetValidTargets)   = %s" % from_here)
+        print("                        natif(origine) via oracle  = %s"
+              % sorted(set(x for x in (nat[positions[0]]["targets"] or []) if x is not None)))
+        print("                        union(mouvement inclus)    = %s" % union)
+        for tid, rz in reasons.items():
+            print("  abilityReason(tgt=%s) depuis l'origine : hex=%s %s"
+                  % (tid, rz["hex"], rz["reasons"]))
+        print("\n  ARGMAX NATIF (bucketUtil mesure, keep-first origine d'abord) : %s" % nat_arg)
+        for x in by_rank:
+            print("  maxRank=%-3d ranked=%-22s setsDiv=%-3d E1=%-3d E2=%-3d port=%s  %s"
+                  % (x["maxRank"], x["rankedSizes"], x["divergentPositions"], x["e1_predicat"],
+                     x["e2_troncature"], x["argmaxPort"],
+                     "SEPARE" if x["separates"] else "coincide"))
+    return out
+
+
+def _one_rank(rpc, sid, rid, cid, fx, dv, mr, positions, origin, nat, cft, nat_arg,
+              verbose: bool) -> dict:
+    """La carte du PORT a un `maxRank` donne + son argmax, confrontes au natif deja mesure."""
+    port_rk = _port_ranked(dv, cid, fx["ability"])
     rows = []
     for p in positions:
         n = set(x for x in (nat[p]["targets"] or []) if x is not None)
@@ -457,11 +500,12 @@ def step1(rpc, sid, logs: Path, fx: dict, verbose: bool = True) -> dict:
                      "diff_port_only": sorted(q - n), "diff_natif_only": sorted(n - q),
                      "bucketUtil": nat[p]["bucketUtil"]})
     n_div = sum(1 for x in rows if x["diff_port_only"] or x["diff_natif_only"])
-    # E1 vs E2 : `castFromTiles` == le predicat du port SANS troncature.
+    # E1 vs E2 : `castFromTiles` == le predicat du port SANS troncature. Ce qui manque a `port` mais
+    # est dans `castFromTiles` accuse la TRONCATURE ; ce qui separe `castFromTiles` du natif accuse
+    # le PREDICAT.
     e2 = sum(1 for x in rows if set(x["castFromTiles"]) - set(x["port"]))
     e1 = sum(1 for x in rows if set(x["castFromTiles"]) != set(x["natif"]))
-
-    nat_arg = _native_argmax(positions, nat)
+    port = _port_candidate(rpc, sid, rid, cid, dv)
     cands = (port.get("cands") or [])
     port_arg = ({"pos": list(cands[0]["to"] or origin), "util": cands[0]["pred"],
                  "targets": [cands[0]["target"]]} if cands
@@ -469,39 +513,18 @@ def step1(rpc, sid, logs: Path, fx: dict, verbose: bool = True) -> dict:
     same_pos = (nat_arg["pos"] == port_arg["pos"])
     same_tgt = (bool(port_arg["targets"]) and port_arg["targets"][0] in (nat_arg["targets"] or []))
     separates = not (same_pos and same_tgt)
-
-    out = {"ok": True, "fixture": fx["name"], "casterId": cid, "origin": list(origin or ()),
-           "maxRank": fx["max_rank"], "foes": st["foes"], "rows": rows,
-           "divergentPositions": n_div, "positions": len(rows),
-           "e1_predicat": e1, "e2_troncature": e2,
-           "argmaxNative": nat_arg, "argmaxPort": port_arg,
-           "separates": separates, "portGated": port.get("gated"),
-           "fromHere": from_here, "union": union, "abilityReason": reasons,
-           "castFromTiles": {str(k): v for k, v in cft.items()},
-           "portRanked": {str(t): sorted(s) for t, s in port_rk.items()}}
-    if verbose:
-        print("\n  [recoupement origine] fromHere(GetValidTargets)   = %s" % from_here)
-        print("                        natif(origine) via oracle  = %s"
-              % sorted(set(x for x in (nat[positions[0]]["targets"] or []) if x is not None)))
-        print("                        union(mouvement inclus)    = %s" % union)
-        for tid, rz in reasons.items():
-            print("  abilityReason(tgt=%s) depuis l'origine : hex=%s %s"
-                  % (tid, rz["hex"], rz["reasons"]))
-        print("  positions ou les SETS divergent : %d / %d  (E1 predicat=%d, E2 troncature=%d)"
-              % (n_div, len(rows), e1, e2))
-        for x in rows:
-            if x["diff_port_only"] or x["diff_natif_only"]:
-                print("     P=%-8s natif=%-12s port=%-12s cft=%-12s  port-en-trop=%s natif-en-trop=%s"
-                      % (tuple(x["pos"]), x["natif"], x["port"], x["castFromTiles"],
-                         x["diff_port_only"], x["diff_natif_only"]))
-        print("\n  ARGMAX NATIF (bucketUtil mesure, keep-first origine d'abord) : %s" % nat_arg)
-        print("  ARGMAX PORT  (generate_candidates livre)                     : %s" % port_arg)
-        print("  => LES DEUX MODELES %s"
-              % ("SEPARENT" if separates else "COINCIDENT -- ce montage ne conclut RIEN"))
-    return out
+    if verbose and separates:
+        print("    [maxRank=%d] SEPARE : natif %s (u=%s) vs port %s (u=%s)"
+              % (mr, nat_arg["pos"], nat_arg["util"], port_arg["pos"], port_arg["util"]))
+    return {"maxRank": mr, "rows": rows, "divergentPositions": n_div,
+            "e1_predicat": e1, "e2_troncature": e2, "argmaxPort": port_arg,
+            "separates": separates, "portGated": port.get("gated"),
+            "rankedSizes": str({t: len(s) for t, s in sorted(port_rk.items())}),
+            "portRanked": {str(t): sorted(s) for t, s in port_rk.items()}}
 
 
-def run(fixture: str, max_rank: int | None, verbose: bool = True) -> dict:
+def run(fixture: str, max_rank: int | None, ranks: tuple | None = None,
+        verbose: bool = True) -> dict:
     _resolve_session, _rpc = _rpc_mod()
     sid = _resolve_session()
     logs = ROOT / "logs"
@@ -509,32 +532,36 @@ def run(fixture: str, max_rank: int | None, verbose: bool = True) -> dict:
     fx = dict(_FIXTURES[fixture])
     if max_rank:
         fx["max_rank"] = int(max_rank)
-    print("[350-r3a-r3] session %s -- fixture %s (maxRank=%d)"
-          % (sid, fx["name"], fx["max_rank"]))
+    if ranks:
+        fx["ranks"] = tuple(sorted(set(ranks), reverse=True))
+    print("[350-r3a-r3] session %s -- fixture %s (rangs %s)"
+          % (sid, fx["name"], list(fx.get("ranks") or (fx["max_rank"],))))
     return {"step1": step1(_rpc, sid, logs, fx, verbose)}
 
 
-def sweep(verbose: bool = True) -> dict:
-    """Balaye les geometries : pour chaque distance de l'ennemi de plus haute utilite, mesure si les
-    ARGMAX divergent. C'est la recherche EXPLICITE du montage separateur -- pas une esperance."""
+def sweep(dists: tuple, ranks: tuple, near: int, verbose: bool = True) -> dict:
+    """Balaye les geometries : pour chaque distance de l'ennemi de plus haute utilite et chaque
+    `maxRank`, mesure si les ARGMAX divergent. C'est la recherche EXPLICITE du montage separateur --
+    pas une esperance. `near` = anneau du concurrent (le mettre LOIN l'ecarte du bucket)."""
     _resolve_session, _rpc = _rpc_mod()
     sid = _resolve_session()
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)
     rows = []
-    for d in (1, 2, 3, 4, 5, 6):
-        for mr in (32, 2):
+    for d in dists:
+        for mr in ranks:
             fx = dict(_FIXTURES["carte"])
-            fx["name"] = "sweep_d%d_r%d" % (d, mr)
-            fx["seed"] = 35100 + d * 10 + mr
-            fx["rings"] = {"necroWarden": 1, "ultraTitus": d}
+            fx["name"] = "sweep_d%d_n%d_r%d" % (d, near, mr)
+            fx["seed"] = 35100 + d * 100 + near * 10 + mr
+            fx["rings"] = {"necroWarden": near, "ultraTitus": d}
             fx["max_rank"] = mr
-            print("\n[sweep] ultraTitus a distance %d, maxRank=%d" % (d, mr))
+            print("\n[sweep] ultraTitus a distance %d, necroWarden a %d, maxRank=%d"
+                  % (d, near, mr))
             try:
                 r = step1(_rpc, sid, logs, fx, verbose)
             except Exception as e:                                   # noqa: BLE001
                 r = {"ok": False, "error": str(e)[:200]}
-            rows.append({"dist": d, "maxRank": mr, "ok": r.get("ok"),
+            rows.append({"dist": d, "near": near, "maxRank": mr, "ok": r.get("ok"),
                          "divergent": r.get("divergentPositions"),
                          "e1": r.get("e1_predicat"), "e2": r.get("e2_troncature"),
                          "separates": r.get("separates"),
@@ -543,10 +570,17 @@ def sweep(verbose: bool = True) -> dict:
                          "error": r.get("error")})
     print("\n[sweep] RESUME")
     for x in rows:
-        print("  d=%d maxRank=%-3d ok=%-5s setsDiv=%-4s E1=%-4s E2=%-4s SEPARE=%s"
-              % (x["dist"], x["maxRank"], x["ok"], x["divergent"], x["e1"], x["e2"],
+        print("  d=%d near=%d maxRank=%-3d ok=%-5s setsDiv=%-4s E1=%-4s E2=%-4s SEPARE=%s"
+              % (x["dist"], x["near"], x["maxRank"], x["ok"], x["divergent"], x["e1"], x["e2"],
                  x["separates"]))
+        if x["separates"]:
+            print("      natif=%s" % x["argmaxNative"])
+            print("      port =%s" % x["argmaxPort"])
     return {"sweep": rows}
+
+
+def _ints(s: str) -> tuple:
+    return tuple(int(x) for x in s.split(",") if x.strip())
 
 
 def main() -> int:
@@ -555,9 +589,16 @@ def main() -> int:
     ap.add_argument("--fixture", choices=tuple(_FIXTURES), default="carte")
     ap.add_argument("--max-rank", type=int, default=None)
     ap.add_argument("--sweep", action="store_true")
+    ap.add_argument("--dists", default="2,3,4", help="anneaux de l'ennemi de haute utilite")
+    ap.add_argument("--ranks", default=None,
+                    help="valeurs de maxRank a balayer (defaut : 32,8,6,4,3,2 hors --sweep ; 8 en "
+                         "--sweep). 8 = `rl_duel._decision`, 6 = defaut du RPC `decisionView`.")
+    ap.add_argument("--near", type=int, default=1, help="anneau du concurrent")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    res = sweep(verbose=not a.json) if a.sweep else run(a.fixture, a.max_rank, verbose=not a.json)
+    res = (sweep(_ints(a.dists), _ints(a.ranks or "8"), a.near, verbose=not a.json) if a.sweep
+           else run(a.fixture, a.max_rank,
+                    _ints(a.ranks) if a.ranks else (32, 8, 6, 4, 3, 2), verbose=not a.json))
     if a.json:
         print(json.dumps(res, indent=2, default=str))
     s1 = res.get("step1")
