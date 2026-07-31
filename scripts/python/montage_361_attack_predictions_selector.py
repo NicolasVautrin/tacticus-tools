@@ -75,6 +75,24 @@ BOARD = "MC1_67"
 RANK = "17"
 
 
+# Les DEUX roles d'un bras, et pourquoi la distinction est structurante (#370)
+# ---------------------------------------------------------------------------
+# Trois playbooks seulement appellent `ComparablePlaybook<T>$$GenerateAttackPredictions` (xrefs) :
+# `MortisRoundPlaybook`, `ExplosivePresentsPlaybook`, `RammingSpeedPlaybook`. Mais ils n'ont pas le
+# meme statut dans l'enquete :
+#
+#   * TEMOIN -- son `origin` est une FEUILLE (`Entity(target)` / `Target@0x60`), donc son accord
+#     avec l'attendu etablit que la COMPOSITION (`AdjacentUnits`, `op_Subtraction`,
+#     `SelectUniqueUnits(ctx,3)`) et le contexte du playbook sont operants. C'est un temoin
+#     precisement parce qu'il ne contient PAS le terme en cause.
+#   * SUJET -- `RammingSpeedPlaybook`, dont l'`origin` est l'ARBRE `GetTileToMoveTo()`, le terme
+#     sur lequel porte toute la question. S'en servir comme temoin serait CIRCULAIRE.
+#
+# Le vocabulaire est FERME : un bras qui n'est ni l'un ni l'autre est un bras non declare, et
+# `tests/engine/test_365_selector_montage_offline.py` le refuse.
+ROLES = ("temoin", "sujet")
+
+
 @dataclass
 class SelectorArm:
     """Un bras = UNE ability dont le playbook passe par `GenerateAttackPredictions`."""
@@ -83,7 +101,8 @@ class SelectorArm:
     ability_name: str
     playbook: str            # `playbookClass` attendu du RPC -- verifie, jamais suppose
     selector: str            # le selecteur natif, VERBATIM
-    kind: str                # "entity" (controle positif) | "adjacent" (discriminant)
+    kind: str                # "entity" (controle positif) | "adjacent" | "origin-tree"
+    role: str                # cf. `ROLES` -- "temoin" (origin FEUILLE) | "sujet" (origin ARBRE)
 
 
 ARMS = {
@@ -91,21 +110,21 @@ ARMS = {
         key="control", ability=1004, ability_name="MortisRound",
         playbook="MortisRoundPlaybook",
         selector="Entity(target)",
-        kind="entity"),
+        kind="entity", role="temoin"),
     "adjacent": SelectorArm(
         key="adjacent", ability=1170, ability_name="ExplosivePresents",
         playbook="ExplosivePresentsPlaybook",
         selector="(Target@0x60 + AdjacentUnits(Target@0x60, 1, 3)) - Caster@0x48",
-        kind="adjacent"),
+        kind="adjacent", role="temoin"),
     # #370 -- le bras que #386 a laisse ouvert : le SEUL des trois appelants de
     # `GenerateAttackPredictions` dont l'`origin` est un ARBRE (les deux autres sont des feuilles
-    # `Entity`/`Target@0x60`). C'est l'evaluation de cet arbre que le capteur `tileProbe` observe ;
-    # `expected_targets` ne s'y applique pas (on ne compte pas des events, on lit un POOL).
+    # `Entity`/`Target@0x60`). C'est l'evaluation de cet arbre que le capteur `tileProbe` observe.
+    # SUJET, pas temoin : `expected_targets` le REFUSE (on ne compte pas des events, on lit un POOL).
     "ramming": SelectorArm(
         key="ramming", ability=1059, ability_name="RammingSpeed",
         playbook="RammingSpeedPlaybook",
         selector="Friends/Enemies(Caster@0x48, AdjacentUnits(GetTileToMoveTo(), 1, 3), 3)",
-        kind="origin-tree"),
+        kind="origin-tree", role="sujet"),
 }
 
 # `abilities.RammingSpeed.constants.range` = `GetNumberConstant(config, 0x16)`, le litteral que
@@ -295,7 +314,17 @@ def expected_targets(arm: SelectorArm, board, dv, caster_id: int, target_id: int
                   montage ne le porte, donc le filtre se reduit a « vivante ».
 
     `mutate` sert la GARDE ADVERSARIALE : un attendu volontairement FAUX doit faire ROUGIR le probe.
-    Un bras qui reste vert sous mutation ne discrimine pas le terme mute, et ne prouve donc rien."""
+    Un bras qui reste vert sous mutation ne discrimine pas le terme mute, et ne prouve donc rien.
+
+    ⚠ RESERVE AUX TEMOINS. Sur le bras SUJET (`ramming`), l'`origin` est l'arbre `GetTileToMoveTo()`
+    -- ce qu'on mesure n'est pas un COMPTE d'entites derivable de la geometrie mais la taille d'un
+    POOL de tuiles, que seul le capteur `tileProbe` lit. Rendre ici un attendu serait le FABRIQUER
+    (`kind == "origin-tree"` tomberait silencieusement dans la branche `adjacent`). On LEVE."""
+    if arm.role != "temoin":
+        raise ValueError(
+            "expected_targets ne s'applique qu'a un bras TEMOIN (origin FEUILLE) : %r est un %r "
+            "dont l'origin est %r -- son attendu se lit au capteur tileProbe, pas a la geometrie"
+            % (arm.key, arm.role, arm.selector))
     units = {int(u["id"]): u for u in (dv.get("units") or []) if u.get("alive")}
     if arm.kind == "entity" or mutate == "no-adjacency":
         picked = [int(target_id)]
