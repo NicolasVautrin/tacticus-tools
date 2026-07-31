@@ -297,22 +297,25 @@ def ai_control_execute_ability_action_for(state: State, uid: int, ability_id: in
 
     `move_amount` = `behaviour+0x78` evalue : `0` (`Direct(0)`, noeud `PerformAIAttackFromCurrentPosition`)
     ou `None` (noeud `PerformAIAttack`). Il est passe TEL QUEL a `GenerateActionTiles` via
-    `build_from_state(max_distance=...)`.
+    `build_from_state(max_distance=...)` — c'est le 3e argument d'
+    `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles(unit, ignoreFlags: true, overrideRange)`,
+    lu VERBATIM au decompile de `...DefaultAiUnitTactic.u003CCalculateAbilityActionForUnitu003Ed__6$$MoveNext`
+    (`GenerateActionTiles(tactic, unit, 1, *(d__6+0x34))`) : `0` => la tuile COURANTE seule, `null` => la
+    plage de deplacement NORMALE (l'acteur peut s'APPROCHER). #348 l'ouvre ; l'apply du `MoveUnitMessage`
+    qu'elle rend indispensable vit chez l'appelant (`perform_ai_ability_unit_behaviour`), et il a ete
+    porte AVANT (sans lui, l'attaque serait calculee depuis une tuile ou l'unite n'est pas).
 
-    ⚠ **RESIDU MAINTENU, hors perimetre #338** : la branche `move_amount is None` est ici FORCEE a la
-    tuile courante (`max_distance=0`). Le natif y rendrait la plage de deplacement normale, donc une
-    tuile d'action != origine ; l'appelant, lui, n'applique AUCUN `MoveUnitMessage` -> l'attaque serait
-    calculee depuis une tuile ou l'unite n'est pas. Ouvrir la plage exige donc d'ouvrir AUSSI l'apply
-    du deplacement (residu jumeau `GenerateActionTiles`/`MovementActionGenerator`), qui est une autre
-    tache. Tant qu'elle n'est pas faite, forcer la tuile courante est le seul choix SUR.
-
-    `range_gate(target_id) -> bool` = la PORTEE EFFECTIVE de l'acteur depuis sa tuile courante. Le
-    natif l'applique DANS l'enumeration des cibles eligibles (`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsForNormalAttack`
+    `range_gate(target_id, tile) -> bool` = la PORTEE EFFECTIVE de l'acteur DEPUIS `tile` (une tuile
+    candidate `(col,row)`). Le natif l'applique DANS l'enumeration des cibles eligibles
+    (`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsForNormalAttack`
     -> `IdunBattle.Core.Services.TargetingQuery$$GetRange`, qui clampe `Math.Min(1, range)` si l'acteur
-    porte `ForcedInMelee (0x529)`), donc AVANT tout argmax d'utilite. Le bridge offline, lui, borne les
-    plans par `_max_attack_range` (gameconfig) SANS ce clamp : sans ce gate, le moteur pourrait elire une
-    cible que l'acteur ne peut pas frapper, et l'appelant n'aurait plus qu'a ne rien faire -- alors que le
-    natif aurait elu la meilleure cible PARMI les atteignables. `None` -> aucun filtre.
+    porte `ForcedInMelee (0x529)`), donc AVANT tout argmax d'utilite -- et `EvaluateInternal(unit,
+    position, ctx)` le refait POUR CHAQUE position candidate, d'ou l'argument `tile`. Le bridge offline,
+    lui, borne les `ranked` par `_max_attack_range` (gameconfig) SANS ce clamp : sans ce gate, le moteur
+    pourrait elire une cible que l'acteur ne peut pas frapper, et l'appelant n'aurait plus qu'a ne rien
+    faire -- alors que le natif aurait elu la meilleure cible PARMI les atteignables. `None` -> aucun
+    filtre. Le filtre porte sur les TUILES de chaque `eval` (et non sur l'eval entier) : un ennemi
+    inatteignable depuis l'origine mais atteignable APRES deplacement doit rester candidat.
 
     AUCUN `try/except` ici, et c'est DELIBERE : un echec du bridge RENDU en « pas d'attaque » se
     lirait comme une mesure (« le natif non plus ne frappe pas »), silencieusement, sur les huit
@@ -321,13 +324,24 @@ def ai_control_execute_ability_action_for(state: State, uid: int, ability_id: in
     Rend l'action (`{kind, target, ability, to, util}`) ou `None` (aucun message emis)."""
     from engine.ai.state_bridge import build_from_state
     from engine.ai.tactic import calculate_ability_action_for_unit
-    ctx = build_from_state(state, int(uid), max_distance=0)
+    ctx = build_from_state(state, int(uid), max_distance=move_amount)
     if range_gate is not None:
         # `GetEligibleTargetsForNormalAttack` : les cibles hors PORTEE EFFECTIVE ne sont jamais
-        # soumises a l'utilite. On retire leurs `evals` du plan (le seul canal de cibles d'attaque).
+        # soumises a l'utilite. On elague les TUILES de chaque `eval` (le seul canal de cibles
+        # d'attaque) ; un `eval` vide de toute tuile legale disparait.
         plan = ctx.plans.get(int(uid)) or {}
-        plan["evals"] = [ev for ev in (plan.get("evals") or [])
-                         if range_gate(ev.get("targetId"))]
+        kept: list = []
+        for ev in (plan.get("evals") or []):
+            tid = ev.get("targetId")
+            ranked = [rk for rk in (ev.get("ranked") or [])
+                      if range_gate(tid, (rk.get("col"), rk.get("row")))]
+            if not ranked:
+                continue
+            ev = dict(ev)
+            ev["ranked"] = ranked
+            ev["rankCount"] = len(ranked)
+            kept.append(ev)
+        plan["evals"] = kept
     return calculate_ability_action_for_unit(ctx, int(ability_id),
                                              allow_only_move=bool(allow_only_move),
                                              custom_utility=custom_utility)

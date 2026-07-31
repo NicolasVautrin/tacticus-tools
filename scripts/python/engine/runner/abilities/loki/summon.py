@@ -238,26 +238,46 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     jusqu'a `calculate_ability_action_for_unit` mais IGNORE (non mirrore) — le residu est desormais
     LOCALISE la, pas ici.
 
-    RESIDU PROPRE A `move_amount is None` (branche `PerformAIAttack`) : ni `GenerateActionTiles` ni le
-    `MovementActionGenerator` ne sont portes -> le port n'APPROCHE PAS l'acteur. Le domaine d'action reste
-    la tuile courante (identique a `move_amount == 0`), donc un acteur hors portee ne fait RIEN la ou le
-    natif le ferait avancer (puis attaquer, ou seulement avancer si `allow_move_action`). C'est un
-    MANQUE-A-AGIR, jamais une attaque illegale : le natif non plus ne frappe pas a 5 hex avec une arme de
-    melee. Les deux champs sont threades explicitement (et remontes dans le diag) pour que ce residu soit
-    localise ici, et non re-invente par un fork chez un appelant. None si pas de cible legale."""
+    APPROCHE (#348, ex-residu R31) : `move_amount` est passe TEL QUEL a `GenerateActionTiles` (via
+    `build_from_state(max_distance=...)`), donc `None` (noeud `PerformAIAttack`) ouvre la PLAGE DE
+    DEPLACEMENT NORMALE de l'acteur, et `allow_move_action` ajoute le `MovementActionGenerator` (l'IA
+    peut alors choisir un DEPLACEMENT PUR si aucune attaque n'est possible). Les messages rendus par
+    `InputBuilder$$GenerateInputMessagesFromUnitAction` sont appliques ICI dans l'ORDRE NATIF
+    (`AiControl$$ApplyAiMessages` : `MoveUnitMessage` PUIS `ActiveAbilityMessage`) -- le move passe par
+    le handler de message du runner (`MovementHandler.visit_MoveUnitMessage` =
+    `IdunBattle.Operations.MoveUnitOperation$$Execute` + `EvaluateAfterMoveTriggers`), donc l'overwatch
+    du deplacement s'applique, et l'attaque est calculee depuis la tuile OU L'UNITE EST.
+    i2, le discriminant : `PerformAIAttack` => « which then immediately **takes a turn** » ;
+    `...FromCurrentPosition` (`move_amount == 0`) => « can immediately **attack**, but **cannot move
+    this turn** » -- cette branche-la garde donc la tuile courante pour seul domaine d'action.
+
+    CONTRAT DE RETOUR (inchange) : `None` = AUCUNE ATTAQUE. Un DEPLACEMENT PUR (ou un deplacement suivi
+    d'une mort par overwatch) rend donc `None` **apres avoir mute l'etat** -- ses huit consommateurs ne
+    tiennent que la comptabilite des ATTAQUES (`_attacks_made`, `_last_attacked`, `attacks[]`), et un
+    move n'en est pas une. La cle `moved` du diag porte le deplacement quand l'attaque a bien eu lieu."""
     from ...operations.triggers.base import _in_attack_range
     from ...operations.summon_ai import (ai_control_execute_ability_action_for,
                                          NORMAL_ATTACK_ID)
+    from ...components import UnitComponent as _UC, PositionComponent as _PC
     # `abilityId = getAbilityType(actor)` (`behaviour+0x68`) = `UnitExtensions$$GetNormalAttackType`.
     # `aiControl.ExecuteAbilityActionFor(actor, abilityId, {allowOnlyMove, skipAtomic, true,
     #                                    Nullable<int> moveAmount, customUtility})` -- slot 0x37.
     action = ai_control_execute_ability_action_for(
         state, unit_id, NORMAL_ATTACK_ID, allow_only_move=bool(allow_move_action),
         move_amount=move_amount,
-        range_gate=lambda t: t is not None and _in_attack_range(state, unit_id, t))
+        range_gate=lambda t, tile: t is not None and _in_attack_range(state, unit_id, t,
+                                                                     from_pos=tile))
+    # --- `AiControl$$ApplyAiMessages(msgs)` : 1. `MoveUnitMessage` -----------------------------------
+    _e = state.get_entity(unit_id)
+    _pc = _e.get_component(_PC) if _e is not None else None
+    origin = (_pc.col, _pc.row) if _pc is not None else None
+    moved = _apply_move_message(state, unit_id, (action or {}).get("to"), origin)
+    _uc = _e.get_component(_UC) if _e is not None else None
+    if _uc is not None and not _uc.alive:
+        return None                       # tue par l'overwatch pendant l'approche -> aucune attaque
+    # --- 2. `ActiveAbilityMessage` (l'attaque normale imposee) ---------------------------------------
     tgt = action.get("target") if (action or {}).get("kind") == "ability" else None
-    # `GenerateActionTiles(unit, true, move_amount)` : `0` = la tuile courante seule ; `None` = la plage
-    # de deplacement normale -> NON PORTEE (cf. RESIDU ci-dessus), on retombe sur la tuile courante.
+    # Double filet : la portee EFFECTIVE est re-evaluee depuis la tuile FINALE (post-move).
     if tgt is None or not _in_attack_range(state, unit_id, tgt):
         return None
     r = AttackDamageOperation.execute(state, unit_id, tgt)
@@ -274,7 +294,30 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
                                     r.get("profile"), is_crit=bool(r.get("did_crit")),
                                     profiles=profs, did_block=bool(r.get("did_block")))
     return {"summon": unit_id, "target": tgt, "total": r.get("total"), "after_hit": after,
-            "move_amount": move_amount, "allow_move_action": bool(allow_move_action)}
+            "moved": moved, "move_amount": move_amount,
+            "allow_move_action": bool(allow_move_action)}
+
+
+def _apply_move_message(state: "State", unit_id: int, to, origin) -> Optional[tuple]:
+    """Volet `MoveUnitMessage` d'`IdunBattle.Core.Services.AiControl$$ApplyAiMessages` : le message
+    est POSTE au routeur d'input (`AiControl$$ApplyAiMessage` -> `this+0x40`), donc traite par le MEME
+    handler que n'importe quel deplacement -- `MoveUnitOperation$$Execute` + `EvaluateAfterMoveTriggers`.
+    Le port passe donc par `MovementHandler.visit_MoveUnitMessage`, jamais par un `MoveUnitOperation`
+    recable a la main : c'est ce qui garantit que l'overwatch de l'approche part.
+
+    Gate = celui d'`InputBuilder$$GenerateInputMessagesFromUnitAction` :
+    `UnitPosition.op_Inequality(action.Position, null) && !currentPosition.Equals(action.Position)`
+    -- destination absente ou EGALE a la tuile courante => AUCUN message emis (l'acteur reste sur
+    place, et `MovementActionGenerator` le fait explicitement : la tuile courante est la GRAINE de son
+    ensemble de candidats et l'argmax natif remplace en `>` STRICT).
+    Rend la tuile atteinte, ou `None` si aucun deplacement n'a eu lieu."""
+    if to is None or origin is None or tuple(to) == tuple(origin):
+        return None
+    from ...events import EventBus
+    from ...messages import MoveUnitMessage
+    from ...operations.movement import MovementHandler
+    MovementHandler(state, EventBus()).visit_MoveUnitMessage(MoveUnitMessage(unit_id, tuple(to)))
+    return tuple(to)
 
 
 def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Optional[dict]:
