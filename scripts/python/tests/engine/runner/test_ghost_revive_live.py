@@ -33,7 +33,8 @@ from engine.runner.events import EventBus
 from engine.runner.operations.damage import AttackDamageOperation
 from engine.runner.operations.movement import MoveUnitOperation
 from engine.runner.operations.turnflow import StartTurnOperation
-from engine.runner.operations.triggers.loki.ghost_revive import GHOST_EFFECT
+from engine.runner.operations.triggers.loki.ghost_revive import (
+    TIME_FLUX_GHOST_EFFECT as GHOST_EFFECT)
 from engine.runner.components import (UnitComponent, HealthComponent, StatsComponent,
                                       OwnerComponent, PositionComponent)
 from engine.runner.prng import IntBasedMersenneTwister

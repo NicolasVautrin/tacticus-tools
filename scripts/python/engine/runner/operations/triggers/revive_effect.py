@@ -109,16 +109,26 @@ class Revive(AbilityBehaviour):
     Frontiere #149 : la FEUILLE (declaratif, ICI) POSE ; l'Operation IMPERATIVE (operations/revive.py,
     EN-DESSOUS) APPLIQUE -- on NE fusionne PAS.
 
-    `amount` = `Min(GetReviveHP, StatAmount(target, Health, max))` = le noeud `Min(Direct(GetReviveHP),
-    StatAmount(target@0x178, Health=5, max=3))` du behaviour natif (`GetReviveHP` =
-    `GetVariableForLevel(config, 0x1d='hp', level)`, scalee rarete via `ability_var`). PUR (stop=False)."""
+    `amount` = `Min(GetReviveHP, StatAmount(target, Health, Initial))` = le noeud `Min(Direct(GetReviveHP),
+    StatAmount(target@0x178, Health=5, StatPart=3))` du behaviour natif (`GetReviveHP` =
+    `GetVariableForLevel(config, 0x1d='hp', level)`, scalee rarete via `ability_var`). PUR (stop=False).
+
+    ⚠ Le 4e argument de `IdunBattleLogic.Entities.DSLBehaviors$$Revive` est TOUJOURS un NOEUD FORMULE
+    cote natif. Le port collapse le cas ARCHI-majoritaire (`Direct(ConfigVar('hp'))`) dans le triplet
+    `(ability_id, hp_var, level/mult)` ; `amount_node` est l'echappatoire pour les appelants dont le
+    natif passe une AUTRE formule -- a ce jour le SEUL est
+    `IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateTargetTriggerBehaviour` branche
+    `EchoesFromTheWarp` (`StatAmount(src, Health = 5, StatPart = 3 = Initial)`, cf. #366-r1 /
+    `loki/ghost_revive.py`). Fourni => il REMPLACE `ability_var` (le natif ne calcule qu'UNE branche,
+    resolue A LA CONSTRUCTION de l'arbre)."""
     __slots__ = ("target_sel", "ability_id", "hp_var", "level", "mult", "heal_type",
-                 "source_id", "priority", "tiles_sel")
+                 "source_id", "priority", "tiles_sel", "amount_node")
 
     def __init__(self, target_sel, ability_id: str, hp_var: str = "hp",
                  level=None, mult: int = 100, heal_type: int = 0,
-                 source_id=None, priority: int = 0, tiles_sel=None):
+                 source_id=None, priority: int = 0, tiles_sel=None, amount_node=None):
         self.target_sel, self.ability_id, self.hp_var = target_sel, ability_id, hp_var
+        self.amount_node = amount_node
         # 7e argument de `IdunBattleLogic.Entities.DSLFactory$$Revive` (`targetsTile`) -- NUL chez tous
         # les consommateurs SAUF `IdunBattle.Entities.Effects.Loki.GhostEffect$$
         # CreateTargetTriggerBehaviour`, qui y passe `Owner@0x148` = la TUILE porteuse du ghost.
@@ -146,8 +156,11 @@ class Revive(AbilityBehaviour):
         state = ectx.state
         if state is None:
             return OperationResult.ok()
-        revive_hp = ability_var(self.ability_id, self.hp_var, self.level,
-                                multiplier_pct=self.mult)      # GetReviveHP
+        # Fork d'`amount` (resolu A LA CONSTRUCTION de l'arbre cote natif, jamais au runtime) :
+        # noeud formule explicite si l'appelant en fournit un, sinon `Direct(GetReviveHP)`.
+        revive_hp = (int(self.amount_node.evaluate(entities)) if self.amount_node is not None
+                     else ability_var(self.ability_id, self.hp_var, self.level,
+                                      multiplier_pct=self.mult))      # GetReviveHP
         # `targetsTile` : `ReviveBehaviour$$Execute` evalue le selecteur UNE fois
         # (`FUN_180024d10(10, …, param_2+0x90, entities)`) puis prend l'element d'index de la cible
         # courante -- une liste de tuiles PAR CIBLE. Le port collapse chaque entree en un (col,row)
