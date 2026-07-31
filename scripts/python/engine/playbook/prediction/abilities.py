@@ -12,6 +12,8 @@ from ._shared import *   # vocabulaire commun (GC, dsl, active_ability_for, Prob
 from ._shared import (_PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
                       _prediction_is_charging, _target_damage_limits, _entity_traits)
 from .normal_attack import make_normal_attack_predictions
+# `EffectType.Fire` (5) : effet de TUILE lu par le gate de selecteur de 1148 (`_MAKE_DMG_TARGET_GATE`).
+from ...entities.effect_type import EffectType as _EffectType
 
 
 def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_name, attack_pos=None,
@@ -734,6 +736,57 @@ def _ramming_speed_self_events(scene, caster_id, target_id, ability_id, ability_
     return [ProbableDamageEvent(target=caster_id, prediction=dp, friendly=True)] if dp is not None else []
 
 
+# `EffectType.Fire` (5) — `scene.tile_effects_by_pos` est indexee par NOM d'effet (`tileMeta`
+# `effects[].name`, cf. `ai/context.py`), jamais par id : on compare donc au nom de l'enum.
+_EFFECT_FIRE_NAME = _EffectType.Fire.name
+
+
+def _daemonic_ordnance_target_gate(scene, caster_id: int, target_id: int) -> bool:
+    """#350-r3 -- SELECTEUR de `DaemonicOrdnancePlaybook$$MakeDamagePredictions`, qui n'etait pas porte.
+
+    Le playbook ne boucle PAS sur `<Target>` : il boucle sur
+    `GetEntitiesFromSelector(DaemonicOrdnanceAbility$$GetAllDamageableTargets, ...)` =
+
+        Enemies( caster@0x160,
+                 Units( Filter( GetTargetAreaTiles(), HasEffect(Tiles(Subject@0x180), 5 = Fire) ), 1 ),
+                 3 )
+
+    soit **les ennemis debout sur une tuile qui PORTE DEJA le feu**. Or c'est ce meme cast qui pose le
+    feu, en DERNIER etage de son behaviour (`DaemonicOrdnanceAbility$$ExecuteBehaviour` [5]
+    `AddEffect(Fire -> zone)`, cf. `runner/abilities/blacklegion.py`). Sur une zone qui ne brule pas
+    encore, le selecteur rend l'ensemble VIDE et le natif n'emet AUCUN event.
+
+    `GetTargetAreaTiles` = `TilesOnSameElevation(target, TilesInTriangleShape(target, dir), 1)` est
+    ancre SUR LA CIBLE et contient donc toujours la tuile de la cible : pour la cible principale la
+    conjonction se reduit exactement a « ennemi du caster ET sa tuile porte `Fire` ».
+
+    MESURE (#350-r3, `blackForgefiend` / MC1_67, board sans feu) : natif `count = 0`, port
+    `(81, 123, 3)` -- le port INVENTAIT un event. C'est une sur-prediction silencieuse : ni erreur ni
+    crash, et elle gonfle l'utilite de 1148 dans toute decision portee.
+
+    `tile_effects_by_pos = None` (chemins sans `tileMeta`) = feu INCONNU -> on rend `False`, c.-a-d.
+    le regime du natif sur tout board frais. Un faux negatif reste possible si une zone brule
+    reellement et que la carte d'effets n'a pas ete chargee ; il est BORNE et explicite, la ou
+    l'ancien comportement etait faux sur TOUT board."""
+    if scene.team(caster_id) is None or scene.team(target_id) is None:
+        return False
+    if scene.team(caster_id) == scene.team(target_id):      # `Enemies(caster@0x160, ., 3)`
+        return False
+    p = scene.pos(target_id)                                # `(col, row)` — cf. `Scene.pos`
+    fx = scene.tile_effects_by_pos
+    if not p or not fx:
+        return False
+    return _EFFECT_FIRE_NAME in (fx.get(tuple(p)) or [])
+
+
+# {ability_id: gate(scene, caster_id, target_id) -> bool}. Mirror des playbooks dont
+# `MakeDamagePredictions` boucle sur un SELECTEUR (`GetEntitiesFromSelector`) au lieu de `<Target>` :
+# une cible que le selecteur ne retient pas n'a AUCUN event. Sans ce gate, le port emet un event
+# generique par cible demandee -- une sur-prediction muette. Registre distinct de
+# `_MAKE_DMG_INPUT_OVERRIDES` (qui, lui, ne change QUE les entrees d'un event deja acquis).
+_MAKE_DMG_TARGET_GATE = {1148: _daemonic_ordnance_target_gate}
+
+
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
@@ -863,7 +916,14 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
         overrides = {**overrides, "profile_override": _prof_ovr}
     aoe_overrides = {**overrides, **_aoe_ovr} if _aoe_ovr else overrides
 
+    # Gate de SELECTEUR (#350-r3) : pour les playbooks qui bouclent sur `GetEntitiesFromSelector`,
+    # une cible hors du selecteur n'a AUCUN event (cf. `_MAKE_DMG_TARGET_GATE`). Applique a la cible
+    # PRINCIPALE comme a l'AoE, puisque le natif ne connait que la liste rendue par son selecteur.
+    _gate_fn = _MAKE_DMG_TARGET_GATE.get(ability_id)
+
     def _event(tid, prob1=1.0, ovr=None):
+        if _gate_fn is not None and not _gate_fn(scene, caster_id, tid):
+            return None
         dp = generate_multi_hit_attack_prediction(scene, caster_id, tid, ability_id, ability_name,
                                                   attack_pos=attack_pos, base_bonus=base_bonus,
                                                   **(overrides if ovr is None else ovr))

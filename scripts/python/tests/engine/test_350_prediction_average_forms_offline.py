@@ -20,7 +20,12 @@ D. `SorcerousFacade` (1100) est LU (a) et, DEPUIS #351, ACTIF : le port n'ecrase
    AJOUTE le batch -- comme le natif. Les deux entrees qui rendent le 2e event existant (le terme
    en tete + le profil VIDE) sont gardees ici ; le bras live de #344 sur 1100 n'est plus muet ;
 E. la table des bases NON-moyennes distingue ce qui est DEJA corrige en amont (un handler
-   `_MAKE_DMG_INPUT_OVERRIDES`) de ce qui reste un residu chiffre.
+   `_MAKE_DMG_INPUT_OVERRIDES`) de ce qui reste un residu chiffre ;
+F. (#350-r3) `1160 HeavyRailRifle` n'est dans AUCUN des trois registres, et la RAISON est ecrite :
+   son playbook evalue une AUTRE ability, la TriggeredAbility `0x4ec = 1260`. L'y inscrire serait une
+   erreur de qualification d'enum, pas une correction ;
+G. (#350-r3) le gate de SELECTEUR de `1148 DaemonicOrdnance` existe et refuse une cible dont la tuile
+   ne porte pas `Fire` -- ce qui etait la sur-prediction muette trouvee en levant le mur MoW.
 
 ASCII only.
 """
@@ -39,9 +44,11 @@ from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.entities.abilities.active_ability import (                           # noqa: E402
     AActiveAbility,
     _PREDICTION_MINMAX_AVERAGE, _PREDICTION_MINMAX_RANDOM_READ,
-    _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE,
+    _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE, _PREDICTION_FORMULA_ON_TRIGGERED_ABILITY,
     _A_VIA_GET_DAMAGE_AMOUNT_MAIN, _A_VIA_STAFF_OF_STARS_GET_DAMAGE,
     _A_VIA_OWN_ABILITY_BODY, _A_INLINE_IN_PLAYBOOK)
+from engine.entities.active_ability_type import ActiveAbilityType                # noqa: E402
+from engine.entities.triggered_ability_type import TriggeredAbilityType          # noqa: E402
 from engine.entities.unit_context import UnitContext                             # noqa: E402
 
 
@@ -148,3 +155,69 @@ def test_non_average_bases_are_named_and_their_fix_state_is_true():
         assert has_handler == bool(fixed), (
             "id %d (%s) : la table annonce corrige=%s mais _MAKE_DMG_INPUT_OVERRIDES dit %s"
             % (aid, GC.ability_name(aid), fixed, has_handler))
+
+
+def test_1160_formula_belongs_to_a_triggered_ability_not_to_1160():
+    """F (#350-r3 volet c) : `HeavyRailRiflePlaybook$$EvaluateNonComparable` n'evalue PAS 1160.
+
+    Il appelle `Playbook<T>$$GetAbility<T>(this, 0x4ec, ...)` -- soit `TriggeredAbilityType
+    .HeavyRailRifle_Attack = 1260`, la MEME valeur que rend `HeavyRailRifle_PendingAttackEffect
+    $$GetTriggeredAbilityType`. Sur cet objet il lit `BaseTriggeredAbility$$GetDamageProfileOrDefault`,
+    `VisionsOfHeresy_AttackAbility$$GetAttackHits` puis `MassiveScythingTalonsAbility$$GetDamage`
+    (-> `BaseTriggeredAbility$$MinMaxDamage`, config a `+0x20`).
+
+    L'ability ACTIVE 1160 ne fait que POSER deux effets : `HeavyRailRifleAbility$$ExecuteBehaviour`
+    = `AddEffect(0x536 = 1334 PendingTarget) & AddEffect(0x535 = 1333 PendingAttack)`. Aucun degat.
+
+    Inscrire 1160 a l'un des registres serait donc FAUX sur deux axes a la fois : mauvais enum
+    (`ActiveAbilityType` au lieu de `TriggeredAbilityType`) et mauvais objet. Cette garde interdit
+    l'inscription et conserve la raison."""
+    assert int(ActiveAbilityType.HeavyRailRifle) == 1160
+    assert int(TriggeredAbilityType.HeavyRailRifle_Attack) == 1260 == 0x4ec
+    for reg, label in ((_PREDICTION_MINMAX_AVERAGE, "(a) MinMaxDamageAverage"),
+                       (_PREDICTION_MINMAX_RANDOM_READ, "(b) RandomAmount"),
+                       (_PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE, "base non-moyenne")):
+        assert 1160 not in reg, (
+            "1160 inscrite au registre %s : ces registres sont indexes par `ActiveAbilityType` et "
+            "lus par `AActiveAbility.get_damage`, chemin que l'objet evalue (une "
+            "`BaseTriggeredAbility`) n'emprunte pas" % label)
+    assert 1160 in _PREDICTION_FORMULA_ON_TRIGGERED_ABILITY
+    _pb, trig, _chain = _PREDICTION_FORMULA_ON_TRIGGERED_ABILITY[1160]
+    assert trig == int(TriggeredAbilityType.HeavyRailRifle_Attack)
+    # La table documentaire ne doit JAMAIS recouvrir les registres : une entree presente des deux
+    # cotes serait exactement la qualification d'enum fausse qu'elle existe pour empecher.
+    keys = set(_PREDICTION_FORMULA_ON_TRIGGERED_ABILITY)
+    for reg in (_PREDICTION_MINMAX_AVERAGE, _PREDICTION_MINMAX_RANDOM_READ,
+                _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE):
+        assert not (keys & set(reg)), sorted(keys & set(reg))
+
+
+def test_1148_target_gate_mirrors_the_native_selector():
+    """G (#350-r3 volet b) : `DaemonicOrdnancePlaybook$$MakeDamagePredictions` boucle sur
+    `GetAllDamageableTargets` = `Enemies(caster, Units(Filter(GetTargetAreaTiles(),
+    HasEffect(Tiles(Subject), 5 = Fire))), 3)` -- les ennemis debout sur une tuile DEJA EN FEU.
+
+    Le port n'avait pas ce selecteur et emettait un event GENERIQUE par cible demandee. Mesure
+    #350-r3 (board sans feu) : natif `count = 0`, port `(81, 123, 3)`. Sur-prediction muette.
+
+    Cette garde tient les trois branches de `_daemonic_ordnance_target_gate` sur une scene
+    SYNTHETIQUE (aucun runner) : ami refuse, tuile froide refusee, tuile en feu acceptee."""
+    import engine.playbook.prediction.abilities as PA
+    gate = PA._MAKE_DMG_TARGET_GATE.get(1148)
+    assert gate is not None, "1148 n'a plus son gate de selecteur : le port re-invente des events"
+
+    class _S:
+        def __init__(self, fx):
+            self._fx = fx
+        def team(self, uid):                                        # noqa: D102
+            return {1: 1, 2: 2, 3: 1}.get(uid)
+        def pos(self, uid):                                         # noqa: D102
+            return {1: (3, 4), 2: (4, 4), 3: (5, 4)}.get(uid)
+        tile_effects_by_pos = property(lambda self: self._fx)
+
+    burning = _S({(4, 4): ["Fire"]})
+    assert gate(burning, 1, 2) is True, "ennemi sur une tuile EN FEU : le natif l'attaque"
+    assert gate(burning, 1, 3) is False, "tuile de la cible sans `Fire` : `Filter` la rejette"
+    assert gate(_S({(4, 4): ["Fire"]}), 1, 1) is False, "le caster est son propre ami (`Enemies`)"
+    assert gate(_S({}), 1, 2) is False, "aucun effet de tuile connu : regime du board frais"
+    assert gate(_S(None), 1, 2) is False, "`tileMeta` non charge -> feu INCONNU, pas suppose"
