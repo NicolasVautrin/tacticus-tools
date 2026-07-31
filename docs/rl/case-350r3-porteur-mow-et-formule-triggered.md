@@ -259,9 +259,9 @@ Inerte pour `1169`, dont aucun nœud ne lit d'effet de tuile.
 Deux ancres, l'ordre s'**inverse** selon que le terme est branché : FROIDE 3 ennemis (custom **30**,
 prédiction 0) contre CHAUDE 2 ennemis brûlants (custom **20** + 2 events). L'écart de custom est
 d'**un** ennemi, franchi par `AbilityVariablesMultiplierPercentage = 400` sur le décideur — levier
-qui n'agit **que** sur 1148 ; baisser les PV relèverait l'attaque normale autant (mesuré :
-`--hot-hp 8000` → `_best_attack.full = 166.98` contre `70.0`, le natif attaque et 1148 n'est plus
-élue du tout).
+qui n'agit **que** sur 1148 ; baisser les PV relèverait l'attaque normale autant (mesuré : PV de
+l'ennemi chaud à `8000` → `_best_attack.full = 166.98` contre `70.0` pour 1148, le natif ATTAQUE et
+1148 n'est plus élue du tout — c'est pourquoi ce levier a été abandonné et n'a pas d'option CLI).
 
 **Bras TÉMOIN, et il est indispensable** : avec **UN SEUL** ennemi brûlant, l'écart de custom vaut
 DEUX ennemis (30 contre 10) et le terme (`U = 13.96`) ne suffit pas — le natif COMME le port restent
