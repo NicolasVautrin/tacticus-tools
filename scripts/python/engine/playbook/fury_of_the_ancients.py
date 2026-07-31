@@ -47,7 +47,9 @@ from ..entities.traits import target_hit_multiplier, TraitFactory
 from ..entities.effects import calculate_attacker_modifiers_for_prediction
 from ..entities.effects.magnitude import ability_var
 from ..services.damage_prediction import get_attack_prediction
-from ..dsl.base import calculate_average   # `AAmountFormula$$CalculateAverage` (#339) — TRONQUE
+# #350-r3b : foyer UNIQUE des deux formes de moyenne de la couche TRIGGERED — la forme n'est plus
+# choisie ici, elle est LUE dans `TRIGGERED_PREDICTION_AVERAGE_FORM` au symbole du call-site natif.
+from ..entities.abilities.triggered_ability import triggered_prediction_damage
 from .. import battle_query as bq
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
 
@@ -103,13 +105,18 @@ class FuryOfTheAncientsPlaybook:
         # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` ->
         # HasTrait(defender, 0x3f5)), MEME foyer que `_target_damage_limits` deux lignes plus bas.
         hit_mult = target_hit_multiplier(TraitFactory.create_many(_entity_traits(scene, tgt_id)))
-        # #339 -- `GetDamage` rend un noeud VALEUR a PLAGE, et la moyenne qu'on en prend TRONQUE :
-        # `<Ability>$$GetDamage` (corps dedupe = `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage`)
+        # #339/#350-r3b -- `GetDamage` rend un noeud VALEUR a PLAGE, et la moyenne qu'on en prend
+        # TRONQUE : `<Ability>$$GetDamage` (corps dedupe = `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage`)
         # = `IdunBattleLogic.Entities.DSLFormulas$$RandomAmount(minDmg 0xc, maxDmg 0xd)`, puis le
         # slot 4 d'`IAmountFormula` = `IdunBattle.DSL.AAmountFormula$$CalculateAverage`.
-        # Ni `MinMaxDamage$$Avg` (#333) ni `AActiveAbility$$MinMaxDamageAverage` : les trois
-        # divergent des que `min + max` vaut 3 mod 4. Lecture complete : `calculate_average`.
-        avg = calculate_average(int(dmin), int(dmax))
+        # Ni `MinMaxDamage$$Avg` (#333) ni `BaseTriggeredAbility$$MinMaxDamageAverage` (l'AUTRE forme
+        # de cette meme couche, demi-vers-le-pair) : les trois divergent des que `min + max` vaut
+        # 3 mod 4. Le SLOT n'est plus code ici : il est lu au symbole du call-site natif.
+        avg = triggered_prediction_damage(
+            _ABILITY_NAME, lvl, mult,
+            "IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction")
+        if avg is None:
+            return None
         return get_attack_prediction(
             target_current_health=scene.hp(tgt_id) or 0, initial_damage=avg,
             hits=1,                              # slot 0x23 : hits forcés 1 (probe_32d)

@@ -35,12 +35,51 @@ import hexgeo
 # `_units_of`) evaluent un enfant SANS connaitre sa famille (robustesse : pas de dispatch croise fragile).
 # C'est une convenance de PORT (le natif dispatch par contrat type) documentee, pas une classe native.
 class AAmountFormula:
-    """Base des noeuds VALEUR (numerique -> int). Mirror `IdunBattle.DSL.AAmountFormula.Calculate` (kind V)."""
+    """Base des noeuds VALEUR (numerique -> int). Mirror `IdunBattle.DSL.AAmountFormula.Calculate` (kind V).
+
+    ⚠ `Calculate` n'est PAS le seul point d'entree du noeud : `IAmountFormula` en expose QUATRE, et
+    c'est le SLOT que l'appelant invoque qui decide de l'arrondi d'une moyenne (#350-r3b). Les trois
+    autres sont portes ci-dessous, mirror du decompile `rnca9r7q6c` :
+
+      * `calculate_min` / `calculate_max` (slots 3 et 4 de la table, `<vtable+0x1e8>`/`<vtable+0x1f8>`)
+        -- `IdunBattle.DSL.ASimpleAmountFormula$$CalculateMin` / `$$CalculateMax` retombent tous DEUX
+        sur `<vtable+0x1d8>` = `Calculate`. C'est le DEFAUT ici. Seuls les noeuds a PLAGE surchargent
+        (dans ce port : `IdunBattle.Entities.Formulas.RandomAmount`).
+      * `calculate_average` -- `IdunBattle.DSL.AAmountFormula$$CalculateAverage`, le slot que les
+        playbooks invoquent avec l'index 4.
+
+    Le prédicat de court-circuit `<vtable+0x1c8>` du decompile n'est PAS modelise : son corps est
+    trivial et DEDUPLIQUE (aucun symbole propre), et il est inobservable ici -- pour tout noeud SIMPLE
+    la branche « plage » rend `(v + v) / 2 = v`, identique au court-circuit, quelle que soit sa
+    polarite ; et pour `RandomAmount` la branche « plage » est etablie LIVE (#339, `probe_32d_fury`).
+    Detail + residu (les 8 autres noeuds a plage, hors perimetre) : `docs/rl/case-350r3b-moyennes-triggered.md`.
+    """
     def calculate(self, ctx: DslContext):
         raise NotImplementedError
 
     def evaluate(self, ctx: DslContext):    # alias generique (cf. en-tete) -> methode native
         return self.calculate(ctx)
+
+    def calculate_min(self, ctx: DslContext):
+        """`IdunBattle.DSL.ASimpleAmountFormula$$CalculateMin` = `<vtable+0x1d8>` = `Calculate`."""
+        return self.calculate(ctx)
+
+    def calculate_max(self, ctx: DslContext):
+        """`IdunBattle.DSL.ASimpleAmountFormula$$CalculateMax` = `<vtable+0x1d8>` = `Calculate`."""
+        return self.calculate(ctx)
+
+    def calculate_average(self, ctx: DslContext) -> int:
+        """`IdunBattle.DSL.AAmountFormula$$CalculateAverage` -- le slot que le playbook invoque avec
+        l'index 4 (`FUN_180025fb0(4, <IAmountFormula>, <noeud>, ...)`). Mirror de la branche « plage »
+        du decompile :
+
+            mn = <vtable+0x1e8>(entities, result);     # CalculateMin
+            mx = <vtable+0x1f8>(entities, result);     # CalculateMax
+            return (mx + mn) / 2;                      # division ENTIERE C -- AUCUN Fix64 ici
+
+        Sur un noeud SIMPLE cela rend `Calculate` a l'identique ; sur `RandomAmount` cela TRONQUE.
+        L'arithmetique vit dans la fonction libre `calculate_average` (definie plus bas, #339)."""
+        return calculate_average(self.calculate_min(ctx), self.calculate_max(ctx))
 
 
 class AbilityTrigger:

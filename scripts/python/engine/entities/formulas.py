@@ -164,6 +164,21 @@ class RandomAmount(AAmountFormula):
             return lo                                # pas de RNG cale -> borne MIN, aucun tirage
         return self.rng.next_internal(lo, hi + 1)    # `NextInternal(min, max + 1)` = [min, max] inclusif
 
+    # --- les slots de PLAGE : c'est par eux que la DECISION lit ce noeud, jamais par `Calculate` ---
+    # `Calculate` ci-dessus est un TIRAGE (il consomme le PRNG) ; une prediction ne peut pas s'en
+    # servir. `RandomAmount` est le seul noeud de ce port a porter SES PROPRES `CalculateMin`/`Max`
+    # (les noeuds simples heritent du defaut `AAmountFormula` = `Calculate`), donc le slot 4
+    # (`AAmountFormula$$CalculateAverage`) prend sur lui la branche « plage » = `(max + min) / 2`
+    # ENTIERE, TRONQUEE. Etabli LIVE par `probe_32d_fury.py` (#339) : la feuille Fury tombe sur la
+    # moyenne EXACTE des deux cibles, ce qu'un tirage ne pourrait pas faire.
+    def calculate_min(self, ctx):
+        """`IdunBattle.Entities.Formulas.RandomAmount$$CalculateMin` = `this@+0x10.Calculate`."""
+        return int(self.min_node.evaluate(ctx))
+
+    def calculate_max(self, ctx):
+        """`IdunBattle.Entities.Formulas.RandomAmount$$CalculateMax` = `this@+0x18.Calculate`."""
+        return int(self.max_node.evaluate(ctx))
+
 
 def percentage_of_attack_capped_at_max(unit_sel: TargetsSelector, cap, pct,
                                        stat_part: int = 0, mode: int = 0) -> AAmountFormula:

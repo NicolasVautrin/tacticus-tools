@@ -35,6 +35,15 @@ variable : la ligne `BC.Units[].Traits` de la cible, qui ouvre tour a tour `Beas
 DIFFERENTES sur le meme etage. Montage dans
 `scripts/python/probe_316_ability_prediction_target_traits.py`.
 
+`triggered_average_form_case` (#350-r3b) -- MONTAGE NOMME des DEUX formes de moyenne de la couche
+TRIGGERED (`BaseTriggeredAbility$$MinMaxDamage` au slot 4 = TRONCATURE contre
+`$$MinMaxDamageAverage` au slot 1 = demi-vers-le-PAIR). Le montage cherche LUI-MEME le regime qui
+DISCRIMINE (`minDmg + maxDmg == 3 mod 4`, le seul ou les deux formes different) et fait passer ce
+regime par le foyer du moteur. Montage dans
+`scripts/python/probe_350r3b_triggered_average_forms.py` ; la fixture n'en est que la porte pytest.
+OFFLINE par LECTURE (aucune des deux formes ne depend de l'etat de bataille), donc pas de
+`live_session` : la face demi-vers-le-pair n'a PAS d'oracle live, ce qui est nomme dans le probe.
+
 Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268) : un `pytest.skip` sur un regime non
 atteint est un VERT qui ment -- aucune mesure n'a eu lieu et la suite ne rougit pour personne."""
 from __future__ import annotations
@@ -46,6 +55,7 @@ import probe_17_hammer_corpse as HC
 import probe_17_martial_inspiration as MI
 import probe_308_normal_attack_bonus as NAB
 import probe_316_ability_prediction_target_traits as TTA
+import probe_350r3b_triggered_average_forms as TAF
 
 
 @pytest.fixture(scope="module")
@@ -138,6 +148,34 @@ def normal_attack_bonus_case(live_session):
                 if res is not None:
                     NAB.dispose(res)
             cache[key] = res
+        return cache[key]
+    return _case
+
+
+@pytest.fixture(scope="module")
+def triggered_average_form_case():
+    """Fabrique : `triggered_average_form_case(<symbole du call-site natif>)` -> le dict de mesure
+    du probe #350-r3b (forme lue, slot invoque, regime discriminant, valeur du foyer, et les DEUX
+    formes en regard).
+
+    `level`/`mult` omis -> le PREMIER regime DISCRIMINANT de l'ability (`mn + mx == 3 mod 4`).
+    C'est le seul regime qui conclut : partout ailleurs les deux formes coincident et la garde ne
+    mesurerait rien. Un call-site sans ability chiffrable ou sans regime discriminant fait ROUGIR
+    (`RuntimeError` -> `pytest.fail`), il ne skippe pas.
+
+    Portee MODULE et cache : le montage est offline et pur, les assertions du fichier se partagent
+    la mesure."""
+    cache: dict = {}
+
+    def _case(call_site: str, level: int | None = None, mult: int | None = None,
+              ability_id: str | None = None) -> dict:
+        key = (call_site, level, mult, ability_id)
+        if key not in cache:
+            try:
+                cache[key] = TAF.run(call_site, level=level, mult=mult, ability_id=ability_id)
+            except RuntimeError as exc:                 # montage non installe -> ROUGE, jamais skip
+                pytest.fail("montage triggered-average-form NON INSTALLE (call_site=%s, level=%s, "
+                            "mult=%s) : %s" % (call_site, level, mult, exc), pytrace=False)
         return cache[key]
     return _case
 
