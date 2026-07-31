@@ -64,9 +64,14 @@ QUATRE variantes de port sont evaluees sur le MEME feed, en monkeypatchant le se
 `remaining` 20, cf. `DamageUtility$$.cctor`). **Aucune variante autre que `to_even` n'est nulle sur
 les DEUX bras** : c'est la discrimination live du mode.
 
+Le montage est PARAMETRE (attaquant / victime / board / centre de l'anneau) : le meme protocole
+doit tenir ailleurs, sinon l'accord ne dit rien de plus qu'un ajustement. Trois montages joues,
+tous OK -- cf. `docs/rl/case-333-arrondi-minmax-avg.md`.
+
 ASCII only (cp1252). Usage (depuis scripts/python) :
     python probe_333_minmax_avg_rounding.py
-    python probe_333_minmax_avg_rounding.py --json
+    python probe_333_minmax_avg_rounding.py --attacker emperNoiseMarine --victim necroWarden
+    python probe_333_minmax_avg_rounding.py --board C1_03 --center 3,6
 """
 from __future__ import annotations
 
@@ -106,7 +111,7 @@ def _r(sid, m, b, t=90):
 
 
 def _build(state_file: Path, seed: int, roster, hp_target: int, board: str) -> int:
-    """`rl_duel build` -- board CHOISI (runner.md §2) ; `--crit 0,0` et `--block-target 0,0`
+    """`rl_duel build` -- board CHOISI (runner.md sec.2) ; `--crit 0,0` et `--block-target 0,0`
     neutralisent les deux canaux qui feraient bouger `MightBeOverkill`/`killSure` pour une raison
     ETRANGERE a l'arrondi mesure."""
     state_file.unlink(missing_ok=True)
@@ -124,7 +129,7 @@ def _build(state_file: Path, seed: int, roster, hp_target: int, board: str) -> i
 def _setup(sid, sf, seed, hp_target, roster, board, center):
     """Build + GEOMETRIE DRIVEE : l'attaquant au centre, tout le monde sur son ring 1 (sinon la
     portee refuse l'attaque et la prediction rend un degat nul -- et des bornes `[0,0]` se lisent
-    a tort comme « couple non mesurable »)."""
+    a tort comme "couple non mesurable")."""
     rid = _build(sf, seed, roster, hp_target, board)
     dv = view(sid, rid)
     ids = {}
@@ -276,7 +281,7 @@ def run(seed: int = 33301, state_file=None, verbose: bool = True,
               % (attacker, victim, board, tuple(center)))
         print("[333] calibration : bornes NON capees = [%d, %d]" % (raw_min, raw_max))
     if raw_max - raw_min < 4:
-        # Des bornes `[0,0]` ne disent PAS « couple non mesurable » : elles disent que l'anneau
+        # Des bornes `[0,0]` ne disent PAS "couple non mesurable" : elles disent que l'anneau
         # choisi n'a pas mis les unites au CONTACT sur ce board (centre hors plateau, ou trop
         # pauvre en voisins). Le message doit envoyer changer le CENTRE, pas le roster.
         return {"error": "fenetre de pilotage trop etroite : bornes [%d,%d] (centre %s sur %s -- "
@@ -356,7 +361,7 @@ def main() -> int:
     ap.add_argument("--state-file", default=None)
     ap.add_argument("--attacker", default=ATTACKER)
     ap.add_argument("--victim", default=VICTIM)
-    ap.add_argument("--board", default=BOARD, help="board CHOISI (runner.md §2), jamais subi")
+    ap.add_argument("--board", default=BOARD, help="board CHOISI (runner.md sec.2), jamais subi")
     ap.add_argument("--center", default="%d,%d" % CENTER,
                     help="centre de l'anneau (col,row) -- a adapter au board")
     ap.add_argument("--json", action="store_true")
