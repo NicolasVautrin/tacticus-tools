@@ -130,9 +130,13 @@ Les quasi-occurrences testent une presence structurelle (`is not None`, `in comp
 appliquent un plancher (`max(1, ...)`) sans jamais jeter un modificateur — cas isole, pas un
 patron.
 
-## 9. Residu OUVERT et DISTINCT — `moveAmount = null` de `PerformAIAttack`
+## 9. Residu DISTINCT — `moveAmount = null` de `PerformAIAttack` — **FERME (2026-07-31)**
 
-**Ce cas ne le ferme pas.** `perform_ai_ability_unit_behaviour(..., move_amount=None)` reste non
+> **FERME par `case-348-ai-approach.md`** : la plage est ouverte, le `MovementActionGenerator` est
+> en queue quand `allowMoveAction`, et le `MoveUnitMessage` est APPLIQUE avant l'attaque. La
+> lecture de decompile ci-dessous reste la source du port.
+
+**Ce cas-ci ne le fermait pas.** `perform_ai_ability_unit_behaviour(..., move_amount=None)` etait non
 porte sur son volet deplacement, et le decompile tranche la question :
 
 `d__6$$MoveNext` appelle `ABaseAiUnitTactic$$GenerateActionTiles(unit, 1, <d__6+0x34>)` — 2e

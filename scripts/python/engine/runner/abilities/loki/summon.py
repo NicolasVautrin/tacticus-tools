@@ -82,9 +82,9 @@ def scarab_summon_tree() -> SpawnReplica:
     MOTEUR D'UTILITE natif depuis #338). L'imperatif `ScarabSummonAbility.execute_behaviour` (spawn + boucle on-appearance cables
     a la main) est REMPLACE par cet arbre. DISTINCT de `scarab_hive_tree` (WithStatsFromConfig summoner-scaled +
     AddEffect(0x4a3) + attaque de la CIBLE ; ici CopyOwner clone-du-parent + tour AI du double, sans effet).
-    GAPS (inchanges) : le cap de duplication (`UnitDuplicationLimitSelector`) n'est pas porte — recurrence non
-    bornee offline ; le DEPLACEMENT du double avant son attaque non plus (residu documente sur
-    `perform_ai_ability_unit_behaviour`)."""
+    GAP (inchange) : le cap de duplication (`UnitDuplicationLimitSelector`) n'est pas porte — recurrence non
+    bornee offline. Le DEPLACEMENT du double avant son attaque EST porte depuis #348
+    (`docs/rl/case-348-ai-approach.md`)."""
     return SpawnReplica("ScarabSummon", 1)
 
 
@@ -338,13 +338,22 @@ def perform_ai_attack(state: "State", unit_id: int, allow_move_action: bool,
     `PerformAIAbilityUnitBehaviour` que `...FromCurrentPosition`, mais `+0x70` et `+0x78` viennent de
     L'APPELANT (et `+0x71 skipAtomicCheck` retombe a 0).
 
-    LES CINQ call-sites natifs passent le MEME couple, lu au decompile :
+    XREFS EXHAUSTIVES du noeud (`list_xrefs` sur `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttack`,
+    build `rnca9r7q6c`) : **SEPT** call-sites. SIX passent le MEME couple
     `PerformAIAttack(<selecteur>, 1, 0, 0, 0)` — `ScarabSummonAbility$$ExecuteBehaviour` (@0x180),
-    `ForwardSpotterAbility$$ExecuteBehaviour` (@0x180), `HunterOfSoulsAbility$$CreateBehaviour` (@0x148),
-    `TheArdentBlade_TriggerAbility$$CreateBehaviour`, `AetherStrideAbility$$ExecuteBehaviour`,
-    `CallInReinforcementsAbility$$CreateBehaviour`. Donc **`allowMoveAction = true`** et
+    `ForwardSpotterAbility$$ExecuteBehaviour` (@0x180), `CallInReinforcementsAbility$$CreateBehaviour`,
+    `HunterOfSoulsAbility$$CreateBehaviour` (@0x30), `TheArdentBlade_TriggerAbility$$CreateBehaviour`,
+    `CallRipperSwarms_SpawnAbility$$CreateBehaviour` (@0x68). Donc **`allowMoveAction = true`** et
     **`moveAmount = null`** (le litteral `1` de `PerformAIAttack(1)` est le BOOL `+0x70`, PAS un budget de
     deplacement de 1 — piege de lecture : c'est le 2e argument, l'amount est le 3e et vaut 0/nul).
+
+    ⚠ **LE SEPTIEME EST DIFFERENT, et il ouvre une TROISIEME forme du couple** :
+    `AetherStrideAbility$$ExecuteBehaviour` fait `PerformAIAttack(targets@0x68, 0, <DSLFormulas+0x18>,
+    0, 0)` — `allowMoveAction = FALSE` et un `moveAmount` NON NUL qui est un noeud `IAmount` cache du
+    DSL. `GenerateActionTiles` recevrait donc un budget de deplacement ENTIER, ni `0` ni `null` : ni
+    `build_from_state(max_distance=...)` ni le pathfinder ne portent cet override (toute valeur autre
+    que `0`/`None` y retombe sur `0`). RESIDU NOMME, INERTE ICI : 1208 `AetherStride`
+    (`thousDaemonPrince`) n'est pas portee, donc aucun appelant du port n'emprunte cette branche.
 
     Le corps est `perform_ai_ability_unit_behaviour` — il n'y a qu'UN corps pour les deux noeuds."""
     return perform_ai_ability_unit_behaviour(state, unit_id, allow_move_action=bool(allow_move_action),

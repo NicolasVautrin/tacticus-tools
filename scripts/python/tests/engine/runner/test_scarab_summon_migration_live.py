@@ -85,9 +85,9 @@ def test_scarab_summon_migration_is_dsl_tree(live_session, rpc, build_runner):
     # (`IdunBattle.Core.Services.TargetingQuery$$GetRange` = 1 : le swarm n'a qu'une arme de MELEE).
     # On rend donc la tuile d'atterrissage DETERMINISTE (une seule voisine libre, les autres bloquees par
     # des ALLIES) et ADJACENTE a la cible. Sans ce pilotage, le double tombait au hasard a 1 ou 2 hex de
-    # l'ennemi et le test mesurait le residu « le port n'APPROCHE pas le double » (le natif, lui, joue un
-    # TOUR complet : `PerformAIAttack` = `+0x70 allowMoveAction=1`, `+0x78 moveAmount=null`), au lieu de
-    # l'on-appearance qu'il veut valider.
+    # l'ennemi et le test mesurait l'APPROCHE (`PerformAIAttack` = `+0x70 allowMoveAction=1`,
+    # `+0x78 moveAmount=null` -> le double joue un TOUR complet, cf. #348) au lieu de l'on-appearance
+    # qu'il veut valider.
     blockers = [spyder_id] + list(hive_spawned[1:])          # tous ALLIES du swarm (aucun ennemi de plus)
     trio = None
     for c in sorted(board.by_id):

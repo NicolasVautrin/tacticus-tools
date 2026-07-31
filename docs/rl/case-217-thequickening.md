@@ -245,16 +245,12 @@ ont ete **vues ROUGES** sur le code d'avant (D : « le double a ATTAQUE une cibl
 total 7960 » ; E : « Judh n'a PAS reagi »). Tuile d'atterrissage rendue DETERMINISTE en bloquant toutes
 les voisines du scarab sauf une avec des allies.
 
-### Residu NOUVEAU, localise (candidat tache)
+### Residu localise — **FERME (2026-07-31, `case-348-ai-approach.md`)**
 
-`move_amount is None` ne fait PAS bouger le double : ni `ABaseAiUnitTactic$$GenerateActionTiles` ni le
-`MovementActionGenerator` ne sont portes. Le domaine d'action reste la tuile courante, donc un double
-hors portee ne fait RIEN la ou le natif l'aurait fait avancer puis frapper. C'est un **manque-a-agir**,
-jamais une attaque illegale. Il est visible dans `test_scarab_summon_migration_live.py`, dont la
-geometrie a du etre PILOTEE (le double tombait au hasard a 1 ou 2 hex de la cible) pour continuer a
-valider l'on-appearance plutot que ce residu. Les deux champs natifs sont **threades explicitement**
-dans `perform_ai_ability_unit_behaviour` (et remontes dans son diag) pour que le residu reste localise
-la, et non re-invente par un fork chez un appelant.
+`move_amount is None` ouvre desormais la plage de deplacement, le `MovementActionGenerator` est
+ajoute en queue quand `allowMoveAction`, et le `MoveUnitMessage` est APPLIQUE avant l'attaque. Le
+fait qui a coute deux montages offline : le natif change de tuile **meme quand il peut deja
+frapper** (regime `touch`), et ce pas peut le faire tuer par l'overwatch de sa cible.
 - **Effet `ForcedInMelee (0x529)` : SEUL le clamp de portee est porte.** `TargetingQuery$$GetRange`
   bascule aussi son drapeau `isMelee` de retour (2e sortie de la fonction) — non lu par le port, dont la
   nature melee/ranged d'un coup se derive de la POSITION (`_is_ranged_position`, mirror

@@ -150,10 +150,10 @@ class PerformAIAttack(AbilityBehaviour):
       * `PerformAIAttack(<sel>, True, None)`            -> `DSLFactory$$PerformAIAttack` (`1` / `null`) :
         `ForwardSpotterAbility$$ExecuteBehaviour` (`PerformAIAttack(ActiveTarget@0x180, 1, 0, 0, 0)`),
         i2 « The Cadian Guardsman immediately **takes a turn** ».
-    Aujourd'hui les deux branches produisent le MEME observable (le port ne mirrore ni
-    `ABaseAiUnitTactic$$GenerateActionTiles` ni le `MovementActionGenerator` -> l'acteur n'approche pas) ;
-    les champs sont threades pour que ce residu reste dans le corps unique et que le call-site dise QUEL
-    noeud natif il mirrore.
+    Depuis #348 les deux branches produisent des observables DIFFERENTS : `moveAmount = null` ouvre
+    `ABaseAiUnitTactic$$GenerateActionTiles` sur la plage de deplacement complete et `allowMoveAction`
+    ajoute le `MovementActionGenerator` -> l'acteur APPROCHE (et le `MoveUnitMessage` est applique
+    avant l'attaque). Les champs sont threades pour que le call-site dise QUEL noeud natif il mirrore.
 
     `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector))` ->
     `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` : chaque unite SUR les tuiles du SELECTEUR (le natif
@@ -315,10 +315,10 @@ class SpawnReplica(AbilityBehaviour):
     quelle que soit la distance, arme de melee comprise) et SANS dispatch after-hit (aucun trigger post-attaque
     ne partait du double). Emet 'SpawnUnit'/'ReplicaOnAppearance'. Effet PUR (stop=False).
 
-    GAPS (inchanges) : le cap de duplication (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) n'est pas
-    porte -> recurrence non bornee offline ; le DEPLACEMENT du double avant son attaque (`move_amount=None` ->
-    `GenerateActionTiles` / `MovementActionGenerator` non portes) non plus -> residu documente sur
-    `perform_ai_ability_unit_behaviour`."""
+    GAP (inchange) : le cap de duplication (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) n'est
+    pas porte -> recurrence non bornee offline. Le DEPLACEMENT du double avant son attaque, lui, EST
+    porte depuis #348 (`move_amount=None` -> `GenerateActionTiles` sur la plage complete +
+    `MovementActionGenerator` + apply du `MoveUnitMessage`)."""
     __slots__ = ("summon_ability", "count")
 
     def __init__(self, summon_ability: str, count: int):

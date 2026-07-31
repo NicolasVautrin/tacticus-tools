@@ -1090,11 +1090,12 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   observable nul, fix de label). Mesuré (`probe_r20_replica_rng_flow.py`) :
   hors portée 1 attaque / 4860 dégâts / 6 tirages MT → **0 attaque / 1 tirage** ; au contact
   `after_hit=False` / 6 tirages → **`after_hit=True` / 12 tirages, dégât identique 4860**. Détail :
-  `case-217-thequickening` §7. **RESTE OUVERT (résidu nommé)** : `move_amount is None` ne fait pas
-  bouger l'acteur — ni `ABaseAiUnitTactic$$GenerateActionTiles` ni le `MovementActionGenerator`
-  (`DefaultAiUnitTactic$$.ctor`, `tactic+0x58`) ne sont portés, donc un double hors portée ne fait RIEN
-  là où le natif l'aurait fait avancer puis frapper (i2 « takes a turn »). Manque-à-agir, jamais une
-  attaque illégale. `[opus]`.
+  `case-217-thequickening` §7. **R31 FERMÉ (2026-07-31, `case-348-ai-approach`)** : `move_amount is
+  None` ouvre désormais la plage de déplacement (`GenerateActionTiles(unit, true, null)`), le
+  `MovementActionGenerator` est en queue quand `allowMoveAction`, et le `MoveUnitMessage` est APPLIQUÉ
+  avant l'attaque. Confronté live sur 4 régimes (`ForwardSpotter` 1143) : approche+attaque, repli sur
+  place, repositionnement au contact, déplacement pur — tuile et dégât identiques au natif
+  (ex. spawn 15 → 35, −9667 des deux côtés).
 - **Trait `Unstoppable` (1042), exemption movement-stop** (`case-205` — RE complet, verdict
   invalidable) : trait = membre de `NotBlockingMovementOfTraits @18155b370` {Mounted, Vehicle,
   Unstoppable} consommé par le WalkPathfinder pour les effets de tuile movement-ending
