@@ -10,6 +10,7 @@ import { registerViewSnapshot } from "./rpc-snapshot.js";
 import { registerViewTargeting } from "./rpc-targeting.js";
 import { registerViewDecision } from "./rpc-decision.js";
 import { registerViewPredict } from "./rpc-predict.js";
+import { registerViewNcPredict } from "./rpc-nc-predict.js";
 
 export function registerView(ctx: Ctx): void {
     registerViewBoard(ctx);
@@ -17,4 +18,5 @@ export function registerView(ctx: Ctx): void {
     registerViewTargeting(ctx);
     registerViewDecision(ctx);
     registerViewPredict(ctx);
+    registerViewNcPredict(ctx);
 }

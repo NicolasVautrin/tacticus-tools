@@ -127,11 +127,32 @@ logique de verdict.
 
 ## 6. État de la mesure
 
-**NON CONFRONTÉ — plateforme DOWN.** Au moment de ce travail, aucun process n'écoutait sur le port du
-host (`127.0.0.1:8765`) : aucune session Frida, donc aucun RPC. Ni le compte hérité (« 0 event sur
-1132 ») ni les trois faces du §4 n'ont pu être re-mesurés. Ce qui est établi ci-dessus l'est
-**au décompilé et par la table de symboles versionnée**, deux sources indépendantes du live.
+`probe_350r3_noncomparable_oracle.py` porte les quatre étapes. Fixtures **nommées** (`_FIXTURE_*`),
+jamais de montage inline.
 
-`probe_350r3_noncomparable_oracle.py` est le harnais de re-mesure : ses étapes 1 et 2 tournent sur la
-plateforme **telle quelle** (aucun capteur requis) et tranchent le §1 par la valeur de retour ;
-l'étape 3 exige la réinjection du capteur et se **skippe en le nommant** tant qu'il n'est pas déployé.
+| étape | ce qu'elle tranche | plateforme | état |
+|---|---|---|---|
+| 0 structure | §1 : frères, exclusivité des `Make*Predictions`, les 4 playbooks sont NC | **aucune** | **VERTE** |
+| 1 valeur de retour | `aiPlaybookPredict` rend bien `makeArity 0` / `listNull` **et** la bonne `playbookClass` | session Frida | **NON CONFRONTÉE** |
+| 2 `ncEvaluate` | non-vacuité : « 0 event » ne se lit pas « rien ne se passe » | session Frida | **NON CONFRONTÉE** |
+| 3 capteur | verrou (`via=makeDamagePredictions` sur une Comparable : capture == liste rendue) puis NC | session **+ capteur déployé** | **NON CONFRONTÉE** |
+
+Étape 0, jouée (`--offline`) : `siblings = True`, **134** NC / **96** Comparable, les 4
+`Make*Predictions` présentes sur la branche Comparable et **aucune** sur la NC, membres propres de
+`NonComparablePlaybook`1` = `EvaluateInternal`, `GenerateBucketWithActionForEveryEligibleTarget`,
+`GenerateBucketWithMultipleStrategies`, et les 4 playbooks du résidu de parent
+`NonComparablePlaybook`1`.
+
+Étapes 1-3 : **NON CONFRONTÉES — plateforme DOWN.** Aucun process n'écoutait sur `127.0.0.1:8765`
+au moment de ce travail (host Frida non lancé), donc aucun RPC. Ni le compte hérité (« 0 event sur
+1132 ») ni les trois faces du §4 n'ont pu être re-mesurés. Le probe le **DIT** (`LIVE NON CONFRONTE`)
+au lieu de rendre un zéro. Ce qui est établi ci-dessus l'est **au décompilé et par la table de
+symboles versionnée**, deux sources indépendantes du live.
+
+L'étape 1 a une propriété utile pour la reprise : **le caster n'y entre pas**. `LoadPlaybook` charge
+par ability et la résolution de méthode échoue avant tout usage du caster — le verdict est une
+propriété de la CLASSE du playbook, donc un montage trivial suffit (le contrôle `playbookClass` évite
+le faux positif du `fallbackToDefault`, qui rendrait le playbook d'attaque normale).
+
+**Le capteur compile** : `frida-compile hooks/main.ts` sort en `exit 0`, bundle 1 039 732 o,
+`ncPlaybookPredict` présent. Il n'est **pas déployé** — `frida/hooks/*` ne vit qu'après réinjection.
