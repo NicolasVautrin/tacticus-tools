@@ -64,7 +64,7 @@ def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
 
 
 def build(seed: int, tag: str, p_units: str, a_units: str, hp_target: int | None) -> tuple:
-    state_file = ROOT / "data" / f"_67_{tag}_state.json"
+    state_file = ROOT / "logs" / "runners" / f"_67_{tag}_state.json"   # SORTIE -> logs/ (#349)
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
            "--state-file", str(state_file), "--board", "MC1_67",

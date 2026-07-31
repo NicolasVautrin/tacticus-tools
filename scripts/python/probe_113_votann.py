@@ -31,8 +31,10 @@ import hexgeo
 from rl_collect_batch import _rpc, _resolve_session
 
 PYDIR = Path(__file__).resolve().parent
-DATA = PYDIR.parent.parent / "data"
-SEED_BC = DATA / "_113_votann_bc.json"
+# SORTIES du probe -> `logs/` (gitignore, meurt avec le worktree). `data/` est VERSIONNE et ne porte
+# que des ENTREES : une sortie qui y atterrit salit `git status` sans qu'on ait rien edite (#349).
+LOGS = PYDIR.parent.parent / "logs" / "runners"
+SEED_BC = LOGS / "_113_votann_bc.json"
 BOARD = "MC1_67"
 
 BESERK, IRONMASTER, UTHAR = "votanBeserk", "votanIronmaster", "votanUthar"
@@ -260,7 +262,7 @@ PHASES = {"stats": phase_stats, "augmented": phase_augmented,
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", required=True, choices=sorted(PHASES))
-    ap.add_argument("--state", default=str(DATA / "_113_probe_state.json"))
+    ap.add_argument("--state", default=str(LOGS / "_113_probe_state.json"))
     ap.add_argument("--foe", default=None)
     ap.add_argument("--crit", default=None, help="'CC,CD' passe a rl_duel --crit (p-units)")
     ap.add_argument("--block", default=None, help="'BC,BD' passe a rl_duel --block-player")

@@ -83,7 +83,7 @@ from engine.runner.abilities.necrons import HarbingerOfDestructionAbility
 AGENT_ID = "a53103b4b5d220e79"
 PYDIR = Path(__file__).resolve().parents[3]                     # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                      # racine repo
-STATE = ROOT / "data" / f"_pytest_harbinger_{AGENT_ID}.json"    # state-file UNIQUE (discipline runner)
+STATE = ROOT / "logs" / "runners" / f"_pytest_harbinger_{AGENT_ID}.json"   # SORTIE -> logs/ (#349)
 
 CASTER = "necroWarden"                                          # caster SPAWNABLE (config 1008 caster-agnostique)
 ENEMIES = "necroDestroyer,necroSpyder,necroOverlord,eldarRanger,eldarAutarch,orksNob"   # 6 cibles

@@ -196,7 +196,9 @@ def main(argv: list[str]) -> int:
                       f"(comparer aux poids BC: 10/15/20/40/50...)")
             out["offline"] = {"total": tot, "dd": u_dd, "kill": u_ku, "overkill": u_ok,
                               "residual": resid}
-        dump = ROOT / "data" / f"_45b_util_{args.seed}_s{args.stop_step}.json"
+        # SORTIE -> logs/, jamais data/ qui ne porte que des ENTREES versionnees (#349)
+        dump = ROOT / "logs" / f"_45b_util_{args.seed}_s{args.stop_step}.json"
+        dump.parent.mkdir(parents=True, exist_ok=True)   # logs/ absent d'un checkout frais
         dump.write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
         print(f"\n[45b] dump -> {dump}")
         return 0

@@ -58,6 +58,7 @@ import sys
 from pathlib import Path
 
 import gameconfig as G
+import host_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 SEED_BC = ROOT / "data" / "seed-bc.json"
@@ -395,7 +396,8 @@ def write_augmented_seed_bc(out_path, unit_ids, *, seed_bc: dict | None = None,
             if u.get("Id") == uid:
                 u["ActiveAbilities"] = list(act)
                 u["PassiveAbilities"] = list(pas)
-    p = Path(out_path)
+    # SORTIE de run -> `logs/`, jamais `data/` (versionne, ENTREES seules) : #349.
+    p = host_inputs.reject_data_output(out_path, "write_augmented_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
     return p, added, added_ab
@@ -682,6 +684,13 @@ def main(argv: list[str]) -> int:
               f"{unresolved}")
     if not a.out:
         print("[error] --out <chemin> requis pour ecrire le seed BC augmente", file=sys.stderr)
+        return 2
+    # CHOKE POINT (#349) : le seed BC augmente est une SORTIE de run -> `logs/`,
+    # jamais `data/` (versionne, ENTREES seules ; y ecrire salit `git status`).
+    try:
+        host_inputs.reject_data_output(a.out, "--out")
+    except host_inputs.DataOutputRefused as e:
+        print(f"[error] {e}", file=sys.stderr)
         return 2
     outp = Path(a.out)
     outp.parent.mkdir(parents=True, exist_ok=True)

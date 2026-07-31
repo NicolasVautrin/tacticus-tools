@@ -26,8 +26,9 @@ from engine.runner.components import HealthComponent, StatsComponent, PositionCo
 from engine.runner.damage_model import select_weapon_pierce, select_weapon, defender_fixed_armor  # noqa: E402
 
 _SID = R._resolve_session()
-_STATE = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "data", "_probe63r_a5a63eef_state.json"))
+_STATE = os.path.abspath(os.path.join(          # SORTIE -> logs/, jamais data/ (#349)
+    os.path.dirname(__file__), "..", "..", "logs", "runners",
+    "_probe63r_a5a63eef_state.json"))
 _BOARD = "MC1_67"
 _created = []
 

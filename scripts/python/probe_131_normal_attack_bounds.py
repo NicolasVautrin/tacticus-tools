@@ -58,7 +58,6 @@ import hexgeo
 from rl_collect_batch import _rpc, _resolve_session
 
 PYDIR = Path(__file__).resolve().parent
-DATA = PYDIR.parent.parent / "data"
 # Sorties du probe : `logs/` (gitignore), jamais `data/` qui ne porte que des ENTREES versionnees
 # (migration f467e64). Le defaut de `--state` referencait un `LOGS` jamais defini -> NameError.
 LOGS = PYDIR.parent.parent / "logs"
@@ -322,7 +321,8 @@ def phase_scan(sid, args):
 
 # ---------------------------------------------------------------- phase hailstrike
 def _ensure_seed_bc(tanky: bool):
-    seed_bc = DATA / "_123_hailstrike_bc.json"
+    # Meme fichier que `probe_123_hailstrike_phase2.SEED_BC` -- garder les deux du MEME cote (#349)
+    seed_bc = LOGS / "runners" / "_123_hailstrike_bc.json"
     path = seed_bc.with_name(seed_bc.stem + ("_tanky" if tanky else "") + seed_bc.suffix)
     if path.exists():
         return path

@@ -5,7 +5,8 @@
 // ═══ CAPTURE RECIPE (post multi-runner refacto #43 — 3 gotchas, sinon buffer VIDE) ═════════════════════
 // Le helper Python `scripts/python/scorer_trace_capture.py::capture(seed, want=...)` encapsule ce flux —
 // s'en servir plutot que de le re-deriver. Les 3 gotchas :
-//   1. Runner isole : `rl_duel build --state-file data/X.json` (ROOT-ANCHORED, <repo>/data/) ; le runnerId
+//   1. Runner isole : `rl_duel build --state-file logs/runners/X.json` (ROOT-ANCHORED ; `data/` est
+//      VERSIONNE et REFUSE par rl_duel depuis #349 -- les sorties de run vont dans `logs/`) ; le runnerId
 //      se lit DANS ce fichier JSON, pas dans stdout.
 //   2. Traces = OriginBuffers PAR ORIGINE (#43, purge au dispose) : dumper avec `{runnerId: rid}`. Les RPC
 //      ai-step posent `setTraceOrigin(runnerId)` ; sans le bon filtre le dump revient vide (hooks OK quand meme).

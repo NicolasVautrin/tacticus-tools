@@ -42,7 +42,9 @@ from engine.entities.effects.magnitude import trait_var
 from engine.services.static_battle_rules import get_damage_with_piercing
 
 PYDIR = Path(__file__).resolve().parents[3]
-DATA = PYDIR.parent.parent / "data"
+# SORTIES du test -> `logs/` (gitignore), jamais `data/` qui ne porte que des ENTREES versionnees
+# et sert de garde-fou `git status` a l'isolation par worktree (#349).
+LOGS = PYDIR.parent.parent / "logs" / "runners"
 BOARD = os.environ.get("PE121_BOARD", "MC1_67")
 SEED = os.environ.get("PE121_SEED", "31337")
 
@@ -73,7 +75,7 @@ def _pct() -> int:
 
 @pytest.fixture(scope="module")
 def votann_bc():
-    out = DATA / "_121_votann_bc.json"
+    out = LOGS / "_121_votann_bc.json"
     if not out.exists():
         p = subprocess.run([sys.executable, "catalog_inject.py", "--units",
                             f"{BESERK},{IRONMASTER},{UTHAR}", "--out", str(out)],

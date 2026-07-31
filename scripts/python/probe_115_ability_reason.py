@@ -43,7 +43,8 @@ def main() -> int:
     args = ap.parse_args()
 
     sid = R._resolve_session()
-    state_file = ROOT / "data" / f"_probe115_{args.board}_{args.seed}.json"
+    # SORTIE -> logs/, jamais data/ qui ne porte que des ENTREES versionnees (#349)
+    state_file = ROOT / "logs" / "runners" / f"_probe115_{args.board}_{args.seed}.json"
     state_file.unlink(missing_ok=True)
     p = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", args.seed, "--board", args.board,

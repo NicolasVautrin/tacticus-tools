@@ -51,9 +51,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 __all__ = [
+    "DataOutputRefused",
     "HostInputUnavailable",
     "Resolved",
     "main_worktree",
+    "reject_data_output",
     "resolve",
     "require",
     "find",
@@ -123,6 +125,38 @@ class HostInputUnavailable(RuntimeError):
     et « 0 trace parce que je regarde au mauvais endroit » ne doivent jamais
     rendre la meme chose.
     """
+
+
+class DataOutputRefused(RuntimeError):
+    """Une SORTIE de run a ete adressee a `data/` (#349)."""
+
+
+def reject_data_output(path: str | Path, what: str) -> Path:
+    """Refuse une SORTIE de run placee sous `data/`. Rend le chemin sinon.
+
+    `data/` est VERSIONNE et ne porte que des ENTREES ; ce qu'un run PRODUIT va
+    dans `logs/`. Le garde-fou de l'invariant est `git status` -- une sortie qui
+    atterrit dans `data/` salit l'arbre d'un agent qui n'a rien edite.
+
+    Pendant RUNTIME du cliquet statique `probe_273 --only-scan` (etape 0c), qui
+    ne balaye que `scripts/python/**` : ce refus-ci vaut pour TOUT appelant, y
+    compris hors Python (`.claude/workflows/*.js` construisait ses state-files
+    de self-play dans `data/`). C'est le CHOKE POINT qu'on durcit, pas les
+    appelants un par un.
+    """
+    p = Path(path)
+    p = p if p.is_absolute() else (REPO_ROOT / p)
+    try:
+        rel = p.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        return p                            # hors du depot : pas notre affaire
+    if rel.parts and rel.parts[0] == "data":
+        raise DataOutputRefused(
+            f"{what} pointe {rel.as_posix()} : `data/` est VERSIONNE et ne "
+            f"porte que des ENTREES. Une sortie de run va dans `logs/` "
+            f"(ex. logs/runners/{rel.name}) -- sinon elle salit `git status`, "
+            f"le signal meme dont l'isolation par worktree se sert.")
+    return p
 
 
 @dataclass(frozen=True)

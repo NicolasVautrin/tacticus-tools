@@ -39,8 +39,10 @@ from engine.runner.prng import IntBasedMersenneTwister
 from engine.services.static_battle_rules import get_damage_with_piercing
 
 PYDIR = Path(__file__).resolve().parent
-DATA = PYDIR.parent.parent / "data"
-SEED_BC = DATA / "_121_votann_bc.json"
+# SORTIES du probe -> `logs/` (gitignore), jamais `data/` qui ne porte que des ENTREES versionnees
+# et sert de garde-fou `git status` a l'isolation par worktree (#349).
+LOGS = PYDIR.parent.parent / "logs" / "runners"
+SEED_BC = LOGS / "_121_votann_bc.json"
 BOARD = "MC1_67"
 SEED = "31337"
 
@@ -348,7 +350,7 @@ PHASES = {"regime": phase_regime, "normal": phase_normal, "defense": phase_defen
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", required=True, choices=sorted(PHASES))
-    ap.add_argument("--state", default=str(DATA / "_121_probe_state.json"))
+    ap.add_argument("--state", default=str(LOGS / "_121_probe_state.json"))
     ap.add_argument("--foes", default=None, help="regime: liste de cibles (virgules)")
     ap.add_argument("--foe", default=None, help="normal/defense: unite adverse")
     args = ap.parse_args()
