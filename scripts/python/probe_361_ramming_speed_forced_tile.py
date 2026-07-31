@@ -54,6 +54,7 @@ from probe_353_ramming_speed_prediction import build_grafted_seed_bc     # noqa:
 from probe_353r1_ramming_speed_charge_tile import (                      # noqa: E402
     MOVE_RANGE, _pos, _view, drive_to)
 from probe_361_ramming_speed_explosion_batches import _gate_verdict      # noqa: E402
+from probe_361_movable_tiles_selector import _tile_verdict              # noqa: E402
 
 ABILITY = 1059
 BOARD = "MC1_67"
@@ -143,16 +144,38 @@ def _team_of(dv, uid):
     return None
 
 
-def movable_count(sid, rid, uid) -> int:
+def movable_count(sid, rid, uid, override_range: int = None, side: str = "friendly") -> int:
     """Nombre de tuiles que `aiMovableTiles` donne a `uid` -- le pendant RPC de la query que
     `MovableTilesInRangeSelector$$Select` delegue a
-    `IBattleQuery.GetMovableTilesInRange(unit, fromTile, ignoreFlags, options)`. Zero = l'arbre
-    `GetTileToMoveTo` ne peut structurellement rien rendre."""
-    mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60) or {}
+    `IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor(unit, ignoreUnitFlags, options)`.
+    Zero = l'arbre `GetTileToMoveTo` ne peut structurellement rien rendre.
+
+    ⚠ Le DEFAUT (`side="friendly"`, aucun `override_range`) ne reproduit PAS l'appel du selecteur
+    et ne doit pas se lire comme tel (#381) : il mesure la portee NATURELLE de l'unite, la ou
+    `GetTileToMoveTo` passe `DSLFormulas$$Direct(GetNumberConstant(config, 0x16))` = `MOVE_RANGE`.
+    Un compte non nul au defaut n'etablit donc PAS que le pool du selecteur est non vide. Il reste
+    utile pour UNE chose : `-1` (unite non listee) = elle n'a pas la main.
+    Pour reproduire l'appel du selecteur : `override_range=MOVE_RANGE, side="all"`."""
+    tiles = movable_tiles(sid, rid, uid, override_range=override_range, side=side)
+    return -1 if tiles is None else len(tiles)
+
+
+def movable_tiles(sid, rid, uid, override_range: int = None, side: str = "friendly"):
+    """La LISTE des tuiles atteignables, `None` si l'unite n'est pas listee (elle n'a pas la main).
+
+    Necessaire parce que `MovableTilesInRange` n'est PAS un disque hexagonal : c'est un
+    pathfinding (`MovementQuery$$AnyOrFillMoveableTiles`), donc une tuile a distance <= range peut
+    etre INATTEIGNABLE si des unites bloquent tous les chemins. Une garde de portee ecrite en
+    `hexgeo.distance` ne le voit pas -- il faut l'ensemble REELLEMENT rendu."""
+    body = {"runnerId": rid, "side": side}
+    if override_range is not None:
+        body["overrideRange"] = int(override_range)
+    mov = _r(sid, "aiMovableTiles", body, 60) or {}
     for mu in (mov.get("units") or []):
         if int(mu.get("unitId") or -1) == int(uid):
-            return len(mu.get("tiles") or [])
-    return -1          # l'unite n'est meme pas listee : elle n'a pas la main
+            return [(t.get("col"), t.get("row")) for t in (mu.get("tiles") or [])
+                    if t.get("col") is not None]
+    return None
 
 
 def hand_back_to(sid, rid, uid, max_turns: int = 8) -> dict:
@@ -251,18 +274,25 @@ def run(seed: int = 36510, level: int = 8, verbose: bool = True) -> dict:
         out["tile_port"] = list(t_port) if t_port else None
 
         def _shot(tag):
+            # `tileProbe` (#381) : sans lui, ce probe deduisait « l'arbre rend VIDE » d'un COMPTE
+            # d'events, sans jamais lire le pool. Le capteur #370 le lit -- et distingue « pool
+            # vide » de « pool plein, perte en aval », deux conclusions opposees.
             nat = _r(sid, "aiPlaybookPredict",
                      {"runnerId": rid, "unitId": caster, "targetId": target,
-                      "abilityType": ABILITY, "gateProbe": True}, 120)
+                      "abilityType": ABILITY, "gateProbe": True, "tileProbe": True}, 150)
             rows = [{"targetId": e.get("targetId"), "hpBefore": e.get("hpBefore"),
                      "healthDmgMin": e.get("healthDmgMin"), "appliedHits": e.get("appliedHits"),
                      "willBeKill": e.get("willBeKill"), "willKillDmg": e.get("willKillDmg")}
                     for e in (nat.get("events") or [])]
             self_ev = next((r for r in rows if r["targetId"] == caster), None)
             gk, gp = _gate_verdict(nat.get("gateProbe"))
+            tk, tp_ = _tile_verdict(nat.get("tileProbe"))
+            nodes = (nat.get("tileProbe") or {}).get("nodes") or []
+            counts = [int(n.get("returnedCount", -1)) for n in nodes]
             return {"tag": tag, "events": rows, "n_events": len(rows),
                     "playbook": nat.get("playbookClass"), "native_error": nat.get("error"),
-                    "gate_kind": gk, "gate_phrase": gp,
+                    "gate_kind": gk, "gate_phrase": gp, "tile_kind": tk, "tile_phrase": tp_,
+                    "pool_counts": counts,
                     "gate_open": ((self_ev or {}).get("willBeKill") is True)}
 
         # (a) TEL QUEL : `drive_to` a fini par un `endturn`, on est donc dans le tour ADVERSE.
@@ -273,6 +303,19 @@ def run(seed: int = 36510, level: int = 8, verbose: bool = True) -> dict:
         # (b) MAIN RENDUE AU CASTER : seul facteur qui change entre (a) et (b).
         hand_back_to(sid, rid, caster)
         out["movable_b"] = movable_count(sid, rid, caster)
+        # ... et la MEME query que le selecteur, cette fois : `overrideRange = MOVE_RANGE` et
+        # `side="all"` (#381). Le compte au defaut porte la portee NATURELLE de l'unite, qui n'a
+        # aucune raison d'egaler celle du pool -- les confondre a fait lire « le caster a 13
+        # tuiles » comme « le pool du selecteur est non vide ».
+        sel_tiles = movable_tiles(sid, rid, caster, override_range=MOVE_RANGE, side="all")
+        out["movable_b_selector_range"] = (-1 if sel_tiles is None else len(sel_tiles))
+        # L'INTERSECTION que le natif calcule : `pool op_BitwiseAnd CanAddUnit(AdjacentTiles(
+        # Target))`. Vide => `DSLSelectors$$First` n'a rien a rendre et les batchs 3/4 manquent
+        # LEGITIMEMENT -- le caster n'atteint aucune tuile de charge. C'est une propriete de la
+        # GEOMETRIE, pas de l'arbre, et c'est le seul moyen de les distinguer sans hook (#381).
+        out["reachable_charge_tiles"] = (
+            None if sel_tiles is None
+            else [list(p) for p in pool if p in set(sel_tiles)])
         shot_b = _shot("tour-caster")
         shot_b["movable"] = out["movable_b"]
         out["shots"] = [shot_a, shot_b]
@@ -309,6 +352,21 @@ def run(seed: int = 36510, level: int = 8, verbose: bool = True) -> dict:
                           "(aiMovableTiles a=%s b=%s), donc `MovableTilesInRange` rendrait vide "
                           "quel que soit le contexte -- le montage, pas la mecanique."
                           % (out.get("movable_a"), out.get("movable_b")))
+    elif out.get("reachable_charge_tiles") == []:
+        # ⚠ GARDE #381. `MovableTilesInRange` est un PATHFINDING : sur un ring SATURE, les tuiles
+        # de charge sont a portee hexagonale mais peuvent n'etre atteignables par AUCUN chemin.
+        # `op_BitwiseAnd CanAddUnit(AdjacentTiles(Target))` rend alors vide, `First` ne designe
+        # rien, et les batchs 3/4 manquent LEGITIMEMENT. Sans cette lecture, un pool non vide et
+        # 2 events se lisaient « l'arbre rend VIDE » -- une conclusion sur le natif tiree d'une
+        # geometrie ou il n'avait rien a designer.
+        out["ok"] = False
+        out["verdict"] = (
+            "BRAS NON DISCRIMINANT : AUCUNE tuile de charge n'est ATTEIGNABLE. Le pool de "
+            "mouvement en porte %s (portee du selecteur, side=all) et les candidates sont %s, "
+            "mais leur intersection -- exactement `op_BitwiseAnd CanAddUnit(AdjacentTiles("
+            "Target))` -- est VIDE : `MovableTilesInRange` est un PATHFINDING, et le ring sature "
+            "bloque les chemins. Le natif n'a rien a designer ; rien n'est conclu de l'arbre."
+            % (out.get("movable_b_selector_range"), out.get("pool")))
     elif out.get("min_pool_population", 0) < 1:
         out["ok"] = False
         out["verdict"] = ("BRAS NON DISCRIMINANT : une tuile du pool %s n'a AUCUN voisin occupe "
@@ -338,9 +396,11 @@ def run(seed: int = 36510, level: int = 8, verbose: bool = True) -> dict:
         print("[365f] runner=%s playbook=%s geo=%s"
               % (out.get("runner"), out.get("playbook"), json.dumps(out.get("geometry"))))
         for s in out.get("shots") or []:
-            print("       tir[%s] movable=%s events=%s gate_ouverte=%s erreur=%s"
+            print("       tir[%s] movable=%s events=%s gate_ouverte=%s tuile[%s]=%s erreur=%s"
                   % (s.get("tag"), s.get("movable"), s.get("n_events"), s.get("gate_open"),
-                     s.get("native_error")))
+                     s.get("tile_kind"), s.get("pool_counts"), s.get("native_error")))
+        print("       movable(portee du SELECTEUR, side=all)=%s tuiles_de_charge_ATTEIGNABLES=%s"
+              % (out.get("movable_b_selector_range"), out.get("reachable_charge_tiles")))
         print("       team_caster=%s retenu=%s" % (out.get("team_caster"), out.get("chosen_shot")))
         print("       pool=%s population=%s min=%s tuile_port=%s"
               % (out.get("pool"), json.dumps(out.get("pool_population")),

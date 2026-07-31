@@ -47,12 +47,31 @@ DEUX MESURES SUR LE MEME ETAT, et c'est leur CONJONCTION qui porte le verdict
      => un cast qui PASSE prouve que l'arbre rend une tuile dans un contexte STRICTEMENT PLUS
      PAUVRE que celui du playbook. Le pool ne peut donc pas y etre vide.
 
-Si le cast passe ET que les batchs restent absents sur un voisinage peuple, la cause est en aval de
-la gate. #365 l'a ISOLEE : c'est l'`origin` des deux selecteurs -- l'arbre `GetTileToMoveTo()` --
-qui rend VIDE dans le contexte du playbook, tandis que la composition `AdjacentUnits` y est vivante
-(`probe_361_adjacent_units_selector.py`, 3/3 bras exacts) et que l'arbre ne designe pas non plus une
-tuile isolee (`probe_361_ramming_speed_forced_tile.py`, ring sature). Le probe le DIT et nomme le
-point d'ancrage restant, il ne conclut pas a la place de la mesure.
+TROISIEME CONDITION DE MONTAGE, longtemps MANQUANTE (#381) -- le caster doit AVOIR LA MAIN
+-------------------------------------------------------------------------------------------
+Les deux selecteurs partent de `MovableTilesInRange(Caster@0x48, CasterTile@0x50, Direct(range),
+0, 0)`, donc de `IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor` avec
+`ignoreUnitFlags = 0`. Or `IdunBattle.Core.Services.MovementQuery$$FindAnyOrAllMoveableTiles`
+ouvre sur une garde qui rend AUSSITOT -- en laissant VIDE l'`OrderedSet` que l'appelant vient
+d'allouer, sans erreur ni exception :
+
+    if ( (UnitFlagsComponent$$Has(unitFlags, 1) && ignoreUnitFlags == 0)
+       || !UnitExtensions$$CanMove(unit) )   return;
+
+=> un caster qui n'a pas la main n'a AUCUNE tuile de mouvement, l'arbre `GetTileToMoveTo` rend
+vide, et les batchs 3/4 manquent POUR UNE RAISON DE MONTAGE. Et `drive_to` termine sur un
+`endturn` : c'est la PARITE des tours consommes qui decide du camp qui joue -- deux montages
+posant la MEME geometrie par des chemins de drive differents ne la laissent pas au meme camp.
+C'etait TOUTE la difference entre ce probe (2 events) et `montage_361` (5 events) sur la
+geometrie de `#386` sec.1. Le probe appelle donc `ensure_turn` apres le drive, et REFUSE de
+conclure si la main n'y est pas.
+
+L'ancienne conclusion -- « l'`origin` des deux selecteurs, l'arbre `GetTileToMoveTo()`, rend VIDE
+dans le contexte de `ComparablePlaybook<T>$$GenerateAttackPredictions` » -- est donc REFUTEE :
+`probe_381_movable_tiles_query_gate.py` mesure le pool a 51/0/51/0 en balayant les tours sur une
+geometrie FIGEE, et la requete nue (`aiMovableTiles`, meme surcharge) s'y accorde 4/4. Ce qui
+reste vrai de #365 : la composition `AdjacentUnits` est vivante dans ce contexte
+(`probe_361_adjacent_units_selector.py`, 3/3 bras exacts).
 
 Le verdict est DERIVE des champs mesures (jamais un texte ecrit d'avance) -- c'est la propriete de
 `probe_372` qui a permis de tuer la 3e cause, on la garde.
@@ -79,7 +98,8 @@ ROOT = PYDIR.parents[1]
 from rl_collect_batch import _resolve_session, _rpc                     # noqa: E402
 from probe_353_ramming_speed_prediction import build_grafted_seed_bc    # noqa: E402
 from probe_353r1_ramming_speed_charge_tile import (                     # noqa: E402
-    ENEMY2, FILLER_P, GRAFT, MOVE_RANGE, VICTIM, _cast, _ids, _pos, _view, drive_to)
+    ENEMY2, FILLER_P, GRAFT, MOVE_RANGE, VICTIM, _cast, _ids, _pos, _view,
+    controlled_by_current_player, drive_to, ensure_turn)
 
 ABILITY = 1059
 BOARD = "MC1_67"
@@ -291,10 +311,24 @@ def _measure(sid, rid, state, board, dv, ids, tag: str) -> dict:
     out["self_will_be_kill"] = (self_ev or {}).get("willBeKill")
     out["gate_open"] = (out["self_will_be_kill"] is True)
     out["explosion_events"] = max(0, out["n_events"] - 2)
+    # #381 -- CONDITION DE MONTAGE, pas un diagnostic : les deux selecteurs des batchs 3/4 partent
+    # de `MovableTilesInRange(Caster, ...)`, et `MovementQuery$$FindAnyOrAllMoveableTiles` rend
+    # AUSSITOT -- en laissant l'`OrderedSet` alloue VIDE, sans erreur -- quand
+    # `UnitFlagsComponent$$Has(unitFlags, 1)` est vrai et `ignoreUnitFlags == 0` (le litteral que
+    # `GetTileToMoveTo` passe). Un caster qui n'a pas la main n'a donc AUCUNE tuile de mouvement,
+    # l'arbre rend vide, et les batchs 3/4 sont absents POUR UNE RAISON DE MONTAGE.
+    ctrl = controlled_by_current_player(sid, rid)
+    out["caster_has_turn"] = (int(caster) in ctrl) if ctrl else None
     return out
 
 
-def run(seed: int = 36100, level: int = 8, mult: int = 100, verbose: bool = True) -> dict:
+def run(seed: int = 36100, level: int = 8, mult: int = 100, verbose: bool = True,
+        ensure_caster_turn: bool = True) -> dict:
+    """`ensure_caster_turn=False` est la GARDE ADVERSARIALE de #381, pas une option de confort :
+    elle rejoue le montage EXACT d'avant le correctif. Le bras doit alors redevenir NON
+    DISCRIMINANT (2 events pour 5 attendus, pool a 0). Un correctif dont on ne sait pas montrer
+    qu'il change le resultat n'a rien prouve -- et c'est precisement ce montage-la qui a porte
+    quatre hypotheses fausses sur le natif."""
     sid = _resolve_session()
     logs = ROOT / "logs"
     sf = logs / ("p361-%s.json" % uuid.uuid4().hex[:8])
@@ -322,6 +356,16 @@ def run(seed: int = 36100, level: int = 8, mult: int = 100, verbose: bool = True
                 {k: list(v) for k, v in wanted.items()}, {u: _pos(dv, u) for u in wanted})
             return out
 
+        # --- RENDRE LA MAIN AU CASTER avant de mesurer (#381). `drive_to` termine sur un
+        # `endturn`, donc la PARITE des tours consommes decide quel camp joue -- et deux montages
+        # qui posent la MEME geometrie par des chemins de drive differents ne la laissent pas au
+        # meme camp. C'est ce qui separait ce probe (2 events) de `montage_361` (5 events) sur une
+        # geometrie IDENTIQUE. Sans la main, l'arbre `GetTileToMoveTo` part d'un
+        # `MovableTilesInRange` VIDE et les batchs 3/4 manquent POUR UNE RAISON DE MONTAGE.
+        out["ensure_caster_turn"] = bool(ensure_caster_turn)
+        out["turn_given"] = (ensure_turn(sid, rid, ids[GRAFT])
+                             if ensure_caster_turn else None)
+
         # --- mesure `fresh` : le caster n'a PAS bouge ce tour (drive_to termine par `endturn`)
         state, board, dv = _load(sid, rid)
         out["fresh"] = _measure(sid, rid, state, board, dv, ids, "fresh")
@@ -348,6 +392,22 @@ def run(seed: int = 36100, level: int = 8, mult: int = 100, verbose: bool = True
     if out.get("error"):
         out["ok"] = False
         out["verdict"] = "MONTAGE KO : %s" % out["error"]
+    elif f.get("caster_has_turn") is not True:
+        # ⚠ CETTE GARDE MANQUAIT, et son absence a coute quatre hypotheses. Sans la main, les deux
+        # selecteurs des batchs 3/4 partent d'un pool VIDE que le natif rend correctement (garde
+        # d'entree de `MovementQuery$$FindAnyOrAllMoveableTiles`) : le bras mesure alors le
+        # montage, pas l'arbre. Le verdict « BATCHS 3/4 ABSENTS SUR UN VOISINAGE PROUVE PEUPLE »
+        # accusait le NATIF sur exactement cet etat -- il ne doit plus etre atteignable.
+        out["ok"] = False
+        out["verdict"] = (
+            "BRAS NON DISCRIMINANT : le caster n'a pas la main (caster_has_turn=%s, "
+            "ensure_turn=%s). `MovableTilesInRange(Caster, ...)` interroge "
+            "`MovementQuery$$GetMovableTilesFor` avec `ignoreUnitFlags = 0`, et "
+            "`MovementQuery$$FindAnyOrAllMoveableTiles` rend AUSSITOT -- `OrderedSet` VIDE, sans "
+            "erreur -- quand `UnitFlagsComponent$$Has(unitFlags, 1)` est vrai. Les batchs 3/4 "
+            "seraient absents POUR UNE RAISON DE MONTAGE, et rien ne serait conclu du natif "
+            "(mesure #381 : le pool oscille 51/0/51/0 avec le tour, geometrie figee)."
+            % (f.get("caster_has_turn"), out.get("turn_given")))
     elif not f.get("gate_open"):
         out["ok"] = False
         out["verdict"] = ("BRAS NON DISCRIMINANT : la gate n'est pas ouverte (willBeKill=%s sur "
@@ -385,23 +445,17 @@ def run(seed: int = 36100, level: int = 8, mult: int = 100, verbose: bool = True
     else:
         out["ok"] = False
         out["verdict"] = (
-            "BATCHS 3/4 ABSENTS SUR UN VOISINAGE PROUVE PEUPLE : tuile=%s amis=%s ennemis=%s, "
-            "gate OUVERTE (willBeKill=True sur l'event du caster), et le natif rend %d events. "
-            "La contre-epreuve ECARTE le pool vide cote GATE : le cast reel PASSE et pose le "
-            "caster en %s == la tuile du port, alors que `GetDynamicInvalidTargetReason` evalue le "
-            "meme arbre dans un contexte STRICTEMENT PLUS PAUVRE que celui du playbook. "
-            "CAUSE ETABLIE (#365) : l'`origin` des deux selecteurs -- l'arbre "
-            "`RammingSpeedAbility$$GetTileToMoveTo()` -- rend VIDE quand il est evalue dans le "
-            "contexte de `ComparablePlaybook<T>$$GenerateAttackPredictions`. La composition "
-            "`AdjacentUnits`/`op_Subtraction`/`SelectUniqueUnits(ctx,3)`, elle, est VIVANTE dans ce "
-            "meme contexte (probe_361_adjacent_units_selector : 3/3 bras exacts), et l'arbre ne "
-            "designe pas non plus une tuile isolee (probe_361_ramming_speed_forced_tile : ring "
-            "sature, chaque candidate porte 2 voisins, 2 events). Le maillon INTERNE reste ouvert "
-            "-- capteur a poser sur "
-            "`IdunBattle.Entities.Selectors.MovableTilesInRangeSelector$$Select`. Capteur gate : %s."
+            "BATCHS 3/4 ABSENTS ALORS QUE LES DEUX CONDITIONS DE MONTAGE SONT TENUES : tuile=%s "
+            "amis=%s ennemis=%s, gate OUVERTE (willBeKill=True sur l'event du caster), caster AYANT "
+            "LA MAIN, et le natif rend %d events. Le cast reel PASSE et pose le caster en %s == la "
+            "tuile du port. Les deux causes connues sont donc ECARTEES et il en reste une "
+            "INCONNUE : le capteur #370 dit [%s] -- %s. RIEN n'est conclu de l'arbre tant que ce "
+            "maillon n'est pas nomme (l'ancienne conclusion « `GetTileToMoveTo` rend VIDE dans le "
+            "contexte du playbook » est REFUTEE : cf. #381, le pool oscille 51/0/51/0 avec le "
+            "TOUR, geometrie figee). Capteur gate : %s."
             % (f["tile"], [x["visualId"] for x in f["friends"]],
                [x["visualId"] for x in f["enemies"]], f["n_events"], c.get("landed"),
-               f.get("gate_phrase")))
+               f.get("tile_kind"), f.get("tile_phrase"), f.get("gate_phrase")))
 
     if verbose:
         print("[361] runner=%s board=%s niveau=%s | geo=%s"
@@ -411,9 +465,10 @@ def run(seed: int = 36100, level: int = 8, mult: int = 100, verbose: bool = True
               % (a.get("tile"), a.get("caster_pos"),
                  [x["visualId"] for x in (a.get("friends") or [])],
                  [x["visualId"] for x in (a.get("enemies") or [])]))
-        print("        events natifs=%s attendu=%s gate_ouverte=%s playbook=%s erreur=%s"
+        print("        events natifs=%s attendu=%s gate_ouverte=%s caster_a_la_main=%s "
+              "playbook=%s erreur=%s"
               % (a.get("n_events"), a.get("expected_events"), a.get("gate_open"),
-                 a.get("playbook"), a.get("native_error")))
+                 a.get("caster_has_turn"), a.get("playbook"), a.get("native_error")))
         for r in a.get("events") or []:
             print("        %s" % json.dumps(r, sort_keys=True))
         print("        capteur gate [%s] : %s" % (a.get("gate_kind"), a.get("gate_phrase")))
@@ -432,9 +487,14 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=36100)
     ap.add_argument("--level", type=int, default=8)
     ap.add_argument("--mult", type=int, default=100)
+    ap.add_argument("--no-ensure-turn", action="store_true",
+                    help="GARDE ADVERSARIALE (#381) : rejoue le montage d'AVANT le correctif "
+                         "(pas d'`ensure_turn` apres le drive). Le bras doit redevenir NON "
+                         "DISCRIMINANT -- s'il reste vert, le correctif ne discrimine rien")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    out = run(seed=a.seed, level=a.level, mult=a.mult, verbose=not a.json)
+    out = run(seed=a.seed, level=a.level, mult=a.mult, verbose=not a.json,
+              ensure_caster_turn=not a.no_ensure_turn)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if out.get("ok") else 1
