@@ -165,6 +165,36 @@ def test_hit_damage_midpoint_truncates():
     assert HitDamage(7, 7).get_damage(rng=None, use_midpoint=True) == 7
 
 
+def test_one_unit_of_rounding_flips_the_attacker_ordering():
+    """L'ecart d'UNE unite RENVERSE bien un argmax -- demontre, pas suppose.
+
+    `_exemplar_of_hate_attackers` (darkangels) trie par `OrderByDescending(key)` avec
+    `key = MinMaxDamage$$Avg(bornes)`, tie-break sur l'id croissant. Il suffit qu'un attaquant soit
+    dans le regime `3 mod 4` et qu'un autre porte exactement `floor + 1` pour que la troncature et
+    le demi-vers-le-pair rendent des ORDRES differents : c'est le meme comparateur que le natif,
+    reproduit ici sur la seule cle (aucun state a monter)."""
+    def order(avg_fn):
+        scored = [(7, avg_fn(29, 38)),      # somme 67 = 3 mod 4 -> floor 33, ToEven 34
+                  (3, avg_fn(34, 34))]      # 34 pile, quel que soit l'arrondi
+        scored.sort(key=lambda t: (-t[1], t[0]))          # le comparateur du port, verbatim
+        return [uid for uid, _k in scored]
+
+    assert order(calculate_average) == [3, 7], (
+        "avec la TRONCATURE, l'attaquant 7 (cle 33) doit passer DERRIERE l'attaquant 3 (cle 34)")
+    assert order(min_max_avg) == [3, 7], (
+        "a egalite de cle (34 == 34) le tie-break est l'id CROISSANT : 3 reste devant 7")
+
+    # Le renversement se voit quand l'id casse l'egalite dans l'AUTRE sens.
+    def order2(avg_fn):
+        scored = [(1, avg_fn(29, 38)), (9, avg_fn(34, 34))]
+        scored.sort(key=lambda t: (-t[1], t[0]))
+        return [uid for uid, _k in scored]
+    assert order2(calculate_average) == [9, 1], "troncature : 9 (cle 34) devant 1 (cle 33)"
+    assert order2(min_max_avg) == [1, 9], (
+        "demi-vers-le-pair : les cles s'egalisent a 34 et le tie-break id met 1 DEVANT -- l'ordre "
+        "des attaquants est donc RENVERSE par l'ecart d'une seule unite")
+
+
 def test_unit_context_no_longer_exposes_normal_base():
     """E : `normal_base` (moyenne TRONQUEE sans artefact natif, zero appelant) est retiree."""
     assert not hasattr(UnitContext, "normal_base"), (
