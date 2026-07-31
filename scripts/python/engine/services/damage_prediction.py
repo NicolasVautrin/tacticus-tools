@@ -481,17 +481,23 @@ def predict_attack_raw(
     # WithAllModifiers/ApplyCap (perçage+armure+%-mods+défenseur), AVANT ApplyTraitDamageLimitsToDamage. Valeur =
     # littéral 1 (Fix64 static+0x20 ; ≠ le +0x28=Zero que planche get_damage_with_piercing). ⚠ PRÉDICTION SEULE :
     # le COMBAT `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` planche à 0 (`Fix64.Max(base, 0)`) — NE PAS toucher
-    # `get_damage_with_piercing` (partagé combat). GATE natif = le coup CONNECTE et le Nullable bouclier du
-    # HitDamage est SANS VALEUR (= cible SANS bouclier : le split ne tourne pas, aucun block boxé). #42 RAFFINE
-    # l'ancien mapping `rem>0` : mesure 777 s11 u81 (bouclier 3989) coup 3 partiellement absorbé (rem 478 > 0)
-    # -> natif healthDmgMin RESTE 0 (pas de plancher) ; dès que la cible a un bouclier le hit porte une valeur
-    # de block (même 0) -> plancher JAMAIS appliqué. Sans bouclier : coup absorbé par l'ARMURE (lo=0) → 1 ;
-    # dégât > 1 → no-op (n'affecte QUE pierce-0/armure-lourde). Verdict RE #170 + docs/rl/case-166-168-...md.
-    if target_shield <= 0:
-        if rem_lo:
-            lo = max(lo, 1)
-        if rem_hi:
-            hi = max(hi, 1)
+    # `get_damage_with_piercing` (partagé combat).
+    # GATE = « il RESTE du dégât après le bouclier », PAR BORNE — PAS « la cible n'a pas de bouclier ».
+    # #345 a RETIRÉ la gate `target_shield <= 0` posée par #42. Cette gate reposait sur une mesure
+    # (777 s11 u81, bouclier 3989, coup 3 « partiellement absorbé, rem 478 > 0 ») dont le « rem 478 »
+    # était un ARTEFACT du modèle rem-unique, lui-même réfuté ci-dessus : avec le rem PER-PISTE, ce
+    # coup 3 a un résidu MIN de 0, donc l'absence de plancher qu'il montrait ne contraint plus rien.
+    # Contre-mesure discriminante #345 (`ultraInceptorSgt` -> `genesPrimus`, bouclier 5483, 6 coups,
+    # `Damage` 762) : coup 6, résidu MAX = 1 et facteur de réduction ~0.30 -> `Round(0.30) = 0` sans
+    # plancher, et le natif rend `healthDmgMax = 1` / `totalDmgMax = 5484` — bouclier POSÉ et
+    # `blockedMax = 913` non nul. Le résidu MIN du même coup vaut 0 et le natif y rend 0 : la gate est
+    # donc bien PAR BORNE. Balayage `Damage` 763..766 (résidus 13/19/25/31 -> 4/6/7/9) : plancher
+    # inerte, port == natif — le plancher ne mord QUE sous 1, il ne peut pas masquer une erreur de
+    # facteur.
+    if rem_lo:
+        lo = max(lo, 1)
+    if rem_hi:
+        hi = max(hi, 1)
     if target_limits:
         # IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage — cape le dégât per-bout APRÈS modifiers, AVANT le
         # scénario (ordre natif). Appliqué aux 2 bornes (le natif appelle chaque Apply 2× : min puis max).
