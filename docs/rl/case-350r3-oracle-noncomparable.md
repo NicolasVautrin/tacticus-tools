@@ -343,7 +343,24 @@ Le natif met au bucket l'utilité du **survivant** ; sans le gate, le port aurai
 (le composite prime le kill sûr). Le port du gate est donc confronté par un changement de **cible
 émise**, pas par un ajustement de valeur.
 
-### 8.4 Constantes et gates du playbook, mesurés
+### 8.4 A/B d'agreement sur une marche d'IA native — le port ferme un MISS
+
+`engine_validate.py --steps 14`, seed 777 / `MC1_67`, équipes
+`worldKharn,astraBullgryn,ultraTitus` contre `necroWarden,orksNob,tauCrisis`. Le SEUL curseur entre
+les deux colonnes est la présence de `1132` dans `engine.playbook.noncomparable.PLAYBOOKS` (le même
+état, deux runners bâtis sur la même seed) :
+
+| pas 7 (`u83` = Kharn) | avec le port | sans le port (fallback Comparable) |
+|---|---|---|
+| natif | `ability(ab=1132, tgt=79)` en `(3,3)` | idem |
+| moteur | `ability(ab=1132, **tgt=79**)` en `(3,3)` — **MATCH**, position EXACTE | `ability(ab=1132, **tgt=122**)` en `(2,3)` — **MISS**, position à 1 hex |
+| agreement de la marche | pos exact **11/13**, ability **9/10** | pos exact 10/13, ability 8/10 |
+
+Le fallback Comparable trouvait bien l'ability mais **pas la cible** : c'est ce que la face NC — son
+sélecteur par position, son gate `WillNormalAttackKill` et son utilité de dégât — corrige. Le seul
+MISS restant (pas 6, `u87` / `ab=1154`) est étranger à ce cas et inchangé entre les deux colonnes.
+
+### 8.5 Constantes et gates du playbook, mesurés
 
 * `MIN_UTILITY` = `KillMaimBurnPlaybook$$.cctor` = `Fix64.op_Implicit(1)` → **1**.
 * `PRIORITY` = **0** : `1132` est hors `NATIVE_PRIORITY` (sweep exhaustif #170, re-joué : 36

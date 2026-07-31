@@ -479,8 +479,15 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
         `(86, 129, 1)` = l'ability, `nrOfHits` = 1).
 
         Tags employes : `"WillNormalAttackKill"` (event du gate) et `"ability"` (la prediction
-        propre de l'ability, seule porteuse de la moyenne `minDmg`/`maxDmg` que #344 mesure)."""
-        raise NotImplementedError
+        propre de l'ability, seule porteuse de la moyenne `minDmg`/`maxDmg` que #344 mesure).
+
+        NON IMPLEMENTEE = ECHEC BRUYANT, jamais une liste vide : un `[]` par defaut se lirait
+        « ce playbook ne construit aucune prediction », ce qui est une AFFIRMATION -- et fausse
+        pour tout playbook a utilite de degat."""
+        raise NotImplementedError(
+            "%s.damage_predictions : trace de construction non portee. La renseigner AVANT de "
+            "mesurer ce playbook avec probe_344 --oracle nc (sinon la comparaison de sequence "
+            "n'a pas de pendant offline)." % type(self).__name__)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         pairs = []   # (tgt, tuiles rankees de la paire) — ordre cibles = ordre du plan natif
