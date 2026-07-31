@@ -4,3 +4,12 @@
 # checkout et noie le vrai changement dans du bruit.
 data/symbols/**/*.tsv text eol=lf
 data/symbols/**/BUILD  text eol=lf
+
+# Meme raison pour les DOCUMENTS GENERES : ils sont ecrits en LF par leur probe
+# (`newline="\n"`) et relus apres conversion CRLF au checkout, donc `git status` les montre
+# MODIFIES juste apres regeneration -- alors que le contenu est identique. Ce faux positif n'est
+# pas cosmetique : il APPREND a ignorer un `M` sur ces fichiers, et c'est ainsi qu'une version
+# perimee de `dsl-primitive-leverage.md` a survecu a un `git checkout --` passe en croyant le
+# diff limite aux fins de ligne (#326). Un document genere doit etre re-derivable A L'IDENTIQUE :
+# un `git status` propre apres regeneration est la seule preuve qu'il l'est.
+docs/rl/dsl-primitive-leverage.md text eol=lf
