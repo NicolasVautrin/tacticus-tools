@@ -38,14 +38,24 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
                 out.append(cls(eid))
             for cls in BEHAVIOUR_TRAIT_TRIGGERS.get(trait, ()):  # mecaniques de comportement (Battle Fatigue)
                 out.append(cls(eid))
-        # passiveAbilities (TheBetrayer…) — résolues via gameconfig par visualId.
+        # passiveAbilities (TheBetrayer…).
+        # SOURCE (#366-r1) : la liste MESUREE des passives REELLEMENT montees quand le canal
+        # `unitAbilityStates` a parle (`UnitContext.passive_abilities`, hierarchie 2 =
+        # `UnitConfiguration.PassiveAbilities`, cf. `snapshot._load_passive_abilities`) ; sinon,
+        # et SEULEMENT sinon, la derivation gameconfig par `visualId` d'avant. C'est le meme
+        # arbitrage que `traits_measured` (#264) : le natif monte `BC.Units[].PassiveAbilities`,
+        # jamais le kit gameconfig -- une reconstruction laissait INERTE, sans erreur, tout passif
+        # que le BC porte et que le kit ignore (cas d'une GREFFE, seul chemin de confrontation
+        # d'une ability a porteur npc).
         vid = getattr(sc.ctx, "visual_id", None)
         relics: list[str] = []
+        measured_pas = getattr(sc.ctx, "passive_abilities", None)
+        gu = (GC.unit(vid) or {}) if vid else {}
+        passives = measured_pas if measured_pas is not None else list(gu.get("passiveAbilities") or [])
+        for pa in passives:
+            for cls in ABILITY_TRIGGERS.get(pa, ()):
+                out.append(cls(eid))
         if vid:
-            gu = GC.unit(vid) or {}
-            for pa in (gu.get("passiveAbilities") or []):
-                for cls in ABILITY_TRIGGERS.get(pa, ()):
-                    out.append(cls(eid))
             # activeAbilities -> triggered-abilities DERIVEES (`StaticBattleRules.ActiveAbility$$
             # GetDerivedTriggeredAbilities`) : porté dès l'init de l'unité, sans cast préalable.
             for aa in (gu.get("activeAbilities") or []):

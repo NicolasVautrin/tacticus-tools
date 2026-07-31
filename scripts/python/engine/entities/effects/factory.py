@@ -30,6 +30,7 @@ from .loki import (
     DespoiledGroundEffect,
     DespoiledGroundExtraDamagePctEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
+    FireAndRepositionReduceDmgEffect,
     SereneUnifierSenseOfStoneEffect,
     SereneUnifierStormOfFireEffect,
     UnbreakableDutyHealthEffect,
@@ -135,6 +136,8 @@ from .loki import (
     VisionsOfHeresyExtraPierceMeleeEffect,
     VisionsOfHeresyExtraPierceRangedEffect,
     WarHowlExtraDamageUnstoppableEffect,
+    InescapableAccuracyExtraCritChanceEffect,
+    UntilOfEndTurnEffect,
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
@@ -577,6 +580,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # OwnerIsTarget & IsRangedAttack, ConfigVar 0x46). EffectType 0x515=1301 (#190). Le jumeau
     # 0x514=1300 PendingAttack (attaque differee 2x Eviscerate) = hors canal modifier, tache dediee.
     "OverwhelmingWrath_RangeDmgReduction": OverwhelmingWrathRangeDmgReductionEffect,
+    # FireAndReposition (active 1063 de Calandis eldarRanger) : -dmgReduction[active_lvl] x mult PLAT
+    # du degat RANGED recu par le porteur, MAIS seulement HORS de son propre tour
+    # (`...FireAndReposition_ReduceDmgEffect$$CreateEffectDamageMalusForDefense` = ForSubtraction(
+    # OwnerIsTarget & IsRangedAttack & NOT IsTurnOf(Owner), ConfigVar 0x12=dmgReduction)). Le 3e gate
+    # est ce qui EXCLUT l'overwatch ennemi declenche pendant le tour de Calandis -- il n'est PAS
+    # redondant avec la duree TurnsFromRounds(1) de la pose. Canal = flat_reductions (additif
+    # DEFENSEUR pre-percage, meme slot @+0x10 que Nightshroud). EffectType 0x456=1110 (#366-r1).
+    "FireAndReposition_ReduceDmg": FireAndRepositionReduceDmgEffect,
     # PsychicFortress (passif Tigurius ultraTigurius, ability enum 0x3e8=1000) -- 2 effets posEs par
     # IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicFortressAbility$$CreateBehaviour :
     #  - DmgReduction (0x3f2=1010) : AURA -dmgReduction[ablvl]xmult PLAT du degat PSYCHIQUE recu par les AMIS
@@ -729,6 +740,30 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Unstoppable`, isTemporary) est LU par le substrat d'entite (`combatSnapshot.units[].traits`,
     # MESURE : u81 gagne 1042 au cast) ; sa POSE offline attend le port de l'ability 1106.
     "WarHowl_ExtraDamage_Unstoppable": WarHowlExtraDamageUnstoppableEffect,
+    # 1115 InescapableAccuracy_extraCritChance (case-366-r1) : volet CHANCE DE CRIT du passif
+    # `InescapableAccuracy` (TriggeredAbilityType 0x45b = 1115) d'`eldarMauganRa`.
+    # `InescapableAccuracyAbility$$CreateBehaviour` pose les TROIS effets d'un bloc sur l'Owner
+    # (`AddEffect(0x45b) + AddEffect(0x45c) + AddEffect(0x45d)`, `turns = NULL` -> PERMANENTS).
+    # TROIS classes natives et non une, tranche par le SLOT `Il2CppClass*` : les fabriques
+    # `EffectsDatabase.<>c$$<InitializeEffects>b__14_141/142/143` allouent depuis TROIS slots
+    # DIFFERENTS puis appellent le MEME corps de `$$.ctor` (dedup IL2CPP d'un corps bit-identique --
+    # le nom du ctor ne dit donc RIEN de l'identite de classe). Seul le chemin de 1115 est porte ici :
+    #   `...InescapableAccuracy_ExtraCritChanceEffect$$CreateCritChanceBonus`
+    #       = ForAddition(get_OwnerIsCaster & IsRangedAttack, ConfigVar(0x41 = extraCritChance))
+    #   + `CreateActiveCondition` (corps PARTAGE par les trois) = NOT HasFlag(Owner, 0 = UnitFlag.Moved).
+    # N'HERITE RIEN de son voisin 1222 : pas de `IsNormalAttack`, pas d'`AmountIsGreaterThanZero`,
+    # et le gate d'attaque est l'INVERSE (RANGED). 1116 (`CreateCritDamageBonus`, ConfigVar 0x42) et
+    # 1117 (`ActiveCondition` + `CreateBlockHitReductionTrigger`) restent NON portes.
+    "InescapableAccuracy_extraCritChance": InescapableAccuracyExtraCritChanceEffect,
+    # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
+    # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
+    # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce
+    # qui borne l'attaque d'opportunite a UNE fois par ennemi et par tour. La classe native est la
+    # GENERIQUE `UntilOfEndTurnEffect` (slot `Il2CppClass*`, cf. `probe_1175 --step 1`), zero
+    # contribution : toute sa semantique est sa DUREE, portee par `EFFECT_TRIGGERS[1175]`.
+    # ⚠ Cette entree ne change RIEN au comportement par elle-meme (`BaseEffect` no-op est identique) --
+    # elle documente l'identite de classe et fait passer 1175 du cote « porte » de l'inventaire #366.
+    "HatefulAssault_AlreadyAttacked": UntilOfEndTurnEffect,
     # 1291 HeavyGravCannon : owner-effect du PASSIF homonyme d'admecDestroyer <<Sy-Gex>>. Classe DEDIEE
     # `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect` a DEUX canaux partageant UNE condition
     # (`...$$DamageCondition` = OwnerIsActor & IsRangedAttack & (HasTrait(target,5=Mechanical) |

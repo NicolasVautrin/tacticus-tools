@@ -861,9 +861,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             LU ICI et pas chez l'appelant : c'est le seul point qui voit le `UnitContext` de
             l'attaquant APRES l'event `On(PreAttackHit=6)` (ThrillSeekers pose un stat-mod de crit
             juste avant), donc la meme valeur que celle que le natif lit dans `RollCritical`.
-        Porteur : `WarHowl_ExtraDamage_Unstoppable` (1222), dont le trigger porte les trois."""
+        Porteur : `WarHowl_ExtraDamage_Unstoppable` (1222), dont le trigger porte les trois.
+          * `has_moved` -> `HasFlag(Owner, 0 = UnitFlag.Moved)`, le predicat de la
+            `CreateActiveCondition` de `InescapableAccuracy_extraCritChance` (1115). Pose des que
+            l'ATTAQUANT est identifie ; lu du store UNIQUE `UnitFlagsComponent` (`unit_has_moved`),
+            le MEME que le gate deja porte de `CrushingStrike`/`HeavyWeapon_ExtraDmg` sur l'axe
+            DEGAT -- les deux axes ne peuvent donc pas diverger."""
         att_ctx = {"is_ranged": is_ranged, "is_normal_attack": is_normal_attack,
                    "caster_crit_chance": int(ctx.stat(StatType.CRIT_CHANCE) or 0)}
+        if state is not None and att_id is not None:
+            from ..components import unit_has_moved
+            att_ctx["has_moved"] = unit_has_moved(state, int(att_id))
         if state is not None and att_id is not None and tgt_id is not None:
             from ..damage_model import battle_query_is_charging
             att_ctx["is_charging"] = battle_query_is_charging(state, int(att_id), int(tgt_id))

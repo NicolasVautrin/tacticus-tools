@@ -30,11 +30,16 @@ from ..loki.weaver_of_fate import WeaverOfFateAbility                 # #202-A (
 from ..loki.reality_unbound import (RealityUnboundAbility,            # passif thousTzaangor (2 volets)
                                    RealityUnboundExtraMaxDamageAbility)
 from ..loki.time_flux import TimeFluxRegenAbility                     # passif thousTerminator (volet regen)
-from ..loki.ghost_revive import (GhostReviveAbility,                 # #213 (volet ghost-revive)
-                                 GhostEffectRevive, GhostRemoveOnSourceMoves,
-                                 GhostRemoveOnUnitAdded, GhostRemoveOnUnitEnters,
-                                 GhostRemoveOnSourceDeathInactive, GhostRemoveOnSourceRemoved,
-                                 GHOST_EFFECT)
+from ..loki.ghost_revive import (                                     # #213 + #366-r1
+    TimeFluxReviveAbility, EchoesFromTheWarpAbility,                  # les 2 poses (`GhostReviveAbility`)
+    TimeFluxGhostEffectRevive, EchoesFromTheWarpGhostEffectRevive,    # les 2 resurrections (`GhostEffect`)
+    TimeFluxGhostRemoveOnSourceMoves, TimeFluxGhostRemoveOnUnitAdded,
+    TimeFluxGhostRemoveOnUnitEnters, TimeFluxGhostRemoveOnSourceDeathInactive,
+    TimeFluxGhostRemoveOnSourceRemoved,
+    EchoesGhostRemoveOnSourceMoves, EchoesGhostRemoveOnUnitAdded,
+    EchoesGhostRemoveOnUnitEnters, EchoesGhostRemoveOnSourceDeathInactive,
+    EchoesGhostRemoveOnSourceRemoved,
+    TIME_FLUX_GHOST_EFFECT, ECHOES_GHOST_EFFECT)
 from ..loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
 from ..loki.destroyer_hive import DestroyerHiveAbility               # case-220 DG (passiveAbility deathTyphus)
 from ..loki.cursed_plague_bell import (CursedPlagueBellMovementAbility,   # #224 DG (passif deathBlightbringer)
@@ -89,6 +94,9 @@ from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove
                                          ITG_OVERRIDE_LEVEL)
 from ..loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
                                 CHRONOMETRON_EXTRA_DAMAGE)
+from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
+from ..loki.until_of_end_turn import (HatefulAssaultAlreadyAttackedRemove,
+                                      HATEFUL_ASSAULT_ALREADY_ATTACKED)
 from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
                                         EarlyWarningOverrideHitReductionPurge,
                                         EWO_REACTIVATE_OVERWATCH)
@@ -167,6 +175,12 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # (ennemi qui marche sur un decoy allié -> Blast) + BuffFriends (allié -> +582 dmg fin-de-tour + decoy).
     "DecoysAndMisdirection": [DecoysAndMisdirectionDamageEnemiesAbility,
                               DecoysAndMisdirectionBuffFriendsAbility],
+    # HatefulAssault (passif Angrax blackTerminator, case-366-r1) = attaque d'opportunite :
+    # `On(0x1f=PreUnitMove) & AreEnemies & IsAdjacent & !HasEffect(Actor, 0x497) &
+    # !AreEqual(Tiles(Actor), <destination>)` -> `AttackWithAttackDamage(2x Power) & AddEffect(0x497)`.
+    # Le marqueur 1175 est ce qui borne l'attaque a UNE fois par ennemi et par tour ; son retrait vit
+    # dans `EFFECT_TRIGGERS[1175]` (`On(TurnEnd)`). Cf. loki/hateful_assault.py.
+    "HatefulAssault": [HatefulAssaultAttackAbility],
     # HypersensoryAbilities (passif Judh genesKelermorph, G6b) = MoveAndSpawnDecoy : `On(9=Attack)` sur la 1re
     # attaque du tour ennemi -> move + decoy sur la tuile quittee + contre-attaque 3x Projectile. G6a (HP-floor,
     # effet 1380) est un OWNER-EFFECT auto-pose (pas un ability-trigger) ; ici = le volet triggered.
@@ -334,7 +348,12 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #   * `TimeFluxReviveAbility` = `GhostReviveAbility(effectType=1186)` (POSE DU GHOST, #213) :
     #     `OwnerIsActor & On(0x1f=PreUnitMove) & OwnerIsCaster` -> `If(<4 gates>, Nothing(),
     #     AddEffect(1186, source=self, targets=CurrentTurnStartTile(self)))` -- loki/ghost_revive.py.
-    "TimeFlux": [TimeFluxRegenAbility, GhostReviveAbility],
+    "TimeFlux": [TimeFluxRegenAbility, TimeFluxReviveAbility],
+    # EchoesFromTheWarp (passif UNIQUE de `thousNpc4Terminator`, npc) = la SECONDE instanciation de
+    # `GhostReviveAbility`, parametree `effectType = 1284` -- MEME arbre, seule la branche d'amount
+    # du behaviour de l'effet change (`StatAmount(src, Health, Initial)` = « Full Health »).
+    # `EchoesFromTheWarpAbility` ne declare que son `.ctor` (bloc `methodPointers` lu). #366-r1.
+    "EchoesFromTheWarp": [EchoesFromTheWarpAbility],
     # BarbedOvipositor (passif `tyranParasite` << Parasite of Mortrex >>) = `On(0=UnitDeath) &
     # OwnerIsActor & AreEnemies & Not(IsObjectOrSteppable(target)) & Not(TriggeringAbilityIs(
     # TriggeredAbilityType.ItsGonnaBlow=1080)) & Not(HasTrait(target, 5=Mechanical))` -> `Spawn(owner,
@@ -534,6 +553,14 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # qui fait du +degat une CHARGE A USAGE UNIQUE (consommee au 1er coup d'un allie du Chronomancer),
     # et non un buff persistant. Cf. loki/chronometron.py.
     CHRONOMETRON_EXTRA_DAMAGE: [ChronometronExtraDamageRemove],      # 1550 -> retrait On(9)
+    # HatefulAssault_AlreadyAttacked (case-366-r1, effet 1175 pose par `HatefulAssaultAbility$$
+    # CreateBehaviour` sur l'ennemi qu'Angrax vient de frapper). Fabrique native = la GENERIQUE
+    # `UntilOfEndTurnEffect`, dont le SEUL contenu est
+    # `CreateRemoveEffectTrigger = On(0x17 = TurnEnd, ownerNeedsToBeAlive: false)` -- aucun predicat.
+    # SANS cette entree le marqueur serait PERMANENT (`DefaultAmountOfRounds(1175)` = Nullable vide,
+    # `AddEffect` avec `turns` vide) et HatefulAssault cesserait a jamais de frapper une unite deja
+    # touchee une fois : regression PERMISSIVE-INVERSE et SILENCIEUSE. Cf. loki/until_of_end_turn.py.
+    HATEFUL_ASSAULT_ALREADY_ATTACKED: [HatefulAssaultAlreadyAttackedRemove],   # 1175 -> retrait On(0x17)
     # EarlyWarningOverride_ReactivateOverwatch (#114 residu 3, effet 1145 pose par l'active 1077 de
     # tauCrisis) : `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` rend un ArraySet
     # de DEUX `Triggered()` -> DEUX classes. (1) `On(1=PreUnitDeath) & OwnerIsActor & NOT IsTurnOf(owner)
@@ -543,15 +570,27 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `RemoveEffect(1146)`. Cf. loki/reactivate_overwatch.py.
     EWO_REACTIVATE_OVERWATCH: [EarlyWarningOverrideReactivateOverwatch,   # 1145 -> re-entree + -1 coup
                                EarlyWarningOverrideHitReductionPurge],   # 1145 -> purge du 1146
-    # TimeFlux_Revive 1186 (#213) -- le time-ghost de `thousTerminator`, effet dont le PORTEUR est une
-    # TUILE. SIX entrees : le `CreateTargetTrigger`/`CreateTargetTriggerBehaviour` de `GhostEffect`
-    # (la resurrection NON in-place, `OnPreDeath(ignoreOverkill=1) & AreEqual(EffectSource, target)`)
-    # + les CINQ `Triggered()` de son `CreateHandleTriggerAbilitiesInternal`, qui sont la « condition
-    # de disparition » de l'i2. Cf. loki/ghost_revive.py pour les arbres in extenso.
-    GHOST_EFFECT: [GhostEffectRevive,                    # On(1)    -> Revive(tiles=Owner) + RemoveEffect
-                   GhostRemoveOnSourceMoves,             # On(0x1f) -> le poseur rebouge
-                   GhostRemoveOnUnitAdded,               # On(0x33) -> une autre unite APPARAIT dessus
-                   GhostRemoveOnUnitEnters,              # On(0x24) -> une autre unite ARRIVE dessus
-                   GhostRemoveOnSourceDeathInactive,     # On(0)    -> poseur mort, effet INACTIF
-                   GhostRemoveOnSourceRemoved],          # On(0x25) -> poseur retire du plateau
+    # `GhostEffect` -- le time-ghost, effet dont le PORTEUR est une TUILE. UNE SEULE classe native
+    # (0 sous-classe, `classes.tsv` re-derive) mais DEUX effectTypes, donc deux entrees ICI :
+    # 1186 `TimeFlux_Revive` (`thousTerminator`, #213) et 1284 `EchoesFromTheWarp_Revive`
+    # (`thousNpc4Terminator`, #366-r1). SIX entrees chacune : le `CreateTargetTrigger` /
+    # `CreateTargetTriggerBehaviour` (la resurrection NON in-place,
+    # `OnPreDeath(ignoreOverkill=1) & AreEqual(EffectSource, target)`) + les CINQ `Triggered()` de
+    # son `CreateHandleTriggerAbilitiesInternal` = la « condition de disparition » de l'i2.
+    # Le FORK d'amount (`Direct(ConfigVar('hp'))` vs `StatAmount(src, Health, Initial)`) est resolu
+    # ICI, a l'enregistrement -- mirror du natif, qui le resout A LA CONSTRUCTION de l'arbre en
+    # comparant le `TriggeredAbilityType` poseur a `0x485 = 1157 TimeFlux`.
+    # Cf. loki/ghost_revive.py pour les arbres in extenso.
+    TIME_FLUX_GHOST_EFFECT: [TimeFluxGhostEffectRevive,          # On(1)    -> Revive(tiles=Owner) + RemoveEffect
+                             TimeFluxGhostRemoveOnSourceMoves,   # On(0x1f) -> le poseur rebouge
+                             TimeFluxGhostRemoveOnUnitAdded,     # On(0x33) -> une autre unite APPARAIT dessus
+                             TimeFluxGhostRemoveOnUnitEnters,    # On(0x24) -> une autre unite ARRIVE dessus
+                             TimeFluxGhostRemoveOnSourceDeathInactive,  # On(0)    -> poseur mort, effet INACTIF
+                             TimeFluxGhostRemoveOnSourceRemoved],       # On(0x25) -> poseur retire du plateau
+    ECHOES_GHOST_EFFECT: [EchoesFromTheWarpGhostEffectRevive,    # On(1)    -> Revive(Full Health, tiles=Owner)
+                          EchoesGhostRemoveOnSourceMoves,        # On(0x1f)
+                          EchoesGhostRemoveOnUnitAdded,          # On(0x33)
+                          EchoesGhostRemoveOnUnitEnters,         # On(0x24)
+                          EchoesGhostRemoveOnSourceDeathInactive,  # On(0)
+                          EchoesGhostRemoveOnSourceRemoved],       # On(0x25)
 }

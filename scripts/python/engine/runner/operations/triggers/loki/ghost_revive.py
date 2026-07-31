@@ -1,24 +1,54 @@
-"""`GhostRevive` / `TimeFlux_Revive` -- le SEUL revive NON-IN-PLACE du binaire (case-66 §8.2, #213).
+"""`GhostRevive` -- le SEUL revive NON-IN-PLACE du binaire (case-66 §8.2 / §8.4, #213 puis #366-r1).
 
-Carrier : `thousTerminator` (<< Toth >>, hero ThousandSons, present dans `rl_duel.py --list-pool`).
-i2 : « When Toth moves, he leaves a **time ghost** behind on the hex he moved from. If Toth is
-defeated, he is revived on the hex of the time ghost with {hp} Health. The time ghost vanishes if the
-hex becomes occupied by another unit. »
+UNE base native (`GhostReviveAbility` + `GhostEffect`), DEUX instanciations, et c'est le SEUL endroit
+du sous-systeme revive ou la position change :
+
+| effectType | ability qui pose | `TriggeredAbilityType` | porteur | branche d'`amount` |
+|---|---|---|---|---|
+| 1186 `TimeFlux_Revive` | `TimeFluxReviveAbility` | 1157 `TimeFlux` | `thousTerminator` (hero, pool) | `Direct(ConfigVar('hp'))` |
+| 1284 `EchoesFromTheWarp_Revive` | `EchoesFromTheWarpAbility` | 1219 `EchoesFromTheWarp` | `thousNpc4Terminator` (npc) | `StatAmount(src, Health, Initial)` |
+
+i2 (authoritatif) :
+  * `TimeFlux` : « When Toth moves, he leaves a time ghost behind on the hex he moved from. The time
+    ghost vanishes if the hex becomes occupied by another unit or if ... »
+  * `EchoesFromTheWarp` : « When this unit moves, it leaves a time ghost behind on the hex it moved
+    from. The time ghost vanishes if the hex becomes occupied by another unit or if the terrain
+    becomes impassable (as with Broken Ice). **The first time this unit dies each battle**, if its
+    time ghost is on the battlefield then it revives with **Full Health** at its location. This works
+    even if this unit is **Overkilled**. »
 ⚠ le decompile CORRIGE l'i2 sur un point : la tuile n'est PAS « the hex he moved from », c'est la
-tuile ou Toth se trouvait au **DEBUT DE SON TOUR** (`CurrentTurnStartTile`, `UnitComponent + 0x18c`,
-ecrit par `IdunBattle.Operations.StartTurnOperation$$Execute`). Les deux coincident tant que Toth ne
-bouge qu'une fois par tour -- ce qui est le cas nominal -- mais c'est bien le champ +0x18c qui est lu.
+tuile ou l'unite se trouvait au **DEBUT DE SON TOUR** (`CurrentTurnStartTile`, `UnitComponent +
+0x18c`, ecrit par `IdunBattle.Operations.StartTurnOperation$$Execute`). Les deux coincident tant que
+l'unite ne bouge qu'une fois par tour -- ce qui est le cas nominal -- mais c'est bien le champ +0x18c
+qui est lu.
+
+IDENTITE DE CLASSE, ETABLIE et non supposee (#366-r1) -- `data/symbols/<build>/frida/classes.tsv` +
+lecture du bloc `methodPointers` du PE (technique case-66 §8.3) :
+  * `EchoesFromTheWarpAbility` et `TimeFluxReviveAbility` ont TOUTES DEUX pour parent
+    `GhostReviveAbility` (lui-meme fils de `BaseTriggeredAbility`) ;
+  * chacune ne declare qu'**UNE SEULE methode**, son `.ctor` -- leurs blocs `methodPointers`
+    contiennent exactement une entree, encadree par les blocs des classes voisines
+    (`ECogSupport_InitAbility` / `EcstaticSlaughterAbility` pour l'une, `TimeFluxAbility` /
+    `TimesplinterMantleAbility` pour l'autre). AUCUN override de `CreateTrigger`/`CreateBehaviour` ;
+  * les deux ctors appellent le MEME corps de base (que ghidra nomme
+    `GenericAddEffectToOwnerAbility..ctor` par ICF -- **ne PAS se fier au nom**, il l'appelait
+    `EnvDefenderHealthBuffAbility..ctor` sur le build precedent), avec pour seul argument le
+    litteral d'effectType : `0x4a2 = 1186` / `0x504 = 1284` ;
+  * `GhostEffect` (parent `BaseEffect`) n'a **AUCUNE sous-classe**, et les DEUX effectTypes sont
+    bel et bien construits depuis LA MEME classe : dans
+    `IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects`, `0x4a2` et `0x504` mappent sur
+    les lambdas `...EffectsDatabase.u003Cu003Ec$$u003CInitializeEffectsu003Eb__14_203` et
+    `...b__14_204`, qui allouent depuis **le meme slot `Il2CppClass*` (`DAT_1833ea8f0`, dont ce sont
+    les SEULES xrefs) et appellent le meme ctor**. Leurs octets ne different que par le flag d'init
+    et par l'immediat passe a `IdunBattle.Core.AbilityOrEffect$$op_Implicit` :
+    **`0x485 = 1157 TimeFlux` pour 1186, `0x4c3 = 1219 EchoesFromTheWarp` pour 1284**.
+⇒ c'est LA FABRIQUE qui fige le champ `source` que le fork d'amount relira : la bijection
+`effectType <-> TriggeredAbilityType poseur` est donc STRUCTURELLE, pas une coincidence de ctors.
+Voir le fork ci-dessous pour le discriminant que le NATIF utilise au runtime.
 
 TROIS artefacts natifs DISTINCTS (ne pas les fondre) :
 
 1. `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GhostReviveAbility` -- la POSE du ghost.
-   `...TimeFluxReviveAbility$$.ctor` = `GhostReviveAbility..ctor(this, 0x4a2 = 1186)` ; le ctor de
-   base est nomme `EnvDefenderHealthBuffAbility..ctor` par ICF -- **ne PAS se fier au nom**.
-   DEUXIEME instanciation dans ce build (classes.tsv) :
-   `...EchoesFromTheWarpAbility$$.ctor` = `GhostReviveAbility..ctor(this, 0x504 = 1284)` -- NON
-   PORTEE et NON PERTINENTE (#228, case-66 §8.4 : son unique porteur `thousNpc4Terminator` est un
-   NPC pur), mais c'est ELLE qui explique le fork d'amount ci-dessous. `GhostReviveAbility` a
-   EXACTEMENT ces deux sous-classes et `GhostEffect` n'en a AUCUNE (classes.tsv, re-derive).
 
        `GhostReviveAbility$$CreateTrigger` =
            <cache factory@0xa0 = OwnerIsActor> & On(0x1f = PreUnitMove, 1) & OwnerIsCaster
@@ -34,7 +64,7 @@ TROIS artefacts natifs DISTINCTS (ne pas les fondre) :
                          source = caster@0x160, targets = tile, options = null) )
 
    `AddEffect` est ici la surcharge `(effectType, abilityState, source, targets, options)` (5 args) :
-   **source = Toth, targets = la TUILE**. L'effet est donc PORTE PAR LA TUILE, avec Toth pour source.
+   **source = le porteur, targets = la TUILE**. L'effet est donc PORTE PAR LA TUILE.
 
 2. `IdunBattle.Entities.Effects.Loki.GhostEffect` -- l'effet porte par la tuile.
 
@@ -48,24 +78,34 @@ TROIS artefacts natifs DISTINCTS (ne pas les fondre) :
                     & NOT(HasBeenRevivedByAbility(src, AbilityOrEffect(effectType@0x10)))
            amount = <si effect.source@0x14 vaut 0x485 = 1157 TriggeredAbilityType.TimeFlux>
                     ? Direct(GetVariableForLevel(config@0x60, 0x1d = 'hp', abilityState))
-                    : StatAmount(src, Health = 5, max = 3)
+                    : StatAmount(src, Health = 5, StatPart = 3 = Initial)
            If( cond, Revive(src, src, amount, healType = 2,
                             Nullable(AbilityOrEffect(effectType@0x10)),
                             **tiles = Owner@0x148**, priority = 0)
                      + BaseEffect.GetRemoveEffectBehaviour(),
                null )
 
-   Le fork d'`amount` est resolu A LA CONSTRUCTION de l'arbre (comparaison de champs, pas de noeud) :
-   deux `Nullable.get_HasValue` deballent le champ `source` de l'effet (`Nullable<AbilityOrEffect>`
-   @+0x14..0x2c), puis `if (source == 0x485 = 1157 TriggeredAbilityType.TimeFlux)` -> `Direct('hp')`,
-   `else` -> `StatAmount(src, 5 = Health, 3 = max)`. Le `else` couvre AUSSI le cas `Nullable` VIDE --
-   sans consommateur : les deux `AddEffect` du binaire passent un `AbilityStateReference`.
-   La branche `Direct('hp')` est celle de `TimeFlux_Revive` (portee ICI), la branche `StatAmount`
-   celle d'`EchoesFromTheWarp` (1284) -- NON PERTINENTE (#228, cf. plus haut). Confirmation croisee :
-   `TimeFlux.hp` (2401 @ L65) existe au gameconfig et n'est lue par AUCUN autre arbre (`time_flux.py`).
+   ⚠ **LE FORK N'EST PAS UN NOEUD** : il est resolu A LA CONSTRUCTION de l'arbre. Deux
+   `Nullable.get_HasValue` en cascade deballent le champ `source` de l'effet
+   (`Nullable<AbilityOrEffect>` @+0x14..0x2c), puis `if (source == 0x485)` -> `Direct('hp')`,
+   `else` -> `StatAmount`. Le `else` couvre AUSSI le cas `Nullable` VIDE -- sans consommateur : les
+   deux `AddEffect` du binaire passent un `AbilityStateReference`.
+   **DISCRIMINANT RUNTIME des deux ids** : le natif compare le `TriggeredAbilityType` de l'ability
+   QUI A POSE l'effet (1157 vs 1219), pas l'effectType. Les deux etant en bijection (un seul ctor
+   par sous-classe : 1157 pose 1186, 1219 pose 1284), le port resout le fork A L'ENREGISTREMENT
+   (`EFFECT_TRIGGERS[1186]` vs `EFFECT_TRIGGERS[1284]`) -- aucun test de source au runtime, comme
+   le natif qui n'evalue jamais la branche non prise.
 
-   Le 7e argument de `DSLFactory.Revive` (`targetsTile`) est ici **NON NUL** -- c'est LA difference
-   avec les six revives deja portes, et le seul endroit du sous-systeme ou la position change.
+   ⚠ **`StatPart = 3` est `Initial`, PAS `Maximum` (= 2)** -- `IdunBattle.Entities.Enum.StatPart` :
+   `0=Current,1=CurrentPct,2=Maximum,3=Initial,4=Missing,...`, et
+   `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart` le confirme au corps
+   (`case 3: return *(this+0x10)` = le champ base, vs `case 2: get_CurrentMaximumValue()` = base +
+   modification clampee). La fiche case-66 §8.4 ecrivait « max = 3 » : c'etait un mislabel.
+   Le meme `Initial` est relu par le clamp
+   `IdunBattle.Core.Services.BattleQuery$$GetMaximumReviveHealth` =
+   `Min(GetStat(unit, Health, Initial), <cap config slot 0x12>(CurrentMaximum, ...))`, appele par
+   `IdunBattle.Entities.Behaviours.ReviveBehaviour$$GetMaxReviveAmount` -> le montant final vaut
+   `Min(Health_Initial, Health_Initial, cap)` = **PV pleins**, exactement le « Full Health » de l'i2.
 
        `GhostEffect$$CreateHandleTriggerAbilitiesInternal` = ArraySet de CINQ retraits
        (`GetRemoveEffectBehaviour` a chaque fois) -- la « condition de disparition » de l'i2 :
@@ -95,6 +135,8 @@ from ....components import UnitComponent, PositionComponent
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.effect_type import EffectType
+from .....entities.formulas import StatAmount
+from .....entities.stats import StatType, StatPart
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.traits import UnitTrait, has_trait
 from .....entities.selectors import Caster, Target
@@ -102,9 +144,13 @@ from ....abilities.behaviours import entities_from_state
 from ..base import TriggeredAbility, TileEffectTrigger, TriggerEvent, _unit_trait_names
 from ..revive_effect import Revive, can_be_revived
 
-ABILITY_ID = "TimeFlux"                       # cle gameconfig des variables ('hp')
-GHOST_EFFECT = int(EffectType.TimeFlux_Revive)        # 0x4a2 = 1186 -- le litteral du ctor
-TIME_FLUX_ABILITY = int(TriggeredAbilityType.TimeFlux)  # 0x485 = 1157 (source qui choisit la branche 'hp')
+# --- les DEUX litteraux d'effectType passes au ctor de `GhostReviveAbility` ---------------------
+TIME_FLUX_GHOST_EFFECT = int(EffectType.TimeFlux_Revive)              # 0x4a2 = 1186
+ECHOES_GHOST_EFFECT = int(EffectType.EchoesFromTheWarp_Revive)        # 0x504 = 1284
+# `TriggeredAbilityType` des deux abilities poseuses -- c'est 1157 que le fork d'amount compare.
+TIME_FLUX_ABILITY = int(TriggeredAbilityType.TimeFlux)                # 0x485 = 1157
+ECHOES_ABILITY = int(TriggeredAbilityType.EchoesFromTheWarp)          # 0x4c3 = 1219
+
 GHOST_HEAL_TYPE = 2                           # 4e argument du `Revive` -- `IsAffectedByHealType` ne
                                               # filtre NI Heal NI Repair (meme litteral que PhoenixGem).
 GHOST_REVIVE_PRIORITY = 0                     # 8e argument (`IsPreferredRevive`)
@@ -134,7 +180,8 @@ def _has_been_revived_by_ability(state: State, unit_id: int, source: int) -> boo
     resout son selecteur, prend l'`ActorStatisticsComponent` de l'entite et rend
     `component@+0xe0 .Contains(source)`. Le set est alimente par
     `IdunBattle.Operations.ReviveUnitOperation$$Execute` (l'`AbilityOrEffect` de la `ReviveData`) et
-    n'est JAMAIS remis a zero -> gate « une seule fois par BATAILLE ». Port : le set
+    n'est JAMAIS remis a zero -> gate « une seule fois par BATAILLE » (le « the first time this unit
+    dies **each battle** » de l'i2 d'`EchoesFromTheWarp`). Port : le set
     `UnitComponent.revived_by_abilities` (meme residu structurel que `last_hit_damage_taken_*`)."""
     e = state.get_entity(unit_id)
     uc = e.get_component(UnitComponent) if e is not None else None
@@ -156,13 +203,61 @@ def _tile_has_triggered_ability(state: State, tile_id: Optional[int], ability: i
     return False
 
 
-class GhostReviveAbility(TriggeredAbility):
-    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.GhostReviveAbility` parametree par
-    `TimeFluxReviveAbility$$.ctor` (effectType 1186) -- la POSE du time-ghost.
+def _effect_source(state: State, tile_id: int, effect_type: int) -> Optional[int]:
+    """`EffectSource(self@0x150)` -- l'unite qui a POSE le ghost (`EffectComponent.SourceUnit @+0x10`).
+    None si la tuile ne porte plus l'effet."""
+    eff = getattr(state, "effects", None)
+    if eff is None:
+        return None
+    for e in (eff.by_unit.get(int(tile_id)) or []):
+        if e.effect_type == int(effect_type) and not e.consumed:
+            return None if e.source is None else int(e.source)
+    return None
 
-    Rail : `ABILITY_TRIGGERS["TimeFlux"]` (aux cotes de `TimeFluxRegenAbility`) -- le natif derive
-    DEUX triggered-abilities du MEME passiveAbility `TimeFlux` de `thousTerminator`, et ce registre
-    est precisement le mirror de cette derivation.
+
+def _ghost_effect(state: State, tile_id: int, effect_type: int):
+    """L'instance de `GhostEffect` ACTIVE portee par `tile_id`, ou None."""
+    eff = getattr(state, "effects", None)
+    if eff is None:
+        return None
+    for e in (eff.by_unit.get(int(tile_id)) or []):
+        if e.effect_type == int(effect_type) and not e.consumed:
+            return e
+    return None
+
+
+def _remove_ghost(state: State, tile_id: int, effect_type: int) -> bool:
+    """`BaseEffect.GetRemoveEffectBehaviour()` -- retire le ghost de la tuile. Le port marque
+    l'instance `consumed=True` (MEME mecanique que `RemoveReviveEffect`, cf. `revive_effect.py`) :
+    `collect_effect_triggers` skippe les effets consommes -> plus aucun trigger du ghost ne fire."""
+    e = _ghost_effect(state, tile_id, effect_type)
+    if e is None:
+        return False
+    e.consumed = True
+    return True
+
+
+def _passive_scaling(state: State, owner_id: int) -> tuple:
+    """`(passive_ability_level, ability_variables_multiplier)` du porteur -- `TimeFlux` comme
+    `EchoesFromTheWarp` sont des PASSIFS (meme resolution que `time_flux.py::_passive_scaling`)."""
+    from ....components import StatsComponent
+    e = state.get_entity(owner_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None)
+    if ctx is None:
+        return None, 100
+    return (getattr(ctx, "passive_ability_level", None),
+            int(getattr(ctx, "ability_variables_multiplier", 100) or 100))
+
+
+# ═══ 1. la POSE du ghost -- `GhostReviveAbility` et ses DEUX sous-classes ════════════════════════
+
+class GhostReviveAbility(TriggeredAbility):
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.GhostReviveAbility` -- BASE ABSTRAITE de la
+    pose du time-ghost. Le natif la parametre par l'`effectType` passe au ctor ; le port le declare
+    en attribut de classe (`GHOST_EFFECT_TYPE`), exactement comme les sous-classes natives ne
+    portent QUE ce litteral (aucune n'override `CreateTrigger`/`CreateBehaviour`, verifie au bloc
+    `methodPointers` -- cf. l'en-tete du module).
 
     `CreateTrigger` = `<factory@0xa0 = OwnerIsActor> & On(0x1f = PreUnitMove, 1) & OwnerIsCaster` :
       * `OwnerIsActor` (le MEME cache @0xa0 que `TimeFluxAbility`/`LivingMetalRepairAbility`, ou il
@@ -170,7 +265,9 @@ class GhostReviveAbility(TriggeredAbility):
         `AbilityEntities.ctor(mover, mover, mover)` -> actor == caster == target == le mover, donc
         les deux predicats se reduisent au MEME test : « c'est MOI qui bouge »."""
     event_id = int(EventTriggerType.PreUnitMove)            # On(0x1f = 31)
-    TRIGGERED_ABILITY_ID = TIME_FLUX_ABILITY                # `BaseTriggeredAbility$$Execute` inscrit cet id
+    GHOST_EFFECT_TYPE: int = 0                              # litteral du ctor (1186 / 1284)
+    ABILITY_ID: str = ""                                    # cle gameconfig (scaling du passif)
+    EFFECT_NAME: str = ""                                   # nom de l'EffectType pose
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         # `OwnerIsActor & OwnerIsCaster` -- collapse : le mover EST l'acteur ET le caster de l'event.
@@ -192,76 +289,63 @@ class GhostReviveAbility(TriggeredAbility):
         # 1. `AmountIsEqual(CurrentTurnStartTile(caster), Direct(0))` : aucune tuile de debut de tour
         #    enregistree (le champ vaut 0) -> pas de ghost.
         no_start_tile = tile is None
-        # 2. `HasBeenRevivedByAbility(caster, AbilityOrEffect(1186))` : Toth a DEJA ete ressuscite par
-        #    ce ghost dans cette bataille -> il n'en repose plus.
-        already = _has_been_revived_by_ability(state, self.owner_id, GHOST_EFFECT)
+        # 2. `HasBeenRevivedByAbility(caster, AbilityOrEffect(effectType@0x60))` : le porteur a DEJA
+        #    ete ressuscite par CE ghost dans cette bataille -> il n'en repose plus.
+        already = _has_been_revived_by_ability(state, self.owner_id, self.GHOST_EFFECT_TYPE)
         # 3. `NOT(OwnerIsCaster)` : deja tranche par `matches` (event mover==owner) -> toujours faux ici.
         # 4. `TileHasTriggeredAbility(tile, BrokenIce=29)` : pas de ghost sur une glace brisee.
         broken_ice = _tile_has_triggered_ability(state, tile, BROKEN_ICE_TILE_ABILITY)
         if no_start_tile or already or broken_ice:
             return None                                  # branche `Nothing()` du `If`
-        # --- branche `AddEffect(1186, AbilityStateReference, source=caster, targets=tile)` ---------
+        # --- branche `AddEffect(effectType, AbilityStateReference, source=caster, targets=tile)` ---
         # `AddEffectOperation` = la feuille imperative (frontiere #149). L'`AbilityStateReference` du
-        # natif = l'etat d'ability du PORTEUR (TimeFlux est un PASSIF) -> on transmet son
+        # natif = l'etat d'ability du PORTEUR (les deux abilities sont des PASSIFS) -> on transmet son
         # `passive_ability_level` + `ability_variables_multiplier`, ce que relira le
-        # `GetVariableForLevel(config, 'hp')` du behaviour de l'effet.
+        # `GetVariableForLevel(config, 'hp')` du behaviour de l'effet (branche TimeFlux uniquement --
+        # la branche `StatAmount` d'EchoesFromTheWarp ne lit AUCUNE variable de config, et le
+        # gameconfig d'`EchoesFromTheWarp` porte d'ailleurs `variables: {}`).
         from ...effects import AddEffectOperation
         lvl, mult = _passive_scaling(state, self.owner_id)
         eff = AddEffectOperation.execute(state, source=int(self.owner_id), target=int(tile),
-                                         effect_type=GHOST_EFFECT, name="TimeFlux_Revive",
+                                         effect_type=self.GHOST_EFFECT_TYPE, name=self.EFFECT_NAME,
                                          ability_level=lvl, multiplier_pct=mult)
         if eff is None:
             return None
-        return {"ability": ABILITY_ID, "owner": int(self.owner_id), "ghost_tile": int(tile),
-                "effect_type": GHOST_EFFECT, "on_event": int(ev.event_id)}
+        return {"ability": self.ABILITY_ID, "owner": int(self.owner_id), "ghost_tile": int(tile),
+                "effect_type": self.GHOST_EFFECT_TYPE, "on_event": int(ev.event_id)}
 
 
-def _passive_scaling(state: State, owner_id: int) -> tuple:
-    """`(passive_ability_level, ability_variables_multiplier)` du porteur -- `TimeFlux` est un PASSIF
-    (meme resolution que `time_flux.py::_passive_scaling`, volet regen)."""
-    from ....components import StatsComponent
-    e = state.get_entity(owner_id)
-    sc = e.get_component(StatsComponent) if e is not None else None
-    ctx = getattr(sc, "ctx", None)
-    if ctx is None:
-        return None, 100
-    return (getattr(ctx, "passive_ability_level", None),
-            int(getattr(ctx, "ability_variables_multiplier", 100) or 100))
+class TimeFluxReviveAbility(GhostReviveAbility):
+    """`...TimeFluxReviveAbility$$.ctor` = `GhostReviveAbility..ctor(this, 0x4a2 = 1186)`.
+
+    Rail : `ABILITY_TRIGGERS["TimeFlux"]` (aux cotes de `TimeFluxRegenAbility`) -- le natif derive
+    DEUX triggered-abilities du MEME passiveAbility `TimeFlux` de `thousTerminator`, et ce registre
+    est precisement le mirror de cette derivation."""
+    GHOST_EFFECT_TYPE = TIME_FLUX_GHOST_EFFECT
+    ABILITY_ID = "TimeFlux"
+    EFFECT_NAME = "TimeFlux_Revive"
+    TRIGGERED_ABILITY_ID = TIME_FLUX_ABILITY                # `BaseTriggeredAbility$$Execute` inscrit cet id
 
 
-def _effect_source(state: State, tile_id: int) -> Optional[int]:
-    """`EffectSource(self@0x150)` -- l'unite qui a POSE le ghost (`EffectComponent.SourceUnit @+0x10`).
-    None si la tuile ne porte plus l'effet."""
-    eff = getattr(state, "effects", None)
-    if eff is None:
-        return None
-    for e in (eff.by_unit.get(int(tile_id)) or []):
-        if e.effect_type == GHOST_EFFECT and not e.consumed:
-            return None if e.source is None else int(e.source)
-    return None
+class EchoesFromTheWarpAbility(GhostReviveAbility):
+    """`...EchoesFromTheWarpAbility$$.ctor` = `GhostReviveAbility..ctor(this, 0x504 = 1284)`.
+
+    Rail : `ABILITY_TRIGGERS["EchoesFromTheWarp"]` -- passiveAbility UNIQUE de
+    `thousNpc4Terminator` (« Scarab Occult Terminator », ThousandSons), le SEUL porteur du parc.
+    Ce porteur est un **npc** : il n'entre pas dans `--list-pool` et `catalog_inject` ne peut pas
+    l'y faire entrer (`IdunMetaLogic.Formulas.StatsFormula$$StatsUsingProgressionIndexFor` leve un
+    `KeyNotFoundException` sur un lookup PAR UNITID qui ne couvre que le bucket `lineup`, cf.
+    case-66 §8.4). La confrontation live passe donc par la GREFFE de l'ability sur une unite DU POOL
+    (`case-92` §5bis) : rien de cette ability ne lit les traits ni l'arme du caster, et la seule
+    stat lue (`Health` part `Initial`) est celle du GREFFON -- ce qui en fait un discriminant, pas un
+    confond. Probe : `probe_366r1_echoes_revive.py`."""
+    GHOST_EFFECT_TYPE = ECHOES_GHOST_EFFECT
+    ABILITY_ID = "EchoesFromTheWarp"
+    EFFECT_NAME = "EchoesFromTheWarp_Revive"
+    TRIGGERED_ABILITY_ID = ECHOES_ABILITY
 
 
-def _ghost_effect(state: State, tile_id: int):
-    """L'instance de `GhostEffect` ACTIVE portee par `tile_id`, ou None."""
-    eff = getattr(state, "effects", None)
-    if eff is None:
-        return None
-    for e in (eff.by_unit.get(int(tile_id)) or []):
-        if e.effect_type == GHOST_EFFECT and not e.consumed:
-            return e
-    return None
-
-
-def _remove_ghost(state: State, tile_id: int) -> bool:
-    """`BaseEffect.GetRemoveEffectBehaviour()` -- retire le ghost de la tuile. Le port marque
-    l'instance `consumed=True` (MEME mecanique que `RemoveReviveEffect`, cf. `revive_effect.py`) :
-    `collect_effect_triggers` skippe les effets consommes -> plus aucun trigger du ghost ne fire."""
-    e = _ghost_effect(state, tile_id)
-    if e is None:
-        return False
-    e.consumed = True
-    return True
-
+# ═══ 2. la RESURRECTION -- `GhostEffect$$CreateTargetTrigger(Behaviour)` ═════════════════════════
 
 class GhostEffectRevive(TileEffectTrigger):
     """`GhostEffect$$CreateTargetTrigger` + `$$CreateTargetTriggerBehaviour` -- la RESURRECTION.
@@ -269,10 +353,20 @@ class GhostEffectRevive(TileEffectTrigger):
     Porteur = la TUILE (`TileEffectTrigger` : `owner_is_tile` fait sauter les gates unit/alive du
     dispatch, `owner_id` est un id de `boardGraph`). C'est le seul revive du binaire dont le
     `DSLFactory.Revive` recoit un `targetsTile` non nul (`Owner@0x148` = cette tuile), donc le seul
-    qui ecrit une position dans la `ReviveData`."""
-    effect_type = GHOST_EFFECT
+    qui ecrit une position dans la `ReviveData`.
+
+    BASE des deux instanciations : `effect_type` (attribut de classe) porte le litteral, et
+    `amount_node()` porte le FORK -- resolu ici a l'enregistrement, comme le natif le resout a la
+    construction de l'arbre."""
     event_ids = (int(EventTriggerType.PreUnitDeath),)       # OnPreDeath -> OnDeathEvent(1)
     event_id = int(EventTriggerType.PreUnitDeath)
+    ABILITY_ID: str = ""
+
+    def amount_node(self, state: State, dying: int):
+        """4e argument de `DSLFactory.Revive`. Rend `(amount_node, hp_var_level, mult)` ; le noeud
+        prime s'il est non nul. Surcharge par instanciation -- le natif n'evalue JAMAIS la branche
+        non prise."""
+        raise NotImplementedError
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         dying = ev.dying_id
@@ -281,7 +375,7 @@ class GhostEffectRevive(TileEffectTrigger):
         # `OnPreDeath(ignoreOverkill = 1)` -> AUCUN gate overkill (« even if Overkilled ») : on ne
         # teste DELIBEREMENT PAS `ev.overkill`.
         # `AreEqual(EffectSource(self@0x150), target@0x178)` : seul le POSEUR du ghost le declenche.
-        src = _effect_source(state, self.owner_id)
+        src = _effect_source(state, self.owner_id, self.effect_type)
         if src is None or int(src) != int(dying):
             return False
         # --- `cond` du behaviour (evaluee ici : c'est un `If`, pas un second trigger) -------------
@@ -295,8 +389,8 @@ class GhostEffectRevive(TileEffectTrigger):
         # `NOT(HasFlag(src, 6 = Dead))` -- le flag `UnitFlag.Dead` n'est pose qu'APRES la garde de
         # `KillUnitOperation` (donc jamais a l'instant de l'`On(1)`) : mirror non modelise, gate
         # toujours vrai ici, exactement comme le flag 0xd de `can_be_revived` (case-66 §5).
-        # `NOT(HasBeenRevivedByAbility(src, AbilityOrEffect(1186)))`
-        if _has_been_revived_by_ability(state, dying, GHOST_EFFECT):
+        # `NOT(HasBeenRevivedByAbility(src, AbilityOrEffect(effectType@0x10)))`
+        if _has_been_revived_by_ability(state, dying, self.effect_type):
             return False
         # `DSLFactory.Revive` -> `ReviveBehaviour$$Execute` gate `BattleQuery.CanBeRevived(target,
         # healType)` avant d'ecrire la `ReviveData` : meme mirror que la base `ReviveEffect`.
@@ -310,43 +404,72 @@ class GhostEffectRevive(TileEffectTrigger):
         dying = ev.dying_id
         entities = entities_from_state(state, self.owner_id, dying)
         ectx = ExecutionContext(state=state, rng=state.rng)
-        eff = _ghost_effect(state, self.owner_id)
+        eff = _ghost_effect(state, self.owner_id, self.effect_type)
         lvl = None if eff is None else (eff.active_ability_level
                                         if eff.active_ability_level is not None else eff.ability_level)
         mult = 100 if eff is None else int(eff.ability_variables_multiplier or 100)
-        # Branche `Direct(GetVariableForLevel(config, 0x1d='hp', abilityState))` du fork d'amount :
-        # c'est celle de `TimeFlux_Revive` (source = 1157). La branche `StatAmount(src, Health, max)`
-        # appartient a l'AUTRE instanciation de `GhostEffect` (`EchoesFromTheWarp`, effet 1284) et
-        # reste NON PORTEE -- non par manque de RE mais parce qu'elle est NON PERTINENTE (#228) : son
-        # unique porteur `thousNpc4Terminator` est un NPC hors pool, sans summoner, et refuse par
-        # `IStatsFormula.StatsUsingProgressionIndexFor` a tous les ranks meme injecte au catalogue
-        # `BC.Units`. Un port serait invalidable en runner. Detail : `docs/rl/case-66-revive-in-place`
-        # §8.4 ; re-derivation : `probe_228_echoes_carriers.py`.
-        # NB : cette classe n'est enregistree que pour `effect_type = 1186` (`EFFECT_TRIGGERS`), donc
-        # le fork natif est ici DEJA resolu -- aucun test de source a faire au runtime.
         # `tiles_sel = Caster()` = `Owner@0x148` : dans le contexte d'un effet-trigger le port pose
         # `caster = owner` (collapse documente de `entities_from_state`), et l'owner est ICI la TUILE.
-        Revive(Target(), ABILITY_ID, "hp", lvl, mult,
-               heal_type=GHOST_HEAL_TYPE, source_id=GHOST_EFFECT,
-               priority=GHOST_REVIVE_PRIORITY, tiles_sel=Caster()).execute(entities, ectx)
+        Revive(Target(), self.ABILITY_ID, "hp", lvl, mult,
+               heal_type=GHOST_HEAL_TYPE, source_id=self.effect_type,
+               priority=GHOST_REVIVE_PRIORITY, tiles_sel=Caster(),
+               amount_node=self.amount_node(state, dying)).execute(entities, ectx)
         # 2e volet de l'`op_Addition` : `BaseEffect.GetRemoveEffectBehaviour()` -- le ghost est
         # consomme par la resurrection qu'il vient de declencher.
-        removed = _remove_ghost(state, self.owner_id)
+        removed = _remove_ghost(state, self.owner_id, self.effect_type)
         revives = [p for n, p in ectx.emitted if n == "Revive" and p.get("revived")]
-        return {"ability": ABILITY_ID, "ghost_tile": int(self.owner_id), "dying": dying,
+        return {"ability": self.ABILITY_ID, "ghost_tile": int(self.owner_id), "dying": dying,
                 "revives": revives, "ghost_removed": removed}
 
+
+class TimeFluxGhostEffectRevive(GhostEffectRevive):
+    """Instanciation `TimeFlux_Revive` (1186) -- branche `Direct(GetVariableForLevel(config,
+    0x1d='hp', abilityState))` du fork (source de l'effet == `0x485 = 1157`).
+    Confirmation croisee : `TimeFlux.hp` (2401 @ L65) existe au gameconfig et n'est lue par AUCUN
+    autre arbre (`time_flux.py` lit `hpToHeal`/`maxHpToHeal`)."""
+    effect_type = TIME_FLUX_GHOST_EFFECT
+    ABILITY_ID = "TimeFlux"
+
+    def amount_node(self, state: State, dying: int):
+        return None                      # -> la feuille `Revive` calcule `ability_var('TimeFlux','hp')`
+
+
+class EchoesFromTheWarpGhostEffectRevive(GhostEffectRevive):
+    """Instanciation `EchoesFromTheWarp_Revive` (1284) -- branche `StatAmount(src, Health = 5,
+    StatPart = 3 = Initial)` du fork (source de l'effet != `0x485`).
+
+    C'est le « revives with **Full Health** » de l'i2 : le montant ne lit AUCUNE variable de config
+    (le gameconfig d'`EchoesFromTheWarp` a `variables: {}`), seulement la PV INITIALE du revenant.
+
+    `src` = `EffectSource(Get(effect))`. Le port le collapse en `Target()` : le
+    `CreateTargetTrigger` a deja impose `AreEqual(EffectSource(self@0x150), target@0x178)`, donc les
+    deux designent la MEME entite -- meme collapse que la cible du `Revive` juste au-dessus.
+
+    RESIDU NOMME (fidelite du montant) : le port n'a PAS de champ `hp_initial`
+    (`HealthComponent` = `hp`/`hp_max`), donc `FillUpStatComponent.get_stat_part` rend le MEME
+    `maximum` pour les parts 2 (`Maximum`) et 3 (`Initial`). Les deux ne divergent cote natif que
+    si une modification de MAX-PV est active (`FillUpStatComponent$$ModifyMax`/`MaxReduce`, ou une
+    stat-modification de `Health`) : `Maximum = base + modification clampee`, `Initial = base`.
+    Aucun effet modifiant le max-PV n'est porte a ce jour."""
+    effect_type = ECHOES_GHOST_EFFECT
+    ABILITY_ID = "EchoesFromTheWarp"
+
+    def amount_node(self, state: State, dying: int):
+        return StatAmount(Target(), int(StatType.HEALTH), int(StatPart.INITIAL))
+
+
+# ═══ 3. les CINQ retraits -- `GhostEffect$$CreateHandleTriggerAbilitiesInternal` ═════════════════
 
 class _GhostRemoval(TileEffectTrigger):
     """Base des CINQ `Triggered(<cond>, GetRemoveEffectBehaviour())` de
     `GhostEffect$$CreateHandleTriggerAbilitiesInternal`. Behaviour commun : retirer le ghost."""
-    effect_type = GHOST_EFFECT
+    ABILITY_ID: str = ""
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         raise NotImplementedError
 
     def _source(self, state: State) -> Optional[int]:
-        return _effect_source(state, self.owner_id)
+        return _effect_source(state, self.owner_id, self.effect_type)
 
     def _actor_is_on_my_tile(self, state: State, unit_id) -> bool:
         """`Contains(TargetTiles@0x190, Owner@0x148)` -- les tuiles-cible de l'evenement contiennent
@@ -358,9 +481,9 @@ class _GhostRemoval(TileEffectTrigger):
         return _tile_of(state, int(unit_id)) == int(self.owner_id)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        if not _remove_ghost(state, self.owner_id):
+        if not _remove_ghost(state, self.owner_id, self.effect_type):
             return None
-        return {"ability": ABILITY_ID, "ghost_tile": int(self.owner_id),
+        return {"ability": self.ABILITY_ID, "ghost_tile": int(self.owner_id),
                 "ghost_removed": True, "on_event": int(ev.event_id)}
 
 
@@ -436,7 +559,7 @@ class GhostRemoveOnSourceDeathInactive(_GhostRemoval):
         src = self._source(state)
         if dying is None or src is None or int(src) != int(dying):
             return False
-        eff = _ghost_effect(state, self.owner_id)
+        eff = _ghost_effect(state, self.owner_id, self.effect_type)
         return eff is not None and not bool(getattr(eff, "active", True))   # `NOT IsEffectActive`
 
 
@@ -448,7 +571,7 @@ class GhostRemoveOnSourceRemoved(_GhostRemoval):
     `runner/operations/remove_unit.py`, publie `On(0x25)` avec `(a = b = c = l'unite retiree)` --
     APRES la pose du flag `Removed (0x1a)` et le retrait des tuiles, mais AVANT la consommation des
     effets portes. C'est cet ordre qui rend ce retrait-ci observable : le ghost est porte par la
-    TUILE (source = Toth), donc `RemoveEffects(Toth)` ne le toucherait pas.
+    TUILE (source = le poseur), donc `RemoveEffects(poseur)` ne le toucherait pas.
 
     ATTEIGNABILITE, mesuree : aucune des cinq abilities natives qui appellent
     `IdunBattleLogic.Entities.DSLFactory$$RemoveUnit` ne retire le poseur d'un ghost -- MV71 retire
@@ -463,3 +586,57 @@ class GhostRemoveOnSourceRemoved(_GhostRemoval):
         src = self._source(state)
         return (src is not None and ev.target_id is not None
                 and int(ev.target_id) == int(src))
+
+
+# --- les DIX classes concretes de retrait (5 par instanciation de `GhostEffect`) -----------------
+# Le natif n'a QU'UNE classe `GhostEffect` : ces sous-classes ne portent que l'`effectType` sous
+# lequel `EFFECT_TRIGGERS` les enregistre (le port indexe les triggers d'effet PAR effectType).
+
+class TimeFluxGhostRemoveOnSourceMoves(GhostRemoveOnSourceMoves):
+    effect_type = TIME_FLUX_GHOST_EFFECT
+    ABILITY_ID = "TimeFlux"
+
+
+class TimeFluxGhostRemoveOnUnitAdded(GhostRemoveOnUnitAdded):
+    effect_type = TIME_FLUX_GHOST_EFFECT
+    ABILITY_ID = "TimeFlux"
+
+
+class TimeFluxGhostRemoveOnUnitEnters(GhostRemoveOnUnitEnters):
+    effect_type = TIME_FLUX_GHOST_EFFECT
+    ABILITY_ID = "TimeFlux"
+
+
+class TimeFluxGhostRemoveOnSourceDeathInactive(GhostRemoveOnSourceDeathInactive):
+    effect_type = TIME_FLUX_GHOST_EFFECT
+    ABILITY_ID = "TimeFlux"
+
+
+class TimeFluxGhostRemoveOnSourceRemoved(GhostRemoveOnSourceRemoved):
+    effect_type = TIME_FLUX_GHOST_EFFECT
+    ABILITY_ID = "TimeFlux"
+
+
+class EchoesGhostRemoveOnSourceMoves(GhostRemoveOnSourceMoves):
+    effect_type = ECHOES_GHOST_EFFECT
+    ABILITY_ID = "EchoesFromTheWarp"
+
+
+class EchoesGhostRemoveOnUnitAdded(GhostRemoveOnUnitAdded):
+    effect_type = ECHOES_GHOST_EFFECT
+    ABILITY_ID = "EchoesFromTheWarp"
+
+
+class EchoesGhostRemoveOnUnitEnters(GhostRemoveOnUnitEnters):
+    effect_type = ECHOES_GHOST_EFFECT
+    ABILITY_ID = "EchoesFromTheWarp"
+
+
+class EchoesGhostRemoveOnSourceDeathInactive(GhostRemoveOnSourceDeathInactive):
+    effect_type = ECHOES_GHOST_EFFECT
+    ABILITY_ID = "EchoesFromTheWarp"
+
+
+class EchoesGhostRemoveOnSourceRemoved(GhostRemoveOnSourceRemoved):
+    effect_type = ECHOES_GHOST_EFFECT
+    ABILITY_ID = "EchoesFromTheWarp"

@@ -163,9 +163,13 @@ class MoveUnitOperation(Operation):
         # `CalculatePaths`/`MoveUnit`/`AddMoveEvent`/`KillSteppableUnits`/`UpdateCharging`/
         # `SetMovedFlag`/`EvaluateAfterMoveTriggers` -> l'unite est ENCORE sur sa tuile de depart.
         # Consommateurs : `GhostReviveAbility` (pose du time-ghost) + le 1er retrait de `GhostEffect`
-        # (le poseur rebouge). No-op si aucun trigger ne matche.
+        # (le poseur rebouge) + `HatefulAssaultAbility` (attaque d'opportunite). No-op si aucun
+        # trigger ne matche.
+        # `self.to` = la DESTINATION, passee au vecteur : le ctor nomme d'`AbilityEntities` la met a
+        # la fois en `casterTiles` et en `targetTiles`, et `HatefulAssaultAbility$$CreateTrigger` la
+        # compare a la tuile COURANTE de l'acteur (`NOT AreEqual(Tiles(Actor), <@+0x78>)`).
         from .triggers import pre_move_triggers
-        pre_move_triggers(state, self.unit_id)
+        pre_move_triggers(state, self.unit_id, dest_tile=tuple(self.to))
         pc = e.get_component(PositionComponent)
         old_pos = (pc.col, pc.row) if pc is not None else None
         if pc is None:

@@ -306,9 +306,13 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     payload, source = _auto_ability_states(ability_states, decision, observe, snapshot)
     if payload is not None:
         seeded = _load_tertiary_abilities(state, payload)
-        state.ability_states_seed = {"source": source, "seeded": seeded}
+        # MEME payload, MEME composant, hierarchie 2 : les passiveAbilities REELLEMENT montees
+        # (#366-r1). Cf. `_load_passive_abilities`.
+        seeded_pas = _load_passive_abilities(state, payload)
+        state.ability_states_seed = {"source": source, "seeded": seeded,
+                                     "seededPassives": seeded_pas}
     else:
-        state.ability_states_seed = {"source": source, "seeded": None}
+        state.ability_states_seed = {"source": source, "seeded": None, "seededPassives": None}
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
     # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
     # niveau/multiplicateur d'un effet de tuile se lit sur son unité SOURCE, cf. `_load_tile_effects`).
@@ -973,6 +977,67 @@ def _load_tertiary_abilities(state: State, ability_states: dict) -> int:
     return seeded
 
 
+PASSIVE_HIERARCHY = 2
+"""Hierarchie `Passive` du `TriggeredAbilityComponent`. LUE dans
+`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`, qui enumere
+`config+0xa8` (= `UnitConfiguration.PassiveAbilities`) et appelle
+`IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryAdd(id, passiveAbilityState, 2)`.
+La branche TERTIAIRE (relique) juste apres passe `3` ; les ACTIVES ne passent pas par la du tout
+(`UnitFactory$$AddActiveAbility`). C'est donc LE discriminant « cette entree est un passif de
+configuration »."""
+
+
+def _load_passive_abilities(state: State, ability_states: dict) -> int:
+    """Seede `UnitContext.passive_abilities` depuis le RPC `unitAbilityStates` (#366-r1).
+    Rend le nombre d'unites seedees.
+
+    MIRROR -- ce qu'on lit est le RESULTAT de la PREMIERE boucle d'
+    `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` (cf. `PASSIVE_HIERARCHY`).
+    Meme capteur, meme instance, meme `raw` que `_load_tertiary_abilities` : seule la valeur de
+    `raw[10]` change.
+
+    POURQUOI. `triggers/dispatch/core.py::collect_triggered_abilities` derivait les passiveAbilities
+    du **gameconfig par `visualId`**. Or le natif ne lit pas le gameconfig : il monte
+    `BattleConfiguration.Units[].PassiveAbilities`. Tant que les deux coincident la reconstruction
+    passe inapercue -- mais elle rend INERTE, sans erreur ni trace, tout passif que le BC porte et
+    que le kit gameconfig ignore. C'est exactement la faute que #264 a corrigee sur l'axe TRAITS
+    (`traits_measured`), ou la reconstruction se trompait DANS LES DEUX SENS.
+
+    Cas qui l'a rendue mesurable : la GREFFE d'un passif sur une unite du pool
+    (`catalog_inject.graft_passive_ability`), seul chemin de confrontation d'une ability dont
+    l'unique porteur est un **npc** -- `buildNormalizedBC` refusant structurellement tout npc.
+
+    TRI-ETAT, meme discipline que les seeds voisins : sans canal (`ability_states=None` et aucun
+    transport lie), rien n'est pose et `collect_triggered_abilities` retombe sur le gameconfig,
+    STRICTEMENT comme avant. Une unite PRESENTE dans le payload mais sans aucune entree de
+    hierarchie 2 recoit `[]` -- une mesure, pas une absence de mesure : c'est le cas legitime d'une
+    unite sans passif, et il doit se distinguer de « canal muet »."""
+    from ..entities.triggered_ability_type import TriggeredAbilityType
+    seeded = 0
+    for su in ((ability_states or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None:
+            continue
+        ent = state.get_entity(uid)
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        if sc is None or getattr(sc, "ctx", None) is None:
+            continue
+        names: list[str] = []
+        for t in (su.get("triggered") or []):
+            raw = t.get("raw") or []
+            if len(raw) <= 10 or raw[10] != PASSIVE_HIERARCHY:
+                continue
+            try:
+                name = TriggeredAbilityType(int(raw[0])).name
+            except ValueError:
+                continue                      # id hors enum du build -> non ingerable, non devinable
+            if name not in names:             # `TryAdd` sur une KeyedCollection : une entree par id
+                names.append(name)
+        sc.ctx.passive_abilities = names
+        seeded += 1
+    return seeded
+
+
 def _load_unit_traits(state: State, snapshot: dict) -> None:
     """Seede `UnitContext.traits` de CHAQUE entite depuis `combatSnapshot.units[].traits` (#264).
 
@@ -1172,7 +1237,8 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     _load_machine_stats(state, decision, snapshot, mult_by_id)
     # effets ACTIFS structurés (decisionView.effects), matérialisés + propagés mult/level.
     # `abstate_by_id` : l'état d'ability de chaque entité, consulté par la SOURCE de chaque effet
-    # (mirror du bake natif). Les deux tables par PORTEUR restent le REPLI.
+    # (mirror du bake natif) ET, depuis case-366-r1, par le PORTEUR en repli — c'est le seul canal
+    # qui porte son `activeAbilityLevel`. Les deux tables par PORTEUR restent le repli du repli.
     state.effects = EffectsState.seed(effects_by_id, mult_by_id, ablvl_by_id, abstate_by_id)
     # `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` (boucle ABILITIES) : à la création de CHAQUE
     # unité, l'owner-effect posé par le `CreateBehaviour` de ses abilities (DSL `AddEffect(owner)`). Le

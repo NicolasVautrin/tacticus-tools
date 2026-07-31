@@ -27,6 +27,11 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
 - `war_howl.py`         — buff d'ACTIVE a duree 1 tour de `spaceBlackmane` : `WarHowl_ExtraDamage_
                           Unstoppable` (1222), +extraDmg ET +extraCritChance sur la NORMALE MELEE
                           du porteur, + trait `Unstoppable` (case-366-r1).
+- `inescapable_accuracy.py` — passif d'`eldarMauganRa` : `InescapableAccuracy_extraCritChance`
+                          (1115), +extraCritChance sur les attaques A DISTANCE tant que le porteur
+                          n'a pas bouge (case-366-r1).
+- `until_of_end_turn.py` — `UntilOfEndTurnEffect` : LE marqueur a duree du natif (aucune contribution ;
+                          sa seule semantique est `CreateRemoveEffectTrigger` = `On(TurnEnd)`).
 - `crit_aura.py`        — auras stat-mod dont le `StatType` ecrit chez la cible est le CRIT
                           (`PathOfCommand_ExtraCrit` 1107, eldarAutarch). Meme interface
                           `aura_stat_modification_*` que le volet block de LionHelm."""
@@ -60,6 +65,7 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
                                DaughterOfTheAbyssOwnerDmgReductionEffect,
                                OverwhelmingWrathRangeDmgReductionEffect,
+                               FireAndRepositionReduceDmgEffect,
                                PsychicFortressDmgReductionEffect,
                                SereneUnifierSenseOfStoneEffect,
                                VexillaMagnificaDmgReductionEffect, MarkerlightEffect,
@@ -126,6 +132,8 @@ from .crit_aura import PathOfCommandExtraCritEffect
 from .visions_of_heresy import (VisionsOfHeresyExtraPierceMeleeEffect,
                                 VisionsOfHeresyExtraPierceRangedEffect)
 from .war_howl import WarHowlExtraDamageUnstoppableEffect
+from .inescapable_accuracy import InescapableAccuracyExtraCritChanceEffect
+from .until_of_end_turn import UntilOfEndTurnEffect
 
 __all__ = [
     # dark_angels_passives (passifs LionHelm 1163 / FearedInterrogator 1235)
@@ -155,7 +163,8 @@ __all__ = [
     "GuardianOrganismDamageReductionEffect", "NightshroudDmgReductionEffect", "NeuroparasiteEffect",
     "FightingRetreatDmgReductionEffect", "ShadowInTheWarpLessDmgEffect",
     "DaughterOfTheAbyssFriendlyDmgReductionPctEffect", "DaughterOfTheAbyssOwnerDmgReductionEffect",
-    "OverwhelmingWrathRangeDmgReductionEffect", "PsychicFortressDmgReductionEffect",
+    "OverwhelmingWrathRangeDmgReductionEffect", "FireAndRepositionReduceDmgEffect",
+    "PsychicFortressDmgReductionEffect",
     "SereneUnifierSenseOfStoneEffect",
     "VexillaMagnificaDmgReductionEffect",
     "MarkerlightEffect", "ExemplarOfHateTargetEffect", "ChronometronExtraDamageEffect",
@@ -220,4 +229,9 @@ __all__ = [
     "VisionsOfHeresyExtraPierceMeleeEffect", "VisionsOfHeresyExtraPierceRangedEffect",
     # war_howl (case-366-r1) -- +extraDmg ET +extraCritChance sur la NORMALE MELEE, 1 tour
     "WarHowlExtraDamageUnstoppableEffect",
+    # inescapable_accuracy (case-366-r1) -- +extraCritChance RANGED, gate NOT HasFlag(Moved)
+    "InescapableAccuracyExtraCritChanceEffect",
+    # until_of_end_turn (case-366-r1) -- LA classe de MARQUEUR a duree : zero contribution, sa seule
+    # semantique est son `CreateRemoveEffectTrigger` = `On(TurnEnd)`. Porteur : 1175.
+    "UntilOfEndTurnEffect",
 ]
