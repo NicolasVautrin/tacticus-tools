@@ -493,14 +493,26 @@ def aura_defense_damage_malus_from_units(carriers, ctx) -> list:
     return out
 
 
-def crit_chance_bonus_from_effects(effects) -> int:
+def crit_chance_bonus_from_effects(effects, att_ctx=None) -> int:
     """Σ des bonus de CHANCE de crit des effets ACTIFS de l'attaquant
     (`IdunBattle.Core.Services.DamagePrediction$$GetCritChanceBonusFromEffects) — couche calc-time ajoutée à
     `GetStat(9)` dans RollCritical (PAS dans GetStat ⇒ pas dans le combatSnapshot ⇒ à sommer ici).
+
+    `att_ctx` = contexte du coup, threadé en UN SEUL point (`runner/operations/damage.py::
+    AttackDamageOperation._crit_params`, la façade CRIT partagée par les 3 vecteurs d'attaque) —
+    chaque effet évalue SES gates (`create_effect_crit_chance_bonus_for_attack(att_ctx)`). Le natif
+    construit son `AbilityEntities` (caster=owner=attaquant, target=cible) DANS le canal, à partir
+    des deux entités que son appelant lui passe : le contexte existe côté natif, il manquait
+    seulement côté port — symétrique exact du résidu `N14` du canal crit-DÉGÂT.
+
+    ⚠ PORTÉE : cette boucle ne balaie que les effets de l'ATTAQUANT, alors que le natif énumère les
+    entités porteuses d'effets de tout l'état (même forme que `crit_damage_bonus_from_effects`).
+    Sans conséquence pour les porteurs actuels, dont le trigger commence par `get_OwnerIsCaster`.
+
     No-op (0) tant qu'aucun effet n'override `create_effect_crit_chance_bonus_for_attack`."""
     total = 0
     for e in _as_effects(effects):
-        b = e.create_effect_crit_chance_bonus_for_attack()
+        b = e.create_effect_crit_chance_bonus_for_attack(att_ctx)
         if b is not None:
             total += b
     return total

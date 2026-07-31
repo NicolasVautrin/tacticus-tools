@@ -292,8 +292,12 @@ class _Normal:
         # construise son `att_ctx` (mirror de l'`AbilityEntities` que
         # `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects` batit lui-meme a
         # partir de l'attaquant et de la cible). Le calcul du gate vit DANS `_crit_params`, pas ici.
+        # `is_ranged`/`is_normal_attack` = la NATURE du coup, MEME valeur que celle passee a
+        # `attacker_modifiers` ci-dessus (vecteur NORMALE : `_ranged` mesure, normal = True) ->
+        # noeuds `IsMeleeAttack`/`IsNormalAttack` du canal CHANCE DE CRIT (case-366-r1).
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
-            ctx, active, state, attacker_id, target_id)
+            ctx, active, state, attacker_id, target_id,
+            is_ranged=_ranged, is_normal_attack=True)
         # #120 : réduction PLATE défenseur (Nightshroud) fusionnée dans l'additif pré-perçage (mirror prédiction).
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 
