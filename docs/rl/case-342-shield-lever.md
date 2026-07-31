@@ -108,11 +108,12 @@ capée **et** somme impaire) ; les deux parités ; `to_even` seul mode nul des d
 
 ## 6. Ce qui n'est PAS couvert
 
-- **La FORMULE de `AccurateShieldDamage`** n'est pas portée : le split santé/bouclier vient du feed
-  natif (`aiPlaybookPredict`). Mesuré au passage : hors régime de cap le split est trivial
-  (`healthDmg = [0,0]`), mais dans le régime de cap `shieldDmgMin` **n'est pas** `min(shield, totalDmgMin)`
-  (ex. `[3875, 5483]` pour `totalDmg [4813, 6005]`) — `IdunBattle.Core.Services.DamagePrediction$$CalculateDamagePredictionScenario`
-  n'a pas été relu ici. Résidu nommé.
+- ~~**La FORMULE de `AccurateShieldDamage`**~~ — **FERMÉ par #345** (`docs/rl/case-345-formule-terme-bouclier.md`) :
+  formule dérivée au décompilé et confrontée sur 2 montages / 2 régimes. `shieldDmgMin` n'est pas
+  `min(shield, totalDmgMin)` parce que `TotalDamage@0x60` n'est PAS `AccurateHealth + AccurateShield`
+  (il somme le dégât santé pré-scénario et le bloqué non capé). Au passage : le rem bouclier est
+  **per-piste** (le « rem UNIQUE » de #42 était indiscernable sur ce champ, et faux sur son
+  complément — `healthDmgMin` 1897 natif vs 2528 port).
 - **La face COMBAT du bouclier** : `engine/runner/operations/damage_utility.py` rend toujours
   `shieldBefore = 0` (résidu pré-existant, hors périmètre). Ce cas ne touche que la face DÉCISION.
 - **Aucun renversement de DÉCISION** n'a été construit : l'écart vaut un demi-pas d'utilité.

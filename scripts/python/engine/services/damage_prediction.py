@@ -61,6 +61,12 @@ class DamagePredictionResult:
     accurate_health_damage: MinMaxDamage = field(default_factory=MinMaxDamage)
     raw_health_damage: MinMaxDamage = field(default_factory=MinMaxDamage)   # @0x24/@0x28 NON capé HP (kill/overkill)
     accurate_shield_damage: MinMaxDamage = field(default_factory=MinMaxDamage)
+    # #345 : `DefaultScenario.Damage.ShieldDamage` (champs @0x2c/@0x30) = le bloqué **NON CAPÉ**.
+    # C'est LUI que `get_DefaultBlockScenario` thread au coup suivant, PAS `AccurateShieldDamage@0x50`
+    # (qui, lui, porte `cap = CurrentShield@0x04`). Les deux coïncident tant que le cap ne mord pas ;
+    # dès qu'il mord (bouclier épuisé en cours de rafale) ils DIVERGENT, et c'est le non-capé qui
+    # pilote le bouclier restant du coup suivant.
+    scenario_shield_damage: MinMaxDamage = field(default_factory=MinMaxDamage)
     total_damage: MinMaxDamage = field(default_factory=MinMaxDamage)
     limited_by_min_hp: bool = False
     # MightCrit@0xB1 — `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` l'écrit
@@ -99,10 +105,12 @@ class DamagePredictionResult:
         La borne MAX du coup suivant est donc déplétée par le scénario MIN (le natif suppose le
         minimum garanti déjà infligé) — c'est ce qui laisse le rawMax cumulé dépasser HP−1
         (31337 s8 : 1047+800(cap 801−1)+102 = 1949 > 1498). Bouclier : les DEUX champs sont
-        threadés mais le rem effectif ne lit que `shield_max` (cumul MAX, #42 — cf. BlockScenario)."""
+        threadés ET tous deux LUS (rem PER-PISTE, #345) — la source est le scénario NON CAPÉ
+        (`DefaultScenario.Damage.ShieldDamage`), pas `AccurateShieldDamage`."""
         return BlockScenario(
             health=self.raw_health_damage.min,
-            shield_min=self.accurate_shield_damage.min, shield_max=self.accurate_shield_damage.max)
+            shield_min=self.scenario_shield_damage.min,
+            shield_max=self.scenario_shield_damage.max)
 
     def add(self, other: "DamagePredictionResult") -> None:
         """`IdunBattle.Core.Services.DamagePredictionResult$$Add — somme ENTIÈRE champ-par-champ (Accurate* santé/bouclier
@@ -124,6 +132,15 @@ class DamagePredictionResult:
                          cap=self.accurate_shield_damage.cap)
         s.apply_cap()
         self.accurate_shield_damage = s
+        # #345 : le natif somme AUSSI le scénario (`this+0x2c += other+0x2c` / `+0x30`, puis
+        # `MinMaxDamage$$ApplyCap(this+0x24)`), et c'est CE cumul que le coup suivant lit comme
+        # bouclier déjà absorbé. Sans lui, la rafale repartait du cumul CAPÉ -> bouclier restant
+        # sur-évalué côté borne MIN.
+        sc = MinMaxDamage(min=self.scenario_shield_damage.min + other.scenario_shield_damage.min,
+                          max=self.scenario_shield_damage.max + other.scenario_shield_damage.max,
+                          cap=self.scenario_shield_damage.cap)
+        sc.apply_cap()
+        self.scenario_shield_damage = sc
         t = MinMaxDamage(min=self.total_damage.min + other.total_damage.min,
                          max=self.total_damage.max + other.total_damage.max, cap=self.total_damage.cap)
         t.apply_cap()
@@ -412,20 +429,31 @@ def predict_attack_raw(
     _capped = list(mods.capped_reductions) if mods else []
     if _capped:
         mods_pct = replace(mods, capped_reductions=[])
+    # #345 — SPLIT BOUCLIER, mirror LU de `PredictAttackRaw` (deux `Math.Max`, deux appels au slot
+    # 0xc = `IdunBattle.Core.Services.DamageCalculations$$CalculateDamageBlockedByShield`) :
+    #
+    #     remShieldMin = Math.Max(0, GetShield(cible) − prev.Damage.ShieldDamage.Min)
+    #     remShieldMax = Math.Max(0, GetShield(cible) − prev.Damage.ShieldDamage.Max)   # = CurrentShield@+0x04
+    #     blockedMin   = CalculateDamageBlockedByShield(remShieldMin, base.Min, ...) = Math.Min(remShieldMin, (int)base.Min)
+    #     blockedMax   = CalculateDamageBlockedByShield(remShieldMax, base.Max, ...)
+    #
+    # Le rem est donc PER-PISTE. #42 avait conclu « rem UNIQUE = cumul MAX » sur une mesure du
+    # SEUL `AccurateShieldDamage` — et cette mesure ne pouvait pas trancher : ce champ est
+    # `MinMaxDamage(blockedMin, blockedMax, cap = remShieldMax)`, donc sa borne min vaut
+    # `min(min(base.Min, remShieldMin), remShieldMax)` = `min(base.Min, remShieldMax)` puisque
+    # `remShieldMax <= remShieldMin`. Les deux modèles y sont ALGÉBRIQUEMENT indiscernables.
+    # Ils se séparent sur le COMPLÉMENT (le dégât santé) : avec le rem unique, le port bloquait
+    # trop peu côté MIN et laissait passer un coup entier de santé. Mesuré (#345, `ultraInceptorSgt`
+    # -> `genesPrimus`, bouclier 5483, 6 coups, `Damage` 2286) : natif `healthDmgMin` 1897 vs port
+    # 2528 = +631 = exactement `f(base.Min)` d'UN coup, et `totalDmgMin` natif 7380 vs port 6186.
     if target_shield > 0:
-        # split bouclier PER-COUP sur le bouclier RESTANT — #42 : rem UNIQUE = shield − cumul MAX
-        # absorbé (prev.shield_max), consommé par LES DEUX bornes (mirror #40 côté santé, où le rem
-        # HP unique = cumul MIN). Mesure discriminante 777 s11 u95 ab1150 -> u81 (S=3989, m=1117,
-        # M=1675 x3 coups) : natif shieldDmg = [2873, 3989] = m-track {1117,1117,639} / M-track
-        # {1675,1675,639} — le coup 3 des DEUX pistes est capé par rem = 3989−(1675+1675) = 639 ;
-        # l'ancienne déplétion par-piste donnait min = 1117x3 = 3351 (faux, jamais discriminé avant :
-        # les 2 modèles coïncident tant que la piste MAX n'épuise pas le bouclier en cours de rafale).
-        # healthDmgMax natif 58 = f(1675−639) confirme le MÊME rem côté borne haute.
-        _rem_sh = max(0, target_shield - prev.shield_max)
-        blk_lo = min(mm.min, _rem_sh)
-        blk_hi = min(mm.max, _rem_sh)
+        _rem_lo = max(0, target_shield - prev.shield_min)      # remShieldMin (piste MIN)
+        _rem_hi = max(0, target_shield - prev.shield_max)      # remShieldMax == CurrentShield@+0x04
+        blk_lo = min(mm.min, _rem_lo)
+        blk_hi = min(mm.max, _rem_hi)
         rem_lo, rem_hi = mm.min - blk_lo, mm.max - blk_hi
     else:
+        _rem_lo = _rem_hi = 0
         blk_lo = blk_hi = 0
         rem_lo, rem_hi = mm.min, mm.max
     # PRÉDICTION : conversion int finale = **op_Explicit = FLOOR** (IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1ed7/e98/eaa/ebb — le natif
@@ -453,17 +481,23 @@ def predict_attack_raw(
     # WithAllModifiers/ApplyCap (perçage+armure+%-mods+défenseur), AVANT ApplyTraitDamageLimitsToDamage. Valeur =
     # littéral 1 (Fix64 static+0x20 ; ≠ le +0x28=Zero que planche get_damage_with_piercing). ⚠ PRÉDICTION SEULE :
     # le COMBAT `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` planche à 0 (`Fix64.Max(base, 0)`) — NE PAS toucher
-    # `get_damage_with_piercing` (partagé combat). GATE natif = le coup CONNECTE et le Nullable bouclier du
-    # HitDamage est SANS VALEUR (= cible SANS bouclier : le split ne tourne pas, aucun block boxé). #42 RAFFINE
-    # l'ancien mapping `rem>0` : mesure 777 s11 u81 (bouclier 3989) coup 3 partiellement absorbé (rem 478 > 0)
-    # -> natif healthDmgMin RESTE 0 (pas de plancher) ; dès que la cible a un bouclier le hit porte une valeur
-    # de block (même 0) -> plancher JAMAIS appliqué. Sans bouclier : coup absorbé par l'ARMURE (lo=0) → 1 ;
-    # dégât > 1 → no-op (n'affecte QUE pierce-0/armure-lourde). Verdict RE #170 + docs/rl/case-166-168-...md.
-    if target_shield <= 0:
-        if rem_lo:
-            lo = max(lo, 1)
-        if rem_hi:
-            hi = max(hi, 1)
+    # `get_damage_with_piercing` (partagé combat).
+    # GATE = « il RESTE du dégât après le bouclier », PAR BORNE — PAS « la cible n'a pas de bouclier ».
+    # #345 a RETIRÉ la gate `target_shield <= 0` posée par #42. Cette gate reposait sur une mesure
+    # (777 s11 u81, bouclier 3989, coup 3 « partiellement absorbé, rem 478 > 0 ») dont le « rem 478 »
+    # était un ARTEFACT du modèle rem-unique, lui-même réfuté ci-dessus : avec le rem PER-PISTE, ce
+    # coup 3 a un résidu MIN de 0, donc l'absence de plancher qu'il montrait ne contraint plus rien.
+    # Contre-mesure discriminante #345 (`ultraInceptorSgt` -> `genesPrimus`, bouclier 5483, 6 coups,
+    # `Damage` 762) : coup 6, résidu MAX = 1 et facteur de réduction ~0.30 -> `Round(0.30) = 0` sans
+    # plancher, et le natif rend `healthDmgMax = 1` / `totalDmgMax = 5484` — bouclier POSÉ et
+    # `blockedMax = 913` non nul. Le résidu MIN du même coup vaut 0 et le natif y rend 0 : la gate est
+    # donc bien PAR BORNE. Balayage `Damage` 763..766 (résidus 13/19/25/31 -> 4/6/7/9) : plancher
+    # inerte, port == natif — le plancher ne mord QUE sous 1, il ne peut pas masquer une erreur de
+    # facteur.
+    if rem_lo:
+        lo = max(lo, 1)
+    if rem_hi:
+        hi = max(hi, 1)
     if target_limits:
         # IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage — cape le dégât per-bout APRÈS modifiers, AVANT le
         # scénario (ordre natif). Appliqué aux 2 bornes (le natif appelle chaque Apply 2× : min puis max).
@@ -515,11 +549,27 @@ def predict_attack_raw(
         health = MinMaxDamage(min=min(health.min, _rem_hp),
                               max=min(health.max, _rem_hp),
                               cap=_rem_hp)
+    # #345 : `AccurateShieldDamage@0x50` = `new MinMaxDamage(scénario.ShieldDamage.Min, .Max,
+    # cap: CurrentShield@0x04)` — le ctor natif appelle `MinMaxDamage$$ApplyCap`, donc les DEUX
+    # bornes sont rabattues à `remShieldMax`. C'est ce cap (et lui seul) qui rendait le rem unique
+    # de #42 indiscernable du rem per-piste sur CE champ.
+    _acc_shield = MinMaxDamage(min=blk_lo, max=blk_hi, cap=(_rem_hi if target_shield > 0 else None))
+    _acc_shield.apply_cap()
     return DamagePredictionResult(
-        current_health=target_current_health, armor=armor, shield=target_shield,
+        # `CurrentShield@0x04` = `remShieldMax`, PAS le bouclier plein (`PredictAttackRaw` écrit
+        # `local_954` dans le dword haut de `result@0x00`). Identique au coup 1 (prev vide), donc
+        # `shieldBefore` de l'agrégat — que `Add` prend de SELF — ne bouge pas.
+        current_health=target_current_health, armor=armor,
+        shield=(_rem_hi if target_shield > 0 else target_shield),
         accurate_health_damage=health, raw_health_damage=raw_health,
-        accurate_shield_damage=MinMaxDamage(min=blk_lo, max=blk_hi),
-        total_damage=MinMaxDamage(min=blk_lo + health.min, max=blk_hi + health.max),
+        accurate_shield_damage=_acc_shield,
+        scenario_shield_damage=MinMaxDamage(min=blk_lo, max=blk_hi),   # cap VIDE (ctor Fix64)
+        # `TotalDamage@0x60` = `new MinMaxDamage(healthFix64).Add(shieldFix64)` : il somme le dégât
+        # santé TEL QU'IL ENTRE dans `CalculateDamagePredictionScenario` (donc AVANT le `blockDamage`
+        # et AVANT `FillUpStatComponent$$MaxReduceByMinimum`) et le bloqué NON capé. `TotalDamage`
+        # n'est donc PAS `AccurateHealthDamage + AccurateShieldDamage` — mesuré (#345) : natif
+        # `totalDmg` [7380, 13496] pour `healthDmg` [1897, 7026] et `shieldDmg` [3658, 5483].
+        total_damage=MinMaxDamage(min=blk_lo + lo, max=blk_hi + hi),
         # #R34 : `MightCrit@+0xB1` = `CouldCrit(attacker)`, évalué ICI (foyer natif). Le paramètre
         # `might_crit` reste accepté pour les chemins ALIMENTÉS (flag déjà lu live, ex. `predict.py`
         # `WeaponBase.might_crit` <- `combatSnapshot.normalAttack.mightCrit`) -> `or`.

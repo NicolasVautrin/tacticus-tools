@@ -302,6 +302,16 @@ healthDmg [0,58] ; u77 inchangé) ; agreement 777+31337 ×20 → prédiction **2
 étage prédiction CLOS, zéro régression (ability 24/29, move 31/35 inchangés) ; `test_predict_live`
 2/2. Repro : `probe42_s11.py` (scratchpad session).
 
+> ⚠ **CORRIGÉ par #345** (`case-345-formule-terme-bouclier.md`). Le rem bouclier est **PER-PISTE**
+> au décompilé (deux `Math.Max`, deux appels à `CalculateDamageBlockedByShield`). Le « rem unique »
+> reproduisait bien `[2873, 3989]` — mais **par accident** : `AccurateShieldDamage@0x50` porte
+> `cap = CurrentShield@0x04 = remShieldMax`, donc `min(min(base.Min, remMin), remMax)
+> = min(base.Min, remMax)`, et les deux modèles y sont **algébriquement indiscernables**. Ils se
+> séparent sur le COMPLÉMENT, que cette mesure ne regardait pas : `healthDmgMin` natif 1897 vs port
+> 2528 (#345, `Damage` 2286). Conséquence en cascade : le « rem 478 > 0 » ci-dessus vaut **0** sous
+> le bon modèle, donc le raffinement #170 qui gatait le plancher sur `target_shield <= 0` reposait
+> sur un artefact — gate retirée, plancher gaté par le résidu **par borne**.
+
 ## MAJ 2026-07-20 (#43) — Cap HP de l'ACCURATE = Nullable BOXÉ dans le struct (pas seulement le composite)
 
 **Symptôme** (PRÉ-EXISTANT, découvert pendant #41 puis isolé en #43) : `test_aura_position_live`
