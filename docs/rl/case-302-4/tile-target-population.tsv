@@ -174,7 +174,7 @@ id	enum_name	ability_class	state	form	rules	targets_tile	in_ability_classes	deci
 1163	BlackRage	IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility	measured	literal	0x106004012	0	1	noncomparable:BlackRagePlaybook	0	
 1164	MindControl	IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility	measured	literal	0x4002	0	0		0	
 1165	MightFromBelow	IdunBattleLogic.Entities.Abilities.Active.Loki.MightFromBelowAbility	measured	static-copy	0x4000	0	0		0	
-1166	AberrantHypermorph	IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility	measured	literal	0x1040	1	1	noncomparable:AberrantHypermorphPlaybook	0	
+1166	AberrantHypermorph	IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility	measured	literal	0x1040	1	1	noncomparable:AberrantHypermorphPlaybook	1	
 1167	Heal_TwistedScience	IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility	measured	literal	0x8402	0	0		0	
 1168	EntropyCannons	IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility	measured	literal	0x40004002	0	1		0	
 1169	PlagueburstMortar	IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility	measured	literal	0x40000042	1	1	nonattack:PlagueburstMortarPlaybook	1	
@@ -201,7 +201,7 @@ id	enum_name	ability_class	state	form	rules	targets_tile	in_ability_classes	deci
 1191	MartialInspiration	IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility	measured	static-copy	0x4000	0	0		0	
 1192	NovaBoost	IdunBattleLogic.Entities.Abilities.Active.Loki.NovaBoostAbility	measured	preset+flags	0x8014	0	0	noncomparable:NovaBoostPlaybook	0	
 1193	NovaCharge	IdunBattleLogic.Entities.Abilities.Active.Loki.NovaChargeAbility	measured	literal	0x2000000042	1	0		0	
-1194	NovaShield	IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility	measured	static-copy	0x6000040	1	0	noncomparable:NovaShieldPlaybook	0	
+1194	NovaShield	IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility	measured	static-copy	0x6000040	1	0	noncomparable:NovaShieldPlaybook	1	
 1195	TalonsOfTheEmperor	IdunBattleLogic.Entities.Abilities.Active.Loki.TalonsOfTheEmperorAbility	measured	static-copy	0x4000	0	0		0	
 1196	LashOfTorment	IdunBattleLogic.Entities.Abilities.Active.Loki.LashOfTormentAbility	measured	static-copy	0x4002	0	0		0	
 1197	ExcruciatingFrequencies	IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility	measured	literal	0x20000000042	1	0	bespoke excruciating_frequencies	1	

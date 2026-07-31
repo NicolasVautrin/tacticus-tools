@@ -50,8 +50,8 @@
   "not_measurable": 0,
   "absent": 0,
   "targets_tile": 41,
-  "targets_tile_route_emits_tile_target": 7,
-  "targets_tile_route_non_tile": 2,
+  "targets_tile_route_emits_tile_target": 9,
+  "targets_tile_route_non_tile": 0,
   "targets_tile_no_route": 32,
   "ability_classes": 98
  },
@@ -3167,7 +3167,7 @@
    "form": "literal",
    "in_ability_classes": true,
    "decision_route": "noncomparable:AberrantHypermorphPlaybook",
-   "route_emits_tile_target": false,
+   "route_emits_tile_target": true,
    "carriers": {
     "lineup": [
      "genesBiophagus"
@@ -3649,7 +3649,7 @@
    "preset": 448,
    "in_ability_classes": false,
    "decision_route": "noncomparable:NovaShieldPlaybook",
-   "route_emits_tile_target": false,
+   "route_emits_tile_target": true,
    "carriers": {
     "npc": [
      "tauBossRiptide"

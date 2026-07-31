@@ -162,8 +162,8 @@ qui suit en est la synthese.
 | | compte |
 |---|---|
 | portant `TargetIsTile` | **41** |
-| dont la route emet une **cible tuile** (`ctx.tile_id_by_pos`) | **7** — 1092, 1096, 1121, 1148, 1151, 1169, 1197 |
-| dont une route existe mais n'emet PAS de cible tuile | **2** — 1166, 1194 |
+| dont la route emet une **cible tuile** (`ctx.tile_id_by_pos`) | **9** depuis #343 — 1092, 1096, 1121, 1148, 1151, 1166, 1169, 1194, 1197 |
+| dont une route existe mais n'emet PAS de cible tuile | **0** (etait 2 — 1166, 1194 ; cf. §5.2) |
 | **sans AUCUNE route de decision** | **32** |
 | au registre COMBAT du port (`ABILITY_CLASSES`) | **19** — exactement les 19 de `case-302` §4 |
 | **hors** registre COMBAT | **22** |
@@ -191,12 +191,16 @@ dont tous les porteurs sont `npc` n'est pas « bloque », il est **NON PERTINENT
 porteur** sont pour l'essentiel des abilities de test (`Test*`, ids 90xx) et quatre ids Ork/Eldar
 sans unite dans le catalogue courant.
 
-### 5.2 Les 2 routes qui n'emettent PAS de cible tuile — residu NOMME
+### 5.2 Les 2 routes qui n'emettaient PAS de cible tuile — RESOLU (#343)
 
-`1166 AberrantHypermorph` et `1194 NovaShield` ont un playbook NonComparable porte, et ce playbook
-LIT bien le domaine tuile (`ability_targets(...)` filtre `kind == "tile"`) — mais il emet
-`{"target": None, ...}` : il choisit une POSITION de caster, pas une cible. Savoir si le natif emet
-lui aussi une cible nulle demande un tour IA observe sur chacune ; **non confronte ici**.
+`1166 AberrantHypermorph` et `1194 NovaShield` rendaient `{"target": None, ...}`. **Le natif emet
+TOUJOURS une cible tuile** (`element+0x10` du selector, passe a
+`IdunBattle.AI.ActionGenerators.UnitAction$$.ctor`) : c'etaient deux BUGS, et la degradation ne
+perdait pas seulement la cible — sans cible ni deplacement, l'action retombait sur
+`FinishUnitTurnMessage`, donc le moteur ne castait PAS l'ability. Corrige + confronte live (2 bras
+par item, accord sur ability + cible tuile + position). Detail :
+**`docs/rl/case-343-cible-tuile-emise.md`**. Le compte du tableau ci-dessus passe donc a **9**
+routes emettant une cible tuile, **0** route muette.
 
 ### 5.3 Ce que la mesure a corrige au passage — un masque FAUX au registre
 
