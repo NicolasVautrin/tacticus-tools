@@ -205,6 +205,10 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # & AmountIsGreaterThanZero(GetValidTargets)` : au debut de son tour, attaque 1 ennemi adjacent damageable
     # ALEATOIRE (PickRandomly count=1) avec 2 coups Energy (pierce 30). Classe native ETEND DestroyerHive
     # (CreateTrigger/GetValidTargets herites). Cf. loki/martial_apotheosis.py (IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets).
+    # ⚠ INERTE depuis le build `rnca9r7q6c` : SEULE entree ORPHELINE des 29 de ce registre (0 porteur
+    # sur 3 sections x 4 voies, + aucun trait ne l'accorde). Le jeu l'a retiree de `necroOverlord` au
+    # profit de `MyWillBeDoneOverlord`. Inscription CONSERVEE (elle redevient vivante si un kit la
+    # reprend) ; ne rien deduire de son silence. Mesure + verdict : case-354, probe_354.
     "MartialApotheosis": [MartialApotheosisAttackAbility],
     # TaintedNarthecium (passif deathRotbone, Death Guard/Chaos, case-66) = base ReviveEffect : `OnPreDeath &
     # CanBeRevived & AreFriends & HasTrait(Chaos) & IsAdjacent(2)` -> Maybe(75%){ Revive-EN-PLACE a
