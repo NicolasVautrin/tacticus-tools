@@ -71,9 +71,11 @@ DEUX RESIDUS LEVES PAR #357 (le rail de la relique EQUIPEE)
     `snapshot._load_tertiary_abilities` (RPC `unitAbilityStates`, entrees de hierarchie **3**) seede
     `UnitContext.tertiary_ability`, que `collect_triggered_abilities` inscrit comme CINQUIEME chemin
     de registration -- mirror de la branche tertiaire d'`IdunBattle.Entities.Factories.UnitFactory$$
-    AddConfiguredAbilities`. Le canal est OPT-IN (`load_state(ability_states=...)`) : un `State` nu
-    ou une capture qui ne le passe pas ne voit que la voie `relicAbilities` du gameconfig (les 5 npc
-    `tauBossFarsight*` / `tauNpcFarsight`, qui l'ont EN DUR).
+    AddConfiguredAbilities`. Le canal (`load_state(ability_states=...)`) est ON PAR DEFAUT depuis
+    #363 des qu'un transport ambiant est lie (`snapshot.bind_live_rpc`, pose par le harnais de
+    test) ; un `State` nu, ou une capture rejouee hors harnais live, ne voit que la voie
+    `relicAbilities` du gameconfig (les 5 npc `tauBossFarsight*` / `tauNpcFarsight`, qui l'ont EN
+    DUR) -- exactement comme avant #357.
   * **niveau de la variable** -- `hpToHeal` a 10 entrees (niveaux de RELIQUE 1..10), indexees
     nativement par `BC.Units[].TertiaryAbilityLevel`. Le port lisait `passive_ability_level` (50 sur
     tout runner normalise), qu'`ability_var` clampait au dernier palier : la relique rendait

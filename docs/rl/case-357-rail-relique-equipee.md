@@ -51,9 +51,11 @@ ni erreur ni trace — juste un trigger jamais inscrit.
   vient de l'item équipé, **passif** sinon. C'est ce couple que
   `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` indexe.
 
-**Le canal est OPT-IN.** `ability_states=None` (le défaut, et le cas des ~200 call-sites existants de
-`load_state`) ne pose rien : comportement strictement inchangé. Même forme que `tiles=` (#102) et
-`actor_stats=` (#340-r1).
+**Le canal était OPT-IN.** ⚠ **Plus depuis #363** : `ability_states` est un **tri-état** — un payload
+(l'appelant a fait le RPC), `None` = **AUTO** (le canal se sert lui-même quand un transport ambiant
+est lié, ce que `conftest.live_session` fait pour toute la suite live) et `False` = **refus
+explicite**. Un état chargé hors harnais live reste strictement celui d'avant. Coût mesuré avant
+branchement : **33 ms par bataille**, cache par runner. Cf. `case-363-canal-relique-par-defaut.md`.
 
 ### Pourquoi ce canal et pas `combatSnapshot.unitConfig`
 
@@ -145,18 +147,20 @@ scaling. Le champ est porté quand même — c'est le natif qui décide de l'app
 
 ## 8. Ce qui n'est PAS couvert
 
-* **Le canal n'a qu'UN producteur** — `probe_357_relic_rail.py`. Les capture-helpers partagés
-  (`engine_validate`, `rl_collect_batch`, les ~200 call-sites de `load_state`) ne passent pas
-  `ability_states=` : hors de ce montage, une relique équipée reste inerte côté port. Généraliser
-  le canal est la suite naturelle, et c'est un arbitrage de coût (un RPC de plus par chargement
-  d'état), pas un problème de RE.
+* ~~**Le canal n'a qu'UN producteur**~~ — **FERMÉ par #363** (`case-363-canal-relique-par-defaut.md`).
+  Le coût a été mesuré avant d'être tranché (33,4 ms médians, **constants** de 4 à 10 unités, contre
+  312–1347 ms pour la capture déjà faite), et le canal est **ON PAR DÉFAUT**. La prémisse
+  « `engine_validate` / `rl_collect_batch` ne le passent pas » s'est révélée une **non-question** :
+  balayage AST, **0** appel de `load_state` hors `tests/` et `probe_*` sur **569**.
 * **Une seule relique sur 32.** Les 31 autres n'ont pas d'entrée dans `RELIC_ABILITY_TRIGGERS` (leur
   ability n'est pas portée) : le rail les inscrirait, il n'a rien à inscrire. Chacune est une tranche
   de port à part entière.
 * **Les 4 unités qui équipent une relique AU SEED** (`necroSpyder` 1462, `orksRuntherd` 1475,
   `admecMarshall` / `admecRuststalker` 1457) ne sont pas confrontées ici : leurs abilities ne sont
   pas portées, et `buildNormalizedBC` écrase leur niveau à 50 (donc palier 10) — c'est le régime que
-  le montage #237 voie A décrit.
+  le montage #237 voie A décrit. ⚠ **#363 les a depuis amenées en bataille et mesurées** : les
+  quatre arrivent côté port avec `(ability, 50, 200)`, conformes aux deux oracles (natif hiérarchie 3
+  et `seed-bc.json`). Ce qui reste non couvert est l'**effet** de leurs abilities, pas leur montage.
 * **`allow_unlisted` toujours pas joué live** (résidu #237 inchangé) : le montage utilise le porteur
   légitime de `allowedUnits`.
 * **La face DÉCISION n'est pas touchée.** Elle lit déjà le kit déclenché réel par un autre chemin
