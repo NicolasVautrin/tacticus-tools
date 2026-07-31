@@ -45,6 +45,15 @@ interface Entry extends RunnerHandle {
     pinnedRefs: NativePointer[];
 }
 
+// ⚠ INVARIANT — `counter` est STRICTEMENT MONOTONE : jamais remis à zéro, jamais
+// décrémenté, et `disposeRunner` ne range l'id dans AUCUNE free-list. Un id disposé
+// reste donc libre pour toujours (dans la session), et c'est ce qui rend IMPOSSIBLE
+// le mode d'échec le plus coûteux du harnais : un agent qui pilote un id périmé se
+// fait REFUSER par `getRunner` (`runner N not found`) au lieu d'atterrir en silence
+// sur le runner d'un autre — lequel ne verrait ni erreur ni refus, seulement un état
+// de bataille qui a avancé tout seul, et accuserait SON port.
+// Ne pas « recycler les ids pour qu'ils ne gonflent pas ». Cliquet :
+// `scripts/python/probe_377_runnerid_reuse.py` (I1..I5) — cf. docs/rl/case-377.
 const byId = new Map<number, Entry>();
 let counter = 0;
 

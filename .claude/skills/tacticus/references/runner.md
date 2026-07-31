@@ -152,6 +152,11 @@ PAS un reducteur de coups). Les autres (`Water`/`Bridge` = LOS/mvt, `BrokenIce`,
 - **Coexistence par défaut** : un build ne touche jamais les runners frères ; il ne dispose que le
   runner enregistré dans SON `--state-file`. Cap dur `MAX_RUNNERS` → au cap le build **REFUSE**
   (dispose TES runners, jamais ceux des autres).
+- **Un `runnerId` disposé n'est JAMAIS réattribué** (compteur monotone côté hooks — `case-377`).
+  Piloter un id périmé est donc **refusé franchement** (`runner N not found`), jamais silencieux : ça
+  ne pollue le runner de personne. ⚠ **Ce n'est pas une dispense de `--state-file`** — l'id littéral
+  d'un runner **vivant** d'autrui, lui, PASSE (aucun contrôle d'`owner`). Garantie valable **par
+  session Frida** : un reinject remet le compteur à 0, donc un state-file d'avant devient un piège.
 - **⚠ UN `SKIPPED` N'EST PAS UN SUCCÈS.** Au cap saturé, le build échoue → `pytest.skip` → une passe
   entière rend `sssssss`, des `s` qui *ressemblent* à du vert alors que **RIEN n'a été validé**
   (mesuré le 2026-07-25 : 7/7 tests d'un agent skippés, cap 10/10 pris par un autre). **Après CHAQUE
