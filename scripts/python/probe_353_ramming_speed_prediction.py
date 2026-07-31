@@ -75,7 +75,6 @@ FILLER_P = "astraBullgryn"
 VICTIM = "necroWarden"          # cible TEMOIN : aucun trait de reduction de coups (pas de Parry)
 FILLER_A = "ultraTitus"
 BOARD = "MC1_67"
-CENTER = (3, 4)
 
 
 def _r(sid, m, b, t=90):
@@ -223,7 +222,7 @@ def _offline(scene, cid, tid, here, shipped: bool):
 
 
 def run(seed: int = 35301, state_file=None, level: int = 8, mult: int = 100,
-        board: str = BOARD, center=CENTER, armor_target=0, hp_player=None,
+        board: str = BOARD, armor_target=0, hp_player=None,
         verbose: bool = True) -> dict:
     sid = _resolve_session()
     logs = PYDIR.parents[1] / "logs"
@@ -327,16 +326,15 @@ def main() -> int:
     ap.add_argument("--state-file", default=None)
     ap.add_argument("--level", type=int, default=8)
     ap.add_argument("--mult", type=int, default=100)
-    ap.add_argument("--board", default=BOARD)
-    ap.add_argument("--center", default="%d,%d" % CENTER)
+    ap.add_argument("--board", default=BOARD, help="board CHOISI (runner.md sec.2), jamais subi")
     ap.add_argument("--armor-target", type=int, default=0)
     ap.add_argument("--hp-player", type=int, default=None,
-                    help="PV FORCES du camp joueur -- bas = l'auto-degat du ram TUE le caster, "
-                         "donc le batch EXPLOSION conditionnel du natif se declenche")
+                    help="PV FORCES du camp joueur -- vise la GATE `Any(selfPreds, WillBeKill)` du "
+                         "batch EXPLOSION. MESURE #353 : elle n'a ouvert sur AUCUN des montages "
+                         "joues (voir docs/rl/case-353-ramming-speed-prediction.md sec.5)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     out = run(seed=a.seed, state_file=a.state_file, level=a.level, mult=a.mult, board=a.board,
-              center=tuple(int(x) for x in a.center.split(",")),
               armor_target=a.armor_target, hp_player=a.hp_player)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
