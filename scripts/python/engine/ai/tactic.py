@@ -31,7 +31,7 @@ from engine.ai.action_generators import (
 NC_PRIORITY_TIERS = (1000, 100, 0, -100, -1000)
 
 
-def input_messages_from_unit_action(ctx, action: dict | None) -> dict:
+def input_messages_from_unit_action(ctx, action: dict | None, options_first: int = 0) -> dict | None:
     """`IdunBattle.AI.ActionGenerators.InputBuilder$$GenerateInputMessagesFromUnitAction(action,
     unit, currentPosition, options)` — mirror 1:1, réduit à la FORME d'action du port.
 
@@ -64,7 +64,11 @@ def input_messages_from_unit_action(ctx, action: dict | None) -> dict:
 
     `options` vaut `{0, 0, 0}` sur ce chemin (`DefaultAiUnitTactic.<CalculateNextActionForUnit>d__5`
     passe un `&local_58` remis à zéro), donc le court-circuit `options[0] != 0` n'est jamais pris et
-    le repli `FinishUnitTurnMessage` s'applique bien.
+    le repli `FinishUnitTurnMessage` s'applique bien. `options_first` (défaut 0) EXPRIME ce littéral :
+    l'AUTRE appelant, `DefaultAiUnitTactic.u003CCalculateAbilityActionForUnitu003Ed__6$$MoveNext`,
+    construit `{1, d__6+0x31, d__6+0x32}` — premier octet = **1 littéral** -> le court-circuit EST pris,
+    et une action qui n'émet aucun message ne devient PAS un `FinishUnitTurnMessage` (le behaviour
+    `PerformAIAbilityUnitBehaviour` ne termine jamais le tour de son acteur). Rend alors `None`.
 
     Deux conséquences que le port doit refléter, et qu'il ignorait :
 
@@ -100,7 +104,74 @@ def input_messages_from_unit_action(ctx, action: dict | None) -> dict:
         casts = action.get("target") is not None
         if moves or casts:
             return action
+    if options_first:
+        return None            # `if (options[0] != 0) return msgs` -> msgs VIDE : aucun message émis
     return {"kind": "finish", "to": None}
+
+
+def calculate_ability_action_for_unit(ctx, ability_id: int, allow_only_move: bool = False,
+                                      custom_utility=None) -> dict | None:
+    """`IdunBattle.AI.Tactics.DefaultAiUnitTactic.u003CCalculateAbilityActionForUnitu003Ed__6$$MoveNext`
+    — l'AUTRE entrée du tactic, celle qui joue UNE ability IMPOSÉE (et non « la meilleure action »).
+
+    Corps natif (relu sur `rnca9r7q6c`), état 0 :
+
+        if (state == null || !UnitExtensions.IsAlive(state, unit)) yield break;   // -> liste VIDE
+        this.mainTile     = EntityExtensions.GetMainTile(state, unit);
+        this.unitPosition = EntityExtensions.GetUnitPosition(state, unit);
+        this.actionTiles  = ABaseAiUnitTactic$$GenerateActionTiles(tactic, state, true, this.maxDistance);
+        var generators = new List<IActionGenerator>();
+        var abilityIds = new OrderedSet<int>();  abilityIds.Add(this.abilityId);
+        generators.Add(new ActiveAbilityActionGenerator(abilityIds, tactic+0x10, tactic.playbookDatabase,
+                                                       tactic.random, tactic+0x30));
+        if (this.allowOnlyMove) generators.Add(tactic.movementActionGenerator /*tactic+0x58*/);
+        foreach (gen in generators)
+            foreach (action in gen.GenerateActions(state, this.unitPosition, this.actionTiles,
+                                                   this.customUtility /*d__6+0x40*/)) {
+                ABaseAiActorTactic$$LogInvalidUnitAction(tactic, state, action);
+                yield return InputBuilder$$GenerateInputMessagesFromUnitAction(
+                    action, state, new UnitPosition(this.mainTile), { 1, this+0x31, this+0x32 });
+            }
+
+    TROIS différences STRUCTURELLES avec `calculate_next_action` (`d__5`), toutes lues :
+
+    1. **UN SEUL générateur d'ability**, dont le set `abilityIds` ne contient QUE l'ability imposée —
+       là où `d__5` en instancie SIX (5 tiers NonComparable + le tier Comparable `special`, cf.
+       `GetDefaultActiveAbilityActionGenerators`). Il n'y a donc NI tier NI « première action non-nulle
+       par tier » : le `Bucket` de l'unique générateur tranche seul.
+    2. **`MovementActionGenerator` conditionnel** : ajouté SSI `allowOnlyMove` (`behaviour+0x70`),
+       et en QUEUE ; `d__5` l'a toujours.
+    3. **`options[0] = 1`** passé à `InputBuilder` -> pas de repli `FinishUnitTurnMessage` (cf.
+       `input_messages_from_unit_action`). Aucun message == l'acteur ne fait RIEN.
+
+    Appelant unique : `IdunBattle.Core.Services.AiControl$$ExecuteAbilityActionFor(unit, abilityType,
+    options)`, qui draine l'énumérateur et applique les messages (`AiControl$$ApplyAiMessages`).
+
+    PÉRIMÈTRE PORTÉ : le générateur d'ability est ici `ComparableAbilityGenerator(ability_ids={id})`.
+    C'est exact pour toute ability COMPARABLE — et les deux seuls nœuds `DSLBehaviors` qui atteignent
+    ce chemin (`PerformAIAttack`, `PerformAIAttackFromCurrentPosition`) passent le `Func<IEntity,int>`
+    dont le corps est `IdunBattle.Entities.UnitExtensions$$GetNormalAttackType(unit)`, c.-à-d.
+    l'ATTAQUE NORMALE, qui est Comparable. La branche NonComparable de ce mirror (un `abilityId` dont
+    le playbook serait NC) n'a AUCUN call-site : non portée, non spéculée.
+
+    RÉSIDU NON PORTÉ : `customUtility` (`d__6+0x40`, issu de `behaviour+0x90`) n'est pas threadé jusqu'à
+    `calculate_action_utility` — le paramètre est accepté et IGNORÉ, pour que le résidu soit LOCALISÉ ici
+    (seul TheQuickening en pose un, cf. `abilities/loki/quickening.py`).
+
+    Rend l'action (`{kind:"ability"|"move", target, ability, to, util}`) ou `None`."""
+    from engine.ai.action_generators import ComparableAbilityGenerator, MovementActionGenerator
+
+    generators = [ComparableAbilityGenerator(ability_ids=(int(ability_id),))]
+    if allow_only_move:
+        generators.append(MovementActionGenerator())
+    for gen in generators:
+        action = gen.generate(ctx)
+        if action is None:
+            continue
+        msgs = input_messages_from_unit_action(ctx, action, options_first=1)
+        if msgs is not None:
+            return msgs
+    return None
 
 
 class DefaultAiUnitTactic:

@@ -213,7 +213,23 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
     `LoadPlaybook(ability)` (NormalAttack pour l'attaque normale, Default/spéciale sinon) puis
     `playbook.calculate_action_utility(ctx, tuile, cible)` (= `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` :
     prédiction déléguée à PV + Σ + Tile(7) + gate ShouldExecute). Sweep de position par paire
-    (ability,cible) [argmax tile STRICT] -> argmax inter-ability -> pool attaque+soin -> `Bucket.ChooseAction`."""
+    (ability,cible) [argmax tile STRICT] -> argmax inter-ability -> pool attaque+soin -> `Bucket.ChooseAction`.
+
+    `ability_ids` = mirror du 1er argument d'`IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator$$.ctor`
+    (`OrderedSet<int>`, rangé à `generator+0x28`), que
+    `...ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` teste sur CHAQUE ability de
+    `GetUnitAbilitiesInOrder` : `if (!abilityIds.Contains(abilityType)) continue`. `None` = le set du tier
+    Comparable construit par `IdunBattle.AI.Tactics.ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators`
+    (`special`), que le port n'énumère pas -> aucun filtre, comportement historique du tactic complet.
+    Un set EXPLICITE est ce qu'alloue `IdunBattle.AI.Tactics.DefaultAiUnitTactic.u003CCalculateAbilityActionForUnitu003Ed__6$$MoveNext`
+    (`new OrderedSet<int>(); Add(abilityId)` -> UNE seule ability) — cf. `tactic.calculate_ability_action_for_unit`."""
+
+    def __init__(self, ability_ids=None):
+        self.ability_ids = None if ability_ids is None else frozenset(int(a) for a in ability_ids)
+
+    def _in_ability_set(self, ability_id) -> bool:
+        """`abilityIds.Contains(abilityType)` (`generator+0x28`). Set absent -> pas de filtre."""
+        return self.ability_ids is None or int(ability_id) in self.ability_ids
 
     def _action_utility(self, ctx, pb, ab, tgt, tile):
         """Utilité d'ACTION d'un candidat (ability, cible, tuile) — un tour de la boucle CIBLE de
@@ -332,6 +348,10 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
             if not ev.get("rankCount") or not (ev.get("ranked") or []):
                 continue
             ab = ev.get("abilityId")
+            # `if (!abilityIds.Contains(abilityType)) continue` — le filtre `generator+0x28` du natif,
+            # inerte quand le set est absent (tier Comparable complet).
+            if not self._in_ability_set(ab):
+                continue
             # #15 : une ability NonComparable (ex. HeroicFusillade 1180) est rangée par
             # `IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists` dans le tier NonComparable SEUL (flag IsComparable) ->
             # JAMAIS évaluée par le tier Comparable, même si elle figure dans les attackPlans (dégât).
@@ -769,6 +789,11 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
         cands += excruciating_frequencies_candidates(ctx)   # #56-t3b : 1197 ExcruciatingFrequencies
         #                                       (ligne-AoE ciblant une TUILE, non plan-driven rankCount=0)
         # (Les NonComparable sont traitées par le générateur précédent — cf. InitAbilityTypeLists.)
+        # `abilityIds.Contains` (generator+0x28) : le natif filtre CHAQUE ability de l'unité, pas
+        # seulement celles du sweep d'attaque -> les pools heal/repair/bespoke/nonattack tombent
+        # aussi quand le set est explicite. Inerte quand `ability_ids is None`.
+        if self.ability_ids is not None:
+            cands = [c for c in cands if self._in_ability_set(c.get("ability"))]
         if ctx.debug and cands:
             for c in sorted(cands, key=lambda c: -c["full"])[:8]:
                 print(f"    [dbg cand u{ctx.uid}] tgt={c.get('target')} ab={c.get('ability')} "
