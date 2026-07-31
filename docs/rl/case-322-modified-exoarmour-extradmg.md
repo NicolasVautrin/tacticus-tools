@@ -347,15 +347,16 @@ Non-régression rejouée après ce port : `test_votan_prediction_gap_live.py` + 
 
 ## 6. Résidus OUVERTS
 
-* **Terme RÉEL de `TilesMovedThisTurn` non mesuré — côté PRÉDICTION SEULEMENT.** Aucun capteur ne
-  publie `ActorStatisticsComponent+0xf0` ; `prediction_tiles_moved_this_turn` rend `0` pour ce terme.
-  **Exact** tant que l'unité n'a pas encore bougé de son tour — c'est-à-dire le cas nominal de la
-  chaîne de décision, qui évalue ses tuiles candidates AVANT d'agir — **sous-estimé** après un
-  déplacement déjà joué. Point d'ancrage à hooker :
-  `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, ou le champ `+0xf0` de
-  l'`ActorStatisticsComponent` à exposer par `combatSnapshot`. ⚠ Périmètre RÉDUIT depuis #335 : la
-  face COMBAT n'en dépend plus (le runner tient le compteur lui-même, puisque c'est lui qui applique
-  le déplacement). Backlog `#322-r2`.
+* ~~**Terme RÉEL de `TilesMovedThisTurn` non mesuré — côté PRÉDICTION SEULEMENT.**~~ **FERMÉ côté
+  OFFLINE (#340)** — `docs/rl/case-340-tiles-moved-prediction.md`. Ce résidu était classé « exige
+  une réinjection » ; c'était faux pour la voie qui compte : `Scene.from_state` lit un ECS qui
+  portait **déjà** le compteur depuis #335, et la face prédiction le reconstruisait à zéro. Le
+  modèle à deux termes est désormais ATTESTÉ au décompilé —
+  `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` **sauvegarde `+0xec` et
+  `+0xf0` avant l'action simulée et les restaure après**, le pendant `$$DoActionInSimulatedOnSameTile`
+  ne touche pas le composant. Mesuré bit-exact sur trois bras (`n` = 1, 2 et **6**, contrefactuel
+  `n=0` à −1246 / −2494 / −7484), argmax **renversé** sur 11/35 points. Reste ouvert, en `#340-r1` :
+  le capteur `+0xf0` (livré dans `actorStats`, **non déployé**) qu'exige la voie **live-capture**.
 * **`DisplaceUnitOperation$$AddTilesMoved` non porté.** Un déplacement FORCÉ (push, pull, switch)
   compte nativement ses tuiles par cette fonction, gatée `options+0x10 && !IsEnemy(caster, target)`
   — donc **seulement pour un déplacement AMICAL**. Les call-sites de déplacement du port passent

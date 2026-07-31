@@ -951,6 +951,21 @@ export function registerViewSnapshot(ctx: Ctx): void {
         // le porte, sinon le fallback (offsets non-nuls -> `||` sûr, comme le reste du module).
         const OFF_TOTAL = getFieldOffset(asClass, "TotalAttacksMade") || 0x20;
         const OFF_TURNS = getFieldOffset(asClass, "TotalTurnsWithAttacksMade") || 0x30;
+        // TUILES PARCOURUES (case-322-r2) — le MÊME composant, trois compteurs contigus, écrits
+        // par `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` (`+0xec += n` cumul BATAILLE,
+        // `+0xf0 += n` cumul CE TOUR, garde `n < 1` -> no-op) et roulés en FIN de tour par
+        // `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetThisTurn` (`+0xf4 = +0xf0`
+        // si `wasOwnTurn`, puis `+0xf0 = 0` INCONDITIONNEL). `+0xf0` est ce que
+        // `IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate` rend — la seule entrée
+        // de `ModifiedExoarmour_ExtraDmg`, et le terme RÉEL que la face PRÉDICTION ne pouvait pas
+        // lire faute de capteur. Offsets CONFIRMÉS par TROIS lectures indépendantes du décompilé :
+        // `RecordTilesMoved` (écrit `+0xec`/`+0xf0`), `TilesMovedThisTurnFormula$$Calculate` (lit
+        // `+0xf0`) et `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` (les
+        // SAUVEGARDE avant l'action simulée et les RESTAURE après). Même contrat `getFieldOffset` +
+        // fallback décompilé que les deux compteurs ci-dessus.
+        const OFF_TILES_BATTLE = getFieldOffset(asClass, "TilesMovedThisBattle") || 0xec;
+        const OFF_TILES_TURN = getFieldOffset(asClass, "TilesMovedThisTurn") || 0xf0;
+        const OFF_TILES_LAST = getFieldOffset(asClass, "TilesMovedLastTurn") || 0xf4;
         const units: Array<Record<string, unknown>> = [];
         forEachEntity(statePtr, (e, id, ty) => {
             if (ty !== EntityType.Unit && ty !== EntityType.Machine) return;
@@ -965,6 +980,9 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 entityId: id,
                 totalAttacksMade: cp.add(OFF_TOTAL).readS32(),
                 totalTurnsWithAttacksMade: cp.add(OFF_TURNS).readS32(),
+                tilesMovedThisBattle: cp.add(OFF_TILES_BATTLE).readS32(),
+                tilesMovedThisTurn: cp.add(OFF_TILES_TURN).readS32(),
+                tilesMovedLastTurn: cp.add(OFF_TILES_LAST).readS32(),
             });
         });
         return { ok: true, runner: label, units };

@@ -342,18 +342,22 @@ def prediction_tiles_moved_this_turn(scene, att_id, attack_pos) -> int:
     observable : le seul consommateur porte (`ModifiedExoarmour_ExtraDmg`) n'existe que sur un
     porteur de 0x5f9, et le calcul n'est declenche que par lui.
 
-    TERME 1 NON MESURE (residu #322-r2, TOUJOURS OUVERT) : aucun capteur ne publie
-    `ActorStatisticsComponent+0xf0` (ni `combatSnapshot` ni `decisionView`), et ce port ne peut pas
-    en ajouter un. On rend donc `0` pour le terme reel — EXACT tant que l'unite n'a pas encore bouge
-    de son tour (le cas de TOUTE prediction faite avant le deplacement, c'est-a-dire le cas nominal
-    de la chaine de decision, qui evalue les tuiles candidates AVANT d'agir), SOUS-ESTIME apres un
-    deplacement deja joue. Point d'ancrage a hooker pour le fermer :
-    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` (ou le champ `+0xf0` de
-    l'`ActorStatisticsComponent`, a exposer par `combatSnapshot`).
-    ⚠ Ce residu est celui de la `Scene` de PREDICTION, qui se construit depuis la CAPTURE live.
-    La face COMBAT, elle, n'en depend plus : le runner TIENT le compteur lui-meme depuis #322-r1
-    (`runner/components.py::record_tiles_moved`), parce que c'est LUI qui applique le deplacement."""
-    real = 0                       # terme 1 — non capte (cf. docstring), jamais devine autrement
+    TERME 1 — `scene.tiles_moved_this_turn` (case-322-r2). Que ce soit bien le compteur REEL, et
+    non un compteur pollue par les tuiles candidates deja evaluees, est LU au decompile :
+    `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` SAUVEGARDE
+    `ActorStatisticsComponent+0xec` et `+0xf0` AVANT l'action simulee et les RESTAURE APRES (le
+    pendant `$$DoActionInSimulatedOnSameTile` ne touche pas le composant du tout). Une prediction
+    depuis la tuile COURANTE rend donc le compteur reel NU, et chaque prediction depuis une autre
+    tuile repart du meme reel.
+
+    TRI-ETAT : `None` = compteur **non mesure** -> on garde le seul terme « pas simule », soit le
+    comportement strictement anterieur a ce cablage. Deux regimes le renseignent :
+      * OFFLINE (`Scene.from_state`) : l'ECS du runner, qui TIENT le compteur depuis #322-r1
+        (`runner/operations/movement.py::MoveUnitOperation.execute`) -> la face DECISION lit ce que
+        la face COMBAT a ecrit, comme #267 (traits) et #266 (flag `Moved`) ;
+      * LIVE (`Scene.from_predictor_sctx`) : le capteur `actorStats`. RESIDU NOMME — tant que le
+        hook ne publie pas `+0xf0`, la table reste vide et ce terme vaut `None`."""
+    real = scene.tiles_moved_this_turn(att_id) or 0        # terme 1 — `None` (non mesure) -> 0
     cur = scene.pos(att_id)
     if attack_pos is None or cur is None or tuple(attack_pos) == tuple(cur):
         return real                # `DoActionInSimulatedOnSameTile` : AUCUN MoveUnitOperation
