@@ -15,9 +15,10 @@ B. les TROIS tables (moyenne (a), moyenne (b), base qui n'est PAS une moyenne) s
 C. les abilities CONFRONTEES LIVE par #350 relevent bien de (a), et sur un couple `3 mod 4` elles
    MONTENT d'une unite au-dessus du defaut (troncature) -- c'est le cliquet : les retirer du
    registre re-creerait exactement l'ecart mesure sur le natif ;
-D. `SorcerousFacade` (1100) est LU (a) mais INERTE cote port : le port delegue toute sa prediction
-   a l'attaque normale (`_PREDICT_VIA_NORMAL_ATTACK`), donc `get_damage` n'est pas appele pour lui.
-   Le jour ou cette delegation tombe, l'arrondi doit deja etre bon -- d'ou l'inscription ;
+D. `SorcerousFacade` (1100) est LU (a) et, DEPUIS #351, ACTIF : le port n'ecrase plus le batch de
+   l'ability par l'attaque normale, il met celle-ci EN TETE (`_PREPEND_NORMAL_ATTACK_EVENT`) et
+   AJOUTE le batch -- comme le natif. Les deux entrees qui rendent le 2e event existant (le terme
+   en tete + le profil VIDE) sont gardees ici ; le bras live de #344 sur 1100 n'est plus muet ;
 E. la table des bases NON-moyennes distingue ce qui est DEJA corrige en amont (un handler
    `_MAKE_DMG_INPUT_OVERRIDES`) de ce qui reste un residu chiffre.
 
@@ -112,16 +113,27 @@ def test_live_confronted_abilities_round_half_to_even():
                 "de la troncature)" % (name, aid, mn, mx, got, min_max_avg(mn, mx)))
 
 
-def test_sorcerous_facade_is_read_but_inert_in_the_port():
-    """D : 1100 est LU (a) -- son playbook inline `Half(Sum(Get(mn), Get(mx)), 0)` -- mais le port
-    delegue sa prediction ENTIERE a l'attaque normale, donc `get_damage` ne le voit pas. C'est
-    pourquoi le bras live est MUET : ni le port ni l'oracle n'y font varier la base d'ability.
-    L'inscription reste juste ET necessaire : elle sera active des que la delegation tombera."""
+def test_sorcerous_facade_is_read_and_now_ACTIVE_in_the_port():
+    """D : 1100 est LU (a) -- son playbook inline `Half(Sum(Get(mn), Get(mx)), 0)` -- et depuis #351
+    l'inscription est ACTIVE, plus inerte.
+
+    #350 avait ecrit ici « le port delegue sa prediction ENTIERE a l'attaque normale, donc
+    `get_damage` ne le voit pas », et le bras live du probe #344 en etait MUET. La cause etait un
+    bug de port, pas une propriete du natif : `...SorcerousFacadePlaybook$$MakeDamagePredictions`
+    fait `list = [normale]` PUIS `list.AddRange(batch)` -- il AJOUTE. Le port SUBSTITUAIT.
+
+    Les deux entrees ci-dessous sont ce qui rend le 2e event EXISTANT, donc la moyenne (a4)
+    OBSERVABLE. Les retirer re-cree exactement le bras muet -- et le probe #344 le rougit
+    desormais (mesure #351 : sans le terme en tete, le port rend UN event au lieu de deux)."""
     import engine.playbook.prediction.abilities as PA
     assert 1100 in _A_INLINE_IN_PLAYBOOK and 1100 in _PREDICTION_MINMAX_AVERAGE
-    assert "SorcerousFacade" in PA._PREDICT_VIA_NORMAL_ATTACK, (
-        "1100 ne passe plus par l'attaque normale : son 2e batch (la moyenne inline) doit alors "
-        "etre emis, et le bras live du probe #344 cesse d'etre muet -- le confronter")
+    assert "SorcerousFacade" in PA._PREPEND_NORMAL_ATTACK_EVENT, (
+        "1100 n'emet plus l'attaque normale EN TETE : le natif la met la (`list = [normale]` avant "
+        "l'`AddRange`), et sans elle le port rend un seul event")
+    assert PA._PLAYBOOK_PROFILE_OVERRIDE.get(1100) == "None", (
+        "le profil du 2e batch de 1100 est VIDE au call-site (`param_8` nul) : sans cette entree "
+        "le port percerait l'armure avec `Psychic` (pierce 100) -- mesure #351 sur cible blindee, "
+        "natif (1,1,1) contre (30,46,1)")
 
 
 def test_non_average_bases_are_named_and_their_fix_state_is_true():

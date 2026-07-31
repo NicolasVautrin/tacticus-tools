@@ -3,6 +3,15 @@
 **Statut** : RESOLU + VALIDE LIVE. Fix = `_PREDICT_VIA_NORMAL_ATTACK += {"SorcerousFacade"}`. SorcerousFacade
 OK bit-exact [1623,3591] ; garde predict_live 2/2 PASS.
 
+> ⚠ **AMENDE PAR #351 sur UN point, et c'est le point central de cette fiche.** L'event #1 (l'attaque
+> normale) est bien ce qui est ecrit ici. Mais l'affirmation « l'oracle ne remonte PAS l'event #2 (dedup
+> aval par cible) » est **REFUTEE PAR LA MESURE** : `aiPlaybookPredict` rend `count = 2`, les DEUX events
+> sur le meme `targetId` (`probe_351_facade_event_count.py`). Il n'y a **aucun dedup aval** — le decodeur
+> `playbook-predict.ts` lit la `List<T>` entiere. `AddRange` AJOUTE.
+> Consequence : le registre `_PREDICT_VIA_NORMAL_ATTACK`, qui SUBSTITUAIT l'attaque normale au batch, est
+> devenu `_PREPEND_NORMAL_ATTACK_EVENT` (il la met EN TETE, le batch suit), et la section
+> « Portee / non-porte » ci-dessous est **caduque** : l'event #2 EST porte. Detail : `case-351`.
+
 ## Ground truth live (mesure 2x, board MC1_67, thousTzaangor/Yazaghor -> ultraTitus)
 
 Side-by-side au MEME position/cible (probe direct aiPlaybookPredict + engine, hors filtre attackPlan) :
@@ -47,12 +56,20 @@ depuis #99). SorcerousFacade est son 1er membre LEGITIME : `make_damage_predicti
 VALIDATION : SorcerousFacade eng [1623,3591] == oracle (probe171, 2x, side-by-side vs id 69). Garde predict_live
 2/2 PASS (aucune regression). L'attaque normale (id 69) reste OK.
 
-## Portee / non-porte
+## Portee / non-porte — ~~CADUQUE~~, tranchee par #351
 
-L'event #2 (config-special [1197,1795], meme cible) N'EST PAS porte : l'oracle ne l'expose pas et l'ennemi ne
-le subit pas (regle). Si un jour un consommateur aval du natif s'avere sommer event#1+event#2 pour l'utilite AI,
-re-ouvrir ; pour la FIDELITE PREDICTION (== aiPlaybookPredict, verite per-ability depuis #102), l'event ennemi =
-l'attaque normale, point.
+> ~~L'event #2 (config-special [1197,1795], meme cible) N'EST PAS porte : l'oracle ne l'expose pas et
+> l'ennemi ne le subit pas (regle). Si un jour un consommateur aval du natif s'avere sommer
+> event#1+event#2 pour l'utilite AI, re-ouvrir.~~
+
+La condition de re-ouverture s'est realisee, et par la voie la plus simple : **l'oracle expose bien les
+deux events** (`count = 2` mesure), et `CalculateUtilityFromPredictions` les somme. L'event #2 est porte
+depuis #351 (`_PREPEND_NORMAL_ATTACK_EVENT` + `_PLAYBOOK_PROFILE_OVERRIDE[1100] = "None"`).
+
+**La lecon a en tirer est plus large que 1100** : « l'oracle ne remonte pas X » est une affirmation sur
+un HARNAIS, pas sur le natif. Ici elle a survecu quatre mois a une premiere lecture qui, elle, etait
+juste (`AddRange`) — le decompile DISAIT deux events. Une affirmation d'absence se verifie en comptant,
+pas en expliquant pourquoi l'absence serait normale.
 
 ## Lecon
 

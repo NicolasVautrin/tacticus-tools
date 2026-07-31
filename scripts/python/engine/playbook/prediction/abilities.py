@@ -141,8 +141,9 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # Base speciale = `base` (avg(minDmg,maxDmg) scale rarete) route par le MEME chemin que la normale
     # (GetBaseDamageFix64 ±20% dans predict_attack_raw). L'ancien chemin `get_multi_hit_attack_prediction(
     # damage=...)` (plage empirique 0.8/2.2·d/hits) etait FAUX (RE IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw : base = 1 int
-    # -> ±20% [0.8/1.2], aucun 2.2) -> SUPPRIME. Les specials Attack-based (PlasmaCannon/SpiritLeech) ne
-    # passent PAS ici (routes via _PREDICT_VIA_NORMAL_ATTACK). Le bouclier est deplete PAR COUP (prev).
+    # -> ±20% [0.8/1.2], aucun 2.2) -> SUPPRIME. ⚠ La phrase « les specials Attack-based (PlasmaCannon/
+    # SpiritLeech) ne passent PAS ici » est PERIMEE : #99 a REFUTE l'heredite Attack-based et retire les
+    # deux du registre -- tout special passe bien ici. Le bouclier est deplete PAR COUP (prev).
     # MkXGravis (trait CIBLE 0x3f5) : armure traversee 2× aussi pour les speciales (CalculateBaseDamage
     # WithAllModifiers appele quel que soit l'ability). No-op (=1) si la cible n'a pas le trait hit-twice.
     # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` -> HasTrait(defender, 0x3f5)),
