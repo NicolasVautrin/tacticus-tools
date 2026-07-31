@@ -231,19 +231,146 @@ sinon) serait une **fabrication**. Des 13 abilities à `minDmg`/`maxDmg` dont le
 ### 7.3 Second garde-fou : un oracle ouvert ne remplace pas un port
 
 `1132 KillMaimBurn` (`worldKharn`, **dans le pool**) est dans `_PREDICTION_MINMAX_AVERAGE` et son
-playbook natif est NonComparable : l'oracle répond maintenant pour elle. Mais **aucun playbook NC
-n'est porté côté Python**, donc le côté offline ne peut proposer que le chemin GÉNÉRIQUE
-(`generate_multi_hit_attack_prediction`), qui n'est pas le sien. Mesuré (anneau `(3,4)`, niveau 3) :
+playbook natif est NonComparable : l'oracle répond pour elle. Tant qu'**aucun playbook NC n'était
+porté**, le côté offline ne pouvait proposer que le chemin GÉNÉRIQUE
+(`generate_multi_hit_attack_prediction`). `probe_344` refuse donc (rc 2) une ability NC **sans
+playbook porté** : sinon il rougirait comme un écart d'**arrondi** ce qui est un **port manquant**.
 
-| | bornes | coups |
-|---|---|---|
-| natif (`ncPlaybookPredict`) | **(8536, 8536)** — les PV **MAX** de la cible | **4** |
-| chemin générique du port | (86, 129) | 1 |
-
-Le kit de `KillMaimBurn` porte **trois** profils/comptes (`nrOfHits:1 Piercing`, `nrOfHits_2:6
-Eviscerate`, `nrOfHits_3:1 Plasma`) ; le chemin générique ne lit que le premier. `probe_344` refuse
-donc **aussi** (rc 2) une ability NC **sans playbook porté** : sinon il rougirait comme un écart
-d'**arrondi** ce qui est un **port manquant**. Résidu ouvert : `#356-r1`.
+L'écart alors inscrit — natif `(8536, 8536, 4)` contre `(86, 129, 1)` — a été tranché par #362, et
+**ce n'était pas une divergence de formule** : voir §8. Le garde-fou, lui, reste ; son sujet est
+désormais dérivé (registres × table de symboles × registre porté), pas épinglé sur un id.
 
 **Le capteur est DÉPLOYÉ** (session Frida 2) et **inchangé par ce travail** — aucune réinjection
 n'est requise pour rejouer ce qui précède.
+
+## 8. `1132 KillMaimBurn` — ce que l'oracle capture n'est pas ce qu'on croyait (#362)
+
+`ncPlaybookPredict` est ancré sur `IdunBattle.AI.Playbook.ProbableDamageEvent$$.ctor`. Il capture
+donc **tout ce que l'évaluation construit**, y compris ce qu'un GATE construit sans jamais le
+scorer. Lu VERBATIM dans `IdunBattle.AI.Playbook.Loki.KillMaimBurnPlaybook$$EvaluateNonComparable` :
+
+```
+bucket = new Bucket(0, Nullable(MIN_UTILITY))                      # .cctor = Fix64(1)
+profile = ability.GetDamageProfile()                               # = damageProfile (NON suffixe)
+foreach entities in BasePlaybook$$GetEligibleTargetsSelectable(caster, casterPos.MainTile):
+    if BasePlaybook$$WillNormalAttackKill(entities): continue      # <-- construit un ProbableDamageEvent
+    damage = slot 4 CalculateAverage( ability.GetDamage(state, isPrediction: TRUE), entities )
+    hits   = slot 4 CalculateAverage( ability.GetHitsFormula(), entities )
+    util   = Playbook<T>$$CalculateUtilityFromDamageEvent(caster, target, casterPos,
+                                                          damage, profile, hits)
+    bucket.AddAction(BasePlaybook$$GenerateAction(casterPos, target, util))
+```
+
+`BasePlaybook$$WillNormalAttackKill(entities)` relaie vers la surcharge
+`(caster = entities+0x08, target = entities+0x10, casterTile = entities+0x40)` — offsets lus dans
+`GetEligibleTargetsSelectable` — qui invoque `IBattleQuery` slot `0x21` (`PredictAttack`, attaque
+**NORMALE**), **construit un `ProbableDamageEvent`** et n'en retient que
+`DamagePredictionResult$$get_WillBeKill`.
+
+**D'où la relecture de l'écart de `#356-r1`.** `(8536, 8536, 4)` n'était pas « la prédiction de 1132
+bornée aux PV MAX » : c'était l'attaque NORMALE de `worldKharn`, avec le MÊME `targetId` que
+l'event d'ability. Deux discriminants observables le disent : `4` = `worldKharn.weapons[0].hits`
+(l'ability a `nrOfHits = 1`), et les bornes sont ÉGALES parce que la normale sur-tue — le cap
+per-coup à la santé restante (`DamagePrediction$$PredictAttackRaw` : `health = min(health, rem_HP)`,
+publié en `AccurateHealthDamage@0x40`) écrase min et max sur les PV. La « borne aux PV MAX » était
+donc **déjà portée**, et sur le mauvais objet.
+
+MESURE (`probe_362_kill_maim_burn_nc.py`, `worldKharn` rank 17, anneau `(3,4)` de `MC1_67`,
+`--armor-target 0`, niveau 3 ; le SEUL curseur entre les deux régimes est les PV de la cible) :
+
+| régime | capture BRUTE (tous les events) | bucket | port normale (`willBeKill`) | port ability |
+|---|---|---|---|---|
+| PV du seed (8536) | `[tgt79 (9537,9537,4), tgt77 (8536,8536,4)]` | **vide** | `(8536,8536,4)` (**True**) | `(86,129,1)` |
+| PV forcés (400000) | `[tgt79 (9537,9537,4), tgt77 (10052,15072,4), tgt77 (86,129,1)]` | vide | `(10052,15072,4)` (False) | `(86,129,1)` |
+
+Aux PV du seed le gate mord sur **toutes** les cibles ⇒ `continue` ⇒ **aucune** prédiction d'ability
+n'est construite, bucket vide. Le port rend, dans les deux régimes, **exactement** la même séquence.
+
+### 8.1 Le kit a trois profils, le playbook n'en lit qu'un
+
+`GetDamageProfile` = `AbilityConfiguration$$GetDamageProfile` (clé `damageProfile`), `GetHitsFormula`
+= `DSLFormulas$$ConfigConst(0x2f)` (la clé de `AActiveAbility$$GetHits`, `nrOfHits`), et
+`AActiveAbility$$MinMaxDamage` les variables `0xc`/`0xd` (`minDmg`/`maxDmg`). Les suffixes `_2`/`_3`
+(`nrOfHits_2:6 Eviscerate`, `nrOfHits_3:1 Plasma`) appartiennent à la face COMBAT
+(`KillMaimBurnAbility$$ExecuteBehaviour`), pas à la face DÉCISION. **Le chemin générique est donc
+EXACTEMENT le sien** — ce qui manquait n'était pas une formule, mais le gate.
+
+`isPrediction = TRUE` fait rendre à `MinMaxDamage` un `Half(Sum(Direct(minDmg), Direct(maxDmg)))`
+(la branche `FALSE` rendrait un `RandomAmount`). Ce nœud est DÉTERMINISTE, donc le slot 4
+`CalculateAverage` retombe sur `Calculate` (prédicat de vtable `+0x1c8`) →
+`DivideAmount$$Calculate` → `RoundFix64Result(., 0)` = **demi-vers-le-pair** : c'est la famille (a),
+et `1132` figure bien dans `_PREDICTION_MINMAX_AVERAGE`.
+
+### 8.2 Ce que `probe_344` compare désormais sur la face NC
+
+Deux durcissements, tous deux imposés par le fait ci-dessus :
+
+* la comparaison porte sur la **SÉQUENCE construite** — côté port,
+  `playbook.damage_predictions(position, cible, ctx)` rend `[(tag, DamagePredictionResult)]` dans
+  l'ordre natif, avec les tags `WillNormalAttackKill` / `ability` ; côté natif, tous les events
+  captés de la cible principale. Comparer la seule prédiction d'ability à une capture qui commence
+  par l'event du gate était la fausse divergence ;
+* **trois issues, jamais deux** : si le playbook n'a construit **aucune** prédiction d'ability (son
+  gate a mordu), le probe rend `NON CONFRONTÉ` (rc **2**) et nomme le levier —
+  `--victim-hp <n>` force `Health`/`RemainingHealth` de la cible, ce qui déplace le seul verdict
+  `get_WillBeKill` sans toucher ni la formule de dégât, ni l'armure, ni le crit.
+
+`probe_344 --oracle auto --caster worldKharn --ability 1132 --lvl-a 3 --lvl-b 12 --armor-target 0
+--victim-hp 400000` :
+
+| bras | niveau | minDmg+maxDmg | natif | `to_even` | `trunc` | `half_up` | `ceil` |
+|---|---|---|---|---|---|---|---|
+| A | 3 | 70+101 = 171 (**3 mod 4**) | **(86, 129, 1)** | **=** | (85,128,1) | **=** | **=** |
+| B | 12 | 171+246 = 417 (**1 mod 4**) | **(208, 313, 1)** | **=** | **=** | (209,314,1) | (209,314,1) |
+
+(l'event du gate `(10052, 15072, 4)` précède les deux, identique des deux côtés). Intersection sur
+les deux bras = **`to_even`**, exactement ce que le registre prévoit ; le code **LIVRÉ** égale le
+natif sur les deux bras. Sans `--victim-hp`, le même montage rend `rc 2` avec le motif « le gate
+prédictif du playbook a sauté la cible ».
+
+### 8.3 Le gate change le RÉSULTAT OBSERVABLE, pas un scalaire
+
+Généralisation craftée : deux ennemis sur l'anneau, un seul curseur (les PV) — `necroWarden` à
+30 000 PV **survit** à la normale de Kharn, `ultraTitus` (9 537) non ; ability au niveau 50.
+
+| | `necroWarden` (survivant) | `ultraTitus` (mourant) | argmax |
+|---|---|---|---|
+| natif (`bucketUtil`) | **14.07906140666455** | — (sauté) | survivant |
+| port AVEC gate | 14.079061395906939 | `None` | survivant |
+| port SANS gate (contrefactuel) | 14.079061395906939 | 44.2813712129154 | **mourant** |
+
+Le natif met au bucket l'utilité du **survivant** ; sans le gate, le port aurait émis le **mourant**
+(le composite prime le kill sûr). Le port du gate est donc confronté par un changement de **cible
+émise**, pas par un ajustement de valeur.
+
+### 8.4 A/B d'agreement sur une marche d'IA native — le port ferme un MISS
+
+`engine_validate.py --steps 14`, seed 777 / `MC1_67`, équipes
+`worldKharn,astraBullgryn,ultraTitus` contre `necroWarden,orksNob,tauCrisis`. Le SEUL curseur entre
+les deux colonnes est la présence de `1132` dans `engine.playbook.noncomparable.PLAYBOOKS` (le même
+état, deux runners bâtis sur la même seed) :
+
+| pas 7 (`u83` = Kharn) | avec le port | sans le port (fallback Comparable) |
+|---|---|---|
+| natif | `ability(ab=1132, tgt=79)` en `(3,3)` | idem |
+| moteur | `ability(ab=1132, **tgt=79**)` en `(3,3)` — **MATCH**, position EXACTE | `ability(ab=1132, **tgt=122**)` en `(2,3)` — **MISS**, position à 1 hex |
+| agreement de la marche | pos exact **11/13**, ability **9/10** | pos exact 10/13, ability 8/10 |
+
+Le fallback Comparable trouvait bien l'ability mais **pas la cible** : c'est ce que la face NC — son
+sélecteur par position, son gate `WillNormalAttackKill` et son utilité de dégât — corrige. Le seul
+MISS restant (pas 6, `u87` / `ab=1154`) est étranger à ce cas et inchangé entre les deux colonnes.
+
+### 8.5 Constantes et gates du playbook, mesurés
+
+* `MIN_UTILITY` = `KillMaimBurnPlaybook$$.cctor` = `Fix64.op_Implicit(1)` → **1**.
+* `PRIORITY` = **0** : `1132` est hors `NATIVE_PRIORITY` (sweep exhaustif #170, re-joué : 36
+  playbooks portés, accord exact).
+* `ShouldEvaluate` (slot 4 d'`IPlaybook`) = l'implémentation de BASE. **Mesuré**, pas supposé : RPC
+  `pbGate` slot 4 sur `worldKharn` au **premier** tour rend `1`, quand `1202 VigilanceEternal` — qui
+  porte le corps foldé `AlphaWarriorPlaybook$$ShouldEvaluate` (`GetStat(unit, 0xc) > 1`) — rend `0`
+  au même instant. `1132` n'a donc aucun gate de tour.
+* ⚠ `bucketAction.targetLow` de `ncPlaybookPredict` est le dword BAS d'un **pointeur** d'entité, pas
+  un `unitId` (mesuré : `705051616`, `1008571280` d'un run à l'autre) — il n'identifie rien
+  d'exploitable offline. C'est `bucketUtil` qui sert de cadran.
+
+**Aucune réinjection n'a été requise** : le capteur `ncPlaybookPredict` est celui de #356, inchangé.
