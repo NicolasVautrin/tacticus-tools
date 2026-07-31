@@ -168,7 +168,15 @@ OK ; `probe_365` OK.
 
 ## 7. Compte du gisement — RE-DÉRIVÉ
 
-Croisement des 28 ids G3 × `EffectFactory.registry` (jamais recopié) : **10 inscrits**
-(`1107 1171 1175 1181 1183 1224 1251 1256 1345 1346`) ⇒ **18 restants**.
-Re-dériver avant de dispatcher — deux PR parallèles ont déjà chacune écrit un compte plausible et
-faux (#372/#373).
+Croisement des 28 ids G3 × `EffectFactory.registry` (jamais recopié), **re-dérivé APRÈS rebase sur
+`origin/master`** — c'est le point : avant rebase le même calcul rendait 10/18, et `1222 WarHowl`
+est entré entre-temps. Compte livré : **11 inscrits**
+(`1107 1171 1175 1181 1183 1222 1224 1251 1256 1345 1346`) ⇒ **17 restants**.
+
+```
+python scripts/python/probe_366_inventaire_effets_forme_b.py --csv   # l'inventaire
+# puis croiser les 28 ids de G3 avec engine.entities.effects.factory.EFFECT_CLASSES
+```
+
+Re-dériver avant de dispatcher, et **après** rebase : trois PR parallèles ont déjà chacune écrit un
+compte plausible et faux (#372/#373, puis #404/#405).
