@@ -35,6 +35,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ....services.effect_bonus import EffectBonus, for_addition
+from ..aura_selectors import is_targetable as _is_targetable, surrounding_friends
 from ..base import BaseEffect
 from ..magnitude import ability_var
 
@@ -202,36 +203,13 @@ class _LionHelmAuraStatModEffect(BaseEffect):
     def aura_stat_modification_targets(self, state, owner_id: int) -> list:
         """`SurroundingFriends(Owner, range, unique, OnlyAliveAndTargetable)` [ + `UnitsFromFaction(
         DarkAngels)` ] evalue contre l'ECS. Le volet « Targetable » retire les unites en Deep Strike
-        (`TeleportStrike_TeleportingIn`), mesure live ci-dessus."""
-        from ....runner.components import (PositionComponent, OwnerComponent, UnitComponent,
-                                           HealthComponent)
-        owner = state.get_entity(owner_id)
-        if owner is None:
-            return []
-        opc = owner.get_component(PositionComponent)
-        ooc = owner.get_component(OwnerComponent)
-        if opc is None or ooc is None:
-            return []
-        rng = _lion_helm_range()
+        (`TeleportStrike_TeleportingIn`), mesure live ci-dessus.
+
+        Le noeud de tete est le FOYER PARTAGE `effects/aura_selectors.surrounding_friends` (le
+        binaire lui-meme partage ce corps entre plusieurs effets, cf. l'en-tete de ce module et
+        `loki/crit_aura.py`) ; ne reste ici que le filtre PROPRE a cette classe."""
         out: list = []
-        for uid, ent in state.entities.items():
-            if uid == owner_id:                        # SurroundingFriends exclut la source
-                continue
-            uc = ent.get_component(UnitComponent)
-            if uc is not None and not uc.alive:
-                continue                               # OnlyAlive
-            hc = ent.get_component(HealthComponent)
-            if hc is not None and hc.hp is not None and hc.hp <= 0:
-                continue
-            oc = ent.get_component(OwnerComponent)
-            pc = ent.get_component(PositionComponent)
-            if oc is None or pc is None or oc.team != ooc.team:
-                continue                               # Friends = meme equipe que le porteur
-            d = _hex_distance((opc.col, opc.row), (pc.col, pc.row))
-            if d is None or d > rng:
-                continue
-            if not _is_targetable(state, uid):         # OnlyAliveAndTargetable
-                continue
+        for uid in surrounding_friends(state, owner_id, _lion_helm_range()):
             if self._DARK_ANGELS_ONLY and _faction_of(state, uid) != _FACTION_DARK_ANGELS:
                 continue                               # UnitsFromFaction(UnitFaction.DarkAngels = 10)
             out.append(uid)
@@ -322,16 +300,8 @@ def grand_alliance_of(state, unit_id: int) -> "str | None":
 # `TeleportStrike_TeleportingIn` — l'unite est en Deep Strike : NON ciblable tant qu'elle n'a pas agi
 # (i2 du trait TeleportStrike). C'est le volet « Targetable » d'`OnlyAliveAndTargetable` que la mesure
 # live a rendu visible (darkaTerminator en Deep Strike ne recoit AUCUNE modification de LionHelm).
-_TELEPORTING_IN = "TeleportStrike_TeleportingIn"
-
-
-def _is_targetable(state, unit_id: int) -> bool:
-    if state.effects is None:
-        return True
-    for e in state.effects.by_unit.get(int(unit_id), []) or []:
-        if not e.consumed and e.name == _TELEPORTING_IN:
-            return False
-    return True
+# Le predicat vit dans le FOYER `effects/aura_selectors.is_targetable` (importe en tete sous
+# `_is_targetable`) — il est partage avec les autres selecteurs d'aura.
 
 
 def _effect_names(state, unit_id: int) -> frozenset:

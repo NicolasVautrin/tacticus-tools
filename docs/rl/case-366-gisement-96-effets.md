@@ -172,7 +172,7 @@ Pool spawnable relu au rank courant : **97** unites.
 |---|---|---|---|---|
 | 1000 | ShockAssault_Buff | (classe propre, corps de ctor fondu) | `ultraInceptorSgt` | HERO, pool |
 | 1014 | CamoCloak_DmgReduction | `CreateDamageModifier` + `CreateActiveCondition` | `ultraEliminatorSgt` | HERO, pool (+ summon `ultraSmnEliminator`) |
-| 1107 | PathOfCommand_ExtraCrit | `GetDynamicStatModificationAmount` + `CreateTargetSelector` (axe CRIT) | `eldarAutarch` | HERO, pool -- **residu deja NOMME** dans `factory.py` |
+| 1107 | PathOfCommand_ExtraCrit | `GetDynamicStatModificationAmount` + `CreateTargetSelector` (axe CRIT) | `eldarAutarch` | HERO, pool -- **PORTE (#373)**, cf. §3.3bis |
 | 1108 | ReinforcedHiveNode_ExtraArmor | (classe propre) | `tyranSmnWarrior` | SUMMON (via son summoner) |
 | 1109 | ReinforcedHiveNode_ExtraBlock | `CreateActiveCondition` | `tyranSmnWarrior` | SUMMON |
 | 1110 | FireAndReposition_ReduceDmg | `CreateEffectDamageMalusForDefense` | `eldarRanger` | HERO, pool |
@@ -198,6 +198,71 @@ Pool spawnable relu au rank courant : **97** unites.
 | 1345 | VisionsOfHeresy_ExtraPierceMelee | axe PERCAGE | `bloodDeathCompany` | HERO, pool |
 | 1346 | VisionsOfHeresy_ExtraPierceRanged | axe PERCAGE | `bloodDeathCompany` | HERO, pool |
 | 1435 | PsychicStalk_FriendlyChaosExtraDamage | `CreateEffectDamageBonusForAttack` | `thousAhriman` | HERO, pool |
+
+### 3.3bis -- `1107 PathOfCommand_ExtraCrit` : PORTE (#373)
+
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.PathOfCommandAbility$$CreateBehaviour` pose
+**deux** `IdunBattleLogic.Entities.DSLBehaviors$$AddDynamicStatModifierEffectToOwner`, et c'est le
+2e argument (`statType`) qui separe les deux axes :
+
+    AddDynamicStatModifierEffectToOwner( 0x453 = 1107, statType = 0x9 = CritChance, null, false )
+  & AddDynamicStatModifierEffectToOwner( 0x458 = 1112, statType = 0x0 = Attack,     null, false )
+
+-> `1107` porte une **chance de critique**, pas un multiplicateur de degat critique (aucun
+`statType 0xa`). L'asymetrie interne du kit est donc fermee.
+
+**Le noeud discriminant** (que le jumeau ATTACK n'a pas) --
+`...PathOfCommandExtraCritEffect$$CreateTargetSelector` :
+
+    UnitsWithStatBiggerThan(
+        SurroundingFriends(Owner, GetNumberConstant(0x16 = range), unique, OnlyAliveAndTargetable),
+        statType = 0x9, statPart = 0x0 = Current, amount = <DSLFormulas+0x18> = Constant(0),
+        excludingEffect = true )
+
+`IdunBattle.Entities.Selectors.UnitsWithStatBiggerThanSelector$$Select` garde l'unite si
+`GetStat(Current) - GetStat(part 5, source = CET effet) > 0`. **Un allie a portee dont la chance de
+crit est nulle n'est PAS cible.** (Le champ `+0x18` de `DSLFormulas` est le `Constant(0)` ecrit par
+`IdunBattleLogic.Entities.DSLFormulas$$.ctor` ; +0x20/+0x28/+0x30/+0x38 y valent 1/2/100/-1.)
+
+**Magnitude** -- `...$$GetDynamicStatModificationAmount` =
+`ConfigVar(TriggeredAbilityType.PathOfCommand = 0x458, EffectSource(Get(effect)),
+AbilityVariableType.extraCritChance = 0x41)`, surcharge
+`IdunBattleLogic.Entities.DSLFormulas$$ConfigVar(this, abilityType, unit, variableType)` (tranchee
+par ses xrefs entrantes, pas a l'oeil) -> `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate` ->
+`GetVariableForLevel`. Indexee sur l'`AbilityState` de la **SOURCE**. `extraCritChance` n'est pas
+dans `variablesAffectedByRarityBonus` de `PathOfCommand` -> aucun scaling de rarete
+(`extraCritChance[L1] = 15`, `[L50] = 20`). Pas de gate de faction ici : le
+`If(IsSameFaction(...))` est propre au jumeau ATTACK.
+
+**Canal de port** = l'aura stat-mod **PROJETEE** (`runner/operations/aura_stat_mods.py`, interface
+`aura_stat_modification_stat/_amount/_targets`), la meme que `LionHelm` -- et **pas** un canal de
+lecture `create_aura_*`. Raison : sur l'axe ATTACK le canal de lecture existe parce que la chaine de
+PREDICTION re-positionne l'attaquant sur une tuile CANDIDATE (#153) ; l'axe CRIT n'a pas cet usage
+(sa seule lecture numerique est `GetStat(9)` dans `_crit_params`, a la position reelle), donc un
+canal de lecture y aurait ete un gate MORT. Trois cablages : attribution au SEED
+(`attribute_aura_stat_modifiers`), re-evaluation au MOUVEMENT (`refresh_aura_stat_modifiers`), et
+-- ajoute par #373 -- **a la POSE de l'owner-effect** (`land_deep_strike`), sans quoi
+l'atterrissage d'un deep-strike posait l'effet chez le porteur sans rien projeter.
+
+**GROUND TRUTH LIVE** (runner MC1_67 / seed 31337, `eldarAutarch` ablvl 50, event stream de
+l'atterrissage) :
+
+    [Effect_Refresh e=101 <<PathOfCommand_ExtraCrit>>]
+      ActivateEffect e=83 ; ReceiveEffect e=85 ; ChangeStats e=85 CritChance_Modification_Change=20
+    [Effect_Refresh e=102 <<PathOfCommand_ExtraDmg>>]
+      ActivateEffect e=83 ; ReceiveEffect e=85 ET e=87 ; ChangeStats e=85 ET e=87 Attack +699
+
+`eldarFarseer` (u87), a la MEME portee, recoit le +699 d'Attack et **rien** en crit : son
+`CritChance` de base est 0 (la normalisation `buildNormalizedBC` met le crit a 0 partout ; on
+remonte celui du Ranger par `--unit-stat eldarRanger:CritChance=20`). Le gate est donc exerce par
+la CHANCE DE CRIT, pas par la distance. Mesure : `probe_373_path_of_command_extra_crit.py` ;
+garde : `tests/engine/runner/test_path_of_command_crit_aura_live.py`.
+
+**Residus nommes** : (a) `...PathOfCommandEffect$$CreateActiveCondition = IsTargetable(Owner)`
+n'est pas porte -- meme regime que le jumeau 1112 deja livre ; (b) le natif re-evalue le selecteur
+sur `RefreshEffectTrigger.EffectsChanged` aussi, le port ne le fait qu'au mouvement et a la pose :
+un allie dont la chance de crit passe de 0 a >0 en cours de bataille (ex. `ActOfFaith`) n'entre
+dans l'aura, cote port, qu'au prochain deplacement.
 
 ## 4. Le residu que ce cas FERME, sans le porter
 
