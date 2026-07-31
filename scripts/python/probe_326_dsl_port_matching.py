@@ -15,6 +15,10 @@ croise alors DEUX signaux independants :
   1. existe-t-il un export Python HOMONYME de la primitive native ?
   2. cet export CITE-T-IL la primitive homonyme (ou une classe de noeud du meme nom) ?
 
+L'homonymie se lit MODULO casse, separateurs et prefixe d'accesseur C# (`_norm_ident`) : le port
+nomme `OwnerIsCaster` la propriete `get_OwnerIsCaster` et `is_mechanical` la factory `IsMechanical`.
+La condition 2 reste INCHANGEE -- la normalisation n'assouplit que le premier signal.
+
   -> `PORTE`                : homonyme ET artefact homonyme cite (les deux signaux concordent).
   -> `PORTE_ALIAS_FACADE`   : pas d'homonyme, mais un export de FACADE cite la CLASSE DE NOEUD de
      la primitive -> port sous un AUTRE NOM Python (`PushUnit`/`MoveUnit` portent
@@ -28,6 +32,13 @@ croise alors DEUX signaux independants :
   -> `CITE_A_QUALIFIER`     : l'artefact apparait dans `engine/**` sans porteur plausible. NI porte
      NI absent -- non tranche (mention documentaire, ou port sous un nom trop eloigne).
   -> `NON_PORTE`            : aucune trace de l'artefact dans `engine/**`.
+
+DERNIER RECOURS : `docs/rl/dsl-port-attestations.tsv`, une table ou un HUMAIN tranche ce qu'aucune
+heuristique de nom ne peut apparier -- typiquement un PREDICAT collapse imperativement dans un
+`matches()` (`DSLTriggers$$TargetIsOverkilled` <-> `if ev.overkill:`). Elle ne s'applique que sur un
+verdict NON atteste (elle ne peut donc jamais degrader une mesure), elle vaut aussi pour un
+`NON_PORTE` LU (mention documentaire confirmee), et elle est verifiee a chaque run : symbole present
+dans le build, fichier + ancre resolus, primitive effectivement citee -- sinon le probe LEVE.
 
 Le tableau de sortie ECHOUE si un verdict produit n'y figure pas : un total ampute se lirait
 comme une couverture.
@@ -49,6 +60,14 @@ sys.path.insert(0, os.path.join(REPO, "scripts", "python"))
 
 SYMBOL_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_.<>]*?)\$\$([A-Za-z_][A-Za-z0-9_]*)")
 DOTTED_RE = re.compile(r"\bDSL(?:Factory|Behaviors|Selectors|Formulas|Triggers)\.([A-Za-z_][A-Za-z0-9_]*)")
+# Meme motif, mais la CLASSE citee est capturee : elle sert a desambiguiser un nom present dans
+# plusieurs familles (cf. `_family_ok`).
+DOTTED_CLS_RE = re.compile(r"\bDSL(Factory|Behaviors|Selectors|Formulas|Triggers)"
+                           r"\.([A-Za-z_][A-Za-z0-9_]*)")
+# Prefixe d'ACCESSEUR C# (`get_OwnerIsCaster` est une PROPRIETE ; Python la nomme `OwnerIsCaster`).
+# On exige une MAJUSCULE derriere pour ne pas amputer un `get_spawn_tile_selector` snake_case, dont
+# l'homonyme natif serait `GetSpawnTileSelector` -- l'amputer d'un cote seulement casserait la paire.
+ACCESSOR_RE = re.compile(r"^(?:get|set)_(?=[A-Z])")
 # Classe de NOEUD citee SANS `$$` (le port nomme souvent le TYPE construit, pas une de ses
 # methodes) : `IdunBattle.Entities.Formulas.CurrentStatModifierAmountFormula`,
 # `Idun.Source.IdunBattle.Logic.Entities.Behaviours.RefreshDynamicStatModifierValueBehaviour`.
@@ -78,6 +97,68 @@ def read_native(path):
             rows.append({"family": p[0], "name": p[1], "symbol": p[2],
                          "ov_frida": int(p[3]), "ov_ghidra": int(p[4])})
     return rows
+
+
+ANCHOR_RE_TPL = r"^\s*(?:class|def)\s+%s\b|^%s\s*(?::[^=]*)?="
+ATTEST_VERDICTS = ("PORTE_ALIAS_FACADE", "PORTE_HORS_FACADE", "NON_PORTE")
+
+
+def read_attestations(path, symbol_by_key):
+    """Table d'ATTESTATION MANUELLE : `{(famille, nom) -> {verdict, file, line, anchor, note}}`.
+
+    Elle existe pour la moitie des primitives de la famille `DSLTriggers`, dont le port est un
+    PREDICAT COLLAPSE IMPERATIVEMENT dans un `matches()` / un gate : aucune heuristique de nom ne
+    peut relier `IdunBattleLogic.Entities.DSLTriggers$$TargetIsOverkilled` a `if ev.overkill:` de
+    `final_justice.py`. Chaque ligne vient d'une LECTURE (decompile natif + code du port).
+
+    Une table d'attestation non verifiee serait pire que le `CITE_A_QUALIFIER` qu'elle remplace :
+    elle mentirait avec l'autorite d'une mesure. Quatre cliquets, tous FATALS :
+
+      1. le symbole doit exister dans l'inventaire natif du build courant ;
+      2. le fichier porteur doit exister ;
+      3. l'ANCRE (nom de `class`/`def`/constante de module) doit s'y resoudre -- on attache a un
+         NOM, jamais a un numero de ligne, qui derive au premier commit ;
+      4. le fichier doit CITER le nom de la primitive -- une attestation qui pointe un artefact
+         muet sur son artefact natif n'atteste rien.
+    """
+    out = {}
+    if not os.path.exists(path):
+        return out
+    key_by_symbol = {sym: key for key, sym in symbol_by_key.items()}
+    with io.open(path, encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, 1):
+            if line.startswith("#") or line.startswith("symbol\t") or not line.strip():
+                continue
+            p = line.rstrip("\n").split("\t")
+            if len(p) < 4:
+                raise SystemExit("[attestation] %s:%d : 4 colonnes attendues" % (path, lineno))
+            symbol, verdict, porteur, note = p[0], p[1], p[2], p[3]
+            key = key_by_symbol.get(symbol)
+            if key is None:
+                raise SystemExit("[attestation] %s:%d : symbole ABSENT du vocabulaire du build "
+                                 "courant -- table perimee : %s" % (path, lineno, symbol))
+            if verdict not in ATTEST_VERDICTS:
+                raise SystemExit("[attestation] %s:%d : verdict `%s` hors de %s"
+                                 % (path, lineno, verdict, ", ".join(ATTEST_VERDICTS)))
+            rel, _, anchor = porteur.rpartition(":")
+            full = os.path.join(REPO, rel.replace("/", os.sep))
+            if not rel or not os.path.exists(full):
+                raise SystemExit("[attestation] %s:%d : porteur introuvable `%s`"
+                                 % (path, lineno, porteur))
+            with io.open(full, encoding="utf-8") as pf:
+                src = pf.read()
+            anchor_re = re.compile(ANCHOR_RE_TPL % (re.escape(anchor), re.escape(anchor)),
+                                   re.MULTILINE)
+            m = anchor_re.search(src)
+            if m is None:
+                raise SystemExit("[attestation] %s:%d : ancre `%s` introuvable dans %s"
+                                 % (path, lineno, anchor, rel))
+            if key[1] not in src:
+                raise SystemExit("[attestation] %s:%d : %s ne CITE pas `%s`"
+                                 % (path, lineno, rel, key[1]))
+            out[key] = {"verdict": verdict, "file": rel, "anchor": anchor, "note": note,
+                        "line": src[:m.start()].count("\n") + 1}
+    return out
 
 
 def facade_exports():
@@ -149,9 +230,41 @@ def _matches_node_class(name, nodecls):
     return None
 
 
+def _norm_ident(name):
+    """Identifiant compare MODULO casse, separateurs et prefixe d'accesseur C#.
+
+    Trois formes du MEME nom que l'appariement par egalite stricte manquait, toutes MESUREES sur
+    la famille `DSLTriggers` (#337) :
+
+      * `get_OwnerIsCaster` (propriete C#) <-> `OwnerIsCaster` (classe Python) -- rangs 1/3/5 du
+        classement par levier, donc la miss la plus chere du tableau ;
+      * `IsMechanical` (factory) <-> `is_mechanical` (fonction-factory Python) ;
+      * `AbilityHasAttackType` <-> le PORTEUR `ability_has_attack_type` : le test d'appartenance
+        du canal (b) comparait un CamelCase minuscule a un snake_case, donc echouait sur le
+        separateur seul.
+    """
+    return ACCESSOR_RE.sub("", name).replace("_", "").lower()
+
+
+def _family_ok(cited_cls, family, name, ambiguous_names):
+    """La citation `cited_cls` peut-elle etre attribuee a la primitive `family$$name` ?
+
+    Le build a ECLATE `DSLFactory` en quatre classes-factory, et l'index de citations est keye par
+    NOM DE METHODE : sans ce filtre, les 14 citations de `DSLFormulas$$Direct` (le noeud VALEUR,
+    porte par `Const`) etaient aussi comptees pour `DSLTriggers$$Direct` -- qui est un objet
+    DIFFERENT (le trigger CONSTANT `+0x40`/`+0x48` du `DSLTriggers$$.ctor`, vrai/faux). Un nom
+    porte par UNE seule famille garde l'ancien comportement ; les citations de l'orthographe
+    HERITEE `DSLFactory` restent acceptees partout (elles sont ambigues par construction : le build
+    `gqfc5mff6c` n'avait qu'une classe-factory).
+    """
+    if name not in ambiguous_names:
+        return True
+    return cited_cls in (family, "DSLFactory", "DSL*")
+
+
 def scan_whole_port():
     """Deux index des citations d'artefact DSL dans TOUT `scripts/python/engine/**` :
-      * `hits`      {methode de factory -> [(fichier, ligne, porteur)]}
+      * `hits`      {methode de factory -> [(fichier, ligne, porteur, classe citee)]}
       * `node_hits` {nom court de classe de NOEUD -> [(fichier, ligne, porteur)]}
     Le second existe parce qu'un port peut nommer le TYPE construit sans jamais nommer la factory
     -- l'ignorer produirait un faux `NON_PORTE`."""
@@ -176,11 +289,12 @@ def scan_whole_port():
                         stack.append((indent, m.group(3)))
                     holder = ".".join(s[1] for s in stack) or "<module>"
                     for cm in SYMBOL_RE.finditer(line):
-                        if cm.group(1).split(".")[-1].startswith("DSL"):
-                            hits[cm.group(2)].append((rel, lineno, holder))
-                        node_hits[cm.group(1).rsplit(".", 1)[-1]].append((rel, lineno, holder))
-                    for dm in DOTTED_RE.finditer(line):
-                        hits[dm.group(1)].append((rel, lineno, holder))
+                        short = cm.group(1).rsplit(".", 1)[-1]
+                        if short.startswith("DSL"):
+                            hits[cm.group(2)].append((rel, lineno, holder, short))
+                        node_hits[short].append((rel, lineno, holder))
+                    for dm in DOTTED_CLS_RE.finditer(line):
+                        hits[dm.group(2)].append((rel, lineno, holder, "DSL" + dm.group(1)))
                     for nm in NODECLS_RE.finditer(line):
                         node_hits[nm.group(1)].append((rel, lineno, holder))
     return hits, node_hits
@@ -190,6 +304,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--native", default="logs/326_dsl_primitives_native.tsv")
     ap.add_argument("--out", default="logs/326_dsl_primitive_coverage.tsv")
+    ap.add_argument("--attestations", default="docs/rl/dsl-port-attestations.tsv")
     args = ap.parse_args()
 
     native = read_native(os.path.join(REPO, args.native))
@@ -209,10 +324,37 @@ def main():
             if m.startswith("op_"):
                 facade_by_op[(c.rsplit(".", 1)[-1], m)].append(name)
 
-    rows = []
+    # Index des exports par identifiant NORMALISE (cf. `_norm_ident`). Un normalise porte par
+    # PLUSIEURS exports est ecarte : une ambiguite n'est pas une attribution.
+    by_norm = defaultdict(list)
+    for name in exports:
+        by_norm[_norm_ident(name)].append(name)
+    exports_by_norm = {k: v[0] for k, v in by_norm.items() if len(v) == 1}
+
+    # Noms de primitive portes par PLUSIEURS classes-factory (`Direct`, `If`, `Filter`, ...) : eux
+    # seuls subissent le filtre de famille sur les citations (cf. `_family_ok`).
+    fam_of_name = defaultdict(set)
+    for p in native:
+        fam_of_name[p["name"]].add(p["family"])
+    ambiguous_names = {n for n, fs in fam_of_name.items() if len(fs) > 1}
+
+    attest = read_attestations(os.path.join(REPO, args.attestations),
+                               {(p["family"], p["name"]): p["symbol"] for p in native})
+
+    rows, attest_applied, attest_shadowed = [], [], []
     for prim in native:
         name, fam = prim["name"], prim["family"]
         exp = exports.get(name)
+        if exp is None:
+            # Homonymie MODULO casse/separateur/accesseur -- acceptee seulement si l'export CITE
+            # bien la primitive : le verdict croise toujours DEUX signaux independants, la
+            # normalisation n'assouplit que le premier.
+            alt = exports_by_norm.get(_norm_ident(name))
+            if alt is not None:
+                a_pairs, a_dotted, a_nodecls = cited[alt]
+                if (any(m == name for (_c, m) in a_pairs) or name in a_dotted
+                        or _matches_node_class(name, a_nodecls)):
+                    exp, cited[name] = exports[alt], cited[alt]
         verdict, evidence, where = "NON_PORTE", "", ""
         if exp is not None:
             pairs, dotted, nodecls = cited[name]
@@ -239,10 +381,11 @@ def main():
             #      un nom trop eloigne). Ce n'est PAS « non porte » : c'est non tranche.
             alias_op = facade_by_op.get((fam, name)) if name.startswith("op_") else None
             alias_nc = _matches_node_class(name, set(facade_by_nodecls))
-            cites = list(port_hits.get(name, ()))
+            cites = [c for c in port_hits.get(name, ())
+                     if _family_ok(c[3], fam, name, ambiguous_names)]
             nc = _matches_node_class(name, set(node_hits))
             if nc:
-                cites += list(node_hits[nc])
+                cites += [(f, l, h, "DSL*") for (f, l, h) in node_hits[nc]]
             if alias_op:
                 alias = sorted(alias_op)[0]
                 verdict = "PORTE_ALIAS_FACADE"
@@ -256,13 +399,25 @@ def main():
                 ex = exports[alias]
                 where = "%s:%d" % (ex["file"], ex["line"])
             elif cites:
-                low = name.lower()
+                low = _norm_ident(name)
                 owned = [c for c in cites
-                         if low in c[2].lower() or low in os.path.basename(c[0]).lower()]
-                f, l, h = (owned or cites)[0]
+                         if low in _norm_ident(c[2]) or low in _norm_ident(os.path.basename(c[0]))]
+                f, l, h, _cls = (owned or cites)[0]
                 verdict = "PORTE_HORS_FACADE" if owned else "CITE_A_QUALIFIER"
                 evidence = "%d citation(s)%s" % (len(cites), (" noeud:" + nc) if nc else "")
                 where = "%s:%d (%s)" % (f, l, h)
+        # ATTESTATION EXPLICITE -- le dernier recours, et le seul canal ou un HUMAIN tranche. Elle
+        # ne s'applique QUE sur un verdict non atteste (les trois `PORTE*` heuristiques priment) :
+        # une table ne doit jamais pouvoir DEGRADER une mesure qui tient toute seule.
+        att = attest.get((fam, name))
+        if att is not None:
+            if verdict in ("PORTE", "PORTE_ALIAS_FACADE", "PORTE_HORS_FACADE"):
+                attest_shadowed.append("%s$$%s" % (fam, name))
+            else:
+                attest_applied.append("%s$$%s" % (fam, name))
+                verdict = att["verdict"]
+                evidence = "attestation: " + att["note"]
+                where = "%s:%d (%s)" % (att["file"], att["line"], att["anchor"])
         rows.append({
             "family": fam, "name": name, "symbol": prim["symbol"],
             "ov_frida": prim["ov_frida"], "ov_ghidra": prim["ov_ghidra"],
@@ -331,6 +486,12 @@ def main():
             tot[v] += counts[fam][v]
     print("%-20s %s" % ("TOTAL", " ".join("%-20d" % tot[v] for v in verdicts)))
     assert sum(tot.values()) == len(rows), "total != nombre de primitives"
+    # L'attestation manuelle est un canal de DERNIER RECOURS : on publie combien de lignes ont
+    # servi et combien sont devenues INUTILES (l'heuristique attestant deja la primitive). Une
+    # ligne redondante n'est pas fausse, mais elle doit se voir -- c'est de la dette de table.
+    print("attestations (%s) : %d appliquees, %d redondantes%s"
+          % (args.attestations, len(attest_applied), len(attest_shadowed),
+             (" [" + ", ".join(sorted(attest_shadowed)) + "]") if attest_shadowed else ""))
     n_sans = sum(1 for r in orphan_rows if r[1] == "SANS_ARTEFACT_CITE")
     print("exports Python sans primitive native homonyme : %d "
           "(%d citent un artefact = ALIAS, %d n'en citent AUCUN)"
