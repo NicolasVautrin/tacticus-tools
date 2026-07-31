@@ -339,10 +339,16 @@ fois. `test_ischarging_extra_damage_live.py` (5 tests) a ete rejoue sur le monta
   thread pas `is_charging`. Sans porteur qui l'exerce aujourd'hui — l'active de Ragnar (`WarHowl`
   1106) est un buff, son unique vecteur d'attaque est son arme normale (7 coups Chain) — l'ecart
   est **structurel, pas observable**. A cabler avec le meme une-ligne que le vecteur normal.
-* **1224 `SagaOfTheWarriorBorn_OtherSpaceWolves`** : effet SEPARE, pose par
-  `SagaOfTheWarriorBorn_KillAbility$$CreateBehaviour` =
-  `AddEffect(0x4c8, AbilityStateReference, source = owner@0x148, targets = UnitsFromFaction(Friends(owner@0x148, <radius @+0x80>, 1) - owner@0x148, 0xd, 1))`
-  sur trigger `OnDeath(1) & get_OwnerIsActor & HasTrait(target@0x178, 0x10)`. RE faite, port non fait.
+* ~~**1224 `SagaOfTheWarriorBorn_OtherSpaceWolves`**~~ — **PORTE (#366-r1**,
+  `docs/rl/case-366-r1-saga-other-space-wolves.md`). Ce n'est pas un « effet SEPARE » : c'est la
+  **MEME CLASSE NATIVE** que 1223 (slot `Il2CppClass*` `0x1833a1190`, fabriques `b__14_241`/`b__14_242`
+  bit-identiques, 2 ids sur les 607). Deux corrections a la ligne d'origine :
+  **(a)** le 2e argument de `IdunBattleLogic.Entities.DSLSelectors$$Friends(of, entities, selectionType)`
+  est le POOL D'ENTITES, **pas un rayon** — `<radius @+0x80>` etait une mé-lecture ; l'effet touche
+  TOUTE l'equipe Space Wolves vivante, sans portee (recoupe par l'i2) ;
+  **(b)** le trait `0x10` est `UnitTrait.Hero`, et `OnDeath` prend
+  `(triggerOnOverkill: 1, triggerOnSteppable: 0)`. Mesure live : `spaceWulfen` porteur de 1224,
+  **6 coups en charge contre 3** (MC1_67/777 et C1_25/31337, bit-exact).
 * **Les items confrontables restants du canal COUPS / ADDITIONNELS / ActiveCondition** — residu
   **`N16`** : RE faite (§2), porteurs identifies (§3). **1032 `UnstoppableFerocity_Owner` est porte
   et valide live** (`case-n16-unstoppable-ferocity`) ; il en reste **3** (1322, 1475, 1369), chacun

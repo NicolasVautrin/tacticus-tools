@@ -189,7 +189,7 @@ Pool spawnable relu au rank courant : **97** unites.
 | 1215 | PsychicStalk_ExtraAttackDamage | `CreateEffectDamageMalusForDefense` | `thousAhriman` | HERO, pool |
 | 1216 | PsychicStalk_VisualEffect | `CreateActiveCondition` + `CreateTargetSelector` | `thousAhriman` | HERO, pool |
 | 1222 | WarHowl_ExtraDamage_Unstoppable | `CreateEffectDamageBonusForAttack` + `CreateCritChanceBonus` + `ApplyInternal`/`RevertInternal` | `spaceBlackmane` | HERO, pool |
-| 1224 | SagaOfTheWarriorBorn_OtherSpaceWolves | MEME classe que `1223` (portee) : `CreateCritDamageBonus` + `CreateEffectHitsBonusForAttack` | `spaceBlackmane` | HERO, pool -- **residu deja NOMME** (`effects/loki/hits.py`) |
+| ~~1224~~ | ~~SagaOfTheWarriorBorn_OtherSpaceWolves~~ | **PORTE par #366-r1** -- `docs/rl/case-366-r1-saga-other-space-wolves.md`. « MEME classe que `1223` » est CONFIRME au slot `Il2CppClass*` (`0x1833a1190`, 2 ids sur 607, fabriques bit-identiques) : le port pointe LA MEME classe depuis les deux entrees | `spaceBlackmane` (poseur) -> les 4 autres Space Wolves du pool (receveurs) | HERO, pool |
 | 1227 | HarlequinsPanoply_IgnoreHits | (classe propre) | `eldarSmnHarlequin` | SUMMON |
 | 1251 | UnbreakableDuty_Health | `StaticStatModifierEffect` | `templAncient` | HERO, pool |
 | 1255 | MartialSuperiority_Visual | `CreateActiveCondition` -- deja documente `: BaseEffect` cote port | `templChampion` | HERO, pool |
