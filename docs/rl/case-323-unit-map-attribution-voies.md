@@ -141,7 +141,8 @@ reliques équipées, et la normalisation les **préserve** —
 `frida/hooks/features/normalize-bc/json-build.ts` ne touche à `TertiaryAbility` que pour lui poser
 son `TertiaryAbilityLevel` au niveau cible. Une relique traverse donc `buildNormalizedBC` intacte.
 ⚠ Ce qui reste NON mesuré ici : que le rail COMBAT du **port** instancie la triggered-ability
-correspondante — c'est le résidu N317-a, ouvert, et cette fiche ne le referme pas.
+correspondante — c'est le résidu N317-a, que cette fiche ne referme pas. **Fermé depuis par #357**
+(`case-357-rail-relique-equipee.md`), et confronté live sur `DawnBlade`.
 
 **Règle qui en sort** : pour une ability de relique, ventiler en TROIS états, jamais deux —
 `équipée au seed` (confrontable tout de suite) / `porteur au pool, relique non équipée` (montage à
@@ -191,7 +192,9 @@ DEAD (#310) : l'outil de recensement etait aveugle a la RELIQUE. La voie attendu
 
 * **Aucune confrontation live d'une ability de relique** : la tâche est offline. Ce qui est prouvé,
   c'est que l'outil **voit** les porteurs et que le seed en **équipe** 3 abilities sur des unités du
-  pool — pas qu'une relique produise son effet dans le rail COMBAT porté (N317-a).
+  pool — pas qu'une relique produise son effet dans le rail COMBAT porté (N317-a). **La
+  confrontation existe depuis #357** (`DawnBlade`, natif == port == `hpToHeal[niveau]`), sur UNE
+  relique des 32.
 * **Les 4 voies non couvertes restent non couvertes** : c'est un choix, pas un oubli. La voie
   `trait` en particulier demanderait le mapping natif trait → ability, qui n'est nulle part dans le
   gameconfig.

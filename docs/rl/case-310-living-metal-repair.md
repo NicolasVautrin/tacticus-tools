@@ -119,6 +119,9 @@ de `items/R_Booster_Crit_NetherRealmCasket.allowedUnits` (`necroWarden`, `necroS
 l'`EffectType` 1462 `TheArdentBlade`). Ce qui bloque n'est donc pas l'absence de porteur, mais
 l'absence du canal `triggering_ability` dans `engine.predict` **et** du canal relique dans le rail
 COMBAT (résidus N317-a / N317-b). Détail : `docs/rl/case-323-unit-map-attribution-voies.md`.
+⚠ **N317-a est fermé depuis (#357)** — le rail COMBAT lit la relique équipée
+(`case-357-rail-relique-equipee.md`) ; il reste à le brancher sur les capture-helpers partagés
+(`#357-r1`) et à porter l'ability 1456 elle-même.
 
 ## 4. Validation — le ROUGE a été VU AVANT
 
