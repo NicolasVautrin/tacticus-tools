@@ -200,20 +200,22 @@ def run(seed: int = 35301, level: int = 8, mult: int = 100, board: str = BOARD,
             # DERIVE DE LA MESURE, pas d'un recit ecrit d'avance. Le capteur etant vivant, la 3e
             # cause tombe (`blockScenarioCount == 0`) ET le predicat de la gate est VRAI
             # (`willBeKill == true`) : les batchs 3/4 n'ont donc PAS ete supprimes par la gate.
-            # C'est la 4e cause -- « la gate ouvre et les batchs rendent 0 event » -- qui reste
-            # seule debout. Son ecartement initial la rabattait sur `GetTileToMoveTo() == null` ;
-            # or les batchs selectionnent `Friends`/`Enemies(AdjacentUnits(<tuile d'arrivee>))`,
-            # qui se vident aussi quand cette tuile n'a aucun voisin occupe. A confronter en
-            # PEUPLANT le voisinage de la tuile d'arrivee.
+            #
+            # ⚠ La suite -- « les selecteurs des batchs rendent VIDE, a confronter en PEUPLANT le
+            # voisinage » -- A ETE FAITE, ET REFUTEE (#361). Ce probe ne la prescrit plus : sur une
+            # geometrie ou le voisinage de la tuile d'arrivee porte 1 ami + 2 ennemis et ou le cast
+            # REEL pose le caster sur cette tuile, le natif rend toujours 2 events. Le pool de
+            # tuiles et le flag lui-meme sont hors de cause (`case-361`).
             out["gate_predicate_true"] = True
             out["verdict"] = base + (
                 " CAPTEUR VIVANT : `blockScenarioCount = %s` ELIMINE la 3e cause, et"
                 " `willBeKill = %s` sur l'event du caster montre que LE PREDICAT DE LA GATE EST"
                 " VRAI. Les batchs 3/4 restent pourtant absents => ce n'est pas la gate qui les"
-                " supprime. Seule cause encore debout : les selecteurs des batchs eux-memes"
-                " (`Friends`/`Enemies(AdjacentUnits(<tuile d'arrivee>))`) rendent un ensemble"
-                " VIDE sur cette geometrie. A confronter en peuplant le voisinage de la tuile"
-                " d'arrivee -- PAS en corrigeant le port."
+                " supprime. SUITE : #361 a ECARTE le voisinage vide (mesure : 1 ami + 2 ennemis"
+                " adjacents), le pool de tuiles (cast reel == tuile du port) et la lecture du flag"
+                " (StormOfFlensingBlades : 2 events puis 0). Il ne reste que ce que"
+                " `Enumerable.Any<T>(selfPreds, <MakeDamagePredictions>b__2_0)` fait du predicat"
+                " -- capteur `gateProbe` livre, cf. `probe_361_ramming_speed_explosion_batches.py`."
                 % (se.get("blockScenarioCount"), se.get("willBeKill")))
         else:
             out["verdict"] = base + (

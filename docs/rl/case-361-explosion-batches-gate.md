@@ -95,15 +95,22 @@ déjà (`_gate_verdict`) :
 | **rend `true`** | la gate OUVRE ⇒ la cause est en AVAL, dans l'évaluation des sélecteurs 3/4 |
 | **rend `false`** | le natif lit un AUTRE objet que celui décodé (paramètre du lambda en régime fully-shared generic) |
 
-## 5. Trouvaille de bord : un batch natif MORT par contexte vide
+## 5. Le candidat écarté — et pourquoi il fallait le grepper d'abord
 
 `FragstormGrenadeLauncherPlaybook$$MakeDamagePredictions` (1048) porte le même motif — gate
-`get_WillBeKill` DIRECTE, puis un batch supplémentaire — mais son batch est **inobservable, et c'est
-LU** : `TargetsSelector$$SelectUniqueUnits` y est évalué sur un contexte `memset(0, 0x128)` **jamais
-renseigné**, donc `GetOtherTargets` = `Damageable(SurroundingEnemies(Owner@0x30, range, 1, 3) −
-Target@0x60)` est vide que la gate ouvre ou non. Mesuré (volet B, `templAggressor`, porteur ACTIF du
-pool, un 2ᵉ ennemi à distance 1) : **1 event dans les deux bras**, `willBeKill` false puis true.
-Le probe l'enregistre et **refuse** de le compter comme discriminant.
+`get_WillBeKill` DIRECTE, puis un batch supplémentaire — et semblait donc être LE discriminant. Il ne
+l'est pas : son batch est **inobservable**, `TargetsSelector$$SelectUniqueUnits` y étant évalué sur un
+contexte `memset(0, 0x128)` **jamais renseigné**, donc `GetOtherTargets` =
+`Damageable(SurroundingEnemies(Owner@0x30, range, 1, 3) − Target@0x60)` est vide que la gate ouvre ou
+non. Mesuré (volet B, `templAggressor`, porteur ACTIF du pool, un 2ᵉ ennemi à distance 1) : **1 event
+dans les deux bras**, `willBeKill` false puis true. Le probe l'enregistre et **refuse** de le compter
+comme discriminant.
+
+⚠ **C'était DÉJÀ ÉTABLI** — `case-352` §3 / backlog `#352-r1` : « les volets secondaires de 1098 et
+1048 sont MORTS, ne pas les réparer » (1048 : `memset(0)` complet ; gate `WillBeKill` pourtant
+franchi). Le re-découvrir a coûté un bras de probe. **Grepper le backlog avant de choisir un
+discriminant**, c'est ce qui aurait envoyé directement sur `StormOfFlensingBlades` (§3), dont le
+compte d'events ne dépend d'AUCUN sélecteur.
 
 ## 6. Ce qui n'est PAS couvert
 
