@@ -51,6 +51,40 @@ def dsl_context_for_tile_target(ctx):
         uc = scene.ctx((u or {}).get("id"))
         return int(uc.get_stat(int(stat_type), int(variant or 0))) if uc is not None else 0
 
+    # `ctx.has_negative_modifier` (`IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger`)
+    # et `ctx.is_in_team_aura` (`IdunBattle.Entities.Triggers.IsInAuraRangeTrigger$$ShouldTrigger` ->
+    # `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange`) : les DEUX branches du predicat
+    # `PlagueburstMortarAbility$$GetIsValidAdjacentEnemyTrigger`, que la face COMBAT cable deja dans
+    # `runner/abilities/behaviours/context.entities_from_state`. Sans eux, ce predicat rendait
+    # FAUX D'OFFICE cote DECISION (les deux accesseurs absents -> `False` par degradation), donc le
+    # `Filter` de `GetMainDamageTarget` vidait l'ensemble et le terme de PREDICTION de 1169 valait
+    # 0 PARTOUT -- y compris dans le regime ou le natif, lui, predit du degat (MESURE : caster
+    # `deathTyphus` au CONTACT, `pairUtility(tuile occupee) = 1.178` la ou le port rendait 0).
+    # Meme substrat que le COMBAT, deux sources d'etat : l'ECS la-bas, la `Scene` ici.
+    def _has_negative_modifier(u, stat_types) -> bool:
+        uc = scene.ctx((u or {}).get("id"))
+        st = getattr(uc, "stats", None) if uc is not None else None
+        return bool(st.has_negative_modifier(stat_types)) if st is not None else False
+
+    def _turns_started(u) -> int:
+        """`StatAmount(Owner, 0xc = TurnsStarted)` -- l'entree de `GetCurrentRange` d'un `IAuraEffect`.
+        Canal MESURE d'abord (`combatSnapshot`, table `Scene.turns_started_by_id`), repli sur le
+        `UnitContext` (froid) : jamais un 0 invente quand la table est simplement absente."""
+        uid = (u or {}).get("id")
+        v = scene.turns_started(uid) if uid is not None else None
+        if v is not None:
+            return int(v)
+        from ..entities.stats import StatType as _ST
+        return int(_get_stat(u, int(_ST.TURNS_STARTED), 0, None) or 0)
+
+    def _is_in_team_aura(u, effect_type, team_reference) -> bool:
+        from .. import battle_query as _bq
+        team = (team_reference or {}).get("team")
+        if team is None:
+            return False                       # `GetCurrentTeamId(ref)` indisponible -> pas d'aura
+        return _bq.is_in_team_aura_range(int(effect_type), int(team), u, units,
+                                         _has_trait, _turns_started)
+
     # `IsPositionMachineForCurrentPlayer` (`IsPositionMachineForPlayerTrigger$$ShouldTrigger`)
     # compare `BattleQuery.GetPositionMachineForPlayer(<joueur COURANT>)` -- une propriete du
     # PLATEAU (le groupe de spawn du joueur), PAS le slot d'une machine deployee. La cascade vit
@@ -63,7 +97,9 @@ def dsl_context_for_tile_target(ctx):
     return dsl.DslContext(units=units, caster=caster, board=scene.board,
                           elev_by_pos=scene.elev_by_pos,
                           current_player_machine_position=mow_pos,
-                          has_trait=_has_trait, get_stat=_get_stat)
+                          has_trait=_has_trait, get_stat=_get_stat,
+                          has_negative_modifier=_has_negative_modifier,
+                          is_in_team_aura=_is_in_team_aura)
 
 
 def unit_on_tile(dctx, tile_id):

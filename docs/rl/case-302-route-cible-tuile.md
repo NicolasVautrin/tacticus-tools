@@ -5,7 +5,9 @@ Chantier ouvert par la tranche 4g de `case-27` (PR #313), qui a re-qualifie le v
 cible**. Cette fiche etablit l'INVENTAIRE (RE au decompile `rnca9r7q6c`), pose la premiere tranche
 et decoupe explicitement les suivantes.
 
-**Etat : tranches 1 (§6) et 3 (§8) LIVREES.** Tranches 2, 4 et 5 restent ouvertes (§7).
+**Etat : tranches 1 (§6), 2 et 3 (§8) LIVREES.** Tranches 4 et 5 restent ouvertes (§7).
+La tranche 2 a sa fiche propre : **`case-302-2-prediction-tile-target.md`** — elle porte le terme de
+PREDICTION de 1169 et degage le **patron valable pour tout tile-target a degat**.
 
 ---
 
@@ -242,7 +244,11 @@ Garde : `scripts/python/tests/engine/test_plagueburst_mortar_decision_live.py` (
 un bras TEMOIN (sans `--hp-target` gonfle) ou le natif NE caste PAS 1169 — sans lui, un port qui
 casterait 1169 systematiquement passerait quand meme.
 
-### Ce que la tranche 1 NE porte PAS (residu nomme)
+### Ce que la tranche 1 NE portait PAS — RESORBE par la tranche 2
+
+> Section conservee telle qu'elle etait ecrite : le terme de PREDICTION est desormais PORTE
+> (`case-302-2-prediction-tile-target.md`). Le diagnostic ci-dessous reste juste sur le REGIME
+> (`0` exact sur un board frais), et c'est exactement ce que garde le bras TEMOIN de la tranche 2.
 
 Le terme de PREDICTION de 1169 reste a `0`.
 `IdunBattle.AI.Playbook.PlagueburstMortarPlaybook$$MakeDamagePredictions` =
@@ -257,14 +263,19 @@ de l'oracle**. Hors de ce regime il SOUS-ESTIME — voir tranche 2.
 
 ## 7. Tranches suivantes (dispatchables telles quelles)
 
-### Tranche 2 — le terme de PREDICTION de 1169 (et le patron pour tous les tile-target a degat)
+### Tranche 2 — LIVREE : le terme de PREDICTION de 1169 + le patron tile-target a degat
 
-Porter `PlagueburstMortarPlaybook$$MakeDamagePredictions`. Tout est deja au depot :
-`deathguard.plagueburst_is_valid_adjacent_enemy_trigger` (les DEUX branches, depuis case-224) et
-`engine.playbook.prediction.make_damage_predictions`. Ce qui manque est l'evaluation du predicat
-dans le contexte de DECISION (`ctx.scene` au lieu d'un `State`) et le branchement per-cible.
-**Montage discriminant** : un ennemi porteur d'un modificateur d'armure negatif adjacent a la tuile
-visee — le natif ajoute alors un terme que le port actuel ignore.
+Fiche propre : **`case-302-2-prediction-tile-target.md`**. Trois corrections a ce que cette section
+annoncait, toutes MESUREES :
+
+- le batch de prediction ne couvre **que l'occupant de la tuile VISEE** (`GetMainDamageTarget`), pas
+  les ennemis ADJACENTS — ceux-la ne comptent QUE par le terme custom ;
+- ce qui manquait n'etait pas seulement « l'evaluation du predicat » : `dsl_context_for_tile_target`
+  ne fournissait **ni `has_negative_modifier` ni `is_in_team_aura`**, donc les deux branches du
+  predicat rendaient `False` d'office ;
+- le montage discriminant retenu passe par la branche **AURA** (`ContagionsOfNurgle`), pas par la
+  branche armure : `--hp-target` met `Armor`/`FixedArmor` a **0**, ce qui rend la branche armure
+  inatteignable dans ce regime.
 
 ### Tranche 3 — LIVREE : `1148 DaemonicOrdnance` (2e membre, meme route)
 
@@ -285,10 +296,14 @@ Deux angles morts du harnais, tous deux dans `frida/hooks/features/ai-step/` :
 1. `rpc-targeting.ts::mapTargets` n'emet pas d'`id` sur `kind == "tile"` alors que `forEachEntity`
    l'indexe (`EntityType.Tile`). Le port s'en passe par `boardGraph`, donc c'est **confort**, pas
    blocage.
-2. `rpc-predict.ts::pairUtility` ne resout `targetId` que sur `EntityType.Unit` — **il n'existe donc
-   aucun oracle PAR ETAGE pour une cible tuile**. C'est ce qui a oblige la tranche 1 a valider par
-   la decision COMPLETE (`aiDryRunAllUnits`) plutot que paire par paire. C'est le point d'ancrage a
-   ouvrir en priorite pour les tranches 2 et 3.
+2. ~~`rpc-predict.ts::pairUtility` ne resout `targetId` que sur `EntityType.Unit`~~ — **CLOS, et
+   cette ligne etait PERIMEE des la tranche 2.** Le commit hooks `#302-t5` resout la cible sur TOUS
+   les `EntityType` et publie `targetEntityType` : `pairUtility(caster, <tileEntityId>, ability)`
+   EST l'oracle PAR ETAGE de `ComparablePlaybook$$CalculateUtilityFromPredictions` sur une cible
+   tuile. MESURE (`probe_302_2 --stage`) : `ok: true, targetEntityType: 0`, et la valeur rendue est
+   identique a 1e-12 selon qu'on passe la TUILE ou l'UNITE qui l'occupe. La tranche 2 valide donc
+   par etage ET par la decision complete. ⚠ La ligne restait ecrite ici alors que le correctif
+   etait deja au depot : **verifier le hook AVANT de conclure « pas d'oracle »**.
 3. **AUCUN RPC n'expose la config de spawn D'UN RUNNER** (ajout tranche 3). Le predicat
    `IsPositionMachineForCurrentPlayer` lit `BattleQuery+0x78` =
    `SpawnPointSetConfiguration`, dont le port a besoin du champ
