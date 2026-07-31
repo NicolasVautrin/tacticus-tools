@@ -507,6 +507,15 @@ def scenario(steps=(1, 2), board: str = P335.BOARD, seed: int = P335.SEED,
     return out
 
 
+def dispose(res: dict) -> None:
+    h = (res or {}).get("harness")
+    if h is not None:
+        try:
+            h.dispose()
+        except Exception:                                # noqa: BLE001 -- best effort de cleanup
+            pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--board", default=P335.BOARD)
