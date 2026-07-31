@@ -366,19 +366,21 @@ def _port_candidate(rpc, sid, rid, cid: int, dv: dict) -> dict:
     if pb is None:
         return {"ok": False, "error": "aucun playbook porte pour %d" % _ABILITY}
     if not pb.should_evaluate(nc):
-        return {"ok": True, "gated": True, "cands": []}
+        return {"ok": True, "gated": True, "cands": [], "eff": {}}
     cands = pb.generate_candidates(nc)
-    # L'utilite du port pour CHAQUE paire (position, cible) -- l'etage qui suit le gate. On la mesure
-    # separement pour pouvoir dire, quand les argmax coincident, si c'est le gate ou la formule qui
-    # porte le resultat.
-    grid = {}
-    for P in nc.reach_nc:
-        for tgt in sorted({t for t in (nc.plan and _plan_targets(nc.plan)) or []}):
-            u = pb.evaluate_non_comparable(P, tgt, nc)
-            if u is not None:
-                grid[(P, tgt)] = u
-    return {"ok": True, "gated": False, "cands": cands, "reach": list(nc.reach_nc),
-            "utilGrid": {"%s|%s" % (P, t): u for (P, t), u in grid.items()}}
+    # La carte EFFECTIVE du gate porte : `{targetId: positions}` telle que `generate_candidates` la
+    # consomme. C'est ELLE qu'il faut confronter au natif -- pas `ranked` du plan, qui n'est que
+    # l'une des sources possibles. Mesurer `ranked` a la place aurait rendu le probe aveugle a tout
+    # fix du gate (c'est exactement ce qui l'a fait rougir apres coup).
+    eff = {}
+    for ev in ((nc.plan or {}).get("evals") or []):
+        if ev.get("abilityId") != _ABILITY or not ev.get("rankCount"):
+            continue
+        rset = {(rk.get("col"), rk.get("row")) for rk in (ev.get("ranked") or [])
+                if rk.get("col") is not None}
+        if rset:
+            eff[int(ev.get("targetId"))] = pb.eligible_positions(nc, ev.get("targetId"), rset)
+    return {"ok": True, "gated": False, "cands": cands, "reach": list(nc.reach_nc), "eff": eff}
 
 
 def _plan_targets(plan: dict) -> list:
@@ -478,7 +480,7 @@ def step1(rpc, sid, logs: Path, fx: dict, verbose: bool = True) -> dict:
                   % (tid, rz["hex"], rz["reasons"]))
         print("\n  ARGMAX NATIF (bucketUtil mesure, keep-first origine d'abord) : %s" % nat_arg)
         for x in by_rank:
-            print("  maxRank=%-3d ranked=%-22s setsDiv=%-3d E1=%-3d E2=%-3d port=%s  %s"
+            print("  maxRank=%-3d ranked=%-22s gateDiv=%-3d E1=%-3d E2plan=%-3d port=%s  %s"
                   % (x["maxRank"], x["rankedSizes"], x["divergentPositions"], x["e1_predicat"],
                      x["e2_troncature"], x["argmaxPort"],
                      "SEPARE" if x["separates"] else "coincide"))
@@ -487,25 +489,34 @@ def step1(rpc, sid, logs: Path, fx: dict, verbose: bool = True) -> dict:
 
 def _one_rank(rpc, sid, rid, cid, fx, dv, mr, positions, origin, nat, cft, nat_arg,
               verbose: bool) -> dict:
-    """La carte du PORT a un `maxRank` donne + son argmax, confrontes au natif deja mesure."""
+    """La carte du PORT a un `maxRank` donne + son argmax, confrontes au natif deja mesure.
+
+    TROIS cartes, et les confondre est precisement l'erreur a ne pas commettre :
+      `ranked`        -- ce que `decisionView.attackPlans` CONTIENT (tronque a `maxRank`) ;
+      `port`          -- ce que le gate LIVRE consomme (`_PlanTargetPlaybook.eligible_positions`) ;
+      `castFromTiles` -- le predicat natif `GetInvalidTargetReason` tuile par tuile, SANS troncature.
+    """
     port_rk = _port_ranked(dv, cid, fx["ability"])
+    port = _port_candidate(rpc, sid, rid, cid, dv)
+    port_eff = port.get("eff") or {}
     rows = []
     for p in positions:
         n = set(x for x in (nat[p]["targets"] or []) if x is not None)
-        q = set(t for t, s in port_rk.items() if p in s)
+        q = set(t for t, s in port_eff.items() if p in s)
+        rk = set(t for t, s in port_rk.items() if p in s)
         c = set(t for t, v in cft.items() if p in set(v["moveTiles"])
                 or (p == origin and v.get("currentValid")))
-        rows.append({"pos": list(p), "natif": sorted(n), "port": sorted(q),
+        rows.append({"pos": list(p), "natif": sorted(n), "port": sorted(q), "ranked": sorted(rk),
                      "castFromTiles": sorted(c),
                      "diff_port_only": sorted(q - n), "diff_natif_only": sorted(n - q),
                      "bucketUtil": nat[p]["bucketUtil"]})
     n_div = sum(1 for x in rows if x["diff_port_only"] or x["diff_natif_only"])
-    # E1 vs E2 : `castFromTiles` == le predicat du port SANS troncature. Ce qui manque a `port` mais
-    # est dans `castFromTiles` accuse la TRONCATURE ; ce qui separe `castFromTiles` du natif accuse
-    # le PREDICAT.
-    e2 = sum(1 for x in rows if set(x["castFromTiles"]) - set(x["port"]))
+    # E1 = le PREDICAT : `castFromTiles` differe-t-il de l'eligibilite NATIVE ?
+    # E2 = la TRONCATURE du PLAN : `ranked` perd-il des positions que `castFromTiles` a ?
+    #      (diagnostic du harnais -- il reste > 0 apres le fix, et c'est normal : le fix ne
+    #      DETRONQUE pas `attackPlans`, il cesse de s'en servir comme gate.)
+    e2 = sum(1 for x in rows if set(x["castFromTiles"]) - set(x["ranked"]))
     e1 = sum(1 for x in rows if set(x["castFromTiles"]) != set(x["natif"]))
-    port = _port_candidate(rpc, sid, rid, cid, dv)
     cands = (port.get("cands") or [])
     port_arg = ({"pos": list(cands[0]["to"] or origin), "util": cands[0]["pred"],
                  "targets": [cands[0]["target"]]} if cands

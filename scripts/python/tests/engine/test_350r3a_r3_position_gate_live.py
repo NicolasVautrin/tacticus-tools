@@ -106,9 +106,12 @@ def test_argmax_port_egale_argmax_natif(measured, rank):
 
 
 def test_troncature_ne_mutile_plus_l_eligibilite(measured):
-    """(B bis) Le gate du port ne doit plus DEPENDRE du rang : les cartes d'eligibilite doivent etre
-    identiques d'un rang a l'autre. Avant le fix : 0, 19 puis 21 positions divergentes selon le rang
-    -- le port voyait un jeu different a chaque appelant."""
+    """(B bis) Le gate EFFECTIF du port ne doit plus DEPENDRE du rang.
+
+    `rows[].port` est la carte que `_PlanTargetPlaybook.eligible_positions` produit reellement (pas
+    `ranked`, qui reste tronque : le fix ne DETRONQUE pas `attackPlans`, il cesse de s'en servir
+    comme gate). Avant le fix ces cartes differaient de 19 puis 21 positions sur 33 selon le rang --
+    le port voyait un jeu different a chaque appelant, sans erreur ni trace."""
     sets = {x["maxRank"]: [(tuple(r["pos"]), tuple(r["port"])) for r in x["rows"]]
             for x in measured["byRank"]}
     ref_rank = max(sets)
@@ -118,3 +121,19 @@ def test_troncature_ne_mutile_plus_l_eligibilite(measured):
         "la carte d'eligibilite du port DEPEND de maxRank (positions differentes de maxRank=%d : "
         "%s) -- le gate n'est pas un mirror de GetValidTargets mais une vue tronquee du plan"
         % (ref_rank, bad))
+
+
+@pytest.mark.parametrize("rank", RANKS)
+def test_gate_effectif_egale_eligibilite_native(measured, rank):
+    """(A bis) LE VERROU CENTRAL : position par position, l'ensemble de cibles que le gate LIVRE
+    retient egale celui que le natif retient (`ncPlaybookPredict`, un event par cible eligible).
+
+    C'est plus fort que l'egalite des argmax : deux gates differents peuvent rendre le meme argmax
+    par coincidence de geometrie -- c'est arrive DEUX FOIS sur ce residu. Ici on exige l'egalite des
+    ENSEMBLES aux 33 positions."""
+    row = next(x for x in measured["byRank"] if x["maxRank"] == rank)
+    bad = [(tuple(r["pos"]), r["natif"], r["port"]) for r in row["rows"]
+           if set(r["natif"]) != set(r["port"])]
+    assert not bad, (
+        "maxRank=%d : le gate du port differe de l'eligibilite native sur %d/%d positions "
+        "(pos, natif, port) = %s" % (rank, len(bad), measured["positions"], bad[:6]))
