@@ -65,7 +65,7 @@ import {
 } from "./playbook-predict.js";
 import {
     AbilityKeySpace, buildUtilityAttackCase, invokeTriggeredAttackUtility, isAbilityKeySpace,
-    isTriggeredVia, loadPlaybookByKeySpace, TriggeredVia,
+    isTriggeredVia, loadPlaybookByKeySpace, readTriggeredGates, TriggeredVia,
 } from "./triggered-predict.js";
 
 /** Borne dure du buffer de capture : au-delà on marque `truncated` plutôt que d'allouer sans fin
@@ -144,8 +144,19 @@ export function registerViewNcPredict(ctx: Ctx): void {
      *           | "attackUtilityForSecondaryTarget",
      *    targetId? (requis pour "makeDamagePredictions" ET pour toute voie TRIGGERED),
      *    hits? (voies triggered, défaut 1), allowDefault? (face ACTIVE, défaut FALSE),
+     *    attackAbility? (voies triggered — `ActiveAbilityType` de l'ATTAQUE CONSIDÉRÉE, ou
+     *      "normalAttack" pour l'attaque normale du caster ; défaut = case SANS ability nommée),
      *    col?, row? (tuile candidate du movable set ; défaut = tuile courante),
      *    level?, multiplier? }
+     *
+     *  ⚠ `attackAbility` EST CE QUI DÉ-MUSELLE `via: "attackUtilityInSteps"` (#375). Sans lui le
+     *  `UtilityAttackCase` porte un `Nullable<AbilityOrEffect>` sans valeur, et les deux machines à
+     *  états qui construisent un `ProbableDamageEvent` refusent en tête sur
+     *  `TriggeredAbilityPlaybook<T>$$IsRegularAttack` — elles yieldent UN `Fix64(0)` et sortent.
+     *  `capturedCount: 0` était donc la réponse EXACTE du natif, pas un capteur défaillant : mesuré
+     *  le 2026-07-31 sur `1103`/`1054` (et sur `1247`, pour une raison DIFFÉRENTE —
+     *  `FuryOfTheAncientsPlaybook` ne surcharge pas la voie attaque). La réponse porte désormais
+     *  `gates` (`isRegularAttack` / `isMeleeAttack`) : un zéro y est NOMMÉ, plus jamais muet.
      *
      *  ⚠ `abilityKind` N'EST PAS COSMÉTIQUE : à id égal, `ActiveAbilityType` et
      *  `TriggeredAbilityType` désignent des abilities DIFFÉRENTES, et jusqu'à #369 ce RPC
@@ -163,6 +174,7 @@ export function registerViewNcPredict(ctx: Ctx): void {
         body?: {
             runnerId?: number; unitId?: number; abilityType?: number; targetId?: number;
             abilityKind?: string; via?: string; hits?: number; allowDefault?: boolean;
+            attackAbility?: number | string;
             col?: number; row?: number; level?: number; multiplier?: number;
         },
     ): Promise<unknown> => queueOnMainThread(() => {
@@ -315,8 +327,34 @@ export function registerViewNcPredict(ctx: Ctx): void {
             }
         }
 
+        // #375 — l'ability que le case NOMME. `"normalAttack"` la résout sur le caster :
+        // `ActiveAbilityComponent.NormalAttackType` porte un id CONCRET par unité (ex.
+        // `69 Loki_NormalAttack`), jamais l'abstrait `17 NormalAttack` — c'est exactement ce que
+        // `unitAbilityTypes` rend sous `kind: "normal"`.
+        let attackAbility: number | null = null;
+        let attackAbilitySrc: string | null = null;
+        if (isTriggered && body?.attackAbility !== undefined) {
+            if (typeof body.attackAbility === "number") {
+                attackAbility = body.attackAbility | 0;
+                attackAbilitySrc = "body";
+            } else if (body.attackAbility === "normalAttack") {
+                const na = unitAbilityTypes(unit, false).find((a) => a.kind === "normal");
+                if (!na) {
+                    return { ok: false, abilityKind: keySpace, via,
+                        error: "attackAbility:\"normalAttack\" — NormalAttackType absent du caster"
+                            + " (une MoW n'en porte pas : passer un id explicite)" };
+                }
+                attackAbility = na.id; attackAbilitySrc = "NormalAttackType";
+            } else {
+                return { ok: false, abilityKind: keySpace, via,
+                    error: "attackAbility inconnu: " + String(body.attackAbility)
+                        + " (attendu un ActiveAbilityType numerique ou \"normalAttack\")" };
+            }
+        }
+
         let evalName: string | null = null;
         let cap: CaptureResult;
+        let gates: { isRegularAttack: boolean | null; isMeleeAttack: boolean | null } | null = null;
         let triggeredUtil: { utilities: number[]; total: number | null; arity: number;
             error?: string } | null = null;
         if (isTriggered) {
@@ -326,7 +364,7 @@ export function registerViewNcPredict(ctx: Ctx): void {
             // reste le MÊME `ProbableDamageEvent$$.ctor` — re-confronté sur les quatre call-sites
             // demi-vers-le-pair (#369 §5) : trois l'appellent directement, le quatrième via ses
             // délégations à `…ForMainTarget`/`…ForSecondaryTarget`.
-            const built = buildUtilityAttackCase(unit, pos, target);
+            const built = buildUtilityAttackCase(unit, pos, target, attackAbility);
             if (built.kase.isNull()) {
                 return { ok: false, abilityKind: keySpace, via, playbookClass,
                     ability: body.abilityType, error: built.error };
@@ -334,6 +372,9 @@ export function registerViewNcPredict(ctx: Ctx): void {
             evalName = "CalculateAttackUtility/" + triggeredVia;
             const kase = built.kase;
             const hits = typeof body?.hits === "number" ? body.hits : 1;
+            // Lues AVANT l'invocation, sur le case réellement soumis : c'est ce qui nomme un
+            // éventuel `capturedCount: 0` au lieu de le laisser muet.
+            gates = readTriggeredGates(playbook, kase);
             cap = captureAround(ctorPtr, idByPtr, () => {
                 triggeredUtil = invokeTriggeredAttackUtility(playbook, kase, triggeredVia, hits);
                 return ptr(0);   // la voie triggered rend une UTILITÉ, pas une liste d'events
@@ -386,6 +427,14 @@ export function registerViewNcPredict(ctx: Ctx): void {
             out.triggeredUtilities = tu ? tu.utilities : [];
             out.triggeredUtilityTotal = tu ? tu.total : null;
             out.utilityWeightsProvided = false;
+            // #375 — l'ability NOMMÉE par le case, et les deux gates lues sur ce case. Leur
+            // PRÉSENCE identifie un hook porteur du correctif : un appelant peut ainsi distinguer
+            // « le natif a refusé la gate » de « le hook ne sait pas nommer d'ability ».
+            out.attackAbility = attackAbility === null ? null : {
+                requested: body?.attackAbility ?? null, resolved: attackAbility,
+                name: abilityName(attackAbility), source: attackAbilitySrc,
+            };
+            out.gates = gates;
         } else if (via === "makeDamagePredictions") {
             // VERROU : la liste RENDUE, décodée par le chemin déjà éprouvé. Sur un Comparable elle
             // doit égaler la capture — c'est la preuve que le capteur lit la bonne struct.

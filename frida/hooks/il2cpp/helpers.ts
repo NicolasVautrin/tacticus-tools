@@ -278,12 +278,24 @@ export function findCtorByParamCount(
 export function methodParamClassName(
     m: NativePointer, index: number,
 ): string | null {
+    const cls = methodParamClass(m, index);
+    if (cls === null) return null;
+    try { return s(class_get_name(cls) as NativePointer); } catch { return null; }
+}
+
+/** La CLASSE du param `index` (et non son seul nom). Une classe porte ce qu'un nom ne
+ *  donne pas — offsets de champs par nom, taille d'instance — donc c'est elle qu'il faut
+ *  quand on doit CONSTRUIRE la valeur d'un paramètre ValueType (ex. le
+ *  `Nullable<AbilityOrEffect>` que prend `UtilityAttackCase$$Base`) au lieu de simplement
+ *  désambiguïser un overload. `null` si indéterminable. */
+export function methodParamClass(
+    m: NativePointer, index: number,
+): NativePointer | null {
     try {
         const ty = method_get_param(m, index) as NativePointer;
         if (ty.isNull()) return null;
         const cls = type_get_class_or_element_class(ty) as NativePointer;
-        if (cls.isNull()) return null;
-        return s(class_get_name(cls) as NativePointer);
+        return cls.isNull() ? null : cls;
     } catch { return null; }
 }
 

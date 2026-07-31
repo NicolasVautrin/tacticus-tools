@@ -699,19 +699,71 @@ def patch_ability_variables(bc: dict, ability_name: str, level: int, values: dic
             "rarity_neutralized": bool(deaffected)}
 
 
+# ---------------------------------------------------------------- EPINGLAGE (#375)
+#
+# ⚠ LE PATCH DE VARIABLE NE SURVIVAIT PAS AU BUILD, ET C'EST SILENCIEUX.
+# `rl_collect_batch._load_seed_bc` appelle `refresh_ability_configs` a CHAQUE chargement --
+# y compris sur un seed BC CUSTOM. Le refresh remplace toute config qui differe du gameconfig
+# vivant par `synthesize_ability(name)` : il ECRASE donc exactement les valeurs qu'une fixture
+# vient d'y ecrire. Mesure du 2026-07-31 : `LightImUp.minDmg[49]` ecrit a `20000` sur disque,
+# relu a `831` apres `_load_seed_bc` -- et `LightImUp` figure dans les « 4 rafraichies » a chaque
+# build, patch ou pas. La fixture etait donc INERTE, et le regime discriminant jamais joue.
+#
+# Parade : un SIDECAR `<seed-bc>.pins.json` qui NOMME les configs deliberement patchees ; le
+# loader les passe en `skip` au refresh. Deux proprietes voulues :
+#   * l'epinglage est OPT-IN et NOMME (jamais une desactivation globale du rattrapage #254) ;
+#   * la config epinglee est d'abord RE-SYNTHETISEE puis patchee, donc elle est fraiche PLUS le
+#     patch -- on ne fige jamais une capture perimee, ce que #254 existe precisement pour eviter.
+# Le sidecar vit HORS du BC : rien de non-jeu n'entre dans le payload envoye au runner.
+
+PINS_SUFFIX = ".pins.json"
+
+
+def pins_path(seed_bc_path) -> Path:
+    """Chemin du sidecar d'epinglage d'un seed BC custom."""
+    return Path(str(seed_bc_path) + PINS_SUFFIX)
+
+
+def read_pins(seed_bc_path) -> list:
+    """Les cles `"<node>/<ability>"` epinglees pour ce seed BC. `[]` si aucun sidecar."""
+    p = pins_path(seed_bc_path)
+    if not p.is_file():
+        return []
+    data = json.loads(p.read_text(encoding="utf-8"))
+    pins = data.get("pinnedAbilityConfigs")
+    if not isinstance(pins, list):
+        raise ValueError("%s : cle 'pinnedAbilityConfigs' absente ou non-liste" % p)
+    return [str(x) for x in pins]
+
+
+def write_pins(seed_bc_path, pins) -> Path:
+    """Ecrit le sidecar. `pins` = iterable de `"<node>/<ability>"`."""
+    p = pins_path(seed_bc_path)
+    p.write_text(json.dumps({"pinnedAbilityConfigs": sorted(set(pins))}), encoding="utf-8")
+    return p
+
+
 def write_variable_patched_seed_bc(out_path, patches, *, seed_bc: dict | None = None,
                                    unit_ids=(), rank: int = 17, ability_level: int = 50):
     """FIXTURE : ecrit un seed BC dont les variables d'ability demandees sont FORCEES.
 
     `patches` = iterable de `(ability_name, level, {var: value})`. `unit_ids` injecte au prealable
     les porteurs manquants (meme voie qu'une relique hors catalogue). Rend `(Path, rapports)`.
+
+    Ecrit AUSSI le sidecar `<out_path>.pins.json` (#375) : sans lui le patch est ecrase par
+    `refresh_ability_configs` au chargement, EN SILENCE. La config est re-synthetisee depuis le
+    gameconfig vivant AVANT d'etre patchee -- on epingle du frais patche, jamais du perime.
     """
     seed = seed_bc if seed_bc is not None else _load_seed(None)
     bc, _a, _b, _c = augment(seed, list(unit_ids), rank, ability_level)
+    # Rattrapage #254 applique ICI, avant le patch : ce que l'on epingle est donc la config du
+    # build COURANT, plus le patch -- et le `skip` du loader ne fige aucune capture perimee.
+    refresh_ability_configs(bc)
     reports = [patch_ability_variables(bc, name, lvl, vals) for name, lvl, vals in patches]
     p = host_inputs.reject_data_output(out_path, "write_variable_patched_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
+    write_pins(p, [r["node"] + "/" + r["ability"] for r in reports])
     return p, reports
 
 
@@ -741,9 +793,13 @@ def relic_state_of_seed_bc(seed_bc: dict) -> dict:
 
 # ------------------------------------------------- rafraichissement du 2e catalogue (#254)
 
-def refresh_ability_configs(bc: dict) -> tuple[list, list]:
+def refresh_ability_configs(bc: dict, skip=()) -> tuple[list, list]:
     """RE-SYNTHETISE `BC.Abilities` depuis le gameconfig VIVANT, EN PLACE. Rend (rafraichies,
     ajoutees).
+
+    `skip` (#375) = cles `"<node>/<ability>"` EPINGLEES : configs deliberement patchees par une
+    fixture, que le rattrapage ne doit PAS ecraser. Opt-in et nomme -- jamais un interrupteur
+    global. Cf. `write_variable_patched_seed_bc` / `read_pins`.
 
     POURQUOI (#254, MIGRATION DE BUILD). `data/seed-bc.json` est la capture d'UNE bataille, faite
     sur UN build ; `scripts/python/gameconfig.py`, lui, lit le fichier VIVANT de
@@ -782,9 +838,12 @@ def refresh_ability_configs(bc: dict) -> tuple[list, list]:
     node = bc.setdefault("Abilities", {})
     act_node = node.setdefault("ActiveAbilities", {})
     pas_node = node.setdefault("PassiveAbilities", {})
+    pinned = set(skip or ())
     refreshed, added = [], []
-    for target in (act_node, pas_node):
+    for node_name, target in (("ActiveAbilities", act_node), ("PassiveAbilities", pas_node)):
         for name in list(target):
+            if node_name + "/" + name in pinned:        # #375 : patch delibere, on n'ecrase pas
+                continue
             if G.ability(name) is None:                 # config interne moteur : non derivable
                 continue
             synth = synthesize_ability(name)

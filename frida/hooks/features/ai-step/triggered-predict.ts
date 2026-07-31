@@ -42,12 +42,36 @@
  *  L'appelant doit donc lire `bucketUtil`/l'utilité rendue comme NON COMPARABLE au natif tant que
  *  les poids ne sont pas fournis ; les `captured`, eux, sont fidèles.
  *
+ *  ⚠ #375 — CE QUI RENDAIT `attackUtilityInSteps` MUET, et ce n'était PAS le capteur.
+ *  `buildUtilityAttackCase` passait un `Nullable<AbilityOrEffect>` ZÉRO-REMPLI, donc un case qui ne
+ *  NOMME aucune ability. Or les deux machines à états qui construisent un `ProbableDamageEvent`
+ *  (`LightImUpPlaybook` et `MassiveScythingTalonsPlaybook`) testent
+ *  `TriggeredAbilityPlaybook<T>$$IsRegularAttack` — dont la PREMIÈRE instruction est
+ *  `Nullable<AbilityOrEffect>.get_HasValue()` sur `case+0xf0` — et sortent en yieldant UN
+ *  `Fix64(0)`. `capturedCount: 0` / `triggeredUtilities: [0]` était donc la réponse EXACTE du natif
+ *  au case soumis (mesuré le 2026-07-31, sans erreur, pour `1103` ET `1054`). Le paramètre
+ *  `attackAbility` de `buildUtilityAttackCase` lève ce verrou ; `readTriggeredGates` rend les deux
+ *  prédicats pour que le zéro soit NOMMÉ.
+ *  Troisième cas, DIFFÉRENT et sans rapport avec la gate : `FuryOfTheAncientsPlaybook` ne surcharge
+ *  PAS `CalculateAttackUtilityInStepsInternal` (aucun symbole dans `ghidra/functions.tsv`) ; le
+ *  corps hérité `TriggeredAbilityPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__37
+ *  u003C__Il2CppFullySharedGenericTypeu003E$$MoveNext` yielde UN `Fix64(0)` et rien d'autre. Sa
+ *  prédiction (slot 4, TRONCATURE) vit sur la voie MOUVEMENT —
+ *  `FuryOfTheAncientsPlaybook$$GetDamagePrediction` n'a qu'UN appelant, `$$GetDamagedEnemyUtility`.
+ *
  *  Aucune RVA : tout est résolu par `findClassAnywhere` + `findMethodByParamClasses`/`ByParamCount`.
  */
 import {
-    findClassAnywhere, findMethodByNameSuffix, findMethodByParamClasses, findMethodByParamCount,
+    class_instance_size, findClassAnywhere, findMethodByNameSuffix, findMethodByParamClasses,
+    findMethodByParamCount, getFieldOffset, methodParamClass,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
+
+/** Header IL2CPP de tout `System.ValueType` boxé. `il2cpp_field_get_offset` et
+ *  `il2cpp_class_instance_size` le COMPTENT ; on travaille, ici comme dans
+ *  `game/damage-prediction.ts`, en offsets/tailles de CHAMPS. Confondre les deux décale de
+ *  16 octets — c'est la faute que #276 avait déjà payée. */
+const IL2CPP_BOX_HEADER = 0x10;
 
 /** Les trois key-spaces d'enum que `PlaybookDatabase` indexe. `active` = comportement historique. */
 export type AbilityKeySpace = "active" | "triggered" | "triggeredNonOwner";
@@ -156,39 +180,154 @@ export function loadPlaybookByKeySpace(
     return { playbook: pb, source: "registry" };
 }
 
+/** #375 — le `Nullable<AbilityOrEffect>` du 4ᵉ paramètre de `UtilityAttackCase$$Base`, avec ou
+ *  sans valeur.
+ *
+ *  POURQUOI CE CHEMIN EXISTE, ET CE QU'IL DÉBLOQUE. Tant que ce Nullable est ZÉRO-REMPLI
+ *  (`HasValue = false`), la voie `attackUtilityInSteps` ne peut RIEN capturer, et ce n'est pas un
+ *  défaut du capteur — c'est le natif qui refuse :
+ *  `IdunBattle.AI.Playbook.TriggeredAbilityPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$IsRegularAttack`
+ *  commence par `Nullable<AbilityOrEffect>.get_HasValue()` sur `case+0xf0` et rend `false` sec.
+ *  Or `...LightImUpPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext` teste
+ *  `$$IsMeleeAttack` PUIS `$$IsRegularAttack` avant tout, et
+ *  `...MassiveScythingTalonsPlaybook.u003C...u003Ed__2$$MoveNext` teste `$$IsRegularAttack` en
+ *  PREMIÈRE instruction : les deux yieldent alors UN `Fix64(0)` et sortent, sans jamais construire
+ *  de `ProbableDamageEvent`. Mesuré le 2026-07-31 (`capturedCount: 0`, `triggeredUtilities: [0]`,
+ *  aucune erreur) — un capteur MUET pour une raison qui ne le concernait pas.
+ *
+ *  Le case natif, lui, NOMME l'attaque considérée : c'est ce que passent
+ *  `ComparablePlaybook<T>$$CalculateActionUtility` et consorts. On le mirrore par la factory
+ *  `IdunBattle.Core.AbilityOrEffect$$op_Implicit(activeAbility: ActiveAbilityType)`.
+ *
+ *  ⚠ AUCUN OFFSET ÉCRIT. La classe du Nullable se prend sur le PARAMÈTRE lui-même
+ *  (`methodParamClass(Base, 3)`), sa taille par `class_instance_size`, et ses deux champs PAR NOM
+ *  (`value` / `has_value`, avec les orthographes BCL alternatives). C'est la seule façon de ne pas
+ *  figer une disposition de `System.Nullable<T>` qu'aucun symbole ne garantit. */
+function buildAbilityOrEffectNullable(
+    baseMi: NativePointer, activeAbilityType: number | null,
+): { buf: NativePointer; named: number | null; error?: string } {
+    const nullCls = methodParamClass(baseMi, 3);
+    if (!nullCls) {
+        return { buf: ptr(0), named: null,
+            error: "type du 4e parametre de UtilityAttackCase.Base non resolu"
+                + " (Nullable<AbilityOrEffect>)" };
+    }
+    const boxed = class_instance_size ? (class_instance_size(nullCls) as number) : 0;
+    // `Nullable<AbilityOrEffect>` = 24 o de données + le flag ; 0x40 est une borne large et sûre
+    // quand l'export manque (le natif ne lit que les champs qu'il connaît).
+    const size = boxed > IL2CPP_BOX_HEADER ? boxed - IL2CPP_BOX_HEADER : 0x40;
+    const buf = Memory.alloc(size);
+    for (let k = 0; k + 4 <= size; k += 4) buf.add(k).writeU32(0);
+    if (activeAbilityType === null) return { buf, named: null };   // HasValue = false
+
+    const aoeCls = findClassAnywhere("IdunBattle.Core", "AbilityOrEffect");
+    if (!aoeCls) {
+        return { buf: ptr(0), named: null,
+            error: "classe IdunBattle.Core.AbilityOrEffect introuvable" };
+    }
+    const opMi = findMethodByParamClasses(aoeCls, "op_Implicit", ["ActiveAbilityType"]);
+    if (!opMi) {
+        return { buf: ptr(0), named: null,
+            error: "AbilityOrEffect.op_Implicit(ActiveAbilityType) non resolu" };
+    }
+    // Offsets PAR NOM. `il2cpp_field_get_offset` rend un offset BOXÉ sur un ValueType : on retire
+    // le header, comme `game/damage-prediction.ts`.
+    let valueOff = getFieldOffset(nullCls, "value");
+    let hasOff = getFieldOffset(nullCls, "has_value");
+    if (hasOff < 0) hasOff = getFieldOffset(nullCls, "hasValue");
+    if (valueOff < 0 || hasOff < 0) {
+        return { buf: ptr(0), named: null,
+            error: "Nullable<AbilityOrEffect> : champs value/has_value non resolus par nom"
+                + " (value=" + valueOff + " has_value=" + hasOff + ")" };
+    }
+    valueOff = Math.max(0, valueOff - IL2CPP_BOX_HEADER);
+    hasOff = Math.max(0, hasOff - IL2CPP_BOX_HEADER);
+
+    const idBuf = Memory.alloc(4); idBuf.writeS32(activeAbilityType | 0);
+    let aoe: NativePointer;
+    try { aoe = invokeMethod(opMi.info, null, [idBuf]); }
+    catch (e) {
+        return { buf: ptr(0), named: null,
+            error: "AbilityOrEffect.op_Implicit a leve: " + (e as Error).message };
+    }
+    if (aoe.isNull()) {
+        return { buf: ptr(0), named: null, error: "AbilityOrEffect.op_Implicit a rendu null" };
+    }
+    const aoeBoxed = class_instance_size ? (class_instance_size(aoeCls) as number) : 0;
+    const aoeSize = aoeBoxed > IL2CPP_BOX_HEADER ? aoeBoxed - IL2CPP_BOX_HEADER : 24;
+    if (valueOff + aoeSize > size) {
+        return { buf: ptr(0), named: null,
+            error: "Nullable<AbilityOrEffect> trop petit (" + size + " o) pour value@"
+                + valueOff + " + " + aoeSize + " o" };
+    }
+    Memory.copy(buf.add(valueOff), aoe.add(IL2CPP_BOX_HEADER), aoeSize);
+    buf.add(hasOff).writeU8(1);
+    return { buf, named: activeAbilityType };
+}
+
 /** `IdunBattle.AI.Utilities.UtilityAttackCase$$Base(caster, casterPosition, target, abilityType)`.
  *
  *  DEUX overloads homonymes, désambiguïsés par le TYPE du 2ᵉ paramètre :
  *    `(IEntity caster, IEntity casterTile,       IEntity target, Nullable<AbilityOrEffect>)`
  *    `(IEntity caster, UnitPosition casterPosition, IEntity target, Nullable<AbilityOrEffect>)`  <- celui-ci
  *
- *  `abilityType` est passé SANS valeur (`hasValue = false`) quand `abilityOrEffect` n'est pas
- *  fourni : c'est ce qu'un buffer zéro-rempli encode, et c'est le cas « pas d'ability nommée ».
+ *  `attackAbility` = l'`ActiveAbilityType` de l'ATTAQUE CONSIDÉRÉE (pas de l'ability triggered !) —
+ *  c'est ce que les gates `IsMeleeAttack`/`IsRegularAttack` du playbook lisent. `null` garde le
+ *  comportement historique (`HasValue = false`, cas « pas d'ability nommée »), qui est un cas natif
+ *  légitime mais qui MUSELLE la voie `attackUtilityInSteps` (cf. `buildAbilityOrEffectNullable`).
  *  `UnitPosition` est un ValueType de 24 o boxés (8 o de données = la `List<ITile>`), d'où le
  *  pointeur DÉJÀ unboxé que rendent `unitPositionCurrent`/`unitPositionAtTile`. */
 export function buildUtilityAttackCase(
     caster: NativePointer, casterPosition: NativePointer, target: NativePointer,
-): { kase: NativePointer; error?: string } {
+    attackAbility: number | null = null,
+): { kase: NativePointer; named: number | null; error?: string } {
     const klass = findClassAnywhere("IdunBattle.AI.Utilities", "UtilityAttackCase");
     if (!klass) {
-        return { kase: ptr(0), error: "classe IdunBattle.AI.Utilities.UtilityAttackCase introuvable" };
+        return { kase: ptr(0), named: null,
+            error: "classe IdunBattle.AI.Utilities.UtilityAttackCase introuvable" };
     }
     const mi = findMethodByParamClasses(klass, "Base", [null, "UnitPosition", null, null]);
     if (!mi) {
-        return { kase: ptr(0),
+        return { kase: ptr(0), named: null,
             error: "UtilityAttackCase.Base(caster, UnitPosition, target, abilityType) non résolu" };
     }
-    // `Nullable<AbilityOrEffect>` : `AbilityOrEffect` fait 40 o boxés (24 de données), donc le
-    // Nullable tient largement dans 0x40. Zéro partout = `hasValue = false`.
-    const nullableAbility = Memory.alloc(0x40);
-    for (let k = 0; k < 0x40; k += 4) nullableAbility.add(k).writeU32(0);
-    try {
-        const kase = invokeMethod(mi.info, null, [caster, casterPosition, target, nullableAbility]);
-        if (kase.isNull()) return { kase: ptr(0), error: "UtilityAttackCase.Base a rendu null" };
-        return { kase };
-    } catch (e) {
-        return { kase: ptr(0), error: "UtilityAttackCase.Base a levé: " + (e as Error).message };
+    const nullable = buildAbilityOrEffectNullable(mi.info, attackAbility);
+    if (nullable.error !== undefined) {
+        return { kase: ptr(0), named: null, error: nullable.error };
     }
+    try {
+        const kase = invokeMethod(mi.info, null, [caster, casterPosition, target, nullable.buf]);
+        if (kase.isNull()) {
+            return { kase: ptr(0), named: null, error: "UtilityAttackCase.Base a rendu null" };
+        }
+        return { kase, named: nullable.named };
+    } catch (e) {
+        return { kase: ptr(0), named: null,
+            error: "UtilityAttackCase.Base a levé: " + (e as Error).message };
+    }
+}
+
+/** #375 — les DEUX gates que les machines à états `<CalculateAttackUtilityInStepsInternal>d__2`
+ *  interrogent avant de construire quoi que ce soit, lues SUR LE CASE SOUMIS.
+ *
+ *  Les rendre à l'appelant est ce qui transforme un `capturedCount: 0` muet en une réponse
+ *  NOMMÉE : « le natif a refusé la gate », et non « le capteur n'a rien vu ». `null` = gate non
+ *  résolue sur ce playbook (elles vivent sur la définition générique
+ *  `TriggeredAbilityPlaybook<T>`, atteinte par le walk de parents de `findMethodByParamCount`). */
+export function readTriggeredGates(
+    playbook: NativePointer, kase: NativePointer,
+): { isRegularAttack: boolean | null; isMeleeAttack: boolean | null } {
+    const pbCls = playbook.readPointer();
+    const read = (name: string): boolean | null => {
+        const mi = findMethodByParamCount(pbCls, name, 1);
+        if (!mi) return null;
+        try {
+            const r = invokeMethod(mi.info, playbook, [kase]);
+            if (r.isNull()) return null;
+            return r.add(IL2CPP_BOX_HEADER).readU8() !== 0;
+        } catch { return null; }
+    };
+    return { isRegularAttack: read("IsRegularAttack"), isMeleeAttack: read("IsMeleeAttack") };
 }
 
 /** Les trois entrées invocables d'un playbook TRIGGERED, telles que le natif les appelle.
