@@ -368,10 +368,26 @@ def test_mwbd_counterfactuals_diverge(mwbd, mutate):
 
 
 def test_mwbd_else_branch_self_buff(mwbd_solo):
-    """(E bis) BRANCHE ELSE : le porteur SEUL n'attaque personne, et l'effet 1581
-    `MyWillBeDoneOverlord_ExtraDamage` apparait SUR LUI, live comme port."""
+    """(E bis) BRANCHE ELSE : aucun allie ADJACENT eligible -> le porteur n'attaque personne, et
+    l'effet 1581 `MyWillBeDoneOverlord_ExtraDamage` apparait SUR LUI -- avec la MEME DUREE live et
+    port.
+
+    ⚠ La duree est comparee en VALEUR, pas seulement par les porteurs : `AddDynamicStatModifier
+    EffectToOwner(0x62d, ATTACK, turns = Sum(TurnsFromRounds(1), <DSLFormulas+0x20 = Direct(1)>))`
+    est le SEUL etage de cette branche qui produise un observable, et un `set(...)` sur les cles le
+    laissait passer en silence. MESURE du 2026-07-31 : sur l'ancien montage (porteur SEUL de son
+    camp) le live rendait `remaining = 2` contre `3` au port -- non pas parce que la duree etait
+    fausse, mais parce que le `finish` du porteur faisait BASCULER le tour et qu'un TICK s'appliquait
+    avant l'observation. Le montage exile donc un allie-tampon (`setup_solo_positions`) pour que le
+    tour NE bascule PAS, et les deux cotes rendent alors 3."""
     assert not any(d for d in mwbd_solo["d_live"].values()), \
         "aucun allie eligible -> aucune attaque"
     assert mwbd_solo["port_out"] and mwbd_solo["port_out"][0]["self_buff"] is True
-    assert set(mwbd_solo["live_eff"]) == set(mwbd_solo["port_eff"]), (
-        "porteurs de 1581 live=%s port=%s" % (mwbd_solo["live_eff"], mwbd_solo["port_eff"]))
+    assert mwbd_solo["turn_before"] == mwbd_solo["turn_after"], (
+        "le tour a BASCULE (%s -> %s) : un tick a decremente la duree et la comparaison ne porterait "
+        "plus sur le meme instant" % (mwbd_solo["turn_before"], mwbd_solo["turn_after"]))
+    assert mwbd_solo["live_eff"] == mwbd_solo["port_eff"], (
+        "1581 (porteur ET duree) live=%s port=%s" % (mwbd_solo["live_eff"], mwbd_solo["port_eff"]))
+    assert set(mwbd_solo["live_eff"].values()) == {3}, (
+        "turns = Sum(TurnsFromRounds(1) = 2, Direct(1)) = 3 en duel ; observe %s"
+        % mwbd_solo["live_eff"])

@@ -433,10 +433,62 @@ def measure(sid, seed="777", board_id="MC1_67", turns=2, verbose=True):
         dispose(sid, rid)
 
 
+def setup_solo_positions(sid, rid, ids):
+    """DRIVE la geometrie du montage M4 : porteur sur un hub, ALLY_A et ENEMY_A EXILES a distance
+    >= 3 -- donc AUCUN allie dans `AdjacentFriends(Caster())` et la branche ELSE est prise.
+
+    ⚠ POURQUOI un allie PRESENT alors que la branche ELSE demande « aucun allie eligible » : il ne
+    doit pas etre ELIGIBLE, il doit exister pour que le camp ait ENCORE une unite a activer apres le
+    `finish` du porteur. Avec le porteur SEUL, son `finish` fait BASCULER le tour (mesure du
+    2026-07-31 : `turn` 3 -> 4, `toActivate` [79] -> [77]), un TICK de duree s'applique, et le
+    `remaining` de l'effet 1581 est observe a **2** alors que la formule en pose **3**. La mesure
+    comparait alors deux INSTANTS differents (live APRES tick, port juste apres la pose) et faisait
+    passer un ecart de protocole pour un ecart de port. Avec l'allie exile : `turn` reste 3,
+    `toActivate` [79, 81] -> [81], et le live rend bien `remaining = 3`.
+
+    Rend `None` (montage REFUSE) plutot qu'une geometrie degradee."""
+    import hexgeo
+    bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    hub = _hub_tile(bg)
+    if hub is None:
+        return None
+    move(sid, rid, ids[CARRIER], hub["col"], hub["row"])
+
+    def positions():
+        g = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+        return g, {t.get("occupantUnitId"): (t["col"], t["row"])
+                   for t in g["tiles"] if t.get("occupantUnitId") is not None}
+
+    bg, pos = positions()
+    cpos = pos[ids[CARRIER]]
+    for vis in (ALLY_A, ENEMY_A):
+        if vis not in ids:
+            continue
+        dest = None
+        for t in bg["tiles"]:
+            if not t.get("walkable") or t.get("isWall"):
+                continue
+            if t.get("occupantUnitId") not in (None, ids[vis]):
+                continue
+            if hexgeo.distance((t["col"], t["row"]), cpos) >= 3:
+                dest = t
+                break
+        if dest is not None:
+            move(sid, rid, ids[vis], dest["col"], dest["row"])
+        bg, pos = positions()
+    # controle de SORTIE : la geometrie voulue est ATTEINTE (sinon on refuse le montage).
+    if hexgeo.distance(pos[ids[ALLY_A]], pos[ids[CARRIER]]) < 2:
+        return None
+    return bg
+
+
 def measure_solo(sid, seed="777", board_id="MC1_67", verbose=True):
-    """M4 -- BRANCHE ELSE : l'Overlord SEUL de son camp (aucun allie adjacent) clot son tour ->
-    aucune attaque, et l'effet 1581 `MyWillBeDoneOverlord_ExtraDamage` apparait SUR LUI."""
-    rid = build(seed, board_id, [CARRIER], [ENEMY_A], STATE_SOLO,
+    """M4 -- BRANCHE ELSE : aucun allie ADJACENT eligible -> l'Overlord n'attaque personne et l'effet
+    1581 `MyWillBeDoneOverlord_ExtraDamage` apparait SUR LUI, avec sa DUREE (`remaining`).
+
+    Le camp du porteur compte un seul AUTRE allie, EXILE a distance >= 3 (cf. `setup_solo_positions`)
+    : il ne peut pas etre elu, mais il empeche la bascule de tour qui fausserait la duree observee."""
+    rid = build(seed, board_id, [CARRIER, ALLY_A], [ENEMY_A], STATE_SOLO,
                 [CARRIER_PASSIVES_PATCH,
                  "%s:Health=%d" % (ENEMY_A, ENEMY_HP),
                  "%s:RemainingHealth=%d" % (ENEMY_A, ENEMY_HP)])
@@ -445,12 +497,16 @@ def measure_solo(sid, seed="777", board_id="MC1_67", verbose=True):
     try:
         view = dv(sid, rid)
         ids = {u.get("visualId"): int(u["id"]) for u in (view.get("units") or []) if u.get("alive")}
-        if CARRIER not in ids:
-            print("[354] ABORT solo : porteur absent")
+        if CARRIER not in ids or ALLY_A not in ids:
+            print("[354] ABORT solo : porteur ou allie-tampon absent")
+            return None
+        if setup_solo_positions(sid, rid, ids) is None:
+            print("[354] ABORT solo : geometrie d'exil non atteinte")
             return None
         bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
         board = Board(bg["tiles"], adjacency="evenq")
         cap = capture(sid, rid, board)
+        turn_before = (cap["dec"] or {}).get("turn")
         hp_before = hp_live(cap["dec"])
         st, port_out = offline_finish(cap, ids[CARRIER])
         finish(sid, rid, ids[CARRIER])
@@ -462,14 +518,17 @@ def measure_solo(sid, seed="777", board_id="MC1_67", verbose=True):
         if eff is not None:
             port_eff = {int(uid): e.remaining_turns for uid, lst in eff.by_unit.items()
                         for e in lst if (not e.consumed) and int(e.effect_type) == EXTRA_DAMAGE_EFFECT}
+        turn_after = (after or {}).get("turn")
         if verbose:
-            print("[354] SOLO  1581 live=%s port=%s  degats live=%s"
-                  % (live_eff, port_eff, {i: d for i, d in d_live.items() if d}))
+            print("[354] SOLO  1581 live=%s port=%s  degats live=%s  turn %s -> %s"
+                  % (live_eff, port_eff, {i: d for i, d in d_live.items() if d},
+                     turn_before, turn_after))
             if port_out:
                 print("    port: self_buff=%s attaques=%s"
                       % (port_out[0].get("self_buff"), port_out[0].get("attacks")))
         return {"rid": rid, "ids": ids, "live_eff": live_eff, "port_eff": port_eff,
-                "d_live": d_live, "port_out": port_out, "cap": cap}
+                "d_live": d_live, "port_out": port_out, "cap": cap,
+                "turn_before": turn_before, "turn_after": turn_after}
     finally:
         dispose(rid=rid, sid=sid)
 
