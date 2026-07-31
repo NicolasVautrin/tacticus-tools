@@ -15,7 +15,8 @@ from collections.abc import Mapping
 from ....services.effect_bonus import (EffectBonus, for_addition, for_percent_decrease,
                                        for_percent_increase)
 from ...active_ability_type import ActiveAbilityType
-from ..base import BaseEffect, is_melee_attack, is_not_charging, is_ranged_attack
+from ..base import (BaseEffect, is_melee_attack, is_not_charging, is_ranged_attack,
+                    tiles_moved_this_turn)
 from ..magnitude import ability_var, trait_var
 
 
@@ -786,6 +787,113 @@ class FuelledByFuryExtraDamageEffect(BaseEffect):
         if not per:
             return None
         return for_addition(True, int(per) * int(fury))   # Multiply(ConfigVar(extraDmg), EffectLevel)
+
+
+class ModifiedExoarmourExtraDmgEffect(BaseEffect):
+    """`ModifiedExoarmour_ExtraDmg` (EffectType 0x608 = **1544**) — volet OFFENSIF du passif
+    `ModifiedExoarmour` (TriggeredAbilityType 0x5f9 = 1529) de `votanChampion` <<Kimm>>. case-322.
+
+    MIRROR 1:1 de `IdunBattle.Entities.Effects.Loki.ModifiedExoarmour_ExtraDmgEffect$$
+    CreateEffectDamageBonusForAttack` :
+
+        EffectBonus.ForAddition( get_OwnerIsCaster & IsMeleeAttack, GetCurrentDamageBonus() )
+
+    et de `IdunBattle.Entities.Effects.Loki.ModifiedExoarmour_ExtraDmgEffect$$GetCurrentDamageBonus` :
+
+        Multiply( ConfigVar(8 = extraDmg, GetAbilityState, EffectSource),
+                  TilesMovedThisTurn(Self) )
+
+    TROIS lectures font la MAGNITUDE, et aucune ne se devine (case-322 SS 2) :
+
+    1. **`MultiplyAmount$$Calculate` est un produit d'ENTIERS** (`(int)a * (int)b`, decompile) — pas
+       une multiplication Fix64 : la valeur de config est arrondie AVANT d'etre multipliee.
+    2. **`ConfigAmount$$Calculate` -> `AbilityConfiguration$$GetVariableForLevel` ->
+       `$$TryGetVariableArrayForLevel`**, dont le corps est
+       `v = int(arr[clamp(level-1)])` puis, SSI `varType` est dans `_variablesAffectedByRarityBonus`
+       (this+0x28), `v = (int) Fix64.Round( Fix64(multiplierPct) / 100 * v )`. C'est EXACTEMENT
+       `magnitude.ability_var(..., multiplier_pct=...)` — meme foyer, meme arrondi (ancre partagee :
+       `PowerTrip.armorIgnored[L50] = 277 x 1.8 -> 499`). `extraDmg` EST dans la liste rarity du
+       gameconfig de `ModifiedExoarmour` (verifie, pas suppose).
+    3. **`TilesMovedThisTurn`** = le facteur, PAS un gate on/off : le bonus est `V x n`, donc
+       l'`ActiveCondition` `AmountIsGreaterThanZero(n)` est REDONDANTE avec la magnitude (n = 0 rend
+       un additif nul). Elle est quand meme mirroree par `is_active` ci-dessous — le natif l'ecrit.
+
+    PLACEMENT — `ForAddition` ecrit `DamageModifiers.Addition @+0x10`, consomme par le canal DEJA
+    porte `attacker_additive_pre=True` (#75/#70) : l'additif s'ajoute a la base PAR COUP **AVANT**
+    percage/armure, puis traverse le %-list. Rien a re-ordonnancer.
+    C'est ce placement qui ferme les deux residus de #312 : l'ecart ne se compose pas « apres coup »
+    (`624 x n x M`), il se materialise par `Fix64.Round((base_percee + V x n / f) x M)` UNE FOIS PAR
+    COUP. Les six tuiles de melee de la fixture, min ET max, tombent alors bit-exactes — y compris la
+    tuile (4,0) que le modele multiplicatif ratait de 2 (`probe_322_exoarmour_magnitude.py`).
+
+    GATES LUS (et rien d'autre — les callees du decompile sont
+    {GetCurrentDamageBonus, get_OwnerIsCaster, IsMeleeAttack, op_BitwiseAnd, ForAddition,
+     Nullable.ctor}) :
+      * `get_OwnerIsCaster` : VRAI par construction sur ce canal (`_attacker_effect_bonuses` n'itere
+        que les effets de l'ATTAQUANT) ;
+      * `IsMeleeAttack` : gate PARTAGE `is_melee_attack(is_ranged)` — nature non prouvee melee =>
+        aucune contribution. MESURE #312 : les sept tuiles a distance de la fixture sont EXACTES
+        sans ce bonus, les six de melee ne le sont qu'avec ;
+      * **AUCUN** `IsNormalAttack` -> le bonus vaut aussi pour les attaques d'ABILITY ;
+      * **AUCUN** gate `has_moved` : `TilesMovedThisTurn` n'est PAS `HasFlag(Moved)` (un teleport pose
+        `Moved` sans enregistrer de tuile ; un `DisplaceUnitOperation` enregistre des tuiles).
+
+    NIVEAU — `GetAbilityState` sur l'effet indexe `variables[level]` du config de `ModifiedExoarmour`,
+    qui est un PASSIF : cascade `active_ability_level -> ability_level -> level`, la meme que
+    `AvalancheOfMuscle`/`CondemnorStake`. Multiplier = le GLOBAL de l'unite.
+
+    MATERIALISATION — l'effet est POSE des le deploiement (`ModifiedExoarmourAbility$$CreateBehaviour`
+    = `AddEffect(0x607) & AddEffect(0x608)`) mais son `IsActive` natif est FAUX tant que l'unite n'a
+    pas bouge : le canal `decisionView` par DEFAUT ne le publie donc pas (MESURE live : `1543
+    PierceReduction` present des le deploiement, `1544` seulement avec `includeInactive`). D'ou les
+    deux pieces d'infra qui accompagnent ce port : l'entree `ModifiedExoarmour` de
+    `factory.ABILITY_INIT_OWNER_EFFECTS` (le seed) et `active_condition_ported` (le flag capte est
+    perime pour un effet dont la condition porte sur l'etat SIMULE)."""
+
+    # Le flag `EffectComponent.IsActive` capte decrit l'etat REEL (n = 0 hors deplacement) ; la
+    # prediction evalue l'etat SIMULE, que le natif recalcule (`RefreshSimulatedEffects`).
+    active_condition_ported = True
+    # TEMOIN d'ENTITE : `ModifiedExoarmourAbility$$CreateBehaviour` = `AddEffect(0x607) &
+    # AddEffect(0x608)` -- UNE SEULE expression (`AbilityBehaviour$$op_Addition`), donc les deux
+    # effets sont poses ENSEMBLE ou pas du tout. `ModifiedExoarmour_PierceReduction` (0x607=1543)
+    # n'a AUCUN `CreateActiveCondition` (ses seuls membres natifs sont `.ctor` et
+    # `CreatePiercingMalusForDefense`) -> il est TOUJOURS actif, donc TOUJOURS publie par le canal
+    # `decisionView` par defaut. Sa presence atteste que le behaviour a tourne sur CETTE entite ;
+    # son absence, que l'unite n'a pas le passif (MESURE : c'est exactement ce que discrimine le
+    # contre-bras `--passive-off` de #312, ou le seed BC vide `PassiveAbilities`).
+    seed_witness_effect = "ModifiedExoarmour_PierceReduction"
+
+    def is_active(self, unit_state=None) -> bool:
+        """`ModifiedExoarmour_ExtraDmgEffect$$CreateActiveCondition` =
+        `AmountIsGreaterThanZero( TilesMovedThisTurn(Self) )`.
+
+        `tiles_moved_this_turn` ABSENT du `unit_state` = **non mesure** (la `Scene` de prediction est
+        construite AVANT de connaitre la tuile candidate) -> on ne ferme pas : la magnitude, qui EST
+        `V x n`, rend alors l'effet inerte toute seule. Presente -> le gate natif, verbatim."""
+        n = (unit_state or {}).get("tiles_moved_this_turn")
+        return True if n is None else int(n) > 0
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        if not is_melee_attack(is_ranged):        # IsMeleeAttack (BattleQuery$$IsMeleeAttack)
+            return None
+        n = tiles_moved_this_turn(att_ctx)        # TilesMovedThisTurn(Self) -- foyer partage
+        if not n or int(n) <= 0:                  # non threade, ou aucune tuile parcourue -> inerte
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        v = ability_var("ModifiedExoarmour", "extraDmg", lvl,
+                        multiplier_pct=self.ability_variables_multiplier)
+        if not v:
+            return None
+        # `MultiplyAmount$$Calculate` = produit d'ENTIERS : `v` est DEJA l'entier arrondi rendu par
+        # `TryGetVariableArrayForLevel` (round(mult/100 x brut)), jamais un flottant a re-arrondir.
+        return for_addition(True, int(v) * int(n))
 
 
 # Traits CIBLE qualifiant `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$DamageCondition` :

@@ -780,16 +780,74 @@ def refresh_shields(predictor, rpc, rid):
     _seed_measured_traits(predictor["ctx_by_id"], snap)
 
 
+def _seed_condition_gated_owner_effects(eff_state, units, predictor) -> None:
+    """Complète le seed PRÉDICTION des owner-effects posés à l'INIT d'un passif **et laissés INACTIFS
+    par leur `CreateActiveCondition`** — donc invisibles du canal `decisionView` par DÉFAUT, qui ne
+    publie que les effets à `EffectComponent.IsActive` vrai (`readEffectsByUnit`,
+    `frida/hooks/game/effects.ts`). case-322.
+
+    Mirror de la boucle ABILITIES d'`IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute`
+    -> `<Ability>.CreateBehaviour` -> `AddEffect(owner)` (table
+    `effects.factory.ABILITY_INIT_OWNER_EFFECTS`, déjà consommée côté COMBAT par
+    `runner/operations/spawn.py::_owner_effects_from_abilities`). C'est ici son pendant DÉCISION, qui
+    manquait : la Scene de prédiction re-seede son `EffectsState` à CHAQUE pas depuis `dv`, sans
+    passer par le spawn.
+
+    DEUX GARDES, et la seconde a été posée par une RÉGRESSION MESURÉE :
+
+    * `active_condition_ported` — **seules** ces classes sont matérialisées. Pour toutes les autres,
+      l'absence du canal par défaut et le flag capté disent la MÊME chose (l'effet ne contribue pas),
+      et les faire entrer changerait `EffectsState.has_effect` sans qu'aucune mesure ne l'ait
+      demandé. Les trois autres entrées conditionnelles de la table
+      (`AnvilShield_BlockChanceBelowHealthCap`, `HammerOfWrath_ConditionalDamage`,
+      `HypersensoryAbilities_MinimalHealth`) restent donc HORS de ce chemin.
+    * `seed_witness_effect` — le porteur doit porter le TÉMOIN, c'est-à-dire l'effet FRÈRE posé par
+      la MÊME expression `CreateBehaviour` et inconditionnel. C'est le substrat d'**ENTITÉ**.
+      La première version lisait `GC.unit(vid).passiveAbilities` — le KIT — et le contre-bras de
+      #312 (seed BC avec `PassiveAbilities: []`) l'a prise en faute : le port accordait le bonus à
+      une Kimm qui N'A PAS le passif en bataille (sur-prédiction mesurée jusqu'à **+2806** sur la
+      tuile (4,0), là où natif == port avant le portage). Même piège que #264 côté traits.
+
+    Idempotent : `has_effect` skippe ce que le canal a déjà publié (l'unité a bougé -> l'effet est
+    actif -> capté -> aucune 2e instance)."""
+    from ..entities.effect_type import EffectType
+    from ..entities.effects.factory import (EffectFactory, EFFECT_CLASSES,
+                                            ABILITY_INIT_OWNER_EFFECTS)
+    seedable = [(n, k) for names in ABILITY_INIT_OWNER_EFFECTS.values() for n in names
+                for k in (EFFECT_CLASSES.get(n),)
+                if k is not None and getattr(k, "active_condition_ported", False)
+                and getattr(k, "seed_witness_effect", None)]
+    if not seedable:
+        return
+    for u in units:
+        uid = u.get("id")
+        for name, klass in seedable:
+            if not eff_state.has_effect(uid, name=klass.seed_witness_effect):
+                continue                                      # l'ENTITE n'a pas le passif
+            if eff_state.has_effect(uid, name=name):
+                continue                                      # deja publie par le canal
+            etype = EffectType.__members__.get(name)          # l'entite-effet native porte @+0x58
+            eff = EffectFactory.create(
+                {"name": name, "effectType": (int(etype) if etype is not None else None),
+                 "remaining": 0, "source": uid},              # rem 0 -> permanent (owner-effect)
+                ability_variables_multiplier=int(predictor["mult_by_id"].get(uid, 100) or 100),
+                ability_level=predictor["ablvl_by_id"].get(uid))
+            eff.target = uid
+            eff_state.add_effect(uid, eff)
+
+
 def step_context(predictor, dv):
     """État COURANT du pas (hp/pos/team + effets matérialisés seed) — reconstruit à chaque pas car
     l'état mute. (Ex-`PV.step_context`.)"""
     units = dv.get("units") or []
+    eff_state = EffectsState.seed(
+        {u["id"]: (u.get("effects") or []) for u in units},
+        predictor["mult_by_id"], predictor["ablvl_by_id"])
+    _seed_condition_gated_owner_effects(eff_state, units, predictor)
     return {
         "units": units,
         "hp_by_id": {u["id"]: u.get("hp") for u in units},
         "pos_by_id": {u["id"]: (u["pos"]["col"], u["pos"]["row"]) for u in units if u.get("pos")},
         "team_by_id": {u["id"]: u.get("team") for u in units},
-        "eff_state": EffectsState.seed(
-            {u["id"]: (u.get("effects") or []) for u in units},
-            predictor["mult_by_id"], predictor["ablvl_by_id"]),
+        "eff_state": eff_state,
     }

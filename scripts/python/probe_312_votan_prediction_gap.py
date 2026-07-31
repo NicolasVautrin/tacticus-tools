@@ -141,11 +141,48 @@ def measure(rid: int, damage: int) -> dict:
 def build_arm(damage: int, with_passive: bool, board: str = MDA.BOARD, seed: int = MDA.SEED,
               geom=None, unit_stats=None) -> tuple:
     """Monte UN bras de la fixture et le MESURE. Rend `(res, rid, geom)`.
-    Kimm n'est JAMAIS deplacee ; `set_arm(..., 0, ...)` garde les appats LOIN (pieges 1 et 2)."""
+    Kimm n'est JAMAIS deplacee ; `set_arm(..., 0, ...)` garde les appats LOIN (pieges 1 et 2).
+
+    GARDE-FOU DE MONTAGE (#322) : `MDA.build_fixture` lance `rl_duel build` avec `check=False` et
+    `stdout=DEVNULL` -- un build REFUSE ne leve donc RIEN, et `_runner_id()` relit paisiblement
+    l'ANCIEN runner du meme `--state-file`. Le probe mesure alors un bras qu'il croit neuf et rend
+    des chiffres parfaitement coherents... de la mesure precedente. VECU sur ce cas meme : un bras
+    `--board C2_19` (3 spawns joueur < 5 unites -> `[error]` du builder) a rendu, a la ligne pres,
+    les valeurs du bras `C4_09` d'avant, `Damage` inclus. On EXIGE donc un runner NEUF a chaque
+    build -- un echec RENDU ne doit pas pouvoir se lire comme une mesure."""
+    before = None
+    if MDA.STATE.exists():
+        try:
+            before = MDA._runner_id()
+        except Exception:                       # noqa: BLE001  (state-file illisible -> pas d'ancre)
+            before = None
     rid, geom = MDA.build_fixture(damage, with_passive=with_passive, board=board, seed=seed,
                                   geom=geom, unit_stats=unit_stats)
+    if before is not None and rid == before:
+        raise SystemExit(
+            "build REFUSE (runner inchange : %d) pour board=%s seed=%d Damage=%d -- le bras "
+            "mesurerait le runner PRECEDENT. Relancer `rl_duel build` a la main pour lire l'erreur "
+            "(cause frequente : le plateau n'a pas assez de spawns joueur pour 5 unites)."
+            % (rid, board, seed, damage))
     MDA.set_arm(rid, 0, geom)
     return measure(rid, damage), rid, geom
+
+
+def measure_without_the_effect(rid: int, damage: int) -> dict:
+    """RE-MESURE le meme runner avec `ModifiedExoarmour_ExtraDmgEffect` NEUTRALISE -- la MUTATION
+    ADVERSARIALE du port de #322, integree au harnais.
+
+    Elle sert deux fois : (a) elle prouve que le montage EXERCE reellement le regime (sans l'effet,
+    le port re-diverge du natif exactement comme avant le portage) ; (b) elle fournit le port
+    SANS-EFFET, donc l'ecart imputable a CE seul effet, tuile par tuile."""
+    from engine.entities.effects.loki import ModifiedExoarmourExtraDmgEffect as _E
+    orig = _E.create_effect_damage_bonus_for_attack
+    _E.create_effect_damage_bonus_for_attack = (
+        lambda self, *a, **k: None)                # le port comme si l'effet n'existait pas
+    try:
+        return measure(rid, damage)
+    finally:
+        _E.create_effect_damage_bonus_for_attack = orig
 
 
 def divergent_tiles(res: dict) -> list:
@@ -230,11 +267,17 @@ def main() -> int:
     # si l'ecart DISPARAIT sur toutes les tuiles, il vient ENTIEREMENT du passif -- et la base
     # native des tuiles de melee devient LISIBLE (elle est masquee par le bonus dans l'autre bras).
     passive = "--passive-off" not in argv
+    # `--unit-stat "VisualId:Champ=Valeur"` (repetable via `;`) : le levier de CONFIG de #312 SS 5
+    # (niveau de passif, multiplicateur de rarete) -- c'est lui qui fait varier `V` sans toucher a la
+    # geometrie, donc le seul moyen de montrer que la magnitude n'est pas fittee sur UN regime.
+    us = MDA._opt(argv, "--unit-stat")
+    unit_stats = [s for s in us.split(";") if s] if us else None
     geom = None
     for d in damages:
-        res, rid, geom = build_arm(d, passive, board=board, seed=seed, geom=geom)
-        print("\n--- runner=%d board=%s seed=%d Damage=%d passif=%s ---"
-              % (rid, board, seed, d, "ON" if passive else "RETIRE"))
+        res, rid, geom = build_arm(d, passive, board=board, seed=seed, geom=geom,
+                                   unit_stats=unit_stats)
+        print("\n--- runner=%d board=%s seed=%d Damage=%d passif=%s stats=%s ---"
+              % (rid, board, seed, d, "ON" if passive else "RETIRE", unit_stats or "-"))
         print("    geometrie : Kimm=%s ennemi=%s" % (geom["kimm"], res.get("enemy")))
         report(res, d)
     print("\n(pense a disposer le runner : python rl_duel.py dispose --state-file %s)" % MDA.STATE)

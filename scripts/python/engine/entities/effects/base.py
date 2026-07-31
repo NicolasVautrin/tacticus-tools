@@ -97,6 +97,35 @@ def is_charging_attack(att_ctx) -> bool:
     return (att_ctx or {}).get("is_charging") is True
 
 
+def tiles_moved_this_turn(att_ctx) -> "int | None":
+    """Nœud DSL `IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn(Self)` — foyer UNIQUE du
+    canal `att_ctx["tiles_moved_this_turn"]` (case-322).
+
+    Le natif est `IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate`, qui rend le
+    champ `+0xf0` du `UnitComponent` du porteur. Ce champ n'est écrit QUE par
+    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, en `+=`, et
+    `IdunBattle.Operations.MoveUnitOperation$$Execute` l'alimente sur les DEUX branches — y compris
+    la branche SIMULATION (`state.IsSimulating`), où le corps de
+    `MoveUnitOperation$$GetNumTilesMovedForSimulation` est inliné :
+
+        num = 0
+        if (HasTriggeredAbility(unit, 0x5f9 ModifiedExoarmour) || HasTriggeredAbility(unit, 0x4de))
+            CalculatePaths(unit, movementStart, previous, startTile, endTile, options,
+                           out path, out connectedPath)
+            num = BattleQuery.GetNumTilesMoved(connectedPath)      // = Count - 1
+        RecordTilesMoved(unit, num, state)                          // +0xec ET +0xf0  +=  num
+
+    D'où la valeur que voit une PRÉDICTION à une tuile candidate : **le compteur réel du tour PLUS
+    le nombre de tuiles du pas simulé** (le `+=`), et 0 pour toute unité qui ne porte NI 0x5f9 NI
+    0x4de (le natif ne calcule alors aucun chemin).
+
+    Tri-état : clé ABSENTE -> `None` = « non threadé », et les consommateurs rendent AUCUNE
+    contribution (« présent != appliqué »). Ce n'est PAS `0` : un zéro affirmerait « l'unité n'a pas
+    bougé », ce que le contexte ne dit pas."""
+    v = (att_ctx or {}).get("tiles_moved_this_turn")
+    return None if v is None else int(v)
+
+
 @dataclass
 class SubEffectSpec:
     """Sous-effet (enfant) qu'un effet COMPOSITE spawne quand il est appliqué (mirror des
@@ -186,6 +215,31 @@ class BaseEffect:
     # l'override de sous-classe (ex. `ActOfFaithBuffEffect.stacks_stat_mod_on_add = True`). Attribut de
     # classe SIMPLE = surchargeable par la MRO (même pattern que `cc_delta`/`stat_mod_source`).
     stacks_stat_mod_on_add = False
+    # Le flag capté `active` est-il PÉRIMÉ pour cet effet, parce que le port porte lui-même sa
+    # `CreateActiveCondition` ? (case-322). Natif : `EffectComponent.IsActive @+0x5c` n'est PAS un
+    # état figé — `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect` le RÉÉCRIT à chaque
+    # refresh (`RefreshEffectTrigger.Simulation` compris : une prédiction à une tuile candidate
+    # passe par `IdunBattle.Operations.SimulateEffectsOperation$$RefreshSimulatedEffects`). Un effet
+    # dont la condition dépend de l'ÉTAT SIMULÉ (ex. `ModifiedExoarmour_ExtraDmg` :
+    # `AmountIsGreaterThanZero(TilesMovedThisTurn)`) a donc un flag capté qui décrit l'état RÉEL et
+    # ne prédit RIEN de l'état simulé — le lire comme un filtre ferme le port à tort.
+    # `True` => `EffectsState.active_effects` s'en remet à `is_active(unit_state)` SEUL.
+    # ⚠ N'y passer un effet que si sa `CreateActiveCondition` est RÉELLEMENT portée (sinon le défaut
+    # `is_active -> True` transformerait un inerte capté en contributeur). Défaut `False` = le flag
+    # capté fait foi, comportement historique de TOUTES les autres classes.
+    # (Attribut de classe SIMPLE, sans annotation : sinon field dataclass, écrasé par l'`__init__`.)
+    active_condition_ported = False
+    # TEMOIN d'ENTITE de la pose de cet effet : le nom d'un effet FRERE, pose par la MEME expression
+    # `<Ability>.CreateBehaviour` et INCONDITIONNEL, donc toujours publie par le canal ACTIF-ONLY.
+    # Sert au seed de la face DECISION (`playbook/scene.py::_seed_condition_gated_owner_effects`) :
+    # un effet inactif ne se materialise que si son temoin est LA. Pourquoi un temoin plutot que le
+    # kit gameconfig du porteur : le kit dit ce que l'unite POSSEDE EN THEORIE, pas ce que l'ENTITE
+    # porte en bataille -- meme piege que #264 (`necroOverlord` a `Resilient` au gameconfig et pas en
+    # bataille). MESURE (case-322) : un seed BC prive de `PassiveAbilities` produit une entite SANS
+    # aucun des deux effets, alors que `GC.unit(vid).passiveAbilities` continue de les annoncer ; un
+    # seed base sur le kit sur-predisait alors de +2806 sur une tuile (contre-bras de #312).
+    # None = pas de seed decision (defaut de TOUTES les autres classes).
+    seed_witness_effect = None
     # Journal des `AddUnitActiveAbilityModification` REELLEMENT poses par cette instance (liste de
     # `(target, key, delta)`), rempli par `operations/ability_modifications.py::apply_ability_modifications`
     # et NIE par `revert_ability_modifications` (mirror `RevertInternal` = les memes appels en `-delta`).

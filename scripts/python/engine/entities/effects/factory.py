@@ -22,6 +22,7 @@ from .loki import (
     BeaconOfRageFriendlyExtraDamageEffect,
     TerrifyingCrescendoExtraDmgEffect,
     FuelledByFuryExtraDamageEffect,
+    ModifiedExoarmourExtraDmgEffect,
     BlessingsOfKhorneModifiersEffect,
     ContaminatedEffect,
     ContaminatedUnitEffect,
@@ -479,6 +480,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # IsActiveAbilityCountedAsUsed`) -> `If(HasEffect, IncreaseEffectLevel(+1, SANS cap), AddEffect)`.
     # EffectType 0x52b=1323 (#1323). extraDmg[L65]=153 (i2), rarity-scale.
     "FuelledByFury_ExtraDamage": FuelledByFuryExtraDamageEffect,
+    # ModifiedExoarmour (passif triggered 0x5f9=1529 de votanChampion << Kimm >>) : +extraDmg[ablvl
+    # passif] x mult x TILES-PARCOURUES-CE-TOUR, additif PRE-percage, sur les attaques de MELEE du
+    # porteur (`IdunBattle.Entities.Effects.Loki.ModifiedExoarmour_ExtraDmgEffect$$
+    # CreateEffectDamageBonusForAttack` = ForAddition(get_OwnerIsCaster & IsMeleeAttack,
+    # GetCurrentDamageBonus() = Multiply(ConfigVar 8=extraDmg, TilesMovedThisTurn(Self)))).
+    # EffectType 0x608=1544 (case-322 ; l'ecart mesure par #312 valait 44.395 vs 17.8 en utilite).
+    # MEME forme que FuelledByFury (Multiply(ConfigVar, <compteur>)), le compteur en moins.
+    "ModifiedExoarmour_ExtraDmg": ModifiedExoarmourExtraDmgEffect,
     # OverwhelmingWrath (active 1141 d'Azkor) : -dmgReductionPct% (64 des L36) au degat RANGED recu
     # par le porteur jusqu'au debut de son tour suivant (transient rem=1 ; IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_RangeDmgReductionEffect$$CreateDamageDefenseModifier ForPercentDecrease
     # OwnerIsTarget & IsRangedAttack, ConfigVar 0x46). EffectType 0x515=1301 (#190). Le jumeau
@@ -743,6 +752,17 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # 1332)` du node de degat serait mort dans tout runner ou Mataneo tombe sous 50 % APRES la capture.
     # Idempotent (skip si deja capte). Cle = le NOM d'ability gameconfig du porteur.
     "HammerOfWrath": ["HammerOfWrath_ConditionalDamage"],
+    # ModifiedExoarmour (passif de `votanChampion` << Kimm >>, TriggeredAbilityType 0x5f9=1529) —
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ModifiedExoarmourAbility$$CreateBehaviour`
+    # = `AddEffect(0x607) & AddEffect(0x608)` : les DEUX effets sont poses sur le porteur a l'init.
+    # Seul 0x608=1544 est inscrit ici : son `CreateActiveCondition`
+    # (`AmountIsGreaterThanZero(TilesMovedThisTurn)`) le laisse INACTIF tant que l'unite n'a pas
+    # bouge, donc ABSENT du canal `decisionView` par DEFAUT — MESURE live sur la fixture #312 :
+    # `1543 ModifiedExoarmour_PierceReduction` est publie des le deploiement, `1544` seulement avec
+    # `includeInactive`. 1543 est inconditionnel et toujours capte -> pas besoin de le seeder.
+    # MEME motif exact qu'`AnvilShield_BlockChanceBelowHealthCap` et
+    # `HammerOfWrath_ConditionalDamage` ci-dessus. Idempotent (skip si deja capte). case-322.
+    "ModifiedExoarmour": ["ModifiedExoarmour_ExtraDmg"],
 }
 
 

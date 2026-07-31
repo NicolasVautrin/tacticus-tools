@@ -245,6 +245,123 @@ def prediction_has_moved(scene, att_id, attack_pos) -> bool | None:
     return scene.has_moved(att_id)
 
 
+_TMT_CACHE = "_tiles_moved_path_counts"      # memo par (Scene, unite) — la Scene est refaite au pas
+# Mirror de `IdunBattle.Operations.MoveUnitOperation$$UnitNeedsAccurateNumTilesMovedInSimulation` =
+# `HasTriggeredAbility(unit, 0x5f9 ModifiedExoarmour) || HasTriggeredAbility(unit, 0x4de SmashaEad)`.
+# Pour toute AUTRE unite, `GetNumTilesMovedForSimulation` ne calcule AUCUN chemin et rend 0 — d'ou ce
+# court-circuit, qui est autant de la fidelite que de l'economie (un Dijkstra par unite et par pas).
+# Le substrat d'ENTITE cote port est l'effet que le passif POSE (meme temoin que le seed, cf.
+# `BaseEffect.seed_witness_effect`) : le kit gameconfig dirait ce que l'unite possede en theorie.
+# `SmashaEad` (0x4de) n'est PAS ici : son port (`SmashaEadExtraDamageEffect`) bake la condition
+# « a traverse >= 2 hexes » dans la MATERIALISATION de l'effet et ne lit pas ce canal — l'inscrire
+# ferait tourner le pathfinding pour rien. RESIDU NOMME : le jour ou ce port passera au canal
+# `tiles_moved_this_turn`, ajouter son effet ici.
+_TILES_MOVED_CARRIER_EFFECTS = ("ModifiedExoarmour_ExtraDmg",)
+
+
+def _needs_accurate_tiles_moved(scene, att_id) -> bool:
+    """`MoveUnitOperation$$UnitNeedsAccurateNumTilesMovedInSimulation`, cote port."""
+    st = getattr(scene, "eff_state", None)
+    return st is not None and any(st.has_effect(att_id, name=n)
+                                  for n in _TILES_MOVED_CARRIER_EFFECTS)
+
+
+def _walk_path_counts_from(scene, att_id) -> dict:
+    """`{(col,row) -> Count}` du `WalkPathfinder` depuis la position REELLE de `att_id` — le `path`
+    que `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` demande a
+    `IPathfinders.GetPath(GetPathfinderTypeForUnit(unit), unit, startTile, endTile, maxRange)`.
+
+    FOYER PARTAGE avec la face MOUVEMENT du meme passif (#304,
+    `playbook/modified_exoarmour.py::path_node_counts`) : MEME fonction
+    `entities.pathfinding.walk_pathfinder.get_path_node_counts_by_pos`, MEME convention `Count` =
+    NOEUDS (extremites incluses). Seul le SUBSTRAT differe (la `Scene` ici, le `tile_leaf_ctx`
+    la-bas), comme partout ailleurs entre les deux faces.
+
+    RESIDUS, tous PERMISSIFS et nommes :
+      * le natif compte sur `connectedPath` (`BattleQuery$$GetConnectedPathTo` ->
+        `MovementQuery$$GetConnectedPathTo`), qui est le `path` du pathfinder DENSIFIE : il
+        re-insere les tuiles intermediaires entre deux noeuds consecutifs distants de plus de 1
+        (teleporteurs/sauts). Sur un chemin de marche ordinaire les deux listes ont la MEME longueur.
+      * `block_entering_positions` n'est pas derivable de la Scene (`tile_effects_by_pos` porte des
+        NOMS, la table de blocage des ids `EffectType`) -> vide : un chemin peut passer par une tuile
+        que le natif facturerait `10000 - elevation`, donc etre plus COURT. Mesure par tuile
+        disponible : `probe_312_votan_prediction_gap.py` (colonne `bouge`).
+      * `IsTemporary(to)` : meme residu que la face MOUVEMENT (aucune source offline)."""
+    hit = getattr(scene, "_scene_cache", None)
+    if hit is not None and _TMT_CACHE in hit and att_id in hit[_TMT_CACHE]:
+        return hit[_TMT_CACHE][att_id]
+    from engine.entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
+    sp = scene.pos(att_id)
+    board = scene.board
+    counts: dict = {}
+    if sp is not None and board is not None:
+        by_id = board.by_id
+        pos_of = {tid: (t["col"], t["row"]) for tid, t in by_id.items()}
+        neigh = {pos_of[tid]: [pos_of[n] for n in (t.get("neighbours") or []) if n in pos_of]
+                 for tid, t in by_id.items()}
+        walk = {pos_of[tid]: bool(t.get("walkable")) for tid, t in by_id.items()}
+        elev = {pos_of[tid]: int(t.get("elevation") or 0) for tid, t in by_id.items()}
+        # `WalkPathfinder$$UnitIsBlockedByEnemyUnit` : occupant ENNEMI VIVANT non `Steppable`.
+        team = scene.team(att_id)
+        blocking = set()
+        for uid, p in (scene.pos_by_id or {}).items():
+            if uid == att_id or p is None or (scene.hp(uid) or 0) <= 0:
+                continue
+            if team is not None and scene.team(uid) == team:
+                continue                                   # un ami ne BLOQUE pas le passage
+            if "Steppable" in (getattr(scene.ctx(uid), "traits", None) or ()):
+                continue                                   # HasTrait(occ, 0x1b) -> ne bloque pas
+            blocking.add((p[0], p[1]))
+        counts = get_path_node_counts_by_pos((sp[0], sp[1]), neigh_by_pos=neigh,
+                                             walkable_by_pos=walk, elev_by_pos=elev,
+                                             blocking_positions=blocking)
+    try:
+        cache = getattr(scene, "_scene_cache", None)
+        if cache is None:
+            cache = {}
+            object.__setattr__(scene, "_scene_cache", cache)
+        cache.setdefault(_TMT_CACHE, {})[att_id] = counts
+    except Exception:                                       # Scene figee -> pas de memo
+        pass
+    return counts
+
+
+def prediction_tiles_moved_this_turn(scene, att_id, attack_pos) -> int:
+    """`TilesMovedThisTurn(Self)` TEL QUE LA PREDICTION NATIVE LE VOIT (case-322) — le pendant de
+    `prediction_has_moved` sur l'axe COMPTEUR, et il a la MEME structure a deux termes :
+
+      1. **le compteur REEL du tour** (`UnitComponent+0xf0`, ecrit par
+         `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`) ;
+      2. **le pas SIMULE**. Une prediction depuis une tuile autre que la tuile courante passe par
+         `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile`, et
+         `IdunBattle.Operations.MoveUnitOperation$$Execute` en mode simulation appelle
+         `RecordTilesMoved(unit, BattleQuery.GetNumTilesMoved(connectedPath))` — un `+=`, d'ou la
+         SOMME et non un remplacement. `GetNumTilesMoved` = `Count - 1` (extremites incluses ->
+         aretes), la meme convention decrementee que #304.
+
+    ⚠ Le natif ne calcule ce chemin QUE pour un porteur de `HasTriggeredAbility(0x5f9)` ou
+    `(0x4de)` (`MoveUnitOperation$$UnitNeedsAccurateNumTilesMovedInSimulation`) — pour toute autre
+    unite `GetNumTilesMovedForSimulation` rend **0**. Ce gate est ici implicite et sans effet
+    observable : le seul consommateur porte (`ModifiedExoarmour_ExtraDmg`) n'existe que sur un
+    porteur de 0x5f9, et le calcul n'est declenche que par lui.
+
+    TERME 1 NON MESURE : aucun capteur ne publie `UnitComponent+0xf0` (ni `combatSnapshot` ni
+    `decisionView`), et ce port ne peut pas en ajouter un. On rend donc `0` pour le terme reel —
+    EXACT tant que l'unite n'a pas encore bouge de son tour (le cas de TOUTE prediction faite avant
+    le deplacement, c'est-a-dire le cas nominal de la chaine de decision, qui evalue les tuiles
+    candidates AVANT d'agir), SOUS-ESTIME apres un deplacement deja joue. Point d'ancrage a hooker
+    pour le fermer : `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` (ou le champ `+0xf0` du
+    `UnitComponent`, a exposer par `combatSnapshot`)."""
+    real = 0                       # terme 1 — non capte (cf. docstring), jamais devine autrement
+    cur = scene.pos(att_id)
+    if attack_pos is None or cur is None or tuple(attack_pos) == tuple(cur):
+        return real                # `DoActionInSimulatedOnSameTile` : AUCUN MoveUnitOperation
+    if not _needs_accurate_tiles_moved(scene, att_id):
+        return real                # `GetNumTilesMovedForSimulation` rend 0 sans meme pathfinder
+    n = _walk_path_counts_from(scene, att_id).get((attack_pos[0], attack_pos[1]))
+    return real + (int(n) - 1 if n else 0)      # `IsNullOrEmpty(path)` -> 0
+
+
 def prediction_has_teleported(scene, att_id, attack_pos) -> bool:
     """`HasFlag(Self, UnitFlag.Teleported = 0xc)` tel que la prediction native le voit -- la branche
     qui RE-AUTORISE le +25% de `HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier`

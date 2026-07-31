@@ -1,7 +1,19 @@
 # case-312 — l'écart `44.395` / `17.8` de `votanChampion` : LOCALISÉ à l'étage PRÉDICTION
 
-**Statut : LOCALISÉ, NON CORRIGÉ** (2026-07-31). Le livrable est une localisation chiffrée par
-étage, une garde, et le matériel complet du port qui reste à faire.
+**Statut : LOCALISÉ (cette fiche), puis FERMÉ par #322** (2026-07-31). Le livrable de #312 est une
+localisation chiffrée par étage, une garde, et le matériel du port ; **le port lui-même, le modèle de
+magnitude et la validation vivent dans `docs/rl/case-322-modified-exoarmour-extradmg.md`.**
+
+> ⚠ **Les deux résidus du §5 (`R1` magnitude, `R2` tuile (4,0)) sont RÉSOLUS, et le §5 se lit
+> désormais comme l'histoire de leur résolution, pas comme un état.** Ils n'étaient qu'un seul
+> résidu : cette fiche compose l'écart *après* coup (`624 × n × M`) alors que le natif l'arrondit
+> **une fois par coup**, sur `(base_percée + additif_percé) × M`. Le modèle qui suit la structure du
+> pipeline rend les six tuiles bit-exactes — dont `(4,0)` à **4306** — et explique aussi le bras
+> `level=1` que le §5 écarte comme « non linéaire ». Détail et re-dérivation : case-322 §1, ou
+> `python probe_322_exoarmour_magnitude.py` (aucun live requis).
+>
+> Le tableau du §2 reste la mesure d'AVANT le port, et c'est ce qui lui donne sa valeur : c'est
+> l'écart que #322 ramène à zéro sur 85 paires.
 
 La question posée était binaire et elle n'était pas « le passif est-il porté ? » :
 
@@ -203,7 +215,13 @@ Les deux tâches sont donc **séparables** : corriger `base_override` ne déplac
 §2, et inversement. Vérifié dans ce checkout : `TilesMovedThisTurn` n'a **aucune** occurrence côté
 port, et `ModifiedExoarmour` n'y existe que par sa face MOUVEMENT (#304).
 
-## 7. Ce qu'il reste à faire pour PORTER (matériel, pas plan spéculatif)
+## 7. Ce qu'il restait à faire pour PORTER — **FAIT par #322**
+
+> Les quatre points ci-dessous ont été exécutés ; ils sont conservés parce que la RE qu'ils portent
+> est juste, et parce que le point 4 (« fermer R1 et R2 AVANT de poser le port ») est exactement ce
+> qui a évité un port collant sur cinq tuiles. Ce qui a manqué à cette liste : le point 2 postulait
+> `compteur réel + (path.Count − 1)` — c'est bien ça, et le `+=` de
+> `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` en est la preuve lue (case-322 §2).
 
 1. **L'effet n'est pas dans le canal live tant qu'il est inactif.** Mesuré sur un runner jetable :
    `decisionView.units[].effects` de Kimm contient `ModifiedExoarmour_PierceReduction` (1543) dès le
