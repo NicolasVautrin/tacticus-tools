@@ -2,8 +2,8 @@
 
 LA QUESTION BINAIRE, ENONCEE AVANT LA METHODE
 ---------------------------------------------
-« L'ensemble des tuiles que le NATIF embrase apres un cast de 1148 est-il EGAL a l'ensemble que
-rend la face COMBAT du port (`DaemonicOrdnanceAbility.execute_behaviour` -> `burned_tiles`) ? »
+"L'ensemble des tuiles que le NATIF embrase apres un cast de 1148 est-il EGAL a l'ensemble que
+rend la face COMBAT du port (`DaemonicOrdnanceAbility.execute_behaviour` -> `burned_tiles`) ?"
 
 Et il faut le mesurer sur une geometrie ou la zone NOMINALE (le triangle geometrique brut) et la
 zone REELLE different -- sinon la mesure ne tranche rien.
@@ -70,7 +70,7 @@ MOW_CARRIER = "blackForgefiend"             # porteur REEL de 1148 (Machine of W
 GRAFT_ON = "deathTyphus"                    # porteur greffe (bras sans MoW)
 
 # QUATRE BRAS = deux branches du `If` x DEUX REGIMES de tuile, et le second regime est celui qui
-# TRANCHE le residu #359-r4 (« le natif n'allume pas une tuile NON MARCHABLE ») :
+# TRANCHE le residu #359-r4 ("le natif n'allume pas une tuile NON MARCHABLE") :
 #
 #   dir=1 -- board MoW-capable : les 227 boards MoW-capables du depot declarent TOUS
 #            `MachineOfWarPosition = (team1: 2, team2: 1)` (mesure `--scan`), donc `dir = 1` avec la
@@ -364,7 +364,7 @@ def pose(arm: str, mutate: str = "") -> dict:
             raise SystemExit("cast natif refuse (%s) -- mesure REFUSEE" % act.get("error"))
         native = sorted(_burning(rpc, rid) - before)
         # EVENTS du cast : ils disent si l'effet a ete SOUMIS puis retire, ou JAMAIS soumis. Sans
-        # eux, « la tuile ne brule pas » ne distingue pas un selecteur qui l'exclut d'une operation
+        # eux, "la tuile ne brule pas" ne distingue pas un selecteur qui l'exclut d'une operation
         # qui la refuse -- exactement la decomposition par etage qu'un compte ne donne pas.
         ev = _effect_events(act)
         unwalk = sorted(q for q in stages["zone"] if not stages["walkable"][q])
@@ -420,7 +420,7 @@ def _pick_anchor(rpc, rid, board: Board, direction: int, caster: int, regime: st
         if regime == "unwalk" and len(s["zone"]) == 3 \
                 and any(not s["walkable"][q] for q in s["zone"]):
             return pos
-        # Regimes de TERRAIN : ils separent « non marchable » de « ce terrain-la ». Deux tuiles
+        # Regimes de TERRAIN : ils separent "non marchable" de "ce terrain-la". Deux tuiles
         # non marchables de terrains DIFFERENTS (Water vs Block) qui se comportent pareil disent
         # que la covariable est la marchabilite ; un ecart dit que c'est le terrain.
         if regime.startswith("terrain:") and len(s["zone"]) == 3 \
@@ -432,7 +432,7 @@ def _pick_anchor(rpc, rid, board: Board, direction: int, caster: int, regime: st
 def _effect_events(act: dict) -> list:
     """Events `ReceiveEffect` de la cascade StreamDispatcher du cast (`ActionResult.events`).
 
-    C'est L'ETAGE qui separe « l'effet n'a jamais ete soumis » de « il a ete pose puis desactive » :
+    C'est L'ETAGE qui separe "l'effet n'a jamais ete soumis" de "il a ete pose puis desactive" :
     `tileMeta` FILTRE les effets inactifs (`readEffectsByTile` : `!info.active && !includeInactive
     -> continue`) et n'expose pas le drapeau, donc son silence est AMBIGU. La cascade, elle, est
     emise a la POSE."""

@@ -13,7 +13,7 @@ A/B. **Le regime `elev`** -- l'ancre dont le triangle geometrique compte 3 tuile
      `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$GetTargetAreaTiles` :
        * `dir = 1` -- board MoW-capable, porteur = la VRAIE MoW `blackForgefiend` ;
        * `dir = 4` -- board non MoW-capable, porteur greffe.
-     C'est ce regime que #359-r4 avait lu comme « le natif n'allume pas une tuile NON MARCHABLE » :
+     C'est ce regime que #359-r4 avait lu comme "le natif n'allume pas une tuile NON MARCHABLE" :
      sur `MC1_67`, l'ancre `(4,1)` a pour voisine `(4,2)` a l'elevation **4** contre **2** -- la
      marchabilite n'y est qu'une COVARIABLE, et le bras A l'exhibe a l'envers (la tuile amputee y est
      MARCHABLE).
