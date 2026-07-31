@@ -71,8 +71,14 @@ class Parent(TargetsSelector):
     pour CHAQUE entite du selecteur source, `IdunBattle.Entities.UnitExtensions$$GetParent(u, ..., mode)` ;
     les parents non nuls sont accumules dans un `OrderedSet` (donc DEDUPLIQUES, ordre d'apparition).
 
-    Port : le lien enfant -> parent vit sur le dict d'unite (`parentId`, alimente par `UnitComponent.
-    parent_id` que `SpawnUnitOperation` pose au spawn = le `Unit_Parent_Id` natif). Le parent est
+    ⚠ La RECURSION vers la racine est conditionnee au 3e argument `root` de `GetParent` (le champ
+    `+0x20` que `ParentSelector$$.ctor` recopie du `mode`) : sans lui le natif rend le parent
+    DIRECT, ce que porte ce selecteur.
+
+    Port : le lien enfant -> parent vit sur le dict d'unite (`parentId` = `ChildComponent.ParentId`,
+    alimente par `UnitComponent.parent_id` que `SpawnUnitOperation` pose au spawn = le
+    `Unit_Parent_Id` natif, ou que `snapshot._load_unit_parent` seede depuis
+    `combatSnapshot.units[].parentId` sur un etat hydrate, #378). Le parent est
     RESOLU dans `ctx.units` (meme domaine que tous les selecteurs d'unite) ; un parent absent du
     contexte (ou `parentId` None) ne produit rien -> selecteur VIDE, mirror du `if (parent != null)`.
 

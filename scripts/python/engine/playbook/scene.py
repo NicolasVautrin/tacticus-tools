@@ -136,6 +136,24 @@ class Scene:
     # DYNAMIQUE au meme titre que `moved_by_id` (chaque deplacement l'incremente) -> re-capture par
     # pas via `refresh_shields`. Table VIDE = **non mesure** -> l'accesseur rend `None`.
     tiles_moved_by_id: dict = field(default_factory=dict)
+    # Lien enfant -> SUMMONER PER-UNITE (#378) : {uid: parentId | None} — mirror de
+    # `IdunBattle.Entities.Components.ChildComponent.ParentId` (BEntityId), le champ que lit
+    # `IdunBattle.Entities.UnitExtensions$$GetParent` (`TryGetComponent<ChildComponent>` puis
+    # `state.GetEntity(ParentId)`), foyer du selecteur
+    # `IdunBattle.Entities.Selectors.ParentSelector$$Select` (noeud DSL
+    # `IdunBattleLogic.Entities.DSLSelectors$$Parent`).
+    # Canal : `combatSnapshot.units[].parentId` cote live (capteur #378, TRI-ETAT), l'ECS
+    # (`UnitComponent.parent_id`) cote `from_state`. STATIQUE par unite (pose une fois au spawn,
+    # jamais reecrit) mais la POPULATION ne l'est pas : un summon apparait mid-bataille -> la table
+    # est re-capturee par pas comme les autres, via `refresh_shields`.
+    # Consommateur : le noeud `If( AmountIsGreaterThanZero(Parent(EffectSource)),
+    # Parent(EffectSource), EffectSource )` de `IdunBattle.Entities.Effects.Loki.
+    # DefenderOfTheGreaterGood_ExtraHitsEffect$$CreateEffectHitsBonusForAttack` (#372).
+    # ⚠ TRI-ETAT PAR ENTREE, pas par table : `uid` ABSENT = non mesure (l'accesseur rend `None`,
+    # le consommateur retombe sur la source elle-meme = comportement anterieur) ; `uid` PRESENT a
+    # `None` = mesure faite, cette unite n'est l'enfant de personne. Table vide = hook anterieur a
+    # #378 -> aucune unite mesuree, degradation STRICTEMENT anterieure.
+    parent_by_id: dict = field(default_factory=dict)
     # Cache PAR EQUIPE du cardinal `Enemies(Owner, UnitsWithTrait(AllUnits, Psyker))` (#208) —
     # calcule a la demande par `_enemy_psykers_alive`, valable pour TOUTE la duree de vie de la
     # Scene (elle est reconstruite a chaque pas de decision). Table de travail, pas une entree.
@@ -144,6 +162,21 @@ class Scene:
     def charged(self, uid) -> set:
         """Ids que `uid` a CHARGES ce tour (vide si non capte)."""
         return self.charged_by_id.get(uid) or set()
+
+    def parent(self, uid):
+        """`UnitExtensions.GetParent(uid, state, root=false)` = le SUMMONER direct de `uid`, ou
+        `None` (#378). `None` recouvre les deux etats non-parent -- « mesure faite, pas d'enfant »
+        et « pas mesure » -- parce que les DEUX consommateurs portes collapsent dessus (le noeud
+        `If(AmountIsGreaterThanZero(Parent(src)), Parent(src), src)` retombe sur `src`, et le
+        selecteur `Parent` rend une liste vide). `parent_measured` tranche quand un appelant a
+        besoin de savoir s'il a lu ou non."""
+        return (self.parent_by_id or {}).get(uid)
+
+    def parent_measured(self, uid) -> bool:
+        """La mesure du lien parent a-t-elle eu lieu pour `uid` ? (`False` = hook anterieur a #378,
+        capteur muet, ou unite absente du snapshot.) A ne PAS confondre avec `parent(uid) is None`,
+        qui vaut aussi pour une unite mesuree SANS parent."""
+        return uid in (self.parent_by_id or {})
 
     def prevents_overkill(self, uid) -> bool:
         """`UnitExtensions.HasFlag(uid, 0x13)` = `UnitFlag.PreventOverkill` (=19) — la cible ne peut
@@ -214,7 +247,7 @@ class Scene:
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
         defstat_by_id, charged_by_id, prevent_overkill_by_id = {}, {}, {}
         moved_by_id, teleported_by_id, active_ability_used_by_id = {}, {}, {}
-        tiles_moved_by_id = {}
+        tiles_moved_by_id, parent_by_id = {}, {}
         from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
         turns_started_by_id = {}
         units: list = []
@@ -273,6 +306,12 @@ class Scene:
             # reconstruire a zero. MEME forme que #267 (traits) et #266 (flag `Moved`) : une face qui
             # LIT ce que l'autre TIENT, jamais une seconde derivation.
             tiles_moved_by_id[eid] = unit_tiles_moved_this_turn(state, eid)
+            # #378 : `ChildComponent.ParentId` LU de l'ECS. Le champ y est TENU par
+            # `SpawnUnitOperation` (voie offline) ET seede depuis le live par
+            # `snapshot._load_unit_parent` -- donc renseigne dans les deux regimes, comme le flag
+            # `Moved` (#266). L'entite est INSCRITE meme quand elle n'a pas de parent : c'est une
+            # mesure PLEINE (cf. `Scene.parent_measured`), pas une absence.
+            parent_by_id[eid] = getattr(uc, "parent_id", None)
             vis_by_id[eid] = vis
             if hc is not None:
                 hp_by_id[eid] = hc.hp
@@ -304,7 +343,7 @@ class Scene:
             prevent_overkill_by_id=prevent_overkill_by_id,
             moved_by_id=moved_by_id, teleported_by_id=teleported_by_id,
             active_ability_used_by_id=active_ability_used_by_id,
-            tiles_moved_by_id=tiles_moved_by_id)
+            tiles_moved_by_id=tiles_moved_by_id, parent_by_id=parent_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
 
@@ -351,7 +390,13 @@ class Scene:
             # `prediction_tiles_moved_this_turn` garde le seul terme « pas simule », comportement
             # strictement anterieur. Le cablage est pose ICI pour que la voie live se ferme au
             # prochain reinject sans retoucher au port.
-            tiles_moved_by_id=predictor.get("tiles_moved_by_id") or {})
+            tiles_moved_by_id=predictor.get("tiles_moved_by_id") or {},
+            # #378 : lien enfant -> summoner du capteur `combatSnapshot.parentId`. Table vide = le
+            # hook ne publie PAS encore le champ -> `Scene.parent(uid)` rend `None` pour tout le
+            # monde et le noeud `If(AmountIsGreaterThanZero(Parent(src)), Parent(src), src)`
+            # retombe sur `src`, comportement STRICTEMENT anterieur. Le cablage est pose ICI pour
+            # que la voie live se ferme au prochain reinject sans retoucher au port.
+            parent_by_id=predictor.get("parent_by_id") or {})
         sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
         return sc
 
@@ -645,6 +690,10 @@ def build_predictor(rpc, rid):
                 u["entityId"]: int((u.get("stats") or {}).get("turnsStarted") or 0)
                 for u in (snap.get("units") or [])
                 if (u.get("stats") or {}).get("turnsStarted") is not None},
+            # #378 : lien enfant -> summoner (`ChildComponent.ParentId`). STATIQUE par unite (pose
+            # au spawn, jamais reecrit) mais la POPULATION ne l'est pas -> re-capture par-pas via
+            # `refresh_shields`, sinon un summon apparu apres le pas 0 resterait sans parent.
+            "parent_by_id": _parent_from_snapshot(snap),
             "board": board, "elev_by_pos": elev_by_pos,
             # #194 : vue DefenseComponent (stat 3 + modifications). Capture au BUILD ; DYNAMIQUE
             # (suit l'occupation de tuile) -> re-capturee par-pas via refresh_shields.
@@ -726,6 +775,22 @@ def _unit_flag_from_snapshot(snap, flag_name: str) -> dict:
     return {u["entityId"]: (int(fid) in u["unitFlags"])
             for u in (snap.get("units") or [])
             if u.get("entityId") is not None and u.get("unitFlags") is not None}
+
+
+def _parent_from_snapshot(snap) -> dict:
+    """{uid: parentId | None} depuis `combatSnapshot.units[]` (#378) -- mirror de
+    `IdunBattle.Entities.Components.ChildComponent.ParentId`, le champ que
+    `IdunBattle.Entities.UnitExtensions$$GetParent` lit pour resoudre le SUMMONER d'un summon.
+
+    TRI-ETAT, et la distinction est PORTEE PAR LE CAPTEUR, pas devinee ici : une unite n'entre dans
+    la table QUE si `parentMeasured is True`. Sur un hook anterieur a #378 le champ est absent, la
+    table reste VIDE, `Scene.parent(uid)` rend `None` partout et le consommateur garde le
+    comportement d'avant. Une unite mesuree SANS parent entre bien dans la table, a `None` : c'est
+    un FAIT (`TryGetComponent<ChildComponent> == false` cote natif), pas une absence de mesure --
+    et `Scene.parent_measured` sait les distinguer."""
+    return {u["entityId"]: (None if u.get("parentId") is None else int(u["parentId"]))
+            for u in ((snap or {}).get("units") or [])
+            if u.get("entityId") is not None and u.get("parentMeasured") is True}
 
 
 def _tiles_moved_from_actor_stats(ast) -> dict:
@@ -820,6 +885,11 @@ def refresh_shields(predictor, rpc, rid):
         u["entityId"]: int((u.get("stats") or {}).get("turnsStarted") or 0)
         for u in (snap.get("units") or [])
         if (u.get("stats") or {}).get("turnsStarted") is not None}
+    # #378 : re-capture du lien enfant -> summoner. La VALEUR est figee au spawn, mais la
+    # POPULATION croit en cours de bataille -- un cold pris au pas 0 ignorerait tout summon apparu
+    # depuis, c'est-a-dire precisement le cas d'usage (le drone `tauSmnDroneCommandLink` du jumeau
+    # `1307 DefenderOfTheGreaterGood_ExtraHitsDrone` n'existe pas au deploiement).
+    predictor["parent_by_id"] = _parent_from_snapshot(snap)
     # #33 : re-capture TotalAttacksMade (mirror du refresh de build_predictor). On n'écrase QUE si
     # le RPC a répondu (units présent) — sinon on garde le cold en fallback (RPC KO -> _r renvoie {},
     # .get("units") is None). Un `actorStats` valide sans attaque = {units:[…, totalAttacksMade:0]}.

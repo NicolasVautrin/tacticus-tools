@@ -425,12 +425,15 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
              #  * PAS de `rng` : cote PREDICTION `ANonDeterministicAbilityTrigger$$CanUseRandom` est
              #    FAUX, et `MaybeTrigger$$ShouldTrigger` y substitue `99 < chance` au tirage. L'absence
              #    de cle EST le mirror (cf. `entities.triggers.MaybeTrigger`, `rng is None`) ;
-             #  * PAS de `parent_by_id` : le lien `ParentComponent` (summoner) n'est PAS capte par le
-             #    harnais (ni `decisionView` ni `combatSnapshot`). Consequence NOMMEE, limitee au
-             #    jumeau DRONE : sa chance est lue sur SES tours au lieu de ceux de son summoner,
-             #    donc SOUS-ESTIMEE. Point d'ancrage a exposer : `ParentComponent` id @+0x10.
+             #  * `parent_by_id` (#378) = le noeud `Parent(EffectSource)` du meme `If`. Le lien est
+             #    desormais LU (`ChildComponent.ParentId` -> `combatSnapshot.units[].parentId` ->
+             #    `Scene.parent_by_id`) la ou il etait OMIS : le jumeau DRONE lisait SES tours au
+             #    lieu de ceux de son summoner, donc sa chance etait SOUS-ESTIMEE (residu nomme de
+             #    #372). Table vide = capteur anterieur a #378 -> `pid is None` -> le noeud retombe
+             #    sur la source, exactement le comportement d'avant.
              "att_faction": att_faction,
-             "turns_started_by_id": scene.turns_started_by_id}
+             "turns_started_by_id": scene.turns_started_by_id,
+             "parent_by_id": scene.parent_by_id}
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in _alive_ids if uid != tgt_id]

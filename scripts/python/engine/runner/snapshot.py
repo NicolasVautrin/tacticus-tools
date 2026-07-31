@@ -285,6 +285,9 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # compteur `turnsFinished` que lit `OwnerHasFinishedMinTurns`), entrees de gate et non
         # sorties -- cf. `_load_unit_turn_state`.
         _load_unit_turn_state(state, snapshot)
+        # MEME nature encore : le lien enfant -> summoner (`ChildComponent.ParentId`) est une
+        # ENTREE que seule la simulation posait (au spawn) -- cf. `_load_unit_parent`.
+        _load_unit_parent(state, snapshot)
         _load_stats_and_effects(state, decision, snapshot)
         # APRES les stats : le substrat de traits vit dans `UnitContext.traits`, que
         # `_load_stats_and_effects` vient de construire (unites ET MoW). Meme nature que les deux
@@ -609,6 +612,59 @@ def _load_unit_turn_state(state: State, snapshot: dict) -> None:
         charged = su.get("chargedUnitIds")
         if isinstance(charged, list):
             uc.charged_unit_ids = [int(i) for i in charged]
+
+
+def _load_unit_parent(state: State, snapshot: dict) -> None:
+    """Seede `UnitComponent.parent_id` depuis `combatSnapshot.units[]` (`parentId` +
+    `parentMeasured`, capteur #378).
+
+    MIRROR : `IdunBattle.Entities.Components.ChildComponent`, champ `ParentId` (`BEntityId` =
+    int32). C'est le champ que lit `IdunBattle.Entities.UnitExtensions$$GetParent` --
+    `TryGetComponent<ChildComponent>(child)` puis `state.GetEntity(comp.ParentId)` -- foyer du
+    selecteur `IdunBattle.Entities.Selectors.ParentSelector$$Select` (noeud DSL
+    `IdunBattleLogic.Entities.DSLSelectors$$Parent`).
+    ⚠ Ce n'est PAS `ParentComponent`, dont le `+0x10` est `ChildrenIds` (sens parent -> enfants) :
+    l'ancrage nomme par le residu de #372 designait l'autre bout du lien.
+
+    POURQUOI. Pendant EXACT de `_load_unit_flags` / `_load_unit_turn_state` : une ENTREE de gate que
+    RIEN ne peuplait sur un etat recharge. Seule la voie OFFLINE l'ecrivait
+    (`SpawnUnitOperation` -> `UnitComponent(parent_id=caster_id)`), donc le lien n'existait que si
+    le summon avait ete invoque DANS le rejeu. Un etat hydrate d'une capture prise APRES le spawn
+    repartait a `parent_id = None`, et les DEUX lecteurs portes du lien devenaient aveugles :
+
+      * `runner/damage_model.py::build_hits_board` -> `parent_by_id`, consomme par le noeud
+        `If( AmountIsGreaterThanZero(Parent(EffectSource)), Parent(EffectSource), EffectSource )`
+        de `IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraHitsEffect$$
+        CreateEffectHitsBonusForAttack`. Le jumeau DRONE (`1307`) y lisait SES tours au lieu de
+        ceux de Shadowsun -- chance SOUS-ESTIMEE (degradation restrictive, cf. case-372 SS 7) ;
+      * `entities/selectors/tiles.py::Parent`, le selecteur lui-meme
+        (`ListenUpMaggotsEffect$$CreateTargetSelector` = `Parent(Self)`,
+        `SwornProtector_ProtectAbility$$CreateBehaviour` = `SwitchPosition(Self, Parent(Self))`).
+
+    TRI-ETAT -- et ici il est LOAD-BEARING, pas une precaution de style. Le capteur rend DEUX
+    champs : `parentMeasured` (la mesure a-t-elle eu lieu ?) et `parentId` (son resultat). On
+    n'ecrit QUE si `parentMeasured is True`. Sinon on ne TOUCHE A RIEN -- car ecrire le `None`
+    d'une non-mesure EFFACERAIT un `parent_id` que la simulation offline avait, lui, correctement
+    pose au spawn : un capteur muet (hook anterieur a #378, classe `ChildComponent` irresolue)
+    deviendrait ainsi une REGRESSION de la voie qui marchait deja. `parentMeasured=True` +
+    `parentId=None` est en revanche une mesure PLEINE (« cette unite n'est l'enfant de personne »,
+    la sortie `TryGetComponent == false` du natif) : on l'ecrit, elle EFFACE legitimement.
+
+    Portee : toutes les lignes du snapshot (`EntityType.Unit` ET `EntityType.Machine` -- le port
+    materialise la MoW avec un `UnitComponent` via `_load_machines`, qui tourne AVANT).
+    Ids : `combatSnapshot.entityId` == cle ECS du port, aucune traduction (cf. en-tete du module)."""
+    for su in (snapshot.get("units") or []):
+        eid = su.get("entityId")
+        if eid is None:
+            continue
+        ent = state.get_entity(eid)
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is None:
+            continue
+        if su.get("parentMeasured") is not True:
+            continue                      # capteur muet -> on garde ce que la simulation a pose
+        pid = su.get("parentId")
+        uc.parent_id = None if pid is None else int(pid)
 
 
 def _load_actor_statistics(state: State, actor_stats: dict) -> None:

@@ -91,10 +91,22 @@ class SupremeCommanderPlaybook(NonComparablePlaybook):
         garde les depouilles — `project_decisionview_keeps_dead`) + `ctx.obs_units` (observeBattle,
         qui porte `isDead`), SANS filtre de vie : un Kell MORT satisfait encore le gate.
 
-        `c.ParentId == EntityId(caster)` est MIRRORE OFFLINE par `_kit_spawn_visual_ids` (le lien
-        natif `ChildComponent.ParentId` n'est publie par aucun RPC — cf. sa docstring pour la
-        derivation, son domaine d'exactitude et le residu). `IsFriend(u, caster)` = meme equipe.
-        Le caster est exclu de son propre pool d'enfants (une unite n'est jamais son propre parent).
+        `IsFriend(u, caster)` = meme equipe. Le caster est exclu de son propre pool d'enfants (une
+        unite n'est jamais son propre parent).
+
+        `c.ParentId == EntityId(caster)` est LU (#378) des que le canal le porte : le capteur publie
+        `ChildComponent.ParentId` dans `decisionView.units[].parentId`, avec son discriminant
+        `parentMeasured`. C'est le mirror EXACT du natif, qui ne fait rien d'autre --
+        `IdunBattle.AI.Playbook.Loki.SupremeCommanderPlaybook$$IsFriendlyKell` prend le
+        `ChildComponent` de `unit`, compare `*(int *)(comp + 0x10)` a l'`EntityId` du caster, et
+        delegue a `IdunBattle.Entities.UnitExtensions$$IsFriend`.
+
+        REPLI, unite par unite : celles dont le champ n'est PAS mesure (hook anterieur a #378, ou
+        ligne venue d'`observeBattle` qui ne porte pas ce champ) restent traitees par
+        `_kit_spawn_visual_ids` -- la derivation config, exacte tant qu'une equipe ne porte pas deux
+        summoners du meme summon (cf. sa docstring). Le repli est PAR LIGNE et non global pour que
+        la couverture ne baisse jamais : `obs_units` reste la source des MORTS, qu'un Kell tombe
+        satisfait encore le gate.
 
         AVANT #119 ce predicat lisait `u["parentId"]`, ABSENT de toute reponse RPC -> il rendait
         False EN PERMANENCE : `should_evaluate` etait constant False et le playbook, quoique
@@ -108,14 +120,18 @@ class SupremeCommanderPlaybook(NonComparablePlaybook):
         if me is None:
             return False
         kids = _kit_spawn_visual_ids(me.get("visualId"))
-        if not kids:
-            return False
         my_team = me.get("team")
         for u in (list(ctx.units or []) + list(ctx.obs_units or [])):
-            if u.get("visualId") not in kids:              # c.ParentId == EntityId(caster)
-                continue
             if u.get("id") == ctx.uid or u.get("squadId") == ctx.uid:
                 continue                                   # pas son propre enfant
+            # `c.ParentId == EntityId(caster)` -- LECTURE quand le capteur a mesure, derivation
+            # config sinon. `parentMeasured is True` + `parentId != uid` est un NON franc : on ne
+            # retombe PAS sur l'heuristique derriere une mesure, ce serait la rendre permissive.
+            if u.get("parentMeasured") is True:
+                if u.get("parentId") != ctx.uid:
+                    continue
+            elif not kids or u.get("visualId") not in kids:
+                continue
             team = u.get("team") if u.get("team") is not None else u.get("teamId")
             if my_team is None or team is None or team == my_team:   # IsFriend(u, caster)
                 return True
