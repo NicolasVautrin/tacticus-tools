@@ -256,9 +256,21 @@ et c'est le bras TEMOIN — celui qui « passe tout seul » quand tout vaut 0 �
 
 ---
 
-## 5. RESIDU NOMME — `MinMaxDamage$$Avg` arrondit, le port garde le `.5`
+## 5. RESIDU NOMME — `MinMaxDamage$$Avg` arrondit, le port gardait le `.5`  → **FERME par #333**
 
-**Ce residu n'appartient PAS a cette tranche** : il vit dans le composite Damage PARTAGE, il touche
+> **FERME le 2026-07-31 (`case-333-arrondi-minmax-avg.md`).** Le port applique desormais l'arrondi
+> au foyer (`engine.services.min_max_damage.min_max_avg`, appele par les DEUX methodes de
+> `DamageUtility`). Ecart re-mesure sur CE montage : `+2.500e-03` -> `~8e-09` sur les tuiles a
+> somme IMPAIRE.
+>
+> ⚠ **Ce que cette section ne pouvait PAS etablir, et ne l'a pas etabli** : le MODE d'arrondi. Ses
+> trois cibles a somme IMPAIRE ont toutes un `floor` IMPAIR (`4711`), et sur ce cote-la
+> demi-vers-le-pair et demi-vers-le-haut **coincident**. L'assertion « le port SOUS-ESTIME »
+> (ci-dessous) n'est donc vraie que d'une moitie du regime : sur un `floor` PAIR le natif DESCEND et
+> l'ecart est NEGATIF. La discrimination du mode a demande de PILOTER la parite par les PV de la
+> cible — `case-333` §4.
+
+**Ce residu n'appartenait PAS a cette tranche** : il vit dans le composite Damage PARTAGE, il touche
 TOUTES les abilities, et il se mesure a l'identique sur l'attaque NORMALE (69). Il est documente ici
 parce que c'est la mesure qui l'a fait apparaitre.
 
@@ -288,18 +300,18 @@ arrondi demi-vers-le-pair, le port un demi. `get_shield_damage` a la meme forme 
 | necroWarden | 3771 | 5652 | IMPAIRE | `+2.500e-03` |
 | astraCreed | 2514 | 3768 | PAIRE | `-2.8e-09` (bruit flottant) |
 
-**Preuve par construction** (garde `test_residual_utility_gap_is_the_shared_minmax_rounding`) : en
-appliquant l'arrondi natif en monkeypatch, l'ecart DISPARAIT sur toutes les tuiles (`< 1e-6`).
+**Preuve par construction** : en appliquant l'arrondi natif en monkeypatch, l'ecart DISPARAISSAIT
+sur toutes les tuiles (`< 1e-6`). La garde correspondante
+(`test_the_shared_minmax_rounding_is_applied_and_the_gap_is_closed`) est desormais l'INVERSE : elle
+exige un ecart NUL, et rejoue le `.5` conserve en MUTATION pour verifier qu'elle sait virer au rouge.
 
 **Meme mesure sur l'attaque NORMALE (69), meme runner** : `orksWarboss` port `0.6773716131` vs natif
-`0.6774966139` (`+1.250e-04` a `hpmax = 400000`), `astraCreed` EXACT. Le residu est donc bien
+`0.6774966139` (`+1.250e-04` a `hpmax = 400000`), `astraCreed` EXACT. Le residu etait donc bien
 GLOBAL, pas une propriete de 1169.
 
-**Pourquoi ce n'est pas corrige ici** : rayon d'impact GLOBAL (toute utilite de degat du moteur
+**Pourquoi ce n'etait pas corrige ici** : rayon d'impact GLOBAL (toute utilite de degat du moteur
 bouge d'au plus 0.5 point de degat), donc une re-validation bien plus large que les tests cibles de
-cette tranche. **Tranche dediee**, avec l'oracle deja en main (`pairUtility(69, <cible a somme
-impaire>)`) et un correctif de 4 lignes dans `DamageUtility.get_health_damage` /
-`get_shield_damage`.
+cette tranche. Fait en **tranche dediee** : `case-333-arrondi-minmax-avg.md`.
 
 ---
 

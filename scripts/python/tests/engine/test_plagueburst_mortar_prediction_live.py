@@ -9,11 +9,12 @@ A. **L'ORACLE PAR ETAGE existe et est utilise.** `pairUtility(caster, <tileEntit
    found » : le test ECHOUE en le disant, il ne skippe pas (un skip vert mentirait).
 B. **Le port est bit-exact sur les CHAMPS de prediction** (`aiPlaybookPredict` vs
    `make_damage_predictions`) : min/max de degat sante, `appliedHits`, `hpBefore`.
-C. **Le residu d'utilite est ATTRIBUE, pas tolere.** `IdunBattle.Core.Services.MinMaxDamage$$Avg` =
-   `(int)Fix64.Round((min+max)/2, MidpointRounding=0)` -- un arrondi DEMI-VERS-LE-PAIR --, alors que
-   `engine.utilities.damage.DamageUtility.get_health_damage` garde le `.5`. Le test le PROUVE : avec
-   l'arrondi natif applique en monkeypatch, l'ecart DISPARAIT sur toutes les tuiles. C'est un residu
-   du composite PARTAGE (mesurable a l'identique sur l'attaque normale 69), PAS de cette tranche.
+C. **Le residu d'utilite est REFERME** (#333). `IdunBattle.Core.Services.MinMaxDamage$$Avg` =
+   `(long)Fix64.Round((min+max)/2, midpointRounding = 0)` -- un arrondi DEMI-VERS-LE-PAIR --, que
+   `engine.utilities.damage.DamageUtility` applique desormais aux DEUX termes (sante et bouclier).
+   L'ecart port/natif est donc NUL sur toutes les tuiles (`+2.500e-03` -> `~8e-09` sur les sommes
+   IMPAIRES, meme montage). Le test conserve son pouvoir discriminant par MUTATION : il rejoue le
+   port d'AVANT #333 et exige que l'ecart REAPPARAISSE sur les sommes impaires.
 D. **Le terme change la DECISION, et la mutation vire au ROUGE.** Bras DISCRIMINANT : le natif vise
    la tuile de l'ennemi du MILIEU (custom 20 + prediction) et non la tuile a 3 ennemis adjacents
    (custom 30, prediction 0). Vider `MakeDamagePredictions` fait basculer le moteur sur CETTE
@@ -131,63 +132,67 @@ def test_prediction_fields_are_bit_exact_with_the_native_playbook(arms):
     assert checked >= 2, "moins de 2 cibles predites -- le montage ne couvre pas assez"
 
 
-def test_residual_utility_gap_is_the_shared_minmax_rounding(arms):
-    """C : l'ecart residuel port/natif sur l'utilite est ENTIEREMENT explique par
-    `IdunBattle.Core.Services.MinMaxDamage$$Avg` (arrondi DEMI-VERS-LE-PAIR), que le port ne fait
-    pas. Preuve par CONSTRUCTION : on applique l'arrondi natif en monkeypatch et on re-mesure --
-    l'ecart doit DISPARAITRE.
+def test_the_shared_minmax_rounding_is_applied_and_the_gap_is_closed(arms):
+    """C : le residu que cette garde ATTRIBUAIT est REFERME (#333). `MinMaxDamage$$Avg` =
+    `(long)Fix64.Round((min+max)/2, midpointRounding = 0)` -- un arrondi DEMI-VERS-LE-PAIR --, et
+    le port le fait desormais au foyer (`engine.services.min_max_damage.min_max_avg`, appele par
+    les deux methodes de `DamageUtility`). L'ecart port/natif doit donc etre NUL sur TOUTES les
+    tuiles, somme PAIRE comme IMPAIRE.
 
-    Ce residu vit dans le composite PARTAGE (`engine.utilities.damage.DamageUtility`), pas dans
-    cette tranche : il se mesure a l'identique sur l'attaque normale 69. Le corriger a un rayon
-    d'impact GLOBAL -> tranche dediee (cf. `docs/rl/case-302-2-prediction-tile-target.md` §5)."""
-    import decimal
+    Mesure avant/apres, meme montage : tuiles a somme IMPAIRE `+2.500e-03` -> `~8e-09`.
 
+    ⚠ Cette garde ne vaut que si elle SAIT virer au rouge : elle rejoue donc le port d'AVANT #333
+    (`(min+max)/2.0`, le `.5` conserve) en MUTATION et exige que l'ecart REAPPARAISSE sur les
+    sommes IMPAIRES -- et seulement sur celles-la.
+
+    Ce montage n'exerce QUE le cote `floor` IMPAIR du `.5` (bornes `3771 + 5652`), ou
+    demi-vers-le-pair et demi-vers-le-haut COINCIDENT : il ne discrimine donc pas le MODE
+    d'arrondi. C'est `tests/engine/test_333_minmax_avg_rounding_live.py` qui le fait, en pilotant
+    la parite par les PV de la cible."""
     import engine.playbook as PBK
-    from engine.utilities.damage import DamageUtility
+    import engine.utilities.damage as DMG
 
     r = arms["disc"]
     rows = [x for x in r["rows"] if x["fields"]]
-    assert rows, "aucune tuile predite -- rien a attribuer"
+    assert rows, "aucune tuile predite -- rien a mesurer"
 
-    # (1) parite : somme PAIRE -> accord EXACT ; somme IMPAIRE -> le port SOUS-ESTIME.
+    # (1) l'ecart est NUL des deux cotes de la parite.
     odd = 0
     for row in rows:
         f = row["fields"][0]
         s = int(f["healthDmgMin"]) + int(f["healthDmgMax"])
         d = (row["nat"] or 0.0) - (row["port"] or 0.0)
-        if s % 2 == 0:
-            assert abs(d) < 1e-6, (
-                "tuile %s : somme PAIRE mais ecart %.3e -- le residu n'est PAS l'arrondi" % (row["pos"], d))
-        else:
-            odd += 1
-            assert d > 0, (
-                "tuile %s : somme IMPAIRE et le port SUR-estime (%.3e) -- l'arrondi natif ne peut "
-                "que faire MONTER la moyenne" % (row["pos"], d))
-    assert odd >= 1, "aucune somme IMPAIRE dans le montage -- l'attribution n'est pas exercee"
+        odd += s % 2
+        assert abs(d) < 1e-6, (
+            "tuile %s : somme %s, ecart %.3e -- l'arrondi `MinMaxDamage$$Avg` n'est plus applique "
+            "au foyer, ou un AUTRE residu est apparu"
+            % (row["pos"], "IMPAIRE" if s % 2 else "PAIRE", d))
+    assert odd >= 1, (
+        "aucune somme IMPAIRE dans le montage -- aucun `.5` exact n'est exerce, l'accord ne dit "
+        "alors RIEN de l'arrondi")
 
-    # (2) preuve par CONSTRUCTION : avec l'arrondi natif, l'ecart disparait partout.
-    orig = DamageUtility.get_health_damage
-
-    def _native_avg(self, pred):
-        if pred.get("limitedByMinHp"):
-            return float(pred.get("hpBefore") or 0)
-        dmin = pred.get("healthDmgMin") or 0
-        dmax = pred.get("healthDmgMax") or 0
-        return float(decimal.Decimal((dmin + dmax) / 2.0).quantize(
-            0, rounding=decimal.ROUND_HALF_EVEN))
-
+    # (2) MUTATION : le port d'AVANT #333 doit faire REAPPARAITRE l'ecart, sur les IMPAIRES seules.
     pb = PBK.REGISTRY[PB]
-    DamageUtility.get_health_damage = _native_avg
+    orig = DMG.min_max_avg
+    DMG.min_max_avg = lambda a, b: (int(a) + int(b)) / 2.0
     try:
         _s, _rpc, _dv, _mv, _wt, _pr, ctx = P._ctx(r["rid"], r["caster"])
         for row in rows:
+            f = row["fields"][0]
+            s = int(f["healthDmgMin"]) + int(f["healthDmgMax"])
             evs = pb.make_damage_predictions(ctx, ctx.origin, row["tile"], PB) or []
-            fixed = pb.calculate_utility_from_predictions(ctx, ctx.origin, row["tile"], PB, evs)[0]
-            assert abs((row["nat"] or 0.0) - fixed) < 1e-6, (
-                "tuile %s : meme avec l'arrondi natif, ecart %.3e -- le residu n'est PAS (que) "
-                "l'arrondi de `MinMaxDamage$$Avg`" % (row["pos"], (row["nat"] or 0.0) - fixed))
+            mutated = pb.calculate_utility_from_predictions(ctx, ctx.origin, row["tile"], PB, evs)[0]
+            d = (row["nat"] or 0.0) - mutated
+            if s % 2:
+                assert abs(d) > 1e-4, (
+                    "tuile %s : somme IMPAIRE et la MUTATION (le `.5` conserve) ne change RIEN "
+                    "(ecart %.3e) -- la garde ne sait pas virer au rouge" % (row["pos"], d))
+            else:
+                assert abs(d) < 1e-6, (
+                    "tuile %s : somme PAIRE et la MUTATION change quelque chose (ecart %.3e) -- "
+                    "l'arrondi mordrait hors du regime `.5`" % (row["pos"], d))
     finally:
-        DamageUtility.get_health_damage = orig
+        DMG.min_max_avg = orig
 
 
 def test_engine_matches_native_on_both_arms(arms):

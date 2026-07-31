@@ -5,6 +5,9 @@ DamageDealt(35) = `IdunBattle.AI.Utilities.DamageUtility` (IdunBattle.AI.Utiliti
 - `<EvaluateAttackInSteps>d__2.MoveNext` (IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) — RE LECTURE INTÉGRALE (2026-07-02) :
     hAvg        = Avg(AccurateHealthDamage@0x58) ; si LimitedByMinHp@0xB0 -> CurrentHealth@0x0
     sAvg        = Avg(AccurateShieldDamage@0x78)                        # bouclier COMPTE dans l'utilité
+    ⚠ `Avg` = `IdunBattle.Core.Services.MinMaxDamage$$Avg` = `(int)Fix64.Round((min+max)/2,
+    midpointRounding = 0)` — un arrondi DEMI-VERS-LE-PAIR, appliqué à CHAQUE terme séparément
+    (mirror : `engine.services.min_max_damage.min_max_avg`, #333).
     D           = hAvg + sAvg
     combinedMax = (target.MaxHealth + 1) + (GetShield(target) + 1)     # boss : config 0xa9 (IdunBattle.AI.Utilities.DamageUtility$$CombinedMax)
     ⚠ #45b' : MaxHealth = `GetStat(target, Health=5, StatPart=2, null)` (relu IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) = l'agrégat
@@ -31,6 +34,7 @@ dégât est une FRACTION des PV max × 80.
 """
 from __future__ import annotations
 
+from ..services.min_max_damage import min_max_avg
 from ..weights import Weights
 from .base import BaseUtility, ComposedUtility
 from .utility_type import UtilityType
@@ -50,20 +54,26 @@ class DamageUtility(BaseUtility):
     UTILITY_TYPE = int(UtilityType.DamageDealt)  # 36
 
     def get_health_damage(self, pred) -> float:
-        """`IdunBattle.AI.Utilities.DamageUtility$$GetHealthDamage` : Avg(AccurateHealthDamage@0x58) ; si
-        `LimitedByMinHp@0xB0` (dégât plafonné par une règle min-HP) -> CurrentHealth@0x0 entier."""
+        """`IdunBattle.AI.Utilities.DamageUtility$$GetHealthDamage` :
+        `Fix64(MinMaxDamage$$Avg(AccurateHealthDamage@+0x40))` ; si `LimitedByMinHp@+0x88` (dégât
+        plafonné par une règle min-HP) -> `Fix64(CurrentHealth@+0x00)` entier. (Offsets relus sur
+        `rnca9r7q6c` ; l'en-tête du module cite ceux de `gqfc5mff6c` — la STRUCTURE est identique.)
+
+        ⚠ `MinMaxDamage$$Avg` **ARRONDIT** (`Fix64.Round(..., midpointRounding = 0)` =
+        demi-vers-le-PAIR) : le port rendait `(min + max) / 2.0` et gardait le `.5`, ce qui
+        décalait TOUT le rail de dégât dès que `min + max` est IMPAIR — mesuré jusque sur
+        l'attaque normale 69 (`orksWarboss`, port `0.6773716131` vs natif `0.6774966139`).
+        Le mirror vit dans `engine.services.min_max_damage.min_max_avg`, PAS ici."""
         if pred.get("limitedByMinHp"):
             return float(pred.get("hpBefore") or 0)
-        dmin = pred.get("healthDmgMin") or 0
-        dmax = pred.get("healthDmgMax") or 0
-        return (dmin + dmax) / 2.0
+        return float(min_max_avg(pred.get("healthDmgMin") or 0, pred.get("healthDmgMax") or 0))
 
     def get_shield_damage(self, pred) -> float:
-        """`IdunBattle.AI.Utilities.DamageUtility$$GetShieldDamage` : Avg(AccurateShieldDamage@0x78). 0 si le
-        prédicteur n'a pas splitté (cible sans bouclier)."""
-        smin = pred.get("shieldDmgMin") or 0
-        smax = pred.get("shieldDmgMax") or 0
-        return (smin + smax) / 2.0
+        """`IdunBattle.AI.Utilities.DamageUtility$$GetShieldDamage` :
+        `MinMaxDamage$$Avg(AccurateShieldDamage@+0x50)` — le MÊME `Avg` arrondi que la santé, et il
+        est appliqué à chaque terme SÉPARÉMENT (le natif somme deux entiers déjà arrondis, il
+        n'arrondit pas la somme). 0 si le prédicteur n'a pas splitté (cible sans bouclier)."""
+        return float(min_max_avg(pred.get("shieldDmgMin") or 0, pred.get("shieldDmgMax") or 0))
 
     def evaluate(self, pred, target_max_hp, wt) -> float:
         if not pred:
