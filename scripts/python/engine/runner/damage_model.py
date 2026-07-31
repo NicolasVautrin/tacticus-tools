@@ -702,6 +702,10 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     from .components import PositionComponent, OwnerComponent, UnitComponent
     pos_by_id: dict = {}
     team_by_id: dict = {}
+    # #372 — substrat d'ENTITÉ du canal AURA de COUPS : `UnitTurnsStarted` = `GetStat(., 0xc)` et
+    # le lien `ParentComponent` (summoner), lus sur les MÊMES unités VIVANTES que les auras.
+    turns_started_by_id: dict = {}
+    parent_by_id: dict = {}
     aura_sources = []
     target_effects: list = []
     for uid, e in state.entities.items():
@@ -718,6 +722,11 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
             pos_by_id[uid] = (pc.col, pc.row)
         if oc is not None:
             team_by_id[uid] = oc.team
+        if _uc is not None:
+            parent_by_id[uid] = getattr(_uc, "parent_id", None)
+        _sc = e.get_component(StatsComponent)
+        if _sc is not None:
+            turns_started_by_id[uid] = int(_sc.ctx.stat(StatType.TURNS_STARTED) or 0)
         effs = (state.effects.active_effects(uid, unit_state_for_effects(state, uid))
                 if state.effects is not None else [])
         if uid == tgt_id:
@@ -731,6 +740,20 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": team_by_id.get(tgt_id), "is_melee": is_melee,
              "pos_by_id": pos_by_id, "team_by_id": team_by_id,
+             # #372 — substrat du canal AURA de COUPS (`aura_hits_bonus_for_attack`), consommateur
+             # `DefenderOfTheGreaterGood_ExtraHits` (1183 / 1307) :
+             #  * `att_faction` = `UnitsFromFaction(SurroundingFriends(owner, 2), 9 = Tau)` du
+             #    sélecteur `DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector` — MÊME
+             #    source (`FactionId` du gameconfig) que le canal DÉGÂT (`attacker_modifiers`) ;
+             #  * `turns_started_by_id` / `parent_by_id` = le nœud
+             #    `UnitTurnsStarted(If(AmountIsGreaterThanZero(Parent(src)), Parent(src), src))`
+             #    (= `GetStat(., 0xc)` du PORTEUR, ou de son summoner pour un summon) ;
+             #  * `rng` = `Maybe(chance)` — en COMBAT `CanUseRandom` est VRAI, le natif TIRE
+             #    (`DisallowablePseudoRNG$$NextBool`) et ce tirage CONSOMME un genrand.
+             "att_faction": (_unit_gameconfig(state, att_id) or {}).get("FactionId"),
+             "turns_started_by_id": turns_started_by_id,
+             "parent_by_id": parent_by_id,
+             "rng": state.rng,
              "marked_effect_types": marked_effect_types_for_target(state, att_id, tgt_id),
              "tgt_grand_alliance": grand_alliance_of(state, tgt_id),
              # `IsCharging` (case-ischarging-hits) sur le canal COUPS : MEME cle et MEME foyer que le canal

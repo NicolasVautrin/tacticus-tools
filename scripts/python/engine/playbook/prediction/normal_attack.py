@@ -413,7 +413,24 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
              # le canal DEGAT (`_att_ctx` ci-dessus) : un seul appel a `_prediction_is_charging` par
              # candidat, donc un seul mirror d'`UpdateCharging` sur la tuile evaluee. Consommateur :
              # `SagaOfTheWarriorBorn_Owner` (1223, +extraHits en charge).
-             "is_charging": _att_ctx["is_charging"]}
+             "is_charging": _att_ctx["is_charging"],
+             # #372 — substrat du canal AURA de COUPS (`aura_hits_bonus_for_attack`), consommateur
+             # `DefenderOfTheGreaterGood_ExtraHits` (1183 / 1307). Pendant EXACT du board COMBAT
+             # (`runner/damage_model.py::build_hits_board`) :
+             #  * `att_faction` = le tier T'au range-2 du selecteur
+             #    `DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector` — MEME valeur que
+             #    celle deja calculee pour le canal DEGAT (`_display_attack_base`), pas un 2e read ;
+             #  * `turns_started_by_id` = `UnitTurnsStarted` = `GetStat(., 0xc)`, deja capte par la
+             #    Scene (#46) ;
+             #  * PAS de `rng` : cote PREDICTION `ANonDeterministicAbilityTrigger$$CanUseRandom` est
+             #    FAUX, et `MaybeTrigger$$ShouldTrigger` y substitue `99 < chance` au tirage. L'absence
+             #    de cle EST le mirror (cf. `entities.triggers.MaybeTrigger`, `rng is None`) ;
+             #  * PAS de `parent_by_id` : le lien `ParentComponent` (summoner) n'est PAS capte par le
+             #    harnais (ni `decisionView` ni `combatSnapshot`). Consequence NOMMEE, limitee au
+             #    jumeau DRONE : sa chance est lue sur SES tours au lieu de ceux de son summoner,
+             #    donc SOUS-ESTIMEE. Point d'ancrage a exposer : `ParentComponent` id @+0x10.
+             "att_faction": att_faction,
+             "turns_started_by_id": scene.turns_started_by_id}
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in _alive_ids if uid != tgt_id]

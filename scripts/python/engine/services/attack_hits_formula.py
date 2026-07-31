@@ -75,7 +75,7 @@ from __future__ import annotations
 import hexgeo
 
 from ..entities.effects import (hits_bonus_from_effects, hits_malus_from_defender_effects,
-                                 aura_hits_malus_for_defense)
+                                 aura_hits_malus_for_defense, aura_hits_bonus_for_attack)
 from ..entities.traits import attacker_bonus_hits
 from .damage_prediction import get_default_attack_hits
 
@@ -134,10 +134,33 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # hits` -> gater `attacker_bonus_hits` ne perd que GetStuckIn cote formule (cf. entete BITE 2).
     bonus_hits = attacker_bonus_hits(trait_objects, board) if include_bonus_hit_behaviours else 0
     hits = hits_pre + bonus_hits
-    # #204 — l'aura COUPS côté ATTAQUANT (AstartesBanner) a QUITTÉ cette formule : son artefact natif
-    # est `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits`
-    # (canal #179), donc `additional_hit_groups` / `runner/operations/additional_hits.py`. Le canal
-    # `aura_hits_bonus_for_attack` n'avait aucun AUTRE alimenteur : supprimé avec lui.
+    # #204 — l'aura COUPS d'`AstartesBanner` a QUITTÉ cette formule : son artefact natif est
+    # `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits`
+    # (canal #179), donc `additional_hit_groups` / `runner/operations/additional_hits.py`.
+    # #372 — le canal `aura_hits_bonus_for_attack` REVIENT ici, avec l'alimenteur natif qui manquait :
+    # `IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraHitsEffect$$CreateEffectHitsBonus
+    # ForAttack` (1183 `tauShadowsun` / 1307 son Command-Link Drone) est bien un `EffectBonus.
+    # ForAddition`, donc un TERME de cette formule -- un coup d'ARME de plus, pas un groupe a dégât
+    # propre. Il est placé APRÈS `GetStuckIn` et AVANT les malus défenseur : le natif ne sépare pas
+    # ces termes (une seule somme dans `DamagePrediction$$GetAttackHits`), seul le plancher final
+    # `Math.Max(., 0)` les borne — c'est lui qui suit.
+    # Les porteurs sont les MÊMES `aura_sources` que le canal malus (BigTarget) : le natif énumère
+    # TOUS les effets actifs du board (`EffectsQuery$$GetActiveEffectsWithBonuses`), attaquant exclu
+    # par le sélecteur de l'effet, pas par la boucle.
+    hits += aura_hits_bonus_for_attack(aura_sources, {
+        "att_id": board.get("att_id"), "att_pos": board.get("attack_pos"),
+        "att_team": (board.get("team_by_id") or {}).get(board.get("att_id")),
+        # `UnitsFromFaction(SurroundingFriends(owner, 2), 9 = Tau)` du sélecteur DotGG.
+        "att_faction": board.get("att_faction"),
+        "is_melee": is_melee, "damage_profile": damage_profile,
+        # `UnitTurnsStarted(If(AmountIsGreaterThanZero(Parent(src)), Parent(src), src))` = `GetStat(.,
+        # 0xc)` du PORTEUR (ou de son summoner) -> substrat d'ENTITÉ, pas du coup.
+        "turns_started_by_id": board.get("turns_started_by_id"),
+        "parent_by_id": board.get("parent_by_id"),
+        # `Maybe(chance)` : PRNG en COMBAT (le tirage CONSOMME un genrand), None en PRÉDICTION —
+        # c'est exactement `ANonDeterministicAbilityTrigger$$CanUseRandom == false`, où le natif
+        # substitue `99 < chance` au tirage (cf. `entities.triggers.MaybeTrigger`).
+        "rng": board.get("rng")})
     # (3) malus défenseur : LightCover -2 ranged / Parry -1 mêlée / Camouflage. Le gate
     # compute-time `defender_on_cover` (A3, #113) empêche LightCover de sur-appliquer un effet périmé en
     # runner-sim (cible ayant quitté sa tuile de cover) ; None (prédiction) = applique-sur-présence.
