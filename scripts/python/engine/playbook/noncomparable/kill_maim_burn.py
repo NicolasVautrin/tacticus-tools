@@ -75,6 +75,12 @@ class KillMaimBurnPlaybook(_PlanTargetPlaybook):
     ABILITY_ID = int(ActiveAbilityType.KillMaimBurn)  # 1132
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.KillMaimBurnPlaybook$$.cctor = Fix64(1)
     PRIORITY = 0
+    # `should_evaluate` = l'implementation de BASE (`IdunBattle.AI.Playbook.BasePlaybook$$Should
+    # Evaluate` -> `GetUseProbability` = `Fix64(1)` -> True constant). MESURE, pas supposee : RPC
+    # `pbGate` slot 4 de `IPlaybook` sur `worldKharn` au PREMIER tour (`turnsStarted == 1`) rend
+    # **1**, quand `1202 VigilanceEternal` -- qui porte, lui, le corps folde
+    # `AlphaWarriorPlaybook$$ShouldEvaluate` (`GetStat(unit, 0xc) > 1`) -- rend **0** au meme
+    # instant. 1132 n'a donc AUCUN gate de tour ; ne pas heriter `_turns_started_gate`.
 
     def _ability_prediction(self, tile, target, ctx: NCContext):
         """`GetDamage(state, isPrediction: TRUE)` + `GetDamageProfile` + `GetHitsFormula` -> le
