@@ -990,9 +990,18 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
             events.append(nev)
 
     main = _event(main_tgt_id)
-    if main is None:
+    if main is not None:
+        events.append(main)
+    elif _gate_fn is None:
+        # Sans gate de SELECTEUR, la cible principale EST la boucle du natif : pas d'event principal
+        # = non-attaque, et le batch AoE n'a pas lieu d'etre. Comportement historique, inchange.
         return events
-    events.append(main)
+    # AVEC un gate de selecteur (#359), l'absence d'event PRINCIPAL ne dit RIEN des autres membres :
+    # le playbook ne boucle pas sur `<Target>`, il boucle sur les entites de SON selecteur, et la
+    # cible demandee peut n'y etre pas alors que d'autres y sont. MESURE (#359, R3, `1147` greffee
+    # sur `necroWarden`, cible = le SUMMONER, trois `deathPoxwalker` autour de lui) :
+    # `aiPlaybookPredict` rend **3** events -- un par summon --, la cible demandee n'y figurant pas.
+    # Court-circuiter ici aurait rendu 0. Inerte pour `1148`, dont le set AoE est vide.
     if ab is None:
         return events
     # Plafond secondaire (`GetMaxSecondaryTargets`) -> poids batch `min(1, max/n)` = probability1.
