@@ -1,9 +1,12 @@
-# case-361 — `RammingSpeed` batchs 3/4 : c'est `GetTileToMoveTo` qui rend VIDE, pas la gate
+# case-361 — `RammingSpeed` batchs 3/4 : ni la gate, ni `GetTileToMoveTo` — le MONTAGE
 
-Suite de `#353-r1` volet (b) et de `#372`. Trois causes étaient déjà tombées ; ce cas en fait tomber
-**six de plus** et referme la question : le vide des deux batchs vient de l'**`origin`** des
-sélecteurs — l'arbre `RammingSpeedAbility$$GetTileToMoveTo()`, évalué dans le contexte du playbook.
-Le résidu restant est le maillon INTERNE de cet arbre (§9), avec le point d'ancrage à hooker nommé.
+Suite de `#353-r1` volet (b), `#372`, `#365/#386`, `#370`.
+
+> **⚠ CE QUI A CHANGÉ (#370, 2026-07-31) — lire §8.5 AVANT le reste.** Les §1 à §8.4 restent
+> valables comme MESURES, mais leur conclusion §8.4 (« l'arbre `GetTileToMoveTo` rend VIDE dans le
+> contexte du playbook ») est **RÉFUTÉE** : sur la géométrie EXACTE de §1, avec le build STRICTEMENT
+> identique, le natif émet **5 events == 5 attendus** dès que la géométrie est montée par un AUTRE
+> chemin. Le vide de §1 est un **artefact du montage de `probe_361`**, pas une propriété du natif.
 
 Rappel du natif (`IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions`) :
 
@@ -250,15 +253,46 @@ Le second tir réfute l'explication de montage : `MovableTilesInRangeSelector$$S
 (le littéral que `GetTileToMoveTo` passe), donc un caster sans mouvement aurait vidé l'arbre pour
 une raison de harnais. Avec 13 tuiles disponibles, le compte ne bouge pas d'un iota.
 
-### 8.4 Verdict
+### 8.4 Verdict de #386 — **RÉFUTÉ par #370**, cf. §8.5
 
-**`IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$GetTileToMoveTo`, évalué
-dans le contexte que `ComparablePlaybook<T>$$GenerateAttackPredictions` construit, rend un ensemble
-VIDE** — alors que le MÊME arbre rend la bonne tuile dans le contexte de
-`RammingSpeedAbility$$GetDynamicInvalidTargetReason` (cast réel : MATCH 2/2, `case-353` §5bis) et
-dans celui du combat.
+Il disait : « `RammingSpeedAbility$$GetTileToMoveTo`, évalué dans le contexte que
+`ComparablePlaybook<T>$$GenerateAttackPredictions` construit, rend un ensemble VIDE ». Cette
+conclusion tirait d'un montage UNIQUE (celui de `probe_361`) une propriété du NATIF. Elle est
+fausse : le même natif, sur la même géométrie, émet les batchs dès que le montage change.
 
-## 9. Le maillon interne : résidu NOMMÉ, et le point d'ancrage qui le tranche
+### 8.5 Les batchs 3/4 SORTENT — et le sélecteur est EXACT (#370)
+
+`probe_361_movable_tiles_selector.py` monte le bras `ramming` par `montage_361.build_montage`
+(greffe `orksKillaKan ← 1059`, `--hp-player 60`, caster borné à la portée de charge), puis rejoue
+sur le MÊME runner la géométrie de §1, reproduite **littéralement** (`GEO_386`).
+
+| montage | géométrie | build | events | attendu | verdict |
+|---|---|---|---|---|---|
+| `montage_361` — bras A | cible (3,4), ami (2,3), ennemi (2,4), caster (6,7), tuile (3,5) | seed 37000 | **4** | 4 | **EXACT** |
+| `montage_361` — bras B | **§1 verbatim** : cible (4,7), ami (4,6), ennemi (5,8), caster (1,4), tuile (5,7) | seed 37000 | **5** | 5 | **EXACT** |
+| `montage_361` — bras B | idem | **seed 36100, mult 100** (= `probe_361`) | **5** | 5 | **EXACT** |
+| `probe_361` | idem §1 | seed 36100, mult 100 | **2** | 5 | batchs absents |
+
+Les trois premières lignes portent les événements attendus, **avec leurs cibles exactes** :
+bras B rend `necroWarden`(4, batch 1), `orksKillaKan`(60, batch 2 — le recul), puis
+`astraBullgryn`(41, batch 3 `Friends`), `ultraTitus`(27) et `necroWarden`(27) (batch 4 `Enemies`).
+Le second event de `necroWarden` porte un dégât DIFFÉRENT du premier (27 ≠ 4) : c'est bien un autre
+batch, pas un doublon de lecture. La cible apparaît deux fois **par construction** — la tuile
+d'arrivée sort de `CanAddUnit(AdjacentTiles(Target))`, elle lui est donc toujours adjacente.
+
+⇒ **`AdjacentUnits(GetTileToMoveTo(), 1, 3)`, `Friends`, `Enemies` et le contexte du playbook sont
+tous OPÉRANTS.** Le natif émet les batchs 3/4, et il les émet JUSTES.
+
+**Ce qui reste ouvert** : *quel élément du montage de `probe_361`* vide le pool. Les deux builds
+sont identiques (même seed, même rank, mêmes unités, même `--hp-player`, mêmes dégâts mesurés :
+`necroWarden` à 4), la géométrie finale est identique, la session est la même. La seule différence
+constatée est le **chemin de drive** — `probe_361` déplace les quatre unités en UN `drive_to`, là
+où `montage_361` en fait deux (voisinage puis caster, parade au blocage de trajet) et où le bras B
+en ajoute deux autres. C'est un résidu NOMMÉ, et c'est exactement ce que le capteur de §9 tranche :
+il est câblé sur `probe_361` **et** sur `probe_361_movable_tiles_selector`, donc il lira les deux
+régimes côte à côte.
+
+## 9. Le maillon interne : le capteur, LIVRÉ (#370) — inerte jusqu'au reinject
 
 Le pool est `MovableTilesInRange(Caster@0x48, CasterTile@0x50, Direct(range), 0, 0)
 op_BitwiseAnd CanAddUnit(AdjacentTiles(Target@0x60))`, trié puis `First(…, 1)`.
@@ -278,20 +312,73 @@ Ce que la lecture donne, et qui **oriente sans trancher** :
   contexte** ; et `TileExtensions$$CanAddUnitFromAbility` est plus PERMISSIF avec un `parent` non
   nul (`IsTileReservedForOtherUnit`). Ce n'est donc pas là que le playbook perdrait des tuiles.
 
-**Capteur à poser** (aucun n'existe — l'agent ne peut pas réinjecter) :
-`IdunBattle.Entities.Selectors.MovableTilesInRangeSelector$$Select`, en lisant l'unité rendue par
-le sélecteur d'unité, la tuile rendue par le sélecteur de tuile, et la taille du retour. Un seul
-hook sépare les trois hypothèses restantes (`unit == null` / `fromTile == null` / query vide).
-Second choix, un cran plus haut : `IdunBattle.Entities.Selectors.CasterTileSelector$$Select`.
+### 9.1 Le capteur livré — `frida/hooks/features/ai-step/movable-tiles-probe.ts` (#370)
+
+Point d'ancrage principal : **`IdunBattle.Entities.Selectors.MovableTilesInRangeSelector$$Select`**,
+re-confirmé au décompilé. Son corps porte **trois** issues, dans cet ordre :
+
+```
+entity   = unitSelector.<slot 7>(ctx)        ; if (entity == null)   -> rend la List VIDE
+fromTile = unitTileSelector.<slot 0xc>(ctx)  ; if (fromTile == null) -> rend la MEME List VIDE
+return     IBattleQuery.GetMovableTilesInRange(entity, fromTile, ignoreFlags, options)
+```
+
+Le ctor donne les champs (`MovableTilesInRangeSelector$$.ctor` : `state`, `battleQuery`,
+`unitSelector`, `unitTileSelector`, `overrideRange`, `ignoreFlags`, `ignoreUnitsOnTiles`) — le
+capteur les lit par leur **nom runtime**, aucun offset écrit en dur.
+
+⚠ `entity` et `fromTile` sont des **LOCALES** : un `Interceptor.attach` sur `Select` seul ne les
+voit pas. Le capteur arme donc AUSSI les deux sous-sélecteurs qui les produisent, tous deux
+NOMMÉS et à corps court — c'est la seule correction apportée au choix d'ancrage de #386 :
+
+* `IdunBattle.Entities.Selectors.CasterSelector$$Select` — corps ENTIER :
+  `if (ctx+0x08 == 0) return new List<T>(); l = new List<T>(1); l.Add(ctx+0x08); return l;`
+  ⇒ sa taille de retour EST le maillon 1.
+* `IdunBattle.Entities.Selectors.CasterTileSelector$$Select` — corps ENTIER :
+  `tiles = ctx+0x48; if (tiles == null) tiles = ToList(ctx+0x40);
+   if (tiles == null) tiles = EntityExtensions$$GetTiles(ctx+0x08, state); return new List<T>(tiles);`
+  ⇒ sa taille de retour EST le maillon 2, et la branche prise se lit sur `+0x48`/`+0x40`.
+  Le slot `0xc` est `IdunBattle.DSL.TargetsSelector$$SelectTile`, qui rend `0` quand son
+  énumération ne produit ni tuile ni unité placée — le seul chemin vers `fromTile == null`.
+
+Discipline : armé à la demande (flag RPC `tileProbe` d'`aiPlaybookPredict`, composable avec
+`gateProbe`), filtré sur le thread appelant, détaché en `finally`, borné à 64 entrées, résolution
+par `findClassAnywhere` + `findMethod` (aucune RVA). **Tri-état par maillon.**
+
+### 9.2 Les onze états du décodeur, deux à deux distincts
+
+`probe_361_movable_tiles_selector._tile_verdict` dérive le verdict des CHAMPS. Garde offline :
+`scripts/python/tests/engine/test_370_tile_probe_tristate_offline.py` (11 tests, 100 % offline).
+
+| état | ce qu'il établit |
+|---|---|
+| `absent` | capteur pas dans le bundle injecté |
+| `non-arme` | demandé, maillon non résolu — erreur NOMMÉE |
+| `zero-appel` | `Select` jamais appelé ⇒ l'arbre n'est PAS évalué, cause en **AMONT** (`First` / `SortTilesByUtility` / `op_BitwiseAnd` / `AdjacentTiles`) |
+| `pool-non-vide` | pool rendu non vide ⇒ perte en **AVAL** |
+| `retour-illisible` | forme du retour non décodable — une ERREUR, pas un zéro |
+| `unit-null` | pool vide **et** `CasterSelector` rend 0 ⇒ `ctx+0x08` nul |
+| `from-tile-null` | pool vide, caster présent, `CasterTileSelector` rend 0 ⇒ `SelectTile` null |
+| `query-vide` | les deux entrées présentes ⇒ c'est `GetMovableTilesInRange` qui rend vide |
+| `structure-inattendue` | les sous-sélecteurs ne sont pas ceux attendus — le décodeur REFUSE de conclure |
+| `sous-maillon-non-arme` | le nœud est armé, pas les sous-sélecteurs |
+| `fenetre-vide` | corrélation par séquence en échec |
+
+Le piège que la garde verrouille : **`nodes == []` et `returnedCount == 0` portent des verdicts
+OPPOSÉS** (amont vs pool). Mutation adversariale jouée, message ROUGE verbatim :
+`AssertionError: assert 'zero-appel' != 'zero-appel'`.
 
 ## 10. Ce qui n'est PAS couvert
 
-* **Les batchs 3/4 restent NON PORTÉS**, et c'est désormais un choix ÉTAYÉ : le natif n'en émet
-  aucun, sur aucun montage joué — un port les émettrait là où le jeu ne les émet pas. `1059`
-  n'entre toujours pas dans `ABILITY_CLASSES` (seule `GetTileToMoveTo` est portée, #353-r1 volet a).
-* **Le maillon interne de `GetTileToMoveTo`** (§9) : nommé, non tranché, faute de capteur.
+* **`1059` n'entre toujours pas dans `ABILITY_CLASSES`** (seule `GetTileToMoveTo` est portée,
+  #353-r1 volet a). Mais la justification de #386 (« le natif n'émet aucun batch ») **tombe** :
+  §8.5 mesure 4/4 et 5/5. Le port des batchs 3/4 redevient une tâche ouverte, pas un refus étayé.
+* **Le capteur de §9 est INERTE** — livré, compilé (`frida-compile`, rc 0), jamais injecté : il
+  demande une fenêtre de reinject. Tout ce qui suit reste donc **NON CONFRONTÉ**.
+* **Quel élément du montage de `probe_361` vide le pool** (§8.5) : résidu nommé, non tranché. Seule
+  différence constatée : le chemin de drive (un `drive_to` groupé contre deux en cascade).
 * **La gate de Fragstorm** (§5) : son ouverture reste indéterminée, son batch étant mort en aval.
 * **Le régime fully-shared generic** : l'hypothèse « le lambda reçoit un pointeur décalé » est
   ÉCARTÉE par le capteur (`get_WillBeKill` rend TRUE sur l'objet décodé), pas démontrée impossible.
-* **Deux géométries** ont été jouées côté `RammingSpeed` (§1 et §8.3) ; côté `ExplosivePresents`,
-  trois bras sur une seule géométrie de board `MC1_67`.
+* **Quatre géométries** ont été jouées côté `RammingSpeed` (§1, §8.3, et les deux bras de §8.5) ;
+  côté `ExplosivePresents`, trois bras sur une seule géométrie de board `MC1_67`.

@@ -47,6 +47,7 @@ import {
     resolvePlaybookDatabase, unitPositionAtTile, unitPositionCurrent,
 } from "./playbook-predict.js";
 import { withWillBeKillProbe } from "./playbook-gate-probe.js";
+import { withMovableTilesProbe, type MovableTilesProbe } from "./movable-tiles-probe.js";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function registerViewPredict(ctx: Ctx): void {
@@ -284,6 +285,11 @@ export function registerViewPredict(ctx: Ctx): void {
             /** #361 — arme le capteur de gate `WillBeKill` LE TEMPS de cette invocation
              *  (`playbook-gate-probe.ts`). Absent/false = aucun hook posé. */
             gateProbe?: boolean;
+            /** #370 — arme le capteur du MAILLON INTERNE de `GetTileToMoveTo`
+             *  (`movable-tiles-probe.ts` : `MovableTilesInRangeSelector$$Select` +
+             *  `CasterSelector$$Select` + `CasterTileSelector$$Select`), LE TEMPS de cette
+             *  invocation. Absent/false = aucun hook posé. Composable avec `gateProbe`. */
+            tileProbe?: boolean;
         },
     ): Promise<unknown> => queueOnMainThread(() => {
         if (typeof body?.unitId !== "number" || typeof body?.targetId !== "number"
@@ -424,14 +430,21 @@ export function registerViewPredict(ctx: Ctx): void {
         // (cf. `playbook-gate-probe.ts` : pourquoi ce point d'ancrage, et les trois issues).
         // Hors flag, aucun hook n'est posé : `get_WillBeKill` est appelé par l'UI à chaque
         // frame, on ne le taxe jamais par défaut.
-        const gate = body.gateProbe === true
-            ? withWillBeKillProbe(() => makeDamagePredictions(
-                playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number))
-            : null;
-        const mk = gate !== null
-            ? gate.result
-            : makeDamagePredictions(
-                playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number);
+        //
+        // #370 — `tileProbe: true` arme, DANS LA MÊME invocation, le capteur du maillon interne
+        // de `GetTileToMoveTo` (cf. `movable-tiles-probe.ts`). Les deux capteurs sont
+        // COMPOSABLES : le gate encadre le tile, qui encadre l'invocation native.
+        const runMake = () => makeDamagePredictions(
+            playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number);
+        let tileProbe: MovableTilesProbe | null = null;
+        const inner = () => {
+            if (body.tileProbe !== true) return runMake();
+            const t = withMovableTilesProbe(runMake);
+            tileProbe = t.probe;
+            return t.result;
+        };
+        const gate = body.gateProbe === true ? withWillBeKillProbe(inner) : null;
+        const mk = gate !== null ? gate.result : inner();
         const dec = decodeDamageEvents(mk.list, idByPtr);
         const mkHeal = makeDamagePredictions(
             playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number,
@@ -469,6 +482,10 @@ export function registerViewPredict(ctx: Ctx): void {
             // `calls` vaut `null` = demandé mais NON ARMÉ (maillon non résolu, `error` le dit) ;
             // `calls: []` = armé et AUCUN appel — ce qui est en soi un verdict.
             gateProbe: gate !== null ? gate.probe : null,
+            // #370 — MÊME tri-état : `null` = capteur non demandé (`tileProbe` absent) ; un objet
+            // dont `nodes` vaut `null` = demandé mais NON ARMÉ (`nodesError` nomme le maillon) ;
+            // `nodes: []` = armé et AUCUN appel — l'arbre `GetTileToMoveTo` n'est pas évalué.
+            tileProbe,
             mutated: before.sig !== after.sig,
         };
     });
