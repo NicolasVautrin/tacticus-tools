@@ -472,6 +472,15 @@ disponible sont donnés ci-dessus.
 
 **NON CONFRONTABLES** : 1192 `NovaBoost` et 1194 `NovaShield` (`tauBossRiptide`, npc-only).
 
+> ⚠ **RECTIFICATIF #343 (2026-07-31) — « npc-only » n'implique PAS « non confrontable ».** La face
+> DÉCISION de `1194 NovaShield` a été confrontée live par **GREFFE de l'ability** sur `tauCrisis`
+> (`case-92` §5bis, recours 3, postérieur à cet inventaire) : le natif charge le playbook PAR ABILITY
+> (`PlaybookDatabase.LoadPlaybook`), donc le code exercé est bien `NovaShieldPlaybook`. Ce qui reste
+> hors d'atteinte par cette voie, ce sont les termes qui lisent stats/traits/armes du VRAI porteur —
+> donc typiquement la face COMBAT, pas un terme de playbook qui ne lit que `BC.Utilities` + le board.
+> Mesure : `docs/rl/case-343-cible-tuile-emise.md`. Même remarque à lire sur les lignes 1192/1194 des
+> tableaux ci-dessus.
+
 **Sorties depuis l'inventaire précédent** : 1036 FrenziedFiring (`d2be96e`), 1116 RadBombardment
 (`825f69f`), 1153 HammerOfWrath (`86fecad`) — les trois ont reçu leur face COMBAT. **Depuis le
 2026-07-28 : 1199 `DoomSiren` (`emperKakophonist`) sort de ce gisement** — face COMBAT portée
