@@ -131,6 +131,8 @@ from .loki import (
     MomentShackleExtraBlockDamageEffect,
     GravitonRifleExtraPierceEffect,
     HailstrikeExtraPierceEffect,
+    VisionsOfHeresyExtraPierceMeleeEffect,
+    VisionsOfHeresyExtraPierceRangedEffect,
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
@@ -686,6 +688,21 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `CurrentAbilityIs` -> s'applique aussi a l'attaque NORMALE ranged du porteur. Le nom d'EffectType
     # capte live est « Hailstrike » (== `EffectType.Hailstrike`, verifie par test_storm_speeder_live).
     "Hailstrike": HailstrikeExtraPierceEffect,
+    # 0x541=1345 / 0x542=1346 VisionsOfHeresy_ExtraPierce{Melee,Ranged} (case-366-r1) — les DEUX
+    # owner-effects du passif `VisionsOfHeresy` (0x4f0=1264) de `bloodDeathCompany` <<Lucien>>.
+    # UNE SEULE classe native (`VisionsOfHeresy_ExtraPierceEffect` : les deux ids partagent le MEME slot
+    # `Il2CppClass*`, tranche par le SLOT et non par le nom du ctor) ; le discriminant melee/ranged est le
+    # `statType` que passe le poseur `...VisionsOfHeresy_ExtraPierceAbility$$CreateBehaviour` =
+    # `AddStaticStatModifierEffect(Owner, 0x541, 0x15=21 EXTRA_PIERCE_MELEE, ConfigVar(0x3f=extraPierceRatio),
+    #  turns=NULL) & AddStaticStatModifierEffect(Owner, 0x542, 0x16=22 EXTRA_PIERCE_RANGED, <le MEME>, NULL)`.
+    # CANAL = le STAT (21/22), lu par `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`
+    # (`GetStat(attacker, isMelee ? 0x15 : 0x16)`) — PAS un `EffectBonus.ForPiercing` (canal de Hailstrike
+    # ci-dessus). ActiveCondition = `HealthPctIsBelowOrEqual(Owner, ConfigConst(0x4f=healthPct)=50)`, donc
+    # les deux effets sont ABSENTS du seed live tant que Lucien est au-dessus de 50 % PV : ils sont poses
+    # par `ABILITY_INIT_OWNER_EFFECTS["VisionsOfHeresy"]` et actives/desactivees par le driver
+    # `refresh_stat_modifier_effects`. Cf. `entities/effects/loki/visions_of_heresy.py`.
+    "VisionsOfHeresy_ExtraPierceMelee": VisionsOfHeresyExtraPierceMeleeEffect,
+    "VisionsOfHeresy_ExtraPierceRanged": VisionsOfHeresyExtraPierceRangedEffect,
     # 1291 HeavyGravCannon : owner-effect du PASSIF homonyme d'admecDestroyer <<Sy-Gex>>. Classe DEDIEE
     # `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect` a DEUX canaux partageant UNE condition
     # (`...$$DamageCondition` = OwnerIsActor & IsRangedAttack & (HasTrait(target,5=Mechanical) |
@@ -845,6 +862,17 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # MEME motif exact qu'`AnvilShield_BlockChanceBelowHealthCap` et
     # `HammerOfWrath_ConditionalDamage` ci-dessus. Idempotent (skip si deja capte). case-322.
     "ModifiedExoarmour": ["ModifiedExoarmour_ExtraDmg"],
+    # VisionsOfHeresy (passif de `bloodDeathCompany` <<Lucien>>, TriggeredAbilityType 0x4f0=1264) —
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.VisionsOfHeresy_ExtraPierceAbility$$CreateBehaviour`
+    # pose les DEUX owner-effects a l'init (`AbilityBehaviour.op_BitwiseAnd` de deux
+    # `AddStaticStatModifierEffect(Owner, ...)`, `turns = NULL` donc PERMANENTS). Les DEUX portent la MEME
+    # `CreateActiveCondition` (`HealthPctIsBelowOrEqual(Owner, ConfigConst(0x4f=healthPct)=50)`) : aucun des
+    # deux n'est publie par `decisionView.effects` tant que Lucien est au-dessus du seuil (canal ACTIF-ONLY,
+    # GROUND TRUTH #100). Sans ce seed, le +extraPierceRatio n'apparaitrait JAMAIS dans un runner qui
+    # demarre Lucien a pleins PV et le fait descendre en cours de bataille. MEME motif exact
+    # qu'`AnvilShield_BlockChanceBelowHealthCap` / `HammerOfWrath_ConditionalDamage` ci-dessus.
+    # Idempotent (skip si deja capte). case-366-r1.
+    "VisionsOfHeresy": ["VisionsOfHeresy_ExtraPierceMelee", "VisionsOfHeresy_ExtraPierceRanged"],
 }
 
 

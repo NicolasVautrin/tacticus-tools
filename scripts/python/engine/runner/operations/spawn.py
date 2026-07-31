@@ -822,7 +822,11 @@ class SpawnUnitOperation:
         mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
         clone_stats = (StatType.ATTACK, StatType.MOVEMENT, StatType.HEALTH, StatType.FIXED_ARMOR,
                        StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE, StatType.BLOCK_CHANCE,
-                       StatType.BLOCK_DAMAGE, StatType.EXTRA_HITS)
+                       StatType.BLOCK_DAMAGE, StatType.EXTRA_HITS,
+                       # PERCAGE (case-366-r1) : ces trois etaient des CHAMPS PLATS de `UnitContext`, donc
+                       # recopies par le `replace` ci-dessous ; ce sont maintenant des proprietes adossees a
+                       # `stats` -> il faut les cloner explicitement, sinon le clone perd le percage du parent.
+                       StatType.EXTRA_PIERCE, StatType.EXTRA_PIERCE_MELEE, StatType.EXTRA_PIERCE_RANGED)
         spawned: list = []
         chosen: set = set()
         board = state.board

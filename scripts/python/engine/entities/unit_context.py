@@ -24,9 +24,13 @@ class UnitContext:
     # dans `stats` (from_snapshot / build_summon_context), donc `ctx.attack` == GetStat natif, effet-
     # inclusif, SANS stockage dupliqué ni synchro.
     extra_hits_melee: int = 0
-    extra_pierce: int = 0
-    extra_pierce_melee: int = 0
-    extra_pierce_ranged: int = 0
+    # `extra_pierce` / `extra_pierce_melee` / `extra_pierce_ranged` NE SONT PLUS des champs plats :
+    # ce sont des PROPRIETES adossees a `get_stat(Current)` (26 / 21 / 22), comme les 8 stats de base
+    # ci-dessus. Le natif les LIT ainsi -- `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`
+    # fait `GetStat(attacker, 0x1a)` + `GetStat(attacker, isMelee ? 0x15 : 0x16)`. En champ plat, la
+    # valeur etait FIGEE a l'instant de la capture : une stat-mod de percage qui ENTRE ou SORT en cours
+    # de bataille (`VisionsOfHeresy_ExtraPierce{Melee,Ranged}` sous 50 % PV, case-366-r1) n'etait jamais
+    # vue -- le port restait INERTE alors que le natif changeait le percage.
     active_ability_level: int = 0
     passive_ability_level: int = 0     # niveau des PASSIVES (indexe leurs variables ; ex. ArcaneShield.shieldHp)
     number_of_members: int = 1
@@ -161,6 +165,20 @@ class UnitContext:
     def block_damage(self) -> int:
         return self.stat(StatType.BLOCK_DAMAGE)
 
+    # ── PERÇAGE : les trois stats que lit `GetAttackPiercingDamageRatio` (`GetStat(0x1a)` et
+    #    `GetStat(isMelee ? 0x15 : 0x16)`). Mêmes propriétés lecture-seule que les 8 ci-dessus.
+    @property
+    def extra_pierce(self) -> int:
+        return self.stat(StatType.EXTRA_PIERCE)
+
+    @property
+    def extra_pierce_melee(self) -> int:
+        return self.stat(StatType.EXTRA_PIERCE_MELEE)
+
+    @property
+    def extra_pierce_ranged(self) -> int:
+        return self.stat(StatType.EXTRA_PIERCE_RANGED)
+
     @classmethod
     def from_snapshot(cls, snap_unit: dict, unit_cfg: dict | None,
                       stat_ids: dict | None = None, effects=None) -> "UnitContext":
@@ -214,7 +232,14 @@ class UnitContext:
         _core_snapshot = {StatType.ATTACK: g("attack"), StatType.HEALTH: g("health"),
                           StatType.FIXED_ARMOR: g("fixedArmor"), StatType.EXTRA_HITS: g("extraHits"),
                           StatType.CRIT_CHANCE: g("critChance"), StatType.CRIT_DAMAGE: g("critDamage"),
-                          StatType.BLOCK_CHANCE: g("blockChance"), StatType.BLOCK_DAMAGE: g("blockDamage")}
+                          StatType.BLOCK_CHANCE: g("blockChance"), StatType.BLOCK_DAMAGE: g("blockDamage"),
+                          # PERÇAGE (case-366-r1) : les propriétés `extra_pierce*` remplacent les anciens
+                          # champs plats — `ensure_seeded` garantit ici la MÊME valeur qu'eux (la valeur
+                          # captée) même quand `stat_ids` est absent/incomplet, donc aucun régime ne perd
+                          # de perçage par rapport au comportement historique.
+                          StatType.EXTRA_PIERCE: g("extraPierce"),
+                          StatType.EXTRA_PIERCE_MELEE: g("extraPierceMelee"),
+                          StatType.EXTRA_PIERCE_RANGED: g("extraPierceRanged")}
 
         def _seed(attr):
             """Un SEUL point de seed, rejoué à l'identique pour les deux passes ci-dessous : seule
@@ -231,8 +256,8 @@ class UnitContext:
         ctx = cls(
             entity_id=snap_unit.get("entityId"), visual_id=snap_unit.get("visualId"),
             extra_hits_melee=g("extraHitsMelee"),
-            extra_pierce=g("extraPierce"), extra_pierce_melee=g("extraPierceMelee"),
-            extra_pierce_ranged=g("extraPierceRanged"),
+            # (extraPierce/extraPierceMelee/extraPierceRanged : plus de kwargs — ce sont des PROPRIÉTÉS
+            #  adossées à `stats`, seedées par `seed_unit_stats`/`_core_snapshot` ci-dessus.)
             # activeAbilityLevel vit dans `unitConfig` (BattleQuery.GetUnitConfig), PAS dans `stats` →
             # indexe les variables[level] des ABILITIES (minDmg/maxDmg par niveau). Fallback stats/0.
             active_ability_level=int(_uc.get("activeAbilityLevel")
