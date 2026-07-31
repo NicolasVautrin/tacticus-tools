@@ -151,7 +151,48 @@ ce qu'il évalue**, et il ne sert **qu'à** l'évaluation du montant — les sé
 thrower), mais **rend la liste vide** si l'énumérateur ne produit rien. « Vide » est donc la seule
 issue silencieuse.
 
-## 7. Ce qui n'est PAS couvert
+## 7. La chaîne des sélecteurs 3/4, lue nœud par nœud (#365, WIP)
+
+Contexte construit par `ComparablePlaybook<T>$$GenerateAttackPredictions` (`memset(+0x50, 0, 0xd8)`,
+tout le reste écrit explicitement) :
+
+| offset | valeur écrite | nœud qui le lit |
+|---|---|---|
+| `+0x08` | `caster` | `CasterSelector$$Select` |
+| `+0x10` | `target` | `TargetSelector$$Select` |
+| `+0x18` | `caster` | `OwnerSelector$$Select` |
+| `+0x38` | `EntityExtensions$$GetTiles(target)` | `TargetTilesSelector$$Select` |
+| `+0x40` | `UnitPosition$$get_MainTile(casterPosition)` | `CasterTileSelector` (repli 2) |
+| `+0x48` | `casterPosition` (les tuiles du caster) | `CasterTileSelector` (voie 1) |
+
+Composition mesurée au décompilé :
+
+* `DSLSelectors$$AdjacentUnits(origin, unique, selectionType)` =
+  `Units(AdjacentTiles(origin), unique, selectionType) op_Subtraction origin` — elle n'alloue AUCUN
+  sélecteur dédié.
+* `DSLSelectors$$AdjacentTiles(origin)` alloue un sélecteur `(state, battleQuery, origin)` dont le
+  `Select` est `AdjacentTilesSelector$$Select` : il énumère `origin`, prend les voisines de chacune,
+  et **exclut déjà les tuiles d'origine**.
+* `DSLSelectors$$Units(entities, unique, selectionType)` = `UnitsOnTilesSelector(state, entities,
+  unique, selectionType)`. Son `Select` appelle sur `entities` la méthode d'index **3**
+  (`unique == false`) ou **4** (`unique == true`), avec `(ctx, selectionType)`.
+* `DSLSelectors$$Friends/Enemies(of, entities, selectionType)` = `UnitsFromFactionSelector`. Son
+  `Select` appelle l'index **4** sur `entities` avec `(ctx, selectionType)`, puis garde les unités
+  dont `UnitExtensions$$HasFaction` égale le booléen `friends`.
+* `TargetsSelector$$op_Subtraction(left, right)` = `CombinedSelector{Left, Right, Op = 2}` ;
+  `CombinedSelector$$Select` évalue les DEUX côtés puis `SelectExclusion` (left privé des éléments
+  que `right.Contains` accepte).
+* `GenerateAttackPredictions` appelle sur le sélecteur racine l'index **4** avec `(ctx, 3)`.
+  L'index 4 est `TargetsSelector$$SelectUniqueUnits` : `results = this.Select(ctx)`, puis — sauf si
+  deux getters virtuels sont vrais — chaque entité passe par `TargetsSelector$$SelectUnit(entity,
+  selectionType)`, qui **écarte tout ce qui n'est pas une unité** et applique
+  `UnitExtensions$$MatchesUnitSelectionType`.
+* `UnitExtensions$$MatchesUnitSelectionType(unit, selectionType, state)` : `0` (ou > 3) → vrai ;
+  `1` → `IsAlive` ; `2` → `!HasFlag(0x11)` ; `3` → `IsAlive && !HasFlag(0x11)`. Le `3` des batchs
+  3/4 est donc « vivante ET sans le flag `0x11` ». `DSLSelectors$$Units(entities, unique, onlyAlive)`
+  (l'autre surcharge) écrit `selectionType = onlyAlive + 2`, ce qui confirme la lecture.
+
+## 8. Ce qui n'est PAS couvert
 
 * **Les batchs 3/4 restent NON PORTÉS** — pas de port spéculatif : tant que le natif n'en émet aucun,
   rien n'est confrontable. `1059` n'entre toujours pas dans `ABILITY_CLASSES` (seule
