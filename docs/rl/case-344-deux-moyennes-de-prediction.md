@@ -72,9 +72,9 @@ FlailSwing niveau 2 (84 vs 81), donc à l'utilité. Aucun renversement d'argmax 
 
 ## 5. Ce qui n'est PAS couvert
 
-- **~60 abilities de la face prédiction ne sont dans AUCUN des deux registres** : leur playbook
-  passe une formule propre et elles retombent sur le défaut (troncature = statu quo, donc aucune
-  régression) — mais ce défaut est **non lu**. Backlog `#344-r1`.
+- ~~**~60 abilities de la face prédiction ne sont dans AUCUN des deux registres**~~ → **FERMÉ par
+  #350** (`case-350`) : inventaire clos, **+18** en forme (a), **+1** en (b), **7** abilities dont la
+  base n'est pas une moyenne, nommées. Résidus ouverts `#350-r1/r2/r3`.
 - **`SortAttackersByDamagePredictionSelector` bâtit TROIS prédictions** (slots 2/4/3 =
   `CalculateMin`/`CalculateAverage`/`CalculateMax`), teste `WillBeKill` sur celle du MAX,
   `MightBeKill` sur celle du MIN, et moyenne le champ `+0x60` de celle de l'AVERAGE ; le port n'en
