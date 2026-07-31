@@ -337,11 +337,32 @@ export interface FullUnit {
  *  `IdunBattle.Entities.Components.ChildComponent$$ToString` (`il2cpp_value_box(Int32,
  *  *(int *)(this + 0x10))`).
  *
- *  POURQUOI LE TRI-ÉTAT. « Pas de `ChildComponent` » = l'unité n'est l'enfant de personne, un
- *  FAIT ; « classe irrésolue » = on n'a rien lu. Les rabattre tous deux sur `null` ferait passer
- *  un capteur MORT pour un board sans aucun summon, et le consommateur écraserait en silence un
- *  `parent_id` que la simulation offline avait, lui, correctement posé. Même discipline que
- *  `unitFlags` / `traits` (`null` = non mesuré, `[]` = mesuré et vide). */
+ *  POURQUOI LE TRI-ÉTAT. « Pas de parent » = un FAIT ; « classe irrésolue » = on n'a rien lu. Les
+ *  rabattre tous deux sur `null` ferait passer un capteur MORT pour un board sans aucun summon, et
+ *  le consommateur écraserait en silence un `parent_id` que la simulation offline avait, lui,
+ *  correctement posé. Même discipline que `unitFlags` / `traits` (`null` = non mesuré, `[]` =
+ *  mesuré et vide).
+ *
+ *  ⚠ `ParentId == 0` VAUT « PAS DE PARENT », et on le normalise en `null` ici. Ce n'est pas une
+ *  convention qu'on invente, c'est celle du natif, établie par DEUX voies :
+ *   * STRUCTURE — `IdunBattle.Entities.Components.MatchComponent$$NextId` est un PRÉ-incrément
+ *     (`*(int *)(this + 0x10) += 1 ; return`) sur un champ zéroé à la construction, et c'est la
+ *     source UNIQUE des ids (ses xrefs sont exactement les `Add*Operation$$Execute` : unité,
+ *     machine, plateforme, tuile, effet, joueur, ability d'environnement). Le premier id émis est
+ *     donc `1` : **`0` n'est jamais un id d'entité**, c'est le zéro d'un champ jamais écrit —
+ *     `IdunBattle.Entities.Components.ChildComponent$$.ctor` n'écrit PAS `ParentId`.
+ *   * COMPORTEMENT — `UnitExtensions$$GetParent` ne gate PAS sur zéro : il appelle
+ *     `state.GetEntity(ParentId)` tel quel, qui rend `null` pour un id inexistant. Rendre `null`
+ *     ici est donc le mirror EXACT de ce que le natif conclut, pas un raccourci.
+ *   * MESURÉ le 2026-07-31 (`probe_378_parent_link.py`, runner 264, MC1_67/777) : le warboss et
+ *     les trois autres unités du roster portent `ParentId = 0`, les deux `orksOrkBoys` invoqués
+ *     portent `83` = l'id du warboss ; et `dumpEntityComponents(entityId: 0)` rend
+ *     `entity 0 not found`.
+ *
+ *  ⚠ La branche « composant absent » ne se déclenche PAS en pratique — le même probe montre que
+ *  CHAQUE unité porte `ChildComponent` ET `ParentComponent`, l'ECS les crée systématiquement. On
+ *  la garde parce qu'elle mirrore la sortie `TryGetComponent == false` de `GetParent`, et parce
+ *  qu'un capteur qui SUPPOSE la présence d'un composant rend du garbage le jour où elle change. */
 export interface ParentLink { parentId: number | null; parentMeasured: boolean }
 
 // `ParentId` (BEntityId) résolu par NOM au runtime ; repli sur +0x10 (offset mesuré, cf. le
@@ -365,8 +386,9 @@ export function readParentLink(entityPtr: NativePointer): ParentLink {
     // c'est exactement la sortie `TryGetComponent == false` de `UnitExtensions$$GetParent`.
     if (comp === null) return { parentId: null, parentMeasured: true };
     try {
-        return { parentId: (comp as NativePointer).add(childParentIdOff).readS32(),
-                 parentMeasured: true };
+        const raw = (comp as NativePointer).add(childParentIdOff).readS32();
+        // `0` = champ jamais écrit = aucun parent (cf. `MatchComponent$$NextId`, pré-incrément).
+        return { parentId: raw === 0 ? null : raw, parentMeasured: true };
     } catch { return { parentId: null, parentMeasured: false }; }
 }
 

@@ -20,6 +20,25 @@ independantes : le RPC `classFields` (`ChildComponent.ParentId`, offset 16, type
 `IdunBattle.Entities.Components.ChildComponent$$ToString` (`il2cpp_value_box(Int32,
 *(int *)(this + 0x10))`).
 
+CE QU'IL A DEJA ETABLI (run du 2026-07-31, runner 264, MC1_67/777, capteur #378 PAS encore charge
+-- ces trois faits viennent du hook COURANT et du decompile, pas du capteur en attente) :
+
+  1. `ParentId == 0` VAUT « pas de parent ». `IdunBattle.Entities.Components.MatchComponent$$NextId`
+     est un PRE-incrementeur (`*(int *)(this + 0x10) += 1 ; return`) sur un champ zeroe, et c'est la
+     source UNIQUE des ids d'entite (ses xrefs sont exactement les `Add*Operation$$Execute` : unite,
+     machine, plateforme, tuile, effet, joueur, ability d'environnement). Le premier id emis est
+     donc `1`. Confirme live : `dumpEntityComponents(entityId: 0)` rend `entity 0 not found`, et le
+     roster porte `parentId = 0` la ou les deux `orksOrkBoys` invoques portent `83` (le warboss).
+     Le capteur normalise donc `0 -> null` -- mirror du `state.GetEntity(0) -> null` que
+     `UnitExtensions$$GetParent` produit, puisqu'il ne gate PAS sur zero.
+  2. CHAQUE unite porte `ChildComponent` ET `ParentComponent` (l'ECS les cree systematiquement) :
+     la branche « composant absent » du capteur ne se declenche pas en pratique. On la garde parce
+     qu'elle mirrore la sortie `TryGetComponent == false` de `GetParent`.
+  3. Le hook COURANT publie deja `parentId` cote `decisionView` (depuis `3b9a3b79`) mais SANS
+     discriminant et SANS normalisation -- d'ou `0` sur le roster. C'est exactement ce que #378
+     ferme : `combatSnapshot` ne le portait pas du tout, et le `0` se serait propage dans
+     `parent_by_id` comme un id d'entite.
+
 CE QUE CE PROBE MESURE, par etages :
 
   E0 canal    -- `combatSnapshot.units[]` porte-t-il `parentMeasured` ? Sinon le capteur #378 n'est

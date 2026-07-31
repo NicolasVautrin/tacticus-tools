@@ -103,6 +103,28 @@ def test_un_fork_des_deux_canaux_est_DENONCE():
     assert "source unique" in v["message"]
 
 
+def test_un_parentId_ZERO_non_normalise_est_pris_en_defaut():
+    """`0` n'est PAS un id d'entite : `IdunBattle.Entities.Components.MatchComponent$$NextId` est un
+    PRE-incrementeur sur un champ zeroe (source UNIQUE des ids -- ses xrefs sont les
+    `Add*Operation$$Execute`), donc le premier id emis est `1`. Un `ParentId = 0` est le zero d'un
+    champ que `ChildComponent$$.ctor` n'ecrit jamais : « pas de parent ».
+
+    MESURE du 2026-07-31 (runner 264) : le hook COURANT publiait `parentId: 0` sur les 4 unites du
+    roster et `83` sur les 2 `orksOrkBoys` invoques ; `dumpEntityComponents(entityId: 0)` rend
+    `entity 0 not found`. Le capteur #378 normalise donc `0 -> null` -- mirror du
+    `state.GetEntity(0) -> null` que `UnitExtensions$$GetParent` produit (il ne gate PAS sur zero).
+
+    Cette garde est le CLIQUET de cette normalisation : un capteur qui laisserait passer le `0` brut
+    injecterait un id d'entite FAUX dans `parent_by_id` et dans `UnitComponent.parent_id`."""
+    brut = {"units": [{"entityId": 1, "parentId": 0, "parentMeasured": True}]}
+    v = P378.check_roster_has_no_parent(brut, [1])
+    assert v["status"] == "wrong", (
+        "un `parentId: 0` NON normalise passe pour un vrai parent -- "
+        "0 n'est jamais un id d'entite (MatchComponent$$NextId pre-incremente)")
+    normalise = {"units": [{"entityId": 1, "parentId": None, "parentMeasured": True}]}
+    assert P378.check_roster_has_no_parent(normalise, [1])["status"] == "ok"
+
+
 def test_un_capteur_qui_pose_un_parent_PARTOUT_est_pris_en_defaut():
     """Contre-epreuve du roster : sans elle, un capteur qui rendrait un id CONSTANT sur toutes les
     lignes passerait l'etage du lien (le summon aurait, par hasard, le bon)."""
