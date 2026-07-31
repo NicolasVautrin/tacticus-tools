@@ -162,6 +162,29 @@ def _trace_hits(fn):
         DP.predict_attack_raw = orig
 
 
+def _mutate_rem_unique(fn):
+    """MUTATION jouee, pas promise : le port d'AVANT #345 (rem UNIQUE = `shield - cumul MAX`,
+    consomme par les DEUX bornes). On l'obtient sans revenir en arriere dans le code, en ecrasant
+    `prev.shield_min` par `prev.shield_max` a l'entree de `predict_attack_raw` -- ce qui rend
+    `remShieldMin == remShieldMax`, la definition exacte de l'ancien modele.
+
+    Elle DOIT laisser `AccurateShieldDamage` intact (les deux modeles y sont algebriquement
+    indiscernables, cf. en-tete) et faire diverger le COMPLEMENT (sante / total). C'est ce qui
+    prouve que la garde verrouille la formule et pas seulement un scalaire."""
+    import engine.services.damage_prediction as DP
+    orig = DP.predict_attack_raw
+
+    def _wrapped(prev, *a, **kw):
+        return orig(DP.BlockScenario(health=prev.health, shield_min=prev.shield_max,
+                                     shield_max=prev.shield_max), *a, **kw)
+
+    DP.predict_attack_raw = _wrapped
+    try:
+        return fn()
+    finally:
+        DP.predict_attack_raw = orig
+
+
 def _native_prediction(sid, rid, att_id, tgt_id, ability) -> dict | None:
     """Les champs BRUTS de l'event natif -- `AccurateShieldDamage`, `TotalDamage`,
     `CurrentShield`, lus par le decodeur PAR NOM (#279)."""
@@ -234,6 +257,8 @@ def _measure(sid, sf, seed, roster, board, center, damage, wt, verbose, trace=Fa
                 lambda: _port_prediction(sid, rid, wt, ids[att], ids[vic], ability))
         else:
             port, hits = _port_prediction(sid, rid, wt, ids[att], ids[vic], ability), None
+        mut = _mutate_rem_unique(
+            lambda: _port_prediction(sid, rid, wt, ids[att], ids[vic], ability))
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -250,7 +275,15 @@ def _measure(sid, sf, seed, roster, board, center, damage, wt, verbose, trace=Fa
            "health_match": bool(port["healthDmgMin"] == nat["healthDmgMin"]
                                 and port["healthDmgMax"] == nat["healthDmgMax"]),
            "rivals_match": {k: bool(v == nat_pair) for k, v in rivals.items()},
-           "port_hits": hits}
+           "port_hits": hits, "mutant_rem_unique": mut,
+           # La mutation doit laisser le BOUCLIER intact (indiscernabilite algebrique) et casser
+           # le COMPLEMENT -- sinon la garde ne verrouille rien.
+           "mutant_shield_same": bool(mut is not None
+                                      and mut["shieldDmgMin"] == nat["shieldDmgMin"]
+                                      and mut["shieldDmgMax"] == nat["shieldDmgMax"]),
+           "mutant_health_breaks": bool(mut is not None
+                                        and (mut["healthDmgMin"] != nat["healthDmgMin"]
+                                             or mut["totalDmgMin"] != nat["totalDmgMin"]))}
     if verbose:
         print("[345] Damage=%-6d %-11s bouclier=%-6d hits=%d" %
               (damage, out["regime"], nat["shieldBefore"], nat["appliedHits"]))
@@ -266,6 +299,13 @@ def _measure(sid, sf, seed, roster, board, center, damage, wt, verbose, trace=Fa
         for k, v in rivals.items():
             print("        %-32s = [%5d,%5d]  %s"
                   % (k, v[0], v[1], "match" if out["rivals_match"][k] else "REFUTE"))
+        if mut is not None:
+            print("        mutant rem-UNIQUE (pre-#345)      shieldDmg=[%5d,%5d] %s | "
+                  "healthDmg=[%5d,%5d] totalDmg=[%5d,%5d] %s"
+                  % (mut["shieldDmgMin"], mut["shieldDmgMax"],
+                     "INDISCERNABLE" if out["mutant_shield_same"] else "separe",
+                     mut["healthDmgMin"], mut["healthDmgMax"], mut["totalDmgMin"],
+                     mut["totalDmgMax"], "CASSE" if out["mutant_health_breaks"] else "identique"))
         for i, h in enumerate(out.get("port_hits") or [], 1):
             print("        coup %d : prev_shield=[%d,%d] -> shield=[%d,%d] health=[%d,%d] "
                   "total=[%d,%d]" % (i, h["prev_shield_min"], h["prev_shield_max"],
@@ -336,11 +376,20 @@ def run(seed: int = 34501, state_file=None, verbose: bool = True,
     # seul couple, plusieurs modeles coincident (c'est tout le point de la grille).
     refuted = {k: any(not r["rivals_match"][k] for r in good)
                for k in (good[0]["rivals"] if good else {})}
+    # La mutation « rem unique » doit etre INVISIBLE sur le bouclier (partout) et VISIBLE sur le
+    # complement (au moins un tir) : c'est la double condition qui rend la garde non tautologique.
+    mut_shield_blind = all(r["mutant_shield_same"] for r in good)
+    mut_health_breaks = any(r["mutant_health_breaks"] for r in good)
     verdict = {
-        "ok": bool(port_ok and len(regimes) >= 2 and all(refuted.values())),
+        "ok": bool(port_ok and len(regimes) >= 2 and all(refuted.values())
+                   and mut_shield_blind and mut_health_breaks),
         "port_matches_native": port_ok,
         "regimes": regimes,
         "rivals_refuted": refuted,
+        "mutant_shield_indiscernible": mut_shield_blind,
+        "mutant_health_breaks": mut_health_breaks,
+        "total_all_match": all(r["total_match"] for r in good),
+        "health_all_match": all(r["health_match"] for r in good),
         "total_matches": {r["damage"]: r["total_match"] for r in good},
         "health_matches": {r["damage"]: r["health_match"] for r in good},
         "rows": rows, "calibration": cal,
@@ -352,6 +401,9 @@ def run(seed: int = 34501, state_file=None, verbose: bool = True,
         print("  terme BOUCLIER port == natif   : %s" % ("OUI" if port_ok else "NON"))
         for k, v in refuted.items():
             print("  %-32s : %s" % (k, "REFUTE" if v else "non separe"))
+        print("  mutation rem-unique : bouclier %s / complement %s"
+              % ("INDISCERNABLE" if mut_shield_blind else "SEPARE (inattendu)",
+                 "CASSE" if mut_health_breaks else "IDENTIQUE (mutation inerte)"))
         print("  totalDmg port == natif         : %s" % verdict["total_matches"])
         print("  healthDmg port == natif        : %s" % verdict["health_matches"])
         print("  -> %s" % ("OK" if verdict["ok"] else "ECHEC"))
