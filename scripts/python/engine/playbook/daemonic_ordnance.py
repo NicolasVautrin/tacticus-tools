@@ -61,45 +61,42 @@ qui cible une TUILE, si bien que `_best_attack` (qui consomme `ranked`) ne peut 
 faire. Le critere reel de la route non-attaque est « Comparable **invisible de `_best_attack`** »
 (cf. l'en-tete de `nonattack.py`), et 1148 y repond.
 
-## Ce qui EST porte ici, et ce qui ne l'est PAS
+## Les DEUX termes de `CalculateActionUtility` sont portes (#359-r3)
 
 `ComparablePlaybook<T>.CalculateActionUtility` somme `custom + CalculateUtilityFromPredictions(
-MakeDamagePredictions(...))`. Cette tranche porte le **custom** (mirror 1:1 ci-dessus). Le terme de
-PREDICTION reste a `0`, et — contrairement a 1169 — c'est ici une propriete STRUCTURELLE de l'ability,
-pas un regime :
+MakeDamagePredictions(...))`.
 
-`IdunBattle.AI.Playbook.Loki.DaemonicOrdnancePlaybook$$MakeDamagePredictions` boucle
-`GenerateMultiHitAttackPredictions` sur `GetEntitiesFromSelector(
-DaemonicOrdnanceAbility$$GetAllDamageableTargets, ...)`, et `GetAllDamageableTargets` =
-`Enemies(caster@0x160, Units(Filter(GetTargetAreaTiles(), HasEffect(Tiles(Subject@0x180), 5 = Fire)),
-1), 3)` : **les ennemis debout sur une tuile DEJA EN FEU**. Or c'est ce meme cast qui POSE le feu, en
-DERNIER etage de son behaviour (`ExecuteBehaviour` [5] `AddEffect(Fire -> zone)`). Sur une zone qui ne
-brule pas encore, le selecteur rend l'ensemble VIDE et la somme des predictions vaut REELLEMENT 0 —
-le port est donc EXACT partout ou la zone visee ne porte pas deja `Fire` (5), ce qui inclut tout
-premier cast et tout board frais.
+- **custom** — `CalculateCustomUtility` ci-dessus (`case-302` tranche 3).
+- **prediction** — `MakeDamagePredictions`, cf. la docstring de la methode. Le playbook a un corps
+  BESPOKE : il boucle sur `GetEntitiesFromSelector(DaemonicOrdnanceAbility$$GetAllDamageableTargets,
+  ...)`, jamais sur `<Target>` — et pour cause, `<Target>` est ici une entite TUILE, qui ne prend
+  aucun degat. Jusqu'a #359-r3 ce terme valait `0` cote port par le seul heritage de
+  `NonAttackComparablePlaybook.make_damage_predictions` (qui rend `[]`), alors que la MECANIQUE
+  etait portee et confrontee depuis #359-r1 : il ne manquait que le BRANCHEMENT.
 
-⚠ **RESIDU NOMME (meme tranche 2 que 1169)** : des qu'un ennemi se tient sur une tuile en feu de la
-zone visee, le natif ajoute un terme de degat que ce port ne calcule pas -> il SOUS-ESTIME l'utilite
-de 1148. Garde de non-regression silencieuse :
-`tests/engine/test_daemonic_ordnance_decision_live.py::test_prediction_term_is_zero_because_the_area_is_not_burning`.
+`GetAllDamageableTargets` = **les ennemis debout sur une tuile DEJA EN FEU** de la zone. Or c'est ce
+meme cast qui POSE le feu, en DERNIER etage de son behaviour (`ExecuteBehaviour` [5]
+`AddEffect(Fire -> zone)`) : sur une zone qui ne brule pas encore, le selecteur rend l'ensemble VIDE
+et la somme des predictions vaut REELLEMENT `0`. Le terme n'est donc VISIBLE que dans le regime
+« zone deja embrasee » — d'ou un montage de validation qui CASTE 1148 une premiere fois avant de
+mesurer la decision suivante (aucun autre chemin ne pose ce feu).
 
-⚠⚠ **CE QU'IL RESTE EXACTEMENT, depuis #359-r1** : la PREDICTION, elle, est portee et CONFRONTEE.
-`engine.playbook.prediction.make_damage_predictions(scene, caster, target, 1148, "DaemonicOrdnance")`
-mirrore desormais la boucle du selecteur (`DaemonicOrdnanceAbility.get_aoe_targets` +
-`_MAKE_DMG_TARGET_GATE[1148]`) et rend les MEMES events que le natif, valeurs comprises -- mesure et
-gardes dans `docs/rl/case-350r3-porteur-mow-et-formule-triggered.md`. Ce qui manque n'est donc plus
-la MECANIQUE mais le seul BRANCHEMENT : `NonAttackComparablePlaybook.make_damage_predictions` rend
-`[]` par construction (le corps de BASE de `ComparablePlaybook<T>` le fait quand le profil est
-absent), alors que `1148` a un `<Ability>Playbook$$MakeDamagePredictions` BESPOKE. Y router la
-prediction portee CHANGERAIT l'utilite de decision de 1148 des que la zone brule, et fait donc
-tomber la garde ci-dessus : c'est une tranche a part entiere, avec son propre montage d'utilite.
+⚠ Ce que le branchement CHANGE, et qu'il faut savoir avant de lire un test rouge : des que la zone
+brule, l'utilite d'action de 1148 monte de la somme des `CalculateUtilityFromDamageEvent` de ses
+events. La garde `test_prediction_term_is_zero_because_the_area_is_not_burning` (#359-r1) encodait
+l'ANCIEN comportement « toujours zero » ; elle a ete REECRITE en une garde de REGIME (zero sur zone
+froide, non-zero sur zone en feu) — c'est le contrat natif, pas une constante.
 """
 from __future__ import annotations
 
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.selectors.accessors import FixedTileIds
-from ..runner.abilities.blacklegion import daemonic_ordnance_target_area_tiles
+from ..runner.abilities.blacklegion import (DAEMONIC_ORDNANCE_ID,
+                                            daemonic_ordnance_all_damageable_targets,
+                                            daemonic_ordnance_target_area_tiles)
+from . import prediction
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
+from .probable_damage_event import ProbableDamageEvent
 from .tile_targets import dsl_context_for_tile_target, unit_on_tile
 
 
@@ -108,6 +105,7 @@ class DaemonicOrdnancePlaybook(NonAttackComparablePlaybook):
 
     __slots__ = ()
     ability_id = int(ActiveAbilityType.DaemonicOrdnance)           # 0x47c = 1148
+    ability_name = DAEMONIC_ORDNANCE_ID                            # cle gameconfig
     # `FixMath_NET_Fix64__op_Implicit(0xa)` litteral du corps natif — AUCUN `GetUtilityValue`, donc
     # AUCUNE cle `BC.Utilities` (contraste avec `PlagueburstMortar_AdjacentEnemy` de 1169).
     ENEMY_IN_AREA = 10.0
@@ -137,6 +135,66 @@ class DaemonicOrdnancePlaybook(NonAttackComparablePlaybook):
             if u is not None and u.get("team") != caster_team:
                 total += self.ENEMY_IN_AREA
         return total
+
+    def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
+        """`DaemonicOrdnancePlaybook$$MakeDamagePredictions` — mirror 1:1 :
+
+            list = new List<ProbableDamageEvent>()
+            sel  = DaemonicOrdnanceAbility$$GetAllDamageableTargets()
+            hits = AActiveAbility$$GetHits()                                     # HORS boucle
+            foreach (e in Playbook<T>$$GetEntitiesFromSelector(sel, caster, casterPosition, target)) {
+                damage = DaemonicOrdnanceAbility$$GetDamage(Entity(e), state, isPrediction: 1)
+                list.AddRange(ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions(
+                                  caster, casterPosition, e, DSLSelectors$$Entity(e),
+                                  damage, hits, 0, Nullable<DamageProfile>(null), 0))
+            }
+            return list
+
+        QUATRE lectures que le decompile impose, et qu'il faut avoir avant de porter :
+
+        1. **Il n'y a PAS de « cible principale ».** Le corps ne predit rien sur `<Target>` : il
+           boucle sur les entites de SON selecteur. C'est structurel ici — `<Target>` est une entite
+           TUILE (masque `...DaemonicOrdnanceAbility$$.ctor` = `0x46000040`, bit 6 `TargetIsTile`),
+           qui ne prend aucun degat. La forme « main + AoE » de
+           `engine.playbook.prediction.make_damage_predictions` est le mirror du regime a cible
+           UNITE (celui de l'oracle `aiPlaybookPredict`, #359-r1) ; sur la route de DECISION, ou la
+           cible est une tuile, c'est la BOUCLE qui est le mirror — donc cet override, exactement
+           comme `PlagueburstMortarPlaybook.make_damage_predictions`.
+        2. **`GetDamage` est evalue DANS la boucle mais IGNORE son argument `target`** : son corps
+           est `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(state, isPrediction)`
+           SEUL. La base est donc la meme pour toutes les entites -> le chemin generique par cible
+           (`generate_multi_hit_attack_prediction`) est EXACTEMENT le bon, rien a surcharger.
+        3. **`param_8 = Nullable<DamageProfile>(null)`** — pierce 0, armure PLEINE (#172). La valeur
+           est LUE dans `_PLAYBOOK_PROFILE_OVERRIDE[1148]`, foyer unique deja confronte live par
+           #350-r3/#359-r1 : la recopier ici en litteral creerait un second foyer, donc une
+           divergence possible entre les deux faces de la meme prediction.
+        4. **Aucun poids** (`param_10 = 0`) -> `probability2 = Fix64(1)` ; aucun event SELF
+           (`GetHealthToLose` absent du corps) ; aucun plafond secondaire.
+
+        `caster_tile` EST utilise (contrairement au custom) : le natif passe `casterPosition` a
+        `GenerateMultiHitAttackPredictions`, qui la forwarde a `PredictAttack` — d'ou
+        `attack_pos = caster_tile`, qui porte les modificateurs positionnels et le gate `HasMoved`.
+
+        Contexte DSL indisponible -> `[]` : le terme de prediction est alors NUL, jamais invente.
+        Meme degradation que le custom, et elle est visible (`probe_302_3 --stage`)."""
+        dctx = dsl_context_for_tile_target(ctx)
+        if dctx is None or target is None or getattr(ctx, "scene", None) is None:
+            return []
+        # Import LOCAL : lecture SEULE du registre de profils de la face PREDICTION (cf. point 3).
+        from .prediction.abilities import _PLAYBOOK_PROFILE_OVERRIDE
+        profile = _PLAYBOOK_PROFILE_OVERRIDE.get(int(ability_id))
+        sel = daemonic_ordnance_all_damageable_targets(FixedTileIds([int(target)]))
+        events = []
+        for u in (sel.select(dctx) or []):
+            tid = u.get("id") if isinstance(u, dict) else None
+            if tid is None:
+                continue
+            dp = prediction.generate_multi_hit_attack_prediction(
+                ctx.scene, ctx.uid, int(tid), int(ability_id), self.ability_name,
+                attack_pos=caster_tile, profile_override=profile)
+            if dp is not None:
+                events.append(ProbableDamageEvent(target=int(tid), prediction=dp))
+        return events
 
 
 register_nonattack(DaemonicOrdnancePlaybook())
