@@ -97,6 +97,9 @@ from .my_will_be_done_overlord import (                                # passif 
     MyWillBeDoneOverlordExtraDamageEffect)
 from .reality_unbound import (RealityUnboundMovementEffect, RealityUnboundRangeEffect,
                               RealityUnboundExtraMaxDamageEffect)
+from .serene_unifier import SereneUnifierStormOfFireEffect              # passif tauAunShi (1145), 1171
+from .unbreakable_duty import (UnbreakableDutyHealthEffect,             # active templAncient, 1251/1256
+                               UnbreakableDutyDamageEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 from .ability_modifications import ListenUpMaggotsEffect
 from .votann import (AugmentedAssaultReduceArmorEffect, AncestralFortuneExtraCritChanceEffect,
@@ -166,6 +169,9 @@ __all__ = [
     "BlessingsOfKhorneModifiersEffect", "StunnedEffect", "StunnedDamageModifierEffect",
     "ActOfFaithBuffEffect", "ThrillSeekersEffect", "TauntedEffect", "PinnedEffect",
     "RealityUnboundMovementEffect", "RealityUnboundRangeEffect", "RealityUnboundExtraMaxDamageEffect",
+    # G1 case-371 : instances GENERIQUES `StaticStatModifierEffect` (declarees pour l'attribution
+    # par-source du seed, donc le revert exact -- cf. #118).
+    "SereneUnifierStormOfFireEffect", "UnbreakableDutyHealthEffect", "UnbreakableDutyDamageEffect",
     "MV71InitialDmgEffect", "MV71ResetInitialDmgEffect", "MasterOfTheTutelariesEffect",
     "BlackRageExtraMoveEffect", "BlackRageExtraDamageEffect", "BlackRageAutomaticUnitEffect",
     "WaaaghExtraMovementEffect", "WaaaghExtraDamageEffect", "WaaaghExtraHitsEffect",
