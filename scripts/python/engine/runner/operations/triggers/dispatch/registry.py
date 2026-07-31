@@ -89,6 +89,9 @@ from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove
                                          ITG_OVERRIDE_LEVEL)
 from ..loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
                                 CHRONOMETRON_EXTRA_DAMAGE)
+from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
+from ..loki.until_of_end_turn import (HatefulAssaultAlreadyAttackedRemove,
+                                      HATEFUL_ASSAULT_ALREADY_ATTACKED)
 from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
                                         EarlyWarningOverrideHitReductionPurge,
                                         EWO_REACTIVATE_OVERWATCH)
@@ -167,6 +170,12 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # (ennemi qui marche sur un decoy allié -> Blast) + BuffFriends (allié -> +582 dmg fin-de-tour + decoy).
     "DecoysAndMisdirection": [DecoysAndMisdirectionDamageEnemiesAbility,
                               DecoysAndMisdirectionBuffFriendsAbility],
+    # HatefulAssault (passif Angrax blackTerminator, case-366-r1) = attaque d'opportunite :
+    # `On(0x1f=PreUnitMove) & AreEnemies & IsAdjacent & !HasEffect(Actor, 0x497) &
+    # !AreEqual(Tiles(Actor), <destination>)` -> `AttackWithAttackDamage(2x Power) & AddEffect(0x497)`.
+    # Le marqueur 1175 est ce qui borne l'attaque a UNE fois par ennemi et par tour ; son retrait vit
+    # dans `EFFECT_TRIGGERS[1175]` (`On(TurnEnd)`). Cf. loki/hateful_assault.py.
+    "HatefulAssault": [HatefulAssaultAttackAbility],
     # HypersensoryAbilities (passif Judh genesKelermorph, G6b) = MoveAndSpawnDecoy : `On(9=Attack)` sur la 1re
     # attaque du tour ennemi -> move + decoy sur la tuile quittee + contre-attaque 3x Projectile. G6a (HP-floor,
     # effet 1380) est un OWNER-EFFECT auto-pose (pas un ability-trigger) ; ici = le volet triggered.
@@ -534,6 +543,14 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # qui fait du +degat une CHARGE A USAGE UNIQUE (consommee au 1er coup d'un allie du Chronomancer),
     # et non un buff persistant. Cf. loki/chronometron.py.
     CHRONOMETRON_EXTRA_DAMAGE: [ChronometronExtraDamageRemove],      # 1550 -> retrait On(9)
+    # HatefulAssault_AlreadyAttacked (case-366-r1, effet 1175 pose par `HatefulAssaultAbility$$
+    # CreateBehaviour` sur l'ennemi qu'Angrax vient de frapper). Fabrique native = la GENERIQUE
+    # `UntilOfEndTurnEffect`, dont le SEUL contenu est
+    # `CreateRemoveEffectTrigger = On(0x17 = TurnEnd, ownerNeedsToBeAlive: false)` -- aucun predicat.
+    # SANS cette entree le marqueur serait PERMANENT (`DefaultAmountOfRounds(1175)` = Nullable vide,
+    # `AddEffect` avec `turns` vide) et HatefulAssault cesserait a jamais de frapper une unite deja
+    # touchee une fois : regression PERMISSIVE-INVERSE et SILENCIEUSE. Cf. loki/until_of_end_turn.py.
+    HATEFUL_ASSAULT_ALREADY_ATTACKED: [HatefulAssaultAlreadyAttackedRemove],   # 1175 -> retrait On(0x17)
     # EarlyWarningOverride_ReactivateOverwatch (#114 residu 3, effet 1145 pose par l'active 1077 de
     # tauCrisis) : `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` rend un ArraySet
     # de DEUX `Triggered()` -> DEUX classes. (1) `On(1=PreUnitDeath) & OwnerIsActor & NOT IsTurnOf(owner)
