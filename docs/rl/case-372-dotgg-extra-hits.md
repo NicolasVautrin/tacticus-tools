@@ -227,7 +227,43 @@ reconstitue par RETRAIT de l'inscription.
 | (b) | le plafond `Min(Direct(100), .)` | `test_gates_and_chance_offline` |
 | (c) | la branche `isDrone` (`EntitiesIsNotTargetOfEffect`) | `test_drone_does_not_double_count_offline` |
 | (d) | le noeud `Parent(EffectSource)` | `test_chance_reads_the_parent_for_the_drone_offline` |
-| (e) | l'inscription `DefenderOfTheGreaterGood_ExtraHits` | `test_registry_carries_the_four_effect_types`, puis LIVE `test_adjacent_grants_the_extra_hit` |
+| (e) | l'inscription `DefenderOfTheGreaterGood_ExtraHits` | `test_registry_carries_the_four_effect_types`, puis LIVE `test_adjacent_grants_the_extra_hit` **et** `test_ring2_tau_grants_the_extra_hit` |
+
+Message rouge LIVE du mutant (e), VERBATIM :
+
+```
+AssertionError: ADJACENT : le port n'applique pas le +extraHit de l'aura DotGG --
+live n=2 [6930, 7105] offline n=1 [7329] (delta hits=-1)
+```
+
+Le delta est de **-1** exactement, sur les DEUX boards : c'est bien `ConfigConst(0x2b = extraHit)`
+qui manque, pas un etage de degat.
+
+La **face DECISION** est confrontee separement (`test_prediction_face_agrees` : oracle natif
+per-tuile `decisionView.attackPlans[].evals[].ranked` contre
+`playbook.prediction.make_normal_attack_predictions`, TOL 3), et le mutant (e) l'y fait rougir
+d'un **facteur 2 EXACT** :
+
+```
+AssertionError: face PREDICTION : 1/1 tuiles en desaccord (TOL 3) --
+[((0, 2), 1, (11288, 16308), (5644, 8154))]
+```
+
+`11288 / 5644 = 16308 / 8154 = 2` -- deux coups contre un. Les deux faces consomment bien la MEME
+formule, comme le natif (`DamagePrediction$$GetAttackHits` et
+`AttackDamageOperation$$GetAttackHits` delegent toutes deux a
+`AttackHitsWithModifiersFormula$$Calculate`).
+
+### 6.2 Un rouge qui accusait le MONTAGE, pas le port
+
+Premier passage de la garde : `RING2_TAU` rendait `live n=10` contre `offline n=7`, **delta -3**,
+les 7 premiers coups BIT-EXACTS. Ce n'etait PAS un manque de `+extraHit` (le port en applique bien
+un : 6 coups d'arme + 1). Les 3 coups manquants sont ceux de
+`CyclicIonBlaster_AdditionalHits` (`nrOfHits = 3`) que `tauCrisis` porte : cote port ils vivent dans
+`damage_handler.last["additional_hits"]["per_hit"]` (canal #179), **pas** dans `per_hit` (coups
+d'ARME), alors que le compte LIVE ramasse tous les evenements de degat. Le harnais concatene
+desormais les deux. Un delta CONSTANT et des coups initiaux bit-exacts sont la signature de ce
+defaut de montage -- pas d'un gate manquant.
 
 ## 7. Ce qui n'est PAS couvert
 
@@ -241,6 +277,8 @@ reconstitue par RETRAIT de l'inscription.
 * **Le regime `chance < 100` n'est pas confronte** : le coup y est un TIRAGE, et l'alignement du
   flux PRNG entre natif et port sur ce point precis n'a pas ete mesure. Le port TIRE (mirror), donc
   la consommation de genrand est la ; que le tirage tombe au MEME rang que le natif reste a etablir.
+  Toute la validation vit dans `chance = 100` (>= 4 tours), le seul regime deterministe des deux
+  cotes.
 * **`get_Priority`** (`100` si `!isDrone`, `0` sinon) n'est pas porte : le canal SOMME les
   contributions, il ne les trie pas.
 * **La pose des effets sur le DRONE n'a pas ete jouee live** : le montage confronte l'aura de

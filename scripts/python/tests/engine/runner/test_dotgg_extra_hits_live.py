@@ -14,10 +14,20 @@ et NON un `CreateAdditionalHits` (canal #179, groupe a degat propre). Cf. #204/#
 l'autre sens.
 
 VUE ROUGE AVANT LE FIX (obtenue par RETRAIT de l'inscription `DefenderOfTheGreaterGood_ExtraHits`
-d'`EFFECT_CLASSES` -- le port d'AVANT, reconstitue), message VERBATIM :
+d'`EFFECT_CLASSES` -- le port d'AVANT, reconstitue), messages VERBATIM :
 
     AssertionError: ADJACENT : le port n'applique pas le +extraHit de l'aura DotGG --
-    live n=2 [10245, 8365] offline n=1 [10245] (delta hits=-1)
+    live n=2 [6930, 7105] offline n=1 [7329] (delta hits=-1)
+
+    AssertionError: RING2_TAU (C1_25/31337) : live n=10 [1533, 1694, 1599, 1709, 1562, 1707, 1506,
+    1585, 1815, 1701] offline n=9 [1442, 1533, 1694, 1599, 1709, 1562, 1498, 1585, 1815]
+    (delta hits=-1)
+
+    AssertionError: face PREDICTION : 1/1 tuiles en desaccord (TOL 3) --
+    [((0, 2), 1, (11288, 16308), (5644, 8154))]
+
+Le troisieme est le plus net : la tuile a d=1 diverge d'un FACTEUR 2 EXACT (11288/5644 = 16308/8154
+= 2) -- deux coups contre un. La face DECISION consomme donc bien la meme formule.
 
 LES REGIMES (montage : `_dotgg_aura_regime.py`) -- le selecteur natif
 `DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector` a DEUX tiers, ce test les separe :
@@ -259,6 +269,38 @@ def test_adjacent_beats_ring2_live(shadowsun):
         "le natif doit porter PLUS de coups a d=1 qu'a d=2 pour un NON-T'au -- ADJACENT n=%d, "
         "RING2_NON_TAU n=%d (si egal, le montage n'exerce pas le bonus)"
         % (len(rec_a["live_per_hit"]), len(rec_r["live_per_hit"])))
+
+
+_PRED_TOL = 3          # meme tolerance que `probe_220_dotgg.py` (arrondis de la chaine de degat)
+
+
+def test_prediction_face_agrees(shadowsun):
+    """L'AUTRE FACE -- la formule de coups est PARTAGEE par le combat et la prediction (le natif ne
+    la duplique pas), donc le port doit accorder sur les DEUX.
+
+    On confronte l'oracle natif per-tuile (`decisionView.attackPlans[].evals[].ranked`, issu de
+    `IdunBattle.Core.Services.DamagePredictionQuery$$GetAllPredictions`) a
+    `playbook.prediction.make_normal_attack_predictions`, dans le regime `chance = 100` ou le
+    `Maybe` est DETERMINISTE des deux cotes (sans PRNG : `99 < chance`).
+
+    L'assertion exige AUSSI qu'au moins une tuile rankee soit DANS l'aura (d <= 1) : sinon le
+    verdict porterait sur des tuiles ou le bonus n'existe pas, et ne prouverait rien."""
+    rec = shadowsun.run(_BENEF_NON_TAU, ADJACENT)
+    if rec is None:
+        pytest.fail("montage dotgg NON INSTALLE (prediction)", pytrace=False)
+    rows = rec.get("predict_rows")
+    assert rows, "aucune tuile rankee pour le beneficiaire -- la face PREDICTION n'a rien confronte"
+    assert any(r["d_carrier"] <= 1 for r in rows), (
+        "aucune tuile rankee n'est DANS l'aura (d <= 1 du porteur) : le verdict porterait sur des "
+        "tuiles ou le bonus n'existe pas ; distances vues = %s"
+        % sorted({r["d_carrier"] for r in rows}))
+    bad = [r for r in rows
+           if max(abs(r["oracle"][0] - r["offline"][0]),
+                  abs(r["oracle"][1] - r["offline"][1])) > _PRED_TOL]
+    assert not bad, (
+        "face PREDICTION : %d/%d tuiles en desaccord (TOL %d) -- %s"
+        % (len(bad), len(rows), _PRED_TOL,
+           [(r["tile"], r["d_carrier"], r["oracle"], r["offline"]) for r in bad[:6]]))
 
 
 def test_ring2_tau_grants_the_extra_hit(shadowsun_tau):

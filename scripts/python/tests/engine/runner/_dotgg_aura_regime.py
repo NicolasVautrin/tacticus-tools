@@ -257,6 +257,9 @@ class DotggAuraHarness:
         if plan["ability_type"] is None:
             return None
         plan["snapshot"] = self.snapshot()
+        # Face PREDICTION capturee AVANT l'attaque (elle ne mute rien) : les DEUX consommateurs de
+        # la formule de coups sont ainsi confrontes sur le MEME etat.
+        plan["predict_rows"] = self.predict_rows(plan)
         res = self.rpc("applyAction", {"runnerId": self.rid, "action": {
             "kind": "ability", "casterId": plan["benef"], "targetId": plan["target"],
             "abilityType": int(plan["ability_type"])}}, 60)
@@ -287,14 +290,76 @@ class DotggAuraHarness:
         return st
 
     def replay_offline(self, rec):
-        """Rejoue l'ATTAQUE NORMALE offline et rend `{per_hit, state, carrier_effects}`."""
+        """Rejoue l'ATTAQUE NORMALE offline et rend
+        `{per_hit, weapon_per_hit, extra_per_hit, state, carrier_effects}`.
+
+        ⚠ `per_hit` CONCATENE les coups d'ARME **et** les coups des groupes du canal #179
+        (`damage_handler.last["additional_hits"]["per_hit"]`), dans cet ordre. C'est ce qui le rend
+        COMPARABLE au compte LIVE, qui ramasse TOUS les evenements de degat de l'attaque.
+        Sans cette concatenation, tout beneficiaire portant un descripteur `EffectAdditionalHits`
+        (ex. `tauCrisis` / `CyclicIonBlaster_AdditionalHits`, `nrOfHits = 3`) fait rendre au harnais
+        un delta CONSTANT -- mesure #372 : `live n=10` contre `offline n=7`, les 7 premiers coups
+        BIT-EXACTS. Ce rouge-la accuse le MONTAGE, pas le port ; il a ete pris pour un manque de
+        `+extraHit` avant d'etre localise."""
         st = self.offline_state(rec)
         effs = [getattr(e, "name", None)
                 for e in (st.effects.by_unit.get(rec["carrier"]) or [])]
         runner = Runner(st).install_default_handlers(20)
         runner.apply(AttackUnitMessage(attacker_id=rec["benef"], target_id=rec["target"]))
-        per_hit = list((runner.damage_handler.last or {}).get("per_hit") or [])
-        return {"per_hit": per_hit, "state": st, "carrier_effects": effs}
+        last = runner.damage_handler.last or {}
+        weapon = list(last.get("per_hit") or [])
+        extra = list(((last.get("additional_hits") or {}).get("per_hit")) or [])
+        return {"per_hit": weapon + extra, "weapon_per_hit": weapon, "extra_per_hit": extra,
+                "state": st, "carrier_effects": effs}
+
+    # ------------------------------------------------ face PREDICTION (l'autre consommateur)
+
+    def predict_rows(self, rec):
+        """Confronte la face PREDICTION -- l'ORACLE natif per-tuile (`decisionView.attackPlans[].
+        evals[].ranked`, produit par `IdunBattle.Core.Services.DamagePredictionQuery$$GetAllPredictions`)
+        contre `playbook.prediction.make_normal_attack_predictions` du port, POUR LE BENEFICIAIRE.
+
+        La formule de coups est PARTAGEE par les deux faces (le natif ne la duplique pas) : cette
+        confrontation ferme la face que le rejeu de combat ne touche pas. Elle a lieu APRES le
+        rechauffement des tours, donc dans le regime `chance = 100` ou `Maybe` est deterministe des
+        DEUX cotes (`MaybeTrigger$$ShouldTrigger` sans PRNG = `99 < chance`).
+
+        Rend `[{tile, d_carrier, oracle: (min,max), offline: (min,max)}]` -- l'appelant tranche."""
+        from engine.playbook import scene as SC
+        from engine.playbook import prediction
+        from engine.playbook.scene import Scene
+        dec = self.rpc("decisionView",
+                       {"runnerId": self.rid, "maxRank": 1, "allAbilities": True}, 90)
+        predictor = SC.build_predictor(self.rpc, self.rid)
+        if predictor is None:
+            return None
+        sctx = SC.step_context(predictor, dec)
+        scene = Scene.from_predictor_sctx(predictor, sctx, None)
+        ben, tgt = rec["benef"], rec["target"]
+        if ben not in (predictor.get("ctx_by_id") or {}):
+            return None
+        norm_ids = {ab.get("id") for u in (dec.get("units") or []) if u.get("id") == ben
+                    for ab in (u.get("abilities") or []) if ab.get("kind") == "normal"}
+        rows = []
+        for ap in (dec.get("attackPlans") or []):
+            if ap.get("unitId") != ben:
+                continue
+            for ev in (ap.get("evals") or []):
+                if ev.get("targetId") != tgt:
+                    continue
+                if norm_ids and ev.get("abilityId") not in norm_ids:
+                    continue
+                for rk in (ev.get("ranked") or []):
+                    if rk.get("dmgMax") is None or rk.get("col") is None:
+                        continue
+                    tile = (rk["col"], rk["row"])
+                    off = prediction.make_normal_attack_predictions(scene, ben, tgt, tile)
+                    res = off.prediction.accurate_health_damage
+                    rows.append({"tile": tile,
+                                 "d_carrier": hexgeo.distance(tile, rec["carrier_pos"]),
+                                 "oracle": (rk.get("dmgMin"), rk.get("dmgMax")),
+                                 "offline": (res.min, res.max)})
+        return rows
 
     def dispose(self):
         self.rpc("disposeRunner", {"runnerId": self.rid}, 20)
