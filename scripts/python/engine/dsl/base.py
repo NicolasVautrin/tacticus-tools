@@ -164,6 +164,16 @@ class DslContext:
     # `faction_of(unit)->str|None` défaut None → faction inconnue (UnitsFromFaction rend vide). Fourni par la
     # couche runner (`entities_from_state`) via `_faction(visualId)`.
     faction_of: object | None = None
+    # LISTE persistante d'une unite (`IdunBattle.Entities.Components.PersistentDataComponent$$
+    # TryGetPersistDataListu003C__Il2CppFullySharedGenericStructTypeu003E`) : `persistent_data_list(
+    # unit, key) -> list` = le `List<T>` range sous la cle composite `(GetPersistentDataId(
+    # abilityOrEffect), dataKey)`. Lu par le predicat `IsInPersistentDataList` (mirror
+    # `Idun.Source.IdunBattle.Logic.Entities.Triggers.IsInPersistentDataListTrigger$$ShouldTrigger`,
+    # dont le corps est `(TryGetPersistDataList(...) ?? new List()).Contains(value)`) et par le
+    # selecteur `EntitiesFromPersistentDataList`. Defaut None -> liste VIDE (degradation fidele : le
+    # natif materialise lui aussi une liste neuve quand la cle est absente). Fourni par la couche
+    # runner (`entities_from_state`, lit le `PersistentDataComponent` de l'ECS).
+    persistent_data_list: object | None = None
     # `MachineOfWarPosition` (1=Top, 2=Bottom) du joueur COURANT — lu par le predicat
     # `IsPositionMachineForCurrentPlayer` (mirror
     # `IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger`, qui interroge

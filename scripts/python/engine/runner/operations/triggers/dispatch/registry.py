@@ -99,6 +99,8 @@ from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif 
 from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
+from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
+                                             MyWillBeDoneOverlordClearAbility)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -366,6 +368,22 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # mais SANS appelant cote port tant qu'`AdaptiveStrategy` (1005) n'est pas dans `ABILITY_CLASSES`.
     # Cf. loki/relentless_march.py + `docs/rl/case-328-relentless-march.md`.
     "RelentlessMarch": [RelentlessMarchAbility],
+    # MyWillBeDoneOverlord (passif `necroOverlord`, `TriggeredAbilityType` 0x614 = 1556 -- #354) :
+    # UNE classe native, DEUX branches disjointes de son `CreateTrigger` (`op_BitwiseOr`), donc DEUX
+    # entrees ici (meme patron qu'ActOfFaith / TerrifyingCrescendo / ThrillSeekers) :
+    #   * `On(0x29 = UnitFinishedTurnNormally) & OwnerIsActor` -> quand l'Overlord CLOT son activation,
+    #     l'allie adjacent elu (Mechanical, avec une cible a portee, pas deja rejoue ; preference
+    #     Necron-Hero > Hero > Necron > reste, puis plus grosse Attaque) attaque DEPUIS SA POSITION
+    #     avec son Attaque overridee a `min(maxDmg[lvl], round(Attaque x dmgPct%))`, puis est memorise
+    #     dans la liste persistante. Aucun allie eligible -> l'Overlord se buffe (effet 1581).
+    #   * `On(0x12 = TurnStart_EffectActivation) & AmountIsGreaterThanZero(<liste persistante>)` ->
+    #     `ClearAllPersistentData` : la liste est PURGEE au premier turn-start suivant, SANS gate de
+    #     joueur (donc des le tour adverse).
+    # ⚠ `necroOverlord` porte AUSSI `LivingMetal` (`On(0x13)`) -- evenement DISTINCT, aucune
+    # interference. `MartialApotheosis`, son ancien passif, a ete RETIRE par ce build (cf. case-354).
+    # Cf. loki/my_will_be_done_overlord.py (`...MyWillBeDoneOverlordAbility$$CreateTrigger` /
+    # `$$CreateBehaviour` / `$$GetTargetFriend`).
+    "MyWillBeDoneOverlord": [MyWillBeDoneOverlordAttackAbility, MyWillBeDoneOverlordClearAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------

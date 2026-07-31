@@ -473,6 +473,17 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         uid = (unit or {}).get("id")
         return charged_unit_ids(state, int(uid)) if uid is not None else set()
 
+    # `ctx.persistent_data_list` (`IdunBattle.Entities.Components.PersistentDataComponent$$
+    # TryGetPersistDataListu003C__Il2CppFullySharedGenericStructTypeu003E`) : le `List<T>` range sous
+    # la cle composite `(GetPersistentDataId(abilityOrEffect), dataKey)` du sac persistant de l'unite.
+    # Cle absente / composant absent -> `[]`, exactement ce que fait le natif (les trois consommateurs
+    # -- `AddToPersistentDataListBehaviour$$Execute`, `IsInPersistentDataListTrigger$$ShouldTrigger`,
+    # `EntitiesFromPersistentDataListSelector$$Select` -- font tous `?? new List<T>()`).
+    def _persistent_data_list(unit, key):
+        from ...components import persistent_data_list as _pdl
+        uid = (unit or {}).get("id")
+        return _pdl(state.get_entity(int(uid)) if uid is not None else None, key)
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
                       # `TurnComponent.CurrentPlayer` -> noeud `IsTurnOf` (#85). Le runner le tient
                       # dans `state.current_player_id` (pose par `ChangeTurnOperation.execute`).
@@ -480,6 +491,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       units_damaged_this_phase=_units_damaged_this_phase,
                       charged_units=_charged_units,
                       valid_normal_attack_targets=_valid_normal_attack_targets,
+                      persistent_data_list=_persistent_data_list,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_unit_flag=_has_unit_flag,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,

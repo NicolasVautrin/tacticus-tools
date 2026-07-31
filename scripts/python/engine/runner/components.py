@@ -877,9 +877,56 @@ class PersistentDataComponent(Component):
         """`IdunBattle.Entities.Components.PersistentDataComponent$$ClearPersistentData(key) = `Dictionary.Remove(key)` (no-op si absente)."""
         self.data.pop(key, None)
 
-    def clear_all_persistent_data(self) -> None:
-        """`IdunBattle.Entities.Components.PersistentDataComponent$$ClearAllPersistentData() : vide le sac (resurrection)."""
-        self.data.clear()
+    def clear_all_persistent_data(self, ability_or_effect=None) -> None:
+        """Les DEUX overloads natifs de `ClearAllPersistentData` :
+          * SANS argument (`IdunBattle.Entities.Components.PersistentDataComponent$$ClearAllPersistentData`,
+            appele par `IdunBattle.Operations.ResurrectUnitOperation$$ResetPersistentData+0x91`) = vide
+            TOUT le sac (resurrection) ;
+          * AVEC un `abilityId` (l'autre overload, appele par
+            `IdunBattle.Entities.Behaviours.ClearPersistentDataBehaviour$$ExecuteClearAll`) =
+            `Dictionary.Remove(abilityId)` sur le dict @+0x10.
+
+        ⚠ MODELE : le sac natif est un dict a DEUX niveaux (`abilityId -> (dataKey -> valeur)`), d'ou
+        un `Remove(abilityId)` qui emporte TOUTES les dataKeys de cette ability -- c'est ce que dit
+        « ClearAll ». Le port APLATIT en cle composite `(abilityOrEffect, dataKey)` ; l'overload a un
+        argument balaie donc toutes les cles dont le PREMIER membre vaut `ability_or_effect`, ce qui
+        est le meme observable."""
+        if ability_or_effect is None:
+            self.data.clear()
+            return
+        aid = int(ability_or_effect)
+        for k in [k for k in self.data
+                  if isinstance(k, tuple) and k and k[0] == aid]:
+            self.data.pop(k, None)
+
+    # --- Variante LISTE (#354) : `PersistDataList<T>` / `TryGetPersistDataList<T>` -----------------
+    # Le natif range SOUS LA MEME cle composite un `List<T>` au lieu d'un scalaire ; les deux familles
+    # de methodes coexistent sur le MEME `Dictionary` @+0x10. Le port les distingue par le TYPE de la
+    # valeur (list vs scalaire), pas par un second sac -- mirror direct.
+    def persist_data_list(self, key, values) -> None:
+        """`IdunBattle.Entities.Components.PersistentDataComponent$$PersistDataListu003C__Il2CppFullySharedGenericStructTypeu003E`
+        : pose/ecrase `key -> List<T>`. Le natif range la MEME instance de liste qu'il vient de muter."""
+        self.data[key] = list(values)
+
+    def try_get_persist_data_list(self, key):
+        """`IdunBattle.Entities.Components.PersistentDataComponent$$TryGetPersistDataListu003C__Il2CppFullySharedGenericStructTypeu003E`
+        : la liste, ou None si la cle est absente. Les TROIS consommateurs natifs
+        (`AddToPersistentDataListBehaviour$$Execute`, `IsInPersistentDataListTrigger$$ShouldTrigger`,
+        `EntitiesFromPersistentDataListSelector$$Select`) enchainent tous sur `?? new List<T>()`."""
+        v = self.data.get(key)
+        return v if isinstance(v, list) else None
+
+
+def persistent_data_list(entity, key) -> list:
+    """`TryGetPersistDataList<T>(key) ?? new List<T>()` — la liste persistante rangee sous `key` sur
+    `entity`. Entite/composant/cle absents -> `[]` (le natif materialise lui aussi une liste NEUVE
+    dans ce cas, cf. les trois consommateurs). Lu par l'accesseur `ctx.persistent_data_list`."""
+    if entity is None:
+        return []
+    comp = entity.get_component(PersistentDataComponent)
+    if comp is None:
+        return []
+    return list(comp.try_get_persist_data_list(key) or ())
 
 
 def persistent_data_keys(entity) -> frozenset:
