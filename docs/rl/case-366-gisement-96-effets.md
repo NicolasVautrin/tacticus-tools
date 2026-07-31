@@ -188,7 +188,7 @@ Pool spawnable relu au rank courant : **97** unites.
 | ~~1183~~ | ~~DefenderOfTheGreaterGood_ExtraHits~~ | **PORTE par #372** (avec les jumeaux drone 1306/1307) -- `docs/rl/case-372-dotgg-extra-hits.md` | `tauShadowsun` | HERO, pool |
 | 1215 | PsychicStalk_ExtraAttackDamage | `CreateEffectDamageMalusForDefense` | `thousAhriman` | HERO, pool |
 | 1216 | PsychicStalk_VisualEffect | `CreateActiveCondition` + `CreateTargetSelector` | `thousAhriman` | HERO, pool |
-| 1222 | WarHowl_ExtraDamage_Unstoppable | `CreateEffectDamageBonusForAttack` + `CreateCritChanceBonus` + `ApplyInternal`/`RevertInternal` | `spaceBlackmane` | HERO, pool |
+| ~~1222~~ | ~~WarHowl_ExtraDamage_Unstoppable~~ | **PORTE par #366-r1** -- `docs/rl/case-366-r1-war-howl-extra-damage.md`. Les TROIS artefacts annonces existent et tombent dans TROIS canaux : `CreateEffectDamageBonusForAttack` (additif per-coup) et `CreateCritChanceBonus` (**canal neuf** -- `create_effect_crit_chance_bonus_for_attack` n'avait AUCUN contexte cote port) sont portes ; `ApplyInternal`/`RevertInternal` = `AddTrait`/`RemoveTrait(0x412 = 1042 Unstoppable, isTemporary)`, deja LU par le substrat d'entite, POSE non portee (attend l'ability 1106) | `spaceBlackmane` (poseur) -> lui-meme + tout ami MELEE non-Summon (recu par `spaceWulfen`/`spaceHound`, PAS par `spaceRockfist`/`spaceStormcaller`) | HERO, pool |
 | ~~1224~~ | ~~SagaOfTheWarriorBorn_OtherSpaceWolves~~ | **PORTE par #366-r1** -- `docs/rl/case-366-r1-saga-other-space-wolves.md`. « MEME classe que `1223` » est CONFIRME au slot `Il2CppClass*` (`0x1833a1190`, 2 ids sur 607, fabriques bit-identiques) : le port pointe LA MEME classe depuis les deux entrees | `spaceBlackmane` (poseur) -> les 4 autres Space Wolves du pool (receveurs) | HERO, pool |
 | 1227 | HarlequinsPanoply_IgnoreHits | (classe propre) | `eldarSmnHarlequin` | SUMMON |
 | 1251 | UnbreakableDuty_Health | `StaticStatModifierEffect` | `templAncient` | HERO, pool |
@@ -214,6 +214,25 @@ Active-condition `HealthPctIsBelowOrEqual(Owner, ConfigConst(0x4f = healthPct) =
 du canal `decisionView` ACTIF-ONLY tant que Lucien est au-dessus du seuil : ils entrent par
 `ABILITY_INIT_OWNER_EFFECTS["VisionsOfHeresy"]`. Detail, mesures et mutations :
 `docs/rl/case-366-r1-visions-of-heresy-pierce.md`.
+
+### 3.3quater -- `1222 WarHowl_ExtraDamage_Unstoppable` : PORTE (#366-r1)
+
+TROIS artefacts, TROIS canaux -- et c'est la lecon transferable de ce cas : la fiche d'inventaire
+donne les NOMS des methodes, pas les canaux. Ici, `CreateEffectDamageBonusForAttack` tombe dans un
+canal deja branche (additif per-coup, gate `IsMeleeAttack & IsNormalAttack`) ; `CreateCritChanceBonus`
+tombe dans un canal **AVEUGLE** (`create_effect_crit_chance_bonus_for_attack(self)` ne prenait AUCUN
+argument, alors que son quatrieme noeud est
+`AmountIsGreaterThanZero(StatAmount(Caster, 0x9 CriticalChance, StatPart.Current))`) -- il a fallu y
+threader le contexte au foyer `AttackDamageOperation._crit_params`, symetrique exact du residu `N14`
+du canal crit-DEGAT ; `ApplyInternal`/`RevertInternal` ne tombent dans AUCUN canal d'effet : ce sont
+`AddTrait`/`RemoveTrait(0x412 = 1042 UnitTrait.Unstoppable, isTemporary: 1)`, dont la LECTURE passe
+deja par le substrat d'entite (`combatSnapshot.units[].traits`, MESURE : `u81` gagne 1042 au cast) et
+dont la POSE attend l'ability 1106.
+
+Le ctor lit `mov edx, 0x452` -> surcharge **ACTIVE** d'`op_Implicit` (tranchee par l'ADRESSE) =
+`ActiveAbilityType.WarHowl` 1106. Classe DEDIEE : slot `Il2CppClass*` `0x1833908e8` unique, et un
+seul appelant du `$$.ctor` parmi les 607 fabriques. Mesures, vues rouges et residus (#382 mesure a
+**+177 par coup**) : `docs/rl/case-366-r1-war-howl-extra-damage.md`.
 
 ### 3.3bis -- `1107 PathOfCommand_ExtraCrit` : PORTE (#373)
 

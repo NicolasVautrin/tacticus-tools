@@ -101,7 +101,8 @@ class _NormalLike:
         # Identites du coup -> `att_ctx` du canal CRIT, bati DANS `_crit_params` (foyer unique, mirror
         # de l'`AbilityEntities` de `GetCritDamageBonusFromEffects`).
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
-            ctx, active, state, attacker_id, target_id)
+            ctx, active, state, attacker_id, target_id,
+            is_ranged=_ranged, is_normal_attack=False)   # #112 : ce vecteur porte une SPECIALE
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> splash/normal-like aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 

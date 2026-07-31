@@ -226,7 +226,8 @@ class _AbilityAttack:
         # de l'`AbilityEntities` de `GetCritDamageBonusFromEffects`). Le gate famille ABILITY juste
         # en-dessous remet (0,0,False) : ce vecteur-la n'a AUCUN chemin crit natif.
         crit_chance, crit_damage, crit_enabled = (
-            AttackDamageOperation._crit_params(ctx, active, state, attacker_id, target_id)
+            AttackDamageOperation._crit_params(ctx, active, state, attacker_id, target_id,
+                                               is_ranged=_ranged, is_normal_attack=False)
             if ctx is not None else (0, 0, False))
         # #45f : la famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) n'a AUCUN chemin
         # crit — pas d'appel RollCritical (le slot crit n'existe que dans `AttackDamageOperation.

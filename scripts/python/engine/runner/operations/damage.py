@@ -820,7 +820,9 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
 
     @staticmethod
     def _crit_params(ctx, attacker_effects, state: Optional[State] = None,
-                     att_id: Optional[int] = None, tgt_id: Optional[int] = None) -> tuple:
+                     att_id: Optional[int] = None, tgt_id: Optional[int] = None,
+                     is_ranged: Optional[bool] = None,
+                     is_normal_attack: Optional[bool] = None) -> tuple:
         """(crit_chance, crit_damage, crit_enabled) de l'ATTAQUANT — GetStat(9/10) + bonus calc-time des
         effets (`IdunBattle.Core.Services.DamagePrediction$$GetCritChanceBonusFromEffects` / `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects`) ;
         `could_crit` = `IdunBattle.Core.Services.DamageCalculations$$CouldCrit`. Partage par les 3 vecteurs (normale/ability/splash).
@@ -839,15 +841,33 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         PAS aveugle : `get_OwnerIsCaster`, `IsCharging(owner@0x148, target@0x178)`, `HasTrait(target, ...)`
         y sont tous evaluables. C'etait le PORT qui perdait le contexte (residu `N14`).
 
-        `state`/`att_id`/`tgt_id` absents (appelant historique, probe) -> `att_ctx` reste None et TOUT
-        gate se tait (« present != applique ») : aucune contribution inconditionnelle possible. Le gate
-        reutilise le FOYER du predicat, il ne le duplique pas : `damage_model.battle_query_is_charging`
-        -> `engine/battle_query.py::is_charging`, le MEME que les canaux DEGAT et COUPS."""
-        att_ctx = None
+        `state`/`att_id`/`tgt_id` absents (appelant historique, probe) -> la cle `is_charging` n'est
+        PAS posee et son gate se tait (« present != applique ») : aucune contribution
+        inconditionnelle possible. Le gate reutilise le FOYER du predicat, il ne le duplique pas :
+        `damage_model.battle_query_is_charging` -> `engine/battle_query.py::is_charging`, le MEME que
+        les canaux DEGAT et COUPS.
+
+        MEME FOYER POUR LA CHANCE DE CRIT (case-366-r1). `IdunBattle.Core.Services.DamagePrediction$$
+        GetCritChanceBonusFromEffects(this, attaquant, defenseur, abilityOrEffect, hitIndex)` batit
+        LUI AUSSI son `IdunBattle.Entities.Abilities.AbilityEntities` (caster = owner = l'attaquant,
+        target = le defenseur) avant d'evaluer le trigger de chaque `EffectBonus` : le canal natif
+        n'est donc pas plus aveugle que celui du DEGAT de crit. Trois cles de plus, chacune UN noeud
+        DSL et non un besoin d'effet :
+          * `is_ranged`          -> `IsMeleeAttack` / `IsRangedAttack` (tri-etat #106 : `None` =
+            nature non threadee par le vecteur appelant -> les DEUX gates se taisent) ;
+          * `is_normal_attack`   -> `IsNormalAttack` (meme valeur que celle passee a
+            `attacker_modifiers` par le MEME vecteur, pour que les deux canaux ne divergent pas) ;
+          * `caster_crit_chance` -> `StatAmount(Caster, 0x9 CriticalChance, StatPart.Current)`.
+            LU ICI et pas chez l'appelant : c'est le seul point qui voit le `UnitContext` de
+            l'attaquant APRES l'event `On(PreAttackHit=6)` (ThrillSeekers pose un stat-mod de crit
+            juste avant), donc la meme valeur que celle que le natif lit dans `RollCritical`.
+        Porteur : `WarHowl_ExtraDamage_Unstoppable` (1222), dont le trigger porte les trois."""
+        att_ctx = {"is_ranged": is_ranged, "is_normal_attack": is_normal_attack,
+                   "caster_crit_chance": int(ctx.stat(StatType.CRIT_CHANCE) or 0)}
         if state is not None and att_id is not None and tgt_id is not None:
             from ..damage_model import battle_query_is_charging
-            att_ctx = {"is_charging": battle_query_is_charging(state, int(att_id), int(tgt_id))}
-        cc = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(attacker_effects)
+            att_ctx["is_charging"] = battle_query_is_charging(state, int(att_id), int(tgt_id))
+        cc = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(attacker_effects, att_ctx)
         cd = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(attacker_effects, att_ctx)
         return cc, cd, could_crit(cc, cd)
 

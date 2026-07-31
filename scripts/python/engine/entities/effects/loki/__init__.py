@@ -24,6 +24,9 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
 - `visions_of_heresy.py` — canal PERCAGE par STAT (`EXTRA_PIERCE_MELEE` 21 / `EXTRA_PIERCE_RANGED` 22)
                           conditionne aux PV : `VisionsOfHeresy_ExtraPierce{Melee,Ranged}` (1345/1346,
                           `bloodDeathCompany`). UNE classe native, deux `EffectType` (case-366-r1).
+- `war_howl.py`         — buff d'ACTIVE a duree 1 tour de `spaceBlackmane` : `WarHowl_ExtraDamage_
+                          Unstoppable` (1222), +extraDmg ET +extraCritChance sur la NORMALE MELEE
+                          du porteur, + trait `Unstoppable` (case-366-r1).
 - `crit_aura.py`        — auras stat-mod dont le `StatType` ecrit chez la cible est le CRIT
                           (`PathOfCommand_ExtraCrit` 1107, eldarAutarch). Meme interface
                           `aura_stat_modification_*` que le volet block de LionHelm."""
@@ -122,6 +125,7 @@ from .dark_angels_passives import (LionHelmExtraDmgEffect, LionHelmExtraBlockDam
 from .crit_aura import PathOfCommandExtraCritEffect
 from .visions_of_heresy import (VisionsOfHeresyExtraPierceMeleeEffect,
                                 VisionsOfHeresyExtraPierceRangedEffect)
+from .war_howl import WarHowlExtraDamageUnstoppableEffect
 
 __all__ = [
     # dark_angels_passives (passifs LionHelm 1163 / FearedInterrogator 1235)
@@ -214,4 +218,6 @@ __all__ = [
     "HailstrikeExtraPierceEffect",
     # visions_of_heresy (case-366-r1) -- canal PERCAGE par STAT (21/22), conditionne aux PV
     "VisionsOfHeresyExtraPierceMeleeEffect", "VisionsOfHeresyExtraPierceRangedEffect",
+    # war_howl (case-366-r1) -- +extraDmg ET +extraCritChance sur la NORMALE MELEE, 1 tour
+    "WarHowlExtraDamageUnstoppableEffect",
 ]

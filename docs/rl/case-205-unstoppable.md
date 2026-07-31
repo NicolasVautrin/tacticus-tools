@@ -87,6 +87,15 @@ BlockEnteringUnits=0). Aucune face DECISION/PREDICTION ni combat/degat/stat (ver
 ## 2. Etat du moteur Python
 
 - `engine/entities/traits/unit_trait.py:107` : `Unstoppable = 1042` **defini, AUCUN consommateur**.
+  ⚠ **PERIME depuis (re-derive le 2026-07-31, case-366-r1)** : l'exemption EST portee --
+  `services/static_battle_rules.py::_MOVEMENT_EXEMPT_TRAIT_IDS = (0, 0x405, 0x412)` (mirror
+  `StaticBattleRules.Effect$$NotBlockingMovementOfTraits`), consommee par
+  `entities/pathfinding/tile_blocking.py` et `walk_pathfinder.py`. Le POSEUR dynamique du trait
+  existe lui aussi cote natif et est desormais LU : `WarHowl_ExtraDamage_UnstoppableEffect$$
+  ApplyInternal`/`RevertInternal` = `AddTrait`/`RemoveTrait(0x412, isTemporary: 1)` -- MESURE live,
+  `u81` gagne 1042 dans `combatSnapshot.units[].traits` au cast de `WarHowl`, et le perd a
+  l'expiration. Le reste du §3 (mecanique invalidable faute d'hex finissant le mouvement sur les
+  boards runner) reste a re-verifier avant d'etre cite.
 - `engine/entities/pathfinding/walk_pathfinder.py` : le port du WalkPathfinder ne modelise NI le cap
   `GetEffectiveDepth` (movement-ending, bit 0x2) NI le gate bit 0x1 (block-entering). Son en-tete le
   dit explicitement : « `GetEffectiveDepth` (hazard tile -> Min(1,depth), @180f2e920) non encore

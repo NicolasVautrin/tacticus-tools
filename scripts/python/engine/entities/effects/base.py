@@ -438,11 +438,31 @@ class BaseEffect:
         l'agrégateur `aura_defense_damage_malus_from_units`. Défaut None = pas d'aura."""
         return None
 
-    def create_effect_crit_chance_bonus_for_attack(self) -> int | None:
+    def create_effect_crit_chance_bonus_for_attack(self, att_ctx: Mapping | None = None) -> int | None:
         """Bonus de CHANCE de crit (%) — couche calc-time SÉPARÉE de `GetStat(9)`, sommée dans
         `IdunBattle.Core.Services.DamagePrediction$$GetCritChanceBonusFromEffects puis ajoutée à GetStat(9) dans
         `RollCritical` (cc = clamp(GetStat(9)+Σbonus, 0, 100)). Distinct des effets StatModification
-        sur la crit-chance (eux DANS GetStat) → pas de double-compte. Défaut None = pas de bonus."""
+        sur la crit-chance (eux DANS GetStat) → pas de double-compte. Défaut None = pas de bonus.
+
+        `att_ctx` = CONTEXTE DU COUP. Le canal natif n'est PAS aveugle :
+        `GetCritChanceBonusFromEffects(this, attaquant, defenseur, abilityOrEffect, hitIndex)`
+        construit LUI-MÊME l'`IdunBattle.Entities.Abilities.AbilityEntities` (caster = owner =
+        l'attaquant, target = le défenseur, plus l'`AbilityOrEffect` du coup et l'index de coup)
+        avant d'évaluer le trigger de chaque `EffectBonus` par le slot d'interface 0x21 — donc
+        `get_OwnerIsCaster`, `IsMeleeAttack`, `IsNormalAttack` et `StatAmount(Caster, …)` y sont
+        TOUS évaluables. C'était le port qui perdait le contexte, exactement comme le résidu `N14`
+        du canal crit-DÉGÂT (case-ischarging-crit-channel).
+
+        Clés threadées aujourd'hui par l'agrégateur `crit_chance_bonus_from_effects` (foyer unique =
+        `runner/operations/damage.py::AttackDamageOperation._crit_params`) :
+          • `is_ranged`          → `IsMeleeAttack` / `IsRangedAttack` (tri-état #106 : nature non
+            prouvée ⇒ les DEUX gates se taisent, cf. `is_melee_attack`/`is_ranged_attack`) ;
+          • `is_normal_attack`   → `IsNormalAttack` ;
+          • `caster_crit_chance` → `StatAmount(Caster, 0x9 CriticalChance, StatPart.Current)`, la
+            stat COURANTE de l'attaquant (stat-modifications comprises) — nœud du gate
+            `AmountIsGreaterThanZero` de `WarHowl_ExtraDamage_Unstoppable`.
+        Clé absente ⇒ le gate correspondant se TAIT (« présent ≠ appliqué »), jamais une valeur
+        devinée."""
         return None
 
     def create_effect_piercing_bonus_for_attack(self, ctx: Mapping | None = None) -> "int | None":
