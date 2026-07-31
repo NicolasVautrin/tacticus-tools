@@ -137,6 +137,7 @@ from .loki import (
     VisionsOfHeresyExtraPierceRangedEffect,
     WarHowlExtraDamageUnstoppableEffect,
     InescapableAccuracyExtraCritChanceEffect,
+    InescapableAccuracyExtraCritDamageEffect,
     UntilOfEndTurnEffect,
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
@@ -747,14 +748,21 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # TROIS classes natives et non une, tranche par le SLOT `Il2CppClass*` : les fabriques
     # `EffectsDatabase.<>c$$<InitializeEffects>b__14_141/142/143` allouent depuis TROIS slots
     # DIFFERENTS puis appellent le MEME corps de `$$.ctor` (dedup IL2CPP d'un corps bit-identique --
-    # le nom du ctor ne dit donc RIEN de l'identite de classe). Seul le chemin de 1115 est porte ici :
+    # le nom du ctor ne dit donc RIEN de l'identite de classe). DEUX chemins portes ici :
     #   `...InescapableAccuracy_ExtraCritChanceEffect$$CreateCritChanceBonus`
     #       = ForAddition(get_OwnerIsCaster & IsRangedAttack, ConfigVar(0x41 = extraCritChance))
+    #   `...InescapableAccuracy_ExtraCritDamageEffect$$CreateCritDamageBonus`
+    #       = ForAddition(get_OwnerIsCaster & IsRangedAttack, ConfigVar(0x42 = extraCritDmg))
     #   + `CreateActiveCondition` (corps PARTAGE par les trois) = NOT HasFlag(Owner, 0 = UnitFlag.Moved).
-    # N'HERITE RIEN de son voisin 1222 : pas de `IsNormalAttack`, pas d'`AmountIsGreaterThanZero`,
-    # et le gate d'attaque est l'INVERSE (RANGED). 1116 (`CreateCritDamageBonus`, ConfigVar 0x42) et
-    # 1117 (`ActiveCondition` + `CreateBlockHitReductionTrigger`) restent NON portes.
+    # N'HERITENT RIEN de leur voisin 1222 : pas de `IsNormalAttack`, pas d'`AmountIsGreaterThanZero`,
+    # et le gate d'attaque est l'INVERSE (RANGED). Les DEUX canaux sont distincts (1115 ->
+    # `RollCritical` = SI le coup crite ; 1116 -> `CalculateCriticalDamage` = de COMBIEN).
+    # ⚠ Asymetrie de config, relue : `variablesAffectedByRarityBonus == ["extraCritDmg"]` -- seul
+    # 1116 est scale par le multiplicateur de rarete du porteur.
+    # `1117 InescapableAccuracy_overrideHits` (`ActiveCondition` + `CreateBlockHitReductionTrigger`,
+    # canal `BaseEffect$$BlockHitsReduction`) reste NON porte.
     "InescapableAccuracy_extraCritChance": InescapableAccuracyExtraCritChanceEffect,
+    "InescapableAccuracy_extraCritDmg": InescapableAccuracyExtraCritDamageEffect,
     # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
     # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
     # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce

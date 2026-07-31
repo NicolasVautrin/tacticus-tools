@@ -50,8 +50,11 @@ _A_UNITS = "necroWarden,necroOverlord"       # aucun des deux ne porte `Overwatc
 #: ne tire AUCUN crit, tandis que le natif roule a `clamp(0 + extraCritChance[50]) = 15` et tire.
 #: Le crit du coup mesure n'existe donc QUE par la contribution de 1115.
 _CRIT = "0,700"
-#: Le seed BC du module : `1116 extraCritDmg = 0` (jumeau NON porte, sinon tout crit diverge) et
-#: arme RANGED a UN coup (sort du regime ou mord le residu CRIT pre-existant, cf. la fiche).
+#: Le seed BC du module : arme RANGED a UN coup (sort du regime ou mord le residu CRIT
+#: pre-existant, cf. la fiche). `extraCritDmg` N'EST PLUS neutralise depuis que `1116` est PORTE
+#: (#366-r1/1116) : le patch vivait dans le BC -- donc cote NATIF -- alors que le port lit le
+#: gameconfig, si bien qu'il ferait desormais DIVERGER tout coup critique. Ce montage confronte
+#: donc les DEUX volets du passif a la fois ; chacun garde son propre cliquet.
 _SEED_BC, _SEED_BC_REPORT = neutralized_seed_bc()
 
 
@@ -111,16 +114,20 @@ def _carried(rec, off_state):
 
 
 def test_registry_binds_dedicated_class():
-    """Garde STRUCTURELLE (offline, sans jeu) : 1115 a sa PROPRE classe.
+    """Garde STRUCTURELLE (offline, sans jeu) : 1115 a sa PROPRE classe, DISTINCTE de celle de 1116.
 
     Les fabriques `IdunBattle.Core.Services.EffectsDatabase.u003Cu003Ec$$u003CInitializeEffects
     u003Eb__14_141/142/143` allouent depuis TROIS slots `Il2CppClass*` DIFFERENTS puis appellent le
-    MEME corps de `$$.ctor` (dedup IL2CPP) : le ctor « fondu » ne fait PAS une classe commune, et le
-    port ne doit lier que le chemin de 1115."""
+    MEME corps de `$$.ctor` (dedup IL2CPP) : le ctor « fondu » ne fait PAS une classe commune. Les
+    volets 1115 et 1116 sont desormais TOUS DEUX portes, mais chacun par SA classe -- les fondre en
+    une seule referait l'erreur que le slot refute."""
+    from engine.entities.effects.loki import InescapableAccuracyExtraCritDamageEffect
     assert EFFECT_CLASSES.get(EFFECT_NAME) is InescapableAccuracyExtraCritChanceEffect
-    # Les DEUX jumeaux restent NON portes -- les inscrire par analogie serait un port speculatif
-    # (leurs canaux sont differents : `CreateCritDamageBonus` / `BlockHitsReduction`).
-    assert "InescapableAccuracy_extraCritDmg" not in EFFECT_CLASSES
+    assert (EFFECT_CLASSES.get("InescapableAccuracy_extraCritDmg")
+            is InescapableAccuracyExtraCritDamageEffect)
+    assert InescapableAccuracyExtraCritChanceEffect is not InescapableAccuracyExtraCritDamageEffect
+    # `1117` reste NON porte : son canal est un TROISIEME (`BlockHitsReduction`), l'inscrire par
+    # analogie serait un port speculatif.
     assert "InescapableAccuracy_overrideHits" not in EFFECT_CLASSES
 
 

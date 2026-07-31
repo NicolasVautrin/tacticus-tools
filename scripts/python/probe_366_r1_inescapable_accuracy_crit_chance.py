@@ -106,20 +106,24 @@ def _hits_of(res, caster, target):
     return bool(a0.get("ok")), out
 
 
-def neutralized_seed_bc(level: int = 50, hits: "int | None" = 1):
-    """Ecrit un seed BC ou `InescapableAccuracy.extraCritDmg` vaut **0**, + son sidecar d'epinglage.
-    `hits` (defaut **1**) force en plus le nombre de coups de l'arme A DISTANCE de Maugan Ra.
+def neutralized_seed_bc(level: int = 50, hits: "int | None" = 1, zero_crit_dmg: bool = False):
+    """Ecrit le seed BC du montage (+ son sidecar d'epinglage) : arme A DISTANCE de Maugan Ra a
+    `hits` coup(s), et -- SI et seulement si `zero_crit_dmg` -- `InescapableAccuracy.extraCritDmg`
+    force a **0**.
 
-    POURQUOI, et pourquoi ce n'est PAS un truquage : le porteur recoit les TROIS effets du passif
-    d'un bloc, et `1116 InescapableAccuracy_extraCritDmg` n'est **pas porte** (autre canal,
-    `CreateCritDamageBonus`). Tant qu'il vaut `extraCritDmg[50] = 728`, le natif frappe ses CRITS
-    728 plus fort que le port : tout coup critique diverge, et l'ecart de 1115 -- qui se manifeste
-    justement PAR des crits -- devient illisible. Le mettre a 0 rend 1116 INERTE **des deux cotes**
-    (le port ne le lit deja pas), sans toucher a `extraCritChance`, la variable de CE port. C'est
-    le pendant de `--block-target 0,0` pour `1117`.
+    ⚠ `zero_crit_dmg` VAUT MAINTENANT `False` PAR DEFAUT, ET C'EST UN RENVERSEMENT ASSUME (tranche
+    #366-r1/1116). Tant que `1116 InescapableAccuracy_extraCritDmg` n'etait pas porte, le mettre a
+    0 le rendait inerte DES DEUX COTES et c'etait la seule facon de lire l'ecart de 1115 sans le
+    noyer dans les `extraCritDmg[50]` que le natif ajoutait a chaque crit. Depuis que 1116 EST
+    porte, le meme geste INVERSE son effet et deviendrait un FAUX ROUGE : le patch vit dans le BC
+    (donc le NATIF le voit), alors que le port lit `gameconfig.ability(...)` par
+    `magnitude.ability_var` (donc il NE le voit PAS) -- le port ajouterait `extraCritDmg` la ou le
+    natif n'ajouterait rien. Le laisser a `False` fait porter la mesure sur les DEUX volets du
+    passif, chacun garde par son propre cliquet.
 
-    Le sidecar `<seed>.pins.json` est INDISPENSABLE (#375) : sans lui `refresh_ability_configs`
-    ecrase le patch depuis le gameconfig vivant, **en silence**.
+    Le sidecar `<seed>.pins.json` est INDISPENSABLE des qu'on patche (#375) : sans lui
+    `refresh_ability_configs` ecrase le patch depuis le gameconfig vivant, **en silence**. Il est
+    ecrit dans les deux cas (liste d'epingles vide quand il n'y a rien a epingler).
 
     `hits = 1` -- POURQUOI, et pourquoi ce n'est pas un confort : le port porte une divergence
     PRE-EXISTANTE de l'etage CRIT, INDEPENDANTE de ce cas, qui se declenche a partir du 3e coup
@@ -131,8 +135,8 @@ def neutralized_seed_bc(level: int = 50, hits: "int | None" = 1):
     import catalog_inject
     fd, out = tempfile.mkstemp(prefix="ia1115_seedbc_", suffix=".json")
     os.close(fd)
-    p, reports = catalog_inject.write_variable_patched_seed_bc(
-        out, [(_ABILITY_CFG, level, {"extraCritDmg": 0})])
+    patches = [(_ABILITY_CFG, level, {"extraCritDmg": 0})] if zero_crit_dmg else []
+    p, reports = catalog_inject.write_variable_patched_seed_bc(out, patches)
     if hits is not None:
         bc = json.loads(Path(p).read_text(encoding="utf-8"))
         n = 0
@@ -157,8 +161,8 @@ def build(a, arm):
     `--block-target 0,0` NEUTRALISE le canal BLOCK de la cible : c'est le canal
     (`BaseEffect$$BlockHitsReduction`) que porte le JUMEAU `1117
     InescapableAccuracy_overrideHits`, NON porte. Sans cette neutralisation, un ecart de coups
-    imputable a 1117 se lirait comme un ecart de 1115. Le pendant pour `1116` est le seed BC
-    neutralise ci-dessus (`--zero-crit-dmg`, actif par DEFAUT)."""
+    imputable a 1117 se lirait comme un ecart de 1115. `1116`, LUI, n'a plus besoin d'etre
+    neutralise : il est PORTE (cf. `neutralized_seed_bc`)."""
     fd, sf = tempfile.mkstemp(prefix="ia1115_%s_" % arm.lower(), suffix=".json")
     os.close(fd)
     Path(sf).unlink(missing_ok=True)
@@ -408,9 +412,13 @@ def main() -> int:
     ap.add_argument("--no-mutations", action="store_true",
                     help="saute les gardes de discrimination (diagnostic seulement)")
     ap.add_argument("--keep-crit-dmg", action="store_true",
-                    help="NE PAS neutraliser `1116 extraCritDmg` NI reduire la salve (diagnostic : "
-                         "montre l'ecart que le jumeau NON PORTE injecte dans tout coup critique, "
-                         "et le residu CRIT pre-existant a partir du 3e coup)")
+                    help="AUCUN seed BC custom : salve PLEINE et config d'origine (diagnostic : "
+                         "montre le residu CRIT pre-existant a partir du 3e coup)")
+    ap.add_argument("--zero-crit-dmg", action="store_true",
+                    help="force `InescapableAccuracy.extraCritDmg = 0` dans le seed BC. Depuis que "
+                         "1116 est PORTE ce n'est plus une neutralisation mais une DESYNCHRO "
+                         "voulue (le patch vit dans le BC, le port lit le gameconfig) : reserve au "
+                         "diagnostic, il DOIT faire diverger tout coup critique")
     ap.add_argument("--hits", type=int, default=1,
                     help="coups de l'arme RANGED de Maugan Ra imposes au seed BC (defaut 1)")
     ap.add_argument("--extra", action="append", default=[],
@@ -418,9 +426,9 @@ def main() -> int:
     a = ap.parse_args()
     a.seed_bc = None
     if not a.keep_crit_dmg:
-        a.seed_bc, rep = neutralized_seed_bc(hits=a.hits)
-        print("[probe] seed BC neutralise (1116 extraCritDmg = 0, ranged Hits = %d) : %s | %s"
-              % (a.hits, a.seed_bc, rep))
+        a.seed_bc, rep = neutralized_seed_bc(hits=a.hits, zero_crit_dmg=a.zero_crit_dmg)
+        print("[probe] seed BC (ranged Hits = %d, extraCritDmg zero = %s) : %s | %s"
+              % (a.hits, a.zero_crit_dmg, a.seed_bc, rep))
 
     import rl_collect_batch as R
     from engine.entities.pathfinding.board import Board
