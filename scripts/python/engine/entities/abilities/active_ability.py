@@ -175,9 +175,21 @@ _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE = {
     # `hits: 1` en dur). Ce n'est donc ni la bonne grandeur NI la bonne structure.
     1048: ("FragstormGrenadeLauncherPlaybook$$MakeDamagePredictions",
            "nrOfHits x maxDmg (var 0xd) en UN coup -- hits=1 pose par la surcharge appelee", True),
-    1059: ("ExplodesAbility$$GetDamage",
-           "PercentageOf(StatAmount(Health), Sum(ConfigConst, ConditionalAmount)) -- aucun minDmg/maxDmg",
-           False),
+    # #353 — RECTIFICATION de la ligne posee par #350. Elle nommait `ExplodesAbility$$GetDamage`
+    # (`PercentageOf(StatAmount(Health), ...)`) comme LA formule de 1059 : lecture PARTIELLE, prise
+    # sur les xrefs de ce corps. `RammingSpeedPlaybook$$MakeDamagePredictions` emet QUATRE batchs,
+    # et ce corps n'alimente que les deux derniers, sous condition :
+    #   1. CIBLE   : `Get(minDmg 0xc)`, hits = `GetNumberConstant(0x2f)` LITTERAL, profil config ;
+    #   2. CASTER  : memes base/profil, hits = `GetNumberConstant(0x32 = nrOfHits_2)` (recul du ram) ;
+    #   3/4. si `selfPreds.Any(p => p.WillBeKill)` SEULEMENT : `ExplodesAbility$$GetDamage` evaluee,
+    #        puis `GenerateAttackPredictions(..., Nullable(0xf = DirectDamage))` sur
+    #        `Friends(AdjacentUnits(GetTileToMoveTo))` puis sur `Enemies(<idem>)`.
+    # 1 et 2 sont PORTES (`_ramming_speed_inputs` / `_ramming_speed_self_events`) ; 3/4 = residu
+    # nomme (`GetTileToMoveTo` exige `UtilityBucket[Tile 7, RammingSpeed_MostAdjacentEnemies 54]`,
+    # et 54 n'est pas dans `UTILITY_BY_TYPE`). Cf. `docs/rl/case-353-ramming-speed-prediction.md`.
+    1059: ("RammingSpeedPlaybook$$MakeDamagePredictions",
+           "Get(minDmg) SEUL + hits const 0x2f ; batch SELF (hits 0x32) ; batch EXPLOSION conditionnel",
+           True),
 }
 
 

@@ -141,8 +141,9 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # Base speciale = `base` (avg(minDmg,maxDmg) scale rarete) route par le MEME chemin que la normale
     # (GetBaseDamageFix64 ±20% dans predict_attack_raw). L'ancien chemin `get_multi_hit_attack_prediction(
     # damage=...)` (plage empirique 0.8/2.2·d/hits) etait FAUX (RE IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw : base = 1 int
-    # -> ±20% [0.8/1.2], aucun 2.2) -> SUPPRIME. Les specials Attack-based (PlasmaCannon/SpiritLeech) ne
-    # passent PAS ici (routes via _PREDICT_VIA_NORMAL_ATTACK). Le bouclier est deplete PAR COUP (prev).
+    # -> ±20% [0.8/1.2], aucun 2.2) -> SUPPRIME. ⚠ La phrase « les specials Attack-based (PlasmaCannon/
+    # SpiritLeech) ne passent PAS ici » est PERIMEE : #99 a REFUTE l'heredite Attack-based et retire les
+    # deux du registre -- tout special passe bien ici. Le bouclier est deplete PAR COUP (prev).
     # MkXGravis (trait CIBLE 0x3f5) : armure traversee 2× aussi pour les speciales (CalculateBaseDamage
     # WithAllModifiers appele quel que soit l'ability). No-op (=1) si la cible n'a pas le trait hit-twice.
     # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` -> HasTrait(defender, 0x3f5)),
@@ -183,18 +184,38 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
 #    (predict_sweep Neurothrope) : `aiPlaybookPredict(SpiritLeech)=[2074,3112]` (config) != `disp`/artefact
 #    `GetAllPredictions=[3111,4668]`. ⇒ SpiritLeech RETIRE ; tout special passe par le chemin CONFIG generique.
 #    (PlasmaCannon avait deja ete retire au #96.) La verite per-ability = `aiPlaybookPredict` (#102), JAMAIS aiPredict.
-# #171 — SorcerousFacade (1100, thousTzaangor) EST un membre LEGITIME (distinct des specials #99 ci-dessus).
-#    Son `IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions` construit pour la cible ENNEMIE
-#    (`TargetsSelector.SelectFirst IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions+0x160`) un EVENT #1 = ATTAQUE NORMALE du caster, via l'interface
-#    `DAT_18327ff80` slot 0x21 @~18115bd60 — le MEME mecanisme que `NormalAttackPlaybook.MakeDamagePredictions
-#    IdunBattle.AI.Playbook.Idun.NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeDamagePredictions` (= "profil d'attaque normale du caster vs target"). PUIS un event #2 secondaire
-#    `GenerateMultiHit(base=Half(Sum(minDmg,maxDmg)) config, profile=null)` = [1197,1795] (AddRange) que
-#    l'ORACLE ne remonte PAS (dedup aval + regle : l'ennemi ne subit QUE l'attaque normale declenchee ; le
-#    728-1455 Psychic est un BUFF pour les futures attaques normales). L'event ennemi expose par
-#    aiPlaybookPredict = l'attaque normale -> [1623,3591] bit-exact live (probe171, side-by-side vs id 69).
-#    Ce N'EST PAS le cas #92 refute (heritage vtable PredictAttack Attack-based) : ici le playbook EMET
-#    explicitement une prediction d'attaque normale. Cf. docs/rl/case-171-sorcerousfacade-normal-attack.md.
-_PREDICT_VIA_NORMAL_ATTACK = frozenset({"SorcerousFacade"})
+# #171/#351 — SorcerousFacade (1100, thousTzaangor) EST un membre LEGITIME (distinct des specials #99
+#    ci-dessus). Son `IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions`
+#    construit, pour la cible ENNEMIE (`TargetsSelector.SelectFirst`), un EVENT #1 = ATTAQUE NORMALE du
+#    caster, via l'interface slot 0x21 — le MEME mecanisme que
+#    `IdunBattle.AI.Playbook.Idun.NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeDamagePredictions`
+#    (= "profil d'attaque normale du caster vs target"). Ce N'EST PAS le cas #92 refute (heritage
+#    vtable PredictAttack Attack-based) : ici le playbook EMET explicitement une prediction d'attaque
+#    normale. Cf. docs/rl/case-171-sorcerousfacade-normal-attack.md.
+#
+# ⚠ LE NOM `_PREDICT_VIA_NORMAL_ATTACK` MENTAIT SUR LA STRUCTURE, et c'est ce qui a produit le residu
+#    #351 (« le natif emet DEUX events, le port un seul »). Le natif ne REMPLACE pas la prediction par
+#    l'attaque normale : il la MET EN TETE, puis AJOUTE le batch propre de l'ability. Relu VERBATIM sur
+#    `rnca9r7q6c` (`...SorcerousFacadePlaybook$$MakeDamagePredictions`, la fin du corps) :
+#
+#        list = TExtensions.ToList([ new ProbableDamageEvent(sel, battleQuery.<slot 0x22>(caster, sel,
+#                                                                                         casterPosition)) ])
+#        list.AddRange( ComparablePlaybook<T>.GenerateMultiHitAttackPredictions(
+#                           caster, casterPosition, sel,
+#                           targets = DSLSelectors.Get(sel),
+#                           damage  = Half(Sum(Get(GetVariableForLevel(0xc = minDmg)),
+#                                              Get(GetVariableForLevel(0xd = maxDmg))), 0),
+#                           hits    = GetNumberConstant(0x2f = nrOfHits),
+#                           profil  = <vide>) )
+#        return list
+#
+#    Les DEUX events portent sur `sel` (le MEME ennemi) : `AddRange` est un AJOUT, pas une substitution.
+#    L'ancienne note « l'ORACLE ne remonte PAS l'event #2 (dedup aval) » est REFUTEE PAR LA MESURE
+#    (#351, `probe_351_facade_event_count.py`) : `aiPlaybookPredict` rend `count = 2`, les deux events
+#    sur le meme `targetId` — le decodeur `playbook-predict.ts` lit la `List<T>` entiere et ne
+#    dedoublonne rien. D'ou le renommage : l'ensemble dit ce que le natif FAIT (mettre l'attaque
+#    normale EN TETE), pas ce qu'on avait cru (s'y substituer).
+_PREPEND_NORMAL_ATTACK_EVENT = frozenset({"SorcerousFacade"})
 
 
 # ── Overrides d'ENTREE per-ability — mirror des `<Ability>Playbook.MakeDamagePredictions` qui SURCHARGENT
@@ -637,6 +658,82 @@ def _mass_driver_accelerator_inputs(scene, caster_id, target_id, ab, cfg) -> dic
     return out
 
 
+def _ramming_speed_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids ignores (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions` (ability 1059) --
+    batch de la CIBLE PRINCIPALE. DEUX surcharges, lues au call-site :
+
+      - BASE = `IdunBattleLogic.Entities.DSLFormulas$$Get(GetVariableForLevel(config, 0xc = minDmg,
+        abilityState))` = **minDmg SEUL** (rarity-scaled), PAS l'avg(minDmg, maxDmg) generique. Meme
+        mold que `_great_frost_axe_inputs` (#57e), `_stikkbomb_inputs` et `_hellfire_shells_inputs`
+        (#173). ⚠ CONTRASTE avec la face COMBAT :
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$ExecuteBehaviour` passe
+        `DSLFormulas$$RandomAmount(minDmg 0xc, maxDmg 0xd)` -- deux call-sites natifs distincts, comme
+        pour Stikkbomb.
+      - HITS = `GetNumberConstant(0x2f = nrOfHits)` **LITTERAL** (7e arg du call-site). Le chemin
+        generique passe par `ab.get_special_hits` = `GetDefaultAttackHits(nrOfHits, ExtraHits, Melee)`,
+        qui AJOUTE la stat `ExtraHits` du caster -- que ce playbook n'ajoute pas.
+
+    Le PROFIL n'est PAS surcharge : le 8e arg est `AbilityConfiguration$$GetDamageProfile(config)`,
+    `Nullable` NON vide (`damageProfile` = Physical), pas le quirk `param_8 = null` de #164/#165.
+
+    ⚠ RECTIFICATION #353 de la ligne 1059 de `_PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE` : #350 avait
+    inscrit `ExplodesAbility$$GetDamage` = `PercentageOf(StatAmount(Health), ...)` comme LA formule de
+    1059. C'est une lecture PARTIELLE -- ce corps n'alimente que le TROISIEME batch (l'explosion), et
+    seulement quand l'auto-degat du ram TUE le caster. La formule du batch principal est `Get(minDmg)`.
+    Les deux autres batchs : `_ramming_speed_self_events` (porte) et le batch EXPLOSION (residu nomme,
+    cf. cette fonction et `docs/rl/case-353-ramming-speed-prediction.md`)."""
+    lvl, mult = ab.level, ab.multiplier
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)      # var 0xc = minDmg (Get == Direct)
+    hits = int((cfg.constants or {}).get("nrOfHits") or 0)         # const 0x2f = nrOfHits (LITTERAL)
+    out = {"base_override": base}
+    if hits:
+        out["hits_override"] = hits
+    return out
+
+
+# {ability_id: handler(scene, caster_id, target_id, ability_id, ability_name, attack_pos, ab, cfg)
+#  -> [ProbableDamageEvent]}. Batchs SUPPLEMENTAIRES d'un playbook : un
+# `GenerateMultiHitAttackPredictions` de plus, sur un selecteur qui n'est NI `<Target>` NI l'AoE de
+# l'ability (les deux que `make_damage_predictions` couvre deja). Consomme APRES la boucle AoE --
+# c'est l'ordre du natif pour le seul membre actuel (1059 : la boucle AoE y est vide).
+def _ramming_speed_self_events(scene, caster_id, target_id, ability_id, ability_name,
+                               attack_pos, ab, cfg) -> list:  # target_id ignore (contrat registre)
+    """`RammingSpeedPlaybook$$MakeDamagePredictions` -- **2e batch : le CASTER LUI-MEME**.
+
+    Le playbook enchaine un SECOND `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullyShared
+    GenericTypeu003E$$GenerateMultiHitAttackPredictions` dont le `param_4` ET le selecteur `param_5`
+    sont le CASTER (`DSLSelectors@+0x48`, celui-la meme que `RammingSpeedAbility$$ExecuteBehaviour`
+    passe a `MoveUnit`), puis `List.AddRange` dans la liste du 1er batch :
+
+        self = GenerateMultiHitAttackPredictions(caster, casterPosition, CASTER, <Caster>,
+                   Get(minDmg 0xc), GetNumberConstant(0x32 = nrOfHits_2),
+                   AbilityConfiguration$$GetDamageProfile(), null, 0)
+        list.AddRange(self)
+
+    C'est le RECUL du ram : le caster s'inflige `nrOfHits_2` coups de sa propre base. La face COMBAT
+    porte le MEME terme -- `RammingSpeedAbility$$ExecuteBehaviour` construit
+    `AttackWithAttackDamage(Owner@0x30, Owner@0x30, RandomAmount(minDmg, maxDmg), profile, nrOfHits_2)`
+    (caster == cible), somme a l'attaque de la cible. Base/profil sont ceux du batch principal ; seuls
+    les COUPS changent.
+
+    `friendly = True` : mirror de la negation NATIVE, pas une convention de port --
+    `IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext` termine par
+    `if (IsFriend(caster, actor)) u = u * -1` (branche `HasFriendlyFire` -> `IsEnemy` sinon). Le caster
+    est son propre ami : l'utilite de ce batch est NEGATIVE, exactement comme l'event de cout self.
+
+    Config incomplete -> `[]` (degradation fidele, aucun event invente), meme convention que
+    `_frenzied_firing_inputs`."""
+    lvl, mult = ab.level, ab.multiplier
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)       # var 0xc = minDmg (Get == Direct)
+    hits2 = int((cfg.constants or {}).get("nrOfHits_2") or 0)       # const 0x32 = nrOfHits_2
+    if not hits2 or not base:
+        return []
+    dp = generate_multi_hit_attack_prediction(scene, caster_id, caster_id, ability_id, ability_name,
+                                              attack_pos=attack_pos, base_override=base,
+                                              hits_override=hits2)
+    return [ProbableDamageEvent(target=caster_id, prediction=dp, friendly=True)] if dp is not None else []
+
+
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
@@ -646,7 +743,12 @@ _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_
                              1051: _stikkbomb_inputs,
                              1098: _plasma_grenade_inputs,
                              1048: _fragstorm_grenade_launcher_inputs,
-                             1222: _mass_driver_accelerator_inputs}
+                             1222: _mass_driver_accelerator_inputs,
+                             1059: _ramming_speed_inputs}
+
+# Batchs SUPPLEMENTAIRES per-ability (cf. `_ramming_speed_self_events`) : le playbook emet des events
+# sur un selecteur AUTRE que la cible principale et l'AoE de l'ability.
+_MAKE_DMG_EXTRA_EVENTS = {1059: _ramming_speed_self_events}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
@@ -674,14 +776,13 @@ _PLAYBOOK_PROFILE_OVERRIDE = {
     # --- audit #165 param_8=null : les 5 AUTRES candidats NE sont PAS des overrides pierce (confronte #169) :
     #   1027 PsychicMaelstrom IdunBattle.AI.Playbook.Loki.PsychicMaelstromPlaybook$$MakeDamagePredictions : param_8 = Nullable(BasiliskBarrage.GetDamageProfile) EXPLICITE (PAS null ; l'audit
     #     d'arite confondait param_8=profil et param_9=poids Fix64). Live OK bit-exact [2792,4188] (astraPrimarisPsy). AUCUN override.
-    #   1100 SorcerousFacade : PAS d'entree ici, et c'est DELIBERE (#27-4e). Le profil du 2e batch de
-    #   IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions est bien VIDE
-    #   (`param_8` nul), mais une entree dans CETTE table serait INERTE : `SorcerousFacade` est dans
-    #   `_PREDICT_VIA_NORMAL_ATTACK`, donc `_event` court-circuite vers l'attaque normale AVANT de
-    #   consommer `overrides`. C'est le playbook lui-meme
-    #   (`engine.playbook.loki_custom.SorcerousFacadePlaybook.make_damage_predictions`) qui appelle
-    #   `generate_multi_hit_attack_prediction(..., profile_override="None")` pour ce 2e event, sur
-    #   `sel` (l'ennemi le plus proche) et non sur la cible ALLIEE de l'ability.
+    1100: "None",     # SorcerousFacade IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions (thousTzaangor) ; profil du 2e batch VIDE -> pierce 0/armure pleine [#351]
+    #   ^ ENTREE POSEE PAR #351, et elle n'est plus inerte. L'ancienne note disait « PAS d'entree
+    #   ici, et c'est DELIBERE : `SorcerousFacade` est dans `_PREDICT_VIA_NORMAL_ATTACK`, donc
+    #   `_event` court-circuite AVANT de consommer `overrides` ». Ce court-circuit ETAIT le residu
+    #   #351 : le natif AJOUTE le batch a l'attaque normale (`AddRange`), il ne s'y substitue pas.
+    #   Depuis que le port mirror l'ajout, le 2e event EXISTE et son profil VIDE (`param_8` nul, meme
+    #   quirk que 1020/1062/1147/1148) est LU ICI -- plus dans un appel bespoke du playbook.
     #   ⚠ RECTIFICATION de l'ancienne note « base=Half(Sum(var0xc,var0xd)) DSL != avg -> gap BASE » :
     #   faux positif de lecture, tranche par le meme raisonnement que 1147/1148 (#172) --
     #   `Half(Sum(GetVariableForLevel(0xc = minDmg), GetVariableForLevel(0xd = maxDmg)))` EST
@@ -711,12 +812,15 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     # 5 specials audites resolvent `PredictAttack` vers le STUB ABSTRAIT `AActiveAbility.PredictAttack
     # IdunBattle.Entities.Abilities.AActiveAbility$$PredictAttack` (qui THROW). Le vrai chemin = `<Special>Playbook.MakeDamagePredictions` ->
     # `GenerateMultiHitAttackPredictions(base = ability.GetAttackDamage() = CONFIG minmax)`.
-    # ⚠ CORRECTION (#27-4e) : ce commentaire affirmait « `_PREDICT_VIA_NORMAL_ATTACK` est VIDE
-    # (via_normal toujours False) ; la branche est conservee morte ». C'est FAUX depuis #171 --
-    # l'ensemble contient `SorcerousFacade`, et la branche est bien VIVANTE pour elle. Un port qui
-    # croit cette ligne et DELEGUE la prediction de 1100 a cette fonction recoit l'attaque NORMALE,
-    # pas le batch propre de l'ability (mesure : deux events identiques, `u_pred` double).
-    via_normal = ability_name in _PREDICT_VIA_NORMAL_ATTACK
+    # ⚠ CORRECTION (#27-4e) : ce commentaire affirmait « l'ensemble est VIDE ; la branche est
+    # conservee morte ». C'est FAUX depuis #171 -- il contient `SorcerousFacade`, et la branche est
+    # bien VIVANTE pour elle.
+    # ⚠⚠ CORRECTION (#351) : la branche SUBSTITUAIT l'attaque normale au batch, ce qui rendait UN
+    # event la ou le natif en rend DEUX. Le natif AJOUTE : `[ProbableDamageEvent(normale)]` PUIS
+    # `AddRange(GenerateMultiHitAttackPredictions(...))`. Le port fait desormais pareil -- et c'est
+    # ce qui rend le registre `_A_INLINE_IN_PLAYBOOK` (l'arrondi demi-vers-le-pair de 1100, #350)
+    # ACTIF au lieu d'inerte.
+    prepend_normal = ability_name in _PREPEND_NORMAL_ATTACK_EVENT
     # ab/cfg/aoe construits ICI (AVANT le main event) car le compte AoE TOTAL (nrEnemies = 1 + secondaires)
     # est requis pour la clause `GetCorrectDamage` (MurderousSwing : +extraDmg AJOUTE A LA BASE si UN seul
     # ennemi touche, #108). `base_bonus` = delta de base, 0 pour toute ability sans clause (get_correct_damage
@@ -760,20 +864,25 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     aoe_overrides = {**overrides, **_aoe_ovr} if _aoe_ovr else overrides
 
     def _event(tid, prob1=1.0, ovr=None):
-        if via_normal:
-            ev = make_normal_attack_predictions(scene, caster_id, tid, attack_pos)
-            if ev is not None and prob1 != 1.0:
-                ev.probability1 = prob1
-            return ev
         dp = generate_multi_hit_attack_prediction(scene, caster_id, tid, ability_id, ability_name,
                                                   attack_pos=attack_pos, base_bonus=base_bonus,
                                                   **(overrides if ovr is None else ovr))
         return ProbableDamageEvent(target=tid, prediction=dp, probability1=prob1) if dp is not None else None
 
+    # TERME EN TETE (`_PREPEND_NORMAL_ATTACK_EVENT`) : le `new ProbableDamageEvent(sel,
+    # battleQuery.<slot 0x22>(caster, sel, casterPosition))` que le playbook construit AVANT son
+    # `AddRange`. Il est INDEPENDANT du batch (le natif ne le conditionne a rien), d'ou son ajout
+    # hors du gate `main is None` qui, lui, garde le regime batch de toutes les autres abilities.
+    events = []
+    if prepend_normal:
+        nev = make_normal_attack_predictions(scene, caster_id, main_tgt_id, attack_pos)
+        if nev is not None:
+            events.append(nev)
+
     main = _event(main_tgt_id)
     if main is None:
-        return []
-    events = [main]
+        return events
+    events.append(main)
     if ab is None:
         return events
     # Plafond secondaire (`GetMaxSecondaryTargets`) -> poids batch `min(1, max/n)` = probability1.
@@ -783,6 +892,16 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
         aev = _event(t.get("id"), prob1, aoe_overrides)
         if aev is not None:
             events.append(aev)
+    # BATCH SUPPLEMENTAIRE a SELECTEUR PROPRE (`_MAKE_DMG_EXTRA_EVENTS`) — mirror des playbooks qui
+    # enchainent un `GenerateMultiHitAttackPredictions` sur un selecteur qui n'est NI `<Target>` NI
+    # l'AoE de l'ability (RammingSpeed 1059 : `<Caster>`, le recul du ram). Consomme ICI, apres la
+    # boucle AoE : c'est l'ordre du natif pour le seul membre actuel, dont la boucle AoE est vide.
+    _extra_fn = _MAKE_DMG_EXTRA_EVENTS.get(ability_id)
+    # `prepend_normal` s'appelait `via_normal` quand ce gate a ete ecrit (#353) : RENOMME par #351,
+    # MEME appartenance au MEME frozenset -- rename mecanique au rebase, aucun changement de sens.
+    if _extra_fn is not None and not prepend_normal and cfg is not None:
+        events.extend(_extra_fn(scene, caster_id, main_tgt_id, ability_id, ability_name,
+                                attack_pos, ab, cfg))
     # #108 count² : les abilities AoE SELF-centrees (MurderousSwing) RE-EMETTENT la liste d'events de degat
     # `count` fois — le playbook natif boucle sur le set `AdjacentEnemies(caster)` (EXTERNE) ET
     # `GenerateMultiHitAttackPredictions` re-boucle sur ce MEME set (INTERNE) -> count² events, chaque cible

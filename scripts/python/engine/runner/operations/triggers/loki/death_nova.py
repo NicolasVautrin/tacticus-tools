@@ -80,9 +80,17 @@ n'ont AUCUNE entree `abilities` : leur `AbilityConfiguration` vient du trait) :
 
 RESIDUS DOCUMENTES :
   - Bonus **RammingSpeed** : porte STRUCTURELLEMENT (`ConditionalAmount(HasEffect(...))`) mais **INERTE** —
-    (a) AUCUNE unite du gameconfig (lineup/npc/summons) ne porte l'ability `RammingSpeed`, donc personne ne
-    peut poser l'effet 1098 ; (b) `ctx.has_effect` n'est pas cable par `entities_from_state` -> `HasEffect`
-    rend False. Non-confrontable live : mirror + branche morte, PAS de scenario invente.
+    (a) AUCUNE unite du gameconfig ne porte l'ability `RammingSpeed`, donc personne ne peut poser l'effet
+    1098 ; (b) `ctx.has_effect` n'est pas cable par `entities_from_state` -> `HasEffect` rend False.
+    Non-confrontable live : mirror + branche morte, PAS de scenario invente.
+    #353 a MESURE le point (a) au lieu de le supposer : le balayage de TOUT le gameconfig ne cite
+    `RammingSpeed` que 4 fois -- `units.abilities` (sa definition), `units.abilityPowerModifiers`, et
+    2 fois sous `aiUtilities.Default.RammingSpeed_MostAdjacentEnemies`. Aucune ATTRIBUTION, par aucune
+    des voies (active/passive/trait/relique/mythic/item/summon). Le SEUL poseur de l'effet 1098 est
+    `RammingSpeedAbility$$ExecuteBehaviour` (`AddEffect(0x44a, ...)`) -> la branche VRAIE est morte
+    pour les DEUX faces, et n'est atteignable qu'en GREFFANT l'ability (case-92 sec.5bis). Garde :
+    `tests/engine/test_353_ramming_speed_prediction_offline.py` (elle ROUGIT si une unite l'acquiert).
+    Detail : `docs/rl/case-353-ramming-speed-prediction.md`.
   - `Units(AdjacentTiles(x), 0, 3)` (Explodes) est porte par le noeud `AdjacentUnits(CasterTile(), 1)` :
     l'equivalence est LUE au decompile (`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` = `Units(AdjacentTiles(x),
     occ, mask) - x`, et `x` n'est jamais sur ses propres tuiles adjacentes) — pas une approximation.

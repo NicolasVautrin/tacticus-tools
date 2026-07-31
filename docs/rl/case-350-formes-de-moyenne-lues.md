@@ -79,11 +79,12 @@ parité, `--armor-target 0` pour que l'écart d'une unité survive à l'armure).
 Sur les quatre, `to_even` est la **seule** variante nulle sur les deux bras, et le code LIVRÉ égale le
 natif. Non-régression de la famille (b) : `1150 PlasmaCannon` (montage #344) tronque toujours.
 
-> **Bras MUET, ré-observé** : `SorcerousFacade` (1100) rend `(3935, 5903, 1)` pour les **quatre**
-> variantes **et** pour les deux niveaux. Cause lue : le port délègue 1100 entièrement à l'attaque
-> normale (`_PREDICT_VIA_NORMAL_ATTACK`), donc `get_damage` n'y est jamais appelé — et l'oracle rend
-> **2 events** là où le port en rend 1. Le probe **échoue** au lieu de verdir. L'inscription (a4) reste
-> juste : elle deviendra active dès que le 2ᵉ batch sera porté (`#350-r1`).
+> **Bras MUET — FERMÉ par #351.** `SorcerousFacade` (1100) rendait `(3935, 5903, 1)` pour les
+> **quatre** variantes **et** les deux niveaux, et le probe **échouait**. La cause n'était pas une
+> propriété du natif mais un **bug de port** : le chemin générique SUBSTITUAIT l'attaque normale au
+> batch de l'ability là où le natif l'AJOUTE (`list = [normale]` puis `AddRange(batch)`), d'où 1 event
+> contre 2. Depuis `case-351`, les deux bras DISCRIMINENT et `to_even` est seule nulle sur les deux :
+> `(25,50) → (30,46,1)` natif contre `(30,44,1)` en troncature. L'inscription (a4) est **active**.
 
 ## 5. Ce qui n'est PAS couvert
 
