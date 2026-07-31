@@ -45,7 +45,7 @@
  *  | 0x04 | `CurrentShield`             | `Int32`                    | `shieldBefore` |
  *  | 0x08 | `DamageProfile`             | `DamageProfile` (réf, 8 o) | non exposé — c'était le « 0x08 non identifié » de #276 |
  *  | 0x10 | `DefaultScenario`           | `DamagePredictionScenario` | conteneur des bornes RAW (`get_WillBeKill` / `get_MightBeKill`) |
- *  | 0x38 | `BlockScenarios`            | `List\`1`                  | non exposé |
+ *  | 0x38 | `BlockScenarios`            | `List\`1`                  | `blockScenarioCount` / `blockKillDmg` / `blockMightDmg` / `blockProbability` (#372) |
  *  | 0x40 | `AccurateHealthDamage`      | `MinMaxDamage`             | `healthDmgMin/Max` — `IdunBattle.AI.Utilities.DamageUtility$$GetHealthDamage` = `MinMaxDamage$$Avg(pred + 0x40)` |
  *  | 0x50 | `AccurateShieldDamage`      | `MinMaxDamage`             | `shieldDmgMin/Max` — `DamageUtility$$GetShieldDamage` |
  *  | 0x60 | `TotalDamage`               | `MinMaxDamage`             | `totalDmgMin/Max` |
@@ -53,7 +53,7 @@
  *  | 0x78 | `DeniedDamage`              | `Int32`                    | non exposé — retour d'`ApplyTraitDamageLimitsToDamage` |
  *  | 0x80 | `IndividualHitDamage`       | `List\`1` (`HitDamage`)    | non exposé — un élément par COUP |
  *  | 0x88 | `LimitedByMinHp`            | `Boolean`                  | `limitedByMinHp` |
- *  | 0x89 | `CannotBeGuaranteedKilled`  | `Boolean`                  | non exposé — gate de sortie anticipée de `get_WillBeKill` |
+ *  | 0x89 | `CannotBeGuaranteedKilled`  | `Boolean`                  | `cannotBeGuaranteedKilled` (#372) — gate de sortie anticipée de `get_WillBeKill` |
  *  | 0x8a | `MightCrit`                 | `Boolean`                  | `mightCrit` |
  *  | 0x8b | `ForceOverkill`             | `Boolean`                  | `forceOverkill` |
  *  | 0x8c | `PreventOverkill`           | `Boolean`                  | `preventOverkill` |
@@ -79,6 +79,56 @@
  *  l'offset que lit `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill`, et
  *  `.Max` = `0x20`, celui de `get_MightBeKill`. Le décodeur ne les additionne plus à la
  *  main : il compose les quatre maillons NOMMÉS.
+ *
+ *  ─────────────────────────────────────────────────────────────────────────────────
+ *  #372 — LES DEUX ENTRÉES DE `get_WillBeKill` QUI MANQUAIENT
+ *  ─────────────────────────────────────────────────────────────────────────────────
+ *  `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill`, VERBATIM :
+ *
+ *      if (CannotBeGuaranteedKilled@0x89) return false;
+ *      m = (BlockScenarios@0x38 == null || BlockScenarios.Count < 1)
+ *          ? DefaultScenario.Damage.HealthDamage.Min@0x1c
+ *          : BlockScenarios[0] + 0x0c;              // .Damage.HealthDamage.Min
+ *      return CurrentHealth@0x00 <= m;
+ *
+ *  Le canal n'exposait que la branche `else` (`willKillDmg`). Tout verdict sur une gate
+ *  `WillBeKill` se prenait donc en AVEUGLE sur les deux autres entrées — c'est ce qui a
+ *  bloqué `#353-r1` (volet b) et laissé `#344-r2` sans preuve. Ce module lit désormais
+ *  les trois, et publie `willBeKill` DÉJÀ CALCULÉ : aucun consommateur ne doit
+ *  ré-assembler la règle, sinon la divergence se rejoue à chaque site.
+ *
+ *  `BlockScenarios[0]` est un `DamagePredictionScenario`, MÊME type que `DefaultScenario`
+ *  — c'est `DamagePredictionResult$$GetBlockScenarioOrDefault` qui le prouve (son fallback
+ *  recopie les 36 octets de `DefaultScenario@0x10`), et
+ *  `DamagePredictionResult$$get_HealthDamageWithBlock` le recoupe (mêmes deux branches,
+ *  bornes `+0x0c`/`+0x10` du scénario). Le décodeur ne recopie donc AUCUN offset : il
+ *  résout `Probability` / `Damage.HealthDamage.Min` / `.Max` PAR NOM sur la classe du
+ *  champ `DefaultScenario` (`fieldTypeClass`), et la taille de l'élément par
+ *  `resolveFieldsSize` — ni la classe du scénario ni son stride ne sont écrits ici.
+ *
+ *  **Deux constantes de FORME restent, et elles ne sont pas dérivables par nom** :
+ *  `List<T>` porte `_items`/`_size` — ceux-là SONT des noms, donc résolus — mais un
+ *  `Il2CppArray` place ses données à `+0x20` (header objet `0x10` + `bounds` + `max_length`).
+ *  `ARRAY_FIRST` est de la même nature que `IL2CPP_BOX_HEADER` : une connaissance de forme,
+ *  extérieure aux métadonnées. Elle est isolée et nommée pour cette raison.
+ *
+ *  **Où le flag peut VALOIR 1 — mesuré aux xrefs, pas supposé.**
+ *  `CannotBeGuaranteedKilled@0x89` n'a qu'**UN SEUL écrivain** dans tout le binaire :
+ *  `IdunBattle.Core.Services.DamagePrediction$$PredictNormalAttack`, dernière instruction
+ *  avant son `return` (`*(char*)(this+0x89) = DamagePrediction$$CannotBeGuaranteedKilled(...)`),
+ *  et `DamagePrediction$$CannotBeGuaranteedKilled` n'a lui-même que CE seul appelant.
+ *  Conséquences, toutes lues :
+ *  * `BattleQuery$$GetNormalAttackPrediction` invoque `IDamagePrediction` **slot 9** =
+ *    `PredictNormalAttack` -> le flag est VIVANT ;
+ *  * `BattleQuery$$GetAttackPrediction` invoque le **slot 0xb** (`PredictAttack`) et
+ *    `BattleQuery$$GetMultiHitAttackPrediction` commence par `memset(result, 0, 0xa0)` puis
+ *    délègue à `GetAttackPrediction` -> le flag y reste **structurellement 0** ;
+ *  * `DamagePredictionResult$$Add` ne fusionne AUCUN des flags `@0x88..0x8c` (il ne somme
+ *    que les bornes, `AppliedHits@0x98`, la liste `IndividualHitDamage@0x80` et fusionne
+ *    `BlockScenarios@0x38` par index) -> le cumul multi-coups ne peut pas le rallumer.
+ *  Donc : un `cannotBeGuaranteedKilled = 1` observé sur un event de playbook
+ *  (`ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` -> slot 0x28 =
+ *  `GetMultiHitAttackPrediction`) accuserait le DÉCODEUR, pas la bataille.
  *
  *  `ProbableDamageEvent` (184 = `0xB8` de champs, boxé 200) = `{ IEntity Target@0x00,
  *  DamagePredictionResult DamagePrediction@0x08, Fix64 Probability@0xA8, Fix64 Weight@0xB0 }`.
@@ -127,6 +177,33 @@ import {
  *  CHAMPS (base = premier octet utile). Confondre les deux est exactement ce qui avait
  *  mis `DamagePredictionResult` à `0xB0` au lieu de `0xA0` (#276). */
 const IL2CPP_BOX_HEADER = 0x10;
+
+/** Décalage des DONNÉES d'un `Il2CppArray` depuis le pointeur du tableau : header objet
+ *  (`klass` + `monitor` = `0x10`) + `bounds` (`0x8`) + `max_length` (`0x8`). Même nature
+ *  que `IL2CPP_BOX_HEADER` : une connaissance de FORME du runtime, PAS un nom de champ —
+ *  aucune métadonnée ne la rend, donc elle est figée ici, isolée et nommée. (Le reste du
+ *  codebase la porte déjà sous `ARRAY_FIRST` / `LIST_ITEMS_BASE`, cf.
+ *  `features/ai-step/internals.ts` et `ai-toolkit/unit-action.ts`.) */
+const ARRAY_FIRST = 0x20;
+
+/** `System.Collections.Generic.List<T>` : `_items` (le tableau) puis `_size` (le Count).
+ *
+ *  **Pourquoi ces deux-là ÉCHAPPENT à la résolution par nom, et c'est MESURÉ, pas supposé.**
+ *  `findClassAnywhere("System.Collections.Generic", "List\`1")` rend la DÉFINITION
+ *  générique, jamais une instanciation. Le RPC `classFields` sur elle (build `rnca9r7q6c`,
+ *  2026-07-31) rend `boxedSize: 0`, `fieldsSize: -16`, `instanceFieldCount: 0` et les
+ *  **cinq** champs à `offset: 0` — une classe jamais initialisée n'a pas de disposition
+ *  (même piège que `reference_il2cpp_methodptr_uninit_class`). Composer sur ces zéros
+ *  lirait le pointeur de classe au lieu du tableau.
+ *
+ *  Ce sont donc des constantes de FORME, exactement comme `IL2CPP_BOX_HEADER` et
+ *  `ARRAY_FIRST`, et le reste du codebase les porte déjà ainsi en production
+ *  (`features/ai-step/internals.ts` `LIST_ITEMS`/`LIST_SIZE`, `ai-toolkit/unit-action.ts`).
+ *  `checkListShape` ci-dessous les CONFRONTE quand même aux métadonnées, au cas où une
+ *  instanciation concrète serait résolvable : une divergence part en `drift`, pas en
+ *  erreur — le décodeur suit la forme, la doc est ce qui devient faux. */
+const LIST_ITEMS = 0x10;
+const LIST_SIZE = 0x18;
 
 /** Sentinelle d'offset NON RÉSOLU. Volontairement énorme : si un appelant l'utilisait
  *  malgré tout, `base.add(POISON_OFFSET).readS32()` LÈVERAIT (accès mémoire invalide)
@@ -229,6 +306,42 @@ export function resolveFieldPath(
     return acc;
 }
 
+/** Offset d'un champ d'un type RÉFÉRENCE (donc BRUT, header objet COMPRIS — un objet ne
+ *  se « déboxe » pas). Pendant strict de `resolveFieldPath` pour les cas où le conteneur
+ *  n'est PAS un ValueType : `List<T>._items` / `._size`. Mêmes refus (champ absent,
+ *  offset hors plage d'instance), même politique — LÈVE plutôt que rendre un repli.
+ *
+ *  ⚠ Ne JAMAIS router un ValueType par ici : le `-0x10` manquerait et l'offset serait
+ *  faux de 16 octets, silencieusement. La garde `isValueType === true` refuse. */
+export function resolveRefFieldOffset(
+    probe: LayoutProbe, klass: NativePointer, label: string, name: string,
+): number {
+    const where = label + "." + name;
+    const isVt = probe.isValueType(klass);
+    if (isVt === null) {
+        throw new Error("RESOLUTION PAR NOM IMPOSSIBLE (#372) : " + where
+            + " -- il2cpp_class_is_valuetype non exporte, impossible de verifier que le"
+            + " conteneur est bien un type REFERENCE");
+    }
+    if (isVt) {
+        throw new Error("RESOLUTION PAR NOM IMPOSSIBLE (#372) : " + where + " -- "
+            + probe.className(klass) + " est un ValueType ; utiliser resolveFieldPath"
+            + " (qui retranche le header de boxing), pas resolveRefFieldOffset");
+    }
+    const raw = probe.rawFieldOffset(klass, name);
+    if (raw < 0) {
+        throw new Error("CHAMP INTROUVABLE (#372) : " + where
+            + " -- absent des metadonnees IL2CPP de ce build.");
+    }
+    const size = probe.instanceSize(klass);
+    if (size > 0 && (raw < IL2CPP_BOX_HEADER || raw >= size)) {
+        throw new Error("OFFSET HORS INSTANCE (#372) : " + where + " -- offset " + raw
+            + " hors [" + IL2CPP_BOX_HEADER + "," + size + "[ ; champ STATIQUE, pas un"
+            + " champ d'instance");
+    }
+    return raw;
+}
+
 /** Taille des CHAMPS d'un ValueType = taille boxée - header. LÈVE si la classe n'est pas
  *  un ValueType ou si `il2cpp_class_instance_size` manque : c'est un STRIDE d'itération
  *  de `List<T>`, et un stride faux de 16 octets rend du garbage sur tout élément après
@@ -275,6 +388,9 @@ const DPR_PATHS = {
     totalDamage: ["TotalDamage"],
     hitDamages: ["IndividualHitDamage"],
     limitedByMinHp: ["LimitedByMinHp"],
+    /** #372 — gate de sortie anticipée de `get_WillBeKill`. Unique écrivain natif :
+     *  `DamagePrediction$$PredictNormalAttack` (cf. l'en-tête de ce fichier). */
+    cannotBeGuaranteedKilled: ["CannotBeGuaranteedKilled"],
     mightCrit: ["MightCrit"],
     forceOverkill: ["ForceOverkill"],
     preventOverkill: ["PreventOverkill"],
@@ -308,6 +424,11 @@ const RE_OFFSETS_RNCA9R7Q6C: Record<string, number> = {
     "DamagePredictionResult.totalDamage": 0x60,
     "DamagePredictionResult.hitDamages": 0x80,
     "DamagePredictionResult.limitedByMinHp": 0x88,
+    "DamagePredictionResult.cannotBeGuaranteedKilled": 0x89,
+    "DamagePredictionScenario.probability": 0x00,
+    "DamagePredictionScenario.healthDamageMin": 0x0c,
+    "DamagePredictionScenario.healthDamageMax": 0x10,
+    "DamagePredictionScenario.fieldsSize": 0x24,
     "DamagePredictionResult.mightCrit": 0x8a,
     "DamagePredictionResult.forceOverkill": 0x8b,
     "DamagePredictionResult.preventOverkill": 0x8c,
@@ -325,10 +446,24 @@ const RE_OFFSETS_RNCA9R7Q6C: Record<string, number> = {
 
 // ─── Résolution effective (une fois, au chargement du module) ─────────────────────
 
+/** #372 — offsets INTERNES à un `DamagePredictionScenario` (l'élément de `BlockScenarios`,
+ *  MÊME type que `DefaultScenario`). Résolus sur la classe du champ `DefaultScenario`, donc
+ *  sans jamais nommer `DamagePredictionScenario` ici. */
+export interface ScenarioLayout {
+    probability: number;
+    healthDamageMin: number;
+    healthDamageMax: number;
+    /** Stride d'un élément dans le tableau interne de `List<DamagePredictionScenario>`. */
+    stride: number;
+}
+
 export interface PredictionLayout {
     dpr: Record<DprKey, number>;
     minMaxMin: number;
     minMaxMax: number;
+    /** null = la chaîne `BlockScenarios[0]` ne s'est pas résolue ; la lecture rend alors
+     *  `null` (tri-état) au lieu d'un zéro qui se lirait « pas de scénario de blocage ». */
+    scenario: ScenarioLayout | null;
     dprFieldsSize: number;
     dprBoxedSize: number;
     pdePrediction: number;
@@ -394,6 +529,57 @@ export function resolvePredictionLayout(probe: LayoutProbe): LayoutResolution {
         });
     }
 
+    // #372 — la chaîne `BlockScenarios[0].Damage.HealthDamage.Min` : trois maillons, tous
+    // NOMMÉS. La classe de l'élément se prend sur le CHAMP `DefaultScenario` (même type,
+    // établi par `DamagePredictionResult$$GetBlockScenarioOrDefault`), et celle de la liste
+    // sur le champ `BlockScenarios` — aucune des deux n'est écrite ici.
+    let scenario: ScenarioLayout | null = null;
+    {
+        const scnK = ((): NativePointer | null => {
+            try { return probe.fieldTypeClass(dprK, "DefaultScenario"); } catch { return null; }
+        })();
+        if (scnK === null) {
+            errors.push("TYPE DE CHAMP NON RESOLU (#372) :"
+                + " DamagePredictionResult.DefaultScenario -- impossible de composer"
+                + " BlockScenarios[0], qui est du MEME type");
+        } else {
+            const parts: Partial<ScenarioLayout> = {};
+            take(() => resolveFieldPath(probe, scnK, "DamagePredictionScenario",
+                ["Probability"]), (v) => {
+                parts.probability = v; noteDrift("DamagePredictionScenario.probability", v);
+            });
+            take(() => resolveFieldPath(probe, scnK, "DamagePredictionScenario",
+                ["Damage", "HealthDamage", "Min"]), (v) => {
+                parts.healthDamageMin = v;
+                noteDrift("DamagePredictionScenario.healthDamageMin", v);
+            });
+            take(() => resolveFieldPath(probe, scnK, "DamagePredictionScenario",
+                ["Damage", "HealthDamage", "Max"]), (v) => {
+                parts.healthDamageMax = v;
+                noteDrift("DamagePredictionScenario.healthDamageMax", v);
+            });
+            take(() => resolveFieldsSize(probe, scnK, "DamagePredictionScenario"), (v) => {
+                parts.stride = v; noteDrift("DamagePredictionScenario.fieldsSize", v);
+            });
+            if (parts.probability !== undefined && parts.healthDamageMin !== undefined
+                && parts.healthDamageMax !== undefined && parts.stride !== undefined) {
+                scenario = parts as ScenarioLayout;
+            }
+        }
+        // Contrôle OPPORTUNISTE de la forme de `List<T>` : si — et seulement si — une
+        // instanciation résolvable existe, on confronte `_items`/`_size` aux constantes de
+        // forme. Un échec est ATTENDU (définition générique non initialisée, mesuré) et ne
+        // dit rien ; une divergence, elle, part en `drift`.
+        for (const [name, want] of [["_items", LIST_ITEMS], ["_size", LIST_SIZE]] as const) {
+            try {
+                const lstK = probe.fieldTypeClass(dprK, "BlockScenarios");
+                if (lstK === null) break;
+                const got = resolveRefFieldOffset(probe, lstK, "List", name);
+                if (got !== want) drift.push("List." + name + ": live=" + got + " forme=" + want);
+            } catch { /* non résolvable : la forme fait foi, cf. LIST_ITEMS */ }
+        }
+    }
+
     let minMaxMin = -1; let minMaxMax = -1;
     take(() => resolveFieldPath(probe, mmK, "MinMaxDamage", ["Min"]), (v) => {
         minMaxMin = v; noteDrift("MinMaxDamage.Min", v);
@@ -445,7 +631,7 @@ export function resolvePredictionLayout(probe: LayoutProbe): LayoutResolution {
 
     return {
         layout: {
-            dpr, minMaxMin, minMaxMax,
+            dpr, minMaxMin, minMaxMax, scenario,
             dprFieldsSize, dprBoxedSize: dprFieldsSize + IL2CPP_BOX_HEADER,
             pdePrediction, pdeProbability, pdeWeight,
             pdeStride, pdeBoxedSize: pdeStride + IL2CPP_BOX_HEADER,
@@ -600,10 +786,35 @@ export interface DamagePredictionFields {
      *  `CurrentShield`. On rend `null` — une absence PROUVÉE, pas un offset deviné. */
     armorBefore: number | null;
     shieldBefore: number;
-    /** Bornes du `DefaultScenario` : `hp <= willKillDmg` => mort GARANTIE
-     *  (`get_WillBeKill`), `hp <= mightKillDmg` => mort POSSIBLE (`get_MightBeKill`). */
+    /** Bornes du `DefaultScenario`. ⚠ `willKillDmg` n'est que la branche `else` de
+     *  `get_WillBeKill` : la borne EFFECTIVE est `willKillDmgEffective`, et le verdict
+     *  est `willBeKill`. `mightKillDmg`, lui, EST la borne complète de `get_MightBeKill`
+     *  (aucun gate natif de ce côté — l'asymétrie est native). */
     willKillDmg: number;
     mightKillDmg: number;
+    /** #372 — `CannotBeGuaranteedKilled@0x89`. `1` => `get_WillBeKill` rend `false`
+     *  QUELLES QUE SOIENT les bornes. Unique écrivain : `PredictNormalAttack`. */
+    cannotBeGuaranteedKilled: number;
+    /** #372 — `BlockScenarios@0x38` : `Count`, puis les champs de `[0]` quand `Count >= 1`.
+     *  `null` = TRI-ÉTAT « non mesuré » (liste illisible / chaîne non résolue), JAMAIS
+     *  « zéro scénario » — un `0` de `blockScenarioCount` est, lui, une mesure. */
+    blockScenarioCount: number | null;
+    blockProbability: number | null;
+    /** `BlockScenarios[0].Damage.HealthDamage.Min` = le `+0x0c` que lit `get_WillBeKill`. */
+    blockKillDmg: number | null;
+    /** `BlockScenarios[0].Damage.HealthDamage.Max` — lu par `get_HealthDamageWithBlock`,
+     *  PAS par `get_MightBeKill`. Exposé pour recouper la paire. */
+    blockMightDmg: number | null;
+    /** #372 — la borne EFFECTIVEMENT comparée par `get_WillBeKill` :
+     *  `blockKillDmg` si `blockScenarioCount >= 1`, sinon `willKillDmg`. */
+    willKillDmgEffective: number | null;
+    /** #372 — `get_WillBeKill` mirroré ENTIER (gate + choix de borne + comparaison).
+     *  `null` = indécidable (une entrée non mesurée). Les consommateurs lisent CE champ ;
+     *  ré-assembler la règle chez soi est exactement ce qui a produit les verdicts en
+     *  aveugle de `#353-r1` et `#344-r2`. */
+    willBeKill: boolean | null;
+    /** #372 — `get_MightBeKill` mirroré : `CurrentHealth <= mightKillDmg`, sans gate. */
+    mightBeKill: boolean;
     healthDmgMin: number;
     healthDmgMax: number;
     shieldDmgMin: number;
@@ -633,6 +844,7 @@ export function damagePredictionShapeErrors(v: DamagePredictionFields): string[]
     const bools: Array<[string, number]> = [
         ["mightCrit", v.mightCrit], ["forceOverkill", v.forceOverkill],
         ["preventOverkill", v.preventOverkill], ["limitedByMinHp", v.limitedByMinHp],
+        ["cannotBeGuaranteedKilled", v.cannotBeGuaranteedKilled],
     ];
     for (const [name, b] of bools) {
         if (b !== 0 && b !== 1) errs.push(name + "=" + b + " hors {0,1}");
@@ -652,7 +864,49 @@ export function damagePredictionShapeErrors(v: DamagePredictionFields): string[]
         if (mn > mx) errs.push(name + " min=" + mn + " > max=" + mx);
         if (mn < 0) errs.push(name + "Min=" + mn + " negatif");
     }
+    // #372 — `BlockScenarios` : le natif y met UN scénario par source de blocage du
+    // défenseur. Un compte négatif ou délirant n'accuse pas la bataille mais la base de
+    // lecture (mauvais stride d'event, `+0x10` de boxing oublié) — même famille que le
+    // `mightCrit = 25` de #276. Le seuil est LARGE à dessein : il attrape le garbage, pas
+    // un cas de jeu inhabituel.
+    if (v.blockScenarioCount !== null
+        && (v.blockScenarioCount < 0 || v.blockScenarioCount > 1024)) {
+        errs.push("blockScenarioCount=" + v.blockScenarioCount + " hors [0,1024]");
+    }
+    if (v.blockKillDmg !== null && v.blockMightDmg !== null
+        && v.blockKillDmg > v.blockMightDmg) {
+        errs.push("blockKillDmg=" + v.blockKillDmg + " > blockMightDmg=" + v.blockMightDmg);
+    }
     return errs;
+}
+
+/** `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` mirroré, à partir des
+ *  champs DÉJÀ décodés. Isolé pour être testable hors process (`resolvePredictionLayout`
+ *  a sa façade `LayoutProbe` ; ceci n'a même pas besoin de mémoire).
+ *
+ *      if (CannotBeGuaranteedKilled) return false;
+ *      m = (BlockScenarios != null && BlockScenarios.Count >= 1)
+ *          ? BlockScenarios[0].Damage.HealthDamage.Min
+ *          : DefaultScenario.Damage.HealthDamage.Min;
+ *      return CurrentHealth <= m;
+ *
+ *  Rend `null` quand une entrée n'a PAS été mesurée : mieux vaut un canal qui dit « je ne
+ *  sais pas » qu'un `false` indiscernable d'un vrai « pas de kill garanti ». */
+export function computeWillBeKill(
+    v: Pick<DamagePredictionFields,
+        "hpBefore" | "willKillDmg" | "cannotBeGuaranteedKilled"
+        | "blockScenarioCount" | "blockKillDmg">,
+): { willBeKill: boolean | null; effective: number | null } {
+    if (v.cannotBeGuaranteedKilled !== 0) return { willBeKill: false, effective: null };
+    if (v.blockScenarioCount === null) return { willBeKill: null, effective: null };
+    let m: number;
+    if (v.blockScenarioCount >= 1) {
+        if (v.blockKillDmg === null) return { willBeKill: null, effective: null };
+        m = v.blockKillDmg;
+    } else {
+        m = v.willKillDmg;
+    }
+    return { willBeKill: v.hpBefore <= m, effective: m };
 }
 
 /** Décode un `DamagePredictionResult` dont `base` est le PREMIER OCTET DES CHAMPS
@@ -675,12 +929,61 @@ export function readDamagePredictionResult(
     const shield = readMinMaxDamage(base.add(DPR.shieldDamage));
     const total = readMinMaxDamage(base.add(DPR.totalDamage));
     const scenario = readMinMaxDamage(base.add(DPR.scenarioHealthDamage));
+    // #372 — `BlockScenarios@0x38`. Une DÉRÉFÉRENCE de pointeur, pas une lecture de champ :
+    // c'est une classe de risque distincte du reste du décodeur (le pointeur peut être nul,
+    // et une base fausse le rend arbitraire). D'où le tri-état `null` = « non mesuré », et
+    // le `catch` LOCAL : perdre ce champ ne doit pas faire perdre les vingt autres — mais
+    // il laisse une trace dans `shapeErrors`, jamais un zéro silencieux.
+    const blockErrs: string[] = [];
+    let blockScenarioCount: number | null = null;
+    let blockProbability: number | null = null;
+    let blockKillDmg: number | null = null;
+    let blockMightDmg: number | null = null;
+    const SCN = L.scenario;
+    if (SCN === null) {
+        blockErrs.push("BlockScenarios NON LU : chaine DamagePredictionScenario non resolue");
+    } else {
+        try {
+            const list = base.add(DPR.blockScenarios).readPointer();
+            if (list.isNull()) {
+                blockScenarioCount = 0;          // MESURE : `BlockScenarios == null`
+            } else {
+                blockScenarioCount = list.add(LIST_SIZE).readS32();
+                if (blockScenarioCount >= 1 && blockScenarioCount <= 1024) {
+                    const items = list.add(LIST_ITEMS).readPointer();
+                    if (items.isNull()) {
+                        blockErrs.push("BlockScenarios._items NUL avec Count="
+                            + blockScenarioCount);
+                    } else {
+                        const s0 = items.add(ARRAY_FIRST);      // index 0, stride SCN.stride
+                        blockProbability = s0.add(SCN.probability).readS32();
+                        blockKillDmg = s0.add(SCN.healthDamageMin).readS32();
+                        blockMightDmg = s0.add(SCN.healthDamageMax).readS32();
+                    }
+                }
+            }
+        } catch (e) {
+            blockScenarioCount = null;
+            blockErrs.push("BlockScenarios ILLISIBLE : " + (e as Error).message);
+        }
+    }
+    const hpBefore = base.add(DPR.currentHealth).readS32();
+    const cannotBeGuaranteedKilled = base.add(DPR.cannotBeGuaranteedKilled).readU8();
+    const kill = computeWillBeKill({
+        hpBefore, willKillDmg: scenario.min, cannotBeGuaranteedKilled,
+        blockScenarioCount, blockKillDmg,
+    });
     const v: DamagePredictionFields = {
-        hpBefore: base.add(DPR.currentHealth).readS32(),
+        hpBefore,
         armorBefore: null,
         shieldBefore: base.add(DPR.currentShield).readS32(),
         willKillDmg: scenario.min,
         mightKillDmg: scenario.max,
+        cannotBeGuaranteedKilled,
+        blockScenarioCount, blockProbability, blockKillDmg, blockMightDmg,
+        willKillDmgEffective: kill.effective,
+        willBeKill: kill.willBeKill,
+        mightBeKill: hpBefore <= scenario.max,
         healthDmgMin: health.min,
         healthDmgMax: health.max,
         shieldDmgMin: shield.min,
@@ -693,7 +996,7 @@ export function readDamagePredictionResult(
         preventOverkill: base.add(DPR.preventOverkill).readU8(),
         appliedHits: base.add(DPR.appliedHits).readS32(),
     };
-    const errs = damagePredictionShapeErrors(v);
+    const errs = blockErrs.concat(damagePredictionShapeErrors(v));
     if (errs.length) v.shapeErrors = errs;
     return v;
 }
