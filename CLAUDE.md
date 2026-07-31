@@ -399,10 +399,18 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    `probe_273_gitignored_inputs.py --only-scan` est le cliquet à faire passer avant d'ouvrir
    une PR. Symptôme si on l'oublie : un balayage rend `0 fichier` et se lit comme « rien à
    signaler » — mesuré, `rl_ingest --all` ingérait **zéro** batch depuis un worktree, sans erreur.
-4. **⛔ Ne (ré)injecter NI redémarrer le host tant qu'un autre agent tourne.** C'est le SEUL
-   geste réellement proscrit : il stoppe la session Frida et casse le harnais des autres. Tout
-   le reste (mêmes fichiers, mêmes sujets, RPC concurrents, runners) est libre — un worktree
-   est figé au commit de lancement, donc les éditions de l'appelant ne peuvent pas le perturber.
+4. **⛔ Ne (ré)injecter NI redémarrer le host TOI-MÊME, jamais.** Ce geste stoppe la session
+   Frida et casse le harnais des autres agents. Il appartient à l'orchestrateur, qui dispose
+   d'une procédure sûre (mode DRAIN). Si ton travail exige un reinject — un correctif
+   `frida/hooks/*` à activer, un capteur neuf à poser — **livre le code et DIS-LE dans ton
+   rapport** : la fenêtre sera planifiée. Tout le reste (mêmes fichiers, mêmes sujets, RPC
+   concurrents, runners) est libre — un worktree est figé au commit de lancement, donc les
+   éditions de l'appelant ne peuvent pas le perturber.
+
+   Corollaire : **si un build de runner te revient en `503 runner creation paused`**, c'est une
+   fenêtre volontaire, pas une panne. Ne retente pas en boucle, dispose tes runners, rends ton
+   état — et **ne conclus RIEN** de ce refus : ce n'est ni un « porteur non confrontable » ni un
+   « régime inatteignable ». Écris « NON CONFRONTÉ — fenêtre DRAIN ».
 5. **Une modif Python `engine/**` n'exige NI rebuild NI reinject** : ce code tourne dans le
    process pytest/probe et parle au runner par RPC. Seul `frida/hooks/*` vit dans Frida.
 6. **Le worktree part de `origin/master`** — ni de la branche courante, ni des changements non

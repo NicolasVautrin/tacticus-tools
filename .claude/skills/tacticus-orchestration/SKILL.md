@@ -97,6 +97,40 @@ curl -s http://127.0.0.1:8765/api/admin/status | npx -y node-jq -c '.session'
 - Ctrl+C dans le terminal `npm run dev`, ou
 - `curl -s -X POST http://127.0.0.1:8765/api/_dev/shutdown` (graceful).
 
+## Fenêtre de harnais par le mode DRAIN — la voie SÛRE pour (ré)injecter
+
+**Un reinject / restart de host n'est plus un geste proscrit : il est CONDITIONNÉ.** Le
+`CLAUDE.md` continue de l'interdire *aux agents* — c'est l'orchestrateur qui conduit la
+fenêtre, et lui seul. Procédure **exécutée et validée le 2026-07-31**, 4 agents en vol :
+
+1. **Armer** : `POST /api/admin/drain` `{enabled: true, retryAfterSec: 120, message: "…"}`.
+   Refuse les **CRÉATIONS** de runner (503 + `Retry-After`) sur les 5 points d'entrée
+   (`initAndStart`, `buildPatchedRunner`, `initRunner`, `loadFromSavedBundle`,
+   `simBuildPreview`) — **sans toucher aux runners en place**, qui vivent leur vie.
+2. **Prévenir les agents en validation live** par `SendMessage` : disposer *leurs* runners,
+   commiter même partiel, rendre leur état. Leur dire explicitement de **ne RIEN conclure
+   d'un refus** — un 503 n'est ni un « porteur non confrontable » ni un « régime
+   inatteignable ». Sans ce message ils bouclent sur des retries et retardent la fenêtre.
+3. **Attendre `liveRunners == 0`** sur `GET /api/admin/drain`, en boucle de veille.
+   ⚠ Cette jauge interroge le **registre des HOOKS**, pas le cache du host — lequel dérive :
+   **mesuré 786 côté host contre 1 côté hooks**. Une veille bâtie sur `/api/runners` ne
+   tomberait jamais à zéro. Tri-état : `null` = **PAS mesuré** (session morte, RPC en échec),
+   jamais à lire comme un zéro.
+4. **Débusquer l'orphelin** s'il ne converge pas. `listRunners` donne un `owner` (souvent un
+   state-file `logs/_pytest_duel_state-<PID>-N.json`) : le PID est-il **mort** ? Purger par ce
+   recoupement propriétaire ↔ processus, **jamais par l'âge** — l'âge condamnerait aussi un
+   runner légitimement long. Mesuré : un orphelin d'une passe de validation *de
+   l'orchestrateur* a bloqué une fenêtre à lui seul.
+5. **Agir** : `npm run build:hooks` si `frida/hooks/*` a changé → restart host → inject →
+   **warmup obligatoire**.
+6. **Lever le drain**, puis **reprendre les agents par `SendMessage`** (contexte intact),
+   en leur donnant l'état du harnais (session, warmup, drain levé, hash de build).
+
+⚠ Le drain vit **en mémoire du host** : un restart le remet à `false` de lui-même.
+⚠ **Vérifier le hash de build après toute relance du jeu** : installé ==
+`data/symbols/CURRENT` == `python scripts/python/ghidra_symbols.py build`. Une relance peut
+être une mise à jour déguisée, et l'analyse offline deviendrait fausse en silence.
+
 ## Restart du host (pour Claude)
 
 Quand tu modifies du code dans `frida/host/` (router, config-store, sessions,
@@ -105,6 +139,12 @@ admin, …) le host doit être redémarré — `npm run dev` lance `tsx host/ind
 
 1. Shutdown graceful : `curl -s -X POST http://127.0.0.1:8765/api/_dev/shutdown`
 2. Relance en background : `cd frida && npm run dev > /tmp/host.log 2>&1 &`
+   ⚠ **Sur cette machine les deux voies évidentes échouent** : le tool Bash rend
+   `exp: command not found`, et `npm run dev` rend `'tsx' n'est pas reconnu` (npm n'ajoute pas
+   `node_modules/.bin` au PATH ici). La commande qui marche, via le tool **PowerShell** :
+   `Set-Location C:\Users\nicolasv\tacticus-tools\frida; node node_modules\tsx\dist\cli.mjs host/index.ts`
+   ⚠ L'auto-restore ne réinjecte pas toujours : si `/api/admin/status` rend `.session == null`
+   après le restart, injecter explicitement par `POST /api/admin/inject` body `{}`.
 3. Vérification : `curl -s http://127.0.0.1:8765/api/health` doit retourner
    `{"status":"ok"}` après ~3 s.
 
