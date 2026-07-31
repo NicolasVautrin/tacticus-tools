@@ -270,6 +270,49 @@ def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tu
     return count_adjacent(tile, ctx.epos or [], ctx.elev_by_pos)
 
 
+def eligible_target_tiles(ctx: "NCContext", ability_id: int) -> tuple[list, list]:
+    """Mirror de `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` pour un domaine
+    TUILE -> `(from_here, union)`, deux listes de `(col, row)` DANS L'ORDRE DU NATIF.
+
+    Le selector natif est `GetEligibleTargetsEntities(caster, possibleCasterPosition)` =
+    IBattleQuery `GetValidTargets(caster, position, abilityType)` suivi d'un
+    `idun.shared.extensions.ListExtensions$$Remove` (filtre d'ineligibilite) : la liste est donc
+    calculee **PAR POSITION du caster**, et son ORDRE compte -- `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction`
+    ne remplace que si STRICTEMENT superieur, donc a utilite egale c'est la PREMIERE cible enumeree
+    qui gagne.
+
+    L'RPC `abilityTargets` publie les deux vues, et elles ne sont PAS interchangeables :
+      * `fromHere` = `GetValidTargets(unit, position COURANTE, ability)` -> l'ordre EXACT du selector
+        natif a la position d'origine ;
+      * `targets`  = `GetAllValidTargetsFromAllPossibleMovementTiles` -> l'UNION sur toutes les tuiles
+        de move, dans un ordre qui n'est celui d'AUCUNE position en particulier.
+
+    MESURE #343 (1166, runner MC1_67/909, caster genesBiophagus en (1,0), 1 ennemi en (0,1)) : les
+    deux vues portent les MEMES 3 tuiles de spawn mais dans des ordres differents --
+    `fromHere = [(1,1), (2,0), (0,0)]` contre `targets`-filtre `= [(2,0), (0,0), (1,1)]`. Deux
+    d'entre elles valent l'utilite 1 ; le natif emet `(1,1)`, la 1re de `fromHere`. Balayer l'union
+    faisait donc emettre `(0,0)` -- meme utilite, MAUVAISE tuile.
+
+    Le residu qui reste : pour une position de move (T != origine) aucune vue par-position n'existe
+    cote RPC ; l'appelant retombe sur l'union filtree, dont l'ordre est une APPROXIMATION. Le natif
+    balayant l'origine EN PREMIER et ne remplacant que sur amelioration STRICTE, ce residu n'est
+    atteignable que si une tuile de move ameliore strictement l'utilite."""
+    if ctx.ability_targets is None:
+        return [], []
+    at = ctx.ability_targets(ctx.uid, ability_id) or {}
+    from_here, union = [], []
+    for u in (at.get("units") or []):
+        for a in (u.get("abilities") or []):
+            if a.get("abilityId") != ability_id:
+                continue
+            for key, out in (("fromHere", from_here), ("targets", union)):
+                for t in (a.get(key) or []):
+                    tile = t.get("tile")
+                    if t.get("kind") == "tile" and tile and tile.get("col") is not None:
+                        out.append((tile.get("col"), tile.get("row")))
+    return from_here, union
+
+
 def _turns_started_gate(ctx: "NCContext") -> bool:
     """Corps FOLDÉ (COMDAT) du slot-4 `ShouldEvaluate(unit)` « pas au 1er tour » — code UNIQUE
     IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate (symbole `AlphaWarriorPlaybook$$ShouldEvaluate`, refcount 7) pointé par la vtable de
