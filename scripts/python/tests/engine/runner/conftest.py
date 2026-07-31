@@ -43,6 +43,7 @@ import probe_294_trigger_ability_channels as TAC
 import probe_301_kill_unit_trigger_channels as KUC
 import probe_306_effect_trigger_channels as EFC
 import probe_338_ai_target_choice as AITC
+import probe_348_ai_approach as AIAP
 
 
 @pytest.fixture
@@ -379,6 +380,36 @@ def ai_target_choice_case(build_runner, rpc):
                             % (low_vis, r.get("why")))
             cache[low_vis] = r
         return cache[low_vis]
+
+    return _case
+
+
+# ── #348 — l'APPROCHE d'un acteur de free-attack (`+0x78 moveAmount = null`) ─────────────────────
+
+@pytest.fixture(scope="module")
+def ai_approach_case(build_runner, rpc):
+    """Fabrique : `ai_approach_case("approach"|"stay"|"move_only")` -> le dict de mesure du montage
+    #348.
+
+    PORTE pytest de `scripts/python/probe_348_ai_approach.py` : `ForwardSpotter` (1143, MoW
+    `astraOrdnanceBattery`) pose un guardsman sur une tuile libre ADJACENTE A UN ALLIE CHOISI (masque
+    `TargetIsFriendly`), donc la distance spawn<->ennemi est ENTIEREMENT pilotable. Le regime nomme
+    la fenetre : `approach` (3..5 = hors portee d'arme mais a portee apres deplacement), `stay`
+    (<= 2 = deja a portee), `move_only` (>= 6 = deplacement pur).
+
+    Portee MODULE (chaque regime = un build + une conduite de positions + un cast).
+    ⚠ Montage non installe => ECHEC, jamais skip (#268)."""
+    cache: dict = {}
+
+    def _case(regime: str) -> dict:
+        if regime not in cache:
+            # `keep=True` : le runner appartient a `build_runner` (teardown du module).
+            r = AIAP.run(rpc, regime=regime, build_runner=build_runner, keep=True)
+            if not r.get("ok"):
+                pytest.fail("montage AI-approach NON INSTALLE (regime=%s) : %s"
+                            % (regime, r.get("why")))
+            cache[regime] = r
+        return cache[regime]
 
     return _case
 

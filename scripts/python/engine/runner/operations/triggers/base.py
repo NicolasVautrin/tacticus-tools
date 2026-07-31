@@ -326,12 +326,20 @@ def _hex_dist(board, src: int, dst: int, cap: int) -> Optional[int]:
     return None
 
 
-def _in_attack_range(state: State, attacker_id: int, target_id: int) -> bool:
+def _in_attack_range(state: State, attacker_id: int, target_id: int, from_pos=None) -> bool:
     """`DSLFactory.IsInAttackRange(attacker, target, 3)` — la cible est-elle dans la portée d'attaque
     de l'attaquant (distance hex <= portée arme max) ? Requiert `state.board` (evenq). Sans board → False.
 
     La portée est celle de `IdunBattle.Core.Services.TargetingQuery$$GetRange`, clamp `ForcedInMelee`
-    INCLUS (`_forced_in_melee`) : un porteur de l'effet 0x529 ne porte qu'à 1."""
+    INCLUS (`_forced_in_melee`) : un porteur de l'effet 0x529 ne porte qu'à 1.
+
+    `from_pos=(col,row)` évalue depuis une tuile CANDIDATE au lieu de la position courante. Ce n'est
+    pas une commodité de test : `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsForNormalAttack`
+    est appelée par `ComparablePlaybook.EvaluateInternal(unit, position, ctx)` **une fois par position
+    candidate** — la PORTÉE, elle, ne dépend que de l'unité (`GetRange(unit)`), mais la DISTANCE se
+    mesure depuis la position évaluée. Tant que le domaine d'action se réduisait à la tuile courante
+    (`GenerateActionTiles(…, 0)`) les deux lectures coïncidaient ; dès que l'acteur peut s'approcher
+    (`…, null`), gater sur la seule position courante annulerait l'approche (#348)."""
     board = state.board
     if board is None:
         return False
@@ -342,9 +350,10 @@ def _in_attack_range(state: State, attacker_id: int, target_id: int) -> bool:
     ap = a.get_component(PositionComponent)
     tp = t.get_component(PositionComponent)
     sc = a.get_component(StatsComponent)
-    if ap is None or tp is None or sc is None:
+    if (ap is None and from_pos is None) or tp is None or sc is None:
         return False
-    a_tile = board.id_at(ap.col, ap.row)
+    a_tile = board.id_at(from_pos[0], from_pos[1]) if from_pos is not None \
+        else board.id_at(ap.col, ap.row)
     t_tile = board.id_at(tp.col, tp.row)
     if a_tile is None or t_tile is None:
         return False

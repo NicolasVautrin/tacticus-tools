@@ -28,7 +28,12 @@ from engine.runner.abilities.loki import ScarabHiveAbility, ScarabSummonAbility
 CASTER_VIS = "necroSpyder"      # summoner (materialise le 1er swarm via ScarabHive)
 ENEMY_VIS = "necroDestroyer"    # cible tanky (survit aux attaques on-appearance)
 SUMMON_VIS = "necroSmnSwarm"
-BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", ENEMY_VIS]
+# `--dmg-target 1` : la frappe ADVERSE est neutralisee. Necessaire depuis #348 -- le double s'APPROCHE
+# avant de frapper (`+0x78 moveAmount = null` -> `GenerateActionTiles` sur la plage complete), et ce
+# pas declenche le vecteur after-move de la cible (`EvaluateAfterMoveTriggers` -> overwatch), qui le
+# TUAIT avant son attaque. Un clone mort ne frappe pas : le test mesurait alors l'overwatch, pas
+# l'on-appearance qu'il verrouille.
+BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", ENEMY_VIS, "--dmg-target", "1"]
 
 
 def _ok(r):
@@ -80,9 +85,9 @@ def test_scarab_summon_migration_is_dsl_tree(live_session, rpc, build_runner):
     # (`IdunBattle.Core.Services.TargetingQuery$$GetRange` = 1 : le swarm n'a qu'une arme de MELEE).
     # On rend donc la tuile d'atterrissage DETERMINISTE (une seule voisine libre, les autres bloquees par
     # des ALLIES) et ADJACENTE a la cible. Sans ce pilotage, le double tombait au hasard a 1 ou 2 hex de
-    # l'ennemi et le test mesurait le residu « le port n'APPROCHE pas le double » (le natif, lui, joue un
-    # TOUR complet : `PerformAIAttack` = `+0x70 allowMoveAction=1`, `+0x78 moveAmount=null`), au lieu de
-    # l'on-appearance qu'il veut valider.
+    # l'ennemi et le test mesurait l'APPROCHE (`PerformAIAttack` = `+0x70 allowMoveAction=1`,
+    # `+0x78 moveAmount=null` -> le double joue un TOUR complet, cf. #348) au lieu de l'on-appearance
+    # qu'il veut valider.
     blockers = [spyder_id] + list(hive_spawned[1:])          # tous ALLIES du swarm (aucun ennemi de plus)
     trio = None
     for c in sorted(board.by_id):
@@ -147,15 +152,22 @@ def test_scarab_summon_migration_is_dsl_tree(live_session, rpc, build_runner):
     # le clone est une NOUVELLE entite necroSmnSwarm, owner du swarm-parent (CopyOwner), adjacent au swarm-parent
     new_ids = [i for i in state.entities.keys() if i not in before_ids]
     assert set(spawned) == set(new_ids), f"spawned {sorted(spawned)} != nouvelles entites {sorted(new_ids)}"
+    # ⚠ La tuile lue est le POINT DE CHUTE (`spawn_pos`, capture a l'emission `SpawnUnit`), PAS la
+    # position finale : depuis #348 l'on-appearance `PerformAIAttack` (`+0x78 moveAmount = null`)
+    # DEPLACE le double avant de frapper -- confronte live (`test_ai_approach_live`, regime `touch` :
+    # le natif change lui aussi de tuile alors qu'il est deja au contact). Lire la position finale
+    # mesurerait cette approche, pas le placement `AdjacentTiles(self)` que ce test verrouille.
+    spawn_pos = res.get("spawn_pos") or {}
     for sid in spawned:
         e = state.get_entity(sid)
         oc = e.get_component(OwnerComponent)
         uc = e.get_component(UnitComponent)
-        pc = e.get_component(PositionComponent)
+        landed = spawn_pos.get(sid)
         assert uc is not None and uc.visual_id == SUMMON_VIS, f"clone {sid} n'est pas un {SUMMON_VIS}"
         assert oc.team == sowner.team and oc.player == sowner.player, "clone owner != swarm-parent (CopyOwner)"
-        assert pc is not None and board.id_at(pc.col, pc.row) in swarm_neigh, "clone PAS adjacent au swarm-parent"
-        assert board.id_at(pc.col, pc.row) == p_tile, (
+        assert landed is not None and board.id_at(*landed) in swarm_neigh, (
+            "clone PAS adjacent au swarm-parent a l'atterrissage")
+        assert board.id_at(*landed) == p_tile, (
             "le clone n'a pas atterri sur la SEULE voisine libre -> geometrie pilotee non tenue")
 
     # === on-appearance : l'ennemi le plus proche perd des PV, sum(attacks.total) == somme des PV perdus ===

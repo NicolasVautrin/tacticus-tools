@@ -87,11 +87,9 @@ c'est ce que fait `BasePlaybook$$GetEligibleTargetsForNormalAttack`. Sans elle, 
 
 ## 5. Ce qui n'est PAS couvert
 
-* **R31 reste OUVERT** (résidu jumeau, hors périmètre) : `move_amount is None` n'ouvre PAS la plage
-  de déplacement. `ai_control_execute_ability_action_for` force `max_distance=0` dans les DEUX
-  branches — l'ouvrir sans porter l'apply du `MoveUnitMessage` ferait calculer l'attaque depuis une
-  tuile où l'unité n'est pas. Ce qui est fermé de R31 : « un seul générateur sur une seule ability ».
-  Ce qui reste : `GenerateActionTiles(null)` + `MovementActionGenerator` + l'apply du déplacement.
+* **R31 : FERMÉ depuis** (`case-348-ai-approach.md`). `move_amount` est passé tel quel à
+  `GenerateActionTiles`, le `MovementActionGenerator` est en queue quand `allowMoveAction`, et le
+  `MoveUnitMessage` est appliqué AVANT l'attaque.
 * **`customUtility`** (`behaviour+0x90`, seul `TheQuickening` en pose un) : threadé jusqu'à
   `calculate_ability_action_for_unit` et **ignoré**. Le résidu est désormais localisé là.
 * **Branche NonComparable de `d__6`** : aucun call-site (les deux nœuds passent

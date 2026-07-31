@@ -526,8 +526,10 @@ def forward_spotter_pick_tiles(state: "State", target_id: Optional[int], n: int,
     sont tranchees par l'ordre du SELECTEUR SOURCE = `AdjacentTilesSelector$$Select` ->
     `BattleQuery$$GetAdjacentTiles`, donc `board.neighbours_native` (liste d'adjacence STOCKEE, ni
     triee ni symetrisee ; ordre etabli case-130 SS5 / #117 / FragBomb) -- et NON `board.neighbours`
-    (ids tries) que ce port utilisait. `target_id` = une UNITE (l'ability cible une unite ennemie,
-    cf. `ForwardSpotterAbility$$GetDynamicInvalidTargetReason` : `IsUnit(target) && target != caster`)."""
+    (ids tries) que ce port utilisait. `target_id` = une UNITE **ALLIEE** (masque `0x40000422`, bit
+    `TargetIsFriendly` -- confirme live : `abilityTargets` ne rend que des unites de la team du
+    caster ; cf. `ForwardSpotterAbility$$GetDynamicInvalidTargetReason` : `IsUnit(target) &&
+    target != caster`)."""
     board = state.board
     te = state.get_entity(target_id) if target_id is not None else None
     tpc = te.get_component(PositionComponent) if te is not None else None
@@ -566,9 +568,11 @@ def forward_spotter_tree(tiles: list) -> Spawn:
     dirige (contraste SendInTheNextWave) : le natif ne lui passe QUE l'acteur (`@0x180`), aucune cible.
     Le decompile donne `PerformAIAttack(ActiveTarget@0x180, 1, 0, 0, 0)` -> `+0x70 allowMoveAction = 1`,
     `+0x78 moveAmount = null` : la feuille les porte explicitement (i2 « The Cadian Guardsman immediately
-    takes a turn », a opposer au « cannot move this turn » des noeuds FromCurrentPosition). Observable
-    inchange aujourd'hui (le port n'APPROCHE pas l'acteur -- residu localise dans le corps unique
-    `perform_ai_ability_unit_behaviour`)."""
+    takes a turn », a opposer au « cannot move this turn » des noeuds FromCurrentPosition). Depuis #348
+    l'observable DIFFERE bien : le guardsman s'APPROCHE avant de frapper. C'est d'ailleurs par CE
+    porteur que l'approche est confrontee au live (`probe_348_ai_approach.py` : son masque
+    `TargetIsFriendly` fait naitre le summon adjacent a un ALLIE choisi, donc la distance
+    spawn<->ennemi est pilotable au hex pres)."""
     return Spawn(FixedTileIds(tiles), FORWARD_SPOTTER_ID,
                  on_appearance=PerformAIAttack(ActiveTarget(), allow_move_action=True,
                                                move_amount=None))

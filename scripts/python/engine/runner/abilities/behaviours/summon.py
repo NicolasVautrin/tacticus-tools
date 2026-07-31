@@ -150,10 +150,10 @@ class PerformAIAttack(AbilityBehaviour):
       * `PerformAIAttack(<sel>, True, None)`            -> `DSLFactory$$PerformAIAttack` (`1` / `null`) :
         `ForwardSpotterAbility$$ExecuteBehaviour` (`PerformAIAttack(ActiveTarget@0x180, 1, 0, 0, 0)`),
         i2 « The Cadian Guardsman immediately **takes a turn** ».
-    Aujourd'hui les deux branches produisent le MEME observable (le port ne mirrore ni
-    `ABaseAiUnitTactic$$GenerateActionTiles` ni le `MovementActionGenerator` -> l'acteur n'approche pas) ;
-    les champs sont threades pour que ce residu reste dans le corps unique et que le call-site dise QUEL
-    noeud natif il mirrore.
+    Depuis #348 les deux branches produisent des observables DIFFERENTS : `moveAmount = null` ouvre
+    `ABaseAiUnitTactic$$GenerateActionTiles` sur la plage de deplacement complete et `allowMoveAction`
+    ajoute le `MovementActionGenerator` -> l'acteur APPROCHE (et le `MoveUnitMessage` est applique
+    avant l'attaque). Les champs sont threades pour que le call-site dise QUEL noeud natif il mirrore.
 
     `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector))` ->
     `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` : chaque unite SUR les tuiles du SELECTEUR (le natif
@@ -315,10 +315,10 @@ class SpawnReplica(AbilityBehaviour):
     quelle que soit la distance, arme de melee comprise) et SANS dispatch after-hit (aucun trigger post-attaque
     ne partait du double). Emet 'SpawnUnit'/'ReplicaOnAppearance'. Effet PUR (stop=False).
 
-    GAPS (inchanges) : le cap de duplication (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) n'est pas
-    porte -> recurrence non bornee offline ; le DEPLACEMENT du double avant son attaque (`move_amount=None` ->
-    `GenerateActionTiles` / `MovementActionGenerator` non portes) non plus -> residu documente sur
-    `perform_ai_ability_unit_behaviour`."""
+    GAP (inchange) : le cap de duplication (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) n'est
+    pas porte -> recurrence non bornee offline. Le DEPLACEMENT du double avant son attaque, lui, EST
+    porte depuis #348 (`move_amount=None` -> `GenerateActionTiles` sur la plage complete +
+    `MovementActionGenerator` + apply du `MoveUnitMessage`)."""
     __slots__ = ("summon_ability", "count")
 
     def __init__(self, summon_ability: str, count: int):
@@ -337,8 +337,16 @@ class SpawnReplica(AbilityBehaviour):
             return OperationResult.ok()
         # [Spawn / CopyOwner / placement adjacent-self] -> Operation validee (clone owner+stats du parent)
         spawned = SpawnUnitOperation.execute_self_replica(state, caster_id, vid, self.count)
+        # La position est capturee ICI, AVANT l'on-appearance : depuis #348 le double PEUT se
+        # deplacer (`+0x78 moveAmount = null` -> `GenerateActionTiles` sur la plage complete), donc
+        # sa position finale n'est plus sa tuile d'ATTERRISSAGE. Sans cette capture, le seul canal
+        # de diagnostic du placement disparaissait derriere le deplacement.
+        from ...components import PositionComponent as _PC
         for sid in spawned:
-            ectx.emit("SpawnUnit", unit=sid)
+            _e = state.get_entity(sid)
+            _p = _e.get_component(_PC) if _e is not None else None
+            ectx.emit("SpawnUnit", unit=sid,
+                      pos=((_p.col, _p.row) if _p is not None else None))
         # [on-appearance] `PerformAIAttack(Spawned@0x180, 1, 0, 0, 0)` -> LE noeud (corps unique) : les deux
         # champs qui le distinguent de `...FromCurrentPosition` sont passes tels que lus au decompile
         # (`+0x70 allowMoveAction = 1`, `+0x78 moveAmount = null`).
@@ -346,5 +354,6 @@ class SpawnReplica(AbilityBehaviour):
             r = perform_ai_attack(state, sid, allow_move_action=True, move_amount=None)
             if r is not None:
                 ectx.emit("ReplicaOnAppearance", summon=sid, target=r["target"],
-                          total=r.get("total"), after_hit=r.get("after_hit"))
+                          total=r.get("total"), after_hit=r.get("after_hit"),
+                          moved=r.get("moved"))
         return OperationResult.ok()
