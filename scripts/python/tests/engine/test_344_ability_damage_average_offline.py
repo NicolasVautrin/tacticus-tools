@@ -147,8 +147,19 @@ def test_neighbouring_sites_are_wired_on_their_own_native_average():
         "repasserait par une AUTRE moyenne")
 
     # fury : PIEGE de #344 -- il RESSEMBLE aux deux autres et n'en est PAS (`CalculateAverage`).
-    assert F.calculate_average is calculate_average
+    # DEPUIS #350-r3b il passe par le FOYER de la couche TRIGGERED (la forme est LUE au registre,
+    # plus choisie au call-site) -> on vise la VALEUR rendue, pas l'objet importe.
+    from engine.entities.abilities.triggered_ability import triggered_prediction_damage
+    assert F.triggered_prediction_damage is triggered_prediction_damage
     assert not hasattr(F, "min_max_avg")
+    import probe_350r3b_triggered_average_forms as TAF
+    lvl, mult, mn, mx = TAF.discriminating_regimes("FuryOfTheAncients")[0]
+    assert triggered_prediction_damage(
+        "FuryOfTheAncients", lvl, mult,
+        "IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction"
+    ) == calculate_average(mn, mx), (
+        "Fury doit rester du cote `AAmountFormula$$CalculateAverage` (TRONCATURE) apres le "
+        "passage par le foyer de #350-r3b")
 
 
 def test_hit_damage_midpoint_truncates():

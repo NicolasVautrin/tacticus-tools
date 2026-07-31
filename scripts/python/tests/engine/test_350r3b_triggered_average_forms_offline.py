@@ -101,6 +101,11 @@ def test_voie_demi_vers_le_pair_est_get_average_damage_au_slot_1(call_site):
 
 
 # ---- B. le CLIQUET : sur un regime discriminant, le foyer rend la forme du call-site ----------
+#
+# ⚠ L'attendu vient de la LECTURE (`_TRUNC_SITES` / `_HALF_EVEN_SITES`, transcrits du decompile),
+# JAMAIS du registre : sinon la garde SUIVRAIT une mutation du registre au lieu de la denoncer.
+# Mesure : avec l'attendu tire du registre, la mutation adversariale (formes echangees) laissait
+# cette assertion VERTE -- exactement le genre de cliquet qui ne cliquette pas.
 @pytest.mark.parametrize("call_site", _TRUNC_SITES[:1] + _HALF_EVEN_SITES)
 def test_foyer_rend_la_forme_du_call_site_sur_un_regime_discriminant(
         call_site, triggered_average_form_case):
@@ -112,13 +117,15 @@ def test_foyer_rend_la_forme_du_call_site_sur_un_regime_discriminant(
     assert r["trunc"] + 1 == r["half_even"], (
         "sur un regime 3 mod 4 le demi-vers-le-pair MONTE d'exactement 1 au-dessus de la "
         "troncature ; mesure trunc=%d half_even=%d" % (r["trunc"], r["half_even"]))
-    assert r["engine"] == r["expected"], (
-        "FORME FAUSSE pour %s (%s, slot %d, lvl=%d mult=%d, minDmg=%d maxDmg=%d) : "
-        "le foyer rend %d, le natif rend %d "
-        "(troncature=%d via BaseTriggeredAbility$$MinMaxDamage@slot4, "
-        "demi-vers-le-pair=%d via BaseTriggeredAbility$$MinMaxDamageAverage@slot1)"
-        % (r["call_site"], r["getter"], r["slot"], r["level"], r["mult"],
-           r["min_dmg"], r["max_dmg"], r["engine"], r["expected"], r["trunc"], r["half_even"]))
+    lu = "trunc" if call_site in _TRUNC_SITES else "half_even"
+    attendu_natif = r[lu]
+    assert r["engine"] == attendu_natif, (
+        "FORME FAUSSE pour %s (lvl=%d mult=%d, minDmg=%d maxDmg=%d) : le foyer rend %d, "
+        "le natif rend %d (troncature=%d via BaseTriggeredAbility$$MinMaxDamage@slot4, "
+        "demi-vers-le-pair=%d via BaseTriggeredAbility$$MinMaxDamageAverage@slot1) ; "
+        "registre du port = (%s, slot %d)"
+        % (r["call_site"], r["level"], r["mult"], r["min_dmg"], r["max_dmg"],
+           r["engine"], attendu_natif, r["trunc"], r["half_even"], r["getter"], r["slot"]))
 
 
 # ---- C. les quatre slots d'IAmountFormula, et l'inobservabilite du predicat -------------------

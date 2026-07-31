@@ -104,17 +104,49 @@ consommateur triggered porté (Fury) est du côté troncature. C'est le trou que
 - `engine/playbook/fury_of_the_ancients.py` recâblé sur ce foyer (plus d'appel direct à la
   primitive) — la couche est donc EXERCÉE, pas spéculative.
 
-## 5. Confrontation — quel oracle répond
+## 5. Confrontation — quel oracle répond (MESURÉ, pas supposé)
 
 Les six call-sites sont des `CalculateAttackUtility*` / `EvaluateNonComparable` : leur sortie est une
 **UTILITÉ**, pas une prédiction. `aiPlaybookPredict` ne répond donc pas.
 
-- **RÉPOND** : `FuryOfTheAncientsPlaybook` — déjà réconcilié EXACT contre la feuille L3 native
-  (`probe_32d_fury.py`, #32/#339, delta ~1e-8). C'est la face TRONCATURE.
-- **NE RÉPOND PAS** : la face HALF-TO-EVEN. `LightImUp` (1103) et `MassiveScythingTalons` (1054) sont
-  des triggered de BOSS ; leur utilité ne sort ni de `aiPlaybookPredict` ni de `decisionView`. Le
-  point d'ancrage natif à hooker serait
-  `IdunBattle.AI.Playbook.TriggeredAbilityPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent`
-  (retour Fix64 par event) — capteur ABSENT, et un agent ne réinjecte pas.
-  ⇒ **CONFRONTATION MANQUANTE, NOMMÉE.** La face half-to-even est validée OFFLINE sur le régime
-  discriminant (`minDmg + maxDmg ≡ 3 mod 4`), pas live.
+**Le porteur n'est PAS le verrou.** `orksWarboss` (Gulgortz, seul carrier `lineup` de `LightImUp` —
+les 4 autres sont npc) est **au pool** (`rl_duel build --list-pool`, rank 17, 97 unités régulières),
+et `tauBroadside` (porteur `HeavyRailRifle`) est dans les 8 MoW spawnables. Le verrou est l'ORACLE.
+
+**`ncPlaybookPredict` (#350-r3, oracle NonComparable) ne peut pas l'être** : son `loadPlaybook` est
+indexé sur **`ActiveAbilityType`**, pas `TriggeredAbilityType`. Mesuré le 2026-07-31 (runner
+`MC1_67`, seed 350363, `orksWarboss` u79) :
+
+| `abilityType` demandé | playbook réellement chargé |
+|---|---|
+| `1103` (= `LightImUp` triggered) | **`SuperchargePlaybook`** (`1103 Supercharge`, ability ACTIVE homonyme) |
+| `1054` (= `MassiveScythingTalons` triggered) | **`CallRipperSwarmsPlaybook`** (`1054 CallRipperSwarms2`) |
+| `1247` (= `FuryOfTheAncients` triggered) | **`DefaultActiveAbilityPlaybook`** (aucune correspondance) |
+
+C'est le piège de qualification d'enum en acte : à id égal, `ActiveAbilityType != TriggeredAbilityType`.
+L'oracle rend donc une valeur pour la MAUVAISE ability, jamais une erreur — exactement le genre
+d'accord qu'il ne faut pas maquiller.
+
+- **RÉPOND** : `FuryOfTheAncientsPlaybook` — réconcilié EXACT contre la feuille L3 native
+  (`probe_32d_fury.py`, #32/#339, delta ~1e-8). C'est la face TRONCATURE. La voie est la feuille L3
+  (`TriggeredAbilitiesUtility`), donc `--l3` : **hooks session-globaux**, interdits tant que d'autres
+  agents walkent l'IA.
+- **NE RÉPOND PAS** : la face HALF-TO-EVEN. Point d'ancrage natif qu'il faudrait hooker :
+  `IdunBattle.AI.Playbook.TriggeredAbilityPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent`,
+  ou plus simplement une variante de `ncPlaybookPredict` chargeant le playbook par
+  `TriggeredAbilityType` (le capteur `ProbableDamageEvent$$.ctor` qu'il pose EST le bon : les quatre
+  call-sites half-to-even le traversent — lu dans `LightImUpPlaybook$$CalculateAttackUtilityForMainTarget`).
+  Capteur ABSENT côté triggered, et un agent ne réinjecte pas.
+
+**Second verrou, à ne pas oublier si l'oracle arrive** : `buildNormalizedBC` force
+`targetAbilityLevel = 50`, et à ce niveau **aucune** des trois abilities n'est discriminante
+(`LightImUp` 1496+1996 et 831+1109 ≡ 0 mod 4 ; `MassiveScythingTalons` ≡ 1 et 2 ; `Fury` ≡ 0). Un run
+live au niveau nominal ne conclurait RIEN. Il faudrait patcher les variables `minDmg`/`maxDmg` du
+seed BC pour fabriquer un couple `3 mod 4`. Régimes discriminants réellement atteignables, balayés
+sur 50 niveaux × 11 multiplicateurs (`probe_350r3b_triggered_average_forms.py`) :
+**Fury 128/550, LightImUp 143/550, MassiveScythingTalons 127/550** — soit ~23 %.
+
+⇒ **CONFRONTATION LIVE MANQUANTE POUR LA FACE HALF-TO-EVEN, NOMMÉE.** Elle est validée OFFLINE sur
+le régime discriminant, et ce n'est pas un pis-aller : les deux formes se séparent DANS la
+construction du nœud et le choix du slot, tous deux entièrement déterminés par gameconfig et par le
+symbole du call-site — rien de ce qui les distingue ne dépend de l'état de bataille.

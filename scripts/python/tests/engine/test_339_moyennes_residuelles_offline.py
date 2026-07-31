@@ -109,12 +109,27 @@ def test_round_fix64_modes_are_the_three_rules_of_RoundFix64Result():
 
 
 def test_fury_playbook_is_wired_on_the_truncating_average():
-    """C : le site Fury (#32) consomme `calculate_average`, PAS `min_max_avg`. Le cablage est
-    verifie sur l'objet importe par le module -- pas sur le texte du fichier."""
+    """C : le site Fury (#32) consomme la moyenne TRONQUANTE, PAS `min_max_avg`.
+
+    DEPUIS #350-r3b le cablage passe par le FOYER de la couche TRIGGERED
+    (`triggered_prediction_damage`) au lieu d'importer la primitive en direct : la forme n'est plus
+    choisie au call-site, elle est LUE dans `TRIGGERED_PREDICTION_AVERAGE_FORM`. La garde vise donc
+    la VALEUR rendue sur un regime `3 mod 4` -- plus fort que l'identite de l'objet importe."""
     import engine.playbook.fury_of_the_ancients as F
-    assert F.calculate_average is calculate_average, (
-        "`fury_of_the_ancients` n'importe plus `AAmountFormula$$CalculateAverage` : son montant "
+    from engine.entities.abilities.triggered_ability import triggered_prediction_damage
+    assert F.triggered_prediction_damage is triggered_prediction_damage, (
+        "`fury_of_the_ancients` n'importe plus le foyer de la couche TRIGGERED : son montant "
         "predefini repasserait par une AUTRE moyenne que celle du natif")
+    site = "IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction"
+    # regime discriminant REEL de l'ability (le niveau 50 n'en est PAS un : 599 + 797 == 0 mod 4)
+    import probe_350r3b_triggered_average_forms as TAF
+    regimes = TAF.discriminating_regimes("FuryOfTheAncients")
+    assert regimes, "aucun regime discriminant pour FuryOfTheAncients -- garde inerte"
+    lvl, mult, mn, mx = regimes[0]
+    got = triggered_prediction_damage("FuryOfTheAncients", lvl, mult, site)
+    assert got == calculate_average(mn, mx) == min_max_avg(mn, mx) - 1, (
+        "Fury doit TRONQUER (%d) et rester UNE unite SOUS `MinMaxDamage$$Avg` (%d) ; foyer=%d"
+        % (calculate_average(mn, mx), min_max_avg(mn, mx), got))
     assert not hasattr(F, "min_max_avg"), (
         "`fury_of_the_ancients` importe `min_max_avg` : ce n'est PAS son artefact natif (#339)")
 
