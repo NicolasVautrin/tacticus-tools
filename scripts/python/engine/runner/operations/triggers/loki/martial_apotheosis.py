@@ -15,8 +15,10 @@ adjacent ALEATOIRE au debut de son tour (case-220 Necrons, roadmap [opus] direct
     les lit comme HERITES de `DestroyerHiveAbility` (build gqfc5mff6c). La STRUCTURE relue au
     build courant est identique (`On(0x16) & <predicat> & AmountIsGreaterThanZero(...)`) : seule
     la provenance des symboles change, le mirror reste juste.
-    Consequence a connaitre : `tests/engine/runner/test_martial_apotheosis_live.py` est ROUGE sur
-    ses 3 tests qui passent par `start_turn_triggers`, faute de porteur -- pas faute de port.
+    `tests/engine/runner/test_martial_apotheosis_live.py` est CONVERTI en consequence (#354-r2,
+    option (b)) : ses 3 vecteurs qui passaient par `start_turn_triggers` sont remplaces par une
+    GARDE D'INERTIE qui rougit le jour ou un kit reprend l'ability ; les gates, l'arbre DSL et
+    l'A/B bit-exact restent exerces par construction directe. 5 tests, tous verts.
 
 RE ghidra gqfc5mff6c (decompile = verite). La classe native `MartialApotheosisAbility` ETEND
 `DestroyerHiveAbility` (namespace `IdunBattleLogic.Entities.Abilities.Active.Loki`) : son

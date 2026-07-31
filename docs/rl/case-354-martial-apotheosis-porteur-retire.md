@@ -75,12 +75,30 @@ manque à 1045 est uniquement son porteur.
 Étage 4 du probe : sur les **29** entrées de `ABILITY_TRIGGERS`, `MartialApotheosis` est la
 **seule** orpheline. La mise à jour n'a pas ouvert de série — un seul port est tombé inerte.
 
-## 5. Ce qui reste ouvert
+## 5. Le test est CONVERTI en garde d'inertie (#354-r2, tranché)
 
-Le test **reste ROUGE** : il cible une ability sans porteur, aucune correction du port ne peut le
-verdir. Le trancher est un arbitrage de périmètre, pas de RE — trois issues possibles (le retirer ;
-le convertir en garde d'inertie ; greffer l'ability sur une unité du pool par injection catalogue,
-cf. `case-92` §5bis, qui re-validerait le port sans porteur naturel). **Non tranché ici.**
+Arbitrage de périmètre, pris après coup : **option (b)**. Les trois vecteurs qui passaient par
+`start_turn_triggers` n'ont plus de sujet et sont remplacés par un test unique
+`test_ma_inertia_tripwire_no_carrier`, qui mesure trois choses **dans le montage qui faisait fire**
+(ennemi drivé en anneau-1) :
+
+| constat | mesuré le 2026-07-31 |
+|---|---|
+| gameconfig, 4 voies chez `necroOverlord` | `AUCUNE VOIE` |
+| kit LIVE du porteur (`decisionView`) | `['Loki_NormalAttack', 'ResurrectionOrb']` |
+| `start_turn_triggers` | `[]` |
+| ability construite DIRECTEMENT | **frappe** e79 (3702) |
+
+La 4ᵉ ligne est ce qui donne son sens au fichier : elle localise le décrochage à l'étage
+ATTRIBUTION **et innocente le port dans le même test**. Un rouge sur les trois premières = l'ability
+est revenue → restaurer les vecteurs de dispatch (`git show 6f07ab08:<le fichier>`). Un rouge sur la
+quatrième = c'est le port. Les gates (`OwnerIsActor`, `AmountIsGreaterThanZero`), le ciblage
+anneau-1, l'arbre DSL et l'A/B bit-exact restent exercés par construction directe : **5 tests, tous
+verts**, aucune couverture perdue hors la confrontation live du dégât — impossible sans porteur.
+
+Les deux autres issues (retirer le fichier ; greffer l'ability par injection catalogue, `case-92`
+§5bis) sont écartées : la première jette le port avec le test, la seconde paie un montage pour
+re-valider ce que (D) prouve déjà par construction.
 
 Résidu neuf : **`MyWillBeDoneOverlord` n'est portée sur aucune face** — ni COMBAT
 (`MyWillBeDoneOverlordAbility`), ni décision (`MyWillBeDoneOverlordPlaybook`,

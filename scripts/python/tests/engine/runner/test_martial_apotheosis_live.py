@@ -1,6 +1,20 @@
-"""case-220 Necrons : MartialApotheosis (TriggeredAbilityType 1045, passif `necroOverlord`) FACE COMBAT.
+"""case-220 Necrons : MartialApotheosis (TriggeredAbilityType 1045) FACE COMBAT.
 
-RE (decompile gqfc5mff6c, cf. en-tete de `triggers/loki/martial_apotheosis.py`) : la classe native
+>>> L'ABILITY N'A PLUS DE PORTEUR DEPUIS LE BUILD `rnca9r7q6c` (case-354, #354-r2).
+    Le jeu l'a retiree de son unique porteur `necroOverlord`, remplacee par `MyWillBeDoneOverlord`.
+    `collect_triggered_abilities` ne l'instancie donc plus -- et c'est le comportement FIDELE :
+    un port ne peut pas dispatcher une ability que le gameconfig n'accorde a personne.
+    CE FICHIER A ETE CONVERTI EN CONSEQUENCE, PAS AFFAIBLI POUR PASSER AU VERT :
+      - les trois vecteurs qui passaient par `start_turn_triggers` (dispatch turn-start, ciblage
+        via dispatch, replay-diff LIVE) n'ont plus de sujet -- ils sont remplaces par la GARDE
+        D'INERTIE (T0), qui rougit le jour ou un kit reprend l'ability ;
+      - tout ce qui s'exerce SANS attribution est CONSERVE tel quel (gates `matches`, arbre DSL,
+        A/B bit-exact, oracle config) : le port reste couvert.
+    Pour restaurer les vecteurs de dispatch quand l'ability revient : leur derniere version vit au
+    commit `6f07ab08` (`git show 6f07ab08:scripts/python/tests/engine/runner/test_martial_apotheosis_live.py`).
+    Mesure du zero-porteur (4 etages, dont un LIVE) : `probe_354_martial_apotheosis_carrier.py`.
+
+RE (decompile, cf. en-tete de `triggers/loki/martial_apotheosis.py`) : la classe native
 `MartialApotheosisAbility` ETEND `DestroyerHiveAbility` -> CreateTrigger/GetValidTargets HERITES :
   IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger = On(TurnStart_Actions=0x16) & OwnerIsActor(@0xa0) & AmountIsGreaterThanZero(
                              GetValidTargets)
@@ -10,18 +24,20 @@ RE (decompile gqfc5mff6c, cf. en-tete de `triggers/loki/martial_apotheosis.py`) 
                                GetNumberConstant(0x2f)=nrOfHits=2)   # famille "attack", melee, level passif
 = au debut de son tour, si >=1 ennemi adjacent damageable, en attaque UN au hasard, 2 coups Energy.
 
-CE QUI EST VALIDE (le porteur necroOverlord EST SPAWNABLE, cf. test_thebetrayer) :
-  (A) VECTEUR turn-start + OwnerIsActor : `start_turn_triggers(overlord_player)` dispatche MartialApotheosis
-      (mirror StartTurnOperation `On(0x16)`) ; `start_turn_triggers(enemy_player)` ne le fire PAS.
-  (B) AmountIsGreaterThanZero : 0 ennemi adjacent -> ne fire pas.
-  (C) CIBLAGE ANNEAU-1 : un ennemi adjacent (dist 1) est cible ; un ennemi a dist 2 NE l'est PAS (anneau-1,
+CE QUI EST VALIDE, sur un etat LIVE (le runner du module fournit un porteur reel et son plateau) :
+  (T0) GARDE D'INERTIE : dans le montage EXACT qui faisait fire l'ability (ennemi drive en anneau-1),
+      `start_turn_triggers` est MUET -- et la construction DIRECTE de l'ability, elle, frappe. Le
+      couple prouve que le decrochage est a l'etage ATTRIBUTION, pas dans le port. Rougit des qu'un
+      kit reprend l'ability : c'est le signal qu'il faut restaurer les vecteurs de dispatch.
+  (A) OwnerIsActor(@0xa0) : `matches` est vrai au turn-start du PROPRIETAIRE, faux a celui de
+      l'adversaire -- gate lu directement sur l'ability (independant de l'attribution).
+  (B) AmountIsGreaterThanZero : 0 ennemi adjacent -> `matches` faux, aucun degat.
+  (C) CIBLAGE ANNEAU-1 : un ennemi a dist 1 est frappe ; un ennemi a dist 2 NE l'est PAS (anneau-1,
       PAS le disque rayon-2 de HarbingerOfDestruction).
   (D) A/B bit-exact + params : pool==1 (deterministe) -> l'arbre == une sequence directe
       `execute_ability_attack` depuis le MEME MT ; params confrontes a l'ORACLE CONFIG (cf. ci-dessous), melee.
-  (E) LIVE replay-diff : on drive un ennemi adjacent a necroOverlord, `endturn` (flip -> son turn-start ->
-      MartialApotheosis), et la cible frappee live == la cible offline (pool==1) + une attaque a lieu.
-Le DEGAT exact live (calage RNG de la cascade turn-start `On(0x12..0x16)`) n'est PAS exige (== TheBetrayer) ;
-la bit-exactness du DEGAT est prouvee PAR CONSTRUCTION en (D).
+Le DEGAT exact live n'est plus confrontable (plus aucun porteur ne la tire en bataille) ; la
+bit-exactness du DEGAT reste prouvee PAR CONSTRUCTION en (D).
 
 ORACLE DES PARAMS (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE : le nb de coups et le
 profil sont lus TELS QUELS dans la config d'ability par
@@ -33,11 +49,13 @@ et `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` n'est qu'u
 `gameconfig.ability("MartialApotheosis").constants` (`nrOfHits`, `damageProfile`) et
 `gameconfig.damage_profile(<profil>).PiercingRatio`. Cle non ambigue : enum `AbilityConstantType`
 0x2f=nrOfHits(47) (cf. `engine/entities/formulas.py::ConfigConst`), distinct de 0x16=range(22).
-RESIDU DE CONFRONTATION (mesure) : sur CE vecteur (turn-start), `applyAction endturn` + `captureEvents`
-rend 1 action / 0 event -- aucun evenement per-coup n'est expose, le nb de coups LIVE n'est donc pas
-observable ici (contrairement aux abilities castees : PlasmaCannon/SanctorumMissile/SentinelDirectives le
-confrontent, eux). L'oracle config est confronte au PORT (nb de coups emis par l'arbre) ; le confronter au
-NATIF demanderait un hook sur `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`.
+La CONFIG D'ABILITY existe toujours au gameconfig courant malgre le zero-porteur (case-354 etage 2) :
+l'oracle reste donc lisible, et (D) reste confrontable.
+
+PIEGE D'ENUM, a ne pas confondre (noms voisins, enums DIFFERENTS) :
+    `MartialApotheosis`  = Passive/TriggeredAbilityType **1045**   <- CE fichier
+    `MartialInspiration` = ActiveAbilityType **1191**
+    `GetEmRuntz`         = ActiveAbilityType **1045** (meme id, autre enum)
 
 Drive les positions (memoire « drive positions, don't blame geometry »). Etat LIVE, aucune RVA/tuile
 hardcodee. State-file UNIQUE (chemin absolu + agent id). ASCII-only.
@@ -69,9 +87,11 @@ PYDIR = Path(__file__).resolve().parents[3]                          # scripts/p
 ROOT = Path(__file__).resolve().parents[5]                          # racine repo
 STATE = ROOT / "logs" / "runners" / f"_pytest_martial_apotheosis_{AGENT_ID}.json"   # SORTIE -> logs/ (#349)
 
-CARRIER = "necroOverlord"                                           # porteur du passif MartialApotheosis
+ABILITY = "MartialApotheosis"
+CARRIER = "necroOverlord"                                           # porteur HISTORIQUE (retire au build rnca9r7q6c)
 ENEMIES = "necroWarden,eldarRanger,eldarAutarch"                    # ennemis (team joueur), tanky + armure 0
 HP = "500000"                                                       # --hp-player : survivent + armure 0 (per-coup net)
+VOIES = ("passiveAbilities", "activeAbilities", "relicAbilities", "mythicAbilities")
 
 
 # ------------------------------------------------------------------ oracle CONFIG (cf. en-tete)
@@ -79,7 +99,7 @@ HP = "500000"                                                       # --hp-playe
 def _const(key):
     """Constante de config d'ability = `AbilityConfiguration.GetNumberConstant/GetStringConstant`
     (lecture BRUTE, aucune formule) -> ORACLE des params. None si la cle a disparu de la config."""
-    return ((GC.ability("MartialApotheosis") or {}).get("constants") or {}).get(key)
+    return ((GC.ability(ABILITY) or {}).get("constants") or {}).get(key)
 
 
 # ------------------------------------------------------------------ helpers etat offline
@@ -170,12 +190,40 @@ def _ring(board, center, dx):
             if board.walkable(t) and hexgeo.distance(center, board.coord(t)) == dx]
 
 
+def _tile_with_ring1(board):
+    """Une tuile marchable ayant au moins un voisin marchable."""
+    return next((board.coord(t) for t in sorted(board.by_id)
+                 if board.walkable(t) and len(_ring(board, board.coord(t), 1)) >= 1), None)
+
+
+def _turn_start_ev(player):
+    return TriggerEvent(EventTriggerType.TurnStart_Actions, -1, -1,
+                        ranged=False, profile=None, player_id=player)
+
+
+def _drive_carrier_and_one_enemy(state, board):
+    """Montage commun : porteur au centre, UN ennemi en anneau-1, tout le reste parke loin.
+    Rend `(cid, t_id, C, owner_player)` ou None si le plateau/roster ne s'y prete pas."""
+    cid = _find_by_vis(state, CARRIER)
+    ens = _enemies_of(state, cid) if cid is not None else []
+    if cid is None or not ens:
+        return None
+    C = _tile_with_ring1(board)
+    if C is None:
+        return None
+    t_id = ens[0]
+    _park_others(state, board, {cid, t_id}, C)
+    _set_pos(state, cid, *C)
+    _set_pos(state, t_id, *_ring(board, C, 1)[0])
+    return cid, t_id, C, _owner(state, cid)
+
+
 # ------------------------------------------------------------------ fixture : etat LIVE rejouable
 
 @pytest.fixture(scope="module")
 def ma_env(host, live_session, request):
-    """Runner LIVE (necroOverlord porteur + 3 ennemis) : rid pour le replay live + `build_state()`
-    rejouable pour les drives offline. State-file UNIQUE (discipline runner) ; runner dispose au teardown."""
+    """Runner LIVE (porteur historique + 3 ennemis) : `build_state()` rejouable pour les drives.
+    State-file UNIQUE (discipline runner) ; runner dispose au teardown."""
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "4321", "--state-file", str(STATE),
          "--board", "MC1_67", "--p-units", ENEMIES, "--a-units", CARRIER, "--hp-player", HP],
@@ -206,59 +254,107 @@ def ma_env(host, live_session, request):
         return st
 
     if _find_by_vis(build_state(), CARRIER) is None:
-        pytest.skip("porteur necroOverlord absent du build")
-    return {"build_state": build_state, "board": board, "rid": rid, "rpc": _rpc}
+        pytest.skip(f"porteur {CARRIER} absent du build")
+    return {"build_state": build_state, "board": board, "rid": rid, "rpc": _rpc, "dv": dv}
 
 
-# ------------------------------------------------------------------ (A) vecteur turn-start + OwnerIsActor
+# ------------------------------------------------------------------ (T0) GARDE D'INERTIE
 
-def test_ma_turnstart_dispatch_and_owner_gate(ma_env):
-    """`start_turn_triggers(overlord_player)` dispatche MartialApotheosis (1 ennemi adjacent -> le frappe) ;
-    `start_turn_triggers(enemy_player)` ne le fire PAS (OwnerIsActor @0xa0)."""
+def test_ma_inertia_tripwire_no_carrier(ma_env):
+    """GARDE D'INERTIE (case-354, #354-r2). Trois constats DANS LE MONTAGE QUI FAISAIT FIRE :
+
+      1. le gameconfig n'accorde plus l'ability au porteur historique (aucune des 4 voies) ;
+      2. le kit LIVE du porteur ne la contient pas non plus ;
+      3. `start_turn_triggers` est donc MUET -- alors que l'ability construite DIRECTEMENT frappe
+         bel et bien l'ennemi adjacent.
+
+    Le point 3 est ce qui donne son sens au fichier : il localise le decrochage a l'etage
+    ATTRIBUTION et innocente le port. Ce test ROUGIT le jour ou un kit reprend l'ability -- c'est
+    alors le signal de RESTAURER les vecteurs de dispatch (cf. en-tete, commit `6f07ab08`)."""
     state = ma_env["build_state"]()
     board = ma_env["board"]
-    cid = _find_by_vis(state, CARRIER)
-    ens = _enemies_of(state, cid)
-    if cid is None or not ens:
-        pytest.skip("porteur + 1 ennemi requis")
-    C = next((board.coord(t) for t in sorted(board.by_id)
-              if board.walkable(t) and len(_ring(board, board.coord(t), 1)) >= 1), None)
-    if C is None:
-        pytest.skip("aucune tuile a >=1 voisin")
-    t_id = ens[0]
-    _park_others(state, board, {cid, t_id}, C)
-    _set_pos(state, cid, *C)
-    _set_pos(state, t_id, *_ring(board, C, 1)[0])
-    op = _owner(state, cid)
-    ep = _owner(state, t_id)
+    drive = _drive_carrier_and_one_enemy(state, board)
+    if drive is None:
+        pytest.skip("porteur + 1 ennemi + tuile a >=1 voisin requis")
+    cid, t_id, _C, op = drive
+
+    # 1. gameconfig : aucune des 4 voies d'attribution ne nomme l'ability chez le porteur.
+    kit = GC.unit(CARRIER) or {}
+    porte_par_config = sorted(v for v in VOIES if ABILITY in (kit.get(v) or []))
+    # 2. kit LIVE tel que le jeu le resout.
+    live_u = next((u for u in (ma_env["dv"].get("units") or []) if u.get("visualId") == CARRIER), None)
+    live_noms = sorted(a.get("name") for a in ((live_u or {}).get("abilities") or []) if a.get("name"))
+
+    # 3. dispatch MUET vs construction DIRECTE qui frappe.
     hp0 = _hp(state, t_id)
+    res = start_turn_triggers(state, op)
+    disp = [r.get("ability") for r in res]
+    ab = MartialApotheosisAttackAbility(cid)
+    ev = _turn_start_ev(op)
+    fired_direct = ab.matches(state, ev) and (ab.execute_behaviour(state, ev) or {}).get("target") == t_id
 
-    # OwnerIsActor : au tour de l'ENNEMI (ep), MartialApotheosis ne fire pas.
-    res_e = start_turn_triggers(state, ep)
-    assert not any(r.get("ability") == "MartialApotheosis" for r in res_e), \
-        f"MartialApotheosis a fire au tour ADVERSE (OwnerIsActor viole): {res_e}"
-    assert _hp(state, t_id) == hp0, "cible endommagee au tour adverse (OwnerIsActor viole)"
+    print(f"\n[MA T0] config={porte_par_config or 'AUCUNE VOIE'} live_kit={live_noms} "
+          f"dispatch={disp} direct_frappe={fired_direct}")
 
-    # au tour du PROPRIETAIRE (op) : fire + frappe la cible adjacente.
-    res_o = start_turn_triggers(state, op)
-    ma = next((r for r in res_o if r.get("ability") == "MartialApotheosis"), None)
-    print(f"\n[MA A] owner_player={op} enemy_player={ep} target={ma.get('target') if ma else None} "
-          f"total={(ma.get('attack') or {}).get('total') if ma else None}")
-    assert ma is not None, f"MartialApotheosis non dispatche au turn-start du proprietaire: {res_o}"
-    assert ma.get("target") == t_id, f"cible {ma.get('target')} != ennemi adjacent {t_id}"
-    assert (ma.get("attack") or {}).get("total", 0) > 0, "aucune attaque"
+    assert porte_par_config == [], (
+        f"{ABILITY} est REVENUE au kit gameconfig de {CARRIER} (voies {porte_par_config}) -- "
+        f"restaurer les vecteurs de dispatch/live retires par #354-r2 (cf. en-tete du fichier)")
+    assert ABILITY not in live_noms, (
+        f"{ABILITY} est REVENUE au kit LIVE de {CARRIER} ({live_noms}) -- meme consigne")
+    assert ABILITY not in disp, (
+        f"start_turn_triggers dispatche {ABILITY} alors que le gameconfig ne l'accorde a personne : "
+        f"l'etage ATTRIBUTION ne lit plus le kit ({disp})")
+    assert fired_direct, (
+        f"l'ability construite DIRECTEMENT ne frappe plus l'ennemi anneau-1 e{t_id} -- CE rouge-la "
+        f"accuse LE PORT (arbre DSL / gates), pas l'absence de porteur")
+    assert _hp(state, t_id) < hp0, "ennemi adjacent non endommage par la voie directe"
+    print("[MA T0] OK : 0 porteur (config + live) -> dispatch muet ; le port, lui, tire toujours")
+
+
+# ------------------------------------------------------------------ (A) OwnerIsActor(@0xa0)
+
+def test_ma_owner_gate(ma_env):
+    """OwnerIsActor(@0xa0) : `matches` vrai au turn-start du PROPRIETAIRE, faux a celui de
+    l'adversaire. Gate lu sur l'ability construite directement -- il ne depend pas de
+    l'attribution, et reste donc exercable malgre le zero-porteur (cf. T0)."""
+    state = ma_env["build_state"]()
+    board = ma_env["board"]
+    drive = _drive_carrier_and_one_enemy(state, board)
+    if drive is None:
+        pytest.skip("porteur + 1 ennemi + tuile a >=1 voisin requis")
+    cid, t_id, _C, op = drive
+    ep = _owner(state, t_id)
+    if ep == op:
+        pytest.skip("porteur et cible du meme joueur (le gate n'est pas discriminant)")
+    hp0 = _hp(state, t_id)
+    ab = MartialApotheosisAttackAbility(cid)
+
+    # tour de l'ADVERSAIRE : le gate refuse, et rien n'est execute.
+    assert ab.matches(state, _turn_start_ev(ep)) is False, \
+        "matches True au turn-start ADVERSE (OwnerIsActor viole)"
+    assert _hp(state, t_id) == hp0, "cible endommagee au tour adverse"
+
+    # tour du PROPRIETAIRE : le gate passe, l'ennemi adjacent est frappe.
+    assert ab.matches(state, _turn_start_ev(op)) is True, \
+        "matches False au turn-start du PROPRIETAIRE avec 1 ennemi adjacent"
+    res = ab.execute_behaviour(state, _turn_start_ev(op))
+    print(f"\n[MA A] owner_player={op} enemy_player={ep} target={(res or {}).get('target')} "
+          f"total={((res or {}).get('attack') or {}).get('total')}")
+    assert res is not None and res.get("target") == t_id, \
+        f"cible {(res or {}).get('target')} != ennemi adjacent {t_id}"
+    assert ((res.get("attack") or {}).get("total", 0)) > 0, "aucune attaque"
     assert _hp(state, t_id) < hp0, "ennemi adjacent non endommage"
-    print("[MA A] OK : On(TurnStart_Actions) & OwnerIsActor -> frappe l'ennemi adjacent ; muet au tour adverse")
+    print("[MA A] OK : OwnerIsActor -> muet au tour adverse, frappe au tour du proprietaire")
 
 
 # ------------------------------------------------------------------ (B) AmountIsGreaterThanZero (0 cible)
 
 def test_ma_no_adjacent_no_fire(ma_env):
-    """AmountIsGreaterThanZero(GetValidTargets) : aucun ennemi adjacent -> MartialApotheosis ne fire pas."""
+    """AmountIsGreaterThanZero(GetValidTargets) : aucun ennemi adjacent -> le gate refuse."""
     state = ma_env["build_state"]()
     board = ma_env["board"]
     cid = _find_by_vis(state, CARRIER)
-    ens = _enemies_of(state, cid)
+    ens = _enemies_of(state, cid) if cid is not None else []
     if cid is None or not ens:
         pytest.skip("porteur + ennemis requis")
     # tuile isolee : porteur au centre, TOUS les ennemis parkes loin (dist > 4).
@@ -268,11 +364,8 @@ def test_ma_no_adjacent_no_fire(ma_env):
     op = _owner(state, cid)
     hp0 = {e: _hp(state, e) for e in ens}
     ab = MartialApotheosisAttackAbility(cid)
-    ev = TriggerEvent(EventTriggerType.TurnStart_Actions, -1, -1, ranged=False, profile=None, player_id=op)
-    assert ab.matches(state, ev) is False, "matches True sans ennemi adjacent (AmountIsGreaterThanZero viole)"
-    res = start_turn_triggers(state, op)
-    assert not any(r.get("ability") == "MartialApotheosis" for r in res), \
-        f"MartialApotheosis a fire sans cible adjacente: {res}"
+    assert ab.matches(state, _turn_start_ev(op)) is False, \
+        "matches True sans ennemi adjacent (AmountIsGreaterThanZero viole)"
     for e in ens:
         assert _hp(state, e) == hp0[e], f"ennemi e{e} endommage sans adjacence"
     print("\n[MA B] OK : 0 ennemi adjacent -> pas de fire (AmountIsGreaterThanZero)")
@@ -286,7 +379,7 @@ def test_ma_ring1_not_radius2(ma_env):
     state = ma_env["build_state"]()
     board = ma_env["board"]
     cid = _find_by_vis(state, CARRIER)
-    ens = _enemies_of(state, cid)
+    ens = _enemies_of(state, cid) if cid is not None else []
     if cid is None or len(ens) < 2:
         pytest.skip("porteur + 2 ennemis requis")
     # C avec >=1 voisin dist1 ET >=1 tuile dist2.
@@ -310,11 +403,13 @@ def test_ma_ring1_not_radius2(ma_env):
     assert hexgeo.distance(C, _pos(state, near)) == 1 and hexgeo.distance(C, _pos(state, far)) == 2
     op = _owner(state, cid)
     hp0 = {near: _hp(state, near), far: _hp(state, far)}
-    res = start_turn_triggers(state, op)
-    ma = next((r for r in res if r.get("ability") == "MartialApotheosis"), None)
-    print(f"\n[MA C] near(d1)=e{near} far(d2)=e{far} target={ma.get('target') if ma else None}")
-    assert ma is not None and ma.get("target") == near, \
-        f"cible {ma.get('target') if ma else None} != ennemi ANNEAU-1 {near} (dist2 cible a tort ?)"
+    ab = MartialApotheosisAttackAbility(cid)
+    ev = _turn_start_ev(op)
+    assert ab.matches(state, ev) is True, "gate refuse alors qu'un ennemi est en anneau-1"
+    res = ab.execute_behaviour(state, ev)
+    print(f"\n[MA C] near(d1)=e{near} far(d2)=e{far} target={(res or {}).get('target')}")
+    assert res is not None and res.get("target") == near, \
+        f"cible {(res or {}).get('target')} != ennemi ANNEAU-1 {near} (dist2 cible a tort ?)"
     assert _hp(state, near) < hp0[near], "ennemi anneau-1 non endommage"
     assert _hp(state, far) == hp0[far], f"ennemi a dist 2 (e{far}) endommage a tort -> rayon > 1 (pas anneau-1)"
     print("[MA C] OK : ciblage anneau-1 (dist1 frappe, dist2 exclu)")
@@ -331,33 +426,26 @@ def test_ma_ab_and_params(ma_env):
     from engine.runner.components import StatsComponent
     state = ma_env["build_state"]()
     board = ma_env["board"]
-    cid = _find_by_vis(state, CARRIER)
-    ens = _enemies_of(state, cid)
-    if cid is None or not ens:
-        pytest.skip("porteur + 1 ennemi requis")
-    C = next((board.coord(t) for t in sorted(board.by_id)
-              if board.walkable(t) and len(_ring(board, board.coord(t), 1)) >= 1), None)
-    if C is None:
-        pytest.skip("aucune tuile a >=1 voisin")
-    t_id = ens[0]
-    _park_others(state, board, {cid, t_id}, C)
-    _set_pos(state, cid, *C)
-    _set_pos(state, t_id, *_ring(board, C, 1)[0])
-    op = _owner(state, cid)
+    drive = _drive_carrier_and_one_enemy(state, board)
+    if drive is None:
+        pytest.skip("porteur + 1 ennemi + tuile a >=1 voisin requis")
+    cid, t_id, C, op = drive
 
     # ORACLE CONFIG : nb de coups + profil lus TELS QUELS dans la config (cf. en-tete).
     want_hits = _const("nrOfHits")
     prof = _const("damageProfile")
     assert want_hits is not None and prof is not None, (
-        "oracle introuvable : gameconfig.ability('MartialApotheosis').constants sans nrOfHits/damageProfile "
-        "-- le natif les lit par GetNumberConstant(0x2f)/GetDamageProfile(0), elles DOIVENT exister")
+        f"oracle introuvable : gameconfig.ability('{ABILITY}').constants sans nrOfHits/damageProfile "
+        "-- le natif les lit par GetNumberConstant(0x2f)/GetDamageProfile(0), elles DOIVENT exister. "
+        "Si la CONFIG d'ability a disparu (et pas seulement son attribution), le port n'a plus "
+        "d'oracle : voir case-354 (le zero-porteur laissait la config INTACTE)")
     want_hits = int(want_hits)
     dp = GC.damage_profile(prof) or {}
     assert dp.get("PiercingRatio") is not None, f"oracle introuvable : damageProfiles.{prof}.PiercingRatio"
     want_pierce = int(dp["PiercingRatio"])
 
     # params via le port (level_slot="passive"), profil pris de la config (== GetDamageProfile(0)).
-    bmin, bmax, pierce, hits = ability_attack_params(state, cid, "MartialApotheosis", prof,
+    bmin, bmax, pierce, hits = ability_attack_params(state, cid, ABILITY, prof,
                                                      ranged=False, level_slot="passive")
     assert hits == want_hits, (
         f"nrOfHits lu {hits} != oracle config {want_hits} (constants.nrOfHits) -- le port ne lit pas la "
@@ -376,8 +464,7 @@ def test_ma_ab_and_params(ma_env):
     rng_snap = {"mt": list(state.rng.mt), "mti": state.rng.mti} if state.rng is not None else None
     hp0 = _hp(state, t_id)
     ab = MartialApotheosisAttackAbility(cid)
-    ev = TriggerEvent(EventTriggerType.TurnStart_Actions, -1, -1, ranged=False, profile=None, player_id=op)
-    res = ab.execute_behaviour(state, ev)
+    res = ab.execute_behaviour(state, _turn_start_ev(op))
     assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
     assert res.get("target") == t_id, f"cible {res.get('target')} != ennemi adjacent {t_id}"
     port_ph = (res.get("attack") or {}).get("per_hit")
@@ -408,81 +495,3 @@ def test_ma_ab_and_params(ma_env):
         assert bmin <= v <= bmax, f"coup {v} hors plage config [{bmin},{bmax}]"
     print(f"[MA D] OK : A/B tree==baseline ({want_hits} coups {prof} pierce {want_pierce}, bit-exact), "
           f"params == oracle config")
-
-
-# ------------------------------------------------------------------ (E) LIVE replay-diff turn-start
-
-def test_ma_live_replay(ma_env):
-    """LIVE : drive un ennemi adjacent a necroOverlord, `endturn` (flip -> son turn-start -> MartialApotheosis),
-    la cible frappee live == la cible offline (pool==1) + une attaque a lieu. Degat exact hors scope (calage
-    RNG turn-start, == TheBetrayer). Utilise le runner LIVE partage (pas de rebuild)."""
-    rpc = ma_env["rpc"]
-    board = ma_env["board"]
-    rid = ma_env["rid"]
-
-    dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
-    ov = next((u for u in (dec.get("units") or []) if u.get("visualId") == CARRIER), None)
-    if ov is None:
-        pytest.skip("necroOverlord absent")
-    ov_player = ov.get("owner")
-    p_player = dec.get("currentPlayer")
-    if p_player == ov_player:
-        pytest.skip("build demarre au tour du porteur (impossible d'endturn INTO son turn-start)")
-    oid = ov["id"]
-    ob0 = rpc("observeBattle", {"runnerId": rid}, 60)
-    om = {u.get("squadId"): u for u in (ob0.get("units") or [])}
-    ovp = om.get(oid)
-    # un ennemi du porteur (team courante) a driver adjacent.
-    foe = next((u for u in (ob0.get("units") or [])
-                if u.get("teamId") != ovp.get("teamId") and not u.get("isDead")), None)
-    if ovp is None or foe is None:
-        pytest.skip("porteur/ennemi absent live")
-    otile = board.id_at(ovp.get("col"), ovp.get("row"))
-    occupied = {board.id_at(u.get("col"), u.get("row")) for u in om.values()
-                if u.get("col") is not None and not u.get("isDead")}
-    free = [n for n in board.neighbours(otile) if n not in occupied]
-    if not free:
-        pytest.skip("aucun voisin libre du porteur")
-    dcol, drow = board.coord(free[0])
-    fid = foe.get("squadId")
-    rpc("applyAction", {"runnerId": rid,
-                        "action": {"kind": "move", "unitId": fid, "to": {"col": dcol, "row": drow}}}, 90)
-    ob1 = rpc("observeBattle", {"runnerId": rid}, 60)
-    fu = next((u for u in (ob1.get("units") or []) if u.get("squadId") == fid), None)
-    if fu is None or board.id_at(fu.get("col"), fu.get("row")) not in set(board.neighbours(otile)):
-        pytest.skip("ennemi pas adjacent apres move (dest occupee ?)")
-
-    # capture S (tour joueur), rng.
-    dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
-    ob = rpc("observeBattle", {"runnerId": rid}, 60)
-    snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
-    rng0 = rpc("dumpRng", {"runnerId": rid}, 30)
-    hp_before = next((u.get("hp") for u in (ob.get("units") or []) if u.get("squadId") == fid), None)
-
-    # LIVE : endturn -> porteur turn-start -> MartialApotheosis.
-    # NB (mesure) : `applyAction endturn` + `captureEvents` rend 1 action / 0 event -- la cascade
-    # turn-start n'expose AUCUN evenement per-coup. Le nb de coups de ce vecteur n'est donc PAS
-    # confrontable live (cf. en-tete, residu) ; seul le HP delta l'est.
-    rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}, "captureEvents": True}, 90)
-    ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
-    hp_after = next((u.get("hp") for u in (ob2.get("units") or []) if u.get("squadId") == fid), None)
-    live_dmg = (hp_before - hp_after) if (hp_before is not None and hp_after is not None) else None
-
-    # OFFLINE : load_state(S) + seed rng + start_turn_triggers(porteur).
-    state = load_state(dec, ob, snap, board=board)
-    if isinstance(rng0, dict) and rng0.get("mt"):
-        state.rng = _seed_rng(rng0)
-    if state.get_entity(oid) is None or state.get_entity(fid) is None:
-        pytest.skip("porteur/ennemi absent offline (snapshot incomplet)")
-    res = start_turn_triggers(state, ov_player)
-    ma = next((r for r in res if r.get("ability") == "MartialApotheosis"), None)
-    off_target = ma.get("target") if ma else None
-    off_total = (ma.get("attack") or {}).get("total") if ma else None
-    print(f"\n[MA E] off target={off_target} total={off_total} | live target=e{fid} live_dmg={live_dmg} "
-          f"{'BIT-EXACT' if off_total == live_dmg else '(degat diverge = calage RNG turn-start, hors scope)'}")
-
-    assert ma is not None and off_target is not None, f"MartialApotheosis non tire offline: {res}"
-    assert off_target == fid, f"cible offline {off_target} != ennemi drive adjacent {fid}"
-    assert off_total is not None and off_total > 0, f"pas d'attaque offline (total={off_total})"
-    assert live_dmg is not None and live_dmg > 0, f"live : ennemi pas touche au turn-start (live_dmg={live_dmg})"
-    print("[MA E] OK : live turn-start -> MartialApotheosis frappe l'ennemi adjacent (cible offline==live)")
