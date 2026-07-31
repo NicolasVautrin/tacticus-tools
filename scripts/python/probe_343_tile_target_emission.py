@@ -301,8 +301,16 @@ def stage_arms(item: int, rid: int) -> dict:
             "tid": tid_by_pos}
 
 
-def run(item: int, do_build: bool) -> int:
+def scenario(item: int, do_build: bool = True) -> dict:
+    """Monte le montage, joue les DEUX bras, rend `{"rid", "rows"}` (API du test-garde
+    `tests/engine/test_tile_target_emission_live.py` ; le CLI n'en est que l'autre porte).
+    Un montage qui ne s'installe pas LEVE (`SystemExit`), il ne rend pas un dict vide : un skip
+    sur un regime non atteint serait un vert qui ment."""
     rid = build(item) if do_build else _rid(item)
+    return {"rid": rid, "rows": _run_arms(item, rid)}
+
+
+def _run_arms(item: int, rid: int) -> dict:
     c = CFG[item]
     print("item=%d runner=%d board=%s seed=%d caster=%s%s"
           % (item, rid, BOARD, SEED, c["caster_vid"],
@@ -322,6 +330,12 @@ def run(item: int, do_build: bool) -> int:
     _move(item, rid, st["e1"][0], _slot_far_from(rid, ta, st["st2"], 3) if ta else st["e2"][1])
     _move(item, rid, st["e2"][0], _far_slot(rid, st))
     rows["B"] = measure(item, rid, "B : l'ennemi DEPLACE a >= 3 de la tuile choisie en A (%s)" % (ta,))
+    return rows
+
+
+def run(item: int, do_build: bool) -> int:
+    rid = build(item) if do_build else _rid(item)
+    rows = _run_arms(item, rid)
 
     print("\n=== SYNTHESE item %d ===" % item)
     ok = True

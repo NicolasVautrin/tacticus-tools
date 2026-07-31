@@ -266,11 +266,12 @@ def test_get_movable_positions_for_adds_current_tiles():
 # --------------------------------------------------------- terme d'utilite feetCount (leaf 27)
 
 class _Ctx:
-    def __init__(self, origin=None, feet_count=1, start_feet=None, neigh_by_pos=None):
+    def __init__(self, origin=None, feet_count=1, start_feet=None, neigh_by_pos=None, wt=None):
         self.origin = origin
         self.feet_count = feet_count
         self.start_feet = start_feet
         self.neigh_by_pos = neigh_by_pos
+        self.wt = wt        # weights BC (None = poids NON LU -> aucune penalite fabriquee)
 
 
 def test_dislike_starting_tiles_footprint_follows_feet_count():
@@ -289,9 +290,29 @@ def test_dislike_starting_tiles_footprint_follows_feet_count():
 
 
 def test_dislike_starting_tiles_overlap_semantics():
-    """Le test final est un CHEVAUCHEMENT d'ensembles (`ContainsAnyOf`), pas une egalite ; et le
-    resultat reste 0.0 (data-gap poids BC assume, cf. docstring de la feuille)."""
+    """Le test final est un CHEVAUCHEMENT d'ensembles (`ContainsAnyOf`), pas une egalite, et il
+    rend le POIDS BC quand il mord.
+
+    ⚠ Le data-gap « poids toujours 0.0 » que cette garde verrouillait est LEVE (#343) : la
+    categorie `Default/DislikeStartingTilesUtility` porte `ActiveAbility_DislikesCurrentTiles`, et
+    le natif QUITTE sa tuile de depart a utilite autrement egale (mesure `probe_343_*` sur 1194).
+    Ce qui reste verrouille ici : la SEMANTIQUE (chevauchement, pas egalite) et le fait qu'un
+    contexte SANS weights ne fabrique aucune penalite."""
     u = DislikeStartingTilesUtility()
-    assert u.evaluate(_Ctx(origin=(3, 4)), (3, 4)) == 0.0
-    assert u.evaluate(_Ctx(origin=(3, 4)), (5, 5)) == 0.0
-    assert u.evaluate(_Ctx(), (3, 4)) == 0.0            # pas d'origine connue -> jamais de penalite
+
+    class _W:
+        def sub(self, cat, key):
+            assert (cat, key) == (u.WEIGHT_CATEGORY, u.WEIGHT_KEY)
+            return -40
+
+    wt = _W()
+    assert u.evaluate(_Ctx(origin=(3, 4), wt=wt), (3, 4)) == -40.0   # chevauchement -> poids
+    assert u.evaluate(_Ctx(origin=(3, 4), wt=wt), (5, 5)) == 0.0     # disjoint -> 0
+    assert u.evaluate(_Ctx(wt=wt), (3, 4)) == 0.0        # pas d'origine connue -> jamais de penalite
+    assert u.evaluate(_Ctx(origin=(3, 4)), (3, 4)) == 0.0  # poids NON LU -> 0, pas d'invention
+    # `feet_count == 7` : l'empreinte candidate est l'ANNEAU -> le chevauchement mord depuis un voisin.
+    board = _flat_board()
+    center = (3, 4)
+    ring = [board.coord(t) for t in board.neighbours_native(board.id_at(*center))]
+    ctx7 = _Ctx(origin=center, feet_count=7, neigh_by_pos={ring[0]: [center]}, wt=wt)
+    assert u.evaluate(ctx7, ring[0]) == -40.0
