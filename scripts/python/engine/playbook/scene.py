@@ -320,8 +320,17 @@ class Scene:
                 pos_by_id[eid] = pos
             if oc is not None:
                 team_by_id[eid] = oc.team
+            # `ctrl` = `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer` — le champ que
+            # le hook publie sur la face LIVE (`dv.units[].ctrl`, methode native INVOQUEE). Ici on le
+            # reconstitue depuis les DEUX memes lectures que le natif compare
+            # (`OwnerComponent.CurrentPlayerEntityId` / `TurnComponent.CurrentPlayerId`). L'une des
+            # deux manquante -> `None` (non mesure), et `Scene.is_turn_of` rendra `None`.
+            _cur = getattr(state, "current_player_id", None)
+            _ctrl = (None if (_cur is None or oc is None or oc.player is None)
+                     else int(oc.player) == int(_cur))
             units.append({
                 "id": eid, "visualId": vis, "alive": bool(uc.alive),
+                "ctrl": _ctrl,
                 "team": oc.team if oc is not None else None,
                 "pos": {"col": pos[0], "row": pos[1]} if pos is not None else None,
                 "hp": hc.hp if hc is not None else None,
@@ -437,6 +446,25 @@ class Scene:
 
     def team(self, uid):
         return self.team_by_id.get(uid)
+
+    def is_turn_of(self, uid) -> "bool | None":
+        """`IdunBattle.Entities.Triggers.IsTurnOfUnitTrigger$$ShouldTrigger` pour un selecteur
+        SINGLETON = `OwnerComponent.CurrentPlayerEntityId(unit) == TurnComponent.CurrentPlayerId`,
+        c'est-a-dire mot pour mot `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer`.
+
+        Face DECISION du canal `att_ctx["is_turn_of_owner"]` (cf. `entities/effects/base.py::
+        is_turn_of_owner`) : on LIT `decisionView.units[].ctrl`, que le hook obtient en INVOQUANT la
+        methode native (`ai-step/projection.ts`, `isCtrlByCurMi`) -- pas une derivation
+        equipe-vs-equipe. `Scene.from_state` pose la MEME cle depuis l'ECS
+        (`OwnerComponent.player == State.current_player_id`).
+
+        `None` = non mesure (ligne d'unite absente, ou champ absent d'un flux anterieur) -> le gate
+        consommateur se TAIT."""
+        for u in (self.units or ()):
+            if u.get("id") == uid:
+                v = u.get("ctrl")
+                return None if v is None else bool(v)
+        return None
 
     def armor(self, uid) -> int:
         return self.armor_by_id.get(uid, 0)
@@ -968,6 +996,9 @@ def _seed_condition_gated_owner_effects(eff_state, units, predictor) -> None:
                 and getattr(k, "seed_witness_effect", None)]
     if not seedable:
         return
+    # case-366-r1 : le MEME triple `(mult, passif, ACTIF)` que `EffectsState.seed` consomme --
+    # calcule UNE fois, pas par unite.
+    states = _effect_source_ability_states(predictor)
     for u in units:
         uid = u.get("id")
         for name, klass in seedable:
@@ -980,7 +1011,10 @@ def _seed_condition_gated_owner_effects(eff_state, units, predictor) -> None:
                 {"name": name, "effectType": (int(etype) if etype is not None else None),
                  "remaining": 0, "source": uid},              # rem 0 -> permanent (owner-effect)
                 ability_variables_multiplier=int(predictor["mult_by_id"].get(uid, 100) or 100),
-                ability_level=predictor["ablvl_by_id"].get(uid))
+                ability_level=predictor["ablvl_by_id"].get(uid),
+                # case-366-r1 : le niveau de l'ACTIVE, LU du meme triple que `EffectsState.seed`
+                # -- un owner-effect est pose par SON porteur, donc c'est bien l'etat de `uid`.
+                active_ability_level=(states.get(uid) or (None, None, None))[2])
             eff.target = uid
             eff_state.add_effect(uid, eff)
 
@@ -1031,6 +1065,9 @@ def step_context(predictor, dv):
     eff_state = EffectsState.seed(
         {u["id"]: (u.get("effects") or []) for u in units},
         predictor["mult_by_id"], predictor["ablvl_by_id"],
+        # Le triple porte AUSSI `activeAbilityLevel` (lu du `ctx`), et `EffectsState.seed` s'en sert
+        # desormais pour le PORTEUR en repli, pas seulement pour la SOURCE (case-366-r1) : c'est le
+        # MEME canal que la face COMBAT (`snapshot.abstate_by_id`), donc pas de fork.
         _effect_source_ability_states(predictor))
     _seed_condition_gated_owner_effects(eff_state, units, predictor)
     hp_by_id = {u["id"]: u.get("hp") for u in units}

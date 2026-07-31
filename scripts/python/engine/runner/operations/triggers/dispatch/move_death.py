@@ -18,7 +18,7 @@ from ..base import TriggerEvent
 from .core import evaluate_trigger_operation
 
 
-def pre_move_triggers(state: State, mover_id: int) -> list[dict]:
+def pre_move_triggers(state: State, mover_id: int, dest_tile=None) -> list[dict]:
     """Vecteur `On(PreUnitMove = 0x1f = 31)` — emis par
     `IdunBattle.Operations.MoveUnitOperation$$EvaluatePreMoveTriggers`, dont le corps est aussi
     INLINE dans `IdunBattle.Operations.MoveUnitOperation$$Execute` (d'ou l'absence d'xref CODE vers
@@ -36,12 +36,21 @@ def pre_move_triggers(state: State, mover_id: int) -> list[dict]:
     decompile). L'emission est gardee cote natif par l'octet `MoveUnitOptions@+0x12` (nul a tous les
     call-sites du port -> event TOUJOURS emis, meme regime que `SetMovedFlag`).
 
+    `dest_tile` = la DESTINATION `(col, row)` du pas -- le ctor nomme recoit la liste `position` a la
+    fois en `casterTiles` (7e arg) et en `targetTiles` (10e), donc les DEUX portent la tuile
+    d'ARRIVEE. Un `CreateTrigger` qui compare `Tiles(Actor)` (la tuile de DEPART, l'unite n'ayant pas
+    encore bouge) a ce slot teste « est-ce un VRAI deplacement ? ». Seul `MoveUnitOperation.execute`
+    le renseigne ; None = non threade, et le consommateur doit le DIRE.
+
     Consommateurs portes :
       * `GhostReviveAbility`/`TimeFluxReviveAbility` (#213) : Toth qui bouge laisse un time-ghost sur
         sa tuile de DEBUT DE TOUR ;
-      * 1er des cinq retraits de `GhostEffect` : un ghost dont le poseur rebouge disparait.
+      * 1er des cinq retraits de `GhostEffect` : un ghost dont le poseur rebouge disparait ;
+      * `HatefulAssaultAbility` (1038, `blackTerminator`) : attaque d'opportunite sur l'ennemi
+        adjacent qui s'ecarte -- SEUL consommateur de `dest_tile` a ce jour.
     No-op si aucun trigger ne matche."""
-    ev = TriggerEvent(EventTriggerType.PreUnitMove, mover_id, mover_id, ranged=False, profile=None)
+    ev = TriggerEvent(EventTriggerType.PreUnitMove, mover_id, mover_id, ranged=False, profile=None,
+                      dest_tile=dest_tile)
     return evaluate_trigger_operation(state, ev)
 
 

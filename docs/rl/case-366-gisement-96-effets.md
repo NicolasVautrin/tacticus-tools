@@ -175,7 +175,7 @@ Pool spawnable relu au rank courant : **97** unites.
 | 1107 | PathOfCommand_ExtraCrit | `GetDynamicStatModificationAmount` + `CreateTargetSelector` (axe CRIT) | `eldarAutarch` | HERO, pool -- **PORTE (#373)**, cf. §3.3bis |
 | 1108 | ReinforcedHiveNode_ExtraArmor | (classe propre) | `tyranSmnWarrior` | SUMMON (via son summoner) |
 | 1109 | ReinforcedHiveNode_ExtraBlock | `CreateActiveCondition` | `tyranSmnWarrior` | SUMMON |
-| 1110 | FireAndReposition_ReduceDmg | `CreateEffectDamageMalusForDefense` | `eldarRanger` | HERO, pool |
+| ~~1110~~ | ~~FireAndReposition_ReduceDmg~~ | **PORTE par #366-r1** -- `docs/rl/case-366-r1-fire-and-reposition-reduce-dmg.md`. `ForSubtraction(OwnerIsTarget & IsRangedAttack & NOT IsTurnOf(Owner), ConfigVar(0x12))`, canal `flat_reductions` (additif DEFENSEUR pre-percage). A ferme au passage un trou TRANSVERSE : le seed d'effets ne propageait pas le niveau d'ability **ACTIVE** (cf. §3.3quater) | `eldarRanger` | HERO, pool |
 | 1111 | WireweaveNet_CounterAttack | (classe propre) | `eldarRanger` | HERO, pool |
 | 1113 | TunnelingHorror_PendingSummon | marqueur de summon pending | `necroSmnDestroyer` | SUMMON |
 | ~~1115~~ | ~~InescapableAccuracy_extraCritChance~~ | **PORTE par #366-r1** -- `docs/rl/case-366-r1-inescapable-accuracy-crit-chance.md`. « ctor fondu » est VRAI (un corps pour les TROIS ids) mais ne fait PAS une classe commune : les fabriques `b__14_141/142/143` allouent depuis TROIS slots `Il2CppClass*` DIFFERENTS. Canal `CreateCritChanceBonus` = `ForAddition(get_OwnerIsCaster & IsRangedAttack, ConfigVar(0x41))` -- DEUX noeuds, aucun herite de `1222` ; `CreateActiveCondition` (corps PARTAGE par les trois) = `NOT HasFlag(Owner, 0 = UnitFlag.Moved)` | `eldarMauganRa` | HERO, pool |
@@ -183,7 +183,7 @@ Pool spawnable relu au rank courant : **97** unites.
 | 1117 | InescapableAccuracy_overrideHits | classe PROPRE (slot distinct), canal `BaseEffect$$BlockHitsReduction` (`CreateBlockHitReductionTrigger` = les MEMES 2 noeuds) -- canal NON porte cote moteur | `eldarMauganRa` | HERO, pool |
 | 1171 | SereneUnifierStormOfFire | `StaticStatModifierEffect` (phase 3 du cycle ; phase 1 = `1169`, portee) | `tauAunShi` | HERO, pool |
 | 1174 | StructuralAnalyser_Visual | `CreateActiveCondition` | `tauDarkstrider` | HERO, pool |
-| 1175 | HatefulAssault_AlreadyAttacked | `UntilOfEndTurnEffect` (marqueur a duree) | `blackTerminator` | HERO, pool |
+| ~~1175~~ | ~~HatefulAssault_AlreadyAttacked~~ | **PORTE par #366-r1** -- `docs/rl/case-366-r1-hateful-assault-marker.md`. Marqueur `UntilOfEndTurnEffect` : AUCUN timer (`DefaultAmountOfRounds` ne le connait pas, le poseur passe un `turns` vide) -> son retrait est un TRIGGER `On(TurnEnd)`. Livre AVEC son poseur/lecteur `1038 HatefulAssault`, qui etait absent de tous les registres de trigger | `blackTerminator` | HERO, pool |
 | ~~1181~~ | ~~ExemplarOfTheKauyon_AdditionalHits~~ | **PORTE par #366-r1** — `docs/rl/case-366-r1-exemplar-of-the-kauyon-hits.md`. ⚠ La colonne « COUPS » CONFOND deux canaux : le marqueur natif est `CreateAdditionalHits` (#179, groupe a degat/profil PROPRES), **pas** le `CreateEffectHitsBonusForAttack` de `1183` — meme porteur, canal different | `tauShadowsun` | HERO, pool |
 | ~~1183~~ | ~~DefenderOfTheGreaterGood_ExtraHits~~ | **PORTE par #372** (avec les jumeaux drone 1306/1307) -- `docs/rl/case-372-dotgg-extra-hits.md` | `tauShadowsun` | HERO, pool |
 | 1215 | PsychicStalk_ExtraAttackDamage | `CreateEffectDamageMalusForDefense` | `thousAhriman` | HERO, pool |
@@ -194,10 +194,28 @@ Pool spawnable relu au rank courant : **97** unites.
 | 1251 | UnbreakableDuty_Health | `StaticStatModifierEffect` | `templAncient` | HERO, pool |
 | 1255 | MartialSuperiority_Visual | `CreateActiveCondition` -- deja documente `: BaseEffect` cote port | `templChampion` | HERO, pool |
 | 1256 | UnbreakableDuty_Damage | `StaticStatModifierEffect` | `templAncient` | HERO, pool |
-| 1284 | EchoesFromTheWarp_Revive | MEME classe que `1186 TimeFlux_Revive` (portee) -- un REVIVE | `thousNpc4Terminator` (npc SEUL) | GREFFE npc (`case-92` 5bis) : un revive ne lit ni stats ni traits du caster |
+| ~~1284~~ | ~~EchoesFromTheWarp_Revive~~ | **PORTE par #366-r1** -- `docs/rl/case-366r1-echoes-from-the-warp-revive.md`. « MEME classe que `1186` » est CONFIRME au slot `Il2CppClass*` (`DAT_1833ea8f0`, ses SEULES xrefs, meme ctor) : le port pointe LA MEME classe depuis les deux entrees, comme `1224`/`1223`. Discriminant runtime = le champ `source` fige PAR LA FABRIQUE (`0x485 = 1157 TimeFlux` vs `0x4c3 = 1219 EchoesFromTheWarp`). ⚠ Le fork d'amount est `StatAmount(src, Health, **StatPart 3 = Initial**)`, PAS `Maximum` (`case-66` §8.4 disait « max = 3 » : mislabel) -> **PV pleines**, mot pour mot l'i2. Confronte par GREFFE du PASSIF sur `thousTerminator`, ce qui a exige DEUX pieces neuves : `catalog_inject.graft_passive_ability` et le canal MESURE des passives montees (le port les derivait du gameconfig par `visualId` -- meme faute que #264 sur les traits) | `thousNpc4Terminator` (npc SEUL) | GREFFE npc (`case-92` 5bis) |
 | ~~1345~~ | ~~VisionsOfHeresy_ExtraPierceMelee~~ | **PORTE par #366-r1** (avec `1346`) -- `docs/rl/case-366-r1-visions-of-heresy-pierce.md` | `bloodDeathCompany` | HERO, pool |
 | ~~1346~~ | ~~VisionsOfHeresy_ExtraPierceRanged~~ | idem -- MEME classe native, le `statType` de la pose est le seul discriminant | `bloodDeathCompany` | HERO, pool |
 | 1435 | PsychicStalk_FriendlyChaosExtraDamage | `CreateEffectDamageBonusForAttack` | `thousAhriman` | HERO, pool |
+
+### 3.3quater -- `1110 FireAndReposition_ReduceDmg` : PORTE (#366-r1)
+
+Canal = **lecture PAR COUP cote DEFENSE** (`ForSubtraction` @+0x18 -> `flat_reductions`, additif
+DEFENSEUR PRE-percage, meme slot que Nightshroud) -- ni stat projetee, ni pose de `statType`.
+TROIS gates, exerces separement : `OwnerIsTarget` (implicite au canal), `IsRangedAttack`, et
+**`NOT IsTurnOf(Owner)`** (`DSLTriggers+0x28`, identifie par `InitializeShared` + le corps
+partage de `MartialSuperiority_VisualEffect$$CreateActiveCondition`). Ce 3e gate exclut
+l'**overwatch** ennemi declenche pendant le tour de Calandis ; il n'est PAS redondant avec la duree
+`TurnsFromRounds(1)` de la pose.
+
+**Ce que ce cas a ferme AU-DELA de son ability** : la magnitude est indexee par le niveau de
+l'ability **ACTIVE** (`.ctor` : `mov edx, 0x427` puis la surcharge `op_Implicit` ->
+`set_ActiveAbility`), or `EffectsState.seed` ne propageait QUE le niveau PASSIF. La cascade
+`active_ability_level -> ability_level -> level` qu'ecrivent **19 classes d'effet** retombait donc
+toujours sur le passif. INVISIBLE en regime normalise (`buildNormalizedBC` met les deux a 50) ;
+mesure en les dissociant (`--unit-stat "eldarRanger:ActiveAbilityLevel=30"`) : natif **716**,
+port **2992**. Corrige des DEUX cotes avec la MEME cle (COMBAT `snapshot`, DECISION `build_predictor`).
 
 ### 3.3ter -- `1345`/`1346 VisionsOfHeresy_ExtraPierce{Melee,Ranged}` : PORTES (#366-r1)
 

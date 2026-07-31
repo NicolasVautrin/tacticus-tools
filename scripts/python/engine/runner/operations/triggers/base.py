@@ -29,7 +29,7 @@ class TriggerEvent:
     aussi pour rester compatibles avec le dispatch générique)."""
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
                  "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles",
-                 "triggering_effect", "is_first_hit", "triggering_ability")
+                 "triggering_effect", "is_first_hit", "triggering_ability", "dest_tile")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
@@ -38,7 +38,8 @@ class TriggerEvent:
                  ability_type: Optional[int] = None, profiles=None,
                  triggering_effect: Optional[int] = None,
                  is_first_hit: Optional[bool] = None,
-                 triggering_ability: Optional[int] = None):
+                 triggering_ability: Optional[int] = None,
+                 dest_tile=None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -129,6 +130,18 @@ class TriggerEvent:
         # effectType` a la pose, `+0x60 = effectType` avec `+0x98` VIDE au retrait (#306). Un gate de
         # RETRAIT doit donc lire `CurrentAbilityIs`, jamais `TriggeringEffectIs`.
         self.triggering_ability = triggering_ability
+        # La DESTINATION `(col, row)` d'un evenement de MOUVEMENT -- mirror des champs `casterTiles`
+        # (7e arg) et `targetTiles` (10e) que `IdunBattle.Operations.MoveUnitOperation$$
+        # EvaluatePreMoveTriggers` remplit avec la MEME liste `position` au ctor nomme
+        # `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor`. Sans ce canal, un `CreateTrigger`
+        # qui compare la tuile COURANTE de l'acteur a sa tuile d'ARRIVEE n'a rien a comparer.
+        # Consommateur : `HatefulAssaultAbility$$CreateTrigger` (`NOT AreEqual(Tiles(Actor),
+        # <tuiles @DSLSelectors+0x78>)` = « la destination differe de la tuile courante », donc un
+        # VRAI deplacement). Renseigne par `MoveUnitOperation.execute` -- seul emetteur du vecteur
+        # `On(PreUnitMove)` cote port. None = non threade (les autres vecteurs) : un consommateur qui
+        # le lit doit DIRE ce qu'il fait de l'absence, jamais la confondre avec « les tuiles sont
+        # egales ».
+        self.dest_tile = dest_tile
 
 
 class TriggeredAbility:
