@@ -63,6 +63,90 @@ if (!deadCaster) { MoveUnit(caster -> tileTarget); AddTilesMoved(caster, caster,
 
 Le second passe `target = caster` : `IsEnemy(caster, caster)` est **toujours faux**, donc
 **le caster enregistre TOUJOURS** sa distance. La cible, elle, n'enregistre que si elle est
-**amie** du caster. Sur le seul call-site porté (`SorcerousFacade_SwitchAbility`, qui switche avec
-un ennemi), le compteur bouge donc pour le caster seul.
+**amie** du caster — ce qui est le cas du seul consommateur porté, `SorcerousFacade`, dont le
+ciblage est `TargetIsFriendly` + trait `Psyker` : les **deux** unités sont créditées.
+
+## 4. `SetRevivePosition` — le 4e call-site
+
+```csharp
+mainTile = GetMainTile(unit)                       // AVANT toute écriture de position
+if (!revivePosition.HasValue) return;              // revive IN-PLACE -> rien
+... MoveUnit(unit, pos) ; KillSteppableUnits(...)
+if (mainTile != null && revivePosition.Value.MainTile != null)
+    RecordTilesMoved(unit, GetDistance(mainTile, revivePosition.Value.MainTile), state)
+```
+
+Rang natif : entre `KillSteppableUnits` et la construction des `AbilityEntities`/les deux events de
+position. Seul poseur non nul de `revivePosition` dans le build :
+`IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateTargetTriggerBehaviour`.
+
+## 5. Le port
+
+| pièce | fichier |
+|---|---|
+| `MovementQuery$$GetDistance` (distance hex min entre deux ensembles) | `engine/battle_query.py::get_distance` |
+| `DisplaceUnitOperation$$AddTilesMoved` + `UnitExtensions$$IsEnemy` | `engine/runner/operations/displace.py::_add_tiles_moved` / `_is_enemy` |
+| le gate `DisplaceUnitBehaviourOptions+0x1c` | `SwitchPositionOperation(record_tiles=True)` / `DisplaceUnitOperation(record_tiles=False)` |
+| le comptage du revive | `engine/runner/operations/revive.py::_set_revive_position` |
+
+## 6. Ce qui n'est PAS confronté live, et pourquoi
+
+**Aucun des trois mécanismes n'a de lecteur du compteur atteignable.** Verdict : port fidèle au
+décompilé, **NON CONFRONTÉ**. Ce qui a été essayé :
+
+* le capteur direct `actorStats.tilesMovedThisTurn` (livré par #340, `rpc-snapshot.ts`) **n'est pas
+  déployé** : le hook actif publie `{entityId, totalAttacksMade, totalTurnsWithAttacksMade}` et
+  rien d'autre. Une **réinjection** le rendrait mesurable — c'est la seule pièce manquante ;
+* la voie indirecte de #335 (le dégât de `ModifiedExoarmour_ExtraDmg`) exige que l'unité **déplacée**
+  soit `votanChampion`. Or `SorcerousFacade` — seul porteur de `SwitchPosition` — exige une cible
+  **Psyker**, que Kimm n'est pas (`Hero`, `PrioritisedEfficiency`, `Unstoppable`) ; le `Teleport` DSL
+  n'a qu'un porteur (`ExemplarOfTheKauyon`, `tauShadowsun`) et téléporte le **caster** ; le revive à
+  position n'existe que via le `GhostEffect` de `thousTerminator`, qui ressuscite son propre porteur.
+  Les trois autres consommateurs de `DSLFormulas$$TilesMovedThisTurn` (`EmpyricAmbush`/`eldarLhykhis`,
+  `SmashaEad`/`orksNob`, `MastersOfManoeuvre`/`darkaStormSpeeder`) ne sont pas Psyker non plus ;
+* faire subir un **push** à Kimm (test négatif du gate) est monté mais inexploitable : un push
+  n'arrive que pendant le tour adverse, et `EndTurnOperation` remet `+0xf0` à 0 **inconditionnellement**
+  avant que Kimm puisse attaquer.
+
+Ce qui **est** mesuré (`probe_347_tiles_moved_call_sites.py`, MC1_67/909, `gap=3`) : le cast 1100
+échange bien les deux tuiles LIVE (`(1,0)↔(0,2)`, distance hex 3), le port reproduit les positions
+à l'identique, et il crédite **3 à chacune des deux unités**. Le probe **dit** que le compteur natif
+n'est pas mesuré au lieu de rendre un zéro.
+
+## 7. Gardes (`tests/engine/runner/test_347_tiles_moved_call_sites_offline.py`, 12 tests)
+
+Offline et déterministes, parce que c'est le seul régime disponible. Deux mutations adversariales,
+**vues rouges** :
+
+| mutation | rouges |
+|---|---|
+| gate `record_tiles` (`+0x1c`) neutralisé | 2 (`..._is_off_without_the_options_gate`, `switch_records_nothing_without_the_options_gate`) |
+| gate `!IsEnemy` neutralisé | 2 (`..._refuses_an_enemy_target`, `switch_credits_only_the_caster_against_an_enemy`) |
+
+Non-régression rejouée : `test_sorcerous_facade_combat_live` + `test_thunderous_assault_push_live`
+(11 passed) · `test_tiles_moved_combat_live` + `test_tiles_moved_prediction_live` (16 passed) ·
+`test_ghost_revive_live` + `test_revive_cancels_death_events_live` (8 passed) ·
+`probe_181` (98/98, 0 manquante) · `probe_120` étape 0 · `probe_273 --only-scan`.
+
+## 8. Résidus OUVERTS
+
+* **`#347-r1` — le lift-off de `TheQuickening` n'est toujours pas facturé.** #340 le nommait comme
+  un troisième item ; la RE a montré que l'explication portée était **fausse** et que la valeur
+  native n'est pas déterminée par la seule géométrie du cast :
+  le **lift-off** (`MoveUnit` vers une `UnitPosition` vide) **sort avant** `RecordTilesMoved` — la
+  branche `Count(position) == 0 && MoveUnitOptions+0x15` de `MoveUnitOperation$$Execute` retire
+  l'unité du board et retourne ; le **move-in** facture `GetNumTilesMoved(connectedPath)` avec
+  `movementStartPosition = GetPreviousPositionThisTurn(unit)` (`UnitComponent+0x98`, écrit par
+  `SetUnitPositionOperation$$SavePreviousPosition`, effacé par `ResetPreviousPositionBehaviour`),
+  donc une valeur qui dépend de l'**historique de mouvement du tour**. Non mesurable sans capteur.
+  Commentaire corrigé dans `abilities/loki/quickening.py`.
+* **`#347-r2` — mesuré en marge, hors périmètre** : `TheQuickening` **refuse** une tuile occupée par
+  un **allié** (`Attackable(Units(Target))` est vide, donc aucun `MoveOut` n'est émis pour
+  l'occupant et le move-in du caster échoue sur tuile pleine) ; et `GetDynamicInvalidTargetReason`
+  retire du ciblage les tuiles occupées par un **ennemi** (`movable − Enemies`). Le port, lui, prend
+  « n'importe quel occupant vivant » (`_living_unit_id_on`). À qualifier séparément.
+* **`sworn_protector.switch_position`** échange les `PositionComponent` en direct au lieu de passer
+  par `SwitchPositionOperation` : il ne compte donc rien, et son commentaire cite un
+  `DisplaceUnitBehaviour..ctor` à 8 arguments qui n'existe plus (le ctor du build en a 5). Non
+  touché ici.
 
