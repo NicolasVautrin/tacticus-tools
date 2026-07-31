@@ -407,10 +407,25 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    concurrents, runners) est libre — un worktree est figé au commit de lancement, donc les
    éditions de l'appelant ne peuvent pas le perturber.
 
-   Corollaire : **si un build de runner te revient en `503 runner creation paused`**, c'est une
-   fenêtre volontaire, pas une panne. Ne retente pas en boucle, dispose tes runners, rends ton
-   état — et **ne conclus RIEN** de ce refus : ce n'est ni un « porteur non confrontable » ni un
-   « régime inatteignable ». Écris « NON CONFRONTÉ — fenêtre DRAIN ».
+   Corollaire — **si un build de runner te revient en `503 runner creation paused`** : c'est une
+   fenêtre de maintenance volontaire, **de quelques minutes**, pas une panne. Tu **ATTENDS, tu ne
+   t'arrêtes PAS**. Dans cet ordre :
+
+   1. **Commite immédiatement** ce que tu as, même partiel, même non validé. Un agent qui rend la
+      main avec un worktree **PROPRE** le perd — il est auto-supprimé, et sa reprise repart
+      silencieusement dans l'**arbre principal**, où il éditerait `master`.
+   2. **Dispose TES runners** (jamais ceux des autres). C'est ce qui fait converger la fenêtre :
+      tant qu'un runner traîne, la maintenance attend après toi.
+   3. **Attends la réouverture** : `GET /api/admin/drain` jusqu'à `enabled == false`, en espaçant
+      les sondages (pas de boucle serrée de retries sur le build lui-même — chaque refus est
+      compté et n'avance à rien). Puis **reprends ton travail là où tu en étais**.
+   4. Si la fenêtre dépasse largement l'échelle de la minute, **alors** seulement rends ton état :
+      ce que tu as établi, ce qui reste à confronter, et **le montage exact** que tu comptais
+      jouer — c'est ce qui te fera repartir vite quand je te reprendrai.
+
+   Et dans tous les cas : **ne conclus RIEN de ce refus.** Ce n'est ni un « porteur non
+   confrontable », ni un « régime inatteignable », ni un « montage impossible ». Écris
+   « NON CONFRONTÉ — fenêtre DRAIN ».
 5. **Une modif Python `engine/**` n'exige NI rebuild NI reinject** : ce code tourne dans le
    process pytest/probe et parle au runner par RPC. Seul `frida/hooks/*` vit dans Frida.
 6. **Le worktree part de `origin/master`** — ni de la branche courante, ni des changements non

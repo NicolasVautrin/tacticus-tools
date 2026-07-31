@@ -107,10 +107,16 @@ fenêtre, et lui seul. Procédure **exécutée et validée le 2026-07-31**, 4 ag
    Refuse les **CRÉATIONS** de runner (503 + `Retry-After`) sur les 5 points d'entrée
    (`initAndStart`, `buildPatchedRunner`, `initRunner`, `loadFromSavedBundle`,
    `simBuildPreview`) — **sans toucher aux runners en place**, qui vivent leur vie.
-2. **Prévenir les agents en validation live** par `SendMessage` : disposer *leurs* runners,
-   commiter même partiel, rendre leur état. Leur dire explicitement de **ne RIEN conclure
-   d'un refus** — un 503 n'est ni un « porteur non confrontable » ni un « régime
-   inatteignable ». Sans ce message ils bouclent sur des retries et retardent la fenêtre.
+2. **Prévenir les agents en validation live** par `SendMessage`. Sans ce message ils bouclent
+   sur des retries et retardent la fenêtre. Leur dire, dans cet ordre : **commiter d'abord**
+   (un worktree PROPRE est auto-supprimé à la pause, et la reprise repart dans l'arbre
+   principal), **disposer leurs runners**, puis **ATTENDRE la réouverture** — pas s'arrêter.
+   ⚠ **Dire « attends », jamais « arrête-toi »** : un agent qui rend la main coûte une reprise
+   et risque la perte de worktree, pour une fenêtre qui dure des minutes. Ne demander un
+   rapport d'état que si la fenêtre s'annonce longue. Et toujours : **ne RIEN conclure d'un
+   refus** — un 503 n'est ni un « porteur non confrontable » ni un « régime inatteignable ».
+   ⚠ **Une fenêtre longue coûte donc plus qu'elle n'en a l'air** : tout agent en vol y est
+   suspendu. Regrouper les besoins de reinject plutôt que d'ouvrir une fenêtre par correctif.
 3. **Attendre `liveRunners == 0`** sur `GET /api/admin/drain`, en boucle de veille.
    ⚠ Cette jauge interroge le **registre des HOOKS**, pas le cache du host — lequel dérive :
    **mesuré 786 côté host contre 1 côté hooks**. Une veille bâtie sur `/api/runners` ne
