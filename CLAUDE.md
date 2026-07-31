@@ -265,9 +265,12 @@ vérification sont **distincts** :
   **(b)** `PlayAutomaticUnits` au **turn-start suivant** de sa team (trait `Summon`/`Object`) — se lit
   au delta d'état pris au tout début de son tour, avant toute action. Recette et probe :
   `probe_291_summon_activation.py`.
-- **NPC** → hors-jeu, jamais confrontable. Un item dont **tous** les porteurs sont npc n'est pas
-  « bloqué », il est **NON PERTINENT** : ne pas y brûler d'agent (sauf demande explicite de mirror +
-  toggle offline).
+- **NPC** → le porteur est hors-jeu. Mais **« npc-only » n'implique PAS « non confrontable »** :
+  quand le natif charge le playbook **PAR ABILITY** et que son utilité ne lit ni stats ni traits du
+  caster, l'ability se **GREFFE** sur une unité du pool. Mesuré le 2026-07-31 — `1194 NovaShield`,
+  seul porteur `tauBossRiptide` (npc), confrontée sur `tauCrisis` : **bug de port trouvé**. Recette :
+  `docs/rl/case-92-catalog-injection.md` §5bis. Vérifier la condition avant de greffer ; à défaut,
+  écrire NON CONFRONTÉ, jamais « non pertinent ».
 
 #### Une ability de RELIQUE se ventile en TROIS états, jamais deux
 
