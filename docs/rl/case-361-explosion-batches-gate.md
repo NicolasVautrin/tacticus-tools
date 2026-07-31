@@ -112,7 +112,46 @@ franchi). Le re-découvrir a coûté un bras de probe. **Grepper le backlog avan
 discriminant**, c'est ce qui aurait envoyé directement sur `StormOfFlensingBlades` (§3), dont le
 compte d'events ne dépend d'AUCUN sélecteur.
 
-## 6. Ce qui n'est PAS couvert
+## 6. La « seconde porte » `GetDamage` — ce n'est PAS une porte (#365)
+
+Entre la gate et les batchs, le natif intercale :
+
+```
+lVar20 = ExplodesAbility$$GetDamage(this+0x18);
+FUN_1802abdd0(local_2a8, 0, 0x128);     // memset du contexte
+pvStack_290 = caster;                    // ctx+0x18 = Owner, ET RIEN D'AUTRE
+if (lVar20 != 0) { ...batchs 3/4... return list; }
+```
+
+Deux lectures tuent l'hypothèse « `GetDamage` rend 0/null, donc les batchs sautent » :
+
+1. **`GetDamage` rend un ARBRE DSL, pas un montant.** Elle ne fait que composer des nœuds :
+   `PercentageOf(StatAmount(Owner@0x30, …), Sum(ConfigConst(0x3fd, Owner), ConditionalAmount(HasEffect(Owner, 0x44a), ConfigConst(0x423, Owner), Get(0))))`.
+   Toutes ses sorties d'échec vont dans le thrower — elle rend un nœud non nul **ou lève**.
+2. **Le chemin `lVar20 == 0` NE REND RIEN.** Il ne fait pas `return list` : il tombe dans
+   `FUN_1801f51f0` (le null-check IL2CPP qui précède l'appel d'interface d'évaluation
+   `FUN_180025fb0(1, …)`). Un `GetDamage` nul produirait donc une **exception**, jamais 2 events.
+
+⇒ Dans `MakeDamagePredictions`, **il n'existe que DEUX `return`** : celui de `Any == false`
+(2 events) et celui qui suit les deux `AddRange`. Donc `n_events == 2` **sans erreur native**
+n'admet que deux causes, et le capteur en écarte une :
+
+| `Any` | conséquence |
+|---|---|
+| `false` | retour anticipé — écarté, le capteur mesure `get_WillBeKill → TRUE` |
+| `true` | **les deux `GenerateAttackPredictions` rendent VIDE** |
+
+Le **contexte creux** (`memset(0,0x128)` + le seul `ctx+0x18`) n'est pas non plus coupable, et le
+rapprochement avec `FragstormGrenadeLauncher` (`case-352` §3) ne tient pas ici : `ctx+0x18` est
+exactement `Owner`, le SEUL champ que l'arbre de `GetDamage` lit. Ce contexte est **suffisant pour
+ce qu'il évalue**, et il ne sert **qu'à** l'évaluation du montant — les sélecteurs 3/4, eux, sont
+évalués dans le contexte PLEIN que `GenerateAttackPredictions` construit lui-même.
+
+⚠ Et `GenerateAttackPredictions` **lève** si le sélecteur rend `null` (`if (lVar17 != 0)` sinon
+thrower), mais **rend la liste vide** si l'énumérateur ne produit rien. « Vide » est donc la seule
+issue silencieuse.
+
+## 7. Ce qui n'est PAS couvert
 
 * **Les batchs 3/4 restent NON PORTÉS** — pas de port spéculatif : tant que le natif n'en émet aucun,
   rien n'est confrontable. `1059` n'entre toujours pas dans `ABILITY_CLASSES` (seule
