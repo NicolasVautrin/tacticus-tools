@@ -230,7 +230,9 @@ def _nc_regime(sid, rid, cid, tid, ability) -> dict:
     us = {int(u["squadId"]): u for u in (ob.get("units") or []) if not u.get("isDead")}
     c, t = us.get(int(cid)), us.get(int(tid))
     if c is None or t is None:
-        return {"reached": False, "why": "caster ou cible absent d'observeBattle"}
+        return {"reached": False,
+                "why": "caster %s ou cible %s absent d'observeBattle (%d unites vivantes : %s)"
+                       % (cid, tid, len(us), sorted(us))}
     d = hexgeo.distance((c["col"], c["row"]), (t["col"], t["row"]))
     rr = _r(sid, "abilityReason", {"runnerId": rid, "casterId": int(cid), "targetId": int(tid),
                                    "abilityType": int(ability)}, 60)
@@ -445,6 +447,26 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
         victim: str = VICTIM, ability: int = ABILITY, ability_name: str = ABILITY_NAME,
         board: str = BOARD, center=CENTER, lvl_a: int = LVL_A, lvl_b: int = LVL_B,
         mult: int = MULT, armor_target=None, oracle: str = "auto") -> dict:
+    # GATE DE PERIMETRE (#356). `expected` se DEDUIT d'une dichotomie a deux registres ; une ability
+    # ABSENTE DES DEUX n'a pas de reponse -- le `else "trunc"` en fabriquerait une. Le trou etait
+    # inatteignable tant que le probe ne parlait qu'aux Comparables ; `--oracle auto` ouvre les
+    # playbooks NC, dont beaucoup ne passent AUCUN triplet a `CalculateUtilityFromDamageEvent`
+    # (mesure 2026-07-31 : `IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$EvaluateNonComparable`
+    # score `Fix64(DarkTalonStrikeAbility$$GetAttackTargets(GetTilesInBestLine()).Count)` -- un
+    # COMPTE de cibles, aucun degat). Sur celles-la `ncPlaybookPredict` capture legitimement ZERO,
+    # et un ECHEC se lirait « bug de port » alors que le natif a raison.
+    known = set(AA._PREDICTION_MINMAX_AVERAGE) | set(AA._PREDICTION_MINMAX_RANDOM_READ)
+    if int(ability) not in known:
+        msg = ("HORS PERIMETRE : %s (%d) n'est dans AUCUN des deux registres d'arrondi "
+               "(_PREDICTION_MINMAX_AVERAGE / _PREDICTION_MINMAX_RANDOM_READ) -- son playbook ne "
+               "passe pas (damage, profile, hits) a CalculateUtilityFromDamageEvent. Rien a "
+               "mesurer ici ; ce n'est ni un OK ni un ECHEC." % (ability_name, ability))
+        if verbose:
+            print("[344] %s" % msg)
+        return {"ok": None, "out_of_scope": True, "reason": msg, "arms": {},
+                "montage": {"caster": caster, "victim": victim, "ability": ability,
+                            "ability_name": ability_name}}
+
     sid = _resolve_session()
     sf = Path(state_file) if state_file else (PYDIR.parents[1] / "logs" / "p344.json")
     sf.parent.mkdir(parents=True, exist_ok=True)
@@ -552,6 +574,8 @@ def main() -> int:
               oracle=a.oracle)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
+    if out.get("out_of_scope"):
+        return 2            # ni OK ni ECHEC : rien de mesurable sur cette ability
     return 0 if out.get("ok") else 1
 
 
