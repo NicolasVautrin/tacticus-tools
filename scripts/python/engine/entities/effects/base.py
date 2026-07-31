@@ -102,10 +102,13 @@ def tiles_moved_this_turn(att_ctx) -> "int | None":
     canal `att_ctx["tiles_moved_this_turn"]` (case-322).
 
     Le natif est `IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate`, qui rend le
-    champ `+0xf0` du `UnitComponent` du porteur. Ce champ n'est écrit QUE par
-    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, en `+=`, et
-    `IdunBattle.Operations.MoveUnitOperation$$Execute` l'alimente sur les DEUX branches — y compris
-    la branche SIMULATION (`state.IsSimulating`), où le corps de
+    champ `+0xf0` de l'**`ActorStatisticsComponent`** du porteur (case-322-r1 : le composant est
+    celui que `IdunBattle.Operations.StartTurnOperation$$ResetUnit` passe à
+    `ActorStatisticsComponent$$ResetAttacksReceivedThisTurn` — la fiche #322 écrivait
+    `UnitComponent`, c'était une erreur d'étiquette, sans effet sur le port). Ce champ n'est écrit
+    QUE par `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, en `+=` (et no-op si le compte
+    est `< 1`), et `IdunBattle.Operations.MoveUnitOperation$$Execute` l'alimente sur les DEUX
+    branches — y compris la branche SIMULATION (`state.IsSimulating`), où le corps de
     `MoveUnitOperation$$GetNumTilesMovedForSimulation` est inliné :
 
         num = 0
@@ -119,9 +122,17 @@ def tiles_moved_this_turn(att_ctx) -> "int | None":
     le nombre de tuiles du pas simulé** (le `+=`), et 0 pour toute unité qui ne porte NI 0x5f9 NI
     0x4de (le natif ne calcule alors aucun chemin).
 
+    DEUX faces alimentent désormais cette clé, et aucune ne devine :
+      * DÉCISION — `playbook/prediction/_shared.py::prediction_tiles_moved_this_turn` (compteur réel
+        + tuiles du pas simulé) ;
+      * COMBAT (case-322-r1) — `runner/damage_model.py::attacker_modifiers`, qui lit le compteur
+        RÉEL de l'ECS (`runner/components.py::unit_tiles_moved_this_turn`), tenu par
+        `MoveUnitOperation` à chaque pas joué. La clé y est TOUJOURS posée.
+
     Tri-état : clé ABSENTE -> `None` = « non threadé », et les consommateurs rendent AUCUNE
     contribution (« présent != appliqué »). Ce n'est PAS `0` : un zéro affirmerait « l'unité n'a pas
-    bougé », ce que le contexte ne dit pas."""
+    bougé », ce que le contexte ne dit pas. Ne reste `None` que pour les appelants HORS des deux
+    faces ci-dessus (prédictions internes sans contexte d'attaque)."""
     v = (att_ctx or {}).get("tiles_moved_this_turn")
     return None if v is None else int(v)
 

@@ -254,9 +254,17 @@ class TheQuickeningAbility(ActiveAbility):
         # --- phases 1-2 : SWAP (MoveOut+MoveIn ; effets Untargetable transitoires = net-zero) ---------
         # natif = lift-off (MoveUnit -> Null) puis MoveIn ; MoveUnitOperation pose la position sans check
         # d'occupation -> l'echange direct (caster->target, swap->origin) rend l'etat NET identique.
-        MoveUnitOperation(caster_id, target_pos).execute(state, ectx.bus)
+        # `record_tiles=False` (case-322-r1) : le natif fait un LIFT-OFF (`MoveUnit` vers une
+        # `UnitPosition` VIDE) puis un `MoveIn`. Sur ce lift-off,
+        # `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` prend sa branche
+        # `Count(movementStartPosition) == 0` et rend `[endTile, endTile]` -- un chemin de DEUX
+        # noeuds, quelle que soit la distance. Le port faisant l'echange DIRECT, le
+        # `connectedPath` natif n'est pas reproductible depuis ce montage : on n'enregistre RIEN
+        # plutot que de facturer une distance de MARCHE que le natif ne calcule jamais.
+        # RESIDU NOMME (sous-comptage, jamais sur-comptage).
+        MoveUnitOperation(caster_id, target_pos, record_tiles=False).execute(state, ectx.bus)
         if swap_id is not None:
-            MoveUnitOperation(swap_id, origin).execute(state, ectx.bus)
+            MoveUnitOperation(swap_id, origin, record_tiles=False).execute(state, ectx.bus)
         # --- phases 4/6 : free melee attack faction-BloodAngels (caster PUIS unite-echangee) ----------
         # config (maxDmg/dmgPct/level/mult) = celle de l'ability de MEPH (le caster) ; Attack = per-unit.
         csc = caster.get_component(StatsComponent)

@@ -133,3 +133,30 @@ class Board:
         'Trench'). Vide si le terrain n'est pas capte. Base des gates compute-time des effets de tuile."""
         return {(t["col"], t["row"]) for t in self.by_id.values()
                 if t.get("tileDefId") == tile_id}
+
+    # --- substrat PAR POSITION du WalkPathfinder (foyer unique des DEUX faces) ---
+    def walk_maps_by_pos(self) -> tuple[dict, dict, dict]:
+        """`(neigh_by_pos, walkable_by_pos, elev_by_pos)` — le substrat que
+        `entities.pathfinding.walk_pathfinder.get_path_node_counts_by_pos` attend.
+
+        FOYER UNIQUE : la face DECISION (`playbook/prediction/_shared.py::_walk_path_counts_from`)
+        et la face COMBAT (`runner/operations/movement.py::_num_tiles_moved`) doivent voir le MEME
+        graphe, sinon `TilesMovedThisTurn` diverge d'une face a l'autre alors que le natif n'a
+        qu'un seul `IPathfinders`.
+
+        ⚠ `neigh_by_pos` est bati sur le champ BRUT `neighbours` du `boardGraph` (ni trie ni
+        symetrise), PAS sur `self.neighbours()` : c'est la liste d'adjacence STOCKEE sur la tuile,
+        celle qu'itere `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`. Memoise sur
+        l'instance (le board est STATIQUE pour toute la bataille)."""
+        cached = getattr(self, "_walk_maps", None)
+        if cached is not None:
+            return cached
+        by_id = self.by_id
+        pos_of = {tid: (t["col"], t["row"]) for tid, t in by_id.items()}
+        neigh = {pos_of[tid]: [pos_of[n] for n in (t.get("neighbours") or []) if n in pos_of]
+                 for tid, t in by_id.items()}
+        walk = {pos_of[tid]: bool(t.get("walkable")) for tid, t in by_id.items()}
+        elev = {pos_of[tid]: int(t.get("elevation") or 0) for tid, t in by_id.items()}
+        maps = (neigh, walk, elev)
+        self._walk_maps = maps
+        return maps

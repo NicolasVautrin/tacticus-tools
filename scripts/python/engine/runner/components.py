@@ -170,6 +170,37 @@ class UnitComponent(Component):
     NB : loge ici (comme `times_attacked_this_turn`/`received_damage_this_turn`) alors que le foyer
     natif est l'`ActorStatisticsComponent` -- MEME residu structurel documente (case-202 §6).
 
+    `tiles_moved_this_battle` / `tiles_moved_this_turn` / `tiles_moved_last_turn` = mirror des TROIS
+    champs `ActorStatisticsComponent @+0xec` / `@+0xf0` / `@+0xf4` (case-322-r1).
+    ⚠ Le composant natif est bien l'`ActorStatisticsComponent`, PAS le `UnitComponent` : le getter
+    de `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` et celui de
+    `IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate` resolvent le MEME composant
+    que `IdunBattle.Operations.StartTurnOperation$$ResetUnit` passe a
+    `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetAttacksReceivedThisTurn`. Loges
+    ici comme `received_damage_this_turn` / `last_hit_damage_taken_*` -- MEME residu structurel
+    documente (case-202 SS6).
+      * ECRITURE : `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved(unit, tiles, state)` =
+        `if (tiles < 1) return; comp[0xec] += tiles; comp[0xf0] += tiles;` -- un `+=`, PAS une
+        affectation, et un no-op silencieux pour `tiles <= 0`. QUATRE call-sites natifs :
+        les DEUX branches d'`IdunBattle.Operations.MoveUnitOperation$$Execute` (simulation et
+        reelle), `IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition` et
+        `IdunBattle.Operations.DisplaceUnitOperation$$AddTilesMoved`.
+      * ROULEMENT, a la FIN de CHAQUE tour :
+        `IdunBattle.Operations.EndTurnOperation$$Execute` itere `GetAllUnits` et appelle
+        `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetThisTurn(comp, wasOwnTurn)` =
+        `if (wasOwnTurn) comp[0xf4] = comp[0xf0]; comp[0xf0] = 0;`. Le reset de `+0xf0` est donc
+        INCONDITIONNEL et GLOBAL (toutes les unites, pas seulement celles du joueur finissant) ;
+        `wasOwnTurn` = `PlayerComponent.CurrentlyOwnedUnitIds` du joueur qui finit CONTIENT l'unite.
+        ⚠ Ce n'est PAS `StartTurnOperation$$ResetUnit` (qui, lui, ne touche ni 0xf0 ni 0xf4).
+      * LECTURE : `TilesMovedThisTurnFormula$$Calculate` rend `+0xf0`,
+        `IdunBattle.Entities.Formulas.TilesMovedLastTurnFormula$$Calculate` rend `+0xf4`. Le noeud
+        DSL `IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn` a SIX consommateurs natifs :
+        `ModifiedExoarmour_ExtraDmgEffect$$CreateActiveCondition` / `$$GetCurrentDamageBonus` /
+        `$$GetExtraDamageMultiplier`, `IdunBattle.Entities.Effects.Loki.EmpyricAmbushEffect$$IsValidAttackForBuff`,
+        `MastersOfManoeuvreAbility$$CreateTrigger` et `SmashaEadAbility$$CreateTrigger`.
+        `tiles_moved_this_battle` (+0xec) n'a AUCUN lecteur porte : il est ecrit pour rester le
+        mirror exact du `+=` double de `RecordTilesMoved`, jamais lu.
+
     `feet` (#R30) = mirror de `UnitComponent._feet` @+0x78 -- l'`OrderedSet<int>` des ids des
     ENTITES-PIEDS de l'unite (`Blueprints.UnitFoot`, chacune portant un `UnitFootComponent
     {UnitId@0x10, TileId@0x14}`), rempli par `IdunBattle.Operations.AddUnitOperation$$Execute`
@@ -196,7 +227,8 @@ class UnitComponent(Component):
                  "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
                  "death_source", "last_hit_damage_taken_this_turn",
                  "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase",
-                 "charged_unit_ids", "current_turn_start_tile", "revived_by_abilities")
+                 "charged_unit_ids", "current_turn_start_tile", "revived_by_abilities",
+                 "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -234,6 +266,11 @@ class UnitComponent(Component):
         # (bloc `revived_by_abilities`). Loge ici comme `last_hit_damage_taken_*` (meme residu
         # structurel : le foyer natif est l'ActorStatisticsComponent).
         self.revived_by_abilities: set = set()
+        # `ActorStatisticsComponent @+0xec/+0xf0/+0xf4` — cf. la docstring de classe (bloc
+        # `tiles_moved_*`). 0 a la creation, comme les champs `int` d'un composant natif frais.
+        self.tiles_moved_this_battle = 0
+        self.tiles_moved_this_turn = 0
+        self.tiles_moved_last_turn = 0
 
     def add_foot(self, tile: tuple) -> None:
         """`IdunBattle.Entities.Components.UnitComponent$$AddFoot(footId)` = `_feet.Add(footId)`
@@ -1080,6 +1117,67 @@ def unit_has_moved(state, unit_id: int) -> bool:
     return bool(fl is not None and fl.has(UnitFlagsComponent.MOVED))
 
 
+def record_tiles_moved(state, unit_id: int, tiles: int) -> int:
+    """`IdunBattle.Entities.UnitExtensions$$RecordTilesMoved(unit, tiles, state)` — mirror 1:1 :
+
+        if ((int)tiles < 1) return;                 // no-op silencieux, 0 et negatifs compris
+        comp = GetComponent<ActorStatisticsComponent>(unit);
+        comp[0xec] += tiles;                        // cumul BATAILLE
+        comp[0xf0] += tiles;                        // cumul CE TOUR
+
+    Les DEUX champs prennent le MEME increment ; c'est un `+=`, jamais une affectation, ce qui est
+    exactement ce qui permet a la face DECISION de voir « compteur reel + tuiles du pas simule »
+    quand `SimulateEffectsOperation$$DoActionInSimulatedTile` rejoue un `MoveUnitOperation`
+    (cf. `playbook/prediction/_shared.py::prediction_tiles_moved_this_turn`).
+
+    Renvoie le nombre EFFECTIVEMENT enregistre (0 si le garde `< 1` a coupe) — diagnostic."""
+    if tiles is None:
+        return 0
+    n = int(tiles)
+    if n < 1:                                       # `if (iVar2 < 1) return;`
+        return 0
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    if uc is None:
+        return 0
+    uc.tiles_moved_this_battle = int(uc.tiles_moved_this_battle or 0) + n
+    uc.tiles_moved_this_turn = int(uc.tiles_moved_this_turn or 0) + n
+    return n
+
+
+def unit_tiles_moved_this_turn(state, unit_id: int) -> int:
+    """`IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate` = le champ
+    `ActorStatisticsComponent + 0xf0` du porteur -- LECTEUR UNIQUE du canal cote COMBAT.
+
+    C'est ce que resout le noeud DSL `IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn`,
+    dont le consommateur porte est `ModifiedExoarmour_ExtraDmgEffect` (magnitude `V x n` ET
+    `CreateActiveCondition`). Composant absent = 0, comme un composant natif frais."""
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    return int(uc.tiles_moved_this_turn or 0) if uc is not None else 0
+
+
+def reset_tiles_moved_this_turn(state, unit_id: int, was_own_turn: bool) -> None:
+    """Volet TUILES de `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetThisTurn(
+    comp, wasOwnTurn)`, appele par `IdunBattle.Operations.EndTurnOperation$$Execute` sur CHAQUE
+    unite de `GetAllUnits` :
+
+        if (wasOwnTurn) comp[0xf4] = comp[0xf0];    // TilesMovedLastTurn
+        comp[0xf0] = 0;                             // reset INCONDITIONNEL
+
+    `was_own_turn` = l'unite appartient au joueur qui FINIT son tour (le natif le derive de
+    `PlayerComponent.CurrentlyOwnedUnitIds` de ce joueur, teste par `List.Contains`).
+    Les autres champs que `ResetThisTurn` roule (0x78/0x7c, 0xe4/0xe8, 0x58/0x5c, 0xa0/0xa4 et le
+    dict par-entite) ne sont pas suivis offline -- residu DEJA documente en tete de `turnflow.py`."""
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    if uc is None:
+        return
+    if was_own_turn:
+        uc.tiles_moved_last_turn = int(uc.tiles_moved_this_turn or 0)
+    uc.tiles_moved_this_turn = 0
+
+
 def unit_has_teleported(state, unit_id: int) -> bool:
     """`HasFlag(unit, UnitFlag.Teleported = 0xc)` — pendant de `unit_has_moved`, pose par
     `set_moved_flag` quand le deplacement etait un TELEPORT (et par le capteur O5 de
@@ -1408,6 +1506,13 @@ class UnitEffectStateView(Mapping):
       * `enemy_psykers_alive` — cardinal battlefield-wide, PARESSEUX (O(entités), cf.
         `enemy_psykers_alive`) : il n'est calculé que si un effet le LIT réellement. La clé est
         présente dès que l'équipe du porteur est connue, absente sinon.
+      * `tiles_moved_this_turn` — `ActorStatisticsComponent+0xf0` (`unit_tiles_moved_this_turn`) ;
+        lu par `ModifiedExoarmour_ExtraDmgEffect$$CreateActiveCondition` =
+        `AmountIsGreaterThanZero(TilesMovedThisTurn(Self))`. La cle n'est presente que si l'entite
+        a un `UnitComponent` : cote COMBAT le compteur est DESORMAIS mesure (`record_tiles_moved`
+        est appele par `MoveUnitOperation`), donc `is_active` rend le gate natif VERBATIM au lieu
+        de la degradation « non mesure -> on ne ferme pas ». Cote DECISION la `Scene` ne pose PAS
+        cette cle : elle evalue l'etat SIMULE et le compte y vient du `att_ctx`, pas du porteur.
       * `contagions_of_nurgle_amount` — **un CALLABLE** `(source_unit_id) -> int | None`, et non une
         valeur : le nœud natif `ContagionsOfNurgleAmount(team, unit)` prend l'EFFECT SOURCE en
         entrée, donc le cardinal dépend de l'INSTANCE d'effet qui l'interroge, pas seulement du
@@ -1432,6 +1537,11 @@ class UnitEffectStateView(Mapping):
                   else None) or []
         if traits:
             eager["traits"] = traits
+        # `TilesMovedThisTurn(Self)` = `ActorStatisticsComponent+0xf0` (cf. la docstring de classe).
+        # EAGER : c'est un simple champ int deja materialise, aucun balayage.
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is not None:
+            eager["tiles_moved_this_turn"] = int(uc.tiles_moved_this_turn or 0)
         self._eager = eager
         oc = ent.get_component(OwnerComponent) if ent is not None else None
         self._has_psy = oc is not None            # `Enemies(Owner, …)` calculable
