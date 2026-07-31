@@ -56,11 +56,25 @@ from engine.runner.components import HealthComponent                       # noq
 ROOT = PYDIR.parents[1]
 STATE = ROOT / "logs" / "runners" / "_354_mwbd_overlord.json"
 STATE_SOLO = ROOT / "logs" / "runners" / "_354_mwbd_overlord_solo.json"
+STATE_CF = ROOT / "logs" / "runners" / "_354_mwbd_overlord_cf.json"
+STATE_NOMECH = ROOT / "logs" / "runners" / "_354_mwbd_overlord_nomech.json"
 
 CARRIER = "necroOverlord"        # le porteur : passif MyWillBeDoneOverlord (+ LivingMetal, Hero)
 ALLY_A = "necroWarden"           # groupe A : faction Necrons + trait Hero + Mechanical
 ALLY_B = "admecDominus"          # groupe B : Hero + Mechanical, faction AdeptusMechanicus
 ENEMY_A = "blackTerminator"      # L'UNIQUE ennemi -- adjacent aux DEUX allies (cf. setup_positions)
+# Roles des montages de CONTREFACTUELS (M5/M6). Traits ET portees re-derives du gameconfig le
+# 2026-07-31 : les QUATRE Necrons du pool portent `Mechanical` + `Hero`, donc TOUS dans le groupe A
+# -- c'est pourquoi `nomechanical` exige un montage SANS Necron allie (M6).
+CF_WEAK = "necroDestroyer"       # groupe A, AVEC cible, Attaque la PLUS FAIBLE
+CF_ELECT = "necroWarden"         # groupe A, AVEC cible, Attaque moyenne -> l'elu du tri DESCENDANT
+# ⚠ `necroSpyder` est le SEUL Necron du pool dont `weapons` ne porte AUCUNE entree `Range` (melee
+# PURE). Les trois autres tirent a 2 ou 3 hexes : sur un hub, TOUT voisin du porteur reste a portee
+# de l'ennemi, donc eux ne peuvent JAMAIS jouer le role « sans cible ». Mesure du 2026-07-31 -- le
+# premier montage donnait ce role a `necroDestroyer` (Range 2), qui gardait sa cible et rendait le
+# contrefactuel `notargets` INERTE.
+CF_NOTGT = "necroSpyder"         # groupe A, Attaque MAXIMALE, melee pure placee hors de portee
+ALLY_NM = "astraCreed"           # `Hero` NU -- PAS `Mechanical` (gate HasTrait 0x05)
 
 EXTRA_DAMAGE_EFFECT = 1581       # `EffectType.MyWillBeDoneOverlord_ExtraDamage`
 MY_WILL_BE_DONE_OVERLORD = 1556  # `TriggeredAbilityType.MyWillBeDoneOverlord`
@@ -92,6 +106,9 @@ A_UNITS = [ENEMY_A]
 # porteur (verifie en sortie : le cap ne doit pas ecraser la difference).
 ALLY_A_DAMAGE = 400
 ALLY_B_DAMAGE = 3000
+# M5/M6 (contrefactuels) : deux paliers d'Attaque de plus, pour departager DANS un meme groupe.
+ALLY_C_DAMAGE = 3000            # l'elu du tri DESCENDANT dans M5 (groupe A, avec cible)
+ALLY_D_DAMAGE = 9000            # Attaque MAXIMALE mais SANS cible -> ecarte par le gate
 # PV des ennemis remontes : le montage doit SURVIVRE a plusieurs tours (M3), et une victime tuee au
 # premier coup ferait disparaitre le cas discriminant du tour suivant.
 ENEMY_HP = 40000
@@ -206,7 +223,7 @@ def _free_neighbours(bg, tile_id, ids_ok=()):
             and by_id[n].get("occupantUnitId") in (None,) + tuple(ids_ok)]
 
 
-def setup_positions(sid, rid, ids):
+def setup_positions(sid, rid, ids, a=None, b=None, enemy=None, far=None):
     """DRIVE la geometrie du montage M1/M2/M3 (`applyAction move` TELEPORTE -> elle est CHOISIE) :
 
         Overlord sur un hub H a 6 voisins ; ALLY_A et ALLY_B sur DEUX voisins de H **adjacents entre
@@ -220,9 +237,15 @@ def setup_positions(sid, rid, ids):
     DEGAT qui designe l'attaquant : les Attaques des deux allies sont patchees a `%d` et `%d`, donc
     deux regimes de degat sans recouvrement possible.
 
+    `a` / `b` / `enemy` PARAMETRENT les trois roles (defaut = ALLY_A / ALLY_B / ENEMY_A) ; `far`, s'il
+    est fourni, est un QUATRIEME occupant pose sur un voisin du hub choisi A DISTANCE >= 2 DE
+    L'ENNEMI -- c'est le role « adjacent au porteur mais SANS cible d'attaque normale », qui exerce le
+    gate `AmountIsGreaterThanZero(ValidNormalAttackTargets(...))` (montage M5).
+
     Rend `None` (montage REFUSE) plutot qu'une geometrie degradee.""" % (ALLY_A_DAMAGE,
                                                                         ALLY_B_DAMAGE)
     import hexgeo
+    a, b, enemy = a or ALLY_A, b or ALLY_B, enemy or ENEMY_A
     bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
     hub = _hub_tile(bg)
     if hub is None:
@@ -237,31 +260,53 @@ def setup_positions(sid, rid, ids):
         for j in range(len(ring)):
             if i == j:
                 continue
-            a, b = ring[i], ring[j]
-            if hexgeo.distance((a["col"], a["row"]), (b["col"], b["row"])) != 1:
+            ta, tb = ring[i], ring[j]
+            if hexgeo.distance((ta["col"], ta["row"]), (tb["col"], tb["row"])) != 1:
                 continue
-            common = [by_id[n] for n in (a.get("neighbours") or [])
+            common = [by_id[n] for n in (ta.get("neighbours") or [])
                       if n in by_id and n != hub["id"]
-                      and n in set(b.get("neighbours") or [])
+                      and n in set(tb.get("neighbours") or [])
                       and by_id[n].get("walkable") and not by_id[n].get("isWall")
-                      and by_id[n].get("occupantUnitId") in (None, ids[ENEMY_A])]
+                      and by_id[n].get("occupantUnitId") in (None, ids[enemy])]
             if common:
-                pick = (a, b, common[0])
+                pick = (ta, tb, common[0])
                 break
         if pick:
             break
     if pick is None:
         return None
-    move(sid, rid, ids[ALLY_A], pick[0]["col"], pick[0]["row"])
-    move(sid, rid, ids[ALLY_B], pick[1]["col"], pick[1]["row"])
-    move(sid, rid, ids[ENEMY_A], pick[2]["col"], pick[2]["row"])
+    move(sid, rid, ids[a], pick[0]["col"], pick[0]["row"])
+    move(sid, rid, ids[b], pick[1]["col"], pick[1]["row"])
+    move(sid, rid, ids[enemy], pick[2]["col"], pick[2]["row"])
+    if far is not None:
+        # role « SANS cible » : un voisin LIBRE du hub, a distance >= 2 de l'ennemi (donc hors de
+        # portee d'une attaque normale de melee) -- sinon le montage n'exerce pas le gate.
+        epos = (pick[2]["col"], pick[2]["row"])
+        used = {(pick[0]["col"], pick[0]["row"]), (pick[1]["col"], pick[1]["row"]), epos,
+                (hub["col"], hub["row"])}
+        spot = None
+        for t in _free_neighbours(bg, hub["id"], tuple(ids.values())):
+            p = (t["col"], t["row"])
+            if p in used or t.get("occupantUnitId") not in (None, ids[far]):
+                continue
+            if hexgeo.distance(p, epos) >= 2:
+                spot = t
+                break
+        if spot is None:
+            return None
+        move(sid, rid, ids[far], spot["col"], spot["row"])
     bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
     pos = {t.get("occupantUnitId"): (t["col"], t["row"])
            for t in bg["tiles"] if t.get("occupantUnitId") is not None}
-    for vis in (ALLY_A, ALLY_B):                       # controle de sortie : geometrie ATTEINTE
+    for vis in (a, b):                                 # controle de sortie : geometrie ATTEINTE
         if hexgeo.distance(pos[ids[vis]], pos[ids[CARRIER]]) != 1:
             return None
-        if hexgeo.distance(pos[ids[vis]], pos[ids[ENEMY_A]]) != 1:
+        if hexgeo.distance(pos[ids[vis]], pos[ids[enemy]]) != 1:
+            return None
+    if far is not None:                                # ... et le role SANS cible l'est aussi
+        if hexgeo.distance(pos[ids[far]], pos[ids[CARRIER]]) != 1:
+            return None
+        if hexgeo.distance(pos[ids[far]], pos[ids[enemy]]) < 2:
             return None
     return bg
 
@@ -431,6 +476,99 @@ def measure(sid, seed="777", board_id="MC1_67", turns=2, verbose=True):
                 "p_team": p_team, "rows": rows, "board": board}
     finally:
         dispose(sid, rid)
+
+
+def measure_counterfactual(sid, seed="777", board_id="MC1_67", verbose=True):
+    """M5 -- montage des contrefactuels `ascending` et `notargets`, que M1 N'EXERCE PAS.
+
+    MESURE du 2026-07-31 : sur M1 les mutations `ascending` / `notargets` / `nomechanical` ne
+    changeaient AUCUNE election, et les tests (H) correspondants ECHOUAIENT -- a juste titre. M1
+    n'oppose qu'UNE unite par groupe (donc le sens du tri est inerte) et ses DEUX allies sont
+    Mechanical ET pourvus d'une cible (donc les deux gates sont inertes). Un montage qui n'exerce pas
+    un etage ne prouve rien de cet etage.
+
+    M5 met TROIS Necrons (tous `Mechanical` + `Hero` -> le MEME groupe A, cf. recon) :
+      * CF_WEAK  `necroDestroyer` ATK %d   -- adjacent au porteur ET a l'ennemi
+      * CF_ELECT `necroWarden`    ATK %d  -- idem, ATTAQUE PLUS GROSSE -> l'elu du tri DESCENDANT
+      * CF_NOTGT `necroSpyder`    ATK %d  -- adjacent au porteur mais A DISTANCE >= 2 de l'ennemi
+        et MELEE PURE (aucune arme a `Range`), donc AUCUNE cible d'attaque normale -> ecarte par le
+        gate alors qu'il a l'Attaque MAXIMALE.
+
+    -> `ascending` elit `necroDestroyer` au lieu de `necroWarden` ; `notargets` elit `necroSpyder`.
+    `nomechanical` reste inerte ici (aucun Necron non-Mechanical n'existe : le groupe A domine
+    toujours) -- c'est le role de M6 (`measure_nomech`).""" % (ALLY_A_DAMAGE, ALLY_C_DAMAGE,
+                                                              ALLY_D_DAMAGE)
+    rid = build(seed, board_id, [CARRIER, CF_WEAK, CF_ELECT, CF_NOTGT], [ENEMY_A], STATE_CF,
+                [CARRIER_PASSIVES_PATCH,
+                 "%s:Damage=%d" % (CF_WEAK, ALLY_A_DAMAGE),
+                 "%s:Damage=%d" % (CF_ELECT, ALLY_C_DAMAGE),
+                 "%s:Damage=%d" % (CF_NOTGT, ALLY_D_DAMAGE),
+                 "%s:Health=%d" % (ENEMY_A, ENEMY_HP),
+                 "%s:RemainingHealth=%d" % (ENEMY_A, ENEMY_HP)] + list(ENEMY_ARMOR_SPECS))
+    if rid is None:
+        return None
+    try:
+        view = dv(sid, rid)
+        ids = {u.get("visualId"): int(u["id"]) for u in (view.get("units") or []) if u.get("alive")}
+        for vis in (CARRIER, CF_WEAK, CF_ELECT, CF_NOTGT, ENEMY_A):
+            if vis not in ids:
+                print("[354] ABORT M5 : %s absent" % vis)
+                return None
+        bg = setup_positions(sid, rid, ids, a=CF_WEAK, b=CF_ELECT, enemy=ENEMY_A, far=CF_NOTGT)
+        if bg is None:
+            print("[354] ABORT M5 : geometrie non atteinte")
+            return None
+        cap = capture(sid, rid, Board(bg["tiles"], adjacency="evenq"))
+        _st, port_out = offline_finish(cap, ids[CARRIER])
+        vis_by_id = {v: k for k, v in ids.items()}
+        if verbose:
+            print("[354] M5  elu=%s"
+                  % vis_by_id.get(port_out[0]["friend"] if port_out else None))
+        return {"rid": rid, "ids": ids, "vis_by_id": vis_by_id, "cap": cap, "port_out": port_out}
+    finally:
+        dispose(rid=rid, sid=sid)
+
+
+def measure_nomech(sid, seed="777", board_id="MC1_67", verbose=True):
+    """M6 -- montage du contrefactuel `nomechanical`, qu'AUCUN montage Necron ne peut exercer.
+
+    Tous les Necrons du pool portent `Mechanical` (recon 2026-07-31 : Overlord / Warden / Destroyer /
+    Spyder), donc des qu'un Necron est eligible le groupe A gagne et retirer le gate `Mechanical` ne
+    deplace rien. M6 supprime donc TOUT allie Necron :
+      * ALLY_B   `admecDominus` -- `Mechanical` + `Hero`, faction AdeptusMechanicus (groupe B), ATK %d
+      * ALLY_NM  `astraCreed`   -- `Hero` NU (aucun autre trait), donc PAS `Mechanical`, ATK %d
+
+    Groupe A vide -> l'elu normal est `admecDominus` (le seul a passer le gate). Sans le gate, les
+    deux sont dans le groupe B et le tri DESCENDANT elit `astraCreed`. -> `nomechanical` DIVERGE.
+    """ % (ALLY_A_DAMAGE, ALLY_C_DAMAGE)
+    rid = build(seed, board_id, [CARRIER, ALLY_B, ALLY_NM], [ENEMY_A], STATE_NOMECH,
+                [CARRIER_PASSIVES_PATCH,
+                 "%s:Damage=%d" % (ALLY_B, ALLY_A_DAMAGE),
+                 "%s:Damage=%d" % (ALLY_NM, ALLY_C_DAMAGE),
+                 "%s:Health=%d" % (ENEMY_A, ENEMY_HP),
+                 "%s:RemainingHealth=%d" % (ENEMY_A, ENEMY_HP)] + list(ENEMY_ARMOR_SPECS))
+    if rid is None:
+        return None
+    try:
+        view = dv(sid, rid)
+        ids = {u.get("visualId"): int(u["id"]) for u in (view.get("units") or []) if u.get("alive")}
+        for vis in (CARRIER, ALLY_B, ALLY_NM, ENEMY_A):
+            if vis not in ids:
+                print("[354] ABORT M6 : %s absent" % vis)
+                return None
+        bg = setup_positions(sid, rid, ids, a=ALLY_B, b=ALLY_NM, enemy=ENEMY_A)
+        if bg is None:
+            print("[354] ABORT M6 : geometrie non atteinte")
+            return None
+        cap = capture(sid, rid, Board(bg["tiles"], adjacency="evenq"))
+        _st, port_out = offline_finish(cap, ids[CARRIER])
+        vis_by_id = {v: k for k, v in ids.items()}
+        if verbose:
+            print("[354] M6  elu=%s"
+                  % vis_by_id.get(port_out[0]["friend"] if port_out else None))
+        return {"rid": rid, "ids": ids, "vis_by_id": vis_by_id, "cap": cap, "port_out": port_out}
+    finally:
+        dispose(rid=rid, sid=sid)
 
 
 def setup_solo_positions(sid, rid, ids):

@@ -30,8 +30,13 @@ CE QUE LA GARDE PROUVE :
       adjacent a une Attaque BIEN PLUS GROSSE ;
   (G) LIVE -- PURGE : au tour SUIVANT le MEME allie re-attaque (sans le volet `On(0x12)` il serait
       memorise a vie) ;
-  (H) LIVE -- CONTREFACTUELS : quatre mutations de MON PROPRE mecanisme font diverger le port du
-      live. Sans elles, le vert des tests (E)/(F) ne prouverait pas que ces etages sont testes.
+  (H) CONTREFACTUELS : quatre mutations de MON PROPRE mecanisme doivent changer l'election. Sans
+      elles, le vert des tests (E)/(F) ne prouverait pas que ces etages sont testes.
+      ⚠ CHAQUE mutation exige le montage qui l'EXERCE -- mesure du 2026-07-31, ou trois des quatre
+      echouaient sur M1 : `ascending` est inerte tant qu'un groupe ne contient qu'UNE unite,
+      `notargets` tant que tous les allies ont une cible, `nomechanical` tant qu'un Necron est
+      eligible (ils sont TOUS `Mechanical`). D'ou M5 (trois Necrons du groupe A, dont un melee pure
+      hors de portee) et M6 (aucun Necron allie).
 
 ASCII-only. Skip si pas de session live / montage non montable.
 """
@@ -61,12 +66,40 @@ def mwbd(rpc, live_session):
 
 @pytest.fixture(scope="session")
 def mwbd_solo(rpc, live_session):
-    """Montage M4 (branche ELSE) : le porteur SEUL de son camp."""
+    """Montage M4 (branche ELSE) : aucun allie ADJACENT eligible, allie-tampon EXILE."""
     from rl_collect_batch import _resolve_session
     out = MW.measure_solo(_resolve_session(), SEED, BOARD, verbose=True)
     if out is None:
         pytest.skip("montage solo MyWillBeDoneOverlord non montable (DRAIN)")
     return out
+
+
+@pytest.fixture(scope="session")
+def mwbd_cf(rpc, live_session):
+    """Montage M5 -- TROIS Necrons du groupe A : deux avec cible (Attaques differentes) et un
+    MELEE PURE hors de portee. C'est le seul montage qui exerce `ascending` et `notargets`."""
+    from rl_collect_batch import _resolve_session
+    out = MW.measure_counterfactual(_resolve_session(), SEED, BOARD, verbose=True)
+    if out is None:
+        pytest.skip("montage M5 (contrefactuels) non montable (board/pool/placement/DRAIN)")
+    return out
+
+
+@pytest.fixture(scope="session")
+def mwbd_nomech(rpc, live_session):
+    """Montage M6 -- AUCUN allie Necron (groupe A vide) : un `Mechanical` et un `Hero` NU. C'est le
+    seul montage qui exerce `nomechanical`."""
+    from rl_collect_batch import _resolve_session
+    out = MW.measure_nomech(_resolve_session(), SEED, BOARD, verbose=True)
+    if out is None:
+        pytest.skip("montage M6 (nomechanical) non montable (board/pool/placement/DRAIN)")
+    return out
+
+
+def _elected(cap, carrier_id, mutate):
+    """L'allie elu par le port quand on neutralise l'etage `mutate` (None = l'ability reste inerte)."""
+    _st, out = MW.offline_finish(cap, carrier_id, patch=MW._patched_tree(mutate))
+    return out[0]["friend"] if out else None
 
 
 # ------------------------------------------------------------------------------------------------
@@ -347,24 +380,53 @@ def test_mwbd_persistent_list_is_purged_between_turns(mwbd):
         assert row["port_out"] and row["port_out"][0]["friend"] == ids[MW.ALLY_A]
 
 
-@pytest.mark.parametrize("mutate", ["nogroups", "ascending", "notargets", "nomechanical"])
-def test_mwbd_counterfactuals_diverge(mwbd, mutate):
-    """(H) CONTREFACTUELS ADVERSARIAUX : chaque mutation de MON PROPRE arbre doit faire DIVERGER le
-    port du live sur au moins une activation. Une mutation qui ne changerait rien signalerait que
-    l'etage correspondant n'est pas exerce par ce montage -- et le vert de (E)/(F) ne prouverait
-    rien de cet etage."""
+def test_mwbd_counterfactual_nogroups(mwbd):
+    """(H.1) `nogroups` -- supprimer la chaine `A.Otherwise(B).Otherwise(C).Otherwise(D)` rabat le
+    choix sur un tri GLOBAL par Attaque. Sur M1 (`necroWarden` 400 groupe A vs `admecDominus` 3000
+    groupe B) cela elit le Dominus : c'est le pendant exact du discriminant (F)."""
     diverged = False
     for row in mwbd["rows"]:
-        _st, out = MW.offline_finish(row["cap"], mwbd["ids"][MW.CARRIER],
-                                     patch=MW._patched_tree(mutate))
-        got = out[0]["friend"] if out else None
         want = row["port_out"][0]["friend"] if row["port_out"] else None
-        if got != want:
+        if _elected(row["cap"], mwbd["ids"][MW.CARRIER], "nogroups") != want:
             diverged = True
             break
-    assert diverged, (
-        "la mutation '%s' n'a change AUCUNE election : cet etage n'est pas exerce par le montage"
-        % mutate)
+    assert diverged, "la chaine Otherwise n'est pas exercee par M1"
+
+
+@pytest.mark.parametrize("mutate", ["ascending", "notargets"])
+def test_mwbd_counterfactuals_m5(mwbd_cf, mutate):
+    """(H.2) Les DEUX etages que M1 N'EXERCE PAS, sur le montage M5 taille pour eux :
+
+      * `ascending` -- M1 n'oppose qu'UNE unite par groupe, donc le sens du tri y est INERTE. M5 met
+        `necroDestroyer` (400) et `necroWarden` (3000) dans le MEME groupe A : le tri DESCENDANT elit
+        le Warden, l'ascendant elirait le Destroyer.
+      * `notargets` -- les deux allies de M1 ont une cible, donc le gate y est INERTE. M5 ajoute
+        `necroSpyder` (Attaque MAXIMALE, MELEE PURE) hors de portee : le gate l'ecarte ; sans lui il
+        est elu et l'ability devient INERTE (il ne peut pas frapper).
+
+    MESURE 2026-07-31 : ces deux mutations echouaient sur M1 -- a juste titre. Un contrefactuel qui
+    ne bouge pas dit que l'etage n'est pas teste, pas que le port est bon."""
+    base = mwbd_cf["port_out"][0]["friend"] if mwbd_cf["port_out"] else None
+    got = _elected(mwbd_cf["cap"], mwbd_cf["ids"][MW.CARRIER], mutate)
+    assert got != base, (
+        "la mutation '%s' n'a change AUCUNE election (base=%s) : cet etage n'est pas exerce"
+        % (mutate, mwbd_cf["vis_by_id"].get(base)))
+
+
+def test_mwbd_counterfactual_nomechanical(mwbd_nomech):
+    """(H.3) `nomechanical` sur M6. Il n'existe AUCUN Necron non-`Mechanical` (recon gameconfig
+    2026-07-31) : des qu'un Necron est eligible, le groupe A gagne et retirer le gate ne deplace
+    rien -- ce pourquoi M1 et M5 laissent cette mutation inerte. M6 vide donc le groupe A :
+    `admecDominus` (`Mechanical`, 400) est le seul elu possible, alors qu'`astraCreed` (`Hero` NU,
+    3000) le devancerait au tri sans le gate."""
+    base = mwbd_nomech["port_out"][0]["friend"] if mwbd_nomech["port_out"] else None
+    got = _elected(mwbd_nomech["cap"], mwbd_nomech["ids"][MW.CARRIER], "nomechanical")
+    assert base == mwbd_nomech["ids"][MW.ALLY_B], (
+        "l'elu de base doit etre le seul Mechanical (%s), pas %s"
+        % (MW.ALLY_B, mwbd_nomech["vis_by_id"].get(base)))
+    assert got == mwbd_nomech["ids"][MW.ALLY_NM], (
+        "sans le gate Mechanical, %s (Attaque plus grosse) doit etre elu, pas %s"
+        % (MW.ALLY_NM, mwbd_nomech["vis_by_id"].get(got)))
 
 
 def test_mwbd_else_branch_self_buff(mwbd_solo):
