@@ -75,6 +75,7 @@ from .loki import (
     NightshroudDmgReductionEffect,
     PsychicFortressDmgReductionEffect,
     PsychicFortressExtraBlockEffect,
+    CamoCloakDmgReductionEffect,
     ParryEffect,
     PathOfCommandExtraCritEffect,
     PathOfCommandExtraDmgEffect,
@@ -613,6 +614,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     #    (IdunBattleLogic.Entities.DSLFactory$$AddExtraBlockEffectToOwner, MultiValueStat 7/8 hors GetStat, comme BeastSlayer).
     "PsychicFortress_DmgReduction": PsychicFortressDmgReductionEffect,
     "PsychicFortress_ExtraBlock": PsychicFortressExtraBlockEffect,
+    # CamoCloak_DmgReduction (0x3f6=1014, passif CamoCloak 0x3eb=1003 de `ultraEliminatorSgt` et du
+    # summon `ultraSmnEliminator`) -- owner-effect PERMANENT (`CamoCloakAbility$$CreateBehaviour` =
+    # `AddEffect(0x3f6, stateRef, Owner@0x148, duree 0)`). Reduction PLATE du degat RANGED recu,
+    # GATEE par le COUVERT : `HasEffect(sel, 1013 LightCover, onlyActive=0, 6) | IsEffectTarget(sel,
+    # 1026 BigTarget_Adjacent)` -- le meme predicat sert de `CreateActiveCondition` (sur Owner) ET de
+    # membre du trigger de degat (sur Target). Canal = `ForAddition(Multiply(ConfigVar 0x12,
+    # Direct(-1)))` slot +0x10 == jumeau STRUCTUREL de PsychicFortress -> `flat_reductions`
+    # pre-percage. Magnitude indexee par le niveau PASSIF (`set_TriggeredAbility`). (#366-r1)
+    "CamoCloak_DmgReduction": CamoCloakDmgReductionEffect,
     # DecoysAndMisdirection (Genestealer Cults ex. genesPrimus/genesMagus/genesKelermorph) : +extraDmg
     # FLAT additif a TOUTES les attaques de l'ami buffe (pose quand un decoy est spawn a cote / qu'un ami
     # marche sur un decoy). Gate OwnerIsCaster SEUL (IdunBattle.Entities.Effects.Loki.DecoysAndMisdirection_ExtraDamageEffect$$CreateEffectDamageBonusForAttack -> applique en prediction+combat, cf.

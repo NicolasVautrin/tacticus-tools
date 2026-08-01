@@ -816,3 +816,109 @@ class PsychicFortressDmgReductionEffect(BaseEffect):
         if not amt:
             return None
         return for_subtraction(False, abs(int(amt)))          # owner=défenseur -> flat_reductions pré-perçage (famille Nightshroud)
+
+
+def camo_cloak_cover(unit_state: "Mapping | None") -> bool:
+    """MIRROR de `IdunBattle.Entities.Effects.Loki.CamoCloak_DmgReductionEffect$$HasValidEffectTrigger`
+    -- le PREDICAT unique du kit CamoCloak, appele DEUX fois par le natif (cf.
+    `CamoCloakDmgReductionEffect` ci-dessous) :
+
+        DSLTriggers.HasEffect(<sel>, 0x3f5 = 1013 LightCover, onlyActive = 0, effectTargetType = 6)
+        op_BitwiseOr
+        DSLTriggers.IsEffectTarget(<sel>, 0x402 = 1026 BigTarget_AdjacentEffect)
+
+    Les deux membres sont les DEUX effets du jeu qui retirent des COUPS a une attaque ranged recue
+    (`LightCoverEffect` -2, `BigTargetAdjacentEffect` -1) -- c'est la lecture EXACTE de l'i2
+    « Whenever an incoming ranged attack has its number of hits reduced for any reason ». Le natif
+    n'enumere PAS « toute reduction de coups » : il nomme ces deux ids, et rien d'autre (ni
+    `Camouflage`, ni `Diminutive`, ni `FightingRetreat`, qui reduisent pourtant aussi les coups).
+
+    ⚠ `onlyActive = 0` (LU au decompile) : le natif ne filtre PAS sur `EffectComponent.IsActive` --
+    d'ou le mirror `EffectsState.has_effect` (qui ne filtre que `consumed`) et non `active_effects`
+    (qui, lui, reboucle sur `is_active` et se mordrait la queue).
+
+    Cles du `unit_state` (`runner.components.unit_state_for_effects` / `playbook.scene.Scene.
+    unit_state`), tri-etat comme partout : ABSENTES = « donnee non threadee » -> True (« present ==
+    actif », le canal `decisionView` par defaut ne publie QUE les effets actifs)."""
+    if unit_state is None:
+        return True
+    lc = unit_state.get("has_effect_light_cover")
+    bt = unit_state.get("is_target_of_big_target_adjacent")
+    if lc is None and bt is None:
+        return True
+    return bool(lc) or bool(bt)
+
+
+class CamoCloakDmgReductionEffect(BaseEffect):
+    """`CamoCloak_DmgReductionEffect` (EffectType 0x3f6 = **1014**, nom capte "CamoCloak_DmgReduction")
+    -- owner-effect PERMANENT du passif `CamoCloak` de `ultraEliminatorSgt` << Certus >> (et du summon
+    `ultraSmnEliminator`). i2 : « Whenever an incoming ranged attack has its number of hits reduced
+    for any reason, it deals -{dmgReduction} Damage per hit to this unit. »
+
+    POSE -- `IdunBattleLogic.Entities.Abilities.Active.Loki.CamoCloakAbility$$CreateBehaviour` :
+
+        AddEffect(0x3f6, <BaseTriggeredAbility.get_AbilityStateReference>, Owner@0x148, duree = 0)
+
+    (`BaseTriggeredAbility` : malgre le namespace `Abilities.Active.Loki`, c'est une TRIGGERED --
+    `TriggeredAbilityType.CamoCloak = 0x3eb = 1003`, et `unit_map kit` la classe `voie: passive`.)
+    Duree nulle => permanent, pose a l'init du porteur.
+
+    DEGAT -- `IdunBattle.Entities.Effects.Loki.CamoCloak_DmgReductionEffect$$CreateDamageModifier`
+    (corps INLINE, mirror 1:1) :
+
+        EffectBonus.ForAddition(
+            get_OwnerIsTarget
+              & HasValidEffectTrigger(Target@0x178)          # cf. `camo_cloak_cover` ci-dessus
+              & IsRangedAttack,
+            Multiply( ConfigVar(0x12 = dmgReduction, GetAbilityState(effet), config@+0x60),
+                      Direct(-1)@DSLFormulas+0x38 ) )
+
+    * **KIND = ForAddition** : le corps inline ecrit le montant au champ **+0x10** de la struct
+      `EffectBonus`, EXACTEMENT le slot qu'ecrit `IdunBattle.Entities.Effects.EffectBonus$$ForAddition`
+      (`ret+0x10 = amount`) -- distinct de ForPercentIncrease (+0x08), ForSubtraction (+0x18),
+      ForOverride (+0x28). Le `x Direct(-1)` rend le montant NEGATIF : c'est une SOUSTRACTION PLATE.
+      JUMEAU STRUCTUREL EXACT de `IdunBattle.Entities.Effects.Loki.PsychicFortress_DmgReductionEffect$$CreateDamageModifier`
+      (meme `ForAddition(Multiply(ConfigVar 0x12, Direct(-1)))`, meme slot) -> canal port
+      `for_subtraction(False, |amt|)` = `flat_reductions`, additif DEFENSEUR **PRE-percage**
+      (famille Nightshroud, ground truth #120/#111). Ce n'est donc **PAS** le canal
+      `CreateEffectDamageMalusForDefense` de `1110 FireAndReposition` (slot +0x18) ni une pose de
+      `statType` : deux noms natifs differents, meme bac d'arrivee cote port.
+    * **`IsRangedAttack`** : une melee recue n'est PAS reduite ; nature inconnue (`None`) -> no-op.
+    * **MAGNITUDE** : `ConfigVar(0x12)` = `variables["dmgReduction"][level]` de l'ability
+      **CamoCloak** (65 niveaux, 5 -> 364 ; L50 = 277) **x mult de rarete** (`dmgReduction` est dans
+      `variablesAffectedByRarityBonus`). Le `.ctor` fait `mov edx, 0x3eb` puis
+      `jmp DamageModifierAbilityEffect$$.ctor` (RVA calculee depuis l'encodage du `jmp`), dont
+      l'`AbilityOrEffect$$op_Implicit` appelle **`set_TriggeredAbility`** (surcharge tranchee par son
+      CORPS, jamais par son nom) => l'`AbilityState` resolue est celle d'une ability NON-active,
+      c.-a-d. le niveau PASSIF du porteur -> `ability_level` (jamais `active_ability_level`).
+
+    ACTIVE-CONDITION -- `IdunBattle.Entities.Effects.Loki.CamoCloak_DmgReductionEffect$$CreateActiveCondition`
+    = `HasValidEffectTrigger(Owner@0x148)`, c.-a-d. **le meme predicat** que celui du trigger de
+    degat, sur `Owner` au lieu de `Target`. Sous le `get_OwnerIsTarget` en tete du AND, les deux
+    selecteurs designent la MEME entite : le gate de couvert est donc porte UNE fois, dans
+    `is_active` -- le repeter dans le canal de degat serait redondant, et surtout impossible (ce
+    canal ne recoit que `is_melee`/`damage_profile`/`attacker_ctx`, aucun contexte du DEFENSEUR).
+    `active_effects` filtre par `is_active` AVANT d'appeler le canal (`damage_model.
+    defender_modifiers`, `Scene.effects`) : l'ordre du natif est preserve.
+
+    `active_condition_ported` reste **False** : le flag capte `EffectComponent.IsActive` fait foi
+    quand il est la (le canal `decisionView` par defaut DROPPE les inactifs, donc « present ==
+    actif »), et `is_active` ne peut que FERMER en plus -- jamais rouvrir un inerte capte. Corollaire
+    NOMME : un porteur capte HORS couvert n'a pas d'instance 1014 materialisee, donc un deplacement
+    offline vers une tuile de couvert ne la fait pas apparaitre (residu de SEED, pas de gate)."""
+
+    def is_active(self, unit_state: Mapping | None = None) -> bool:
+        return camo_cloak_cover(unit_state)          # CreateActiveCondition = HasValidEffectTrigger(Owner)
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        if is_melee is not False:                    # IsRangedAttack (None = nature inconnue -> muet)
+            return None
+        # `GetAbilityState(effet)` sur un `AbilityOrEffect` TriggeredAbility -> niveau PASSIF.
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        red = ability_var("CamoCloak", "dmgReduction", lvl,      # ConfigVar 0x12 (rarity-scale)
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not red:
+            return None
+        return for_subtraction(False, abs(int(red)))  # x Direct(-1) -> flat_reductions pre-percage

@@ -1474,6 +1474,66 @@ def enemy_psykers_alive(state, unit_id: int) -> Optional[int]:
     return n
 
 
+def has_effect_of_type(state, unit_id: int, effect_type: int) -> bool:
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasEffect(sel, effectType, onlyActive, effectTargetType)`
+    -> `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects(entity, query, [effectType],
+    onlyActive, targetType)` -- la branche « l'entite PORTE cet effet ».
+
+    ⚠ **`onlyActive = 0`** au call-site porte (`CamoCloak_DmgReductionEffect$$HasValidEffectTrigger`) :
+    le natif ne consulte PAS `EffectComponent.IsActive @+0x5c`. Le mirror est donc
+    `EffectsState.has_effect` (qui ne filtre que `consumed`) et **pas** `active_effects` -- ce
+    dernier appelle `BaseEffect.is_active`, et l'appeler ICI bouclerait (ce lecteur alimente
+    justement le `unit_state` des `is_active`).
+
+    `targetType = 6` (= 2|4 = owned | targeted) : cote port les deux branches coincident, l'
+    `EffectsState` etant indexee par ENTITE PORTEUSE (`by_unit`), qui est la cible de l'`AddEffect`."""
+    eff = getattr(state, "effects", None)
+    if eff is None:
+        return False
+    return bool(eff.has_effect(int(unit_id), int(effect_type)))
+
+
+def is_target_of_adjacent_friend_aura(state, unit_id: int, effect_type: int) -> Optional[bool]:
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsEffectTarget(sel, effectType)` ->
+    `IdunBattle.Entities.EntityExtensions$$IsTargetOfEffectOfType` = « l'entite figure dans la liste
+    de CIBLES (`EffectComponent+0x48`) d'une entite-effet de ce type ».
+
+    Le port ne materialise PAS les cibles d'une AURA : l'instance vit sur son PORTEUR
+    (`EffectsState.by_unit[porteur]`) et la geometrie est re-derivee a la lecture -- c'est deja ce
+    que fait `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense`. Ce lecteur applique donc
+    le MEME selecteur que cette classe (`IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$
+    CreateTargetSelector` : amis hex-adjacents, porteur EXCLU), sur les porteurs de `effect_type`.
+
+    `None` = position du sujet inconnue (hors plateau) -> la cle est ABSENTE du `unit_state` et le
+    predicat consommateur degrade a sa facon ; jamais un `False` invente."""
+    ent = state.get_entity(int(unit_id))
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if pc is None or pc.col is None or pc.row is None:
+        return None
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    if oc is None:
+        return None
+    import hexgeo
+    me = (pc.col, pc.row)
+    for uid, e in state.entities.items():
+        if int(uid) == int(unit_id):                       # porteur EXCLU (includeCenter=false)
+            continue
+        eoc = e.get_component(OwnerComponent)
+        if eoc is None or eoc.team != oc.team:             # AdjacentFriends : meme camp
+            continue
+        uc = e.get_component(UnitComponent)
+        if uc is not None and not uc.alive:
+            continue
+        epc = e.get_component(PositionComponent)
+        if epc is None or epc.col is None or epc.row is None:
+            continue
+        if hexgeo.distance(me, (epc.col, epc.row)) != 1:   # ring-1 hex
+            continue
+        if has_effect_of_type(state, int(uid), int(effect_type)):
+            return True
+    return False
+
+
 def contagions_of_nurgle_amount(state, unit_id: int, source_id) -> Optional[int]:
     """`IdunBattle.Entities.Triggers.ContagionsOfNurgleAmountFormula$$Calculate` — le nœud
     `IdunBattleLogic.Entities.DSLFormulas$$ContagionsOfNurgleAmount(team, unit)`, lu VERBATIM :
@@ -1577,6 +1637,15 @@ class UnitEffectStateView(Mapping):
         CreateActiveCondition` = `op_LogicalNot(HasFlag(Owner, 0))`. La cle n'est presente que si
         l'entite existe ; le composant absent vaut « n'a pas bouge » (comme le natif, dont le
         `UnitFlagsComponent$$Has` sur un set vide rend faux).
+      * `has_effect_light_cover` / `is_target_of_big_target_adjacent` — les DEUX membres du
+        `op_BitwiseOr` de `IdunBattle.Entities.Effects.Loki.CamoCloak_DmgReductionEffect$$
+        HasValidEffectTrigger` (`HasEffect(sel, 1013, onlyActive=0, 6)` /
+        `IsEffectTarget(sel, 1026)`), lus par la `CreateActiveCondition` de `1014
+        CamoCloak_DmgReduction`. PARESSEUX (chacun balaie : `EffectsState` pour le premier, les
+        entites ring-1 pour le second). Le premier est present des que le state porte une
+        `EffectsState`, le second des que l'unite est SUR le plateau (le selecteur natif est un
+        `AdjacentFriends`, il n'a pas de sens hors position). Cle absente = donnee non threadee ->
+        `camo_cloak_cover` degrade en VRAI (« present == actif »), jamais en FAUX.
       * `contagions_of_nurgle_amount` — **un CALLABLE** `(source_unit_id) -> int | None`, et non une
         valeur : le nœud natif `ContagionsOfNurgleAmount(team, unit)` prend l'EFFECT SOURCE en
         entrée, donc le cardinal dépend de l'INSTANCE d'effet qui l'interroge, pas seulement du
@@ -1586,7 +1655,8 @@ class UnitEffectStateView(Mapping):
     La paresse n'est pas une optimisation gratuite : `active_effects` est appelé dans des boucles
     par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
 
-    __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos")
+    __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
+                 "_has_effstate", "_lc", "_bta")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -1620,6 +1690,11 @@ class UnitEffectStateView(Mapping):
         # elle n'a pas de tuile (`GetInRangeAuraAmount` deref `MainTile`) -> la cle n'existe que si
         # l'unite est SUR le plateau.
         self._has_pos = (ent is not None and ent.get_component(PositionComponent) is not None)
+        # `HasEffect(sel, 1013 LightCover, onlyActive=0, 6)` : calculable des que le state porte une
+        # `EffectsState` ; `IsEffectTarget(sel, 1026)` exige EN PLUS une position (selecteur ring-1).
+        self._has_effstate = getattr(state, "effects", None) is not None
+        self._lc: Optional[bool] = None
+        self._bta: Optional[bool] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -1631,6 +1706,19 @@ class UnitEffectStateView(Mapping):
         if key == "contagions_of_nurgle_amount" and self._has_pos:
             state, uid = self._state, self._uid
             return lambda source_id: contagions_of_nurgle_amount(state, uid, source_id)
+        # `CamoCloak_DmgReductionEffect$$HasValidEffectTrigger` (case-366-r1) — les DEUX membres du
+        # `op_BitwiseOr`, PARESSEUX (chacun balaie, on ne paie que si une instance 1014 les lit).
+        if key == "has_effect_light_cover" and self._has_effstate:
+            from ..entities.effect_type import EffectType
+            if self._lc is None:
+                self._lc = has_effect_of_type(self._state, self._uid, int(EffectType.LightCover))
+            return self._lc
+        if key == "is_target_of_big_target_adjacent" and self._has_pos:
+            from ..entities.effect_type import EffectType
+            if self._bta is None:
+                self._bta = is_target_of_adjacent_friend_aura(
+                    self._state, self._uid, int(EffectType.BigTarget_AdjacentEffect))
+            return self._bta
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -1639,9 +1727,13 @@ class UnitEffectStateView(Mapping):
             yield "enemy_psykers_alive"
         if self._has_pos:
             yield "contagions_of_nurgle_amount"
+            yield "is_target_of_big_target_adjacent"
+        if self._has_effstate:
+            yield "has_effect_light_cover"
 
     def __len__(self) -> int:
-        return len(self._eager) + (1 if self._has_psy else 0) + (1 if self._has_pos else 0)
+        return (len(self._eager) + (1 if self._has_psy else 0) + (2 if self._has_pos else 0)
+                + (1 if self._has_effstate else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)
         return "UnitEffectStateView(u%d, %s)" % (self._uid, sorted(self))
