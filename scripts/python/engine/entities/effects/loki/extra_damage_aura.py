@@ -636,11 +636,11 @@ class PsychicStalkExtraAttackDamageEffect(APsychicStalkEffect):
     quand meme : c'est `ability_var` qui applique la regle config-driven, pas l'appelant).
     `ability_level` absent (`GetAbilityState` sans etat) -> AUCUNE contribution.
 
-    NON PORTE ici (items voisins, tache separee) : `1216 PsychicStalk_VisualEffect` (aucun canal de
-    degat : `CreateActiveCondition = !IsDead(Owner)`, `CreateTargetSelector =
-    Units(EntitiesWithAnyEffect(Tiles(Enemies(Owner)), Fire, 6))`) et `1435
-    PsychicStalk_FriendlyChaosExtraDamage` (`ForAddition(..., ConfigVar(8 = extraDmg))`, canal
-    ATTAQUANT). La POSE du feu (`PsychicStalk_ApplyFireTileAbility$$CreateBehaviour` =
+    NON PORTE ici (item voisin) : `1216 PsychicStalk_VisualEffect` (aucun canal de degat :
+    `CreateActiveCondition = !IsDead(Owner)`, `CreateTargetSelector =
+    Units(EntitiesWithAnyEffect(Tiles(Enemies(Owner)), Fire, 6))`). Le TROISIEME effet du kit,
+    `1435 PsychicStalk_FriendlyChaosExtraDamage`, est porte juste en dessous (canal ATTAQUANT).
+    La POSE du feu (`PsychicStalk_ApplyFireTileAbility$$CreateBehaviour` =
     `AddEffect(Fire = 5, targets = TargetTiles@0x78)`, trigger `OnNormalAttackOrSmite & OwnerIsCaster
     & IsRangedAttack`) n'est pas portee non plus -- l'etat offline la recoit par le seed des effets
     de tuile (`snapshot._load_tile_effects`)."""
@@ -669,3 +669,113 @@ class PsychicStalkExtraAttackDamageEffect(APsychicStalkEffect):
         pct = ability_var(PSYCHIC_STALK_ID, "extraDmgPct", self.ability_level,
                           multiplier_pct=self.ability_variables_multiplier)
         return for_percent_increase(True, int(pct)) if pct else None
+
+
+class PsychicStalkFriendlyChaosExtraDamageEffect(APsychicStalkEffect):
+    """`IdunBattle.Entities.Effects.Loki.PsychicStalk_FriendlyChaosExtraDamageEffect`
+    (EffectType 0x59b = 1435) -- le TROISIEME effet du kit `PsychicStalk` (passif 1179 de
+    `thousAhriman` << Ahriman >>), pose comme les deux autres SUR LE PORTEUR par
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PsychicStalk_ExtraAttackDamageAbility$$CreateBehaviour`
+    (`AddEffect(0x4bf) + AddEffect(0x4c0) + AddEffect(0x59b, targets = Owner@0x30)`).
+    i2 : « Affected attacks from friendly Chaos units deal an additional +extraDmg Damage. »
+
+    ## Canal : ADDITIF ATTAQUANT (`ForAddition`), PAS le %-list defenseur de `1215`
+    `IdunBattle.Entities.Effects.Loki.PsychicStalk_FriendlyChaosExtraDamageEffect$$CreateEffectDamageBonusForAttack`
+    (mirror 1:1, lu au decompile) :
+
+        EffectBonus.ForAddition(
+              AreFriends(Owner@0x30, Caster@0x48, comparisonType = 0, anyEntity = false)
+            & HasTrait(Caster@0x48, 0x7ea = 2026 = Chaos)
+            & GetTargetIsOnFireTileCondition()
+            & GetAttackHasValidDamageProfileCondition(),
+              ConfigVar(8 = extraDmg, GetAbilityState(effet), config@+0x60) )
+
+    C'est une entree de `IdunBattle.Core.Services.DamageModifiers$$Add` DIFFERENTE de celle de
+    `1215` : `ForAddition` -> `additive` (pre-percage, par coup), la ou `1215` faisait
+    `ForPercentIncrease` -> `pct_list` DEFENSEUR. Les deux se COMPOSENT : l'additif traverse le
+    percage puis est scale UNE fois par le %-list -- c'est exactement l'ecart mesure par la
+    contre-epreuve de `1215` (664 = round(extraDmg[L50] x 1.8 x 1.33)).
+
+    ## Enumeration : STATE-WIDE, self INCLUS
+    Le slot d'interface `0x16` (`CreateEffectDamageBonusForAttack`) est invoque par
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` sur la
+    liste GLOBALE des entites porteuses d'effets actifs (une `List<KVP<entite, List<effet>>>`
+    passee en argument, double boucle `GetEnumerator`/`MoveNext`) -- exactement la forme
+    symetrique de `CalculateDefenderModifiersForPrediction` (cf. case-68). Il n'y a AUCUNE
+    exclusion du porteur : `AreFriends(Owner, Caster)` fait tout le filtrage, et
+    `IdunBattle.Entities.UnitExtensions$$IsFriend` compare deux `GetCurrentPlayer(...).index`
+    SANS ecarter l'egalite -> `IsFriend(x, x)` est VRAI. Ahriman beneficie donc de son propre
+    effet quand il attaque.
+
+    Cote port l'enumeration native se scinde en DEUX foyers DISJOINTS (meme decoupage que
+    `DestroyTheWitch_ExtraDamage`, dont le selecteur natif est `SurroundingFriends(Owner) +
+    Owner`) : `create_effect_damage_bonus_for_attack` sert le PORTEUR-attaquant, et
+    `create_aura_attack_damage_bonus_for_ally` (agregateur `aura_attack_damage_bonus_from_allies`,
+    qui EXCLUT `att_id == owner_id` et ne retient que la MEME equipe) sert ses allies -- donc
+    ni trou ni double-compte.
+
+    ## AUCUN gate sur la CIBLE
+    Contrairement a `1215` (`AreEnemies(Target@0x60, Owner@0x30)`), le trigger de `1435` ne porte
+    RIEN sur la cible du coup : seule sa TUILE est lue (`GetTargetIsOnFireTileCondition`). Un tir
+    fratricide sur un allie place sur un hex en feu declencherait donc l'additif. Le quirk est
+    porte tel quel (le decompile fait foi) ; l'i2 (« Affected attacks... ») suggere l'heritage du
+    « to enemies » de la phrase precedente, mais aucun noeud ne l'implemente.
+
+    ## MAGNITUDE
+    `ConfigVar(8 = extraDmg)` sur la config `PsychicStalk`, indexee par `GetAbilityState(effet)`.
+    ⚠ `extraDmg` EST dans `variablesAffectedByRarityBonus` (`['maxDmg', 'extraDmg']`) -- a la
+    difference de l'`extraDmgPct` de `1215` : la valeur est donc SCALEE par le multiplier de
+    rarete du porteur (`extraDmg[L50] = 277`, x180 % = 499). `ability_level` absent
+    (`GetAbilityState` sans etat capte) -> AUCUNE contribution (« present != applique »)."""
+
+    # `HasTrait(Caster@0x48, 0x7ea = 2026)` -- trait de GRANDE-ALLIANCE, ABSENT de
+    # `gameconfig.traits` : il est derive du `GrandAllianceId` par
+    # `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` (Imperial -> 26, Xenos -> 0x3ee,
+    # Chaos -> 0x7ea). MEME convention que le gate Chaos de `BeaconOfRage_FriendlyExtraDamage`
+    # et le gate Imperial de `RitesOfBattle`.
+    _CHAOS_GRAND_ALLIANCE = "Chaos"
+
+    def _bonus_if_common_gates_pass(self, c: Mapping) -> EffectBonus | None:
+        """Les TROIS conjoints du trigger qui ne dependent PAS de la relation porteur/attaquant,
+        + la magnitude. Partage mot pour mot par les deux pattes (le natif, lui, n'a qu'un seul
+        corps : la scission port self/aura est un artefact de l'enumeration cote port).
+
+        Cle absente = contexte NON THREADE -> gate FERME (degradation RESTRICTIVE nommee, jamais
+        un booleen devine) : c'est le regime des appelants qui ne passent pas encore la cible."""
+        if c.get("att_grand_alliance") != self._CHAOS_GRAND_ALLIANCE:
+            return None                                   # HasTrait(Caster@0x48, 0x7ea = Chaos)
+        if not self.target_is_on_fire_tile(c):            # GetTargetIsOnFireTileCondition
+            return None
+        if not self.attack_has_valid_damage_profile(c):   # GetAttackHasValidDamageProfileCondition
+            return None
+        if self.ability_level is None:                    # ConfigVar sans AbilityState -> rien
+            return None
+        amt = ability_var(PSYCHIC_STALK_ID, "extraDmg", self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, amt) if amt else None
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits=None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        """PATTE SELF : le PORTEUR de l'effet (Ahriman) est LUI-MEME l'attaquant. Ce foyer n'est
+        appele que sur les effets de l'attaquant (`_attacker_effect_bonuses`), donc
+        `AreFriends(Owner@0x30, Caster@0x48)` s'y evalue en `IsFriend(x, x)` = VRAI (lu au
+        decompile : `UnitExtensions$$IsFriend` compare deux `GetCurrentPlayer(...).index`, sans
+        exclusion de l'egalite). Les trois autres conjoints sont lus dans `att_ctx`, avec les
+        MEMES CLES que le ctx du canal AURA -- pas de fork."""
+        return self._bonus_if_common_gates_pass(att_ctx or {})
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        """PATTE AURA : un ALLIE Chaos du porteur attaque. `AreFriends(Owner@0x30, Caster@0x48)` =
+        `IsFriend` sur le `CurrentPlayer` des deux entites -> comparaison d'EQUIPE cote port
+        (`comparisonType = 0` du call-site = branche CurrentPlayer de `UnitExtensions$$IsFriend`,
+        pas OriginalPlayer). L'agregateur a deja exclu `att_id == owner_id` (patte SELF)."""
+        c = ctx or {}
+        if c.get("owner_team") is None or c.get("att_team") is None \
+                or c.get("owner_team") != c.get("att_team"):
+            return None                                   # AreFriends(Owner@0x30, Caster@0x48)
+        return self._bonus_if_common_gates_pass(c)

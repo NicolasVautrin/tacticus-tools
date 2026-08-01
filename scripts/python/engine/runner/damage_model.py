@@ -252,6 +252,13 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            "tgt_traits": target_traits,
            "t_pos": _unit_pos(state, target_id),
            "tgt_team": _unit_team(state, target_id)}
+    # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE AURA : son conjoint
+    # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`, donc
+    # les effets de la MAIN TILE de la cible. MEME canal / MEME forme `{(col,row): [noms]}` que
+    # celui deja monte pour l'agregateur DEFENSE (`defender_modifiers`) et pour
+    # `LetTheGalaxyBurnEffect`. Cible absente -> cle absente -> le gate se tait.
+    if ctx["t_pos"] is not None:
+        ctx["tile_effects_by_pos"] = tile_status_effects_by_pos(state, [ctx["t_pos"]])
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 
@@ -462,6 +469,26 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
         att_ctx = dict(att_ctx or {})
         att_ctx["marked_effect_types"] = marked_effect_types_for_target(state, unit_id, target_id)
         att_ctx["tgt_grand_alliance"] = grand_alliance_of(state, target_id)
+        # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE SELF du slot
+        # `CreateEffectDamageBonusForAttack` : ses trois conjoints non-relationnels portent sur
+        # l'ATTAQUANT (`HasTrait(Caster@0x48, 0x7ea = Chaos)`), sur la TUILE DE LA CIBLE
+        # (`EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`) et sur le PROFIL du coup
+        # (`DamageProfileIs([Flame, Psychic])`). MEMES CLES / MEME semantique que le ctx du canal
+        # AURA (`_apply_ally_attack_damage_auras`) et que la face PREDICTION -- pas de fork.
+        att_ctx["att_grand_alliance"] = grand_alliance_of(state, unit_id)
+        att_ctx["damage_profile"] = damage_profile
+        _t_pos = _unit_pos(state, target_id)
+        att_ctx["t_pos"] = _t_pos
+        att_ctx["tgt_team"] = _unit_team(state, target_id)
+        # `Tiles` = `IdunBattle.Entities.Selectors.UnitsMainTilesSelector` -> la MAIN TILE de la
+        # cible. `_positional_att_ctx` n'a rempli que le centre + ring-1 de l'ATTAQUANT : on
+        # COMPLETE (setdefault) la position de la cible sans jamais ECRASER une entree deja posee
+        # (elle porte, elle, les covers de terrain que `LordOfTempests` compte).
+        if _t_pos is not None:
+            _tfx = dict(att_ctx.get("tile_effects_by_pos") or {})
+            for _p, _names in (tile_status_effects_by_pos(state, [_t_pos]) or {}).items():
+                _tfx.setdefault(tuple(_p), _names)
+            att_ctx["tile_effects_by_pos"] = _tfx
         # `IsCharging` (case-r32) = `BattleQuery$$IsCharging(caster, target)` : adjacence ET
         # `ChargedUnitIds@+0x190.Contains(target.Id)`. C'est le gate des trois effets extra-degat
         # de charge (AvalancheOfMuscle 1025, FeederTendrils 1197, BlackRage 1343). La liste est

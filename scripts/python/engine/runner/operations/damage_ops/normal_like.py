@@ -75,7 +75,13 @@ class _NormalLike:
         # call-sites portes, qui passent tous un bool) -> None conserve = gates inertes.
         _ranged = (not is_melee) if is_melee is not None else None
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
-                                          is_ranged=_ranged)
+                                          is_ranged=_ranged,
+                                          # `DamageProfileIs(...)` du collecteur attaquant unique
+                                          # (`BaseEffect$$DamageBonusForAttack`) -- ce vecteur le
+                                          # threadait deja au DEFENSEUR (ligne dessous) mais pas a
+                                          # l'ATTAQUANT. Consommateur porte :
+                                          # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, 1435).
+                                          damage_profile=damage_profile)
         # #45f : feuilles POSITIONNELLES du builder PARTAGE IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction (elevation/trench) — appliquees
         # a TOUT vecteur d'attaque par le natif (aucun gate normale/ability ; cf. execute_ability_attack,
         # meme fix, probe_45f_gfa_elevation). Le vecteur normal-like (splash Psyker / amount-mode) les

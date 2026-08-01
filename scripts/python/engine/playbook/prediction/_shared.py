@@ -631,7 +631,12 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            # d'ENTITE (le `target_traits=target_trait_names(...)` que le combat threade deja ici).
            # `None` (appelant sans cible) reste DISTINCT de `frozenset()` : ces gates rendent None
            # au lieu de conclure « la cible n'a pas le trait ».
-           "tgt_traits": _entity_traits(scene, tgt_id) if tgt_id is not None else None}
+           "tgt_traits": _entity_traits(scene, tgt_id) if tgt_id is not None else None,
+           # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) : son conjoint
+           # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`.
+           # MEME cle / MEME forme `{(col,row): [noms]}` que celle deja threadee a l'agregateur
+           # DEFENSE ci-dessus et que la face COMBAT (`_apply_ally_attack_damage_auras`).
+           "tile_effects_by_pos": scene.tile_effects_by_pos}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 

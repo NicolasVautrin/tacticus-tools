@@ -42,6 +42,7 @@ from .loki import (
     CrushingStrikeEffect,
     DaughterOfTheAbyssExtraDamagePctEffect,
     PsychicStalkExtraAttackDamageEffect,
+    PsychicStalkFriendlyChaosExtraDamageEffect,
     DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
     DaughterOfTheAbyssOwnerDmgReductionEffect,
     DecoysAndMisdirectionExtraDamageEffect,
@@ -602,9 +603,21 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # -> canal AURA state-wide `create_aura_defense_damage_malus_for_ally`, %-list DEFENSEUR (PAS
     # `flat_reductions` : la fabrique est ForPercentIncrease, pas ForSubtraction). AUCUN gate sur
     # l'attaquant hors le OU structurel -- c'est ce qui le separe de son voisin 0x59b=1435
-    # FriendlyChaosExtraDamage (ForAddition, gate `AreFriends & HasTrait(Chaos)`, non porte).
+    # FriendlyChaosExtraDamage (ForAddition, gate `AreFriends & HasTrait(Chaos)`, ci-dessous).
     # EffectType 0x4bf=1215 (#366-r1).
     "PsychicStalk_ExtraAttackDamage": PsychicStalkExtraAttackDamageEffect,
+    # 3e effet du MEME kit PsychicStalk, canal ATTAQUANT ADDITIF (et non %-list defenseur) :
+    # `IdunBattle.Entities.Effects.Loki.PsychicStalk_FriendlyChaosExtraDamageEffect$$
+    # CreateEffectDamageBonusForAttack` = ForAddition( AreFriends(Owner@0x30, Caster@0x48)
+    # & HasTrait(Caster@0x48, 0x7ea = Chaos) & GetTargetIsOnFireTileCondition()
+    # & GetAttackHasValidDamageProfileCondition(), ConfigVar(8 = extraDmg) ). Le slot 0x16 est
+    # invoque STATE-WIDE par `IdunBattle.Core.Services.DamageCalculations$$
+    # CalculateAttackerModifiersForPrediction`, sans exclure le porteur (`UnitExtensions$$IsFriend`
+    # n'ecarte pas l'egalite) -> DEUX pattes port disjointes : `create_effect_damage_bonus_for_attack`
+    # (Ahriman attaque) + `create_aura_attack_damage_bonus_for_ally` (un allie Chaos attaque).
+    # ⚠ `extraDmg` est dans `variablesAffectedByRarityBonus` -> SCALE par le multiplier de rarete
+    # (499 @{L50, 180 %}), contrairement a l'`extraDmgPct` de 1215. EffectType 0x59b=1435 (#366-r1).
+    "PsychicStalk_FriendlyChaosExtraDamage": PsychicStalkFriendlyChaosExtraDamageEffect,
     # WireweaveNet (PASSIF 1111 de Calandis `eldarRanger`) : effet-RIPOSTE (`CounterAttackEffect` ->
     # `PlayerTurnEffect`). AUCUN canal de bonus -- tout son observable vit dans les TROIS `Triggered()`
     # de `EFFECT_TRIGGERS[1111]` (`runner/operations/triggers/loki/wireweave_net.py`). Inscrit ici pour
