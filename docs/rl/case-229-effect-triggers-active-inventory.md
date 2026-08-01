@@ -9,12 +9,46 @@ pose en DEFAUT au seed ?
 Verdict etabli par LECTURE (decompile + port), jamais par absence de symptome. Re-derivable :
 `python scripts/python/probe_229_effect_triggers_active.py` (100 % offline, aucun runner).
 
-## 0. Compte reel du registre — 15 effectTypes / 28 classes (pas ~60)
+## 0. Compte reel du registre — RE-DERIVER, ne pas citer
 
-Mesure du 2026-07-29, re-derivee du code : `EFFECT_TRIGGERS` porte **15 cles** pour **28 classes**
-(la valeur est une LISTE : l'`ArraySet` natif rend N triggers par effet). Le chiffre « ~60 » de la
-fiche d'entree ne correspond a rien dans ce registre ; l'ordre de grandeur ~60 est celui des
-effectTypes *portes* toutes familles confondues, pas des effets *a triggers*.
+`EFFECT_TRIGGERS` porte N cles pour M classes (la valeur est une LISTE : l'`ArraySet` natif rend N
+triggers par effet). Le chiffre « ~60 » de la fiche d'entree ne correspond a rien dans ce registre ;
+l'ordre de grandeur ~60 est celui des effectTypes *portes* toutes familles confondues, pas des
+effets *a triggers*.
+
+⚠ **Ne pas figer le compte ici** : il se perime a chaque port. Mesure du 2026-07-29 : 15 / 28.
+Mesure du 2026-08-01 : **23 / 46** — soit **+18 classes en trois jours**, dont **19 hors du `RAIL`
+du probe**. C'est precisement ce que le §0bis raconte.
+
+## 0bis. Le probe a derive — et sa derive etait INVISIBLE (#421, 2026-08-01)
+
+Le `RAIL` de `probe_229` est saisi a la main. Rien ne verifiait qu'il **couvre** le registre : le
+probe controlait la conformite des classes qu'il CONNAIT et se taisait sur les autres. Au
+2026-08-01, **19 des 46 classes inscrites n'y figuraient pas** — il ne disait donc rien d'elles.
+Ventilation apres RE de chacune :
+
+* **15 = trou de RECENSEMENT pur** — rail lu, gate deja conforme (rien a corriger cote moteur) ;
+* **4 = REGRESSION PERMISSIVE silencieuse** — rail TARGETS, gate `e.active` **absent** :
+  `1098 RammingSpeedExtraExplodeRemove`, `1227 HarlequinsPanoplyIgnoreHitsRemove`,
+  `1186 TimeFluxGhostEffectRevive`, `1284 EchoesFromTheWarpGhostEffectRevive`.
+
+Le mecanisme de la derive, et c'est le point a retenir : `#366-r1` a **SCINDE** `GhostEffectRevive`
+en deux instanciations (`TimeFlux*` / `Echoes*`). L'entree `EXPECTED_GAPS = {"GhostEffectRevive"}`
+a survecu au renommage, en citant une classe qui n'existait plus — le probe imprimait donc
+**« gap resorbe »** pour un gap qui, en realite, avait **DOUBLE**. Un cliquet peut mentir dans le
+sens rassurant.
+
+**La garde posee** : `probe_421_rail_covers_registry.py` (~1,7 s, offline). Il rougit si le RAIL ne
+couvre pas le registre, si une entree du RAIL est orpheline (classe renommee/supprimee), ou si
+`EXPECTED_GAPS` / `ARRAYSET_READS_BY_TREE` citent une classe non inscrite. **Le faire passer AVANT
+`probe_229`** : sans lui, le zero de `EXPECTED_GAPS` ne signifie rien, puisqu'une classe hors RAIL
+n'est comptee dans AUCUNE des deux listes du 229.
+
+**La contre-epreuve** : `tests/engine/runner/test_421_effect_active_gate_offline.py` (11 tests,
+~1,5 s). Le probe verifie par AST que le `matches` LIT le flag ; il ne verifie pas que la lecture
+PILOTE le verdict (une lecture decorative le rendrait vert). Le test mesure le verdict, bras ACTIF
+contre bras INACTIF. Mutation-test du 2026-08-01 : retirer chacun des trois gates fait rougir,
+restaurer fait reverdir.
 
 ## 1. Le critere natif : DEUX rails d'evaluation, UN SEUL a gate `IsActive`
 
@@ -25,6 +59,35 @@ sur le meme effet, et ils ne se ressemblent pas :
 |---|---|---|
 | `...$$EvaluateEffectTriggerTargets` | `<Effect>$$CreateTargetTrigger` (slot 0x26 de la def) | **OUI, deux fois** |
 | `...$$EvaluateEffectTriggerEffectAbilities` | `<Effect>$$CreateHandleTriggerAbilitiesInternal` (slot 0x12) | **AUCUN** |
+
+### 1bis. `CreateTargetTrigger` != `CreateRemoveEffectTrigger` — deux virtuels DISJOINTS (#421)
+
+Confusion mesuree, et elle a coute un gate : plusieurs fiches ont ecrit que, « pour un
+`BaseEffect` », `CreateTargetTrigger` **est** le trigger de retrait monte par
+`BaseEffect$$CreateHandleTriggerAbilities` (ainsi
+`case-366-r1-harlequins-panoply-ignore-hits.md` §1, et le commentaire de registre qui la recopie).
+C'est **FAUX**, et le decompile le tranche de deux facons independantes :
+
+1. `BaseEffect$$CreateHandleTriggerAbilities` appelle le slot vtable `+0x5a8` et teste
+   `if (trigger != 0)`. L'implementation de BASE doit donc pouvoir rendre **NULL**. Or
+   `BaseEffect$$CreateTargetTrigger` rend un trigger **NON nul** (`<DSLTriggers>+0x60`, le
+   singleton sans evenement — le meme type que `BaseTriggeredAbility$$GetEventTriggers` traite a
+   part pour ne PAS logger d'erreur sur liste vide). Le slot `+0x5a8` est donc
+   `CreateRemoveEffectTrigger`. Reperes de calibration : `+0x518` = `CreateActiveCondition`
+   (`$$CreateActiveConditionAndCache`), `+0x538` = `CreateTargetSelector`
+   (`$$CreateTargetSelectorAndCache`), `+0x588` = `CreateHandleTriggerAbilitiesInternal`,
+   `+0x598` = `CreateTargetTrigger` (`$$GetWillExecuteEventTriggers`).
+2. Partition mesuree sur `data/symbols/<build>/ghidra/functions.tsv` : **28** classes surchargent
+   `CreateTargetTrigger`, **26** `CreateTargetTriggerBehaviour`, **16** `CreateRemoveEffectTrigger`.
+   `{TT, TTB}` et `{RET}` ont une intersection **VIDE**. Un effet est d'un rail ou de l'autre,
+   jamais des deux.
+
+**Consequence pratique** : pour classer un effet, chercher lequel des deux virtuels il surcharge.
+Si aucun n'est nomme (corps dedupliques), le `CreateTargetTriggerBehaviour` est le discriminant
+utile — seul virtuel du lot a prendre **4 parametres**, donc identifiable par signature dans le
+bloc `methodPointers`. C'est ainsi que `1098 RammingSpeed_ExtraExplode`, laisse AMBIGU par
+`case-389` (« entree 4 = `CreateTargetTrigger` OU `CreateRemoveEffectTrigger` »), est tranche
+**TARGETS**.
 
 - `EvaluateEffectTriggerTargets` : `if (*(char *)(effectComponent + 0x5c) != 0) { ... }` a
   l'entree, puis — dans la boucle PAR CIBLE — re-lit le flag sur l'`EffectComponent` recharge
@@ -70,9 +133,17 @@ plus : les corps triviaux sont dedupliques par IL2CPP.)
 
 ## 2. Inventaire — verdict par effectType
 
-Colonne « rail » = origine native (symbole cite dans le probe). Colonne « lit » = mesure AST du
-`matches` (le gate) et des helpers qu'il appelle — les ecritures de `execute_behaviour`
-(`ActivateEffect`/`DeactivateEffect`) ne comptent pas, ce ne sont pas des gates.
+**La table ci-dessous a ete la source de la derive : elle etait maintenue a la main, en parallele
+du `RAIL` du probe, et les deux ont vieilli separement.** L'inventaire vivant est desormais la
+SORTIE du probe (`python scripts/python/probe_229_effect_triggers_active.py`, ~2,5 s, offline) :
+une ligne par classe, avec rail / porteur / lecture du flag, re-derivee du code a chaque appel.
+Ce qui suit est conserve comme LECTURE (les rails y sont sources), pas comme compte.
+
+⚠ **Etat de la table : 2026-07-29 (28 classes).** Au 2026-08-01 le registre en porte **46**, et les
+lignes `1186` ci-dessous portent des noms MORTS — `GhostEffectRevive` / `GhostRemove*` sont depuis
+`#366-r1` des bases abstraites non inscrites, dedoublees en `TimeFluxGhost*` (1186) et
+`EchoesGhost*` (1284). Les quatre ECARTS sont CLOS depuis #421 (§0bis). Ne pas se fier au compte
+de cette table ; se fier au probe.
 
 | effectType | classe portee | rail | porteur | lit `e.active` | verdict |
 |---|---|---|---|---|---|
@@ -219,19 +290,22 @@ Ventilation des 6 ecarts :
 
 ## 4. Recommandation
 
-**PLUS AUCUN effectType du canal UNITE ne l'empeche** — les cinq ont ete resorbes le 2026-07-29
-(1077, 1197 et 1201 par #231 ; 1502 cf. §4bis ; 1547 par `case-1547`). Les lignes de rayon de
+**PLUS AUCUN effectType ne l'empeche** — les cinq de l'inventaire initial ont ete resorbes le
+2026-07-29 (1077, 1197 et 1201 par #231 ; 1502 cf. §4bis ; 1547 par `case-1547`), et **les quatre
+que le probe ne regardait pas** l'ont ete le 2026-08-01 par #421 (§0bis). Les lignes de rayon de
 souffle de 1077 et 1197 ont ete REFUTEES par mesure (§3) ; **celles de 1502 et 1547 ont ete
 CONFIRMEES par mesure** — 1502 au canal `units[]` (l'effet EST publie, mais il n'a pas d'etat inerte
 a publier, cf. §3) et 1547 sous `mows[].effects` (`case-mow-ammo-gauge.md` §7 — 1/1 aux deux
-canaux), son gate `IsActive` etant deja pose dans le port. Il reste UN ecart, mais il est HORS de
-cette bascule :
+canaux), son gate `IsActive` etant deja pose dans le port.
 
-    1186  GhostEffect (porteur TUILE)       -> GhostEffectRevive
-
-`tileMeta` appelle `readEffectsByTile` **sans options** : les inactifs de tuile sont toujours
-droppes, donc un `includeInactive` pose sur `decisionView` ne peut pas seeder 1186 inerte. Le
-gate manquant y reste une INFIDELITE a corriger, pas un obstacle a la bascule.
+Sur les quatre de #421, deux sont a porteur UNITE — donc **reellement atteignables** par la bascule
+(`1098 RammingSpeed_ExtraExplode`, `1227 HarlequinsPanoply_IgnoreHits`) — et deux a porteur TUILE
+(`1186` / `1284`, le ghost). Pour ces deux-la, `tileMeta` appelle `readEffectsByTile` **sans
+options** : les inactifs de tuile sont toujours droppes, donc un `includeInactive` pose sur
+`decisionView` ne peut pas les seeder inertes. Le gate y a ete pose quand meme, et pas par
+formalisme : le port MODELISE deja l'etat inactif du ghost (le retrait n.4 lit `not e.active`), donc
+l'incoherence etait INTERNE — sur la mort du poseur, les deux branches natives sont EXCLUSIVES et le
+port les rendait complementaires. Cliquet : `test_the_two_branches_are_exclusive_on_source_death`.
 
 ⚠ Avant de conclure « la bascule est sure », re-deriver ce paragraphe par
 `python scripts/python/probe_229_effect_triggers_active.py` : il ne couvre QUE `EFFECT_TRIGGERS`,
@@ -286,11 +360,28 @@ exige alors l'attribut de rail que ce probe materialise deja en table.
     `if (comp@+0x5e != 0) return false` puis `if (!effect.<virtuel 0xc>(evt)) return comp.IsActive`
     (inchange) sinon `return effect.<virtuel 0xb>(entities)`. `RitesOfMorkaiEffect` passe
     `activationFrequency = 0` (`ReviveEffect..ctor`, champ `+0x480`) = la branche CONDITIONNELLE.
-- **Reste** : 1186 (canal tuile). 1547 a ete MESURE le 2026-07-29 et son canal RECTIFIE : c'est
-  **`mows[]`** (porteur = MACHINE), pas `units[]` — cf. `case-mow-ammo-gauge.md` §7.
+- **1186 / 1284 `GhostEffect` : CLOS (#421)** — gate pose sur la BASE `GhostEffectRevive`
+  (`triggers/loki/ghost_revive.py`), donc sur les DEUX instanciations. Le helper `_ghost_effect` y
+  documentait « l'instance ACTIVE » alors qu'il ne filtrait que `not e.consumed` : docstring
+  rectifiee, lecture du flag isolee dans `_ghost_is_active`.
+- **1227 `HarlequinsPanoply_IgnoreHits` : CLOS (#421)** — rail RECTIFIE en TARGETS (cf. §1bis) ;
+  le port et `case-366-r1-harlequins-panoply-ignore-hits.md` §1 le disaient monte par
+  `CreateHandleTriggerAbilities`, ce qui est un autre virtuel.
+- **1098 `RammingSpeed_ExtraExplode` : CLOS (#421)** — rail laisse AMBIGU par `case-389`, tranche
+  TARGETS par la signature a 4 parametres de son `CreateTargetTriggerBehaviour` (§1bis).
+- 1547 a ete MESURE le 2026-07-29 et son canal RECTIFIE : c'est **`mows[]`** (porteur = MACHINE),
+  pas `units[]` — cf. `case-mow-ammo-gauge.md` §7.
 
 ## 5. Ce qui n'est PAS couvert par cette fiche
 
+- **La face DECISION et les autres consommateurs** — voir ci-dessous. S'y ajoute, depuis #421, le
+  constat que la couverture du BALAYAGE est elle-meme une propriete a garder : `probe_229` ne peut
+  rien dire d'une classe absente de son `RAIL`, et c'est `probe_421_rail_covers_registry.py` qui
+  l'exige desormais. Les DEUX doivent etre verts pour qu'une conclusion de cette fiche tienne.
+- **`test_refresh_active_flag_discriminant_offline`**, cite par
+  `case-366-r1b-wireweave-net-counterattack.md` comme le cliquet qui re-derive le plancher des
+  classes surchargeant `is_active`, **n'existe pas dans l'arbre** (verifie le 2026-08-01, aucun
+  fichier ne le porte). Residu NOMME, hors perimetre #421.
 - **Les autres consommateurs de `by_unit`.** L'inventaire ne porte que sur `EFFECT_TRIGGERS`.
   `EffectsState.has_effect` ignore `e.active` par construction — or le natif distingue
   `HasEffect(..., onlyActive=0/1)`. Tout gate de presence porte par `has_effect` deviendrait
