@@ -116,8 +116,8 @@ from ..loki.teleporting_in import (                                       # #448
     TeleportStrikeMovingRemoveOnAfterMove,                 # TeleportMovingEffect : On(4)
     TELEPORT_STRIKE_TELEPORTING_IN, TELEPORT_STRIKE_MOVING,
     FearOfTheUnseenTeleportingInRemoveOnAfterMove,         # #448-r2c tranche 2/4 -- T1 On(4)
-    FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,    # T2 On(0x2a)
-    FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,  # T3 On(0x28) & HasTile
+    FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,    # T2 On(0x2a = PreUnitAbility)
+    FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,  # T3 On(0x28 = UnitFinishedTurn) & HasTile
     FearOfTheUnseenTeleportingInAddMovingOnPreMove,        # T4 On(0x1f) -> AddEffect(1241)
     FearOfTheUnseenMovingRemoveOnAfterMove,                # TeleportMovingEffect : On(4)
     FEAR_OF_THE_UNSEEN_TELEPORTING_IN, FEAR_OF_THE_UNSEEN_MOVING)
@@ -674,8 +674,8 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # Deep Strike du Deathleaper immediatement apres son cast. Cf. loki/teleporting_in.py.
     FEAR_OF_THE_UNSEEN_TELEPORTING_IN: [
         FearOfTheUnseenTeleportingInRemoveOnAfterMove,          # T1 On(4)
-        FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a)
-        FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28) & HasTile
+        FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a = PreUnitAbility)
+        FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28 = UnitFinishedTurn) & HasTile
         FearOfTheUnseenTeleportingInAddMovingOnPreMove],        # T4 On(0x1f) -> AddEffect(1241)
     # 1241 FearOfTheUnseen_Moving : DEUXIEME des trois `EffectType` que la fabrique native construit
     # par `IdunBattleLogic.Effects.TeleportMovingEffect` -- meme `Triggered` unique que 1036.
