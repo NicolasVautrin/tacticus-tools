@@ -236,10 +236,12 @@ autrement que par les deux lectures ci-dessus.
   `seed_witness_effect` + `active_condition_ported = True`, non fait ici (aucun observable mesuré
   ne l'exigeait).
 * **`IsEffectTarget` est re-dérivé géométriquement, pas lu.** Le port ne matérialise pas les cibles
-  d'une aura : `is_target_of_adjacent_friend_aura` applique le sélecteur de
-  `BigTargetAdjacentEffect$$CreateTargetSelector` (amis hex-adjacents, porteur exclu) sur les
-  porteurs de `1026`. C'est la même dérivation que celle déjà en service pour le canal COUPS de cet
-  effet ; un `1026` dont le sélecteur différerait la ferait diverger.
+  d'une aura : il applique le sélecteur de `BigTargetAdjacentEffect$$CreateTargetSelector` (amis
+  hex-adjacents, porteur exclu) sur les porteurs de `1026`. C'est la même dérivation que celle déjà
+  en service pour le canal COUPS de cet effet. **Depuis `#418-r1` la géométrie est indexée PAR
+  `effectType`** (`engine/entities/effect_targets.py`, `is_target_of_adjacent_friend_aura` n'en est
+  plus qu'un alias) et le régime « lecture après déplacement, avant refresh » a été mesuré
+  NON DIVERGENT — cf. `case-418-r1-is-effect-target.md`.
 * **`CamoCloak` (1003) n'entre pas dans `ABILITY_CLASSES`** : c'est une TRIGGERED, non castable —
   les obligations `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE` ne s'y appliquent pas. Cliquets
   re-joués : `probe_181` (98/98, 0 manquante), `probe_120 --step 0` (0 littéral manquant).

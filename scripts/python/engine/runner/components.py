@@ -1516,45 +1516,71 @@ def has_effect_of_type(state, unit_id: int, effect_type: int) -> bool:
     return bool(eff.has_effect(int(unit_id), int(effect_type)))
 
 
-def is_target_of_adjacent_friend_aura(state, unit_id: int, effect_type: int) -> Optional[bool]:
-    """`IdunBattleLogic.Entities.DSLTriggers$$IsEffectTarget(sel, effectType)` ->
-    `IdunBattle.Entities.EntityExtensions$$IsTargetOfEffectOfType` = « l'entite figure dans la liste
-    de CIBLES (`EffectComponent+0x48`) d'une entite-effet de ce type ».
+class _RunnerEffectTargetWorld:
+    """Substrat ECS de `entities.effect_targets.EffectTargetWorld` (le pendant DECISION est
+    `playbook/scene.py::_SceneEffectTargetWorld`). Un noeud natif, deux substrats."""
+    __slots__ = ("state",)
 
-    Le port ne materialise PAS les cibles d'une AURA : l'instance vit sur son PORTEUR
-    (`EffectsState.by_unit[porteur]`) et la geometrie est re-derivee a la lecture -- c'est deja ce
-    que fait `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense`. Ce lecteur applique donc
-    le MEME selecteur que cette classe (`IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$
-    CreateTargetSelector` : amis hex-adjacents, porteur EXCLU), sur les porteurs de `effect_type`.
+    def __init__(self, state):
+        self.state = state
 
-    `None` = position du sujet inconnue (hors plateau) -> la cle est ABSENTE du `unit_state` et le
-    predicat consommateur degrade a sa facon ; jamais un `False` invente."""
+    def unit_ids(self):
+        return list(self.state.entities.keys())
+
+    def carries(self, uid: int, effect_type: int) -> bool:
+        return has_effect_of_type(self.state, int(uid), int(effect_type))
+
+    def _ent(self, uid: int):
+        return self.state.get_entity(int(uid))
+
+    def pos(self, uid: int):
+        e = self._ent(uid)
+        pc = e.get_component(PositionComponent) if e is not None else None
+        if pc is None or pc.col is None or pc.row is None:
+            return None
+        return (pc.col, pc.row)
+
+    def team(self, uid: int):
+        e = self._ent(uid)
+        oc = e.get_component(OwnerComponent) if e is not None else None
+        return oc.team if oc is not None else None
+
+    def alive(self, uid: int) -> bool:
+        e = self._ent(uid)
+        uc = e.get_component(UnitComponent) if e is not None else None
+        return True if uc is None else bool(uc.alive)
+
+    def traits(self, uid: int):
+        e = self._ent(uid)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        ctx = getattr(sc, "ctx", None) if sc is not None else None
+        return (getattr(ctx, "traits", None) or ()) if ctx is not None else ()
+
+
+def is_effect_target(state, unit_id: int, effect_type: int) -> Optional[bool]:
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsEffectTarget(sel, effectType)`, face COMBAT.
+
+    Delegue au foyer unique `engine.entities.effect_targets.is_effect_target` : la geometrie de la
+    liste `EffectComponent.Targets @+0x48` vient du `<Effect>$$CreateTargetSelector` de CHAQUE
+    effectType, jamais d'un defaut. `None` = type non porte / substrat manquant -> l'appelant
+    degrade explicitement (cf. la docstring du foyer)."""
+    from ..entities.effect_targets import is_effect_target as _iet
     ent = state.get_entity(int(unit_id))
     pc = ent.get_component(PositionComponent) if ent is not None else None
-    if pc is None or pc.col is None or pc.row is None:
-        return None
     oc = ent.get_component(OwnerComponent) if ent is not None else None
-    if oc is None:
-        return None
-    import hexgeo
-    me = (pc.col, pc.row)
-    for uid, e in state.entities.items():
-        if int(uid) == int(unit_id):                       # porteur EXCLU (includeCenter=false)
-            continue
-        eoc = e.get_component(OwnerComponent)
-        if eoc is None or eoc.team != oc.team:             # AdjacentFriends : meme camp
-            continue
-        uc = e.get_component(UnitComponent)
-        if uc is not None and not uc.alive:
-            continue
-        epc = e.get_component(PositionComponent)
-        if epc is None or epc.col is None or epc.row is None:
-            continue
-        if hexgeo.distance(me, (epc.col, epc.row)) != 1:   # ring-1 hex
-            continue
-        if has_effect_of_type(state, int(uid), int(effect_type)):
-            return True
-    return False
+    if pc is None or pc.col is None or pc.row is None or oc is None:
+        return None                                    # sujet hors plateau -> inconnu
+    return _iet(_RunnerEffectTargetWorld(state), int(unit_id), int(effect_type))
+
+
+def is_target_of_adjacent_friend_aura(state, unit_id: int, effect_type: int) -> Optional[bool]:
+    """Alias HISTORIQUE de `is_effect_target` (case-366-r1 / `1014 CamoCloak` l'appelle avec `1026`).
+
+    Le nom encodait la geometrie d'UN effet (`AdjacentFriends`) alors que le noeud natif n'en connait
+    aucune : depuis case-418-r1 la geometrie est indexee PAR effectType dans
+    `entities/effect_targets.py`. Conserve tel quel pour ses deux appelants ; tout NOUVEL appelant
+    passe par `is_effect_target`."""
+    return is_effect_target(state, unit_id, effect_type)
 
 
 def contagions_of_nurgle_amount(state, unit_id: int, source_id) -> Optional[int]:

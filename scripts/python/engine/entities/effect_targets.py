@@ -1,0 +1,161 @@
+"""`IdunBattleLogic.Entities.DSLTriggers$$IsEffectTarget(sel, effectType)` -- FOYER UNIQUE.
+
+Le noeud construit un `IdunBattle.Entities.Triggers.IsEffectTargetTrigger`, dont le
+`$$ShouldTrigger` resout le selecteur `+0x10` puis invoque le slot d'interface `+0x20` avec
+`(entity, effectType@+0x18, onlyActive = 0)`. Ce slot est
+`IdunBattle.Core.Services.EffectsQuery$$IsEffectTarget`, qui :
+
+  1. `...$$GetEffectsWithTargets(unit = null, onlyActive)` -- balaye **TOUTES** les entites-effet du
+     state (pas seulement celles de l'entite testee), retient celles dont
+     `EffectComponent.Targets @+0x48` est non vide, et publie `(effectType @+0x58, targets @+0x48)` ;
+  2. rend `true` des qu'une entree de type `effectType` contient l'id de l'entite testee.
+
+Deux consequences STRUCTURELLES, mesurees, qui font que `HasEffect` n'est PAS un substitut :
+
+* **Le PORTEUR n'est pas la CIBLE.** `IdunBattle.Operations.AddEffectOperation$$AddNewEffect` inscrit
+  l'entite-effet dans l'`EffectsOwnedComponent` de son **OWNER** (`ec.OwnerId @+0x14`), et c'est cette
+  liste-la que publie la capture (`decisionView.units[].effects`, `frida/hooks/game/effects.ts`
+  lit `EffectsOwnedComponent.ActiveEffectIds`). `EffectsState.by_unit` est donc indexee par PORTEUR.
+* **`Targets @+0x48` a un SEUL peupleur** : `IdunBattle.Operations.RefreshEffectsOperation$$
+  AddTargetsToEffect` (unique appelant d'`IdunBattle.Entities.Components.EffectComponent$$AddTargetId`),
+  appele par `...$$UpdateEffectTargets` avec le `desiredTargets` rendu par le
+  `<Effect>$$CreateTargetSelector` de l'effet, evalue avec `Owner = l'owner de l'instance`.
+
+=> La liste de cibles est **la geometrie du selecteur de l'EFFET**, jamais celle du call-site : le
+selecteur passe au noeud (`Owner@DSLSelectors+0x30`, `Caster@+0x48`, `Target@+0x60`, ...) designe le
+SUJET du test, pas la forme de l'aura. Ce module re-derive donc `Targets` A LA LECTURE, en appliquant
+le `CreateTargetSelector` de CHAQUE effectType inscrit sur CHACUN de ses porteurs.
+
+`EFFECT_TARGET_SELECTORS` n'inscrit QUE des geometries LUES au decompile et CONFRONTEES live. Un
+`effect_type` absent rend `None` (= << non porte >>), jamais `False` : l'appelant doit degrader
+explicitement. Les geometries lues mais non consommees par le port vivent dans
+`docs/rl/case-418-r1-is-effect-target.md`, pas ici -- pas de port speculatif.
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+import hexgeo
+
+from .effect_type import EffectType
+
+#: `UnitTrait.Psyker` (`0x3ea`) et `UnitTrait.Immune` (`0x19`) -- les deux filtres de trait du
+#: `CreateTargetSelector` de `1191`. Noms tels que la capture les publie (`StatsComponent.ctx.traits`
+#: cote runner, `Scene.ctx_by_id[...].traits` cote decision).
+_TRAIT_PSYKER = "Psyker"
+_TRAIT_IMMUNE = "Immune"
+
+
+class EffectTargetWorld:
+    """Vue MINIMALE du monde que reclame la re-derivation. Deux substrats l'implementent -- l'ECS du
+    runner (`runner/components.py`) et les tables de `Scene` (`playbook/scene.py`) -- exactement comme
+    pour les autres noeuds a double face. Duck-typing : aucune sous-classe n'est requise."""
+
+    def unit_ids(self):                       # -> iterable[int]
+        raise NotImplementedError
+
+    def carries(self, uid: int, effect_type: int) -> bool:
+        """L'unite est-elle **OWNER** d'une instance de ce type (`EffectsOwnedComponent`) ?"""
+        raise NotImplementedError
+
+    def pos(self, uid: int):                  # -> (col, row) | None
+        raise NotImplementedError
+
+    def team(self, uid: int):                 # -> int | None
+        raise NotImplementedError
+
+    def alive(self, uid: int) -> bool:
+        raise NotImplementedError
+
+    def traits(self, uid: int):               # -> sequence[str]
+        raise NotImplementedError
+
+
+# --------------------------------------------------------------------------- selecteurs d'effet
+def _adjacent_friends(world, owner_id: int) -> Optional[set]:
+    """`IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateTargetSelector` =
+    `AdjacentFriends(unit = Owner@DSLSelectors+0x30, unitTile = <+0x50>, unique = 1)`.
+
+    ⚠ La signature est `AdjacentFriends(unit, unitTile, unique)` : il n'y a **ni rayon ni
+    includeCenter**. Le porteur est donc EXCLU, et la portee est le ring-1 hex."""
+    me, team = world.pos(owner_id), world.team(owner_id)
+    if me is None or team is None:
+        return None
+    out = set()
+    for uid in world.unit_ids():
+        if int(uid) == int(owner_id) or world.team(uid) != team or not world.alive(uid):
+            continue
+        p = world.pos(uid)
+        if p is not None and hexgeo.distance(me, p) == 1:
+            out.add(int(uid))
+    return out
+
+
+def _surrounding_enemy_psykers_r2(world, owner_id: int) -> Optional[set]:
+    """`IdunBattle.Entities.Effects.Loki.HuntersBeyondDeathPsykerSuppressionEffect$$
+    CreateTargetSelector` =
+
+        UnitsWithoutTrait(
+            UnitsWithTrait(
+                SurroundingEnemies(unit = Owner@+0x30, unitTile = <+0x50>, range = 2, unique = 1,
+                                   unitSelectionType = 3),
+                0x3ea = Psyker, 3),
+            0x19 = Immune, 3)
+
+    `range` est bien le 3e argument de la surcharge `SurroundingEnemies(unit, unitTile, range:Int32,
+    unique, unitSelectionType)` -- lu dans la SIGNATURE, pas devine (`AdjacentFriends`, elle, n'en a
+    pas : c'est le piege de lecture de #419/#429). `Surrounding*` = disque INCLUSIF."""
+    me, team = world.pos(owner_id), world.team(owner_id)
+    if me is None or team is None:
+        return None
+    out = set()
+    for uid in world.unit_ids():
+        t = world.team(uid)
+        if t is None or t == team or not world.alive(uid):        # Enemies(owner, ...)
+            continue
+        p = world.pos(uid)
+        if p is None or hexgeo.distance(me, p) > 2:               # range = 2, disque inclusif
+            continue
+        tr = world.traits(uid) or ()
+        if _TRAIT_PSYKER not in tr or _TRAIT_IMMUNE in tr:        # WithTrait / WithoutTrait
+            continue
+        out.add(int(uid))
+    return out
+
+
+#: `effect_type -> <Effect>$$CreateTargetSelector` porte. N'inscrire QUE ce qui est LU au decompile
+#: ET confronte live (case-366-r1 pour `1026`, case-418-r1 pour `1191`).
+EFFECT_TARGET_SELECTORS = {
+    int(EffectType.BigTarget_AdjacentEffect): _adjacent_friends,                    # 1026
+    int(EffectType.HuntersBeyondDeathPsykerSuppression): _surrounding_enemy_psykers_r2,   # 1191
+}
+
+
+def is_effect_target(world, unit_id: int, effect_type: int) -> Optional[bool]:
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsEffectTarget(sel, effectType)` ->
+    `IdunBattle.Core.Services.EffectsQuery$$IsEffectTarget(target, effectType, onlyActive = 0)`.
+
+    `None` = geometrie NON PORTEE pour ce type (pas d'entree dans `EFFECT_TARGET_SELECTORS`) ou
+    substrat manquant (position/equipe inconnue) -- **jamais** un `False` invente. Le natif, lui,
+    lit une liste MATERIALISEE : rendre `False` ici reviendrait a affirmer que le refresh natif l'a
+    laissee vide, ce qu'on n'a pas mesure.
+
+    `onlyActive = 0` (litteral du `IsEffectTargetTrigger$$ShouldTrigger` porte) : on ne filtre PAS
+    sur `EffectComponent.IsActive`, donc le porteur est cherche dans `EffectsState.has_effect`
+    (filtre `consumed` seul), pas dans `active_effects`."""
+    sel = EFFECT_TARGET_SELECTORS.get(int(effect_type))
+    if sel is None:
+        return None
+    for uid in world.unit_ids():
+        if not world.carries(int(uid), int(effect_type)):
+            continue
+        targets = sel(world, int(uid))
+        if targets is None:
+            return None                       # substrat manquant sur un porteur REEL -> inconnu
+        if int(unit_id) in targets:
+            return True
+    # Aucun porteur atteint => aucune entite-effet de ce type ne cible l'unite. Le natif ferme de la
+    # meme facon : `GetEffectsWithTargets` ne publie que des entites-effet EXISTANTES, et son
+    # pre-filtre `IdunBattle.Core.Services.EffectsQuery$$IsEffectInPlay` court-circuite a FAUX quand
+    # aucune n'est du type demande.
+    return False
