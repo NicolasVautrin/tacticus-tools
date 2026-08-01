@@ -182,3 +182,15 @@ python -m pytest tests/engine/runner/test_obscured_targeting_live.py -q
 Après cette tranche, `probe_429` compte **23** règles GATE non portées sur 46 (contre 24), et les
 abilities touchées par au moins une règle non portée tombent de **103/103 à 88/103**. Le gisement
 ciblé (hors règles armées par défaut) reste **26/103**. ⚠ Chiffres à re-dériver, pas à citer.
+
+### Re-jeu APRES rebase sur `origin/master` (15 commits de retard, dont **#442 `TargetIsNotSteppable`**)
+
+`#442` insere sa regle dans LA MEME cascade, juste avant le volet portee -- donc immediatement en
+amont de la ligne de vue. Ordre verifie apres rebase :
+`TargetIsTargetable -> TargetIsNotSteppable -> PORTEE -> LIGNE DE VUE -> TargetIsSummon`.
+
+Rejoue : `test_obscured_targeting_live` 8 OK, `test_targeting_masks_live` 13 OK,
+`test_ability_target_gate_live` 13 OK, `test_targeting_rule_inventory` 17 OK,
+`test_splash_targeting_live` 10 OK, `test_taunt_targeting_live` 7 OK,
+`test_summon_targeting_live` 6 OK, **`test_steppable_targeting_live` 8 OK** (le voisin de #442),
+et la banque de cliquets VERTE (24/24, mur 101 s).
