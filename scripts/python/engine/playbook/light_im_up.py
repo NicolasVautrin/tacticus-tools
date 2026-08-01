@@ -126,10 +126,10 @@ Sept lectures qui ne se devinent pas, et dont AUCUNE ne se generalise depuis un 
 3. **Le canal de prediction est le slot 0x28 = `GetMultiHitAttackPrediction`, pas le 0x23.**
    `IdunBattle.Core.Services.BattleQuery$$GetMultiHitAttackPrediction(attacker, target,
    attackerPosition, ability, damage, damageProfile, hits)` -- SEPT arguments, exactement ceux du
-   call-site. Son corps chaine `hits` appels au slot 0x23 (`$$GetAttackPrediction`, montant
-   PREDEFINI, `hits` force a `1` au litteral, spread 0) en threadant
+   call-site. Son corps chaine `hits` appels au slot 0x23 (`$$GetAttackPrediction`, dont le litteral
+   `1` force `hits = 1` au slot 10 d'`IDamagePredictionQuery`) en threadant
    `DamagePredictionResult.DefaultBlockScenario` d'un coup a l'autre, puis `Add`. C'est mot pour mot
-   `services/damage_prediction.get_multi_hit_attack_prediction(hits = 3, spread_pct = 0)` -- le
+   `services/damage_prediction.get_multi_hit_attack_prediction(hits = 3)` -- le
    `x hits` vit DANS le foyer, il ne se refait pas ici. `psyker`/`avalanche_of_muscle` appellent le
    0x23 nu (hits 1) ; ce playbook-ci est le PREMIER a passer par le 0x28.
 

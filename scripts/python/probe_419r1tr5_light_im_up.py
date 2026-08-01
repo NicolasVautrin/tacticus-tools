@@ -459,7 +459,16 @@ def main() -> int:
     ns = measure_no_secondary(case)
     print("  COUNT==0 : %s" % json.dumps(ns, default=str)[:300])
     anc = measure_anchor(rpc, case)
-    print("  ANCRAGE : %s" % json.dumps(anc, default=str)[:600])
+    # ⚠ L'ANCRAGE COMPTE DANS LE VERDICT. Une mutation qui ancre le disque sur la tuile REELLE ne
+    # change RIEN aux trois faces mesurees depuis la tuile courante (elles coincident alors) : la
+    # contre-epreuve d'ancrage est le SEUL discriminant, et un `confronted: false` la rend muette.
+    # Ne pas la compter ici rendait le probe VERT sur cette mutation (mesure du 2026-08-02).
+    ok_anc = (anc.get("confronted") and anc.get("discriminating")
+              and abs(anc["native"] - anc["port_anchor_attack_tile"]) < EPS
+              and abs(anc["native"] - anc["port_anchor_real_tile"]) >= EPS)
+    if not ok_anc:
+        bad += 1
+    print("  ANCRAGE %s : %s" % ("OK" if ok_anc else "DIFF", json.dumps(anc, default=str)[:600]))
     steps_by_target = {r["target"]: r["n_steps"] for r in rows}
     for pr in measure_pair(rpc, case):
         d = pr["port"] - pr["native"]
