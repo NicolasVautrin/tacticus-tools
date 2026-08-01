@@ -467,18 +467,23 @@ class BaseEffect:
         un effet qui ne le surcharge pas a un cache NUL et rend `false`. D'ou le defaut ici.
 
         `att_ctx` = le meme `board` que `create_effect_hits_bonus_for_attack` (la formule le passe
-        aux DEUX canaux, un seul point d'enrichissement). Cle ABSENTE = gate qui se tait ;
-        `is_melee is not False` ferme `IsRangedAttack` (tri-etat #106, meme idiome que
-        `BigTargetAdjacentEffect`).
+        aux DEUX canaux, un seul point d'enrichissement), PLUS la cle `owner_id` que
+        `block_hits_reduction_from_effects` pose par PORTEUR -- mirror de l'ecriture native
+        `AbilityEntities+0x18 (Owner) <- la cible de l'effet` dans la boucle de `GetAttackHits`.
+        Cle ABSENTE = gate qui se tait ; `is_melee is not False` ferme `IsRangedAttack` (tri-etat
+        #106, meme idiome que `BigTargetAdjacentEffect`).
 
-        DEUX implementeurs natifs, un seul porte :
+        DEUX implementeurs natifs -- les DEUX portes depuis `#366-r1-blockhits-purgeresponse`, et
+        leurs triggers n'ont AUCUN noeud en commun :
           * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.InescapableAccuracy_OverridHitsEffect$$
-            CreateBlockHitReductionTrigger` = `get_OwnerIsCaster & IsRangedAttack` -> PORTE ;
+            CreateBlockHitReductionTrigger` = `get_OwnerIsCaster & IsRangedAttack`
+            -> `InescapableAccuracyOverrideHitsEffect` (eldarMauganRa) ;
           * `IdunBattle.Entities.Effects.Loki.PurgeResponseEffect$$CreateBlockHitReductionTrigger`
-            = `TriggeringAbilityIs(<AbilityOrEffect>)` -> classe NON portee (pas d'entree
-            `EFFECT_CLASSES`), donc ce canal reste muet pour elle. Note : son trigger ne porte PAS
-            `get_OwnerIsCaster`, donc quand elle sera portee l'agregateur devra balayer AUSSI les
-            effets du DEFENSEUR (cf. `block_hits_reduction_from_effects`)."""
+            = `TriggeringAbilityIs(AbilityOrEffect(EffectType 0x3f1 = 1009 Overwatch_AutoAttack))`,
+            noeud UNIQUE, SANS `get_OwnerIsCaster` -> `PurgeResponseEffect` (votanSmnSteeljack).
+        C'est la seconde qui a impose le balayage BOARD-WIDE de l'agregateur (son porteur peut etre
+        n'importe qui, dans n'importe quel camp) et donc la MIGRATION du `get_OwnerIsCaster` de la
+        premiere depuis le canal vers sa classe."""
         return False
 
     def create_aura_attack_bonus(self, ctx: Mapping | None = None) -> "int | None":

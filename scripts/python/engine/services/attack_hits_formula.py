@@ -48,8 +48,12 @@ Composition (chaque piece deleguee a SON port de classe natif) :
      INCONDITIONNELLEMENT, et ne somme celle des REDUCTIONS que si aucun effet actif n'a rendu
      `BlockHitsReduction == true`. Le tri est au SIGNE, pas a la provenance : un `Parry` de la
      cible, un `BigTarget` d'aura et un `FightingRetreat_HitReduction` de l'ATTAQUANT tombent dans
-     la MEME liste, donc s'eteignent ensemble. Unique implementeur porte : `1117
-     InescapableAccuracy_overrideHits` (`get_OwnerIsCaster & IsRangedAttack`, eldarMauganRa).
+     la MEME liste, donc s'eteignent ensemble. Le balayage est BOARD-WIDE (mirror de
+     `EffectsQuery$$GetActiveEffectsWithBonuses`, qui n'a aucun argument de portee) ; les DEUX
+     implementeurs natifs sont portes :
+       - `1117 InescapableAccuracy_overrideHits` (`get_OwnerIsCaster & IsRangedAttack`, eldarMauganRa) ;
+       - `1538 PurgeResponse` (`TriggeringAbilityIs(EffectType 1009 Overwatch_AutoAttack)`, SANS
+         `get_OwnerIsCaster` -> n'importe quel porteur du board, n'importe quel camp ; votanSmnSteeljack).
 
 NATURE DU COUP (`is_melee`) -- #122. Le natif l'obtient par
 `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` (que `DamagePrediction$$GetAttackHits` appelle sur
@@ -85,7 +89,7 @@ import hexgeo
 
 from ..entities.effects import (hits_bonus_from_effects, hits_malus_from_defender_effects,
                                  aura_hits_malus_for_defense, aura_hits_bonus_for_attack,
-                                 block_hits_reduction_from_effects)
+                                 block_hits_reduction_from_effects, board_effect_carriers)
 from ..entities.traits import attacker_bonus_hits
 from .damage_prediction import get_default_attack_hits
 
@@ -112,14 +116,23 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # Contexte de l'attaque passe aux effets du canal (1) : le `board` de la formule. Un seul dict =
     # un seul point d'enrichissement pour les futurs gates cible.
     att_hits_ctx = {**(board or {})}
-    # (0) INTERRUPTEUR `BaseEffect$$BlockHitsReduction` (case-366-r1, `1117 InescapableAccuracy_
-    # overrideHits`). Le natif l'evalue dans une boucle DEDIEE, sur la MEME collection d'effets
-    # actifs que les bonus de coups et AVANT toute somme, puis s'en sert pour SAUTER la liste des
-    # bonus a `addition < 0` (`DamagePrediction$$GetAttackHits`). Il est donc calcule ici, une seule
-    # fois, et threade a chacun des quatre agregateurs de l'axe -- le tri se fait bonus par bonus au
-    # SIGNE (foyer `entities.effects._hits_contribution`), jamais sur un agregat ni par provenance.
-    # `False` tant qu'aucun effet ACTIF de l'attaquant ne l'arme => no-op strict hors porteur.
-    block_reduction = block_hits_reduction_from_effects(attacker_effects, att_hits_ctx)
+    # (0) INTERRUPTEUR `BaseEffect$$BlockHitsReduction` (case-366-r1). Le natif l'evalue dans une
+    # boucle DEDIEE, sur la MEME collection d'effets actifs que les bonus de coups et AVANT toute
+    # somme, puis s'en sert pour SAUTER la liste des bonus a `addition < 0`
+    # (`DamagePrediction$$GetAttackHits`). Il est donc calcule ici, une seule fois, et threade a
+    # chacun des quatre agregateurs de l'axe -- le tri se fait bonus par bonus au SIGNE (foyer
+    # `entities.effects._hits_contribution`), jamais sur un agregat ni par provenance.
+    # BALAYAGE BOARD-WIDE (`#366-r1-blockhits-purgeresponse`) : `EffectsQuery$$GetActiveEffects
+    # WithBonuses` ne prend AUCUN argument de portee, et le SECOND implementeur du canal
+    # (`PurgeResponseEffect` = `TriggeringAbilityIs(Overwatch_AutoAttack)`) n'a pas de noeud
+    # `get_OwnerIsCaster` -> son porteur peut etre n'importe qui, y compris dans l'autre camp. Les
+    # trois collections que cette formule tient deja RECOUVRENT l'univers natif : attaquant + cible
+    # + `aura_sources` (= toutes les unites vivantes != cible). `False` tant qu'aucun effet ACTIF ne
+    # l'arme => no-op strict hors porteur.
+    block_reduction = block_hits_reduction_from_effects(
+        board_effect_carriers((board or {}).get("att_id"), attacker_effects,
+                              (board or {}).get("tgt_id"), target_effects, aura_sources),
+        att_hits_ctx)
     # `is_normal_attack` = nature du VECTEUR (attaque normale vs attaque d'ABILITY), threade jusqu'aux
     # bonus dont le trigger natif porte le noeud `IsNormalAttack` (`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack`) —
     # aujourd'hui `IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack`

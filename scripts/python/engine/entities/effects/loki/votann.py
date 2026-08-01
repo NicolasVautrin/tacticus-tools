@@ -33,9 +33,16 @@ Lambdas LUES (build gqfc5mff6c) :
 
 Le QUATRIEME effet du lot a, LUI, une classe dediee (canal PERCAGE, pas stat-mod) :
   * `IdunBattle.Entities.Effects.Loki.GravitonRifle_ExtraPierceEffect` (0x5cc=1484).
+
+CINQUIEME (case-366-r1-blockhits-purgeresponse) : `IdunBattle.Entities.Effects.Loki.
+PurgeResponseEffect` (0x602 = 1538), porte par `votanSmnSteeljack` / `votanNpc2Steeljack` --
+canal `BlockHitsReduction`, cf. `PurgeResponseEffect` en bas de module.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from ...effect_type import EffectType
 from ..base import BaseEffect
 from ..magnitude import ability_var
 
@@ -210,3 +217,70 @@ class GravitonRifleExtraPierceEffect(BaseEffect):
         lvl, mult = _source_level_mult(self, c.get("owner_ctx"))
         amt = ability_var(_GRAVITON_RIFLE, "extraPierceRatio", lvl, multiplier_pct=mult)
         return int(amt) if amt else None
+
+
+class PurgeResponseEffect(BaseEffect):
+    """`PurgeResponse` (0x602 = 1538) — owner-effect du passif homonyme de l'**Ironkin Steeljack**
+    (`votanSmnSteeljack`, summon de `votanMemnyr` via `IronkinSteeljack` 1219 ; et son jumeau npc
+    `votanNpc2Steeljack`). SECOND et DERNIER implementeur natif de `BlockHitsReduction`.
+
+    `IdunBattle.Entities.Effects.Loki.PurgeResponseEffect$$.ctor` =
+    `BaseEffect(AbilityOrEffect(TriggeredAbilityType 0x5f6 = 1526 PurgeResponse),
+    hasAutomaticActivation = 1)` -- la surcharge d'`op_Implicit` appelee est celle qui ecrit le slot
+    `TriggeredAbility` (`AbilityOrEffect$$set_TriggeredAbility`), pas `set_Effect`.
+
+    `IdunBattle.Entities.Effects.Loki.PurgeResponseEffect$$CreateBlockHitReductionTrigger`
+    (MIRROR 1:1 du decompile, lu a l'assembleur -- UN SEUL appel a `DSLTriggers`, aucun
+    `IdunBattle.DSL.AbilityTrigger$$op_BitwiseAnd`) :
+
+        TriggeringAbilityIs( AbilityOrEffect( EffectType 0x3f1 = 1009 Overwatch_AutoAttack ) )
+
+    La surcharge d'`op_Implicit` est ici celle qui ecrit le slot **Effect**
+    (`AbilityOrEffect$$set_Effect`) : c'est un `EffectType`, pas un `ActiveAbilityType` (1009 =
+    `ResurrectionOrb`) ni un `TriggeredAbilityType` (1009 = `WhipcoilBody`) ni un `UnitTrait`
+    (1009 = `Resilient`). Le noeud lit `AbilityEntities+0x98` (`triggerAbilityOrEffect`, via
+    `IdunBattleLogic.Entities.AbilityTypeSelector.TriggeringAbilitySelector$$Select`), que
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` remplit depuis le contexte d'attaque.
+
+    ⚠ **AUCUN `get_OwnerIsCaster`, aucun autre conjoint** -- et c'est LE fait porteur de cette
+    tranche. Le trigger ne lit RIEN du porteur : ni son identite, ni ses stats, ni ses traits, ni
+    sa position. Tant qu'UNE instance ACTIVE de cet effet existe sur le board -- dans n'importe
+    quel camp -- TOUTE attaque dont l'AbilityOrEffet declencheur est `Overwatch_AutoAttack` ignore
+    les reductions de coups, y compris celle d'un attaquant qui n'a rien a voir avec le porteur.
+    C'est PLUS LARGE que la description i2 (« While Overwatching, the Ironkin Steeljack's attacks
+    ignore hit reductions ») : le decompile est la verite, la description ne l'est pas. C'est aussi
+    ce qui exige le balayage BOARD-WIDE de `block_hits_reduction_from_effects`.
+
+    Le canal est le seul artefact de cette classe : trigger NU (pas d'`EffectBonus`), donc AUCUNE
+    variable de config, AUCUNE magnitude -- le seul observable est la CARDINALITE de la salve.
+
+    L'AUTRE moitie du passif -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    PurgeResponse_ActiveOverwatchAbility` (`CreateTrigger` = `On(0x17) & <DSLTriggers+0x28> &
+    AmountIsGreaterThanZero(Count(HeroUnits(UnitsFromFaction(AdjacentFriends(Owner, incl. self, 3),
+    0x14))))`, `CreateBehaviour` = `ActivateEffect(Owner, 0x3f1)`) -- est HORS de cette tranche :
+    elle ARME l'overwatch du Steeljack, elle ne touche pas au canal des coups."""
+
+    #: `TriggeringAbilityIs(<AbilityOrEffect>)` -- le littéral 0x3f1 du `CreateBlockHitReductionTrigger`,
+    #: qualifie EFFECT (surcharge `op_Implicit(EffectType)` -> `set_Effect`).
+    TRIGGERING_EFFECT_TYPE = int(EffectType.Overwatch_AutoAttack)      # 0x3f1 = 1009
+
+    def block_hits_reduction(self, att_ctx: "Mapping | None" = None) -> bool:
+        """MIRROR de `PurgeResponseEffect$$CreateBlockHitReductionTrigger` : un noeud, un seul.
+
+        `att_ctx["trigger_ability_type"]` = `AbilityEntities+0x98` (`triggerAbilityOrEffect`), pose
+        par `runner/damage_model.py::build_hits_board` depuis le `triggering_ability` que
+        `AttackDamageOperation.execute` recoit -- et dont l'UNIQUE producteur cote port est le
+        vecteur OVERWATCH (`triggers/effect_triggers.py`, `OVERWATCH_AUTO_ATTACK`). Cle ABSENTE =
+        pas de declencheur = `TriggeringAbilityIs` FAUX (c'est aussi ce que rend le natif quand le
+        `Nullable` du slot est vide : cf. `TriggeringAbilityIsNoneTrigger`).
+
+        ⚠ Le port COLLAPSE les trois `Nullable` de l'`AbilityOrEffect` natif (ActiveAbility /
+        TriggeredAbility / Effect) en UN entier -- comme le fait deja le canal DEGAT
+        (`att_ctx['trigger_ability_type']` de `attacker_modifiers`, #47). Tant que le seul
+        producteur de cette cle sur l'axe COUPS est l'overwatch (EffectType 1009), la comparaison
+        est exacte ; un futur producteur qui y poserait un `ActiveAbilityType 1009`
+        (`ResurrectionOrb`) ou un `TriggeredAbilityType 1009` (`WhipcoilBody`) exigerait de
+        materialiser le SLOT. Verrouille par `test_purge_response_gates_offline`."""
+        c = att_ctx or {}
+        ta = c.get("trigger_ability_type")
+        return ta is not None and int(ta) == self.TRIGGERING_EFFECT_TYPE

@@ -329,9 +329,17 @@ class InescapableAccuracyOverrideHitsEffect(_InescapableAccuracyEffect):
         Le retour est un BOOLEEN (pas un `EffectBonus`) : le canal natif n'accumule rien, il arme un
         flag (`BaseEffect$$BlockHitsReduction` -> `DamagePrediction$$GetAttackHits`).
 
-        `get_OwnerIsCaster` est rendu par le CANAL (`block_hits_reduction_from_effects` n'itere que
-        les effets de l'ATTAQUANT). Les cles lues d'`att_ctx` sont celles du `board` de
-        `AttackHitsWithModifiersFormula` :
+        Les cles lues d'`att_ctx` sont celles du `board` de `AttackHitsWithModifiersFormula`, plus
+        l'`owner_id` que l'agregateur pose PAR PORTEUR :
+          * `owner_id` / `att_id` -> `get_OwnerIsCaster`. Dans `GetAttackHits` le natif ecrit
+            `AbilityEntities+0x18 (Owner) <- la cible de l'effet` et laisse `Caster = l'attaquant` :
+            le noeud signifie donc « la cible de cet effet EST l'attaquant ». Meme idiome que
+            `GravitonRifle_ExtraPierceEffect.create_effect_piercing_bonus_for_attack` -- une
+            identite NON PROUVEE (l'une des deux cles absente) FERME le gate.
+            ⚠ Ce noeud etait rendu par le CANAL jusqu'a `#366-r1-blockhits-purgeresponse` : le
+            balayage ne voyait que les effets de l'attaquant. Il a MIGRE ici, a sa place native,
+            quand le balayage s'est aligne sur l'univers natif (tous les effets actifs du board)
+            pour le second implementeur, `PurgeResponseEffect`, qui n'a PAS ce noeud ;
           * `is_melee` -> `IsRangedAttack`. TRI-ETAT #106 : seule une nature PROUVEE distance ouvre
             le gate (`is not False` = mêlée ou nature inconnue -> muet), meme idiome que
             `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense`. NB : sur l'axe COUPS la
@@ -343,6 +351,9 @@ class InescapableAccuracyOverrideHitsEffect(_InescapableAccuracyEffect):
         AUCUN gate `IsNormalAttack` cote natif -> le blocage vaut aussi pour une attaque d'ABILITY
         a distance de la famille ATTACK (le seul autre vecteur qui traverse cette formule)."""
         c = att_ctx or {}
+        oid, aid = c.get("owner_id"), c.get("att_id")
+        if oid is None or aid is None or oid != aid:         # get_OwnerIsCaster
+            return False
         if c.get("is_melee") is not False:                   # IsRangedAttack (tri-etat #106)
             return False
         if c.get("has_moved"):                               # ActiveCondition NOT HasFlag(Moved)

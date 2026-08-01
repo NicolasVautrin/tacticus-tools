@@ -114,7 +114,7 @@ COMBAT (attaque normale + attaque d'ability famille ATTACK) **et** PRÉDICTION.
 | natif | port |
 |---|---|
 | `BaseEffect$$BlockHitsReduction` | `BaseEffect.block_hits_reduction(att_ctx) -> bool` (défaut `False`) |
-| la boucle BLOCK de `GetAttackHits` | `entities.effects.block_hits_reduction_from_effects` |
+| la boucle BLOCK de `GetAttackHits` | `entities.effects.block_hits_reduction_from_effects` (balayage BOARD-WIDE depuis §7.2) |
 | le tri par signe + le saut de listeB | `entities.effects._hits_contribution` (foyer unique des 4 agrégateurs de l'axe) |
 | `…_OverridHitsEffect$$CreateBlockHitReductionTrigger` | `InescapableAccuracyOverrideHitsEffect.block_hits_reduction` |
 | `CreateActiveCondition` | `_InescapableAccuracyEffect.is_active` (hérité, corps partagé) |
@@ -257,26 +257,26 @@ deux côtés** — et les deux cliquets ont été re-joués : **17 passed**.
 
 Les deux docstrings et le test concerné ont été rectifiés sur place.
 
-### 7.2 `#366-r1-blockhits-purgeresponse` — le SECOND implémenteur natif du canal, non porté
+### 7.2 `#366-r1-blockhits-purgeresponse` — FERMÉ (2026-08-01)
 
-`IdunBattle.Entities.Effects.Loki.PurgeResponseEffect$$CreateBlockHitReductionTrigger` est le seul
-autre implémenteur de `BlockHitsReduction` du binaire, et son trigger est **structurellement
-différent** :
+`IdunBattle.Entities.Effects.Loki.PurgeResponseEffect$$CreateBlockHitReductionTrigger`, le seul
+autre implémenteur de `BlockHitsReduction` du binaire, est **porté et confronté live** :
+`case-366-r1-blockhits-purgeresponse.md`. Son littéral, relu à l'assembleur :
 
 ```
-TriggeringAbilityIs( <AbilityOrEffect> )        // AUCUN get_OwnerIsCaster
+TriggeringAbilityIs( AbilityOrEffect( EffectType 0x3f1 = 1009 Overwatch_AutoAttack ) )
 ```
 
-Conséquence pour le port : l'agrégateur `block_hits_reduction_from_effects` ne balaie que les effets
-de l'**attaquant** — ce qui est le rendu exact du `get_OwnerIsCaster` de `1117`, et ce qui rendrait
-`PurgeResponse` invisible. Le porter exige donc d'**élargir le balayage** (cible + auras), pas
-seulement d'ajouter une classe. C'est écrit dans la docstring de l'agrégateur pour que
-l'élargissement soit un geste explicite.
+— un seul nœud, **aucun `get_OwnerIsCaster`**. Deux conséquences ont modifié le port de CE cas :
 
-Porteurs de `PurgeResponse` (`EffectType 1538`) : `votanNpc2Steeljack` (**npc**) et
-`votanSmnSteeljack` (**SUMMON**) — donc confrontable par la voie summon, en spawnant son summoner.
-L'ability associée est `PurgeResponse_ActiveOverwatchAbility` (`…$$CreateBehaviour` /
-`…$$CreateTrigger`), non portée.
+* l'agrégateur `block_hits_reduction_from_effects` balaie désormais **tout le board**
+  (`board_effect_carriers`, mirror de `EffectsQuery$$GetActiveEffectsWithBonuses`) ;
+* le `get_OwnerIsCaster` de `1117`, jusque-là **rendu par le balayage étroit**, a MIGRÉ dans
+  `InescapableAccuracyOverrideHitsEffect.block_hits_reduction` (`owner_id` vs `att_id`). Sans cette
+  migration l'élargissement aurait rendu `1117` permissif — un Maugan Ra spectateur aurait bloqué
+  les réductions subies par un tiers.
+
+Le cliquet de cette fiche a été re-joué après ce changement : **13 passed**.
 
 ### 7.3 Donnée NEUVE sur `#366-r1-crit-multihit` — il ne touche PAS la cardinalité
 
