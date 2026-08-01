@@ -181,8 +181,9 @@ Les 5 mutations ont été rejouées **APRÈS rebase** sur `origin/master` (11 co
 5 rouges, arbre restauré vert. Un **second rebase** (6 commits de plus, #422 / `1117`) s'est appliqué
 sans conflit ; les tests et cliquets ont été rejoués dessus.
 
-**Cliquets** : `probe_181`, `probe_120 --step 0`, `probe_273 --only-scan`, `probe_365`, `probe_391`
-— tous rc 0 avant ET après rebase. **Non-régression rejouée APRÈS rebase** : 16 tests offline
+**Cliquets** : la banque, `pwsh -File scripts/ratchets.ps1` — rc 0 avant ET après rebase. La
+composition n'est PAS recopiée ici : ce fichier la définit (#430), et l'énumération qui figurait
+à cette place en citait 5, incompatible avec celle d'autres case-docs de la même semaine. **Non-régression rejouée APRÈS rebase** : 16 tests offline
 (partition du registre, cliquet du discriminant) + **50 tests live voisins** —
 `test_structural_analyser_visual_live` + `test_martial_superiority_live` (MÊME porteur) +
 `test_wireweave_net_counter_live` 16/16, `test_contagions_lifecycle_live` +

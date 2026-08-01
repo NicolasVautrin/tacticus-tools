@@ -127,6 +127,11 @@ REGISTRE: list[Mirror] = [
     # deux n'etait une categorie NOUVELLE : le registre savait deja les exprimer, personne ne les y
     # avait mis. La cle est LUE dans `enums.tsv`, jamais deduite du nom court (`KillUnitStep` vit
     # dans `IdunBattle.Operations`, pas `IdunBattle.Entities.Enum`).
+    # #430 a re-trouve la MEME derive de son cote, en lancant ce cliquet depuis la banque
+    # `scripts/ratchets.ps1` -- confirmation INDEPENDANTE que le trou n'etait pas dans la detection
+    # mais dans le LANCEMENT. Son correctif prenait `KillUnitStep` en `strict=False` ; c'est celui
+    # de #427 qui est retenu (renommer les membres du PORT en verbatim du jeu), parce que
+    # `strict=False` relache les NOMS pour TOUT le mirror et rend muet le sens RENUMEROTE.
     Mirror("PathfinderType", "engine/entities/pathfinding/pathfinders.py",
            "IdunBattle.Entities.Pathfinding.PathfinderType"),
     Mirror("KillUnitStep", "engine/runner/operations/remove_effects.py",
