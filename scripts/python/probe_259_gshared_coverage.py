@@ -51,6 +51,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "python"))
 
+from build_pin import archived_build  # noqa: E402  (#431 : un hash de reference CONTROLE)
 from symbols_layout import build_dir, current_build  # noqa: E402
 
 BASE = 0x180000000
@@ -262,7 +263,9 @@ def etape4(ref: str, cur: str) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--ref", default="gqfc5mff6c",
+    ap.add_argument("--ref",
+                    default=archived_build("gqfc5mff6c",
+                                           "build de reference dont la table portait les gshared"),
                     help="build de REFERENCE (celui dont la table portait les gshared)")
     ap.add_argument("--build", default=None, help="build courant ; defaut = data/symbols/CURRENT")
     args = ap.parse_args()

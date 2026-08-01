@@ -39,6 +39,7 @@ import sys
 from pathlib import Path
 
 import probe_27_custom_utility_inventory as INV
+from symbols_layout import current_build
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -230,7 +231,8 @@ def offgrid_sweep(sid: int, build: str) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--build", default="gqfc5mff6c")
+    ap.add_argument("--build", default=current_build(),   # #431 : jamais un hash en dur
+                    help="build dont la table de symboles fait foi (defaut : CURRENT)")
     args = ap.parse_args()
 
     sid = INV._session_id()

@@ -28,18 +28,17 @@ UnityPy.config.FALLBACK_UNITY_VERSION = "6000.3.8f1"
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import build_pin  # noqa: E402  (#431 : le build est resolu, jamais ecrit en dur)
 import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
 
 RAW = ROOT / "frida" / "assets" / "raw" / "Bundles"   # repli local (cf. _bundle_dir)
 PUBLIC = ROOT / "frida" / "assets" / "public"         # SORTIE : ecrite ici, mkdir
 
-# Default install path (Windows). Override via TACTICUS_INSTALL env var.
-DEFAULT_TACTICUS_INSTALL = Path(
-    os.environ.get(
-        "TACTICUS_INSTALL",
-        os.path.expanduser("~/AppData/Local/tacticus/games/nb3o9lmt6c"),
-    )
-)
+# Racine d'installation : le build INSTALLE (`TACTICUS_INSTALL` reste l'echappatoire).
+# Le defaut etait `nb3o9lmt6c`, desinstalle depuis -- tout le chemin `install` etait donc
+# mort et l'outil retombait TOUJOURS sur le pull `RAW`, sans le dire (#431).
+# `None` = aucune installation : le repli RAW reste legitime, il est juste EXPLICITE.
+DEFAULT_TACTICUS_INSTALL = build_pin.install_dir(strict=False)
 
 HASH_SUFFIX = re.compile(r"_[0-9a-f]{32}(?:\.resource)?$")
 
@@ -53,7 +52,8 @@ def strip_hash(name: str) -> str:
 # When the install path is missing or has fewer entries than the raw pull
 # (rare), fall back to RAW.
 INSTALL_BUNDLES = (
-    DEFAULT_TACTICUS_INSTALL / "Tacticus_Data" / "StreamingAssets" / "Bundles"
+    (DEFAULT_TACTICUS_INSTALL / "Tacticus_Data" / "StreamingAssets" / "Bundles")
+    if DEFAULT_TACTICUS_INSTALL is not None else None
 )
 
 
@@ -70,8 +70,8 @@ def _bundle_dir(name: str) -> Path:
     impriment `[warn] missing <src>` -- cette entree-la est deja fail-loud, on
     ne fait que la faire pointer sur l'arbre qui la porte.
     """
-    install = INSTALL_BUNDLES / name
-    if install.exists():
+    install = (INSTALL_BUNDLES / name) if INSTALL_BUNDLES is not None else None
+    if install is not None and install.exists():
         return install
     raw = host_inputs.resolve("frida/assets/raw/Bundles").path
     return (raw / name) if raw is not None else (RAW / name)
@@ -262,6 +262,9 @@ def extract_languages() -> tuple[dict[str, str], dict[str, dict]]:
     stats: dict[str, dict] = {}
 
     install = DEFAULT_TACTICUS_INSTALL
+    if install is None:
+        print("[warn] aucune installation Tacticus — set TACTICUS_INSTALL env var")
+        return mapping, stats
     src = install / "Tacticus_Data" / "StreamingAssets" / "Bundles" / "languages"
     if not src.exists():
         print(f"[warn] missing {src} — set TACTICUS_INSTALL env var")
@@ -344,6 +347,9 @@ def extract_abilities() -> dict[str, str]:
     mapping: dict[str, str] = {}
 
     install = DEFAULT_TACTICUS_INSTALL
+    if install is None:
+        print("[warn] aucune installation Tacticus — set TACTICUS_INSTALL env var")
+        return mapping
     src = install / "Tacticus_Data" / "StreamingAssets" / "Bundles" / "abilities"
     if not src.exists():
         print(f"[warn] missing {src} — set TACTICUS_INSTALL env var")
@@ -402,6 +408,9 @@ def extract_ranks() -> list[str]:
     out_dir = PUBLIC / "ranks"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if INSTALL_BUNDLES is None:
+        print("[warn] aucune installation Tacticus — skipping ranks", file=sys.stderr)
+        return []
     install_atlases = INSTALL_BUNDLES / "atlases"
     if not install_atlases.exists():
         print(f"[warn] missing {install_atlases} — skipping ranks", file=sys.stderr)

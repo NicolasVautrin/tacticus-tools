@@ -10,61 +10,22 @@ versionnee `data/symbols/<build>/ghidra/functions.tsv` (format `<adresse>\t<symb
 Le meme balayage est fait pour `eventType = 31` (PreUnitMove, residu A2) a titre de temoin :
 il DOIT retrouver `MoveUnitOperation$$Execute` / `$$EvaluatePreMoveTriggers`, ce qui valide la
 methode. Sortie ASCII pure.
+
+BUILD (#431). Le binaire ET la table de symboles sortent ENSEMBLE de `build_pin.load_dll()` :
+lire les octets d'un build en resolvant les adresses dans la table d'un autre rend des noms
+de fonctions plausibles et faux. Ce probe portait deux chemins en dur vers `gqfc5mff6c`, un
+build desinstalle depuis. Il n'epingle en revanche AUCUNE VA : ses ancrages sont un motif
+d'octets et une valeur d'`EventTriggerType`, donc il se re-derive sur n'importe quel build.
 """
 from __future__ import annotations
 
-import bisect
 import struct
 import sys
 from pathlib import Path
 
-GAME_DLL = Path(r"C:\Users\nicolasv\AppData\Local\tacticus\games\gqfc5mff6c\GameAssembly.dll")
-ROOT = Path(__file__).resolve().parents[2]
-FUNCS_TSV = ROOT / "data" / "symbols" / "gqfc5mff6c" / "ghidra" / "functions.tsv"
+from build_pin import CODE_SECTIONS, BuildPinRefused, load_dll
 
 WINDOW = 64          # octets fouilles apres le `mov r9d, imm` pour trouver le `call`
-
-
-def _sections(buf: bytes):
-    pe_off = struct.unpack_from("<I", buf, 0x3C)[0]
-    n_sec = struct.unpack_from("<H", buf, pe_off + 6)[0]
-    opt_size = struct.unpack_from("<H", buf, pe_off + 20)[0]
-    image_base = struct.unpack_from("<Q", buf, pe_off + 24 + 24)[0]
-    sec_off = pe_off + 24 + opt_size
-    out = []
-    for i in range(n_sec):
-        o = sec_off + i * 40
-        name = buf[o:o + 8].rstrip(b"\x00").decode("ascii", "replace")
-        vaddr = struct.unpack_from("<I", buf, o + 12)[0]
-        vsize = struct.unpack_from("<I", buf, o + 8)[0]
-        praw = struct.unpack_from("<I", buf, o + 20)[0]
-        rawsz = struct.unpack_from("<I", buf, o + 16)[0]
-        out.append((name, vaddr, vsize, praw, rawsz))
-    return image_base, out
-
-
-def _load_symbols():
-    addrs, names = [], []
-    with FUNCS_TSV.open("r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) < 2:
-                continue
-            try:
-                a = int(parts[0], 16)
-            except ValueError:
-                continue
-            addrs.append(a)
-            names.append(parts[1])
-    order = sorted(range(len(addrs)), key=lambda i: addrs[i])
-    return [addrs[i] for i in order], [names[i] for i in order]
-
-
-def _resolve(addrs, names, va):
-    i = bisect.bisect_right(addrs, va) - 1
-    if i < 0:
-        return "?", 0
-    return names[i], va - addrs[i]
 
 
 def scan(buf, image_base, text, imm_value):
@@ -98,22 +59,19 @@ def scan(buf, image_base, text, imm_value):
 
 
 def main() -> int:
-    if not GAME_DLL.exists():
-        print("ABSENT: %s" % GAME_DLL)
+    try:
+        buf, image_base, secs, index = load_dll()
+    except BuildPinRefused as exc:
+        print(str(exc))
         return 2
-    if not FUNCS_TSV.exists():
-        print("ABSENT: %s" % FUNCS_TSV)
-        return 2
-    buf = GAME_DLL.read_bytes()
-    image_base, secs = _sections(buf)
+    print("build=%s  dll=%d octets" % (index.build, len(buf)))
     # ATTENTION : le code IL2CPP AOT ne vit PAS dans `.text` (qui ne porte que le runtime Unity)
     # mais dans la section **`il2cpp`** (~40 Mo). Scanner `.text` seul rend 0 hit -- faux negatif.
-    code_secs = [s for s in secs if s[0] in (".text", "il2cpp")]
-    addrs, names = _load_symbols()
+    code_secs = [s for s in secs if s[0] in CODE_SECTIONS]
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from engine.dsl.event_trigger_type import EventTriggerType
 
-    for imm in (3, 31):
+    for imm in (int(EventTriggerType.PendingDeathAdded), int(EventTriggerType.PreUnitMove)):
         try:
             label = EventTriggerType(imm).name
         except ValueError:
@@ -126,10 +84,10 @@ def main() -> int:
         for site, target in hits:
             by_target.setdefault(target, []).append(site)
         for target in sorted(by_target):
-            tname, toff = _resolve(addrs, names, target)
+            tname, toff = index.resolve(target)
             sites = by_target[target]
             # on n'affiche que les cibles plausibles : celles appelees depuis IdunBattle.Operations
-            callers = sorted({_resolve(addrs, names, s)[0] for s in sites})
+            callers = sorted({index.resolve(s)[0] for s in sites})
             interesting = [c for c in callers if "IdunBattle" in c or "Idun" in c]
             if not interesting:
                 continue

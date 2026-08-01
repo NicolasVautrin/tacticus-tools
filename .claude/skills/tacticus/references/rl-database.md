@@ -241,10 +241,11 @@ pas besoin de ref table. Map (enum `StepType`) :
 
 Les ids (`effect_type`, ability ids, `step_code`, …) sont émis par **un build IL2CPP
 précis**. `ref_effect` + les colonnes `*_name` (parsés de `dump.cs`) **doivent venir
-du build qui a produit la donnée** (actuellement **kqkbjqfb6c**). Les deux générateurs
-**auto-détectent** le hash de build (dossier unique de
-`AppData/Local/tacticus/games/`, hors `.temp`) — plus aucun hash hardcodé ; override
-via `$TACTICUS_BUILD_HASH`. **Au changement de build** : re-dump, puis re-générer :
+du build qui a produit la donnée**. Ce hash **ne s'écrit nulle part en dur** : il se lit
+dans `data/symbols/CURRENT` (et le binaire installé doit correspondre — `symbols_sync.py`).
+Les deux générateurs l'**auto-détectent** (dossier unique de
+`AppData/Local/tacticus/games/`, hors `.temp`) ; override via `$TACTICUS_BUILD_HASH`.
+**Au changement de build** : re-dump, puis re-générer :
 
 ```
 py scripts/python/rl_gen_ref_tables.py --apply     # ref_effect/active/triggered/unit (upsert, FK-safe)

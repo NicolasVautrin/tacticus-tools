@@ -120,6 +120,10 @@ $Ratchets = @(
        Seul = 'une fixture qui patche dans le seed BC une variable d ability que le port lit DEPUIS gameconfig : desynchronisation ARMEE, inerte tant que l effet n est pas porte, FAUSSE le lendemain'
        Doc  = 'docs/rl/case-366-r1-bcpatch-port-blindspot.md' }
 
+    @{ Id = 'probe_431'; Argv = @('probe_431_build_literals.py', '--cliquet')
+       Seul = 'un hash de build ecrit en dur qui RESOUT un artefact du jeu (chemin de GameAssembly.dll, table de symboles, defaut de --build) HORS du foyer build_pin : le litteral court-circuite a la fois data/symbols/CURRENT et le binaire installe, donc symbols_sync peut etre VERT pendant que le script lit un autre build'
+       Doc  = 'docs/rl/case-431-litteraux-de-build.md' }
+
     @{ Id = 'pytest_signatures'
        Argv = @('-m', 'pytest', 'tests/test_additional_hits_variant_signatures_offline.py', '-q')
        Seul = 'une implementation de SUBSTITUTION dont la signature derive derriere le port -- le rouge tombe alors ailleurs que sur la cause'

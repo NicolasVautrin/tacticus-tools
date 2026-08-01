@@ -5,11 +5,12 @@ from __future__ import annotations
 import sys
 
 import probe_27_custom_utility_inventory as INV
+from symbols_layout import current_build
 
 
 def main() -> int:
     sid = INV._session_id()
-    owners = INV.table_owners("gqfc5mff6c")
+    owners = INV.table_owners(current_build())      # #431 : jamais un hash en dur
     found = INV.rpc(sid, "findClassesNamed", ["Playbook"])
     classes = sorted({(r["ns"], r["cls"]) for r in found["results"]})
     rows = INV.sweep_vtable(sid, classes)

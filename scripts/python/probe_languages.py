@@ -1,14 +1,14 @@
 """One-shot: peek inside the en.resource bundle to see how strings are stored."""
-import os
-from pathlib import Path
 import UnityPy
+
+import build_pin
 
 UnityPy.config.FALLBACK_UNITY_VERSION = "6000.3.8f1"
 
-INSTALL = Path(os.environ.get(
-    "TACTICUS_INSTALL",
-    os.path.expanduser("~/AppData/Local/tacticus/games/nb3o9lmt6c"),
-))
+# Racine d'installation : le build INSTALLE (`TACTICUS_INSTALL` reste l'echappatoire).
+# Le defaut etait `nb3o9lmt6c`, un build desinstalle depuis longtemps -- le glob rendait
+# alors zero bundle, ce qui se lit comme « pas de langue » (#431).
+INSTALL = build_pin.install_dir()
 src = INSTALL / "Tacticus_Data/StreamingAssets/Bundles/languages"
 en_bundle = next(src.glob("en_*.resource"), None)
 if not en_bundle:

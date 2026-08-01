@@ -27,6 +27,9 @@ import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from symbols_layout import current_build  # noqa: E402  (#431 : jamais un hash en dur)
+
 HOST = "http://127.0.0.1:8765"
 GHIDRA_IMAGE_BASE = 0x180000000
 REPO = Path(__file__).resolve().parents[2]
@@ -151,7 +154,10 @@ def find_slot(sid: int, ns: str, cls: str) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--build", default="gqfc5mff6c")
+    # `data/symbols/CURRENT`, jamais un hash en dur : les RVA sont lues LIVE et croisees a
+    # cette table -- une table d'un autre build rend des noms plausibles et faux (#431).
+    ap.add_argument("--build", default=current_build(),
+                    help="build dont la table de symboles fait foi (defaut : CURRENT)")
     ap.add_argument("--anchor-ns", default="IdunBattle.AI.Playbook.Loki")
     ap.add_argument("--anchor-cls", default="DrachnyenPlaybook")
     ap.add_argument("--needle", default="Playbook")
