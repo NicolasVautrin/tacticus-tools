@@ -1,5 +1,6 @@
-"""`InescapableAccuracy_extraCritChance` (0x45b = **1115**) — le volet CHANCE DE CRIT du passif
-`InescapableAccuracy` (TriggeredAbilityType 0x45b = 1115) d'`eldarMauganRa`. case-366-r1.
+"""`InescapableAccuracy_extraCritChance` (0x45b = **1115**) et `InescapableAccuracy_extraCritDmg`
+(0x45c = **1116**) — les volets CHANCE et DEGAT de crit du passif `InescapableAccuracy`
+(TriggeredAbilityType 0x45b = 1115) d'`eldarMauganRa`. case-366-r1.
 
 ## TROIS classes natives, pas une — tranche par le SLOT `Il2CppClass*`, jamais par le nom du ctor
 
@@ -10,13 +11,20 @@ corps pour les trois ids) mais les CLASSES sont bien TROIS, et c'est le slot qui
 le MEME corps de `$$.ctor` (IL2CPP deduplique les corps bit-identiques -- et ce corps l'est, parce
 que les trois classes derivent de `BaseEffect` avec la MEME constante d'ability).
 
-Les trois tables de methodes le confirment : chacune porte `.ctor` + `CreateActiveCondition` +
-`CreateTargetSelector` (le corps partage `= <DSLSelectors+0x30>` = Owner) PLUS **une** methode qui lui
-est propre --
-`...InescapableAccuracy_ExtraCritChanceEffect$$CreateCritChanceBonus` (CETTE classe, 1115),
-`...InescapableAccuracy_ExtraCritDamageEffect$$CreateCritDamageBonus` (1116),
-`...InescapableAccuracy_OverridHitsEffect$$ActiveCondition` + `$$CreateBlockHitReductionTrigger`
-(1117). Ce port ne couvre QUE le chemin de 1115.
+Les trois tables de methodes le confirment -- RELUES BYTE A BYTE (case #366-r1/1116, pas heritees) :
+trois blocs CONSECUTIFS de pointeurs de fonction, chacun ouvert par le MEME `.ctor` et la MEME
+`CreateActiveCondition`, puis le MEME `CreateTargetSelector` (corps partage `= <DSLSelectors+0x30>`
+= Owner) PLUS **une** methode qui lui est propre --
+
+    table 1 : .ctor, CreateActiveCondition, ActiveCondition, CreateTargetSelector,
+              CreateBlockHitReductionTrigger              -> `..._OverridHitsEffect`      = 1117
+    table 2 : .ctor, CreateActiveCondition, CreateTargetSelector, CreateCritChanceBonus
+                                                          -> `..._ExtraCritChanceEffect`  = 1115
+    table 3 : .ctor, CreateActiveCondition, CreateTargetSelector, CreateCritDamageBonus
+                                                          -> `..._ExtraCritDamageEffect`  = 1116
+
+Ce module porte 1115 ET 1116 (deux canaux DIFFERENTS, donc deux classes distinctes ici aussi) ;
+`1117` (canal `BaseEffect$$BlockHitsReduction`) reste NON porte.
 
 ## SOURCE DE CONFIG — la TRIGGERED 1115, pas l'EffectType 1115 (homonymie a deux faces)
 
@@ -87,14 +95,40 @@ qui vaut pour tout consommateur d'`active_effects`) et par le gate du canal (`at
 pose au foyer unique `AttackDamageOperation._crit_params`). La redondance est assumee : les deux
 lisent le MEME store, `UnitFlagsComponent`.
 
+## CANAL 1116 — `CreateCritDamageBonus`, LES MEMES DEUX NOEUDS
+
+    EffectBonus.ForAddition( get_OwnerIsCaster & IsRangedAttack,
+                             ConfigVar(0x42 = extraCritDmg, GetAbilityState(effect), config@+0x60) )
+
+RELU au decompile (`...InescapableAccuracy_ExtraCritDamageEffect$$CreateCritDamageBonus`), PAS
+deduit de son voisin : meme paire `get_OwnerIsCaster` / `IsRangedAttack` fusionnee par
+`IdunBattle.DSL.AbilityTrigger$$op_BitwiseAnd`, meme forme `ForAddition`, SEULE la variable change
+(`0x42` au lieu de `0x41`). `0x41`/`0x42` = `AbilityVariableType` `65=extraCritChance` /
+`66=extraCritDmg` (dump `enums.tsv`).
+
+Le canal est l'AUTRE : `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects`
+(qui batit le MEME `AbilityEntities` -- caster = owner = attaquant, target = defenseur -- puis
+accumule `addition - subtraction`), consomme par
+`IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` :
+`critDmgPct = max(0, GetStat(10) + somme)`. Il n'entre donc PAS dans `RollCritical` : 1115 decide SI
+le coup crite, 1116 decide de COMBIEN. Les deux sont independants, et c'est ce qui les rend
+mesurables separement.
+
 ## MAGNITUDE
 
 `ConfigVar(0x41)` = `gameconfig.ability("InescapableAccuracy").variables["extraCritChance"][level]`
-(10 -> 15 sur 65 niveaux ; **15** au niveau normalise 50). `extraCritChance` n'est **PAS** dans
-`variablesAffectedByRarityBonus` de cette ability (qui ne contient que `extraCritDmg`) -> aucun
-scaling de rarete, et `ability_var` applique cette regle config-driven toute seule. Le residu #382
-(« le multiplicateur vient de la SOURCE, le port lit le PORTEUR ») est donc DOUBLEMENT inerte ici :
-la variable n'est pas scalee, et l'effet est pose sur son propre porteur (source == porteur).
+(10 -> 15 sur 65 niveaux ; **15** au niveau normalise 50).
+`ConfigVar(0x42)` = `...variables["extraCritDmg"][level]` (10 -> 728 sur 65 niveaux ; **554** au
+niveau normalise 50).
+
+⚠ **LES DEUX VARIABLES NE SE COMPORTENT PAS PAREIL** face au bonus de rarete, et c'est la seule
+asymetrie de ce module : `variablesAffectedByRarityBonus` de cette ability vaut exactement
+`["extraCritDmg"]` -- donc `extraCritChance` n'est **PAS** scalee (aucun effet du multiplicateur) et
+`extraCritDmg` l'EST (`round(base * AbilityVariablesMultiplierPercentage / 100)`). `ability_var`
+applique cette regle config-driven toute seule : rien a coder de special, mais ne PAS transposer la
+phrase « pas de scaling » de 1115 a 1116. Le residu #382 (« le multiplicateur vient de la SOURCE, le
+port lit le PORTEUR ») reste inerte pour les deux : l'ability pose ses effets sur son propre porteur
+(source == porteur), donc le multiplicateur lu est bien celui de la source.
 
 ## HYPOTHESE REFUTEE PAR LA MESURE — il n'y a PAS de residu `could_crit` ici
 
@@ -121,9 +155,13 @@ from ..magnitude import ability_var
 _ABILITY_ID = "InescapableAccuracy"   # TriggeredAbilityType 0x45b = 1115 (passif, eldarMauganRa)
 
 
-class InescapableAccuracyExtraCritChanceEffect(BaseEffect):
-    """`InescapableAccuracy_extraCritChance` (0x45b = 1115) — +extraCritChance% de chance de crit sur
-    les attaques A DISTANCE du porteur, tant qu'il n'a pas bouge ce tour."""
+class _InescapableAccuracyEffect(BaseEffect):
+    """Les DEUX methodes que les trois classes natives PARTAGENT, corps pour corps.
+
+    Ce n'est pas une commodite Python : `.ctor` (un seul corps a l'adresse citee par les trois
+    tables de methodes) et `CreateActiveCondition` (idem) sont UN SEUL corps natif reference par
+    les trois entrees. La base rend cette structure telle quelle, et interdit que les deux volets
+    derivent l'un de l'autre. Ce qui DIFFERE (le canal de lecture) reste dans chaque sous-classe."""
 
     def _level(self) -> "int | None":
         """`Level$$ToZeroBasedIndex(GetAbilityState(effect))` : `InescapableAccuracy` est une ability
@@ -141,6 +179,11 @@ class InescapableAccuracyExtraCritChanceEffect(BaseEffect):
         `RemoveTurnFlags` du `StartTurnOperation`)."""
         m = (unit_state or {}).get("has_moved")
         return True if m is None else not bool(m)
+
+
+class InescapableAccuracyExtraCritChanceEffect(_InescapableAccuracyEffect):
+    """`InescapableAccuracy_extraCritChance` (0x45b = 1115) — +extraCritChance% de chance de crit sur
+    les attaques A DISTANCE du porteur, tant qu'il n'a pas bouge ce tour."""
 
     def create_effect_crit_chance_bonus_for_attack(self, att_ctx: "Mapping | None" = None) -> "int | None":
         """MIRROR de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
@@ -171,5 +214,50 @@ class InescapableAccuracyExtraCritChanceEffect(BaseEffect):
         if c.get("has_moved"):                              # ActiveCondition NOT HasFlag(Moved)
             return None
         n = ability_var(_ABILITY_ID, "extraCritChance", self._level(),   # ConfigVar 0x41
+                        multiplier_pct=self.ability_variables_multiplier)
+        return int(n) if n else None
+
+
+class InescapableAccuracyExtraCritDamageEffect(_InescapableAccuracyEffect):
+    """`InescapableAccuracy_extraCritDmg` (0x45c = 1116) — +extraCritDmg points de DEGAT de crit sur
+    les attaques A DISTANCE du porteur, tant qu'il n'a pas bouge ce tour.
+
+    Frere de 1115 par la POSE (meme `AddEffect` d'un bloc, meme Owner, meme `turns = NULL`) et par
+    le GATE (meme corps de `CreateActiveCondition`), mais PAS par le canal : celui-ci n'entre pas
+    dans le tirage (`RollCritical`), il entre dans le MONTANT (`CalculateCriticalDamage`)."""
+
+    def create_effect_crit_damage_bonus_for_attack(self, att_ctx: "Mapping | None" = None) -> "int | None":
+        """MIRROR de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+        InescapableAccuracy_ExtraCritDamageEffect$$CreateCritDamageBonus` :
+
+            EffectBonus.ForAddition( get_OwnerIsCaster & IsRangedAttack,
+                                     ConfigVar(0x42 = extraCritDmg, GetAbilityState(effect),
+                                               config@+0x60) )
+
+        Le retour est un ENTIER (pas un `EffectBonus`) : le canal natif somme des scalaires
+        (`GetCritDamageBonusFromEffects` accumule `addition - subtraction` de chaque `EffectBonus`),
+        et son consommateur est `max(0, GetStat(10) + somme)` dans `CalculateCriticalDamage`.
+
+        Les DEUX cles lues d'`att_ctx` sont chacune UN noeud natif, et une cle ABSENTE fait TAIRE
+        son gate (« present != applique ») -- exactement les memes que 1115, parce que le natif
+        porte exactement les memes deux noeuds :
+          * `is_ranged`  -> `IsRangedAttack` (tri-etat #106 : nature non PROUVEE distance =>
+            aucune contribution) ;
+          * `has_moved`  -> l'`ActiveCondition` `NOT HasFlag(Owner, UnitFlag.Moved)`, redondante
+            avec `is_active` et VOULUE telle (l'agregateur `crit_damage_bonus_from_effects` ne
+            filtre PAS sur `is_active` : le gate du canal est la garde effective).
+
+        `get_OwnerIsCaster` est rendu par le CANAL (`crit_damage_bonus_from_effects` n'itere que les
+        effets de l'ATTAQUANT). AUCUN gate `IsNormalAttack` cote natif -> le bonus vaut aussi pour
+        les attaques d'ABILITY a distance ; ne pas en ajouter un par analogie avec 1222.
+
+        ⚠ `extraCritDmg` EST dans `variablesAffectedByRarityBonus` (contrairement a
+        `extraCritChance`) : `ability_var` applique le multiplicateur de rarete du porteur."""
+        c = att_ctx or {}
+        if not is_ranged_attack(c.get("is_ranged")):        # IsRangedAttack
+            return None
+        if c.get("has_moved"):                              # ActiveCondition NOT HasFlag(Moved)
+            return None
+        n = ability_var(_ABILITY_ID, "extraCritDmg", self._level(),      # ConfigVar 0x42
                         multiplier_pct=self.ability_variables_multiplier)
         return int(n) if n else None

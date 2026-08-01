@@ -29,9 +29,11 @@ arbitraires (`…_ExtraCritDamageEffect$$CreateActiveCondition`,
 `IdunBattle.Entities.Effects.Loki.WhisperingWebEffect$$CreateTargetSelector`). Le second rend
 `<DSLSelectors+0x30>` = **Owner**.
 
-**Ce port ne couvre QUE 1115.** `1116` (canal `CreateCritDamageBonus`, `ConfigVar(0x42)`) et `1117`
-(canal `BaseEffect$$BlockHitsReduction`) restent non portés : ce sont des canaux **différents**, les
-inscrire par analogie serait un port spéculatif.
+**Ce port ne couvrait QUE 1115.** `1116` a depuis été porté par sa propre tranche —
+`case-366-r1-inescapable-accuracy-crit-damage.md`, qui a **relu** cette structure au décompilé
+plutôt que de l'hériter, l'a confirmée, et y a trouvé **une asymétrie que cette fiche manquait**
+(`variablesAffectedByRarityBonus == ["extraCritDmg"]` : seul `1116` est scalé par la rareté). `1117`
+(canal `BaseEffect$$BlockHitsReduction`) reste non porté.
 
 ## 2. Source de config — la TRIGGERED 1115, pas l'EffectType 1115
 
@@ -145,10 +147,15 @@ Contraintes de montage, chacune payée par une mesure fausse évitée :
   sans le canal, le port calcule `could_crit(0, 700)` = faux et **ne tire RIEN** ; avec, il roule à
   `clamp(0 + 15) = 15` et tire, exactement comme le natif. Le crit du coup mesuré n'existe donc
   **que** par la contribution de 1115 ;
-* **`extraCritDmg = 0`** dans le seed BC (+ sidecar d'épinglage `#375`, sans lequel
-  `refresh_ability_configs` écrase le patch **en silence**) — le jumeau `1116` n'est **pas porté**,
-  et à `extraCritDmg[50] = 728` le natif frappe ses crits 728 plus fort que le port : tout coup
-  critique divergerait, et 1115 se manifeste justement **par** des crits ;
+* ~~**`extraCritDmg = 0`** dans le seed BC~~ — **RETIRÉ le 2026-08-01**, et son maintien serait
+  désormais un FAUX ROUGE. Tant que `1116` n'était pas porté, ce patch le rendait inerte des deux
+  côtés (le natif ajoutait sinon `extraCritDmg` à chaque crit, et `1115` se manifeste justement
+  **par** des crits). Depuis que `1116` est porté, le même geste **inverse** son effet : le patch
+  vit dans le BC — donc côté NATIF — alors que le port lit `gameconfig` par `magnitude.ability_var`.
+  Le montage confronte maintenant les DEUX volets à la fois, et reste bit-exact. Le paramètre
+  survit en `--zero-crit-dmg`, documenté comme désynchro volontaire de diagnostic.
+  (En passant : la valeur citée ici, `728`, était le DERNIER élément du tableau ; au niveau
+  normalisé 50 c'est **554**, ×1,80 de rareté = **997**.)
 * **arme ranged à 1 coup** dans le seed BC — sort du régime où mord le résidu R1 (§7.1).
 
 ### 5.1 Le carré, mesuré
@@ -178,10 +185,12 @@ Le cliquet `tests/engine/runner/test_inescapable_accuracy_crit_chance_live.py` r
 
 ## 6. Ce qui n'est PAS couvert
 
-* **`1116 InescapableAccuracy_extraCritDmg`** (canal `CreateCritDamageBonus`, `ConfigVar(0x42)`,
-  même `CreateActiveCondition`) et **`1117 InescapableAccuracy_overrideHits`** (canal
-  `BaseEffect$$BlockHitsReduction`, non porté côté moteur) : hors périmètre de cette tranche. La
-  structure établie ici (identité, source de config, pose, active-condition) leur sert telle quelle.
+* ~~**`1116 InescapableAccuracy_extraCritDmg`**~~ — **PORTÉ** depuis
+  `case-366-r1-inescapable-accuracy-crit-damage.md` (canal `CreateCritDamageBonus`,
+  `ConfigVar(0x42)`, même `CreateActiveCondition`, plus le scaling de rareté que cette fiche avait
+  manqué). **`1117 InescapableAccuracy_overrideHits`** (canal `BaseEffect$$BlockHitsReduction`, non
+  porté côté moteur) reste hors périmètre. La structure établie ici (identité, source de config,
+  pose, active-condition) a servi telle quelle — après relecture, jamais par héritage.
 * **La face PRÉDICTION** : `services/damage_prediction.py` n'appelle `crit_chance_bonus_from_effects`
   nulle part (`could_crit(ctx.crit_chance, …)` seul) — le +extraCritChance n'entre pas dans la
   prédiction de dégât. Gap **préexistant du canal** (case-366-r1 §6.4 de la fiche WarHowl), pas de
