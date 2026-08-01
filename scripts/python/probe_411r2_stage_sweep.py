@@ -51,7 +51,7 @@ from probe_411r2_scale_discriminant import (
 
 def one_regime(pydir: Path, sf: Path, seed: str, board: str, rank: str,
                armor: int, block_target: str, target_health: int = 0,
-               attacker_damage: int = 0) -> dict:
+               attacker_damage: int = 0, skip_attack: bool = False) -> dict:
     """Un regime = un runner neuf. `armor=None` -> on ne touche pas a l'armure de la cible.
 
     `target_health` LEVE LA TRONCATURE : a armure nulle le natif TUE la cible, et `hp_v0-hp_v1`
@@ -92,6 +92,16 @@ def one_regime(pydir: Path, sf: Path, seed: str, board: str, rank: str,
         hp_v0 = int((units1.get(vic) or {}).get("hp") or 0)
         dv = rpc(s, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 8}, 150)
         plan = _plan_for(dv, att, vic)
+        # TOUS les evals (att -> vic), pas seulement le premier. `attackPlans` porte UNE entree
+        # par ABILITY : `_plan_for` retient le PREMIER, tandis que `rl_duel._plan_ab_map` ECRASE
+        # et retient le DERNIER. Si les deux different, le probe interroge une ability et le
+        # natif en joue une autre -- exactement le genre d'artefact de montage qui se lit comme
+        # une divergence de port. On les imprime pour que la question ne se pose plus.
+        all_evals = [{"abilityId": ev.get("abilityId"), "ability": ev.get("ability"),
+                      "kind": ev.get("kind")}
+                     for p in (dv.get("attackPlans") or []) if int(p.get("unitId") or -1) == att
+                     for ev in (p.get("evals") or [])
+                     if int(ev.get("targetId") or -1) == vic]
         pred = _native_prediction(s, rid, att, vic, plan.get("abilityId"))
         # ORACLE DU NOMBRE DE COUPS, cote natif : `MakeDamagePredictions` rend `appliedHits`
         # par `ProbableDamageEvent`. C'est la seule voie qui NOMME les coups sans capteur neuf.
@@ -99,10 +109,21 @@ def one_regime(pydir: Path, sf: Path, seed: str, board: str, rank: str,
                                            "abilityType": plan.get("abilityId")}, 90) or {}
         port = _port_replay(s, rid, att, vic)
         nat = _snapshot_stats(s, rid, [att, vic])
-        _run(["rl_duel.py", "act", "ability", "--caster", str(att), "--target", str(vic),
-              "--state-file", str(sf)], pydir)
+        # PV de TOUTES les unites avant/apres : un delta sur une unite AUTRE que la cible
+        # dirait que le nombre observe n'est pas celui de l'attaque. Sans ce releve, un
+        # dommage venu d'ailleurs se lit comme le degat de l'attaque.
+        hp_all0 = {int(u): int((units1.get(u) or {}).get("hp") or 0) for u in units1}
+        if not skip_attack:
+            # `--ability` EXPLICITE : on joue exactement celle qu'on a interrogee, plus celle
+            # que l'auto-resolution choisirait. Sans ca, le natif et le probe peuvent viser
+            # deux abilities differentes sans que rien ne le signale.
+            _run(["rl_duel.py", "act", "ability", "--caster", str(att), "--target", str(vic),
+                  "--ability", str(plan.get("abilityId")), "--state-file", str(sf)], pydir)
         units2 = _units(s, rid)
         hp_v1 = int((units2.get(vic) or {}).get("hp") or 0)
+        hp_all1 = {int(u): int((units2.get(u) or {}).get("hp") or 0) for u in units2}
+        deltas = {u: hp_all0.get(u, 0) - hp_all1.get(u, 0) for u in hp_all0
+                  if hp_all0.get(u, 0) != hp_all1.get(u, 0)}
     finally:
         try:
             rpc(s, "disposeRunner", {"runnerId": rid}, 20)
@@ -117,7 +138,8 @@ def one_regime(pydir: Path, sf: Path, seed: str, board: str, rank: str,
             "port_armor": port["armor"], "port_pierce": port["pierce"],
             "clean": [port["clean_min"], port["clean_max"]],
             "pred": [pf.get("healthDmgMin"), pf.get("healthDmgMax")],
-            "killed": hp_v1 <= 0,
+            "killed": hp_v1 <= 0, "deltas": deltas, "skipped": skip_attack,
+            "ability": plan.get("abilityId"), "all_evals": all_evals,
             "pbp": [{k: e.get(k) for k in ("targetId", "healthDamageMin", "healthDamageMax",
                                            "appliedHits", "probability") if k in e}
                     for e in (pbp.get("damageEvents") or pbp.get("events") or [])][:4],
@@ -137,6 +159,9 @@ def main() -> int:
     ap.add_argument("--target-health", type=int, default=0,
                     help="PV forces de la CIBLE -- indispensable a armure basse, sinon le natif "
                          "TUE et le delta de PV est PLAFONNE (mesure illisible).")
+    ap.add_argument("--skip-attack", action="store_true",
+                    help="BRAS TEMOIN : ne joue PAS l'attaque. Tout delta de PV observe alors "
+                         "ne vient PAS de l'attaque -- le controle qui manquait.")
     ap.add_argument("--damages", default="",
                     help="CSV de `Damage` de l'ATTAQUANT. Si fourni, le sweep porte sur CET axe "
                          "(armure fixee au 1er element de --armors) : separe multiplicatif/additif.")
@@ -154,14 +179,14 @@ def main() -> int:
             if not tok:
                 continue
             rows.append(one_regime(pydir, sf, a.seed, a.board, a.rank, armor0, a.block_target,
-                                   a.target_health, int(tok)))
+                                   a.target_health, int(tok), a.skip_attack))
     else:
         for tok in a.armors.split(","):
             tok = tok.strip()
             if not tok:
                 continue
             rows.append(one_regime(pydir, sf, a.seed, a.board, a.rank, int(tok), a.block_target,
-                                   a.target_health))
+                                   a.target_health, 0, a.skip_attack))
     print("=== #411-r2 SWEEP D'ETAGE : armure de la CIBLE ===")
     print("armure |  ATT | natif N | port G | ratio | hits | port clean       | pred natif    | mort")
     for r in rows:
@@ -178,6 +203,10 @@ def main() -> int:
         print("[hits-natif] armure=%s aiPlaybookPredict=%s err=%s"
               % (r["nat_fixed_armor"], json.dumps(r["pbp"], ensure_ascii=True)[:400],
                  r["pbp_err"]))
+        print("[deltas]   attaque_jouee=%s pertes_de_PV_par_unite=%s"
+              % (not r["skipped"], json.dumps(r["deltas"], ensure_ascii=True)))
+        print("[ability]  JOUEE=%s | TOUS les evals att->vic = %s"
+              % (r["ability"], json.dumps(r["all_evals"], ensure_ascii=True)))
     if len(rows) >= 2:
         lo = min(rows, key=lambda r: int(r["nat_fixed_armor"] or 0))
         hi = max(rows, key=lambda r: int(r["nat_fixed_armor"] or 0))
