@@ -221,10 +221,13 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # & AmountIsGreaterThanZero(GetValidTargets)` : au debut de son tour, attaque 1 ennemi adjacent damageable
     # ALEATOIRE (PickRandomly count=1) avec 2 coups Energy (pierce 30). Classe native ETEND DestroyerHive
     # (CreateTrigger/GetValidTargets herites). Cf. loki/martial_apotheosis.py (IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets).
-    # ⚠ INERTE depuis le build `rnca9r7q6c` : SEULE entree ORPHELINE des 29 de ce registre (0 porteur
-    # sur 3 sections x 4 voies, + aucun trait ne l'accorde). Le jeu l'a retiree de `necroOverlord` au
-    # profit de `MyWillBeDoneOverlord`. Inscription CONSERVEE (elle redevient vivante si un kit la
-    # reprend) ; ne rien deduire de son silence. Mesure + verdict : case-354, probe_354.
+    # ⚠ VIVANTE, et le kit gameconfig ne le dit PAS (#392). Le build `rnca9r7q6c` l'a retiree du KIT
+    # de `necroOverlord` (au profit de `MyWillBeDoneOverlord`) -- mais le natif ne monte pas le kit :
+    # il enumere `UnitConfiguration.PassiveAbilities`, et `data/seed-bc.json` porte
+    # `necroOverlord.PassiveAbilities = [1045]`. Mesure : le `TriggeredAbilityComponent` reel du
+    # porteur rend `['1045=MartialApotheosis']` en hierarchie 2, et LIVE l'ennemi anneau-1 encaisse
+    # 3702 au turn-start (0 a d=2). #354 avait conclu « orpheline » depuis le seul gameconfig : c'est
+    # ce referentiel qui etait faux. Mesure + verdict : case-392, probe_392.
     "MartialApotheosis": [MartialApotheosisAttackAbility],
     # TaintedNarthecium (passif deathRotbone, Death Guard/Chaos, case-66) = base ReviveEffect : `OnPreDeath &
     # CanBeRevived & AreFriends & HasTrait(Chaos) & IsAdjacent(2)` -> Maybe(75%){ Revive-EN-PLACE a
@@ -399,7 +402,12 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     `ClearAllPersistentData` : la liste est PURGEE au premier turn-start suivant, SANS gate de
     #     joueur (donc des le tour adverse).
     # ⚠ `necroOverlord` porte AUSSI `LivingMetal` (`On(0x13)`) -- evenement DISTINCT, aucune
-    # interference. `MartialApotheosis`, son ancien passif, a ete RETIRE par ce build (cf. case-354).
+    # interference. ⚠ RESIDU MESURE (#392) : c'est l'INVERSE de `MartialApotheosis` -- le kit
+    # gameconfig nomme `MyWillBeDoneOverlord`, mais `data/seed-bc.json` ne la monte PAS
+    # (`necroOverlord.PassiveAbilities = [1045]`). Ces deux entrees sont donc INERTES dans tout
+    # runner bati sur ce seed, et le port ne peut pas les confronter par cette voie ; il faudrait
+    # une seed BC ou l'Overlord la porte (greffe `catalog_inject`). Balayage : probe_392 etage 0 --
+    # ce sont les SEULS ecarts kit/BC du seed (avec `Bounce` sur `orksNpc7Squig`, non portee).
     # Cf. loki/my_will_be_done_overlord.py (`...MyWillBeDoneOverlordAbility$$CreateTrigger` /
     # `$$CreateBehaviour` / `$$GetTargetFriend`).
     "MyWillBeDoneOverlord": [MyWillBeDoneOverlordAttackAbility, MyWillBeDoneOverlordClearAbility],

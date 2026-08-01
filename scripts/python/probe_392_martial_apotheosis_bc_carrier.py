@@ -81,6 +81,42 @@ def etage2() -> dict:
     return hits
 
 
+def etage0() -> None:
+    """GENERALISATION -- l'ecart kit/BC est-il isole ? Pour CHAQUE unite du seed BC, compare
+    `PassiveAbilities` (ids -> noms `TriggeredAbilityType`) au kit gameconfig `passiveAbilities`
+    de la meme `VisualId`. C'est la question que #354 etage 4 posait avec le MAUVAIS referentiel
+    (il comptait les entrees de `ABILITY_TRIGGERS` sans porteur au GAMECONFIG)."""
+    print("=== ETAGE 0 -- ecarts BC vs kit gameconfig sur TOUTES les unites du seed ===")
+    import gameconfig as GC
+    from engine.entities.triggered_ability_type import TriggeredAbilityType
+    from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
+    bc = json.loads(SEED_BC.read_text(encoding="utf-8"))
+    only_bc: dict = {}          # {ability -> [visualId]} montee par le BC, absente du kit
+    only_kit: dict = {}         # {ability -> [visualId]} au kit, NON montee par le BC
+    for u in (bc.get("Units") or []):
+        vid = u.get("VisualId")
+        if not vid:
+            continue
+        bc_names = set()
+        for i in (u.get("PassiveAbilities") or []):
+            try:
+                bc_names.add(TriggeredAbilityType(int(i)).name)
+            except ValueError:
+                bc_names.add("<hors enum:%s>" % i)
+        kit_names = set((GC.unit(vid) or {}).get("passiveAbilities") or [])
+        for n in sorted(bc_names - kit_names):
+            only_bc.setdefault(n, []).append(vid)
+        for n in sorted(kit_names - bc_names):
+            only_kit.setdefault(n, []).append(vid)
+    print("  BC seul (montee, hors kit)   : %d ability(s)" % len(only_bc))
+    for n, vs in sorted(only_bc.items()):
+        print("     %-32s %-4s %s" % (n, "PORT" if n in ABILITY_TRIGGERS else "-", vs))
+    print("  kit seul (au kit, non montee) : %d ability(s)" % len(only_kit))
+    for n, vs in sorted(only_kit.items()):
+        print("     %-32s %-4s %s" % (n, "PORT" if n in ABILITY_TRIGGERS else "-",
+                                      vs if len(vs) <= 6 else "%d unites" % len(vs)))
+
+
 def _sid() -> int:
     with urllib.request.urlopen(HOST + "/api/admin/status", timeout=10) as r:
         return json.loads(r.read())["session"]["id"]
@@ -241,6 +277,8 @@ def etage345(sid: int) -> int:
 
 
 def main() -> int:
+    etage0()
+    print("")
     etage1()
     print("")
     etage2()

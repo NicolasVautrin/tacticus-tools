@@ -293,7 +293,9 @@ def test_ma_attribution_source_is_the_measured_channel(ma_env):
 
     C'est le point 4 qui a fait conclure a tort « 0 porteur » en #354 : le kit n'est pas la source.
     Ce test rougit le jour ou le BC cesse de monter l'ability -- alors, et alors seulement, les
-    vecteurs (A)/(C)/(E) perdent leur sujet."""
+    vecteurs (A)/(C)/(E) perdent leur sujet. C'est ATTENDU au jour du re-dump du seed
+    (backlog #254-bc : le bloc `Units` est reste celui de `gqfc5mff6c`) ; ce qui est valide ici est
+    « le moteur reproduit le natif POUR CETTE CONFIGURATION », les deux lisant le meme BC."""
     from engine.runner.components import StatsComponent
     state = ma_env["build_state"]()
     cid = _find_by_vis(state, CARRIER)

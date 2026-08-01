@@ -1,24 +1,24 @@
 """MartialApotheosis (TriggeredAbilityType 0x415=1045, passif de `necroOverlord`) -- attaque un ennemi
 adjacent ALEATOIRE au debut de son tour (case-220 Necrons, roadmap [opus] direct).
 
->>> INERTE DEPUIS LE BUILD `rnca9r7q6c` -- 0 PORTEUR, ET CE N'EST PAS UN BUG DE CE PORT (case-354).
-    Le jeu a retire cette ability de son unique porteur `necroOverlord`, remplacee par
-    `MyWillBeDoneOverlord`. Mesure (`probe_354_martial_apotheosis_carrier.py`) : 0 porteur sur les
-    3 sections d'unites x 4 voies d'attribution, dans les DEUX instantanes de gameconfig presents ;
-    et aucun trait ne l'accorde -- le dict de `StaticBattleRules.Trait$$.cctor` (41 paires
-    trait -> TriggeredAbilityType) ne contient PAS `0x415`. `collect_triggered_abilities` ne
-    l'instancie donc plus, et c'est le comportement FIDELE.
-    CE PORT EST CONSERVE, ET NE DOIT PAS ETRE SUPPRIME : la config d'ability existe toujours
-    (`nrOfHits: 2`, `damageProfile: Energy`) et `MartialApotheosisAbility$$CreateTrigger` existe
-    toujours au binaire -- il redevient vivant si un kit reprend l'ability.
+>>> VIVANTE ET CONFRONTEE LIVE -- le KIT gameconfig ne la nomme plus, le BC la MONTE (#392).
+    Le build `rnca9r7q6c` a retire l'ability du kit de `necroOverlord` (au profit de
+    `MyWillBeDoneOverlord`), et #354 en avait conclu « 0 porteur, port INERTE ». C'etait le mauvais
+    referentiel : le natif ne lit pas le kit, il enumere `UnitConfiguration.PassiveAbilities`
+    (`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` ->
+    `IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryAdd(id, passiveAbilityState, 2)`).
+    Mesure (`probe_392_martial_apotheosis_bc_carrier.py`, 5 etages dont 3 LIVE) :
+    `data/seed-bc.json` porte `necroOverlord.PassiveAbilities = [1045]` ; le
+    `TriggeredAbilityComponent` REEL du porteur rend `['1045=MartialApotheosis']` en hierarchie 2 ;
+    et LIVE, au turn-start, l'ennemi drive en anneau-1 encaisse 3702 quand le MEME montage a d=2
+    encaisse 0. Le silence de #354 venait d'un BUG DU PORT (`collect_triggered_abilities` derivait
+    les passives du gameconfig), corrige par #366-r1.
     ⚠ Le build lui a donne SON PROPRE `CreateTrigger`/`GetPossibleTargets` la ou le RE ci-dessous
     les lit comme HERITES de `DestroyerHiveAbility` (build gqfc5mff6c). La STRUCTURE relue au
     build courant est identique (`On(0x16) & <predicat> & AmountIsGreaterThanZero(...)`) : seule
     la provenance des symboles change, le mirror reste juste.
-    `tests/engine/runner/test_martial_apotheosis_live.py` est CONVERTI en consequence (#354-r2,
-    option (b)) : ses 3 vecteurs qui passaient par `start_turn_triggers` sont remplaces par une
-    GARDE D'INERTIE qui rougit le jour ou un kit reprend l'ability ; les gates, l'arbre DSL et
-    l'A/B bit-exact restent exerces par construction directe. 5 tests, tous verts.
+    `tests/engine/runner/test_martial_apotheosis_live.py` : 7 tests verts, dont les trois vecteurs
+    de dispatch restaures par #392 et un replay-diff LIVE au DEGAT BIT-EXACT (3702 == 3702).
 
 RE ghidra gqfc5mff6c (decompile = verite). La classe native `MartialApotheosisAbility` ETEND
 `DestroyerHiveAbility` (namespace `IdunBattleLogic.Entities.Abilities.Active.Loki`) : son

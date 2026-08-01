@@ -1,6 +1,19 @@
 """Probe #354 -- MESURE : qui porte `MartialApotheosis` (1045), et que tire reellement le
 turn-start de `necroOverlord` ?
 
+>>> ⚠ CE PROBE MESURE LE MAUVAIS REFERENTIEL, et sa conclusion a ete REFUTEE (#392).
+    Il balaye le KIT GAMECONFIG et `decisionView.units[].abilities`. Or le natif ne monte NI l'un
+    NI l'autre : `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` enumere
+    `UnitConfiguration.PassiveAbilities` (`config+0xa8`), c'est-a-dire le **BC** -- et
+    `decisionView` n'expose pas les passifs. Mesure #392 : `data/seed-bc.json` porte
+    `necroOverlord.PassiveAbilities = [1045]`, le `TriggeredAbilityComponent` reel du porteur rend
+    `['1045=MartialApotheosis']` en hierarchie 2, et le natif TIRE l'ability au turn-start (3702 sur
+    l'ennemi anneau-1, 0 a d=2).
+    Le probe est CONSERVE tel quel : ses quatre etages restent une mesure JUSTE de ce qu'ils
+    mesurent (l'attribution par le kit), et l'ecart kit/BC qu'il rend visible est precisement
+    l'objet de #392. Pour la question « l'ability est-elle MONTEE en bataille ? », utiliser
+    `probe_392_martial_apotheosis_bc_carrier.py`.
+
 CONTEXTE. `tests/engine/runner/test_martial_apotheosis_live.py` rougit sur trois de ses cinq
 tests -- exactement les trois qui passent par `start_turn_triggers`, qui rend une liste VIDE.
 Les deux qui appellent le port DIRECTEMENT (`matches`, `execute_behaviour`) passent. Le
@@ -241,9 +254,12 @@ def main() -> int:
     etage4()
     print("")
     print("=== VERDICT ===")
-    print("  porteurs de %s dans l'instantane ACTIF : %s" % (ABILITY, hits or "AUCUN"))
-    print("  Un port fidele ne peut PAS dispatcher une ability que le gameconfig n'accorde")
-    print("  a personne : l'etage qui decroche est l'ATTRIBUTION, pas le rail turn-start.")
+    print("  porteurs de %s dans le KIT de l'instantane ACTIF : %s" % (ABILITY, hits or "AUCUN"))
+    print("  /!\\ REFUTE (#392) : le kit n'est PAS la source du montage. Le natif enumere")
+    print("    `UnitConfiguration.PassiveAbilities` (le BC), et `data/seed-bc.json` porte")
+    print("    `necroOverlord.PassiveAbilities = [1045]` -- l'ability EST montee et TIRE en")
+    print("    bataille. Un zero ICI ne prouve donc rien sur le montage.")
+    print("    -> `probe_392_martial_apotheosis_bc_carrier.py` mesure la BONNE voie.")
     return rc
 
 
