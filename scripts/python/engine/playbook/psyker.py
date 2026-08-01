@@ -199,6 +199,7 @@ from .lakrimae import LakrimaePlaybook                          # #419 (registre
 from .barbed_ovipositor import BarbedOvipositorPlaybook         # #438 (registre, cf. module dedie)
 from .neuroparasite import NeuroparasitePlaybook                # #441 (registre, cf. module dedie)
 from .savior_protocols import SaviorProtocolsPlaybook           # #443 (registre, cf. module dedie)
+from .avalanche_of_muscle import AvalancheOfMusclePlaybook      # #445 (registre, cf. module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -241,6 +242,14 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # `onlyActive: true` au call-site de `EntityExtensions$$HasEffect` -- l'INVERSE de
     # SuppressiveFire (qui passe 0) : substrat `active_effects`, pas `has_effect`.
     int(TriggeredAbilityType.SaviorProtocols): SaviorProtocolsPlaybook(),
+    # #445 : AvalancheOfMuscle (1028, passif d'`astraBullgryn` + 4 npc `astra*Bullgryn*`) -- le
+    # gain de la CHARGE : 0 si le caster ne bouge pas, s'il n'arrive pas au contact, s'il y etait
+    # DEJA, ou s'il n'a aucune arme ; sinon l'utilite (composite Damage) d'une prediction de
+    # montant PREDEFINI `extraDmg[niveau passif] x mult`, hits FORCES 1, au profil de l'arme
+    # normale. Corps IdunBattle.AI.Playbook.Loki.AvalancheOfMusclePlaybook.
+    # u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext (SEPT etats de yield).
+    # PREMIER playbook attack porte qui FABRIQUE sa prediction au lieu de lire celle du case.
+    int(TriggeredAbilityType.AvalancheOfMuscle): AvalancheOfMusclePlaybook(),
 }
 
 
