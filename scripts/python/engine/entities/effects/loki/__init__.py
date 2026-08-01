@@ -122,7 +122,8 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, Contam
                      MV71InitialDmgEffect, MV71ResetInitialDmgEffect, MasterOfTheTutelariesEffect,
                      BlackRageExtraMoveEffect, BlackRageExtraDamageEffect, BlackRageAutomaticUnitEffect,
                      WaaaghExtraMovementEffect, WaaaghExtraDamageEffect, WaaaghExtraHitsEffect,
-                     HammerOfWrathConditionalDamageEffect)
+                     HammerOfWrathConditionalDamageEffect,
+                     TunnelingHorrorPendingSummonEffect)
 from .destroy_the_witch import (DestroyTheWitchExtraMoveEffect,        # passif templHelbrecht (1091)
                                 DestroyTheWitchExtraDamageEffect)
 from .reinforced_hive_node import (                                    # passif tyranSmnWarrior (1113)
@@ -237,6 +238,9 @@ __all__ = [
     "BlackRageExtraMoveEffect", "BlackRageExtraDamageEffect", "BlackRageAutomaticUnitEffect",
     "WaaaghExtraMovementEffect", "WaaaghExtraDamageEffect", "WaaaghExtraHitsEffect",
     "HammerOfWrathConditionalDamageEffect",
+    # tunneling horror (1113, necroSmnDestroyer) : marqueur de bond POSE SUR LA TUILE, base
+    # `ABondEffect` avec les TROIS conditions de retrait automatique eteintes (#366-r1)
+    "TunnelingHorrorPendingSummonEffect",
     # destroy_the_witch (passif templHelbrecht 1091 : +1 MOVEMENT gate Psyker ennemi + aura melee)
     "DestroyTheWitchExtraMoveEffect", "DestroyTheWitchExtraDamageEffect",
     # reinforced_hive_node (passif tyranSmnWarrior 1113 : +100 % FixedArmor un round sur deux)

@@ -161,6 +161,7 @@ from .loki import (
     FearedInterrogatorTargetEffect,
     HammerOfWrathConditionalDamageEffect,
     MyWillBeDoneOverlordExtraDamageEffect,
+    TunnelingHorrorPendingSummonEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -736,6 +737,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # 0x4f=healthPct=50))`) est LUE par `HammerOfWrathAbility$$GetDoubleCondition` = `HasEffect(Self,
     # 0x534, activeOnly=1)` pour DOUBLER les bornes de degat. Absent du seed live tant qu'il est inactif.
     "HammerOfWrath_ConditionalDamage": HammerOfWrathConditionalDamageEffect,
+    # TunnelingHorror_PendingSummon (0x459=1113, `necroSmnDestroyer`) -- MARQUEUR de bond pose sur la
+    # TUILE de destination par `TunnelingHorrorAbility$$ExecuteBehaviour` (active 1011), retire par
+    # `TunnelingHorror_AppearAbility$$ExecuteBehaviour` (active 1060). ZERO contribution. Sa classe
+    # native derive d'`ABondEffect` (le `.ctor` que Ghidra attribue a `BaseEffect` est un corps
+    # DEDUPLIQUE -- parent lu dans `frida/classes.tsv`) et surcharge les TROIS getters qui pilotent
+    # `ABondEffect$$CreateHandleTriggerAbilitiesInternal` a false/null/false => l'`ArraySet` de
+    # triggers de retrait automatique est VIDE, donc AUCUNE entree `EFFECT_TRIGGERS[1113]` (mesure,
+    # pas oubli). Arrive offline par `_load_tile_effects` uniquement : l'ability 1011 n'est pas
+    # portee (primitive `RemoveUnitFromTilesOperation` manquante, residu #366-r1).
+    "TunnelingHorror_PendingSummon": TunnelingHorrorPendingSummonEffect,
     # Contaminated_Unit (0x4dd=1245) : sous-effet -X% FixedArmor pose sur une unite occupant/entrant une
     # tuile contaminee (0x4dc). Debuff stat FixedArmor (=16) ; magnitude X NON resolue (#132) -> value=None
     # tant que non mesure live (present mais inerte-stat). Pose par le vecteur tile-effect ContaminatedTileEffect
