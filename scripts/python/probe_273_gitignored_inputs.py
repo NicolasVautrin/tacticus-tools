@@ -43,6 +43,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -50,6 +51,87 @@ import host_inputs  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
+
+
+# ---- lecture UNIQUE de `scripts/python/**`, partagee par les trois etapes -- #
+#
+# MESURE (2026-08-01, #409, profil cProfile + chronos par etape) : `--only-scan`
+# coutait ~100 s en serie, ventiles ainsi -- ~54 s d'`open()`, ~16 s d'`ast.parse`,
+# ~30 s d'`ast.walk`. Les trois postes venaient de la meme cause, la REPETITION :
+#   * 3 traversees completes de l'arbre (etape 0, etape 0b, etape 0c), 1422
+#     fichiers chacune. L'`open()` coute ~9 ms par fichier ici (filtre antivirus
+#     au niveau du systeme -- le `read` lui-meme ne pese que 1,7 s pour 23 Mo, et
+#     c'est aussi lent dans l'arbre principal que dans un worktree) ;
+#   * 2 parses complets (le balayage AST est joue par l'etape 0 PUIS par la 0c) ;
+#   * 11 `ast.walk` par fichier et par balayage, soit 22 traversees de chaque AST.
+# Les trois etapes lisent EXACTEMENT les memes fichiers : on lit donc une fois,
+# on parse une fois, on walke une fois. La lecture est en plus parallelisee --
+# `open()` bloque hors GIL, donc 16 threads ramenent la passe de ~18 s a ~7 s.
+# Aucun de ces trois changements ne touche a ce qui est DECIDE : cf. le probe
+# `probe_319_scan_fidelity.py`, qui compare les verdicts et rejoue les mutations.
+
+_READ_WORKERS = 16
+
+
+class _Src:
+    """Texte source d'un fichier balaye, deja decode."""
+
+    __slots__ = ("text", "decode_error")
+
+    def __init__(self, text: str, decode_error: UnicodeDecodeError | None):
+        self.text = text
+        self.decode_error = decode_error
+
+
+def _decode(data: bytes) -> _Src:
+    """Reproduit `Path.read_text` : utf-8 + newlines universelles.
+
+    Les deux lecteurs d'origine ne lisaient PAS pareil -- l'etape 0b en
+    `errors="replace"` (tolerante), le balayage AST en strict (fatal, la
+    `UnicodeDecodeError` n'etant rattrapee par aucun des deux `except`).
+    Partager la lecture ne doit pas transformer ce plantage en silence : on
+    decode en strict, on ne bascule en `replace` qu'en repli, et l'erreur est
+    CONSERVEE pour etre re-levee par `_file_infos` -- au meme moment qu'avant.
+    """
+    try:
+        text, err = data.decode("utf-8"), None
+    except UnicodeDecodeError as e:
+        text, err = data.decode("utf-8", errors="replace"), e
+    return _Src(text.replace("\r\n", "\n").replace("\r", "\n"), err)
+
+
+_SRC_CACHE: dict[Path, dict[Path, _Src]] = {}
+
+
+def _sources(scan_root: Path) -> dict[Path, _Src]:
+    """`{fichier: source}` pour `scripts/python/**`, dans l'ordre `sorted`.
+
+    Un fichier illisible (`OSError`) est ABSENT du dict : les deux balayages le
+    sautaient deja, chacun avec son propre `except OSError`.
+    """
+    cached = _SRC_CACHE.get(scan_root)
+    if cached is not None:
+        return cached
+    files = sorted((scan_root / "scripts" / "python").rglob("*.py"))
+
+    def _read(f: Path) -> bytes | None:
+        try:
+            return f.read_bytes()
+        except OSError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=_READ_WORKERS) as ex:
+        blobs = list(ex.map(_read, files))
+    out = {f: _decode(b) for f, b in zip(files, blobs) if b is not None}
+    _SRC_CACHE[scan_root] = out
+    return out
+
+
+def _reset_caches() -> None:
+    """Vide les caches (le disque a change sous nos pieds)."""
+    _SRC_CACHE.clear()
+    _INFO_CACHE.clear()
+    _PATHS_CACHE.clear()
 
 
 # ---- balayage commun (etapes 0 et 0c) : evaluation CONCRETE des chemins --- #
@@ -120,7 +202,7 @@ class _Eval:
                         return None
             return None
         if isinstance(node, ast.Call):
-            tail = ast.unparse(node.func).split(".")[-1]
+            tail = _call_tail(node)
             if tail in ("Path", "str", "abspath", "realpath", "normpath",
                         "fspath") and node.args:
                 return self.ev(node.args[0], depth + 1)
@@ -149,9 +231,30 @@ class _Eval:
         return None
 
 
+def _call_tail(node: ast.Call) -> str:
+    """Dernier segment pointe de `node.func`, sans regenerer du source.
+
+    `ast.unparse(node.func).split(".")[-1]` reconstruit du texte Python pour
+    CHAQUE appel du fichier -- 160 765 noeuds `Call` sur cet arbre, et le
+    balayage repassait dessus a chaque `ast.walk`. Or le resultat est connu par
+    construction : pour un `Attribute` c'est exactement `.attr` (un nom
+    d'attribut ne contient jamais de point, donc c'est le dernier segment), pour
+    un `Name` c'est `.id`. Verifie exhaustivement sur les 160 765 noeuds de
+    l'arbre : 0 divergence. Les autres formes (`f(x)(y)`, `d[k]()`) restent sur
+    `ast.unparse` -- elles sont rares et aucune ne tombe dans les listes de
+    `tail` reconnues.
+    """
+    f = node.func
+    if isinstance(f, ast.Attribute):
+        return f.attr
+    if isinstance(f, ast.Name):
+        return f.id
+    return ast.unparse(f).split(".")[-1]
+
+
 def _is_join_call(node: ast.AST) -> bool:
     return (isinstance(node, ast.Call)
-            and ast.unparse(node.func).split(".")[-1] in ("join", "joinpath"))
+            and _call_tail(node) in ("join", "joinpath"))
 
 
 def _base_of(node: ast.AST) -> ast.AST | None:
@@ -165,7 +268,7 @@ def _base_of(node: ast.AST) -> ast.AST | None:
     return None
 
 
-def _fragment_ids(tree: ast.Module) -> set[int]:
+def _fragment_ids(cands: list[ast.AST]) -> set[int]:
     """Ids des sous-expressions qui ne sont que la BASE d'un chemin plus long.
 
     `ast.walk` visite tout le sous-arbre : sur `ROOT / "frida" / "assets" /
@@ -174,9 +277,14 @@ def _fragment_ids(tree: ast.Module) -> set[int]:
     compter revenait a INVENTER des lectures (`frida/assets` etait signale
     comme lu par `build_asset_manifest.py`, qui ne le nomme nulle part). Seule
     l'expression MAXIMALE est un chemin reel.
+
+    On part des CANDIDATS et non de tous les noeuds : `_base_of` ne rend jamais
+    autre chose que `None` en dehors d'un `BinOp`/`Div` ou d'un appel
+    `join`/`joinpath` -- c'est-a-dire exactement l'ensemble des candidats. Les
+    autres noeuds n'ajoutaient donc rien, ils coutaient une traversee complete.
     """
     inner: set[int] = set()
-    for node in ast.walk(tree):
+    for node in cands:
         cur = _base_of(node)
         while cur is not None:
             inner.add(id(cur))
@@ -184,62 +292,117 @@ def _fragment_ids(tree: ast.Module) -> set[int]:
     return inner
 
 
+class _FileInfo:
+    """Ce que le balayage tire d'un fichier -- en UNE passe `ast.walk`.
+
+    Les quatre buckets etaient auparavant remplis par quatre familles de
+    traversees distinctes (alias, 4 x assignations, 4 x `import ... from`,
+    fragments + candidats), rejouees a chaque balayage. L'ORDRE `ast.walk` est
+    conserve bucket par bucket, et c'est necessaire : le point fixe en depend
+    (un fichier voit le `modenv` deja mis a jour par ceux qui le precedent, et
+    une assignation ecrase la precedente dans l'ordre de visite).
+    """
+
+    __slots__ = ("alias", "assigns", "imports_from", "cands", "frags")
+
+    def __init__(self, tree: ast.Module):
+        self.alias: dict[str, str] = {}
+        self.assigns: list[tuple[str, ast.AST]] = []
+        self.imports_from: list[ast.ImportFrom] = []
+        self.cands: list[ast.AST] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if _call_tail(node) in ("join", "joinpath"):
+                    self.cands.append(node)
+            elif isinstance(node, ast.BinOp):
+                if isinstance(node.op, ast.Div):
+                    self.cands.append(node)
+            elif isinstance(node, ast.Assign):
+                if (len(node.targets) == 1
+                        and isinstance(node.targets[0], ast.Name)):
+                    self.assigns.append((node.targets[0].id, node.value))
+            elif isinstance(node, ast.Import):
+                for a in node.names:
+                    self.alias[a.asname or a.name.split(".")[0]] = a.name
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    self.imports_from.append(node)
+        self.frags = _fragment_ids(self.cands)
+
+
 def _module_name(f: Path, pydir: Path) -> str:
     return f.relative_to(pydir).with_suffix("").as_posix().replace("/", ".")
 
 
-def _scan_repo_paths(scan_root: Path) -> list[tuple[Path, int, str]]:
+_INFO_CACHE: dict[Path, dict[Path, tuple[ast.Module, _FileInfo]]] = {}
+
+
+def _file_infos(scan_root: Path) -> dict[Path, tuple[ast.Module, _FileInfo]]:
+    """`{fichier: (arbre, buckets)}`. L'arbre est RETENU : `frags` porte des
+    `id()` de noeuds, qui ne restent uniques que tant que l'arbre est vivant."""
+    cached = _INFO_CACHE.get(scan_root)
+    if cached is not None:
+        return cached
+    out: dict[Path, tuple[ast.Module, _FileInfo]] = {}
+    for f, src in _sources(scan_root).items():
+        if src.decode_error is not None:
+            raise src.decode_error        # lecture stricte : meme echec qu'avant
+        try:
+            tree = ast.parse(src.text)
+        except SyntaxError:
+            continue
+        out[f] = (tree, _FileInfo(tree))
+    _INFO_CACHE[scan_root] = out
+    return out
+
+
+_PATHS_CACHE: dict[tuple[Path, bool], list[tuple[Path, int, str]]] = {}
+
+
+def _scan_repo_paths(scan_root: Path,
+                     drop_fragments: bool = True) -> list[tuple[Path, int, str]]:
     """[(fichier, ligne, chemin relatif a `scan_root`)] pour `scripts/python/**`.
 
     Le relatif garde ses segments `<dyn>` : c'est a l'appelant de tronquer
     (etape 0) ou de les traiter comme un verdict (etape 0c).
+
+    `drop_fragments=False` rend le balayage d'AVANT #319 -- fragments de syntaxe
+    compris. C'est ce dont `probe_319_scan_fidelity.py` a besoin pour mesurer ce
+    que le filtrage retire, et il n'a aucun autre moyen de le reconstituer.
+
+    Le resultat est memoise : les etapes 0 et 0c posent la MEME question a
+    l'arbre, et la calculer deux fois doublait le poste le plus cher du probe.
     """
+    key = (scan_root, drop_fragments)
+    cached = _PATHS_CACHE.get(key)
+    if cached is not None:
+        return cached
     pydir = scan_root / "scripts" / "python"
-    trees: dict[Path, ast.Module] = {}
-    for f in sorted(pydir.rglob("*.py")):
-        try:
-            trees[f] = ast.parse(f.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError):
-            continue
-    envs: dict[Path, dict] = {f: {} for f in trees}
-    aliases: dict[Path, dict] = {}
-    for f, tree in trees.items():
-        alias: dict[str, str] = {}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for a in node.names:
-                    alias[a.asname or a.name.split(".")[0]] = a.name
-        aliases[f] = alias
+    infos = _file_infos(scan_root)
+    envs: dict[Path, dict] = {f: {} for f in infos}
     modenv: dict[str, dict] = {}
     # Point fixe : une racine peut venir d'une autre variable du meme fichier
     # (`ROOT = PYDIR.parents[1]`) OU d'un module voisin (`from rl_gen_ref_tables
     # import ROOT`, `import runner as R` puis `R.BOARDS_DIR`).
     for _ in range(4):
-        for f, tree in trees.items():
-            ev = _Eval(f, envs[f], modenv, aliases[f])
-            for node in ast.walk(tree):
-                if (isinstance(node, ast.Assign) and len(node.targets) == 1
-                        and isinstance(node.targets[0], ast.Name)):
-                    p = ev.ev(node.value)
-                    if p is not None:
-                        envs[f][node.targets[0].id] = p
+        for f, (_tree, info) in infos.items():
+            ev = _Eval(f, envs[f], modenv, info.alias)
+            for name, value in info.assigns:
+                p = ev.ev(value)
+                if p is not None:
+                    envs[f][name] = p
             modenv[_module_name(f, pydir)] = envs[f]
-        for f, tree in trees.items():
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and node.module:
-                    src = modenv.get(node.module) or {}
-                    for a in node.names:
-                        if a.name in src:
-                            envs[f].setdefault(a.asname or a.name, src[a.name])
+        for f, (_tree, info) in infos.items():
+            for node in info.imports_from:
+                src = modenv.get(node.module) or {}
+                for a in node.names:
+                    if a.name in src:
+                        envs[f].setdefault(a.asname or a.name, src[a.name])
     out: list[tuple[Path, int, str]] = []
-    for f, tree in trees.items():
-        ev = _Eval(f, envs[f], modenv, aliases[f])
-        frags = _fragment_ids(tree)
-        for node in ast.walk(tree):
-            if id(node) in frags:
-                continue
-            if not (_is_join_call(node)
-                    or (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div))):
+    for f, (_tree, info) in infos.items():
+        ev = _Eval(f, envs[f], modenv, info.alias)
+        for node in info.cands:
+            if drop_fragments and id(node) in info.frags:
                 continue
             p = ev.ev(node)
             if p is None:
@@ -251,13 +414,15 @@ def _scan_repo_paths(scan_root: Path) -> list[tuple[Path, int, str]]:
             if rel in ("", "."):
                 continue
             out.append((f, getattr(node, "lineno", 0), rel))
+    _PATHS_CACHE[key] = out
     return out
 
 
-def _scan_paths(scan_root: Path) -> list[tuple[Path, str, str]]:
+def _scan_paths(scan_root: Path,
+                drop_fragments: bool = True) -> list[tuple[Path, str, str]]:
     """Vue etape 0 : chemins TRONQUES au premier segment dynamique."""
     out: list[tuple[Path, str, str]] = []
-    for f, _lineno, rel in _scan_repo_paths(scan_root):
+    for f, _lineno, rel in _scan_repo_paths(scan_root, drop_fragments):
         segs = rel.split("/")
         if _DYN in segs:
             segs = segs[:segs.index(_DYN)]
@@ -433,14 +598,13 @@ def _scan_abs_repo(scan_root: Path) -> list[tuple[Path, int, str]]:
     Balayage TEXTUEL, pas AST : le motif doit rougir aussi dans un commentaire
     ou une docstring -- un chemin absolu ecrit en prose est une invitation a le
     recopier, et l'etape 0 (AST) ne le verrait pas non plus.
+
+    Meme source que les etapes 0 et 0c (`_sources`) : c'etait la TROISIEME
+    traversee complete de l'arbre pour lire les memes 1422 fichiers.
     """
     out: list[tuple[Path, int, str]] = []
-    for f in sorted((scan_root / "scripts" / "python").rglob("*.py")):
-        try:
-            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        for i, ln in enumerate(lines, 1):
+    for f, src in _sources(scan_root).items():
+        for i, ln in enumerate(src.text.splitlines(), 1):
             m = _ABS_REPO.search(ln)
             if m:
                 out.append((f, i, ln.strip()[:100]))
