@@ -100,9 +100,9 @@ auto-portants) -- dont le cliquet de livraison « `DSLTriggers` ne contient plus
   `get_OwnerOrOwnerTileIsTarget` (6). (`DamageProfileIs` y figurait : c'etait un FAUX NEGATIF de
   l'outil, tranche depuis -- cf. #392 ci-dessous.)
 
-## Suite #392 / #393 -- TROIS primitives, meme mecanisme
+## Suite #392 / #393 / #433 -- CINQ primitives, meme mecanisme
 
-Le cliquet de livraison a rougi TROIS fois depuis #337, sur des primitives que le port CITE sans
+Le cliquet de livraison a rougi QUATRE fois depuis #337, sur CINQ primitives que le port CITE sans
 que l'outil sache les attribuer. La forme est identique et vaut d'etre retenue : **une PR qui
 ajoute une CITATION d'artefact natif dans `engine/**` peut faire basculer une primitive de
 `NON_PORTE` (aucune trace) a `CITE_A_QUALIFIER`** -- sans rien casser, et sans que son auteur le
@@ -113,9 +113,11 @@ voie, puisque chaque PR est verte a SA base. Le cliquet est le seul endroit ou c
 | `DamageProfileIs` | `635a3431` (#372, DefenderOfTheGreaterGood) | `PORTE_HORS_FACADE` -- cf. ci-dessous |
 | `IsEffectTarget` | #418 (`1014 CamoCloak_DmgReduction`) | `PORTE_HORS_FACADE` -- les 2 ecarts de `#418-r1` sont FERMES (`case-418-r1-is-effect-target.md`) : geometrie indexee PAR effectType, et le regime << apres deplacement, avant refresh >> ne diverge pas |
 | `HasBlockedThisTurn` | #426 (`1227 HarlequinsPanoply`) | `PORTE_HORS_FACADE` -- cf. §#393 |
+| `HasTile` | #448-r2b (`1140 StormboyzStrike_TeleportingIn`) | `PORTE_HORS_FACADE` -- cf. §#433 |
+| `IsAdjacentTiles` | #448-r2d (`1573 TitanhammerSquad_TeleportingIn`) | `PORTE_HORS_FACADE`, PARTIEL -- cf. §#433 et residu `#433-r1` |
 
-Dans les TROIS cas, le `NON_PORTE` d'avant etait un FAUX NEGATIF : les primitives etaient portees,
-collapsees en imperatif, et invisibles a toute heuristique de nom. **Le taux est desormais de 3/3 :
+Dans les CINQ cas, le `NON_PORTE` d'avant etait un FAUX NEGATIF : les primitives etaient portees,
+collapsees en imperatif, et invisibles a toute heuristique de nom. **Le taux est desormais de 5/5 :
 sur cette famille, un `NON_PORTE` qui BASCULE en `CITE_A_QUALIFIER` n'a jamais signifie « absent ».**
 
 ### `DamageProfileIs`, la 166e
@@ -208,3 +210,92 @@ depot -- un chemin relatif plausible resolvait donc hors du depot et produisait 
 SANS AUCUNE attestation, lu comme une mesure (77 `CITE_A_QUALIFIER` au lieu de 43). La table etant
 versionnee, son absence est toujours une erreur d'invocation : le probe LEVE desormais, et imprime
 le chemin RESOLU au lieu de l'argument brut.
+
+## #433 -- `HasTile` et `IsAdjacentTiles`, les 4e et 5e bascules (2026-08-01)
+
+Le cliquet a rougi sur `master` avec **DEUX** primitives d'un coup :
+`['HasTile', 'IsAdjacentTiles']` (1 failed / 10 passed sur `f7df861e`). Bascules datees : les deux
+merges de la famille `ATeleportingEffect` -- **#448-r2b** (`1140 StormboyzStrike_TeleportingIn`,
+premiere citation captable de `DSLTriggers$$HasTile`) et **#448-r2d**
+(`1573 TitanhammerSquad_TeleportingIn`, premiere citation captable d'`IsAdjacentTilesTrigger`).
+Verdicts : **`PORTE_HORS_FACADE` tous les deux** -- 5/5 pour le taux ci-dessus.
+
+### `HasTile` : le slot 12 EST `SelectTile`, et les DEUX consommateurs sont portes
+
+`IdunBattle.Entities.Triggers.HasTileTrigger$$ShouldTrigger` invoque le **slot de vtable 12** du
+selecteur `+0x10` et rend `resultat != null` -- rien d'autre. Ce slot est
+`IdunBattle.DSL.TargetsSelector$$SelectTile`, LU : il resout la selection, l'itere, et rend la
+PREMIERE entite qui EST une tuile (`EntityExtensions$$IsTile`), sinon la
+`EntityExtensions$$GetMainTile` d'une unite ou d'un pied (`IsUnit | IsUnitFoot`) ; enumeration
+epuisee -> `null`. Le predicat est donc << le selecteur designe-t-il une TUILE >>, pas << la
+selection est-elle non vide >>.
+
+L'identification du slot 12 n'est PAS une inference de nom : elle est recoupee par une **seconde
+source independante**. `IdunBattle.Entities.Triggers.TileHasTriggeredAbilityTrigger$$ShouldTrigger`
+invoque ce meme slot 12 sur son unique selecteur, teste le resultat non nul, et le passe a
+`IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility` -- le slot rend donc **UNE entite**, en
+domaine TUILE. Recherche litterale sur le motif d'appel : **9** fonctions du binaire l'utilisent,
+toutes en domaine tuile singulier (`TileBehindTargetFromSourceDirectionSelector$$Select`,
+`MinPathLengthFormula$$Calculate`, `TilesInPathSelector$$Select`, ...). A comparer aux trois autres
+slots lus sur la meme classe : **0** et **10** rendent des collections (elles sont ENUMEREES par
+`XContainsYTrigger` et `IsAdjacentTilesTrigger`), **1** rend une entite unique.
+
+`DSLTriggers$$HasTile` n'a que **DEUX** xrefs `UNCONDITIONAL_CALL` (les deux autres sont des
+entrees DATA de metadata), et les deux sont portees :
+
+| consommateur natif | arbre | porteur du port |
+|---|---|---|
+| `IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` (T3) | `On(0x28 UnitFinishedTurn) & OwnerIsActor & HasTile(Owner) & <vslot 0x738>` | `teleporting_in.py:ATeleportingRemoveOnUnitFinishedTurn._event_gate` -- `bool(get_unit_feet(state, owner))` |
+| `IdunBattleLogic.Entities.Abilities.Triggered.Loki.Camouflage_HitReductionEffect$$CreateEffectHitsBonusForAttack` | `HasTile(TilesWithTriggeredAbility(Tiles(Target), 0x39 = 57 DryBushFireSpread))` | `entities/effects/loki/hits.py:CamouflageHitReductionEffect` -- le flag `defender_on_cover`, branche `-3` << Tall Grass >> |
+
+Le premier est LOAD-BEARING et son contre-bras existe deja au port : `1140` est le seul des quatre
+poseurs de la famille dont le `CreateBehaviour` appelle `RemoveUnitFromItsTiles`, donc le seul pour
+lequel `HasTile(Owner)` est FAUX (cf. `StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn`).
+
+### `IsAdjacentTiles` : mono-consommateur, porte, et PARTIEL sur un court-circuit
+
+UNIQUE xref `UNCONDITIONAL_CALL` : `IdunBattle.Entities.Effects.Loki.TitanhammerSquad_Teleporting
+InEffect$$GetCustomMovingEffectCondition` (vslot 0x748), bras DROIT du `op_BitwiseOr`. Porte par
+`teleporting_in.py:_TitanhammerSquadTargetTileCondition._custom_moving_condition`.
+
+L'asymetrie de resolution etablie par #448-r2d est **re-verifiee ici, au decompile** :
+`IsAdjacentTilesTrigger$$ShouldTrigger` resout ses DEUX selecteurs (`+0x18`, `+0x20`) par le MEME
+**slot 10** (liste de tuiles) et double-boucle, la ou `XContainsYTrigger$$ShouldTrigger` reduit son
+2e operande a UNE entite par le **slot 1** puis compare les `Id`.
+
+**Residu `#433-r1`, trouve en descendant la chaine** : le ctor recoit en 3e argument le `query` =
+`<ctx DSL>+0x10 -> +0x28`, dont le slot `0x60` est
+`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` -> `IdunBattle.Core.Services.
+MovementUtil$$AreTilesAdjacent`. Sa surcharge SCALAIRE rend `(abs(elev1 - elev2) < 2) & b`, avec
+`b = 1` par **COURT-CIRCUIT si `tile1 == tile2`**, sinon
+`ConnectivityComponent$$IsNeighbour`. Une destination QUI EST une tuile marquee satisfait donc
+AUSSI le bras `IsAdjacentTiles` ; le port, lui, ne teste l'identite que par le bras `Contains`, sur
+`marked[0]` seul, et `board.neighbours(dest)` n'inclut jamais `dest`. **Regime d'observabilite
+identique au residu d'ORDRE deja nomme** dans la docstring de l'ancre : il faut `|marked| > 1` ET
+une destination = marque AUTRE que la premiere -- inatteignable tant que
+`TitanhammerSquadAbility$$ExecuteBehaviour` ne pose qu'UNE marque
+(`AddEffect(0x623, ..., targets: <Sel+0x60> = Target)`).
+
+### Le point de MECANISME : ce rouge n'a AUCUN porteur, et c'est la 4e fois
+
+Mesure, pas impression :
+
+* `test_337` n'apparait dans **aucune** liste de cliquets. Les compositions qui circulent (CLAUDE.md
+  en nomme 4 : `probe_181`, `probe_120`, `probe_365`, `probe_273 --only-scan`) ne contiennent que
+  des PROBES. **`#427-r1` a deja etabli que la liste des << 9 cliquets >> n'est materialisee nulle
+  part** -- ni script, ni Makefile, ni CI, ni hook git.
+* `probe_326_dsl_port_matching.py`, lui, **rend `rc 0` meme avec des `CITE_A_QUALIFIER`** : l'y
+  ajouter ne rougirait pas. Le SEUL artefact executable qui rougit sur ce gisement est `test_337`.
+* Consequence mesuree : le rouge de #393 a ete vu par un orchestrateur, celui de #418-r1 a ete
+  CONSTATE par un solveur qui l'a documente et laisse (<< ROUGE, et il l'etait deja sur la base >>,
+  `case-418-r1` §6), et celui-ci l'a ete par un orchestrateur, **deux merges apres** son
+  introduction. C'est le mode d'echec EXECUTION de #427 : << etre un test >> et << etre joue >> sont
+  independants, la suite complete etant proscrite par le CLAUDE.md.
+
+**Parade LOCALE proposee, non livree ici** (le cliquet global est la tache #430, en vol) : faire
+entrer `test_337_dsl_triggers_attestation_offline.py` dans la liste des cliquets joues avant merge.
+Il y est eligible sans reserve -- **OFFLINE PUR** (aucun runner, aucun RPC, il re-derive son
+inventaire natif de `data/symbols/<CURRENT>/`, versionne) et **~23 s** mesurees. C'est la seule
+chose qui manque pour que la regle << un port qui CITE une primitive DSL neuve pose son attestation
+DANS LE MEME COMMIT >> ait un porteur mecanique, exactement comme `probe_181` / `probe_120` le sont
+pour `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE`.
