@@ -222,7 +222,6 @@ def calculate_damage_operation(
     ORDRE NATIF, relu au décompilé (`rnca9r7q6c`, #407-r1) — les slots sont ceux
     d'`IDamageCalculations`, nommés en §2 de `docs/rl/case-407-failed-block-attack-scope.md` :
 
-<<<<<<< HEAD
         blockChances  = slot 0   CalculateBlockChances(attacker, defender, failedBlockIds)  # 0 RNG
         evasionChance = slot 1   CalculateEvasionChance(attacker, defender) = GetStat(def, 0xf)
         shieldPart    = slot 0xc CalculateDamageBlockedByShield(shield, damage)             # 0 RNG

@@ -78,15 +78,23 @@ def test_route_garantie_clampe_a_zero():
     assert d.health == 0 and d.did_block is True
 
 
-def test_route_garantie_prime_sur_la_branche_evasion():
-    """Le natif teste `+0x1D` AVANT de choisir evasion/block : `guaranteed_block` doit donc
-    l'emporter sur `evasion_branch`, et surtout ne tirer aucune evasion."""
+def test_route_garantie_COURT_CIRCUITE_la_sequence_esquive_puis_block():
+    """Le natif teste `+0x1D` AVANT d'entrer dans la sequence esquive->block (#407-r1 a corrige
+    la structure : ce n'est PAS un XOR, c'est une SEQUENCE, et `evasion_branch` n'existe plus).
+    La branche garantie doit donc sauter les DEUX slots -- meme a `evasion_chance` maximal, qui
+    ferait normalement esquiver ET consommerait un tirage."""
     rng = IntBasedMersenneTwister(777)
-    d = calculate_damage_operation(1000, evasion_chance=100, evasion_branch=True,
+    d = calculate_damage_operation(1000, evasion_chance=100,
                                    block_sources=[BlockSource(chance=50, amount=400)],
                                    guaranteed_block=True, rng=rng)
     assert d.did_evade is False and d.did_block is True and d.health == 600
     assert rng.call_count == 0
+    # contre-epreuve : SANS le flag, la meme entree esquive et consomme.
+    rng2 = IntBasedMersenneTwister(777)
+    d2 = calculate_damage_operation(1000, evasion_chance=100,
+                                    block_sources=[BlockSource(chance=50, amount=400)],
+                                    rng=rng2)
+    assert d2.did_evade is True and rng2.call_count > 0
 
 
 def test_la_route_ordinaire_est_INCHANGEE():
