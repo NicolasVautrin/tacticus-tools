@@ -65,6 +65,9 @@ QUATRE ETAGES, mesures separement (jamais un scalaire global)
   D. LA VOIE DU BIT 51 (offline) -- une ability qui POSE le bit refuse meme AVEC le bit 20 (la
      branche `else` du natif court-circuite le test du desarmement), et elle refuse aussi en mode
      TILE-targeting sur la TUILE du decoy -- c'est le regime de 1011 `TunnelingHorror`.
+     CONFRONTE AU NATIF depuis #447 (`probe_447_bit51_native.py`) : la greffe de l'ACTIVE 1011 sur
+     une unite du pool amene le bit en bataille, et la meme tuile de decoy est refusee par 51 alors
+     que 1166 (bit 12 SANS bit 51) l'ACCEPTE. Seul le bit 20 reste offline (0 porteur au registre).
 
 Usage (depuis scripts/python, session Frida chaude) :
     python probe_442_steppable_targeting.py
