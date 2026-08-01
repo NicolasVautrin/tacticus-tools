@@ -1080,7 +1080,20 @@ def set_unit_feet(state, unit_id: int, feet) -> List[tuple]:
     `PositionComponent` sur `feet[0]` (la main tile), pour que les deux representations ne puissent
     pas diverger. Une liste d'UN element repose `feet = None` -> l'unite redevient exactement une
     unite mono-tuile (aucun etat multi-hex residuel apres, p.ex., un retrait de pieds).
-    Renvoie l'empreinte posee."""
+    Renvoie l'empreinte posee.
+
+    LISTE VIDE = « l'unite N'OCCUPE PLUS AUCUNE TUILE » (#366-r1). C'est le seul cas ou l'ecrivain
+    RETIRE la `PositionComponent` au lieu de la recaler, et il materialise `feet = []` (surtout PAS
+    `None`, qui veut dire « un pied, a la `PositionComponent` »). Mirror du collapse de
+    `IdunBattle.Operations.RemoveUnitFromTilesOperation$$Execute` : le natif met a zero le `TileId`
+    de CHAQUE `UnitFootComponent`, et `IdunBattle.Entities.EntityExtensions$$IterateTiles` saute les
+    pieds sans tuile -> `GetUnitPosition` (= `$$GetTiles`) rend une liste VIDE. Cote port, la chaine
+    `pied -> tuile` etant COLLAPSEE en un `(col,row)`, « pied sans tuile » n'a d'autre representation
+    que l'absence du couple. L'etat « unite sans position » n'est PAS inedit : le chemin de
+    CHARGEMENT le produit deja (`snapshot._load_units` ne pose la `PositionComponent` que si
+    `pos.col is not None`, et `decisionView` rend `pos = null` pour l'unite sous terre) ; les 148
+    call-sites `get_component(PositionComponent)` du moteur gardent tous le `None` (balayage AST du
+    2026-08-01). Seul l'ECRIVAIN manquait."""
     e = state.get_entity(int(unit_id))
     if e is None:
         return []
@@ -1091,14 +1104,20 @@ def set_unit_feet(state, unit_id: int, feet) -> List[tuple]:
     uc.clear_feet()
     for t in tiles:
         uc.add_foot(t)
+    if not tiles:
+        # AUCUNE tuile : `feet = []` MATERIALISE (get_unit_feet rend [] sans retomber sur la
+        # PositionComponent) + retrait de la position. Les deux vont ENSEMBLE : laisser l'un des
+        # deux ferait diverger `get_unit_feet` et `PositionComponent`, exactement ce que cet
+        # ecrivain unique existe pour empecher.
+        e.remove_component(PositionComponent)
+        return []
     if len(uc.feet) <= 1:
         uc.feet = None                       # un pied = cas NOMINAL, pas de liste materialisee
-    if tiles:
-        pc = e.get_component(PositionComponent)
-        if pc is None:
-            e.add_component(PositionComponent(tiles[0][0], tiles[0][1]))
-        else:
-            pc.col, pc.row = tiles[0]        # main tile = feet[0] (`GetMainTileId`)
+    pc = e.get_component(PositionComponent)
+    if pc is None:
+        e.add_component(PositionComponent(tiles[0][0], tiles[0][1]))
+    else:
+        pc.col, pc.row = tiles[0]            # main tile = feet[0] (`GetMainTileId`)
     return get_unit_feet(state, unit_id)
 
 

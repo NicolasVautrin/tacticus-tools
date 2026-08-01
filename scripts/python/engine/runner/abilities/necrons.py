@@ -20,6 +20,10 @@ Contenu :
   Summon), AddEffect(Stunned), AddEffect(Pinned)) & AddEffect(Chronometron_ExtraDamage)))`.
 - `MultiThreatEliminator` (1006, `necroDestroyer`) — `ChainLeftOverHitsAttackDamage` : 6 coups Gauss sur la
   cible, report des coups NON consommes (kills) sur l'ennemi suivant, +1 coup par kill.
+- `TunnelingHorror` (1011, `necroSmnDestroyer`) — cast TILE-TARGET : `RemoveUnitFromItsTiles(Caster, true)`
+  (le caster QUITTE le plateau sans mourir) & `RemoveAllForcedAttackTargets(Caster)` &
+  `AddBondEffect(0x459 -> la tuile visee, bondedEntity = Caster, PERMANENT)`. Vecteur de pose du
+  marqueur `TunnelingHorror_PendingSummon` ; #366-r1.
 """
 from __future__ import annotations
 
@@ -32,7 +36,7 @@ from ...entities.formulas import Count, Min, StatAmount, Sum
 from ...entities.selectors import (Target, Caster, CasterTile, SurroundingEnemies, Unobscured,
                                     Damageable, Sub, Union, UnitSet, ActiveTarget, AdjacentTiles,
                                     AdjacentUnits, AllDeadOrResurrectedUnits, And, CanAddUnit,
-                                    Enemies, Friends, SurroundingUnits, UnitsWithTrait)
+                                    Enemies, Friends, FixedTileIds, SurroundingUnits, UnitsWithTrait)
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.triggers import HasTrait
@@ -40,11 +44,12 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
-from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
-                        TargetingOptions)
+from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, AddEffect, AttackWithAttackDamage,
-                         ChainLeftOverHitsAttackDamage, Spawn)
+from .behaviours import (entities_from_state, AddBondEffect, AddEffect, AttackWithAttackDamage,
+                         ChainLeftOverHitsAttackDamage, RemoveAllForcedAttackTargets,
+                         RemoveUnitFromItsTiles, Spawn)
 from .loki import _pick_randomly_n
 
 if TYPE_CHECKING:
@@ -688,3 +693,178 @@ class MultiThreatEliminatorAbility(ActiveAbility):
         chain = next((p["chain"] for n, p in ectx.emitted if n == "ChainLeftOverHits"), [])
         return {"ability": "MultiThreatEliminator", "caster": caster_id, "target": target_id,
                 "range": range_val, "extra_hit": extra_hit, "chain": chain, "dsl": True}
+
+
+# ================== TunnelingHorror (necroSmnDestroyer, actif 1011) -- #366-r1 ====================
+#
+# Le VECTEUR DE POSE du marqueur `TunnelingHorror_PendingSummon` (EffectType 0x459 = 1113). Le porteur
+# `necroSmnDestroyer` (« Ophydian Destroyer ») est un SUMMON **sans invocateur d'unite** : la seule
+# reference du gameconfig hors de sa propre entree est `abilities["EnvFactionSummons:Necrons"]
+# .constants.unitId`, une ability d'ENVIRONNEMENT que AUCUNE unite ne porte. La voie confrontee est
+# donc la GREFFE de 1011 sur un heros DU POOL (recours 3 de `docs/rl/case-92-catalog-injection.md`
+# §5bis) -- legitime : `gameconfig.ability("TunnelingHorror")` n'a AUCUNE variable ni constante, et
+# le behaviour ne lit ni stat, ni trait, ni arme du caster.
+#
+# i2 : « This unit may use tunnelling to move. It is then removed from the battlefield and emerges in
+# its chosen hex at the start of its next turn, pushing any unit in that hex aside. »
+#
+# RE complete + les cinq mesures live : `docs/rl/case-366-r1-tunneling-horror-pending-summon.md`.
+
+TUNNELING_HORROR_ID = "TunnelingHorror"
+TUNNELING_HORROR_PENDING = int(EffectType.TunnelingHorror_PendingSummon)   # 0x459 = 1113
+
+
+def tunneling_horror_remove_tree() -> RemoveUnitFromItsTiles:
+    """1er des TROIS `AActiveAbility$$Execute` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$ExecuteBehaviour` :
+
+        RemoveUnitFromItsTiles( <selecteur pre-construit du contexte DSL>, removeTileFromUnit: true )
+
+    Le selecteur est un champ PRE-CONSTRUIT du contexte (`<ctx>+0x90` -> `+0x30`), pas une chaine
+    lisible dans ce corps ; la MESURE live le tranche sans ambiguite -- l'event est
+    `RemoveUnitFromTiles e=<caster> Clear_Unit_Tiles=1`, et le caster passe a `pos = null`,
+    `alive = true`. D'ou `Caster()`."""
+    return RemoveUnitFromItsTiles(Caster(), remove_tile_from_unit=True)
+
+
+def tunneling_horror_forced_targets_tree() -> RemoveAllForcedAttackTargets:
+    """2e `Execute` : `RemoveAllForcedAttackTargets(<meme selecteur +0x30>)` = le caster. N'a emis
+    AUCUN event dans les cinq mesures (la liste de cibles forcees du caster etait VIDE) : porte pour
+    la STRUCTURE de l'arbre ; observable seulement si le caster est sous Taunt /
+    `InstinctiveBehaviour` au moment du cast."""
+    return RemoveAllForcedAttackTargets(Caster())
+
+
+def tunneling_horror_bond_tree(target_tile_id: int) -> AddBondEffect:
+    """3e `Execute`, lu sur la surcharge `options` d'`IdunBattleLogic.Entities.DSLBehaviors$$
+    AddBondEffect` (`effectType, abilityState, source, targets, bondedEntity, options`) :
+
+        AddBondEffect( 0x459, AbilityStateReference,
+                       source: <ctx+0x90 +0x48>, targets: <ctx+0x90 +0x78>,
+                       bondedEntity: <ctx+0x90 +0x48>, options: <struct ZERO> )
+
+    `source` et `bondedEntity` sont LE MEME champ -- la mesure live les donne tous deux egaux au
+    caster (`Effect_SourceId = BondEffect_BondedId = <caster>`), et `targets` = la TUILE ciblee (le
+    cast est TILE-TARGET).
+
+    ⚠ La struct d'options est ZERO-initialisee : **aucun `TurnsFromRounds`**, donc pas d'override de
+    duree -> `DefaultAmountOfRounds` -> `remaining = 0` = PERMANENT (mesure : l'effet survit a un
+    tour complet, et n'est retire que par le cast de 1060). `docs/rl/summon-abilities-port-spec.md`
+    annoncait « default -> 1 round » : REFUTE. D'ou `duration_rounds=None`.
+
+    LIMITE DE CANAL cote CHARGEMENT (pas cote pose) : une instance SEEDEE depuis `tileMeta` a
+    `bonded = None` (le canal ne publie pas le `BondEffect_BondedId`). La POSE offline, elle, le
+    renseigne -- c'est precisement ce que ce vecteur ajoute."""
+    return AddBondEffect(TUNNELING_HORROR_PENDING,
+                         EffectType.TunnelingHorror_PendingSummon.name,
+                         Caster(), FixedTileIds([int(target_tile_id)]),
+                         duration_rounds=None, bonded_ref=Caster())
+
+
+class TunnelingHorrorAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$ExecuteBehaviour`
+    (id 1011, `necroSmnDestroyer`, namespace natif `Abilities.Active.Loki`). Cast TILE-TARGET.
+
+    TROIS `AActiveAbility$$Execute` SUCCESSIFS (pas un `op_Addition` : le decompile re-copie les
+    0x148 octets du contexte `entities` AVANT chacun -- meme forme que `WaaaghAbility`), dans cet
+    ordre LOAD-BEARING : le caster quitte le plateau AVANT que le bond ne soit pose, donc au moment
+    du bond `source`/`bondedEntity` designent une unite SANS position. Le port re-materialise
+    `entities_from_state` avant chaque etage, comme le natif re-copie son contexte.
+
+      1. `RemoveUnitFromItsTiles(Caster, removeTileFromUnit: true)`
+      2. `RemoveAllForcedAttackTargets(Caster)`
+      3. `AddBondEffect(0x459, ..., source: Caster, targets: TargetTiles, bondedEntity: Caster,
+                        <options SANS TurnsFromRounds>)`
+
+    OBSERVABLE DU CAST (mesure live #366-r1, greffe sur `necroDestroyer`, board MC1_67, seed 777) :
+
+        [User_UseAbility e=<caster> «TunnelingHorror»]
+          [Ability_Power e=<caster> «TunnelingHorror»]
+            RemoveUnitFromTiles e=<caster>  Clear_Unit_Tiles=1
+            [Effect_Refresh e=<effet> «TunnelingHorror_PendingSummon»]
+              ReceiveEffect e=<tuile>  BondEffect_BondedId=<caster> Effect_SourceId=<caster>
+                                       Effect_SourceActiveAbility=1011
+          ChangeStats e=<caster>  UnitStats_TurnFinished=1
+
+    et `tileMeta` ne marque QUE la tuile ciblee. Le caster passe a `pos = null` / `alive = true` :
+    il est HORS PLATEAU, **pas mort**. (⚠ `rl_duel` l'affiche « TUE » -- son heuristique lit
+    `hp = null` comme 0 ; faux positif d'AFFICHAGE, cf. la fiche.)
+
+    L'ability 1060 `TunnelingHorror_Appear` (le retour sur la tuile marquee) est un arbre nettement
+    plus gros, SANS aucune config au gameconfig : hors perimetre, residu nomme dans la fiche.
+
+    Renvoie {ability, caster, tile, removed_from_tiles, posed, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.TunnelingHorror)         # 1011
+    ABILITY_ID = TUNNELING_HORROR_ID
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$.ctor` :
+    #     range = <TargetingRange statics+0x48> = `useWholeBoard = true`   (copie de 0x18 octets)
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &range, forceMeleeTarget=1,
+    #                            rules=0x8000000001042, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)                              # AbilityAttackType.Others
+    # FORME DIRECTE a 6 arguments -> le litteral EST le masque effectif (aucun preset).
+    #   0x8000000001042 = TargetMatchesDynamicRule (1<<1)  | TargetIsTile         (1<<6)
+    #                   | TargetTileIsFree         (1<<12) | TargetIsNotSteppable (1<<51)
+    #                                                              -> somme EXACTE, 0 bit residuel
+    #   forceMeleeTarget = 1 = RangedBool.False
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsTile
+        | TR.TargetTileIsFree
+        | TR.TargetIsNotSteppable
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...TunnelingHorrorAbility$$GetDynamicInvalidTargetReason` -- MIRROR du decompile, qui
+        porte **DEUX** refus (et non un seul) :
+
+            if ( HasEffect(Get(target), 0x459, onlyActive: false, targetType: 6) )
+                return 2;                                   // (a) tuile DEJA marquee
+            foreach (t in casterTiles)
+                if (IdunBattle.Entities.TileExtensions$$IsTemporary(t)) return 2;   // (b)
+            return 0;
+
+        (a) est PORTE : c'est le refus DISCRIMINANT mesure live (E3 -- sur 58 cibles legales du
+        second porteur, la tuile marquee est la seule exclue, le temoin adjacent reste legal).
+
+        (b) est un RESIDU NOMME : `IsTemporary` lit le champ booleen `@+0x2c` du `TileComponent`, que
+        le port ne materialise PAS cote RUNNER (`state.board` ne porte que la geometrie et
+        `walkable` ; le canal `tileMeta.isTemporary` n'est seede que du cote DECISION, cf.
+        `engine/ai/context.py::is_temporary_by_pos`). Degradation PERMISSIVE, jamais un refus
+        invente. Pour le fermer il faudrait seeder `isTemporary` dans le board du runner.
+
+        Le port cherche l'effet 1113 sur l'ENTITE-TUILE (`state.effects.by_unit[tile_id]`), la meme
+        cle que `snapshot._load_tile_effects` et `AddEffectOperation` -- il n'y a qu'un modele
+        d'effet de tuile, alimente par la pose et par le chargement."""
+        if target_id is None or state is None or state.effects is None:
+            return 0
+        for eff in state.effects.by_unit.get(int(target_id), []):
+            if int(getattr(eff, "effect_type", -1)) == TUNNELING_HORROR_PENDING and not eff.consumed:
+                return int(TR.TargetMatchesDynamicRule)
+        return 0
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            # Cast TILE-TARGET : sans tuile resolue il n'y a AUCUN `targets` pour l'`AddBondEffect`.
+            # On ne joue alors NI le retrait de tuiles NI le bond (le natif, lui, n'arrive pas la :
+            # `TargetIsTile` est dans son masque, donc le gate statique a deja refuse).
+            return {"ability": TUNNELING_HORROR_ID, "caster": caster_id, "tile": None,
+                    "removed_from_tiles": None, "posed": [], "dsl": True}
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        # 1) Execute(RemoveUnitFromItsTiles(Caster, true))
+        tunneling_horror_remove_tree().execute(entities_from_state(state, caster_id), ectx)
+        # 2) Execute(RemoveAllForcedAttackTargets(Caster))
+        tunneling_horror_forced_targets_tree().execute(entities_from_state(state, caster_id), ectx)
+        # 3) Execute(AddBondEffect(...)) -- `entities` RE-MATERIALISE : le caster n'a plus de tuile.
+        tunneling_horror_bond_tree(tile_id).execute(entities_from_state(state, caster_id), ectx)
+        removed = next((p for n, p in ectx.emitted if n == "RemoveUnitFromItsTiles"), None)
+        posed = [{"target": p["target"], "effect": p["effect_type"], "bonded": p.get("bonded")}
+                 for n, p in ectx.emitted if n == "AddBondEffect"]
+        return {"ability": TUNNELING_HORROR_ID, "caster": caster_id, "tile": tile_id,
+                "removed_from_tiles": removed, "posed": posed, "dsl": True}
+
