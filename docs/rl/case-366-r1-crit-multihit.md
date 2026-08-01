@@ -148,6 +148,34 @@ Tests CIBLÉS rejoués, **83 verts, 0 rouge** : `test_crit_multihit_gate_live` (
 `test_normal_attack_bounds_rounding_live` + `test_additional_hits_scalar_bounds_live` (14),
 `test_act_of_faith_*` + `test_ischarging_saga_crit_live` + `test_path_of_command_crit_aura_live` (15).
 
+## 5.1 Le CÂBLAGE — ce que « tests ciblés » ne voit pas
+
+Ce port ajoute un paramètre à **`_run_hits`** et à **`execute_additional_hits`**, et une clé
+(`crit_allowed`) à la valeur de retour de `_run_hits`. Une première passe verte sur les tests du
+SUJET (crit, dégât, hits) a quand même laissé **16 rouges** dans la famille `additional-hits` : deux
+substitutions de harnais (`probe_r6_round_materialize.py::_exec`,
+`probe_r6b_additional_hits_order.py::_exec`) étaient restées en arrière, et la `TypeError` remontait
+sur trois fichiers live.
+
+**La question à poser n'est pas « quels tests portent sur mon sujet » mais « QUI APPELLE cette
+fonction »** — y compris les probes et les stubs de harnais, qui ne ressemblent à aucun test du
+domaine. `tests/test_additional_hits_variant_signatures_offline.py` automatise exactement ce
+balayage (scan AST : toute fonction dont les six premiers paramètres sont ceux du canal est enrôlée
+d'office, et un `**kwargs` fourre-tout est refusé — il rendrait la garde verte en cessant d'exercer
+l'étage). **Il est à faire tourner à chaque changement de signature du canal**, et il ne fait partie
+d'aucune des deux listes de cliquets habituelles (les six sont des *probes*, celui-ci est un test
+pytest).
+
+Balayage symétrique fait ici pour la clé de retour : **sept** harnais substituent `_run_hits` —
+`probe_159_ah_bounds`, `probe_277_flail_damage_stages`, `probe_67b_shield_ability_limits`,
+`probe_dpw_weapon_cell`, `probe_r6bp2_after_hit_maybe_ability`, `test_shield_ability_limits_live` et
+le stub du cliquet ci-dessus. Les six premiers sont des **wrappers** qui délèguent à l'original (le
+dict rendu porte donc `crit_allowed`) ; le septième fabrique son dict, mais aucune substitution ne
+CHAÎNE le retour — d'où le choix, dans les deux `_exec`, de repasser `crit_allowed0` **verbatim**
+plutôt que de chaîner `r["crit_allowed"]` comme le fait le port livré. Ces deux contrefactuels
+passent `crit_enabled=False`, donc le canal crit y est structurellement fermé et les deux formes
+sont indiscernables ; la limite est **nommée** dans leur commentaire.
+
 ## 6. Ce qui n'est PAS couvert
 
 * **`options[+0x40]` (la collection de `hitIndex` autorisés à criter) n'est pas portée.** Elle est
