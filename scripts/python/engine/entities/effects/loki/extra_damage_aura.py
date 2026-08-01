@@ -17,6 +17,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ....services.effect_bonus import EffectBonus, for_addition, for_percent_increase
+from ...damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
+from ...effect_type import EffectType
 from ..base import BaseEffect
 from ..magnitude import ability_var
 
@@ -496,3 +498,174 @@ class DefenderOfTheGreaterGoodExtraDmgDroneEffect(DefenderOfTheGreaterGoodExtraD
     Shadowsun (anti-double-comptage natif). RE : `docs/rl/case-372-dotgg-extra-hits.md`."""
 
     _IS_DRONE = True
+
+
+# --- PsychicStalk (passif de `thousAhriman` << Ahriman >>, TriggeredAbilityType 1179) -------------
+# Nom de l'ability tel que gameconfig l'indexe (`GC.ability("PsychicStalk")`) : le natif lit sa
+# config par le champ `effet+0x60` (`AbilityConfiguration`), et son NIVEAU par
+# `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`.
+PSYCHIC_STALK_ID = "PsychicStalk"
+# `IdunBattleLogic.Entities.DSLSelectors$$EntitiesWithAnyEffect(Tiles(<sel>), effectTypes = Fire, 6)`
+# -- l'entree `effectTypes` du call-site est le SCALAIRE `5`, que la surcharge 4-arguments emballe
+# elle-meme dans un `int[1]` (le `6` est `effectTarget`, PAS un second type). Le canal offline des
+# effets de tuile ne transporte que des NOMS (`tileMeta.tiles[].effects[].name` ->
+# `Scene.tile_effects_by_pos` / `damage_model.tile_status_effects_by_pos`), d'ou la lecture par nom
+# -- meme convention que `TILE_STATUS_EFFECT_NAMES` (services/static_battle_rules.py).
+FIRE_TILE_EFFECT_NAME = EffectType.Fire.name                      # EffectType 5 = "Fire"
+
+
+class APsychicStalkEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.APsychicStalkEffect` -- BASE ABSTRAITE des deux effets de
+    degat de `PsychicStalk`, portee ici parce que le natif y met les DEUX conditions PARTAGEES que
+    `1215` et `1435` intersectent chacun dans son propre canal :
+
+      * `APsychicStalkEffect$$GetTargetIsOnFireTileCondition`
+      * `APsychicStalkEffect$$GetAttackHasValidDamageProfileCondition`
+
+    Le ctor natif (`APsychicStalkEffect$$.ctor(abilityOrEffect)`) prend son `AbilityOrEffect` en
+    PARAMETRE -- aucune sous-classe n'a de `.ctor` propre dans les tables (corps mutualise), c'est la
+    fabrique d'`EffectsDatabase` qui le passe. Cote port l'`AbilityState` arrive deja resolue par la
+    capture (`ability_level` / `ability_variables_multiplier`), donc rien a modeliser ici.
+
+    Cette classe n'est PAS inscrite au registre (elle est abstraite cote natif aussi)."""
+
+    def target_is_on_fire_tile(self, ctx: Mapping | None = None) -> bool:
+        """`APsychicStalkEffect$$GetTargetIsOnFireTileCondition` (MIRROR 1:1) :
+
+            AmountIsEqualOrGreater(
+                EntitiesWithAnyEffect( Tiles(Target@0x60), Fire = 5, effectTarget = 6 ),
+                <DSLFormulas+0x20 = Direct(1)> )
+
+        = « au moins UNE des tuiles de la cible porte l'effet `Fire` ». `Tiles` =
+        `IdunBattle.Entities.Selectors.UnitsMainTilesSelector` -> la MAIN TILE de la cible, donc UNE
+        tuile (`t_pos`), pas l'empreinte complete. La surcharge d'arrivee est bien celle a
+        3 arguments d'`AmountIsEqualOrGreater` (`this, selector, minAmount`), resolue par l'adresse
+        du `call` -- pas par le nom.
+
+        Contexte : `t_pos` (position de la cible) + `tile_effects_by_pos` (`{(col,row): [noms]}`,
+        le canal deja monte pour `LetTheGalaxyBurnEffect`). Canal ABSENT -> False : le natif ne
+        devine pas non plus, et « present != applique »."""
+        c = ctx or {}
+        tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
+        if tfx is None or tp is None:
+            return False
+        return FIRE_TILE_EFFECT_NAME in set((tfx or {}).get(tuple(tp)) or ())
+
+    def attack_has_valid_damage_profile(self, ctx: Mapping | None = None) -> bool:
+        """`APsychicStalkEffect$$GetAttackHasValidDamageProfileCondition` (MIRROR 1:1) :
+
+            DamageProfileIs( new[] { AbilityConfiguration.GetAffectedDamageProfile()  ?? 3  (Flame),
+                                     AbilityConfiguration.GetAffectedDamageProfile2() ?? 0xd (Psychic) } )
+
+        Les deux valeurs sont lues sur la config d'ability (`effet+0x60`), avec un
+        `Nullable<DamageProfileType>.GetValueOrDefault(<defaut>)`. Pour `PsychicStalk` la config
+        FOURNIT les deux (`affectedDamageProfile = "Flame"`, `affectedDamageProfile_2 = "Psychic"`)
+        -- elles coincident avec les defauts, mais on lit la CONFIG, pas les defauts.
+
+        `damage_profile` = NOM du profil du coup. Absent -> False (le natif compare a la liste ; un
+        contexte sans profil vaut `DamageProfileType.None_ = -1`, hors liste)."""
+        prof = (ctx or {}).get("damage_profile")
+        if not prof:
+            return False
+        return prof in self._affected_damage_profiles()
+
+    @staticmethod
+    def _affected_damage_profiles() -> frozenset:
+        """Les deux profils de la config, en NOMS. `GetValueOrDefault` natif : `3` = Flame pour le
+        premier accesseur, `0xd` = Psychic pour le second."""
+        import gameconfig as _GC                        # import paresseux (cf. `magnitude.py`)
+        consts = (_GC.ability(PSYCHIC_STALK_ID) or {}).get("constants") or {}
+        return frozenset({
+            consts.get("affectedDamageProfile")
+            or PROFILE_NAME_BY_INDEX[int(DamageProfileType.Flame)],
+            consts.get("affectedDamageProfile_2")
+            or PROFILE_NAME_BY_INDEX[int(DamageProfileType.Psychic)],
+        })
+
+
+class PsychicStalkExtraAttackDamageEffect(APsychicStalkEffect):
+    """`IdunBattle.Entities.Effects.Loki.PsychicStalk_ExtraAttackDamageEffect` (EffectType 0x4bf=1215)
+    -- owner-effect PERMANENT de `thousAhriman` << Ahriman >> : les attaques Flame/Psychic contre un
+    ENNEMI d'Ahriman qui se tient sur un hex EN FEU font **+extraDmgPct %** de degat.
+    i2 : « Attacks that deal Flame Damage and Psychic Damage to enemies that are on hexes with Fire
+    deal +33% Damage. » (#366-r1)
+
+    ## Canal : `CreateEffectDamageMalusForDefense`, mais l'operation est `ForPercentIncrease`
+    `IdunBattle.Entities.Effects.Loki.PsychicStalk_ExtraAttackDamageEffect$$CreateEffectDamageMalusForDefense` :
+
+        EffectBonus.ForPercentIncrease(
+              ( IsUnit(Caster@0x48) | IsMachine(Caster@0x48) | CasterIsCasterTile )
+            & AreEnemies(Target@0x60, Owner@0x30)
+            & GetTargetIsOnFireTileCondition()
+            & GetAttackHasValidDamageProfileCondition(),
+              ConfigVar(0xa = extraDmgPct, GetAbilityState(effet), config@+0x60) )
+
+    Le NOM de la methode dit « Malus...ForDefense » (c'est le slot d'interface : le canal DEFENSEUR),
+    la FABRIQUE dit `ForPercentIncrease` -- le degat RECU par la cible AUGMENTE. C'est donc le meme
+    canal que `1110 FireAndReposition_ReduceDmg` (#366-r1) mais **PAS** le meme slot : celui-la
+    appelait `ForSubtraction` -> `flat_reductions` ; celui-ci alimente le **%-list** du defenseur,
+    exactement comme `DaughterOfTheAbyss_ExtraDamagePct` (+extraDmgPct % aux Psykers ennemis).
+
+    ## L'effet vit sur AHRIMAN, pas sur la cible -> canal AURA state-wide
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PsychicStalk_ExtraAttackDamageAbility$$CreateBehaviour` =
+    `AddEffect(0x4bf=1215, ..., targets = Owner@0x30) + AddEffect(0x4c0=1216, ...) +
+    AddEffect(0x59b=1435, ...)` : les TROIS effets du kit sont poses sur le PORTEUR. Le natif les
+    attrape par l'enumeration GLOBALE de
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (elle
+    itere la liste des effets ACTIFS de l'etat, pas ceux du seul defenseur) -- d'ou le hook
+    `create_aura_defense_damage_malus_for_ally` (agregateur `aura_defense_damage_malus_from_units`),
+    et NON `create_effect_damage_malus_for_defense` (qui ne balaie que les effets de la CIBLE).
+
+    ⚠ AUCUN `CreateTargetSelector` sur cette classe (contrairement a `DaughterOfTheAbyss` ou
+    `1216 PsychicStalk_VisualEffect`, qui en ont un) : c'est le TRIGGER qui porte toute la selection.
+
+    ## Ce que le trigger ne gate PAS : l'ATTAQUANT
+    `AreEnemies` porte sur `Target` vs `Owner`, jamais sur le caster -- **n'importe qui** peut
+    beneficier du +%, y compris un ennemi d'Ahriman qui tire sur un autre ennemi d'Ahriman. Le seul
+    terme sur le caster est le OU `IsUnit | IsMachine | CasterIsCasterTile`, vrai pour tout
+    attaquant reel. C'est conforme a l'i2, qui ne nomme aucun sujet (« Attacks that deal ... »).
+    C'est aussi ce qui SEPARE proprement `1215` de son voisin `1435
+    PsychicStalk_FriendlyChaosExtraDamage`, dont le trigger EXIGE `AreFriends(Owner, Caster) &
+    HasTrait(Caster, 0x7ea = Chaos)` : un attaquant non-Chaos (ou non-allie d'Ahriman) fait taire
+    `1435` et laisse `1215` seul -- c'est la garde d'ATTRIBUTION du montage de validation.
+
+    ## MAGNITUDE
+    `ConfigVar(0xa = extraDmgPct)` sur la config `PsychicStalk`, indexee par le niveau de l'ability
+    source (`GetAbilityState`). `extraDmgPct` = 25 -> 33 sur 65 niveaux, **HORS**
+    `variablesAffectedByRarityBonus` -> le multiplier de rarete ne s'y applique pas (il est passe
+    quand meme : c'est `ability_var` qui applique la regle config-driven, pas l'appelant).
+    `ability_level` absent (`GetAbilityState` sans etat) -> AUCUNE contribution.
+
+    NON PORTE ici (items voisins, tache separee) : `1216 PsychicStalk_VisualEffect` (aucun canal de
+    degat : `CreateActiveCondition = !IsDead(Owner)`, `CreateTargetSelector =
+    Units(EntitiesWithAnyEffect(Tiles(Enemies(Owner)), Fire, 6))`) et `1435
+    PsychicStalk_FriendlyChaosExtraDamage` (`ForAddition(..., ConfigVar(8 = extraDmg))`, canal
+    ATTAQUANT). La POSE du feu (`PsychicStalk_ApplyFireTileAbility$$CreateBehaviour` =
+    `AddEffect(Fire = 5, targets = TargetTiles@0x78)`, trigger `OnNormalAttackOrSmite & OwnerIsCaster
+    & IsRangedAttack`) n'est pas portee non plus -- l'etat offline la recoit par le seed des effets
+    de tuile (`snapshot._load_tile_effects`)."""
+
+    def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        # `IsUnit(Caster@0x48) | IsMachine(Caster@0x48) | CasterIsCasterTile` -- cote port les MoW
+        # portent AUSSI un `UnitComponent` (cf. `snapshot._load_machines`), donc `att_is_unit`
+        # couvre les deux premiers termes ; `CasterIsCasterTile` (= `AreEqual(Caster@0x48,
+        # CasterTile@0x50)`, un attaquant qui EST une entite-tuile) n'a pas de substrat offline ->
+        # cle absente. Aucune des trois threadee -> gate FERME (degradation restrictive NOMMEE :
+        # le canal de degat du port passe toujours son `attacker_id`).
+        if not (c.get("att_is_unit") or c.get("att_is_machine")
+                or c.get("caster_is_caster_tile")):
+            return None
+        # `AreEnemies(Target@0x60, Owner@0x30)` -- la CIBLE du coup est ennemie du PORTEUR.
+        if c.get("owner_team") is None or c.get("tgt_team") is None \
+                or c.get("owner_team") == c.get("tgt_team"):
+            return None
+        if not self.target_is_on_fire_tile(c):            # GetTargetIsOnFireTileCondition
+            return None
+        if not self.attack_has_valid_damage_profile(c):   # GetAttackHasValidDamageProfileCondition
+            return None
+        if self.ability_level is None:                    # ConfigVar sans AbilityState -> rien
+            return None
+        pct = ability_var(PSYCHIC_STALK_ID, "extraDmgPct", self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_percent_increase(True, int(pct)) if pct else None

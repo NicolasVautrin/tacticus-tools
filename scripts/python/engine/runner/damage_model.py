@@ -591,7 +591,20 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                 carriers, {"tgt_id": unit_id, "t_pos": tp,
                            "tgt_team": toc.team if toc is not None else None,
                            "tgt_traits": target_trait_names(state, unit_id),
-                           "damage_profile": damage_profile}):
+                           "damage_profile": damage_profile,
+                           # `IsUnit(caster@0x160)` (= `DSLSelectors+0x48`) -- MEME cle/semantique
+                           # que l'`att_ctx["is_unit"]` du canal defenseur ci-dessus, relayee au
+                           # canal AURA parce que `PsychicStalk_ExtraAttackDamage` (#366-r1) porte
+                           # son gate sur le CASTER, pas sur le porteur de l'effet. Absente si
+                           # l'appelant ne passe pas `attacker_id` -> le gate se tait.
+                           **({"att_id": attacker_id,
+                               "att_is_unit": (att_ctx or {}).get("is_unit")}
+                              if attacker_id is not None else {}),
+                           # `HasTileStatusEffect`/`EntitiesWithAnyEffect(Tiles(Target), Fire)` --
+                           # MEME canal et MEME forme `{(col,row): [noms]}` que celui deja monte
+                           # pour `LetTheGalaxyBurnEffect` (`collect_additional_hit_groups`).
+                           # `Tiles` = `UnitsMainTilesSelector` -> la MAIN TILE seule (`tp`).
+                           "tile_effects_by_pos": tile_status_effects_by_pos(state, [tp])}):
             add_modifier(mods, eb)
     return mods, active
 

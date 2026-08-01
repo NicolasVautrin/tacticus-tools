@@ -40,6 +40,7 @@ from .loki import (
     BigTargetAdjacentEffect,
     CrushingStrikeEffect,
     DaughterOfTheAbyssExtraDamagePctEffect,
+    PsychicStalkExtraAttackDamageEffect,
     DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
     DaughterOfTheAbyssOwnerDmgReductionEffect,
     DecoysAndMisdirectionExtraDamageEffect,
@@ -589,6 +590,19 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # redondant avec la duree TurnsFromRounds(1) de la pose. Canal = flat_reductions (additif
     # DEFENSEUR pre-percage, meme slot @+0x10 que Nightshroud). EffectType 0x456=1110 (#366-r1).
     "FireAndReposition_ReduceDmg": FireAndRepositionReduceDmgEffect,
+    # PsychicStalk (passif triggered 1179 d'Ahriman thousAhriman) : +extraDmgPct % (33 @L50/L65) au
+    # degat RECU par tout ENNEMI d'Ahriman qui se tient sur un hex EN FEU, quand le coup a un profil
+    # Flame ou Psychic. `IdunBattle.Entities.Effects.Loki.PsychicStalk_ExtraAttackDamageEffect$$
+    # CreateEffectDamageMalusForDefense` = ForPercentIncrease( (IsUnit|IsMachine|CasterIsCasterTile)
+    # & AreEnemies(Target@0x60, Owner@0x30) & GetTargetIsOnFireTileCondition() &
+    # GetAttackHasValidDamageProfileCondition(), ConfigVar(0xa = extraDmgPct) ). L'effet vit sur
+    # AHRIMAN (`...ExtraAttackDamageAbility$$CreateBehaviour` : `AddEffect(0x4bf, targets=Owner@0x30)`)
+    # -> canal AURA state-wide `create_aura_defense_damage_malus_for_ally`, %-list DEFENSEUR (PAS
+    # `flat_reductions` : la fabrique est ForPercentIncrease, pas ForSubtraction). AUCUN gate sur
+    # l'attaquant hors le OU structurel -- c'est ce qui le separe de son voisin 0x59b=1435
+    # FriendlyChaosExtraDamage (ForAddition, gate `AreFriends & HasTrait(Chaos)`, non porte).
+    # EffectType 0x4bf=1215 (#366-r1).
+    "PsychicStalk_ExtraAttackDamage": PsychicStalkExtraAttackDamageEffect,
     # PsychicFortress (passif Tigurius ultraTigurius, ability enum 0x3e8=1000) -- 2 effets posEs par
     # IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicFortressAbility$$CreateBehaviour :
     #  - DmgReduction (0x3f2=1010) : AURA -dmgReduction[ablvl]xmult PLAT du degat PSYCHIQUE recu par les AMIS
