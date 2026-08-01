@@ -143,6 +143,31 @@ def test_operation_removes_the_unit_from_the_board_without_killing_it(state):
     assert e.get_component(UnitComponent).alive is True     # HORS PLATEAU, pas mort
 
 
+def test_operation_removes_EVERY_foot_of_a_multihex_unit(state):
+    """GENERALISATION. Le natif boucle sur `GetUnitFeet` et met a zero le `TileId` de CHAQUE pied ;
+    une unite MULTI-HEX doit donc quitter le plateau ENTIEREMENT, pas d'un pied. Le seul producteur
+    d'empreinte a 3 pieds du build est `DSLFactory.ThreeTileUnitSpawnShape` (DutyEternal /
+    AetherStride) -- on la monte ici directement par l'ecrivain, ce qui exerce le MEME chemin."""
+    set_unit_feet(state, CASTER, [(2, 2), (2, 3), (3, 2)])
+    assert get_unit_feet(state, CASTER) == [(2, 2), (2, 3), (3, 2)]
+    res = RemoveUnitFromTilesOperation.execute(state, CASTER)
+    assert res["tiles"] == [(2, 2), (2, 3), (3, 2)]     # les TROIS sont journalisees
+    assert get_unit_feet(state, CASTER) == []
+    assert state.get_entity(CASTER).get_component(PositionComponent) is None
+    assert state.get_entity(CASTER).get_component(UnitComponent).feet == []
+
+
+def test_operation_is_idempotent_on_an_already_offboard_unit(state):
+    """Une unite DEJA hors plateau : le natif re-boucle sur une liste de pieds dont aucun n'a de
+    tuile -- aucune mutation supplementaire, aucune exception. Le port doit faire pareil (c'est le
+    regime d'un second cast, ou d'un `RemoveUnit` qui suivrait un tunnel)."""
+    RemoveUnitFromTilesOperation.execute(state, CASTER)
+    res = RemoveUnitFromTilesOperation.execute(state, CASTER)
+    assert res == {"unit": CASTER, "tiles": [], "applied": True, "remove_tile_from_unit": True}
+    assert get_unit_feet(state, CASTER) == []
+    assert state.get_entity(CASTER).get_component(UnitComponent).alive is True
+
+
 def test_operation_gates_return_none_without_mutating(state):
     """Les deux gates : entite inconnue, et entite qui n'est pas une unite (le natif LEVE une NRE
     la ou le port rend un refus TRACE -- ecart nomme dans la docstring de module de l'Operation)."""
