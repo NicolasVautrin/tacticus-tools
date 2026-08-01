@@ -41,6 +41,15 @@ Composition (chaque piece deleguee a SON port de classe natif) :
   3. + malus de coups de la CIBLE : `IdunBattle.Operations.AdditionalHitsFromEffects.GetAdditionalHits
      FromEffects IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffects` (LightCover -2 ranged / Parry -1 melee) + aura BigTarget  -> `entities.effects`
      (`hits_malus_from_defender_effects` / `aura_hits_malus_for_defense`).
+  4. INTERRUPTEUR des REDUCTIONS : `IdunBattle.Entities.Effects.BaseEffect$$BlockHitsReduction`
+     (case-366-r1) -> `entities.effects.block_hits_reduction_from_effects`. Ce n'est PAS un terme
+     de la somme. `DamagePrediction$$GetAttackHits` range les `HitsBonusForAttack` en DEUX listes
+     selon le SIGNE de leur `addition` (`< 0` = reduction), somme la liste des additions
+     INCONDITIONNELLEMENT, et ne somme celle des REDUCTIONS que si aucun effet actif n'a rendu
+     `BlockHitsReduction == true`. Le tri est au SIGNE, pas a la provenance : un `Parry` de la
+     cible, un `BigTarget` d'aura et un `FightingRetreat_HitReduction` de l'ATTAQUANT tombent dans
+     la MEME liste, donc s'eteignent ensemble. Unique implementeur porte : `1117
+     InescapableAccuracy_overrideHits` (`get_OwnerIsCaster & IsRangedAttack`, eldarMauganRa).
 
 NATURE DU COUP (`is_melee`) -- #122. Le natif l'obtient par
 `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` (que `DamagePrediction$$GetAttackHits` appelle sur
@@ -75,7 +84,8 @@ from __future__ import annotations
 import hexgeo
 
 from ..entities.effects import (hits_bonus_from_effects, hits_malus_from_defender_effects,
-                                 aura_hits_malus_for_defense, aura_hits_bonus_for_attack)
+                                 aura_hits_malus_for_defense, aura_hits_bonus_for_attack,
+                                 block_hits_reduction_from_effects)
 from ..entities.traits import attacker_bonus_hits
 from .damage_prediction import get_default_attack_hits
 
@@ -102,13 +112,22 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # Contexte de l'attaque passe aux effets du canal (1) : le `board` de la formule. Un seul dict =
     # un seul point d'enrichissement pour les futurs gates cible.
     att_hits_ctx = {**(board or {})}
+    # (0) INTERRUPTEUR `BaseEffect$$BlockHitsReduction` (case-366-r1, `1117 InescapableAccuracy_
+    # overrideHits`). Le natif l'evalue dans une boucle DEDIEE, sur la MEME collection d'effets
+    # actifs que les bonus de coups et AVANT toute somme, puis s'en sert pour SAUTER la liste des
+    # bonus a `addition < 0` (`DamagePrediction$$GetAttackHits`). Il est donc calcule ici, une seule
+    # fois, et threade a chacun des quatre agregateurs de l'axe -- le tri se fait bonus par bonus au
+    # SIGNE (foyer `entities.effects._hits_contribution`), jamais sur un agregat ni par provenance.
+    # `False` tant qu'aucun effet ACTIF de l'attaquant ne l'arme => no-op strict hors porteur.
+    block_reduction = block_hits_reduction_from_effects(attacker_effects, att_hits_ctx)
     # `is_normal_attack` = nature du VECTEUR (attaque normale vs attaque d'ABILITY), threade jusqu'aux
     # bonus dont le trigger natif porte le noeud `IsNormalAttack` (`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack`) —
     # aujourd'hui `IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack`
     # (`IsNormalAttack & OwnerIsCaster`). Les autres bonus/malus du canal n'ont PAS ce gate
     # (FightingRetreat_HitReduction, Parry, LightCover, Camouflage, Diminutive, BigTarget, AstartesBanner) :
     # ils s'appliquent aux DEUX vecteurs. Defaut True = attaque normale (comportement historique inchange).
-    eff_hits = hits_bonus_from_effects(attacker_effects, bool(is_normal_attack), att_ctx=att_hits_ctx)
+    eff_hits = hits_bonus_from_effects(attacker_effects, bool(is_normal_attack), att_ctx=att_hits_ctx,
+                                       block_reduction=block_reduction)
     # base = `IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits` : weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17)).
     # is_melee=None (contexte inconnu) -> False -> pas d'ExtraHitsMelee (conservateur, mêlée seule).
     base_default = get_default_attack_hits(int(weapon_hits), int(extra_hits), int(extra_hits_melee),
@@ -160,7 +179,10 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
         # `Maybe(chance)` : PRNG en COMBAT (le tirage CONSOMME un genrand), None en PRÉDICTION —
         # c'est exactement `ANonDeterministicAbilityTrigger$$CanUseRandom == false`, où le natif
         # substitue `99 < chance` au tirage (cf. `entities.triggers.MaybeTrigger`).
-        "rng": board.get("rng")})
+        "rng": board.get("rng")},
+        # inerte pour l'alimenteur actuel (POSITIF) -- threade parce que le tri natif porte sur le
+        # SIGNE de chaque bonus, pas sur le canal qui le produit.
+        block_reduction=block_reduction)
     # (3) malus défenseur : LightCover -2 ranged / Parry -1 mêlée / Camouflage. Le gate
     # compute-time `defender_on_cover` (A3, #113) empêche LightCover de sur-appliquer un effet périmé en
     # runner-sim (cible ayant quitté sa tuile de cover) ; None (prédiction) = applique-sur-présence.
@@ -173,6 +195,8 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     hits = max(_floor, hits            # `Math.Max(·, 0)` natif, borne par la BASE (cf. `_floor`)
                + hits_malus_from_defender_effects(target_effects, is_melee, damage_profile,
                                                   defender_on_cover=defender_on_cover,
-                                                  dist=_cam_dist)
-               + aura_hits_malus_for_defense(aura_sources, board))
+                                                  dist=_cam_dist,
+                                                  block_reduction=block_reduction)
+               + aura_hits_malus_for_defense(aura_sources, board,
+                                             block_reduction=block_reduction))
     return hits

@@ -46,7 +46,7 @@ __all__ = [
     "build_attacker_modifiers_from_effects", "calculate_attacker_modifiers_for_prediction",
     "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
-    "aura_hits_bonus_for_attack",
+    "aura_hits_bonus_for_attack", "block_hits_reduction_from_effects",
     "additional_hit_groups", "aura_defense_damage_malus_from_units",
     "aura_attack_damage_bonus_from_allies", "aura_fixed_armor_bonus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
@@ -212,22 +212,71 @@ def defender_effect_block_sources(effects, defender_fixed_armor: int = 0,
     return out
 
 
+def _hits_contribution(hb, block_reduction: bool = False) -> int:
+    """Contribution SIGNEE d'un `EffectBonus` a l'axe COUPS, APRES le tri natif par signe.
+
+    Mirror du corps de boucle de `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` : chaque
+    `HitsBonusForAttack` non nul est range dans l'une de DEUX listes selon que son `addition` est
+    `< 0` (REDUCTION) ou `>= 0` (addition), et la liste des reductions n'est sommee que
+    **si aucun effet n'a rendu `BlockHitsReduction == true`**. `block_reduction=True` rend donc 0
+    pour toute contribution negative -- et ne touche a RIEN d'autre : les additions passent
+    inchangees, le tri se fait bonus par bonus (jamais sur l'agregat), et le canal reste inerte
+    tant qu'aucun effet n'arme le booleen (defaut `False`).
+
+    Le SIGNE, et pas la provenance : le natif ne separe pas « effet de l'attaquant » de « effet du
+    defenseur » sur cet axe (une seule boucle sur `GetActiveEffectsWithBonuses`). Une reduction
+    portee par l'ATTAQUANT (`FightingRetreat_HitReduction`, trigger `OwnerIsCaster`) est donc
+    bloquee au meme titre qu'un `Parry` de la cible. Foyer UNIQUE, partage par les QUATRE
+    agregateurs de l'axe (attaquant / defenseur / aura defense / aura attaque)."""
+    if hb is None:
+        return 0
+    if hb.kind == "Addition":
+        v = int(hb.value)
+    elif hb.kind == "Subtraction":
+        v = -int(hb.value)
+    else:
+        return 0
+    return 0 if (block_reduction and v < 0) else v
+
+
+def block_hits_reduction_from_effects(effects, att_ctx: Mapping | None = None) -> bool:
+    """OU LOGIQUE de `IdunBattle.Entities.Effects.BaseEffect$$BlockHitsReduction` sur les effets
+    ACTIFS -- l'interrupteur qui eteint la liste des REDUCTIONS de coups (case-366-r1, `1117
+    InescapableAccuracy_overrideHits`).
+
+    Le natif l'evalue dans une boucle DEDIEE sur la MEME collection que les bonus de coups
+    (`EffectsQuery$$GetActiveEffectsWithBonuses` = tous les effets actifs du board) et arme un
+    simple flag des qu'UN effet rend `true` -- il n'y a ni cumul ni magnitude.
+
+    Cote port l'agregateur ne balaie que les effets de l'ATTAQUANT : c'est le rendu du noeud
+    `get_OwnerIsCaster` du SEUL implementeur porte (`InescapableAccuracy_OverridHitsEffect`), meme
+    idiome que `crit_chance_bonus_from_effects` / `crit_damage_bonus_from_effects`. Un futur
+    implementeur SANS ce noeud (`PurgeResponseEffect`, non porte) exigerait d'elargir le balayage --
+    c'est ecrit ici pour que l'elargissement soit un geste explicite, pas un oubli.
+
+    L'`ActiveCondition` reste a SA place native : le natif filtre l'enumeration sur
+    `EffectComponent.IsActive @+0x5c` (relu dans `GetActiveEffectsWithBonuses`), et le port recoit
+    des effets deja passes par `EffectsState.active_effects`. Les classes qui portent ce canal
+    rendent NEANMOINS leur condition une seconde fois dans le canal (meme discipline que 1115/1116,
+    meme store `UnitFlagsComponent`) : redondant, jamais faux."""
+    return any(e.block_hits_reduction(att_ctx) for e in _as_effects(effects))
+
+
 def hits_bonus_from_effects(effects, is_normal_attack: bool = True,
-                            att_ctx: Mapping | None = None) -> int:
+                            att_ctx: Mapping | None = None,
+                            block_reduction: bool = False) -> int:
     """Σ des bonus de COUPS (`CreateEffectHitsBonusForAttack`) des effets actifs (axe hits, ex.
     PowerTrip_FullHealth). Addition = +value, Subtraction = −value.
     `att_ctx` = le `board` de `AttackHitsWithModifiersFormula` + `tile_effects_by_pos` +
     `persistent_data` (cf. `BaseEffect.create_effect_hits_bonus_for_attack`) — requis par les bonus
-    dont le gate porte sur la CIBLE (`LetTheGalaxyBurnEffect` IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits). None → ces bonus no-op."""
+    dont le gate porte sur la CIBLE (`LetTheGalaxyBurnEffect` IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits). None → ces bonus no-op.
+    `block_reduction` = le flag `BaseEffect$$BlockHitsReduction` de l'attaque (cf.
+    `_hits_contribution`) : les contributions NEGATIVES de ce canal sont alors ignorees --
+    `FightingRetreat_HitReduction` en est une, portee par l'ATTAQUANT."""
     total = 0
     for e in _as_effects(effects):
-        hb = e.create_effect_hits_bonus_for_attack(is_normal_attack, att_ctx)
-        if hb is None:
-            continue
-        if hb.kind == "Addition":
-            total += hb.value
-        elif hb.kind == "Subtraction":
-            total -= hb.value
+        total += _hits_contribution(e.create_effect_hits_bonus_for_attack(is_normal_attack, att_ctx),
+                                    block_reduction)
     return total
 
 
@@ -271,7 +320,8 @@ def aura_additional_hits_from_allies(carriers, ctx: Mapping) -> list:
 def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
                                      damage_profile: str | None = None,
                                      defender_on_cover: bool | None = None,
-                                     dist: int | None = None) -> int:
+                                     dist: int | None = None,
+                                     block_reduction: bool = False) -> int:
     """Σ des modifications de COUPS des effets actifs de la CIBLE (`create_effect_hits_malus_for_defense`,
     ex. LightCover IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack : -2 ranged ; Parry IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack : -1 mêlée ;
     Camouflage/Diminutive). Natif = même canal `CreateEffectHitsBonusForAttack` trigger
@@ -280,37 +330,31 @@ def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
     `CreateAdditionalHits` (canal #179), pas `CreateEffectHitsBonusForAttack`.
     `defender_on_cover` = gate compute-time des effets de TUILE (LightCover `AreEqual(coverPatch,target)`,
     #113) : None=applique-sur-présence (prédiction), True/False=cible sur/hors sa tuile de cover (combat).
-    Retour signé (à ADDITIONNER aux hits)."""
+    `block_reduction` = le flag `BaseEffect$$BlockHitsReduction` de l'attaque : ce canal ne produit
+    QUE des contributions negatives, il est donc integralement eteint quand le flag est arme
+    (case-366-r1). Retour signé (à ADDITIONNER aux hits)."""
     total = 0
     for e in _as_effects(effects):
-        hb = e.create_effect_hits_malus_for_defense(is_melee, damage_profile, defender_on_cover, dist)
-        if hb is None:
-            continue
-        if hb.kind == "Addition":
-            total += hb.value
-        elif hb.kind == "Subtraction":
-            total -= hb.value
+        total += _hits_contribution(
+            e.create_effect_hits_malus_for_defense(is_melee, damage_profile, defender_on_cover, dist),
+            block_reduction)
     return total
 
 
-def aura_hits_malus_for_defense(units_effects, ctx) -> int:
+def aura_hits_malus_for_defense(units_effects, ctx, block_reduction: bool = False) -> int:
     """Σ des malus de COUPS projetés sur la CIBLE par des effets AURA possédés par d'AUTRES unités
     (`create_aura_hits_malus_for_defense`, ex. BigTargetAdjacentEffect IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack : -1 ranged pour
     les alliés ring-1 du porteur). `units_effects` = itérable de (owner_id, owner_pos, owner_team,
     effets du porteur) ; `ctx` = {tgt_id, t_pos, tgt_team, is_melee}. Plancher min=1 chez le
-    consommateur. Retour ≤ 0 (à ADDITIONNER aux hits)."""
+    consommateur. `block_reduction` = le flag `BaseEffect$$BlockHitsReduction` (case-366-r1) : le
+    natif range ces `-1` dans la MEME liste de reductions que `Parry`/`Camouflage` (tri par SIGNE,
+    pas par provenance), donc ils sont eteints ensemble. Retour ≤ 0 (à ADDITIONNER aux hits)."""
     total = 0
     for owner_id, owner_pos, owner_team, effects in (units_effects or []):
         octx = {**(ctx or {}), "owner_id": owner_id, "owner_pos": owner_pos,
                 "owner_team": owner_team}
         for e in _as_effects(effects):
-            hb = e.create_aura_hits_malus_for_defense(octx)
-            if hb is None:
-                continue
-            if hb.kind == "Addition":
-                total += hb.value
-            elif hb.kind == "Subtraction":
-                total -= hb.value
+            total += _hits_contribution(e.create_aura_hits_malus_for_defense(octx), block_reduction)
     return total
 
 
@@ -319,7 +363,7 @@ def aura_hits_malus_for_defense(units_effects, ctx) -> int:
 # `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits`
 # (canal #179) et non `CreateEffectHitsBonusForAttack` -- un canal sans alimenteur natif est un
 # gate MORT, donc un piege. #372 le REOUVRE avec l'alimenteur natif qui manquait.
-def aura_hits_bonus_for_attack(carriers, ctx) -> int:
+def aura_hits_bonus_for_attack(carriers, ctx, block_reduction: bool = False) -> int:
     """Somme des bonus de COUPS projetes sur l'ATTAQUANT par des effets-AURA possedes par d'AUTRES
     unites (`create_aura_hits_bonus_for_attack`).
 
@@ -340,6 +384,9 @@ def aura_hits_bonus_for_attack(carriers, ctx) -> int:
     att_team, att_faction, is_melee, damage_profile, turns_started_by_id, parent_by_id, rng}.
     `aura_peers` est injecte ICI : la branche `isDrone` du selecteur natif
     (`EntitiesIsNotTargetOfEffect`) doit pouvoir evaluer le selecteur d'un AUTRE porteur.
+    `block_reduction` = le flag `BaseEffect$$BlockHitsReduction` (case-366-r1) -- inerte pour
+    l'alimenteur actuel (`DefenderOfTheGreaterGood_ExtraHits` est un `ForAddition` POSITIF), threade
+    par symetrie parce que le tri natif se fait au SIGNE de chaque bonus, pas au canal.
     Retour signe (a ADDITIONNER aux coups) ; 0 strict hors carrier."""
     total = 0
     cs = list(carriers or [])
@@ -347,13 +394,7 @@ def aura_hits_bonus_for_attack(carriers, ctx) -> int:
         octx = {**(ctx or {}), "owner_id": c[0], "owner_pos": c[1], "owner_team": c[2],
                 "aura_peers": cs}
         for e in _as_effects(c[-1]):
-            hb = e.create_aura_hits_bonus_for_attack(octx)
-            if hb is None:
-                continue
-            if hb.kind == "Addition":
-                total += hb.value
-            elif hb.kind == "Subtraction":
-                total -= hb.value
+            total += _hits_contribution(e.create_aura_hits_bonus_for_attack(octx), block_reduction)
     return total
 
 

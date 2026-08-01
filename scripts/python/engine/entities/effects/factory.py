@@ -142,6 +142,7 @@ from .loki import (
     WarHowlExtraDamageUnstoppableEffect,
     InescapableAccuracyExtraCritChanceEffect,
     InescapableAccuracyExtraCritDamageEffect,
+    InescapableAccuracyOverrideHitsEffect,
     UntilOfEndTurnEffect,
     StructuralAnalyserVisualEffect,
     HeavyGravCannonEffect,
@@ -804,10 +805,20 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `RollCritical` = SI le coup crite ; 1116 -> `CalculateCriticalDamage` = de COMBIEN).
     # ⚠ Asymetrie de config, relue : `variablesAffectedByRarityBonus == ["extraCritDmg"]` -- seul
     # 1116 est scale par le multiplicateur de rarete du porteur.
-    # `1117 InescapableAccuracy_overrideHits` (`ActiveCondition` + `CreateBlockHitReductionTrigger`,
-    # canal `BaseEffect$$BlockHitsReduction`) reste NON porte.
+    # 1117 InescapableAccuracy_overrideHits -- le TROISIEME volet, porte depuis case-366-r1/1117 :
+    #   `...InescapableAccuracy_OverridHitsEffect$$CreateBlockHitReductionTrigger`
+    #       = get_OwnerIsCaster & IsRangedAttack        (trigger NU : aucun `EffectBonus`, donc
+    #                                                    AUCUNE variable de config, donc rien a
+    #                                                    scaler par la rarete)
+    # Consommateur : `IdunBattle.Entities.Effects.BaseEffect$$BlockHitsReduction` ->
+    # `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`, qui SAUTE la liste des bonus de
+    # coups a `addition < 0` quand le flag est arme. Ce n'est donc PAS un terme de somme mais un
+    # INTERRUPTEUR de l'axe COUPS -- cable dans `services.attack_hits_formula` (foyer PARTAGE
+    # combat/prediction : `AttackDamageOperation$$GetAttackHits` delegue au slot 0xb6 de
+    # `BattleQuery`, qui delegue a `DamagePrediction$$GetAttackHits`).
     "InescapableAccuracy_extraCritChance": InescapableAccuracyExtraCritChanceEffect,
     "InescapableAccuracy_extraCritDmg": InescapableAccuracyExtraCritDamageEffect,
+    "InescapableAccuracy_overrideHits": InescapableAccuracyOverrideHitsEffect,
     # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
     # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
     # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce
