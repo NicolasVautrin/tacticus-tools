@@ -25,7 +25,6 @@ Mesure complete (2 couples board/seed + contre-epreuve) :
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import pytest
 
@@ -37,8 +36,6 @@ from engine.runner.events import EventBus
 from engine.runner.operations.movement import MoveUnitOperation
 from engine.runner.operations.triggers import after_move_triggers
 from engine.runner.snapshot import load_state
-
-ROOT = Path(__file__).resolve().parents[4]
 
 
 def _capture(rpc, rid) -> dict:
@@ -71,9 +68,11 @@ def _types(st, uid) -> list:
 def stage(rpc, build_runner):
     """UN runner, l'injection catalogue et le CAST -- puis l'etat est fige pour les deux bras.
     ⚠ Montage non installe => ECHEC, jamais skip (#268) : un skip vert dirait « rien a valider »."""
-    logs = ROOT / "logs" / "probe448r2d"
-    logs.mkdir(parents=True, exist_ok=True)
-    bc = logs / ("seedbc-test-%s.json" % uuid.uuid4().hex[:8])
+    # Le repertoire de SORTIE est celui du probe (`P.LOGS`, sous `logs/` = gitignore, #349) : un
+    # seul calcul de racine, pas deux -- une racine recalculee ici a DEJA pointe une marche trop
+    # bas (`scripts/logs/`), ce que `probe_273 --only-scan` a attrape.
+    P.LOGS.mkdir(parents=True, exist_ok=True)
+    bc = P.LOGS / ("seedbc-test-%s.json" % uuid.uuid4().hex[:8])
     catalog_inject.write_augmented_seed_bc(str(bc), [P.CASTER])
     try:
         rid = build_runner(seed="777", board="MC1_67",

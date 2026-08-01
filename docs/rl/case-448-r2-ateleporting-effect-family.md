@@ -1,9 +1,10 @@
-# case-448-r2 — la famille `ATeleportingEffect` : inventaire des QUATRE, tranche 1/4 PORTÉE
+# case-448-r2 — la famille `ATeleportingEffect` : inventaire des QUATRE, tranches 1/4 et 4/4 PORTÉES
 
 Résidu nommé en §7.5 de `case-366-r1-tunneling-horror-pending-summon.md` : « les QUATRE triggers
 PROPRES de 1140, **partagés par ses trois sœurs** (1035, 1238, 1573) ». Quatre items = au-dessus du
-plafond d'une tâche → **inventaire d'abord** (§1–§2), **une tranche livrée** (§3–§5), **trois tâches
-filles décrites pour être dispatchées telles quelles** (§6).
+plafond d'une tâche → **inventaire d'abord** (§1–§2), **tranche 1 livrée** (§3–§5), **tâches filles
+décrites pour être dispatchées telles quelles** (§6), **tranche 4 livrée** (§7). Restent ouvertes :
+`#448-r2b` (1140 Stormboyz) et `#448-r2c` (1238 FearOfTheUnseen).
 
 ---
 
@@ -242,9 +243,10 @@ mesure muette — elle est DITE dans le probe.
     python -m pytest scripts/python/tests/engine/runner/test_448_r2_teleporting_in_offline.py
     python -m pytest scripts/python/tests/engine/runner/test_448_r2_teleporting_in_live.py
 
-La garde offline FIGE aussi l'inventaire des quatre (ids, sources, `*_Moving`) **et** le fait que
-les trois sœurs ne sont pas au registre : elle tombe dès qu'une inscription se fait, ce qui est
-l'intention — elle doit s'accompagner de sa confrontation.
+La garde offline FIGE aussi l'inventaire des quatre (ids, sources, `*_Moving`) **et** le fait que les
+sœurs NON ENCORE CONFRONTÉES (1140, 1238, 1241) ne sont pas au registre : elle tombe dès qu'une
+inscription se fait, ce qui est l'intention — elle doit s'accompagner de sa confrontation. Le couple
+`1573`/`1574`, lui, en est SORTI avec la tranche 4 (§7), et un test POSITIF le remplace.
 
 ---
 
@@ -315,28 +317,118 @@ prévu : `tyranDeathleaper` **arrive lui-même sous 1035** et
 * **Discriminant attendu** : deux pas successifs — le premier (`remaining = 2`) ne retire rien, le
   second (`remaining = 1`) atterrit. Un port qui collapse le vslot à `True` atterrit au premier.
 
-### `#448-r2d` — `1573 TitanhammerSquad_TeleportingIn`
+### `#448-r2d` — `1573 TitanhammerSquad_TeleportingIn` : **PORTÉE ET CONFRONTÉE** (§7)
 
-* **Porteur / chemin** : `astarLysander`, HERO **hors pool** → injection catalogue **+
-  assainissement du trait hors-enum**, tous deux résolus par #270-d (fixture `lysander_deploy_case`,
-  `probe_270d_lysander_deploy.py`, `tests/engine/runner/test_270d_lysander_deploy_live.py`).
-* **Spécialisation** : `MOVING_EFFECT_TYPE = 1574` **et** surcharge de `_custom_moving_condition` —
-  la SEULE à surcharger le vslot 0x748 :
-  `IdunBattle.Entities.Effects.Loki.TitanhammerSquad_TeleportingInEffect$$GetCustomMovingEffectCondition`
-  = `Contains(<Sel+0x78>, tgt) | IsAdjacentTiles(<Sel+0x78>, tgt)` où
-  `tgt = EffectTarget( EffectsFromUnitSource( EffectSource(EffectSelf), 0x623 = 1571
-  TitanhammerSquad_TargetTile ) )` — autrement dit : le marqueur `*_Moving` n'est posé que si la
-  DESTINATION du pas est une tuile marquée `TitanhammerSquad_TargetTile`, ou lui est adjacente.
-  `<Sel+0x78>` est le sélecteur de TUILES DE DESTINATION (résidu de nom déjà documenté par
-  `case-366-r1-hateful-assault-marker.md` §136 et `triggers/base.py` `dest_tile`).
-* **Ce qui reste à LIRE, et c'est le gros morceau** : `1231 TitanhammerSquad` (ACTIVE) n'est **pas
-  portée du tout**. Son `$$ExecuteBehaviour` est un `op_BitwiseAnd` de QUATRE behaviours —
-  `AddEffect(0x623 = 1571 TargetTile)`, `Heal`, `AddDynamicStatModifierEffect(0x624 = 1572
-  ExtraBlockDamage)`, `AddEffect(0x625 = 1573 TeleportingIn)` — sur un sélecteur
-  `<Sel+0x48> + Filter(SurroundingFriends(<Sel+0x48>, const 0x16, true, 3), HasTrait(<Sel+0x68>,
-  0x40f))`. **La tranche fille peut se borner à l'effet 1573** en montant l'état par
-  `--equip`/injection plutôt qu'en portant l'ability, mais alors elle doit DIRE que 1571 (le
-  substrat du `_custom_moving_condition` ET du `TitanhammerSquadPathfinder`) n'est posé par personne
-  côté port — sinon le vslot 0x748 est confronté sur une entrée vide, et rend `False` partout.
-* **Discriminant attendu** : deux pas depuis le même état — l'un vers une tuile marquée 1571 (ou
-  adjacente), l'autre loin de toute marque. Seul le premier doit poser `1574 TitanhammerSquad_Moving`.
+Voir §7 ci-dessous. Reste ouvert : `#448-r2b` (1140) et `#448-r2c` (1238).
+
+---
+
+## 7. Tranche 4/4 — `1573 TitanhammerSquad_TeleportingIn` : PORTÉE
+
+La seule des quatre à surcharger le vslot **0x748**, et la seule dont le substrat n'existe pas
+côté port.
+
+### 7.1 Le décompilé, relu en entier
+
+`IdunBattle.Entities.Effects.Loki.TitanhammerSquad_TeleportingInEffect$$GetCustomMovingEffectCondition` :
+
+    tgt = EffectTarget( EffectsFromUnitSource( EffectSource(EffectSelf@<Sel+0x38>),
+                                               0x623 = 1571 TitanhammerSquad_TargetTile ) )
+    return Contains(<Sel+0x78>, tgt)  op_BitwiseOr  IsAdjacentTiles(<Sel+0x78>, tgt)
+
+et `$$GetMovingEffectType` = `Nullable<EffectType>(0x626 = 1574)` (lu à l'octet).
+
+`<DSLSelectors+0x78>` = **TargetTiles** (`AbilityEntities+0x190`) — deux sources indépendantes :
+`runner/abilities/admec.py` (« `factory+0x178 Target` = `+0x60`, `factory+0x190 TargetTiles` =
+`+0x78` ») et le port live-confirmé d'`HatefulAssaultAbility$$CreateTrigger`. Sur
+`On(0x1f = PreUnitMove)`, `IdunBattle.Operations.MoveUnitOperation$$EvaluatePreMoveTriggers` y met
+la tuile d'ARRIVÉE ⇒ **le marqueur n'est posé que si la DESTINATION est une tuile marquée `1571`,
+ou la jouxte.**
+
+**Les deux bras ne sont pas symétriques**, et c'est lu, pas supposé :
+`IdunBattle.Entities.Triggers.XContainsYTrigger$$ShouldTrigger` résout X (`+0x10`) par le slot
+d'interface **0** (liste d'entités) et Y (`+0x18`) par le slot **1**, qui rend **UNE SEULE** entité
+(le même slot par lequel `EffectsFromUnitSourceSelector$$Select` réduit sa source à un `entity`), puis
+compare les `Id` ; `IdunBattle.Entities.Triggers.IsAdjacentTilesTrigger$$ShouldTrigger` résout SES
+DEUX sélecteurs par le slot **10** (liste de TUILES) et fait une double boucle. Le bras `Contains`
+ne teste donc que la PREMIÈRE tuile marquée. **Portée bornée, et mesurée** : `1571` est posé par
+`AddEffect(0x623, …, targets: <Sel+0x60> = Target)` — la cible de l'active, **une** tuile ; le probe
+publie la cardinalité (`marked_tiles`) et elle vaut **1** sur les deux couples joués.
+
+Que `1571` vive sur des **TUILES** est lu au décompilé :
+`IdunBattle.Entities.Pathfinding.TitanhammerSquadPathfinder$$IsValidTitanhammerSquadTargetTile` fait
+`GetOwnedEffect(tile, state, 0x623)` puis `GetEffectSourceUnit(...)` puis `IsFriend(...)`.
+
+### 7.2 Ce que le montage a dû installer — et pourquoi il était OBLIGATOIRE
+
+`1571` **n'est posé par personne côté port** (son poseur est l'ACTIVE `1231`, non portée). Sans
+montage, le vslot 0x748 aurait été confronté sur une entrée VIDE, aurait rendu `False` partout, et
+la garde serait passée **verte sans rien mesurer**. Le substrat vient donc du NATIF :
+
+1. `astarLysander` injecté au catalogue (`catalog_inject.write_augmented_seed_bc` — l'assainissement
+   du trait hors-enum `ImperialFists` y est déjà, #270-d) ;
+2. il **caste `1231` LIVE** (cible = une tuile, `fromHere` du natif) → le natif pose `1571` sur cette
+   tuile et `1573` sur lui-même + les alliés `TerminatorArmour` (trait `0x40f` = 1039) à `range` 2 ;
+3. l'état du port est **rechargé** depuis le natif, **`tileMeta` inclus** — seul canal des effets de
+   tuile (`snapshot._load_tile_effects`) ;
+4. TROIS pas depuis cet état, chacun confronté port/natif.
+
+Les trois pas sont possibles parce qu'`IdunBattle.Entities.Pathfinding.ATeleportPathfinder$$IterateReachableTiles`
+est un **décorateur** : le pool est l'UNION « ce que la marche atteint » ET le pool de téléport
+(restreint, lui, à la zone marquée). Un porteur de `1573` peut donc marcher loin de la marque.
+
+### 7.3 Les mesures (`probe_448_r2d_titanhammer_squad.py`, 2 couples board/seed)
+
+`MC1_67`/777 et `C3_26`/31337, **identiques des deux côtés** :
+
+| bras | destination | port | natif (cascade `applyAction`) |
+|---|---|---|---|
+| ARM-FAR | un pas de MARCHE hors zone | **pas de 1574** | **aucun** groupe `TitanhammerSquad_Moving` |
+| ARM-NEAR-ON | SUR la tuile marquée (`Contains`) | 1574 posé pendant le pas, retiré après | `ReceiveEffect` `Effect_SourceActiveAbility=1231`, `Effect_RemainingTurns=1`, puis `LoseEffect` |
+| ARM-NEAR-ADJ | une VOISINE de la marque (`IsAdjacentTiles`) | idem | idem |
+
+Plus, sur les trois : `pos` / `alive` / `untargetable` / `teleported` égaux terme à terme, `1573`
+retiré des deux côtés (T1), et `natif ⊆ port` sur la liste d'effets.
+
+**CONTRE-ÉPREUVE** (`--mutate`, qui rend le vslot 0x748 NEUTRE = le port qu'on obtiendrait en
+inscrivant 1573 sans lire sa surcharge) : **ARM-FAR rougit** (« port pose 1574 = True (attendu
+False) », « DÉSACCORD sur 1574 — port=True natif=False »). La mesure discrimine.
+
+### 7.4 Ce que la tranche ne mirror PAS, nommément
+
+* **`1231 TitanhammerSquad` (l'ACTIVE)** reste non portée. Son `$$ExecuteBehaviour` est un
+  `op_BitwiseAnd` de QUATRE behaviours — `AddEffect(0x623 = 1571)`, `Heal`,
+  `AddDynamicStatModifierEffect(0x624 = 1572)`, `AddEffect(0x625 = 1573)` — sur
+  `<Sel+0x48> + Filter(SurroundingFriends(<Sel+0x48>, const 0x16 = range, true, 3),
+  HasTrait(<Sel+0x68>, 0x40f))`, filtré par `NOT HasFlag(<Sel+0x68>, 1)`. **Conséquence assumée** :
+  sur un état que le port construit seul, le vslot 0x748 est faux partout et aucun `1574` n'est posé.
+  C'est fidèle à ce que le port SAIT ; ça ne l'est pas à ce que le jeu FAIT. **RÉSIDU NOMMÉ.**
+* **`1574` n'a AUCUN lecteur gameplay sur ce build.**
+  `IdunBattle.Entities.UnitExtensions$$SetMovedFlag` — le seul consommateur des marqueurs de la
+  famille — teste `IsOwnerOfEffect`/`IsTargetOfEffect` sur `0x40c`, `0x40b`, `0x4d9`, `0x4d6`
+  (1036/1035/1241/1238) et **pas** `0x625`/`0x626` ; `IdunBattleLogic.Effects.TeleportMovingEffect`
+  n'a que `.ctor` + `CreateHandleTriggerAbilitiesInternal`. Le port ne doit donc PAS étendre
+  `_TELEPORT_MOVE_EFFECTS` — un cliquet le verrouille. L'observable de `1574` est sa propre présence
+  (cascade native / état mi-pas côté port), pas un delta numérique.
+* **`TerminatorArmour_ReduceDmg` / `_Visual` : leur `CreateTargetTrigger` n'est PAS porté.**
+  Trouvé EN MESURANT (MC1_67 ARM-NEAR-ON : le natif rend une liste d'effets VIDE après le pas, le
+  port garde les deux).
+  `IdunBattle.Entities.Effects.Loki.TerminatorArmour_ReduceDmg_Effect$$CreateTargetTrigger` =
+  `On(9 = Attack) & AreEqual(Units(Target), Owner) & CurrentAttackDamageProfilesContainOtherThan(<exclus>)
+  & AmountIsZero(CurrentShieldAmount(Target)) & (AmountIsGreaterThanZero(HealthDamageFromEvent) | WasBlock)`
+  → `$$CreateTargetTriggerBehaviour` = `DeactivateEffect(self)`, ré-activé par son
+  `$$CreateHandleTriggerAbilitiesInternal` sur `On(0x3e)`. C'est une réduction **une fois par
+  attaque** ; `EFFECT_TRIGGERS[1147]` et `[1375]` sont VIDES côté port ⇒ le port applique -75 %
+  à chaque coup du tour. **RÉSIDU NOMMÉ, hors périmètre** (le probe l'objective en publiant
+  `damaged`, mesuré `True` sur ce seul bras — un overwatch à l'atterrissage).
+* **L'ordre d'énumération** du bras `Contains` : le natif prend la première tuile marquée dans
+  l'ordre de création des entités-effet, le port dans l'ordre d'itération de `EffectsState.by_unit`.
+  Inobservable tant que la cardinalité vaut 1 (mesurée 1 sur les deux couples).
+
+### 7.5 Reproduction
+
+    python scripts/python/probe_448_r2d_titanhammer_squad.py             # etape 0 + 2 couples live
+    python scripts/python/probe_448_r2d_titanhammer_squad.py --offline   # etape 0 SEULE (0 runner)
+    python scripts/python/probe_448_r2d_titanhammer_squad.py --mutate    # CONTRE-EPREUVE (rougit)
+    python -m pytest scripts/python/tests/engine/runner/test_448_r2d_titanhammer_squad_offline.py
+    python -m pytest scripts/python/tests/engine/runner/test_448_r2d_titanhammer_squad_live.py
