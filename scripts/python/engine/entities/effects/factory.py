@@ -31,6 +31,7 @@ from .loki import (
     DespoiledGroundExtraDamagePctEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
     FireAndRepositionReduceDmgEffect,
+    WireweaveNetCounterAttackEffect,
     SereneUnifierSenseOfStoneEffect,
     SereneUnifierStormOfFireEffect,
     UnbreakableDutyHealthEffect,
@@ -604,6 +605,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # FriendlyChaosExtraDamage (ForAddition, gate `AreFriends & HasTrait(Chaos)`, non porte).
     # EffectType 0x4bf=1215 (#366-r1).
     "PsychicStalk_ExtraAttackDamage": PsychicStalkExtraAttackDamageEffect,
+    # WireweaveNet (PASSIF 1111 de Calandis `eldarRanger`) : effet-RIPOSTE (`CounterAttackEffect` ->
+    # `PlayerTurnEffect`). AUCUN canal de bonus -- tout son observable vit dans les TROIS `Triggered()`
+    # de `EFFECT_TRIGGERS[1111]` (`runner/operations/triggers/loki/wireweave_net.py`). Inscrit ici pour
+    # nommer la classe NATIVE au lieu de router sur `BaseEffect`, et porter les litteraux du `.ctor`
+    # (`turnsEnabled=1` -> tour ENNEMI, `activationFrequency=2`, `hasAutomaticActivation=False`).
+    "WireweaveNet_CounterAttack": WireweaveNetCounterAttackEffect,
     # PsychicFortress (passif Tigurius ultraTigurius, ability enum 0x3e8=1000) -- 2 effets posEs par
     # IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicFortressAbility$$CreateBehaviour :
     #  - DmgReduction (0x3f2=1010) : AURA -dmgReduction[ablvl]xmult PLAT du degat PSYCHIQUE recu par les AMIS
@@ -966,6 +973,28 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # qu'`AnvilShield_BlockChanceBelowHealthCap` / `HammerOfWrath_ConditionalDamage` ci-dessus.
     # Idempotent (skip si deja capte). case-366-r1.
     "VisionsOfHeresy": ["VisionsOfHeresy_ExtraPierceMelee", "VisionsOfHeresy_ExtraPierceRanged"],
+    # PAS d'entree `"WireweaveNet"` ici, et c'est une DECISION MESUREE (case-366-r1b §7bis).
+    # `1111 WireweaveNet_CounterAttack` est pourtant bien un owner-effect pose a l'init
+    # (`WireweaveNetAbility$$CreateBehaviour` = `AddEffect(0x457, .., source=Owner, targets=Owner)`
+    # sur `OnOwnerSpecificAbilityInit`) et INACTIF pendant le tour de son porteur -- le profil exact
+    # des quatre entrees ci-dessus. DEUX raisons de ne PAS l'inscrire :
+    #   1. INUTILE sur le canal COMBAT : la riposte ne peut partir que si l'instance est ARMEE, et le
+    #      canal `decisionView.effects` par DEFAUT publie EXACTEMENT les effets armes. « Arme » =>
+    #      « capte ». Contrairement a `AnvilShield`/`HammerOfWrath`, dont le gate `HasEffect` doit
+    #      voir l'instance meme INACTIVE, ici l'instance inactive ne sert a rien.
+    #   2. NUISIBLE : `spawn._seed_ability_owner_effects` lit les passives du **KIT gameconfig**
+    #      (`GC.unit(vid).passiveAbilities`), pas de la MESURE -- et `UnitContext.passive_abilities`
+    #      (le canal `unitAbilityStates`, tri-etat) n'est seede qu'APRES, par `_load_passive_abilities`.
+    #      Un montage `--unit-stat "eldarRanger:PassiveAbilities=[]"` (le levier anti-bruit de
+    #      case-366-r1) voyait donc le port materialiser 1111 sur une Calandis qui N'A PAS le passif
+    #      en bataille -> riposte FANTOME, flux MT decale, et les DEUX gardes MELEE de
+    #      `test_fire_and_reposition_reduce_dmg_live` au ROUGE (live 23633 vs port 21840). MEME piege
+    #      que #264 (traits) et que le `seed_witness_effect` du pendant DECISION
+    #      (`playbook/scene.py::_seed_condition_gated_owner_effects`).
+    # RESIDU NOMME : une continuation offline qui CAPTURE pendant le tour de Calandis puis franchit
+    # la frontiere de tour n'a aucune instance a armer -> pas de riposte. Le rouvrir demande d'abord
+    # que le seed d'owner-effects lise le substrat MESURE, ce qui suppose de le deplacer APRES
+    # `_load_passive_abilities` dans `load_state`.
 }
 
 

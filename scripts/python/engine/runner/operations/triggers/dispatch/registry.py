@@ -46,6 +46,10 @@ from ..loki.cursed_plague_bell import (CursedPlagueBellMovementAbility,   # #224
                                       CursedPlagueBellAttackAbility)     # #224 item 5 (volet ATTAQUE)
 from ..loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 (passif necroOverlord, Necron)
 from ..loki.martial_superiority import MartialSuperiorityRiposteAbility  # #133 (passif templChampion)
+from ..loki.wireweave_net import (WireweaveNetCounterAttack,          # #366-r1b (passif eldarRanger)
+                                  WireweaveNetActivateOnOwnerTurnEnd,
+                                  WireweaveNetDeactivateOnOwnerTurnStart,
+                                  WIREWEAVE_NET_COUNTER_ATTACK)
 from ..loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
                                             MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
 from ..loki.tainted_narthecium import TaintedNartheciumReviveAbility  # case-66 (passif deathRotbone, revive)
@@ -495,6 +499,16 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `(OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor, bonded)) | On(0x2e) | On(0x35))
     # & IsAlive(bonded) & AreEqual(Target, EffectSource)` -> le RELAIS encaisse, de la part du
     # porteur, chaque `LeftOverDamage` que la cible initiale a gaspillee.
+    # 1111 WireweaveNet_CounterAttack (passif `eldarRanger` <<Calandis>>) : le trigger de RIPOSTE
+    # (`CounterAttackEffect$$CreateTargetTrigger`, `On(0x2a = PreUnitAbility)`) + les DEUX
+    # `Triggered()` de la branche `ActivationFrequency == 2` de
+    # `IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal` qui
+    # pilotent `EffectComponent.IsActive @+0x5c` (desarmement au debut du tour du porteur,
+    # re-armement a sa fin -> la fenetre est le tour ENNEMI). Le « the FIRST time » d'i2 vient du
+    # `& DeactivateEffect(effect)` que `$$CreateTargetTriggerBehaviour` ajoute a la riposte.
+    WIREWEAVE_NET_COUNTER_ATTACK: [WireweaveNetCounterAttack,                  # On(0x2a) -> la RIPOSTE
+                                   WireweaveNetDeactivateOnOwnerTurnStart,     # On(0x12) -> DeactivateEffect
+                                   WireweaveNetActivateOnOwnerTurnEnd],        # On(0x17) -> ActivateEffect
     HAZE_DAMAGE_TRANSFER: [HazeOfCorruptionDamageTransferTrigger],
     CONTAMINATED_TILE: [ContaminatedTileEffect],  # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
     FIRE_TILE: [FireTileDoT],                     # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant
