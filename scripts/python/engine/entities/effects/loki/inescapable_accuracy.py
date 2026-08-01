@@ -1,6 +1,6 @@
-"""`InescapableAccuracy_extraCritChance` (0x45b = **1115**) et `InescapableAccuracy_extraCritDmg`
-(0x45c = **1116**) — les volets CHANCE et DEGAT de crit du passif `InescapableAccuracy`
-(TriggeredAbilityType 0x45b = 1115) d'`eldarMauganRa`. case-366-r1.
+"""`InescapableAccuracy_extraCritChance` (0x45b = **1115**), `InescapableAccuracy_extraCritDmg`
+(0x45c = **1116**) et `InescapableAccuracy_overrideHits` (0x45d = **1117**) — les TROIS volets du
+passif `InescapableAccuracy` (TriggeredAbilityType 0x45b = 1115) d'`eldarMauganRa`. case-366-r1.
 
 ## TROIS classes natives, pas une — tranche par le SLOT `Il2CppClass*`, jamais par le nom du ctor
 
@@ -23,8 +23,10 @@ trois blocs CONSECUTIFS de pointeurs de fonction, chacun ouvert par le MEME `.ct
     table 3 : .ctor, CreateActiveCondition, CreateTargetSelector, CreateCritDamageBonus
                                                           -> `..._ExtraCritDamageEffect`  = 1116
 
-Ce module porte 1115 ET 1116 (deux canaux DIFFERENTS, donc deux classes distinctes ici aussi) ;
-`1117` (canal `BaseEffect$$BlockHitsReduction`) reste NON porte.
+Ce module porte les TROIS -- trois canaux DIFFERENTS, donc trois classes distinctes ici aussi :
+`RollCritical` (SI le coup crite), `CalculateCriticalDamage` (de COMBIEN), et `GetAttackHits`
+(COMBIEN DE COUPS). Le troisieme (`BaseEffect$$BlockHitsReduction`, ouvert par la tranche 1117)
+n'est pas un terme de somme mais un INTERRUPTEUR : cf. `InescapableAccuracyOverrideHitsEffect`.
 
 ## SOURCE DE CONFIG — la TRIGGERED 1115, pas l'EffectType 1115 (homonymie a deux faces)
 
@@ -261,3 +263,88 @@ class InescapableAccuracyExtraCritDamageEffect(_InescapableAccuracyEffect):
         n = ability_var(_ABILITY_ID, "extraCritDmg", self._level(),      # ConfigVar 0x42
                         multiplier_pct=self.ability_variables_multiplier)
         return int(n) if n else None
+
+
+class InescapableAccuracyOverrideHitsEffect(_InescapableAccuracyEffect):
+    """`InescapableAccuracy_overrideHits` (0x45d = 1117) — les attaques A DISTANCE du porteur
+    IGNORENT les REDUCTIONS de coups, tant qu'il n'a pas bouge ce tour.
+
+    Le TROISIEME volet du passif, et le seul des trois a ne pas etre un terme de somme : son canal
+    natif est un BOOLEEN. i2 le dit dans les memes mots
+    (`Abilities/InescapableAccuracy_CurrentLevelDescription`) : << If Maugan Ra has not moved, then
+    his ranged attacks **ignore hit reductions**, have +X% Crit Chance, and deal an additional Y
+    Crit Damage >>.
+
+    ## CANAL — `CreateBlockHitReductionTrigger`, LES MEMES DEUX NOEUDS que 1115/1116
+
+        get_OwnerIsCaster & IsRangedAttack
+
+    RELU au decompile (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    InescapableAccuracy_OverridHitsEffect$$CreateBlockHitReductionTrigger`), pas transpose : meme
+    paire fusionnee par `IdunBattle.DSL.AbilityTrigger$$op_BitwiseAnd`, memes surcharges
+    (`IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsCaster` /
+    `IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack`, celle SANS argument).
+
+    ⚠ **Ce n'est PAS un `EffectBonus`** : le corps rend le trigger NU, la ou 1115 et 1116 rendent un
+    `EffectBonus.ForAddition(trigger, ConfigVar(...))`. Il n'y a donc **aucune variable de config**,
+    donc **aucune magnitude**, donc rien a scaler -- `variablesAffectedByRarityBonus` de
+    `InescapableAccuracy` ne contient que `extraCritDmg`, et cette ability n'a QUE deux variables
+    (`extraCritChance`, `extraCritDmg`), toutes deux consommees par les deux autres volets. Le
+    piege de #414 (« la rarete est PAR VARIABLE ») est donc INERTE ici, et pour une raison de
+    STRUCTURE, pas de configuration.
+
+    ## CONSOMMATEUR — l'interrupteur des reductions, pas un terme
+
+    `IdunBattle.Entities.Effects.BaseEffect$$BlockHitsReduction` evalue le trigger mis en cache a
+    `<effect>+0x460` par `IdunBattle.Entities.Effects.BaseEffect$$InitializeBonusCacheIfNeeded`, et
+    son unique lecteur est `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` : il trie les
+    `HitsBonusForAttack` de tous les effets ACTIFS du board en DEUX listes selon le signe de leur
+    `addition`, somme les additions, puis **saute la liste des reductions** si le flag est arme.
+    C'est la MEME facade pour les deux faces -- `IdunBattle.Operations.AttackDamageOperation$$
+    GetAttackHits` delegue au slot 0xb6 de `BattleQuery`, qui delegue a cette fonction -- donc le
+    port n'a qu'un point de cablage (`services.attack_hits_formula`), COMBAT et PREDICTION.
+
+    ## ACTIVE-CONDITION — meme corps que ses deux soeurs
+
+    `NOT HasFlag(Owner, 0 = UnitFlag.Moved)`, heritee de `_InescapableAccuracyEffect`. Le corps que
+    Ghidra nomme `..._OverridHitsEffect$$ActiveCondition` est INSTRUCTION POUR INSTRUCTION celui de
+    `..._ExtraCritDamageEffect$$CreateActiveCondition` (meme `HasFlag(<DSLSelectors+0x30> = Owner,
+    flag = 0)` suivi du meme `IdunBattle.DSL.AbilityTrigger$$op_LogicalNot`) : deux corps distincts
+    dans la table, une seule semantique -- relu, pas suppose.
+
+    ⚠ **La redondance est ici PLUS FAIBLE que chez 1115/1116, et c'est un fait natif** : l'agregateur
+    de ce canal n'est PAS aveugle a l'etat actif. `IdunBattle.Core.Services.EffectsQuery$$
+    GetActiveEffectsWithBonuses` filtre son enumeration sur `EffectComponent@+0x5c` (le flag
+    `IsActive`) avant de rendre la liste, alors que `GetCritChanceBonusFromEffects` /
+    `GetCritDamageBonusFromEffects` ne filtrent rien. Le gate `has_moved` reste rendu ici par
+    coherence de famille (meme store `UnitFlagsComponent`, jamais faux), mais la garde EFFECTIVE de
+    ce volet est `is_active`."""
+
+    def block_hits_reduction(self, att_ctx: "Mapping | None" = None) -> bool:
+        """MIRROR de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+        InescapableAccuracy_OverridHitsEffect$$CreateBlockHitReductionTrigger` :
+
+            get_OwnerIsCaster & IsRangedAttack
+
+        Le retour est un BOOLEEN (pas un `EffectBonus`) : le canal natif n'accumule rien, il arme un
+        flag (`BaseEffect$$BlockHitsReduction` -> `DamagePrediction$$GetAttackHits`).
+
+        `get_OwnerIsCaster` est rendu par le CANAL (`block_hits_reduction_from_effects` n'itere que
+        les effets de l'ATTAQUANT). Les cles lues d'`att_ctx` sont celles du `board` de
+        `AttackHitsWithModifiersFormula` :
+          * `is_melee` -> `IsRangedAttack`. TRI-ETAT #106 : seule une nature PROUVEE distance ouvre
+            le gate (`is not False` = mêlée ou nature inconnue -> muet), meme idiome que
+            `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense`. NB : sur l'axe COUPS la
+            cle du board est `is_melee`, pas `is_ranged` -- ne pas transposer l'appel des canaux
+            crit, qui lisent `att_ctx["is_ranged"]` pose par `AttackDamageOperation._crit_params` ;
+          * `has_moved` -> l'`ActiveCondition`, rendue une seconde fois (cf. la docstring de
+            classe). Cle ABSENTE = ne ferme pas.
+
+        AUCUN gate `IsNormalAttack` cote natif -> le blocage vaut aussi pour une attaque d'ABILITY
+        a distance de la famille ATTACK (le seul autre vecteur qui traverse cette formule)."""
+        c = att_ctx or {}
+        if c.get("is_melee") is not False:                   # IsRangedAttack (tri-etat #106)
+            return False
+        if c.get("has_moved"):                               # ActiveCondition NOT HasFlag(Moved)
+            return False
+        return True

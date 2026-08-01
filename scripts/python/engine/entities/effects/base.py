@@ -418,6 +418,38 @@ class BaseEffect:
         Defaut None = pas d'aura."""
         return None
 
+    def block_hits_reduction(self, att_ctx: Mapping | None = None) -> bool:
+        """`IdunBattle.Entities.Effects.BaseEffect$$BlockHitsReduction` — l'effet ANNULE-t-il les
+        REDUCTIONS de coups de cette attaque ? (case-366-r1, canal ouvert par `1117
+        InescapableAccuracy_overrideHits`).
+
+        TROISIEME canal de `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`, distinct des
+        deux autres et lu au MEME tour de boucle. Le natif trie les `HitsBonusForAttack` de TOUS les
+        effets actifs du board (`IdunBattle.Core.Services.EffectsQuery$$GetActiveEffectsWithBonuses`)
+        en DEUX listes selon le SIGNE de leur `addition` -- `< 0` = REDUCTION, `>= 0` = addition --
+        puis somme la liste des additions INCONDITIONNELLEMENT et celle des reductions
+        **seulement si aucun effet n'a rendu `BlockHitsReduction == true`**. Ce booleen est donc un
+        interrupteur global sur l'axe COUPS, pas un terme de la somme : il n'a AUCUNE magnitude.
+
+        Cote natif la valeur rendue est le trigger `CreateBlockHitReductionTrigger` mis en cache a
+        `<effect>+0x460` par `IdunBattle.Entities.Effects.BaseEffect$$InitializeBonusCacheIfNeeded` ;
+        un effet qui ne le surcharge pas a un cache NUL et rend `false`. D'ou le defaut ici.
+
+        `att_ctx` = le meme `board` que `create_effect_hits_bonus_for_attack` (la formule le passe
+        aux DEUX canaux, un seul point d'enrichissement). Cle ABSENTE = gate qui se tait ;
+        `is_melee is not False` ferme `IsRangedAttack` (tri-etat #106, meme idiome que
+        `BigTargetAdjacentEffect`).
+
+        DEUX implementeurs natifs, un seul porte :
+          * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.InescapableAccuracy_OverridHitsEffect$$
+            CreateBlockHitReductionTrigger` = `get_OwnerIsCaster & IsRangedAttack` -> PORTE ;
+          * `IdunBattle.Entities.Effects.Loki.PurgeResponseEffect$$CreateBlockHitReductionTrigger`
+            = `TriggeringAbilityIs(<AbilityOrEffect>)` -> classe NON portee (pas d'entree
+            `EFFECT_CLASSES`), donc ce canal reste muet pour elle. Note : son trigger ne porte PAS
+            `get_OwnerIsCaster`, donc quand elle sera portee l'agregateur devra balayer AUSSI les
+            effets du DEFENSEUR (cf. `block_hits_reduction_from_effects`)."""
+        return False
+
     def create_aura_attack_bonus(self, ctx: Mapping | None = None) -> "int | None":
         """Contribution AURA à la BASE (stat Attack) : effet stat-mod possédé par un ALLIÉ du porteur qui
         buffe le dégât de base de l'attaquant quand il est à portée (natif : `DynamicStatModifierEffect` à

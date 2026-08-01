@@ -121,14 +121,17 @@ def test_registry_binds_dedicated_class():
     MEME corps de `$$.ctor` (dedup IL2CPP) : le ctor « fondu » ne fait PAS une classe commune. Les
     volets 1115 et 1116 sont desormais TOUS DEUX portes, mais chacun par SA classe -- les fondre en
     une seule referait l'erreur que le slot refute."""
-    from engine.entities.effects.loki import InescapableAccuracyExtraCritDamageEffect
+    from engine.entities.effects.loki import (InescapableAccuracyExtraCritDamageEffect,
+                                              InescapableAccuracyOverrideHitsEffect)
     assert EFFECT_CLASSES.get(EFFECT_NAME) is InescapableAccuracyExtraCritChanceEffect
     assert (EFFECT_CLASSES.get("InescapableAccuracy_extraCritDmg")
             is InescapableAccuracyExtraCritDamageEffect)
     assert InescapableAccuracyExtraCritChanceEffect is not InescapableAccuracyExtraCritDamageEffect
-    # `1117` reste NON porte : son canal est un TROISIEME (`BlockHitsReduction`), l'inscrire par
-    # analogie serait un port speculatif.
-    assert "InescapableAccuracy_overrideHits" not in EFFECT_CLASSES
+    # `1117` a DEPUIS ete porte (TROISIEME canal, `BlockHitsReduction`) et il a lui aussi SA classe :
+    # les TROIS slots restent distincts, ce qui est l'invariant que ce test garde.
+    assert (EFFECT_CLASSES.get("InescapableAccuracy_overrideHits")
+            is InescapableAccuracyOverrideHitsEffect)
+    assert InescapableAccuracyOverrideHitsEffect is not InescapableAccuracyExtraCritChanceEffect
 
 
 def test_gates_are_tristate_offline():

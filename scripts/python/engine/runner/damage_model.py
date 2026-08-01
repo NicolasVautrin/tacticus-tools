@@ -830,7 +830,13 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              # COMBAT PARTAGEE des DEUX vecteurs d'attaque (normale `damage_ops/normal.py` et
              # ability famille ATTACK `damage_ops/ability.py`) -- un seul point de calcul, pas un
              # par call-site. Consommateur : `SagaOfTheWarriorBorn_Owner` (1223).
-             "is_charging": battle_query_is_charging(state, att_id, tgt_id)}
+             "is_charging": battle_query_is_charging(state, att_id, tgt_id),
+             # `HasFlag(Owner, 0 = UnitFlag.Moved)` sur le canal COUPS (case-366-r1) -- MEME store et
+             # MEME lecteur que le canal DEGAT (`attacker_modifiers` -> `unit_has_moved`). Pose ICI
+             # parce que `build_hits_board` est la facade COMBAT PARTAGEE des deux vecteurs
+             # d'attaque. Consommateur : `InescapableAccuracy_overrideHits` (1117), dont l'
+             # `ActiveCondition` est rendue une seconde fois dans le canal (cf. sa docstring).
+             "has_moved": unit_has_moved(state, att_id)}
     return board, aura_sources, target_effects
 
 

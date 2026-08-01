@@ -28,10 +28,10 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
                           Unstoppable` (1222), +extraDmg ET +extraCritChance sur la NORMALE MELEE
                           du porteur, + trait `Unstoppable` (case-366-r1).
 - `inescapable_accuracy.py` — passif d'`eldarMauganRa` : `InescapableAccuracy_extraCritChance`
-                          (1115) et `InescapableAccuracy_extraCritDmg` (1116), +extraCritChance /
-                          +extraCritDmg sur les attaques A DISTANCE tant que le porteur n'a pas
-                          bouge (case-366-r1). Canaux DIFFERENTS (RollCritical vs
-                          CalculateCriticalDamage), gate PARTAGE.
+                          (1115), `InescapableAccuracy_extraCritDmg` (1116) et
+                          `InescapableAccuracy_overrideHits` (1117) sur les attaques A DISTANCE
+                          tant que le porteur n'a pas bouge (case-366-r1). TROIS canaux DIFFERENTS
+                          (RollCritical / CalculateCriticalDamage / GetAttackHits), gate PARTAGE.
 - `until_of_end_turn.py` — `UntilOfEndTurnEffect` : LE marqueur a duree du natif (aucune contribution ;
                           sa seule semantique est `CreateRemoveEffectTrigger` = `On(TurnEnd)`).
 - `structural_analyser.py` — volet PORTEUR du passif de `tauDarkstrider` :
@@ -143,7 +143,8 @@ from .visions_of_heresy import (VisionsOfHeresyExtraPierceMeleeEffect,
                                 VisionsOfHeresyExtraPierceRangedEffect)
 from .war_howl import WarHowlExtraDamageUnstoppableEffect
 from .inescapable_accuracy import (InescapableAccuracyExtraCritChanceEffect,
-                                   InescapableAccuracyExtraCritDamageEffect)
+                                   InescapableAccuracyExtraCritDamageEffect,
+                                   InescapableAccuracyOverrideHitsEffect)
 from .until_of_end_turn import UntilOfEndTurnEffect
 from .structural_analyser import StructuralAnalyserVisualEffect
 
@@ -249,6 +250,9 @@ __all__ = [
     # NOT HasFlag(Moved) (un seul corps natif de `CreateActiveCondition` pour les trois volets)
     "InescapableAccuracyExtraCritChanceEffect",
     "InescapableAccuracyExtraCritDamageEffect",
+    # + le TROISIEME volet (1117) : `BlockHitsReduction` = INTERRUPTEUR des reductions de coups,
+    # pas un terme de somme (aucune variable de config lue).
+    "InescapableAccuracyOverrideHitsEffect",
     # until_of_end_turn (case-366-r1) -- LA classe de MARQUEUR a duree : zero contribution, sa seule
     # semantique est son `CreateRemoveEffectTrigger` = `On(TurnEnd)`. Porteur : 1175.
     "UntilOfEndTurnEffect",

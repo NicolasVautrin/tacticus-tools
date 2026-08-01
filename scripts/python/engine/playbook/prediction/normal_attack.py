@@ -445,7 +445,12 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
              #    sur la source, exactement le comportement d'avant.
              "att_faction": att_faction,
              "turns_started_by_id": scene.turns_started_by_id,
-             "parent_by_id": scene.parent_by_id}
+             "parent_by_id": scene.parent_by_id,
+             # `HasFlag(Self, Moved)` sur le canal COUPS (case-366-r1) -- MEME valeur `_hm` que
+             # celle deja calculee pour le canal DEGAT ci-dessus (`prediction_has_moved` : flag ECS
+             # OU tuile candidate != tuile courante), pas un 2e read. Consommateur :
+             # `InescapableAccuracy_overrideHits` (1117).
+             "has_moved": _hm}
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in _alive_ids if uid != tgt_id]
