@@ -1054,10 +1054,9 @@ class DamageHandler:
         # scope elle-même via sa condition (ex. Psyker OwnerIsActor). No-op si aucun trigger ne matche.
         if self.last is not None:
             from .triggers import after_hit_normal_attack
-            # #202-C : set des profils de l'attaque = arme + bonus-hits #179 (lu par le gate
-            # CurrentAttackDamageProfilesContain du trigger 1173).
-            _profs = {self.last.get("profile")} - {None}
-            _profs |= set((self.last.get("additional_hits") or {}).get("profiles") or [])
+            # #437 : `profiles` / `health_damage` NE sont plus threades ici -- ils appartenaient au
+            # seul `On(9)`, desormais emis a la SORTIE de `AttackDamageOperation.execute`
+            # (`finish_attack_triggers`), le foyer natif (`AttackBehaviour$$Execute` -> FinishAttack).
             # #120bis : la cible du vecteur after-hit = celle que l'attaque a REELLEMENT frappee
             # (`last["target"]`), pas celle du message — la re-resolution d'`ActiveAbilityOperation$$
             # ExecuteInternal` peut avoir bascule l'attaque sur une remplacante (SwornProtector/Kell).
@@ -1066,11 +1065,8 @@ class DamageHandler:
             self.after_hit = after_hit_normal_attack(
                 self.state, msg.attacker_id, self.last.get("target", msg.target_id),
                 bool(self.last.get("ranged")), self.last.get("profile"),
-                is_crit=bool(self.last.get("did_crit")), profiles=_profs,
-                did_block=bool(self.last.get("did_block")),
-                # #432 `HealthDamageFromEvent()` : `r["total"]` EST la part SANTE seule (le bouclier
-                # est defalque par `_deplete_shield` avant l'agregation, cf. `damage_ops/normal.py`).
-                health_damage=int(self.last.get("total") or 0))
+                is_crit=bool(self.last.get("did_crit")),
+                did_block=bool(self.last.get("did_block")))
         # #139 : l'attaque normale native EST une ActiveAbility (NormalAttack per-unite ; AttackUnitMessage
         # n'existe pas en natif — c'est la simplification port de l'ActiveAbilityMessage) et traverse la
         # MEME queue `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution — base `SetsEndTurnFlags`/

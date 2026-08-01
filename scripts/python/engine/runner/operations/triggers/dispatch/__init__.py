@@ -54,8 +54,8 @@ from .core import (collect_triggered_abilities, collect_effect_triggers,
 from .attack import (_squighound_after_attack, unit_blocked_triggers, final_damage_triggers,
                      pre_attack_triggers, pre_attack_hit_triggers, damage_taken_triggers,
                      damage_dealt_triggers,
-                     attack_damage_attack_triggers, after_hit_normal_attack,
-                     after_hit_ability_attack)
+                     attack_damage_attack_triggers, finish_attack_triggers,
+                     after_hit_normal_attack, after_hit_ability_attack)
 from .ability import (ability_init_triggers, pre_unit_ability_triggers,
                       unit_post_ability_triggers, unit_active_ability_triggers,
                       evaluate_abilities_for_event)
@@ -81,7 +81,7 @@ __all__ = [
     "_trigger_phase_component", "_squighound_after_attack", "unit_blocked_triggers",
     "final_damage_triggers", "pre_attack_triggers", "pre_attack_hit_triggers",
     "damage_taken_triggers", "damage_dealt_triggers",
-    "attack_damage_attack_triggers", "after_hit_normal_attack",
+    "attack_damage_attack_triggers", "finish_attack_triggers", "after_hit_normal_attack",
     "after_hit_ability_attack", "ability_init_triggers", "pre_unit_ability_triggers",
     "unit_post_ability_triggers", "unit_active_ability_triggers",
     "evaluate_abilities_for_event", "after_move_triggers", "post_unit_kill_triggers",

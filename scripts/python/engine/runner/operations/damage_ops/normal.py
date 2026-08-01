@@ -497,14 +497,34 @@ class _Normal:
         # JAMAIS pour un DoT ni un knockback. Place a la SORTIE de l'operation d'attaque, donc APRES
         # les coups additionnels (le compteur `received_damage_this_turn` que lisent ses consommateurs
         # est deja incremente) et AVANT `On(9)`/`On(10)` de `FinishAttackOperation`.
-        from ..triggers.dispatch import final_damage_triggers, attack_damage_attack_triggers  # lazy
-        # #366-r1 : retrait du marqueur 1227 a la CLOTURE de l'attaque, MEME place que `On(10)` (2e
-        # event de `FinishAttackOperation$$Execute`) et pour la MEME raison : le vecteur `On(9)` du
-        # port vit au niveau MESSAGE, donc une attaque declenchee par un trigger (overwatch) ne le
-        # traverse pas. IDEMPOTENT avec `EFFECT_TRIGGERS[1227]`. Cf. `HitInterceptor.finish`.
+        from ..triggers.dispatch import (final_damage_triggers, attack_damage_attack_triggers,
+                                         finish_attack_triggers)  # lazy
+        # #366-r1 : retrait du marqueur 1227 a la CLOTURE de l'attaque, MEME place que `On(9)`/`On(10)`
+        # (les deux events de `FinishAttackOperation$$Execute`) et pour la MEME raison : une attaque
+        # declenchee par un trigger (overwatch) ne traverse pas le niveau MESSAGE.
+        # IDEMPOTENT avec `EFFECT_TRIGGERS[1227]`. Cf. `HitInterceptor.finish`.
         if _hit_icept is not None:
             _hit_icept.finish()
         final_damage_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
+        # `On(Attack = 9)` (#437) — 1er event de `FinishAttackOperation$$Execute`, INCONDITIONNEL, et
+        # emis ICI (sortie de l'operation) et non plus au niveau MESSAGE. Le foyer natif est le noeud
+        # DSL `Attack(...)` (`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` : StartAttack
+        # slot 0x3a -> inner -> FinishAttack slot 0x3b), que l'attaque normale traverse
+        # (`ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` se termine par
+        # `IdunBattleLogic.Entities.DSLBehaviors$$Attack(...)`) -- DONC AUSSI le tir d'overwatch, qui
+        # est `UseActiveAbility(NormalAttack)`. Emis AVANT `On(10)` : c'est l'ordre du natif.
+        # `profiles` = arme + coups bonus #179 ; `health_damage` = `HealthDamageFromEvent()` (part
+        # SANTE seule -- `_deplete_shield` a defalque le bouclier avant l'agregation) ; `was_block` =
+        # `WasBlock()`. Ces trois canaux sont les conjoints de `TerminatorArmour_ReduceDmg_Effect$$
+        # CreateTargetTrigger` (#432) : avant #437 ils n'etaient threades que par la voie MESSAGE,
+        # donc un tir d'overwatch ne consommait pas l'armure alors que le natif la consomme.
+        _fa_profiles = {_profile} - {None}
+        _fa_profiles |= set((_ah or {}).get("profiles") or [])
+        finish_attack_triggers(state, attacker_id, target_id,
+                               ranged=bool(_ranged), profile=_profile,
+                               is_crit=bool(r["did_crit"]), profiles=_fa_profiles,
+                               health_damage=int(r["total"] or 0),
+                               was_block=bool(r["did_block"]))
         attack_damage_attack_triggers(state, attacker_id, target_id,
                                       ranged=bool(_ranged), profile=_profile)
         # `target` (#120bis) = la cible REELLEMENT frappee. Elle differe de celle du message quand la
