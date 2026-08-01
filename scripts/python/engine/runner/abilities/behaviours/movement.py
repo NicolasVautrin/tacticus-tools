@@ -46,6 +46,121 @@ class PushUnit(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class PullUnitOneTile(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$PullUnitOneTile(pullingUnit, pulledUnit,
+    elevationDifferenceForKnockback)` -- MIRROR du decompile :
+
+        options = new DisplaceUnitBehaviourOptions();  options[+0x10] = 1
+        options[+0x14] = elevationDifferenceForKnockback           // Nullable<int>
+        return new DisplaceUnitBehaviour(direction = 6 = FindTileToPullOnce,
+                                         displacingUnit = pullingUnit, displacedUnit = pulledUnit,
+                                         options, targetSelectionType = 2)
+
+    `DisplaceUnitBehaviour$$Execute` resout les deux selecteurs et emet une `DisplaceUnitOperation`
+    par unite tiree ; le case 6 de son switch est `IdunBattle.Operations.DisplaceUnitOperation$$
+    FindTileToPullOnce`, ou vit TOUTE la logique (arc AVANT, filtre conditionnel `IsEmptyOrSteppable`,
+    tirage, knockback d'elevation). Cette feuille est donc un wrapper MINCE : elle resout les
+    selecteurs et DELEGUE a `PullUnitOneTileOperation` (frontiere DSL #149).
+
+    `options[+0x10] = 1` devient l'argument `doIt` d'`ApplyKnockbackTo` -- le knockback est ARME ;
+    `+0x1c` reste a 0 -> `record_tiles = False` (aucun comptage de tuiles, comme le push).
+
+    ⚠ NON DETERMINISTE des que l'arc AVANT rend DEUX tuiles (cible non alignee sur le caster) : le
+    natif tire alors `Random(0, pool.Count)`, donc l'insertion de cette feuille dans un arbre PEUT
+    decaler l'ordre RNG en aval. Le cas ALIGNE (et le cas adjacent) ne consomme RIEN.
+
+    Unique call-site porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility
+    $$ExecuteBehaviour` = `PullUnitOneTile(Caster@0x48, Units(Cache(Tiles(Target@0x60))),
+    Nullable(GetNumberConstant(0x5b = knockbackRange)))`. Emet 'PullUnitOneTile' par unite."""
+    __slots__ = ("puller_sel", "pulled_sel", "elevation_knockback")
+
+    def __init__(self, puller_sel: TargetsSelector, pulled_sel: TargetsSelector,
+                 elevation_knockback: int | None = None):
+        self.puller_sel = puller_sel
+        self.pulled_sel = pulled_sel
+        self.elevation_knockback = elevation_knockback
+
+    def execute(self, entities, ectx):
+        from ...operations.displace import PullUnitOneTileOperation
+        state = ectx.state
+        puller = resolve_unit(self.puller_sel, entities)
+        if state is None or puller is None:
+            return OperationResult.ok()
+        puller_id = puller.get("id")
+        pulled = [u for u in _units_of(self.pulled_sel, entities)
+                  if isinstance(u, dict) and u.get("id") is not None]
+        for u in sorted(pulled, key=lambda x: x["id"]):      # ordre de lecture = id (== le push)
+            res = PullUnitOneTileOperation(puller_id, u["id"],
+                                           elevation_knockback=self.elevation_knockback
+                                           ).execute(state, ectx.bus) or {}
+            ectx.emit("PullUnitOneTile", puller=puller_id, pulled=u["id"],
+                      moved=bool(res.get("moved")), to=res.get("to"),
+                      reason=res.get("reason"), knockback=res.get("knockback"))
+        return OperationResult.ok()
+
+
+class FlyUnit(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$FlyUnit(unit, tiles)` -- MIRROR du decompile :
+
+        options = new MoveUnitBehaviourOptions();   // 0x40 octets ZERO-initialises
+        options[+0x08] = Nullable<int>(3)                        // <- le SEUL champ pose
+        return new MoveUnitBehaviour(unit, tiles, options)
+
+    C'est la MEME classe de behaviour que `IdunBattleLogic.Entities.DSLBehaviors$$MoveUnit` (cf.
+    `MoveUnit` ci-dessous) : la difference tient dans ce `Nullable(3)`, qui est le seul champ non nul
+    des options. Le port DELEGUE donc a la MEME `MoveUnitOperation` que `MoveUnit`, et la garde
+    « destination LIBRE » est identique (`CanAddUnitFromAbility` sur le contenu de tuile LIVE).
+
+    ⚠ RESIDU NOMME : la SEMANTIQUE de ce `Nullable(3)` n'est PAS resolue (le champ `+0x08` de
+    `MoveUnitBehaviourOptions` n'a aucun lecteur lu au decompile a ce stade) -- c'est vraisemblablement
+    ce qui distingue un VOL d'une marche (le natif s'en sert pour l'ability `1090 GrapnelLauncher`,
+    dont l'i2 dit que Tjark « moves to occupy the hex »). Le port ne l'invente pas : il rend le MEME
+    deplacement que `MoveUnit`, sans traversee d'obstacle particuliere (le pas est de toute facon
+    d'AU PLUS 1 hex ici -- la destination est la tuile d'origine de la cible ou une de ses voisines).
+
+    Call-sites portes : les DEUX branches du `If` final de `IdunBattleLogic.Entities.Abilities.Active.
+    Loki.GrapnelLauncherAbility$$ExecuteBehaviour`. Emet 'FlyUnit'. PUR (stop=False)."""
+    __slots__ = ("subject_sel", "dest_tile_sel")
+
+    def __init__(self, subject_sel: TargetsSelector, dest_tile_sel: TargetsSelector):
+        self.subject_sel = subject_sel
+        self.dest_tile_sel = dest_tile_sel
+
+    def execute(self, entities, ectx):
+        from ...operations.movement import MoveUnitOperation
+        from ...operations.displace import _occupied      # occupation LIVE, exclut sujet + morts
+        state = ectx.state
+        subject = resolve_unit(self.subject_sel, entities)
+        board = getattr(state, "board", None)
+        if state is None or subject is None or board is None:
+            return OperationResult.ok()
+        sid = subject.get("id")
+        if sid is None:
+            return OperationResult.ok()
+        dest = self.dest_tile_sel.evaluate(entities)
+        raw = [dest] if (isinstance(dest, tuple) and len(dest) == 2) else list(dest or [])
+        occ = _occupied(state, sid)
+        for item in raw:
+            # domaine MIXTE : `First(Cache(Tiles(...)))` rend une POSITION, `PickRandomly(CanAddUnit(
+            # AdjacentTiles(...)))` rend un ID de tuile -- les deux arrivent ici.
+            if isinstance(item, int) and not isinstance(item, bool):
+                pos = board.coord(item) if item in board.by_id else None
+            elif isinstance(item, (tuple, list)) and len(item) == 2:
+                pos = (int(item[0]), int(item[1]))
+            else:
+                pos = None
+            if pos is None:
+                continue
+            tid = board.id_at(pos[0], pos[1])
+            if tid is None or not board.walkable(tid) or pos in occ:
+                continue
+            MoveUnitOperation(sid, pos).execute(state, ectx.bus)
+            ectx.emit("FlyUnit", subject=sid, moved=True, to=pos)
+            return OperationResult.ok()
+        ectx.emit("FlyUnit", subject=sid, moved=False)
+        return OperationResult.ok()
+
+
 class SwitchPosition(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLBehaviors$$SwitchPosition(unit1, unit2)` — MIRROR du decompile :
 

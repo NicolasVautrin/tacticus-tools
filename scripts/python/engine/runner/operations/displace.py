@@ -238,6 +238,163 @@ def _add_tiles_moved(state: State, caster_id, target_id, previous_tiles, tile_to
     return record_tiles_moved(state, target_id, n)
 
 
+def _is_empty_or_steppable(state: State, pos: tuple[int, int], exclude_id: int) -> bool:
+    """`IdunBattle.Entities.TileExtensions$$IsEmptyOrSteppable(tile, matchState)` en domaine
+    POSITION : `TileContentComponent.IsEmpty(tile) || GetUnit(tile).HasTrait(0x1b = Steppable)`.
+    Le port derive l'occupation des unites VIVANTES (`_occupied`, meme substrat que le push)."""
+    occ = _occupied(state, exclude_id)
+    oid = occ.get(pos)
+    if oid is None:
+        return True
+    e = state.get_entity(oid)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    return has_any_trait(getattr(sc.ctx, "traits", None) if sc is not None else None,
+                         (UnitTrait.Steppable,))
+
+
+class PullUnitOneTileOperation(Operation):
+    """`IdunBattle.Operations.DisplaceUnitOperation$$Execute` case **6** (`FindTileToPullOnce`) --
+    le PULL d'un hex VERS le tireur. Seule feuille DSL qui l'emet :
+    `IdunBattleLogic.Entities.DSLBehaviors$$PullUnitOneTile(pullingUnit, pulledUnit,
+    elevationDifferenceForKnockback)` -> `DisplaceUnitBehaviour(direction = 6, ..., options{+0x10 = 1,
+    +0x14 = elevationDifferenceForKnockback}, targetSelectionType = 2)`.
+
+    ⚠ ORDINAL : `Push` = 0 et `FindTileToPullOnce` = **6** sur `rnca9r7q6c` (le membre
+    `DisplaceDirection.Pull` a disparu, cf. l'en-tete du module). Ce port n'ecrit aucun ordinal --
+    il implemente la branche, pas le switch.
+
+    LA DESTINATION -- `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPullOnce`, MIRROR :
+
+        list = battleQuery.GetMinimumTiles180Front(caster, target, isReachable: false)   # arc AVANT
+        if (list.Count <= 0)  return null
+        if (list.Count == 1)  return list[0]                        # <- AUCUN filtre d'occupation
+        kept = list.Where(TileExtensions.IsEmptyOrSteppable)
+        return (kept.Count < 1) ? list[Random(0, list.Count)]        # filtre VIDE -> liste BRUTE
+                                : kept[Random(0, kept.Count)]
+
+    **Le filtre `IsEmptyOrSteppable` n'est applique QUE si la liste a PLUS D'UNE tuile** -- c'est
+    litteral, et c'est ce qui produit le quirk « cible deja adjacente » : l'arc AVANT se reduit alors
+    a la tuile du CASTER (mesure `get_minimum_tiles_180_front((4,3), (3,3)) == [(4,3)]`), rendue
+    telle quelle, donc `IsFilled` -> aucun deplacement mais **un knockback a la cible**. L'i2 (« If
+    Tjark is not already adjacent to the target, it is then pulled ») ne decrit que la moitie
+    deplacement de ce cas.
+
+    LA QUEUE est celle, COMMUNE, d'`Execute` (le case 6 rejoint le case 0) :
+
+        if (tile != null) {
+            if (elevationDifferenceForKnockback.HasValue
+                && elevationDifferenceForKnockback.Value <= GetElevationDifference(tile, mainTile(target)))
+                ApplyKnockbackTo(caster, target, doIt)              # le pull REUSSI paye la CHUTE
+            if (IsFilled(tile) && IsSteppable(occupant))  KillUnit(occupant, ForSteppable)   # NON PORTE
+            if (!IsFilled(tile)) { MoveUnit(target -> tile) ; AddTilesMoved ; EventAndAbilitiesAndEffects }
+            else { isEnemy = IsEnemy(caster, occupant) ; ApplyKnockbackTo(caster, target, doIt)
+                   if (!isEnemy) return ; ApplyKnockbackTo(caster, occupant, doIt) }
+        } else ApplyKnockbackTo(caster, target, doIt)
+
+    `doIt` = `ApplyKnockbackTo`'s 4e argument = `options+0x11`, recopie par
+    `IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour$$Execute` depuis `DisplaceUnitBehaviourOptions
+    +0x10`, que `PullUnitOneTile` pose a **1** -> le knockback est ARME pour ce pull.
+    `record_tiles` (= `+0x1c`) est laisse a 0 par `PullUnitOneTile` : aucun comptage de tuiles.
+
+    NON PORTES (residus NOMMES, alignes sur ceux du push) : le steppable-crush (l'occupant Steppable
+    est TUE puis le move a lieu -- le port laisse la tuile occupee et part au knockback) ; la garde
+    `TileComponent+0x2c` (tuile TEMPORAIRE) que le board statique du port ne materialise pas.
+
+    Retour {moved, to, reason, knockback} pour `ectx.emit` (replay-diff)."""
+    __slots__ = ("puller_id", "pulled_id", "elevation_knockback", "record_tiles")
+
+    def __init__(self, puller_id: int, pulled_id: int,
+                 elevation_knockback: int | None = None, record_tiles: bool = False):
+        self.puller_id = puller_id
+        self.pulled_id = pulled_id
+        self.elevation_knockback = elevation_knockback
+        self.record_tiles = bool(record_tiles)
+
+    def execute(self, state: State, bus: EventBus) -> dict:
+        from ...battle_query import get_minimum_tiles_180_front
+        board = getattr(state, "board", None)
+        pulled = state.get_entity(self.pulled_id)
+        puller = state.get_entity(self.puller_id)
+        if board is None or pulled is None or puller is None:
+            return {"moved": False, "reason": "missing board/unit"}
+        ppos = pulled.get_component(PositionComponent)
+        upos = puller.get_component(PositionComponent)
+        if ppos is None or upos is None:
+            return {"moved": False, "reason": "no position"}
+        # --- IsDisplaceable (tete d'`Execute`) : mort ou non-deplacable -> no-op ---
+        uc = pulled.get_component(UnitComponent)
+        if uc is not None and not uc.alive:
+            return {"moved": False, "reason": "dead"}
+        sc = pulled.get_component(StatsComponent)
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if has_any_trait(traits, (UnitTrait.Immovable, UnitTrait.BigTarget)):
+            return {"moved": False, "reason": "not displaceable"}
+        cur = (ppos.col, ppos.row)
+        # --- FindTileToPullOnce ---
+        cands = get_minimum_tiles_180_front(
+            (upos.col, upos.row), cur, check_elevation=False,
+            walkable_at=lambda p: (board.id_at(p[0], p[1]) is not None
+                                   and board.walkable(board.id_at(p[0], p[1]))),
+            elevation_at=lambda p: (board.elevation(board.id_at(p[0], p[1]))
+                                    if board.id_at(p[0], p[1]) is not None else None),
+            tile_exists=lambda p: board.id_at(p[0], p[1]) is not None)
+        dest: tuple[int, int] | None = None
+        if len(cands) == 1:
+            dest = cands[0]                       # `Count == 1` : rendue SANS filtre d'occupation
+        elif len(cands) > 1:
+            kept = [p for p in cands if _is_empty_or_steppable(state, p, self.pulled_id)]
+            pool = kept if kept else cands        # filtre VIDE -> tirage sur la liste BRUTE
+            rng = getattr(state, "rng", None)
+            idx = rng.next_internal(0, len(pool)) if rng is not None else 0
+            dest = pool[idx]
+        occ = _occupied(state, self.pulled_id)
+        blocker_id = occ.get(dest) if dest is not None else None
+        kbs = []
+        if dest is None:
+            kb = _apply_knockback_to(state, bus, self.puller_id, self.pulled_id)
+            res = {"moved": False, "reason": "blocked"}
+            if kb:
+                res["knockback"] = [kb]
+            return res
+        # `elevationDifferenceForKnockback` : le pull qui franchit un denivele >= seuil paye, MEME
+        # s'il aboutit. `GetElevationDifference` est une valeur ABSOLUE (`|elev(a) - elev(b)|`).
+        if self.elevation_knockback is not None:
+            td, tc = board.id_at(*dest), board.id_at(*cur)
+            if td is not None and tc is not None:
+                if int(self.elevation_knockback) <= abs(board.elevation(td) - board.elevation(tc)):
+                    kb = _apply_knockback_to(state, bus, self.puller_id, self.pulled_id)
+                    if kb:
+                        kbs.append(kb)
+        if blocker_id is not None:
+            # branche `IsFilled` : knockback a la POUSSEE puis, SI l'occupant est ENNEMI du tireur,
+            # a l'OCCUPANT. Aucun deplacement. (Le steppable-crush n'est pas porte -- cf. docstring.)
+            kb = _apply_knockback_to(state, bus, self.puller_id, self.pulled_id)
+            if kb:
+                kbs.append(kb)
+            if _is_enemy(state, self.puller_id, blocker_id):
+                kb2 = _apply_knockback_to(state, bus, self.puller_id, blocker_id)
+                if kb2:
+                    kbs.append(kb2)
+            res = {"moved": False, "reason": "occupied", "to": dest}
+            if kbs:
+                res["knockback"] = kbs
+            return res
+        prev_tiles = [cur]                        # `GetTiles(target)` LU AVANT le move
+        MoveUnitOperation(self.pulled_id, dest, record_tiles=False).execute(state, bus)
+        n = _add_tiles_moved(state, self.puller_id, self.pulled_id, prev_tiles, dest,
+                             self.record_tiles)
+        from .triggers import displace_triggers
+        res = {"moved": True, "to": dest}
+        if kbs:
+            res["knockback"] = kbs
+        if n:
+            res["tiles_moved"] = {self.pulled_id: n}
+        trg = displace_triggers(state, self.puller_id, self.pulled_id)
+        if trg:
+            res["displaced_triggers"] = trg
+        return res
+
+
 class SwitchPositionOperation(Operation):
     """`IdunBattle.Operations.DisplaceUnitOperation$$SwitchPosition` — le case **5** du switch
     d'`IdunBattle.Operations.DisplaceUnitOperation$$Execute` (`DisplaceDirection.SwitchPosition`),

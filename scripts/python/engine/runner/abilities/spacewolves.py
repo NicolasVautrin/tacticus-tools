@@ -19,9 +19,11 @@ from typing import Optional, TYPE_CHECKING
 from ...entities.behaviours import op_and, op_add, If
 from ...entities.formulas import Count, Get, Multiply
 from ...entities.selectors import (Target, Tiles, AdjacentTiles, Union, UnitsWithTrait,
-                                   AllDeadOrResurrectedUnits)
+                                   AllDeadOrResurrectedUnits, Caster, Owner, Units, First,
+                                   CanAddUnit, PickRandomly, Cache)
 from ...entities.traits.unit_trait import UnitTrait
-from ...entities.triggers import IsAlive
+from ...entities.triggers import (IsAlive, IsDead, AreEqual, Not, TriggerAnd, IsCanAddUnit,
+                                  AmountIsGreaterThanZero)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
@@ -31,7 +33,8 @@ from .base import ActiveAbility
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import AttackWithAttackDamage, AddEffect, entities_from_state
+from .behaviours import (AttackWithAttackDamage, AddEffect, entities_from_state, PullUnitOneTile,
+                         FlyUnit, KillDeadUnits, RemoveUnitFromItsTiles)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -304,3 +307,152 @@ class FoehammerAbility(ActiveAbility):
         return {"ability": "Foehammer", "caster": caster_id, "target": target_id,
                 "main_attack": main_attack, "stunned": stunned, "dead_heroes": dead_heroes,
                 "dsl": True}
+
+
+# ====================== GrapnelLauncher (spaceHound «Tjark», actif 1090) =======================
+
+def grapnel_launcher_tree(knockback_range: Optional[int]):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour`
+    (id 1090, `spaceHound` « Tjark ») -- MIRROR 1:1 du DECOMPILE :
+
+        cache = Cache( Tiles(Target@0x60), matchAbilityEntities: true )
+
+        Execute( ((  PullUnitOneTile( Caster@0x48, Units(cache, unique: 1, selectionType: 3),
+                                      Nullable(GetNumberConstant(0x5b = knockbackRange)) )
+                   + If( NOT IsDead(Target@0x60),
+                         AttackWithAttackDamage( Caster@0x48, Target@0x60, MinMaxDamage,
+                                                 GetDamageProfile, GetNumberConstant(0x2f = nrOfHits),
+                                                 AbilityOrEffect, <options ZERO>, selectionType: 2 ) ) )
+                  + If( IsDead(Target@0x60) & AreEqual(TargetTiles@0x78, cache),
+                        KillDeadUnits(Owner@0x30, Target@0x60)
+                          + If( IsDead(Target@0x60),
+                                RemoveUnitFromItsTiles(Target@0x60, removeTileFromUnit: true) ) ) )
+                  + If( IsCanAddUnit( First(cache, amount: 1) ),
+                        FlyUnit( Caster@0x48, First(cache, amount: 1) ),
+                        If( AmountIsGreaterThanZero(pick), FlyUnit(Caster@0x48, pick) ) ) )
+
+        pick = PickRandomly( CanAddUnit(AdjacentTiles(cache)), Direct(1), null, 0x7fffffff, false )
+
+    **LE PULL PRECEDE L'ATTAQUE** -- `op_Addition(local_1f8 = pull, If(NOT IsDead, attack))`, lu
+    verbatim (`IdunBattle.DSL.AbilityBehaviour$$op_Addition` pose `left@+0x50`/`right@+0x58` et
+    `IdunBattle.DSL.CombinedBehaviour$$Execute` execute gauche PUIS droite). L'i2 raconte l'inverse
+    (« deals damage to it. ... it is then pulled ») : c'est le DECOMPILE qui fait foi, et le gate
+    `If(NOT IsDead(Target))` devant l'attaque n'aurait AUCUN sens dans l'autre ordre -- il n'existe
+    que parce que le pull PEUT tuer (knockback de collision / de denivele).
+
+    LE `Cache` EST LOAD-BEARING (meme role qu'`#27` sur ThunderousAssault) : il est PRIME par le
+    pull, donc il fige la tuile d'ORIGINE de la cible ; les trois consommateurs d'apres (le
+    `AreEqual`, le `First` du vol, l'`AdjacentTiles` du repli) lisent tous cette tuile PRE-pull.
+    C'est ce qui realise l'i2 « Tjark then moves to occupy the hex the target originally occupied ».
+
+    `AreEqual(TargetTiles@0x78, cache)` = « la cible est TOUJOURS sur sa tuile d'origine », c.-a-d.
+    **le pull a echoue**. La branche ne finalise le cadavre et ne libere la tuile que dans ce cas :
+    si le pull a reussi, la tuile d'origine est deja vide.
+
+    Le port monte le cache en domaine **ID de tuile** (`Tiles(..., as_ids=True)`) : c'est le domaine
+    qu'exigent `CanAddUnit` (ids) et `AdjacentTiles` (ids), et c'est aussi celui du natif (des
+    ENTITES-tuile). `First(cache)` = `First(source, amount = 1)` natif -> le PREMIER element (le port
+    indexe a 0 ; passer `1` prendrait le 2e).
+
+    ⚠ Le `Nullable(knockbackRange)` : `GetNumberConstant(0x5b)` = `AbilityConstantType.knockbackRange`
+    = **91**. La cle du gameconfig de cette ability est litteralement `"knockbackRange "` (espace
+    FINAL, coquille de contenu -- 6 clefs du gameconfig sont dans ce cas sur 572 abilities). Le natif
+    ne la voit pas : son dictionnaire est indexe par l'ENUM, et `Enum.Parse` TRIM les blancs. Le port
+    lit donc la constante par une cle TRIMMEE (cf. `ability_var`)."""
+    cache = Cache(Tiles(Target(), as_ids=True))
+    pull = PullUnitOneTile(Caster(), Units(cache), elevation_knockback=knockback_range)
+    attack = If(Not(IsDead(Target())),
+                AttackWithAttackDamage(Target(), "GrapnelLauncher", "Physical",
+                                       is_melee=False,          # attackRangeType = Ranged (range 3)
+                                       ability_type=int(ActiveAbilityType.GrapnelLauncher)))
+    dead_branch = If(TriggerAnd(IsDead(Target()), AreEqual(Tiles(Target(), as_ids=True), cache)),
+                     op_add(KillDeadUnits(Owner(), Target()),
+                            If(IsDead(Target()), RemoveUnitFromItsTiles(Target(), True))))
+    pick = PickRandomly(CanAddUnit(AdjacentTiles(cache)), 1)
+    fly_branch = If(IsCanAddUnit(First(cache)),
+                    FlyUnit(Caster(), First(cache)),
+                    If(AmountIsGreaterThanZero(Count(pick)), FlyUnit(Caster(), pick)))
+    return op_add(op_add(op_add(pull, attack), dead_branch), fly_branch)
+
+
+class GrapnelLauncherAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour`
+    (id 1090, `spaceHound` « Tjark », Space Wolves) -- cf. `grapnel_launcher_tree()`.
+
+    i2 : « Targets an enemy unit within 3 hexes and deals 1x <dmg> Physical Damage to it. If Tjark is
+    not already adjacent to the target, it is then pulled 1 hex towards Tjark if possible, and can be
+    pulled over any elevation but not through impassable terrain. Tjark then moves to occupy the hex
+    the target originally occupied if it's free, or a free adjacent hex if it is not. If there are no
+    free hexes, then Tjark does not move. »
+
+    Les deux clauses d'elevation de l'i2 se lisent DIRECTEMENT dans les litteraux natifs :
+    `FindTileToPullOnce` appelle `GetMinimumTiles180Front(caster, target, isReachable = 0)` ->
+    `AddNewTileToList(..., checkWalkability = 1, checkElevation = 0)` -> `TileUtil$$IsTileValidForList`
+    teste `IsWalkable` (« not through impassable terrain ») et SAUTE le gate `|delta elev| < 2`
+    (« over any elevation »).
+
+    QUIRK « DEJA ADJACENT », lu au decompile et NON dit par l'i2 : quand la cible est deja au contact,
+    l'arc AVANT se reduit a la tuile du CASTER ; `FindTileToPullOnce` n'applique son filtre
+    `IsEmptyOrSteppable` que si la liste a PLUS d'une tuile, donc il rend cette tuile OCCUPEE, et la
+    queue commune d'`Execute` part sur `ApplyKnockbackTo(caster, target, doIt = 1)` -- soit
+    `ceil(maxHealth x BC.Damage.KnockbackPercentage / 100)` de degat en PLUS de l'attaque. Le port le
+    mirrore (`PullUnitOneTileOperation`), et c'est le DISCRIMINANT live de cette tranche.
+
+    Turn-flags = defauts base (1090 ABSENT des overrides `NO_END_TURN` / `NO_ABILITY_USED_FLAG`).
+
+    Face DECISION deja portee : `engine/playbook/noncomparable/grapnel_launcher.py` (utilite
+    CONSTANTE 1 par cible eligible)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.GrapnelLauncher)      # 1090
+    ABILITY_ID = "GrapnelLauncher"
+
+    # GATE DE CIBLE (#115) + PORTEE (#241). `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # GrapnelLauncherAbility$$.ctor` est de la PREMIERE forme -- flags DIRECTS, 6 arguments, donc le
+    # litteral EST le masque effectif (aucun preset, aucun OR a faire) :
+    #     TargetingOptions..ctor(&opts, isSelfCasting = 0, &<TargetingRange statics+0x18>,
+    #                            forceMeleeTarget = 1, rules = 0x8004000, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 0)                  # 3e arg = 0 = DirectTargetAttack
+    # Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`) -- 0x4000 + 0x8000000 =
+    # 0x8004000, il ne reste AUCUN bit residuel :
+    #     0x4000     (bit 14) TargetIsEnemy   -> PORTE (refus sur soi-meme / un allie).
+    #     0x8000000  (bit 27) TargetIsInRange -> PORTE par le volet PORTEE (cf. ci-dessous).
+    # ⚠ NI `TargetMatchesDynamicRule` NI `CasterMatchesDynamicRule` : cette ability n'a AUCUN gate
+    # dynamique, et c'est coherent avec l'absence de tout corps `GrapnelLauncherAbility$$GetDynamic
+    # Invalid*Reason` (les 3 seuls corps de la classe sont `$$.ctor`, `$$ExecuteBehaviour` et les
+    # symboles `Visuals`/`Playbook` d'autres classes).
+    # PORTEE : `TargetingRange` statique `+0x18` = `RANGE_FROM_CONFIG` (`useRangeFromConfig`) ->
+    # `AActiveAbility$$SetConfigValuesInTargetingOptions` pose `OverrideRange =
+    # GetNumberConstant(0x16 = range)` = `GrapnelLauncher.constants.range` = **3** (== l'i2 « within
+    # 3 hexes »). `forceMeleeTarget = 1 = RangedBool.False` -> AUCUN clamp melee.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsInRange,
+                                         self_cast=False, range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        # `GetNumberConstant(0x5b = knockbackRange)` -- constante, donc pas d'indexation par niveau.
+        kb_range = ability_var("GrapnelLauncher", "knockbackRange", is_constant=True)
+        grapnel_launcher_tree(kb_range).execute(entities, ectx)
+        pulled = None
+        attack = None
+        attacked = False
+        flew = None
+        for name, p in ectx.emitted:
+            if name == "PullUnitOneTile":
+                pulled = {"moved": p.get("moved"), "to": p.get("to"),
+                          "reason": p.get("reason"), "knockback": p.get("knockback")}
+            elif name == "AttackWithAttackDamage":
+                # `attacked` = le noeud a ete TRAVERSE (donc `NOT IsDead(Target)` etait vrai) ;
+                # `main_attack` peut rester None hors runner (l'Operation d'attaque saute le degat
+                # quand `state.rng` n'est pas cale -- replay effet-seul).
+                attacked = True
+                attack = p.get("attack")
+            elif name == "FlyUnit":
+                flew = {"moved": p.get("moved"), "to": p.get("to")}
+        return {"ability": "GrapnelLauncher", "caster": caster_id, "target": target_id,
+                "pull": pulled, "main_attack": attack, "attacked": attacked, "fly": flew,
+                "knockback_range": kb_range, "dsl": True}

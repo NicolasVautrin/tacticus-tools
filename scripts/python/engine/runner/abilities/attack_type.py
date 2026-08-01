@@ -202,6 +202,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     #  EFFECTIF a bien ete lu dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
     #  (`statics+0x168` = 0x4002 pour 1097, `statics+0x268` = 0x102004032 pour 1153), donc leurs
     #  `TARGETING_OPTIONS` sont renseignes -- contraste 1036/1041 ci-dessus.)
+    # GrapnelLauncher (1090, Tjark spaceHound) -- #366-r1 tranche 2. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = 0 = DirectTargetAttack. (`&opts` est la
+    # forme FLAGS DIRECTS a 6 arguments, `rules = 0x8004000` litteral -> `TARGETING_OPTIONS` posees.)
+    1090: AbilityAttackType.DirectTargetAttack,   # GrapnelLauncherAbility
     1097: AbilityAttackType.DirectTargetAttack,   # FoehammerAbility
     1153: AbilityAttackType.DirectTargetAttack,   # HammerOfWrathAbility
     # PlagueWind (1035, Typhus deathTyphus), case-psychic-aoe. Litteral RELU :
