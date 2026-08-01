@@ -1,64 +1,121 @@
-"""SaviorProtocolsPlaybook — playbook représentatif (RE docs/rl/playbook-engine.md §14.4).
+"""`IdunBattle.AI.Playbook.Loki.SaviorProtocolsPlaybook` -- face ATTACK du triggered
+`SaviorProtocols` (1120), 3e des 20 residus ATTACK de #419. Porteurs DISPATCHES : 6, tous hors
+lineup -- 3 npc (`tauNpc2DroneSniper`, ...) et 3 SUMMONS (`tauSmnDroneCommandLink`,
+`tauSmnDroneSniper`, `tauSmnDroneShield`).
 
-Base native : `TriggeredAbilityPlaybook<SaviorProtocolsAbility>`, ability id **1120 (0x460)**.
-Poids résolus OFFLINE (playbook_keys.py → stringliteral.json → Utilities.Default.TriggeredAbilities) :
-  SAVIORPROTOCOLS_MarkedTarget      = 60   (attaque : cible porte l'effet marqueur 1122 / 0x462)
-  SAVIORPROTOCOLS_AdjacentTauFriend = 20   (move : par candidat allié valide)
-  SAVIORPROTOCOLS_AdjacentTauParent = 30   (move : bonus si le caster est le parent/owner du candidat)
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+AggressiveOnslaught, SuppressiveFire, Lakrimae et BarbedOvipositor
+(`utilities/tile.py::evaluate_attack_in_steps`, vslot 3).
 
-DORMANT : lit un `case` (contrat ci-dessous), rend 0 si la metadata n'est pas plombée.
+## Le corps natif, remis en C#
 
-Contrat `case` :
-  attack_utility :
-    target_has_marker : bool   — la cible porte l'effet marqueur 1122 (RE : HasEffect(target, …, 0x462))
-  movement_utility :
-    valid_candidates : [ {is_owned_by_caster: bool} ]
-        — alliés près de la tuile-caster passant TargetIsValidTrigger (AreFriends + HasFaction(9)
-          + NOT casterHasAbility(1120) + target≠self) ; `is_owned_by_caster` = caster == GetParent(candidat).
+`IdunBattle.AI.Playbook.Loki.SaviorProtocolsPlaybook$$CalculateAttackUtilityInStepsInternal` monte la
+SM `d__5` avec **TROIS** champs -- case @+0x20, `this` (le playbook) @+0x28, delegue scorer @+0x30 --
+la ou `BarbedOvipositor$$CalculateAttackUtilityInStepsInternal` n'en ecrit que DEUX (case @+0x20,
+delegue @+0x28) : son corps n'a pas besoin du playbook, celui-ci si (il y lit `state`). La disposition
+se LIT dans la methode-usine, elle ne se transpose pas d'un voisin. Corps :
+`SaviorProtocolsPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__5$$MoveNext` -- UN SEUL
+`yield`, deux sorties :
+
+    Fix64 u = Fix64.op_Implicit(0);
+    if (EntityExtensions.HasEffect(case.Target, this.<state>, (EffectType)0x462, onlyActive: true))
+        u = Fix64.op_Addition(u, Fix64.op_Implicit(GetUtilityValue("SAVIORPROTOCOLS_MarkedTarget")));
+    yield return u;
+
+Quatre lectures qui ne se devinent pas -- et aucune ne se generalise depuis un voisin de la liste :
+
+1. **Le predicat porte sur la CIBLE et sur RIEN d'autre.** Ni stats, ni traits, ni faction, ni
+   position du caster ; ni la tuile d'attaque (contrairement a `SuppressiveFire`, qui NIE
+   `AreEntitiesAdjacent(casterTile, target)`) ; ni la prediction de degat du case (contrairement a
+   `BarbedOvipositor`, qui lit `UtilityAttackCase@+0x28`). Le corps ne touche que `case@+0x20` (la
+   cible) et le champ `state` du playbook. C'est ce qui rend l'ability GREFFABLE (`case-92` §5bis)
+   sur une unite du pool : le code exerce est bien celui de 1120, et aucune propriete du greffon
+   n'entre dans le resultat.
+
+2. **`0x462` = 1122 = `EffectType.Markerlight`** (enum QUALIFIE : `IdunBattle.Entities.Enum.EffectType`,
+   ni `TriggeredAbilityType` -- ou 1122 vaut `NoctilithBeacons` -- ni `ActiveAbilityType`). La cible
+   est celle que les T'au ont MARQUEE ; le drone se jette d'autant plus volontiers sur elle.
+
+3. **`onlyActive: true`, et c'est l'INVERSE de `SuppressiveFire`.** Le 4e argument du call-site est le
+   litteral `1` (`SuppressiveFire` passe `0`, `ForwardObservers` passe `null`). Ce byte-la change ce
+   que le natif regarde : `IdunBattle.Entities.EntityExtensions$$HasEffect` =
+   `IsOwnerOfEffect(e, state, type, onlyActive) || IsTargetOfEffect(e, state, type)`, et dans
+   `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` le flag `EffectComponent.IsActive @+0x5c`
+   n'est consulte QUE si `onlyActive != 0`. Le mirror est donc `EffectsState.active_effects`, PAS
+   `has_effect` -- exactement le choix inverse de `suppressive_fire.py`, pour un call-site voisin.
+   (La seconde branche, `IdunBattle.Entities.EntityExtensions$$IsTargetOfEffect`, exige `+0x5c`
+   INCONDITIONNELLEMENT : elle est deja « active-only » dans les deux regimes.)
+
+4. **La cle est un LITTERAL DE CHAINE du corps** (`FUN_1801f4fb0(&DAT_...)` au prologue), pas un
+   champ statique : `SaviorProtocolsPlaybook` n'a **pas de `.cctor`** -- meme forme que
+   `BarbedOvipositor`, l'inverse de `Lakrimae`. Les TROIS litteraux de la classe sont
+   `SAVIORPROTOCOLS_MarkedTarget` (cette face) et `SAVIORPROTOCOLS_AdjacentTauFriend` /
+   `SAVIORPROTOCOLS_AdjacentTauParent` (face MOVE). Poids au gameconfig **et** au seed BC servi (les
+   deux concordent, pas de piege #271) : **60 / 20 / 30**. L'assignation du 60 a cette face n'est pas
+   deduite du nom : elle est TRANCHEE par la mesure live (`probe_443`), ou les trois valeurs sont
+   distinctes.
+
+## La face MOVE : corps PROPRE et NON trivial -- RESIDU OUVERT, pas un constant
+
+`SaviorProtocolsPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__4$$MoveNext` est
+decompile LU et il est bien vivant (pour chaque unite dans un rayon autour de `case.MovementTile` :
+`SaviorProtocolsAbility$$TargetIsValidTrigger` -> `+AdjacentTauFriend`, puis
+`UnitExtensions$$GetParent(case.unit, state) == unite` -> `+AdjacentTauParent`). Le playbook
+surcharge EN PLUS `SaviorProtocolsPlaybook$$FilterMovementTiles` (slot 1 d'`IPlaybook`, non porte
+globalement -- cf. `case-r1b`) et delegue au meme `TargetIsValidTrigger`. Ce n'est donc PAS le
+`yield Fix64(0)` constant de `Lakrimae`/`BarbedOvipositor` : c'est un item a part entiere (residu
+`#443-r1`, cf. `docs/rl/case-443-savior-protocols-playbook.md`), et son absence de
+`TRIGGERED_MOVE_PLAYBOOKS` reste un TROU, pas le comportement natif.
 """
 from __future__ import annotations
 
-from ..weights import Weights
-from .base import BasePlaybook
+from ..entities.effect_type import EffectType
 from ..entities.triggered_ability_type import TriggeredAbilityType
 
-# Ids RE'd — pour le plumbing de la metadata.
-ABILITY_ID = int(TriggeredAbilityType.SaviorProtocols)  # 1120 (base = TriggeredAbilityPlaybook) #158
-# #158 : ex-`MARKER_EFFECT_ID = 0x462` (mort : playbook DORMANT recoit `target_has_marker` dans son case)
-# retire. 1122 = EffectType.Markerlight (cf. docstring).
-FACTION_GATE = 9            # T'au-style (HasFaction(9))
+# `HasEffect(case.Target, state, (EffectType)0x462, onlyActive: true)` -- 0x462 = 1122 (cf. en-tete).
+_MARKERLIGHT = int(EffectType.Markerlight)
+# L'UNIQUE litteral de chaine de la face ATTACK, lu dans `Utilities.Default.TriggeredAbilities`.
+_WEIGHT_KEY = "SAVIORPROTOCOLS_MarkedTarget"
 
 
-class SaviorProtocolsPlaybook(BasePlaybook):
-    """DORMANT — référence RE d'un playbook bespoke à clés-strings (modèle `case`/GetUtilityValue).
-    NON enregistré dans le registry de scoring (pas sur le chemin live ; le générateur retombe sur
-    DefaultActiveAbilityPlaybook pour 1120). Conservé pour la doc des poids TriggeredAbilities."""
-    ability_id = ABILITY_ID  # 1120
-    cat = "TriggeredAbilities"
+def _target_has_active_markerlight(scene, target_uid: int) -> bool:
+    """`EntityExtensions.HasEffect(target, state, 1122, onlyActive: TRUE)` =
+    `IsOwnerOfEffect(target, state, 1122, onlyActive=1) || IsTargetOfEffect(target, state, 1122)`.
 
-    def w(self, wt: Weights, key: str) -> float:
-        """Poids BC `Utilities.Default.<cat>.<key>` (défaut 0 = GetUtilityValue natif)."""
-        return wt.sub(self.cat, key)
+    `onlyActive = 1` ==> `IsOwnerOfEffect` consulte `EffectComponent.IsActive @+0x5c` : cote port
+    c'est `EffectsState.active_effects` (flag `active` + `CreateActiveCondition`), surtout PAS
+    `has_effect`, qui ne filtre que `consumed` et sert les call-sites `onlyActive = 0` (le voisin
+    `suppressive_fire.py`). La seconde branche passe par le foyer unique `Scene.is_effect_target`,
+    tri-etat : `None` = geometrie non portee pour ce type, on ne referme pas dessus (meme discipline
+    que `playbook/psyker.py` et `playbook/suppressive_fire.py`)."""
+    eff = getattr(scene, "eff_state", None)
+    if eff is not None:
+        st = scene.unit_state(int(target_uid)) if hasattr(scene, "unit_state") else None
+        for e in eff.active_effects(int(target_uid), st):
+            if e.effect_type == _MARKERLIGHT:
+                return True
+    return getattr(scene, "is_effect_target", lambda *_a: None)(
+        int(target_uid), _MARKERLIGHT) is True
 
-    def attack_utility(self, case: dict, wt: Weights) -> float:
-        """Gate : la cible porte l'effet marqueur 1122 → +MarkedTarget. (1 yield natif)."""
-        if not (case or {}).get("target_has_marker"):
+
+class SaviorProtocolsPlaybook:
+    """`SaviorProtocolsPlaybook` (`IdunBattle.AI.Playbook.Loki`, triggered 1120). Face ATTACK portee
+    ici ; face MOVE NON portee (corps natif propre et NON trivial -- residu `#443-r1`, cf. en-tete :
+    c'est un trou, pas le comportement natif)."""
+
+    ability_id: int = int(TriggeredAbilityType.SaviorProtocols)      # 1120 = 0x460
+
+    def calculate_attack_utility_in_steps(self, ctx, attacker_uid: int, ability_id: int,
+                                          case_tgt_id: int, attack_tile, prediction=None) -> float:
+        """Mirror de `<CalculateAttackUtilityInStepsInternal>d__5$$MoveNext` (cf. en-tete) : la CIBLE
+        porte-t-elle un `Markerlight` ACTIF ? oui -> le poids `SAVIORPROTOCOLS_MarkedTarget` ;
+        non -> 0. AUCUN autre terme : ni tuile d'attaque, ni caster, ni prediction.
+
+        `prediction` (= `case.DamagePrediction`, `UtilityAttackCase@+0x28`, canal ouvert par #438)
+        est ACCEPTE et IGNORE -- comme le corps natif, qui ne lit pas ce champ du case."""
+        sc = getattr(ctx, "scene", None)
+        if sc is None:
             return 0.0
-        return self.w(wt, "SAVIORPROTOCOLS_MarkedTarget")
-
-    def movement_utility(self, case: dict, wt: Weights) -> float:
-        """Σ sur les candidats alliés valides : +AdjacentTauFriend chacun, +AdjacentTauParent si owned."""
-        cands = (case or {}).get("valid_candidates") or []
-        if not cands:
+        if not _target_has_active_markerlight(sc, int(case_tgt_id)):
             return 0.0
-        w_friend = self.w(wt, "SAVIORPROTOCOLS_AdjacentTauFriend")
-        w_parent = self.w(wt, "SAVIORPROTOCOLS_AdjacentTauParent")
-        u = 0.0
-        for c in cands:
-            u += w_friend
-            if c.get("is_owned_by_caster"):
-                u += w_parent
-        return u
-
-# NON enregistré (dormant) : pas de register(...) — le générateur retombe sur DefaultActiveAbilityPlaybook
-# pour l'ability 1120 si elle apparaît.
+        return float(ctx.wt.triggered(_WEIGHT_KEY))            # `GetUtilityValue(<cle>)`

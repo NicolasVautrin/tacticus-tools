@@ -198,6 +198,7 @@ from .suppressive_fire import SuppressiveFirePlaybook           # #415 (registre
 from .lakrimae import LakrimaePlaybook                          # #419 (registre, cf. module dedie)
 from .barbed_ovipositor import BarbedOvipositorPlaybook         # #438 (registre, cf. module dedie)
 from .neuroparasite import NeuroparasitePlaybook                # #441 (registre, cf. module dedie)
+from .savior_protocols import SaviorProtocolsPlaybook           # #443 (registre, cf. module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -233,6 +234,13 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # `GetUtilityValue` ni `.cctor` a lire. Il n'a pas non plus besoin du canal `prediction` de
     # #438 -- son corps ne lit que `case@+0x20`.
     int(TriggeredAbilityType.Neuroparasite): NeuroparasitePlaybook(),
+    # #443 : SaviorProtocols (1120, porteurs 3 npc + 3 SUMMONS `tauSmn*Drone*`) --
+    # `SAVIORPROTOCOLS_MarkedTarget` (60) quand la CIBLE porte un `Markerlight` (1122) ACTIF, 0
+    # sinon. Corps IdunBattle.AI.Playbook.Loki.
+    # SaviorProtocolsPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__5$$MoveNext.
+    # `onlyActive: true` au call-site de `EntityExtensions$$HasEffect` -- l'INVERSE de
+    # SuppressiveFire (qui passe 0) : substrat `active_effects`, pas `has_effect`.
+    int(TriggeredAbilityType.SaviorProtocols): SaviorProtocolsPlaybook(),
 }
 
 
