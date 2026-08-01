@@ -71,6 +71,17 @@ IMMOVABLE_VIS = "tauCrisis"
 GEOMS = {
     "a": {"caster": "0,1", "target": "0,3", "push": "0,4", "custom": 20},
     "b": {"caster": "0,2", "target": "0,4", "push": "0,5", "custom": 10},
+    # geom C -- arc NON DEGENERE : le caster n'est pas aligne en cube avec la cible, donc
+    # `GetMinimumTiles180BehindFromTile` rend DEUX tuiles -- [(5,5) elev 2, (4,5) elev 1]. La
+    # PREMIERE est a la meme elevation que la cible (2) -> diff 0 ; la SECONDE vaut
+    # `20 - (10 - LowestElevation(5))` = **15**. Le natif prend le MAX, pas la premiere : c'est le
+    # seul bras qui teste cette propriete, et c'est le mutant `first_not_max` qui la rend visible.
+    # `push` bloque la SECONDE tuile -- il suffit d'annuler le maximum, l'arc reste non vide.
+    # ⚠ Les quatre tuiles sont en `Grass` : une tuile a effet de terrain (Swamp = -25 via
+    # `TileEffectsUtility`) DOMINE l'elevation et retourne le signe du diff. Premiere version de ce
+    # bras posee sur (1,3) = Swamp : `u0` valait 25 au lieu de 50 et les DEUX diffs etaient
+    # negatifs. Toute geometrie de ce probe se re-derive avec le TileId, pas la seule elevation.
+    "c": {"caster": "3,3", "target": "4,4", "push": "4,5", "custom": 15},
 }
 FAR_A, FAR_B, FAR_C = "6,8", "5,8", "4,8"   # relegation, distance >= 6 du caster
 
@@ -199,6 +210,40 @@ def _no_occupancy_filter(self, ctx, caster_tile, target, ability_id) -> float:
     return float(int(best))
 
 
+def _first_not_max(self, ctx, caster_tile, target, ability_id) -> float:
+    """MUTANT C -- le port qui prend la PREMIERE tuile de l'arc au lieu du MAX. Invisible sur un
+    arc degenere (une seule tuile) ; DOIT diverger en geom C, dont l'arc porte deux tuiles et dont
+    la premiere donne un diff NUL."""
+    from engine import battle_query as bq
+    from engine.playbook.base import tile_utility_for_unit
+    tu = self._unit(ctx, target)
+    if tu is None or not self._is_displaceable(ctx, tu):
+        return 0.0
+    tpos = (tu["pos"]["col"], tu["pos"]["row"])
+    wa, ea, te = bq.tiles_behind_accessors(getattr(ctx, "walkable_by_pos", None),
+                                           getattr(ctx, "elev_by_pos", None))
+    tiles = [p for p in bq.get_minimum_tiles_180_behind_from_tile(
+        caster_tile, tpos, walkable_at=wa, elevation_at=ea, tile_exists=te)
+        if _is_free_or_steppable(ctx, p, target)]
+    if not tiles:
+        return 0.0
+    d = tile_utility_for_unit(ctx, tu, tpos) - tile_utility_for_unit(ctx, tu, tiles[0])
+    return float(int(d)) if d > 0 else 0.0
+
+
+def _is_free_or_steppable(ctx, pos, exclude_id) -> bool:
+    from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names, has_any_trait
+    scene = getattr(ctx, "scene", None)
+    for u in (ctx.units or []):
+        p = u.get("pos") or {}
+        if (u.get("alive") and u.get("id") != exclude_id
+                and (p.get("col"), p.get("row")) == pos):
+            uctx = scene.ctx(u.get("id")) if scene is not None else None
+            return has_any_trait(entity_trait_names(uctx, u.get("visualId")),
+                                 (UnitTrait.Steppable,))
+    return True
+
+
 MUTANTS = {
     # nom -> {attribut de classe: valeur}. Restaure apres coup.
     "zero": {"calculate_custom_utility":
@@ -206,6 +251,7 @@ MUTANTS = {
     "no_occupancy": {"calculate_custom_utility": _no_occupancy_filter},
     # MUTANT B -- le port SANS le gate `IdunBattle.Entities.UnitExtensions$$IsDisplaceable`.
     "no_displaceable": {"_is_displaceable": classmethod(lambda cls, ctx, unit: True)},
+    "first_not_max": {"calculate_custom_utility": _first_not_max},
 }
 
 
@@ -279,7 +325,7 @@ def measure(rid: int, ids: dict, label: str, engine: bool, target_vis: str) -> d
     return row
 
 
-ARMS = ("a-libre", "a-bloque", "b-libre", "b-bloque", "bigtarget")
+ARMS = ("a-libre", "a-bloque", "b-libre", "b-bloque", "c-libre", "c-bloque", "bigtarget")
 
 
 def scenario(hp_target: int = HP_TARGET, engine: bool = True, rid: int | None = None):
@@ -314,7 +360,7 @@ def main() -> int:
 
 def _play(rid: int, ids: dict, engine: bool) -> dict:
     rows = {}
-    for g in ("a", "b"):
+    for g in ("a", "b", "c"):
         place(rid, ids, g)
         rows[g + "-libre"] = measure(
             rid, ids, "geom %s LIBRE  -> custom attendu %d" % (g.upper(), GEOMS[g]["custom"]),
@@ -338,12 +384,18 @@ def _play(rid: int, ids: dict, engine: bool) -> dict:
 def _report(rows: dict, engine: bool) -> int:
     print("\n=== SYNTHESE ===")
     ref = rows["a-libre"]["pairs"]
+    # Les geoms A et B partagent distance, terrain ET elevation de tuile de tir -> paires
+    # attendues BIT-IDENTIQUES. La geom C change d'elevation de cible (2 au lieu de 4) : ses
+    # paires lui sont propres, et c'est SON `gap` qui borne la bascule de son bras.
     same = all(rows[k]["pairs"] == ref for k in ("a-bloque", "b-libre", "b-bloque"))
-    print("  pair69/pair1004 bit-identiques sur les 4 bras a cible DEPLACABLE : %s"
+    print("  pair69/pair1004 bit-identiques sur les 4 bras A/B : %s"
           % ("OUI -- confond de prediction NUL" if same else "NON -- confond present"))
+    print("  geom C : gap propre = %.6f (bascule attendue car custom 15 > gap)"
+          % rows["c-libre"]["gap"])
     ok = True
-    want = {"a-libre": 1004, "a-bloque": 69, "b-libre": 69, "b-bloque": 69, "bigtarget": 69}
-    for k in ("a-libre", "a-bloque", "b-libre", "b-bloque", "bigtarget"):
+    want = {"a-libre": 1004, "a-bloque": 69, "b-libre": 69, "b-bloque": 69,
+            "c-libre": 1004, "c-bloque": 69, "bigtarget": 69}
+    for k in ARMS:
         got_ab, got_tgt = rows[k]["native"]
         good = (got_ab == want[k])
         print("  %-10s : natif -> ability=%s (attendu %s) %s"

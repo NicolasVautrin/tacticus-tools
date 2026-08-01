@@ -2646,7 +2646,7 @@ d'occupation (`tuile vide OU occupant a trait Steppable`) la ou le natif l'appli
 |---|---|---|---|---|---|
 | **MortisRound** (1004) | `IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` (slot **+0x338**) | `trunc( max(0, max_{t in arc} [ Tile7(cible@sa tuile) - Tile7(cible@t) ]) )` ; `arc` = `EmptyOrHasSteppableUnit(GetMinimumTiles180BehindFromTile(casterTile, cible))` ; gate `IsDisplaceable(cible)`. Terme POSITION- **et** CIBLE-dependant. | **aucun poids BC** — la magnitude sort entierement du composite `Tile(7)` (sur MC1_67 : `Elevation.Multiplier` = 10/niveau, `HighestElevation` = +10, `LowestElevation` = -5) | `ultraEliminatorSgt` `Certus` [**HERO du pool**, ni `catalog_inject` ni greffe] | **A/B causal live** (`probe_27_r3_mortis_round_ab.py`, board MC1_67, seed 909, `--hp-target 1800`), **5 bras a 2 issues**, moteur = natif dans les 5 ; **3 mutations adversariales**. Detail ci-dessous. |
 
-### Validation — A/B causal live, 5 bras, magnitude ENCADREE
+### Validation — A/B causal live, 7 bras, magnitude ENCADREE
 
 Le terme n'apparait pas dans `pairUtility` : on l'exerce par le CHOIX natif (`aiDryRunAllUnits`,
 read-only). `u(1004) = pair1004 + custom` contre `u(69) = pair69 + 1` (le custom de l'attaque
@@ -2659,6 +2659,16 @@ elevations de tuile de tir (3), donc **memes predictions et meme terme de tuile*
 |---|---|---|---|---|---|
 | **A** | (0,1) elev 3 | (0,3) elev **4** (= max board) | [(0,4)] elev 3 | `(40+10) - 30` | **20** |
 | **B** | (0,2) elev 3 | (0,4) elev 3 | [(0,5)] elev 2 | `30 - 20` | **10** |
+| **C** | (3,3) elev 3 | (4,4) elev 2 | [(5,5) elev 2, (4,5) elev **1** (= min board)] | `max(20 - 20, 20 - (10-5))` | **15** |
+
+La geom **C** est la seule dont l'arc n'est pas degenere (caster non aligne en cube avec la cible) :
+sa PREMIERE tuile donne un diff NUL et la seconde 15. Elle teste donc le `max` — et bloquer la
+SEULE seconde tuile suffit a annuler le terme, l'arc restant non vide.
+
+> ⚠ **Le terrain DOMINE l'elevation, et la premiere version de ce bras s'y est fait prendre.** Posee
+> sur (1,3), une tuile `Swamp`, la geom C rendait `u0 = 25` au lieu de 50 (`TileEffectsUtility` =
+> **-25**) et les DEUX diffs etaient negatifs -> custom 0, natif ET moteur d'accord sur `69`, bras
+> muet. Toute geometrie de ce probe se re-derive avec le **TileId**, jamais avec la seule elevation.
 
 `--hp-target 1800` place `ecart = pair69 + 1 - pair1004` a **11.932297**, DANS `(10, 20)` — la seule
 fenetre ou 20 bascule le natif et 10 ne le bascule pas. (Calibrage mesure : PV naturels 11046 ->
@@ -2671,10 +2681,14 @@ exploser l'ecart.)
 | **A bloque** | appat ALLIE sur (0,4) | 0 | 69 | 69 [MATCH] |
 | **B libre** | — | **10** | **69** | 69 [MATCH] |
 | **B bloque** | appat ALLIE sur (0,5) | 0 | 69 | 69 [MATCH] |
+| **C libre** | — (arc DOUBLE, max sur la 2e tuile) | **15** | **1004** | **1004** [MATCH] |
+| **C bloque** | appat ALLIE sur (4,5), l'arc reste NON VIDE | 0 | 69 | 69 [MATCH] |
 | **BigTarget** | `tauCrisis` prend (0,3), arc LIBRE | 0 | 69 | 69 [MATCH] |
 
 - **Confond de prediction MESURE ET NUL** : `pair69` = 76.6370699275285 et `pair1004` =
-  65.70477248169482 sont **bit-identiques sur les quatre bras a cible deplacable**.
+  65.70477248169482 sont **bit-identiques sur les quatre bras A/B**. La geom C, dont l'elevation de
+  cible differe, a ses paires propres (145.89345171116292 / 139.345172024332, `gap` = 7.548280) —
+  c'est SON gap qui borne SA bascule.
 - **Encadrement 100 % natif, sans fitting** : `custom(geom A) > 11.9323` **et**
   `custom(geom B) < 11.9323`. Un terme CONSTANT — quelle que soit sa valeur — ne peut pas produire
   ces deux resultats opposes a paires identiques : la MAGNITUDE est discriminee, pas seulement le
@@ -2685,10 +2699,18 @@ exploser l'ecart.)
   mesure, pas suppose.
 - **Necessite** : moteur avec le custom force a 0 -> `69` dans le bras A libre, la ou le natif dit
   `1004`. Le terme est NECESSAIRE a l'accord.
-- **Trois mutations adversariales** (`probe.MUTANTS`, rejouees sur la MEME decision) : `zero`
-  (terme absent), `no_occupancy` (filtre `EmptyOrHasSteppableUnit` retire), `no_displaceable` (gate
-  de trait retire). Chacune doit DIVERGER du natif dans au moins un bras — c'est ce que garde
-  `tests/engine/test_mortis_round_decision_live.py::test_each_mutation_is_visible`.
+- **QUATRE mutations adversariales** (`probe.MUTANTS`, rejouees sur la MEME decision), et chacune
+  diverge sur un bras DIFFERENT — aucune n'est couverte par les autres :
+
+  | mutation | piece du port retiree | diverge sur |
+  |---|---|---|
+  | `zero` | le terme entier | `a-libre`, `c-libre` |
+  | `no_occupancy` | `DSLSelectors$$EmptyOrHasSteppableUnit` | `a-bloque`, `b-bloque`, `c-bloque` |
+  | `no_displaceable` | `UnitExtensions$$IsDisplaceable` | `bigtarget` |
+  | `first_not_max` | le `max` (prend la 1re tuile de l'arc) | `c-libre` |
+
+  C'est ce que garde `tests/engine/test_mortis_round_decision_live.py::test_each_mutation_is_visible`
+  (9 tests au total).
 
 ### Non couvert (explicite)
 
@@ -2707,6 +2729,16 @@ exploser l'ecart.)
 - **Le composite `Tile(7)` evalue pour la CIBLE** herite des limites connues de `tile_utility` : les
   feuilles non portees ou dormantes le restent. La contre-mesure est que le montage LIVE mesure le
   resultat NET, pas feuille par feuille.
+- **La TRONCATURE vers `int` n'est PAS discriminee par ce montage.** Les trois geometries donnent
+  des diffs ENTIERS (20, 10, 15) : un port sans `int()` rendrait exactement les memes valeurs et
+  aucun bras ne bougerait. C'est pourquoi elle n'a pas de mutant. Elle est LUE au decompile
+  (`Fix64$$op_Explicit` -> `op_Implicit`), pas mesuree. La discriminer demanderait une feuille de
+  `Tile(7)` a valeur FRACTIONNAIRE sur la tuile de la cible ou de son arc — aucune des feuilles
+  actives sur MC1_67 n'en produit.
+- **Le reclassement ami/ennemi de `_UnitView` n'est pas exerce.** Les feuilles de `Tile(7)` qui
+  distinguent amis et ennemis (famille `AUnitEffectsUtility`, `SaviorProtocols`,
+  `DefenderOfTheGreaterGood`) sont inertes dans ce montage : aucun voisin porteur. Le recentrage est
+  donc porte par LECTURE du natif (`UtilityAttackCase+0x10` = la cible), pas confirme par la mesure.
 - **Le delegue passe a `GetTargetUtilityDiffOnDisplace` n'est pas lu directement** : `DAT_183334188`
   est un `MethodInfo*` rempli a l'init IL2CPP, donc illisible statiquement. `GetPushableTiles` est
   la SEULE methode de `Playbook<T>` dont la signature `(ITile, TUnit) -> IEnumerable<ITile>`

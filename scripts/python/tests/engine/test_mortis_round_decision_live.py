@@ -24,10 +24,17 @@ C. **Deux leviers d'annulation, chacun teste separement** :
    * `IsDisplaceable` -- une unite `BigTarget` prend EXACTEMENT la tuile de la geom A, arc libre :
      `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` refuse -> custom 0.
 
-D. **TROIS mutations adversariales** rejouent la decision moteur avec une piece du port RETIREE.
+D. **Une TROISIEME geometrie teste le `max` sur un arc NON DEGENERE.** Le caster (3,3) n'est pas
+   aligne en cube avec la cible (4,4) : `GetMinimumTiles180BehindFromTile` rend DEUX tuiles, et la
+   PREMIERE, (5,5), est a la meme elevation que la cible -> diff NUL ; la seconde, (4,5), donne 15
+   (`LowestElevation` = -5). Un port qui prendrait la premiere au lieu du maximum rendrait 0 et
+   manquerait la bascule. Bloquer la SEULE seconde tuile suffit a annuler le terme, l'arc restant
+   non vide -- ce que le bras `c-bloque` mesure.
+
+E. **QUATRE mutations adversariales** rejouent la decision moteur avec une piece du port RETIREE.
    Chacune doit DIVERGER du natif quelque part, sinon le montage ne teste pas cette piece :
    `zero` (terme absent), `no_occupancy` (filtre d'occupation retire), `no_displaceable` (gate de
-   trait retire).
+   trait retire), `first_not_max` (premiere tuile de l'arc au lieu du maximum).
 
 CONFONDS NEUTRALISES, tous MESURES par le probe :
   * les `pairUtility` natives (69 et 1004) sont BIT-IDENTIQUES sur les quatre bras a cible
@@ -55,8 +62,13 @@ sys.path.insert(0, str(PYDIR))
 import probe_27_r3_mortis_round_ab as AB                    # noqa: E402
 
 # Action attendue par bras : 1004 quand le custom (20) domine l'ecart, 69 sinon.
-WANT = {"a-libre": 1004, "a-bloque": 69, "b-libre": 69, "b-bloque": 69, "bigtarget": 69}
-CUSTOM = {"a-libre": 20.0, "a-bloque": 0.0, "b-libre": 10.0, "b-bloque": 0.0, "bigtarget": 0.0}
+WANT = {"a-libre": 1004, "a-bloque": 69, "b-libre": 69, "b-bloque": 69,
+        "c-libre": 1004, "c-bloque": 69, "bigtarget": 69}
+CUSTOM = {"a-libre": 20.0, "a-bloque": 0.0, "b-libre": 10.0, "b-bloque": 0.0,
+          "c-libre": 15.0, "c-bloque": 0.0, "bigtarget": 0.0}
+# Les geoms A et B partagent distance, terrain ET elevation de tuile de tir -> paires natives
+# attendues BIT-IDENTIQUES. La geom C change d'elevation de cible : ses paires lui sont propres.
+SAME_PAIRS = ("a-libre", "a-bloque", "b-libre", "b-bloque")
 
 
 @pytest.fixture(scope="module")
@@ -76,7 +88,7 @@ def test_montage_has_no_prediction_confound(rows):
     """Les `pairUtility` natives sont BIT-IDENTIQUES sur les quatre bras a cible deplacable. Sans
     cela l'A/B melangerait le custom a une derive de prediction et ne conclurait rien."""
     ref = rows["a-libre"]["pairs"]
-    bad = [k for k in ("a-bloque", "b-libre", "b-bloque") if rows[k]["pairs"] != ref]
+    bad = [k for k in SAME_PAIRS if rows[k]["pairs"] != ref]
     assert not bad, (
         "les paires natives BOUGENT entre les bras %s (ref=%r) -- confond de prediction present, "
         "l'ecart mesure n'est plus attribuable au seul terme custom" % (bad, ref))
@@ -90,6 +102,11 @@ def test_montage_sits_in_the_flip_window(rows):
     assert 10.0 < gap < 20.0, (
         "ecart natif = %.6f, hors de la fenetre (10, 20) -- le montage ne peut plus discriminer "
         "une magnitude de 20 d'une magnitude de 10 ; re-calibrer --hp-target" % gap)
+    gap_c = rows["c-libre"]["gap"]
+    assert 0.0 < gap_c < CUSTOM["c-libre"], (
+        "geom C : ecart natif = %.6f, hors de (0, %.1f) -- le bras ne peut plus faire basculer le "
+        "natif, donc le mutant `first_not_max` (qui rend 0) resterait invisible"
+        % (gap_c, CUSTOM["c-libre"]))
 
 
 def test_native_flips_exactly_where_the_formula_predicts(rows):
