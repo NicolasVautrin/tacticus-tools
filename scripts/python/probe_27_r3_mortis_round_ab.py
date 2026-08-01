@@ -1,0 +1,431 @@
+"""probe #27-r3 -- A/B causal LIVE de MortisRound (1004) : le terme custom est le GAIN d'utilite
+de TUILE que le PUSH inflige a la cible, TRONQUE vers `int`.
+
+`IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` =
+`(Fix64)(int) Playbook<T>$$GetTargetUtilityDiffOnDisplace(caster, casterTile, GetPushableTiles,
+target).value`, ou le diff est `max(0, u0 - uN)` sur l'arc ARRIERE de la cible, avec
+`u = GetUtility(UtilityType.Tile).EvaluateAttack(UtilityAttackCase$$Base(TARGET, ...))`.
+
+MONTAGE (board MC1_67, elevations 1..4, max=4 min=1). DEUX geometries dont le custom differe par
+la seule ELEVATION de la tuile d'arrivee, et dans chacune un levier d'OCCUPATION :
+
+  geom A : caster (0,1) [elev 3], cible (0,3) [elev 4 = MAX] -> arc [(0,4)] [elev 3]
+           u0 = 10*4 + HighestElevation(10) = 50 ; uN = 10*3 = 30  => custom = **20**
+  geom B : caster (0,2) [elev 3], cible (0,4) [elev 3]        -> arc [(0,5)] [elev 2]
+           u0 = 30 ; uN = 20                                   => custom = **10**
+
+  Les DEUX casters sont a elevation 3 et a distance 2 de leur cible : le terme `Tile(7)` de la
+  tuile de tir et les predictions de degat sont donc IDENTIQUES entre A et B -- seul le custom
+  change. C'est ce qui rend la MAGNITUDE mesurable et pas seulement le signe.
+
+  Dans chaque geometrie, deux bras :
+    LIBRE   : l'appat ALLIE est relegue loin           -> arc non vide -> custom = 20 (A) / 10 (B)
+    BLOQUE  : le MEME appat ALLIE occupe la tuile d'arc -> arc = []    -> custom = 0
+  L'appat est un ALLIE du caster : jamais ciblable, donc il ne deplace aucun autre terme -- et il
+  n'a pas le trait `Steppable`, donc `DSLSelectors.EmptyOrHasSteppableUnit` le rejette.
+
+  Cinquieme bras, CONTROLE de `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` : une unite
+  `BigTarget` prend EXACTEMENT la tuile (0,3) que la cible deplacable occupait. Geometrie et arc
+  identiques, mais le natif doit retomber a custom 0.
+
+CALIBRAGE (`--hp-target`) : le natif choisit 1004 plutot que l'attaque normale quand
+`pair1004 + custom > pair69 + 1` (le custom de la normale vaut `Fix64(1)`). En reglant
+`ecart = pair69 + 1 - pair1004` DANS (10, 20) :
+    geom A (custom 20) -> le natif prend **1004**
+    geom B (custom 10) -> 10 ne suffit pas -> le natif reste sur **69**
+=> la magnitude est ENCADREE par le natif seul, sans jamais fitter un scalaire.
+
+Usage :
+    python probe_27_r3_mortis_round_ab.py --build --engine [--hp-target=N]
+    python probe_27_r3_mortis_round_ab.py --calib --hp-target=N   # paires seules, pas de bras
+ASCII only.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import probe_27_3_live as L
+
+HERE = Path(__file__).resolve().parent
+LOGS = HERE.parents[1] / "logs"
+STATE = LOGS / "rs_mortis_r2.json"
+BOARD = "MC1_67"
+SEED = 909
+# `ecart = pair69 + 1 - pair1004` MESURE par `--calib` : 11046 (naturel) -> 2.774 ; 2200 -> 9.946 ;
+# **1800 -> 11.932** (dans (10,20) : le point de fonctionnement) ; 1500 -> 58.856 (la normale TUE,
+# le bonus Kill fait exploser l'ecart -- hors regime).
+HP_TARGET = 1800
+
+CASTER_VIS = "ultraEliminatorSgt"  # HERO du pool, aucun catalog_inject ni greffe
+ALLY_VIS = "ultraCalgar"           # appat ALLIE (jamais ciblable) qui bouche la tuile de push
+TARGET_VIS = "blackTerminator"     # DEPLACABLE (aucun de Immovable/Hulking/BigTarget)
+# Controle `IsDisplaceable` : `tauCrisis` porte `BigTarget` (1017), l'un des trois traits que
+# `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` REFUSE. Mesure du 2026-08-01 : 8 des 97
+# unites du pool sont dans ce cas (adeptMorvenn, astraBullgryn, blackObliterator,
+# custoVexilusPraetor, orksKillaKan, orksWarboss, tauCrisis, tyranTyrantGuard).
+IMMOVABLE_VIS = "tauCrisis"
+
+GEOMS = {
+    "a": {"caster": "0,1", "target": "0,3", "push": "0,4", "custom": 20},
+    "b": {"caster": "0,2", "target": "0,4", "push": "0,5", "custom": 10},
+    # geom C -- arc NON DEGENERE : le caster n'est pas aligne en cube avec la cible, donc
+    # `GetMinimumTiles180BehindFromTile` rend DEUX tuiles -- [(5,5) elev 2, (4,5) elev 1]. La
+    # PREMIERE est a la meme elevation que la cible (2) -> diff 0 ; la SECONDE vaut
+    # `20 - (10 - LowestElevation(5))` = **15**. Le natif prend le MAX, pas la premiere : c'est le
+    # seul bras qui teste cette propriete, et c'est le mutant `first_not_max` qui la rend visible.
+    # `push` bloque la SECONDE tuile -- il suffit d'annuler le maximum, l'arc reste non vide.
+    # ⚠ Les quatre tuiles sont en `Grass` : une tuile a effet de terrain (Swamp = -25 via
+    # `TileEffectsUtility`) DOMINE l'elevation et retourne le signe du diff. Premiere version de ce
+    # bras posee sur (1,3) = Swamp : `u0` valait 25 au lieu de 50 et les DEUX diffs etaient
+    # negatifs. Toute geometrie de ce probe se re-derive avec le TileId, pas la seule elevation.
+    "c": {"caster": "3,3", "target": "4,4", "push": "4,5", "custom": 15},
+}
+FAR_A, FAR_B, FAR_C = "6,8", "5,8", "4,8"   # relegation, distance >= 6 du caster
+
+
+def _run(args) -> None:
+    subprocess.run([sys.executable, "rl_duel.py"] + args, cwd=str(HERE),
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def _runner_id() -> int:
+    return int(json.loads(STATE.read_text(encoding="utf-8"))["runnerId"])
+
+
+def _move(rid: int, unit: int, to: str) -> None:
+    _run(["act", "move", "--unit", str(unit), "--to", to,
+          "--state-file", str(STATE), "--runner", str(rid)])
+
+
+def _units(rid: int) -> dict:
+    """{visualId: (id, (col,row))} -- les ids ne sont PAS hardcodes, ils sont relus."""
+    dv = L._rpc("decisionView", [{"runnerId": rid, "allAbilities": True}])
+    out = {}
+    for u in (dv.get("units") or []):
+        p = u.get("pos") or {}
+        out[u.get("visualId")] = (u.get("id"), (p.get("col"), p.get("row")))
+    return out
+
+
+def build(hp_target: int) -> tuple[int, dict]:
+    _run(["build", "--seed", str(SEED), "--board", BOARD,
+          "--hp-target", str(hp_target),
+          "--p-units", "%s,%s" % (CASTER_VIS, ALLY_VIS),
+          "--a-units", "%s,%s" % (TARGET_VIS, IMMOVABLE_VIS),
+          "--state-file", str(STATE)])
+    rid = _runner_id()
+    ids = {v: i for v, (i, _p) in _units(rid).items()}
+    place(rid, ids, "a")
+    return rid, ids
+
+
+def place(rid: int, ids: dict, geom: str) -> None:
+    """Pose la geometrie `geom` : caster + cible sur leurs tuiles EXACTES, les appats au loin.
+
+    Un `act move` est borne par la portee de deplacement : une relegation lointaine n'atterrit pas
+    forcement sur la tuile demandee. Les tuiles STRUCTURANTES (caster, cible, et l'appat quand il
+    bouche l'arc) sont donc verifiees a l'EGALITE ; les relegations, elles, seulement par une
+    distance minimale aux tuiles du montage -- ce qui est exactement ce dont elles ont besoin."""
+    g = GEOMS[geom]
+    for unit, to in ((ids[IMMOVABLE_VIS], FAR_A), (ids[ALLY_VIS], FAR_B),
+                     (ids[CASTER_VIS], g["caster"]), (ids[TARGET_VIS], g["target"])):
+        _move(rid, unit, to)
+    _assert_exact(rid, ((ids[CASTER_VIS], g["caster"]), (ids[TARGET_VIS], g["target"])))
+    _assert_far(rid, (ids[IMMOVABLE_VIS], ids[ALLY_VIS]),
+                (g["caster"], g["target"], g["push"]))
+
+
+def _tile(s: str) -> tuple:
+    c, r = s.split(",")
+    return (int(c), int(r))
+
+
+def _assert_exact(rid: int, want) -> None:
+    """Un `act move` REFUSE ne leve rien : le montage se degraderait SILENCIEUSEMENT en deux bras
+    identiques, ou l'accord moteur<->natif serait trivialement vrai (cf. probe_27_4)."""
+    pos = {i: p for _v, (i, p) in _units(rid).items()}
+    bad = [(u, to, pos.get(u)) for u, to in want if pos.get(u) != _tile(to)]
+    if bad:
+        raise SystemExit("placement REFUSE -- montage invalide, pas de mesure : %s"
+                         % ["u%s voulu=%s obtenu=%s" % (u, to, got) for u, to, got in bad])
+
+
+def _assert_far(rid: int, units, tiles, mind: int = 3) -> None:
+    """Les appats relegues doivent etre a >= `mind` hex de TOUTES les tuiles du montage : sinon ils
+    entrent dans un voisinage et deviennent un confond silencieux."""
+    import hexgeo
+    pos = {i: p for _v, (i, p) in _units(rid).items()}
+    bad = []
+    for u in units:
+        p = pos.get(u)
+        for t in tiles:
+            if p is None or hexgeo.distance(p, _tile(t)) < mind:
+                bad.append((u, p, t))
+    if bad:
+        raise SystemExit("relegation INSUFFISANTE (confond possible) : %s" % bad)
+
+
+def _native(rid: int, caster: int, targets: list) -> tuple[dict, tuple, list]:
+    pairs = {}
+    for tgt in targets:
+        for ab in (69, 1004):
+            r = L._rpc("pairUtility", [{"runnerId": rid, "unitId": caster,
+                                        "targetId": tgt, "abilityType": ab}])
+            pairs[(ab, tgt)] = r.get("utility")
+    dr = L._rpc("aiDryRunAllUnits", [{"runnerId": rid}])
+    chosen, msgs = (None, None), []
+    for u in (dr.get("units") or []):
+        if u.get("unitId") != caster:
+            continue
+        msgs = u.get("proposed") or []
+        for m in msgs:
+            if m.get("cls") in ("ActiveAbilityMessage", "NormalAttackMessage"):
+                chosen = (m.get("abilityType"), m.get("targetId"))
+    return pairs, chosen, msgs
+
+
+def _no_occupancy_filter(self, ctx, caster_tile, target, ability_id) -> float:
+    """MUTANT A -- le port SANS `DSLSelectors.EmptyOrHasSteppableUnit` : l'arc arriere est score
+    tel quel, meme quand une unite non-Steppable occupe la tuile d'arrivee. Doit DIVERGER du natif
+    dans les deux bras BLOQUE, sinon le montage ne teste pas ce filtre."""
+    from engine import battle_query as bq
+    from engine.playbook.base import tile_utility_for_unit
+    tu = self._unit(ctx, target)
+    if tu is None or not self._is_displaceable(ctx, tu):
+        return 0.0
+    tpos = (tu["pos"]["col"], tu["pos"]["row"])
+    wa, ea, te = bq.tiles_behind_accessors(getattr(ctx, "walkable_by_pos", None),
+                                           getattr(ctx, "elev_by_pos", None))
+    tiles = bq.get_minimum_tiles_180_behind_from_tile(
+        caster_tile, tpos, walkable_at=wa, elevation_at=ea, tile_exists=te)
+    u0 = tile_utility_for_unit(ctx, tu, tpos)
+    best = 0.0
+    for p in tiles:
+        d = u0 - tile_utility_for_unit(ctx, tu, p)
+        if d > best:
+            best = d
+    return float(int(best))
+
+
+def _first_not_max(self, ctx, caster_tile, target, ability_id) -> float:
+    """MUTANT C -- le port qui prend la PREMIERE tuile de l'arc au lieu du MAX. Invisible sur un
+    arc degenere (une seule tuile) ; DOIT diverger en geom C, dont l'arc porte deux tuiles et dont
+    la premiere donne un diff NUL."""
+    from engine import battle_query as bq
+    from engine.playbook.base import tile_utility_for_unit
+    tu = self._unit(ctx, target)
+    if tu is None or not self._is_displaceable(ctx, tu):
+        return 0.0
+    tpos = (tu["pos"]["col"], tu["pos"]["row"])
+    wa, ea, te = bq.tiles_behind_accessors(getattr(ctx, "walkable_by_pos", None),
+                                           getattr(ctx, "elev_by_pos", None))
+    tiles = [p for p in bq.get_minimum_tiles_180_behind_from_tile(
+        caster_tile, tpos, walkable_at=wa, elevation_at=ea, tile_exists=te)
+        if _is_free_or_steppable(ctx, p, target)]
+    if not tiles:
+        return 0.0
+    d = tile_utility_for_unit(ctx, tu, tpos) - tile_utility_for_unit(ctx, tu, tiles[0])
+    return float(int(d)) if d > 0 else 0.0
+
+
+def _is_free_or_steppable(ctx, pos, exclude_id) -> bool:
+    from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names, has_any_trait
+    scene = getattr(ctx, "scene", None)
+    for u in (ctx.units or []):
+        p = u.get("pos") or {}
+        if (u.get("alive") and u.get("id") != exclude_id
+                and (p.get("col"), p.get("row")) == pos):
+            uctx = scene.ctx(u.get("id")) if scene is not None else None
+            return has_any_trait(entity_trait_names(uctx, u.get("visualId")),
+                                 (UnitTrait.Steppable,))
+    return True
+
+
+MUTANTS = {
+    # nom -> {attribut de classe: valeur}. Restaure apres coup.
+    "zero": {"calculate_custom_utility":
+             (lambda self, ctx, tile, target, ability_id: 0.0)},
+    "no_occupancy": {"calculate_custom_utility": _no_occupancy_filter},
+    # MUTANT B -- le port SANS le gate `IdunBattle.Entities.UnitExtensions$$IsDisplaceable`.
+    "no_displaceable": {"_is_displaceable": classmethod(lambda cls, ctx, unit: True)},
+    "first_not_max": {"calculate_custom_utility": _first_not_max},
+}
+
+
+def _engine(rid: int, caster: int, targets: list):
+    """Decision MOTEUR telle quelle, puis sous chacune des mutations de `MUTANTS`.
+
+    Rend `((ability, target), {nom_mutant: (ability, target)}, {cible: custom})`."""
+    import engine_validate as EV
+    import engine.playbook as PB
+    from engine import weights as W
+    from engine.playbook import scene as _scene
+    from engine.ai import context as AICTX
+
+    sid = L.INV._session_id()
+
+    def rpc(m, b, t):
+        return EV._r(sid, m, b, t)
+
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
+    mov = rpc("aiMovableTiles", {"runnerId": rid}, 60)
+    mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
+    wt = W.load()
+    predictor = _scene.build_predictor(rpc, rid)
+
+    ctx = AICTX.build(rpc, rid, dv, mov_by_unit, caster, wt, predictor)
+    mp = (ctx.me or {}).get("pos") or {}
+    here = (mp.get("col"), mp.get("row"))
+    pb = PB.REGISTRY.get(1004)
+    cls = type(pb)
+    customs = {t: pb.calculate_custom_utility(ctx, here, t, 1004) for t in targets}
+
+    a = EV.engine_decide(sid, rid, dv, mov_by_unit, caster, wt, predictor)
+    muts = {}
+    for name, attrs in MUTANTS.items():
+        saved = {k: getattr(cls, k) for k in attrs}
+        for k, v in attrs.items():
+            setattr(cls, k, v)
+        try:
+            m = EV.engine_decide(sid, rid, dv, mov_by_unit, caster, wt, predictor)
+            muts[name] = (m.get("ability"), m.get("target"))
+        finally:
+            for k, v in saved.items():
+                setattr(cls, k, v)
+    return (a.get("ability"), a.get("target")), muts, customs
+
+
+def measure(rid: int, ids: dict, label: str, engine: bool, target_vis: str) -> dict:
+    caster = ids[CASTER_VIS]
+    tgt = ids[target_vis]
+    pos = {i: p for _v, (i, p) in _units(rid).items()}
+    pairs, chosen, msgs = _native(rid, caster, [tgt])
+    gap = (pairs[(69, tgt)] + 1.0) - pairs[(1004, tgt)]
+    print("  --- %s ---" % label)
+    print("      positions : caster=%s cible=u%d%s ally=%s"
+          % (pos.get(caster), tgt, pos.get(tgt), pos.get(ids[ALLY_VIS])))
+    print("      pair69=%-22r pair1004=%-22r  ecart(pair69+1-pair1004)=%.6f"
+          % (pairs[(69, tgt)], pairs[(1004, tgt)], gap))
+    print("      natif  : ability=%s target=%s  (messages=%s)"
+          % (chosen[0], chosen[1], [m.get("cls") for m in msgs]))
+    row = {"pairs": {"%d,%d" % k: v for k, v in pairs.items()}, "native": chosen, "gap": gap,
+           "target": tgt}
+    if engine:
+        eng, muts, customs = _engine(rid, caster, [tgt])
+        print("      moteur : ability=%s target=%s | custom(u%d)=%s"
+              % (eng[0], eng[1], tgt, customs.get(tgt)))
+        for name in sorted(muts):
+            print("      mutant %-16s : ability=%s target=%s" % (name, muts[name][0],
+                                                                 muts[name][1]))
+        row.update({"engine": eng, "mutants": muts, "engine0": muts["zero"],
+                    "custom": customs.get(tgt)})
+    return row
+
+
+ARMS = ("a-libre", "a-bloque", "b-libre", "b-bloque", "c-libre", "c-bloque", "bigtarget")
+
+
+def scenario(hp_target: int = HP_TARGET, engine: bool = True, rid: int | None = None):
+    """Joue les CINQ bras et rend `(rows, rid)`. Point d'entree du test de garde."""
+    if rid is None:
+        rid, ids = build(hp_target)
+    else:
+        ids = {v: i for v, (i, _p) in _units(rid).items()}
+    rows = _play(rid, ids, engine)
+    return rows, rid
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    engine = "--engine" in argv
+    hp = int(next((a.split("=", 1)[1] for a in argv if a.startswith("--hp-target=")),
+                  HP_TARGET))
+    if "--build" in argv or "--calib" in argv:
+        rid, ids = build(hp)
+    else:
+        rid = _runner_id()
+        ids = {v: i for v, (i, _p) in _units(rid).items()}
+    print("runner=%d board=%s seed=%d hp-target=%d  caster=%s(%d)"
+          % (rid, BOARD, SEED, hp, CASTER_VIS, ids[CASTER_VIS]))
+    if "--calib" in argv:
+        measure(rid, ids, "calibration (geom a, arc libre)", False, TARGET_VIS)
+        print("(vise ecart dans (10, 20) ; ajuste --hp-target puis relance)")
+        return 0
+    rows = _play(rid, ids, engine)
+    return _report(rows, engine)
+
+
+def _play(rid: int, ids: dict, engine: bool) -> dict:
+    rows = {}
+    for g in ("a", "b", "c"):
+        place(rid, ids, g)
+        rows[g + "-libre"] = measure(
+            rid, ids, "geom %s LIBRE  -> custom attendu %d" % (g.upper(), GEOMS[g]["custom"]),
+            engine, TARGET_VIS)
+        _move(rid, ids[ALLY_VIS], GEOMS[g]["push"])
+        _assert_exact(rid, ((ids[ALLY_VIS], GEOMS[g]["push"]),))   # le levier DOIT avoir mordu
+        rows[g + "-bloque"] = measure(
+            rid, ids, "geom %s BLOQUE -> custom attendu 0" % g.upper(), engine, TARGET_VIS)
+        _move(rid, ids[ALLY_VIS], FAR_B)
+    # CONTROLE `IsDisplaceable` : la cible deplacable degage, l'unite `BigTarget` prend la tuile
+    # (0,3) de la geom A. Meme geometrie, meme arc -- seul le TRAIT de la cible change.
+    place(rid, ids, "a")
+    _move(rid, ids[TARGET_VIS], FAR_C)
+    _move(rid, ids[IMMOVABLE_VIS], GEOMS["a"]["target"])
+    rows["bigtarget"] = measure(
+        rid, ids, "geom A, cible BigTarget (arc LIBRE) -> custom attendu 0", engine,
+        IMMOVABLE_VIS)
+    return rows
+
+
+def _report(rows: dict, engine: bool) -> int:
+    print("\n=== SYNTHESE ===")
+    ref = rows["a-libre"]["pairs"]
+    # Les geoms A et B partagent distance, terrain ET elevation de tuile de tir -> paires
+    # attendues BIT-IDENTIQUES. La geom C change d'elevation de cible (2 au lieu de 4) : ses
+    # paires lui sont propres, et c'est SON `gap` qui borne la bascule de son bras.
+    same = all(rows[k]["pairs"] == ref for k in ("a-bloque", "b-libre", "b-bloque"))
+    print("  pair69/pair1004 bit-identiques sur les 4 bras A/B : %s"
+          % ("OUI -- confond de prediction NUL" if same else "NON -- confond present"))
+    print("  geom C : gap propre = %.6f (bascule attendue car custom 15 > gap)"
+          % rows["c-libre"]["gap"])
+    ok = True
+    want = {"a-libre": 1004, "a-bloque": 69, "b-libre": 69, "b-bloque": 69,
+            "c-libre": 1004, "c-bloque": 69, "bigtarget": 69}
+    for k in ARMS:
+        got_ab, got_tgt = rows[k]["native"]
+        good = (got_ab == want[k])
+        print("  %-10s : natif -> ability=%s (attendu %s) %s"
+              % (k, got_ab, want[k], "OK" if good else "HORS SCENARIO"))
+        if engine:
+            e_ab, e_tgt = rows[k]["engine"]
+            agree = (e_ab == got_ab and e_tgt == got_tgt)
+            ok = ok and agree
+            print("               moteur -> ability=%s target=%s %s | custom=%s"
+                  % (e_ab, e_tgt, "MATCH" if agree else "DIVERGE", rows[k]["custom"]))
+            print("               moteur [custom=0] -> ability=%s target=%s" % rows[k]["engine0"])
+    gap = rows["a-libre"]["gap"]
+    disc = (rows["a-libre"]["native"][0] == 1004 and rows["b-libre"]["native"][0] == 69)
+    print("  MAGNITUDE : geom A (20) bascule ET geom B (10) ne bascule PAS : %s"
+          % ("PROUVEE -- une magnitude <= %.4f est exclue, une magnitude >= %.4f aussi"
+             % (gap, gap) if disc else "NON ETABLIE (ecart=%.4f hors (10,20) ?)" % gap))
+    if disc:
+        print("            encadrement 100%% natif : %.4f < custom(geom A) et"
+              " custom(geom B) < %.4f" % (gap, gap))
+    if engine:
+        print("  MUTATIONS ADVERSARIALES (chacune DOIT diverger du natif quelque part) :")
+        for name in sorted(MUTANTS):
+            hit = [k for k in ARMS
+                   if rows[k]["mutants"][name] != tuple(rows[k]["native"])]
+            print("    %-16s : diverge sur %s %s"
+                  % (name, hit or "AUCUN BRAS",
+                     "" if hit else "<- le montage ne teste PAS cette piece"))
+    print("(pense a disposer le runner : disposeRunner)")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
