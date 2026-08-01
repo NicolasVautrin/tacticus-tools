@@ -71,6 +71,7 @@ from .move_death import (after_move_triggers, post_unit_kill_triggers,
 from .turn import (tile_tick_triggers, start_turn_triggers, turn_start_other_triggers,
                    unit_finished_turn_normally_triggers,
                    PILEIN_MIN_OWNER_TURNS, end_turn_summon_triggers)
+from .phase import phase_end_triggers
 
 __all__ = [
     "OVERKILL_PCT_KEY", "is_overkill", "unit_is_overkill",
@@ -95,4 +96,5 @@ __all__ = [
     "start_turn_triggers", "turn_start_other_triggers", "PILEIN_MIN_OWNER_TURNS",
     "unit_finished_turn_normally_triggers",
     "end_turn_summon_triggers",
+    "phase_end_triggers",
 ]

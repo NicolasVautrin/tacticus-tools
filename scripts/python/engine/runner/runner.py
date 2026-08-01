@@ -71,3 +71,14 @@ class Runner:
         self.recorder.append(msg)                    # record @0xb8
         for h in self.post_handlers:                 # POST @0x88
             msg.accept(h)
+        # #389-r1 : CLOTURE DE PHASE. `IdunBattle.Messages.InputMessageProcessor$$RunPhase`, dans sa
+        # branche `isInternalPhase == false` (celle de TOUT message top-level : les `Visit` passent 0,
+        # seul `$$ProcessPendingTriggeredAbilities` passe 1), appelle
+        # `Core.Services.OperationProcessor$$EndPhase` -> `IdunBattle.Operations.EndPhaseOperation$$
+        # Execute`, qui publie `EventTriggerType.PhaseEnd` (0x3a) AVANT ses deux resets. `apply` EST la
+        # borne du message top-level cote port -> l'emission va ICI, en sortie. Le `reset_trigger_phases`
+        # ci-dessus est l'AUTRE geste de la meme operation native (`$$ResetEntityPhase`), place en entree
+        # (decalage assume #140 : le reset de fin de phase N == celui du debut de phase N+1) -- ce qui
+        # laisse l'emission s'executer avec les compteurs de LA phase qui se termine, comme le natif.
+        from .operations.triggers.dispatch.phase import phase_end_triggers   # lazy : circular import
+        phase_end_triggers(self.state)

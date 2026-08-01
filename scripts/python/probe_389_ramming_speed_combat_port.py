@@ -71,7 +71,7 @@ BOARD = "MC1_67"
 HP = 900000                     # ni la cible ni le caster ne doivent mourir : listes per-hit ENTIERES
 
 MUTATIONS = ("none", "no-move", "no-self-attack", "no-effect", "swap-hits", "gate-closed",
-             "self-attack-on-target")
+             "self-attack-on-target", "keep-effect")
 
 
 def _r(sid, m, b, t=90):
@@ -200,16 +200,27 @@ def _apply_mutation(mutate: str):
     sur des symboles resolus AU NIVEAU MODULE par `ramming_speed_tree`, donc un patch d'attribut
     suffit -- aucune copie de code moteur dans le probe."""
     from engine.runner.abilities import orks as O
+    from engine.runner.operations.triggers import EFFECT_TRIGGERS
     saved = {k: getattr(O, k) for k in ("ramming_speed_tree", "MoveUnit", "AddEffect",
                                         "OwnerIsAlive", "op_add")}
+    saved_reg = list(EFFECT_TRIGGERS.get(EXTRA_EXPLODE) or [])
 
     def _restore():
         for k, v in saved.items():
             setattr(O, k, v)
+        EFFECT_TRIGGERS[EXTRA_EXPLODE] = saved_reg
 
     if mutate == "none":
         return _restore
     _orig = saved["ramming_speed_tree"]
+    if mutate == "keep-effect":
+        # `#389-r1`, CONTRE-EPREUVE DU RETRAIT : l'entree de registre est retiree, donc le
+        # `On(PhaseEnd)` de `RammingSpeed_ExtraExplodeEffect` n'existe plus cote port et 1098 devient
+        # PERMANENT (`AddEffect` options ZERO -> `remaining = 0`) -- l'etat d'AVANT le fix. Elle ne
+        # DISCRIMINE que sur un bras ou le caster SURVIT (sinon le cliquet est desarme, cf. le
+        # residu `KillUnitOperation$$RemoveEffects`).
+        EFFECT_TRIGGERS[EXTRA_EXPLODE] = []
+        return _restore
     if mutate == "no-move":
         # `MoveUnit` neutralise : le caster reste sur place -> la TUILE diverge.
         class _NoMove:
@@ -266,18 +277,27 @@ def _apply_mutation(mutate: str):
 
 
 def _port_cast(build, cid, tid, mutate: str) -> dict:
-    """Rejoue le cast OFFLINE par le CHEMIN REEL (`AbilityHandler.visit_ActiveAbilityMessage`, qui
-    passe par le gate de ciblage), sur l'etat + le rng captures AVANT le cast natif."""
-    from engine.runner.abilities import AbilityHandler
+    """Rejoue le cast OFFLINE par le CHEMIN REEL, sur l'etat + le rng captures AVANT le cast natif.
+
+    ⚠ `#389-r1` : le chemin est `Runner.apply(ActiveAbilityMessage)`, PAS `AbilityHandler.
+    visit_ActiveAbilityMessage` appele nu. Le handler nu execute bien l'arbre (meme tuile, memes
+    coups -- verifie), mais il court-circuite la BORNE DE PHASE : `Runner.apply` est le mirror de
+    `IdunBattle.Messages.InputMessageProcessor$$RunPhase(..., isInternalPhase: false)`, dont la
+    cloture (`Core.Services.OperationProcessor$$EndPhase` -> `IdunBattle.Operations.
+    EndPhaseOperation$$Execute`) publie `EventTriggerType.PhaseEnd` -- l'evenement qui RETIRE 1098.
+    Confronter le port par le handler nu rendrait donc `effect_persists_port_only` VRAI par
+    construction, quel que soit l'etat du port. `AbilityHandler` est le SEUL post-handler a porter un
+    `visit_ActiveAbilityMessage` (verifie) : passer par le runner n'execute pas l'arbre deux fois."""
     from engine.runner.components import PositionComponent
     from engine.runner.messages import ActiveAbilityMessage
+    from engine.runner.runner import Runner
     restore = _apply_mutation(mutate)
     try:
         st = build()
-        h = AbilityHandler(st)
-        h.visit_ActiveAbilityMessage(ActiveAbilityMessage(
+        rr = Runner(st).install_default_handlers(20)
+        rr.apply(ActiveAbilityMessage(
             caster_id=int(cid), target_id=int(tid), ability_type=ABILITY))
-        res = h.last or {}
+        res = rr.ability_handler.last or {}
         e = st.get_entity(int(cid))
         pc = e.get_component(PositionComponent) if e is not None else None
         eff = [int(x.effect_type) for x in (st.effects.by_unit.get(int(cid)) or [])
@@ -288,9 +308,9 @@ def _port_cast(build, cid, tid, mutate: str) -> dict:
                                      or {}).get("per_hit") or []),
                 "hits_self": list(((res.get("attack_self") or {}).get("attack")
                                    or {}).get("per_hit") or []),
-                # POSE de l'effet (le leaf sous test), pas sa PRESENCE finale : le natif la RETIRE
-                # dans le meme `applyAction` (cf. le verdict), donc l'etat final n'est pas le bon
-                # point de comparaison pour l'`AddEffect`.
+                # POSE de l'effet (le leaf `AddEffect`) -- distincte de sa PRESENCE finale, que le
+                # natif ET le port (depuis `#389-r1`) ramenent tous deux a zero a la cloture de phase.
+                # Les deux observables sont confrontes separement (`effect_match` / `effect_removed`).
                 "effect_posed": (int(add.get("effect_type") or -1) == EXTRA_EXPLODE
                                  and int(add.get("target") or -1) == int(cid)
                                  and bool(add.get("placed"))),
@@ -438,15 +458,35 @@ def run(seed: int = 38900, board: str = BOARD, mutate: str = "none", hp_player: 
         out["port_hits_self_reported"] = _as_reported(port["hits_self"], hp_before.get(int(cid), 0))
         out["hits_target_match"] = (out["port_hits_target_reported"] == out["live_hits_target"])
         out["hits_self_match"] = (out["port_hits_self_reported"] == out["live_hits_self"])
-        # L'`AddEffect` se confronte sur la POSE, pas sur la PRESENCE finale : le natif CREE l'entite
-        # d'effet (tag `Effect_SourceActiveAbility = 1059`, MESURE) puis la RETIRE avant la fin du
-        # meme `applyAction` -- residu NOMME (`#389-r1`), etranger a ce leaf.
+        # L'`AddEffect` se confronte sur DEUX observables DISJOINTS :
+        #  (a) la POSE -- le natif CREE l'entite d'effet (tag `Effect_SourceActiveAbility = 1059`) ;
+        #  (b) la PRESENCE FINALE -- le natif la RETIRE avant la fin du meme `applyAction`, par le
+        #      `On(PhaseEnd)` de `RammingSpeed_ExtraExplodeEffect` (`#389-r1`, RE close). Depuis le
+        #      port du retrait, les deux cotes doivent etre VIDES ; `effect_persists_port_only`
+        #      est donc devenu un CLIQUET (il DOIT valoir False) et entre dans `match`.
+        # ⚠ CANAL : `live_effects_caster` vient de `decisionView` **`includeInactive`** -- le seul
+        # comparable a `State.effects.by_unit`. Le canal par DEFAUT laisse tomber les effets INERTES
+        # et ferait confondre << retire >> avec << desactive >>.
         out["effect_match"] = (bool(port["effect_posed"]) == bool(live["effect_posed"]))
         out["effect_persists_port_only"] = (EXTRA_EXPLODE in port["effects_caster"]
                                             and EXTRA_EXPLODE not in out["live_effects_caster"])
+        out["effect_removed_both"] = (EXTRA_EXPLODE not in port["effects_caster"]
+                                      and EXTRA_EXPLODE not in out["live_effects_caster"])
+        # RESIDU GENERIQUE, ETRANGER a 1098 et PREEXISTANT : quand le porteur MEURT, le natif vide
+        # TOUS ses effets (`IdunBattle.Operations.KillUnitOperation$$RemoveEffects` -> service slot
+        # 0x5a) ; le port n'en consomme que le volet ETROIT porte par
+        # `damage._revert_ability_modifications_of_dead` (les seuls effets a
+        # `applied_ability_modifications`). MESURE sur le bras lethal MC1_67/38901 : natif `[]`,
+        # port `[1026, 1098, 1361, 1362]` -- les TROIS autres n'ont rien a voir avec `#389-r1`.
+        # Le cliquet de retrait ne s'applique donc QU'AUX bras ou le caster SURVIT ; sur un bras
+        # lethal il mesurerait `KillUnitOperation`, pas le `On(PhaseEnd)` de 1098.
+        out["dead_carrier_keeps_effects_port_only"] = bool(
+            out["caster_died"] and port["effects_caster"] and not out["live_effects_caster"])
+        out["removal_checked"] = not out["caster_died"]
         out["match"] = bool(out["tile_match"] and out["hits_target_match"]
                             and out["hits_self_match"] and out["effect_match"]
-                            and out["hp_match"])
+                            and out["hp_match"]
+                            and (out["effect_removed_both"] if out["removal_checked"] else True))
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -477,29 +517,38 @@ def run(seed: int = 38900, board: str = BOARD, mutate: str = "none", hp_player: 
         out["ok"] = not out["match"]
         out["verdict"] = (
             "MUTATION %r : le port MUTE %s le natif -- le bras %s ce terme. "
-            "(tuile %s / cible %s / soi %s / effet %s)"
+            "(tuile %s / cible %s / soi %s / pose effet %s / retrait %s / PV %s)"
             % (mutate, "DIVERGE de" if not out["match"] else "s'accorde AVEC",
                "DISCRIMINE" if not out["match"] else "NE DISCRIMINE PAS",
                out["tile_match"], out["hits_target_match"], out["hits_self_match"],
-               out["effect_match"]))
+               out["effect_match"],
+               out["effect_removed_both"] if out["removal_checked"] else "n/a",
+               out["hp_match"]))
     elif out["match"]:
         out["ok"] = True
-        out["verdict"] = ("PORT == NATIF sur les 5 observables : tuile %s, %d coups sur la cible %s, "
-                          "%d coups sur SOI %s, effet 1098 pose (%s), PV finaux identiques sur %d "
-                          "unites (caster mort=%s)"
-                          % (out["live_tile"], len(out["live_hits_target"]),
+        out["verdict"] = ("PORT == NATIF sur les %d observables : tuile %s, %d coups sur la cible %s, "
+                          "%d coups sur SOI %s, effet 1098 pose (%s), retrait a la cloture de phase "
+                          "%s, PV finaux identiques sur %d unites (caster mort=%s)"
+                          % (6 if out["removal_checked"] else 5,
+                             out["live_tile"], len(out["live_hits_target"]),
                              out["live_hits_target"], len(out["live_hits_self"]),
                              out["live_hits_self"], out["live_effect_posed"],
+                             ("des DEUX cotes (%s)" % out["effect_removed_both"])
+                             if out["removal_checked"]
+                             else "NON CONFRONTE (caster MORT -> l'observable mesurerait "
+                                  "KillUnitOperation$$RemoveEffects, residu generique non porte)",
                              len(out.get("hp_live") or {}), out.get("caster_died")))
     else:
         out["ok"] = False
         out["verdict"] = (
             "PORT != NATIF : tuile port=%s natif=%s (%s) | cible port=%s natif=%s (%s) | "
-            "soi port=%s natif=%s (%s) | pose 1098 port=%s natif=%s (%s) | PV port=%s natif=%s (%s)"
+            "soi port=%s natif=%s (%s) | pose 1098 port=%s natif=%s (%s) | retrait 1098 des DEUX "
+            "cotes=%s (persiste cote PORT SEUL=%s) | PV port=%s natif=%s (%s)"
             % (out["port"]["tile"], out["live_tile"], out["tile_match"],
                out["port"]["hits_target"], out["live_hits_target"], out["hits_target_match"],
                out["port"]["hits_self"], out["live_hits_self"], out["hits_self_match"],
                out["port"]["effect_posed"], out["live_effect_posed"], out["effect_match"],
+               out["effect_removed_both"], out["effect_persists_port_only"],
                out.get("hp_port"), out.get("hp_live"), out.get("hp_match")))
 
     if verbose:
@@ -521,6 +570,11 @@ def run(seed: int = 38900, board: str = BOARD, mutate: str = "none", hp_player: 
               % ((out.get("port") or {}).get("effect_posed"), out.get("live_effect_posed"),
                  (out.get("port") or {}).get("effects_caster"), out.get("live_effects_caster"),
                  out.get("effects_before")))
+        print("  retrait    1098 absent des DEUX cotes=%s   (persiste cote PORT SEUL=%s, "
+              "cliquet actif=%s, porteur mort garde ses effets cote PORT SEUL=%s)"
+              % (out.get("effect_removed_both"), out.get("effect_persists_port_only"),
+                 out.get("removal_checked"),
+                 out.get("dead_carrier_keeps_effects_port_only")))
         print("  PV         port=%s" % json.dumps(out.get("hp_port")))
         print("             natif=%s (avant=%s)"
               % (json.dumps(out.get("hp_live")), json.dumps(out.get("hp_before"))))
