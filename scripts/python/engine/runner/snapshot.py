@@ -159,8 +159,15 @@ def _machine_ability_state(m: dict) -> tuple:
 
 
 def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
-               board=None, tiles=None, actor_stats=None, ability_states=None) -> State:
+               board=None, tiles=None, actor_stats=None, ability_states=None,
+               targeting_config=None) -> State:
     """Snapshot live → `State` ECS (entités + composants d'unité).
+
+    `targeting_config` (#444) : la section `BC.Targeting` de la BattleConfiguration, si l'appelant
+    la connaît (elle vit sur DISQUE, pas dans un RPC). Seul champ lu :
+    `EnableObscuringTerrain` → `State.enable_obscuring_terrain`, le premier gate de la LIGNE DE VUE
+    (`IdunBattle.Core.Services.TargetingQuery$$GetTilesObscuringTerrain`). `None` = non fourni →
+    le défaut de `State` s'applique (cf. son commentaire : la valeur de `data/seed-bc.json`).
 
     CANAL DE CAPTURE — `decision` accepte les DEUX canaux du capteur `readEffectsByUnit`. Capté par
     `decision_view_seed_body(rid, …)` (canal `includeInactive`), l'état charge AUSSI les effets POSÉS
@@ -237,6 +244,8 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     avec `tiles=` / `actor_stats=` est au bloc « CANAL AMBIANT » plus bas (§ `bind_live_rpc`)."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
+    if isinstance(targeting_config, dict) and "EnableObscuringTerrain" in targeting_config:
+        state.enable_obscuring_terrain = bool(targeting_config["EnableObscuringTerrain"])
     # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du
     # `BC.Player.TurnOrder` dont `PlayerComponent+0x20 != 2`) * rounds`). `observeBattle.counts.player`
     # = le nb d'entites Player PROJETEES (EntityType 4) ; le joueur **Environment** est unique et

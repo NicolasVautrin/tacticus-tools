@@ -131,7 +131,10 @@ RULE_ROLE = {
         "SEULE regle du filtre dont le refus ne passe pas par `GenericBrokenTargetingRule` : le "
         "natif boxe `ObscuredTerrainBrokenTargetingRule` (dont `get_Type` rend 0x1000000) des que "
         "`GetTilesObscuringTerrain` rend une liste non vide. Elle tourne pour TOUTE ability hors "
-        "`ignoreRangeChecks` ; les bits 25/26 ne font que la DESARMER."),
+        "`ignoreRangeChecks` ; les bits 25/26 ne font que la DESARMER. Trois desarmements de plus, "
+        "ANTERIEURS aux bits (#444) : `TargetingConfiguration.EnableObscuringTerrain` a faux, une "
+        "cible AMIE (`IsFriendOrHasFriendlyUnitOnIt`), et le trait 1005 `IndirectFire` du caster "
+        "(qui ne retire QUE le volet elevation)."),
     "TargetIsHealable": Role(
         "GATE_TARGET", READERS["TARGET"], SELF,
         "`<IAttackQuery slot 0x11>` = `AttackQuery$$EntityCanBeHealed(caster, cible, 0, 1)`."),
