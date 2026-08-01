@@ -554,6 +554,13 @@ TRAIT_TRIGGERED_ABILITY_IDS: dict[str, tuple[int, ...]] = {
     # OBSERVABLEMENT INERTE côté utilité — comme dans le jeu.
     "Explodes": (int(TriggeredAbilityType.Explodes),),                     # 1021 (nova de mort)
     "PutridExplosion": (int(TriggeredAbilityType.PutridExplosion_Ability),),  # 1074 (nova de mort Toxic)
+    # #415 — `SuppressiveFire` (UnitTrait 1010) -> triggered 1044, MEME mapping que le registre
+    # runner `BEHAVIOUR_TRAIT_TRIGGERS["SuppressiveFire"]` (#74) : une source de verite, deux faces.
+    # Son playbook ATTACK existe (`SuppressiveFirePlaybook`, registre `psyker.TRIGGERED_ATTACK_PLAYBOOKS`)
+    # -> contrairement a Explodes/PutridExplosion, cette entree N'EST PAS inerte : sans elle le
+    # dispatcher n'itere jamais 1044 et le +35 `SUPPRESSIVEFIRE_TargetWithOverwatch` manque au
+    # `pairUtility` de tout porteur du trait (49 unites). Mesure : #415, ecart de 35 exactement.
+    "SuppressiveFire": (int(TriggeredAbilityType.SuppressiveFire),),       # 1044 (bonus de TIR)
 }
 
 

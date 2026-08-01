@@ -194,12 +194,18 @@ class PsykerPlaybook:
 # CalculateAttackUtilityInSteps` yield 0) : absence == 0, même dégradation que le natif. ~60 playbooks
 # triggered ont un corps attack non-trivial (case-34 §MAJ #45quater) — port à la demande (agreement).
 from .aggressive_onslaught import AggressiveOnslaughtPlaybook   # #58 (registre, cf. module dedie)
+from .suppressive_fire import SuppressiveFirePlaybook           # #415 (registre, cf. module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
     # #58 : AggressiveOnslaught (1248) — summon d'attaque, valeur = min(free_adj(target), nrOfSummons-1)
     # x weight (AggressiveOnslaught_PerFreeTileAfterCharge=40). Corps IdunBattle.AI.Playbook.Loki.AggressiveOnslaughtPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext.
     int(TriggeredAbilityType.AggressiveOnslaught): AggressiveOnslaughtPlaybook(),
+    # #415 : SuppressiveFire (1044, accorde par le TRAIT 1010) — +35 quand la CIBLE porte un
+    # overwatch (1009) et que la tuile d'attaque n'est PAS adjacente (le bonus du TIR). Corps
+    # IdunBattle.AI.Playbook.Loki.SuppressiveFirePlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext.
+    # Trou MESURE a l'oracle natif `pairUtility` : 274.6678 contre 239.6678 rendus par le port.
+    int(TriggeredAbilityType.SuppressiveFire): SuppressiveFirePlaybook(),
 }
 
 
