@@ -263,6 +263,16 @@ Deux choses le rendaient piégeux, et une seule a demandé du travail :
 L'ability 1060 (`TunnelingHorror_Appear`) est un arbre nettement plus gros (§1.5) et n'a **aucune
 config au gameconfig** ; elle reste hors périmètre — RÉSIDU NOMMÉ.
 
+**La primitive DÉBLOQUE trois autres call-sites natifs** (xrefs EXHAUSTIVES de
+`IdunBattleLogic.Entities.DSLBehaviors$$RemoveUnitFromItsTiles`, build `rnca9r7q6c`) — aucun n'est
+porté, tous le sont désormais SANS nouvelle primitive :
+
+| appelant natif | ability | état du port |
+|---|---|---|
+| `…Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` | `1023 Burrowers` (+ `1024 Burrowers_Appear`, effet `1040 Burrowers_Hidden`) | non porté ; **jumeau exact** de 1011 — c'est le seul autre appelant qui prend AUSSI `RemoveAllForcedAttackTargets`, et son `$$GetDynamicInvalidCasterReason` lit `IsTemporary` |
+| `…Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` | `1090 GrapnelLauncher` | face DÉCISION portée (`playbook/noncomparable/grapnel_launcher.py`), face COMBAT non portée |
+| `…Abilities.Triggered.Loki.StormboyzStrike_TeleportAbility$$CreateBehaviour` | `1141 StormboyzStrike` (effets `1140 _TeleportingIn`, `1179 _AlreadyUsedTile`) | non porté |
+
 **NON COUVERT (et probablement inatteignable par construction)** : la conséquence de
 `get_RemoveOnBondedEntityDeath = false`. La seule fenêtre où le bond existe est celle où l'unité
 bondée est HORS PLATEAU — donc intargetable. Seul un DoT posé AVANT le tunnel pourrait la tuer sous
