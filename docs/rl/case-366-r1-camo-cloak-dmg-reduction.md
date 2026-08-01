@@ -229,12 +229,14 @@ autrement que par les deux lectures ci-dessus.
 * **Le porteur SUMMON `ultraSmnEliminator` n'est pas confronté.** Il porte le même passif ; sa voie
   (spawner son summoner, observer sans le commander — `case-291`) n'a pas été montée. Le porteur
   HERO suffisait à la confrontation principale.
-* **Un porteur capté HORS couvert n'a pas d'instance 1014 matérialisée** : `active_condition_ported`
-  reste `False` (le flag capté fait foi, `is_active` ne peut que FERMER en plus). Donc un
-  déplacement offline VERS une tuile de couvert ne fait pas apparaître l'effet. C'est un résidu de
-  **SEED**, pas de gate ; le combler demanderait une entrée `ABILITY_INIT_OWNER_EFFECTS` +
-  `seed_witness_effect` + `active_condition_ported = True`, non fait ici (aucun observable mesuré
-  ne l'exigeait).
+* ~~**Un porteur capté HORS couvert n'a pas d'instance 1014 matérialisée**~~ — **PRÉMISSE RÉFUTÉE,
+  RÉSIDU FERMÉ** (`case-366-r1-camo-seed.md`). La pose native est INCONDITIONNELLE
+  (`CamoCloakAbility$$CreateBehaviour` = `AddEffect` NU, sans `If`) : hors couvert l'instance est
+  **INERTE, pas ABSENTE** — mesuré, canal `includeInactive` = `1014` avec `active: false`. Le port
+  la matérialise désormais depuis les DEUX canaux (`ABILITY_INIT_OWNER_EFFECTS["CamoCloak"]`) et la
+  rallume au pas qui entre en couvert, grâce au **second** `RefreshEffects(UnitPositionChanged)`
+  d'`IdunBattle.Operations.MoveUnitOperation$$Execute`, qui manquait au port. Live 31907 == port
+  31907 (bit-exact), contre-épreuve 32655.
 * **`IsEffectTarget` est re-dérivé géométriquement, pas lu.** Le port ne matérialise pas les cibles
   d'une aura : il applique le sélecteur de `BigTargetAdjacentEffect$$CreateTargetSelector` (amis
   hex-adjacents, porteur exclu) sur les porteurs de `1026`. C'est la même dérivation que celle déjà

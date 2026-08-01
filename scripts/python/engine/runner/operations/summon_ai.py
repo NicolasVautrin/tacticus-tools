@@ -178,6 +178,10 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
         MoveUnitOperation(uid, tuple(to)).execute(state, EventBus())
         res["moved"] = tuple(to)
         res["after_move"] = after_move_triggers(state, uid)
+        # 2e `RefreshEffects({7, null})` natif -- MEME encadrement du vecteur after-move que dans
+        # `MovementHandler.visit_MoveUnitMessage` (cf. `refresh_effects_after_move_triggers`).
+        from .movement import refresh_effects_after_move_triggers
+        refresh_effects_after_move_triggers(state)
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None or not uc.alive:                     # tue par l'overwatch pendant le move
         return res

@@ -1093,6 +1093,28 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # qu'`AnvilShield_BlockChanceBelowHealthCap` / `HammerOfWrath_ConditionalDamage` ci-dessus.
     # Idempotent (skip si deja capte). case-366-r1.
     "VisionsOfHeresy": ["VisionsOfHeresy_ExtraPierceMelee", "VisionsOfHeresy_ExtraPierceRanged"],
+    # CamoCloak (passif d'`ultraEliminatorSgt` <<Certus>> et du summon `ultraSmnEliminator`,
+    # TriggeredAbilityType 0x3eb=1003) -- `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # CamoCloakAbility$$CreateBehaviour` est un `AddEffect(0x3f6, AbilityStateReference, Owner, 0)`
+    # NU : aucun `If(...)`, la pose est INCONDITIONNELLE et permanente (duree 0). La
+    # `CreateActiveCondition` de `1014` (`HasEffect(Owner, 0x3f5 LightCover) | IsEffectTarget(
+    # Owner, 0x402 BigTarget_Adjacent)`) le laisse INERTE hors couvert, donc ABSENT du canal
+    # `decisionView` par DEFAUT -- MESURE live (`probe_366_r1_camo_seed.py`, `C4_09`/4242, Certus
+    # capte hors couvert) : canal DEFAUT = pas de `1014`, canal `includeInactive` = `1014` avec
+    # `active: false`. INERTE, jamais ABSENT.
+    # Sans ce seed, un etat charge depuis le canal par DEFAUT n'a AUCUNE instance a rallumer quand
+    # la sim fait ENTRER le porteur en couvert : le port reste muet la ou le natif retire
+    # `dmgReduction x mult` par coup (mesure : live 31907 contre port 32655). MEME motif exact
+    # qu'`AnvilShield_BlockChanceBelowHealthCap` / `HammerOfWrath_ConditionalDamage` /
+    # `ModifiedExoarmour_ExtraDmg` / `VisionsOfHeresy_*` ci-dessus. Idempotent (skip si deja
+    # capte, quel que soit le canal -- `has_effect` ne filtre pas sur le flag).
+    # ⚠ `active_condition_ported` reste FALSE, et c'est DELIBERE : l'instance seedee ici nait
+    # `active = True` et c'est `is_active` (la condition PORTEE) qui la ferme ; le flag capte,
+    # quand il existe, garde son mot a dire. Le rallumage en cours de sim est assure par le
+    # SECOND `RefreshEffects(UnitPositionChanged)` du natif
+    # (`operations/movement.py::refresh_effects_after_move_triggers`), pas par ce drapeau.
+    # case-366-r1-camo-seed.
+    "CamoCloak": ["CamoCloak_DmgReduction"],
     # PAS d'entree `"WireweaveNet"` ici, et c'est une DECISION MESUREE (case-366-r1b §7bis).
     # `1111 WireweaveNet_CounterAttack` est pourtant bien un owner-effect pose a l'init
     # (`WireweaveNetAbility$$CreateBehaviour` = `AddEffect(0x457, .., source=Owner, targets=Owner)`
