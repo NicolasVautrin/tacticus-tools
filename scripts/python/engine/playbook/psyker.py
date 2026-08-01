@@ -195,6 +195,7 @@ class PsykerPlaybook:
 # triggered ont un corps attack non-trivial (case-34 §MAJ #45quater) — port à la demande (agreement).
 from .aggressive_onslaught import AggressiveOnslaughtPlaybook   # #58 (registre, cf. module dedie)
 from .suppressive_fire import SuppressiveFirePlaybook           # #415 (registre, cf. module dedie)
+from .lakrimae import LakrimaePlaybook                          # #419 (registre, cf. module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -206,6 +207,13 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # IdunBattle.AI.Playbook.Loki.SuppressiveFirePlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext.
     # Trou MESURE a l'oracle natif `pairUtility` : 274.6678 contre 239.6678 rendus par le port.
     int(TriggeredAbilityType.SuppressiveFire): SuppressiveFirePlaybook(),
+    # #419 : Lakrimae (1541, accorde par la RELIQUE `R_Crit_Lakrimae`) -- `Lakrimae_
+    # LikesNonMechanicalEnemies` = 5 quand la CIBLE n'a PAS le trait `Mechanical`, 0 sinon. Corps
+    # IdunBattle.AI.Playbook.Loki.LakrimaePlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext.
+    # C'est le PREMIER playbook attack dont le porteur arrive par une voie que le kit gameconfig
+    # ignore : sans le cablage du canal live de `evaluate_attack_in_steps` (meme commit), il serait
+    # INERTE -- exactement le patron « porte + non cable » que #419 recense.
+    int(TriggeredAbilityType.Lakrimae): LakrimaePlaybook(),
 }
 
 

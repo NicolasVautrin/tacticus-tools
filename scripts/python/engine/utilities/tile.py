@@ -669,15 +669,33 @@ class TriggeredAbilitiesUtility(BaseUtility):
         du composite Damage(34), #45-s18) : itère les abilities déclenchées de l'ATTAQUANT (kit
         COMPLET passifs+traits = AbilitiesComponent), `PlaybookDatabase.LoadPlaybook`, Σ des
         `ITriggeredAbilityPlaybook.CalculateAttackUtilityInSteps` (vslot 3 — registre attack
-        `engine/playbook/psyker.py`, ce build : PsykerExtraAttack 1013 seul). `ctx` = AiDecisionContext
-        (scene/wt/hpmax/normal_ids), PAS le dict tile-leaf de la face move."""
+        `engine/playbook/psyker.py`). `ctx` = AiDecisionContext (scene/wt/hpmax/normal_ids), PAS le
+        dict tile-leaf de la face move.
+
+        #419 — SOURCE DU KIT : le decompile du dispatcher lit `case.unit@+0x10` -> GetComponent ->
+        `+0x18` (la Collection) -> `GetEnumerator`, puis pour chaque item `LoadPlaybook(type)`. C'est
+        LITTERALEMENT l'`AbilitiesComponent` ECS, **la meme collection que la face MOVE** — et cette
+        face-la la lit deja en live depuis #304. La face ATTACK, elle, ne lisait que le kit
+        gameconfig+traits : elle etait donc AVEUGLE a tout ce que la bataille monte et que le
+        gameconfig ignore, au premier rang **les abilities de RELIQUE**
+        (`UnitConfiguration.TertiaryAbility`, 5e chemin de registration #357). Symptome : un
+        playbook attack de relique entre au registre et reste INERTE, sans erreur ni test rouge —
+        le patron « porte + non cable » que #419 recense. Le repli reste ENTIER quand la lecture
+        live est vide (RPC indisponible, entite absente, contexte OFFLINE `rid` faux -> `[]`) :
+        c'est exactement la degradation retenue par #304 pour la face move."""
         sc = getattr(ctx, "scene", None)
         if sc is None:
             return 0.0
         from ..entities.triggered_ability_type import kit_triggered_ability_ids
         from ..playbook.psyker import load_attack_playbook
         total = 0.0
-        for ab in kit_triggered_ability_ids(sc.vis_by_id.get(attacker_uid)):
+        kit = list(kit_triggered_ability_ids(sc.vis_by_id.get(attacker_uid)))
+        _live_fn = getattr(ctx, "live_triggered_ability_ids", None)
+        if callable(_live_fn) and attacker_uid is not None:
+            _live = list(_live_fn(attacker_uid) or ())
+            if _live:
+                kit = _live                 # l'AbilitiesComponent REEL, tel que le natif l'itere
+        for ab in kit:
             pb = load_attack_playbook(ab)
             if pb is not None:
                 total += pb.calculate_attack_utility_in_steps(ctx, attacker_uid, ability_id,

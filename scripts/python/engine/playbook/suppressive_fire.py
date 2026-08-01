@@ -81,8 +81,13 @@ def _target_has_overwatch(scene, target_uid: int) -> bool:
 
 class SuppressiveFirePlaybook:
     """`SuppressiveFirePlaybook` (`IdunBattle.AI.Playbook.Loki`, triggered 1044). Seule la face
-    ATTACK est portee ; la face MOVE (`$$CalculateMovementUtilityInStepsInternal`) a son propre
-    corps, NON porte — cf. « ce qui n'est pas couvert » du case-doc."""
+    ATTACK a un corps.
+
+    #419 — la face MOVE
+    (`SuppressiveFirePlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`) est
+    un `yield Fix64.FromInt(0)` CONSTANT, DECOMPILE LU : il n'y a RIEN a y porter, et son absence du
+    registre `TRIGGERED_MOVE_PLAYBOOKS` EST le comportement natif. La formulation anterieure
+    (« a son propre corps, NON porte ») laissait croire a un residu ouvert — c'est un CONSTANT."""
 
     ability_id: int = int(TriggeredAbilityType.SuppressiveFire)    # 1044
 

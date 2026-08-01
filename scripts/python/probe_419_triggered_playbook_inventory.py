@@ -279,7 +279,15 @@ def build_inventory() -> list[dict]:
             "carriers": carr,
             "n_carriers": sum(len(v) for v in carr.values()),
             "carriers_other_voies": other.get(base, {}),
+            # DEUX niveaux de cablage, et les confondre est ce qui rend le verdict faux :
+            #   `wired`      = la voie DISPATCHEE OFFLINE (`kit_triggered_ability_ids` =
+            #                  passiveAbilities + TRAIT_TRIGGERED_ABILITY_IDS) ;
+            #   `wired_live` = ce que le dispatcher voit REELLEMENT en bataille, l'AbilitiesComponent
+            #                  lu par `unitAbilityStates` -- il porte AUSSI relique / mythique /
+            #                  item. Les DEUX faces le lisent (MOVE depuis #304, ATTACK depuis #419).
+            # Un playbook `wired_live` mais pas `wired` est CABLE : c'est le cas de toute relique.
             "wired": bool(carr),
+            "wired_live": bool(carr) or bool(other.get(base, {})),
             "methods": rec["methods"],
         })
     return rows
@@ -303,11 +311,13 @@ def _fmt(rows: list[dict]) -> str:
 
 
 def _bucket(sel: list[dict], pk: str) -> dict[str, list[dict]]:
+    """Le croisement a DEUX AXES de #419. L'axe CABLAGE est pris au niveau `wired_live` (ce que le
+    dispatcher voit reellement en bataille) : un playbook de relique n'est PAS un « non cable »."""
     return {
-        "porte+cable": [r for r in sel if r[pk] and r["wired"]],
-        "PORTE+NON CABLE": [r for r in sel if r[pk] and not r["wired"]],
-        "non porte+cable": [r for r in sel if not r[pk] and r["wired"]],
-        "non porte+non cable": [r for r in sel if not r[pk] and not r["wired"]],
+        "porte+cable": [r for r in sel if r[pk] and r["wired_live"]],
+        "PORTE+NON CABLE": [r for r in sel if r[pk] and not r["wired_live"]],
+        "non porte+cable": [r for r in sel if not r[pk] and r["wired_live"]],
+        "non porte+non cable": [r for r in sel if not r[pk] and not r["wired_live"]],
     }
 
 
@@ -351,35 +361,49 @@ def main() -> int:
     unres = [r for r in trig if r["ability_id"] is None]
     if unres:
         print(f"  ATTENTION -- id NON resolu : {[r['playbook'] for r in unres]}")
+    atk_live = [r for r in atk if not r["attack_trivial"]]
+    mov_live = [r for r in mov if not r["move_trivial"]]
     print()
-    print(f"GISEMENT #419 -- canal `triggered` seul :")
-    print(f"  face ATTACK non triviale : {len(atk)}  "
+    print("GISEMENT #419 -- canal `triggered` seul :")
+    print(f"  face ATTACK surchargee   : {len(atk)}  "
           f"(SM propre : {sum(1 for r in atk if r['native_attack_sm'])})")
-    print(f"  face MOVE   non triviale : {len(mov)}  "
+    print(f"     dont corps TRIVIAL (`yield Fix64(0)`, <= 0x{_TRIVIAL_MAX:x}) : "
+          f"{len(atk) - len(atk_live)}   ==> gisement REEL : {len(atk_live)}")
+    print(f"  face MOVE   surchargee   : {len(mov)}  "
           f"(SM propre : {sum(1 for r in mov if r['native_move_sm'])})")
-    print(f"  au moins une des deux    : {len({r['playbook'] for r in atk + mov})}")
+    print(f"     dont corps TRIVIAL : {len(mov) - len(mov_live)}   "
+          f"==> gisement REEL : {len(mov_live)}")
+    print("  NB face MOVE : ce compte ne voit QUE les corps PROPRES. La population a corps")
+    print("     HERITE (concrets d'`AdjacentUnitPreferenceTriggeredAbilityPlaybook<T>`, corps")
+    print("     DEDUPLIQUE donc invisible d'une table indexee par ADRESSE) se compte sur")
+    print("     `frida/classes.tsv` -- c'est le role de `probe_193_move_playbook_inventory.py`.")
+    print("     AUCUNE base parametree n'implemente la face ATTACK (verifie : la seule est")
+    print("     `TriggeredAbilityPlaybook<T>$$CalculateAttackUtilityInStepsInternal`, qui rend 0)")
+    print("     -> pour ATTACK, les corps propres SONT l'inventaire complet.")
     print()
-    for face, sel, pk in (("ATTACK", atk, "ported_attack"), ("MOVE", mov, "ported_move"),
+    for face, sel, pk in (("ATTACK", atk_live, "ported_attack"), ("MOVE", mov_live, "ported_move"),
                           ("NON-OWNER", no_rows, "ported_non_owner")):
         b = _bucket(sel, pk)
-        print(f"[{face}] " + "  ".join(f"{k}={len(v)}" for k, v in b.items()))
+        print(f"[{face}] (corps non triviaux) " + "  ".join(f"{k}={len(v)}" for k, v in b.items()))
         if b["PORTE+NON CABLE"]:
             print("   PORTE+NON CABLE (saigne) : "
                   + ", ".join(f"{r['playbook']}({r['ability_id']})" for r in b["PORTE+NON CABLE"]))
     if args.residuals:
         print()
         print("RESIDUS NOMMES -- face NATIVE non triviale, NON portee, porteur DISPATCHE reel :")
-        for face, sel, pk in (("ATTACK", atk, "ported_attack"), ("MOVE", mov, "ported_move"),
+        for face, sel, pk in (("ATTACK", atk_live, "ported_attack"),
+                              ("MOVE", mov_live, "ported_move"),
                               ("NON-OWNER", no_rows, "ported_non_owner")):
             for r in sorted(sel, key=lambda x: -x["n_carriers"]):
-                if r[pk] or not r["wired"]:
+                if r[pk] or not r["wired_live"]:
                     continue
                 ex = sorted(v[0] for v in r["carriers"].values())
                 print(f"  {face:<9} {r['playbook']:<44} id={str(r['ability_id']):<5} "
                       f"porteurs={r['n_carriers']:<4} "
                       f"kinds={ {k: len(v) for k, v in r['carriers'].items()} } ex={ex[:3]}")
         print()
-        print("PORTEUR REEL MAIS VOIE NON DISPATCHEE offline (relic/mythic/item/active, #323) :")
+        print("PORTEUR REEL PAR UNE VOIE QUE LE KIT OFFLINE IGNORE (relic/mythic/item, #323) --")
+        print("  cablage assure par le canal LIVE `unitAbilityStates` (MOVE #304, ATTACK #419) :")
         for r in rows:
             if r["wired"] or not r["carriers_other_voies"]:
                 continue
