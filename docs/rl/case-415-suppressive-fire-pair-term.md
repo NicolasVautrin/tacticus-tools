@@ -93,8 +93,10 @@ qui coûtait les 35 points, et il vaut pour les **49** porteurs du trait, pas se
 * **Non-régression** (tests CIBLÉS, live) : `test_playbook_live` 3/3, `test_tile_term_triggered_playbooks_live`
   12/12, `runner/test_suppressive_fire_live` 4/4 (face COMBAT du même trait),
   `runner/test_psyker_splash_live` 1/1 (l'autre consommateur du dispatcher), `test_line_elevation_gate_decision_live` 2/2.
-* **Cliquets** : `probe_181`, `probe_120 --step 0`, `probe_273 --only-scan`, `probe_365`,
-  `probe_330`, `probe_321`, `probe_252`, `probe_va_in_code_vs_prose` — tous rc=0.
+* **Cliquets** : la banque, `pwsh -File scripts/ratchets.ps1` — rc=0. La composition n'est PAS
+  recopiée ici : ce fichier la définit (#430), et l'énumération qui figurait à cette place en
+  citait 8 dont 4 **hors banque**. Ces quatre-là restent des probes hors banque, joués à part
+  pour cette tranche et rc=0 : `probe_330`, `probe_321`, `probe_252`, `probe_va_in_code_vs_prose`.
 
 ## 6. Ce qui n'est PAS couvert
 

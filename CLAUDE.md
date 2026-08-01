@@ -228,15 +228,44 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   reconstruit le runner du module). **Pas plus de 4** : le rendement tombe à 23 % dès 6 workers,
   et le pump est partagé avec les autres agents.
 - **Le plafond de 4 borne ce qui MONTE UN RUNNER, pas la parallélisation.** C'est le critère :
-  runner/RPC → 4 max (pump partagé) ; **purement offline → autant que le CPU**. Les 9 cliquets
-  sont dans le second cas — mesuré le 2026-08-01 à `ThrottleLimit 9` : **162 s de mur contre
-  ~300 en série**, 0 rouge. Le mur EST `probe_273 --only-scan` (161,9 s à lui seul, plus que les
-  huit autres réunis) : au-delà de ~2× il n'y a rien à gagner par cette voie (tâche #409).
+  runner/RPC → 4 max (pump partagé) ; **purement offline → autant que le CPU**. La banque de
+  cliquets (§ suivant) est dans le second cas et se parallélise d'elle-même.
   ⚠ Deux probes lancés ENSEMBLE qui portent le même littéral de state-file se marchent dessus —
   **4 groupes, 16 probes sur 526** (`_49gnt`, `_32ct`, `state.json`, `_57h`). Non bloquant : les
   108 porteurs de littéral acceptent tous `--state-file`, donc un chemin explicite dissout la
   collision. Les 264 probes qui prennent leur chemin *uniquement* par argument ne sont isolés que
   si l'appelant leur en donne un distinct.
+
+## La banque de cliquets — `scripts/ratchets.ps1`, à faire passer AVANT toute PR
+
+```powershell
+pwsh -File scripts/ratchets.ps1          # rc = nombre de rouges ; -List pour voir la banque
+```
+
+**Ce fichier est la source UNIQUE.** Ne recopie sa composition NULLE PART — ni ici, ni dans une
+case-doc, ni dans un runner de scratchpad. Un cliquet neuf s'ajoute **dans le fichier**, avec sa
+ligne « ce qu'il est SEUL à voir ». Une case-doc **atteste** ce qu'elle a joué (un relevé daté) ;
+elle ne **définit** pas la banque.
+
+- **Pourquoi il existe (#430)** : la liste n'existait comme objet nulle part — prose du `CLAUDE.md`,
+  `runpar.ps1` **non versionné** d'un scratchpad, et des case-docs aux compositions **incompatibles**.
+  Aucun fichier du dépôt ne les contenait ensemble. C'est la cause d'EXÉCUTION derrière trois
+  dérives mesurées le 2026-08-01 (#420, #421, #427).
+- **La leçon de #427, par mesure** : prouver sa couverture est **nécessaire et non suffisant**.
+  `probe_313` avait déjà cette forme — sa preuve de couverture EST un test offline — et a laissé
+  passer deux dérives, parce qu'ici **« être un test » et « être joué » sont INDÉPENDANTS** (la
+  suite complète est proscrite, et un agent ne cible que les tests de SA tranche). Un cliquet doit
+  être dans une **liste qu'on lance**.
+- **Ce que son premier passage a trouvé, aussitôt** : `probe_313` **rouge sur `origin/master`**
+  (deux mirrors natifs entrés dans `engine/` sans entrer à son registre — #427 l'a fermé en
+  parallèle, confirmation indépendante), et `probe_181` **incapable de rougir** — il rendait `0`
+  inconditionnellement alors que ce `CLAUDE.md` prescrivait de « le faire passer ». Corrigé par #430.
+- **Coût, mesuré le 2026-08-01** (mur = le plus long, pas la somme) : **19 cliquets, 172 s**, contre
+  112,8 s pour les 9 d'avant. `probe_283` y entre **éclaté en ses 6 étapes** (`--step all` en est
+  l'union stricte) : joué d'un bloc il DOUBLAIT le mur (145 → 299 s), éclaté il disparaît sous lui.
+  Le critère d'admission n'est jamais le coût absolu, mais le **coût marginal en parallèle** et **ce
+  que le cliquet est seul à voir**. ⚠ Chiffres à re-dériver, pas à citer.
+- Détail des arbitrages, contre-épreuves et résidus : `docs/rl/case-430-banque-de-cliquets.md`.
 
 ## Ne jamais
 
@@ -385,7 +414,9 @@ ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (se
   ⚠ **Zéro n'est pas un acquis, c'est un CLIQUET** : ce gisement est le seul que notre propre
   cadence de portage alimente — chaque ability entrée sans son masque le rouvre. La règle
   ci-dessus (masque posé DANS LE MÊME COMMIT) est donc désormais ce qui MAINTIENT le zéro,
-  pas ce qui le vise. Faire passer `probe_181` avant d'ouvrir une PR.
+  pas ce qui le vise. Le cliquet qui le tient est dans la banque (`scripts/ratchets.ps1`).
+  ⚠ Il ne le tenait PAS avant #430 : `probe_181` rendait `0` inconditionnellement — un inventaire
+  déguisé en garde-fou, que cette ligne prescrivait pourtant de « faire passer ».
   ⚠ Ces chiffres se périment vite : les re-dériver plutôt que citer cette ligne.
 - **Source du masque** : le littéral passé par `<X>Ability$$.ctor` à
   `IdunBattle.Core.Services.TargetingOptions$$.ctor`. **Piège** : l'overload **PRESET + flags**
@@ -414,7 +445,7 @@ DANS LE MÊME COMMIT.** C'est le pendant exact de la règle ci-dessus, sur l'axe
 - **Même signature de dégradation** que `TARGETING_OPTIONS` : ni erreur ni crash, et **le seul
   gisement que notre propre cadence de portage aggrave** — chaque nouveau port l'alimente.
 - **Comment** : relire le littéral au décompilé (jamais le déduire du nom de l'ability ni du profil
-  de dégât), et faire passer `probe_120` avant d'ouvrir la PR.
+  de dégât). Le cliquet est dans la banque (`scripts/ratchets.ps1`).
 
 !include .claude/skills/tacticus-re-port/SKILL.md
 
@@ -448,10 +479,11 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    ni des sorties du run ; ils vivent dans l'arbre principal, et c'est correct. L'invariant ne
    promet pas qu'un worktree les voie. Ce qu'il exige, c'est qu'un lecteur **DISE qu'il ne les
    voit pas au lieu de rendre un zéro** : toute lecture d'une entrée gitignorée passe par
-   `scripts/python/host_inputs.py` (tri-état `null` = pas mesuré / `[]` = mesuré et vide), et
-   `probe_273_gitignored_inputs.py --only-scan` est le cliquet à faire passer avant d'ouvrir
-   une PR. Symptôme si on l'oublie : un balayage rend `0 fichier` et se lit comme « rien à
-   signaler » — mesuré, `rl_ingest --all` ingérait **zéro** batch depuis un worktree, sans erreur.
+   `scripts/python/host_inputs.py` (tri-état `null` = pas mesuré / `[]` = mesuré et vide), et le
+   cliquet qui le tient est dans la banque (`scripts/ratchets.ps1`), avec celui qui garde SA
+   fidélité — un garde-fou dont le verdict dérive ne vaut rien. Symptôme si on l'oublie : un
+   balayage rend `0 fichier` et se lit comme « rien à signaler » — mesuré, `rl_ingest --all`
+   ingérait **zéro** batch depuis un worktree, sans erreur.
 
    ⛔ **JAMAIS DE JUNCTION (ni lien symbolique) depuis ton worktree vers l'arbre principal.**
    Pas pour `node_modules`, pas pour `frida/hooks/scratch`, pas pour `data/` — pour rien.
