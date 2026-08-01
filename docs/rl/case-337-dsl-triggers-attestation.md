@@ -84,7 +84,23 @@ auto-portants) -- dont le cliquet de livraison « `DSLTriggers` ne contient plus
   `get_OwnerOrOwnerTileIsTarget` (6). (`DamageProfileIs` y figurait : c'etait un FAUX NEGATIF de
   l'outil, tranche depuis -- cf. #392 ci-dessous.)
 
-## Suite #392 -- `DamageProfileIs`, la 166e
+## Suite #392 -- DEUX primitives, meme mecanisme
+
+Le cliquet de livraison a rougi DEUX fois pendant la meme tache, sur deux primitives que le port
+CITE sans que l'outil sache les attribuer. La forme est identique et vaut d'etre retenue : **une PR
+qui ajoute une CITATION d'artefact natif dans `engine/**` peut faire basculer une primitive de
+`NON_PORTE` (aucune trace) a `CITE_A_QUALIFIER`** -- sans rien casser, et sans que son auteur le
+voie, puisque chaque PR est verte a SA base. Le cliquet est le seul endroit ou ca se voit.
+
+| primitive | PR qui l'a fait basculer | verdict apres RE |
+|---|---|---|
+| `DamageProfileIs` | `635a3431` (#372, DefenderOfTheGreaterGood) | `PORTE_HORS_FACADE` -- cf. ci-dessous |
+| `IsEffectTarget` | #418 (`1014 CamoCloak_DmgReduction`) | `PORTE_HORS_FACADE` + 2 ecarts nommes (`#418-r1`) -- cf. `case-392` §5 |
+
+Dans les deux cas, le `NON_PORTE` d'avant etait un FAUX NEGATIF : les deux primitives etaient
+portees, collapsees en imperatif, et invisibles a toute heuristique de nom.
+
+### `DamageProfileIs`, la 166e
 
 Le cliquet de livraison a ROUGI sur `master` le 2026-08-01 : `['DamageProfileIs']`. Il a fait
 exactement son travail. Bascule datee : `635a3431` (#372, 2026-07-31 19:33, apres le `185a4ed1`

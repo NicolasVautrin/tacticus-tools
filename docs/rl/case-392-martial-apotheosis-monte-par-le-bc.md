@@ -70,3 +70,52 @@ Balayage (probe_392 étage 0) — les écarts kit/BC du seed sont au nombre de *
 La leçon transférable est celle du couple : **un vecteur par le dispatch ET un vecteur par
 construction directe**. C'est lui qui localise un décrochage à l'étage ATTRIBUTION sans avoir à
 deviner ; son absence a coûté le faux verdict.
+
+## 5. `IsEffectTarget` — la seconde primitive, apparue PENDANT le run
+
+Le cliquet #337 a rougi une seconde fois, sur `IsEffectTarget`, pendant que cette tâche tournait :
+la PR **#418** (`1014 CamoCloak_DmgReduction`), mergée entre-temps, installe
+`engine/runner/components.py::is_target_of_adjacent_friend_aura`, dont la docstring cite la
+primitive. Elle bascule donc de `NON_PORTE` à `CITE_A_QUALIFIER`. Chacune des deux PR est juste à
+SA base — c'est la forme « état dérivé + deux PR parallèles » qui se referme après merge.
+
+**Verdict : `PORTE_HORS_FACADE`, avec deux écarts nommés (résidu `#418-r1`, non corrigés — cette
+tranche est une ATTESTATION).**
+
+### L'aval nommé par #418 n'est pas celui qu'emprunte le trigger
+
+`IsEffectTargetTrigger$$ShouldTrigger` résout le sélecteur `+0x10`, puis **invoque le slot
+d'interface** de `+0x20` avec `(entity, effectType@+0x18, 0)`. Ce `+0x20` vient de
+`<ctx DSLTriggers>+0x38` — exactement le champ que ghidra nomme `effectsQuery` dans
+`IdunBattleLogic.Entities.DSLTriggers$$HasEffect`. La cible est donc
+`IdunBattle.Core.Services.EffectsQuery$$IsEffectTarget` (signature `(target, effectType,
+onlyActive)`, aucune xref d'appel direct — uniquement DATA, comme toute méthode d'interface).
+
+`IdunBattle.Entities.EntityExtensions$$IsTargetOfEffectOfType`, que la docstring de #418 nomme, a
+au contraire **un appelant direct mesuré** : `IdunBattle.Entities.EntityExtensions$$HasEffectOfType`.
+C'est l'aval d'un AUTRE prédicat. Erreur de citation, sans conséquence sur le comportement — les
+deux finissent par lire `EffectComponent+0x48`.
+
+### Ce que #418 fait JUSTE, et c'est vérifié
+
+* la **géométrie** : `IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateTargetSelector`
+  = `Friends(AdjacentUnits(Owner))`, et `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` =
+  `AdjacentTiles(origin)` — **anneau‑1 FIXE, aucun paramètre de rayon** — puis
+  `TargetsSelector$$op_Subtraction(origin)`, soit le **porteur EXCLU**. Le port dit exactement ça.
+  (Les littéraux `1` et `3` de l'appel sont `unique` et `selectionType`, pas un rayon.)
+* `onlyActive = 0` : le trigger passe `false`, et `EffectsState.has_effect` filtre `consumed`, pas
+  `active`. Fidèle.
+
+### Les deux écarts (`#418-r1`)
+
+1. **Matérialisé vs re-dérivé.** `EffectsQuery$$GetEffectsWithTargets` **copie**
+   `EffectComponent+0x48` — elle ne ré-évalue aucun sélecteur. La liste native est tenue à jour par
+   `IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` (calcul de `GetTargetsToRemove`
+   / `GetTargetsToAdd` contre `desiredTargets`, appelée par `RefreshEffect` et `DeactivateEffect`).
+   Le port, lui, re-dérive **à la lecture**. Régime discriminant : une lecture faite APRÈS un
+   déplacement et AVANT le refresh qui le suit.
+2. **Générique vs spécialisé.** La primitive ne connaît aucune géométrie ; le lecteur encode celle
+   de l'effet `1026`. Sur les **6** fonctions natives qui construisent le nœud (10 call-sites),
+   **5 restent découvertes** : `InstinctiveBehaviour_UpdateTargetAbility` (×3),
+   `PsykerExtraAttackAbility` (×4), `GuardianOrganismAbility`,
+   `WayOfTheShortBlade_AttackAbility` — chacune avec SON sélecteur.
