@@ -122,6 +122,15 @@ REGISTRE: list[Mirror] = [
            "IdunBattle.Entities.Enum.EffectType"),
     Mirror("UtilityType", "engine/utilities/utility_type.py",
            "IdunBattle.Configuration.UtilityType"),
+    # #427 : les deux mirrors que notre PROPRE cadence de portage avait laisses hors registre --
+    # `PathfinderType` par #381-r5 (`051219fb`), `KillUnitStep` par #389-r2 (`163f62fb`). Aucun des
+    # deux n'etait une categorie NOUVELLE : le registre savait deja les exprimer, personne ne les y
+    # avait mis. La cle est LUE dans `enums.tsv`, jamais deduite du nom court (`KillUnitStep` vit
+    # dans `IdunBattle.Operations`, pas `IdunBattle.Entities.Enum`).
+    Mirror("PathfinderType", "engine/entities/pathfinding/pathfinders.py",
+           "IdunBattle.Entities.Pathfinding.PathfinderType"),
+    Mirror("KillUnitStep", "engine/runner/operations/remove_effects.py",
+           "IdunBattle.Operations.KillUnitStep"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune
@@ -165,8 +174,21 @@ def _echappe(nom: str) -> str:
     return nom[:-1] if nom == "None_" else nom
 
 
+#: Les bases qui font d'une `class` un ENUM aux yeux du detecteur. Elargi par #427 : la version
+#: d'origine ne connaissait que `IntEnum`/`IntFlag`, si bien qu'un mirror ecrit `class X(int, Enum)`
+#: -- forme strictement equivalente, et idiomatique -- n'etait vu par PERSONNE : ni orpheline, ni
+#: apparie, invisible. C'est le mode de defaillance meme que l'etape 1 existe pour fermer (« une
+#: absence ne se remarque pas »), reintroduit un cran plus bas. Aujourd'hui aucune classe du depot
+#: n'emprunte ces formes (mesure #427 : 13 `IntEnum` + 1 `IntFlag`, rien d'autre) -- l'elargissement
+#: ne change donc aucun verdict, il ferme une porte AVANT qu'on la franchisse.
+#: RESIDU NOMME, hors de portee d'un AST par fichier : un alias d'import
+#: (`from enum import IntEnum as IE` puis `class X(IE)`) reste invisible. Le resoudre demanderait de
+#: suivre les imports ; le cas ne s'est jamais produit et le dire vaut mieux que l'inventer.
+BASES_ENUM = {"Enum", "IntEnum", "IntFlag", "Flag", "StrEnum", "ReprEnum"}
+
+
 def classes_intenum(tree: ast.Module) -> dict[str, dict[int, set[str]]]:
-    """{classe: {valeur: {noms}}} pour chaque `IntEnum`/`IntFlag` d'un arbre.
+    """{classe: {valeur: {noms}}} pour chaque classe d'ENUM d'un arbre (cf. `BASES_ENUM`).
 
     Lu par AST, pas par regex : un `IntEnum` declare des ALIAS (deux noms, meme valeur), et une
     table `{valeur: nom}` en ecraserait un en silence -- exactement le motif qu'on traque."""
@@ -176,7 +198,7 @@ def classes_intenum(tree: ast.Module) -> dict[str, dict[int, set[str]]]:
             continue
         bases = {b.id for b in node.bases if isinstance(b, ast.Name)}
         bases |= {b.attr for b in node.bases if isinstance(b, ast.Attribute)}
-        if not (bases & {"IntEnum", "IntFlag"}):
+        if not (bases & BASES_ENUM):
             continue
         membres: dict[int, set[str]] = {}
         for st in node.body:
@@ -204,15 +226,29 @@ def membres_mirror(rel: str, cls: str) -> dict[int, set[str]]:
 
 
 def intenums_du_moteur() -> dict[str, str]:
-    """{classe: chemin relatif a scripts/python} -- TOUTE classe `IntEnum`/`IntFlag` sous
-    `engine/`. C'est l'etape qui empeche le trou de se re-creuser : un mirror ajoute demain sans
-    entrer au registre est signale, au lieu d'echapper silencieusement a la garde."""
+    """{classe: chemin relatif a scripts/python} -- TOUTE classe d'enum sous `engine/`.
+
+    C'est l'etape qui empeche le trou de se re-creuser : un mirror ajoute demain sans entrer au
+    registre est signale, au lieu d'echapper silencieusement a la garde. Elle a fait son travail --
+    `PathfinderType` (#381-r5) et `KillUnitStep` (#389-r2) rougissaient bien sur `origin/master`
+    (#427). Ce qui a manque n'est pas la detection : c'est que personne ne LANCE ce cliquet.
+
+    Le pre-filtre textuel est co-extensif avec le detecteur, pas plus laxe : toute base de
+    `BASES_ENUM` contient `Enum` ou `Flag`, et `classes_intenum` ne reconnait une base que par son
+    token litteral -- ce que le filtre laisse passer est donc exactement ce que le parse peut
+    voir."""
     out: dict[str, str] = {}
     for p in sorted(ENGINE.rglob("*.py")):
         rel = p.relative_to(PY).as_posix()
         try:
-            tree = ast.parse(p.read_text(encoding="utf-8"), filename=rel)
-        except (SyntaxError, UnicodeDecodeError, OSError):
+            texte = p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if "Enum" not in texte and "Flag" not in texte:
+            continue
+        try:
+            tree = ast.parse(texte, filename=rel)
+        except SyntaxError:
             continue
         for cls in classes_intenum(tree):
             out[cls] = rel
@@ -256,15 +292,31 @@ def references_qualifiees() -> list[tuple[str, int, str, str]]:
 
     AST, pas regex : les exemples de docstring (`TriggeredAbilityType.X` dans
     `audit_passive_ability_coverage.py`) sont du TEXTE, pas du code -- les compter ferait un faux
-    positif permanent, et les exclure a la main serait une allowlist de plus a maintenir."""
+    positif permanent, et les exclure a la main serait une allowlist de plus a maintenir.
+
+    PRE-FILTRE TEXTUEL, et pourquoi il ne change RIEN au resultat (#427) : le motif cherche est un
+    `ast.Attribute` dont la base est un `ast.Name` d'`id` egal a un nom de classe du registre. Un
+    `ast.Name` de cet `id` ne peut PAS exister si le token n'apparait pas litteralement dans la
+    source -- l'inclusion `nom in texte` est donc une sur-approximation EXACTE du parse, jamais une
+    allowlist. Mesure du 2026-08-01, resultat confronte a l'implementation d'avant : 1461 fichiers
+    suivis, **712** en citent une (les mirrors les plus larges -- `StatType`, `EffectType`,
+    `UnitTrait` -- sont partout), 38,2 s -> 31,5 s, **1795 references identiques des deux cotes**.
+    Le gain est donc MODESTE : le poste de cout de cette etape n'est pas le nombre de fichiers
+    parses, c'est le parse lui-meme sur la moitie du depot qui cite un enum."""
     out = []
     for rel in fichiers_python_suivis():
         p = REPO / rel
         if not p.is_file():
             continue
         try:
-            tree = ast.parse(p.read_text(encoding="utf-8"), filename=rel)
-        except (SyntaxError, UnicodeDecodeError, OSError):
+            texte = p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if not any(cls in texte for cls in PAR_CLS):
+            continue
+        try:
+            tree = ast.parse(texte, filename=rel)
+        except SyntaxError:
             continue
         for node in ast.walk(tree):
             if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
@@ -274,20 +326,26 @@ def references_qualifiees() -> list[tuple[str, int, str, str]]:
     return out
 
 
-def references_cassees(build: str) -> tuple[list, list]:
+def references_cassees(build: str, refs: list | None = None) -> tuple[list, list]:
     """(introuvables, mortes).
 
     introuvables : la reference ne resout meme pas dans le mirror -> `AttributeError` a
                    l'execution. C'est ce qui arriverait si on retirait un membre encore cite.
     mortes       : elle resout dans le mirror, mais le BUILD COURANT ne connait plus ce nom ->
                    du code qui a l'air vivant et ne peut plus rien matcher. Piege #270.
+
+    `refs` -- le balayage AST de l'etape 3, deja fait. C'est le POSTE DE COUT de la sonde :
+    712 des 1461 fichiers Python suivis y sont parses, ~32-52 s selon la charge machine mesurees
+    le 2026-08-01 (contre ~6-11 s pour l'etape 1 et 0,5 s pour l'etape 2). Le rapport le calculait
+    DEUX fois -- une ici, une pour afficher le total -- ce qui doublait le mur : 159,2 s avant,
+    68,9 s apres, sur la meme machine et la meme minute (#427).
     """
     noms_port = {m.cls: {n for ns in membres_mirror(m.rel, m.cls).values() for n in ns}
                  for m in REGISTRE}
     noms_jeu = {m.cls: {n for ns in enum_natif(build, m.cle).values() for n in ns}
                 for m in REGISTRE}
     introuvables, mortes = [], []
-    for rel, k, cls, membre in references_qualifiees():
+    for rel, k, cls, membre in (references_qualifiees() if refs is None else refs):
         if _echappe(membre) not in noms_port[cls]:
             introuvables.append((rel, k, cls, membre))
         elif PAR_CLS[cls].strict and _echappe(membre) not in noms_jeu[cls]:
@@ -410,10 +468,11 @@ def rapport(verbose: bool, porteurs: bool = False) -> int:
     print("")
 
     # ---- Etape 3 : references qualifiees
-    introuvables, mortes = references_cassees(build)
+    refs = references_qualifiees()
+    introuvables, mortes = references_cassees(build, refs)
     print("ETAPE 3 -- REFERENCES QUALIFIEES `<Classe>.<membre>` dans du Python suivi")
     print("  total=%d  INTROUVABLES=%d (AttributeError)  MORTES=%d (le build ne connait plus)"
-          % (len(references_qualifiees()), len(introuvables), len(mortes)))
+          % (len(refs), len(introuvables), len(mortes)))
     for rel, k, cls, membre in introuvables[:20]:
         print("  INTROUVABLE %s:%d  %s.%s" % (rel, k, cls, membre))
     for rel, k, cls, membre in mortes[:20]:

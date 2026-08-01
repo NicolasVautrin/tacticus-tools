@@ -106,10 +106,17 @@ class KillUnitStep(IntEnum):
     Les trois valeurs sont les trois call-sites de
     `IdunBattle.Operations.KillUnitOperation$$RemoveEffects` dans
     `IdunBattle.Operations.KillUnitOperation$$Execute` -- cf. `damage.py::_kill_unit_operation`
-    pour leur placement exact dans la sequence de mort."""
-    PRE_UNIT_REMOVE = 0
-    AFTER_UNIT_REMOVE = 1
-    AFTER_DEATH_TRIGGER = 2
+    pour leur placement exact dans la sequence de mort.
+
+    Les noms sont ceux DU JEU, caractere pour caractere (#427). Le port les avait d'abord ecrits
+    en UPPER_SNAKE (`PRE_UNIT_REMOVE`) : `probe_313` n'aurait alors pu le garder qu'en
+    `strict=False`, mode qui relache les NOMS pour TOUT le mirror et rend muet le sens
+    RENUMEROTE -- le pire des trois (il resout, pointe ailleurs, rien ne proteste). Une
+    exception de confort n'est pas payee par le membre qui la demande, elle est payee par les
+    autres membres du meme mirror."""
+    PreUnitRemove = 0
+    AfterUnitRemove = 1
+    AfterDeathTrigger = 2
 
 
 def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
