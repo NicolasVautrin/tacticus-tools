@@ -83,13 +83,16 @@ def test_discriminant_is_the_is_active_override_not_the_case322_flag():
     # le plancher bouge -- preuve qu'un plancher qu'on ne remonte pas cesse d'etre un cliquet), puis
     # 17 apres `StructuralAnalyser_Visual` (1174, #420), `InescapableAccuracy_overrideHits` (1117,
     # #422) et `MartialSuperiority_Visual` (1255, case-366-r1), **18** apres
-    # `PsychicStalk_VisualEffect` (1216, case-366-r1). RE-DERIVER, ne jamais recopier.
+    # `PsychicStalk_VisualEffect` (1216, case-366-r1), **19** sur `origin/master` au 2026-08-01
+    # (une classe entree sans que le plancher bouge : la preuve, encore, qu'un plancher non remonte
+    # cesse d'etre un cliquet), **20** avec `ReinforcedHiveNode_ExtraBlock` (1109, #366-r1).
+    # RE-DERIVER, ne jamais recopier.
     #
     # ⚠ CE PLANCHER NE SE CHOISIT PAS ENTRE DEUX BRANCHES EN CONFLIT. #366-r1 et #424 ont entre
     # CHACUNE une classe surchargeante en parallele : prendre « le mien » (18) ou « le sien » (17)
-    # aurait donne un nombre FAUX dans les deux cas, puisque les deux s'AJOUTENT. Le 18 ci-dessous
-    # est RE-DERIVE par introspection du registre apres rebase, pas recopie d'un cote du conflit.
-    assert len(overrides) >= 18, (
+    # aurait donne un nombre FAUX dans les deux cas, puisque les deux s'AJOUTENT. Le 20 ci-dessous
+    # est RE-DERIVE par introspection du registre (19 mesurees AVANT ce port, +1), pas recopie.
+    assert len(overrides) >= 20, (
         f"seulement {len(overrides)} classes a condition PORTEE -- une surcharge a disparu ?")
     assert flagged < overrides, (
         "`active_condition_ported` n'est PAS un sur-ensemble des conditions portees : "

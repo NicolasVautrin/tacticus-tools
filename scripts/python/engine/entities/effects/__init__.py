@@ -53,6 +53,7 @@ __all__ = [
     "piercing_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source", "statmod_source_key",
     "effect_stat_mod_key", "effect_stat_modifications",
+    "effect_stat_overrides", "stat_overrides_by_stat",
 ]
 
 
@@ -703,6 +704,29 @@ def effect_stat_modifications(eff, stats_ctx=None) -> list:
     return [(int(st), int(amt))] if amt else []
 
 
+def effect_stat_overrides(eff) -> list:
+    """Les `(StatType, valeur, isModifiable)` que l'APPLICATION de CET effet pose en **OVERRIDE** —
+    point de verite UNIQUE du canal part 7/8, pendant exact d'`effect_stat_modifications` pour le
+    canal additif part 5/6.
+
+    NATIF : les DEUX canaux sont pilotes par LE MEME couple de slots d'interface. `IdunBattle.
+    Operations.RefreshEffectsOperation$$ApplyEffectsForTargets` appelle `IEffect+0xe`
+    (= `IdunBattle.Entities.Effects.BaseEffect$$Apply` -> `<Effect>.ApplyInternal`) et
+    `...$$RevertEffectsForTargets` appelle `IEffect+0xf` (= `IdunBattle.Entities.Effects.
+    BaseEffect$$Revert` -> `<Effect>.RevertInternal`) : le refresh ne connait PAS la famille de
+    l'effet. Pour un `AStatModifierEffect` c'est `ApplyModification`/`RevertModification`
+    (`ChangeStat` part 5|9 / part 6) ; pour un `IdunBattle.Entities.Effects.StatOverrideEffect`
+    c'est `SetOverride` (part 7) / `RemoveOverride` (part 8).
+
+    Normalise le triplet declare par `BaseEffect.applied_stat_overrides` (cf. sa docstring pour la
+    provenance de chaque membre). `[]` = l'effet ne pose aucun override (la quasi-totalite)."""
+    out: list = []
+    for row in (eff.applied_stat_overrides() or []):
+        st, val, modifiable = row
+        out.append((int(st), int(val), bool(modifiable)))
+    return out
+
+
 def _carries_modification(eff) -> bool:
     """Le FLAG `EffectComponent.IsActive @+0x5c` de CETTE instance — l'effet porte-t-il, OUI ou NON,
     une `ValueModification` chez sa cible ?
@@ -719,6 +743,30 @@ def _carries_modification(eff) -> bool:
     donc une entrée sans clé `active` EST active. Seul le canal `includeInactive` publie
     `active: false`, et c'est exactement cette entrée qu'il ne faut PAS attribuer."""
     return bool(getattr(eff, "active", True))
+
+
+def stat_overrides_by_stat(effects) -> dict:
+    """Overrides poses par les effets ACTIFS, groupes `{idxStatType: (valeur, isModifiable)}` — a
+    passer a `stats.seed_unit_stats(overrides=...)`. Pendant OVERRIDE (part 7) de
+    `stat_modifications_by_source` (part 5|9).
+
+    MEME regle d'activite (`_carries_modification`, cf. sa docstring) : `IdunBattle.Operations.
+    RefreshEffectsOperation$$DeactivateEffect` ecrit `EffectComponent.IsActive @+0x5c = 0` PUIS
+    `UpdateEffectTargets([])` -> `RevertEffectsForTargets` -> `IdunBattle.Entities.Effects.
+    StatOverrideEffect$$RevertInternal` = `RemoveOverride`. Un effet a `+0x5c == 0` n'a donc AUCUN
+    override pose chez sa cible, exactement comme il n'a aucune `ValueModification`.
+
+    Keye par STAT et non par SOURCE, et le dernier effet balaye gagne : cote natif il n'y a qu'UN
+    slot `IdunBattle.Entities.Components.ValueOverride` par `StatComponent` (`+0x20`), et
+    `IdunBattle.Entities.Components.ValueOverride$$SetOverride` ECRASE — un override ne cumule
+    pas."""
+    out: dict = {}
+    for e in _as_effects(effects):
+        if not _carries_modification(e):
+            continue
+        for st, val, modifiable in effect_stat_overrides(e):
+            out[int(st)] = (int(val), bool(modifiable))
+    return out
 
 
 def stat_modifications_by_source(effects, source_of=None, stats_ctx=None) -> dict:

@@ -152,6 +152,7 @@ from .loki import (
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
     ReinforcedHiveNodeExtraArmorEffect,
+    ReinforcedHiveNodeExtraBlockEffect,
     CursedPlagueBellExtraMoveEffect,
     RelentlessMarchExtraMoveEffect,
     LionHelmExtraDmgEffect,
@@ -260,11 +261,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     #    StatAmount(Owner, FixedArmor, 3=Initial), Direct(extraArmorPct=100)) = +100 % de l'armure
     #    de BASE du porteur -> PORTE ici (`loki/reinforced_hive_node.py`) ;
     #  - 0x455=1109 ExtraBlock  : `StatOverrideEffect` — BlockChance(7) FORCEE a blockChance=100
-    #    (part 7 `SetOverride`, pas un additif) -> RESIDU, cf. l'en-tete du module ci-dessus.
+    #    (`ApplyInternal` = `ChangeStat(Position(7, part 7 = OVERRIDE), Direct(<comp+0x14>))` ->
+    #    `ValueOverride.SetOverride`, avec `isModifiable = 0` : ce n'est PAS un additif, et aucune
+    #    modification par-source ne s'y ajoute). Canal `applied_stat_overrides`, pilote par le MEME
+    #    driver `refresh_stat_modifier_effects` que l'additif (le refresh natif appelle les slots
+    #    `IEffect+0xe`/`+0xf` sans connaitre la famille de l'effet).
     # Les DEUX partagent la MEME `CreateActiveCondition` (corps FONDU par IL2CPP, tranche sur la
     # table `g_MethodPointers` ordonnee par classe, PAS sur les noms de `functions.tsv`) :
     # `AmountIsOdd(Sum(RoundsStarted(Owner), Direct(1)))` = actif un round sur deux.
     "ReinforcedHiveNode_ExtraArmor": ReinforcedHiveNodeExtraArmorEffect,
+    "ReinforcedHiveNode_ExtraBlock": ReinforcedHiveNodeExtraBlockEffect,
     # CursedPlagueBell (deathBlightbringer "Corrodius", active 1071) : effet 0x431=1073 pose pour UN
     # tour sur les amis CHAOS non-Stationary de l'aura ContagionsOfNurgle (vecteur
     # `CursedPlagueBellMovementAbility$$CreateBehaviour` = `AddEffect(0x431, ..., turns=1)`).

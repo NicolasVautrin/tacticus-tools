@@ -879,6 +879,39 @@ class BaseEffect:
         (part 7 → SetOverride) ; le retrait exécute `remove_stat_override` (part 8, mirror `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal` → ResetStat ×N). Défaut `[]` = pas d'override."""
         return []
 
+    def applied_stat_overrides(self) -> "list":
+        """Part DATA d'un `IdunBattle.Entities.Effects.StatOverrideEffect$$ApplyInternal` — les
+        `(StatType, valeur, isModifiable)` que CET effet pose en OVERRIDE, et que
+        `IdunBattle.Entities.Effects.StatOverrideEffect$$RevertInternal` retire.
+
+        NATIF, lu verbatim :
+
+            ApplyInternal :  ChangeStat(Entity(target), Position(<comp+0x10>, part 7 = OVERRIDE),
+                                        mode 4, Direct(<comp+0x14>), Entity(effect),
+                                        3, <this+0x480 = isModifiable>, <comp+0x18 = isHidden>)
+            RevertInternal : ChangeStat(Entity(target), Position(<comp+0x10>, part 8 = REMOVE),
+                                        mode 4, <Formulas+0x18>, Entity(effect), 0, 0, isHidden)
+
+        `<comp>` = le `StatOverrideComponent` de l'ENTITE-EFFET (blueprint
+        `IdunBattle.Entities.Blueprints$$StatOverrideEffect`), rempli a la pose par
+        `IdunBattle.Entities.Behaviours.AddStatOverrideEffectBehaviour$$StatOverrideBuilder`
+        (`+0x10 = statType`, `+0x14 = amount` — le noeud `amount` de la feuille DEJA EVALUE —,
+        `+0x18 = isHidden`). `isModifiable` vit sur le DEF (`+0x480`), ecrit par
+        `IdunBattle.Entities.Effects.StatOverrideEffect$$.ctor` : il decide si les modifications
+        par-source s'ajoutent A l'override (`IdunBattle.Entities.Components.ValueOverride$$
+        GetOverrideValueWithModification` = `override + (isModifiable ? modTotal : 0)`).
+
+        DISTINCT d'`overridden_stats()`, qui mirrore
+        `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ApplyInternal` :
+        la valeur y est LUE SUR LE PARENT a l'application, donc la classe ne declare que des
+        StatTypes et la couche runner va chercher la valeur. Ici la valeur EST une donnee de
+        l'effet -> le triplet complet.
+
+        ⚠ Le `StatOverrideComponent` n'est PAS publie par la capture (`frida/hooks/game/effects.ts`
+        ne lit que le `StatModifierComponent`) : la valeur est RE-DERIVEE de gameconfig, comme
+        toute magnitude sans canal `statMod`. Defaut `[]` = l'effet ne pose aucun override."""
+        return []
+
     def ability_modifications(self) -> "list":
         """Part DATA d'un `ApplyInternal` qui ecrit des **modifications de constantes d'ABILITY** sur une
         unite (et NON une stat) — natif `IdunBattle.Operations.OperationProcessor$$AddUnitActiveAbilityModification`

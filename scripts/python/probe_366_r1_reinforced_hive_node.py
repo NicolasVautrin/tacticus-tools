@@ -1,11 +1,14 @@
-"""#366-r1 -- MESURE LIVE de `1108 ReinforcedHiveNode_ExtraArmor` (et de son jumeau `1109`)
-sur le SUMMON `tyranSmnWarrior`, invoque par `tyranWingedPrime` (`AlphaWarrior`, 1112).
+"""#366-r1 -- MESURE LIVE de `1108 ReinforcedHiveNode_ExtraArmor` ET de son jumeau
+`1109 ReinforcedHiveNode_ExtraBlock` sur le SUMMON `tyranSmnWarrior`, invoque par
+`tyranWingedPrime` (`AlphaWarrior`, 1112).
 
 Ce que le probe etablit, round par round :
   * quels effets `1108`/`1109` le summon porte, et leur flag `active`
     (canal `decisionView { includeInactive: true }` -- le canal par defaut DROPPE les inactifs) ;
   * son `fixedArmor` COURANT et son `statDelta` (`combatSnapshot`), donc la contribution reelle
     de `1108`, ET la MEME grandeur cote PORT (avant / apres `refresh_stat_modifier_effects`) ;
+  * son `blockChance` COURANT -- le canal OVERRIDE de `1109` (part 7 `SetOverride`, `isModifiable`
+    = 0) -- et la MEME grandeur cote PORT, avant / apres le meme driver ;
   * son `turnsStarted` (`GetStat(., 0xc)`), l'entree de
     `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ReinforcedHiveNodeAbility$$GetEffectActiveCondition`
     = `AmountIsOdd(Sum(RoundsStarted(Owner), Direct(1)))`.
@@ -155,9 +158,16 @@ def observe(sid: int, rid: int, carrier_id=None) -> "list[dict]":
         us = st.get_entity(uid).get_component(StatsComponent).ctx.stats
         ustate = unit_state_for_effects(st, uid)
         before = int(us.get_stat(int(StatType.FIXED_ARMOR)))
+        block_before = int(us.get_stat(int(StatType.BLOCK_CHANCE)))
+        bcomp = us.components.get(int(StatType.BLOCK_CHANCE))
+        block_src = dict(bcomp.modification.per_source) if bcomp is not None else {}
         per_src = dict(us.components[int(StatType.FIXED_ARMOR)].modification.per_source)
         refresh_stat_modifier_effects(st, uid)
         rows.append({
+            "port_block_before": block_before,
+            "port_block_after": int(us.get_stat(int(StatType.BLOCK_CHANCE))),
+            "block_per_source": {str(k): v for k, v in block_src.items()},
+            "block_override": (None if bcomp is None else bcomp.override.override),
             "uid": uid, "vid": u.get("visualId"), "alive": bool(u.get("alive")),
             "turnsStarted": int(ustate["turns_started"]),
             "live_active": {str(e.get("name")): bool(e.get("active", True)) for e in rhn},
@@ -165,6 +175,13 @@ def observe(sid: int, rid: int, carrier_id=None) -> "list[dict]":
             "live_initial": (int(stats.get("fixedArmor") or 0)
                              - int(delta.get("fixedArmor") or 0)),
             "live_blockChance": stats.get("blockChance"),
+            "live_block_initial": (int(stats.get("blockChance") or 0)
+                                   - int(delta.get("blockChance") or 0)),
+            # i2 : << and - IF IT HAS BLOCK - 100% Block chance >>. `blockDamage` (GetStat(8)) est
+            # l'AUTRE moitie de l'entree par defaut de `GetMultiValueStat(7)` : a 0, la source de
+            # block n'existe pas et l'override de `blockChance` reste sans effet observable en
+            # combat. On le MESURE au lieu de le supposer.
+            "live_blockDamage": stats.get("blockDamage"),
             "port_armor_before": before,
             "port_armor_after": int(us.get_stat(int(StatType.FIXED_ARMOR))),
             "per_source": {str(k): v for k, v in per_src.items()},
@@ -204,14 +221,18 @@ def main() -> int:
                 out.append(rows[0])
                 end_round(sid, rid)
             for o in out:
-                print("  ts=%d live[1108]=%-5s armor live=%-6s port=%-6s (apres refresh %-6s) "
-                      "initial=%-6s block=%-4s port_is_active=%s per_source=%s"
+                print("  ts=%d live[1108/1109]=%s/%s armor live=%-6s port=%-6s (refresh %-6s) "
+                      "initial=%-6s | block live=%-4s port=%-4s (refresh %-4s) init=%-4s ovr=%s"
                       % (o["turnsStarted"],
                          o["live_active"].get("ReinforcedHiveNode_ExtraArmor"),
+                         o["live_active"].get("ReinforcedHiveNode_ExtraBlock"),
                          o["live_armor"], o["port_armor_before"], o["port_armor_after"],
-                         o["live_initial"], o["live_blockChance"],
-                         o["port_active"].get("ReinforcedHiveNode_ExtraArmor"),
-                         o["per_source"]))
+                         o["live_initial"],
+                         o["live_blockChance"], o["port_block_before"], o["port_block_after"],
+                         o["live_block_initial"], o["block_override"]))
+                print("      blockDamage=%s per_source[armor]=%s per_source[block]=%s port_active=%s"
+                      % (o["live_blockDamage"], o["per_source"], o["block_per_source"],
+                         o["port_active"]))
             parities = sorted({o["turnsStarted"] % 2 for o in out})
             print("[probe] %d observations, parites vues=%s" % (len(out), parities))
         finally:
