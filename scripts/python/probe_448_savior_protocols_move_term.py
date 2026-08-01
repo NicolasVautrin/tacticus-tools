@@ -119,6 +119,22 @@ def _exiger_build_des_rva() -> None:
 
 # --------------------------------------------------------------------------- montage
 
+def grafted_seed_bc(tag: str = ""):
+    """Ecrit le seed BC GREFFE du montage (1120 sur le porteur ET sur le voisin-contre-regime) et
+    rend `(chemin, rapports)`. Sortie dans `logs/` -- JAMAIS dans `data/`, qui ne contient que des
+    ENTREES versionnees (garde `host_inputs.reject_data_output` dans `write_grafted_seed_bc`)."""
+    out = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "logs",
+                       f"seedbc-448-{tag or os.getpid()}.json")
+    return CI.write_grafted_seed_bc(out, GRAFTS, replace=True)
+
+
+def build_extra(seed_bc, board: str = BOARD) -> list[str]:
+    """Les args `rl_duel build` du montage -- partages par le probe et sa garde jumelle, pour
+    qu'aucun des deux ne monte une variante de l'autre."""
+    return ["--board", board, "--p-units", ",".join(P_UNITS), "--a-units", ",".join(A_UNITS),
+            "--seed-bc", str(seed_bc)]
+
+
 def _build(state_file: str, board: str, seed: str, seed_bc: str | None,
            p_units, a_units) -> int:
     argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
@@ -440,9 +456,7 @@ def main() -> int:
             if not args.keep:
                 rpc("disposeRunner", {"runnerId": rid}, 30)
 
-    seed_bc, reports = CI.write_grafted_seed_bc(
-        os.path.join(os.path.dirname(os.path.dirname(_HERE)), "logs",
-                     f"seedbc-448-{os.getpid()}.json"), GRAFTS, replace=True)
+    seed_bc, reports = grafted_seed_bc()
     rid = _build(args.state_file, args.board, args.seed, str(seed_bc), P_UNITS, A_UNITS)
     print(f"  [diag] runner {rid} construit (seed-bc greffe {seed_bc})")
     try:
