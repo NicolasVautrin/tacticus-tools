@@ -44,11 +44,43 @@ couvre pas le registre, si une entree du RAIL est orpheline (classe renommee/sup
 `probe_229`** : sans lui, le zero de `EXPECTED_GAPS` ne signifie rien, puisqu'une classe hors RAIL
 n'est comptee dans AUCUNE des deux listes du 229.
 
-**La contre-epreuve** : `tests/engine/runner/test_421_effect_active_gate_offline.py` (11 tests,
-~1,5 s). Le probe verifie par AST que le `matches` LIT le flag ; il ne verifie pas que la lecture
+**La contre-epreuve** : `tests/engine/runner/test_421_effect_active_gate_offline.py` (13 tests,
+~1,6 s). Le probe verifie par AST que le `matches` LIT le flag ; il ne verifie pas que la lecture
 PILOTE le verdict (une lecture decorative le rendrait vert). Le test mesure le verdict, bras ACTIF
-contre bras INACTIF. Mutation-test du 2026-08-01 : retirer chacun des trois gates fait rougir,
-restaurer fait reverdir.
+contre bras INACTIF. Mutation-test du 2026-08-01 : retirer chacun des trois gates fait rougir ;
+simuler les trois formes de la derive (classe inscrite hors RAIL / entree RAIL orpheline /
+`EXPECTED_GAPS` perime) fait rougir des DEUX cotes ; restaurer fait reverdir a chaque fois.
+
+### Ou brancher la garde — le chiffre
+
+Mesures du 2026-08-01, meme machine, arbre `25eacf63` :
+
+| garde | cout | declenchement |
+|---|---|---|
+| `probe_229` | **2,46 s** | appel manuel |
+| `probe_421` | **1,72 s** | appel manuel |
+| `test_421_effect_active_gate_offline.py` (13 tests, garde de couverture INCLUSE) | **1,58 s** | **la suite** |
+| reference : `probe_273 --only-scan`, le mur des 9 cliquets | **36,0 s** ici, **161,9 s** sous charge (CLAUDE.md) | cliquet |
+
+**Verdict : la garde doit etre un TEST, et elle l'est.** Les deux probes coutent **4,2 s** ensemble
+— soit **+1,4 %** d'un passage en serie des cliquets (~300 s) et, en parallele, un cout marginal
+**NUL** (4,2 s se noient sous le mur de `probe_273`, qui reste le plus long a lui seul). Les
+ajouter aux cliquets permanents est donc gratuit et souhaitable ; **mais ce n'est pas ce qui ferme
+le probleme.**
+
+La lecon du cas est plus dure que le prix : **le `RAIL` etait deja cense etre maintenu a la main, et
+c'est precisement cette discipline qui a lache.** Une garde qui ne s'execute que si quelqu'un pense
+a l'invoquer — cliquet appele a la main, ou regle « obligatoire des qu'un diff touche
+`registry.py` » — a exactement le mode de defaillance qu'on vient de payer. La reponse est donc
+d'abord le TEST (1,58 s, joue par la suite, aucune discipline requise), le cliquet n'etant qu'un
+filet supplementaire.
+
+Contre le declenchement par diff, un point de couverture en plus du principe : la condition
+« le diff touche `registry.py` » aurait bien attrape #366-r1 (un renommage de classe force un diff
+du registre, qui importe par nom) — mais elle ne couvre PAS une entree `RAIL` erronee introduite
+dans `probe_229.py` seul, ni le decalage inverse. La question « le balayage couvre-t-il ce qu'il
+pretend balayer ? » ne se deduit d'aucun chemin de fichier : elle se pose au registre, a chaque
+execution.
 
 ## 1. Le critere natif : DEUX rails d'evaluation, UN SEUL a gate `IsActive`
 
