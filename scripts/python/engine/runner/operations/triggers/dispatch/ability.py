@@ -41,7 +41,7 @@ def pre_unit_ability_triggers(state: State, caster_id: int, target_id: int,
                               ranged: bool, profile: Optional[str] = None,
                               ability_type: Optional[int] = None) -> list[dict]:
     """Vecteur `On(PreUnitAbility=0x2a=42)` — emis par
-    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (`FUN_180026490(0x4d, .., 0x2b)`)
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (`FUN_1800280e0(0x4d, .., 0x2a)`)
     **TOUT EN HAUT**, avant l'execution de l'ability (donc avant tout degat/block) ; la MEME operation
     emet ensuite, dans l'ordre, `0xb (UnitAbility)`, `0xc (UnitActiveAbility)` et `0xe (UnitPostAbility)`.
     L'`AbilityEntities` de l'evenement est celui de l'ability : caster = l'ACTEUR, target = la cible.
@@ -87,7 +87,7 @@ def unit_post_ability_triggers(state: State, caster_id: int, target_id: int,
                                ranged: bool, profile: Optional[str] = None,
                                ability_type: Optional[int] = None) -> list[dict]:
     """Vecteur `On(UnitPostAbility=0xe=14)` — DERNIER evenement emis par
-    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (`FUN_180026490(0x4d, .., 0xe)`),
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (`FUN_1800280e0(0x4d, .., 0xe)`),
     apres `0x2b` puis `0xb`/`0xc`. Consommateur porte : le trigger PROPRE de l'effet 1201
     (`AnvilShieldFrozenAdvantageExpire`) qui consomme le +20 % block a la fin de l'ability.
     AUCUN autre trigger porte n'ecoute `event_id == 0xe`.

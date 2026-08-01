@@ -3,7 +3,7 @@
 LE FORK
 -------
 Le natif emet `0x2b` depuis UN SEUL site : `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-(`FUN_180026490(0x4d, .., 0x2b)`), tout en haut, avant l'execution -- et l'attaque NORMALE emprunte
+(`FUN_1800280e0(0x4d, .., 0x2a)`), tout en haut, avant l'execution -- et l'attaque NORMALE emprunte
 cette MEME operation (elle EST une active ability :
 `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility`). Le port, lui, a DEUX
 portes d'operation : `DamageHandler.visit_AttackUnitMessage` (attaque normale) et
@@ -213,7 +213,7 @@ def main() -> int:
         "le +20 % block se pose sur un cast d'ability -> gate IsNormalAttack absent")
 
     # --- 5. un cast REFUSE par le gate de ciblage n'emet RIEN --------------------------------------
-    # `ExecuteInternal` sort sur `IsInvalidTarget` (return 0) EN AMONT du `FUN_180026490(.., 0x2b)`.
+    # `ExecuteInternal` sort sur `IsInvalidTarget` (return 0) EN AMONT du `FUN_1800280e0(.., 0x2a)`.
     # Aucun consommateur porte ne rend ce refus observable aujourd'hui (le seul ability a
     # `TARGETING_OPTIONS` RE-lues est Waaagh 1058, classee `Others` donc muette pour SwornProtector) :
     # on INSTRUMENTE donc le dispatch pour COMPTER les emissions -- c'est une mesure de probe, pas une

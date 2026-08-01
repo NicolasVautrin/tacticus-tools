@@ -440,7 +440,7 @@ def _effect_vector_triggers(state: State, event_id: int, actor_id: Optional[int]
 def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id: Optional[int],
                               effect_type: int) -> list[dict]:
     """Vecteur `On(PreEffectAdded=0x3d=61)` — emis par `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN
-    HAUT** (`FUN_180026490(0x50, ..., 0x3e)` juste apres la construction de l'`AbilityEntities`, AVANT le
+    HAUT** (`FUN_1800280e0(0x50, ..., 0x3d)` juste apres la construction de l'`AbilityEntities`, AVANT le
     gate cible-nulle, AVANT le gate << deja present >> et AVANT le gate d'immunite `HasFlag(target,6)`).
     => l'evenement fire meme quand l'effet n'est finalement PAS applique (semantique << would have >>).
 
@@ -498,9 +498,9 @@ def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int]
 
 
 def unit_revived_triggers(state: State, revived_id: int, current_ability=None) -> list[dict]:
-    """Vecteur `On(UnitRevived = 45 = 0x2e)` (case-89 volet B3) — emis par `ReviveUnitOperation.Execute`
-    @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_180026490(0x4d, DAT_1831d3468, events, 0x2e)`), APRES la mutation PV/flags/position
-    et **AVANT** la purge de la `ReviveData` (@IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+). DISTINCT d'`On(UnitResurrected=46=0x2f)`
+    """Vecteur `On(UnitRevived = 0x2d = 45)` (case-89 volet B3) — emis par `ReviveUnitOperation.Execute`
+    @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_1800280e0(0x4d, DAT_1831d3468, events, 0x2d)`), APRES la mutation PV/flags/position
+    et **AVANT** la purge de la `ReviveData` (@IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+). DISTINCT d'`On(UnitResurrected=0x2e=46)`
     (`ResurrectUnitOperation`, ambush).
 
     `current_ability` = le `sourceId` (`AbilityOrEffect`) porte par la `ReviveData` — c'est ce que lit le
@@ -517,7 +517,7 @@ def unit_revived_triggers(state: State, revived_id: int, current_ability=None) -
 
 
 def unit_resurrected_triggers(state: State, resurrected_id: int) -> list[dict]:
-    """Vecteur `On(UnitResurrected=46=0x2f)` (G3) — emis par `ResurrectUnitOperation` IdunBattle.Operations.ResurrectUnitOperation$$Execute apres une
+    """Vecteur `On(UnitResurrected=0x2e=46)` (G3) — emis par `ResurrectUnitOperation` IdunBattle.Operations.ResurrectUnitOperation$$Execute apres une
     resurrection Ambush (`actor` = l'unite ressuscitee, co-localisee avec le decoy qu'elle vient de crusher).
     Alimente `DecoysAndMisdirection_BuffFriends` (G2, `(On(0x2e = UnitResurrected)|On(0x1d)) & AreFriends` -> +582 + nouveau
     decoy si GS Cult) et la re-arme HeroicFusillade (G5, `On(0x2e = UnitResurrected) & OwnerIsTarget`). No-op si aucun

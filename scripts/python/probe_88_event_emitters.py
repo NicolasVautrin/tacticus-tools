@@ -1,8 +1,8 @@
 """probe #88 -- QUI emet `On(<EventTriggerType>)` cote natif ?
 
-Le dispatcher d'evenements de trigger est `FUN_180026490(msgId, <static>, events, eventType,
+Le dispatcher d'evenements de trigger est `FUN_1800280e0(msgId, <static>, events, eventType,
 entities)` (convention x64 : rcx, rdx, r8, **r9d = eventType**). Les call-sites sont donnes par
-ghidra (`list_xrefs FUN_180026490`) ; ce probe DECODE l'immediat charge dans `r9d` juste avant
+ghidra (`list_xrefs FUN_1800280e0`) ; ce probe DECODE l'immediat charge dans `r9d` juste avant
 chaque `call`, en lisant `GameAssembly.dll` -- aucune VA n'est ecrite a la main, le mapping
 VA -> offset fichier est calcule depuis les sections du PE.
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 GAME_DLL = Path(r"C:\Users\nicolasv\AppData\Local\tacticus\games\gqfc5mff6c\GameAssembly.dll")
 
-# Call-sites de `FUN_180026490` rendus par `mcp__ghidra__list_xrefs` (type UNCONDITIONAL_CALL).
+# Call-sites de `FUN_1800280e0` rendus par `mcp__ghidra__list_xrefs` (type UNCONDITIONAL_CALL).
 CALL_SITES = [
     ("ADamageOperation$$RegisterFinalDamage", 0x180e269c8),
     ("AbilityDamageOperation$$ExecuteHit", 0x180e2a277),

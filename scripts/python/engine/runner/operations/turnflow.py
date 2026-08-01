@@ -300,7 +300,7 @@ class StartTurnOperation:
                 uc.current_turn_start_tile = (state.board.id_at(pc.col, pc.row)
                                               if pc is not None else None)
         # #128 tile-effects ROUND-TICK : StartTurn emet la SEQUENCE d'events 0x12->0x13->0x14->0x15->0x16
-        # (VERIFIE IdunBattle.Operations.StartTurnOperation$$Execute : 5 emissions FUN_180026490(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
+        # (VERIFIE IdunBattle.Operations.StartTurnOperation$$Execute : 5 emissions FUN_1800280e0(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
         # l'ancien "0x12/0x14/0x16" etait INCOMPLET). Mapping effets : 0x12 = Contaminated re-apply ; 0x13 =
         # FirstAid heal-on-tile (#130 : On(0x13) & IsTurnOf(units-on-tile)) ; 0x14 = Fire DoT + DryBush spread ;
         # 0x15 = (role a mapper) ; 0x16 = turn-start (start_turn_triggers). Le port tire tile_tick (0x12/0x14) +

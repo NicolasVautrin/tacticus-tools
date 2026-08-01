@@ -5,7 +5,7 @@
 << non localise >>. Ce probe tranche par BALAYAGE, sans supposer une forme d'appel unique.
 
 Constat de forme (lu au decompile) : la publication d'un evenement de trigger prend l'`eventType`
-tantot en **r9d** (`FUN_180026490`), tantot en **5e argument** (slot d'interface INLINE, ex.
+tantot en **r9d** (`FUN_1800280e0`), tantot en **5e argument** (slot d'interface INLINE, ex.
 `IdunBattle.Operations.MoveUnitOperation$$EvaluateArrivedAtFinalTileTrigger` -> `0x1c`), tantot en
 **9e** (`FUN_180028f50`, ex. `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects`
 -> `0x24`/`0x23`/`0x1d`). Les arguments 5+ passent par la pile : `mov dword ptr [rsp+N], imm32`.
@@ -14,7 +14,7 @@ tantot en **r9d** (`FUN_180026490`), tantot en **5e argument** (slot d'interface
 pile (`C7 44 24 N imm32`, N = 0x20..0x50) ET pour `mov r9d, imm32`, on resout la fonction contenante
 par `data/symbols/<build>/ghidra/functions.tsv`, et on ne RETIENT que les fonctions qui referencent
 l'interface de publication de triggers. Temoins obligatoires : les emetteurs CONNUS d'evenements
-publies par cette voie inline (`0x1c` ArrivedAtFinalTile, `0x2f` UnitResurrected, `0x2c` UnitHealed)
+publies par cette voie inline (`0x1c` ArrivedAtFinalTile, `0x2e` UnitResurrected, `0x2b` UnitHealed)
 doivent ressortir -- sinon le balayage est en faux negatif et sa conclusion ne vaut rien.
 
 Sortie ASCII pure.

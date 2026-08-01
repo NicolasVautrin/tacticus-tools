@@ -58,7 +58,7 @@ FAMILLE « attack » : le behaviour appelle `IdunBattleLogic.Entities.DSLFactory
 
 `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`, sequence lue VERBATIM au decompile :
 
-    FUN_180026490(0x4d, .., 0x2b);                     # On(PreUnitAbility)
+    FUN_1800280e0(0x4d, .., 0x2a);                     # On(PreUnitAbility)
     if (options@0x4a == 0 && IsUnit(caster) && IsDead(caster, state))  return 0;
     ... (bloc #120bis de RE-RESOLUTION DE CIBLE) ...
     ... execution de la behaviour ...

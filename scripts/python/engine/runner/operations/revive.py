@@ -35,7 +35,7 @@ juste apres `On(PreUnitDeath)`) : c'est l'ordre observable natif (la phase 0xd s
   * flags        IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE
                  (PAS 0xe AmbushConsumed -- un revive-en-place N'EST PAS un ambush one-shot)
   * IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : repositionne sur la tuile de l'unite -> IN-PLACE
-  * emet `On(UnitRevived = 45 = 0x2e)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_180026490(0x4d,...,lVar16,0x2e)`)
+  * emet `On(UnitRevived = 0x2d = 45)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_1800280e0(0x4d,...,lVar16,0x2d)`)
   * PUIS purge `unitComponent + 0xa8 .. +0xe8 = 0` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRES le dispatch de On(0x2d = UnitRevived))
 
 Frontiere DSL (#149) : la feuille `Revive` (declaratif, `triggers/revive_effect.py`) POSE ; l'Operation

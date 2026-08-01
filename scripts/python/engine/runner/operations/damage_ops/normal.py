@@ -104,7 +104,7 @@ class _Normal:
         if _pbonus:
             pierce, _ranged, whits = select_weapon_pierce(ctx, dist, effect_bonus=_pbonus)
         # `On(PreUnitAbility=0x2a)` (#100) — `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-        # l'emet TOUT EN HAUT (`FUN_180026490(0x4d, .., 0x2b)`), AVANT l'execution de l'ability : l'attaque
+        # l'emet TOUT EN HAUT (`FUN_1800280e0(0x4d, .., 0x2a)`), AVANT l'execution de l'ability : l'attaque
         # normale EST une active ability (`NormalAttackType`, cf. #139 plus bas). Emis ICI, juste apres la
         # selection d'arme (lecture pure : le natif connait deja la nature du coup) et AVANT tout calcul
         # de coups / modificateurs / **block** — c'est indispensable : `AnvilShieldFrozenAttackerAdvantageAbility`
@@ -128,7 +128,7 @@ class _Normal:
         # #133 GATE ACTEUR-MORT **POST-`On(0x2a = PreUnitAbility)`** — mirror du test qui suit IMMEDIATEMENT
         # l'evenement dans `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (lu
         # verbatim au decompile) :
-        #     FUN_180026490(0x4d, .., 0x2b);
+        #     FUN_1800280e0(0x4d, .., 0x2a);
         #     if (options@0x4a == 0 && IsUnit(caster) && IsDead(caster, state)) return 0;
         # Le natif teste DEUX FOIS la mort du caster : en TETE d'operation (#70, deja porte au niveau
         # MESSAGE dans `DamageHandler.visit_AttackUnitMessage`) et ICI, parce que la cascade de

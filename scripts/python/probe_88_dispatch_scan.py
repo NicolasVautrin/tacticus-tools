@@ -1,6 +1,6 @@
 """probe #88 -- balayage EXHAUSTIF des call-sites du publieur d'evenements de trigger.
 
-`FUN_180026490(slot, <IEvents>, events, eventType, abilityEntities)` est le thunk generique qui
+`FUN_1800280e0(slot, <IEvents>, events, eventType, abilityEntities)` est le thunk generique qui
 resout un slot d'interface et appelle `publish(eventType, abilityEntities)`. La liste `list_xrefs`
 de ghidra en donne 55 -- mais elle ne vaut que ce que vaut l'analyse. Ce probe RE-DERIVE la liste
 en balayant les octets : tout `E8 rel32` dont la cible est le thunk, puis decodage de l'immediat
@@ -26,7 +26,7 @@ FUNCS_TSV = ROOT / "data" / "symbols" / "gqfc5mff6c" / "ghidra" / "functions.tsv
 # DEUX formes de publication d'evenement de trigger, et ne scanner que la premiere donne un FAUX
 # NEGATIF (30 des 77 `EventTriggerType` -- dont `UnitDisplaced`, `UnitHealed`, `UnitResurrected`,
 # tous bel et bien emis -- passent par la seconde) :
-#   * `FUN_180026490(slot, iface, events, eventType, abilityEntities)` -> eventType en **r9d** (arg 4)
+#   * `FUN_1800280e0(slot, iface, events, eventType, abilityEntities)` -> eventType en **r9d** (arg 4)
 #   * `FUN_180028f50(slot, iface, events, owner, actor, target, x, list, eventType, opts, 0)`
 #     -> eventType en **9e argument**, donc sur la pile a `[rsp+0x40]`
 #     (lu dans `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects`, qui publie

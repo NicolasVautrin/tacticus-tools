@@ -18,12 +18,12 @@ operation (elle EST une active ability :
 portes d'operation — `DamageHandler.visit_AttackUnitMessage` (damage.py) et ce visiteur — et seule la
 premiere emettait : FORK de port (1 site natif -> 2 sites offline dont 1 muet). Les DEUX emettent
 desormais, au MEME rang relatif que le natif. Sequence native mesuree au decompile
-(`ExecuteInternal`, ordre des `FUN_180026490(0x4d, .., <event>)` par adresse croissante) :
+(`ExecuteInternal`, ordre des `FUN_1800280e0(0x4d, .., <event>)` par adresse croissante) :
 
     IsDeadUnitAndNotAllowedByAbility(target)  -> return 0
     IsInvalidTarget(caster, casterTiles, target) -> return 0
     GetAbilityEntities(...)
-    On(0x2a = PreUnitAbility)  PreUnitAbility        <- AVANT toute execution (donc avant tout degat / calcul de block)
+    On(0x2a = PreUnitAbility)                        <- AVANT toute execution (donc avant tout degat / calcul de block)
     if (!options@0x4a && IsUnit(caster) && IsDead(caster)) return 0
     ... execution de la behaviour ...
     On(0xb)   UnitAbility           (aucun consommateur porte)
@@ -304,7 +304,7 @@ class AbilityHandler:
         self._pre_unit_ability(msg)
         # #133 GATE ACTEUR-MORT **POST-`On(0x2a = PreUnitAbility)`** — mirror du test qui suit IMMEDIATEMENT
         # l'evenement dans `ActiveAbilityOperation$$ExecuteInternal` (lu verbatim au decompile) :
-        #     FUN_180026490(0x4d, .., 0x2b);
+        #     FUN_1800280e0(0x4d, .., 0x2a);
         #     if (options@0x4a == 0 && IsUnit(caster) && IsDead(caster, state)) return 0;
         # Le natif teste DEUX FOIS la mort du caster : en TETE d'operation (#70, deja porte) et ICI,
         # parce que la cascade de triggers reveillee par `0x2b` peut l'avoir TUE entre-temps. C'est
@@ -379,7 +379,7 @@ class AbilityHandler:
         op(self.state, caster, new_target, _reenter)
 
     def _pre_unit_ability(self, msg) -> None:
-        """`FUN_180026490(0x4d, .., 0x2b)` en tete d'`ExecuteInternal`. L'`AbilityEntities` de
+        """`FUN_1800280e0(0x4d, .., 0x2a)` en tete d'`ExecuteInternal`. L'`AbilityEntities` de
         l'evenement est celui de l'ability : caster/actor = le CASTER, target = la cible du cast.
         `ability_type` = `df@0x130` (l'ability declenchante), lu par les gates `IsNormalAttack` /
         `AbilityHasAttackType` des consommateurs (cf. `abilities/attack_type.py`). `ranged` =
@@ -391,7 +391,7 @@ class AbilityHandler:
                                   ability_type=int(msg.ability_type))
 
     def _unit_active_ability(self, msg) -> None:
-        """`FUN_180026490(0x4d, .., 0xc)` d'`ExecuteInternal`, emis SOUS LE GATE
+        """`FUN_1800280e0(0x4d, .., 0xc)` d'`ExecuteInternal`, emis SOUS LE GATE
         `StaticBattleRules.ActiveAbility$$IsActiveAbility(abilityType)` (le gate est applique dans le
         vecteur). Emis depuis la SEULE voie ABILITY : l'attaque normale est un `IsRegularAttack`, donc
         exclue par le gate natif -- la voie normale (`damage.py`) n'a rien a emettre."""
@@ -401,7 +401,7 @@ class AbilityHandler:
                                      ability_type=int(msg.ability_type))
 
     def _post_unit_ability(self, msg) -> None:
-        """`FUN_180026490(0x4d, .., 0xe)` en queue d'`ExecuteInternal` (apres
+        """`FUN_1800280e0(0x4d, .., 0xe)` en queue d'`ExecuteInternal` (apres
         `AddFlagsAfterAbilityExecution`)."""
         from ..operations.triggers.dispatch import unit_post_ability_triggers
         unit_post_ability_triggers(self.state, int(msg.caster_id), msg.target_id,

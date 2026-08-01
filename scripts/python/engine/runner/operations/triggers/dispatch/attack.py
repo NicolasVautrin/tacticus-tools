@@ -63,7 +63,7 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
 def final_damage_triggers(state: State, attacker_id: int, target_id: int,
                           ranged: bool = False, profile: Optional[str] = None) -> list[dict]:
     """Vecteur `On(FinalDamage = 0x42 = 66)` — emis par `IdunBattle.Operations.ADamageOperation$$
-    RegisterFinalDamage`, dont la DERNIERE instruction est `FUN_180026490(0x50, .., 0x43, entities)`.
+    RegisterFinalDamage`, dont la DERNIERE instruction est `FUN_1800280e0(0x50, .., 0x42, entities)`.
 
     XREFS EXHAUSTIVES de `RegisterFinalDamage` : `IdunBattle.Operations.AttackDamageOperation$$Execute`
     et `IdunBattle.Operations.AbilityDamageOperation$$Execute` — et RIEN d'autre. L'evenement part donc
@@ -111,7 +111,7 @@ def pre_attack_hit_triggers(state: State, attacker_id: int, target_id: int,
                             ability_type: Optional[int] = None) -> list[dict]:
     """Vecteur `On(PreAttackHit=6)` — emis PAR COUP par `IdunBattle.Operations.AttackDamageOperation$$
     ExecuteHit` (et son homologue `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) TOUT EN
-    HAUT du coup : `FUN_180026490(0x50, .., 6, entities)` puis `.., 7 (PreAttackDamageHit)`, les DEUX
+    HAUT du coup : `FUN_1800280e0(0x50, .., 6, entities)` puis `.., 7 (PreAttackDamageHit)`, les DEUX
     **AVANT** le calcul du crit (`CritDamageInfo`) et avant le degat. L'`AbilityEntities` du vecteur est
     `ctor(caster = attaquant, .., target = defenseur, hitIndex@+0x110 = param_3)` -> `actor_id` =
     l'attaquant, `target_id` = le defenseur, `is_first_hit` = `hitIndex == 0` (lu par
@@ -139,7 +139,7 @@ def pre_attack_hit_triggers(state: State, attacker_id: int, target_id: int,
 def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int,
                           profile: Optional[str] = None) -> list[dict]:
     """Vecteur `On(DamageTaken=0xf=15)` — emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
-    (`FUN_180026490(0x4d, .., 0xf, entities)`) apres la mutation des PV, sous le gate
+    (`FUN_1800280e0(0x4d, .., 0xf, entities)`) apres la mutation des PV, sous le gate
     `if ((0 < (int)local_7dc) || !HealthComponent.IsUnitWithHealthStat(target))` ou
     `local_7dc = FillUpStatComponent.Reduce(hp, healthDamage)` = la reduction de PV **REELLEMENT
     APPLIQUEE** (pas le degat demande). L'operation emet, dans l'ordre : `On(0x39 = PreDamageTaken)`, `On(0xf)`
@@ -230,9 +230,9 @@ def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int
     """Vecteur `On(AttackDamageAttack = 10)` — 2e des DEUX events que `IdunBattle.Operations.
     FinishAttackOperation$$Execute` emet a la CLOTURE d'une attaque :
 
-        FUN_180026490(0x50, .., 9, entities)                     # On(9 = Attack)   : TOUJOURS
+        FUN_1800280e0(0x50, .., 9, entities)                     # On(9 = Attack)   : TOUJOURS
         if (currentAttack@+0x2c != 0)
-            FUN_180026490(0x50, .., 10, entities)                # On(10)           : GATE
+            FUN_1800280e0(0x50, .., 10, entities)                # On(10)           : GATE
 
     Le champ `+0x2c` du `currentAttack` est pose par `IdunBattle.Operations.AttackDamageOperation$$
     Execute` (`*(undefined1 *)(lVar6 + 0x2c) = 1` juste apres `GetAttackHits`) — l'event 10 signifie

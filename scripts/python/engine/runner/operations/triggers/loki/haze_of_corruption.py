@@ -93,7 +93,7 @@ Nullable<AbilityOrEffect>(0x434 = 1076 HazeOfCorruption), 0)`. Deux accesseurs l
 
     ( OnDeath(1, 1) & ( TriggeringAbilityIs(AbilityOrEffect(0x435)) | AreEqual(Actor@0x158, bonded) ) )
     | On(0x2d = UnitRevived, 1)
-    | On(0x35 = UnitFled,    1)
+    | On(0x34 = UnitFled,    1)
     ) & IsAlive(bonded) & AreEqual(Target@0x178, EffectSource(Effect@0x150))
 
 Lecture : la MORT de la cible initiale (`AreEqual(Target, EffectSource)`) tuee PAR Maladus
