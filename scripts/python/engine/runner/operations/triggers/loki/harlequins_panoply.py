@@ -420,7 +420,7 @@ class HarlequinsPanoplyHitInterceptor:
     L'objet est construit pour TOUT couple (attaquant, défenseur) : `register_block_made` doit tourner
     même sans porteur, sinon le compteur `+0x8c` ne refléterait plus le natif. Quand le défenseur ne
     porte pas le passif, `should_discard` retourne False sans rien allouer."""
-    __slots__ = ("state", "attacker_id", "defender_id", "_pose", "_discard", "events")
+    __slots__ = ("state", "attacker_id", "defender_id", "_pose", "_discard", "_transfer", "events")
 
     def __init__(self, state: State, attacker_id: Optional[int], defender_id: Optional[int],
                  carries_panoply: bool):
@@ -430,6 +430,11 @@ class HarlequinsPanoplyHitInterceptor:
         self.events: list[dict] = []
         self._pose = HarlequinsPanoplyAbility(int(defender_id)) if carries_panoply else None
         self._discard = HarlequinsPanoplyDiscardHitsAbility(int(defender_id)) if carries_panoply else None
+        # #411 : la TROISIEME accroche du meme point d'`ExecuteHit`. Elle ne depend PAS du passif
+        # du defenseur (le porteur de `DrawFire` est un ALLIE ADJACENT du defenseur, pas le
+        # defenseur), donc elle est montee inconditionnellement -- sa detection est interne.
+        from .draw_fire import DrawFireTransfer
+        self._transfer = DrawFireTransfer(state, attacker_id, defender_id)
 
     def _event(self, event_id: int) -> TriggerEvent:
         """L'`AbilityEntities` des deux vecteurs natifs : `caster = actor = l'ATTAQUANT`,
@@ -449,6 +454,19 @@ class HarlequinsPanoplyHitInterceptor:
         if out:
             self.events.append({**out, "hit": int(hit_index)})
         return True
+
+    def should_transfer(self, hit_index: int) -> bool:
+        """#411 -- la branche `!HasValue` de l'etape 5 d'`ExecuteHit`, JUMELLE de `should_discard`.
+
+        `should_discard` demande « le `PendingHit` est-il marque `discard` ? » ; celle-ci demande
+        « le `PendingHit` a-t-il ete EFFACE ? », ce qui n'arrive que par
+        `IdunBattle.Operations.TransferHitOperation$$Execute`. Les deux relisent le MEME
+        `UnitComponent+0x98`, au MEME instant (juste apres `On(6)` puis `On(7)`), et le natif les
+        teste dans cet ordre : `HasValue` d'abord (discard), `!HasValue` ensuite (transfert).
+
+        L'appel LANCE l'attaque de transfert sur le porteur -- le natif l'execute DANS le dispatch
+        d'`On(7)`, donc AVANT le resolve du coup courant. Cf. `draw_fire.py`."""
+        return self._transfer.transfer(hit_index)
 
     def finish(self) -> None:
         """Le RETRAIT du marqueur a la CLOTURE de l'attaque, mirror LOCAL du
