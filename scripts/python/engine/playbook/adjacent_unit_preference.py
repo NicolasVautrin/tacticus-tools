@@ -518,6 +518,7 @@ from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 
                                KardiocoreGalvanusPlaybook)
 from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case-165b : corps propre)
 from .modified_exoarmour import ModifiedExoarmourPlaybook    # noqa: E402  (#304 : corps propre, PAR TUILE)
+from .savior_protocols import SaviorProtocolsPlaybook        # noqa: E402  (#448 : face MOVE, cf. module)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
@@ -552,6 +553,13 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # croissante avec la distance) et la premiere qui appelle le PATHFINDING natif. Porteur
     # POOL-HERO par injection : `votanChampion` (Kimm). Cle BC AJOUTEE par ce build.
     int(TriggeredAbilityType.ModifiedExoarmour): ModifiedExoarmourPlaybook(),    # 1529 (5 / tuile de chemin)
+    # #448 -- la face MOVE de la MEME classe native que la face ATTACK de #443 (registre attack :
+    # `psyker.py`). Deux termes : +20 par ALLIE T'AU ADJACENT a la tuile candidate qui ne porte pas
+    # 1120 lui-meme (predicat DSL `SaviorProtocolsAbility$$TargetIsValidTrigger`, artefact natif
+    # distinct, partage avec la face COMBAT), +30 de PLUS si cet allie est le SUMMONER du mover
+    # (`UnitExtensions$$GetParent`). Porteurs : 3 npc + 3 SUMMONS `tauSmn*Drone*` -- le porteur
+    # confronte est `tauSmnDroneSniper`, invoque par l'attaque RANGED de `tauMarksman` (1076).
+    int(TriggeredAbilityType.SaviorProtocols): SaviorProtocolsPlaybook(),        # 1120 (20 / +30 parent)
 }
 
 

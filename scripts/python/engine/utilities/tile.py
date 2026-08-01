@@ -1123,7 +1123,7 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
       * `parent_id` nul → `{}` (ni sujet ni parent : aucune feuille gatée ne peut rien rendre).
 
     Clés produites (mêmes noms/formes que `tile_leaf_ctx`) : `unit_triggered_abilities`,
-    `unit_traits`, `unit_faction`, `uid`, `self_pos`, `friend_units`/`enemy_units`
+    `unit_traits`, `unit_faction`, `uid`, `unit_parent_id`, `self_pos`, `friend_units`/`enemy_units`
     (`{pos, vis, id, triggered, traits, effects}`, self exclu), `friend_positions`, `elev_by_pos`,
     `neigh_by_pos` (ordre NATIF `board.neighbours_native`), `walkable_by_pos`.
 
@@ -1180,11 +1180,22 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             elev_by_pos[p] = t.get("elevation")
             walkable_by_pos[p] = bool(t.get("walkable"))
             neigh_by_pos[p] = [board.coord(n) for n in board.neighbours_native(tid)]
+    from ..runner.components import parent_of
+    _par = parent_of(state, unit_id)
     return {"unit_triggered_abilities": list(triggered_ability_ids(my_vis)),
             # #225 : substrat d'ENTITE (cf. `entity_trait_ids`) -- le sujet peut s'etre vu accorder
             # un trait EN BATAILLE (`AddTrait`), que le kit gameconfig par visualId ignore.
             "unit_traits": entity_trait_ids(msc.ctx if msc is not None else None, my_vis),
             "uid": unit_id,
+            # #448 : `IdunBattle.Entities.UnitExtensions$$GetParent(case.Unit, state)` -- le lien
+            # enfant -> SUMMONER (`ChildComponent.ParentId`), que lit la face MOVE de
+            # `SaviorProtocolsPlaybook`. A NE PAS confondre avec le parametre `parent_id` de cette
+            # fonction, qui est le `dc.parent` du call-site SUMMON (case-205) : ici c'est le parent
+            # DU SUJET, la un sujet de remplacement quand `case.unit` est nul.
+            # `parent_of` resout l'ENTITE (`state.GetEntity(ParentId)`), pas l'id brut : un summoner
+            # retire de l'etat rend `None`, comme le `GetParent` natif -- et le test `== u` du corps
+            # est alors faux, ce qui est bien le comportement voulu.
+            "unit_parent_id": (_par.id if _par is not None else None),
             # `HasFaction(case.unit, <UnitFaction>)` cote offline (#241) — cf. `tile_leaf_ctx`.
             "unit_faction": faction_value(my_vis),
             # `get_IsSpawning` = `unit == null && parent != null` : ici le sujet EXISTE -> False.
@@ -1443,6 +1454,13 @@ def tile_leaf_ctx(ctx) -> dict:
             "friend_units": friend_units,
             "enemy_units": enemy_units,
             "uid": uid,
+            # #448 : `IdunBattle.Entities.UnitExtensions$$GetParent(case.Unit, state)` -- le lien
+            # enfant -> SUMMONER que lit la face MOVE de `SaviorProtocolsPlaybook`. Canal `Scene.
+            # parent` (#378, `combatSnapshot.units[].parentId` en live, `UnitComponent.parent_id`
+            # offline). `Scene` absente -> None -> le seul terme PARENT se tait, le terme FRIEND
+            # reste verse (degradation PARTIELLE et nommee, pas un zero global).
+            "unit_parent_id": (getattr(_scene, "parent", lambda _u: None)(uid)
+                               if (_scene is not None and uid is not None) else None),
             # Origine de l'unite qui evalue. Les corps `friends_in_range.py` (AstartesBanner 1106,
             # KardiocoreGalvanus 1457) comptent les amis AUTOUR de la tuile candidate SANS exclure
             # `case.unit` : l'unite est encore SUR SON ORIGINE pendant tout le sweep, elle compte
