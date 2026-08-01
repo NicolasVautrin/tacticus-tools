@@ -22,6 +22,18 @@ import { state } from "../../game/state.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
 import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
+
+/**
+ * Classes d'`IBrokenTargetingRule` dont le code N'EST PAS un champ mais le retour de leur
+ * `get_Type`. Recensé au décompilé sur `rnca9r7q6c` : `NoBrokenTargetingRule` (valide) et
+ * `ObscuredTerrainBrokenTargetingRule` — `IdunBattle.Core.Services.ObscuredTerrainBrokenTargetingRule$$get_Type`
+ * rend le littéral `0x1000000` = bit 24 `TargetIsUnobscured`. Toute autre classe reste non décodable
+ * et sort en `hex: "0x0"` avec sa `ruleClass`, comme avant.
+ */
+const NON_GENERIC_RULE_CODES: Record<string, number> = {
+    NoBrokenTargetingRule: 0,
+    ObscuredTerrainBrokenTargetingRule: 0x1000000,
+};
 import { Ctx } from "../../controller.js";
 import {
     ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
@@ -570,8 +582,22 @@ export function registerViewTargeting(ctx: Ctx): void {
             if (ruleObj.isNull()) return null;
             const clsName = s(class_get_name(ruleObj.readPointer()) as NativePointer);
             if (clsName !== "GenericBrokenTargetingRule") {
-                // NoBrokenTargetingRule = valide ; sinon règle non décodable en flag.
-                return { ruleClass: clsName, hex: "0x0", reasons: [] };
+                // NoBrokenTargetingRule = valide ; sinon règle non-flag → le code vient de son
+                // `get_Type`, PAS d'un champ. Une seule classe est dans ce cas sur `rnca9r7q6c` :
+                // `ObscuredTerrainBrokenTargetingRule` (la LIGNE DE VUE), dont
+                // `IdunBattle.Core.Services.ObscuredTerrainBrokenTargetingRule$$get_Type` rend le
+                // littéral 0x1000000 = `TargetIsUnobscured`. Sans cette ligne le canal publiait
+                // `hex: "0x0"` — donc « cible VALIDE » — pour un refus (#444) : la dégradation était
+                // SILENCIEUSE, et invisible tant que le port ne portait pas la règle non plus.
+                const code = NON_GENERIC_RULE_CODES[clsName];
+                if (code === undefined) {
+                    return { ruleClass: clsName, hex: "0x0", reasons: [] };
+                }
+                return {
+                    ruleClass: clsName,
+                    hex: "0x" + code.toString(16).padStart(16, "0"),
+                    reasons: code === 0 ? [] : [TARGETING_RULE_BITS[Math.log2(code)] ?? clsName],
+                };
             }
             const lo = ruleObj.add(0x10).readU32();
             const hi = ruleObj.add(0x14).readU32();
