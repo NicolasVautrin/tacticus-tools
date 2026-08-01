@@ -1,10 +1,14 @@
-# case-448-r2 — la famille `ATeleportingEffect` : inventaire des QUATRE, tranches 1/4 et 4/4 PORTÉES
+# case-448-r2 — la famille `ATeleportingEffect` : les QUATRE dérivées, toutes PORTÉES
 
 Résidu nommé en §7.5 de `case-366-r1-tunneling-horror-pending-summon.md` : « les QUATRE triggers
 PROPRES de 1140, **partagés par ses trois sœurs** (1035, 1238, 1573) ». Quatre items = au-dessus du
 plafond d'une tâche → **inventaire d'abord** (§1–§2), **tranche 1 livrée** (§3–§5), **tâches filles
-décrites pour être dispatchées telles quelles** (§6), **tranche 4 livrée** (§7). Restent ouvertes :
-`#448-r2b` (1140 Stormboyz) et `#448-r2c` (1238 FearOfTheUnseen).
+décrites pour être dispatchées telles quelles** (§6), **tranche 4 livrée** (§7).
+
+**La famille est COMPLÈTE** : `1035` (§3, #448-r2), `1140` (`case-448-r2b-stormboyz-teleporting-in.md`),
+`1238` (§6, #448-r2c) et `1573` (§7, #448-r2d). Chacune a été confrontée LIVE sur SON porteur, et
+chacune exerce un régime que les autres ne peuvent pas atteindre : `HasTile(Owner)` faux hors plateau
+(1140), la borne numérique du vslot 0x738 (1238), la condition géométrique du vslot 0x748 (1573).
 
 ---
 
@@ -243,10 +247,11 @@ mesure muette — elle est DITE dans le probe.
     python -m pytest scripts/python/tests/engine/runner/test_448_r2_teleporting_in_offline.py
     python -m pytest scripts/python/tests/engine/runner/test_448_r2_teleporting_in_live.py
 
-La garde offline FIGE aussi l'inventaire des quatre (ids, sources, `*_Moving`) **et** le fait que les
-sœurs NON ENCORE CONFRONTÉES (1140, 1238, 1241) ne sont pas au registre : elle tombe dès qu'une
-inscription se fait, ce qui est l'intention — elle doit s'accompagner de sa confrontation. Le couple
-`1573`/`1574`, lui, en est SORTI avec la tranche 4 (§7), et un test POSITIF le remplace.
+La garde offline FIGE aussi l'inventaire des quatre (ids, sources, `*_Moving`). Sa liste de « sœurs
+non confrontées » est **VIDE depuis la tranche 4** : le test a basculé du négatif au POSITIF (les
+SEPT ids de la famille — `1035`/`1036`, `1140`, `1238`/`1241`, `1573`/`1574` — doivent tous être au
+registre), et c'est désormais un RETRAIT accidentel qui le fait tomber. Il continue de figer À LA
+SOURCE l'absence d'un `StormboyzStrike_Moving` dans l'`EffectType` du build.
 
 ---
 
