@@ -113,6 +113,48 @@ class PrioritisedEfficiencyExtraDmgEffect(BaseEffect):
         return for_percent_increase(True, pct) if pct else None
 
 
+class PrimarchOfTheFirstLegionExtraDamageEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.PrimarchOfTheFirstLegion_ExtraDmgEffect$$
+    CreateEffectDamageBonusForAttack` (effet `EffectType` 0x5f3 = 1523) -- MIRROR du decompile :
+
+        EffectBonus.ForAddition(get_OwnerIsCaster, ConfigVar(8 = extraDmg, <abilityState>, ...))
+
+    Pose par
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PrimarchOfTheFirstLegionAbility$$CreateBehaviour`
+    sur l'allie Dark Angels qui vient d'encaisser un coup a la place du Lion (#418), pour
+    `TurnsFromRounds(nrOfRounds = 1)`.
+
+    ⚠ Le gate natif est **`get_OwnerIsCaster` SEUL** -- lu, et c'est l'ecart avec ses jumeaux de ce
+    module : `SmashaEad` et `FeederTendrils` portent en plus un `IsNormalAttack` (d'ou leur
+    `if is_prediction: return None`, ce predicat evaluant FALSE en contexte de prediction). Ici il
+    n'y a AUCUN second conjoint : le bonus s'applique a TOUTE attaque du porteur, y compris en
+    prediction. Ne pas recopier le gate `is_prediction` des voisins serait la faute inverse.
+
+    MAGNITUDE = `ConfigVar` var index 8 = `extraDmg`, la SEULE variable de l'entree gameconfig de
+    `PrimarchOfTheFirstLegion` (`variablesAffectedByRarityBonus: ["extraDmg"]` -> scale par le
+    multiplier). `ForAddition` -> canal `additive @+0x10` de
+    `IdunBattle.Core.Services.DamageModifiers$$Add`, applique POST-percage/armure.
+
+    ⚠ RESIDU HERITE (bug #68, pas propre a cet effet) : le natif resout son `ConfigVar` contre
+    l'`abilityState` que `AddEffect` lui a passe -- celui du LION. Cote port, `BaseEffect` ne porte
+    que le niveau/multiplier de l'unite qui PORTE l'effet (ici l'allie). Sur le regime confronte
+    (greffe, niveaux normalises identiques) les deux coincident ; ils divergeraient si le Lion et
+    son allie avaient des niveaux d'ability distincts."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("PrimarchOfTheFirstLegion", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, amt) if amt is not None else None
+
+
 class SmashaEadExtraDamageEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.SmashaEadEffect$$CreateEffectDamageBonusForAttack` (orksNob "Tanksmasha", ability
     SmashaEad, EffectType "SmashaEad") : `EffectBonus.ForAddition(OwnerIsCaster & IsNormalAttack,

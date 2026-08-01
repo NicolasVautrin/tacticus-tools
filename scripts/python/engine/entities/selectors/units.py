@@ -959,3 +959,58 @@ def UnitsWithNegativeEffects(source: TargetsSelector) -> UnitsWithEffectsOfType:
     construit `UnitsWithEffectsOfTypeSelector(state, effectsDatabase, entities, 1)` -- le littéral
     `1` (categorie NEGATIVE) est ecrit par la fabrique elle-meme, lu au decompile."""
     return UnitsWithEffectsOfType(source, 1)
+
+
+class EntitiesFromPersistentDataList(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$GetPersistentDataListAsEntities(abilityOrEffect, unit,
+    key)` -> `IdunBattle.Entities.Selectors.EntitiesFromPersistentDataListSelector$$Select` -- MIRROR
+    du decompile :
+
+        holder = <selecteur `unit` @+0x30>.<slot 8 SelectSingle>(entities, UnitSelectionType 3)
+        key    = <formule `key` @+0x38>.Calculate(entities)          # !HasValue -> liste VIDE
+        list   = holder.GetComponent<PersistentDataComponent>()
+                       .TryGetPersistDataList<int>(GetPersistentDataId(abilityOrEffect@+0x18), key)
+                 ?? new List<int>()
+        foreach (id in list) {
+            e = state.GetEntity(id)
+            if (e != null && (!e.IsUnit() || MatchesUnitSelectionType(e, 3)))  result.Add(e)
+        }
+        return result
+
+    Trois traits LUS :
+      * l'ORDRE rendu est celui d'INSERTION dans la liste persistante (aucun tri intermediaire) ;
+      * une entite disparue est SILENCIEUSEMENT jetee (`GetEntity` rend null) ;
+      * le filtre `MatchesUnitSelectionType(3)` ne s'applique qu'aux ENTITES-UNITE (`IsUnit()`), le
+        reste passe tel quel. Le litteral `3` est ecrit par le `Select` lui-meme, ce n'est pas un
+        parametre de la fabrique.
+
+    Ce selecteur etait le RESIDU NOMME de #354 (« le jour ou un consommateur a besoin des ENTITES,
+    le selecteur entre ici », `runner/abilities/behaviours/persistent_data.py`). Son consommateur
+    est la formule de tri de
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PrimarchOfTheFirstLegionAbility$$CreateBehaviour`.
+
+    Le port range la liste sous la MEME cle composite `(abilityOrEffect, dataKey)` que le scalaire
+    (`PersistentDataComponent`) et lit par l'accesseur `ctx.persistent_data_list` -- absent (contexte
+    hors runner) -> liste VIDE, ce qui est la reponse du natif quand la cle n'existe pas.
+    `ctx.entity_by_id` absent -> les ids ne sont pas resolvables -> liste VIDE (meme polarite)."""
+    def __init__(self, ability_or_effect: int, unit_sel: TargetsSelector, data_key):
+        self.ability_or_effect = int(ability_or_effect)
+        self.unit_sel, self.data_key = unit_sel, data_key
+
+    def select(self, ctx):
+        fn = getattr(ctx, "persistent_data_list", None)
+        by_id = getattr(ctx, "entity_by_id", None)
+        if fn is None or by_id is None:
+            return []
+        holders = _units_of(self.unit_sel, ctx)
+        if len(holders) != 1:                       # `SelectSingle` : 0 ou plusieurs -> pas de sac
+            return []
+        key = self.data_key.evaluate(ctx) if hasattr(self.data_key, "evaluate") else self.data_key
+        if key is None:                             # `!HasValue` -> liste vide
+            return []
+        out = []
+        for eid in (fn(holders[0], (self.ability_or_effect, key)) or ()):
+            e = by_id(eid)
+            if e is not None:
+                out.append(e)
+        return out

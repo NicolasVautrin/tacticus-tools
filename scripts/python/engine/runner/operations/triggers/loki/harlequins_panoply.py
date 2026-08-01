@@ -453,7 +453,8 @@ class HarlequinsPanoplyHitInterceptor:
     L'objet est construit pour TOUT couple (attaquant, défenseur) : `register_block_made` doit tourner
     même sans porteur, sinon le compteur `+0x8c` ne refléterait plus le natif. Quand le défenseur ne
     porte pas le passif, `should_discard` retourne False sans rien allouer."""
-    __slots__ = ("state", "attacker_id", "defender_id", "_pose", "_discard", "_transfer", "events")
+    __slots__ = ("state", "attacker_id", "defender_id", "_pose", "_discard", "_transfer",
+                 "_primarch", "events")
 
     def __init__(self, state: State, attacker_id: Optional[int], defender_id: Optional[int],
                  carries_panoply: bool):
@@ -468,6 +469,11 @@ class HarlequinsPanoplyHitInterceptor:
         # defenseur), donc elle est montee inconditionnellement -- sa detection est interne.
         from .draw_fire import DrawFireTransfer
         self._transfer = DrawFireTransfer(state, attacker_id, defender_id)
+        # #418 : le SECOND declencheur de `TransferHit`. Meme point d'accroche, meme montage
+        # inconditionnel -- sa detection est interne (le porteur de `1511` est le DEFENSEUR lui-meme,
+        # cf. le gate `AreEqual(Owner, Target)` de son `CreateTrigger`).
+        from .primarch_first_legion import PrimarchTransfer
+        self._primarch = PrimarchTransfer(state, attacker_id, defender_id)
 
     def _event(self, event_id: int) -> TriggerEvent:
         """L'`AbilityEntities` des deux vecteurs natifs : `caster = actor = l'ATTAQUANT`,
@@ -498,8 +504,15 @@ class HarlequinsPanoplyHitInterceptor:
         teste dans cet ordre : `HasValue` d'abord (discard), `!HasValue` ensuite (transfert).
 
         L'appel LANCE l'attaque de transfert sur le porteur -- le natif l'execute DANS le dispatch
-        d'`On(7)`, donc AVANT le resolve du coup courant. Cf. `draw_fire.py`."""
-        return self._transfer.transfer(hit_index)
+        d'`On(7)`, donc AVANT le resolve du coup courant. Cf. `draw_fire.py`.
+
+        #418 : les DEUX declencheurs natifs de `TransferHit` sont branches ici. Le natif evalue
+        CHAQUE abonne d'`On(7)` ; le premier qui s'execute EFFACE le `Nullable<AttackHit>`, donc
+        les suivants sortent sur `!HasValue` -- un seul transfert par coup. Le port s'arrete de
+        meme au premier qui rend True. ⚠ ECART NOMME : l'ORDRE d'abonnement natif n'est pas lu, et
+        le regime qui le discriminerait (un porteur `DrawFire` adjacent a un porteur `1511` en
+        train d'etre frappe) n'est atteint par aucun montage."""
+        return self._primarch.transfer(hit_index) or self._transfer.transfer(hit_index)
 
     def finish(self) -> None:
         """Le RETRAIT du marqueur a la CLOTURE de l'attaque, mirror LOCAL du

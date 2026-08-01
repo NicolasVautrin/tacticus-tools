@@ -597,6 +597,38 @@ class IsInPersistentDataList(AbilityTrigger):
         return any(val in (fn(u, ck) or ()) for u in _units_of(self.unit, ctx))
 
 
+class Contains(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$Contains(list, elements)` ->
+    `IdunBattle.Entities.Triggers.XContainsYTrigger$$ShouldTrigger` -- MIRROR du decompile :
+
+        y = <selecteur @+0x18 `elements`>.SelectSingle(entities)   # null -> FALSE
+        xs = <selecteur @+0x10 `list`>.Select(entities)
+        foreach (x in xs) if (x.Id == y.Id) return true
+        return false
+
+    Trois traits LUS qui ne se devinent pas :
+      * `elements` passe par **SelectSingle**, pas `Select` : le second operande est un element
+        UNIQUE, et un selecteur qui rend 0 ou >1 entite ne « contient » rien -> FALSE ;
+      * la comparaison est sur l'**Id** (`get_Id`), pas sur l'identite d'objet ;
+      * l'ordre des arguments est `Contains(CONTENANT, CONTENU)` -- le champ `+0x10` est la liste.
+
+    11 proprietaires natifs (`docs/rl/dsl-usage/dsl-usage-primitives.tsv`). Premier consommateur
+    porte : la formule de tri de
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PrimarchOfTheFirstLegionAbility$$CreateBehaviour`
+    (`Contains(GetPersistentDataListAsEntities(...), It@DSLSelectors+0x68)`)."""
+    def __init__(self, list_sel: TargetsSelector, elements: TargetsSelector):
+        self.list_sel, self.elements = list_sel, elements
+
+    def should_trigger(self, ctx):
+        ys = _units_of(self.elements, ctx)
+        if len(ys) != 1:                      # `SelectSingle` : 0 ou plusieurs -> pas de verdict
+            return False
+        yid = (ys[0] or {}).get("id")
+        if yid is None:
+            return False
+        return any((x or {}).get("id") == yid for x in _units_of(self.list_sel, ctx))
+
+
 class HasUnit(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$HasUnit(tiles, mode)` : la/les TUILE(s) du selecteur portent-elles
     une unite (`GetUnitOrMachine(tile) != null`) ? Predicat TILE-domain -- consomme sous un `Filter`/
