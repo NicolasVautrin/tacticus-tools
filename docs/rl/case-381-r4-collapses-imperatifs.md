@@ -57,7 +57,7 @@ portée 2). Le dispatch fly y est inerte aussi (aucun des 5 porteurs de `Hyperse
 n'est `IsLikeFlying`). Le brancher serait un no-op non mesurable ; la garde verrouille la
 **prémisse** (`HYPERSENSORY_MOVE_RANGE == 1`), pas un comportement.
 
-## 4. `#381-r5` — la branche MOUVEMENT SPÉCIAL, découverte en confrontant
+## 4. `#381-r5` — la branche MOUVEMENT SPÉCIAL, découverte en confrontant — **FERMÉ**, `case-381-r5`
 
 `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit(unit, ignoreSpecialMovement)`,
 lu verbatim :
@@ -82,12 +82,13 @@ Le port n'a aucun des pathfinders 6..13 et **personne** ne teste ces effets — 
 `TeleportStrike_TeleportingIn` (`remaining` 2) et le natif leur rend **35 tuiles** — un pool
 board-wide, pas un disque de rayon 2 — contre **9** au port. Dégradation RESTRICTIVE, TRANSITOIRE.
 
-⚠ **Conséquence sur `#381-r2`** : son datapoint `bloodIntercessor` (natif 47 / port 27 sur
-`MC1_67`) est pris au tout début de bataille, donc **sous cet effet**. L'attribution à
-`FlyPathfinder$$AddNeighbours` est à re-mesurer après expiration avant d'y toucher.
+**Fermé le 2026-08-01** — `case-381-r5-mouvement-special.md` : dispatch porté entier au foyer
+`entities/pathfinding/pathfinders`, les huit types 6..13 sont des décorateurs au pool board-wide,
+et les quatre `IsValidTeleportTile` sont distincts. Confronté 35/35, 47/47, 37/37 sur trois boards.
+Le datapoint `bloodIntercessor` de `#381-r2` y reçoit son verdict chiffré (artefact ; le résidu
+FlyPathfinder qui subsiste vaut **1 tuile**, pas 20).
 
-Détection prête et nommée : `services/movement_query.has_special_movement` +
-`SPECIAL_MOVEMENT_EFFECT_TYPES`. Un mesureur DIT le régime au lieu de compter un désaccord.
+`services/movement_query.has_special_movement` reste le nommeur de régime pour un mesureur.
 
 ## 5. La confrontation
 
@@ -107,7 +108,6 @@ quand on désarme le gate) et `..._live.py` (2, auto-discriminantes).
 
 ## 6. Ce qui reste
 
-* **`#381-r5`** (§4) — non porté, transverse à tout le mouvement.
 * **L'occupation par MAIN TILE** dans les trois collapses (`_living_occupants_map`, l'`occupants`
   de betrayer) là où le natif lit `GetTileContent` = l'EMPREINTE. Même écart que
   `ai/state_bridge._move_tiles` ; hors périmètre `#381-r4`, non corrigé.

@@ -253,28 +253,136 @@ def get_movable_positions_from_tiles(board, tiles: Sequence[Pos],
 #:     0x40b = 1035 TeleportStrike_TeleportingIn      0x474 = 1140 StormboyzStrike_TeleportingIn
 #:     0x4d6 = 1238 FearOfTheUnseen_TeleportingIn     0x625 = 1573 TitanhammerSquad_TeleportingIn
 #:
-#: RESIDU `#381-r5`, PREEXISTANT et PARTAGE par TOUT le port du mouvement (ce foyer, le noeud DSL
-#: `MovableTilesInRange`, `ai/state_bridge._move_tiles`) : les types 6..13 sont des pathfinders
-#: DISTINCTS que le port n'a pas, et personne ne teste ces effets -- une unite en cours de drop
-#: retombe donc sur le WalkPathfinder. MESURE (`C2_26`, seed 38104, `overrideRange` 2, au tout
-#: debut de bataille) : `tyranDeathleaper` et `bloodIntercessor` portent `TeleportStrike_
-#: TeleportingIn` (`remaining` 2) et le natif leur rend **35 tuiles** la ou le port en rend 9 --
-#: soit un pool board-wide, pas un disque de rayon 2. Degradation RESTRICTIVE, et TRANSITOIRE
-#: (l'effet expire). `has_special_movement` permet a un mesureur de NOMMER ce regime plutot que
-#: de compter un desaccord.
+#: L'ordre des quatre tests est CELUI DU DECOMPILE et il est observable : une unite qui porterait
+#: deux de ces effets prendrait le pathfinder du PREMIER de cette liste.
 SPECIAL_MOVEMENT_EFFECT_TYPES = (0x40b, 0x474, 0x4d6, 0x625)
+
+#: `<effet> -> (type WALK, type FLY)` -- les huit valeurs que la branche MOUVEMENT SPECIAL rend,
+#: dans l'ordre des tests. Les types sont ceux de `entities.pathfinding.pathfinders.PathfinderType`.
+SPECIAL_MOVEMENT_PATHFINDER_TYPES = {
+    0x40b: (6, 7),        # 1035 TeleportStrike_TeleportingIn    -> TeleportStrikeWalk / Fly
+    0x474: (8, 9),        # 1140 StormboyzStrike_TeleportingIn   -> StormboyzStrikeWalk / Fly
+    0x4d6: (10, 11),      # 1238 FearOfTheUnseen_TeleportingIn   -> FearOfTheUnseenWalk / Fly
+    0x625: (12, 13),      # 1573 TitanhammerSquad_TeleportingIn  -> TitanHammerSquadWalk / Fly
+}
+
+
+def get_pathfinder_type_for_unit(has_effect, traits, ignore_special_movement: bool = False) -> int:
+    """`IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit(unit,
+    ignoreSpecialMovement)` -- MIRROR 1:1 du decompile, et le FOYER UNIQUE du dispatch :
+
+        if (!ignoreSpecialMovement) {
+            if (HasEffect(unit, state, 0x40b, 0)) return IsLikeFlying(unit) ? 7  : 6;
+            if (HasEffect(unit, state, 0x474, 0)) return IsLikeFlying(unit) ? 9  : 8;
+            if (HasEffect(unit, state, 0x4d6, 0)) return IsLikeFlying(unit) ? 11 : 10;
+            if (HasEffect(unit, state, 0x625, 0)) return IsLikeFlying(unit) ? 13 : 12;
+        }
+        return IsLikeFlying(unit) ? 3 : 0;
+
+    (la surcharge a DEUX arguments, `GetPathfinderTypeForUnit(this, unit)`, est un simple
+    `GetPathfinderTypeForUnit(this, unit, false)` -- elle n'a donc pas de mirror propre.)
+
+    ⇒ **le type de pathfinder ne depend PAS que d'`IsLikeFlying`** : quatre effets « je descends
+    du ciel » le detournent vers un `ATeleportPathfinder`, dont le pool est BOARD-WIDE. C'est le
+    residu `#381-r5`, ferme ici. MESURE avant/apres (`C2_26`, seed 38104, `overrideRange` 2, tout
+    debut de bataille) : `tyranDeathleaper` et `bloodIntercessor` portent
+    `TeleportStrike_TeleportingIn` et le natif leur rend **35** tuiles la ou le port en rendait
+    **9** -- un pool board-wide, pas un disque de rayon 2.
+
+    `has_effect(effect_type:int) -> bool` ferme sur l'unite (chaque consommateur a son propre
+    canal : `state.effects.has_effect` cote runner, `ctx.has_effect` cote DSL) ; `None` = pas de
+    canal -> aucun effet special, la branche finale. `traits` = les NOMS de trait (gameconfig),
+    lus par `UnitExtensions$$IsLikeFlying`."""
+    from ..entities.pathfinding.fly_pathfinder import is_like_flying
+    fly = 1 if is_like_flying(traits) else 0
+    if not ignore_special_movement and has_effect is not None:
+        for et in SPECIAL_MOVEMENT_EFFECT_TYPES:
+            if has_effect(int(et)):
+                return SPECIAL_MOVEMENT_PATHFINDER_TYPES[et][fly]
+    return 3 if fly else 0                      # `IsLikeFlying(unit) ? Fly : Walk`
 
 
 def has_special_movement(state, unit_id: int) -> bool:
     """L'unite est-elle dans un etat de MOUVEMENT SPECIAL (`GetPathfinderTypeForUnit`, branche
-    `!ignoreSpecialMovement`) ? Vrai => le natif utilise un pathfinder que le port n'a pas
-    (residu `#381-r5`, cf. `SPECIAL_MOVEMENT_EFFECT_TYPES`) et toute confrontation de pool sur
-    cette unite est NON CONCLUANTE, pas un desaccord."""
+    `!ignoreSpecialMovement`) ? Un mesureur s'en sert pour NOMMER le regime plutot que de compter
+    un desaccord ; depuis `#381-r5` le port SUIT ce regime au lieu de le subir."""
     eff = getattr(state, "effects", None) if state is not None else None
     if eff is None:
         return False
     return any(eff.has_effect(int(unit_id), effect_type=int(t))
                for t in SPECIAL_MOVEMENT_EFFECT_TYPES)
+
+
+def unit_has_effect_fn(state, unit_id: int):
+    """`EntityExtensions$$HasEffect(unit, state, <type>, 0)` ferme sur l'unite -- le canal que les
+    consommateurs RUNNER passent a `get_pathfinder_type_for_unit`. `state.effects` absent -> None
+    (pas de canal), et le dispatch retombe alors explicitement sur `Walk`/`Fly`."""
+    eff = getattr(state, "effects", None) if state is not None else None
+    if eff is None:
+        return None
+    uid = int(unit_id)
+    return lambda et: eff.has_effect(uid, effect_type=int(et))
+
+
+def synapse_tiles_for(state, board, moving_team) -> set | None:
+    """La BULLE SYNAPSE de l'equipe du mover -- la troisieme branche de
+    `FearOfTheUnseenPathfinder$$IsValidTeleportTile` :
+
+        <unites du player>.Any(e => HasEffect(e, state, 0x41c, 0)
+            && BattleQuery$$GetSurroundingTiles(e, 2, onlyEmptyOrSteppable: true,
+                   onlyWalkable: true, onlyMovable: false, includeCenter: true).Contains(tile))
+
+    `0x41c` = `Synapse_Effect` (1052). Le rayon est une distance HEX (`GetSurroundingTiles`), pas
+    un nombre de pas. Les deux gates `onlyEmptyOrSteppable`/`onlyWalkable` sont deja appliques en
+    amont par `FindTilesReachableByTeleport` -- on ne les rejoue pas. Aucun canal -> `None` (NON
+    MESURE), et la branche reste inerte."""
+    eff = getattr(state, "effects", None) if state is not None else None
+    if eff is None or board is None:
+        return None
+    from ..entities.effect_type import EffectType
+    from ..runner.components import OwnerComponent, PositionComponent, UnitComponent
+    want = int(EffectType.Synapse_Effect)
+    out = set()
+    for eid, e in (getattr(state, "entities", None) or {}).items():
+        uc = e.get_component(UnitComponent)
+        oc = e.get_component(OwnerComponent)
+        pc = e.get_component(PositionComponent)
+        if uc is None or not uc.alive or oc is None or pc is None:
+            continue
+        if moving_team is None or oc.team != moving_team:
+            continue
+        if not eff.has_effect(int(eid), effect_type=want):
+            continue
+        for tid in board.by_id:
+            c, r = board.coord(int(tid))
+            if hexgeo.distance((c, r), (pc.col, pc.row)) <= 2:
+                out.add(int(tid))
+    return out
+
+
+def titanhammer_target_tiles_for(state, board, moving_team) -> set | None:
+    """Les tuiles portant `TitanhammerSquad_TargetTile` (1571) posees par un ALLIE du mover --
+    le seul substrat que reclame `TitanhammerSquadPathfinder$$IsValidTeleportTile` (cf.
+    `pathfinders.titanhammer_target_tiles`). `state.effects` keye les effets de tuile par tile-id
+    (case-35) ; l'appartenance de la SOURCE a l'equipe du mover se lit sur l'entite source.
+    Aucun canal -> `None` (NON MESURE), et le pool de teleport Titanhammer reste vide."""
+    eff = getattr(state, "effects", None) if state is not None else None
+    if eff is None or board is None:
+        return None
+    from ..entities.effect_type import EffectType
+    from ..runner.components import OwnerComponent
+    want = int(EffectType.TitanhammerSquad_TargetTile)
+    out = set()
+    for tid in board.by_id:
+        for e in eff.by_unit.get(int(tid), []):
+            if e.consumed or int(getattr(e, "effect_type", -1)) != want:
+                continue
+            src = state.get_entity(int(getattr(e, "source", 0) or 0))
+            oc = src.get_component(OwnerComponent) if src is not None else None
+            if oc is not None and moving_team is not None and oc.team == moving_team:
+                out.add(int(tid))
+                break
+    return out
 
 
 def get_movable_tiles_for(board, state, unit_id: int, from_tile: int, override_range: int,
@@ -293,10 +401,11 @@ def get_movable_tiles_for(board, state, unit_id: int, from_tile: int, override_r
     DEUX etages que les collapses impératifs oubliaient (residu `#381-r4`, ferme ici), et que le
     noeud DSL homonyme (`entities/selectors/tiles.MovableTilesInRange`) porte depuis `#381-r1` :
 
-      1. `MovementQuery$$GetPathfinderTypeForUnit` -> `UnitExtensions$$IsLikeFlying` : un volant
-         prend le `FlyPathfinder` (traverse tout, ignore l'elevation). ⚠ SEULE la branche finale
-         de ce slot est portee ; sa branche MOUVEMENT SPECIAL ne l'est pas -- cf.
-         `SPECIAL_MOVEMENT_EFFECT_TYPES` / `has_special_movement` (residu `#381-r5`) ;
+      1. `MovementQuery$$GetPathfinderTypeForUnit` : un volant prend le `FlyPathfinder` (traverse
+         tout, ignore l'elevation) -- et, depuis `#381-r5`, sa branche MOUVEMENT SPECIAL est
+         portee elle aussi (quatre effets -> un `ATeleportPathfinder` au pool board-wide). Le
+         dispatch ENTIER vit dans `entities.pathfinding.pathfinders.movable_positions_for_unit`,
+         partage par les trois consommateurs ;
       2. le gate d'EXPANSION `BasePathfinder$$NodesInNextLevel` -> `IsValidContinuePathTile`
          (#131) : une tuile block-entering (Swamp/Fire/Ice/...) reste un STOP legal mais devient
          un CUL-DE-SAC. `board=` est OBLIGATOIRE (repli TERRAIN de `make_can_continue`) : la
@@ -311,19 +420,19 @@ def get_movable_tiles_for(board, state, unit_id: int, from_tile: int, override_r
     `UnitFlagsComponent$$Has(unitFlags, 1)` (#381, aucun substrat), `IsTileReserved` /
     `IsTilePendingDrafting` / `IsTemporary`, le trait `Steppable` d'`IsFreeTile`, et l'occupation
     par EMPREINTE (les appelants passent une occupation par MAIN TILE, comme `_move_tiles`)."""
-    from ..entities.pathfinding.fly_pathfinder import is_like_flying
-    from ..entities.pathfinding.fly_pathfinder import get_movable_positions as _fly
+    from ..entities.pathfinding.pathfinders import movable_positions_for_unit
     from ..entities.pathfinding.tile_blocking import make_can_continue
-    from ..entities.pathfinding.walk_pathfinder import get_movable_positions as _walk
     from ..runner.components import StatsComponent
     e = state.get_entity(int(unit_id)) if state is not None else None
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None)
               else None) or []
-    mv = _fly if is_like_flying(traits) else _walk
     cc = make_can_continue(getattr(state, "effects", None), traits, board=board)
-    _visited, stop = mv(board, int(from_tile), int(override_range), occupants, moving_team,
-                        can_continue=cc)
+    _visited, stop = movable_positions_for_unit(
+        board, int(from_tile), int(override_range), occupants, moving_team,
+        traits=traits, has_effect=unit_has_effect_fn(state, unit_id), can_continue=cc,
+        teleport_target_tiles=titanhammer_target_tiles_for(state, board, moving_team),
+        synapse_tiles=synapse_tiles_for(state, board, moving_team))
     return stop
 
 
