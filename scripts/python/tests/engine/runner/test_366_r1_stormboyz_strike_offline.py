@@ -23,7 +23,7 @@ CE QU'ELLE PROTEGE, et pourquoi chaque bloc peut regresser SILENCIEUSEMENT :
 
 Confrontation LIVE (4 montages, greffe du passif, pool de teleport) :
 `python scripts/python/probe_366_r1_stormboyz_strike.py`.
-RE : `docs/rl/case-366-r1-tunneling-horror-pending-summon.md` §6. ASCII only. Aucune VA en dur.
+RE : `docs/rl/case-366-r1-tunneling-horror-pending-summon.md` §7. ASCII only. Aucune VA en dur.
 """
 from __future__ import annotations
 

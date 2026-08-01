@@ -24,7 +24,7 @@ que sa PORTE pytest. Ce que `run()` fait, par cas :
 ⚠ Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268). Seule l'indisponibilite du
 HARNAIS (pas de session Frida) skippe, et c'est `live_session` qui la porte.
 
-RE : `docs/rl/case-366-r1-tunneling-horror-pending-summon.md` §6. ASCII only. Aucune VA en dur.
+RE : `docs/rl/case-366-r1-tunneling-horror-pending-summon.md` §7. ASCII only. Aucune VA en dur.
 """
 from __future__ import annotations
 

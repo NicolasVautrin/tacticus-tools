@@ -89,7 +89,7 @@ CE QUI N'EST PAS DANS CETTE TRANCHE (residus NOMMES, chacun un artefact natif DI
 * `IdunBattle.Entities.Pathfinding.StormboyzStrikePathfinder$$IsValidTeleportTile` (vslot 11) --
   le pool de teleport que 1140 declenche (`MovementQuery$$GetPathfinderTypeForUnit` -> types 8/9),
   porte en HYPOTHESE `True` dans `entities/pathfinding/teleport_pathfinder.py`. CONFRONTE ici :
-  cf. `probe_366_r1_stormboyz_strike.py` volet E2 et `docs/rl/case-366-r1-tunneling-horror-pending-summon.md` §6.
+  cf. `probe_366_r1_stormboyz_strike.py` volet E2 et `docs/rl/case-366-r1-tunneling-horror-pending-summon.md` §7.
 
 PORTEUR / CONFRONTABILITE : `unit_map.py find --ability StormboyzStrike` -> UNE unite,
 `orksNpc6Stormboy` (bucket **npc**, trait `Flying`), voie `passive`. Ni pool ni summoner ->

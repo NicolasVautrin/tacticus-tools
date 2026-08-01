@@ -105,7 +105,7 @@ Walk`). Le test `C1_74` est la garde de la lecture d'adjacence NATIVE.
   configurations confrontées.
 * ~~`StormboyzStrike` NON CONFRONTÉ~~ → **CONFRONTÉ le 2026-08-01** par #366-r1 3/3 : le passif se
   GREFFE sur une unité du pool (`catalog_inject.graft_passive_ability`), ce qui la met hors plateau
-  sous 1140 dès l'init. `probe_366_r1_stormboyz_strike.py`, §6 de
+  sous 1140 dès l'init. `probe_366_r1_stormboyz_strike.py`, §7 de
   `case-366-r1-tunneling-horror-pending-summon.md`.
   **`TitanhammerSquad` NON CONFRONTÉ** (seul porteur `astarLysander`, lineup hors pool du seed —
   injectable, `case-92` §6) ; la 3ᵉ branche de `FearOfTheUnseen` (bulle Synapse) est portée mais
