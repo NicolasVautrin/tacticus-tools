@@ -36,6 +36,7 @@ from .loki import (
     SereneUnifierStormOfFireEffect,
     UnbreakableDutyHealthEffect,
     UnbreakableDutyDamageEffect,
+    ShockAssaultBuffEffect,
     VexillaMagnificaDmgReductionEffect,
     StunnedDamageModifierEffect,
     BigTargetAdjacentEffect,
@@ -462,6 +463,19 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # retrait apparait). Cf. `entities/effects/loki/unbreakable_duty.py`.
     "UnbreakableDuty_Health": UnbreakableDutyHealthEffect,
     "UnbreakableDuty_Damage": UnbreakableDutyDamageEffect,
+    # ShockAssault_Buff (0x3e8 = 1000, #366-r1) -- le « +Damage for this attack » que le PASSIF
+    # `ShockAssault` d'`ultraInceptorSgt` pose sur ses Inceptors avant de les faire attaquer
+    # (`ShockAssaultAbility$$CreateBehaviour` = `AddStaticStatModifierEffect(<Inceptors amis
+    # adjacents>, 0x3e8, stat = 0 ATTACK, Get(ConfigVar(8 = extraDmg)), turns = NULL, hidden)`).
+    # Classe native DEDIEE (`...Loki.ShockAssaultBuffEffect : StaticStatModifierEffect`) -- identite
+    # tranchee au slot `Il2CppClass*` de la fabrique `<>c$$<InitializeEffects>b__14_26`, dont c'est
+    # l'UNIQUE xref : le ctor FONDU (Ghidra le nomme `SwarmHitReductionEffect$$.ctor`) ne fait donc
+    # PAS une classe commune. Son seul membre propre est `$$CreateRemoveEffectTrigger` = `On(0xa =
+    # AttackDamageAttack) & OwnerIsCaster`, porte cote runner
+    # (`runner/operations/triggers/loki/shock_assault.py`) : sans lui le buff serait PERMANENT
+    # (`turns = NULL`) la ou le natif le borne a l'attaque en cours.
+    # Cf. `entities/effects/loki/shock_assault.py` et `docs/rl/case-366-r1-shock-assault-buff.md`.
+    "ShockAssault_Buff": ShockAssaultBuffEffect,
     "ActOfFaith_Effect": ActOfFaithBuffEffect,  # buff crit empilable (1017) — stack seedé = cc/cd_delta 0
     # « Thrilled » (1434, trait ThrillSeekers) : StaticStatModifierEffect CRIT_CHANCE +extraCritChance,
     # a TIMER (TurnsFromRounds(nrOfRounds)). Le declarer ici = l'attribution du seed pose sa
@@ -1102,11 +1116,18 @@ class EffectFactory:
         # atterrirait `active=True` et `EffectsState.active_effects` le laisserait contribuer —
         # exactement le ×0.70 fantôme que #208 a fermé.
         active = captured.get("active")
+        # `StatModifierComponent` de l'entite-effet, publie champ par champ sous ses NOMS NATIFS
+        # (`{StatType, Amount, ApplyCounter, IsDynamic, IsHidden}`) : c'est la magnitude que le natif
+        # RELIT (`StaticStatModifierEffect$$GetStatModificationAmount` = `+0x14`), donc la seule
+        # exacte pour un buff CROSS-UNITE dont `source` designe le porteur. Cf. `BaseEffect.stat_mod`
+        # / `captured_stat_mod_amount`. Absent -> None, la classe retombe sur sa derivation.
+        sm = captured.get("statMod")
         return klass(
             name=name, effect_type=captured.get("effectType"), level=captured.get("level"),
             ability_level=ability_level, active_ability_level=active_ability_level,
             remaining_turns=remaining_turns, source=captured.get("source"),
             active=(True if active is None else bool(active)),
+            stat_mod=(sm if isinstance(sm, Mapping) else None),
             ability_variables_multiplier=ability_variables_multiplier)
 
     @classmethod
