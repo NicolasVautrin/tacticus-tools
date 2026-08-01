@@ -348,5 +348,6 @@ contre-epreuve, VERT est le resultat suspect) :
 | ancre `final_justice.py:FinalJusticeAbility` deplacee | attestation devenue MORTE | `rc 1`, cliquet nomme, 2 tests, `ancre ... introuvable` |
 
 Arbre bit-exact apres coup (sha256 du TSV identique a l'etat pre-epreuve, `git diff` vide), banque
-re-jouee **verte 21/21**, mur **81,1 s** dont **31,6 s** pour cette entree -- cout marginal nul.
-⚠ Chiffres a re-deriver, pas a citer.
+re-jouee **verte 21/21** -- y compris APRES rebase sur le `probe_283` reecrit par #434 : mur
+**86,2 s** dont **32,4 s** pour cette entree, cout marginal nul. ⚠ Chiffres a re-deriver, pas a
+citer.

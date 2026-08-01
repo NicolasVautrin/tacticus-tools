@@ -153,8 +153,9 @@ contre-épreuve, VERT est le résultat suspect.
 | ligne d'attestation `WasBlock` retirée | `rc 1`, `pytest_attestations` nommé, `primitives DSLTriggers encore non tranchees : ['WasBlock']` |
 | ancre `final_justice.py:FinalJusticeAbility` déplacée | `rc 1`, **2** tests, `ancre ... introuvable` |
 
-Coût : **31,6 s** en parallèle sous un mur de **81,1 s** (tenu par `probe_319`) — marginal nul.
-Banque re-jouée **verte, 21/21**. ⚠ Chiffres à re-dériver, pas à citer.
+Coût : **32,4 s** en parallèle sous un mur de **86,2 s** (tenu par `probe_319`) — marginal nul.
+Banque **verte 21/21**, chiffres du **re-jeu APRÈS rebase** sur le `probe_283` réécrit par #434.
+⚠ Chiffres à re-dériver, pas à citer.
 
 ## 9. Fichiers
 
