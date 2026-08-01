@@ -139,6 +139,7 @@ def run(sid, rid, carrier, ability, max_steps, max_arm=6):
     from engine.ai import context as _ai_ctx
     from engine.playbook import scene as _scene
     from engine.playbook.adjacent_unit_preference import load_playbook
+    from engine.utilities.utility_type import UtilityType
     import hexgeo
 
     # --- avance jusqu'au 1er pas ou le PORTEUR est active ET son terme VARIE --
@@ -231,7 +232,16 @@ def run(sid, rid, carrier, ability, max_steps, max_arm=6):
         vt, ve, vf = _one(tt, t), _one(el, t), _one(te, t, 0.0)
         leaves, leaf_ctx = _port_leaves(ctx, t)
         p_tot = sum(leaves.values())
-        p_x = p_tot - leaves.get(8, 0.0) - leaves.get(9, 0.0)      # 8=Elevation 10=TileEffects
+        # `X_port` doit retrancher EXACTEMENT les deux feuilles que `X_natif` retranche
+        # (`Elevation` et `TileEffects`), sinon les deux membres de la comparaison ne portent pas
+        # la meme somme. Cles = MEMBRES `UtilityType`, jamais des litteraux (#254) : ce site
+        # portait `8` et `9`, l'ancienne numerotation de `gqfc5mff6c`. Depuis l'insertion
+        # d'`AttackTile` en 8 (#252, `Elevation` 8->9 et `TileEffects` 9->10), il retranchait une
+        # feuille INEXISTANTE (`AttackTile`, absente de `TILE_LEAVES` -> `0.0`) et ne retranchait
+        # JAMAIS `TileEffects` -- ecart silencieux, nul tant qu'aucune tuile ne porte d'effet.
+        p_x = (p_tot
+               - leaves.get(int(UtilityType.Elevation), 0.0)
+               - leaves.get(int(UtilityType.TileEffects), 0.0))
         term = pb.calculate_movement_utility_in_steps(t, leaf_ctx, wt)
         x = (vt - ve - vf) if None not in (vt, ve, vf) else None
         d = (x - p_x) if x is not None else None
