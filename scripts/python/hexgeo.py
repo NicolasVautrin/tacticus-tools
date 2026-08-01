@@ -79,7 +79,15 @@ def ring(col: int, row: int, radius: int) -> list[Coord]:
     return [t for t in disk(col, row, radius) if distance((col, row), t) == radius]
 
 
-def _cube_round(x: float, y: float, z: float) -> tuple[int, int, int]:
+def cube_round(x: float, y: float, z: float) -> tuple[int, int, int]:
+    """`IdunBattle.Core.Services.MovementUtil$$RoundFloatCubeCoordinates` — arrondi cube classique :
+    on arrondit les trois composantes, puis on RECALCULE celle dont l'ecart d'arrondi est le plus
+    grand, pour restaurer `x + y + z == 0`. Le natif arrondit en `Fix64.Round` (au plus proche,
+    ties-to-even), exactement comme le `round()` de Python.
+
+    Public depuis #444 : `services.movement_query.draw_line_between_coordinates` (mirror de
+    `MovementUtil$$DrawLineBetweenCoordinates`) en a besoin, et un second corps d'arrondi serait une
+    seconde verite."""
     rx, ry, rz = round(x), round(y), round(z)
     dx, dy, dz = abs(rx - x), abs(ry - y), abs(rz - z)
     if dx > dy and dx > dz:
@@ -89,6 +97,9 @@ def _cube_round(x: float, y: float, z: float) -> tuple[int, int, int]:
     else:
         rz = -rx - ry
     return int(rx), int(ry), int(rz)
+
+
+_cube_round = cube_round        # nom historique, conserve pour les appelants internes
 
 
 def line(a: Coord, b: Coord) -> list[Coord]:
