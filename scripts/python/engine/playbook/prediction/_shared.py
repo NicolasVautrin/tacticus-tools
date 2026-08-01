@@ -539,7 +539,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                      if uid != tgt_id and (scene.hp(uid) or 0) > 0]
     for _eb in aura_defense_damage_malus_from_units(
             _def_carriers, {"tgt_id": tgt_id, "t_pos": t_pos, "tgt_team": scene.team(tgt_id),
-                            "tgt_traits": _tgt_traits_names, "damage_profile": damage_profile}):
+                            "tgt_traits": _tgt_traits_names, "damage_profile": damage_profile,
+                            # #366-r1 (`PsychicStalk_ExtraAttackDamage`) : le gate du trigger porte
+                            # sur le CASTER (`IsUnit(caster@0x160)`) et sur la TUILE de la cible
+                            # (`EntitiesWithAnyEffect(Tiles(Target@0x178), Fire)`), pas sur le
+                            # porteur de l'effet. MEMES cles, MEME semantique que la face COMBAT
+                            # (`damage_model.defender_modifiers`) -- pas de fork.
+                            "att_id": att_id, "att_is_unit": att_ctx.get("is_unit"),
+                            "tile_effects_by_pos": scene.tile_effects_by_pos}):
         add_modifier(mods, _eb)
 
 

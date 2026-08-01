@@ -479,8 +479,12 @@ def aura_defense_damage_malus_from_units(carriers, ctx) -> list:
     ForPrediction` IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction (cf. case-68) pour les effets dont le TargetSelector projette HORS du
     porteur. Ex. `DaughterOfTheAbyss_FriendlyDmgReductionPctEffect` IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_FriendlyDmgReductionPctEffect$$CreateEffectDamageMalusForDefense (-dmgReductionPct%
     Psychic aux amis rayon 2, #184) ; `DaughterOfTheAbyss_ExtraDamagePctEffect` IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack (+extraDmgPct%
-    aux Psykers ennemis rayon 2). `carriers` = itérable (owner_id, owner_pos, owner_team, effets du
-    porteur) ; `ctx` = {tgt_id, t_pos, tgt_team, tgt_traits, damage_profile}. Renvoie une liste
+    aux Psykers ennemis rayon 2) ; `PsychicStalk_ExtraAttackDamageEffect` IdunBattle.Entities.Effects.Loki.PsychicStalk_ExtraAttackDamageEffect$$CreateEffectDamageMalusForDefense
+    (+extraDmgPct% aux ENNEMIS d'Ahriman sur un hex en feu, #366-r1 — SANS `CreateTargetSelector` :
+    tout le ciblage vit dans le trigger, ce que cette boucle state-wide sait servir aussi).
+    `carriers` = itérable (owner_id, owner_pos, owner_team, effets du
+    porteur) ; `ctx` = {tgt_id, t_pos, tgt_team, tgt_traits, damage_profile, att_id, att_is_unit,
+    tile_effects_by_pos}. Renvoie une liste
     d'`EffectBonus` à intégrer aux modifiers du coup via `add_modifier`. SYMÉTRIQUE défenseur de
     `aura_attack_damage_malus_from_enemies` (chaque carrier = tuple [0]=id, [1]=pos, [2]=team, [-1]=effets)."""
     out = []

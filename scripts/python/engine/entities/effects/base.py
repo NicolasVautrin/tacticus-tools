@@ -462,8 +462,16 @@ class BaseEffect:
         dans le rayon 2 d'Atlacoya (#184). La même boucle sert aussi les effets qui AUGMENTENT le dégât reçu
         par les ENNEMIS du porteur à portée (ex. `DaughterOfTheAbyss_ExtraDamagePctEffect` IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack :
         +extraDmgPct% aux Psykers ennemis, selector IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_ExtraDamagePctEffect$$CreateTargetSelector `SurroundingEnemies+UnitsWithTrait(0x3ea)`).
-        `ctx` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, tgt_traits, damage_profile} fourni par
-        l'agrégateur `aura_defense_damage_malus_from_units`. Défaut None = pas d'aura."""
+        `ctx` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, tgt_traits, damage_profile, att_id,
+        att_is_unit, tile_effects_by_pos} fourni par l'agrégateur
+        `aura_defense_damage_malus_from_units`. Défaut None = pas d'aura.
+
+        Les TROIS dernières clés sont arrivées avec `PsychicStalk_ExtraAttackDamage` (#366-r1), dont
+        le trigger ne porte NI sur le porteur NI sur un `CreateTargetSelector` : `IsUnit(caster@0x160)`
+        lit l'ATTAQUANT (`att_is_unit`, même clé/sémantique que l'`attacker_ctx["is_unit"]` du canal
+        défenseur non-aura), et `EntitiesWithAnyEffect(Tiles(Target@0x178), Fire)` lit les effets
+        portés par la TUILE de la cible (`tile_effects_by_pos` = `{(col,row): [noms]}`, même forme
+        que le canal déjà monté pour `LetTheGalaxyBurnEffect`). Absentes -> le gate se tait."""
         return None
 
     def create_effect_crit_chance_bonus_for_attack(self, att_ctx: Mapping | None = None) -> int | None:
