@@ -20,11 +20,18 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from build_pin import archived_build  # noqa: E402  (#431 : un hash de reference CONTROLE)
+from symbols_layout import current_build  # noqa: E402
+
 SYMBOLS = ROOT / "data" / "symbols"
 SEED_BC = ROOT / "data" / "seed-bc.json"
 
-OLD = "gqfc5mff6c"
-NEW = "rnca9r7q6c"
+# Les DEUX builds sont le SUJET de ce probe -- c'est un diff de migration. `OLD` reste donc
+# un litteral, mais CONTROLE : si son archive disparait, on le DIT au lieu de comparer a
+# rien. `NEW` suit `data/symbols/CURRENT` (il n'a aucune raison d'etre transcrit).
+OLD = archived_build("gqfc5mff6c", "build de DEPART du diff de migration #254")
+NEW = current_build()
 
 ENUMS = ("IdunBattle.Entities.Enum.ActiveAbilityType",
          "IdunBattle.Entities.Enum.TriggeredAbilityType")

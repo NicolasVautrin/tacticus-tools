@@ -28,6 +28,8 @@ from pathlib import Path
 
 HOST = "http://127.0.0.1:8765"
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from symbols_layout import current_build  # noqa: E402  (#431 : jamais un hash en dur)
 VTABLE_START = 0x138
 VTABLE_SLOT = 0x10
 VTABLE_MAX_SLOTS = 96
@@ -72,7 +74,8 @@ def owners(build: str) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--build", default="rnca9r7q6c")
+    ap.add_argument("--build", default=current_build(),   # #431 : jamais un hash en dur
+                    help="build dont la table de symboles fait foi (defaut : CURRENT)")
     ap.add_argument("--ns", default="IdunBattle.AI.Playbook.Loki")
     ap.add_argument("--cls", action="append", default=[])
     args = ap.parse_args()

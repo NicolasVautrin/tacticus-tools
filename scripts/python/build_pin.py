@@ -58,18 +58,21 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO / "scripts" / "python") not in sys.path:
     sys.path.insert(0, str(REPO / "scripts" / "python"))
 
-from il2cpp_provenance import ProvenanceError, installed_builds  # noqa: E402
+from il2cpp_provenance import installed_builds  # noqa: E402
 from symbols_layout import LayoutError, build_dir, current_build  # noqa: E402
 
 __all__ = [
     "BuildPinRefused",
     "SymbolIndex",
+    "archived_build",
     "functions_tsv",
     "game_dll",
     "install_dir",
     "installed_build",
+    "load_dll",
     "pe_sections",
     "require_pinned",
+    "va_to_file_offset",
     "versioned_build",
 ]
 
@@ -158,20 +161,54 @@ def functions_tsv(build: str | None = None) -> Path:
     return p
 
 
-def install_dir() -> Path:
+def install_dir(strict: bool = True) -> Path | None:
     """Racine d'installation du jeu (bundles, StreamingAssets, binaire).
 
     `TACTICUS_INSTALL` reste l'echappatoire (installation deplacee, copie d'archive) ;
     a defaut, c'est le build INSTALLE -- jamais un hash ecrit en dur, qui devient un
     repertoire inexistant a la premiere mise a jour du jeu.
+
+    `strict=False` rend `None` au lieu de lever, pour les outils qui ont un REPLI legitime
+    (`build_asset_manifest` retombe sur un pull d'assets). `None` doit alors etre traite
+    comme tel : c'est « pas d'installation », pas « installation vide ».
     """
     env = os.environ.get("TACTICUS_INSTALL")
     if env:
         return Path(env)
-    return Path.home() / "AppData" / "Local" / "tacticus" / "games" / installed_build()
+    try:
+        return Path.home() / "AppData" / "Local" / "tacticus" / "games" / installed_build()
+    except BuildPinRefused:
+        if strict:
+            raise
+        return None
 
 
 # ----------------------------------------------------------- valeurs TRANSCRITES A LA MAIN
+
+
+def archived_build(name: str, what: str) -> str:
+    """Un build de REFERENCE, DELIBEREMENT anterieur (diff inter-build, migration).
+
+    Ce n'est pas la meme demande que `require_pinned` : ici on veut EXPRESSEMENT un autre
+    build que l'installe -- c'est le sens meme d'un diff. Ce qu'on verifie, c'est que sa
+    table est encore VERSIONNEE : sans elle, l'outil ne compare a rien et son « aucune
+    difference » se lit comme un resultat.
+
+    Le litteral reste ecrit a la main, et c'est correct : un build de reference est une
+    donnee du CAS, pas de la machine. Ce qui change, c'est qu'il est desormais CONTROLE --
+    et c'est ce qui le distingue, pour le cliquet `probe_431`, d'un chemin perime.
+    """
+    p = REPO / "data" / "symbols" / name
+    if p.is_dir():
+        return name
+    dispo = sorted(d.name for d in (REPO / "data" / "symbols").iterdir() if d.is_dir())
+    raise BuildPinRefused(
+        "NON MESURE : le build de REFERENCE '%s' n'est plus versionne.\n"
+        "  a quoi il sert ici : %s\n"
+        "  builds versionnes  : %s\n"
+        "  Les archives sont conservees EXPRES (leur diff EST le rapport de changement du\n"
+        "  jeu). Si celle-ci a ete supprimee, la comparaison n'a plus de reference -- on le\n"
+        "  DIT, on ne rend pas un diff vide." % (name, what, ", ".join(dispo) or "aucun"))
 
 
 def require_pinned(pinned_build: str, what: str, how: str = "") -> str:

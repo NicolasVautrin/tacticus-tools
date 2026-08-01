@@ -36,11 +36,26 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from build_pin import BuildPinRefused, require_pinned  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-BUILD_HASH = "gqfc5mff6c"          # hash pour lequel les RVA de scorer-damage-trace sont valides
+
+
+def _exiger_build_des_rva() -> None:
+    """Refuse si les RVA en dur du hook ne valent pas pour le build INSTALLE.
+
+    Le hash est TRANSCRIT depuis `frida/hooks/features/scorer-damage-trace.ts`
+    (`installRvaHooks`) : il ne se derive d'aucun artefact du depot, il est donc declare ICI
+    et confronte par le foyer (#431). Il valait `gqfc5mff6c` alors que #257 avait deja migre
+    les RVA du hook vers `rnca9r7q6c` -- le probe REFUSAIT de tourner sur un build ou tout
+    etait bon, et un refus FAUX se lit exactement comme un refus legitime.
+    """
+    require_pinned("rnca9r7q6c",
+                   "les RVA en dur de scorer-damage-trace (installRvaHooks)",
+                   "rafraichir les RVA_* et LEAF_HOOKS_VA du hook depuis le dump du nouveau "
+                   "build, PUIS mettre ce hash a jour")
 
 
 def _r(sid, m, b, t=90):
@@ -276,10 +291,10 @@ def main():
     ap.add_argument("--step", type=int, default=14)
     ap.add_argument("--extra", nargs=argparse.REMAINDER, default=[])
     args = ap.parse_args()
-    games = Path("C:/Users/nicolasv/AppData/Local/tacticus/games")
-    hashes = [p.name for p in games.iterdir()] if games.exists() else []
-    if BUILD_HASH not in hashes:
-        print(f"REFUS : hooks RVA valides pour {BUILD_HASH}, builds presents = {hashes}")
+    try:
+        _exiger_build_des_rva()
+    except BuildPinRefused as exc:
+        print(str(exc))
         return 2
     sid = _resolve_session()
     if args.runner is not None:

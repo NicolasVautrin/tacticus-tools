@@ -51,6 +51,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SYMBOLS_DIR = REPO / "data" / "symbols"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from symbols_layout import current_build  # noqa: E402  (#431 : jamais un hash en dur)
 
 VA_RE = re.compile(r"(?<![0-9a-fA-Fx])(?:0x|@)(18[0-9a-fA-F]{7})(?![0-9a-fA-F])")
 # Identifiant .NET tel qu'il apparait dans nos citations : `Type.Sous.Methode`,
@@ -216,7 +218,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("roots", nargs="+")
-    ap.add_argument("--build", default="gqfc5mff6c")
+    # Le defaut etait `gqfc5mff6c` EN DUR : la migration aurait resolu les VA dans la table
+    # d'un build desinstalle, donc produit des citations `<symbole>` propres et FAUSSES.
+    ap.add_argument("--build", default=None,
+                    help="build dont la table fait foi (defaut : data/symbols/CURRENT). "
+                         "Pour migrer des VA ECRITES contre un build anterieur, nommer CE "
+                         "build-la -- la table du courant leur donnerait un autre symbole.")
     ap.add_argument("--ext", default=".py,.md,.ts")
     ap.add_argument("--exclude", default=".claude/worktrees,docs/rl/solving-playbook.md",
                     help="fragments de chemin a ignorer (virgules)")
@@ -224,7 +231,7 @@ def main() -> int:
     ap.add_argument("--sample", type=int, default=0, help="affiche N reecritures d'exemple")
     args = ap.parse_args()
 
-    table = Table(args.build)
+    table = Table(args.build or current_build())
     exts = tuple(args.ext.split(","))
     excl = [e.replace("/", "\\") for e in args.exclude.split(",") if e]
 

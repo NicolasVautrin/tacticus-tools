@@ -12,20 +12,19 @@ Outputs JSON to stdout (pretty-printed) — pipe to a file or | jq.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
 import UnityPy
 
+import build_pin
+
 UnityPy.config.FALLBACK_UNITY_VERSION = "6000.3.8f1"
 
-DEFAULT_INSTALL = Path(
-    os.environ.get(
-        "TACTICUS_INSTALL",
-        os.path.expanduser("~/AppData/Local/tacticus/games/nb3o9lmt6c"),
-    )
-)
+# Racine d'installation : le build INSTALLE (`TACTICUS_INSTALL` reste l'echappatoire).
+# Le defaut etait `nb3o9lmt6c`, desinstalle depuis -- `BOARDS_DIR` n'existait donc pas et
+# `find_bundle` rendait `None` pour TOUS les boards, en silence (#431).
+DEFAULT_INSTALL = build_pin.install_dir()
 BOARDS_DIR = DEFAULT_INSTALL / "Tacticus_Data" / "StreamingAssets" / "Bundles" / "boards"
 
 
