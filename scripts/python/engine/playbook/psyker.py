@@ -199,6 +199,7 @@ from .lakrimae import LakrimaePlaybook                          # #419 (registre
 from .barbed_ovipositor import BarbedOvipositorPlaybook         # #438 (registre, cf. module dedie)
 from .neuroparasite import NeuroparasitePlaybook                # #441 (registre, cf. module dedie)
 from .savior_protocols import SaviorProtocolsPlaybook           # #443 (registre, cf. module dedie)
+from .boltstorm import BoltstormPlaybook                        # #446 (registre, cf. module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -241,6 +242,16 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # `onlyActive: true` au call-site de `EntityExtensions$$HasEffect` -- l'INVERSE de
     # SuppressiveFire (qui passe 0) : substrat `active_effects`, pas `has_effect`.
     int(TriggeredAbilityType.SaviorProtocols): SaviorProtocolsPlaybook(),
+    # #446 : Boltstorm (1090, passif de `templAggressor` + 4 npc `templBossAggressor*`) --
+    # `BOLTSTORM_AdjacentEnemies` (10) MULTIPLIE par le cardinal de
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BoltstormAbility$$GetAllTargets`, 0 quand le
+    # caster n'a pas d'arme a distance (`BattleQuery.FindRangedWeapon(caster) == null`). Corps
+    # IdunBattle.AI.Playbook.Loki.BoltstormPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext.
+    # PREMIER playbook attack porte dont la sortie est un PRODUIT poids x CARDINAL (les autres sont
+    # des termes plats) -- et dont le cardinal COMPTE LA CIBLE elle-meme (`op_Addition` avec
+    # `Target@0x60`), donc toute cible vaut deja 10. Il n'a besoin ni du canal `prediction` (#438) ni
+    # de la tuile d'attaque : la struct `AbilityEntities` du corps natif ne porte pas `CasterTile`.
+    int(TriggeredAbilityType.Boltstorm): BoltstormPlaybook(),
 }
 
 
