@@ -105,6 +105,8 @@ from ..loki.harlequins_panoply import (HarlequinsPanoplyIgnoreHitsRemove,  # cas
                                        HARLEQUINS_PANOPLY_IGNORE_HITS)
 from ..loki.until_of_end_turn import (HatefulAssaultAlreadyAttackedRemove,
                                       HATEFUL_ASSAULT_ALREADY_ATTACKED)
+from ..loki.ramming_speed import (RammingSpeedExtraExplodeRemove,          # case-389-r1 (1098)
+                                  RAMMING_SPEED_EXTRA_EXPLODE)
 from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
                                         EarlyWarningOverrideHitReductionPurge,
                                         EWO_REACTIVATE_OVERWATCH)
@@ -596,6 +598,17 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `AddEffect` avec `turns` vide) et HatefulAssault cesserait a jamais de frapper une unite deja
     # touchee une fois : regression PERMISSIVE-INVERSE et SILENCIEUSE. Cf. loki/until_of_end_turn.py.
     HATEFUL_ASSAULT_ALREADY_ATTACKED: [HatefulAssaultAlreadyAttackedRemove],   # 1175 -> retrait On(0x17)
+    # 1098 RammingSpeed_ExtraExplode (case-389-r1, pose sur le CASTER par `RammingSpeedAbility$$
+    # ExecuteBehaviour`). Le natif le POSE et le RETIRE dans le MEME `applyAction` : son
+    # `CreateTargetTrigger` est `On(0x3a = PhaseEnd, ownerNeedsToBeAlive: false)` -- un `On(...)` NU --
+    # et son `CreateTargetTriggerBehaviour` est `BaseEffect$$GetRemoveEffectBehaviour` =
+    # `RemoveEffect(Effect@0x38)`. La borne `PhaseEnd` est la cloture du message top-level
+    # (`InputMessageProcessor$$RunPhase(..., isInternalPhase: false)` -> `OperationProcessor$$EndPhase`
+    # -> `EndPhaseOperation$$Execute`), portee par `dispatch/phase.py` en sortie de `Runner.apply`.
+    # SANS cette entree l'effet est PERMANENT (options `AddEffect` ZERO -> `remaining = 0`) et le
+    # porteur garderait A VIE le `+extraDmgPct` de sa nova `Explodes` -- regression SILENCIEUSE, et
+    # INERTE sur tout scenario ou 1098 n'est lu que PENDANT le cast. Cf. loki/ramming_speed.py.
+    RAMMING_SPEED_EXTRA_EXPLODE: [RammingSpeedExtraExplodeRemove],             # 1098 -> retrait On(0x3a)
     # 1227 HarlequinsPanoply_IgnoreHits (#366-r1) : la classe d'effet ne surcharge QUE
     # `$$CreateTargetTrigger` -- pour un `BaseEffect` c'est le trigger de RETRAIT
     # (`CreateHandleTriggerAbilities` -> `Triggered(<trigger>, RemoveEffect(Effect@0x38))`), ici

@@ -26,7 +26,7 @@ from .dispatch import (
     unit_revived_triggers, pending_death_added_triggers,
     post_unit_kill_triggers, post_unit_kill_triggers_for_move, arrived_at_final_tile_triggers,
     pre_move_triggers, unit_position_changed_1_triggers, unit_position_changed_2_triggers,
-    unit_removed_triggers,
+    unit_removed_triggers, phase_end_triggers,
 )
 from .loki import (
     _fire_of_absolution_after_attack, OnFireDamageAbility, OnToxicDamageAbility,
@@ -55,7 +55,7 @@ __all__ = [
     "unit_revived_triggers", "pending_death_added_triggers",
     "post_unit_kill_triggers", "post_unit_kill_triggers_for_move", "arrived_at_final_tile_triggers",
     "pre_move_triggers", "unit_position_changed_1_triggers", "unit_position_changed_2_triggers",
-    "unit_removed_triggers",
+    "unit_removed_triggers", "phase_end_triggers",
     "_fire_of_absolution_after_attack", "OnFireDamageAbility", "OnToxicDamageAbility",
     "THEBETRAYER_EFFECT", "ACTOFFAITH_EFFECT",
     "_add_betrayer_effect", "_reset_act_of_faith",
