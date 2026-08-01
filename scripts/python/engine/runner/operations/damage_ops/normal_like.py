@@ -160,7 +160,7 @@ class _NormalLike:
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
         hits = max(1, int(hits))
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
-        # #366-r1 : intercepteur per-coup (`ExecuteHit` etape 5 = flag `discard` ; `On(0x3c)` +
+        # #366-r1 : intercepteur per-coup (`ExecuteHit` etape 5 = flag `discard` ; `On(0x3c = UnitBlocked)` +
         # `RegisterBlocks`). Cf. `triggers/loki/harlequins_panoply.py`.
         from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,

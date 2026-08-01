@@ -271,7 +271,7 @@ def test_clamp_maxhp_below_revivehp_offline():
 
 def test_pending_revive_cancels_the_kill_offline():
     """GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e (case-89 volet C) : une `ReviveData` posee pendant `On(1)` fait ECHOUER la
-    garde de `KillUnitOperation.Execute` -> `On(2)` / `On(0)` / `On(55)` / `On(54)` ne sont PAS emis.
+    garde de `KillUnitOperation.Execute` -> `On(2)` / `On(0)` / `On(54 = UnitDefeated)` / `On(53 = PostUnitKill)` ne sont PAS emis.
     Ici on verifie le contrat de `kill_unit_revive_gate` : rend un dict (mort ANNULEE) vs None."""
     from engine.runner.state import State
     st = State()

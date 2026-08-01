@@ -15,7 +15,7 @@ JUMEAU STRUCTUREL de `OnFireDamageAbility` (`fire.py`), avec DEUX differences RE
         AddEffect(5 = Fire, AbilityStateReference, Tiles(target@0x178))            # INCONDITIONNEL
 
 IDENTIQUE : le vecteur d'evenement (`On(0x10)`, emis PAR COUP par `IdunBattle.Operations.
-ApplyDamageOperation$$Execute` -- sequence `On(0x3a)` -> `On(0xf)` -> `On(0x10)`, cf. #85 ; ce n'est
+ApplyDamageOperation$$Execute` -- sequence `On(0x39 = PreDamageTaken)` -> `On(0xf)` -> `On(0x10)`, cf. #85 ; ce n'est
 PAS `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`, qui n'emet que `0x3d` puis
 `8`), la forme du gate de profil, la feuille de pose
 (`AddEffect` TILE-DOMAIN `Tiles(Target())` = la MainTile occupee de la cible), la surcharge d'`AddEffect`

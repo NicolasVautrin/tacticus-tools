@@ -234,7 +234,7 @@ class RepairUnitOperation:
       * l'EVENT `UnitRepaired` (dict health/shield/members) et les statistiques
         (`ActorStatisticsComponent$$AddRestoreHealthAction`, compteurs `+0xcc/+0xd0/+0xe0/+0xe4`) ;
       * les vecteurs de trigger `processor.<slot 0x51>` `On(0x30 = 48 UnitRepaired)` et `On(0x1e)`.
-        Le SEUL consommateur porte de `On(48)` est le stat-mod EXTRA_HITS du trait `Swarm`
+        Le SEUL consommateur porte de `On(48 = UnitRepaired)` est le stat-mod EXTRA_HITS du trait `Swarm`
         (`IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger`), deja cable
         par l'appel direct a `on_group_unit_hp_changed` ci-dessous -- MEME raccourci que
         `HealUnitOperation`, et deja valide live (`probe_203_swarm.py`)."""

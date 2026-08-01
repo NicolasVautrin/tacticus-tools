@@ -361,7 +361,7 @@ class RemoveEffect(AbilityBehaviour):
         self.effect_type, self.target_sel = int(effect_type), target_sel
 
     def execute(self, entities, ectx):
-        # #389-r2 : le corps `RemoveEffectOperation$$Execute` (les deux events `On(0x3f)`/`On(0x40)`
+        # #389-r2 : le corps `RemoveEffectOperation$$Execute` (les deux events `On(0x3f = PreEffectRemoved)`/`On(0x40 = EffectRemoved)`
         # encadrant les trois reverts, puis `ActiveEffectIds.Remove`) vit desormais dans
         # `operations/remove_effects.py::remove_effect_instance` -- foyer PARTAGE avec le
         # `RemoveEffects` de la sequence de mort (`KillUnitOperation`), qui appelle le MEME slot

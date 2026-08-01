@@ -6,7 +6,7 @@ Passif natif = DEUX abilities-triggers (split par faction, PAS par event) :
     owner, stepper, MinMaxDamage, Blast, hits=1), Count(dead decoys))`. Feuille = `AttackBehaviour(
     AbilityDamageBehaviour)` (decompile IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour + factory IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage->IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage VERIFIES : pipeline
     crit/block COMPLET) -> leaf port `AttackWithAttackDamage` (execute_ability_attack).
-  - `BuffFriends` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateTrigger, behaviour IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour) : `(On(0x2f)|On(0x1d)) & AreFriends(owner,
+  - `BuffFriends` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateTrigger, behaviour IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour) : `(On(0x2e = UnitResurrected)|On(0x1d)) & AreFriends(owner,
     actor) & ...` -> `AddEffect(1379 +582, on=stepper)` + `If(HasFaction(stepper, GenestealerCults),
     spawn_decoy(hex adjacent libre))`.
 Vecteur = `dispatch.after_move_triggers` emet On(4) PUIS On(0x1d) (mirror IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers).

@@ -9,7 +9,7 @@ scan statique des call-sites), pour que le chiffre soit re-derivable et non reco
 
 Trois familles :
   (1) les SITES qui appliquent du degat -- donc les entrees possibles de la mort ;
-  (2) les CONSOMMATEURS des vecteurs de mort (`On(3)`, `On(1)`, `On(2)`, `On(0)`, `On(55)`) :
+  (2) les CONSOMMATEURS des vecteurs de mort (`On(3)`, `On(1)`, `On(2)`, `On(0)`, `On(54 = UnitDefeated)`) :
       leur ORDRE RELATIF change UNIQUEMENT quand une mort survient PENDANT une autre ;
   (3) les consommateurs de (2) dont le behaviour peut TUER (attaque / degat) -- l'ensemble
       REELLEMENT touche : c'est la seule facon d'imbriquer deux morts.

@@ -972,7 +972,7 @@ def refresh_shields(predictor, rpc, rid):
     predictor["defstat_by_id"] = _defense_stats_from_snapshot(snap.get("units"))
     # O5 : re-capture des flags d'unité (`UnitFlag.PreventOverkill`). DYNAMIQUE — les triggers de
     # `FuelledByFury_BlockOverkillEffect` (`On(0x21)&OwnerIsActor`, `On(0x12)` -> ActivateEffect ;
-    # `On(0x2e)&OwnerIsTarget` -> DeactivateEffect) posent et retirent le flag EN COURS de bataille.
+    # `On(0x2d = UnitRevived)&OwnerIsTarget` -> DeactivateEffect) posent et retirent le flag EN COURS de bataille.
     predictor["prevent_overkill_by_id"] = _unit_flag_from_snapshot(snap, "PreventOverkill")
     # #266 : re-capture de `Moved`/`Teleported`. Ce sont les flags les plus volatils du composant —
     # posés par `MoveUnitOperation$$Execute` -> `UnitExtensions$$SetMovedFlag` et purgés a chaque

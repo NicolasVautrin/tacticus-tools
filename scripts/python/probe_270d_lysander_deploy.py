@@ -41,7 +41,7 @@ leve a la construction de son trigger ». Le `constants` absent est REEL, la lev
 `IdunBattleLogic.Entities.Abilities.Triggered.Loki.IconOfObstinacy_AddArmourBuffAbility$$CreateTrigger`,
 `...$$CreateBehaviour`, `...IconOfObstinacy_AddDamageBuffAbility$$CreateBehaviour` et
 `...AIconOfObstinacyAbility$$GetAffectedUnits` n'appellent AUCUN `GetStringConstant` /
-`GetNumberConstant` -- ils n'utilisent que des litteraux (`DSLTriggers$$On(0x28)`,
+`GetNumberConstant` -- ils n'utilisent que des litteraux (`DSLTriggers$$On(0x28 = UnitFinishedTurn)`,
 `DSLSelectors$$UnitsWithTrait(0x40f)`, effets 0x627/0x628, `DSLFormulas$$TurnsFromRounds(1)`,
 `DSLFormulas$$TimesAttackMadeThisTurn`). La seule lecture de constante du kit est
 `IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility$$GetCurrentlyAffectedFriends`

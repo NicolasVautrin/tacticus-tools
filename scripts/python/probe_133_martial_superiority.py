@@ -98,7 +98,7 @@ def main():
     ap.add_argument("--neg-ranged", action="store_true")
     ap.add_argument("--lethal", action="store_true",
                     help="attaquant a PV bas : la riposte le TUE -> l'attaque entrante doit etre "
-                         "ANNULEE (gate acteur-mort POST-On(0x2b) d'ActiveAbilityOperation).")
+                         "ANNULEE (gate acteur-mort POST-On(0x2a = PreUnitAbility) d'ActiveAbilityOperation).")
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
     tag = ("negturn" if args.neg_turn else "negownerturn" if args.neg_owner_turn

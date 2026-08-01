@@ -12,9 +12,9 @@ il n'ecrit que `+0x10`/`+0x18` (le porteur) et `+0x60..+0x7c` (l'effet retire). 
 a l'assembleur : `+0x98` n'est jamais touche.
 
 Consequence, et c'est ce que ces gardes verrouillent :
-  * sur `On(61)` / `On(62)` / `On(70)`, `CurrentAbilityIs(effet)` ET `TriggeringEffectIs(effet)` sont
+  * sur `On(61 = PreEffectAdded)` / `On(62 = EffectAdded)` / `On(70 = UnitBecameUntargetable)`, `CurrentAbilityIs(effet)` ET `TriggeringEffectIs(effet)` sont
     VRAIS -- meme valeur, indiscernables ;
-  * sur `On(63)` / `On(64)` / `On(59)`, `TriggeringEffectIs` et `TriggeringAbilityIs` sont TOUJOURS
+  * sur `On(63 = PreEffectRemoved)` / `On(64 = EffectRemoved)` / `On(59 = UnitBecameTargetable)`, `TriggeringEffectIs` et `TriggeringAbilityIs` sont TOUJOURS
     FAUX, `TriggeringAbilityIsNone` est VRAI, et c'est **`CurrentAbilityIs` qui porte l'effet
     retire** ;
   * le memset ECRASE l'ambiant : une pose faite DANS le behaviour d'une triggered-ability ne laisse
@@ -27,7 +27,7 @@ rend detectable. ROUGE mesure sur `origin/master` avant le fix (mode `add_only`)
 
 TOUT EST OFFLINE et deterministe (zero RNG, zero runner) : la question posee est « quel canal porte
 quoi », et elle se tranche sur un `State` nu. La non-regression du COMPORTEMENT observable est
-portee par `test_lot_pose_live.py` (le seul consommateur porte de `On(61)`) et par les tests
+portee par `test_lot_pose_live.py` (le seul consommateur porte de `On(61 = PreEffectAdded)`) et par les tests
 d'effets qui traversent la feuille `RemoveEffect`.
 """
 from __future__ import annotations
@@ -161,7 +161,7 @@ def test_a_nested_pose_does_not_inherit_the_death_context():
     l'`AddEffectOperation` -> le vecteur d'effet publie `(effectType, effectType)` et n'herite RIEN
     du contexte de mort.
 
-    ROUGE mesure sur `origin/master` : `On(61)` imbrique y voyait
+    ROUGE mesure sur `origin/master` : `On(61 = PreEffectAdded)` imbrique y voyait
     `(None, 1065, None, 6363)` -- soit le `killTrigger` du drain publie sous un evenement d'EFFET.
     Et l'inverse compte autant : le drain doit RETROUVER son contexte apres le vecteur."""
     ok, msg = EFC.verdict_nested(EFC.run_nested())
@@ -172,7 +172,7 @@ def test_the_divergence_is_latent_and_says_why():
     """POURQUOI CE FIX NE CHANGE AUCUNE OBSERVABLE -- et le CLIQUET qui le rendra decisif.
 
     Compte RE-DERIVE du registre (jamais herite) : un SEUL trigger porte ecoute un vecteur d'effet
-    (`TerrifyingCrescendoSuppressAbility` sur `On(61)`), et il lit `+0x98`, que ce fix ne touche pas.
+    (`TerrifyingCrescendoSuppressAbility` sur `On(61 = PreEffectAdded)`), et il lit `+0x98`, que ce fix ne touche pas.
     Les CINQ autres vecteurs d'effet n'ont AUCUN consommateur. La correction porte donc sur le CANAL
     seul : c'est exactement pourquoi elle etait muette et pourquoi la garde est cablee ici plutot
     que sur un observable de bataille.

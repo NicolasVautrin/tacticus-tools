@@ -137,10 +137,10 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
 def post_unit_kill_triggers(state: State, killer_id: int, killed_id: int) -> list[dict]:
     """Vecteur `On(PostUnitKill = 0x35 = 53)` — **5e et DERNIER** des events de mort émis par
     `IdunBattle.Operations.KillUnitOperation$$Execute` (séquence lue au décompilé et déjà documentée
-    par `pre_unit_death_2_triggers` : `On(1)` -> `On(2)` -> `On(0)` -> `On(0x36)` -> `On(0x35)`).
+    par `pre_unit_death_2_triggers` : `On(1)` -> `On(2)` -> `On(0)` -> `On(0x36 = UnitDefeated)` -> `On(0x35 = PostUnitKill)`).
     `actor` = le TUEUR, `target`/`dying` = la victime.
 
-    Consommateur porté : `CosmicHorrorOnMoveAbility` (`On(0x35) & OwnerIsActor & AreFriends &
+    Consommateur porté : `CosmicHorrorOnMoveAbility` (`On(0x35 = PostUnitKill) & OwnerIsActor & AreFriends &
     HasTrait(target, Decoy)`) — le Patermine qui marche sur un decoy allié le CRUSHE
     (`MoveUnitOperation$$KillSteppableUnits` -> `KillUnitOperation$$Execute` avec
     `KillUnitOperationOptions$$ForSteppable`) et se soigne. No-op si rien ne matche."""
@@ -150,7 +150,7 @@ def post_unit_kill_triggers(state: State, killer_id: int, killed_id: int) -> lis
 
 
 def post_unit_kill_triggers_for_move(state: State, mover_id: int) -> list[dict]:
-    """`On(0x36)` pour les STEPPABLES que le move qui vient de s'exécuter a écrasés.
+    """`On(0x35 = PostUnitKill)` pour les STEPPABLES que le move qui vient de s'exécuter a écrasés.
 
     Le port crushe INLINE dans `movement.py::_kill_steppable_units` par un kill « propre » qui n'émet
     AUCUN event (contrairement au natif, qui passe par `KillUnitOperation$$Execute` et en émet cinq).
@@ -161,7 +161,7 @@ def post_unit_kill_triggers_for_move(state: State, mover_id: int) -> list[dict]:
     est sur une AUTRE tuile.
 
     RÉSIDU assumé : les 4 autres events de la séquence de mort d'un steppable crushé
-    (`On(1)`/`On(2)`/`On(0)`/`On(0x37)`) restent NON émis, et `On(0x36)` reste non émis pour les
+    (`On(1)`/`On(2)`/`On(0)`/`On(0x36 = UnitDefeated)`) restent NON émis, et `On(0x35 = PostUnitKill)` reste non émis pour les
     morts par DÉGÂT (damage.py) et pour le crush par `ResurrectUnitOperation`/`AddUnitOperation`.
     Aucun consommateur porté ne les lit ; à rouvrir si un port futur en dépend."""
     from .....entities.traits import UnitTrait, has_trait
@@ -260,7 +260,7 @@ def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
     matche.
 
     CANAUX D'ABILITY SUR CE VECTEUR (#301) — vaut pour les CINQ events de
-    `IdunBattle.Operations.KillUnitOperation$$Execute` (`On(1)`, `On(2)`, `On(0)`, `On(54)`, `On(53)`),
+    `IdunBattle.Operations.KillUnitOperation$$Execute` (`On(1)`, `On(2)`, `On(0)`, `On(54 = UnitDefeated)`, `On(53 = PostUnitKill)`),
     qui partagent le MEME `AbilityEntities`, bati une fois et publie tel quel :
       * `CurrentAbility` (`+0x60`, `state.triggering_ability`) = **VIDE** — le memset de 0x128 n'est
         suivi d'AUCUNE reecriture de ce champ. Tout `CurrentAbilityIs` y est faux.
@@ -344,7 +344,7 @@ def unit_death_triggers(state: State, dying_id: int, killer_id: Optional[int] = 
     """Vecteur `On(UnitDeath=0)` — 3e des events de mort emis par `IdunBattle.Operations.KillUnitOperation$$Execute`
     (sequence verifiee au decompile : `(...,1)` PreUnitDeath -> `...,2` PreUnitDeath_2 ->
     `...,0` **UnitDeath** -> `...,0x36` UnitDefeated -> `...,0x35` PostUnitKill). Le port emettait deja
-    `On(1)` (`after_death_triggers`) et `On(0x36)` (`unit_defeated_triggers`) mais PAS `On(0)` — d'ou ce
+    `On(1)` (`after_death_triggers`) et `On(0x36 = UnitDefeated)` (`unit_defeated_triggers`) mais PAS `On(0)` — d'ou ce
     vecteur, insere a sa place EXACTE (entre les deux).
 
     Consommateur : branche 1 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`
@@ -464,7 +464,7 @@ def pre_effect_removed_triggers(state: State, target_id: Optional[int],
     donc le port ne threade PAS de source : seul le PORTEUR est connu (`target` = `owner` = +0x10/+0x18).
     C'est `CurrentAbilityIs` qui porte l'effet retire ; tout `TriggeringEffectIs` y est faux (#306).
 
-    AUCUN consommateur porte n'ecoute encore `On(63)` : l'emission est le MIRROR, et c'est elle qui
+    AUCUN consommateur porte n'ecoute encore `On(63 = PreEffectRemoved)` : l'emission est le MIRROR, et c'est elle qui
     rend le canal OBSERVABLE donc la loi d'asymetrie VALIDABLE (meme arbitrage que `On(0xd)` en #294).
     No-op si rien ne matche."""
     return _effect_vector_triggers(state, int(EventTriggerType.PreEffectRemoved),
@@ -478,7 +478,7 @@ def effect_removed_triggers(state: State, target_id: Optional[int],
     desactivation (`RefreshEffectsOperation$$DeactivateEffect` -> revert des modifications) et la pose
     de `EffectComponent+0x5c = 0` / `+0x5f = 1`.
 
-    MEME `AbilityEntities` que `On(63)` : la struct est batie UNE fois puis publiee telle quelle
+    MEME `AbilityEntities` que `On(63 = PreEffectRemoved)` : la struct est batie UNE fois puis publiee telle quelle
     (le port la reconstruit a l'identique via `_effect_vector_triggers`). Memes canaux, meme asymetrie.
     No-op si rien ne matche."""
     return _effect_vector_triggers(state, int(EventTriggerType.EffectRemoved),
@@ -487,7 +487,7 @@ def effect_removed_triggers(state: State, target_id: Optional[int],
 
 def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int] = None) -> list[dict]:
     """Vecteur `On(UnitDefeated=54=0x36)` (G3) — event NATIF DISTINCT de `PreUnitDeath(1)` : le natif
-    `Ambush_SummonAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger ecoute `On(0x36) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis
+    `Ambush_SummonAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger ecoute `On(0x36 = UnitDefeated) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis
     par le pipeline de mort APRES `after_death_triggers(On 1)` (l'unite est deja alive=False -> l'ability
     fire-on-death voit sa mort). Declenche la pose du decoy Ambush (mort -> decoy) + l'enregistrement de
     `turn_defeated`. No-op si aucun porteur Ambush ne meurt."""
@@ -505,7 +505,7 @@ def unit_revived_triggers(state: State, revived_id: int, current_ability=None) -
 
     `current_ability` = le `sourceId` (`AbilityOrEffect`) porte par la `ReviveData` — c'est ce que lit le
     noeud `CurrentAbilityIs` des consommateurs. Consommateurs portes :
-      * `PhoenixGem_CanReviveEffect` IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : `On(0x2e) & OwnerIsTarget & CurrentAbilityIs(0x5b2=1458
+      * `PhoenixGem_CanReviveEffect` IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : `On(0x2d = UnitRevived) & OwnerIsTarget & CurrentAbilityIs(0x5b2=1458
         TriggeredAbilityType.PhoenixGem)` -> `RemoveEffect(marqueur 1451)` = « the FIRST TIME each battle » ;
       * (non porte, cf. residu A2) `FuelledByFury_CanReviveEffect` IdunBattle.Entities.Effects.Loki.FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : meme forme avec
         `CurrentAbilityIs(0x4e3=1251)` -> `DeactivateEffect` (« first time each TURN »).
@@ -519,8 +519,8 @@ def unit_revived_triggers(state: State, revived_id: int, current_ability=None) -
 def unit_resurrected_triggers(state: State, resurrected_id: int) -> list[dict]:
     """Vecteur `On(UnitResurrected=46=0x2f)` (G3) — emis par `ResurrectUnitOperation` IdunBattle.Operations.ResurrectUnitOperation$$Execute apres une
     resurrection Ambush (`actor` = l'unite ressuscitee, co-localisee avec le decoy qu'elle vient de crusher).
-    Alimente `DecoysAndMisdirection_BuffFriends` (G2, `(On(0x2f)|On(0x1d)) & AreFriends` -> +582 + nouveau
-    decoy si GS Cult) et la re-arme HeroicFusillade (G5, `On(0x2f) & OwnerIsTarget`). No-op si aucun
+    Alimente `DecoysAndMisdirection_BuffFriends` (G2, `(On(0x2e = UnitResurrected)|On(0x1d)) & AreFriends` -> +582 + nouveau
+    decoy si GS Cult) et la re-arme HeroicFusillade (G5, `On(0x2e = UnitResurrected) & OwnerIsTarget`). No-op si aucun
     consommateur ne matche. Le decoy crushe (steppable, alive=False, meme tuile) satisfait `GetValidDeadDecoys`
     de BuffFriends (co-localisation dead-decoy/stepper)."""
     ev = TriggerEvent(EventTriggerType.UnitResurrected, resurrected_id, resurrected_id,

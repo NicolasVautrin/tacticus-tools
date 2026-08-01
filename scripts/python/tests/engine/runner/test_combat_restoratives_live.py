@@ -100,7 +100,7 @@ def combatrest_state(live_session, rpc, build_runner):
     # La version initiale prenait comme centre la tuile de la PREMIERE unite a >=4 voisins
     # walkables, SANS filtrer le camp -- en pratique un ENNEMI (mesure : `ultraTitus` u79) -- et y
     # teleportait le caster PAR-DESSUS. Deux unites sur la meme tuile, donc la re-resolution de
-    # cible #120bis (`resolve_replaced_target`, mirror du bloc qui suit `On(0x2b)` dans
+    # cible #120bis (`resolve_replaced_target`, mirror du bloc qui suit `On(0x2a = PreUnitAbility)` dans
     # `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`) remplacait la cible du
     # self-cast par l'occupant ENNEMI. Tant que 1002 n'avait pas de `TARGETING_OPTIONS` le cast
     # passait quand meme -- l'arbre vise `Caster()`, pas `Target()` -- et le defaut restait MUET.

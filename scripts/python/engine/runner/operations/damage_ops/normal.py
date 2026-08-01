@@ -125,7 +125,7 @@ class _Normal:
         _target_tiles = get_tiles(state, target_id)
         pre_unit_ability_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
                                   profile=_profile, ability_type=1013)
-        # #133 GATE ACTEUR-MORT **POST-`On(0x2b)`** — mirror du test qui suit IMMEDIATEMENT
+        # #133 GATE ACTEUR-MORT **POST-`On(0x2a = PreUnitAbility)`** — mirror du test qui suit IMMEDIATEMENT
         # l'evenement dans `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (lu
         # verbatim au decompile) :
         #     FUN_180026490(0x4d, .., 0x2b);
@@ -160,7 +160,7 @@ class _Normal:
         # c'est LUI qui envoie les coups sur Kell apres le switch de SwornProtector (le switch, seul,
         # ne fait que deplacer Creed). La re-entree = un `AttackDamageOperation.execute` NEUF sur la
         # nouvelle cible (mirror `ActiveAbilityOperation$$Execute`), donc selection d'arme, distance,
-        # `On(0x2b)`, coups et modificateurs sont TOUS recalcules contre elle. Cet appel-ci `return`e
+        # `On(0x2a = PreUnitAbility)`, coups et modificateurs sont TOUS recalcules contre elle. Cet appel-ci `return`e
         # aussitot, comme le natif. Cable sur les DEUX voies a la fois (cf. `active_ability.py`).
         _replaced, _new_target = resolve_replaced_target(state, target_id, _target_tiles)
         if _replaced:

@@ -26,7 +26,7 @@ trigger  = branche1 | branche2
 ```
 = i2 << +218 Damage **for each time he Overkilled or would have Suppressed** an enemy unit >>.
 - branche1 : le porteur TUE en OVERKILL. `On(0=UnitDeath)` est emis par `IdunBattle.Operations.KillUnitOperation$$Execute` (sequence verifiee : `FUN_180026490(...,1)` PreUnitDeath -> `...,2` -> `...,0` UnitDeath ->
-  `...,0x37` UnitDefeated -> `...,0x36` PostUnitKill). Le port emettait deja `On(1)` et `On(0x37)` mais
+  `...,0x37` UnitDefeated -> `...,0x36` PostUnitKill). Le port emettait deja `On(1)` et `On(0x36 = UnitDefeated)` mais
   PAS `On(0)` -> vecteur ajoute (`unit_death_triggers`, dispatch.py) ENTRE les deux, a la place exacte.
 - branche2 : << would have Suppressed >>. `On(0x3d=PreEffectAdded)` est emis par
   `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN HAUT** (`FUN_180026490(0x50,...,0x3e)` AVANT le gate

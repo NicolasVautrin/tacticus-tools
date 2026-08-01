@@ -20,7 +20,7 @@ Ce que ces cliquets verrouillent, et POURQUOI :
     (`PreUnitRemove`) est une HYPOTHESE NOMMEE (getteur constant DEDUPLIQUE, illisible offline) --
     ces cliquets gardent la MECANIQUE, pas la valeur par defaut.
   * **le foyer est PARTAGE avec la feuille DSL `RemoveEffect`** : les deux passent par
-    `remove_effect_instance`, donc les deux revoquent et emettent `On(0x3f)` / `On(0x40)`.
+    `remove_effect_instance`, donc les deux revoquent et emettent `On(0x3f = PreEffectRemoved)` / `On(0x40 = EffectRemoved)`.
 
 ASCII only.
 """

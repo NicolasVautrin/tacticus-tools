@@ -118,7 +118,7 @@ RESIDUS EXPLICITES :
    -- la liste de tuiles est figee AVANT le vecteur (par `ActiveAbilityOperation$$GetAbilityEntities`),
    la resolution de l'occupant se fait APRES : si le switch a fait entrer Kell sur la tuile visee,
    c'est LUI que l'ability frappe. `ExecuteForReplacedTarget` RE-ENTRE alors dans
-   `ActiveAbilityOperation$$Execute` (vraie re-entree : nouveaux gates, nouveau `On(0x2b)`, behaviour,
+   `ActiveAbilityOperation$$Execute` (vraie re-entree : nouveaux gates, nouveau `On(0x2a = PreUnitAbility)`, behaviour,
    puis flags de tour une seule fois). Porte sur les DEUX voies a la fois -- foyer unique
    `engine/runner/operations/active_ability.py`, appele par `damage_ops.execute` (attaque normale) et
    `AbilityHandler.visit_ActiveAbilityMessage` (cast) ; le cabler sur une seule aurait rouvert le fork

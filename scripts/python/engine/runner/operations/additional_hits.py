@@ -228,7 +228,7 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
       * DERNIERE instruction d'`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (appel
         INCONDITIONNEL, xref) : `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
         qui construit `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` avec cet index en
-        `Nullable<int>` au champ **+0x110** puis dispatche l'event **`On(8)`** (et `On(0x3d)` si
+        `Nullable<int>` au champ **+0x110** puis dispatche l'event **`On(8)`** (et `On(0x3c = UnitBlocked)` si
         crit) ; `IdunBattle.Entities.Formulas.CurrentHitIndexFormula$$Calculate` lit exactement
         `AbilityEntities+0x110` ;
       * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger` =

@@ -373,7 +373,7 @@ class _DamageHitsMixin:
             # #366-r1 : `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` branche
             # `param_6 != 0` -> `On(0x3c = UnitBlocked)`, PUIS `RegisterBlocks` (le compteur
             # `ActorStatisticsComponent+0x8c`). PAR COUP, comme le natif, et AVANT le Maybe GetStuckIn
-            # (qui vit sur l'after-hit `On(8)`, emis APRES `On(0x3c)` par la meme fonction).
+            # (qui vit sur l'after-hit `On(8)`, emis APRES `On(0x3c = UnitBlocked)` par la meme fonction).
             if hit_interceptor is not None and dmg.did_block:
                 hit_interceptor.on_blocked(idx)
             # #62c : behaviour Maybe(GetBonusHitChance) sur coup d'INDEX IMPAIR (0-based), APRES le degat.

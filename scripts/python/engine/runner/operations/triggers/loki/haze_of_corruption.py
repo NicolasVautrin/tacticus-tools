@@ -59,10 +59,10 @@ seed 777 : le natif consommait **5** `genrand_int32`, le port **3** (les 3 coups
 valeurs LIVE valent exactement `raw[2], raw[3], raw[4]` de la MEME cellule `[890, 1934]` que le
 port -> cellule et ordre JUSTES, deux tirages manquants EN AMONT.
 
-Les deux tirages sont DEUX declenchements de CE trigger, un par emission de `On(0x2b)` :
+Les deux tirages sont DEUX declenchements de CE trigger, un par emission de `On(0x2a = PreUnitAbility)` :
 `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` re-entre par
 `$$ExecuteForReplacedTarget` quand `SwornProtector` a fait entrer Kell sur la tuile visee (#120bis,
-deja porte dans `operations/active_ability.py`) -- la re-entree re-emet `On(0x2b)`.
+deja porte dans `operations/active_ability.py`) -- la re-entree re-emet `On(0x2a = PreUnitAbility)`.
 
   * emission 1, Target = Creed  : pool = {Kell}  -> 1 tirage `NextInternal(0, 1)` + 1 bond ;
   * emission 2, Target = Kell   : pool = {Creed} -> 1 tirage `NextInternal(0, 1)` + 1 bond.
@@ -148,7 +148,7 @@ RESIDUS EXPLICITES
    source ; le port rend l'ordre `AdjacentTiles` natif via `Board.neighbours_native`, ce qui est le
    bon ordre pour le terme GAUCHE de l'intersection). La CONSOMMATION, elle, est exacte a tout
    cardinal.
- * Branches `UnitResurrected` / `UnitRevived` : sans objet (ce trigger n'ecoute que `On(0x2b)`).
+ * Branches `UnitResurrected` / `UnitRevived` : sans objet (ce trigger n'ecoute que `On(0x2a = PreUnitAbility)`).
 """
 from __future__ import annotations
 
@@ -384,7 +384,7 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
     EST la cible initiale, donc la premiere lecture suffit sur les montages a un seul relais."""
     # `OnDeath(1, 1)` = `OnDeathEvent(**0** = UnitDeath, ...)` -- PAS `PreUnitDeath` (case-haze-bonded, cf. le
     # bloc `_ON_UNIT_DEATH` en tete de module). L'ordre natif de `KillUnitOperation$$Execute` est
-    # `On(1)` -> `On(2)` -> `On(0)` -> `On(0x37)` -> `On(0x36)` : le coup BONUS (`On(1)`) precede
+    # `On(1)` -> `On(2)` -> `On(0)` -> `On(0x36 = UnitDefeated)` -> `On(0x35 = PostUnitKill)` : le coup BONUS (`On(1)`) precede
     # donc structurellement le REPORT (`On(0)`), au lieu de partager le meme vecteur.
     event_id = _ON_UNIT_DEATH
     effect_type = HAZE_DAMAGE_TRANSFER

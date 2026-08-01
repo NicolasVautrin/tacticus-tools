@@ -157,7 +157,7 @@ def main() -> int:
 
     # --- 2b. MEME chose, mais par le PIPELINE D'ATTAQUE COMPLET et DEUX attaquants ---------------
     # C'EST CETTE ETAPE QUI A TROUVE LE BUG (#366-r1b) : `_fire` ci-dessus n'emet que le vecteur
-    # `On(0x2a)`, alors que `AttackUnitMessage` traverse tout le pipeline -- dont
+    # `On(0x2a = PreUnitAbility)`, alors que `AttackUnitMessage` traverse tout le pipeline -- dont
     # `refresh_stat_modifier_effects`, qui ECRASAIT `EffectComponent.IsActive @+0x5c` avec la valeur
     # PAR DEFAUT de `is_active()` (True). La riposte se re-armait donc et repartait au coup suivant
     # du MEME tour ennemi. Le natif, lui, RENVOIE LE FLAG COURANT quand il ne re-evalue pas la

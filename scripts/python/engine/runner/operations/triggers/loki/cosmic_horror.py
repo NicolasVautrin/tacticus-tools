@@ -11,7 +11,7 @@ splittees par l'EVENEMENT. RE (decompile ghidra, build gqfc5mff6c) :
           & NOT HasTrait(target@0x178, 0x1b=27=Steppable)
     Le gate `NOT Steppable` est ce qui empeche le volet de re-partir sur le CRUSH d'un decoy
     (`KillUnitOperation$$Execute` emet la MEME sequence de morts pour un steppable, cf. dispatch.py
-    `pre_unit_death_2_triggers` : On(1)->On(2)->On(0)->On(0x37)->On(0x36)).
+    `pre_unit_death_2_triggers` : On(1)->On(2)->On(0)->On(0x36 = UnitDefeated)->On(0x35 = PostUnitKill)).
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnKillAbility$$CreateBehaviour` (arbre lu de bas en haut) =
         unitToSpawn = GetStringConstant(config, 8=unitToSpawn)                  -> `genesSmnDecoy`
         tile   = First( Nearest( FreeTilesOrAdjacentFreeTiles(Tiles(target@0x178), @0xf8),
@@ -68,15 +68,15 @@ SuppressiveFire), `Heal` par l'arbre `cosmic_horror_heal_tree()`, `Spawn(ForStep
 sont collapses ici, comme le fait deja `triggers/genestealer.py` pour la meme famille de selecteurs.
 
 DISPATCH :
-  - volet 1 -> vecteur EXISTANT `unit_defeated_triggers` (`On(0x37)`, emis par `damage.py` apres
+  - volet 1 -> vecteur EXISTANT `unit_defeated_triggers` (`On(0x36 = UnitDefeated)`, emis par `damage.py` apres
     `after_death_triggers`) : aucun cablage neuf ;
-  - volet 2 -> vecteur NEUF `post_unit_kill_triggers` (`On(0x36)`) ajoute a `dispatch.py` et emis en
+  - volet 2 -> vecteur NEUF `post_unit_kill_triggers` (`On(0x35 = PostUnitKill)`) ajoute a `dispatch.py` et emis en
     tete d'`after_move_triggers` pour les steppables que le move vient d'ecraser (le port crushe
     INLINE dans `movement.py::_kill_steppable_units`, un kill « propre » sans events -- cf. RESIDUS).
 
 RESIDUS (honnetes) :
-  - le port n'emet `On(0x36)` QUE pour le crush-par-MOVE ; les 4 autres events de la sequence de mort
-    d'un steppable (On(1)/On(2)/On(0)/On(0x37)) restent non emis pour ce chemin, et `On(0x36)` reste
+  - le port n'emet `On(0x35 = PostUnitKill)` QUE pour le crush-par-MOVE ; les 4 autres events de la sequence de mort
+    d'un steppable (On(1)/On(2)/On(0)/On(0x36 = UnitDefeated)) restent non emis pour ce chemin, et `On(0x35 = PostUnitKill)` reste
     non emis pour les morts par DEGAT et pour le crush par `ResurrectUnitOperation`. Aucun
     consommateur porte ne les lit aujourd'hui ; a rouvrir si un port futur en depend.
   - `variables.extraDmg` de `CosmicHorror` n'est lue par AUCUN des deux `CreateBehaviour` decompiles
@@ -153,7 +153,7 @@ def _decoy_tile_for_kill(state: State, dying_id: int, caster_id: int):
     `FreeTilesOrAdjacentFreeTiles` : la tuile de la victime SI libre et marchable, SINON les tuiles
     hex-adjacentes libres et marchables (meme collapse que `triggers/genestealer.py::
     _free_tile_or_adjacent`, deja porte pour `Ambush_SummonAbility`). La victime etant `alive=False`
-    au dispatch de `On(0x37)`, sa propre tuile est « libre » -> cas nominal = « places a decoy on the
+    au dispatch de `On(0x36 = UnitDefeated)`, sa propre tuile est « libre » -> cas nominal = « places a decoy on the
     hex of that enemy ».
 
     `Nearest(..., caster)` = tri ASCENDANT par distance hex au Patermine, LINQ donc STABLE (ex aequo

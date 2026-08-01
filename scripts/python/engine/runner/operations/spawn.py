@@ -534,7 +534,7 @@ def on_unit_added(state: State, unit_id: Optional[int]) -> list:
       * `ContagionsOfNurgle_AddEffectToNewUnit_Ability` (case-dpw) — le debuff d'armure de l'aura
         Contagion se pose sur l'unite qui apparait DEDANS. MESURE : `astraSmnKell`, invoque par
         `SwornProtector` au contact de `deathPutrifier`, a `FixedArmor` 1496 -> **1197** live.
-      * (#213) le 2e des cinq retraits de `GhostEffect` — `On(0x33) & NOT AreEqual(caster,
+      * (#213) le 2e des cinq retraits de `GhostEffect` — `On(0x32 = UnitAdded) & NOT AreEqual(caster,
         EffectSource) & Contains(TargetTiles@0x190, Owner@0x148) & NOT HasTrait(caster, 0x1b =
         Steppable)` : une unite qui APPARAIT sur la tuile d'un time-ghost le dissipe, sauf si elle est
         Steppable (un decoy/spore-mine posé là ne compte pas). Ce consommateur-la passe par le

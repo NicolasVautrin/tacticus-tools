@@ -51,7 +51,7 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
     IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour). AVANT ce vecteur, `did_block` etait resolu par le pipeline (damage_hits.py) mais
     l'evenement n'etait JAMAIS emis -> tout le cluster on-block etait inatteignable.
 
-    ⚠ GRANULARITE : le natif emet `On(0x3d)` PAR COUP bloque ; le port l'emet UNE fois par ATTAQUE
+    ⚠ GRANULARITE : le natif emet `On(0x3c = UnitBlocked)` PAR COUP bloque ; le port l'emet UNE fois par ATTAQUE
     (meme agregation que `is_crit`, deja en place). Observationnellement EQUIVALENT pour le seul
     consommateur porte (la pose d'Ice est idempotente : `AddEffectOperation` no-op si la tuile est deja
     glacee). A raffiner si un consommateur per-coup apparait."""
@@ -127,7 +127,7 @@ def pre_attack_hit_triggers(state: State, attacker_id: int, target_id: int,
     PLACE D'EMISSION dans le port : apres `GetAttackHits` et **avant `_crit_params`** — c'est la place
     NATIVE, et elle est fonctionnellement obligatoire : le seul consommateur porte pose un stat-mod
     CRIT_CHANCE que le calcul de crit de CETTE attaque doit voir (sinon le port serait un no-op
-    silencieux, exactement comme `AnvilShieldFrozenAttackerAdvantageAbility` sur `On(0x2b)`).
+    silencieux, exactement comme `AnvilShieldFrozenAttackerAdvantageAbility` sur `On(0x2a = PreUnitAbility)`).
     AUCUN autre trigger porte n'ecoute `event_id == 6` -> no-op (et zero conso RNG) pour toute unite
     non-porteuse de ThrillSeekers."""
     ev = TriggerEvent(EventTriggerType.PreAttackHit, attacker_id, target_id,
@@ -142,7 +142,7 @@ def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int
     (`FUN_180026490(0x4d, .., 0xf, entities)`) apres la mutation des PV, sous le gate
     `if ((0 < (int)local_7dc) || !HealthComponent.IsUnitWithHealthStat(target))` ou
     `local_7dc = FillUpStatComponent.Reduce(hp, healthDamage)` = la reduction de PV **REELLEMENT
-    APPLIQUEE** (pas le degat demande). L'operation emet, dans l'ordre : `On(0x3a)`, `On(0xf)`
+    APPLIQUEE** (pas le degat demande). L'operation emet, dans l'ordre : `On(0x39 = PreDamageTaken)`, `On(0xf)`
     DamageTaken, puis `On(0x10)` DamageDealt (celui-la gate `0 < armorDamage`). Son `AbilityEntities`
     porte la SOURCE du degat en caster/actor et la VICTIME en 3e slot -> `get_OwnerIsTarget` (le seul
     predicat porte qui lit ce vecteur) = « le porteur EST la victime ».
@@ -302,7 +302,7 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     out = out + evaluate_trigger_operation(state, ev_at)
     # `On(UnitPostAbility=0xe)` (#100) — DERNIER evenement de `ActiveAbilityOperation.ExecuteInternal`
     # (sequence `0x2b` -> execution -> `0xb` -> `0xc` -> `0xe`). Emis ICI = a la CLOTURE de l'attaque
-    # normale, en pendant exact du `On(0x2b)` emis en tete par `AttackDamageOperation.execute`.
+    # normale, en pendant exact du `On(0x2a = PreUnitAbility)` emis en tete par `AttackDamageOperation.execute`.
     # Consommateur porte : `AnvilShieldFrozenAdvantageExpire` (consomme le +20 % block transitoire).
     return out + unit_post_ability_triggers(state, attacker_id, target_id, ranged, profile,
                                             ability_type=1013)
@@ -314,7 +314,7 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
                              did_block: bool = False) -> list[dict]:
     """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
     porté par `ADamageOperation` donc PARTAGÉ par l'attaque normale ET les attaques d'ability : dispatche le
-    message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3d)`, non écouté ici). ⚠ Ce vecteur
+    message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3c = UnitBlocked)`, non écouté ici). ⚠ Ce vecteur
     NE dispatche PAS `NormalAttack(0x26)` : le splash emprunte `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`
     (events {6,8,0x3d}, JAMAIS 0x26) → **Psyker `On(0x26)` ne re-fire PAS ici = pas de chain** (verdict RE
     #147/#150 ; corrige la sur-propagation de #140). Consommateur actif : reset ActOfFaith (#138, `On(8)` +

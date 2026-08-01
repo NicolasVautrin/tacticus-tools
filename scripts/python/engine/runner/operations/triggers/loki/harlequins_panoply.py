@@ -414,7 +414,7 @@ class HarlequinsPanoplyHitInterceptor:
       * `should_discard(idx)` = l'étape 5 d'`ExecuteHit` (relecture de `OngoingAttack+0x98` juste après
         l'émission de `On(6)`/`On(7)`). Évalue `HarlequinsPanoplyDiscardHitsAbility` ;
       * `on_blocked(idx)`     = la branche `param_6 != 0` d'`ADamageOperation$$EvaluateAfterHitTriggers`
-        (`On(0x3c)`), PUIS `RegisterBlocks` -- dans CET ordre, qui est ce qui rend le gate
+        (`On(0x3c = UnitBlocked)`), PUIS `RegisterBlocks` -- dans CET ordre, qui est ce qui rend le gate
         `NOT HasBlockedThisTurn` vrai au premier blocage du tour.
 
     L'objet est construit pour TOUT couple (attaquant, défenseur) : `register_block_made` doit tourner
@@ -439,7 +439,7 @@ class HarlequinsPanoplyHitInterceptor:
     def _event(self, event_id: int) -> TriggerEvent:
         """L'`AbilityEntities` des deux vecteurs natifs : `caster = actor = l'ATTAQUANT`,
         `owner = target = le DÉFENSEUR` (`ExecuteHit` pour `On(6)`,
-        `EvaluateAfterHitTriggers` pour `On(0x3c)` -- les deux passent le même couple)."""
+        `EvaluateAfterHitTriggers` pour `On(0x3c = UnitBlocked)` -- les deux passent le même couple)."""
         return TriggerEvent(event_id, self.attacker_id, self.defender_id,
                             ranged=False, profile=None,
                             triggering_ability=HARLEQUINS_PANOPLY_ABILITY)

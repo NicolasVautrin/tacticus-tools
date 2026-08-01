@@ -9,7 +9,7 @@ pour CHAQUE tirage la PILE d'appel cote port (fichier + fonction sous `engine/`)
 compte au `dumpRng` natif d'encadrement.
 
 MONTAGE (identique a case-209, k = 1) : `deathBlightlord` vs `astraBullgryn` (aucun trigger, aucun
-summon -> UNE seule emission de `On(0x2b)`), relais `astraDreir` sur un voisin commun, board MC1_67.
+summon -> UNE seule emission de `On(0x2a = PreUnitAbility)`), relais `astraDreir` sur un voisin commun, board MC1_67.
 `--hp` pilote le REGIME : la cible survit (aucun volet mort) / meurt sous le dernier coup / meurt
 avant la fin de la serie. C'est l'ECHELLE qui attribue les tirages a un etage plutot qu'a un autre.
 

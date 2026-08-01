@@ -54,7 +54,7 @@ FAMILLE « attack » : le behaviour appelle `IdunBattleLogic.Entities.DSLFactory
 (PAS `AttackWithAbilityDamage`) -> `native_factory="attack"` (defaut). `attackRangeType = Melee` ->
 `is_melee=True`. La config d'un PASSIF est resolue au niveau passif -> `level_slot="passive"`.
 
-## Le gate ACTEUR-MORT POST-`On(0x2b)` -- ce qui rend « before the enemy attack executes » OBSERVABLE
+## Le gate ACTEUR-MORT POST-`On(0x2a = PreUnitAbility)` -- ce qui rend « before the enemy attack executes » OBSERVABLE
 
 `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`, sequence lue VERBATIM au decompile :
 
@@ -83,7 +83,7 @@ RESIDUS EXPLICITES
  * `NOT IsDirectTargetAttack(@0x140)` : `@0x140` est le 3e selecteur d'ability du factory (aux cotes
    de `@0x130` CurrentAbility et `@0x138` TriggeringAbility) ; `AbilityEntities` expose bien un
    `get_ParentAbilityType` (propage par `AttackBehaviour$$GetAttackOptions`), ce qui en fait
-   l'ability PARENTE. Le port ne materialise PAS de chaine parent d'ability : il n'emet `On(0x2b)`
+   l'ability PARENTE. Le port ne materialise PAS de chaine parent d'ability : il n'emet `On(0x2a = PreUnitAbility)`
    que depuis les DEUX portes d'operation top-level (`damage_ops.execute`,
    `AbilityHandler.visit_ActiveAbilityMessage`), jamais depuis une attaque FILLE (une riposte /
    un splash appellent directement `AttackDamageOperation`). Le conjoint est donc VRAI par

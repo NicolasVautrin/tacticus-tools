@@ -23,7 +23,7 @@ d'`ActiveCondition` (`runner/operations/refresh_effects.py`). Cf. `docs/rl/case-
 
 | Symbole | VA |
 |---|---|
-| `ADamageOperation$$EvaluateAfterHitTriggers` | `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (l'EMETTEUR de `On(0x3d)`) |
+| `ADamageOperation$$EvaluateAfterHitTriggers` | `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (l'EMETTEUR de `On(0x3c = UnitBlocked)`) |
 | `AnvilShieldAbility_ApplyIce$$CreateTrigger`   | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger` |
 | `AnvilShieldAbility_ApplyIce$$CreateBehaviour` | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour` |
 | `AnvilShieldAbility_ApplyStun$$CreateTrigger`   | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyStun$$CreateTrigger` (#100) |

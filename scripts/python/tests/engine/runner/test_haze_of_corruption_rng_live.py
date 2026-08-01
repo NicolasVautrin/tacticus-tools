@@ -177,7 +177,7 @@ def creed_row(rpc):
 
 def test_two_emissions_two_draws_live(live_session, creed_row):
     """Le residu D'ORIGINE : `SwornProtector` fait re-entrer `ExecuteForReplacedTarget` (#120bis),
-    donc `On(0x2b)` est emis DEUX fois -> DEUX pools de 1 -> DEUX tirages, puis les 3 coups."""
+    donc `On(0x2a = PreUnitAbility)` est emis DEUX fois -> DEUX pools de 1 -> DEUX tirages, puis les 3 coups."""
     r = creed_row
     print(f"\n[207] creed natif={r['n_native']} port={r['n_off']} contref={r['n_off_cf']} "
           f"bonds={r['bonds']} live={r['live']} port={r['off_hits']} contref={r['cf_hits']}")

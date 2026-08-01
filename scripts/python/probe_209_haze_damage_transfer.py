@@ -24,7 +24,7 @@ ARTEFACT NATIF vise (decompile, build `gqfc5mff6c`) :
 
 MONTAGE (reutilise la geometrie CRAFTEE de `probe_207_haze_pool_ladder.py`, k = 1) :
     C = deathBlightlord ; T = astraBullgryn (aucun trigger, aucun summon -> UNE seule emission
-    de `On(0x2b)`) ; R = astraDreir place sur un voisin COMMUN de C et T -> pool = {R}, un bond.
+    de `On(0x2a = PreUnitAbility)`) ; R = astraDreir place sur un voisin COMMUN de C et T -> pool = {R}, un bond.
     `--hp-target` BAS -> T meurt sous le coup -> la branche transfert TIRE.
 
 TEMOIN que la branche a tire (exige AVANT toute comparaison de nombres) : un evenement de degat

@@ -304,7 +304,7 @@ def effect_trigger_channel_case():
     `memset(0, 0x128)`, mais `IdunBattle.Operations.AddEffectOperation$$Execute` remplit
     `currentAbilityOrEffect` (`+0x60`) **ET** `triggerAbilityOrEffect` (`+0x98`) avec le meme
     `AbilityOrEffect(effectType)`, tandis que `IdunBattle.Operations.RemoveEffectOperation$$Execute`
-    n'ecrit que `+0x60` -- `+0x98` reste a ZERO. Donc sur `On(63)` / `On(64)`, c'est
+    n'ecrit que `+0x60` -- `+0x98` reste a ZERO. Donc sur `On(63 = PreEffectRemoved)` / `On(64 = EffectRemoved)`, c'est
     `CurrentAbilityIs` qui porte l'effet retire, jamais `TriggeringEffectIs`.
 
     PAS de `live_session`, et c'est DELIBERE -- meme raison qu'en #294/#301 : aucun consommateur
@@ -312,7 +312,7 @@ def effect_trigger_channel_case():
     donc aucune observable de bataille ne separe les deux lectures. Ce qui est verrouille ici est
     OFFLINE, deterministe et sans RNG : QUEL canal chaque Operation ecrit, et sa PORTEE. La
     non-regression du COMPORTEMENT, elle, est portee par `test_lot_pose_live.py` (le seul
-    consommateur porte de `On(61)`).
+    consommateur porte de `On(61 = PreEffectAdded)`).
 
     Quatre contre-epreuves (`probe_306_effect_trigger_channels.MUTATIONS`), chacune avec sa
     signature propre : `legacy` (l'etat d'avant #306 : la pose n'ecrit que `+0x98`, le retrait

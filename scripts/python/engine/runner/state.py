@@ -136,7 +136,7 @@ class State:
         # restrictive sur un gate positif).
         # ⚠ CE CANAL EST VIDE PENDANT TOUT LE VECTEUR MORT (#301) : `IdunBattle.Operations.
         # KillUnitOperation$$Execute` memset son `AbilityEntities` et n'y reecrit QUE `+0x98`, donc
-        # `+0x60` reste a zero sur `On(0)/On(1)/On(2)/On(53)/On(54)`. `operations/damage.py::
+        # `+0x60` reste a zero sur `On(0)/On(1)/On(2)/On(53 = PostUnitKill)/On(54 = UnitDefeated)`. `operations/damage.py::
         # _verify_deaths` force donc `None` ici et pose le `killTrigger` sur `trigger_ability_type`.
         # Le consommateur `FuelledByFury` (`TriggeringAbilityIs(0x400)`) est sur `On(3)`, emis AVANT
         # le drain par `IdunBattle.Operations.RecordKillOperation$$Execute` via la voie universelle
@@ -178,7 +178,7 @@ class State:
         # KillUnitOperation$$Execute` construit son `AbilityEntities` par un memset de 0x128 puis
         # n'y reecrit QUE `+0x00/+0x08` (killer), `+0x10` (killed), `+0x38/+0x48` (tuiles) et le bloc
         # `+0x98..+0xb4` copie de `KillUnitOptions+0x04` -- et publie CETTE MEME struct, non remodifiee,
-        # sur `On(1)`, `On(2)`, `On(0)`, `On(54)` puis `On(53)`. Ce canal y porte donc le `killTrigger`
+        # sur `On(1)`, `On(2)`, `On(0)`, `On(54 = UnitDefeated)` puis `On(53 = PostUnitKill)`. Ce canal y porte donc le `killTrigger`
         # de la file de morts pendant tout le drain (`operations/damage.py::_verify_deaths`), et
         # `triggering_ability` (`+0x60`) y est VIDE. Montage :
         # `probe_301_kill_unit_trigger_channels.py`.
@@ -194,14 +194,14 @@ class State:
         #      `default`. C'est par elle que passe le vecteur MORT-pending (`On(3)`).
         #      NON MODELISE -- sans consequence tant que les deux valent la meme chose.
         #   2. `IdunBattle.Operations.KillUnitOperation$$Execute` -- ecrit `+0x98` DIRECTEMENT
-        #      (`KillUnitOptions+0x04`) et laisse `+0x60` a ZERO, pour `On(0)/On(1)/On(2)/On(53)/On(54)`.
+        #      (`KillUnitOptions+0x04`) et laisse `+0x60` a ZERO, pour `On(0)/On(1)/On(2)/On(53 = PostUnitKill)/On(54 = UnitDefeated)`.
         #      **PORTE DEPUIS #301** : `operations/damage.py::_verify_deaths` pose le `killTrigger` de
         #      la file ICI et force `triggering_ability` (+0x60) a `None` le temps du drain. Le port
         #      faisait l'inverse (valeur sur `+0x60`, `+0x98` vide) -- divergence PERMISSIVE fermee.
         #   3. `IdunBattle.Operations.AddEffectOperation$$Execute` -- `+0x60` = `+0x98` =
-        #      `AbilityOrEffect(effectType)`, pour `On(61)/On(62)/On(70)`. NON MODELISE.
+        #      `AbilityOrEffect(effectType)`, pour `On(61 = PreEffectAdded)/On(62 = EffectAdded)/On(70 = UnitBecameUntargetable)`. NON MODELISE.
         #      (Symetrique NEGATIF, contre-intuitif : `IdunBattle.Operations.RemoveEffectOperation$$Execute`
-        #      n'ecrit QUE `+0x60` et laisse `+0x98` a zero -> sur `On(63)/On(64)` c'est
+        #      n'ecrit QUE `+0x60` et laisse `+0x98` a zero -> sur `On(63 = PreEffectRemoved)/On(64 = EffectRemoved)` c'est
         #      `CurrentAbilityIs` qui porte l'effet, pas `TriggeringEffectIs`.)
         #   4. `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` -- LE SEUL PORTE ICI.
         #

@@ -184,7 +184,7 @@ def _run_one(impl, hit_interceptor, failed_block0=None):
 def test_la_substitution_TRANSMET_hit_interceptor(factory):
     """#366-r1. L'intercepteur per-coup (`should_discard` = l'etape que
     `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` execute juste apres `On(6)`, et
-    `on_blocked` = `On(0x3c)` puis `ADamageOperation$$RegisterBlocks`) n'est PAS une variable de ces
+    `on_blocked` = `On(0x3c = UnitBlocked)` puis `ADamageOperation$$RegisterBlocks`) n'est PAS une variable de ces
     contrefactuels : une substitution qui l'avalerait desarmerait le discard et le compteur
     `ActorStatisticsComponent+0x8c` dans les rejeux offline, mais PAS dans le port livre -- et
     l'ecart se lirait comme une regression de l'etage effectivement mesure."""

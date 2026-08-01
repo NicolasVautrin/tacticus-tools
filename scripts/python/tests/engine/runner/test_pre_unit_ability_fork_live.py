@@ -159,7 +159,7 @@ def mono_target_cast(rpc, build_runner):
 
 def test_attack_ability_wakes_sworn_protector_live(attack_cast):
     """ORACLE du de-fork : un cast d'ability CLASSEE ATTAQUE (`JakhalStimms`, ctor arg 0) sur Creed
-    fait apparaitre Kell -- donc le natif emet bien `On(0x2b)` sur la voie ABILITY, pas seulement sur
+    fait apparaitre Kell -- donc le natif emet bien `On(0x2a = PreUnitAbility)` sur la voie ABILITY, pas seulement sur
     la voie d'attaque normale."""
     assert attack_cast["res"].get("mutated"), (
         "cast non applique (mutated=false) -> cible illegale, mesure non concluante")
@@ -263,7 +263,7 @@ def test_port_reproduces_replaced_target_offline():
     Le probe couvre : voie normale avec switch / voie cast MONO-CIBLE avec switch / Creed taunte
     (`CanSwitchPosition` faux -> spawn SANS switch, la cible d'origine encaisse, sur les 2 voies) /
     cible sans SwornProtector (2 voies) / ability `Others` / cible morte (`Count(targetTiles) > 0`
-    protege les casts sur cadavre) / structure de la re-entree (`On(0x2b)` re-emis, flags de tour
+    protege les casts sur cadavre) / structure de la re-entree (`On(0x2a = PreUnitAbility)` re-emis, flags de tour
     poses une seule fois) / 2e coup pris en charge par `SwornProtector_Protect`."""
     import importlib
     probe = importlib.import_module("probe_120bis_execute_for_replaced_target")

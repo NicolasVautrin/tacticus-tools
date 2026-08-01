@@ -108,10 +108,12 @@ class FinishUnitTurnOperation:
         # `Add(TurnFinished=3)` nouvellement pose -> le natif publie `On(0x28 = UnitFinishedTurn)`
         # PUIS, si `!isTerminated`, `On(0x29 = UnitFinishedTurnNormally)`. Les DEUX gates sont ceux du
         # decompile (#354) ; l'ordre relatif a `On(0x1c)` (au-dessus) est celui du natif.
-        # `On(0x28)` est EMIS depuis #448-r2 (consommateur : le 3e trigger d'`ATeleportingEffect` =
-        # l'atterrissage deep-strike d'une unite qui clot son tour sans avoir agi) -- et il l'est
-        # MEME sur `forced`, seul `On(0x29)` portant le gate `!isTerminated`.
-        # Consommateur de `On(0x29)` : `MyWillBeDoneOverlordAttackAbility` (passif `necroOverlord`).
+        # `On(0x28 = UnitFinishedTurn)` est EMIS depuis #448-r2 (consommateur : le 3e trigger
+        # d'`ATeleportingEffect` = l'atterrissage deep-strike d'une unite qui clot son tour sans avoir
+        # agi) -- et il l'est MEME sur `forced`, seul `On(0x29 = UnitFinishedTurnNormally)` portant le
+        # gate `!isTerminated`.
+        # Consommateur de `On(0x29 = UnitFinishedTurnNormally)` : `MyWillBeDoneOverlordAttackAbility`
+        # (passif `necroOverlord`).
         if newly_finished:
             from .triggers import unit_finished_turn_triggers
             out["finished_triggers"] = unit_finished_turn_triggers(state, int(unit_id))

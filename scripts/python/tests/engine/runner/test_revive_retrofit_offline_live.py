@@ -267,7 +267,7 @@ def test_phoenix_marker_survives_a_foreign_revive(env):
     """Discriminant case-89/B3 : le retrait du marqueur 1451 est un trigger SEPARE
     (`IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal`) gate par
     `CurrentAbilityIs(AbilityOrEffect(0x5b2=1458))`. Un revive venu d'AILLEURS (ici une `ReviveData`
-    posee directement, sourceId != PhoenixGem) emet bien `On(0x2e)` mais NE consomme PAS le marqueur.
+    posee directement, sourceId != PhoenixGem) emet bien `On(0x2d = UnitRevived)` mais NE consomme PAS le marqueur.
     L'ancien port chainait le `RemoveEffect` en dur au behaviour -> ce discriminant etait inexprimable."""
     from engine.runner.operations.revive import post_pending_revive, kill_unit_revive_gate as _gate
     st = _fresh(env)
