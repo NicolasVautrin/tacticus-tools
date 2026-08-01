@@ -1011,3 +1011,110 @@ class HammerOfWrathConditionalDamageEffect(BaseEffect):
         if hp is None or mx is None or not mx or pct is None:
             return True
         return 100 * int(hp) <= int(pct) * int(mx)
+
+
+class TunnelingHorrorPendingSummonEffect(BaseEffect):
+    """`TunnelingHorror_PendingSummon` (EffectType 0x459 = 1113, `necroSmnDestroyer` « Ophydian
+    Destroyer ») -- MARQUEUR de bond POSE SUR LA TUILE de destination, dont la SEULE semantique est
+    de NE JAMAIS s'auto-retirer. Aucune contribution (ni stat-mod, ni EffectBonus, ni condition).
+
+    IDENTITE DE CLASSE (piege du `.ctor` mutualise, #366-r1)
+    -------------------------------------------------------
+    Ghidra nomme le corps appele par `IdunBattle.Entities.Effects.Loki.TunnelingHorror_PendingSummonEffect$$.ctor`
+    « `IdunBattle.Entities.Effects.BaseEffect$$.ctor` » -- c'est un corps DEDUPLIQUE : la surcharge
+    a 4 arguments d'`IdunBattle.Entities.Effects.ABondEffect` est instruction pour instruction celle
+    de la base, donc IL2CPP n'en garde qu'un exemplaire, attribue a `BaseEffect`. Le parent REEL se
+    lit dans `data/symbols/<build>/frida/classes.tsv` :
+    `IdunBattle.Entities.Effects.Loki.TunnelingHorror_PendingSummonEffect` -> parent
+    `IdunBattle.Entities.Effects.ABondEffect`. Ne jamais conclure la hierarchie du nom du `$$.ctor`.
+
+        .ctor() = ABondEffect( hasAutomaticActivation: true,
+                               unitEffectType: 0,
+                               sourceAbility: AbilityOrEffect(ActiveAbilityType.TunnelingHorror = 1011) )
+
+    (`mov edx, 0x3f3` puis la surcharge `IdunBattle.Core.AbilityOrEffect$$op_Implicit` qui appelle
+    `IdunBattle.Core.AbilityOrEffect$$set_ActiveAbility` -- donc ActiveAbilityType, PAS EffectType ni
+    TriggeredAbilityType, tous trois ayant une surcharge homonyme.)
+
+    LES TROIS SURCHARGES DE LA CLASSE, ET CE QU'ELLES ETEIGNENT
+    ----------------------------------------------------------
+    La classe ne definit que quatre methodes ; les trois autres que le `.ctor` sont des getters a
+    corps TRIVIAL (releves au runtime par le RPC `resolveMethodPtr` -- les tables de symboles
+    dedupliquent ces corps et ne les nomment donc pas) :
+
+        get_Adjacent                  -> false
+        get_Range                     -> Nullable<int> sans valeur
+        get_RemoveOnBondedEntityDeath -> false
+
+    Ces trois getters sont les SEULS parametres lus par
+    `IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal`, qui construit
+    l'`ArraySet` des triggered-abilities PORTEES PAR L'EFFET -- une par condition, chacune
+    `Triggered(<cond>, RemoveEffect(EffectSelf))` :
+
+        RemoveOnBondedEntityDeath -> NOT AmountIsZero(BondedEntityFromEffect) & (On(0x2) | On(0x25))
+                                     & IsEntityWithIdTarget(BondedEntityFromEffect)
+        Range.HasValue            -> NOT IsInRange(Owner, BondedEntity, Direct(Range))
+                                     & NOT AmountIsZero(BondedEntity) & On(0x1d)
+        Adjacent                  -> NOT IsAdjacent(Owner, BondedEntity, 3)
+                                     & NOT AmountIsZero(BondedEntity) & On(0x1d)
+
+    Les trois etant faux/absents, l'`ArraySet` est **VIDE** : cet effet ne porte AUCUN trigger de
+    retrait automatique. C'est pour cela qu'il n'a PAS d'entree dans `EFFECT_TRIGGERS` -- une
+    absence MESUREE, pas un oubli.
+
+    CE QUI REND CETTE CLASSE DISTINCTIVE. Balayage runtime des **16** classes derivant d'`ABondEffect`
+    (`resolveMethodPtr`, 2026-08-01, build `rnca9r7q6c`) : `get_RemoveOnBondedEntityDeath` rend
+    **true** chez 13 d'entre elles (corps trivial partage), un calcul chez
+    `IdunBattle.Entities.Effects.APendingAttackEffect`, et **false** chez exactement DEUX :
+    `TunnelingHorror_PendingSummonEffect` et son jumeau
+    `IdunBattle.Entities.Effects.Loki.CallRipperSwarms_PendingSummonEffect`. Autrement dit : les deux
+    marqueurs de « summon en attente » sont les seuls bonds que la mort de l'unite bondee ne casse
+    pas. (`get_Adjacent` : false partout sauf `HolyDuel_TauntEffect` = true et
+    `HazeOfCorruption_DamageTransferEffect` = bespoke.)
+
+    LE VECTEUR DE POSE, ET SON ETAT COTE PORT
+    -----------------------------------------
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$ExecuteBehaviour` (active
+    1011) execute TROIS behaviours :
+        `RemoveUnitFromItsTiles(Caster, removeTileFromUnit: true)`
+        `RemoveAllForcedAttackTargets(Caster)`
+        `AddBondEffect(0x459, AbilityStateReference, source: Caster, targets: TargetTiles,
+                       bondedEntity: Caster, <options SANS TurnsFromRounds>)`
+    L'ability 1011 n'est PAS portee (`ABILITY_CLASSES`) : il manque la primitive
+    `IdunBattle.Operations.RemoveUnitFromTilesOperation$$Execute` (l'unite quitte le plateau).
+    L'effet arrive donc offline par le SEUL chemin de CHARGEMENT
+    (`runner/snapshot.py::_load_tile_effects`, canal `tileMeta.tiles[].effects`), jamais par une pose
+    offline. Residu nomme : cf. `docs/rl/case-366-r1-tunneling-horror-pending-summon.md`.
+
+    LE RETRAIT est explicite, et lui seul :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorror_AppearAbility$$ExecuteBehaviour`
+    (active 1060) selectionne `First(EffectTarget(BondEffects(all, 0x459, bondedEntity: Owner)), 1)`
+    = la tuile marquee, y deplace l'unite, puis `RemoveEffect(EffectSelf, 0x459)`.
+
+    MESURE LIVE (2026-08-01, `probe_366_r1_tunneling_horror.py`, greffe de 1011 sur `necroDestroyer`,
+    board MC1_67, seed 777) -- cast sur la tuile (3,6) :
+        RemoveUnitFromTiles e=<caster>  Clear_Unit_Tiles=1
+        ReceiveEffect e=<tuile>  BondEffect_BondedId=<caster> Effect_SourceId=<caster>
+                                 Effect_SourceActiveAbility=1011 Effect_CurrentLevel=1
+    puis `tileMeta` : `{name: TunnelingHorror_PendingSummon, effectType: 1113, source: <caster>,
+    remaining: 0, level: 1}` sur (3,6) SEULEMENT, et le caster passe a `pos = null`.
+    `remaining = 0` => l'effet est PERMANENT (aucun `TurnsFromRounds` dans les options d'`AddBondEffect`) ;
+    la fiche `docs/rl/summon-abilities-port-spec.md` qui annoncait « default -> 1 round » est REFUTEE.
+    Au tour suivant, cast de 1060 -> `ChangePosition e=<caster> Unit_Foot_Tile_Id_1=<tuile>` puis
+    `LoseEffect`/`DeactivateEffect` de l'effet 1113 : la tuile est nettoyee.
+
+    NON COUVERT cote port : `BaseEffect.bonded` reste `None` pour une instance SEEDEE -- le canal de
+    capture `tileMeta` publie `{name, effectType, source, remaining, level}` et PAS le
+    `BondEffect_BondedId` (limite connue du canal, cf. `runner/operations/effects.py`). Le flux
+    d'events, lui, le porte."""
+
+    # `ABondEffect..ctor(hasAutomaticActivation = 1, ...)` -- attribut INERTE cote port (aucun
+    # lecteur), pose pour la meme raison que `CounterAttackEffect.HAS_AUTOMATIC_ACTIVATION`.
+    HAS_AUTOMATIC_ACTIVATION = True
+    # Les trois getters d'`ABondEffect` surcharges par la classe (cf. docstring). INERTES : le port
+    # ne mirror PAS `CreateHandleTriggerAbilitiesInternal` de facon generique -- chaque effet declare
+    # ses triggers dans `EFFECT_TRIGGERS`. Ils sont ecrits pour que la NON-inscription de 1113 dans
+    # ce registre se lise comme une mesure et pas comme un trou.
+    BOND_ADJACENT = False                    # `get_Adjacent` -> false
+    BOND_RANGE = None                        # `get_Range` -> Nullable<int> sans valeur
+    BOND_REMOVE_ON_BONDED_ENTITY_DEATH = False   # `get_RemoveOnBondedEntityDeath` -> false
