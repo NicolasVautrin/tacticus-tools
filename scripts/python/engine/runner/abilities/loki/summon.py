@@ -103,8 +103,14 @@ def getemruntz_taunt_tree() -> If:
                    AmountIsEqual(Const(0), UnitTurnsStarted(child))),
         IsAlive(LastUnitAttackedBy(child)))
     # duree = `TurnsFromRounds(1)` natif -> convertie par `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns (#98)
+    # `bonded_ref = child` = le **5e argument** de `IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect`
+    # au call-site (`GetEmRuntzAbility$$TauntWithNewChildrenWhoDidDamage` :
+    # `AddBondEffect(ctx, 0x1b, stateRef, child, LastUnitAttackedBy(child), child, TurnsFromRounds(1))`).
+    # C'est ce que relit `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`, donc la SEULE
+    # cible que l'ennemi taunte aura le droit d'attaquer (`TargetIsAllowedForCaster`, #436).
     return If(cond, AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets",
-                                  child, LastUnitAttackedBy(child), duration_rounds=1))
+                                  child, LastUnitAttackedBy(child), duration_rounds=1,
+                                  bonded_ref=child))
 
 
 def getemruntz_tree() -> Seq:

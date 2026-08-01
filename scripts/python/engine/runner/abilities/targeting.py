@@ -109,8 +109,8 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
   39   0x8000000000          TargetIsCaster (`caster != GetUnit(target)` => refus) OUI
   10   0x400                 TargetIsFriendly                                    OUI
   14   0x4000                TargetIsEnemy (`UnitsCanAttackEachOther`)           OUI
-  23   0x800000              TargetIsAllowedForCaster (`GetOnlyTargets`, Taunt)  NON — ⚠ SON BIT
-                             ⚠ ARMEE PAR `TargetIsEnemy | TargetIsCasterOrEnemy`,               N'EST JAMAIS
+  23   0x800000              TargetIsAllowedForCaster (`GetOnlyTargets`, Taunt)  OUI (#436) — ⚠ SON
+                             ⚠ ARMEE PAR `TargetIsEnemy | TargetIsCasterOrEnemy`,               BIT N'EST JAMAIS
                              DESARMEE par `AllowIgnoreForcedAttackTarget` :                     TESTE : il
                              son propre bit 23 n'est JAMAIS teste par le natif.                 n'est que le
                              59 abilities du registre l'ont ARMEE (0 posent le bit).            code rendu
@@ -756,6 +756,39 @@ def unit_of_entity(state: "State", entity_id):
     return None
 
 
+def _resolved_target_id(state: "State", target_id, options: "TargetingOptions"):
+    """`puVar12` — la cible RESOLUE par la tete de domaine du filtre statique
+    (`IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`, surcharge 7 arguments), celle
+    que consomment TOUTES les regles qui suivent. MIRROR de l'aiguillage lu en tete de la fonction :
+
+        TargetIsTile     -> EntityExtensions.GetMainTile(target)      (une ENTITE TUILE)
+        TargetIsMachine  -> UnitExtensions.GetMachine(target)
+        TargetIsActor    -> GetUnit(target), et a defaut GetMachine(target)
+        (aucun des trois) -> UnitExtensions.GetUnit(target)           (= `local_c8`)
+
+    Rend l'ID d'entite, ou None quand le port ne resout pas (degradation PERMISSIVE de tout ce
+    module : aucune regle ne refuse sur une cible non identifiee).
+
+    `get_target_domain_broken_rule` porte le volet REFUS de cette meme tete ; ici on porte son volet
+    RESOLUTION, qui lui n'a pas de code de retour."""
+    if target_id is None:
+        return None
+    if options.has(TR.TargetIsTile):
+        board = state.board
+        tt = entity_tiles(state, target_id)
+        if board is None or not tt:
+            return None
+        return board.id_at(int(tt[0][0]), int(tt[0][1]))
+    if options.has(TR.TargetIsMachine):
+        return int(target_id) if _is_machine(state, target_id) else None
+    if options.has(TR.TargetIsActor):
+        u = unit_of_entity(state, target_id)
+        if u is not None:
+            return int(u)
+        return int(target_id) if _is_machine(state, target_id) else None
+    return unit_of_entity(state, target_id)
+
+
 def is_actor(state: "State", entity_id) -> bool:
     """`IdunBattle.Entities.EntityExtensions$$IsActor` — l'entite AGIT (unite ou machine of war),
     par opposition a une tuile / un objet de decor."""
@@ -801,6 +834,41 @@ def units_can_attack_each_other(state: "State", a_id, b_id) -> bool:
     ff = (state.effects is not None and a_id is not None
           and state.effects.has_effect(int(a_id), effect_type=EFFECT_FRIENDLY_FIRE))
     return friendly if ff else (not friendly)
+
+
+def get_only_targets(state: "State", unit_id) -> list:
+    """`IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(unit)` — les SEULES entites que `unit` a le
+    droit d'attaquer (le TAUNT). MIRROR du decompile, branche par branche :
+
+        if (!unit.TryGetComponent<ForcedAttackTargetsComponent>(out comp)) return new List<int>();
+        owner = unit.GetComponent<OwnerComponent>();          // NRE si absent
+        if (OwnerComponent.IsOverridden(owner)) return new List<int>();
+        return comp.<+0x50>;                                   // la List<int> d'entity-ids
+
+    Liste VIDE = AUCUNE restriction (c'est le cas de la quasi-totalite des unites) — le gate de la
+    regle est `Count > 0`, pas la presence du composant.
+
+    QUI L'ECRIT : `IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal` la pose a
+    `[BondedEntityId]` et `$$RevertInternal` la vide ; `AddForcedAttackTargetBehaviour` /
+    `RemoveForcedAttackTargetBehaviour` l'editent par element. Detail + le lien effet->ecriture que
+    le port materialise : `engine/runner/components.py::ForcedAttackTargetsComponent`.
+
+    NON PORTE — le gate `IdunBattle.Entities.Components.OwnerComponent$$IsOverridden`
+    (`= *(int*)(owner+0x14) != 0`, le champ `OverriddenPlayerEntityId` du MIND CONTROL ; le port ne
+    porte que le CURRENT owner, `OwnerComponent.player`, sans distinguer l'original de l'override,
+    cf. `OwnerComponent$$get_CurrentPlayerEntityId` = `+0x14 != 0 ? +0x14 : +0x10`). Une unite a la
+    fois MIND-CONTROLEE et TAUNTEE verrait donc le port maintenir une restriction que le natif leve
+    -> degradation RESTRICTIVE, du MAUVAIS cote. Elle n'a aucun porteur offline (le port ne
+    materialise aucun override d'owner : aucun ecrivain de `OwnerComponent.player` hors capture) ;
+    a fermer le jour ou la capture publiera les deux champs."""
+    from ..components import ForcedAttackTargetsComponent
+    e = state.get_entity(int(unit_id)) if unit_id is not None else None
+    if e is None:
+        return []
+    comp = e.get_component(ForcedAttackTargetsComponent)
+    if comp is None:
+        return []                          # `TryGetComponent` faux -> `new List<int>()`
+    return comp.get()
 
 
 def is_targetable(state: "State", entity_id) -> bool:
@@ -1769,6 +1837,48 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     if options.has(TR.TargetIsEnemy) and tuid is not None:
         if not units_can_attack_each_other(state, caster_id, tuid):
             return int(TR.TargetIsEnemy)
+
+    # TargetIsAllowedForCaster (bit 23) -- LE TAUNT / la CIBLE FORCEE (#436). VERBATIM du filtre
+    # statique (surcharge 7 arguments), juste APRES `TargetIsEnemy` et AVANT `TargetIsDisplaceable` :
+    #
+    #     if ((rules >> 0xe & 1) != 0 || (rules >> 0x39 & 1) != 0) {        // TargetIsEnemy | TargetIsCasterOrEnemy
+    #         if ((rules >> 0x28 & 1) == 0) {                               // !AllowIgnoreForcedAttackTarget
+    #             list = UnitExtensions.GetOnlyTargets(caster);             // null -> NRE
+    #             if (0 < list.Count) {
+    #                 found = false;
+    #                 foreach (id in list) { if (puVar12 == null) NRE;
+    #                                        if (id == EntityId(puVar12)) found = true; }
+    #                 if (!found) -> broken(0x800000);
+    #             }
+    #         }
+    #     }
+    #
+    # ⚠ SON PROPRE BIT N'EST JAMAIS TESTE (mesure #429 : **0** ability du registre pose le bit 23,
+    # **59** ARMENT la regle par `TargetIsEnemy|TargetIsCasterOrEnemy`). Le bit 23 n'est QUE le code
+    # rendu. C'est pour ca qu'un recensement par le bit donnait « 0 porteur, rien a y porter » --
+    # un zero de METHODE. L'ARMEMENT est le meme predicat que
+    # `IdunBattle.Core.Services.TargetingOptions$$get_IsEnemyTargeting`, que le natif REECRIT inline
+    # ici (il n'appelle pas le getter) ; le port reutilise le getter, c'est le meme prédicat bit pour
+    # bit. Il vaut aussi pour l'ATTAQUE NORMALE (preset `0x4002` -> `TargetIsEnemy`), donc pour
+    # `valid_normal_attack_targets`.
+    #
+    # LE DESARMEMENT est `AllowIgnoreForcedAttackTarget` (bit 40) : une ability qui le pose ignore le
+    # taunt. TROIS GATES successifs, dans cet ordre -- armement, desarmement, puis `Count > 0` : une
+    # liste VIDE (le cas de toute unite non tauntee) ne refuse RIEN.
+    #
+    # LA CIBLE COMPAREE est `puVar12`, la cible RESOLUE par la tete de domaine (`_resolved_target_id`),
+    # PAS la cible d'origine : sur une ability TILE-targeting c'est la tuile, sur une ability
+    # machine-targeting la machine, sinon `GetUnit(target)` (qui resout une TUILE en son OCCUPANT).
+    if options.is_enemy_targeting and not options.has(TR.AllowIgnoreForcedAttackTarget):
+        only = get_only_targets(state, caster_id)
+        if only:
+            rtid = _resolved_target_id(state, target_id, options)
+            # `rtid is None` : le natif JETTE (`if (puVar12 == null) throw`) -- inatteignable chez lui,
+            # la tete de domaine ayant deja rompu `TargetIsUnit`. Le port, lui, est PERMISSIF partout
+            # ou il ne resout pas la cible (cf. `get_target_domain_broken_rule`) : on ne refuse pas
+            # sur une cible qu'on ne sait pas identifier, meme convention que tout ce module.
+            if rtid is not None and int(rtid) not in {int(x) for x in only}:
+                return int(TR.TargetIsAllowedForCaster)
 
     # TargetIsTargetable -- controle INVERSE : il s'applique SAUF si `AllowUntargetableTarget` est pose.
     if (not options.has(TR.AllowUntargetableTarget)) and tuid is not None:

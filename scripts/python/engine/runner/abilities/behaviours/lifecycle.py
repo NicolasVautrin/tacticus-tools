@@ -252,10 +252,12 @@ class RemoveAllForcedAttackTargets(AbilityBehaviour):
             return OperationResult.ok()
         e = state.get_entity(int(aid))
         comp = e.get_component(ForcedAttackTargetsComponent) if e is not None else None
-        if comp is None or not comp.targets:
+        if comp is None or not comp.get():
             return OperationResult.ok()
-        removed = comp.get()
-        comp.targets = []
+        # `clear()` VIDE la liste ET DÉLIE l'écrivain-effet : après ce behaviour la restriction ne
+        # doit PAS repousser tant que l'effet 27 vit encore (le natif n'a aucune ré-écriture --
+        # `TauntedEffect$$ApplyInternal` ne se rejoue pas). Cf. `ForcedAttackTargetsComponent`.
+        removed = comp.clear()
         ectx.emit("RemoveAllForcedAttackTargets", attacker=int(aid), removed=removed)
         return OperationResult.ok()
 

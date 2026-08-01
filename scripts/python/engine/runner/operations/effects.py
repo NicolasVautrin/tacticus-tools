@@ -274,6 +274,10 @@ class AddEffectOperation:
         # Effet COMPOSITE : `<Effect>.ApplyInternal` spawne ses SOUS-effets (enfants) juste après le
         # parent (ex. Stunned 1162 → 1165/1166/1167). Effet-driven : la liste vient de la classe d'effet.
         AddEffectOperation._spawn_sub_effects(state, source, target, eff)
+        # `<Effect>.ApplyInternal` part CIBLES D'ATTAQUE FORCÉES (le TAUNT) — placée ICI parce que le
+        # natif l'écrit APRÈS ses trois `AddSubEffectWithSameTurns`
+        # (`IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal`).
+        AddEffectOperation._apply_forced_attack_targets(state, target, eff)
         return eff
 
     @staticmethod
@@ -354,6 +358,46 @@ class AddEffectOperation:
             if tsc is not None and tsc.ctx is not None:
                 tsc.ctx.active_ability_level = eff.overridden_prev
         eff.stat_override_stats = []
+
+    @staticmethod
+    def _apply_forced_attack_targets(state: State, target: int, eff: BaseEffect) -> None:
+        """Queue d'`IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal` — MIRROR :
+
+            comp = target.GetComponent<ForcedAttackTargetsComponent>();
+            list = new List<int>(); list.Add(ABondEffect.BondedEntityId(this, effect));
+            comp.<+0x50> = list;                                  // REMPLACE la liste
+
+        Gate = la part DATA `BaseEffect.writes_forced_attack_targets()` (seul `TauntedEffect` la
+        pose). La VALEUR est le `BondedEntityId` de l'instance = `eff.bonded`.
+
+        `eff.bonded is None` -> **AUCUNE écriture**, et c'est un choix. Le natif rendrait `0` (le
+        `BondedEntityId` d'un effet sans `BondComponent` : branche `else` du décompilé, qui LOGGUE
+        une erreur puis rend `0`) et poserait donc la liste `[0]`, c'est-à-dire une restriction que
+        AUCUNE entité ne satisfait -> tout cast refusé. Reproduire ce `[0]` sur un call-site du port
+        dont le `bondedEntity` n'a simplement pas encore été RE-lu fabriquerait un refus universel
+        à partir d'une donnée manquante. Les deux call-sites portés de l'effet 27 renseignent leur
+        bonded (relu au décompilé : `CrushingClawsAbility$$ExecuteBehaviour` et
+        `GetEmRuntzAbility$$TauntWithNewChildrenWhoDidDamage` passent tous deux le sélecteur du
+        TAUNTANT en 5e argument d'`IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect`), donc
+        cette branche ne mord sur aucun d'eux.
+
+        Le composant est CRÉÉ à la demande (le natif l'a par blueprint sur toute unité ; offline il
+        n'existe que là où une écriture a eu lieu — `GetOnlyTargets` traite son absence comme la
+        liste vide, exactement comme le `TryGetComponent` faux du natif)."""
+        if not eff.writes_forced_attack_targets():
+            return
+        bonded = getattr(eff, "bonded", None)
+        if bonded is None:
+            return
+        ent = state.get_entity(int(target))
+        if ent is None:
+            return
+        from ..components import ForcedAttackTargetsComponent
+        comp = ent.get_component(ForcedAttackTargetsComponent)
+        if comp is None:
+            comp = ForcedAttackTargetsComponent()
+            ent.add_component(comp)
+        comp.set_from_effect(eff, [int(bonded)])
 
     @staticmethod
     def _spawn_sub_effects(state: State, source: Optional[int], target: int,

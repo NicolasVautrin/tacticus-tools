@@ -82,7 +82,14 @@ def crushing_claws_tree() -> AtomicGroup:
     execute_behaviour` est REMPLACE par l'execution de l'arbre."""
     tgt = Target()
     # duree = `TurnsFromRounds(1)` natif (IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility$$ExecuteBehaviour) -> convertie par `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns (#98)
-    taunt = AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets", Caster(), tgt, duration_rounds=1)
+    # `bonded_ref = Caster()` = le **5e argument** de `IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect`
+    # au call-site (`CrushingClawsAbility$$ExecuteBehaviour` : `AddBondEffect(ctx, 0x1b, stateRef,
+    # <sel +0x48>, <sel +0x60>, <sel +0x48>, TurnsFromRounds(1))` -- `+0x48` = Caster, `+0x60` = Target,
+    # le meme couple que l'`AttackWithAttackDamage` juste au-dessus). C'est ce que relit
+    # `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`, et donc la SEULE cible que la cible
+    # tauntee aura le droit d'attaquer (`TargetIsAllowedForCaster`, #436).
+    taunt = AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets", Caster(), tgt, duration_rounds=1,
+                          bonded_ref=Caster())
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                       # AddEffect(0x429), duree DEFAUT
     main = AttackWithAttackDamage(tgt, "CrushingClaws", "Piercing", is_melee=True)    # MinMaxDamage/Piercing/0x2f=2
     splash = UnitsWithoutTrait(
