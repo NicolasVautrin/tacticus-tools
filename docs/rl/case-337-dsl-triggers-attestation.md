@@ -75,10 +75,23 @@ auto-portants) -- dont le cliquet de livraison « `DSLTriggers` ne contient plus
   l'outillage de mesure et de la doc), et le host Frida etait injoignable pendant le run
   (`127.0.0.1:8787` refuse). Rien ici ne change un observable de bataille.
 * **Les `CITE_A_QUALIFIER` restants** sont hors perimetre -- le meme travail reste a faire, et le
-  mecanisme est pret. Compte RE-DERIVE le 2026-08-01, attestations appliquees : **43** au total
-  (`DSLSelectors` 15, `DSLBehaviors` 14, `DSLFormulas` 12, `DSLFactory` 2, `DSLTriggers` **0**).
-  Ces chiffres MONTENT au fil des ports (chaque citation neuve en cree) : les re-deriver
-  (`probe_326_dsl_port_matching.py --attestations <chemin ABSOLU>`), jamais citer cette ligne.
+  mecanisme est pret. Compte RE-DERIVE le 2026-08-01, attestations appliquees : **44** au total
+  (`DSLSelectors` 16, `DSLBehaviors` 14, `DSLFormulas` 12, `DSLFactory` 2, `DSLTriggers` **0**).
+  Ces chiffres MONTENT au fil des ports -- mesure : **43 puis 44 en DEUX merges le meme jour**
+  (#436 a ajoute une citation `DSLSelectors`). Les re-deriver, jamais citer cette ligne.
+
+  **La re-derivation tient en DEUX commandes, et sauter la premiere ECHOUE** (`FileNotFoundError`,
+  rc=1) : le matching lit `logs/326_dsl_primitives_native.tsv`, qui est une **SORTIE** du probe
+  d'inventaire, donc absente d'un checkout FRAIS (mesure #381-r4). Depuis la racine du depot :
+
+  ```
+  python scripts/python/probe_326_dsl_primitive_inventory.py          # ecrit logs/326_dsl_*.tsv
+  python scripts/python/probe_326_dsl_port_matching.py --attestations <CHEMIN ABSOLU de la table>
+  ```
+
+  ⚠ Le chemin d'attestations doit etre **ABSOLU** : un chemin relatif est joint a la racine du
+  depot par l'appelant, donc un relatif plausible resout HORS du depot -- et le probe rendait alors
+  un balayage complet SANS AUCUNE attestation. Il LEVE desormais au lieu de rendre `{}` en silence.
 * **`DSLTriggers$$Not`** reste `PORTE_ARTEFACT_AUTRE` (verdict anterieur, hors des 47 ; levier
   mesure a zero).
 * **Le backlog SEC de la famille est INCHANGE** -- ces primitives etaient deja `NON_PORTE` avant
