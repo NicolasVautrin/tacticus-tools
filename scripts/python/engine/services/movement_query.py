@@ -238,6 +238,95 @@ def get_movable_positions_from_tiles(board, tiles: Sequence[Pos],
     return [c for c in combos if is_valid_unit_feet_list(board, feet_count, c)]
 
 
+#: `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit(unit, ignoreSpecialMovement)`,
+#: LU AU DECOMPILE :
+#:
+#:     if (!ignoreSpecialMovement) {
+#:         if (HasEffect(unit, 0x40b)) return IsLikeFlying(unit) ? 7  : 6;
+#:         if (HasEffect(unit, 0x474)) return IsLikeFlying(unit) ? 9  : 8;
+#:         if (HasEffect(unit, 0x4d6)) return IsLikeFlying(unit) ? 11 : 10;
+#:         if (HasEffect(unit, 0x625)) return IsLikeFlying(unit) ? 13 : 12;
+#:     }
+#:     return IsLikeFlying(unit) ? 3 : 0;
+#:
+#: Les quatre effets sont les etats « je descends du ciel » (`EffectType` du port) :
+#:     0x40b = 1035 TeleportStrike_TeleportingIn      0x474 = 1140 StormboyzStrike_TeleportingIn
+#:     0x4d6 = 1238 FearOfTheUnseen_TeleportingIn     0x625 = 1573 TitanhammerSquad_TeleportingIn
+#:
+#: RESIDU `#381-r5`, PREEXISTANT et PARTAGE par TOUT le port du mouvement (ce foyer, le noeud DSL
+#: `MovableTilesInRange`, `ai/state_bridge._move_tiles`) : les types 6..13 sont des pathfinders
+#: DISTINCTS que le port n'a pas, et personne ne teste ces effets -- une unite en cours de drop
+#: retombe donc sur le WalkPathfinder. MESURE (`C2_26`, seed 38104, `overrideRange` 2, au tout
+#: debut de bataille) : `tyranDeathleaper` et `bloodIntercessor` portent `TeleportStrike_
+#: TeleportingIn` (`remaining` 2) et le natif leur rend **35 tuiles** la ou le port en rend 9 --
+#: soit un pool board-wide, pas un disque de rayon 2. Degradation RESTRICTIVE, et TRANSITOIRE
+#: (l'effet expire). `has_special_movement` permet a un mesureur de NOMMER ce regime plutot que
+#: de compter un desaccord.
+SPECIAL_MOVEMENT_EFFECT_TYPES = (0x40b, 0x474, 0x4d6, 0x625)
+
+
+def has_special_movement(state, unit_id: int) -> bool:
+    """L'unite est-elle dans un etat de MOUVEMENT SPECIAL (`GetPathfinderTypeForUnit`, branche
+    `!ignoreSpecialMovement`) ? Vrai => le natif utilise un pathfinder que le port n'a pas
+    (residu `#381-r5`, cf. `SPECIAL_MOVEMENT_EFFECT_TYPES`) et toute confrontation de pool sur
+    cette unite est NON CONCLUANTE, pas un desaccord."""
+    eff = getattr(state, "effects", None) if state is not None else None
+    if eff is None:
+        return False
+    return any(eff.has_effect(int(unit_id), effect_type=int(t))
+               for t in SPECIAL_MOVEMENT_EFFECT_TYPES)
+
+
+def get_movable_tiles_for(board, state, unit_id: int, from_tile: int, override_range: int,
+                          occupants: dict, moving_team) -> set:
+    """`IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor(unit, tiles, ignoreUnitFlags,
+    options)` -- le FOYER que tout collapse imperatif du noeud `MovableTilesInRange` doit appeler.
+    Rend le STOP-SET (ids de tuile), comme le natif.
+
+        MovementQuery$$GetMovableTilesFor -> $$FindAnyOrAllMoveableTiles :
+            type  = GetPathfinderTypeForUnit(unit, options.pathfinderTypeOverride)
+            range = options.overrideRange ?? StatComponent(Movement).CurrentValue
+          -> $$AnyOrFillMoveableTiles(tiles, type, unit, range, bonus, ignoreUnitsOnTiles, out) :
+                 r = GetReachableTiles(start, type, range, unit)      // le PATHFINDING
+                 r.RemoveAll(t => !IsMovableTile(this, unit, t, ignoreUnitsOnTiles))
+
+    DEUX etages que les collapses impératifs oubliaient (residu `#381-r4`, ferme ici), et que le
+    noeud DSL homonyme (`entities/selectors/tiles.MovableTilesInRange`) porte depuis `#381-r1` :
+
+      1. `MovementQuery$$GetPathfinderTypeForUnit` -> `UnitExtensions$$IsLikeFlying` : un volant
+         prend le `FlyPathfinder` (traverse tout, ignore l'elevation). ⚠ SEULE la branche finale
+         de ce slot est portee ; sa branche MOUVEMENT SPECIAL ne l'est pas -- cf.
+         `SPECIAL_MOVEMENT_EFFECT_TYPES` / `has_special_movement` (residu `#381-r5`) ;
+      2. le gate d'EXPANSION `BasePathfinder$$NodesInNextLevel` -> `IsValidContinuePathTile`
+         (#131) : une tuile block-entering (Swamp/Fire/Ice/...) reste un STOP legal mais devient
+         un CUL-DE-SAC. `board=` est OBLIGATOIRE (repli TERRAIN de `make_can_continue`) : la
+         plupart des etats du runner sont charges SANS le canal opt-in `load_state(tiles=tileMeta)`,
+         et le gate serait alors INERTE **en silence** -- residu ferme par case-224 sec.4.
+
+    `occupants` reste construit par l'APPELANT (les collapses n'ont pas tous la meme convention
+    d'occupation) ; `moving_team` est la valeur a laquelle `WalkPathfinder$$UnitIsBlockedByEnemyUnit`
+    compare l'occupant. Traits lus a la source unique du port (`StatsComponent.ctx.traits`).
+
+    RESIDUS (identiques a ceux du noeud DSL, cf. `MovableTilesInRange`) : la garde d'entree
+    `UnitFlagsComponent$$Has(unitFlags, 1)` (#381, aucun substrat), `IsTileReserved` /
+    `IsTilePendingDrafting` / `IsTemporary`, le trait `Steppable` d'`IsFreeTile`, et l'occupation
+    par EMPREINTE (les appelants passent une occupation par MAIN TILE, comme `_move_tiles`)."""
+    from ..entities.pathfinding.fly_pathfinder import is_like_flying
+    from ..entities.pathfinding.fly_pathfinder import get_movable_positions as _fly
+    from ..entities.pathfinding.tile_blocking import make_can_continue
+    from ..entities.pathfinding.walk_pathfinder import get_movable_positions as _walk
+    from ..runner.components import StatsComponent
+    e = state.get_entity(int(unit_id)) if state is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    traits = (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None)
+              else None) or []
+    mv = _fly if is_like_flying(traits) else _walk
+    cc = make_can_continue(getattr(state, "effects", None), traits, board=board)
+    _visited, stop = mv(board, int(from_tile), int(override_range), occupants, moving_team,
+                        can_continue=cc)
+    return stop
+
+
 def get_movable_positions_for(board, state, unit_id: int, movable_tiles: Iterable[Pos]
                               ) -> List[List[Pos]]:
     """`IdunBattle.Core.Services.MovementQuery$$GetMovablePositionsFor(unit, ..., options)` —

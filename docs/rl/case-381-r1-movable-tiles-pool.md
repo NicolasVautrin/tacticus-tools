@@ -157,11 +157,14 @@ auto-discriminant) et `..._offline.py` (6 tests, board synthétique, sans runner
   que le natif itère le champ `neighbours` du `boardGraph` ; sur `C1_74` les deux diffèrent sur
   **32 tuiles**, et remplacer l'un par l'autre donne 32 tuiles au lieu de 34 (le natif) — donc le
   champ capté est lui-même incomplet. À trancher sur le CAPTEUR, pas sur le pathfinder.
-* **`#381-r4` — les collapses impératifs du même nœud** ne portent ni le gate #131 ni le dispatch
-  fly : `abilities/genestealer._charge_candidate_tiles` (HeroicFusillade / VigilanceEternal),
-  `triggers/loki/betrayer._betrayer_stop_tile`, `triggers/genestealer._hypersensory_move_dest`
-  (portée 1 ⇒ gate structurellement inerte). Le correctif est le même à recopier, avec le re-jeu
-  des tests live de chaque ability. Docstrings mises à jour, comportement INCHANGÉ ici.
+* ~~**`#381-r4` — les collapses impératifs du même nœud**~~ — **FERMÉ**, voir
+  `case-381-r4-collapses-imperatifs.md`. Deux sites corrigés via le foyer
+  `services/movement_query.get_movable_tiles_for` ; le troisième (`_hypersensory_move_dest`,
+  portée 1) établi INERTE **par mesure** (2960 configurations, 0 différence). Résidu neuf sorti
+  de là : **`#381-r5`** — la branche MOUVEMENT SPÉCIAL de `MovementQuery$$GetPathfinderTypeForUnit`
+  (quatre effets `*_TeleportingIn` → pathfinders 6..13) n'est portée nulle part, **y compris par ce
+  nœud-ci** ; elle rend le datapoint `bloodIntercessor` de `#381-r2` ci-dessus SUSPECT (il est pris
+  en tout début de bataille, donc sous l'effet).
 * **Non portés dans `IsMovableTile`** : `IsTileReserved` / `IsTileReservedForUnit` /
   `IsTilePendingDrafting` / `IsTemporary` (aucun canal offline) et le trait `Steppable` (0x1b) de
   `IsFreeTile(allowSteppable: 1)` — ce dernier volontairement, par SYMÉTRIE avec `CanAddUnit` : les

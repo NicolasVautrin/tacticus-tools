@@ -28,7 +28,7 @@ from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatType
 from ...entities.effects.magnitude import ability_var
-from ...entities.pathfinding.walk_pathfinder import get_movable_positions
+from ...services.movement_query import get_movable_tiles_for
 from ...utilities.tile import first_tile_by_utility
 from ...utilities.utility_type import UtilityType
 from ..components import OwnerComponent, PositionComponent, UnitComponent, StatsComponent
@@ -344,16 +344,25 @@ def _charge_candidate_tiles(state: "State", caster_id: int, target_id: int,
 
     ⚠ #381-r1 : le 4e argument n'est PAS un `canReachOnly`, c'est `ignoreFlags` (il ne touche que la
     garde d'entree de `MovementQuery$$FindAnyOrAllMoveableTiles`). L'ensemble rendu est TOUJOURS le
-    stop_set, quel que soit ce booleen — ce que ce collapse fait deja (`stop`), et par chance : la
-    lecture ecrite ici etait fausse, le resultat juste.
+    stop_set, quel que soit ce booleen — ce que ce collapse fait deja (le foyer rend le STOP-SET),
+    et par chance : la lecture ecrite ici etait fausse, le resultat juste.
 
-    `MovableTilesInRange` -> `walk_pathfinder.get_movable_positions` (BFS niveaux fidele).
+    `MovableTilesInRange` -> `services/movement_query.get_movable_tiles_for`, le FOYER partage qui
+    porte les DEUX etages que ce collapse oubliait (`#381-r4`, ferme) : le dispatch
+    `MovementQuery$$GetPathfinderTypeForUnit` -> `UnitExtensions$$IsLikeFlying` et le gate
+    d'expansion `BasePathfinder$$NodesInNextLevel` -> `IsValidContinuePathTile` (#131), qui fait
+    d'une tuile block-entering un CUL-DE-SAC (elle reste un STOP legal).
     `IdunBattle.DSL.TargetsSelector$$op_BitwiseAnd` = INTERSECTION : l'ordre conserve est
     celui de l'operande GAUCHE (`SurroundingTiles`). Pre-move (aucune mutation avant le MoveUnit).
 
-    RESIDU (partage avec le noeud DSL, cf. `entities/selectors/tiles.MovableTilesInRange`) : ce
-    collapse n'applique NI le gate d'expansion #131 (`IsValidContinuePathTile`) NI le dispatch
-    `GetPathfinderTypeForUnit`. Il sur-atteint donc sur un board a tuiles block-entering."""
+    MESURE de ce que le gate manquant coutait (`probe_381r4_imperative_collapses.py`, boards reels,
+    caster `genesKelermorph`, range 2, couples (caster, cible) a distance 2..4) : `C2_26` 151
+    configurations ou le pool differe, dont 92 ou la destination `HeroicFusillade` change et 83 ou
+    celle de `VigilanceEternal` change ; `EMC2_02` 232 / 143 / 141. La tuile en trop etait ILLEGALE
+    cote natif (elle ne pend que d'un Swamp), donc le port chargeait ou le jeu ne peut pas aller.
+
+    RESIDU : l'occupation reste lue par MAIN TILE (`_living_occupants_map`), pas par EMPREINTE --
+    meme ecart que `ai/state_bridge._move_tiles`, hors perimetre de `#381-r4`."""
     board = state.board
     cpos = _pos_of(state, caster_id)
     tpos = _pos_of(state, target_id)
@@ -362,9 +371,8 @@ def _charge_candidate_tiles(state: "State", caster_id: int, target_id: int,
     ctile = board.id_at(cpos[0], cpos[1])
     if ctile is None:
         return []
-    _visited, stop = get_movable_positions(board, ctile, int(move_range),
-                                           _living_occupants_map(state), _team_of(state, caster_id))
-    reach = set(stop)
+    reach = get_movable_tiles_for(board, state, caster_id, ctile, int(move_range),
+                                  _living_occupants_map(state), _team_of(state, caster_id))
     adj_free = _surrounding_free_tiles(state, tpos, surround_radius)   # CanAddUnit(SurroundingTiles(target))
     return [t for t in adj_free if t in reach]                        # op_And MovableTilesInRange (reachOnly)
 
