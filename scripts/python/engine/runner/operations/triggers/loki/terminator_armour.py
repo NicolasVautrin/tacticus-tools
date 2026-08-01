@@ -162,6 +162,19 @@ def _set_active(state: State, owner_id: int, value: bool) -> bool:
     return changed
 
 
+def _flag_is_set(state: State, owner_id: int) -> bool:
+    """Le flag `EffectComponent.IsActive @+0x5c` de l'instance — mirror EXACT du gate que
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` applique AVANT
+    d'evaluer le trigger de CIBLE (`if (*(char *)(effectEntity + 0x5c) == 0) -> pas d'evaluation`).
+    C'est le rail TARGETS : il DOIT lire le flag, contrairement au rail ARRAYSET des trois autres
+    `Triggered()` (cf. `probe_229_effect_triggers_active`). Aucune instance -> True (degradation
+    PERMISSIVE : on ne fabrique pas un refus ; si l'effet est reellement absent,
+    `collect_effect_triggers` n'aura instancie aucun trigger). MEME convention que
+    `wireweave_net._flag_is_set` et `effect_triggers._ranged_auto_attack_flag_is_set`."""
+    insts = _instances(state, owner_id)
+    return (not insts) or any(e.active for e in insts)
+
+
 def _total_shield(state: State, owner_id: int) -> int:
     """`CurrentShieldAmount(<Sel+0x60 = Target>, 3)` -> `ShieldComponent.GetTotalShield` du porteur.
     LU AU MOMENT DE L'EVENEMENT, donc APRES la deplétion du bouclier par l'attaque qui vient de se
@@ -193,6 +206,11 @@ class TerminatorArmourDeactivateOnAttack(EffectTrigger):
     effect_type = TERMINATOR_ARMOUR_REDUCE_DMG
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
+        # (0) gate `EffectComponent.IsActive @+0x5c` — premier test d'`EvaluateEffectTriggerTargets`,
+        #     AVANT toute evaluation du trigger de cible. Une armure DEJA consommee ne se re-consomme
+        #     pas : c'est le rail TARGETS (cf. `_flag_is_set`).
+        if not _flag_is_set(state, self.owner_id):
+            return False
         # (a) `AreEqual(Units(Target), Owner)` = le porteur EST la cible de l'attaque.
         if ev.target_id is None or int(ev.target_id) != int(self.owner_id):
             return False
