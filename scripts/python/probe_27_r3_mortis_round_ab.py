@@ -1,4 +1,4 @@
-"""probe #27-r2 -- A/B causal LIVE de MortisRound (1004) : le terme custom est le GAIN d'utilite
+"""probe #27-r3 -- A/B causal LIVE de MortisRound (1004) : le terme custom est le GAIN d'utilite
 de TUILE que le PUSH inflige a la cible, TRONQUE vers `int`.
 
 `IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` =
@@ -36,8 +36,8 @@ CALIBRAGE (`--hp-target`) : le natif choisit 1004 plutot que l'attaque normale q
 => la magnitude est ENCADREE par le natif seul, sans jamais fitter un scalaire.
 
 Usage :
-    python probe_27_r2_mortis_round_ab.py --build --engine [--hp-target=N]
-    python probe_27_r2_mortis_round_ab.py --calib --hp-target=N   # paires seules, pas de bras
+    python probe_27_r3_mortis_round_ab.py --build --engine [--hp-target=N]
+    python probe_27_r3_mortis_round_ab.py --calib --hp-target=N   # paires seules, pas de bras
 ASCII only.
 """
 from __future__ import annotations

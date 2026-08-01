@@ -52,7 +52,7 @@ import pytest
 PYDIR = Path(__file__).resolve().parents[2]                 # scripts/python
 sys.path.insert(0, str(PYDIR))
 
-import probe_27_r2_mortis_round_ab as AB                    # noqa: E402
+import probe_27_r3_mortis_round_ab as AB                    # noqa: E402
 
 # Action attendue par bras : 1004 quand le custom (20) domine l'ecart, 69 sinon.
 WANT = {"a-libre": 1004, "a-bloque": 69, "b-libre": 69, "b-bloque": 69, "bigtarget": 69}

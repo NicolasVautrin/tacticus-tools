@@ -1248,7 +1248,7 @@ re-derouler la recon : elle part d'ici.
 | 9 | `DrachnyenPlaybook` @18112dc60 | Drachnyen (1029) | blackAbaddon | hero (pool) | **PORTE** (#27-1) | — |
 | 10 | `DoomSirenPlaybook` @18112cd30 | DoomSiren (1199) | emperKakophonist | hero (pool) | **PORTE** (#27-2) | — |
 | 11 | `Repair_GalvanicFieldPlaybook` @181155520 | Repair_GalvanicField (1119) | admecManipulus (granted par le passif GalvanicField) | hero | **DEJA PORTE** hors loki_custom (`_repair_galvanic_candidates`, #85) | — (verdict tranche 1 « dead-code » CORRIGE) |
-| 12 | `MortisRoundPlaybook` @18114d190 | MortisRound (1004) | ultraEliminatorSgt | hero (pool) | **terme MESURE NUL** (< 0.012), non porte | evaluateur du composite `UtilityAttackCase.Base` (slot 5 du service #0x36) ; re-mesurer sur board a elevation |
+| 12 | `MortisRoundPlaybook` | MortisRound (1004) | ultraEliminatorSgt | hero (pool) | **PORTE** (#27-r3) | — (les deux verdicts precedents sont CORRIGES : le « terme mesure NUL » etait la TRONCATURE vers `int` sur un board PLAT, et l'« evaluateur manquant » n'existait pas — la voie `EvaluateAttack` des feuilles `Tile(7)` DELEGUE a `EvaluateMovementInSteps`, donc `tile_utility` suffisait. Re-mesure sur MC1_67 : custom = 20 et 10 selon la geometrie. Cf. §TRANCHE 4h) |
 | 13 | `SorcerousFacadePlaybook` | SorcerousFacade (1100) | thousTzaangor | hero (pool) | **PORTE** (#27-4e) | — (le verrou « route de ciblage ALLIE » est TOMBE : 1100 passe par `playbook/nonattack.py`, dont l'enumeration vient de `ctx.ability_targets` ; le VETO #217 sur la route ENNEMIE est INTACT et re-mesure dans le meme montage) |
 | ~~13bis~~ | ~~`AmuletOfTheVoidwyrmPlaybook`~~ | AmuletOfTheVoidwyrm (1464, `TriggeredAbilityType`) | — | passif/triggered | **RETIRE — FAUX POSITIF (#218)** | n'override PAS : sa base `TriggeredAbilityPlaybook`1` descend directement de `System.Object`, hors de la branche `ComparablePlaybook`1` qui declare le virtuel. Le « slot +0x548 » etait le slot +0x338 de `PlasmaGrenadePlaybook`, dont la classe suit a +0x210 en memoire (les 39 slots coincident). Ce qui reste OUVERT sur 1464 est son playbook de **MOUVEMENT** (`AmuletOfTheVoidwyrmPlaybook$$CalculateMovementUtilityInStepsInternal` + face NonOwner `AmuletOfTheVoidwyrmNonOwnerPlaybook$$GetAdjacencyUtility`), inventorie rang B de `case-193` — un AUTRE item. Detail : `docs/rl/case-218-amulet-voidwyrm-custom-utility.md` |
 | 14 | `ProperKilly_NormalAttackPlaybook` @1811532a0 | ProperKilly (aucun id) | **aucun** | — | **dead-code** | — (non pertinent) |
@@ -1271,17 +1271,24 @@ re-derouler la recon : elle part d'ici.
 *(Re-derive du BINAIRE le 2026-07-30 sur `rnca9r7q6c` — `probe_27_custom_utility_inventory.py
 --build rnca9r7q6c`. Ces chiffres se PERIMENT : les re-deriver plutot que citer cette ligne.)*
 
-- **PORTES / couverts : 17** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212,
-  1100, 1051, **1098**, 1009, **1169** (#302 tranche 1), **1148** (#302 tranche 3) (+ les corps
-  mutualises `Loki_NormalBossAttack` et `TwistedScience_Heal`, et les 3 corps PARTAGES : base,
-  attaque normale, heal generique).
+*(Etat au 2026-08-01, apres #27-r3.)*
+
+- **PORTES / couverts : 19** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212,
+  1100, 1051, **1098**, 1009, **1169** (#302 tranche 1), **1148** (#302 tranche 3), 1222 (NO-OP
+  natif, #27-r1), **1004** (#27-r3) (+ les corps mutualises `Loki_NormalBossAttack` et
+  `TwistedScience_Heal`, et les 3 corps PARTAGES : base, attaque normale, heal generique).
 - **Traites sans port (verdict ferme) : 1** — ProperKilly (dead-code, aucun porteur).
-- **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
-- **En cours (autre tranche) : 1** — 1222 MassDriverAccelerator.
-- **Residus a debloquer : 1** — **1004 MortisRound** (`GetTargetUtilityDiffOnDisplace`, et sa
-  TRONCATURE vers `int` explique le « terme mesure NUL » des tranches precedentes).
-  (1169 et 1148 en sont SORTIS : le verrou etait le DOMAINE DE CIBLE, leve par la route a cibles
-  TUILE — `docs/rl/case-302-route-cible-tuile.md` §6 et §8.)
+- **NON CONFRONTES, porteurs NPC uniquement : 4** — 1093 (`deathBossMortarion`), 1215 / 1216 / 1217
+  (les trois de `darkaBossLion`). ⚠ « npc-only » n'est PAS « non confrontable » : le natif charge le
+  playbook PAR ABILITY, donc la GREFFE sur une unite du pool reste ouverte (`case-92` §5bis) — a la
+  condition, verifiable au decompile, que la formule ne lise ni stat ni trait du caster. Ces quatre
+  formules n'ont PAS ete relues sous cet angle. **Un seul montage de greffe (`darkaBossLion`) en
+  debloque TROIS** : c'est le meilleur levier restant du cas.
+- **Residus a debloquer : 0.** **Plus aucun override a porteur HERO/pool n'est en residu.**
+  (1169 et 1148 sont SORTIS : le verrou etait le DOMAINE DE CIBLE, leve par la route a cibles
+  TUILE — `docs/rl/case-302-route-cible-tuile.md` §6 et §8. **1004 est SORTI par #27-r3** : le
+  verrou ecrit — « evaluateur du composite `UtilityAttackCase.Base` manquant » — **n'existait pas**,
+  la voie ATTACK des feuilles `Tile(7)` deleguant a `EvaluateMovementInSteps`.)
 - **DEUX entrees SORTENT de la liste sans qu'aucun port ne les ferme (#27-4g, correction
   d'inventaire)** : **1142 MalleusRocketLauncher** n'a AUCUN corps propre — le « playbook PARTAGE
   1051/1142 » est FAUX sur ce build (`...StikkbombPlaybook$$.ctor` -> `0x41b` = 1051 seule) — et
@@ -2524,10 +2531,184 @@ en dur, sans `GetUtilityValue` —, et sa zone est un `TilesInTriangleShape` non
   `Enemies(caster@0x30, ...)` evalue sur un `AbilityEntities` au caster NUL) — 1 seul event, la ou
   1051 en rend 3 sur la MEME geometrie. Cette classe n'a donc PAS de `make_damage_predictions`,
   contrairement a `StikkbombPlaybook`, et c'est VOULU.
-- **1004 `MortisRound`** reste un residu d'une nature encore differente :
-  `IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` =
-  `(Fix64)(int)(Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetTargetUtilityDiffOnDisplace(caster, casterPosition.MainTile, <liste>, target).<+0x18>)`
-  — une TRONCATURE vers `int` d'un differentiel d'utilite de DEPLACEMENT. La troncature explique le
-  « terme mesure NUL (< 0.012) » des tranches precedentes : tout differentiel de module < 1 rend 0.
-  Debloqueur : porter `GetTargetUtilityDiffOnDisplace` (evaluateur `UtilityMovementCase`), pas un
-  scalaire.
+- ~~**1004 `MortisRound`** reste un residu~~ — **PORTE (#27-r3)**, cf. §TRANCHE 4h.
+
+## TRANCHE 4h (2026-08-01, #27-r3) — `MortisRound` (1004) PORTE : le dernier residu a porteur HERO
+
+### L'inventaire, RE-DERIVE du binaire sur `rnca9r7q6c`
+
+`probe_27_custom_utility_inventory.py --build rnca9r7q6c`, relance le 2026-08-01 :
+**388** classes `*Playbook*` vues au runtime, **96** portent le slot — **toutes a `+0x338`** (171
+`no-slot`, 121 `vtable-uninit`) ; **29 corps distincts** = **26 nommes** dans `methods.tsv` + **3
+corps PARTAGES** non nommes (base `ComparablePlaybook<T>` a 52 users, `ALoki_NormalAttackPlaybook<T>`
+a 16, la definition generique `NormalAttackPlaybook`1` a 2) ; **0 corps nomme jamais atteint** par le
+balayage. **Le compte « 28 classes / 27 corps » de la fiche de tache etait celui de `gqfc5mff6c` et
+est PERIME.**
+
+Etat des **26 corps nommes** apres cette tranche : **21 portes ou couverts**, **1 dead-code**
+(`ProperKilly_NormalAttackPlaybook`, aucun porteur), **4 a porteur NPC-seul non confronte** (1093,
+1215, 1216, 1217). **Plus aucun override a porteur HERO/pool n'est en residu.**
+
+### Ce que le decompile dit — la chaine, lue bout a bout
+
+`IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` :
+
+```
+casterTile = UnitPosition$$get_MainTile(casterPosition)
+best = Playbook<T>$$GetTargetUtilityDiffOnDisplace(this, caster, casterTile,
+                                                  <delegue>, target)
+if (best == null) throw;
+return Fix64.op_Implicit( Fix64.op_Explicit(best.<+0x18>) )      // Fix64 -> int -> Fix64
+```
+
+`IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetTargetUtilityDiffOnDisplace`
+(`this, caster, casterTile, tilesFunc, target`) :
+
+```
+best = new <paire>(target, Fix64(0))
+if (!UnitExtensions$$IsDisplaceable(target)) return best;          // -> 0
+util = <service @this+0x40>.GetUtility(UtilityType.Tile = 7)
+t0   = EntityExtensions$$GetMainTile(target, this.<state @+0x20>)
+u0   = util.<slot itf 5>( UtilityAttackCase$$Base(target, UnitPosition(t0), t0, aoe) )
+foreach (tile in tilesFunc(casterTile, target)) {
+    uN   = util.<slot itf 5>( UtilityAttackCase$$Base(target, UnitPosition(tile), tile, aoe) )
+    diff = Fix64.op_Subtraction(u0, uN)
+    if (diff > Fix64(0) && diff > best.<+0x18>) best = new <paire>(target, diff)
+}
+return best
+```
+
+et `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetPushableTiles` :
+
+```
+if (!UnitExtensions$$IsDisplaceable(target)) return new List<ITile>();
+tiles = this.<battleQuery @+0x28>.<slot itf 0x4e>(casterTile, target)
+return TargetsSelector$$SelectTiles( DSLSelectors$$EmptyOrHasSteppableUnit(
+                                       DSLSelectors$$Entities(tiles) ) )
+```
+
+**Six points de RE, dont quatre ne se devinent pas :**
+
+1. **L'unite du `UtilityAttackCase` est la CIBLE**, pas le caster.
+   `IdunBattle.AI.Utilities.UtilityAttackCase$$Base(caster, casterPosition, target, abilityType)`
+   ecrit `+0x10 = caster` — et l'appel passe `target` a cette place. Les feuilles de tuile recopient
+   ce champ dans `UtilityMovementCase+0x10` (`IdunBattle.AI.Utilities.UtilityMovementCase$$.ctor
+   (attackCase)` : `+0x10 <- +0x10`, `+0x18 <- +0x18`, `+0x28 <- +0xf0.GetValueOrDefault()`,
+   `+0x38 <- +0x20`, le reste NUL) puis le passent a `HasTrait(case.unit, …)` /
+   `HasFaction(case.unit, …)`. Evaluer `Tile(7)` avec le kit du CASTER serait un fork de port.
+   D'ou `engine/playbook/base.py::tile_utility_for_unit` et sa vue `_UnitView`, qui recentre
+   `me`/`uid`/`units.ctrl`/`fpos`/`enemies` sur l'unite evaluee.
+2. **`EvaluateAttack` sur le composite `Tile(7)` EST `EvaluateMovement`.** Chaque feuille de tuile
+   convertit son `UtilityAttackCase` en `UtilityMovementCase` et saute au slot
+   `EvaluateMovementInSteps` — corps IDENTIQUES de
+   `IdunBattle.AI.Utilities.ElevationUtility$$EvaluateAttackInSteps`,
+   `...AUnitEffectsUtility$$EvaluateAttackInSteps`,
+   `...CapturePointTileUtility$$EvaluateAttackInSteps`. Sans cette lecture on aurait conclu que la
+   voie ATTACK des feuilles Tile est le stub vide de
+   `IdunBattle.AI.Utilities.BaseUtility.u003CEvaluateAttackInStepsu003Ed__53$$MoveNext`
+   (`yield Fix64(0)`) — et donc, a tort, que le terme est un NO-OP natif comme 1222.
+3. **Le facteur multiplicatif du composite vaut 1.**
+   `IdunBattle.AI.Utilities.ComposedUtility.u003CEvaluateAttackInStepsu003Ed__6$$MoveNext` fait
+   `(Sigma enfants) x CalculateAttackModifier(case)`, produit des `Nullable<Fix64>` non vides des
+   enfants. Or les **TROIS SEULES** utilities qui overrident `CalculateAttackModifier`
+   (`DislikeBossUtility`, `DislikeEnvironmentUnitsUtility`, `DislikeObjectsUtility`) sont des
+   feuilles du composite d'ATTAQUE — **aucune n'appartient a `Tile(7)`**.
+4. **La TRONCATURE vers `int`** (`Fix64$$op_Explicit` puis `op_Implicit`) est ce qui explique le
+   « terme mesure NUL (< 0.012) » des tranches 1-3 : elle ecrase a 0 tout gain de module `< 1`, et
+   sur un plateau PLAT le composite `Tile(7)` est constant, donc `diff == 0` PARTOUT. Le terme n'a
+   d'existence que sur un board a feuille de tuile discriminante — l'elevation en tete.
+5. **La liste de tuiles est l'arc ARRIERE, pas la destination reelle du push.** Le slot d'interface
+   `0x4e` est `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180BehindFromTile` — RE-DERIVE
+   au runtime (index de vtable **0x52**, `interfaceOffset` = 4, ancres `IsMeleeAttack`/
+   `GetAdjacentTiles` de `probe_27_4g_battlequery_slots.py`), **jamais recopie d'une fiche**. La
+   DECISION ne rejoue donc pas `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` : elle
+   score l'arc ENTIER et en prend le MAX. Sur un push melee axis-aligne l'arc est degenere en UNE
+   tuile et les deux coincident ; hors alignement il peut en porter DEUX.
+6. **C'est un MAX gate a `> 0`** : une tuile de push qui AMELIORERAIT la position de la cible
+   n'apporte aucun malus, et deux tuiles ne s'additionnent pas.
+
+**Contre-epreuve de l'orientation des vecteurs, sans live** : `battle_query.
+get_minimum_tiles_180_behind_from_tile` (nouvelle, face DECISION) et le couple `_dir_index`/`_step`
+de `runner/operations/displace.py` (face COMBAT, porte et valide live par #68) sont deux ports
+ECRITS SEPAREMENT depuis deux artefacts natifs DISTINCTS. Ils rendent la MEME tuile sur les 6
+geometries adjacentes testees (deux parites de colonne, plusieurs directions).
+
+**Classification DSL/imperatif** (tranchee AVANT de coder) : `CalculateCustomUtility`,
+`GetTargetUtilityDiffOnDisplace` et `GetPushableTiles` sont des METHODES (boucles, appels de
+service, slot de `BattleQuery`), pas des arbres `DSLFactory` -> **imperatif, mirror 1:1**. Les deux
+seuls noeuds declaratifs du chemin sont `DSLSelectors$$Entities` et
+`DSLSelectors$$EmptyOrHasSteppableUnit`, et ils ne sont pas recables : le port applique le predicat
+d'occupation (`tuile vide OU occupant a trait Steppable`) la ou le natif l'applique.
+
+### L'override porte
+
+| Ability (id) | Symbole | Formule mirroir | Poids | Porteur | Validation |
+|---|---|---|---|---|---|
+| **MortisRound** (1004) | `IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` (slot **+0x338**) | `trunc( max(0, max_{t in arc} [ Tile7(cible@sa tuile) - Tile7(cible@t) ]) )` ; `arc` = `EmptyOrHasSteppableUnit(GetMinimumTiles180BehindFromTile(casterTile, cible))` ; gate `IsDisplaceable(cible)`. Terme POSITION- **et** CIBLE-dependant. | **aucun poids BC** — la magnitude sort entierement du composite `Tile(7)` (sur MC1_67 : `Elevation.Multiplier` = 10/niveau, `HighestElevation` = +10, `LowestElevation` = -5) | `ultraEliminatorSgt` `Certus` [**HERO du pool**, ni `catalog_inject` ni greffe] | **A/B causal live** (`probe_27_r3_mortis_round_ab.py`, board MC1_67, seed 909, `--hp-target 1800`), **5 bras a 2 issues**, moteur = natif dans les 5 ; **3 mutations adversariales**. Detail ci-dessous. |
+
+### Validation — A/B causal live, 5 bras, magnitude ENCADREE
+
+Le terme n'apparait pas dans `pairUtility` : on l'exerce par le CHOIX natif (`aiDryRunAllUnits`,
+read-only). `u(1004) = pair1004 + custom` contre `u(69) = pair69 + 1` (le custom de l'attaque
+normale vaut `Fix64(1)`), le terme `Tile(7)` de la tuile de tir etant commun aux deux.
+
+DEUX geometries dont seule l'ELEVATION de la tuile d'arrivee change — memes distances (2), memes
+elevations de tuile de tir (3), donc **memes predictions et meme terme de tuile** :
+
+| geom | caster | cible | arc | `u0 - uN` | custom |
+|---|---|---|---|---|---|
+| **A** | (0,1) elev 3 | (0,3) elev **4** (= max board) | [(0,4)] elev 3 | `(40+10) - 30` | **20** |
+| **B** | (0,2) elev 3 | (0,4) elev 3 | [(0,5)] elev 2 | `30 - 20` | **10** |
+
+`--hp-target 1800` place `ecart = pair69 + 1 - pair1004` a **11.932297**, DANS `(10, 20)` — la seule
+fenetre ou 20 bascule le natif et 10 ne le bascule pas. (Calibrage mesure : PV naturels 11046 ->
+2.774 ; 2200 -> 9.946 ; **1800 -> 11.932** ; 1500 -> 58.856, la normale TUE et le bonus Kill fait
+exploser l'ecart.)
+
+| bras | levier | custom porte | natif | moteur |
+|---|---|---|---|---|
+| **A libre** | — | **20** | **1004** | **1004** [MATCH] |
+| **A bloque** | appat ALLIE sur (0,4) | 0 | 69 | 69 [MATCH] |
+| **B libre** | — | **10** | **69** | 69 [MATCH] |
+| **B bloque** | appat ALLIE sur (0,5) | 0 | 69 | 69 [MATCH] |
+| **BigTarget** | `tauCrisis` prend (0,3), arc LIBRE | 0 | 69 | 69 [MATCH] |
+
+- **Confond de prediction MESURE ET NUL** : `pair69` = 76.6370699275285 et `pair1004` =
+  65.70477248169482 sont **bit-identiques sur les quatre bras a cible deplacable**.
+- **Encadrement 100 % natif, sans fitting** : `custom(geom A) > 11.9323` **et**
+  `custom(geom B) < 11.9323`. Un terme CONSTANT — quelle que soit sa valeur — ne peut pas produire
+  ces deux resultats opposes a paires identiques : la MAGNITUDE est discriminee, pas seulement le
+  signe.
+- **Le bras BigTarget est un encadrement bien plus serre** : `tauCrisis` a 1800 PV est tuee par les
+  deux abilities, donc `pair69 == pair1004 == 239.88901221659034` et il suffirait de `custom > 1`
+  pour basculer. Le natif ne bascule pas => `custom < 1`, donc 0. Le gate `IsDisplaceable` est
+  mesure, pas suppose.
+- **Necessite** : moteur avec le custom force a 0 -> `69` dans le bras A libre, la ou le natif dit
+  `1004`. Le terme est NECESSAIRE a l'accord.
+- **Trois mutations adversariales** (`probe.MUTANTS`, rejouees sur la MEME decision) : `zero`
+  (terme absent), `no_occupancy` (filtre `EmptyOrHasSteppableUnit` retire), `no_displaceable` (gate
+  de trait retire). Chacune doit DIVERGER du natif dans au moins un bras — c'est ce que garde
+  `tests/engine/test_mortis_round_decision_live.py::test_each_mutation_is_visible`.
+
+### Non couvert (explicite)
+
+- **`IsDisplaceable` teste aussi `HasFlag(unit, 0x19)`**, un `UnitFlag` que le substrat de DECISION
+  (`decisionView`) n'expose pas. Gate INERTE cote port -> borne SUPERIEURE (jamais une tuile retiree
+  a tort). Les quatre autres refus sont portes : mort, `Hulking` (3), `Immovable` (17),
+  `BigTarget` (1017).
+- **`MortisRoundPlaybook$$MakeDamagePredictions` n'est pas re-porte.** Il appelle
+  `GenerateAttackPredictions(…, StranglethornCannonAbility$$GetDamageAmountMain(ability), …)` sur le
+  selecteur `Entity(target)`. Le chemin generique du port lit le `damageProfile` de la config ; les
+  `pairUtility` natives et le port n'ont pas ete decomposees etage par etage sur ce point. **Hors
+  perimetre #27** (qui ne porte que le terme custom), mais a verifier avant de conclure quoi que ce
+  soit sur la MAGNITUDE de 1004.
+- **`GetDisplaceUtility`** (meme corps que le custom, SANS la troncature — il rend l'`int` brut) n'a
+  aucun call-site dans le binaire : ses 2 xrefs sont des DATA (table de methodes). Non porte.
+- **Le composite `Tile(7)` evalue pour la CIBLE** herite des limites connues de `tile_utility` : les
+  feuilles non portees ou dormantes le restent. La contre-mesure est que le montage LIVE mesure le
+  resultat NET, pas feuille par feuille.
+- **Le delegue passe a `GetTargetUtilityDiffOnDisplace` n'est pas lu directement** : `DAT_183334188`
+  est un `MethodInfo*` rempli a l'init IL2CPP, donc illisible statiquement. `GetPushableTiles` est
+  la SEULE methode de `Playbook<T>` dont la signature `(ITile, TUnit) -> IEnumerable<ITile>`
+  corresponde a l'invocation, et le comportement mesure live (arc arriere + filtre d'occupation) le
+  confirme des deux cotes. Attribution par ANCRAGE, pas par lecture directe.
