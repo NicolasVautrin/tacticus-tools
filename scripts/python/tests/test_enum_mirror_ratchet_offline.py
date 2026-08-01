@@ -145,6 +145,23 @@ def test_le_registre_ne_designe_aucun_mirror_disparu():
                          "  Le mirror a ete deplace ou supprime : corriger le registre." % absents)
 
 
+def test_HORS_MIRROR_ne_justifie_aucune_classe_disparue():
+    """#427 -- le symetrique, sur la liste d'EXCEPTIONS.
+
+    Une exception survit a la classe qu'elle justifiait, et devient un blanc-seing PORTANT SUR UN
+    NOM : la prochaine classe qui reprend ce nom est reputee justifiee sans que personne ne l'ait
+    decide. C'est le mode de defaillance du dossier -- « il n'etait dans aucune liste, et une
+    absence ne se remarque pas » -- retourne, cette fois par une liste de trop plutot que de trop
+    peu. Une exception se PERIME avec son objet."""
+    trouves = P.intenums_du_moteur()
+    perimes = sorted(c for c in P.HORS_MIRROR if c not in trouves)
+    assert not perimes, (
+        "entree(s) HORS_MIRROR sans classe correspondante sous engine/ : %s\n"
+        "  La classe a ete supprimee ou renommee : RETIRER l'entree. La laisser justifierait\n"
+        "  d'avance toute future classe qui reprendrait ce nom -- y compris un vrai mirror."
+        % perimes)
+
+
 # -------------------------------------------- 3. les dettes declarees sont au compte EXACT
 
 def test_les_dettes_declarees_sont_au_compte_exact():
