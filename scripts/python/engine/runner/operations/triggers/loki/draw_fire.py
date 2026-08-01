@@ -84,10 +84,13 @@ par `_transferred` (`operations/damage_hits.py`).
 
 ## 5. Ce qui n'est PAS porte ici
 
-* **`1511 PrimarchOfTheFirstLegion`** : meme feuille `TransferHit`, mais son `transferTarget` sort
-  d'un `AdjacentFriends -> UnitsFromFaction(0xa) -> Randomize -> SortByFormula -> First`. Le
-  `Randomize` CONSOMME du RNG et l'ordre du pool n'est pas lu -> port SPECULATIF, refuse. Il porte
-  en plus un `AddEffect(1523)`. NON PORTE, NON CONFRONTE.
+* **`1511 PrimarchOfTheFirstLegion`** : PORTE et CONFRONTE depuis #418
+  (`primarch_first_legion.py`, `docs/rl/case-411-r3-primarch-of-the-first-legion.md`). Les deux
+  lectures qui manquaient sont faites -- le `Randomize` coute **un tirage par candidat** (bornes
+  decroissantes, aucun court-circuit a 1) et l'ordre du pool est celui d'`AdjacentTilesSelector`,
+  DEJA porte (`order="adjacent"`, R28-1). Son trigger est `On(7) & AreEqual(Owner, Target) &
+  AmountIsOdd(CurrentHitIndex)` : le porteur y **EST** le defenseur (pas de negation, contrairement
+  a la ligne 13 ci-dessus), et il a bien un `AmountIsOdd` -- ce que la fiche #411 par.6.2 niait.
 * **`ownerNeedsToBeAlive`** du `On(7)` : l'argument est le retour d'un virtuel de la classe
   d'ability (slot `+0x298`), NON RESOLU. Le port exige le porteur VIVANT (choix conservateur : un
   porteur mort ne peut de toute facon pas encaisser).

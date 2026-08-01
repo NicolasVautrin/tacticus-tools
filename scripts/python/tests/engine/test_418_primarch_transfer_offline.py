@@ -19,7 +19,7 @@ IntBasedMersenneTwister$$IdunBattle.Utils.PRNG.IPseudoRNG.Next` prend la branche
 consomme un `genrand_int32` et rend toujours 0. **Un pool d'UNE unite coute donc UN tirage** -- le
 cas qui ne discrimine aucune valeur et que seul un ledger attrape.
 
-RE : `docs/rl/case-418-primarch-of-the-first-legion.md`. Confrontation live : `probe_418_primarch_
+RE : `docs/rl/case-411-r3-primarch-of-the-first-legion.md`. Confrontation live : `probe_418_primarch_
 transfer.py`.
 
 ASCII only.

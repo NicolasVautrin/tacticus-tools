@@ -3,7 +3,7 @@
 Passif de `darkaBossLion` (Lion El'Jonson, npc). i2 : le Lion redirige une partie des coups qu'il
 recoit vers un allie Dark Angels adjacent, qui gagne en echange un bonus de degat.
 
-RE complete : `docs/rl/case-418-primarch-of-the-first-legion.md`. Ce module porte l'arbre.
+RE complete : `docs/rl/case-411-r3-primarch-of-the-first-legion.md`. Ce module porte l'arbre.
 
 ## 1. L'arbre natif, lu
 
@@ -324,8 +324,12 @@ class PrimarchTransfer:
         # L'arbre est evalue ICI : c'est ce qui consomme les N tirages du `Randomize` (cf. §2).
         # Le `Cache` du noeud garantit une SEULE evaluation malgre les six lectures qui suivent,
         # exactement comme le dict keye par `AbilityEntities` du natif.
+        # `n0` : le compteur du MT AVANT l'evaluation, pour ventiler le cout du CIBLAGE dans
+        # l'evenement (observabilite pure -- c'est ce que le probe confronte au ledger attendu).
+        n0 = int(getattr(self.state.rng, "call_count", 0))
         target = primarch_transfer_target_selector()
         picked = [u for u in (target.evaluate(entities) or []) if (u or {}).get("id") is not None]
+        select_cost = int(getattr(self.state.rng, "call_count", 0)) - n0
         # `If(AmountIsGreaterThanZero(target), …, null)` : pool vide -> le behaviour ne fait RIEN.
         # (Le `Randomize` n'a alors consomme aucun tirage -- sa boucle sort avant le premier `Next`.)
         if not picked:
@@ -344,7 +348,10 @@ class PrimarchTransfer:
         self.events.append({"ability": PRIMARCH_OF_THE_FIRST_LEGION, "carrier": ally,
                             "hit": int(hit_index),
                             "transferred": int((res or {}).get("total") or 0),
-                            "pool": [int(u["id"]) for u in picked],
+                            # `select_cost` = ce que le CIBLAGE a coute au MT (compteur `call_count`,
+                            # qui avance de 2 par `next_internal`). Le natif tire une fois par
+                            # candidat -> `select_cost / 2` DOIT valoir la taille du pool.
+                            "select_cost": select_cost,
                             **rewarded})
         return True
 

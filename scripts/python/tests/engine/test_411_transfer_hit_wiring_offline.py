@@ -49,8 +49,14 @@ CE QUE CE FICHIER GARDAIT AVANT, ET POURQUOI C'ETAIT FAUX (#426, 2026-08-01) --
   `AttackDamageOperation.execute`) et compare a un bras temoin. Le detecteur ne peut plus diverger
   du cablage, puisqu'il EST le cablage.
 
-  Le skip reste possible, mais BRAS PAR BRAS : `1511 PrimarchOfTheFirstLegion` n'est pas porte
-  (tache #418) et le dit tout seul, sans masquer le bras vivant.
+  Le skip reste possible, mais BRAS PAR BRAS -- et depuis #418/#411-r3 il n'en reste AUCUN : les
+  DEUX proprietaires ont leur bras d'EXECUTION.
+
+  ⚠ SECONDE OCCURRENCE DU MEME VICE, attrapee par ce fichier meme (#418). Le bras 1511 etait un
+  skip nomme dont la detection cherchait `PrimarchOfTheFirstLegionTransfer` dans le module
+  `draw_fire`. Le port livre s'appelle `PrimarchTransfer` et vit dans `primarch_first_legion.py` :
+  l'empreinte ne l'aurait PAS vu, et le bras aurait skippe en VERT sur un port bien vivant. Une
+  empreinte de PRESENCE ne survit pas au choix de nommage du portage -- seule l'EXECUTION le fait.
 
 Le PORT lui-meme (route slot 4, ordre transfert-avant-discard, comptage de tirages sur un
 intercepteur factice) est garde par `test_411r1_transfer_port_offline.py`. Ce fichier-ci garde ce
@@ -437,32 +443,175 @@ def test_1109_les_coups_transferes_ne_consomment_AUCUN_tirage_de_block():
 
 
 # =============================================================================================
-# BRAS 1511 -- non porte, et il le dit TOUT SEUL
+# BRAS 1511 -- le cablage EXECUTE (#418 / #411-r3)
 # =============================================================================================
+#
+# Ce bras etait un `pytest.skip` NOMME, qui disait « 1511 non porte, tache #418 » et exigeait, le
+# jour ou 1511 entrerait, « un test d'EXECUTION -- meme forme que les tests 1109 ci-dessus, avec le
+# pool de son `Randomize`. Ne PAS se contenter de retirer le skip. » C'est ce qui suit.
+#
+# ⚠ Sa detection cherchait `PrimarchOfTheFirstLegionTransfer` dans le module `draw_fire`. La classe
+# livree s'appelle `PrimarchTransfer` et vit dans `primarch_first_legion.py` : l'empreinte ne
+# l'aurait PAS vue, et ce bras aurait skippe en VERT sur un port bien vivant -- exactement le vice
+# que #426 a corrige un cran plus haut. C'est la seconde fois que la meme forme de detection rate
+# le meme genre de port ; d'ou l'execution reelle ci-dessous, qui ne peut pas diverger du cablage.
 
-def test_1511_reste_NON_PORTE_et_le_dit_sans_masquer_le_bras_1109():
-    """Le SECOND proprietaire de `DSLBehaviors$$TransferHit`. Son `transferTarget` sort d'un
-    `AdjacentFriends -> UnitsFromFaction(0xa) -> Randomize -> SortByFormula -> First` : le
-    `Randomize` CONSOMME du RNG et l'ordre du pool n'est pas lu, donc le porter serait SPECULATIF.
-    Il a sa propre tache (#418).
+_PRIMARCH_CARRIER_VID = "darkaBossLion"        # seul porteur MESURE de 1511 (cf. test des porteurs)
+_DA_ALLY_VID = "darkaCompanion"                # faction DarkAngels (0xa) -> entre au pool
+_OTHER_ALLY_VID = "astraCreed"                 # allie adjacent HORS faction -> n'y entre PAS
+_ALLY_POS_2 = (3, 3)                           # second voisin hex evenq de `_DEFENDER_POS`
 
-    Ce bras est SEPARE a dessein : c'etait le defaut de structure du garde d'origine, qui fondait
-    les deux ids dans un `pytest.skip` unique -- si bien que le residu 1511 masquait le port 1109
-    bien vivant. Ici, le skip ne nomme QUE 1511 et n'empeche RIEN au-dessus.
 
-    Le jour ou 1511 entre, ce test ROUGIT et demande son bras d'EXECUTION (pas une empreinte)."""
-    from engine.entities.triggered_ability_type import TriggeredAbilityType
-    assert int(TriggeredAbilityType.PrimarchOfTheFirstLegion) == 1511
-    from engine.runner.operations.triggers.dispatch.registry import (ABILITY_TRIGGERS,
-                                                                     CUSTOM_TRIGGERED_ABILITIES)
-    import engine.runner.operations.triggers.loki.draw_fire as DF
-    trouve = [getattr(cls, "__name__", str(cls))
-              for classes in list(ABILITY_TRIGGERS.values()) + list(CUSTOM_TRIGGERED_ABILITIES.values())
-              for cls in classes if getattr(cls, "TRIGGERED_ABILITY_ID", None) == 1511]
-    trouve += [n for n in ("PrimarchOfTheFirstLegionTransfer",) if hasattr(DF, n)]
-    assert not trouve, (
-        "1511 PrimarchOfTheFirstLegion est desormais porte (%s) : ce bras doit passer du skip a "
-        "un test d'EXECUTION -- meme forme que les tests 1109 ci-dessus, avec le pool de son "
-        "`Randomize`. Ne PAS se contenter de retirer le skip." % trouve)
-    pytest.skip("1511 PrimarchOfTheFirstLegion NON PORTE (tache #418) -- `Randomize` non lu. "
-                "Le bras 1109 ci-dessus, lui, est EXECUTE : ce skip ne le masque pas.")
+def _require_primarch_wiring():
+    from engine.runner.operations.triggers.loki.harlequins_panoply import (
+        HarlequinsPanoplyHitInterceptor)
+    import engine.runner.operations.triggers.loki.primarch_first_legion as PFL
+    assert hasattr(PFL, "PrimarchTransfer") and hasattr(
+        HarlequinsPanoplyHitInterceptor, "should_transfer"), (
+        "1511 porte sans accroche per-coup : le coup transfere tirerait son block.")
+
+
+def _scene_1511(ally_vids=(_DA_ALLY_VID,), block_chance: int = 0):
+    """`(state, attaquant, defenseur-PORTEUR, [allies])`.
+
+    ⚠ La topologie est celle de `AreEqual(Owner, Target)` -- **le porteur EST le defenseur**, a
+    l'oppose de `1109` (`!AreEqual`). Les allies adjacents ne portent RIEN : ils sont le POOL du
+    `Randomize`, et leur faction decide de leur entree (`UnitsFromFaction(0xa)`)."""
+    from engine.entities.effects_state import EffectsState
+    from engine.entities.stats import StatType, UnitStats
+    from engine.entities.unit_context import UnitContext
+    from engine.runner.components import (HealthComponent, OwnerComponent, PositionComponent,
+                                          StatsComponent, UnitComponent)
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.state import State
+
+    st = State()
+    st.effects = EffectsState.seed({})
+    st.rng = IntBasedMersenneTwister(777)
+    st.board = _board()
+
+    def _unit(vid, pos, team, attack, hits, blk=0):
+        e = st.add_entity()
+        e.add_component(UnitComponent(visual_id=vid, alive=True))
+        e.add_component(OwnerComponent(team=team, player=(3 if team == 1 else 4)))
+        e.add_component(PositionComponent(col=pos[0], row=pos[1]))
+        e.add_component(HealthComponent(hp=_HP, hp_max=_HP))
+        stats = UnitStats()
+        stats.ensure_seeded(StatType.ATTACK, int(attack))
+        stats.ensure_seeded(StatType.EXTRA_HITS, int(hits) - 1)
+        stats.ensure_seeded(StatType.BLOCK_CHANCE, int(blk))
+        stats.ensure_seeded(StatType.BLOCK_DAMAGE, 10 if blk else 0)
+        for s in (StatType.FIXED_ARMOR, StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE):
+            stats.ensure_seeded(s, 0)
+        e.add_component(StatsComponent(ctx=UnitContext(
+            entity_id=e.id, visual_id=vid, active_ability_level=50, passive_ability_level=50,
+            ability_variables_multiplier=100, stats=stats)))
+        return e.id
+
+    att = _unit(_ATTACKER_VID, (1, 3), 2, 1000, _HITS)
+    dfd = _unit(_PRIMARCH_CARRIER_VID, _DEFENDER_POS, 1, 10, 1, blk=block_chance)
+    slots = [_ADJACENT_POS, _ALLY_POS_2]
+    allies = [_unit(v, slots[i], 1, 10, 1) for i, v in enumerate(ally_vids)]
+    return st, att, dfd, allies
+
+
+def _attack_1511(ally_vids=(_DA_ALLY_VID,), block_chance: int = 0) -> dict:
+    from engine.runner.operations.damage import AttackDamageOperation
+    st, att, dfd, allies = _scene_1511(ally_vids, block_chance)
+    draws0, hp0 = st.rng.call_count, {u: _hp(st, u) for u in [dfd] + allies}
+    r = AttackDamageOperation.execute(st, att, dfd)
+    assert r is not None, "montage incomplet : l'attaque n'a pas tourne"
+    assert int(r.get("hits") or 0) == _HITS, (
+        "le montage doit produire %d coups -- lu %s" % (_HITS, r.get("hits")))
+    return {"per_hit": list(r.get("per_hit") or []), "did_block": bool(r.get("did_block")),
+            "draws": st.rng.call_count - draws0,
+            "degat_defenseur": hp0[dfd] - _hp(st, dfd),
+            "degat_allies": [hp0[u] - _hp(st, u) for u in allies]}
+
+
+def test_1511_le_montage_arme_bien_les_gates_de_CreateTrigger():
+    """Garde du MONTAGE avant toute conclusion (meme role que son homologue 1109). Les trois
+    conjoints : `AreEqual(Owner, Target)` (le DEFENSEUR porte 1511), `ownerNeedsToBeAlive`
+    (litteral `1`), `AmountIsOdd(CurrentHitIndex)`."""
+    _require_primarch_wiring()
+    from engine.runner.operations.triggers.loki.primarch_first_legion import (
+        PrimarchTransfer, _carries_primarch)
+    st, att, dfd, allies = _scene_1511()
+    assert _carries_primarch(st, dfd) is True, "le DEFENSEUR doit porter 1511 (AreEqual(Owner,Target))"
+    assert _carries_primarch(st, allies[0]) is False, "l'allie ne doit PAS porter le passif"
+    t = PrimarchTransfer(st, att, dfd)
+    assert t._matches(1) is True and t._matches(3) is True        # AmountIsOdd, 0-based
+    assert t._matches(0) is False and t._matches(2) is False
+
+
+def test_1511_le_cablage_est_CONNECTE_de_bout_en_bout():
+    """L'attaque REELLE : les coups d'index IMPAIR sortent a 0 sur le porteur, et un allie encaisse.
+    C'est la chaine complete -- detection, arbre de ciblage, `TransferHit`, route slot 4."""
+    _require_primarch_wiring()
+    r = _attack_1511()
+    impairs = [r["per_hit"][i] for i in range(1, len(r["per_hit"]), 2)]
+    pairs = [r["per_hit"][i] for i in range(0, len(r["per_hit"]), 2)]
+    assert impairs and all(x == 0 for x in impairs), r["per_hit"]
+    assert pairs and all(x > 0 for x in pairs), r["per_hit"]
+    assert sum(r["degat_allies"]) > 0, "aucun allie n'a encaisse : le transfert n'a pas eu lieu"
+    assert r["did_block"] is True                    # `didBlock` pose EN DUR, sans source de block
+
+
+def test_1511_sans_allie_DARK_ANGELS_le_transfert_NEXISTE_PAS():
+    """Les DEUX bras temoins, qui prouvent que ce n'est pas le montage qui conclut :
+      * AUCUN allie adjacent -> pool vide -> `If(AmountIsGreaterThanZero(target), ...)` no-op ;
+      * un allie adjacent HORS faction -> `UnitsFromFaction(0xa)` le rejette.
+    Dans les deux cas le defenseur encaisse TOUT, comme sans le passif."""
+    _require_primarch_wiring()
+    plein = _attack_1511()
+    for label, vids in (("sans allie", ()), ("allie hors faction", (_OTHER_ALLY_VID,))):
+        r = _attack_1511(ally_vids=vids)
+        assert all(x > 0 for x in r["per_hit"]), "%s : un coup a ete transfere" % label
+        assert sum(r["degat_allies"]) == 0, "%s : un allie a encaisse" % label
+        assert r["degat_defenseur"] > plein["degat_defenseur"], (
+            "%s : le defenseur devrait encaisser PLUS que le bras transfert (%d vs %d)"
+            % (label, r["degat_defenseur"], plein["degat_defenseur"]))
+
+
+def test_1511_le_ciblage_coute_UN_TIRAGE_PAR_CANDIDAT():
+    """LE ledger de cette ability -- la propriete que #411 avait refuse de porter a l'aveugle.
+
+    `DSLSelectors$$Randomize` = `PickRandomAmountSelector(amount = int.MaxValue, allowDuplicates =
+    false, ...)`, dont la boucle ne sort que par epuisement : **N candidats = N tirages**, et le
+    dernier (`Next(0, 1)`) n'est PAS court-circuite. On mesure le SURCOUT d'un second candidat, sans
+    coder en dur le cout d'un tirage ni un total :
+
+        pool de 2 - pool de 1 = <cout d'UN tirage> x <nombre de transferts>
+
+    Un port qui court-circuiterait (« le pool tient deja dans amount ») rendrait un surcout NUL ; un
+    `First` paresseux aussi. Le regime est DISCRIMINANT : le second candidat ne change pas le nombre
+    de coups, donc tout ecart de tirages vient du seul `Randomize`."""
+    _require_primarch_wiring()
+    un = _attack_1511(ally_vids=(_DA_ALLY_VID,))
+    deux = _attack_1511(ally_vids=(_DA_ALLY_VID, _DA_ALLY_VID))
+    n_transferts = sum(1 for i in range(1, len(un["per_hit"]), 2) if un["per_hit"][i] == 0)
+    assert n_transferts > 0, "regime NON discriminant : aucun transfert"
+    surcout = deux["draws"] - un["draws"]
+    assert surcout > 0, (
+        "un candidat de plus n'a RIEN coute : le `Randomize` est court-circuite (%d tirages dans "
+        "les deux bras)" % un["draws"])
+    assert surcout % n_transferts == 0, (
+        "surcout %d non divisible par les %d transferts -- le cout n'est pas PAR TIRAGE"
+        % (surcout, n_transferts))
+
+
+def test_1511_un_pool_dUN_SEUL_candidat_consomme_QUAND_MEME():
+    """Le cas qui ne discrimine AUCUNE valeur, et que seul un ledger attrape : la cible est connue
+    d'avance, mais `IPseudoRNG.Next(0, 1)` prend la branche puissance-de-2, consomme un
+    `genrand_int32` et rend `0`. Sauter ce tirage rendrait la BONNE cible en desynchronisant tout
+    l'aval.
+
+    Mesure : le bras a UN candidat doit couter PLUS que le bras SANS candidat (ou la boucle sort
+    avant le premier `Next`) -- et l'ecart ne peut pas venir des coups, qui sont en nombre egal."""
+    _require_primarch_wiring()
+    zero = _attack_1511(ally_vids=())
+    un = _attack_1511(ally_vids=(_DA_ALLY_VID,))
+    assert len(zero["per_hit"]) == len(un["per_hit"])
+    assert un["draws"] > zero["draws"], (
+        "pool de 1 : %d tirages, pool vide : %d -- le tirage degenere a ete court-circuite"
+        % (un["draws"], zero["draws"]))
