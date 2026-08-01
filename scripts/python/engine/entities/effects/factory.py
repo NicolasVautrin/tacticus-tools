@@ -142,6 +142,7 @@ from .loki import (
     InescapableAccuracyExtraCritChanceEffect,
     InescapableAccuracyExtraCritDamageEffect,
     UntilOfEndTurnEffect,
+    StructuralAnalyserVisualEffect,
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
@@ -803,6 +804,18 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ⚠ Cette entree ne change RIEN au comportement par elle-meme (`BaseEffect` no-op est identique) --
     # elle documente l'identite de classe et fait passer 1175 du cote « porte » de l'inventaire #366.
     "HatefulAssault_AlreadyAttacked": UntilOfEndTurnEffect,
+    # 1174 StructuralAnalyser_Visual (case-366-r1) : volet PORTEUR du passif de `tauDarkstrider`,
+    # pose d'un bloc avec `1156 StructuralAnalyserDmgBoost` par
+    # `...StructuralAnalyser_AddDamageBuffAbility$$CreateBehaviour` (`AddEffect(0x484)+AddEffect(0x496)`).
+    # SOEUR de 1156 sous `AStructuralAnalyserEffect`, PAS sa fille (classes.tsv) : elle cible `Owner`
+    # (MESURE : `ReceiveEffect e=<porteur>` contre `e=<allie>` pour 1156) et ne porte AUCUN canal --
+    # prediction native IDENTIQUE actif/inactif sur cible Markerlightee ([18428-27640] des deux cotes).
+    # Toute sa semantique est sa `CreateActiveCondition` = `AmountIsGreaterThanZero(AdjacentFriends
+    # + UnitsFromFaction(SurroundingFriends(2), Tau))`, portee par `is_active`.
+    # ⚠ Cette entree ne change RIEN au comportement par elle-meme (`BaseEffect` no-op est identique) --
+    # elle fixe l'identite de classe (interdire d'heriter le +extraDmg de 1156 au porteur) et fait
+    # passer 1174 du cote « porte » de l'inventaire #366. `1156` reste NON porte (cas [opus] du kit Tau).
+    "StructuralAnalyser_Visual": StructuralAnalyserVisualEffect,
     # 1291 HeavyGravCannon : owner-effect du PASSIF homonyme d'admecDestroyer <<Sy-Gex>>. Classe DEDIEE
     # `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect` a DEUX canaux partageant UNE condition
     # (`...$$DamageCondition` = OwnerIsActor & IsRangedAttack & (HasTrait(target,5=Mechanical) |
@@ -995,6 +1008,14 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # la frontiere de tour n'a aucune instance a armer -> pas de riposte. Le rouvrir demande d'abord
     # que le seed d'owner-effects lise le substrat MESURE, ce qui suppose de le deplacer APRES
     # `_load_passive_abilities` dans `load_state`.
+    # PAS d'entree `"StructuralAnalyser"` non plus, MEME arbitrage (case-366-r1, 1174) :
+    # `...StructuralAnalyser_AddDamageBuffAbility$$CreateBehaviour` pose bien DEUX owner-effects d'un
+    # bloc sur son porteur (`AddEffect(0x484 = 1156) + AddEffect(0x496 = 1174)`, `turns` VIDE donc
+    # PERMANENTS), et `1174 StructuralAnalyser_Visual` est bien ETEINT par sa `CreateActiveCondition`
+    # geometrique -- donc absent du canal ACTIF-ONLY. Mais son instance inactive ne sert a RIEN :
+    # 1174 n'a AUCUN canal de contribution (MESURE : prediction native identique des deux cotes de la
+    # bascule) et AUCUN `HasEffect(0x496)` ne le lit. L'inscrire n'apporterait donc que le risque du
+    # point 2 ci-dessus (materialisation sur une unite privee du passif par `--unit-stat`).
 }
 
 
