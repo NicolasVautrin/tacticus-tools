@@ -102,13 +102,31 @@ DES LE CAST -- donc, sur toute la fin du tour, le port gardait l'unite NON-CIBLA
 pathfinder de teleport, et surtout SANS ses passives deferrees : `eldarAutarch` n'accordait pas ses
 +400 Attack a son allie pendant le reste du tour. Divergence PERMISSIVE et silencieuse.
 
+## Tranche 2 (#448-r2c) : `1238 FearOfTheUnseen_TeleportingIn` -- le REGIME NUMERIQUE
+
+`tyranDeathleaper`, HERO du pool rank 17, aucun montage : son ACTIVE 1115 (deja portee,
+`runner/abilities/tyranids.py`) pose 1238 sur lui-meme. C'est la SEULE des quatre a surcharger le
+vslot 0x738, et la surcharge n'est PAS neutre :
+
+    FearOfTheUnseen_TeleportingInEffect$$GetAdditionalRemoveTriggers
+        = AmountIsEqual( EffectRemainingTurns(EffectSelf), Direct(1) )
+
+Comme 0x738 conditionne les QUATRE `Triggered()` (T4 compris), les quatre ne firent que lorsqu'il
+reste EXACTEMENT 1 tour a l'effet -- pose a 3 (`Sum(TurnsFromRounds(1), Direct(1))`, 2 joueurs), il
+traverse donc le tour du cast ET le tour adverse avant de pouvoir partir. Detail et lecture des
+feuilles : docstring de `_FearOfTheUnseenRemainingIsOne`.
+
 ## Ce qui n'est PAS porte ici, nommement
 
-* les effets 1140 / 1238 / 1573 (les trois soeurs) : tranches filles #448-r2b/c/d. Les classes de
+* les effets 1140 / 1573 (deux des trois soeurs) : tranches filles #448-r2b/d. Les classes de
   BASE ci-dessous sont ecrites pour elles (un `effect_type`, un `MOVING_EFFECT_TYPE`, et pour
-  FearOfTheUnseen une surcharge de `_additional_remove_triggers`, pour TitanhammerSquad une
-  surcharge de `_custom_moving_condition`) -- mais AUCUNE n'est inscrite au registre tant qu'elle
-  n'est pas CONFRONTEE ;
+  TitanhammerSquad une surcharge de `_custom_moving_condition`) -- mais AUCUNE n'est inscrite au
+  registre tant qu'elle n'est pas CONFRONTEE ;
+* `UntargetableEffect$$ApplyInternal` pour 1238 : `ai/state_bridge.py::_is_untargetable` ne lit que
+  `1035`, alors que la non-ciblabilite vient de la BASE `UntargetableEffect` et vaut donc pour les
+  QUATRE (chaine `FearOfTheUnseen_TeleportingInEffect <- ATeleportingEffect <- UntargetableEffect
+  <- BaseEffect`, `classes.tsv`). RESIDU NOMME, canal DECISION, hors de cette tranche (qui ne touche
+  que les triggers) ;
 * les DEUX autres jambes du `FinishUnitTurn(unit, false)` que `IdunBattle.Operations.
   EndTurnOperation$$Execute` appelle par unite possedee (`On(0x1c ArrivedAtFinalTile)` et
   `On(0x29 UnitFinishedTurnNormally)`) : le port n'emet, depuis ce site-la, que la jambe `On(0x28)`
@@ -341,6 +359,118 @@ class TeleportStrikeTeleportingInAddMovingOnPreMove(ATeleportingAddMovingOnPreMo
 
 class TeleportStrikeMovingRemoveOnAfterMove(TeleportMovingRemoveOnAfterMove):
     """`1036 TeleportStrike_Moving` -- la premiere des TROIS `EffectType` que la fabrique native
-    construit par `TeleportMovingEffect` (les deux autres, `1241 FearOfTheUnseen_Moving` et
-    `1574 TitanhammerSquad_Moving`, arrivent avec leurs tranches filles)."""
+    construit par `TeleportMovingEffect` (la derniere, `1574 TitanhammerSquad_Moving`, arrive avec
+    la tranche fille #448-r2d)."""
     effect_type = TELEPORT_STRIKE_MOVING
+
+
+# --- 1238 FearOfTheUnseen_TeleportingIn : la SEULE des quatre a surcharger le vslot 0x738 ---------
+FEAR_OF_THE_UNSEEN_TELEPORTING_IN = int(EffectType.FearOfTheUnseen_TeleportingIn)   # 0x4d6 = 1238
+FEAR_OF_THE_UNSEEN_MOVING = int(EffectType.FearOfTheUnseen_Moving)                  # 0x4d9 = 1241
+
+
+def effect_remaining_turns(state: State, owner_id: int, effect_type: int) -> int:
+    """`IdunBattleLogic.Entities.DSLFormulas$$EffectRemainingTurns(selector)`, dont la formule
+    construite est `IdunBattle.Entities.Formulas.EffectRemainingTurnsFormula` : son `$$Calculate`
+    resout le selecteur puis SOMME `EffectComponent.Duration @+0x64` sur chaque entite-effet
+    obtenue (`uVar13 = uVar13 + *(int *)(lVar6 + 100)` dans la boucle de l'enumerateur).
+
+    `+0x64` est EXACTEMENT le champ que `IdunBattle.Entities.Components.EffectComponent$$
+    RemoveOneTurn` decremente (`if (0 < Duration@+0x64) Duration -= 1`), soit le `remaining_turns`
+    du port (cf. `EffectsState.on_turn_end`).
+
+    COLLAPSE ASSUME, le meme que `ATeleportingRemoveTrigger._remove` : le selecteur natif est
+    `EffectSelf` (`<DSLSelectors+0x38>`), donc UNE instance ; le port somme les instances NON
+    CONSOMMEES du type sur le porteur. Le gate << deja present >> d'`AddEffectOperation` garantit au
+    plus une instance par unite, donc somme == valeur unique.
+
+    `remaining_turns is None` = effet PERMANENT (`EffectComponent.HasTurns @+0x5d` faux) : sa
+    `Duration` n'est jamais posee, elle vaut 0 -- le port contribue 0, pas None."""
+    if state.effects is None:
+        return 0
+    total = 0
+    for e in state.effects.by_unit.get(int(owner_id), []):
+        if e.consumed or e.effect_type != int(effect_type):
+            continue
+        total += 0 if e.remaining_turns is None else int(e.remaining_turns)
+    return total
+
+
+class _FearOfTheUnseenRemainingIsOne:
+    """`IdunBattle.Entities.Effects.Loki.FearOfTheUnseen_TeleportingInEffect$$
+    GetAdditionalRemoveTriggers` -- la SEULE surcharge du vslot 0x738 dans ce build, et elle N'EST
+    PAS le conjonct neutre. Decompile lu en entier :
+
+        AmountIsEqual( EffectRemainingTurns(<DSLSelectors+0x38> = EffectSelf),
+                       <DSLFormulas+0x20> = Direct(1) )
+
+    Les deux feuilles sont lues, pas deduites :
+      * `<DSLFormulas+0x20>` : `IdunBattleLogic.Entities.DSLFormulas$$.ctor` alloue ses constantes en
+        file -- `+0x18` = 0, **`+0x20` = 1**, `+0x28` = 2, `+0x30` = 100, `+0x38` = -1 ;
+      * `<DSLSelectors+0x38>` = `EffectSelf`, deja etabli par trois lectures independantes du depot
+        (`case-366-r1-turnof-all.md`, `case-366-r1-hateful-assault-marker.md`, `wireweave_net.py`) ;
+      * la SURCHARGE d'`AmountIsEqual` : le tail-call vise
+        `IdunBattleLogic.Entities.DSLTriggers$$AmountIsEqual(this, amount1, amount2)` qui instancie
+        `IdunBattle.Entities.Conditions.AmountIsEqualAbilityTrigger`. ⚠ Sa VOISINE IMMEDIATE porte
+        le MEME nom Ghidra, la MEME signature -- et instancie `AmountIsGreaterAbilityTrigger`. La
+        surcharge est tranchee par l'adresse exacte du tail-call, pas au nom.
+        `AmountIsEqualAbilityTrigger$$ShouldTrigger` = `GetAmount(a1) == GetAmount(a2)`, egalite
+        STRICTE d'entiers.
+
+    ⚠ LE VSLOT 0x738 EST DANS LES **QUATRE** `Triggered()`, pas seulement dans les trois retraits :
+    `ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` appelle `(**(code **)(*in_RDX +
+    0x738))()` une fois par trigger, T4 compris. La condition gouverne donc AUSSI la pose du
+    marqueur `1241 FearOfTheUnseen_Moving`. D'ou l'application de ce mixin aux QUATRE classes.
+
+    CE QUE LE REGIME DONNE, mesurable : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    FearOfTheUnseenAbility$$ExecuteBehaviour` pose 1238 avec
+    `Sum(TurnsFromRounds(1), Direct(1))` = **3 tours a deux joueurs** (le port folde deja ce noeud,
+    `runner/abilities/tyranids.py`). L'effet ne peut donc PAS partir au tour du cast :
+
+        tour du cast   remaining 3  -> 3 != 1 : le `FinishUnitTurn` qui suit le cast NE RETIRE RIEN
+        fin de ce tour           -> 2         (`EffectsState.on_turn_end`)
+        fin du tour adverse      -> 1
+        tour SUIVANT du porteur  remaining 1  -> 1 == 1 : le pas / le cast / le finish RETIRE
+
+    Un port qui collapserait ce vslot a `True` (le corps de BASE) retirerait 1238 des le
+    `On(0x28 UnitFinishedTurn)` qui suit immediatement le cast : le Deathleaper ne disparaitrait
+    JAMAIS, ni pour le tour adverse ni pour son propre tour suivant. Divergence PERMISSIVE et
+    silencieuse -- exactement la meme signature que celle que #448-r2 a fermee sur 1035."""
+
+    def _additional_remove_triggers(self, state: State, ev: TriggerEvent) -> bool:
+        return effect_remaining_turns(
+            state, int(self.owner_id), FEAR_OF_THE_UNSEEN_TELEPORTING_IN) == 1
+
+
+class FearOfTheUnseenTeleportingInRemoveOnAfterMove(_FearOfTheUnseenRemainingIsOne,
+                                                    ATeleportingRemoveOnAfterMove):
+    effect_type = FEAR_OF_THE_UNSEEN_TELEPORTING_IN
+
+
+class FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility(_FearOfTheUnseenRemainingIsOne,
+                                                         ATeleportingRemoveOnPreUnitAbility):
+    effect_type = FEAR_OF_THE_UNSEEN_TELEPORTING_IN
+
+
+class FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn(_FearOfTheUnseenRemainingIsOne,
+                                                           ATeleportingRemoveOnUnitFinishedTurn):
+    effect_type = FEAR_OF_THE_UNSEEN_TELEPORTING_IN
+
+
+class FearOfTheUnseenTeleportingInAddMovingOnPreMove(_FearOfTheUnseenRemainingIsOne,
+                                                     ATeleportingAddMovingOnPreMove):
+    """`FearOfTheUnseen_TeleportingInEffect$$GetMovingEffectType` = `Nullable<EffectType>(0x4d9)`
+    (lu a l'octet : `local_res18[0] = 0x4d9` puis le ctor du `Nullable`) = `1241
+    FearOfTheUnseen_Moving`. Le vslot 0x748 (`GetCustomMovingEffectCondition`) N'EST PAS surcharge
+    par cette classe -- son corps de BASE `<DSLTriggers+0x40>` (conjonct neutre) s'applique, d'ou
+    l'heritage tel quel de `_custom_moving_condition`."""
+    effect_type = FEAR_OF_THE_UNSEEN_TELEPORTING_IN
+    MOVING_EFFECT_TYPE = FEAR_OF_THE_UNSEEN_MOVING          # 0x4d9 = 1241
+    MOVING_EFFECT_NAME = EffectType.FearOfTheUnseen_Moving.name
+
+
+class FearOfTheUnseenMovingRemoveOnAfterMove(TeleportMovingRemoveOnAfterMove):
+    """`1241 FearOfTheUnseen_Moving` -- la DEUXIEME des trois `EffectType` que
+    `IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects` construit par
+    `IdunBattleLogic.Effects.TeleportMovingEffect`. Meme trigger unique que 1036."""
+    effect_type = FEAR_OF_THE_UNSEEN_MOVING
