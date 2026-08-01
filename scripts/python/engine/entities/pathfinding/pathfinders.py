@@ -112,7 +112,8 @@ def _teleport_predicate(family: str, board, occupants: dict, moving_team,
       * `TeleportStrike` : « aucun ennemi non-Steppable ADJACENT » (`GetAdjacentEnemies`) ;
       * `FearOfTheUnseen` : le meme, plus DEUX echappatoires (`IsTallGrass`, bulle `Synapse_Effect`
         d'un allie au rayon 2) ;
-      * `StormboyzStrike` : corps trivial, non nomme -> `True` (HYPOTHESE, cf. le module) ;
+      * `StormboyzStrike` : corps trivial, non nomme -> `True` -- CONFRONTE live le 2026-08-01
+        (`#366-r1` 3/3, greffe du passif : natif == port sur 3 montages, cf. le module) ;
       * `TitanhammerSquad` : le seul VRAIMENT restrictif -- la zone `TitanhammerSquad_TargetTile`
         marquee par un allie, elle-meme ou une voisine.
 

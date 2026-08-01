@@ -91,6 +91,7 @@ from ..loki.haze_of_corruption import (HazeOfCorruptionTargetFinderAbility,   # 
                                       HazeOfCorruptionDamageTransferTrigger,  # case-209 (effet 1077)
                                       HAZE_DAMAGE_TRANSFER)
 from ..loki.listen_up_maggots import ListenUpMaggotsAddEffectAbility  # #95-RESTE2 (passif astraSmnKell)
+from ..loki.stormboyz_strike import StormboyzStrikeTeleportAbility    # #366-r1 3/3 (passif orksNpc6Stormboy)
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
@@ -324,6 +325,15 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # 0x426 sur Kell, qui ecrit `+1 nrOfSummons` / `+3 range` sur son PARENT (Creed) via
     # `AddUnitActiveAbilityModification` -- SEULE source non nulle de `GetAbilityStatModification`.
     "ListenUpMaggots": [ListenUpMaggotsAddEffectAbility],
+    # StormboyzStrike (passif `orksNpc6Stormboy`, triggered 0x475=1141) = MEME event
+    # `On(AbilityInit=0x21)`, avec DEUX gates en plus (`UnitTurnsStarted(Owner) == 0` et
+    # `NOT HasFlag(Owner, Moved)`) : a l'init, l'unite QUITTE le plateau
+    # (`RemoveUnitFromItsTiles(Owner, true)`) et prend 1140 `StormboyzStrike_TeleportingIn` pour
+    # 2 TOURS -- l'etat qui detourne son pathfinder vers `StormboyzStrikePathfinder` (pool
+    # BOARD-WIDE). Les deux autres classes du kit (`_MissAbility`, `_FallbackAbility`, cette
+    # derniere seule poseuse de 1179 `StormboyzStrike_AlreadyUsedTile`) sont des tranches a part.
+    # Cf. loki/stormboyz_strike.py -- tranche 3/3 de `#366-r1-tunnel-family`.
+    "StormboyzStrike": [StormboyzStrikeTeleportAbility],
     # --- Genestealer Cults : les 2 passifs HERO restants du parc GS ------------------------------
     # CosmicHorror (passif `genesPatriarch` << The Patermine >>) = DEUX abilities natives distinctes :
     #   * `On(0x36=UnitDefeated) & OwnerIsActor & AreEnemies & NOT HasTrait(Steppable)` -> decoy sur la

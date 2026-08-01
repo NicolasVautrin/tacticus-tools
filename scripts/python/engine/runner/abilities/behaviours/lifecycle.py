@@ -180,11 +180,14 @@ class RemoveUnitFromItsTiles(AbilityBehaviour):
     RemoveUnitFromItsTiles` (build `rnca9r7q6c`), QUATRE, tous avec `removeTileFromUnit: true` :
       * `...Abilities.Active.Loki.TunnelingHorrorAbility$$ExecuteBehaviour` (active 1011) -- PORTE ;
       * `...Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` (active 1023) -- PORTE ;
-      * `...Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` (active 1090) -- NON
-        porte (face DECISION seule, `playbook/noncomparable/grapnel_launcher.py`) ;
-      * `...Abilities.Triggered.Loki.StormboyzStrike_TeleportAbility$$CreateBehaviour` (1141) -- NON
-        porte.
-    Dans les deux cas portes c'est le 1er des trois behaviours."""
+      * `...Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` (active 1090) -- PORTE
+        (`runner/abilities/spacewolves.py`, tranche 2) : SEUL appelant a viser la CIBLE et non le
+        caster, et seulement si elle est MORTE sur sa tuile d'origine ;
+      * `...Abilities.Triggered.Loki.StormboyzStrike_TeleportAbility$$CreateBehaviour` (triggered
+        1141) -- PORTE (`runner/operations/triggers/loki/stormboyz_strike.py`, tranche 3/3) : SEUL
+        appelant qui n'est PAS une active, et seul ou cette feuille est la 1re de DEUX (pas de
+        trois).
+    Chez 1011 et 1023 c'est le 1er des trois behaviours ; LES QUATRE sont desormais portes."""
     __slots__ = ("units_sel", "remove_tile_from_unit")
 
     def __init__(self, units_sel: TargetsSelector, remove_tile_from_unit: bool = True):
