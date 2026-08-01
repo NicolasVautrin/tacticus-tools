@@ -123,6 +123,30 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
     "TeleportStrikeMovingRemoveOnAfterMove":
         (ARRAYSET, "IdunBattleLogic.Effects.TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # Les DEUX autres derivees d'`ATeleportingEffect` inscrites au registre (#448-r2b pour 1140,
+    # #448-r2c pour 1238/1241). MEME artefact natif que les cinq lignes ci-dessus, mot pour mot :
+    # les quatre `Triggered()` viennent du `CreateHandleTriggerAbilitiesInternal` de la BASE (aucune
+    # des deux ne le surcharge -- verifie au runtime par `resolveMethodPtr`, il resout a la
+    # profondeur 1 sur `ATeleportingEffect`), et le `*_Moving` de `TeleportMovingEffect`. Rail
+    # ARRAYSET => AUCUN gate `IsActive` natif => le port ne doit PAS lire le flag.
+    "StormboyzStrikeTeleportingInRemoveOnAfterMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "StormboyzStrikeTeleportingInRemoveOnPreUnitAbility":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "StormboyzStrikeTeleportingInAddMovingOnPreMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FearOfTheUnseenTeleportingInRemoveOnAfterMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FearOfTheUnseenTeleportingInAddMovingOnPreMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FearOfTheUnseenMovingRemoveOnAfterMove":
+        (ARRAYSET, "IdunBattleLogic.Effects.TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal"),
 }
 
 # Classes du rail ARRAYSET qui lisent QUAND MEME le flag -- non par gate d'evaluation, mais
