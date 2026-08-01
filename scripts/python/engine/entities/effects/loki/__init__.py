@@ -63,6 +63,7 @@ from .extra_damage import (RapidAssaultExtraDamageEffect, PrioritisedEfficiencyE
 from .extra_damage_aura import (RitesOfBattleExtraDmgEffect, PathOfCommandExtraDmgEffect,
                                 APsychicStalkEffect, PsychicStalkExtraAttackDamageEffect,
                                 PsychicStalkFriendlyChaosExtraDamageEffect,
+                                PsychicStalkVisualEffect,
                                 DaughterOfTheAbyssExtraDamagePctEffect,
                                 BeaconOfRageFriendlyExtraDamageEffect,
                                 LordOfTheHostExtraDamageEffect, DoomExtraDmgEffect,
@@ -175,7 +176,7 @@ __all__ = [
     # extra_damage_aura (volet AURA)
     "RitesOfBattleExtraDmgEffect", "PathOfCommandExtraDmgEffect",
     "APsychicStalkEffect", "PsychicStalkExtraAttackDamageEffect",
-    "PsychicStalkFriendlyChaosExtraDamageEffect",
+    "PsychicStalkFriendlyChaosExtraDamageEffect", "PsychicStalkVisualEffect",
     "DaughterOfTheAbyssExtraDamagePctEffect", "BeaconOfRageFriendlyExtraDamageEffect",
     "LordOfTheHostExtraDamageEffect", "DoomExtraDmgEffect",
     "SpotterReworkedExtraDamageEffect", "SpotterReworkedHeavyWeaponEffect",

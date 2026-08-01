@@ -152,16 +152,17 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -
             # ou non, un port de la `CreateActiveCondition` de cette classe ?
             #
             #   * OUI (la classe SURCHARGE `is_active`) -> on tient une LECTURE du natif : on
-            #     re-evalue et on ECRIT le flag, exactement comme avant #366-r1b. 17 entrees du
-            #     registre au 2026-08-01 (`AnvilShield_BlockChanceBelowHealthCap`,
-            #     `CamoCloak_DmgReduction`, les DEUX `ContagionsOfNurgle_ArmorReduction`, les DEUX
-            #     `DestroyTheWitch_*`, `HammerOfWrath_ConditionalDamage`, les TROIS
-            #     `InescapableAccuracy_*`, `MartialSuperiority_Visual`, `ModifiedExoarmour_ExtraDmg`,
-            #     `Pinned`, `PowerTrip_FullHealth`, `StructuralAnalyser_Visual`, les DEUX
-            #     `VisionsOfHeresy_ExtraPierce*`).
-            #     ⚠ Ce compte se PERIME (il disait « 13 » alors que `CamoCloak_DmgReduction` etait
-            #     deja entree) : le RE-DERIVER par
-            #     `test_refresh_active_flag_discriminant_offline`, jamais citer cette ligne.
+            #     re-evalue et on ECRIT le flag, exactement comme avant #366-r1b.
+            #     ⚠ NE JAMAIS FIGER ICI NI UN COMPTE NI LA LISTE DES CLASSES. Les deux se perimen-
+            #     t a CHAQUE port qui entre une classe surchargeante, et ils sont la CAUSE MECANIQUE
+            #     d'un conflit de rebase par PR : #366-r1 (`PsychicStalk_VisualEffect`) et #424
+            #     (`MartialSuperiority_Visual`) ont reecrit ce meme bloc en parallele. Le compte
+            #     annonçait « 13 » quand `CamoCloak_DmgReduction` etait deja entree, puis « 15 »
+            #     quand le seul rebase en avait deja fait 17 : un chiffre ecrit ici est faux AVANT
+            #     d'etre merge. L'ensemble se RE-DERIVE, en une expression :
+            #         {n for n, c in EFFECT_CLASSES.items() if c.is_active is not BaseEffect.is_active}
+            #     Le cliquet qui le tient -- et qui re-derive son propre plancher au lieu de le
+            #     recopier -- est `test_refresh_active_flag_discriminant_offline`.
             #   * NON -> `BaseEffect.is_active` rend `True` INCONDITIONNELLEMENT : c'est une VALEUR
             #     PAR DEFAUT, pas une lecture. L'ecrire ECRASERAIT le flag que
             #     `ActivateEffect`/`DeactivateEffect` viennent de poser. On CONSERVE donc le flag et
