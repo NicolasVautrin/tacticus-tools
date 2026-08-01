@@ -149,9 +149,11 @@ cités en commentaire dans `targeting.py` ne résolvent plus ; le décalage est 
   pour un motif présent deux fois dans une fonction décompilée à la demande. Son index est partiel.
 * **Les trois gros gisements de non-port**, désormais chiffrés et actionnables : ligne de vue
   (`TargetIsUnobscured`, 103), `TargetIsNotSteppable` (83), TAUNT `TargetIsAllowedForCaster` (59).
-  Aucun n'est porté ; les trois dégradent **permissivement** (le moteur accepte des casts que le
-  natif refuse), donc invisibles en self-play. Le gisement **ciblé** — hors règles armées par
-  défaut — vaut **26 abilities / 103**.
+  Les trois dégradent **permissivement** (le moteur accepte des casts que le natif refuse), donc
+  invisibles en self-play. Le gisement **ciblé** — hors règles armées par défaut — vaut
+  **26 abilities / 103**.
+  → **Deux sont fermés depuis** : le TAUNT par #436 (`case-436-taunt-target-is-allowed-for-caster.md`),
+  `TargetIsNotSteppable` par #442 (`case-442-target-is-not-steppable.md`). Reste la ligne de vue.
 * **`GetCasterNotAddedReason` non portée** reste le verrou de `CasterHasFreeAdjacentTile`
   (2 porteurs) et de `CasterIsPossibleTarget` (13 masques armés).
 

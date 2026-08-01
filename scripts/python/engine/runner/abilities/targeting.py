@@ -117,10 +117,12 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
   18   0x40000               TargetIsDisplaceable                                NON (0 porteur)
   29   0x20000000            TargetIsTargetable (sauf si                        OUI
                              AllowUntargetableTarget est pose)
-  51   0x8000000000000       TargetIsNotSteppable                                NON — ⚠ ARMEE
+  51   0x8000000000000       TargetIsNotSteppable                                OUI (#442) — ⚠ ARMEE
                              ⚠ ARMEE PAR son bit **OU** `get_IsUnitTargeting`                   PAR DEFAUT :
                              (= ABSENCE des bits 6/44/46) SANS `AllowSteppableUnit`.            83 abilities
-                             83 abilities du registre l'ont ARMEE ; 1 seule pose le bit.        du registre
+                             83 abilities du registre l'ont ARMEE ; 1 seule pose le bit.        du registre,
+                             DESARMEMENT `AllowSteppableUnit` (bit 20) : il ne vaut QUE          l'ATTAQUE
+                             pour la voie unit-targeting -- le bit 51 refuse malgre lui.         NORMALE incluse
   47/48/49                   TargetHas1Tiles / TargetHas3Tiles / TargetHas7Tiles NON (0 porteur)
    -   (non gate)            portee : `dist(casterTiles, target) > GetRange` ->  OUI (cf. ci-dessous)
                              TargetIsInRange (bit 27, 0x8000000) ; variante
@@ -880,6 +882,34 @@ def is_targetable(state: "State", entity_id) -> bool:
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     fl = e.get_component(UnitFlagsComponent) if e is not None else None
     return not (fl is not None and fl.has(UNIT_FLAG_NOT_TARGETABLE))
+
+
+def has_steppable_unit(state: "State", entity_id) -> bool:
+    """`IdunBattle.Entities.TileExtensions$$HasSteppableUnit(tile, matchState)` — MIRROR du decompile,
+    ligne par ligne :
+
+        u = UnitExtensions.GetUnit(tile, matchState);
+        if (u == null) return false;
+        b = UnitExtensions.GetBaseUnitComponent(u);
+        if (b == null) return false;
+        return BaseUnitComponent.HasTrait(b, 0x1b);          // UnitTrait.Steppable
+
+    ⚠ SON NOM DIT « tile » MAIS SON ARGUMENT EST `GetUnit`-e : la cascade lui passe `puVar12`, la
+    cible RESOLUE, qui est une UNITE sur une ability unit-targeting et une TUILE sous
+    `TargetIsTile`. `GetUnit` couvre les deux (sur une tuile il rend son OCCUPANT, sur une unite
+    l'unite elle-meme) -- d'ou `unit_of_entity`, exactement le meme mirror, et surtout PAS `_unit_of`
+    (qui repondrait « la cible EST-elle une unite » et raterait le cas TUILE).
+
+    Le substrat de traits est le meme que tous les `HasTrait(...)` portes (`_unit_traits` ->
+    `entity_trait_names`) : kit gameconfig + traits accordes en bataille + mesure live
+    `combatSnapshot.units[].traits`. Aucun etat supplementaire n'est a ECRIRE pour cette regle --
+    `Steppable` est un TRAIT, pas un effet : il arrive avec l'unite (BC/snapshot) ou avec le summon
+    (`build_decoy_context` / `build_summon_context`, tous deux seedes du `traits` gameconfig)."""
+    from ...entities.traits.unit_trait import UnitTrait
+    u = unit_of_entity(state, entity_id)
+    if u is None:
+        return False
+    return UnitTrait.Steppable.name in (_unit_traits(state, int(u)) or ())
 
 
 # ------------------------------------------------------------------------------------------------
@@ -1884,6 +1914,45 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     if (not options.has(TR.AllowUntargetableTarget)) and tuid is not None:
         if not is_targetable(state, tuid):
             return int(TR.TargetIsTargetable)
+
+    # TargetIsNotSteppable (bit 51) -- LE DECOY / LA MINE (#442). VERBATIM du filtre statique
+    # (surcharge 7 arguments), juste APRES `TargetIsTargetable` et AVANT les regles `TargetHasNTiles`
+    # (donc AVANT le volet PORTEE) :
+    #
+    #     if ((rules >> 0x33 & 1) == 0) {                      // bit 51 NON pose
+    #         if (TargetingOptions.get_IsUnitTargeting(options)) {
+    #             if ((rules & 0x100000) == 0) goto TEST;      // !AllowSteppableUnit (bit 20)
+    #         }
+    #     } else {
+    #     TEST:
+    #         if (TileExtensions.HasSteppableUnit(puVar12, state)) -> broken(0x8000000000000);
+    #     }
+    #
+    # ⚠ DEUX ARMEMENTS, ET LE SECOND EST LE VRAI GISEMENT (mesure #429) : son bit 51 n'a **1** seul
+    # porteur au registre (1011 `TunnelingHorror`, TILE-targeting), tandis que **83** abilities
+    # l'ARMENT par `get_IsUnitTargeting` -- qui n'est PAS un bit a lui mais l'ABSENCE des bits
+    # 6/44/46 (`TargetIsTile|TargetIsMachine|TargetIsActor`), donc VRAI PAR DEFAUT. L'ATTAQUE NORMALE
+    # est dans ce cas (preset `0x4002`, aucun bit de domaine) : on ne peut PAS attaquer normalement
+    # une unite `Steppable`. Un recensement par le bit donnait ici un zero de METHODE.
+    #
+    # LE DESARMEMENT est `AllowSteppableUnit` (bit 20), et il ne desarme QUE la voie
+    # unit-targeting : une ability qui pose le bit 51 refuse meme avec le bit 20 (la branche `else`
+    # du natif court-circuite le test du bit 20). L'ORDRE des trois gates est donc : bit 51 d'abord,
+    # puis `IsUnitTargeting`, puis `!AllowSteppableUnit`.
+    #
+    # LA CIBLE TESTEE est `puVar12`, la cible RESOLUE par la tete de domaine (`_resolved_target_id`),
+    # pas la cible d'origine -- cf. `has_steppable_unit` pour le detail du `GetUnit` que le predicat
+    # applique par-dessus (tuile -> occupant).
+    #
+    # ⚠ CETTE REGLE PRECEDE `TargetTileIsFree` (bit 12) DANS LA CASCADE, et ce n'est pas cosmetique :
+    # le natif appelle `IsFreeTile(tile, state, allowSteppable: 1, ...)` -- une tuile portee par une
+    # unite `Steppable` est donc « libre » pour le bit 12. Chez 1011, qui porte les DEUX bits, c'est
+    # bien 51 qui refuse la tuile d'un decoy, jamais 12.
+    if (options.has(TR.TargetIsNotSteppable)
+            or (options.is_unit_targeting and not options.has(TR.AllowSteppableUnit))):
+        rtid = _resolved_target_id(state, target_id, options)
+        if rtid is not None and has_steppable_unit(state, rtid):
+            return int(TR.TargetIsNotSteppable)
 
     # PORTEE -- SANS BIT DE GATE (cf. l'extrait du filtre en tete de module). Position NATIVE dans la
     # cascade : apres `TargetIsTargetable`/`TargetIsNotSteppable`/les regles `TargetHasNTiles`, AVANT
