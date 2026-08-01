@@ -156,8 +156,12 @@ def _port_replay(s: int, rid: int, att: int, vic: int) -> dict:
         sc = e.get_component(StatsComponent) if e is not None else None
         if sc is None:
             return {}
+        # `ARMOR`(4) est OBSOLETE cote natif -- l'armure EFFECTIVE est `DEFENSE`(3), et
+        # `FIXED_ARMOR`(16) la part plate. Lire `ARMOR` rendait 0 et faisait croire a une
+        # armure nulle alors que le port en applique 3513 (mesure du 1er run de ce probe).
         out = {}
-        for nm in ("ATTACK", "ARMOR", "HEALTH", "DAMAGE", "CRIT_CHANCE", "BLOCK_CHANCE"):
+        for nm in ("ATTACK", "DEFENSE", "FIXED_ARMOR", "HEALTH", "BLOCK_CHANCE",
+                   "BLOCK_DAMAGE", "CRIT_CHANCE", "CRIT_DAMAGE", "EXTRA_HITS"):
             stt = getattr(StatType, nm, None)
             if stt is not None:
                 try:
@@ -184,12 +188,19 @@ def _port_replay(s: int, rid: int, att: int, vic: int) -> dict:
             "stats_att": _stats(att), "stats_vic": _stats(vic)}
 
 
-def _snapshot_stats(s: int, rid: int, uid: int) -> dict:
+def _snapshot_stats(s: int, rid: int, uids: list) -> dict:
+    """Stats RESOLUES du natif (`GetStat`). La cle est `entityId` -- et c'est la MEME que
+    la cle ECS du port (`combatSnapshot.entityId == decisionView.id`, cf. `snapshot.py`)."""
     snap = rpc(s, "combatSnapshot", {"runnerId": rid}, 90)
+    want = {int(x) for x in uids}
+    out = {}
     for u in (snap.get("units") or []):
-        if int(u.get("id") or u.get("unitId") or -1) == int(uid):
-            return u
-    return {}
+        eid = u.get("entityId")
+        if eid is not None and int(eid) in want:
+            out[int(eid)] = {"stats": u.get("stats"), "healthMax": u.get("healthMax"),
+                             "shields": u.get("shields"), "weapons": u.get("weapons"),
+                             "traits": u.get("traits")}
+    return out
 
 
 def _native_prediction(s: int, rid: int, att: int, vic: int, ability=None) -> dict:
@@ -215,6 +226,9 @@ def main() -> int:
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--seed", default="31337")
     ap.add_argument("--rank", default="17")
+    ap.add_argument("--block-target", default="0,0",
+                    help="chance,amount de block de la CIBLE (le probe #411-r1 le passe en "
+                         "100,500 pour exercer la route de block).")
     ap.add_argument("--keep", action="store_true", help="ne pas disposer le runner (debug)")
     a = ap.parse_args()
     pydir = Path(__file__).resolve().parent
@@ -225,7 +239,7 @@ def main() -> int:
     # --- MONTAGE : le BRAS TEMOIN de probe_411r1, a l'identique (aucune greffe) ---
     extra = ["--rank", str(a.rank), "--p-units", ATTACKER,
              "--a-units", "%s,%s" % (VICTIM, CARRIER),
-             "--crit", "0,0", "--crit-target", "0,0", "--block-target", "0,0",
+             "--crit", "0,0", "--crit-target", "0,0", "--block-target", a.block_target,
              "--unit-stat", "%s:Movement=%d" % (ATTACKER, MOVE_STAT),
              "--board", a.board]
     _run(["rl_duel.py", "build", "--seed", a.seed, "--state-file", str(sf)] + extra, pydir)
@@ -250,8 +264,7 @@ def main() -> int:
         ability = plan.get("abilityId")
         pred = _native_prediction(s, rid, att, vic, ability)
         port = _port_replay(s, rid, att, vic)
-        nat_att = _snapshot_stats(s, rid, att)
-        nat_vic = _snapshot_stats(s, rid, vic)
+        nat = _snapshot_stats(s, rid, [att, vic])
 
         # --- EXECUTION NATIVE ---
         _run(["rl_duel.py", "act", "ability", "--caster", str(att), "--target", str(vic),
@@ -268,18 +281,21 @@ def main() -> int:
 
     N = hp_v0 - hp_v1
     G = int(port["total"])
-    pmin = pred.get("healthDamageMin")
-    pmax = pred.get("healthDamageMax")
+    pf = pred.get("pred") or {}
+    pmin = pf.get("healthDmgMin")
+    pmax = pf.get("healthDmgMax")
     print("=== #411-r2 DISCRIMINANT (bras TEMOIN, runner %d) ===" % rid)
     print("[montage] att=u%d %s -> vic=u%d %s (carrier u%d, aucune greffe)"
           % (att, ATTACKER, vic, VICTIM, car))
-    print("[plan]    abilityId=%s  planDamage=%s" % (ability, json.dumps(
-        {k: plan.get(k) for k in ("dmgMin", "dmgMax", "damageMin", "damageMax", "hits",
-                                  "willKill", "mightKill") if k in plan}, ensure_ascii=True)))
-    print("[pred]    NATIF aiPredict ok=%s health=[%s..%s] shield=[%s..%s] total=[%s..%s]"
-          % (pred.get("ok"), pmin, pmax, pred.get("shieldDamageMin"),
-             pred.get("shieldDamageMax"), pred.get("totalDamageMin"),
-             pred.get("totalDamageMax")))
+    print("[plan]    abilityId=%s  eval=%s" % (ability, json.dumps(plan, ensure_ascii=True)[:600]))
+    print("[pred]    NATIF aiPredict ok=%s ability=%s dictCount=%s layoutError=%s"
+          % (pred.get("ok"), pred.get("ability"), pred.get("dictCount"),
+             pred.get("layoutError")))
+    print("[pred]    health=[%s..%s] shield=[%s..%s] hpBefore=%s shieldBefore=%s "
+          "willKillDmg=%s mightKillDmg=%s"
+          % (pmin, pmax, pf.get("shieldDmgMin"), pf.get("shieldDmgMax"),
+             pf.get("hpBefore"), pf.get("shieldBefore"), pf.get("willKillDmg"),
+             pf.get("mightKillDmg")))
     print("[hp]      victim %d -> %d  (N = %d)   carrier %d -> %d (%d)"
           % (hp_v0, hp_v1, N, hp_c0, hp_c1, hp_c0 - hp_c1))
     print("[port]    G = %d  hits=%s per_hit=%s" % (G, port["hits"], port["per_hit"]))
@@ -290,8 +306,8 @@ def main() -> int:
              port["did_evade"], port["ranged"], port["profile"]))
     print("[port]    stats lues att=%s" % json.dumps(port["stats_att"], ensure_ascii=True))
     print("[port]    stats lues vic=%s" % json.dumps(port["stats_vic"], ensure_ascii=True))
-    print("[natif]   combatSnapshot att=%s" % json.dumps(nat_att, ensure_ascii=True)[:900])
-    print("[natif]   combatSnapshot vic=%s" % json.dumps(nat_vic, ensure_ascii=True)[:900])
+    print("[natif]   snapshot att=%s" % json.dumps(nat.get(att), ensure_ascii=True)[:1200])
+    print("[natif]   snapshot vic=%s" % json.dumps(nat.get(vic), ensure_ascii=True)[:1200])
     if isinstance(pmin, int) and isinstance(pmax, int) and pmax > 0:
         n_in = pmin <= N <= pmax
         g_in = pmin <= G <= pmax
