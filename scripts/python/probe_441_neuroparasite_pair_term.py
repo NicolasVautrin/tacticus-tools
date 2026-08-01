@@ -104,6 +104,20 @@ def native_effect_ids(dv, uid) -> set:
             if isinstance(e, dict) and e.get("effectType") is not None}
 
 
+def effect_level(dv, uid):
+    """Le NIVEAU de l'instance `Neuroparasite` sur l'unite (`decisionView.effects[].level`).
+
+    `IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$GetIncreaseLevelBehaviour` le monte a
+    chaque nouveau tir (`DSLBehaviors.IncreaseEffectLevel`, plafonne par `$$GetMaximumLevel`) et
+    l'additif de degat le MULTIPLIE. Le playbook, lui, ne fait qu'un `HasEffect` BINAIRE : ce
+    niveau est donc le levier de generalisation qui separe « presence » de « intensite »."""
+    u = next((x for x in (dv.get("units") or []) if x.get("id") == uid), None)
+    for e in ((u or {}).get("effects") or []):
+        if isinstance(e, dict) and e.get("effectType") == EFFECT:
+            return e.get("level")
+    return None
+
+
 # --------------------------------------------------------------------------- montage
 
 def _fresh_ctx(rpc, rid, cid):
@@ -276,6 +290,39 @@ def measure(rpc, case: dict) -> list[dict]:
     return list(case["rows_before"]) + _rows(rpc, case, case["ctx"], case["dv"], "after")
 
 
+def escalate(sid, rpc, case: dict) -> int:
+    """GENERALISATION -- un tir de plus sur la MEME cible fait monter le NIVEAU du parasite.
+
+    La mutation doit MORDRE : si le niveau ne monte pas, la mesure qui suivrait re-testerait le
+    meme etat et un accord ne prouverait rien. Rend le nouveau niveau."""
+    uid = case["tgt"][TGT_INFECT]
+    before = effect_level(case["dv"], uid)
+    _infect(sid, rpc, case)
+    dv, ctx = _fresh_ctx(rpc, case["rid"], case["cid"])
+    case["ctx"], case["dv"] = ctx, dv
+    after = effect_level(dv, uid)
+    if not isinstance(after, int) or not isinstance(before, int) or after <= before:
+        raise MontageError(f"montage NON INSTALLE : le niveau du parasite sur {TGT_INFECT} n'a pas "
+                           f"monte ({before} -> {after}) -- la contre-epreuve de niveau ne "
+                           f"testerait rien")
+    return after
+
+
+def measure_levels(sid, rpc, case: dict, levels: int = 3) -> list[dict]:
+    """Les lignes de `levels` NIVEAUX successifs du parasite (1, 2, 3...). Le terme du playbook
+    doit rester EXACTEMENT `EXPECTED_INFECTED` a chaque niveau -- le corps natif fait un
+    `HasEffect` binaire, il ne lit PAS `EffectLevel` (que l'additif de degat, lui, multiplie :
+    l'utilite totale bouge donc fortement d'un niveau a l'autre, ce qui rend la mesure
+    discriminante)."""
+    out = []
+    for i in range(levels):
+        lvl = effect_level(case["dv"], case["tgt"][TGT_INFECT])
+        out += _rows(rpc, case, case["ctx"], case["dv"], f"lvl{lvl}")
+        if i + 1 < levels:
+            escalate(sid, rpc, case)
+    return out
+
+
 # --------------------------------------------------------------------------- CLI
 
 def _build(state_file: str, extra: list[str]) -> int:
@@ -294,6 +341,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state-file", required=True,
                     help="chemin ABSOLU du state-file (le probe construit SON runner dessus)")
+    ap.add_argument("--levels", type=int, default=3,
+                    help="nombre de NIVEAUX de parasite a balayer (generalisation ; 1 = aucun)")
     args = ap.parse_args()
 
     from rl_collect_batch import _resolve_session, _rpc
@@ -307,7 +356,10 @@ def main() -> int:
     case = build_case(sid, rpc, rid)
     print(f"runner {rid} | caster u{case['cid']} @ {case['tile']} | ability normale "
           f"{case['ab']} | valeur attendue quand infecte = {EXPECTED_INFECTED}")
-    for row in measure(rpc, case):
+    rows = measure(rpc, case)
+    if args.levels > 1:
+        rows += measure_levels(sid, rpc, case, args.levels)[len(case["tgt"]):]
+    for row in rows:
         d = row["port"] - row["native"]
         dm = row["native"] - row["port_muted"]
         print(f"  [{row['phase']:<6}] {row['target']:<16} u{row['uid']} "
