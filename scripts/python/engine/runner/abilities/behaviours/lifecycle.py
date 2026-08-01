@@ -283,20 +283,34 @@ class TriggerAbilityDelayed(AbilityBehaviour):
     puis, POUR CHAQUE entite rendue, appelle le slot 6 du service de triggers DIFFERES avec
     `(entityId, abilityType, entities)` : l'ability n'est PAS executee sur place, elle est PLANIFIEE.
 
-    LE PORT LA COLLAPSE — il l'execute INLINE, en fin de behaviour. PRECEDENT EXACT deja au depot :
-    `MasterOfTheTutelaries_SummonAbility` (`TriggerAbilityDelayed(owner, 0x495, kind=3)`, cf.
-    `runner/operations/triggers/loki/master_of_the_tutelaries.py`) fait le meme collapse, pour la
-    meme raison : le port n'a pas de scheduler de triggers differes, et l'ordre OBSERVABLE est le
-    meme des lors que le differe est le DERNIER terme de l'arbre. C'est le cas du seul call-site
-    porte ici (`...SorcerousFacadeAbility$$ExecuteBehaviour`, ou le `TriggerAbilityDelayed` est le
-    4e et dernier terme de la chaine `op_Addition`). ⚠ Un futur call-site ou le differe N'EST PAS en
-    queue d'arbre exigerait un vrai scheduler : ne pas generaliser ce collapse en silence.
+    DEUX CHEMINS, et c'est DELIBERE (#406) :
 
-    `unit_selection_type` = le litteral `+0x64` (3 aux deux call-sites lus) ; il gouverne le MODE de
+    1. **LA FILE (fidele)** -- si `ability_type` est inscrite dans `CUSTOM_TRIGGERED_ABILITIES`
+       (`operations/triggers/dispatch/registry.py`), le noeud ENFILE, comme le natif, via
+       `add_pending_triggered_ability` -> `state.pending_triggered_abilities`. Le drain vit dans
+       `Runner.apply`, a la borne du message top-level : c'est la position LUE du premier
+       `IdunBattle.Messages.InputMessageProcessor$$ProcessPendingTriggeredAbilities` de
+       `IdunBattle.Messages.InputMessageProcessor$$RunPhase` (apres `action()`, apres
+       `VerifyDeaths`/`ProcessDamageEvents`, avant `EndPhase`). RE complete : le docstring de
+       `operations/triggers/dispatch/pending.py`.
+
+    2. **LE COLLAPSE INLINE (herite)** -- sinon, le comportement d'avant : execution immediate du
+       callable de `TRIGGERED_ABILITY_DELAYED_BEHAVIOURS`, en fin de behaviour. Il couvre les deux
+       call-sites deja portes (`...SorcerousFacadeAbility$$ExecuteBehaviour` et
+       `MasterOfTheTutelaries_SummonAbility`), ou le differe est le DERNIER terme de l'arbre et ou
+       l'ordre observable ne change donc pas. **DETTE NOMMEE** : ces deux-la n'ont pas ete bascules
+       sur la file par #406 (perimetre), et leur bascule demandera de re-jouer leurs tests -- le
+       contexte du drain est RECONSTRUIT, pas celui capture a l'enfilement.
+
+    Le chemin 1 est ce qui rend `HarlequinsPanoply` portable : son `TriggerAbilityDelayed` est pose
+    PENDANT la resolution d'une attaque (per-coup, via l'intercepteur de `_run_hits`), et son
+    behaviour differe DEPLACE le porteur. Inline, ce `MoveUnit` tomberait au milieu des coups.
+
+    `unit_selection_type` = le litteral `+0x64` (3 aux trois call-sites lus) ; il gouverne le MODE de
     resolution du selecteur natif, non porte -> conserve pour la tracabilite, jamais lu.
 
-    Une ability ABSENTE de `TRIGGERED_ABILITY_DELAYED_BEHAVIOURS` rend `dispatched: False` : le gap
-    est VISIBLE (meme doctrine que `AbilityHandler.unported` et que `TriggerAbility`), jamais muet.
+    Une ability absente des DEUX registres rend `dispatched: False` : le gap est VISIBLE (meme
+    doctrine que `AbilityHandler.unported` et que `TriggerAbility`), jamais muet.
     Emet 'TriggerAbilityDelayed'. PUR (stop=False)."""
     __slots__ = ("entity_sel", "ability_type", "unit_selection_type")
 
@@ -307,15 +321,40 @@ class TriggerAbilityDelayed(AbilityBehaviour):
         self.unit_selection_type = int(unit_selection_type)
 
     def execute(self, entities, ectx):
-        fn = TRIGGERED_ABILITY_DELAYED_BEHAVIOURS.get(self.ability_type)
+        from ...operations.triggers.dispatch.registry import CUSTOM_TRIGGERED_ABILITIES
         targets = sorted({u["id"] for u in _units_of(self.entity_sel, entities)
                           if isinstance(u, dict) and u.get("id") is not None})
+        state = ectx.state
+        queued = bool(CUSTOM_TRIGGERED_ABILITIES.get(self.ability_type)) and state is not None
         results = []
-        if fn is not None:
+        if queued:
+            from ...operations.triggers.dispatch.pending import add_pending_triggered_ability
+            from ...operations.triggers.base import TriggerEvent
+            from ....dsl.event_trigger_type import EventTriggerType
+            # L'`AbilityEntities` que le natif recopie dans la file est REJOUE tel quel au drain
+            # (`TriggerTriggeredAbilityOperation$$Execute` n'y rafraichit que les tuiles, le joueur
+            # courant et `+0x18 = entity`). Cote port on memorise le couple (actor, target) du
+            # contexte -- de quoi reconstruire a l'identique le meme `entities_from_state`.
+            _aid = (entities.actor or {}).get("id") if getattr(entities, "actor", None) else None
+            _tid = (entities.target or {}).get("id") if getattr(entities, "target", None) else None
             for _uid in targets:              # ordre de lecture = id (mirror OrderBy natif)
-                results.append(fn(entities, ectx))
+                add_pending_triggered_ability(
+                    state, _uid, self.ability_type,
+                    # `triggerType = 0x20 = Custom` : le litteral que
+                    # `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility` passe
+                    # au slot 4 de l'ability re-declenchee (dernier argument de l'appel).
+                    TriggerEvent(int(EventTriggerType.Custom), _aid, _tid,
+                                 ranged=False, profile=None,
+                                 triggering_ability=self.ability_type))
+                results.append({"queued": True, "unit": int(_uid)})
+        else:
+            fn = TRIGGERED_ABILITY_DELAYED_BEHAVIOURS.get(self.ability_type)
+            if fn is not None:
+                for _uid in targets:          # ordre de lecture = id (mirror OrderBy natif)
+                    results.append(fn(entities, ectx))
         ectx.emit("TriggerAbilityDelayed", ability_type=self.ability_type, targets=targets,
-                  dispatched=fn is not None, results=results)
+                  dispatched=queued or TRIGGERED_ABILITY_DELAYED_BEHAVIOURS.get(self.ability_type)
+                  is not None, queued=queued, results=results)
         return OperationResult.ok()
 
 
