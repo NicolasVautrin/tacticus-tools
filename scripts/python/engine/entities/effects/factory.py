@@ -138,6 +138,7 @@ from .loki import (
     MomentShackleExtraBlockChanceEffect,
     MomentShackleExtraBlockDamageEffect,
     GravitonRifleExtraPierceEffect,
+    PurgeResponseEffect,
     HailstrikeExtraPierceEffect,
     VisionsOfHeresyExtraPierceMeleeEffect,
     VisionsOfHeresyExtraPierceRangedEffect,
@@ -804,6 +805,18 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `CreatePiercingBonusForAttack` = ForAddition((OwnerIsCaster & CurrentAbilityIs(1206)) &
     # (HasTrait(target,1039)|HasTrait(target,1013)|HasTrait(target,5)), ConfigVar(0x3f=63 extraPierceRatio)).
     "GravitonRifle_ExtraPierce": GravitonRifleExtraPierceEffect,
+    # 0x602=1538 PurgeResponse (case-366-r1-blockhits-purgeresponse) : owner-effect du passif
+    # `PurgeResponse` (TriggeredAbilityType 0x5f6 = 1526) de l'Ironkin Steeljack
+    # (`votanSmnSteeljack`, summon de `votanMemnyr` via `IronkinSteeljack` 1219 ; jumeau npc
+    # `votanNpc2Steeljack`). SECOND et DERNIER implementeur natif de `BlockHitsReduction` :
+    #   `IdunBattle.Entities.Effects.Loki.PurgeResponseEffect$$CreateBlockHitReductionTrigger`
+    #       = TriggeringAbilityIs( AbilityOrEffect(EffectType 0x3f1 = 1009 Overwatch_AutoAttack) )
+    # UN SEUL noeud -- pas de `get_OwnerIsCaster`, pas d'`op_BitwiseAnd` (lu a l'assembleur). Le
+    # trigger ne lit RIEN du porteur : une seule instance ACTIVE sur le board, dans N'IMPORTE quel
+    # camp, suffit a eteindre les reductions de coups de TOUTE attaque d'overwatch. C'est ce qui a
+    # impose le balayage BOARD-WIDE de `block_hits_reduction_from_effects` (l'ancien balayage
+    # attaquant-seul RENDAIT le `get_OwnerIsCaster` de 1117, qui a migre dans sa classe).
+    "PurgeResponse": PurgeResponseEffect,
     # Trait PrioritisedEfficiency (0x423=1059, LES TROIS Votann : votanBeserk/votanIronmaster/votanUthar)
     # -- systeme de STANCES a 5 effets (#121). Les DEUX effets porteurs de degat sont portes ici ; les
     # deux MARQUEURS de stance (1479 HostileAcquisition / 1480 FortifyTakeover) n'ont AUCUNE methode

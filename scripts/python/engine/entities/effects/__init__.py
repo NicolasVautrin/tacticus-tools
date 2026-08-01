@@ -46,7 +46,7 @@ __all__ = [
     "build_attacker_modifiers_from_effects", "calculate_attacker_modifiers_for_prediction",
     "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
-    "aura_hits_bonus_for_attack", "block_hits_reduction_from_effects",
+    "aura_hits_bonus_for_attack", "block_hits_reduction_from_effects", "board_effect_carriers",
     "additional_hit_groups", "aura_defense_damage_malus_from_units",
     "aura_attack_damage_bonus_from_allies", "aura_fixed_armor_bonus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
@@ -240,27 +240,72 @@ def _hits_contribution(hb, block_reduction: bool = False) -> int:
     return 0 if (block_reduction and v < 0) else v
 
 
-def block_hits_reduction_from_effects(effects, att_ctx: Mapping | None = None) -> bool:
+def board_effect_carriers(att_id, attacker_effects, tgt_id, target_effects, aura_sources) -> list:
+    """Univers du balayage BOARD-WIDE de `block_hits_reduction_from_effects` : la liste
+    `(owner_id, effets ACTIFS du porteur)` de TOUTES les unites du board, sans doublon.
+
+    Mirror de `IdunBattle.Core.Services.EffectsQuery$$GetActiveEffectsWithBonuses`, RELU : la
+    fonction ne prend AUCUN argument de portee -- elle enumere la liste globale des entites-effet du
+    monde, filtre sur `EffectComponent+0x5c` (`IsActive`) et sur `targets.Count > 0`, puis rend
+    `(effet, cibles)`. Aucun scope attaquant/defenseur nulle part.
+
+    Cote port les trois collections que la formule tient deja RECOUVRENT ce meme univers : les
+    `aura_sources` sont TOUTES les unites vivantes != cible (donc l'attaquant y est), et
+    `target_effects` ferme la liste avec la cible. La dedup se fait par `owner_id` -- l'attaquant et
+    la cible sont poses en TETE (leurs listes sont celles que la facade a explicitement collectees),
+    les auras completent.
+
+    ⚠ NON COUVERT : les effets portes par une TUILE. `GetActiveEffectsWithBonuses` enumere des
+    entites-effet, dont les cibles peuvent etre des tuiles ; le port n'a d'`aura_sources` que pour
+    les UNITES. Aucun des deux implementeurs de `BlockHitsReduction` n'est tile-borne (1117 sur
+    `eldarMauganRa`, 1538 sur `votanSmnSteeljack`), donc le trou est documente, pas comble."""
+    out: list = []
+    seen = set()
+    for oid, effs in ((att_id, attacker_effects), (tgt_id, target_effects)):
+        out.append((oid, effs))
+        if oid is not None:
+            seen.add(oid)
+    for c in (aura_sources or []):
+        oid = c[0]
+        if oid in seen:
+            continue
+        seen.add(oid)
+        out.append((oid, c[-1]))
+    return out
+
+
+def block_hits_reduction_from_effects(carriers, att_ctx: Mapping | None = None) -> bool:
     """OU LOGIQUE de `IdunBattle.Entities.Effects.BaseEffect$$BlockHitsReduction` sur les effets
-    ACTIFS -- l'interrupteur qui eteint la liste des REDUCTIONS de coups (case-366-r1, `1117
-    InescapableAccuracy_overrideHits`).
+    ACTIFS du BOARD -- l'interrupteur qui eteint la liste des REDUCTIONS de coups (case-366-r1).
 
     Le natif l'evalue dans une boucle DEDIEE sur la MEME collection que les bonus de coups
     (`EffectsQuery$$GetActiveEffectsWithBonuses` = tous les effets actifs du board) et arme un
-    simple flag des qu'UN effet rend `true` -- il n'y a ni cumul ni magnitude.
+    simple flag des qu'UN effet rend `true` -- il n'y a ni cumul ni magnitude. La boucle est
+    `effets x CIBLES` et ecrit `AbilityEntities+0x18 (Owner) <- la cible de l'effet` avant chaque
+    appel : `carriers` = `[(owner_id, effets)]` est le mirror de ce couplage, et l'agregateur pose
+    `owner_id` dans le contexte de chaque appel.
 
-    Cote port l'agregateur ne balaie que les effets de l'ATTAQUANT : c'est le rendu du noeud
-    `get_OwnerIsCaster` du SEUL implementeur porte (`InescapableAccuracy_OverridHitsEffect`), meme
-    idiome que `crit_chance_bonus_from_effects` / `crit_damage_bonus_from_effects`. Un futur
-    implementeur SANS ce noeud (`PurgeResponseEffect`, non porte) exigerait d'elargir le balayage --
-    c'est ecrit ici pour que l'elargissement soit un geste explicite, pas un oubli.
+    ⚠ ELARGISSEMENT #366-r1-blockhits-purgeresponse : jusqu'a cette tranche le balayage se limitait
+    aux effets de l'ATTAQUANT, ce qui RENDAIT le noeud `get_OwnerIsCaster` du seul implementeur
+    alors porte (`InescapableAccuracy_OverridHitsEffect`). Le SECOND implementeur natif
+    (`IdunBattle.Entities.Effects.Loki.PurgeResponseEffect$$CreateBlockHitReductionTrigger` =
+    `TriggeringAbilityIs(EffectType.Overwatch_AutoAttack)`) n'a PAS ce noeud : son porteur peut etre
+    n'importe qui sur le board, y compris dans l'autre camp. Le balayage est donc aligne sur
+    l'univers natif (`board_effect_carriers`), et `get_OwnerIsCaster` a MIGRE dans la classe 1117
+    qui le porte -- une seule semantique, deplacee a sa place native, pas ajoutee.
 
     L'`ActiveCondition` reste a SA place native : le natif filtre l'enumeration sur
     `EffectComponent.IsActive @+0x5c` (relu dans `GetActiveEffectsWithBonuses`), et le port recoit
     des effets deja passes par `EffectsState.active_effects`. Les classes qui portent ce canal
     rendent NEANMOINS leur condition une seconde fois dans le canal (meme discipline que 1115/1116,
     meme store `UnitFlagsComponent`) : redondant, jamais faux."""
-    return any(e.block_hits_reduction(att_ctx) for e in _as_effects(effects))
+    base = dict(att_ctx or {})
+    for owner_id, effs in (carriers or []):
+        octx = {**base, "owner_id": owner_id}
+        for e in _as_effects(effs):
+            if e.block_hits_reduction(octx):
+                return True
+    return False
 
 
 def hits_bonus_from_effects(effects, is_normal_attack: bool = True,

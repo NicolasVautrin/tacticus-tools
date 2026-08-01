@@ -138,24 +138,35 @@ def test_gates_are_tristate_offline():
     ouvre le canal ; `True` et `None` le ferment."""
     e = InescapableAccuracyOverrideHitsEffect(name=EFFECT_NAME, effect_type=EFFECT_TYPE,
                                               level=1, ability_level=50)
+    #: `get_OwnerIsCaster` : depuis `#366-r1-blockhits-purgeresponse` le balayage est BOARD-WIDE
+    #: (mirror de `EffectsQuery$$GetActiveEffectsWithBonuses`), donc ce noeud est rendu par la
+    #: CLASSE et plus par le canal. Identite du porteur == identite de l'attaquant, sinon FERME.
+    _OWN = {"owner_id": 7, "att_id": 7}
     assert e.block_hits_reduction(None) is False                       # ctx absent
     assert e.block_hits_reduction({}) is False                         # nature non mesuree
-    assert e.block_hits_reduction({"is_melee": None}) is False
-    assert e.block_hits_reduction({"is_melee": True}) is False         # melee
-    assert e.block_hits_reduction({"is_melee": False}) is True
-    assert e.block_hits_reduction({"is_melee": False, "has_moved": False}) is True
-    assert e.block_hits_reduction({"is_melee": False, "has_moved": True}) is False, \
+    assert e.block_hits_reduction({**_OWN, "is_melee": None}) is False
+    assert e.block_hits_reduction({**_OWN, "is_melee": True}) is False         # melee
+    assert e.block_hits_reduction({**_OWN, "is_melee": False}) is True
+    assert e.block_hits_reduction({**_OWN, "is_melee": False, "has_moved": False}) is True
+    assert e.block_hits_reduction({**_OWN, "is_melee": False, "has_moved": True}) is False, \
         "ActiveCondition NOT HasFlag(Owner, Moved) : une unite qui a bouge ne bloque RIEN"
+    assert e.block_hits_reduction({"owner_id": 8, "att_id": 7, "is_melee": False}) is False, \
+        "get_OwnerIsCaster : 1117 ne bloque QUE les reductions subies par SON porteur-attaquant"
+    assert e.block_hits_reduction({"owner_id": 7, "is_melee": False}) is False, \
+        "identite NON PROUVEE (att_id absent) -> le gate FERME (idiome GravitonRifle)"
     # `is_active` = le MEME predicat, sur l'autre voie (tout consommateur d'`active_effects`), et
     # c'est ici la garde EFFECTIVE : le natif filtre son enumeration sur `EffectComponent@+0x5c`
     # (`EffectsQuery$$GetActiveEffectsWithBonuses`), contrairement aux agregateurs CRIT.
     assert e.is_active({"has_moved": False}) is True
     assert e.is_active({"has_moved": True}) is False
     assert e.is_active({}) is True, "cle absente = non mesuree -> on ne ferme pas"
-    # L'agregateur est un OU LOGIQUE, sans magnitude ni cumul.
+    # L'agregateur est un OU LOGIQUE, sans magnitude ni cumul -- et il balaie desormais des
+    # PORTEURS `(owner_id, effets)` (mirror de la boucle `effets x cibles` native).
     assert block_hits_reduction_from_effects([], {"is_melee": False}) is False
-    assert block_hits_reduction_from_effects([e], {"is_melee": False}) is True
-    assert block_hits_reduction_from_effects([e], {"is_melee": True}) is False
+    assert block_hits_reduction_from_effects([(7, [e])], {"att_id": 7, "is_melee": False}) is True
+    assert block_hits_reduction_from_effects([(7, [e])], {"att_id": 7, "is_melee": True}) is False
+    assert block_hits_reduction_from_effects([(8, [e])], {"att_id": 7, "is_melee": False}) is False, \
+        "1117 porte par un TIERS ne bloque rien : le noeud `get_OwnerIsCaster` est dans la classe"
 
 
 def test_no_config_variable_read_offline():
@@ -168,7 +179,7 @@ def test_no_config_variable_read_offline():
     import gameconfig as GC
     cfg = GC.ability("InescapableAccuracy") or {}
     assert sorted((cfg.get("variables") or {}).keys()) == ["extraCritChance", "extraCritDmg"]
-    ranged = {"is_melee": False, "has_moved": False}
+    ranged = {"owner_id": 7, "att_id": 7, "is_melee": False, "has_moved": False}
     for mult in (100, 180, 300):
         e = InescapableAccuracyOverrideHitsEffect(name=EFFECT_NAME, effect_type=EFFECT_TYPE,
                                                   level=1, ability_level=50,

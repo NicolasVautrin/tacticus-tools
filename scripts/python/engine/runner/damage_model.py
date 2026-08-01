@@ -760,7 +760,8 @@ def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx
 
 
 def build_hits_board(state: State, att_id: int, tgt_id: int,
-                     attack_pos, t_pos, is_melee: Optional[bool]):
+                     attack_pos, t_pos, is_melee: Optional[bool],
+                     trigger_ability_type: Optional[int] = None):
     """Bâtit `(board, aura_sources, target_effects)` pour `attack_hits_with_modifiers` depuis l'ECS
     (positions/teams/effets REELS). `board` = {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee,
     pos_by_id, team_by_id} (base_hits posé par la Formule) ; `aura_sources` = [(owner_id, pos, team, effets)]
@@ -836,7 +837,18 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              # parce que `build_hits_board` est la facade COMBAT PARTAGEE des deux vecteurs
              # d'attaque. Consommateur : `InescapableAccuracy_overrideHits` (1117), dont l'
              # `ActiveCondition` est rendue une seconde fois dans le canal (cf. sa docstring).
-             "has_moved": unit_has_moved(state, att_id)}
+             "has_moved": unit_has_moved(state, att_id),
+             # `AbilityEntities+0x98` (`triggerAbilityOrEffect`) sur le canal COUPS
+             # (case-366-r1-blockhits-purgeresponse) -- MEME champ natif et MEME nom de cle que sur
+             # le canal DEGAT (`attacker_modifiers`, #47). `DamagePrediction$$GetAttackHits` le
+             # recopie du contexte d'attaque dans l'`AbilityEntities` qu'il passe a CHAQUE effet, et
+             # `IdunBattleLogic.Entities.AbilityTypeSelector.TriggeringAbilitySelector$$Select` le
+             # lit a cet offset. Consommateur : `PurgeResponse` (1538),
+             # `TriggeringAbilityIs(EffectType 1009 Overwatch_AutoAttack)`.
+             # None (attaque normale ordinaire / attaque d'ability) -> le noeud est FAUX, exactement
+             # comme le `Nullable` vide du natif (`TriggeringAbilityIsNoneTrigger`).
+             "trigger_ability_type": (None if trigger_ability_type is None
+                                      else int(trigger_ability_type))}
     return board, aura_sources, target_effects
 
 

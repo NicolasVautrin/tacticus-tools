@@ -167,6 +167,13 @@ class _Normal:
                 state, attacker_id, _new_target,
                 lambda t: AttackDamageOperation.execute(state, attacker_id, t, spread_pct,
                                                         is_overwatch=is_overwatch,
+                                                        # l'`AbilityOrEffect` DECLENCHANTE est celle
+                                                        # de l'ATTAQUE, pas de la cible : la
+                                                        # re-entree la conserve (sans quoi un tir
+                                                        # d'overwatch re-cible perdrait en silence
+                                                        # et sa `DamageSource` et le noeud
+                                                        # `TriggeringAbilityIs` du canal COUPS).
+                                                        triggering_ability=triggering_ability,
                                                         allow_dead_caster=allow_dead_caster))
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
@@ -213,8 +220,15 @@ class _Normal:
                      if tp is not None else None)
         _ltgb_pd = persistent_data_keys(att)
         if ap is not None and tp is not None:
+            # `trigger_ability_type` = l'`AbilityOrEffect` DECLENCHANTE de ce coup
+            # (`AbilityEntities+0x98`), threadee ici depuis le MEME parametre qui alimente deja
+            # `StaticBattleRules$$GetDamageSourceAbility`. Unique producteur cote port : le vecteur
+            # OVERWATCH (`triggers/effect_triggers.py` -> `OVERWATCH_AUTO_ATTACK` = EffectType 1009).
+            # Consommateur sur l'axe COUPS : `PurgeResponse` (1538), dont le trigger natif est
+            # `TriggeringAbilityIs(EffectType 1009)` (case-366-r1-blockhits-purgeresponse).
             _board, _auras, _tgt_eff = build_hits_board(
-                state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row), is_melee=not _ranged)
+                state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row),
+                is_melee=not _ranged, trigger_ability_type=triggering_ability)
             # A3 (#113) : gate compute-time LightCover -- `AreEqual(coverPatch, target)` IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack = la CIBLE
             # est-elle sur SA tuile de cover (DryBush) ? state.board porte le terrain (tileDefId, capteur
             # boardGraph #124). Terrain INCONNU (board None / build sans tileDefId) -> None = applique-sur-
