@@ -1,6 +1,6 @@
 # case-389 — `RammingSpeed` (1059) face COMBAT : le nœud `<DSLTriggers+0x20>` est NOMMÉ, l'ability entre au registre
 
-Clôt le résidu `#383-r1`. Suites ouvertes : `#389-r1` (§5), `#381-r1` (inchangé, §5).
+Clôt le résidu `#383-r1`. Suite ouverte : `#389-r1` (§5).
 
 ## 1. Le verrou, et comment il tombe
 
@@ -108,9 +108,10 @@ return 0;                                                  # DÉJÀ au contact -
 ```
 
 Le test de CHEMIN (`slot 0x14`) est SUBSUMÉ côté port : `ramming_speed_tile_to_move_to` n'émet que
-des tuiles issues de `MovableTilesInRange`. RÉSIDU `#381-r1` : ce pool est le `visited` d'un BFS qui
-TRAVERSE là où le natif fait un PATHFINDING — sur un ring saturé le port peut donc ACCEPTER une
-cible que le natif refuse. Écart d'acceptation, jamais de refus inventé.
+des tuiles issues du nœud DSL `MovableTilesInRange`, qui porte le gate d'expansion #131 depuis
+`case-381-r1`. Les résidus qui restent sur ce pool (`#381-r2` `FlyPathfinder`, `#381-r3` voisinage
+`evenq` vs `boardGraph.neighbours`) peuvent donc faire ACCEPTER une cible que le natif refuse.
+Écart d'acceptation, jamais de refus inventé.
 
 ## 4. La confrontation LIVE
 
@@ -124,8 +125,12 @@ POSE de l'effet 1098, et **les PV finaux de toutes les unités**. Montage hérit
 | MC1_67 / 38900 / 900k | (5,7) **==** | 6 **bit-exact** | 2 **bit-exact** | oui/oui | **4/4 ==** |
 | MC1_67 / 38901 / **5000** (caster TUÉ) | (5,7) **==** | 5 **bit-exact** | 2 **==** | oui/oui | **4/4 ==** |
 | C1_20 / 38903 / 900k | (2,6) **==** | 4 **bit-exact** | 3 **bit-exact** | oui/oui | **4/4 ==** |
-| MC1_63 / 38904 / 900k | (0,3) **==** | 4 **bit-exact** | 2 **bit-exact** | oui/oui | **4/4 ==** |
+| MC1_63 / 38903 / 900k | (0,3) **==** | 4 **bit-exact** | 3 **bit-exact** | oui/oui | **4/4 ==** |
 | C1_03 / 38905 / **5000** (caster TUÉ) | (3,3) **==** | 4 **bit-exact** | 2 **==** | oui/oui | **4/4 ==** |
+
+(Tous re-joués APRÈS le rebase sur `origin/master` — dont `case-381-r1`, qui a changé le nœud
+`MovableTilesInRange` sous ce port : le gate d'expansion #131 et la signature `ignore_flags` /
+`ignore_units_on_tiles`. La tuile de charge est inchangée sur les 5 bras.)
 
 **Le bras LÉTHAL est le seul canal où la POSE de 1098 est observable EN DÉGÂT**, et il clôt un
 résidu de `#383` §7. `orksKillaKan` porte le trait `Explodes` : quand le contrecoup le tue, la nova
@@ -178,9 +183,10 @@ de liberté) : sur C1_03 léthal, port `[3105, …]` roulé → `[3105, 1895]` r
 
 * **La gate `OwnerIsAlive` FERMÉE n'est pas confrontée LIVE** : il faudrait un tir RÉACTIF
   (overwatch/piège) qui tue le charger pendant son `MoveUnit`. Elle est verrouillée OFFLINE.
-* **`#381-r1`** (pool de `MovableTilesInRange` = `visited` d'un BFS traversant vs pathfinding natif)
-  mord toujours, et désormais sur DEUX faces de 1059 : l'étage MOVE et le gate de ciblage. Aucun
-  bras joué ici n'est en régime ring-saturé.
+* **Les résidus de pool `#381-r2` / `#381-r3`** (`FlyPathfinder`, voisinage `evenq` vs
+  `boardGraph.neighbours`) mordent sur DEUX faces de 1059 : l'étage MOVE et le gate de ciblage.
+  Aucun bras joué ici n'est en régime ring-saturé. (`#381-r1` lui-même est FERMÉ — le nœud DSL
+  porte le gate d'expansion #131 depuis `case-381-r1`.)
 * **`#389-r1`** ci-dessus : la durée de vie de l'effet 1098 après le cast.
 * **Un seul niveau d'ability** (celui du build, rank 17) et **un seul greffon** (`orksKillaKan`) :
   1059 a ZÉRO porteur au gameconfig, donc aucune autre voie n'existe.
