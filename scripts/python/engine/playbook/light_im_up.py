@@ -133,6 +133,22 @@ Sept lectures qui ne se devinent pas, et dont AUCUNE ne se generalise depuis un 
    `x hits` vit DANS le foyer, il ne se refait pas ici. `psyker`/`avalanche_of_muscle` appellent le
    0x23 nu (hits 1) ; ce playbook-ci est le PREMIER a passer par le 0x28.
 
+3bis. **Le montant PASSE PAR LE SPREAD +/-20 %, il n'est PAS << predefini >>.** C'est une MESURE, pas
+   une lecture : sur `orksWarboss` rank 17 (`amount = 1940` -- level 50, multiplicateur de rarete
+   200 %), le natif capture pour `ultraTitus` (armure 2312, aucun bouclier)
+   `healthDmg = [1047, 1572]` sur 3 coups, soit `[349, 524]` par coup. `0.8 x 1940 x p = 349` et
+   `1.2 x 1940 x p = 524` avec `p = 0.225` : les DEUX bornes tombent EXACTEMENT, et un canal
+   << predefini >> (min == max) ou un `RandomAmount(minDmg, maxDmg)` (`[1662, 2218] x p x 3 =
+   [1122, 1497]`) sont l'un et l'autre REFUTES par ce couple. Le port laisse donc `spread_pct` a son
+   defaut.
+   ⚠ RESIDU NOMME `#419-r1-tr5-r2` : `psyker.py` et `avalanche_of_muscle.py` posent `spread_pct=0`
+   sur le slot 0x23, qui converge pourtant vers le MEME slot 10 d'`IDamagePredictionQuery` (les deux
+   surcharges `BattleQuery$$GetAttackPrediction` a montant, `...d5d0` et `...d9a0`, y menent, et
+   `GetMultiHitAttackPrediction` passe par la seconde). Les deux lectures ne peuvent pas etre vraies
+   ensemble. Celle-ci est mesuree DIRECTEMENT sur les bornes capturees ; celle de `psyker` l'est
+   INDIREC- TEMENT sur une utilite finale (accord a 4e-5). Aucune des deux n'est touchee par cette
+   tranche -- le discriminant reste a trouver, et c'est un cas nomme, pas un arbitrage a l'oeil.
+
 4. **L'`ability` transmise a la prediction est `case.AbilityType`, JAMAIS 1103.** C'est l'attaque
    EVALUEE par le case (l'attaque normale, garantie par la gate `IsRegularAttack`). Consequence
    directe et non devinable : les gates DSL `IsNormalAttack` / `IsMeleeAttack` /`IsRangedAttack` des
@@ -142,6 +158,20 @@ Sept lectures qui ne se devinent pas, et dont AUCUNE ne se generalise depuis un 
    `ExtraPierceMelee(21)` -- et non `ExtraPierceRanged(22)` -- dans le percage : les deux sont
    DETERMINES par les gates, pas choisis. Le PROFIL, lui, reste celui du PASSIF (`Projectile`),
    passe explicitement en argument.
+
+4bis. **`IsMeleeAttack` SE RE-EVALUE PAR CIBLE dans les modifiers, et ce n'est PAS la gate du corps.**
+   La gate (lecture 1) porte sur `case.Target` ; le predicat que consomment les effets d'attaquant
+   porte, lui, sur la cible DE LA PREDICTION COURANTE :
+   `IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger` appelle
+   `IBattleQuery.<slot 2>(entities.Ability, caster, casterPosition, entities.Target)`, et
+   `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` pose `entities.Target =
+   request.target`. Une cible SECONDAIRE a 2-3 hex n'est donc pas << en melee >>, meme si le case
+   l'etait. MESURE : sur le meme caster et le meme montant, `astraBullgryn` a distance 2 rend
+   `2.909806` cote natif contre `4.366376` si l'on force le regime melee (facteur 1.5006 = le
+   modifier melee du caster) -- et l'ecart se propageait a `...ForSecondaryTarget` sous la forme
+   d'un DECALAGE CONSTANT de `+0.485523` (= 1.456570 / 3 cibles) sur les trois cases dont
+   l'ensemble secondaire contenait cette unite, et de ZERO sur celui ou elle etait la cible
+   PRINCIPALE. C'est cette signature -- constante et nulle au bon endroit -- qui a nomme la cause.
 
 5. **Les trois sorties sont un arbre de KILL, pas un poids plat.** `pred1` = la prediction de
    l'attaque NORMALE (slot 0x22 = `BattleQuery$$GetNormalAttackPrediction(caster, target,
@@ -164,6 +194,11 @@ Sept lectures qui ne se devinent pas, et dont AUCUNE ne se generalise depuis un 
    MainTile REELLE du caster (`EntityExtensions$$GetMainTile`), MEME quirk d'ancrage que
    `boltstorm.py` et `SavageEchoesAbility$$GetDamage` (#216). Les deux ancrages coexistent dans le
    MEME arbre ; les confondre deplacerait le disque ou la visee.
+   L'ancrage n'est PAS deduit du nom du champ : il est MESURE. Sur une tuile candidate `(4,3)` dont
+   le disque de rayon 3 contient `{u79, u81}` la ou celui de la tuile courante contient
+   `{u79, u81, u83}`, le natif rend `14.647084008902311` ; la variante du port ancree sur la TUILE
+   D'ATTAQUE rend `14.64708400285278` (ecart 6e-9), celle ancree sur la tuile REELLE
+   `10.734658006212678`. Les deux variantes DIVERGENT -- le montage discrimine, et il tranche.
 
 7. **La sortie secondaire est une MOYENNE** (`Fix64.op_Division` par `targets.Count`), pas une
    somme -- meme forme que `psyker.py`, et l'inverse de `boltstorm.py` (produit poids x cardinal).
@@ -177,6 +212,15 @@ et son absence EST le comportement natif (meme forme que `Lakrimae`, `BarbedOvip
 `Neuroparasite`, `AvalancheOfMuscle` et `Boltstorm`).
 
 ## Residus NOMMES
+
+* `#419-r1-tr5-r3` -- les branches `Melee(1)` / `Ranged(2)` d'`is_melee_attack` ne sont exercees par
+  AUCUN montage, et c'est structurel : `IsRegularAttack` garantit que l'ability du case est une
+  attaque NORMALE, dont l'entree n'existe pas au gameconfig (`ab_name_by_id[69] =
+  "Loki_NormalAttack"`, `GC.ability(...) -> null`). Le port prend donc toujours la branche
+  `Normal(3)`, qui est CELLE QUE LE NATIF PREND pour l'id 69 -- mesure : `astraBullgryn` a 2 hex
+  rend `isMeleeAttack: false`, les trois cibles adjacentes `true`. Les deux autres branches sont du
+  mirror de fidelite pour un `NormalAttackType` concret qui serait, lui, type au gameconfig (ex.
+  `1076 MV71SniperDroneSquadAttack`) : NON CONFRONTEES.
 
 * `#419-r1-tr5-r1` -- `UnitFlag.ForceRangedAttack` (21) n'est pas capture par `combatSnapshot.
   unitFlags` (la Scene n'en stocke que quatre : PreventOverkill / Moved / Teleported /
@@ -293,17 +337,23 @@ class LightImUpPlaybook:
 
     # ---- mirror du slot 0x28 : `GetMultiHitAttackPrediction` ---------------------------------
     def _predict_extra_vs_target(self, scene, att_id: int, tgt_id: int, amount: int, hits: int,
-                                 attack_tile, profile_name: str):
+                                 attack_tile, profile_name: str, is_melee: bool):
         """`IBattleQuery` slot 0x28 = `BattleQuery$$GetMultiHitAttackPrediction(caster, target,
         casterPosition, case.AbilityType, amount, profil, hits)` : `hits` coups CHAINES d'un montant
         PREDEFINI (spread 0), chacun passant par le slot 0x23 avec `hits = 1` et le
         `DefaultBlockScenario` du precedent. Le foyer `get_attack_prediction` -> `get_multi_hit_
         attack_prediction` EST cette boucle (cf. en-tete, lecture 3).
 
-        `is_normal_attack=True` / `is_ranged=False` / `ExtraPierceMelee` : DETERMINES par les deux
-        gates du corps (`IsRegularAttack` + `IsMeleeAttack`), qui garantissent que l'`ability` que le
-        natif transmet a la requete -- `case.AbilityType` -- est une attaque normale en MELEE
-        (en-tete, lecture 4). Le PROFIL reste celui du passif (`Projectile`)."""
+        `is_normal_attack=True` vient de la gate `IsRegularAttack` du corps : elle garantit que
+        l'`ability` que le natif transmet a la requete -- `case.AbilityType` -- EST une attaque
+        normale (en-tete, lecture 4). Le PROFIL reste celui du passif (`Projectile`).
+
+        `is_melee`, LUI, SE RE-EVALUE PAR CIBLE, et ce n'est pas la gate du corps (en-tete, lecture
+        4bis) : `IsMeleeAttackAbilityTrigger$$ShouldTrigger` interroge
+        `IBattleQuery.IsMeleeAttack(entities.Ability, caster, casterPosition, entities.TARGET)`, et
+        `PredictAttackRaw` pose `entities.Target = request.target` -- la cible DE CETTE PREDICTION,
+        pas celle du case. Il commande `is_ranged` du builder de modifiers, la direction du percage
+        (`ExtraPierceMelee(21)` vs `ExtraPierceRanged(22)`) et les faces positionnelle/alliee."""
         actx = scene.ctx(att_id)
         if actx is None or amount is None or int(amount) <= 0 or int(hits) <= 0:
             return None
@@ -312,15 +362,16 @@ class LightImUpPlaybook:
                                  _target_damage_limits, _PROFILE_INDEX, _entity_traits)
         from .prediction._shared import _prediction_is_charging, defender_prediction_block_amount
         prof = GC.damage_profile(profile_name) or {}
+        dir_pierce = actx.extra_pierce_melee if is_melee else actx.extra_pierce_ranged
         pierce = max(0, min(100, int(prof.get("PiercingRatio") or 0)
-                            + actx.extra_pierce + actx.extra_pierce_melee))
+                            + actx.extra_pierce + dir_pierce))
         _hm = prediction_has_moved(scene, att_id, attack_tile)
         _tctx = scene.ctx(tgt_id)
         _tar = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
                 if _tctx is not None and _tctx.stats is not None else None)
         _tgt_traits = _entity_traits(scene, tgt_id)
         mods = calculate_attacker_modifiers_for_prediction(
-            scene.effects(att_id), is_ranged=False, has_moved=_hm, is_normal_attack=True,
+            scene.effects(att_id), is_ranged=not is_melee, has_moved=_hm, is_normal_attack=True,
             target_traits=_tgt_traits, target_armor_reduced=_tar,
             att_ctx={"att_pos": attack_tile,
                      "tile_effects_by_pos": scene.tile_effects_by_pos,
@@ -331,18 +382,19 @@ class LightImUpPlaybook:
                      "damage_profile": profile_name,
                      "t_pos": scene.pos(tgt_id),
                      "tgt_team": scene.team(tgt_id)})
-        _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, True, attack_tile,
+        _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_tile,
                                           scene.pos(tgt_id), damage_profile=profile_name,
                                           is_normal_attack=True)
-        _apply_ally_attack_dmg_bonus(mods, scene, att_id, attack_tile, True, _tar, tgt_id=tgt_id,
-                                     is_normal_attack=True, damage_profile=profile_name)
+        _apply_ally_attack_dmg_bonus(mods, scene, att_id, attack_tile, is_melee, _tar,
+                                     tgt_id=tgt_id, is_normal_attack=True,
+                                     damage_profile=profile_name)
         hit_mult = target_hit_multiplier(TraitFactory.create_many(_tgt_traits))
         return get_attack_prediction(
             target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount),
             hits=int(hits),                          # slot 0x28 : la boucle multi-coups EST ici
             profile_type=_PROFILE_INDEX.get(profile_name, 0), pierce_pct=pierce,
             armor=scene.armor(tgt_id), mods=mods, hit_mult=hit_mult,
-            spread_pct=0,                            # montant PREDEFINI (canal du slot 0x23)
+            # spread_pct : le DEFAUT (+/-20 %) -- MESURE, cf. en-tete lecture 3bis.
             target_shield=scene.shield(tgt_id),
             target_limits=_target_damage_limits(scene, tgt_id, profile_name),
             target_prevents_overkill=scene.prevents_overkill(tgt_id),
@@ -401,22 +453,34 @@ class LightImUpPlaybook:
         return out
 
     # ---- les deux methodes PROPRES du playbook ------------------------------------------------
-    def calculate_attack_utility_for_main_target(self, ctx, attacker_uid: int, case_tgt_id: int,
-                                                 attack_tile, hits: int) -> float:
-        """`LightImUpPlaybook$$CalculateAttackUtilityForMainTarget(case, hits)` : la prediction du
-        passif vs la cible du case -> `CalculateUtilityFromDamageEvent` (composite Damage standard,
-        hpmax EFFECTIF)."""
+    def _predict_and_score(self, ctx, attacker_uid: int, ability_id, tgt_id: int, amount: int,
+                           hits: int, attack_tile, profile_name: str):
+        """Prediction du passif vs `tgt_id` (slot 0x28) -> `CalculateUtilityFromDamageEvent`
+        (composite Damage standard, hpmax EFFECTIF). `is_melee` est re-evalue POUR CETTE CIBLE
+        (en-tete, lecture 4bis) -- c'est le foyer unique des trois call-sites natifs."""
         sc = ctx.scene
-        amount = self._average_damage(sc, attacker_uid)
-        pred = self._predict_extra_vs_target(sc, attacker_uid, case_tgt_id, amount, hits,
-                                             attack_tile, self._profile_name())
+        melee = self.is_melee_attack(ctx, sc, ability_id, attack_tile, sc.pos(tgt_id))
+        pred = self._predict_extra_vs_target(sc, attacker_uid, tgt_id, amount, hits, attack_tile,
+                                             profile_name, melee)
         if pred is None:
-            return 0.0
-        ev = ProbableDamageEvent(target=case_tgt_id, prediction=pred)
-        return calculate_utility_from_damage_event(ev, ctx.wt,
-                                                   (ctx.hpmax_by_id or {}).get(case_tgt_id))
+            return None, None
+        ev = ProbableDamageEvent(target=tgt_id, prediction=pred)
+        return pred, calculate_utility_from_damage_event(ev, ctx.wt,
+                                                         (ctx.hpmax_by_id or {}).get(tgt_id))
 
-    def calculate_attack_utility_for_secondary_target(self, ctx, attacker_uid: int,
+    def calculate_attack_utility_for_main_target(self, ctx, attacker_uid: int, ability_id,
+                                                 case_tgt_id: int, attack_tile, hits: int) -> float:
+        """`LightImUpPlaybook$$CalculateAttackUtilityForMainTarget(case, hits)` : la prediction du
+        passif vs la cible du case -> `CalculateUtilityFromDamageEvent`.
+
+        `ability_id` = `case.AbilityType`, que le natif relit DANS le case : le port l'eclate en
+        parametre, il n'est pas ajoute."""
+        amount = self._average_damage(ctx.scene, attacker_uid)
+        _pred, u = self._predict_and_score(ctx, attacker_uid, ability_id, case_tgt_id, amount,
+                                           hits, attack_tile, self._profile_name())
+        return 0.0 if u is None else u
+
+    def calculate_attack_utility_for_secondary_target(self, ctx, attacker_uid: int, ability_id,
                                                       case_tgt_id: int, attack_tile,
                                                       hits: int) -> float:
         """`LightImUpPlaybook$$CalculateAttackUtilityForSecondaryTarget(case, hits)` : MOYENNE des
@@ -430,13 +494,10 @@ class LightImUpPlaybook:
         profile_name = self._profile_name()
         total = 0.0
         for uid in targets:
-            pred = self._predict_extra_vs_target(sc, attacker_uid, uid, amount, hits, attack_tile,
-                                                 profile_name)
-            if pred is None:
-                continue
-            ev = ProbableDamageEvent(target=uid, prediction=pred)
-            total += calculate_utility_from_damage_event(ev, ctx.wt,
-                                                        (ctx.hpmax_by_id or {}).get(uid))
+            _pred, u = self._predict_and_score(ctx, attacker_uid, ability_id, uid, amount, hits,
+                                               attack_tile, profile_name)
+            if u is not None:
+                total += u
         return total / len(targets)                  # `Fix64.op_Division` par `targets.Count`
 
     # ---- mirror `<CalculateAttackUtilityInStepsInternal>d__2$$MoveNext` -----------------------
@@ -471,20 +532,18 @@ class LightImUpPlaybook:
         # etat 3 -- l'attaque normale tue A COUP SUR : les `hits` coups partent tous ailleurs.
         if pred1.will_be_kill():
             return self.calculate_attack_utility_for_secondary_target(
-                ctx, attacker_uid, case_tgt_id, attack_tile, hits)
-        pred2 = self._predict_extra_vs_target(sc, attacker_uid, case_tgt_id, amount, hits,
-                                              attack_tile, self._profile_name())
+                ctx, attacker_uid, ability_id, case_tgt_id, attack_tile, hits)
+        pred2, main = self._predict_and_score(ctx, attacker_uid, ability_id, case_tgt_id, amount,
+                                              hits, attack_tile, self._profile_name())
         if pred2 is None:
             return 0.0
         pred2.add(pred1)                             # `DamagePredictionResult$$Add` (normale + passif)
-        main = self.calculate_attack_utility_for_main_target(ctx, attacker_uid, case_tgt_id,
-                                                             attack_tile, hits)
         # etat 4 -- meme le TOTAL ne peut pas tuer : les `hits` coups restent sur la cible.
         if not pred2.might_be_kill():
             return main
         # etat 5 -- issue indeterminee : MOYENNE des deux scenarios.
         sec = self.calculate_attack_utility_for_secondary_target(
-            ctx, attacker_uid, case_tgt_id, attack_tile, hits)
+            ctx, attacker_uid, ability_id, case_tgt_id, attack_tile, hits)
         return (main + sec) / 2.0
 
 
