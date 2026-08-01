@@ -492,11 +492,11 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # entre eux le retrait de l'unite du plateau (`processor.<slot 6>` + `matchState.<slot 0x31>`),
         # que le port collapse deja dans `uc.alive = False` (pose en amont, `_fire_death_if_killed`).
         out = out + [{"kill_remove_effects": {
-            "step": int(KillUnitStep.PRE_UNIT_REMOVE),
-            "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.PRE_UNIT_REMOVE)}}]
+            "step": int(KillUnitStep.PreUnitRemove),
+            "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.PreUnitRemove)}}]
         out = out + [{"kill_remove_effects": {
-            "step": int(KillUnitStep.AFTER_UNIT_REMOVE),
-            "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AFTER_UNIT_REMOVE)}}]
+            "step": int(KillUnitStep.AfterUnitRemove),
+            "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AfterUnitRemove)}}]
         # `On(UnitDeath = 0)` — consommateur : TerrifyingCrescendo branche OVERKILL
         # (cf. loki/terrifying_crescendo.py).
         out = out + unit_death_triggers(state, target_id, attacker_id, overkill=overkill)
@@ -513,8 +513,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if thc is not None and thc.hp is not None and int(thc.hp) > 0:
             return out
         out = out + [{"kill_remove_effects": {
-            "step": int(KillUnitStep.AFTER_DEATH_TRIGGER),
-            "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AFTER_DEATH_TRIGGER)}}]
+            "step": int(KillUnitStep.AfterDeathTrigger),
+            "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AfterDeathTrigger)}}]
         return out
 
     @staticmethod

@@ -101,8 +101,12 @@ def test_kill_unit_step_is_the_native_enum():
     """`IdunBattle.Operations.KillUnitStep` = `0=PreUnitRemove,1=AfterUnitRemove,2=AfterDeathTrigger`
     (`data/symbols/<build>/frida/enums.tsv`). Les trois valeurs sont les trois literaux passes par
     `IdunBattle.Operations.KillUnitOperation$$Execute` a `$$RemoveEffects`."""
-    assert (int(KillUnitStep.PRE_UNIT_REMOVE), int(KillUnitStep.AFTER_UNIT_REMOVE),
-            int(KillUnitStep.AFTER_DEATH_TRIGGER)) == (0, 1, 2)
+    assert (int(KillUnitStep.PreUnitRemove), int(KillUnitStep.AfterUnitRemove),
+            int(KillUnitStep.AfterDeathTrigger)) == (0, 1, 2)
+    # #427 : les NOMS aussi sont ceux du jeu -- c'est ce qui autorise `strict=True` au registre de
+    # `probe_313`, donc la garde du sens RENUMEROTE sur ce mirror.
+    assert [m.name for m in KillUnitStep] == ["PreUnitRemove", "AfterUnitRemove",
+                                              "AfterDeathTrigger"]
 
 
 # ------------------------------------------------------------------ le coeur : un mort perd TOUT
@@ -149,7 +153,7 @@ def test_the_heal_gate_cancels_the_third_step():
     steps 0 et 1 ont deja tourne, le 3e est ANNULE. Face que le live n'atteint pas."""
     st = _state()
     e_late = _put(st, VICTIM_ID, 7001, "Late")
-    e_late.remove_on_kill_step = int(KillUnitStep.AFTER_DEATH_TRIGGER)
+    e_late.remove_on_kill_step = int(KillUnitStep.AfterDeathTrigger)
     _put(st, VICTIM_ID, 7000, "Early")            # defaut = PreUnitRemove
     # un consommateur d'`On(UnitDefeated)` remonte les PV : on le simule en soignant AVANT le drain
     # de la file (le port relit le `HealthComponent` juste avant le step 2, comme le natif).
@@ -172,7 +176,7 @@ def test_the_step_ventilation_orders_the_removals():
     st = _state()
     seen = {}
     late = _put(st, VICTIM_ID, 7001, "Late")
-    late.remove_on_kill_step = int(KillUnitStep.AFTER_DEATH_TRIGGER)
+    late.remove_on_kill_step = int(KillUnitStep.AfterDeathTrigger)
     _put(st, VICTIM_ID, 7000, "Early")
     from engine.runner.operations.triggers.dispatch import move_death as MD
     orig = MD.unit_death_triggers
@@ -202,7 +206,7 @@ def test_remove_effects_operation_without_step_takes_everything():
     st = _state()
     a = _put(st, VICTIM_ID, 7000, "Early")
     b = _put(st, VICTIM_ID, 7001, "Late")
-    b.remove_on_kill_step = int(KillUnitStep.AFTER_DEATH_TRIGGER)
+    b.remove_on_kill_step = int(KillUnitStep.AfterDeathTrigger)
     removed = remove_effects_operation(st, VICTIM_ID)
     assert sorted(removed) == [7000, 7001]
     assert a.consumed and b.consumed

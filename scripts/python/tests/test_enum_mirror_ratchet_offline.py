@@ -113,6 +113,29 @@ def test_toute_classe_intenum_du_moteur_est_classee():
         % "\n".join("  %-24s %s" % (c, trouves[c]) for c in orphelines))
 
 
+def test_le_detecteur_de_classes_voit_les_AUTRES_formes_d_enum():
+    """#427 -- l'etape 1 ne garde que ce qu'elle SAIT VOIR, et elle ne voyait que `IntEnum` /
+    `IntFlag` ecrits litteralement.
+
+    `class X(int, Enum)` est strictement equivalent et parfaitement idiomatique : un mirror ecrit
+    ainsi n'aurait ete ni apparie, ni orphelin, ni justifie -- INVISIBLE. C'est le mode de
+    defaillance que l'etape 1 existe pour fermer (« personne n'avait DECIDE de ne pas le garder :
+    il n'etait dans aucune liste »), reintroduit un cran plus bas, dans le detecteur lui-meme.
+
+    Le test nourrit le detecteur des quatre formes plutot que de verifier la constante : une
+    allowlist qu'on relit ne prouve pas qu'elle est CONSULTEE."""
+    import ast
+    for source in ("class M(IntEnum):\n    A = 1\n",
+                   "class M(IntFlag):\n    A = 1\n",
+                   "class M(int, Enum):\n    A = 1\n",
+                   "class M(enum.IntEnum):\n    A = 1\n"):
+        vu = P.classes_intenum(ast.parse(source))
+        assert vu == {"M": {1: {"A"}}}, "forme non detectee : %r -> %r" % (source, vu)
+    # Contre-epreuve : une classe SANS base d'enum ne doit pas entrer (sinon l'etape 1 crierait
+    # sur des dataclasses de constantes et on la desarmerait).
+    assert P.classes_intenum(ast.parse("class M:\n    A = 1\n")) == {}
+
+
 def test_le_registre_ne_designe_aucun_mirror_disparu():
     """L'autre sens : une entree du registre dont le fichier ou la classe a disparu rendrait la
     garde muette sur cette classe, sans rien casser."""
