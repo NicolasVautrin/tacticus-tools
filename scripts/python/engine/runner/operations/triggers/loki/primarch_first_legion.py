@@ -320,7 +320,6 @@ class PrimarchTransfer:
         if not self._matches(hit_index):
             return False
         entities = self._entities()
-        ectx = ExecutionContext(state=self.state, rng=self.state.rng)
         # L'arbre est evalue ICI : c'est ce qui consomme les N tirages du `Randomize` (cf. §2).
         # Le `Cache` du noeud garantit une SEULE evaluation malgre les six lectures qui suivent,
         # exactement comme le dict keye par `AbilityEntities` du natif.
