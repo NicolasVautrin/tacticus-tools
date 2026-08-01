@@ -162,14 +162,24 @@ class ComparablePlaybook(BasePlaybook):
 
     def calculate_action_utility(self, ctx, caster_tile, target, ability_id) -> dict | None:
         """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` pour (caster@caster_tile, target) : Σ des events (dégât)
-        + Σ effet + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction d'attaque -> None (pas d'action).
-        Renvoie `{u, u_full, pred, aoe, bk}` (u = dégât+effet ; u_full = u + tile ; pred = event principal)."""
+        + Σ effet + `key-0x36(UtilityAttackCase)` + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction
+        d'attaque -> None (pas d'action). Renvoie `{u, u_full, wwn, pred, aoe, bk}` (u = dégât+effet ;
+        u_full = u + key-0x36 + tile ; pred = event principal).
+
+        `key-0x36` = `UtilityType.WireweaveNet_FirstAttack` (**55** sur ce build ; 54 sur `gqfc5mff6c`,
+        d'où l'écriture `key-0x36` des docs). Terme PAR (tuile, cible), au même rang que `Tile(7)` — il ne
+        figure donc PAS dans le `pairUtility` que l'étage UTILITÉ confronte (preuve L3 #64), d'où sa place
+        dans `u_full` et pas dans `u`. Identiquement **0** partout où la cible ne porte pas de filet
+        `1111` ARMÉ, donc dans toute bataille sans `eldarRanger`. RE : `engine/utilities/wireweave_net.py`
+        (⚠ le conjoint d'adjacence natif est DÉGÉNÉRÉ — il compare la tuile du caster à elle-même)."""
+        from ..utilities.wireweave_net import wireweave_net_first_attack_utility
         events = self.make_damage_predictions(ctx, caster_tile, target, ability_id)  # list[ProbableDamageEvent]
         if not events:
             return None
         u, bk = self.calculate_utility_from_predictions(ctx, caster_tile, target, ability_id, events)
         main = events[0]
-        return {"u": u, "u_full": u + tile_utility(ctx, caster_tile),
+        wwn = wireweave_net_first_attack_utility(ctx, caster_tile, target)
+        return {"u": u, "u_full": u + wwn + tile_utility(ctx, caster_tile), "wwn": wwn,
                 "pred": main.composite_fields(), "aoe": events[1:], "bk": bk}
 
 
