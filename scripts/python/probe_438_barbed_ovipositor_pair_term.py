@@ -215,12 +215,21 @@ def calibrate(sid, rpc, rid: int) -> dict:
     return out
 
 
+def _hp(vis: str, value: int) -> str:
+    """Un patch de PV pour `--unit-stat`. Les DEUX champs sont obligatoires : `Health` est le
+    maximum et `RemainingHealth` le COURANT, et c'est le courant que lit `CurrentHealth@0x00` de la
+    prediction (donc les deux accesseurs de kill). Poser le seul `Health` laisse l'unite a ses PV
+    courants d'origine -- MESURE : la cible restait a 9539 PV avec `Health=1`, et les trois regimes
+    de kill tombaient tous dans R3. `--hp-target`/`--hp-player` ecrivent bien les deux."""
+    return f"{vis}:Health={int(value)},RemainingHealth={int(value)}"
+
+
 def build_args_measure(calib: dict) -> list[str]:
     """Passe B -- les args de build qui INSTALLENT les quatre regimes (PV calibres sur le natif)."""
-    stats = [f"{TGT_SURE}:Health=1",
-             f"{TGT_MAYBE}:Health={calib[TGT_MAYBE]['raw_min'] + 1}",
-             f"{TGT_NONE}:Health={calib[TGT_NONE]['raw_max'] + NONE_MARGIN}",
-             f"{TGT_MECH}:Health=1"]
+    stats = [_hp(TGT_SURE, 1),
+             _hp(TGT_MAYBE, calib[TGT_MAYBE]["raw_min"] + 1),
+             _hp(TGT_NONE, calib[TGT_NONE]["raw_max"] + NONE_MARGIN),
+             _hp(TGT_MECH, 1)]
     return BUILD_ARGS_CALIB + ["--unit-stat", ";".join(stats)]
 
 
@@ -273,6 +282,17 @@ def build_case(sid, rpc, rid: int) -> dict:
                            f"branche `WillBeKill` ne serait plus discriminee par la mesure")
     st.update({"regimes": regimes, "w_def": w_def, "w_pos": w_pos})
     return st
+
+
+def prediction_of(case: dict, vis: str):
+    """La `DamagePredictionResult` du case natif pour cette cible, rematerialisee des bornes LUES
+    en passe B. C'est ce que le call-site doit passer a la face ATTACK (`UtilityAttackCase@+0x28`)."""
+    from engine.services.damage_prediction import DamagePredictionResult
+    from engine.services.min_max_damage import MinMaxDamage
+    r = case["regimes"][vis]
+    return DamagePredictionResult(
+        current_health=int(r["hp"]),
+        raw_health_damage=MinMaxDamage(min=int(r["raw_min"]), max=int(r["raw_max"])))
 
 
 def expected_term(case: dict, vis: str) -> float:
