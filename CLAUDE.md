@@ -225,33 +225,6 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   collision. Les 264 probes qui prennent leur chemin *uniquement* par argument ne sont isolés que
   si l'appelant leur en donne un distinct.
 
-## Taille d'un module — le seuil porte sur le CODE, docstrings EXCLUES
-
-**~1000 lignes de CODE NET** (hors docstrings, commentaires, lignes vides). Ne jamais annoncer une
-dette de taille sur un `wc -l`. Ne pas pré-scinder non plus : un module de 350 lignes va très bien.
-
-- **Pourquoi** : ce code est issu de RE, et la docstring porte le lien vers le natif — symbole,
-  mesure, hypothèse réfutée — sans lequel le mirror n'est plus vérifiable sur place. Mesuré le
-  2026-08-01 : `engine/**` = 348 modules, **37,5 % de code / 50,0 % de prose**. Un seuil en lignes
-  brutes y désigne **21** modules, celui sur le code **0** — le plus gros, `engine/runner/components.py`,
-  fait 1939 lignes pour **704 de code**. Sur tout le Python versionné : 30 fichiers contre 4, dont
-  `engine/entities/effects/base.py` (1013 lignes, **154 de code**), qu'aucune scission n'améliorerait.
-  Compter la prose classe les modules par **densité de documentation** et crée une pression à
-  supprimer la justification pour passer sous la barre.
-- **Comment mesurer** : classer les lignes en code / docstring / commentaire / vide — `ast` pour les
-  docstrings, `tokenize` pour les commentaires (un `#` dans une chaîne n'est PAS un commentaire).
-- **NE PAS déporter ces docstrings vers `docs/rl`** pour raccourcir : le récit d'enquête y est déjà
-  (**214 des 348** modules d'`engine/` pointent dehors) ; ce qui reste est l'irréductible, et la règle
-  « on cite un SYMBOLE » existe précisément pour que le grep code ↔ table de symboles soit immédiat.
-- **Convention de scission** : `feature.py` → `feature/__init__.py` + sous-modules ; l'entrée reste au
-  chemin d'origine pour ne pas casser les importeurs. Les coutures naturelles suivent les **namespaces
-  natifs** — le nombre de symboles `X$$Y` distincts par module (médiane 11, max 187) le montre.
-- **Chiffres à re-dériver, pas à citer** : ils bougent à chaque tranche livrée. Seul candidat réel au
-  2026-08-01, hors `engine/` : `scripts/python/rl_duel.py`, 1679 lignes de code.
-- **Non mesuré** : le même ratio côté TypeScript (`frida/**`) — 10 fichiers >1000 lignes brutes, part
-  de prose inconnue. `router.ts` (1833) et `sim-engine.ts` (1594) restent des candidats PLAUSIBLES,
-  pas établis.
-
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida

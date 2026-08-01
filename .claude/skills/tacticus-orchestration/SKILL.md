@@ -804,6 +804,45 @@ bloqué — alors que sa réponse ne changeait rien à la décision.)*
     récupérer le partiel d'un agent mort, **déléguer la SYNTHÈSE** à un sous-agent qui le lit en chunks
     (offset/limit) et me rend ~15-30 lignes.
 
+## Scinder un module — le seuil porte sur le CODE, docstrings EXCLUES
+
+**C'est MA décision, pas celle d'un agent** : un solveur travaille sur sa tranche et n'a aucune vue
+d'ensemble pour arbitrer une scission. Si une scission est nécessaire, elle part comme **tâche
+dédiée**, jamais en effet de bord d'un port.
+
+**Seuil : ~1000 lignes de CODE NET** — hors docstrings, commentaires, lignes vides. Ne jamais
+annoncer une dette de taille sur un `wc -l`. Ne pas pré-scinder : un module de 350 lignes va bien.
+
+- **Pourquoi le net et pas le brut** : ce code est issu de RE, et la docstring porte le lien vers le
+  natif — symbole, mesure, hypothèse réfutée — sans lequel le mirror n'est plus vérifiable sur place.
+  Mesuré le 2026-08-01 : `engine/**` = 348 modules, **37,5 % de code / 50,0 % de prose**. Un seuil en
+  lignes brutes y désigne **21** modules, celui sur le code **0**. Le plus gros,
+  `engine/runner/components.py`, fait 1939 lignes pour **704 de code** ;
+  `engine/entities/effects/base.py` en fait 1013 pour **154** — le scinder donnerait deux fichiers de
+  ~77 lignes de code, tous deux encore majoritairement de la prose. Sur tout le Python versionné :
+  30 fichiers au seuil brut contre **4** au seuil net.
+  ⚠ Le piège est SYMÉTRIQUE : `engine/entities/effect_type.py`, quasi sans prose, était invisible au
+  seuil brut alors qu'il portait le plus de code net du moteur.
+- **Comment mesurer** : classer les lignes en code / docstring / commentaire / vide — `ast` pour les
+  docstrings, `tokenize` pour les commentaires (un `#` dans une chaîne n'est PAS un commentaire).
+- **NE PAS faire déporter ces docstrings vers `docs/rl`** pour raccourcir : le récit d'enquête y est
+  déjà (**214 des 348** modules d'`engine/` pointent dehors, **325** citent un symbole natif, **191**
+  portent une mesure). Ce qui reste est l'irréductible, et la règle « on cite un SYMBOLE » existe
+  précisément pour que le grep code ↔ `data/symbols/<build>/functions.tsv` soit immédiat.
+- **Convention** : `feature.py` → `feature/__init__.py` + sous-modules ; l'entrée reste au chemin
+  d'origine pour ne pas casser les importeurs. Les coutures suivent les **namespaces natifs** — le
+  nombre de symboles `X$$Y` distincts par module (médiane 11, max 187) les révèle.
+  ⚠ Piste ÉCARTÉE : faire du compte de symboles un second seuil. Il corrèle à **r = 0,76** avec les
+  lignes de code, donc il duplique le signal ; ses désaccords s'expliquent (un mirror fidèle d'une
+  grosse classe native est court et riche en symboles — `active_ability.py`, 153 symboles pour 351
+  lignes de code — et le scinder casserait le 1:1).
+- **Chiffres à re-dériver, pas à citer.** Seul candidat réel au 2026-08-01 :
+  `scripts/python/rl_duel.py`, **1679 lignes de code**. Les 3 autres au-dessus de 1000 sont une table
+  (`enum_maps.py`, 2 % de prose), un générateur et un pilote de batch — monolithiques par nature.
+- **Non mesuré** : le même ratio côté TypeScript (`frida/**`) — 10 fichiers > 1000 lignes brutes, part
+  de prose inconnue. `router.ts` (1833) et `sim-engine.ts` (1594) sont PLAUSIBLES, pas établis, et ils
+  sont sous fenêtre (hooks = rebuild+reinject, host = restart).
+
 ## Solveurs autonomes : `opus-solver` par DÉFAUT, `fable-solver` en dernier recours
 
 **RÈGLE : on dispatche EXCLUSIVEMENT sur `opus-solver`.** `fable-solver` n'est **jamais** un premier
