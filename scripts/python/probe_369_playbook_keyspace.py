@@ -278,7 +278,14 @@ def build_regime_seed_bc(out_path: Path, max_dmg: int | None = None) -> dict:
     ⚠ `write_variable_patched_seed_bc` ecrit AUSSI le sidecar `<path>.pins.json` (#375). Sans lui
     `rl_collect_batch._load_seed_bc` re-synthetise `LightImUp` depuis le gameconfig vivant et
     REVERTE le patch, sans un mot -- la fixture etait alors ecrite, jamais jouee. `roundtrip` rend
-    ce que le CHEMIN DU BUILD relit reellement : c'est la seule lecture qui prouve quelque chose."""
+    ce que le CHEMIN DU BUILD relit reellement : c'est la seule lecture qui prouve quelque chose.
+
+    ⚠⚠ CE SEED BC EST NATIF-ONLY (#366-r1-bcpatch-invisible). Le regime `minDmg + maxDmg == 3 mod 4`
+    n'existe a AUCUN niveau du gameconfig : l'ecrire dans le BC ne change donc que le NATIF, et le
+    moteur Python continue de lire `831/1109` la ou le natif lit `831/1112`. Ce montage ne
+    confronte QUE l'oracle (`ncPlaybookPredict`) et des `Const(...)` explicites -- ne JAMAIS s'en
+    servir pour confronter une PREDICTION PYTHON. Exception nommee dans
+    `probe_366_r1_bcpatch_port_blindspot._EXCEPTIONS`."""
     import catalog_inject as CI
     fx = _FIXTURE_REGIME
     mx = fx["max_dmg"] if max_dmg is None else int(max_dmg)

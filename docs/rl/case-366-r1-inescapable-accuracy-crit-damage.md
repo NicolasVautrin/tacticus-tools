@@ -196,10 +196,19 @@ Inchangé (#411 §7.2) : `battle_query.select_weapon_pierce` lit les armes du ga
 `visualId`, le natif lit `BC.Units[].Weapons[].Hits`. C'est ce qui impose la confrontation sur le
 préfixe `len(live)`. Résidu de SOURCE, non corrigé.
 
-### 7.3 Le montage `--zero-crit-dmg` a changé de nature, pas de code
+### 7.3 Le montage `--zero-crit-dmg` a changé de nature, pas de code — **FERMÉ, par un cliquet**
 
 Le paramètre existe toujours dans `probe_366_r1_inescapable_accuracy_crit_chance.neutralized_seed_bc`,
 mais son défaut est passé à `False` et sa docstring dit maintenant ce qu'il fait **depuis que 1116
 est porté** : une désynchronisation délibérée BC ↔ gameconfig, qui doit faire diverger. C'est un
 piège de montage générique — **tout patch de variable d'ability posé dans le seed BC est invisible
 du port** — et il ne concerne pas que ce cas.
+
+**Le générique est désormais tenu par un CLIQUET** :
+`python scripts/python/probe_366_r1_bcpatch_port_blindspot.py` (rc 0, offline) + la garde pytest
+`tests/test_366_r1_bcpatch_port_blindspot_offline.py`. Il croise les couples `(ability, variable)`
+patchés dans un seed BC avec ceux que `engine/**` lit par `magnitude.ability_var` (relais propagés)
+et **rougit sur l'intersection** ; invariant `== 0` + exceptions nommées. Il a trouvé **deux
+couples de plus** que celui-ci — `LightImUp/minDmg` et `LightImUp/maxDmg`, le montage #369, jamais
+recensé sur cet axe (natif-only, condition de validité désormais écrite). Détail :
+**`case-366-r1-bcpatch-port-blindspot.md`**.
