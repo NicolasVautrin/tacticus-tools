@@ -49,10 +49,11 @@ CE QUE LE PROBE MESURE, aux trois etages :
      classement de regime (reduit / non reduit) attaque par attaque, et son propre flag `e.active`
      doit suivre la meme trajectoire que le natif.
 
-CONTRE-EPREUVE (`--mutate`) : les quatre `Triggered()` du cycle sont NEUTRALISES cote port
-(`matches -> False`). Le port doit alors reduire les DEUX attaques -> la garde ROUGIT. La mutation
-est VERIFIEE avoir mordu (le probe rend `mutation_bit`, qui compare le total port de l'attaque #2
-entre les deux bras : VERT sur une mutation qui n'a pas pris serait le resultat suspect).
+CONTRE-EPREUVE (`--mutate`) : l'entree `EFFECT_TRIGGERS[1147]` est RETIREE du registre -- c'est
+EXACTEMENT l'etat d'`origin/master` (les quatre classes n'existaient pas, et les deux canaux d'event
+neufs n'ont aucun autre consommateur), pas une caricature. Le port doit alors reduire les DEUX
+attaques -> la garde ROUGIT. Et la mutation est VERIFIEE avoir MORDU avant qu'on lise le verdict :
+le flag `e.active` ne doit plus tomber. Sur une contre-epreuve, VERT est le resultat SUSPECT.
 
 Discipline runner : state-file ABSOLU sous `logs/`, `--board` explicite, dispose en sortie.
 ASCII only (cp1252).
@@ -178,13 +179,16 @@ def _replay_two_attacks(cap, board, att_ids, tgt_id, mutate=False):
     tautologique -- `decisionView` par defaut ne publie que les effets ACTIFS, donc l'armure
     consommee y est deja absente et le port « aurait raison » sans porter le cycle.
 
-    `mutate=True` NEUTRALISE les quatre `Triggered()` du cycle (contre-epreuve)."""
+    `mutate=True` RETIRE l'entree `EFFECT_TRIGGERS[1147]` du registre. Ce n'est pas « une » mutation
+    parmi d'autres : c'est EXACTEMENT l'etat d'avant #432 (les quatre classes n'existaient pas, et
+    les deux canaux d'event neufs -- `health_damage` / `was_block` -- n'ont aucun autre
+    consommateur). Le bras mutant EST donc le port de `origin/master`, pas une caricature."""
     from engine.runner.snapshot import load_state
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.components import HealthComponent
     from engine.runner.runner import Runner
     from engine.runner.messages import AttackUnitMessage
-    from engine.runner.operations.triggers.loki import terminator_armour as TA
+    from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
 
     st = load_state(cap["dec"], cap["ob"], cap["snap"], board=board)
     tgt = st.get_entity(int(tgt_id))
@@ -196,13 +200,9 @@ def _replay_two_attacks(cap, board, att_ids, tgt_id, mutate=False):
     rng.mti = cap["rng"]["mti"]
     st.rng = rng
 
-    saved = {}
+    saved = None
     if mutate:
-        for cls in (TA.TerminatorArmourDeactivateOnAttack, TA.TerminatorArmourActivateOnTurnStart,
-                    TA.TerminatorArmourDeactivateOnTurnEnd,
-                    TA.TerminatorArmourActivateOnEffectAdded):
-            saved[cls] = cls.matches
-            cls.matches = lambda self, state, ev: False
+        saved = EFFECT_TRIGGERS.pop(TERMINATOR_REDUCE, None)
     try:
         runner = Runner(st).install_default_handlers(20)
         out = []
@@ -214,8 +214,8 @@ def _replay_two_attacks(cap, board, att_ids, tgt_id, mutate=False):
                         "total": last.get("total"), "per_hit": last.get("per_hit"),
                         "armour_active": _port_armour_active(st, int(tgt_id))})
     finally:
-        for cls, fn in saved.items():
-            cls.matches = fn
+        if saved is not None:
+            EFFECT_TRIGGERS[TERMINATOR_REDUCE] = saved
     return {"hp_before": hp_before, "attacks": out,
             "armour_active_end": _port_armour_active(st, int(tgt_id))}
 

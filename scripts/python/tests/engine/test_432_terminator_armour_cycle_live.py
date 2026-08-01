@@ -16,9 +16,9 @@ CE QUE CE TEST GARDE :
      mesure donne 5/5, bandes DISJOINTES.
   2. **LE PORT REPRODUIT** -- les deux attaques du tour 1 rejouees OFFLINE, ENCHAINEES sur le meme
      `State` et le meme flux RNG, egalent le natif A L'UNITE.
-  3. **LE CYCLE PORTE LE RESULTAT** -- cycle NEUTRALISE, la 2e attaque s'effondre : la garde ROUGIT.
-     La mutation est verifiee avoir MORDU avant qu'on lise ce verdict (VERT serait le resultat
-     suspect).
+  3. **LE CYCLE PORTE LE RESULTAT** -- l'entree `EFFECT_TRIGGERS[1147]` RETIREE (c'est-a-dire
+     EXACTEMENT l'etat d'`origin/master`), la 2e attaque s'effondre : la garde ROUGIT. La mutation
+     est verifiee avoir MORDU avant qu'on lise ce verdict (VERT serait le resultat suspect).
   4. **LE GATE DE PROFIL SEPARE LES DEUX LECTURES** -- une 1re attaque PSYCHIQUE (profil de
      `terminatorArmourExcludedDmgProfiles`) ne consomme PAS l'armure, donc la 2e attaque du MEME
      tour est REDUITE. C'est le seul regime ou « 2e attaque du tour » et « attaque non reduite » ne
