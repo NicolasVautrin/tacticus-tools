@@ -90,11 +90,16 @@ l'ami change --
 ## 6. Ce que le port inscrit, et pourquoi
 
 `EFFECT_CLASSES["StructuralAnalyser_Visual"] = StructuralAnalyserVisualEffect`
-(`engine/entities/effects/loki/structural_analyser.py`), `active_condition_ported = True`,
-`seed_witness_effect = "StructuralAnalyserDmgBoost"`, et
-`ABILITY_INIT_OWNER_EFFECTS["StructuralAnalyser"] = ["StructuralAnalyser_Visual"]`.
+(`engine/entities/effects/loki/structural_analyser.py`) + `active_condition_ported = True`.
 `is_active` lit la cle PARESSEUSE `structural_analyser_friends`, exposee par
 `UnitEffectStateView` (`runner/components.py`) -- cle absente = non mesure = on ne ferme pas.
+
+**PAS d'entree `ABILITY_INIT_OWNER_EFFECTS["StructuralAnalyser"]`, ni de `seed_witness_effect`** --
+c'etait le premier jet, retire AU REBASE par l'arbitrage `WireweaveNet` arrive entre-temps en
+`master` (`factory.py`, case-366-r1b §7bis) : le seed d'owner-effects lit le **KIT gameconfig**, pas
+la MESURE, donc il materialiserait 1174 sur une unite privee du passif par `--unit-stat` ; et
+l'instance INACTIVE ne sert a rien ici (aucun canal, aucun `HasEffect(0x496)` lecteur). Le port ne
+rend donc que la CONDITION, sur les instances que le canal live publie.
 
 **Cette entree ne change AUCUN comportement** (`BaseEffect` no-op etait deja identique). Elle
 existe pour deux raisons : fixer l'identite de classe -- interdire qu'on donne un jour a Darkstrider
