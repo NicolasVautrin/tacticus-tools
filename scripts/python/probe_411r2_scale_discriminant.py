@@ -314,6 +314,15 @@ def main() -> int:
           % (pmin, pmax, pf.get("shieldDmgMin"), pf.get("shieldDmgMax"),
              pf.get("hpBefore"), pf.get("shieldBefore"), pf.get("willKillDmg"),
              pf.get("mightKillDmg")))
+    # `DefaultScenario` ne modelise PAS le block : quand une source de block existe, la fenetre
+    # PERTINENTE est `BlockScenarios[0]` (#372). Sans ce choix, le discriminant rend INDETERMINE
+    # sur le regime le plus interessant -- honnete, mais aveugle.
+    bmin, bmax = pf.get("blockKillDmg"), pf.get("blockMightDmg")
+    print("[pred]    BlockScenarios count=%s health=[%s..%s]"
+          % (pf.get("blockScenarioCount"), bmin, bmax))
+    if a.block_target != "0,0" and isinstance(bmin, int) and isinstance(bmax, int):
+        pmin, pmax = bmin, bmax
+        print("[pred]    -> fenetre retenue = celle AVEC block [%s..%s]" % (pmin, pmax))
     print("[hp]      victim %d -> %d  (N = %d)   carrier %d -> %d (%d)"
           % (hp_v0, hp_v1, N, hp_c0, hp_c1, hp_c0 - hp_c1))
     print("[port]    G = %d  hits=%s per_hit=%s" % (G, port["hits"], port["per_hit"]))
@@ -330,15 +339,22 @@ def main() -> int:
         n_in = pmin <= N <= pmax
         g_in = pmin <= G <= pmax
         print("[disc]    N dans la prediction ? %s   G dans la prediction ? %s" % (n_in, g_in))
-        if n_in and not g_in:
+        if n_in and g_in:
+            # Cas NOMINAL depuis le fix #411-r2 : les deux cotes jouent la meme ability et
+            # tombent tous deux dans la fenetre native. Il n'y a PAS de divergence a expliquer
+            # -- l'ecart residuel est le tirage (les deux PRNG sont independants par
+            # construction, cf. l'en-tete de `probe_411r1_transfer_port.py`).
+            print("[VERDICT] ACCORD -- N et G tombent tous deux dans la fenetre native. "
+                  "Aucune divergence d'echelle ; l'ecart restant est le TIRAGE.")
+        elif n_in:
             print("[VERDICT] (a) BUG DE PORT -- le natif applique ce qu'il predit ; "
                   "le port diverge. Localiser l'ETAGE avec les lignes [port]/[natif].")
-        elif g_in and not n_in:
+        elif g_in:
             print("[VERDICT] (b) MONTAGE -- le port calcule ce que le natif PREDIT ; "
                   "l'execution native fait autre chose que cette attaque.")
         else:
-            print("[VERDICT] INDETERMINE -- ni N ni G (ou les deux) ne tombent dans la "
-                  "prediction : la prediction ne decrit pas ce montage. Ne rien conclure.")
+            print("[VERDICT] INDETERMINE -- ni N ni G ne tombent dans la fenetre : elle ne "
+                  "decrit pas ce montage. Ne rien conclure.")
     else:
         print("[disc]    prediction NON LUE (aiPredict ok=%s error=%s) -- discriminant "
               "NON RENDU." % (pred.get("ok"), pred.get("error")))

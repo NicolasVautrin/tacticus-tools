@@ -158,14 +158,22 @@ Deux runners identiques à un bit près (la greffe), `--crit 0,0 --crit-target 0
 `--unit-stat "necroDestroyer:Movement=12"` :
 
 ```
-SANS greffe (témoin)  victim_lost=6597  carrier_lost=0
-AVEC DrawFire greffé  victim_lost=3153  carrier_lost=3488
+SANS greffe (témoin)  victim_lost=3266  carrier_lost=0
+AVEC DrawFire greffé  victim_lost=1644  carrier_lost=1632
 ```
 
-3 coups sur 6 (les indices IMPAIRS) quittent la cible et frappent le porteur. **Rejoué à
-l'identique sur deux sessions Frida distinctes (7 puis 8, même build `rnca9r7q6c`) : chiffres
-bit-identiques.** Le verdict « pas de porteur identifié » de `case-407` §7 est donc levé, et
-« dead code » est réfuté par la mesure.
+3 coups sur 6 (les indices IMPAIRS) quittent la cible et frappent le porteur. Le verdict
+« pas de porteur identifié » de `case-407` §7 est donc levé, et « dead code » est réfuté par
+la mesure.
+
+> ⚠ **Ces scalaires ont été CORRIGÉS par #411-r2** (`case-411-r2-ability-implicite.md`). Les
+> valeurs publiées d'abord — témoin `6597/0`, greffe `3153/3488` — ne mesuraient **pas**
+> l'attaque normale : `rl_duel act ability` sans `--ability` auto-résolvait vers la **DERNIÈRE**
+> entrée d'`attackPlans`, soit l'ACTIVE du caster (`1006 MultiThreatEliminator`), pas les
+> « 6 coups de mêlée ». Le probe nomme désormais l'ability, et `rl_duel` refuse l'ambiguïté.
+> **Le verdict qualitatif est inchangé** (transfert observé, indices impairs) ; seuls les
+> scalaires bougent. Corollaire pour le port : la base de dégât du coup transféré est à lire au
+> décompilé — **aucun** des deux jeux de scalaires ne doit servir à l'ajuster.
 
 ## 5. Le PORT — LIVRÉ (#411-r1)
 
