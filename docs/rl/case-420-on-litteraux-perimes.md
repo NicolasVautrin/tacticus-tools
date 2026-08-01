@@ -134,7 +134,7 @@ la doc seule qui mentait.
 
 ## 8. Ce que ça coûte, et la recommandation
 
-A/B **sur le même arbre** (celui d'après correction), machine au repos :
+A/B **sur le même arbre** (celui d'après correction), back-to-back :
 
 | | probe d'origine | probe #420 |
 |---|---|---|
@@ -143,8 +143,16 @@ A/B **sur le même arbre** (celui d'après correction), machine au repos :
 
 Le probe **coûte moins cher qu'avant** tout en gagnant deux surfaces de détection : l'étape 5
 n'itère plus 220 sites à l'affichage (`on` seul : 39,9 s → 11,4 s) et 4bis coûte ~3 s.
-Ventilation `--step` (machine chargée, à re-dériver) : `diff` 0,5 · `mirror` 46 · `exec` 57-72 ·
-`tables` 34 · `prose`+4bis 33-49 · `on` 11.
+Ventilation `--step` : `diff` 0,5 · `mirror` 46 · `exec` 57-72 · `tables` 34 · `prose`+4bis
+33-49 · `on` 11.
+
+⚠ **L'absolu se lit à ±2×, pas au dixième.** Le même probe a été mesuré entre **128 s** et
+**260 s** selon le nombre d'agents en vol — c'est exactement le régime décrit par `case-409`
+(« 3 mesures alternées, 3 agents en vol : 100,1 / 153,9 / 221,9 s »). Seule la comparaison
+**back-to-back** ci-dessus est interprétable ; l'absolu doit être re-mesuré machine calme.
+Piège de mesure, payé une fois : poser la copie de référence dans `scripts/python/` la fait
+**scanner par le probe** (elle cite `On(0x2b)` dans sa propre docstring) — le verdict tombe à
+`FAIL` pour une raison qui n'existe pas dans l'arbre. La supprimer AVANT de mesurer.
 
 **Recommandation — les DEUX, parce qu'elles ne couvrent pas le même risque :**
 
@@ -161,6 +169,19 @@ Ventilation `--step` (machine chargée, à re-dériver) : `diff` 0,5 · `mirror`
   notre propre cadence alimente — et le taux y est **mesuré atroce** : sur les 7 sites écrits
   APRÈS la migration, **6 recopiaient l'ancienne valeur**.
 
+**Le chiffre qui tranche a été produit PAR ce dossier, pendant qu'il se faisait.** Le rebase
+sur `origin/master` (**14 commits**, quelques heures) a **ré-ouvert le gisement en direct** :
+**15** `On(<n>)` nus neufs (tranche #448-r2), plus **1** littéral EXÉCUTABLE qui faisait
+retomber le verdict à `FAIL`. Sur une fenêtre où l'énoncé de départ voyait « 5 sites », la
+cadence du dépôt en produit 15 en une demi-journée. Un cliquet qui ne tourne pas à chaque PR
+laisse donc le compte remonter plus vite qu'on ne le vide.
+
+(Le littéral exécutable était un **faux positif**, et il valait la peine : la table de
+signatures positionnelles de l'étape 2 est GLOBALE, donc un **homonyme** l'empoisonne. `_ev` a
+**5 définitions** dans le dépôt, une seule typée — elle faisait lire le `_ev(0)` d'un test
+étranger comme un `EventTriggerType`. Corrigé : un nom n'entre dans la table que si TOUTES ses
+définitions du périmètre s'accordent sur le même `(index, enum)`.)
+
 ## 9. Résidus nommés
 
 * **#420-r1 — 16 quotes `FUN_` restent indécidables.** Elles sont justes aujourd'hui, mais
@@ -175,7 +196,23 @@ Ventilation `--step` (machine chargée, à re-dériver) : `diff` 0,5 · `mirror`
 * **#420-r4 — l'étape 4 laisse 15 citations « à lire »** (origine inconnue, ni juste ni ancien
   ordinal). Non traitées ici : ce ne sont pas des ordinaux `EventTriggerType`.
 
-## 10. Reproduire
+## 10. Ce qui n'est PAS couvert
+
+* **`docs/`** — non traité (périmètre `scripts/python`). Re-mesuré : **153** `On(<n>)` nus
+  ambigus + 4 quotes `FUN_`. Arbitrage antérieur maintenu (`case-283` §7, `case-254b-b` §7 :
+  les case-docs sont **datées**, on ne rétro-corrige pas un compte rendu produit par un autre
+  build). Rangé sous #283-r2.
+* **Les trois autres enums renumérotés** (`UtilityType`, `StepType`, `DisplaceDirection`) n'ont
+  pas fait l'objet d'un balayage dédié. Le gate 4bis en a sorti **deux** sites `UtilityType`
+  (§7) — c'est un échantillon, pas un inventaire.
+* **`hooks-legacy/`** : inventorié à part par le probe, hors gate, non touché.
+* **Les 15 citations « à lire » de l'étape 4** (#420-r4) : ni justes ni prouvées périmées.
+* **Aucune vérification live** n'était possible ni pertinente : le changement est
+  intégralement en commentaires et docstrings, sauf `probe_283` lui-même. La preuve d'inertie
+  est le `py_compile` des **91** fichiers touchés + le `--collect-only` (185 tests) + les
+  8 fichiers de test rejoués.
+
+## 11. Reproduire
 
 ```
 python scripts/python/probe_283_enum_ordinal_sweep.py            # le balayage complet
