@@ -386,12 +386,16 @@ def main(argv=None) -> int:
         print("  etage C -- refus LEVE par AllowObscuredTarget : %d / %d"
               % (len(leve), len(refus_los)))
         print("  etage D -- paires ou le NATIF desarme selon le masque : %d" % len(contraste))
-        # Un desaccord n'est IMPUTABLE A CETTE TRANCHE que si le contrefactuel du champ le fait
-        # disparaitre : `port_disarmed` est ce que rendait `master` (regle non portee). Si le
-        # desaccord SURVIT au desarmement, il est PREEXISTANT -- on le NOMME, on ne le cache pas, et
-        # on ne se l'attribue pas non plus.
-        mine = [r for r in mismatch if r["nat"] == r["port_disarmed"]]
-        preexist = [r for r in mismatch if r["nat"] != r["port_disarmed"]]
+        # IMPUTABILITE. Tout desaccord dont l'un des deux cotes vaut `TargetIsUnobscured` est de
+        # CETTE tranche -- c'est le seul critere qui ne depende pas du code mesure.
+        #
+        # ⚠ LE PREMIER JET UTILISAIT `nat == port_disarmed`, ET C'ETAIT UN TROU MESURE : neutraliser
+        # la regle dans le port rend `port == port_disarmed == 0` face a `nat == 0x1000000`, donc
+        # `nat != port_disarmed`, donc le desaccord se classait « PREEXISTANT » et le probe rendait
+        # PASS. Deux lecteurs qui partagent le meme code mute s'accordent toujours.
+        mine = [r for r in mismatch
+                if UNOBSCURED in (r["nat"], r["port"]) or r["nat"] == r["port_disarmed"]]
+        preexist = [r for r in mismatch if r not in mine]
         for label, group in (("DESACCORD (cette tranche)", mine),
                              ("desaccord PREEXISTANT (survit au desarmement)", preexist)):
             for r in group:

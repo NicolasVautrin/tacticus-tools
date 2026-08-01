@@ -129,10 +129,16 @@ def test_le_natif_desarme_selon_le_masque(mesure):
 
 
 def test_aucun_desaccord_imputable_a_cette_tranche(mesure):
-    """Un desaccord n'est imputable a cette tranche que si le contrefactuel du champ le fait
-    disparaitre. Ceux qui SURVIVENT au desarmement sont anterieurs (regle dynamique de 1180 non
-    portee, `TargetingRange` de 1202 non lu) -- ils sont nommes dans la case-doc, pas masques."""
-    mine = [r for r in _rows(mesure) if r["nat"] != r["port"] and r["nat"] == r["port_disarmed"]]
+    """Tout desaccord dont l'un des deux cotes vaut `TargetIsUnobscured` est de CETTE tranche. Les
+    autres sont anterieurs (regle dynamique de 1180 non portee, `TargetingRange` de 1202 non lu) --
+    ils sont nommes dans la case-doc, pas masques.
+
+    ⚠ Le critere ne peut PAS etre « le contrefactuel du champ fait disparaitre le desaccord » :
+    neutraliser la regle dans le port rend `port == port_disarmed`, et le desaccord se classerait
+    « preexistant ». Mesure de contre-epreuve : avec la regle neutralisee ce test restait VERT."""
+    mine = [r for r in _rows(mesure)
+            if r["nat"] != r["port"]
+            and (UNOBSCURED in (r["nat"], r["port"]) or r["nat"] == r["port_disarmed"])]
     assert not mine, "\n".join(
         "caster=u%d ability=%d cible=u%d d=%d natif=%s port=%s port(desarme)=%s"
         % (r["caster"], r["ability"], r["target"], r["d"], hex(r["nat"]), hex(r["port"]),
@@ -150,7 +156,7 @@ def test_la_seed_versionnee_active_bien_l_obscurcissement():
     de la BattleConfiguration. Le port prend donc pour defaut la valeur LUE dans la seed versionnee,
     dont partent tous les runners `rl_duel build`. Si elle changeait, le defaut deviendrait une
     invention : ce test est ce qui l'empeche de le devenir en silence."""
-    root = Path(__file__).resolve().parents[4]
+    root = Path(__file__).resolve().parents[5]        # tests/engine/runner -> scripts/python -> racine
     bc = json.loads((root / "data" / "seed-bc.json").read_text(encoding="utf-8"))
     val = (bc.get("Targeting") or {}).get("EnableObscuringTerrain")
     assert val is True, (
