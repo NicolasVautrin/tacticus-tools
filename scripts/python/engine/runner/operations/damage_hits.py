@@ -350,9 +350,14 @@ class _DamageHitsMixin:
             nonlocal total, shield, armor_pool, shield_dmg, armor_dmg, did_crit, did_block, did_evade
             hit_block = ([s for s in block_sources if s.block_id not in failed_block] or None
                          ) if block_sources else None
+            # #407-r1 : plus de `evasion_branch` (le flag XOR n'existe pas dans le natif, cf.
+            # `services/damage_combat.calculate_damage_operation`). `evasion_chance` n'est pas
+            # passe : `CalculateEvasionChance` = `GetStat(defender, 0xf)` et AUCUNE unite n'arrive
+            # en bataille avec cette stat non nulle (5 voies, `probe_407r1_evasion_carriers.py`)
+            # -> 0 tirage, degat inchange. Le jour ou un porteur apparait, c'est ICI qu'il se cable.
             dmg: Damage = calculate_damage_operation(
                 roll, shield=shield, armor_pool=armor_pool, armor_pct=armor_pct,
-                block_sources=hit_block, evasion_branch=False, rng=rng)
+                block_sources=hit_block, rng=rng)
             failed_block.update(dmg.failed_block_ids or [])
             shield = max(0, shield - dmg.shield)
             armor_pool = max(0, armor_pool - dmg.armor)

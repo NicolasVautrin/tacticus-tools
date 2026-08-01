@@ -191,32 +191,86 @@ class Damage:
         return self.health + self.armor + self.shield
 
 
+def block_runs_after_evasion(did_evade: bool) -> bool:
+    """L'enchaînement `esquive -> block` de `IdunBattle.Core.Services.DamagePrediction$$
+    CalculateDamageOperation` : après le slot 3 (`ApplyRandomEvasion`), le natif teste
+    `if (piVar28[1] == '\\0')` — l'octet `didEvade` du struct de retour — et n'appelle le slot 2
+    (`ApplyRandomBlockDamage`) **que si l'esquive a échoué**. Une esquive RÉUSSIE court-circuite
+    donc le block ; une esquive qui n'a pas lieu ne le court-circuite PAS.
+
+    Fonction de MODULE, et pas un `if` inline, pour une seule raison : c'est le point de MUTATION
+    des contre-épreuves (`probe_407r1_evasion_order.py --mutate xor`,
+    `test_evasion_order_before_block_live.py`). La rendre `return False` restaure exactement le
+    modèle d'AVANT #407-r1 — évasion et block MUTUELLEMENT EXCLUSIFS — qui, à `evasion_chance == 0`,
+    supprime TOUT block et DOIT donc diverger du live. Même pattern que `crit_gate_open` (#366-r1)
+    et qu'`apply_all_modifiers` (#131)."""
+    return not did_evade
+
+
 def calculate_damage_operation(
         raw_dmg: int, *, shield: int = 0, armor_pool: int = 0, armor_pct: int = 0,
         block_sources: Optional[List[BlockSource]] = None,
-        evasion_chance: int = 0, evasion_branch: bool = False,
+        evasion_chance: int = 0,
         rng: Optional[IntBasedMersenneTwister] = None) -> Damage:
     """`IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation (= méthode #0xc du service
     `IDamagePrediction`, le SPLIT du COMBAT RÉEL — PAS `GetAttackPrediction`).
 
     `raw_dmg` = dégât du coup APRÈS modifiers attaquant + `FixedArmor`/perçage plat (ce que
     produit `ExecuteHit`/`AttackDamageOperation.execute` en amont) ET après crit éventuel.
-    Ici on répartit ce dégât sur les **pools déplétables** de la cible et on tire block/evasion :
+    Ici on répartit ce dégât sur les **pools déplétables** de la cible et on tire esquive/block.
 
-        bouclier  : shield_dmg = min(raw, shield)              # CalculateDamageBlockedByShield
-        armure    : armor_dmg  = min(armor_pool, ceil(reste × armor_pct/100))  # pool déplétable
-        santé     : le reste, après block (chaîne) OU evasion (branches MUTUELLEMENT EXCLUSIVES,
-                    gate natif `uStack_5b0>>0x28`)
+    ORDRE NATIF, relu au décompilé (`rnca9r7q6c`, #407-r1) — les slots sont ceux
+    d'`IDamageCalculations`, nommés en §2 de `docs/rl/case-407-failed-block-attack-scope.md` :
 
-    ⚠ **ORDRE/branches RE-read NON encore exercés** : toutes les cibles live testées ont
-    `shield=0`, `armor_pool=0`, aucun block/evasion (cf. probe_split_events) ⇒ ce split
-    se réduit à `health = raw_dmg` (chemin VALIDÉ par le test single-hit). Les branches
-    shield/armure-pool/block/evasion sont portées 1:1 des feuilles mais à CONFIRMER par
-    replay-diff dès qu'une cible avec bouclier/pool/block/esquive apparaît.
-    `evasion_branch` = le flag natif (block vs evasion) ; le caller le fixe selon la cible."""
+        blockChances  = slot 0   CalculateBlockChances(attacker, defender, failedBlockIds)  # 0 RNG
+        evasionChance = slot 1   CalculateEvasionChance(attacker, defender) = GetStat(def, 0xf)
+        shieldPart    = slot 0xc CalculateDamageBlockedByShield(shield, damage)             # 0 RNG
+        rest          = Math.Max(0, damage - shieldPart)
+        if damageInfo[+0x1E] == 0:                 # trait de damage profile : saute block ET esquive
+            if damageInfo[+0x1D] == 0:             # pas de block GARANTI
+                ev   = slot 3 ApplyRandomEvasion(evasionChance, rest, attacker, defender)
+                rest = ev.damage
+                if !ev.didEvade:                   # <- `block_runs_after_evasion`
+                    bd = slot 2 ApplyRandomBlockDamage(blockChances, rest)
+            else:
+                rest = slot 4 ApplyBlockDamage(blockChances, rest) ; didBlock = 1   # AUCUN tirage
+
+    ⚠ **CORRECTION #407-r1 — il n'existe AUCUN flag XOR « block vs evasion ».** Le port portait un
+    paramètre `evasion_branch` documenté comme « le flag natif (block vs evasion), gate
+    `uStack_5b0>>0x28` ». Ce mapping était FAUX sur les deux plans :
+      * la structure : le natif n'a pas d'alternative, il a une SÉQUENCE — l'esquive d'abord, le
+        block ensuite, et l'esquive n'écarte le block que si elle RÉUSSIT ;
+      * l'octet : `uStack_5b0>>0x28` désigne `damageInfo[+0x1D]`, le **block GARANTI** (branche
+        slot 4, sans tirage), et `uStack_5b0>>0x30` désigne `damageInfo[+0x1E]`, celui qui saute
+        block ET esquive. Aucun des deux n'est un sélecteur « évasion plutôt que block ».
+    Ces deux octets ne sont PAS portés ici, et c'est délibéré : `+0x1E` est déjà traité EN AMONT
+    par les appelants (gate `NoBlocking` du profil de dégât, #65 — ils passent `block_sources=None`)
+    et `+0x1D` n'a **aucun porteur identifié** (résidu §7 de `case-407`), donc le porter serait
+    spéculatif. La surcharge slot 4 qu'il appelle prend d'ailleurs la LISTE de blockChances, pas
+    un montant — ce n'est pas `apply_block_damage` ci-dessus.
+
+    ⚠ **Le natif passe à `ApplyRandomBlockDamage` le dégât PRÉ-esquive** (`iVar24`, pas le retour du
+    slot 3). C'est sans effet : on n'atteint cette ligne que si l'esquive a échoué, et
+    `ApplyRandomEvasion` rend alors `damage` INCHANGÉ. Le port passe donc `remaining` (== `iVar24`).
+
+    ⚠ **RÉGIME `evasion_chance > 0` : NON CONFRONTÉ.** `CalculateEvasionChance` = `GetStat(unit, 15)`
+    (`StatType.EVASION_CHANCE`), et `IdunBattle.Entities.Blueprints$$Unit` attache bien un
+    `EvasionChanceComponent` à toute unité — mais **rien n'y écrit jamais** : mesuré sur 5 voies par
+    `probe_407r1_evasion_carriers.py` (schéma d'unité de la BC sans champ d'esquive ; 0 occurrence
+    du vocabulaire dans les 20,2 Mo du gameconfig ; 0 champ d'ability portant un `StatType` ; aucun
+    `EffectType`/`ActiveAbilityType`/`TriggeredAbilityType` nommant l'esquive ; et côté décompilé,
+    aucun des ~75 appelants des 10 foyers d'écriture de stat ne passe 15). À `evasion_chance == 0`,
+    `ApplyRandomEvasion` ne consomme **aucun tirage** et rend le dégât inchangé ⇒ l'ordre porté ici
+    est **bit-exact identique** au modèle précédent sur tout ce qui est atteignable. Ce qui est
+    confrontable, et ce que garde `test_evasion_order_before_block_live.py`, c'est que le natif
+    DESCEND bien au block (le `block_runs_after_evasion` muté supprime tout block et diverge).
+
+    ⚠ L'étage **armure-pool** (`CalculateDamageBlockedByArmor`) reste hors de ce corps natif : toutes
+    les cibles live observées ont `RemainingArmor=0` (cf. probe_split_events) — inchangé par #407-r1.
+    """
     d = Damage()
     remaining = raw_dmg
-    # bouclier (déterministe, 0 RNG)
+    # bouclier (déterministe, 0 RNG) — slot 0xc `CalculateDamageBlockedByShield`
     if shield > 0:
         d.shield = calculate_damage_blocked_by_shield(remaining, shield)
         remaining -= d.shield
@@ -224,13 +278,14 @@ def calculate_damage_operation(
     if armor_pool > 0 and armor_pct > 0:
         d.armor = min(armor_pool, calculate_damage_blocked_by_armor(remaining, armor_pct))
         remaining -= d.armor
-    # block (chaîne, RNG) XOR evasion (RNG) — branches exclusives
-    if evasion_branch:
-        if rng is not None:
-            ev = apply_random_evasion(rng, evasion_chance, remaining)
-            d.did_evade = ev.did_evade
-            remaining = ev.damage
-    elif rng is not None and block_sources:
+    # slot 3 `ApplyRandomEvasion` — 1 tirage SSI `evasion_chance > 0` (aucun sinon : la feuille
+    # n'atteint le PRNG que sous ce gate, d'où l'appel INCONDITIONNEL comme le natif, y compris
+    # quand l'appelant ne fournit pas de `rng` — cas `operations/displace.py`).
+    ev = apply_random_evasion(rng, evasion_chance, remaining)
+    d.did_evade = ev.did_evade
+    remaining = ev.damage
+    # slot 2 `ApplyRandomBlockDamage` — la CHAÎNE de block, atteinte seulement si pas d'esquive.
+    if block_sources and block_runs_after_evasion(d.did_evade):
         bd = apply_random_block_damage(rng, block_sources, remaining)
         d.did_block = bd.did_block
         d.failed_block_ids = bd.failed_block_ids

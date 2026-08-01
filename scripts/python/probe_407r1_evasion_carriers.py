@@ -62,17 +62,28 @@ EVASION_STAT = int(StatType.EVASION_CHANCE)
 _WORDS = ("evasion", "evade", "evading", "dodge", "dodging", "miss chance")
 _RX_WORDS = re.compile("|".join(_WORDS), re.I)
 
+# Un enum qui NOMME l'esquive n'est un indice de PORTEUR que s'il decrit un effet, une ability
+# ou un trait. `StatType` porte la stat elle-meme (c'est la cible, pas la source) et `TagKey`
+# est le canal de TELEMETRIE du stream (`140=Attack_DidEvade`, ce que les tests live lisent deja
+# via `td["Attack_DidEvade"]`) : ni l'un ni l'autre ne POSE d'evasion.
+_ENUM_NOT_A_CARRIER = ("StatType", "TagKey", "StatPart")
+
 # Voie E -- resultat de la lecture ghidra (non rejouable offline, cite pour memoire).
 _GHIDRA_NOTE = [
-    "aucune occurrence de `DAT_0000000f` dans TOUT le decompile (0/65000 fonctions) --",
-    "  c'est l'une des DEUX formes sous lesquelles ghidra rend un littéral de statType",
+    "aucune occurrence de `DAT_0000000f` dans TOUT le decompile (0 / 65000 fonctions) --",
+    "  c'est l'une des DEUX formes sous lesquelles ghidra rend un litteral de statType",
     "  (mesure de calibration : `BeastSlayerAbility$$CreateAddBlockEffectBehaviour` rend le",
     "  statType 7 en `(void *)0x7` et le statType 8 en `&DAT_00000008`) ;",
     "`(void *)0xf` apparait dans 64 fonctions, dont UNE SEULE touche un foyer de stat-mod :",
     "  `ShroudPsalmAbility$$ExecuteBehaviour` -- et son `AddStaticStatModifierEffect` y passe",
     "  `(void *)0x10` (FixedArmor), pas 0xf ;",
-    "les ~75 appelants des 10 foyers d'ecriture de stat ont ete listes par xrefs : aucun n'est",
-    "  hors de ces deux formes de rendu.",
+    "les ~75 appelants des 10 foyers d'ecriture de stat (les 3 surcharges d'`AddStaticStat",
+    "  ModifierEffect`, les 2 d'`...ToOwner`, les 2 d'`AddDynamic...`, `AddDynamic...ToOwner`,",
+    "  `AddOrUpdateStaticStatModifierEffect`, `AddStatOverrideEffect(ToOwner)`) ont ete listes",
+    "  par xrefs entrantes : aucun ne passe 15 ;",
+    "`UnitExtensions$$ApplyStatModifier` (le foyer BAS NIVEAU) n'a que DEUX appelants :",
+    "  `ApplyStatModifiers` (le seeding depuis la BC, dont le schema n'a pas d'evasion) et",
+    "  `idun.tests.trait_impervious_test` (du code de TEST, hors jeu).",
 ]
 
 
@@ -122,11 +133,21 @@ def scan_gameconfig() -> dict:
                     out["unit_hits"].append((bucket, uid, path, val))
                 if "stat" in path.lower() and isinstance(val, (int, float)):
                     out["unit_stat_keys"].add(key)
+    # B4 : le gameconfig EXPRIME-T-IL seulement un StatType ? Si aucun champ ne porte d'index
+    # d'enum `StatType`, alors AUCUNE ability ne peut viser une stat PAR DONNEE -- tout statType
+    # est un LITTERAL du natif, et le recensement se rabat entierement sur la voie E (ghidra).
+    # C'est ce qui BORNE la question : sans cette mesure, un « 0 » du balayage textuel pourrait
+    # n'etre que l'angle mort d'un champ numerique (le faux negatif de #323).
+    _names = {m.name: int(m) for m in StatType}
+    out["stat_typed_fields"] = []
     for aid, a in (idx.get("abilities") or {}).items():
         out["n_abilities"] += 1
         for path, key, val in _walk(a):
             if _RX_WORDS.search(str(val)) or _RX_WORDS.search(str(key)):
                 out["const_hits"].append((aid, path, key, str(val)[:80]))
+            if re.search(r"stat(type)?$|^stat|targetstat|affectedstat", key, re.I) \
+                    or (isinstance(val, str) and val in _names):
+                out["stat_typed_fields"].append((aid, path, key, str(val)[:60]))
     raw = json.dumps(cfg)
     out["doc_bytes"] = len(raw)
     for m in _RX_WORDS.finditer(raw):
@@ -183,10 +204,13 @@ def main() -> int:
     enums = scan_enums()
     i2 = scan_i2()
 
-    # Un porteur au sens de la gate de confrontabilite : une valeur > 0 qui atteint le composant.
+    # Un porteur au sens de la gate de confrontabilite : quelque chose qui POSE une valeur > 0 sur
+    # `EvasionChanceComponent`. `StatType`/`TagKey`/`StatPart` decrivent la stat et son canal
+    # d'observation, pas une source -- les exclure (cf. `_ENUM_NOT_A_CARRIER`).
     carriers = (list(cfg["unit_hits"]) + list(cfg["const_hits"])
                 + list(seed.get("schema_has_evasion") or [])
-                + [h for h in enums.get("hits", []) if not h[1].endswith("StatType")])
+                + [h for h in enums.get("hits", [])
+                   if not h[1].split(".")[-1] in _ENUM_NOT_A_CARRIER])
 
     if args.json:
         print(json.dumps({"seed_bc": seed, "gameconfig": cfg, "enums": enums, "i2": i2,
@@ -218,6 +242,12 @@ def main() -> int:
     print("   occurrences TEXTUELLES dans tout le document : %d" % cfg["text_hits"])
     for s in cfg["text_samples"]:
         print("     ... %s ..." % s.replace("\n", " "))
+    print("   champs d'ability PORTANT un StatType : %d %s"
+          % (len(cfg["stat_typed_fields"]),
+             "-> aucune ability ne vise une stat PAR DONNEE : tout statType est un LITTERAL du "
+             "natif (voie E)" if not cfg["stat_typed_fields"] else ""))
+    for h in cfg["stat_typed_fields"][:20]:
+        print("     %s" % (h,))
     print()
     print("-- C. enums natifs (EffectType / ActiveAbilityType / TriggeredAbilityType / ...) --")
     if not enums.get("present"):
@@ -226,10 +256,12 @@ def main() -> int:
         print("   fichiers lus : %s" % ", ".join(enums["files"]))
         for build, name, members in enums["hits"]:
             print("     [%s] %-46s %s" % (build, name, members[:8]))
-        non_stat = [h for h in enums["hits"] if not h[1].endswith("StatType")
-                    and any(_RX_WORDS.search(m) and "Missile" not in m and "Missed" not in m
-                            and "Missing" not in m for m in h[2])]
-        print("   enums NON-StatType nommant l'esquive : %s" % (non_stat or "AUCUN"))
+        non_stat = [h for h in enums["hits"]
+                    if h[1].split(".")[-1] not in _ENUM_NOT_A_CARRIER]
+        print("   enums SOURCE (Effect/Ability/Trait) nommant l'esquive : %s"
+              % (non_stat or "AUCUN"))
+        print("   NB : `TagKey 140=Attack_DidEvade` EST le canal live d'observation d'une esquive")
+        print("        (deja lu par les tests block existants) -- un observateur, pas un poseur.")
     print()
     print("-- D. i2 (textes joueur) --")
     if not i2.get("present"):
