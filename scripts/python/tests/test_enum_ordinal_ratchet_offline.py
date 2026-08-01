@@ -129,7 +129,7 @@ def test_la_prose_ne_signale_pas_l_homonyme_extraHit():
     olds = {c: SW._by_name(SW.enum_map(SW.previous_build(), fq)) for c, fq in SW.ENUMS.items()}
     amb = SW._ambigus(SW.current_build())
     rxs = {c: SW._compile_prose(r, amb) for c, r in refs.items()}
-    cites, _ = SW._scan_prose_fichier(
+    cites, _, _ = SW._scan_prose_fichier(
         '# nb de coups bonus : GetNumberConstant(cfg, 0x2b) = extraHit\n', refs, olds, rxs)
     assert not cites, "l'homonyme extraHit a ete signale -- un sed suivrait et casserait le code"
 
@@ -142,10 +142,98 @@ def test_la_prose_detecte_la_citation_perimee_et_la_qualifie_ancien():
     olds = {c: SW._by_name(SW.enum_map(SW.previous_build(), fq)) for c, fq in SW.ENUMS.items()}
     amb = SW._ambigus(SW.current_build())
     rxs = {c: SW._compile_prose(r, amb) for c, r in refs.items()}
-    cites, _ = SW._scan_prose_fichier('# le trigger = On(0x2b = PreUnitAbility) & gate\n',
+    cites, _, _ = SW._scan_prose_fichier('# le trigger = On(0x2b = PreUnitAbility) & gate\n',
                                       refs, olds, rxs)
     assert cites, "la citation perimee n'est plus detectee"
     assert cites[0][2] == "PreUnitAbility" and cites[0][5] == "ancien"
+
+
+# ----------------------------- 2bis. les TROIS surfaces ajoutees par #420 mordent, et elles
+#                                     seules (chaque anti-cas ci-dessous a ete MESURE faux)
+
+def _larges(src: str) -> list:
+    """La 3e valeur de `_scan_prose_fichier` = les hits du GATE 4bis."""
+    refs = {c: SW._by_name(SW.enum_map(SW.current_build(), fq)) for c, fq in SW.ENUMS.items()}
+    olds = {c: SW._by_name(SW.enum_map(SW.previous_build(), fq)) for c, fq in SW.ENUMS.items()}
+    amb = SW._ambigus(SW.current_build())
+    rxs = {c: SW._compile_prose(r, amb) for c, r in refs.items()}
+    lgs = {c: SW._compile_larges(r, olds.get(c, {}), amb) for c, r in refs.items()}
+    return SW._scan_prose_fichier(src, refs, olds, rxs, ".py", lgs)[2]
+
+
+def test_4bis_mord_sur_le_separateur_LARGE_que_l_etape_4_ratait():
+    """LA raison d'etre du gate : `` `...,0x37` UnitDefeated `` a vecu dans le depot sans
+    rougir nulle part -- le backtick sort du separateur `[\\s=:]{0,4}` de l'etape 4."""
+    h = _larges("# sequence : `...,0x37` UnitDefeated -> `...,0x36` PostUnitKill\n")
+    noms = {x[2] for x in h}
+    assert noms == {"UnitDefeated", "PostUnitKill"}, h
+
+
+def test_4bis_mord_sur_la_forme_TRIPLE_du_depot():
+    """`On(<Membre> = <dec> = <hex>)` : les deux bases encadrent le membre, donc le 2e nombre
+    n'est adjacent a AUCUN nom. C'est ainsi que `On(UnitRevived = 45 = 0x2e)` -- moitie juste,
+    moitie perime -- a survecu."""
+    h = _larges("# emet `On(UnitRevived = 45 = 0x2e)` puis purge\n")
+    assert [(x[2], x[3]) for x in h] == [("UnitRevived", "0x2e")], h
+
+
+def test_4bis_ne_mord_PAS_sur_un_nombre_type_par_On():
+    """FAUX POSITIF MESURE (3 sites) : `` `On(0x12)` -> ActivateEffect ``. `0x12` est un
+    `EventTriggerType` JUSTE ; `ActivateEffect` est un membre de `StepType` dont 0x12 etait
+    l'ordinal archive. Le contrat natif `DSLFactory$$On(EventTriggerType, ...)` type le
+    nombre : aucun AUTRE enum ne peut le revendiquer."""
+    assert not _larges("# `On(0x21)&OwnerIsActor`, `On(0x12)` -> ActivateEffect ;\n")
+
+
+def test_4bis_ne_mord_PAS_a_travers_un_separateur_de_LISTE():
+    """FAUX POSITIF MESURE (2 sites, virgule et slash) : dans
+    `(SummonDislikeDoorOpening 30 / HeroLikeDoorOpening 31)` le `30` etiquette l'element
+    PRECEDENT. La ligne est JUSTE, et 30 est pourtant l'ordinal archive de sa voisine."""
+    assert not _larges("#  door : (SummonDislikeDoorOpening 30 / HeroLikeDoorOpening 31)\n")
+    assert not _larges('#  "SummonDislikeDoorOpening 30, HeroLikeDoorOpening 31, X 57"\n')
+
+
+def test_4bis_exempte_le_rappel_HISTORIQUE_qui_nomme_le_build_archive():
+    """Une citation qui documente le bug PASSE ne doit pas etre « corrigee » -- ce serait
+    detruire ce qu'elle prouve. L'exemption porte sur +/-3 LIGNES, pas sur le token : un bloc
+    de commentaires `#` est decoupe en un token PAR LIGNE, et le nom du build est en general
+    sur la ligne suivante (cas mesure : `probe_hazeord_blast_radius.py`)."""
+    sans = "# cette table portait `55: UnitDefeated`, ce qui etait juste\n# avant la MAJ\n"
+    avec = ("# cette table portait `55: UnitDefeated`, ce qui etait juste\n"
+            "# sur le build %s -- plus depuis\n" % SW.previous_build())
+    assert _larges(sans), "le detecteur ne mord plus : l'exemption ne prouverait rien"
+    assert not _larges(avec), "le rappel historique n'est pas exempte"
+
+
+def test_etape2_ne_compte_PAS_un_litteral_HORS_PLAGE():
+    """`WeightedUtility(utility_type=99999)` EXIGE un type hors base (il verifie que
+    `UtilityDecider.CalculateUtility` LEVE au lieu de compter 0). Aucun membre ne porte 99999
+    sur aucun des deux builds -> ce n'est pas un ordinal fige, c'est une sentinelle. C'etait
+    l'unique faux positif du probe, et il le faisait echouer sur `origin/master`."""
+    refs = {c: SW._by_name(SW.enum_map(SW.current_build(), fq)) for c, fq in SW.ENUMS.items()}
+    olds = {c: SW._by_name(SW.enum_map(SW.previous_build(), fq)) for c, fq in SW.ENUMS.items()}
+    src = "x = f(utility_type=99999)\n"
+    sw = SW._ExecSweep(SW._prose_par_ligne(src), refs, None, olds)
+    sw.visit(ast.parse(src))
+    assert not sw.hits and len(sw.hors) == 1, (sw.hits, sw.hors)
+    # ... mais un ordinal REEL du meme contexte reste signale :
+    src2 = "x = f(utility_type=24)\n"
+    sw2 = SW._ExecSweep(SW._prose_par_ligne(src2), refs, None, olds)
+    sw2.visit(ast.parse(src2))
+    assert sw2.hits and not sw2.hors, (sw2.hits, sw2.hors)
+
+
+def test_etape5_ancre_AUSSI_la_quote_verbatim_du_helper_de_publication():
+    """18 quotes `FUN_<addr>(0x4d|0x50, .., <ordinal>)` portaient un ordinal PERIME sans
+    qu'aucune etape ne les voie : ni ancre `On(`, ni membre accole. Le SLOT est ce qui rend
+    l'ancre sure -- le nom `FUN_<addr>` change a chaque build."""
+    txt = "        #     FUN_1800280e0(0x4d, .., 0x2a);\n"
+    assert SW._FUN_PUB.search(txt), "l'ancre de quote ne mord pas"
+    args = SW._FUN_PUB.search(txt).group(1)
+    lits = [a.strip() for a in args.split(",") if SW._FUN_LIT.match(a.strip())]
+    assert lits[-1] == "0x2a", lits
+    # un slot qui n'est pas un slot de publication ne doit rien ancrer
+    assert not SW._FUN_PUB.search("# FUN_1801f4390(DAT_1833ae538, 2)\n")
 
 
 # ------------------------------------------------------- 3. le diff des tables reste derivable
