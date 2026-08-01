@@ -132,16 +132,28 @@ def is_valid_teleport_tile_stormboyz(tile_id: int, board, occupants: dict, movin
     """`IdunBattle.Entities.Pathfinding.StormboyzStrikePathfinder` -- la classe EXISTE
     (`data/symbols/<build>/frida/classes.tsv` : base `ATeleportPathfinder`, 48 octets, exactement
     comme ses trois soeurs) mais **AUCUNE de ses methodes n'est nommee**, ni dans les tables ni
-    dans Ghidra.
+    dans Ghidra : un corps trivial (`return true`) est DEDUPLIQUE par IL2CPP et disparait des deux
+    tables (cf. CLAUDE.md, « l'ABSENCE d'une methode dans les tables ne prouve RIEN »).
 
-    ⚠ HYPOTHESE, ecrite comme telle : `IsValidTeleportTile` est un slot virtuel APPELE
-    (`FindTilesReachableByTeleport` l'invoque sans garde), donc la classe le fournit forcement ;
-    un corps trivial (`return true`) est DEDUPLIQUE par IL2CPP et disparait des deux tables. Le
-    seul autre corps trivial possible (`return false`) rendrait le pool de teleport TOUJOURS vide,
-    c'est-a-dire ferait de `StormboyzStrikeWalk/Fly` un synonyme exact de `Walk`/`Fly` -- ce que la
-    presence meme des types 8/9 dans l'enum contredit.
+    ⚠ C'ETAIT une HYPOTHESE (`#381-r5`) faute de porteur confrontable. **CONFRONTE le 2026-08-01**
+    (`#366-r1` tranche 3/3, `probe_366_r1_stormboyz_strike.py` front 2) : le passif `StormboyzStrike`
+    a ete GREFFE sur des unites du pool (`catalog_inject.graft_passive_ability`), ce qui les met hors
+    plateau sous l'effet 1140 -> pathfinder `StormboyzStrikeWalk/Fly` (8/9), pool BOARD-WIDE. Le pool
+    natif (`aiMovableTiles`) coincide EXACTEMENT avec ce predicat permissif sur les TROIS montages
+    ou la famille effective est bien `StormboyzStrike` :
 
-    NON CONFRONTE : le seul porteur de `StormboyzStrike` est `orksNpc6Stormboy` (npc, hors pool)."""
+        orksNob      / MC1_67 / 1 ennemi   natif 61 == true 61   (predicat TeleportStrike : 59)
+        thousTzaangor/ C3_26  / 1 ennemi   natif 31 == true 31   (predicat TeleportStrike : 28)
+        orksNob      / MC1_67 / 3 ennemis  natif 59 == true 59   (predicat TeleportStrike : 55)
+
+    Le predicat concurrent le plus plausible (celui de `TeleportStrike`, « aucun ennemi non-Steppable
+    adjacent ») est donc REFUTE dans les trois cas, et `return false` l'etait deja par construction.
+
+    ⚠ PIEGE DE MESURE, vecu : un 4e montage (`bloodIntercessor`) rendait natif 28 / port 31 et se
+    lisait comme une refutation. Ce greffon porte le trait `TeleportStrike`, donc l'effet
+    `0x40b = 1035`, que `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit` teste
+    AVANT `0x474` : son pathfinder n'etait pas celui de Stormboyz. Verifier la FAMILLE effective
+    avant d'interpreter un ecart."""
     return True
 
 

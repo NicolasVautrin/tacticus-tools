@@ -382,6 +382,20 @@ def run_pair(sid, seed, board_id, graft, foes, tag):
     return out
 
 
+#: Le sous-ensemble du PLAN que la GARDE pytest rejoue (`tests/engine/runner/
+#: test_366_r1_stormboyz_strike_live.py`) : le discriminant le plus large (base WALK, 3 ennemis),
+#: la base FLY, et le montage CONFOND qui garde la lecture de l'ORDRE des tests. 6 runners.
+TEST_PLAN = [PLAN[2], PLAN[1], PLAN[3]]
+
+
+def run(board_id: str, seed: int, graft: str, foes) -> dict:
+    """UN montage complet (paire TEMOIN/GREFFE), runners disposes en sortie. Porte d'entree des
+    tests -- ils ne re-derivent rien, le montage est la source unique."""
+    sid = _resolve_session()
+    return run_pair(sid, int(seed), board_id, graft, list(foes),
+                    "%s_%s_%d" % (graft, board_id, len(foes)))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--board", default=None, help="un seul board (defaut : les deux du plan)")

@@ -43,7 +43,7 @@ virtuelle **triviale donc dédupliquée**, non nommable), et `!IsValidTeleportTi
 |---|---|
 | `TeleportStrike` | `GetAdjacentEnemies(tile, unit, false).Count(e => !IsSteppable(e)) == 0` — **on ne se pose pas à côté d'un ennemi** |
 | `FearOfTheUnseen` | le même, **plus** `IsTallGrass(tile)` et la bulle `Synapse_Effect` (0x41c) d'un allié (`GetSurroundingTiles(allié, 2, …, includeCenter:true)`) |
-| `StormboyzStrike` | aucune méthode nommée → corps trivial. **HYPOTHÈSE `true`** (`false` ferait de 8/9 un synonyme de 0/3) |
+| `StormboyzStrike` | aucune méthode nommée → corps trivial. **`true` — CONFRONTÉ live le 2026-08-01** (#366-r1 3/3, greffe du passif : natif == port sur 3 montages ; le prédicat de `TeleportStrike` y rend 59/28/55 contre 61/31/59) |
 | `TitanhammerSquad` | le seul RESTRICTIF : la tuile, ou une voisine, porte `TitanhammerSquad_TargetTile` (1571) posé par un allié |
 
 Les deux autres slots : `IsValidContinuePathTile` **délègue** à la base (le gate #131 reste celui de
@@ -103,10 +103,20 @@ Walk`). Le test `C1_74` est la garde de la lecture d'adjacence NATIVE.
   donc non nommables) : non portés. MESURE — une fois les trois filtres portés appliqués, le pool
   du port est EXACT sur les quatre boards : ces trois-là n'ont retiré aucune tuile sur les
   configurations confrontées.
-* **`StormboyzStrike` NON CONFRONTÉ** (seul porteur `orksNpc6Stormboy`, npc hors pool) ;
+* ~~`StormboyzStrike` NON CONFRONTÉ~~ → **CONFRONTÉ le 2026-08-01** par #366-r1 3/3 : le passif se
+  GREFFE sur une unité du pool (`catalog_inject.graft_passive_ability`), ce qui la met hors plateau
+  sous 1140 dès l'init. `probe_366_r1_stormboyz_strike.py`, §6 de
+  `case-366-r1-tunneling-horror-pending-summon.md`.
   **`TitanhammerSquad` NON CONFRONTÉ** (seul porteur `astarLysander`, lineup hors pool du seed —
   injectable, `case-92` §6) ; la 3ᵉ branche de `FearOfTheUnseen` (bulle Synapse) est portée mais
   non confrontée (il faut caster l'ability pour entrer dans ce régime).
+* **`AnyOrFillMoveableTiles`, branche `tiles.Count == 0` : NON PORTÉE.** Le décompilé appelle
+  `GetReachableTiles(start = NULL, type, range, unit)` quand l'unité n'a **aucune tuile** — c'est
+  exactement l'état que produisent `RemoveUnitFromItsTiles` (1011/1023/1090/1141). Le port exige un
+  `from_tile` (`services/movement_query.get_movable_tiles_for`) et ses appelants sautent l'unité.
+  MESURÉ le 2026-08-01 : le natif rend **61** tuiles pour l'unité hors plateau (`MC1_67`), le port
+  n'en rendrait aucune par cette porte. Dégradation RESTRICTIVE, sans consommateur aujourd'hui (seul
+  un porteur de `StormboyzStrike` bouge depuis cet état). RÉSIDU NOMMÉ.
 * **Le nœud DSL** `MovableTilesInRange` passe `teleport_target_tiles=None` : `ctx.tile_has_effect`
   n'expose pas la SOURCE de l'effet, donc « posé par un allié » n'y est pas décidable → pool de
   téléport Titanhammer vide (dégradation RESTRICTIVE, nommée).

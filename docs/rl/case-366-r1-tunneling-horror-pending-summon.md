@@ -276,7 +276,7 @@ porté, tous le sont désormais SANS nouvelle primitive :
 |---|---|---|
 | `…Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` | `1023 Burrowers` (+ `1024 Burrowers_Appear`, effet `1040 Burrowers_Hidden`) | **PORTÉ + confronté live** (§5). ⚠ « jumeau exact de 1011 » était l'hypothèse d'entrée : **RÉFUTÉE** sur trois points, cf. §5.1 |
 | `…Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` | `1090 GrapnelLauncher` | **PORTÉ + confronté live** (§6). ⚠ il n'appelle PAS `RemoveUnitFromItsTiles` sur le CASTER mais sur la CIBLE, et seulement si elle est MORTE sur sa tuile d'origine |
-| `…Abilities.Triggered.Loki.StormboyzStrike_TeleportAbility$$CreateBehaviour` | `1141 StormboyzStrike` (effets `1140 _TeleportingIn`, `1179 _AlreadyUsedTile`) | non porté |
+| `…Abilities.Triggered.Loki.StormboyzStrike_TeleportAbility$$CreateBehaviour` | `1141 StormboyzStrike` (effet `1140 _TeleportingIn`) | **PORTÉ + confronté live** (§7). ⚠ `1179 _AlreadyUsedTile` n'est PAS posé par 1141 mais par `StormboyzStrike_FallbackAbility` — tranche à part |
 
 **NON COUVERT (et probablement inatteignable par construction)** : la conséquence de
 `get_RemoveOnBondedEntityDeath = false`. La seule fenêtre où le bond existe est celle où l'unité
@@ -522,3 +522,165 @@ Balayage des **572** abilities : **6** clés concernées — `GrapnelLauncher."k
 
     python scripts/python/probe_366_r1_grapnel_launcher.py
     python -m pytest scripts/python/tests/engine/runner/test_366_r1_grapnel_launcher_cast_offline.py
+
+---
+
+# 7. `#366-r1-tunnel-family` tranche 3/3 — `1141 StormboyzStrike` : PORTÉE
+
+i2 : « In its first turn this unit flies into any free hex, instead of starting on its designated
+spawn point. There's a {[chance]}% chance it misses its designated hex and ends up in a random
+adjacent hex instead. This fly-in counts as a movement for *Full Throttle*. »
+
+## 7.1 L'artefact — une TRIGGERED, pas une active
+
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.StormboyzStrike_TeleportAbility`
+(`IdunBattle.Entities.Abilities.BaseTriggeredAbility`, `TriggeredAbilityType` 0x475 = 1141) :
+
+    $$CreateTrigger  = <DSLTriggers+0x30>                                  # On(0x21 AbilityInit)
+                                                                           #   & <toujours-vrai +0x70>
+                                                                           #   & get_OwnerIsActor
+                     & AmountIsEqual( UnitTurnsStarted(Owner@Sel+0x30),
+                                      <DSLFormulas+0x18> = Direct(0) )
+                     & op_LogicalNot( HasFlag(Owner@Sel+0x30, 0 = Moved) )
+
+    $$CreateBehaviour = RemoveUnitFromItsTiles( Owner, removeTileFromUnit: true )
+                      & AddEffect( 0x474 = 1140 StormboyzStrike_TeleportingIn,
+                                   AbilityStateReference, targets: Owner,
+                                   turns: Nullable<int>(2) )
+
+`<DSLTriggers+0x30>` est bâti par `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` (lu :
+`On(0x21) & <+0x70> & get_OwnerIsActor`) ; `<DSLFormulas+0x18>` est le `Direct(0)` pré-caché de
+`IdunBattleLogic.Entities.DSLFormulas$$.ctor` (`+0x18→0 · +0x20→1 · +0x28→2 · +0x30→100 · +0x38→-1`).
+
+**NI `TARGETING_OPTIONS` NI `ABILITY_ATTACK_TYPE`** : une `BaseTriggeredAbility` ne traverse jamais
+`IdunBattle.Operations.ActiveAbilityOperation` et n'a pas de `$$.ctor` de `TargetingOptions`.
+
+⚠ **Nid de collisions d'id** — `1141` = `TriggeredAbilityType.StormboyzStrike` **mais**
+`ActiveAbilityType.OverwhelmingWrath` ; `1140` = `EffectType.StormboyzStrike_TeleportingIn`
+**mais** `ActiveAbilityType.ExemplarOfHate` **et** `TriggeredAbilityType.PowerUp_Hits` ; `1179` =
+`EffectType.StormboyzStrike_AlreadyUsedTile` **mais** `ActiveAbilityType.CultDemagogue` **et**
+`TriggeredAbilityType.PsychicStalk`. Les trois homonymes sont déjà portés ailleurs.
+
+## 7.2 `1179` n'appartient PAS à cette tranche
+
+L'inventaire annonçait « effets `1140` **et** `1179` ». Le décompilé le refuse : `0x49b = 1179` est
+posé par `IdunBattleLogic.Abilities.Triggered.Loki.StormboyzStrike_FallbackAbility$$CreateBehaviour`
+(`AddEffect(0x49b, stateRef, <la tuile choisie>, turns: Nullable<int>(1))`), une ability DISTINCTE,
+trigger `On(0x28 UnitFinishedTurn) & OwnerIsActor & HasEffect(Owner, 0x474, false, 6)`, arbre
+`MoveUnitBehaviour(Caster, First(SortTilesByUtility(CanAddUnit(<Sel+0x18>), Caster,
+UtilityDefinition(6)))) & AddEffect(0x49b, …) & PerformAIMovementBehaviour(
+AmountIsEqual(Tiles(Caster), Direct(0)), RemoveEffect(Owner, 0x474) & Kill(Caster, ForDirectKill))`.
+**TRANCHE À ELLE SEULE.** Idem pour le troisième membre du kit,
+`…StormboyzStrike_MissAbility` (le « 20 % de rater son hex » : `On(0x1f PreUnitMove)` →
+`Inform{0x79: EntityId(<Sel+0x78>)} & If(Maybe(GetNumberConstant(0x2a='chance')),
+OverrideUnitMovementTarget(Owner, PickRandomly(CanAddUnit(AdjacentTiles(<Sel+0x78>)), 1)))
+& RemoveEffect(Caster, 0x474) & TriggerAbility(Caster, 0x46e, …)`).
+
+## 7.3 Confrontabilité — GREFFE d'un PASSIF
+
+`unit_map.py find --ability StormboyzStrike` → **1** unité, `orksNpc6Stormboy` (bucket **npc**,
+trait `Flying`), voie `passive`. Balayage du gameconfig : **aucun** summoner. Ni pool, ni summon →
+recours 3 de `case-92` §5bis, version PASSIVE (`catalog_inject.graft_passive_ability`, déjà outillé
+par #366-r1). Légitime, condition vérifiée : ni le trigger ni le behaviour ne lisent stat, trait ou
+arme du caster (la constante `chance` du gameconfig n'est lue que par `_MissAbility`).
+
+Le montage est un **couple de runners** — même seed, même board, mêmes unités : le TÉMOIN (sans
+greffe) porte l'ENTRÉE du trigger, le GREFFÉ sa SORTIE native.
+
+## 7.4 Les mesures (`probe_366_r1_stormboyz_strike.py`, 4 montages)
+
+**E1 — la pose.** Au premier état lisible du runner GREFFÉ, le porteur est :
+
+    {pos: null, feet: [], alive: true, effects: [(1140, remaining 2), …]}
+
+et le TÉMOIN est sur sa tuile de spawn sans 1140. `remaining = 2` est le **DISCRIMINANT du `turns`** :
+la surcharge `turns:Nullable<int>` d'`IdunBattleLogic.Entities.DSLBehaviors$$AddEffect` en fait un
+`Direct(n)` rangé tel quel dans les options — durée **déjà en TOURS**, non convertie. Un
+`TurnsFromRounds(2)` vaudrait `2 × nbJoueurs` = **4**.
+
+**CONFRONT** — le port appliqué à l'état TÉMOIN rend le même terme à terme (position, empreinte,
+vie, LISTE ENTIÈRE des effets avec leur `remaining`) sur les **4** montages.
+
+⚠ **RECONSTITUTION DE L'ENTRÉE, nommée.** Le natif tire à l'INIT, avant le premier
+`StartTurnOperation` ; le premier état lisible d'un runner est POSTÉRIEUR — mesuré, le porteur y a
+déjà `GetStat(0xc = TURNS_STARTED) == 1` (l'adversaire, dont le tour n'a pas commencé, est à 0). Le
+gate `AmountIsEqual(UnitTurnsStarted, Direct(0))` refuse donc sur l'état capturé, et **ce refus est
+lui-même une mesure** (c'est ce qui empêche l'ability de re-tirer). Le probe remet le compteur à 0
+pour rejouer l'entrée.
+
+**E2 — le second front : `StormboyzStrikePathfinder$$IsValidTeleportTile` (vslot 11).** Le résidu
+`#381-r5` portait ce prédicat en HYPOTHÈSE `true`, faute de porteur confrontable. L'unité greffée
+est hors plateau sous 1140 → pathfinder 8/9, pool BOARD-WIDE. Pool natif (`aiMovableTiles`) contre
+pool du port, sur les trois montages dont la famille effective EST `StormboyzStrike` :
+
+| greffon / board / ennemis | base | natif | port `true` | port prédicat `TeleportStrike` |
+|---|---|---|---|---|
+| `orksNob` / MC1_67 / 1 | WALK (8) | 61 | **61 (=)** | 59 |
+| `thousTzaangor` / C3_26 / 1 | FLY (9) | 31 | **31 (=)** | 28 |
+| `orksNob` / MC1_67 / 3 | WALK (8) | 59 | **59 (=)** | 55 |
+
+⇒ **l'hypothèse devient une MESURE**, et le prédicat concurrent le plus plausible est RÉFUTÉ trois
+fois. (`return false` l'était déjà par construction : il ferait de 8/9 un synonyme de 0/3.)
+
+⚠ **PIÈGE DE MESURE, vécu.** Le 4ᵉ montage (`bloodIntercessor`) rendait natif 28 / port `true` 31 et
+se lisait comme une réfutation. Ce greffon porte le trait `TeleportStrike`, donc l'effet
+`0x40b = 1035`, que `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit` teste **AVANT**
+`0x474` : son pathfinder était celui de `TeleportStrike` (type 7), et son pool natif suit ce
+prédicat-là (28 = 28). Le probe IMPRIME désormais la famille effective et refuse de compter un tel
+montage comme une confrontation ; le montage est CONSERVÉ comme contre-épreuve de l'ORDRE des tests.
+
+**E3 — les trois gates**, chacun exercé négativement sur un état où il est le SEUL à changer :
+`get_OwnerIsActor` (événement porté par une autre entité), `UnitTurnsStarted != 0` (mesuré live), et
+`HasFlag(Owner, Moved)`.
+
+## 7.5 Ce qui est porté, et ce qui ne l'est pas
+
+**PORTÉ** — `engine/runner/operations/triggers/loki/stormboyz_strike.py` :
+`StormboyzStrikeTeleportAbility` (trigger + `Seq(RemoveUnitFromItsTiles, AddEffect)`), inscrite à
+`ABILITY_TRIGGERS["StormboyzStrike"]` (voie `passiveAbilities`). Aucune primitive neuve : la tranche
+réutilise `RemoveUnitFromTilesOperation` (#438) et la feuille DSL de la tranche 1.
+
+**PORTÉE DE PRODUCTION, dite** : le vecteur `ability_init_triggers` n'est émis, côté port, que par la
+feuille `Spawn` (les summons) — le roster INITIAL arrive déjà initialisé dans le snapshot (l'unité y
+est déjà hors plateau avec 1140, que `load_state` seede). `orksNpc6Stormboy` n'ayant aucun summoner,
+ce port n'est **pas** un chemin de production : il est exercé par ses tests, contre l'état que le
+NATIF produit sur le même montage. C'est le même régime que `ListenUpMaggotsAddEffectAbility`.
+
+**NON PORTÉ, nommément** :
+
+* `1179 StormboyzStrike_AlreadyUsedTile` et son poseur `StormboyzStrike_FallbackAbility` (§7.2) ;
+* `StormboyzStrike_MissAbility` (§7.2) ;
+* `IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` — les
+  QUATRE triggers PROPRES de 1140, **partagés par ses trois sœurs** (1035, 1238, 1573) :
+
+      On(0x04 UnitAfterMove)    & OwnerIsActor                  & <vslot 0x738> -> RemoveEffect(self)
+      On(0x2a PreUnitAbility)   & OwnerIsActor                  & <vslot 0x738> -> RemoveEffect(self)
+      On(0x28 UnitFinishedTurn) & OwnerIsActor & HasTile(Owner) & <vslot 0x738> -> RemoveEffect(self)
+      On(0x1f PreUnitMove)      & OwnerIsActor & <vslot 0x738>  & <vslot 0x748>
+          -> GetMovingEffectType().HasValue ? AddEffect(<ce type>, …, Owner, turns: 1) : Nothing()
+
+  `<vslot 0x738>` = `GetAdditionalRemoveTriggers`, dont la SEULE surcharge nommée du build est
+  `FearOfTheUnseen_TeleportingInEffect$$GetAdditionalRemoveTriggers`
+  (`AmountIsEqual(EffectRemainingTurns(<Sel+0x38>), Direct(1))`) ; le corps de base est trivial donc
+  dédupliqué → il faut le lire au RUNTIME (`resolveMethodPtr` sur le slot) avant de porter la
+  famille. **TRANCHE DE FAMILLE, pas celle-ci.** Le 4ᵉ trigger, lui, est INERTE pour 1140 et c'est
+  une MESURE : `StormboyzStrike_TeleportingInEffect` ne surcharge pas `GetMovingEffectType` (ses
+  trois sœurs, si) et l'`EffectType` du build ne contient AUCUN `StormboyzStrike_Moving` (le seul
+  `*_Moving` est `1036 TeleportStrike_Moving`) ;
+* **aucune classe d'effet pour 1140**, et c'est délibéré : `StormboyzStrike_TeleportingInEffect`
+  existe (`classes.tsv`, base `ATeleportingEffect`) mais ne définit que son `$$.ctor`
+  (`ATeleportingEffect(AbilityOrEffect(TriggeredAbilityType.StormboyzStrike))`, lu à l'octet :
+  `mov edx,0x475` puis la surcharge d'`IdunBattle.Core.AbilityOrEffect$$op_Implicit` qui appelle
+  `$$set_TriggeredAbility`). Elle ne contribue à aucun canal → `EffectFactory` rend un `BaseEffect`
+  nu, comme pour `1040 Burrowers_Hidden` ;
+* la branche `tiles.Count == 0` d'`IdunBattle.Core.Services.MovementQuery$$AnyOrFillMoveableTiles`
+  (`GetReachableTiles(start = NULL, …)`) : le port exige un `from_tile`. MESURÉ — le natif rend 61
+  tuiles à l'unité hors plateau, le port n'en rendrait aucune par cette porte. Dégradation
+  RESTRICTIVE, sans consommateur porté aujourd'hui. Résidu partagé avec `case-381-r5` §6.
+
+## 7.6 Reproduction (tranche 3/3)
+
+    python scripts/python/probe_366_r1_stormboyz_strike.py            # 4 montages (8 runners)
+    python scripts/python/probe_366_r1_stormboyz_strike.py --offline  # ventilation seule
+    python -m pytest scripts/python/tests/engine/runner/test_366_r1_stormboyz_strike_offline.py
+    python -m pytest scripts/python/tests/engine/runner/test_366_r1_stormboyz_strike_live.py
