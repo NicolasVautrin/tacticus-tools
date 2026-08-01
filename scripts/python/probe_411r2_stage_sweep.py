@@ -50,9 +50,22 @@ from probe_411r2_scale_discriminant import (
 
 
 def one_regime(pydir: Path, sf: Path, seed: str, board: str, rank: str,
-               armor: int, block_target: str) -> dict:
-    """Un regime = un runner neuf. `armor=None` -> on ne touche pas a l'armure de la cible."""
+               armor: int, block_target: str, target_health: int = 0,
+               attacker_damage: int = 0) -> dict:
+    """Un regime = un runner neuf. `armor=None` -> on ne touche pas a l'armure de la cible.
+
+    `target_health` LEVE LA TRONCATURE : a armure nulle le natif TUE la cible, et `hp_v0-hp_v1`
+    vaut alors les PV et non le degat -- une mesure PLAFONNEE qui se lit comme une mesure. Le
+    premier sweep l'a rencontree (9539 = PV exacts, hp -> 0). On monte donc les PV assez haut
+    pour que le regime reste LISIBLE."""
     us = ["%s:Movement=%d" % (ATTACKER, MOVE_STAT)]
+    if attacker_damage:
+        # Deuxieme AXE du sweep : la BASE de degat de l'attaquant. Il separe un facteur
+        # MULTIPLICATIF d'un terme ADDITIF -- un seul point ne le fait pas (cf. la consigne
+        # « jamais fitter un scalaire »).
+        us.append("%s:Damage=%d" % (ATTACKER, attacker_damage))
+    if target_health:
+        us.append("%s:Health=%d,RemainingHealth=%d" % (VICTIM, target_health, target_health))
     if armor is not None:
         # `Armor` ET `FixedArmor` : `--armor-target` du builder ecrit les DEUX, et n'en
         # ecrire qu'un laisserait l'autre a sa valeur de rank -- une demi-mutation qui
@@ -80,6 +93,10 @@ def one_regime(pydir: Path, sf: Path, seed: str, board: str, rank: str,
         dv = rpc(s, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 8}, 150)
         plan = _plan_for(dv, att, vic)
         pred = _native_prediction(s, rid, att, vic, plan.get("abilityId"))
+        # ORACLE DU NOMBRE DE COUPS, cote natif : `MakeDamagePredictions` rend `appliedHits`
+        # par `ProbableDamageEvent`. C'est la seule voie qui NOMME les coups sans capteur neuf.
+        pbp = rpc(s, "aiPlaybookPredict", {"runnerId": rid, "unitId": att, "targetId": vic,
+                                           "abilityType": plan.get("abilityId")}, 90) or {}
         port = _port_replay(s, rid, att, vic)
         nat = _snapshot_stats(s, rid, [att, vic])
         _run(["rl_duel.py", "act", "ability", "--caster", str(att), "--target", str(vic),
@@ -100,6 +117,11 @@ def one_regime(pydir: Path, sf: Path, seed: str, board: str, rank: str,
             "port_armor": port["armor"], "port_pierce": port["pierce"],
             "clean": [port["clean_min"], port["clean_max"]],
             "pred": [pf.get("healthDmgMin"), pf.get("healthDmgMax")],
+            "killed": hp_v1 <= 0,
+            "pbp": [{k: e.get(k) for k in ("targetId", "healthDamageMin", "healthDamageMax",
+                                           "appliedHits", "probability") if k in e}
+                    for e in (pbp.get("damageEvents") or pbp.get("events") or [])][:4],
+            "pbp_err": pbp.get("error"),
             "attack": (((nat.get(att) or {}).get("stats") or {}).get("attack"))}
 
 
@@ -112,6 +134,12 @@ def main() -> int:
     ap.add_argument("--block-target", default="0,0")
     ap.add_argument("--armors", default="3513,1000,0",
                     help="valeurs de FixedArmor/Armor de la CIBLE a balayer (CSV)")
+    ap.add_argument("--target-health", type=int, default=0,
+                    help="PV forces de la CIBLE -- indispensable a armure basse, sinon le natif "
+                         "TUE et le delta de PV est PLAFONNE (mesure illisible).")
+    ap.add_argument("--damages", default="",
+                    help="CSV de `Damage` de l'ATTAQUANT. Si fourni, le sweep porte sur CET axe "
+                         "(armure fixee au 1er element de --armors) : separe multiplicatif/additif.")
     a = ap.parse_args()
     pydir = Path(__file__).resolve().parent
     sf = Path(a.state_file).resolve()
@@ -119,23 +147,37 @@ def main() -> int:
     import host_inputs                                        # noqa: F401 (garde data/)
 
     rows = []
-    for tok in a.armors.split(","):
-        tok = tok.strip()
-        if not tok:
-            continue
-        rows.append(one_regime(pydir, sf, a.seed, a.board, a.rank, int(tok), a.block_target))
+    if a.damages.strip():
+        armor0 = int(a.armors.split(",")[0].strip())
+        for tok in a.damages.split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            rows.append(one_regime(pydir, sf, a.seed, a.board, a.rank, armor0, a.block_target,
+                                   a.target_health, int(tok)))
+    else:
+        for tok in a.armors.split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            rows.append(one_regime(pydir, sf, a.seed, a.board, a.rank, int(tok), a.block_target,
+                                   a.target_health))
     print("=== #411-r2 SWEEP D'ETAGE : armure de la CIBLE ===")
-    print("armure |  ATT | natif N | port G | ratio | port hits | port clean       | pred natif")
+    print("armure |  ATT | natif N | port G | ratio | hits | port clean       | pred natif    | mort")
     for r in rows:
         ratio = (r["N"] / r["G"]) if r["G"] else float("nan")
-        print("%6s | %4s | %7d | %6d | %5.3f | %9d | [%5s..%5s] | [%5s..%5s]"
+        print("%6s | %4s | %7d | %6d | %5.3f | %4d | [%5s..%5s] | [%5s..%5s] | %s"
               % (r["nat_fixed_armor"], r["attack"], r["N"], r["G"], ratio, r["hits"],
-                 r["clean"][0], r["clean"][1], r["pred"][0], r["pred"][1]))
+                 r["clean"][0], r["clean"][1], r["pred"][0], r["pred"][1],
+                 "TUEE (mesure PLAFONNEE)" if r["killed"] else "-"))
     print()
     for r in rows:
         print("[detail] armure=%s runner=%d per_hit=%s port_armor=%s pierce=%s hp %d->%d"
               % (r["nat_fixed_armor"], r["runner"], r["per_hit"], r["port_armor"],
                  r["port_pierce"], r["hp_v0"], r["hp_v1"]))
+        print("[hits-natif] armure=%s aiPlaybookPredict=%s err=%s"
+              % (r["nat_fixed_armor"], json.dumps(r["pbp"], ensure_ascii=True)[:400],
+                 r["pbp_err"]))
     if len(rows) >= 2:
         lo = min(rows, key=lambda r: int(r["nat_fixed_armor"] or 0))
         hi = max(rows, key=lambda r: int(r["nat_fixed_armor"] or 0))
