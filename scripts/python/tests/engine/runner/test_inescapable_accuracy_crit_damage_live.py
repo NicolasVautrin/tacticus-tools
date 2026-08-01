@@ -69,11 +69,17 @@ _SCALED_180 = 997                                   # round(554 * 180 / 100)
 
 
 def _extra(seed_bc, crit: str = _CRIT):
-    """Options de build. `--block-target 0,0` neutralise le canal BLOCK de la cible, celui que porte
-    le JUMEAU NON PORTE `1117 InescapableAccuracy_overrideHits`
-    (`...InescapableAccuracy_OverridHitsEffect$$CreateBlockHitReductionTrigger` ->
-    `IdunBattle.Entities.Effects.BaseEffect$$BlockHitsReduction`) : sans elle, un ecart de coups
-    imputable a 1117 se lirait comme un ecart de 1116."""
+    """Options de build. `--block-target 0,0` met `BlockChance/BlockDamage` de la cible a zero,
+    c'est-a-dire le BLOCAGE DE DEGAT (`GetStat(7/8)` -> `DamageCalculations$$CalculateBlockChances`),
+    qui retire un tirage du flux et rend la salve comparable coup a coup.
+
+    ⚠ RECTIFICATION (case-366-r1/1117) : ce n'est **PAS** le canal `BaseEffect$$BlockHitsReduction`
+    de `1117 InescapableAccuracy_overrideHits`, contrairement a ce que disaient les redactions de
+    1115 et 1116. Les deux « block » n'ont rien en commun : l'un est une stat de DEGAT de la cible,
+    l'autre un interrupteur de l'axe COUPS. `1117` n'a jamais ete neutralise par cette option -- il
+    etait simplement INERTE dans ces montages, faute de la moindre reduction de coups sur
+    `necroWarden`/`necroOverlord` (aucun des deux ne porte Parry, Camouflage, LightCover, Diminutive
+    ni BigTarget). Depuis que `1117` est PORTE, il reste inerte pour la meme raison, des deux cotes."""
     return ["--crit", crit, "--block-target", "0,0", "--seed-bc", seed_bc]
 
 
@@ -136,8 +142,12 @@ def test_registry_binds_dedicated_class():
     (`CreateBlockHitReductionTrigger` / `CreateCritChanceBonus` / `CreateCritDamageBonus`)."""
     assert EFFECT_CLASSES.get(EFFECT_NAME) is InescapableAccuracyExtraCritDamageEffect
     assert InescapableAccuracyExtraCritDamageEffect is not InescapableAccuracyExtraCritChanceEffect
-    # `1117` reste NON porte : TROISIEME canal (`BaseEffect$$BlockHitsReduction`).
-    assert "InescapableAccuracy_overrideHits" not in EFFECT_CLASSES
+    # `1117` a DEPUIS ete porte (TROISIEME canal, `BaseEffect$$BlockHitsReduction`) et il a sa
+    # PROPRE classe : ce qui compte ici reste que les trois soient DISTINCTES.
+    from engine.entities.effects.loki import InescapableAccuracyOverrideHitsEffect
+    assert EFFECT_CLASSES.get("InescapableAccuracy_overrideHits") \
+        is InescapableAccuracyOverrideHitsEffect
+    assert InescapableAccuracyOverrideHitsEffect is not InescapableAccuracyExtraCritDamageEffect
 
 
 def test_gates_are_tristate_offline():

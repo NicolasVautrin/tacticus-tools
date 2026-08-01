@@ -158,11 +158,19 @@ def neutralized_seed_bc(level: int = 50, hits: "int | None" = 1, zero_crit_dmg: 
 def build(a, arm):
     """Un runner par bras. Rend `(runnerId, state_file)` ou `(None, state_file)`.
 
-    `--block-target 0,0` NEUTRALISE le canal BLOCK de la cible : c'est le canal
-    (`BaseEffect$$BlockHitsReduction`) que porte le JUMEAU `1117
-    InescapableAccuracy_overrideHits`, NON porte. Sans cette neutralisation, un ecart de coups
-    imputable a 1117 se lirait comme un ecart de 1115. `1116`, LUI, n'a plus besoin d'etre
-    neutralise : il est PORTE (cf. `neutralized_seed_bc`)."""
+    `--block-target 0,0` met `BlockChance/BlockDamage` de la cible a zero, c'est-a-dire le BLOCAGE
+    DE DEGAT (`GetStat(7/8)` -> `IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances`)
+    : un tirage de moins dans le flux, donc une salve comparable coup a coup.
+
+    ⚠ RECTIFICATION (case-366-r1/1117) : ce n'est **PAS** le canal
+    `IdunBattle.Entities.Effects.BaseEffect$$BlockHitsReduction` de `1117
+    InescapableAccuracy_overrideHits`, contrairement a ce que disait cette docstring. Les deux
+    « block » n'ont rien en commun : l'un est une stat de DEGAT de la cible, l'autre un
+    interrupteur de l'axe COUPS. `1117` n'a jamais ete neutralise par cette option -- il etait
+    simplement INERTE ici, faute de la moindre reduction de coups sur `necroWarden`/`necroOverlord`
+    (aucun des deux ne porte Parry, Camouflage, LightCover, Diminutive ni BigTarget). Depuis qu'il
+    est PORTE, il reste inerte pour la meme raison, des deux cotes. `1116`, LUI, n'a plus besoin
+    d'etre neutralise : il est PORTE (cf. `neutralized_seed_bc`)."""
     fd, sf = tempfile.mkstemp(prefix="ia1115_%s_" % arm.lower(), suffix=".json")
     os.close(fd)
     Path(sf).unlink(missing_ok=True)
