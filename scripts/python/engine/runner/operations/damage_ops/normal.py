@@ -38,7 +38,8 @@ class _Normal:
     def execute(state: State, attacker_id: int, target_id: int,
                 spread_pct: int = 20, is_overwatch: bool = False,
                 triggering_ability: Optional[int] = None,
-                allow_dead_caster: bool = False) -> Optional[dict]:
+                allow_dead_caster: bool = False,
+                skip_hit_count_query: bool = False) -> Optional[dict]:
         """Résolution d'une attaque normale (mirror Execute→ExecuteHits→ExecuteHit) depuis
         l'ECS : tire CHAQUE coup sur la plage BRUTE (`stat Attack` ± spread) avec le MT du
         runner (`state.rng`), réduit (perçage de l'arme par distance + armure cible, mods
@@ -246,6 +247,15 @@ class _Normal:
                 defender_on_cover=_on_cover)
         else:                                     # positions manquantes -> base seule (pas de GetStuckIn/aura)
             hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
+        if skip_hit_count_query:
+            # #411 -- `AttackDamageOptions[+0x28]`. `IdunBattle.Operations.AttackDamageOperation$$
+            # GetAttackHits` sort AVANT la requete de modificateurs quand cet octet est pose :
+            #     if (options[+0x28] != 0) return <compte de base> ;
+            # et le compte de base vaut `options[+0x18]` (`Nullable<int> hits`) ou **1** quand ce
+            # Nullable est vide -- ce qui est exactement le cas du chemin de transfert, dont le
+            # ctor `AttackDamageOptions$$.ctor(damage)` met tout a zero de +0x10 a +0x88.
+            # Le coup transfere reste donc a 1 coup : ni LightCover -2, ni bonus d'effet, ni aura.
+            hits = 1
         tsc = tgt.get_component(StatsComponent)
         # armure défenseur = FOYER PARTAGÉ `defender_fixed_armor` : GetStat(16) [effet-inclusif : les stat-mods
         # +armor d'effet, dont le stat-mod EAGER self de ProtectorImperative, sont cuits dans GetStat] + AURA

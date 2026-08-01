@@ -210,7 +210,7 @@ def block_runs_after_evasion(did_evade: bool) -> bool:
 def calculate_damage_operation(
         raw_dmg: int, *, shield: int = 0, armor_pool: int = 0, armor_pct: int = 0,
         block_sources: Optional[List[BlockSource]] = None,
-        evasion_chance: int = 0,
+        evasion_chance: int = 0, guaranteed_block: bool = False,
         rng: Optional[IntBasedMersenneTwister] = None) -> Damage:
     """`IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation (= méthode #0xc du service
     `IDamagePrediction`, le SPLIT du COMBAT RÉEL — PAS `GetAttackPrediction`).
@@ -243,14 +243,23 @@ def calculate_damage_operation(
       * l'octet : `uStack_5b0>>0x28` désigne `damageInfo[+0x1D]`, le **block GARANTI** (branche
         slot 4, sans tirage), et `uStack_5b0>>0x30` désigne `damageInfo[+0x1E]`, celui qui saute
         block ET esquive. Aucun des deux n'est un sélecteur « évasion plutôt que block ».
-    Ces deux octets ne sont PAS portés ici, et c'est délibéré : `+0x1E` est déjà traité EN AMONT
-    par les appelants (gate `NoBlocking` du profil de dégât, #65 — ils passent `block_sources=None`),
-    et `+0x1D` est le périmètre de **#411** (`case-411-transfer-hit-guaranteed-block.md`), qui en a
-    nommé l'unique écrivain — `IdunBattle.Operations.TransferHitOperation$$Execute`, qui efface le
-    `Nullable<AttackHit> PendingHit` de la cible — et confronté le gate live sans livrer le port.
-    #407-r1 ne touche donc que la séquence esquive→block et laisse cette branche où elle est. NB : la
-    surcharge slot 4 qu'elle appelle prend la LISTE de blockChances, pas un montant — ce n'est pas
-    `apply_block_damage` ci-dessus.
+    `+0x1E` est traité EN AMONT par les appelants (gate `NoBlocking` du profil de dégât, #65 — ils
+    passent `block_sources=None`).
+
+    `guaranteed_block` (**#411-r1**) EST `damageInfo[+0x1D]`, la branche `else` ci-dessus. #407-r1
+    l'avait laissée non portée en nommant son périmètre ; #411-r1 la livre, sur la structure
+    SÉQUENTIELLE qu'#407-r1 a corrigée. Son écrivain unique est
+    `IdunBattle.Operations.TransferHitOperation$$Execute`, qui efface le `Nullable<AttackHit>
+    PendingHit` de la cible — d'où la relecture `!HasValue` d'`ExecuteHit`.
+
+    ⚠ CONSOMMATION RNG : la branche garantie ne tire **RIEN** — ni esquive, ni block. C'est LA
+    propriété observable du transfert, et la raison pour laquelle un port qui roulerait le block
+    d'un coup transféré désynchroniserait SILENCIEUSEMENT tout le flux RNG de l'attaque à partir de
+    ce coup. La surcharge slot 4 prend la **LISTE** de blockChances et indexe `[0]` — elle ne filtre
+    NI sur `chance` NI sur `amount` (ce n'est donc pas `apply_random_block_damage`, mais elle
+    délègue bien à `apply_block_damage(amount, damage)` ci-dessus) ; `didBlock` est posé en dur,
+    donc vrai même quand la liste est vide. Le natif teste `+0x1D` AVANT d'entrer dans la séquence
+    esquive→block : la branche garantie court-circuite donc les deux.
 
     ⚠ **Le natif passe à `ApplyRandomBlockDamage` le dégât PRÉ-esquive** (`iVar24`, pas le retour du
     slot 3). C'est sans effet : on n'atteint cette ligne que si l'esquive a échoué, et
@@ -281,6 +290,16 @@ def calculate_damage_operation(
     if armor_pool > 0 and armor_pct > 0:
         d.armor = min(armor_pool, calculate_damage_blocked_by_armor(remaining, armor_pct))
         remaining -= d.armor
+    if guaranteed_block:
+        # #411-r1 : `damageInfo[+0x1D] != 0` -> slot 4 `ApplyBlockDamage(blockChances, damage)`.
+        # Cette branche est l'ALTERNATIVE de toute la séquence esquive->block, pas une étape de
+        # plus : le natif teste `+0x1D` AVANT le slot 3. AUCUN tirage, `didBlock` en dur, et la
+        # première source est prise SANS regarder sa `chance` (indexation `[0]`, aucun filtre).
+        amount = int(block_sources[0].amount) if block_sources else 0
+        remaining = apply_block_damage(amount, remaining)
+        d.did_block = True
+        d.health = max(0, remaining)
+        return d
     # slot 3 `ApplyRandomEvasion` — 1 tirage SSI `evasion_chance > 0` (aucun sinon : la feuille
     # n'atteint le PRNG que sous ce gate, d'où l'appel INCONDITIONNEL comme le natif, y compris
     # quand l'appelant ne fournit pas de `rng` — cas `operations/displace.py`).

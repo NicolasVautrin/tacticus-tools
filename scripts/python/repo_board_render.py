@@ -252,6 +252,11 @@ def page(data: dict) -> str:
     tot_add = sum(d["add"] for d in days)
     tot_commits = sum(d["commits"] for d in days)
     tot_turns = sum(d["turns"] for d in days)
+    # Hors perimetre PR : garde-fou d'honnetete. Sans ce chiffre affiche, un lecteur prend le
+    # denominateur PR pour l'activite totale du depot -- ici, ce serait 63 % pris pour 100 %.
+    dir_commits = sum(d["direct_commits"] for d in days)
+    dir_add = sum(d["direct_add"] for d in days)
+    all_commits = tot_commits + dir_commits
     agents_with_pr = len({p["agent_id"] for p in prs if p["agent_id"]})
     # Ratios GLOBAUX = somme/somme, PAS la moyenne des ratios quotidiens : une journee a 2 commits
     # peserait autant qu'une journee a 82 et le chiffre ne voudrait plus rien dire.
@@ -317,9 +322,10 @@ def page(data: dict) -> str:
 <dl class="summary">
   <div class="cell"><dt>context</dt><dd>{compact(tot_ctx)}<small>tokens lus, sur
     {n(tot_turns)} tours</small></dd></div>
-  <div class="cell"><dt>commits</dt><dd>{n(tot_commits)}<small>hors data/symbols</small></dd></div>
-  <div class="cell"><dt>lignes ajoutees</dt><dd>{compact(tot_add)}<small>churn de scission
-    compris</small></dd></div>
+  <div class="cell"><dt>commits par PR</dt><dd>{n(tot_commits)}<small>sur {n(all_commits)}
+    &mdash; {n(dir_commits)} pousses direct</small></dd></div>
+  <div class="cell"><dt>lignes ajoutees</dt><dd>{compact(tot_add)}<small>par PR&nbsp;;
+    +{compact(dir_add)} hors PR</small></dd></div>
   <div class="cell"><dt>context / commit</dt><dd>{compact(ctx_per_commit)}<small>somme sur somme,
     pas moyenne de moyennes</small></dd></div>
   <div class="cell"><dt>context / ligne</dt><dd>{compact(ctx_per_line)}<small>plus c'est bas,
@@ -329,10 +335,12 @@ def page(data: dict) -> str:
 </dl>
 
 <h2>Le journal</h2>
-<p class="sub">Une ligne par jour. La barre pleine est le <strong>context</strong> &mdash; les
-tokens que les modeles ont eu a lire ce jour-la, a l'echelle du jour le plus lourd. Le filet gris
-dessous est le ratio <strong>context&nbsp;/&nbsp;ligne</strong>&nbsp;: c'est une efficacite, donc
-une barre courte est un bon jour.</p>
+<p class="sub">Une ligne par jour. Les colonnes <strong>commits</strong> et
+<strong>+lignes</strong> ne comptent que ce qui est <strong>arrive par une pull request</strong>
+&mdash; le perimetre de production de la flotte. La barre pleine est le <strong>context</strong>
+&mdash; les tokens que les modeles ont eu a lire ce jour-la, a l'echelle du jour le plus lourd. Le
+filet gris dessous est le ratio <strong>context&nbsp;/&nbsp;ligne</strong>&nbsp;: c'est une
+efficacite, donc une barre courte est un bon jour.</p>
 <div class="ledger">{"".join(ledger)}</div>
 
 <h2>Le registre des PR</h2>
@@ -351,10 +359,14 @@ d'un cout de livraison qu'on puisse etablir. Les colonnes se trient, les pastill
 
 <div class="note">
   <h3>Rapprochement &mdash; ce que ces chiffres ne disent pas</h3>
-  <p><strong>Le cout par PR n'est pas un cout de production.</strong> Les tokens d'une journee
-  couvrent toute l'activite du projet &mdash; retro-ingenierie, audits, conversation &mdash; et
-  pas seulement ce qui a fini en pull request. Le rapport vaut comme tendance d'une periode a
-  l'autre, jamais comme prix unitaire.</p>
+  <p><strong>Le denominateur est le perimetre PR, le numerateur ne l'est pas.</strong> Les commits
+  et les lignes ne comptent que ce qu'une pull request a fait entrer &mdash;
+  <code>git rev-list &lt;merge&gt;^1..&lt;merge&gt;</code> &mdash; soit {n(tot_commits)} des
+  {n(all_commits)} commits de la fenetre. Les {n(dir_commits)} autres sont des pushs directs sur
+  master&nbsp;: correctifs a chaud, outillage, documentation. Le <strong>context</strong>, lui,
+  reste l'activite ENTIERE de la journee, retro-ingenierie et conversation comprises. Le rapport
+  <em>context / commit</em> se lit donc comme «&nbsp;ce que coute le projet par commit livre&nbsp;»,
+  et vaut comme tendance d'une periode a l'autre, jamais comme prix unitaire.</p>
   <p><strong>Les lignes de commits comptent le churn.</strong> Un module scinde compte N ajouts
   et N suppressions pour zero code neuf. La croissance nette de l'arbre sur la fenetre, elle,
   annule ce bruit&nbsp;: <code>{esc(net)}</code>. C'est ce chiffre-la qui mesure ce qui a
@@ -362,9 +374,18 @@ d'un cout de livraison qu'on puisse etablir. Les colonnes se trient, les pastill
   symboles generee, pas du code ecrit.</p>
   <p><strong>{len(prs) - data["joined"]} PR sur {len(prs)} n'ont pas d'agent identifie.</strong>
   Leur branche n'est pas celle d'un worktree (<code>agent/192-sense-of-stone</code>,
-  <code>case-n8b-endturn-order</code>)&nbsp;: la jointure passe par le nom de branche, et ces
-  PR-la ont ete poussees autrement. Elles restent comptees partout ailleurs &mdash; une PR sans
-  agent identifie reste une PR &mdash; et le filtre <em>sans agent</em> les isole.</p>
+  <code>feat/113-votann-lot1</code>)&nbsp;: la jointure passe par le nom de branche, et ces PR-la
+  ont ete poussees autrement. Ce sont des PR d'agent quand meme &mdash; les exclure du perimetre
+  amputait de 46 commits bien reels &mdash; donc elles comptent partout, et le filtre
+  <em>sans agent</em> les isole. <code>--strict-agent</code> donne la lecture etroite.</p>
+  <p><strong>Un aller-retour de rebase ne compte pas deux fois.</strong> Quand une PR repart chez
+  son agent pour etre rebasee, elle revient sur un master qui a bouge&nbsp;: deux PR mergees coup
+  sur coup peuvent alors revendiquer les memes commits &mdash; 831 revendications pour 816 commits
+  distincts, soit 13 commits reclames deux ou trois fois. Chacun n'est compte qu'une fois, pour la
+  <em>premiere</em> PR qui l'a fait entrer. Verifie par ailleurs&nbsp;: aucune branche ne porte
+  deux PR, aucun contenu n'est reapplique sous un autre SHA (<code>git patch-id</code>), et aucune
+  des PR fermees sans merge n'a vu sa tache remergee sous un autre numero. Ce que ces
+  allers-retours coutent vraiment est en <em>tokens</em>, dans le transcript de l'agent repris.</p>
   <p><strong>Pour rafraichir</strong>&nbsp;: relancer
   <code>python scripts/python/repo_board.py</code>, puis recharger l'onglet. La page lit des
   transcripts qui vivent sur le disque local et elle est servie depuis un bac a sable&nbsp;: elle

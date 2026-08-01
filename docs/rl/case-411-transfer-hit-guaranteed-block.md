@@ -1,9 +1,12 @@
-# case-411 — `DealDamageInfo[+0x1D]` : l'écrivain est le TRANSFERT DE COUP, et il est CONFRONTABLE
+# case-411 — `DealDamageInfo[+0x1D]` : le TRANSFERT DE COUP, RE fermée et PORTÉ
 
 > Résidu nommé en §7 de `case-407` : « le premier n'a pas de porteur identifié ». **Il en a deux.**
 > L'écrivain est `IdunBattle.Operations.TransferHitOperation$$Execute` ; ses deux seuls déclencheurs
-> DSL sont `DrawFireAbility` (1109) et `PrimarchOfTheFirstLegionAbility` (1511). La mécanique est
-> **confrontée live** (§4). Le PORT reste ouvert — deux inconnues de RE nommées en §6.
+> DSL sont `DrawFireAbility` (1109) et `PrimarchOfTheFirstLegionAbility` (1511).
+>
+> **État (#411-r1)** : les deux inconnues de RE sont **FERMÉES** (§6), une affirmation de §2 est
+> **RÉFUTÉE** (§6.3), et **`DrawFire` est PORTÉ et confronté** (§5). `PrimarchOfTheFirstLegion`
+> reste NON PORTÉ, délibérément (§7).
 
 ## 1. La chaîne, lue de bout en bout
 
@@ -64,9 +67,11 @@ return Math.Max(0, d)
 ⇒ **un coup transféré ne consomme NI tirage d'évasion NI tirage de block** — la même signature RNG
 que l'exclusion par la failed-list de `case-407`, mais obtenue par un chemin entièrement différent.
 Il compte malgré tout comme un BLOCK (`didBlock = 1` → `OperationResult[+0x22]` → `RegisterBlocks`
-→ `ActorStatisticsComponent$$RegisterBlockMade`) et il éteint le crit du RESTE de l'attaque
-(`msg[+0x29] = 1` est relu par tous les coups suivants de la même série, qui sautent alors
-`RollCritical` : **un tirage crit de moins par coup restant**).
+→ `ActorStatisticsComponent$$RegisterBlockMade`).
+
+⚠ `msg[+0x29] = 1` (posé par la même branche) **n'éteint PAS le crit du reste de l'attaque** — la
+struct est passée par VALEUR et l'écriture arrive APRÈS le gate crit. Démonstration et canal réel
+(`OngoingHitGroup+0x3c`, déjà porté) : §6.3.
 
 ## 3. L'écrivain, nommé
 
@@ -162,54 +167,171 @@ l'identique sur deux sessions Frida distinctes (7 puis 8, même build `rnca9r7q6
 bit-identiques.** Le verdict « pas de porteur identifié » de `case-407` §7 est donc levé, et
 « dead code » est réfuté par la mesure.
 
-## 5. État du PORT
+## 5. Le PORT — LIVRÉ (#411-r1)
 
-**Non porté.** Le moteur ne modélise ni `TransferHit`, ni le `PendingHit` : `grep` rend zéro sur
-`TransferHit` / `pending_hit` dans `scripts/python/engine`. Conséquence : `+0x1D` est aujourd'hui
-**inatteignable** dans le port — rien n'efface jamais de `PendingHit`, donc la route de garantie
-n'est jamais prise, et le port est *localement* correct tant que 1109/1511 n'y entrent pas.
+`DrawFire` (1109) est porté, sur le foyer que #366-r1 avait ouvert : l'intercepteur per-coup
+d'`ExecuteHit`. Trois pièces, chacune à sa place native :
 
-Garde de câblage : `tests/engine/test_411_transfer_hit_wiring_offline.py` (4 verts + 1 skip
-tri-état). Elle verrouille les trois données périssables (ids d'enum, porteurs, absence
-d'invocateur) et le **montage** de greffe ; son 5ᵉ test est l'invariant : *si* 1109 ou 1511 entre
-dans `ABILITY_TRIGGERS`/`CUSTOM_TRIGGERED_ABILITIES`, l'intercepteur per-coup DOIT exposer la route
-de garantie. Sans elle, un port de `TransferHit` ferait tirer le block d'un coup transféré alors que
-le natif ne tire pas — désynchronisation SILENCIEUSE de tout le flux RNG de l'attaque à partir de
-ce coup.
+| pièce | fichier | ce qu'elle mirrore |
+|---|---|---|
+| `guaranteed_block` | `engine/services/damage_combat.py` | la branche `else` de `CalculateDamageOperation` — slot 4 `ApplyBlockDamage`, `didBlock` en dur, **0 tirage** |
+| `_transferred(idx)` | `engine/runner/operations/damage_hits.py` | l'étape 5 d'`ExecuteHit`, branche `!HasValue` : dégât 0, resolve sur `[0,0]`, extinction du crit |
+| `DrawFireTransfer` | `engine/runner/operations/triggers/loki/draw_fire.py` | `CreateTrigger` (les 5 gates) + `CreateBehaviour` (la feuille `TransferHit`) |
 
-Le foyer d'accueil existe déjà : `HarlequinsPanoplyHitInterceptor.should_discard(idx)`
-(`operations/damage_hits.py`, étape 5 d'`ExecuteHit`) est **exactement** le point où `+0x1D` se
-décide. Le port se pose là, à côté du `discard`, pas ailleurs.
+**La sous-attaque est une RE-ENTRÉE** dans `AttackDamageOperation.execute` contre le porteur —
+donc aucun montant recopié, aucun scalaire ajusté : la base du coup transféré est la stat `Attack`
+brute, exactement ce que recalcule `_reduced_bounds` (§6.1). Le levier
+`skip_hit_count_query` porte `AttackDamageOptions[+0x28]` ; il vaut `False` par défaut, donc
+**strictement no-op** sur tous les chemins existants.
 
-## 6. Ce qui MANQUE pour porter (deux inconnues de RE, nommées)
+**L'anti-récursion est HÉRITÉE du natif, pas ajoutée** : la sous-attaque repart à `hit_index 0`,
+donc `AmountIsOdd` y est faux.
 
-1. **La base de dégât de l'attaque de transfert.** `TransferHitOperation` rejoue
-   `AttackDamage(caster, transferTarget, opts)` avec `opts.damage = HitDamage(hit.damage)`, où
-   `hit.damage` est la sortie de `HitDamage$$GetDamage` en TÊTE d'`ExecuteHit` — pour une attaque
-   NORMALE, la struct y est dégénérée (`Attack, Attack`), donc une valeur **brute** (pré-armure,
-   pré-perçage). Reste à lire `IdunBattle.Operations.AttackDamageOperation$$Execute` /
-   `$$GetHitDamage` pour savoir si cette borne unique subit encore le `DamageSpreadPercentage` et si
-   le coup transféré peut critiquer. **Ne pas ajuster ce paramètre sur le scalaire `3488`** : c'est
-   exactement l'anti-patron « fitter un scalaire ».
-2. **Les trois octets d'options** posés après le ctor — `AttackDamageOptions[+0x28]`, `[+0x2E]`,
-   `[+0x50]` = 1. `IdunBattle.Operations.AttackDamageOptions$$.ctor(damage)` met tout à zéro de
-   `+0x10` à `+0x88` et ne copie que le `HitDamage` en `+0x00` : ces trois-là sont donc des
-   intentions explicites (au moins l'une doit interdire la re-transmission du coup transféré, sans
-   quoi deux porteurs adjacents boucleraient). Le mapping se lit dans
-   `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget` /
-   `AttackDamageOperation$$Execute`.
+### Ce que la confrontation a mesuré
 
-Un troisième point, mesurable et non mesuré : le coup transféré consomme-t-il quand même le tirage
-du slot 8 (`RandomlyResolveMinMaxDamage`, appelé sans garde de largeur par la sub-op 0x42) sur une
-cellule `[0,0]` ? La lecture dit oui ; aucun capteur ne l'a confirmé.
+`probe_411r1_transfer_port.py` — port et natif sur le MÊME état pré-attaque, bras TÉMOIN sans
+greffe. Deux couples (board, seed) : `MC1_67`/31337 et `C3_01`/777, chiffres natifs distincts,
+verdict identique.
+
+```
+                        NATIF                    PORT (per-coup)
+TEMOIN   victim=3433  carrier=0        [14, 14, 142, 100, 44, 112]   24 tirages
+GREFFE   victim=1730  carrier=1608     [14,  0, 103,   0, 112,   0]  30 tirages
+```
+
+Le check de fond n'est pas un scalaire mais le **ledger de tirages** : `rng_draws = 2 × (resolve +
+block_rolls)`. Bras greffé = **9 resolve** (6 coups + 3 sous-attaques) et **6 tirages de block**
+(3 coups pairs + 3 sous-attaques). Si les coups transférés roulaient leur block, on lirait **9**.
+C'est la propriété portée, mesurée et falsifiable.
+
+⚠ **Écart d'échelle port/natif, PRÉ-EXISTANT et hors périmètre** : le port sous-estime le total
+(426 contre 3433 sur le bras TÉMOIN, où aucun chemin #411 n'est actif). Le témoin le prouve
+pré-existant ; les **ratios** sont cohérents (greffé/témoin : 0,504 natif contre 0,538 port ;
+victime/porteur : 0,904 natif contre 0,935 port). À investiguer séparément —
+`necroDestroyer` vs `astraBullgryn`, régime `--block-target 100,500`.
+
+### Gardes
+
+* `tests/engine/test_411r1_transfer_port_offline.py` — **17 tests**, qui comptent les TIRAGES et
+  pas seulement les dégâts. **4 mutants tués** (route garantie qui roule le block → 7 rouges ;
+  câblage débranché → 3 ; coup transféré remis dans la chaîne aléatoire → 2 ; crit non éteint → 1).
+* `tests/engine/test_411_transfer_hit_wiring_offline.py` (#452) reste, et **skippe toujours** :
+  son invariant interroge `ABILITY_TRIGGERS`, or ce port passe par l'intercepteur — le bus du port
+  émet `On(6)`/`On(7)` une fois par ATTAQUE, `DrawFire` se déclenche par COUP. C'est le même choix
+  qu'`HarlequinsPanoply`, pour la même raison. L'invariant garde donc la voie registre, la nouvelle
+  garde couvre la voie livrée.
+
+## 6. Les deux inconnues — FERMÉES (#411-r1)
+
+### 6.0 Le fait structurant : le « message » d'`ExecuteHit` EST `AttackDamageOptions`
+
+`IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` passe à `ExecuteHit` une **copie des
+0x90 octets** de la struct d'options. Tous les `msg[+0x2x]` de §1/§2 sont donc des champs
+d'`AttackDamageOptions`, et `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget`
+les remplit depuis `AttackDamageBehaviour+0x98..0x9e` (packing lu : `+0x28←b+0x9b`, `+0x29←b+0x99`,
+`+0x2a←b+0x9a`, `+0x2b←b+0x9c`, `+0x2c←b+0x9d`, `+0x2e←b+0x98`, `+0x2f←b+0x9e` ; `+0x2d` reste 0,
+`AttackDamageOperation$$Execute` l'écrit lui-même à `1` après la 1ʳᵉ série). Ce mapping était déjà
+porté dans `operations/damage_hits.py` (`force_crit` = octet `+5` du `Nullable<AttackOptions>`).
+
+### 6.1 La base de dégât du coup transféré — AUCUN second tirage
+
+`IdunBattle.Core.HitDamage$$.ctor(damage)` (la surcharge à **un** argument, dont `TransferHit` est
+le SEUL appelant de code) pose `min = max = damage` et `damageCap = null`. Or
+`IdunBattle.Core.HitDamage$$GetDamage(random, ignoreSpread)` commence par
+
+```
+if (min == max) return min;                       // sortie IMMEDIATE, `random` jamais touche
+if (ignoreSpread)  return (max + min) / 2;
+return random.Range(min, max + 1);                // 1 tirage
+```
+
+⇒ **le coup transféré ne refait AUCUN spread** — sa base est exactement `hit.damage`, la valeur de
+tête d'`ExecuteHit` sur la cible ORIGINALE (pour une normale, struct dégénérée `(Attack, Attack)`,
+donc la stat brute pré-armure/pré-perçage). Cette base repasse ensuite **tout** le pipeline contre
+le PORTEUR (armure, perçage, %-mods, limites), ce qui explique que `3488 != 3153` sans qu'aucun
+scalaire n'ait à être ajusté.
+
+**Le coup transféré PEUT criter** : rien dans les options du transfert ne pose `+0x29` (never crit)
+ni `+0x2c` (always crit), donc son `ExecuteHit` exécute le gate crit normalement et **tire son
+`RollCritical`** sur le porteur.
+
+**Il vaut exactement 1 coup** : `GetAttackHits` lit `options[+0x18]` (`Nullable<int> hits`), laissé
+à zéro par le ctor ⇒ `HasValue == false` ⇒ compte de base `1`.
+
+### 6.2 Les trois octets — nommés par leur LECTEUR
+
+| octet | lecteur unique | effet |
+|---|---|---|
+| `+0x28` | `AttackDamageOperation$$GetAttackHits` : `if (options[+0x28] != 0) return <compte brut>` | **court-circuite la requête de modificateurs de nombre de coups** (slot `0xb6` de `BattleQuery`). Le coup transféré reste à 1 coup quoi qu'il arrive — ni LightCover `-2`, ni bonus |
+| `+0x2E` | `ADamageOperation$$GetCurrentAttackOrDefault` — **le paramètre PORTE CE NOM dans la métadonnée : `isOutsideAttack`** : `slot = isOutsideAttack ? 201 : 200` | le coup transféré s'exécute dans une attaque **SÉPARÉE**, pas dans l'`OngoingAttack` du frappeur. Aussi passé à `ExecuteAdditionalHitsWithoutDamageProfileType` |
+| `+0x50` | `AttackDamageOperation$$Execute` : `if (options[+0x50] == 0 && attack[+0x34] == 1) ExecuteAdditionalHitsWithoutDamageProfileType(...)` | **pas de coups additionnels** pour le coup transféré |
+
+**Réponse à « lequel interdit la re-transmission » : AUCUN des trois, directement.** Le dispatch
+`On(7)` du coup transféré est inconditionnel — rien ne l'éteint. Ce qui rompt la chaîne est
+**`+0x2E`**, et indirectement : l'attaque séparée repart avec son propre compteur de coups
+(`attack+0x30` = `CurrentHitIndex`, cf. `Entities.Formulas.CurrentHitIndexFormula$$Calculate`),
+donc à `0` — et le prédicat `AmountIsOdd(CurrentHitIndex)` de `DrawFire` est **faux sur 0**.
+⚠ La garde est donc **propre au prédicat de l'ability**, pas au mécanisme : une ability de
+transfert sans gate de parité boucle. `PrimarchOfTheFirstLegion` n'a pas d'`AmountIsOdd` — sa garde
+reste **NON LUE**. Non lu également : si le slot `201` rend une attaque NEUVE à chaque transfert ou
+une attaque « outside » réutilisée.
+
+### 6.3 Correction de §2 — le crit du RESTE de l'attaque
+
+« `msg[+0x29] = 1` éteint le crit du reste de l'attaque, un tirage crit de moins par coup restant »
+est **FAUX**, pour deux raisons lues :
+
+1. **`options` est passé par VALEUR.** `ExecuteHits` recharge sa copie depuis la struct d'origine
+   **avant chaque** `ExecuteHit` ; l'écriture d'`ExecuteHit` sur `+0x29` meurt donc avec l'appel.
+   Elle ne sert qu'aux relectures internes du même coup (construction de la `DealDamageInfo`).
+2. **Elle a lieu APRÈS le gate crit** — le `RollCritical` du coup transféré est déjà consommé quand
+   la relecture d'`UnitComponent+0x98` détecte le transfert.
+
+Le canal réel d'extinction est `OngoingHitGroup+0x3c` (`isCriticalDamageAllowed`), **déjà porté**
+(`crit_allowed` de `operations/damage_hits.py`) : `ExecuteHits` fait
+`options[+0x29] |= (hitGroup[+0x3c] == 0)` en tête de coup et remet `hitGroup[+0x3c]` à
+`options[+0x40] != null && Any(...)` — donc à `false` — dès qu'un coup **ne crite pas**. Un coup
+transféré rend `didCrit = 0`, il éteint donc le crit **exactement comme n'importe quel coup
+non-crité** : ce n'est pas un effet propre au transfert, et à `--crit 0,0` l'écart est nul.
+
+**Le seul effet RNG propre au transfert** est donc celui de §2 : le coup transféré ne consomme
+**ni tirage d'évasion ni tirage de block** sur la cible originale, tandis que l'attaque de
+transfert en consomme un jeu complet (crit + évasion + block + resolve) sur le porteur.
+
+### 6.4 Le tirage du slot 8 sur `[0,0]` — TRANCHÉ par la lecture
+
+`ExecuteHit` n'appelle **aucun** slot 8 : la construction de la `DealDamageInfo` s'achève par la
+sub-op `0x42` (`FUN_180028580(&., 0x42, ..)`), et c'est `DealDamage` qui enchaîne
+`CalculateDamageOperation` puis `RandomlyResolveMinMaxDamage`. La branche transfert pose
+`damage = 0` **en amont** de cette sub-op (`this[+0x34] = local_res10`), donc la cellule est
+dégénérée et le resolve tourne dessus — sans gate de largeur, exactement comme `case-221`.
+⇒ **un tirage consommé, valeur 0**. Le port le fait (`rng.next_internal(0, 1)`), et le ledger de
+§5 le confirme indirectement : le bras greffé compte **9** resolve pour 6 coups + 3 sous-attaques.
 
 ## 7. Ce qui n'est PAS couvert
 
-* **`PrimarchOfTheFirstLegionAbility`** : arbre lu, non confronté (seul porteur `darkaBossLion`, npc
-  — la même greffe s'y applique, non jouée).
+* **`1511 PrimarchOfTheFirstLegion` — NON PORTÉ, délibérément.** Arbre lu, jamais confronté. Son
+  `transferTarget` sort d'un `AdjacentFriends → UnitsFromFaction(0xa) → Randomize → SortByFormula
+  → First` : le `Randomize` **consomme du RNG** et l'ordre du pool source n'est pas lu. Le porter
+  sans cette lecture donnerait un port au flux RNG faux — c'est-à-dire pire que pas de port. Il
+  ajoute en plus un `AddEffect(1523)`. Seul porteur `darkaBossLion` (npc) : la même greffe s'y
+  applique, non jouée.
 * **La face ABILITY** : `AbilityDamageOperation$$ExecuteHit` pose lui aussi un `PendingHit`, donc
-  `+0x1D` y est atteignable ; non confronté.
-* **La collision `discard` × `transfer`** sur un même coup (`On(6)` pose `discard = 1`, `On(7)`
-  efface le Nullable ⇒ la branche `!HasValue` gagne) : lue, jamais exercée.
+  `+0x1D` y est atteignable. Le port CÂBLE la branche dans les deux vecteurs de `_run_hits` (le
+  mirror est le même), mais **elle n'est pas confrontée** de ce côté.
+* **La collision `discard` × `transfer`** sur un même coup : l'ORDRE est désormais porté (le
+  transfert gagne — `On(7)` efface le Nullable, la relecture teste `HasValue` en premier) et gardé
+  par un test, mais jamais exercée LIVE : elle exige un porteur `HarlequinsPanoply` et un porteur
+  `DrawFire` sur le même coup. Écart connu quand le transfert gagne : le port n'exécute pas le
+  behaviour de pose du discard (qui consommerait le marqueur 1227).
+* **`options[+0x50]`** : aucun gate posé. Le port FUSIONNE les deux voies natives de coups
+  additionnels dans `execute_additional_hits`, alors que `+0x50` ne gate que
+  `ExecuteAdditionalHitsWithoutDamageProfileType`. En poser un SUR-APPLIQUERAIT le natif. Écart :
+  un coup transféré d'un attaquant portant des coups additionnels SANS profil en jouerait.
+* **Plusieurs porteurs adjacents au même défenseur** : le natif évalue le trigger PAR PORTEUR, donc
+  plusieurs `TransferHit` sur le même coup. Le port rend UN porteur (l'id le plus petit) — l'ordre
+  d'abonnement natif n'est pas lu.
 * **`ownerNeedsToBeAlive`** de `On(7)` : l'argument est le retour d'un virtuel de la classe
-  d'ability (slot `+0x298`), non résolu.
+  d'ability (slot `+0x298`), non résolu. Le port exige le porteur vivant (choix conservateur).
+* **L'écart d'échelle port/natif** mesuré en §5 (426 contre 3433 sur le TÉMOIN) : **pré-existant**,
+  hors périmètre #411, non diagnostiqué.

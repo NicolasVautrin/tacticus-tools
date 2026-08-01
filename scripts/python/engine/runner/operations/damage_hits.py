@@ -340,7 +340,8 @@ class _DamageHitsMixin:
                 rest -= flat                                # #91 : reduction CAPEE defenseur (scalaire)
             return shield_part, max(0, rest)                # `Fix64.Max(., 0)`
 
-        def _one_hit_tail(idx: int, crit: bool, roll: int) -> bool:
+        def _one_hit_tail(idx: int, crit: bool, roll: int,
+                          guaranteed_block: bool = False) -> bool:
             """Queue PARTAGÉE d'un coup : split combat (sub-op 0x42) + comptabilité + Maybe GetStuckIn.
             #72 : mirror `IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances(param_4=failedList) -> une source de block
             AYANT ECHOUE a un coup precedent est EXCLUE des coups suivants (Contains(failedList, id)) ;
@@ -357,7 +358,7 @@ class _DamageHitsMixin:
             # -> 0 tirage, degat inchange. Le jour ou un porteur apparait, c'est ICI qu'il se cable.
             dmg: Damage = calculate_damage_operation(
                 roll, shield=shield, armor_pool=armor_pool, armor_pct=armor_pct,
-                block_sources=hit_block, rng=rng)
+                block_sources=hit_block, guaranteed_block=guaranteed_block, rng=rng)
             failed_block.update(dmg.failed_block_ids or [])
             shield = max(0, shield - dmg.shield)
             armor_pool = max(0, armor_pool - dmg.armor)
@@ -425,6 +426,38 @@ class _DamageHitsMixin:
                 per_hit_health.append(0)
                 return True
 
+            def _transferred(idx: int) -> bool:
+                """#411 -- la branche JUMELLE de `_discarded`, au MEME point d'`ExecuteHit` (la
+                relecture d'`UnitComponent+0x98` juste apres l'emission d'`On(6)` puis `On(7)`),
+                mais sur `!HasValue` au lieu de `HasValue && discard` : le `PendingHit` a ete
+                EFFACE par `IdunBattle.Operations.TransferHitOperation$$Execute`.
+
+                DIFFERENCE CAPITALE avec le discard : le natif NE SORT PAS. Il pose `damage = 0`,
+                arme `msg[+0x29]`, construit `critInfo = {0,0,0}` et `DealDamageInfo[+0x1D] = 1`,
+                puis appelle la sub-op `0x42` NORMALEMENT. D'ou les trois consequences portees :
+                  * le resolve slot 8 tourne sur une cellule `[0,0]` -> **1 tirage quand meme**
+                    (`IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`
+                    n'a AUCUN gate de largeur -- meme raison que case-221) ;
+                  * `CalculateDamageOperation` prend la route `guaranteed_block` -> **0 tirage**
+                    de block, **0** d'evasion, `didBlock = 1` pose en dur (cf.
+                    `services/damage_combat.py`) ;
+                  * le coup rejoint le meme label que le chemin « n'a PAS crite », donc il eteint
+                    `OngoingHitGroup+0x3c` comme n'importe quel coup non-crite.
+
+                L'APPEL LUI-MEME lance l'attaque de transfert sur le porteur (le natif l'execute
+                DANS le dispatch d'`On(7)`, donc AVANT le resolve du coup courant) : l'ordre des
+                tirages en depend.
+
+                ⚠ ORDRE vis-a-vis de `_discarded` : la COLLISION `discard` x `transfer` sur un
+                MEME coup est tranchee par le natif en faveur du TRANSFERT -- `On(6)` pose
+                `discard = 1` dans le Nullable, `On(7)` EFFACE le Nullable, et la relecture teste
+                `HasValue` en premier : elle voit donc `!HasValue`. D'ou l'appel a `_transferred`
+                AVANT `_discarded`. Ecart nomme : quand le transfert gagne, le port n'execute pas
+                le behaviour de pose du discard (qui consommerait le marqueur 1227). Cas de bord
+                JAMAIS exerce -- il exige un porteur `HarlequinsPanoply` et un porteur `DrawFire`
+                sur le meme coup."""
+                return hit_interceptor is not None and hit_interceptor.should_transfer(idx)
+
             if post_roll is not None:
                 # VECTEUR ABILITY bounds-mode (roll-then-reduce) — ordre natif ExecuteHit :
                 # (1) VALEUR = tirage BRUT dans les bornes config (GetDamage-top, struct min<max).
@@ -432,6 +465,12 @@ class _DamageHitsMixin:
                 # (2) crit-roll APRÈS le tirage de valeur (gate cc<1 -> 0 tirage, cf. bloc ci-dessus).
                 # `force_crit` = flag options+5 : le natif SAUTE `RollCritical` -> crit acquis, 0 tirage.
                 crit = _roll_crit(idx)
+                if _transferred(idx):             # #411 : face ABILITY (NON CONFRONTEE, cf. §7)
+                    _crit_allowed[0] = False
+                    crits.append(crit)
+                    roll = rng.next_internal(0, 1) if is_attack_damage_op else 0
+                    rolls.append(roll)
+                    return _one_hit_tail(idx, crit, roll, guaranteed_block=True)
                 if _discarded(crit):              # `ExecuteHit` etape 5 (cf. `_discarded`)
                     _crit_allowed[0] = False      # OperationResult memset 0 -> +0x21 = 0
                     return False
@@ -478,6 +517,12 @@ class _DamageHitsMixin:
                     rng.next_internal(max(0, roll), max(0, roll) + 1)
                 return _one_hit_tail(idx, crit, roll)
             crit = _roll_crit(idx)
+            if _transferred(idx):                 # #411 : `ExecuteHit` etape 5, branche !HasValue
+                _crit_allowed[0] = False          # meme label que « n'a pas crite »
+                crits.append(crit)
+                roll = rng.next_internal(0, 1) if is_attack_damage_op else 0
+                rolls.append(roll)
+                return _one_hit_tail(idx, crit, roll, guaranteed_block=True)
             if _discarded(crit):                  # `ExecuteHit` etape 5 (cf. `_discarded`)
                 _crit_allowed[0] = False          # OperationResult memset 0 -> +0x21 = 0
                 return False

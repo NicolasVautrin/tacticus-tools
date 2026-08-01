@@ -77,10 +77,20 @@ def run_window(seed: int, evasion_chance: int, model: str, block_chance: int = 2
     try:
         if model == "legacy":
             def _legacy(raw_dmg, *, shield=0, armor_pool=0, armor_pct=0, block_sources=None,
-                        evasion_chance=0, rng=None):
+                        evasion_chance=0, guaranteed_block=False, rng=None):
                 """Le port d'AVANT #407-r1, verbatim : `if evasion_branch: ... elif block: ...`
                 avec `evasion_branch` TOUJOURS `False` cote appelant -> l'esquive n'est jamais
-                evaluee et ne consomme rien, quelle que soit `evasion_chance`."""
+                evaluee et ne consomme rien, quelle que soit `evasion_chance`.
+
+                `guaranteed_block` (#411-r1) est accepte mais JAMAIS exerce ici : ce probe monte
+                `_run_hits` SANS intercepteur, donc aucun coup n'est transfere. Le declarer plutot
+                que l'avaler par `**kw` est deliberé -- c'est la DERIVE DE SIGNATURE de `case-393`
+                (une substitution qui prend `**kw` accepte silencieusement un parametre qu'elle
+                ignore, et la contre-epreuve se met a tester autre chose). L'assertion ci-dessous
+                fait rougir le jour ou ce probe exercerait vraiment la branche."""
+                assert not guaranteed_block, (
+                    "ce probe n'exerce pas la branche #411 (block garanti) -- si elle est atteinte, "
+                    "le modele `legacy` ne la modelise pas et le verdict serait faux")
                 d = DC.Damage()
                 remaining = raw_dmg
                 if shield > 0:
