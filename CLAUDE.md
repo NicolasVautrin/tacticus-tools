@@ -214,6 +214,16 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   (`--dist loadfile` OBLIGATOIRE : sans lui xdist répartit les *tests* et chaque worker
   reconstruit le runner du module). **Pas plus de 4** : le rendement tombe à 23 % dès 6 workers,
   et le pump est partagé avec les autres agents.
+- **Le plafond de 4 borne ce qui MONTE UN RUNNER, pas la parallélisation.** C'est le critère :
+  runner/RPC → 4 max (pump partagé) ; **purement offline → autant que le CPU**. Les 9 cliquets
+  sont dans le second cas — mesuré le 2026-08-01 à `ThrottleLimit 9` : **162 s de mur contre
+  ~300 en série**, 0 rouge. Le mur EST `probe_273 --only-scan` (161,9 s à lui seul, plus que les
+  huit autres réunis) : au-delà de ~2× il n'y a rien à gagner par cette voie (tâche #409).
+  ⚠ Deux probes lancés ENSEMBLE qui portent le même littéral de state-file se marchent dessus —
+  **4 groupes, 16 probes sur 526** (`_49gnt`, `_32ct`, `state.json`, `_57h`). Non bloquant : les
+  108 porteurs de littéral acceptent tous `--state-file`, donc un chemin explicite dissout la
+  collision. Les 264 probes qui prennent leur chemin *uniquement* par argument ne sont isolés que
+  si l'appelant leur en donne un distinct.
 
 ## Ne jamais
 
