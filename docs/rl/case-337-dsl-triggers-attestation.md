@@ -84,11 +84,11 @@ auto-portants) -- dont le cliquet de livraison « `DSLTriggers` ne contient plus
   `get_OwnerOrOwnerTileIsTarget` (6). (`DamageProfileIs` y figurait : c'etait un FAUX NEGATIF de
   l'outil, tranche depuis -- cf. #392 ci-dessous.)
 
-## Suite #392 -- DEUX primitives, meme mecanisme
+## Suite #392 / #393 -- TROIS primitives, meme mecanisme
 
-Le cliquet de livraison a rougi DEUX fois pendant la meme tache, sur deux primitives que le port
-CITE sans que l'outil sache les attribuer. La forme est identique et vaut d'etre retenue : **une PR
-qui ajoute une CITATION d'artefact natif dans `engine/**` peut faire basculer une primitive de
+Le cliquet de livraison a rougi TROIS fois depuis #337, sur des primitives que le port CITE sans
+que l'outil sache les attribuer. La forme est identique et vaut d'etre retenue : **une PR qui
+ajoute une CITATION d'artefact natif dans `engine/**` peut faire basculer une primitive de
 `NON_PORTE` (aucune trace) a `CITE_A_QUALIFIER`** -- sans rien casser, et sans que son auteur le
 voie, puisque chaque PR est verte a SA base. Le cliquet est le seul endroit ou ca se voit.
 
@@ -96,9 +96,11 @@ voie, puisque chaque PR est verte a SA base. Le cliquet est le seul endroit ou c
 |---|---|---|
 | `DamageProfileIs` | `635a3431` (#372, DefenderOfTheGreaterGood) | `PORTE_HORS_FACADE` -- cf. ci-dessous |
 | `IsEffectTarget` | #418 (`1014 CamoCloak_DmgReduction`) | `PORTE_HORS_FACADE` -- les 2 ecarts de `#418-r1` sont FERMES (`case-418-r1-is-effect-target.md`) : geometrie indexee PAR effectType, et le regime << apres deplacement, avant refresh >> ne diverge pas |
+| `HasBlockedThisTurn` | #426 (`1227 HarlequinsPanoply`) | `PORTE_HORS_FACADE` -- cf. §#393 |
 
-Dans les deux cas, le `NON_PORTE` d'avant etait un FAUX NEGATIF : les deux primitives etaient
-portees, collapsees en imperatif, et invisibles a toute heuristique de nom.
+Dans les TROIS cas, le `NON_PORTE` d'avant etait un FAUX NEGATIF : les primitives etaient portees,
+collapsees en imperatif, et invisibles a toute heuristique de nom. **Le taux est desormais de 3/3 :
+sur cette famille, un `NON_PORTE` qui BASCULE en `CITE_A_QUALIFIER` n'a jamais signifie « absent ».**
 
 ### `DamageProfileIs`, la 166e
 
@@ -130,3 +132,39 @@ primitive est portee sur ~30 sites, tous collapses en gates imperatifs.
   -> profil absent = predicat faux = reduction appliquee, exactement le `HasValue` natif.
 * Apres desambiguisation de famille, `DSLTriggers$$Direct` tombe a **1 ability / 1 confrontable** :
   les 149/101 du classement appartiennent a `DSLFormulas$$Direct`, pas a lui.
+
+## #393 -- `HasBlockedThisTurn`, la 3e bascule
+
+Le cliquet a rougi sur `master` le 2026-08-01 : `['HasBlockedThisTurn']`. Bascule datee : **#426**
+(`1227 HarlequinsPanoply`) introduit `engine/runner/operations/triggers/loki/harlequins_panoply.py`
+et le bloc `blocks_made_this_turn` de `engine/runner/components.py`, dont les docstrings citent la
+primitive -- premiere trace captable, donc `NON_PORTE` -> `CITE_A_QUALIFIER`.
+
+**Verdict : `PORTE_HORS_FACADE`.** Le decompile ne laisse aucune marge :
+
+* `IdunBattleLogic.Entities.DSLTriggers$$HasBlockedThisTurn(unit)` a **deux appels et rien
+  d'autre** : `AmountIsGreaterThanZero(DSLFormulas$$TimesBlockedThisTurn(unit))`.
+* **UN SEUL consommateur natif**, mesure par xref -- `IdunBattleLogic.Entities.Abilities.Triggered.
+  Loki.HarlequinsPanoplyAbility$$CreateTrigger`, qui lui passe `DSLSelectors+0x60` = Target (les
+  deux autres xrefs sont des entrees DATA de metadata). C'est ce qui distingue ce cas d'
+  `IsEffectTarget` (#418-r1), generique avec **5 consommateurs decouverts** : ici il n'y a rien a
+  decouvrir, la primitive est mono-consommateur.
+* Port : le gate `if _blocks_made_this_turn(state, self.owner_id) > 0: return False` de
+  `HarlequinsPanoplyAbility.matches` -- le `> 0` EST l'`AmountIsGreaterThanZero`. Sur ce vecteur
+  `owner == target`, donc `self.owner_id` est bien le `Target@+0x60` natif.
+* La chaine de donnees est mirroree des **trois** cotes, et c'est ce qui rend le verdict solide
+  plutot que nominal :
+
+  | | natif | port |
+  |---|---|---|
+  | ECRITURE | `ActorStatisticsComponent$$RegisterBlockMade` (`+0x8c += 1`), poussee par `ADamageOperation$$RegisterBlocks` que `AttackDamageOperation$$ExecuteHits` appelle **au retour** d'`ExecuteHit` | `register_block_made`, appelee par `HarlequinsPanoplyHitInterceptor.on_blocked` **apres** l'evenement -- c'est cet ORDRE qui rend le predicat FAUX au premier coup bloque du tour, donc le gate `NOT` VRAI |
+  | RESET | `ActorStatisticsComponent$$ResetBlocksMadeThisTurn` (`+0x8c = 0`), 3e instruction de la sequence de `StartTurnOperation$$ResetUnit` -- corps **INLINE** dans `StartTurnOperation$$Execute`, son unique site (aucun appel direct) | `operations/turnflow.py`, meme sequence, meme portee |
+  | LECTURE | `TimesBlockedThisTurnFormula$$Calculate` -> `+0x8c` | `_blocks_made_this_turn` |
+
+**Ce qui N'EST PAS ferme** (residu `#393-r1`, backlog) : `DSLFormulas$$TimesBlockedThisTurn` a
+bascule par la MEME citation et reste `CITE_A_QUALIFIER`. Sa RE est faite -- meme verdict, meme
+porteur -- mais l'inscrire violerait le perimetre que `test_337` DECLARE
+(`fams == {"DSLTriggers"}`) : elargir la table a une 2e famille est une decision de cadrage, pas de
+RE. Y est joint le seul ecart de mirror trouve : `RegisterBlockMade` incremente **deux** compteurs
+(`+0x8c` ce tour, `+0x88` la bataille) et le port ne mirroir que le premier -- `+0x88` n'est lu que
+par `BattleStatisticQuery$$GetTotalBlocksMadeByUnit`, sans pendant porte.
