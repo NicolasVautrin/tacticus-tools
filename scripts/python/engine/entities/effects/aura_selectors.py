@@ -17,6 +17,28 @@ from __future__ import annotations
 
 from typing import List
 
+#: Les `EffectType` dont la classe native derive d'`IdunBattle.Entities.Effects.Common.UntargetableEffect`
+#: ET dont le port a CONFRONTE la tranche -- FOYER UNIQUE de la non-ciblabilite cote port
+#: (`engine.ai.state_bridge._is_untargetable` le re-exporte).
+#:
+#: Le flag ne vient PAS de l'effet feuille : `UntargetableEffect$$ApplyInternal` fait
+#: `IdunBattle.Entities.Components.UnitFlagsComponent$$Add(0x11)` sur la CIBLE et `$$RevertInternal`
+#: le retire, pour TOUTE sous-classe. C'est donc un DOMAINE, pas une constante.
+#: Fermeture NATIVE du domaine (`data/symbols/<build>/frida/classes.tsv`, parent
+#: `UntargetableEffect`) : `ATeleportingEffect` -- 4 derivees, `1035 TeleportStrike_TeleportingIn`,
+#: `1140 StormboyzStrike_TeleportingIn`, `1238 FearOfTheUnseen_TeleportingIn`,
+#: `1573 TitanhammerSquad_TeleportingIn` -- et `JustSummonedEffect`.
+#: RESTENT DEHORS, et pour des raisons DISTINCTES :
+#:   * `1238` -- ses TRIGGERS sont portes (#448-r2c, merge) mais sa face DECISION ne l'est PAS :
+#:     cette tranche-la l'a explicitement laissee en RESIDU NOMME, hors de son perimetre. Elle
+#:     n'attend donc plus une tranche, elle attend une CONFRONTATION de ce canal -> #448-r2b-r1 ;
+#:   * `1573` -- arrive avec #448-r2d ;
+#:   * `JustSummonedEffect` (4 `EffectType` : 1, 1061, 1230, 1390) -- aucune tranche ouverte,
+#:     rayon de souffle a mesurer -> #448-r2b-r1.
+#: On n'inscrit que ce qui est porte ET confronte SUR CE CANAL : un ajout speculatif retirerait des
+#: cibles a l'IA sans mesure, et c'est une degradation SILENCIEUSE.
+UNTARGETABLE_EFFECT_TYPES = (1035, 1140)
+
 
 def hex_distance(a, b) -> "int | None":
     if not a or not b:
@@ -27,12 +49,16 @@ def hex_distance(a, b) -> "int | None":
 
 def is_targetable(state, unit_id: int) -> bool:
     """Volet `OnlyAliveAndTargetable` du `unitSelectionType = 3` : une unite en DEEP STRIKE
-    (`TeleportStrike_TeleportingIn`) n'est PAS ciblable, donc PAS selectionnee. Mesure live
-    (LionHelm, `docs/rl/` case Dark Angels) : `darkaTerminator` en teleport-in ne recoit RIEN."""
+    n'est PAS ciblable, donc PAS selectionnee. Mesure live (LionHelm, `docs/rl/` case Dark Angels) :
+    `darkaTerminator` en teleport-in ne recoit RIEN.
+
+    Le flag natif vient de la BASE `IdunBattle.Entities.Effects.Common.UntargetableEffect`
+    (`$$ApplyInternal` -> `UnitFlagsComponent$$Add(0x11)`), pas de l'effet feuille -- d'ou un
+    DOMAINE (`UNTARGETABLE_EFFECT_TYPES`, en tete de module) et non une constante."""
     if state.effects is None:
         return True
     for e in state.effects.by_unit.get(int(unit_id), []) or []:
-        if not e.consumed and e.name == "TeleportStrike_TeleportingIn":
+        if not e.consumed and int(getattr(e, "effect_type", -1)) in UNTARGETABLE_EFFECT_TYPES:
             return False
     return True
 

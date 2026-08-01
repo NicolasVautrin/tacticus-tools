@@ -53,14 +53,22 @@ from engine.utilities.move import UtilityMovementCase
 
 NORMAL_ATTACK_ID = int(ActiveAbilityType.NormalAttack)   # 17 (id synthetique offline ; cf. en-tete) #158
 TELEPORT_STRIKE_TELEPORTING_IN = int(EffectType.TeleportStrike_TeleportingIn)  # 1035 — effet deep-strike -> unite NON-CIBLABLE (#158)
+STORMBOYZ_STRIKE_TELEPORTING_IN = int(EffectType.StormboyzStrike_TeleportingIn)  # 1140 (#448-r2b)
+#: Domaine de `UntargetableEffect` (foyer unique : `engine.entities.effects.aura_selectors`).
+#: Le flag ne vient PAS de l'effet feuille -- `UntargetableEffect$$ApplyInternal` fait
+#: `IdunBattle.Entities.Components.UnitFlagsComponent$$Add(0x11)` sur la CIBLE pour TOUTE
+#: sous-classe. Contenu, fermeture native et residus : cf. le commentaire du foyer.
+from engine.entities.effects.aura_selectors import UNTARGETABLE_EFFECT_TYPES  # noqa: E402
 
 
 def _is_untargetable(state, uid: int) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$IsTargetable` = `!HasFlag(Untargetable=0x11)`. Signal OFFLINE du deep-strike :
-    une unite en cours de teleportation (effet `TeleportStrike_TeleportingIn` 1035) est non-ciblable jusqu'a son
-    atterrissage (ground truth live ds_landing). -> exclue de l'enumeration de cibles (attaque/ability)."""
-    return state.effects is not None and state.effects.has_effect(
-        uid, effect_type=TELEPORT_STRIKE_TELEPORTING_IN)
+    une unite en cours de teleportation est non-ciblable jusqu'a son atterrissage (ground truth live
+    ds_landing pour 1035 ; pour 1140 le porteur est en plus HORS PLATEAU). -> exclue de
+    l'enumeration de cibles (attaque/ability). Domaine : `UNTARGETABLE_EFFECT_TYPES` ci-dessus."""
+    if state.effects is None:
+        return False
+    return any(state.effects.has_effect(uid, effect_type=t) for t in UNTARGETABLE_EFFECT_TYPES)
 
 
 @functools.lru_cache(maxsize=1)
