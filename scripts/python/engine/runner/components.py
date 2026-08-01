@@ -516,22 +516,51 @@ class ShieldComponent(Component):
 
 
 class ForcedAttackTargetsComponent(Component):
-    """`IdunBattle.Entities.Components` — cibles d'attaque FORCÉES de l'unité (liste d'ids d'unité).
+    """`IdunBattle.Entities.Components` — cibles d'attaque FORCÉES de l'unité (liste d'ids d'entité).
 
     Posé/maj par `IdunBattle.Entities.Behaviours.AddForcedAttackTargetBehaviour$$Execute / retiré par
     `IdunBattle.Entities.Behaviours.RemoveForcedAttackTargetBehaviour$$Execute (le natif stocke des entity-ids dans une liste
     de composant bond @+0x50/+0x58). LU par `IdunBattle.Entities.Selectors.UnitForcedAttackTargetsSelector$$Select
-    (`GetOnlyTargets` → liste des cibles forcées) = le point où l'IA **doit** cibler ces unités en priorité
-    (cf. `GetAttackTarget` priorité `ForcedAttackTargets > nearest-enemy`, triggers.py). Deux sources :
-    Taunt (la cible est forcée d'attaquer le tauntant) et Instinctive Behaviour (hors Synapse → forcée
-    d'attaquer l'ennemi le plus proche). On clé par id d'UNITÉ (== ECS), comme le reste du runner."""
-    __slots__ = ("targets",)
+    et surtout par `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets` — le lecteur qu'interrogent
+    la RÈGLE DE CIBLAGE `TargetIsAllowedForCaster` (bit 23, cf.
+    `engine/runner/abilities/targeting.py::get_only_targets`), `TargetingQuery$$GetPossibleTargetsForOptions`
+    et `MovementActionGenerator.<FindClosestEnemy>d__8$$MoveNext` (l'IA **doit** cibler ces unités ;
+    cf. `GetAttackTarget` priorité `ForcedAttackTargets > nearest-enemy`, triggers.py).
 
-    def __init__(self, targets: Optional[List[int]] = None):
+    QUATRE ÉCRIVAINS NATIFS, relus (#436) :
+      1. `IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal` — **liste := [BondedEntityId]**
+         (REMPLACE, ne fusionne pas). C'est le TAUNT (effet 27 `Taunted_OnlySpecificTargets`).
+      2. `IdunBattle.Entities.Effects.TauntedEffect$$RevertInternal` — **liste := []** (vidée).
+      3. `AddForcedAttackTargetBehaviour$$Execute` — `Add` incrémental (unique constructeur :
+         `InstinctiveBehaviour_UpdateTargetAbility$$CreateBehaviour`, non porté).
+      4. `RemoveForcedAttackTargetBehaviour$$Execute` — `Remove` (porté : `RemoveAllForcedAttackTargets`).
+
+    `written_by` = l'INSTANCE d'effet dont l'écriture (voie 1) a produit la liste courante. Le port
+    matérialise ce lien parce que le NET natif « effet 27 retiré ⇒ liste vidée » (voies 1+2) est
+    maintenu côté natif par `DeactivateEffect -> RevertInternal`, par où passe TOUT retrait ; côté
+    port un effet peut disparaître par plusieurs chemins (`remove_effect_instance`, l'expiration de
+    timer d'`EffectsState.on_turn_end`, une poignée de `consumed = True` ad hoc) dont un seul est un
+    foyer. Une mutation posée au seul foyer serait DÉSYNCHRONISÉE, et une liste fantôme fait REFUSER
+    un cast que le natif accepte — dégradation RESTRICTIVE, l'exact inverse de la convention
+    permissive du gate de cible. `get()` honore donc `written_by.consumed`, ce qui rend le
+    `RevertInternal` quel que soit le chemin de retrait.
+
+    ⚠ ÉCART NOMMÉ : `RevertInternal` natif VIDE la liste entière (y compris ce qu'un `Add` de la
+    voie 3 y aurait mis) ; ici seule l'écriture de CET effet est annulée. Aucun porteur — la voie 3
+    n'a aucun écrivain porté (ses 23 porteurs sont les summons Tyranides à trait
+    `InstinctiveBehaviour`), donc les deux voies ne coexistent nulle part offline.
+
+    On clé par id d'UNITÉ (== ECS), comme le reste du runner."""
+    __slots__ = ("targets", "written_by")
+
+    def __init__(self, targets: Optional[List[int]] = None, written_by=None):
         self.targets: List[int] = list(targets) if targets else []
+        self.written_by = written_by
 
     def add(self, target_id: int) -> bool:
-        """Ajoute une cible forcée (idempotent). Renvoie True si ajoutée (absente avant)."""
+        """Ajoute une cible forcée (idempotent). Renvoie True si ajoutée (absente avant).
+        Mirror de la voie 3 (`AddForcedAttackTargetBehaviour`) : écriture INCRÉMENTALE, non liée à un
+        effet -> `written_by` reste ce qu'il est (aucun écrivain-effet ne coexiste, cf. l'écart nommé)."""
         if target_id in self.targets:
             return False
         self.targets.append(int(target_id))
@@ -553,7 +582,37 @@ class ForcedAttackTargetsComponent(Component):
         self.targets = new
         return {"added": added, "removed": removed}
 
+    def set_from_effect(self, effect, target_ids: List[int]) -> None:
+        """`IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal`, queue VERBATIM :
+
+            comp = target.GetComponent<ForcedAttackTargetsComponent>();
+            list = new List<int>();
+            list.Add(<displayClass+0x18> = ABondEffect.BondedEntityId(effect));
+            comp.<+0x50> = list;                     // REMPLACE la liste
+
+        `effect` = l'instance qui écrit (cf. `written_by`)."""
+        self.targets = [int(t) for t in (target_ids or [])]
+        self.written_by = effect
+
+    def clear(self) -> List[int]:
+        """Vide la liste ET délie l'écrivain-effet. Renvoie ce qui a été retiré.
+
+        Deux call-sites natifs distincts convergent ici : `TauntedEffect$$RevertInternal`
+        (`comp.<+0x50> = new List<int>()`) et le `Remove` de tous les ids par
+        `RemoveForcedAttackTargetBehaviour$$Execute`. Délier `written_by` est LOAD-BEARING pour le
+        second : après un `RemoveAllForcedAttackTargets`, l'effet 27 peut être ENCORE actif et sa
+        liste ne doit PAS repousser (le natif n'a pas de re-écriture — `ApplyInternal` ne se rejoue
+        pas)."""
+        removed = list(self.targets)
+        self.targets = []
+        self.written_by = None
+        return removed
+
     def get(self) -> List[int]:
+        """La liste EFFECTIVE. Rend `[]` si l'effet écrivain a disparu (mirror de `RevertInternal`,
+        cf. `written_by`)."""
+        if self.written_by is not None and getattr(self.written_by, "consumed", False):
+            return []
         return list(self.targets)
 
 

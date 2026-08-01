@@ -635,10 +635,24 @@ class TauntedEffect(BaseEffect):
       - 0x19=25  `Taunted_BlockMovement`        (la cible ne peut plus se déplacer)
       - 0x1a=26  `Taunted_CantUseAbility`        (la cible ne peut plus utiliser d'ability active)
       - 0x4d5=1237 `Taunted_RefreshUnitTurnFinished`
-    Le natif enregistre aussi le `BondedEntityId` (la cible est forcée d'attaquer le tauntant) — c'est un
-    effet de CIBLAGE IA (concern playbook, non porté ici : on matérialise l'effet + ses enfants ; le
-    `source` de l'effet = le tauntant capture la direction du bond). VALIDÉ live attendu : la cible porte
-    27 + 25/26/1237 (parent 1 round, enfants same-turns) après CrushingClaws."""
+    La QUEUE d'`ApplyInternal` écrit en plus la liste de cibles d'attaque FORCÉES de la cible
+    (#436, relu VERBATIM sur `rnca9r7q6c`) :
+
+        comp = target.GetComponent<ForcedAttackTargetsComponent>();
+        list = new List<int>(); list.Add(ABondEffect.BondedEntityId(this, effect));
+        comp.<+0x50> = list;                                  // REMPLACE
+
+    et `IdunBattle.Entities.Effects.TauntedEffect$$RevertInternal` la VIDE
+    (`comp.<+0x50> = new List<int>()`). C'est CE canal — et lui seul — qui rend le taunt opposable
+    au ciblage : `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets` le relit, et la règle
+    `TargetIsAllowedForCaster` (bit 23) du filtre statique
+    (`IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`, surcharge 7 arguments)
+    REFUSE toute cible qui n'y figure pas. La note antérieure « concern playbook, non porté ici »
+    sous-estimait la portée : ce n'est pas un biais d'IA, c'est un GATE de légalité de cast, qui
+    vaut aussi pour l'ATTAQUE NORMALE (masque `0x4002`, donc `TargetIsEnemy` -> règle ARMÉE).
+
+    VALIDÉ live attendu : la cible porte 27 + 25/26/1237 (parent 1 round, enfants same-turns) après
+    CrushingClaws."""
 
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         return [
@@ -646,6 +660,11 @@ class TauntedEffect(BaseEffect):
             SubEffectSpec(0x1a, "Taunted_CantUseAbility", turns=SAME_TURNS),     # AddSubEffectWithSameTurns
             SubEffectSpec(0x4d5, "Taunted_RefreshUnitTurnFinished", turns=SAME_TURNS),
         ]
+
+    def writes_forced_attack_targets(self) -> bool:
+        """Queue d'`ApplyInternal` (cf. la docstring de classe) : la liste de cibles forcées de la
+        cible devient `[BondedEntityId]`."""
+        return True
 
 
 class PinnedEffect(BaseEffect):

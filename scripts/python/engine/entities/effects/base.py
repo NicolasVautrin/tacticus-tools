@@ -953,6 +953,28 @@ class BaseEffect:
         -> l'effet est PORTE par Kell mais MODIFIE son parent (Creed)."""
         return None
 
+    def writes_forced_attack_targets(self) -> bool:
+        """Part DATA d'un `ApplyInternal` qui ÉCRIT la liste de cibles d'attaque FORCÉES du porteur
+        (`ForcedAttackTargetsComponent`, cf. `engine/runner/components.py`) — le TAUNT.
+
+        NATIF, `IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal` (queue de la fonction,
+        après les trois `AddSubEffectWithSameTurns`) :
+
+            comp = target.GetComponent<ForcedAttackTargetsComponent>();
+            list = new List<int>(); list.Add(ABondEffect.BondedEntityId(this, effect));
+            comp.<+0x50> = list;
+
+        et `TauntedEffect$$RevertInternal` : `comp.<+0x50> = new List<int>()`.
+
+        La VALEUR écrite n'est PAS une donnée de la classe : c'est le `BondedEntityId` de
+        l'INSTANCE (`BaseEffect.bonded`, écrit à la pose par `AddEffectBehaviour$$
+        DefaultBondEffectBuilder`). La classe ne déclare donc que le FAIT d'écrire ; la couche
+        runner (`AddEffectOperation._apply_forced_attack_targets`) va chercher le bonded.
+
+        Défaut `False` = l'effet n'écrit aucune cible forcée. Unique porteur porté :
+        `TauntedEffect` (27 `Taunted_OnlySpecificTargets`)."""
+        return False
+
     # ── matérialisation composite ─────────────────────────────────────────────────────────────────
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         """`<Effect>.ApplyInternal` — sous-effets (enfants) spawnés quand CET effet est appliqué.

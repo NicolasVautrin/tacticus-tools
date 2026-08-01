@@ -271,7 +271,13 @@ def main() -> int:
         print("")
         print("--- REGLES PORTEES (le port les rend) ----------------------------------")
         for n in portees:
-            print("  %-42s %s" % (n, ", ".join(sorted(set(rendues[n]))[:3])))
+            # La cle de `rendues` est le CODE RENDU, pas le nom de la regle -- les deux different
+            # des qu'une regle rend un litteral qui n'est pas le sien (`TargetIsTile` -> `1` =
+            # `ValidRequest`, cf. `Role.reason_code`). `rendues[n]` levait donc un `KeyError` sur
+            # cette seule entree, et le mode par defaut du probe ne rendait JAMAIS son dernier
+            # bloc. Le selecteur ligne 236 employait deja `code(n)` : c'est ici qu'il manquait.
+            print("  %-42s %s"
+                  % (n, ", ".join(sorted(set(rendues[RULE_ROLE[n].code(n)]))[:3])))
         inertes = sorted(set(testees) - set(rendues))
         if inertes:
             print("")
