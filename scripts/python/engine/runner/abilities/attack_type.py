@@ -172,6 +172,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     #  masque a ete lu dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` : les
     #  `TARGETING_OPTIONS` de 1171 SONT donc posees, cf. la classe.)
     1171: AbilityAttackType.DirectTargetAttack,   # DakkaDakkaDakkaAbility
+    # RammingSpeed (1059), #389. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = 0 = DirectTargetAttack. (`&opts` = la
+    # forme FLAGS DIRECTS, `rules = 0x4002` litteral -> les `TARGETING_OPTIONS` sont posees aussi.)
+    1059: AbilityAttackType.DirectTargetAttack,   # RammingSpeedAbility
     # FrenziedFiring (1036, Volk blackObliterator) : entree dans `ABILITY_CLASSES` par le lot #61
     # (face COMBAT du volet AoE) SANS son litteral -> l'etape 0 du garde-fou
     # `probe_120_pre_unit_ability_fork` echouait (« ability portee sans AbilityAttackType lu »).

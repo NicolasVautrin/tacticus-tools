@@ -59,7 +59,8 @@ from .thousandsons import DoomboltAbility
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
                           DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat,
                           DrachnyenAbility, HeraldOfTheApocalypseAbility)
-from .orks import (WaaaghAbility, SquigLaunchasAbility, SquigMineAbility, DakkaDakkaDakkaAbility)
+from .orks import (WaaaghAbility, SquigLaunchasAbility, SquigMineAbility, DakkaDakkaDakkaAbility,
+                   RammingSpeedAbility)
 from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnTheWindAbility,
                          HailstrikeAbility, SuperchargeAbility, ExemplarOfHateAbility,
                          CalibaniteGreatswordAbility)
@@ -212,6 +213,15 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # NonComparable). MEME porteur qu'au-dessus (`admecManipulus`), et il REUTILISE litteralement
     # `Repair_GalvanicFieldAbility$$CreateAttackBehavior` -- avec un `actingUnits` DIFFERENT.
     DefendTheDivineWorkAbility.ABILITY_TYPE: DefendTheDivineWorkAbility,  # 1117 (admecManipulus « Actus » AdeptusMechanicus, self-cast : ExecuteAtomic(Repair(Caster@0x48, Friends(Caster, AdjacentUnits(CasterTile@0x50)) + Caster, Get(hpToRepair), ForRepair), 0x2a) PUIS Execute(Repair_GalvanicFieldAbility.CreateAttackBehavior(dsl, Friends(Caster, AdjacentUnits(CasterTile)) SANS le caster)) -- l'etage 1 repare le caster ET ses amis adjacents, l'etage 2 ne fait attaquer que les amis adjacents MECANIQUES)
+    # --- #389 (residu `#383-r1`) : face COMBAT de 1059, dont la face DECISION (playbook, batchs 1-4)
+    # etait deja portee (#353/#361/#383). Le verrou etait le noeud `<DSLTriggers+0x20>` du `If` qui
+    # gate les deux attaques : il n'est NOMME NULLE PART (slot de metadata-usage a xref UNIQUE) et un
+    # port speculatif aurait ete pire que l'absence. Nomme par TROIS sources -- gabarit de classe
+    # (taille 24, parent AbilityTrigger), TYPE du champ (`dsl.state` = MatchState, ce qui ecarte les
+    # 21 classes de meme gabarit allouees avec un SELECTEUR par un `DSLTriggers$$X` nomme), et le
+    # corps trivial `DSLTriggers$$IsRangedPosition = op_LogicalNot(<+0x18>)` qui nomme le JUMEAU et
+    # force l'appariement -> `IdunBattle.Entities.Triggers.OwnerIsAliveAbilityTrigger`.
+    RammingSpeedAbility.ABILITY_TYPE: RammingSpeedAbility,             # 1059 (ZERO porteur gameconfig -> greffe orksKillaKan : CHARGE sur First(SortTilesByUtility(MovableTilesInRange(caster, range=5) & CanAddUnit(AdjacentTiles(cible)), [Tile(7), RammingSpeed_MostAdjacentEnemies(54)])) gatee par NOT(IsAdjacent) & AddEffect(1098 RammingSpeed_ExtraExplode -> SOI, duree DEFAUT, source = Owner) & If(OwnerIsAlive, nrOfHits=4 coups Physical sur la cible + nrOfHits_2=2 coups sur SOI-MEME) ; famille ATTACK, Execute PLAIN)
     DakkaDakkaDakkaAbility.ABILITY_TYPE: DakkaDakkaDakkaAbility,       # 1171 (orksKillaKan « Snappawrecka » Orks : Min(nrOfHits + TimesRepaired*extraHits, maxNrOfHits) coups Projectile ranged sur la cible & If(NumLeftOverHits(cible), attaque des coups GASPILLES repartis (Divide Floor + reste a la 1re) sur PickRandomly(Damageable(Unobscured(SurroundingEnemies(caster, range_2))), RandomAmount(1, Min(numLeft, Count))) ) & If(IsAlive(caster), ChangeStat(caster, Health, Subtract, PercentageOf(StatAmount(caster, Health, MAXIMUM), healthPct))))
 }
 
