@@ -80,8 +80,8 @@ def test_the_teleporting_in_effect_lasts_exactly_two_turns(stormboyz_cases):
     DEJA EN TOURS ; un `TurnsFromRounds(2)` vaudrait `2 * nbJoueurs` = 4 sur ces montages. Le natif
     rend `remaining = 2` -- c'est ce qui separe `duration_turns=2` de `duration_rounds=2`."""
     for c in stormboyz_cases:
-        rows = [r for r in c["liveGraft"]["effects"] if r[0] == TELEPORTING_IN]
-        assert rows == [[TELEPORTING_IN, 2]], (
+        rows = [tuple(r) for r in c["liveGraft"]["effects"] if r[0] == TELEPORTING_IN]
+        assert rows == [(TELEPORTING_IN, 2)], (
             "%s effet 1140 cote natif = %r (attendu remaining 2)" % (_tag(c), rows))
         assert not [r for r in c["liveControl"]["effects"] if r[0] == TELEPORTING_IN], (
             "%s le TEMOIN porte deja 1140" % _tag(c))
