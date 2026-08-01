@@ -71,7 +71,7 @@ BOARD = "MC1_67"
 HP = 900000                     # ni la cible ni le caster ne doivent mourir : listes per-hit ENTIERES
 
 MUTATIONS = ("none", "no-move", "no-self-attack", "no-effect", "swap-hits", "gate-closed",
-             "self-attack-on-target")
+             "self-attack-on-target", "keep-effect")
 
 
 def _r(sid, m, b, t=90):
@@ -200,16 +200,27 @@ def _apply_mutation(mutate: str):
     sur des symboles resolus AU NIVEAU MODULE par `ramming_speed_tree`, donc un patch d'attribut
     suffit -- aucune copie de code moteur dans le probe."""
     from engine.runner.abilities import orks as O
+    from engine.runner.operations.triggers import EFFECT_TRIGGERS
     saved = {k: getattr(O, k) for k in ("ramming_speed_tree", "MoveUnit", "AddEffect",
                                         "OwnerIsAlive", "op_add")}
+    saved_reg = list(EFFECT_TRIGGERS.get(EXTRA_EXPLODE) or [])
 
     def _restore():
         for k, v in saved.items():
             setattr(O, k, v)
+        EFFECT_TRIGGERS[EXTRA_EXPLODE] = saved_reg
 
     if mutate == "none":
         return _restore
     _orig = saved["ramming_speed_tree"]
+    if mutate == "keep-effect":
+        # `#389-r1`, CONTRE-EPREUVE DU RETRAIT : l'entree de registre est retiree, donc le
+        # `On(PhaseEnd)` de `RammingSpeed_ExtraExplodeEffect` n'existe plus cote port et 1098 devient
+        # PERMANENT (`AddEffect` options ZERO -> `remaining = 0`) -- l'etat d'AVANT le fix. Elle ne
+        # DISCRIMINE que sur un bras ou le caster SURVIT (sinon le cliquet est desarme, cf. le
+        # residu `KillUnitOperation$$RemoveEffects`).
+        EFFECT_TRIGGERS[EXTRA_EXPLODE] = []
+        return _restore
     if mutate == "no-move":
         # `MoveUnit` neutralise : le caster reste sur place -> la TUILE diverge.
         class _NoMove:
@@ -461,10 +472,21 @@ def run(seed: int = 38900, board: str = BOARD, mutate: str = "none", hp_player: 
                                             and EXTRA_EXPLODE not in out["live_effects_caster"])
         out["effect_removed_both"] = (EXTRA_EXPLODE not in port["effects_caster"]
                                       and EXTRA_EXPLODE not in out["live_effects_caster"])
+        # RESIDU GENERIQUE, ETRANGER a 1098 et PREEXISTANT : quand le porteur MEURT, le natif vide
+        # TOUS ses effets (`IdunBattle.Operations.KillUnitOperation$$RemoveEffects` -> service slot
+        # 0x5a) ; le port n'en consomme que le volet ETROIT porte par
+        # `damage._revert_ability_modifications_of_dead` (les seuls effets a
+        # `applied_ability_modifications`). MESURE sur le bras lethal MC1_67/38901 : natif `[]`,
+        # port `[1026, 1098, 1361, 1362]` -- les TROIS autres n'ont rien a voir avec `#389-r1`.
+        # Le cliquet de retrait ne s'applique donc QU'AUX bras ou le caster SURVIT ; sur un bras
+        # lethal il mesurerait `KillUnitOperation`, pas le `On(PhaseEnd)` de 1098.
+        out["dead_carrier_keeps_effects_port_only"] = bool(
+            out["caster_died"] and port["effects_caster"] and not out["live_effects_caster"])
+        out["removal_checked"] = not out["caster_died"]
         out["match"] = bool(out["tile_match"] and out["hits_target_match"]
                             and out["hits_self_match"] and out["effect_match"]
-                            and out["hp_match"] and out["effect_removed_both"]
-                            and not out["effect_persists_port_only"])
+                            and out["hp_match"]
+                            and (out["effect_removed_both"] if out["removal_checked"] else True))
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -495,20 +517,26 @@ def run(seed: int = 38900, board: str = BOARD, mutate: str = "none", hp_player: 
         out["ok"] = not out["match"]
         out["verdict"] = (
             "MUTATION %r : le port MUTE %s le natif -- le bras %s ce terme. "
-            "(tuile %s / cible %s / soi %s / effet %s)"
+            "(tuile %s / cible %s / soi %s / pose effet %s / retrait %s / PV %s)"
             % (mutate, "DIVERGE de" if not out["match"] else "s'accorde AVEC",
                "DISCRIMINE" if not out["match"] else "NE DISCRIMINE PAS",
                out["tile_match"], out["hits_target_match"], out["hits_self_match"],
-               out["effect_match"]))
+               out["effect_match"],
+               out["effect_removed_both"] if out["removal_checked"] else "n/a",
+               out["hp_match"]))
     elif out["match"]:
         out["ok"] = True
-        out["verdict"] = ("PORT == NATIF sur les 6 observables : tuile %s, %d coups sur la cible %s, "
-                          "%d coups sur SOI %s, effet 1098 pose (%s) PUIS retire des DEUX cotes (%s), "
-                          "PV finaux identiques sur %d unites (caster mort=%s)"
-                          % (out["live_tile"], len(out["live_hits_target"]),
+        out["verdict"] = ("PORT == NATIF sur les %d observables : tuile %s, %d coups sur la cible %s, "
+                          "%d coups sur SOI %s, effet 1098 pose (%s), retrait a la cloture de phase "
+                          "%s, PV finaux identiques sur %d unites (caster mort=%s)"
+                          % (6 if out["removal_checked"] else 5,
+                             out["live_tile"], len(out["live_hits_target"]),
                              out["live_hits_target"], len(out["live_hits_self"]),
                              out["live_hits_self"], out["live_effect_posed"],
-                             out["effect_removed_both"],
+                             ("des DEUX cotes (%s)" % out["effect_removed_both"])
+                             if out["removal_checked"]
+                             else "NON CONFRONTE (caster MORT -> l'observable mesurerait "
+                                  "KillUnitOperation$$RemoveEffects, residu generique non porte)",
                              len(out.get("hp_live") or {}), out.get("caster_died")))
     else:
         out["ok"] = False
@@ -542,8 +570,11 @@ def run(seed: int = 38900, board: str = BOARD, mutate: str = "none", hp_player: 
               % ((out.get("port") or {}).get("effect_posed"), out.get("live_effect_posed"),
                  (out.get("port") or {}).get("effects_caster"), out.get("live_effects_caster"),
                  out.get("effects_before")))
-        print("  retrait    1098 absent des DEUX cotes=%s   (persiste cote PORT SEUL=%s)"
-              % (out.get("effect_removed_both"), out.get("effect_persists_port_only")))
+        print("  retrait    1098 absent des DEUX cotes=%s   (persiste cote PORT SEUL=%s, "
+              "cliquet actif=%s, porteur mort garde ses effets cote PORT SEUL=%s)"
+              % (out.get("effect_removed_both"), out.get("effect_persists_port_only"),
+                 out.get("removal_checked"),
+                 out.get("dead_carrier_keeps_effects_port_only")))
         print("  PV         port=%s" % json.dumps(out.get("hp_port")))
         print("             natif=%s (avant=%s)"
               % (json.dumps(out.get("hp_live")), json.dumps(out.get("hp_before"))))
