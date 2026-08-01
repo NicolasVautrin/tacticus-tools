@@ -7,7 +7,7 @@ Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher 
 AggressiveOnslaught, SuppressiveFire, Lakrimae et BarbedOvipositor
 (`utilities/tile.py::evaluate_attack_in_steps`, vslot 3).
 
-/!\ PIEGE DU NOM, leve : `1028` designe TROIS artefacts distincts, et l'entree deja portee cote
+(!) PIEGE DU NOM, leve : `1028` designe TROIS artefacts distincts, et l'entree deja portee cote
 EFFET n'est AUCUN des deux autres. Enums QUALIFIES :
 `TriggeredAbilityType.AvalancheOfMuscle = 1028` (CE playbook), `ActiveAbilityType.SupremeCommander
 = 1028`, `EffectType.HeadClaimer_ExtraDmg = 1028`. L'effet du passif, lui, est
