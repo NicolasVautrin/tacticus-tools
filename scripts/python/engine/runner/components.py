@@ -1737,6 +1737,15 @@ class UnitEffectStateView(Mapping):
         SurroundingFriends(2), Tau)` que `AmountIsGreaterThanZero` compare à 0 dans
         `IdunBattle.Entities.Effects.Loki.StructuralAnalyser_VisualEffect$$CreateActiveCondition`
         (case-366-r1). La clé est présente dès que le porteur a une équipe ET une tuile.
+      * `turns_started` — `RoundsStarted(Owner@DSLSelectors+0x30)` =
+        `IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate` (somme de
+        `UnitComponent.turnsStarted@+0x58` sur le sélecteur, ici mono-unité = le porteur), MÊME
+        grandeur que `GetStat(unit, 0xc = TURNS_STARTED)` — le compteur qu'incrémente
+        `StartTurnOperation` (`runner/operations/turnflow.py`). Lu par
+        `IdunBattle.Entities.Effects.Loki.ReinforcedHiveNode_ExtraArmorEffect$$CreateActiveCondition`
+        (corps FONDU avec celui d'`..._ExtraBlockEffect`) =
+        `AmountIsOdd(Sum(RoundsStarted(Owner), Direct(1)))`. EAGER (lecture de stat). La clé n'est
+        présente que si l'entité porte un `StatsComponent` avec son `UnitContext`.
 
     La paresse n'est pas une optimisation gratuite : `active_effects` est appelé dans des boucles
     par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
@@ -1768,6 +1777,11 @@ class UnitEffectStateView(Mapping):
         # peuvent pas diverger.
         if ent is not None:
             eager["has_moved"] = unit_has_moved(state, self._uid)
+        # `RoundsStarted(Owner@DSLSelectors+0x30)` (cf. la docstring de classe). EAGER : simple
+        # lecture du `StatComponent` deja materialise, aucun balayage.
+        if sc is not None and getattr(sc, "ctx", None) is not None:
+            from ..entities.stats import StatType as _ST
+            eager["turns_started"] = int(sc.ctx.get_stat(int(_ST.TURNS_STARTED), 0) or 0)
         oc = ent.get_component(OwnerComponent) if ent is not None else None
         # `IsTurnOf(Owner)` (`<DSLTriggers+0x28>`) — MEME noeud natif que le canal
         # `att_ctx["is_turn_of_owner"]` (foyer `entities/effects/base.py::is_turn_of_owner`), donc
@@ -1852,7 +1866,8 @@ def unit_state_for_effects(state, unit_id: int) -> UnitEffectStateView:
     runner l'utilise — aucun `{"hp": ...}` ad hoc, sinon les conditions non-HP se dégradent en VRAI
     en silence (#208).
 
-    LECTURE SEULE, et le périmètre est CLOS : `HealthComponent`, `StatsComponent.ctx.traits`,
+    LECTURE SEULE, et le périmètre est CLOS : `HealthComponent`, `StatsComponent.ctx.traits` (+ son
+    `UnitStats`, pour la clé `turns_started` = `GetStat(., 0xc)`),
     `OwnerComponent`, `UnitComponent.alive`/`visual_id`, `PositionComponent` (les deux clés
     PARESSEUSES `contagions_of_nurgle_amount` et `structural_analyser_friends`, dont le corps ne
     s'exécute que si une instance d'effet les lit), et — depuis case-366-r1 — le

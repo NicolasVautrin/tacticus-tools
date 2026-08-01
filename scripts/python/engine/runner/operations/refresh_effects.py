@@ -40,10 +40,15 @@ declare-t-il `applied_stat_mods` ? » -- ce qui excluait du driver TOUT effet a 
 contextuelle, y compris quand il est SEEDE (donc sans cle de pose) et que sa contribution est
 attribuee par la passe 2 du seed sous `statmod_source_key`. Consequence MESUREE : la contribution
 d'un tel effet ne pouvait plus jamais etre retiree quand sa `CreateActiveCondition` tombait.
-Inventaire (introspection, 11 classes declarent `applied_stat_mods`) : une seule declare AUSSI
-`get_stat_modification_stat` (`AnvilShield_FrozenAttackerAdvantage`) et **aucune** ne surcharge
-`is_active` -> pour toutes, `is_active` rend True et le driver re-ecrit EXACTEMENT la valeur que la
-passe 2 a deja posee sous la MEME cle (`Modify` = replace par-source) : no-op exact.
+⚠ NE PAS FIGER ICI de compte ni de liste (meme raison qu'au bloc `_active_condition_is_ported`
+plus bas : ils se periment a chaque port et causent mecaniquement un conflit de rebase par PR).
+Deux regimes, et c'est LA distinction qui compte : une classe qui declare `applied_stat_mods`
+SANS surcharger `is_active` rend `True` par defaut, donc le driver re-ecrit EXACTEMENT la valeur
+que la passe 2 du seed a deja posee sous la MEME cle (`Modify` = replace par-source) : no-op exact.
+Une classe qui declare les DEUX (le premier cas est `ReinforcedHiveNode_ExtraArmor`, #366-r1) a sa
+`CreateActiveCondition` PORTEE : la re-evaluation est alors l'effet VOULU. Dans les deux cas
+l'instance doit etre SEEDEE (`stat_mod_source is None`) pour ne pas etre skippee -- une instance
+posee OFFLINE porte deja sa contribution sous SA cle et sort du perimetre du driver.
 
 La cle de source utilisee est **exactement celle de l'instance** (`effect_stat_mod_key` : la cle de POSE
 si un chemin offline l'a renseignee, sinon la cle DERIVEE `statmod_source_key` = celle du seed) et
