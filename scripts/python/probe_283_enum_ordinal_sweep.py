@@ -590,6 +590,16 @@ class _ExecSweep(ast.NodeVisitor):
                 vals = _lit(node.args[idx])
                 if vals:
                     self._check(node.args[idx].lineno, vals, court, "posarg")
+        # ACCESSEUR de dict : `d.get(3)` porte EXACTEMENT le meme contrat que `d[3]`, que
+        # `visit_Subscript` sert deja -- l'asymetrie n'etait qu'un oubli, et #443-r1c l'a payee
+        # (`leaves.get(8)` invisible ici). Meme heuristique `_root_of` sur le RECEPTEUR, donc
+        # aucune regle nouvelle. A 0 site le jour ou elle est posee : elle ferme la forme, elle
+        # ne rattrape rien -- ce qui a rattrape #443-r1c est `probe_443` (la ligne CITE ses
+        # membres en prose ; `leaves` ne porte aucune racine `_ROOTS`).
+        if isinstance(f, ast.Attribute) and f.attr in ("get", "pop", "setdefault") and node.args:
+            vals = _lit(node.args[0])
+            if vals:
+                self._check(node.args[0].lineno, vals, _root_of(f.value), "accesseur")
         self.generic_visit(node)
 
 
