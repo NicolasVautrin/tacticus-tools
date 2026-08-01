@@ -229,8 +229,11 @@ Ordre **RNG** d'un coup (chaque roll = `IPseudoRNG.NextBool(chance)` = slot #5 =
      amount=GetBlockDamageForBlockChance}`), `NextBool(chance)` par source ; **1ère réussite**
      → `ApplyBlockDamage` = `max(0, dmg − amount)` et stop ; chaque **échec consomme 1 tirage**
      + enregistre un failed-block-id. ⇒ **0..N tirages** (la « chaîne » décrite par l'user).
-   - **evasion** : branche ALTERNATIVE au block (gate flag) : `ApplyRandomEvasion`
-     @1810004f0 — `evasionChance = GetStat(cible, 0xf)` ; si `>0`, `NextBool` → succès = `dmg 0`.
+   - **evasion** : étage qui **PRÉCÈDE** le block (#407-r1 — ce n'est PAS une branche alternative,
+     il n'existe aucun drapeau XOR) : `IdunBattle.Core.Services.DamageCalculations$$
+     ApplyRandomEvasion` — `evasionChance = GetStat(cible, 0xf)` ; si `>0`, `NextBool` → succès =
+     `dmg 0` **et le block est sauté**. Sinon on descend à la chaîne de block. `evasionChance` vaut
+     **toujours 0** en jeu (0 porteur sur 5 voies) ⇒ 0 tirage : `case-407-r1-evasion-order.md`.
 4. `EvaluateAfterHitTriggers` (cascade — tranche TRIGGERS).
 
 > ⚠ **PRÉCISION #131 — d'où viennent les CELLULES min/max du coup.** Le point 1 ci-dessus n'est le
@@ -282,8 +285,8 @@ renvoie `shield+health+armor` plein).
 #### Split combat porté + finding empirique (2026-06-29, probe_split_events.py)
 
 **Port** : `engine/services/damage_combat.py` ajoute `Damage{health,armor,shield,did_*}` +
-`calculate_damage_operation(raw, shield, armor_pool, armor_pct, block_sources, evasion_…, rng)`
-(split bouclier→armure-pool%→block XOR evasion), wiré dans `AttackDamageOperation.execute`
+`calculate_damage_operation(raw, shield, armor_pool, armor_pct, block_sources, evasion_chance, rng)`
+(split bouclier→armure-pool%→**esquive PUIS block**, #407-r1), wiré dans `AttackDamageOperation.execute`
 (le raw post-modifier/FixedArmor de chaque coup y passe ; pools déplétés entre coups).
 
 **Finding décisif (events live `UnitDamaged` step 4, rolls bit-exact alignés)** : sur TOUTES

@@ -101,9 +101,12 @@ l'arme principale ne l'etait pas).
   sur le profil de L'ARME PRINCIPALE dans `_with_block` -> une attaque a arme BLOCKABLE + groupe Psychic
   InfernalPacts deduirait le block sur le coup Psychic aussi (le combat, lui, re-gate par groupe :
   `additional_hits.py` L138-143). Non ferme (validation Abraxas dediee requise) ; cf. case-69 §residu.
-- **NoBlocking vs EVASION** : le flag natif (metadata>>0x30) skippe block ET evade dans
-  `CalculateDamageOperation`. L'evasion offline n'est pas exercee (`evasion_branch=False` partout) -> le
-  gate NoBlocking cote offline ne couvre que le block (moot pour l'evade tant que non implementee).
+- **NoBlocking vs EVASION** : le flag natif (`damageInfo[+0x1E]`, lu `uStack_5b0>>0x30`) skippe block
+  ET evade dans `CalculateDamageOperation`. Cote port, l'etage esquive EST desormais porte (#407-r1 :
+  esquive PUIS block, et non un XOR -- `case-407-r1-evasion-order.md`), mais il reste inerte :
+  `evasionChance = GetStat(unit, 0xf)` n'est jamais ecrit (0 porteur mesure sur 5 voies) -> 0 tirage,
+  degat inchange. Le gate NoBlocking cote offline ne couvre donc que le block, et c'est **moot** tant
+  qu'aucune unite ne porte `StatType 15`.
 - **Residu SEPARE observe (hors #65) -- RESOLU par #70** : seed 123 u95->u81/u83 (`live_dmg=0` vs
   `off=2924`, blk=None). L'etiquette initiale (attaque Psychic sur cible Infiltrate/untargetable) est
   **REFUTEE** : u81 (Infiltrate) ET u83 (pas d'Infiltrate) prennent des degats normaux quand u95 est
