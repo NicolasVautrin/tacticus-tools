@@ -121,11 +121,15 @@ def _drive(rpc, rid, wanted, max_turns=18):
 # --------------------------------------------------------------------------------------------- #
 def test_le_foyer_des_collapses_est_le_pool_natif(rpc, build_runner):
     """`MovementQuery$$GetMovableTilesFor`, unite par unite, a `overrideRange = 2` (la portee des
-    trois collapses). Ecartees, et COMPTEES -- trois residus NOMMES, aucun n'est un desaccord :
+    trois collapses). Ecartees, et COMPTEES -- deux residus NOMMES, aucun n'est un desaccord :
       * pool natif VIDE : garde d'entree `UnitFlagsComponent$$Has(unitFlags, 1)` (`#381`) ;
-      * VOLANTES : `#381-r2` (`FlyPathfinder$$AddNeighbours` n'itere pas le meme voisinage) ;
-      * MOUVEMENT SPECIAL : `#381-r5` -- la branche `!ignoreSpecialMovement` de
-        `GetPathfinderTypeForUnit` rend un pathfinder 6..13 que le port n'a pas."""
+      * VOLANTES : `#381-r2` (`FlyPathfinder$$AddNeighbours` n'itere pas le meme voisinage).
+
+    Les unites en MOUVEMENT SPECIAL ne sont PLUS ecartees : `#381-r5` est ferme (la branche
+    `!ignoreSpecialMovement` de `GetPathfinderTypeForUnit` est portee, cf.
+    `tests/engine/entities/pathfinding/test_381r5_special_movement_live.py`), elles sont donc
+    CONFRONTEES comme les autres -- et elles sont justement celles dont le pool est le plus large
+    (35 tuiles au lieu de 9 sur ce board)."""
     from engine.ai.state_bridge import _occupants
     from engine.entities.pathfinding.fly_pathfinder import is_like_flying
     from engine.entities.pathfinding.tile_blocking import terrain_blocks_entering
@@ -156,10 +160,8 @@ def test_le_foyer_des_collapses_est_le_pool_natif(rpc, build_runner):
             continue
         vis = next((u.get("visualId") for u in (dv.get("units") or [])
                     if int(u.get("id")) == uid), None)
-        if has_special_movement(state, uid):
-            special += 1                        # `#381-r5` : pathfinder 6..13, non porte
-            continue
-        if is_like_flying(unit_trait_names(vis)):
+        special += int(has_special_movement(state, uid))    # `#381-r5` : PORTE, plus ecarte
+        if not has_special_movement(state, uid) and is_like_flying(unit_trait_names(vis)):
             flying += 1
             continue
         if not want:
@@ -181,12 +183,12 @@ def test_le_foyer_des_collapses_est_le_pool_natif(rpc, build_runner):
         if raw != got:
             gate_bit += 1
 
-    print("\n[381-r4] %s : %d/%d WALK == natif ; ecartees : %d pool vide (#381), %d volantes "
-          "(#381-r2), %d mouvement special (#381-r5) ; %d unite(s) dont le gate #131 change le "
-          "pool ; %d tuile(s) block-entering"
-          % (BOARD, equal, compared, empty, flying, special, gate_bit, len(blocking)))
-    assert compared, ("aucune unite WALK confrontable (%d pool natif vide, %d volantes, %d "
-                      "mouvement special) -- NON CONCLUANT" % (empty, flying, special))
+    print("\n[381-r4] %s : %d/%d == natif (dont %d en MOUVEMENT SPECIAL, #381-r5 ferme) ; "
+          "ecartees : %d pool vide (#381), %d volantes (#381-r2) ; %d unite(s) dont le gate #131 "
+          "change le pool ; %d tuile(s) block-entering"
+          % (BOARD, equal, compared, special, empty, flying, gate_bit, len(blocking)))
+    assert compared, ("aucune unite confrontable (%d pool natif vide, %d volantes) -- "
+                      "NON CONCLUANT" % (empty, flying))
     assert gate_bit, ("le gate #131 ne change le pool d'AUCUNE des %d unites confrontees : la "
                       "geometrie ne prouve rien" % compared)
     assert equal == compared, ("foyer != natif sur %d/%d unites : %s"
