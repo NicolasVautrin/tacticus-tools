@@ -1,11 +1,25 @@
 # case-354 — `MartialApotheosis` n'a plus de porteur : le port est fidèle, le TEST est orphelin
 
-**Verdict : ni bug de port, ni bug du rail turn-start.** Le build `rnca9r7q6c` a **retiré
-`MartialApotheosis` (PassiveAbilityType 1045) de son unique porteur** `necroOverlord`, remplacée
-par `MyWillBeDoneOverlord`. Un port fidèle ne peut pas dispatcher une ability que le gameconfig
-n'accorde à personne — `start_turn_triggers` rend `[]`, et **c'est la bonne réponse**.
+> ## ⚠ VERDICT RÉFUTÉ — lire **`case-392-martial-apotheosis-monte-par-le-bc.md`**
+>
+> Ce document mesure le **kit gameconfig**. Le natif ne le monte pas : il énumère
+> `UnitConfiguration.PassiveAbilities` (le **BC**), et `data/seed-bc.json` porte
+> `necroOverlord.PassiveAbilities = [1045]`. Mesuré le 2026-08-01 : le
+> `TriggeredAbilityComponent` réel du porteur rend `['1045=MartialApotheosis']` en hiérarchie 2, et
+> LIVE l'ennemi anneau-1 encaisse **3702** au turn-start (et **0** à d=2 — attribution établie).
+> L'ability **n'a jamais cessé d'être montée** ; c'est le port qui la dérivait du kit
+> (bug fermé par #366-r1). Les trois vecteurs supprimés au §5 sont **restaurés**.
+>
+> Ce qui reste JUSTE ici : §2 (le kit ne la nomme plus, dans les deux instantanés — c'est vrai, et
+> c'est l'écart kit/BC de #254-bc), §3 (l'objection « `live_dmg > 0` n'attribue rien » — juste, et
+> #392 y répond par le contraste d=1/d=2), §3bis et le piège d'énum.
 
-Mesure : `scripts/python/probe_354_martial_apotheosis_carrier.py` (4 étages).
+**Verdict d'origine, RÉFUTÉ.** Le build `rnca9r7q6c` a **retiré `MartialApotheosis`
+(PassiveAbilityType 1045) du KIT de** `necroOverlord`, remplacée par `MyWillBeDoneOverlord` — mais
+le kit n'est pas la source du montage, et `start_turn_triggers` rendait `[]` **à tort**.
+
+Mesure : `scripts/python/probe_354_martial_apotheosis_carrier.py` (4 étages), dont la conclusion est
+réfutée par `probe_392_martial_apotheosis_bc_carrier.py` (5 étages, dont 3 LIVE).
 
 ## 1. L'étage qui décroche est l'ATTRIBUTION, pas le dispatch
 
@@ -75,7 +89,12 @@ manque à 1045 est uniquement son porteur.
 Étage 4 du probe : sur les **29** entrées de `ABILITY_TRIGGERS`, `MartialApotheosis` est la
 **seule** orpheline. La mise à jour n'a pas ouvert de série — un seul port est tombé inerte.
 
-## 5. Le test est CONVERTI en garde d'inertie (#354-r2, tranché)
+## 5. Le test est CONVERTI en garde d'inertie (#354-r2) — ⚠ ANNULÉ par #392
+
+> Cette section a supprimé **trois vecteurs de test valides** sur une prémisse fausse. Ils sont
+> restaurés (`case-392` §4), et la garde d'inertie est réorientée sur la source RÉELLE du montage
+> (canal mesuré). Contenu conservé ci-dessous pour la traçabilité du raisonnement.
+
 
 Arbitrage de périmètre, pris après coup : **option (b)**. Les trois vecteurs qui passaient par
 `start_turn_triggers` n'ont plus de sujet et sont remplacés par un test unique

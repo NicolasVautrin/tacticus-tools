@@ -79,8 +79,54 @@ auto-portants) -- dont le cliquet de livraison « `DSLTriggers` ne contient plus
 * **`DSLTriggers$$Not`** reste `PORTE_ARTEFACT_AUTRE` (verdict anterieur, hors des 47 ; levier
   mesure a zero).
 * **Le backlog SEC de la famille est INCHANGE** -- ces primitives etaient deja `NON_PORTE` avant
-  #337, et le restent : `OnDeath` (8 abilities confrontables), `DamageProfileIs` (7),
+  #337, et le restent : `OnDeath` (8 abilities confrontables),
   `CurrentAttackDamageProfilesContain` (6), `HasRarity` (6), `IsNormalUnit` (6),
-  `get_OwnerOrOwnerTileIsTarget` (6).
+  `get_OwnerOrOwnerTileIsTarget` (6). (`DamageProfileIs` y figurait : c'etait un FAUX NEGATIF de
+  l'outil, tranche depuis -- cf. #392 ci-dessous.)
+
+## Suite #392 -- DEUX primitives, meme mecanisme
+
+Le cliquet de livraison a rougi DEUX fois pendant la meme tache, sur deux primitives que le port
+CITE sans que l'outil sache les attribuer. La forme est identique et vaut d'etre retenue : **une PR
+qui ajoute une CITATION d'artefact natif dans `engine/**` peut faire basculer une primitive de
+`NON_PORTE` (aucune trace) a `CITE_A_QUALIFIER`** -- sans rien casser, et sans que son auteur le
+voie, puisque chaque PR est verte a SA base. Le cliquet est le seul endroit ou ca se voit.
+
+| primitive | PR qui l'a fait basculer | verdict apres RE |
+|---|---|---|
+| `DamageProfileIs` | `635a3431` (#372, DefenderOfTheGreaterGood) | `PORTE_HORS_FACADE` -- cf. ci-dessous |
+| `IsEffectTarget` | #418 (`1014 CamoCloak_DmgReduction`) | `PORTE_HORS_FACADE` + 2 ecarts nommes (`#418-r1`) -- cf. `case-392` §5 |
+
+Dans les deux cas, le `NON_PORTE` d'avant etait un FAUX NEGATIF : les deux primitives etaient
+portees, collapsees en imperatif, et invisibles a toute heuristique de nom.
+
+### `DamageProfileIs`, la 166e
+
+Le cliquet de livraison a ROUGI sur `master` le 2026-08-01 : `['DamageProfileIs']`. Il a fait
+exactement son travail. Bascule datee : `635a3431` (#372, 2026-07-31 19:33, apres le `185a4ed1`
+de #337) introduit `IdunBattle.Entities.Triggers.DamageProfileIsTrigger$$IsMatchingDamageProfileInEntities`
+dans `engine/entities/effects/loki/hits.py` -- **la seule citation captable** de la primitive. Elle
+fait passer le verdict de `NON_PORTE` (aucune trace) a `CITE_A_QUALIFIER` (citee, porteur non
+attribuable : aucun fichier ni classe du port ne s'appelle `DamageProfileIs*`).
+
+Verdict de la RE : **PORTE_HORS_FACADE**. Le `NON_PORTE` d'avant etait un faux negatif -- la
+primitive est portee sur ~30 sites, tous collapses en gates imperatifs.
+
+* Les **trois** surcharges de `IdunBattleLogic.Entities.DSLTriggers$$DamageProfileIs` (scalaire,
+  `Nullable<T>`, tableau) passent `attacker = defender = NULL` au `DamageProfileIsTrigger$$.ctor`
+  (`+0x20`/`+0x28`). Donc `DamageProfileIsTrigger$$ShouldTrigger` prend **toujours** la branche
+  `IsMatchingDamageProfileInEntities` : lecture d'`AbilityEntities+0xbc`
+  (`Nullable<DamageProfileType>`) comparee au tableau `+0x30`, `HasValue == false` -> **FAUX**.
+  La branche `IsMatchingDamageProfileInWeapons` (arme resolue par le slot virtuel `0xaf` de
+  `battleQuery`) est **morte depuis la factory** -- seule une construction directe du trigger
+  l'atteindrait.
+* La surcharge `Nullable` rend en plus le trigger CONSTANT VRAI `DSLTriggers+0x40` quand le profil
+  est absent (le meme slot que `DSLTriggers$$Direct(true)`).
+* Port : le canal `damage_profile: Optional[str]` threade par `damage_model.attacker_modifiers` /
+  `defender_modifiers`, collapse dans chaque gate d'effet. Ancre retenue :
+  `TerminatorArmourReduceDmgEffect` -- le seul port de la surcharge TABLEAU sous `NOT`
+  (`OwnerIsTarget & NOT DamageProfileIs(terminatorArmourExcludedDmgProfiles)`), et il porte
+  correctement le cas nul : `if damage_profile and damage_profile in _terminator_excluded_profiles()`
+  -> profil absent = predicat faux = reduction appliquee, exactement le `HasValue` natif.
 * Apres desambiguisation de famille, `DSLTriggers$$Direct` tombe a **1 ability / 1 confrontable** :
   les 149/101 du classement appartiennent a `DSLFormulas$$Direct`, pas a lui.
