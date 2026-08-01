@@ -108,6 +108,27 @@ avant la tranche ; le tauntant reste légal. Les étages :
 
 Garde : `tests/engine/runner/test_taunt_targeting_live.py` (7 tests, ~22 s).
 
+**Deux contre-épreuves, chacune vérifiée mordante** (la mutation est confirmée par grep avant le
+run) : la règle neutralisée (`if False and …`) → **3 rouges** (accord, désarmement, verdict) ; le
+`bonded_ref` retiré du call-site 1105 → **4 rouges** (dont le vecteur de pose). Les deux tests qui
+restent verts sous mutation portent sur le NATIF et sur la baseline, pas sur le port courant — c'est
+attendu.
+
+### Généralisation
+
+Le même verdict tient sur un montage **entièrement différent** — autre board (`C4_09`), autre seed
+(`31337`), autre taunté (`deathBlightlord`, mêlée, autre faction), **et une ability ACTIVE** au lieu
+de l'attaque normale (`1042 FlailSwing`, masque `0x4000`) : accord **6/6** sur les deux abilities,
+même `0x800000` sur le second ennemi, port AVANT `0x0`. À noter : le taunté porte
+`Taunted_CantUseAbility` (26) et la couche targeting rend malgré tout son verdict — le blocage
+d'ability passe par un autre étage (`abilityState.usable`), pas par la cascade.
+
+```
+python scripts/python/probe_436_taunt_targeting.py --seed 31337 --board C4_09 \
+    --a-units "deathBlightlord,deathBlightlord,necroWarden,necroWarden" \
+    --tauntee-vis deathBlightlord --extra-ability 1042
+```
+
 ## 5. Résidus nommés
 
 * **#436-r1 — le canal de capture ne publie pas le `bonded`.** `frida/hooks/game/effects.ts`
