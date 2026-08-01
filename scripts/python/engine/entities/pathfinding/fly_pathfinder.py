@@ -108,6 +108,18 @@ def get_movable_positions(
     MESURE (`probe_403_c2_26_fly_gap.py`, `C2_26`/38104, `overrideRange` 2, T+6 `endturn`) :
     `bloodIntercessor` (Flying, sans mouvement spécial) — natif **13**, port **12** tant que le
     gate marche s'appliquait ; la tuile manquante était `(0,2)`, qui ne pend que du Swamp `(1,2)`.
-    Sans le gate : **13/13**."""
+    Sans le gate : **13/13**.
+
+    VOISINAGE = la GÉOMÉTRIE, et c'est un override REEL (#381-r3).
+    `IdunBattle.Entities.Pathfinding.FlyPathfinder$$AddNeighbours`
+    (`u003CAddNeighboursu003Ed__7$$MoveNext`) occupe le même slot virtuel que
+    `IdunBattle.Entities.Pathfinding.BasePathfinder$$AddNeighbours` (leurs seules XREFS sont des
+    entrées de vtable) mais interroge la requête de tuiles au rayon 1 au lieu de la liste stockée
+    du `ConnectivityComponent`. Le passer EXPLICITEMENT rend le résultat indépendant du `adjacency=`
+    de l'instance : jusqu'ici le vol héritait du mode de l'appelant, donc il était juste sous
+    `evenq` (les probes) et FAUX sous `native_sym` (`playbook/scene.py`, le montage de PRODUCTION).
+    MESURE `C1_74`/3811 `overrideRange` 5 : `bloodIntercessor` natif **46**, port **45** sous
+    `native_sym` (la tuile `(3,1)` manque), **46** avec la géométrie."""
     return _get_movable_positions(board, start_id, depth, occupants, moving_team,
-                                  edge=is_valid_path_node)
+                                  edge=is_valid_path_node,
+                                  neighbours=board.neighbours_geometric)

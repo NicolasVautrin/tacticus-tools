@@ -1,7 +1,7 @@
 # case-381-r1 — `MovableTilesInRange` rendait un DISQUE ; le natif rend un pathfinding filtré
 
-Ferme le résidu `#381-r1` (nommé par `case-361` §8, re-mesuré par `case-383` §5). Suites ouvertes,
-toutes DISTINCTES et toutes préexistantes : `#381-r2` (§5), `#381-r3` (§5), `#381-r4` (§5).
+Ferme le résidu `#381-r1` (nommé par `case-361` §8, re-mesuré par `case-383` §5). Les suites
+`#381-r2`, `#381-r3` et `#381-r4` (§5) sont depuis toutes FERMÉES.
 
 ## 1. La lecture qui était fausse — le 4ᵉ argument n'est pas un `canReachOnly`
 
@@ -126,7 +126,7 @@ portée), plutôt que de les compter comme des désaccords.
 | `MC1_67` | 4 | 9 | **9/9** |
 | `C2_26` | 6 | 9 | **9/9** |
 | `PVP_desert_04` | 0 | 9 | **9/9** |
-| `C1_74` | 2 | 9 | 8/9 → §5 (`#381-r3`) |
+| `C1_74` | 2 | 9 | 8/9 → **9/9** depuis `#381-r3` |
 
 Gardes adversariales (le port muté DOIT diverger), sur `MC1_67` :
 
@@ -155,13 +155,16 @@ auto-discriminant) et `..._offline.py` (6 tests, board synthétique, sans runner
   (`bloodIntercessor`, `C2_26`, portée 2 : 13 natif / 12 port → **13/13**) ; et l'**arête** montée
   sur `IsWalkable` au lieu de `!IsWall`, qui empêchait de survoler une tuile `Block`/`Water`
   (`tyranNeurothrope`, `C2_26`, portée 4 : 22 / 21 → **22/22**).
-* **`#381-r3` — le substrat de voisinage du BFS** (la MARCHE ; cf. ci-dessus). Sur `C1_74`,
-  `tauAunShi` sur-atteint de deux
-  tuiles ((4,2) Swamp et (5,3)). Ce n'est **pas** le nœud : `_move_tiles` rend exactement le même
-  écart, bit à bit. Le `Board` est construit `adjacency="evenq"` (voisinage hexgeo recalculé) alors
-  que le natif itère le champ `neighbours` du `boardGraph` ; sur `C1_74` les deux diffèrent sur
-  **32 tuiles**, et remplacer l'un par l'autre donne 32 tuiles au lieu de 34 (le natif) — donc le
-  champ capté est lui-même incomplet. À trancher sur le CAPTEUR, pas sur le pathfinder.
+* ~~**`#381-r3` — le substrat de voisinage du BFS**~~ — **FERMÉ (2026-08-01)**,
+  `case-381-r3-voisinage-bfs.md`. ⚠ **La conclusion écrite ici — « le champ capté est lui-même
+  incomplet, à trancher sur le CAPTEUR » — est RÉFUTÉE, et le « 32 pour 34 » était un artefact** :
+  router la MARCHE sur le champ rend **34/34**. Les 32 venaient d'avoir basculé le `Board`
+  GLOBALEMENT, ce qui casse le VOL (`bloodIntercessor` 46 → 45). Le voisinage est un **slot
+  VIRTUEL** : `BasePathfinder$$AddNeighbours` (`d__19`) énumère la `List` du
+  `ConnectivityComponent`, `FlyPathfinder$$AddNeighbours` (`d__7`) interroge le rayon 1, et les
+  seules XREFS des deux corps sont des entrées de vtable. Chaque pathfinder passe désormais SA
+  source ; le `adjacency=` du `Board` ne gouverne plus rien. `C1_74` passe de 8/9 à **9/9** sur les
+  WALK, les trois autres boards restent à 9/9.
 * ~~**`#381-r4` — les collapses impératifs du même nœud**~~ — **FERMÉ**, voir
   `case-381-r4-collapses-imperatifs.md`. Deux sites corrigés via le foyer
   `services/movement_query.get_movable_tiles_for` ; le troisième (`_hypersensory_move_dest`,

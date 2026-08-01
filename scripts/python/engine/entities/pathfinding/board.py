@@ -9,8 +9,7 @@ mapping via les CTORs des itérateurs IdunBattle.Core.Services.BattleQuery$$Iter
 flags de `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles` (tuiles LIBRES) — EXCLUAIT les occupées + murs
 (bug #148 : graphe amputé). Le board est capté une seule fois par bataille (statique).
 
-Trois modes d'adjacence (la vérité-terrain `aiMovableTiles` tranche lequel est
-fidèle) :
+Trois modes d'adjacence, pour les consommateurs qui n'ont qu'UNE vue (`neighbours()`) :
   - 'native'     : voisins natifs dirigés tels quels (peuvent être asymétriques —
                    ~18 arêtes one-way observées, quirks de capture aux bords).
   - 'native_sym' : union des deux sens (corrige l'asymétrie). DÉFAUT.
@@ -19,6 +18,15 @@ fidèle) :
                    voisins (gqfc5mff6c) :
                      col pair  → (-1,0)(-1,1)(0,-1)(0,1)(1,0)(1,1)
                      col impair→ (-1,-1)(-1,0)(0,-1)(0,1)(1,-1)(1,0)
+
+⚠ **LE MODE N'ARBITRE PAS LE PATHFINDING** (#381-r3). `AddNeighbours` est un slot VIRTUEL et les
+deux corps lisent deux sources différentes : la MARCHE (`BasePathfinder$$AddNeighbours`) énumère la
+liste STOCKÉE du `ConnectivityComponent` -> `neighbours_native()` ; le VOL
+(`FlyPathfinder$$AddNeighbours`) interroge la requête de tuiles au rayon 1 -> `neighbours_geometric()`.
+Les deux pathfinders passent donc leur source EXPLICITEMENT et ne lisent jamais `neighbours()`.
+Sur `C1_74` les deux vues divergent sur 74 arêtes dirigées, et un mode global se trompait
+forcément d'un côté (mesuré : `evenq` sur-atteint la marche de 2 tuiles, `native_sym` sous-atteint
+le vol de 1).
 
 ⚠ Les MURS sont une PROPRIÉTÉ de tuile (walkable=False), PAS une arête manquante
 (cf. IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidPathNode qui filtre via IsWalkable). Le
@@ -86,8 +94,18 @@ class Board:
         stable a egalite, `First`). Deja etabli/valide live par `fc23f1e` (case-130 SS5, 9/9
         scenarios) et par le port DECISION `gauntlets_target` (#117).
 
-        Repli sur `neighbours()` (ids tries) quand le champ brut manque -- board construit a la
-        main dans les tests unitaires.
+        Repli sur `neighbours()` (ids tries) quand le champ est **ABSENT** -- board construit a la
+        main dans les tests unitaires. Un champ **PRESENT et VIDE** rend `[]`, et les deux cas sont
+        distingues depuis `#381-r3` (`raw is None`, pas `not raw`) : ils ne veulent pas dire la
+        meme chose, et les confondre INVENTAIT six voisins la ou le natif n'en a aucun.
+
+        Un champ vide est LEGITIME et se produit sur un board reel : `TileQuery$$IterateAdjacentTiles`
+        (par lequel passe le capteur) applique une porte `|dElev| < 2` INCONDITIONNELLE, donc une
+        tuile dont TOUS les voisins stockes sont a 2 niveaux ou plus ressort avec zero voisin --
+        mesure `C1_74` : les deux `Water` `(2,5)` et `(4,5)`, elevation 1, entourees de 3 et 4.
+        Rendre `[]` y est EXACT pour les deux consommateurs : `WalkPathfinder$$IsValidPathNode`
+        refuse de toute facon ces aretes (meme porte), et `AdjacentTilesSelector` passe par le MEME
+        `IterateAdjacentTiles` que le capteur, donc voit lui aussi le vide.
 
         2e consommateur (2026-07-28) : `IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility$$ExecuteBehaviour`
         attaque `Units(AdjacentTiles(target))` via un `SortedAttackSeries` qui itere le selecteur DANS SON
@@ -96,9 +114,43 @@ class Board:
         `[45, 53, 52, 43, 34, 35]`, coups splash live `53, 52, 43, 35` = l'ordre natif prive du caster
         (45) et de la tuile vide (34) ; l'ordre trie aurait donne `35, 43, 52, 53`."""
         raw = (self.by_id.get(tid) or {}).get("neighbours")
-        if not raw:
+        if raw is None:                       # champ ABSENT != champ VIDE (cf. docstring)
             return self.neighbours(tid)
         return [t for t in raw if t in self.by_id]
+
+    def neighbours_geometric(self, tid: int) -> list[int]:
+        """Voisins GEOMETRIQUES de `tid` -- la couronne hex even-q recalculee depuis `(col, row)`,
+        restreinte aux tuiles du board, INDEPENDAMMENT du mode d'adjacence de l'instance.
+
+        C'est le substrat de `IdunBattle.Entities.Pathfinding.FlyPathfinder$$AddNeighbours`
+        (`u003CAddNeighboursu003Ed__7$$MoveNext`), qui n'itere PAS la liste stockee sur la tuile mais
+        interroge la requete de tuiles au rayon 1 (`IdunBattle.Core.Services.BattleQuery$$
+        GetSurroundingTiles`) puis ecarte le centre (`while (lVar4 == this+0x30)`). L'override est
+        REEL : `FlyPathfinder$$AddNeighbours` occupe le meme slot virtuel (`vslot 0x238`) que
+        `IdunBattle.Entities.Pathfinding.BasePathfinder$$AddNeighbours` -- leurs seules XREFS sont
+        des entrees de vtable, elles ne s'appellent pas.
+
+        CONTRASTE avec `neighbours_native()` (le `ConnectivityComponent`, que lit la MARCHE) : sur
+        `C1_74` les deux vues divergent sur **74 aretes dirigees**, toutes dans le sens
+        geometrie \\ connectivity -- 70 par la porte d'elevation du capteur, 4 parce que le
+        `ConnectivityComponent` ne relie pas les deux `Bridge` a leur voisin de niveau ((1,5)-(2,4)
+        et (4,4)-(5,5)). Le mode du `Board` ne doit donc PAS arbitrer : chaque pathfinder lit SA
+        source (#381-r3).
+
+        ORDRE : trie par id. Le natif itere l'ordre de `GetSurroundingTiles` ; il n'est pas
+        observable ici (le BFS accumule un `set`, et un voisin deja visite est ignore quel que soit
+        l'ordre d'arrivee). Memoise sur l'instance (le board est STATIQUE)."""
+        cached = getattr(self, "_geo_adj", None)
+        if cached is None:
+            idof = {(t["col"], t["row"]): t["id"] for t in self.by_id.values()}
+            cached = {}
+            for t in self.by_id.values():
+                ds = EVENQ_EVEN if t["col"] % 2 == 0 else EVENQ_ODD
+                cached[t["id"]] = sorted(
+                    nid for nid in (idof.get((t["col"] + dc, t["row"] + dr)) for dc, dr in ds)
+                    if nid is not None)
+            self._geo_adj = cached
+        return cached.get(tid, [])
 
     def tile_at(self, col: int, row: int) -> dict | None:
         return self.by_coord.get((col, row))

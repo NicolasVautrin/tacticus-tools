@@ -81,10 +81,11 @@ et l'arête remise sur `board.walkable` : chaque test exige qu'au moins une mesu
   dégradation PERMISSIVE sur la TRAVERSÉE demeure** (l'ARRIVÉE reste gardée par
   `board.walkable`, qui inclut le volet fog). Le verrou de harnais est levé, le port reste
   à faire.
-* **`#381-r3` s'affine** : ce n'est pas « quelle vue du voisinage est la bonne » mais
-  « la vue dépend du PATHFINDER ». `BasePathfinder$$AddNeighbours` (d__19) itère le
-  `ConnectivityComponent` de la tuile ; `FlyPathfinder$$AddNeighbours` (d__7) interroge la requête
-  de tuiles à `radius = 1` (géométrie). Le port monte un seul `Board`, en `evenq` (géométrie) —
-  donc JUSTE pour le vol, et c'est la MARCHE qui porte le résidu.
+* ~~**`#381-r3` s'affine**~~ — **FERMÉ (2026-08-01)**, `case-381-r3-voisinage-bfs.md`. L'affinement
+  écrit ici était juste et il a suffi : la vue dépend du PATHFINDER, `BasePathfinder$$AddNeighbours`
+  (d__19) itère le `ConnectivityComponent` et `FlyPathfinder$$AddNeighbours` (d__7) interroge le
+  rayon 1. Chaque pathfinder passe désormais SA source ; le `adjacency=` du `Board` ne gouverne plus
+  rien. Le vol restait juste sous `evenq` (les probes) mais était FAUX sous `native_sym`
+  (`playbook/scene.py`, la PRODUCTION) : `bloodIntercessor`/`C1_74` 45 pour 46 au natif.
 * `IsTileReserved` / `IsTilePendingDrafting` / `IsTemporary` d'`IsMovableTile`, et le trait
   `Steppable` d'`IsFreeTile` : non portés (résidus déjà nommés par `case-381-r4`).

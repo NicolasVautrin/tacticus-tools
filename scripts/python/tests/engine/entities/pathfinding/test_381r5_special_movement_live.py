@@ -122,14 +122,9 @@ def _confront(rpc, rid, board_name):
     return out
 
 
-def _run(rpc, build_runner, board_name, seed, walk_strict: bool = True):
+def _run(rpc, build_runner, board_name, seed):
     rid = build_runner(seed, extra=BUILD_POOL, board=board_name)["rid"]
     r = _confront(rpc, rid, board_name)
-    if not walk_strict:
-        # `#381-r3` (voisinage `evenq` vs champ `neighbours` du `boardGraph`) fait diverger des
-        # unites WALK sur ce board -- residu PREEXISTANT, hors perimetre. On garde les seules
-        # unites en mouvement special, qui sont l'objet du test.
-        r["bad"] = [b for b in r["bad"] if b[2] == "special"]
     print("\n[381-r5] %s/%s : MOUVEMENT SPECIAL %d/%d == natif (dont %d dont le pool CHANGE par "
           "le dispatch) ; WALK %d/%d == natif ; ecartees : %d volantes (#381-r2), %d pool natif "
           "vide (#381)"
@@ -165,8 +160,12 @@ def test_le_predicat_lit_l_adjacence_NATIVE(rpc, build_runner):
     GARDE de la lecture d'adjacence : `GetAdjacentEnemies` -> `IterateAdjacentTiles` lit la liste
     STOCKEE sur la tuile, pas la geometrie `evenq` recalculee du `Board`. MESURE : avec
     `board.neighbours` le pool tombe a 34 contre 37 au natif ; avec `board.neighbours_native` il
-    vaut 37. Les unites WALK y portent les ecarts PREEXISTANTS de `#381-r3` -> hors assertion."""
-    _run(rpc, build_runner, "C1_74", SEED, walk_strict=False)
+    vaut 37.
+
+    Les unites WALK sont DANS l'assertion depuis que `#381-r3` est ferme (le BFS de marche enumere
+    lui aussi la liste STOCKEE) : l'exemption `walk_strict=False` qui vivait ici est levee, et sa
+    levee est un CLIQUET -- ce test rougit si la marche repasse a la geometrie."""
+    _run(rpc, build_runner, "C1_74", SEED)
 
 
 if __name__ == "__main__":                       # pragma: no cover

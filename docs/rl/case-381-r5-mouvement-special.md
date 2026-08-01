@@ -69,8 +69,10 @@ par unité. Seed 38104, roster complet, porteurs `tyranDeathleaper` (walk) et `b
 | `MC1_67` | 47 / 47 | **47 / 47** | 5 · 6 |
 | `C1_74` | 37 / 37 | **37 / 37** | 8 · 6 |
 
-Les unités WALK restent exactes (`C2_26` 5/5, `MC1_67` 5/5 ; `C1_74` 3/5 — les deux écarts sont
-`#381-r3`, préexistants et hors périmètre). `test_381r4_imperative_collapses_live` n'écarte plus le
+Les unités WALK restent exactes (`C2_26` 5/5, `MC1_67` 5/5 ; `C1_74` 3/5 à l'époque — les deux
+écarts étaient `#381-r3`, **fermé depuis** (`case-381-r3-voisinage-bfs.md`), et le test
+`test_le_predicat_lit_l_adjacence_NATIVE` a perdu son exemption `walk_strict=False`).
+`test_381r4_imperative_collapses_live` n'écarte plus le
 mouvement spécial : **7/7** au lieu de 5/5.
 
 Garde : `tests/engine/entities/pathfinding/test_381r5_special_movement_live.py` (3 tests,

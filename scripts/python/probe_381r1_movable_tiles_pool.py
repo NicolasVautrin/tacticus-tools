@@ -31,13 +31,29 @@ porte pas (`unitFlags` n'a aucun substrat offline). Une unite dont le natif rend
 **pas** un desaccord : elle est ECARTEE, comptee, et nommee. Si TOUTES le sont, le probe rend
 `NON CONCLUANT` au lieu d'un accord vide.
 
-GARDES ADVERSARIALES (`--mutate`) : chacune remet une des trois lectures a son etat FAUTIF et DOIT
-faire diverger le port. Un bras dont la mutation ne change rien ne prouve rien, et le probe le DIT.
+GARDES ADVERSARIALES (`--mutate`) : chacune remet une des lectures a son etat FAUTIF et DOIT faire
+diverger le port. Un bras dont la mutation ne change rien ne prouve rien, et le probe le DIT.
+⚠ `no-fly` n'est PAS discriminant sur `MC1_67` a T0, et ce n'est pas un defaut du port : la
+mutation eteint `is_like_flying`, donc elle change AUSSI la ventilation du probe (la volante
+compte alors en WALK), et a T0 les unites sont sous mouvement special -- le pool de teleport est
+board-wide, identique quelle que soit la base. Mesure : `WALK 10/10, VOLANTES 0/0`, rc 1, a
+l'IDENTIQUE avant et apres `#381-r3`. Le bras qui discrimine le dispatch fly est
+`tests/engine/entities/pathfinding/test_381r5_special_movement_live.py`.
+
+QUATRIEME ETAGE, ajoute par `#381-r3` : le VOISINAGE. `AddNeighbours` est un slot VIRTUEL, et les
+deux corps ne lisent pas la meme source -- `BasePathfinder$$AddNeighbours` enumere la liste STOCKEE
+du `ConnectivityComponent` (la MARCHE), `FlyPathfinder$$AddNeighbours` interroge la requete de
+tuiles au rayon 1 (le VOL, GEOMETRIE). Le `Board` du port n'a qu'un `adjacency=`, donc un mode
+global se trompait forcement d'un cote : sur `C1_74` les deux vues divergent sur 74 aretes
+dirigees, et `tauAunShi` sur-atteignait de 2 tuiles sous `evenq`. Les mutations `geo-walk` et
+`stored-fly` remettent chacune UNE des deux branches a son etat fautif.
 
 ASCII only (cp1252). Usage (depuis scripts/python, host up, session deja warmee) :
     python probe_381r1_movable_tiles_pool.py --board MC1_67
     python probe_381r1_movable_tiles_pool.py --board C1_74 --range 5
     python probe_381r1_movable_tiles_pool.py --board MC1_67 --mutate visited     # DOIT rougir
+    python probe_381r1_movable_tiles_pool.py --board C1_74 --mutate geo-walk     # DOIT rougir
+    python probe_381r1_movable_tiles_pool.py --board C1_74 --mutate stored-fly   # DOIT rougir
 """
 from __future__ import annotations
 
@@ -54,7 +70,7 @@ ROOT = PYDIR.parents[1]
 
 from rl_collect_batch import _resolve_session, _rpc            # noqa: E402
 
-MUTATIONS = ("none", "visited", "no-gate", "no-fly")
+MUTATIONS = ("none", "visited", "no-gate", "no-fly", "geo-walk", "stored-fly")
 DEFAULT_BOARD = "MC1_67"
 DEFAULT_RANGE = 5
 
@@ -155,6 +171,41 @@ def _apply_mutation(mutate: str):
             T._movement_can_continue = saved["_movement_can_continue"]
             T.MovableTilesInRange.select = _sel0
         return _restore2
+    elif mutate == "geo-walk":
+        # #381-r3 : la MARCHE relit la GEOMETRIE au lieu du `ConnectivityComponent` -- l'etat
+        # d'AVANT ce correctif quand le `Board` est monte en `adjacency="evenq"` (tous les probes).
+        from engine.entities.pathfinding import walk_pathfinder as WP
+        saved["walk_gmp"] = WP.get_movable_positions
+        _wgmp = WP.get_movable_positions
+
+        def _geo_walk(board, start_id, depth, occupants, moving_team, **kw):
+            kw["neighbours"] = board.neighbours_geometric
+            return _wgmp(board, start_id, depth, occupants, moving_team, **kw)
+        WP.get_movable_positions = _geo_walk
+
+        def _restore3():
+            WP.get_movable_positions = saved["walk_gmp"]
+            T._movement_can_continue = saved["_movement_can_continue"]
+            T.MovableTilesInRange.select = _sel0
+        return _restore3
+    elif mutate == "stored-fly":
+        # #381-r3, symetrique : le VOL relit la liste STOCKEE au lieu de la geometrie -- l'etat
+        # d'AVANT ce correctif quand le `Board` est monte en `native_sym` (`playbook/scene.py`,
+        # le montage de PRODUCTION).
+        from engine.entities.pathfinding import fly_pathfinder as FP2
+        saved["fly_gmp"] = FP2.get_movable_positions
+
+        def _stored_fly(board, start_id, depth, occupants, moving_team):
+            from engine.entities.pathfinding.walk_pathfinder import get_movable_positions as _g
+            return _g(board, start_id, depth, occupants, moving_team,
+                      edge=FP2.is_valid_path_node, neighbours=board.neighbours_native)
+        FP2.get_movable_positions = _stored_fly
+
+        def _restore4():
+            FP2.get_movable_positions = saved["fly_gmp"]
+            T._movement_can_continue = saved["_movement_can_continue"]
+            T.MovableTilesInRange.select = _sel0
+        return _restore4
     else:
         raise SystemExit("mutation inconnue : %r" % mutate)
     return _restore
@@ -232,10 +283,16 @@ def run(board: str = DEFAULT_BOARD, seed: int = 3811, override_range: int = DEFA
             "`MovementQuery$$FindAnyOrAllMoveableTiles`, residu #381 NON PORTE -- ou unites toutes "
             "VOLANTES, residu #381-r2)." % out.get("n_units_listed", 0))
     elif mutate != "none":
-        out["ok"] = (out["n_equal"] < out["n_compared"])
+        # Une mutation DISCRIMINE des qu'elle fait diverger une unite, WALK **ou** VOLANTE : les
+        # deux mutations de voisinage (#381-r3) frappent chacune UNE seule des deux branches, et
+        # ne regarder que les WALK ferait passer `stored-fly` pour NON DISCRIMINANTE.
+        flym = out.get("fly") or {}
+        out["ok"] = (out["n_equal"] < out["n_compared"]
+                     or flym.get("n_equal", 0) < flym.get("n", 0))
         out["verdict"] = (
-            "MUTATION %r : %d/%d unites s'accordent encore -- le bras %s cet etage."
+            "MUTATION %r : WALK %d/%d et VOLANTES %d/%d s'accordent encore -- le bras %s cet etage."
             % (mutate, out["n_equal"], out["n_compared"],
+               flym.get("n_equal", 0), flym.get("n", 0),
                "DISCRIMINE" if out["ok"] else "NE DISCRIMINE PAS"))
     else:
         out["ok"] = (out["n_equal"] == out["n_compared"])
