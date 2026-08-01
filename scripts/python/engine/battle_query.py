@@ -133,6 +133,29 @@ def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None
     return sum(1 for p in (positions or []) if is_adjacent(tile, p, elev_by_pos))
 
 
+def count_adjacent_matching(tile: tuple, units: list, pred, elev_by_pos: dict | None = None) -> int:
+    """`Enumerable.Count(GetAdjacentEnemies(tile, unit, ignoreSteppables: false), pred)` — le
+    comptage d'`is_adjacent` (donc la MÊME porte d'élévation d'`IterateAdjacentTiles`), mais sur des
+    UNITÉS et non des positions nues, avec un prédicat par unité.
+
+    Nécessaire dès que le natif filtre la liste rendue par `GetAdjacent*` au lieu de la compter en
+    bloc : `...MartialExemplarPlaybook$$CalculateCustomUtility` compte les `IsNormalUnit`,
+    `...TheLionsWrathPlaybook$$CalculateCustomUtility` les `IsNormalUnit && HasTrait(Chaos) &&
+    HasTrait(Hero)`. `count_adjacent` reste le cas non filtré — les deux partagent `is_adjacent`,
+    donc aucun fork d'adjacence.
+
+    `units` = dicts d'unité de `decisionView` (`{"pos": {"col","row"}, ...}`) ; une unité sans
+    position est ignorée (elle n'est sur aucune tuile, donc sur aucune tuile adjacente)."""
+    n = 0
+    for u in (units or []):
+        p = (u or {}).get("pos") or {}
+        if p.get("col") is None or p.get("row") is None:
+            continue
+        if is_adjacent(tile, (p["col"], p["row"]), elev_by_pos) and pred(u):
+            n += 1
+    return n
+
+
 def is_surrounding(tile: tuple, pos: tuple, radius: int,
                    include_center_tile: bool = True) -> bool:
     """`pos` est-il dans le DISQUE de rayon `radius` autour de `tile` au sens de

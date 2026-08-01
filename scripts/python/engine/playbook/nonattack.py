@@ -106,6 +106,29 @@ class NonAttackComparablePlaybook(ComparablePlaybook):
         (`...HealingBalms_HealPlaybook$$ShouldExecute` = `utility > 0`) redefinit cette methode."""
         return True
 
+    def should_evaluate(self, ctx, caster_tile, ability_id) -> bool:
+        """`IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate(unit, position, possiblePositions)` —
+        le slot de vtable **6**, appelé PAR TUILE CANDIDATE (et non une fois par unité).
+
+        Établi sur le corps de
+        `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` :
+        la machine à états ouvre un énumérateur sur les positions (`d__7+0x68`), et à chaque
+        `MoveNext` appelle `playbook.<slot 6>(unit, position, d__7+0x30)` avant
+        `battleQuery.<slot 0x40>` puis `playbook.Evaluate`. Trois surcharges DISTINCTES de
+        `ShouldEvaluate` coexistent — slot 4 `(unit)`, slot 5 `(unit, possiblePositions)`,
+        slot 6 `(unit, position, possiblePositions)` — et les deux premières sont appelées UNE fois,
+        avant la boucle. Ne pas les confondre : `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate`
+        override la surcharge 2-args, `...MartialExemplarPlaybook$$ShouldEvaluate` et
+        `...TheLionsWrathPlaybook$$ShouldEvaluate` la 4-args.
+
+        DÉFAUT `True`, et ce n'est PAS le corps de base exact : celui-ci refuse d'abord une position
+        posée sur une tuile TEMPORAIRE (`foreach tile in position: if TileExtensions$$IsTemporary
+        return false`, sauf si le prédicat de vtable `+0x1d8` l'autorise) puis délègue à la virtuelle
+        `+0x1e8`. Aucun membre actuel du registre ne repose sur ce refus, et l'état d'AVANT ce hook
+        était « aucun gate du tout » — le défaut permissif ne peut donc rien régresser. Le volet
+        `IsTemporary` reste un résidu nommé de `case-27`."""
+        return True
+
     def is_caster_added(self, ctx, caster_tile) -> bool:
         """Mirror de `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason == null` pour le
         regime SELF-CAST : quand `TargetingOptions.isSelfCasting` est vrai, le natif appelle
@@ -217,6 +240,8 @@ def nonattack_candidates(ctx) -> list:
             continue                       # GetEligibleTargetsEntities vide -> aucune action
         best = None                        # (full, u, tile, target)
         for T in (ctx.reach_nc or []):
+            if not pb.should_evaluate(ctx, T, aid):
+                continue                   # slot 6 : ShouldEvaluate(unit, position, positions)
             if not pb.is_caster_added(ctx, T):
                 continue                   # GetCasterNotAddedReason != null depuis cette tuile
             for tgt in targets:

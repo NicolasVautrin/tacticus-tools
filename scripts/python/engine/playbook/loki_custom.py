@@ -34,7 +34,8 @@ from .nonattack import NonAttackComparablePlaybook, register_nonattack
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.effect_type import EffectType
-from ..entities.traits.unit_trait import UnitTrait, entity_trait_names, has_any_trait
+from ..entities.traits.unit_trait import (UnitTrait, entity_trait_names, has_any_trait,
+                                          is_normal_unit)
 from ..utilities.damage import will_be_overkill
 
 # `_PROFILE_NONE` VIVAIT ICI (le `param_8` VIDE du call-site `GenerateMultiHitAttackPredictions` de
@@ -1321,6 +1322,90 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
         return float(int(best))
 
 
+class MartialExemplarPlaybook(NonAttackComparablePlaybook):
+    """`IdunBattle.AI.Playbook.Loki.MartialExemplarPlaybook$$CalculateCustomUtility` (#27-r4) :
+
+        n = Enumerable.Count(battleQuery.<slot itf 0x80>(casterPosition, caster,
+                                                         ignoreSteppables: false),
+                             UnitExtensions$$IsNormalUnit);
+        return Fix64.op_Implicit(n * 1000);
+
+    et son gate `...MartialExemplarPlaybook$$ShouldEvaluate(unit, position, possiblePositions)`
+    (slot de vtable 6, appele PAR TUILE) :
+
+        return battleQuery.<slot itf 0x80>(position, unit, false).Count > 0;
+
+    ATTENTION -- ce second corps ne filtre PAS par `IsNormalUnit` : le gate compte TOUS les ennemis
+    adjacents, l'utilite seulement les `IsNormalUnit`. Les deux comptes DIVERGENT des qu'un ennemi
+    `Object`/`Steppable` est adjacent (l'action est alors generee avec `custom = 0`), et les
+    confondre serait un port FAUX dans exactement ce regime.
+
+    ANCRAGE DU SLOT 0x80 = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(from, unit,
+    ignoreSteppables)` : le decorateur enregistreur
+    `...RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass155_0$$u003CGetAdjacentEnemiesu003Eb__0`
+    emet ce slot exact (et les DisplayClass 149/150/151 emettent 0x7a/0x7b/0x7c pour
+    `GetAdjacentUnits`, la 147 emet 0x78 pour `GetSurroundingEnemies`). Son corps ne lit du `unit`
+    que `IdunBattle.Entities.Components.OwnerComponent$$get_CurrentPlayerEntityId` -- le CAMP, ni
+    stat ni trait ni arme ni portee. C'est CE fait qui rend l'ability greffable alors que son seul
+    porteur, `darkaBossLion`, est un npc (`case-92` §5bis).
+
+    POURQUOI LA ROUTE NON-ATTAQUE, alors que 1216 a un `damageProfile` (`constants.damageProfile` =
+    `Power`) : son masque EFFECTIF est `0x8014` = `CasterIsPossibleTarget | CasterHasNotMoved |
+    CasterMatchesDynamicRule` (cf. `TARGETING_OPTIONS_UNPORTED[1216]` -- forme PRESET+FLAGS, le
+    litteral `0x10` du ctor n'est PAS le masque). L'ability est donc **SELF-CAST** : le natif ne
+    retient qu'une cible, le CASTER. Mesure live : `abilityTargets(1216)` rend `[(unit, <caster>)]`,
+    et les `attackPlans.evals` de 1216 sur les ENNEMIS rendent tous `rankCount = 0` -- `_best_attack`
+    ne peut donc rien produire, exactement le critere de cette seconde route (cf. l'en-tete de
+    `nonattack.py`, et le meme diagnostic que 1009 ResurrectionOrb).
+
+    `make_damage_predictions` -> `[]` (herite) : la cible etant le caster lui-meme, le natif ne
+    predit aucun degat sur elle -- MESURE `pairUtility(1216, SELF) = 0`, sur les trois tuiles
+    testees. L'utilite d'action se reduit donc a `custom + tile_utility`, ce que fait la route.
+
+    MAGNITUDE NON DISCRIMINABLE, et c'est ecrit plutot que masque : `CasterHasNotMoved` interdit le
+    cast apres deplacement, et la cible est unique -> il n'existe qu'UNE action 1216 par tour. Le
+    terme `1000 x n` ne departage donc jamais deux actions de 1216 entre elles ; face aux autres
+    abilities il gagne des `n >= 1`. Toute constante >= ~10 produirait la meme decision. Ce qui EST
+    mesure (`probe_27_r4_martial_exemplar.py`, 4 bras) : le GATE (n=0 -> le natif prend l'attaque
+    normale ; n=1 et n=2 -> il prend 1216 sur lui-meme) et `CasterHasNotMoved`.
+
+    Porteur `darkaBossLion` [npc] -> GREFFE sur `darkaAsmodai` (Dark Angels, melee, dans
+    `rl_duel build --list-pool`). La greffe ne couvre pas les stats/traits/armes du vrai porteur --
+    elle est legitime ICI parce que la formule n'en lit aucun."""
+    ability_id = int(ActiveAbilityType.MartialExemplar)   # 1216 = 0x4c0
+    ADJACENT_ENEMY_UTILITY = 1000.0     # CONSTANTE EN DUR du natif : aucun `GetUtilityValue`
+
+    def _adjacent_enemies(self, ctx, caster_tile):
+        """`battleQuery.<slot itf 0x80>(caster_tile, caster, ignoreSteppables: false)` — les ENNEMIS
+        du caster sur une tuile adjacente a `caster_tile`. Mirror via `ctx.enemies` (le camp est
+        deja resolu par `decisionView`, comme le `CurrentPlayerEntityId` du natif) et la porte
+        d'elevation d'`is_adjacent`."""
+        return [u for u in (ctx.enemies or [])
+                if bq.is_adjacent(caster_tile, ((u.get("pos") or {}).get("col"),
+                                                (u.get("pos") or {}).get("row")),
+                                  ctx.elev_by_pos)]
+
+    def should_evaluate(self, ctx, caster_tile, ability_id) -> bool:
+        """`...MartialExemplarPlaybook$$ShouldEvaluate` = `GetAdjacentEnemies(position, unit,
+        false).Count > 0` — SANS filtre `IsNormalUnit` (cf. la docstring de classe)."""
+        return bq.count_adjacent(caster_tile, ctx.epos, ctx.elev_by_pos) > 0
+
+    def is_caster_added(self, ctx, caster_tile) -> bool:
+        """Mirror du bit `CasterHasNotMoved` (0x10) du masque effectif `0x8014` :
+        `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason` refuse le cast des que le
+        caster a quitte sa tuile d'origine. Cote decision, cela retire de l'enumeration toute tuile
+        candidate autre que l'origine — sans ce mirror, le moteur proposerait 1216 depuis n'importe
+        quelle tuile atteignable, une degradation PERMISSIVE que le natif refuse (mesure : un
+        `act move` du caster fait tomber `abilityTargets(1216)` a ZERO cible)."""
+        return caster_tile == ctx.origin
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        n = bq.count_adjacent_matching(
+            caster_tile, ctx.enemies,
+            lambda u: is_normal_unit(u.get("traits")), ctx.elev_by_pos)
+        return float(n) * self.ADJACENT_ENEMY_UTILITY
+
+
 def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
@@ -1332,7 +1417,11 @@ def _register_all() -> None:
     # qu'elle n'a pas de `damageProfile` (Chronometron, ForwardObservers), soit parce que son masque
     # de ciblage refuse toute cible ennemie (SorcerousFacade, veto #217). Registre + route dedies
     # (`playbook/nonattack.py`).
-    for cls in (ChronometronPlaybook, ForwardObserversPlaybook, SorcerousFacadePlaybook):
+    # ... soit, 3e cas (#27-r4), parce que son masque est SELF-CAST (`CasterIsPossibleTarget`) : la
+    # seule cible que le natif retient est le CASTER, donc les evals de `attackPlans` sur les
+    # ENNEMIS rendent tous `rankCount = 0` et `_best_attack` ne peut rien produire.
+    for cls in (ChronometronPlaybook, ForwardObserversPlaybook, SorcerousFacadePlaybook,
+                MartialExemplarPlaybook):
         register_nonattack(cls())
 
 

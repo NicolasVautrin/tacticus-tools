@@ -178,6 +178,23 @@ def has_any_trait(trait_names: "Iterable[str] | None",
     return any(trait_name(t) in names for t in traits)
 
 
+def is_normal_unit(trait_names: "Iterable[str] | None") -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsNormalUnit`, mirror 1:1 :
+
+        if (GetBaseUnitComponent(u) != null && BaseUnitComponent$$HasTrait(u, 0xd))  return false;
+        if (GetBaseUnitComponent(u) != null)  return !BaseUnitComponent$$HasTrait(u, 0x1b);
+        return true;
+
+    soit `!HasTrait(Object) && !HasTrait(Steppable)` (`0xd = 13 = Object`, `0x1b = 27 = Steppable`,
+    qualifies contre `data/symbols/<build>/frida/enums.tsv`, enum
+    `IdunBattle.Entities.Enum.UnitTrait`). Composant de base ABSENT -> le natif rend `true` ; ici,
+    `trait_names` a `None` donne le meme resultat (aucun des deux traits n'est trouve).
+
+    Consommateur porte : `...MartialExemplarPlaybook$$CalculateCustomUtility` (#27-r4), qui compte
+    les ennemis adjacents PASSANT ce predicat."""
+    return not has_any_trait(trait_names, (UnitTrait.Object, UnitTrait.Steppable))
+
+
 # ── Le SET DE TRAITS d'une unite (source unique) ─────────────────────────────────────────────
 # `IdunBattle.Entities.UnitExtensions$$HasTrait(unit, traitId)` delegue a
 # `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`, qui interroge TROIS collections du
