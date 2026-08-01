@@ -137,14 +137,16 @@ le même ennemi sert les deux axes, une variable de moins. `--crit 0,0 --crit-ta
 
 | | `bigtarget` / `MC1_67`+31337 | `bigtarget` / `C4_09`+4242 | `lightcover` / `C4_09`+4242 |
 |---|---|---|---|
-| RANGED — **live** | `[17633]`* | mesuré | `[19335]` |
+| RANGED — **live** | `[17632]` | `[19335]` | `[19335]` |
 | RANGED — **port** | idem | idem | idem |
-| CONTRE-ÉPREUVE (sans 1014, même flux) | `[18131]` | — | `[19834]` |
+| CONTRE-ÉPREUVE (sans 1014, même flux) | `[18131]` | `[19834]` | `[19834]` |
 | **écart par coup** | **499** = `dmgReduction[50] × 1.8` | **499** | **499** |
-| CONTREFACTUEL de couvert (support retiré) | 1er coup `18131` | — | 1er coup `19834` |
+| CONTREFACTUEL de couvert (support retiré) | 1er coup `18131` | 1er coup `19834` | 1er coup `19834` |
 
-\* `[17632]` sur le run CLI initial, `[17633]` sur un re-jeu — le flux MT diffère d'un montage à
-l'autre ; ce qui est invariant et testé, c'est l'écart `port_sans_effet − live = 499` par coup.
+Les deux colonnes `C4_09` coïncident : même board, même seed, même position d'attaque — mais **deux
+voies de couvert différentes** (`1026` porté par un ami vs `1013` porté par Certus). C'est ce qui
+rend l'égalité informative : les deux membres du `op_BitwiseOr` produisent le même dégât, comme le
+natif.
 
 | autres bras | mesure |
 |---|---|
