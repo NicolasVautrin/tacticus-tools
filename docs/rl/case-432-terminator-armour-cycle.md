@@ -135,13 +135,14 @@ Deux canaux d'événement neufs sur le vecteur de clôture (`TriggerEvent`) : `h
 
 ## 6. Validation
 
-* **Cliquets** : `probe_181_targeting_gaps`, `probe_120 --step 0`, `probe_273 --only-scan`,
-  `probe_365`, `probe_330`, `probe_321`, `probe_252`, `probe_va_in_code_vs_prose`,
-  `test_enum_mirror_ratchet_offline` — tous rc=0. Plus `probe_229_effect_triggers_active` (le rail
-  de #421), qui a **mordu** : il a refusé les 4 classes tant que leur `RAIL` n'était pas déclaré, et
-  imposé la lecture du flag sur la seule classe du rail TARGETS.
+* **Cliquets** — la banque est `scripts/ratchets.ps1` (composition définie **là**, jamais recopiée
+  ici) : relevé du **2026-08-01, après rebase sur `43b19959`** — **19/19 verts, mur 112,7 s**.
+  `probe_229` a **mordu** en cours de route : il a refusé les 4 classes tant que leur `RAIL` n'était
+  pas déclaré, et imposé la lecture du flag `IsActive` sur la seule classe du rail TARGETS (le
+  correctif est dans le port, pas dans le probe).
 * **Garde** : `tests/engine/test_432_terminator_armour_cycle_live.py` (4 tests) — natif, port,
-  contre-épreuve, gate de profil.
+  contre-épreuve, gate de profil. Rejouée **après rebase**, verte, avec
+  `test_damage_roll_live`, `test_runner_attack_live`, `test_overkill_gate_live`.
 * **Contre-épreuve** : l'entrée `EFFECT_TRIGGERS[1147]` **retirée** — ce n'est pas une caricature,
   c'est *exactement* l'état d'`origin/master` (les quatre classes n'existaient pas, et les deux
   canaux d'event neufs n'ont aucun autre consommateur) — la 2ᵉ attaque tombe à **3 521** (vs natif
