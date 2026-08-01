@@ -422,7 +422,7 @@ False) », « DÉSACCORD sur 1574 — port=True natif=False »). La mesure discr
   `On(9 = Attack) & AreEqual(Units(Target), Owner) & CurrentAttackDamageProfilesContainOtherThan(<exclus>)
   & AmountIsZero(CurrentShieldAmount(Target)) & (AmountIsGreaterThanZero(HealthDamageFromEvent) | WasBlock)`
   → `$$CreateTargetTriggerBehaviour` = `DeactivateEffect(self)`, ré-activé par son
-  `$$CreateHandleTriggerAbilitiesInternal` sur `On(0x3e)`. C'est une réduction **une fois par
+  `$$CreateHandleTriggerAbilitiesInternal` sur `On(0x3e = EffectAdded)`. C'est une réduction **une fois par
   attaque** ; `EFFECT_TRIGGERS[1147]` et `[1375]` sont VIDES côté port ⇒ le port applique -75 %
   à chaque coup du tour. **RÉSIDU NOMMÉ, hors périmètre** (le probe l'objective en publiant
   `damaged`, mesuré `True` sur ce seul bras — un overwatch à l'atterrissage).

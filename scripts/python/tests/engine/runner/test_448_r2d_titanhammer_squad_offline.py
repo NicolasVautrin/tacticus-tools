@@ -226,10 +226,10 @@ def test_the_registry_holds_the_five_classes():
                    "TitanhammerSquadTeleportingInRemoveOnUnitFinishedTurn",
                    "TitanhammerSquadTeleportingInAddMovingOnPreMove"], got
     assert [c.event_id for c in EFFECT_TRIGGERS[TITANHAMMER_SQUAD_TELEPORTING_IN]] == [
-        int(EventTriggerType.UnitAfterMove),        # On(0x04)
-        int(EventTriggerType.PreUnitAbility),       # On(0x2a)
-        int(EventTriggerType.UnitFinishedTurn),     # On(0x28)
-        int(EventTriggerType.PreUnitMove)]          # On(0x1f)
+        int(EventTriggerType.UnitAfterMove),        # On(0x04 = UnitAfterMove)
+        int(EventTriggerType.PreUnitAbility),       # On(0x2a = PreUnitAbility)
+        int(EventTriggerType.UnitFinishedTurn),     # On(0x28 = UnitFinishedTurn)
+        int(EventTriggerType.PreUnitMove)]          # On(0x1f = PreUnitMove)
     assert [c.__name__ for c in EFFECT_TRIGGERS.get(TITANHAMMER_SQUAD_MOVING, [])] == \
         ["TitanhammerSquadMovingRemoveOnAfterMove"]
     assert TitanhammerSquadMovingRemoveOnAfterMove.effect_type == TITANHAMMER_SQUAD_MOVING

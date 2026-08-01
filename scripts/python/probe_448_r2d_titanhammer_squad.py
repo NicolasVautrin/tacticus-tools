@@ -365,7 +365,7 @@ def confront_arm(label, rid, mover, dest, expect_moving, fails) -> None:
     #     AreEqual(Units(Target), Owner) & CurrentAttackDamageProfilesContainOtherThan(<exclus>) &
     #     AmountIsZero(CurrentShieldAmount(Target)) & (AmountIsGreaterThanZero(HealthDamageFromEvent)
     #     | WasBlock)` -> `CreateTargetTriggerBehaviour` = `DeactivateEffect(self)`, re-activee par
-    #     son `CreateHandleTriggerAbilitiesInternal` sur `On(0x3e)`. C'est une reduction UNE FOIS
+    #     son `CreateHandleTriggerAbilitiesInternal` sur `On(0x3e = EffectAdded)`. C'est une reduction UNE FOIS
     #     PAR ATTAQUE, et `EFFECT_TRIGGERS[1147]`/`[1375]` sont VIDES cote port -> RESIDU NOMME,
     #     hors perimetre de cette tranche. Le probe le rend MESURE et non suppose en publiant
     #     `damaged` (le mover a-t-il encaisse pendant le pas -- typiquement un overwatch a
