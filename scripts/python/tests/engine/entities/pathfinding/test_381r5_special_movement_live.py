@@ -119,9 +119,14 @@ def _confront(rpc, rid, board_name):
     return out
 
 
-def _run(rpc, build_runner, board_name, seed):
+def _run(rpc, build_runner, board_name, seed, walk_strict: bool = True):
     rid = build_runner(seed, extra=BUILD_POOL, board=board_name)["rid"]
     r = _confront(rpc, rid, board_name)
+    if not walk_strict:
+        # `#381-r3` (voisinage `evenq` vs champ `neighbours` du `boardGraph`) fait diverger des
+        # unites WALK sur ce board -- residu PREEXISTANT, hors perimetre. On garde les seules
+        # unites en mouvement special, qui sont l'objet du test.
+        r["bad"] = [b for b in r["bad"] if b[2] == "special"]
     print("\n[381-r5] %s/%s : MOUVEMENT SPECIAL %d/%d == natif (dont %d dont le pool CHANGE par "
           "le dispatch) ; WALK %d/%d == natif ; ecartees : %d volantes (#381-r2), %d pool natif "
           "vide (#381)"
@@ -150,6 +155,15 @@ def test_mouvement_special_mc1_67(rpc, build_runner):
     """`MC1_67` -- SECOND board (arene par defaut), pour que le resultat ne soit pas un artefact
     de geometrie. C'est aussi le board du datapoint `bloodIntercessor` de `#381-r2`."""
     _run(rpc, build_runner, BOARDS[1], SEED)
+
+
+def test_le_predicat_lit_l_adjacence_NATIVE(rpc, build_runner):
+    """`C1_74` -- le board ou les DEUX vues du graphe divergent (`#381-r3` : 32 tuiles). C'est la
+    GARDE de la lecture d'adjacence : `GetAdjacentEnemies` -> `IterateAdjacentTiles` lit la liste
+    STOCKEE sur la tuile, pas la geometrie `evenq` recalculee du `Board`. MESURE : avec
+    `board.neighbours` le pool tombe a 34 contre 37 au natif ; avec `board.neighbours_native` il
+    vaut 37. Les unites WALK y portent les ecarts PREEXISTANTS de `#381-r3` -> hors assertion."""
+    _run(rpc, build_runner, "C1_74", SEED, walk_strict=False)
 
 
 if __name__ == "__main__":                       # pragma: no cover

@@ -71,8 +71,15 @@ def _has_adjacent_enemy(tile_id: int, board, occupants: dict, moving_team) -> bo
     `Count(e => !UnitExtensions.IsSteppable(e))` et exigent `== 0` : « aucun ennemi NON-Steppable
     sur une tuile adjacente ». Le port compare des TEAM la ou le natif compare des joueurs (meme
     convention que `WalkPathfinder$$UnitIsBlockedByEnemyUnit`), et n'a pas de substrat `Steppable`
-    -> tout occupant ennemi compte."""
-    for n in board.neighbours(int(tile_id)):
+    -> tout occupant ennemi compte.
+
+    ⚠ `neighbours_native`, PAS `neighbours` -- et c'est MESURE, pas suppose. `IterateAdjacentTiles`
+    lit la liste d'adjacence **STOCKEE sur la tuile** (`TileQuery$$IterateAdjacentTiles`), la ou le
+    `Board` du port est monte en `adjacency="evenq"` (voisinage hexgeo RECALCULE, et symetrise).
+    Sur `C1_74`, ou les deux vues du graphe different sur 32 tuiles (`#381-r3`), la version `evenq`
+    rendait 34 tuiles contre 37 au natif ; la version native rend 37. Sur `C2_26`, `MC1_67` et
+    `PVP_desert_04` les deux coincident."""
+    for n in board.neighbours_native(int(tile_id)):
         occ = occupants.get(int(n))
         if occ is not None and moving_team is not None and occ != moving_team:
             return True
@@ -167,7 +174,7 @@ def is_valid_teleport_tile_titanhammer(tile_id: int, board, target_tiles: Option
     tt = {int(t) for t in target_tiles}
     if int(tile_id) in tt:
         return True
-    return any(int(n) in tt for n in board.neighbours(int(tile_id)))
+    return any(int(n) in tt for n in board.neighbours_native(int(tile_id)))
 
 
 def find_tiles_reachable_by_teleport(
