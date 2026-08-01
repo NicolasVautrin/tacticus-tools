@@ -26,7 +26,9 @@
     Un cliquet neuf s'ajoute ICI, avec sa ligne << ce qu'il est SEUL a voir >>.
 
 .PARAMETER List
-    Imprime la banque en TSV (id, commande, seul-a-voir, doc) et sort. Aucun lancement.
+    Imprime la banque en TSV (id, commande, rougit, seul-a-voir, doc) et sort. Aucun lancement.
+    C'est la voie par laquelle la banque se DERIVE : `probe_439` la lit ici plutot que de
+    recopier sa composition. Changer ces colonnes, c'est changer un contrat -- rejouer #439.
 
 .PARAMETER Only
     Ne joue que ces ids (accepte le prefixe : `-Only probe_283` prend ses 6 etapes).
@@ -70,6 +72,13 @@ param(
 # ==========================================================================================
 #  LA BANQUE. Une entree = un cliquet. `Seul` dit ce que ce cliquet est SEUL a voir : c'est
 #  le critere d'admission, avec le cout MARGINAL en parallele (jamais le cout absolu).
+#
+#  `Rougit` est FACULTATIF et n'a qu'une valeur admise : 'compteur'. Il DECLARE qu'une entree
+#  est structurellement incapable de rendre un code non nul -- elle est la pour le contexte,
+#  pas pour garder. C'est une declaration MACHINE, lue par `probe_439`, qui garde les DEUX
+#  directions : une entree sans declaration qui ne peut pas rougir est ROUGE (le vice de #430
+#  et #435), et une entree DECLAREE compteur qui se met a pouvoir rougir l'est aussi -- sa
+#  declaration est MORTE. Ne jamais poser ce champ pour faire taire un cliquet casse.
 # ==========================================================================================
 $Ratchets = @(
     @{ Id = 'probe_181'; Argv = @('probe_181_targeting_gaps.py')
@@ -147,6 +156,7 @@ $Ratchets = @(
     #     l EQUIVALENT EXACT de `--step all`, et pour qu un futur `ko +=` sur eux soit vu.
     #     Aucune ecriture sans `--fix` : les six s executent en lecture seule, sans collision.
     @{ Id = 'probe_283:diff'; Argv = @('probe_283_enum_ordinal_sweep.py', '--step', 'diff')
+       Rougit = 'compteur'
        Seul = 'COMPTEUR : le diff des enums entre builds archives -- le contexte du verdict des cinq autres etapes'
        Doc  = 'docs/rl/case-283-quatre-enums-renumerotes.md' }
     @{ Id = 'probe_283:mirror'; Argv = @('probe_283_enum_ordinal_sweep.py', '--step', 'mirror')
@@ -162,8 +172,14 @@ $Ratchets = @(
        Seul = 'une citation de decompile en commentaire/docstring dont l ordinal vaut EXACTEMENT celui du build precedent -- 220 invalidees par une MAJ SANS QU UNE SEULE LIGNE CHANGE, donc structurellement invisible a tout declencheur sur diff'
        Doc  = 'docs/rl/case-420-on-litteraux-perimes.md' }
     @{ Id = 'probe_283:on'; Argv = @('probe_283_enum_ordinal_sweep.py', '--step', 'on')
+       Rougit = 'compteur'
        Seul = 'COMPTEUR : les litteraux On(<n>) stables vs decales'
        Doc  = 'docs/rl/case-283-quatre-enums-renumerotes.md' }
+
+    # Le cliquet de la BANQUE elle-meme. Il est dans la banque, donc soumis a son propre critere.
+    @{ Id = 'probe_439'; Argv = @('probe_439_cliquet_peut_rougir.py')
+       Seul = 'un cliquet de CETTE banque incapable de rendre un code non nul -- il occupe la place d un garde-fou et s imprime comme << rien a signaler >> (3 occurrences, TOUTES trouvees a l oeil : probe_181 #430, probe_326 #435, et l audit manuel de #430 qui a rate la seconde)'
+       Doc  = 'docs/rl/case-439-cliquet-peut-rougir.md' }
 )
 
 # ==========================================================================================
@@ -179,9 +195,10 @@ function Convert-ToAscii([string] $s) {
 }
 
 if ($List) {
-    Write-Output ("id`tcommande`tseul-a-voir`tdoc")
+    Write-Output ("id`tcommande`trougit`tseul-a-voir`tdoc")
     foreach ($r in $Ratchets) {
-        Write-Output ("{0}`tpython {1}`t{2}`t{3}" -f $r.Id, ($r.Argv -join ' '), $r.Seul, $r.Doc)
+        Write-Output ("{0}`tpython {1}`t{2}`t{3}`t{4}" -f `
+            $r.Id, ($r.Argv -join ' '), [string] $r.Rougit, $r.Seul, $r.Doc)
     }
     exit 0
 }

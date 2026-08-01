@@ -272,7 +272,15 @@ elle ne **définit** pas la banque.
   2026-08-01 à 8 worktrees), donc un rouge d'agent attribué à l'arbre principal. Mur 428,5 → ~157 s.
   Le filtre porte sur le chemin **relatif** au dépôt : c'est ce qui l'empêche de s'auto-exclure
   quand il tourne DANS un worktree. Détail : `docs/rl/case-434-perimetre-des-cliquets.md`.
-- Détail des arbitrages, contre-épreuves et résidus : `docs/rl/case-430-banque-de-cliquets.md`.
+- **Un cliquet qui ne peut pas ROUGIR est gardé mécaniquement (#439)** : `probe_439` vérifie que
+  chaque entrée a un chemin de sortie **non nul**. Trois occurrences du vice, **toutes trouvées à
+  l'œil** — et l'audit manuel de #430 en avait raté une. La liste se **dérive** de `ratchets.ps1`
+  (deux fois, accord prouvé dans les deux sens) et la granularité est l'**entrée**, pas le fichier :
+  `--step diff` n'est pas `--step mirror`. Les deux compteurs assumés portent `Rougit = 'compteur'`
+  dans la banque — poser ce champ pour faire taire un cliquet cassé le fait rougir autrement.
+  ⚠ Il garde « peut rendre un code non nul », **pas** « rougit sur son gisement » (résidu `#439-r1`).
+- Détail des arbitrages, contre-épreuves et résidus : `docs/rl/case-430-banque-de-cliquets.md`,
+  `docs/rl/case-439-cliquet-peut-rougir.md`.
 
 ## Ne jamais
 

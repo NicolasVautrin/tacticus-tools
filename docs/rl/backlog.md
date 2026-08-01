@@ -246,6 +246,15 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#439-r1` — « peut rendre un code non nul » n'est pas « rougit sur SON gisement ».** `probe_439`
+  garde le premier (banque verte 22/22) ; le second n'est gardé par rien de mécanique. Cas mesuré et
+  imprimé à chaque passage : `probe_326` a **0** voie non nulle de la famille return/exit — son
+  `main` finit par `return 0` — mais un `assert sum(tot.values()) == len(rows)`, invariant INTERNE de
+  son comptage, le rend techniquement capable de rendre 1. Un cliquet de cette forme passerait #439
+  tout en n'attestant rien. Le seul garde connu du second critère est un **test du gisement** (ici
+  `test_337`, #435), qu'aucune règle n'impose. À promouvoir si une 4e occurrence du gisement de #430
+  apparaît. `case-439-cliquet-peut-rougir.md` §8.
+
 - **`#406-r1` — deux call-sites de `TriggerAbilityDelayed` restent sur le collapse INLINE.** #406 a
   porté la vraie file (`State.pending_triggered_abilities`, drain dans `Runner.apply` — RE :
   `case-366-r1` §6bis), mais le nœud ne l'emprunte que pour les abilities inscrites dans

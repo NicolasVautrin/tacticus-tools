@@ -140,8 +140,10 @@ Deuxième fois qu'**admettre** un cliquet trouve un rouge **immédiat** (après 
 
 Le candidat naturel `probe_326_dsl_port_matching.py` est exactement le résidu nommé au §7 (« un
 cliquet neuf qui rendrait `0` inconditionnellement ») : son `main` finit par `return 0`, il
-inventorie les verdicts sans en rougir. **Ce résidu n'est toujours pas gardé automatiquement** —
-il a été vérifié à la main ici, une troisième fois.
+inventorie les verdicts sans en rougir. Il a été vérifié à la main ici, une troisième fois —
+**puis gardé mécaniquement par #439** (`probe_439_cliquet_peut_rougir.py`, entré dans la banque),
+qui vérifie que chaque entrée a un chemin de sortie non nul. Ce qui reste ouvert après #439 :
+« peut rendre un code non nul » n'est pas « rougit sur SON gisement » — résidu `#439-r1`.
 
 Contre-épreuves en **run complet** (jamais `-Only`), jouées dans un **clone temporaire** du dépôt —
 le TSV versionné n'a pas été touché, et l'arbre est resté bit-exact (sha256 identique avant/après,
