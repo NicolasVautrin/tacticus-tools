@@ -10,23 +10,48 @@ TROIS SOURCES INDEPENDANTES, jointes sur la date locale :
      `*/subagents/agent-*.jsonl` (agents). Tokens par jour, dedupes par uuid.
   3. Git -- `git log --numstat`. Commits et lignes par jour.
 
-SEULS LES COMMITS ARRIVES PAR UNE PR SONT COMPTES -- c'est le perimetre de production de la flotte.
-Ils sont enumeres par `git rev-list <merge>^1..<merge>` sur le `mergeCommit` de chaque PR mergee
-(retombee sur le merge lui-meme quand il n'a qu'un parent : squash ou fast-forward). Le reste --
-pushs directs sur master par l'orchestrateur : correctifs a chaud, docs, outillage -- est compte
-A PART et affiche, jamais melange au denominateur.
-Mesure du 2026-08-01, fenetre depuis le 2026-07-10 : 1 290 commits de contenu, dont 819 par une PR
-(63 %) et 471 pousses directement. Les merges ne tombent dans AUCUN des deux seaux -- ils
-n'apportent rien en propre et `--numstat` ignore deja leur diff. La partition est verifiable :
-PR + direct + merges = tous les commits.
+L'UNITE DE LIVRAISON EST LE MERGE D'UNE PR, PAS LE COMMIT. Les lignes d'une PR sont lues au DIFF
+NET de son merge contre son premier parent (`git diff <merge>^1 <merge>`), et rattachees au jour du
+MERGE. Une PR = une livraison atomique.
 
-LA JOINTURE PR <-> AGENT passe par la BRANCHE : `worktreeBranch` du meta d'agent == `headRefName`
-de la PR. Mesure du 2026-08-01 : 413/454 PR (91 %). Les 41 autres portent une branche qui n'est PAS
-celle du worktree (`worktree-agent-350r3bc`, `agent/192-...`, `feat/113-votann-lot1`) -- ce sont
-des PR D'AGENT elles aussi, avec un meta introuvable, pas des PR d'une autre provenance. Le
-denominateur les GARDE donc par defaut ; les exclure amputait de 46 commits d'agent bien reels
-(819 -> 773, et +39 791 lignes basculees a tort du cote « hors PR »). `--strict-agent` fournit la
-lecture etroite (agent identifie seulement) pour qui veut l'ecart.
+  - Insensible a la forme de l'historique de la branche : un `wip` puis son correctif comptent une
+    fois. Mesure du 2026-08-01 : +427 449 lignes en net contre +430 816 en sommant les commits,
+    soit 3 367 de churn interne (1 %).
+  - Immunise contre les ALLERS-RETOURS DE REBASE. Quand l'orchestrateur renvoie une PR a son agent,
+    elle revient sur un master qui a bouge, et deux PR mergees coup sur coup peuvent revendiquer
+    les memes commits -- 831 revendications pour 816 commits distincts, 13 reclames deux ou trois
+    fois. Au niveau du merge, la question ne se pose plus : `^1` est master AVANT le merge, donc
+    le diff ne contient jamais ce qu'une PR precedente a deja fait entrer.
+  - Marche uniformement sur les merges SQUASHES : `^1` existe toujours, le merge porte le diff.
+    Necessaire ici -- seules 263 des 422 PR mergees ont produit un vrai merge a deux parents.
+
+Le reste -- pushs directs sur master par l'orchestrateur : correctifs a chaud, docs, outillage --
+est compte A PART et affiche, jamais melange au denominateur. Mesure du 2026-08-01, fenetre depuis
+le 2026-07-10 : 1 290 commits de contenu, dont 819 arrives par une PR (63 %) et 471 pousses
+directement.
+
+LA JOINTURE PR <-> AGENT a DEUX voies, qui se corroborent :
+
+  1. LA BRANCHE -- `worktreeBranch` du meta d'agent == `headRefName` de la PR. 381/422 PR mergees
+     (90 %).
+  2. LE MESSAGE DU MERGE -- un `agent-<id>` cite dans le corps, resolvable en
+     `<session>/subagents/agent-<id>.jsonl`. 247/422 (59 %), dont 243 sur des commits
+     « Merge pull request ».
+
+La voie 2 est un SOUS-ENSEMBLE STRICT de la voie 1 : l'union reste 381, elle n'ajoute aucune PR.
+Elle est gardee quand meme parce que, sur les 247 cas ou les deux repondent, elles sont d'accord
+247 fois sur 247 -- validation croisee gratuite -- et parce qu'elle survit a un meta disparu.
+VOIE ECARTEE -- le trailer `Claude-Session` : il nomme une SESSION API, or une conversation en
+enchaine plusieurs. Mesure : 14 identifiants, dont 13 presents dans DEUX transcripts principaux ou
+plus, et chacun present en outre dans 0 a 84 transcripts d'agent (l'agent herite du pied de page de
+son parent). Il ne designe donc ni un transcript ni un agent -- et il ne figure que sur 16 des 263
+commits « Merge pull request ».
+
+Les 41 PR sans agent resolu portent une branche qui n'est celle d'aucun worktree
+(`worktree-agent-350r3bc`, `agent/192-...`, `feat/113-votann-lot1`) -- ce sont des PR D'AGENT elles
+aussi, avec un meta introuvable, pas des PR d'une autre provenance. Le denominateur les GARDE donc
+par defaut ; les exclure amputait de 46 commits bien reels et basculait +39 791 lignes a tort du
+cote « hors PR ». `--strict-agent` fournit la lecture etroite pour qui veut l'ecart.
 
 CE QUE LES CHIFFRES NE DISENT PAS, et qu'il ne faut pas leur faire dire :
 
@@ -50,11 +75,17 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import re
 import subprocess
 import webbrowser
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Le corps d'un message de merge cite l'agent auteur sous cette forme -- c'est le NOM DE FICHIER
+# de son transcript, `<session>/subagents/agent-<id>.jsonl`, donc un lien direct et non ambigu.
+AGENT_RX = re.compile(r"agent-([0-9a-f]{8,})")
+REC_SEP = "\x1e"
 
 REPO = Path(__file__).resolve().parents[2]
 # Le NOM DU FICHIER est l'identite de l'artefact publie : republier le meme chemin conserve
@@ -200,6 +231,29 @@ def load_tokens(pdir: Path) -> tuple[dict, dict]:
     return by_day, by_agent
 
 
+def agents_on_disk(pdir: Path) -> set:
+    return {p.stem.replace("agent-", "") for p in pdir.glob("*/subagents/agent-*.jsonl")}
+
+
+def merge_msg_agents(known: set) -> dict:
+    """SHA de merge -> id d'agent CITE dans son message, filtre sur les transcripts existants.
+
+    Deuxieme voie de jointure, corroborante (cf. docstring du module) : elle couvre moins que la
+    branche mais n'est jamais en desaccord avec elle, et elle survit a un meta disparu. Le filtre
+    par `known` est ce qui empeche de fabriquer un lien : un id sans transcript n'est pas retenu.
+    """
+    raw = sh(["git", "log", "--format=%H\x1f%B" + REC_SEP])
+    out = {}
+    for blk in raw.split(REC_SEP):
+        f = blk.strip("\n").split("\x1f")
+        if len(f) < 2:
+            continue
+        ids = [i for i in AGENT_RX.findall(f[1]) if i in known]
+        if ids:
+            out[f[0]] = ids[0]
+    return out
+
+
 def load_metas(pdir: Path) -> dict:
     """branche -> {id, name}. Double indexation : le meta, et l'id lu DANS le nom de branche.
 
@@ -247,13 +301,25 @@ def pr_commits(prs: list[dict], strict: bool) -> dict:
         if not p["merge_sha"] or (strict and not p.get("agent_id")):
             continue
         sha = p["merge_sha"]
-        shas = [s for s in sh_soft(["git", "rev-list", "%s^1..%s" % (sha, sha)]).split() if s]
+        # --no-merges : une branche d'agent qui a merge master en cours de route amene ses propres
+        # merges, qui n'apportent aucune ligne. Les compter gonflait le perimetre de 174 sur 993
+        # (mesure du 2026-08-01) pour zero contenu.
+        shas = [s for s in sh_soft(["git", "rev-list", "--no-merges",
+                                    "%s^1..%s" % (sha, sha)]).split() if s]
         n = 0
         for s in (shas or [sha]):
             if s not in owner:
                 owner[s] = p["num"]
                 n += 1
         p["n_commits"] = n
+        # LA LIVRAISON : diff NET du merge contre master-avant-merge. C'est cette mesure-la qui
+        # alimente les colonnes, pas la somme des commits ci-dessus (gardee pour le compte seul).
+        for ln in sh_soft(["git", "diff", "--numstat", "%s^1" % sha, sha,
+                           "--", ".", EXCLUDE]).splitlines():
+            f = ln.split("\t")
+            if len(f) == 3 and f[0] != "-":
+                p["net_add"] += int(f[0])
+                p["net_del"] += int(f[1])
     return owner
 
 
@@ -306,18 +372,33 @@ def build(since: str, strict: bool = False) -> dict:
     tok_day, tok_agent = load_tokens(pdir)
     metas = load_metas(pdir)
 
-    joined = 0
+    known = agents_on_disk(pdir)
+    by_msg = merge_msg_agents(known)
+
+    joined = via_msg = agree = clash = 0
     for pr in prs:
         m = metas.get(pr["branch"])
-        pr["agent"] = m["name"] if m else ""
-        pr["agent_id"] = m["id"] if m else ""
+        cited = by_msg.get(pr["merge_sha"]) if pr["merge_sha"] else None
+        if m and cited:
+            # Confrontation des deux voies. `clash` doit rester a 0 : un desaccord signifierait
+            # qu'une des deux attribue la PR au mauvais agent, et il faudrait trancher avant de
+            # facturer quoi que ce soit. Mesure du 2026-08-01 : 247 accords, 0 desaccord.
+            if m["id"] == cited:
+                agree += 1
+            else:
+                clash += 1
+        # La BRANCHE prime : voie la plus couvrante. Le message la RELAIE quand le meta manque.
+        pr["agent_id"] = m["id"] if m else (cited or "")
+        pr["agent"] = m["name"] if m else (("agent %s" % cited[:8]) if cited else "")
+        pr["via"] = "branche" if m else ("message" if cited else "")
         a = tok_agent.get(pr["agent_id"]) if pr["agent_id"] else None
         pr["agent_ctx"] = a["ctx"] if a else 0
         pr["agent_mins"] = ((a["last"] - a["first"]).total_seconds() / 60.0
                             if a and a.get("first") and a.get("last") else 0.0)
         pr["n_commits"] = 0
-        if m:
-            joined += 1
+        pr["net_add"] = pr["net_del"] = 0
+        joined += bool(pr["agent_id"])
+        via_msg += pr["via"] == "message"
 
     # L'enumeration des commits de PR vient APRES la jointure d'agent : `--strict-agent` en depend.
     owner = pr_commits(prs, strict)
@@ -330,20 +411,26 @@ def build(since: str, strict: bool = False) -> dict:
         g, t = git_day.get(d, {}), tok_day.get(d, {})
         opened = [p for p in prs if p["day"] == d]
         merged = [p for p in prs if p["merged_day"] == d]
-        ctx, commits, add = t.get("ctx", 0), g.get("commits", 0), g.get("add", 0)
+        # Les colonnes sont portees par les PR MERGEES ce jour-la, au diff net de leur merge.
+        # `commits` reste le compte des commits qu'elles ont fait entrer : c'est une INDICATION
+        # de granularite, jamais le denominateur des lignes.
+        ctx = t.get("ctx", 0)
+        commits = sum(p["n_commits"] for p in merged)
+        add = sum(p["net_add"] for p in merged)
         rows.append(dict(
             day=d, opened=len(opened), merged=len(merged),
             closed=len([p for p in opened if p["state"] == "CLOSED"]),
-            commits=commits, add=add, dele=g.get("del", 0),
+            commits=commits, add=add, dele=sum(p["net_del"] for p in merged),
             direct_commits=g.get("direct_commits", 0), direct_add=g.get("direct_add", 0),
             ctx=ctx, turns=t.get("turns", 0), agent_ctx=t.get("agent_ctx", 0),
-            pr_add=sum(p["add"] for p in merged),
             # Les deux ratios demandes. Denominateur nul -> 0, jamais une division qui explose ni
             # un « infini » qui polluerait les echelles de barres.
+            ctx_per_pr=(ctx / len(merged)) if merged else 0,
             ctx_per_commit=(ctx / commits) if commits else 0,
             ctx_per_line=(ctx / add) if add else 0))
     return dict(days=rows, prs=prs, joined=joined, net=git_net, since=since, strict=strict,
-                agents=tok_agent, project_dir=str(pdir), n_pr_commits=len(owner))
+                agents=tok_agent, project_dir=str(pdir), n_pr_commits=len(owner),
+                via_msg=via_msg, agree=agree, clash=clash)
 
 
 # ---------------------------------------------------------------- console
@@ -353,8 +440,9 @@ def n(x) -> str:
 
 def console(data: dict) -> None:
     hdr = "%-12s%9s%16s%10s%14s%12s%7s%7s%9s"
-    print("commits et lignes = PERIMETRE PR%s ; la colonne `direct` est le hors-PR."
+    print("unite = le MERGE d'une PR%s : lignes au diff net, rattachees au jour du merge."
           % (" (agent identifie)" if data["strict"] else ""))
+    print("`direct` = commits pousses sur master hors PR.")
     print(hdr % ("jour", "commits", "context", "+lignes",
                  "ctx/commit", "ctx/ligne", "PR+", "PR ok", "direct"))
     tot = defaultdict(int)
@@ -377,8 +465,11 @@ def console(data: dict) -> None:
     print("PR            : %d ouvertes, %d mergees (%.0f%%), %d fermees sans merge"
           % (len(prs), len(merged), 100 * len(merged) / max(1, len(prs)),
              len(prs) - len(merged)))
-    print("jointure agent: %d/%d (%.0f%%) -- les autres portent une branche hors worktree"
-          % (data["joined"], len(prs), 100 * data["joined"] / max(1, len(prs))))
+    print("jointure agent: %d/%d (%.0f%%) -- dont %d par le message de merge seul"
+          % (data["joined"], len(prs), 100 * data["joined"] / max(1, len(prs)),
+             data["via_msg"]))
+    print("  confrontation des deux voies : %d accords, %d desaccords%s"
+          % (data["agree"], data["clash"], "" if not data["clash"] else "  <-- A TRANCHER"))
     tot_c = tot["commits"] + tot["direct_commits"]
     print("commits       : %d par PR (%.0f%%), %d pousses directement sur master"
           % (tot["commits"], 100 * tot["commits"] / max(1, tot_c), tot["direct_commits"]))

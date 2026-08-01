@@ -335,9 +335,10 @@ def page(data: dict) -> str:
 </dl>
 
 <h2>Le journal</h2>
-<p class="sub">Une ligne par jour. Les colonnes <strong>commits</strong> et
-<strong>+lignes</strong> ne comptent que ce qui est <strong>arrive par une pull request</strong>
-&mdash; le perimetre de production de la flotte. La barre pleine est le <strong>context</strong>
+<p class="sub">Une ligne par jour. L'unite est le <strong>merge d'une pull request</strong>&nbsp;:
+les <strong>+lignes</strong> sont le diff net du merge contre master-avant-merge, rattachees au
+jour du merge, et les <strong>commits</strong> sont ceux que ces PR ont fait entrer. La barre
+pleine est le <strong>context</strong>
 &mdash; les tokens que les modeles ont eu a lire ce jour-la, a l'echelle du jour le plus lourd. Le
 filet gris dessous est le ratio <strong>context&nbsp;/&nbsp;ligne</strong>&nbsp;: c'est une
 efficacite, donc une barre courte est un bon jour.</p>
@@ -359,11 +360,12 @@ d'un cout de livraison qu'on puisse etablir. Les colonnes se trient, les pastill
 
 <div class="note">
   <h3>Rapprochement &mdash; ce que ces chiffres ne disent pas</h3>
-  <p><strong>Le denominateur est le perimetre PR, le numerateur ne l'est pas.</strong> Les commits
-  et les lignes ne comptent que ce qu'une pull request a fait entrer &mdash;
-  <code>git rev-list &lt;merge&gt;^1..&lt;merge&gt;</code> &mdash; soit {n(tot_commits)} des
-  {n(all_commits)} commits de la fenetre. Les {n(dir_commits)} autres sont des pushs directs sur
-  master&nbsp;: correctifs a chaud, outillage, documentation. Le <strong>context</strong>, lui,
+  <p><strong>Le denominateur est le perimetre PR, le numerateur ne l'est pas.</strong> Les lignes
+  sont le diff net de chaque merge contre son premier parent
+  (<code>git diff &lt;merge&gt;^1 &lt;merge&gt;</code>), et les commits ceux que ces merges ont
+  fait entrer &mdash; soit {n(tot_commits)} des {n(all_commits)} commits de la fenetre. Les
+  {n(dir_commits)} autres sont des pushs directs sur master&nbsp;: correctifs a chaud, outillage,
+  documentation. Le <strong>context</strong>, lui,
   reste l'activite ENTIERE de la journee, retro-ingenierie et conversation comprises. Le rapport
   <em>context / commit</em> se lit donc comme «&nbsp;ce que coute le projet par commit livre&nbsp;»,
   et vaut comme tendance d'une periode a l'autre, jamais comme prix unitaire.</p>
@@ -378,14 +380,24 @@ d'un cout de livraison qu'on puisse etablir. Les colonnes se trient, les pastill
   ont ete poussees autrement. Ce sont des PR d'agent quand meme &mdash; les exclure du perimetre
   amputait de 46 commits bien reels &mdash; donc elles comptent partout, et le filtre
   <em>sans agent</em> les isole. <code>--strict-agent</code> donne la lecture etroite.</p>
-  <p><strong>Un aller-retour de rebase ne compte pas deux fois.</strong> Quand une PR repart chez
-  son agent pour etre rebasee, elle revient sur un master qui a bouge&nbsp;: deux PR mergees coup
-  sur coup peuvent alors revendiquer les memes commits &mdash; 831 revendications pour 816 commits
-  distincts, soit 13 commits reclames deux ou trois fois. Chacun n'est compte qu'une fois, pour la
-  <em>premiere</em> PR qui l'a fait entrer. Verifie par ailleurs&nbsp;: aucune branche ne porte
-  deux PR, aucun contenu n'est reapplique sous un autre SHA (<code>git patch-id</code>), et aucune
-  des PR fermees sans merge n'a vu sa tache remergee sous un autre numero. Ce que ces
-  allers-retours coutent vraiment est en <em>tokens</em>, dans le transcript de l'agent repris.</p>
+  <p><strong>Un aller-retour de rebase ne compte pas deux fois.</strong> Prendre le merge comme
+  unite regle la question par construction&nbsp;: son premier parent <em>est</em> master avant le
+  merge, donc son diff ne peut pas contenir ce qu'une PR precedente a deja fait entrer. En
+  comptant commit par commit, deux PR mergees coup sur coup en revendiquaient les memes &mdash;
+  831 revendications pour 816 commits distincts. Le diff net efface au passage le churn interne
+  aux branches, un <code>wip</code> et son correctif comptant une fois&nbsp;: 3&nbsp;367 lignes,
+  1&nbsp;% du brut. Verifie par ailleurs&nbsp;: aucune branche ne porte deux PR, aucun contenu
+  n'est reapplique sous un autre SHA (<code>git patch-id</code>), et aucune des PR fermees sans
+  merge n'a vu sa tache remergee sous un autre numero. Ce que ces allers-retours coutent vraiment
+  est en <em>tokens</em>, dans le transcript de l'agent repris.</p>
+  <p><strong>L'agent d'une PR se lit par deux voies concordantes.</strong> Sa branche de worktree
+  (381&nbsp;PR mergees sur 422), et le <code>agent-&lt;id&gt;</code> cite dans le message du
+  merge, qui nomme directement son transcript (247&nbsp;sur 422). La seconde est un sous-ensemble
+  de la premiere &mdash; elle n'ajoute aucune PR &mdash; mais sur les 247&nbsp;cas ou les deux
+  repondent, elles sont d'accord {n(data["agree"])} fois et en desaccord {data["clash"]}. Le
+  trailer <code>Claude-Session</code>, lui, ne sert pas&nbsp;: il nomme une session d'API, or une
+  conversation en enchaine plusieurs &mdash; 14 identifiants, dont 13 presents dans deux
+  transcripts principaux ou plus.</p>
   <p><strong>Pour rafraichir</strong>&nbsp;: relancer
   <code>python scripts/python/repo_board.py</code>, puis recharger l'onglet. La page lit des
   transcripts qui vivent sur le disque local et elle est servie depuis un bac a sable&nbsp;: elle
