@@ -225,6 +225,64 @@ def damage_dealt_triggers(state: State, source_id: Optional[int], target_id: int
     return evaluate_trigger_operation(state, ev)
 
 
+def finish_attack_triggers(state: State, attacker_id: int, target_id: int,
+                           ranged: bool, profile: Optional[str] = None,
+                           is_crit: bool = False, profiles=None,
+                           health_damage: Optional[int] = None,
+                           was_block: bool = False,
+                           ability_type: Optional[int] = None) -> list[dict]:
+    """Vecteur `On(Attack = 9)` — 1er des DEUX events que `IdunBattle.Operations.
+    FinishAttackOperation$$Execute` emet a la CLOTURE d'une attaque, et le seul des deux qui soit
+    INCONDITIONNEL (le 2e, `On(10)`, est gate `currentAttack@+0x2c` : cf.
+    `attack_damage_attack_triggers`, appele juste APRES celui-ci, dans l'ordre natif).
+
+    OU LE NATIF LE DECLENCHE (#437, lu au decompile ; le foyer n'est PAS une operation de degat) :
+
+        IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute        # le noeud DSL `Attack(...)`
+            caster  = Select(entities+0x50) ; targets = Select(entities+0x58)   (OrderBy si >1)
+            for tgt in targets:
+                if prev is null or prev != tgt: processor.StartAttack (slot 0x3a)
+                <inner behaviour>                                       # AttackDamage & ...
+                if next is null or next != tgt: processor.FinishAttack (slot 0x3b)
+        Core.Services.OperationProcessor$$FinishAttack -> IdunBattle.Operations.
+            FinishAttackOperation$$Execute -> FUN_1800280e0(0x50, .., 9, entities)
+
+    -> `On(9)` part **PAR CIBLE**, APRES le degat de cette cible, et le porteur de ce noeud est
+    l'arbre de l'ABILITY, pas l'operation. L'attaque NORMALE le traverse :
+    `ALoki_NormalAttackAbility$$ExecuteBehaviour` -> `$$ExecuteNormalAttack` ->
+    `$$GetAttackDamageBehaviour`, dont la DERNIERE construction est
+    `IdunBattleLogic.Entities.DSLBehaviors$$Attack(selectors, target, <AttackDamage & ...>, options)`.
+
+    CONSEQUENCE, et c'est le cas #437 : un tir d'OVERWATCH est
+    `Overwatch_AutoAttackEffect$$GetAttackBehaviour = UseActiveAbility(NormalAttack)` — il entre donc
+    dans le MEME arbre et emet `On(9)` cote natif. Le port l'emettait au niveau MESSAGE
+    (`DamageHandler.visit_AttackUnitMessage` -> `after_hit_normal_attack`), que le tir d'overwatch ne
+    traverse pas : l'armure Terminator (`EFFECT_TRIGGERS[1147]`) restait armee apres un tir
+    d'overwatch, et l'attaque SUIVANTE etait reduite a tort. Ce vecteur vit desormais a la SORTIE de
+    `AttackDamageOperation.execute` — MEME place, et pour la MEME raison, que son jumeau `On(10)`.
+
+    ORDRE (mirror, et il CORRIGE deux inversions du port) :
+      * `On(9)` AVANT `On(10)` : les deux sortent du meme `FinishAttackOperation$$Execute`, 9 puis 10 ;
+      * `On(9)` AVANT `On(0x26 = NormalAttack)` : le natif emet 0x26 depuis
+        `ALoki_NormalAttackAbility$$ExecuteTriggerAbilities` (= `DSLBehaviors$$EvaluateAbilities(0x26)`),
+        appele APRES `ExecuteNormalAttack` — donc apres le `FinishAttack` de l'arbre.
+    RESIDU d'ordre, MESURE non observable : le port emet `On(8 = AttackHit)` apres ce vecteur alors
+    que le natif l'emet PAR COUP dans l'operation (donc avant). **Zero** trigger porte n'ecoute
+    l'event 8 (re-derivable : `probe_437_on9_blast_radius.py`), l'inversion est donc inerte.
+
+    PAYLOAD — identique a celui que portait `after_hit_normal_attack` : `profiles` = le SET complet
+    des profils de l'attaque (arme + coups bonus #179, lu par `CurrentAttackDamageProfilesContain*`) ;
+    `health_damage` = `HealthDamageFromEvent()` (part SANTE, bouclier deja defalque) ; `was_block` =
+    `WasBlock()`. `ability_type` reste None sur la voie NORMALE (le port ne pose pas le kind
+    normal-attaque sur ce vecteur — inchange par #437 : `LordOfTempestsAddIceAbility` branche 2 gate
+    `kind == 1013` et ne doit fire que sur le smite, voie ABILITY)."""
+    ev = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
+                      ranged=ranged, profile=profile, is_crit=is_crit, profiles=profiles,
+                      health_damage=health_damage, was_block=bool(was_block),
+                      ability_type=ability_type)
+    return evaluate_trigger_operation(state, ev)
+
+
 def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int,
                                   ranged: bool, profile: Optional[str] = None) -> list[dict]:
     """Vecteur `On(AttackDamageAttack = 10)` — 2e des DEUX events que `IdunBattle.Operations.
@@ -240,16 +298,15 @@ def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int
     resolue par `AbilityDamageOperation`. Cote port, ce gate est EXACTEMENT le drapeau
     `is_attack_damage_op` deja threade par la facade d'attaque d'ability.
 
-    ⚠ SITE D'EMISSION (divergence structurelle ASSUMEE, documentee) : le port n'a pas de
-    `FinishAttackOperation` ; ses vecteurs de cloture `On(0x26)`/`On(9)` vivent au niveau MESSAGE
-    (`DamageHandler.visit_AttackUnitMessage` -> `after_hit_normal_attack`) et ne sont donc PAS
-    traverses par les attaques declenchees par un trigger — dont le TIR D'OVERWATCH lui-meme, qui
-    appelle directement `AttackDamageOperation.execute`. Emettre `On(10)` la aurait rate le seul
-    consommateur porte. Il est donc emis a la SORTIE des OPERATIONS d'attaque-a-degats (le foyer
-    natif du `+0x2c`), ce qui couvre tous les appelants. Consequence : une attaque native unique qui
-    enchainerait plusieurs `AttackDamageOperation` emettrait ici N fois au lieu d'1 — sans effet, le
-    seul consommateur (`RangedAutoAttackDeactivateOnAttack`) etant idempotent (`DeactivateEffect`
-    porte lui-meme le gate natif « deja inactif -> no-op »).
+    SITE D'EMISSION : le port n'a pas de `FinishAttackOperation` ; ce vecteur est emis a la SORTIE
+    des OPERATIONS d'attaque-a-degats (le foyer natif du `+0x2c`), ce qui couvre tous les appelants —
+    dont le TIR D'OVERWATCH, qui appelle directement `AttackDamageOperation.execute` et qui est
+    justement le porteur du seul consommateur. Depuis #437 son jumeau `On(9)`
+    (`finish_attack_triggers`) est emis au MEME endroit, juste AVANT lui : c'est l'ordre natif.
+    Consequence inchangee : une attaque native unique qui enchainerait plusieurs
+    `AttackDamageOperation` emettrait ici N fois au lieu d'1 — sans effet, le seul consommateur
+    (`RangedAutoAttackDeactivateOnAttack`) etant idempotent (`DeactivateEffect` porte lui-meme le
+    gate natif « deja inactif -> no-op »).
 
     Consommateur porte : `RangedAutoAttackDeactivateOnAttack` (3e `Triggered()` de
     `RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal`) = « un seul tir d'overwatch par
@@ -261,8 +318,7 @@ def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int
 
 def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                             ranged: bool, profile: Optional[str], is_crit: bool = False,
-                            profiles=None, did_block: bool = False,
-                            health_damage: Optional[int] = None) -> list[dict]:
+                            did_block: bool = False) -> list[dict]:
     """Vecteur attaque NORMALE. Le natif émet DEUX events distincts (verdict RE #147) : `On(0x26)`=NormalAttack
     (per-ATTAQUE, chemin normal only) ET l'after-hit `On(8)` (message 8 de `EvaluateAfterHitTriggers`). On
     dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` = vecteur natif
@@ -271,7 +327,15 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     `SquigHound` (spawn de grot après attaque). La POSE on-hit des tile-effects de profil
     (`OnFireDamageAbility` -> Fire 5 ; `OnToxicDamageAbility` -> Contaminated 1244) N'EST PLUS ICI : elle a
     migré sur son vecteur natif `On(DamageDealt = 0x10)` (`damage_dealt_triggers`), émis de l'INTÉRIEUR du
-    pipeline de dégât, donc AVANT les vecteurs de mort. No-op si rien ne matche."""
+    pipeline de dégât, donc AVANT les vecteurs de mort. No-op si rien ne matche.
+
+    ⚠ `On(9 = Attack)` N'EST PLUS EMIS ICI (#437). Son foyer natif est le noeud DSL `Attack(...)`
+    (`AttackBehaviour$$Execute` -> `processor.FinishAttack` slot 0x3b -> `FinishAttackOperation$$
+    Execute`), que TOUTE attaque traverse — y compris celle qu'un trigger declenche (tir d'overwatch,
+    riposte), qui ne passe JAMAIS par ce vecteur-ci (niveau MESSAGE). Il est desormais emis a la
+    SORTIE de `AttackDamageOperation.execute` (`finish_attack_triggers`), juste avant son jumeau
+    `On(10)`. C'est aussi l'ordre natif vis-a-vis du `On(0x26)` ci-dessous, que le natif emet APRES,
+    depuis `ALoki_NormalAttackAbility$$ExecuteTriggerAbilities`."""
     ev_na = TriggerEvent(EventTriggerType.NormalAttack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev_na)              # On(0x26) : Psyker (per-attaque)
@@ -288,24 +352,6 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     # (cf. la docstring de `damage_dealt_triggers` -- bus 6/6 vs imperatif 3/6).
     out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour (Vindicta)
     out = out + _squighound_after_attack(state, attacker_id, target_id)
-    # On(9=Attack) : event GENERIQUE emis par `FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute` a la FIN de CHAQUE attaque
-    # (normale ET ability -- verdict RE re-expert : `On(9)` est BRUT, PAS ability-only ; le helper
-    # `IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite` = `On(38)|(On(9)&Smite)` n'est PAS ce trigger). CORRIGE #151 : le
-    # reset ActOfFaith (`On(9)&OwnerIsCaster&WasCrit` IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger, AUCUN gate normal/ability) fire DONC AUSSI sur
-    # un crit d'attaque NORMALE (avant, non emis en voie normale -> reset manquant = bug). Meme event consomme
-    # par Judh `MoveAndSpawnDecoy` (G6b, `On(9)&OwnerIsTarget` IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateTrigger -> reaction a toute attaque la ciblant).
-    # actor=attaquant, target=defenseur ; emis EN DERNIER (apres tous les after-hit(8) per-coup).
-    # `profiles` (#202-C) = set COMPLET des profils de l'attaque (arme + bonus-hits #179) — lu par
-    # `CurrentAttackDamageProfilesContain` (trigger 1173 : une attaque non-Psychic au corps a corps
-    # avec bonus InfernalPacts Psychic QUALIFIE — mesure live diag 202c).
-    # `health_damage` / `was_block` (#432) = `HealthDamageFromEvent()` et `WasBlock()`, les deux
-    # derniers conjoints de `IdunBattle.Entities.Effects.Loki.TerminatorArmour_ReduceDmg_Effect$$
-    # CreateTargetTrigger`. Ils ne sont threades que sur CE vecteur (la cloture d'attaque) parce que
-    # c'est le seul ou le natif dispose d'un `CurrentAttack` resolu.
-    ev_at = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
-                         ranged=ranged, profile=profile, is_crit=is_crit, profiles=profiles,
-                         health_damage=health_damage, was_block=bool(did_block))
-    out = out + evaluate_trigger_operation(state, ev_at)
     # `On(UnitPostAbility=0xe)` (#100) — DERNIER evenement de `ActiveAbilityOperation.ExecuteInternal`
     # (sequence `0x2b` -> execution -> `0xb` -> `0xc` -> `0xe`). Emis ICI = a la CLOTURE de l'attaque
     # normale, en pendant exact du `On(0x2a = PreUnitAbility)` emis en tete par `AttackDamageOperation.execute`.

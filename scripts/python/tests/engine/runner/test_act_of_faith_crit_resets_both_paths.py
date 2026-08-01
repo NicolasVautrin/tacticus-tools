@@ -7,8 +7,16 @@ un crit reset ActOfFaith **quelle que soit la voie** — normale ET ability. (Co
 #151 qui croyait `On(9)` ability-only via `OnNormalAttackOrSmite` ; confirme en LIVE, cf. le test dedie.)
 
 Le test ACCUMULE un stack depuis 0 (deltas trackes -> revert exact), puis exerce CHAQUE voie sur la MEME Sister
-boostee : `after_hit_normal_attack(is_crit=True)` reset -> base, PUIS re-accumule et
+boostee : le vecteur `On(9)` de la voie NORMALE reset -> base, PUIS re-accumule et
 `after_hit_ability_attack(is_crit=True)` reset -> base. Deterministe (is_crit force). ADJACENCE = evenq.
+
+⚠ #437 -- LE VECTEUR DE LA VOIE NORMALE A CHANGE DE FOYER, et ce test suit. `On(9)` n'est plus emis par
+`after_hit_normal_attack` (niveau MESSAGE) mais par `finish_attack_triggers`, appele a la SORTIE de
+`AttackDamageOperation.execute` -- le mirror du noeud DSL `Attack(...)` natif
+(`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` -> `processor.FinishAttack` slot 0x3b ->
+`IdunBattle.Operations.FinishAttackOperation$$Execute`), que TOUTE attaque traverse, y compris celle
+qu'un trigger declenche. Le test appelle donc le vecteur a sa NOUVELLE place : il exerce toujours la
+voie NORMALE, au foyer natif.
 """
 from __future__ import annotations
 
@@ -19,7 +27,7 @@ from engine.runner.snapshot import load_state
 from engine.runner.components import StatsComponent, HealthComponent
 from engine.runner.operations.effects import AddEffectOperation
 from engine.runner.operations.triggers import (
-    ACTOFFAITH_EFFECT, after_hit_ability_attack, after_hit_normal_attack,
+    ACTOFFAITH_EFFECT, after_hit_ability_attack, finish_attack_triggers,
 )
 
 SISTER_VIS = "adeptCanoness"        # trait ActOfFaith ; --crit 100,250 -> cd != 0 (gate) + crite toujours
@@ -84,8 +92,8 @@ def test_normal_and_ability_crit_both_reset(live_session, rpc, build_runner):
     boost_cc, boost_cd = _accumulate_one()
     assert boost_cc > base_cc or boost_cd > base_cd, (
         f"accumulation KO : boostee ({boost_cc},{boost_cd}) <= base ({base_cc},{base_cd})")
-    ah_normal = after_hit_normal_attack(state, sister_id, enemy_id,
-                                        ranged=False, profile=None, is_crit=True)
+    ah_normal = finish_attack_triggers(state, sister_id, enemy_id,
+                                       ranged=False, profile=None, is_crit=True)
     n_cc, n_cd = ctx.stat(StatType.CRIT_CHANCE), ctx.stat(StatType.CRIT_DAMAGE)
     print(f"\n[AOF-NORMAL-CRIT-RESET] base ({base_cc},{base_cd}) boostee ({boost_cc},{boost_cd}) | "
           f"apres NORMAL crit ({n_cc},{n_cd}) aof_reset={_has_aof_reset(ah_normal)}")

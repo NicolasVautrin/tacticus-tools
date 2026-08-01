@@ -193,11 +193,13 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
             r = AttackDamageOperation.execute(state, uid, target)
             res["attack"] = r
             if r is not None:                          # vecteur after-hit (mirror visit_AttackUnitMessage)
-                _profs = {r.get("profile")} - {None}   # #202-C : set arme + bonus-hits #179
-                _profs |= set((r.get("additional_hits") or {}).get("profiles") or [])
-                res["after_hit"] = after_hit_normal_attack(
+                # #437 : `profiles` n'est plus threade ici -- il appartenait au seul `On(9)`, emis
+                # desormais a la SORTIE de `AttackDamageOperation.execute` (foyer natif), donc DEJA
+                # parti quand ce vecteur-ci s'execute. Ses resultats reviennent par `finish_attack`
+                # et sont remis EN TETE (ordre natif), pour que le canal reste observable.
+                res["after_hit"] = (r.get("finish_attack") or []) + after_hit_normal_attack(
                     state, uid, target, bool(r.get("ranged")), r.get("profile"),
-                    is_crit=bool(r.get("did_crit")), profiles=_profs,
+                    is_crit=bool(r.get("did_crit")),
                     did_block=bool(r.get("did_block")))
         elif ability is not None:
             res["attack"] = _apply_active_ability(state, uid, target, ability)

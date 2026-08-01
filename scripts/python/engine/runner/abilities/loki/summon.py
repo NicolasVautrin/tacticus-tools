@@ -283,16 +283,18 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     r = AttackDamageOperation.execute(state, unit_id, tgt)
     if r is None:
         return None
-    # L'attaque du summon est une attaque NORMALE COMPLETE cote natif (FinishAttackOperation emet
-    # On(0x26)/On(8)/On(9)) -> dispatcher le vecteur after-attack comme le handler de message
-    # (damage.py visit_AttackUnitMessage / summon_ai.py). C'est CE On(9) qui porte la cascade :
-    # Horror ranged Psychic -> trigger 1173 -> Screamer (borne : Screamer melee Power ne re-fire pas).
+    # L'attaque du summon est une attaque NORMALE COMPLETE cote natif -> dispatcher le vecteur
+    # after-attack comme le handler de message (damage.py visit_AttackUnitMessage / summon_ai.py).
+    # ⚠ #437 : le `On(9)` qui porte la cascade (Horror ranged Psychic -> trigger 1173 -> Screamer)
+    # N'EST PLUS emis par ce vecteur -- il l'est a la SORTIE de `AttackDamageOperation.execute`
+    # ci-dessus (`finish_attack_triggers`), qui est le foyer natif (`AttackBehaviour$$Execute` ->
+    # `FinishAttack`). La cascade est donc DEJA jouee quand on arrive ici ; ce vecteur ne porte plus
+    # que `On(0x26)` / `On(8)` / `On(0x3c)` / `On(0xe)`.
     from ...operations.triggers import after_hit_normal_attack
-    profs = {r.get("profile")} - {None}
-    profs |= set((r.get("additional_hits") or {}).get("profiles") or [])
-    after = after_hit_normal_attack(state, unit_id, tgt, bool(r.get("ranged")),
-                                    r.get("profile"), is_crit=bool(r.get("did_crit")),
-                                    profiles=profs, did_block=bool(r.get("did_block")))
+    after = (r.get("finish_attack") or []) + after_hit_normal_attack(
+        state, unit_id, tgt, bool(r.get("ranged")),
+        r.get("profile"), is_crit=bool(r.get("did_crit")),
+        did_block=bool(r.get("did_block")))
     return {"summon": unit_id, "target": tgt, "total": r.get("total"), "after_hit": after,
             "moved": moved, "move_amount": move_amount,
             "allow_move_action": bool(allow_move_action)}
