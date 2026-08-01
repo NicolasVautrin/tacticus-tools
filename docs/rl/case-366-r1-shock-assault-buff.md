@@ -105,10 +105,16 @@ est **inerte pour toutes les autres classes** : aucune ne le lit, aucune magnitu
 change.
 
 ⚠ Corollaire pour les cas voisins : la phrase de `case-371` « `decisionView.effects` n'expose ni le
-stat ni le montant d'un effet capté » ne vaut plus pour le montant. Les classes du lot G1 gardent
-leur dérivation (validée live sur des porteurs-source, où elle est exacte) ; `1171` en régime
-cross-unité — le buff qu'Aun'Shi pose sur ses alliés — est un candidat naturel au même passage, non
-fait ici.
+stat ni le montant d'un effet capté » ne vaut plus **ni pour le montant ni pour le stat**. Le
+recensement complet du gisement est fait — `case-366-r1-statmod-canal-capte.md` : sur les **31**
+classes du registre qui déclarent une stat-modification, **deux** sont concernées (`1000` ici,
+`1171 SereneUnifierStormOfFire` en régime cross-unité, basculé le 2026-08-01 — écart mesuré **721**
+points d'ATTACK), 15 posent sur l'`Owner`, 1 reçoit sa source explicitement et 13 ont une magnitude
+insensible à l'`AbilityState`. Le `source = null` n'est d'ailleurs pas un choix de `ShockAssault` :
+**les trois surcharges `AddStaticStatModifierEffect` le passent**, et
+`AddStatModifierEffectBehaviour$$Execute` retombe sur la cible. `captured_stat_mod_amount()` porte
+depuis un gate `IsDynamic` (le natif recalcule pour cette famille, et le composant y vaut 0), et
+`captured_stat_mod_stat()` fait le pendant sur `+0x10`.
 
 ## 4. Verdicts
 

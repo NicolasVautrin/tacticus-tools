@@ -262,6 +262,16 @@ class BaseEffect:
     # `ShockAssault_Buff` (1000, case-366-r1) : sa feuille de pose passe `source = null`, donc
     # `captured["source"]` designe le PORTEUR (le summon) et non le poseur -- la re-derivation y
     # rendait `extraDmg[1] = 5` la ou le natif avait ecrit `499` (mesure live 2026-08-01).
+    #
+    # ⚠ LE `source = null` N'EST PAS UN CHOIX D'ABILITY, C'EST LA FEUILLE (case-366-r1-statmod) :
+    # les TROIS surcharges `IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect`
+    # construisent `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$.ctor` avec
+    # **NULL** en 4e argument (`source`), et `...$$Execute` retombe alors litteralement sur
+    # l'ENTITE-CIBLE de l'iteration (`lVar9 = <target>; if (sourceSelectionne != 0) lVar9 =
+    # <source>;`). Les DEUX surcharges `...$$AddStaticStatModifierEffectToOwner`, elles, passent
+    # `Owner@DSLSelectors+0x30` en source ET en cibles. Le discriminant d'une classe est donc :
+    # « sa feuille de pose vise-t-elle AUTRE CHOSE que l'Owner ? » -- si oui, `SourceUnit` designe
+    # le porteur et toute magnitude re-derivee d'un `AbilityState` est FAUSSE hors du poseur.
     # ⚠ Ce champ est INERTE tant qu'une classe ne le lit pas (`captured_stat_mod_amount`) : les
     # classes deja validees gardent leur derivation, aucune n'est modifiee par sa seule presence.
     # None = l'entite-effet n'a pas de `StatModifierComponent` (la grande majorite), ou la capture
@@ -807,13 +817,41 @@ class BaseEffect:
 
         A PREFERER a toute re-derivation gameconfig quand elle est disponible : la re-derivation
         suppose qu'on sache retrouver l'`AbilityState` du POSEUR, ce qui est faux pour un buff
-        cross-unite dont la feuille de pose passe `source = null` (`ShockAssault_Buff`, 1000).
+        cross-unite dont la feuille de pose passe `source = null` (`ShockAssault_Buff` 1000,
+        `SereneUnifierStormOfFire` 1171).
         `None` = canal absent (pose OFFLINE, ou capture sans `statMod`) -> l'appelant retombe sur sa
-        derivation, et DOIT dire ce qu'elle vaut dans ce regime."""
+        derivation, et DOIT dire ce qu'elle vaut dans ce regime.
+
+        ⚠ GATE `IsDynamic` -- c'est le DISPATCH NATIF, pas une prudence : seul
+        `IdunBattle.Entities.Effects.StaticStatModifierEffect$$GetStatModificationAmount` relit
+        `+0x14` ; `IdunBattle.Entities.Effects.ADynamicStatModifierEffect$$GetStatModificationAmount`
+        appelle le slot virtuel `+0x798` (`GetDynamicStatModificationAmount`) et RECALCULE. Pour un
+        effet DYNAMIQUE le `+0x14` n'est donc PAS la magnitude : le champ vaut ce que la feuille de
+        pose y a mis (les surcharges `AddDynamicStatModifierEffect*` ne passent AUCUN `amount` ->
+        `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$Execute` ecrit 0). Rendre 0
+        serait pire qu'une derivation approchee, d'ou le `None`. MESURE 2026-08-01 : `IsDynamic = 0`
+        sur `1171` (les deux porteurs) et `1000`, les deux seuls consommateurs actuels."""
         sm = self.stat_mod
         if not isinstance(sm, Mapping):
             return None
+        if sm.get("IsDynamic"):
+            return None
         v = sm.get("Amount")
+        return int(v) if isinstance(v, (int, float)) else None
+
+    def captured_stat_mod_stat(self) -> "int | None":
+        """Le **StatType** que le NATIF a ECRIT dans le `StatModifierComponent` de cette instance
+        (`StatType` = `+0x10`) -- litteralement ce que retourne
+        `IdunBattle.Entities.Effects.AStatModifierEffect$$GetStatModificationStat`.
+
+        Jumeau EXACT de `captured_stat_mod_amount` sur l'autre champ de la paire native, et SANS son
+        gate `IsDynamic` : le stat est relu au MEME endroit par TOUTE la famille (`AStatModifierEffect`
+        est le foyer, statique comme dynamique), c'est seulement le MONTANT qui bifurque.
+        `None` = canal absent -> l'appelant retombe sur le litteral de sa feuille de pose."""
+        sm = self.stat_mod
+        if not isinstance(sm, Mapping):
+            return None
+        v = sm.get("StatType")
         return int(v) if isinstance(v, (int, float)) else None
 
     def reverted_stats(self) -> "list":

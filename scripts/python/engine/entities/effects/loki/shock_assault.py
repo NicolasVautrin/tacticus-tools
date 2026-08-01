@@ -87,7 +87,12 @@ class ShockAssaultBuffEffect(BaseEffect):
     timer)."""
 
     def get_stat_modification_stat(self) -> int | None:
-        return 0                                     # StatType.ATTACK (le statType du CreateBehaviour)
+        """`AStatModifierEffect$$GetStatModificationStat` = `StatModifierComponent+0x10` -- lu au
+        canal capte, repli sur le litteral `0 = ATTACK` du `CreateBehaviour` (meme valeur : le natif
+        n'a qu'UNE feuille de pose pour 1000). Jumeau de `captured_stat_mod_amount` sur l'autre champ
+        de la paire native."""
+        native = self.captured_stat_mod_stat()
+        return native if native is not None else 0
 
     def get_stat_modification_amount(self) -> int | None:
         """`StaticStatModifierEffect$$GetStatModificationAmount` = `StatModifierComponent+0x14`.
