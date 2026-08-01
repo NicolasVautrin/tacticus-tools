@@ -535,7 +535,10 @@ class _AbilityAttack:
                 # attaque (`GetCurrentAttackOrDefault` = `Peek`) -> MEME site d'evaluation du
                 # `Maybe` et index CONTINU, threade depuis la sortie de la phase d'arme (coups
                 # bonus compris). Strictement le cablage de `damage_ops/normal.py` (R6-b').
-                bonus_hit_chance=_gsi, hit_index0=r["next_hit_index"])
+                bonus_hit_chance=_gsi, hit_index0=r["next_hit_index"],
+                # #366-r1-crit-multihit : idem `damage_ops/normal.py` -- `isCriticalDamageAllowed`
+                # est porte par l'`OngoingAttack`, donc il traverse les sous-operations de groupe.
+                crit_allowed0=r["crit_allowed"])
         # DE-FORK — la POSE on-hit des tile-effects de profil (`OnFireDamageAbility` 1016,
         # `OnToxicDamageAbility` 1203) N'EST PLUS appelee ici. Leur vecteur natif est
         # `On(DamageDealt = 0x10)`, emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`

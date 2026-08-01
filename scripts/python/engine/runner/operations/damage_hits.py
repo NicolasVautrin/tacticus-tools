@@ -74,6 +74,7 @@ class _DamageHitsMixin:
                   is_attack_damage_op: bool = True, force_overkill: bool = False,
                   prevent_overkill: bool = False,
                   force_crit: bool = False, hit_index0: int = 0,
+                  crit_allowed0: bool = True,
                   hit_interceptor=None) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
@@ -166,6 +167,40 @@ class _DamageHitsMixin:
             combat, comme le natif (l'evenement part de la DERNIERE instruction d'`ExecuteHit`).
         `None` = strict no-op (retro-compat totale : aucun test, aucun tirage, aucune branche modifies).
 
+        `crit_allowed0` (defaut True, #366-r1-crit-multihit) = `OngoingAttack+0x40`
+        (`isCriticalDamageAllowed`), l'etat que `IdunBattle.Operations.ADamageOperation$$SetupHitGroup`
+        recopie dans `OngoingHitGroup+0x3c` (son 5e parametre PORTE CE NOM dans la metadonnee) et que
+        `IdunBattle.Core.OngoingAttack$$.ctor` initialise a **1** dans ses DEUX surcharges.
+
+        ⚠ **LE CRIT-ROLL N'EST PAS TIRE A CHAQUE COUP.** Mirror de la boucle
+        `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` :
+
+            for i in 0..numHits-1:
+                options[+0x29] |= (hitGroup.isCriticalDamageAllowed == 0)   # flag « never crit »
+                result = ExecuteHit(...)                                    # gate lu ci-dessus
+                ...
+                if result[+0x21] == 0:                                      # le coup n'a PAS crite
+                    hitGroup.isCriticalDamageAllowed =
+                        options[+0x40] != null
+                        && options[+0x40].Any(hitIndex => hitIndex == i + 1)
+                else:
+                    hitGroup[+0x3d] = 1 ; hitGroup[+0x4c] += 1
+
+        soit, avec `options[+0x40]` (= `AttackDamageBehaviour+0xa0`, recopie par
+        `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget` dans le message a +0x40)
+        **NUL pour l'attaque normale et pour tout ce que le port cable** : le crit-roll s'arrete
+        DEFINITIVEMENT au premier coup qui ne crite pas. Le flag `never crit` du message est monotone
+        (`|=`), et `IdunBattle.Operations.AttackDamageOperation$$Execute` le propage a l'attaque par
+        `attack[+0x40] &= hitGroup[+0x3c]` -- donc l'extinction TRAVERSE les groupes de coups d'une
+        meme attaque (coups bonus, groupes de profils additionnels), d'ou le threading de ce parametre.
+
+        Un coup DISCARD (`hit_interceptor`) eteint AUSSI le crit : le natif sort sur un
+        `OperationResult` **memset a 0**, donc son octet +0x21 vaut 0 et le recalcul a lieu.
+
+        Le mecanisme est PROPRE A LA FAMILLE ATTACK : `IdunBattle.Operations.AbilityDamageOperation$$
+        ExecuteHits` a une boucle PLATE (aucun `|=` sur les options, aucun recalcul) -> gate
+        `is_attack_damage_op`.
+
         Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
         did_crit = did_block = did_evade = False
@@ -192,6 +227,20 @@ class _DamageHitsMixin:
         _capped_flat_cr = capped_reduction_flat((hit_cr.min + hit_cr.max) / 2.0, capped_reductions) \
             if capped_reductions else 0
         _rogne = [0]        # #67 : rogne cumule des cellules MIN des coups precedents (porte overkill)
+        # #366-r1-crit-multihit : `OngoingHitGroup+0x3c` = `isCriticalDamageAllowed`, seme par
+        # `SetupHitGroup` depuis `OngoingAttack+0x40` et eteint en fin de coup par la boucle
+        # d'`AttackDamageOperation$$ExecuteHits` des qu'un coup ne crite pas (cf. docstring).
+        _crit_allowed = [bool(crit_allowed0) if is_attack_damage_op else True]
+
+        def _roll_crit(idx: int) -> bool:
+            """Le crit d'UN coup, gate compris -- foyer UNIQUE des deux branches de `_one_hit`.
+            `never crit` (message +0x29) est arme des que `isCriticalDamageAllowed` est tombe :
+            `ExecuteHit` rend alors `isCrit = 0` **sans appeler `RollCritical`** (0 tirage)."""
+            if force_crit:                      # options+5 -> le natif SAUTE RollCritical
+                return True
+            if is_attack_damage_op and not _crit_allowed[0]:
+                return False                    # flag « never crit » arme -> 0 tirage
+            return roll_critical(rng, crit_chance) if crit_enabled else False
 
         def _limits_scalar(value: int) -> int:
             """Etage LIMITES en cap SCALAIRE sur la valeur DONNEE (cellule degeneree du core, mode 2).
@@ -331,9 +380,12 @@ class _DamageHitsMixin:
                 raw = hit_nc.get_damage(rng)
                 # (2) crit-roll APRÈS le tirage de valeur (gate cc<1 -> 0 tirage, cf. bloc ci-dessus).
                 # `force_crit` = flag options+5 : le natif SAUTE `RollCritical` -> crit acquis, 0 tirage.
-                crit = True if force_crit else (roll_critical(rng, crit_chance) if crit_enabled else False)
+                crit = _roll_crit(idx)
                 if _discarded(crit):              # `ExecuteHit` etape 5 (cf. `_discarded`)
+                    _crit_allowed[0] = False      # OperationResult memset 0 -> +0x21 = 0
                     return False
+                if not crit:
+                    _crit_allowed[0] = False      # `ExecuteHits` : recalcul -> Any(null) = false
                 crits.append(crit)
                 if crit:
                     # `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` -> `IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage` : critBonus
@@ -374,9 +426,12 @@ class _DamageHitsMixin:
                 if is_attack_damage_op:
                     rng.next_internal(max(0, roll), max(0, roll) + 1)
                 return _one_hit_tail(idx, crit, roll)
-            crit = True if force_crit else (roll_critical(rng, crit_chance) if crit_enabled else False)
+            crit = _roll_crit(idx)
             if _discarded(crit):                  # `ExecuteHit` etape 5 (cf. `_discarded`)
+                _crit_allowed[0] = False          # OperationResult memset 0 -> +0x21 = 0
                 return False
+            if not crit:
+                _crit_allowed[0] = False          # `ExecuteHits` : recalcul -> Any(null) = false
             crits.append(crit)
             hd = hit_cr if crit else hit_nc
             # #67 : etage LIMITES du natif (`IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage`) — MEME etage
@@ -481,4 +536,8 @@ class _DamageHitsMixin:
                                  else int(post_roll((int(hit_nc.min) + int(hit_nc.max)) // 2))),
                 # R6-b' : `currentAttack+0x30` APRES cette serie — `UpdateCurrentAttackAfterHit`
                 # incremente APRES CHAQUE `ExecuteHit`, coups bonus compris.
-                "next_hit_index": hit_index0 + hits + base_bonus}
+                "next_hit_index": hit_index0 + hits + base_bonus,
+                # #366-r1-crit-multihit : `attack[+0x40] &= hitGroup[+0x3c]` en fin
+                # d'`AttackDamageOperation$$Execute` -- a THREADER dans la serie suivante de la MEME
+                # attaque (`operations/additional_hits.py`), comme `next_hit_index`.
+                "crit_allowed": _crit_allowed[0]}

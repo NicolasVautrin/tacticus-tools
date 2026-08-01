@@ -462,6 +462,9 @@ class _Normal:
             # On THREADE le meme `bonus_hit_chance` et l'index de sortie de la phase d'arme
             # (`next_hit_index`, coups bonus compris) : un seul site d'evaluation du `Maybe`.
             bonus_hit_chance=_gsi, hit_index0=r["next_hit_index"],
+            # #366-r1-crit-multihit : `attack[+0x40] &= hitGroup[+0x3c]` -- l'etat
+            # `isCriticalDamageAllowed` sort de la phase d'arme et entre dans les groupes.
+            crit_allowed0=r["crit_allowed"],
             hit_interceptor=_hit_icept)      # #366-r1 : meme attaque -> meme intercepteur per-coup
         if _ah is not None:
             death = death or _ah.get("death")
