@@ -1,6 +1,7 @@
 # case-389 — `RammingSpeed` (1059) face COMBAT : le nœud `<DSLTriggers+0x20>` est NOMMÉ, l'ability entre au registre
 
-Clôt les résidus `#383-r1` et `#389-r1` (§5). Suite ouverte : `#389-r2` (§6).
+Clôt les résidus `#383-r1`, `#389-r1` (§5) et `#389-r2` (§6). Suites ouvertes : `#389-r3`,
+`#389-r4`, `#389-r5` (§7).
 
 ## 1. Le verrou, et comment il tombe
 
@@ -263,7 +264,103 @@ des deux côtés** (`HealthComponent.reduce` borne à 0) — seule la TRACE diff
 donc la série roulée du port en série RAPPORTÉE (`_as_reported`, transformation définie, aucun degré
 de liberté) : sur C1_03 léthal, port `[3105, …]` roulé → `[3105, 1895]` rapporté == natif.
 
-## 6. Ce qui n'est PAS couvert
+## 6. La mort vide TOUS les effets — `KillUnitOperation$$RemoveEffects` (clôt `#389-r2`)
+
+**Question binaire : quand une unité MEURT, quels effets restent attachés à elle ?**
+Réponse native : **aucun**. Le port en gardait la totalité sauf un volet étroit.
+
+### 6.1. Trois appels, un `KillUnitStep` chacun
+
+`IdunBattle.Operations.KillUnitOperation$$Execute` appelle **trois fois**
+`IdunBattle.Operations.KillUnitOperation$$RemoveEffects(killed, step)` (signature lue dans
+`frida/methods.tsv`), un par valeur de **`IdunBattle.Operations.KillUnitStep`** =
+`0=PreUnitRemove, 1=AfterUnitRemove, 2=AfterDeathTrigger` (dump d'enums, build `rnca9r7q6c`).
+L'adaptateur emballe le `step` dans un `Nullable<KillUnitStep>`, met à 0 le second champ des
+options, et appelle le **slot 0x5a** de `Core.Services.OperationProcessor` →
+`IdunBattle.Operations.RemoveEffectsOperation$$Execute`.
+
+Séquence complète, ré-dérivée au décompilé (offsets = adresses de RETOUR des call-sites,
+relatives à `KillUnitOperation$$Execute`) :
+
+```
++0x505  savedHp = health.hp ; health.hp = 0
++0x7cc  On(PreUnitDeath = 1)
++0x81c  GARDE REVIVE : if (!unitComponent.PendingRevive@+0xa8 .HasValue) {
++0x979      On(PreUnitDeath_2 = 2)
++0x999      unitFlags.Remove(0xf) ; +0x9ad unitFlags.Add(6 = Dead)
++0x9be      RemoveEffects(killed, PreUnitRemove = 0)          <-- STEP 0
++0xd34      processor.<slot 6>(killed,0,1) ; +0xd88 matchState.<slot 0x31>(killed)
++0xd9c      RemoveEffects(killed, AfterUnitRemove = 1)        <-- STEP 1
++0xe49      On(UnitDeath = 0)
++0xefc      On(UnitDefeated = 0x36)
++0xf35      GARDE HEAL : if (health.hp > 0) RETURN
++0xf59      RemoveEffects(killed, AfterDeathTrigger = 2)      <-- STEP 2
+        } else { +0xfcc matchState.<slot 0x63>(killed) }
+        unitComponent.PendingRevive@+0xa8..+0xe8 = 0
++0x10ac On(PostUnitKill = 0x35)
+```
+
+**Deux rectifications d'ordre** que ce port apporte, toutes deux lues à la profondeur d'accolades :
+le retrait était émis ENTRE `On(UnitDeath)` et `On(UnitDefeated)` alors que le natif le fait AVANT
+`On(UnitDeath)` ; et `On(PostUnitKill)` n'est **pas** sous la garde revive (il est après le
+`if/else`) — l'ancienne docstring l'affirmait. Sans conséquence portée (aucun consommateur de
+`On(53)`). La **GARDE HEAL**, elle, saute bien `On(53)` : c'est un `return`.
+
+### 6.2. `RemoveEffectsOptions` et le prédicat DÉDUPLIQUÉ
+
+```
++0x00  Nullable<KillUnitStep> step
++0x08  bool <non nomme>                    # 0 aux TROIS call-sites de mort -> non porte
+```
+
+`RemoveEffectsOperation$$Execute` collecte d'abord (`effectObj.<IEffect slot 4> == options.step`),
+puis retire — deux boucles distinctes, ordre load-bearing. Les deux prédicats sont des slots de
+`IdunBattle.Entities.Effects.IEffect` dont **le corps est un getteur constant DÉDUPLIQUÉ par
+IL2CPP** : absents des deux tables de symboles, et `IEffect` ne déclare aucune méthode dans le dump.
+⚠ **Hypothèse nommée** : le step par défaut est `PreUnitRemove`. Elle est **sans conséquence sur
+l'observable de sortie** (les trois steps tournent dans la même opération), et ne mordrait que sur
+un consommateur de `On(UnitDeath)`/`On(UnitDefeated)` qui lirait un effet du mort — il n'y en a
+aucun de porté. Toute surcharge se pose en `BaseEffect.remove_on_kill_step`.
+
+### 6.3. Le port
+
+`runner/operations/remove_effects.py` — **foyer impératif unique**, partagé avec la feuille DSL
+`RemoveEffect` (frontière #149 : le nœud déclaratif au-dessus, l'Operation en dessous) :
+`remove_effect_instance` (mirror de `RemoveEffectOperation$$Execute` : gates d'idempotence
+`+0x5f`/`+0x5e`, `On(0x3f)`, revert stat-mods/overrides/ability-mods, retrait d'`ActiveEffectIds`,
+`On(0x40)`) et `remove_effects_operation`. `damage._kill_unit_operation` pose les trois appels et la
+garde HEAL. `damage._revert_ability_modifications_of_dead` (le volet étroit) est **supprimé**.
+
+### 6.4. La confrontation LIVE — deux natures de mort
+
+| nature | montage | effets du mort, natif | port AVANT | port APRÈS |
+|---|---|---|---|---|
+| **attaque normale** | `probe_389r2` MC1_67/39100, `orksKillaKan → necroDestroyer` (PV 1) | `[]` | `[1009, 1018]` | `[]` |
+| **ability + nova** | `probe_389 --seed 38901 --hp-player 5000` (le contrecoup tue le caster `Explodes`) | `[]` | `[1026, 1098, 1361, 1362]` | `[]` |
+| **contrôle négatif** | `probe_389 --seed 38900` (caster VIVANT) | `[1026, 1361, 1362]` | — | `[1026, 1361, 1362]` |
+
+PV finaux identiques sur les 4 unités dans les trois bras. Canal : `decisionView`
+**`includeInactive`** (`snapshot.decision_view_seed_body`) — le seul comparable à
+`State.effects.by_unit` (piège de canal mesuré en `#389-r1`).
+
+**Troisième mesure, sur un porteur à revive** : `probe_389r2 --a-units necroWarden,ultraTitus
+--target-visual ultraTitus` — Titus meurt en portant `[1324 FuelledByFury_CanRevive,
+1354 FuelledByFury_BlockOverkill, 1516 BeastSlayer_ExtraDmg, 1517 BeastSlayer_ExtraBlock]`, le natif
+le laisse avec `[]`. C'est cette mesure qui **corrige une assertion de test qui mesurait l'ancien
+port** : `test_fuelled_by_fury_revive_requires_a_kill_live` exigeait que le marqueur 1324 reste
+ARMÉ après une mort sans revive. Le marqueur est désarmé dans les deux faces, mais par deux
+mécanismes distincts, et `consumed` les sépare : face POSITIVE la mort est **annulée** (aucun
+`RemoveEffects`) et le marqueur est seulement DÉSACTIVÉ ; face NÉGATIVE l'instance est **retirée**.
+
+Gardes : `--mutate no-kill-remove` de `probe_389r2` (l'état d'avant → ROUGE), le cliquet de retrait
+de `probe_389` **RE-ARMÉ sur bras léthal** (`removal_checked` inconditionnel,
+`dead_carrier_keeps_effects_port_only` entre dans le `match`), et
+`tests/engine/runner/test_389r2_kill_unit_remove_effects_offline.py` (**10 cliquets**, dont les deux
+faces que le live n'atteint pas : la garde REVIVE et la garde HEAL). Contre-épreuves des gardes
+offline : `no-kill-remove` → **5 rouges**, `no-step-filter` → **2 rouges**, `no-heal-gate` →
+**1 rouge** (exactement celui de la garde HEAL).
+
+## 7. Ce qui n'est PAS couvert
 
 * **La gate `OwnerIsAlive` FERMÉE n'est pas confrontée LIVE** : il faudrait un tir RÉACTIF
   (overwatch/piège) qui tue le charger pendant son `MoveUnit`. Elle est verrouillée OFFLINE.
@@ -271,18 +368,26 @@ de liberté) : sur C1_03 léthal, port `[3105, …]` roulé → `[3105, 1895]` r
   `boardGraph.neighbours`) mordent sur DEUX faces de 1059 : l'étage MOVE et le gate de ciblage.
   Aucun bras joué ici n'est en régime ring-saturé. (`#381-r1` lui-même est FERMÉ — le nœud DSL
   porte le gate d'expansion #131 depuis `case-381-r1`.)
-* **`#389-r2` — `IdunBattle.Operations.KillUnitOperation$$RemoveEffects` n'est porté qu'en VOLET
-  ÉTROIT.** Quand le porteur MEURT, le natif vide **tous** ses effets (le `RemoveEffects` de
-  `KillUnitOperation$$Execute`, qui délègue au service slot `0x5a`) ; le port ne consomme que les
-  effets portant des `applied_ability_modifications` (`damage._revert_ability_modifications_of_dead`,
-  périmètre déclaré : `ListenUpMaggotsEffect` seul). MESURE, bras léthal MC1_67/38901 : natif `[]`,
-  port `[1026, 1098, 1361, 1362]` — **trois des quatre effets n'ont rien à voir avec 1098**, l'écart
-  est GÉNÉRIQUE et PRÉEXISTANT. Conséquence sur ce cas : le cliquet de retrait de `probe_389` est
-  **désarmé sur un bras léthal** (`removal_checked` = caster VIVANT), sinon il mesurerait
-  `KillUnitOperation`, pas le `On(PhaseEnd)` de 1098.
+* **La ventilation par `KillUnitStep` est portée en MÉCANIQUE, pas en DONNÉE** (§6.2) : le prédicat
+  `IEffect` slot 4 est un getteur constant dédupliqué, illisible offline, et le défaut
+  `PreUnitRemove` est une hypothèse. Inobservable en sortie de séquence de mort ; la seule voie de
+  résolution serait d'invoquer le slot de vtable en live (`reference_il2cpp_methodptr_uninit_class`),
+  ce qui exige un capteur neuf. **Résidu → `#389-r3`.**
+* **Le second champ de `RemoveEffectsOptions`** (`+0x08`, bool) n'est pas porté : 0 aux trois
+  call-sites de mort, aucun appelant porté ne l'active, slot non nommé.
+* **`IdunBattle.Operations.RemoveUnitOperation$$RemoveEffects`** (le DESPAWN, étape 14 de
+  `remove_unit.py`) appelle le MÊME slot 0x5a mais garde son retrait BRUT (`consumed = True` sans
+  revert ni event). Écart PRÉEXISTANT, laissé tel quel : le brancher ferait fire `On(63)`/`On(64)` et
+  des reverts sur les évictions/clones. **Résidu → `#389-r4`.**
+* **Écart de PV, ÉTRANGER à ce cas mais mesuré ici** : sur `probe_389r2 --a-units
+  necroWarden,ultraTitus --target-visual ultraTitus`, le natif inflige **45 000 PV de plus** à
+  l'attaquant que le port (842 447 contre 887 447 sur 900 000). Identique **avec et sans** le fix
+  (bras `--mutate no-kill-remove`), donc indépendant de `#389-r2` ; non diagnostiqué. C'est pourquoi
+  `ultraTitus` est ÉCARTÉ du roster par défaut du probe. **Résidu → `#389-r5`.**
 * **La branche `ownerNeedsToBeAlive: false`** du trigger de retrait n'est pas portée : le dispatch du
-  port gate sur « owner vivant » (`CanGet*Trigger`). Écart identique à `UntilOfEndTurnRemove` — il ne
-  devient observable que par `#389-r2` ci-dessus (sur un porteur mort dont les effets survivent).
+  port gate sur « owner vivant » (`CanGet*Trigger`). Écart identique à `UntilOfEndTurnRemove` ; il
+  était observable par `#389-r2` (porteur mort dont les effets survivaient), et ne l'est plus depuis
+  que la mort les retire.
 * **Un seul niveau d'ability** (celui du build, rank 17) et **un seul greffon** (`orksKillaKan`) :
   1059 a ZÉRO porteur au gameconfig, donc aucune autre voie n'existe.
 * **Le `2` en dernier argument des deux `AttackWithAttackDamage`** (`selectionType`) n'est pas
