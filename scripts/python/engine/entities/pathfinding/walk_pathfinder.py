@@ -124,22 +124,40 @@ def get_movable_positions(
     can_continue=None,
 ) -> tuple[set, set]:
     """Renvoie (visited, stop_set) pour une portée `depth` (niveaux).
-      - visited : toutes les tuiles atteintes en ≤ depth pas (traversables, start inclus).
-      - stop_set: tuiles où l'unité peut S'ARRÊTER = visited \\ occupées \\ {start}
-                  (IsValidContinuePathTile : pas d'occupant ; le natif exclut la
-                  tuile courante du résultat).
-    `edge` = prédicat de TRAVERSÉE (défaut walk ; fly passe le sien). Le stop reste
-    identique (tuile libre) : les tuiles visitées sont déjà passables par construction
-    (l'arête exige `walkable`), donc « non occupée » suffit pour les deux pathfinders.
-    `can_continue` = gate d'EXPANSION #131 (cf. `get_reachable_levels`) ; il ne retire RIEN
-    du stop set — une tuile block-entering reste un arrêt légal (mesuré live)."""
+      - visited : toutes les tuiles atteintes en ≤ depth pas (start inclus), PRIVÉES de celles
+                  qu'`IsMovableTile` retire — cf. ci-dessous ;
+      - stop_set: tuiles où l'unité peut S'ARRÊTER = visited \\ occupées \\ {start}.
+    `edge` = prédicat de TRAVERSÉE (défaut walk ; fly passe le sien).
+
+    LE FILTRE `IsWalkable` EST EXPLICITE DEPUIS #403. Le natif sépare deux étages que le port
+    collapse : `MovementQuery$$AnyOrFillMoveableTiles` fait
+    `GetReachableTiles(...).RemoveAll(t => !IsMovableTile(this, unit, t, ignoreUnitsOnTiles))`, et
+    `IdunBattle.Core.Services.MovementQuery$$IsMovableTile` délègue à
+    `IdunBattle.Entities.TileExtensions$$IsFreeTile(tile, state, allowSteppable: true, null,
+    ignoreUnitsOnTiles)`, dont les DEUX PREMIERS tests sont, verbatim,
+    `MovementComponent[+0x10] == 0` puis `TileComponent[+0x40] == 0` — c'est-à-dire EXACTEMENT
+    `TileExtensions$$IsWalkable(tile, checkFog: true)`, donc `board.walkable`. Et ils sont testés
+    AVANT le `if (!allowAnyUnit)` : même sous `ignoreUnitsOnTiles`, une tuile non walkable sort du
+    pool.
+
+    Le test était jusqu'ici IMPLICITE (l'arête walk exige déjà `IsWalkable`) — il reste un no-op
+    pour la MARCHE. Il devient NÉCESSAIRE pour le VOL, dont l'arête ne teste que `!IsWall` depuis
+    #403 : le vol TRAVERSE une tuile `Block`/`Water` mais ne s'y pose pas.
+
+    `can_continue` = gate d'EXPANSION #131 (cf. `get_reachable_levels`) ; il ne retire RIEN du stop
+    set — une tuile block-entering reste un arrêt légal (mesuré live). Il ne vaut QUE pour la
+    branche MARCHE (`pathfinders.continue_gate_for`)."""
     level = get_reachable_levels(board, start_id, occupants, moving_team, max_depth=depth,
                                  edge=edge, can_continue=can_continue)
-    visited = set(level)
+    visited = set()
     stop = set()
-    for tid in visited:
+    for tid in level:
         if tid == start_id:
+            visited.add(tid)                        # le depart n'est jamais filtre
             continue
+        if not board.walkable(tid):                 # `IsFreeTile` : `movement[0x10] && !fog`
+            continue                                # (retire AUSSI de `visited`, cf. docstring)
+        visited.add(tid)
         if occupants.get(tid) is not None:          # impossible de finir sur une tuile occupée
             continue
         stop.add(tid)

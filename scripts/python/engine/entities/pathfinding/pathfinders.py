@@ -132,6 +132,30 @@ def _teleport_predicate(family: str, board, occupants: dict, moving_team,
     return None
 
 
+def continue_gate_for(pathfinder_type: int, walk_gate):
+    """`IsValidContinuePathTile` — le slot que `BasePathfinder$$NodesInNextLevel` interroge avant
+    d'etendre la fill (`vslot 10`, lu `(**(code **)(*(longlong *)this + 0x1d8))`). Le gate vit dans
+    la BASE, mais **le predicat appartient au PATHFINDER**, pas a l'appelant : c'est un slot
+    virtuel, et les deux branches n'y mettent pas la meme chose.
+
+      * base MARCHE -> `WalkPathfinder$$IsValidContinuePathTile` = `GetTileBlockingReasons == 0`,
+        le gate #131 (`walk_gate`, construit par `tile_blocking.make_can_continue`) ;
+      * base VOL    -> **rien** (`#381-r2`). `WalkPathfinder$$GetTileBlockingReasons` est le SEUL
+        producteur du bit block-entering, et ses XREFS sont EXHAUSTIVES et toutes internes a la
+        branche marche (`WalkPathfinder$$IsValidContinuePathTile`, `$$GetEffectiveDepth`,
+        `$$WeightCost`, `IgnoreDoorPathfinder$$IsValidContinuePathTile`,
+        `WaveValidatorPathfinder$$IsValidContinuePathTile`). Or `FlyPathfinder` derive de
+        `BasePathfinder`, PAS de `WalkPathfinder` -- detail et mesure : `fly_pathfinder`.
+
+    Les HUIT decorateurs suivent leur base : `ATeleportPathfinder$$IsValidContinuePathTile` est un
+    `_base.IsValidContinuePathTile(unit, tile)` (appel du slot sur `this+0x28`), donc 7/9/11/13
+    (fly decore) n'ont pas de gate non plus, et 6/8/10/12 (walk decore) gardent celui de la marche.
+
+    Les types 1/2/4/5 ne sont pas atteignables par `GetPathfinderTypeForUnit` et retombent ici sur
+    la base marche, comme le port l'a toujours fait (hors perimetre, cf. `find_reachable_tiles`)."""
+    return None if base_type_of(int(pathfinder_type)) == int(PathfinderType.Fly) else walk_gate
+
+
 def find_reachable_tiles(board, pathfinder_type: int, start_id: int, depth: int,
                          occupants: dict, moving_team, can_continue=None,
                          teleport_target_tiles: Optional[set] = None,
@@ -149,9 +173,12 @@ def find_reachable_tiles(board, pathfinder_type: int, start_id: int, depth: int,
     from .walk_pathfinder import get_movable_positions as _walk
     t = int(pathfinder_type)
     base = base_type_of(t)
-    mv = _fly if base == int(PathfinderType.Fly) else _walk
-    visited, stop = mv(board, int(start_id), int(depth), occupants, moving_team,
-                       can_continue=can_continue)
+    if base == int(PathfinderType.Fly):
+        # `FlyPathfinder` : arete propre, et AUCUN gate d'expansion (`continue_gate_for`).
+        visited, stop = _fly(board, int(start_id), int(depth), occupants, moving_team)
+    else:
+        visited, stop = _walk(board, int(start_id), int(depth), occupants, moving_team,
+                              can_continue=continue_gate_for(t, can_continue))
     if not is_teleport_type(t):
         return visited, stop
     family = TELEPORT_DECORATORS[t][1]

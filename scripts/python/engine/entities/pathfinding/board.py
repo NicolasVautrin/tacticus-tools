@@ -113,6 +113,21 @@ class Board:
     def walkable(self, tid: int) -> bool:
         return bool(self.by_id[tid]["walkable"])
 
+    def is_wall(self, tid: int) -> bool:
+        """`TileComponent.IsWall` (`+0x41`) — le flag que lit `IdunBattle.Entities.Pathfinding
+        .FlyPathfinder$$IsValidPathNode` (et que confirme `FlyPathfinder$$IsAnyAdjacentTileWall`,
+        qui teste ce MEME offset). Publie par le `boardGraph` (`isWall`), distinct de `walkable` :
+        une tuile `Block`/`Water` est `walkable=False` mais `isWall=False` — le vol la TRAVERSE.
+
+        Repli sur `not walkable` quand le champ manque (board construit a la main dans un test
+        unitaire) : c'est le comportement d'AVANT #403, donc jamais une regression silencieuse."""
+        t = self.by_id.get(tid)
+        if t is None:
+            return True
+        if "isWall" in t:
+            return bool(t["isWall"])
+        return not bool(t.get("walkable", True))
+
     def coord(self, tid: int) -> tuple[int, int]:
         t = self.by_id[tid]
         return (t["col"], t["row"])
