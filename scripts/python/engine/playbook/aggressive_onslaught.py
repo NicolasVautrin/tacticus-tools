@@ -86,7 +86,7 @@ class AggressiveOnslaughtPlaybook:
                                          occupied, getattr(scene, "elev_by_pos", None))
 
     def calculate_attack_utility_in_steps(self, ctx, attacker_uid: int, ability_id: int,
-                                          case_tgt_id: int, attack_tile) -> float:
+                                          case_tgt_id: int, attack_tile, prediction=None) -> float:
         """Mirror `<CalculateAttackUtilityInStepsInternal>IdunBattle.AI.Playbook.Loki.AggressiveOnslaughtPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext` (gates ->
         free-tiles -> boucle bornee maxSummon-1 -> Fix64.FromInt(count x weight))."""
         sc = getattr(ctx, "scene", None)

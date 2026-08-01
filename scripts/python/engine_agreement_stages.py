@@ -188,6 +188,29 @@ def _fields_from_native_event(ev: dict, block_amount: int = 0) -> dict:
             "kill": hp <= raw_max, "killSure": hp <= (bmin if bmin is not None else raw_min)}
 
 
+def _prediction_from_native_fields(f: dict):
+    """#438 -- REMATERIALISE la struct `DamagePredictionResult` que le case natif porte
+    (`IdunBattle.AI.Utilities.UtilityAttackCase$$ForDamagePrediction`, 4e argument, recopiee a
+    `case@+0x28` sur 0xa8 octets), depuis les champs decodes de l'event natif.
+
+    Seuls les TROIS champs que lisent les deux accesseurs du case sont peuplés -- `get_MightBeKill`
+    (`CurrentHealth@0x00 <= rawMax@0x20`) et `get_WillBeKill` (gate `CannotBeGuaranteedKilled@0x89`
+    puis `CurrentHealth <= BlockScenarios[0]`, sinon `rawMin@0x1c`). Le reste de la struct n'est lu
+    par aucun playbook attack de ce build : le remplir a partir d'un decodeur partiel inventerait
+    des valeurs.
+
+    ⚠ `cannot_be_guaranteed_killed` reste a `False` : le decodeur `aiPlaybookPredict` ne publie pas
+    ce flag, exactement comme `killSure` de `_fields_from_native_event` qui l'ignore aussi. Les deux
+    voies partagent donc la MEME borne inferieure assumee (#372), pas deux verdicts differents."""
+    from engine.services.damage_prediction import DamagePredictionResult
+    from engine.services.min_max_damage import MinMaxDamage
+    return DamagePredictionResult(
+        current_health=int(f.get("hpBefore") or 0),
+        raw_health_damage=MinMaxDamage(min=int(f.get("rawHealthDmgMin") or 0),
+                                       max=int(f.get("rawHealthDmgMax") or 0)),
+        block_raw_min=f.get("blockRawMin"))
+
+
 _CMP_KEYS = ("healthDmgMin", "healthDmgMax", "rawHealthDmgMin", "rawHealthDmgMax",
              "kill", "killSure")
 _CMP_SHIELD = ("shieldDmgMin", "shieldDmgMax")
@@ -408,10 +431,14 @@ class StageProbe:
             # l'évalue DANS ForDamagePrediction par event -> même prob x signe que le composite.
             _blk = (defender_prediction_block_amount(ctx.scene, t_id)
                     if getattr(ctx, "scene", None) is not None else 0)   # #54A block défenseur
+            _f = _fields_from_native_event(ev, block_amount=_blk)
+            # #438 : le case natif de CET event porte sa `DamagePrediction` -> on la rematerialise
+            # depuis les champs decodes, sinon `BarbedOvipositorPlaybook` lirait `HasValue == false`
+            # et rendrait 0 -- un ecart d'etage UTILITE classe « logic » alors que le feed est bon.
             u = (u or 0.0) + sign * prob * (
-                damage_composite(_fields_from_native_event(ev, block_amount=_blk),
-                                 ctx.hpmax_by_id.get(t_id), ctx.wt)
-                + triggered_abilities_attack_utility(ctx, uid, ab, t_id, tile))
+                damage_composite(_f, ctx.hpmax_by_id.get(t_id), ctx.wt)
+                + triggered_abilities_attack_utility(
+                    ctx, uid, ab, t_id, tile, prediction=_prediction_from_native_fields(_f)))
         for ev in (resp.get("healEvents") or []):
             t_id = ev.get("targetId")
             u = (u or 0.0) + (ev.get("probability") or 1.0) * heal_utility(

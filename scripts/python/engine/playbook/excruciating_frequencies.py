@@ -107,7 +107,9 @@ def _score(ctx, P: tuple, line_enemies: list):
     u = 0.0
     for ev in events:
         ua = calculate_utility_from_damage_event(ev, ctx.wt, ctx.hpmax_by_id.get(ev.target))
-        trig = triggered_abilities_attack_utility(ctx, ctx.uid, _ABILITY_ID, ev.target, P)
+        # #438 : `prediction` = la `DamagePrediction` du case de CET event (`ForDamagePrediction`).
+        trig = triggered_abilities_attack_utility(ctx, ctx.uid, _ABILITY_ID, ev.target, P,
+                                                  prediction=ev.prediction)
         if trig:
             ua += (-1.0 if ev.friendly else 1.0) * ev.probability * trig
         u += ua

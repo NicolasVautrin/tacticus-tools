@@ -92,7 +92,7 @@ class SuppressiveFirePlaybook:
     ability_id: int = int(TriggeredAbilityType.SuppressiveFire)    # 1044
 
     def calculate_attack_utility_in_steps(self, ctx, attacker_uid: int, ability_id: int,
-                                          case_tgt_id: int, attack_tile) -> float:
+                                          case_tgt_id: int, attack_tile, prediction=None) -> float:
         """Mirror de `<CalculateAttackUtilityInStepsInternal>d__3$$MoveNext` (cf. en-tete) :
         overwatch sur la cible ET tuile d'attaque NON adjacente -> le poids ; 0 sinon."""
         sc = getattr(ctx, "scene", None)

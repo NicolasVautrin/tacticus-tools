@@ -664,7 +664,7 @@ class TriggeredAbilitiesUtility(BaseUtility):
         return total
 
     def evaluate_attack_in_steps(self, ctx, attacker_uid: int, ability_id: int,
-                                 target_uid: int, attack_tile) -> float:
+                                 target_uid: int, attack_tile, prediction=None) -> float:
         """Face ATTACK du dispatcher — `<EvaluateAttackInSteps>IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateAttackInStepsInternalu003Ed__3$$MoveNext` (feuille 2
         du composite Damage(34), #45-s18) : itère les abilities déclenchées de l'ATTAQUANT (kit
         COMPLET passifs+traits = AbilitiesComponent), `PlaybookDatabase.LoadPlaybook`, Σ des
@@ -682,7 +682,15 @@ class TriggeredAbilitiesUtility(BaseUtility):
         playbook attack de relique entre au registre et reste INERTE, sans erreur ni test rouge —
         le patron « porte + non cable » que #419 recense. Le repli reste ENTIER quand la lecture
         live est vide (RPC indisponible, entite absente, contexte OFFLINE `rid` faux -> `[]`) :
-        c'est exactement la degradation retenue par #304 pour la face move."""
+        c'est exactement la degradation retenue par #304 pour la face move.
+
+        #438 -- `prediction` = `case.DamagePrediction` (`UtilityAttackCase@+0x28`,
+        `Nullable<DamagePredictionResult>`). Le natif passe le CASE ENTIER a chaque playbook ; le
+        port l'eclate en composants, et ce composant-la manquait. `None` mirror
+        `HasValue == false` : c'est le regime des cases `ForEffect`/`ForHealPrediction`/
+        `ForRepairPrediction`, ou tout playbook qui lit la prediction rend 0. SEUL
+        `BarbedOvipositorPlaybook` la consomme a ce jour ; les autres l'acceptent et l'ignorent,
+        comme leurs corps natifs qui ne lisent pas ce champ du case."""
         sc = getattr(ctx, "scene", None)
         if sc is None:
             return 0.0
@@ -699,7 +707,8 @@ class TriggeredAbilitiesUtility(BaseUtility):
             pb = load_attack_playbook(ab)
             if pb is not None:
                 total += pb.calculate_attack_utility_in_steps(ctx, attacker_uid, ability_id,
-                                                              target_uid, attack_tile)
+                                                              target_uid, attack_tile,
+                                                              prediction=prediction)
         return total
 
 
@@ -1613,14 +1622,21 @@ def _attract_to_decoys_friend_count(lc: dict) -> int:
 
 
 def triggered_abilities_attack_utility(ctx, attacker_uid: int, ability_id: int,
-                                       target_uid: int, attack_tile) -> float:
+                                       target_uid: int, attack_tile, prediction=None) -> float:
     """Feuille TriggeredAbilities(2) FACE ATTACK du composite Damage(34) (#45-s18) — entrée des deux
     scoreurs de paire (`playbook.base.calculate_action_utility` + stages `_formula_pair_utility`).
     Le natif évalue les 13 feuilles Damage DANS `ForDamagePrediction`, PAR DamageEvent -> ce terme
     s'ajoute au `damage_composite` de l'event et suit son `prob x signe` (à appliquer PAR L'APPELANT,
-    comme pour le composite). `attack_tile` = tuile caster du case (sweep de position)."""
+    comme pour le composite). `attack_tile` = tuile caster du case (sweep de position).
+
+    #438 — `prediction` = `case.DamagePrediction` de l'event courant. Le case natif que ces
+    appelants mirrorent est construit par `IdunBattle.AI.Utilities.UtilityAttackCase$$ForDamagePrediction`
+    (caster, casterPosition, target, **damagePrediction**, abilityType) : la prédiction EST dans le
+    case, un appelant qui l'a sous la main doit donc la passer. La laisser à `None` mirror un case
+    SANS prédiction — régime natif légitime, mais faux ici, et silencieux."""
     return _TRIG_AB_UTILITY.evaluate_attack_in_steps(ctx, attacker_uid, ability_id,
-                                                     target_uid, attack_tile)
+                                                     target_uid, attack_tile,
+                                                     prediction=prediction)
 
 
 _TRIG_AB_UTILITY: TriggeredAbilitiesUtility = TILE_LEAVES[UtilityType.TriggeredAbilities][1]

@@ -57,7 +57,7 @@ class LakrimaePlaybook:
     ability_id: int = int(TriggeredAbilityType.Lakrimae)          # 1541
 
     def calculate_attack_utility_in_steps(self, ctx, attacker_uid: int, ability_id: int,
-                                          case_tgt_id: int, attack_tile) -> float:
+                                          case_tgt_id: int, attack_tile, prediction=None) -> float:
         """Mirror de `<CalculateAttackUtilityInStepsInternal>d__3$$MoveNext` (cf. en-tete) :
         0 si la CIBLE porte le trait `Mechanical`, le poids sinon.
 
