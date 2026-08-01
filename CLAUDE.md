@@ -17,7 +17,20 @@ Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monor
 - `data/` — dumps IL2CPP, gameconfig, boards — gitignored, **à une exception près** :
   `data/symbols/<HASH>/` (la table de symboles) est VERSIONNÉE.
 - `sources_win/` — décompilation Ghidra de `GameAssembly.dll` — gitignored
-- `STATUS.md` — état d'avancement vivant du projet
+- `STATUS.md` — **instantané HISTORIQUE du 2026-05-03** (ère « Tacticus Builder » : pipeline
+  d'injection et de build de nœud). **Ce n'est pas l'état du projet** — ne pas s'y fier.
+
+### Où lire l'avancement (ces fichiers-là, pas `STATUS.md`)
+
+- `docs/rl/backlog.md` — **les tâches OUVERTES**, versionné (le tracker `TaskCreate`/`TaskList` vit
+  côté compte et a déjà disparu d'une session). Les tâches finies n'y sont plus : elles ont leur
+  `docs/rl/case-<n>-*.md`. ⚠ Il décrit des INTENTIONS HORODATÉES, pas l'état du code — confronter
+  au commit courant avant de dispatcher.
+- `docs/rl/kit-coverage.md` et `docs/rl/combat-ability-coverage.md` — **audits GÉNÉRÉS** de la
+  couverture (`audit_kit_coverage.py`, `audit_combat_ability_coverage.py`, depuis `scripts/python/`).
+  Les régénérer après tout port et au changement de build ; **ne jamais résoudre un conflit dessus
+  — les REGÉNÉRER**.
+- Les chiffres se **re-dérivent**, ils ne se citent pas : ils bougent à chaque tranche livrée.
 
 ## Cible Windows
 

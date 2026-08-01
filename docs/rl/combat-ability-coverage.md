@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **94**
-- **NO-OP silencieux** (a porter) : **81**
-- Ventilation NO-OP : **DAMAGE**=48, **EFFECT/BUFF**=21, **SUMMON**=6, **HEAL**=3, **REPAIR**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **98**
+- **NO-OP silencieux** (a porter) : **77**
+- Ventilation NO-OP : **DAMAGE**=47, **EFFECT/BUFF**=19, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (81)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (77)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -54,7 +54,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1198 | EuphoricStrikes | DAMAGE(Power) | 1 | L |
 | 1197 | ExcruciatingFrequencies | DAMAGE(Blast) | 1 | L |
 | 1170 | ExplosivePresents | DAMAGE(Blast) | 1 | N |
-| 1090 | GrapnelLauncher | DAMAGE(Physical) | 1 | L |
 | 1227 | HeavyWarpFlamer | DAMAGE(Flame) | 1 | L |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
 | 1196 | LashOfTorment | DAMAGE(Eviscerate) | 1 | L |
@@ -75,13 +74,11 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1217 | TheLionsWrath | DAMAGE(Power) | 1 | N |
 | 1183 | VexillaMagnifica | DAMAGE(Physical) | 1 | L |
 | 1005 | AdaptiveStrategy | EFFECT/BUFF | 6 | LN |
-| 1023 | Burrowers | EFFECT/BUFF | 6 | NS |
 | 1210 | ExemplarOfTheMontka | EFFECT/BUFF | 6 | LN |
 | 1050 | HolyDuel | EFFECT/BUFF | 6 | LN |
 | 1101 | AttemptedPossession | EFFECT/BUFF | 5 | LN |
 | 1063 | FireAndReposition | EFFECT/BUFF | 5 | LN |
 | 1164 | MindControl | EFFECT/BUFF | 5 | LN |
-| 1011 | TunnelingHorror | EFFECT/BUFF | 4 | NS |
 | 1061 | UnbreakableDuty | EFFECT/BUFF | 4 | LN |
 | 1049 | CrusadeOfWrath | EFFECT/BUFF | 3 | LN |
 | 1010 | StormOfFlensingBlades | EFFECT/BUFF | 3 | N |
@@ -98,7 +95,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1039 | RitesOfRestoration | HEAL | 4 | LN |
 | 1175 | BloodChalice | HEAL | 1 | L |
 | 1231 | TitanhammerSquad | HEAL | 1 | L |
-| 1117 | DefendTheDivineWork | REPAIR | 6 | LN |
 | 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
 | 1223 | ReanimationBeam | REPAIR | 2 | LN |
 | 1121 | ItItches | SUMMON | 7 | LN |
@@ -108,7 +104,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (94)
+## PORTED (registry) (98)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -170,11 +166,13 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1221 | AugmentedAssault | DAMAGE(Eviscerate) | 1 | L |
 | 1199 | DoomSiren | DAMAGE(DirectDamage) | 1 | L |
 | 1097 | Foehammer | DAMAGE(Power) | 1 | L |
+| 1090 | GrapnelLauncher | DAMAGE(Physical) | 1 | L |
 | 1206 | GravitonRifle | DAMAGE(Physical) | 1 | L |
 | 1089 | GreatFrostAxe | DAMAGE(Piercing) | 1 | L |
 | 1153 | HammerOfWrath | DAMAGE(Power) | 1 | L |
 | 1184 | MomentShackle | DAMAGE(Bolter) | 1 | L |
 | 1202 | VigilanceEternal | DAMAGE(Power) | 1 | L |
+| 1023 | Burrowers | EFFECT/BUFF | 6 | NS |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |
 | 1066 | Executioner | EFFECT/BUFF | 6 | LN |
 | 1226 | Chronometron | EFFECT/BUFF | 5 | LN |
@@ -182,12 +180,14 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1067 | HarvesterOfSouls | EFFECT/BUFF | 5 | LN |
 | 1025 | SkyStrike | EFFECT/BUFF | 5 | LN |
 | 1003 | DeathFromAbove | EFFECT/BUFF | 4 | LN |
+| 1011 | TunnelingHorror | EFFECT/BUFF | 4 | NS |
 | 1140 | ExemplarOfHate | EFFECT/BUFF | 3 | LN |
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1082 | InspiredToGreatness | HEAL | 5 | LN |
 | 1002 | CombatRestoratives | HEAL | 4 | LN |
 | 1037 | RevitalizingMalignancy | HEAL | 4 | LN |
+| 1117 | DefendTheDivineWork | REPAIR | 6 | LN |
 | 1112 | AlphaWarrior | SUMMON | 8 | LN |
 | 1016 | SendInTheNextWave | SUMMON | 7 | LN |
 | 1096 | MasterOfTheTutelaries | SUMMON | 6 | LN |
