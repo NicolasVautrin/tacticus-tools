@@ -190,20 +190,11 @@ sans exclure `.claude/worktrees` ?* Les 19 entrées de `scripts/ratchets.ps1` :
 dans un seul fichier aurait ajouté un module partagé sans lecteur — le correctif reste local,
 et cette ligne est là pour que le prochain ne le cherche pas.
 
-**Résidu nommé, hors banque** : `probe_274_step_ordinals_sweep.py:245` porte le **même** trou
-(`sorted(REPO.rglob("*.py"))`) et **filtre en plus sur `p.parts` absolu** (lignes 247-248) —
-exactement la forme que le commentaire de `probe_283` proscrit. Il n'est dans aucune banque,
-donc jamais joué : non corrigé ici (hors périmètre de #434), signalé pour arbitrage.
+**Résidu, fermé par #440** (§10) : `probe_274_step_ordinals_sweep.py:245` portait le **même**
+trou, et filtrait en plus sur `p.parts` **absolu**.
 
 ## 7. Ce qui n'est PAS couvert
 
-* **Le reste du dépôt n'a pas été balayé pour ce motif** — seulement les 19 entrées de la
-  banque, plus `probe_274` trouvé en chemin. D'autres scripts hors banque peuvent porter le
-  même `REPO.rglob`.
-* **Aucun cliquet ne garde ce périmètre.** Rien n'empêche un futur `REPO.rglob` d'entrer.
-  Le garde-fou naturel serait une assertion « aucun chemin rapporté ne commence par
-  `.claude/worktrees/` » dans la banque ; non livré (il aurait fallu un contrat de sortie
-  commun aux 19 cliquets, qui n'existe pas).
 * **`tools/`** (gitignoré, présent seulement dans l'arbre principal) reste dans le périmètre et
   y produit 6 `SyntaxWarning` sur `stderr` : c'est un écart arbre-principal/worktree
   **indépendant** de cette tranche, laissé tel quel.
@@ -235,3 +226,110 @@ Rebase **sans conflit** (3 PR intégrées entre-temps : #472, #473, #474). Re-je
 Équivalence contre la révision antérieure — c'est ainsi que celle-ci a été prouvée : charger
 les deux versions du probe avec `REPO` **forcé sur l'arbre principal**, comparer les sorties
 après retrait des seules lignes sous `.claude/worktrees/` et `node_modules/`.
+
+## 10. #440 — les deux résidus, fermés ensemble
+
+Le second **est** le garde du premier : corriger `probe_274` sans cliquet aurait reproduit la
+situation de §7 (un fait, pas un cliquet).
+
+### 10.1 `probe_274` — mesuré d'abord, corrigé ensuite
+
+Il n'était dans aucune banque, donc son état n'avait **jamais** été mesuré. Même commit, même
+fichier (`sha256` identique dans les deux arbres), 8 worktrees vivants :
+
+| lancé depuis | `*.py` retenus | dont `.claude/worktrees/` | durée | verdict |
+|---|---|---|---|---|
+| arbre principal | 13 267 | **11 746 (88,5 %)** | **366,6 s** | PASS |
+| un worktree | 1 494 | 0 | **33,7 s** | PASS |
+
+`PASS` des deux côtés : le trou était **latent en rapport** (aucun ordinal en dur ne subsiste
+aujourd'hui) et **réel en périmètre** — le probe lisait les checkouts des autres agents.
+
+⚠ **Un point de l'énoncé de #434 était inexact, et la mesure le corrige** : `probe_274` ne
+s'auto-excluait *pas*. Son tuple `p.parts` ne contenait pas `worktrees` — il n'excluait donc
+**rien**. Le filtre absolu n'était pas la faute active : c'était le **piège armé**, celui qui
+transforme la correction évidente en faux vert. Mesuré directement, en ajoutant `worktrees` à
+ce tuple :
+
+| variante « filtre absolu + `worktrees` » | arbre principal | un worktree |
+|---|---|---|
+| fichiers retenus | 1 521 (a l'air juste) | **0** — auto-exclusion totale, `VERDICT: PASS` |
+
+Après correction (filtre sur le **relatif** + `os.walk` élagué à la source) :
+
+| | fichiers retenus | dont worktrees | marche |
+|---|---|---|---|
+| arbre principal | **1 527** | **0** | 0,6 s |
+| un worktree | **1 495** | 0 | 0,1 s |
+
+Les deux sens tiennent : il ignore les autres checkouts **et** ne s'ampute pas du sien.
+
+### 10.2 `probe_440` — le cliquet, dérivé et non saisi
+
+`scripts/python/probe_440_repo_root_scan_guard.py` balaie **tout `scripts/python/**`**, pas les
+seules entrées de la banque. Deux détecteurs, tous deux dérivés du seul chemin canonique
+`.claude/worktrees` — **aucune allowlist** (règle #421) :
+
+* **R1** — énumération récursive (`rglob`, `glob("**/…")`, `os.walk`, `glob.glob`) partant de la
+  racine, dans un fichier qui ne porte nulle part, **dans son code**, un préfixe de chemin de
+  `.claude/worktrees`. La racine est résolue symboliquement (`Path(__file__).resolve()`,
+  `.parent`, `.parents[k]`, `os.path.dirname`) et comparée à la profondeur du fichier ; les
+  paramètres sont liés par **point fixe intra-fichier** (`def f(root): root.rglob(…)` n'est
+  fautif que si un appelant lui passe la racine).
+* **R2** — le piège armé : un **segment** de ce même chemin (`.claude`, `worktrees`) testé
+  contre `.parts`.
+
+**Être ancré à la racine ne suffit pas** : c'est le premier segment qui tranche. Le détecteur
+naïf a produit un faux positif mesuré —
+`glob.glob(str(PYDIR.parents[1] / "data" / "symbols" / "*" / "frida" / "classes.tsv"))`
+(`test_356_noncomparable_oracle_live.py:112`) part bien de la racine mais `data` le **confine**.
+Une descente explicitement dirigée vers `.claude` (lire les transcripts d'agents) est
+intentionnelle, donc hors gisement.
+
+**Son étape 0 est un auto-test de ses propres détecteurs** sur 15 sources synthétiques, joué à
+**chaque** run et compté dans le verdict — un cliquet dont le détecteur a cessé de mordre verdit
+sur un dépôt fautif (c'est `probe_181` avant #430). Il a payé tout de suite : il a trouvé **deux
+bugs de mon détecteur** (`os.walk` capté par la branche `Path.walk`, donc jamais testé sur son
+argument ; et le cas `.claude` exempté par sa propre conformité) que la relecture n'avait pas vus.
+
+### 10.3 Le garde MORD — mutation vérifiée avant lecture du verdict
+
+Témoin jetable portant les deux motifs, joué **par la banque** (run complet), mutation vérifiée
+présente avant lecture :
+
+| étape | résultat |
+|---|---|
+| témoin R1+R2 en place | **ROUGE nommé** — `probe_440_temoin_mutation.py:16` sur R1 *et* sur R2, `VERDICT: FAIL (2)` |
+| témoin retiré | **VERT**, rc 0 |
+
+Même protocole pour l'admission de `probe_274` (un cliquet qui ne peut rougir de rien n'a rien à
+faire dans la banque — #430-r2) : témoin portant les deux formes qu'il est seul à voir, l'**alias**
+(`step = ev.get("step")` puis `step == 10`) et la **clé de dict** (`frame["code"] == 13`) →
+**ROUGE nommé**, `10=AddMachine (avant: AddUnit)` — le décalage exact de la MAJ. Retiré → vert.
+
+### 10.4 Admission dans la banque
+
+Les deux entrent. Le critère n'est pas le coût absolu mais le **coût marginal en parallèle** et
+**ce que le cliquet est seul à voir** :
+
+* `probe_274` est seul à voir **`GroupType`** (104 membres) — aucune étape de `probe_283` ne le
+  couvre — et les ordinaux `StepType` derrière un **alias** ou une **clé de dict**, motifs que
+  l'étape `exec` de `probe_283` ne reconnaît pas ;
+* `probe_440` est seul à voir le périmètre lui-même.
+
+Banque complète re-jouée depuis le worktree : **VERTE 23/23, mur 178,8 s**, tenu par
+`pytest_signatures` (176,9 s). `probe_274` **95,1 s** et `probe_440` **95,0 s** — tous deux très
+en dessous du mur, donc **coût marginal nul**. Seuls : 42,0 s et 43,6 s hors charge.
+
+### 10.5 Ce que #440 ne couvre PAS
+
+* **Le balayage porte sur `scripts/python/**`**, comme demandé. Un `REPO.rglob` dans
+  `frida/host/*.ts` ou dans un `.ps1` n'est pas vu — autre langage, autre analyseur.
+* **Chaîne construite dynamiquement** : `glob.glob(str(REPO) + "/**/*.py")` (concaténation,
+  f-string) n'est pas résolu — R1 ne rougit que sur les formes `Path` / `os.path.join`. Aucun
+  site du dépôt n'est dans ce cas au 2026-08-01.
+* **R1 vérifie que le fichier CONNAÎT le chemin d'exclusion, pas que le filtre est bien câblé.**
+  Vérifier le câblage serait ré-implémenter le filtre. R2 couvre l'autre moitié — que ce littéral
+  ne soit pas appliqué à des segments.
+* **`probe_274` reste `PASS` sur le fond** : sa correction est un périmètre, pas un ordinal. Le
+  gisement d'ordinaux en dur est à 0 depuis #279, et c'est maintenant un cliquet qui le tient.
