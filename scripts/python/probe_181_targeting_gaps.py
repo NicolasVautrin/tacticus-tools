@@ -1,7 +1,20 @@
-"""probe_181 -- inventaire RE-DERIVE des TARGETING_OPTIONS manquantes.
+"""probe_181 -- CLIQUET : aucune ability du registre ne doit etre SANS son TARGETING_OPTIONS.
 
 Croise ABILITY_CLASSES (engine/runner/abilities/handler.py) avec
-getattr(cls, "TARGETING_OPTIONS", None) et ventile par module d'origine.
+getattr(cls, "TARGETING_OPTIONS", None) -- le MEME acces que
+`engine/runner/abilities/targeting.py::get_invalid_target_reason`, MRO comprise -- et ventile
+par module d'origine.
+
+#430 : ce probe RENDAIT `0` INCONDITIONNELLEMENT. Il etait cite comme << cliquet >> par le
+`CLAUDE.md` (<< faire passer probe_181 avant d'ouvrir une PR >>) et par toutes les case-docs,
+mais il ne pouvait PAS rougir -- un inventaire deguise en garde-fou. Mesure : renommer le
+`TARGETING_OPTIONS` de `HarbingerOfDestructionAbility` (1008) le laissait VERT. Le gate est
+pose ici ; le zero global qu'il exige est celui deja atteint (98/98 le 2026-08-01).
+
+Le gate porte sur le compte GLOBAL, jamais sur le perimetre `--module` (qui ne filtre que
+l'affichage detaille) : une ability sans masque est une degradation PERMISSIVE du moteur
+(`getattr(...) is None` -> retour 0 immediat, aucun gate de ciblage), quel que soit son module.
+
 Sortie ASCII stricte (console cp1252).
 
 Usage:
@@ -62,6 +75,19 @@ def main() -> int:
         for ability_type, name, mod, opts in with_mask:
             if mod in wanted:
                 print("  %-6d %-40s %s  rules=0x%x" % (ability_type, name, mod, opts.rules))
+        print("")
+
+    if without:
+        print("[181] ROUGE -- %d ability(s) au registre SANS masque de ciblage :" % len(without))
+        for ability_type, name, mod, _ in without:
+            print("  MANQUANT %-6d %-40s %s" % (ability_type, name, mod))
+        print("  => poser le litteral lu au `<X>Ability$$.ctor` (piege des surcharges PRESET+flags")
+        print("     et de la recopie d'un champ STATIQUE : cf. CLAUDE.md). Sans masque,")
+        print("     `get_invalid_target_reason` rend 0 immediatement -- aucun gate, degradation")
+        print("     PERMISSIVE, ni erreur ni crash.")
+        return 1
+
+    print("[181] OK -- les %d ability(s) du registre portent leur TARGETING_OPTIONS." % total)
     return 0
 
 
