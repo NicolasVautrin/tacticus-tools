@@ -195,7 +195,15 @@ def test_camo_cloak_ranged_via_light_cover_live(camo_case, board, seed):
 def test_camo_cloak_no_cover_native_off_live(camo_case):
     """SANS couvert : le natif lui-meme ETEINT 1014 (`EffectComponent.IsActive = False`, donc absent
     du canal `decisionView` par defaut) et ne retire RIEN. C'est la mesure DIRECTE de la
-    `CreateActiveCondition` cote natif -- aucune deduction du port."""
+    `CreateActiveCondition` cote natif -- aucune deduction du port.
+
+    ⚠ INERTE n'est PAS ABSENT (case-366-r1-camo-seed). `nat_active_flag is False` ci-dessous est
+    LU sur le canal `includeInactive` : il ETABLIT que l'entite-effet existe (la pose de
+    `CamoCloakAbility$$CreateBehaviour` est un `AddEffect` NU, sans `If`). Le port doit donc
+    materialiser l'instance LUI AUSSI -- et la taire par sa `CreateActiveCondition`, pas par son
+    absence. Une version anterieure de cette garde exigeait `present is False` : elle codait la
+    lecture FAUSSE << pas dans le canal actif == pas d'instance >>, et interdisait au port de
+    rallumer l'effet quand la sim fait entrer le porteur en couvert."""
     r = camo_case("none", "ranged", "MC1_67", "31337")
     print("\n[366-r1/1014 none/ranged] %s" % ({
         "nat_active": r["nat_active_flag"], "canal_actif": r["nat_in_active_channel"],
@@ -208,8 +216,17 @@ def test_camo_cloak_no_cover_native_off_live(camo_case):
         % (r["nat_active_flag"], r.get("nat_effects_inactive_channel")))
     assert r["nat_in_active_channel"] is False, (
         "1014 est PUBLIE par le canal ACTIF sans couvert")
-    assert r["port_effect_view"].get("present") is False, (
-        "le port materialise 1014 alors que le canal actif ne le publie pas")
+    pv = r["port_effect_view"]
+    assert pv.get("present") is True, (
+        "le port n'a AUCUNE instance de 1014 alors que le natif en porte une (INERTE) -- "
+        "`ABILITY_INIT_OWNER_EFFECTS['CamoCloak']` manque, et rien ne pourra se rallumer quand "
+        "le porteur entrera en couvert")
+    assert pv.get("is_active") is False, (
+        "port : la `CreateActiveCondition` OUVRE sans couvert (light_cover=%s big_target=%s) "
+        "alors que le natif ferme" % (pv.get("us_light_cover"), pv.get("us_big_target")))
+    assert pv.get("in_active_effects") is False, (
+        "port : 1014 contribue alors que sa condition est fausse -- `active_effects` ne conjugue "
+        "plus le flag et la condition")
     assert not r["dirty"], "coup non propre (crit/block/evade)"
     assert r["port_hits"] == r["live_hits"], (
         "port %s != natif %s sans couvert" % (r["port_hits"], r["live_hits"]))

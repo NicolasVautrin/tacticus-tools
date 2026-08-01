@@ -249,6 +249,47 @@ class MoveUnitOperation(Operation):
         # INCRÉMENT 1b : AddMoveEvent (bus) + EvaluateAfterMoveTriggers (overwatch) ici.
 
 
+def refresh_effects_after_move_triggers(state: State) -> list:
+    """SECOND `RefreshEffects(RefreshEffectTrigger.UnitPositionChanged = 7)` d'
+    `IdunBattle.Operations.MoveUnitOperation$$Execute` (case-366-r1-camo-seed).
+
+    Le natif appelle **DEUX FOIS** le slot `RefreshEffects` de l'`OperationProcessor`
+    (`Core.Services.OperationProcessor$$RefreshEffects(refreshOptions)`) autour du vecteur
+    after-move, avec la MEME valeur `{trigger = 7, effectEntity = null}` -- lu au desassemblage,
+    les deux `FUN_180028040(0x2f, .., processor, &{7,0})` ENCADRENT l'appel a
+    `MoveUnitOperation$$EvaluateAfterMoveTriggers` :
+
+        ... RecordTilesMoved
+        RefreshEffects({7, null})              <- #1 : porte par `MoveUnitOperation.execute`
+        EvaluateAfterMoveTriggers(...)         <- porte par les appelants (`after_move_triggers`)
+        [ On(0x1c = ArrivedAtFinalTile) ]
+        RefreshEffects({7, null})              <- #2 : CETTE fonction
+
+    POURQUOI LE SECOND N'EST PAS REDONDANT. `EvaluateAfterMoveTriggers` emet `On(0x24 =
+    UnitPositionChanged_1)`, et c'est LUI qui fait poser les effets d'ARRIVEE -- au premier chef
+    `1013 LightCover` par `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility`
+    (`triggers/tiles.py::light_cover_on_enter`). Or `1013` est justement l'ENTREE que lit la
+    `CreateActiveCondition` d'un autre effet : `IdunBattle.Entities.Effects.Loki.
+    CamoCloak_DmgReductionEffect$$CreateActiveCondition` = `HasEffect(Owner, 0x3f5)
+    | IsEffectTarget(Owner, 0x402)`. Au refresh #1 le couvert n'est PAS encore pose : la condition
+    est FAUSSE. Sans le refresh #2, le flag `EffectComponent.IsActive @+0x5c` reste a 0 pour tout
+    le reste du pas, et `EffectsState.active_effects` (qui exige `e.active` ET `is_active`) tait
+    l'effet -- alors que le natif, lui, vient de le RALLUMER.
+
+    MESURE (`probe_366_r1_camo_seed.py`, `C4_09`/4242, Certus capte HORS couvert puis DEPLACE
+    dessus) : apres le pas, port `cond_is_active = True` mais `flag_active = False` ->
+    `in_active_effects = False`, la ou le canal ACTIF-ONLY du natif publie `1014` avec
+    `active: true`. Degat live 31907 contre port 32655.
+
+    Le corps est le MEME driver que le refresh #1 (`refresh_stat_modifier_effects`, le producteur
+    porte du flag) : `Modify` etant un replace par-source, un second passage est un NO-OP exact
+    partout ou rien n'a change entre les deux -- y compris aux sites qui n'ont PAS de vecteur
+    after-move (`DisplaceUnitOperation`, `TheQuickening`, genestealer), qu'on laisse donc
+    inchanges."""
+    from .refresh_effects import refresh_stat_modifier_effects
+    return refresh_stat_modifier_effects(state)
+
+
 class MovementHandler:
     """Visiteur des messages de mouvement (mirror du handler natif qui lance
     MoveUnitOperation). Lié à l'état/bus du runner. `after_move` = résultats du vecteur after-move
@@ -266,3 +307,4 @@ class MovementHandler:
         # effet-triggers after-move (Overwatch…). No-op si pas de board/rng ou aucun trigger en portée.
         from .triggers import after_move_triggers
         self.after_move = after_move_triggers(self.state, msg.unit_id)
+        refresh_effects_after_move_triggers(self.state)      # 2e `RefreshEffects({7, null})` natif

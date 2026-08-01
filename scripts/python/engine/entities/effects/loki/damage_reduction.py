@@ -901,11 +901,21 @@ class CamoCloakDmgReductionEffect(BaseEffect):
     `active_effects` filtre par `is_active` AVANT d'appeler le canal (`damage_model.
     defender_modifiers`, `Scene.effects`) : l'ordre du natif est preserve.
 
-    `active_condition_ported` reste **False** : le flag capte `EffectComponent.IsActive` fait foi
-    quand il est la (le canal `decisionView` par defaut DROPPE les inactifs, donc « present ==
-    actif »), et `is_active` ne peut que FERMER en plus -- jamais rouvrir un inerte capte. Corollaire
-    NOMME : un porteur capte HORS couvert n'a pas d'instance 1014 materialisee, donc un deplacement
-    offline vers une tuile de couvert ne la fait pas apparaitre (residu de SEED, pas de gate)."""
+    POSE HORS COUVERT -- case-366-r1-camo-seed, MESURE et non deduite. La pose native est
+    INCONDITIONNELLE (le `CreateBehaviour` ci-dessus n'a aucun `If`), donc l'instance EXISTE
+    toujours ; hors couvert elle est INERTE, pas ABSENTE. Le canal `decisionView` par DEFAUT
+    DROPPE les inertes (d'ou l'illusion d'absence) ; `decision_view_seed_body`
+    (`includeInactive`) la publie avec `active: false`. Le port materialise donc l'instance dans
+    LES DEUX cas : par le canal quand il la porte, sinon par
+    `factory.ABILITY_INIT_OWNER_EFFECTS["CamoCloak"]` (idempotent).
+
+    `active_condition_ported` reste **False** : l'instance seedee nait `active = True` et c'est
+    `is_active` (la condition PORTEE) qui la ferme ; le flag capte, quand il existe, garde son mot
+    a dire. Ce qui la RALLUME quand la sim fait entrer le porteur en couvert est le SECOND
+    `RefreshEffects(RefreshEffectTrigger.UnitPositionChanged)` d'
+    `IdunBattle.Operations.MoveUnitOperation$$Execute`
+    (`runner/operations/movement.py::refresh_effects_after_move_triggers`) : le premier tombe
+    AVANT `EvaluateAfterMoveTriggers`, donc avant que `LightCoverAbility` n'ait pose `1013`."""
 
     def is_active(self, unit_state: Mapping | None = None) -> bool:
         return camo_cloak_cover(unit_state)          # CreateActiveCondition = HasValidEffectTrigger(Owner)
