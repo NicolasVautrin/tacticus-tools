@@ -149,6 +149,12 @@ def is_valid_teleport_tile_stormboyz(tile_id: int, board, occupants: dict, movin
     Le predicat concurrent le plus plausible (celui de `TeleportStrike`, « aucun ennemi non-Steppable
     adjacent ») est donc REFUTE dans les trois cas, et `return false` l'etait deja par construction.
 
+    Les trois lignes ont ete RE-MESUREES apres `#403`/`#445` (`FlyPathfinder$$IsValidPathNode` passe
+    de `walkable` a `!IsWall`, gate d'expansion #131 retire de la branche vol) : IDENTIQUES, `31/31`
+    compris -- c'est justement `thousTzaangor` qui a la base FLY. Structurellement attendu et
+    desormais mesure : pour une unite SANS TUILE le natif appelle `GetReachableTiles(start = NULL,
+    ...)`, donc la moitie BASE du decorateur ne produit rien et le pool ne vient que d'ici.
+
     ⚠ PIEGE DE MESURE, vecu : un 4e montage (`bloodIntercessor`) rendait natif 28 / port 31 et se
     lisait comme une refutation. Ce greffon porte le trait `TeleportStrike`, donc l'effet
     `0x40b = 1035`, que `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit` teste

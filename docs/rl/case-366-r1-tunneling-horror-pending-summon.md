@@ -628,6 +628,15 @@ pool du port, sur les trois montages dont la famille effective EST `StormboyzStr
 ⇒ **l'hypothèse devient une MESURE**, et le prédicat concurrent le plus plausible est RÉFUTÉ trois
 fois. (`return false` l'était déjà par construction : il ferait de 8/9 un synonyme de 0/3.)
 
+⚠ **Ces trois lignes ont été RE-MESURÉES après #403/#445** (`FlyPathfinder$$IsValidPathNode` passé
+de `walkable` à `!IsWall`, et gate d'expansion #131 retiré de la branche vol) : **identiques**,
+`31/31` compris — le montage `thousTzaangor` est justement celui dont la base est FLY. C'est
+cohérent avec la structure, et c'est maintenant mesuré et non raisonné : pour une unité **sans
+tuile** le natif appelle `GetReachableTiles(start = NULL, …)`, donc la moitié BASE du décorateur ne
+produit rien (colonne `base_only` = 0 des deux côtés) et le pool ne vient que de
+`FindTilesReachableByTeleport`, dont les trois filtres portés (`IsEmptyOrSteppable`,
+`IsWalkable(checkFog)`, `IsValidTeleportTile`) sont propres au décorateur.
+
 ⚠ **PIÈGE DE MESURE, vécu.** Le 4ᵉ montage (`bloodIntercessor`) rendait natif 28 / port `true` 31 et
 se lisait comme une réfutation. Ce greffon porte le trait `TeleportStrike`, donc l'effet
 `0x40b = 1035`, que `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit` teste **AVANT**
