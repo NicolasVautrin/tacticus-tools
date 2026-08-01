@@ -117,20 +117,71 @@ de différence : la greffe. Chiffre lu = HP perdu par le défenseur sur UNE atta
 ratio **0.158 ≈ 1/6.33** — soit **un seul coup sur six**. Le natif jette bien les cinq coups
 restants. (Moyenne témoin par coup : 772 ; le coup unique du greffé vaut 734 — même ordre.)
 
+## 6bis. Le DÉPLACEMENT d'1 hex — PORTÉ (#406)
+
+**La question qui bloquait** : quand la file différée est-elle drainée par rapport à
+`FinishAttackOperation` ? **Réponse LUE** : `IdunBattle.Core.MatchState$$AddPendingTriggeredAbility`
+(`Queue` @`MatchState+0x28`) n'est vidée que par
+`IdunBattle.Messages.InputMessageProcessor$$ProcessPendingTriggeredAbilities`, dont les **trois**
+appelants sont hors de l'arbre d'opérations — deux dans
+`IdunBattle.Messages.InputMessageProcessor$$RunPhase`, un dans
+`...InputMessageProcessor$$VerifyTurnEnd`. Dans `RunPhase` l'ordre est
+`action()` → `VerifyDeaths` → `ProcessDamageEvents` → **drain** → (bloc fin-de-tour, 2e drain) →
+`EndPhase`. ⇒ **le déplacement s'exécute APRÈS l'attaque complète** (`On(9)`/`On(10)` déjà émis), pas
+dedans : porter le mouvement ne fait donc PAS entrer l'overwatch au milieu des coups.
+
+Le drain snapshot + `Queue.Clear()` **avant** d'itérer, et chaque item tourne dans un
+`RunPhase(0xf, ..., isInternalPhase: 1)` qui re-draine ⇒ traitement par **vagues**, pas FIFO plat.
+Le re-déclenchement passe par `Core.Services.OperationProcessor$$TriggerAbility` →
+`IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility`, qui appelle l'ability avec
+**`triggerType = 0x20 = Custom`** (littéral lu) et un `previousResult` **memset à 0**.
+
+Deux constantes du call-site, lues et non déduites : `<DSLFormulas+0x20>` = **1**
+(`IdunBattleLogic.Entities.DSLFormulas$$.ctor` pose 0/1/2/100/-1 en `+0x18…+0x38`) — donc 1 hex, pas
+la stat Movement ; et les `options` du `MoveUnit` sont **toutes au défaut** (la struct est à zéro sauf
+`+0x10 = DSLTriggers+0x40`, le trigger constant VRAI, qui est justement le défaut du slot
+`behaviour+0x70` dans `IdunBattle.Entities.Behaviours.MoveUnitBehaviour$$Execute`). `ignoreFlags = 1`.
+
+**Port** : `State.pending_triggered_abilities`, `runner/operations/triggers/dispatch/pending.py`
+(enfilement / drain / re-déclenchement), drain câblé dans `Runner.apply` entre les post-handlers et
+`phase_end_triggers`, et `HarlequinsPanoplyCustomAbility` (mirror de l'arbre) inscrite dans
+`CUSTOM_TRIGGERED_ABILITIES[1187]`.
+
+**Confrontation live** (`probe_406_harlequins_panoply_move.py`, seed `31337`, board `MC1_67`,
+`necroDestroyer` en **RANGED portée 2** vs `astraBullgryn` greffé, `--block-target 100,300`) :
+
+| runner | pos avant | pos après | dist att-déf |
+|---|---|---|---|
+| TÉMOIN (sans greffe) | (6,8) | (6,8) | 2 → 2 |
+| GREFFÉ | (6,8) | **(5,8)** | 2 → **1** |
+
+et le PORT rejoué sur le même état pré-attaque rend **(5,8)** — accord sur la **tuile**, pas
+seulement sur « ça a bougé ». ⚠ Le probe **doit** lier le transport ambiant (`bind_live_rpc`) :
+sans lui `passive_abilities` retombe sur le gameconfig, la greffe est invisible et le port répond
+« pas de mouvement » pour une raison de harnais — faux négatif mesuré, désormais asserté.
+
+**Bug trouvé au passage** : le nœud `MoveUnit` n'acceptait que des positions `(col,row)`, alors que
+`MovableTilesInRange`/`AdjacentTiles`/`CanAddUnit` rendent des **ids d'entité-tuile**. Tout
+`dest_tile_sel` bâti sur ces nœuds était un **no-op silencieux**. Normalisé dans la feuille.
+
 ## 6. Résidus NOMMÉS (non portés)
 
-* **Le DÉPLACEMENT de 1 hex** vers l'attaquant — branche `Custom` de
-  `HarlequinsPanoplyAbility$$CreateBehaviour`, armée par `TriggerAbilityDelayed(..., 3)`. Le port ne
-  modélise pas la file différée du natif (slot `IOperationProcessor` 6) et exécuter le mouvement
-  inline, au milieu d'une attaque, ferait entrer `On(PreUnitMove)` / `On(UnitAfterMove)` (overwatch)
-  dans un ordre qui n'est pas celui du natif. **NON COUVERT** : la position finale du porteur après
-  une attaque bloquée.
 * `HarlequinsPanoplyAbility_MoveVisual` — purement visuel.
 * `HarlequinsPanoplyAbility$$CannotBeGuaranteedKilled` / `$$SurvivesByDiscardingHits` — face
   PRÉDICTION du même passif (le gate `DamagePredictionResult@0x89`) ; résidu déjà nommé par #372,
   inchangé ici.
 * **Granularité du bus** : `On(6)` / `On(0x3c)` restent per-attaque pour tous les AUTRES
   consommateurs. Ce cluster ne la corrige pas, il la contourne à sa place native.
+* **Deux call-sites hérités de `TriggerAbilityDelayed`** (`SorcerousFacadeAbility`,
+  `MasterOfTheTutelaries_SummonAbility`) restent sur le **collapse inline** d'avant #406 : la file
+  n'est empruntée que par les abilities inscrites dans `CUSTOM_TRIGGERED_ABILITIES`. Leur bascule
+  change le contexte (reconstruit au drain, pas capturé) et demande de re-jouer leurs tests.
+* **Un seul drain par `Runner.apply`**, là où `RunPhase` en a deux (le 2e dans le bloc fin-de-tour)
+  plus celui de `VerifyTurnEnd`. Sans effet observable tant qu'aucun enfileur ne tourne dans ce bloc
+  — aucun n'est porté.
+* **Le cap `MarkAsTriggered`** posé par `TriggerTriggeredAbilityOperation$$TriggerAbility` après le
+  behaviour n'a aucun lecteur porté (le cap par phase du port est keyé par classe, pas par
+  `TriggeredAbilityType`).
 
 ## 7. Gardes
 

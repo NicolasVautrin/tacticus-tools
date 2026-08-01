@@ -94,7 +94,8 @@ class State:
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
                  "turn_counts", "turn_order_player_count", "triggering_ability",
                  "trigger_ability_type",
-                 "pending_deaths", "draining_deaths", "ability_states_seed")
+                 "pending_deaths", "draining_deaths", "ability_states_seed",
+                 "pending_triggered_abilities", "draining_pending_abilities")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}

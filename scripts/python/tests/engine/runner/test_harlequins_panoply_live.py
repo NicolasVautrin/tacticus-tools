@@ -2,8 +2,9 @@
 
 i2 (`HarlequinsPanoply`) : « The first time each turn this unit blocks a hit, **all further hits of
 the attack are discarded** and the Harlequin Player moves 1 hex closer to the origin of the attack,
-if possible. » -- le volet DEPLACEMENT n'est PAS porte (residu nomme, cf. l'en-tete de
-`engine/runner/operations/triggers/loki/harlequins_panoply.py`).
+if possible. » -- le volet DEPLACEMENT est porte depuis #406 (la file
+`IdunBattle.Core.MatchState$$AddPendingTriggeredAbility`, drainee a la borne du message ; cf.
+`engine/runner/operations/triggers/dispatch/pending.py`). Ses gardes sont en fin de fichier.
 
 MONTAGE. Les deux porteurs du passif sont `eldarSmnHarlequin` (SUMMON) et `eldarNpc3Harlequin`
 (npc). La voie summon classique NE MARCHE PAS ici : le seul artefact qui summone le Harlequin est
@@ -126,6 +127,32 @@ def _attack(st, attacker, defender):
     return AttackDamageOperation.execute(st, attacker, defender, 20)
 
 
+def _hexdist(st, a, b):
+    import hexgeo
+    return hexgeo.distance(_pos(st, a), _pos(st, b))
+
+
+def _place_at_distance(st, attacker, defender, want):
+    """DEPLACE l'attaquant sur une tuile LIBRE a distance hex `want` du defenseur -- et ASSERTE si
+    aucune n'existe (jamais « bloque par la geometrie de spawn »). Le montage du DEPLACEMENT exige
+    `want >= 2` : le gate natif est `NOT IsAdjacent(Owner, Caster, 3)`."""
+    import hexgeo
+    board = st.board
+    dpos = _pos(st, defender)
+    occupied = {_pos(st, e) for e, ent in st.entities.items()
+                if ent.get_component(PositionComponent) is not None and e != attacker}
+    for tid in board.by_id:
+        if not board.walkable(tid):
+            continue
+        c = board.coord(int(tid))
+        p = (int(c[0]), int(c[1]))
+        if p in occupied or hexgeo.distance(p, dpos) != int(want):
+            continue
+        _set_pos(st, attacker, p[0], p[1])
+        return p
+    raise AssertionError("aucune tuile libre a distance %d du defenseur -- montage a revoir" % want)
+
+
 # ---------------------------------------------------------------- 1. la GREFFE a mordu
 def test_graft_is_mounted(rpc, build_runner, grafted_bc):
     """Garde de MONTAGE : le greffon porte REELLEMENT `HarlequinsPanoply` cote port (canal MESURE
@@ -231,3 +258,92 @@ def test_marker_does_not_survive_the_attack(rpc, build_runner, grafted_bc):
     _make_adjacent(st, att, dfd)
     _attack(st, att, dfd)
     assert not _has_marker(st, dfd), "1227 a SURVECU a son attaque -> discard permanent"
+
+
+# ================================================================= #406 : le DEPLACEMENT d'1 hex
+# `HarlequinsPanoplyAbility$$CreateBehaviour` branche `UnitBlocked` pose AUSSI
+# `TriggerAbilityDelayed(Owner, 0x4a3, 3)`, qui ENFILE (`IdunBattle.Core.MatchState$$
+# AddPendingTriggeredAbility`). Le drain -- `IdunBattle.Messages.InputMessageProcessor$$
+# ProcessPendingTriggeredAbilities` -- n'est appele que par `RunPhase` / `VerifyTurnEnd`, donc APRES
+# le retour de `action()`. Les deux gardes ci-dessous separent exactement ces deux temps.
+
+def test_block_only_queues_the_move_it_does_not_move(rpc, build_runner, grafted_bc):
+    """TEMPS 1 -- l'attaque ENFILE et ne DEPLACE PAS. C'est la garde anti-regression du seul point
+    qui rendait ce port dangereux : un `MoveUnit` execute inline ferait entrer `On(PreUnitMove)` /
+    `On(UnitAfterMove)` (l'OVERWATCH) au milieu de la resolution des coups, dans un ordre qui n'est
+    pas celui du natif."""
+    from engine.runner.operations.triggers.loki.harlequins_panoply import HARLEQUINS_PANOPLY_ABILITY
+    rid = build_runner("31337", extra=_extra(grafted_bc))["rid"]
+    st, att, dfd = _state(rpc, rid)
+    _place_at_distance(st, att, dfd, 3)
+    before = _pos(st, dfd)
+    assert st.pending_triggered_abilities == []
+    r = _attack(st, att, dfd)
+    assert all(h == 0 for h in r["per_hit"][1:]), r["per_hit"]        # le passif a bien mordu
+    assert _pos(st, dfd) == before, "le porteur a bouge PENDANT l'attaque -- collapse inline"
+    q = list(st.pending_triggered_abilities)
+    assert len(q) == 1, q
+    assert (q[0][0], q[0][1]) == (dfd, HARLEQUINS_PANOPLY_ABILITY), q
+    assert q[0][2].actor_id == att, q                                  # `Caster@+0x48` = l'attaquant
+
+
+def test_drain_moves_the_holder_one_hex_closer(rpc, build_runner, grafted_bc):
+    """TEMPS 2 -- le drain execute la branche `Custom` : `MoveUnit(Owner, First(SortByDistance(
+    MovableTilesInRange(Owner, MainTileOfUnits(Owner), Const(1)), Caster)))` = UN hex vers
+    l'attaquant. `Const(1)` est LU (`IdunBattleLogic.Entities.DSLFormulas$$.ctor` : `+0x20` = 1),
+    pas la stat Movement -- d'ou l'assertion `dist_after == dist_before - 1` et non « <= »."""
+    from engine.runner.operations.triggers.dispatch.pending import (
+        process_pending_triggered_abilities)
+    rid = build_runner("31337", extra=_extra(grafted_bc))["rid"]
+    st, att, dfd = _state(rpc, rid)
+    _place_at_distance(st, att, dfd, 3)
+    before, d0 = _pos(st, dfd), _hexdist(st, att, dfd)
+    _attack(st, att, dfd)
+    out = process_pending_triggered_abilities(st)
+    assert st.pending_triggered_abilities == [], "la file n'a pas ete videe"
+    assert out and out[0]["ability"] == "HarlequinsPanoply_Move", out
+    assert out[0]["moved"] is True, out
+    assert _pos(st, dfd) != before, "le drain n'a PAS deplace le porteur"
+    assert _hexdist(st, att, dfd) == d0 - 1, (d0, _hexdist(st, att, dfd))
+
+
+def test_no_move_when_already_adjacent(rpc, build_runner, grafted_bc):
+    """CONTRE-EPREUVE du gate `NOT IsAdjacent(Owner@+0x30, Caster@+0x48, 3)` : au CONTACT, le
+    `If` est FAUX et le porteur ne bouge pas -- alors que la file, elle, a bien ete armee (c'est
+    l'arbre qui refuse, pas l'enfilement). VERT est le resultat suspect sur une contre-epreuve :
+    on verifie donc d'abord que l'enfilement a EU LIEU."""
+    from engine.runner.operations.triggers.dispatch.pending import (
+        process_pending_triggered_abilities)
+    rid = build_runner("31337", extra=_extra(grafted_bc))["rid"]
+    st, att, dfd = _state(rpc, rid)
+    _make_adjacent(st, att, dfd)
+    assert _hexdist(st, att, dfd) == 1
+    before = _pos(st, dfd)
+    _attack(st, att, dfd)
+    assert len(st.pending_triggered_abilities) == 1, st.pending_triggered_abilities
+    out = process_pending_triggered_abilities(st)
+    assert out and out[0]["moved"] is False, out
+    assert _pos(st, dfd) == before, "le porteur a bouge alors qu'il etait DEJA adjacent"
+
+
+def test_runner_apply_drains_the_queue(rpc, build_runner, grafted_bc):
+    """La BORNE du drain cote port : `Runner.apply`, entre les post-handlers et `phase_end_triggers`
+    (= `EndPhase`). Mirror de la position LUE du 1er `$$ProcessPendingTriggeredAbilities` de
+    `IdunBattle.Messages.InputMessageProcessor$$RunPhase`. Le test enfile A LA MAIN puis fait passer
+    un message NEUTRE : ce qui est verifie ici est la borne, pas le contenu de l'ability."""
+    from engine.runner.runner import Runner
+    from engine.runner.messages import Message
+    from engine.runner.operations.triggers.base import TriggerEvent
+    from engine.runner.operations.triggers.dispatch.pending import add_pending_triggered_ability
+    from engine.runner.operations.triggers.loki.harlequins_panoply import HARLEQUINS_PANOPLY_ABILITY
+    from engine.dsl.event_trigger_type import EventTriggerType
+    rid = build_runner("31337", extra=_extra(grafted_bc))["rid"]
+    st, att, dfd = _state(rpc, rid)
+    _place_at_distance(st, att, dfd, 3)
+    d0 = _hexdist(st, att, dfd)
+    add_pending_triggered_ability(st, dfd, HARLEQUINS_PANOPLY_ABILITY,
+                                  TriggerEvent(int(EventTriggerType.Custom), att, dfd,
+                                               ranged=False, profile=None))
+    Runner(st).apply(Message())          # aucun handler installe -> seule la BORNE est exercee
+    assert st.pending_triggered_abilities == [], "Runner.apply n'a pas draine la file"
+    assert _hexdist(st, att, dfd) == d0 - 1, (d0, _hexdist(st, att, dfd))

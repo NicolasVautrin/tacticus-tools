@@ -132,6 +132,27 @@ class MoveUnit(AbilityBehaviour):
         sid = subject.get("id")
         dest = self.dest_tile_sel.evaluate(entities)     # tuile(s) candidate(s) = snapshot PRE-push (le cache)
         cands = [dest] if (isinstance(dest, tuple) and len(dest) == 2) else list(dest or [])
+        # DOMAINE MIXTE du selecteur de destination (#406). Le natif ne connait qu'UNE forme de tuile
+        # -- l'entite-TileEntity -- et `MoveUnitBehaviour$$Execute` resout `+0x58` en `List<TileEntity>`.
+        # Le port, lui, a DEUX materialisations : la POSITION `(col,row)` (ce que rendent `TargetTile`,
+        # `CasterTile`, `Tiles`) et l'ID d'entite-tuile (ce que rendent `AdjacentTiles`, `CanAddUnit`,
+        # `MovableTilesInRange`). Cette feuille n'acceptait que la premiere -> un `dest_tile_sel`
+        # bati sur `MovableTilesInRange` (le call-site `HarlequinsPanoply`) ne matchait AUCUN candidat
+        # et le move etait un NO-OP SILENCIEUX. Normalisation ici, au plus pres de la consommation --
+        # meme parti que `_tile_positions` cote selecteurs.
+        if board is not None:
+            norm = []
+            for c in cands:
+                if isinstance(c, tuple) and len(c) == 2:
+                    norm.append(c)
+                    continue
+                try:
+                    xy = board.coord(int(c))
+                except Exception:
+                    continue
+                if xy is not None:
+                    norm.append((int(xy[0]), int(xy[1])))
+            cands = norm
         if sid is None:
             return OperationResult.ok()
         occ = _occupied(state, sid)                      # CanAddUnit live : occupants VIVANTS (sujet exclu)
