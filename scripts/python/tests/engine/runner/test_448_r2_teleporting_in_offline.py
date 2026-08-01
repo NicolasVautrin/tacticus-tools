@@ -24,8 +24,9 @@ CE QU'ELLE PROTEGE, et pourquoi chaque bloc peut regresser SILENCIEUSEMENT :
      survivrait au pas et `set_moved_flag` poserait `UnitFlag.Teleported` sur des deplacements
      ordinaires -- degradation PERMISSIVE.
   7. **L'INVENTAIRE de la famille** (cliquet) : les QUATRE derivees, leur `EffectType`, leur ability
-     SOURCE avec son enum QUALIFIE et leur `*_Moving`. Trois d'entre elles ne sont PAS portees --
-     le test le FIGE pour qu'une inscription ne se fasse pas en douce, sans confrontation.
+     SOURCE avec son enum QUALIFIE et leur `*_Moving`. La derivee NON CONFRONTEE (1573, apres
+     #448-r2b et #448-r2c) n'est PAS portee -- le test le FIGE pour qu'une inscription ne se fasse
+     pas en douce, sans confrontation.
 
 Confrontation LIVE : `python scripts/python/probe_448_r2_teleporting_in.py`.
 RE : `docs/rl/case-448-r2-ateleporting-effect-family.md`. ASCII only. Aucune VA en dur.
@@ -291,15 +292,22 @@ def test_the_family_inventory_is_frozen():
 
 
 def test_the_unconfronted_sisters_are_still_out_of_the_registry():
-    """Les soeurs NON CONFRONTEES (1140 -> #448-r2b, 1573 -> #448-r2d) et le `*_Moving` de la
-    seconde (1574) ne sont PAS au registre : chacune est une TRANCHE FILLE, a confronter sur SON
-    porteur. Ce test tombe des qu'une inscription se fait -- ce qui est l'intention : elle doit
-    s'accompagner de sa confrontation, pas se glisser en douce.
+    """La soeur NON CONFRONTEE (`1573` -> #448-r2d) et son `*_Moving` (`1574`) ne sont PAS au
+    registre : c'est une TRANCHE FILLE, a confronter sur SON porteur. Ce test tombe des qu'une
+    inscription se fait -- ce qui est l'intention : elle doit s'accompagner de sa confrontation,
+    pas se glisser en douce.
 
-    1238 / 1241 sont SORTIES de cette liste par #448-r2c, qui les a confrontees
-    (`probe_448_r2c_fear_of_the_unseen.py`, `test_448_r2c_*_live.py`)."""
-    for eff in (EffectType.StormboyzStrike_TeleportingIn,
-                EffectType.TitanhammerSquad_TeleportingIn,
+    SONT SORTIES de cette liste, chacune AVEC sa confrontation : `1238` / `1241` par #448-r2c
+    (`probe_448_r2c_fear_of_the_unseen.py`, `test_448_r2c_*_live.py`), et `1140` par #448-r2b
+    (`probe_448_r2b_stormboyz_teleporting_in.py`, `test_448_r2b_*_offline.py`).
+
+    `1140` n'a PAS de `*_Moving` -- c'est sa particularite, et l'assertion ci-dessous la FIGE a la
+    SOURCE : aucun `StormboyzStrike_Moving` n'existe dans l'`EffectType` du build."""
+    assert not [m for m in EffectType if "Stormboyz" in m.name and "Moving" in m.name], (
+        "un `StormboyzStrike_Moving` est apparu dans l'enum -- le corps de "
+        "`StormboyzStrike_TeleportingInEffect$$GetMovingEffectType` (`xor eax,eax ; ret`) est a "
+        "relire")
+    for eff in (EffectType.TitanhammerSquad_TeleportingIn,
                 EffectType.TitanhammerSquad_Moving):
         assert EFFECT_TRIGGERS.get(int(eff)) is None, (
             "%s est entree au registre sans sa tranche : elle doit etre CONFRONTEE "

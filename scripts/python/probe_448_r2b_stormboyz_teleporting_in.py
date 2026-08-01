@@ -298,7 +298,7 @@ def cascade(sid, rid, action, t=180):
     return r, evs, lines
 
 
-def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -> None:
+def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -> dict:
     from engine.dsl.event_trigger_type import EventTriggerType
     from engine.runner.components import set_unit_feet
     from engine.runner.messages import MoveUnitMessage
@@ -308,11 +308,14 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
     from engine.runner.snapshot import clear_ability_states_cache
 
     tag = "%s_%s" % (graft, board_id)
+    out: dict = {"board": board_id, "seed": seed, "graft": graft, "foes": list(foes),
+                 "fails": fails}
     print("=== montage board=%s seed=%s greffon=%s ===" % (board_id, seed, graft))
     LOGS.mkdir(parents=True, exist_ok=True)
     bc = LOGS / ("bc_%s.json" % tag)
     _p, reports = CI.write_grafted_seed_bc(str(bc), ["%s:%s" % (graft, ABILITY)])
     print("  [graft] %s" % json.dumps(reports[0]))
+    out["graftReport"] = reports[0]
     ctrl_uid, team, player = control_owner(sid, board_id, seed, graft, foes, tag)
     print("  [TEMOIN] porteur u%s team=%r player=%r (canal de repli de l'unite hors plateau)"
           % (ctrl_uid, team, player))
@@ -350,12 +353,14 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         others = [r for r in t0["effects"] if r[0] != TELEPORTING_IN]
         print("  [E1b] owner-effects DEJA presents sur le porteur sous 1140 (canal NATIF) = %r "
               "-> regime << passives deferrees >> %s" % (others, "ABSENT" if others else "indecis"))
+        out["carrier"], out["start"], out["startOthers"] = int(uid), t0, others
 
         # -------- T2-VIDE : aucun cast n'est legal depuis « nulle part »
         tg = rpc(sid, "abilityTargets", {"runnerId": rid, "unitId": uid}, 90) or {}
         here = [t.get("targetId") for u in (tg.get("units") or [])
                 for a in (u.get("abilities") or []) for t in (a.get("fromHere") or [])]
         print("  [T2-VIDE] abilityTargets.fromHere du porteur hors plateau = %r" % (here,))
+        out["fromHere"] = here
         if here:
             fails.append("T2-VIDE : le natif propose %d cible(s) a une unite hors plateau -- la "
                          "lecture << T2 non exercable >> tombe, il faut confronter T2" % len(here))
@@ -366,6 +371,7 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
             raise SystemExit("MONTAGE : `aiMovableTiles` VIDE pour le porteur hors plateau")
         dest = sorted(legal)[len(legal) // 2]
         print("  [CONFRONT-MOVE] pool natif=%d tuiles, destination choisie=%r" % (len(legal), dest))
+        out["poolSize"], out["dest"] = len(legal), tuple(dest)
 
         # (a) PORT -- le pas decoupe : Operation puis vecteur after-move. C'est la seule fenetre ou
         #     un `*_Moving` pose par T4 serait visible (son propre trigger le retire au vecteur).
@@ -381,6 +387,7 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         end = sorted(int(x.effect_type) for x in (st_split.effects.by_unit.get(int(uid)) or [])
                      if not x.consumed)
         print("  [E-MOVING] port : PENDANT le pas=%r  APRES le vecteur after-move=%r" % (mid, end))
+        out["moveMid"], out["moveEnd"] = mid, end
         if TELEPORTING_IN not in mid:
             fails.append("E-MOVING : 1140 deja retire PENDANT le pas -- T1 fire trop tot")
         if any(e not in (TELEPORTING_IN,) for e in mid if e in (1036, 1241, 1574)):
@@ -419,8 +426,15 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         if moving_hits:
             fails.append("CONFRONT-MOVE : la cascade NATIVE porte un `*_Moving` (%r) -- la branche "
                          "`Nothing()` de T4 serait FAUSSE" % (moving_hits,))
+        out["portMove"], out["nativeMove"] = p_move, n_move
+        out["cascadeCount"], out["movingHits"] = len(evs), moving_hits
+        out["refreshLines"] = [ln.strip() for ln in refresh_hits]
+        out["moveMutated"] = bool((act.get("actions") or [{}])[0].get("mutated"))
         if not act.get("ok"):
             fails.append("CONFRONT-MOVE : `applyAction move` REFUSE (montage) : %r" % (act,))
+        if not out["moveMutated"]:
+            fails.append("CONFRONT-MOVE : le move live n'a RIEN mute (H55, no-op silencieux) -- "
+                         "montage, pas mesure : %r" % (act,))
         if n_move["pos"] != tuple(dest):
             # `...StormboyzStrike_MissAbility` (NON PORTEE, residu case-448-r1) : 20 % de chance de
             # `OverrideUnitMovementTarget(Owner, PickRandomly(CanAddUnit(AdjacentTiles(<dest>)),1))`.
@@ -429,6 +443,7 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
             import hexgeo
             d = (None if n_move["pos"] is None
                  else hexgeo.distance(tuple(n_move["pos"]), tuple(dest)))
+            out["missDistance"] = d
             print("  [CONFRONT-MOVE] /!\\ natif en %r au lieu de %r (distance=%r) -- signature du "
                   "`_MissAbility` (20 %%, NON PORTE). Les autres termes restent compares."
                   % (n_move["pos"], tuple(dest), d))
@@ -440,6 +455,7 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
             cmp_terms("CONFRONT-MOVE", p_move, n_move, fails, keys=("alive", "effects",
                                                                     "untargetable"))
         else:
+            out["missDistance"] = 0
             cmp_terms("CONFRONT-MOVE", p_move, n_move, fails)
         if any(r[0] == TELEPORTING_IN for r in n_move["effects"]):
             fails.append("CONFRONT-MOVE : le NATIF garde 1140 apres le pas -- la mesure ne "
@@ -472,6 +488,7 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         FinishUnitTurnOperation.execute(st_port, int(uid))
         p_a = terms(st_port, uid)
         print("  [FINISH-a] port (T3 seul, hors plateau) = %s" % json.dumps(p_a))
+        out["finishBefore"], out["finishPortA"] = before, p_a
         if not any(r[0] == TELEPORTING_IN for r in p_a["effects"]):
             fails.append("FINISH-a : le port a RETIRE 1140 sur une unite HORS PLATEAU -- le gate "
                          "`HasTile(Owner)` de T3 est perdu (degradation PERMISSIVE)")
@@ -484,6 +501,7 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         repair_owner(st_nat, uid, team, player)
         n_fin = terms(st_nat, uid)
         print("  [FINISH-b] natif = %s" % json.dumps(n_fin))
+        out["finishNative"] = n_fin
         if n_fin["pos"] is None:
             fails.append("FINISH-b : le natif a LAISSE l'unite hors plateau -- le Fallback n'a pas "
                          "fire, l'etage (c) n'a pas de sortie a injecter")
@@ -502,10 +520,24 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
             p_c = terms(st_port, uid)
             print("  [FINISH-c] port apres injection du Fallback + On(0x%x) = %s"
                   % (int(EventTriggerType.UnitFinishedTurn), json.dumps(p_c)))
+            out["finishPortC"] = p_c
             cmp_terms("FINISH-c", p_c, n_fin, fails)
     finally:
         rpc(sid, "disposeRunner", {"runnerId": rid}, 45)
         sf.unlink(missing_ok=True)
+    return out
+
+
+#: Le sous-ensemble du PLAN que la GARDE pytest rejoue : les DEUX montages (base WALK et base FLY).
+#: 6 runners au total -- un TEMOIN, un pour le MOUVEMENT et un pour le FINISH, par montage.
+TEST_PLAN = list(PLAN)
+
+
+def run(board_id: str, seed: int, graft: str, foes) -> dict:
+    """UN montage complet, runners disposes en sortie. Porte d'entree des tests -- ils ne
+    re-derivent RIEN, le montage est la source unique. `out["fails"]` porte les desaccords."""
+    sid = _resolve_session()
+    return run_montage(sid, board_id, int(seed), graft, list(foes), [])
 
 
 def main() -> int:
