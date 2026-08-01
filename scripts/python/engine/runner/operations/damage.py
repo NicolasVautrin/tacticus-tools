@@ -1067,7 +1067,10 @@ class DamageHandler:
                 self.state, msg.attacker_id, self.last.get("target", msg.target_id),
                 bool(self.last.get("ranged")), self.last.get("profile"),
                 is_crit=bool(self.last.get("did_crit")), profiles=_profs,
-                did_block=bool(self.last.get("did_block")))
+                did_block=bool(self.last.get("did_block")),
+                # #432 `HealthDamageFromEvent()` : `r["total"]` EST la part SANTE seule (le bouclier
+                # est defalque par `_deplete_shield` avant l'agregation, cf. `damage_ops/normal.py`).
+                health_damage=int(self.last.get("total") or 0))
         # #139 : l'attaque normale native EST une ActiveAbility (NormalAttack per-unite ; AttackUnitMessage
         # n'existe pas en natif — c'est la simplification port de l'ActiveAbilityMessage) et traverse la
         # MEME queue `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution — base `SetsEndTurnFlags`/

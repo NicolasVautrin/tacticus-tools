@@ -140,6 +140,20 @@ RAIL: dict[str, tuple[str, str]] = {
         (TARGETS, "IdunBattle.Entities.Effects.CounterAttackEffect$$CreateTargetTrigger"),
     "HarlequinsPanoplyIgnoreHitsRemove":
         (TARGETS, "IdunBattle.Entities.Effects.Loki.HarlequinsPanoply_IgnoreHitsEffect$$CreateTargetTrigger"),
+    # #432 -- 1147 TerminatorArmour_ReduceDmg. La CONSOMMATION vient de `CreateTargetTrigger` (rail
+    # TARGETS -> gate `IsActive` natif -> DOIT lire le flag) ; les TROIS autres viennent de
+    # l'`ArraySet` (`PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal` pour la fenetre de tour,
+    # `TerminatorArmour_ReduceDmg_Effect$$CreateHandleTriggerAbilitiesInternal` pour le `On(0x3e)`)
+    # -> rail ARRAYSET, AUCUN gate natif, donc ils ne doivent PAS le lire (c'est ce rail qui
+    # RE-ACTIVE l'armure eteinte).
+    "TerminatorArmourDeactivateOnAttack":
+        (TARGETS, "IdunBattle.Entities.Effects.Loki.TerminatorArmour_ReduceDmg_Effect$$CreateTargetTrigger"),
+    "TerminatorArmourActivateOnTurnStart":
+        (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TerminatorArmourDeactivateOnTurnEnd":
+        (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TerminatorArmourActivateOnEffectAdded":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.TerminatorArmour_ReduceDmg_Effect$$CreateHandleTriggerAbilitiesInternal"),
     # 1098 : la classe n'a AUCUNE methode a son nom (corps dedupliques). Rail tranche par deux
     # lectures independantes, cf. le module `loki/ramming_speed.py` -- `BaseEffect$$
     # CreateHandleTriggerAbilities` teste `if (trigger != 0)` sur le slot `+0x5a8` alors que

@@ -29,7 +29,8 @@ class TriggerEvent:
     aussi pour rester compatibles avec le dispatch générique)."""
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
                  "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles",
-                 "triggering_effect", "is_first_hit", "triggering_ability", "dest_tile")
+                 "triggering_effect", "is_first_hit", "triggering_ability", "dest_tile",
+                 "health_damage", "was_block")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
@@ -39,7 +40,8 @@ class TriggerEvent:
                  triggering_effect: Optional[int] = None,
                  is_first_hit: Optional[bool] = None,
                  triggering_ability: Optional[int] = None,
-                 dest_tile=None):
+                 dest_tile=None,
+                 health_damage: Optional[int] = None, was_block: Optional[bool] = None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -142,6 +144,21 @@ class TriggerEvent:
         # le lit doit DIRE ce qu'il fait de l'absence, jamais la confondre avec « les tuiles sont
         # egales ».
         self.dest_tile = dest_tile
+        # `IdunBattleLogic.Entities.DSLFormulas$$HealthDamageFromEvent` — la part SANTE du degat de
+        # l'evenement (ce que les PV ont REELLEMENT perdu, bouclier deduit). Le port la threade sur le
+        # vecteur de CLOTURE `On(9 = Attack)` uniquement, ou elle vaut `AttackDamageOperation.execute`
+        # -> `r["total"]` (les operations de degat du port defalquent deja le bouclier : cf. le
+        # commentaire « total = part SANTE seule » de `damage_ops/normal.py`). None = ce vecteur ne
+        # porte pas de degat -> un gate `AmountIsGreaterThanZero(HealthDamageFromEvent())` est FAUX,
+        # jamais « inconnu = vrai ».
+        self.health_damage = health_damage
+        # `IdunBattleLogic.Entities.DSLTriggers$$WasBlock` — l'attaque a-t-elle ete BLOQUEE ? Meme
+        # canal que le `did_block` deja passe a `unit_blocked_triggers` (`On(0x3c)`), threade ici sur
+        # le vecteur de cloture parce que la disjonction native
+        # `AmountIsGreaterThanZero(HealthDamageFromEvent()) | WasBlock()` de
+        # `TerminatorArmour_ReduceDmg_Effect$$CreateTargetTrigger` en a besoin : un coup ENTIEREMENT
+        # bloque (0 PV perdu) consomme quand meme l'armure. None = non threade -> FAUX.
+        self.was_block = was_block
 
 
 class TriggeredAbility:
