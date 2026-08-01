@@ -95,12 +95,13 @@ def _duel(args):
                           errors="replace", check=False)
 
 
-def build(seed_value: str, board_id: str) -> int:
+def build(seed_value: str, board_id: str, extra=()) -> int:
     LOGS.mkdir(parents=True, exist_ok=True)
     if STATE.exists():
         STATE.unlink()
     p = _duel(["build", "--seed", seed_value, "--board", board_id, "--rank", "17", "--no-ai",
-               "--p-units", P_UNITS, "--a-units", A_UNITS, "--state-file", str(STATE)])
+               "--p-units", P_UNITS, "--a-units", A_UNITS, "--state-file", str(STATE)]
+              + list(extra))
     if not STATE.exists():
         raise SystemExit("build KO (MONTAGE, pas une mesure): "
                          + (p.stderr or p.stdout or "")[-800:])
@@ -108,8 +109,14 @@ def build(seed_value: str, board_id: str) -> int:
 
 
 def capture(rid) -> dict:
-    return {"dec": rpc("decisionView", {"runnerId": rid, "allAbilities": True,
-                                        "includeInactive": True}, 90),
+    """⚠ `decisionView` SANS `includeInactive` -- le MEME canal que `test_deep_strike_live.py` et que
+    la conftest. Avec `includeInactive: True` la capture ramene les owner-effects passifs DEJA
+    presents mais inactifs (ici les deux `PathOfCommand_*` de l'autarch en teleport-in), et
+    `_seed_ability_owner_effects` n'ajoute alors plus rien a l'atterrissage -> le
+    `refresh_aura_stat_modifiers` conditionne a `added` ne tourne pas et l'aura reste inerte cote
+    port. Asymetrie de CANAL connue, hors perimetre de cette tranche : on capture comme le reste du
+    harnais, et on le DIT."""
+    return {"dec": rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 90),
             "ob": rpc("observeBattle", {"runnerId": rid}, 40),
             "snap": rpc("combatSnapshot", {"runnerId": rid}, 60),
             "tm": rpc("tileMeta", {"runnerId": rid}, 60),
@@ -139,14 +146,38 @@ def unit_view(st, uid: int) -> dict:
 
 
 def attack_of(st, uid: int):
-    """L'Attack COURANTE de l'unite dans l'etat porte -- le canal par lequel l'aura
-    `PathOfCommand_ExtraDmg` du porteur qui vient d'atterrir devient NUMERIQUE chez son allie."""
+    """L'Attack MATERIALISEE de l'unite dans l'etat porte. Cote NATIF (etat RECHARGE) elle porte deja
+    la contribution de l'aura ; cote PORT elle ne la porte PAS -- l'aura `PathOfCommand_ExtraDmg` est
+    lue par le port a la QUERY (`aura_attack_bonus_from_allies`), pas materialisee dans le
+    `UnitStats` (`refresh_aura_stat_modifiers` ne couvre que les effets qui DECLARENT l'interface
+    `aura_stat_modification_*`, ce que PathOfCommand ne fait pas). Ce canal sert donc a mesurer le
+    DELTA NATIF ; la comparaison numerique se fait contre `aura_bonus` ci-dessous."""
     from engine.runner.components import StatsComponent
     from engine.entities.stats import StatType
     e = st.get_entity(int(uid))
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None) if sc is not None else None
     return None if ctx is None else ctx.stat(StatType.ATTACK)
+
+
+def aura_bonus(st, att_id: int) -> int:
+    """Le bonus d'Attack que le port accorde a `att_id` via les auras de ses allies -- MEME canal que
+    `tests/engine/runner/test_deep_strike_live.py` (`aura_attack_bonus_from_allies`). Zero tant que
+    le porteur est en teleport-in : `entities/effects/aura_selectors.py` exclut explicitement un
+    carrier portant `TeleportStrike_TeleportingIn`."""
+    import gameconfig as GC
+    from engine.playbook.scene import Scene
+    from engine.entities.effects import aura_attack_bonus_from_allies
+    scene = Scene.from_state(st)
+    agu = GC.unit(scene.vis_by_id.get(att_id)) or {}
+    ctx = {"att_id": att_id, "att_pos": scene.pos(att_id), "att_team": scene.team(att_id),
+           "att_grand_alliance": agu.get("GrandAllianceId"), "att_faction": agu.get("FactionId"),
+           "board": scene.board}
+    carriers = [(uid, scene.pos(uid), scene.team(uid), scene.mult(uid), scene.ablvl_by_id.get(uid),
+                 (GC.unit(scene.vis_by_id.get(uid)) or {}).get("GrandAllianceId"),
+                 (GC.unit(scene.vis_by_id.get(uid)) or {}).get("FactionId"), scene.effects(uid))
+                for uid in scene.pos_by_id if uid != att_id and (scene.hp(uid) or 0) > 0]
+    return aura_attack_bonus_from_allies(carriers, ctx)
 
 
 def find_vid(st, sub: str):
@@ -196,12 +227,12 @@ def _confront(label, rid, uid, ally, replay, fails) -> dict:
     before_ally_att = attack_of(st, ally)
     replay(st)
     port = unit_view(st, uid)
-    port_ally = {"effects": unit_view(st, ally)["effects"], "attack": attack_of(st, ally)}
+    port_ally = {"effects": unit_view(st, ally)["effects"], "aura": aura_bonus(st, ally)}
     return {"label": label, "before": before, "before_ally_attack": before_ally_att,
             "port": port, "port_ally": port_ally, "st": st, "fails": fails}
 
 
-def _finish_confront(res, rid, uid, ally, fails) -> None:
+def _finish_confront(res, rid, uid, ally, fails) -> dict:
     st2, _b2 = offline_state(capture(rid))
     native = unit_view(st2, uid)
     native_ally = {"effects": unit_view(st2, ally)["effects"], "attack": attack_of(st2, ally)}
@@ -209,15 +240,15 @@ def _finish_confront(res, rid, uid, ally, fails) -> None:
     for k in ("pos", "alive", "effects", "untargetable"):
         if res["port"][k] != native[k]:
             fails.append("%s %s : port=%r != natif=%r" % (lbl, k, res["port"][k], native[k]))
-    for k in ("effects", "attack"):
-        if res["port_ally"][k] != native_ally[k]:
-            fails.append("%s allie.%s : port=%r != natif=%r"
-                         % (lbl, k, res["port_ally"][k], native_ally[k]))
+    if res["port_ally"]["effects"] != native_ally["effects"]:
+        fails.append("%s allie.effects : port=%r != natif=%r"
+                     % (lbl, res["port_ally"]["effects"], native_ally["effects"]))
     if "TeleportStrike_TeleportingIn" in native["effects"]:
         fails.append("%s : le natif GARDE 1035 apres le geste -- la mesure ne discrimine RIEN" % lbl)
     print("[%s] avant  = %r  (allie Attack=%r)" % (lbl, res["before"], res["before_ally_attack"]))
     print("[%s] port   = %r  allie=%r" % (lbl, res["port"], res["port_ally"]))
     print("[%s] natif  = %r  allie=%r" % (lbl, native, native_ally))
+    return native_ally
 
 
 def confront_move(rid, uid, ally, dest, fails) -> None:
@@ -233,15 +264,21 @@ def confront_move(rid, uid, ally, dest, fails) -> None:
     if r.returncode != 0:
         raise SystemExit("CONFRONT-MOVE : move live REFUSE (montage): %s"
                          % (r.stdout or r.stderr)[-800:])
-    _finish_confront(res, rid, uid, ally, fails)
-    if PATH_OF_COMMAND not in res["port_ally"]["effects"]:
-        fails.append("CONFRONT-MOVE : l'allie n'a PAS recu %s cote port apres l'atterrissage"
+    native_ally = _finish_confront(res, rid, uid, ally, fails)
+    if PATH_OF_COMMAND not in res["port"]["effects"]:
+        fails.append("CONFRONT-MOVE : le porteur n'a PAS repris %s cote port apres l'atterrissage"
                      % PATH_OF_COMMAND)
-    d = ((res["port_ally"]["attack"] or 0) - (res["before_ally_attack"] or 0))
-    if d <= 0:
-        fails.append("CONFRONT-MOVE : delta Attack de l'allie = %r (<=0) -- l'aura n'a pas mordu, "
-                     "la mesure n'est pas discriminante" % d)
-    print("[CONFRONT-MOVE] delta Attack de l'allie = %r (aura PathOfCommand a l'atterrissage)" % d)
+    # LE CHIFFRE : le bonus d'aura que le port accorde a l'allie APRES l'atterrissage, contre le
+    # DELTA d'Attack que le natif lui a reellement donne en travers du MEME pas.
+    live_delta = ((native_ally["attack"] or 0) - (res["before_ally_attack"] or 0))
+    port_aura = res["port_ally"]["aura"]
+    print("[CONFRONT-MOVE] aura port = %r   delta Attack natif = %r" % (port_aura, live_delta))
+    if live_delta <= 0:
+        fails.append("CONFRONT-MOVE : delta Attack natif = %r (<=0) -- l'aura n'a pas mordu LIVE, "
+                     "la mesure n'est pas discriminante" % live_delta)
+    elif port_aura != live_delta:
+        fails.append("CONFRONT-MOVE : aura port %r != delta Attack natif %r"
+                     % (port_aura, live_delta))
 
 
 def confront_ability(rid, uid, ally, target, ability, fails) -> None:
@@ -287,7 +324,7 @@ def e_moving(rid, uid, dest, fails) -> None:
     `TeleportMovingEffect` le retire au `On(UnitAfterMove)` du MEME pas. On l'observe des deux
     cotes : cote PORT en decoupant le pas (Operation puis vecteur after-move), cote NATIF dans la
     cascade d'events du `applyAction`."""
-    from engine.runner.event_bus import EventBus
+    from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
     from engine.runner.operations.triggers import after_move_triggers
 
@@ -328,16 +365,20 @@ def run_couple(board_id, seed_value, fails) -> None:
         if PATH_OF_COMMAND in unit_view(st, ally)["effects"]:
             fails.append("E1 : l'allie a DEJA %s avant l'atterrissage" % PATH_OF_COMMAND)
 
-        # une destination LIBRE et distincte -- pool board-wide, donc n'importe quelle tuile vide
-        occupied = {unit_view(st, u)["pos"] for u in st.entities}
-        dest = None
-        for tid in sorted(board.by_id):
-            c = board.coord(int(tid))
-            if c not in occupied:
-                dest = c
-                break
+        # DESTINATION CHOISIE, pas subie : une tuile **adjacente a l'allie** ET dans le pool
+        # LEGAL du natif (`aiMovableTiles` -- le pool est board-wide sous 1035, mais toutes les
+        # tuiles ne sont pas jouables : un `applyAction move` hors pool est un NO-OP SILENCIEUX,
+        # H55). C'est ce qui rend l'atterrissage NUMERIQUE : l'aura `PathOfCommand` doit avoir une
+        # cible en portee, sinon les deux cotes rendent 0 -- accord PARFAIT et entierement VIDE.
+        mv = (rpc("aiMovableTiles", {"runnerId": rid}, 60) or {}).get("units") or []
+        legal = {(t.get("col"), t.get("row")) for u in mv if u.get("unitId") == autarch
+                 for t in (u.get("tiles") or [])}
+        apos = unit_view(st, ally)["pos"]
+        dest = next((board.coord(t) for t in board.neighbours(board.id_at(apos[0], apos[1]))
+                     if board.coord(t) in legal), None)
         if dest is None:
-            raise SystemExit("MONTAGE : aucune tuile libre")
+            raise SystemExit("MONTAGE : aucune tuile LEGALE adjacente a l'allie (pool=%d)"
+                             % len(legal))
 
         e_moving(rid, autarch, dest, fails)
         confront_move(rid, autarch, ally, dest, fails)
@@ -346,8 +387,12 @@ def run_couple(board_id, seed_value, fails) -> None:
 
     # deuxieme runner : T2 -- un cast SANS deplacement prealable du caster. On amene un ENNEMI au
     # contact (`applyAction` ne verifie pas la propriete du `unitId`, cf. runner.md §4) pour que
-    # l'attaque normale de l'autarch soit legale DEPUIS SA TUILE.
-    rid = build(seed_value, board_id)
+    # l'attaque normale de l'autarch soit legale DEPUIS SA TUILE. `--unit-stat Movement=20` sur les
+    # trois a-units : sans lui l'ennemi n'atteint pas l'autarch en UN pas sur un board large (C3_26),
+    # et le `applyAction move` hors portee est un NO-OP SILENCIEUX -> le cast d'apres ne mordrait
+    # pas et la mesure serait VIDE en se lisant comme un desaccord.
+    rid = build(seed_value, board_id,
+                extra=["--unit-stat", ";".join("%s:Movement=20" % v for v in A_UNITS.split(","))])
     try:
         cap = capture(rid)
         st, brd = offline_state(cap)
@@ -358,26 +403,39 @@ def run_couple(board_id, seed_value, fails) -> None:
         foe = next((int(u) for u, e in st.entities.items()
                     if (e.get_component(OwnerComponent) or None) is not None
                     and e.get_component(OwnerComponent).team != mine), None)
-        pos = unit_view(st, autarch)["pos"]
-        taken = {unit_view(st, u)["pos"] for u in st.entities}
-        free = [brd.coord(t) for t in brd.neighbours(brd.id_at(pos[0], pos[1]))
-                if brd.coord(t) not in taken]
-        if foe is None or not free:
-            raise SystemExit("MONTAGE : pas d'ennemi / pas de tuile libre adjacente a l'autarch")
-        r = _duel(["act", "move", "--unit", str(foe), "--to", "%d,%d" % tuple(free[0]),
-                   "--state-file", str(STATE), "--runner", str(rid)])
-        if r.returncode != 0:
-            raise SystemExit("MONTAGE : impossible d'amener un ennemi au contact : %s"
-                             % (r.stdout or r.stderr)[-400:])
+        # `NormalAttackType` est PER-UNITE (l'id 69 n'est pas universel, cf. `_normal_ability_map`).
         norm = None
         for u in (capture(rid)["dec"].get("units") or []):
             if u.get("id") == autarch:
                 for a in (u.get("abilities") or []):
-                    if a.get("kind") == "normal" or a.get("isNormalAttack"):
-                        norm = a.get("type") or a.get("abilityType")
-        if norm is None:
-            raise SystemExit("MONTAGE : attaque normale de l'autarch introuvable")
-        confront_ability(rid, autarch, ally, foe, norm, fails)
+                    if a.get("kind") == "normal":
+                        norm = a.get("id")
+        if norm is None or foe is None:
+            raise SystemExit("MONTAGE : attaque normale de l'autarch / ennemi introuvable")
+        pos = unit_view(st, autarch)["pos"]
+        taken = {unit_view(st, u)["pos"] for u in st.entities}
+        free = [brd.coord(t) for t in brd.neighbours(brd.id_at(pos[0], pos[1]))
+                if brd.coord(t) not in taken and brd.walkable(t)]
+        # ⚠ On EXIGE que la cible soit dans `fromHere` (castable SANS bouger) : un cast hors portee
+        # est accepte par la CLI et ne mute RIEN cote natif -- le port, lui, executerait. Sans ce
+        # controle un montage rate se lit comme un desaccord de PORT. Et un `applyAction move` hors
+        # pool est lui aussi un NO-OP SILENCIEUX (H55) -> on ESSAIE les tuiles adjacentes libres une
+        # par une jusqu'a ce que le natif reconnaisse une cible.
+        here = []
+        for cand in free:
+            _duel(["act", "move", "--unit", str(foe), "--to", "%d,%d" % tuple(cand),
+                   "--state-file", str(STATE), "--runner", str(rid)])
+            tg = rpc("abilityTargets", {"runnerId": rid, "unitId": autarch,
+                                        "abilityType": norm}, 60) or {}
+            here = [t.get("targetId") for u in (tg.get("units") or [])
+                    for a in (u.get("abilities") or []) if a.get("abilityId") == norm
+                    for t in (a.get("fromHere") or [])]
+            if here:
+                break
+        if not here:
+            raise SystemExit("MONTAGE : AUCUNE cible de l'autarch SANS bouger apres %d tentatives "
+                             "d'approche (norm=%r)" % (len(free), norm))
+        confront_ability(rid, autarch, ally, int(here[0]), norm, fails)
     finally:
         _duel(["dispose", "--state-file", str(STATE)])
 
@@ -398,13 +456,34 @@ def main() -> int:
     if "--offline" in sys.argv:
         print("OK (inventaire seul)")
         return 0
+    # CONTRE-EPREUVE (`--mutate no-triggers`) : on VIDE les deux entrees du registre -- c'est-a-dire
+    # exactement le port d'AVANT #448-r2 sur le chemin MOUVEMENT/CAST. Le probe DOIT alors rougir ;
+    # s'il reste vert, c'est qu'il ne mesure rien (VERT est le resultat SUSPECT sur une
+    # contre-epreuve).
+    mutated = "--mutate" in sys.argv
+    if mutated:
+        from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
+        EFFECT_TRIGGERS[TELEPORTING_IN] = []
+        EFFECT_TRIGGERS[MOVING] = []
+        print("[MUTATE] EFFECT_TRIGGERS[%d] et [%d] VIDES -- le probe DOIT rougir"
+              % (TELEPORTING_IN, MOVING))
     for board_id, seed_value in COUPLES:
-        run_couple(board_id, seed_value, fails)
+        try:
+            run_couple(board_id, seed_value, fails)
+        except SystemExit as e:
+            if not mutated:
+                raise
+            fails.append("MUTATE : %s" % e)
+        if mutated:
+            break                       # un seul couple suffit a la contre-epreuve
     print()
     if fails:
         print("=== %d ECHEC(S) ===" % len(fails))
         for f in fails:
             print("  - " + f)
+        return 0 if mutated else 1
+    if mutated:
+        print("=== CONTRE-EPREUVE VERTE = LE PROBE NE MESURE RIEN ===")
         return 1
     print("=== OK -- les 4 triggers d'ATeleportingEffect + TeleportMovingEffect confrontes ===")
     return 0
