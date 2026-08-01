@@ -197,6 +197,19 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
     "FearOfTheUnseenMovingRemoveOnAfterMove":
         (ARRAYSET, "IdunBattleLogic.Effects.TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #448-r2d -- la QUATRIEME derivee (`1573`) et son `*_Moving` (`1574`). MEME `ArraySet`, MEME
+    # rail : la specialisation ne porte que sur deux vslots (`GetMovingEffectType` = Nullable(0x626)
+    # et `GetCustomMovingEffectCondition`), pas sur la provenance des triggers.
+    "TitanhammerSquadTeleportingInRemoveOnAfterMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TitanhammerSquadTeleportingInRemoveOnPreUnitAbility":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TitanhammerSquadTeleportingInRemoveOnUnitFinishedTurn":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TitanhammerSquadTeleportingInAddMovingOnPreMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TitanhammerSquadMovingRemoveOnAfterMove":
+        (ARRAYSET, "IdunBattleLogic.Effects.TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal"),
 }
 
 # Classes du rail ARRAYSET qui lisent QUAND MEME le flag -- non par gate d'evaluation, mais
