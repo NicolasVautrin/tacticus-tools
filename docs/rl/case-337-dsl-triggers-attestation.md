@@ -293,19 +293,61 @@ suit vaut donc contre l'artefact, plus contre une prose recopiee.
   introduction. C'est le mode d'echec EXECUTION de #427 : << etre un test >> et << etre joue >> sont
   independants, la suite complete etant proscrite par le CLAUDE.md.
 
-**Parade LOCALE proposee, NON livree ici** (le brief de #433 demandait de la proposer, pas de la
-livrer) : ajouter `test_337` a `scripts/ratchets.ps1`. Depuis #430 c'est **UNE entree versionnee**,
-et le format pytest y existe deja (`pytest_signatures`) :
-
-```powershell
-    @{ Id = 'pytest_dsl_attestations'
-       Argv = @('-m', 'pytest', 'tests/test_337_dsl_triggers_attestation_offline.py', '-q')
-       Seul = 'une primitive DSLTriggers que le port se met a CITER sans etre attribuable -- une PR verte a SA base la fait basculer NON_PORTE -> CITE_A_QUALIFIER et le rouge ne tombe que chez le suivant'
-       Doc  = 'docs/rl/case-337-dsl-triggers-attestation.md' }
-```
+**Parade LOCALE proposee ici, LIVREE par #435** (le brief de #433 demandait de la proposer, pas de
+la livrer) : ajouter `test_337` a `scripts/ratchets.ps1` -- UNE entree versionnee, le format pytest
+y existant deja (`pytest_signatures`). L'entree elle-meme n'est PAS recopiee ici : la banque est la
+source unique (`case-430` §6). Voir §#435 ci-dessous.
 
 Il y est eligible sans reserve : **OFFLINE PUR** (aucun runner, aucun RPC -- il re-derive son
 inventaire natif de `data/symbols/<CURRENT>/`, versionne) et **~15-23 s** mesurees, soit un ordre de
 grandeur sous le mur de la banque. C'est la seule chose qui manque pour que la regle << un port qui
 CITE une primitive DSL neuve pose son attestation DANS LE MEME COMMIT >> ait un porteur mecanique,
 exactement comme `probe_181` / `probe_120` le sont pour `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE`.
+
+## #435 -- l'entree est posee, et elle a rougi AUSSITOT sur `WasBlock` (2026-08-01)
+
+`pytest_attestations` entre dans `scripts/ratchets.ps1` (**20 -> 21** entrees ; les 19 relevees par
+#433 avaient deja bouge). Le constat de #433 a ete re-verifie avant d'agir, pas suppose :
+`-List` = 20, aucune ne portait `test_337` ; et le `main` de `probe_326_dsl_port_matching.py` finit
+par un `return 0` **inconditionnel** -- il INVENTORIE les verdicts, il n'en rougit d'aucun.
+
+**Le premier passage a rougi sur l'arbre NON MUTE** -- ce n'est pas une contre-epreuve, c'est une
+6e bascule : `BANQUE ROUGE -- 1/21 : pytest_attestations`, cause en clair
+`primitives DSLTriggers encore non tranchees : ['WasBlock']`. Ouverture datee par `git log -S` :
+`5e9765cd` (#432, PR #475) a introduit la citation `WasBlock` dans `engine/` sans porteur homonyme.
+**C'est la premiere de ces bascules vue par un ARTEFACT et non par un humain** (#393 : orchestrateur ;
+#418-r1 : constatee puis laissee ; #433 : orchestrateur, deux merges apres).
+
+### `WasBlock` : le predicat le plus court de la famille
+
+    DSLTriggers$$WasBlock            = new WasBlockTrigger()      # ctor a UN argument nul, AUCUN selecteur
+    WasBlockTrigger$$ShouldTrigger   = return *(byte *)(entities + 0xfa)
+
+Une lecture DIRECTE d'un flag booleen de `AbilityEntities`, sans formule intermediaire -- a
+contraster avec `HasBlockedThisTurn(unit)` (#393), qui prend un selecteur et passe par
+`DSLFormulas$$TimesBlockedThisTurn`. Port : le `bool(ev.was_block)` du gate (d) de
+`TerminatorArmourDeactivateOnAttack.matches`, seconde branche de la disjonction
+`AmountIsGreaterThanZero(HealthDamageFromEvent()) | WasBlock()` de
+`TerminatorArmour_ReduceDmg_Effect$$CreateTargetTrigger` ; `TriggerEvent.was_block` EST le mirror de
+`AbilityEntities+0xfa`, threade par `triggers/dispatch/attack.py` sur les deux voies de cloture.
+=> **`PORTE_HORS_FACADE`**. Le SECOND consommateur natif, `DeathwingAbility$$CreateTrigger`, n'est
+**pas** porte (`abilities/darkangels.py` le declare no-op) : dit dans la note d'attestation, sans
+changer le verdict de la PRIMITIVE. **6e bascule `NON_PORTE` -> `CITE_A_QUALIFIER` -> `PORTE_*`,
+taux 6/6.**
+
+### Ce que la contre-epreuve a etabli
+
+Deux mutations, chacune en **run COMPLET** (jamais `-Only` : le point est qu'un rouge ne soit pas
+avale au milieu de 21), jouees dans un **clone temporaire** du depot -- le TSV versionne n'a jamais
+ete touche. Mutation verifiee par **sha256 + relecture AVANT** de lire le verdict (sur une
+contre-epreuve, VERT est le resultat suspect) :
+
+| Mutant (dans le clone) | Face visee | Resultat |
+|---|---|---|
+| ligne d'attestation `WasBlock` retiree | primitive retombee `CITE_A_QUALIFIER` | `rc 1`, cliquet nomme, 1 test |
+| ancre `final_justice.py:FinalJusticeAbility` deplacee | attestation devenue MORTE | `rc 1`, cliquet nomme, 2 tests, `ancre ... introuvable` |
+
+Arbre bit-exact apres coup (sha256 du TSV identique a l'etat pre-epreuve, `git diff` vide), banque
+re-jouee **verte 21/21** -- y compris APRES rebase sur le `probe_283` reecrit par #434 : mur
+**86,2 s** dont **32,4 s** pour cette entree, cout marginal nul. ⚠ Chiffres a re-deriver, pas a
+citer.
