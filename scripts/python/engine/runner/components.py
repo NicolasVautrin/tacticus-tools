@@ -1611,6 +1611,57 @@ def contagions_of_nurgle_amount(state, unit_id: int, source_id) -> Optional[int]
         lambda u: u.get("_turns_started"), return_first=False)
 
 
+_STRUCTURAL_ANALYSER_TAU = "Tau"          # UnitFaction.Tau = 9 (`UnitsFromFaction(..., 9)`)
+
+
+def structural_analyser_friends(state, unit_id: int) -> Optional[int]:
+    """`Unique( AdjacentFriends(Owner) + UnitsFromFaction(SurroundingFriends(Owner, Direct(2)), 9) )`
+    -- le CARDINAL du selecteur natif
+    `IdunBattle.Entities.Effects.Loki.StructuralAnalyserAdjacentEffect$$CreateTargetSelector`, que
+    `IdunBattleLogic.Entities.DSLTriggers$$AmountIsGreaterThanZero` compare a 0 dans
+    `IdunBattle.Entities.Effects.Loki.StructuralAnalyser_VisualEffect$$CreateActiveCondition`
+    (case-366-r1).
+
+    DEUX tiers, et le second est filtre par FACTION :
+      * `AdjacentFriends` : allie a distance 1, **toute faction** ;
+      * `UnitsFromFaction(SurroundingFriends(range = Direct(2)), Tau)` : allie T'au a distance <= 2.
+    Le PORTEUR n'y entre pas -- MESURE (case-366-r1) : Darkstrider seul, sans aucun allie proche,
+    a `StructuralAnalyser_Visual.active == false`. C'est le meme selecteur d'aura que
+    `DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector` (partage x4 : StructuralAnalyser /
+    SereneUnifier / DotGG / WayOfTheShortBlade, cf. `docs/rl/case-220/tau.md`), d'ou la meme forme
+    `d == 1 or (d <= 2 and faction == Tau)` que `aura_selector_covers`.
+
+    `None` si le porteur n'a ni equipe ni tuile (cle alors ABSENTE du `unit_state` => predicat
+    degrade en VRAI, cf. `StructuralAnalyserVisualEffect.is_active`) -- jamais un 0 invente."""
+    import hexgeo
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from ..ai.action_generators import _faction               # FactionId gameconfig par visualId
+    here = (pc.col, pc.row)
+    n = 0
+    for uid, e in state.entities.items():
+        if int(uid) == int(unit_id):                          # le porteur n'est pas son propre ami
+            continue
+        eoc = e.get_component(OwnerComponent)
+        if eoc is None or eoc.team != oc.team:                # Friends(owner, ...)
+            continue
+        euc = e.get_component(UnitComponent)
+        if euc is None or not euc.alive:                      # une unite morte quitte le plateau
+            continue
+        epc = e.get_component(PositionComponent)
+        if epc is None:
+            continue
+        d = hexgeo.distance(here, (epc.col, epc.row))
+        if d == 1:                                            # AdjacentFriends (toute faction)
+            n += 1
+        elif d <= 2 and _faction(euc.visual_id) == _STRUCTURAL_ANALYSER_TAU:
+            n += 1                                            # UnitsFromFaction(Surrounding(2), Tau)
+    return n
+
+
 class UnitEffectStateView(Mapping):
     """Le `unit_state` d'une unité — vue MAPPING PARESSEUSE sur l'ECS (`unit_state_for_effects`).
 
@@ -1651,12 +1702,17 @@ class UnitEffectStateView(Mapping):
         entrée, donc le cardinal dépend de l'INSTANCE d'effet qui l'interroge, pas seulement du
         porteur. Paresseux par construction (rien n'est calculé tant qu'aucune instance n'appelle),
         et présent dès que l'unité a une position.
+      * `structural_analyser_friends` — cardinal battlefield-wide, PARESSEUX (O(entités), cf.
+        `structural_analyser_friends`) : le sélecteur `AdjacentFriends + UnitsFromFaction(
+        SurroundingFriends(2), Tau)` que `AmountIsGreaterThanZero` compare à 0 dans
+        `IdunBattle.Entities.Effects.Loki.StructuralAnalyser_VisualEffect$$CreateActiveCondition`
+        (case-366-r1). La clé est présente dès que le porteur a une équipe ET une tuile.
 
     La paresse n'est pas une optimisation gratuite : `active_effects` est appelé dans des boucles
     par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
 
     __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
-                 "_has_effstate", "_lc", "_bta")
+                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -1695,6 +1751,10 @@ class UnitEffectStateView(Mapping):
         self._has_effstate = getattr(state, "effects", None) is not None
         self._lc: Optional[bool] = None
         self._bta: Optional[bool] = None
+        # `AdjacentFriends + UnitsFromFaction(SurroundingFriends(2), Tau)` : selecteur GEOMETRIQUE
+        # ET par equipe -> la cle n'existe que si le porteur a une tuile ET une equipe.
+        self._has_sa = (self._has_pos and oc is not None and oc.team is not None)
+        self._sa: Optional[int] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -1719,6 +1779,10 @@ class UnitEffectStateView(Mapping):
                 self._bta = is_target_of_adjacent_friend_aura(
                     self._state, self._uid, int(EffectType.BigTarget_AdjacentEffect))
             return self._bta
+        if key == "structural_analyser_friends" and self._has_sa:
+            if self._sa is None:
+                self._sa = structural_analyser_friends(self._state, self._uid)
+            return self._sa
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -1730,10 +1794,12 @@ class UnitEffectStateView(Mapping):
             yield "is_target_of_big_target_adjacent"
         if self._has_effstate:
             yield "has_effect_light_cover"
+        if self._has_sa:
+            yield "structural_analyser_friends"
 
     def __len__(self) -> int:
         return (len(self._eager) + (1 if self._has_psy else 0) + (2 if self._has_pos else 0)
-                + (1 if self._has_effstate else 0))
+                + (1 if self._has_effstate else 0) + (1 if self._has_sa else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)
         return "UnitEffectStateView(u%d, %s)" % (self._uid, sorted(self))
@@ -1746,9 +1812,10 @@ def unit_state_for_effects(state, unit_id: int) -> UnitEffectStateView:
     en silence (#208).
 
     LECTURE SEULE, et le périmètre est CLOS : `HealthComponent`, `StatsComponent.ctx.traits`,
-    `OwnerComponent`, `UnitComponent.alive`, `PositionComponent` (la clé-CALLABLE
-    `contagions_of_nurgle_amount`, dont le corps ne s'exécute que si une instance d'effet
-    l'appelle), et — depuis case-366-r1 — le `UnitFlagsComponent` en LECTURE SEULE via
+    `OwnerComponent`, `UnitComponent.alive`/`visual_id`, `PositionComponent` (les deux clés
+    PARESSEUSES `contagions_of_nurgle_amount` et `structural_analyser_friends`, dont le corps ne
+    s'exécute que si une instance d'effet les lit), et — depuis case-366-r1 — le
+    `UnitFlagsComponent` en LECTURE SEULE via
     `unit_has_moved` (clé `has_moved`, exigée par la `CreateActiveCondition`
     `NOT HasFlag(Owner, Moved)` d'`InescapableAccuracy_extraCritChance`). Cette vue n'ÉCRIT rien :
     le seed de flags de `load_state` (`snapshot._load_unit_flags`, case-o10) reste le seul

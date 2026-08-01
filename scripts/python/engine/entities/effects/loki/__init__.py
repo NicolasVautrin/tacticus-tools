@@ -34,6 +34,10 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
                           CalculateCriticalDamage), gate PARTAGE.
 - `until_of_end_turn.py` — `UntilOfEndTurnEffect` : LE marqueur a duree du natif (aucune contribution ;
                           sa seule semantique est `CreateRemoveEffectTrigger` = `On(TurnEnd)`).
+- `structural_analyser.py` — volet PORTEUR du passif de `tauDarkstrider` :
+                          `StructuralAnalyser_Visual` (1174), cible Owner, ZERO contribution,
+                          ACTIF tant qu'un allie est adjacent (toute faction) ou T'au a <= 2 hexes
+                          (case-366-r1). SOEUR de `1156` (non porte), pas sa fille.
 - `crit_aura.py`        — auras stat-mod dont le `StatType` ecrit chez la cible est le CRIT
                           (`PathOfCommand_ExtraCrit` 1107, eldarAutarch). Meme interface
                           `aura_stat_modification_*` que le volet block de LionHelm."""
@@ -141,6 +145,7 @@ from .war_howl import WarHowlExtraDamageUnstoppableEffect
 from .inescapable_accuracy import (InescapableAccuracyExtraCritChanceEffect,
                                    InescapableAccuracyExtraCritDamageEffect)
 from .until_of_end_turn import UntilOfEndTurnEffect
+from .structural_analyser import StructuralAnalyserVisualEffect
 
 __all__ = [
     # dark_angels_passives (passifs LionHelm 1163 / FearedInterrogator 1235)
@@ -247,4 +252,7 @@ __all__ = [
     # until_of_end_turn (case-366-r1) -- LA classe de MARQUEUR a duree : zero contribution, sa seule
     # semantique est son `CreateRemoveEffectTrigger` = `On(TurnEnd)`. Porteur : 1175.
     "UntilOfEndTurnEffect",
+    # structural_analyser (case-366-r1) -- 1174, volet PORTEUR : zero contribution, sa seule
+    # semantique est sa `CreateActiveCondition` geometrique.
+    "StructuralAnalyserVisualEffect",
 ]
