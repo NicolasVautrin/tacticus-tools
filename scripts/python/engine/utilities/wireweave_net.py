@@ -45,6 +45,17 @@ s'applique AUSSI a une attaque a distance contre une Calandis armee — le nom d
 Le poids vient du `BattleConfiguration` (jamais code en dur) :
 `BC.Utilities.Default.WireweaveNet_FirstAttack.WIREWEAVENET_AdjacentActiveEffect` = **-30** sur le
 seed courant. C'est un MALUS : l'IA evite de frapper une Calandis dont le filet est arme.
+
+CONFRONTE LIVE (case-415-r1). Le terme n'entre PAS dans `pairUtility` : le natif le somme un etage
+plus haut, dans `CalculateActionUtility` (litteral `0x37` = 55), APRES
+`...$$CalculateUtilityFromPredictions` -- l'oracle de paire lui est donc structurellement aveugle,
+et le seul qui le voit est la DECISION (`aiDryRunAllUnits`). Montage : deux cibles au `pairUtility`
+natif EXACTEMENT egal (meme `utilRaw` Fix64), une seule portant un filet ARME, caster EPINGLE
+(`--unit-stat Movement=0`). Le natif retient la cible SANS filet ; filet retire, il retombe sur la
+porteuse (tie tranche par le rang cube). Le port rend les deux.
+⚠ La mesure a ete faite a distance **2** : c'est elle qui FALSIFIE la lecture « gate d'adjacence »
+du conjoint degenere -- au contact, les deux lectures predisent la meme chose.
+Probe `probe_415_r1_wireweave_decision.py`, garde `tests/engine/test_415_r1_wireweave_decision_live.py`.
 """
 from __future__ import annotations
 
@@ -85,7 +96,13 @@ def target_has_active_wireweave_net(ctx, target_uid) -> bool:
     (`GetOwnedEffects`) et « son flag `EffectComponent.IsActive @+0x5c` est pose » (`Any(e =>
     e.IsActive)`). ⚠ Surtout PAS `EffectsState.has_effect`, qui ignore le flag — un filet DESARME
     (Calandis a deja contre-attaque ce tour, ou c'est SON tour) rendrait alors le malus a tort.
-    `has_effect` est aussi ce que rend `decisionView` sous `includeInactive`, d'ou le piege."""
+    `has_effect` est aussi ce que rend `decisionView` sous `includeInactive`, d'ou le piege.
+
+    GARDE : etape `[10]` de `probe_366_r1b_wireweave_gates.py` -- le SEUL regime qui separe les deux
+    lectures (entite-effet PRESENTE mais ETEINTE apres le `& DeactivateEffect` de la riposte). Elle
+    a ete posee par case-415-r1 : l'etape `[9]` recoit le booleen tout fait, donc ce choix n'etait
+    garde par RIEN. Non atteignable sur la face DECISION live (`aiDryRunAllUnits` n'evalue que les
+    unites du joueur COURANT, mesure #415-r1)."""
     sc = getattr(ctx, "scene", None)               # meme acces que `utilities/tile.py` (face attack)
     if sc is None or target_uid is None or sc.eff_state is None:
         return False

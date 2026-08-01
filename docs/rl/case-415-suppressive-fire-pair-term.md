@@ -98,13 +98,14 @@ qui coûtait les 35 points, et il vaut pour les **49** porteurs du trait, pas se
 
 ## 6. Ce qui n'est PAS couvert
 
-* **`WireweaveNet_FirstAttack` (-30) reste NON TRANCHÉ.** Son case-doc (#366-r1b §8) écrit lui-même
-  que « la face DÉCISION n'est pas confrontée live ». Ce cas ne la confronte pas davantage : le terme
-  n'entre **pas** dans `pairUtility` (il est sommé plus haut, dans `CalculateActionUtility`), donc
-  l'oracle utilisé ici est structurellement aveugle à lui. Ce qui est acquis, c'est que la décision ne
-  dépend plus de lui sur ce montage. **Le montage qui trancherait** : deux cibles au `pairUtility`
-  natif ÉGAL (vérifié à l'oracle) dont **une seule** porte un filet 1111 armé — donc deux porteurs
-  d'overwatch, un seul `eldarRanger` ; si le natif évite la Calandis, le -30 mord. Non joué ici.
+* **`WireweaveNet_FirstAttack` (-30) est TRANCHÉ par `case-415-r1`** — hors de ce cas, et il fallait
+  un autre oracle : le terme n'entre **pas** dans `pairUtility` (il est sommé plus haut, dans
+  `CalculateActionUtility`, au littéral `0x37`), donc l'oracle utilisé ici lui est structurellement
+  aveugle. Le montage joué là-bas est celui décrit ici — deux cibles au `pairUtility` natif ÉGAL,
+  une seule portant un filet armé — avec deux ajouts : le caster est ÉPINGLÉ (`Movement=0`, sinon le
+  natif se déplace et la tuile retenue ne porte plus qu'une cible légale) et il n'a PAS
+  `SuppressiveFire` (ce qui rend le second porteur d'overwatch inutile). **Verdict : le -30 mord, le
+  port est conforme.**
 * **La face MOVE de `SuppressiveFirePlaybook`** (`$$CalculateMovementUtilityInStepsInternal`) a son
   propre corps, non porté et non lu.
 * **La divergence de TUILE**, elle, subsiste et est ANTÉRIEURE : le natif attaque depuis `(3,5)`, le
