@@ -80,25 +80,14 @@ from .damage_hits import HitDamage, _DamageHitsMixin
 from .damage_ops import _DamageOpsMixin
 
 
-def _revert_ability_modifications_of_dead(state: State, dead_id: int) -> list:
-    """Volet `RemoveEffects` de `IdunBattle.Operations.KillUnitOperation$$Execute` limite aux
-    MODIFICATIONS D'ABILITY : chaque effet ACTIF porte par l'unite qui vient de mourir voit ses
-    `AddUnitActiveAbilityModification` annules (mirror `<Effect>.RevertInternal`). L'effet est aussi
-    marque `consumed` (il ne survit pas a son porteur).
-
-    Seul porteur du build : `ListenUpMaggotsEffect` (0x426) sur `astraSmnKell` — a la mort de Kell,
-    Creed reperd son `+1 nrOfSummons` et son `range 3`. Les effets sans `ability_modifications` ne
-    sont PAS touches (perimetre etroit, cf. le commentaire du call-site)."""
-    from .ability_modifications import revert_ability_modifications
-    if getattr(state, "effects", None) is None:
-        return []
-    out = []
-    for eff in list(state.effects.by_unit.get(int(dead_id), [])):
-        if eff.consumed or not (getattr(eff, "applied_ability_modifications", None) or []):
-            continue
-        out.extend(revert_ability_modifications(state, eff))
-        eff.consumed = True
-    return out
+def _kill_unit_remove_effects(state: State, dead_id: int, step: int) -> list:
+    """`IdunBattle.Operations.KillUnitOperation$$RemoveEffects(killed, step)` — l'adaptateur natif
+    (emballe `step` dans un `Nullable<KillUnitStep>`, met le second champ d'options a 0, appelle le
+    slot 0x5a de `Core.Services.OperationProcessor`). Le travail vit dans
+    `operations/remove_effects.py` (`RemoveEffectsOperation$$Execute` + `RemoveEffectOperation$$
+    Execute`), foyer partage avec la feuille DSL `RemoveEffect`."""
+    from .remove_effects import remove_effects_operation
+    return remove_effects_operation(state, int(dead_id), step=int(step))
 
 
 class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
@@ -449,37 +438,84 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     def _kill_unit_operation(state: State, target_id: int, attacker_id,
                              overkill: bool) -> list:
         """`IdunBattle.Operations.KillUnitOperation$$Execute` -- l'APPLICATION d'une mort deja
-        enqueuee. Emet la SEQUENCE 1 -> 2 -> 0 -> 0x37 -> 0x36 ; les quatre premiers sont portes, DANS
-        CET ORDRE (le 5e, `PostUnitKill = 0x35`, n'a pas de consommateur porte). La garde
-        `IdunBattle.Operations.KillUnitOperation$$Execute+0x82e` (revive en attente) court-circuite
-        tout ce qui suit `On(PreUnitDeath)` -- cf. la docstring de `_fire_death_if_killed`."""
+        enqueuee. Emet la SEQUENCE 1 -> 2 -> 0 -> 0x36 ; les quatre sont portes, DANS CET ORDRE
+        (le 5e, `PostUnitKill = 0x35`, n'a pas de consommateur porte). La garde revive
+        (`if (!unitComponent.PendingRevive@+0xa8 .HasValue)`) court-circuite tout ce qui suit
+        `On(PreUnitDeath)` -- cf. la docstring de `_fire_death_if_killed`.
+
+        ORDRE COMPLET, RE-DERIVE au decompile du build `rnca9r7q6c` (#389-r2). Les offsets sont
+        les adresses de RETOUR des call-sites, relatives a `KillUnitOperation$$Execute` :
+
+            +0x505  health = killed.HealthComponent ; savedHp = health.hp ; health.hp = 0
+            +0x7cc  On(PreUnitDeath = 1)
+            +0x81c  GARDE REVIVE : if (!unitComponent.PendingRevive@+0xa8 .HasValue) {
+            +0x8be      if (IsActor(killer) && !IsSteppable(killed)) RegisterDefeatedUnit(...)
+            +0x979      On(PreUnitDeath_2 = 2)
+            +0x999      unitFlags.Remove(0xf = PendingDeath) ; +0x9ad unitFlags.Add(6 = Dead)
+            +0x9be      RemoveEffects(killed, KillUnitStep.PreUnitRemove = 0)      <-- STEP 0
+            +0xa26      if (HasTrait(0x10)) DraftingComponent.AddUnitDeadForDrafting(...)
+            +0xd34      processor.<slot 6>(killed, 0, 1) ; +0xd88 matchState.<slot 0x31>(killed)
+            +0xd9c      RemoveEffects(killed, KillUnitStep.AfterUnitRemove = 1)    <-- STEP 1
+            +0xe49      On(UnitDeath = 0)
+            +0xefc      On(UnitDefeated = 0x36 = 54)
+            +0xf35      GARDE HEAL : if (health.hp > 0) RETURN         (aucun step 2, aucun On(53))
+            +0xf59      RemoveEffects(killed, KillUnitStep.AfterDeathTrigger = 2)  <-- STEP 2
+            +0xf7f      processor.<slot 0x55>(killed, false)
+                    } else { +0xfcc matchState.<slot 0x63>(killed) }
+                    unitComponent.PendingRevive@+0xa8..+0xe8 = 0
+            +0x10ac On(PostUnitKill = 0x35 = 53)
+
+        DEUX CORRECTIONS D'ORDRE que ce foyer apporte, toutes deux LUES a la profondeur d'accolades :
+          * le retrait des effets du mort etait emis ENTRE `On(UnitDeath)` et `On(UnitDefeated)` ;
+            le natif le fait AVANT `On(UnitDeath)` (steps 0 et 1) ;
+          * `On(PostUnitKill)` n'est PAS sous la garde revive (il est apres le `if/else`) --
+            l'ancienne docstring l'affirmait. Sans consequence portee : aucun consommateur de
+            `On(53)` n'existe cote port. Le `return` de la GARDE HEAL, lui, saute bien `On(53)`.
+        """
         from .triggers import (after_death_triggers, unit_defeated_triggers,
                                pre_unit_death_2_triggers, unit_death_triggers)
         from .revive import kill_unit_revive_gate
+        from .remove_effects import KillUnitStep
         out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
-        # GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
+        # GARDE @`KillUnitOperation$$Execute+0x81c` : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
         # consommateur d'`On(PreUnitDeath)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est
-        # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(PreUnitDeath_2), NI On(UnitDeath), NI On(UnitDefeated), NI On(PostUnitKill).
+        # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(PreUnitDeath_2), NI On(UnitDeath), NI On(UnitDefeated) — et AUCUN des trois `RemoveEffects`.
         revived = kill_unit_revive_gate(state, target_id)
         if revived is not None:
             return (out or []) + [{"kill_cancelled_by_revive": revived}]
-        # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion.
+        # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion. Il PRECEDE
+        # tout retrait : c'est pourquoi `ExplodesAbility$$GetDamage` voit encore les effets du mort
+        # (`HasEffect(Owner, 1098)` de RammingSpeed, #389).
         out = (out or []) + pre_unit_death_2_triggers(state, target_id, attacker_id, overkill=overkill)
+        # `RemoveEffects(killed, PreUnitRemove)` puis `RemoveEffects(killed, AfterUnitRemove)` — les
+        # deux premiers des TROIS appels natifs, tous deux AVANT `On(UnitDeath)`. Le natif intercale
+        # entre eux le retrait de l'unite du plateau (`processor.<slot 6>` + `matchState.<slot 0x31>`),
+        # que le port collapse deja dans `uc.alive = False` (pose en amont, `_fire_death_if_killed`).
+        out = out + [{"kill_remove_effects": {
+            "step": int(KillUnitStep.PRE_UNIT_REMOVE),
+            "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.PRE_UNIT_REMOVE)}}]
+        out = out + [{"kill_remove_effects": {
+            "step": int(KillUnitStep.AFTER_UNIT_REMOVE),
+            "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AFTER_UNIT_REMOVE)}}]
         # `On(UnitDeath = 0)` — consommateur : TerrifyingCrescendo branche OVERKILL
         # (cf. loki/terrifying_crescendo.py).
         out = out + unit_death_triggers(state, target_id, attacker_id, overkill=overkill)
-        # `RemoveEffects` de `IdunBattle.Operations.KillUnitOperation$$Execute` (sous la MEME garde
-        # revive) — VOLET PORTE : les MODIFICATIONS D'ABILITY que les effets du mort avaient posees sur
-        # d'AUTRES unites sont annulees (`RevertInternal`). Sans ca, un buff comme `ListenUpMaggots`
-        # (Kell -> +1 summon / range 3 sur Creed) SURVIVRAIT a la mort de son porteur = divergence
-        # silencieuse. ⚠ PERIMETRE VOLONTAIREMENT ETROIT : le `RemoveEffects` natif retire TOUS les
-        # effets du mort ; le port ne porte ici que la part `ability_modifications` (les stat-mods d'un
-        # cadavre ne sont lus par personne, un retrait global serait un changement de comportement
-        # transverse hors perimetre).
-        _revert_ability_modifications_of_dead(state, target_id)
         # #G3 : `On(UnitDefeated=54)` (event DISTINCT de 1, 2 et 0) -> Ambush_SummonAbility (mort -> decoy +
         # record turn_defeated). L'unité est déjà alive=False (fire-on-death).
-        return out + unit_defeated_triggers(state, target_id, attacker_id)
+        out = out + unit_defeated_triggers(state, target_id, attacker_id)
+        # GARDE HEAL @`KillUnitOperation$$Execute+0xf35` : le natif relit le `HealthComponent` du mort
+        # (dont il avait mis les PV a 0 en tete d'operation) et RETOURNE si `hp > 0`. Un consommateur
+        # de `On(UnitDeath)`/`On(UnitDefeated)` qui SOIGNE le mourant annule donc le 3e retrait.
+        thc = None
+        ent = state.get_entity(int(target_id))
+        if ent is not None:
+            thc = ent.get_component(HealthComponent)
+        if thc is not None and thc.hp is not None and int(thc.hp) > 0:
+            return out
+        out = out + [{"kill_remove_effects": {
+            "step": int(KillUnitStep.AFTER_DEATH_TRIGGER),
+            "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AFTER_DEATH_TRIGGER)}}]
+        return out
 
     @staticmethod
     def _refresh_swarm(state: State, target_id: int) -> None:

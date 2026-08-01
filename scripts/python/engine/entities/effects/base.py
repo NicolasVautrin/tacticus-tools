@@ -329,6 +329,19 @@ class BaseEffect:
     # par-source est structurellement idempotent (`ReverseModification` pop une cle absente = no-op) ; ce
     # drapeau evite surtout de RE-LISTER le meme revert a chaque tick dans les diagnostics.
     stat_mod_reverted = False
+    # ETAPE de la sequence de mort a laquelle cet effet est retire du porteur qui vient de mourir --
+    # le predicat que `IdunBattle.Operations.RemoveEffectsOperation$$Execute` lit sur l'objet-effet
+    # (slot 4 de l'interface `IEffect`) et compare a `options.step`. Domaine :
+    # `IdunBattle.Operations.KillUnitStep` = {0=PreUnitRemove, 1=AfterUnitRemove, 2=AfterDeathTrigger}
+    # (dump d'enums, build `rnca9r7q6c`), les trois valeurs que passe
+    # `IdunBattle.Operations.KillUnitOperation$$Execute` a ses trois appels de `$$RemoveEffects`.
+    # ⚠ HYPOTHESE NOMMEE (#389-r2) : le defaut `PreUnitRemove` n'est PAS lisible offline -- le getteur
+    # par defaut de `IdunBattle.Entities.Effects.BaseEffect` est un corps constant DEDUPLIQUE par
+    # IL2CPP, absent des deux tables de symboles, et `IEffect` ne declare aucune methode dans le dump.
+    # Sans consequence sur l'observable de sortie (les TROIS steps tournent dans la meme operation de
+    # mort) ; une surcharge se pose ici, en attribut de classe, sans toucher au foyer.
+    # (Attribut de classe SIMPLE, sans annotation : sinon field dataclass, ecrase par l'`__init__`.)
+    remove_on_kill_step = 0
     # ENTITE BONDEE de CETTE instance d'effet -- mirror du champ `+0x10` du composant de bond que
     # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder` ecrit sur l'entite-effet
     # (`BondEffect(id)` blueprint, puis `<composant>.BondedEntityId = param_3`), et que relit

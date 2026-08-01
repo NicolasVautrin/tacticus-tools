@@ -110,9 +110,11 @@ def main() -> int:
     assert out["radius"] == 3, "radius attendu 3 (OVERRIDE, pas 2+3=5)"
 
     # --- 5. la mort de Kell reverte ----------------------------------------------------------------
-    from engine.runner.operations.damage import _revert_ability_modifications_of_dead
+    # #389-r2 : le volet etroit `_revert_ability_modifications_of_dead` est remplace par le
+    # `RemoveEffects` complet de `IdunBattle.Operations.KillUnitOperation$$Execute` (step 0).
+    from engine.runner.operations.remove_effects import remove_effects_operation, KillUnitStep
     state.get_entity(kell).get_component(UnitComponent).alive = False
-    _revert_ability_modifications_of_dead(state, kell)
+    remove_effects_operation(state, kell, step=KillUnitStep.PRE_UNIT_REMOVE)
     mn2 = get_ability_stat_modification(state.get_entity(creed), CONST_NR_OF_SUMMONS)
     mr2 = get_ability_stat_modification(state.get_entity(creed), CONST_RANGE)
     print("[5] apres mort de Kell: nrOfSummons=+%d range=+%d (attendu 0/0)" % (mn2, mr2))

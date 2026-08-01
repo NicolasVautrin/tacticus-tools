@@ -472,21 +472,21 @@ def run(seed: int = 38900, board: str = BOARD, mutate: str = "none", hp_player: 
                                             and EXTRA_EXPLODE not in out["live_effects_caster"])
         out["effect_removed_both"] = (EXTRA_EXPLODE not in port["effects_caster"]
                                       and EXTRA_EXPLODE not in out["live_effects_caster"])
-        # RESIDU GENERIQUE, ETRANGER a 1098 et PREEXISTANT : quand le porteur MEURT, le natif vide
-        # TOUS ses effets (`IdunBattle.Operations.KillUnitOperation$$RemoveEffects` -> service slot
-        # 0x5a) ; le port n'en consomme que le volet ETROIT porte par
-        # `damage._revert_ability_modifications_of_dead` (les seuls effets a
-        # `applied_ability_modifications`). MESURE sur le bras lethal MC1_67/38901 : natif `[]`,
-        # port `[1026, 1098, 1361, 1362]` -- les TROIS autres n'ont rien a voir avec `#389-r1`.
-        # Le cliquet de retrait ne s'applique donc QU'AUX bras ou le caster SURVIT ; sur un bras
-        # lethal il mesurerait `KillUnitOperation`, pas le `On(PhaseEnd)` de 1098.
+        # `#389-r2` -- CLIQUET RE-ARME SUR BRAS LETHAL. Quand le porteur MEURT, le natif vide TOUS
+        # ses effets (`IdunBattle.Operations.KillUnitOperation$$RemoveEffects` -> slot 0x5a ->
+        # `IdunBattle.Operations.RemoveEffectsOperation$$Execute`, appele TROIS fois, un par
+        # `KillUnitStep`). Le port ne portait que le volet ETROIT `ability_modifications` : mesure
+        # sur le bras lethal MC1_67/38901, natif `[]` contre port `[1026, 1098, 1361, 1362]`.
+        # Depuis le port de l'operation (`operations/remove_effects.py`), les DEUX cotes vident tout
+        # -> le cliquet vaut sur TOUS les bras, lethal compris, et
+        # `dead_carrier_keeps_effects_port_only` DOIT valoir False.
         out["dead_carrier_keeps_effects_port_only"] = bool(
             out["caster_died"] and port["effects_caster"] and not out["live_effects_caster"])
-        out["removal_checked"] = not out["caster_died"]
+        out["removal_checked"] = True
         out["match"] = bool(out["tile_match"] and out["hits_target_match"]
                             and out["hits_self_match"] and out["effect_match"]
-                            and out["hp_match"]
-                            and (out["effect_removed_both"] if out["removal_checked"] else True))
+                            and out["hp_match"] and out["effect_removed_both"]
+                            and not out["dead_carrier_keeps_effects_port_only"])
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -526,17 +526,15 @@ def run(seed: int = 38900, board: str = BOARD, mutate: str = "none", hp_player: 
                out["hp_match"]))
     elif out["match"]:
         out["ok"] = True
-        out["verdict"] = ("PORT == NATIF sur les %d observables : tuile %s, %d coups sur la cible %s, "
-                          "%d coups sur SOI %s, effet 1098 pose (%s), retrait a la cloture de phase "
-                          "%s, PV finaux identiques sur %d unites (caster mort=%s)"
-                          % (6 if out["removal_checked"] else 5,
-                             out["live_tile"], len(out["live_hits_target"]),
+        out["verdict"] = ("PORT == NATIF sur les 7 observables : tuile %s, %d coups sur la cible %s, "
+                          "%d coups sur SOI %s, effet 1098 pose (%s), retrait des DEUX cotes (%s), "
+                          "aucun effet survivant au porteur MORT cote port seul (%s), PV finaux "
+                          "identiques sur %d unites (caster mort=%s)"
+                          % (out["live_tile"], len(out["live_hits_target"]),
                              out["live_hits_target"], len(out["live_hits_self"]),
                              out["live_hits_self"], out["live_effect_posed"],
-                             ("des DEUX cotes (%s)" % out["effect_removed_both"])
-                             if out["removal_checked"]
-                             else "NON CONFRONTE (caster MORT -> l'observable mesurerait "
-                                  "KillUnitOperation$$RemoveEffects, residu generique non porte)",
+                             out["effect_removed_both"],
+                             not out["dead_carrier_keeps_effects_port_only"],
                              len(out.get("hp_live") or {}), out.get("caster_died")))
     else:
         out["ok"] = False
