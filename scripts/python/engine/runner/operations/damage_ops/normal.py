@@ -382,9 +382,16 @@ class _Normal:
         _gsi = getstuckin_combat_chance(state, attacker_id, target_id,
                                         (ap.col, ap.row) if ap is not None else None,
                                         (tp.col, tp.row) if tp is not None else None, state.board)
+        # #366-r1 : les DEUX accroches per-coup d'`IdunBattle.Operations.AttackDamageOperation$$
+        # ExecuteHit(s)` -- `On(6 = PreAttackHit)` -> relecture du flag `discard` de l'`AttackHit`
+        # courant, et `On(0x3c = UnitBlocked)` -> `RegisterBlocks`. Le bus du port emet ces deux
+        # vecteurs UNE FOIS PAR ATTAQUE (`dispatch/attack.py`) ; le cluster HarlequinsPanoply, lui,
+        # est per-COUP et sans gate `IsFirstHitInSeries`. Cf. `triggers/loki/harlequins_panoply.py`.
+        from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)
+        _hit_icept = make_hit_interceptor(state, attacker_id, target_id)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
-                                            bonus_hit_chance=_gsi,
+                                            bonus_hit_chance=_gsi, hit_interceptor=_hit_icept,
                                             capped_reductions=def_mods.capped_reductions,
                                             # #67 : etage limites (member-cap/Resilient/bypass Blast) —
                                             # mode 1 = attaque (wrapper IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToAttackDamage/IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToAttackDamage)
@@ -440,7 +447,8 @@ class _Normal:
             # l'`OngoingAttack` (donc son compteur `+0x30`) via `GetCurrentAttackOrDefault`.
             # On THREADE le meme `bonus_hit_chance` et l'index de sortie de la phase d'arme
             # (`next_hit_index`, coups bonus compris) : un seul site d'evaluation du `Maybe`.
-            bonus_hit_chance=_gsi, hit_index0=r["next_hit_index"])
+            bonus_hit_chance=_gsi, hit_index0=r["next_hit_index"],
+            hit_interceptor=_hit_icept)      # #366-r1 : meme attaque -> meme intercepteur per-coup
         if _ah is not None:
             death = death or _ah.get("death")
         # `On(AttackDamageAttack = 10)` — 2e event de cloture d'`IdunBattle.Operations.
@@ -459,6 +467,12 @@ class _Normal:
         # les coups additionnels (le compteur `received_damage_this_turn` que lisent ses consommateurs
         # est deja incremente) et AVANT `On(9)`/`On(10)` de `FinishAttackOperation`.
         from ..triggers.dispatch import final_damage_triggers, attack_damage_attack_triggers  # lazy
+        # #366-r1 : retrait du marqueur 1227 a la CLOTURE de l'attaque, MEME place que `On(10)` (2e
+        # event de `FinishAttackOperation$$Execute`) et pour la MEME raison : le vecteur `On(9)` du
+        # port vit au niveau MESSAGE, donc une attaque declenchee par un trigger (overwatch) ne le
+        # traverse pas. IDEMPOTENT avec `EFFECT_TRIGGERS[1227]`. Cf. `HitInterceptor.finish`.
+        if _hit_icept is not None:
+            _hit_icept.finish()
         final_damage_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
         attack_damage_attack_triggers(state, attacker_id, target_id,
                                       ranged=bool(_ranged), profile=_profile)

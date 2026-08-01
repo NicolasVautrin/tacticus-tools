@@ -209,6 +209,26 @@ class UnitComponent(Component):
         `tiles_moved_this_battle` (+0xec) n'a AUCUN lecteur porte : il est ecrit pour rester le
         mirror exact du `+=` double de `RecordTilesMoved`, jamais lu.
 
+    `blocks_made_this_turn` (#366-r1) = mirror de `ActorStatisticsComponent @+0x8c`, le compteur de
+    coups BLOQUES par cette unite depuis le debut de son tour. Loge ici comme
+    `received_damage_this_turn` / `tiles_moved_*` -- MEME residu structurel documente (case-202 SS6 :
+    le foyer natif est l'`ActorStatisticsComponent`).
+      * ECRITURE : `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterBlockMade`
+        (`+0x8c += 1`), atteinte par `IdunBattle.Operations.RegisterBlockOperation$$Execute` <- slot
+        `IOperationProcessor` 0x4c <- `IdunBattle.Operations.ADamageOperation$$RegisterBlocks`, que
+        `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` appelle **PAR COUP**, au retour
+        d'`ExecuteHit` -- donc APRES l'emission de `On(UnitBlocked)` par
+        `ADamageOperation$$EvaluateAfterHitTriggers`. Cet ORDRE est ce qui rend le gate
+        `NOT HasBlockedThisTurn` vrai au premier coup bloque du tour.
+      * RESET : `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetBlocksMadeThisTurn`
+        (`+0x8c = 0`), appele par `IdunBattle.Operations.StartTurnOperation$$ResetUnit` dans la MEME
+        sequence que `ResetAttacksReceivedThisTurn` / `ResetReceivedDamageThisTurn` -> portee = les
+        unites du joueur ENTRANT (cf. `operations/turnflow.py`).
+      * LECTURE : `IdunBattle.Entities.Triggers.TimesBlockedThisTurnFormula$$Calculate` rend `+0x8c` ;
+        `IdunBattleLogic.Entities.DSLTriggers$$HasBlockedThisTurn` = `AmountIsGreaterThanZero` de
+        cette formule. UNIQUE consommateur porte : le gate de
+        `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HarlequinsPanoplyAbility$$CreateTrigger`.
+
     `feet` (#R30) = mirror de `UnitComponent._feet` @+0x78 -- l'`OrderedSet<int>` des ids des
     ENTITES-PIEDS de l'unite (`Blueprints.UnitFoot`, chacune portant un `UnitFootComponent
     {UnitId@0x10, TileId@0x14}`), rempli par `IdunBattle.Operations.AddUnitOperation$$Execute`
@@ -236,7 +256,8 @@ class UnitComponent(Component):
                  "death_source", "last_hit_damage_taken_this_turn",
                  "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase",
                  "charged_unit_ids", "current_turn_start_tile", "revived_by_abilities",
-                 "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn")
+                 "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn",
+                 "blocks_made_this_turn")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -279,6 +300,8 @@ class UnitComponent(Component):
         self.tiles_moved_this_battle = 0
         self.tiles_moved_this_turn = 0
         self.tiles_moved_last_turn = 0
+        # `ActorStatisticsComponent @+0x8c` — cf. la docstring de classe (bloc `blocks_made_this_turn`).
+        self.blocks_made_this_turn = 0
 
     def add_foot(self, tile: tuple) -> None:
         """`IdunBattle.Entities.Components.UnitComponent$$AddFoot(footId)` = `_feet.Add(footId)`

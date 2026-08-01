@@ -424,9 +424,15 @@ class _AbilityAttack:
             state, attacker_id, target_id,
             (_ap_h.col, _ap_h.row) if _ap_h is not None else None,
             (_tp_h.col, _tp_h.row) if _tp_h is not None else None, state.board)
+        # #366-r1 : intercepteur per-coup (`ExecuteHit` etape 5 = flag `discard` ; `On(0x3c)` +
+        # `RegisterBlocks`). `ADamageOperation` est la BASE PARTAGEE des deux familles -- la voie
+        # ABILITY passe par `AbilityDamageOperation$$ExecuteHit`, qui emet les MEMES vecteurs.
+        from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
                                             bonus_hit_chance=_gsi,
+                                            hit_interceptor=make_hit_interceptor(
+                                                state, attacker_id, target_id),
                                             post_roll=_reduce,
                                             capped_reductions=def_mods.capped_reductions,
                                             # #67 : etage limites — mode 2 = ability

@@ -160,9 +160,14 @@ class _NormalLike:
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
         hits = max(1, int(hits))
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
+        # #366-r1 : intercepteur per-coup (`ExecuteHit` etape 5 = flag `discard` ; `On(0x3c)` +
+        # `RegisterBlocks`). Cf. `triggers/loki/harlequins_panoply.py`.
+        from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources,
                                             shield=shield_total,   # post_roll=None (reduce-then-roll)
+                                            hit_interceptor=make_hit_interceptor(
+                                                state, attacker_id, target_id),
                                             capped_reductions=def_mods.capped_reductions,
                                             # #67 : etage limites — mode 2 = ability/splash
                                             # (`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`)

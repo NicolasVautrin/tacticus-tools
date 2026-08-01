@@ -161,7 +161,8 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
                             block_sources, shc, spread_pct: int = 20,
                             extra_pierce: int = 0, bonus_hit_chance: "Optional[int]" = None,
                             hit_index0: int = 0,
-                            attack_profile: "Optional[str]" = None) -> "Optional[dict]":
+                            attack_profile: "Optional[str]" = None,
+                            hit_interceptor=None) -> "Optional[dict]":
     """#202-B : face COMBAT du canal #179 — mirror `ExecuteAdditionalHitsWithDamageProfileType
     IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` (schedule : `OperationProcessor.ExecuteAdditionalHitsWith
     DamageProfileType Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType`) : chaque groupe qualifie execute ses coups comme SOUS-OPERATION
@@ -355,6 +356,10 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             # R6-b' : MEME site d'evaluation du `Maybe` after-hit que les coups d'arme, avec
             # l'index CONTINU de l'ATTAQUE (`currentAttack+0x30`). Voir la docstring.
             bonus_hit_chance=bonus_hit_chance, hit_index0=hit_index,
+            # #366-r1 : les groupes additionnels sont des SOUS-OPERATIONS de la MEME attaque et
+            # repassent par `AttackDamageOperation$$ExecuteHit(s)` -> MEME intercepteur per-coup
+            # (donc meme marqueur 1227, meme compteur de blocks), threade par l'appelant.
+            hit_interceptor=hit_interceptor,
             limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
             limits_hp=int(thc.hp or 0),
             # #195 : `HasFlag(defender, 0x13)` — le 5e argument `isPreventOverkill` que
