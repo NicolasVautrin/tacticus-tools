@@ -140,15 +140,33 @@ def test_fuelled_by_fury_revive_cancels_own_death_live(live_session, rpc, build_
 
 def test_fuelled_by_fury_revive_requires_a_kill_live(live_session, rpc, build_runner):
     """FACE NEGATIVE (le discriminant mesure live) : MEME etat, MEME mort, mais la riposte ne TUE PAS
-    -> aucun `On(3)` de Titus-tueur -> aucun revive, Titus reste MORT."""
+    -> aucun `On(3)` de Titus-tueur -> aucun revive, Titus reste MORT.
+
+    ⚠ CORRIGE PAR #389-r2. Ce test asserait auparavant que le marqueur 1324 restait ARME apres la
+    mort -- ce qui mesurait l'ANCIEN port (qui ne retirait pas les effets d'un mort), pas le natif.
+    Quand aucun revive n'est pose, la garde `!PendingRevive.HasValue` de
+    `IdunBattle.Operations.KillUnitOperation$$Execute` PASSE, donc ses TROIS
+    `RemoveEffects(killed, <KillUnitStep>)` tournent et vident TOUS les effets du mort, 1324 compris.
+    MESURE LIVE DIRECTE (`probe_389r2_kill_unit_remove_effects.py --a-units necroWarden,ultraTitus
+    --target-visual ultraTitus`) : Titus meurt en portant `[1324, 1354, 1516, 1517]`, le natif le
+    laisse avec `[]`.
+
+    Le marqueur est donc DESARME dans les deux faces, mais par DEUX mecanismes distincts, et c'est
+    `consumed` qui les separe : face POSITIVE, la mort est ANNULEE (aucun `RemoveEffects` ne tourne)
+    et le marqueur est seulement DESACTIVE (`On(0x2e) -> DeactivateEffect`, instance vivante) ; face
+    NEGATIVE, l'instance est RETIREE avec son porteur."""
     rid = build_runner("31337", extra=BUILD)["rid"]
     st, tid = _state(rpc, rid)
+    assert _can_revive_is_armed(st, tid), "le marqueur 1324 doit etre capte ACTIF sur Titus"
     foes = _drive(st, tid, foe_hp=10 ** 7)               # riposte non letale
     out = _kill_titus(st, tid, foes[0])
     e = st.get_entity(tid)
     assert not e.get_component(UnitComponent).alive, \
         f"Titus revive alors qu'aucun ennemi n'est mort (sorties={out})"
-    assert _can_revive_is_armed(st, tid), "le marqueur ne doit PAS etre consomme sans revive"
+    assert not _can_revive_is_armed(st, tid), \
+        "le marqueur 1324 doit partir avec son porteur mort (KillUnitOperation$$RemoveEffects)"
+    assert all(e2.consumed for e2 in (st.effects.by_unit.get(tid) or [])), \
+        f"le mort garde des effets non consommes : {[e2.effect_type for e2 in st.effects.by_unit.get(tid) or [] if not e2.consumed]}"
 
 
 def test_fuelled_by_fury_revive_requires_armed_marker_live(live_session, rpc, build_runner):
