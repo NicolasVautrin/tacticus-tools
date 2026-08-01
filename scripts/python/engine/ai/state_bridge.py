@@ -41,11 +41,10 @@ import hexgeo
 from engine.playbook.scene import Scene
 from engine.runner.components import (StatsComponent, OwnerComponent, PositionComponent,
                                       HealthComponent, UnitComponent)
-from engine.entities.pathfinding.walk_pathfinder import get_movable_positions
 from engine.entities.pathfinding.ignore_terrain_pathfinder import get_path_node_counts
 from engine.entities.pathfinding.tile_blocking import make_can_continue
-from engine.entities.pathfinding.fly_pathfinder import (
-    is_like_flying, get_movable_positions as fly_get_movable_positions)
+from engine.entities.pathfinding.pathfinders import movable_positions_for_unit
+from engine.services.movement_query import titanhammer_target_tiles_for, unit_has_effect_fn
 from engine.entities.effect_type import EffectType
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.traits.unit_trait import entity_trait_names
@@ -190,11 +189,13 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -
     depth = _move_range(sc.ctx if sc is not None else None, vid)
     if otile is None or depth <= 0:
         return []
-    # Sélection du pathfinder par trait (mirror dispatch virtuel `MovementQuery.GetReachableTiles`
-    # IdunBattle.Core.Services.MovementQuery$$GetReachableTiles) : unité « comme volante » (Flying/Burrow) -> FlyPathfinder (ignore élévation +
-    # unités) ; sinon WalkPathfinder. Portée = même stat Movement dans les deux cas.
+    # Selection du pathfinder = `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit`,
+    # porte ENTIER dans `entities.pathfinding.pathfinders.movable_positions_for_unit` (le foyer que
+    # partagent les trois consommateurs). DEUX axes, pas un : `UnitExtensions$$IsLikeFlying`
+    # (Flying/Burrow -> FlyPathfinder, ignore elevation + unites) ET la branche MOUVEMENT SPECIAL
+    # (#381-r5 : quatre effets « je descends du ciel » -> un `ATeleportPathfinder`, pool
+    # board-wide). Portee = meme stat Movement dans tous les cas.
     traits = (sc.ctx.traits if sc is not None else None) or []
-    _mv = fly_get_movable_positions if is_like_flying(traits) else get_movable_positions
     # #131 : gate d'EXPANSION `BasePathfinder$$NodesInNextLevel` -> `IsValidContinuePathTile`. Une
     # tuile portant `BlockEnteringUnits` (Swamp) est un CUL-DE-SAC de la flood-fill (elle reste un
     # stop legal). Sans lui le port sur-atteint et la passe IA choisit une tuile ILLEGALE (case-r5).
@@ -205,7 +206,10 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -
     # `ThornsBlockMovementAbility`, qui pose `BlockEnteringUnits` au setup). MESURE avant/apres
     # (`probe_pathfinding_overreach`) : sans lui MC1_67/777 sur-atteint (2,3) depuis la Swamp (1,3).
     _cc = make_can_continue(state.effects, traits, board=board)
-    _, stop = _mv(board, otile, depth, _occupants(state), my_team, can_continue=_cc)
+    _, stop = movable_positions_for_unit(
+        board, otile, depth, _occupants(state), my_team, traits=traits,
+        has_effect=unit_has_effect_fn(state, uid), can_continue=_cc,
+        teleport_target_tiles=titanhammer_target_tiles_for(state, board, my_team))
     out = []
     for t in stop:
         c, r = board.coord(t)

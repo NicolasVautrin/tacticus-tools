@@ -343,8 +343,10 @@ class MovableTilesInRange(TargetsSelector):
     l'appeler avec LES MEMES trois etages que `ai/state_bridge._move_tiles`, le mirror deja
     confronte d'`aiMovableTiles` (qui est litteralement `MovementQuery$$GetMovableTilesFor`) :
 
-      1. **le TYPE de pathfinder** (`GetPathfinderTypeForUnit` -> `UnitExtensions$$IsLikeFlying`)
-         — un volant traverse tout et ignore l'elevation ;
+      1. **le TYPE de pathfinder** (`GetPathfinderTypeForUnit`) — DEUX axes, pas un : un volant
+         (`UnitExtensions$$IsLikeFlying`) traverse tout et ignore l'elevation, ET quatre effets
+         « je descends du ciel » detournent vers un `ATeleportPathfinder` au pool board-wide
+         (`#381-r5`). Le dispatch entier vit dans `pathfinding.pathfinders` ;
       2. **le gate d'EXPANSION #131** (`BasePathfinder$$NodesInNextLevel` ->
          `IsValidContinuePathTile`) — une tuile block-entering (Swamp/Fire/Ice/...) reste un STOP
          legal mais devient un CUL-DE-SAC. Sans lui le port SUR-ATTEINT (mesure #131 : 6/17/27
@@ -379,9 +381,7 @@ class MovableTilesInRange(TargetsSelector):
         self.ignore_units_on_tiles = bool(ignore_units_on_tiles)
 
     def select(self, ctx):
-        from ..pathfinding.fly_pathfinder import (
-            is_like_flying, get_movable_positions as fly_get_movable_positions)
-        from ..pathfinding.walk_pathfinder import get_movable_positions
+        from ..pathfinding.pathfinders import movable_positions_for_unit
         from ..traits.unit_trait import unit_trait_names
         board = getattr(ctx, "board", None)
         if board is None:
@@ -414,12 +414,20 @@ class MovableTilesInRange(TargetsSelector):
                 if t is not None:
                     occ[t] = other.get("team")
         traits = unit_trait_names(u.get("visualId"))
-        # `MovementQuery$$GetPathfinderTypeForUnit` -> `UnitExtensions$$IsLikeFlying` : meme
-        # dispatch que `ai/state_bridge._move_tiles`.
-        mv = fly_get_movable_positions if is_like_flying(traits) else get_movable_positions
-        visited, stop = mv(board, start, int(self.range_amount.evaluate(ctx)),
-                           occ, u.get("team"),
-                           can_continue=_movement_can_continue(ctx, board, traits))
+        # `MovementQuery$$GetPathfinderTypeForUnit` -- le dispatch COMPLET (IsLikeFlying **et** la
+        # branche MOUVEMENT SPECIAL de `#381-r5`), au FOYER partage par les trois consommateurs.
+        # `ctx.has_effect(unit, effectType)` est le canal d'effets du DSL (defaut None -> pas de
+        # canal -> Walk/Fly, comportement anterieur).
+        he = getattr(ctx, "has_effect", None)
+        visited, stop = movable_positions_for_unit(
+            board, start, int(self.range_amount.evaluate(ctx)), occ, u.get("team"),
+            traits=traits, has_effect=(None if he is None else (lambda et: bool(he(u, int(et))))),
+            can_continue=_movement_can_continue(ctx, board, traits),
+            # `TitanhammerSquadPathfinder$$IsValidTeleportTile` exige de savoir QUI a pose
+            # `TitanhammerSquad_TargetTile` sur la tuile ; `ctx.tile_has_effect` n'expose pas la
+            # source -> NON MESURE (`None`), pool de teleport Titanhammer vide. Residu NOMME et
+            # RESTRICTIF ; inventer « n'importe quel poseur » serait plus faux.
+            teleport_target_tiles=None)
         # `RemoveAll(t => !IsMovableTile(..., ignoreUnitsOnTiles))` : sans `ignoreUnitsOnTiles` le
         # natif ne garde que les tuiles LIBRES (`IsFreeTile`), depart compris — c'est le stop_set.
         return sorted(visited if self.ignore_units_on_tiles else stop)
