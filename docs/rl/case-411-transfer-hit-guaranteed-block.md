@@ -203,20 +203,30 @@ verdict identique.
 
 ```
                         NATIF                    PORT (per-coup)
-TEMOIN   victim=3433  carrier=0        [14, 14, 142, 100, 44, 112]   24 tirages
-GREFFE   victim=1730  carrier=1608     [14,  0, 103,   0, 112,   0]  30 tirages
+TEMOIN   victim=349   carrier=0        [14, 14, 142, 100, 44, 112]   24 tirages
+GREFFE   victim=243   carrier=132      [14,  0, 103,   0, 112,   0]  30 tirages
 ```
+
+> ⚠ **Chiffres NATIFS corrigés par #411-r2** (`case-411-r2-ability-implicite.md`) sur le couple
+> `MC1_67`/31337. Les premiers publiés — témoin `3433/0`, greffé `1730/1608` — mesuraient
+> l'ACTIVE `1006 MultiThreatEliminator` : `act ability` sans `--ability` auto-résolvait vers la
+> DERNIÈRE entrée d'`attackPlans`. Le probe nomme désormais l'attaque normale, et `rl_duel`
+> refuse l'ambiguïté. **Les per-coup du PORT sont inchangés** (il ne dépendait pas de ce que le
+> natif jouait), et **les six checks passent toujours** — verdict `PORT CONFORME`.
+> Le couple `C3_01`/777 n'a **pas** été rejoué : ses chiffres natifs sont à considérer comme
+> périmés au même titre.
 
 Le check de fond n'est pas un scalaire mais le **ledger de tirages** : `rng_draws = 2 × (resolve +
 block_rolls)`. Bras greffé = **9 resolve** (6 coups + 3 sous-attaques) et **6 tirages de block**
 (3 coups pairs + 3 sous-attaques). Si les coups transférés roulaient leur block, on lirait **9**.
 C'est la propriété portée, mesurée et falsifiable.
 
-⚠ **Écart d'échelle port/natif, PRÉ-EXISTANT et hors périmètre** : le port sous-estime le total
-(426 contre 3433 sur le bras TÉMOIN, où aucun chemin #411 n'est actif). Le témoin le prouve
-pré-existant ; les **ratios** sont cohérents (greffé/témoin : 0,504 natif contre 0,538 port ;
-victime/porteur : 0,904 natif contre 0,935 port). À investiguer séparément —
-`necroDestroyer` vs `astraBullgryn`, régime `--block-target 100,500`.
+✅ **L'« écart d'échelle port/natif » signalé ici (426 contre 3433, « x8,06 ») est RÉSOLU par
+#411-r2 : ce n'était pas un défaut du port, mais un ARTEFACT DE MONTAGE.** Les deux côtés ne
+jouaient pas la même ability — le port résolvait l'attaque normale, le natif exécutait
+`1006 MultiThreatEliminator`. Ability alignée, le même bras témoin rend **426 contre 349**
+(ratio 0,819), les deux dans la fenêtre native `BlockScenarios[0]` = `[0..912]`. Détail,
+discriminant et décomposition par étage : `case-411-r2-ability-implicite.md`.
 
 ### Gardes
 
@@ -256,7 +266,9 @@ return random.Range(min, max + 1);                // 1 tirage
 ⇒ **le coup transféré ne refait AUCUN spread** — sa base est exactement `hit.damage`, la valeur de
 tête d'`ExecuteHit` sur la cible ORIGINALE (pour une normale, struct dégénérée `(Attack, Attack)`,
 donc la stat brute pré-armure/pré-perçage). Cette base repasse ensuite **tout** le pipeline contre
-le PORTEUR (armure, perçage, %-mods, limites), ce qui explique que `3488 != 3153` sans qu'aucun
+le PORTEUR (armure, perçage, %-mods, limites), ce qui explique que le porteur et la victime ne
+prennent pas le même total (`132 != 243` sur la mesure #411-r2 ; `3488 != 3153` sur les
+scalaires périmés de la première passe) sans qu'aucun
 scalaire n'ait à être ajusté.
 
 **Le coup transféré PEUT criter** : rien dans les options du transfert ne pose `+0x29` (never crit)

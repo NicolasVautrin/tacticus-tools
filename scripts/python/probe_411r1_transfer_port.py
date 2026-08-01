@@ -79,6 +79,23 @@ def _units(s: int, rid: int) -> dict:
     return {int(u["id"]): u for u in (dv.get("units") or [])}
 
 
+def _normal_ability_id(units: dict, uid: int) -> int:
+    """Id de l'ATTAQUE NORMALE CONCRETE de `uid` (`decisionView.units[].abilities[]`,
+    `kind == "normal"`) -- mirror de `rl_duel._normal_ability_map` (TF18).
+
+    #411-r2 : c'est ICI qu'etait l'ecart d'echelle du bras TEMOIN (port 426 / natif 3433,
+    « x8,06 »). `act ability` SANS `--ability` auto-resolvait depuis `attackPlans`, qui porte
+    une entree PAR ABILITY castable sur la cible, et retenait la DERNIERE -- soit
+    `1006 MultiThreatEliminator` (ACTIVE, config-based) et non les 6 coups de melee que ce
+    probe confronte. Le port resolvait `AttackDamageOperation.execute` : les deux cotes ne
+    calculaient pas la meme chose. `rl_duel` REFUSE desormais l'ambiguite (rc 2)."""
+    u = units.get(int(uid)) or {}
+    for ab in (u.get("abilities") or []):
+        if ab.get("kind") == "normal" and ab.get("id") is not None:
+            return int(ab["id"])
+    raise RuntimeError("pas d'ability kind='normal' sur u%s -- ne pas deviner" % (uid,))
+
+
 def _find(units: dict, visual_id: str):
     for uid, u in units.items():
         if u.get("visualId") == visual_id:
@@ -198,6 +215,7 @@ def one_run(pydir: Path, state_file: Path, seed_bc, seed: str, board: str, label
     hp_c0 = int((units1.get(car) or {}).get("hp") or 0)
     port = _port_replay(s, rid, att, vic, car, expect_graft)
     _run(["rl_duel.py", "act", "ability", "--caster", str(att), "--target", str(vic),
+          "--ability", str(_normal_ability_id(units1, att)),          # #411-r2 : jamais implicite
           "--state-file", str(state_file)], pydir)
     units2 = _units(s, rid)
     hp_v1 = int((units2.get(vic) or {}).get("hp") or 0)
