@@ -137,3 +137,76 @@ def select_weapon_pierce(ctx, is_adjacent, dist=None, effect_bonus: int = 0):
     dir_pierce = ctx.extra_pierce_ranged if is_ranged else ctx.extra_pierce_melee
     pierce = max(0, min(100, base_pierce + ctx.extra_pierce + dir_pierce + int(effect_bonus or 0)))
     return pierce, is_ranged, int(w.get("hits") or 1), w.get("DamageProfile")
+
+
+def weapon_is_melee(weapon: dict | None) -> bool:
+    """`IdunShared.Battle.WeaponProfile$$get_IsMelee` -- le predicat NATIF, et il n'est PAS
+    « Range absent » :
+
+        if (!this.Range.HasValue)  return true;      // champ `Nullable<int>` @ WeaponProfile+0x24
+        return this.Range.Value < 2;                 // une portee de 1 est encore de la MELEE
+
+    Le seuil `< 2` est LU (`local_res8[0] < 2` en sortie de `Nullable.get_Value`), pas deduit.
+    Consequence : une arme a `Range == 1` est MELEE pour le natif, alors que le tri historique de
+    `get_attack_weapon_for_default_normal_attack` (`bool(w.get("Range"))`) la range en DISTANCE.
+    Les deux tris coexistent VOLONTAIREMENT ici : celui-la mirroir `FindMeleeWeapon`/`FindRangedWeapon`
+    tels que la selection d'arme de l'attaque normale les appelle (residu nomme, non touche par cette
+    tranche) ; celui-ci mirroir `get_IsMelee`, le seul que consultent `FindRangedWeapon` et
+    `AttackWeaponRangeFormula$$Calculate`."""
+    r = (weapon or {}).get("Range")
+    if r is None:
+        return True
+    return int(r) < 2
+
+
+def select_max_range_weapon(weapons: list) -> dict | None:
+    """`IdunBattle.Core.Services.BattleQuery$$SelectMaxRangeWeapon(weapons)` -- mirror 1:1 :
+
+        if (weapons.Count == 0) return null;
+        if (weapons.Count == 1) return weapons[0];
+        best = null; bestRange = 0;
+        for (i = 0; i < weapons.Count; i++) {
+            r = weapons[i].Range.GetValueOrDefault(0);   // `Nullable.GetValueOrDefault` @+0x24
+            if (bestRange <= r) { best = weapons[i]; bestRange = r; }
+        }
+        return best;
+
+    Deux details LUS qui ne se devinent pas : la comparaison est `<=` (a EGALITE de portee, c'est
+    la DERNIERE arme de la liste qui gagne, pas la premiere), et `bestRange` part de `0` avec
+    `GetValueOrDefault` -- une arme sans portee ne fait donc pas planter le balayage."""
+    ws = list(weapons or [])
+    if not ws:
+        return None
+    if len(ws) == 1:
+        return ws[0]
+    best, best_range = None, 0
+    for w in ws:
+        r = int((w or {}).get("Range") or 0)      # `Nullable<int>.GetValueOrDefault(0)`
+        if best_range <= r:                        # `<=` : le DERNIER max gagne
+            best, best_range = w, r
+    return best
+
+
+def find_ranged_weapon(visual_id) -> dict | None:
+    """`IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon(unit)` -- la surcharge a UN SEUL
+    argument (celle que l'interface `IBattleQuery` expose au slot `0xb3`, identifie par son proxy
+    `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass213_0$$u003CFindRangedWeaponu003Eb__0`,
+    dont tout le corps est cet appel-la). Corps natif :
+
+        if (!EntityExtensions.IsUnit(unit)) return null;
+        set = new OrderedSet<WeaponProfile>();
+        foreach (w in unit.WeaponsComponent.Weapons)
+            if (!w.IsMelee) set.Add(w);
+        return SelectMaxRangeWeapon(set);
+
+    ⚠ A NE PAS confondre avec la surcharge a CINQ arguments
+    `FindRangedWeapon(unit, unitPosition, target, distance)`, qui filtre en plus par
+    `distance <= Range + rangeStatBonus` et peut basculer sur `SelectBestDamageWeapon`. Celle-ci
+    n'a AUCUNE porte de distance et AUCUNE cible : elle rend l'arme de plus longue portee, point.
+
+    SUBSTRAT : le natif itere le `WeaponsComponent` de l'ECS ; la face DECISION n'a que le kit
+    gameconfig (`GC.unit(visualId).weapons`), exactement la source de
+    `get_attack_weapon_for_default_normal_attack`. Unite inconnue / sans arme distance -> `None`,
+    qui mirroir le `null` natif (set vide -> `SelectMaxRangeWeapon` rend `null`)."""
+    weapons = (GC.unit(visual_id or "") or {}).get("weapons") or []
+    return select_max_range_weapon([w for w in weapons if not weapon_is_melee(w)])
