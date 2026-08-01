@@ -134,6 +134,11 @@ from ..loki.teleporting_in import (                                       # #448
     TITANHAMMER_SQUAD_TELEPORTING_IN, TITANHAMMER_SQUAD_MOVING)
 from ..loki.ramming_speed import (RammingSpeedExtraExplodeRemove,          # case-389-r1 (1098)
                                   RAMMING_SPEED_EXTRA_EXPLODE)
+from ..loki.terminator_armour import (TerminatorArmourDeactivateOnAttack,   # #432 (trait, 44 porteurs)
+                                      TerminatorArmourActivateOnTurnStart,
+                                      TerminatorArmourDeactivateOnTurnEnd,
+                                      TerminatorArmourActivateOnEffectAdded,
+                                      TERMINATOR_ARMOUR_REDUCE_DMG)
 from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
                                         EarlyWarningOverrideHitReductionPurge,
                                         EWO_REACTIVATE_OVERWATCH)
@@ -581,6 +586,23 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     WIREWEAVE_NET_COUNTER_ATTACK: [WireweaveNetCounterAttack,                  # On(0x2a = PreUnitAbility) -> la RIPOSTE
                                    WireweaveNetDeactivateOnOwnerTurnStart,     # On(0x12) -> DeactivateEffect
                                    WireweaveNetActivateOnOwnerTurnEnd],        # On(0x17) -> ActivateEffect
+    # 1147 TerminatorArmour_ReduceDmg (trait `TerminatorArmour`, **44 porteurs**) : la REDUCTION
+    # (-75 %, gate profil) vivait deja dans `entities/effects/loki/damage_reduction.py`, mais SANS
+    # son cycle -- donc armee en permanence, alors que l'i2 dit « the FIRST attack each turn ». Les
+    # QUATRE `Triggered()` natifs ecrivent `EffectComponent.IsActive @+0x5c` : consommation a la
+    # cloture de la 1re attaque qualifiante (`CreateTargetTrigger` -> `DeactivateEffect`), re-armement
+    # au turn-start et desarmement au turn-end (branche `ActivationFrequency == 1 (PerTurn)` de
+    # `PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal`, `TurnsEnabled == 2 (Both)`), plus la
+    # re-activation `On(EffectAdded)` (structurellement inerte : le poseur est un
+    # `OnOwnerSpecificAbilityInit` one-shot). Cf. loki/terminator_armour.py.
+    # ⚠ Le jumeau `TerminatorArmour_Visual` (1375) n'a PAS d'entree ici, et c'est LU :
+    # `TerminatorArmour_Visual_Effect$$CreateEffectDamageMalusForDefense` retourne un
+    # `Nullable<EffectBonus>` VIDE (zeroe, aucun ctor) -- il ne reduit rien, son etat n'a aucun
+    # observable de degat.
+    TERMINATOR_ARMOUR_REDUCE_DMG: [TerminatorArmourDeactivateOnAttack,      # On(9)    -> DeactivateEffect
+                                   TerminatorArmourActivateOnTurnStart,     # On(0x12) -> ActivateEffect
+                                   TerminatorArmourDeactivateOnTurnEnd,     # On(0x17) -> DeactivateEffect
+                                   TerminatorArmourActivateOnEffectAdded],  # On(0x3e) -> ActivateEffect
     HAZE_DAMAGE_TRANSFER: [HazeOfCorruptionDamageTransferTrigger],
     CONTAMINATED_TILE: [ContaminatedTileEffect],  # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
     FIRE_TILE: [FireTileDoT],                     # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant

@@ -554,9 +554,16 @@ class _AbilityAttack:
         # VECTEUR AFTER-HIT (ability/splash) : dispatch générique — reset ActOfFaith au crit (#138) + tout
         # after-hit trigger (#140 : splash Psyker sur ability/splash psychique, chain borné par le cap).
         # `ranged` = POSITION-based (calculé dans after_hit_ability_attack, mirror IsRangedAttack).
+        # #432 : `health_damage` = `HealthDamageFromEvent()` (part SANTE seule, bouclier defalque) ;
+        # `profiles` = le SET des profils de CETTE attaque (arme + groupes bonus #179), lu par
+        # `CurrentAttackDamageProfilesContainOtherThan`.
+        _profs432 = {damage_profile} - {None}
+        _profs432 |= set((_ah or {}).get("profiles") or [])
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
                                              profile=damage_profile, ability_type=ability_type,
-                                             did_block=r["did_block"])
+                                             did_block=r["did_block"],
+                                             health_damage=int(r["total"] or 0),
+                                             profiles=_profs432)
         # `On(FinalDamage = 0x42 = 66)` — 2e (et DERNIER) call-site natif de `IdunBattle.Operations.
         # ADamageOperation$$RegisterFinalDamage` : `IdunBattle.Operations.AbilityDamageOperation$$
         # Execute`. Emis pour les DEUX familles (`is_attack_damage_op` ou non) : la fonction est sur la

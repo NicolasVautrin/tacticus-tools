@@ -261,7 +261,8 @@ def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int
 
 def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                             ranged: bool, profile: Optional[str], is_crit: bool = False,
-                            profiles=None, did_block: bool = False) -> list[dict]:
+                            profiles=None, did_block: bool = False,
+                            health_damage: Optional[int] = None) -> list[dict]:
     """Vecteur attaque NORMALE. Le natif émet DEUX events distincts (verdict RE #147) : `On(0x26)`=NormalAttack
     (per-ATTAQUE, chemin normal only) ET l'after-hit `On(8)` (message 8 de `EvaluateAfterHitTriggers`). On
     dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` = vecteur natif
@@ -297,8 +298,13 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     # `profiles` (#202-C) = set COMPLET des profils de l'attaque (arme + bonus-hits #179) — lu par
     # `CurrentAttackDamageProfilesContain` (trigger 1173 : une attaque non-Psychic au corps a corps
     # avec bonus InfernalPacts Psychic QUALIFIE — mesure live diag 202c).
+    # `health_damage` / `was_block` (#432) = `HealthDamageFromEvent()` et `WasBlock()`, les deux
+    # derniers conjoints de `IdunBattle.Entities.Effects.Loki.TerminatorArmour_ReduceDmg_Effect$$
+    # CreateTargetTrigger`. Ils ne sont threades que sur CE vecteur (la cloture d'attaque) parce que
+    # c'est le seul ou le natif dispose d'un `CurrentAttack` resolu.
     ev_at = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
-                         ranged=ranged, profile=profile, is_crit=is_crit, profiles=profiles)
+                         ranged=ranged, profile=profile, is_crit=is_crit, profiles=profiles,
+                         health_damage=health_damage, was_block=bool(did_block))
     out = out + evaluate_trigger_operation(state, ev_at)
     # `On(UnitPostAbility=0xe)` (#100) — DERNIER evenement de `ActiveAbilityOperation.ExecuteInternal`
     # (sequence `0x2b` -> execution -> `0xb` -> `0xc` -> `0xe`). Emis ICI = a la CLOTURE de l'attaque
@@ -311,7 +317,9 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
 def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
                              is_crit: bool, profile: Optional[str] = None,
                              ability_type: Optional[int] = None,
-                             did_block: bool = False) -> list[dict]:
+                             did_block: bool = False,
+                             health_damage: Optional[int] = None,
+                             profiles=None) -> list[dict]:
     """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
     porté par `ADamageOperation` donc PARTAGÉ par l'attaque normale ET les attaques d'ability : dispatche le
     message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3c = UnitBlocked)`, non écouté ici). ⚠ Ce vecteur
@@ -329,8 +337,12 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
     # `ability_type` = AbilityOrEffect du coup (payload d'event natif, lu par les gates kind type
     # DirectAbilitySelector) — threadé par la feuille `AttackWithAttackDamage` (ex. smite Psyker =
     # 0x3f5=1013 → branche 2 de LordOfTempests AddIce #35). None (callers historiques) = gates kind muets.
+    # `profiles` / `health_damage` / `was_block` (#432) : MEME payload de cloture que la voie
+    # NORMALE — le natif n'a qu'UN `FinishAttackOperation$$Execute` pour les deux familles.
     ev_aa = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
-                         ranged=ranged, profile=profile, is_crit=is_crit, ability_type=ability_type)
+                         ranged=ranged, profile=profile, is_crit=is_crit, ability_type=ability_type,
+                         profiles=profiles, health_damage=health_damage,
+                         was_block=bool(did_block))
     out = evaluate_trigger_operation(state, ev_aa)
     if did_block:                                     # `EvaluateAfterHitTriggers` : 0x3d AVANT 8
         out = out + unit_blocked_triggers(state, attacker_id, target_id, ranged, profile)

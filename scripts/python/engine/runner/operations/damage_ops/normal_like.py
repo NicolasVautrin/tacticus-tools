@@ -199,9 +199,13 @@ class _NormalLike:
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).
         from ..triggers import after_hit_ability_attack
+        # #432 : `health_damage` = `HealthDamageFromEvent()` (part SANTE seule) ; `profiles` = le SET
+        # des profils de l'attaque (ici le seul profil d'arme -- cette voie n'a pas de groupe #179).
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
                                              profile=damage_profile, ability_type=ability_type,
-                                             did_block=r["did_block"])
+                                             did_block=r["did_block"],
+                                             health_damage=int(r["total"] or 0),
+                                             profiles={damage_profile} - {None})
         return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
                 "armor": armor, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
