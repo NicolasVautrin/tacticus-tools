@@ -473,7 +473,13 @@ export function registerViewBoard(ctx: Ctx): void {
                 // effets de tuile (LightCover=DryBush, Trench, ...) pour le moteur (docs/rl/terrain-effects.md).
                 // isTemporary = tuile temporaire (HulkDoor, tuiles posees en combat).
                 tileDefId: t.tileDefId ?? null, isTemporary: t.isTemporary ?? false,
-                isWall: t.isWall, walkable, neighbours,
+                // #403 — `IsInFogOfWar` (TileComponent @0x40). Le capteur le LISAIT deja
+                // (`match-state.ts` `tileIsInFog`, projete par `projectTile`) mais le
+                // `boardGraph` ne le PUBLIAIT pas : l'arete de vol du port ne portait donc
+                // que `!IsWall`, la ou `FlyPathfinder$$IsValidPathNode` teste
+                // `!IsInFogOfWar && !IsWall`. Degradation PERMISSIVE sur la seule TRAVERSEE
+                // (l'ARRIVEE restait gardee par `walkable`, qui inclut le volet fog).
+                isWall: t.isWall, isInFog: t.isInFog ?? false, walkable, neighbours,
                 occupantUnitId: occByTile.get(t.id) ?? null,
             };
         });

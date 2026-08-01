@@ -97,32 +97,128 @@ function declaredFields(klass: NativePointer | null): FieldRef[] {
 
 const STAT_MODIFIER_FIELDS = declaredFields(statModifierComponentClass);
 
-/** Lit le `StatModifierComponent` d'une entité-effet → {champ natif: valeur}.
- *  null si l'effet n'en porte pas (la grande majorité).
+/** Lit les champs DÉCLARÉS d'un composant porté par une entité-effet
+ *  → {champ natif: valeur}. `null` si l'entité ne porte pas ce composant.
+ *
+ *  FOYER PARTAGÉ par `readStatModifier` et `readStatOverride` — les deux canaux de
+ *  `ChangeStat` (modification part 5|9/6, override part 7/8) ont la même forme de
+ *  lecture, et le natif lui-même ne les distingue pas : `RefreshEffectsOperation`
+ *  appelle des SLOTS D'INTERFACE (`IEffect+0xe` Apply / `+0xf` Revert), pas des
+ *  méthodes de famille.
  *
  *  La LARGEUR de lecture suit le TYPE déclaré du champ : `Boolean` fait 1 octet,
  *  le lire en s32 ramasse les octets voisins et publie un nombre absurde
  *  (mesuré : `IsHidden: 1946157056` au lieu de 0/1). Enums et entiers restent en
  *  s32. C'est la raison d'être de l'énumération des champs : elle donne le type,
  *  pas seulement l'offset. */
-function readStatModifier(
+function readComponentFields(
     effEntityPtr: NativePointer,
+    componentClass: NativePointer | null,
+    fields: FieldRef[],
 ): Record<string, number> | null {
-    if (!statModifierComponentClass || STAT_MODIFIER_FIELDS.length === 0) return null;
+    if (!componentClass || fields.length === 0) return null;
+    const target = componentClass;
     let comp: NativePointer | null = null;
     forEachComponent(effEntityPtr, (c, klass) => {
-        if (comp === null && klass.equals(statModifierComponentClass)) comp = c;
+        if (comp === null && klass.equals(target)) comp = c;
     });
     if (comp === null) return null;
     const c = comp as NativePointer;
     const out: Record<string, number> = {};
-    for (const f of STAT_MODIFIER_FIELDS) {
+    for (const f of fields) {
         try {
             out[f.name] = (f.type === "Boolean" || f.type === "Byte"
                 || f.type === "SByte")
                 ? c.add(f.off).readU8()
                 : c.add(f.off).readS32();
         } catch { /* champ illisible */ }
+    }
+    return out;
+}
+
+/** Lit le `StatModifierComponent` d'une entité-effet (magnitude À LA SOURCE).
+ *  null si l'effet n'en porte pas (la grande majorité). */
+function readStatModifier(
+    effEntityPtr: NativePointer,
+): Record<string, number> | null {
+    return readComponentFields(
+        effEntityPtr, statModifierComponentClass, STAT_MODIFIER_FIELDS);
+}
+
+// --- StatOverrideComponent de l'entité-effet ---------------------------------
+// JUMEAU du bloc ci-dessus, sur l'AUTRE canal de `ChangeStat`.
+// `IdunBattle.Entities.Effects.StatOverrideEffect$$ApplyInternal` lit
+// `<effectEntity>.GetComponent<StatOverrideComponent>()` puis appelle
+// `ChangeStat(Entity(target), Position(comp+0x10, part 7 = OVERRIDE), mode 4,
+// Direct(comp+0x14), Entity(effect), 3, <this+0x480 = isModifiable>, comp+0x18)` ;
+// `RevertInternal` rejoue le MÊME appel en part 8. `comp+0x14` (amount) est écrit
+// À LA POSE par `IdunBattle.Entities.Behaviours.AddStatOverrideEffectBehaviour$$
+// StatOverrideBuilder(id, statType, amount, isHidden)` — le nœud `Direct(...)` DÉJÀ
+// ÉVALUÉ. Sans ce capteur la valeur était RE-DÉRIVÉE de gameconfig : exacte pour
+// `1109` (une constante non scalée), sans garantie ailleurs.
+//
+// MÊME mécanisme d'énumération que StatModifier, et pour la MÊME raison, mesurée :
+// la table de symboles ne porte PAS la table de champs de cette classe (colonne vide,
+// classe de 32 o). Aucun nom n'est donc deviné.
+const statOverrideComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "StatOverrideComponent");
+
+const STAT_OVERRIDE_FIELDS = declaredFields(statOverrideComponentClass);
+
+/** Lit le `StatOverrideComponent` d'une entité-effet → {champ natif: valeur}.
+ *  null si l'effet n'en porte pas. */
+function readStatOverride(
+    effEntityPtr: NativePointer,
+): Record<string, number> | null {
+    return readComponentFields(
+        effEntityPtr, statOverrideComponentClass, STAT_OVERRIDE_FIELDS);
+}
+
+// --- Liste de CIBLES matérialisée sur l'entité-EFFET (#366-r1-effect-targets) --
+// `IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` →
+// `$$AddTargetsToEffect` → `IdunBattle.Entities.Components.EffectComponent$$AddTargetId`
+// écrit la relation SUR L'ENTITÉ-EFFET (`EffectComponent+0x48`). C'est ce champ que lit
+// `IdunBattle.Entities.EntityExtensions$$IsTargetOfEffectOfType`, et que COPIE
+// `IdunBattle.Core.Services.EffectsQuery$$GetEffectsWithTargets` — elle ne ré-évalue
+// aucun sélecteur. C'est donc la SORTIE native de tout `CreateTargetSelector` d'effet,
+// jusqu'ici confrontée seulement sur ses ENTRÉES faute de canal : `readEffectsByUnit`
+// ne publiait que l'`EffectsOwnedComponent.ActiveEffectIds` du PORTEUR.
+//
+// Le NOM du champ n'est PAS deviné : la table de symboles ne porte pas la table de
+// champs d'`EffectComponent` (mesuré : colonne vide, classe de 128 o). On énumère les
+// champs DÉCLARÉS au chargement et on retient celui qui tombe à l'offset LU au
+// décompilé. Son nom natif est exporté : si une MAJ redispose la classe, on le voit.
+const EFFECT_COMPONENT_FIELDS = declaredFields(effectComponentClass);
+const TARGET_IDS_FIELD =
+    EFFECT_COMPONENT_FIELDS.find((f) => f.off === 0x48) ?? null;
+
+/** Nom natif du champ retenu pour `targetIds` (null s'il n'a pas été résolu). */
+export const EFFECT_TARGET_IDS_FIELD_NAME: string | null =
+    TARGET_IDS_FIELD ? TARGET_IDS_FIELD.name : null;
+
+/** Cibles matérialisées de l'entité-effet. MÊME forme de `List<BEntityId>` que
+ *  `EffectsOwnedComponent.ActiveEffectIds` : `_items @0x10`, `_size @0x18`, éléments
+ *  inline 4 o depuis `@0x20`.
+ *
+ *  TRI-ÉTAT VOULU — `null` = **PAS MESURÉ** (champ non résolu, liste illisible),
+ *  `[]` = mesuré et vide. Rendre `[]` dans les deux cas ferait lire « aucune cible »
+ *  là où le capteur est muet : c'est exactement le faux zéro qui a déjà coûté
+ *  (cf. `host_inputs.py`, #273). */
+function readEffectTargetIds(ecPtr: NativePointer): number[] | null {
+    if (!TARGET_IDS_FIELD) return null;
+    let list: NativePointer;
+    try { list = ecPtr.add(TARGET_IDS_FIELD.off).readPointer(); } catch { return null; }
+    if (list.isNull()) return [];          // liste non allouée = aucune cible
+    let size: number;
+    try { size = list.add(0x18).readS32(); } catch { return null; }
+    if (size < 0 || size > 256) return null;   // taille aberrante = illisible
+    if (size === 0) return [];
+    let items: NativePointer;
+    try { items = list.add(0x10).readPointer(); } catch { return null; }
+    if (items.isNull()) return null;
+    const out: number[] = [];
+    for (let i = 0; i < size; i++) {
+        try { out.push(items.add(0x20 + i * 4).readS32()); } catch { return null; }
     }
     return out;
 }
@@ -148,6 +244,13 @@ export interface EffectInfo {
     /** Champs natifs du `StatModifierComponent` porté par l'entité-effet
      *  (magnitude À LA SOURCE), ou null s'il n'en porte pas. */
     statMod: Record<string, number> | null;
+    /** Champs natifs du `StatOverrideComponent` porté par l'entité-effet
+     *  (l'AUTRE canal de `ChangeStat`, parts 7/8), ou null s'il n'en porte pas. */
+    statOverride: Record<string, number> | null;
+    /** Ids d'entité CIBLE matérialisés par le natif sur l'entité-effet
+     *  (`EffectComponent+0x48`, écrit par `EffectComponent$$AddTargetId`).
+     *  TRI-ÉTAT : `null` = PAS MESURÉ, `[]` = mesuré et vide. */
+    targetIds: number[] | null;
 }
 
 /** Decoded effect + liveness flags (IsActive/Removed) used to drop effects
@@ -180,7 +283,9 @@ function readEffect(effEntityPtr: NativePointer): Decoded | null {
     const name = (effectType !== null)
         ? (EFFECT_TYPE_NAMES[effectType] ?? null) : null;
     return { name, effectType, remaining, level, source, active, removed,
-             statMod: readStatModifier(effEntityPtr) };
+             statMod: readStatModifier(effEntityPtr),
+             statOverride: readStatOverride(effEntityPtr),
+             targetIds: readEffectTargetIds(c) };
 }
 
 // AbilityStateReference (struct inline, EffectComponent.AbilityState @0x18, dump gqfc5mff6c
@@ -273,6 +378,10 @@ function toInfo(eid: number, info: Decoded | undefined): EffectInfo {
         active: info?.active ?? true,
         removed: info?.removed ?? false,
         statMod: info?.statMod ?? null,
+        statOverride: info?.statOverride ?? null,
+        // `?? null` = PAS MESURÉ. Un effet non décodé (`info` absent) n'a PAS
+        // « zéro cible » : il n'a rien été mesuré du tout. Ne pas rabattre sur `[]`.
+        targetIds: info?.targetIds ?? null,
     };
 }
 
