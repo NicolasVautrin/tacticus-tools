@@ -421,7 +421,8 @@ CORE_STAT_FIELDS = {
 def seed_unit_stats(stats: Dict[str, Optional[int]],
                     stat_delta: Optional[Dict[str, int]],
                     stat_ids: Dict[str, int],
-                    attributed: "Optional[Dict[int, Dict[object, int]]]" = None) -> UnitStats:
+                    attributed: "Optional[Dict[int, Dict[object, int]]]" = None,
+                    overrides: "Optional[Dict[int, tuple]]" = None) -> UnitStats:
     """Construit `UnitStats` depuis `combatSnapshot` d'une unité.
 
     `stats` = {nom→Current}, `stat_delta` = {nom→(Current-Initial)} (émis seulement ≠0),
@@ -435,11 +436,21 @@ def seed_unit_stats(stats: Dict[str, Optional[int]],
     `résidu == 0` quand les effets modélisés expliquent tout le delta = **validation non-circulaire**
     (Σ magnitudes config == delta natif). Sans `attributed`, tout le delta reste opaque (`CAPTURED_SOURCE`).
 
+    `overrides` (optionnel) = `{idxStatType: (valeur, isModifiable)}` = les OVERRIDES (part 7,
+    `IdunBattle.Entities.Components.ValueOverride$$SetOverride`) posés par les effets actifs
+    (`effects.stat_overrides_by_stat`). C'est un canal SÉPARÉ du delta : `IdunBattle.Entities.
+    Components.StatComponent$$get_CurrentValue` rend `override + (isModifiable ? modTotal : 0)` et
+    IGNORE la base. Verser `d` d'un stat OVERRIDÉ dans `CAPTURED_SOURCE` laisserait donc une
+    modification FANTÔME — invisible tant que l'override est là, et qui REVIENDRAIT dès que le
+    driver (`refresh_stat_modifier_effects`) exécute le `RemoveOverride` (part 8). Le résidu se
+    mesure ici sur ce que le modèle ne reproduit PAS de `Current`, jamais sur `d`.
+
     Les stats « fill-up » (Health/4) sont seedées en `StatComponent` générique (part Current
     identique) ; le `FillUpStatComponent` spécifique (max/pourcentage) est posé au besoin (HP courant
     vit déjà dans `HealthComponent`)."""
     delta = stat_delta or {}
     attributed = attributed or {}
+    overrides = overrides or {}
     us = UnitStats()
     for name, idx in (stat_ids or {}).items():
         cur = stats.get(name)
@@ -450,9 +461,22 @@ def seed_unit_stats(stats: Dict[str, Optional[int]],
         comp = StatComponent(initial=int(cur) - d, min_value=_stat_min(idx), max_value=STAT_CLAMP_MAX.get(idx))
         for src, amt in (attributed.get(idx) or {}).items():
             comp.modification.modify(src, int(amt))
-        residual = d - comp.modification.total                    # part inexpliquée par les effets
-        if residual != 0:
-            comp.modification.modify(CAPTURED_SOURCE, residual)
+        ovr = overrides.get(idx)
+        if ovr is None:
+            residual = d - comp.modification.total                # part inexpliquée par les effets
+            if residual != 0:
+                comp.modification.modify(CAPTURED_SOURCE, residual)
+        else:
+            value, modifiable = ovr
+            comp.apply_override(int(value), bool(modifiable))
+            # Résidu = ce que le modèle ne reproduit pas de `Current` (et NON `d`, cf. ci-dessus).
+            residual = int(cur) - comp.get_current_value()
+            if residual != 0 and modifiable:
+                comp.modification.modify(CAPTURED_SOURCE, residual)
+            # `isModifiable == 0` : l'override DOMINE `get_CurrentValue`, aucune modification ne
+            # peut absorber un résidu. Un résidu non nul y est donc IRRÉDUCTIBLE — c'est le signe
+            # que la valeur re-dérivée est FAUSSE, et il doit rester VISIBLE (`get_stat(Current)`
+            # ≠ Current) plutôt que d'être maquillé en modification fantôme.
         us.set_component(idx, comp)
     return us
 

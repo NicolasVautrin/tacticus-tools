@@ -226,9 +226,16 @@ class UnitContext:
         # Si `effects` (BaseEffect matérialisés de l'unité) est fourni, la modification est ATTRIBUÉE
         # par source (stat-mods déclarés) + résidu opaque ; sinon tout le delta reste opaque.
         attributed = None
+        # Canal OVERRIDE (part 7, `StatOverrideEffect`) — SÉPARÉ de l'attribution additive : le
+        # natif écrit dans `ValueOverride` (`StatComponent+0x20`), pas dans la `ValueModification`,
+        # et `get_CurrentValue` ignore alors la base. Indépendant du `ctx` (la valeur est une donnée
+        # de l'entité-effet, cf. `BaseEffect.applied_stat_overrides`) → calculé UNE fois et passé
+        # aux DEUX passes de seed ci-dessous.
+        _overrides = None
         if stat_ids and effects:
-            from .effects import stat_modifications_by_source
+            from .effects import stat_modifications_by_source, stat_overrides_by_stat
             attributed = stat_modifications_by_source(effects)
+            _overrides = stat_overrides_by_stat(effects)
         # #60 : attribution du malus Swarm_HitReduction (effet 0x3fd=1021, trait Swarm) — la part
         # `-min(n-1, membres morts)` du delta EXTRA_HITS est attribuée sous la CLÉ PARTAGÉE avec le
         # refresh runner (AddOrUpdate = replace par-source), sinon elle resterait dans CAPTURED_SOURCE
@@ -263,7 +270,7 @@ class UnitContext:
             l'ATTRIBUTION change. `seed_unit_stats` calcule `Initial = Current − delta` (indépendant de
             l'attribution) puis ventile le delta entre les sources fournies, le reste en résidu opaque
             ⇒ `get_stat(Current)` reproduit Current dans TOUS les cas."""
-            us = (seed_unit_stats(s, snap_unit.get("statDelta"), stat_ids, attr)
+            us = (seed_unit_stats(s, snap_unit.get("statDelta"), stat_ids, attr, _overrides)
                   if stat_ids else UnitStats())
             for _idx, _val in _core_snapshot.items():
                 us.ensure_seeded(_idx, _val)

@@ -127,7 +127,7 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, Contam
 from .destroy_the_witch import (DestroyTheWitchExtraMoveEffect,        # passif templHelbrecht (1091)
                                 DestroyTheWitchExtraDamageEffect)
 from .reinforced_hive_node import (                                    # passif tyranSmnWarrior (1113)
-    ReinforcedHiveNodeExtraArmorEffect)
+    ReinforcedHiveNodeExtraArmorEffect, ReinforcedHiveNodeExtraBlockEffect)
 from .cursed_plague_bell import CursedPlagueBellExtraMoveEffect        # aura deathBlightbringer (1071)
 from .relentless_march import RelentlessMarchExtraMoveEffect           # passif necroWarden (1004)
 from .my_will_be_done_overlord import (                                # passif necroOverlord (1556)
@@ -243,8 +243,9 @@ __all__ = [
     "TunnelingHorrorPendingSummonEffect",
     # destroy_the_witch (passif templHelbrecht 1091 : +1 MOVEMENT gate Psyker ennemi + aura melee)
     "DestroyTheWitchExtraMoveEffect", "DestroyTheWitchExtraDamageEffect",
-    # reinforced_hive_node (passif tyranSmnWarrior 1113 : +100 % FixedArmor un round sur deux)
-    "ReinforcedHiveNodeExtraArmorEffect",
+    # reinforced_hive_node (passif tyranSmnWarrior 1113, un round sur deux : +100 % FixedArmor
+    # [additif part 5|9] et BlockChance FORCEE a 100 [override part 7])
+    "ReinforcedHiveNodeExtraArmorEffect", "ReinforcedHiveNodeExtraBlockEffect",
     # cursed_plague_bell (aura deathBlightbringer 1071 : +1 MOVEMENT aux amis Chaos, 1 tour)
     "CursedPlagueBellExtraMoveEffect",
     # relentless_march (passif necroWarden 1004 : +1 MOVEMENT aux allies adjacents non-Stationary)

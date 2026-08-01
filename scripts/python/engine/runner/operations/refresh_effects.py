@@ -27,9 +27,12 @@ sous 35 % PV (GROUND TRUTH LIVE #100), et redescend s'il repasse au-dessus.
 ## Perimetre (blast radius NUL par construction)
 
 `refresh_stat_modifier_effects` ne touche QUE les effets qui :
-  1. modifient au moins un stat (`effect_stat_modifications` -- le point de verite UNIQUE R16, qui
-     couvre les DEUX formes natives : la base `get_stat_modification_*` ET l'override
-     `applied_stat_mods(ctx)` a magnitude contextuelle), ET
+  1. modifient au moins un stat -- soit par le canal ADDITIF (`effect_stat_modifications`, le point
+     de verite UNIQUE R16 : la base `get_stat_modification_*` ET l'override `applied_stat_mods(ctx)`
+     a magnitude contextuelle), soit par le canal OVERRIDE (`effect_stat_overrides`, part 7/8 --
+     `IdunBattle.Entities.Effects.StatOverrideEffect`). Les DEUX sont pilotes par le MEME couple de
+     slots d'interface (`IEffect+0xe`/`+0xf` = `BaseEffect$$Apply`/`$$Revert`), donc par le MEME
+     verdict `ShouldBeActive` : le driver les traite ensemble, ET
   2. n'ont AUCUNE cle de POSE (`stat_mod_source is None`) -- c'est-a-dire qu'aucun chemin OFFLINE
      (`AddEffectOperation._apply_stat_mods`, feuille `AddStaticStatModifierEffect`) n'a deja pose
      leur contribution sous SA propre cle. Ceux-la sont poses/revertes par leur poseur et par la
@@ -79,7 +82,8 @@ from typing import Optional
 from ..state import State
 from ..components import (StatsComponent, enemy_psykers_alive as _enemy_psykers_alive,
                           unit_state_for_effects)
-from ...entities.effects import effect_stat_mod_key, effect_stat_modifications
+from ...entities.effects import (effect_stat_mod_key, effect_stat_modifications,
+                                 effect_stat_overrides)
 
 # `_enemy_psykers_alive` / `_unit_state` : le CORPS vit dans `runner/components.py` (`enemy_psykers_alive`
 # / `unit_state_for_effects`) depuis #208 — foyer UNIQUE du contexte d'évaluation des
@@ -113,12 +117,14 @@ def _active_condition_is_ported(effect) -> bool:
 
 
 def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -> list:
-    """Mirror `RefreshEffectsOperation` (volet stat-modifier) : pour chaque effet DECLARATIF a stat-mod
-    porte par `unit_id` (ou par TOUTES les unites si None), applique sa modification si son
-    `ActiveCondition` est vraie, la reverte sinon. Renvoie la liste des `(unit, stat, amount|None)`
-    effectivement (re)ecrits — diagnostic.
+    """Mirror `RefreshEffectsOperation` (volet stat) : pour chaque effet DECLARATIF a stat porte par
+    `unit_id` (ou par TOUTES les unites si None), applique sa contribution si son `ActiveCondition`
+    est vraie, la reverte sinon — sur les DEUX canaux natifs, l'ADDITIF (part 5|9 / part 6) et
+    l'OVERRIDE (part 7 / part 8). Renvoie la liste des `(unit, stat, valeur|None)` effectivement
+    (re)ecrits — diagnostic (`None` = revert/retrait).
 
-    Idempotent : meme cle de source que l'attribution du seed + `Modify` = replace par-source."""
+    Idempotent : meme cle de source que l'attribution du seed + `Modify` = replace par-source pour
+    l'additif ; `SetOverride` ECRASE l'unique slot `ValueOverride` du stat pour l'override."""
     out: list = []
     if state.effects is None:
         return out
@@ -194,6 +200,27 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -
                 active = cond
             else:
                 active = bool(e.active) and cond
+            # ── canal OVERRIDE (`StatOverrideEffect`, parts 7/8), SOUS LE MEME VERDICT `active` ──
+            # `IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` ne connait PAS la
+            # FAMILLE de l'effet : `ApplyEffectsForTargets` appelle le slot d'interface `IEffect+0xe`
+            # (= `IdunBattle.Entities.Effects.BaseEffect$$Apply` -> `<Effect>.ApplyInternal`) et
+            # `RevertEffectsForTargets` le slot `+0xf` (= `...$$Revert` -> `<Effect>.RevertInternal`).
+            # Pour un `AStatModifierEffect` cela donne le couple additif ci-dessous ; pour un
+            # `IdunBattle.Entities.Effects.StatOverrideEffect` cela donne
+            # `ApplyInternal` = `ChangeStat(Position(stat, part 7), Direct(<comp+0x14>))` ->
+            # `ValueOverride.SetOverride`, et `RevertInternal` = `Position(stat, part 8)` ->
+            # `RemoveOverride`. Le driver couvre donc les DEUX canaux, et c'est la MEME condition
+            # qui les pilote (`ShouldBeActive` est evaluee UNE fois par effet, avant `UpdateEffect
+            # Targets`). Premier porteur : `ReinforcedHiveNode_ExtraBlock` (1109, #366-r1).
+            # `SetOverride` ECRASE (un seul slot `ValueOverride` par stat) -> re-appliquer la meme
+            # valeur est un NO-OP exact, comme `Modify` pour l'additif.
+            for _st, _val, _mod in effect_stat_overrides(e):
+                if active:
+                    us.set_stat_override(int(_st), int(_val), bool(_mod))
+                    out.append((int(uid), int(_st), int(_val)))
+                else:
+                    us.remove_stat_override(int(_st))
+                    out.append((int(uid), int(_st), None))
             # `GetStatModification()` — point de verite UNIQUE des deux formes natives (R16).
             mods = effect_stat_modifications(e, ctx)
             stats = {int(st) for st, _amt in mods}
