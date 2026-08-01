@@ -21,6 +21,11 @@ CE QUE CE TEST GARDE -- quatre choses :
      SUMMONER attaque LA MEME cible marquee depuis LA MEME tuile et ne porte PAS 1120 : la face
      ATTACK doit rendre 0 pour lui. C'est la garde qui attrape un port ayant mis la condition dans
      le composite, ou qui lirait l'etat de la cible sans consulter le kit de l'attaquant.
+  5. **LE TERME CHANGE UN RESULTAT OBSERVABLE** (`test_savior_protocols_term_flips_target_choice`,
+     second runner) -- la cible TEMOIN recoit peu de PV, donc une utilite de degat de BASE plus
+     haute que celle de la marquee. Le CHOIX DE CIBLE (argmax d'utilite de paire) bascule alors sur
+     le seul terme 1120 : natif et port retiennent la marquee, le port SANS le playbook retient
+     l'autre. Sans ce regime, tout le cas ne prouverait qu'un accord de SCALAIRE.
 
 Le montage EXIGE les deux regimes ; s'il ne les obtient pas, il ECHOUE, il ne skippe pas (#268).
 
@@ -50,6 +55,18 @@ def sp_case(live_session, rpc, build_runner):
     `MontageError` devient un ECHEC, jamais un skip."""
     try:
         rid = build_runner(P443.SEED, P443.BUILD_ARGS)["rid"]
+        return P443._stage(live_session, rpc, rid)
+    except P443.MontageError as e:
+        pytest.fail(str(e), pytrace=False)
+
+
+@pytest.fixture(scope="module")
+def sp_flip_case(live_session, rpc, build_runner):
+    """Le MEME montage, mais la cible TEMOIN calee a `FLIP_HP` PV : sa base d'utilite passe
+    au-dessus de celle de la marquee et SOUS le poids 1120, donc le choix de cible ne tient plus
+    qu'au terme porte."""
+    try:
+        rid = build_runner(P443.SEED, P443.build_args(flip_hp=P443.FLIP_HP))["rid"]
         return P443._stage(live_session, rpc, rid)
     except P443.MontageError as e:
         pytest.fail(str(e), pytrace=False)
@@ -101,3 +118,27 @@ def test_savior_protocols_term_belongs_to_carrier(sp_case):
         assert abs(got - want) < EPS, (
             f"la face ATTACK isolee rend {got} pour {key[0]} -> {key[1]} alors qu'elle doit rendre "
             f"{want} (termes complets : {terms})")
+
+
+def test_savior_protocols_term_flips_target_choice(sp_flip_case, rpc):
+    """(5) RESULTAT OBSERVABLE : dans le regime d'inversion, le CHOIX DE CIBLE du port suit le
+    natif GRACE au terme 1120 -- et le port qui en est prive choisit l'AUTRE cible.
+
+    La garde exige les trois faits ensemble : la fenetre est bien montee (la temoin bat la marquee
+    SANS le terme), natif et port retiennent la marquee, le port mute retient la temoin. Si la
+    fenetre n'est pas montee, le test ECHOUE -- il ne se contente pas d'un accord vide."""
+    rows = P443.measure(rpc, sp_flip_case)
+    by = {r["target"]: r for r in rows}
+    marked, plain = by[P443.TGT_MARKED], by[P443.TGT_PLAIN]
+    assert plain["port_muted"] > marked["port_muted"], (
+        f"fenetre d'inversion NON MONTEE : sans le terme, la temoin ({plain['port_muted']}) ne bat "
+        f"pas la marquee ({marked['port_muted']}) -- le regime ne discriminerait aucun choix")
+    assert P443.argmax_of(rows, "native") == P443.TGT_MARKED, (
+        f"l'oracle NATIF ne retient pas la cible marquee : "
+        f"{[(r['target'], r['native']) for r in rows]}")
+    assert P443.argmax_of(rows, "port") == P443.TGT_MARKED, (
+        f"le port ne suit pas le choix de cible natif : "
+        f"{[(r['target'], r['port']) for r in rows]}")
+    assert P443.argmax_of(rows, "port_muted") == P443.TGT_PLAIN, (
+        f"sans le playbook 1120, le port devrait se tromper de cible : "
+        f"{[(r['target'], r['port_muted']) for r in rows]}")

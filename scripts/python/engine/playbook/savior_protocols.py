@@ -12,8 +12,10 @@ AggressiveOnslaught, SuppressiveFire, Lakrimae et BarbedOvipositor
 `IdunBattle.AI.Playbook.Loki.SaviorProtocolsPlaybook$$CalculateAttackUtilityInStepsInternal` monte la
 SM `d__5` avec **TROIS** champs -- case @+0x20, `this` (le playbook) @+0x28, delegue scorer @+0x30 --
 la ou `BarbedOvipositor$$CalculateAttackUtilityInStepsInternal` n'en ecrit que DEUX (case @+0x20,
-delegue @+0x28) : son corps n'a pas besoin du playbook, celui-ci si (il y lit `state`). La disposition
-se LIT dans la methode-usine, elle ne se transpose pas d'un voisin. Corps :
+delegue @+0x28) : son corps n'a pas besoin du playbook, celui-ci si (il y lit `state`). Et la face
+MOVE de CETTE MEME classe les dispose encore autrement (`d__4` : playbook @+0x20, case @+0x28,
+delegue @+0x30). La disposition se LIT dans la methode-usine ; la transposer d'un voisin -- fut-ce
+l'autre face de la meme classe -- donne le mauvais champ. Corps :
 `SaviorProtocolsPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__5$$MoveNext` -- UN SEUL
 `yield`, deux sorties :
 
@@ -58,9 +60,10 @@ Quatre lectures qui ne se devinent pas -- et aucune ne se generalise depuis un v
 ## La face MOVE : corps PROPRE et NON trivial -- RESIDU OUVERT, pas un constant
 
 `SaviorProtocolsPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__4$$MoveNext` est
-decompile LU et il est bien vivant (pour chaque unite dans un rayon autour de `case.MovementTile` :
-`SaviorProtocolsAbility$$TargetIsValidTrigger` -> `+AdjacentTauFriend`, puis
-`UnitExtensions$$GetParent(case.unit, state) == unite` -> `+AdjacentTauParent`). Le playbook
+decompile LU et il est bien vivant : il itere une collection d'unites obtenue d'un slot d'interface
+(`0x7a`) appele avec `case.MovementTile`, et verse par unite `+AdjacentTauFriend` si
+`SaviorProtocolsAbility$$TargetIsValidTrigger` passe, puis `+AdjacentTauParent` si
+`UnitExtensions$$GetParent(case.unit, state)` EST cette unite. Le playbook
 surcharge EN PLUS `SaviorProtocolsPlaybook$$FilterMovementTiles` (slot 1 d'`IPlaybook`, non porte
 globalement -- cf. `case-r1b`) et delegue au meme `TargetIsValidTrigger`. Ce n'est donc PAS le
 `yield Fix64(0)` constant de `Lakrimae`/`BarbedOvipositor` : c'est un item a part entiere (residu

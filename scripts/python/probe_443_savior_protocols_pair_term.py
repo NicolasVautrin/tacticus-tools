@@ -75,17 +75,31 @@ MARKERLIGHT = int(EffectType.Markerlight)                    # 1122
 KEY_MARKED = "SAVIORPROTOCOLS_MarkedTarget"
 EPS = 1e-4                      # Fix64 natif contre float du port
 HP_TARGET = "40000"             # les cibles doivent SURVIVRE au tir qui monte le montage
+# PV de la cible TEMOIN dans le regime d'INVERSION D'ARGMAX : assez bas pour que son utilite de
+# degat de BASE depasse celle de la marquee, assez haut pour rester SOUS le poids 1120 -- la
+# fenetre MESUREE a `MC1_67`/41504 est [18.06 ; 78.06[, et 4000 PV y place le temoin a 69.57.
+FLIP_HP = 4000
 
 BUILD_ARGS = ["--board", BOARD, "--p-units", SUMMONER, "--a-units", ",".join(FOES),
               "--hp-target", HP_TARGET]
 
 
-def build_args(board: str = BOARD) -> list[str]:
+def build_args(board: str = BOARD, flip_hp: int | None = None) -> list[str]:
     """Les args de build pour un board donne -- le montage n'est PAS board-specifique (il exige
     seulement une tuile centrale avec >= 2 tuiles a distance 3), et c'est ce que la generalisation
-    sur un second couple (board, seed) verifie."""
-    return ["--board", board, "--p-units", SUMMONER, "--a-units", ",".join(FOES),
+    sur un second couple (board, seed) verifie.
+
+    `flip_hp` monte le regime d'INVERSION D'ARGMAX : la cible TEMOIN (non marquee) recoit peu de PV,
+    donc une utilite de degat de BASE plus haute que celle de la marquee. Le choix de cible bascule
+    alors sur le seul terme 1120 -- c'est le scenario ou le comportement porte CHANGE un resultat
+    OBSERVABLE, pas seulement un scalaire. Les DEUX champs sont obligatoires (`RemainingHealth` est
+    le PV COURANT, celui que lit la prediction ; `Health` seul NE MORD PAS -- mesure #438)."""
+    args = ["--board", board, "--p-units", SUMMONER, "--a-units", ",".join(FOES),
             "--hp-target", HP_TARGET]
+    if flip_hp:
+        args += ["--unit-stat",
+                 f"{TGT_PLAIN}:Health={int(flip_hp)},RemainingHealth={int(flip_hp)}"]
+    return args
 
 
 class MontageError(RuntimeError):
@@ -255,6 +269,13 @@ def leaf_terms(case: dict) -> dict:
     return out
 
 
+def argmax_of(rows: list[dict], field: str) -> str:
+    """La cible que ce classement retient -- l'argmax d'utilite de paire, c.-a-d. le CHOIX DE CIBLE
+    (meme foyer que le trou mesure par #415 : « c'est ce trou qui faisait diverger le choix de
+    CIBLE de l'attaque normale »)."""
+    return max(rows, key=lambda r: r[field])["target"]
+
+
 def measure(rpc, case: dict) -> list[dict]:
     """Une ligne par cible : natif, port, et port SANS le playbook 1120 au registre."""
     import engine.playbook.psyker as PSY
@@ -295,6 +316,8 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="ne pas disposer le runner en sortie")
     ap.add_argument("--board", default=BOARD, help="board de mesure (generalisation)")
     ap.add_argument("--seed", default=SEED, help="seed de build (generalisation)")
+    ap.add_argument("--flip-hp", type=int, default=None,
+                    help=f"PV de {TGT_PLAIN} -- regime d'INVERSION D'ARGMAX (cf. build_args)")
     args = ap.parse_args()
 
     from rl_collect_batch import _resolve_session, _rpc
@@ -304,13 +327,14 @@ def main() -> int:
         r = _rpc(sid, method, [body] if body is not None else [], timeout=timeout)
         return r["result"] if isinstance(r, dict) and "result" in r else r
 
-    rid = _build(args.state_file, build_args(args.board), args.seed)
+    rid = _build(args.state_file, build_args(args.board, args.flip_hp), args.seed)
     try:
         case = _stage(sid, rpc, rid)
-        print(f"runner {rid} | board {args.board} seed {args.seed} | {DRONE} u{case['drone']} "
-              f"@{case['tile']} (invoque par {SUMMONER} u{case['summoner']}) | "
-              f"poids {KEY_MARKED}={case['w']}")
-        for row in measure(rpc, case):
+        print(f"runner {rid} | board {args.board} seed {args.seed} flip_hp={args.flip_hp} | "
+              f"{DRONE} u{case['drone']} @{case['tile']} (invoque par {SUMMONER} "
+              f"u{case['summoner']}) | poids {KEY_MARKED}={case['w']}")
+        rows = measure(rpc, case)
+        for row in rows:
             d = row["port"] - row["native"]
             dm = row["native"] - row["port_muted"]
             print(f"  {row['target']:<16} marked={str(row['marked']):<5} @{row['tile']} "
@@ -319,6 +343,10 @@ def main() -> int:
         print("  face ATTACK ISOLEE (foyer triggered_abilities_attack_utility) :")
         for (who, vis), v in sorted(leaf_terms(case).items()):
             print(f"    {who:<10} -> {vis:<16} {v:.6f}")
+        print("  CHOIX DE CIBLE (argmax d'utilite de paire) : natif=%s port=%s port_mute=%s%s" % (
+            argmax_of(rows, "native"), argmax_of(rows, "port"), argmax_of(rows, "port_muted"),
+            "   <-- INVERSION : le terme 1120 change le resultat OBSERVABLE"
+            if argmax_of(rows, "port") != argmax_of(rows, "port_muted") else ""))
     finally:
         if not args.keep:
             rpc("disposeRunner", {"runnerId": rid}, 30)
