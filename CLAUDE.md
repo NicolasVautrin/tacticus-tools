@@ -266,6 +266,12 @@ elle ne **définit** pas la banque.
   joué d'un bloc il DOUBLAIT le mur (145 → 299 s), éclaté il disparaît sous lui.
   Le critère d'admission n'est jamais le coût absolu, mais le **coût marginal en parallèle** et **ce
   que le cliquet est seul à voir**. ⚠ Chiffres à re-dériver, pas à citer.
+- **Un cliquet ne balaie QUE son propre checkout** (#434). `probe_283` remontait à la racine sans
+  exclure `.claude/worktrees/` : lancé depuis l'arbre principal il lisait — et **rapportait** — le
+  code en cours des autres agents (89 % des lignes de `mirror` et de `tables`, mesuré le
+  2026-08-01 à 8 worktrees), donc un rouge d'agent attribué à l'arbre principal. Mur 428,5 → ~157 s.
+  Le filtre porte sur le chemin **relatif** au dépôt : c'est ce qui l'empêche de s'auto-exclure
+  quand il tourne DANS un worktree. Détail : `docs/rl/case-434-perimetre-des-cliquets.md`.
 - Détail des arbitrages, contre-épreuves et résidus : `docs/rl/case-430-banque-de-cliquets.md`.
 
 ## Ne jamais

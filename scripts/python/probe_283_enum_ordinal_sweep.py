@@ -61,6 +61,7 @@ from __future__ import annotations
 import argparse
 import ast
 import io
+import os
 import re
 import sys
 import token as T
@@ -120,6 +121,30 @@ INFO_PREFIXES = ("hooks-legacy/",)
 # piege que l'exclusion par sous-chaine `engine` mesuree en #281.
 _SKIP_PARTS = (".git", "node_modules", "logs", "sources_win", "dist", ".venv")
 
+# ... et c'est CE MEME relatif qui rend correcte, DANS LES DEUX SENS, l'exclusion des
+# worktrees IMBRIQUES (#434). Depuis l'arbre principal, `.claude/worktrees/agent-<id>/` est un
+# AUTRE checkout du depot : hors perimetre. Depuis un worktree, `REPO` EST ce checkout, donc le
+# relatif ne porte pas ce prefixe et le probe ne s'auto-exclut pas. Exclu par CHEMIN COMPLET,
+# jamais par le segment `worktrees` seul, pour la meme raison.
+#
+# Mesure du 2026-08-01, arbre principal a 8 worktrees vivants : 13 501 `.py` dont 11 702 chez
+# eux (87 %) et 279 dans `node_modules` -- vrai perimetre 1 514 ; 3 352 `.ts`/`.js` dont 2 296
+# chez eux. Les deux SEULES etapes qui balayent la RACINE (`mirror`, `tables`) parsaient donc
+# ~9x trop, et leur cout croissait avec le nombre d'agents en vol : elles TENAIENT le mur de la
+# banque depuis l'arbre principal (427,2 s et 410,1 s pour un mur de 428,5 s), alors que la
+# banque ENTIERE vaut 91,3 s depuis un worktree (qui, lui, n'imbrique aucun autre checkout).
+#
+# Le trou n'etait pas qu'un cout, et c'est le point principal : un cliquet lance depuis l'arbre
+# principal LISAIT le code en cours des autres agents. `logs/ratchets/probe_283_mirror.log` du
+# 2026-08-01 19:42 porte 16 lignes de rapport sur 29 sous `.claude/worktrees/` (24 sur 30 pour
+# `tables`). Elles etaient vertes ce jour-la ; un agent qui edite SON `event_trigger_type.py`
+# aurait fait rougir la banque de l'arbre principal pour une mutation qui n'y est pas.
+_SKIP_RELS = (".claude/worktrees",)
+
+# Suffixes reellement balayes. La liste est FIXE parce que le cache ci-dessous range par
+# suffixe : y ajouter une extension sans l'ajouter ici rendrait une liste VIDE, pas une erreur.
+_SUFFIXES = (".py", ".ts", ".js")
+
 # Builds ARCHIVES, resolus UNE seule fois : `archived_builds()` fait de l'I/O disque.
 _ARCHIVES = tuple(archived_builds())
 
@@ -130,7 +155,44 @@ def _ignore(p: Path) -> "str | None":
         rel = p.relative_to(REPO).as_posix()
     except ValueError:
         return None
-    return None if any(seg in _SKIP_PARTS for seg in rel.split("/")) else rel
+    if any(seg in _SKIP_PARTS for seg in rel.split("/")):
+        return None
+    return None if any(rel == r or rel.startswith(r + "/") for r in _SKIP_RELS) else rel
+
+
+# {racine: {suffixe: [chemins tries]}} -- keye sur `REPO` et non global, pour qu'un appelant
+# qui repointe la racine (bench, contre-epreuve) ne relise pas le cache de l'autre arbre.
+_FICHIERS: dict = {}
+
+
+def _fichiers_du_depot(suffixe: str) -> list:
+    """Fichiers `*<suffixe>` de TOUT le depot -- MEME liste et MEME ordre que
+    `sorted(REPO.rglob("*" + suffixe))`, mais elagues A LA SOURCE.
+
+    `rglob` descend PARTOUT puis on filtre : la traversee de `.git`, de `node_modules` et des
+    worktrees imbriques etait payee integralement, et leurs fichiers etaient lus et parses.
+    `os.walk` laisse elaguer `dirnames` EN PLACE -- on n'y entre jamais. Bonus non recherche :
+    il ne suit pas les points de reparse (junction), la ou `rglob` y descend.
+
+    La comparaison de suffixe est INSENSIBLE A LA CASSE, comme `Path.glob` sous Windows :
+    `rglob("*.py")` y ramene aussi `Foo.PY`. Un `endswith` strict retirerait ce fichier du
+    perimetre en silence."""
+    par_suffixe = _FICHIERS.get(REPO)
+    if par_suffixe is None:
+        par_suffixe = {s: [] for s in _SUFFIXES}
+        for dirpath, dirnames, filenames in os.walk(REPO):
+            d = Path(dirpath)
+            dirnames[:] = [n for n in dirnames if _ignore(d / n) is not None]
+            for n in filenames:
+                bas = n.lower()
+                for s in _SUFFIXES:
+                    if bas.endswith(s):
+                        par_suffixe[s].append(d / n)
+                        break
+        for v in par_suffixe.values():
+            v.sort()
+        _FICHIERS[REPO] = par_suffixe
+    return par_suffixe[suffixe]
 
 
 # ------------------------------------------------------------------------------------------
@@ -258,7 +320,7 @@ def step_mirror(verbose: bool) -> list:
     cur = current_build()
     refs = {court: _by_name(enum_map(cur, fq)) for court, fq in ENUMS.items()}
     bad, vus = [], []
-    for p in sorted(REPO.rglob("*.py")):
+    for p in _fichiers_du_depot(".py"):
         rel = _ignore(p)
         if rel is None:
             continue
@@ -665,8 +727,8 @@ def step_tables(verbose: bool) -> list:
             for o, nom, attendu in div:
                 fails.append((rel, ligne, nom_tab, enum, o, nom, attendu))
 
-    for pat in ("*.py", "*.ts", "*.js"):
-        for p in sorted(REPO.rglob(pat)):
+    for suf in _SUFFIXES:
+        for p in _fichiers_du_depot(suf):
             rel = _ignore(p)
             if rel is None or rel in ALLOWLIST or rel.startswith(INFO_PREFIXES):
                 continue
