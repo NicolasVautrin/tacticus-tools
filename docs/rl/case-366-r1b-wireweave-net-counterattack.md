@@ -220,6 +220,8 @@ détecteur, sauf M11 qui vise le foyer partagé) :
 | M9 `On(TurnEnd) -> Activate` retiré | `[0]` registre incomplet |
 | M10 malus DÉCISION rendu sans filet armé | `[9]` |
 | **M11 le correctif de `refresh_stat_modifier_effects` annulé** | **`[2b]` `active après = True`, riposte fantôme de 1508 au 2ᵉ coup** |
+| **M12 discriminant re-confondu avec `active_condition_ported`** | **3 tests de `test_refresh_active_flag_discriminant_offline`**, dont le régime « seedé inactif qui se rallume » |
+| **M13 correctif annulé (variante offline)** | `test_unported_condition_is_never_relit_by_the_refresh` **+** l'étape `[2b]` |
 | (M5 — retirer l'entrée de seed — est devenue SANS OBJET : le probe porte désormais le cliquet INVERSE, cf. §7ter) | |
 
 **Cliquets** : `probe_181` (98/98, 0 manquante), `probe_120 --step 0` (98 abilities, 0 littéral
@@ -250,16 +252,42 @@ Le natif ne fait pas ça. `IdunBattle.Operations.RefreshEffectsOperation$$Should
     if (!effect.ShouldRefreshForTrigger(trigger))   return effectComponent.<+0x5c>;   // LE FLAG COURANT
     return effect.ShouldBeActive(entities);                                           // CreateActiveCondition
 
-⇒ **quand la condition n'est pas ré-évaluée, le natif RENVOIE le flag courant.** Le port n'a pas de
-`ShouldRefreshForTrigger`, et sa `is_active()` de base rend `True` : une **valeur par défaut**, pas
-une lecture. L'écrire par-dessus une mesure est exactement l'anti-pattern « inventer au lieu de
-mirrorer ». Le correctif n'écrit le flag que pour les classes dont la condition est RÉELLEMENT
-portée (`active_condition_ported`, le même discriminant qu'`EffectsState.active_effects`, case-322)
-et CONJUGUE sinon. Rayon d'explosion mesuré : 126 offline + 20 live voisins verts.
+⇒ le natif a **DEUX régimes** : ré-évaluer, ou **renvoyer le flag courant**. Le port n'a ni
+`RefreshEffectTrigger` ni `ShouldRefreshForTrigger` : il ne peut pas mirrorer le CHOIX du régime. Il
+décide donc sur ce qu'il **peut lire** — la classe porte-t-elle vraiment sa `CreateActiveCondition` ?
 
-Le cas est devenu une garde permanente : **étape `[2b]` du probe offline**, qui rejoue les deux coups
-par le **pipeline complet** (`AttackUnitMessage`) et non par le seul vecteur `On(0x2a)` — c'est
-précisément l'écart entre les deux qui cachait le bug.
+| la classe SURCHARGE `is_active` | le port a | ce qu'il fait |
+|---|---|---|
+| OUI — **13** classes sur 145 | une LECTURE du natif | ré-évalue et **écrit** le flag (= comportement d'avant ce cas) |
+| NON — les 132 autres | rien : `BaseEffect.is_active` rend `True` **inconditionnellement**, une valeur PAR DÉFAUT | **conserve** le flag et conjugue |
+
+Les deux branches sont ancrées sur une mesure LIVE : `test_contagions_lifecycle_live` (aura qui
+grandit → il FAUT ré-évaluer) et `test_wireweave_net_counter_is_once_per_enemy_turn` (la riposte 1111
+ne doit PAS se ré-armer → il FAUT conserver).
+
+**⚠ LE PREMIER DISCRIMINANT ÉTAIT FAUX, et il a fallu qu'un tiers rougisse pour le voir.** J'avais
+pris `BaseEffect.active_condition_ported`. Ce drapeau répond à une **autre question** — « le flag
+CAPTÉ au seed est-il PÉRIMÉ parce que la condition porte sur l'état SIMULÉ ? » (case-322) — et n'est
+posé que par **UNE** classe, là où **13** portent réellement `is_active`. Résultat : les 12 autres
+étaient **VERROUILLÉES**. Une instance arrivée INACTIVE du seed (le canal `includeInactive` de
+`snapshot.decision_view_seed_body` publie bien `active: false`) dont la condition portée devient
+vraie en cours de sim ne pouvait plus **jamais** se rallumer. Mesure, sur
+`test_contagions_lifecycle_live` : l'aura `ContagionsOfNurgle` grandit, `1072` devient éligible —
+live `actif=[1072] armure=1387`, port `actif=[] armure=2312`. **Mon rayon d'explosion initial était
+mal mesuré** : j'avais joué 126 tests offline + 20 live voisins, aucun ne couvrait ce régime.
+
+**Deux gardes, complémentaires, et chacune vérifiée ROUGE sous mutation :**
+
+* **étape `[2b]` du probe offline** — rejoue les deux coups par le **pipeline complet**
+  (`AttackUnitMessage`), pas par le seul vecteur `On(0x2a)` : c'est l'écart entre les deux qui
+  cachait le bug d'origine. Rougit sous M13 (correctif annulé).
+* **`tests/engine/runner/test_refresh_active_flag_discriminant_offline.py`** (5 tests) — les
+  **quatre régimes** (condition portée qui s'allume / qui s'éteint ; condition non portée qui ne se
+  rallume pas / qu'on n'éteint pas) **plus un cliquet du discriminant** qui compare les deux
+  ensembles. Rougit sous M12 (re-confusion avec `active_condition_ported`) sur **3 tests**, dont
+  précisément `test_ported_condition_relights_a_seeded_inactive_instance`. Ce régime n'était retenu
+  par **rien** avant Contagions — et Contagions l'a attrapé par hasard ; il est désormais gardé
+  offline, en 0,8 s.
 
 ## 7ter. Le seed d'owner-effect : posé par analogie, RETIRÉ sur mesure
 
@@ -322,6 +350,12 @@ pas revenir), avec la raison en clair à l'emplacement où on l'attendrait dans 
 * **`spawn._seed_ability_owner_effects` lit le KIT gameconfig pour TOUTES ses entrées** (pas
   seulement la mienne) : le piège #312 reste ouvert pour les 15 autres, il n'a simplement pas
   d'observable connu chez elles. Résidu NOMMÉ, hors périmètre de ce cas.
+* **`ShouldRefreshForTrigger` n'est PAS porté** — le port ne mirrore donc pas le CHOIX natif entre
+  « ré-évaluer » et « conserver », il choisit celui qu'il sait lire (§7bis). Le natif lu :
+  `BaseEffect$$ShouldRefreshForTrigger` rend TRUE pour les triggers `0/1/2` et pour tout effet dont
+  le set de triggers (vtable `+0x5c8`) est vide ; porter ce choix demanderait l'enum
+  `RefreshEffectTrigger` **et** les points d'émission de refresh, qui n'existent pas côté port
+  (`refresh_stat_modifier_effects` est appelé par le pipeline, sans notion de trigger). Résidu NOMMÉ.
 
 ## 9. Artefacts
 
@@ -330,7 +364,8 @@ pas revenir), avec la raison en clair à l'emplacement où on l'attendrait dans 
 | classe d'effet | `scripts/python/engine/entities/effects/loki/counter_attack.py` |
 | triggers (riposte + armement) | `scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py` |
 | registres | `scripts/python/engine/entities/effects/factory.py` (`EFFECT_CLASSES` ; et le commentaire qui documente l'entrée `ABILITY_INIT_OWNER_EFFECTS` VOLONTAIREMENT absente), `.../triggers/dispatch/registry.py` (`EFFECT_TRIGGERS[1111]`) |
-| correctif du foyer PARTAGÉ | `scripts/python/engine/runner/operations/refresh_effects.py` (§7bis) |
+| correctif du foyer PARTAGÉ | `scripts/python/engine/runner/operations/refresh_effects.py` (§7bis) — helper `_active_condition_is_ported` |
+| garde du foyer PARTAGÉ | `scripts/python/tests/engine/runner/test_refresh_active_flag_discriminant_offline.py` (4 régimes + cliquet du discriminant) |
 | face DÉCISION | `scripts/python/engine/utilities/wireweave_net.py` + `engine/playbook/base.py` (`calculate_action_utility`) |
 | harnais offline | `scripts/python/probe_366_r1b_wireweave_gates.py` |
 | montage live | `scripts/python/probe_366_r1b_wireweave_net.py` |

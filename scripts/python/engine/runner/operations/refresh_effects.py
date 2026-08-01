@@ -82,7 +82,29 @@ from ...entities.effects import effect_stat_mod_key, effect_stat_modifications
 # (`components` n'importe que `state`). Les deux noms restent exportés ici : c'est la face
 # `RefreshEffectsOperation` de la même donnée, et des tests/probes les importent sous ces noms.
 _unit_state = unit_state_for_effects
-__all__ = ["refresh_stat_modifier_effects", "_unit_state", "_enemy_psykers_alive"]
+__all__ = ["refresh_stat_modifier_effects", "_unit_state", "_enemy_psykers_alive",
+           "_active_condition_is_ported"]
+
+
+def _active_condition_is_ported(effect) -> bool:
+    """La `CreateActiveCondition` de CETTE classe d'effet est-elle REELLEMENT portee ?
+
+    = la classe SURCHARGE-t-elle `is_active` ? `BaseEffect.is_active` rend `True`
+    INCONDITIONNELLEMENT : c'est une valeur PAR DEFAUT (« aucune condition lue »), pas une lecture
+    du natif. Le distinguer est ce qui autorise `refresh_stat_modifier_effects` a ECRIRE le flag
+    `EffectComponent.IsActive @+0x5c` — on ne re-evalue que ce qu'on sait lire (cf. le bloc de
+    commentaire du driver pour le decompile et les deux mesures live qui ancrent les deux branches).
+
+    ⚠ NE PAS confondre avec `BaseEffect.active_condition_ported`, qui repond a une AUTRE question
+    (« le flag CAPTE au seed est-il PERIME pour un effet dont la condition porte sur l'etat SIMULE ? »,
+    case-322) et n'est pose que par UNE classe, alors que **13** surchargent `is_active`. Les
+    confondre VERROUILLE les 12 autres : une instance seedee INACTIVE ne peut plus se rallumer quand
+    sa condition portee devient vraie (mesure : `test_contagions_lifecycle_live`, l'aura qui grandit).
+
+    Resolution par MRO (`type(e).is_active`), donc une surcharge posee sur une base intermediaire
+    compte aussi."""
+    from ...entities.effects.base import BaseEffect
+    return type(effect).is_active is not BaseEffect.is_active
 
 
 def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -> list:
@@ -124,19 +146,40 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -
             #     if (!effect.ShouldRefreshForTrigger(trigger))  return effectComponent.<+0x5c>;
             #     return effect.ShouldBeActive(entities);        // = `CreateActiveCondition`
             #
-            # -> quand la condition n'est PAS re-evaluee, le natif **RENVOIE LE FLAG COURANT**. Le
-            # port n'a pas de `ShouldRefreshForTrigger`, et sa `is_active()` de base rend `True` :
-            # c'est une VALEUR PAR DEFAUT, pas une lecture du natif. L'ecrire inconditionnellement
-            # ECRASAIT le flag que `ActivateEffect`/`DeactivateEffect` venaient de poser.
-            # MESURE (#366-r1b) : la riposte `1111 WireweaveNet_CounterAttack` (aucune stat-mod,
-            # aucune active-condition portee) se RE-ARMAIT apres son `& DeactivateEffect(effect)`
-            # et repartait au coup suivant du MEME tour ennemi -- riposte fantome de 2849 PV,
-            # attrapee par `test_wireweave_net_counter_is_once_per_enemy_turn`.
-            # On n'ecrit donc le flag QUE pour les classes dont la condition est REELLEMENT portee
-            # (meme discriminant `active_condition_ported` qu'`EffectsState.active_effects`,
-            # case-322) ; sinon on CONJUGUE, comme `active_effects` le fait deja.
+            # -> le natif a DEUX regimes : re-evaluer la condition, ou **RENVOYER LE FLAG COURANT**.
+            # Le port n'a NI `RefreshEffectTrigger` NI `ShouldRefreshForTrigger` : il ne peut pas
+            # decider QUAND le natif re-evalue. Il decide donc sur ce qu'il PEUT lire -- a-t-il, oui
+            # ou non, un port de la `CreateActiveCondition` de cette classe ?
+            #
+            #   * OUI (la classe SURCHARGE `is_active`) -> on tient une LECTURE du natif : on
+            #     re-evalue et on ECRIT le flag, exactement comme avant #366-r1b. 13 classes sur les
+            #     145 du registre (`AnvilShield_BlockChanceBelowHealthCap`, les DEUX
+            #     `ContagionsOfNurgle_ArmorReduction`, les DEUX `DestroyTheWitch_*`,
+            #     `HammerOfWrath_ConditionalDamage`, les DEUX `InescapableAccuracy_*`,
+            #     `ModifiedExoarmour_ExtraDmg`, `Pinned`, `PowerTrip_FullHealth`, les DEUX
+            #     `VisionsOfHeresy_ExtraPierce*`).
+            #   * NON -> `BaseEffect.is_active` rend `True` INCONDITIONNELLEMENT : c'est une VALEUR
+            #     PAR DEFAUT, pas une lecture. L'ecrire ECRASERAIT le flag que
+            #     `ActivateEffect`/`DeactivateEffect` viennent de poser. On CONSERVE donc le flag et
+            #     on conjugue -- c'est aussi ce que fait la branche « je ne re-evalue pas » du natif.
+            #
+            # ⚠ LE DISCRIMINANT N'EST PAS `active_condition_ported` : ce drapeau repond a une AUTRE
+            # question (« le flag CAPTE est-il PERIME ? », case-322) et n'est pose que par UNE seule
+            # classe. L'avoir pris pour celui-ci VERROUILLAIT les 12 autres : une instance seedee
+            # INACTIVE (le canal `includeInactive` de `decision_view_seed_body` publie `active:false`)
+            # dont la condition portee devient vraie en cours de sim ne pouvait plus JAMAIS se
+            # rallumer. MESURE : `test_contagions_lifecycle_live` -- l'aura GRANDIT, `1072` passe
+            # eligible, live `actif=[1072] armure=1387` contre port `actif=[] armure=2312`.
+            #
+            # Les DEUX branches sont ancrees sur une mesure LIVE :
+            #   * re-evaluer  -> `test_contagions_lifecycle_live` (aura qui grandit) ;
+            #   * conserver   -> `test_wireweave_net_counter_is_once_per_enemy_turn` (la riposte
+            #     `1111`, sans condition portee, ne doit pas se re-armer apres son
+            #     `& DeactivateEffect` -- sinon riposte fantome de 2849 PV au coup suivant).
+            # RESIDU NOMME : sans `ShouldRefreshForTrigger`, le port ne mirrore pas le CHOIX natif du
+            # regime ; il choisit celui qu'il sait lire. Cf. `docs/rl/case-366-r1b-...` S7bis.
             cond = bool(e.is_active(ustate))
-            if getattr(e, "active_condition_ported", False):
+            if _active_condition_is_ported(e):
                 e.active = cond
                 active = cond
             else:
