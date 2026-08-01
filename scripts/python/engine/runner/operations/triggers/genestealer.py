@@ -485,7 +485,28 @@ def _hypersensory_move_dest(state: State, judh_id: int, attacker_id: int, cfg_ra
     Priorite (ASC, plus bas = mieux) : 0 si dist(tile, attaquant)==cfg_range & Not(IsObscured) ; 1 si la tuile
     entoure l'attaquant (radius 1) ; 2 sinon. Le `Randomize` (tie-break PRNG amont) COLLAPSE en tri
     deterministe (id de tuile croissant) -> First. Renvoie (col,row) ou None si aucune tuile libre atteignable.
-    `Not(IsObscured)` = passe-tout v1 (LoS absente offline)."""
+    `Not(IsObscured)` = passe-tout v1 (LoS absente offline).
+
+    `#381-r4` -- POURQUOI CE COLLAPSE N'APPELLE PAS LE FOYER `get_movable_tiles_for`
+    ------------------------------------------------------------------------------
+    Ses deux freres (`abilities/genestealer._charge_candidate_tiles`,
+    `triggers/loki/betrayer._betrayer_stop_tile`) y passent depuis `#381-r4` pour recevoir le gate
+    d'expansion #131 et le dispatch fly. Ici les DEUX etages sont INERTES, et c'est MESURE :
+
+      * le gate est STRUCTURELLEMENT inerte a portee 1. `overrideRange` est le champ `+0x20` de
+        `IdunBattleLogic.Entities.DSLFormulas` = la formule partagee `Direct(1)` que son `.ctor`
+        alloue (`+0x18`=0, `+0x20`=1, `+0x28`=2, `+0x30`=100, `+0x38`=-1), et
+        `BasePathfinder$$NodesInNextLevel` teste `currentTile != startTile` AVANT
+        `IsValidContinuePathTile` : au seul niveau de BFS parcouru, la seule tuile qui s'etend EST
+        le start, donc le predicat n'est jamais consulte. CONFRONTE au balayage :
+        `probe_381r4_imperative_collapses.py --site hypersensory`, boards `C2_26` et `EMC2_02`
+        (les deux plus bloquants du dump), **2960 configurations (Judh, attaquant), 0 difference** ;
+      * le dispatch `IsLikeFlying` : AUCUN des 5 porteurs de `HypersensoryAbilities`
+        (`genesKelermorph` + 4 variantes npc) ne porte `Flying` ni `Burrow`.
+
+    Le brancher serait un no-op non mesurable ; il est donc laisse tel quel, et la garde
+    `tests/engine/runner/test_381r4_imperative_collapses_offline.py` ROUGIT si
+    `HYPERSENSORY_MOVE_RANGE` cesse de valoir 1 (la premisse de l'inertie)."""
     board = state.board
     jpos = _pos_of(state, judh_id)
     apos = _pos_of(state, attacker_id)

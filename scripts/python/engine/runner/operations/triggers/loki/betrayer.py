@@ -12,7 +12,7 @@ from .....entities.effect_type import EffectType
 from .....entities.selectors import Caster, Target, FixedTiles
 from .....entities.behaviours import Seq, If, Inform, Emit
 from .....entities.triggers import IsAdjacent, Not
-from .....entities.pathfinding.walk_pathfinder import get_movable_positions
+from .....services.movement_query import get_movable_tiles_for
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _unit_tile, _hex_dist
@@ -113,13 +113,20 @@ def _betrayer_stop_tile(state: State, owner_id: int, target_id: int) -> Optional
     `FixedTiles`. (`SortTilesByUtility` = pré-tri d'utilité de tuile non porté -> `MinPathLength` départagé
     par id.)
 
-    RÉSIDU `#381-r4`, PARTAGÉ par tous les collapses impératifs de `MovableTilesInRange` (celui-ci,
-    `abilities/genestealer._charge_candidate_tiles`, `triggers/genestealer._hypersensory_move_dest`) :
-    ce `get_movable_positions` n'applique NI le gate d'expansion #131
-    (`BasePathfinder$$NodesInNextLevel` -> `IsValidContinuePathTile`) NI le dispatch
-    `MovementQuery$$GetPathfinderTypeForUnit` (`IsLikeFlying`). Il SUR-ATTEINT donc sur un board à
-    tuiles block-entering. Le nœud DSL homonyme, lui, les porte depuis `#381-r1` — c'est le même
-    correctif à recopier ici, avec le re-jeu des tests live de chaque ability concernée."""
+    `#381-r4` FERMÉ : le pathfinding passe par `services/movement_query.get_movable_tiles_for`, le
+    FOYER partagé (mirror `MovementQuery$$GetMovableTilesFor`) qui porte le gate d'expansion #131
+    (`BasePathfinder$$NodesInNextLevel` -> `IsValidContinuePathTile` : une tuile block-entering est
+    un CUL-DE-SAC, tout en restant un STOP légal) et le dispatch
+    `MovementQuery$$GetPathfinderTypeForUnit` (`IsLikeFlying`). MESURE de ce que leur absence
+    coûtait (`probe_381r4_imperative_collapses.py`, boards réels, `worldKharn`, range 2, couples
+    (owner, cible) à distance 2..4) : **157** configurations sur `C2_26` et **242** sur `EMC2_02` où
+    la tuile d'arrêt CHANGE — elle était ILLÉGALE côté natif (elle ne pend que d'un Swamp).
+
+    RÉSIDU, hors périmètre `#381-r4` et NON corrigé ici : `occupants` associe un **entity id**
+    (`occupants[t] = eid`) là où `WalkPathfinder$$UnitIsBlockedByEnemyUnit` compare l'occupant à la
+    TEAM du mover — un ALLIÉ bloque donc la traversée alors que le natif le laisse passer
+    (dégradation RESTRICTIVE, à l'inverse des autres résidus du nœud). Le stop-set, lui, est
+    correct (toute tuile occupée en sort)."""
     board = state.board
     owner = state.get_entity(owner_id)
     if board is None or owner is None:
@@ -137,7 +144,7 @@ def _betrayer_stop_tile(state: State, owner_id: int, target_id: int) -> Optional
         t = _unit_tile(state, board, eid)
         if t is not None:
             occupants[t] = eid
-    _, stop = get_movable_positions(board, ot, THEBETRAYER_RANGE, occupants, oc.team)
+    stop = get_movable_tiles_for(board, state, owner_id, ot, THEBETRAYER_RANGE, occupants, oc.team)
     t_neigh = set(board.neighbours(tt))
     cands = [t for t in stop if t in t_neigh] or list(stop)
     if not cands:
