@@ -98,54 +98,85 @@ class _NormalAttackIgnoringTaunt(_NormalAttackTargeting):
 
 
 def _capture(sid, rid):
-    """dv / observeBattle / combatSnapshot / boardGraph -> (dv, State)."""
+    """dv / observeBattle / combatSnapshot / boardGraph -> (dv, payloads). Le State se construit a
+    part (`_mk_state`) parce qu'on en veut DEUX depuis les MEMES payloads : l'un que le port MUTE,
+    l'autre laisse VIERGE (la baseline « ce que master rendait », sur la MEME geometrie)."""
     dv = P247._dv(sid, rid)
     ob = P247._r(sid, "observeBattle", {"runnerId": rid}, 60)
     snap = P247._r(sid, "combatSnapshot", {"runnerId": rid}, 60)
     bg = P247._r(sid, "boardGraph", {"runnerId": rid}, 90)
     if not (isinstance(bg, dict) and bg.get("tiles")):
         raise RuntimeError("boardGraph indisponible")
-    return dv, load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
+    return dv, (dv, ob, snap, bg)
 
 
-def _place(sid, rid, pivot_vis, wants):
-    """Amene chaque `(visualId, distance)` de `wants` a la distance voulue du PIVOT. On DEPLACE les
-    deux camps (`applyAction` ne verifie pas la propriete du `unitId`) -- « bloque par la geometrie
-    de spawn » n'est pas un verdict."""
-    for _ in range(10):
+def _mk_state(payloads):
+    dv, ob, snap, bg = payloads
+    return load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
+
+
+def _make_adjacent(sid, rid, vis, rounds=14):
+    """Amene `vis` AU CONTACT d'un ennemi, et rend l'id de cet ennemi (ou None).
+
+    On DEPLACE LES DEUX (`applyAction` ne verifie pas la propriete du `unitId`) : le porteur VERS
+    l'ennemi le plus proche, ET cet ennemi VERS le porteur. La geometrie de spawn n'est jamais une
+    excuse -- et le seul mouvement du porteur ne suffit pas quand les tuiles a d=1 sont occupees par
+    les autres ennemis (MESURE : premier jet bloque a d=2, cast refuse, `mutated=false`)."""
+    for _ in range(rounds):
         d = P247._dv(sid, rid)
-        piv = P247._by_vis(d, pivot_vis)
-        if piv is None:
-            raise RuntimeError("pivot %s absent" % pivot_vis)
-        pp = P247._pos(piv)
-        todo = []
-        for vis, want in wants:
-            u = P247._by_vis(d, vis)
-            if u is None:
-                raise RuntimeError("unite %s absente" % vis)
-            got = hexgeo.distance(pp, P247._pos(u))
-            if got != want:
-                todo.append((int(u["id"]), want, got))
-        print("  [place] pivot=%s@%s  %s" % (pivot_vis, pp,
-                                             " ".join("%s:d=%d(vise %d)" % (v, g, w)
-                                                      for (v, w), (_i, _w, g)
-                                                      in zip(wants, todo)) or "OK"))
-        if not todo:
-            return
-        moved = False
-        for uid, want, _got in todo:
-            moved = P247._step_toward(sid, rid, uid, pp, want) or moved
+        u = P247._by_vis(d, vis)
+        if u is None:
+            return None
+        foes = [f for f in d["units"]
+                if f.get("alive") and f.get("owner") != u.get("owner")]
+        if not foes:
+            return None
+        near = min(foes, key=lambda f: hexgeo.distance(P247._pos(u), P247._pos(f)))
+        dd = hexgeo.distance(P247._pos(u), P247._pos(near))
+        print("  [contact] %s@%s  cible u%s@%s  d=%d"
+              % (vis, P247._pos(u), near["id"], P247._pos(near), dd))
+        if dd <= 1:
+            return int(near["id"])
+        moved = P247._step_toward(sid, rid, int(near["id"]), P247._pos(u), 1)
+        d = P247._dv(sid, rid)
+        u2 = P247._by_vis(d, vis)
+        n2 = next((f for f in d["units"] if int(f["id"]) == int(near["id"])), None)
+        if u2 is not None and n2 is not None:
+            moved = P247._step_toward(sid, rid, int(u2["id"]), P247._pos(n2), 1) or moved
         if not moved:
             P247._act(sid, rid, {"kind": "endturn"}, 60)
-    print("  [place] geometrie PARTIELLE acceptee (les distances REELLES sont mesurees)")
+    return None
+
+
+def _bring_within(sid, rid, vis, pivot_id, want, rounds=8):
+    """Amene `vis` a la distance `want` de l'entite `pivot_id` (best effort). Rend la distance
+    ATTEINTE, mesuree -- jamais supposee."""
+    for _ in range(rounds):
+        d = P247._dv(sid, rid)
+        u = P247._by_vis(d, vis)
+        piv = next((x for x in d["units"] if int(x["id"]) == int(pivot_id)), None)
+        if u is None or piv is None:
+            return None
+        got = hexgeo.distance(P247._pos(u), P247._pos(piv))
+        if got == want:
+            return got
+        if not P247._step_toward(sid, rid, int(u["id"]), P247._pos(piv), want):
+            P247._act(sid, rid, {"kind": "endturn"}, 60)
+    d = P247._dv(sid, rid)
+    u = P247._by_vis(d, vis)
+    piv = next((x for x in d["units"] if int(x["id"]) == int(pivot_id)), None)
+    return None if (u is None or piv is None) else hexgeo.distance(P247._pos(u), P247._pos(piv))
 
 
 def _effects_of(dv, uid):
-    out = []
-    for e in (dv.get("effects") or []):
-        if int(e.get("unitId") or -1) == int(uid):
-            out.append((e.get("name"), e.get("effectType"), e.get("source")))
-    return out
+    """Les effets LIVE de l'unite -- `decisionView.units[].effects` (canal `readEffectsByUnit`).
+    ⚠ Ce canal ne publie NI le `BondComponent` de l'entite-effet NI son `BondedEntityId` : il n'a
+    que `source` (`EffectComponent.SourceUnitId @+0x10`). Cf. le residu nomme dans l'en-tete."""
+    for u in (dv.get("units") or []):
+        if int(u.get("id") or -1) == int(uid):
+            return [(e.get("name"), e.get("effectType"), e.get("source"))
+                    for e in (u.get("effects") or [])]
+    return []
 
 
 def main(argv=None) -> int:
@@ -162,73 +193,68 @@ def main(argv=None) -> int:
         for _ in range(P247.WARMUP_ENDTURNS):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
 
-        # GEOMETRIE : le futur TAUNTE est le pivot. Le tauntant au CONTACT (CrushingClaws =
-        # RANGE_ADJACENT), l'autre ennemi a d=2 (dans la portee r3 du necroWarden : le refus qu'on
-        # attend ne pourra pas etre confondu avec un refus de PORTEE).
-        d0 = P247._dv(sid, rid)
-        foes = sorted((u for u in d0["units"]
-                       if u.get("alive") and u.get("visualId") == "necroWarden"),
-                      key=lambda u: int(u["id"]))
-        if len(foes) < 2:
-            print("[FAIL] il faut 2 necroWarden vivants")
+        # GEOMETRIE. Le futur TAUNTE n'est PAS choisi d'avance : on amene le tauntant au CONTACT
+        # (CrushingClaws = `RANGE_ADJACENT`) et on prend l'ennemi qu'il touche. Le second ennemi du
+        # taunte -- `ultraCalgar` -- est ensuite amene A PORTEE de son attaque normale (necroWarden
+        # est ranged r3), pour que le refus attendu ne puisse pas etre confondu avec un refus de
+        # PORTEE. Ce n'est pas indispensable (la regle 23 PRECEDE le volet portee dans la cascade),
+        # c'est ce qui rend la mesure non ambigue.
+        tauntee_id = _make_adjacent(sid, rid, "tyranTyrantGuard")
+        if tauntee_id is None:
+            print("[FAIL] impossible d'amener tyranTyrantGuard au contact")
             return 2
-        tauntee_id = int(foes[0]["id"])
-        pivot_vis = "necroWarden"
-        # le pivot est le PREMIER necroWarden : on place les deux unites de team 1 autour de lui.
-        for _ in range(10):
-            d = P247._dv(sid, rid)
-            piv = next((u for u in d["units"] if int(u["id"]) == tauntee_id and u.get("alive")),
-                       None)
-            if piv is None:
-                print("[FAIL] taunte u%d mort/absent avant le cast" % tauntee_id)
-                return 2
-            pp = P247._pos(piv)
-            todo = []
-            for vis, want in (("tyranTyrantGuard", 1), ("ultraCalgar", 2)):
-                u = P247._by_vis(d, vis)
-                if u is None:
-                    print("[FAIL] %s absent" % vis)
-                    return 2
-                got = hexgeo.distance(pp, P247._pos(u))
-                if got != want:
-                    todo.append((int(u["id"]), want, got, vis))
-            print("  [place] taunte=u%d@%s  %s" % (tauntee_id, pp,
-                                                   " ".join("%s d=%d(vise %d)" % (v, g, w)
-                                                            for _i, w, g, v in todo) or "OK"))
-            if not todo:
-                break
-            moved = False
-            for uid, want, _got, _vis in todo:
-                moved = P247._step_toward(sid, rid, uid, pp, want) or moved
-            if not moved:
-                P247._act(sid, rid, {"kind": "endturn"}, 60)
+        # `ultraCalgar` AU CONTACT lui aussi, et c'est LOAD-BEARING : `necroWarden` est RANGED, et
+        # un caster ranged ADJACENT a un ennemi est clampe en melee
+        # (`TargetingOptions.forceMeleeTarget = RangedBool.IfRangedCaster` du preset d'attaque
+        # normale -> `should_apply_ranged_in_melee`). MESURE du premier jet, avec Calgar a d=2 : le
+        # natif rendait deja `0x8000000 TargetIsInRange` AVANT tout taunt -- la ligne restait
+        # discriminante (le taunt la fait passer a `0x800000`, ce qui prouve au passage que la
+        # regle 23 PRECEDE le volet portee) mais elle ne montrait plus la degradation PERMISSIVE.
+        # A d=1 les deux ennemis sont acceptes avant le taunt : c'est la ligne « le port acceptait,
+        # le natif refuse » que le brief exige.
+        d_cal = _bring_within(sid, rid, "ultraCalgar", tauntee_id, 1)
+        print("[geometrie] taunte=u%d ; ultraCalgar a d=%s du taunte" % (tauntee_id, d_cal))
 
         P247._give_turn_to(sid, rid, "tyranTyrantGuard")
-        dv_pre, st_pre = _capture(sid, rid)
+        dv_pre, pre_payloads = _capture(sid, rid)
         guard = P247._by_vis(dv_pre, "tyranTyrantGuard")
         calgar = P247._by_vis(dv_pre, "ultraCalgar")
-        if guard is None or calgar is None:
-            print("[FAIL] casters absents apres montage")
+        tgt_u = next((u for u in dv_pre["units"]
+                      if int(u["id"]) == tauntee_id and u.get("alive")), None)
+        if guard is None or calgar is None or tgt_u is None:
+            print("[FAIL] casters/cible absents apres montage")
             return 2
         cid = int(guard["id"])
         print("[geometrie] tauntant u%d(tyranTyrantGuard) d=%d ; autre-ennemi u%d(ultraCalgar) d=%d"
-              % (cid, hexgeo.distance(P247._pos(guard), P247._pos(foes[0])),
-                 int(calgar["id"]), hexgeo.distance(P247._pos(calgar), P247._pos(foes[0]))))
+              % (cid, hexgeo.distance(P247._pos(guard), P247._pos(tgt_u)),
+                 int(calgar["id"]), hexgeo.distance(P247._pos(calgar), P247._pos(tgt_u))))
 
         # ---------------------------------------------------------------- BASELINE (avant taunt)
-        base = {}
+        # DEUX baselines, et elles ne disent pas la meme chose :
+        #   `natAvant` = le NATIF avant le cast -> montre qu'il ACCEPTAIT les deux ennemis ;
+        #   `portAvant` = le PORT sur un etat VIERGE (le meme snapshot, jamais mute) -> c'est
+        #                 EXACTEMENT ce que `master` rendait, sur la MEME geometrie.
+        probe_apres = _NormalAttackTargeting()
+        probe_desarme = _NormalAttackIgnoringTaunt()
+        st_vierge = _mk_state(pre_payloads)
+        nat_avant, port_avant = {}, {}
         for u in dv_pre["units"]:
             if not u.get("alive"):
                 continue
             tid = int(u["id"])
             nat = P247._nat(sid, rid, tauntee_id, NORMAL_ATTACK, tid)
-            base[tid] = P247._hexval((nat or {}).get("targetReason") or {})
-        print("[baseline attaque normale du futur taunte] %s"
-              % {k: (None if v is None else hex(v)) for k, v in sorted(base.items())})
+            nat_avant[tid] = P247._hexval((nat or {}).get("targetReason") or {})
+            port_avant[tid] = int(get_invalid_target_reason(st_vierge, tauntee_id, tid,
+                                                            probe_apres))
+        print("[baseline natif  ] %s"
+              % {k: (None if v is None else hex(v)) for k, v in sorted(nat_avant.items())})
+        print("[baseline port   ] %s" % {k: hex(v) for k, v in sorted(port_avant.items())})
+        accord_avant = sum(1 for t in nat_avant if nat_avant[t] == port_avant.get(t))
+        print("[baseline accord ] %d/%d" % (accord_avant, len(nat_avant)))
 
         # ---------------------------------------------------------------- ETAGE A : vecteur de pose
         klass = ABILITY_CLASSES[CRUSHING]
-        st_port = st_pre
+        st_port = _mk_state(pre_payloads)
         res = klass().execute_behaviour(st_port, cid, tauntee_id)
         only_port = get_only_targets(st_port, tauntee_id)
         okA = (only_port == [cid])
@@ -248,7 +274,7 @@ def main(argv=None) -> int:
         if not acts.get("mutated"):
             print("[FAIL] le cast natif n'a pas mute l'etat -> pas de taunt, rien a mesurer")
             return 2
-        dv_post, st_post = _capture(sid, rid)
+        dv_post, post_payloads = _capture(sid, rid)
         eff = _effects_of(dv_post, tauntee_id)
         has27 = any(int(e[1] or -1) == TAUNTED for e in eff)
         print("[effets natifs sur u%d] %s" % (tauntee_id, eff))
@@ -260,10 +286,9 @@ def main(argv=None) -> int:
         # ---------------------------------------------------------------- ETAGE B : la regle
         print("\n=== ETAGE B -- la REGLE (natif vs port, attaque normale %d du TAUNTE u%d)"
               % (NORMAL_ATTACK, tauntee_id))
-        print("  %-30s %-5s %-3s %-12s %-28s %-11s %-11s %-11s"
-              % ("cible", "id", "d", "natif", "regle natif", "port", "AVANT", "desarme"))
-        probe_apres = _NormalAttackTargeting()
-        probe_desarme = _NormalAttackIgnoringTaunt()
+        print("  %-28s %-5s %-3s %-12s %-26s %-11s %-11s %-11s %-11s"
+              % ("cible", "id", "d", "natif", "regle natif", "port", "natAvant", "portAvant",
+                 "desarme"))
         n_agree = n_rows = n_refus23 = n_gain = 0
         cf_desarme = 0
         rows = []
@@ -277,31 +302,32 @@ def main(argv=None) -> int:
             nv = P247._hexval(tr)
             pv = int(get_invalid_target_reason(st_port, tauntee_id, tid, probe_apres))
             dv_ = int(get_invalid_target_reason(st_port, tauntee_id, tid, probe_desarme))
-            av = base.get(tid)
+            na, pa = nat_avant.get(tid), port_avant.get(tid)
             agree = (nv == pv)
             n_rows += 1
             n_agree += 1 if agree else 0
             if nv == int(TR.TargetIsAllowedForCaster):
                 n_refus23 += 1
-                if av == 0:
+                if pa == 0:
                     n_gain += 1
             if dv_ != pv:
                 cf_desarme += 1
-            print("  %-30s %-5d %-3d %-12s %-28s %-11s %-11s %-11s %s"
+            print("  %-28s %-5d %-3d %-12s %-26s %-11s %-11s %-11s %-11s %s"
                   % (("%s%s" % ("CASTER " if tid == tauntee_id else "",
-                                u.get("visualId")))[:30],
+                                u.get("visualId")))[:28],
                      tid, hexgeo.distance(tpos, P247._pos(u)),
                      "-" if nv is None else hex(nv),
-                     ",".join(tr.get("reasons") or [])[:28] or "-",
-                     hex(pv), "-" if av is None else hex(av), hex(dv_),
+                     ",".join(tr.get("reasons") or [])[:26] or "-",
+                     hex(pv), "-" if na is None else hex(na),
+                     "-" if pa is None else hex(pa), hex(dv_),
                      "OK" if agree else "MISMATCH"))
             rows.append({"target": tid, "vis": u.get("visualId"), "nat": nv, "port": pv,
-                         "avant": av, "desarme": dv_})
+                         "natAvant": na, "portAvant": pa, "desarme": dv_})
 
         okB = (n_agree == n_rows and n_refus23 > 0 and n_gain > 0
                and any(r["nat"] == 0 for r in rows))
         print("  [bilan B] accord %d/%d ; lignes refusees 0x800000 par le natif : %d ; "
-              "dont le port AVANT acceptait : %d ; au moins une ligne ACCEPTEE : %s"
+              "dont le port AVANT ACCEPTAIT (0x0) : %d ; au moins une ligne ACCEPTEE : %s"
               % (n_agree, n_rows, n_refus23, n_gain,
                  "OUI" if any(r["nat"] == 0 for r in rows) else "NON"))
         print("  [B] %s" % ("PASS" if okB else "FAIL"))
