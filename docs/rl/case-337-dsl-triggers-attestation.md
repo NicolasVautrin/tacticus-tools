@@ -278,12 +278,13 @@ une destination = marque AUTRE que la premiere -- inatteignable tant que
 
 ### Le point de MECANISME : ce rouge n'a AUCUN porteur, et c'est la 4e fois
 
-Mesure, pas impression :
+Mesure, pas impression. ⚠ **Etat RE-MESURE APRES REBASE** : #430 (PR #471) a ete mergee pendant
+cette tranche et a livre `scripts/ratchets.ps1`, la banque EXECUTABLE des cliquets. Le constat qui
+suit vaut donc contre l'artefact, plus contre une prose recopiee.
 
-* `test_337` n'apparait dans **aucune** liste de cliquets. Les compositions qui circulent (CLAUDE.md
-  en nomme 4 : `probe_181`, `probe_120`, `probe_365`, `probe_273 --only-scan`) ne contiennent que
-  des PROBES. **`#427-r1` a deja etabli que la liste des << 9 cliquets >> n'est materialisee nulle
-  part** -- ni script, ni Makefile, ni CI, ni hook git.
+* **`test_337` n'est PAS dans la banque** : `pwsh scripts/ratchets.ps1 -List` rend **19** entrees,
+  aucune ne le porte. Avant #430 il n'etait dans aucune des compositions qui circulaient non plus
+  (le CLAUDE.md en nommait 4, toutes des PROBES) -- c'est le constat de `#427-r1`.
 * `probe_326_dsl_port_matching.py`, lui, **rend `rc 0` meme avec des `CITE_A_QUALIFIER`** : l'y
   ajouter ne rougirait pas. Le SEUL artefact executable qui rougit sur ce gisement est `test_337`.
 * Consequence mesuree : le rouge de #393 a ete vu par un orchestrateur, celui de #418-r1 a ete
@@ -292,10 +293,19 @@ Mesure, pas impression :
   introduction. C'est le mode d'echec EXECUTION de #427 : << etre un test >> et << etre joue >> sont
   independants, la suite complete etant proscrite par le CLAUDE.md.
 
-**Parade LOCALE proposee, non livree ici** (le cliquet global est la tache #430, en vol) : faire
-entrer `test_337_dsl_triggers_attestation_offline.py` dans la liste des cliquets joues avant merge.
-Il y est eligible sans reserve -- **OFFLINE PUR** (aucun runner, aucun RPC, il re-derive son
-inventaire natif de `data/symbols/<CURRENT>/`, versionne) et **~23 s** mesurees. C'est la seule
-chose qui manque pour que la regle << un port qui CITE une primitive DSL neuve pose son attestation
-DANS LE MEME COMMIT >> ait un porteur mecanique, exactement comme `probe_181` / `probe_120` le sont
-pour `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE`.
+**Parade LOCALE proposee, NON livree ici** (le brief de #433 demandait de la proposer, pas de la
+livrer) : ajouter `test_337` a `scripts/ratchets.ps1`. Depuis #430 c'est **UNE entree versionnee**,
+et le format pytest y existe deja (`pytest_signatures`) :
+
+```powershell
+    @{ Id = 'pytest_dsl_attestations'
+       Argv = @('-m', 'pytest', 'tests/test_337_dsl_triggers_attestation_offline.py', '-q')
+       Seul = 'une primitive DSLTriggers que le port se met a CITER sans etre attribuable -- une PR verte a SA base la fait basculer NON_PORTE -> CITE_A_QUALIFIER et le rouge ne tombe que chez le suivant'
+       Doc  = 'docs/rl/case-337-dsl-triggers-attestation.md' }
+```
+
+Il y est eligible sans reserve : **OFFLINE PUR** (aucun runner, aucun RPC -- il re-derive son
+inventaire natif de `data/symbols/<CURRENT>/`, versionne) et **~15-23 s** mesurees, soit un ordre de
+grandeur sous le mur de la banque. C'est la seule chose qui manque pour que la regle << un port qui
+CITE une primitive DSL neuve pose son attestation DANS LE MEME COMMIT >> ait un porteur mecanique,
+exactement comme `probe_181` / `probe_120` le sont pour `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE`.
