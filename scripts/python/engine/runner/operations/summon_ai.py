@@ -195,8 +195,9 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
             if r is not None:                          # vecteur after-hit (mirror visit_AttackUnitMessage)
                 # #437 : `profiles` n'est plus threade ici -- il appartenait au seul `On(9)`, emis
                 # desormais a la SORTIE de `AttackDamageOperation.execute` (foyer natif), donc DEJA
-                # parti quand ce vecteur-ci s'execute.
-                res["after_hit"] = after_hit_normal_attack(
+                # parti quand ce vecteur-ci s'execute. Ses resultats reviennent par `finish_attack`
+                # et sont remis EN TETE (ordre natif), pour que le canal reste observable.
+                res["after_hit"] = (r.get("finish_attack") or []) + after_hit_normal_attack(
                     state, uid, target, bool(r.get("ranged")), r.get("profile"),
                     is_crit=bool(r.get("did_crit")),
                     did_block=bool(r.get("did_block")))

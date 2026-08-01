@@ -520,11 +520,11 @@ class _Normal:
         # donc un tir d'overwatch ne consommait pas l'armure alors que le natif la consomme.
         _fa_profiles = {_profile} - {None}
         _fa_profiles |= set((_ah or {}).get("profiles") or [])
-        finish_attack_triggers(state, attacker_id, target_id,
-                               ranged=bool(_ranged), profile=_profile,
-                               is_crit=bool(r["did_crit"]), profiles=_fa_profiles,
-                               health_damage=int(r["total"] or 0),
-                               was_block=bool(r["did_block"]))
+        _fa = finish_attack_triggers(state, attacker_id, target_id,
+                                     ranged=bool(_ranged), profile=_profile,
+                                     is_crit=bool(r["did_crit"]), profiles=_fa_profiles,
+                                     health_damage=int(r["total"] or 0),
+                                     was_block=bool(r["did_block"]))
         attack_damage_attack_triggers(state, attacker_id, target_id,
                                       ranged=bool(_ranged), profile=_profile)
         # `target` (#120bis) = la cible REELLEMENT frappee. Elle differe de celle du message quand la
@@ -539,4 +539,10 @@ class _Normal:
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"],
                 "ranged": _ranged, "profile": _profile,
                 "additional_hits": _ah,          # #202-B : sous-operations #179 (None = aucun groupe)
+                # #437 : les resultats du vecteur `On(9)` emis ci-dessus. CANAL DE DIAGNOSTIC pur --
+                # avant #437 ils remontaient dans `DamageHandler.after_hit` (le vecteur vivait au
+                # niveau MESSAGE). Les appelants qui exposent `after_hit` les remettent EN TETE,
+                # ce qui est aussi l'ordre natif (`FinishAttack` precede l'`ExecuteTriggerAbilities`
+                # qui porte `On(0x26)`). Sans ce canal, un trigger `On(9)` FIRE sans etre observable.
+                "finish_attack": _fa,
                 "effects": [getattr(e, "name", None) for e in active]}

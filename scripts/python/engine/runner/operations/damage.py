@@ -1062,7 +1062,11 @@ class DamageHandler:
             # ExecuteInternal` peut avoir bascule l'attaque sur une remplacante (SwornProtector/Kell).
             # Le natif emet ces vecteurs depuis `AttackDamageOperation$$ExecuteHit`, donc avec
             # l'AttackData de l'attaque re-entrante. Defaut = la cible du message (retro-compat).
-            self.after_hit = after_hit_normal_attack(
+            # `finish_attack` (#437) = les resultats du vecteur `On(9)`, desormais emis DANS
+            # l'operation. On les remet EN TETE d'`after_hit` : c'est l'ORDRE NATIF (`FinishAttack`
+            # precede `ALoki_NormalAttackAbility$$ExecuteTriggerAbilities`, qui porte `On(0x26)`) et
+            # ca preserve l'observabilite du canal pour les tests/probes qui lisent `after_hit`.
+            self.after_hit = (self.last.get("finish_attack") or []) + after_hit_normal_attack(
                 self.state, msg.attacker_id, self.last.get("target", msg.target_id),
                 bool(self.last.get("ranged")), self.last.get("profile"),
                 is_crit=bool(self.last.get("did_crit")),
