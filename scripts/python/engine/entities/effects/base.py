@@ -347,7 +347,16 @@ class BaseEffect:
         contexte POSITIONNEL de l'attaque pour les bonus dont la MAGNITUDE dépend de la position du caster
         (mirror du DSL qui lit la UnitPosition hypothétique, ex. LordOfTempests `SurroundingTiles(owner,0,1)`
         IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage) : {"att_pos": (col,row) tuile candidate, "tile_effects_by_pos": {(col,row):[noms]}}.
-        None = contexte inconnu -> ces bonus rendent None (« présent ≠ appliqué », dégradation fidèle)."""
+        None = contexte inconnu -> ces bonus rendent None (« présent ≠ appliqué », dégradation fidèle).
+
+        QUATRE clés d'`att_ctx` décrivent la CIBLE et l'ATTAQUANT plutôt que la position, arrivées avec
+        `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1) — `att_grand_alliance` (nœud
+        `HasTrait(Caster@0x48, 0x7ea = Chaos)`), `damage_profile` (`DamageProfileIs([...])`), `t_pos` +
+        l'entrée correspondante de `tile_effects_by_pos` (`EntitiesWithAnyEffect(Tiles(Target@0x60),
+        Fire)`), et `tgt_team`. Ce sont les MÊMES CLÉS, avec la MÊME sémantique, que le ctx du canal
+        AURA (`create_aura_attack_damage_bonus_for_ally`) et que la face PRÉDICTION : le natif n'a
+        qu'UN corps (`CreateEffectDamageBonusForAttack`) et qu'UN `AbilityEntities`, la scission
+        self/aura est un artefact du port. Clé absente -> gate FERMÉ (dégradation RESTRICTIVE)."""
         return None
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
@@ -450,7 +459,21 @@ class BaseEffect:
         att_id/att_pos/att_team, att_grand_alliance, att_traits, is_melee, target_armor_reduced} fourni par
         l'agrégateur `aura_attack_damage_bonus_from_allies` (les gates lisent le sous-ensemble pertinent :
         BeaconOfRage → att_grand_alliance+is_melee ; Conqueror → att_traits+target_armor_reduced). SYMÉTRIQUE
-        ALLIÉ de `create_aura_attack_damage_malus_for_enemy`. Défaut None = pas d'aura."""
+        ALLIÉ de `create_aura_attack_damage_malus_for_enemy`. Défaut None = pas d'aura.
+
+        La clé `tile_effects_by_pos` (`{(col,row): [noms]}`, la MAIN TILE de la cible) est arrivée avec
+        `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1), dont le trigger n'a AUCUN
+        `CreateTargetSelector` : toute la sélection vit dans le trigger, et l'un de ses conjoints
+        (`EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`) lit les effets portés par la TUILE. MÊME
+        forme et MÊME clé que le canal DÉFENSE (`create_aura_defense_damage_malus_for_ally`) et que
+        `LetTheGalaxyBurnEffect`. Absente -> le gate se tait.
+
+        ⚠ Cet agrégateur EXCLUT le porteur (`att_id == owner_id`). Un effet dont le trigger natif
+        accorde AUSSI au porteur — `AreFriends(Owner, Caster)` est VRAI quand `Owner == Caster`,
+        `IdunBattle.Entities.UnitExtensions$$IsFriend` n'écartant pas l'égalité — doit donc porter
+        EN PLUS sa patte SELF dans `create_effect_damage_bonus_for_attack` (patron `DestroyTheWitch_
+        ExtraDamage` / `PsychicStalk_FriendlyChaosExtraDamage`). Les deux foyers sont DISJOINTS :
+        ni trou, ni double-compte."""
         return None
 
     def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:

@@ -453,10 +453,21 @@ def aura_attack_damage_bonus_from_allies(carriers, ctx) -> list:
     `ConquerorImperativeEffect` IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier : +extraDmg FLAT aux amis Mechanical adjacents vs cible à armure
     réduite, #23). SYMÉTRIQUE ALLIÉ de `aura_attack_damage_malus_from_enemies`. `carriers` = itérable (owner_id,
     owner_pos, owner_team, ..., effets du porteur) ; `ctx` = {att_id, att_pos, att_team,
-    att_grand_alliance, att_traits, is_melee, target_armor_reduced}. Renvoie une liste d'`EffectBonus` (chaque porteur à portée empile son
+    att_grand_alliance, att_traits, is_melee, target_armor_reduced, damage_profile, tgt_id, t_pos,
+    tgt_team, tgt_traits, tile_effects_by_pos}. Renvoie une liste d'`EffectBonus` (chaque porteur à portée empile son
     bonus) à intégrer aux modifiers de l'attaquant via `add_modifier`. Chaque `carrier` = tuple dont
     [0]=owner_id, [1]=owner_pos, [2]=owner_team, [-1]=effets (accepte le 4-tuple comme le 8-tuple
-    `carriers` de la prédiction)."""
+    `carriers` de la prédiction).
+
+    ⚠ Les appelants (`damage_model._apply_ally_attack_damage_auras`, prédiction
+    `_apply_ally_attack_dmg_bonus`) EXCLUENT le porteur lui-même (`uid == att_id`) : c'est fidèle aux
+    sélecteurs `AdjacentFriends`/`SurroundingFriends`, qui excluent la source. Un effet dont le
+    trigger natif accorde AUSSI au porteur (`AreFriends(Owner, Caster)` sans aucun sélecteur —
+    `PsychicStalk_FriendlyChaosExtraDamage`, #366-r1, car
+    `IdunBattle.Entities.UnitExtensions$$IsFriend` n'écarte PAS l'égalité ; ou
+    `SurroundingFriends(Owner) + Owner` — `DestroyTheWitch_ExtraDamage`) porte donc EN PLUS sa patte
+    SELF dans `create_effect_damage_bonus_for_attack`. Les deux foyers sont DISJOINTS : ni trou, ni
+    double-compte."""
     out = []
     cs = list(carriers or [])
     for c in cs:
