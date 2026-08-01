@@ -100,6 +100,27 @@ ensemble ; `CLAUDE.md` cite le nombre sans les nommer et n'en prescrit que 4.
 C'est le même constat que `#409-r1`, qui propose d'« ajouter `probe_319` à la liste des cliquets »
 — alors qu'aucun artefact ne la matérialise.
 
+### Confrontation à #421 (`probe_229`), traité en parallèle
+
+#421 formule la règle générale que ce dossier confirme : « *tout balayage dont le périmètre est une
+LISTE SAISIE À LA MAIN doit prouver sa COUVERTURE dans le même processus que sa vérification de
+conformité* ». Accord complet, et il nomme `test_enum_mirror_ratchet` parmi ses cibles.
+
+Son **remède d'exécution**, en revanche, est réfuté par le présent cas — et c'est la seule chose
+que #427 ajoute à sa conclusion. #421 écrit : « la réponse est donc d'abord le TEST (1,58 s, joué
+par la suite, **aucune discipline requise**), le cliquet n'étant qu'un filet supplémentaire ».
+
+`probe_313` avait **déjà exactement cette forme** : sa preuve de couverture est un **test**, dans
+la suite, offline, à 27,6 s. Il a quand même laissé passer deux dérives. Parce que **la suite
+complète n'est jamais jouée** — `CLAUDE.md` la proscrit explicitement (« ne lancer QUE les tests
+CIBLÉS de la tranche touchée, jamais toute la suite »). Un test n'est donc joué que si un agent le
+CIBLE, et la tranche « je porte `KillUnitOperation$$RemoveEffects` » ne cible évidemment pas « le
+cliquet des mirrors d'enum ». La discipline d'appel n'est pas supprimée par la forme test : elle
+est seulement **déplacée** du nom du probe vers le choix des fichiers de test.
+
+Corollaire : dans ce dépôt, « être un test » et « être joué » sont deux propriétés indépendantes.
+Seule l'appartenance à une liste **exécutée sans arbitrage** ferme le mode EXÉCUTION.
+
 ## 5. Coût, et recommandation
 
 Mesures du 2026-08-01, machine à 22 cœurs logiques **partagée avec d'autres agents** — le bruit
