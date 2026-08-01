@@ -215,7 +215,7 @@ def test_anvil_shield_stuns_blocked_melee_attacker_on_ice_live(live_session, rpc
 
       coup #1, attaquant HORS glace : Arjac bloque -> `ApplyIce` glace la tuile de l'attaquant,
                mais AUCUN Stun (gate 1200|1201 faux)                      == CONTROLE NEGATIF ;
-      coup #2, MEME tuile, desormais GLACEE : `On(0x2b)` pose 1201 -> gate vrai -> **Stunned**.
+      coup #2, MEME tuile, desormais GLACEE : `On(0x2a = PreUnitAbility)` pose 1201 -> gate vrai -> **Stunned**.
     """
     rid = build_runner("92201", extra=["--p-units", f"{ATTACKER},templAggressor",
                                        "--a-units", ARJAC,
@@ -543,7 +543,7 @@ def test_anvil_shield_frozen_advantage_inactive_instance_is_inert_live(live_sess
         "l'etat CHARGE ne porte pas l'Ice de la tuile de l'attaquant -> `On(PreUnitAbility)` ne "
         "posera pas 1201 et le test ne discriminerait rien")
 
-    # --- POSE de 1201 par le VRAI vecteur (`On(0x2b)` -> AddStaticStatModifierEffect(Self, 1201, ...)).
+    # --- POSE de 1201 par le VRAI vecteur (`On(0x2a = PreUnitAbility)` -> AddStaticStatModifierEffect(Self, 1201, ...)).
     base_bc = _off_block_chance(state, arj["id"])
     pre_unit_ability_triggers(state, att["id"], arj["id"], ranged=False, profile="Power",
                               ability_type=1013)

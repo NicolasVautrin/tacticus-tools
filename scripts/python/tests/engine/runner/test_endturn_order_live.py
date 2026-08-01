@@ -208,7 +208,7 @@ def test_deep_strike_landing_is_not_cancelled_by_the_tick():
     ⚠ #448-r2 en a change le VEHICULE, pas l'ordre : `EndTurnOperation` n'appelle plus une boucle
     bespoke `land_deep_strike` mais emet la jambe `On(0x28 = UnitFinishedTurn)` du
     `FinishUnitTurn(unit, false)` que le natif fait ICI, par unite possedee -- et c'est le 3e
-    trigger d'`ATeleportingEffect` (`On(0x28) & OwnerIsActor & HasTile(Owner)`) qui retire l'effet.
+    trigger d'`ATeleportingEffect` (`On(0x28 = UnitFinishedTurn) & OwnerIsActor & HasTile(Owner)`) qui retire l'effet.
     Deux consequences sur le MONTAGE, toutes deux natives :
       * le porteur doit AVOIR UNE TUILE (`HasTile(Owner)`) -> on lui pose une `PositionComponent` ;
       * le payload de `res["landed"]` est desormais celui du trigger, pas celui de

@@ -341,7 +341,7 @@ def _replay_attack(st, attacker_id, victim_id, ability=NORMAL_ATTACK):
     DECALAGE, pas de formule (cellule, percage, armure et `GetStat(Attack)` sont IDENTIQUES des deux
     cotes). Re-derivation : `python probe_277_flail_damage_stages.py --seeds 17833 --regimes k1,k0`.
 
-    La voie d'ATTAQUE NORMALE, elle, emet deja `On(0x2b)` DANS `AttackDamageOperation$$Execute`
+    La voie d'ATTAQUE NORMALE, elle, emet deja `On(0x2a = PreUnitAbility)` DANS `AttackDamageOperation$$Execute`
     (`damage_ops/normal.py`, marqueur `ability_type = 1013`) : elle n'a jamais eu ce trou et reste
     sur l'appel d'operation, pour ne pas ajouter au regime les vecteurs after-hit/turn-flow que le
     `Runner` poserait en plus."""

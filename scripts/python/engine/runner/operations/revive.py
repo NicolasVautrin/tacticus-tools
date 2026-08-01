@@ -35,8 +35,8 @@ juste apres `On(PreUnitDeath)`) : c'est l'ordre observable natif (la phase 0xd s
   * flags        IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE
                  (PAS 0xe AmbushConsumed -- un revive-en-place N'EST PAS un ambush one-shot)
   * IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : repositionne sur la tuile de l'unite -> IN-PLACE
-  * emet `On(UnitRevived = 45 = 0x2e)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_180026490(0x4d,...,lVar16,0x2e)`)
-  * PUIS purge `unitComponent + 0xa8 .. +0xe8 = 0` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRES le dispatch de On(0x2e))
+  * emet `On(UnitRevived = 0x2d = 45)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_1800280e0(0x4d,...,lVar16,0x2d)`)
+  * PUIS purge `unitComponent + 0xa8 .. +0xe8 = 0` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRES le dispatch de On(0x2d = UnitRevived))
 
 Frontiere DSL (#149) : la feuille `Revive` (declaratif, `triggers/revive_effect.py`) POSE ; l'Operation
 (imperatif, ICI) APPLIQUE. On NE fusionne PAS.
@@ -241,7 +241,7 @@ class ReviveUnitOperation:
             fl.remove(UnitFlagsComponent.OVERKILLED)
         uc.alive = True
         # IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : appele ICI (apres les flags,
-        # AVANT `On(0x2e)`). Le natif sort immediatement si `revivePosition` n'a pas de valeur -> le
+        # AVANT `On(0x2d = UnitRevived)`). Le natif sort immediatement si `revivePosition` n'a pas de valeur -> le
         # revive est alors IN-PLACE (aucune ecriture de position), ce qui est le cas de TOUS les
         # consommateurs sauf le ghost de `thousTerminator` (#213).
         moved_to = _set_revive_position(state, unit_id, data.get("revive_position"))
@@ -252,7 +252,7 @@ class ReviveUnitOperation:
             on_group_unit_hp_changed(state, unit_id)
         # `On(UnitRevived = 0x2d = 45)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 -- emis AVANT la purge du champ (ordre natif lu).
         # Consommateurs portes : `PhoenixGem_CanReviveEffect` (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : retrait du marqueur 1451 sous
-        # `CurrentAbilityIs(PhoenixGem)`), et tout futur `On(0x2e)`.
+        # `CurrentAbilityIs(PhoenixGem)`), et tout futur `On(0x2d = UnitRevived)`.
         from .triggers import unit_revived_triggers
         fired = unit_revived_triggers(state, unit_id, current_ability=data.get("source"))
         # purge des 9 qwords @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ : la `ReviveData` est consommee.

@@ -3,7 +3,7 @@
 LE FORK
 -------
 Le natif emet `0x2b` depuis UN SEUL site : `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-(`FUN_180026490(0x4d, .., 0x2b)`), tout en haut, avant l'execution -- et l'attaque NORMALE emprunte
+(`FUN_1800280e0(0x4d, .., 0x2a)`), tout en haut, avant l'execution -- et l'attaque NORMALE emprunte
 cette MEME operation (elle EST une active ability :
 `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility`). Le port, lui, a DEUX
 portes d'operation : `DamageHandler.visit_AttackUnitMessage` (attaque normale) et
@@ -148,7 +148,7 @@ def main() -> int:
     hp_creed = state.get_entity(creed).get_component(HealthComponent).hp
     print("[1] cast ability %d (DirectTargetAttack) -> kell=%s creed %s -> %s  hp creed=%s"
           % (ATTACK_ABILITY, kell, before, after, hp_creed))
-    assert kell is not None, "AUCUN Kell : le vecteur On(0x2b) ne part pas de la voie ABILITY"
+    assert kell is not None, "AUCUN Kell : le vecteur On(0x2a = PreUnitAbility) ne part pas de la voie ABILITY"
     kp = state.get_entity(kell).get_component(PositionComponent)
     assert (kp.col, kp.row) == before, "Kell n'a pas pris la place de Creed (switch manquant)"
     assert after != before, "Creed n'a pas bouge -> pas de SwitchPosition"
@@ -213,7 +213,7 @@ def main() -> int:
         "le +20 % block se pose sur un cast d'ability -> gate IsNormalAttack absent")
 
     # --- 5. un cast REFUSE par le gate de ciblage n'emet RIEN --------------------------------------
-    # `ExecuteInternal` sort sur `IsInvalidTarget` (return 0) EN AMONT du `FUN_180026490(.., 0x2b)`.
+    # `ExecuteInternal` sort sur `IsInvalidTarget` (return 0) EN AMONT du `FUN_1800280e0(.., 0x2a)`.
     # Aucun consommateur porte ne rend ce refus observable aujourd'hui (le seul ability a
     # `TARGETING_OPTIONS` RE-lues est Waaagh 1058, classee `Others` donc muette pour SwornProtector) :
     # on INSTRUMENTE donc le dispatch pour COMPTER les emissions -- c'est une mesure de probe, pas une
@@ -242,8 +242,8 @@ def main() -> int:
     print("[5] cast REFUSE (reason=%#x) -> emissions=%s | cast ACCEPTE -> emissions=%s"
           % (reason, refused, accepted))
     assert reason, "le gate de ciblage ne refuse pas -> le contre-cas ne prouve rien"
-    assert refused == [], "un cast REFUSE a emis On(0x2b) -- le natif sort AVANT l'emission"
-    assert accepted == [ATTACK_ABILITY], "un cast ACCEPTE n'a pas emis On(0x2b)"
+    assert refused == [], "un cast REFUSE a emis On(0x2a = PreUnitAbility) -- le natif sort AVANT l'emission"
+    assert accepted == [ATTACK_ABILITY], "un cast ACCEPTE n'a pas emis On(0x2a = PreUnitAbility)"
 
     print("PROBE OK")
     return 0

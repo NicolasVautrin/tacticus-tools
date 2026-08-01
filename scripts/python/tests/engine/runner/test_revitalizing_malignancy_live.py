@@ -95,7 +95,7 @@ def revmalig_state(live_session, rpc, build_runner):
     #
     # UNE TUILE = UN OCCUPANT -- l'invariant que le moteur SUPPOSE, et qu'un montage offline peut
     # violer sans que rien ne proteste. `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-    # re-resout la cible juste apres `On(0x2b)` : `replaced = UnitExtensions.GetUnit(First(targetTiles))`,
+    # re-resout la cible juste apres `On(0x2a = PreUnitAbility)` : `replaced = UnitExtensions.GetUnit(First(targetTiles))`,
     # et si `replaced != target` il RE-ENTRE via `ExecuteForReplacedTarget` (cf.
     # `engine/runner/operations/active_ability.py`). Poser le caster SUR une tuile deja occupee fait
     # donc re-entrer le self-cast avec l'AUTRE occupant en cible -- un ennemi, que le gate de ciblage

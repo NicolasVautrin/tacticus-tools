@@ -8,7 +8,7 @@ Mecanique RE (decompile = verite, gqfc5mff6c) :
   - `IdunBattle.Entities.Effects.Loki.FuelledByFury_ExtraDamageEffect$$GetCurrentExtraDamage` (herite de FuelledByFury) = Multiply(ConfigVar(8=extraDmg),
     EffectLevel) = extraDmg[ablvl passif] x mult x stack_level. extraDmg[L65]=218 (i2), rarity-scale.
   - accumulation `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger` = (On overkill & OwnerIsActor & TargetIsOverkilled) |
-    (On(0x3e) & OwnerIsActor & TriggeringEffectIs(0x429=1065=Pinned/Suppressed)). +1 stack par
+    (On(0x3d = PreEffectAdded) & OwnerIsActor & TriggeringEffectIs(0x429=1065=Pinned/Suppressed)). +1 stack par
     declenchement, cap buffMaxLevel=6. crescendo dispo dans decisionView.effects[].level.
 
 Setup crafte (drive-positions) : Shiron + 2 fillers vs 3x necroWarden HP GONFLE (personne ne meurt ->

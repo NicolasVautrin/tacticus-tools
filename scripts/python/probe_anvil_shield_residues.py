@@ -319,7 +319,7 @@ def scenario_selfice(sid, rid, cycles):
       coup #1 : l'attaquant n'est PAS sur une tuile glacee -> Arjac BLOQUE (100 %) -> `ApplyIce` glace
                 la tuile de l'attaquant, mais `ApplyStun` NE fire PAS (Arjac est a pleins PV : 1200
                 INACTIF, et 1201 pas encore pose)  == CONTROLE NEGATIF ;
-      coup #2 : l'attaquant est desormais SUR la glace -> `On(0x2b)` pose 1201 -> le gate d'`ApplyStun`
+      coup #2 : l'attaquant est desormais SUR la glace -> `On(0x2a = PreUnitAbility)` pose 1201 -> le gate d'`ApplyStun`
                 est vrai -> l'attaquant est **Stunned**.
     """
     nids, d = normal_ids(sid, rid)

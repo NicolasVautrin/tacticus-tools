@@ -13,7 +13,7 @@ confronte au LIVE par REPLAY-DIFF RNG-seede :
  2. NEGATIF `IsMeleeAttack` -- MEME cible, attaquant RANGED a 2 hexes -> AUCUNE riposte.
                         Sans le gate, le port infligerait ~2 coups de riposte fantomes.
  3. LETHAL           -- l'attaquant a peu de PV : la riposte le TUE -> l'attaque entrante est
-                        ANNULEE (gate ACTEUR-MORT **POST-`On(0x2b)`** de
+                        ANNULEE (gate ACTEUR-MORT **POST-`On(0x2a = PreUnitAbility)`** de
                         `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`). C'est
                         l'observable qui prouve le « before the enemy attack executes » d'i2.
 
@@ -233,8 +233,8 @@ def test_martial_superiority_no_riposte_on_ranged(ms_ranged):
 
 def test_martial_superiority_lethal_riposte_cancels_incoming_attack(ms_lethal):
     """LETHAL : la riposte TUE l'attaquant -> `ActiveAbilityOperation$$ExecuteInternal` re-teste la
-    mort du caster JUSTE APRES `On(0x2b)` et `return 0` : l'attaque entrante n'a JAMAIS lieu.
-    Observable : Jaeger ne perd AUCUN PV. C'est le gate POST-`On(0x2b)` porte par ce lot."""
+    mort du caster JUSTE APRES `On(0x2a = PreUnitAbility)` et `return 0` : l'attaque entrante n'a JAMAIS lieu.
+    Observable : Jaeger ne perd AUCUN PV. C'est le gate POST-`On(0x2a = PreUnitAbility)` porte par ce lot."""
     c = ms_lethal
     if not c["ok"]:
         pytest.skip(c["reason"])
@@ -246,7 +246,7 @@ def test_martial_superiority_lethal_riposte_cancels_incoming_attack(ms_lethal):
         f"{c['live_hp'][jid]}) -- l'hypothese du gate POST-On(0x2b) serait fausse")
     assert c["off_hp"][jid] == c["live_hp"][jid], (
         f"ATTAQUE FANTOME offline : Jaeger {c['off_hp'][jid]} != live {c['live_hp'][jid]} "
-        "(gate acteur-mort POST-On(0x2b) absent)")
+        "(gate acteur-mort POST-On(0x2a = PreUnitAbility) absent)")
     assert c["off_hp"][aid] == c["live_hp"][aid], (
         f"PV attaquant offline {c['off_hp'][aid]} != live {c['live_hp'][aid]}")
 

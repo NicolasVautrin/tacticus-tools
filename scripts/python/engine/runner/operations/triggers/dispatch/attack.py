@@ -51,7 +51,7 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
     IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour). AVANT ce vecteur, `did_block` etait resolu par le pipeline (damage_hits.py) mais
     l'evenement n'etait JAMAIS emis -> tout le cluster on-block etait inatteignable.
 
-    ⚠ GRANULARITE : le natif emet `On(0x3d)` PAR COUP bloque ; le port l'emet UNE fois par ATTAQUE
+    ⚠ GRANULARITE : le natif emet `On(0x3c = UnitBlocked)` PAR COUP bloque ; le port l'emet UNE fois par ATTAQUE
     (meme agregation que `is_crit`, deja en place). Observationnellement EQUIVALENT pour le seul
     consommateur porte (la pose d'Ice est idempotente : `AddEffectOperation` no-op si la tuile est deja
     glacee). A raffiner si un consommateur per-coup apparait."""
@@ -63,7 +63,7 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
 def final_damage_triggers(state: State, attacker_id: int, target_id: int,
                           ranged: bool = False, profile: Optional[str] = None) -> list[dict]:
     """Vecteur `On(FinalDamage = 0x42 = 66)` — emis par `IdunBattle.Operations.ADamageOperation$$
-    RegisterFinalDamage`, dont la DERNIERE instruction est `FUN_180026490(0x50, .., 0x43, entities)`.
+    RegisterFinalDamage`, dont la DERNIERE instruction est `FUN_1800280e0(0x50, .., 0x42, entities)`.
 
     XREFS EXHAUSTIVES de `RegisterFinalDamage` : `IdunBattle.Operations.AttackDamageOperation$$Execute`
     et `IdunBattle.Operations.AbilityDamageOperation$$Execute` — et RIEN d'autre. L'evenement part donc
@@ -111,7 +111,7 @@ def pre_attack_hit_triggers(state: State, attacker_id: int, target_id: int,
                             ability_type: Optional[int] = None) -> list[dict]:
     """Vecteur `On(PreAttackHit=6)` — emis PAR COUP par `IdunBattle.Operations.AttackDamageOperation$$
     ExecuteHit` (et son homologue `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) TOUT EN
-    HAUT du coup : `FUN_180026490(0x50, .., 6, entities)` puis `.., 7 (PreAttackDamageHit)`, les DEUX
+    HAUT du coup : `FUN_1800280e0(0x50, .., 6, entities)` puis `.., 7 (PreAttackDamageHit)`, les DEUX
     **AVANT** le calcul du crit (`CritDamageInfo`) et avant le degat. L'`AbilityEntities` du vecteur est
     `ctor(caster = attaquant, .., target = defenseur, hitIndex@+0x110 = param_3)` -> `actor_id` =
     l'attaquant, `target_id` = le defenseur, `is_first_hit` = `hitIndex == 0` (lu par
@@ -127,7 +127,7 @@ def pre_attack_hit_triggers(state: State, attacker_id: int, target_id: int,
     PLACE D'EMISSION dans le port : apres `GetAttackHits` et **avant `_crit_params`** — c'est la place
     NATIVE, et elle est fonctionnellement obligatoire : le seul consommateur porte pose un stat-mod
     CRIT_CHANCE que le calcul de crit de CETTE attaque doit voir (sinon le port serait un no-op
-    silencieux, exactement comme `AnvilShieldFrozenAttackerAdvantageAbility` sur `On(0x2b)`).
+    silencieux, exactement comme `AnvilShieldFrozenAttackerAdvantageAbility` sur `On(0x2a = PreUnitAbility)`).
     AUCUN autre trigger porte n'ecoute `event_id == 6` -> no-op (et zero conso RNG) pour toute unite
     non-porteuse de ThrillSeekers."""
     ev = TriggerEvent(EventTriggerType.PreAttackHit, attacker_id, target_id,
@@ -139,10 +139,10 @@ def pre_attack_hit_triggers(state: State, attacker_id: int, target_id: int,
 def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int,
                           profile: Optional[str] = None) -> list[dict]:
     """Vecteur `On(DamageTaken=0xf=15)` — emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
-    (`FUN_180026490(0x4d, .., 0xf, entities)`) apres la mutation des PV, sous le gate
+    (`FUN_1800280e0(0x4d, .., 0xf, entities)`) apres la mutation des PV, sous le gate
     `if ((0 < (int)local_7dc) || !HealthComponent.IsUnitWithHealthStat(target))` ou
     `local_7dc = FillUpStatComponent.Reduce(hp, healthDamage)` = la reduction de PV **REELLEMENT
-    APPLIQUEE** (pas le degat demande). L'operation emet, dans l'ordre : `On(0x3a)`, `On(0xf)`
+    APPLIQUEE** (pas le degat demande). L'operation emet, dans l'ordre : `On(0x39 = PreDamageTaken)`, `On(0xf)`
     DamageTaken, puis `On(0x10)` DamageDealt (celui-la gate `0 < armorDamage`). Son `AbilityEntities`
     porte la SOURCE du degat en caster/actor et la VICTIME en 3e slot -> `get_OwnerIsTarget` (le seul
     predicat porte qui lit ce vecteur) = « le porteur EST la victime ».
@@ -230,9 +230,9 @@ def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int
     """Vecteur `On(AttackDamageAttack = 10)` — 2e des DEUX events que `IdunBattle.Operations.
     FinishAttackOperation$$Execute` emet a la CLOTURE d'une attaque :
 
-        FUN_180026490(0x50, .., 9, entities)                     # On(9 = Attack)   : TOUJOURS
+        FUN_1800280e0(0x50, .., 9, entities)                     # On(9 = Attack)   : TOUJOURS
         if (currentAttack@+0x2c != 0)
-            FUN_180026490(0x50, .., 10, entities)                # On(10)           : GATE
+            FUN_1800280e0(0x50, .., 10, entities)                # On(10)           : GATE
 
     Le champ `+0x2c` du `currentAttack` est pose par `IdunBattle.Operations.AttackDamageOperation$$
     Execute` (`*(undefined1 *)(lVar6 + 0x2c) = 1` juste apres `GetAttackHits`) — l'event 10 signifie
@@ -302,7 +302,7 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     out = out + evaluate_trigger_operation(state, ev_at)
     # `On(UnitPostAbility=0xe)` (#100) — DERNIER evenement de `ActiveAbilityOperation.ExecuteInternal`
     # (sequence `0x2b` -> execution -> `0xb` -> `0xc` -> `0xe`). Emis ICI = a la CLOTURE de l'attaque
-    # normale, en pendant exact du `On(0x2b)` emis en tete par `AttackDamageOperation.execute`.
+    # normale, en pendant exact du `On(0x2a = PreUnitAbility)` emis en tete par `AttackDamageOperation.execute`.
     # Consommateur porte : `AnvilShieldFrozenAdvantageExpire` (consomme le +20 % block transitoire).
     return out + unit_post_ability_triggers(state, attacker_id, target_id, ranged, profile,
                                             ability_type=1013)
@@ -314,7 +314,7 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
                              did_block: bool = False) -> list[dict]:
     """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
     porté par `ADamageOperation` donc PARTAGÉ par l'attaque normale ET les attaques d'ability : dispatche le
-    message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3d)`, non écouté ici). ⚠ Ce vecteur
+    message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3c = UnitBlocked)`, non écouté ici). ⚠ Ce vecteur
     NE dispatche PAS `NormalAttack(0x26)` : le splash emprunte `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`
     (events {6,8,0x3d}, JAMAIS 0x26) → **Psyker `On(0x26)` ne re-fire PAS ici = pas de chain** (verdict RE
     #147/#150 ; corrige la sur-propagation de #140). Consommateur actif : reset ActOfFaith (#138, `On(8)` +

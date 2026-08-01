@@ -153,8 +153,8 @@ def test_the_registry_holds_exactly_the_four_triggers_of_the_native_ArraySet():
         "TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn",
         "TeleportStrikeTeleportingInAddMovingOnPreMove"], [c.__name__ for c in got]
     assert [c.event_id for c in got] == [int(EventTriggerType.UnitAfterMove),        # On(0x04)
-                                         int(EventTriggerType.PreUnitAbility),       # On(0x2a)
-                                         int(EventTriggerType.UnitFinishedTurn),     # On(0x28)
+                                         int(EventTriggerType.PreUnitAbility),       # On(0x2a = PreUnitAbility)
+                                         int(EventTriggerType.UnitFinishedTurn),     # On(0x28 = UnitFinishedTurn)
                                          int(EventTriggerType.PreUnitMove)]          # On(0x1f)
     assert all(c.effect_type == TELEPORT_STRIKE_TELEPORTING_IN for c in got)
 

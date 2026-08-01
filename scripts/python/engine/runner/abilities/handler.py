@@ -11,19 +11,19 @@ l'execution : le gate ACTEUR-MORT (#70) puis le GATE DE CIBLE (#115, `IsInvalidT
 generique + regle dynamique par ability, cf. `targeting.py`). Un refus = no-op COMPLET : ni
 behaviour, ni `AddFlagsAfterAbilityExecution` (donc `actionConsumed = false` cote natif).
 
-#120 — LES VECTEURS D'OPERATION `On(0x2b)` / `On(0xe)`. Le natif emet `PreUnitAbility (0x2a)` depuis
+#120 — LES VECTEURS D'OPERATION `On(0x2a = PreUnitAbility)` / `On(0xe)`. Le natif emet `PreUnitAbility (0x2a)` depuis
 UN SEUL site, `ActiveAbilityOperation$$ExecuteInternal`, et l'attaque NORMALE emprunte cette MEME
 operation (elle EST une active ability :
 `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility`). Le port, lui, a DEUX
 portes d'operation — `DamageHandler.visit_AttackUnitMessage` (damage.py) et ce visiteur — et seule la
 premiere emettait : FORK de port (1 site natif -> 2 sites offline dont 1 muet). Les DEUX emettent
 desormais, au MEME rang relatif que le natif. Sequence native mesuree au decompile
-(`ExecuteInternal`, ordre des `FUN_180026490(0x4d, .., <event>)` par adresse croissante) :
+(`ExecuteInternal`, ordre des `FUN_1800280e0(0x4d, .., <event>)` par adresse croissante) :
 
     IsDeadUnitAndNotAllowedByAbility(target)  -> return 0
     IsInvalidTarget(caster, casterTiles, target) -> return 0
     GetAbilityEntities(...)
-    On(0x2b)  PreUnitAbility        <- AVANT toute execution (donc avant tout degat / calcul de block)
+    On(0x2a = PreUnitAbility)                        <- AVANT toute execution (donc avant tout degat / calcul de block)
     if (!options@0x4a && IsUnit(caster) && IsDead(caster)) return 0
     ... execution de la behaviour ...
     On(0xb)   UnitAbility           (aucun consommateur porte)
@@ -280,7 +280,7 @@ class AbilityHandler:
         # #115 GATE DE CIBLE (mirror `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
         # `if (IsInvalidTarget(caster, casterTiles, target)) return 0;`). Le natif sort ICI, en amont
         # du 1er `AActiveAbility.Execute` de la behaviour, d'`AddFlagsAfterAbilityExecution` ET du
-        # vecteur `On(0x2b)` -> un cast REFUSE ne mute rien, ne consomme PAS l'activation
+        # vecteur `On(0x2a = PreUnitAbility)` -> un cast REFUSE ne mute rien, ne consomme PAS l'activation
         # (`actionConsumed=false`, cf. case-111) et NE REVEILLE AUCUN trigger. Le filtre + son point
         # d'extension par ability vivent dans `targeting.py` ; une ability dont les
         # `TARGETING_OPTIONS` n'ont pas ete RE-lues n'est PAS gatee (aucun refus invente), et
@@ -293,7 +293,7 @@ class AbilityHandler:
             return
         # #120bis SNAPSHOT DE TUILE de la cible — `IdunBattle.Operations.ActiveAbilityOperation$$
         # GetAbilityEntities` fige `AbilityEntities@+0x38 = EntityExtensions.GetTiles(finalTarget)`
-        # AVANT le `On(0x2b)`. C'est ce fige-la que la re-resolution ci-dessous confronte a
+        # AVANT le `On(0x2a = PreUnitAbility)`. C'est ce fige-la que la re-resolution ci-dessous confronte a
         # l'occupation REELLE d'apres la cascade. Pris ICI, au rang natif (juste apres les gates).
         from ..operations.active_ability import (execute_for_replaced_target, get_tiles,
                                                  resolve_replaced_target)
@@ -302,9 +302,9 @@ class AbilityHandler:
         # les gates, portee ou non (il ne depend pas de la behaviour : cf. le meme raisonnement que
         # les FLAGS de tour #139 ci-dessous). Emis AVANT l'execution, comme le natif.
         self._pre_unit_ability(msg)
-        # #133 GATE ACTEUR-MORT **POST-`On(0x2b)`** — mirror du test qui suit IMMEDIATEMENT
+        # #133 GATE ACTEUR-MORT **POST-`On(0x2a = PreUnitAbility)`** — mirror du test qui suit IMMEDIATEMENT
         # l'evenement dans `ActiveAbilityOperation$$ExecuteInternal` (lu verbatim au decompile) :
-        #     FUN_180026490(0x4d, .., 0x2b);
+        #     FUN_1800280e0(0x4d, .., 0x2a);
         #     if (options@0x4a == 0 && IsUnit(caster) && IsDead(caster, state)) return 0;
         # Le natif teste DEUX FOIS la mort du caster : en TETE d'operation (#70, deja porte) et ICI,
         # parce que la cascade de triggers reveillee par `0x2b` peut l'avoir TUE entre-temps. C'est
@@ -356,7 +356,7 @@ class AbilityHandler:
         """Voie CAST de `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteForReplacedTarget` : la
         re-entree est un `visit_ActiveAbilityMessage` NEUF sur la cible remplacante — mirror du
         `ActiveAbilityOperation$$Execute(caster, newTarget, abilityType, options)` natif, qui rejoue
-        TOUTE la chaine (gate acteur-mort, gate de cible, un nouveau `On(0x2b)`, la behaviour, puis
+        TOUTE la chaine (gate acteur-mort, gate de cible, un nouveau `On(0x2a = PreUnitAbility)`, la behaviour, puis
         `AddFlagsAfterAbilityExecution` + `On(0xe)`). `self.last` est donc celui de la re-entree,
         enrichi de la tracabilite du remplacement.
 
@@ -379,7 +379,7 @@ class AbilityHandler:
         op(self.state, caster, new_target, _reenter)
 
     def _pre_unit_ability(self, msg) -> None:
-        """`FUN_180026490(0x4d, .., 0x2b)` en tete d'`ExecuteInternal`. L'`AbilityEntities` de
+        """`FUN_1800280e0(0x4d, .., 0x2a)` en tete d'`ExecuteInternal`. L'`AbilityEntities` de
         l'evenement est celui de l'ability : caster/actor = le CASTER, target = la cible du cast.
         `ability_type` = `df@0x130` (l'ability declenchante), lu par les gates `IsNormalAttack` /
         `AbilityHasAttackType` des consommateurs (cf. `abilities/attack_type.py`). `ranged` =
@@ -391,7 +391,7 @@ class AbilityHandler:
                                   ability_type=int(msg.ability_type))
 
     def _unit_active_ability(self, msg) -> None:
-        """`FUN_180026490(0x4d, .., 0xc)` d'`ExecuteInternal`, emis SOUS LE GATE
+        """`FUN_1800280e0(0x4d, .., 0xc)` d'`ExecuteInternal`, emis SOUS LE GATE
         `StaticBattleRules.ActiveAbility$$IsActiveAbility(abilityType)` (le gate est applique dans le
         vecteur). Emis depuis la SEULE voie ABILITY : l'attaque normale est un `IsRegularAttack`, donc
         exclue par le gate natif -- la voie normale (`damage.py`) n'a rien a emettre."""
@@ -401,7 +401,7 @@ class AbilityHandler:
                                      ability_type=int(msg.ability_type))
 
     def _post_unit_ability(self, msg) -> None:
-        """`FUN_180026490(0x4d, .., 0xe)` en queue d'`ExecuteInternal` (apres
+        """`FUN_1800280e0(0x4d, .., 0xe)` en queue d'`ExecuteInternal` (apres
         `AddFlagsAfterAbilityExecution`)."""
         from ..operations.triggers.dispatch import unit_post_ability_triggers
         unit_post_ability_triggers(self.state, int(msg.caster_id), msg.target_id,

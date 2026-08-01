@@ -108,10 +108,12 @@ class FinishUnitTurnOperation:
         # `Add(TurnFinished=3)` nouvellement pose -> le natif publie `On(0x28 = UnitFinishedTurn)`
         # PUIS, si `!isTerminated`, `On(0x29 = UnitFinishedTurnNormally)`. Les DEUX gates sont ceux du
         # decompile (#354) ; l'ordre relatif a `On(0x1c)` (au-dessus) est celui du natif.
-        # `On(0x28)` est EMIS depuis #448-r2 (consommateur : le 3e trigger d'`ATeleportingEffect` =
-        # l'atterrissage deep-strike d'une unite qui clot son tour sans avoir agi) -- et il l'est
-        # MEME sur `forced`, seul `On(0x29)` portant le gate `!isTerminated`.
-        # Consommateur de `On(0x29)` : `MyWillBeDoneOverlordAttackAbility` (passif `necroOverlord`).
+        # `On(0x28 = UnitFinishedTurn)` est EMIS depuis #448-r2 (consommateur : le 3e trigger
+        # d'`ATeleportingEffect` = l'atterrissage deep-strike d'une unite qui clot son tour sans avoir
+        # agi) -- et il l'est MEME sur `forced`, seul `On(0x29 = UnitFinishedTurnNormally)` portant le
+        # gate `!isTerminated`.
+        # Consommateur de `On(0x29 = UnitFinishedTurnNormally)` : `MyWillBeDoneOverlordAttackAbility`
+        # (passif `necroOverlord`).
         if newly_finished:
             from .triggers import unit_finished_turn_triggers
             out["finished_triggers"] = unit_finished_turn_triggers(state, int(unit_id))
@@ -298,7 +300,7 @@ class StartTurnOperation:
                 uc.current_turn_start_tile = (state.board.id_at(pc.col, pc.row)
                                               if pc is not None else None)
         # #128 tile-effects ROUND-TICK : StartTurn emet la SEQUENCE d'events 0x12->0x13->0x14->0x15->0x16
-        # (VERIFIE IdunBattle.Operations.StartTurnOperation$$Execute : 5 emissions FUN_180026490(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
+        # (VERIFIE IdunBattle.Operations.StartTurnOperation$$Execute : 5 emissions FUN_1800280e0(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
         # l'ancien "0x12/0x14/0x16" etait INCOMPLET). Mapping effets : 0x12 = Contaminated re-apply ; 0x13 =
         # FirstAid heal-on-tile (#130 : On(0x13) & IsTurnOf(units-on-tile)) ; 0x14 = Fire DoT + DryBush spread ;
         # 0x15 = (role a mapper) ; 0x16 = turn-start (start_turn_triggers). Le port tire tile_tick (0x12/0x14) +
@@ -429,7 +431,7 @@ class EndTurnOperation:
         # CE QUE CA REMPLACE : la boucle bespoke `land_deep_strike` d'avant #448-r2, qui faisait
         # atterrir ICI toutes les unites deep-strike du joueur finissant. Le retrait de
         # `TeleportStrike_TeleportingIn` est desormais porte par les TROIS triggers natifs de
-        # l'effet (`On(4)`, `On(0x2a)`, `On(0x28)`) -- mesure live : le natif retire l'effet DES LE
+        # l'effet (`On(4)`, `On(0x2a = PreUnitAbility)`, `On(0x28 = UnitFinishedTurn)`) -- mesure live : le natif retire l'effet DES LE
         # MOUVEMENT ou DES LE CAST, pas en fin de tour. Ce site-ci ne couvre donc plus que le cas
         # « l'unite n'a rien fait de son tour », qui est exactement ce que le natif couvre ici.
         from .triggers import unit_finished_turn_triggers

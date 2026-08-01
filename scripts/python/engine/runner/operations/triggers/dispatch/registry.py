@@ -59,8 +59,8 @@ from ..loki.rites_of_morkai import (RitesOfMorkaiReviveTrigger,       # #79 (eff
 from ..loki.reanimation_beam import (ReanimationBeamReviveTrigger,    # #79 (effet 1547, MoW necroReanimator)
                                     REANIMATION_BEAM_EFFECT)
 from ..loki.phoenix_gem import (PhoenixGemReviveAbility,              # #79 (relic, marqueur 1451)
-                               PhoenixGemRemoveMarkerOnRevive,       # #89-B3 (On(0x2e) -> RemoveEffect)
-                               PhoenixGemRemoveMarkerOnResurrect,    # #89-B3 (On(0x2f) -> RemoveEffect)
+                               PhoenixGemRemoveMarkerOnRevive,       # #89-B3 (On(0x2d = UnitRevived) -> RemoveEffect)
+                               PhoenixGemRemoveMarkerOnResurrect,    # #89-B3 (On(0x2e = UnitResurrected) -> RemoveEffect)
                                PHOENIX_GEM_CAN_REVIVE)
 from ..loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trait SuppressiveFire 1010)
 from ..loki.death_nova import ExplodesAbility, PutridExplosionAbility  # death-nova (traits 1008 / 2028)
@@ -110,14 +110,14 @@ from ..loki.until_of_end_turn import (HatefulAssaultAlreadyAttackedRemove,
                                       HATEFUL_ASSAULT_ALREADY_ATTACKED)
 from ..loki.teleporting_in import (                                       # #448-r2 tranche 1/4
     TeleportStrikeTeleportingInRemoveOnAfterMove,          # T1 On(4)
-    TeleportStrikeTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a)
-    TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28) & HasTile
+    TeleportStrikeTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a = PreUnitAbility)
+    TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28 = UnitFinishedTurn) & HasTile
     TeleportStrikeTeleportingInAddMovingOnPreMove,         # T4 On(0x1f) -> AddEffect(1036)
     TeleportStrikeMovingRemoveOnAfterMove,                 # TeleportMovingEffect : On(4)
     TELEPORT_STRIKE_TELEPORTING_IN, TELEPORT_STRIKE_MOVING,
     FearOfTheUnseenTeleportingInRemoveOnAfterMove,         # #448-r2c tranche 2/4 -- T1 On(4)
-    FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,    # T2 On(0x2a)
-    FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,  # T3 On(0x28) & HasTile
+    FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,    # T2 On(0x2a = PreUnitAbility)
+    FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,  # T3 On(0x28 = UnitFinishedTurn) & HasTile
     FearOfTheUnseenTeleportingInAddMovingOnPreMove,        # T4 On(0x1f) -> AddEffect(1241)
     FearOfTheUnseenMovingRemoveOnAfterMove,                # TeleportMovingEffect : On(4)
     FEAR_OF_THE_UNSEEN_TELEPORTING_IN, FEAR_OF_THE_UNSEEN_MOVING,
@@ -304,11 +304,11 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "FuelledByFury": [FuelledByFuryExtraDamageAbility, FuelledByFuryReviveAbility],
     # AnvilShield (passif spaceRockfist << Arjac >>) = volet ON-BLOCK `ApplyIce` : `On(UnitBlocked=0x3c) &
     # OwnerIsTarget & IsUnit(caster)` -> `AddEffect(Ice=0x11, source=Self, cible=CasterTile)` (la tuile de
-    # l'attaquant BLOQUE gele). L'effet de tuile Ice etait deja porte ; c'est le DISPATCH `On(0x3d)` qui
+    # l'attaquant BLOQUE gele). L'effet de tuile Ice etait deja porte ; c'est le DISPATCH `On(0x3c = UnitBlocked)` qui
     # manquait. Volets Stun / FrozenAttackerAdvantage / init-effects = residus documentes.
     # Cf. loki/anvil_shield.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour ; emetteur IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers).
     # #100 : les DEUX autres volets on-block sont desormais portes (ils etaient du dead-code faute de
-    # leurs prerequis) — `ApplyStun` (`On(0x3d) & IsMeleeAttack & (HasEffect(1200)|HasEffect(1201))` ->
+    # leurs prerequis) — `ApplyStun` (`On(0x3c = UnitBlocked) & IsMeleeAttack & (HasEffect(1200)|HasEffect(1201))` ->
     # Stunned sur l'attaquant) et `FrozenAttackerAdvantage` (`On(0x2a=PreUnitAbility) & IsNormalAttack &
     # IsUnitOnTileWithEffect(caster, Ice)` -> +20 % block chance transitoire).
     "AnvilShield": [AnvilShieldApplyIceAbility, AnvilShieldApplyStunAbility,
@@ -336,7 +336,7 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # event `On(PreUnitAbility=0x2a)` : quand Jaeger est CIBLE d'une attaque de MELEE pendant le tour
     # ADVERSE, il frappe l'attaquant 2x profil Power AVANT que l'attaque ne s'execute
     # (`MartialSuperiorityAbility$$CreateTrigger`/`$$CreateBehaviour`, cible = `Actor@0x158` ==
-    # `$$GetInitialTarget`). Si la riposte TUE l'attaquant, le gate acteur-mort POST-`On(0x2b)` de
+    # `$$GetInitialTarget`). Si la riposte TUE l'attaquant, le gate acteur-mort POST-`On(0x2a = PreUnitAbility)` de
     # `ActiveAbilityOperation$$ExecuteInternal` annule l'attaque entrante. Cf. loki/martial_superiority.py.
     "MartialSuperiority": [MartialSuperiorityRiposteAbility],
     # ListenUpMaggots (passif `astraSmnKell`, triggered 1063) = `On(AbilityInit=0x21)` : pose l'effet
@@ -360,7 +360,7 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     et 60 % >> de l'i2 est de la prose : le decompile n'a qu'un tirage par victime) ;
     #   * `On(0x35=PostUnitKill) & OwnerIsActor & AreFriends & HasTrait(Decoy)` -> `Heal(self, hp)`
     #     (le << marcher sur un decoy >> est en realite le CRUSH du decoy, qui passe par
-    #     `KillUnitOperation$$Execute` -> `On(0x36)`).
+    #     `KillUnitOperation$$Execute` -> `On(0x35 = PostUnitKill)`).
     # Cf. loki/cosmic_horror.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnKillAbility$$CreateTrigger /
     # ...$$CreateBehaviour / IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateTrigger).
     "CosmicHorror": [CosmicHorrorOnKillAbility, CosmicHorrorOnMoveAbility],
@@ -562,7 +562,7 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
                             RangedAutoAttackDeactivateOnAttack],      # On(10)   -> DeactivateEffect
     # HazeOfCorruption_DamageTransfer 0x435=1077 (case-209, bond pose par le target-finder de #207) :
     # `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger` =
-    # `(OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor, bonded)) | On(0x2e) | On(0x35))
+    # `(OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor, bonded)) | On(0x2d = UnitRevived) | On(0x34 = UnitFled))
     # & IsAlive(bonded) & AreEqual(Target, EffectSource)` -> le RELAIS encaisse, de la part du
     # porteur, chaque `LeftOverDamage` que la cible initiale a gaspillee.
     # 1111 WireweaveNet_CounterAttack (passif `eldarRanger` <<Calandis>>) : le trigger de RIPOSTE
@@ -572,7 +572,7 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # pilotent `EffectComponent.IsActive @+0x5c` (desarmement au debut du tour du porteur,
     # re-armement a sa fin -> la fenetre est le tour ENNEMI). Le « the FIRST time » d'i2 vient du
     # `& DeactivateEffect(effect)` que `$$CreateTargetTriggerBehaviour` ajoute a la riposte.
-    WIREWEAVE_NET_COUNTER_ATTACK: [WireweaveNetCounterAttack,                  # On(0x2a) -> la RIPOSTE
+    WIREWEAVE_NET_COUNTER_ATTACK: [WireweaveNetCounterAttack,                  # On(0x2a = PreUnitAbility) -> la RIPOSTE
                                    WireweaveNetDeactivateOnOwnerTurnStart,     # On(0x12) -> DeactivateEffect
                                    WireweaveNetActivateOnOwnerTurnEnd],        # On(0x17) -> ActivateEffect
     HAZE_DAMAGE_TRANSFER: [HazeOfCorruptionDamageTransferTrigger],
@@ -603,8 +603,8 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # DEUX triggers de RETRAIT du marqueur (case-89 volet B3) : `On(0x2d=UnitRevived) & OwnerIsTarget &
     # CurrentAbilityIs(PhoenixGem=0x5b2)` et `On(0x2e=UnitResurrected) & OwnerIsTarget`.
     PHOENIX_GEM_CAN_REVIVE: [PhoenixGemReviveAbility,                # 1451 (self-revive, even-if-overkill)
-                             PhoenixGemRemoveMarkerOnRevive,         # On(0x2e) -> RemoveEffect(1451)
-                             PhoenixGemRemoveMarkerOnResurrect],     # On(0x2f) -> RemoveEffect(1451)
+                             PhoenixGemRemoveMarkerOnRevive,         # On(0x2d = UnitRevived) -> RemoveEffect(1451)
+                             PhoenixGemRemoveMarkerOnResurrect],     # On(0x2e = UnitResurrected) -> RemoveEffect(1451)
     # FuelledByFury_CanRevive 1324 (#88 A1, marqueur POSE PAR LE JEU a l'init d'ultraTitus -- donc capte
     # tel quel par le snapshot live) : l'`ArraySet` d'`IdunBattle.Entities.Effects.Loki.
     # FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` n'enregistre QUE les 3
@@ -613,8 +613,8 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # c'est une DESACTIVATION (once-per-TURN, re-armee au tick 0x12), pas un retrait definitif.
     FUELLED_BY_FURY_CAN_REVIVE: [FuelledByFuryCanReviveActivateOnAbilityInit,    # On(0x21) -> Activate
                                  FuelledByFuryCanReviveActivateOnTurnStart,     # On(0x12) -> Activate
-                                 FuelledByFuryCanReviveDeactivateOnRevive],     # On(0x2e) -> Deactivate
-    # AnvilShield_FrozenAttackerAdvantage (#100, effet 0x4b1=1201 pose par le volet `On(0x2b)`) : son
+                                 FuelledByFuryCanReviveDeactivateOnRevive],     # On(0x2d = UnitRevived) -> Deactivate
+    # AnvilShield_FrozenAttackerAdvantage (#100, effet 0x4b1=1201 pose par le volet `On(0x2a = PreUnitAbility)`) : son
     # SEUL trigger propre est `IdunBattle.Entities.Effects.Loki.AnvilShield_FrozenAttackerAdvantageEffect
     # $$CreateTargetTrigger` = `On(0xe=UnitPostAbility) & AreEqual(target@0x178, EffectSource(this))` ->
     # le bonus +20 % block ne vit QUE le temps de l'ability qui l'a declenche (ground truth live).
@@ -660,8 +660,8 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `EndTurnOperation` : le natif, LUI, retire l'effet des le `On(4 = UnitAfterMove)` du
     # deplacement ou le `On(0x2a = PreUnitAbility)` du cast (mesure live). Cf. loki/teleporting_in.py.
     TELEPORT_STRIKE_TELEPORTING_IN: [TeleportStrikeTeleportingInRemoveOnAfterMove,          # On(4)
-                                     TeleportStrikeTeleportingInRemoveOnPreUnitAbility,     # On(0x2a)
-                                     TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn,   # On(0x28)
+                                     TeleportStrikeTeleportingInRemoveOnPreUnitAbility,     # On(0x2a = PreUnitAbility)
+                                     TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn,   # On(0x28 = UnitFinishedTurn)
                                      TeleportStrikeTeleportingInAddMovingOnPreMove],        # On(0x1f)
     # 1036 TeleportStrike_Moving : `IdunBattleLogic.Effects.TeleportMovingEffect$$
     # CreateHandleTriggerAbilitiesInternal` = UN SEUL `Triggered(On(4) & OwnerIsActor,
@@ -679,8 +679,8 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # Deep Strike du Deathleaper immediatement apres son cast. Cf. loki/teleporting_in.py.
     FEAR_OF_THE_UNSEEN_TELEPORTING_IN: [
         FearOfTheUnseenTeleportingInRemoveOnAfterMove,          # T1 On(4)
-        FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a)
-        FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28) & HasTile
+        FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a = PreUnitAbility)
+        FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28 = UnitFinishedTurn) & HasTile
         FearOfTheUnseenTeleportingInAddMovingOnPreMove],        # T4 On(0x1f) -> AddEffect(1241)
     # 1241 FearOfTheUnseen_Moving : DEUXIEME des trois `EffectType` que la fabrique native construit
     # par `IdunBattleLogic.Effects.TeleportMovingEffect` -- meme `Triggered` unique que 1036.
@@ -710,13 +710,13 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # SANS cette entree l'effet est PERMANENT (options `AddEffect` ZERO -> `remaining = 0`) et le
     # porteur garderait A VIE le `+extraDmgPct` de sa nova `Explodes` -- regression SILENCIEUSE, et
     # INERTE sur tout scenario ou 1098 n'est lu que PENDANT le cast. Cf. loki/ramming_speed.py.
-    RAMMING_SPEED_EXTRA_EXPLODE: [RammingSpeedExtraExplodeRemove],             # 1098 -> retrait On(0x3a)
+    RAMMING_SPEED_EXTRA_EXPLODE: [RammingSpeedExtraExplodeRemove],             # 1098 -> retrait On(0x3a = PhaseEnd)
     # 1227 HarlequinsPanoply_IgnoreHits (#366-r1) : la classe d'effet ne surcharge QUE
     # `$$CreateTargetTrigger` -- pour un `BaseEffect` c'est le trigger de RETRAIT
     # (`CreateHandleTriggerAbilities` -> `Triggered(<trigger>, RemoveEffect(Effect@0x38))`), ici
     # `On(9 = Attack) & get_OwnerIsTarget` = la CLOTURE de l'attaque qui visait le porteur. Les deux
     # AUTRES faces du cluster (pose on-block, discard per-coup) ne peuvent PAS passer par ce registre :
-    # elles sont per-COUP alors que le bus du port emet `On(6)`/`On(0x3c)` une fois par attaque ->
+    # elles sont per-COUP alors que le bus du port emet `On(6)`/`On(0x3c = UnitBlocked)` une fois par attaque ->
     # elles sont appelees par l'intercepteur de `_run_hits` (cf. loki/harlequins_panoply.py).
     HARLEQUINS_PANOPLY_IGNORE_HITS: [HarlequinsPanoplyIgnoreHitsRemove],       # 1227 -> retrait On(9)
     # EarlyWarningOverride_ReactivateOverwatch (#114 residu 3, effet 1145 pose par l'active 1077 de
@@ -741,13 +741,13 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # Cf. loki/ghost_revive.py pour les arbres in extenso.
     TIME_FLUX_GHOST_EFFECT: [TimeFluxGhostEffectRevive,          # On(1)    -> Revive(tiles=Owner) + RemoveEffect
                              TimeFluxGhostRemoveOnSourceMoves,   # On(0x1f) -> le poseur rebouge
-                             TimeFluxGhostRemoveOnUnitAdded,     # On(0x33) -> une autre unite APPARAIT dessus
+                             TimeFluxGhostRemoveOnUnitAdded,     # On(0x32 = UnitAdded) -> une autre unite APPARAIT dessus
                              TimeFluxGhostRemoveOnUnitEnters,    # On(0x24) -> une autre unite ARRIVE dessus
                              TimeFluxGhostRemoveOnSourceDeathInactive,  # On(0)    -> poseur mort, effet INACTIF
                              TimeFluxGhostRemoveOnSourceRemoved],       # On(0x25) -> poseur retire du plateau
     ECHOES_GHOST_EFFECT: [EchoesFromTheWarpGhostEffectRevive,    # On(1)    -> Revive(Full Health, tiles=Owner)
                           EchoesGhostRemoveOnSourceMoves,        # On(0x1f)
-                          EchoesGhostRemoveOnUnitAdded,          # On(0x33)
+                          EchoesGhostRemoveOnUnitAdded,          # On(0x32 = UnitAdded)
                           EchoesGhostRemoveOnUnitEnters,         # On(0x24)
                           EchoesGhostRemoveOnSourceDeathInactive,  # On(0)
                           EchoesGhostRemoveOnSourceRemoved],       # On(0x25)

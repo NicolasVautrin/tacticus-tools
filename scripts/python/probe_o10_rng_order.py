@@ -6,7 +6,7 @@ QUESTION (binaire, tranchee par le MT live, pas par une valeur de degat) : quand
 AVANT ou APRES le tirage de la mort ?
 
   * ORDRE « BUS » (= la place NATIVE de `On(0x10)`) : `IdunBattle.Operations.ApplyDamageOperation$$
-    Execute` emet `On(0x3a)` -> `On(0xf)` -> `On(0x10)` **avant** que la mort ne soit traitee
+    Execute` emet `On(0x39 = PreDamageTaken)` -> `On(0xf)` -> `On(0x10)` **avant** que la mort ne soit traitee
     (`VerifyDeaths` -> `IdunBattle.Operations.KillUnitOperation$$Execute`). Le `Maybe` precede donc
     le tirage de mort.
   * ORDRE « IMPERATIF » (= le port aujourd'hui) : `_on_toxic_damage_ability` est appele depuis

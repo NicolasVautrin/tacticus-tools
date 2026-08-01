@@ -324,7 +324,7 @@ def capture(sid, rid, board):
 
 def offline_finish(cap, unit_id, patch=None):
     """Rejoue le `finish` de `unit_id` cote PORT depuis la capture, par le MEME chemin que le runner
-    (`FinishUnitTurnOperation.execute(..., forced=False)` -> vecteur `On(0x29)`).
+    (`FinishUnitTurnOperation.execute(..., forced=False)` -> vecteur `On(0x29 = UnitFinishedTurnNormally)`).
 
     `patch` = un CONTREFACTUEL : remplacant de `my_will_be_done_target_friend` (cf. `_patched_tree`).
     Rend `(state, resultats_du_vecteur)`."""

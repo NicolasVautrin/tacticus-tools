@@ -1,5 +1,5 @@
 """case-89 volet C -- **la GARDE de `IdunBattle.Operations.KillUnitOperation$$Execute`** : un REVIVE pose pendant
-`On(PreUnitDeath = 1)` COURT-CIRCUITE tout le reste de la mort (`On(2)`, `On(0)`, `On(55)`, `On(54)`).
+`On(PreUnitDeath = 1)` COURT-CIRCUITE tout le reste de la mort (`On(2)`, `On(0)`, `On(54 = UnitDefeated)`, `On(53 = PostUnitKill)`).
 
 RE (decompile = verite) :
   * `IdunBattle.Operations.KillUnitOperation$$Execute` emet `On(1)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc PUIS teste
@@ -19,7 +19,7 @@ NEGATIVE sur le MEME etat (gate revive deja consomme ce tour) : la nova part et 
 `putridExplosionDmgPct%` du maxPV du Putrifier. Le delta de PV d'une TROISIEME unite est le discriminant.
 
 La mort passe par le VRAI chokepoint `AttackDamageOperation._apply_damage_pipeline` (damage.py), donc par
-`_fire_death_if_killed` -> `On(1)` -> garde -> (`On(2)`/`On(55)` ou court-circuit). ASCII only.
+`_fire_death_if_killed` -> `On(1)` -> garde -> (`On(2)`/`On(54 = UnitDefeated)` ou court-circuit). ASCII only.
 """
 from __future__ import annotations
 

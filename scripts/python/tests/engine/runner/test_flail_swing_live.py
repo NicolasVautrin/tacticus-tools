@@ -577,7 +577,7 @@ def test_flail_swing_cast_entry_point_haze_pool_live(live_session, rpc):
 
     Ce que le test EXIGE :
       * le montage est DISCRIMINANT (au moins un bond natif 1076, et natif > direct en tirages) ;
-      * la voie de PRODUCTION `Runner.apply(ActiveAbilityMessage)` -- qui emet `On(0x2b)` -- rend le
+      * la voie de PRODUCTION `Runner.apply(ActiveAbilityMessage)` -- qui emet `On(0x2a = PreUnitAbility)` -- rend le
         MEME compte de tirages que le natif ET les MEMES coups, a l'unite ;
       * ANTI-TAUTOLOGIE : le raccourci `execute_behaviour(...)` appele a la main NE reproduit PAS le
         live. Sans cette derniere exigence, un montage a pool vide passerait au vert sans rien
@@ -644,7 +644,7 @@ def test_flail_swing_cast_entry_point_haze_pool_live(live_session, rpc):
             pytest.skip("coup SALE (crit/block/evade) -- montage non comparable")
         n_native = _genrand_steps(s0, s1)
 
-        # --- OFFLINE voie de PRODUCTION (Runner.apply -> On(0x2b) -> pool Haze) ---
+        # --- OFFLINE voie de PRODUCTION (Runner.apply -> On(0x2a = PreUnitAbility) -> pool Haze) ---
         st_p = load_state(dv2, ob2, snap2, board=board)
         st_p.rng, box_p = _counting_rng(s0)
         runner = Runner(st_p).install_default_handlers(20)
@@ -652,7 +652,7 @@ def test_flail_swing_cast_entry_point_haze_pool_live(live_session, rpc):
         last = getattr(runner.ability_handler, "last", None) or {}
         pipe = list(((last.get("attack") or {}).get("per_hit")) or [])
 
-        # --- OFFLINE raccourci (execute_behaviour a la main : PAS de On(0x2b)) ---
+        # --- OFFLINE raccourci (execute_behaviour a la main : PAS de On(0x2a = PreUnitAbility)) ---
         st_d = load_state(dv2, ob2, snap2, board=board)
         st_d.rng, box_d = _counting_rng(s0)
         direct = list((((FlailSwingAbility().execute_behaviour(st_d, cid, tid) or {})
@@ -681,7 +681,7 @@ def test_flail_swing_cast_entry_point_haze_pool_live(live_session, rpc):
         assert direct != live, (
             f"le raccourci execute_behaviour rend {direct} == live : ce montage ne prouve plus que "
             f"le point d'entree compte (verifier que l'allie est bien adjacent aux DEUX)")
-        print("[FLAIL entry] OK : On(0x2b) paie le PickRandomly HazeOfCorruption, Runner.apply "
+        print("[FLAIL entry] OK : On(0x2a = PreUnitAbility) paie le PickRandomly HazeOfCorruption, Runner.apply "
               "bit-exact, raccourci direct refute")
     finally:
         try:

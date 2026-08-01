@@ -134,7 +134,7 @@ def test_fuelled_by_fury_revive_cancels_own_death_live(live_session, rpc, build_
     assert pos0 == pos1, f"revive NON in-place {pos0} -> {pos1}"
     assert any("kill_cancelled_by_revive" in r for r in out), \
         f"la garde `!pendingRevive.HasValue` n'a pas annule la mort (sorties={out})"
-    # le marqueur est CONSOMME (`On(0x2e) & CurrentAbilityIs(1251) -> DeactivateEffect`)
+    # le marqueur est CONSOMME (`On(0x2d = UnitRevived) & CurrentAbilityIs(1251) -> DeactivateEffect`)
     assert not _can_revive_is_armed(st, tid), "le marqueur 1324 devait etre DESACTIVE apres le revive"
 
 
@@ -153,7 +153,7 @@ def test_fuelled_by_fury_revive_requires_a_kill_live(live_session, rpc, build_ru
 
     Le marqueur est donc DESARME dans les deux faces, mais par DEUX mecanismes distincts, et c'est
     `consumed` qui les separe : face POSITIVE, la mort est ANNULEE (aucun `RemoveEffects` ne tourne)
-    et le marqueur est seulement DESACTIVE (`On(0x2e) -> DeactivateEffect`, instance vivante) ; face
+    et le marqueur est seulement DESACTIVE (`On(0x2d = UnitRevived) -> DeactivateEffect`, instance vivante) ; face
     NEGATIVE, l'instance est RETIREE avec son porteur."""
     rid = build_runner("31337", extra=BUILD)["rid"]
     st, tid = _state(rpc, rid)

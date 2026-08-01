@@ -16,7 +16,7 @@ fait :
     ni stat, ni trait, ni arme du caster.
   * CIBLE = la tuile legale la plus ELOIGNEE des deux casters, TEMOIN = la suivante.
   * CAPTURE de l'etat pre-cast -> rejeu OFFLINE par la voie COMPLETE (`Runner.apply(
-    ActiveAbilityMessage)` : gates de ciblage, `On(0x2b)`, behaviour, flags de tour) -> cast LIVE ->
+    ActiveAbilityMessage)` : gates de ciblage, `On(0x2a = PreUnitAbility)`, behaviour, flags de tour) -> cast LIVE ->
     RECHARGEMENT de l'etat natif d'apres -> comparaison terme a terme.
 
 ⚠ Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268) : un `pytest.skip` sur un regime

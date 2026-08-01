@@ -69,17 +69,17 @@ def unit_finished_turn_triggers(state: State, unit_id: int) -> list[dict]:
             if (!isTerminated) publish On(0x29 = UnitFinishedTurnNormally)
         }
 
-    Son gate est le SEUL « le flag TurnFinished vient d'etre POSE » -- contrairement a `On(0x29)`,
+    Son gate est le SEUL « le flag TurnFinished vient d'etre POSE » -- contrairement a `On(0x29 = UnitFinishedTurnNormally)`,
     il est emis MEME sur une terminaison FORCEE (`isTerminated`). Le gate vit chez l'appelant
     (`operations/turnflow.py`), comme pour ses deux voisins. `actor` = `target` = l'unite qui clot.
 
     Consommateur porte (#448-r2) : le 3e trigger d'`IdunBattle.Entities.Effects.Loki.
-    ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` -- `On(0x28) & OwnerIsActor &
+    ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` -- `On(0x28 = UnitFinishedTurn) & OwnerIsActor &
     HasTile(Owner)` -> `RemoveEffect(EffectSelf)`, i.e. l'ATTERRISSAGE d'une unite deep-strike qui
     finit son tour sans avoir ni bouge ni caste. Ce vecteur etait un RESIDU NOMME jusqu'ici (« le
     jour ou une ability l'ecoute, elle s'ajoute ICI, pas dans un fork ») : c'est ce jour-la.
 
-    Le canal `TriggeringAbility` est VIDE sur cet evenement, comme sur `On(0x29)` -- meme site
+    Le canal `TriggeringAbility` est VIDE sur cet evenement, comme sur `On(0x29 = UnitFinishedTurnNormally)` -- meme site
     d'emission, meme `Nullable<AbilityOrEffect>` a zero."""
     ev = TriggerEvent(EventTriggerType.UnitFinishedTurn, int(unit_id), int(unit_id),
                       ranged=False, profile=None)

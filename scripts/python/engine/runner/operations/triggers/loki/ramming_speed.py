@@ -20,7 +20,7 @@ le `.ctor` en tete et le `.ctor` du type suivant `HealAbility`) les rend tous :
     3. corps de `IdunBattle.Entities.Effects.Loki.WhisperingWebEffect$$CreateTargetSelector`
        = `return dsl.entities@+0x30`                        -> `CreateTargetSelector` = **Owner**
     4. corps de `IdunBattle.Entities.Effects.Loki.UntilOfEndPhaseEffect$$CreateRemoveEffectTrigger`
-       = `IdunBattleLogic.Entities.DSLTriggers$$On(0x3a, ownerNeedsToBeAlive: false)`
+       = `IdunBattleLogic.Entities.DSLTriggers$$On(0x3a = PhaseEnd, ownerNeedsToBeAlive: false)`
                                                             -> `CreateTargetTrigger`
     5. corps de `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_ResetInitialDmgEffect$$CreateTargetTriggerBehaviour`
        = `IdunBattle.Entities.Effects.BaseEffect$$GetRemoveEffectBehaviour(this)`
@@ -75,7 +75,7 @@ survenant plus tard : sans ce retrait, le porteur garderait +50 % de degat d'exp
 
 ## Ce qui reste ASSUME
 
-`On(0x3a, ownerNeedsToBeAlive: false)` : le natif ne gate PAS sur la vie du porteur, le dispatch du port
+`On(0x3a = PhaseEnd, ownerNeedsToBeAlive: false)` : le natif ne gate PAS sur la vie du porteur, le dispatch du port
 si (`CanGet*Trigger`). Ecart identique a `UntilOfEndTurnRemove` et sans effet observable -- un caster tue
 par son propre contrecoup a deja perdu tous ses effets par `IdunBattle.Operations.KillUnitOperation$$RemoveEffects`.
 

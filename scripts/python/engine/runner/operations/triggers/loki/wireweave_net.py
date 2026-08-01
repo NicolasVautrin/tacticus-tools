@@ -224,7 +224,7 @@ def wireweave_net_tree():
 class WireweaveNetCounterAttack(EffectTrigger):
     """`CounterAttackEffect$$CreateTargetTrigger` + `$$CreateTargetTriggerBehaviour` pour
     `WireweaveNet_CounterAttackEffect` — la RIPOSTE elle-meme (cf. §3/§4 de l'en-tete)."""
-    event_id = EventTriggerType.PreUnitAbility          # `GetCounterAttackTrigger` = On(0x2a, true)
+    event_id = EventTriggerType.PreUnitAbility          # `GetCounterAttackTrigger` = On(0x2a = PreUnitAbility, true)
     effect_type = WIREWEAVE_NET_COUNTER_ATTACK
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:

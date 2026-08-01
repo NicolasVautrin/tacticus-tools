@@ -504,7 +504,7 @@ class _GhostRemoval(TileEffectTrigger):
 
     def _actor_is_on_my_tile(self, state: State, unit_id) -> bool:
         """`Contains(TargetTiles@0x190, Owner@0x148)` -- les tuiles-cible de l'evenement contiennent
-        la tuile porteuse du ghost. Sur `On(0x24)`/`On(0x33)` ces tuiles sont celles ou l'unite vient
+        la tuile porteuse du ghost. Sur `On(0x24)`/`On(0x32 = UnitAdded)` ces tuiles sont celles ou l'unite vient
         d'arriver / d'apparaitre : le port les derive de sa `PositionComponent` (deja ecrite quand le
         natif emet ces events)."""
         if unit_id is None:

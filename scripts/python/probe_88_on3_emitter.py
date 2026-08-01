@@ -1,7 +1,7 @@
 """probe #88 -- localiser l'emetteur d'`On(PendingDeathAdded = 3)`.
 
 `probe_88_event_emitters.py` a decode les 55 call-sites du dispatcher
-`FUN_180026490(msgId, <static>, events, eventType, entities)` : AUCUN ne passe `eventType = 3`.
+`FUN_1800280e0(msgId, <static>, events, eventType, entities)` : AUCUN ne passe `eventType = 3`.
 Il existe donc un (ou plusieurs) AUTRE(S) chemin(s) d'emission. Ce probe les cherche par BALAYAGE
 DU CODE : dans `.text`, toute sequence `mov r9d, 3` (`41 B9 03 00 00 00`) suivie, dans les 64
 octets, d'un `call rel32` -- puis resolution du call-site ET de la cible via la table de symboles

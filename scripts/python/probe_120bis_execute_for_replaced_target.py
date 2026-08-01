@@ -32,7 +32,7 @@ ORACLE LIVE (deja garde par les tests live, aucun chiffre gele ici) :
 
 CE PROBE REJOUE CES TROIS VERDICTS COTE PORT, plus les contre-cas qui prouvent que la re-resolution
 n'est PAS inconditionnelle (Creed taunte = spawn SANS switch ; cible sans SwornProtector ; ability
-`Others`), plus deux assertions STRUCTURELLES : la re-entree ré-emet `On(0x2b)` (c'est une VRAIE
+`Others`), plus deux assertions STRUCTURELLES : la re-entree ré-emet `On(0x2a = PreUnitAbility)` (c'est une VRAIE
 re-entree dans `Execute`, pas un echange de cible aplati) et les flags de tour ne sont poses QU'UNE
 fois (le `ExecuteInternal` appelant `return`e avant `AddFlagsAfterAbilityExecution`).
 
@@ -93,7 +93,7 @@ FLAIL_CASTER = "deathBlightlord"
 # CASTER qui decide. `deathBlightlord` porte `HazeOfCorruption` (case-207/209) :
 #   * `HazeOfCorruption_TargetFinderAbility$$CreateBehaviour` bonde (effet 0x435 = 1077)
 #     `PickRandomly(Damageable(AdjacentEnemies(Self@0x148) & AdjacentFriends(Target@0x178)), 2)` A
-#     CHAQUE emission de `On(0x2b)` -- donc AUSSI a la re-entree, ou `Target` est deja Kell ;
+#     CHAQUE emission de `On(0x2a = PreUnitAbility)` -- donc AUSSI a la re-entree, ou `Target` est deja Kell ;
 #   * quand la cible tombe, `IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit` enregistre le
 #     degat GASPILLE, et `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$
 #     CreateTargetTrigger` le fait encaisser au RELAIS bonde.
@@ -211,7 +211,7 @@ def main() -> int:
     print("[1] voie NORMALE : cible frappee=%s (creed=%s kell=%s) total=%s | hp creed=%s kell=%s"
           % (r and r.get("target"), creed, kell, r and r.get("total"),
              _hp(state, creed), _hp(state, kell)))
-    assert kell is not None, "Kell n'est pas apparu -> le vecteur On(0x2b) ne part plus de la voie normale"
+    assert kell is not None, "Kell n'est pas apparu -> le vecteur On(0x2a = PreUnitAbility) ne part plus de la voie normale"
     assert _pos(state, kell) == (2, 2) and _pos(state, creed) != (2, 2), "pas de SwitchPosition"
     assert r is not None and r.get("target") == kell, (
         "l'attaque normale frappe encore %s : ExecuteForReplacedTarget n'est pas cable sur la voie "
@@ -326,7 +326,7 @@ def main() -> int:
     assert resolve_replaced_target(state, creed, tiles_dead) == (False, None)
 
     # --- 7. STRUCTURE : la re-entree est une VRAIE re-entree ------------------------------------
-    # (a) `On(0x2b)` est RE-EMIS (le natif re-entre dans `Execute` -> `ExecuteInternal`, qui emet son
+    # (a) `On(0x2a = PreUnitAbility)` est RE-EMIS (le natif re-entre dans `Execute` -> `ExecuteInternal`, qui emet son
     #     propre vecteur) : 2 emissions pour 1 cast bascule, 1 seule sans bascule ;
     # (b) `AddFlagsAfterAbilityExecution` n'est appele QU'UNE fois (le `ExecuteInternal` appelant
     #     `return`e AVANT sa queue de flags).
@@ -347,10 +347,10 @@ def main() -> int:
         finally:
             H.AbilityHandler._pre_unit_ability = o_pre
             H.AbilityHandler._add_flags_after_execution = o_flags
-        print("[7-%s] emissions On(0x2b) sur %s | AddFlagsAfterAbilityExecution x%d"
+        print("[7-%s] emissions On(0x2a = PreUnitAbility) sur %s | AddFlagsAfterAbilityExecution x%d"
               % (label, emits, len(flags)))
         assert len(emits) == expect_emits, (
-            "%d emissions de On(0x2b) (attendu %d) -> la re-entree est aplatie en simple echange "
+            "%d emissions de On(0x2a = PreUnitAbility) (attendu %d) -> la re-entree est aplatie en simple echange "
             "de cible" % (len(emits), expect_emits))
         assert len(flags) == 1, (
             "AddFlagsAfterAbilityExecution appele %d fois -> l'appelant ne `return`e pas avant sa "

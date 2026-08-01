@@ -889,11 +889,11 @@ class TileDistanceUtility(BaseUtility):
         return -float(d) / 10.0
 
 
-# Composite `MovementSuggestion(32)` = INSTANCE `ComposedUtility` de DEUX enfants, exactement comme
+# Composite `MovementSuggestion(33)` = INSTANCE `ComposedUtility` de DEUX enfants, exactement comme
 # `Tile(7)` est une instance de 29 : la carte de composition vit dans
 # `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities`, qui remplit le
-# `Dictionary<UtilityType, UtilityType[]>` de `UtilitiesDatabase+0x58`. L'entrée `0x20` y reçoit un
-# tableau de DEUX éléments écrits l'un après l'autre : `[0] = 7` (Tile) puis `[1] = 0x21` (TileDistance).
+# `Dictionary<UtilityType, UtilityType[]>` de `UtilitiesDatabase+0x58`. L'entrée `0x21` y reçoit un
+# tableau de DEUX éléments écrits l'un après l'autre : `[0] = 7` (Tile) puis `[1] = 0x22` (TileDistance).
 # `IdunBattle.Core.Services.UtilitiesDatabase$$GetUtility` mappe ensuite chaque sous-type par
 # `IdunBattle.Core.Services.UtilitiesDatabase.u003Cu003Ec__DisplayClass16_0$$u003CGetUtilityu003Eb__0`
 # (= `GetUtility(sousType, MÊME collection)`) et, `Count > 1`, construit un `ComposedUtility`.

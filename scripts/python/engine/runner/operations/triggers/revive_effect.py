@@ -145,7 +145,7 @@ class Revive(AbilityBehaviour):
         # 5e argument de `DSLFactory.Revive` : `GetHealType@0x748` pour un ReviveEffect, litteral pour les
         # TriggeredAbility autonomes (PhoenixGem = 2 IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour, FuelledByFury = 0 IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateBehaviour).
         self.heal_type = int(heal_type)
-        # 6e argument : `Nullable<AbilityOrEffect>` du poseur -- relu par `CurrentAbilityIs` sur On(0x2e).
+        # 6e argument : `Nullable<AbilityOrEffect>` du poseur -- relu par `CurrentAbilityIs` sur On(0x2d = UnitRevived).
         self.source_id = source_id
         # 8e argument : priorite (`IsPreferredRevive`). 0 partout SAUF PhoenixGem = **-1000** (0xfffffc18).
         self.priority = int(priority)

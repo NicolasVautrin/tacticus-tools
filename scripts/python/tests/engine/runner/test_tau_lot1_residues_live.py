@@ -387,7 +387,7 @@ def test_tau_lot1_residues_gates_negative_live(rpc_, build_runner):
 
       * `StaticBattleRules.ActiveAbility$$IsActiveAbility` : une attaque REGULIERE n'emet PAS
         `On(0xc)` -> l'override de niveau 1180 doit SURVIVRE a l'attaque. Un port qui emettrait
-        `On(UnitActiveAbility)` depuis la voie normale (les deux voies emettent bien `On(0x2b)` et
+        `On(UnitActiveAbility)` depuis la voie normale (les deux voies emettent bien `On(0x2a = PreUnitAbility)` et
         `On(0xe)`, #120 -- l'erreur est naturelle) le retirerait ici.
       * `AReactivateOverwatchEffect` conjoint `NOT IsTurnOf(owner@0x148)` : le kill a lieu pendant le
         tour de Re'vas -> pas de re-entree en overwatch.

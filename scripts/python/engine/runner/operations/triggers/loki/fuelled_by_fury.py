@@ -433,7 +433,7 @@ class FuelledByFuryCanReviveDeactivateOnRevive(EffectTrigger):
     CurrentAbilityIs(AbilityOrEffect(0x4e3 = 1251)) -> DeactivateEffect(self@0x150)`.
 
     Le `CurrentAbilityIs` est essentiel : SEUL un revive venu de FuelledByFury consomme le marqueur ;
-    un revive d'ailleurs (Narthecium d'un allie, PhoenixGem, ...) emet bien `On(0x2e)` mais laisse
+    un revive d'ailleurs (Narthecium d'un allie, PhoenixGem, ...) emet bien `On(0x2d = UnitRevived)` mais laisse
     l'armement en place. Meme discriminant que `PhoenixGemRemoveMarkerOnRevive`."""
     effect_type = FUELLED_BY_FURY_CAN_REVIVE
     event_id = int(EventTriggerType.UnitRevived)               # 0x2e = 46

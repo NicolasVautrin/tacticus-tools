@@ -16,7 +16,7 @@ ARTEFACTS NATIFS (decompile, build `gqfc5mff6c`) :
 
     IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger
         ( OnDeath(1,1) & ( TriggeringAbilityIs(0x435) | AreEqual(Actor@0x158, bonded) )
-          | On(0x2e) | On(0x35) ) & IsAlive(bonded) & AreEqual(Target@0x178, EffectSource(Effect@0x150))
+          | On(0x2d = UnitRevived) | On(0x34 = UnitFled) ) & IsAlive(bonded) & AreEqual(Target@0x178, EffectSource(Effect@0x150))
     IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTriggerBehaviour
         Attack(bonded, Owner@0x148, RemoveEffect + N x AttackDamage(bonded, Owner@0x148, ...))
 

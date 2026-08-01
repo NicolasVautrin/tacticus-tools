@@ -60,7 +60,7 @@ compte qu'une fois, et le 2e coup Psychic sur la MEME cible ne redonne rien. (`u
 
 Qualification des enums (dump du build) : `AbilityConstantType` 0xd = `extraRange`, 0xe =
 `extraMovement` ; `AbilityVariableType` 0x49 = `extraMaxDmg` (dans `variablesAffectedByRarityBonus`
--> rarity-scale) ; `DamageProfileType` 0xd = `Psychic` ; `EventTriggerType` 0x43 = `FinalDamage` et
+-> rarity-scale) ; `DamageProfileType` 0xd = `Psychic` ; `EventTriggerType` 0x42 = `FinalDamage` et
 9 = `Attack` ; `StatType` 1 = MOVEMENT, 0x18 = EXTRA_RANGE, 0x19 = EXTRA_MAX_DAMAGE.
 
 ## Consommation des stats posees (ce qui rendait ce port no-op)

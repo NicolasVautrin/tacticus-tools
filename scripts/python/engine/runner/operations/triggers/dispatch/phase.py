@@ -27,7 +27,7 @@ de phase N+1). (1) manquait entierement, et (2) n'est pas porte (pas de reservat
 et le seul aujourd'hui. Le natif a d'autres ecouteurs de `PhaseEnd` (au moins
 `IdunBattle.Entities.Effects.Loki.UntilOfEndPhaseEffect$$CreateRemoveEffectTrigger` et la premiere
 branche d'`IdunBattle.Entities.Effects.TemporaryEffect$$CreateRemoveEffectTrigger` =
-`On(0x3a) | (On(9, true) & OwnerIsActor)`) ; ils entreront par ce meme vecteur quand leurs effets seront
+`On(0x3a = PhaseEnd) | (On(9, true) & OwnerIsActor)`) ; ils entreront par ce meme vecteur quand leurs effets seront
 portes.
 
 L'evenement n'a NI acteur NI cible (le natif publie sans entite -- `EndPhaseOperation$$Execute` ne passe

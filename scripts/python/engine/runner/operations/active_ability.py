@@ -34,7 +34,7 @@ d'`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
     }
     ... execution de la behaviour, puis On(0xb)/On(0xc)/AddFlags/On(0xe) ...
 
-Le point de bascule est que `entities@+0x38` est fige AVANT le `On(0x2b)` (c'est la liste de tuiles
+Le point de bascule est que `entities@+0x38` est fige AVANT le `On(0x2a = PreUnitAbility)` (c'est la liste de tuiles
 que la cible occupait ALORS), tandis que `GetUnit(...)` est resolu APRES : si la cascade de triggers
 a fait entrer une AUTRE unite sur cette tuile, c'est ELLE que l'ability frappe. La provenance du
 slot est lue dans `GetAbilityEntities` lui-meme (`param_1[7] = EntityExtensions.GetTiles(finalTarget)`,
@@ -57,7 +57,7 @@ casterTiles).
 
 -> ce n'est PAS un « on remplace la cible et on continue » : c'est une VRAIE RE-ENTREE dans
 `Execute` -> `ExecuteInternal`, qui REJOUE toute la chaine sur la nouvelle cible (gate acteur-mort,
-gate de cible `IsInvalidTarget`, un NOUVEAU `On(0x2b)`, la behaviour, puis les flags de tour). Le
+gate de cible `IsInvalidTarget`, un NOUVEAU `On(0x2a = PreUnitAbility)`, la behaviour, puis les flags de tour). Le
 `ExecuteInternal` appelant, lui, `return`e immediatement : il ne pose NI behaviour NI flags -- les
 flags sont poses UNE seule fois, par l'appel re-entrant.
 
@@ -90,7 +90,7 @@ Offline, une ability tile-target recoit un **id de tuile de `state.board`** dans
 
 Ce n'est PAS un risque introduit ici, et il ne peut PAS se manifester seul : la re-resolution ne
 bascule que si l'OCCUPANT de la tuile snapshotee a change pendant la cascade, et le seul consommateur
-porte de `On(0x2b)` qui deplace une unite est `SwornProtector`/`SwornProtector_Protect` -- dont le
+porte de `On(0x2a = PreUnitAbility)` qui deplace une unite est `SwornProtector`/`SwornProtector_Protect` -- dont le
 propre gate est exactement la meme comparaison d'id (`ev.target_id == owner_id`, `triggers/loki/
 sworn_protector.py`). Un mis-fire de la re-resolution est donc STRICTEMENT EN AVAL d'un mis-fire deja
 possible de SwornProtector, jamais une defaillance independante. Le fix propre est de separer les
@@ -190,7 +190,7 @@ def execute_for_replaced_target(state: State, caster_id: int, replaced_id: Optio
     `reenter(new_target)` = le `ActiveAbilityOperation$$Execute(caster, newTarget, abilityType,
     options)` de la voie appelante : `AbilityHandler.visit_ActiveAbilityMessage` pour un cast,
     `AttackDamageOperation.execute` pour l'attaque normale. C'est bien une re-entree COMPLETE (gates
-    + nouveau `On(0x2b)` + behaviour + flags de tour), pas un simple echange de cible.
+    + nouveau `On(0x2a = PreUnitAbility)` + behaviour + flags de tour), pas un simple echange de cible.
 
     `replaced_id is None` (la tuile visee s'est VIDEE pendant la cascade) : le natif re-entre avec
     `null`, et `ExecuteInternal` sort aussitot sur `GetActualTarget(caster, null) == null -> return 0`

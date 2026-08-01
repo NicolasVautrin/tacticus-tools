@@ -93,7 +93,7 @@ Cascade d'un `act move` sur `bloodIntercessor` (puis `eldarAutarch`), verbatim :
 
 Cascade d'un `act ability` (Foehammer) sur `spaceRockfist` SANS bouger : le `LoseEffect
 TeleportStrike_TeleportingIn` arrive AVANT `[Ability_Power]` -- exactement le rang ou
-`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` publie `On(0x2a)` = T2.
+`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` publie `On(0x2a = PreUnitAbility)` = T2.
 Cascade d'un `act finish` sans rien faire d'autre : `LoseEffect` seul = T3.
 
 CE QUE CA REFUTE : le port faisait atterrir TOUTES les unites deep-strike du joueur finissant dans
@@ -130,7 +130,7 @@ feuilles : docstring de `_FearOfTheUnseenRemainingIsOne`.
   l'effet cote natif, et c'est dit sur chaque classe ;
 * les DEUX autres jambes du `FinishUnitTurn(unit, false)` que `IdunBattle.Operations.
   EndTurnOperation$$Execute` appelle par unite possedee (`On(0x1c ArrivedAtFinalTile)` et
-  `On(0x29 UnitFinishedTurnNormally)`) : le port n'emet, depuis ce site-la, que la jambe `On(0x28)`
+  `On(0x29 UnitFinishedTurnNormally)`) : le port n'emet, depuis ce site-la, que la jambe `On(0x28 = UnitFinishedTurn)`
   -- residu NOMME, cf. `operations/turnflow.py::EndTurnOperation` ;
 * `UntargetableEffect$$ApplyInternal/RevertInternal` (le flag `UnitFlag 0x11`) **pour 1238 et 1573**.
   Le port ne lit pas un flag mais la PRESENCE de l'effet -- canal different, equivalent observable --

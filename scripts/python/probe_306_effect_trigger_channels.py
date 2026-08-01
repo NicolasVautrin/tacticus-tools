@@ -62,8 +62,8 @@ Cote retrait, aucun vecteur n'etait emis du tout : l'asymetrie etait litteraleme
 Un `State` nu (OFFLINE, deterministe, zero RNG, zero runner), deux entites, `EffectsState` vide.
 L'AMBIANT des deux canaux est arme AVANT (ce qu'une triggered englobante y aurait mis), puis :
 
-    1. `AddEffectOperation.execute(state, source, target, EFFECT_TYPE)`  -> On(61)
-    2. la feuille DSL `RemoveEffect(EFFECT_TYPE, Caster())`              -> On(63) puis On(64)
+    1. `AddEffectOperation.execute(state, source, target, EFFECT_TYPE)`  -> On(61 = PreEffectAdded)
+    2. la feuille DSL `RemoveEffect(EFFECT_TYPE, Caster())`              -> On(63 = PreEffectRemoved) puis On(64 = EffectRemoved)
 
 Trois espions dans le registre, chacun relevant le QUADRUPLET
 `(payload +0x60, payload +0x98, ambiant +0x60, ambiant +0x98)` dans `matches` ET dans
@@ -88,7 +88,7 @@ configuration ou un port qui confondrait les deux vecteurs est detectable.
   `legacy`    l'etat AVANT #306 : la pose n'ecrit que `+0x98` et ne touche pas l'ambiant ; le
               retrait n'emet AUCUN vecteur -> R63/R64 jamais atteints
   `symmetric` le retrait ecrit `+0x98` comme la pose -> `TriggeringEffectIs` redevient satisfiable
-              sur On(63)/On(64), ce que le memset natif interdit
+              sur On(63 = PreEffectRemoved)/On(64 = EffectRemoved), ce que le memset natif interdit
   `noambient` payload correct mais AMBIANT non ecrase -> l'id d'une triggered englobante FUIT dans
               le vecteur d'effet (`CurrentAbilityIs(<la triggered>)` y deviendrait vrai)
   `persist`   pas de restauration -> l'effet FUIT apres le vecteur
@@ -109,7 +109,7 @@ from __future__ import annotations
 import argparse
 from typing import Optional
 
-# Type d'effet REEL (`Pinned`, 0x429) : c'est celui du seul consommateur porte de `On(61)`
+# Type d'effet REEL (`Pinned`, 0x429) : c'est celui du seul consommateur porte de `On(61 = PreEffectAdded)`
 # (`TerrifyingCrescendoAbility` branche 2). Les deux ambiants sont ARBITRAIRES et distincts entre
 # eux et de l'effet -- le montage teste le CANAL, pas une ability reelle.
 EFFECT_TYPE = 1065
@@ -340,11 +340,11 @@ def run_nested(verbose: bool = False) -> dict:
     mort -- et le `KillUnitOperation` en cours garde le sien intact.
 
     Ce que le port faisait AVANT #306 : la pose ne touchait aucun canal, donc les triggers de
-    `On(61)` y voyaient `(None, killTrigger)` -- le contexte de MORT, publie sous un evenement
+    `On(61 = PreEffectAdded)` y voyaient `(None, killTrigger)` -- le contexte de MORT, publie sous un evenement
     d'EFFET. C'est le regime ou le fix change le plus, et il n'est couvert par aucun test existant.
 
     Retour : `during` = `(payload +0x60, payload +0x98, ambiant +0x60, ambiant +0x98)` vu par le
-    trigger de `On(61)` ; `restored` = les deux canaux JUSTE APRES le vecteur, toujours dans le
+    trigger de `On(61 = PreEffectAdded)` ; `restored` = les deux canaux JUSTE APRES le vecteur, toujours dans le
     drain (ils doivent etre revenus au contexte de mort)."""
     from engine.runner.state import State
     from engine.runner.components import UnitComponent, OwnerComponent
@@ -404,7 +404,7 @@ def run_nested(verbose: bool = False) -> dict:
            "restored": seen.get("restored"), "final": final}
     if verbose:
         print("contexte de MORT vu par le trigger      : %s" % (res["at_death"],))
-        print("canaux vus par On(61) IMBRIQUE          : %s" % (res["during"],))
+        print("canaux vus par On(61 = PreEffectAdded) IMBRIQUE          : %s" % (res["during"],))
         print("canaux JUSTE APRES le vecteur (in drain): %s" % (res["restored"],))
         print("canaux apres le drain complet           : %s" % (res["final"],))
     return res
@@ -421,7 +421,7 @@ def verdict_nested(res: dict) -> tuple:
                        "pas le regime imbrique" % (res["at_death"], KILL_TRIGGER_NESTED))
     # 2 : le vecteur d'effet NE PORTE PAS le contexte de mort -- il a son propre memset+ctor.
     if res["during"] != (EFFECT_TYPE, EFFECT_TYPE, EFFECT_TYPE, EFFECT_TYPE):
-        return (False, "ROUGE -- On(61) imbrique voit %s ; attendu (%s, %s, %s, %s) : "
+        return (False, "ROUGE -- On(61 = PreEffectAdded) imbrique voit %s ; attendu (%s, %s, %s, %s) : "
                        "AddEffectOperation batit son PROPRE AbilityEntities, il n'herite rien du "
                        "KillUnitOperation en cours"
                 % ((res["during"],) + (EFFECT_TYPE,) * 4))

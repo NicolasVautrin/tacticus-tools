@@ -22,9 +22,9 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
       }
       -> case-89 volet B3 : ces DEUX triggers sont desormais PORTES pour de vrai
       (`PhoenixGemRemoveMarkerOnRevive` / `PhoenixGemRemoveMarkerOnResurrect` ci-dessous), branches sur
-      les vecteurs `unit_revived_triggers` (`On(0x2e)`, emis par `ReviveUnitOperation` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1) et
-      `unit_resurrected_triggers` (`On(0x2f)`). Avant, le retrait etait CHAINE en dur au behaviour du
-      revive faute de vecteur `On(0x2e)` dispatche — la structure DSL est retablie.
+      les vecteurs `unit_revived_triggers` (`On(0x2d = UnitRevived)`, emis par `ReviveUnitOperation` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1) et
+      `unit_resurrected_triggers` (`On(0x2e = UnitResurrected)`). Avant, le retrait etait CHAINE en dur au behaviour du
+      revive faute de vecteur `On(0x2d = UnitRevived)` dispatche — la structure DSL est retablie.
   IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger
       `OnPreDeath(ignoreOverkill=TRUE) & OwnerIsTarget & HasEffect(self@0x148, 0x5ab=1451, 0, 6)`
       -> `ignoreOverkill=1` : `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` n'ajoute AUCUN gate overkill
@@ -136,7 +136,7 @@ class _PhoenixGemRemoveMarker(EffectTrigger):
     qui realise le « the FIRST TIME each battle » (et non un gate dans le trigger de revive)."""
     effect_type = PHOENIX_GEM_CAN_REVIVE
     fire_on_death = True        # au moment du dispatch, l'unite vient d'etre revive (alive=True), mais
-                                # `On(0x2f)` peut arriver sur une unite encore marquee morte -> tolerant.
+                                # `On(0x2e = UnitResurrected)` peut arriver sur une unite encore marquee morte -> tolerant.
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         raise NotImplementedError

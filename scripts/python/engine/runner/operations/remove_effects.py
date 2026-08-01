@@ -89,7 +89,7 @@ RESIDUS NOMMES (inchanges par ce foyer, deja presents avant lui) :
   * `IdunBattle.Operations.RemoveUnitOperation$$RemoveEffects` (le DESPAWN, `remove_unit.py` etape
     14) appelle le MEME slot 0x5a mais garde son retrait BRUT (`consumed = True` sans revert ni
     event) -- ecart preexistant, hors perimetre de #389-r2, laisse tel quel pour ne pas faire fire
-    `On(63)`/`On(64)` sur les evictions/clones.
+    `On(63 = PreEffectRemoved)`/`On(64 = EffectRemoved)` sur les evictions/clones.
 """
 from __future__ import annotations
 
@@ -156,7 +156,7 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
     eff.consumed = True
     # `ActiveEffectIds.Remove(effectId)` -> le canal des NOMS (lu par la couche decision) suit.
     unregister_name(state, tgt, eff.name)
-    # `On(EffectRemoved = 0x40 = 64)` — MEME `AbilityEntities` que `On(63)`.
+    # `On(EffectRemoved = 0x40 = 64)` — MEME `AbilityEntities` que `On(63 = PreEffectRemoved)`.
     effect_removed_triggers(state, tgt, eff.effect_type)
     return True
 
@@ -171,7 +171,7 @@ def remove_effects_operation(state: State, owner_id: Optional[int], *,
     `X` (cf. l'hypothese nommee en tete de module).
 
     Mirror des DEUX boucles natives : la premiere COLLECTE les candidats, la seconde les retire.
-    La separation est load-bearing — un consommateur de `On(63)`/`On(64)` declenche pendant la
+    La separation est load-bearing — un consommateur de `On(63 = PreEffectRemoved)`/`On(64 = EffectRemoved)` declenche pendant la
     seconde boucle ne peut pas changer la liste deja arretee.
 
     Renvoie la liste des `effect_type` effectivement retires (trace)."""

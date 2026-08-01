@@ -122,8 +122,8 @@ class TriggerEvent:
         #     natif ecrit d'ailleurs `+0x60` ET `+0x98` avec la MEME ability (voie universelle
         #     `Core.Services.OperationProcessor$$EvaluateAbilities`) -> lire l'un ou l'autre y est
         #     equivalent, contrairement aux CINQ evenements de `KillUnitOperation` (#301).
-        # None = evenement hors triggered-ability. ⚠ Sur le vecteur MORT (`On(0)/On(1)/On(2)/On(53)/
-        # On(54)`) ce canal est INCONDITIONNELLEMENT vide cote natif comme cote port (#301) : un gate
+        # None = evenement hors triggered-ability. ⚠ Sur le vecteur MORT (`On(0)/On(1)/On(2)/On(53 = PostUnitKill)/
+        # On(54 = UnitDefeated)`) ce canal est INCONDITIONNELLEMENT vide cote natif comme cote port (#301) : un gate
         # `Triggering*Is` de ce vecteur doit lire `state.trigger_ability_type`, jamais celui-ci.
         # ⚠ Sur les vecteurs d'EFFET, a l'inverse, c'est CE canal-ci qui est renseigne dans LES DEUX
         # sens -- il porte l'`AbilityOrEffect` de l'EFFET (pas d'une triggered) : `+0x60 = +0x98 =

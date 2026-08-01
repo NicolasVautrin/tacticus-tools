@@ -27,7 +27,7 @@ Ce que le test confronte au LIVE (aucune fixture gelee, aucun scalaire fitte) :
 
 Artefacts natifs (build gqfc5mff6c) : `ExplodesAbility` IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateBehaviour ; `PutridExplosion_Ability` IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateBehaviour ; `IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2`
 -> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` ; emetteur de la sequence de mort `KillUnitOperation$$IdunBattle.Operations.KillUnitOperation$$Execute`
-(ordre d'instruction LU : On(1) -> On(2) -> On(0) -> On(55) -> On(54)).
+(ordre d'instruction LU : On(1) -> On(2) -> On(0) -> On(54 = UnitDefeated) -> On(53 = PostUnitKill)).
 
 ⚠ `--block-target 0,0` : le block EST tire dans la famille ABILITY (prouve live), mais le rejeu
 offline part d'un RNG cale AVANT le coup letal alors que le natif a deja consomme des tirages ->

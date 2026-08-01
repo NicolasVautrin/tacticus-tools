@@ -6,7 +6,7 @@ QUESTION (binaire) : le nombre de `genrand_int32` consommes a l'entree d'une att
 `Damageable( AdjacentEnemies(Self@0x148, 1, 3) & AdjacentFriends(Target@0x178, 1, 3) )` ?
 
 Le montage principal de case-207 (`probe_207_haze_target_finder.py`, cible `astraCreed`) ne teste
-QUE le regime `k = 1`, paye DEUX FOIS (deux emissions de `On(0x2b)` via la re-entree
+QUE le regime `k = 1`, paye DEUX FOIS (deux emissions de `On(0x2a = PreUnitAbility)` via la re-entree
 `ExecuteForReplacedTarget` de SwornProtector). Il ne separe donc PAS
 
     (a) « `min(k, 2)` tirages par emission »              [le decompile]

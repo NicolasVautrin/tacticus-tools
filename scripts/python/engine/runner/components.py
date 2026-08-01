@@ -1442,7 +1442,7 @@ def unit_prevents_overkill(state, unit_id) -> bool:
     (Recherche litterale au decompile : `UnitFlagsComponent__Add(...,0x13,0)` n'a QUE cette occurrence.)
     L'effet lui-meme est active/desactive par ses propres triggers
     (`...$$CreateHandleTriggerAbilitiesInternal` : `On(0x21)&OwnerIsActor -> ActivateEffect`,
-    `On(0x12) -> ActivateEffect`, `On(0x2e)&OwnerIsTarget -> DeactivateEffect`) -> le flag vaut
+    `On(0x12) -> ActivateEffect`, `On(0x2d = UnitRevived)&OwnerIsTarget -> DeactivateEffect`) -> le flag vaut
     exactement « une instance ACTIVE de l'effet 1354 est portee ». Offline, `EffectsState.active_effects`
     applique DEJA le meme couple flag `EffectComponent.IsActive` + `CreateActiveCondition` : la
     derivation est donc le MEME invariant, pas une approximation (meme schema que

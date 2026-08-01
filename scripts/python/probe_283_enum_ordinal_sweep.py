@@ -41,9 +41,17 @@ CE QUE LE PROBE FAIT (chaque etape est autonome, `--step`)
 `prose`  : etape 4 -- inventaire TEXTUEL (tokenize : COMMENT/STRING seulement) des paires
            <membre> ~ <nombre>. Inerte a l'execution, mais c'est ce qui a contamine l'enonce de
            trois taches. Ne fait PAS echouer le verdict (c'est un residu chiffre).
+           `4bis` (meme scan, GATE) -- separateur LARGE, mais critere PROUVE : le nombre vaut
+           EXACTEMENT l'ordinal du membre sur le build ARCHIVE. #420 a trouve par la 12 citations
+           (`` `...,0x37` UnitDefeated ``, `On(UnitRevived = 45 = 0x2e)`) que le separateur
+           etroit de l'etape 4 ne voyait pas. Exemption : un token qui NOMME le build archive
+           est un rappel historique volontaire.
+`on`     : etape 5 -- ordinaux NUS, sur DEUX ancres : `On(<n>)` et la QUOTE VERBATIM du helper
+           de publication (`FUN_<addr>(0x4d|0x50, .., <n>)`). COMPTEUR : l'ancre est sure, le
+           verdict ne l'est pas.
 
-VERDICT : FAIL si `mirror`, `exec` ou `tables` signalent quoi que ce soit hors allowlist.
-`prose` est un COMPTEUR, pas un gate.
+VERDICT : FAIL si `mirror`, `exec`, `tables` ou `4bis` signalent quoi que ce soit hors allowlist.
+Les etapes 4 et 5 sont des COMPTEURS, pas des gates.
 
 ASCII only (console Windows cp1252).
 Usage: python probe_283_enum_ordinal_sweep.py [--step diff|mirror|exec|tables|prose|all] [-v]
@@ -111,6 +119,9 @@ INFO_PREFIXES = ("hooks-legacy/",)
 # `VERDICT: PASS`. Un balayage qui rend zero se lit comme « rien a signaler » ; c'est le meme
 # piege que l'exclusion par sous-chaine `engine` mesuree en #281.
 _SKIP_PARTS = (".git", "node_modules", "logs", "sources_win", "dist", ".venv")
+
+# Builds ARCHIVES, resolus UNE seule fois : `archived_builds()` fait de l'I/O disque.
+_ARCHIVES = tuple(archived_builds())
 
 
 def _ignore(p: Path) -> "str | None":
@@ -360,8 +371,15 @@ def _signatures_positionnelles(arbres: dict) -> dict:
     kwarg : c'est la MEME heuristique `_ROOTS`, lue sur le parametre au lieu du mot-cle.
 
     On DERIVE la table du depot, jamais d'une liste ecrite a la main : un appelable renomme ou
-    ajoute est couvert sans toucher au probe."""
-    out: dict = {}
+    ajoute est couvert sans toucher au probe.
+
+    ⚠ La table est GLOBALE, donc un HOMONYME la empoisonne -- et le depot en est plein de petits
+    helpers locaux. Mesure #420 : `_ev` a **5 definitions**, dont UNE SEULE typee
+    (`_ev(event_id, actor)` de `test_448_r2_teleporting_in_offline.py`) ; elle faisait lire le
+    `_ev(0)` de `test_stream_events_offline.py` -- ou le 1er parametre s'appelle `step` -- comme
+    un `EventTriggerType` fige, et le VERDICT tombait a FAIL. Un nom n'entre donc dans la table
+    que si TOUTES ses definitions du perimetre s'accordent sur le meme (index, enum)."""
+    vus: dict = {}
     for rel, tree in arbres.items():
         classe_de = {}
         for m in ast.walk(tree):
@@ -373,18 +391,24 @@ def _signatures_positionnelles(arbres: dict) -> dict:
                 continue
             args = [a.arg for a in (n.args.posonlyargs + n.args.args)]
             lie = 1 if (args and args[0] in ("self", "cls")) else 0
+            # un ctor s'appelle par le nom de la CLASSE, et `self` ne compte pas
+            nom = classe_de.get(id(n)) if n.name == "__init__" else n.name
+            if not nom:
+                continue
+            spec = None
             for i, a in enumerate(args):
                 bas = a.lower()
                 court = next((c for c, racines in _ROOTS.items()
                               if any(r in bas for r in racines)), None)
                 if court is None:
                     continue
-                # un ctor s'appelle par le nom de la CLASSE, et `self` ne compte pas
-                nom = classe_de.get(id(n)) if n.name == "__init__" else n.name
-                if nom and i - lie >= 0:
-                    out.setdefault(nom, (i - lie, court))
+                if i - lie >= 0:
+                    spec = (i - lie, court)
                 break
-    return out
+            vus.setdefault(nom, set()).add(spec)
+    # un nom AMBIGU (plusieurs definitions qui ne s'accordent pas, `None` compris) est ecarte
+    return {nom: next(iter(s)) for nom, s in vus.items()
+            if len(s) == 1 and next(iter(s)) is not None}
 
 
 class _ExecSweep(ast.NodeVisitor):
@@ -400,11 +424,17 @@ class _ExecSweep(ast.NodeVisitor):
     TOUT littéral trouve est un DEFAUT, meme s'il est juste aujourd'hui (doctrine `#254b-b`) :
     rien ne signalera son invalidation au prochain build. Le probe dit lequel des deux c'est."""
 
-    def __init__(self, prose: dict, refs: dict, sigs: "dict | None" = None):
+    def __init__(self, prose: dict, refs: dict, sigs: "dict | None" = None,
+                 olds: "dict | None" = None):
         self.prose = prose
         self.refs = refs
         self.sigs = sigs or {}
+        # valeurs qui EXISTENT dans l'enum, sur le build courant OU sur un build archive. Un
+        # littéral hors de cet ensemble ne DESIGNE aucun membre : ce n'est pas un ordinal.
+        self.connues = {c: set(r.values()) | set((olds or {}).get(c, {}).values())
+                        for c, r in refs.items()}
         self.hits: list = []
+        self.hors: list = []
 
     def _membre_vise(self, lineno: int, enum: "str | None"):
         """(enum, membre) cite par la PROSE de la ligne, ou (None, None)."""
@@ -430,6 +460,16 @@ class _ExecSweep(ast.NodeVisitor):
         ref = self.refs.get(enum, {})
         inv = {o: n for n, o in ref.items()}
         for v in vals:
+            if v not in self.connues.get(enum, set()):
+                # HORS PLAGE : aucun membre ne porte cette valeur, ni sur le build courant ni
+                # sur un archive -- donc ce n'est pas un ordinal fige, c'est une SENTINELLE.
+                # Mesure : `WeightedUtility(utility_type=99999)` de
+                # `test_353r1_ramming_speed_charge_tile_offline.py` EXIGE un type hors base (il
+                # verifie que `UtilityDecider.CalculateUtility` LEVE au lieu de compter 0). Sans
+                # ce gate, l'unique faux positif du probe faisait echouer le verdict sur
+                # `origin/master`, ce qui interdisait d'en faire un cliquet permanent.
+                self.hors.append((lineno, enum, quoi, v))
+                continue
             attendu = ref.get(membre) if (membre and e_cite == enum) else None
             ok = (attendu == v) if attendu is not None else None
             self.hits.append((lineno, enum, quoi, v, inv.get(v, "?"), membre, attendu, ok))
@@ -492,9 +532,10 @@ class _ExecSweep(ast.NodeVisitor):
 
 
 def step_exec(verbose: bool) -> list:
-    cur = current_build()
+    cur, prev = current_build(), previous_build()
     refs = {court: _by_name(enum_map(cur, fq)) for court, fq in ENUMS.items()}
-    fails, infos, oks = [], [], []
+    olds = {c: _by_name(enum_map(prev, fq)) for c, fq in ENUMS.items()} if prev else {}
+    fails, infos, oks, hors = [], [], [], []
     # Une seule passe de parse : les signatures sont GLOBALES au perimetre (un appel peut
     # preceder la `def` d'un autre fichier), donc elles se derivent avant toute visite.
     sources, arbres = {}, {}
@@ -517,13 +558,19 @@ def step_exec(verbose: bool) -> list:
         if rel in ALLOWLIST:
             continue
         src = sources[rel]
-        sw = _ExecSweep(_prose_par_ligne(src), refs, sigs)
+        sw = _ExecSweep(_prose_par_ligne(src), refs, sigs, olds)
         sw.visit(tree)
         for lineno, enum, quoi, v, nom_courant, membre, attendu, ok in sw.hits:
             row = (rel, lineno, enum, quoi, v, nom_courant, membre, attendu, ok)
             (fails if ok is False else oks if ok is True else infos).append(row)
+        for lineno, enum, quoi, v in sw.hors:
+            hors.append((rel, lineno, enum, quoi, v))
     print("[283] etape 2 : litteraux EXECUTABLES en contexte enum -- %d FAUX aujourd'hui, "
-          "%d justes-mais-figes, %d a lire" % (len(fails), len(oks), len(infos)))
+          "%d justes-mais-figes, %d a lire (+%d hors plage, NON comptes)"
+          % (len(fails), len(oks), len(infos), len(hors)))
+    for rel, ln, enum, quoi, v in (hors if verbose else hors[:6]):
+        print("   hors %s:%d  %s [%s] = %s -- aucun membre ne porte cette valeur (sentinelle)"
+              % (rel, ln, quoi, enum, v))
     for rel, ln, enum, quoi, v, nom, membre, attendu, _ in fails:
         print("   FAIL %s:%d  %s [%s] = %s -> designe %s.%s ; la prose vise %s (= %s)"
               % (rel, ln, quoi, enum, v, enum, nom, membre, attendu))
@@ -682,6 +729,51 @@ def _compile_prose(membres: dict, amb: set) -> tuple:
     return {"surs": paire(surs), "tous": paire(list(membres))}
 
 
+def _compile_larges(membres: dict, anciens: dict, amb: set) -> "tuple | None":
+    """(rx_apres, rx_avant, rx_triple, attendu, ambigus) -- UNE regex par sens, pas une par
+    membre.
+
+    Separateur LARGE (tout non-mot, jusqu'a 8) + forme TRIPLE du depot
+    `On(<Membre> = <hex> = <dec>)`. Un separateur large SEUL produit du faux positif de masse
+    (`On(X = Membre, 1)` apparie `Membre` au `1` du 2e argument -- 36 faux positifs mesures) :
+    ce qui rend la passe sure, c'est que le NOMBRE doit valoir EXACTEMENT l'ordinal ARCHIVE
+    du membre apparie. Un tel nombre n'a aucune autre explication qu'une citation perimee.
+    Ce dernier appariement est verifie APRES coup (`attendu`), pas par la regex : sans quoi il
+    faudrait une regex par membre.
+
+    PERF -- c'est ce qui rend l'etape payable dans un cliquet. Trois restrictions, chacune
+    mesuree :
+    * seuls les membres dont l'ordinal a CHANGE entrent dans l'alternation (les autres ne
+      peuvent produire aucune paire prouvee) ;
+    * le nombre est une alternation de LITTERAUX (les ordinaux archives), pas `\\d{1,3}` ;
+    * la direction MEMBRE-d'abord est ECARTEE, et ce n'est pas une perte de couverture : les
+      13 citations trouvees par #420 sont TOUTES en forme nombre-d'abord (`` `...,0x37`
+      UnitDefeated ``, `` `0x2f` UnitResurrected ``, `On(0x35 = UnitFled`) ou TRIPLE
+      (`On(UnitRevived = 45 = 0x2e)`) -- la forme membre-d'abord serree est deja couverte par
+      l'etape 4. Elle coute cher parce que les membres d'`UtilityType` sont des mots COURANTS
+      (`Damage`, `Attack`, `Heal`) : l'alternation mordait des milliers de fois par fichier.
+    Deux formes mesurees et ECARTEES : l'alternation generique membres x `_NUM` (etape prose
+    46 s -> >300 s) et la boucle par membre avec pre-filtre `membre in txt` (171 tests de
+    sous-chaine par token, >120 s)."""
+    couples = [(m, anciens[m]) for m, o in membres.items()
+               if anciens.get(m) is not None and anciens[m] != o]
+    if not couples:
+        return None
+    a = "|".join(re.escape(m) for m, _ in sorted(couples, key=lambda c: -len(c[0])))
+    n = "|".join(sorted({x for _, o in couples for x in ("0x%x" % o, "%d" % o)},
+                        key=len, reverse=True))
+    attendu = {m: o for m, o in couples}
+    # La VIRGULE et le SLASH sont exclus du separateur : ils SEPARENT une liste, ils ne LIENT
+    # pas. Deux mesures, meme forme : `"SummonDislikeDoorOpening 30, HeroLikeDoorOpening 31"`
+    # et `(SummonDislikeDoorOpening 30 / HeroLikeDoorOpening 31)` appariaient `30` a
+    # `HeroLikeDoorOpening` (dont 30 est l'ordinal archive) alors que `30` etiquette l'element
+    # PRECEDENT et que les deux lignes sont JUSTES. Aucune des 13 citations vraies de #420 ne
+    # porte de virgule ni de slash entre le nombre et le membre.
+    return (re.compile(r"\b(%s)\b[^\w\n,/]{0,8}(%s)\b" % (n, a)),
+            re.compile(r"\b(%s)\b\s*=\s*%s\s*=\s*(%s)\b" % (a, _NUM, n)),
+            attendu, {m for m, _ in couples if m in amb})
+
+
 def _paires_prose(txt: str, rx: dict, enum_nomme: bool) -> list:
     """(membre, texte du nombre, span du NOMBRE dans `txt`). Deux formes seulement :
        `<Membre>` <sep court> `<nombre>`   et   `<nombre>` <sep court> `<Membre>`.
@@ -734,8 +826,55 @@ def _ligne_de(src: str, off: int) -> int:
     return src.count("\n", 0, off) + 1
 
 
+_ON_AVANT = re.compile(r"\bOn\(\s*$")
+
+
+def _historique(src: str, ligne: int, rayon: int = 3) -> bool:
+    """Un rappel HISTORIQUE volontaire : le build ARCHIVE est nomme a portee de la citation
+    (« cette table portait `55: UnitDefeated`, juste sur `gqfc5mff6c` »). La corriger
+    detruirait justement ce qu'elle documente -- seule exemption admise au gate 4bis.
+
+    La portee est en LIGNES, pas en tokens : un bloc de commentaire `#` est decoupe en un
+    token PAR LIGNE, donc un test au token rate le cas mesure (le nom du build est sur la
+    ligne SUIVANTE)."""
+    if not _ARCHIVES:
+        return False
+    lignes = src.split("\n")
+    a, b = max(0, ligne - 1 - rayon), min(len(lignes), ligne + rayon)
+    fenetre = "\n".join(lignes[a:b])
+    return any(x in fenetre for x in _ARCHIVES)
+
+
+def _paires_larges(txt: str, larges: "tuple | None", enum_nomme: bool,
+                   est_event: bool = True) -> list:
+    """(membre, texte du nombre, offset) des citations PROUVEES perimees d'un token.
+
+    Le post-filtre `attendu[m] == v` est ce qui rend le separateur large exploitable : une paire
+    <membre, nombre> qui ne s'apparie pas est un croisement fortuit de l'alternation."""
+    if larges is None:
+        return []
+    avant, triple, attendu, ambigus = larges
+    out = []
+    for rx, gm, gn in ((avant, 2, 1), (triple, 1, 2)):
+        for g in rx.finditer(txt):
+            m, num = g.group(gm), g.group(gn)
+            if m in ambigus and not enum_nomme:
+                continue
+            # Un nombre precede de `On(` est TYPE par le contrat natif `DSLFactory$$On(
+            # EventTriggerType, ...)` : il ne peut pas etre l'ordinal d'un AUTRE enum. Sans ce
+            # gate, `` `On(0x12)` -> ActivateEffect `` rougissait comme `StepType.ActivateEffect`
+            # (dont 0x12 est l'ordinal archive) alors que 0x12 est un EventTriggerType JUSTE --
+            # 3 faux positifs mesures, tous sur la meme forme.
+            if not est_event and _ON_AVANT.search(txt, 0, g.start(gn)):
+                continue
+            v = int(num, 16) if num.lower().startswith("0x") else int(num)
+            if attendu.get(m) == v:
+                out.append((m, num, g.start(gn)))
+    return out
+
+
 def _scan_prose_fichier(src: str, refs: dict, olds: dict, rxs: dict,
-                        suffixe: str = ".py") -> tuple:
+                        suffixe: str = ".py", larges_rx: "dict | None" = None) -> tuple:
     """(citations, nb justes). Une citation =
     (ligne, enum, membre, texte du nombre, ordinal courant, origine, offset debut, offset fin).
     `origine` vaut `ancien` quand le nombre cite est EXACTEMENT l'ordinal du membre sur le
@@ -743,8 +882,8 @@ def _scan_prose_fichier(src: str, refs: dict, olds: dict, rxs: dict,
     d'un homonyme. Seules celles-la sont reecrivables sans lecture humaine."""
     zones = _zones_prose(src, suffixe)
     if zones is None:
-        return [], 0
-    cites, justes = [], 0
+        return [], 0, []
+    cites, justes, larges = [], 0, []
     for base, txt in zones:
         for court, ref in refs.items():
             nomme = court in txt
@@ -759,7 +898,16 @@ def _scan_prose_fichier(src: str, refs: dict, olds: dict, rxs: dict,
                 # qui rendait 10 sites illisibles dans le rapport.
                 cites.append((_ligne_de(src, base + a), court, m, num, ref[m],
                               "ancien" if anc == v else "inconnu", base + a, base + b))
-    return cites, justes
+            if not larges_rx:
+                continue
+            for m, num, a in _paires_larges(txt, larges_rx.get(court), nomme,
+                                            court == "EventTriggerType"):
+                v = int(num, 16) if num.lower().startswith("0x") else int(num)
+                ln = _ligne_de(src, base + a)
+                if ref[m] == v or _historique(src, ln):
+                    continue                  # juste, ou rappel historique volontaire
+                larges.append((ln, court, m, num, ref[m]))
+    return cites, justes, larges
 
 
 def step_prose(verbose: bool, racine: str = "scripts/python", fix: bool = False) -> tuple:
@@ -768,13 +916,14 @@ def step_prose(verbose: bool, racine: str = "scripts/python", fix: bool = False)
     refs = {c: _by_name(enum_map(cur, fq)) for c, fq in ENUMS.items()}
     olds = {c: _by_name(enum_map(prev, fq)) for c, fq in ENUMS.items()} if prev else {}
     rxs = {c: _compile_prose(r, amb) for c, r in refs.items()}
+    larges_rx = {c: _compile_larges(r, olds.get(c, {}), amb) for c, r in refs.items()}
 
     # `.ts`/`.js` sont INVENTORIES mais jamais reecrits (un littéral y peut etre executable) ;
     # `.md` est integralement de la prose.
     FIXABLES = (".py", ".md")
     fichiers = sorted(q for suf in (".py", ".md", ".ts", ".js")
                       for q in (REPO / racine).rglob("*" + suf))
-    derive, justes, corriges = [], 0, 0
+    derive, justes, corriges, prouves = [], 0, 0, []
     for p in fichiers:
         rel = _ignore(p)
         if rel is None or rel in ALLOWLIST:
@@ -787,10 +936,12 @@ def step_prose(verbose: bool, racine: str = "scripts/python", fix: bool = False)
             src = io.open(p, encoding="utf-8", newline="").read()
         except (UnicodeDecodeError, OSError):
             continue
-        cites, n_ok = _scan_prose_fichier(src, refs, olds, rxs, p.suffix)
+        cites, n_ok, larges = _scan_prose_fichier(src, refs, olds, rxs, p.suffix, larges_rx)
         justes += n_ok
         for c in cites:
             derive.append((rel,) + c)
+        for lg in larges:
+            prouves.append((rel,) + lg)
         if not fix or p.suffix not in FIXABLES:
             continue
         # Reecriture : SEULEMENT les `ancien`, en ordre decroissant d'offset (les positions
@@ -822,7 +973,19 @@ def step_prose(verbose: bool, racine: str = "scripts/python", fix: bool = False)
                   % (ln, court, m, num, attendu, orig))
         if not verbose and len(items) > 3:
             print("        ... (+%d)" % (len(items) - 3))
-    return derive, justes
+
+    # --- etape 4bis : le GATE -----------------------------------------------------------
+    # Meme scan, separateur LARGE, mais critere PROUVE : le nombre vaut EXACTEMENT l'ordinal
+    # du membre sur le build ARCHIVE. C'est ce qui manquait -- #420 a trouve 12 citations de
+    # cette forme (`` `...,0x37` UnitDefeated ``, `On(UnitRevived = 45 = 0x2e)`) que le
+    # separateur etroit de l'etape 4 ne voyait PAS, et qui donc ne rougissaient nulle part.
+    vus = sorted({p for p in prouves})
+    print("[283] etape 4bis : citations NOMMEES a separateur large et PROUVEES perimees "
+          "(nombre == ordinal de %s) -- %d" % (prev or "-", len(vus)))
+    for rel, ln, court, m, num, attendu in vus:
+        print("   FAIL %s:%d  %s.%s cite %s ; le build %s dit %d" % (rel, ln, court, m, num,
+                                                                     cur, attendu))
+    return derive, justes, vus
 
 
 # ------------------------------------------------------------------------------------------
@@ -831,6 +994,16 @@ def step_prose(verbose: bool, racine: str = "scripts/python", fix: bool = False)
 
 _ON_NU = re.compile(r"\bOn\(\s*(0x[0-9a-fA-F]+|\d{1,3})\s*[,)&]")
 _ON_NOMME = re.compile(r"\bOn\(\s*(?:0x[0-9a-fA-F]+|\d{1,3})\s*=\s*[A-Za-z_]")
+# 2e ancre, ajoutee par #420 : la QUOTE VERBATIM du helper de publication DSL, recopiee du
+# decompile. Son DERNIER littéral d'argument est un `EventTriggerType`, exactement comme le
+# 1er argument d'`On(...)` -- mais aucune des cinq etapes ne la voyait : ni ancre `On(`, ni
+# membre accole. Mesure #420 : 18 de ces quotes portaient un ordinal PERIME, en silence.
+# Le slot (`0x4d` = publish simple, `0x50` = publish avec entities) est ce qui rend l'ancre
+# sure ; le nom `FUN_<addr>` change a chaque build et n'est donc PAS dans le motif.
+# NON couvert : la forme `FUN_<addr>(0x51, .., <LIT>, &args)`, ou le littéral est
+# l'AVANT-dernier argument (residu #420-r1).
+_FUN_PUB = re.compile(r"\bFUN_[0-9a-fA-F]{6,}\s*\(\s*0x(?:4d|50)\s*,([^)\n]*)\)")
+_FUN_LIT = re.compile(r"^(0x[0-9a-fA-F]+|\d{1,3})$")
 
 
 def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
@@ -866,28 +1039,41 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
             if zones is None:
                 continue
             for base, txt in zones:
-                for g in _ON_NU.finditer(txt):
-                    if _ON_NOMME.match(txt, g.start()):
-                        continue          # forme nommee : c'est l'etape 4 qui la traite
-                    s = g.group(1)
+                ancres = [(g.start(1), g.group(1), "On")
+                          for g in _ON_NU.finditer(txt)
+                          if not _ON_NOMME.match(txt, g.start())]
+                for g in _FUN_PUB.finditer(txt):
+                    args, off = g.group(1), g.start(1)
+                    pos, dernier = 0, None
+                    for brut in args.split(","):
+                        s = brut.strip()
+                        if _FUN_LIT.match(s):
+                            dernier = (off + pos + brut.index(s), s)
+                        pos += len(brut) + 1
+                    if dernier is not None:
+                        ancres.append((dernier[0], dernier[1], "FUN"))
+                for pos, s, quoi in ancres:
                     v = int(s, 16) if s.lower().startswith("0x") else int(s)
                     if old.get(v) == new.get(v):
                         stables += 1      # sous le point de decalage : le meme sur les 2 builds
                     else:
-                        decales.append((rel, _ligne_de(src, base + g.start(1)), s,
-                                        old.get(v), new.get(v)))
-    print("[283] etape 5 : `On(<n>)` NUS en prose de %s -- %d stables, %d AMBIGUS"
-          % (racine, stables, len(decales)))
+                        decales.append((rel, _ligne_de(src, base + pos), s,
+                                        old.get(v), new.get(v), quoi))
+    n_on = sum(1 for d in decales if d[5] == "On")
+    print("[283] etape 5 : ordinaux NUS en prose de %s (ancres `On(` et quote de publication) "
+          "-- %d stables, %d AMBIGUS (%d `On(`, %d quote `FUN_`)"
+          % (racine, stables, len(decales), n_on, len(decales) - n_on))
     print("       ambigu = l'ordinal a change de proprietaire ; sans le NOM accole, on ne peut")
     print("       pas savoir de quel build vient la citation. NON corrige (residu #283-r1).")
     par_fichier = {}
-    for rel, ln, s, a, b in decales:
-        par_fichier.setdefault(rel, []).append((ln, s, a, b))
+    for rel, ln, s, a, b, quoi in decales:
+        par_fichier.setdefault(rel, []).append((ln, s, a, b, quoi))
     for rel in sorted(par_fichier):
         items = sorted(par_fichier[rel])
         print("   %-62s %d" % (rel, len(items)))
-        for ln, s, a, b in (items if verbose else items[:2]):
-            print("        :%d  On(%s) : etait %s, vaut %s" % (ln, s, a, b))
+        for ln, s, a, b, quoi in (items if verbose else items[:2]):
+            print("        :%d  %s(%s) : etait %s, vaut %s"
+                  % (ln, "On" if quoi == "On" else "FUN_...", s, a, b))
         if not verbose and len(items) > 2:
             print("        ... (+%d)" % (len(items) - 2))
     return stables, decales
@@ -975,7 +1161,8 @@ def main(argv) -> int:
     if args.step in ("all", "tables"):
         ko += len(step_tables(args.verbose))
     if args.step in ("all", "prose"):
-        step_prose(args.verbose, args.racine, args.fix)   # compteur, JAMAIS un gate
+        # etape 4 = COMPTEUR ; etape 4bis (3e valeur) = GATE, car le critere y est PROUVE.
+        ko += len(step_prose(args.verbose, args.racine, args.fix)[2])
     if args.step in ("all", "on"):
         step_on(args.verbose, args.racine)                # compteur, JAMAIS un gate
     if args.step == "live":                # hors `all` : exige une session vivante et warmee

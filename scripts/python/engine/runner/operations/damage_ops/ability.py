@@ -424,7 +424,7 @@ class _AbilityAttack:
             state, attacker_id, target_id,
             (_ap_h.col, _ap_h.row) if _ap_h is not None else None,
             (_tp_h.col, _tp_h.row) if _tp_h is not None else None, state.board)
-        # #366-r1 : intercepteur per-coup (`ExecuteHit` etape 5 = flag `discard` ; `On(0x3c)` +
+        # #366-r1 : intercepteur per-coup (`ExecuteHit` etape 5 = flag `discard` ; `On(0x3c = UnitBlocked)` +
         # `RegisterBlocks`). `ADamageOperation` est la BASE PARTAGEE des deux familles -- la voie
         # ABILITY passe par `AbilityDamageOperation$$ExecuteHit`, qui emet les MEMES vecteurs.
         from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)

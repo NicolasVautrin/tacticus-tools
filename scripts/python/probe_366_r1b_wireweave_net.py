@@ -33,7 +33,7 @@ Cas NEGATIFS crates :
   --two-attackers  : DEUX ennemis melee frappent dans le MEME tour -> riposte au PREMIER seulement
                      ("the FIRST time" = `& DeactivateEffect(effect)` du behaviour).
   --lethal         : attaquant a PV bas -> la riposte le TUE et son attaque est ANNULEE (gate
-                     acteur-mort POST-`On(0x2a)` d'`ActiveAbilityOperation$$ExecuteInternal`, deja
+                     acteur-mort POST-`On(0x2a = PreUnitAbility)` d'`ActiveAbilityOperation$$ExecuteInternal`, deja
                      porte par #133).
 
 Usage : python probe_366_r1b_wireweave_net.py [--attacker orksNob] [--neg-owner-turn|--neg-ranged]

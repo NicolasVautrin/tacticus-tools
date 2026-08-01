@@ -13,7 +13,7 @@ PORTE pytest. Ce que `run()` fait :
     `docs/rl/case-92-catalog-injection.md` §5bis). Greffe legitime : `gameconfig.ability("Burrowers")`
     n'a AUCUNE variable ni constante, et le behaviour ne lit ni stat, ni trait, ni arme du caster.
   * CAPTURE de l'etat pre-cast -> rejeu OFFLINE par la voie COMPLETE (`Runner.apply(
-    ActiveAbilityMessage)` : gates de ciblage, `On(0x2b)`, behaviour, flags de tour) -> cast LIVE ->
+    ActiveAbilityMessage)` : gates de ciblage, `On(0x2a = PreUnitAbility)`, behaviour, flags de tour) -> cast LIVE ->
     RECHARGEMENT de l'etat natif d'apres -> comparaison terme a terme.
   * puis la matrice 2x2 de l'ECHANGE d'ability (1023 <-> 1024) et le discriminant de VERDICT sur un
     second cast, apres un TOUR COMPLET (anti-confond « action deja consommee »).

@@ -4,7 +4,7 @@
 
 POURQUOI CE MODULE EXISTE
 -------------------------
-`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` emet `On(0x2b)` depuis UN SEUL
+`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` emet `On(0x2a = PreUnitAbility)` depuis UN SEUL
 site, en amont de l'execution -- et l'attaque NORMALE emprunte cette meme operation (elle EST une
 active ability : `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility`). Le
 port, lui, a DEUX portes d'operation (`DamageHandler.visit_AttackUnitMessage` et

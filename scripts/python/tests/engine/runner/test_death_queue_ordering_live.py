@@ -20,7 +20,7 @@ voyaient la mort de leur cible AU MILIEU de la serie.
 
 S'y ajoute le site (A) d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` :
 `HasFlag(target, 8 = Overkilled)` -> `AddLeftoverHit(..., 1, 0)` puis **`return`** -- un coup porte
-sur une cible deja overkillee n'emet RIEN (ni `On(0x3a)`, ni `On(0xf)`, ni `On(0x10)`) et
+sur une cible deja overkillee n'emet RIEN (ni `On(0x39 = PreDamageTaken)`, ni `On(0xf)`, ni `On(0x10)`) et
 n'applique rien. Le port emettait `On(0x10)`, donc un `Maybe(25)` d'`OnToxicDamageAbility` en trop.
 """
 from __future__ import annotations

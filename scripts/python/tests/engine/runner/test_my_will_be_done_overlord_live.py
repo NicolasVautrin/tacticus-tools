@@ -21,7 +21,7 @@ CE QUE LA GARDE PROUVE :
   (C) SUBSTRAT persistant, offline : `AddToPersistentDataList` empile SANS dedup, le predicat
       `IsInPersistentDataList` mord, et `ClearAllPersistentData(abilityId)` n'emporte QUE les cles
       de cette ability ;
-  (D) VECTEUR : `On(0x29)` est bien celui du registre, et `FinishUnitTurnOperation.execute` ne
+  (D) VECTEUR : `On(0x29 = UnitFinishedTurnNormally)` est bien celui du registre, et `FinishUnitTurnOperation.execute` ne
       l'emet QUE quand le flag TurnFinished est NOUVELLEMENT pose ET que la terminaison n'est pas
       forcee (les deux gates du decompile) ;
   (E) LIVE -- AGREEMENT : au `finish` du porteur, MEME victime et MEME delta de PV par unite entre
@@ -348,10 +348,10 @@ def test_mwbd_registered_on_unit_finished_turn_normally():
 
 
 def test_finish_unit_turn_emits_only_when_newly_finished_and_not_forced():
-    """(D bis) Les DEUX gates natifs du `publish On(0x29)` :
+    """(D bis) Les DEUX gates natifs du `publish On(0x29 = UnitFinishedTurnNormally)` :
 
-        if (flags.Add(0x03 = TurnFinished)) { publish On(0x28) ;
-                                              if (!isTerminated) publish On(0x29) }
+        if (flags.Add(0x03 = TurnFinished)) { publish On(0x28 = UnitFinishedTurn) ;
+                                              if (!isTerminated) publish On(0x29 = UnitFinishedTurnNormally) }
 
     -> un `finish` FORCE (le `FinishUnitTurn(spawned, isTerminated: true)` des summons, #291) et un
     second `finish` sur une unite deja close n'emettent RIEN. Le test appelle l'Operation sur un etat
@@ -369,7 +369,7 @@ def test_finish_unit_turn_emits_only_when_newly_finished_and_not_forced():
     e2.add_component(UnitFlagsComponent())
     forced = FinishUnitTurnOperation.execute(st2, e2.id, forced=True)
     assert forced["newly_finished"] is True and "finished_normally_triggers" not in forced, \
-        "isTerminated = true -> On(0x28) seul, JAMAIS On(0x29)"
+        "isTerminated = true -> On(0x28 = UnitFinishedTurn) seul, JAMAIS On(0x29 = UnitFinishedTurnNormally)"
 
 
 # ------------------------------------------------------------------------------------------------

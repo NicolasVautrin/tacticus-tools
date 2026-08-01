@@ -309,7 +309,7 @@ def confront(rid, caster_a, target, fails) -> dict:
     encore sur le plateau ?** -- posee au NATIF et au PORT sur le MEME etat de depart.
 
     On capture l'etat AVANT le cast, on rejoue le cast OFFLINE par la voie COMPLETE (`Runner.apply(
-    ActiveAbilityMessage)` : gates de ciblage, `On(0x2b)`, behaviour, flags de tour), puis on joue le
+    ActiveAbilityMessage)` : gates de ciblage, `On(0x2a = PreUnitAbility)`, behaviour, flags de tour), puis on joue le
     cast LIVE et on RECHARGE l'etat natif d'apres. Les deux etats finaux sont compares terme a terme
     (position, empreinte, vivant, tuiles marquees). Avant ce foyer, le cote PORT rendait
     `pos = (col,row)` INCHANGEE et `marked = []` : le no-op silencieux."""

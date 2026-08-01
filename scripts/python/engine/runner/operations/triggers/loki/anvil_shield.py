@@ -23,7 +23,7 @@ d'`ActiveCondition` (`runner/operations/refresh_effects.py`). Cf. `docs/rl/case-
 
 | Symbole | VA |
 |---|---|
-| `ADamageOperation$$EvaluateAfterHitTriggers` | `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (l'EMETTEUR de `On(0x3d)`) |
+| `ADamageOperation$$EvaluateAfterHitTriggers` | `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (l'EMETTEUR de `On(0x3c = UnitBlocked)`) |
 | `AnvilShieldAbility_ApplyIce$$CreateTrigger`   | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger` |
 | `AnvilShieldAbility_ApplyIce$$CreateBehaviour` | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour` |
 | `AnvilShieldAbility_ApplyStun$$CreateTrigger`   | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyStun$$CreateTrigger` (#100) |
@@ -36,8 +36,8 @@ d'`ActiveCondition` (`runner/operations/refresh_effects.py`). Cf. `docs/rl/case-
 ```
 AbilityEntities.ctor(entities, caster=param_3 (ATTAQUANT), owner=actor=target=param_4 (DEFENSEUR),
                      ..., casterTiles = GetTiles(param_3), targetTiles = GetTiles(param_4), ...)
-if (param_6 != 0)   FUN_180026490(0x50, ..., 0x3d)      # UnitBlocked -- SEULEMENT si BLOCK
-                    FUN_180026490(0x50, ..., 8)          # AttackHit  -- TOUJOURS
+if (param_6 != 0)   FUN_1800280e0(0x50, ..., 0x3c)      # UnitBlocked -- SEULEMENT si BLOCK
+                    FUN_1800280e0(0x50, ..., 8)          # AttackHit  -- TOUJOURS
 ```
 => sur cet evenement : **caster = l'attaquant**, **owner/actor/target = le DEFENSEUR (le bloqueur)**,
 et `df@0x168` (CasterTile) = la tuile de l'ATTAQUANT.
@@ -300,7 +300,7 @@ class AnvilShieldFrozenAttackerAdvantageAbility(TriggeredAbility):
     block, Arjac gagne 1201 (+20 % Block chance) pour CETTE ability.
 
     `On(0x2a = PreUnitAbility)` est emis par `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-    (`FUN_180026490(0x4d, .., 0x2b)`) **AVANT** l'execution de l'ability — donc avant le calcul du block ;
+    (`FUN_1800280e0(0x4d, .., 0x2a)`) **AVANT** l'execution de l'ability — donc avant le calcul du block ;
     la MEME operation emet ensuite `0xb`, `0xc` puis `0xe (UnitPostAbility)`. L'attaque normale passe par
     cette operation (l'attaque normale EST une active ability, cf. `NormalAttackType`), et le gate
     `IsNormalAttack` la restreint a la voie normale.

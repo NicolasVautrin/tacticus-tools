@@ -65,8 +65,8 @@ CARRIER, FOE = 10, 20
 
 #: Les QUATRE classes de 1238, dans l'ordre de l'`ArraySet` natif.
 THE_FOUR = [FearOfTheUnseenTeleportingInRemoveOnAfterMove,          # T1 On(0x04)
-            FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a)
-            FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28)
+            FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a = PreUnitAbility)
+            FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28 = UnitFinishedTurn)
             FearOfTheUnseenTeleportingInAddMovingOnPreMove]         # T4 On(0x1f)
 
 
@@ -292,7 +292,7 @@ def test_the_four_are_registered_in_the_native_ArraySet_order():
     got = EFFECT_TRIGGERS.get(FEAR_OF_THE_UNSEEN_TELEPORTING_IN) or []
     assert [c.__name__ for c in got] == [c.__name__ for c in THE_FOUR]
     assert [c.event_id for c in got] == [int(EventTriggerType.UnitAfterMove),        # On(0x04)
-                                         int(EventTriggerType.PreUnitAbility),       # On(0x2a)
-                                         int(EventTriggerType.UnitFinishedTurn),     # On(0x28)
+                                         int(EventTriggerType.PreUnitAbility),       # On(0x2a = PreUnitAbility)
+                                         int(EventTriggerType.UnitFinishedTurn),     # On(0x28 = UnitFinishedTurn)
                                          int(EventTriggerType.PreUnitMove)]          # On(0x1f)
     assert all(c.effect_type == FEAR_OF_THE_UNSEEN_TELEPORTING_IN for c in got)

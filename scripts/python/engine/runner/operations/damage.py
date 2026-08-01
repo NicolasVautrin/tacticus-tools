@@ -392,7 +392,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             3. **+0x98..+0xb4 = les 0x1c octets de `KillUnitOptions+0x04`** = `TriggeringAbility`
 
         La struct n'est plus TOUCHEE ensuite : elle est recopiee telle quelle avant chacune des cinq
-        publications (`On(1)`, `On(2)`, `On(0)`, `On(54)`, `On(53)`). Donc, sur tout le vecteur MORT :
+        publications (`On(1)`, `On(2)`, `On(0)`, `On(54 = UnitDefeated)`, `On(53 = PostUnitKill)`). Donc, sur tout le vecteur MORT :
 
             `CurrentAbility`   (`+0x60`, lu par `AbilityTypeSelector.CurrentAbilitySelector$$Select`)
                                = **VIDE** -> tout `CurrentAbilityIs` y est FAUX cote natif ;
@@ -458,7 +458,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             +0xd9c      RemoveEffects(killed, KillUnitStep.AfterUnitRemove = 1)    <-- STEP 1
             +0xe49      On(UnitDeath = 0)
             +0xefc      On(UnitDefeated = 0x36 = 54)
-            +0xf35      GARDE HEAL : if (health.hp > 0) RETURN         (aucun step 2, aucun On(53))
+            +0xf35      GARDE HEAL : if (health.hp > 0) RETURN         (aucun step 2, aucun On(53 = PostUnitKill))
             +0xf59      RemoveEffects(killed, KillUnitStep.AfterDeathTrigger = 2)  <-- STEP 2
             +0xf7f      processor.<slot 0x55>(killed, false)
                     } else { +0xfcc matchState.<slot 0x63>(killed) }
@@ -470,7 +470,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             le natif le fait AVANT `On(UnitDeath)` (steps 0 et 1) ;
           * `On(PostUnitKill)` n'est PAS sous la garde revive (il est apres le `if/else`) --
             l'ancienne docstring l'affirmait. Sans consequence portee : aucun consommateur de
-            `On(53)` n'existe cote port. Le `return` de la GARDE HEAL, lui, saute bien `On(53)`.
+            `On(53 = PostUnitKill)` n'existe cote port. Le `return` de la GARDE HEAL, lui, saute bien `On(53 = PostUnitKill)`.
         """
         from .triggers import (after_death_triggers, unit_defeated_triggers,
                                pre_unit_death_2_triggers, unit_death_triggers)
@@ -570,7 +570,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         #       return param_1;                                   // <- TOUT LE RESTE EST SAUTE
         #     }
         #
-        # Le `return` precede l'emission d'`On(0x3a)`, la mutation de PV (`FillUpStatComponent$$Reduce`),
+        # Le `return` precede l'emission d'`On(0x39 = PreDamageTaken)`, la mutation de PV (`FillUpStatComponent$$Reduce`),
         # `On(DamageTaken = 0xf)`, l'ecriture `lastHitDamageTaken` (`stats+0x68` / `+0x6c`) et
         # `On(DamageDealt = 0x10)` : un coup porte sur une cible DEJA OVERKILLEE ne fait qu'empiler sa
         # `LeftOverDamage` (base nominale) et n'emet RIEN. Le port emettait `On(0x10)` -- donc, sur un

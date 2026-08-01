@@ -22,7 +22,7 @@ Contains(Tiles(actor), MainTileOfUnits(decoy)))` -> collapse `_valid_dead_decoys
 VECTEUR : le natif `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` emet On(0x24) puis On(4=
 UnitAfterMove, overwatch) puis On(0x1d=UnitPositionChanged_2) ; le decoy est crushe INLINE (`_kill_steppable_
 units`, G1) AVANT -> `GetValidDeadDecoys` le lit deja mort. `dispatch.after_move_triggers` emet On(4) PUIS
-On(0x1d) (le path resurrect On(0x2f) viendra avec G3-Ambush).
+On(0x1d) (le path resurrect On(0x2e = UnitResurrected) viendra avec G3-Ambush).
 
 FEUILLE Blast (decompile IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour VERIFIE) : `DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> base
 IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage = `AttackBehaviour(AbilityDamageBehaviour(MinMaxDamage, Blast, source))` = pipeline crit/block
@@ -194,9 +194,9 @@ class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
     Un ALLIE (de l'owner Isaak) qui MOVE/RESURRECT sur un decoy allie crushe -> `AddEffect(1379
     DecoysAndMisdirection_ExtraDamage +582, on=stepper)` (jusqu'a fin de son tour, `remaining_turns=1`) +
     `If(HasFaction(stepper, GenestealerCults), spawn_decoy(hex adjacent libre du stepper, ForSteppable))`.
-    On(0x2f)|On(0x1d).
+    On(0x2e = UnitResurrected)|On(0x1d).
 
-    ⚠ Le path RESURRECT (On(0x2f)) fire aussi ce trigger MAIS aucun vecteur resurrect n'est encore porte
+    ⚠ Le path RESURRECT (On(0x2e = UnitResurrected)) fire aussi ce trigger MAIS aucun vecteur resurrect n'est encore porte
     (G3-Ambush) -> en pratique seul le path MOVE (On(0x1d)) le declenche aujourd'hui."""
     event_id = int(EventTriggerType.UnitPositionChanged_2)   # 29 (0x1d, move)
     event_ids = (int(EventTriggerType.UnitResurrected),      # 47 (0x2f, resurrect -> G3)

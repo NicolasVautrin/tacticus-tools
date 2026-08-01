@@ -561,10 +561,10 @@ def _vigilance_move_dest_tile(state: "State", caster_id: int, target_id: int, mo
 
         First( SortTilesByUtility( GetPossibleMovementTiles, caster@0x160, 0x20 ), 1 )
 
-    Le litteral d'utilite est **0x20 = 32 = `UtilityType.MovementSuggestion`**, PAS le `7 = Tile` des
+    Le litteral d'utilite est **0x21 = 33 = `UtilityType.MovementSuggestion`**, PAS le `7 = Tile` des
     ports freres (SkyStrike / HeroicFusillade / ForwardSpotter / HammerOfWrath). Relu au decompile
-    (#201) : `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities` ecrit, pour la cle
-    `0x20`, un tableau de DEUX `UtilityType` -> `[0] = 7` (Tile) puis `[1] = 0x21` (TileDistance), et
+    (#201, re-relu #420 sur `rnca9r7q6c`) : `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities`
+    ecrit, pour la cle `0x21`, un tableau de DEUX `UtilityType` -> `[0] = 7` (Tile) puis `[1] = 0x22` (TileDistance), et
     `UtilitiesDatabase$$GetUtility` en fait un `ComposedUtility` de ces deux enfants.
 
     Les DEUX enfants sont desormais portes (`engine/utilities/tile.py`), donc ce call-site passe par le

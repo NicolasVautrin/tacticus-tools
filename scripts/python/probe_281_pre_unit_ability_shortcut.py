@@ -345,7 +345,7 @@ FAMILY_GATE = {
 # RECOIT -- donc introuvables par une intersection sur `gameconfig.abilities`. Aucun n'est porte
 # cote Python, donc aucun n'agit sur un rejeu offline ; ils sont nommes ici pour que le prochain
 # lecteur n'ait pas a re-scanner :
-#   `Idun_MeleeCounterAttackEffect$$GetTriggerType`             -- branche `On(0x2a) & IsNormalAttack`
+#   `Idun_MeleeCounterAttackEffect$$GetTriggerType`             -- branche `On(0x2a = PreUnitAbility) & IsNormalAttack`
 #                                                                  (l'autre branche est `On(0x11)`)
 #   `Loki.JustSummonedEffect$$CreateRemoveEffectTrigger`        -- retrait de l'effet « fraichement
 #                                                                  invoque »

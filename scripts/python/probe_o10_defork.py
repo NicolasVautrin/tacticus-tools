@@ -4,7 +4,7 @@ Le port a DEUX chemins offline pour UN SEUL concept natif :
 
   * le BUS `On(0x10)` -- `operations/triggers/dispatch/attack.py::damage_dealt_triggers`, emis par le
     chokepoint `AttackDamageOperation._apply_damage_pipeline` en mirror d'
-    `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `On(0x3a)` -> `On(0xf)` ->
+    `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `On(0x39 = PreDamageTaken)` -> `On(0xf)` ->
     `On(0x10)`), sous le gate « reduction de PV REELLEMENT appliquee > 0 » ;
   * les appels IMPERATIFS de `_on_fire_damage_ability` / `_on_toxic_damage_ability`, poses APRES la
     resolution complete de l'attaque (`after_hit_normal_attack` cote NORMALE,

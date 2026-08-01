@@ -100,7 +100,7 @@ transcription heritee de #361 est CONFIRMEE sur ce point, pas recopiee.
   * Le terme `!TriggeringAbilityIs(1557) | IsUnitWithVisualId(...)` est le SEUL a n'etre pas
     porte -- il est TAUTOLOGIQUE sur le vecteur porte, cf. section 5.
 
-## 4. VECTEUR `On(0x29)` -- ou le natif l'emet, et pourquoi c'est le bon point d'ancrage
+## 4. VECTEUR `On(0x29 = UnitFinishedTurnNormally)` -- ou le natif l'emet, et pourquoi c'est le bon point d'ancrage
 
 `IdunBattle.Operations.FinishUnitTurnOperation$$Execute(unit, isTerminated)` (relu) :
 
@@ -112,10 +112,10 @@ transcription heritee de #361 est CONFIRMEE sur ce point, pas recopiee.
         <event de vue 0xc>
     }
 
-Donc `On(0x29)` = « cette unite vient de CLORE son activation, et pas par une terminaison forcee ».
+Donc `On(0x29 = UnitFinishedTurnNormally)` = « cette unite vient de CLORE son activation, et pas par une terminaison forcee ».
 Le port l'emet au MEME endroit (`operations/turnflow.py::FinishUnitTurnOperation.execute`, apres le
 `On(0x1c)`), sous les MEMES deux gates (`newly_finished` et `not forced`).
-`On(0x28)` reste NON EMIS cote port : aucun consommateur porte -- residu nomme, pas un oubli.
+`On(0x28 = UnitFinishedTurn)` reste NON EMIS cote port : aucun consommateur porte -- residu nomme, pas un oubli.
 
 ## 5. LE TERME `TriggeringAbilityIs(PhasalSubjugator)` -- pourquoi il ne mord PAS ici
 
@@ -130,7 +130,7 @@ contient `TriggerAbility(Owner@0x30, 0x614 = 1556, ..., selectionType = 3,
 ignoreUnitHavingAbility = 0)` -- meme chaine que la branche `Custom` de `RelentlessMarch`
 (`TriggerTriggeredAbilityOperation$$TriggerAbility` -> `ExecuteBy(..., 0x20 = Custom)`).
 
-Sur le vecteur PORTE (`On(0x29)`), en revanche, le canal `TriggeringAbility` est **VIDE** :
+Sur le vecteur PORTE (`On(0x29 = UnitFinishedTurnNormally)`), en revanche, le canal `TriggeringAbility` est **VIDE** :
 `FinishUnitTurnOperation$$Execute` publie l'evenement avec une structure `Nullable<AbilityOrEffect>`
 ENTIEREMENT NULLE (les quatre mots de pile sont mis a zero juste avant le `call` -- controle fait au
 desassemblage). `TriggeringAbilityIs(1557)` y est donc TOUJOURS faux, `NOT(...)` TOUJOURS vrai, et la
@@ -359,7 +359,7 @@ class MyWillBeDoneOverlordAttackAbility(TriggeredAbility):
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         """`get_OwnerIsActor` = `AreEqual(Owner@DSLSelectors+0x30, Actor@DSLSelectors+0x40)` : l'unite
-        qui vient de finir son tour EST le porteur. Le volet `On(0x29)` + « owner vivant » est deja
+        qui vient de finir son tour EST le porteur. Le volet `On(0x29 = UnitFinishedTurnNormally)` + « owner vivant » est deja
         porte par le dispatch."""
         return ev.actor_id is not None and int(ev.actor_id) == int(self.owner_id)
 

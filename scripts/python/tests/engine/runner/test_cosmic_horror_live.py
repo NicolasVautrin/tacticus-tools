@@ -190,7 +190,7 @@ def _decoys(state):
             and uc.alive and uc.visual_id == DECOY_VIS]
 
 
-# ------------------------------------------------------------------ volet OnKill (On(0x37))
+# ------------------------------------------------------------------ volet OnKill (On(0x36 = UnitDefeated))
 
 def test_cosmic_horror_on_kill_spawns_decoy_and_pins(live_session, rpc, build_runner):
     """POSITIF OnKill : le Patermine acheve un ennemi NON-steppable ->
@@ -320,7 +320,7 @@ def test_cosmic_horror_on_kill_retriggers_battle_fatigue_only_on_carriers(live_s
     assert state.effects.has_effect(bystander, effect_type=PINNED), "non-porteur non Pinned (meme tirage)"
 
 
-# ------------------------------------------------------------------ volet OnMove (On(0x36))
+# ------------------------------------------------------------------ volet OnMove (On(0x35 = PostUnitKill))
 
 def _prep_move(rpc, build_runner):
     """Scene OnMove DRIVE'e : Patermine BLESSE en A, une tuile B adjacente libre ou poser un decoy."""
@@ -369,7 +369,7 @@ def test_cosmic_horror_on_move_heals_when_stepping_on_friendly_decoy(live_sessio
 
 def test_cosmic_horror_on_move_no_heal_on_enemy_decoy(live_session, rpc, build_runner):
     """NEGATIF OnMove (LE cas ou le passif NE MORD PAS) -- gate `AreFriends(caster, target)`. Le decoy
-    ecrase appartient a l'ENNEMI : `On(0x36)` est bien emis (le crush a lieu), mais le trigger refuse
+    ecrase appartient a l'ENNEMI : `On(0x35 = PostUnitKill)` est bien emis (le crush a lieu), mais le trigger refuse
     -> AUCUN heal. Sans ce gate, le Patermine se soignerait en pietinant les leurres adverses."""
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
