@@ -230,11 +230,13 @@ Deux choses le rendaient piégeux, et une seule a demandé du travail :
   La branche pose désormais `feet = []` MATÉRIALISÉ **et** retire la `PositionComponent` — les deux
   ensemble, sans quoi `get_unit_feet` (qui retombe sur la position quand `feet is None`) et le
   composant divergeraient.
-* **LES LECTEURS.** Balayage exhaustif des **cinq** portes du foyer (2026-08-01, AST + fenêtre de
-  déréférencement, `scan_position2`) : `get_component(PositionComponent)` **148** call-sites,
-  `get_unit_feet` **12**, `get_main_tile` **1**, `unit["pos"]` **83**, `_pos(…)` **47** — soit
-  **291**, dont **0** déréférence une position nulle sans garde (l'unique candidat,
-  `ai/context.py` ligne ~722, est gardé en amont par `_enemies`, qui filtre `u.get("pos")`).
+* **LES LECTEURS.** Balayage exhaustif des **cinq** portes du foyer —
+  `probe_366r1_position_readers_census.py`, 2026-08-01 : `get_component(PositionComponent)` **148**
+  call-sites, `unit["pos"]` **83**, `_pos(…)` **47**, `get_unit_feet` **12**, `get_main_tile` **1**
+  — soit **291**, dont **0** déréférence une position nulle sans garde. L'heuristique en signale
+  **4** ; les quatre ont été LUS et sont gardés (deux par `_enemies`, un par un filtre en ligne
+  précédente, un in-line), et le probe les porte en **exemptions NOMMÉES** plutôt qu'en seuil
+  numérique — un cinquième site le ferait rougir, une exemption périmée aussi.
   L'état n'était donc pas inédit : le chemin de CHARGEMENT le produit déjà
   (`snapshot._load_units` ne pose la `PositionComponent` que si `pos.col is not None`, et
   `decisionView` rend `pos = null` pour l'unité sous terre). **Seul l'écrivain manquait.**
@@ -281,6 +283,7 @@ le bond ; montage non joué.
 ## 4. Reproduction
 
     python scripts/python/probe_366_r1_tunneling_horror.py          # confrontation + 5 mesures live
+    python scripts/python/probe_366r1_position_readers_census.py    # recensement du foyer (offline)
     python -m pytest scripts/python/tests/engine/test_366_r1_tunneling_horror_pending_summon_offline.py
     python -m pytest scripts/python/tests/engine/runner/test_366_r1_tunneling_horror_cast_offline.py
     python -m pytest scripts/python/tests/engine/runner/test_366_r1_tunneling_horror_live.py
