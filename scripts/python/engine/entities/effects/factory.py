@@ -151,6 +151,7 @@ from .loki import (
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
+    ReinforcedHiveNodeExtraArmorEffect,
     CursedPlagueBellExtraMoveEffect,
     RelentlessMarchExtraMoveEffect,
     LionHelmExtraDmgEffect,
@@ -251,6 +252,18 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `loki/destroy_the_witch.py`.
     "DestroyTheWitch_ExtraMove": DestroyTheWitchExtraMoveEffect,
     "DestroyTheWitch_ExtraDamage": DestroyTheWitchExtraDamageEffect,
+    # ReinforcedHiveNode (passif du SUMMON `tyranSmnWarrior`, invoque par `tyranWingedPrime` via
+    # l'active `AlphaWarrior` 1112 ; TriggeredAbilityType 0x459 = 1113). `CreateBehaviour` pose DEUX
+    # owner-effects PERMANENTS, en DEUX classes natives DISTINCTES (parents differents) :
+    #  - 0x454=1108 ExtraArmor  : `StaticStatModifierEffect` — FixedArmor(16) += PercentageOf(
+    #    StatAmount(Owner, FixedArmor, 3=Initial), Direct(extraArmorPct=100)) = +100 % de l'armure
+    #    de BASE du porteur -> PORTE ici (`loki/reinforced_hive_node.py`) ;
+    #  - 0x455=1109 ExtraBlock  : `StatOverrideEffect` — BlockChance(7) FORCEE a blockChance=100
+    #    (part 7 `SetOverride`, pas un additif) -> RESIDU, cf. l'en-tete du module ci-dessus.
+    # Les DEUX partagent la MEME `CreateActiveCondition` (corps FONDU par IL2CPP, tranche sur la
+    # table `g_MethodPointers` ordonnee par classe, PAS sur les noms de `functions.tsv`) :
+    # `AmountIsOdd(Sum(RoundsStarted(Owner), Direct(1)))` = actif un round sur deux.
+    "ReinforcedHiveNode_ExtraArmor": ReinforcedHiveNodeExtraArmorEffect,
     # CursedPlagueBell (deathBlightbringer "Corrodius", active 1071) : effet 0x431=1073 pose pour UN
     # tour sur les amis CHAOS non-Stationary de l'aura ContagionsOfNurgle (vecteur
     # `CursedPlagueBellMovementAbility$$CreateBehaviour` = `AddEffect(0x431, ..., turns=1)`).

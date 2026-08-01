@@ -559,6 +559,15 @@ class Scene:
         if t is not None:
             out["is_turn_of_owner"] = bool(t)
         self._camo_cloak_cover_keys(uid, out)     # `1014 CamoCloak_DmgReduction` (case-366-r1)
+        # `RoundsStarted(Owner)` = `GetStat(., 0xc = TURNS_STARTED)` — lu par
+        # `IdunBattle.Entities.Effects.Loki.ReinforcedHiveNode_ExtraArmorEffect$$CreateActiveCondition`
+        # (`AmountIsOdd(Sum(RoundsStarted(Owner), Direct(1)))`, case-366-r1). Le compteur est DÉJÀ
+        # matérialisé côté Scene (`turns_started_by_id`, #46) : la clé n'est présente que si le ctx
+        # de l'entité le portait (absence = donnée inconnue ⇒ dégradation VRAI, comme le pendant
+        # runner `UnitEffectStateView`).
+        ts = (self.turns_started_by_id or {}).get(uid)
+        if ts is not None:
+            out["turns_started"] = int(ts)
         return out
 
     def effects(self, uid) -> list:

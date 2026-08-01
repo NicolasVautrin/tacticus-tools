@@ -703,8 +703,26 @@ def effect_stat_modifications(eff, stats_ctx=None) -> list:
     return [(int(st), int(amt))] if amt else []
 
 
+def _carries_modification(eff) -> bool:
+    """Le FLAG `EffectComponent.IsActive @+0x5c` de CETTE instance — l'effet porte-t-il, OUI ou NON,
+    une `ValueModification` chez sa cible ?
+
+    NATIF, lu verbatim : `IdunBattle.Operations.RefreshEffectsOperation$$ActivateEffect` écrit
+    `+0x5c = 1` (et `RefreshEffect` enchaîne `UpdateEffectTargets(<cibles réelles>)` ->
+    `AStatModifierEffect$$ApplyModification`), tandis que
+    `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` écrit `+0x5c = 0` PUIS
+    `UpdateEffectTargets(<liste VIDE>)` -> `RevertEffectsForTargets` ->
+    `AStatModifierEffect$$RevertModification`. Un effet à `+0x5c == 0` n'a donc AUCUNE entrée
+    `ValueModification.per_source` sur sa cible.
+
+    Défaut `True` : le canal `decisionView` par DÉFAUT droppe les inertes (« présent == actif »),
+    donc une entrée sans clé `active` EST active. Seul le canal `includeInactive` publie
+    `active: false`, et c'est exactement cette entrée qu'il ne faut PAS attribuer."""
+    return bool(getattr(eff, "active", True))
+
+
 def stat_modifications_by_source(effects, source_of=None, stats_ctx=None) -> dict:
-    """Contributions stat-mod des effets actifs, groupées `{idxStatType: {source: amount}}` — à passer à
+    """Contributions stat-mod des effets ACTIFS, groupées `{idxStatType: {source: amount}}` — à passer à
     `stats.seed_unit_stats(attributed=...)` pour une modification **attribuée** (résidu opaque réduit).
     Mirror de l'agrégation `AStatModifierEffect.ApplyModification` par (stat, source).
     `source_of(effect) -> clé de source` (défaut : tuple stable `("statmod", effect_type, source, name)`).
@@ -713,9 +731,21 @@ def stat_modifications_by_source(effects, source_of=None, stats_ctx=None) -> dic
     d'`ApplyModification` (`applied_stat_mods`), dont la magnitude se lit justement sur ce ctx. Sans lui,
     seule la forme mono-stat de la base est attribuée et la contribution des effets à magnitude
     contextuelle reste dans le résidu opaque `CAPTURED_SOURCE` — donc NON RETIRABLE à leur retrait.
-    No-op pour les effets non-StatModifier (cf. `effect_stat_modifications`)."""
+    No-op pour les effets non-StatModifier (cf. `effect_stat_modifications`).
+
+    ⚠ « ACTIFS » n'était PAS implémenté avant #366-r1 : le filtre `_carries_modification` manquait,
+    donc un effet capté INERTE par le canal `includeInactive` (`active: false`) se voyait attribuer
+    une magnitude que le natif n'applique PAS -> `seed_unit_stats` compensait par un résidu NÉGATIF
+    sous `CAPTURED_SOURCE`, et le premier `refresh_stat_modifier_effects` (qui retire la part
+    attribuée, à raison) laissait le résidu négatif SEUL. MESURÉ (runner MC1_67, summon
+    `tyranSmnWarrior` à `turnsStarted` impair, effet `1108 ReinforcedHiveNode_ExtraArmor` capté
+    `active: false`) : `FixedArmor` port **0** contre live **1595**. Le trou concerne TOUTE classe
+    à `CreateActiveCondition` portée qui déclare un stat-mod (17 au 2026-08-01) ; il n'était
+    inobservable que parce qu'aucune n'avait encore été captée INERTE dans un test."""
     out: dict = {}
     for e in _as_effects(effects):
+        if not _carries_modification(e):
+            continue
         mods = effect_stat_modifications(e, stats_ctx)
         if not mods:
             continue
@@ -735,9 +765,14 @@ def apply_effect_stat_modifications(unit_stats, effects, source_of=None, stats_c
     name)`) sert au revert par-source ; `stats_ctx` = ctx du porteur (débloque la forme OVERRIDE, cf.
     `effect_stat_modifications`). No-op pour les effets non-StatModifier. Renvoie la liste des
     `(source, statType, amount)` appliqués (pour un revert ultérieur exact ou une validation
-    d'attribution vs `statDelta`)."""
+    d'attribution vs `statDelta`).
+
+    MÊME filtre `_carries_modification` que `stat_modifications_by_source` (cf. sa docstring) : un
+    effet à `EffectComponent.IsActive @+0x5c == 0` n'a AUCUNE `ValueModification` chez sa cible."""
     applied = []
     for e in _as_effects(effects):
+        if not _carries_modification(e):
+            continue
         src = source_of(e) if source_of else statmod_source_key(e)
         for st, amt in effect_stat_modifications(e, stats_ctx):
             unit_stats.change_stat(int(st), src, int(amt))
