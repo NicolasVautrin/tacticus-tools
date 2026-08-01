@@ -564,6 +564,67 @@ def get_minimum_tiles_180_front(frm: tuple, to: tuple, check_elevation: bool = F
     return out
 
 
+def get_minimum_tiles_180_behind_from_tile(caster_tile: tuple, to: tuple, walkable_at=None,
+                                           elevation_at=None, tile_exists=None) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180BehindFromTile(casterTile,
+    otherUnit)` (slot d'interface **0x4e** = index de vtable 0x52, RE-DERIVE au runtime le
+    2026-08-01 par le balayage borne de `probe_27_4g_battlequery_slots.py`) -- l'arc ARRIERE de
+    `otherUnit` : les tuiles a UN hex qui s'ELOIGNENT de `casterTile`.
+
+    C'est le pendant EXACT de `get_minimum_tiles_180_front`, aux vecteurs OPPOSES pres. Le
+    decompile des deux corps est superposable ligne a ligne : meme `d`, memes trois branches
+    alignees, meme paire `Min`/`Max` sur les trois composantes, memes six tests -- seuls les
+    vecteurs passes a `CubeCoordinate$$Difference` changent de signe :
+
+        if (d.x == 0)   vec = (0, sgn(d.y), sgn(d.z))
+        elif (d.y == 0) vec = (sgn(d.x), 0, sgn(d.z))
+        elif (d.z == 0) vec = (sgn(d.x), sgn(d.y), 0)
+        else            mn = Min(d.x, d.y, d.z) ; mx = Max(...)         # jusqu'a DEUX vecteurs
+                        if (d.x == mn) { if (d.y == mx) add(-1,1,0) ; if (d.z == mx) add(-1,0,1) }
+                        if (d.y == mn) { if (d.z == mx) add(0,-1,1) ; if (d.x == mx) add(1,-1,0) }
+                        if (d.z == mn) { if (d.x == mx) add(1,0,-1) ; if (d.y == mx) add(0,1,-1) }
+        foreach vec : AddNewTileToList(cube(otherUnit) - vec, originTile = MainTile(otherUnit),
+                                       checkWalkability = 1, checkElevation = 1)
+
+    avec `d = cube(casterTile) - cube(otherUnit)`. Avec `cube - vec`, Front rend un pas de la cible
+    VERS le caster et Behind un pas a l'OPPOSE -- c'est ce qui en fait le moteur du PUSH
+    (`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush`, deja porte cote COMBAT dans
+    `runner/operations/displace.py`).
+
+    DEUX ecarts avec `get_minimum_tiles_180_front`, lus au call-site et non supposes :
+    `checkElevation` vaut **1 en litteral** ici (Front le recoit de `isReachable`, que son unique
+    consommateur natif passe a 0), et une tuile qui echoue `IsTileValidForList` est simplement
+    OMISE (contraste `get_tiles_behind`, qui ARRETE la ligne).
+
+    Cas ALIGNE (une composante cube nulle) -> UNE tuile ; cas non aligne -> UNE ou DEUX."""
+    ox, oy, oz = hexgeo.to_cube(caster_tile[0], caster_tile[1])
+    tx, ty, tz = hexgeo.to_cube(to[0], to[1])
+    dx, dy, dz = ox - tx, oy - ty, oz - tz
+    vecs: list[tuple[int, int, int]] = []
+    if dx == 0:
+        vecs.append((0, _sgn(dy), _sgn(dz)))
+    elif dy == 0:
+        vecs.append((_sgn(dx), 0, _sgn(dz)))
+    elif dz == 0:
+        vecs.append((_sgn(dx), _sgn(dy), 0))
+    else:
+        d = (dx, dy, dz)
+        mn, mx = min(d), max(d)
+        for i_mn, i_mx, vec in _FRONT_180_VECS:
+            if d[i_mn] == mn and d[i_mx] == mx:
+                vecs.append((-vec[0], -vec[1], -vec[2]))
+    out: list = []
+    for vx, vy, vz in vecs:
+        p = hexgeo.from_cube(tx - vx, tz - vz)
+        if tile_exists is not None and not tile_exists(p):
+            continue                       # `GetTileAt == null` -> tuile simplement OMISE
+        if not is_tile_valid_for_list(p, to, True, walkable_at, elevation_at,
+                                      check_elevation=True):
+            continue
+        out.append(p)
+    return out
+
+
 def tiles_behind_accessors(walkable_by_pos: dict | None, elev_by_pos: dict | None):
     """Accesseurs `(walkable_at, elevation_at, tile_exists)` de `get_tiles_behind` batis sur les
     cartes OFFLINE de la face DECISION (`ctx.walkable_by_pos` = boardGraph `IsWalkableTile`,

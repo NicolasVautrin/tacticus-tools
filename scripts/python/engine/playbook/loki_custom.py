@@ -29,11 +29,12 @@ import hexgeo
 
 from . import prediction
 from .common import DefaultActiveAbilityPlaybook
-from .base import NO_ACTION, register
+from .base import NO_ACTION, register, tile_utility_for_unit
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.effect_type import EffectType
+from ..entities.traits.unit_trait import UnitTrait, entity_trait_names, has_any_trait
 from ..utilities.damage import will_be_overkill
 
 # `_PROFILE_NONE` VIVAIT ICI (le `param_8` VIDE du call-site `GenerateMultiHitAttackPredictions` de
@@ -1184,12 +1185,148 @@ class SorcerousFacadePlaybook(NonAttackComparablePlaybook):
 # SECONDE route Comparable (`playbook/nonattack.py`), dont l'enumeration de cibles vient de
 # `ctx.ability_targets` -> les ALLIES. Le terme custom n'est donc plus jamais evalue sur un ennemi.
 # cf. docs/rl/case-27-custom-utility.md et docs/rl/case-217-phantom-action-routing.md.
+class MortisRoundPlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` -- le GAIN d'utilite
+    de TUILE que le PUSH inflige a la cible, TRONQUE vers `int`.
+
+        Fix64 CalculateCustomUtility(caster, casterPosition, target, abilityState, possibleTargets) {
+            var best = GetTargetUtilityDiffOnDisplace(caster, casterPosition.MainTile,
+                                                     this.GetPushableTiles, target);
+            return (Fix64)(int)best.<+0x18>;              // op_Explicit puis op_Implicit
+        }
+
+    et `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetTargetUtilityDiffOnDisplace`,
+    relu VERBATIM :
+
+        best = (target, Fix64(0))
+        if (!UnitExtensions.IsDisplaceable(target)) return best;      // -> 0
+        util = GetUtility(UtilityType.Tile);                          // composite 7
+        t0   = EntityExtensions.GetMainTile(target)
+        u0   = util.EvaluateAttack(UtilityAttackCase.Base(target, UnitPosition(t0), t0, aoe))
+        foreach (tile in tilesFunc(casterTile, target)) {
+            uN   = util.EvaluateAttack(UtilityAttackCase.Base(target, UnitPosition(tile), tile, aoe))
+            diff = u0 - uN
+            if (diff > Fix64(0) && diff > best.value) best = (target, diff)
+        }
+        return best
+
+    CINQ points de RE, dont trois ne se devinent pas :
+
+    1. **L'unite du `UtilityAttackCase` est la CIBLE**, jamais le caster (`+0x10` = `target`). Les
+       feuilles Tile(7) recopient ce champ dans `UtilityMovementCase+0x10` puis le passent a
+       `HasTrait(case.unit, ...)` / `HasFaction(case.unit, ...)` -> le composite doit etre evalue
+       AVEC LE KIT DE LA CIBLE (`base.tile_utility_for_unit`), pas celui du lanceur.
+    2. **`EvaluateAttack` sur le composite Tile(7) EST `EvaluateMovement`.** Ce n'est pas une
+       supposition de commodite : chaque feuille de tuile convertit son `UtilityAttackCase` en
+       `UtilityMovementCase` et saute au slot `EvaluateMovementInSteps` (corps IDENTIQUES de
+       `IdunBattle.AI.Utilities.ElevationUtility$$EvaluateAttackInSteps`,
+       `...AUnitEffectsUtility$$EvaluateAttackInSteps`,
+       `...CapturePointTileUtility$$EvaluateAttackInSteps`). Le facteur de
+       `IdunBattle.AI.Utilities.ComposedUtility$$CalculateAttackModifier` vaut 1 ici : les TROIS
+       seules utilities qui l'overrident (`DislikeBossUtility`, `DislikeEnvironmentUnitsUtility`,
+       `DislikeObjectsUtility`) appartiennent au composite d'ATTAQUE, aucune a Tile(7).
+    3. **La TRONCATURE vers `int`** (`Fix64$$op_Explicit` puis `op_Implicit`) est ce qui explique le
+       « terme mesure nul » des tranches 1-3 : elle ecrase vers 0 tout gain `< 1`, et sur un plateau
+       PLAT le composite Tile(7) est constant, donc `diff == 0` partout. Le terme n'existe qu'avec
+       une feuille de tuile DISCRIMINANTE (elevation en tete : `Elevation.Multiplier` = 10 par
+       niveau -> un push d'un niveau vaut deja 10 points d'utilite d'action).
+    4. **C'est un MAX, gate a `> 0`** : les tuiles de push qui AMELIORENT la position de la cible
+       n'apportent aucun malus (le terme ne descend jamais sous 0), et deux tuiles candidates ne
+       s'additionnent pas.
+    5. **La liste de tuiles est l'arc ARRIERE, pas la destination reelle du push.**
+       `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetPushableTiles`
+       = `EmptyOrHasSteppableUnit(battleQuery.<slot itf 0x4e>(casterTile, target))`, et le slot
+       0x4e est `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180BehindFromTile` (index de
+       vtable 0x52, `interfaceOffset` = 4 -- RE-DERIVE au runtime, pas recopie d'une fiche). La
+       DECISION ne rejoue donc pas `FindTileToPush` (le tirage de la face COMBAT) : elle score
+       l'arc entier. Sur un push melee axis-aligne l'arc est degenere en UNE tuile, les deux
+       coincident ; hors alignement l'arc peut porter DEUX tuiles et le natif prend le MAX.
+
+    Terme POSITION-dependant (`casterTile` oriente l'arc) ET CIBLE-dependant : il arbitre a la fois
+    l'argmax par tuile et l'argmax par cible.
+
+    Porteur `ultraEliminatorSgt` 'Certus' [lineup, **present dans `rl_duel build --list-pool`**] --
+    le seul override non porte de #27 dont le porteur soit un HERO du pool, sans catalog_inject ni
+    greffe. AUCUN poids BC : la magnitude sort entierement du composite Tile(7).
+
+    RESIDU nomme : `IsDisplaceable` teste aussi `HasFlag(unit, 0x19)`, un `UnitFlag` que le substrat
+    de DECISION (`decisionView`) n'expose pas -> gate INERTE (borne SUPERIEURE, jamais une tuile
+    retiree a tort). Les quatre autres refus (mort, `Hulking`=3, `Immovable`=17, `BigTarget`=1017)
+    sont portes."""
+    ability_id = int(ActiveAbilityType.MortisRound)  # 1004
+
+    # `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` : les trois traits qui REFUSENT le
+    # deplacement, lus au decompile (`BaseUnitComponent$$HasTrait` avec 0x11, 0x3, 0x3f9).
+    _NOT_DISPLACEABLE = (UnitTrait.Immovable, UnitTrait.Hulking, UnitTrait.BigTarget)
+
+    @staticmethod
+    def _unit(ctx, entity_id):
+        for u in (ctx.units or []):
+            if u.get("id") == entity_id:
+                return u
+        return None
+
+    @classmethod
+    def _is_displaceable(cls, ctx, unit: dict) -> bool:
+        """`IdunBattle.Entities.UnitExtensions$$IsDisplaceable(unit)` : vivante, et sans aucun des
+        trois traits refusants. Le 4e refus (`HasFlag(unit, 0x19)`) n'a pas de substrat offline."""
+        if not unit or not unit.get("alive"):
+            return False
+        scene = getattr(ctx, "scene", None)
+        uctx = scene.ctx(unit.get("id")) if scene is not None else None
+        names = entity_trait_names(uctx, unit.get("visualId"))
+        return not has_any_trait(names, cls._NOT_DISPLACEABLE)
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        tu = self._unit(ctx, target)
+        if tu is None or not self._is_displaceable(ctx, tu):
+            return 0.0                       # branche `!IsDisplaceable` -> Fix64(0)
+        tpos = _main_tile_of(ctx, target)
+        if tpos is None:
+            return 0.0
+        walkable_at, elevation_at, tile_exists = bq.tiles_behind_accessors(
+            getattr(ctx, "walkable_by_pos", None), getattr(ctx, "elev_by_pos", None))
+        tiles = bq.get_minimum_tiles_180_behind_from_tile(
+            caster_tile, tpos, walkable_at=walkable_at, elevation_at=elevation_at,
+            tile_exists=tile_exists)
+        if not tiles:
+            return 0.0
+        # `DSLSelectors.EmptyOrHasSteppableUnit` : la tuile doit etre LIBRE, ou portee par une unite
+        # a trait `Steppable` (27) -- l'occupant que le push ecrase au lieu de bloquer.
+        occ = {}
+        for u in (ctx.units or []):
+            p = u.get("pos") or {}
+            if u.get("alive") and p.get("col") is not None and u.get("id") != target:
+                occ[(p["col"], p["row"])] = u
+        scene = getattr(ctx, "scene", None)
+        keep = []
+        for p in tiles:
+            o = occ.get(p)
+            if o is None:
+                keep.append(p)
+                continue
+            octx = scene.ctx(o.get("id")) if scene is not None else None
+            if has_any_trait(entity_trait_names(octx, o.get("visualId")), (UnitTrait.Steppable,)):
+                keep.append(p)
+        if not keep:
+            return 0.0
+        u0 = tile_utility_for_unit(ctx, tu, tpos)
+        best = 0.0
+        for p in keep:
+            diff = u0 - tile_utility_for_unit(ctx, tu, p)
+            if diff > 0.0 and diff > best:
+                best = diff
+        # `Fix64$$op_Explicit` (Fix64 -> int) puis `op_Implicit` (int -> Fix64) : TRONCATURE vers
+        # zero, pas un arrondi. `best` est >= 0 par construction, donc `int()` suffit.
+        return float(int(best))
+
+
 def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
                 DoomSirenPlaybook, SavageEchoesPlaybook,
                 HeavyWarpFlamerPlaybook, MassDriverAcceleratorPlaybook,
-                StikkbombPlaybook, PlasmaGrenadePlaybook):
+                StikkbombPlaybook, PlasmaGrenadePlaybook, MortisRoundPlaybook):
         register(cls())
     # SECONDE route Comparable (#27-4b/4c/4d) : l'ability est absente de `ctx.plans` -- soit parce
     # qu'elle n'a pas de `damageProfile` (Chronometron, ForwardObservers), soit parce que son masque

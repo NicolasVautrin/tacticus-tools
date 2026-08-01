@@ -101,6 +101,62 @@ def tile_utility(ctx, pos) -> float:
     return tile_composite(pos, meta, leaf_ctx, ctx.wt)
 
 
+class _UnitView:
+    """Vue de l'`AiDecisionContext` recentrée sur une AUTRE unité que le mover — l'`unit` que porte
+    le `UtilityAttackCase` quand ce n'est pas le caster.
+
+    Ce n'est pas une commodité : c'est ce que le natif fait. `IdunBattle.AI.Playbook.Playbooku003C
+    __Il2CppFullySharedGenericTypeu003E$$GetTargetUtilityDiffOnDisplace` construit
+    `UtilityAttackCase$$Base(target, UnitPosition(tile), tile, aoe)` — le `caster` du case (`+0x10`)
+    est **la cible**, pas le lanceur —, et les feuilles Tile(7) recopient ce champ dans
+    `UtilityMovementCase+0x10` (`IdunBattle.AI.Utilities.UtilityMovementCase$$.ctor(attackCase)`)
+    avant de le passer à `HasTrait(case.unit, …)` / `HasFaction(case.unit, …)` et aux comptes
+    d'adjacence. Évaluer `Tile(7)` avec le kit du CASTER serait donc un fork de port, pas une
+    approximation.
+
+    Trois champs sont redérivés, le reste est délégué tel quel (les cartes par-position
+    — élévation, effets, walkable — ne dépendent pas de l'unité) :
+
+    - `me` / `uid` : l'entrée `ctx.units` de l'unité visée ;
+    - `units` : la MÊME liste, mais `ctrl` recalculé **du point de vue de cette unité**
+      (`ctrl' = (ctrl == ctrl_de_l_unite)`). `_adjacent_units` classe `friends`/`enemies` sur ce
+      booléen, et le natif dérive ses deux ensembles de `GetCurrentPlayer(case.unit)` : pour une
+      cible ENNEMIE, amis et ennemis sont donc échangés ;
+    - `fpos` / `enemies` : les positions des deux camps, réalignées sur ce même point de vue."""
+
+    __slots__ = ("_ctx", "me", "uid", "units", "fpos", "enemies")
+
+    def __init__(self, ctx, unit: dict):
+        self._ctx = ctx
+        self.me = unit
+        self.uid = unit.get("id")
+        mine = bool(unit.get("ctrl"))
+        self.units = [dict(u, ctrl=(bool(u.get("ctrl")) == mine))
+                      for u in (getattr(ctx, "units", None) or [])]
+        self.fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in self.units
+                     if u.get("ctrl") and u.get("alive") and u.get("pos")]
+        self.enemies = [u for u in self.units if not u.get("ctrl") and u.get("alive")]
+
+    def __getattr__(self, name):
+        return getattr(self._ctx, name)
+
+
+def tile_utility_for_unit(ctx, unit: dict, pos) -> float:
+    """`Tile(7)` évalué sur la tuile `pos` POUR l'unité `unit` — `GetUtility(UtilityType.Tile)
+    .EvaluateAttack(UtilityAttackCase$$Base(unit, UnitPosition(pos), pos, aoe))`.
+
+    Le mode ATTACK n'est PAS un chemin distinct : chaque feuille de tuile convertit son
+    `UtilityAttackCase` en `UtilityMovementCase` et délègue au slot `EvaluateMovementInSteps`
+    (corps identiques de `IdunBattle.AI.Utilities.ElevationUtility$$EvaluateAttackInSteps`,
+    `…AUnitEffectsUtility$$EvaluateAttackInSteps`, `…CapturePointTileUtility$$EvaluateAttackInSteps`).
+    Le facteur de `IdunBattle.AI.Utilities.ComposedUtility$$CalculateAttackModifier` vaut 1 pour ce
+    composite : les TROIS seules utilities qui l'overrident (`DislikeBossUtility`,
+    `DislikeEnvironmentUnitsUtility`, `DislikeObjectsUtility`) sont des feuilles du composite
+    d'ATTAQUE, aucune n'est une feuille de Tile(7). => même somme que `tile_utility`, au point de
+    vue d'unité près."""
+    return tile_utility(_UnitView(ctx, unit), pos)
+
+
 class ComparablePlaybook(BasePlaybook):
     """`ComparablePlaybook<T>` — régime somme-pondérée sur prédictions (attaques d'abord). Le playbook
     dispatché par le générateur ; `make_damage_predictions` (le fournisseur de prédiction) est OVERRIDÉ
