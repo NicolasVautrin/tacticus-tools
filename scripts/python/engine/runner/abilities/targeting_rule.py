@@ -6,7 +6,7 @@ Chaque membre est un bit ; quelques-uns sont des COMPOSITES (plusieurs bits), co
 parce que le natif les declare.
 
 Produit par `scripts/python/gen_targeting_rule.py` depuis
-`data/symbols/gqfc5mff6c/frida/enums.tsv`. Regenerer apres chaque re-dump ; la coherence
+`data/symbols/rnca9r7q6c/frida/enums.tsv`. Regenerer apres chaque re-dump ; la coherence
 module <-> dump est gardee par `scripts/python/probe_targeting_rule_bits.py`.
 
 `IntFlag` et non `IntEnum` : un masque est une COMBINAISON, et `rules & TargetingRule.TargetIsEnemy`

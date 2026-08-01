@@ -6,7 +6,16 @@ illegale, AVANT le premier `AActiveAbility.Execute` de la behaviour ET avant
 mesuree en #111 : `mutated=false`, `actionConsumed=false`, 2 evenements, groupe 12
 `User_UseAbility` — ouvert par le handler de message EN AMONT du gate, puis referme aussitot).
 
-CHAINE NATIVE (decompile = verite ; build gqfc5mff6c) :
+CHAINE NATIVE (decompile = verite ; STRUCTURE re-lue sur `rnca9r7q6c` le 2026-08-01, #429) :
+
+⚠ LES INDICES DE SLOT CITES PLUS BAS DATENT DE `gqfc5mff6c` ET TROIS ONT BOUGE DE +1 sur
+`rnca9r7q6c` — `IBattleQuery` : `GetFreeAdjacentTiles` 0x51 -> **0x52** (bits 5 et 21),
+`AreTilesAdjacent` 0x61 -> **0x62** (bit 32), `GetAdjacentEnemies` 0x7f -> **0x80** (bit 42).
+`IAttackQuery` est INCHANGE (0x11 healable, 0x12 repairable) : ce sont deux interfaces
+distinctes, une methode inseree dans l'une ne decale pas l'autre. AUCUN degat fonctionnel — le
+port n'appelle pas par slot, il appelle des helpers Python nommes — mais les slots cites en
+commentaire sont des references de RE, et trois d'entre eux ne resolvent plus. Les indices du
+build COURANT sont ceux de `targeting_rule_inventory.py`.
 
     IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal
       -> IdunBattle.Operations.ActiveAbilityOperation$$IsInvalidTarget
@@ -56,21 +65,26 @@ et le filtre statique invoque cette regle-delegue UNIQUEMENT si le bit `TargetMa
    `engine/runner/abilities/orks.py`.
 
 ------------------------------------------------------------------------------------------------
-INVENTAIRE des regles du filtre statique (ordre NATIF de la cascade 7-args) et etat du port.
+EXPOSE DE LA CASCADE CIBLE — l'ORDRE NATIF des regles du filtre statique (surcharge 7 args).
 Une regle NON PORTEE ne refuse JAMAIS (degradation PERMISSIVE — meme convention que « ability non
 portee => behaviour no-op ») : le port ne peut pas inventer un refus qu'il ne sait pas decider.
 
-CHAQUE « NON » PORTE SON COMPTE DE PORTEURS, et ce n'est pas cosmetique : c'est la SEULE facon de
-savoir si un non-port est anecdotique (0 porteur au registre = rien a porter) ou si c'est un TROU.
-La colonne a ete introduite par #249 apres DEUX affirmations « seul porteur » COMMITEES et FAUSSES
-(`CasterHasFreeAdjacentTile` compte 2 porteurs, pas 1 ; `TargetIsNotAnObject` en compte 4, pas 1) —
-les deux SOUS-estimaient le trou, c'est-a-dire dans le sens qui fait classer un gap comme negligeable.
-⚠ NE PAS CITER CES COMPTES DE MEMOIRE : les RE-DERIVER (`ABILITY_CLASSES` x
-`TARGETING_OPTIONS.rules`) avec `scripts/python/probe_249_unported_rule_carriers.py`, qui les
-recalcule depuis les DEUX sources de masque du port et verifie au passage qu'aucun masque ne pose de
-bit hors enum. Mesure du 2026-07-29 : registre = 94 abilities, 94 masques poses, aucun bit hors enum ;
-12 abilities touchees par une regle non portee AVANT #249, **8** apres (le bit 19 en fermait 4) ; et
-9 des 13 regles auditees ont ZERO porteur — ce ne sont pas des residus, il n'y a rien a y porter.
+⚠ PERIMETRE DE CE TABLEAU, ET IL EST BORNE (#429) : il decrit **l'ORDRE** de la cascade CIBLE,
+parce que c'est l'ordre qui fixe la RAISON rendue quand plusieurs regles sont rompues. Ce n'est
+PAS le recensement des regles de ciblage, et la colonne « port » ci-dessous n'a valeur
+qu'indicative. Le RECENSEMENT — les 60 membres de l'enum, leur role natif, leur lecteur, et
+surtout ce qui les ARME — vit dans `targeting_rule_inventory.py`, dont la couverture est prouvee
+dans les DEUX directions par `tests/engine/runner/test_targeting_rule_inventory.py`. L'etat de
+port, lui, ne s'ecrit nulle part : il se DERIVE de l'AST
+(`scripts/python/probe_429_targeting_rule_inventory.py`).
+
+⚠ NE PAS COMPTER LES PORTEURS D'UNE REGLE PAR SON BIT. Mesure du 2026-08-01 : TROIS regles de
+cette cascade ne sont pas armees par leur propre bit, et le compte par le bit y donne un zero de
+METHODE — `TargetIsAllowedForCaster` (TAUNT) est armee par `TargetIsEnemy|TargetIsCasterOrEnemy`
+(**0** par le bit, **59** par l'armement) ; `TargetIsNotSteppable` par `get_IsUnitTargeting`
+sans `AllowSteppableUnit` (**1** contre **83**) ; `TargetIsUnit` par l'ABSENCE des trois autres
+tetes de domaine. C'est ce qui faisait ecrire « 0 porteur, rien a y porter » pour des regles
+armees chez la majorite du registre.
 
 TOUS LES NOMS CI-DESSOUS SONT CEUX DE L'ENUM NATIF, et ce module n'en declare AUCUN : il les lit
 dans `engine/runner/abilities/targeting_rule.py`, mirror 1:1 GENERE par
@@ -95,16 +109,28 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
   39   0x8000000000          TargetIsCaster (`caster != GetUnit(target)` => refus) OUI
   10   0x400                 TargetIsFriendly                                    OUI
   14   0x4000                TargetIsEnemy (`UnitsCanAttackEachOther`)           OUI
-  23   0x800000              TargetIsAllowedForCaster (`GetOnlyTargets`, Taunt)  NON (0 porteur)
+  23   0x800000              TargetIsAllowedForCaster (`GetOnlyTargets`, Taunt)  NON — ⚠ SON BIT
+                             ⚠ ARMEE PAR `TargetIsEnemy | TargetIsCasterOrEnemy`,               N'EST JAMAIS
+                             DESARMEE par `AllowIgnoreForcedAttackTarget` :                     TESTE : il
+                             son propre bit 23 n'est JAMAIS teste par le natif.                 n'est que le
+                             59 abilities du registre l'ont ARMEE (0 posent le bit).            code rendu
   18   0x40000               TargetIsDisplaceable                                NON (0 porteur)
   29   0x20000000            TargetIsTargetable (sauf si                        OUI
                              AllowUntargetableTarget est pose)
-  51   0x8000000000000       TargetIsNotSteppable                                NON (0 porteur)
+  51   0x8000000000000       TargetIsNotSteppable                                NON — ⚠ ARMEE
+                             ⚠ ARMEE PAR son bit **OU** `get_IsUnitTargeting`                   PAR DEFAUT :
+                             (= ABSENCE des bits 6/44/46) SANS `AllowSteppableUnit`.            83 abilities
+                             83 abilities du registre l'ont ARMEE ; 1 seule pose le bit.        du registre
   47/48/49                   TargetHas1Tiles / TargetHas3Tiles / TargetHas7Tiles NON (0 porteur)
    -   (non gate)            portee : `dist(casterTiles, target) > GetRange` ->  OUI (cf. ci-dessous)
                              TargetIsInRange (bit 27, 0x8000000) ; variante
                              EXACTE sous le bit 9 TargetIsAtRange (0x200)
-   -   (non gate)            `GetTilesObscuringTerrain` (ligne de vue)           NON
+  24   0x1000000             `GetTilesObscuringTerrain` (ligne de vue) ->        NON — armee pour
+                             TargetIsUnobscured. SEULE regle du filtre dont le    les 103 masques
+                             refus ne passe PAS par `GenericBrokenTargetingRule`  lisibles : aucun
+                             mais par `ObscuredTerrainBrokenTargetingRule` (dont  bit ne l'arme,
+                             `get_Type` rend 0x1000000). Les bits 25/26 ne font   seuls 25/26 la
+                             que la DESARMER.                                     desarment.
   13   0x2000                TargetIsSummon (`HasTrait(2)`)                      OUI (#250)
   50   0x4000000000000       TargetIsHero (`HasTrait(0x10)` requis)              NON (0 porteur)
   33   0x200000000           TargetIsNotAnObject (`HasTrait(0xd)` interdit)      NON (4 porteurs :
@@ -131,13 +157,17 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
    1   0x2                   TargetMatchesDynamicRule                            OUI (point d'extension)
   57   0x200000000000000     TargetIsCasterOrEnemy (self OU ennemi attaquable)   OUI
 
-BITS QUI NE SONT PAS DES REGLES DE REFUS (verifie exhaustivement sur les DEUX cascades) :
-`CasterIsPossibleTarget` (bit 15) n'apparait NI dans le filtre cible NI dans `GetInvalidCasterReason`
-— c'est un flag DECLARATIF, lu par `IdunBattle.Core.Services.TargetingOptions$$get_CanTargetCaster`
-pour les consommateurs de ciblage (preview / IA). Un port qui en ferait une regle inventerait un
-refus. Meme famille : `get_IsTileTargeting` (`TargetIsTile`), `get_IsUnitTargeting`,
-`get_IsEnemyTargeting` (`TargetIsEnemy` OU `TargetIsCasterOrEnemy`), `get_IsCasterOrEnemyTargeting`,
-`get_IsActorTargeting` (`TargetIsActor`) — des LECTURES du masque, pas des regles supplementaires.
+BITS QUI NE SONT PAS DES REGLES DE REFUS **DE CES DEUX CASCADES** :
+`CasterIsPossibleTarget` (bit 15) n'apparait NI dans le filtre cible NI dans `GetInvalidCasterReason`.
+Il est lu, en DECLARATIF, par `IdunBattle.Core.Services.TargetingOptions$$get_CanTargetCaster` pour
+les consommateurs de ciblage (preview / IA). ⚠ MAIS il a un TROISIEME lecteur, et celui-la EST un
+gate : `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason` (`rules >> 0xf & 1`)
+RE-APPLIQUE la cascade CIBLE complete au caster pris comme cible. « Deux cascades » n'est donc pas
+« exhaustivement » — la troisieme existe (#429), elle est NON PORTEE, et 13 masques du registre
+l'arment. Meme famille de lectures declaratives : `get_IsTileTargeting` (`TargetIsTile`),
+`get_IsUnitTargeting` (= ABSENCE des bits 6/44/46, et pas un bit a lui), `get_IsEnemyTargeting`
+(`TargetIsEnemy` OU `TargetIsCasterOrEnemy`), `get_IsCasterOrEnemyTargeting`, `get_IsActorTargeting`
+(`TargetIsActor`) — des LECTURES du masque, pas des regles supplementaires.
 
 LE VOLET PORTEE (#241) — il n'est GATE PAR AUCUN BIT, donc son armement ne vient pas de `Rules`
 mais du champ `TargetingRange` des options (`options+0x08..0x1f`). Extrait VERBATIM du filtre

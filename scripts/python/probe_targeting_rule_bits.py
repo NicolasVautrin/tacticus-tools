@@ -25,10 +25,16 @@ ENUM = "IdunBattle.Core.Services.TargetingRule"
 
 
 def build_hash() -> str:
-    stamps = sorted((REPO / "data" / "symbols").glob("*/BUILD"))
-    if not stamps:
-        raise RuntimeError("aucun data/symbols/<build>/BUILD")
-    return stamps[0].read_text(encoding="utf-8").strip()
+    """Le build QUI FAIT FOI (`data/symbols/CURRENT`), via `symbols_layout`.
+
+    ⚠ Cette fonction rendait le PREMIER build par ordre ALPHABETIQUE (`sorted(glob)[0]`), donc
+    un build ARCHIVE. Le titre de ce probe promet « le dump du build COURANT » et il lisait
+    `gqfc5mff6c` alors que `CURRENT` valait `rnca9r7q6c` (mesure du 2026-08-01). Corrige par
+    #429, en meme temps que le meme defaut dans `gen_targeting_rule.py` -- les deux partageaient
+    l'entree perimee, donc leur accord ne prouvait rien."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import symbols_layout
+    return symbols_layout.current_build()
 
 
 def from_dump(build: str) -> dict:
