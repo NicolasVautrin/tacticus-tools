@@ -290,15 +290,16 @@ def test_the_family_inventory_is_frozen():
                                                "ActiveAbilityType", "ActiveAbilityType"]
 
 
-def test_only_the_TeleportStrike_slice_is_registered():
-    """Les TROIS soeurs (1140, 1238, 1573) et leurs deux `*_Moving` (1241, 1574) ne sont PAS au
-    registre : elles sont des TRANCHES FILLES, chacune a confronter sur SON porteur. Ce test tombe
-    des qu'une inscription se fait -- ce qui est l'intention : elle doit s'accompagner de sa
-    confrontation, pas se glisser en douce."""
+def test_the_unconfronted_sisters_are_still_out_of_the_registry():
+    """Les soeurs NON CONFRONTEES (1140 -> #448-r2b, 1573 -> #448-r2d) et le `*_Moving` de la
+    seconde (1574) ne sont PAS au registre : chacune est une TRANCHE FILLE, a confronter sur SON
+    porteur. Ce test tombe des qu'une inscription se fait -- ce qui est l'intention : elle doit
+    s'accompagner de sa confrontation, pas se glisser en douce.
+
+    1238 / 1241 sont SORTIES de cette liste par #448-r2c, qui les a confrontees
+    (`probe_448_r2c_fear_of_the_unseen.py`, `test_448_r2c_*_live.py`)."""
     for eff in (EffectType.StormboyzStrike_TeleportingIn,
-                EffectType.FearOfTheUnseen_TeleportingIn,
                 EffectType.TitanhammerSquad_TeleportingIn,
-                EffectType.FearOfTheUnseen_Moving,
                 EffectType.TitanhammerSquad_Moving):
         assert EFFECT_TRIGGERS.get(int(eff)) is None, (
             "%s est entree au registre sans sa tranche : elle doit etre CONFRONTEE "
