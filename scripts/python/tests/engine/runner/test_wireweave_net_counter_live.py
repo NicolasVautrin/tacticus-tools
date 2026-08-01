@@ -84,13 +84,19 @@ def _eff(u, etype):
     return next((e for e in ((u or {}).get("effects") or []) if e.get("effectType") == etype), None)
 
 
-def _scenario(rpc, build_runner, attacker, want_dist):
-    """Monte le duel Calandis vs `attacker`, amene CALANDIS a `want_dist` hexes de l'attaquant (on
-    deplace MON unite : son propre Overwatch ne se declenche donc pas pendant le placement), passe au
-    tour ADVERSE, puis rejoue l'attaque de l'ennemi LIVE et OFFLINE. Renvoie la classification ou
-    `{ok: False, reason}` (le test appelant decide skip/fail)."""
+def _scenario(rpc, build_runner, attacker, want_dist, second=None):
+    """Monte le duel Calandis vs `attacker` (+ `second` optionnel), amene CALANDIS a `want_dist` hexes
+    de l'attaquant (on deplace MON unite : son propre Overwatch ne se declenche donc pas pendant le
+    placement), passe au tour ADVERSE, puis rejoue l'attaque de l'ennemi LIVE et OFFLINE.
+
+    `second` = un DEUXIEME attaquant melee, amene lui aussi au contact : il frappe APRES le premier,
+    dans le MEME tour ennemi. C'est le seul montage qui mesure "the FIRST time" sans confondant --
+    en 1v1 l'attaque CLOT le tour ennemi, et `On(0x12) & IsTurnOf(Owner) -> DeactivateEffect` fait
+    tomber le flag AUSSI (mesure : le cas `--neg-ranged` du probe voit `active` passer a `false`
+    SANS aucune riposte). Renvoie la classification ou `{ok: False, reason}`."""
+    a_units = attacker if second is None else "%s,%s" % (attacker, second)
     b = build_runner("777", extra=["--roster", "1", "--p-units", CARRIER,
-                                   "--a-units", attacker,
+                                   "--a-units", a_units,
                                    "--hp-player", "999999", "--hp-target", "999999",
                                    "--crit", "0,0", "--crit-target", "0,0",
                                    "--block-target", "0,0", "--block-player", "0,0"])
@@ -104,6 +110,9 @@ def _scenario(rpc, build_runner, attacker, want_dist):
         p = u.get("pos") or {}
         return board.id_at(p.get("col"), p.get("row"))
 
+    # placement : Calandis va au contact du 1er attaquant ; le SECOND vient a elle (c'est lui qui
+    # bouge, son approche peut donc manger un tir d'Overwatch -- sans effet sur la mesure, qui est
+    # prise APRES, sur une capture RNG-seedee)
     for _turn in range(30):
         dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
         if not _ok(dv):
@@ -132,6 +141,34 @@ def _scenario(rpc, build_runner, attacker, want_dist):
             "kind": "move", "unitId": car["id"], "to": {"col": col, "row": r}}}, 40)
         if not exact:
             rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)
+    # le SECOND attaquant vient au contact de Calandis (c'est LUI qui bouge)
+    if second is not None:
+        for _turn in range(30):
+            dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+            car, sec = _alive(dv, CARRIER), _alive(dv, second)
+            if car is None or sec is None:
+                return {"ok": False, "reason": f"second attaquant {second} absent"}
+            dist = _bfs(board, tile(car))
+            if dist.get(tile(sec)) == 1:
+                break
+            if dv.get("currentPlayer") != sec.get("owner"):
+                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)
+                continue
+            mt = rpc("aiMovableTiles", {"runnerId": rid, "side": "all"}, 60)
+            row = next((x for x in (mt.get("units") or []) if x.get("unitId") == sec["id"]), None)
+            reach = {board.id_at(t["col"], t["row"]): (t["col"], t["row"])
+                     for t in ((row or {}).get("tiles") or [])}
+            exact = [t for t in reach if dist.get(t) == 1]
+            pool = exact or [t for t in reach if t in dist]
+            if not pool:
+                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)
+                continue
+            best = exact[0] if exact else min(pool, key=lambda t: dist[t])
+            col, r = reach[best]
+            rpc("applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": sec["id"], "to": {"col": col, "row": r}}}, 40)
+            if not exact:
+                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)
     # tour ADVERSE = la fenetre d'armement (`turnsEnabled = 1` -> `NOT IsTurnOf(Owner)`)
     for _ in range(4):
         dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
@@ -197,6 +234,33 @@ def _scenario(rpc, build_runner, attacker, want_dist):
     dvi2 = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True,
                                 "includeInactive": True}, 90)
     row_after = _eff(_row(dvi2, car["id"]), EFFECT)
+    turn_rolled = dvi2.get("currentPlayer") != dv.get("currentPlayer")
+
+    # -- le SECOND attaquant frappe dans le MEME tour ennemi : "the FIRST time" est consomme
+    second_counter, second_on_carrier, live_hp2, sec_id = None, None, None, None
+    if second is not None and not turn_rolled:
+        dv2 = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        sec = _alive(dv2, second)
+        n2 = next((x for x in ((sec or {}).get("abilities") or [])
+                   if x.get("kind") == "normal"), None)
+        if sec is not None and n2 is not None:
+            res2 = rpc("applyAction", {"runnerId": rid, "action": {
+                "kind": "ability", "casterId": sec["id"], "targetId": car["id"],
+                "abilityType": n2["id"]}}, 60)
+            second_counter, second_on_carrier = [], []
+            sec_id = sec["id"]
+            live_hp2 = {u.get("squadId"): u.get("hp") for u in (res2.get("units") or [])}
+            for e in ((res2.get("actions") or [{}])[0].get("events") or []):
+                td = e.get("tags")
+                if not td:
+                    continue
+                td = json.loads(td) if isinstance(td, str) else td
+                if "Amount" not in td:
+                    continue
+                if td.get("Target_Id") == sec["id"]:
+                    second_counter.append(int(td.get("Amount")))
+                elif td.get("Target_Id") == car["id"]:
+                    second_on_carrier.append(int(td.get("Amount")))
 
     runner.apply(AttackUnitMessage(att["id"], car["id"]))
     off_hp = {}
@@ -204,12 +268,27 @@ def _scenario(rpc, build_runner, attacker, want_dist):
         e = state.get_entity(u["id"])
         hc = e.get_component(HealthComponent) if e is not None else None
         off_hp[u["id"]] = hc.hp if hc is not None else None
+    # REJEU DU 2e COUP sur le MEME runner offline (donc le MEME flux MT, qui reste aligne SSI le
+    # 1er rejeu etait bit-exact) : c'est ce qui LIE LE PORT au "the FIRST time". Sans lui, la garde
+    # live ne mesurerait que le NATIF -- verifie par mutation (retirer le `& DeactivateEffect` du
+    # behaviour laissait les 6 tests VERTS).
+    off_hp2 = None
+    if sec_id is not None:
+        runner.apply(AttackUnitMessage(sec_id, car["id"]))
+        off_hp2 = {}
+        for uid in (car["id"], sec_id):
+            e = state.get_entity(uid)
+            hc = e.get_component(HealthComponent) if e is not None else None
+            off_hp2[uid] = hc.hp if hc is not None else None
     return {"ok": True, "reason": None, "state": state, "board": board, "rid": rid,
             "carrier": car["id"], "attacker": att["id"], "dist": got,
             "hp_before": hp_before, "live_hp": live_hp, "off_hp": off_hp,
             "counter_amounts": counter_amounts, "dirty": dirty,
             "inst": inst, "passive_level": plvl, "multiplier": mult,
             "armed_before": row_before, "armed_after": row_after,
+            "turn_rolled": turn_rolled, "second_counter": second_counter,
+            "second_on_carrier": second_on_carrier, "second_id": sec_id,
+            "live_hp2": live_hp2, "off_hp2": off_hp2,
             "dv": dv, "ob": ob, "snap": snap}
 
 
@@ -222,6 +301,12 @@ def wwn_positive(live_session, rpc, build_runner):
 @pytest.fixture(scope="module")
 def wwn_ranged(live_session, rpc, build_runner):
     return _scenario(rpc, build_runner, RANGED_ATTACKER, want_dist=2)
+
+
+@pytest.fixture(scope="module")
+def wwn_two(live_session, rpc, build_runner):
+    """DEUX attaquants melee au contact, qui frappent dans le MEME tour ennemi."""
+    return _scenario(rpc, build_runner, MELEE_ATTACKER, want_dist=1, second=RANGED_ATTACKER)
 
 
 def test_wireweave_net_counter_positive(wwn_positive):
@@ -272,11 +357,11 @@ def test_wireweave_net_counter_attribution(wwn_positive):
             f"(minDmg={lo}) -- le degat n'est pas celui de 1111")
 
 
-def test_wireweave_net_disarms_after_first_counter(wwn_positive):
-    """"the FIRST time" : `$$CreateTargetTriggerBehaviour` = `GetCounterAttackBehaviour(effect) &
-    DeactivateEffect(effect)`. Mesure DIRECTE du champ `EffectComponent.IsActive @+0x5c`, publie par
-    `decisionView includeInactive` : VRAI avant le coup, FAUX apres -- l'entite-effet SURVIT (elle
-    n'est pas retiree), seul son flag tombe. C'est ce qui distingue ce cas d'un `RemoveEffect`."""
+def test_wireweave_net_is_armed_during_enemy_turn(wwn_positive):
+    """ARMEMENT : l'entite-effet 1111 existe et son flag `EffectComponent.IsActive @+0x5c` (publie
+    par `decisionView includeInactive`) est VRAI pendant le tour ennemi -- c'est
+    `On(0x17 = TurnEnd) & IsTurnOf(Owner) -> ActivateEffect` (branche `ActivationFrequency == 2` de
+    `PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal`) qui l'a pose."""
     c = wwn_positive
     if not c["ok"]:
         pytest.skip(c["reason"])
@@ -285,11 +370,53 @@ def test_wireweave_net_disarms_after_first_counter(wwn_positive):
     assert c["armed_before"].get("active") is True, (
         f"1111 non ARME pendant le tour ennemi : {c['armed_before']} "
         "(`On(TurnEnd) & IsTurnOf(Owner) -> ActivateEffect` n'a pas joue)")
+
+
+def test_wireweave_net_counter_is_once_per_enemy_turn(wwn_two):
+    """"the FIRST time" -- `$$CreateTargetTriggerBehaviour` = `GetCounterAttackBehaviour(effect) &
+    DeactivateEffect(effect)`, mesure sans CONFONDANT.
+
+    ⚠ Le flag `IsActive` seul NE PROUVE RIEN en 1v1 : l'attaque y CLOT le tour ennemi, et
+    `On(0x12) & IsTurnOf(Owner) -> DeactivateEffect` le fait tomber AUSSI -- mesure : le cas
+    `--neg-ranged` du probe voit `active` passer a `false` alors qu'AUCUNE riposte n'a eu lieu.
+    D'ou ce montage a DEUX attaquants melee : le second frappe dans le MEME tour (`turn_rolled`
+    faux), donc un flag tombe et une seconde riposte absente ne peuvent venir QUE du behaviour."""
+    c = wwn_two
+    if not c["ok"]:
+        pytest.skip(c["reason"])
+    if c["turn_rolled"] or c["second_counter"] is None:
+        pytest.skip("le tour a bascule apres la 1re attaque : montage non discriminant")
+    assert len(c["counter_amounts"]) == 2, (
+        f"pas de 1re riposte a consommer : {c['counter_amounts']}")
     assert c["armed_after"] is not None, (
         "1111 a DISPARU apres la riposte : le natif DESACTIVE, il ne RETIRE pas")
     assert c["armed_after"].get("active") is False, (
-        f"1111 encore arme apres la riposte : {c['armed_after']} "
-        "-- le `& DeactivateEffect(effect)` ne mord pas, la riposte serait re-jouable le meme tour")
+        f"1111 encore arme apres la riposte, MEME tour : {c['armed_after']}")
+    # PREUVE QUE LE 2e COUP A BIEN EU LIEU : sans elle, un `applyAction` REFUSE rendrait lui aussi
+    # une liste de ripostes VIDE et ce test serait vert pour la mauvaise raison.
+    assert c["second_on_carrier"], (
+        "le 2e attaquant n'a inflige AUCUN degat a Calandis -> son attaque n'a pas ete jouee, "
+        "le test ne mesure rien")
+    assert c["second_counter"] == [], (
+        f"SECONDE riposte NATIVE dans le meme tour ennemi : {c['second_counter']} -- le "
+        "`& DeactivateEffect(effect)` ne serait pas ce que dit le decompile")
+    # ...et LE PORT est lie a cette lecture : le 2e coup est REJOUE offline sur le meme flux MT.
+    # Un port qui riposterait une 2e fois ferait diverger les PV du 2e attaquant.
+    sid_ = c["second_id"]
+    assert c["off_hp2"] is not None and c["live_hp2"], "2e coup non rejoue offline"
+    # etage 1 d'abord : si le PREMIER rejeu diverge deja, le second ne mesure rien
+    assert c["off_hp"][c["attacker"]] == c["live_hp"].get(c["attacker"]), (
+        f"ETAGE 1 : PV 1er attaquant offline {c['off_hp'][c['attacker']]} != live "
+        f"{c['live_hp'].get(c['attacker'])}")
+    assert c["off_hp"][c["carrier"]] == c["live_hp"].get(c["carrier"]), (
+        f"ETAGE 1 : PV Calandis offline {c['off_hp'][c['carrier']]} != live "
+        f"{c['live_hp'].get(c['carrier'])}")
+    assert c["off_hp2"][sid_] == c["live_hp2"].get(sid_), (
+        f"PV du 2e ATTAQUANT offline {c['off_hp2'][sid_]} != live {c['live_hp2'].get(sid_)} "
+        "-- RIPOSTE FANTOME du port au 2e coup du meme tour")
+    assert c["off_hp2"][c["carrier"]] == c["live_hp2"].get(c["carrier"]), (
+        f"PV CALANDIS offline {c['off_hp2'][c['carrier']]} != live "
+        f"{c['live_hp2'].get(c['carrier'])} apres le 2e coup (flux MT desynchronise)")
 
 
 def test_wireweave_net_no_counter_on_ranged(wwn_ranged):

@@ -115,8 +115,32 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -
             # ORDRE : le FLAG d'abord (mirror `ActivateEffect`/`DeactivateEffect`, qui ecrivent
             # `EffectComponent.IsActive @+0x5c` AVANT que `UpdateEffectTargets` ne joue les
             # `Apply`/`RevertModification`). Les magnitudes contextuelles peuvent LIRE ce flag.
-            active = bool(e.is_active(ustate))
-            e.active = active
+            #
+            # ⚠ MAIS ON N'ECRIT PAS UN DEFAUT PAR-DESSUS UNE MESURE (#366-r1b). Le natif
+            # `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive`, branche
+            # `refreshType == Normal`, lu VERBATIM :
+            #
+            #     if (effectComponent.<+0x5e>)                  return false;
+            #     if (!effect.ShouldRefreshForTrigger(trigger))  return effectComponent.<+0x5c>;
+            #     return effect.ShouldBeActive(entities);        // = `CreateActiveCondition`
+            #
+            # -> quand la condition n'est PAS re-evaluee, le natif **RENVOIE LE FLAG COURANT**. Le
+            # port n'a pas de `ShouldRefreshForTrigger`, et sa `is_active()` de base rend `True` :
+            # c'est une VALEUR PAR DEFAUT, pas une lecture du natif. L'ecrire inconditionnellement
+            # ECRASAIT le flag que `ActivateEffect`/`DeactivateEffect` venaient de poser.
+            # MESURE (#366-r1b) : la riposte `1111 WireweaveNet_CounterAttack` (aucune stat-mod,
+            # aucune active-condition portee) se RE-ARMAIT apres son `& DeactivateEffect(effect)`
+            # et repartait au coup suivant du MEME tour ennemi -- riposte fantome de 2849 PV,
+            # attrapee par `test_wireweave_net_counter_is_once_per_enemy_turn`.
+            # On n'ecrit donc le flag QUE pour les classes dont la condition est REELLEMENT portee
+            # (meme discriminant `active_condition_ported` qu'`EffectsState.active_effects`,
+            # case-322) ; sinon on CONJUGUE, comme `active_effects` le fait deja.
+            cond = bool(e.is_active(ustate))
+            if getattr(e, "active_condition_ported", False):
+                e.active = cond
+                active = cond
+            else:
+                active = bool(e.active) and cond
             # `GetStatModification()` — point de verite UNIQUE des deux formes natives (R16).
             mods = effect_stat_modifications(e, ctx)
             stats = {int(st) for st, _amt in mods}

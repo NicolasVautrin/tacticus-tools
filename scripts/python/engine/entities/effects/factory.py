@@ -973,19 +973,28 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # qu'`AnvilShield_BlockChanceBelowHealthCap` / `HammerOfWrath_ConditionalDamage` ci-dessus.
     # Idempotent (skip si deja capte). case-366-r1.
     "VisionsOfHeresy": ["VisionsOfHeresy_ExtraPierceMelee", "VisionsOfHeresy_ExtraPierceRanged"],
-    # WireweaveNet (passif d'`eldarRanger` <<Calandis>>, TriggeredAbilityType 0x457=1111) --
-    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WireweaveNetAbility$$CreateBehaviour` =
-    # `AddEffect(0x457, <AbilityStateReference>, source=Owner, targets=Owner, <duree ZEROEE>)
-    #  + If(NOT IsTurnOf(Owner), ActivateEffect(Owner, 0x457))`, sur le trigger
-    # `OnOwnerSpecificAbilityInit` de sa base `AOwnerEffectTriggeredAbility` -> owner-effect
-    # PERMANENT pose a l'INIT. Son etat ACTIF est pilote par les deux `Triggered()` de
-    # `IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal`
-    # (branche `ActivationFrequency == 2`) : INACTIF pendant le tour de Calandis -> ABSENT du canal
-    # `decisionView.effects` par DEFAUT (actifs seuls, GROUND TRUTH #100). Sans ce seed, un runner
-    # capture pendant le tour de Calandis n'aurait AUCUNE instance a armer et la riposte serait morte.
-    # MEME motif exact qu'`AnvilShield`/`HammerOfWrath`/`ModifiedExoarmour`/`VisionsOfHeresy`.
-    # Idempotent (skip si deja capte, p.ex. capture pendant le tour ennemi). case-366-r1b.
-    "WireweaveNet": ["WireweaveNet_CounterAttack"],
+    # PAS d'entree `"WireweaveNet"` ici, et c'est une DECISION MESUREE (case-366-r1b §7bis).
+    # `1111 WireweaveNet_CounterAttack` est pourtant bien un owner-effect pose a l'init
+    # (`WireweaveNetAbility$$CreateBehaviour` = `AddEffect(0x457, .., source=Owner, targets=Owner)`
+    # sur `OnOwnerSpecificAbilityInit`) et INACTIF pendant le tour de son porteur -- le profil exact
+    # des quatre entrees ci-dessus. DEUX raisons de ne PAS l'inscrire :
+    #   1. INUTILE sur le canal COMBAT : la riposte ne peut partir que si l'instance est ARMEE, et le
+    #      canal `decisionView.effects` par DEFAUT publie EXACTEMENT les effets armes. « Arme » =>
+    #      « capte ». Contrairement a `AnvilShield`/`HammerOfWrath`, dont le gate `HasEffect` doit
+    #      voir l'instance meme INACTIVE, ici l'instance inactive ne sert a rien.
+    #   2. NUISIBLE : `spawn._seed_ability_owner_effects` lit les passives du **KIT gameconfig**
+    #      (`GC.unit(vid).passiveAbilities`), pas de la MESURE -- et `UnitContext.passive_abilities`
+    #      (le canal `unitAbilityStates`, tri-etat) n'est seede qu'APRES, par `_load_passive_abilities`.
+    #      Un montage `--unit-stat "eldarRanger:PassiveAbilities=[]"` (le levier anti-bruit de
+    #      case-366-r1) voyait donc le port materialiser 1111 sur une Calandis qui N'A PAS le passif
+    #      en bataille -> riposte FANTOME, flux MT decale, et les DEUX gardes MELEE de
+    #      `test_fire_and_reposition_reduce_dmg_live` au ROUGE (live 23633 vs port 21840). MEME piege
+    #      que #264 (traits) et que le `seed_witness_effect` du pendant DECISION
+    #      (`playbook/scene.py::_seed_condition_gated_owner_effects`).
+    # RESIDU NOMME : une continuation offline qui CAPTURE pendant le tour de Calandis puis franchit
+    # la frontiere de tour n'a aucune instance a armer -> pas de riposte. Le rouvrir demande d'abord
+    # que le seed d'owner-effects lise le substrat MESURE, ce qui suppose de le deplacer APRES
+    # `_load_passive_abilities` dans `load_state`.
 }
 
 

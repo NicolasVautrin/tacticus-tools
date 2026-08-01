@@ -4,9 +4,11 @@
 natif la fait partir, pour exactement le même montant — et se tait-il exactement quand le natif se
 tait ?
 
-**Réponse : OUI côté DÉCOMPILÉ et côté harnais déterministe ; la confrontation LIVE reste À JOUER**
-(la session Frida était éteinte pendant tout ce cas — cf. §7). Porteur `eldarRanger` (Calandis),
-HERO **au pool** ; voie directe, ni greffe npc, ni injection catalogue, ni relique.
+**Réponse : OUI, confronté LIVE et bit-exact des deux côtés, après DEUX corrections que seule
+l'adversarialité a trouvées** — un foyer PARTAGÉ qui écrasait le flag `IsActive` (§7bis), et une
+entrée de seed que j'avais posée par analogie et qui cassait la garde du voisin (§7ter). Porteur
+`eldarRanger` (Calandis), HERO **au pool** ; voie directe, ni greffe npc, ni injection catalogue,
+ni relique.
 
 i2 : « The first time Calandis is targeted by a normal melee attack during the enemy's turn, the
 attacker immediately takes 2x 873-1310 Piercing Damage. If the attacker is eliminated, their melee
@@ -55,7 +57,7 @@ nombre est l'`EffectType` rendu par `WireweaveNetAbility$$GetEffectType` (`retur
 `<DSLTriggers+0x70>` et `+0x40` = deux instances d'un trigger sans champ, `size 16` ⇒ `YesTrigger`,
 et `+0x48 = NOT` de la même classe.)
 
-## 3. La POSE, et pourquoi le seed est OBLIGATOIRE
+## 3. La POSE
 
     AOwnerEffectTriggeredAbility$$CreateTrigger = OnOwnerSpecificAbilityInit(this.Id@+0x10)
     WireweaveNetAbility$$CreateBehaviour        =
@@ -65,11 +67,12 @@ et `+0x48 = NOT` de la même classe.)
 
 Le second terme est littéralement le corps de `WireweaveNetAbility$$ActivateEffectIfOwnerTurn`,
 inliné. L'effet est donc un **owner-effect permanent posé à l'init**, et il est **INACTIF pendant le
-tour de son porteur** — donc **absent du canal `decisionView` par DÉFAUT** (actifs seuls). D'où
-l'entrée `factory.ABILITY_INIT_OWNER_EFFECTS["WireweaveNet"]`, même motif exact qu'`AnvilShield`,
-`HammerOfWrath`, `ModifiedExoarmour`, `VisionsOfHeresy`. **Sans elle, un runner capturé pendant le
-tour de Calandis n'a AUCUNE instance à armer et la riposte est morte** — et le zéro lu dans
-`decisionView.units[].effects` ne l'aurait pas signalé.
+tour de son porteur** — donc **absent du canal `decisionView` par DÉFAUT** (actifs seuls).
+
+**Il n'est pourtant PAS inscrit à `factory.ABILITY_INIT_OWNER_EFFECTS`, et c'est une décision
+mesurée** (§7ter). Raison courte : sur le canal COMBAT, « la riposte peut partir » ⟺ « l'instance
+est ARMÉE » ⟺ « le canal par défaut la publie ». L'instance INACTIVE, contrairement à celles
+d'`AnvilShield`/`HammerOfWrath` (dont un gate `HasEffect` doit la voir), ne sert à rien.
 
 ## 4. La RIPOSTE
 
@@ -171,23 +174,117 @@ inscrits), `probe_273 --only-scan`, `probe_365`. **Non-régression offline** : 5
 même machine à états —, `test_ability_registry_ratchet`, `test_366_effects_registry_partition`,
 `test_366r1_carrier_active_level`) + 48 tests playbook/prédiction offline.
 
-**NON COUVERT — la confrontation LIVE.** La session Frida (host `:8787`) est restée **injoignable**
-pendant tout ce cas (aucun process `node` ni `Tacticus`) ; ce n'est **pas** une fenêtre DRAIN, c'est
-une plateforme éteinte. Le montage est **écrit et prêt** :
+**Confrontation LIVE** — `probe_366_r1b_wireweave_net.py`, board `MC1_67`, seed 777, crit/block
+neutralisés, `passiveAbilityLevel = 50`, `multiplier = 180` ⇒ bornes RAW **1197-1795** :
 
-* `probe_366_r1b_wireweave_net.py` — replay-diff RNG-seedé, 5 cas (`pos`, `--neg-owner-turn`,
-  `--neg-ranged`, `--two-attackers`, `--lethal`), garde d'ATTRIBUTION incluse ;
-* `tests/engine/runner/test_wireweave_net_counter_live.py` — 5 tests (positif bit-exact des DEUX
-  côtés, attribution, désarmement lu sur `includeInactive`, négatif ranged, fenêtre offline-pure).
+| montage | live | port (même capture, même flux MT) | verdict |
+|---|---|---|---|
+| **`pos`** (orksNob, dist 1, tour ennemi) — riposte sur l'attaquant | `[1272, 1599]` | idem | **MATCH** |
+| — attaque entrante sur Calandis | `[2691, 3446, 3065, 3443]` | idem | **MATCH** |
+| — PV finaux (Calandis / attaquant) | `987354` / `987938` | `987354` / `987938` | **bit-exact** |
+| — CONTRE-ÉPREUVE offline (1111 retiré) | — | Calandis `990858`, attaquant **intact** | le régime MORD |
+| — CONTREFACTUEL de tour (`current_player` = Calandis) | — | identique à la contre-épreuve | la fenêtre FERME |
+| **`--neg-ranged`** (necroWarden, dist 2), filet ARMÉ | riposte `[]` | riposte `[]` | **MATCH** |
+| **`--two-attackers`** — riposte au 1ᵉʳ | `[2343, 2294]` | idem | **MATCH** |
+| — riposte au 2ᵉ, MÊME tour ennemi | `[]` (il frappe pourtant : `[1520]` sur Calandis) | `[]` | **MATCH** |
 
-La garde d'attribution est indispensable ici et le montage la porte : Calandis a le trait
-`Overwatch`, dont l'auto-attaque frappe le MÊME adversaire sur un AUTRE vecteur (le voisin a mesuré
-**4197** de dégât d'overwatch sur un autre board) — « dégât > 0 sur l'attaquant » serait donc VERT
-pour n'importe quel canal. On exige : la classe d'effet portée, **exactement 2** coups, chacun sous
-la borne `maxDmg[passif] × multiplicateur`, plus la contre-épreuve (effet retiré) et le
-contrefactuel de tour.
+Les deux coups de riposte tombent dans **[1197, 1795]** — c'est la **garde d'ATTRIBUTION**, et elle
+est indispensable : Calandis porte AUSSI le trait `Overwatch`, dont l'auto-attaque frappe le MÊME
+adversaire sur un AUTRE vecteur (le voisin a mesuré **4197** de dégât d'overwatch sur un autre
+board). « Dégât > 0 sur l'attaquant » serait donc VERT pour n'importe quel canal. On exige
+cumulativement : la classe d'effet portée, **exactement 2** coups, chacun sous
+`maxDmg[passif] × multiplicateur`, la contre-épreuve et le contrefactuel de tour.
 
-## 8. Ce qui n'est PAS couvert (au-delà du live)
+**⚠ Un CONFONDANT, trouvé par le bras négatif.** Le flag `IsActive` lu APRÈS le coup tombe à `false`
+**aussi dans le cas `--neg-ranged`, où AUCUNE riposte n'a eu lieu** : en 1v1 l'attaque clôt le tour
+ennemi, et `On(0x12) & IsTurnOf(Owner) -> DeactivateEffect` le fait tomber tout seul. Le flag seul ne
+prouve donc RIEN sur le `& DeactivateEffect` du behaviour. D'où le montage `--two-attackers`, où le
+second frappe dans le MÊME tour (`turn_rolled` faux) : c'est le seul qui isole la lecture.
+
+**Gardes** — `tests/engine/runner/test_wireweave_net_counter_live.py`, **6 tests, tous verts** :
+positif bit-exact des deux côtés, attribution, armement pendant le tour ennemi, once-per-turn (avec
+le rejeu OFFLINE du 2ᵉ coup, cf. §7bis), négatif ranged, fenêtre isolée offline.
+
+**MUTATIONS ADVERSARIALES — 11 mutations, 11 ROUGES** (`probe_366_r1b_wireweave_gates.py` comme
+détecteur, sauf M11 qui vise le foyer partagé) :
+
+| mutation | ce qui rougit |
+|---|---|
+| M1 trigger de riposte retiré du registre | `[0]` l'ArraySet natif porte 3 `Triggered()` |
+| M2 repli `NOT IsTurnOf(Owner)` neutralisé | `[3]` la fenêtre ne ferme pas |
+| M3 `IsNormalAttack` → `IsDirectTargetAttack` (l'erreur du voisin) | `[5]` une ACTIVE de mêlée réveille la riposte |
+| M4 `& DeactivateEffect(effect)` retiré | `[1]` l'instance reste armée |
+| M6 `_flag_is_set` toujours vrai | `[2]` la riposte repart le même tour |
+| M7 `IsMeleeAttack` neutralisé | `[4]` riposte à distance |
+| M8 `AreEnemies` neutralisé | `[6]` riposte contre un allié |
+| M9 `On(TurnEnd) -> Activate` retiré | `[0]` registre incomplet |
+| M10 malus DÉCISION rendu sans filet armé | `[9]` |
+| **M11 le correctif de `refresh_stat_modifier_effects` annulé** | **`[2b]` `active après = True`, riposte fantôme de 1508 au 2ᵉ coup** |
+| (M5 — retirer l'entrée de seed — est devenue SANS OBJET : le probe porte désormais le cliquet INVERSE, cf. §7ter) | |
+
+**Cliquets** : `probe_181` (98/98, 0 manquante), `probe_120 --step 0` (98 abilities, 0 littéral
+manquant ; ses 5 étapes du vecteur `On(PreUnitAbility)` restent vertes AVEC les nouveaux triggers),
+`probe_273 --only-scan`, `probe_365`. **Non-régression** : **126** tests offline + **20** tests live
+voisins (`test_fire_and_reposition_reduce_dmg_live` 8/8, `test_martial_superiority_live` 4/4,
+`test_anvil_shield_stun_live` + `test_visions_of_heresy_pierce_live` 8/8).
+
+## 7bis. Le foyer PARTAGÉ qui écrasait `IsActive` — trouvé par le rejeu du 2ᵉ coup
+
+La garde live `once_per_enemy_turn` telle qu'écrite d'abord ne lisait que le NATIF (flag + absence de
+seconde riposte côté jeu). **Mutation M4 appliquée : les 6 tests restaient VERTS.** Un test qui ne
+rougit sous aucune mutation de son propre sujet ne garde rien. En liant le port à la mesure — REJOUER
+le 2ᵉ coup OFFLINE sur le même flux MT et comparer les PV — la garde a immédiatement trouvé une
+**riposte fantôme du port : 2ᵉ attaquant à 997150 offline contre 999999 live**.
+
+Étage : l'étage 1 (1ᵉʳ coup) était bit-exact, donc la divergence naissait ENTRE les deux coups.
+`refresh_stat_modifier_effects` (`runner/operations/refresh_effects.py`), traversé par le pipeline
+d'attaque complet, faisait pour CHAQUE effet non consommé :
+
+    active = bool(e.is_active(ustate))     # `is_active()` de base = True
+    e.active = active                      # <- ECRASE le flag que DeactivateEffect vient de poser
+
+Le natif ne fait pas ça. `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive`, branche
+`refreshType == Normal`, lu verbatim :
+
+    if (effectComponent.<+0x5e>)                    return false;
+    if (!effect.ShouldRefreshForTrigger(trigger))   return effectComponent.<+0x5c>;   // LE FLAG COURANT
+    return effect.ShouldBeActive(entities);                                           // CreateActiveCondition
+
+⇒ **quand la condition n'est pas ré-évaluée, le natif RENVOIE le flag courant.** Le port n'a pas de
+`ShouldRefreshForTrigger`, et sa `is_active()` de base rend `True` : une **valeur par défaut**, pas
+une lecture. L'écrire par-dessus une mesure est exactement l'anti-pattern « inventer au lieu de
+mirrorer ». Le correctif n'écrit le flag que pour les classes dont la condition est RÉELLEMENT
+portée (`active_condition_ported`, le même discriminant qu'`EffectsState.active_effects`, case-322)
+et CONJUGUE sinon. Rayon d'explosion mesuré : 126 offline + 20 live voisins verts.
+
+Le cas est devenu une garde permanente : **étape `[2b]` du probe offline**, qui rejoue les deux coups
+par le **pipeline complet** (`AttackUnitMessage`) et non par le seul vecteur `On(0x2a)` — c'est
+précisément l'écart entre les deux qui cachait le bug.
+
+## 7ter. Le seed d'owner-effect : posé par analogie, RETIRÉ sur mesure
+
+`ABILITY_INIT_OWNER_EFFECTS["WireweaveNet"]` avait été inscrit par analogie avec `AnvilShield` /
+`HammerOfWrath` / `ModifiedExoarmour` / `VisionsOfHeresy` — même profil natif (owner-effect à l'init,
+inactif donc invisible du canal par défaut). **Les deux gardes MÊLÉE du voisin sont passées au ROUGE :
+`live [23633]` contre `port [21840]`.** Attribution faite par mutation (entrée retirée → les deux
+redeviennent vertes), pas par raisonnement.
+
+Cause : `spawn._seed_ability_owner_effects` lit les passives du **KIT gameconfig**
+(`GC.unit(vid).passiveAbilities`), pas de la MESURE. Le montage anti-bruit de case-366-r1
+(`--unit-stat "eldarRanger:PassiveAbilities=[]"`) retire le passif du BC — le port matérialisait
+quand même 1111 et faisait partir une riposte FANTÔME, décalant le flux MT. C'est le **piège #312 /
+#264**, celui-là même que le pendant DÉCISION (`scene._seed_condition_gated_owner_effects`) évite
+avec son `seed_witness_effect`.
+
+Le substrat mesuré existe (`UnitContext.passive_abilities`, tri-état, canal `unitAbilityStates`)
+mais il est seedé par `_load_passive_abilities` **APRÈS** la boucle d'owner-effects de
+`_load_stats_and_effects` : à l'instant du seed il vaut toujours `None`. Le corriger demanderait de
+déplacer cette boucle dans `load_state` — un changement structurel partagé que ce cas ne peut pas
+valider largement. **Décision : ne pas inscrire l'entrée**, parce qu'elle est *inutile* ici (armé ⟺
+publié) autant que nuisible. Le probe porte le **cliquet INVERSE** (étape `[0]` : l'entrée ne doit
+pas revenir), avec la raison en clair à l'emplacement où on l'attendrait dans `factory.py`.
+
+## 8. Ce qui n'est PAS couvert
 
 * **`<DSLTriggers+0x20>`** — conjoint SINGLETON de `CreateTargetTrigger` : classe instanciée
   UNIQUEMENT par `DSLTriggers$$InitializeShared` (2 xrefs, toutes deux là), qui ne reçoit que
@@ -213,7 +310,18 @@ contrefactuel de tour.
   qui utilise `IsEnabledTurnType` au lieu d'`IsTurnOf`) n'est exercée par aucun effet porté.
 * **La face DÉCISION n'est pas confrontée live** : le terme n'est non nul que face à une Calandis
   armée, régime qui n'apparaît que pendant le tour de l'adversaire de Calandis — là où le playbook
-  du porteur ne calcule rien. Il faudrait faire jouer l'IA **du camp d'en face**.
+  du porteur ne calcule rien. Il faudrait faire jouer l'IA **du camp d'en face**. Le port est donc
+  adossé au décompilé + au BC, et gardé par la seule étape `[9]` du probe offline (M10).
+* **Le régime « capture pendant le tour de Calandis, puis franchissement de la frontière de tour »**
+  — sans instance à armer, la riposte ne partirait pas. Résidu assumé, cf. §7ter (rouvrir demande
+  d'abord de faire lire au seed d'owner-effects le substrat MESURÉ).
+* **`--lethal` et `--neg-owner-turn` du probe live** n'ont pas été joués : le premier demande de
+  caler les PV de l'attaquant entre le tir d'Overwatch de l'approche et la magnitude de la riposte,
+  le second est déjà couvert — plus proprement — par le contrefactuel OFFLINE (le live REFUSE
+  l'action d'une unité hors-tour, cf. #133).
+* **`spawn._seed_ability_owner_effects` lit le KIT gameconfig pour TOUTES ses entrées** (pas
+  seulement la mienne) : le piège #312 reste ouvert pour les 15 autres, il n'a simplement pas
+  d'observable connu chez elles. Résidu NOMMÉ, hors périmètre de ce cas.
 
 ## 9. Artefacts
 
@@ -221,7 +329,8 @@ contrefactuel de tour.
 |---|---|
 | classe d'effet | `scripts/python/engine/entities/effects/loki/counter_attack.py` |
 | triggers (riposte + armement) | `scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py` |
-| registres | `scripts/python/engine/entities/effects/factory.py` (`EFFECT_CLASSES`, `ABILITY_INIT_OWNER_EFFECTS`), `.../triggers/dispatch/registry.py` (`EFFECT_TRIGGERS[1111]`) |
+| registres | `scripts/python/engine/entities/effects/factory.py` (`EFFECT_CLASSES` ; et le commentaire qui documente l'entrée `ABILITY_INIT_OWNER_EFFECTS` VOLONTAIREMENT absente), `.../triggers/dispatch/registry.py` (`EFFECT_TRIGGERS[1111]`) |
+| correctif du foyer PARTAGÉ | `scripts/python/engine/runner/operations/refresh_effects.py` (§7bis) |
 | face DÉCISION | `scripts/python/engine/utilities/wireweave_net.py` + `engine/playbook/base.py` (`calculate_action_utility`) |
 | harnais offline | `scripts/python/probe_366_r1b_wireweave_gates.py` |
 | montage live | `scripts/python/probe_366_r1b_wireweave_net.py` |

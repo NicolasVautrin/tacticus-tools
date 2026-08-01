@@ -80,9 +80,14 @@ def _add_unit(state, vid, col, row, team, player, hp=400000):
 
 def _fresh(foe_col=2, foe_row=1, current=P_FOE, foe_team=2, foe_player=P_FOE, foe_vis=FOE):
     """`State` neuf : Calandis (2,2) + un ennemi en (`foe_col`,`foe_row`). `current` = joueur courant
-    (P_FOE = tour ADVERSE = la fenetre d'armement). L'owner-effect 1111 est pose par le MEME chemin
-    que le runner : `_seed_ability_owner_effects` (table `ABILITY_INIT_OWNER_EFFECTS`)."""
-    from engine.runner.operations.spawn import _seed_ability_owner_effects
+    (P_FOE = tour ADVERSE = la fenetre d'armement).
+
+    L'instance 1111 est posee par `_materialize_owner_effect` -- la MEME primitive que
+    `spawn._seed_ability_owner_effects`, mais appelee DIRECTEMENT. C'est fidele au regime reel :
+    l'effet arrive dans l'etat offline par la CAPTURE (`decisionView.effects`), qui publie
+    exactement les effets ARMES ; il n'est PAS inscrit a `ABILITY_INIT_OWNER_EFFECTS` (raison
+    mesuree : cf. le commentaire a la place de l'entree dans `effects/factory.py`)."""
+    from engine.runner.operations.spawn import _materialize_owner_effect
     state = State()
     state.board = _board()
     state.effects = EffectsState.seed({})
@@ -90,7 +95,7 @@ def _fresh(foe_col=2, foe_row=1, current=P_FOE, foe_team=2, foe_player=P_FOE, fo
     state.current_player_id = current
     car = _add_unit(state, CARRIER, 2, 2, team=1, player=P_ME)
     foe = _add_unit(state, foe_vis, foe_col, foe_row, team=foe_team, player=foe_player)
-    _seed_ability_owner_effects(state, car, CARRIER, 100, ability_level=50)
+    _materialize_owner_effect(state, car, "WireweaveNet_CounterAttack", 100, ability_level=50)
     return state, car, foe
 
 
@@ -118,11 +123,15 @@ def main() -> int:
     from engine.entities.effects.loki.counter_attack import WireweaveNetCounterAttackEffect
     from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
     assert EFFECT_CLASSES.get("WireweaveNet_CounterAttack") is WireweaveNetCounterAttackEffect
-    assert ABILITY_INIT_OWNER_EFFECTS.get("WireweaveNet") == ["WireweaveNet_CounterAttack"]
+    # CLIQUET INVERSE : `WireweaveNet` NE DOIT PAS entrer dans `ABILITY_INIT_OWNER_EFFECTS`. Le seed
+    # y lit le KIT gameconfig, pas la MESURE -> il materialisait 1111 sur une Calandis dont le BC
+    # porte `PassiveAbilities: []`, cassant les deux gardes MELEE du voisin (case-366-r1b S7bis).
+    assert "WireweaveNet" not in ABILITY_INIT_OWNER_EFFECTS, (
+        "WireweaveNet re-inscrit a ABILITY_INIT_OWNER_EFFECTS : riposte FANTOME sur un montage "
+        "`--unit-stat eldarRanger:PassiveAbilities=[]` (cf. le commentaire dans effects/factory.py)")
     trig = [c.__name__ for c in EFFECT_TRIGGERS.get(EFFECT, [])]
-    print("[0] EFFECT_CLASSES[1111]=%s ; ABILITY_INIT_OWNER_EFFECTS[WireweaveNet]=%s ; triggers=%s"
-          % (WireweaveNetCounterAttackEffect.__name__,
-             ABILITY_INIT_OWNER_EFFECTS.get("WireweaveNet"), trig))
+    print("[0] EFFECT_CLASSES[1111]=%s ; hors ABILITY_INIT_OWNER_EFFECTS (voulu) ; triggers=%s"
+          % (WireweaveNetCounterAttackEffect.__name__, trig))
     assert len(trig) == 3, "l'ArraySet natif porte 3 Triggered() -- registre incomplet"
     assert (WireweaveNetCounterAttackEffect.TURNS_ENABLED,
             WireweaveNetCounterAttackEffect.ACTIVATION_FREQUENCY) == (1, 2)
@@ -145,6 +154,32 @@ def main() -> int:
     dmg2, out2 = _fire(state, foe, car)
     print("[2] 2e attaque, MEME tour -> degat sur l'attaquant=%s events=%s" % (dmg2, len(out2)))
     assert dmg2 == 0 and not out2, "la riposte est repartie -> le `& DeactivateEffect` ne mord pas"
+
+    # --- 2b. MEME chose, mais par le PIPELINE D'ATTAQUE COMPLET et DEUX attaquants ---------------
+    # C'EST CETTE ETAPE QUI A TROUVE LE BUG (#366-r1b) : `_fire` ci-dessus n'emet que le vecteur
+    # `On(0x2a)`, alors que `AttackUnitMessage` traverse tout le pipeline -- dont
+    # `refresh_stat_modifier_effects`, qui ECRASAIT `EffectComponent.IsActive @+0x5c` avec la valeur
+    # PAR DEFAUT de `is_active()` (True). La riposte se re-armait donc et repartait au coup suivant
+    # du MEME tour ennemi. Le natif, lui, RENVOIE LE FLAG COURANT quand il ne re-evalue pas la
+    # condition (`RefreshEffectsOperation$$ShouldBeActive`, branche `refreshType == Normal`).
+    from engine.runner.messages import AttackUnitMessage
+    from engine.runner.runner import Runner
+    state, car, foe1 = _fresh()
+    foe2 = _add_unit(state, "necroWarden", 1, 2, team=2, player=P_FOE)
+    inst = _inst(state, car)
+    runner = Runner(state).install_default_handlers(20)
+    hp1_0, hp2_0 = _hp(state, foe1), _hp(state, foe2)
+    runner.apply(AttackUnitMessage(foe1, car))
+    d1, act1 = hp1_0 - _hp(state, foe1), inst.active
+    runner.apply(AttackUnitMessage(foe2, car))
+    d2 = hp2_0 - _hp(state, foe2)
+    print("[2b] pipeline COMPLET, 2 attaquants : riposte#1=%s (active apres=%s) ; riposte#2=%s"
+          % (d1, act1, d2))
+    assert d1 > 0, "aucune riposte sur le 1er attaquant via le pipeline complet"
+    assert act1 is False, (
+        "le flag `IsActive` a ete RE-ECRIT par le pipeline (refresh_stat_modifier_effects) apres le "
+        "`& DeactivateEffect` -- c'est le bug #366-r1b")
+    assert d2 == 0, "RIPOSTE FANTOME sur le 2e attaquant du MEME tour ennemi"
 
     # --- 3. CONTREFACTUEL de tour : MEME geometrie, MEME coup, tour du PORTEUR -------------------
     state, car, foe = _fresh(current=P_ME)

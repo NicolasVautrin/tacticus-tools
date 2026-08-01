@@ -335,11 +335,17 @@ def main():
         r["live_hits_on_carrier"] = per.get(car["id"], [])
         r["live_hp"] = {u.get("squadId"): u.get("hp") for u in (res.get("units") or [])}
 
-        # armement APRES le coup : `& DeactivateEffect(effect)` -> le flag doit etre TOMBE
+        # armement APRES le coup. ATTENTION, CONFONDANT MESURE : en 1v1 l'attaque CLOT le tour
+        # ennemi, et `On(0x12) & IsTurnOf(Owner) -> DeactivateEffect` fait tomber le flag AUSSI --
+        # le cas `--neg-ranged` le montre (aucune riposte, flag a `false` quand meme). Le flag seul
+        # ne prouve donc PAS le `& DeactivateEffect(effect)` du behaviour : il faut lire
+        # `current_player_after` (tour INCHANGE = mesure propre) ou passer par `--two-attackers`.
         dvi2 = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True,
                                          "includeInactive": True}, 150)
         row2 = _eff_row(_unit(dvi2, car["id"]), EFFECT)
         r["armed_flag_after"] = None if row2 is None else row2.get("active")
+        r["current_player_after"] = dvi2.get("currentPlayer")
+        r["turn_rolled_over"] = (r["current_player_after"] != r["current_player"])
 
         # --- 5. OFFLINE : replay-diff + contre-epreuve + contrefactuel -------------------------
         r["port"] = offline_play(cap, board, a1["id"], car["id"], watch)
