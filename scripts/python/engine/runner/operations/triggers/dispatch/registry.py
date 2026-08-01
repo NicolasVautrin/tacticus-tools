@@ -102,6 +102,8 @@ from ..loki.shock_assault import (ShockAssaultBuffRemove,                       
                                   SHOCK_ASSAULT_BUFF)
 from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
 from ..loki.harlequins_panoply import (HarlequinsPanoplyIgnoreHitsRemove,  # case-366-r1 (1227)
+                                       HarlequinsPanoplyCustomAbility,     # case-366-r1 move (#406)
+                                       HARLEQUINS_PANOPLY_ABILITY,
                                        HARLEQUINS_PANOPLY_IGNORE_HITS)
 from ..loki.until_of_end_turn import (HatefulAssaultAlreadyAttackedRemove,
                                       HATEFUL_ASSAULT_ALREADY_ATTACKED)
@@ -494,6 +496,28 @@ GLOBAL_TRIGGERS: list[type[TriggeredAbility]] = [
     OnFireDamageAbility,
     OnToxicDamageAbility,
 ]
+
+
+# ---------------------------------------------------------------------------------------------
+# TRIGGERED-ABILITIES DIFFEREES (#406) : `TriggeredAbilityType (int) -> classes portant la branche
+# `triggerType == 0x20 = Custom` de leur `CreateBehaviour`.
+#
+# Ce registre est le mirror de l'etape (2) de `IdunBattle.Operations.
+# TriggerTriggeredAbilityOperation$$TriggerAbility` -- « quelles triggered-abilities de CE type
+# l'entite porte-t-elle » (slot 1 du cache d'abilities). Il n'est JAMAIS consulte par le bus
+# d'events : ses entrees n'ont pas de `CreateTrigger` et ne sont atteintes que par le drain de
+# `state.pending_triggered_abilities` (`dispatch/pending.py`), arme par le noeud DSL
+# `TriggerAbilityDelayed`.
+#
+# ⚠ Une entree ici CHANGE le chemin du noeud `TriggerAbilityDelayed` pour cette ability : elle la
+# fait passer du collapse INLINE herite a la vraie file. Ne l'ajouter qu'apres avoir lu la branche
+# `Custom` du `CreateBehaviour` correspondant.
+CUSTOM_TRIGGERED_ABILITIES: dict[int, list[type[TriggeredAbility]]] = {
+    # 1187 HarlequinsPanoply : `Inform(0xb6) + If(NOT IsAdjacent(Owner, Caster, 3), MoveUnit(...))`
+    # = le deplacement d'UN hex vers l'attaquant, arme par le `TriggerAbilityDelayed(Owner, 1187, 3)`
+    # de la branche `On(0x3c = UnitBlocked)` de la MEME ability. cf. loki/harlequins_panoply.py.
+    HARLEQUINS_PANOPLY_ABILITY: [HarlequinsPanoplyCustomAbility],
+}
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
 # ⚠ La valeur est une LISTE : cote natif, `BaseEffect.CreateHandleTriggerAbilitiesInternal` renvoie un

@@ -135,13 +135,18 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
+from .....entities.behaviours import If, Inform, Seq
 from .....entities.effect_type import EffectType
-from .....entities.selectors import Caster
+from .....entities.selectors import (Actor, Caster, First, MovableTilesInRange, SortByDistance,
+                                     Tiles)
 from .....entities.traits.unit_trait import UnitTrait, has_trait
-from ....components import UnitComponent
-from ....abilities.behaviours import AddEffect, RemoveEffect, entities_from_state
+from .....entities.triggers import IsAdjacent, Not
+from ....components import PositionComponent, UnitComponent
+from ....abilities.behaviours import (AddEffect, MoveUnit, RemoveEffect, TriggerAbilityDelayed,
+                                      entities_from_state)
 from ....state import State
 from ..base import EffectTrigger, TriggerEvent, TriggeredAbility, _unit_trait_names
 
@@ -205,7 +210,8 @@ class HarlequinsPanoplyAbility(TriggeredAbility):
     `$$CreateBehaviour` (cf. l'en-tête de module pour les deux corps LUS).
 
     Le behaviour natif est `AddEffect(1227, targets = Owner) + TriggerAbilityDelayed(Owner, 1187, 3)` ;
-    seul le premier terme est porté (le second arme la branche `Custom` = le déplacement, résidu nommé).
+    depuis #406 les DEUX termes sont portés -- le second ENFILE la branche `Custom` (le déplacement)
+    dans `state.pending_triggered_abilities`, drainée à la clôture du message par `Runner.apply`.
     `options = null` au call-site natif -> durée par DÉFAUT (`duration_rounds=None`), ce qui laisse
     `remaining` à la valeur que `StaticBattleRules.Effect$$DefaultAmountOfRounds` rend pour 1227 : le
     retrait effectif vient du trigger `On(9)` de la classe d'effet, pas d'un timer."""
@@ -234,14 +240,29 @@ class HarlequinsPanoplyAbility(TriggeredAbility):
         # PORTEUR (`AbilityStateReference` = le caster de la triggered = son owner). La feuille
         # `AddEffect` du port lit la source dans `ctx.caster` et la cible via son selecteur -> les
         # deux pointent l'owner.
+        entities = entities_from_state(state, self.owner_id, self.owner_id, actor_id=ev.actor_id)
         AddEffect(HARLEQUINS_PANOPLY_IGNORE_HITS, "HarlequinsPanoply_IgnoreHits", Caster(),
-                  duration_rounds=None).execute(
-            entities_from_state(state, self.owner_id, self.owner_id, actor_id=ev.actor_id), ectx)
+                  duration_rounds=None).execute(entities, ectx)
         placed = any(p.get("placed") for n, p in ectx.emitted if n == "AddEffect")
         if not placed:
             return None
+        # 2e terme de l'`op_Addition` natif : `TriggerAbilityDelayed(Owner@+0x30, 0x4a3 = 1187,
+        # unitSelectionType = 3)`. Il ENFILE (il n'execute pas) : cf. `dispatch/pending.py`. C'est
+        # ce qui fait sortir le deplacement de la resolution de l'attaque -- le natif ne draine sa
+        # file qu'apres le retour de `action()` dans
+        # `IdunBattle.Messages.InputMessageProcessor$$RunPhase`.
+        # ⚠ Le natif l'arme MEME quand l'`AddEffect` n'a rien pose (les deux termes sont des effets
+        # PURS -> `CombinedBehaviour` ne court-circuite pas). Le port le place APRES le gate `placed`
+        # parce que ce gate est aussi celui du re-arme : `matches` refuse deja toute 2e pose tant que
+        # 1227 est la (`NOT HasEffect`) et tout 2e blocage du tour (`NOT HasBlockedThisTurn`), donc
+        # `placed == False` n'est atteignable que sur un `state.effects` absent -- ou enfiler serait
+        # un mouvement sans marqueur. ECART NOMME, inerte sur tout scenario porte.
+        TriggerAbilityDelayed(Caster(), HARLEQUINS_PANOPLY_ABILITY,
+                              unit_selection_type=3).execute(entities, ectx)
         return {"ability": "HarlequinsPanoply", "unit": int(self.owner_id),
                 "effect": HARLEQUINS_PANOPLY_IGNORE_HITS,
+                "queued": any(p.get("queued") for n, p in ectx.emitted
+                              if n == "TriggerAbilityDelayed"),
                 "attacker": (int(ev.actor_id) if ev.actor_id is not None else None)}
 
 
@@ -264,6 +285,93 @@ class HarlequinsPanoplyDiscardHitsAbility(TriggeredAbility):
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         return {"ability": "HarlequinsPanoply_DiscardHits", "unit": int(self.owner_id),
                 "discard": True}
+
+
+class HarlequinsPanoplyCustomAbility(TriggeredAbility):
+    """`HarlequinsPanoplyAbility$$CreateBehaviour`, branche **`triggerType == 0x20 = Custom`** -- le
+    DEPLACEMENT d'un hex vers l'attaquant (#406). MIRROR de l'arbre LU :
+
+        Inform(0xb6, EntityId(Actor@sel+0x40))
+      + If( NOT IsAdjacent(Owner@sel+0x30, Caster@sel+0x48, 3),
+            MoveUnit(Owner@sel+0x30,
+                     First(SortByDistance(MovableTilesInRange(Owner@sel+0x30,
+                                                              MainTileOfUnits(Owner@sel+0x30),
+                                                              <DSLFormulas+0x20>,
+                                                              ignoreFlags: 1,
+                                                              ignoreUnitsOnTiles: 0),
+                                          Caster@sel+0x48),
+                           amount: 1, ignoreForcedTargets: 0),
+                     options) )
+
+    (l'ordre de l'`op_Addition` est bien `Inform` PUIS le `If` : `LAB_181193fde` compose
+    `op_Addition(<Inform>, <If>)`. `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    HarlequinsPanoplyAbility$$GetMoveTile` est le MEME arbre de selecteurs, extrait en helper.)
+
+    CE QUI EST LU, ET COMMENT IL SE TRADUIT
+    ---------------------------------------
+    * **`<DSLFormulas+0x20>` = la constante 1.** `IdunBattleLogic.Entities.DSLFormulas$$.ctor` remplit
+      cinq formules constantes -- `+0x18` = 0, **`+0x20` = 1**, `+0x28` = 2, `+0x30` = 100,
+      `+0x38` = -1. La portee du deplacement est donc `Const(1)` : UN hex, pas la stat Movement.
+    * **`options` du `MoveUnit` = TOUTES au DEFAUT.** La struct de 0x40 octets construite au
+      call-site est a ZERO sauf `+0x10`, qui recoit `DSLTriggers+0x40`. Or
+      `IdunBattleLogic.Entities.DSLTriggers$$.ctor` pose en `+0x40` un trigger CONSTANT (et en
+      `+0x48` sa negation, `op_LogicalNot` du meme). Dans
+      `IdunBattle.Entities.Behaviours.MoveUnitBehaviour$$Execute`, le champ correspondant
+      (`behaviour+0x70`) a pour DEFAUT `1` et son bit part inverse (`^ 0x101`) : poser le trigger
+      TOUJOURS-VRAI y reproduit exactement le defaut. Le `MoveUnit` porte -- qui ne modelise aucune
+      option -- est donc fidele a CE call-site.
+    * **`ignoreFlags = 1`** (contraste avec Waaagh/RammingSpeed, qui passent 0) : la garde d'entree
+      de `IdunBattle.Core.Services.MovementQuery$$FindAnyOrAllMoveableTiles` est levee, donc un
+      porteur qui a DEJA bouge ce tour se replace quand meme. Le port ne modelise pas cette garde
+      (`MovableTilesInRange.ignore_flags` est accepte et non lu) -> le comportement coincide sur
+      `ignoreFlags = 1`, et l'argument est passe pour la tracabilite.
+    * **`MainTileOfUnits(units)`** = le selecteur concret `IdunBattle.Entities.Selectors.
+      UnitsMainTilesSelector`, deja porte sous le nom `Tiles` (`entities/selectors/units.py`).
+    * **`IsAdjacent(a, b, 3)`** : le 3e argument est le mode de selection, inerte pour le predicat
+      par-paire (meme lecture que VigilanceEternal / SkyStrike).
+
+    LE MAPPING DES ROLES (le point ou l'on se trompe)
+    ------------------------------------------------
+    Sur le vecteur `On(0x3c = UnitBlocked)`, l'`AbilityEntities` natif porte `caster = l'ATTAQUANT`
+    et `owner = actor = target = le DEFENSEUR`. Le port construit son contexte par
+    `entities_from_state(state, caster_id = owner, target_id = owner, actor_id = <attaquant>)` --
+    convention deja en place pour la face POSE de ce meme cluster. Donc, cote port :
+    `Caster()` = `Owner@+0x30` natif (le porteur) et `Actor()` = `Caster@+0x48` natif (l'attaquant).
+    `Actor@+0x40` natif vaut le DEFENSEUR sur ce vecteur, mais il n'est lu que par la charge utile
+    de l'`Inform`, que le port DROPPE (pas de bus de messages) -> sans consequence.
+
+    OU CETTE CLASSE EST APPELEE : jamais par le bus d'events -- elle n'a pas de `CreateTrigger`.
+    Elle est inscrite dans `CUSTOM_TRIGGERED_ABILITIES[1187]` et n'est atteinte que par le drain
+    (`operations/triggers/dispatch/pending.py`), lui-meme arme par le `TriggerAbilityDelayed` de la
+    face POSE. `matches` rend donc `True` : le natif ne re-evalue AUCUN trigger sur ce chemin
+    (le declenchement est imperatif) -- la seule condition restante, `NOT IsAdjacent`, est DANS
+    l'arbre, evaluee a l'etat COURANT au moment du drain."""
+    event_id = int(EventTriggerType.Custom)          # 0x20 -- jamais emis par le bus du port
+    TRIGGERED_ABILITY_ID = HARLEQUINS_PANOPLY_ABILITY
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        return True
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, self.owner_id, self.owner_id, actor_id=ev.actor_id)
+        e = state.get_entity(int(self.owner_id))
+        pc = e.get_component(PositionComponent) if e is not None else None
+        before = (pc.col, pc.row) if pc is not None else None
+        Seq(
+            Inform(0xb6),
+            If(Not(IsAdjacent(Caster(), Actor())),
+               MoveUnit(Caster(),
+                        First(SortByDistance(
+                            MovableTilesInRange(Caster(), Tiles(Caster()), Const(1),
+                                                ignore_flags=True, ignore_units_on_tiles=False),
+                            Actor()))))
+        ).execute(entities, ectx)
+        pc = e.get_component(PositionComponent) if e is not None else None
+        after = (pc.col, pc.row) if pc is not None else None
+        return {"ability": "HarlequinsPanoply_Move", "unit": int(self.owner_id),
+                "attacker": (int(ev.actor_id) if ev.actor_id is not None else None),
+                "from": before, "to": after, "moved": bool(before != after)}
 
 
 class HarlequinsPanoplyIgnoreHitsRemove(EffectTrigger):

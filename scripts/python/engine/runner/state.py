@@ -94,7 +94,8 @@ class State:
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
                  "turn_counts", "turn_order_player_count", "triggering_ability",
                  "trigger_ability_type",
-                 "pending_deaths", "draining_deaths", "ability_states_seed")
+                 "pending_deaths", "draining_deaths", "ability_states_seed",
+                 "pending_triggered_abilities", "draining_pending_abilities")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -236,6 +237,38 @@ class State:
         # `HazeOfCorruption`) est traitee par le tour de boucle suivant, jamais AU MILIEU du
         # `KillUnitOperation` en cours -- ni au milieu du behaviour qui l'a causee.
         self.draining_deaths: bool = False
+        # #406 -- la FILE DES TRIGGERED-ABILITIES DIFFEREES. STRICTEMENT le pendant de
+        # `pending_deaths` ci-dessus, un cran plus haut : `IdunBattle.Entities.Behaviours.
+        # TriggerAbilityDelayedBehaviour$$Execute` n'execute RIEN -- il resout son selecteur d'entite
+        # puis appelle, PAR ENTITE, le slot 6 de l'interface du `state`
+        # (`IdunBattle.Core.MatchState$$AddPendingTriggeredAbility(entity, triggeredAbilityType,
+        # entities)`), qui fait un `Queue<T>.Enqueue` sur `MatchState+0x28`.
+        #
+        # La file n'est DRAINEE que par `IdunBattle.Messages.InputMessageProcessor$$
+        # ProcessPendingTriggeredAbilities`, et ses TROIS appelants sont TOUS hors de l'arbre
+        # d'operations : deux dans `IdunBattle.Messages.InputMessageProcessor$$RunPhase`, un dans
+        # `IdunBattle.Messages.InputMessageProcessor$$VerifyTurnEnd`. Dans `RunPhase`, l'ordre LU est
+        #
+        #     action()                       <- l'arbre d'operations du message (l'attaque ENTIERE,
+        #                                       `IdunBattle.Operations.FinishAttackOperation$$Execute`
+        #                                       inclus, donc `On(9)` et `On(10)` deja emis)
+        #     VerifyDeaths ; ProcessDamageEvents
+        #     ProcessPendingTriggeredAbilities   <- DRAIN
+        #     ... puis, si `isInternalPhase == 0`, le bloc de fin de tour (2e drain) et EndPhase
+        #
+        # => une ability differee s'execute APRES la cloture complete de l'attaque, jamais dedans.
+        # C'est CE fait qui rend le deplacement de `HarlequinsPanoply` portable sans faire entrer
+        # `On(PreUnitMove)`/`On(UnitAfterMove)` au milieu de la resolution des coups.
+        #
+        # Chaque entree = `(entity_id, triggered_ability_type, TriggerEvent)` : le natif memorise
+        # l'`AbilityEntities` COMPLET (struct de 0x128 copiee dans la Queue) ; le port memorise le
+        # `TriggerEvent` d'ou il le reconstruit a l'identique au drain.
+        self.pending_triggered_abilities: list = []
+        # Re-entrance du drain, meme forme que `draining_deaths` : le natif SNAPSHOTE la file dans une
+        # `List<T>` puis `Queue.Clear()` AVANT d'iterer, et chaque item tourne dans un
+        # `RunPhase(0xf, ..., isInternalPhase: 1)` qui RE-DRAINE la file. Le traitement est donc par
+        # VAGUES (une ability enfilee pendant le drain part a la vague suivante), pas en FIFO plat.
+        self.draining_pending_abilities: bool = False
         # #363 -- TRACE du canal du seed TERTIAIRE (`snapshot._auto_ability_states`), pose par
         # `load_state` : `{"source": <str>, "seeded": <int|None>}`. `seeded = None` veut dire « le
         # seed n'a PAS tourne », et `source` dit POURQUOI (`refused`, `no-snapshot`, `no-transport`,

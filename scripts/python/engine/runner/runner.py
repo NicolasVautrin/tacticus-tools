@@ -80,5 +80,16 @@ class Runner:
         # ci-dessus est l'AUTRE geste de la meme operation native (`$$ResetEntityPhase`), place en entree
         # (decalage assume #140 : le reset de fin de phase N == celui du debut de phase N+1) -- ce qui
         # laisse l'emission s'executer avec les compteurs de LA phase qui se termine, comme le natif.
+        # #406 : DRAIN DE LA FILE DES TRIGGERED-ABILITIES DIFFEREES, AVANT la cloture de phase.
+        # `IdunBattle.Messages.InputMessageProcessor$$RunPhase` appelle
+        # `$$ProcessPendingTriggeredAbilities` juste apres le retour de `action()` (et apres
+        # `VerifyDeaths` / `ProcessDamageEvents`), donc APRES la totalite de l'arbre d'operations du
+        # message -- `IdunBattle.Operations.FinishAttackOperation$$Execute` et ses `On(9)`/`On(10)`
+        # inclus -- et AVANT `EndPhase`. `apply` etant la borne du message top-level cote port, la
+        # position exacte est ICI, entre les post-handlers et `phase_end_triggers`.
+        # RE + residus (2e drain natif du bloc de fin de tour, `VerifyTurnEnd`) :
+        # `operations/triggers/dispatch/pending.py`.
+        from .operations.triggers.dispatch.pending import process_pending_triggered_abilities
+        process_pending_triggered_abilities(self.state)
         from .operations.triggers.dispatch.phase import phase_end_triggers   # lazy : circular import
         phase_end_triggers(self.state)
