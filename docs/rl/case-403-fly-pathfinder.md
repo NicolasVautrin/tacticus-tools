@@ -72,11 +72,15 @@ et l'arête remise sur `board.walkable` : chaque test exige qu'au moins une mesu
 
 ## 5. Ce qui reste
 
-* **`IsInFogOfWar` n'est pas publié** par le `boardGraph` (le capteur le lit —
-  `match-state.ts` `tileIsInFog: 0x40` — mais ne l'expose pas). L'arête ne porte donc que
-  `!IsWall` : dégradation PERMISSIVE sur la seule TRAVERSÉE, l'ARRIVÉE restant gardée par
-  `board.walkable`, qui inclut le volet fog. Le champ est à ajouter au retour de
-  `ctx.rpc.boardGraph` — **exige un rebuild + reinject**, geste orchestrateur.
+* ~~**`IsInFogOfWar` n'est pas publié** par le `boardGraph`~~ — **PUBLIÉ ET VÉRIFIÉ LIVE le
+  2026-08-01** (fenêtre jouée, commit `ec2f944c`). Le capteur le LISAIT depuis toujours
+  (`match-state.ts` `tileIsInFog: 0x40`, rendu par `projectTile`) ; seul le retour de
+  `ctx.rpc.boardGraph` ne l'exposait pas — une ligne. Mesure sur runner frais : **63 tuiles,
+  63 portent `isInFog`**. L'arête de vol du port peut désormais porter `!IsInFogOfWar &&
+  !IsWall` comme `FlyPathfinder$$IsValidPathNode` ; **tant qu'elle ne le fait pas, la
+  dégradation PERMISSIVE sur la TRAVERSÉE demeure** (l'ARRIVÉE reste gardée par
+  `board.walkable`, qui inclut le volet fog). Le verrou de harnais est levé, le port reste
+  à faire.
 * **`#381-r3` s'affine** : ce n'est pas « quelle vue du voisinage est la bonne » mais
   « la vue dépend du PATHFINDER ». `BasePathfinder$$AddNeighbours` (d__19) itère le
   `ConnectivityComponent` de la tuile ; `FlyPathfinder$$AddNeighbours` (d__7) interroge la requête
