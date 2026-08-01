@@ -81,6 +81,20 @@ def _find(units: dict, visual_id: str):
     raise RuntimeError("unite %r absente du runner" % (visual_id,))
 
 
+def _normal_ability_id(units: dict, uid: int) -> int:
+    """Id de l'ATTAQUE NORMALE CONCRETE de `uid` (`decisionView.units[].abilities[]`,
+    `kind == "normal"`) -- mirror de `rl_duel._normal_ability_map` (TF18).
+
+    #411-r2 : `act ability` SANS `--ability` auto-resolvait depuis `attackPlans`, qui porte une
+    entree PAR ABILITY castable sur la cible, et retenait la DERNIERE -- donc l'ACTIVE du
+    caster. On la NOMME toujours, et on LEVE si le kind normal manque."""
+    u = units.get(int(uid)) or {}
+    for ab in (u.get("abilities") or []):
+        if ab.get("kind") == "normal" and ab.get("id") is not None:
+            return int(ab["id"])
+    raise RuntimeError("pas d'ability kind='normal' sur u%s -- ne pas deviner" % (uid,))
+
+
 def _xy(u):
     p = u.get("pos") or {}
     return (int(p["col"]), int(p["row"]))
@@ -164,6 +178,7 @@ def one_run(pydir: Path, state_file: Path, seed_bc, seed: str, board: str, label
     d_before = hexgeo.distance(apos, dpos1)
     port = _port_replay(s, rid, att, dfd) if replay_port else None
     _run(["rl_duel.py", "act", "ability", "--caster", str(att), "--target", str(dfd),
+          "--ability", str(_normal_ability_id(units1, att)),          # #411-r2 : jamais implicite
           "--state-file", str(state_file)], pydir)
     units2 = _units(s, rid)
     dpos2 = _xy(units2[dfd])

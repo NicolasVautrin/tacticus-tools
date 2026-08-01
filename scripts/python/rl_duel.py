@@ -799,11 +799,48 @@ def cmd_act(sid: int, a) -> int:
     elif a.kind == "ability":
         ability = a.ability
         if ability is None:  # auto-résout depuis le plan (caster→target)
+            # #411-r2 — L'AUTO-RÉSOLUTION NE DEVINE PLUS. `attackPlans` porte UNE entrée par
+            # ABILITY castable sur cette cible (`decisionView` est appelé `allAbilities=True`
+            # par `_decision`) : pour un caster qui a une active ciblable, la liste contient
+            # l'attaque NORMALE **et** l'active. La boucle d'origine n'avait pas de `break` —
+            # elle retenait donc la DERNIÈRE, c'est-à-dire l'ACTIVE, en silence.
+            #
+            # MESURÉ (#411-r2, `probe_411r2_stage_sweep.py`) : sur `necroDestroyer` →
+            # `astraBullgryn`, les evals sont [69 Loki_NormalAttack (normal),
+            # 1006 MultiThreatEliminator (active)]. Les probes qui croyaient confronter
+            # l'attaque normale faisaient donc jouer au natif l'ACTIVE, pendant que leur port
+            # résolvait `AttackDamageOperation.execute`. L'écart qui en résultait se lisait
+            # comme une divergence de port : port 426 / natif 3433, « x8,06 ». Avec
+            # `--ability 69` explicite, le même montage rend 426 / 349 — l'écart n'existe pas.
+            # `MultiThreatEliminator` étant CONFIG-based, son dégât ne bouge pas quand on
+            # change `Damage` de l'attaquant (9/18/36 → natif constant), ce qui rendait le
+            # symptôme d'autant plus déroutant.
+            #
+            # Le même piège était DÉJÀ connu et paré ailleurs : `_normal_ability_map` (TF18)
+            # existe précisément pour ne pas « se fier au défaut (qui peut résoudre vers un
+            # ACTIF) », mais elle ne servait qu'à `play`/`_apply_spec`, pas à `act`.
+            #
+            # On LÈVE au lieu de choisir : rendre un résultat sur une ability arbitraire est
+            # exactement ce qui se lit comme une mesure. Un seul candidat -> comportement
+            # inchangé.
+            cands = []
             for p in (res.get("attackPlans") or []):
                 if p.get("unitId") == a.caster:
                     for ev in (p.get("evals") or []):
-                        if ev.get("targetId") == a.target:
-                            ability = ev.get("abilityId")
+                        if ev.get("targetId") == a.target and ev.get("abilityId") is not None:
+                            if ev["abilityId"] not in [c[0] for c in cands]:
+                                cands.append((ev["abilityId"], ev.get("ability"),
+                                              ev.get("kind")))
+            if len(cands) > 1:
+                normal_id = _normal_ability_map(res).get(a.caster)
+                print(f"[act] AMBIGU : {len(cands)} abilities castables u{a.caster}->"
+                      f"u{a.target} — l'auto-resolution ne choisit PAS. Passe --ability :")
+                for aid, nm, kd in cands:
+                    star = "  <- attaque NORMALE" if aid == normal_id else ""
+                    print(f"         --ability {aid}   {nm} [{kd}]{star}")
+                return 2
+            if cands:
+                ability = cands[0][0]
         if ability is None:
             print(f"[act] pas de plan {a.caster}->{a.target} (hors portée ?), "
                   f"passe --ability (obligatoire pour --to / les actifs)"); return 2
