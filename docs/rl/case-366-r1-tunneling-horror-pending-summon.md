@@ -537,7 +537,7 @@ adjacent hex instead. This fly-in counts as a movement for *Full Throttle*. »
 (`IdunBattle.Entities.Abilities.BaseTriggeredAbility`, `TriggeredAbilityType` 0x475 = 1141) :
 
     $$CreateTrigger  = <DSLTriggers+0x30>                                  # On(0x21 AbilityInit)
-                                                                           #   & <toujours-vrai +0x70>
+                                                                           #   & <conjonct +0x70>
                                                                            #   & get_OwnerIsActor
                      & AmountIsEqual( UnitTurnsStarted(Owner@Sel+0x30),
                                       <DSLFormulas+0x18> = Direct(0) )
@@ -549,8 +549,14 @@ adjacent hex instead. This fly-in counts as a movement for *Full Throttle*. »
                                    turns: Nullable<int>(2) )
 
 `<DSLTriggers+0x30>` est bâti par `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` (lu :
-`On(0x21) & <+0x70> & get_OwnerIsActor`) ; `<DSLFormulas+0x18>` est le `Direct(0)` pré-caché de
-`IdunBattleLogic.Entities.DSLFormulas$$.ctor` (`+0x18→0 · +0x20→1 · +0x28→2 · +0x30→100 · +0x38→-1`).
+`op_BitwiseAnd(op_BitwiseAnd(On(0x21), <+0x70>), get_OwnerIsActor())`) ; `<DSLFormulas+0x18>` est le
+`Direct(0)` pré-caché de `IdunBattleLogic.Entities.DSLFormulas$$.ctor`
+(`+0x18→0 · +0x20→1 · +0x28→2 · +0x30→100 · +0x38→-1`).
+⚠ **`<+0x70>` n'est pas identifié** — une instance d'une classe que le `$$.ctor` de `DSLTriggers`
+alloue trois fois (`+0x40`, `+0x70`, `+0x48 = op_LogicalNot(<la même>)`), sans accesseur nommé dans
+le build. Le port le COLLAPSE, comme il collapse depuis #95 le `df@0x128` homologue de l'ancienne
+`DSLFactory` monolithique (`dispatch/ability.py`) : convention en place pour tout ce vecteur, pas
+une lecture neuve.
 
 **NI `TARGETING_OPTIONS` NI `ABILITY_ATTACK_TYPE`** : une `BaseTriggeredAbility` ne traverse jamais
 `IdunBattle.Operations.ActiveAbilityOperation` et n'a pas de `$$.ctor` de `TargetingOptions`.

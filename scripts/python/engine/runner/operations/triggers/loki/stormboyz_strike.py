@@ -22,17 +22,23 @@ RE (decompile ghidra, build `rnca9r7q6c`)
 `...StormboyzStrike_TeleportAbility$$CreateTrigger` :
 
     <DSLTriggers+0x30>                                          # On(0x21 = AbilityInit)
-                                                                #   & <toujours-vrai @DSLTriggers+0x70>
+                                                                #   & <conjonct @DSLTriggers+0x70>
                                                                 #   & get_OwnerIsActor
   & AmountIsEqual( UnitTurnsStarted(Owner@DSLSelectors+0x30),
                    <DSLFormulas+0x18> = Direct(0) )             # PREMIER tour de l'unite
   & op_LogicalNot( HasFlag(Owner@DSLSelectors+0x30, 0) )        # UnitFlag.Moved
 
 `<DSLTriggers+0x30>` est bati par `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` (LU :
-`On(0x21) & <+0x70> & get_OwnerIsActor`) -- le MEME trigger pre-cache que toute la famille des
-owner-effects poses a l'init (`...LifewardsAddEffectAbility$$CreateTrigger`). `<DSLFormulas+0x18>`
-est le `Direct(0)` pre-cache de `IdunBattleLogic.Entities.DSLFormulas$$.ctor` (`+0x18 -> 0`,
-`+0x20 -> 1`, `+0x28 -> 2`, `+0x30 -> 100`, `+0x38 -> -1`).
+`op_BitwiseAnd(op_BitwiseAnd(On(0x21), <+0x70>), get_OwnerIsActor())`) -- le MEME trigger pre-cache
+que toute la famille des owner-effects poses a l'init
+(`...LifewardsAddEffectAbility$$CreateTrigger`, `...ListenUpMaggotsAbility$$CreateTrigger`).
+⚠ `<+0x70>` n'est PAS identifie : c'est une instance d'une classe que le `$$.ctor` de `DSLTriggers`
+alloue trois fois (`+0x40`, `+0x70`, et `+0x48 = op_LogicalNot(<la meme>)`), sans accesseur nomme
+dans le build. Le port le COLLAPSE, exactement comme il collapse le `df@0x128` homologue de
+l'ancienne `DSLFactory` monolithique depuis #95 (`dispatch/ability.py`) : ce n'est pas une lecture
+neuve, c'est la convention en place pour tout ce vecteur. `<DSLFormulas+0x18>` est le `Direct(0)`
+pre-cache de `IdunBattleLogic.Entities.DSLFormulas$$.ctor` (`+0x18 -> 0`, `+0x20 -> 1`,
+`+0x28 -> 2`, `+0x30 -> 100`, `+0x38 -> -1`).
 
 `...StormboyzStrike_TeleportAbility$$CreateBehaviour` :
 
