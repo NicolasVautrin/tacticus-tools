@@ -21,6 +21,10 @@ Contenu :
   `Spawned@0x180` au lieu de `Target@0x178` -- les deux resolvent au MEME summon, cf. MasterOfTheTutelaries).
   Gate de legalite `IsInTeamSynapseRange` (`IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$GetDynamicInvalidTargetReason`) = ciblage live/RPC,
   HORS ExecuteBehaviour -- ABSENT du port COMBAT (IA sur-permissive, residu documente).
+- `Burrowers` (1023, `tyranSmnRipperSwarm` + 5 `tyranNpc2RipperSwarm*`) -- SELF-CAST : le caster
+  QUITTE le plateau (`RemoveUnitFromItsTiles(Caster, true)`) & `RemoveAllForcedAttackTargets(Caster)`
+  & `AddEffect(0x410 Burrowers_Hidden -> Caster, PERMANENT)`. 2e appelant de la primitive #366-r1 ;
+  tranche 1 du residu `#366-r1-tunnel-family`.
 """
 from __future__ import annotations
 
@@ -29,10 +33,11 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from .base import ActiveAbility, convert_rounds_to_turns
-from .behaviours import entities_from_state, AddEffect, TriggerAbility
+from .behaviours import (entities_from_state, AddEffect, RemoveAllForcedAttackTargets,
+                         RemoveUnitFromItsTiles, TriggerAbility)
 from .targeting import RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
-from ..components import OwnerComponent, StatsComponent
+from ..components import OwnerComponent, StatsComponent, get_unit_feet
 from ...dsl.base import Const
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import If as IfBehaviour, op_add
@@ -482,4 +487,215 @@ class FearOfTheUnseenAbility(ActiveAbility):
                    for t in (p.get("targets") or [])]
         return {"ability": "FearOfTheUnseen", "caster": caster_id, "target": target_id,
                 "effects": posed, "battle_fatigue": fatigue, "self_effect_turns": turns, "dsl": True}
+
+
+# ============== Burrowers (tyranSmnRipperSwarm / tyranNpc2RipperSwarm*, actif 1023) ===============
+#
+# 2e appelant de la primitive `IdunBattle.Operations.RemoveUnitFromTilesOperation$$Execute` (portee
+# par #366-r1 pour `TunnelingHorror` 1011). Les xrefs EXHAUSTIVES de
+# `IdunBattleLogic.Entities.DSLBehaviors$$RemoveUnitFromItsTiles` en donnent QUATRE : 1011, 1023,
+# `...GrapnelLauncherAbility$$ExecuteBehaviour` (1090) et
+# `...StormboyzStrike_TeleportAbility$$CreateBehaviour` (1141). Et celles de
+# `...DSLBehaviors$$RemoveAllForcedAttackTargets` en donnent DEUX -- 1011 et 1023, exactement.
+#
+# ⚠ « JUMEAU EXACT de 1011 » etait l'HYPOTHESE d'entree ; le decompile la REFUTE sur TROIS points,
+# et chacun change le port :
+#
+#   (a) L'ETAGE 3 N'EST PAS UN BOND. 1011 pose `AddBondEffect(0x459, ..., targets: TargetTiles,
+#       bondedEntity: Caster)` -- l'effet vit sur la TUILE visee. 1023 appelle la surcharge SANS
+#       selecteur SOURCE d'`IdunBattleLogic.Entities.DSLBehaviors$$AddEffect` (5 arguments :
+#       `effectType, abilityState, targets, turns`), avec `targets` = le MEME selecteur `<ctx+0x90>
+#       +0x30` que les deux etages precedents -> l'effet `0x410 Burrowers_Hidden` vit sur le CASTER.
+#   (b) LE GATE EST CASTER, PAS CIBLE. 1011 surcharge `GetDynamicInvalidTargetReason` (2 refus) ;
+#       1023 surcharge `GetDynamicInvalidCasterReason` -- une methode DIFFERENTE, armee par un bit
+#       DIFFERENT (`CasterMatchesDynamicRule` 0x4 et non `TargetMatchesDynamicRule` 0x2), qui rend le
+#       litteral **4** et non **2**.
+#   (c) LE MASQUE N'EST PAS DU MEME CTOR. 1011 appelle l'overload FLAGS DIRECTS a 6 arguments
+#       (`rules = 0x8000000001042`, cast TILE-TARGET plateau entier) ;
+#       `IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility$$.ctor` n'appelle AUCUN ctor
+#       de `TargetingOptions` -- il RECOPIE les 0x40 octets du preset statique `+0x280` (cf. la
+#       docstring de `TARGETING_OPTIONS`), donc SELF-CAST portee 0, `rules = 0x8004`.
+#
+# i2 (`Burrowers`) : « This unit may burrow in its turn, disappearing from the battlefield. In its
+# following turn it must surface and may do so in any free hex. If adjacent to an enemy unit, it may
+# attack in melee immediately. »
+#
+# RE complete + mesures live : `docs/rl/case-366-r1-tunneling-horror-pending-summon.md` §5.
+
+BURROWERS_ID = "Burrowers"
+BURROWERS_HIDDEN = int(EffectType.Burrowers_Hidden)      # 0x410 = 1040
+
+
+def burrowers_remove_tree() -> RemoveUnitFromItsTiles:
+    """1er des TROIS `IdunBattle.Entities.Abilities.AActiveAbility$$Execute` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` :
+
+        RemoveUnitFromItsTiles( <selecteur pre-construit du contexte DSL : <ctx+0x90> -> +0x30>,
+                                removeTileFromUnit: true )
+
+    MEME appel, MEME champ de contexte et MEME litteral `true` que le 1er etage de
+    `...TunnelingHorrorAbility$$ExecuteBehaviour`. Le champ `+0x30` n'est pas nomme dans ce corps ;
+    il resout au CASTER -- lecture confirmee par les DEUX autres corps qui le consomment
+    (`...BurrowersAbility_Appear$$ExecuteBehaviour` s'en sert comme sujet de son `Kill` et de son
+    `RemoveEffect(0x410)`, et la mesure live de 1011 rend `RemoveUnitFromTiles e=<caster>`)."""
+    return RemoveUnitFromItsTiles(Caster(), remove_tile_from_unit=True)
+
+
+def burrowers_forced_targets_tree() -> RemoveAllForcedAttackTargets:
+    """2e `Execute` : `RemoveAllForcedAttackTargets(<meme selecteur +0x30>)` = le caster.
+
+    Le porteur reel `tyranSmnRipperSwarm` porte le trait `InstinctiveBehaviour` -- ce 2e etage n'est
+    donc PAS decoratif chez lui (contrairement a 1011, dont la mesure live n'a rien emis : la liste
+    de cibles forcees du greffon etait vide). Observable des que le caster est sous Taunt ou sous
+    `InstinctiveBehaviour` au moment du cast."""
+    return RemoveAllForcedAttackTargets(Caster())
+
+
+def burrowers_hidden_tree() -> AddEffect:
+    """3e `Execute`, lu sur la surcharge SANS SOURCE d'`IdunBattleLogic.Entities.DSLBehaviors$$AddEffect`
+    (`effectType, abilityState, targets, turns`) :
+
+        AddEffect( 0x410, AbilityStateReference, targets: <ctx+0x90 -> +0x30> = Caster, turns: null )
+
+    TROIS lectures, toutes au decompile :
+
+    * `source_from_target=True` -- la factory passe LITTERALEMENT `0` en 5e argument de
+      `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$.ctor` (le selecteur SOURCE). Le fallback
+      natif d'`AddEffectBehaviour$$Execute` est alors « la source EST la cible » (cf. la docstring
+      d'`AddEffect`). Ici cible == caster, donc source == caster : le resultat coincide avec le
+      defaut historique, mais on transcrit la forme NATIVE, pas la coincidence.
+    * `duration_rounds=None` / `duration_turns=None` -- l'argument `turns` est un `Nullable<int>`
+      VIDE (le ctor passe `0`, `HasValue` faux). Pas d'override -> la duree vient de
+      `idun...StaticBattleRules.Effect$$DefaultAmountOfRounds`, dont le switch, RELU en entier, ne
+      connait que {5, 0x11, 0x12, 0x3a, 0x4dc, 0x5c4} -> 2, {0x429, 0x48a} -> 1, {0x4f} -> 3.
+      **0x410 n'y est pas** (branche `0x3a < t < 0x42a`, `t != 0x4f`, `t != 0x429` -> `return 0` =
+      Nullable null) -> `AddEffectOperation` retombe sur `lVar14 = 0` = **PERMANENT**
+      (`remaining = 0`). Le retrait est explicite, par le `RemoveEffect(Owner, Nullable(0x410))` de
+      `...BurrowersAbility_Appear$$ExecuteBehaviour` (1024, hors perimetre).
+    * AUCUNE classe d'effet dediee, et c'est une MESURE, pas un oubli : la table VERSIONNEE
+      `data/symbols/rnca9r7q6c/frida/classes.tsv` ne contient AUCUNE classe `Burrowers*Effect`
+      (13 lignes `Burrower*`, toutes des `Ability`/`Playbook`/`Visuals`). L'effet natif est donc
+      generique -- exactement ce que le port materialise en laissant 1040 hors d'`EFFECT_CLASSES`
+      (`EffectFactory` rend un `BaseEffect` nu). Sa mecanique observable est portee AILLEURS : c'est
+      le `HasEffect(caster, 0x410)` de `...BurrowersAbility_Appear$$GetDynamicInvalidCasterReason`
+      qui la lit, et 1024 n'est pas porte."""
+    return AddEffect(BURROWERS_HIDDEN, EffectType.Burrowers_Hidden.name, Caster(),
+                     duration_rounds=None, source_from_target=True)
+
+
+class BurrowersAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` (id 1023,
+    `tyranSmnRipperSwarm` « Ripper Swarm », namespace natif `Abilities.Active.Loki`). SELF-CAST.
+
+    TROIS `AActiveAbility$$Execute` SUCCESSIFS (le decompile re-copie les 0x148 octets du contexte
+    `entities` AVANT chacun -- meme forme que `TunnelingHorrorAbility`/`WaaaghAbility`), dans cet
+    ordre LOAD-BEARING : le caster quitte le plateau AVANT que l'effet ne soit pose, donc au moment
+    de la pose la cible de l'`AddEffect` est une unite SANS position. Le port re-materialise
+    `entities_from_state` avant chaque etage, comme le natif re-copie son contexte.
+
+      1. `RemoveUnitFromItsTiles(Caster, removeTileFromUnit: true)`
+      2. `RemoveAllForcedAttackTargets(Caster)`
+      3. `AddEffect(0x410 Burrowers_Hidden, AbilityStateReference, targets: Caster, turns: null)`
+
+    Le caster passe a `pos = null` / `alive = true` : il est HORS PLATEAU, **pas mort**.
+    (⚠ `rl_duel` l'affiche « TUE » -- son heuristique lit `hp = null` comme 0 ; faux positif
+    d'AFFICHAGE deja documente en #366-r1.)
+
+    PORTEURS ET VOIE DE CONFRONTATION. `unit_map.py find --ability Burrowers` rend **6** unites :
+    `tyranSmnRipperSwarm` (SUMMON) et cinq `tyranNpc2RipperSwarm*` (NPC). Le summon a bien DEUX
+    invocateurs (`ItItches` et `BarbedOvipositor`, `constants.unitId = tyranSmnRipperSwarm`), mais un
+    summon s'OBSERVE et ne se COMMANDE pas (#291) -- pour CONFRONTER un cast on prend le recours 3 de
+    `docs/rl/case-92-catalog-injection.md` §5bis : GREFFE de 1023 sur des heros DU POOL. Legitime
+    ici, condition VERIFIEE : `gameconfig.ability("Burrowers")` = `{upgrades: null, variables: {}}`
+    (aucune variable, aucune constante) et le behaviour ne lit ni stat, ni trait, ni arme du caster
+    -- il ne lit que les TUILES du caster.
+
+    L'ability 1024 `Burrowers_Appear` (la resurgence) est hors perimetre : arbre nettement plus gros
+    (`Enemies -> AdjacentTiles -> CanAddUnit -> Unique` `Otherwise` `First(SortTilesByUtility(
+    CanAddUnit(...), 7))` puis `PerformAIAbility` / `If(!AmountIsEqualOrGreater, MoveUnit)` /
+    `If(..., Kill)` / `RemoveEffect(0x410)`), AUCUNE config au gameconfig -- RESIDU NOMME.
+
+    Renvoie {ability, caster, removed_from_tiles, posed, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.Burrowers)          # 1023
+    ABILITY_ID = BURROWERS_ID
+
+    # GATE DE CIBLE (#115) -- forme de ctor = **PRESET STATIQUE COPIE**, la 3e des trois (meme forme
+    # que `GetEmRuntzAbility`, MEME preset). `...BurrowersAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor` : il recopie les 0x40 octets du champ
+    # STATIQUE de `TargetingOptions` a l'offset RELATIF +0x280 du bloc `<TargetingOptions class>+0xb8`,
+    # puis `AActiveAbility..ctor(this, &opts, 2)` (3e argument = 2 = AbilityAttackType.Others).
+    # Aucun litteral de masque n'est visible dans le ctor -- le contenu est ecrit par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` (bloc statics+0x280), RELU champ par champ
+    # (offsets de la struct pris sur l'overload FLAGS DIRECTS de `TargetingOptions$$.ctor`) :
+    #     <preset>+0x00 isSelfCasting    = 1
+    #     <preset>+0x08 range            <- `TargetingRange` statics+0x60 = RANGE_SELF
+    #     <preset>+0x20 forceMeleeTarget = 1 = RangedBool.False
+    #     <preset>+0x28 rules            = 0x8004
+    #     <preset>+0x30/+0x38 delegues   = 0 (ecrases par `AActiveAbility$$.ctor`)
+    # Decomposition EXHAUSTIVE de 0x8004 (0x4 + 0x8000, aucun bit residuel) :
+    #     0x4     (bit 2)  CasterMatchesDynamicRule -> regle du volet CASTER, PORTEE ci-dessous.
+    #     0x8000  (bit 15) CasterIsPossibleTarget   -> DECLARATIF (lu par
+    #                      `TargetingOptions$$get_CanTargetCaster`), jamais une regle de refus.
+    # PORTEE : `TargetingRange` statics+0x60 (`TargetingRange$$.cctor` : `+0x60` = 1 -> onlyAdjacent =
+    # `RangedBool.False`, `+0x68` = `Nullable(0)` overrideRange, `+0x70` = null) = `RANGE_SELF` ->
+    # portee **0** : toute cible autre que le caster est refusee sur `TargetIsInRange`.
+    # `isSelfCasting = 1` -> cible == caster : aiguillage `GetCasterNotAddedReason` (non porte -> 0,
+    # permissif documente).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.CasterMatchesDynamicRule | TR.CasterIsPossibleTarget,
+        self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_caster_reason(self, state: "State", caster_id: int) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility$$GetDynamicInvalidCasterReason`
+        -- MIRROR du decompile (la regle-delegue `options+0x30` armee par le bit
+        `CasterMatchesDynamicRule` du masque ci-dessus) :
+
+            if (casterTiles != null && casterTiles.<Count>() != 0) {
+                foreach (t in casterTiles)
+                    if (IdunBattle.Entities.TileExtensions$$IsTemporary(t)) break;   // -> 4
+                else return 0;                                                       // aucune temporaire
+            }
+            return 4;
+
+        Autrement dit DEUX refus, et le litteral rendu est **4** (`CasterMatchesDynamicRule`) -- pas
+        **2** comme chez `GetEmRuntz`/`TunnelingHorror` : ce n'est pas une erreur de transcription, le
+        natif rend ce code tel quel et `GetInvalidCasterReason` le re-emballe par
+        `GenericBrokenTargetingRule(r)`.
+
+        (a) **PORTE, et c'est le refus DISCRIMINANT** : `casterTiles` VIDE => refus. C'est
+        exactement l'etat que le cast lui-meme cree (`RemoveUnitFromItsTiles` -> `feet = []`), donc
+        une unite DEJA enfouie ne peut pas re-creuser -- et c'est ce qui rend le port observable sans
+        hook (cf. la mesure E3). Le port lit `get_unit_feet` = l'equivalent 1:1 de
+        `IdunBattle.Entities.EntityExtensions$$GetTiles` que le natif passe en `casterTiles` sur le
+        chemin `ActiveAbilityOperation$$ExecuteInternal`.
+
+        (b) **RESIDU NOMME, identique a celui de 1011** : `IsTemporary` lit le booleen `@+0x2c` du
+        `TileComponent`, que le port ne materialise PAS cote RUNNER (`state.board` ne porte que la
+        geometrie et `walkable` ; le canal `tileMeta.isTemporary` n'est seede que du cote DECISION,
+        cf. `engine/ai/context.py::is_temporary_by_pos`). Degradation PERMISSIVE, jamais un refus
+        invente. Pour le fermer il faudrait seeder `isTemporary` dans le board du runner."""
+        if state is None or caster_id is None:
+            return 0
+        if not get_unit_feet(state, int(caster_id)):
+            return int(TR.CasterMatchesDynamicRule)          # litteral 4 du decompile
+        # (b) `IsTemporary` : non decidable cote runner -> aucun refus (cf. docstring).
+        return 0
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        # 1) Execute(RemoveUnitFromItsTiles(Caster, true))
+        burrowers_remove_tree().execute(entities_from_state(state, caster_id), ectx)
+        # 2) Execute(RemoveAllForcedAttackTargets(Caster))
+        burrowers_forced_targets_tree().execute(entities_from_state(state, caster_id), ectx)
+        # 3) Execute(AddEffect(0x410, ...)) -- `entities` RE-MATERIALISE : le caster n'a plus de tuile.
+        burrowers_hidden_tree().execute(entities_from_state(state, caster_id), ectx)
+        removed = next((p for n, p in ectx.emitted if n == "RemoveUnitFromItsTiles"), None)
+        posed = [{"target": p["target"], "effect": p["effect_type"], "placed": p.get("placed")}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        forced = [p["removed"] for n, p in ectx.emitted if n == "RemoveAllForcedAttackTargets"]
+        return {"ability": BURROWERS_ID, "caster": caster_id, "target": target_id,
+                "removed_from_tiles": removed, "posed": posed, "forced_targets_removed": forced,
+                "dsl": True}
 

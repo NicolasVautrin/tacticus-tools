@@ -176,9 +176,15 @@ class RemoveUnitFromItsTiles(AbilityBehaviour):
     resolu par le meme `Select(..., 3)`). Emet 'RemoveUnitFromItsTiles' par unite EFFECTIVEMENT
     retiree de ses tuiles. PUR (stop=False).
 
-    CALL-SITE PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$
-    ExecuteBehaviour` (active 1011) -- `RemoveUnitFromItsTiles(Caster, removeTileFromUnit: true)`,
-    1er des trois behaviours."""
+    CALL-SITES NATIFS -- xrefs EXHAUSTIVES de `IdunBattleLogic.Entities.DSLBehaviors$$
+    RemoveUnitFromItsTiles` (build `rnca9r7q6c`), QUATRE, tous avec `removeTileFromUnit: true` :
+      * `...Abilities.Active.Loki.TunnelingHorrorAbility$$ExecuteBehaviour` (active 1011) -- PORTE ;
+      * `...Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` (active 1023) -- PORTE ;
+      * `...Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` (active 1090) -- NON
+        porte (face DECISION seule, `playbook/noncomparable/grapnel_launcher.py`) ;
+      * `...Abilities.Triggered.Loki.StormboyzStrike_TeleportAbility$$CreateBehaviour` (1141) -- NON
+        porte.
+    Dans les deux cas portes c'est le 1er des trois behaviours."""
     __slots__ = ("units_sel", "remove_tile_from_unit")
 
     def __init__(self, units_sel: TargetsSelector, remove_tile_from_unit: bool = True):
@@ -217,13 +223,17 @@ class RemoveAllForcedAttackTargets(AbilityBehaviour):
     Le port ne modelise pas le second selecteur : il VIDE la liste de l'attaquant. Les deux
     coincident tant que le selecteur `+0x20` couvre toutes les cibles forcees possibles, ce qui est
     la lecture du nom de la factory (`RemoveALLForcedAttackTargets`) -- ECART NOMME si un jour un
-    call-site s'appuyait sur un sous-ensemble. Il n'y en a qu'UN dans ce build :
-    `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$ExecuteBehaviour`
-    (2e des trois behaviours), ou l'attaquant est le caster qui vient de quitter le plateau.
+    call-site s'appuyait sur un sous-ensemble. Il y en a exactement DEUX dans ce build (xrefs
+    EXHAUSTIVES de `...DSLBehaviors$$RemoveAllForcedAttackTargets`), et les DEUX sont portes :
+    `...Abilities.Active.Loki.TunnelingHorrorAbility$$ExecuteBehaviour` (1011) et
+    `...Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` (1023) -- 2e des trois behaviours
+    dans les deux cas, ou l'attaquant est le caster qui vient de quitter le plateau.
 
     OBSERVABLE MESURE (#366-r1, cast de 1011) : ce behaviour n'a emis AUCUN event -- la liste du
     caster etait VIDE. La feuille est donc portee pour la STRUCTURE de l'arbre ; sa mutation ne
-    devient observable que si le caster est sous un Taunt / `InstinctiveBehaviour` au moment du cast.
+    devient observable que si le caster est sous un Taunt / `InstinctiveBehaviour` au moment du cast
+    (ce que porte, lui, le porteur reel de 1023 : `tyranSmnRipperSwarm` a le trait
+    `InstinctiveBehaviour`).
     Emet 'RemoveAllForcedAttackTargets' seulement si au moins une cible a ete retiree. PUR."""
     __slots__ = ("attacker_sel",)
 
