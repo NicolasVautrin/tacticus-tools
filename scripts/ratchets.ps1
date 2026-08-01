@@ -137,7 +137,7 @@ $Ratchets = @(
        Seul = 'un ordinal StepType/GroupType fige en dur, y compris derriere un ALIAS (`step = ev.get("step")` puis `step == 13`) ou une CLE de dict, et la table de labels POSITIONNELLE du frontend -- GroupType (104 membres) n est couvert par aucune etape de probe_283'
        Doc  = 'docs/rl/case-254b-b-ordinaux-en-dur.md' }
 
-    @{ Id = 'probe_443'; Argv = @('probe_443_ordinal_index_perime.py')
+    @{ Id = 'probe_443r1c'; Argv = @('probe_443r1c_ordinal_index_perime.py')
        Seul = 'un INDICE litteral (cle de dict/liste) qui vaut l ordinal ARCHIVE d un membre cite sur sa ligne, dans les DEUX angles morts de probe_283 : l acces par ACCESSEUR (.get/.pop/.setdefault -- son etape exec ne visite que Subscript) et le membre AMBIGU (son etape prose l ecarte quand la ligne ne nomme pas l enum, 4bis inconditionnellement). Mesure #443-r1c : le commentaire fautif s AUTO-ATTESTAIT A MOITIE -- sa moitie juste (10=TileEffects) entrait dans les ~1200 citations justes de l etape 4 pendant que sa moitie fausse (8=Elevation, ambigu dans 3 enums) restait invisible'
        Doc  = 'docs/rl/case-443-r1c-indices-perimes.md' }
 

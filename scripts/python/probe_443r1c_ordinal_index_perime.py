@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Probe #443 -- un INDICE litteral qui vaut l'ordinal ARCHIVE d'un membre cite sur sa ligne.
+"""Probe #443-r1c -- un INDICE litteral qui vaut l'ordinal ARCHIVE d'un membre cite sur sa ligne.
 
 POURQUOI CE CLIQUET EXISTE
 --------------------------
@@ -64,7 +64,7 @@ qui a cesse de mordre rend vert sur un depot fautif -- vice trouve TROIS fois da
 etape-ci garde << rougit sur SON gisement >>, qui en est le residu declare (`#439-r1`).
 
 ASCII only (console Windows cp1252).
-Usage: python probe_443_ordinal_index_perime.py [-v]
+Usage: python probe_443r1c_ordinal_index_perime.py [-v]
 Code de sortie = nombre de rouges (auto-test compris).
 """
 from __future__ import annotations
@@ -237,7 +237,7 @@ def _auto_test(cur_par_nom: dict, arch_par_nom: dict, verbose: bool) -> list:
         if faux:
             echecs.append("l'echantillon %s rougit a tort : %s"
                           % (nom, [(h[1], h[4], h[5]) for h in faux]))
-    print("[443] etape 0 : auto-test du detecteur -- %d rouge(s) attendu(s) sur l'echantillon "
+    print("[443-r1c] etape 0 : auto-test du detecteur -- %d rouge(s) attendu(s) sur l'echantillon "
           "fautif, %d obtenu(s) ; %d echec(s)" % (2, len(fautif), len(echecs)))
     if verbose:
         for h in fautif:
@@ -257,12 +257,12 @@ def main(argv=None) -> int:
     if not prev:
         # Pas d'archive = rien a comparer. On le DIT : un « 0 rouge » muet se lirait comme une
         # mesure alors qu'aucune n'a eu lieu.
-        print("[443] AUCUN build archive a cote de %s -- le critere (ordinal ARCHIVE) est "
+        print("[443-r1c] AUCUN build archive a cote de %s -- le critere (ordinal ARCHIVE) est "
               "indefinissable. Rien MESURE, et ce n'est pas un vert." % cur)
         return 1
     cur_par_nom = _index_par_nom(cur)
     arch_par_nom = _index_par_nom(prev)
-    print("[443] builds : archive=%s -> courant=%s" % (prev, cur))
+    print("[443-r1c] builds : archive=%s -> courant=%s" % (prev, cur))
 
     echecs = _auto_test(cur_par_nom, arch_par_nom, args.verbose)
 
@@ -284,17 +284,17 @@ def main(argv=None) -> int:
         rouges += r
         indices += n
 
-    print("[443] etape 1 : %d fichier(s) lu(s), %d retenu(s) par le pre-filtre (citent un membre "
+    print("[443-r1c] etape 1 : %d fichier(s) lu(s), %d retenu(s) par le pre-filtre (citent un membre "
           "decale), %d indice(s) litteral(aux) chez eux ([] / %s) -- %d PERIME(S)"
           % (lus, retenus, indices, "/".join("." + a for a in ACCESSEURS), len(rouges)))
     for rel, ln, forme, recep, v, membre, fq, o_cur in rouges:
         print("   PERIME %s:%d  %s%s[%s] ; la ligne cite %s, qui valait %s sur %s et vaut %s "
               "sur %s" % (rel, ln, recep or "?", forme, v, membre, v, prev, o_cur, cur))
     if not rouges and not echecs:
-        print("[443] aucun indice litteral ne porte l'ordinal archive d'un membre cite sur sa "
+        print("[443-r1c] aucun indice litteral ne porte l'ordinal archive d'un membre cite sur sa "
               "ligne. RESIDU ASSUME : un indice SANS citation en prose reste invisible.")
     n = len(rouges) + len(echecs)
-    print("[443] VERDICT: %s" % ("PASS" if n == 0 else "FAIL (%d)" % n))
+    print("[443-r1c] VERDICT: %s" % ("PASS" if n == 0 else "FAIL (%d)" % n))
     return n
 
 
