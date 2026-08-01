@@ -59,6 +59,33 @@ def turn_start_other_triggers(state: State, player_id: int) -> list[dict]:
     return evaluate_trigger_operation(state, ev)
 
 
+def unit_finished_turn_triggers(state: State, unit_id: int) -> list[dict]:
+    """Vecteur `On(0x28 = UnitFinishedTurn = 40)` -- le DEUXIEME des trois evenements que
+    `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` publie (#354) :
+
+        if (flags.Add(0x01 = ArrivedAtFinalTile) && !isTerminated)  publish On(0x1c)
+        if (flags.Add(0x03 = TurnFinished)) {
+            publish On(0x28 = UnitFinishedTurn)                <- CE vecteur
+            if (!isTerminated) publish On(0x29 = UnitFinishedTurnNormally)
+        }
+
+    Son gate est le SEUL « le flag TurnFinished vient d'etre POSE » -- contrairement a `On(0x29)`,
+    il est emis MEME sur une terminaison FORCEE (`isTerminated`). Le gate vit chez l'appelant
+    (`operations/turnflow.py`), comme pour ses deux voisins. `actor` = `target` = l'unite qui clot.
+
+    Consommateur porte (#448-r2) : le 3e trigger d'`IdunBattle.Entities.Effects.Loki.
+    ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` -- `On(0x28) & OwnerIsActor &
+    HasTile(Owner)` -> `RemoveEffect(EffectSelf)`, i.e. l'ATTERRISSAGE d'une unite deep-strike qui
+    finit son tour sans avoir ni bouge ni caste. Ce vecteur etait un RESIDU NOMME jusqu'ici (« le
+    jour ou une ability l'ecoute, elle s'ajoute ICI, pas dans un fork ») : c'est ce jour-la.
+
+    Le canal `TriggeringAbility` est VIDE sur cet evenement, comme sur `On(0x29)` -- meme site
+    d'emission, meme `Nullable<AbilityOrEffect>` a zero."""
+    ev = TriggerEvent(EventTriggerType.UnitFinishedTurn, int(unit_id), int(unit_id),
+                      ranged=False, profile=None)
+    return evaluate_trigger_operation(state, ev)
+
+
 def unit_finished_turn_normally_triggers(state: State, unit_id: int) -> list[dict]:
     """Vecteur `On(0x29 = UnitFinishedTurnNormally = 41)` — le TROISIEME et dernier evenement que
     `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` publie, dans cet ordre (decompile relu,
@@ -75,8 +102,8 @@ def unit_finished_turn_normally_triggers(state: State, unit_id: int) -> list[dic
     exactement comme le gate d'`arrived_at_final_tile_triggers`. `actor` = `target` = l'unite qui
     clot (le natif passe `unit` dans les TROIS slots de l'`AbilityEntities`).
 
-    ⚠ `On(0x28 = UnitFinishedTurn)` n'est PAS emis par le port : aucun consommateur porte. Residu
-    NOMME -- le jour ou une ability l'ecoute, elle s'ajoute ICI, pas dans un fork.
+    `On(0x28 = UnitFinishedTurn)` a son propre vecteur juste au-dessus (#448-r2) -- il precede
+    celui-ci et n'a pas le gate `!isTerminated`.
 
     Consommateur : `MyWillBeDoneOverlordAttackAbility` (passif `necroOverlord` : un allie adjacent
     attaque quand l'Overlord clot son activation). No-op si personne n'ecoute.

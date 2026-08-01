@@ -110,6 +110,19 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
     "GhostRemoveOnSourceRemoved":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #448-r2 -- les QUATRE `Triggered()` d'`ATeleportingEffect` + le trigger UNIQUE de son effet
+    # compagnon. Tous rail ARRAYSET : ils viennent de `CreateHandleTriggerAbilitiesInternal`, donc
+    # AUCUN gate `IsActive` natif -> ils ne doivent PAS lire le flag.
+    "TeleportStrikeTeleportingInRemoveOnAfterMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TeleportStrikeTeleportingInRemoveOnPreUnitAbility":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TeleportStrikeTeleportingInAddMovingOnPreMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "TeleportStrikeMovingRemoveOnAfterMove":
+        (ARRAYSET, "IdunBattleLogic.Effects.TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal"),
 }
 
 # Classes du rail ARRAYSET qui lisent QUAND MEME le flag -- non par gate d'evaluation, mais

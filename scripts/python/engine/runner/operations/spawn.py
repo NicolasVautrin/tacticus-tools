@@ -679,18 +679,19 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
             if _materialize_owner_effect(state, unit_id, name, mult, ability_level=ability_level)]
 
 
-def land_deep_strike(state: State, unit_id: int) -> Optional[dict]:
-    """ATTERRISSAGE d'une unite TeleportStrike (deep-strike). Ground truth live (probe ds_landing) : a la FIN
-    du 1er tour de son proprietaire, l'unite passe de « teleporting-in » (effet 1035, non-ciblable, passives
-    NON initialisees) a « posee » -> TeleportStrike_TeleportingIn RETIRE + `InitializeActorAbilities` (init des
-    passives deferrees = owner-effects des abilities+traits, ex. aura `PathOfCommand_ExtraDmg`) -> ciblable +
-    auras projettent. No-op si l'unite n'est pas teleporting-in."""
-    if state.effects is None or not state.effects.has_effect(
-            unit_id, effect_type=TELEPORT_STRIKE_TELEPORTING_IN):
-        return None
-    for e in state.effects.by_unit.get(int(unit_id), []):     # retire TeleportingIn (consomme l'instance)
-        if not e.consumed and e.effect_type == TELEPORT_STRIKE_TELEPORTING_IN:
-            e.consumed = True
+def initialize_deferred_actor_abilities(state: State, unit_id: int) -> list:
+    """Le volet PASSIVES DEFERREES de l'atterrissage : `IdunBattle.Operations.
+    InitializeActorAbilitiesOperation$$Execute` rejoue pour une unite qui vient de perdre son etat
+    « je descends du ciel » -- owner-effects des abilities et des traits (ex. aura
+    `PathOfCommand_ExtraDmg` d'`eldarAutarch`), puis refresh des stat-mods projetes.
+
+    SEPARE de `land_deep_strike` depuis #448-r2 : le RETRAIT de l'effet est desormais un noeud DSL
+    (`RemoveEffect(EffectSelf)`) porte par les triggers PROPRES d'`ATeleportingEffect`
+    (`runner/operations/triggers/loki/teleporting_in.py`) ; ce qui reste ici est la couche
+    IMPERATIVE que le natif enchaine derriere. GROUND TRUTH LIVE de l'enchainement (2026-08-01,
+    cascade d'un `act move` sur `eldarAutarch`) : dans le MEME `User_MoveUnit`, apres
+    `ChangePosition`, on lit `LoseEffect TeleportStrike_TeleportingIn` PUIS
+    `ActivateEffect PathOfCommand_ExtraDmg` + `ChangeStats <allie> Attack_Modification=400`."""
     ent = state.get_entity(unit_id)
     uc = ent.get_component(UnitComponent) if ent is not None else None
     sc = ent.get_component(StatsComponent) if ent is not None else None
@@ -712,7 +713,30 @@ def land_deep_strike(state: State, unit_id: int) -> Optional[dict]:
         # `create_aura_*` du jumeau ATTACK, lui, est un canal de LECTURE, donc il ne le voyait pas.
         from .aura_stat_mods import refresh_aura_stat_modifiers
         refresh_aura_stat_modifiers(state)
-    return {"landed": unit_id, "owner_effects_added": added}
+    return added
+
+
+def land_deep_strike(state: State, unit_id: int) -> Optional[dict]:
+    """ATTERRISSAGE d'une unite TeleportStrike (deep-strike), forme IMPERATIVE COMPLETE (retrait de
+    l'effet + passives deferrees). Ground truth live : l'unite passe de « teleporting-in » (effet
+    1035, non-ciblable, passives NON initialisees) a « posee » -> TeleportStrike_TeleportingIn
+    RETIRE + `InitializeActorAbilities` -> ciblable + auras projettent. No-op si l'unite n'est pas
+    teleporting-in.
+
+    ⚠ CE N'EST PLUS LE CHEMIN DE PRODUCTION (#448-r2). Le QUAND est desormais porte par les trois
+    triggers de retrait d'`IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$
+    CreateHandleTriggerAbilitiesInternal` (`On(4 UnitAfterMove)`, `On(0x2a PreUnitAbility)`,
+    `On(0x28 UnitFinishedTurn) & HasTile`), pas par une boucle d'`EndTurnOperation`. La fonction
+    reste comme forme imperative utilisable par un test/probe qui veut FORCER l'atterrissage sans
+    passer par un vecteur d'evenement."""
+    if state.effects is None or not state.effects.has_effect(
+            unit_id, effect_type=TELEPORT_STRIKE_TELEPORTING_IN):
+        return None
+    for e in state.effects.by_unit.get(int(unit_id), []):     # retire TeleportingIn (consomme l'instance)
+        if not e.consumed and e.effect_type == TELEPORT_STRIKE_TELEPORTING_IN:
+            e.consumed = True
+    return {"landed": unit_id,
+            "owner_effects_added": initialize_deferred_actor_abilities(state, unit_id)}
 
 
 class SpawnUnitOperation:

@@ -108,8 +108,13 @@ class FinishUnitTurnOperation:
         # `Add(TurnFinished=3)` nouvellement pose -> le natif publie `On(0x28 = UnitFinishedTurn)`
         # PUIS, si `!isTerminated`, `On(0x29 = UnitFinishedTurnNormally)`. Les DEUX gates sont ceux du
         # decompile (#354) ; l'ordre relatif a `On(0x1c)` (au-dessus) est celui du natif.
-        # `On(0x28)` reste NON EMIS (aucun consommateur porte -- residu nomme, cf. le vecteur).
+        # `On(0x28)` est EMIS depuis #448-r2 (consommateur : le 3e trigger d'`ATeleportingEffect` =
+        # l'atterrissage deep-strike d'une unite qui clot son tour sans avoir agi) -- et il l'est
+        # MEME sur `forced`, seul `On(0x29)` portant le gate `!isTerminated`.
         # Consommateur de `On(0x29)` : `MyWillBeDoneOverlordAttackAbility` (passif `necroOverlord`).
+        if newly_finished:
+            from .triggers import unit_finished_turn_triggers
+            out["finished_triggers"] = unit_finished_turn_triggers(state, int(unit_id))
         if newly_finished and not forced:
             from .triggers import unit_finished_turn_normally_triggers
             out["finished_normally_triggers"] = unit_finished_turn_normally_triggers(
@@ -405,20 +410,38 @@ class EndTurnOperation:
             oc = e.get_component(OwnerComponent)
             reset_tiles_moved_this_turn(state, int(uid),
                                         was_own_turn=(oc is not None and oc.player == finishing))
-        # DEEP-STRIKE LANDING : les unites TeleportStrike du joueur FINISSANT atterrissent a la fin de leur
-        # 1er tour (ground truth live ds_landing : discret, PAS un tick de duree) -> retire TeleportingIn +
-        # init des passives deferrees (aura PathOfCommand). Mirror natif : landing = InitializeActorAbilities.
-        # Pas de site natif dans `Execute` -> position OFFLINE, entre les boucliers et le vecteur `On(0x17)`.
-        # Elle est desormais AVANT le tick d'effets, et c'est ce qu'il faut : le gate de ce foyer est
-        # `has_effect(TeleportStrike_TeleportingIn)`, qui ne voit PAS une instance `consumed`.
-        from .spawn import land_deep_strike
+        # (3) `FinishUnitTurn(unit, isTerminated: false)` PAR UNITE POSSEDEE -- le natif le fait bien
+        # ici : `IdunBattle.Operations.EndTurnOperation$$Execute` itere
+        # `PlayerComponent.CurrentlyOwnedUnitIds` et appelle le slot 0x23 de `Core.Services.
+        # OperationProcessor` avec `(unit, false)`. Que ce slot SOIT `FinishUnitTurn` est PROUVE et non
+        # suppose : `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution`
+        # appelle le MEME slot 0x23 de la MEME classe avec `(caster, false)`, et c'est deja ce que le
+        # port nomme `FinishUnitTurn` (cf. `add_flags_after_ability_execution`).
+        #
+        # PORTEE PARTIELLE, et c'est DIT : le port n'emet d'ici que la jambe `On(0x28 =
+        # UnitFinishedTurn)` de cet appel, sous son gate natif (« le flag TurnFinished vient d'etre
+        # POSE »). Les deux autres jambes (`On(0x1c = ArrivedAtFinalTile)` et `On(0x29 =
+        # UnitFinishedTurnNormally)`) restent NON EMISES depuis ce site : les cabler ferait firer
+        # `SpiritualLeaderAbility`/`ArcaneShieldAbility`/`MyWillBeDoneOverlordAttackAbility` pour
+        # toute unite n'ayant PAS agi du tour -- un rayon de souffle hors de la tranche #448-r2.
+        # RESIDU NOMME. (Le flag lui-meme n'est pas pose non plus : meme raison.)
+        #
+        # CE QUE CA REMPLACE : la boucle bespoke `land_deep_strike` d'avant #448-r2, qui faisait
+        # atterrir ICI toutes les unites deep-strike du joueur finissant. Le retrait de
+        # `TeleportStrike_TeleportingIn` est desormais porte par les TROIS triggers natifs de
+        # l'effet (`On(4)`, `On(0x2a)`, `On(0x28)`) -- mesure live : le natif retire l'effet DES LE
+        # MOUVEMENT ou DES LE CAST, pas en fin de tour. Ce site-ci ne couvre donc plus que le cas
+        # « l'unite n'a rien fait de son tour », qui est exactement ce que le natif couvre ici.
+        from .triggers import unit_finished_turn_triggers
         landed: list[dict] = []
         for uid, e in state.entities.items():
             oc = e.get_component(OwnerComponent)
-            if oc is not None and oc.player == finishing:
-                r = land_deep_strike(state, uid)
-                if r is not None:
-                    landed.append(r)
+            if oc is None or oc.player != finishing:
+                continue
+            fl = e.get_component(UnitFlagsComponent)
+            if fl is not None and fl.has(UnitFlagsComponent.TURN_FINISHED):
+                continue                       # `flags.Add(TurnFinished)` rend FAUX -> aucune publication
+            landed += unit_finished_turn_triggers(state, int(uid))
         # (4) vecteur `On(0x17 = TurnEnd)` — DEUX consommateurs portes (inventaire re-derive du registre
         # par `probe_n8b_turnend_consumers.py`) : le dispatch generique `ABILITY_TRIGGERS`
         # (`RadSaturationAbility`, branche `NOT HasFlag(owner, Moved)`) et le bespoke

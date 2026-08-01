@@ -201,19 +201,32 @@ def test_pilein_gate_verdict_unchanged_by_the_reordering(turns_finished, expecte
 
 
 def test_deep_strike_landing_is_not_cancelled_by_the_tick():
-    """`land_deep_strike` gate sur `has_effect(TeleportStrike_TeleportingIn)`, qui ne voit PAS une
-    instance `consumed`. Il est desormais AVANT le tick : une instance a duree ne peut donc plus
-    faire disparaitre l'atterrissage au tour meme. Avec l'ordre d'avant, le tick l'aurait consommee
-    et le landing aurait ete un no-op silencieux (passives deferrees jamais initialisees)."""
+    """L'ORDRE que ce test protege est INCHANGE : l'atterrissage deep-strike doit passer AVANT le
+    tick de duree. Sinon le tick consommerait l'instance de `TeleportStrike_TeleportingIn` et
+    l'atterrissage serait un no-op silencieux (passives deferrees jamais initialisees).
+
+    ⚠ #448-r2 en a change le VEHICULE, pas l'ordre : `EndTurnOperation` n'appelle plus une boucle
+    bespoke `land_deep_strike` mais emet la jambe `On(0x28 = UnitFinishedTurn)` du
+    `FinishUnitTurn(unit, false)` que le natif fait ICI, par unite possedee -- et c'est le 3e
+    trigger d'`ATeleportingEffect` (`On(0x28) & OwnerIsActor & HasTile(Owner)`) qui retire l'effet.
+    Deux consequences sur le MONTAGE, toutes deux natives :
+      * le porteur doit AVOIR UNE TUILE (`HasTile(Owner)`) -> on lui pose une `PositionComponent` ;
+      * le payload de `res["landed"]` est desormais celui du trigger, pas celui de
+        `land_deep_strike`."""
+    from engine.runner.components import PositionComponent
     from engine.runner.operations.spawn import TELEPORT_STRIKE_TELEPORTING_IN
     r = ProbeRng(4242)
     st = _witness_state(r, turns_finished=0)
+    st.get_entity(200).add_component(PositionComponent(0, 0))   # `HasTile(Owner)` du gate natif
     st.effects.by_unit[200] = [BaseEffect(name="TeleportStrike_TeleportingIn",
                                           effect_type=TELEPORT_STRIKE_TELEPORTING_IN,
                                           remaining_turns=1, target=200)]
     res = EndTurnOperation.execute(st, advance=False)
-    assert [x for x in (res.get("landed") or []) if x.get("landed") == 200], \
+    assert [x for x in (res.get("landed") or [])
+            if x.get("owner") == 200 and x.get("effect") == TELEPORT_STRIKE_TELEPORTING_IN], \
         "l'atterrissage deep-strike n'a pas eu lieu : le tick l'a precede (%s)" % (res.get("landed"),)
+    assert not [e for e in st.effects.by_unit.get(200, [])
+                if not e.consumed and e.effect_type == TELEPORT_STRIKE_TELEPORTING_IN]
 
 
 # ------------------------------------------------------- (4) LIVE : la replique existe avant le tick

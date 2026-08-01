@@ -122,11 +122,25 @@ Imperial, inchange.)
   `ability_targets_offline` (enemy/ally) + des plans d'attaque (`tgt_enemies`). `enemies` reste
   complet pour le POSITIONNEMENT (l'unite occupe le board). (Portee NARROW = deep-strike ; les
   autres sources d'untargetable = flag natif via hooks, non porte -> follow-up.)
-- **Landing** (`turnflow.EndTurnOperation`) : les unites TeleportStrike du joueur FINISSANT
-  atterrissent -> `spawn.land_deep_strike(state,uid)` : consomme `TeleportStrike_TeleportingIn`
-  + `InitializeActorAbilities` (owner-effects des abilities+traits = init des passives deferrees :
-  `_seed_ability_owner_effects` via `ABILITY_INIT_OWNER_EFFECTS["PathOfCommand"]=["PathOfCommand_ExtraDmg"]`
-  + `_seed_trait_owner_effects` + derived). -> ciblable + aura projette.
+- **Landing** — depuis **#448-r2** ce n'est plus une boucle bespoke d'`EndTurnOperation` mais les
+  TROIS triggers de RETRAIT d'`IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$
+  CreateHandleTriggerAbilitiesInternal`, inscrits a `EFFECT_TRIGGERS[1035]` :
+  `On(4 UnitAfterMove)`, `On(0x2a PreUnitAbility)`, `On(0x28 UnitFinishedTurn) & HasTile(Owner)`.
+  **MESURE LIVE** : le natif retire `TeleportStrike_TeleportingIn` **des le pas / des le cast**, pas
+  en fin de tour -- le port gardait donc l'unite non-ciblable, sur le pathfinder de teleport et
+  privee de ses passives deferrees pendant tout le reste de son activation (chiffre : -400 Attack
+  chez l'allie d'`eldarAutarch` au rank 17). Le volet IMPERATIF (owner-effects des abilities+traits
+  = init des passives deferrees, `_seed_ability_owner_effects` via
+  `ABILITY_INIT_OWNER_EFFECTS["PathOfCommand"]=["PathOfCommand_ExtraDmg"]` + `_seed_trait_owner_effects`
+  + derived, puis `refresh_aura_stat_modifiers`) vit dans
+  `spawn.initialize_deferred_actor_abilities`, que les triggers enchainent derriere le noeud DSL
+  `RemoveEffect`. -> ciblable + aura projette. `EndTurnOperation` emet la jambe `On(0x28)` du
+  `FinishUnitTurn(unit, false)` que le natif y fait par unite possedee : le cas « l'unite n'a rien
+  fait de son tour » est donc toujours couvert, au MEME rang qu'avant (avant le tick de duree).
+  Detail : `docs/rl/case-448-r2-ateleporting-effect-family.md`.
+  ⚠ Le port ajoute aussi `1036 TeleportStrike_Moving` au `On(PreUnitMove)` (4e trigger) et le retire
+  au `On(UnitAfterMove)` (`IdunBattleLogic.Effects.TeleportMovingEffect`) -- marqueur transitoire lu
+  par `set_moved_flag` (`UnitFlag.Teleported`).
 - **Init** : les unites initiales sont seedees depuis capture (`snapshot.load_state`) -> heritent
   TeleportingIn + passives deferrees (correct, aucun code from-scratch requis).
 - **Aura off** pendant teleport-in : automatique (aucun effet d'aura present tant que non-atterri).
