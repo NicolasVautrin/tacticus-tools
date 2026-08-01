@@ -1,5 +1,7 @@
 """Feuilles DSL de fin-de-vie d'unite runner-couplees : `KillDeadUnits` (`KillUnitBehaviour`, finalise les
-DOWNED), `RemoveUnit` (`RemoveUnitBehaviour`, despawn sans on-death) et `TriggerAbility`
+DOWNED), `RemoveUnit` (`RemoveUnitBehaviour`, despawn sans on-death), `RemoveUnitFromItsTiles`
+(`RemoveUnitFromItsTilesBehaviour`, l'unite quitte le PLATEAU sans mourir -- #366-r1),
+`RemoveAllForcedAttackTargets` (`RemoveForcedAttackTargetBehaviour`) et `TriggerAbility`
 (`TriggerAbilityBehaviour`, declenchement DIRECT d'une ability TRIGGERED sur un set d'unites). Namespace
 natif `Entities.Behaviours.*`.
 
@@ -7,7 +9,7 @@ C'est ICI qu'atterrira le sous-systeme REVIVE (7 variantes en-place/once/at-posi
 case-220)."""
 from __future__ import annotations
 
-from ....dsl.base import TargetsSelector, _units_of
+from ....dsl.base import TargetsSelector, _units_of, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import UnitComponent, MachineComponent, is_machine_of_war
 
@@ -148,6 +150,100 @@ class RemoveMachine(AbilityBehaviour):
                 for eff in state.effects.by_unit.get(int(uid), []):
                     eff.consumed = True
             ectx.emit("RemoveMachine", machine=int(uid))
+        return OperationResult.ok()
+
+
+class RemoveUnitFromItsTiles(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$RemoveUnitFromItsTiles(unit, removeTileFromUnit)` ->
+    `IdunBattle.Entities.Behaviours.RemoveUnitFromItsTilesBehaviour$$Execute`. La signature typee vit
+    dans la table VERSIONNEE (`frida/methods.tsv`) : `unit : ITargetsSelector, removeTileFromUnit :
+    System.Boolean` -- Ghidra, lui, attribue le `.ctor` du behaviour a un corps DEDUPLIQUE
+    (`ResetActiveAbilityBehaviour$$.ctor`), donc ne pas lire la classe dans ce nom.
+
+    `Execute`, MIRROR du decompile (le buffer de retour `OperationResult` est le 1er argument sret,
+    d'ou les champs du behaviour lus a `+0x50`/`+0x58`) :
+
+        foreach (unit in _unitSelector(+0x50).Select(entities, groupType = 3))
+            processor.<slot 7>(unit, _removeTileFromUnit(+0x58));   // = OperationProcessor$$RemoveUnitFromTiles
+        return default(OperationResult);                             // jamais de stop
+
+    DOCTRINE #149 : cette feuille est la FRONTIERE -- au-dessus le selecteur (declaratif), en dessous
+    l'Operation imperative. Elle resout donc son selecteur puis DELEGUE, unite par unite, a
+    `RemoveUnitFromTilesOperation.execute` (`runner/operations/remove_unit_from_tiles.py`). C'est
+    l'Operation qui porte le collapse de l'empreinte et les residus nommes.
+
+    Ordre de lecture = id croissant (meme convention que `RemoveUnit`, dont le selecteur natif est
+    resolu par le meme `Select(..., 3)`). Emet 'RemoveUnitFromItsTiles' par unite EFFECTIVEMENT
+    retiree de ses tuiles. PUR (stop=False).
+
+    CALL-SITE PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$
+    ExecuteBehaviour` (active 1011) -- `RemoveUnitFromItsTiles(Caster, removeTileFromUnit: true)`,
+    1er des trois behaviours."""
+    __slots__ = ("units_sel", "remove_tile_from_unit")
+
+    def __init__(self, units_sel: TargetsSelector, remove_tile_from_unit: bool = True):
+        self.units_sel = units_sel
+        self.remove_tile_from_unit = bool(remove_tile_from_unit)
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        from ...operations.remove_unit_from_tiles import RemoveUnitFromTilesOperation
+        for u in sorted((x for x in _units_of(self.units_sel, entities)
+                         if isinstance(x, dict) and x.get("id") is not None),
+                        key=lambda x: x["id"]):
+            res = RemoveUnitFromTilesOperation.execute(
+                state, int(u["id"]), remove_tile_from_unit=self.remove_tile_from_unit)
+            if res is not None and res.get("applied"):
+                ectx.emit("RemoveUnitFromItsTiles", unit=int(u["id"]), tiles=res["tiles"])
+        return OperationResult.ok()
+
+
+class RemoveAllForcedAttackTargets(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$RemoveAllForcedAttackTargets(attacker)` ->
+    `IdunBattle.Entities.Behaviours.RemoveForcedAttackTargetBehaviour$$Execute`. La factory construit
+    ce behaviour avec DEUX selecteurs : l'`attacker` recu, et un second selecteur PRE-CONSTRUIT du
+    contexte DSL (`<ctx>+0x90` -> `+0x20`) qui enumere les cibles a retirer -- c'est le « All » du
+    nom de la factory.
+
+    `Execute`, MIRROR du decompile :
+
+        attacker = SelectSingle(_attackerSelector(+0x50), entities)
+        comp     = attacker.GetComponent<ForcedAttackTargetsComponent>()
+        foreach (target in _targetsSelector(+0x58).Select(entities, groupType = 0))
+            comp.<liste @+0x50>.Remove(target.Id)
+
+    Le port ne modelise pas le second selecteur : il VIDE la liste de l'attaquant. Les deux
+    coincident tant que le selecteur `+0x20` couvre toutes les cibles forcees possibles, ce qui est
+    la lecture du nom de la factory (`RemoveALLForcedAttackTargets`) -- ECART NOMME si un jour un
+    call-site s'appuyait sur un sous-ensemble. Il n'y en a qu'UN dans ce build :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$ExecuteBehaviour`
+    (2e des trois behaviours), ou l'attaquant est le caster qui vient de quitter le plateau.
+
+    OBSERVABLE MESURE (#366-r1, cast de 1011) : ce behaviour n'a emis AUCUN event -- la liste du
+    caster etait VIDE. La feuille est donc portee pour la STRUCTURE de l'arbre ; sa mutation ne
+    devient observable que si le caster est sous un Taunt / `InstinctiveBehaviour` au moment du cast.
+    Emet 'RemoveAllForcedAttackTargets' seulement si au moins une cible a ete retiree. PUR."""
+    __slots__ = ("attacker_sel",)
+
+    def __init__(self, attacker_sel: TargetsSelector):
+        self.attacker_sel = attacker_sel
+
+    def execute(self, entities, ectx):
+        from ...components import ForcedAttackTargetsComponent
+        state = ectx.state
+        att = resolve_unit(self.attacker_sel, entities)      # `SelectSingle` natif
+        aid = att.get("id") if att else None
+        if state is None or aid is None:
+            return OperationResult.ok()
+        e = state.get_entity(int(aid))
+        comp = e.get_component(ForcedAttackTargetsComponent) if e is not None else None
+        if comp is None or not comp.targets:
+            return OperationResult.ok()
+        removed = comp.get()
+        comp.targets = []
+        ectx.emit("RemoveAllForcedAttackTargets", attacker=int(aid), removed=removed)
         return OperationResult.ok()
 
 

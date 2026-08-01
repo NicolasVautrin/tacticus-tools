@@ -36,7 +36,8 @@ call-sites `from ..behaviours import X` restent inchanges) :
 - `effects`   : `AddBondEffect`, `AddEffect`, `RemoveEffect`, `SetOnFire`, `CreateShield`.
 - `stats`     : `Heal`, `ChangeStat`, `SetHealth` (+ futur `AddStaticStatModifierEffect`).
 - `movement`  : `PushUnit`, `MoveUnit` (+ futur `ResetMovement`).
-- `lifecycle` : `KillDeadUnits`, `RemoveUnit`, `RemoveMachine`, `TriggerAbility` (+ futur REVIVE).
+- `lifecycle` : `KillDeadUnits`, `RemoveUnit`, `RemoveMachine`, `RemoveUnitFromItsTiles`,
+                `RemoveAllForcedAttackTargets`, `TriggerAbility` (+ futur REVIVE).
 - `grants`    : `AddTrait` (`AddTraitBehaviour`), `AddTriggeredAbility` (`AddTriggeredAbilityBehaviour`).
 - `turnflow`  : `ResetTurn` (`ResetUnitTurnBehaviour`), `FinishTurn` (`FinishUnitTurnBehaviour`).
 - `ability_state` : `ResetActiveAbility` (`ResetActiveAbilityBehaviour` -> `ResetActiveAbilityOperation`).
@@ -67,7 +68,8 @@ from .stats import (Heal, Repair, ChangeStat, SetHealth, SubtractHealthPercent, 
                     healable_heal_type_0, repairable_heal_type_1, RefreshDynamicStatModifierValue,
                     AddStatOverrideEffect)
 from .movement import PushUnit, MoveUnit, SwitchPosition
-from .lifecycle import (KillDeadUnits, RemoveUnit, RemoveMachine, TriggerAbility,
+from .lifecycle import (KillDeadUnits, RemoveUnit, RemoveMachine, RemoveUnitFromItsTiles,
+                        RemoveAllForcedAttackTargets, TriggerAbility,
                         TriggerAbilityDelayed, TRIGGERED_ABILITY_BEHAVIOURS,
                         TRIGGERED_ABILITY_DELAYED_BEHAVIOURS)
 from .grants import AddTrait, AddTriggeredAbility, first_triggered_ability_of
@@ -88,7 +90,8 @@ __all__ = [
     "healable_heal_type_0", "repairable_heal_type_1",
     "RefreshDynamicStatModifierValue",
     "PushUnit", "MoveUnit", "SwitchPosition",
-    "KillDeadUnits", "RemoveUnit", "RemoveMachine", "TriggerAbility", "TriggerAbilityDelayed",
+    "KillDeadUnits", "RemoveUnit", "RemoveMachine", "RemoveUnitFromItsTiles",
+    "RemoveAllForcedAttackTargets", "TriggerAbility", "TriggerAbilityDelayed",
     "TRIGGERED_ABILITY_BEHAVIOURS", "TRIGGERED_ABILITY_DELAYED_BEHAVIOURS",
     "AddTrait", "AddTriggeredAbility", "first_triggered_ability_of",
 ]

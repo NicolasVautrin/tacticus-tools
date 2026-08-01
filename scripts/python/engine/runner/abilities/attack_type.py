@@ -237,6 +237,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1000: AbilityAttackType.Others,   # GauntletsOfUltramarAbility
     1002: AbilityAttackType.Others,   # CombatRestorativesAbility
     1009: AbilityAttackType.Others,   # ResurrectionOrbAbility
+    # TunnelingHorror (1011, necroSmnDestroyer) -- #366-r1. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others (le behaviour n'attaque pas :
+    # il retire le caster de ses tuiles et pose un bond sur la tuile visee).
+    1011: AbilityAttackType.Others,   # TunnelingHorrorAbility
     1018: AbilityAttackType.Others,   # ValkyrieStrikeAbility
     1028: AbilityAttackType.Others,   # SupremeCommanderAbility
     1037: AbilityAttackType.Others,   # RevitalizingMalignancyAbility
