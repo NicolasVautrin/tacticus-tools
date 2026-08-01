@@ -49,6 +49,7 @@ from .loki import (
     DaughterOfTheAbyssOwnerDmgReductionEffect,
     DecoysAndMisdirectionExtraDamageEffect,
     FeederTendrilsExtraDamageEffect,
+    PrimarchOfTheFirstLegionExtraDamageEffect,
     AvalancheOfMuscleExtraDamageEffect,
     LordOfTempestsExtraDamageEffect,
     FightingRetreatDmgReductionEffect,
@@ -405,6 +406,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ForAddition). +extraDmg[level]xmult FLAT PRE-percage sur l'attaque NORMALE de CHARGE melee ;
     # multiplier GLOBAL (pas per-ability #68, car c'est l'attaque normale de l'unite). #176.
     "FeederTendrils_ExtraDamage": FeederTendrilsExtraDamageEffect,
+    # PrimarchOfTheFirstLegion_ExtraDamage (effet 0x5f3 = 1523, #418) : pose sur l'allie Dark Angels
+    # qui vient d'encaisser un coup a la place de `darkaBossLion`. `ForAddition(get_OwnerIsCaster,
+    # ConfigVar(8 = extraDmg))` -- gate SEUL (pas d'`IsNormalAttack`, contraste SmashaEad /
+    # FeederTendrils), donc actif AUSSI en prediction. Duree `TurnsFromRounds(nrOfRounds = 1)`.
+    "PrimarchOfTheFirstLegion_ExtraDamage": PrimarchOfTheFirstLegionExtraDamageEffect,
     # AvalancheOfMuscle (astraBullgryn passif, EffectType 1025) : JUMEAU de FeederTendrils (IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack
     # ForAddition, IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$.ctor ABondEffect 0x404=1028) SAUF le noeud IsNormalAttack ABSENT ->
     # +extraDmg[level passif]xmult FLAT PRE-percage sur TOUTE attaque en CHARGE (OwnerIsCaster & IsCharging).

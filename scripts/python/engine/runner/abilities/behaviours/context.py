@@ -484,6 +484,18 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         uid = (unit or {}).get("id")
         return _pdl(state.get_entity(int(uid)) if uid is not None else None, key)
 
+    # `ctx.entity_by_id` (`IBattleState.GetEntity(id)`, slot 0x29) : la resolution id -> unite que
+    # fait `EntitiesFromPersistentDataListSelector$$Select`. On la sert depuis `units` (deja
+    # materialise ci-dessus), donc dans la MEME representation que tous les autres selecteurs.
+    # Un id absent rend None -> le selecteur le jette, comme le natif.
+    _by_id = {int(u["id"]): u for u in units if (u or {}).get("id") is not None}
+
+    def _entity_by_id(eid):
+        try:
+            return _by_id.get(int(eid))
+        except (TypeError, ValueError):
+            return None
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
                       # `TurnComponent.CurrentPlayer` -> noeud `IsTurnOf` (#85). Le runner le tient
                       # dans `state.current_player_id` (pose par `ChangeTurnOperation.execute`).
@@ -492,6 +504,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       charged_units=_charged_units,
                       valid_normal_attack_targets=_valid_normal_attack_targets,
                       persistent_data_list=_persistent_data_list,
+                      entity_by_id=_entity_by_id,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_unit_flag=_has_unit_flag,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,

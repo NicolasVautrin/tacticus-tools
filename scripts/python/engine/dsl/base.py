@@ -213,6 +213,13 @@ class DslContext:
     # natif materialise lui aussi une liste neuve quand la cle est absente). Fourni par la couche
     # runner (`entities_from_state`, lit le `PersistentDataComponent` de l'ECS).
     persistent_data_list: object | None = None
+    # Resolution d'un ID d'entite en unite (`IdunBattle.Core.IBattleState$$GetEntity(id)`, le slot
+    # 0x29 qu'appelle `IdunBattle.Entities.Selectors.EntitiesFromPersistentDataListSelector$$Select`
+    # pour transformer sa liste d'ids en ENTITES). `entity_by_id(id) -> unit|None` ; l'id inconnu
+    # rend None, et le natif le JETTE silencieusement de la liste rendue. Defaut None -> le
+    # selecteur rend [] (meme polarite que `persistent_data_list` absent). Fourni par la couche
+    # runner (`entities_from_state`).
+    entity_by_id: object | None = None
     # `MachineOfWarPosition` (1=Top, 2=Bottom) du joueur COURANT — lu par le predicat
     # `IsPositionMachineForCurrentPlayer` (mirror
     # `IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger`, qui interroge

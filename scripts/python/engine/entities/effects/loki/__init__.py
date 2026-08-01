@@ -48,6 +48,7 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
 from __future__ import annotations
 
 from .extra_damage import (RapidAssaultExtraDamageEffect, PrioritisedEfficiencyExtraDmgEffect,
+                           PrimarchOfTheFirstLegionExtraDamageEffect,
                            SmashaEadExtraDamageEffect,
                            FeederTendrilsExtraDamageEffect, AvalancheOfMuscleExtraDamageEffect,
                            DecoysAndMisdirectionExtraDamageEffect,
@@ -170,6 +171,7 @@ __all__ = [
     # extra_damage (volet DIRECT)
     "RapidAssaultExtraDamageEffect", "PrioritisedEfficiencyExtraDmgEffect",
     "SmashaEadExtraDamageEffect", "FeederTendrilsExtraDamageEffect",
+    "PrimarchOfTheFirstLegionExtraDamageEffect",
     "AvalancheOfMuscleExtraDamageEffect",
     "DecoysAndMisdirectionExtraDamageEffect", "LordOfTempestsExtraDamageEffect",
     "CrushingStrikeEffect", "HeavyWeaponExtraDmgEffect", "RangedSpecialistEffect",
