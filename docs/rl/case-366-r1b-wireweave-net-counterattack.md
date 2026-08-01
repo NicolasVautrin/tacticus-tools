@@ -166,6 +166,7 @@ Le prédicat `Any` est `e => e.GetComponent<EffectComponent>().IsActive` (lambda
 | [7] | `get_OwnerOrOwnerTileIsTarget` | attaque visant un autre allié → instance de Calandis INTACTE |
 | [8] | machine à états | `On(0x12)` → reste OFF ; `On(0x17)` du porteur → ON ; tour ennemi suivant → riposte **1633** ; `On(0x17)` de l'ENNEMI → reste OFF |
 | [9] | face DÉCISION | `-30` ssi filet armé ; `0` sans filet ; `0` si `MainTile == null` |
+| [10] | prédicat `Any(e => e.IsActive)` | filet CONSOMMÉ (présent mais éteint) → prédicat `False`, terme `0` (case-415-r1) |
 
 **Cliquets** : `probe_181` (98/98, 0 manquante), `probe_120 --step 0` (98 abilities, 0 littéral
 manquant, et ses 5 étapes du vecteur `On(PreUnitAbility)` restent vertes AVEC les nouveaux triggers
@@ -336,10 +337,15 @@ pas revenir), avec la raison en clair à l'emplacement où on l'attendrait dans 
   lecture**, ce cas ne les préjuge pas.
 * **`ActivationFrequency == 1`** (la branche symétrique de `CreateHandleTriggerAbilitiesInternal`,
   qui utilise `IsEnabledTurnType` au lieu d'`IsTurnOf`) n'est exercée par aucun effet porté.
-* **La face DÉCISION n'est pas confrontée live** : le terme n'est non nul que face à une Calandis
-  armée, régime qui n'apparaît que pendant le tour de l'adversaire de Calandis — là où le playbook
-  du porteur ne calcule rien. Il faudrait faire jouer l'IA **du camp d'en face**. Le port est donc
-  adossé au décompilé + au BC, et gardé par la seule étape `[9]` du probe offline (M10).
+* **La face DÉCISION est confrontée LIVE depuis `case-415-r1`** : deux cibles au `pairUtility` natif
+  EXACTEMENT égal (même `utilRaw` Fix64), une seule portant un filet armé, caster ÉPINGLÉ
+  (`--unit-stat Movement=0`) — le natif retient la cible SANS filet, et retombe sur la porteuse dès
+  que le filet disparaît. Le port rend les deux. Le seul régime qui reste NON CONFRONTÉ sur cette
+  face est « filet PRÉSENT mais DÉSARMÉ » : `aiDryRunAllUnits` n'évalue que les unités du joueur
+  COURANT (mesuré), donc jamais un attaquant pendant le tour de Calandis — la seule fenêtre où le
+  canal `decisionView` par défaut cesse de publier l'instance. Il est gardé OFFLINE par l'étape
+  `[10]` du probe (le prédicat `Any(e => e.IsActive)` contre la seule PRÉSENCE), que l'étape `[9]`
+  ne couvrait pas — elle reçoit le booléen tout fait.
 * **Le régime « capture pendant le tour de Calandis, puis franchissement de la frontière de tour »**
   — sans instance à armer, la riposte ne partirait pas. Résidu assumé, cf. §7ter (rouvrir demande
   d'abord de faire lire au seed d'owner-effects le substrat MESURÉ).
