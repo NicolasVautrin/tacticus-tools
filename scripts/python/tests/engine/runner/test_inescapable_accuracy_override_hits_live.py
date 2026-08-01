@@ -53,10 +53,10 @@ from engine.entities.effects.loki import (                        # noqa: E402
     InescapableAccuracyOverrideHitsEffect)
 from engine.services.attack_hits_formula import attack_hits_with_modifiers   # noqa: E402
 from probe_366_r1_inescapable_accuracy_override_hits import (     # noqa: E402
-    EFFECT_NAME, EFFECT_TYPE, EXPECTED_HITS, MAUGAN, TARGET_MELEE, TARGET_RANGED,
-    carried, replay, stage, strike)
+    AURA_CARRIER, EFFECT_NAME, EFFECT_TYPE, EXPECTED_HITS, MAUGAN, TARGET_AURA, TARGET_MELEE,
+    TARGET_RANGED, carried, replay, stage, strike)
 
-_A_UNITS = "%s,%s" % (TARGET_RANGED, TARGET_MELEE)
+_A_UNITS = "%s,%s,%s,%s" % (TARGET_RANGED, TARGET_MELEE, TARGET_AURA, AURA_CARRIER)
 #: `CritChance` de BASE du porteur = **0**. Dans MOVED et MELEE le volet `1115` est ferme (mouvement
 #: / melee), donc `clamp(0 + 0) = 0` : la salve ne crite pas du tout et les VALEURS y sont
 #: confrontables en plus du compte. Dans NOMOVE `1115` ouvre `clamp(0 + 15) = 15` -- le compte reste
@@ -99,6 +99,15 @@ def oh_melee(charge_regime):
     """BRAS MELEE -- frappe au CONTACT sur le porteur de `Parry` (`-1` coup), sans avoir bouge :
     l'`ActiveCondition` est VRAIE et c'est `IsRangedAttack` qui ferme -> **4** coups (5 - 1)."""
     return _measure(charge_regime, "MELEE")
+
+
+@pytest.fixture(scope="module")
+def oh_aura(charge_regime):
+    """BRAS AURA -- tir a d=3 sur une cible SANS reduction propre (`necroWarden`), avec le porteur
+    de `BigTarget` (`astraBullgryn`) pose RING-1 d'elle : la reduction (-1 ranged) vient d'un TIERS
+    et emprunte un TROISIEME agregateur cote port (`aura_hits_malus_for_defense`). Le block
+    l'eteint aussi -> **6** coups pleins."""
+    return _measure(charge_regime, "AURA")
 
 
 @pytest.fixture(scope="module")
@@ -270,6 +279,31 @@ def test_melee_gate_is_load_bearing(oh_melee):
     assert len(mut) > len(ref), (
         "`IsRangedAttack` desarme : le compte ne remonte pas (ref n=%d, mut n=%d) -- ce bras ne "
         "prouve pas que le gate d'attaque mord" % (len(ref), len(mut)))
+
+
+def test_aura_reduction_is_blocked(oh_aura):
+    """Le block eteint AUSSI une reduction projetee par un TIERS -- le natif trie par SIGNE, pas par
+    provenance. C'est le seul bras qui exerce LIVE l'agregateur d'AURA."""
+    h, rec, live = oh_aura
+    assert rec.get("aura_id") is not None, "le porteur d'aura n'a pas ete monte"
+    res = h.replay_offline(rec)
+    assert carried(rec, res["state"]), "1117 doit etre materialise sur l'attaquant"
+    assert len(res["per_hit"]) == len(live), (
+        "CANAL AURA : live n=%d %s / offline n=%d %s"
+        % (len(live), live, len(res["per_hit"]), res["per_hit"]))
+
+
+def test_aura_channel_actually_bites(oh_aura):
+    """La reduction d'aura EXISTE bien dans ce montage -- sinon le test precedent passerait pour une
+    raison triviale. Mutation `NOCHANNEL` : le compte DOIT retomber a 5 (6 - 1 = `BigTarget`),
+    c'est-a-dire perdre EXACTEMENT un coup, ni deux (ce serait Camouflage, donc la mauvaise cible)
+    ni zero."""
+    h, rec, live = oh_aura
+    ref = h.replay_offline(rec)["per_hit"]
+    mut = replay(h, rec, mutate="NOCHANNEL")
+    assert len(ref) - len(mut) == 1, (
+        "la mutation retire %d coup(s), 1 attendu (aura BigTarget) -- ref n=%d, mut n=%d"
+        % (len(ref) - len(mut), len(ref), len(mut)))
 
 
 def test_other_board(oh_alt):

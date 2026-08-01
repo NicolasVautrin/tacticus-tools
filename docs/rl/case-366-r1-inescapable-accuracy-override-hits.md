@@ -130,10 +130,11 @@ La clé `has_moved` est ajoutée aux **deux** boards de la formule (combat
 `playbook/prediction/normal_attack.py` → le `_hm` **déjà calculé** pour le canal DÉGÂT, pas un
 second read).
 
-## 5. Le criterion, et les trois bras qui le tranchent
+## 5. Le criterion, et les quatre bras qui le tranchent
 
 > « Le port IGNORE-t-il — **et refuse-t-il d'ignorer après un mouvement, et au contact** — les
-> réductions de coups comme le natif ? », mesuré sur **le NOMBRE de coups**.
+> réductions de coups comme le natif, **quelle que soit l'unité qui les porte** ? », mesuré sur
+> **le NOMBRE de coups**.
 
 **Le nombre, pas la valeur, et c'est structurel** : `1117` n'a aucune magnitude, son seul observable
 est la cardinalité de la salve. C'est aussi le seul criterion **immunisé** au résidu
@@ -149,11 +150,12 @@ modèles sur l'étage même qu'on mesure**.
 
 Autres contraintes de montage, chacune payée par une mesure fausse évitée :
 
-* **la cible doit PORTER une réduction, et du bon vecteur.** RANGED → `tyranDeathleaper` (trait
-  `Camouflage` → `Camouflage_HitReduction`, `OwnerIsTarget & IsRangedAttack`, **−2** au-delà de
-  2 hexes) ; MÊLÉE → `custoAtlacoya` (trait `Parry` → `Parry_ReduceHits`, `OwnerIsTarget &
-  IsMeleeAttack`, **−1**). Sans réduction sur la cible, `1117` est **inerte** et un accord
-  live == offline ne prouverait rien ;
+* **la réduction doit EXISTER, et du bon vecteur.** RANGED → `tyranDeathleaper` (trait `Camouflage`
+  → `Camouflage_HitReduction`, `OwnerIsTarget & IsRangedAttack`, **−2** au-delà de 2 hexes) ; MÊLÉE
+  → `custoAtlacoya` (trait `Parry` → `Parry_ReduceHits`, `OwnerIsTarget & IsMeleeAttack`, **−1**) ;
+  AURA → `necroWarden` (aucune réduction propre) avec `astraBullgryn` (trait `BigTarget`, traits
+  `[Hero, BigTarget]` **seuls**) posé RING-1 d'elle, qui projette **−1** ranged sur ses alliés
+  adjacents. Sans réduction, `1117` est **inerte** et un accord live == offline ne prouverait rien ;
 * **ni l'une ni l'autre ne porte `Overwatch`** (le montage déplace les deux camps, et Maugan Ra
   porte lui-même `Overwatch`), **ni de `TertiaryAbility` au seed BC** — c'est ce qui a écarté
   `admecRuststalker`, pourtant porteur de `Camouflage` : il arrive avec la relique `1457` ;
@@ -169,20 +171,24 @@ Autres contraintes de montage, chacune payée par une mesure fausse évitée :
 
 `probe_366_r1_inescapable_accuracy_override_hits.py` — porteur `eldarMauganRa`.
 
-| bras | board/seed | LIVE | OFFLINE | mutation → rejeu |
-|---|---|---|---|---|
-| **NOMOVE** | MC1_67/777 | n=**6** `[4548, 1618, 2026, 1967, 1682, 1597]` | n=**6** | `NOCHANNEL` → n=**4** |
-| **MOVED** | MC1_67/777 | n=**4** `[1267, 1239, 1629, 1619]` | n=**4**, **bit-exact** | `NOGATE` → n=**6** |
-| **MELEE** | MC1_67/777 | n=**4** `[584, 641, 657, 511]` | n=**4**, **bit-exact** | `NORANGEGATE` → n=**5** |
-| **NOMOVE** | C1_25/31337 | n=**6** `[1285, 1125, 914, 1196, 935, 1220]` | n=**6** | `NOCHANNEL` → n=**4** |
-| **MOVED** | C1_25/31337 | n=**4** `[956, 1014, 1070, 840]` | n=**4**, **bit-exact** | `NOGATE` → n=**6** |
-| **MELEE** | C1_25/31337 | n=**4** `[702, 700, 651, 556]` | n=**4**, **bit-exact** | `NORANGEGATE` → n=**5** |
+| bras | réduction en jeu | board/seed | LIVE | OFFLINE | mutation → rejeu |
+|---|---|---|---|---|---|
+| **NOMOVE** | Camouflage (cible) −2 | MC1_67/777 | n=**6** `[4548, 1618, 2026, 1967, 1682, 1597]` | n=**6** | `NOCHANNEL` → n=**4** |
+| **MOVED** | Camouflage (cible) −2 | MC1_67/777 | n=**4** `[1267, 1239, 1629, 1619]` | n=**4**, **bit-exact** | `NOGATE` → n=**6** |
+| **MELEE** | Parry (cible) −1 | MC1_67/777 | n=**4** `[584, 641, 657, 511]` | n=**4**, **bit-exact** | `NORANGEGATE` → n=**5** |
+| **AURA** | BigTarget (**tiers**) −1 | MC1_67/777 | n=**6** `[4548, 1618, 2026, 1967, 1682, 1597]` | n=**6** | `NOCHANNEL` → n=**5** |
+| **NOMOVE** | Camouflage (cible) −2 | C1_25/31337 | n=**6** `[1285, 1125, 914, 1196, 935, 1220]` | n=**6** | `NOCHANNEL` → n=**4** |
+| **MOVED** | Camouflage (cible) −2 | C1_25/31337 | n=**4** `[956, 1014, 1070, 840]` | n=**4**, **bit-exact** | `NOGATE` → n=**6** |
+| **MELEE** | Parry (cible) −1 | C1_25/31337 | n=**4** `[702, 700, 651, 556]` | n=**4**, **bit-exact** | `NORANGEGATE` → n=**5** |
+| **AURA** | BigTarget (**tiers**) −1 | C1_25/31337 | n=**6** `[1285, 1125, 914, 1196, 935, 1220]` | n=**6** | `NOCHANNEL` → n=**5** |
 
-Les six cellules s'accordent sur le compte, les quatre bras sans crit sont **bit-exacts jusqu'à la
-valeur**, et les **six** mutations changent toutes le rejeu :
+Les huit cellules s'accordent sur le compte, les quatre bras sans crit sont **bit-exacts jusqu'à la
+valeur**, et les **huit** mutations changent toutes le rejeu :
 
 * `NOCHANNEL` (inscription retirée d'`EFFECT_CLASSES`) — **c'est la vue ROUGE d'avant le fix** : le
-  port comptait **4** coups là où le natif en joue **6** ;
+  port comptait **4** coups là où le natif en joue **6** (bras NOMOVE), **5** au lieu de **6** dans
+  le bras AURA. Le bras AURA exige que la mutation retire **exactement UN** coup : deux
+  signifieraient qu'on mesure `Camouflage`, donc la mauvaise cible ;
 * `NOGATE` (les deux mirrors de l'`ActiveCondition` désarmés) — le port bloquerait la réduction là
   où le natif, qui a vu `HasFlag(Moved)`, la subit ;
 * `NORANGEGATE` (nœud `IsRangedAttack` désarmé) — le port bloquerait le `Parry` d'une frappe de
@@ -194,8 +200,8 @@ qui **ferme** le gate au lieu de l'ouvrir — la mutation rendait 4 coups comme 
 probe l'a refusée (garde de discrimination). La forme correcte est de **forcer** `is_melee = False`.
 C'est le cas d'école de « sur une contre-épreuve, VERT est le résultat SUSPECT ».
 
-Cliquet : `tests/engine/runner/test_inescapable_accuracy_override_hits_live.py` — **11 passed**
-(4 structurels offline + 7 live).
+Cliquet : `tests/engine/runner/test_inescapable_accuracy_override_hits_live.py` — **13 passed**
+(4 structurels offline + 9 live).
 
 ## 6. Ce qui n'est PAS couvert
 
@@ -212,10 +218,16 @@ Cliquet : `tests/engine/runner/test_inescapable_accuracy_override_hits_live.py` 
 * **Le vecteur OVERWATCH** de Maugan Ra n'est pas exercé. Il passe par `damage_ops/normal.py` avec
   `_ranged = True`, donc `IsRangedAttack` s'y ouvrirait ; l'`ActiveCondition` porte sur le
   `UnitFlag.Moved` de l'OWNER, purgé au `StartTurnOperation`. Non mesuré.
-* **Les autres réductions du canal** ne sont pas confrontées une par une : le carré exerce
-  `Camouflage` (ranged) et `Parry` (mêlée). `LightCover`, `Diminutive`, `BigTarget` (aura) et
-  `FightingRetreat_HitReduction` (porté par l'ATTAQUANT) empruntent le **même** foyer
-  `_hits_contribution` — le tri par signe est verrouillé offline, pas mesuré live pour chacun.
+* **Les autres réductions du canal** ne sont pas confrontées une par une. Le carré exerce **deux**
+  des quatre agrégateurs en live — `hits_malus_from_defender_effects` (`Camouflage` ranged, `Parry`
+  mêlée) et `aura_hits_malus_for_defense` (`BigTarget`, bras AURA). Restent non mesurés live :
+  `LightCover` et `Diminutive` (même agrégateur que Camouflage/Parry, donc même code), et surtout
+  **`FightingRetreat_HitReduction`**, la seule réduction portée par l'**ATTAQUANT**
+  (`hits_bonus_from_effects`, trigger `OwnerIsCaster`). Ce dernier est le cas qui discrimine « tri
+  au SIGNE » de « tri par provenance », et il n'est pas confrontable simplement : l'attaquant DOIT
+  être `eldarMauganRa` (seul porteur de 1117), qui ne porte pas `FightingRetreat` — il faudrait le
+  greffer. Le tri est verrouillé **offline** (`test_sign_not_provenance_offline`) et par la lecture
+  du décompilé (§3), pas par une mesure live sur ce vecteur.
 * **Les deux dernières boucles de `GetAttackHits`** — `b.override` (`hits = valeur`) et
   `b.resetFlag` (`hits = weaponHits`) — ne sont **pas** portées. Elles ne balaient que la listeA
   (additions), et aucun effet porté ne les alimente ; elles ne sont pas dans le périmètre de cette

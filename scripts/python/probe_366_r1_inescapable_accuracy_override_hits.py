@@ -26,7 +26,8 @@ par les trois volets du passif :
 
     op_LogicalNot( HasFlag( Owner, 0 = UnitFlag.Moved ) )
 
-TROIS BRAS -- chacun choisit sa cible pour que la REDUCTION mesuree soit celle du bon vecteur :
+QUATRE BRAS -- chacun choisit sa cible pour que la REDUCTION mesuree soit celle du bon vecteur, et
+le quatrieme change d'AGREGATEUR cote port :
 
   NOMOVE -- tir a d=3 sur `tyranDeathleaper` (trait `Camouflage` -> `Camouflage_HitReduction`,
             RANGED-only, -2 coups au-dela de 2 hexes). MauganRa n'a pas bouge -> le block MORD :
@@ -36,6 +37,10 @@ TROIS BRAS -- chacun choisit sa cible pour que la REDUCTION mesuree soit celle d
   MELEE  -- frappe au CONTACT sur `custoAtlacoya` (trait `Parry` -> `Parry_ReduceHits`, MELEE-only,
             -1 coup), MauganRa n'ayant PAS bouge. `IsRangedAttack` est FAUX -> le block ne s'arme
             pas : 5 - 1 = 4 coups.
+  AURA   -- tir a d=3 sur `necroWarden` (AUCUNE reduction propre) avec `astraBullgryn` (trait
+            `BigTarget`) pose RING-1 de la cible : la reduction (-1 ranged) vient d'un TIERS et
+            passe par un TROISIEME agregateur cote port (`aura_hits_malus_for_defense`). Le block
+            l'eteint aussi -- le natif trie par SIGNE, pas par provenance : 6 coups pleins.
 
 et par bras UNE MUTATION ADVERSARIALE du PORT, rejouee sur le MEME snapshot :
 
@@ -95,15 +100,26 @@ TARGET_RANGED = "tyranDeathleaper"
 #: Cible du vecteur MELEE : trait `Parry` -> effet `Parry_ReduceHits` (`OwnerIsTarget &
 #: IsMeleeAttack`, -1). Memes trois criteres.
 TARGET_MELEE = "custoAtlacoya"
+#: Bras AURA : la reduction ne vient NI de la cible NI de l'attaquant mais d'un TIERS. Le trait
+#: `BigTarget` d'`astraBullgryn` pose `BigTargetAdjacentEffect` sur SON porteur, qui projette
+#: `ForAdditionWithMinimum(OwnerIsTarget & IsRangedAttack, Direct(-1), min=1)` sur ses ALLIES
+#: ring-1. Cote port c'est un TROISIEME agregateur (`aura_hits_malus_for_defense`), et le bras
+#: prouve LIVE que le block l'eteint aussi -- le natif ne trie pas par provenance mais par SIGNE.
+#: `astraBullgryn` : traits `[Hero, BigTarget]` seuls (pas d'Overwatch), aucune `TertiaryAbility`
+#: au seed, dans le pool. La cible du bras est `necroWarden`, qui ne porte AUCUNE reduction propre
+#: (verifie par les montages de 1115/1116) : la seule reduction en jeu est donc l'aura.
+TARGET_AURA = "necroWarden"
+AURA_CARRIER = "astraBullgryn"
 
 #: Portee de l'arme a distance de MauganRa (`weapons[1].Range` = 3). Le tir est monte a d=3 EXACT,
 #: avant ET apres le pas : c'est la branche `dist > 2` de Camouflage (-2), et la garder identique
 #: dans les deux bras isole le SEUL facteur qui change (le flag `Moved`).
 RANGE_SHOT = 3
 #: Coups d'arme attendus (BC == gameconfig, cf. l'en-tete) et reduction attendue par bras.
-WEAPON_HITS = {"NOMOVE": 6, "MOVED": 6, "MELEE": 5}
-EXPECTED_HITS = {"NOMOVE": 6, "MOVED": 4, "MELEE": 4}
-MUTATION = {"NOMOVE": "NOCHANNEL", "MOVED": "NOGATE", "MELEE": "NORANGEGATE"}
+WEAPON_HITS = {"NOMOVE": 6, "MOVED": 6, "MELEE": 5, "AURA": 6}
+EXPECTED_HITS = {"NOMOVE": 6, "MOVED": 4, "MELEE": 4, "AURA": 6}
+MUTATION = {"NOMOVE": "NOCHANNEL", "MOVED": "NOGATE", "MELEE": "NORANGEGATE",
+            "AURA": "NOCHANNEL"}
 
 
 def _unwrap(r):
@@ -149,7 +165,9 @@ def build(a, arm):
     Path(sf).unlink(missing_ok=True)
     argv = [sys.executable, "rl_duel.py", "build", "--seed", str(a.seed),
             "--state-file", sf, "--board", a.board,
-            "--p-units", MAUGAN, "--a-units", "%s,%s" % (a.target_ranged, a.target_melee),
+            "--p-units", MAUGAN,
+            "--a-units", "%s,%s,%s,%s" % (a.target_ranged, a.target_melee, TARGET_AURA,
+                                          AURA_CARRIER),
             "--hp-target", "400000", "--hp-player", "400000", "--no-ai",
             "--crit", a.crit]
     argv += list(a.extra or [])
@@ -161,7 +179,7 @@ def build(a, arm):
     return json.loads(Path(sf).read_text())["runnerId"], sf
 
 
-def arrange(h, target_visual, dist, need_step):
+def arrange(h, target_visual, dist, need_step, aura_visual=None):
     """GEOMETRIE -- on DEPLACE les unites pour l'obtenir, jamais « bloque par les spawns ».
 
     Rend `{caster, target, start, step_to, anchor}` ou None. `start` est a `dist` hexes de l'ancre ;
@@ -197,15 +215,26 @@ def arrange(h, target_visual, dist, need_step):
         if pair is None:
             continue
         for other in others:                      # (1)
+            if aura_visual is not None and other.get("visualId") == aura_visual:
+                continue                          # celui-la se pose EN RING-1, pas a l'ecart
             far = h.free_tiles(anchor, 5, exclude=(other["id"],))
             if far:
                 h.place(other["id"], far[0])
         if not h.place(tgt["id"], anchor):        # (2)
             continue
+        aura_id = None
+        if aura_visual is not None:               # (2bis) porteur d'aura ADJACENT a la cible
+            av = next((u for u in others if u.get("visualId") == aura_visual), None)
+            if av is None:
+                return None
+            ring1 = h.free_tiles(anchor, 1, exclude=(av["id"],))
+            if not ring1 or not h.place(av["id"], ring1[0]):
+                continue
+            aura_id = av["id"]
         if not h.place(me["id"], pair[0]):        # (3)
             continue
         return {"caster": me["id"], "target": tgt["id"], "start": pair[0],
-                "step_to": pair[1], "anchor": anchor}
+                "step_to": pair[1], "anchor": anchor, "aura_id": aura_id}
     return None
 
 
@@ -215,8 +244,9 @@ def stage(h, arm):
     Monte le bras et rend `(rec, reason)` : `reason is None` = regime ATTEINT."""
     import hexgeo
     dist = 1 if arm == "MELEE" else RANGE_SHOT
-    tvis = TARGET_MELEE if arm == "MELEE" else TARGET_RANGED
-    plan = arrange(h, tvis, dist, need_step=(arm == "MOVED"))
+    tvis = {"MELEE": TARGET_MELEE, "AURA": TARGET_AURA}.get(arm, TARGET_RANGED)
+    plan = arrange(h, tvis, dist, need_step=(arm == "MOVED"),
+                   aura_visual=(AURA_CARRIER if arm == "AURA" else None))
     if plan is None:
         return None, "geometrie d=%d (%s, pas d'un hex = %s) non realisable" % (
             dist, tvis, arm == "MOVED")
@@ -228,6 +258,13 @@ def stage(h, arm):
     pos = {u["id"]: _upos(u) for u in h.alive(dv)}
     if pos.get(plan["caster"]) != plan["start"] or pos.get(plan["target"]) != plan["anchor"]:
         return None, "geometrie perdue apres les endturns"
+    if plan.get("aura_id") is not None:
+        ap, tp = pos.get(plan["aura_id"]), pos.get(plan["target"])
+        if ap is None or tp is None or hexgeo.distance(ap, tp) != 1:
+            return None, ("le porteur d'aura u%s n'est plus RING-1 de la cible (d=%s) -- l'aura ne "
+                          "serait pas projetee" % (plan["aura_id"],
+                                                   None if (ap is None or tp is None)
+                                                   else hexgeo.distance(ap, tp)))
     names = _effect_names(h.by_visual(MAUGAN, dv))
     if EFFECT_NAME not in names:
         return None, "%s ABSENT du seed live (effets=%s)" % (EFFECT_NAME, names)
@@ -330,9 +367,11 @@ def run_case(a, rpc, Board, ChargeRegimeHarness, arm) -> int:
         from engine.runner.components import unit_has_moved
         st0 = h.offline_state(rec)
         moved = bool(unit_has_moved(st0, rec["caster"]))
-        print("[%s] attaquant u%s has_moved=%s | cible u%s (%s)"
+        print("[%s] attaquant u%s has_moved=%s | cible u%s (%s)%s"
               % (arm, rec["caster"], moved, rec["target"],
-                 TARGET_MELEE if arm == "MELEE" else TARGET_RANGED))
+                 {"MELEE": TARGET_MELEE, "AURA": TARGET_AURA}.get(arm, TARGET_RANGED),
+                 "" if rec.get("aura_id") is None
+                 else " | aura u%s (%s) ring-1" % (rec["aura_id"], AURA_CARRIER)))
         if moved != (arm == "MOVED"):
             print("[%s] REFUS : has_moved=%s hors regime -- rien n'est mesure" % (arm, moved))
             return 2
@@ -402,7 +441,7 @@ def main() -> int:
                     help="cible du vecteur RANGED : porteur du trait Camouflage, SANS Overwatch")
     ap.add_argument("--target-melee", default=TARGET_MELEE,
                     help="cible du vecteur MELEE : porteur du trait Parry, SANS Overwatch")
-    ap.add_argument("--arms", default="NOMOVE,MOVED,MELEE")
+    ap.add_argument("--arms", default="NOMOVE,MOVED,MELEE,AURA")
     ap.add_argument("--no-mutations", action="store_true",
                     help="saute les gardes de discrimination (diagnostic seulement)")
     ap.add_argument("--extra", action="append", default=[],
