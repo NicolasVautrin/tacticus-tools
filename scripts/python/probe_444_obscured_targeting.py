@@ -134,7 +134,7 @@ def _nat(sid, rid, cid, aid, tid=None):
     return _r(sid, "abilityReason", body, 60)
 
 
-def _build(sid, seed, board, p_units, a_units):
+def _build(sid, seed, board, p_units, a_units, unit_stat=None):
     """`rl_duel build` avec state-file PROPRE sous `logs/` (jamais `data/`, qui est versionne).
     ATTEND qu'un slot se libere si MAX_RUNNERS est sature (le cap est PARTAGE entre agents)."""
     state = ROOT / "logs" / ("_probe444-%d-%d.json" % (os.getpid(), next(_seq)))
@@ -142,6 +142,8 @@ def _build(sid, seed, board, p_units, a_units):
     argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
             "--state-file", str(state), "--board", board, "--no-ai",
             "--p-units", ",".join(p_units), "--a-units", a_units]
+    if unit_stat:
+        argv += ["--unit-stat", unit_stat]
     deadline = time.time() + 300
     while True:
         state.unlink(missing_ok=True)
@@ -178,29 +180,36 @@ def _movable(sid, rid, uid):
 
 # --------------------------------------------------------------------------- etage A : geometrie
 
-def _plan_positions(board, caster_pos, foes, movable):
-    """Etage A. Parmi les tuiles ou le caster PEUT aller ce tour, celle qui maximise le nombre de
-    cibles a la fois A PORTEE COURTE (d dans 2..3, le regime ou le gate de portee ne masque pas la
-    ligne de vue) et OBSCURCIES par le terrain -- avec au moins une cible NON obscurcie a la meme
-    distance, pour que la mesure porte les deux verdicts.
+def _plan_triplet(board, occupied, want_d=2):
+    """Etage A -- LE CRAFT. Cherche un TRIPLET de positions `(pc, p_bloquee, p_libre)` tel que :
+
+        d(pc, p_bloquee) == d(pc, p_libre) == want_d       (la MEME distance des deux cotes)
+        la ligne de vue pc -> p_bloquee est COUPEE par le terrain
+        la ligne de vue pc -> p_libre   est LIBRE
+
+    Les deux cibles sont a la MEME distance : c'est ce qui rend la paire discriminante. Un refus qui
+    ne tomberait que sur la plus lointaine accuserait la PORTEE, pas la ligne de vue -- et la portee
+    PRECEDE la ligne de vue dans la cascade, donc l'erreur serait invisible.
+
+    `want_d = 2` parce que la ligne de vue ne mord qu'a partir de d >= 2 (`2 < lineA.Count`) et que
+    l'attaque normale des casters du montage porte a 2. Les trois tuiles sont marchables, non
+    occupees, et aucune n'est adjacente a une autre (pas de clamp melee du caster ranged :
+    `TargetingOptions.forceMeleeTarget = IfRangedCaster`).
 
     C'est le « DEPLACE les unites pour forcer la configuration » : on ne se plaint pas de la
-    geometrie de spawn, on la choisit."""
-    best = None
-    for tile in ([caster_pos] + list(movable or [])):
-        blocked = free = 0
-        for f in foes:
-            d = hexgeo.distance(tile, f)
-            if not (2 <= d <= 3):
-                continue
-            if get_tiles_obscuring_terrain_pos(board, tile, f):
-                blocked += 1
-            else:
-                free += 1
-        score = (min(blocked, 3), min(free, 3), -hexgeo.distance(tile, caster_pos))
-        if blocked and (best is None or score > best[0]):
-            best = (score, tile, blocked, free)
-    return best
+    geometrie de spawn, on la CHOISIT."""
+    walk = [(t["col"], t["row"]) for t in board.by_id.values()
+            if t.get("walkable") and (t["col"], t["row"]) not in occupied]
+    ws = set(walk)
+    for pc in sorted(walk):
+        ring = [p for p in hexgeo.ring(pc[0], pc[1], want_d) if p in ws]
+        blocked = [p for p in ring if get_tiles_obscuring_terrain_pos(board, pc, p)]
+        free = [p for p in ring if not get_tiles_obscuring_terrain_pos(board, pc, p)]
+        for pb in blocked:
+            for pf in free:
+                if hexgeo.distance(pb, pf) >= 2:
+                    return pc, pb, pf
+    return None
 
 
 def get_tiles_obscuring_terrain_pos(board, frm, to):
@@ -266,12 +275,18 @@ def main(argv=None) -> int:
     ap.add_argument("--board", default="C1_09")
     ap.add_argument("--p-units", default=",".join(P_UNITS))
     ap.add_argument("--a-units", default=A_UNITS)
+    ap.add_argument("--movement", type=int, default=20,
+                    help="Movement force sur les acteurs du craft (atteindre le triplet en 1 tour)")
     ap.add_argument("--json", default=None, help="ecrit le detail des lignes dans ce fichier")
     a = ap.parse_args(argv)
 
     sid = _resolve_session()
     p_units = [x for x in a.p_units.split(",") if x]
-    rid, state_file = _build(sid, a.seed, a.board, p_units, a.a_units)
+    # MOUVEMENT MONTE sur les trois acteurs du craft : c'est ce qui rend n'importe quelle tuile du
+    # board atteignable en UN tour, donc le triplet de positions REALISABLE. Aucun effet sur la
+    # regle mesuree -- la ligne de vue ne lit ni stats ni deplacement, uniquement le TERRAIN.
+    stats = ";".join("%s:Movement=%d" % (v, a.movement) for v in (p_units + ["necroWarden"]))
+    rid, state_file = _build(sid, a.seed, a.board, p_units, a.a_units, unit_stat=stats)
     print("[build] runner=%d board=%s seed=%s p_units=%s a_units=%s"
           % (rid, a.board, a.seed, ",".join(p_units), a.a_units))
     all_rows = []
@@ -281,26 +296,52 @@ def main(argv=None) -> int:
 
         dv, state, board = _capture(sid, rid)
 
-        # ETAGE A -- on DEPLACE chaque caster vers la tuile qui realise le plus de paires
-        # discriminantes (obscurcies a d 2..3) SANS perdre les paires de controle (non obscurcies).
-        for vis in p_units:
-            u = _by_vis(dv, vis)
-            if u is None:
-                continue
-            foes = [_pos(f) for f in (dv.get("units") or [])
-                    if f.get("alive") and f.get("owner") != u.get("owner")]
-            mov = _movable(sid, rid, int(u["id"])) if u.get("ctrl") else []
-            plan = _plan_positions(board, _pos(u), foes, mov)
-            if plan is None:
-                print("  [geometrie] %s : aucune position ne realise d'obstruction a d 2..3" % vis)
-                continue
-            _score, tile, blocked, free = plan
-            print("  [geometrie] %s : %s -> %s (obscurcies=%d, libres=%d)"
-                  % (vis, _pos(u), tile, blocked, free))
-            if tuple(tile) != tuple(_pos(u)):
-                _act(sid, rid, {"kind": "move", "unitId": int(u["id"]),
-                                "to": {"col": tile[0], "row": tile[1]}}, 90)
-            dv, state, board = _capture(sid, rid)
+        # ETAGE A -- le CRAFT. Un triplet de positions calcule OFFLINE, puis realise en DEPLACANT
+        # les unites (le mouvement est monte a `--unit-stat Movement=...` pour que n'importe quelle
+        # tuile soit atteignable en un tour, cf. `main`).
+        plan = _plan_triplet(board, occupied=set(), want_d=2)
+        if plan is None:
+            print("[FAIL] aucun triplet (caster, cible obscurcie, cible libre) a d=2 sur ce board")
+            return 2
+        pc, pb, pf = plan
+        print("[craft] caster -> %s ; cible OBSCURCIE -> %s ; cible LIBRE -> %s (d=2 des deux)"
+              % (pc, pb, pf))
+
+        caster_vis = p_units[0]
+        cu = _by_vis(dv, caster_vis)
+        foes = [f for f in (dv.get("units") or [])
+                if f.get("alive") and f.get("owner") != cu.get("owner")]
+        if cu is None or len(foes) < 2:
+            print("[FAIL] caster ou cibles absents")
+            return 2
+        moves = [(int(cu["id"]), pc, cu.get("owner")),
+                 (int(foes[0]["id"]), pb, foes[0].get("owner")),
+                 (int(foes[1]["id"]), pf, foes[1].get("owner"))]
+        for uid, dest, owner in moves:
+            for _ in range(6):
+                d0 = _dv(sid, rid)
+                u0 = next((x for x in (d0.get("units") or []) if int(x["id"]) == uid), None)
+                if u0 is None or tuple(_pos(u0)) == tuple(dest):
+                    break
+                if not u0.get("ctrl"):
+                    _act(sid, rid, {"kind": "endturn"}, 60)
+                    continue
+                tiles = _movable(sid, rid, uid)
+                if tuple(dest) in [tuple(t) for t in tiles]:
+                    _act(sid, rid, {"kind": "move", "unitId": uid,
+                                    "to": {"col": dest[0], "row": dest[1]}}, 90)
+                    break
+                if not tiles:
+                    _act(sid, rid, {"kind": "endturn"}, 60)
+                    continue
+                best = min(tiles, key=lambda t: (hexgeo.distance(t, dest), t))
+                _act(sid, rid, {"kind": "move", "unitId": uid,
+                                "to": {"col": best[0], "row": best[1]}}, 90)
+        dv, state, board = _capture(sid, rid)
+        for uid, dest, _o in moves:
+            u0 = next((x for x in (dv.get("units") or []) if int(x["id"]) == uid), None)
+            print("  [place] u%d -> %s (voulu %s)%s"
+                  % (uid, _pos(u0), dest, "" if tuple(_pos(u0)) == tuple(dest) else "  MANQUE"))
 
         # ETAGES B + C + D
         for vis in p_units:
@@ -345,13 +386,27 @@ def main(argv=None) -> int:
         print("  etage C -- refus LEVE par AllowObscuredTarget : %d / %d"
               % (len(leve), len(refus_los)))
         print("  etage D -- paires ou le NATIF desarme selon le masque : %d" % len(contraste))
-        for r in mismatch:
-            print("  [DESACCORD] caster=u%d ability=%d cible=u%d d=%d natif=%s port=%s tuiles=%s"
-                  % (r["caster"], r["ability"], r["target"], r["d"],
-                     hex(r["nat"]), hex(r["port"]),
-                     ",".join("%d/%d" % p for p in r["obscuring"]) or "-"))
-        ok = (not mismatch) and refus_los and accepte
+        # Un desaccord n'est IMPUTABLE A CETTE TRANCHE que si le contrefactuel du champ le fait
+        # disparaitre : `port_disarmed` est ce que rendait `master` (regle non portee). Si le
+        # desaccord SURVIT au desarmement, il est PREEXISTANT -- on le NOMME, on ne le cache pas, et
+        # on ne se l'attribue pas non plus.
+        mine = [r for r in mismatch if r["nat"] == r["port_disarmed"]]
+        preexist = [r for r in mismatch if r["nat"] != r["port_disarmed"]]
+        for label, group in (("DESACCORD (cette tranche)", mine),
+                             ("desaccord PREEXISTANT (survit au desarmement)", preexist)):
+            for r in group:
+                print("  [%s] caster=u%d ability=%d cible=u%d d=%d natif=%s port=%s "
+                      "port(desarme)=%s tuiles=%s"
+                      % (label, r["caster"], r["ability"], r["target"], r["d"],
+                         hex(r["nat"]), hex(r["port"]), hex(r["port_disarmed"]),
+                         ",".join("%d/%d" % p for p in r["obscuring"]) or "-"))
+        ok = (not mine) and refus_los and accepte
         print("  VERDICT : %s" % ("PASS" if ok else "FAIL"))
+        # Ligne machine, consommee par `tests/engine/runner/test_obscured_targeting_live.py` : le
+        # probe MESURE, le test GARDE, et les deux partagent le MEME montage (aucun second runner).
+        print("[RAW] " + json.dumps({"rows": all_rows, "craft": {"caster": list(pc),
+                                                                 "blocked": list(pb),
+                                                                 "free": list(pf)}}))
         if a.json:
             Path(a.json).write_text(json.dumps(all_rows, indent=1), encoding="utf-8")
         return 0 if ok else 1
