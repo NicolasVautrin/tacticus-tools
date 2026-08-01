@@ -185,6 +185,30 @@ def test_port_reproduces_the_native_on_the_three_dates(ms_visual):
         "`is_active` ne mirrore pas `NOT IsTurnOf(Owner)` sur les trois dates")
 
 
+def test_decision_face_carries_the_same_turn_key(ms_visual):
+    """L'AUTRE FACE. `Scene.unit_state` est le pendant PREDICTION de
+    `runner.components.unit_state_for_effects` : il doit poser la MEME cle `is_turn_of_owner`, servie
+    par `Scene.is_turn_of` (qui LIT `decisionView.units[].ctrl`, ou le hook INVOQUE
+    `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer` ; `Scene.from_state` la
+    reconstitue depuis les deux MEMES lectures). Sans elle, la face DECISION verrait le halo ACTIF
+    pendant le tour de Jaeger -- port porte d'un seul cote."""
+    from engine.playbook.scene import Scene
+    c = ms_visual
+    st, inst = _port_state(c)
+    assert inst is not None
+    for player, want_turn_of, want_active in ((c["owner"], True, False),
+                                              (c["foe_player"], False, True)):
+        st.current_player_id = player
+        sc = Scene.from_state(st)
+        us = sc.unit_state(c["jid"])
+        assert us.get("is_turn_of_owner") is want_turn_of, (
+            f"[joueur {player}] `Scene.unit_state` ne pose pas `is_turn_of_owner` "
+            f"({us.get('is_turn_of_owner')!r} != {want_turn_of})")
+        assert bool(inst.is_active(us)) is want_active, (
+            f"[joueur {player}] la condition rend {inst.is_active(us)} au lieu de {want_active} "
+            "sur le contexte de PREDICTION")
+
+
 def test_unported_class_would_publish_the_halo_during_the_owner_turn(ms_visual):
     """CONTRE-EPREUVE -- le regime MORD. Le MEME effet capte, route sur `BaseEffect` (l'etat du port
     AVANT ce cas) : `BaseEffect.is_active` rend `True` INCONDITIONNELLEMENT, donc le halo « riposte
