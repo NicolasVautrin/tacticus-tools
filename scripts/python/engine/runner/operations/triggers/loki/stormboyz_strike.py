@@ -72,7 +72,10 @@ CE QUI N'EST PAS DANS CETTE TRANCHE (residus NOMMES, chacun un artefact natif DI
 * `IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` -- les
   QUATRE triggers PROPRES de l'effet 1140, partages par ses trois soeurs (1035
   `TeleportStrike_TeleportingIn`, 1238 `FearOfTheUnseen_TeleportingIn`, 1573
-  `TitanhammerSquad_TeleportingIn`), aucune portee :
+  `TitanhammerSquad_TeleportingIn`). PORTES depuis #448-r2 (base + 1035) et #448-r2b (1140), dans
+  `triggers/loki/teleporting_in.py` ; 1238 et 1573 restent hors registre (#448-r2c/d). Le paragraphe
+  ci-dessous est la LECTURE D'ORIGINE, conservee -- sa derniere phrase a ete RECTIFIEE par #448-r2b
+  (voir apres) :
       On(0x04 UnitAfterMove)    & OwnerIsActor                & <vslot 0x738> -> RemoveEffect(self)
       On(0x2a PreUnitAbility)   & OwnerIsActor                & <vslot 0x738> -> RemoveEffect(self)
       On(0x28 UnitFinishedTurn) & OwnerIsActor & HasTile(Owner) & <vslot 0x738> -> RemoveEffect(self)
@@ -82,10 +85,13 @@ CE QUI N'EST PAS DANS CETTE TRANCHE (residus NOMMES, chacun un artefact natif DI
   `FearOfTheUnseen_TeleportingInEffect$$GetAdditionalRemoveTriggers` = `AmountIsEqual(
   EffectRemainingTurns(<Sel+0x38>), Direct(1))`) ; le corps de base est TRIVIAL donc dedupliqe et
   non nommable -- il faudrait le lire au RUNTIME (`resolveMethodPtr` sur le slot) avant de porter la
-  famille. Le 4e trigger est en revanche INERTE pour 1140, et c'est une MESURE et non une
-  hypothese : `StormboyzStrike_TeleportingInEffect` ne surcharge PAS `GetMovingEffectType` (ses
-  trois soeurs, si) et l'`EffectType` du build ne contient AUCUN `StormboyzStrike_Moving`
-  (le seul `*_Moving` est `1036 TeleportStrike_Moving`).
+  famille. Le 4e trigger est en revanche INERTE pour 1140.
+  ⚠ RECTIFICATION (#448-r2b, `resolveMethodPtr` + octets) : `StormboyzStrike_TeleportingInEffect`
+  SURCHARGE bien `GetMovingEffectType` (le slot est ABSTRAIT dans la base, les QUATRE le
+  surchargent) -- c'est son CORPS qui est vide, `xor eax, eax ; ret`, dedupliqe avec
+  `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId`, donc `Nullable` sans valeur.
+  Conclusion observable INCHANGEE (branche `Nothing()`), lecture corrigee. Et l'`EffectType` du
+  build contient TROIS `*_Moving` -- 1036, 1241, 1574 -- dont aucun Stormboyz.
 * `IdunBattle.Entities.Pathfinding.StormboyzStrikePathfinder$$IsValidTeleportTile` (vslot 11) --
   le pool de teleport que 1140 declenche (`MovementQuery$$GetPathfinderTypeForUnit` -> types 8/9),
   porte en HYPOTHESE `True` dans `entities/pathfinding/teleport_pathfinder.py`. CONFRONTE ici :

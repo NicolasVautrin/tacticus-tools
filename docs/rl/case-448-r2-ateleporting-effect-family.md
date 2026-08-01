@@ -112,7 +112,7 @@ leur porteur : 1036 avec 1035, 1241 avec 1238, 1574 avec 1573.
 
     EFFECT_CLASSES[<les 4>]   : AUCUNE (BaseEffect nu) -- correct, ils ne contribuent a aucun canal
     EFFECT_TRIGGERS[1035]     : AUCUN        EFFECT_TRIGGERS[1036] : AUCUN
-    EFFECT_TRIGGERS[1140]     : AUCUN
+    EFFECT_TRIGGERS[1140]     : AUCUN                                        # inscrit par #448-r2b
     EFFECT_TRIGGERS[1238]     : AUCUN        EFFECT_TRIGGERS[1241] : AUCUN
     EFFECT_TRIGGERS[1573]     : AUCUN        EFFECT_TRIGGERS[1574] : AUCUN
 
@@ -254,7 +254,15 @@ Chacune réutilise **telles quelles** les cinq classes de base de `triggers/loki
 et n'ajoute qu'une spécialisation + son inscription au registre + ses gardes. Aucune primitive
 neuve n'est attendue.
 
-### `#448-r2b` — `1140 StormboyzStrike_TeleportingIn`
+### `#448-r2b` — `1140 StormboyzStrike_TeleportingIn` — **LIVRÉE** (`case-448-r2b-stormboyz-teleporting-in.md`)
+
+Portée et confrontée live le 2026-08-01. Le `Nullable` vide de `GetMovingEffectType` est **mesuré**
+(le corps, dédupliqué avec `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId`, vaut
+`xor eax, eax ; ret` — recoupé par l'enum du build et par les trois appelants de
+`TeleportMovingEffect$$.ctor`), et le bras FAUX du gate `HasTile(Owner)` est **exercé** :
+`applyAction finish` sur le porteur hors plateau → le port GARDE 1140, le natif le retire seulement
+après que `StormboyzStrike_FallbackAbility` (NON PORTÉE) ait reposé l'unité. L'étage manquant est
+INJECTÉ, et le port rejoint alors le natif terme à terme. Le brief initial est conservé ci-dessous.
 
 * **Porteur / chemin** : `orksNpc6Stormboy`, npc, voie `passive`, aucun summoner →
   **GREFFE du passif**, déjà outillée et jouée (`catalog_inject.graft_passive_ability`,
