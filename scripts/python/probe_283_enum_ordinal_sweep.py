@@ -109,6 +109,12 @@ ALLOWLIST = {
     "scripts/python/tests/test_enum_ordinal_ratchet_offline.py":
         "le cliquet : ses citations `On(0x2b = PreUnitAbility)` sont les DONNEES qui prouvent "
         "que le detecteur mord -- les corriger desarmerait le test",
+    "scripts/python/probe_443r1c_ordinal_index_perime.py":
+        "meme raison : sa docstring REPRODUIT la ligne fautive de #443-r1c "
+        "(`leaves.get(8)  # 8=Elevation`) et son echantillon d'auto-test la PORTE -- les "
+        "corriger desarmerait le detecteur. Confirmation croisee au passage : cette docstring, "
+        "elle, NOMME `UtilityType`, donc l'etape 4 y admet les membres ambigus et la voit ; "
+        "c'est l'exacte difference avec la ligne d'origine, qui ne le nommait pas",
 }
 
 # `hooks-legacy/` est VERSIONNE mais rien de vivant n'en depend : inventorie a part.
@@ -590,6 +596,16 @@ class _ExecSweep(ast.NodeVisitor):
                 vals = _lit(node.args[idx])
                 if vals:
                     self._check(node.args[idx].lineno, vals, court, "posarg")
+        # ACCESSEUR de dict : `d.get(3)` porte EXACTEMENT le meme contrat que `d[3]`, que
+        # `visit_Subscript` sert deja -- l'asymetrie n'etait qu'un oubli, et #443-r1c l'a payee
+        # (`leaves.get(8)` invisible ici). Meme heuristique `_root_of` sur le RECEPTEUR, donc
+        # aucune regle nouvelle. A 0 site le jour ou elle est posee : elle ferme la forme, elle
+        # ne rattrape rien -- ce qui a rattrape #443-r1c est `probe_443r1c` (la ligne CITE ses
+        # membres en prose ; `leaves` ne porte aucune racine `_ROOTS`).
+        if isinstance(f, ast.Attribute) and f.attr in ("get", "pop", "setdefault") and node.args:
+            vals = _lit(node.args[0])
+            if vals:
+                self._check(node.args[0].lineno, vals, _root_of(f.value), "accesseur")
         self.generic_visit(node)
 
 
