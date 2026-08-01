@@ -120,7 +120,12 @@ from ..loki.teleporting_in import (                                       # #448
     FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,  # T3 On(0x28) & HasTile
     FearOfTheUnseenTeleportingInAddMovingOnPreMove,        # T4 On(0x1f) -> AddEffect(1241)
     FearOfTheUnseenMovingRemoveOnAfterMove,                # TeleportMovingEffect : On(4)
-    FEAR_OF_THE_UNSEEN_TELEPORTING_IN, FEAR_OF_THE_UNSEEN_MOVING)
+    FEAR_OF_THE_UNSEEN_TELEPORTING_IN, FEAR_OF_THE_UNSEEN_MOVING,
+    StormboyzStrikeTeleportingInRemoveOnAfterMove,         # #448-r2b -- T1 On(4)
+    StormboyzStrikeTeleportingInRemoveOnPreUnitAbility,    # T2 On(0x2a)
+    StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn,  # T3 On(0x28) & HasTile -> FAUX hors plateau
+    StormboyzStrikeTeleportingInAddMovingOnPreMove,        # T4 On(0x1f) -> Nothing() (Nullable VIDE)
+    STORMBOYZ_STRIKE_TELEPORTING_IN)
 from ..loki.ramming_speed import (RammingSpeedExtraExplodeRemove,          # case-389-r1 (1098)
                                   RAMMING_SPEED_EXTRA_EXPLODE)
 from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
@@ -680,6 +685,21 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # 1241 FearOfTheUnseen_Moving : DEUXIEME des trois `EffectType` que la fabrique native construit
     # par `IdunBattleLogic.Effects.TeleportMovingEffect` -- meme `Triggered` unique que 1036.
     FEAR_OF_THE_UNSEEN_MOVING: [FearOfTheUnseenMovingRemoveOnAfterMove],       # 1241 -> retrait On(4)
+    # 1140 StormboyzStrike_TeleportingIn (#448-r2b) : les MEMES quatre `Triggered()` de
+    # la base `ATeleportingEffect`, avec DEUX particularites, toutes deux MESUREES :
+    #   * `GetMovingEffectType` (vslot 0x758) est bien SURCHARGE (`resolveMethodPtr` le trouve a la
+    #     profondeur 0) mais son corps est `xor eax, eax ; ret` -> `Nullable` VIDE -> T4 prend la
+    #     branche `Nothing()`. C'est le SEUL des quatre sans `*_Moving` -- et il n'y a AUCUN
+    #     `StormboyzStrike_Moving` dans l'`EffectType` du build. AUCUNE entree `*_Moving` ici, donc.
+    #   * le porteur est HORS PLATEAU sous 1140 (`StormboyzStrike_TeleportAbility$$CreateBehaviour`
+    #     appelle `RemoveUnitFromItsTiles`) : `HasTile(Owner)` est FAUX, T3 NE FIRE PAS et l'effet
+    #     SURVIT a la fin du tour. Un port qui oublierait le gate le retirerait -- c'est le seul
+    #     regime de la famille qui l'exerce. Cf. loki/teleporting_in.py et
+    #     docs/rl/case-448-r2b-stormboyz-teleporting-in.md.
+    STORMBOYZ_STRIKE_TELEPORTING_IN: [StormboyzStrikeTeleportingInRemoveOnAfterMove,          # On(4)
+                                      StormboyzStrikeTeleportingInRemoveOnPreUnitAbility,     # On(0x2a)
+                                      StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn,   # On(0x28)
+                                      StormboyzStrikeTeleportingInAddMovingOnPreMove],        # On(0x1f)
     # 1098 RammingSpeed_ExtraExplode (case-389-r1, pose sur le CASTER par `RammingSpeedAbility$$
     # ExecuteBehaviour`). Le natif le POSE et le RETIRE dans le MEME `applyAction` : son
     # `CreateTargetTrigger` est `On(0x3a = PhaseEnd, ownerNeedsToBeAlive: false)` -- un `On(...)` NU --

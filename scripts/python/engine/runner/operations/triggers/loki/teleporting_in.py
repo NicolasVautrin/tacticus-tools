@@ -118,23 +118,28 @@ feuilles : docstring de `_FearOfTheUnseenRemainingIsOne`.
 
 ## Ce qui n'est PAS porte ici, nommement
 
-* les effets 1140 / 1573 (deux des trois soeurs) : tranches filles #448-r2b/d. Les classes de
-  BASE ci-dessous sont ecrites pour elles (un `effect_type`, un `MOVING_EFFECT_TYPE`, et pour
-  TitanhammerSquad une surcharge de `_custom_moving_condition`) -- mais AUCUNE n'est inscrite au
-  registre tant qu'elle n'est pas CONFRONTEE ;
-* `UntargetableEffect$$ApplyInternal` pour 1238 : `ai/state_bridge.py::_is_untargetable` ne lit que
-  `1035`, alors que la non-ciblabilite vient de la BASE `UntargetableEffect` et vaut donc pour les
-  QUATRE (chaine `FearOfTheUnseen_TeleportingInEffect <- ATeleportingEffect <- UntargetableEffect
-  <- BaseEffect`, `classes.tsv`). RESIDU NOMME, canal DECISION, hors de cette tranche (qui ne touche
-  que les triggers) ;
+* l'effet `1573` (la derniere soeur) : tranche fille #448-r2d. Les classes de BASE ci-dessous sont
+  ecrites pour elle (un `effect_type`, un `MOVING_EFFECT_TYPE`, une surcharge de
+  `_custom_moving_condition`) -- mais elle n'est PAS inscrite au registre tant qu'elle n'est pas
+  CONFRONTEE. `1238` l'est depuis #448-r2c, `1140 StormboyzStrike_TeleportingIn` depuis #448-r2b ;
+* les DEUX abilities triggered qui ENTOURENT 1140 -- `StormboyzStrike_MissAbility` (retire 1140 au
+  `On(0x1f)`, 20 % de deviation de destination, `TriggerAbility(FullThrottle)`) et
+  `StormboyzStrike_FallbackAbility` (repose l'unite hors plateau au `On(0x28)`, pose
+  `1179 _AlreadyUsedTile`) : residus NOMMES de `docs/rl/case-448-r1-stormboyz-fallback-miss.md`.
+  Elles ne changent pas la lecture des triggers PROPRES de 1140 ; elles changent QUEL etage retire
+  l'effet cote natif, et c'est dit sur chaque classe ;
 * les DEUX autres jambes du `FinishUnitTurn(unit, false)` que `IdunBattle.Operations.
   EndTurnOperation$$Execute` appelle par unite possedee (`On(0x1c ArrivedAtFinalTile)` et
   `On(0x29 UnitFinishedTurnNormally)`) : le port n'emet, depuis ce site-la, que la jambe `On(0x28)`
   -- residu NOMME, cf. `operations/turnflow.py::EndTurnOperation` ;
-* `UntargetableEffect$$ApplyInternal/RevertInternal` (le flag `UnitFlag 0x11`) : le port lit la
-  non-ciblabilite depuis la PRESENCE de l'effet (`ai/state_bridge.py::_is_untargetable`,
-  `entities/effects/aura_selectors.py`), pas depuis un flag -- equivalent observable, canal
-  different, inchange par cette tranche.
+* `UntargetableEffect$$ApplyInternal/RevertInternal` (le flag `UnitFlag 0x11`) **pour 1238 et 1573**.
+  Le port ne lit pas un flag mais la PRESENCE de l'effet -- canal different, equivalent observable --
+  et depuis #448-r2b c'est un DOMAINE et non une constante
+  (`entities/effects/aura_selectors.py::UNTARGETABLE_EFFECT_TYPES`), parce que le flag vient de la
+  BASE et vaut donc pour les QUATRE (chaine `<X>_TeleportingInEffect <- ATeleportingEffect <-
+  UntargetableEffect <- BaseEffect`, `classes.tsv`). Le port n'y inscrit que ce qu'il a CONFRONTE
+  SUR CE CANAL : `1035` et `1140`. **`1238` en reste DEHORS** -- residu NOMME de #448-r2c, canal
+  DECISION -- et `1573` arrivera avec #448-r2d.
 """
 from __future__ import annotations
 
@@ -151,6 +156,7 @@ from ..base import EffectTrigger, TriggerEvent
 
 TELEPORT_STRIKE_TELEPORTING_IN = int(EffectType.TeleportStrike_TeleportingIn)   # 0x40b = 1035
 TELEPORT_STRIKE_MOVING = int(EffectType.TeleportStrike_Moving)                 # 0x40c = 1036
+STORMBOYZ_STRIKE_TELEPORTING_IN = int(EffectType.StormboyzStrike_TeleportingIn)  # 0x474 = 1140
 
 
 # --- ATeleportingEffect : les TROIS triggers de RETRAIT (T1/T2/T3) --------------------------------
@@ -474,3 +480,82 @@ class FearOfTheUnseenMovingRemoveOnAfterMove(TeleportMovingRemoveOnAfterMove):
     `IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects` construit par
     `IdunBattleLogic.Effects.TeleportMovingEffect`. Meme trigger unique que 1036."""
     effect_type = FEAR_OF_THE_UNSEEN_MOVING
+
+
+# --- 1140 StormboyzStrike_TeleportingIn : la specialisation SANS `*_Moving` (#448-r2b) -------------
+# LES QUATRE MESURES QUI FONDENT CETTE TRANCHE -- aucune n'est une symetrie avec les trois soeurs :
+#
+#  1. `StormboyzStrike_TeleportingInEffect` SURCHARGE bien `GetMovingEffectType` (vslot 0x758,
+#     ABSTRAIT dans la base) : `resolveMethodPtr` la trouve a la profondeur 0 de la chaine de
+#     parents. Son corps est TRIVIAL donc DEDUPLIQUE -- il n'a aucun nom de symbole, et son entree
+#     est partagee avec `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId`. Les octets a
+#     cette entree sont `33 c0 c3` = `xor eax, eax ; ret`. `Nullable<EffectType>` (int32 + bool,
+#     8 octets) revient dans RAX sur x64 Windows -> `hasValue = 0` = **Nullable VIDE** -> T4 prend
+#     la branche `Nothing()`. Les trois soeurs, elles, ont un corps NOMME qui construit le
+#     `Nullable` par son ctor (0x40c / 0x4d9 / 0x626).
+#  2. `IdunBattle.Entities.Enum.EffectType` du build ne contient QUE TROIS `*_Moving` (1036, 1241,
+#     1574) -- aucun `StormboyzStrike_Moving` (table VERSIONNEE `frida/enums.tsv`, 629 valeurs).
+#  3. `IdunBattleLogic.Effects.TeleportMovingEffect$$.ctor` a EXACTEMENT TROIS appelants, tous des
+#     lambdas d'`IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects` -- une par `*_Moving`.
+#  4. Les DEUX autres vslots ne sont PAS surcharges (`resolveMethodPtr` : `GetAdditionalRemoveTriggers`
+#     et `GetCustomMovingEffectCondition` ne resolvent qu'a la profondeur 1, sur le corps de BASE
+#     partage avec `WayOfTheShortBlade_AdditionalAttackMarkerEffect$$CreateActiveCondition`, qui
+#     rend `<DSLTriggers+0x40>` = le conjonct NEUTRE). Les deux collapses de la base valent donc.
+#     ⚠ Ce point PORTE, depuis #448-r2c : le vslot 0x738 est appele dans les **QUATRE** `Triggered()`,
+#     T4 COMPRIS (`ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` fait
+#     `(**(code **)(*in_RDX + 0x738))()` une fois par trigger). Chez `FearOfTheUnseen`, qui le
+#     surcharge, il gouverne donc AUSSI la pose du marqueur `*_Moving`. Pour 1140, non surcharge, il
+#     rend `True` partout -- la condition de T4 se reduit a `OwnerIsActor`, et la branche prise
+#     depend du SEUL `GetMovingEffectType`, donc `Nothing()`. La rectification ne change RIEN ici,
+#     et c'est verifie plutot que suppose (garde `test_T4_declares_no_moving_effect_and_poses_nothing` :
+#     T4 MATCHE et ne pose rien -- la distinction entre << condition fausse >> et << condition vraie,
+#     behaviour `Nothing()` >>).
+#
+# PAS DE `_TeleportStrikeLandingMixin` ICI, et c'est une lecture, pas un oubli : le volet
+# « passives DEFERREES » est une couche IMPERATIVE que le port accroche au retrait de 1035 parce que
+# la cascade live de l'atterrissage TeleportStrike les montre dans le meme bloc (residu NOMME de la
+# tranche 1 -- `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` n'a que des xrefs
+# DATA). Le regime de 1140 est l'inverse : c'est `On(0x21 = AbilityInit)` LUI-MEME qui pose l'effet
+# (`StormboyzStrike_TeleportAbility$$CreateTrigger`), donc les owner-effects du porteur sont DEJA
+# initialises quand 1140 arrive -- `snapshot.load_state` ne les diffère que sous 1035. MESURE :
+# volet E1 de `probe_448_r2b_stormboyz_teleporting_in.py` (le porteur greffe arrive sous 1140 AVEC
+# ses owner-effects passifs).
+class StormboyzStrikeTeleportingInRemoveOnAfterMove(ATeleportingRemoveOnAfterMove):
+    """T1 pour 1140. ⚠ REGIME : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    StormboyzStrike_MissAbility` (NON PORTEE, residu de `case-448-r1`) ecoute le MEME pas en amont
+    (`On(0x1f = PreUnitMove)`) et fait `RemoveEffect(Caster, 0x474)` INCONDITIONNELLEMENT -- donc
+    cote NATIF c'est ELLE qui retire 1140 des le pre-move, et T1 n'a plus rien a retirer. Cote PORT
+    (Miss absente) c'est T1 qui retire. Les deux cotes rendent le MEME etat apres le pas -- c'est ce
+    que CONFRONT-MOVE mesure -- mais l'etage differe, et il est NOMME ici plutot que tu."""
+    effect_type = STORMBOYZ_STRIKE_TELEPORTING_IN
+
+
+class StormboyzStrikeTeleportingInRemoveOnPreUnitAbility(ATeleportingRemoveOnPreUnitAbility):
+    """T2 pour 1140. NON CONFRONTE LIVE : sous 1140 l'unite est HORS PLATEAU
+    (`StormboyzStrike_TeleportAbility$$CreateBehaviour` appelle `RemoveUnitFromItsTiles`), donc elle
+    n'a ni portee ni ligne de vue et aucun cast n'est legal -- `abilityTargets` rend un `fromHere`
+    VIDE (mesure : volet T2-VIDE du probe). Le trigger est porte parce qu'il est DANS l'`ArraySet`
+    natif de la classe de base, pas parce qu'un geste l'exerce."""
+    effect_type = STORMBOYZ_STRIKE_TELEPORTING_IN
+
+
+class StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn(ATeleportingRemoveOnUnitFinishedTurn):
+    """T3 pour 1140 -- LE contre-bras vivant du gate `HasTile(Owner)`, qu'aucune autre tranche de la
+    famille ne peut exercer : 1140 est le SEUL des quatre dont le poseur retire l'unite du plateau.
+
+    Sous 1140 `HasTile(Owner)` est donc FAUX et T3 NE FIRE PAS -- l'effet SURVIT a la fin du tour de
+    son porteur. Ce qui le fait finalement mordre, cote natif, est un TIERS : `IdunBattleLogic.
+    Abilities.Triggered.Loki.StormboyzStrike_FallbackAbility` (NON PORTEE, residu de `case-448-r1`),
+    qui ecoute le MEME `On(0x28)` sous `HasEffect(Owner, 0x474)` et REPOSE l'unite par un
+    `MoveUnitBehaviour` -- apres quoi `HasTile` devient vrai et T3 retire. Le port, sans le Fallback,
+    laisse donc l'unite hors plateau AVEC 1140 : c'est la reponse CORRECTE de T3 a l'etat qu'on lui
+    donne, et la divergence live est imputable au seul etage manquant (confrontation par ETAGES,
+    volets CONFRONT-FINISH et T3-APRES-FALLBACK du probe)."""
+    effect_type = STORMBOYZ_STRIKE_TELEPORTING_IN
+
+
+class StormboyzStrikeTeleportingInAddMovingOnPreMove(ATeleportingAddMovingOnPreMove):
+    """T4 pour 1140 : `MOVING_EFFECT_TYPE` reste `None` (herite de la base) = `Nullable` VIDE =
+    branche `Nothing()`. C'est le SEUL des quatre dans ce cas, et c'est MESURE (les quatre points
+    ci-dessus), pas deduit d'une absence de symbole."""
+    effect_type = STORMBOYZ_STRIKE_TELEPORTING_IN
