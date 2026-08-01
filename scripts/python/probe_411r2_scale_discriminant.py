@@ -98,6 +98,24 @@ def _units(s: int, rid: int) -> dict:
     return {int(u["id"]): u for u in (dv.get("units") or [])}
 
 
+def normal_ability_id(units: dict, uid: int) -> int:
+    """Id de l'ATTAQUE NORMALE CONCRETE de `uid`, lu dans `decisionView.units[].abilities[]`
+    (`kind == "normal"`). Mirror de `rl_duel._normal_ability_map` (TF18).
+
+    POURQUOI CE HELPER EXISTE (#411-r2) : `rl_duel act ability` SANS `--ability` auto-resolvait
+    depuis `attackPlans`, qui porte une entree PAR ABILITY castable sur la cible -- et sa boucle
+    retenait la DERNIERE, donc l'ACTIVE. Un probe qui croyait confronter l'attaque normale
+    faisait jouer au natif l'active du caster ; l'ecart se lisait comme une divergence de PORT.
+    On NOMME donc l'ability, toujours. Leve si le kind normal est absent : un defaut silencieux
+    est precisement ce qui a produit le faux symptome."""
+    u = units.get(int(uid)) or {}
+    for ab in (u.get("abilities") or []):
+        if ab.get("kind") == "normal" and ab.get("id") is not None:
+            return int(ab["id"])
+    raise RuntimeError("pas d'ability kind='normal' sur u%s (abilities=%r) -- ne pas deviner"
+                       % (uid, [(a.get("id"), a.get("kind")) for a in (u.get("abilities") or [])]))
+
+
 def _find(units: dict, visual_id: str):
     for uid, u in units.items():
         if u.get("visualId") == visual_id:
@@ -268,7 +286,7 @@ def main() -> int:
 
         # --- EXECUTION NATIVE ---
         _run(["rl_duel.py", "act", "ability", "--caster", str(att), "--target", str(vic),
-              "--state-file", str(sf)], pydir)
+              "--ability", str(normal_ability_id(units1, att)), "--state-file", str(sf)], pydir)
         units2 = _units(s, rid)
         hp_v1 = int((units2.get(vic) or {}).get("hp") or 0)
         hp_c1 = int((units2.get(car) or {}).get("hp") or 0)

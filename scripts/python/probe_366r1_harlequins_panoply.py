@@ -71,6 +71,22 @@ def _find(units: dict, visual_id: str):
     raise RuntimeError("unite %r absente du runner" % (visual_id,))
 
 
+def _normal_ability_id(units: dict, uid: int) -> int:
+    """Id de l'ATTAQUE NORMALE CONCRETE de `uid` (`decisionView.units[].abilities[]`,
+    `kind == "normal"`) -- mirror de `rl_duel._normal_ability_map` (TF18).
+
+    #411-r2 : `act ability` SANS `--ability` auto-resolvait depuis `attackPlans`, qui porte une
+    entree PAR ABILITY castable sur la cible, et retenait la DERNIERE -- donc l'ACTIVE. Sur CE
+    montage (`necroDestroyer` -> `astraBullgryn`), c'etait `1006 MultiThreatEliminator` et non
+    les « 6 coups de melee » annonces en tete de module. On la NOMME donc, et on LEVE si le
+    kind normal manque."""
+    u = units.get(int(uid)) or {}
+    for ab in (u.get("abilities") or []):
+        if ab.get("kind") == "normal" and ab.get("id") is not None:
+            return int(ab["id"])
+    raise RuntimeError("pas d'ability kind='normal' sur u%s -- ne pas deviner" % (uid,))
+
+
 def _adjacent_free(s: int, rid: int, units: dict, target_pos: dict, mover: int):
     bg = rpc(s, "boardGraph", {"runnerId": rid}, 60)
     tiles = {int(t["id"]): t for t in (bg.get("tiles") or [])}
@@ -108,6 +124,7 @@ def one_run(pydir: Path, state_file: Path, seed_bc, seed: str, board: str, label
     _run(["rl_duel.py", "act", "move", "--unit", str(att), "--to", "%d,%d" % to,
           "--state-file", str(state_file)], pydir)
     _run(["rl_duel.py", "act", "ability", "--caster", str(att), "--target", str(dfd),
+          "--ability", str(_normal_ability_id(units, att)),           # #411-r2 : jamais implicite
           "--state-file", str(state_file)], pydir)
     units2 = _units(s, rid)
     hp1 = int((units2.get(dfd) or {}).get("hp") or 0)

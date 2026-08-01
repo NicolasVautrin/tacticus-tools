@@ -90,6 +90,21 @@ def _find(units: dict, visual_id: str):
     raise RuntimeError("unite %r absente du runner" % (visual_id,))
 
 
+def _normal_ability_id(units: dict, uid: int) -> int:
+    """Id de l'ATTAQUE NORMALE CONCRETE de `uid` (`decisionView.units[].abilities[]`,
+    `kind == "normal"`) -- mirror de `rl_duel._normal_ability_map` (TF18).
+
+    #411-r2 : `act ability` SANS `--ability` auto-resolvait depuis `attackPlans`, qui porte une
+    entree PAR ABILITY castable sur la cible, et retenait la DERNIERE -- donc l'ACTIVE. Le natif
+    jouait alors une autre ability que celle qu'on croyait mesurer. On la NOMME toujours, et on
+    LEVE si le kind normal manque plutot que de retomber sur un defaut silencieux."""
+    u = units.get(int(uid)) or {}
+    for ab in (u.get("abilities") or []):
+        if ab.get("kind") == "normal" and ab.get("id") is not None:
+            return int(ab["id"])
+    raise RuntimeError("pas d'ability kind='normal' sur u%s -- ne pas deviner" % (uid,))
+
+
 def _adjacent_free(s: int, rid: int, units: dict, target_pos: dict, mover: int):
     bg = rpc(s, "boardGraph", {"runnerId": rid}, 60)
     tiles = {int(t["id"]): t for t in (bg.get("tiles") or [])}
@@ -131,7 +146,12 @@ def one_run(pydir: Path, state_file: Path, seed_bc, seed: str, board: str, label
     to = _adjacent_free(s, rid, units, uv["pos"], att)
     mv = _run(["rl_duel.py", "act", "move", "--unit", str(att), "--to", "%d,%d" % to,
                "--state-file", str(state_file)], pydir)
+    # #411-r2 -- `--ability` EXPLICITE, OBLIGATOIRE. Sans lui, l'auto-resolution de `rl_duel`
+    # retenait la DERNIERE entree d'`attackPlans` pour ce couple, c'est-a-dire l'ACTIVE du
+    # caster (`necroDestroyer` -> 1006 MultiThreatEliminator) et non l'attaque normale que ce
+    # probe croit confronter. `rl_duel` REFUSE desormais l'ambiguite (rc 2) au lieu de choisir.
     at = _run(["rl_duel.py", "act", "ability", "--caster", str(att), "--target", str(vic),
+               "--ability", str(_normal_ability_id(units, att)),
                "--state-file", str(state_file)], pydir)
     units2 = _units(s, rid)
     hp_v1 = int((units2.get(vic) or {}).get("hp") or 0)
