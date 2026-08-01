@@ -122,10 +122,18 @@ ne posait pas — (2,4) et (4,4) ne pendent que d'un Swamp de `C1_74`. Le nœud 
 trois étages d'`AnyOrFillMoveableTiles` et, sur cette même géométrie, **désigne (4,3)** — la tuile
 où le natif pose le caster.
 
-## 6. `#383-r1` — la face COMBAT n'entre PAS dans `ABILITY_CLASSES`
+## 6. `#383-r1` — la face COMBAT n'entrait PAS dans `ABILITY_CLASSES` — **CLOS par #389**
 
-Le port de `RammingSpeedAbility$$ExecuteBehaviour` est bloqué sur **un nœud non identifié**, et un
-port spéculatif serait pire que l'absence. Structure lue :
+> **CLOS (2026-08-01, `case-389-ramming-speed-combat.md`).** `<DSLTriggers+0x20>` =
+> `IdunBattle.Entities.Triggers.OwnerIsAliveAbilityTrigger` (la propriété DSL `OwnerIsAlive`, SANS
+> opérande) — nommé par le gabarit de classe, le TYPE du champ (`MatchState`, qui écarte les 21
+> candidates allouées avec un sélecteur) et le corps trivial
+> `DSLTriggers$$IsRangedPosition = op_LogicalNot(<+0x18>)` qui nomme le jumeau. 1059 est au registre
+> avec ses deux données et son `GetDynamicInvalidTargetReason` ; confronté LIVE 5/5 bras.
+> La branche VRAIE du `ConditionalAmount` (§7) est désormais confrontée LIVE elle aussi.
+
+Le port de `RammingSpeedAbility$$ExecuteBehaviour` était bloqué sur **un nœud non identifié**, et un
+port spéculatif aurait été pire que l'absence. Structure lue :
 
 ```
 ifMove = If( NOT IsAdjacent(Caster@0x48, Target@0x60, 3),
@@ -169,11 +177,14 @@ l'**override virtuel** `RammingSpeedAbility$$GetDynamicInvalidTargetReason`, pas
 
 ## 7. Ce qui n'est PAS couvert
 
-* **La face COMBAT** (§6) — `1059` reste hors `ABILITY_CLASSES`, donc hors `TARGETING_OPTIONS` /
-  `ABILITY_ATTACK_TYPE` (les y poser sans l'entrée ferait du code que rien ne lit).
-* **La branche VRAIE du `ConditionalAmount`** (`HasEffect(Owner, 1098)`) n'est exercée
-  qu'**OFFLINE** (`test_383_…_offline.py`, effet posé dans l'`EffectsState`). En bataille son seul
-  poseur est `RammingSpeedAbility$$ExecuteBehaviour` — donc §6 la rendra confrontable, et pas avant.
+* ~~**La face COMBAT** (§6) — `1059` reste hors `ABILITY_CLASSES`~~ — **PORTÉE ET CONFRONTÉE
+  (#389, `case-389`)**, avec `TARGETING_OPTIONS`, `ABILITY_ATTACK_TYPE` et
+  `GetDynamicInvalidTargetReason`.
+* ~~**La branche VRAIE du `ConditionalAmount`** (`HasEffect(Owner, 1098)`) n'est exercée
+  qu'**OFFLINE**~~ — **CONFRONTÉE LIVE par #389** : le bras léthal de
+  `probe_389_ramming_speed_combat_port.py` fait tuer le caster (`orksKillaKan`, trait `Explodes`)
+  par son propre contrecoup ; la nova part PENDANT le cast et rend **75 %** du maxPV
+  (`explodesDmg` 25 + `extraDmgPct` 50) — port == natif, et `--mutate no-effect` rend 25 % (ROUGE).
 * **`TargetsSelector$$SelectUniqueUnits(ctx, 3)`** : ni le `unique` ni le masque `3` (vivante ET
   sans le flag `0x11 NotTargetable`) ne sont modélisés séparément — `_within` filtre déjà les
   mortes, le flag `0x11` n'a aucun substrat côté prédiction. Résidu commun à tous les sets AoE.
