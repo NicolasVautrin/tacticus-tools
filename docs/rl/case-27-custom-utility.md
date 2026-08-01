@@ -1261,10 +1261,10 @@ re-derouler la recon : elle part d'ici.
 | 21 | `ForwardObserversPlaybook` @18113bb70 | ForwardObservers (1185) | tauSmnStealthSuit [summon SANS invocateur] + tauNpc5StealthSuit [npc] | summon + npc | **PORTE** (#27-4e) | — (les deux verrous sont TOMBES : (a) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (b) le predicat Markerlight est un mirror IMPERATIF de `CheckIfAnyEnemyHasMarkerLight` (slot itf 0x8e `GetAllEnemiesOf` + `EntityExtensions.HasEffect`), sans arbre DSL a evaluer. Porteur GREFFE — `ATemptingTrap` n'appartient a AUCUNE unite ET `buildNormalizedBC` refuse summon/npc) |
 | 22 | `IdunBattle.AI.Playbook.Loki.HealingBalms_HealPlaybook$$CalculateCustomUtility` | HealingBalms_Heal (1212) | spaceWolfPriest `Baldr` [lineup, hors catalogue seed BC -> `catalog_inject.py --units spaceWolfPriest`] | hero | **PORTE** (#27-4d) | — (les verrous annonces sont TOMBES : l'ability n'a pas besoin d'entree gameconfig — sa magnitude vient de l'ARME —, elle est GRANTED des le spawn par `HealingBalmsAbility$$CreateBehaviour` (`RemoveActiveAbility(0x12)` + `AddActiveAbility(0x4bc)`), et elle atteignait deja `_heal_candidates`) |
 | 23 | `SavageEchoesPlaybook` @1811586d0 | SavageEchoes (1230) | bloodTerminator | hero hors catalogue seed BC -> **confrontable via `catalog_inject.py`** | **PORTE** (#27-3) | — (verdicts « porteur hors pool » + « evaluateur de CONDITION manquant » des tranches 1-2 **CORRIGES** : le catalogue se complete, et la condition est un simple ratio de PV lu au decompile) |
-| 24 | `MortarionsPlagueWindPlaybook` @18114ca30 | MortarionsPlagueWind (1093) | deathBossMortarion | **npc** | **non pertinent** | — |
-| 25 | `InstrumentsOfVengeancePlaybook` @1811460d0 | InstrumentsOfVengeance (1215) | darkaBossLion | **npc** | **non pertinent** | — |
-| 26 | `MartialExemplarPlaybook` @18114ae20 | MartialExemplar (1216) | darkaBossLion | **npc** | **non pertinent** | — |
-| 27 | `TheLionsWrathPlaybook` @18116aba0 | TheLionsWrath (1217) | darkaBossLion | **npc** | **non pertinent** | — |
+| 24 | `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$CalculateCustomUtility` | MortarionsPlagueWind (1093) | deathBossMortarion | npc **-> GREFFABLE** | **residu nomme (#27-r4)** | inventaire #27-r4 : `Count(UnitsWithTrait(t1+t2+t3, Psyker))` — ne lit ni stat ni trait du CASTER, donc greffable ; verrou restant = l'evaluateur DSL `UnitsWithTrait` + la chaine `AdjacentUnits` a 3 vagues |
+| 25 | `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$CalculateCustomUtility` | InstrumentsOfVengeance (1215) | darkaBossLion | npc **-> GREFFABLE** | **residu nomme (#27-r4)** | inventaire #27-r4 : `20000 + 100*[aucun ennemi adjacent] + 20*|ennemis a d=2 non adjacents|` — ne lit ni stat ni trait du CASTER ; reserve = `GetUseProbability` est un TIRAGE (0 / Half / One selon `GetTurnsFinished`) |
+| 26 | `IdunBattle.AI.Playbook.Loki.MartialExemplarPlaybook$$CalculateCustomUtility` | MartialExemplar (1216) | darkaBossLion | npc **-> GREFFE** | **PORTE (#27-r4)** | — (`1000 x |ennemis adjacents a la TUILE CANDIDATE qui sont `IsNormalUnit`|` ; ne lit ni stat ni trait du caster -> confronte par greffe sur `darkaCalibanCommander`) |
+| 27 | `IdunBattle.AI.Playbook.Loki.TheLionsWrathPlaybook$$CalculateCustomUtility` | TheLionsWrath (1217) | darkaBossLion | npc **-> GREFFABLE** | **residu nomme (#27-r4)** | inventaire #27-r4 : `30*FindMeleeWeapon(CIBLE).Hits + 2000*|adjacents Chaos+Hero| + 150*[CIBLE est Hero]` — les traits/armes lus sont ceux de la CIBLE, jamais du caster |
 
 ### Ventilation (les 22 overrides par-ability, apres correction #218)
 
@@ -1278,17 +1278,18 @@ re-derouler la recon : elle part d'ici.
   natif, #27-r1), **1004** (#27-r3) (+ les corps mutualises `Loki_NormalBossAttack` et
   `TwistedScience_Heal`, et les 3 corps PARTAGES : base, attaque normale, heal generique).
 - **Traites sans port (verdict ferme) : 1** — ProperKilly (dead-code, aucun porteur).
-- **NON CONFRONTES, porteurs NPC uniquement : 4** — 1093 (`deathBossMortarion`), 1215 / 1216 / 1217
-  (les trois de `darkaBossLion`). ⚠ « npc-only » n'est PAS « non confrontable » : le natif charge le
-  playbook PAR ABILITY, donc la GREFFE sur une unite du pool reste ouverte (`case-92` §5bis) — a la
-  condition, verifiable au decompile, que la formule ne lise ni stat ni trait du caster. Ces quatre
-  formules n'ont PAS ete relues sous cet angle. **Un seul montage de greffe (`darkaBossLion`) en
-  debloque TROIS** : c'est le meilleur levier restant du cas.
-- **Residus a debloquer : 0.** **Plus aucun override a porteur HERO/pool n'est en residu.**
-  (1169 et 1148 sont SORTIS : le verrou etait le DOMAINE DE CIBLE, leve par la route a cibles
-  TUILE — `docs/rl/case-302-route-cible-tuile.md` §6 et §8. **1004 est SORTI par #27-r3** : le
-  verrou ecrit — « evaluateur du composite `UtilityAttackCase.Base` manquant » — **n'existait pas**,
-  la voie ATTACK des feuilles `Tile(7)` deleguant a `EvaluateMovementInSteps`.)
+- **Porteurs NPC : 4 — et l'angle « npc-only » est TRANCHE (#27-r4).** Les quatre formules ont ete
+  relues au decompile sous le seul angle qui compte (« lit-elle une stat ou un trait du CASTER ? ») :
+  **aucune ne le fait**, donc les quatre sont **GREFFABLES** (`case-92` §5bis). **1216
+  `MartialExemplar` est PORTEE et CONFRONTEE** — le natif emet `ActiveAbilityMessage(1216)` une fois
+  l'ability greffee sur `darkaAsmodai`. Restent 1093 (`deathBossMortarion`), 1215 et 1217
+  (`darkaBossLion`) en **residus nommes**, une par tache (`#27-r5` / `#27-r6` / `#27-r7`).
+  Detail et verdicts : §TRANCHE r4.
+- **Residus a debloquer : 0 a porteur HERO/pool.** (1169 et 1148 sont SORTIS : le verrou etait le
+  DOMAINE DE CIBLE, leve par la route a cibles TUILE — `docs/rl/case-302-route-cible-tuile.md` §6
+  et §8. **1004 est SORTI par #27-r3** : le verrou ecrit — « evaluateur du composite
+  `UtilityAttackCase.Base` manquant » — **n'existait pas**, la voie ATTACK des feuilles `Tile(7)`
+  deleguant a `EvaluateMovementInSteps`.)
 - **DEUX entrees SORTENT de la liste sans qu'aucun port ne les ferme (#27-4g, correction
   d'inventaire)** : **1142 MalleusRocketLauncher** n'a AUCUN corps propre — le « playbook PARTAGE
   1051/1142 » est FAUX sur ce build (`...StikkbombPlaybook$$.ctor` -> `0x41b` = 1051 seule) — et
@@ -2546,8 +2547,10 @@ balayage. **Le compte « 28 classes / 27 corps » de la fiche de tache etait cel
 est PERIME.**
 
 Etat des **26 corps nommes** apres cette tranche : **21 portes ou couverts**, **1 dead-code**
-(`ProperKilly_NormalAttackPlaybook`, aucun porteur), **4 a porteur NPC-seul non confronte** (1093,
-1215, 1216, 1217). **Plus aucun override a porteur HERO/pool n'est en residu.**
+(`ProperKilly_NormalAttackPlaybook`, aucun porteur), **4 a porteur NPC-seul** (1093, 1215, 1216,
+1217) — **relus depuis, et les 4 sont GREFFABLES ; 1216 est PORTEE et CONFRONTEE (#27-r4)**, les
+trois autres sont des residus nommes (§TRANCHE r4). **Plus aucun override a porteur HERO/pool n'est
+en residu.**
 
 ### Ce que le decompile dit — la chaine, lue bout a bout
 
@@ -2744,3 +2747,98 @@ exploser l'ecart.)
   la SEULE methode de `Playbook<T>` dont la signature `(ITile, TUnit) -> IEnumerable<ITile>`
   corresponde a l'invocation, et le comportement mesure live (arc arriere + filtre d'occupation) le
   confirme des deux cotes. Attribution par ANCRAGE, pas par lecture directe.
+
+## TRANCHE r4 (2026-08-01) — les 4 overrides « npc-only » : l'INVENTAIRE tranche, et il tranche a 4/4
+
+Les tranches precedentes rangeaient 1093 / 1215 / 1216 / 1217 en « non pertinent — porteur npc ».
+**Ce n'est pas un verdict, c'est une question non posee.** Le critere de la gate de confrontabilite
+est : *l'utilite lit-elle une stat ou un trait du CASTER ?* Si non, l'ability se GREFFE sur une unite
+du pool (`case-92` §5bis), parce que le natif charge le playbook **par ABILITY**
+(`PlaybookDatabase.LoadPlaybook(abilityType)`), jamais par unite.
+
+Les quatre `.ctor` le confirment — ce sont bien quatre `ComparablePlaybook<T>` distincts :
+`...MortarionsPlagueWindPlaybook$$.ctor` -> `0x445` (1093),
+`...InstrumentsOfVengeancePlaybook$$.ctor` -> `0x4bf` (1215),
+`...MartialExemplarPlaybook$$.ctor` -> `0x4c0` (1216),
+`...TheLionsWrathPlaybook$$.ctor` -> `0x4c1` (1217). Les quatre ont un `constants.damageProfile`
+(Psychic / HeavyRound / Power / Power) : elles passent donc par la route d'ATTAQUE (`_best_attack`),
+pas par la route non-attaque de la tranche 4b.
+
+### Le PIVOT de l'inventaire : le slot d'interface 0x80 du `battleQuery`
+
+Trois des quatre customs (1215, 1216, 1217) reposent sur le meme appel
+`this.<battleQuery @+0x28>.<slot itf 0x80>(casterPosition, caster, ignoreSteppables: false)`.
+
+**Ancrage du slot, par le decorateur enregistreur** (jamais par recopie de fiche) — les
+`RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClassNNN_0$$u003C<Nom>u003Eb__0`
+emettent chacun leur slot :
+
+| slot | methode |
+|---|---|
+| 0x77 | `GetSurroundingUnits` (DisplayClass146) |
+| **0x78** | **`GetSurroundingEnemies`** (DisplayClass147) |
+| 0x79 | `GetSurroundingFriends` (DisplayClass148) |
+| 0x7a / 0x7b / 0x7c | `GetAdjacentUnits` (DisplayClass149/150/151) |
+| 0x7d / 0x7e / 0x7f / **0x80** | **`GetAdjacentEnemies`** (DisplayClass152/153/154/155) |
+| 0x1b | `HasMinimumRemainingTurns` (DisplayClass68) |
+| 0xb2 | `FindMeleeWeapon` (DisplayClass212) |
+
+⚠ **Le numero de DisplayClass n'est PAS un index de slot** : localement (144..155) la suite est
+monotone, mais `DisplayClass38` -> slot 6 et `DisplayClass41/42/43` -> slots 1/2/3. Chaque slot cite
+ici a ete lu dans le corps de SON display class, pas extrapole.
+
+**Et c'est ce corps-la qui rend le verdict** :
+`IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(from, unit, ignoreSteppables)` ne lit du
+`unit` que son `OwnerComponent.CurrentPlayerEntityId` — **le CAMP**, rien d'autre — avant
+`IterateAdjacentTiles(from)` / `GetUnitsOnTiles(...)`. Idem pour
+`...$$GetSurroundingEnemies(actor, from, range, includeCenter)` = `GetSurroundingUnits(from, range,
+includeCenter)` filtre par un predicat d'inimitie capturant `actor`. **Ni stat, ni trait, ni arme,
+ni portee du caster.** Une greffe ne les deforme donc pas.
+
+Meme conclusion pour les GATES, qu'il fallait lire avant de conclure a l'atteignabilite :
+
+- `...MartialExemplarPlaybook$$ShouldEvaluate` = `GetAdjacentEnemies(position, unit, false).Count > 0`.
+- `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate` = `BasePlaybook$$ShouldEvaluate &&
+  HasMinimumRemainingTurns(unit, 2)`. Le corps de
+  `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` **n'utilise PAS son parametre
+  `unit`** : il lit la limite de tours du match (dict de config, cle 1) moins
+  `TurnComponent$$GetAmountOfTurnsEndedByPlayer`, et **rend `true` quand la limite est absente**.
+  C'est un gate GLOBAL, neutre au porteur — et en arene il passe.
+- `...TheLionsWrathPlaybook$$ShouldEvaluate` combine les deux (`HasMinimumRemainingTurns(unit, 2)` et
+  le compte d'adjacents).
+
+### Les 4 verdicts
+
+| id | symbole | formule lue | lit une stat/trait du CASTER ? | verdict |
+|---|---|---|---|---|
+| **1093** | `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$CalculateCustomUtility` | `Fix64( Count( DSLSelectors.UnitsWithTrait(t1+t2+t3, Psyker(0x3ea), sel 3), AbilityEntities(owner: caster, caster: caster, target: target) ) )` — les trois vagues sont `t1 = <cfg dsl>+0x60` (selecteur de cible principale), `t2 = Enemies(of, AdjacentUnits(t1, includeCenter:1, sel:3), sel:3)`, `t3 = Unique(Enemies(of, AdjacentUnits(t2, includeCenter:1, sel:3), sel:3)) - t1 - t2`. **Aucun `GetUtilityValue`** : le compte EST l'utilite | **NON** — le seul trait lu (`Psyker`) est celui des unites SELECTIONNEES ; le caster n'entre que comme `owner`/`caster` de l'`AbilityEntities` (inimitie = camp) | **GREFFABLE** — residu nomme |
+| **1215** | `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$CalculateCustomUtility` | `adj = GetAdjacentEnemies(casterPosition, caster, false)` ; `u = 20000 + (adj.Any() ? 0 : 100) + 20 x \|{ e in GetSurroundingEnemies(caster, casterPosition, 2, false) : !adj.Contains(e) }\|`. **Aucun `GetUtilityValue`** : les trois constantes sont EN DUR | **NON** — camp seulement | **GREFFABLE** — residu nomme. ⚠ Reserve de MESURE : `...InstrumentsOfVengeancePlaybook$$GetUseProbability` = `Fix64.Zero` si `GetTurnsFinished(unit) == 0`, `Fix64.Half` si `== 1`, `Fix64.One` sinon (`Fix64.<statics>` : +0x20 One, +0x28 Zero, +0x30 Half) -> l'ability est INDISPONIBLE au tour du build et TIREE a 1/2 au suivant ; seule la fenetre `GetTurnsFinished >= 2` est deterministe |
+| **1216** | `IdunBattle.AI.Playbook.Loki.MartialExemplarPlaybook$$CalculateCustomUtility` | `1000 x \|{ e in GetAdjacentEnemies(casterPosition, caster, false) : UnitExtensions$$IsNormalUnit(e) }\|` ; `IsNormalUnit(e)` = `!HasTrait(e, Object(0xd)) && !HasTrait(e, Steppable(0x1b))`. **Aucun `GetUtilityValue`** : `1000` est EN DUR | **NON** — camp seulement ; le filtre porte sur les ENNEMIS | **PORTE + CONFRONTE** (ci-dessous) |
+| **1217** | `IdunBattle.AI.Playbook.Loki.TheLionsWrathPlaybook$$CalculateCustomUtility` | `30 x FindMeleeWeapon(TARGET).<+0x20 = Hits> + 2000 x \|{ e in GetAdjacentEnemies(casterPosition, caster, false) : IsNormalUnit(e) && HasTrait(e, Chaos(0x7ea)) && HasTrait(e, Hero(0x10)) }\| + 150 x [HasTrait(TARGET, Hero)]`. **Aucun `GetUtilityValue`** | **NON** — l'arme et le trait `Hero` lus sont ceux de la **CIBLE** ; les traits `Chaos`/`Hero` filtres sont ceux des ADJACENTS | **GREFFABLE** — residu nomme |
+
+Traits qualifies contre `data/symbols/rnca9r7q6c/frida/enums.tsv`, enum `IdunBattle.Entities.Enum.UnitTrait` :
+`0xd = 13 = Object`, `0x10 = 16 = Hero`, `0x1b = 27 = Steppable`, `0x3ea = 1002 = Psyker`,
+`0x7ea = 2026 = Chaos`.
+
+`WeaponProfile+0x20 = Hits` etabli par DEUX lectures concordantes :
+`IdunBattle.Core.Services.BattleQuery$$u003CGetBestWeaponu003Eb__316_0` calcule
+`GetDamageProfile(w.<+0x10>).<+0x14> x w.<+0x20>` (degat par coup x nombre de coups), et
+`...$$SelectMaxRangeWeapon` / `IdunShared.Battle.WeaponProfile$$get_IsMelee` lisent tous deux
+`+0x24` comme le `Nullable<int> Range` (`IsMelee` = `range < 2`) — donc `+0x20` n'est pas la portee.
+
+### L'override PORTE : 1216 `MartialExemplar`
+
+- `engine/playbook/loki_custom.py::MartialExemplarPlaybook` (`_CustomOnlyPlaybook`, registre
+  `REGISTRY` par `register`), plus `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE` poses DANS LE MEME
+  COMMIT (litteraux relus au `.ctor` de l'ability, cf. ci-dessous).
+- Le terme est **PAR-TUILE** : il est ancre sur `casterPosition`, pas sur la cible. C'est le meme
+  regime que `DrachnyenPlaybook`, et c'est pour cela que `_best_attack` somme le custom PENDANT le
+  sweep de tuiles (sinon il serait inerte).
+- Mirror de l'ensemble : `battle_query.count_adjacent_matching` — meme `is_adjacent` (donc la meme
+  porte d'elevation `|delta| < 2` d'`IterateAdjacentTiles`) que `count_adjacent`, avec un predicat
+  par unite. `IsNormalUnit` est ecrit la ou vit son homonyme natif
+  (`engine/entities/traits/unit_trait.py::is_normal_unit`), pas recable dans le playbook.
+
+**Masque de ciblage et type d'attaque, relus au decompile** :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$.ctor` -> voir le commit ;
+ce sont les litteraux EFFECTIFS (surcharge explicite, pas la forme preset+flags).
