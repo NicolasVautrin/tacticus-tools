@@ -751,6 +751,13 @@ def patch_ability_variables(bc: dict, ability_name: str, level: int, values: dic
     Leve si l'ability ou la variable est absente du BC : un patch qui ne s'applique pas doit
     ROUGIR, jamais rendre un BC inchange qu'on croirait patche (meme discipline que #237, ou deux
     des trois ecritures echouaient EN SILENCE).
+
+    ⚠ CE PATCH EST INVISIBLE DU PORT (#366-r1-bcpatch-invisible). Il vit dans le BC, donc SEUL le
+    natif le lit ; le moteur Python lit `gameconfig` (`engine/entities/effects/magnitude.py::
+    ability_var`). Tant que l'effet vise n'est pas porte, la fixture passe pour une neutralisation ;
+    le jour ou il l'est, le MEME geste devient une DESYNCHRONISATION -- mesure du 2026-08-01 :
+    `InescapableAccuracy.extraCritDmg = 0` aurait rendu `1116` faux de 997 points. Croiser avant
+    d'ecrire : `python probe_366_r1_bcpatch_port_blindspot.py`.
     """
     cfgs = (bc.get("Abilities") or {}).get(node) or {}
     cfg = cfgs.get(ability_name)
@@ -888,6 +895,11 @@ def write_variable_patched_seed_bc(out_path, patches, *, seed_bc: dict | None = 
     Ecrit AUSSI le sidecar `<out_path>.pins.json` (#375) : sans lui le patch est ecrase par
     `refresh_ability_configs` au chargement, EN SILENCE. La config est re-synthetisee depuis le
     gameconfig vivant AVANT d'etre patchee -- on epingle du frais patche, jamais du perime.
+
+    ⚠ ET C'EST EXACTEMENT CE QUI L'ARME COTE PORT (#366-r1-bcpatch-invisible) : le patch qui
+    SURVIT est celui que le natif voit et que le moteur Python ne voit pas. Ne JAMAIS confronter
+    une face PORT sur un seed BC produit ici sans avoir croise le couple patche avec les lectures
+    du moteur -- `python probe_366_r1_bcpatch_port_blindspot.py` (cliquet, rc 0 attendu).
     """
     seed = seed_bc if seed_bc is not None else _load_seed(None)
     bc, _a, _b, _c = augment(seed, list(unit_ids), rank, ability_level)

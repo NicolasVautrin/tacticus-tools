@@ -202,11 +202,25 @@ def _build_env(tree: ast.AST) -> _Env:
     # Elle vient APRES parce qu'elle a besoin des bindings de la premiere (`ast.walk` ne garantit
     # aucun ordre source).
     for node in ast.walk(tree):
-        if isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(node.target, ast.Name):
-            seq = _resolve_node(node.iter, env)
-            if isinstance(seq, (ast.List, ast.Tuple, ast.Set)):
-                for elt in seq.elts:
-                    env.bind(node.target.id, elt)
+        if not isinstance(node, (ast.For, ast.AsyncFor)):
+            continue
+        seq = _resolve_node(node.iter, env)
+        if not isinstance(seq, (ast.List, ast.Tuple, ast.Set)):
+            continue
+        if isinstance(node.target, ast.Name):
+            for elt in seq.elts:
+                env.bind(node.target.id, elt)
+        elif isinstance(node.target, ast.Tuple):
+            # DEBALLAGE : `for st, key in ((StatType.ATTACK, "summonDmg"), ...)` -- la variable
+            # utile est en 2e position, et sans le deballage elle reste indeterminee.
+            names = [t.id if isinstance(t, ast.Name) else None for t in node.target.elts]
+            for elt in seq.elts:
+                inner = _resolve_node(elt, env)
+                if not isinstance(inner, (ast.Tuple, ast.List)):
+                    continue
+                for nm, v in zip(names, inner.elts):
+                    if nm is not None:
+                        env.bind(nm, v)
     return env
 
 
@@ -258,6 +272,16 @@ def _strings(node, env: _Env, depth: int = 0) -> "set | None":
     if isinstance(node, ast.BoolOp):                      # `x or "defaut"` -> les DEUX
         outs = [_strings(v, env, depth + 1) for v in node.values]
         return None if any(o is None for o in outs) else set().union(*outs)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        # `"minDmg" + sfx` avec `sfx = self._SUFFIX` in {"", "_2", "_3"} : la CONCATENATION est la
+        # facon dont le depot ecrit les variantes d'une meme ability. Sans elle, `FleshmetalGuns`
+        # sortait a variable INDETERMINEE -- conservateur, mais aveugle sur trois couples que la
+        # contre-epreuve au grep, elle, voyait.
+        a = _strings(node.left, env, depth + 1)
+        b = _strings(node.right, env, depth + 1)
+        if a is None or b is None:
+            return None
+        return {x + y for x in a for y in b}
     if isinstance(node, ast.Name):
         cands = env.values.get(node.id) or []
         if not cands:
@@ -525,6 +549,10 @@ def scan_reads(root: Path = ENGINE_ROOT, reader: str = READER, extra_roots=()) -
         except (SyntaxError, UnicodeDecodeError):
             continue
     envs = {p: _build_env(t) for p, t in trees.items()}
+    import re as _re
+    sources_words = {p: set(_re.findall(r"[A-Za-z_][A-Za-z_0-9]*",
+                                        p.read_text(encoding="utf-8", errors="replace")))
+                     for p in trees}
     # Signatures de TOUTE fonction/classe du corpus, indexees par NOM SIMPLE : c'est tout ce qu'un
     # site d'appel donne (`obj.execute(...)` ne nomme pas sa classe). Deux HOMONYMES a signatures
     # divergentes rendent donc la position AMBIGUE -- et `execute` en compte des dizaines. Resoudre
@@ -606,7 +634,12 @@ def scan_reads(root: Path = ENGINE_ROOT, reader: str = READER, extra_roots=()) -
             resolved[(fname, param)] = {"values": set(), "dyn": False, "deps": set(), "seen": 0}
         new_pending = {}
         abstained = []
+        # Un fichier qui ne CITE aucun nom de relais ne peut en appeler aucun : le filtre textuel
+        # evite de re-visiter tout `engine/` a chaque tour du point fixe (39 s -> quelques s).
+        wanted_names = set(relays)
         for p, t in trees.items():
+            if not (wanted_names & sources_words[p]):
+                continue
             sw = _ReadSweep(envs[p], relays, reader)
             sw.visit(t)
             abstained += ["%s %s" % (p.relative_to(ROOT).as_posix(), a) for a in sw.abstained]
@@ -795,7 +828,17 @@ def scan_patches(root: Path = PY_ROOT, files=None) -> dict:
         if p.resolve() == me:
             continue
         try:
-            tree = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+            src = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        # Pre-filtre TEXTUEL : les trois voies exigent soit un des deux helpers NOMMES, soit le mot
+        # `Abilities` (la voie directe traverse forcement ce noeud du BC). Sans lui, le chainage
+        # d'alias tourne sur toutes les affectations souscriptees du depot -- 34 s pour rien.
+        if not (('"Abilities"' in src or "'Abilities'" in src)
+                or any(c in src for c in PATCH_CALLS)):
+            continue
+        try:
+            tree = ast.parse(src, filename=str(p))
         except (SyntaxError, UnicodeDecodeError):
             continue
         env = _build_env(tree)
@@ -891,6 +934,27 @@ def scan_patches(root: Path = PY_ROOT, files=None) -> dict:
 # `ability_var` est le foyer DECLARE. S'il en existe un second (une lecture directe de
 # `gameconfig.ability(x)["variables"]` dans le moteur), le recensement de l'etape 1 serait partiel
 # -- et un partiel qui rend zero se lit comme « rien a signaler ». On le CHERCHE, et on le NOMME.
+
+#: Contre-epreuve INDEPENDANTE du resolveur AST : `ability_var("<lit>", "<lit>")` repere au GREP.
+#: Une paire vue ici et absente du recensement est un FAUX NEGATIF -- exactement ce qui laisserait
+#: passer un patch dangereux. Mesure du 2026-08-01 : trois paires manquaient (`FleshmetalGuns`,
+#: variable ecrite `"minDmg" + sfx`), et seule cette seconde source les a montrees.
+_LITERAL_CALL = __import__("re").compile(
+    r"ability_var\(\s*[\"']([A-Za-z_][A-Za-z_0-9]*)[\"']\s*,\s*[\"']([A-Za-z_0-9]+)[\"']")
+
+
+def grep_literal_pairs(root: Path = ENGINE_ROOT) -> set:
+    """Couples `(ability, variable)` LITTERAUX, lus au grep -- sans le moindre AST."""
+    out = set()
+    for p in sorted(root.rglob("*.py")):
+        try:
+            src = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for m in _LITERAL_CALL.finditer(src):
+            out.add((m.group(1), m.group(2)))
+    return out
+
 
 def scan_direct_gameconfig(root: Path = ENGINE_ROOT) -> list:
     out = []
@@ -1163,10 +1227,10 @@ def build(bc):
 '''
 
 
-def self_test(out_dir: Path) -> int:
-    """Quatre fixtures fabriquees. Un recenseur qui les rate est REJETE (rc 2), pas « vert »."""
+def self_test(out_dir: Path, reads: "dict | None" = None) -> int:
+    """Cinq fixtures fabriquees. Un recenseur qui les rate est REJETE (rc 2), pas « vert »."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    reads = scan_reads()
+    reads = scan_reads() if reads is None else reads
     rc = 0
 
     def _case(tag: str, source: str, want_red: bool) -> None:
@@ -1207,6 +1271,14 @@ def self_test(out_dir: Path) -> int:
               % ("OK " if seen else "KO ", ab, vk, why, "VU" if seen else "ABSENT"))
         if not seen:
             rc = 2
+
+    # 7. SECONDE SOURCE : tout couple litteral repere au GREP doit etre dans le recensement AST.
+    #    Un resolveur qui regresse rend un couple de MOINS, donc un patch de plus qui passe vert.
+    lost = sorted(grep_literal_pairs() - reads["pairs"])
+    print("  [%s] %-34s attendu=0 manquant(s), obtenu=%d  %s"
+          % ("OK " if not lost else "KO ", "seconde source (grep litteral)", len(lost), lost[:4]))
+    if lost:
+        rc = 2
     return rc
 
 
@@ -1257,7 +1329,7 @@ def main(argv: list) -> int:
         print("=" * 78)
         print("AUTO-TEST -- le recenseur mord-il ?")
         print("=" * 78)
-        st = self_test(ROOT / "logs" / "probe366r1bcpatch")
+        st = self_test(ROOT / "logs" / "probe366r1bcpatch", reads=reads)
         if st:
             print("[self-test] ECHEC -- le recenseur ne mord plus, son zero ne vaut RIEN.")
             return 2
