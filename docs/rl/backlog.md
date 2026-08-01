@@ -1647,6 +1647,15 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   (`<IBattleQuery slot 0x5d>(tiles)`, symbole non nomme) — le port applique la definition
   geometrique que la branche impose ensuite. A rouvrir si un build introduit un porteur 7. `[opus]`.
 
+- **Le 2e cast de `1161` n'est couvert par AUCUN run — le marquage expire avant.**
+  `test_mow_groups_bcd_live.py:334` sort en `pytest.skip("le marquage n'a pas survecu jusqu'au 2e
+  cast")`. Trace mesuree le 2026-08-01, **identique sur master seul et sur l'etat fusionne de
+  PR #442** (A/B fait, ce n'est donc PAS la clause tuile-nulle) : `[(0, False, []), (1, True, [])]`
+  — l'ability redevient castable au tour 1, mais `MARKERLIGHT` n'est plus sur aucune unite de la
+  `decisionView`. Le skip est HONNETE (il imprime sa trace) mais c'est un **vert qui ne mesure
+  rien** : la branche « 2e cast » du port n'est exercee nulle part. Fermer = piloter la duree du
+  marquage ou re-marquer avant le 2e cast, pas relacher l'assertion. `[opus]`.
+
 ---
 
 ## Fiches PERIMEES ou REFUTEES — NE PAS re-dispatcher
