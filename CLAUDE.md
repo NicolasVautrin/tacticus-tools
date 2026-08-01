@@ -260,9 +260,10 @@ elle ne **définit** pas la banque.
   (deux mirrors natifs entrés dans `engine/` sans entrer à son registre — #427 l'a fermé en
   parallèle, confirmation indépendante), et `probe_181` **incapable de rougir** — il rendait `0`
   inconditionnellement alors que ce `CLAUDE.md` prescrivait de « le faire passer ». Corrigé par #430.
-- **Coût, mesuré le 2026-08-01** (mur = le plus long, pas la somme) : **19 cliquets, 172 s**, contre
-  112,8 s pour les 9 d'avant. `probe_283` y entre **éclaté en ses 6 étapes** (`--step all` en est
-  l'union stricte) : joué d'un bloc il DOUBLAIT le mur (145 → 299 s), éclaté il disparaît sous lui.
+- **Coût, mesuré le 2026-08-01** (mur = le plus long, pas la somme) : **19 cliquets, 172 s** sous
+  charge — **108,8 s** machine calme — contre 112,8 s pour les 9 d'avant, mesurés dans les mêmes
+  conditions. `probe_283` y entre **éclaté en ses 6 étapes** (`--step all` en est l'union stricte) :
+  joué d'un bloc il DOUBLAIT le mur (145 → 299 s), éclaté il disparaît sous lui.
   Le critère d'admission n'est jamais le coût absolu, mais le **coût marginal en parallèle** et **ce
   que le cliquet est seul à voir**. ⚠ Chiffres à re-dériver, pas à citer.
 - Détail des arbitrages, contre-épreuves et résidus : `docs/rl/case-430-banque-de-cliquets.md`.

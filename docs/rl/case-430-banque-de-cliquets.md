@@ -79,7 +79,10 @@ et pour qu'un futur `ko +=` posé sur eux soit vu. Les exclure aurait recréé l
 ici : un cliquet listé mais jamais joué.
 
 ⚠ Ces chiffres se re-dérivent (`pwsh -File scripts/ratchets.ps1`), ils ne se citent pas : la
-machine était partagée avec d'autres agents, et le mur bouge avec la charge.
+machine était partagée avec d'autres agents, et le mur bouge **beaucoup** avec la charge. Les
+quatre compositions ci-dessus ont été mesurées en runs consécutifs, donc comparables entre elles ;
+la même banque de 19, re-jouée **après rebase** sur une machine plus calme, rend **108,8 s**. Ce
+qui est stable, c'est le **rapport** entre compositions, jamais la seconde absolue.
 
 ## 5. La contre-épreuve — la banque rougit, et nomme
 
