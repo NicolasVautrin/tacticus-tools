@@ -1,18 +1,25 @@
 """case-220 Necrons : MartialApotheosis (TriggeredAbilityType 1045) FACE COMBAT.
 
->>> L'ABILITY N'A PLUS DE PORTEUR DEPUIS LE BUILD `rnca9r7q6c` (case-354, #354-r2).
-    Le jeu l'a retiree de son unique porteur `necroOverlord`, remplacee par `MyWillBeDoneOverlord`.
-    `collect_triggered_abilities` ne l'instancie donc plus -- et c'est le comportement FIDELE :
-    un port ne peut pas dispatcher une ability que le gameconfig n'accorde a personne.
-    CE FICHIER A ETE CONVERTI EN CONSEQUENCE, PAS AFFAIBLI POUR PASSER AU VERT :
-      - les trois vecteurs qui passaient par `start_turn_triggers` (dispatch turn-start, ciblage
-        via dispatch, replay-diff LIVE) n'ont plus de sujet -- ils sont remplaces par la GARDE
-        D'INERTIE (T0), qui rougit le jour ou un kit reprend l'ability ;
-      - tout ce qui s'exerce SANS attribution est CONSERVE tel quel (gates `matches`, arbre DSL,
-        A/B bit-exact, oracle config) : le port reste couvert.
-    Pour restaurer les vecteurs de dispatch quand l'ability revient : leur derniere version vit au
-    commit `6f07ab08` (`git show 6f07ab08:scripts/python/tests/engine/runner/test_martial_apotheosis_live.py`).
-    Mesure du zero-porteur (4 etages, dont un LIVE) : `probe_354_martial_apotheosis_carrier.py`.
+>>> LE PORTEUR N'A JAMAIS DISPARU -- c'est le KIT GAMECONFIG qui a cesse de le nommer (#392).
+    Le build `rnca9r7q6c` a retire `MartialApotheosis` du kit de `necroOverlord` (remplacee par
+    `MyWillBeDoneOverlord`), et #354 en avait conclu « plus aucun porteur », supprimant les trois
+    vecteurs qui passent par `start_turn_triggers`. La conclusion etait FAUSSE, et la mesure est
+    dans `probe_392_martial_apotheosis_bc_carrier.py` (5 etages, dont 3 LIVE) :
+
+      * le natif ne lit PAS le kit -- `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`
+        enumere `UnitConfiguration.PassiveAbilities` (`config+0xa8`) et appelle
+        `IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryAdd(id, passiveAbilityState, 2)` ;
+      * `data/seed-bc.json` porte `necroOverlord.PassiveAbilities = [1045]` -- le seul porteur du BC ;
+      * le `TriggeredAbilityComponent` REEL du porteur, en runner, rend en hierarchie 2 (Passive) :
+        `['1045=MartialApotheosis']` (RPC `unitAbilityStates`) ;
+      * LIVE, au turn-start du porteur, l'ennemi drive en anneau-1 encaisse 3702 -- et le MEME
+        montage a d=2 encaisse **0**, ce qui ATTRIBUE le degat a une source de portee anneau-1
+        (l'objection de `case-354` §3, « un delta > 0 n'attribue rien », est ainsi levee).
+
+    Le decrochage de #354 etait donc un BUG DU PORT (`collect_triggered_abilities` derivait les
+    passives du gameconfig par `visualId` au lieu de lire le montage), corrige par #366-r1
+    (`21a38550`, canal MESURE `UnitContext.passive_abilities`). Les trois vecteurs supprimes sont
+    RESTAURES ici, et la garde d'inertie est reorientee sur la SOURCE REELLE du montage (T0).
 
 RE (decompile, cf. en-tete de `triggers/loki/martial_apotheosis.py`) : la classe native
 `MartialApotheosisAbility` ETEND `DestroyerHiveAbility` -> CreateTrigger/GetValidTargets HERITES :
@@ -25,19 +32,27 @@ RE (decompile, cf. en-tete de `triggers/loki/martial_apotheosis.py`) : la classe
 = au debut de son tour, si >=1 ennemi adjacent damageable, en attaque UN au hasard, 2 coups Energy.
 
 CE QUI EST VALIDE, sur un etat LIVE (le runner du module fournit un porteur reel et son plateau) :
-  (T0) GARDE D'INERTIE : dans le montage EXACT qui faisait fire l'ability (ennemi drive en anneau-1),
-      `start_turn_triggers` est MUET -- et la construction DIRECTE de l'ability, elle, frappe. Le
-      couple prouve que le decrochage est a l'etage ATTRIBUTION, pas dans le port. Rougit des qu'un
-      kit reprend l'ability : c'est le signal qu'il faut restaurer les vecteurs de dispatch.
-  (A) OwnerIsActor(@0xa0) : `matches` est vrai au turn-start du PROPRIETAIRE, faux a celui de
-      l'adversaire -- gate lu directement sur l'ability (independant de l'attribution).
-  (B) AmountIsGreaterThanZero : 0 ennemi adjacent -> `matches` faux, aucun degat.
-  (C) CIBLAGE ANNEAU-1 : un ennemi a dist 1 est frappe ; un ennemi a dist 2 NE l'est PAS (anneau-1,
-      PAS le disque rayon-2 de HarbingerOfDestruction).
+  (T0) GARDE D'INERTIE, sur la SOURCE REELLE du montage : le canal MESURE
+      (`UnitContext.passive_abilities`, hierarchie 2 du `TriggeredAbilityComponent`) nomme
+      l'ability, `collect_triggered_abilities` l'instancie pour le porteur, et le kit gameconfig
+      NE la nomme PAS -- l'ecart kit/BC est constate, pas subi. Le jour ou le BC cesse de la
+      monter, ce test rougit sur le BON canal : c'est alors, et seulement alors, que les vecteurs
+      de dispatch (A/C/E) perdent leur sujet.
+  (A) VECTEUR TURN-START + OwnerIsActor(@0xa0) : `start_turn_triggers(proprietaire)` dispatche
+      l'ability et frappe l'ennemi adjacent ; `start_turn_triggers(adversaire)` est muet.
+  (A') meme gate lu par CONSTRUCTION DIRECTE -- independant de l'attribution, il innocente (ou
+      accuse) le PORT seul. C'est le couple (A)+(A') qui localise un decrochage a l'etage
+      ATTRIBUTION plutot que dans l'arbre DSL ; son absence a coute le faux verdict #354.
+  (B) AmountIsGreaterThanZero : 0 ennemi adjacent -> `matches` faux ET dispatch muet, aucun degat.
+  (C) CIBLAGE ANNEAU-1 (via le dispatch) : un ennemi a dist 1 est frappe ; un ennemi a dist 2 NE
+      l'est PAS (anneau-1, PAS le disque rayon-2 de HarbingerOfDestruction).
   (D) A/B bit-exact + params : pool==1 (deterministe) -> l'arbre == une sequence directe
       `execute_ability_attack` depuis le MEME MT ; params confrontes a l'ORACLE CONFIG (cf. ci-dessous), melee.
-Le DEGAT exact live n'est plus confrontable (plus aucun porteur ne la tire en bataille) ; la
-bit-exactness du DEGAT reste prouvee PAR CONSTRUCTION en (D).
+  (E) REPLAY-DIFF LIVE : `endturn` vers le turn-start du porteur -> la cible frappee live == la
+      cible offline, AUCUN autre ennemi n'est touche (attribution geometrique : la portee du degat
+      est l'anneau-1), et le DEGAT est BIT-EXACT (3702 des deux cotes) -- le montage est
+      deterministe et `dumpRng` est pris juste avant l'`endturn`, donc le port rejoue depuis le
+      MEME MT. #354 declarait ce degat « plus confrontable » ; il l'est.
 
 ORACLE DES PARAMS (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE : le nb de coups et le
 profil sont lus TELS QUELS dans la config d'ability par
@@ -79,6 +94,7 @@ from engine.runner.operations.damage import AttackDamageOperation
 from engine.runner.abilities.base import ability_attack_params
 from engine.runner.operations.triggers import start_turn_triggers
 from engine.runner.operations.triggers.base import TriggerEvent
+from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
 from engine.runner.operations.triggers.loki.martial_apotheosis import MartialApotheosisAttackAbility
 from engine.dsl.event_trigger_type import EventTriggerType
 
@@ -258,65 +274,102 @@ def ma_env(host, live_session, request):
     return {"build_state": build_state, "board": board, "rid": rid, "rpc": _rpc, "dv": dv}
 
 
-# ------------------------------------------------------------------ (T0) GARDE D'INERTIE
+# --------------------------------------------- (T0) GARDE D'INERTIE, sur la SOURCE DU MONTAGE
 
-def test_ma_inertia_tripwire_no_carrier(ma_env):
-    """GARDE D'INERTIE (case-354, #354-r2). Trois constats DANS LE MONTAGE QUI FAISAIT FIRE :
+def test_ma_attribution_source_is_the_measured_channel(ma_env):
+    """GARDE D'INERTIE (#392) -- elle surveille la voie par laquelle l'ability arrive REELLEMENT
+    en bataille, pas le kit gameconfig.
 
-      1. le gameconfig n'accorde plus l'ability au porteur historique (aucune des 4 voies) ;
-      2. le kit LIVE du porteur ne la contient pas non plus ;
-      3. `start_turn_triggers` est donc MUET -- alors que l'ability construite DIRECTEMENT frappe
-         bel et bien l'ennemi adjacent.
+    Le natif monte `UnitConfiguration.PassiveAbilities` (`UnitFactory$$AddConfiguredAbilities` ->
+    `TriggeredAbilityComponent$$TryAdd(id, passiveAbilityState, 2)`), JAMAIS le kit. Les quatre
+    constats, dans cet ordre :
 
-    Le point 3 est ce qui donne son sens au fichier : il localise le decrochage a l'etage
-    ATTRIBUTION et innocente le port. Ce test ROUGIT le jour ou un kit reprend l'ability -- c'est
-    alors le signal de RESTAURER les vecteurs de dispatch (cf. en-tete, commit `6f07ab08`)."""
+      1. le canal MESURE a parle (`State.ability_states_seed.source` in {auto, given}) -- sans lui
+         `collect_triggered_abilities` retomberait sur la derivation gameconfig et ce test
+         mesurerait un FALLBACK, pas le montage ;
+      2. ce canal nomme l'ability sur le porteur (hierarchie 2 du `TriggeredAbilityComponent`) ;
+      3. le dispatch l'instancie donc pour lui ;
+      4. et le kit gameconfig, lui, ne la nomme PAS -- l'ecart kit/BC est CONSTATE, pas subi.
+
+    C'est le point 4 qui a fait conclure a tort « 0 porteur » en #354 : le kit n'est pas la source.
+    Ce test rougit le jour ou le BC cesse de monter l'ability -- alors, et alors seulement, les
+    vecteurs (A)/(C)/(E) perdent leur sujet."""
+    from engine.runner.components import StatsComponent
+    state = ma_env["build_state"]()
+    cid = _find_by_vis(state, CARRIER)
+    if cid is None:
+        pytest.skip("porteur absent")
+    seed = getattr(state, "ability_states_seed", None) or {}
+    sc = state.get_entity(cid).get_component(StatsComponent)
+    measured = list(getattr(sc.ctx, "passive_abilities", None) or []) if sc is not None else []
+    ported = sorted(type(x).__name__ for x in collect_triggered_abilities(state)
+                    if getattr(x, "owner_id", None) == cid)
+    kit = GC.unit(CARRIER) or {}
+    porte_par_config = sorted(v for v in VOIES if ABILITY in (kit.get(v) or []))
+    print(f"\n[MA T0] seed={seed} measured_passives={measured} ported={ported} "
+          f"kit_gameconfig={porte_par_config or 'AUCUNE VOIE'}")
+
+    assert seed.get("source") in ("auto", "given"), (
+        f"le canal MESURE n'a pas parle (source={seed.get('source')!r}) -- sans lui le dispatch "
+        f"retombe sur la derivation gameconfig et ce test ne mesure plus le montage natif")
+    assert ABILITY in measured, (
+        f"{ABILITY} n'est plus montee sur {CARRIER} par le BC : `UnitContext.passive_abilities` "
+        f"= {measured}. Si c'est durable, ce sont les vecteurs (A)/(C)/(E) qui perdent leur sujet "
+        f"-- cf. en-tete, et `probe_392_martial_apotheosis_bc_carrier.py` pour re-mesurer.")
+    assert "MartialApotheosisAttackAbility" in ported, (
+        f"le dispatch n'instancie plus l'ability alors que le canal mesure la nomme : {ported}")
+    assert porte_par_config == [], (
+        f"{ABILITY} est REVENUE au kit gameconfig de {CARRIER} (voies {porte_par_config}) -- "
+        f"l'ecart kit/BC que ce fichier documente n'existe plus, mettre l'en-tete a jour")
+    print("[MA T0] OK : le BC monte l'ability, le dispatch la porte, le kit ne la nomme pas")
+
+
+# ------------------------------------------------- (A) vecteur TURN-START + OwnerIsActor(@0xa0)
+
+def test_ma_turnstart_dispatch_and_owner_gate(ma_env):
+    """`start_turn_triggers(proprietaire)` dispatche MartialApotheosis (1 ennemi adjacent -> le
+    frappe) ; `start_turn_triggers(adversaire)` ne le fire PAS (OwnerIsActor @0xa0).
+
+    VECTEUR RESTAURE (#392) : il exerce la chaine COMPLETE attribution -> rail turn-start -> arbre.
+    Son pendant par construction directe est (A') ci-dessous ; c'est le COUPLE qui localise un
+    decrochage, et son absence a coute le faux verdict #354."""
     state = ma_env["build_state"]()
     board = ma_env["board"]
     drive = _drive_carrier_and_one_enemy(state, board)
     if drive is None:
         pytest.skip("porteur + 1 ennemi + tuile a >=1 voisin requis")
-    cid, t_id, _C, op = drive
-
-    # 1. gameconfig : aucune des 4 voies d'attribution ne nomme l'ability chez le porteur.
-    kit = GC.unit(CARRIER) or {}
-    porte_par_config = sorted(v for v in VOIES if ABILITY in (kit.get(v) or []))
-    # 2. kit LIVE tel que le jeu le resout.
-    live_u = next((u for u in (ma_env["dv"].get("units") or []) if u.get("visualId") == CARRIER), None)
-    live_noms = sorted(a.get("name") for a in ((live_u or {}).get("abilities") or []) if a.get("name"))
-
-    # 3. dispatch MUET vs construction DIRECTE qui frappe.
+    _cid, t_id, _C, op = drive
+    ep = _owner(state, t_id)
+    if ep == op:
+        pytest.skip("porteur et cible du meme joueur (le gate n'est pas discriminant)")
     hp0 = _hp(state, t_id)
-    res = start_turn_triggers(state, op)
-    disp = [r.get("ability") for r in res]
-    ab = MartialApotheosisAttackAbility(cid)
-    ev = _turn_start_ev(op)
-    fired_direct = ab.matches(state, ev) and (ab.execute_behaviour(state, ev) or {}).get("target") == t_id
 
-    print(f"\n[MA T0] config={porte_par_config or 'AUCUNE VOIE'} live_kit={live_noms} "
-          f"dispatch={disp} direct_frappe={fired_direct}")
+    # OwnerIsActor : au tour de l'ENNEMI (ep), MartialApotheosis ne fire pas.
+    res_e = start_turn_triggers(state, ep)
+    assert not any(r.get("ability") == ABILITY for r in res_e), \
+        f"{ABILITY} a fire au tour ADVERSE (OwnerIsActor viole): {res_e}"
+    assert _hp(state, t_id) == hp0, "cible endommagee au tour adverse (OwnerIsActor viole)"
 
-    assert porte_par_config == [], (
-        f"{ABILITY} est REVENUE au kit gameconfig de {CARRIER} (voies {porte_par_config}) -- "
-        f"restaurer les vecteurs de dispatch/live retires par #354-r2 (cf. en-tete du fichier)")
-    assert ABILITY not in live_noms, (
-        f"{ABILITY} est REVENUE au kit LIVE de {CARRIER} ({live_noms}) -- meme consigne")
-    assert ABILITY not in disp, (
-        f"start_turn_triggers dispatche {ABILITY} alors que le gameconfig ne l'accorde a personne : "
-        f"l'etage ATTRIBUTION ne lit plus le kit ({disp})")
-    assert fired_direct, (
-        f"l'ability construite DIRECTEMENT ne frappe plus l'ennemi anneau-1 e{t_id} -- CE rouge-la "
-        f"accuse LE PORT (arbre DSL / gates), pas l'absence de porteur")
-    assert _hp(state, t_id) < hp0, "ennemi adjacent non endommage par la voie directe"
-    print("[MA T0] OK : 0 porteur (config + live) -> dispatch muet ; le port, lui, tire toujours")
+    # au tour du PROPRIETAIRE (op) : dispatche + frappe la cible adjacente.
+    res_o = start_turn_triggers(state, op)
+    ma = next((r for r in res_o if r.get("ability") == ABILITY), None)
+    print(f"\n[MA A] owner_player={op} enemy_player={ep} target={ma.get('target') if ma else None} "
+          f"total={(ma.get('attack') or {}).get('total') if ma else None} "
+          f"dispatch={[r.get('ability') for r in res_o]}")
+    assert ma is not None, f"{ABILITY} non dispatche au turn-start du proprietaire: {res_o}"
+    assert ma.get("target") == t_id, f"cible {ma.get('target')} != ennemi adjacent {t_id}"
+    assert (ma.get("attack") or {}).get("total", 0) > 0, "aucune attaque"
+    assert _hp(state, t_id) < hp0, "ennemi adjacent non endommage"
+    print("[MA A] OK : On(TurnStart_Actions) & OwnerIsActor -> frappe l'ennemi adjacent ; muet au tour adverse")
 
 
-# ------------------------------------------------------------------ (A) OwnerIsActor(@0xa0)
+# ------------------------------------------------------------- (A') OwnerIsActor, voie DIRECTE
 
 def test_ma_owner_gate(ma_env):
     """OwnerIsActor(@0xa0) : `matches` vrai au turn-start du PROPRIETAIRE, faux a celui de
-    l'adversaire. Gate lu sur l'ability construite directement -- il ne depend pas de
-    l'attribution, et reste donc exercable malgre le zero-porteur (cf. T0)."""
+    l'adversaire. Gate lu sur l'ability construite DIRECTEMENT -- il ne depend pas de
+    l'attribution. Pendant de (A) : si (A) rougit et (A') passe, le decrochage est a l'etage
+    ATTRIBUTION ; si les deux rougissent, c'est le PORT."""
     state = ma_env["build_state"]()
     board = ma_env["board"]
     drive = _drive_carrier_and_one_enemy(state, board)
@@ -350,7 +403,8 @@ def test_ma_owner_gate(ma_env):
 # ------------------------------------------------------------------ (B) AmountIsGreaterThanZero (0 cible)
 
 def test_ma_no_adjacent_no_fire(ma_env):
-    """AmountIsGreaterThanZero(GetValidTargets) : aucun ennemi adjacent -> le gate refuse."""
+    """AmountIsGreaterThanZero(GetValidTargets) : aucun ennemi adjacent -> le gate refuse, sur les
+    DEUX voies (construction directe ET dispatch turn-start)."""
     state = ma_env["build_state"]()
     board = ma_env["board"]
     cid = _find_by_vis(state, CARRIER)
@@ -366,9 +420,12 @@ def test_ma_no_adjacent_no_fire(ma_env):
     ab = MartialApotheosisAttackAbility(cid)
     assert ab.matches(state, _turn_start_ev(op)) is False, \
         "matches True sans ennemi adjacent (AmountIsGreaterThanZero viole)"
+    res = start_turn_triggers(state, op)
+    assert not any(r.get("ability") == ABILITY for r in res), \
+        f"{ABILITY} a fire sans cible adjacente: {res}"
     for e in ens:
         assert _hp(state, e) == hp0[e], f"ennemi e{e} endommage sans adjacence"
-    print("\n[MA B] OK : 0 ennemi adjacent -> pas de fire (AmountIsGreaterThanZero)")
+    print("\n[MA B] OK : 0 ennemi adjacent -> pas de fire (AmountIsGreaterThanZero), voie directe ET dispatch")
 
 
 # ------------------------------------------------------------------ (C) ciblage ANNEAU-1 (pas rayon-2)
@@ -403,11 +460,12 @@ def test_ma_ring1_not_radius2(ma_env):
     assert hexgeo.distance(C, _pos(state, near)) == 1 and hexgeo.distance(C, _pos(state, far)) == 2
     op = _owner(state, cid)
     hp0 = {near: _hp(state, near), far: _hp(state, far)}
-    ab = MartialApotheosisAttackAbility(cid)
-    ev = _turn_start_ev(op)
-    assert ab.matches(state, ev) is True, "gate refuse alors qu'un ennemi est en anneau-1"
-    res = ab.execute_behaviour(state, ev)
-    print(f"\n[MA C] near(d1)=e{near} far(d2)=e{far} target={(res or {}).get('target')}")
+    # VECTEUR RESTAURE (#392) : le ciblage est lu A TRAVERS LE DISPATCH, pas par construction
+    # directe -- c'est la chaine que le jeu emprunte au turn-start.
+    res_all = start_turn_triggers(state, op)
+    res = next((r for r in res_all if r.get("ability") == ABILITY), None)
+    print(f"\n[MA C] near(d1)=e{near} far(d2)=e{far} target={(res or {}).get('target')} "
+          f"dispatch={[r.get('ability') for r in res_all]}")
     assert res is not None and res.get("target") == near, \
         f"cible {(res or {}).get('target')} != ennemi ANNEAU-1 {near} (dist2 cible a tort ?)"
     assert _hp(state, near) < hp0[near], "ennemi anneau-1 non endommage"
@@ -495,3 +553,109 @@ def test_ma_ab_and_params(ma_env):
         assert bmin <= v <= bmax, f"coup {v} hors plage config [{bmin},{bmax}]"
     print(f"[MA D] OK : A/B tree==baseline ({want_hits} coups {prof} pierce {want_pierce}, bit-exact), "
           f"params == oracle config")
+
+
+# ------------------------------------------------------------- (E) LIVE replay-diff turn-start
+
+def test_ma_live_replay(ma_env):
+    """LIVE : drive un ennemi adjacent au porteur, `endturn` (flip -> son turn-start), et confronte
+    la cible frappee LIVE a la cible OFFLINE (pool==1 -> deterministe).
+
+    VECTEUR RESTAURE (#392) + DURCI. `case-354` §3 objectait -- a juste titre -- qu'un
+    `live_dmg > 0` n'attribue le degat a RIEN : n'importe quelle source le satisfait. On ajoute
+    donc l'ATTRIBUTION GEOMETRIQUE : apres le move, l'ennemi drive est le SEUL a distance <= 1 du
+    porteur, et apres l'`endturn` il doit etre le SEUL a avoir perdu des PV. Une source de portee
+    autre que l'anneau-1 (ou un AoE) ne peut pas produire ce profil.
+
+    Le DEGAT est confronte BIT-EXACT (#392) : montage DETERMINISTE (seed figee + `dumpRng` pris
+    juste avant l'`endturn`), donc le port rejoue le turn-start depuis le MEME MT que le natif --
+    mesure 3702 des deux cotes. L'ancien en-tete le declarait « plus confrontable » ; il l'est.
+    Ce test CONSOMME le runner partage (endturn irreversible) : il doit rester le DERNIER du module."""
+    rpc = ma_env["rpc"]
+    board = ma_env["board"]
+    rid = ma_env["rid"]
+
+    dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    ov = next((u for u in (dec.get("units") or []) if u.get("visualId") == CARRIER), None)
+    if ov is None:
+        pytest.skip(f"{CARRIER} absent")
+    ov_player = ov.get("owner")
+    if dec.get("currentPlayer") == ov_player:
+        pytest.skip("build demarre au tour du porteur (impossible d'endturn INTO son turn-start)")
+    oid = ov["id"]
+    ob0 = rpc("observeBattle", {"runnerId": rid}, 60)
+    om = {u.get("squadId"): u for u in (ob0.get("units") or [])}
+    ovp = om.get(oid)
+    if ovp is None:
+        pytest.skip("porteur absent live")
+    opos = (ovp.get("col"), ovp.get("row"))
+    foes = [u for u in (ob0.get("units") or [])
+            if u.get("teamId") != ovp.get("teamId") and not u.get("isDead") and u.get("col") is not None]
+    if not foes:
+        pytest.skip("aucun ennemi vivant")
+    otile = board.id_at(*opos)
+    occupied = {board.id_at(u.get("col"), u.get("row")) for u in om.values()
+                if u.get("col") is not None and not u.get("isDead")}
+    free = [n for n in board.neighbours(otile) if n not in occupied]
+    if not free:
+        pytest.skip("aucun voisin libre du porteur")
+    fid = foes[0].get("squadId")
+    dcol, drow = board.coord(free[0])
+    rpc("applyAction", {"runnerId": rid,
+                        "action": {"kind": "move", "unitId": fid, "to": {"col": dcol, "row": drow}}}, 90)
+
+    ob = rpc("observeBattle", {"runnerId": rid}, 60)
+    alive = [u for u in (ob.get("units") or [])
+             if u.get("teamId") != ovp.get("teamId") and not u.get("isDead") and u.get("col") is not None]
+    dists = {u.get("squadId"): hexgeo.distance(opos, (u.get("col"), u.get("row"))) for u in alive}
+    if dists.get(fid) != 1:
+        pytest.skip(f"ennemi pas adjacent apres move (dest occupee ?) dists={dists}")
+    if [k for k, d in dists.items() if d <= 1] != [fid]:
+        pytest.skip(f"plusieurs ennemis en anneau-1 -> attribution non isolable : {dists}")
+
+    dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
+    rng0 = rpc("dumpRng", {"runnerId": rid}, 30)
+    hp_before = {u.get("squadId"): u.get("hp") for u in alive}
+
+    # LIVE : endturn -> turn-start du porteur.
+    # NB (mesure) : `applyAction endturn` + `captureEvents` rend 1 action / 0 event -- la cascade
+    # turn-start n'expose AUCUN evenement per-coup. Le nb de coups de ce vecteur n'est donc PAS
+    # confrontable live (residu) ; seuls le HP delta et sa GEOMETRIE le sont.
+    rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}, "captureEvents": True}, 90)
+    ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
+    hp_after = {u.get("squadId"): u.get("hp") for u in (ob2.get("units") or [])}
+    deltas = {k: (hp_before[k] - hp_after.get(k)) for k in hp_before
+              if hp_before[k] is not None and hp_after.get(k) is not None}
+
+    # OFFLINE : load_state(S) + seed rng + start_turn_triggers(porteur).
+    state = load_state(dec, ob, snap, board=board)
+    if isinstance(rng0, dict) and rng0.get("mt"):
+        state.rng = _seed_rng(rng0)
+    if state.get_entity(oid) is None or state.get_entity(fid) is None:
+        pytest.skip("porteur/ennemi absent offline (snapshot incomplet)")
+    res = start_turn_triggers(state, ov_player)
+    ma = next((r for r in res if r.get("ability") == ABILITY), None)
+    off_target = ma.get("target") if ma else None
+    off_total = (ma.get("attack") or {}).get("total") if ma else None
+    print(f"\n[MA E] dists={dists} live_deltas={deltas} | off target={off_target} total={off_total} "
+          f"{'BIT-EXACT' if off_total == deltas.get(fid) else '(degat diverge = calage RNG turn-start, hors scope)'}")
+
+    assert ma is not None and off_target is not None, f"{ABILITY} non tire offline: {res}"
+    assert off_target == fid, f"cible offline {off_target} != ennemi drive adjacent {fid}"
+    assert off_total is not None and off_total > 0, f"pas d'attaque offline (total={off_total})"
+    assert deltas.get(fid, 0) > 0, f"live : ennemi anneau-1 pas touche au turn-start ({deltas})"
+    # ATTRIBUTION GEOMETRIQUE : personne d'autre n'encaisse -> la portee du degat EST l'anneau-1.
+    touches = sorted(k for k, d in deltas.items() if d > 0)
+    assert touches == [fid], (
+        f"des ennemis HORS anneau-1 ont encaisse au turn-start ({deltas}, dists={dists}) : le degat "
+        f"n'est pas attribuable a {ABILITY} -- une autre source turn-start est en jeu")
+    # DEGAT BIT-EXACT (#392). Le montage est DETERMINISTE (seed 4321 + `dumpRng` pris juste avant
+    # l'`endturn`) : le port rejoue le turn-start depuis le MEME MT que le natif. Un rouge ici
+    # signale soit une divergence de calcul, soit un DECALAGE DU FLUX RNG au turn-start (un trigger
+    # de plus/de moins consommant un tirage avant le fire) -- lire `[MA E]` pour trancher.
+    assert off_total == deltas.get(fid), (
+        f"degat offline {off_total} != degat live {deltas.get(fid)} : calcul divergent, ou flux RNG "
+        f"turn-start decale (dispatch offline = {[r.get('ability') for r in res]})")
+    print("[MA E] OK : live turn-start -> l'ennemi ANNEAU-1 (et lui seul) est frappe ; "
+          "cible ET degat offline == live (bit-exact)")
