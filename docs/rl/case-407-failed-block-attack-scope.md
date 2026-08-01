@@ -106,10 +106,16 @@ Gardes : `tests/engine/runner/test_failed_block_attack_scope_live.py` (3 seeds) 
 
 * **Hors attaque** (`!HasCurrentAttack` ⇒ liste neuve par hitGroup) : non confronté — le port y
   passe `failed_block0=None`, ce qui est le même comportement, mais aucun montage ne l'exerce.
-* **`damageInfo[+0x1D]`** (block GARANTI via le service `FUN_180003b70(4, …, 1)`, → `ApplyBlockDamage`
-  sans tirage) et **`damageInfo[+0x1E]`** (trait de damage profile qui saute block ET évasion, posé
-  par `ExecuteHit` depuis `DamageProfile$$HasTrait(0)`) : le port ne modélise que le second, sous
-  le nom `NoBlocking` (#65). Le premier n'a pas de porteur identifié.
+* **`damageInfo[+0x1D]`** (block GARANTI → `ApplyBlockDamage` sans tirage) et **`damageInfo[+0x1E]`**
+  (trait de damage profile qui saute block ET évasion, posé par `ExecuteHit` depuis
+  `DamageProfile$$HasTrait(0)`) : le port ne modélise que le second, sous le nom `NoBlocking` (#65).
+  ⚠ **RECTIFIÉ (#411)** — le premier a bien un porteur, et il est **CONFRONTÉ**. `+0x1D` n'est PAS
+  écrit par un service : il vaut `!defenderUnitComponent[+0x98].HasValue`, et son unique écrivain est
+  `IdunBattle.Operations.TransferHitOperation$$Execute`, qui efface le `Nullable<AttackHit>`
+  `PendingHit` de la cible. Déclencheurs DSL : `DrawFireAbility` (1109) et
+  `PrimarchOfTheFirstLegionAbility` (1511) — les DEUX seuls propriétaires de
+  `DSLBehaviors$$TransferHit`. Mesuré (greffe du passif, `MC1_67`/31337) : 6597/0 → 3153/3488.
+  Détail, gate et plan de port : **`case-411-transfer-hit-guaranteed-block.md`**.
 * **L'ordre évasion-puis-block** de `CalculateDamageOperation` : le port a les deux branches en
   XOR (`evasion_branch`) et passe toujours `False`. Équivalent tant qu'`evasionChance == 0` (0
   tirage). Résidu nommé, préexistant.
