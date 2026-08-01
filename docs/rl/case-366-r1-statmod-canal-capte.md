@@ -44,14 +44,16 @@ on fait varier `(ability_level, active_ability_level, multiplier)` et on regarde
 la forme OVERRIDE `applied_stat_mods` est scannée textuellement, faute de pouvoir fabriquer un
 `StatsComponent.ctx`).
 
-`EFFECT_CLASSES` = **151** entrées, **31** déclarent une stat-modification. Ventilation :
+Compte re-dérivé après rebase sur `origin/master` (2026-08-01, post-#429) — ⚠ **il se périme à
+chaque nouvelle classe d'effet : le RE-DÉRIVER, jamais le recopier.** `EFFECT_CLASSES` = **154**
+entrées, **32** déclarent une stat-modification. Ventilation :
 
 | verdict | n | classes |
 |---|---|---|
 | **CROSS — concernées** | **2** | `1000 ShockAssault_Buff` (#423), **`1171 SereneUnifierStormOfFire` (ce cas)** |
 | OWNER — `…ToOwner` / `(Owner@+0x30)`, porteur == poseur | 15 | `AnvilShield_AdditionalBlock` · `AnvilShield_BlockChanceBelowHealthCap` · `AnvilShield_FrozenAttackerAdvantage` · `RealityUnbound_ExtraMaxDamage` · `UnbreakableDuty_Damage` · `UnbreakableDuty_Health` · `VisionsOfHeresy_ExtraPierceMelee` · `VisionsOfHeresy_ExtraPierceRanged` · `StandVigil_ExtraArmor` · `MomentShackle_ExtraBlockChance` · `MomentShackle_ExtraBlockDamage` · `AncestralFortune_ExtraCritChance` · `AncestralFortune_ExtraBlockChance` · `MyWillBeDoneOverlord_ExtraDamage` · `ProtectorImperative` |
 | SRC — source passée EXPLICITEMENT au poseur | 1 | `AugmentedAssault_ReduceArmor` (`AddDynamicStatModifierEffect(targets = target@0x178, **source = self@0x148**)`) |
-| insensible à l'`AbilityState` (constante / ctx / littéral) | 13 | `ActOfFaith_Effect` · `BlackRage_ExtraMove` · `ContagionsOfNurgle_ArmorReduction1/2` · `Contaminated_Unit` · `CursedPlagueBell_ExtraMove` · `DestroyTheWitch_ExtraMove` · `RealityUnbound_Movement` · `RealityUnbound_Range` · `RelentlessMarch_Effect` · `Swarm_HitReduction` · `ThrillSeekers` · `Waaagh_ExtraMovement` |
+| insensible à l'`AbilityState` (constante / ctx / littéral) | 14 | `ActOfFaith_Effect` · `BlackRage_ExtraMove` · `ContagionsOfNurgle_ArmorReduction1/2` · `Contaminated_Unit` · `CursedPlagueBell_ExtraMove` · `DestroyTheWitch_ExtraMove` · `RealityUnbound_Movement` · `RealityUnbound_Range` · `ReinforcedHiveNode_ExtraArmor` · `RelentlessMarch_Effect` · `Swarm_HitReduction` · `ThrillSeekers` · `Waaagh_ExtraMovement` |
 
 Feuilles vérifiées au décompilé pour les 18 classées :
 `AnvilShieldAbility_ApplyAdditionalBlockAndBlockChance$$CreateBehaviour` (les deux volets sur
