@@ -362,10 +362,20 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
     CONTREFACTUEL « le `Maybe` after-hit n'est PAS evalue sur les coups d'un groupe » (le port
     d'avant R6-b'). C'est a ce titre qu'elle sert de discriminant a
     `test_additional_hits_after_hit_maybe_live`.
+
+    ⚠ TOUT LE RESTE EST TRANSMIS VERBATIM, et c'est la CONDITION de validite du contrefactuel : la
+    substitution ne doit faire varier QUE `order` et `force_round`. Tout parametre qu'elle avalerait
+    sans le repasser a `_run_hits` deviendrait une TROISIEME variable silencieuse, et l'ecart mesure
+    ne porterait plus sur l'etage vise. `hit_interceptor` (#366-r1) en est l'exemple : le laisser
+    tomber desarmerait le discard `HarlequinsPanoply` ET le `RegisterBlockMade` per-coup dans les
+    rejeux offline, mais PAS dans le port livre -- l'ecart se lirait comme une regression de
+    materialisation. La signature suit donc `execute_additional_hits` PARAMETRE POUR PARAMETRE
+    (garde : `test_additional_hits_variant_signatures_offline.py`).
     """
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
               block_sources, shc, spread_pct=20, extra_pierce=0,
-              bonus_hit_chance=None, hit_index0=0, attack_profile=None):
+              bonus_hit_chance=None, hit_index0=0, attack_profile=None,
+              hit_interceptor=None):
         import gameconfig as GC
         from engine.runner.operations.damage import AttackDamageOperation, HitDamage
         from engine.entities.damage_trait import DamageTrait
@@ -414,6 +424,10 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
             r = AttackDamageOperation._run_hits(
                 state.rng, hd, hd, 0, False, max(0, int(g.get("count") or 0)), g_block,
                 shield=shield_total, post_roll=post,
+                # #366-r1 : threade VERBATIM, comme le port livre -- l'intercepteur per-coup
+                # (`should_discard` / `on_blocked` + `RegisterBlockMade`) n'est PAS une variable de
+                # ce contrefactuel. Cf. l'avertissement de la docstring.
+                hit_interceptor=hit_interceptor,
                 limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
                 limits_hp=int(thc.hp or 0), is_attack_damage_op=is_attack_op)
             AttackDamageOperation._deplete_shield(shc, r)
