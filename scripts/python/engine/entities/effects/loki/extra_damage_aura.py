@@ -415,17 +415,33 @@ class DefenderOfTheGreaterGoodExtraDmgEffect(BaseEffect):
     - degat `IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraDmgEffect$$CreateDamageModifier` (RE decompile) : `EffectBonus.ForAddition(get_OwnerIsCaster &
       IsRangedAttack & !DamageProfileIs(0xd=13=Psychic), ConfigVar(8=extraDmg, GetAbilityState, EffectSource
       @0x60))`, source AbilityOrEffect 0x483=1155 (DefenderOfTheGreaterGood, pour l'attribution -- non porte,
-      cf. SpotterReworked). Canal ADDITIF pre-percage PAR COUP (`DamageModifiers.additive`). DEUX differences
+      cf. SpotterReworked). DEUX differences
       vs SpotterReworked_ExtraDamage (IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateEffectDamageBonusForAttack) : (1) `get_OwnerIsCaster` (vs OwnerIsActor -- meme semantique :
       ce chemin n'est appele que pour l'attaque du BENEFICIAIRE) ; (2) noeud `!DamageProfileIs(Psychic)` en plus
       (SpotterReworked forkait sur HeavyWeapon a la place).
+      ⚠ `ForAddition` est INLINE dans ce corps (aucun `call`) : on le lit a la DISPOSITION des champs --
+      `IdunBattle.Entities.Effects.EffectBonus$$ForAddition` ecrit son montant a `+0x10`,
+      `IdunBattle.Entities.Effects.EffectBonus$$ForPercentIncrease` a `+0x08` ; ici le corps ecrit le
+      trigger a `+0x00`, `0` a `+0x08`, le montant a `+0x10`. C'est donc bien le canal ADDITIF
+      (`DamageModifiers.additive`), PAR COUP -- et APRES l'etage percage/armure, pas avant :
+      `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` appelle
+      `...$$GetBaseDamageWithFixedPiercedArmor` D'ABORD, puis le %-list, puis l'additif (#420-r1 ;
+      les docstrings voisines qui disent « pre-percage » sont a corriger, cf. backlog).
     - cible `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector` (RE decompile) :
-      `UnitsWithRangedWeaponsExcludingDamageProfile( Unique( (AdjacentFriends(owner,1) - {owner})
-        + UnitsFromFaction(SurroundingFriends(owner, range=2), UnitFaction.Tau=9) ), 0xd=Psychic )`
-      = amis SOIT ADJACENTS (range 1, TOUTE faction) SOIT T'au dans range 2, ayant une arme RANGED non-Psychic.
+      `UnitsWithRangedWeaponsExcludingDamageProfile( Unique( (AdjacentFriends(owner, ownerTiles, unique=1) - {owner})
+        + UnitsFromFaction(SurroundingFriends(owner, ownerTiles, range=2, unique=1, selectionType=3), UnitFaction.Tau=9, 3) ), 0xd=Psychic )`
+      = amis SOIT ADJACENTS (TOUTE faction) SOIT T'au a distance <= 2, ayant une arme RANGED non-Psychic.
+      ⚠ LES LITTERAUX NE SONT PAS TOUS DES RAYONS (piege #419) : `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(this, unit, unitTile, unique)`
+      n'a AUCUN parametre de rayon -- le `1` du call-site est `unique` ; l'adjacence vient d'`AdjacentTiles`.
+      `IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(this, unit, unitTile, range, unique, unitSelectionType)`
+      en a un, et le call-site y passe bien `range = 2`.
       Selecteur d'aura partage x4 (StructuralAnalyser/SereneUnifier/DotGG/WayOfTheShortBlade, cf. case-220
-      §6.6). Le filtre `UnitsWithRangedWeaponsExcludingDamageProfile(Psychic)` = eligibilite CARRIER (arme
-      ranged non-Psychic) SUBSUMEE par le gate d'attaque `is_ranged & damage_profile != Psychic` du coup mesure.
+      §6.6). Le filtre `UnitsWithRangedWeaponsExcludingDamageProfile(Psychic)` monte un
+      `IdunBattle.Entities.Selectors.UnitsWithWeaponsSelector` a `minRange = 2` + `excludedDamageProfile = Psychic`
+      (`...$$HasMatchingWeapon` exige qu'UNE MEME arme satisfasse les deux) = eligibilite CARRIER,
+      SUBSUMEE par le gate d'attaque `is_ranged & damage_profile != Psychic` pour toute attaque d'ARME.
+      RESIDU NOMME : une attaque « ranged » d'une unite SANS arme de portee >= 2 serait accordee par le
+      port et refusee par le natif -- non confronte (#420-r1).
     - MAGNITUDE = `ability_var("DefenderOfTheGreaterGood", "extraDmg", ablvl) x multiplier` (ConfigVar var
       index 8 = extraDmg, SEULE var d'ability, DANS variablesAffectedByRarityBonus -> scale x mult ;
       extraDmg[L1..65]=[5..364] ; i2 « +364 » = extraDmg[L65]). `GetVariableForLevel(config, 8, GetAbilityState)`
@@ -433,12 +449,22 @@ class DefenderOfTheGreaterGoodExtraDmgEffect(BaseEffect):
       (self.ability_level, comme SpotterReworked/LordOfTheHost). Multiplier = le GLOBAL du porteur
       (self.ability_variables_multiplier).
     - GATE : is_ranged (IsRangedAttack) ; damage_profile != Psychic (!DamageProfileIs(0xd)) ; distance
-      (adjacent range 1 toute faction, OU T'au range 2). is_melee None (chemins ability combat non threades
-      is_ranged) -> gate off (calque SpotterReworked `_trigger_ok`). Ne modelise PAS 1183 ExtraHits ([fable]).
+      (adjacent toute faction, OU T'au distance <= 2). Ne modelise PAS 1183 ExtraHits (porte a part, #372).
+      ⚠ LES DEUX GATES N'ONT PAS LA MEME POLARITE SUR LA CLE ABSENTE, et ca ne se devine pas :
+        * `is_melee` est TRI-ETAT (calque SpotterReworked `_trigger_ok`) -- seul `False` OUVRE ; `True`
+          FERME, et `None`/cle absente FERME AUSSI (le port ne devine pas la nature du coup).
+          Corollaire de mesure (#422) : RETIRER cette cle FERME le gate au lieu de l'ouvrir -- pour
+          l'eprouver il faut FORCER `is_melee`, jamais le supprimer ;
+        * `damage_profile` absent laisse le gate de PROFIL OUVERT (le natif compare a `13` ; un contexte
+          sans profil vaut `DamageProfileType.None_ = -1`, hors egalite).
 
-    VALIDATION : le PSYCHIC-exclusion exige `damage_profile` dans le ctx aura-ally (threade par normal_attack/
-    abilities/psyker/fury cote prediction ; par damage.py cote combat) et `att_faction` (FactionId) pour le
-    tier T'au range-2 (deja threade cote prediction ; ajoute cote combat)."""
+    VALIDATION (#420-r1, cliquet `tests/engine/runner/test_dotgg_extra_dmg_live.py`) : le PSYCHIC-exclusion
+    exige `damage_profile` dans le ctx aura-ally (threade par normal_attack/abilities/psyker/fury cote
+    prediction ; par damage.py cote combat) et `att_faction` (FactionId) pour le tier T'au distance <= 2.
+    Confronte LIVE des DEUX cotes de la bascule sur MC1_67 (ablvl 50 x mult 180 -> extraDmg = 499) :
+    `darkaHellblaster` adjacent, coup non-Psychic -> live = offline, +624/coup vs le meme rejeu sans
+    l'effet ; `ultraTigurius` adjacent, coup RANGED Psychic (`DamageProfileType = 13` lu au tag natif)
+    -> live = offline = rejeu-sans-effet, delta 0. Vue ROUGE du gate retire : live=[2984] offline=[3483]."""
 
     _TAU_FACTION = "Tau"           # UnitFaction.Tau=9 (UnitsFromFaction(9) IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector) ; FactionId gameconfig="Tau"
     # #372 -- UNE SEULE classe native pour 1182 ET 1306 : `..._ExtraDmgEffect$$.ctor(this, isDrone)`
@@ -481,9 +507,9 @@ class DefenderOfTheGreaterGoodExtraDmgEffect(BaseEffect):
     def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
         c = ctx or {}
         if c.get("is_melee") is not False:                    # IsRangedAttack (IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraDmgEffect$$CreateDamageModifier) : ranged only
-            return None                                       # (None = ability combat non threade -> gate off)
+            return None                                       # TRI-ETAT : None (nature non declaree) FERME
         if (c.get("damage_profile") or None) == "Psychic":    # !DamageProfileIs(0xd=13=Psychic)
-            return None
+            return None                                       # profil ABSENT -> gate OUVERT (compare a 13)
         if not self.aura_selector_covers(c):
             return None
         if self._IS_DRONE and self._covered_by_source_aura(c):
