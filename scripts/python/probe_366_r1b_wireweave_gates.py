@@ -259,6 +259,41 @@ def main() -> int:
     assert U.evaluate((0, 0), False, cat) == 0.0, "malus rendu sans filet arme"
     assert U.evaluate(None, True, cat) == 0.0, "le gate `CasterPosition.MainTile == null` ne ferme pas"
 
+    # --- 10. FACE DECISION, le PREDICAT : `Any(e => e.IsActive)` -- PAS la seule PRESENCE ---------
+    # `WireweaveNet_FirstAttack.<>c$$<EvaluateAttackInSteps>b__1_0` (le lambda du `Any`) a pour corps
+    # `return *(byte*)(GetComponent<EffectComponent>(e) + 0x5c)` = `IsActive`. Le port lit donc
+    # `Scene.effects` (= `EffectsState.active_effects`) et SURTOUT PAS `has_effect` -- ce dernier ne
+    # filtre que `consumed`, il rendrait le malus sur un filet DEJA CONSOMME.
+    # L'etape [9] ci-dessus ne teste que `U.evaluate(tile, bool, cat)` : le booleen y est DONNE, donc
+    # elle est aveugle a ce choix. C'est ICI qu'il se garde -- sur le SEUL regime qui les separe :
+    # l'entite-effet PRESENTE mais ETEINTE (Calandis a deja contre-attaque ce tour).
+    # Non atteignable par la face DECISION LIVE : `aiDryRunAllUnits` n'evalue que les unites du
+    # joueur COURANT (mesure #415-r1), donc jamais mon attaquant pendant le tour de Calandis -- la
+    # seule fenetre ou le canal `decisionView` par defaut cesse de publier l'instance.
+    import types
+    from engine.playbook.scene import Scene
+    from engine.utilities.wireweave_net import (target_has_active_wireweave_net,
+                                                wireweave_net_first_attack_utility)
+    state, car, foe = _fresh()
+    inst = _inst(state, car)
+    ctx_on = types.SimpleNamespace(scene=Scene.from_state(state), wt=W.load())
+    pred_on = target_has_active_wireweave_net(ctx_on, car)
+    term_on = wireweave_net_first_attack_utility(ctx_on, (0, 0), car)
+    _fire(state, foe, car)                    # la riposte part -> `& DeactivateEffect(effect)`
+    assert inst.active is False, "le montage n'a pas ETEINT l'instance : rien a discriminer"
+    ctx_off = types.SimpleNamespace(scene=Scene.from_state(state), wt=W.load())
+    present = bool(ctx_off.scene.eff_state.has_effect(car, EFFECT))
+    pred_off = target_has_active_wireweave_net(ctx_off, car)
+    term_off = wireweave_net_first_attack_utility(ctx_off, (0, 0), car)
+    print("[10] filet ARME -> predicat=%s terme=%s | filet CONSOMME (encore present=%s) -> "
+          "predicat=%s terme=%s" % (pred_on, term_on, present, pred_off, term_off))
+    assert pred_on is True and term_on == float(w), "le malus ne tombe pas sur un filet ARME"
+    assert present, ("l'entite-effet a DISPARU de l'etat : le regime 'present mais eteint' n'est "
+                     "pas atteint, l'etape ne discrimine RIEN")
+    assert pred_off is False and term_off == 0.0, (
+        "le predicat lit la PRESENCE et non le flag `IsActive @+0x5c` : un filet DEJA CONSOMME "
+        "rendrait le malus (`has_effect` au lieu d'`active_effects`)")
+
     print("PROBE OK")
     return 0
 
