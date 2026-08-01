@@ -150,10 +150,11 @@ Le flag OFFLINE est écrit par `refresh_stat_modifier_effects`, que
 `RefreshEffectsOperation$$Execute(effectEntity = NUL)`. Ce cas passe par le **discriminant #366-r1b**
 (`_active_condition_is_ported` = « la classe surcharge-t-elle `is_active` ? ») : porter une
 `CreateActiveCondition` fait automatiquement entrer la classe dans la branche « ré-évaluer et écrire
-le flag ». Le cliquet a été **remonté délibérément** — plancher `>= 15` dans
-`test_refresh_active_flag_discriminant_offline` (compte RE-DÉRIVÉ : il disait `>= 13` alors que
-`CamoCloak_DmgReduction` était déjà entrée ; un plancher qu'on ne remonte pas cesse d'être un
-cliquet).
+le flag ». Le cliquet a été **remonté délibérément, deux fois** — `>= 13` écrit au #366-r1b, `14`
+RE-DÉRIVÉ à la reprise (`CamoCloak_DmgReduction` était entrée entre-temps **sans que le plancher
+bouge** : un plancher qu'on ne remonte pas cesse d'être un cliquet), puis **`>= 16`** après rebase,
+`StructuralAnalyser_Visual` (1174, #420) et `MartialSuperiority_Visual` étant arrivés dans la même
+fenêtre. Le compte est RE-DÉRIVÉ du registre, jamais recopié.
 
 **Contre-épreuve** (`[4]` du probe, et garde
 `test_unported_class_would_publish_the_halo_during_the_owner_turn`) : le MÊME effet capté, routé sur
@@ -173,12 +174,19 @@ mutation est re-vérifié avant lecture du résultat (piège CRLF).
 | M4 entrée de registre retirée | `..._is_posed_and_routed_to_the_ported_class` + le CLIQUET du discriminant |
 | M5 clé retirée de la face DÉCISION (`Scene.unit_state`) | `..._decision_face_carries_the_same_turn_key` |
 
-**Cliquets** : `probe_181` (99/99, 0 manquante), `probe_120 --step 0`, `probe_273 --only-scan`,
-`probe_365`, `probe_391` — tous verts. **Non-régression** : 23 tests offline (registre/partition,
-cliquet du discriminant, ratchet d'abilities) + 35 tests live voisins
-(`test_martial_superiority_live` 4/4 — MÊME porteur, `test_wireweave_net_counter_live` 6/6,
-`test_contagions_lifecycle_live` + `test_anvil_shield_stun_live` + `test_camo_cloak_dmg_reduction_live`
-18/18, `test_visions_of_heresy_pierce_live` + `test_aura_position_live` 5/5, `test_predict_live` 2/2).
+Les 5 mutations ont été rejouées **APRÈS rebase** sur `origin/master` (11 commits d'avance, dont
+#420 qui porte le voisin `1174 StructuralAnalyser_Visual` — conflits sur `factory.py` et
+`loki/__init__.py` résolus par ADDITION des deux entrées, aucune n'étant exclusive de l'autre) :
+5 rouges, arbre restauré vert.
+
+**Cliquets** : `probe_181`, `probe_120 --step 0`, `probe_273 --only-scan`, `probe_365`, `probe_391`
+— tous rc 0 avant ET après rebase. **Non-régression rejouée APRÈS rebase** : 16 tests offline
+(partition du registre, cliquet du discriminant) + **50 tests live voisins** —
+`test_structural_analyser_visual_live` + `test_martial_superiority_live` (MÊME porteur) +
+`test_wireweave_net_counter_live` 16/16, `test_contagions_lifecycle_live` +
+`test_anvil_shield_stun_live` + `test_camo_cloak_dmg_reduction_live` +
+`test_visions_of_heresy_pierce_live` 22/22, `test_predict_live` + `test_aura_position_live` +
+`test_ability_registry_ratchet` 12/12.
 
 ## 7. Ce qui n'est PAS couvert
 
