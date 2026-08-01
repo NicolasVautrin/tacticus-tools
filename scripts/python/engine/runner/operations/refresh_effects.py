@@ -153,10 +153,10 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -
             #
             #   * OUI (la classe SURCHARGE `is_active`) -> on tient une LECTURE du natif : on
             #     re-evalue et on ECRIT le flag, exactement comme avant #366-r1b.
-            #     ⚠ NE JAMAIS FIGER ICI NI UN COMPTE NI LA LISTE DES CLASSES. Les deux se perimen-
-            #     t a CHAQUE port qui entre une classe surchargeante, et ils sont la CAUSE MECANIQUE
-            #     d'un conflit de rebase par PR : #366-r1 (`PsychicStalk_VisualEffect`) et #424
-            #     (`MartialSuperiority_Visual`) ont reecrit ce meme bloc en parallele. Le compte
+            #     ⚠ NE JAMAIS FIGER ICI NI UN COMPTE NI LA LISTE DES CLASSES : les deux se
+            #     PERIMENT a chaque port qui entre une classe surchargeante, et ils sont la CAUSE
+            #     MECANIQUE d'un conflit de rebase par PR -- #366-r1 (`PsychicStalk_VisualEffect`)
+            #     et #424 (`MartialSuperiority_Visual`) ont reecrit ce meme bloc en parallele. Le
             #     annonçait « 13 » quand `CamoCloak_DmgReduction` etait deja entree, puis « 15 »
             #     quand le seul rebase en avait deja fait 17 : un chiffre ecrit ici est faux AVANT
             #     d'etre merge. L'ensemble se RE-DERIVE, en une expression :
