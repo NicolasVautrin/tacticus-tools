@@ -246,5 +246,138 @@ def test_dynamic_reason_refuses_a_caster_that_already_moved():
             == int(TR.CasterHasNotMoved))
 
 
+# ------------------------------------------- `#389-r1` : le RETRAIT de 1098 a la cloture de phase
+#
+# MECANISME NATIF, nomme. La classe d'effet n'a AUCUNE methode a son nom dans les tables (4 corps
+# DEDUPLIQUES, donc attribues a d'autres classes) ; son bloc de 5 entrees consecutives dans la table
+# de pointeurs IL2CPP les rend tous, et l'appariement position <-> slot est CALIBRE sur
+# `IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect` (4 overrides NOMMES) :
+#
+#     CreateTargetTrigger          = DSLTriggers$$On(0x3a = PhaseEnd, ownerNeedsToBeAlive: false)
+#     CreateTargetTriggerBehaviour = BaseEffect$$GetRemoveEffectBehaviour
+#                                  = DSLBehaviors$$RemoveEffect(Effect@0x38)
+#
+# `PhaseEnd` est publie par `IdunBattle.Operations.EndPhaseOperation$$Execute`, atteint depuis la
+# branche `isInternalPhase == false` d'`IdunBattle.Messages.InputMessageProcessor$$RunPhase` -- le
+# corps meme d'un `applyAction`. Cf. `runner/operations/triggers/loki/ramming_speed.py` et
+# `dispatch/phase.py`. Detail : `docs/rl/case-389-ramming-speed-combat.md` sec.5.
+
+def _state_with_effects(**kw):
+    """`_state()` + un `EffectsState` VIDE : sans lui, `AddEffect` emet mais ne materialise rien, et
+    tout cliquet sur la duree de vie de l'instance serait vacant."""
+    from engine.entities import EffectsState
+    st = _state(**kw)
+    st.effects = EffectsState()
+    return st
+
+
+def _cast_via_runner(st):
+    """Cast par le CHEMIN DE PRODUCTION offline (`Runner.apply`), le seul qui porte la borne de
+    phase -- `AbilityHandler.visit_ActiveAbilityMessage` appele nu ne la traverse pas."""
+    from engine.runner.messages import ActiveAbilityMessage
+    from engine.runner.runner import Runner
+    Runner(st).install_default_handlers(20).apply(
+        ActiveAbilityMessage(caster_id=CASTER_ID, target_id=TARGET_ID, ability_type=ABILITY))
+    return st
+
+
+def _instances_1098(st):
+    return [e for e in (st.effects.by_unit.get(CASTER_ID) or []) if e.effect_type == 1098]
+
+
+def test_the_removal_trigger_is_registered_on_phase_end():
+    """Garde STRUCTURELLE : l'entree existe, elle ecoute `On(0x3a = PhaseEnd = 58)` et porte 1098.
+    Un port qui la retirerait -- ou la re-brancherait sur `TurnEnd` (0x17), l'autre valeur du meme
+    couple de classes soeurs `UntilOfEndTurnEffect`/`UntilOfEndPhaseEffect` -- rougit ici."""
+    from engine.dsl.event_trigger_type import EventTriggerType
+    from engine.runner.operations.triggers import EFFECT_TRIGGERS
+    from engine.runner.operations.triggers.loki.ramming_speed import RammingSpeedExtraExplodeRemove
+    entries = EFFECT_TRIGGERS.get(1098) or []
+    assert RammingSpeedExtraExplodeRemove in entries
+    assert RammingSpeedExtraExplodeRemove.effect_type == 1098
+    assert RammingSpeedExtraExplodeRemove.event_id == int(EventTriggerType.PhaseEnd) == 58
+
+
+def test_runner_apply_closes_the_phase(monkeypatch):
+    """Garde de CABLAGE : `Runner.apply` emet `PhaseEnd` EN SORTIE (mirror de la publication `0x3a`
+    d'`EndPhaseOperation$$Execute`, appelee par `RunPhase(..., isInternalPhase: false)`).
+
+    L'import du vecteur est LAZY dans `apply` -> patcher l'attribut du module suffit, et le compteur
+    prouve l'emission SANS dependre d'un consommateur."""
+    from engine.runner.messages import ActiveAbilityMessage
+    from engine.runner.operations.triggers.dispatch import phase as phase_mod
+    from engine.runner.runner import Runner
+    seen = []
+    monkeypatch.setattr(phase_mod, "phase_end_triggers", lambda st: seen.append(st) or [])
+    st = _state_with_effects()
+    Runner(st).install_default_handlers(20).apply(
+        ActiveAbilityMessage(caster_id=CASTER_ID, target_id=TARGET_ID, ability_type=ABILITY))
+    assert len(seen) == 1 and seen[0] is st
+
+
+def test_the_cast_poses_1098_and_the_phase_boundary_removes_it():
+    """LES DEUX FAITS, dans le meme test, pour qu'aucun ne puisse etre satisfait par l'autre :
+    l'arbre POSE bien l'effet (ce n'est pas un refus de pose -- l'evenement de creation existe cote
+    natif aussi), et la CLOTURE DE PHASE le retire."""
+    from engine.runner.components import has_effect_of_type
+    # (a) l'arbre seul, hors borne de phase : l'instance est posee et VIVANTE.
+    st_tree = _state_with_effects()
+    _run_tree(st_tree)
+    posed = _instances_1098(st_tree)
+    assert len(posed) == 1 and not posed[0].consumed
+    assert has_effect_of_type(st_tree, CASTER_ID, 1098) is True
+    # (b) le meme cast par `Runner.apply` : l'instance existe TOUJOURS mais n'est plus lue.
+    st = _cast_via_runner(_state_with_effects())
+    kept = _instances_1098(st)
+    assert len(kept) == 1 and kept[0].consumed, "1098 doit etre RETIRE a la cloture de phase"
+    assert has_effect_of_type(st, CASTER_ID, 1098) is False
+
+
+def test_stripping_the_registry_entry_keeps_1098_alive(monkeypatch):
+    """CONTRE-EPREUVE : sans l'entree de registre, l'effet SURVIT au meme cast. C'est l'etat
+    d'AVANT `#389-r1` -- `AddEffect` options ZERO -> `remaining = 0` = PERMANENT. Ce cliquet garantit
+    que le test ci-dessus mesure bien le RETRAIT, et pas une non-pose."""
+    from engine.runner.components import has_effect_of_type
+    from engine.runner.operations.triggers import EFFECT_TRIGGERS
+    monkeypatch.setitem(EFFECT_TRIGGERS, 1098, [])
+    st = _cast_via_runner(_state_with_effects())
+    left = _instances_1098(st)
+    assert len(left) == 1 and not left[0].consumed
+    assert has_effect_of_type(st, CASTER_ID, 1098) is True
+
+
+def test_a_nova_after_the_cast_reads_the_BASE_percentage_only(monkeypatch):
+    """LE REGIME QUI MORD, bout en bout. `ExplodesAbility$$GetDamage` =
+    `PercentageOf(Sum(ConfigConst(1021 Explodes, explodesDmg),
+                      ConditionalAmount(HasEffect(Owner, 1098), ConfigConst(1059, extraDmgPct), 0)),
+                 StatAmount(Owner, HEALTH, MAXIMUM))`.
+
+    Une mort survenant APRES le cast (tour suivant, ou coup adverse) lit 1098 APRES `PhaseEnd`. Avec
+    le retrait porte : `explodesDmg` SEUL. Sans lui : `explodesDmg + extraDmgPct` -- le porteur
+    garderait A VIE le bonus d'une charge deja consommee.
+
+    Bras DISCRIMINANT par construction : l'assertion finale exige que les deux montants DIFFERENT."""
+    import gameconfig as GC
+    from engine.dsl.effects import ExecutionContext
+    from engine.runner.operations.triggers import EFFECT_TRIGGERS
+    from engine.runner.operations.triggers.loki.death_nova import explodes_tree
+    base = int(((GC.trait("Explodes") or {}).get("variables") or {}).get("explodesDmg"))
+    extra = int(((GC.ability("RammingSpeed") or {}).get("constants") or {}).get("extraDmgPct"))
+
+    def _nova(st):
+        ectx = ExecutionContext(state=st, rng=st.rng)
+        explodes_tree(base, extra).execute(
+            entities_from_state(st, CASTER_ID, CASTER_ID), ectx)
+        return [p["attack"]["base_min"] for n, p in ectx.emitted
+                if n == "AttackWithAbilityDamage"]
+
+    with_removal = _nova(_cast_via_runner(_state_with_effects()))
+    assert with_removal == [round(HP * base / 100)]
+    monkeypatch.setitem(EFFECT_TRIGGERS, 1098, [])              # port AMPUTE du retrait
+    without_removal = _nova(_cast_via_runner(_state_with_effects()))
+    assert without_removal == [round(HP * (base + extra) / 100)]
+    assert with_removal != without_removal, "bras non discriminant : extraDmgPct vaut 0 en config"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
