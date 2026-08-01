@@ -6,7 +6,16 @@ illegale, AVANT le premier `AActiveAbility.Execute` de la behaviour ET avant
 mesuree en #111 : `mutated=false`, `actionConsumed=false`, 2 evenements, groupe 12
 `User_UseAbility` — ouvert par le handler de message EN AMONT du gate, puis referme aussitot).
 
-CHAINE NATIVE (decompile = verite ; build gqfc5mff6c) :
+CHAINE NATIVE (decompile = verite ; STRUCTURE re-lue sur `rnca9r7q6c` le 2026-08-01, #429) :
+
+⚠ LES INDICES DE SLOT CITES PLUS BAS DATENT DE `gqfc5mff6c` ET TROIS ONT BOUGE DE +1 sur
+`rnca9r7q6c` — `IBattleQuery` : `GetFreeAdjacentTiles` 0x51 -> **0x52** (bits 5 et 21),
+`AreTilesAdjacent` 0x61 -> **0x62** (bit 32), `GetAdjacentEnemies` 0x7f -> **0x80** (bit 42).
+`IAttackQuery` est INCHANGE (0x11 healable, 0x12 repairable) : ce sont deux interfaces
+distinctes, une methode inseree dans l'une ne decale pas l'autre. AUCUN degat fonctionnel — le
+port n'appelle pas par slot, il appelle des helpers Python nommes — mais les slots cites en
+commentaire sont des references de RE, et trois d'entre eux ne resolvent plus. Les indices du
+build COURANT sont ceux de `targeting_rule_inventory.py`.
 
     IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal
       -> IdunBattle.Operations.ActiveAbilityOperation$$IsInvalidTarget

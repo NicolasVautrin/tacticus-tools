@@ -96,6 +96,24 @@ def test_mirror_couvre_le_dump_du_build_courant():
         % (sorted(mirror - dump), sorted(dump - mirror)))
 
 
+def test_estampille_du_mirror_est_le_build_courant():
+    """La docstring du mirror NOMME le dump dont il sort -- elle doit nommer le build qui fait foi.
+
+    Trou MESURE sur moi-meme en livrant #429 : `test_mirror_couvre_le_dump_du_build_courant`
+    compare les NOMS de membres, et les deux dumps declaraient le meme enum. Un mirror genere
+    depuis un build ARCHIVE restait donc parfaitement vert, avec une estampille qui mentait. La
+    coincidence des noms est un accident de ce build, pas une propriete."""
+    import re
+    from pathlib import Path
+    import engine.runner.abilities.targeting_rule as mod
+    src = Path(mod.__file__).read_text(encoding="utf-8")
+    cites = set(re.findall(r"data/symbols/([0-9a-z]+)/frida/enums\.tsv", src))
+    courant = symbols_layout.current_build()
+    assert cites == {courant}, (
+        "le mirror dit sortir de %s, le build qui fait foi est %s -- regenerer avec "
+        "`python scripts/python/gen_targeting_rule.py`" % (sorted(cites) or ["(rien)"], courant))
+
+
 # ---------------------------------------------------------------------------------------------
 # 2. INTEGRITE de l'inventaire
 # ---------------------------------------------------------------------------------------------
