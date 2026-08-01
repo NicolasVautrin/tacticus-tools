@@ -152,9 +152,10 @@ Le flag OFFLINE est écrit par `refresh_stat_modifier_effects`, que
 `CreateActiveCondition` fait automatiquement entrer la classe dans la branche « ré-évaluer et écrire
 le flag ». Le cliquet a été **remonté délibérément, deux fois** — `>= 13` écrit au #366-r1b, `14`
 RE-DÉRIVÉ à la reprise (`CamoCloak_DmgReduction` était entrée entre-temps **sans que le plancher
-bouge** : un plancher qu'on ne remonte pas cesse d'être un cliquet), puis **`>= 16`** après rebase,
-`StructuralAnalyser_Visual` (1174, #420) et `MartialSuperiority_Visual` étant arrivés dans la même
-fenêtre. Le compte est RE-DÉRIVÉ du registre, jamais recopié.
+bouge** : un plancher qu'on ne remonte pas cesse d'être un cliquet), puis **`>= 17`** après les deux
+rebases — `StructuralAnalyser_Visual` (1174, #420), `InescapableAccuracy_overrideHits` (1117, #422)
+et `MartialSuperiority_Visual` sont arrivés dans la même fenêtre. Le compte est RE-DÉRIVÉ du
+registre à chaque rebase, jamais recopié.
 
 **Contre-épreuve** (`[4]` du probe, et garde
 `test_unported_class_would_publish_the_halo_during_the_owner_turn`) : le MÊME effet capté, routé sur
@@ -177,7 +178,8 @@ mutation est re-vérifié avant lecture du résultat (piège CRLF).
 Les 5 mutations ont été rejouées **APRÈS rebase** sur `origin/master` (11 commits d'avance, dont
 #420 qui porte le voisin `1174 StructuralAnalyser_Visual` — conflits sur `factory.py` et
 `loki/__init__.py` résolus par ADDITION des deux entrées, aucune n'étant exclusive de l'autre) :
-5 rouges, arbre restauré vert.
+5 rouges, arbre restauré vert. Un **second rebase** (6 commits de plus, #422 / `1117`) s'est appliqué
+sans conflit ; les tests et cliquets ont été rejoués dessus.
 
 **Cliquets** : `probe_181`, `probe_120 --step 0`, `probe_273 --only-scan`, `probe_365`, `probe_391`
 — tous rc 0 avant ET après rebase. **Non-régression rejouée APRÈS rebase** : 16 tests offline

@@ -152,10 +152,10 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -
             # ou non, un port de la `CreateActiveCondition` de cette classe ?
             #
             #   * OUI (la classe SURCHARGE `is_active`) -> on tient une LECTURE du natif : on
-            #     re-evalue et on ECRIT le flag, exactement comme avant #366-r1b. 16 entrees du
+            #     re-evalue et on ECRIT le flag, exactement comme avant #366-r1b. 17 entrees du
             #     registre au 2026-08-01 (`AnvilShield_BlockChanceBelowHealthCap`,
             #     `CamoCloak_DmgReduction`, les DEUX `ContagionsOfNurgle_ArmorReduction`, les DEUX
-            #     `DestroyTheWitch_*`, `HammerOfWrath_ConditionalDamage`, les DEUX
+            #     `DestroyTheWitch_*`, `HammerOfWrath_ConditionalDamage`, les TROIS
             #     `InescapableAccuracy_*`, `MartialSuperiority_Visual`, `ModifiedExoarmour_ExtraDmg`,
             #     `Pinned`, `PowerTrip_FullHealth`, `StructuralAnalyser_Visual`, les DEUX
             #     `VisionsOfHeresy_ExtraPierce*`).
