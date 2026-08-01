@@ -163,13 +163,23 @@ lignes natif/port sur les deux étages live, sans aucune modification d'`engine/
 
 ## 7. Ce qui a été joué (relevé daté)
 
-`probe_447_bit51_native` PASS (seed 777 / `MC1_67`) · PASS en généralisation (31337 / `C4_09` /
-`adeptRetributor`) · `test_bit51_native_live` 11 ✅ · `test_steppable_targeting_live` 8 ✅ ·
-`test_targeting_masks_live` 13 ✅ · `test_ability_target_gate_live` 13 ✅ ·
-`test_echoes_from_the_warp_revive_live` ✅ · `test_harlequins_panoply_live` ✅ ·
-`test_411_transfer_hit_wiring_offline` ✅ · `test_380_seed_bc_patch_survival_offline` ✅ ·
-`test_237_relic_equip_offline` ✅ — ces cinq derniers gardent `catalog_inject`, le seul module
-existant que la tranche modifie. Banque de cliquets VERTE.
+**AVANT rebase.** `probe_447_bit51_native` PASS (seed 777 / `MC1_67`) · PASS en généralisation
+(31337 / `C4_09` / `adeptRetributor`) · `test_bit51_native_live` 11 ✅ ·
+`test_steppable_targeting_live` 8 ✅ · `test_targeting_masks_live` 13 ✅ ·
+`test_ability_target_gate_live` 13 ✅ · `test_echoes_from_the_warp_revive_live` 6 ✅ ·
+`test_harlequins_panoply_live` 10 ✅ · `test_411_transfer_hit_wiring_offline` +
+`test_380_seed_bc_patch_survival_offline` + `test_237_relic_equip_offline` +
+`test_366_r1_bcpatch_port_blindspot_offline` **51 ✅** — ces quatre derniers gardent
+`catalog_inject`, le seul module existant que la tranche modifie.
+
+**APRÈS rebase sur `origin/master`** (5 commits entre-temps — #443 `SaviorProtocols`, #419-r1
+tranche 3 ; `engine/runner/abilities/targeting.py` est dans le diff, donc le re-jeu n'est pas
+formel) : `test_bit51_native_live` 11 ✅ · `test_steppable_targeting_live` 8 ✅ ·
+`test_targeting_masks_live` 13 ✅ · `test_ability_target_gate_live` 13 ✅ — et la **banque de
+cliquets VERTE, 24 cliquets, mur 92,3 s**.
+
+Le probe n'entre PAS à la banque : il monte un runner, et la banque est offline (le critère est le
+coût marginal en parallèle).
 
 ## 8. Re-dériver
 
