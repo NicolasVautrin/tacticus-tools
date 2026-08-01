@@ -27,7 +27,8 @@ CE QUE LE PROBE FAIT
 0. Rend les deux tables du build courant, et le DIFF avec le build precedent s'il est present sous
    `data/symbols/` -- c'est ce qui donne, pour chaque litteral trouve, « ce qu'il designait AVANT »
    et « ce qu'il designe MAINTENANT ».
-1. Balaye en AST tous les `.py` du depot : toute comparaison `<expr step/group> <op> <litteral int>`
+1. Balaye en AST les `.py` de SON PROPRE checkout -- `.claude/worktrees/` est exclu, cf. le
+   commentaire de `_SKIP_RELS` : toute comparaison `<expr step/group> <op> <litteral int>`
    (ou `in (…)` d'un tuple/liste/set d'entiers). L'expression est reconnue soit directement
    (`x.get("step")`, `x["group"]`), soit par ALIAS (une variable affectee depuis un tel acces dans
    le meme fichier -- le motif `step = ev.get("step")` puis `if step == 13`).
@@ -43,6 +44,7 @@ from __future__ import annotations
 import argparse
 import ast
 import io
+import os
 import sys
 from pathlib import Path
 
@@ -68,6 +70,50 @@ ALLOWLIST = {
 # `hooks-legacy/` est VERSIONNE mais rien de vivant n'en depend (cf. `hooks-legacy/README.md`) :
 # on l'inventorie a part, il ne fait pas echouer le cliquet.
 INFO_PREFIXES = ("hooks-legacy/",)
+
+# ⚠ Ces segments se testent sur le chemin RELATIF au depot, JAMAIS sur `p.parts` (absolu). Ce
+# probe filtrait sur l'absolu : le trou n'etait pas theorique, il etait des DEUX cotes.
+_SKIP_PARTS = (".git", "node_modules", "logs", "sources_win", "dist", ".venv")
+
+# `.claude/worktrees/agent-<id>/` est un AUTRE checkout du depot (#434). Depuis l'arbre principal
+# il est HORS PERIMETRE -- sans cette ligne, ce probe lisait et RAPPORTAIT le code en cours des
+# autres agents. Mesure du 2026-08-01, 8 worktrees vivants : 13 267 `.py` retenus dont 11 746
+# (88,5 %) chez eux ; perimetre propre 1 521. Le probe mettait 366,6 s depuis l'arbre principal
+# contre 33,7 s depuis un worktree.
+#
+# ⚠ L'exclusion porte sur le chemin RELATIF, et c'est ce qui la rend correcte DANS LES DEUX SENS.
+# Ajouter `worktrees` au filtre par SEGMENT (`p.parts`) parait equivalent et ne l'est pas : un
+# agent tourne DANS `.claude/worktrees/agent-<id>/`, donc tout chemin absolu chez lui porte ce
+# segment. Mesure directe de cette variante : 1 521 fichiers depuis l'arbre principal -- et
+# **0 fichier** depuis un worktree, avec `VERDICT: PASS`. Le cliquet `probe_440` garde cette
+# distinction pour tout le depot.
+_SKIP_RELS = (".claude/worktrees",)
+
+
+def _rel_ou_none(p: Path) -> "str | None":
+    """Chemin relatif POSIX du fichier, ou None s'il est hors perimetre."""
+    try:
+        rel = p.relative_to(REPO).as_posix()
+    except ValueError:
+        return None
+    if any(seg in _SKIP_PARTS for seg in rel.split("/")):
+        return None
+    return None if any(rel == r or rel.startswith(r + "/") for r in _SKIP_RELS) else rel
+
+
+def _py_du_depot() -> list:
+    """Les `*.py` du depot -- MEME liste que `sorted(REPO.rglob("*.py"))`, mais elaguee A LA
+    SOURCE : `rglob` descend PARTOUT puis on filtre, donc la traversee de `.git`, de
+    `node_modules` et des worktrees imbriques etait payee integralement. `os.walk` laisse elaguer
+    `dirnames` EN PLACE. Il ne suit pas non plus les points de reparse (junction), la ou `rglob`
+    y descend. La comparaison de suffixe est INSENSIBLE A LA CASSE, comme `Path.glob` sous
+    Windows (`rglob("*.py")` y ramene aussi `Foo.PY`)."""
+    out = []
+    for dirpath, dirnames, filenames in os.walk(REPO):
+        d = Path(dirpath)
+        dirnames[:] = [n for n in dirnames if _rel_ou_none(d / n) is not None]
+        out += [d / n for n in filenames if n.lower().endswith(".py")]
+    return sorted(out)
 
 
 def _enum_map(build: str, cle: str) -> dict:
@@ -242,12 +288,9 @@ def sweep_py(verbose: bool) -> tuple:
     group_prev = _enum_map(prev[-1], GROUP_ENUM) if prev else {}
 
     fails, infos = [], []
-    for p in sorted(REPO.rglob("*.py")):
-        rel = p.relative_to(REPO).as_posix()
-        if any(part in (".git", "node_modules", "logs", "sources_win", "dist", ".venv")
-               for part in p.parts):
-            continue
-        if rel in ALLOWLIST:
+    for p in _py_du_depot():
+        rel = _rel_ou_none(p)
+        if rel is None or rel in ALLOWLIST:
             continue
         try:
             src = io.open(p, encoding="utf-8").read()
