@@ -208,6 +208,12 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   **pas plus**.
 - **Suite complète** : seulement sur **demande explicite** de l'utilisateur, ou avant un jalon
   (commit d'une tranche), pas après chaque édition.
+- **PLUSIEURS modules à lancer → les lancer EN PARALLÈLE, 4 à la fois.** Mesuré le 2026-07-29 sur
+  7 fichiers : 278 s en série → 80 s. Le harnais le supporte déjà (state-files isolés par PID,
+  runner en `scope="module"`), donc N processus pytest, ou `pytest-xdist -n 4 --dist loadfile`
+  (`--dist loadfile` OBLIGATOIRE : sans lui xdist répartit les *tests* et chaque worker
+  reconstruit le runner du module). **Pas plus de 4** : le rendement tombe à 23 % dès 6 workers,
+  et le pump est partagé avec les autres agents.
 
 ## Ne jamais
 
