@@ -1,4 +1,4 @@
-"""MESURE la permissivite du gate de ciblage : quels masques exigent des regles NON PORTEES.
+"""MESURE la permissivite du gate de ciblage, PAR ABILITY -- ensembles desormais DERIVES.
 
 CE QUE CA REPOND
 ----------------
@@ -7,59 +7,51 @@ port ne peut pas inventer un refus qu'il ne sait pas decider). La consequence n'
 le moteur offline accepte des casts que le natif REFUSE, et un entrainement ira exploiter cet
 espace d'action elargi. C'est silencieux : ni erreur, ni crash.
 
-Tant que les masques etaient des litteraux hexadecimaux et la table des bits une prose maintenue a
-la main, la question « quelles regles ce masque exige-t-il que je n'implemente pas ? » n'avait pas
-de reponse mecanique. Avec l'enum genere (`targeting_rule.py`), elle en a une, et c'est ce que ce
-probe imprime : par ability, les bits poses ET non portes.
+Angle propre de ce probe : la vue PAR ABILITY (« quelles regles cette ability exige-t-elle que
+le port n'implemente pas ? »). La vue PAR REGLE est `probe_429_targeting_rule_inventory.py` ;
+la vue bornee a la cascade CIBLE est `probe_249_unported_rule_carriers.py`.
 
-Ce probe MESURE, il ne garde pas -- il n'echoue pas sur un manque, il le chiffre. Le passage a une
-GARDE (echec sur toute NOUVELLE permissivite) est le role du cliquet de non-regression du registre.
+CE QUI A CHANGE (#429)
+----------------------
+Ce probe portait DEUX listes SAISIES : `PORTEES` (7 regles « effectivement consommees par la
+cascade portee ») et `NON_REGLES` (16 bits « qui ne sont pas des regles de refus »). La premiere
+etait **PERIMEE** : elle ignorait les 14 regles portees depuis (#241 portee, #243 adjacence,
+#245 healable, #249 tuile-ennemie, #250 domaine + dynamique caster, #253 tuile, #366-r1 clause
+tuile-nulle...). Consequence MESUREE : le probe annoncait **48 masques sur 102** exigeant une
+regle « inerte », et listait comme non portees `TargetIsTile`, `TargetTileIsFree`,
+`TargetHasFreeAdjacentTile`, `TargetIsNotAdjacent`, `TargetTileHasEnemyUnit`, `TargetIsSummon`,
+`TargetIsHealable`, `TargetIsInRange`, `TargetIsUnit`, `TargetIsActor` -- **dix regles qui sont
+portees**. Une liste de « ce qui est porte », ecrite a la main, se perime a chaque tranche
+livree : c'est la donnee qu'on ne saisit jamais.
+
+Les deux listes viennent maintenant de la derivation :
+  * PORTE       = le port RENDS la regle comme code de refus (AST, `rules_returned_by_port`) ;
+  * NON-REGLE   = `RULE_ROLE[...].kind` vaut PERMISSION / REASON / READER_UNKNOWN.
+
+Ce probe MESURE, il ne garde pas. La GARDE est
+`tests/engine/runner/test_targeting_rule_inventory.py`.
 
 Sortie ASCII only (console Windows cp1252).
 """
+import os
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import probe_429_targeting_rule_inventory as P  # noqa: E402
 from engine.runner.abilities import ABILITY_CLASSES  # noqa: E402
 from engine.runner.abilities.targeting_rule import TargetingRule as TR  # noqa: E402
+from engine.runner.abilities.targeting_rule_inventory import RULE_ROLE  # noqa: E402
 
-# Regles EFFECTIVEMENT consommees par la cascade portee. Chacune est tracee a son site :
-# cf. `engine/runner/abilities/targeting.py`, `get_invalid_target_reason` /
-# `get_invalid_caster_reason`. Toute autre regle posee dans un masque est INERTE offline.
-PORTEES = (
-    TR.TargetMatchesDynamicRule    # point d'extension par ability (get_dynamic_invalid_target_reason)
-    | TR.TargetIsFriendly
-    | TR.TargetIsEnemy
-    | TR.TargetIsTargetable        # inverse par AllowUntargetableTarget
-    | TR.TargetIsCaster            # self-only
-    | TR.TargetIsCasterOrEnemy
-    | TR.CasterHasNotMoved         # volet CASTER
-)
-
-# Bits qui ne sont PAS des regles de refus : les compter comme « non portes » serait faux.
-NON_REGLES = (
-    TR.ValidRequest
-    | TR.CasterIsPossibleTarget    # flag DECLARATIF (get_CanTargetCaster), aucune cascade ne le lit
-    | TR.AllowUntargetableTarget   # INVERSE une regle, n'en est pas une
-    | TR.AllowObscuredTargetByElevation
-    | TR.AllowObscuredTargetByWalls
-    | TR.AllowObscuredTarget
-    | TR.AllowNullCasterTile
-    | TR.AllowSteppableUnit
-    | TR.AllowDeadTarget
-    | TR.AllowIgnoreForcedAttackTarget
-    | TR.AllowUnwalkableTargetTile
-    | TR.AllowTargetWithoutTile
-    | TR.AddCaster
-    | TR.AddCasterIfMatchesDynamicRule
-    | TR.AddCasterIfAtLeastOneTarget
-    | TR.AddCasterIfAtLeastOneFreeTileInRange
-)
+GATE_KINDS = ("GATE_TARGET", "GATE_CASTER", "GATE_ADD_CASTER")
 
 
 def main() -> int:
+    rendues = set(P.rules_returned_by_port())
+    # Un bit est « exigible » s'il est un GATE dont le port ne rend pas le code de refus.
+    manquantes_set = {n for n, r in RULE_ROLE.items()
+                      if r.kind in GATE_KINDS and r.code(n) not in rendues}
+
     avec, sans = [], []
     for aid, cls in sorted(ABILITY_CLASSES.items()):
         opts = getattr(cls, "TARGETING_OPTIONS", None)
@@ -68,27 +60,42 @@ def main() -> int:
     print("registre : %d abilities, %d avec masque, %d SANS"
           % (len(ABILITY_CLASSES), len(avec), len(sans)))
     print("  (une ability sans masque n'est gatee par RIEN -- retour 0 immediat)")
-    print()
+    print("regles GATE de l'enum : %d ; portees par le port : %d ; NON portees : %d"
+          % (sum(1 for r in RULE_ROLE.values() if r.kind in GATE_KINDS),
+             sum(1 for n, r in RULE_ROLE.items() if r.kind in GATE_KINDS and r.code(n) in rendues),
+             len(manquantes_set)))
+    print("")
 
     manquantes = {}
     inertes = 0
     for aid, cls, opts in avec:
-        reste = TR(int(opts.rules)) & ~PORTEES & ~NON_REGLES
-        if not reste:
+        r = int(opts.rules)
+        # ARMEMENT, pas « bits poses » : trois regles sont armees par AUTRE CHOSE que leur bit.
+        noms = sorted(n for n in manquantes_set if _armee(n, r))
+        if not noms:
             continue
         inertes += 1
-        noms = [m.name for m in TR if int(m) and not (int(m) & (int(m) - 1)) and (reste & m)]
         print("%-5d %-34s %s" % (aid, cls.__name__, " ".join(noms)))
         for n in noms:
             manquantes[n] = manquantes.get(n, 0) + 1
 
     print()
-    print("%d masques sur %d exigent au moins une regle INERTE offline" % (inertes, len(avec)))
+    print("%d masques sur %d exigent au moins une regle NON PORTEE offline" % (inertes, len(avec)))
     print()
     print("regles non portees, par frequence -- c'est l'ordre de rentabilite d'un portage :")
     for nom, n in sorted(manquantes.items(), key=lambda kv: (-kv[1], kv[0])):
-        print("  %-34s %d ability(s)" % (nom, n))
+        arme = RULE_ROLE[nom].armed_by
+        print("  %-42s %3d ability(s)%s"
+              % (nom, n, "" if arme is None else "   [ARME PAR : %s]" % arme))
     return 0
+
+
+def _armee(nom: str, rules: int) -> bool:
+    pred = P.ARMED_BY.get(nom)
+    if pred is not None:
+        return bool(pred(rules))
+    bit = getattr(TR, nom, None)
+    return bool(bit is not None and (rules & int(bit)))
 
 
 if __name__ == "__main__":

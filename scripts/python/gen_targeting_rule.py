@@ -51,10 +51,18 @@ class TargetingRule(IntFlag):
 
 
 def build_hash() -> str:
-    stamps = sorted((REPO / "data" / "symbols").glob("*/BUILD"))
-    if not stamps:
-        raise RuntimeError("aucun data/symbols/<build>/BUILD")
-    return stamps[0].read_text(encoding="utf-8").strip()
+    """Le build QUI FAIT FOI (`data/symbols/CURRENT`), via `symbols_layout`.
+
+    ⚠ Cette fonction lisait `sorted(glob("*/BUILD"))[0]`, c'est-a-dire le PREMIER build par
+    ordre ALPHABETIQUE -- donc un build ARCHIVE des qu'un hash trie avant le courant. Mesure du
+    2026-08-01 : `CURRENT` = `rnca9r7q6c`, et cette fonction rendait `gqfc5mff6c`. Les deux
+    dumps declaraient le meme enum, donc le mirror etait juste PAR CHANCE et rien ne le
+    signalait -- et `probe_targeting_rule_bits.py`, qui devait garder la coherence, lisait LE
+    MEME mauvais build : deux lecteurs qui partagent une entree perimee s'accordent toujours.
+    Garde depuis #429 : `tests/engine/runner/test_targeting_rule_inventory.py::
+    test_mirror_couvre_le_dump_du_build_courant` (mirror <-> dump du build courant)."""
+    import symbols_layout
+    return symbols_layout.current_build()
 
 
 def _identifiant(nom: str) -> str:
