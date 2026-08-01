@@ -376,8 +376,19 @@ class HarlequinsPanoplyCustomAbility(TriggeredAbility):
 
 class HarlequinsPanoplyIgnoreHitsRemove(EffectTrigger):
     """`HarlequinsPanoply_IgnoreHitsEffect$$CreateTargetTrigger` = `On(9 = Attack) & get_OwnerIsTarget`,
-    monté par `BaseEffect$$CreateHandleTriggerAbilities` avec `GetRemoveEffectBehaviour()` =
-    `RemoveEffect(Effect@0x38)` -- exactement le patron d'`UntilOfEndTurnRemove`.
+    avec pour behaviour son `$$CreateTargetTriggerBehaviour` (corps DEDUPLIQUE, = le
+    `BaseEffect$$GetRemoveEffectBehaviour` = `RemoveEffect(Effect@0x38)`).
+
+    ⚠ RECTIFICATION #421 -- ce trigger est du rail **TARGETS**, PAS de l'ArraySet. La rédaction
+    précédente (« monté par `BaseEffect$$CreateHandleTriggerAbilities` », reprise de
+    `case-366-r1-harlequins-panoply-ignore-hits.md` §1) confondait DEUX virtuels distincts :
+    `$$CreateHandleTriggerAbilities` appelle le slot `+0x5a8`, dont l'implémentation de base rend
+    **NULL** (le corps teste `if (trigger != 0)`), alors que `BaseEffect$$CreateTargetTrigger` rend
+    un trigger NON nul (`DSLTriggers+0x60`). Le slot `+0x5a8` est donc `CreateRemoveEffectTrigger`,
+    et la partition est mesurée sur tout le binaire : 28 classes surchargent `CreateTargetTrigger`,
+    16 `CreateRemoveEffectTrigger`, **intersection VIDE**. Conséquence directe : ce trigger passe par
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets`, qui GATE sur
+    `EffectComponent.IsActive @+0x5c` -- d'où le gate posé dans `matches`.
 
     `On(9)` est émis par `IdunBattle.Operations.FinishAttackOperation$$Execute` à la clôture de CHAQUE
     attaque (normale ET ability) ; le port l'émet aux deux endroits (`after_hit_normal_attack` /
@@ -389,10 +400,32 @@ class HarlequinsPanoplyIgnoreHitsRemove(EffectTrigger):
     event_id = _ON_ATTACK
     effect_type = HARLEQUINS_PANOPLY_IGNORE_HITS
 
+    def _instance_is_active(self, state: State) -> bool:
+        """Flag `EffectComponent.IsActive @+0x5c` de MON instance 1227 -- mirror de la lecture
+        PAR CIBLE d'`EvaluateEffectTriggerTargets` (composant re-fetch depuis l'entité-effet, AVANT
+        `ShouldTrigger`). Même forme que `RitesOfMorkaiReviveTrigger._instance_is_active`.
+
+        Aucune instance -> True : dégradation PERMISSIVE (le filtre `not e.consumed` est celui du
+        collecteur ; sans instance il n'y aurait aucun trigger à évaluer).
+
+        ATTEIGNABLE, pas théorique : le porteur est une UNITÉ, donc le canal de seed
+        `decisionView { includeInactive: true }` peut publier une instance `active: false` que
+        `EffectFactory.create` recopie (#219). Sans ce gate, un marqueur inerte annulait quand même
+        la fin d'attaque -- régression PERMISSIVE et silencieuse, exactement le patron #219/#231."""
+        eff = getattr(state, "effects", None)
+        if eff is None:
+            return True
+        insts = [e for e in (eff.by_unit.get(int(self.owner_id)) or [])
+                 if (not e.consumed) and e.effect_type == int(self.effect_type)]
+        return (not insts) or any(e.active for e in insts)
+
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        """`get_OwnerIsTarget` : sur le vecteur de clôture `On(9)`, `target` = le DÉFENSEUR. Le
-        marqueur ne part donc qu'à la fin de l'attaque qui VISAIT son porteur -- pas à la clôture
-        d'une attaque de son porteur contre quelqu'un d'autre."""
+        """Gate `IsActive` de l'instance (rail TARGETS), puis `get_OwnerIsTarget` : sur le vecteur de
+        clôture `On(9)`, `target` = le DÉFENSEUR. Le marqueur ne part donc qu'à la fin de l'attaque
+        qui VISAIT son porteur -- pas à la clôture d'une attaque de son porteur contre quelqu'un
+        d'autre."""
+        if not self._instance_is_active(state):
+            return False
         return ev.target_id == self.owner_id
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:

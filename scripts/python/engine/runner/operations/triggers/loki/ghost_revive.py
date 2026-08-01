@@ -216,7 +216,12 @@ def _effect_source(state: State, tile_id: int, effect_type: int) -> Optional[int
 
 
 def _ghost_effect(state: State, tile_id: int, effect_type: int):
-    """L'instance de `GhostEffect` ACTIVE portee par `tile_id`, ou None."""
+    """L'instance de `GhostEffect` NON CONSOMMEE portee par `tile_id`, ou None.
+
+    ⚠ « non consommee » n'est PAS « active » : ce filtre est celui du COLLECTEUR
+    (`collect_effect_triggers` skippe `e.consumed`), pas le gate `EffectComponent.IsActive @+0x5c`.
+    La docstring disait « ACTIVE » alors que le code ne lisait pas le flag -- c'est cette confusion
+    qui a laisse la resurrection sans gate (#421). Le flag se lit par `_ghost_is_active`."""
     eff = getattr(state, "effects", None)
     if eff is None:
         return None
@@ -224,6 +229,19 @@ def _ghost_effect(state: State, tile_id: int, effect_type: int):
         if e.effect_type == int(effect_type) and not e.consumed:
             return e
     return None
+
+
+def _ghost_is_active(state: State, tile_id: int, effect_type: int) -> bool:
+    """Le flag `EffectComponent.IsActive @+0x5c` de l'instance de ghost portee par la tuile --
+    mirror du gate que `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets`
+    applique PAR CIBLE, sur le composant RE-FETCH depuis l'entite-effet, AVANT `ShouldTrigger`.
+
+    Meme forme que `RitesOfMorkaiReviveTrigger._instance_is_active` (1502) et
+    `ReanimationBeamReviveTrigger` (1547). Aucune instance -> True : degradation PERMISSIVE (on ne
+    fabrique pas un refus ; si l'effet etait reellement absent, le collecteur n'aurait instancie
+    aucun trigger)."""
+    e = _ghost_effect(state, tile_id, effect_type)
+    return True if e is None else bool(e.active)
 
 
 def _remove_ghost(state: State, tile_id: int, effect_type: int) -> bool:
@@ -369,6 +387,19 @@ class GhostEffectRevive(TileEffectTrigger):
         raise NotImplementedError
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
+        # --- gate `EffectComponent.IsActive @+0x5c` (rail TARGETS) -- #421 ------------------------
+        # `GhostEffect$$CreateTargetTrigger` place CE trigger sur le rail TARGETS, donc
+        # `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` le gate sur
+        # le flag ; les CINQ retraits, eux, viennent de `$$CreateHandleTriggerAbilitiesInternal`
+        # (rail ArraySet, `...$$EvaluateEffectTriggerEffectAbilities`, AUCUN gate).
+        #
+        # C'est ce qui rend les deux branches EXCLUSIVES cote natif sur le meme evenement : ghost
+        # INACTIF + poseur qui meurt -> seul `GhostRemoveOnSourceDeathInactive` (`NOT IsEffectActive`)
+        # mord. Sans ce gate le port faisait LES DEUX -- il ressuscitait ET retirait. Le port
+        # modelise deja cet etat (le retrait n°4 lit `not e.active`), donc l'incoherence etait
+        # INTERNE, pas theorique. Cf. `docs/rl/case-229-effect-triggers-active-inventory.md`.
+        if not _ghost_is_active(state, self.owner_id, self.effect_type):
+            return False
         dying = ev.dying_id
         if dying is None or state.get_entity(dying) is None:
             return False
