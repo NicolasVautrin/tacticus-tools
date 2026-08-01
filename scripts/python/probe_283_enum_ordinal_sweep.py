@@ -371,8 +371,15 @@ def _signatures_positionnelles(arbres: dict) -> dict:
     kwarg : c'est la MEME heuristique `_ROOTS`, lue sur le parametre au lieu du mot-cle.
 
     On DERIVE la table du depot, jamais d'une liste ecrite a la main : un appelable renomme ou
-    ajoute est couvert sans toucher au probe."""
-    out: dict = {}
+    ajoute est couvert sans toucher au probe.
+
+    ⚠ La table est GLOBALE, donc un HOMONYME la empoisonne -- et le depot en est plein de petits
+    helpers locaux. Mesure #420 : `_ev` a **5 definitions**, dont UNE SEULE typee
+    (`_ev(event_id, actor)` de `test_448_r2_teleporting_in_offline.py`) ; elle faisait lire le
+    `_ev(0)` de `test_stream_events_offline.py` -- ou le 1er parametre s'appelle `step` -- comme
+    un `EventTriggerType` fige, et le VERDICT tombait a FAIL. Un nom n'entre donc dans la table
+    que si TOUTES ses definitions du perimetre s'accordent sur le meme (index, enum)."""
+    vus: dict = {}
     for rel, tree in arbres.items():
         classe_de = {}
         for m in ast.walk(tree):
@@ -384,18 +391,24 @@ def _signatures_positionnelles(arbres: dict) -> dict:
                 continue
             args = [a.arg for a in (n.args.posonlyargs + n.args.args)]
             lie = 1 if (args and args[0] in ("self", "cls")) else 0
+            # un ctor s'appelle par le nom de la CLASSE, et `self` ne compte pas
+            nom = classe_de.get(id(n)) if n.name == "__init__" else n.name
+            if not nom:
+                continue
+            spec = None
             for i, a in enumerate(args):
                 bas = a.lower()
                 court = next((c for c, racines in _ROOTS.items()
                               if any(r in bas for r in racines)), None)
                 if court is None:
                     continue
-                # un ctor s'appelle par le nom de la CLASSE, et `self` ne compte pas
-                nom = classe_de.get(id(n)) if n.name == "__init__" else n.name
-                if nom and i - lie >= 0:
-                    out.setdefault(nom, (i - lie, court))
+                if i - lie >= 0:
+                    spec = (i - lie, court)
                 break
-    return out
+            vus.setdefault(nom, set()).add(spec)
+    # un nom AMBIGU (plusieurs definitions qui ne s'accordent pas, `None` compris) est ecarte
+    return {nom: next(iter(s)) for nom, s in vus.items()
+            if len(s) == 1 and next(iter(s)) is not None}
 
 
 class _ExecSweep(ast.NodeVisitor):

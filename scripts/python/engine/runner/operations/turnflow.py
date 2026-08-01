@@ -431,7 +431,7 @@ class EndTurnOperation:
         # CE QUE CA REMPLACE : la boucle bespoke `land_deep_strike` d'avant #448-r2, qui faisait
         # atterrir ICI toutes les unites deep-strike du joueur finissant. Le retrait de
         # `TeleportStrike_TeleportingIn` est desormais porte par les TROIS triggers natifs de
-        # l'effet (`On(4)`, `On(0x2a)`, `On(0x28)`) -- mesure live : le natif retire l'effet DES LE
+        # l'effet (`On(4)`, `On(0x2a = PreUnitAbility)`, `On(0x28 = UnitFinishedTurn)`) -- mesure live : le natif retire l'effet DES LE
         # MOUVEMENT ou DES LE CAST, pas en fin de tour. Ce site-ci ne couvre donc plus que le cas
         # « l'unite n'a rien fait de son tour », qui est exactement ce que le natif couvre ici.
         from .triggers import unit_finished_turn_triggers

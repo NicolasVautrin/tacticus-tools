@@ -181,7 +181,7 @@ def test_the_move_poses_the_moving_marker_then_lands_the_carrier(rpc, stage):
 
 
 def test_finishing_the_turn_lands_a_carrier_that_did_nothing(rpc, stage):
-    """T3 -- `On(0x28 UnitFinishedTurn) & OwnerIsActor & HasTile(Owner)`. Le vecteur `On(0x28)`
+    """T3 -- `On(0x28 UnitFinishedTurn) & OwnerIsActor & HasTile(Owner)`. Le vecteur `On(0x28 = UnitFinishedTurn)`
     lui-meme etait un RESIDU NOMME cote port jusqu'a #448-r2 (aucun consommateur) ; c'est ce
     trigger-ci qui l'ouvre."""
     rid, rockfist = stage["rid"], stage["rockfist"]

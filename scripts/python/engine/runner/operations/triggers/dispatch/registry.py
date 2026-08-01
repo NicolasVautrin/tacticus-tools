@@ -110,8 +110,8 @@ from ..loki.until_of_end_turn import (HatefulAssaultAlreadyAttackedRemove,
                                       HATEFUL_ASSAULT_ALREADY_ATTACKED)
 from ..loki.teleporting_in import (                                       # #448-r2 tranche 1/4
     TeleportStrikeTeleportingInRemoveOnAfterMove,          # T1 On(4)
-    TeleportStrikeTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a)
-    TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28) & HasTile
+    TeleportStrikeTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a = PreUnitAbility)
+    TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28 = UnitFinishedTurn) & HasTile
     TeleportStrikeTeleportingInAddMovingOnPreMove,         # T4 On(0x1f) -> AddEffect(1036)
     TeleportStrikeMovingRemoveOnAfterMove,                 # TeleportMovingEffect : On(4)
     TELEPORT_STRIKE_TELEPORTING_IN, TELEPORT_STRIKE_MOVING,
@@ -655,8 +655,8 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `EndTurnOperation` : le natif, LUI, retire l'effet des le `On(4 = UnitAfterMove)` du
     # deplacement ou le `On(0x2a = PreUnitAbility)` du cast (mesure live). Cf. loki/teleporting_in.py.
     TELEPORT_STRIKE_TELEPORTING_IN: [TeleportStrikeTeleportingInRemoveOnAfterMove,          # On(4)
-                                     TeleportStrikeTeleportingInRemoveOnPreUnitAbility,     # On(0x2a)
-                                     TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn,   # On(0x28)
+                                     TeleportStrikeTeleportingInRemoveOnPreUnitAbility,     # On(0x2a = PreUnitAbility)
+                                     TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn,   # On(0x28 = UnitFinishedTurn)
                                      TeleportStrikeTeleportingInAddMovingOnPreMove],        # On(0x1f)
     # 1036 TeleportStrike_Moving : `IdunBattleLogic.Effects.TeleportMovingEffect$$
     # CreateHandleTriggerAbilitiesInternal` = UN SEUL `Triggered(On(4) & OwnerIsActor,
