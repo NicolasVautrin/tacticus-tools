@@ -492,7 +492,27 @@ def refuses_all_enemy_targets(options: "TargetingOptions") -> bool:
 # MECANISME de la 2e source, lui, reste garde par
 # `tests/engine/runner/test_targeting_options_sources.py` (une entree bidon injectee par monkeypatch
 # verifie que `targeting_options_for` consulte toujours cette table).
-TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {}
+TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
+    # 1216 MartialExemplar (#27-r4) -- face DECISION portee (playbook), face COMBAT NON portee :
+    # d'ou cette table plutot qu'`ABILITY_CLASSES`. Le masque est EFFECTIF, pas le litteral visible :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$.ctor` recopie le preset
+    # `<TargetingOptions statics>+0x280` et appelle la surcharge PRESET+FLAGS
+    # `TargetingOptions$$.ctor(this, template, additionalRules)` avec `additionalRules = 0x10` ; ce
+    # corps fait `this.rules = additionalRules | template.rules`. Le preset porte `rules = 0x8004`
+    # (ecrit par `IdunBattle.Core.Services.TargetingOptions$$.cctor` en `<preset>+0x28`), donc
+    #     0x8004 | 0x10 = 0x8014
+    #   = CasterIsPossibleTarget(0x8000) | CasterHasNotMoved(0x10) | CasterMatchesDynamicRule(0x4)
+    # Recopier `0x10` seul aurait produit un masque FAUX -- pire que l'absence.
+    # `isSelfCasting` = `<preset>+0x00` = 1 ; `forceMeleeTarget` = `<preset>+0x20` = 1 = RangedBool.False.
+    # `range` = `None` DELIBERE : le bloc de 24 octets `<preset>+0x08..0x1f` est recopie d'un champ
+    # statique de `TargetingRange` et n'a PAS ete resolu -> aucun gate de portee invente.
+    # MESURE (probe_27_r4_martial_exemplar.py) : les deux bits portants sont observables --
+    # `abilityTargets(1216)` rend UNE cible, le caster lui-meme (CasterIsPossibleTarget), et tombe a
+    # ZERO cible des que le caster a bouge (CasterHasNotMoved).
+    1216: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved
+                                 | TR.CasterMatchesDynamicRule,
+                           self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
+}
 
 
 # --- Les `TargetingOptions` de l'ATTAQUE NORMALE ------------------------------------------------
