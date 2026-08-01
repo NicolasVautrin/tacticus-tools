@@ -80,6 +80,14 @@ BUILD_ARGS = ["--board", BOARD, "--p-units", SUMMONER, "--a-units", ",".join(FOE
               "--hp-target", HP_TARGET]
 
 
+def build_args(board: str = BOARD) -> list[str]:
+    """Les args de build pour un board donne -- le montage n'est PAS board-specifique (il exige
+    seulement une tuile centrale avec >= 2 tuiles a distance 3), et c'est ce que la generalisation
+    sur un second couple (board, seed) verifie."""
+    return ["--board", board, "--p-units", SUMMONER, "--a-units", ",".join(FOES),
+            "--hp-target", HP_TARGET]
+
+
 class MontageError(RuntimeError):
     """Le montage ne s'installe pas -- la mesure n'a PAS eu lieu (jamais un vert silencieux)."""
 
@@ -230,6 +238,23 @@ def expected_term(case: dict, vis: str) -> float:
     return case["w"] if case["marks"][vis] else 0.0
 
 
+def leaf_terms(case: dict) -> dict:
+    """La face ATTACK ISOLEE (foyer `engine.utilities.tile.triggered_abilities_attack_utility`),
+    pour chaque (attaquant, cible) -- la mesure qui prouve que le terme est attache au PORTEUR.
+
+    Le SUMMONER est l'anti-cas : il attaque LA MEME cible marquee depuis LA MEME tuile, et ne porte
+    PAS 1120 (son passif est `MV71SniperDroneSquad` 1119, sans face ATTACK). Un port qui aurait mis
+    la condition dans le composite -- ou qui la lirait sur la cible sans consulter le kit de
+    l'attaquant -- verserait le poids ici aussi."""
+    from engine.utilities.tile import triggered_abilities_attack_utility
+    out = {}
+    for who, uid in (("drone", case["drone"]), ("summoner", case["summoner"])):
+        for vis, tid in case["tgt"].items():
+            out[(who, vis)] = float(triggered_abilities_attack_utility(
+                case["ctx"], uid, case["ab"], tid, case["tile"]))
+    return out
+
+
 def measure(rpc, case: dict) -> list[dict]:
     """Une ligne par cible : natif, port, et port SANS le playbook 1120 au registre."""
     import engine.playbook.psyker as PSY
@@ -252,8 +277,8 @@ def measure(rpc, case: dict) -> list[dict]:
 
 # --------------------------------------------------------------------------- CLI
 
-def _build(state_file: str, extra: list[str]) -> int:
-    argv = [sys.executable, "rl_duel.py", "build", "--seed", SEED,
+def _build(state_file: str, extra: list[str], seed: str = SEED) -> int:
+    argv = [sys.executable, "rl_duel.py", "build", "--seed", seed,
             "--state-file", state_file, *extra]
     p = subprocess.run(argv, cwd=_HERE, capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -268,6 +293,8 @@ def main() -> int:
     ap.add_argument("--state-file", required=True,
                     help="chemin ABSOLU du state-file (le probe construit SON runner dessus)")
     ap.add_argument("--keep", action="store_true", help="ne pas disposer le runner en sortie")
+    ap.add_argument("--board", default=BOARD, help="board de mesure (generalisation)")
+    ap.add_argument("--seed", default=SEED, help="seed de build (generalisation)")
     args = ap.parse_args()
 
     from rl_collect_batch import _resolve_session, _rpc
@@ -277,17 +304,21 @@ def main() -> int:
         r = _rpc(sid, method, [body] if body is not None else [], timeout=timeout)
         return r["result"] if isinstance(r, dict) and "result" in r else r
 
-    rid = _build(args.state_file, BUILD_ARGS)
+    rid = _build(args.state_file, build_args(args.board), args.seed)
     try:
         case = _stage(sid, rpc, rid)
-        print(f"runner {rid} | {DRONE} u{case['drone']} @{case['tile']} (invoque par "
-              f"{SUMMONER} u{case['summoner']}) | poids {KEY_MARKED}={case['w']}")
+        print(f"runner {rid} | board {args.board} seed {args.seed} | {DRONE} u{case['drone']} "
+              f"@{case['tile']} (invoque par {SUMMONER} u{case['summoner']}) | "
+              f"poids {KEY_MARKED}={case['w']}")
         for row in measure(rpc, case):
             d = row["port"] - row["native"]
             dm = row["native"] - row["port_muted"]
             print(f"  {row['target']:<16} marked={str(row['marked']):<5} @{row['tile']} "
                   f"nat={row['native']:.6f} port={row['port']:.6f} d={d:+.6f} | "
                   f"mute={row['port_muted']:.6f} manque={dm:+.6f} attendu={row['expected']}")
+        print("  face ATTACK ISOLEE (foyer triggered_abilities_attack_utility) :")
+        for (who, vis), v in sorted(leaf_terms(case).items()):
+            print(f"    {who:<10} -> {vis:<16} {v:.6f}")
     finally:
         if not args.keep:
             rpc("disposeRunner", {"runnerId": rid}, 30)
