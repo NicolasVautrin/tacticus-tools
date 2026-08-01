@@ -129,6 +129,14 @@ $Ratchets = @(
        Seul = 'une implementation de SUBSTITUTION dont la signature derive derriere le port -- le rouge tombe alors ailleurs que sur la cause'
        Doc  = 'docs/rl/case-393-substitution-signature-drift.md' }
 
+    # `probe_326_dsl_port_matching.py` ne peut PAS tenir ce poste : son `main` finit par un
+    # `return 0` INCONDITIONNEL -- il INVENTORIE les verdicts, il n'en rougit d'aucun. Le seul
+    # artefact executable qui rougit sur ce gisement est ce test-la (#435).
+    @{ Id = 'pytest_attestations'
+       Argv = @('-m', 'pytest', 'tests/test_337_dsl_triggers_attestation_offline.py', '-q')
+       Seul = 'une primitive `DSLTriggers` retombee en CITE_A_QUALIFIER -- l aveu que l outil ne sait pas attribuer, jamais un verdict -- et une ligne de `docs/rl/dsl-port-attestations.tsv` devenue MORTE (symbole disparu du build, porteur/ancre deplace, porteur devenu MUET sur sa primitive) : une attestation non verifiee ment avec l autorite d une mesure'
+       Doc  = 'docs/rl/case-337-dsl-triggers-attestation.md' }
+
     # --- probe_283, en SIX entrees. `--step all` est l UNION STRICTE de ces six (lire `main`),
     #     et chaque etape est independante. Le decoupage ne change RIEN a la couverture ; il rend
     #     le cout MARGINAL en parallele quasi nul : joue d un bloc, probe_283 DOUBLE le mur du lot
