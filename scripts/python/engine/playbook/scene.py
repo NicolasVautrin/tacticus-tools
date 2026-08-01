@@ -499,6 +499,40 @@ class Scene:
         self._psykers_by_team[team] = n
         return n
 
+    def _camo_cloak_cover_keys(self, uid, out: dict) -> None:
+        """Les DEUX membres du `op_BitwiseOr` de `IdunBattle.Entities.Effects.Loki.
+        CamoCloak_DmgReductionEffect$$HasValidEffectTrigger` — face PRÉDICTION des mêmes nœuds que
+        `runner.components.has_effect_of_type` / `..is_target_of_adjacent_friend_aura` (un nœud
+        natif, deux substrats : l'ECS côté runner, les tables de `Scene` ici).
+
+        `HasEffect(sel, 1013 LightCover, onlyActive=0, 6)` -> `EffectsState.has_effect` (le natif ne
+        filtre PAS sur `IsActive`, et `active_effects` reboucle sur `is_active`).
+        `IsEffectTarget(sel, 1026 BigTarget_Adjacent)` -> même sélecteur que
+        `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense` : amis hex-adjacents, porteur
+        EXCLU. Clé OMISE quand le substrat manque (pas d'`EffectsState` / pas de position) ⇒
+        `camo_cloak_cover` dégrade en VRAI, jamais en FAUX."""
+        if self.eff_state is None:
+            return
+        from ..entities.effect_type import EffectType
+        out["has_effect_light_cover"] = bool(
+            self.eff_state.has_effect(uid, int(EffectType.LightCover)))
+        me, team = self.pos_by_id.get(uid), self.team_by_id.get(uid)
+        if not me or team is None:
+            return
+        import hexgeo
+        hit = False
+        for u in (self.units or ()):
+            oid = u.get("id")
+            if oid == uid or u.get("team") != team or not u.get("alive"):
+                continue
+            p = self.pos_by_id.get(oid)
+            if not p or hexgeo.distance(me, p) != 1:
+                continue
+            if self.eff_state.has_effect(oid, int(EffectType.BigTarget_AdjacentEffect)):
+                hit = True
+                break
+        out["is_target_of_big_target_adjacent"] = hit
+
     def unit_state(self, uid) -> dict:
         """`unit_state` COMPLET de l'unité — le contexte d'évaluation des `CreateActiveCondition`
         (`BaseEffect.is_active`), pendant PRÉDICTION de `runner.components.unit_state_for_effects`.
@@ -516,6 +550,7 @@ class Scene:
         n = self._enemy_psykers_alive(uid)
         if n is not None:
             out["enemy_psykers_alive"] = n
+        self._camo_cloak_cover_keys(uid, out)     # `1014 CamoCloak_DmgReduction` (case-366-r1)
         return out
 
     def effects(self, uid) -> list:
