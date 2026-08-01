@@ -116,18 +116,38 @@ reste EXACTEMENT 1 tour a l'effet -- pose a 3 (`Sum(TurnsFromRounds(1), Direct(1
 traverse donc le tour du cast ET le tour adverse avant de pouvoir partir. Detail et lecture des
 feuilles : docstring de `_FearOfTheUnseenRemainingIsOne`.
 
+## Tranche 4 (#448-r2d) : `1573 TitanhammerSquad_TeleportingIn` -- le REGIME GEOMETRIQUE
+
+`astarLysander`, HERO **hors pool** (injection catalogue + assainissement d'un trait hors-enum,
+#270-d). SEULE des quatre a surcharger le vslot 0x748, et la surcharge n'est pas neutre :
+
+    TitanhammerSquad_TeleportingInEffect$$GetCustomMovingEffectCondition
+        = Contains(<Sel+0x78>, tgt) op_BitwiseOr IsAdjacentTiles(<Sel+0x78>, tgt)
+          tgt = EffectTarget( EffectsFromUnitSource( EffectSource(EffectSelf@<Sel+0x38>),
+                                                     0x623 = 1571 TitanhammerSquad_TargetTile ) )
+
+Ce vslot ne conditionne QUE T4 : le marqueur `1574` n'est pose que si la DESTINATION du pas EST une
+tuile marquee `1571`, ou lui est adjacente -- les trois retraits, eux, sont inchanges. Detail des
+deux bras (et de leur ASYMETRIE de resolution de selecteur) : docstring de
+`_TitanhammerSquadTargetTileCondition`.
+
 ## Ce qui n'est PAS porte ici, nommement
 
-* l'effet `1573` (la derniere soeur) : tranche fille #448-r2d. Les classes de BASE ci-dessous sont
-  ecrites pour elle (un `effect_type`, un `MOVING_EFFECT_TYPE`, une surcharge de
-  `_custom_moving_condition`) -- mais elle n'est PAS inscrite au registre tant qu'elle n'est pas
-  CONFRONTEE. `1238` l'est depuis #448-r2c, `1140 StormboyzStrike_TeleportingIn` depuis #448-r2b ;
+* RIEN de la famille : les QUATRE derivees sont desormais portees -- `1035` (#448-r2, bas de ce
+  module), `1140` (#448-r2b), `1238` (#448-r2c) et `1573` (#448-r2d, SEULE a surcharger le vslot
+  0x748) ;
 * les DEUX abilities triggered qui ENTOURENT 1140 -- `StormboyzStrike_MissAbility` (retire 1140 au
   `On(0x1f)`, 20 % de deviation de destination, `TriggerAbility(FullThrottle)`) et
   `StormboyzStrike_FallbackAbility` (repose l'unite hors plateau au `On(0x28)`, pose
   `1179 _AlreadyUsedTile`) : residus NOMMES de `docs/rl/case-448-r1-stormboyz-fallback-miss.md`.
   Elles ne changent pas la lecture des triggers PROPRES de 1140 ; elles changent QUEL etage retire
   l'effet cote natif, et c'est dit sur chaque classe ;
+* `1231 TitanhammerSquad` (l'ACTIVE qui POSE 1571/1572/1573 et soigne) : son
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility$$ExecuteBehaviour` est un
+  `op_BitwiseAnd` de QUATRE behaviours, hors tranche. **Consequence NOMMEE** : cote port, PERSONNE
+  ne pose `1571 TitanhammerSquad_TargetTile`, donc le vslot 0x748 rend `False` partout tant que son
+  substrat n'est pas monte -- il l'est par la voie live (cast natif de 1231 par `astarLysander`
+  injecte, puis re-seed du port depuis `tileMeta`), cf. `probe_448_r2d_titanhammer_squad.py` ;
 * les DEUX autres jambes du `FinishUnitTurn(unit, false)` que `IdunBattle.Operations.
   EndTurnOperation$$Execute` appelle par unite possedee (`On(0x1c ArrivedAtFinalTile)` et
   `On(0x29 UnitFinishedTurnNormally)`) : le port n'emet, depuis ce site-la, que la jambe `On(0x28 = UnitFinishedTurn)`
@@ -559,3 +579,151 @@ class StormboyzStrikeTeleportingInAddMovingOnPreMove(ATeleportingAddMovingOnPreM
     branche `Nothing()`. C'est le SEUL des quatre dans ce cas, et c'est MESURE (les quatre points
     ci-dessus), pas deduit d'une absence de symbole."""
     effect_type = STORMBOYZ_STRIKE_TELEPORTING_IN
+
+
+# --- 1573 TitanhammerSquad_TeleportingIn : la SEULE des quatre a surcharger le vslot 0x748 --------
+TITANHAMMER_SQUAD_TARGET_TILE = int(EffectType.TitanhammerSquad_TargetTile)      # 0x623 = 1571
+TITANHAMMER_SQUAD_TELEPORTING_IN = int(EffectType.TitanhammerSquad_TeleportingIn)  # 0x625 = 1573
+TITANHAMMER_SQUAD_MOVING = int(EffectType.TitanhammerSquad_Moving)              # 0x626 = 1574
+
+
+def _effect_source(state: State, carrier_id: int, effect_type: int) -> Optional[int]:
+    """`IdunBattleLogic.Entities.DSLSelectors$$EffectSource(<selecteur d'effets>)` ->
+    `IdunBattle.Entities.Selectors.EffectSourceSelector$$Select`, applique a l'instance PORTEE.
+
+    Le natif resout son selecteur source (ici `EffectSelf` = `<DSLSelectors+0x38>`), prend l'
+    `EffectComponent` de chaque entite-effet rendue et garde `SourceUnit @+0x10` quand il est non nul
+    (`if (*(int *)(lVar8 + 0x10) != 0)`). Cote port, `BaseEffect.source` EST ce champ.
+
+    COLLAPSE ASSUME (le meme que `_remove`) : le port n'a pas de handle d'INSTANCE dans un
+    `EffectTrigger` -- il retrouve l'instance par (porteur, type) et rend la premiere non consommee.
+    Le gate << deja present >> d'`AddEffectOperation` garantit au plus une instance par unite.
+    Jumeau exact dans `triggers/loki/ghost_revive.py::_effect_source` (meme noeud natif, autre
+    porteur : une TUILE) -- deux lecteurs, un seul champ."""
+    eff = getattr(state, "effects", None)
+    if eff is None:
+        return None
+    for e in (eff.by_unit.get(int(carrier_id)) or []):
+        if e.effect_type == int(effect_type) and not e.consumed:
+            return None if e.source is None else int(e.source)
+    return None
+
+
+class _TitanhammerSquadTargetTileCondition:
+    """vslot 0x748 = `IdunBattle.Entities.Effects.Loki.TitanhammerSquad_TeleportingInEffect$$
+    GetCustomMovingEffectCondition` -- **la SEULE surcharge du build** (les trois soeurs gardent le
+    conjonct NEUTRE `<DSLTriggers+0x40>`). Arbre natif lu en entier :
+
+        tgt = EffectTarget( EffectsFromUnitSource( EffectSource(EffectSelf@<Sel+0x38>),
+                                                   0x623 = 1571 TitanhammerSquad_TargetTile ) )
+        Contains(<Sel+0x78>, tgt)  op_BitwiseOr  IsAdjacentTiles(<Sel+0x78>, tgt)
+
+    Autrement dit : le marqueur `1574 *_Moving` n'est pose que si la DESTINATION du pas EST une tuile
+    marquee `1571`, ou lui est ADJACENTE.
+
+    `<DSLSelectors+0x78>` = **TargetTiles** (`AbilityEntities+0x190`) -- lecture etablie deux fois
+    independamment : `runner/abilities/admec.py` (<< `factory+0x178 Target` = `+0x60`,
+    `factory+0x190 TargetTiles` = `+0x78` >>) et le port live-confirme d'`HatefulAssaultAbility$$
+    CreateTrigger` (case-366-r1). Sur `On(0x1f = PreUnitMove)`,
+    `IdunBattle.Operations.MoveUnitOperation$$EvaluatePreMoveTriggers` remplit `casterTiles` (7e arg)
+    ET `targetTiles` (10e) avec la MEME liste `position` : ce slot porte donc la tuile d'ARRIVEE,
+    que le port threade dans `TriggerEvent.dest_tile`.
+
+    LES DEUX BRAS NE SE COLLAPSENT PAS L'UN DANS L'AUTRE, et leurs selecteurs ne sont pas invoques
+    de la meme facon (decompile lu) :
+
+    * `IdunBattle.Entities.Triggers.XContainsYTrigger$$ShouldTrigger` resout X (`+0x10` = les tuiles
+      de destination) par le slot d'interface **0** (liste d'entites) et Y (`+0x18` = `tgt`) par le
+      slot **1**, qui rend **UNE SEULE** entite (meme slot que celui par lequel
+      `EffectsFromUnitSourceSelector$$Select` reduit sa source a un `entity` unique) ; il compare
+      ensuite les `Id`. Le bras `Contains` ne teste donc QUE LA PREMIERE tuile marquee.
+    * `IdunBattle.Entities.Triggers.IsAdjacentTilesTrigger$$ShouldTrigger` resout SES DEUX selecteurs
+      (`+0x18`, `+0x20`) par le slot **10** (liste de TUILES) et fait une double boucle : vrai des
+      qu'UNE paire est adjacente (`<query>` slot 0x60). Ce bras-la balaye TOUTES les tuiles marquees.
+
+    RESIDU NOMME, et sa portee est bornee : l'asymetrie n'est observable que si `1571` marque
+    PLUSIEURS tuiles ET que la destination est une tuile marquee AUTRE que la premiere, sans etre
+    adjacente a aucune. `TitanhammerSquadAbility$$ExecuteBehaviour` pose `AddEffect(0x623, ...,
+    targets: <Sel+0x60> = Target)` -- la cible de l'active, une seule tuile ; mesure a l'appui dans
+    `probe_448_r2d_titanhammer_squad.py` (cle `marked_tiles`). L'ORDRE du port (iteration de
+    `EffectsState.by_unit`) n'est de toute facon pas celui du natif (ordre de creation des
+    entites-effet) : tant que la cardinalite vaut 1, les deux coincident exactement."""
+
+    def _target_tiles(self, state: State) -> list:
+        """`EffectTarget( EffectsFromUnitSource( EffectSource(EffectSelf), 1571 ) )`.
+
+        `IdunBattle.Entities.EntityExtensions$$GetEffectsBySourceUnit(entity, state, effectType)`
+        balaye les entites-effet de l'etat et garde celles dont l'`EffectComponent` a
+        `SourceUnit @+0x10 == entity.Id` ET `Type @+0x58 == effectType` ;
+        `IdunBattle.Entities.Selectors.EffectTargetSelector$$Select` en rend ensuite les CIBLES
+        (la liste `EffectComponent+0x48`).
+
+        Cote port ces deux etages se collapsent en un seul balayage de `EffectsState.by_unit`, dont
+        la CLE **EST** la cible de l'effet (`_load_tile_effects` : << cle = l'ENTITE-TUILE >>) --
+        meme collapse que `abilities/behaviours/context.py::_effects_from_source`. Que `1571` vive
+        bien sur des TUILES est lu au decompile :
+        `IdunBattle.Entities.Pathfinding.TitanhammerSquadPathfinder$$IsValidTitanhammerSquadTargetTile`
+        fait `GetOwnedEffect(tile, state, 0x623)` puis `GetEffectSourceUnit(...)`."""
+        eff = getattr(state, "effects", None)
+        src = _effect_source(state, int(self.owner_id), int(self.effect_type))
+        if eff is None or src is None:
+            return []
+        out: list = []
+        for carrier, effs in eff.by_unit.items():
+            for e in (effs or []):
+                if e.consumed or e.effect_type != TITANHAMMER_SQUAD_TARGET_TILE:
+                    continue
+                if e.source is not None and int(e.source) == int(src):
+                    out.append(int(carrier))
+                    break
+        return out
+
+    def _custom_moving_condition(self, state: State, ev: TriggerEvent) -> bool:
+        board = getattr(state, "board", None)
+        if state.effects is None or board is None:
+            return False
+        dest = getattr(ev, "dest_tile", None)
+        if dest is None:
+            # `<Sel+0x78>` NON THREADE sur cet evenement -> le natif evaluerait `Contains`/
+            # `IsAdjacentTiles` sur une liste VIDE, donc FAUX des deux cotes. Seul
+            # `MoveUnitOperation.execute` renseigne ce canal, et T4 n'ecoute que `On(0x1f)`.
+            return False
+        dest_id = board.id_at(int(dest[0]), int(dest[1]))
+        if dest_id is None:
+            return False
+        marked = self._target_tiles(state)
+        if not marked:
+            return False
+        if int(marked[0]) == int(dest_id):            # Contains(X, Y) -- Y reduite a UNE entite
+            return True
+        neigh = set(board.neighbours(int(dest_id)))   # IsAdjacentTiles : toute paire adjacente
+        return any(int(t) in neigh for t in marked)
+
+
+class TitanhammerSquadTeleportingInRemoveOnAfterMove(ATeleportingRemoveOnAfterMove):
+    effect_type = TITANHAMMER_SQUAD_TELEPORTING_IN
+
+
+class TitanhammerSquadTeleportingInRemoveOnPreUnitAbility(ATeleportingRemoveOnPreUnitAbility):
+    effect_type = TITANHAMMER_SQUAD_TELEPORTING_IN
+
+
+class TitanhammerSquadTeleportingInRemoveOnUnitFinishedTurn(ATeleportingRemoveOnUnitFinishedTurn):
+    effect_type = TITANHAMMER_SQUAD_TELEPORTING_IN
+
+
+class TitanhammerSquadTeleportingInAddMovingOnPreMove(_TitanhammerSquadTargetTileCondition,
+                                                      ATeleportingAddMovingOnPreMove):
+    """`TitanhammerSquad_TeleportingInEffect$$GetMovingEffectType` = `Nullable<EffectType>(0x626)`
+    (lu a l'octet : `local_res18[0] = 0x626` puis le ctor du `Nullable`), et vslot 0x748 surcharge
+    (cf. `_TitanhammerSquadTargetTileCondition`)."""
+    effect_type = TITANHAMMER_SQUAD_TELEPORTING_IN
+    MOVING_EFFECT_TYPE = TITANHAMMER_SQUAD_MOVING                 # 0x626 = 1574
+    MOVING_EFFECT_NAME = EffectType.TitanhammerSquad_Moving.name
+
+
+class TitanhammerSquadMovingRemoveOnAfterMove(TeleportMovingRemoveOnAfterMove):
+    """`1574 TitanhammerSquad_Moving` -- la TROISIEME et derniere `EffectType` que les lambdas d'
+    `IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects` construisent par
+    `IdunBattleLogic.Effects.TeleportMovingEffect`."""
+    effect_type = TITANHAMMER_SQUAD_MOVING

@@ -125,7 +125,13 @@ from ..loki.teleporting_in import (                                       # #448
     StormboyzStrikeTeleportingInRemoveOnPreUnitAbility,    # T2 On(0x2a)
     StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn,  # T3 On(0x28) & HasTile -> FAUX hors plateau
     StormboyzStrikeTeleportingInAddMovingOnPreMove,        # T4 On(0x1f) -> Nothing() (Nullable VIDE)
-    STORMBOYZ_STRIKE_TELEPORTING_IN)
+    STORMBOYZ_STRIKE_TELEPORTING_IN,
+    TitanhammerSquadTeleportingInRemoveOnAfterMove,        # #448-r2d tranche 4/4 -- T1 On(4)
+    TitanhammerSquadTeleportingInRemoveOnPreUnitAbility,   # T2 On(0x2a)
+    TitanhammerSquadTeleportingInRemoveOnUnitFinishedTurn, # T3 On(0x28) & HasTile
+    TitanhammerSquadTeleportingInAddMovingOnPreMove,       # T4 On(0x1f) & <vslot 0x748> -> 1574
+    TitanhammerSquadMovingRemoveOnAfterMove,               # TeleportMovingEffect : On(4)
+    TITANHAMMER_SQUAD_TELEPORTING_IN, TITANHAMMER_SQUAD_MOVING)
 from ..loki.ramming_speed import (RammingSpeedExtraExplodeRemove,          # case-389-r1 (1098)
                                   RAMMING_SPEED_EXTRA_EXPLODE)
 from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
@@ -700,6 +706,23 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
                                       StormboyzStrikeTeleportingInRemoveOnPreUnitAbility,     # On(0x2a)
                                       StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn,   # On(0x28)
                                       StormboyzStrikeTeleportingInAddMovingOnPreMove],        # On(0x1f)
+    # 1573 TitanhammerSquad_TeleportingIn (#448-r2d, tranche 4/4) : MEMES quatre `Triggered()`, mais
+    # c'est le SEUL des quatre effets de la famille a surcharger le vslot 0x748
+    # (`GetCustomMovingEffectCondition`) -- `Contains(<TargetTiles>, tgt) | IsAdjacentTiles(
+    # <TargetTiles>, tgt)` ou `tgt = EffectTarget(EffectsFromUnitSource(EffectSource(EffectSelf),
+    # 0x623 = 1571 TitanhammerSquad_TargetTile))`. Le marqueur `1574 *_Moving` n'est donc pose que si
+    # la DESTINATION du pas EST une tuile marquee 1571 ou lui est adjacente.
+    # ⚠ `1571` est pose par l'ACTIVE `1231`, **NON PORTEE** : sur un etat que le port a construit
+    # seul, ce conjoint est FAUX partout (entree vide). Il n'est exerce que sur un etat re-seede
+    # depuis le natif apres un cast reel (`probe_448_r2d_titanhammer_squad.py`).
+    TITANHAMMER_SQUAD_TELEPORTING_IN: [
+        TitanhammerSquadTeleportingInRemoveOnAfterMove,          # On(4)
+        TitanhammerSquadTeleportingInRemoveOnPreUnitAbility,     # On(0x2a)
+        TitanhammerSquadTeleportingInRemoveOnUnitFinishedTurn,   # On(0x28)
+        TitanhammerSquadTeleportingInAddMovingOnPreMove],        # On(0x1f)
+    # 1574 TitanhammerSquad_Moving : meme `TeleportMovingEffect` que 1036 -- UN SEUL `Triggered(
+    # On(4) & OwnerIsActor, RemoveEffect(EffectSelf))`.
+    TITANHAMMER_SQUAD_MOVING: [TitanhammerSquadMovingRemoveOnAfterMove],       # 1574 -> retrait On(4)
     # 1098 RammingSpeed_ExtraExplode (case-389-r1, pose sur le CASTER par `RammingSpeedAbility$$
     # ExecuteBehaviour`). Le natif le POSE et le RETIRE dans le MEME `applyAction` : son
     # `CreateTargetTrigger` est `On(0x3a = PhaseEnd, ownerNeedsToBeAlive: false)` -- un `On(...)` NU --
