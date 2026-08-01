@@ -291,25 +291,24 @@ def test_the_family_inventory_is_frozen():
                                                "ActiveAbilityType", "ActiveAbilityType"]
 
 
-def test_the_unconfronted_sisters_are_still_out_of_the_registry():
-    """La soeur NON CONFRONTEE (`1573` -> #448-r2d) et son `*_Moving` (`1574`) ne sont PAS au
-    registre : c'est une TRANCHE FILLE, a confronter sur SON porteur. Ce test tombe des qu'une
-    inscription se fait -- ce qui est l'intention : elle doit s'accompagner de sa confrontation,
-    pas se glisser en douce.
+def test_the_whole_family_is_registered_and_stormboyz_still_has_no_moving():
+    """La liste des soeurs NON CONFRONTEES est desormais **VIDE** : les QUATRE derivees sont portees
+    et confrontees -- `1035` (#448-r2), `1140` (#448-r2b), `1238` (#448-r2c), `1573` (#448-r2d).
+    Le test bascule donc du negatif au POSITIF : c'est un RETRAIT accidentel qui doit le faire
+    tomber, plus une inscription en douce (chaque tranche a desormais ses propres gardes).
 
-    SONT SORTIES de cette liste, chacune AVEC sa confrontation : `1238` / `1241` par #448-r2c
-    (`probe_448_r2c_fear_of_the_unseen.py`, `test_448_r2c_*_live.py`), et `1140` par #448-r2b
-    (`probe_448_r2b_stormboyz_teleporting_in.py`, `test_448_r2b_*_offline.py`).
-
-    `1140` n'a PAS de `*_Moving` -- c'est sa particularite, et l'assertion ci-dessous la FIGE a la
-    SOURCE : aucun `StormboyzStrike_Moving` n'existe dans l'`EffectType` du build."""
+    `1140` n'a PAS de `*_Moving` -- c'est sa particularite, et la premiere assertion la FIGE A LA
+    SOURCE : aucun `StormboyzStrike_Moving` n'existe dans l'`EffectType` du build. Les TROIS autres
+    `*_Moving` (`1036`, `1241`, `1574`), eux, doivent etre au registre."""
     assert not [m for m in EffectType if "Stormboyz" in m.name and "Moving" in m.name], (
         "un `StormboyzStrike_Moving` est apparu dans l'enum -- le corps de "
         "`StormboyzStrike_TeleportingInEffect$$GetMovingEffectType` (`xor eax,eax ; ret`) est a "
         "relire")
-    for eff in (EffectType.TitanhammerSquad_TeleportingIn,
-                EffectType.TitanhammerSquad_Moving):
-        assert EFFECT_TRIGGERS.get(int(eff)) is None, (
-            "%s est entree au registre sans sa tranche : elle doit etre CONFRONTEE "
-            "(porteur, chemin, gardes) avant, cf. docs/rl/case-448-r2-ateleporting-effect-family.md"
-            % eff.name)
+    for eff in (EffectType.TeleportStrike_TeleportingIn, EffectType.TeleportStrike_Moving,
+                EffectType.StormboyzStrike_TeleportingIn,
+                EffectType.FearOfTheUnseen_TeleportingIn, EffectType.FearOfTheUnseen_Moving,
+                EffectType.TitanhammerSquad_TeleportingIn, EffectType.TitanhammerSquad_Moving):
+        assert EFFECT_TRIGGERS.get(int(eff)), (
+            "%s est SORTIE du registre : la famille `ATeleportingEffect` y est ENTIERE depuis "
+            "#448-r2d, cf. docs/rl/case-448-r2-ateleporting-effect-family.md" % eff.name)
+

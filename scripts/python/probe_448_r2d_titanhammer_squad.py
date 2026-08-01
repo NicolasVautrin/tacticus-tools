@@ -304,7 +304,13 @@ def confront_arm(label, rid, mover, dest, expect_moving, fails) -> None:
     if not acts or not acts[0].get("ok"):
         raise SystemExit("%s : move live REFUSE (MONTAGE, pas une mesure) : %r"
                          % (label, json.dumps(res)[:500]))
-    live = moving_marker_live(cascade(res), mover)
+    evs = cascade(res)
+    live = moving_marker_live(evs, mover)
+    #: le mover a-t-il ENCAISSE pendant le pas (step `UnitDamaged`) ? C'est ce qui explique --
+    #: par la MESURE, pas par hypothese -- la desactivation native de `TerminatorArmour_*`.
+    dmg_step = SE.step_id("UnitDamaged")
+    damaged = any(e.get("kind") == "action" and int(e.get("step", -1)) == dmg_step
+                  and int(e.get("entity") or -1) == int(mover) for e in evs)
 
     st2, _b2 = offline_state(capture(rid))
     native = unit_view(st2, mover)
@@ -338,12 +344,42 @@ def confront_arm(label, rid, mover, dest, expect_moving, fails) -> None:
         fails.append("%s : 1574 SURVIT au pas cote port -- TeleportMovingEffect non retire" % label)
     if TELEPORTING_IN in port_end:
         fails.append("%s : 1573 SURVIT au pas cote port -- T1 n'a pas retire" % label)
-    for k in ("pos", "alive", "effects", "untargetable", "teleported"):
+    for k in ("pos", "alive", "untargetable", "teleported"):
         if port[k] != native[k]:
             fails.append("%s %s : port=%r != natif=%r" % (label, k, port[k], native[k]))
     if native["teleported"]:
         fails.append("%s : le natif pose UnitFlag.Teleported -- `SetMovedFlag` ne teste pourtant "
                      "ni 0x625 ni 0x626" % label)
+
+    # LES EFFETS : `natif SOUS-ENSEMBLE DE port`, pas l'egalite -- et c'est la seule comparaison
+    # HONNETE entre ces deux canaux. `decisionView` (sans `includeInactive`) ne publie que les
+    # effets ACTIFS, alors que `EffectsState.by_unit` garde l'instance et evalue la condition A LA
+    # LECTURE. Un effet MANQUANT cote port reste donc une vraie regression (`missing` -> ECHEC) ;
+    # un effet EN TROP est soit cette asymetrie de canal, soit un `DeactivateEffect` natif non
+    # porte. Les DEUX sources ont ete MESUREES par ce probe, et sont NOMMEES :
+    #   * `CrushingStrike` -- `IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$
+    #     CreateActiveCondition` = `NOT HasFlag(Moved)` : le pas la desactive cote natif, le port
+    #     la garde et gate le bonus a la lecture (`create_effect_damage_bonus_for_attack`) ;
+    #   * `TerminatorArmour_ReduceDmg` / `_Visual` -- `IdunBattle.Entities.Effects.Loki.
+    #     TerminatorArmour_ReduceDmg_Effect$$CreateTargetTrigger` = `On(9 = Attack) &
+    #     AreEqual(Units(Target), Owner) & CurrentAttackDamageProfilesContainOtherThan(<exclus>) &
+    #     AmountIsZero(CurrentShieldAmount(Target)) & (AmountIsGreaterThanZero(HealthDamageFromEvent)
+    #     | WasBlock)` -> `CreateTargetTriggerBehaviour` = `DeactivateEffect(self)`, re-activee par
+    #     son `CreateHandleTriggerAbilitiesInternal` sur `On(0x3e)`. C'est une reduction UNE FOIS
+    #     PAR ATTAQUE, et `EFFECT_TRIGGERS[1147]`/`[1375]` sont VIDES cote port -> RESIDU NOMME,
+    #     hors perimetre de cette tranche. Le probe le rend MESURE et non suppose en publiant
+    #     `damaged` (le mover a-t-il encaisse pendant le pas -- typiquement un overwatch a
+    #     l'atterrissage).
+    missing = sorted(set(native["effects"]) - set(port["effects"]))
+    extra = sorted(set(port["effects"]) - set(native["effects"]))
+    fam = {"TitanhammerSquad_TargetTile", "TitanhammerSquad_TeleportingIn", MOVING_NAME}
+    print("  effets : natif\\port(MANQUANTS)=%r   port\\natif(en trop)=%r   damaged=%s"
+          % (missing, extra, damaged))
+    if missing:
+        fails.append("%s effects : le port a PERDU %r que le natif garde" % (label, missing))
+    if set(extra) & fam:
+        fails.append("%s effects : le port garde %r de la famille ATeleportingEffect que le natif "
+                     "a retire" % (label, sorted(set(extra) & fam)))
 
 
 # --------------------------------------------------------------------------- montage d'un couple
