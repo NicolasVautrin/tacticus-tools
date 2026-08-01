@@ -1,6 +1,6 @@
 # case-389 — `RammingSpeed` (1059) face COMBAT : le nœud `<DSLTriggers+0x20>` est NOMMÉ, l'ability entre au registre
 
-Clôt le résidu `#383-r1`. Suite ouverte : `#389-r1` (§5).
+Clôt les résidus `#383-r1` et `#389-r1` (§5). Suite ouverte : `#389-r2` (§6).
 
 ## 1. Le verrou, et comment il tombe
 
@@ -158,19 +158,103 @@ dont la **face que le live n'atteint pas** : gate FERMÉE (owner mort ⇒ aucune
 `OwnerIsAlive` SANS opérande » (sur les DEUX ports, RammingSpeed et SkyStrike), et les quatre
 branches de `GetDynamicInvalidTargetReason`.
 
-## 5. `#389-r1` — l'effet 1098 est POSÉ puis RETIRÉ dans le MÊME `applyAction`
+## 5. Le retrait de 1098 — `On(PhaseEnd)`, dans le MÊME `applyAction` (clôt `#389-r1`)
 
-MESURE (tags d'événements du cast natif, `captureEvents`) : l'entité-effet est **créée**
-(`Effect_SourceActiveAbility = 1059`, `Effect_SourceId = <caster>`, `Effect_CurrentLevel = 1`) puis
-**retirée** avant la fin du même `applyAction` — après le cast, `decisionView` (canal
-`includeInactive`) ne la liste plus. Le port, lui, la laisse. **La POSE est donc le bon point de
-confrontation pour ce leaf** (et elle est confirmée deux fois : par l'événement, et par le +50 % de
-la nova en mode léthal) ; la PERSISTANCE est un autre mécanisme, non RE, et le résidu est nommé.
+L'entité-effet est **créée** (`Effect_SourceActiveAbility = 1059`, `Effect_SourceId = <caster>`,
+`Effect_CurrentLevel = 1`) puis **retirée** avant la fin du même `applyAction`. Le mécanisme est
+**`RammingSpeed_ExtraExplodeEffect$$CreateTargetTrigger` = `IdunBattleLogic.Entities.DSLTriggers$$On(
+EventTriggerType.PhaseEnd = 0x3a, ownerNeedsToBeAlive: false)`**, couplé à
+`$$CreateTargetTriggerBehaviour` = `IdunBattle.Entities.Effects.BaseEffect$$GetRemoveEffectBehaviour`
+= `IdunBattleLogic.Entities.DSLBehaviors$$RemoveEffect(entities@+0x38 = Effect)`.
+
+### 5.1. Pourquoi il n'était pas nommé : **quatre corps DÉDUPLIQUÉS**
+
+La classe n'a **aucune méthode à son nom** dans `frida/methods.tsv` ni dans `ghidra/functions.tsv` —
+seulement son `.ctor`. Ses quatre overrides ont des corps triviaux que IL2CPP partage avec d'autres
+classes, et la table n'en garde qu'**un seul propriétaire** (CLAUDE.md, « l'absence d'une méthode
+dans les tables ne prouve RIEN »). Un `search_symbols_by_name` sur `RammingSpeed` ne les voit donc
+jamais.
+
+Ce qui les rend tous : le **bloc de 5 entrées consécutives du type** dans la table de pointeurs de
+méthodes IL2CPP, délimité par son `.ctor` en tête et par le `.ctor` du type suivant (`HealAbility`).
+
+| # | corps (propriétaire DÉDUPLIQUANT) | ce que le corps FAIT | slot |
+|---|---|---|---|
+| 1 | `RammingSpeed_ExtraExplodeEffect$$.ctor` | `BaseEffect..ctor(&abilityOrEffect, hasAutomaticActivation: 1)` | `.ctor` |
+| 2 | `WayOfTheShortBlade_AdditionalAttackMarkerEffect$$CreateActiveCondition` | `return dsl.triggers@+0x40` | `CreateActiveCondition` |
+| 3 | `WhisperingWebEffect$$CreateTargetSelector` | `return dsl.entities@+0x30` = **Owner** | `CreateTargetSelector` |
+| 4 | `UntilOfEndPhaseEffect$$CreateRemoveEffectTrigger` | `DSLTriggers$$On(0x3a, false)` | `CreateTargetTrigger` |
+| 5 | `MV71SniperDroneSquad_ResetInitialDmgEffect$$CreateTargetTriggerBehaviour` | `BaseEffect$$GetRemoveEffectBehaviour(this)` | `CreateTargetTriggerBehaviour` |
+
+L'appariement position ↔ slot est **CALIBRÉ** sur `IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect`,
+dont les quatre overrides sont NOMMÉS : son bloc donne l'ordre canonique `.ctor`,
+`CreateActiveCondition`, `CreateTargetSelector` (**exactement le même corps partagé**, position 3 des
+deux côtés), `CreateEffectHitsBonusForAttack`, `CreateTargetTrigger`, `CreateTargetTriggerBehaviour`.
+Il est recoupé par le NOM du propriétaire dédupliquant de chaque corps (qui coïncide avec la
+position) et par la SIGNATURE (seul `CreateTargetTriggerBehaviour` prend 4 paramètres). Les
+accesseurs d'entités sont nommés **indépendamment** par `DSLTriggers$$get_OwnerIsTarget` /
+`$$get_OwnerIsActor` / `$$get_CasterIsTarget` (`AreEqual(entities+0x30, +0x60)`, etc.) :
+**`+0x30 = Owner`**, `+0x38 = Effect`, `+0x40 = Actor`, `+0x48 = Caster`, `+0x60 = Target`.
+
+⚠ Le nom `UntilOfEndPhaseEffect$$…` de l'entrée 4 est celui du **propriétaire dédupliquant**, pas le
+slot de ce type : `RammingSpeed_ExtraExplodeEffect` hérite **directement** de `BaseEffect`
+(`classes.tsv`), il n'est PAS un `UntilOfEndPhaseEffect`. Les deux lectures possibles de l'entrée 4
+(`CreateTargetTrigger` ou `CreateRemoveEffectTrigger`) rendent de toute façon le MÊME verdict de
+retrait — seule change la fonction qui assemble le `Triggered(trigger, RemoveEffect)`.
+
+### 5.2. `0x3a = PhaseEnd`, et pourquoi il tombe DANS le même `applyAction`
+
+`0x3a` = `IdunBattle.DSL.EventTriggerType.PhaseEnd` (58) — appariement vérifié par **deux noms de
+classe** : `UntilOfEndTurnEffect` → `On(0x17 = TurnEnd)`, `UntilOfEndPhaseEffect` → `On(0x3a =
+PhaseEnd)`.
+
+L'émetteur est **`IdunBattle.Operations.EndPhaseOperation$$Execute`** (publie `0x3a`, puis
+`$$ResetTileReservation` + `$$ResetEntityPhase`), atteint par
+`Core.Services.OperationProcessor$$EndPhase` — qui n'a **aucun appelant direct** dans le binaire,
+seulement le slot appelé par `IdunBattle.Messages.InputMessageProcessor$$RunPhase` dans sa branche
+`isInternalPhase == false`. Or `RunPhase` **est** le corps d'un `applyAction` : les
+`InputMessageProcessor$$Visit` (un par type de message d'entrée) l'appellent avec `isInternalPhase =
+0` (lu sur le `Visit` d'AddUnit : `RunPhase(this, 0x4, action, 0, 0)`), tandis que la cascade interne
+`$$ProcessPendingTriggeredAbilities` l'appelle avec `RunPhase(this, 0xf, action, 1, 0)`.
+**Une phase = un message top-level**, et sa clôture émet `PhaseEnd`.
+
+### 5.3. Le mirror
+
+* `runner/operations/triggers/dispatch/phase.py` — vecteur `phase_end_triggers`, mirror de la
+  publication `0x3a` d'`EndPhaseOperation$$Execute`, émis **en sortie de `Runner.apply`** (qui
+  portait déjà `state.reset_trigger_phases()`, l'AUTRE geste de la même opération native).
+* `runner/operations/triggers/loki/ramming_speed.py` — `EFFECT_TRIGGERS[1098]`.
+* `probe_389` : son chemin port passe désormais par **`Runner.apply(ActiveAbilityMessage)** et non
+  par `AbilityHandler.visit_ActiveAbilityMessage` appelé nu — le handler nu exécute le même arbre
+  (même tuile, mêmes coups, vérifié) mais court-circuite la borne de phase, ce qui rendrait
+  `effect_persists_port_only` VRAI par construction.
 
 ⚠ **Piège de CANAL, mesuré** : `decisionView` par DÉFAUT laisse tomber les effets INERTES ; seul
 `snapshot.decision_view_seed_body` (`includeInactive`) est comparable à `State.effects.by_unit`.
 Le premier jet du probe croisait les deux canaux et voyait un faux écart (`PowerTrip_FullHealth`
-1362 « disparu » alors qu'il était seulement désactivé).
+1362 « disparu » alors qu'il était seulement désactivé — il a bien un `CreateActiveCondition`
+(`!IsDamaged`), et **aucun** `RemoveEffect` : c'est ce qui le sépare de 1098, à couple d'événements
+de vue identique `LoseEffect (16)` / `DeactivateEffect (18)`).
+
+### 5.4. Ce que la mesure rend
+
+| bras | 1098 après le cast, natif | 1098 après le cast, port |
+|---|---|---|
+| MC1_67 / 38900 | absent (`[1026, 1361, 1362]`) | absent (`[1026, 1361, 1362]`) |
+| C1_20 / 38903 | absent | absent |
+| MC1_63 / 38903 | absent | absent |
+| MC1_67 / 38901 **léthal** | `[]` (mort → tous retirés) | `[1026, 1098, 1361, 1362]` — cf. §6 |
+| C1_03 / 38905 **léthal** | `[]` | `[1026, 1098, 1361, 1362]` — cf. §6 |
+
+Sur un bras non léthal le natif retire 1098 **alors que 1026/1361/1362 RESTENT** : c'est bien le
+trigger propre à 1098, pas un nettoyage global.
+
+**Huitième garde adversariale, `--mutate keep-effect`** (vide `EFFECT_TRIGGERS[1098]` = l'état
+d'avant) : le port muté rend `[1026, 1098, 1361, 1362]` là où le natif rend `[1026, 1361, 1362]` —
+**ROUGE**. Gardes offline : 5 cliquets de plus dans
+`tests/engine/runner/test_389_ramming_speed_combat_offline.py` (18 au total), dont le **régime qui
+mord**, bout en bout : une nova survenant APRÈS le cast lit `explodesDmg` seul (25 % du maxPV =
+**25000**) au lieu d'`explodesDmg + extraDmgPct` (75 % = **75000**).
 
 **Deuxième résidu, GÉNÉRIQUE au pipeline d'attaque** (pas propre à 1059) : quand un coup TUE le
 défenseur, le tag `Amount` natif porte le dégât RÉELLEMENT appliqué (borné par les PV restants) et
@@ -187,7 +271,18 @@ de liberté) : sur C1_03 léthal, port `[3105, …]` roulé → `[3105, 1895]` r
   `boardGraph.neighbours`) mordent sur DEUX faces de 1059 : l'étage MOVE et le gate de ciblage.
   Aucun bras joué ici n'est en régime ring-saturé. (`#381-r1` lui-même est FERMÉ — le nœud DSL
   porte le gate d'expansion #131 depuis `case-381-r1`.)
-* **`#389-r1`** ci-dessus : la durée de vie de l'effet 1098 après le cast.
+* **`#389-r2` — `IdunBattle.Operations.KillUnitOperation$$RemoveEffects` n'est porté qu'en VOLET
+  ÉTROIT.** Quand le porteur MEURT, le natif vide **tous** ses effets (le `RemoveEffects` de
+  `KillUnitOperation$$Execute`, qui délègue au service slot `0x5a`) ; le port ne consomme que les
+  effets portant des `applied_ability_modifications` (`damage._revert_ability_modifications_of_dead`,
+  périmètre déclaré : `ListenUpMaggotsEffect` seul). MESURE, bras léthal MC1_67/38901 : natif `[]`,
+  port `[1026, 1098, 1361, 1362]` — **trois des quatre effets n'ont rien à voir avec 1098**, l'écart
+  est GÉNÉRIQUE et PRÉEXISTANT. Conséquence sur ce cas : le cliquet de retrait de `probe_389` est
+  **désarmé sur un bras léthal** (`removal_checked` = caster VIVANT), sinon il mesurerait
+  `KillUnitOperation`, pas le `On(PhaseEnd)` de 1098.
+* **La branche `ownerNeedsToBeAlive: false`** du trigger de retrait n'est pas portée : le dispatch du
+  port gate sur « owner vivant » (`CanGet*Trigger`). Écart identique à `UntilOfEndTurnRemove` — il ne
+  devient observable que par `#389-r2` ci-dessus (sur un porteur mort dont les effets survivent).
 * **Un seul niveau d'ability** (celui du build, rank 17) et **un seul greffon** (`orksKillaKan`) :
   1059 a ZÉRO porteur au gameconfig, donc aucune autre voie n'existe.
 * **Le `2` en dernier argument des deux `AttackWithAttackDamage`** (`selectionType`) n'est pas
