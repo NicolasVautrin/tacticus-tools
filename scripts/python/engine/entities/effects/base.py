@@ -157,10 +157,10 @@ def is_turn_of_owner(att_ctx) -> "bool | None":
     Tri-etat : cle ABSENTE -> `None` = « non threade ». Les consommateurs d'un gate `NOT IsTurnOf`
     n'appliquent alors RIEN (« present != applique ») -- meme polarite que `is_charging_attack`.
 
-    ⚠ Le port du noeud generique (`entities/triggers.py::IsTurnOf`) agrege par `any(...)` la ou le
-    natif sort FAUX des qu'UNE entite selectionnee n'appartient pas au joueur courant (donc `all`).
-    Sans effet ici -- `Owner` est un singleton -- mais l'ecart est reel pour un selectionneur
-    multi-entites (residu NOMME, non corrige par ce cas)."""
+    Le port du noeud generique (`entities/triggers.py::IsTurnOf`) agrege par `all(...)` depuis
+    #366-r1-turnof (`docs/rl/case-366-r1-turnof-all.md`) -- le natif sort FAUX des qu'UNE entite
+    selectionnee n'appartient pas au joueur courant, set vide -> VRAI. Sans effet sur CE foyer :
+    `Owner` est un singleton, et les deux agregations coincident sur un set d'un element."""
     v = (att_ctx or {}).get("is_turn_of_owner")
     return None if v is None else bool(v)
 

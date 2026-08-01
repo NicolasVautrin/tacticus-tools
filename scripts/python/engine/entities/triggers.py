@@ -323,13 +323,49 @@ def is_mechanical(unit: TargetsSelector, selection_type: int = 0) -> AbilityTrig
 
 
 class IsTurnOf(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsTurnOf(selector)` = `new <DAT_18320cc68>(selector,
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsTurnOf(selector)` = `new <DAT_1833ab568>(selector,
     matchState@+0x10)` — ctor gshared 2-champs MISLABELE par ghidra
-    (`Idun.Source.IdunBattle.Logic.Entities.Triggers.HasUsedActiveAbilityThisTurnTrigger$$.ctor` :
-    STRUCTURE lue, jamais le nom, cf. l'en-tete de `dsl/base.py`). Semantique : « l'unite selectionnee
-    appartient au joueur dont c'est LE TOUR » (`TurnComponent.CurrentPlayer`).
+    (`System.Linq.Expressions.Interpreter.QuoteInstruction$$.ctor` : STRUCTURE lue, jamais le nom,
+    cf. l'en-tete de `dsl/base.py`). La classe allouee est
+    `IdunBattle.Entities.Triggers.IsTurnOfUnitTrigger`.
 
-    Deux call-sites natifs deja portes (imperativement) confirment cette lecture :
+    MIRROR de `IdunBattle.Entities.Triggers.IsTurnOfUnitTrigger$$ShouldTrigger` (#366-r1-turnof) :
+
+        if (ctx.CurrentPlayer == null) return false;               # garde de tete, ctx@+0x50
+        first = selector.SelectFirst(ctx);                         # slot 1 de l'interface selecteur
+        if (first != null && EntityExtensions.IsPlayer(first))     # EntityType == 4 (PLAYER)
+            return first.Id == ctx.CurrentPlayer.Id;               # chemin PLAYER (voir plus bas)
+        foreach (e in selector.<slot 6>(ctx, selectionType = 0))   # variante ACTEURS
+            if (e.GetComponent<OwnerComponent>().CurrentPlayerEntityId != ctx.CurrentPlayer.Id)
+                return false;                                      # sort FAUX des qu'UNE diverge
+        return true;                                               # enumeration epuisee -> VRAI
+
+    => l'agregation est **`all`**, et le **set VIDE rend VRAI** (le `MoveNext()` faux sort sur
+    `return 1`). Le port agregeait par `any(...)` jusqu'a #366-r1-turnof : ecart INERTE sur les
+    call-sites natifs (aucun ne soumet 2 entites-unites, mesure dans
+    `docs/rl/case-366-r1-turnof-all.md`), mais faux des qu'un selecteur multi-entites est passe.
+
+    Trois lectures qui ferment la semantique de la boucle :
+      * le composant lu est `IdunBattle.Entities.Components.OwnerComponent`, champ
+        `get_CurrentPlayerEntityId` (+0x10) — le MEME couple de champs que
+        `IdunBattle.View.FSM.VisualBattleQuery$$IsControlledByCurrentPlayer`, qui l'appelle par son
+        nom ; donc bien le proprietaire COURANT (mind-control inclus), pas l'original ;
+      * l'enumeration mappe chaque entite par `IdunBattle.DSL.TargetsSelector$$SelectUnit(e, 0)`, et
+        `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType` rend VRAI INCONDITIONNELLEMENT
+        pour `selectionType = 0` (seuls 1/2/3 filtrent vie et flag 0x11) => **aucun filtre de vie**,
+        un porteur MORT reste dans le set ;
+      * une TUILE (ou un `UnitFoot`) est resolue en son occupant par le meme `SelectUnit` — une tuile
+        VIDE disparait donc du set, et c'est la seule facon d'atteindre le cas « set vide ».
+
+    **Chemin PLAYER non expose par le port** : quand le selecteur rend une entite de type PLAYER
+    (`IdunBattleLogic.Entities.DSLSelectors$$Player(team)` ->
+    `IdunBattle.Entities.Selectors.PlayersByTeamSelector`), le natif court-circuite la boucle et
+    compare l'Id du PREMIER selectionne au joueur courant. Trois call-sites natifs l'empruntent
+    (`EnvAngelsOfDeathAbility` / `EnvValkyrieStrikeAbility` / `EnvValkyrieStrike_AttackAbility`,
+    tous `$$CreateTrigger`), aucun n'est porte : le port n'a pas d'entite-JOUEUR, donc ce chemin
+    n'est pas mirrote (l'ecrire serait inventer une representation).
+
+    Deux call-sites natifs deja portes (imperativement) confirment la lecture de fond :
       * `FleshMetalGunsAbility$$CreateTrigger` = `On(0x16=TurnStart_Actions) & IsTurnOf(Self@0x148)` —
         la rotation d'armes ne fire qu'au debut du tour de SON porteur (ground truth live case-222 §B) ;
       * `IdunBattle.Entities.Effects.FirstAidHealEffect$$CreateTargetTrigger` =
@@ -337,15 +373,23 @@ class IsTurnOf(AbilityTrigger):
         MON tour.
 
     `ctx.current_player_id is None` (contexte sans tour courant : prediction, arbre purement numerique)
-    -> **False**, degradation conservatrice (on ne fabrique pas un declenchement)."""
+    -> **False** : c'est la garde de tete du natif (`ctx@+0x50 == 0 -> return false`), pas une
+    degradation inventee.
+
+    LIMITE ASSUMEE : le natif LEVE (`FUN_1801f51f0`) quand le selecteur rend une collection NULLE, la
+    ou une collection VIDE rend VRAI. `_units_of` confond les deux (`None -> []`), donc le port rend
+    VRAI dans les deux cas. Le port n'a pas de canal d'exception ; et cote port un accesseur singleton
+    qui rend `None` signifie « le contexte n'a pas cette entite », ce qui est exactement le cas
+    « `SelectUnit` filtre l'entite -> set vide -> VRAI » du natif."""
     def __init__(self, unit: TargetsSelector):
         self.unit = unit
 
     def should_trigger(self, ctx):
         cur = ctx.current_player_id
-        if cur is None:
+        if cur is None:                       # `if (ctx@+0x50 == 0) return false;`
             return False
-        return any((u or {}).get("player") == cur for u in _units_of(self.unit, ctx))
+        # `foreach (...) if (owner != current) return false; return true;` -- `all`, set vide -> VRAI.
+        return all((u or {}).get("player") == cur for u in _units_of(self.unit, ctx))
 
 
 class AreFriends(AbilityTrigger):
