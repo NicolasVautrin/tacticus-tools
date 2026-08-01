@@ -95,7 +95,8 @@ class State:
                  "turn_counts", "turn_order_player_count", "triggering_ability",
                  "trigger_ability_type",
                  "pending_deaths", "draining_deaths", "ability_states_seed",
-                 "pending_triggered_abilities", "draining_pending_abilities")
+                 "pending_triggered_abilities", "draining_pending_abilities",
+                 "enable_obscuring_terrain")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -104,6 +105,19 @@ class State:
         self.effects: Optional["EffectsState"] = None
         self.rng: Optional["IntBasedMersenneTwister"] = None
         self.board = None
+        # `IdunBattle.Configuration.TargetingConfiguration.EnableObscuringTerrain` (#444) -- le champ
+        # `+0x10` de l'objet `config` que `IdunBattle.Core.Services.TargetingQuery$$Init` range en
+        # `this+0x30`, et le TOUT PREMIER gate de
+        # `IdunBattle.Core.Services.TargetingQuery$$GetTilesObscuringTerrain` : a faux, la ligne de
+        # vue rend un set VIDE et ne refuse jamais rien.
+        #
+        # AUCUN RPC NE LE PUBLIE -- ce n'est ni un etat dynamique ni un composant d'entite, c'est un
+        # champ de la BATTLE CONFIGURATION (`BC.Targeting`). Le defaut `True` n'est donc pas une
+        # deduction : c'est la valeur LUE dans `data/seed-bc.json` (`Targeting.EnableObscuringTerrain
+        # = true`), la seed dont partent tous les runners `rl_duel build`, et
+        # `tests/engine/runner/test_obscured_targeting_live.py` la RE-LIT pour rougir si elle change.
+        # `load_state(targeting_config=...)` permet a un appelant qui connait SA BC de la poser.
+        self.enable_obscuring_terrain: bool = True
         self.turn_counts: dict[int, int] = {}
         # #101 : le fait "a bouge ce tour" N'EST PLUS un set d'etat ici — il vit ou le natif le met, dans
         # le `UnitFlagsComponent` de l'unite (`UnitFlag.Moved=0`), pose par `set_moved_flag`

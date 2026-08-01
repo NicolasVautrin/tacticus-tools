@@ -127,12 +127,18 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
    -   (non gate)            portee : `dist(casterTiles, target) > GetRange` ->  OUI (cf. ci-dessous)
                              TargetIsInRange (bit 27, 0x8000000) ; variante
                              EXACTE sous le bit 9 TargetIsAtRange (0x200)
-  24   0x1000000             `GetTilesObscuringTerrain` (ligne de vue) ->        NON — armee pour
-                             TargetIsUnobscured. SEULE regle du filtre dont le    les 103 masques
-                             refus ne passe PAS par `GenericBrokenTargetingRule`  lisibles : aucun
-                             mais par `ObscuredTerrainBrokenTargetingRule` (dont  bit ne l'arme,
-                             `get_Type` rend 0x1000000). Les bits 25/26 ne font   seuls 25/26 la
-                             que la DESARMER.                                     desarment.
+  24   0x1000000             `GetTilesObscuringTerrain` (ligne de vue) ->        OUI (#444) — armee
+                             TargetIsUnobscured. SEULE regle du filtre dont le    pour les 103
+                             refus ne passe PAS par `GenericBrokenTargetingRule`  masques lisibles :
+                             mais par `ObscuredTerrainBrokenTargetingRule` (dont  aucun bit ne
+                             `get_Type` rend 0x1000000). Les bits 25/26 ne font   l'arme, seuls
+                             que la DESARMER, et le trait 1005 `IndirectFire`     25/26 (et le
+                             desarme le SEUL volet elevation.                     trait) desarment.
+                             Trois DESARMEMENTS de plus, tous ANTERIEURS aux
+                             bits : `TargetingConfiguration.EnableObscuringTerrain`
+                             a faux, une cible AMIE (ou une tuile portant un
+                             allie), et `dist(caster, cible) <= 1` (la ligne fait
+                             2 tuiles, `2 < Count` est faux).
   13   0x2000                TargetIsSummon (`HasTrait(2)`)                      OUI (#250)
   50   0x4000000000000       TargetIsHero (`HasTrait(0x10)` requis)              NON (0 porteur)
   33   0x200000000           TargetIsNotAnObject (`HasTrait(0xd)` interdit)      NON (4 porteurs :
@@ -1304,6 +1310,106 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
     return 0 if d <= rr.value else int(TR.TargetIsInRange)
 
 
+def is_friend_or_has_friendly_unit_on_it(state: "State", entity_id, unit_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsFriendOrHasFriendlyUnitOnIt(entity, unit, state)` --
+    mirror du decompile :
+
+        if (entity == null || unit == null) return false;
+        if (unit.EntityType != Unit(1))     return false;      // slot 1 de `IEntity`
+        u = UnitExtensions.GetUnit(entity, state);              // une TUILE resout en son OCCUPANT
+        if (u == null)                      return false;
+        return GetCurrentPlayer(u)?.Player?.Team@+0x24 == GetCurrentPlayer(unit)?.Player?.Team;
+
+    C'est le DESARMEMENT de la ligne de vue : le terrain n'obscurcit JAMAIS une cible amie (ni une
+    tuile portant un allie). Meme predicat d'equipe que `units_are_friends` (`UnitExtensions$$IsFriend`),
+    rabats a `0` compris -- d'ou sa reutilisation ici plutot qu'une 3e ecriture du meme test.
+
+    Le gate `EntityType == Unit` sur le CASTER est porte par `_resolves_to_unit` (qui exclut
+    justement la MoW, a laquelle le port pose un `UnitComponent` d'identite) : pour une MACHINE le
+    natif sort sur `false`, donc la ligne de vue reste ARMEE. Sans consequence -- une MoW n'a aucune
+    tuile, donc `casterTiles` est vide et la surcharge LISTE rend un set vide."""
+    if entity_id is None or unit_id is None:
+        return False
+    if not _resolves_to_unit(state, unit_id):
+        return False
+    occupant = unit_of_entity(state, entity_id)
+    if occupant is None:
+        return False
+    return units_are_friends(state, occupant, unit_id)
+
+
+def get_tiles_obscuring_terrain(state: "State", caster_id: int, target_id,
+                                options: "TargetingOptions") -> set:
+    """`IdunBattle.Core.Services.TargetingQuery$$GetTilesObscuringTerrain(caster, casterTiles,
+    target, options)` (surcharge LISTE) -- LA LIGNE DE VUE, et le SEUL endroit ou les bits 24/25/26
+    sont lus. VERBATIM :
+
+        if (config == null) throw;                                     // `this+0x30`
+        if (config.EnableObscuringTerrain (+0x10)
+            && !UnitExtensions.IsFriendOrHasFriendlyUnitOnIt(target, caster, state)) {
+            type = 0;
+            if (!UnitExtensions.HasTrait(caster, 0x3ed IndirectFire)
+                && (rules & 0x2000000 AllowObscuredTargetByElevation) == 0)  type = Elevation(2);
+            t2 = type | Wall(4);
+            if ((rules & 0x4000000 AllowObscuredTargetByWalls) != 0)          t2 = type;
+            if (t2 != 0) return movementQuery.<slot 0xf>(casterTiles, target, t2, 2);
+        }
+        return new DisposableHashSet();                                 // VIDE
+
+    QUATRE observations qui font la difference entre porter la regle et porter une caricature :
+
+      * **`TargetIsUnobscured` (bit 24) N'ARME RIEN** -- il n'est meme pas lu ici. Ce bloc tourne
+        pour TOUTE ability qui atteint le volet portee (mesure #429 : les **103** masques lisibles).
+        Les bits 25 et 26 ne font que le DESARMER, chacun sur un volet.
+      * **`IndirectFire` (trait 1005) ne desarme QUE l'elevation**, pas les murs -- exactement ce
+        que dit le tooltip i2 `Traits/IndirectFire_Description` (« can fire over obscuring hexes »).
+      * **le masque des murs est pose PAR DEFAUT** : sans `AllowObscuredTargetByWalls`, `t2` vaut au
+        moins `4`, donc le bloc n'est jamais court-circuite par `t2 == 0` -- ce dernier cas exige
+        les DEUX desarmements (ou IndirectFire + le bit 26).
+      * **le gate AMI precede tout** : une cible alliee (ou une tuile portant un allie) n'est jamais
+        obscurcie. C'est ce qui met hors de portee de cette regle toutes les abilities de soin/buff.
+
+    LA CIBLE EST `pcVar12`, la cible RESOLUE par la tete de domaine (`_resolved_target_id`) -- la
+    meme variable que consomment `TargetIsAllowedForCaster` et le volet portee, PAS la cible
+    d'origine. Sur une ability tile-target c'est la tuile ; sinon c'est `GetUnit(target)`, qui resout
+    une tuile en son OCCUPANT (dont la main tile peut differer de la tuile visee si elle est
+    multi-hex). Non resolue -> `GetMainTile(null)` est nul cote natif aussi, et le set est vide.
+
+    Rend le SET des positions obscurcissantes (cardinal seul lu par la cascade)."""
+    from ...entities.traits.unit_trait import UnitTrait
+    if not getattr(state, "enable_obscuring_terrain", True):
+        return set()
+    resolved = _resolved_target_id(state, target_id, options)
+    if resolved is None:
+        return set()
+    if is_friend_or_has_friendly_unit_on_it(state, resolved, caster_id):
+        return set()
+    obscuring = 0
+    indirect = UnitTrait.IndirectFire.name in (_unit_traits(state, caster_id) or ())
+    if not indirect and not options.has(TR.AllowObscuredTargetByElevation):
+        obscuring = 2                                  # ObscuringType.Elevation
+    t2 = obscuring | 4                                 # | ObscuringType.Wall
+    if options.has(TR.AllowObscuredTargetByWalls):
+        t2 = obscuring
+    if t2 == 0:
+        return set()
+    from ...services.movement_query import get_tiles_obscuring_terrain_from_tiles
+    return get_tiles_obscuring_terrain_from_tiles(
+        state.board, entity_tiles(state, caster_id), _obscuring_target_tile(state, resolved),
+        t2, 2)
+
+
+def _obscuring_target_tile(state: "State", target_id):
+    """La tuile que `MovementQuery$$GetTilesObscuringTerrain` retient de la CIBLE :
+    `IdunBattle.Entities.EntityExtensions$$GetMainTile(to, state)` -- la MAIN TILE, pas l'empreinte.
+    Une unite multi-hex n'est donc jugee que sur la tuile de son PREMIER pied.
+
+    `entity_tiles(...)[0]` EST `GetMainTileId` (cf. sa docstring : premier pied pour une unite, la
+    tuile elle-meme pour une tuile). `None` quand le port ne resout pas -> aucun refus."""
+    tt = entity_tiles(state, target_id)
+    return None if not tt else (int(tt[0][0]), int(tt[0][1]))
+
+
 def are_entities_adjacent(board, src_feet, dst_feet) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` -> la surcharge LISTE de
     `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent(IList, IList)` : vrai des qu'UNE paire
@@ -1963,6 +2069,39 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     reason = get_range_broken_rule(state, caster_id, target_id, options)
     if reason:
         return reason
+
+    # LIGNE DE VUE (#444) -- la regle `TargetIsUnobscured` (bit 24). Elle vit DANS le meme bloc
+    # `if (!ignoreRangeChecks)` que la portee, JUSTE APRES lui et AVANT `TargetIsSummon`. VERBATIM :
+    #
+    #     if (!ignoreRangeChecks) {
+    #         <les trois regimes de PORTEE>
+    #         tiles = this.GetTilesObscuringTerrain(caster, casterTiles, pcVar12, options);
+    #         if (tiles == null) throw;
+    #         if (0 < tiles.Count) return <box ObscuredTerrainBrokenTargetingRule(tiles)>;
+    #     }
+    #
+    # TROIS choses que la place dans la cascade rend NON COSMETIQUES :
+    #
+    #   * elle est **INCONDITIONNELLE dans ce bloc** -- pas gatee par le bit 24 (qui n'est QUE le
+    #     code rendu), et pas gatee non plus par la branche de portee : un `UseWholeBoard` saute le
+    #     calcul de distance mais PAS la ligne de vue ;
+    #   * elle **suit** la portee, donc une cible a la fois hors de portee et masquee rend
+    #     `TargetIsInRange`, pas `TargetIsUnobscured` ;
+    #   * elle **precede** tout le bloc TRAITS (`TargetIsSummon`/`TargetIsHero`/...), la regle
+    #     dynamique et `TargetIsCasterOrEnemy`.
+    #
+    # SEULE REGLE DU FILTRE dont le refus ne passe pas par
+    # `IdunBattle.Core.Services.TargetingRuleExtensions$$GenericBrokenTargetingRule` : le natif boxe
+    # un `IdunBattle.Core.Services.ObscuredTerrainBrokenTargetingRule` (qui transporte les tuiles
+    # fautives), dont le `get_Type` rend le litteral `0x1000000` -- soit exactement
+    # `TargetingRule.TargetIsUnobscured`. Le code rendu est donc le meme des deux cotes.
+    #
+    # DEGRADATION : le port rend `0` partout ou il ne sait pas MESURER (pas de board, tuiles non
+    # resolues) -- meme convention permissive que le reste du module. La regle ne peut rendre un
+    # refus que sur des positions et des elevations REELLES.
+    if state.board is not None:
+        if get_tiles_obscuring_terrain(state, caster_id, target_id, options):
+            return int(TR.TargetIsUnobscured)
 
     # TargetIsSummon -- « la cible doit etre un SUMMON ». VERBATIM du filtre statique (surcharge 7
     # arguments), juste APRES le bloc portee/ligne de vue :
