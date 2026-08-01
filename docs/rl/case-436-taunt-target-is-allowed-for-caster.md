@@ -146,7 +146,19 @@ python scripts/python/probe_436_taunt_targeting.py --seed 31337 --board C4_09 \
   pour `TargetIsTile` (qui rend `ValidRequest`). Le sélecteur employait déjà `code(n)`, l'affichage
   non. Corrigé ; le dernier bloc du probe ne s'était donc **jamais** imprimé.
 
-## 6. Re-dériver
+## 6. Ce qui a été joué (relevé daté, APRÈS rebase sur `origin/master`)
+
+`test_taunt_targeting_live` 7 ✅ · `test_splash_targeting_live` 10 ✅ ·
+`test_ability_target_gate_live` 13 ✅ · `test_targeting_masks_live` 13 ✅ ·
+`test_damage_crushingclaws_live` 1 ✅ · `test_366_r1_burrowers_cast_offline` 9 ✅ ·
+`test_targeting_rule_inventory` 17 ✅ · `test_targeting_options_sources` 5 ✅ ·
+`test_ability_registry_ratchet` 9 ✅ · `test_sorcerous_facade_combat_live` 9 ✅ ·
+`test_repair_execution_live` 7 ✅ · `test_martial_apotheosis_live` 7 ✅ ·
+`test_summon_targeting_live` 6 ✅ — et la **banque de cliquets VERTE** (`scripts/ratchets.ps1`).
+Les quatre derniers sont là parce qu'ils consomment `valid_normal_attack_targets`, donc la cascade
+que cette tranche modifie.
+
+## 7. Re-dériver
 
 ```
 python scripts/python/probe_436_taunt_targeting.py
