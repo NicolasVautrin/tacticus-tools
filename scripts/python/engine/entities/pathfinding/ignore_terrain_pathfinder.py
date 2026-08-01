@@ -90,6 +90,17 @@ def get_path_node_counts(board: Board, target_id: int, occupants: dict) -> dict:
     argmin est le MEME. Le predicat, lui, est symetrique (`IsWalkable` de chaque extremite et un
     `|delta elevation|` symetrique, aucun test d'occupant).
 
+    VOISINAGE = la liste STOCKEE (`#381-r3`). `IgnoreTerrainPathfinder` derive de `BasePathfinder`
+    (`data/symbols/<build>/frida/classes.tsv`) et n'OVERRIDE PAS `AddNeighbours` : il herite donc du
+    corps qui enumere le `ConnectivityComponent` de la tuile -- `board.neighbours_native`, et non
+    `board.neighbours()`, qui depend du `adjacency=` choisi par l'appelant.
+
+    MESURE (`C1_74`/3811, oracle `pathDistToEnemies`, qui appelle litteralement
+    `IPathfinders.GetPath(1, unit, from, to, null)`) : sur 180 distances confrontees, la GEOMETRIE
+    en rate **11** (4 unites sur 10), la liste STOCKEE **0**. L'ecart etait invisible en production
+    (`playbook/scene.py` monte le `Board` en `native_sym`) et vivant dans tout probe monte en
+    `evenq` -- exactement la dependance au montage que `#381-r3` supprime.
+
     ⚠ NON LU au decompile : le departage entre deux chemins de MEME cout et de longueurs
     differentes (il depend de l'ordre interne de la `PriorityQueue` native). Ici : moins de noeuds
     gagne."""
@@ -101,7 +112,7 @@ def get_path_node_counts(board: Board, target_id: int, occupants: dict) -> dict:
         cost, nodes, cur = heapq.heappop(heap)
         if (cost, nodes) > best.get(cur, (cost, nodes)):
             continue                                  # entree perimee de la file
-        for n in board.neighbours(cur):
+        for n in board.neighbours_native(cur):     # `BasePathfinder$$AddNeighbours` (non override)
             if not is_valid_path_node(board, cur, n):
                 continue
             cand = (cost + weight_cost(n, occupants), nodes + 1)

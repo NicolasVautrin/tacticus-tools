@@ -83,6 +83,7 @@ def get_reachable_levels(
     max_depth: int | None = None,
     edge=is_valid_path_node,
     can_continue=None,
+    neighbours=None,
 ) -> dict:
     """BFS niveau-par-niveau → {tile_id -> distance-en-pas depuis start}. Inclut
     le start (niveau 0). `max_depth` borne la profondeur (None = illimité). Le
@@ -93,10 +94,46 @@ def get_reachable_levels(
     le FlyPathfinder passe son propre prédicat (mirror natif `BasePathfinder` = BFS
     générique, chaque pathfinder override `IsValidPathNode`).
 
+    `neighbours(tile_id) -> [tile_id]` = le VOISINAGE, et c'est un SECOND slot virtuel, distinct
+    de l'arête (#381-r3). `BasePathfinder$$GetValidNeighbours` appelle `AddNeighbours` par la
+    VTABLE (`vslot 0x238`), et les deux corps ne lisent pas la même chose :
+
+      * `IdunBattle.Entities.Pathfinding.BasePathfinder$$AddNeighbours`
+        (`u003CAddNeighboursu003Ed__19$$MoveNext`) énumère la `List` du `ConnectivityComponent`
+        de la tuile (`connectivity+0x10`) et résout chaque id sur l'état — la liste d'adjacence
+        **STOCKÉE** ⇒ `board.neighbours_native`, le DÉFAUT ici ;
+      * `IdunBattle.Entities.Pathfinding.FlyPathfinder$$AddNeighbours` OVERRIDE et interroge la
+        requête de tuiles au rayon 1 — la **GÉOMÉTRIE** ⇒ `board.neighbours_geometric`, que
+        `fly_pathfinder` passe explicitement.
+
+    ⚠ Ce n'est PAS `board.neighbours()` : celui-là dépend du `adjacency=` de l'instance, donc du
+    montage de l'appelant, alors que le natif n'a jamais qu'une source par pathfinder. `evenq`
+    faisait SUR-atteindre la marche (mesuré `C1_74`/3811 `overrideRange` 5 : `tauAunShi` 36 contre
+    34 au natif — (4,2) et (5,3), atteintes en franchissant l'arête (1,5)→(2,4) que le
+    `ConnectivityComponent` ne porte pas) et `native_sym` faisait SOUS-atteindre le vol
+    (`bloodIntercessor` 45 contre 46 — (3,1) manquante).
+
     `can_continue(tile_id) -> bool` = `IsValidContinuePathTile` (#131) : peut-on ÉTENDRE
     la fill DEPUIS cette tuile ? Le start en est exempt (`currentTile != startTile` du natif).
     None = pas de gate (le board n'a pas d'effet block-entering, ou l'appelant ne le connaît
-    pas) → BFS d'avant #131."""
+    pas) → BFS d'avant #131.
+
+    NON PORTÉS, et ce sont les DEUX autres sources de voisins de `GetValidNeighbours` (elles
+    s'ajoutent à `AddNeighbours`, elles ne le remplacent pas) :
+      * `BasePathfinder$$AddTeleportationTiles` — si la tuile courante est une tuile de
+        téléportation (`ConnectivityComponent+0x18 != 0`, cf.
+        `IdunBattle.Entities.TileExtensions$$IsTeleportationTile`), sa jumelle devient voisine
+        (sauf si un ENNEMI l'occupe). Le `boardGraph` ne publie pas ce champ : la paire n'est ni
+        dans `neighbours_native` ni dérivable. Dégradation RESTRICTIVE, bornée aux boards à
+        téléporteur — aucune arête non-géométrique n'apparaît dans le `boardGraph` de `C1_74`,
+        `MC1_67`, `C2_26` ni `PVP_desert_04`.
+      * `BasePathfinder$$AddShadewalkerTiles` — sous trait `0x23` ET effet `0x3a` sur la tuile de
+        départ, TOUTE tuile du board portant ce même effet devient voisine.
+    Même absence côté capteur pour l'exemption d'élévation du couple téléporteur : `IsValidPathNode`
+    saute le test `|Δelev| <= 1` quand les DEUX tuiles sont des téléporteurs, alors que la porte
+    `|Δelev| < 2` de `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` (par laquelle passe
+    le capteur) est INCONDITIONNELLE."""
+    nb = neighbours if neighbours is not None else board.neighbours_native
     level = {start_id: 0}
     frontier = [start_id]
     depth = 0
@@ -107,7 +144,7 @@ def get_reachable_levels(
             # `NodesInNextLevel` : depuis une tuile block-entering (hors start), AUCUN voisin.
             if can_continue is not None and cur != start_id and not can_continue(cur):
                 continue
-            for n in board.neighbours(cur):
+            for n in nb(cur):
                 if n in level:
                     continue
                 if edge(board, cur, n, occupants, moving_team):
@@ -122,6 +159,7 @@ def get_movable_positions(
     occupants: dict, moving_team: int,
     edge=is_valid_path_node,
     can_continue=None,
+    neighbours=None,
 ) -> tuple[set, set]:
     """Renvoie (visited, stop_set) pour une portée `depth` (niveaux).
       - visited : toutes les tuiles atteintes en ≤ depth pas (start inclus), PRIVÉES de celles
@@ -146,9 +184,12 @@ def get_movable_positions(
 
     `can_continue` = gate d'EXPANSION #131 (cf. `get_reachable_levels`) ; il ne retire RIEN du stop
     set — une tuile block-entering reste un arrêt légal (mesuré live). Il ne vaut QUE pour la
-    branche MARCHE (`pathfinders.continue_gate_for`)."""
+    branche MARCHE (`pathfinders.continue_gate_for`).
+
+    `neighbours` = le voisinage, second slot virtuel (cf. `get_reachable_levels`) ; défaut =
+    `board.neighbours_native` (la liste STOCKÉE que lit `BasePathfinder$$AddNeighbours`)."""
     level = get_reachable_levels(board, start_id, occupants, moving_team, max_depth=depth,
-                                 edge=edge, can_continue=can_continue)
+                                 edge=edge, can_continue=can_continue, neighbours=neighbours)
     visited = set()
     stop = set()
     for tid in level:
