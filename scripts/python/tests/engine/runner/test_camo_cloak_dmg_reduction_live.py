@@ -130,6 +130,18 @@ def _assert_port_view(r, expected_amount, via: str):
     assert pv.get("unknown_nature") is None, (
         "port : nature du coup NON THREADEE -> le port contribue quand meme (%s). La degradation "
         "doit etre << present != applique >>." % (pv.get("unknown_nature"),))
+    # FACE DECISION du MEME gate (`Scene.unit_state` / `Scene.effects`) : un fork
+    # << moteur != prediction >> se verrait ICI, et nulle part ailleurs.
+    dv = r["decision_effect_view"]
+    assert dv.get("in_scene_effects") is True, (
+        "prediction : `Scene.effects` FILTRE 1014 alors que le COMBAT le garde (Scene unit_state "
+        "light_cover=%s big_target=%s) -- fork moteur/prediction sur la `CreateActiveCondition`"
+        % (dv.get("us_light_cover"), dv.get("us_big_target")))
+    assert (bool(dv.get("us_light_cover")), bool(dv.get("us_big_target"))) == \
+           (bool(pv.get("us_light_cover")), bool(pv.get("us_big_target"))), (
+        "prediction et combat ne lisent PAS le meme couvert : Scene=(%s, %s) vs runner=(%s, %s)"
+        % (dv.get("us_light_cover"), dv.get("us_big_target"),
+           pv.get("us_light_cover"), pv.get("us_big_target")))
 
 
 def _assert_agreement_and_delta(r, amount):

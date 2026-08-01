@@ -344,6 +344,19 @@ def offline_effect_view(cap, board, carrier_id):
     return view
 
 
+def decision_effect_view(cap, board, carrier_id):
+    """Face DECISION du MEME gate : `Scene.unit_state` / `Scene.effects` (pendant PREDICTION de
+    `runner.components.unit_state_for_effects` / `EffectsState.active_effects`). Un fork
+    << moteur != prediction >> se verrait ICI : memes cles, meme verdict d'activite, ou pas."""
+    from engine.playbook.scene import Scene
+    st = _load(cap, board)
+    sc = Scene.from_state(st)
+    us = sc.unit_state(carrier_id)
+    return {"us_light_cover": us.get("has_effect_light_cover"),
+            "us_big_target": us.get("is_target_of_big_target_adjacent"),
+            "in_scene_effects": any(e.effect_type == EFFECT for e in sc.effects(carrier_id))}
+
+
 # --------------------------------------------------------------------------- montage
 def run(rpc, cover: str = "bigtarget", axis: str = "ranged", seed: str = SEED,
         board_id: str = BOARD, keep: bool = False,
@@ -446,6 +459,7 @@ def _run(rpc, r: dict, cover: str, axis: str, seed: str, board_id: str,
     cap = _capture(rpc, rid)
     r["capture_current_player"] = cap["dv"].get("currentPlayer")
     r["port_effect_view"] = offline_effect_view(cap, board, car["id"])
+    r["decision_effect_view"] = decision_effect_view(cap, board, car["id"])
 
     foe_row = _unit(cap["dv"], foe["id"])
     norm = next((a for a in ((foe_row or {}).get("abilities") or [])
