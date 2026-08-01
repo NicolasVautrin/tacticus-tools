@@ -1,4 +1,4 @@
-# case-448 — `SaviorProtocols` (1120), face MOVE : quatre artefacts, un seul à porter
+# case-443-r1 — `SaviorProtocols` (1120), face MOVE : quatre artefacts, un seul à porter
 
 Résidu `#443-r1`. La face ATTACK a été portée par #443 ; la face MOVE n'avait **pas été lue**, et
 son absence de `TRIGGERED_MOVE_PLAYBOOKS` était un TROU, pas le comportement natif — contrairement
@@ -11,8 +11,8 @@ MOVE du playbook**, et le quatrième était déjà porté :
 
 | artefact natif | rôle | statut |
 |---|---|---|
-| `SaviorProtocolsPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__4$$MoveNext` | la feuille MOVE elle-même | **porté (#448)** |
-| `SaviorProtocolsAbility$$TargetIsValidTrigger` | le prédicat DSL, partagé avec la face COMBAT | **porté (#448)**, inliné dans la feuille |
+| `SaviorProtocolsPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__4$$MoveNext` | la feuille MOVE elle-même | **porté (#443-r1)** |
+| `SaviorProtocolsAbility$$TargetIsValidTrigger` | le prédicat DSL, partagé avec la face COMBAT | **porté (#443-r1)**, inliné dans la feuille |
 | `SaviorProtocolsPlaybook$$FilterMovementTiles` | slot 1 d'`IPlaybook` | **non porté** — INERTE sur tout porteur connu (§4) |
 | `IdunBattle.AI.Utilities.SaviorProtocolsUtility` | feuille `UtilityType.SaviorProtocols(23)`, **le même passif pris à l'ENVERS** | **déjà porté**, `engine/utilities/tile.py` — relu conforme |
 
@@ -122,7 +122,76 @@ paramètre `parent_id` de `runner_tile_leaf_ctx`, qui est le `dc.parent` du call
 (case-205) : celui-là est un sujet de REMPLACEMENT quand `case.unit` est nul, celui-ci est le parent
 DU SUJET. Absente, la clé ne fait taire que le terme PARENT — le terme FRIEND reste versé.
 
-## 4. `FilterMovementTiles` — inerte sur tout porteur connu (résidu `#448-r1`)
+## 4. La mesure — trois régimes sur le porteur NATUREL, cinq contre-épreuves qui mordent
+
+Le montage de mesure est celui de #443 **repris tel quel** (`tauMarksman` tire son attaque RANGED
+1076, le drone `tauSmnDroneSniper` naît adjacent), plus **trois voisins amenés après le tir**, un
+par nœud du prédicat. C'est le seul état où `GetParent(case.Unit)` est non nul : le probe REFUSE de
+mesurer si `unit_parent_id` ne vaut pas l'id du summoner.
+
+`MC1_67` / seed 41504, 19 tuiles balayées autour du drone, poids servis 20 et 30 :
+
+```
+tuile      terme  attendu  adj_parent  voisins qualifiés
+(0, 3)     20     20       False       ['tauCrisis']          <- ami T'au NON-parent
+(2, 3)     50     50       True        ['tauMarksman']        <- le SUMMONER : 20 + 30
+(1, 3)     0      0        False       []
+...
+régimes atteints : termes distincts = [0.0, 20.0, 50.0]
+  tuiles adj. au PARENT = 6 ; tuiles à ami T'au NON-parent = 3 ; non conformes = 0
+exposition des contre-régimes : {ultraTitus: 3, tauDarkstrider: 3, tauShadowsun: 3}
+```
+
+Le régime à **20** est ce qui SÉPARE les deux poids : 50 tout seul ne distinguerait pas `20 + 30`
+d'un forfait. L'attendu est calculé depuis le `decisionView` + `faction_value` + le kit **LIVE**
+(`unitAbilityStates`) — donc **sans passer par le playbook testé**. Les trois voisins-témoins sont
+chacun adjacents à 3 tuiles balayées : leur « 0 » n'est pas un zéro d'absence.
+
+Cinq mutations du port, re-jouées sur la MÊME mesure, restauration vérifiée après chacune :
+
+| # | mutation | verdict |
+|---|---|---|
+| CE1 | clé `AdjacentTauFriend` -> `AdjacentTauParent` | **MORD** — 9 tuiles changées |
+| CE2 | gate `HasFaction(Target, 9)` retiré | **MORD** — 3 tuiles (`ultraTitus` compterait) |
+| CE3 | gate `!ActorHasTriggeredAbility` retiré | **MORD** — 3 tuiles (`tauDarkstrider`, 1120 greffé) |
+| CE5 | gate `AreFriends` retiré | **MORD** — 3 tuiles (`tauShadowsun`, ennemi T'au) |
+| CE4 | entrée 1120 retirée de `TRIGGERED_MOVE_PLAYBOOKS` | **MORD** — 9 tuiles |
+
+### 4bis. Ce qui N'EST PAS couvert — le terme MOVE n'est PAS confronté au natif
+
+**Résidu `#443-r1a`.** L'oracle natif du composite `Tile(7)` par tuile est le hook
+`scorerTileTermTrace` ; il n'attribue **aucune** évaluation au porteur. Trois faits de harnais,
+mesurés, chacun ayant produit une mesure vide ou fausse :
+
+1. **`aiStepDryRun` ne fait firer AUCUN hook** (0 `tileTerm` / `elev` / `damage`, y compris au dump
+   GLOBAL sans filtre d'origine) alors qu'il rend bien `Move` + `ActiveAbility` ;
+2. **un état déjà scoré n'est pas RE-scoré** : le `decisionView(allAbilities, maxRank=32)` de la
+   mise en place score le porteur, et tout ce qui suit ne capte plus que les autres unités ;
+3. **l'event du hook ne porte pas d'`unitId`** — sur `MC1_67`/777, les 4 events captés sont TOUS
+   sur des tuiles **occupées par un tiers**, aucun sur une tuile du porteur. Une version antérieure
+   du probe, qui ne filtrait pas, a rendu un **accord parfait sur le `Tile(7)` d'une AUTRE unité** :
+   le filtre « tuiles attribuables au porteur » est load-bearing, et c'est lui qui a démasqué le
+   faux positif.
+
+Le porteur naturel étant un SUMMON, il n'entre de toute façon jamais dans `toActivate` (#291).
+**Point d'ancrage à hooker** pour ouvrir cette confrontation :
+`IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`
+(la feuille dispatcher, PAR TUILE, avec l'`unitId` du mover) — il demande un reinject.
+
+Non couvert également : les **cinq autres porteurs** (3 npc, `tauSmnDroneShield`,
+`tauSmnDroneCommandLink`) ; le corps ne lisant du mover que son équipe et son parent, ils
+n'ajouteraient aucun régime, mais ce n'est pas mesuré.
+
+### 4ter. Un résidu TROUVÉ EN PASSANT — `probe_193c` retranche les mauvaises feuilles
+
+**Résidu `#443-r1c`**, hors périmètre. `probe_193c._port_leaves` est consommé avec
+`leaves.get(8) - leaves.get(9)` sous le commentaire « 8=Elevation 10=TileEffects ». Or la
+renumérotation de `UtilityType` (#252, `AttackTile` INSÉRÉ en 8) a décalé l'enum : aujourd'hui
+`Elevation = 9` et `TileEffects = 10`. Le probe retranche donc une feuille **inexistante** (8) et
+`Elevation` (9), et **jamais** `TileEffects`. Le cliquet `probe_283 --step prose` l'a attrapé sur la
+copie faite dans ce probe-ci ; le porteur d'origine n'est pas corrigé par cette tranche.
+
+## 5. `FilterMovementTiles` — inerte sur tout porteur connu (résidu `#443-r1b`)
 
 Le playbook surcharge aussi le slot 1 d'`IPlaybook` (non porté globalement, `case-r1b`). Son corps
 ouvre sur `if (UnitExtensions.HasRangedWeapon(unit)) return;` — **court-circuit total**. Les six
@@ -133,10 +202,15 @@ aucun porteur connu ; le corps y garderait les tuiles ayant un protégeable vali
 rendu par le slot `0x77` — signature `(from, range = 2, includeCenter = 0)`, donc vraisemblablement
 `GetSurroundingUnits`, **NON tranché** faute d'un second call-site nommé du même slot.
 
-## 5. Fichiers
+## 6. Fichiers
 
 * Port : `scripts/python/engine/playbook/savior_protocols.py` (la MÊME classe porte les deux faces,
   comme le natif, qui n'a qu'un singleton par type) ; registre :
   `engine/playbook/adjacent_unit_preference.py` ; canal parent : `engine/utilities/tile.py`.
-* Mesure : `scripts/python/probe_448_savior_protocols_move_term.py` (`--board`/`--seed`/`--parent`).
-* Garde : `scripts/python/tests/engine/test_448_savior_protocols_move_term_live.py`.
+* Mesure : `scripts/python/probe_443r1_savior_protocols_move_term.py` — bras `--parent` (celui qui
+  conclut) et bras GREFFE par défaut (celui qui ÉTABLIT que l'oracle natif est indisponible, §4bis).
+* Garde : `scripts/python/tests/engine/test_443r1_savior_protocols_move_term_live.py` (5 tests).
+
+⚠ **Numérotation** : la tranche a été dispatchée sous « #448 », mais `#448` désigne déjà Stormboyz
+dans le dépôt (`case-448-r1/r2*`, `probe_448_r*`). Elle ferme littéralement le résidu `#443-r1`, et
+tous ses artefacts sont nommés d'après lui.

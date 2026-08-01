@@ -57,7 +57,7 @@ Quatre lectures qui ne se devinent pas -- et aucune ne se generalise depuis un v
    deduite du nom : elle est TRANCHEE par la mesure live (`probe_443`), ou les trois valeurs sont
    distinctes.
 
-## La face MOVE (#448) -- corps PROPRE, DEUX termes, et un prealable de STRUCTURE
+## La face MOVE (#443-r1) -- corps PROPRE, DEUX termes, et un prealable de STRUCTURE
 
 `IdunBattle.AI.Playbook.Loki.SaviorProtocolsPlaybook$$CalculateMovementUtilityInStepsInternal` monte
 la SM `d__4`, dont la disposition des champs est **LUE DANS LA METHODE-USINE** et surtout PAS
@@ -138,7 +138,7 @@ Le playbook surcharge aussi le slot 1 d'`IPlaybook` (non porte globalement, cf. 
 corps ouvre sur `if (UnitExtensions.HasRangedWeapon(unit)) return;` -- **court-circuit total**. Les
 trois summons porteurs (`tauSmnDroneSniper`, `tauSmnDroneShield`, `tauSmnDroneCommandLink`) et les
 trois npc portent une arme a distance, donc ce filtre ne retire AUCUNE tuile en bataille : ne pas
-le porter n'introduit pas d'ecart. RESIDU `#448-r1` (le regime « porteur sans arme a distance »
+le porter n'introduit pas d'ecart. RESIDU `#443-r1b` (le regime « porteur sans arme a distance »
 n'est atteint par aucun porteur connu ; le corps y garderait les tuiles ayant un protegeable
 valide dans le rayon rendu par le slot `0x77` -- signature `(from, range = 2, includeCenter = 0)`,
 donc vraisemblablement `GetSurroundingUnits`, NON tranche faute d'un second call-site nomme).
@@ -150,7 +150,7 @@ avec ce playbook : c'est la feuille prise **A L'ENVERS**, du point de vue du PRO
 `$$CanBeProtector(unit) = HasFaction(unit, 9) && !HasTriggeredAbility(unit, 0x460)` gate le MOVER,
 et `$$GetUnitsWithUtilityForMove` compte `UnitsWithTriggeredAbility(GetFriendsAdjacentToMovementTile
 (case), 0x460)` x `$$GetUtilityPerUnit` (= `SaviorProtocols.PerUnitWithAbilityInRange`). Verifie
-conforme au decompile par #448, sans modification.
+conforme au decompile par #443-r1, sans modification.
 """
 from __future__ import annotations
 

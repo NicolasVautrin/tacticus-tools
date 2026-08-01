@@ -1187,7 +1187,7 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             # un trait EN BATAILLE (`AddTrait`), que le kit gameconfig par visualId ignore.
             "unit_traits": entity_trait_ids(msc.ctx if msc is not None else None, my_vis),
             "uid": unit_id,
-            # #448 : `IdunBattle.Entities.UnitExtensions$$GetParent(case.Unit, state)` -- le lien
+            # #443-r1 : `IdunBattle.Entities.UnitExtensions$$GetParent(case.Unit, state)` -- le lien
             # enfant -> SUMMONER (`ChildComponent.ParentId`), que lit la face MOVE de
             # `SaviorProtocolsPlaybook`. A NE PAS confondre avec le parametre `parent_id` de cette
             # fonction, qui est le `dc.parent` du call-site SUMMON (case-205) : ici c'est le parent
@@ -1454,7 +1454,7 @@ def tile_leaf_ctx(ctx) -> dict:
             "friend_units": friend_units,
             "enemy_units": enemy_units,
             "uid": uid,
-            # #448 : `IdunBattle.Entities.UnitExtensions$$GetParent(case.Unit, state)` -- le lien
+            # #443-r1 : `IdunBattle.Entities.UnitExtensions$$GetParent(case.Unit, state)` -- le lien
             # enfant -> SUMMONER que lit la face MOVE de `SaviorProtocolsPlaybook`. Canal `Scene.
             # parent` (#378, `combatSnapshot.units[].parentId` en live, `UnitComponent.parent_id`
             # offline). `Scene` absente -> None -> le seul terme PARENT se tait, le terme FRIEND
