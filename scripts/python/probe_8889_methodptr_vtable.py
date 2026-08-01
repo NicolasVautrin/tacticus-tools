@@ -17,6 +17,13 @@ Desambiguation de deux corps triviaux voisins : par la TAILLE DE RETOUR du corps
 
 Ce probe est OFFLINE PUR (aucune session Frida, aucun hook) : il lit le PE sur disque.
 
+ENTREE HORS DEPOT : `GameAssembly.dll` vit sous `%LOCALAPPDATA%/tacticus/games/<hash>/` et
+son hash CHANGE a chaque mise a jour. Le binaire est donc resolu par `build_pin.game_dll()`
+(build INSTALLE, confronte a `data/symbols/CURRENT`), jamais par un chemin en dur -- celui
+qui etait ici pointait `gqfc5mff6c`, un build desinstalle depuis (#431). Les VA passees en
+argument doivent venir du MEME build que celui que `build_pin` rend : une VA d'un build
+anterieur trouve des pointeurs d'apparence normale et parfaitement faux.
+
     python probe_8889_methodptr_vtable.py IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$.ctor IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter     # ReanimationBeam .ctor + filter
     python probe_8889_methodptr_vtable.py --window 10 IdunBattle.Entities.Effects.Loki.RitesOfMorkaiEffect$$.ctor
 
@@ -29,8 +36,8 @@ import struct
 import sys
 from pathlib import Path
 
-# Build courant (cf. CLAUDE.md : le HASH change a chaque MAJ -> parametre `--dll` sinon).
-DEFAULT_DLL = Path(r"C:\Users\nicolasv\AppData\Local\tacticus\games\gqfc5mff6c\GameAssembly.dll")
+from build_pin import BuildPinRefused, game_dll
+
 IMAGE_BASE = 0x180000000
 
 
@@ -55,10 +62,18 @@ def dump_block(buf: bytes, off: int, window: int) -> list[tuple[int, int]]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("vas", nargs="+", help="VA ghidra d'une methode connue de la classe (0x...)")
-    ap.add_argument("--dll", default=str(DEFAULT_DLL))
+    ap.add_argument("--dll", default=None,
+                    help="binaire a lire (defaut : celui du build COURANT, via build_pin). "
+                         "Les VA passees en argument doivent venir du MEME build.")
     ap.add_argument("--window", type=int, default=6, help="qwords de contexte de part et d'autre")
     a = ap.parse_args()
-    buf = Path(a.dll).read_bytes()
+    try:
+        dll = Path(a.dll) if a.dll else game_dll()
+    except BuildPinRefused as exc:
+        print(str(exc))
+        return 2
+    a.dll = str(dll)
+    buf = dll.read_bytes()
     print("dll=%s size=%d" % (a.dll, len(buf)))
     anchors = []
     for s in a.vas:

@@ -18,65 +18,36 @@ publies par cette voie inline (`0x1c` ArrivedAtFinalTile, `0x2e` UnitResurrected
 doivent ressortir -- sinon le balayage est en faux negatif et sa conclusion ne vaut rien.
 
 Sortie ASCII pure.
+
+BUILD (#431). DEUX epinglages ont ete retires ici, et le second etait deja FAUX :
+  * les chemins en dur du binaire et de la table (`gqfc5mff6c`, build desinstalle) passent
+    par `build_pin.load_dll()` -- les deux artefacts sortent ensemble ou aucun ne sort ;
+  * les temoins etaient des ORDINAUX en dur (`0x2f`, `0x2c`) transcrits contre l'ancienne
+    numerotation. Sur `rnca9r7q6c`, `0x2f` vaut `UnitMemberDeath` et `0x2c`
+    `UnitHealedWithRemoveEffects` -- le probe aurait cherche deux autres evenements en
+    annoncant les bons noms, et l'absence des temoins se serait lue comme un faux negatif
+    du balayage. Ils sont desormais nommes, et l'ordinal vient d'`EventTriggerType`.
 """
 from __future__ import annotations
 
-import bisect
 import struct
 import sys
 from pathlib import Path
 
-GAME_DLL = Path(r"C:\Users\nicolasv\AppData\Local\tacticus\games\gqfc5mff6c\GameAssembly.dll")
-ROOT = Path(__file__).resolve().parents[2]
-FUNCS_TSV = ROOT / "data" / "symbols" / "gqfc5mff6c" / "ghidra" / "functions.tsv"
+from build_pin import CODE_SECTIONS, BuildPinRefused, load_dll
 
 STACK_SLOTS = (0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50)
 
 # Evenements-temoins : emis par une voie INLINE (donc invisibles du scan par thunk), avec leur
 # emetteur natif connu -- ils valident que le balayage voit bien ce genre de site.
+# Cle = NOM de l'`EventTriggerType` ; l'ordinal est resolu a l'execution (les enums sont
+# RENUMEROTES d'un build a l'autre -- quatre l'ont ete entre gqfc5mff6c et rnca9r7q6c).
 WITNESSES = {
-    0x1c: "MoveUnitOperation$$EvaluateArrivedAtFinalTileTrigger (28 ArrivedAtFinalTile)",
-    0x2f: "ResurrectUnitOperation (46 UnitResurrected)",
-    0x2c: "HealUnitOperation (43 UnitHealed)",
+    "ArrivedAtFinalTile": "MoveUnitOperation$$EvaluateArrivedAtFinalTileTrigger",
+    "UnitResurrected": "ResurrectUnitOperation",
+    "UnitHealed": "HealUnitOperation",
 }
-
-
-def _sections(buf: bytes):
-    pe_off = struct.unpack_from("<I", buf, 0x3C)[0]
-    n_sec = struct.unpack_from("<H", buf, pe_off + 6)[0]
-    opt_size = struct.unpack_from("<H", buf, pe_off + 20)[0]
-    image_base = struct.unpack_from("<Q", buf, pe_off + 24 + 24)[0]
-    sec_off = pe_off + 24 + opt_size
-    out = []
-    for i in range(n_sec):
-        o = sec_off + i * 40
-        out.append((buf[o:o + 8].rstrip(b"\x00").decode("ascii", "replace"),
-                    struct.unpack_from("<I", buf, o + 12)[0],
-                    struct.unpack_from("<I", buf, o + 8)[0],
-                    struct.unpack_from("<I", buf, o + 20)[0],
-                    struct.unpack_from("<I", buf, o + 16)[0]))
-    return image_base, out
-
-
-def _load_symbols():
-    addrs, names = [], []
-    with FUNCS_TSV.open("r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            p = line.rstrip("\n").split("\t")
-            if len(p) < 2:
-                continue
-            try:
-                addrs.append(int(p[0], 16))
-            except ValueError:
-                continue
-            names.append(p[1])
-    order = sorted(range(len(addrs)), key=lambda i: addrs[i])
-    return [addrs[i] for i in order], [names[i] for i in order]
-
-
-def _resolve(addrs, names, va):
-    i = bisect.bisect_right(addrs, va) - 1
-    return names[i] if i >= 0 else "?"
+TARGET = "PendingDeathAdded"
 
 
 def scan_immediate(buf, image_base, secs, value: int):
@@ -86,7 +57,7 @@ def scan_immediate(buf, image_base, secs, value: int):
             for n in STACK_SLOTS]
     pats.append((b"\x41\xb9" + struct.pack("<I", value), "r9d"))
     for nm, vaddr, vsize, praw, rawsz in secs:
-        if nm not in (".text", "il2cpp"):
+        if nm not in CODE_SECTIONS:
             continue
         body = buf[praw:praw + rawsz]
         for pat, kind in pats:
@@ -101,15 +72,18 @@ def scan_immediate(buf, image_base, secs, value: int):
 
 
 def main() -> int:
-    buf = GAME_DLL.read_bytes()
-    image_base, secs = _sections(buf)
-    addrs, names = _load_symbols()
+    try:
+        buf, image_base, secs, index = load_dll()
+    except BuildPinRefused as exc:
+        print(str(exc))
+        return 2
+    print("build=%s" % index.build)
 
     def report(value, label, only_publishers=True):
         sites = scan_immediate(buf, image_base, secs, value)
         by_fn = {}
         for va, kind in sites:
-            fn = _resolve(addrs, names, va)
+            fn = index.resolve(va)[0]
             by_fn.setdefault(fn, []).append(kind)
         keep = {}
         for fn, kinds in by_fn.items():
@@ -127,9 +101,10 @@ def main() -> int:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from engine.dsl.event_trigger_type import EventTriggerType
 
-    for wv, who in WITNESSES.items():
-        report(wv, "TEMOIN %s -- %s" % (EventTriggerType(wv).name, who))
-    report(3, "CIBLE PendingDeathAdded")
+    for name, who in WITNESSES.items():
+        wv = int(EventTriggerType[name])
+        report(wv, "TEMOIN %s -- %s" % (name, who))
+    report(int(EventTriggerType[TARGET]), "CIBLE %s" % TARGET)
     return 0
 
 
