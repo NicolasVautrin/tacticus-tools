@@ -92,6 +92,7 @@ import probe_436_taunt_targeting as P436                             # noqa: E40
 
 from engine.entities.pathfinding.board import Board                  # noqa: E402
 from engine.entities.traits.unit_trait import UnitTrait              # noqa: E402
+from engine.runner.abilities.handler import ABILITY_CLASSES          # noqa: E402
 from engine.runner.abilities.targeting import (                      # noqa: E402
     NORMAL_ATTACK_TARGETING_OPTIONS, TargetingOptions, _NormalAttackTargeting,
     _unit_traits, get_invalid_target_reason, has_steppable_unit)
@@ -113,6 +114,18 @@ class _NormalAttackAllowingSteppable(_NormalAttackTargeting):
     TARGETING_OPTIONS = _replace(
         NORMAL_ATTACK_TARGETING_OPTIONS,
         rules=int(NORMAL_ATTACK_TARGETING_OPTIONS.rules) | int(TR.AllowSteppableUnit))
+
+
+def _allowing_steppable(klass):
+    """Le meme contrefactuel, pour une ability du registre : sa classe avec le bit 20 OR-e sur son
+    masque. On ne touche QU'A CE CHAMP -- une ligne que ce seul bit fait basculer prouve que c'est
+    bien lui qui desarme, et pas un effet de bord du reste du port."""
+    base = klass.TARGETING_OPTIONS
+
+    class _V(klass):                                                  # type: ignore[misc, valid-type]
+        __slots__ = ()
+        TARGETING_OPTIONS = _replace(base, rules=int(base.rules) | int(TR.AllowSteppableUnit))
+    return _V()
 
 
 class _BitPoseUnitTargeting:
@@ -168,6 +181,13 @@ def main(argv=None) -> int:
     ap.add_argument("--a-units", default=A_UNITS_DEFAUT, help="roster ADVERSE")
     ap.add_argument("--p-units", default=",".join(P_UNITS),
                     help="roster JOUEUR (le porteur de CultDemagogue en sort)")
+    ap.add_argument("--victim-vis", default=None,
+                    help="visualId de la CIBLE du cast -- c'est elle qui aura les decoys autour "
+                         "d'elle, et c'est elle qui sert d'ATTAQUANT a l'etage B")
+    ap.add_argument("--extra-ability", type=int, action="append", default=[],
+                    help="ActiveAbilityType SUPPLEMENTAIRE de l'ATTAQUANT a mesurer "
+                         "(generalisation : une ability ACTIVE, masque different de celui de "
+                         "l'attaque normale)")
     a = ap.parse_args(argv)
 
     sid = _resolve_session()
@@ -183,9 +203,10 @@ def main(argv=None) -> int:
         # les tuiles libres <= 2 hex de la CIBLE -- donc au CONTACT de celle-ci. On amene le porteur
         # au contact : la cible aura ses decoys adjacents, et son attaque normale (clampee en melee
         # parce qu'elle est RANGED et adjacente) les aura a portee.
-        victim_id = P436._make_adjacent(sid, rid, "genesPrimus")
+        victim_id = P436._make_adjacent(sid, rid, "genesPrimus", only_vis=a.victim_vis)
         if victim_id is None:
-            print("[FAIL] impossible d'amener genesPrimus au contact d'un ennemi")
+            print("[FAIL] impossible d'amener genesPrimus au contact de %s"
+                  % (a.victim_vis or "un ennemi"))
             return 2
         P247._give_turn_to(sid, rid, "genesPrimus")
         dv_pre, pre_payloads = _capture(sid, rid)
@@ -268,51 +289,67 @@ def main(argv=None) -> int:
             return 2
         aid_atk = int(atk["id"])
         apos = P247._pos(atk)
-        print("\n=== ETAGE B -- la REGLE (natif vs port, attaque normale de u%d %s)"
-              % (aid_atk, atk.get("visualId")))
-        print("  %-24s %-5s %-3s %-16s %-24s %-16s %-16s %-16s"
-              % ("cible", "id", "d", "natif", "regle natif", "port", "natAvant", "portAvant(b20)"))
-        pport = _NormalAttackTargeting()
-        pdes = _NormalAttackAllowingSteppable()
-        n_agree = n_rows = n_refus51 = n_gain = cf_desarme = n_accept = 0
-        rows = []
-        for u in dv_post["units"]:
-            if not u.get("alive"):
+        # UNE PAIRE (port, port DESARME) PAR ABILITY mesuree. L'attaque normale d'abord (le canal
+        # le plus large : 83 abilities arment la regle par le meme chemin), puis les
+        # `--extra-ability` de generalisation -- un masque DIFFERENT, lu au ctor de SA classe.
+        probes = [(NORMAL_ATTACK, _NormalAttackTargeting(), _NormalAttackAllowingSteppable())]
+        for xa in a.extra_ability:
+            k = ABILITY_CLASSES.get(int(xa))
+            if k is None or getattr(k, "TARGETING_OPTIONS", None) is None:
+                print("[skip] ability %d absente du registre ou sans masque -> non mesurable" % xa)
                 continue
-            tid = int(u["id"])
-            nat = P247._nat(sid, rid, aid_atk, NORMAL_ATTACK, tid)
-            tr = (nat or {}).get("targetReason") or {}
-            nv = P247._hexval(tr)
-            pv = int(get_invalid_target_reason(st, aid_atk, tid, pport))
-            dv_ = int(get_invalid_target_reason(st, aid_atk, tid, pdes))
-            na = nat_avant.get(tid)
-            n_rows += 1
-            n_agree += 1 if nv == pv else 0
-            if nv == STEPPABLE_RULE:
-                n_refus51 += 1
-                if dv_ == 0:
-                    n_gain += 1
-            if nv == 0:
-                n_accept += 1
-            if dv_ != pv:
-                cf_desarme += 1
-            print("  %-24s %-5d %-3d %-16s %-24s %-16s %-16s %-16s %s"
-                  % ((("SELF " if tid == aid_atk else "") + str(u.get("visualId")))[:24], tid,
-                     hexgeo.distance(apos, P247._pos(u)),
-                     "-" if nv is None else hex(nv), ",".join(tr.get("reasons") or [])[:24] or "-",
-                     hex(pv), "-" if na is None else hex(na), hex(dv_),
-                     "OK" if nv == pv else "MISMATCH"))
-            rows.append({"target": tid, "vis": u.get("visualId"), "nat": nv, "port": pv,
-                         "natAvant": na, "portDesarme": dv_})
-        okB = (n_agree == n_rows and n_refus51 > 0 and n_gain > 0 and n_accept > 0)
-        print("  [bilan] accord %d/%d ; refus 0x%x du natif : %d ; dont le port DESARME accepte "
-              "(0x0) : %d ; lignes acceptees : %d"
-              % (n_agree, n_rows, STEPPABLE_RULE, n_refus51, n_gain, n_accept))
-        print("  [B] %s" % ("PASS" if okB else "FAIL"))
-        okC = cf_desarme > 0
-        print("  [C] desarmement bit 20 : %d/%d ligne(s) basculee(s) -> %s   "
-              "(NON CONFRONTE au natif : 0 porteur du bit au registre)"
-              % (cf_desarme, n_rows, "PASS" if okC else "FAIL"))
+            probes.append((int(xa), k(), _allowing_steppable(k)))
+        okB = okC = True
+        rows_par_aid = {}
+        for aid, pport, pdes in probes:
+            print("\n=== ETAGE B -- la REGLE (natif vs port, ability %d de u%d %s)"
+                  % (aid, aid_atk, atk.get("visualId")))
+            print("  %-24s %-5s %-3s %-16s %-24s %-16s %-16s %-16s"
+                  % ("cible", "id", "d", "natif", "regle natif", "port", "natAvant",
+                     "portAvant(b20)"))
+            n_agree = n_rows = n_refus51 = n_gain = cf_desarme = n_accept = 0
+            rows = []
+            for u in dv_post["units"]:
+                if not u.get("alive"):
+                    continue
+                tid = int(u["id"])
+                nat = P247._nat(sid, rid, aid_atk, aid, tid)
+                tr = (nat or {}).get("targetReason") or {}
+                nv = P247._hexval(tr)
+                pv = int(get_invalid_target_reason(st, aid_atk, tid, pport))
+                dv_ = int(get_invalid_target_reason(st, aid_atk, tid, pdes))
+                na = nat_avant.get(tid) if aid == NORMAL_ATTACK else None
+                n_rows += 1
+                n_agree += 1 if nv == pv else 0
+                if nv == STEPPABLE_RULE:
+                    n_refus51 += 1
+                    if dv_ == 0:
+                        n_gain += 1
+                if nv == 0:
+                    n_accept += 1
+                if dv_ != pv:
+                    cf_desarme += 1
+                print("  %-24s %-5d %-3d %-16s %-24s %-16s %-16s %-16s %s"
+                      % ((("SELF " if tid == aid_atk else "") + str(u.get("visualId")))[:24], tid,
+                         hexgeo.distance(apos, P247._pos(u)),
+                         "-" if nv is None else hex(nv),
+                         ",".join(tr.get("reasons") or [])[:24] or "-",
+                         hex(pv), "-" if na is None else hex(na), hex(dv_),
+                         "OK" if nv == pv else "MISMATCH"))
+                rows.append({"target": tid, "vis": u.get("visualId"), "nat": nv, "port": pv,
+                             "natAvant": na, "portDesarme": dv_})
+            ok = (n_agree == n_rows and n_refus51 > 0 and n_gain > 0 and n_accept > 0)
+            print("  [bilan %d] accord %d/%d ; refus 0x%x du natif : %d ; dont le port DESARME "
+                  "accepte (0x0) : %d ; lignes acceptees : %d"
+                  % (aid, n_agree, n_rows, STEPPABLE_RULE, n_refus51, n_gain, n_accept))
+            print("  [B %d] %s" % (aid, "PASS" if ok else "FAIL"))
+            print("  [C %d] desarmement bit 20 : %d/%d ligne(s) basculee(s) -> %s   "
+                  "(NON CONFRONTE au natif : 0 porteur du bit au registre)"
+                  % (aid, cf_desarme, n_rows, "PASS" if cf_desarme > 0 else "FAIL"))
+            okB = okB and ok
+            okC = okC and (cf_desarme > 0)
+            rows_par_aid[aid] = rows
+        rows = rows_par_aid[NORMAL_ATTACK]
 
         # ---------------------------------------------------------------- ETAGE D : la voie du BIT
         print("\n=== ETAGE D -- la voie du BIT 51 (offline ; regime de 1011 `TunnelingHorror`)")
@@ -345,6 +382,8 @@ def main(argv=None) -> int:
         print("\n[VERDICT] %s" % ("PASS" if allok else "FAIL"))
         print("[RAW] " + json.dumps({"caster": cid, "victim": victim_id, "attacker": aid_atk,
                                      "decoys": decoys, "steppable": step_ids, "rows": rows,
+                                     "rows_par_ability": {str(k2): v
+                                                          for k2, v in rows_par_aid.items()},
                                      "bit51": bit_rows, "steppableAvantCast": n_step_pre}))
         return 0 if allok else 1
     finally:
