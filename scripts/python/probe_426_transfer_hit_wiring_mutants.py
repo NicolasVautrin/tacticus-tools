@@ -20,6 +20,11 @@ verifications est rapporte `MUTATION-NON-APPLIQUEE`, jamais confondu avec `garde
 
 Purement OFFLINE : aucun runner, aucun RPC, aucune session Frida. ASCII only.
 
+⚠ IL ECRIT DANS `engine/` LE TEMPS DE CHAQUE MUTANT (et restaure aussitot, `finally` + controle
+d'empreinte sha256). Ne pas le lancer en parallele d'une suite de tests QUI PARTAGE LE MEME
+CHECKOUT -- un worktree d'agent est isole, l'arbre principal ne l'est pas. `git status` doit etre
+inchange en sortie ; s'il ne l'est pas, la restauration a echoue et l'assertion l'aura dit.
+
     python probe_426_transfer_hit_wiring_mutants.py            # les 7 mutants
     python probe_426_transfer_hit_wiring_mutants.py --only M3  # un seul
 """

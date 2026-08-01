@@ -233,11 +233,31 @@ discriminant et décomposition par étage : `case-411-r2-ability-implicite.md`.
 * `tests/engine/test_411r1_transfer_port_offline.py` — **17 tests**, qui comptent les TIRAGES et
   pas seulement les dégâts. **4 mutants tués** (route garantie qui roule le block → 7 rouges ;
   câblage débranché → 3 ; coup transféré remis dans la chaîne aléatoire → 2 ; crit non éteint → 1).
-* `tests/engine/test_411_transfer_hit_wiring_offline.py` (#452) reste, et **skippe toujours** :
-  son invariant interroge `ABILITY_TRIGGERS`, or ce port passe par l'intercepteur — le bus du port
-  émet `On(6)`/`On(7)` une fois par ATTAQUE, `DrawFire` se déclenche par COUP. C'est le même choix
-  qu'`HarlequinsPanoply`, pour la même raison. L'invariant garde donc la voie registre, la nouvelle
-  garde couvre la voie livrée.
+* `tests/engine/test_411_transfer_hit_wiring_offline.py` — les données de RE (ids d'enum, porteurs,
+  voie de greffe) **plus le câblage EXÉCUTÉ** (#426). Son invariant ne lit plus aucun registre : il
+  monte un `State` ECS réel (board `evenq` obligatoire — sans lui `IsAdjacent` rend `False` et le
+  transfert est muet), laisse `make_hit_interceptor` reconnaître le porteur MESURÉ
+  `blackNpc2Terminator` par le gameconfig, joue une vraie `AttackDamageOperation.execute` à 6 coups,
+  et éprouve le résultat contre deux bras témoins obtenus en relâchant **un seul gate à la fois**
+  (porteur hors de portée / voisin non porteur). **10 tests**, **7 mutants tués**
+  (`probe_426_transfer_hit_wiring_mutants.py` : accroche débranchée, `DrawFireTransfer` monté à
+  vide, `_transferred` court-circuité, `guaranteed_block` non routé, branche slot 4 neutralisée,
+  gate `IsAdjacent` retiré, gate `AmountIsOdd` retiré).
+
+  > ⚠ **CE FICHIER A SKIPPÉ EN VERT SUR UN PORT VIVANT**, de `145c19c2` à #426. Écrit AVANT le
+  > port, son invariant cherchait un `TRIGGERED_ABILITY_ID` valant 1109/1511 dans `ABILITY_TRIGGERS`
+  > / `CUSTOM_TRIGGERED_ABILITIES` — une empreinte que `c24f226b` n'a jamais posée, puisque
+  > `DrawFire` se déclenche par COUP (voie intercepteur, comme `HarlequinsPanoply`) et non par le
+  > bus per-attaque. **Le vice n'était pas le mauvais registre** : une empreinte de PRÉSENCE ne
+  > distingue pas « pas encore porté » de « porté et cassé », donc le garde aurait skippé à
+  > l'identique si le port disparaissait. La parade n'est pas de corriger l'empreinte mais de
+  > **supprimer l'empreinte** : le détecteur EXÉCUTE la chaîne, donc il ne peut plus diverger
+  > d'elle. Verdict à TROIS états — les deux bouts du câblage absents = skip légitime ; **un seul
+  > présent = CÂBLAGE ROMPU, rouge** ; les deux présents = on exécute.
+
+  Le bras `1511 PrimarchOfTheFirstLegion` (non porté, tâche #418) skippe **seul**, sans masquer le
+  bras 1109 — fondre les deux dans un skip unique était l'autre moitié du défaut. Il rougit le jour
+  où 1511 entre, en exigeant un test d'EXÉCUTION et pas une empreinte de plus.
 
 ## 6. Les deux inconnues — FERMÉES (#411-r1)
 
