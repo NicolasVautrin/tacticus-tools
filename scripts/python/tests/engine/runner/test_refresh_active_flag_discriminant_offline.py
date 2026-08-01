@@ -80,9 +80,10 @@ def test_discriminant_is_the_is_active_override_not_the_case322_flag():
         f"le helper ne mirrore plus la surcharge de `is_active` : {helper ^ overrides}")
     # Le cliquet monte DELIBEREMENT avec chaque `CreateActiveCondition` portee : 13 ecrites au
     # #366-r1b, 14 MESUREES a la reprise (`CamoCloak_DmgReduction` etait entree entre-temps sans que
-    # le plancher bouge -- preuve qu'un plancher qu'on ne remonte pas cesse d'etre un cliquet), 15
-    # depuis `MartialSuperiority_Visual` (1255, case-366-r1).
-    assert len(overrides) >= 15, (
+    # le plancher bouge -- preuve qu'un plancher qu'on ne remonte pas cesse d'etre un cliquet), puis
+    # 16 apres `StructuralAnalyser_Visual` (1174, #420) et `MartialSuperiority_Visual` (1255,
+    # case-366-r1). RE-DERIVER, ne jamais recopier.
+    assert len(overrides) >= 16, (
         f"seulement {len(overrides)} classes a condition PORTEE -- une surcharge a disparu ?")
     assert flagged < overrides, (
         "`active_condition_ported` n'est PAS un sur-ensemble des conditions portees : "
