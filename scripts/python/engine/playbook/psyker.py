@@ -197,6 +197,7 @@ from .aggressive_onslaught import AggressiveOnslaughtPlaybook   # #58 (registre,
 from .suppressive_fire import SuppressiveFirePlaybook           # #415 (registre, cf. module dedie)
 from .lakrimae import LakrimaePlaybook                          # #419 (registre, cf. module dedie)
 from .barbed_ovipositor import BarbedOvipositorPlaybook         # #438 (registre, cf. module dedie)
+from .neuroparasite import NeuroparasitePlaybook                # #441 (registre, cf. module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -223,6 +224,15 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # PREMIER playbook attack porte qui lit `case.DamagePrediction` (`UtilityAttackCase@+0x28`) --
     # d'ou le parametre `prediction` de la face ATTACK, sans lequel il serait INERTE.
     int(TriggeredAbilityType.BarbedOvipositor): BarbedOvipositorPlaybook(),
+    # #441 : Neuroparasite (1183, passif de `tyranNeurothrope` + 6 npc) -- le LITTERAL `1` quand la
+    # CIBLE porte deja l'effet `Neuroparasite` (EffectType 1218, a ne pas confondre avec l'ability
+    # 1183 du meme nom), 0 sinon. Corps IdunBattle.AI.Playbook.Loki.
+    # NeuroparasitePlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext.
+    # SEUL playbook attack porte dont la sortie n'est PAS une cle de `Utilities.Default.
+    # TriggeredAbilities` : la SM ne capture meme pas le delegue scorer, il n'y a donc ni
+    # `GetUtilityValue` ni `.cctor` a lire. Il n'a pas non plus besoin du canal `prediction` de
+    # #438 -- son corps ne lit que `case@+0x20`.
+    int(TriggeredAbilityType.Neuroparasite): NeuroparasitePlaybook(),
 }
 
 

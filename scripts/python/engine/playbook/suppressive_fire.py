@@ -65,18 +65,11 @@ _WEIGHT_KEY = "SUPPRESSIVEFIRE_TargetWithOverwatch"
 
 
 def _target_has_overwatch(scene, target_uid: int) -> bool:
-    """`EntityExtensions.HasEffect(target, state, 1009, onlyActive: null)` =
-    `IsOwnerOfEffect(..., onlyActive=0) || IsTargetOfEffect(...)`.
-
-    `onlyActive = 0` ⇒ pas de filtre `IsActive` : cote port c'est `EffectsState.has_effect`
-    (presence non consommee), PAS `active_effects`. La seconde branche (`IsEffectTarget`) passe par
-    le foyer unique `Scene.is_effect_target`, tri-etat : `None` = geometrie non portee pour ce type,
-    on ne referme pas dessus (meme discipline que `playbook/psyker.py`)."""
-    eff = getattr(scene, "eff_state", None)
-    if eff is not None and eff.has_effect(int(target_uid), effect_type=_OVERWATCH):
-        return True
-    return getattr(scene, "is_effect_target", lambda *_a: None)(
-        int(target_uid), _OVERWATCH) is True
+    """`EntityExtensions.HasEffect(target, state, 1009, onlyActive: null)` — foyer PARTAGE
+    `battle_query.scene_has_effect` (le meme corps natif est appele par `NeuroparasitePlaybook` sur
+    l'effet 1218 : deux copies locales seraient un fork de port). Semantique et degradations : cf.
+    la docstring du foyer."""
+    return bq.scene_has_effect(scene, target_uid, _OVERWATCH)
 
 
 class SuppressiveFirePlaybook:

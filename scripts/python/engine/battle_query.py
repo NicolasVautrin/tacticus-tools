@@ -1072,6 +1072,29 @@ def entity_has_effect(unit: dict, effect_type: int) -> bool:
     return False
 
 
+def scene_has_effect(scene, uid: int, effect_type: int) -> bool:
+    """`IdunBattle.Entities.EntityExtensions$$HasEffect(entity, state, requestedEffectType,
+    onlyActive: null)` sur le substrat `playbook.Scene` — le MEME natif qu'`entity_has_effect`
+    ci-dessus, un autre substrat (meme forme que `Scene.is_effect_target` : un noeud natif, deux
+    substrats). Foyer UNIQUE des playbooks ATTACK qui posent ce predicat sur la cible du case
+    (`SuppressiveFire` 1044, `Neuroparasite` 1183) : deux copies locales de ces quatre lignes
+    seraient un fork de port du meme corps natif.
+
+    Le natif est `IsOwnerOfEffect(entity, state, type, onlyActive) || IsTargetOfEffect(entity,
+    state, type)`, et les DEUX branches sont ici :
+      - `IsOwnerOfEffect` -> `EffectsState.has_effect` (presence non consommee). `onlyActive` vaut
+        le litteral `0` a ces call-sites ⇒ le natif ne lit PAS `EffectComponent.IsActive @+0x5c` ⇒
+        surtout pas `active_effects`, qui reboucle sur `is_active` (meme piege que `CamoCloak`, et
+        l'inverse exact de `WireweaveNet_FirstAttack` dont le call-site teste `Any(e => e.IsActive)`).
+      - `IsTargetOfEffect` -> `Scene.is_effect_target`, TRI-ETAT : `None` = geometrie non portee
+        pour ce type ⇒ on ne referme pas dessus (on ne rend `True` que sur un `True` franc)."""
+    eff = getattr(scene, "eff_state", None)
+    if eff is not None and eff.has_effect(int(uid), effect_type=int(effect_type)):
+        return True
+    return getattr(scene, "is_effect_target", lambda *_a: None)(
+        int(uid), int(effect_type)) is True
+
+
 def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
                            walkable_by_pos: dict | None, occupied: set | None,
                            elev_by_pos: dict | None = None) -> int:
