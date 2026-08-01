@@ -95,7 +95,10 @@ def _confront(rpc, rid, board_name):
             continue
         special = has_special_movement(state, uid)
         if not special and is_like_flying(unit_trait_names(vis)):
-            out["flying"] += 1                  # `#381-r2`, hors perimetre de ce cas
+            # Hors perimetre de CE cas (qui porte le dispatch, pas le pathfinder de vol). Le
+            # regime FLY pur est desormais garde par `test_403_fly_no_expansion_gate_live.py`
+            # (`#381-r2` ferme : gate d'expansion + arete `!IsWall`).
+            out["flying"] += 1
             continue
         if not want:
             out["empty"] += 1                   # garde FLAG non portee (`#381`)

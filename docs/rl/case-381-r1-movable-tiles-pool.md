@@ -143,17 +143,20 @@ auto-discriminant) et `..._offline.py` (6 tests, board synthétique, sans runner
 * **`#381` (la garde d'entrée)** — `UnitFlagsComponent$$Has(unitFlags, 1) && ignoreFlags == 0` et
   `UnitExtensions$$CanMove` : `unitFlags` n'a aucun substrat côté port, donc le nœud ne rend jamais
   vide par cette voie. `ignore_flags` est STOCKÉ et ne change rien. Dégradation PERMISSIVE.
-* **`#381-r2` — le FlyPathfinder n'itère pas le même voisinage.**
-  `FlyPathfinder$$AddNeighbours` (d__7) itère `GetSurroundingTiles(tile, 1)` — le voisinage
-  **GÉOMÉTRIQUE** (triple boucle cube de `TileQuery$$IterateSurroundingTiles`) — là où
-  `BasePathfinder$$AddNeighbours` (d__19) itère la **liste d'adjacence stockée sur la tuile**. Le
-  port de `fly_pathfinder` réutilise le BFS commun, donc le second.
+* ~~**`#381-r2` — le FlyPathfinder**~~ — **FERMÉ (2026-08-01)**, `case-403-fly-pathfinder.md`.
   ⚠ **Ses trois chiffres fondateurs étaient des ARTEFACTS** (`case-381-r5` §5) : 47/27 (`MC1_67`),
-  46/44 (`C1_74`), 32/28 (`C2_26`) sont pris sous `TeleportStrike_TeleportingIn` — le 47 EST le pool
-  de téléport, aujourd'hui reproduit exactement. Après expiration, `bloodIntercessor` rend **6/6**
-  (`MC1_67`), **6/6** (`C1_74`), **8/8** (`PVP_desert_04`) — et **13 natif / 12 port** sur `C2_26`.
-  Le résidu tient donc, mais il vaut **1 tuile**, pas 20.
-* **`#381-r3` — le substrat de voisinage du BFS.** Sur `C1_74`, `tauAunShi` sur-atteint de deux
+  46/44 (`C1_74`), 32/28 (`C2_26`) sont pris sous `TeleportStrike_TeleportingIn`. Et la lecture
+  écrite ici — « le voisinage » — n'était pas la cause : le port monte son `Board` en `evenq`,
+  c'est-à-dire précisément la géométrie qu'itère `FlyPathfinder$$AddNeighbours` (d__7), là où
+  `BasePathfinder$$AddNeighbours` (d__19) itère le `ConnectivityComponent` de la tuile — donc le
+  vol était JUSTE sur cet axe, et c'est la MARCHE qui porte le résidu (`#381-r3` ci-dessous).
+  Les DEUX vraies causes, lues au décompilé : le **gate d'expansion #131** appliqué au vol alors
+  que `WalkPathfinder$$GetTileBlockingReasons` n'est atteignable que depuis la branche marche
+  (`bloodIntercessor`, `C2_26`, portée 2 : 13 natif / 12 port → **13/13**) ; et l'**arête** montée
+  sur `IsWalkable` au lieu de `!IsWall`, qui empêchait de survoler une tuile `Block`/`Water`
+  (`tyranNeurothrope`, `C2_26`, portée 4 : 22 / 21 → **22/22**).
+* **`#381-r3` — le substrat de voisinage du BFS** (la MARCHE ; cf. ci-dessus). Sur `C1_74`,
+  `tauAunShi` sur-atteint de deux
   tuiles ((4,2) Swamp et (5,3)). Ce n'est **pas** le nœud : `_move_tiles` rend exactement le même
   écart, bit à bit. Le `Board` est construit `adjacency="evenq"` (voisinage hexgeo recalculé) alors
   que le natif itère le champ `neighbours` du `boardGraph` ; sur `C1_74` les deux diffèrent sur

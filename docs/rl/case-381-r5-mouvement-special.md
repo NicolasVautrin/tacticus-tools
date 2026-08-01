@@ -90,6 +90,10 @@ Walk`). Le test `C1_74` est la garde de la lecture d'adjacence NATIVE.
 * **la prémisse n'est pas morte pour autant** : sur `C2_26` à T+6, `bloodIntercessor` FLY sans
   effet rend natif **13** / port **12** (une tuile MANQUANTE). `#381-r2` reste ouvert, mais son
   ordre de grandeur passe de « 20 tuiles » à **1**.
+  **FERMÉ depuis (`case-403-fly-pathfinder.md`)** : la tuile est `(0,2)`, et la cause est le gate
+  d'expansion #131 que le port appliquait au vol. Un SECOND maillon a suivi (`#403-r1`, l'arête
+  `IsWalkable` au lieu de `!IsWall`). Les deux boards + `C1_74` + `PVP_desert_04` sont désormais
+  à **0 écart** sur toute unité mobile.
 * les trois autres volantes du roster (`admecManipulus`, `thousSorcerer`, `tyranNeurothrope`) sont
   EXACTES à T0 sur les quatre boards.
 

@@ -47,31 +47,67 @@ def is_valid_path_node(
     board: Board, from_id: int, to_id: int,
     occupants: dict, moving_team: int,
 ) -> bool:
-    """`IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsValidPathNode` — peut-on TRAVERSER vers `to_id` :
-    uniquement `walkable(to)` (non-mur/non-unplayable). Ignore l'élévation ET l'occupant
-    (le vol passe par-dessus). `from_id`/`occupants`/`moving_team` inutilisés (signature
-    homogène avec le prédicat walk pour le BFS partagé)."""
-    t = board.by_id.get(to_id)
-    return t is not None and bool(t["walkable"])
+    """`IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsValidPathNode` — peut-on TRAVERSER vers
+    `to_id` ? Le décompilé, VERBATIM :
+
+        return nextTile.TileComponent[+0x40] == 0 && nextTile.TileComponent[+0x41] == 0;
+
+    `+0x40` = `IsInFogOfWar`, `+0x41` = `IsWall` (les DEUX offsets sont recoupés :
+    `FlyPathfinder$$IsAnyAdjacentTileWall` teste `+0x41`, et `TileExtensions$$IsWalkable(tile,
+    checkFog: true)` teste `+0x40` sous le nom `checkFog`). Aucun test d'élévation, aucun blocage
+    par unité : le vol ignore le relief et survole alliés comme ennemis.
+
+    ⚠ CE N'EST PAS `IsWalkable` (`#403`, mesuré le 2026-08-01). `TileExtensions$$IsWalkable` =
+    `MovementComponent[+0x10] == 0 && TileComponent[+0x40] == 0` — un TROISIÈME champ, celui des
+    obstacles de décor. Une tuile `Block`/`Water` porte `walkable = False, isWall = False` : le
+    natif la SURVOLE (elle n'est pas un mur) sans pouvoir s'y poser. Tant que le port montait
+    l'arête sur `board.walkable`, il refusait de la traverser et SOUS-ATTEIGNAIT — MESURE
+    (`probe_403r1_fly_edge_predicate.py`, `C2_26`/38104, `overrideRange` 4, T+6) :
+    `tyranNeurothrope` natif **22**, port **21** ; la tuile `(6,6)` ne pend que du `Block` `(6,5)`.
+
+    L'exclusion de `Block`/`Water` de l'ARRIVÉE reste faite, comme dans le natif, par
+    `MovementQuery$$IsMovableTile` -> `TileExtensions$$IsFreeTile`, dont les deux premiers tests
+    sont EXACTEMENT ceux d'`IsWalkable` (cf. `walk_pathfinder.get_movable_positions`).
+
+    RÉSIDU NOMMÉ : `IsInFogOfWar` n'est pas publié par le `boardGraph` (le capteur le lit —
+    `match-state.ts` `tileIsInFog: 0x40` — mais ne l'expose pas), donc l'arête ne porte que
+    `!IsWall`. Dégradation PERMISSIVE sur la seule TRAVERSÉE ; l'ARRIVÉE, elle, reste gardée par
+    `board.walkable`, qui INCLUT le volet fog. `from_id`/`occupants`/`moving_team` inutilisés
+    (signature homogène avec le prédicat walk pour le BFS partagé)."""
+    return board.by_id.get(to_id) is not None and not board.is_wall(to_id)
 
 
 def get_movable_positions(
     board: Board, start_id: int, depth: int,
     occupants: dict, moving_team: int,
-    can_continue=None,
 ) -> tuple[set, set]:
     """(visited, stop_set) pour une unité volante à portée `depth` — BFS partagé de
     `walk_pathfinder` avec l'arête FLY (traverse par-dessus tout, arrêt sur tuile libre).
 
-    `can_continue` = gate d'EXPANSION #131 (`IdunBattle.Entities.Pathfinding.BasePathfinder
-    $$NodesInNextLevel`). Le gate lui-même vit dans `BasePathfinder` ⇒ il vaut pour TOUS les
-    pathfinders. Le PRÉDICAT, lui, est le slot virtuel `IsValidContinuePathTile` : celui que le
-    FlyPathfinder résout n'est **PAS ÉTABLI** — la table de symboles ne liste pas
-    `FlyPathfinder$$IsValidContinuePathTile`, mais IL2CPP déduplique les corps triviaux et
-    l'absence d'un symbole ne prouve RIEN (cf. CLAUDE.md « L'ABSENCE d'une méthode dans les tables
-    ne prouve RIEN ») ; le trancher demande d'invoquer le slot de vtable sur une instance. Le
-    paramètre est donc THREADÉ (l'appelant décide) et `state_bridge._move_tiles` passe aujourd'hui
-    le MÊME prédicat qu'en marche — résidu assumé, sans incidence tant qu'aucune unité volante ne
-    survole une tuile block-entering dans un scénario mesuré. None = pas de gate."""
+    **AUCUN gate d'EXPANSION** (`#381-r2`, fermé le 2026-08-01). `IdunBattle.Entities.Pathfinding
+    .BasePathfinder$$NodesInNextLevel` interroge bien un slot virtuel (`vslot 10`, lu
+    `(**(code **)(*(longlong *)this + 0x1d8))`) avant d'étendre la fill, mais le prédicat #131 —
+    « la tuile porte un effet bloqueur » — est produit par le SEUL
+    `IdunBattle.Entities.Pathfinding.WalkPathfinder$$GetTileBlockingReasons`, dont les XREFS sont
+    EXHAUSTIVES et toutes internes à la branche MARCHE : `WalkPathfinder$$IsValidContinuePathTile`,
+    `WalkPathfinder$$GetEffectiveDepth`, `WalkPathfinder$$WeightCost`,
+    `IgnoreDoorPathfinder$$IsValidContinuePathTile` et
+    `WaveValidatorPathfinder$$IsValidContinuePathTile`. Or `FlyPathfinder` dérive de
+    `BasePathfinder`, **pas** de `WalkPathfinder` (`data/symbols/<build>/frida/classes.tsv` :
+    `IdunBattle.Entities.Pathfinding.FlyPathfinder  56  IdunBattle.Entities.Pathfinding.BasePathfinder`),
+    et `IgnoreDoor`/`WaveValidator` sont les DEUX seules sous-classes de `WalkPathfinder`.
+    ⇒ aucun chemin de code ne peut faire d'une tuile block-entering un cul-de-sac pour un volant.
+
+    Le corps EXACT du vslot 10 du `FlyPathfinder` reste non nommable (IL2CPP déduplique les corps
+    triviaux — cf. CLAUDE.md « L'ABSENCE d'une méthode dans les tables ne prouve RIEN »), mais les
+    deux seules formes compatibles sont **indiscernables ici** : `true`, ou le corps
+    d'`IgnoreTerrainPathfinder$$IsValidContinuePathTile` = `TileExtensions$$IsWalkable(tile,
+    checkFog: true)` — que l'arête `FlyPathfinder$$IsValidPathNode` a déjà exigé de toute tuile
+    visitée (`board.walkable`, capté par `BattleQuery.IsWalkableTile`).
+
+    MESURE (`probe_403_c2_26_fly_gap.py`, `C2_26`/38104, `overrideRange` 2, T+6 `endturn`) :
+    `bloodIntercessor` (Flying, sans mouvement spécial) — natif **13**, port **12** tant que le
+    gate marche s'appliquait ; la tuile manquante était `(0,2)`, qui ne pend que du Swamp `(1,2)`.
+    Sans le gate : **13/13**."""
     return _get_movable_positions(board, start_id, depth, occupants, moving_team,
-                                  edge=is_valid_path_node, can_continue=can_continue)
+                                  edge=is_valid_path_node)
