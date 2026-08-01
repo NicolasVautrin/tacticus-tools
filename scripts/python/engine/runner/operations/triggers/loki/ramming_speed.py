@@ -104,14 +104,46 @@ class RammingSpeedExtraExplodeRemove(EffectTrigger):
     ownerNeedsToBeAlive: false)` -> `$$CreateTargetTriggerBehaviour` =
     `BaseEffect$$GetRemoveEffectBehaviour` = `DSLBehaviors$$RemoveEffect(<cette instance>)`.
 
-    AUCUN predicat : le trigger natif est un `On(...)` NU (pas de `& OwnerIs*`, pas de `& AreEqual`).
-    Rien a evaluer dans `matches` -- le sur-ensemble de gates du dispatch (event_id + porteur vivant)
-    suffit, et le sujet du retrait est le porteur lui-meme (`CreateTargetSelector` = `Owner`)."""
+    AUCUN predicat dans l'ARBRE : le trigger natif est un `On(...)` NU (pas de `& OwnerIs*`, pas de
+    `& AreEqual`). Le sujet du retrait est le porteur lui-meme (`CreateTargetSelector` = `Owner`).
+
+    MAIS le rail impose un gate HORS arbre (#421) : etre un `CreateTargetTrigger` place ce trigger
+    sur le rail TARGETS, donc `IdunBattle.Operations.EvaluateTriggerOperation$$
+    EvaluateEffectTriggerTargets` lit `EffectComponent.IsActive @+0x5c` (PAR CIBLE, sur le composant
+    re-fetch depuis l'entite-effet) AVANT d'evaluer `ShouldTrigger`. L'ambiguite laissee ouverte par
+    `case-389` (« entree 4 = `CreateTargetTrigger` OU `CreateRemoveEffectTrigger` ») est TRANCHEE, et
+    par deux lectures independantes :
+      * `IdunBattle.Entities.Effects.BaseEffect$$CreateHandleTriggerAbilities` appelle le slot
+        `+0x5a8` et teste `if (trigger != 0)` -- l'implementation de BASE doit donc rendre NULL. Or
+        `BaseEffect$$CreateTargetTrigger` rend un trigger NON nul (`DSLTriggers+0x60`). Le slot
+        `+0x5a8` est donc `CreateRemoveEffectTrigger`, et les deux virtuels sont distincts ;
+      * partition mesuree sur `data/symbols/<build>/ghidra/functions.tsv` : 28 classes surchargent
+        `CreateTargetTrigger`, 26 `CreateTargetTriggerBehaviour`, 16 `CreateRemoveEffectTrigger` --
+        `CreateTargetTrigger(Behaviour)` et `CreateRemoveEffectTrigger` ont une intersection **VIDE**.
+        L'entree 5 du bloc de ce type EST un `CreateTargetTriggerBehaviour` (identifie par sa
+        signature a 4 parametres, cf. `case-389`), donc ce type est du cote TARGETS et son entree 4
+        est bien son `CreateTargetTrigger`. Le nom `UntilOfEndPhaseEffect$$CreateRemoveEffectTrigger`
+        n'est que le PROPRIETAIRE DEDUPLIQUANT du corps `On(0x3a)`."""
     effect_type = RAMMING_SPEED_EXTRA_EXPLODE
     event_id = int(EventTriggerType.PhaseEnd)              # On(0x3a = 58)
 
+    def _instance_is_active(self, state: State) -> bool:
+        """Flag `EffectComponent.IsActive @+0x5c` de MON instance 1098 -- meme forme que
+        `RitesOfMorkaiReviveTrigger._instance_is_active`. Aucune instance -> True (degradation
+        PERMISSIVE : le filtre `not e.consumed` est celui du collecteur).
+
+        ATTEIGNABLE : le porteur est une UNITE (le CASTER), donc le canal de seed
+        `decisionView { includeInactive: true }` peut publier une instance `active: false` que
+        `EffectFactory.create` recopie (#219)."""
+        eff = getattr(state, "effects", None)
+        if eff is None:
+            return True
+        insts = [e for e in (eff.by_unit.get(int(self.owner_id)) or [])
+                 if (not e.consumed) and e.effect_type == int(self.effect_type)]
+        return (not insts) or any(e.active for e in insts)
+
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        return True
+        return self._instance_is_active(state)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         if state.effects is None:

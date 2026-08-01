@@ -98,18 +98,56 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
     "EarlyWarningOverrideHitReductionPurge":
         (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
-    "GhostEffectRevive":
+    # #421 -- `GhostEffect` : UNE classe native, DEUX effectTypes depuis #366-r1 (1186 TimeFlux_Revive,
+    # 1284 EchoesFromTheWarp_Revive). L'ancien trio de noms (`GhostEffectRevive`, `GhostRemove*`) est
+    # devenu le nom des BASES ABSTRAITES, non inscrites : le RAIL a continue de les citer et est donc
+    # devenu MUET sur les 12 classes reellement inscrites -- avec, en prime, un `EXPECTED_GAPS` qui
+    # annoncait « resorbe » un gap qui avait en realite DOUBLE.
+    "TimeFluxGhostEffectRevive":
         (TARGETS, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateTargetTrigger"),
-    "GhostRemoveOnSourceMoves":
+    "TimeFluxGhostRemoveOnSourceMoves":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
-    "GhostRemoveOnUnitAdded":
+    "TimeFluxGhostRemoveOnUnitAdded":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
-    "GhostRemoveOnUnitEnters":
+    "TimeFluxGhostRemoveOnUnitEnters":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
-    "GhostRemoveOnSourceDeathInactive":
+    "TimeFluxGhostRemoveOnSourceDeathInactive":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
-    "GhostRemoveOnSourceRemoved":
+    "TimeFluxGhostRemoveOnSourceRemoved":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "EchoesFromTheWarpGhostEffectRevive":
+        (TARGETS, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateTargetTrigger"),
+    "EchoesGhostRemoveOnSourceMoves":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "EchoesGhostRemoveOnUnitAdded":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "EchoesGhostRemoveOnUnitEnters":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "EchoesGhostRemoveOnSourceDeathInactive":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "EchoesGhostRemoveOnSourceRemoved":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #421 -- les SEPT autres classes que le RAIL ignorait. Rails LUS au decompile, pas deduits.
+    "ShockAssaultBuffRemove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ShockAssaultBuffEffect$$CreateRemoveEffectTrigger"),
+    "HatefulAssaultAlreadyAttackedRemove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.UntilOfEndTurnEffect$$CreateRemoveEffectTrigger"),
+    "WireweaveNetDeactivateOnOwnerTurnStart":
+        (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "WireweaveNetActivateOnOwnerTurnEnd":
+        (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "WireweaveNetCounterAttack":
+        (TARGETS, "IdunBattle.Entities.Effects.CounterAttackEffect$$CreateTargetTrigger"),
+    "HarlequinsPanoplyIgnoreHitsRemove":
+        (TARGETS, "IdunBattle.Entities.Effects.Loki.HarlequinsPanoply_IgnoreHitsEffect$$CreateTargetTrigger"),
+    # 1098 : la classe n'a AUCUNE methode a son nom (corps dedupliques). Rail tranche par deux
+    # lectures independantes, cf. le module `loki/ramming_speed.py` -- `BaseEffect$$
+    # CreateHandleTriggerAbilities` teste `if (trigger != 0)` sur le slot `+0x5a8` alors que
+    # `BaseEffect$$CreateTargetTrigger` rend NON nul (donc `+0x5a8` = `CreateRemoveEffectTrigger`),
+    # et la partition mesuree `CreateTargetTrigger(Behaviour)` / `CreateRemoveEffectTrigger` est
+    # d'intersection VIDE sur tout le binaire (28 / 26 / 16 classes).
+    "RammingSpeedExtraExplodeRemove":
+        (TARGETS, "IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeed_ExtraExplodeEffect (bloc methodPointers)"),
     # #448-r2 -- les QUATRE `Triggered()` d'`ATeleportingEffect` + le trigger UNIQUE de son effet
     # compagnon. Tous rail ARRAYSET : ils viennent de `CreateHandleTriggerAbilitiesInternal`, donc
     # AUCUN gate `IsActive` natif -> ils ne doivent PAS lire le flag.
@@ -137,6 +175,18 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
     "StormboyzStrikeTeleportingInAddMovingOnPreMove":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #448-r2c (1238 / 1241) -- MEMES DEUX fabriques natives que 1035 / 1036, donc memes rails.
+    # La parente est tranchee par `data/symbols/<build>/frida/classes.tsv` et NON par le nom du
+    # ctor : `FearOfTheUnseen_TeleportingInEffect$$.ctor` appelle un corps que ghidra nomme
+    # `APsychicStalkEffect$$.ctor` (corps DEDUPLIQUE), alors que le champ parent dit
+    # `IdunBattle.Entities.Effects.Loki.ATeleportingEffect`. Lire la STRUCTURE, jamais le nom.
+    #
+    # ⚠ Le vslot `+0x738` (surcharge `FearOfTheUnseen_TeleportingInEffect$$GetAdditionalRemoveTriggers`
+    # = `AmountIsEqual(EffectRemainingTurns(EffectSelf), Direct(1))`) est conjoint aux QUATRE
+    # `Triggered()`, **T4 compris** -- lu au decompile, 4 occurrences de `(**(code **)(*in_RDX +
+    # 0x738))()` dans `ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal`. C'est un noeud de
+    # l'ARBRE, pas un gate d'evaluation : il ne change donc PAS le rail, et n'autorise aucune lecture
+    # du flag `IsActive`.
     "FearOfTheUnseenTeleportingInRemoveOnAfterMove":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
     "FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility":
@@ -153,7 +203,9 @@ RAIL: dict[str, tuple[str, str]] = {
 # parce que leur PROPRE ARBRE porte un noeud qui le lit (`DSLFactory$$IsEffectActive`,
 # `DSLFactory$$HasEffect(..., onlyActive=1)`). Lire n'y est donc PAS une infidelite.
 ARRAYSET_READS_BY_TREE = {
-    "GhostRemoveOnSourceDeathInactive":      # `NOT IsEffectActive(self@0x150)`
+    "TimeFluxGhostRemoveOnSourceDeathInactive":   # `NOT IsEffectActive(self@0x150)`
+        "IdunBattleLogic.Entities.DSLFactory$$IsEffectActive",
+    "EchoesGhostRemoveOnSourceDeathInactive":     # idem -- MEME arbre natif, 2e effectType
         "IdunBattleLogic.Entities.DSLFactory$$IsEffectActive",
     "EarlyWarningOverrideHitReductionPurge":  # `NOT HasEffect(Owner, 0x3f1, onlyActive=1, Both)`
         "IdunBattleLogic.Entities.DSLFactory$$HasEffect",
@@ -200,10 +252,21 @@ ARRAYSET_READS_BY_TREE = {
 #   l'entite-effet, est LE gate**. Le jour ou l'on voudra factoriser, remonter le gate dans
 #   `ReviveEffectTrigger.matches` est mecanique.
 #
-# Le seul restant est `GhostEffectRevive` (1186, rail TARGETS, porteur TUILE) -- fiche distincte.
-EXPECTED_GAPS = {
-    "GhostEffectRevive",
-}
+# #421 (2026-08-01) -- LE ZERO. Les quatre derniers gaps ont ete poses, tous rail TARGETS, tous
+# decouverts en COMPLETANT le RAIL (le probe etait muet sur eux : ils n'y figuraient pas) :
+#
+#   * `TimeFluxGhostEffectRevive` (1186) et `EchoesFromTheWarpGhostEffectRevive` (1284) -- l'ancien
+#     `GhostEffectRevive` d'`EXPECTED_GAPS`, scinde en DEUX par #366-r1. Le gap n'avait pas ete
+#     resorbe : il avait DOUBLE, et l'entree perimee le faisait passer pour resolu. Gate pose sur la
+#     BASE `GhostEffectRevive` (`triggers/loki/ghost_revive.py`), donc sur les deux instanciations.
+#   * `HarlequinsPanoplyIgnoreHitsRemove` (1227) -- classe entree au registre par #366-r1 avec un
+#     rail MAL LU (« monte par `CreateHandleTriggerAbilities` ») ; c'est un `CreateTargetTrigger`.
+#   * `RammingSpeedExtraExplodeRemove` (1098) -- rail laisse AMBIGU par `case-389`, tranche ici.
+#
+# ⚠ Zero n'est pas un acquis, c'est un CLIQUET, et il ne tient QUE si le RAIL couvre le registre --
+# une classe hors RAIL n'est comptee dans AUCUNE des deux listes ci-dessous. Le cliquet de couverture
+# est `probe_421_rail_covers_registry.py` ; le faire passer AVANT celui-ci.
+EXPECTED_GAPS: set[str] = set()
 
 
 def _scan(tree: ast.AST) -> tuple[bool, bool, set[str]]:
