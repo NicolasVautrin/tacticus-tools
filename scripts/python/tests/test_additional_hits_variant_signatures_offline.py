@@ -144,7 +144,7 @@ class _Thc:
     hp = 1000
 
 
-def _run_one(impl, hit_interceptor):
+def _run_one(impl, hit_interceptor, failed_block0=None):
     """Fait passer UN groupe a travers `impl`, tout etage voisin neutralise, et rend les kwargs
     vus par `AttackDamageOperation._run_hits`. Ce qu'on mesure ici est le CABLAGE, pas une valeur."""
     import gameconfig as GC
@@ -154,9 +154,13 @@ def _run_one(impl, hit_interceptor):
 
     def _rh(rng, hit_nc, hit_cr, *a, **kw):
         seen.update(kw)
+        # Le stub rend le CONTRAT COMPLET de `_run_hits` : une cle manquante ferait echouer une
+        # substitution qui THREADE correctement (`crit_allowed`, `failed_block`) -- un rouge qui
+        # accuserait le harnais, pas le port.
         return {"total": 0, "per_hit": [], "per_hit_health": [], "rolls": [], "crits": [],
                 "shield_dmg": 0, "armor_dmg": 0, "did_crit": False, "did_block": False,
-                "did_evade": False, "next_hit_index": 0, "death": False}
+                "did_evade": False, "next_hit_index": 0, "death": False,
+                "crit_allowed": True, "failed_block": set(kw.get("failed_block0") or ())}
 
     orig_dp = GC.damage_profile
     GC.damage_profile = lambda _p: {}        # hermetique : aucun profil n'est mesure ici
@@ -170,7 +174,7 @@ def _run_one(impl, hit_interceptor):
             impl(_Rng.__new__(type("S", (), {"rng": _Rng()})), 1, 2, object(), _Thc(),
                  [{"profile": "Physical", "count": 1, "min": 10, "max": 10}],
                  None, None, 0, 100, None, None,
-                 hit_interceptor=hit_interceptor)
+                 hit_interceptor=hit_interceptor, failed_block0=failed_block0)
     finally:
         GC.damage_profile = orig_dp
     return seen
@@ -197,3 +201,27 @@ def test_la_substitution_TRANSMET_hit_interceptor(factory):
     assert seen["hit_interceptor"] is sentinel, (
         "`%s` a repasse un AUTRE objet que celui recu -- la substitution doit THREADER, pas "
         "reconstruire" % factory)
+
+
+@pytest.mark.parametrize("factory", ["additional_hits_variant", "_extra_rolls_variant"])
+def test_la_substitution_TRANSMET_failed_block0(factory):
+    """#407. `OngoingAttack+0x48` (`FailedBlockIds`) -- l'etat block de l'ATTAQUE, seme PAR
+    REFERENCE dans `OngoingHitGroup+0x60` par `IdunBattle.Operations.ADamageOperation$$
+    SetupHitGroup` et alimente par `RegisterBlocks`. Une substitution qui l'AVALERAIT ferait
+    re-tirer, dans les rejeux offline, des sources de block deja exclues cote natif -- soit des
+    tirages en TROP, exactement l'ecart que ces contrefactuels sont censes NE PAS introduire.
+    On verifie le CONTENU (et non l'identite) : le port comme les substitutions recopient
+    (`set(failed_block0 or ())`)."""
+    import probe_r6_round_materialize as P
+    import probe_r6b_additional_hits_order as B
+
+    impl = (P.additional_hits_variant("roll_then_reduce", None) if factory == "additional_hits_variant"
+            else B._extra_rolls_variant(1))
+    seen = _run_one(impl, None, failed_block0={4242})
+    assert "failed_block0" in seen, (
+        "`%s` n'a pas repasse `failed_block0` a `_run_hits` (kwargs vus : %s)"
+        % (factory, sorted(seen)))
+    assert 4242 in (seen["failed_block0"] or ()), (
+        "`%s` a repasse un failed_block0 qui NE CONTIENT PAS l'id recu (%s) -- la substitution "
+        "doit THREADER l'etat block de l'attaque, pas le reconstruire vide"
+        % (factory, seen["failed_block0"]))

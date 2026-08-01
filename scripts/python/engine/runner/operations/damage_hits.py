@@ -92,7 +92,7 @@ class _DamageHitsMixin:
                   prevent_overkill: bool = False,
                   force_crit: bool = False, hit_index0: int = 0,
                   crit_allowed0: bool = True,
-                  hit_interceptor=None) -> dict:
+                  hit_interceptor=None, failed_block0=None) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -189,6 +189,32 @@ class _DamageHitsMixin:
         recopie dans `OngoingHitGroup+0x3c` (son 5e parametre PORTE CE NOM dans la metadonnee) et que
         `IdunBattle.Core.OngoingAttack$$.ctor` initialise a **1** dans ses DEUX surcharges.
 
+        `failed_block0` (defaut None, #407) = `OngoingAttack+0x48` (`FailedBlockIds`), le JUMEAU
+        BLOCK de `crit_allowed0` -- meme portee (l'ATTAQUE), meme threading. Chaine LUE :
+        `IdunBattle.Core.OngoingAttack$$.ctor` cree la liste (`+0x48 = new List<int>()`, NEUVE par
+        attaque, comme `+0x40 = 1`) ; `IdunBattle.Operations.ADamageOperation$$GetFailedBlockIds` la
+        rend (`HasCurrentAttack() ? GetCurrentAttack().FailedBlockIds : new List<int>()`) ;
+        `IdunBattle.Operations.ADamageOperation$$SetupHitGroup` la seme PAR REFERENCE dans
+        `OngoingHitGroup+0x60` ; `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` la passe
+        a chaque coup (`options[+0x30] = hitGroup[+0x60]`) ; `IdunBattle.Operations.
+        ADamageOperation$$RegisterBlocks` y AJOUTE les ids echoues du coup
+        (`hitGroup[+0x60].AddRange(result[+0x28])`) ; et `IdunBattle.Core.Services.
+        DamageCalculations$$CalculateBlockChances` en EXCLUT les sources (`Contains(failedBlockIds,
+        id)` -> `continue`, donc 0 tirage). Comme `AttackDamageOperation$$Execute` ne cree qu'UN
+        `OngoingHitGroup` pour la phase d'arme, les coups bonus ET
+        `ExecuteAdditionalHitsWithoutDamageProfileType`, et que la voie A PROFIL
+        (`ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` -> nouvelle
+        `AttackDamageOperation$$Execute` -> nouveau `SetupHitGroup`) RE-LIT la MEME liste de
+        l'`OngoingAttack`, l'exclusion TRAVERSE toutes les sous-operations d'une attaque.
+        A THREADER comme `crit_allowed0` (cf. `operations/additional_hits.py`).
+
+        ⚠ POLARITE -- ce n'est PAS le gate crit. Le crit a un booleen d'attaque qui TOMBE au premier
+        coup non-crite (`attack[+0x40] &= hitGroup[+0x3c]`) ; le block n'a AUCUN booleen equivalent
+        (`AttackDamageOperation$$Execute` ne fait qu'un OR COLLANT `attack[+0x39] |= hitGroup[+0x3e]`,
+        jamais lu comme gate). Cote block l'extinction est PAR SOURCE et seulement sur ECHEC : une
+        source qui REUSSIT n'entre pas dans la liste (`ApplyRandomBlockDamage` sort en `return` avant
+        `AddFailedBlockId`) et reste jouable au coup suivant.
+
         ⚠ **LE CRIT-ROLL N'EST PAS TIRE A CHAQUE COUP.** Mirror de la boucle
         `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` :
 
@@ -235,7 +261,10 @@ class _DamageHitsMixin:
         # -> il doit descendre jusqu'au chokepoint de mort, PAR COUP. On snapshot `_rogne` a l'entree de
         # chaque coup (index-aligne sur `crits` / `per_hit_health`). Purement additif.
         denied_before: list[int] = []
-        failed_block: set = set()          # ids de sources de block AYANT ECHOUE (accumule ENTRE coups, #72)
+        # ids de sources de block AYANT ECHOUE (#72) -- `OngoingAttack+0x48` (`FailedBlockIds`),
+        # seme PAR REFERENCE dans `OngoingHitGroup+0x60` par `ADamageOperation$$SetupHitGroup` :
+        # l'accumulation traverse les coups ET les sous-operations de l'ATTAQUE (#407, cf. docstring).
+        failed_block: set = set(failed_block0 or ())
         # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT pré-évalué (natif IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers) où
         # D = CurrentDamage = CENTRE des bornes réduites (post pierce/armure/%-mods) -> soustrait IDENTIQUE à
         # chaque coup, PAS 33%×valeur-tirée (confirmé LIVE #91). Un flat par type de coup (non-crit/crit).
@@ -557,4 +586,7 @@ class _DamageHitsMixin:
                 # #366-r1-crit-multihit : `attack[+0x40] &= hitGroup[+0x3c]` en fin
                 # d'`AttackDamageOperation$$Execute` -- a THREADER dans la serie suivante de la MEME
                 # attaque (`operations/additional_hits.py`), comme `next_hit_index`.
-                "crit_allowed": _crit_allowed[0]}
+                "crit_allowed": _crit_allowed[0],
+                # #407 : `OngoingAttack+0x48` (`FailedBlockIds`) -- meme threading que `crit_allowed`,
+                # la liste etant PARTAGEE PAR REFERENCE avec `OngoingHitGroup+0x60`.
+                "failed_block": failed_block}

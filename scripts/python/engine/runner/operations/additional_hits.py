@@ -162,7 +162,7 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
                             extra_pierce: int = 0, bonus_hit_chance: "Optional[int]" = None,
                             hit_index0: int = 0, crit_allowed0: bool = True,
                             attack_profile: "Optional[str]" = None,
-                            hit_interceptor=None) -> "Optional[dict]":
+                            hit_interceptor=None, failed_block0=None) -> "Optional[dict]":
     """#202-B : face COMBAT du canal #179 — mirror `ExecuteAdditionalHitsWithDamageProfileType
     IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` (schedule : `OperationProcessor.ExecuteAdditionalHitsWith
     DamageProfileType Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType`) : chaque groupe qualifie execute ses coups comme SOUS-OPERATION
@@ -258,9 +258,21 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     et `IdunBattle.Operations.MachineDamageOperation$$ExecuteHit`. Cf.
     `docs/rl/case-r6bp2-after-hit-maybe-ability-vector.md`.
 
-    A CONFIRMER LIVE (case-202 §7) : (1) gate `hp > 0` (cible morte pendant la phase d'arme ->
-    sous-operations non emises) ; (2) `failed_block` remis a zero entre phase d'arme et groupes
-    (le natif persiste la failedList PAR ATTAQUE — residu).
+    #407 -- RESIDU « failed_block remis a zero entre phase d'arme et groupes » FERME. Le natif
+    persiste la failed-list PAR ATTAQUE, et c'est LU, pas suppose : `IdunBattle.Core.OngoingAttack$$
+    .ctor` cree `+0x48 = new List<int>()` (FailedBlockIds, NEUVE par attaque) ;
+    `IdunBattle.Operations.ADamageOperation$$GetFailedBlockIds` la rend (`HasCurrentAttack() ?
+    GetCurrentAttack().FailedBlockIds : new List<int>()`) ; `IdunBattle.Operations.ADamageOperation$$
+    SetupHitGroup` la seme PAR REFERENCE dans `OngoingHitGroup+0x60` ; `IdunBattle.Operations.
+    ADamageOperation$$RegisterBlocks` y AddRange les ids echoues de chaque coup. Les DEUX voies de
+    coups additionnels retombent dessus : la voie SANS profil recoit le hitGroup de la phase d'arme
+    TEL QUEL (`AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`, appelee inline
+    par `Execute` avec son `hitGroup`), et la voie A PROFIL passe par une nouvelle
+    `AttackDamageOperation$$Execute` dont le `SetupHitGroup` RE-LIT la meme liste de l'`OngoingAttack`.
+    D'ou `failed_block0`, threade de groupe en groupe et rendu dans `out["failed_block"]`, EXACTEMENT
+    comme `crit_allowed0`/`hit_index0`. Sans lui, une source de block ayant echoue pendant la phase
+    d'arme etait RE-TIREE a chaque groupe -> tirages RNG en TROP (desynchronisation du flux).
+    Residu (1) de case-202 §7 (gate `hp > 0`) toujours ouvert.
     None si aucun groupe qualifie (strict no-op retro-compat).
 
     Rappelle les primitives de tirage de `AttackDamageOperation` : import LAZY (cycle module
@@ -278,6 +290,9 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     # additionnels comme `hit_index`. Inerte tant que ces groupes tournent a `crit_enabled=False`,
     # threade pour que l'etat ne se recree pas a chaque sous-operation.
     crit_allowed = bool(crit_allowed0)
+    # #407 : `OngoingAttack+0x48` (`FailedBlockIds`) -- JUMEAU BLOCK de `crit_allowed`, meme portee
+    # (l'ATTAQUE) et meme threading. La liste est PARTAGEE PAR REFERENCE avec `OngoingHitGroup+0x60`.
+    failed_block = set(failed_block0 or ())
     # #227 ORDRE DES DEUX CALL-SITES NATIFS. Un descripteur dont le `profileType` est un
     # `Nullable<DamageProfileType>` NULL (`EffectAdditionalHits$$Create(param_5 = -1)`, ex.
     # `LetTheGalaxyBurnEffect`) n'est PAS execute par la meme fonction que les autres :
@@ -362,6 +377,7 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             # l'index CONTINU de l'ATTAQUE (`currentAttack+0x30`). Voir la docstring.
             bonus_hit_chance=bonus_hit_chance, hit_index0=hit_index,
             crit_allowed0=crit_allowed,   # #366-r1-crit-multihit (cf. ci-dessus)
+            failed_block0=failed_block,   # #407 : `OngoingAttack+0x48` (cf. docstring)
             # #366-r1 : les groupes additionnels sont des SOUS-OPERATIONS de la MEME attaque et
             # repassent par `AttackDamageOperation$$ExecuteHit(s)` -> MEME intercepteur per-coup
             # (donc meme marqueur 1227, meme compteur de blocks), threade par l'appelant.
@@ -374,6 +390,7 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         g_first_hit = (hit_index == 0)      # index d'ENTREE du groupe (avant `_run_hits`)
         hit_index = r["next_hit_index"]
         crit_allowed = r["crit_allowed"]    # #366-r1-crit-multihit : `attack[+0x40] &= hitGroup[+0x3c]`
+        failed_block = r["failed_block"]    # #407 : `RegisterBlocks` -> `hitGroup[+0x60].AddRange(.)`
         AttackDamageOperation._deplete_shield(shc, r)
         d = AttackDamageOperation._apply_damage_pipeline(
             state, target_id, attacker_id, tgt, thc, r["total"], g_profile,
@@ -395,4 +412,5 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     out["death"] = death
     out["next_hit_index"] = hit_index
     out["crit_allowed"] = crit_allowed
+    out["failed_block"] = failed_block      # #407 : etat block de l'ATTAQUE en sortie
     return out if out["groups"] else None

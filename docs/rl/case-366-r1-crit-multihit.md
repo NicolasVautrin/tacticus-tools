@@ -82,6 +82,14 @@ univoque : entre les régimes `cc = 0 / 5 / 35 / 50 / 100` **rien ne change** au
 esquive. Or le nombre de crit-rolls **suit exactement le nombre de crits**. Un `didBlock` ou un
 `didEvade` (nuls partout ici) rendraient les cinq régimes identiques ; ils ne le sont pas.
 
+> **Depuis #407, ce n'est plus seulement une inférence de mesure : la chaîne est LUE.**
+> `ExecuteHit` remplit `DamageInfo[+0x1C]` avec l'octet `+4` du retour du slot `0xb`
+> d'`IDamagePrediction` (`CalculateCriticalDamage` → `{int damage, byte didCrit}`) ;
+> `DamagePrediction$$CalculateDamageOperation` le recopie en `DamageAppliedResult[+0x0E]` ;
+> `DealDamageOperation$$Execute` le recopie en `OperationResult[+0x21]`. Symétriquement,
+> `+0x22` = `DamageAppliedResult[+0x0C]` = le `didBlock` d'`ApplyRandomBlockDamage`.
+> Détail et slots d'`IDamageCalculations` : `case-407-failed-block-attack-scope.md` §2.
+
 ## 3. Le port
 
 | natif | port |

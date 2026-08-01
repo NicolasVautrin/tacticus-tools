@@ -375,7 +375,7 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
               block_sources, shc, spread_pct=20, extra_pierce=0,
               bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
-              hit_interceptor=None):
+              hit_interceptor=None, failed_block0=None):
         import gameconfig as GC
         from engine.runner.operations.damage import AttackDamageOperation, HitDamage
         from engine.entities.damage_trait import DamageTrait
@@ -390,6 +390,10 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
         # profil). L'ORDRE et la MATERIALISATION restent les seules variables de ce contrefactuel.
         groups = ([g for g in groups if g.get("profile") is None]
                   + [g for g in groups if g.get("profile") is not None])
+        # #407 : `OngoingAttack+0x48` (`FailedBlockIds`) CHAINE de groupe en groupe, comme le port
+        # livre -- l'exclusion par source n'est pas une variable de ce contrefactuel (ORDRE +
+        # MATERIALISATION le sont).
+        failed_block = set(failed_block0 or ())
         for g in groups:
             g_profile = g.get("profile")
             if g_profile is None:
@@ -435,8 +439,10 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
                 # ferme et les deux formes sont indiscernables. Limite NOMMEE : un contrefactuel
                 # qui ouvrirait le crit devrait chainer comme `execute_additional_hits`.
                 crit_allowed0=crit_allowed0,
+                failed_block0=failed_block,             # #407 : chaine (cf. ci-dessus)
                 limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
                 limits_hp=int(thc.hp or 0), is_attack_damage_op=is_attack_op)
+            failed_block = r["failed_block"]
             AttackDamageOperation._deplete_shield(shc, r)
             AttackDamageOperation._apply_damage_pipeline(
                 state, target_id, attacker_id, tgt, thc, r["total"], g_profile,
