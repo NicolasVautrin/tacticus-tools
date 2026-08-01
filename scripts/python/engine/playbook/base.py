@@ -206,7 +206,11 @@ class ComparablePlaybook(BasePlaybook):
             ua = calculate_utility_from_damage_event(ev, ctx.wt, ctx.hpmax_by_id.get(ev.target))
             # Feuille TriggeredAbilities(2) face ATTACK (#45-s18, splash Psyker) : évaluée DANS le
             # composite par event (`ForDamagePrediction`) -> même prob × signe que le composite.
-            trig = triggered_abilities_attack_utility(ctx, ctx.uid, ability_id, ev.target, caster_tile)
+            # #438 : le case natif de CET event porte sa `DamagePrediction` (`ForDamagePrediction`,
+            # 4e argument) -> on la passe. Sans elle, `BarbedOvipositorPlaybook` lirait un case
+            # `HasValue == false` et rendrait 0 en silence.
+            trig = triggered_abilities_attack_utility(ctx, ctx.uid, ability_id, ev.target, caster_tile,
+                                                      prediction=ev.prediction)
             if trig:
                 ua += (-1.0 if ev.friendly else 1.0) * ev.probability * trig
             u += ua

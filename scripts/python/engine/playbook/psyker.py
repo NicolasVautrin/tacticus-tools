@@ -143,7 +143,7 @@ class PsykerPlaybook:
         return out
 
     def calculate_attack_utility_in_steps(self, ctx, attacker_uid: int, ability_id: int,
-                                          case_tgt_id: int, attack_tile) -> float:
+                                          case_tgt_id: int, attack_tile, prediction=None) -> float:
         """Mirror `<CalculateAttackUtilityInStepsInternal>IdunBattle.AI.Playbook.Loki.PsykerPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext` (cf. docstring
         module : gates -> amount -> targets -> prédiction/utilité par target -> MOYENNE)."""
         sc = getattr(ctx, "scene", None)
@@ -196,6 +196,7 @@ class PsykerPlaybook:
 from .aggressive_onslaught import AggressiveOnslaughtPlaybook   # #58 (registre, cf. module dedie)
 from .suppressive_fire import SuppressiveFirePlaybook           # #415 (registre, cf. module dedie)
 from .lakrimae import LakrimaePlaybook                          # #419 (registre, cf. module dedie)
+from .barbed_ovipositor import BarbedOvipositorPlaybook         # #438 (registre, cf. module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -214,6 +215,14 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # ignore : sans le cablage du canal live de `evaluate_attack_in_steps` (meme commit), il serait
     # INERTE -- exactement le patron « porte + non cable » que #419 recense.
     int(TriggeredAbilityType.Lakrimae): LakrimaePlaybook(),
+    # #438 : BarbedOvipositor (1204, passif de `tyranParasite` + 6 npc `tyranBossParasite*`) --
+    # 0 si la prediction du case est absente, si le kill n'est meme pas POSSIBLE, ou si la cible
+    # est `Mechanical` ; sinon `BARBEDOVIPOSITOR_DefinitelyKill` (50) quand le kill est GARANTI,
+    # `BARBEDOVIPOSITOR_PossibleKill` (25) sinon. Corps IdunBattle.AI.Playbook.Loki.
+    # BarbedOvipositorPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__4$$MoveNext.
+    # PREMIER playbook attack porte qui lit `case.DamagePrediction` (`UtilityAttackCase@+0x28`) --
+    # d'ou le parametre `prediction` de la face ATTACK, sans lequel il serait INERTE.
+    int(TriggeredAbilityType.BarbedOvipositor): BarbedOvipositorPlaybook(),
 }
 
 
