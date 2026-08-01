@@ -177,11 +177,11 @@ déclare vert.
   ce qui suffit à tout ce qui est mesuré ici. Résidu NOMMÉ : porter l'ability exigerait
   `UseActiveAbility` + `ResetMovement` + `AddEffect` en DSL, plus son `TARGETING_OPTIONS` et son
   `ABILITY_ATTACK_TYPE`.
-* **`IsTurnOf` générique agrège par `any`, le natif par `all`** —
-  `IdunBattle.Entities.Triggers.IsTurnOfUnitTrigger$$ShouldTrigger` sort FAUX dès qu'UNE entité
-  sélectionnée n'appartient pas au joueur courant, là où `entities/triggers.py::IsTurnOf` fait
-  `any(...)`. Sans effet ici (`Owner` est un singleton) ; résidu NOMMÉ pour un sélecteur
-  multi-entités.
+* ~~**`IsTurnOf` générique agrège par `any`, le natif par `all`**~~ — **FERMÉ (2026-08-01)**,
+  `case-366-r1-turnof-all.md` : mirror `all(...)` posé, **set vide → VRAI**. Sans effet ici (`Owner`
+  est un singleton) — et sans effet nulle part au natif : sur les **17** opérandes du build, aucun ne
+  peut rendre 2 entités-unités (recensement exhaustif par xrefs du slot de cache de classe, qui
+  révèle **deux allocations INLINÉES** invisibles des xrefs de la factory).
 * **Aucune mesure de l'EXPIRATION** : `remaining` 2 → 1 est observé, la fin de vie ne l'est pas.
 * **La face DÉCISION n'est pas confrontée séparément** : l'effet n'apparaît dans `decisionView`
   qu'au tour ennemi, où le playbook ne calcule pas les attaques de l'adversaire. Le câblage
