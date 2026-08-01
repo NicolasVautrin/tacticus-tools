@@ -44,6 +44,7 @@ from .loki import (
     DaughterOfTheAbyssExtraDamagePctEffect,
     PsychicStalkExtraAttackDamageEffect,
     PsychicStalkFriendlyChaosExtraDamageEffect,
+    PsychicStalkVisualEffect,
     DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
     DaughterOfTheAbyssOwnerDmgReductionEffect,
     DecoysAndMisdirectionExtraDamageEffect,
@@ -635,6 +636,19 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ⚠ `extraDmg` est dans `variablesAffectedByRarityBonus` -> SCALE par le multiplier de rarete
     # (499 @{L50, 180 %}), contrairement a l'`extraDmgPct` de 1215. EffectType 0x59b=1435 (#366-r1).
     "PsychicStalk_FriendlyChaosExtraDamage": PsychicStalkFriendlyChaosExtraDamageEffect,
+    # 3e et DERNIER effet du kit PsychicStalk -- AUCUN canal de degat, aucun stat-mod, aucun trigger :
+    # la classe native `IdunBattle.Entities.Effects.Loki.PsychicStalk_VisualEffectEffect` ne surcharge
+    # QUE `CreateActiveCondition` (= `NOT IsDead(Owner@0x30)`, portee -> `is_active`),
+    # `CreateTargetSelector` (= `Units(EntitiesWithAnyEffect(Tiles(Enemies(Owner, AllUnits, alive)),
+    # Fire = 5, effectTarget = 6), unique, 3)`, portee -> `target_selector_covers`) et
+    # `GetRefreshTriggers` (non portable : le port n'a pas de `RefreshEffectTrigger`). Sa sortie est
+    # 100 % PRESENTATION, et les DEUX consommateurs sont NOMMES : le VFX/SFX
+    # `IdunBattle.View.AbilityConfigs.Loki.PsychicStalkEffectVisual` et l'ICONE de statut
+    # (`StaticBattleRules.Effect$$.cctor` inscrit 0x4c0 -> 2 dans le dict d'affichage <statics>+0x10,
+    # que `IsUnitEffectShownAsGenericDebuff` teste `== 2`). Inscrit ici pour NOMMER la classe native
+    # au lieu de router sur `BaseEffect` -- meme motif que `WireweaveNet_CounterAttack`.
+    # EffectType 0x4c0=1216 (#366-r1).
+    "PsychicStalk_VisualEffect": PsychicStalkVisualEffect,
     # WireweaveNet (PASSIF 1111 de Calandis `eldarRanger`) : effet-RIPOSTE (`CounterAttackEffect` ->
     # `PlayerTurnEffect`). AUCUN canal de bonus -- tout son observable vit dans les TROIS `Triggered()`
     # de `EFFECT_TRIGGERS[1111]` (`runner/operations/triggers/loki/wireweave_net.py`). Inscrit ici pour

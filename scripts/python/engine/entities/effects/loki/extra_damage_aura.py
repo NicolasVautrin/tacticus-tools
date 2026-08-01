@@ -11,7 +11,12 @@ CANDIDAT (l'adjacence/portee est recalculee contre la position d'attaque evaluee
 
 Chaque classe override UNIQUEMENT ce qu'elle implemente dans le natif (lu en ghidra). Les magnitudes non
 encore confirmees par nom gameconfig renvoient None (pas de contribution) = on N'INVENTE PAS de valeur non
-prouvee (cf. doc §17.4 « present != applique »). Cf. `loki/__init__.py`."""
+prouvee (cf. doc §17.4 « present != applique »). Cf. `loki/__init__.py`.
+
+⚠ UNE exception au critere « bonus de degat » : le KIT `PsychicStalk` est tenu GROUPE ici, ses TROIS
+effets ensemble (`1215` %-list defenseur, `1435` additif attaquant, `1216` sans aucun canal de degat)
+-- ils partagent la base `APsychicStalkEffect` et les constantes `PSYCHIC_STALK_ID` /
+`FIRE_TILE_EFFECT_NAME`, et les separer par canal aurait disperse le kit natif sur trois modules."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -636,10 +641,9 @@ class PsychicStalkExtraAttackDamageEffect(APsychicStalkEffect):
     quand meme : c'est `ability_var` qui applique la regle config-driven, pas l'appelant).
     `ability_level` absent (`GetAbilityState` sans etat) -> AUCUNE contribution.
 
-    NON PORTE ici (item voisin) : `1216 PsychicStalk_VisualEffect` (aucun canal de degat :
-    `CreateActiveCondition = !IsDead(Owner)`, `CreateTargetSelector =
-    Units(EntitiesWithAnyEffect(Tiles(Enemies(Owner)), Fire, 6))`). Le TROISIEME effet du kit,
-    `1435 PsychicStalk_FriendlyChaosExtraDamage`, est porte juste en dessous (canal ATTAQUANT).
+    Les deux autres effets du kit sont portes juste en dessous : `1435
+    PsychicStalk_FriendlyChaosExtraDamage` (canal ATTAQUANT additif) et `1216
+    PsychicStalk_VisualEffect` (AUCUN canal de degat -- sortie 100 % presentation, cf. sa classe).
     La POSE du feu (`PsychicStalk_ApplyFireTileAbility$$CreateBehaviour` =
     `AddEffect(Fire = 5, targets = TargetTiles@0x78)`, trigger `OnNormalAttackOrSmite & OwnerIsCaster
     & IsRangedAttack`) n'est pas portee non plus -- l'etat offline la recoit par le seed des effets
@@ -779,3 +783,124 @@ class PsychicStalkFriendlyChaosExtraDamageEffect(APsychicStalkEffect):
                 or c.get("owner_team") != c.get("att_team"):
             return None                                   # AreFriends(Owner@0x30, Caster@0x48)
         return self._bonus_if_common_gates_pass(c)
+
+
+class PsychicStalkVisualEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.PsychicStalk_VisualEffectEffect` (EffectType 0x4c0 = 1216)
+    -- le TROISIEME effet du kit `PsychicStalk`, pose comme les deux autres SUR LE PORTEUR par
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PsychicStalk_ExtraAttackDamageAbility$$CreateBehaviour`
+    (`AddEffect(0x4bf) + AddEffect(0x4c0, <AbilityStateReference>, targets = Owner@0x30) +
+    AddEffect(0x59b)`).
+
+    ## Sa sortie est 100 % PRESENTATION -- etabli par LECTURE, pas par absence d'observable
+    La classe native surcharge EXACTEMENT QUATRE methodes, et **aucune n'est un slot de sortie
+    gameplay** (ni `CreateEffectDamage*`, ni `CreateDamageModifier`, ni `GetStatModification*`, ni
+    `ApplyModification`, ni `CreateTrigger`, ni `CreateAdditionalHits`, ni `GetArmorPenetration`) :
+
+      * `PsychicStalk_VisualEffectEffect$$.ctor`
+      * `PsychicStalk_VisualEffectEffect$$CreateActiveCondition`   (portee ci-dessous)
+      * `PsychicStalk_VisualEffectEffect$$CreateTargetSelector`    (portee ci-dessous)
+      * `PsychicStalk_VisualEffectEffect$$GetRefreshTriggers`      (NON portable, cf. RESIDU)
+
+    Les DEUX consommateurs sont nommes, et tous deux sont de la PRESENTATION :
+
+      1. **VFX + SFX** -- `IdunBattle.View.AbilityConfigs.Loki.PsychicStalkEffectVisual.u003CReceiveEffectInternalu003Ed__2$$MoveNext`
+         = `AbilityVisualsUtils.InstantiateEffects$$InstantiateEffectAt` puis
+         `AbilityVisualsUtils.SoundEffects$$PlaySfx`. Namespace `IdunBattle.View`.
+      2. **ICONE DE STATUT** -- `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$.cctor`
+         inscrit `0x4c0` dans le dictionnaire `<statics>+0x10` (EffectType -> categorie d'affichage)
+         avec la valeur **2**. Les accesseurs qui lisent CE dictionnaire donnent la lecture exacte :
+         `IsUnitEffectShownAsGenericDebuff` teste `== 2` (VRAI), `IsUnitEffectShownAsGenericBuff`
+         `== 1`, `HasUniqueIcon` `== 3`, `IsInvisible` `== 5` (donc `1216` n'est PAS invisible :
+         il s'affiche, en DEBUFF generique).
+
+    ⚠ L'absence d'un consommateur GAMEPLAY n'est PAS deduite de l'index de recherche de ghidra --
+    cet index s'est montre NON EXHAUSTIF (une recherche litterale de `0x4c0` ne ramene meme pas le
+    `CreateBehaviour` qui le contient pourtant). Elle est deduite de la STRUCTURE : la classe
+    n'expose aucun slot de sortie, et le seul balayage exhaustif qu'on peut faire -- la lecture
+    INTEGRALE du `.cctor` de `StaticBattleRules.Effect` -- ne trouve `0x4c0` qu'une seule fois, dans
+    le dictionnaire d'AFFICHAGE. Il n'est notamment PAS dans le `HashSet` `<statics>+8` que lit
+    `StaticBattleRules.Effect$$ShouldRefreshDuringSimulation`, ce qui a une consequence FORTE et
+    directement lisible dans `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect` :
+
+        if (state.<IsSimulation>) { if (!ShouldRefreshDuringSimulation(ec.EffectType)) return; }
+
+    -> pendant une SIMULATION (toute la face DECISION), le natif ne rafraichit JAMAIS `1216` : ni sa
+    condition d'activite, ni ses cibles. La face DECISION est donc structurellement hors de portee de
+    cet effet.
+
+    ## POURQUOI l'inscrire quand meme au registre
+    Meme raison que `WireweaveNet_CounterAttack` : NOMMER la classe native au lieu de router sur
+    `BaseEffect`, et porter la seule chose qui soit une LECTURE du natif plutot qu'un defaut --
+    sa `CreateActiveCondition`. Sans elle, `BaseEffect.is_active` rend `True` INCONDITIONNELLEMENT,
+    ce qui est une VALEUR PAR DEFAUT et non une lecture (cf. le bloc de commentaire de
+    `runner/operations/refresh_effects.py`)."""
+
+    def is_active(self, unit_state: Mapping | None = None) -> bool:
+        """`PsychicStalk_VisualEffectEffect$$CreateActiveCondition` (MIRROR 1:1) :
+
+            op_LogicalNot( DSLTriggers.IsDead( Owner@DSLSelectors+0x30 ) )
+
+        `IdunBattleLogic.Entities.DSLTriggers$$IsDead` est litteralement
+        `op_LogicalNot(DSLTriggers.IsAlive(unit))`, et `IsAliveAbilityTrigger$$ShouldTrigger` appelle
+        `IdunBattle.Entities.UnitExtensions$$IsAlive` -> `HealthComponent$$IsAlive` = `hp >= 1`.
+        Le double `NOT` se simplifie donc en **`IsAlive(Owner)`**, et le port en a deja le mirror
+        exact : `runner/components.py::unit_is_alive` (`hp >= 1`, `hp` inconnu -> vivant).
+
+        `Owner` = le PORTEUR de l'effet (Ahriman), pas sa cible : `RefreshEffectsOperation$$RefreshEffect`
+        resout `owner = state.GetEntity(EffectComponent.OwnerId @+0x14)` puis ecrit CET owner dans
+        l'`AbilityEntities` (slots `+0x08` et `+0x18`) avant d'appeler `ShouldBeActive`. Le
+        `unit_state` que le port passe a `is_active` est justement celui de l'unite qui PORTE
+        l'effet -- meme entite, aucune conversion.
+
+        Cle `hp` absente (pas de `HealthComponent`) -> VRAI, comme `unit_is_alive` : on ne gate
+        jamais sur un etat de PV non capte."""
+        hp = (unit_state or {}).get("hp")
+        if hp is None:
+            return True
+        return int(hp) >= 1
+
+    def target_selector_covers(self, ctx: Mapping | None = None) -> bool:
+        """`PsychicStalk_VisualEffectEffect$$CreateTargetSelector` (MIRROR 1:1), evalue PAR CANDIDAT :
+
+            Units( EntitiesWithAnyEffect( Tiles( Enemies( of = Owner@DSLSelectors+0x30,
+                                                          entities = AllUnits@DSLSelectors+0x20,
+                                                          onlyAlive = 1 ) ),
+                                          effectTypes = Fire = 5, effectTarget = 6 ),
+                   unique = 1, selectionType = 3 )
+
+        = « les unites ENNEMIES VIVANTES du porteur dont la MAIN TILE porte l'effet `Fire` ».
+
+        Les deux surcharges ambigues sont tranchees par l'ADRESSE du `call`, pas par le nom :
+        `Enemies(this, of, entities, onlyAlive)` (qui reexpedie sur `selectionType = onlyAlive + 2 = 3`)
+        et `Units(this, entities, unique, selectionType)`. `Tiles` =
+        `IdunBattle.Entities.Selectors.UnitsMainTilesSelector` -> la MAIN TILE, pas l'empreinte --
+        MEME noeud que `APsychicStalkEffect$$GetTargetIsOnFireTileCondition`, d'ou la lecture par
+        `t_pos` seule. Le `6` est `effectTarget`, PAS un second `EffectType` (la surcharge a
+        4 arguments emballe elle-meme le scalaire `5` dans un `int[1]`).
+
+        ⚠ **AUCUN CONSOMMATEUR COTE PORT, ET C'EST VOULU.** Cote natif le resultat de ce selecteur
+        part dans `RefreshEffectsOperation$$UpdateEffectTargets` -> `AddTargetsToEffect` ->
+        `IdunBattle.Entities.Components.EffectComponent$$AddTargetId` : la relation vit sur
+        l'ENTITE-EFFET (le champ que lit `IdunBattle.Entities.EntityExtensions$$IsTargetOfEffectOfType`,
+        `EffectComponent+0x48`), PAS dans l'`EffectsOwnedComponent.ActiveEffectIds` de la cible --
+        or c'est ce dernier, et lui seul, que publie le canal `decisionView`
+        (`frida/hooks/game/effects.ts::readEffectsByUnit`). La sortie MATERIALISEE de ce selecteur
+        est donc HORS DE PORTEE des capteurs existants ; le mirror est confronte sur ses ENTREES
+        (positions + effets de tuile de l'etat live), pas sur sa sortie native. Point d'ancrage a
+        hooker pour lever le residu : la liste de cibles de l'`EffectComponent`
+        (`AddTargetsToEffect` / `EffectComponent$$AddTargetId`).
+
+        Cle absente = contexte NON THREADE -> FAUX (degradation RESTRICTIVE nommee)."""
+        c = ctx or {}
+        if c.get("owner_team") is None or c.get("tgt_team") is None \
+                or c.get("owner_team") == c.get("tgt_team"):
+            return False                                  # Enemies(of = Owner@0x30)
+        if c.get("tgt_alive") is False:                   # onlyAlive = 1 -> selectionType 3
+            return False
+        tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
+        if tfx is None or tp is None:
+            return False
+        # EntitiesWithAnyEffect(Tiles(...), Fire = 5, effectTarget = 6) -- MEME noeud, MEME canal
+        # offline (noms de `tileMeta.tiles[].effects[]`) que `GetTargetIsOnFireTileCondition`.
+        return FIRE_TILE_EFFECT_NAME in set((tfx or {}).get(tuple(tp)) or ())
