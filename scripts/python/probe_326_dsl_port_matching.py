@@ -123,7 +123,13 @@ def read_attestations(path, symbol_by_key):
     """
     out = {}
     if not os.path.exists(path):
-        return out
+        # Un `return {}` SILENCIEUX ici rend un balayage COMPLET dont TOUTES les attestations
+        # manquent -- et il se lit comme une mesure. Mesure le 2026-08-01 : un `--attestations`
+        # RELATIF (joint a REPO, cf. l'appelant) resolvait hors du depot, le probe rendait 77
+        # `CITE_A_QUALIFIER` au lieu de 43, sans un mot. La table est VERSIONNEE : son absence est
+        # toujours une erreur d'invocation, jamais un etat legitime. On LEVE.
+        raise SystemExit("[attestation] table introuvable : %s (chemin RESOLU -- un --attestations "
+                         "relatif est joint a la racine du depot)" % path)
     key_by_symbol = {sym: key for key, sym in symbol_by_key.items()}
     with io.open(path, encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, 1):
@@ -338,7 +344,8 @@ def main():
         fam_of_name[p["name"]].add(p["family"])
     ambiguous_names = {n for n, fs in fam_of_name.items() if len(fs) > 1}
 
-    attest = read_attestations(os.path.join(REPO, args.attestations),
+    attest_path = os.path.join(REPO, args.attestations)
+    attest = read_attestations(attest_path,
                                {(p["family"], p["name"]): p["symbol"] for p in native})
 
     rows, attest_applied, attest_shadowed = [], [], []
@@ -489,8 +496,10 @@ def main():
     # L'attestation manuelle est un canal de DERNIER RECOURS : on publie combien de lignes ont
     # servi et combien sont devenues INUTILES (l'heuristique attestant deja la primitive). Une
     # ligne redondante n'est pas fausse, mais elle doit se voir -- c'est de la dette de table.
+    # On imprime le chemin RESOLU, pas l'argument brut : c'est l'ecart entre les deux qui avait
+    # rendu invisible un balayage sans aucune attestation.
     print("attestations (%s) : %d appliquees, %d redondantes%s"
-          % (args.attestations, len(attest_applied), len(attest_shadowed),
+          % (attest_path, len(attest_applied), len(attest_shadowed),
              (" [" + ", ".join(sorted(attest_shadowed)) + "]") if attest_shadowed else ""))
     n_sans = sum(1 for r in orphan_rows if r[1] == "SANS_ARTEFACT_CITE")
     print("exports Python sans primitive native homonyme : %d "

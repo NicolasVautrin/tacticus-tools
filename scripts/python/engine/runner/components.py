@@ -229,6 +229,15 @@ class UnitComponent(Component):
         cette formule. UNIQUE consommateur porte : le gate de
         `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HarlequinsPanoplyAbility$$CreateTrigger`.
 
+    `blocks_made_this_battle` (#393-r1) = mirror de `ActorStatisticsComponent @+0x88`. MEME forme que
+    `tiles_moved_this_battle` : `RegisterBlockMade` pousse les DEUX compteurs (`+0x8c` ce tour,
+    `+0x88` la bataille) et `ResetBlocksMadeThisTurn` n'en remet qu'UN a zero (`+0x8c`) -- verifie au
+    decompile. AUCUN lecteur porte : le seul consommateur natif est
+    `IdunBattle.Core.Services.BattleStatisticQuery$$GetTotalBlocksMadeByUnit` (statistiques de fin de
+    bataille, recursif sur les unites ENFANTS quand `IncludeAttackerChildren`), sans pendant porte --
+    donc aucun observable de COMBAT ne le distingue. Ecrit quand meme, pour rester le mirror exact du
+    `+=` double, exactement comme `tiles_moved_this_battle`.
+
     `feet` (#R30) = mirror de `UnitComponent._feet` @+0x78 -- l'`OrderedSet<int>` des ids des
     ENTITES-PIEDS de l'unite (`Blueprints.UnitFoot`, chacune portant un `UnitFootComponent
     {UnitId@0x10, TileId@0x14}`), rempli par `IdunBattle.Operations.AddUnitOperation$$Execute`
@@ -257,7 +266,7 @@ class UnitComponent(Component):
                  "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase",
                  "charged_unit_ids", "current_turn_start_tile", "revived_by_abilities",
                  "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn",
-                 "blocks_made_this_turn")
+                 "blocks_made_this_turn", "blocks_made_this_battle")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -300,8 +309,10 @@ class UnitComponent(Component):
         self.tiles_moved_this_battle = 0
         self.tiles_moved_this_turn = 0
         self.tiles_moved_last_turn = 0
-        # `ActorStatisticsComponent @+0x8c` — cf. la docstring de classe (bloc `blocks_made_this_turn`).
+        # `ActorStatisticsComponent @+0x8c` / `@+0x88` — cf. la docstring de classe (blocs
+        # `blocks_made_this_turn` et `blocks_made_this_battle`).
         self.blocks_made_this_turn = 0
+        self.blocks_made_this_battle = 0
 
     def add_foot(self, tile: tuple) -> None:
         """`IdunBattle.Entities.Components.UnitComponent$$AddFoot(footId)` = `_feet.Add(footId)`

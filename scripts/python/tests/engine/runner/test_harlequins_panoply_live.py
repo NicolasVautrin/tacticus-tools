@@ -182,14 +182,24 @@ def test_only_the_first_block_of_the_turn_arms_it(rpc, build_runner, grafted_bc)
     _make_adjacent(st, att, dfd)
     uc = st.get_entity(dfd).get_component(UnitComponent)
     assert uc.blocks_made_this_turn == 0
+    assert uc.blocks_made_this_battle == 0
     r1 = _attack(st, att, dfd)
     assert all(h == 0 for h in r1["per_hit"][1:]), r1["per_hit"]
     assert uc.blocks_made_this_turn >= 1                          # RegisterBlockMade a tourne
+    # `RegisterBlockMade` pousse les DEUX compteurs -- `+0x8c` ET `+0x88` (#393-r1). Le battle
+    # counter n'a AUCUN lecteur porte ; cette garde est ce qui le tient au mirror du `+=` double.
+    assert uc.blocks_made_this_battle == uc.blocks_made_this_turn, (
+        "battle=%d turn=%d" % (uc.blocks_made_this_battle, uc.blocks_made_this_turn))
+    n_battle = uc.blocks_made_this_battle
     r2 = _attack(st, att, dfd)                                    # MEME tour -> passif desarme
     assert all(h > 0 for h in r2["per_hit"]), r2["per_hit"]
     # turn-start du proprietaire du greffon -> ResetBlocksMadeThisTurn -> le passif se re-arme
     StartTurnOperation.execute(st, st.get_entity(dfd).get_component(OwnerComponent).player)
     assert uc.blocks_made_this_turn == 0
+    # `ResetBlocksMadeThisTurn` n'ecrit QUE `+0x8c` (decompile) : le compteur de BATAILLE survit.
+    assert uc.blocks_made_this_battle >= n_battle, (
+        "le reset de tour a rogne le compteur de BATAILLE : %d < %d"
+        % (uc.blocks_made_this_battle, n_battle))
     r3 = _attack(st, att, dfd)
     assert all(h == 0 for h in r3["per_hit"][1:]), r3["per_hit"]
 

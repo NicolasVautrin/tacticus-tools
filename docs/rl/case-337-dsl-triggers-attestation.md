@@ -74,8 +74,11 @@ auto-portants) -- dont le cliquet de livraison « `DSLTriggers` ne contient plus
 * **Aucune confrontation live** : la tache ne modifie aucun code de `engine/**` (seulement de
   l'outillage de mesure et de la doc), et le host Frida etait injoignable pendant le run
   (`127.0.0.1:8787` refuse). Rien ici ne change un observable de bataille.
-* **Les 37 `CITE_A_QUALIFIER` restants** sont hors perimetre (`DSLBehaviors` 12, `DSLFormulas` 11,
-  `DSLSelectors` 12, `DSLFactory` 2) -- le meme travail reste a faire, et le mecanisme est pret.
+* **Les `CITE_A_QUALIFIER` restants** sont hors perimetre -- le meme travail reste a faire, et le
+  mecanisme est pret. Compte RE-DERIVE le 2026-08-01, attestations appliquees : **43** au total
+  (`DSLSelectors` 15, `DSLBehaviors` 14, `DSLFormulas` 12, `DSLFactory` 2, `DSLTriggers` **0**).
+  Ces chiffres MONTENT au fil des ports (chaque citation neuve en cree) : les re-deriver
+  (`probe_326_dsl_port_matching.py --attestations <chemin ABSOLU>`), jamais citer cette ligne.
 * **`DSLTriggers$$Not`** reste `PORTE_ARTEFACT_AUTRE` (verdict anterieur, hors des 47 ; levier
   mesure a zero).
 * **Le backlog SEC de la famille est INCHANGE** -- ces primitives etaient deja `NON_PORTE` avant
@@ -162,10 +165,33 @@ primitive -- premiere trace captable, donc `NON_PORTE` -> `CITE_A_QUALIFIER`.
   | RESET | `ActorStatisticsComponent$$ResetBlocksMadeThisTurn` (`+0x8c = 0`), 3e instruction de la sequence de `StartTurnOperation$$ResetUnit` -- corps **INLINE** dans `StartTurnOperation$$Execute`, son unique site (aucun appel direct) | `operations/turnflow.py`, meme sequence, meme portee |
   | LECTURE | `TimesBlockedThisTurnFormula$$Calculate` -> `+0x8c` | `_blocks_made_this_turn` |
 
-**Ce qui N'EST PAS ferme** (residu `#393-r1`, backlog) : `DSLFormulas$$TimesBlockedThisTurn` a
-bascule par la MEME citation et reste `CITE_A_QUALIFIER`. Sa RE est faite -- meme verdict, meme
-porteur -- mais l'inscrire violerait le perimetre que `test_337` DECLARE
-(`fams == {"DSLTriggers"}`) : elargir la table a une 2e famille est une decision de cadrage, pas de
-RE. Y est joint le seul ecart de mirror trouve : `RegisterBlockMade` incremente **deux** compteurs
-(`+0x8c` ce tour, `+0x88` la bataille) et le port ne mirroir que le premier -- `+0x88` n'est lu que
-par `BattleStatisticQuery$$GetTotalBlocksMadeByUnit`, sans pendant porte.
+### `#393-r1` -- ARBITRE ET FERME (2026-08-01)
+
+**Le perimetre est elargi a DEUX familles, avec des regimes DISTINCTS.** `test_337` ne declare plus
+`fams == {"DSLTriggers"}` mais un litteral nomme `PERIMETRE_ATTESTATIONS = {"DSLTriggers",
+"DSLFormulas"}`, teste en INCLUSION (`fams <= perimetre`, plus `"DSLTriggers" in fams` pour qu'une
+table videe ne passe pas). `DSLTriggers` garde son cliquet de COMPLETUDE (165/165, 0
+`CITE_A_QUALIFIER`) ; `DSLFormulas` entre en famille PARTIELLE, attestations a la carte, SANS
+cliquet de completude -- une primitive `DSLFormulas` non attestee reste `CITE_A_QUALIFIER`, ce qui
+est l'aveu honnete que l'outil ne sait pas l'attribuer, pas un verdict.
+
+`DSLFormulas$$TimesBlockedThisTurn` est donc inscrite : **`PORTE_HORS_FACADE`**, ancre
+`harlequins_panoply.py:_blocks_made_this_turn`. Verifie au decompile ce jour : son unique appelant
+natif (xref `UNCONDITIONAL_CALL`) est `DSLTriggers$$HasBlockedThisTurn`, et
+`TimesBlockedThisTurnFormula$$Calculate` resout le selecteur puis rend `+0x8c`.
+
+**L'ecart de mirror joint est CORRIGE** : `ActorStatisticsComponent$$RegisterBlockMade` incremente
+**deux** compteurs (`+0x8c` ce tour, `+0x88` la bataille) et le port n'en mirrorait qu'un. Le champ
+`blocks_made_this_battle` existe desormais (`UnitComponent`), pousse par `register_block_made`, et
+n'est PAS remis a zero au turn-start -- `ResetBlocksMadeThisTurn` n'ecrit que `+0x8c` (lu au
+decompile). Aucun lecteur porte (seul `BattleStatisticQuery$$GetTotalBlocksMadeByUnit` le
+consomme, cote statistiques de fin de bataille) : meme statut que `tiles_moved_this_battle`, ecrit
+pour rester le mirror exact du `+=` double. Garde :
+`test_harlequins_panoply_live.py::test_only_the_first_block_of_the_turn_arms_it`.
+
+**Trouve en marge, et corrige** : `probe_326_dsl_port_matching.py` rendait `{}` en SILENCE quand la
+table d'attestation etait introuvable, et son `--attestations` RELATIF est joint a la racine du
+depot -- un chemin relatif plausible resolvait donc hors du depot et produisait un balayage complet
+SANS AUCUNE attestation, lu comme une mesure (77 `CITE_A_QUALIFIER` au lieu de 43). La table etant
+versionnee, son absence est toujours une erreur d'invocation : le probe LEVE desormais, et imprime
+le chemin RESOLU au lieu de l'argument brut.

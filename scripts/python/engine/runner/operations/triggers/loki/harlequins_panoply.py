@@ -181,16 +181,23 @@ def _blocks_made_this_turn(state: State, unit_id: int) -> int:
 
 def register_block_made(state: State, unit_id: int) -> None:
     """`IdunBattle.Operations.RegisterBlockOperation$$Execute` ->
-    `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterBlockMade` (`+0x8c += 1`).
+    `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterBlockMade`, qui pousse **DEUX**
+    compteurs : `+0x8c += 1` (ce tour) ET `+0x88 += 1` (la bataille). #393-r1.
 
     Appelé PAR COUP BLOQUÉ, comme le natif : `IdunBattle.Operations.ADamageOperation$$RegisterBlocks`
     est invoquée par `AttackDamageOperation$$ExecuteHits` à chaque tour de boucle, et pousse le slot
-    0x4c dès que le résultat du coup porte `didBlock` (`result+0x22`)."""
+    0x4c dès que le résultat du coup porte `didBlock` (`result+0x22`).
+
+    `+0x88` n'a AUCUN lecteur porté (seul `BattleStatisticQuery$$GetTotalBlocksMadeByUnit` le lit,
+    côté statistiques de fin de bataille) : il est écrit pour rester le mirror exact du `+=` double,
+    comme `tiles_moved_this_battle` l'est de `RecordTilesMoved`. Il n'est PAS remis à zéro au
+    turn-start -- `ActorStatisticsComponent$$ResetBlocksMadeThisTurn` n'écrit que `+0x8c`."""
     e = state.get_entity(int(unit_id)) if unit_id is not None else None
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None:
         return
     uc.blocks_made_this_turn = int(getattr(uc, "blocks_made_this_turn", 0) or 0) + 1
+    uc.blocks_made_this_battle = int(getattr(uc, "blocks_made_this_battle", 0) or 0) + 1
 
 
 class HarlequinsPanoplyAbility(TriggeredAbility):

@@ -30,6 +30,17 @@ import probe_326_dsl_primitive_inventory as INV       # noqa: E402
 
 ATTESTATIONS = ROOT / "docs" / "rl" / "dsl-port-attestations.tsv"
 
+# PERIMETRE DECLARE de la table d'attestation -- litteral NOMME, jamais un effet de bord.
+# #337 l'a ouverte sur `DSLTriggers` SEULE ; #393-r1 y ajoute `DSLFormulas`. Les deux familles
+# n'ont PAS le meme regime, et c'est VOULU :
+#   * `DSLTriggers` : COMPLETE -- les 165 primitives sont tranchees, cliquet de completude
+#     `test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE` ci-dessous.
+#   * `DSLFormulas` : PARTIELLE -- attestations a la carte, AUCUN cliquet de completude. Une
+#     primitive `DSLFormulas` non attestee reste donc `CITE_A_QUALIFIER`, ce qui est l'aveu
+#     honnete que l'outil ne sait pas l'attribuer -- pas un verdict.
+# Elargir cette liste est une decision de CADRAGE : elle se prend ici, explicitement.
+PERIMETRE_ATTESTATIONS = {"DSLTriggers", "DSLFormulas"}
+
 
 def _native():
     """Inventaire natif RE-DERIVE de `data/symbols/<CURRENT>/` (versionne)."""
@@ -90,7 +101,13 @@ def test_la_table_versionnee_est_VALIDE_sur_le_build_courant():
     att = M.read_attestations(str(ATTESTATIONS), _symbol_by_key(native))
     assert att, "table d'attestation vide ou introuvable"
     fams = {k[0] for k in att}
-    assert fams == {"DSLTriggers"}, "perimetre #337 = la seule famille DSLTriggers : %s" % fams
+    hors = sorted(fams - PERIMETRE_ATTESTATIONS)
+    assert not hors, (
+        "famille HORS du perimetre declare %s : %s -- l'elargir se decide dans "
+        "`PERIMETRE_ATTESTATIONS`, ce n'est pas un effet de bord d'une attestation"
+        % (sorted(PERIMETRE_ATTESTATIONS), hors))
+    # `<=` seul laisserait passer une table VIDEE de DSLTriggers ; la famille COMPLETE doit y etre.
+    assert "DSLTriggers" in fams, fams
 
 
 def _write(tmp_path, line):
