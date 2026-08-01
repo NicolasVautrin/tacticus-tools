@@ -205,10 +205,19 @@ Le cliquet `tests/engine/runner/test_inescapable_accuracy_crit_chance_live.py` r
 
 ## 7. Résidus NOMMÉS et MESURÉS
 
-### 7.1 `#366-r1-crit-multihit` — l'étage CRIT diverge dès le 3ᵉ coup, INDÉPENDAMMENT de ce cas
+### 7.1 ~~`#366-r1-crit-multihit`~~ — **RÉSOLU** (`case-366-r1-crit-multihit.md`)
 
-**CANDIDAT fable-solver.** Ce cas le MESURE, il ne le corrige pas : le mécanisme est partagé par
-les trois vecteurs d'attaque, c'est une tranche à part entière.
+> **La lecture proposée ci-dessous était la projection d'UN échantillon.** Le natif ne consomme pas
+> « deux tirages pour les deux premiers coups puis un seul » : il appelle `RollCritical` **au coup
+> qui SUIT un coup CRITIQUE**, et le canal se ferme définitivement au premier non-crit
+> (`OngoingHitGroup+0x3c` = `isCriticalDamageAllowed`, recalculé par
+> `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits`). À `cc = 50` — le régime mesuré ici —
+> les deux formulations coïncident ; à `cc = 100` le natif tire deux fois sur les **six** coups, à
+> `cc = 5` sur le seul premier. **La contrainte de montage « salve d'UN coup » est levée**, et une
+> salve multi-coups à crit non nul est désormais confrontable.
+
+Ce cas le MESURE, il ne le corrige pas : le mécanisme est partagé par les trois vecteurs d'attaque,
+c'est une tranche à part entière.
 
 Montage : salve d'attaque normale à `--crit 50,700` (`GetStat(9) = 50`), toutes options de ce cas
 par ailleurs. Les premiers coups sont **bit-exacts**, puis le port se met à **criter là où le natif
@@ -230,16 +239,16 @@ Trois faits l'attribuent hors de ce cas, et hors de l'axe crit-chance :
 
 Lecture de flux (`--crit 0,700` ranged, 6 coups, 1116 neutralisé) : le rejeu SANS crit-roll
 (mutation `NOCHANNEL`, qui consomme 1 tirage par coup) rend `[1946, 1918, 1764, 1618, 2026, 1967]`,
-et le LIVE rend `[3158, 1618, 2026, 1967, 1682, 1597]` — c'est-à-dire que **le natif consomme deux
-tirages pour les deux premiers coups puis UN SEUL** par coup, là où le port en consomme deux
-partout. Le port tire donc un crit-roll que le natif ne tire pas. La cause exacte n'est **pas**
-tranchée ici (le gate natif `clamp(cc) >= 1` de `RollCritical` est pourtant identique côté port) —
-c'est le point à instruire.
+et le LIVE rend `[3158, 1618, 2026, 1967, 1682, 1597]` — c'est-à-dire que le natif consomme deux
+tirages pour les deux premiers coups puis UN SEUL par coup, là où le port en consomme deux partout.
+Le port tire donc un crit-roll que le natif ne tire pas. ⚠ **Cette lecture est CORRECTE sur cet
+échantillon et FAUSSE comme loi** : ce ne sont pas « les deux premiers coups », ce sont les coups
+qui SUIVENT un crit — ici le coup 0 crite, le coup 1 ne crite pas et ferme le canal. Cf.
+`case-366-r1-crit-multihit.md`.
 
-**Conséquence de montage, et pourquoi ce cas est quand même mesuré** : la validation de 1115 se
-fait sur une salve d'**UN** coup, imposée au natif par le seed BC. C'est la seule cellule où les
-deux modèles sont prouvés sur la même case du flux, et c'est exactement là que le canal se
-manifeste.
+**Conséquence de montage** — la validation de 1115 se fait sur une salve d'**UN** coup, imposée au
+natif par le seed BC. Ce contournement n'est plus nécessaire depuis la fermeture du résidu, mais il
+reste en place : il n'a jamais été faux, seulement plus étroit que nécessaire.
 
 ### 7.2 Le nombre de coups vient du GAMECONFIG côté port, du BC côté natif
 

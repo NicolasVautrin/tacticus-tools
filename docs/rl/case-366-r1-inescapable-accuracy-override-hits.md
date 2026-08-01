@@ -278,7 +278,14 @@ TriggeringAbilityIs( AbilityOrEffect( EffectType 0x3f1 = 1009 Overwatch_AutoAtta
 
 Le cliquet de cette fiche a été re-joué après ce changement : **13 passed**.
 
-### 7.3 Donnée NEUVE sur `#366-r1-crit-multihit` — il ne touche PAS la cardinalité
+### 7.3 Donnée NEUVE sur ~~`#366-r1-crit-multihit`~~ — il ne touche PAS la cardinalité
+
+> **Résidu FERMÉ depuis** — `case-366-r1-crit-multihit.md`. La borne posée ici (« la divergence est
+> dans les VALEURS, jamais dans le COMPTE ») est **exacte et l'est restée** : la cause est bien
+> `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits`, qui cesse d'appeler `RollCritical` dès
+> qu'un coup ne crite pas — le nombre de coups, lui, sort de `GetAttackHits`, en amont et
+> indépendamment. C'est cette borne qui a permis à ce cas de se passer du contournement « salve d'un
+> coup » ; elle n'a plus à le faire, mais elle avait raison.
 
 Ce cas ne corrige pas le résidu, mais il le **borne**, ce que ni #411 ni #414 ne pouvaient faire
 (tous deux confinés à une salve d'un coup) :
