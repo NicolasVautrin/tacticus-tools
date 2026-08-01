@@ -187,14 +187,20 @@ class DotggAuraHarness:
 
     # ------------------------------------------------------------------ montage du regime
 
-    def arrange(self, benef_visual, regime):
+    def arrange(self, benef_visual, regime, tgt_dist=(2, 3)):
         """Impose la geometrie du regime et rend `{carrier, benef, target, anchor, ...}` ou None.
 
         On DEPLACE les unites -- jamais « bloque par la geometrie de spawn ». L'ennemi est ancre sur
         une tuile a 6 voisins marchables ; le porteur est pose a d>=3 de lui (il ne tire ni
-        n'encaisse) ; le beneficiaire est pose a `REGIME_DIST[regime]` du porteur ET a portee de tir
-        de l'ennemi."""
+        n'encaisse) ; le beneficiaire est pose a `REGIME_DIST[regime]` du porteur ET a `tgt_dist`
+        hexes de l'ennemi.
+
+        `tgt_dist` = fenetre `(min, max)` de la distance BENEFICIAIRE <-> CIBLE. Le defaut `(2, 3)`
+        convient aux armes de portee 3 ; un beneficiaire a portee 2 (ex. `ultraTigurius`, arme
+        Psychic r2) EXIGE `(2, 2)`, sinon la tuile retenue peut etre a d=3 et l'attaque ranged est
+        REFUSEE -- `live_per_hit` rendu VIDE, ce qui accuse le MONTAGE et non le port."""
         dist = REGIME_DIST[regime]
+        dmin, dmax = int(tgt_dist[0]), int(tgt_dist[1])
         dv = self.dview()
         car = self.by_visual(CARRIER, dv)
         ben = self.by_visual(benef_visual, dv)
@@ -214,7 +220,7 @@ class DotggAuraHarness:
             for cpos in [c for c in coords if hexgeo.distance(c, anc) >= 3 and c != anc]:
                 bs = [c for c in coords
                       if hexgeo.distance(c, cpos) == dist and c not in (anc, cpos)
-                      and 2 <= hexgeo.distance(c, anc) <= 3]
+                      and dmin <= hexgeo.distance(c, anc) <= dmax]
                 if not bs:
                     continue
                 bpos = bs[0]
@@ -230,12 +236,12 @@ class DotggAuraHarness:
                         "anchor": anc, "carrier_pos": cpos, "benef_pos": bpos, "regime": regime}
         return None
 
-    def run(self, benef_visual, regime):
+    def run(self, benef_visual, regime, tgt_dist=(2, 3)):
         """Monte le regime, sature la chance, SNAPSHOTe puis joue l'ATTAQUE NORMALE du beneficiaire.
 
-        Rend `{...arrange, turns_started, snapshot, live_per_hit, ability_type}` ou None si la
-        geometrie n'a pas pu etre obtenue."""
-        plan = self.arrange(benef_visual, regime)
+        Rend `{...arrange, turns_started, snapshot, live_per_hit, live_profiles, ability_type}` ou
+        None si la geometrie n'a pas pu etre obtenue."""
+        plan = self.arrange(benef_visual, regime, tgt_dist=tgt_dist)
         if plan is None:
             return None
         if self.reach_my_turn() is None:
@@ -265,6 +271,8 @@ class DotggAuraHarness:
             "abilityType": int(plan["ability_type"])}}, 60)
         a0 = (res.get("actions") or [{}])[0] if isinstance(res, dict) else {}
         hits = []
+        profiles = []
+        raw_tags = None
         for e in (a0.get("events") or []):
             td = e.get("tags")
             if not td:
@@ -273,8 +281,19 @@ class DotggAuraHarness:
             if ("Amount" in td and td.get("Attacker_Id") == plan["benef"]
                     and td.get("Target_Id") == plan["target"]):
                 hits.append(int(td["Amount"]))
+                # Le PROFIL REELLEMENT porte par le coup. Sans lui, un bras « Psychic » qui
+                # tirerait en fait du Bolter passerait vert sans jamais exercer
+                # `!DamageProfileIs(0xd)` (#420-r1). Deux TagKey le portent selon l'evenement :
+                # 147 `Attack_Weapon_DamageProfile` et 226 `DamageProfileType`.
+                profiles.append(td.get("Attack_Weapon_DamageProfile")
+                                if td.get("Attack_Weapon_DamageProfile") is not None
+                                else td.get("DamageProfileType"))
+                if raw_tags is None:
+                    raw_tags = dict(td)
         plan["live_ok"] = bool(_ok(res) and a0.get("ok"))
         plan["live_per_hit"] = hits
+        plan["live_profiles"] = profiles
+        plan["live_first_damage_tags"] = raw_tags
         return plan
 
     # ------------------------------------------------------------------ rejeu offline
@@ -289,9 +308,16 @@ class DotggAuraHarness:
             st.rng = _seed_rng(dump)
         return st
 
-    def replay_offline(self, rec):
+    def replay_offline(self, rec, drop_carrier_effects=()):
         """Rejoue l'ATTAQUE NORMALE offline et rend
         `{per_hit, weapon_per_hit, extra_per_hit, state, carrier_effects}`.
+
+        `drop_carrier_effects` = noms d'effets a RETIRER du PORTEUR avant le rejeu (`by_unit` est le
+        seul index de `EffectsState`). C'est la CONTRE-EPREUVE DE SENSIBILITE : elle repond a « la
+        mesure discrimine-t-elle seulement ? ». Sur un bras cense RECEVOIR le bonus, retirer
+        `DefenderOfTheGreaterGood_ExtraDmg` DOIT changer les valeurs ; sur un bras cense n'en
+        recevoir AUCUN (attaque Psychic), le retrait ne doit RIEN changer. Sans elle, deux absences
+        se comparent et le vert ne prouve rien.
 
         ⚠ `per_hit` CONCATENE les coups d'ARME **et** les coups des groupes du canal #179
         (`damage_handler.last["additional_hits"]["per_hit"]`), dans cet ordre. C'est ce qui le rend
@@ -304,6 +330,11 @@ class DotggAuraHarness:
         st = self.offline_state(rec)
         effs = [getattr(e, "name", None)
                 for e in (st.effects.by_unit.get(rec["carrier"]) or [])]
+        if drop_carrier_effects:
+            drop = set(drop_carrier_effects)
+            st.effects.by_unit[rec["carrier"]] = [
+                e for e in (st.effects.by_unit.get(rec["carrier"]) or [])
+                if getattr(e, "name", None) not in drop]
         runner = Runner(st).install_default_handlers(20)
         runner.apply(AttackUnitMessage(attacker_id=rec["benef"], target_id=rec["target"]))
         last = runner.damage_handler.last or {}
@@ -372,8 +403,13 @@ def dotgg_aura_regime(rpc, build_runner):
     `make(benef=..., seed=..., board=..., a_units=...)`. Le roster porte TOUJOURS `tauShadowsun`
     (le porteur) ; `benef` doit etre un allie a arme RANGED. Les PV sont gonfles pour que rien ne
     meure pendant le rechauffement des tours (le montage a besoin de >= 4 tours)."""
-    def make(benef, seed="777", board="MC1_67", a_units="orksNob", extra=None):
-        p_units = "%s,%s" % (CARRIER, benef)
+    def make(benef, seed="777", board="MC1_67", a_units="orksNob", extra=None, p_extra=()):
+        # `p_extra` = beneficiaires SUPPLEMENTAIRES embarques dans le MEME runner. `arrange` ecarte
+        # a d >= 5 de l'ancre toute unite qui n'est pas le beneficiaire du regime en cours, donc un
+        # seul runner sert plusieurs regimes qui exigent des beneficiaires DIFFERENTS (ex. le tier
+        # `UnitsFromFaction(9 = Tau)` du ring 2, qui demande un T'au la ou le tier de distance
+        # demande un non-T'au). Un runner de moins par tier tenu.
+        p_units = ",".join([CARRIER, benef, *p_extra])
         args = ["--p-units", p_units, "--a-units", a_units,
                 "--hp-target", "300000", "--hp-player", "300000", "--no-ai", *(extra or [])]
         rid = build_runner(seed, extra=args, board=board)["rid"]
