@@ -100,15 +100,19 @@ def test_failed_block_survives_the_weapon_phase_live(live_session, rpc,
         "l'entree du groupe -- la mesure ne porterait pas sur la portee de la failed-block list.")
     assert n < len(live), f"aucun event live apres les {n} coups d'arme : groupe non emis"
     g_live = live[n:n + len(ship)]
-    # (1) le regime DOIT discriminer les deux modeles, sinon la garde ne prouve rien.
+    # (1) RATCHET D'ABORD : le natif GARDE la source exclue, donc le port LIVRE reproduit le live.
+    #     Cet ordre est VOULU -- contre-epreuve mesuree (mutation `failed_block = set()` dans
+    #     `_run_hits`) : le port devient identique au contrefactuel, et c'est CETTE assertion qui
+    #     doit nommer la regression, pas celle du regime discriminant.
+    assert ship[:len(g_live)] == g_live, (
+        f"le port LIVRE ne reproduit pas le groupe : shipped={ship[:len(g_live)]} live={g_live} "
+        "-- `_run_hits`/`execute_additional_hits` threadent-ils encore `failed_block0` "
+        "(`OngoingAttack+0x48`) ?")
+    # (2) le regime DOIT discriminer les deux modeles, sinon la garde ne prouve rien.
     assert nt[:len(g_live)] != ship[:len(g_live)], (
         f"seed {seed} : groupe NON discriminant (les deux modeles donnent {ship}) -- la source de "
         "block a-t-elle bien ECHOUE pendant la phase d'arme ? rejouer `probe_407_failed_block_"
         "attack_scope.py` pour re-selectionner les seeds.")
-    # (2) le natif GARDE la source exclue : c'est le port LIVRE qui reproduit le live.
-    assert ship[:len(g_live)] == g_live, (
-        f"le port LIVRE ne reproduit pas le groupe : shipped={ship[:len(g_live)]} live={g_live} "
-        "-- `execute_additional_hits` thread-il encore `failed_block0` (`OngoingAttack+0x48`) ?")
     # (3) DISCRIMINATION : le modele SANS threading (le port d'avant #407) doit ECHOUER.
     assert nt[:len(g_live)] != g_live, (
         f"le modele SANS threading reproduit aussi le live ({nt[:len(g_live)]}) : la garde est "
