@@ -1,4 +1,4 @@
-# case-366-r1 — `1113 TunnelingHorror_PendingSummon` : PORTÉ (effet), vecteur de pose en RÉSIDU
+# case-366-r1 — `1113 TunnelingHorror_PendingSummon` + son VECTEUR DE POSE (actif `1011`) : PORTÉS
 
 Le marqueur que `TunnelingHorror` (`ActiveAbilityType` 0x3f3 = 1011, `necroSmnDestroyer`
 « Ophydian Destroyer ») laisse **sur la tuile de destination** pendant que l'unité est sous terre.
@@ -102,10 +102,17 @@ littéral EST le masque effectif :
 
 ### 1.4 La lecture — `TunnelingHorrorAbility$$GetDynamicInvalidTargetReason`
 
-    HasEffect( Get(target), 0x459, ... )  ->  return 2 (TargetMatchesDynamicRule)
+Le corps porte **DEUX** refus, pas un (relu en entier au portage) :
 
-Une tuile **déjà marquée** est une cible INVALIDE. C'est le seul consommateur du marqueur côté
+    if ( HasEffect( Get(target), 0x459, onlyActive: false, targetType: 6 ) )   return 2;   # (a)
+    foreach (t in casterTiles)
+        if ( IdunBattle.Entities.TileExtensions$$IsTemporary(t) )              return 2;   # (b)
+    return 0;
+
+(a) Une tuile **déjà marquée** est une cible INVALIDE. C'est le seul consommateur du marqueur côté
 ciblage, et c'est ce qui rend l'effet observable sans hook (cf. § 2, E3).
+(b) Un caster **debout sur une tuile TEMPORAIRE** ne peut pas creuser. `IsTemporary` lit le booléen
+`@+0x2c` du `TileComponent`.
 
 ### 1.5 Le retrait — `TunnelingHorror_AppearAbility$$ExecuteBehaviour` (active 1060)
 
@@ -203,26 +210,58 @@ canal. Les trois getters d'`ABondEffect` sont transcrits en attributs de classe 
 de 1113 dans `EFFECT_TRIGGERS` se lise comme une mesure et pas comme un oubli** — le port ne mirror
 pas `CreateHandleTriggerAbilitiesInternal` génériquement, chaque effet déclare ses triggers.
 
-**RÉSIDU NOMMÉ — le VECTEUR DE POSE (active 1011) n'est PAS porté.** Conséquence exacte : offline, un
-cast de 1011 est un **no-op silencieux**, et l'effet n'arrive dans `State.effects` que par le chemin
-de CHARGEMENT (`runner/snapshot.py::_load_tile_effects`), jamais par une pose offline.
+**PORTÉ — le VECTEUR DE POSE (active 1011).** Trois pièces, dans l'ordre de la frontière #149 :
 
-Ce qui manque, nommément :
+1. `IdunBattle.Operations.RemoveUnitFromTilesOperation$$Execute` (surcharge UNITÉ) →
+   `engine/runner/operations/remove_unit_from_tiles.py`.
+2. Les deux feuilles DSL → `engine/runner/abilities/behaviours/lifecycle.py` :
+   `RemoveUnitFromItsTiles` (`…Behaviours.RemoveUnitFromItsTilesBehaviour$$Execute`) et
+   `RemoveAllForcedAttackTargets` (`…Behaviours.RemoveForcedAttackTargetBehaviour$$Execute`).
+3. `TunnelingHorrorAbility` → `engine/runner/abilities/necrons.py`, au registre avec ses deux
+   littéraux de ctor (`TARGETING_OPTIONS = 0x8000000001042`, `ABILITY_ATTACK_TYPE = Others`).
 
-1. `IdunBattle.Operations.RemoveUnitFromTilesOperation$$Execute` — pour chaque pied : si
-   `<tuile>.<occupant> == unit.Id`, l'effacer ; puis (si `removeTileFromUnit`) effacer le lien
-   `pied -> tuile`. Côté port : `set_unit_feet(state, uid, [])` **et** retrait du `PositionComponent`
-   (l'état « unité sans position » existe déjà pour les MoW hors-plateau, mais **jamais pour une
-   UNITÉ** — c'est le vrai coût, il touche un foyer que ~200 sites lisent). Le natif mémorise en plus
-   la dernière `UnitPositionId` (`+0x88..0xa4`), sans consommateur offline connu.
-2. La feuille DSL `RemoveUnitFromItsTiles` + `RemoveAllForcedAttackTargets` (ce dernier a un
-   composant côté port, `ForcedAttackTargetsComponent` ; il n'a émis AUCUN event dans les mesures,
-   la liste étant vide).
-3. `ABILITY_CLASSES[1011]` + `TARGETING_OPTIONS = 0x8000000001042` + `ABILITY_ATTACK_TYPE = Others`
-   (les deux littéraux sont **déjà lus**, cf. §1.3 — les reprendre tels quels).
+**Le vrai coût n'était pas la primitive, c'était l'ÉTAT qu'elle crée** — une UNITÉ sans position.
+Deux choses le rendaient piégeux, et une seule a demandé du travail :
+
+* **L'ÉCRIVAIN.** `set_unit_feet` est l'écrivain unique de l'empreinte ; sa branche « liste vide »
+  n'existait pas. Pire, elle *semblait* exister : `set_unit_feet(state, uid, [])` retombait sur
+  `if len(uc.feet) <= 1: uc.feet = None`, donc rendait l'unité mono-tuile **et laissait la
+  `PositionComponent` en place**. L'opération aurait « réussi » sans que l'unité quitte le plateau.
+  La branche pose désormais `feet = []` MATÉRIALISÉ **et** retire la `PositionComponent` — les deux
+  ensemble, sans quoi `get_unit_feet` (qui retombe sur la position quand `feet is None`) et le
+  composant divergeraient.
+* **LES LECTEURS.** Balayage exhaustif des **cinq** portes du foyer (2026-08-01, AST + fenêtre de
+  déréférencement, `scan_position2`) : `get_component(PositionComponent)` **148** call-sites,
+  `get_unit_feet` **12**, `get_main_tile` **1**, `unit["pos"]` **83**, `_pos(…)` **47** — soit
+  **291**, dont **0** déréférence une position nulle sans garde (l'unique candidat,
+  `ai/context.py` ligne ~722, est gardé en amont par `_enemies`, qui filtre `u.get("pos")`).
+  L'état n'était donc pas inédit : le chemin de CHARGEMENT le produit déjà
+  (`snapshot._load_units` ne pose la `PositionComponent` que si `pos.col is not None`, et
+  `decisionView` rend `pos = null` pour l'unité sous terre). **Seul l'écrivain manquait.**
+
+**Ce que le port ne mirror PAS, nommément** (aucun est un oubli) :
+
+* `remove_tile_from_unit = False` — les deux boucles natives (tuile→pied, puis pied→tuile) sont
+  **la même arête** après le collapse `pied → UnitFootComponent.TileId → tuile` en un `(col,row)`,
+  et l'occupation du port est DÉRIVÉE. « Les tuiles sont libérées mais l'unité y reste » n'est donc
+  pas représentable : l'Operation ne mute rien et le DIT (`applied: False`). Aucune régression —
+  l'unique appelant natif qui passe `false` est l'étape 6 de `RemoveUnitOperation$$Execute`, dont le
+  port collapse déjà le retrait de tuiles en `alive = False`.
+* Les deux `Nullable<UnitPositionId>` (`UnitComponent @+0x88` et `@+0x98`) que le natif écrit avec
+  la position d'avant — **aucun lecteur porté**. Le seul candidat natif est le repli
+  `MoveUnit(Owner, <repli>)` de `TunnelingHorror_AppearAbility$$ExecuteBehaviour` : à porter EN MÊME
+  TEMPS que 1060, pas avant.
+* Le refus (b) de `GetDynamicInvalidTargetReason` (`IsTemporary` sur les tuiles du caster, §1.4) —
+  le port ne matérialise pas `isTemporary` côté RUNNER (`state.board` ne porte que la géométrie et
+  `walkable` ; le canal `tileMeta.isTemporary` n'est seedé que côté DÉCISION,
+  `engine/ai/context.py::is_temporary_by_pos`). Dégradation PERMISSIVE, jamais un refus inventé.
+* Le STEP de vue (`RemoveUnitFromTilesStepHandler`) et l'event de match `0x1b` — le port n'a ni flux
+  de vue ni journal de match, comme partout ailleurs dans `operations/`.
+* Le natif LÈVE une NRE sur une entité qui n'est pas une unité ; le port rend un refus TRACÉ
+  (`None`), aligné sur `RemoveUnitOperation`.
 
 L'ability 1060 (`TunnelingHorror_Appear`) est un arbre nettement plus gros (§1.5) et n'a **aucune
-config au gameconfig** ; elle est hors périmètre de ce résidu.
+config au gameconfig** ; elle reste hors périmètre — RÉSIDU NOMMÉ.
 
 **NON COUVERT (et probablement inatteignable par construction)** : la conséquence de
 `get_RemoveOnBondedEntityDeath = false`. La seule fenêtre où le bond existe est celle où l'unité
@@ -231,5 +270,7 @@ le bond ; montage non joué.
 
 ## 4. Reproduction
 
-    python scripts/python/probe_366_r1_tunneling_horror.py          # 5 mesures live
+    python scripts/python/probe_366_r1_tunneling_horror.py          # confrontation + 5 mesures live
     python -m pytest scripts/python/tests/engine/test_366_r1_tunneling_horror_pending_summon_offline.py
+    python -m pytest scripts/python/tests/engine/runner/test_366_r1_tunneling_horror_cast_offline.py
+    python -m pytest scripts/python/tests/engine/runner/test_366_r1_tunneling_horror_live.py
