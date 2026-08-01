@@ -170,7 +170,7 @@ Pool spawnable relu au rank courant : **97** unites.
 
 | id | nom | ce que fait la classe | porteur | voie |
 |---|---|---|---|---|
-| 1000 | ShockAssault_Buff | (classe propre, corps de ctor fondu) | `ultraInceptorSgt` | HERO, pool |
+| ~~1000~~ | ~~ShockAssault_Buff~~ | **PORTE par #366-r1** -- `docs/rl/case-366-r1-shock-assault-buff.md`. « Corps de ctor fondu » est VRAI (Ghidra le nomme `SwarmHitReductionEffect$$.ctor`) mais la classe est bien PROPRE : le slot `Il2CppClass*` `0x1833b6bc0` n'a qu'UNE xref, la fabrique `b__14_26`. Elle derive de `StaticStatModifierEffect` et n'ajoute que `CreateRemoveEffectTrigger` = `On(0xa = AttackDamageAttack) & OwnerIsCaster` -- la pose etant a `turns = NULL`, c'est ce trigger SEUL qui borne le buff a l'attaque en cours. **La magnitude ne se re-derive pas** : la feuille de pose passe `source = null`, donc `captured["source"]` designe le PORTEUR (le summon) -- elle se LIT dans le `statMod.Amount` capte (= `StatModifierComponent+0x14`, ce que le natif relit). Confronte live sur DEUX regimes (passif 50 -> 499, passif 20 actif 50 -> 47) | `ultraInceptorSgt` | HERO, pool |
 | 1014 | CamoCloak_DmgReduction | `CreateDamageModifier` + `CreateActiveCondition` | `ultraEliminatorSgt` | HERO, pool (+ summon `ultraSmnEliminator`) |
 | 1107 | PathOfCommand_ExtraCrit | `GetDynamicStatModificationAmount` + `CreateTargetSelector` (axe CRIT) | `eldarAutarch` | HERO, pool -- **PORTE (#373)**, cf. §3.3bis |
 | 1108 | ReinforcedHiveNode_ExtraArmor | (classe propre) | `tyranSmnWarrior` | SUMMON (via son summoner) |

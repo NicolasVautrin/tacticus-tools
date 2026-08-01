@@ -98,6 +98,8 @@ from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove
                                          ITG_OVERRIDE_LEVEL)
 from ..loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
                                 CHRONOMETRON_EXTRA_DAMAGE)
+from ..loki.shock_assault import (ShockAssaultBuffRemove,                          # case-366-r1 (1000)
+                                  SHOCK_ASSAULT_BUFF)
 from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
 from ..loki.until_of_end_turn import (HatefulAssaultAlreadyAttackedRemove,
                                       HATEFUL_ASSAULT_ALREADY_ATTACKED)
@@ -575,6 +577,15 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # qui fait du +degat une CHARGE A USAGE UNIQUE (consommee au 1er coup d'un allie du Chronomancer),
     # et non un buff persistant. Cf. loki/chronometron.py.
     CHRONOMETRON_EXTRA_DAMAGE: [ChronometronExtraDamageRemove],      # 1550 -> retrait On(9)
+    # ShockAssault_Buff 1000 (case-366-r1, effet pose par `ShockAssaultAbility$$CreateBehaviour` sur
+    # les Inceptors amis adjacents a `ultraInceptorSgt`). Meme greffe generique que 1180/1550 --
+    # `ShockAssaultBuffEffect$$CreateRemoveEffectTrigger` = `On(0xa = AttackDamageAttack) &
+    # OwnerIsCaster` -> `RemoveEffect(<cette instance>)`. Sans cette entree le `+extraDmg` d'ATTACK
+    # serait PERMANENT (la pose a `turns = NULL`) la ou l'i2 dit « for this attack » : regression
+    # PERMISSIVE et SILENCIEUSE. Le MEME event porte la POSE (`ShockAssaultAbility$$CreateTrigger`),
+    # mais sur un `OwnerIsCaster` qui designe le BELLATOR -- ici c'est l'INCEPTOR.
+    # Cf. loki/shock_assault.py.
+    SHOCK_ASSAULT_BUFF: [ShockAssaultBuffRemove],                    # 1000 -> retrait On(0xa)
     # HatefulAssault_AlreadyAttacked (case-366-r1, effet 1175 pose par `HatefulAssaultAbility$$
     # CreateBehaviour` sur l'ennemi qu'Angrax vient de frapper). Fabrique native = la GENERIQUE
     # `UntilOfEndTurnEffect`, dont le SEUL contenu est

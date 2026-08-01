@@ -246,6 +246,27 @@ class BaseEffect:
     # scaling dans la config par-unité ; ici l'effet le porte pour scaler ses variables d'ability
     # affectées (`variablesAffectedByRarityBonus`) via `magnitude.ability_var(multiplier_pct=…)`. §17.21.
     ability_variables_multiplier: int = 100
+    # `StatModifierComponent` de l'ENTITE-EFFET, tel que le capteur le publie CHAMP PAR CHAMP sous
+    # ses NOMS NATIFS (`frida/hooks/game/effects.ts::readStatModifier`, qui ENUMERE les champs
+    # DECLARES de `IdunBattle.Entities.Components.StatModifierComponent` au lieu de deviner un
+    # layout) : `{StatType, Amount, ApplyCounter, IsDynamic, IsHidden}`. Ces noms concordent avec
+    # `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$StatModifierBuilder`, qui
+    # ecrit `+0x10 = statType`, `+0x14 = amount`, `+0x1c = isDynamic`, `+0x1d = isHidden`.
+    #
+    # ⚠ C'EST LA MAGNITUDE QUE LE NATIF LUI-MEME RELIT :
+    # `IdunBattle.Entities.Effects.AStatModifierEffect$$GetStatModificationStat` retourne
+    # litteralement `+0x10`, et `IdunBattle.Entities.Effects.StaticStatModifierEffect$$
+    # GetStatModificationAmount` litteralement `+0x14`. Une classe d'effet qui RE-DERIVE la
+    # magnitude de gameconfig fait donc une APPROXIMATION -- exacte quand elle sait retrouver
+    # l'`AbilityState` du poseur, FAUSSE sinon. Le cas qui l'a mis en evidence est
+    # `ShockAssault_Buff` (1000, case-366-r1) : sa feuille de pose passe `source = null`, donc
+    # `captured["source"]` designe le PORTEUR (le summon) et non le poseur -- la re-derivation y
+    # rendait `extraDmg[1] = 5` la ou le natif avait ecrit `499` (mesure live 2026-08-01).
+    # ⚠ Ce champ est INERTE tant qu'une classe ne le lit pas (`captured_stat_mod_amount`) : les
+    # classes deja validees gardent leur derivation, aucune n'est modifiee par sa seule presence.
+    # None = l'entite-effet n'a pas de `StatModifierComponent` (la grande majorite), ou la capture
+    # ne publie pas ce canal (pose OFFLINE, capture anterieure au capteur).
+    stat_mod: "Mapping | None" = None
     # Empilement : un effet StatModifier qui applique un stat-mod FRAIS à CHAQUE pose (ActOfFaith) le passe
     # à True → `AddEffectOperation` ne no-op PAS sur « déjà présent » et matérialise une NOUVELLE instance
     # (revert par-source). Défaut False = comportement historique (un même-type déjà présent → no-op, mirror
@@ -778,6 +799,22 @@ class BaseEffect:
         `get_stat_modification_stat`. `None`/0 = aucune (défaut). Un effet StatModification concret
         override les deux (StatType + magnitude, typiquement depuis sa config d'ability)."""
         return None
+
+    def captured_stat_mod_amount(self) -> "int | None":
+        """La magnitude que le NATIF a ECRITE dans le `StatModifierComponent` de cette instance
+        (`Amount` = `+0x14`), telle que la capture la publie -- c'est-a-dire EXACTEMENT ce que
+        `StaticStatModifierEffect$$GetStatModificationAmount` relit.
+
+        A PREFERER a toute re-derivation gameconfig quand elle est disponible : la re-derivation
+        suppose qu'on sache retrouver l'`AbilityState` du POSEUR, ce qui est faux pour un buff
+        cross-unite dont la feuille de pose passe `source = null` (`ShockAssault_Buff`, 1000).
+        `None` = canal absent (pose OFFLINE, ou capture sans `statMod`) -> l'appelant retombe sur sa
+        derivation, et DOIT dire ce qu'elle vaut dans ce regime."""
+        sm = self.stat_mod
+        if not isinstance(sm, Mapping):
+            return None
+        v = sm.get("Amount")
+        return int(v) if isinstance(v, (int, float)) else None
 
     def reverted_stats(self) -> "list":
         """StatTypes que `<Effect>.RevertInternal` annule quand l'effet est RETIRÉ (mirror des `ChangeStat`
