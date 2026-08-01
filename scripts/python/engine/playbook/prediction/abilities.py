@@ -133,7 +133,20 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                 # IsMeleeAttack, deja threade).
                                                                 "tiles_moved_this_turn":
                                                                     prediction_tiles_moved_this_turn(
-                                                                        scene, uid, attack_pos)})
+                                                                        scene, uid, attack_pos),
+                                                                # `PsychicStalk_FriendlyChaos
+                                                                # ExtraDamage` (#366-r1, 1435) :
+                                                                # son trigger n'a AUCUN gate
+                                                                # `IsNormalAttack`, il entre donc
+                                                                # AUSSI sur ce vecteur ABILITY.
+                                                                # MEMES CLES que la normale et que
+                                                                # la face COMBAT.
+                                                                "att_grand_alliance":
+                                                                    (GC.unit(scene.vis_by_id.get(uid))
+                                                                     or {}).get("GrandAllianceId"),
+                                                                "damage_profile": profile_name,
+                                                                "t_pos": scene.pos(tgt),
+                                                                "tgt_team": scene.team(tgt)})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)

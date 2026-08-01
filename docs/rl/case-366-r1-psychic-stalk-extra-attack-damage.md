@@ -193,7 +193,10 @@ mélanger aurait comparé une somme à un coup.
 | **M5** niveau lu = `active_ability_level` | bras `--passive-level 1` : port `[3684]` vs natif `[3029]` |
 
 **L'ANTI-TÉMOIN est la mutation qu'on ne contrôle pas — c'est le NATIF qui la joue.** Bras
-`--attacker ahriman` (Chaos, allié de lui-même ⇒ `1435` tire AUSSI), `MC1_67` / 31337 :
+`--attacker ahriman` (Chaos, allié de lui-même ⇒ `1435` tire AUSSI), `MC1_67` / 31337.
+⚠ **Chiffres HISTORIQUES, valables avant le port de `1435`** — depuis, le bras concorde
+(`[4253]` / `[4253]`) et la garde correspondante asserte l'ÉGALITÉ ; c'est cet écart-là qui a servi
+de spécification au port suivant :
 
 | | SANS FEU | AVEC FEU |
 |---|---|---|
@@ -211,11 +214,17 @@ gate `HasTrait(Caster, Chaos)` de `1435` est réel (muet avec l'Imperial, actif 
 
 ## 7. Ce qui n'est PAS couvert
 
-* **`1435 PsychicStalk_FriendlyChaosExtraDamage` n'est PAS porté** — hors périmètre (une ability par
-  tâche). Résidu NOMMÉ et CHIFFRÉ : `ForAddition(AreFriends(Owner, Caster) & HasTrait(Caster, Chaos)
-  & <les 2 conditions partagées>, ConfigVar(8 = extraDmg))`, canal ATTAQUANT
-  (`create_aura_attack_damage_bonus_for_ally`, comme `BeaconOfRage_FriendlyExtraDamage`).
-  La base `APsychicStalkEffect` est déjà en place ; il ne resterait que la classe + son inscription.
+* ~~**`1435 PsychicStalk_FriendlyChaosExtraDamage` n'est PAS porté**~~ — **PORTÉ depuis**, cf.
+  `case-366-r1-psychic-stalk-friendly-chaos.md`. L'écart de **664** que §6 mesurait est **fermé au
+  bit près** : sur `MC1_67`/31337 bras `--attacker ahriman`, live `[4253]` == port `[4253]`, et
+  `[3589]` est aujourd'hui exactement ce que rend le port quand on lui retire `1435`. Le canal réel
+  est `ForAddition` -> **additif ATTAQUANT**, servi par DEUX pattes disjointes
+  (`create_effect_damage_bonus_for_attack` pour le porteur, `create_aura_attack_damage_bonus_for_ally`
+  pour ses alliés) — l'énumération native ne l'excluant pas de son propre effet
+  (`UnitExtensions$$IsFriend` n'écarte pas l'égalité). Conséquence sur CE document : le bras
+  `--attacker ahriman` n'est plus un anti-témoin de DIVERGENCE mais une garde d'ÉGALITÉ
+  (`test_psychic_stalk_both_effects_fire_together`), et le bras nominal (attaquant NON-Chaos) reste
+  le seul qui ISOLE `1215`.
 * **`1216 PsychicStalk_VisualEffect` n'est PAS porté** — aucun canal de dégât (vérifié au décompilé),
   et sa présence au déploiement est mesurée par E1.
 * **`PsychicStalk_ApplyFireTile` (la pose du feu) n'est pas portée** : le runner offline ne sait pas
@@ -245,3 +254,4 @@ gate `HasTrait(Caster, Chaos)` de `1435` est réel (muet avec l'Imperial, actif 
 | contrat du hook | `scripts/python/engine/entities/effects/base.py`, `effects/__init__.py` |
 | montage live | `scripts/python/probe_366_r1_psychic_stalk.py` |
 | gardes | `scripts/python/tests/engine/runner/test_psychic_stalk_extra_attack_damage_live.py` (6) |
+| voisin `1435` | `case-366-r1-psychic-stalk-friendly-chaos.md` (canal ATTAQUANT additif, 2 pattes) |

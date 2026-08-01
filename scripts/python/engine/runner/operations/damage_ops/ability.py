@@ -143,6 +143,14 @@ class _AbilityAttack:
             mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
                                               is_ranged=_ranged, is_normal_attack=False,
                                               target_traits=_tgt_traits,
+                                              # `DamageProfileIs(...)` -- meme collecteur unique
+                                              # (`BaseEffect$$DamageBonusForAttack`) que `target_traits`
+                                              # ci-dessus, donc MEME gate FAMILLE : threade pour la
+                                              # famille ATTACK, None pour la famille ABILITY (dont les
+                                              # mods attaquant sont zeroes, #226). Consommateur porte :
+                                              # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, 1435),
+                                              # dont le trigger n'a AUCUN gate `IsNormalAttack`.
+                                              damage_profile=(damage_profile if is_attack_damage_op else None),
                                               trigger_ability_type=(ability_type if is_attack_damage_op else None))
             # #226 — STRUCT ATTAQUANT ZEROEE POUR LA FAMILLE ABILITY (generalisation de la mesure #45f,
             # desormais LUE AU DECOMPILE). `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`

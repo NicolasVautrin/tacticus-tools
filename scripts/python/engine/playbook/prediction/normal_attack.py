@@ -367,7 +367,19 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # `ModifiedExoarmour_ExtraDmg` (1544), dont la magnitude EST `extraDmg x ce compte`.
                 # PREDICAT DISTINCT de `_hm` (`HasFlag(Moved)`) : un teleport pose `Moved` sans
                 # enregistrer la moindre tuile, un `DisplaceUnitOperation` fait l'inverse.
-                "tiles_moved_this_turn": prediction_tiles_moved_this_turn(scene, att_id, attack_pos)}
+                "tiles_moved_this_turn": prediction_tiles_moved_this_turn(scene, att_id, attack_pos),
+                # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE SELF du
+                # slot `CreateEffectDamageBonusForAttack` : gates `HasTrait(Caster@0x48, Chaos)`,
+                # `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)` (la MAIN TILE de la cible,
+                # deja couverte par le `tile_effects_by_pos` PLATEAU-ENTIER ci-dessus) et
+                # `DamageProfileIs([Flame, Psychic])`. MEMES CLES que le ctx du canal AURA
+                # (`_apply_ally_attack_dmg_bonus`) et que la face COMBAT -- pas de fork.
+                # `att_gu` = le KIT (GrandAllianceId est une donnee de CONFIGURATION, comme dans
+                # `_apply_ally_attack_dmg_bonus`).
+                "att_grand_alliance": (GC.unit(scene.vis_by_id.get(att_id)) or {}).get("GrandAllianceId"),
+                "damage_profile": prof_name,
+                "t_pos": t_pos,
+                "tgt_team": scene.team(tgt_id)}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,

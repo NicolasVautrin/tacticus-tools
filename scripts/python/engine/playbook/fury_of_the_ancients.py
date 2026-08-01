@@ -95,7 +95,15 @@ class FuryOfTheAncientsPlaybook:
             scene.effects(uid), is_ranged=not is_melee, has_moved=_hm, is_normal_attack=False,
             target_armor_reduced=_tar,
             att_ctx={"att_pos": attack_pos, "tile_effects_by_pos": scene.tile_effects_by_pos,
-                     "has_teleported": prediction_has_teleported(scene, uid, attack_pos)})
+                     "has_teleported": prediction_has_teleported(scene, uid, attack_pos),
+                     # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, 1435) : aucun gate
+                     # `IsNormalAttack` dans son trigger -> il entre AUSSI sur ce vecteur.
+                     # MEMES CLES que la normale / les abilities / la face COMBAT.
+                     "att_grand_alliance": (GC.unit(scene.vis_by_id.get(uid))
+                                            or {}).get("GrandAllianceId"),
+                     "damage_profile": prof_name,
+                     "t_pos": scene.pos(tgt_id),
+                     "tgt_team": scene.team(tgt_id)})
         from .prediction import (_add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
                                  _target_damage_limits, _PROFILE_INDEX, _entity_traits)
         _add_positional_and_defender_mods(mods, scene, uid, tgt_id, is_melee, attack_pos,

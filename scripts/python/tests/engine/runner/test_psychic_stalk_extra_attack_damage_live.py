@@ -251,19 +251,25 @@ def test_psychic_stalk_magnitude_indexed_by_passive_level(ps_case):
         "les deux lectures" % (r["b_port_hits"],))
 
 
-def test_psychic_stalk_attribution_anti_witness(ps_case):
-    """ANTI-TEMOIN d'ATTRIBUTION. Le bras nominal choisit un attaquant NON-Chaos pour faire taire
-    `1435 PsychicStalk_FriendlyChaosExtraDamage` (`ForAddition(AreFriends(Owner, Caster) &
-    HasTrait(Caster, 0x7ea = Chaos) & <les 2 conditions partagees>, ConfigVar(8 = extraDmg))`).
-    Ce test joue le bras INVERSE -- Ahriman frappe lui-meme, donc `1435` tire AUSSI -- et exige que
-    le port DIVERGE : c'est ce qui prouve que l'accord du bras nominal n'est pas fortuit, et que
-    `1435` est bien un residu NON PORTE et non un effet inerte.
+def test_psychic_stalk_both_effects_fire_together(ps_case):
+    """LES DEUX EFFETS DE DEGAT DU KIT, SUR LE MEME COUP. Le bras nominal choisit un attaquant
+    NON-Chaos pour faire taire `1435 PsychicStalk_FriendlyChaosExtraDamage`
+    (`ForAddition(AreFriends(Owner, Caster) & HasTrait(Caster, 0x7ea = Chaos) & <les 2 conditions
+    partagees>, ConfigVar(8 = extraDmg))`) et n'isoler que `1215`. Ce test joue le bras INVERSE --
+    Ahriman frappe lui-meme, donc `1435` tire AUSSI -- pour verifier que les deux canaux se
+    COMPOSENT correctement : l'additif ATTAQUANT de `1435` traverse le percage puis est scale UNE
+    fois par le %-list DEFENSEUR de `1215`.
 
-    MESURE (MC1_67/31337) : live [4253] vs port [3589], ecart 664 = round(extraDmg[L50] x 1.8 x 1.33)
-    = l'additif ATTAQUANT de `1435` (499 pre-percage) scale par le %-list DEFENSEUR de `1215`.
-    Le bras SANS FEU, lui, CONCORDE (les deux effets partagent `GetTargetIsOnFireTileCondition`)."""
+    HISTORIQUE, et c'est ce qui donne sa valeur a ce test : quand `1215` seul etait porte, ce bras
+    mesurait live [4253] contre port [3589] -- ecart 664 = round(extraDmg[L50] x 1.8 x 1.33). Cet
+    ecart a servi d'ANTI-TEMOIN (il prouvait que `1435` etait un residu VIVANT), puis a ete FERME
+    par le port de `1435` (#366-r1). L'assertion est donc desormais l'EGALITE, et sa rupture
+    signalerait une regression sur l'un OU l'autre des deux canaux.
+    Le bras SANS FEU, lui, CONCORDE deja (les deux effets partagent
+    `GetTargetIsOnFireTileCondition`). Gardes propres a `1435` (etage `additive`, patte AURA, gate
+    Chaos, niveau) : `test_psychic_stalk_friendly_chaos_live.py`."""
     r = ps_case("MC1_67", "31337", "ahriman")
-    print("\n[366-r1/1215 anti-temoin] %s" % ({
+    print("\n[366-r1/1215 deux-effets] %s" % ({
         "a_live": r["a_live_hits"], "a_port": r["a_port_hits"],
         "b_live": r["b_live_hits"], "b_port": r["b_port_hits"],
         "b_sans_1215": r["b_port_hits_without_effect"]},))
@@ -275,12 +281,14 @@ def test_psychic_stalk_attribution_anti_witness(ps_case):
     assert r["a_port_hits"] == r["a_live_hits"], (
         "bras SANS FEU : port %s != natif %s alors que `1215` ET `1435` sont muets -- une autre "
         "divergence pollue le montage" % (r["a_port_hits"], r["a_live_hits"]))
-    # AVEC FEU : `1435` tire, le port ne le porte pas -> il DOIT diverger.
-    assert r["b_port_hits"] != r["b_live_hits"], (
-        "port %s == natif %s alors que `1435` (non porte) devrait AJOUTER son extraDmg : soit le "
-        "bras nominal mesurait deja une somme des deux effets, soit `1435` est inerte -- dans les "
-        "deux cas l'attribution du cas est fausse" % (r["b_port_hits"], r["b_live_hits"]))
-    deltas = {b - a for a, b in zip(r["b_port_hits"], r["b_live_hits"])}
-    assert all(d > 0 for d in deltas), (
-        "l'ecart de l'anti-temoin est NEGATIF (%s) : le port SUR-predit, ce n'est pas la signature "
-        "d'un effet additif manquant" % (sorted(deltas),))
+    # AVEC FEU : les DEUX tirent, les DEUX sont portes -> egalite exigee (ecart 664 FERME).
+    assert r["b_port_hits"] == r["b_live_hits"], (
+        "port %s != natif %s sur le bras ou `1215` ET `1435` tirent. Ecart historique documente : "
+        "664 = round(extraDmg[L50] x 1.8 x 1.33) = l'additif ATTAQUANT de 1435 scale par le "
+        "%%-list DEFENSEUR de 1215. Si l'ecart est RE-apparu, c'est le port de 1435 (#366-r1) qui "
+        "a regresse ; s'il a change de valeur, c'est la COMPOSITION des deux canaux."
+        % (r["b_port_hits"], r["b_live_hits"]))
+    # ... et le bras reste DISCRIMINANT pour `1215` : sans lui, le degat CHANGE.
+    assert r["b_port_hits_without_effect"] != r["b_port_hits"], (
+        "regime NON DISCRIMINANT : retirer 1215 ne change RIEN au degat (%s)"
+        % (r["b_port_hits"],))
