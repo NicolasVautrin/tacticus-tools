@@ -1,6 +1,6 @@
 """`IdunBattle.AI.Playbook.Loki.BoltstormPlaybook` -- face ATTACK du triggered `Boltstorm` (1090),
 passif de `templAggressor` << Burchard >> (HERO) et de 4 npc `templBossAggressor*` : 5 porteurs
-DISPATCHES, troisieme des residus ATTACK de #419-r1.
+DISPATCHES, quatrieme des residus ATTACK de #419-r1.
 
 Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire, Lakrimae, BarbedOvipositor et Neuroparasite
