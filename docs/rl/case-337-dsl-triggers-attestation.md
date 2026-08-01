@@ -147,8 +147,9 @@ primitive -- premiere trace captable, donc `NON_PORTE` -> `CITE_A_QUALIFIER`.
 * **UN SEUL consommateur natif**, mesure par xref -- `IdunBattleLogic.Entities.Abilities.Triggered.
   Loki.HarlequinsPanoplyAbility$$CreateTrigger`, qui lui passe `DSLSelectors+0x60` = Target (les
   deux autres xrefs sont des entrees DATA de metadata). C'est ce qui distingue ce cas d'
-  `IsEffectTarget` (#418-r1), generique avec **5 consommateurs decouverts** : ici il n'y a rien a
-  decouvrir, la primitive est mono-consommateur.
+  `IsEffectTarget` et de ses **6 constructeurs natifs** (`case-418-r1-is-effect-target.md`, ou la
+  couverture partielle a fini par livrer un vrai bug) : ici il n'y a **rien a decouvrir**, la
+  primitive est MONO-CONSOMMATEUR, donc l'attestation ne peut pas etre partielle par construction.
 * Port : le gate `if _blocks_made_this_turn(state, self.owner_id) > 0: return False` de
   `HarlequinsPanoplyAbility.matches` -- le `> 0` EST l'`AmountIsGreaterThanZero`. Sur ce vecteur
   `owner == target`, donc `self.owner_id` est bien le `Target@+0x60` natif.
