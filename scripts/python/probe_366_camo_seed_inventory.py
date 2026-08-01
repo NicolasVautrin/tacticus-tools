@@ -134,6 +134,15 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
         "ReinforcedHiveNodeAbility$$CreateBehaviour",
         "AmountIsOdd(Sum(RoundsStarted(Owner), 1))"),
+    # Le MEME `CreateBehaviour` pose les DEUX d'un bloc (`op_BitwiseAnd`) :
+    # `AddStaticStatModifierEffectToOwner(0x454 = 1108, stat 0x10 FixedArmor, PercentageOf(...))`
+    # ET `AddStatOverrideEffectToOwner(0x455 = 1109, stat 7 BlockChance, Direct(ConfigConst 0x2d))`
+    # -- aucun `If`, donc pose INCONDITIONNELLE pour les deux. Condition FONDUE avec celle de 1108.
+    "ReinforcedHiveNode_ExtraBlock": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
+        "ReinforcedHiveNodeAbility$$CreateBehaviour",
+        "AmountIsOdd(Sum(RoundsStarted(Owner), 1)) -- corps FONDU avec celui de 1108"),
     "StructuralAnalyser_Visual": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki."

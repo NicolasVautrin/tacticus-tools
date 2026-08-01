@@ -63,7 +63,7 @@ Décomposition mesurée du pas offline, AVANT correctif (seed `includeInactive`)
 
 Le natif, lui, republie `1014` dans son canal ACTIF avec `active: true` après le même pas.
 
-## 3. L'inventaire du gisement — 19 classes, **11 encore EXPOSÉES**
+## 3. L'inventaire du gisement — 20 classes, **12 encore EXPOSÉES**
 
 `python scripts/python/probe_366_camo_seed_inventory.py` (100 % offline). Il RE-DÉRIVE la partie
 mécanique depuis le code et la croise avec un verdict de RE **par classe**. Deux conjoints, et il
@@ -79,10 +79,15 @@ faut les DEUX :
 |---|---|---|
 | `COUVERT-SEED` | **6** | `AnvilShield_BlockChanceBelowHealthCap`, `HammerOfWrath_ConditionalDamage`, `ModifiedExoarmour_ExtraDmg`, `VisionsOfHeresy_ExtraPierce{Melee,Ranged}`, **`CamoCloak_DmgReduction`** |
 | `NON-EXPOSE` | **2** | `Pinned` (pose runtime + condition de TRAIT, qui ne bascule pas), `PsychicStalk_VisualEffect` (`NOT IsDead(Owner)` : vraie pour tout porteur vivant) |
-| `EXPOSE` | **11** | `ContagionsOfNurgle_ArmorReduction1/2`, `DestroyTheWitch_ExtraDamage/_ExtraMove`, `InescapableAccuracy_extraCritChance/_extraCritDmg/_overrideHits`, `MartialSuperiority_Visual`, `PowerTrip_FullHealth`, `ReinforcedHiveNode_ExtraArmor`, `StructuralAnalyser_Visual` |
+| `EXPOSE` | **12** | `ContagionsOfNurgle_ArmorReduction1/2`, `DestroyTheWitch_ExtraDamage/_ExtraMove`, `InescapableAccuracy_extraCritChance/_extraCritDmg/_overrideHits`, `MartialSuperiority_Visual`, `PowerTrip_FullHealth`, `ReinforcedHiveNode_ExtraArmor/_ExtraBlock`, `StructuralAnalyser_Visual` |
 
 ⚠ **Ne pas recopier ces nombres** : ils se périment à chaque port qui entre une classe
 surchargeant `is_active`. Les re-dériver (`probe_366_camo_seed_inventory.py`).
+**Mesuré sur ce cas même** : le cliquet a ROUGI au rebase, sur
+`ReinforcedHiveNode_ExtraBlock` (`1109`, mergé pendant ce run) — une classe entrée sans verdict de
+pose, exactement ce qu'il existe pour attraper. Résolu en lisant son `CreateBehaviour` (le MÊME que
+`1108` : `AddStaticStatModifierEffectToOwner(0x454)` **et** `AddStatOverrideEffectToOwner(0x455)`
+d'un bloc, sans `If`).
 
 **EXPOSÉ ne veut pas dire FAUX partout** : le port matérialise l'instance dès que le SITE DE
 CAPTURE demande `includeInactive` (`snapshot.decision_view_seed_body`). Mesuré : **14 fichiers**
@@ -115,7 +120,7 @@ d'instance », et cette attente-là interdisait au port de rallumer quoi que ce 
 
 ## 6. Ce qui n'est PAS couvert
 
-* **Les 11 classes `EXPOSE`** ne sont pas seedées. Chacune demande la même paire (verdict de pose
+* **Les 12 classes `EXPOSE`** ne sont pas seedées. Chacune demande la même paire (verdict de pose
   déjà établi + entrée `ABILITY_INIT_OWNER_EFFECTS`), MAIS `spawn._seed_ability_owner_effects` lit
   les passives du **KIT gameconfig**, pas de la MESURE (`UnitContext.passive_abilities`, seedé par
   `snapshot._load_passive_abilities` — donc APRÈS lui). C'est le piège #312 : un montage qui prive
