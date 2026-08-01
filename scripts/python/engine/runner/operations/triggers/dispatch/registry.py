@@ -114,7 +114,13 @@ from ..loki.teleporting_in import (                                       # #448
     TeleportStrikeTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28) & HasTile
     TeleportStrikeTeleportingInAddMovingOnPreMove,         # T4 On(0x1f) -> AddEffect(1036)
     TeleportStrikeMovingRemoveOnAfterMove,                 # TeleportMovingEffect : On(4)
-    TELEPORT_STRIKE_TELEPORTING_IN, TELEPORT_STRIKE_MOVING)
+    TELEPORT_STRIKE_TELEPORTING_IN, TELEPORT_STRIKE_MOVING,
+    FearOfTheUnseenTeleportingInRemoveOnAfterMove,         # #448-r2c tranche 2/4 -- T1 On(4)
+    FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,    # T2 On(0x2a)
+    FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,  # T3 On(0x28) & HasTile
+    FearOfTheUnseenTeleportingInAddMovingOnPreMove,        # T4 On(0x1f) -> AddEffect(1241)
+    FearOfTheUnseenMovingRemoveOnAfterMove,                # TeleportMovingEffect : On(4)
+    FEAR_OF_THE_UNSEEN_TELEPORTING_IN, FEAR_OF_THE_UNSEEN_MOVING)
 from ..loki.ramming_speed import (RammingSpeedExtraExplodeRemove,          # case-389-r1 (1098)
                                   RAMMING_SPEED_EXTRA_EXPLODE)
 from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
@@ -641,8 +647,8 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     HATEFUL_ASSAULT_ALREADY_ATTACKED: [HatefulAssaultAlreadyAttackedRemove],   # 1175 -> retrait On(0x17)
     # 1035 TeleportStrike_TeleportingIn (#448-r2 tranche 1/4) : les QUATRE `Triggered()` d'
     # `IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal`,
-    # partages par les trois soeurs (1140 Stormboyz, 1238 FearOfTheUnseen, 1573 TitanhammerSquad),
-    # dont AUCUNE n'est encore inscrite. Les TROIS retraits font l'ATTERRISSAGE deep-strike (l'unite
+    # partages par les trois soeurs (1140 Stormboyz, 1238 FearOfTheUnseen, 1573 TitanhammerSquad ;
+    # 1238 est inscrite plus bas par #448-r2c). Les TROIS retraits font l'ATTERRISSAGE deep-strike (l'unite
     # redevient ciblable, reprend un pathfinder normal et initialise ses passives deferrees) ; le
     # QUATRIEME pose le marqueur transitoire `1036 TeleportStrike_Moving` pendant le pas.
     # Avant #448-r2 le port faisait atterrir toutes les unites du joueur finissant dans
@@ -657,6 +663,23 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # RemoveEffect(EffectSelf))`. Sans cette entree le marqueur pose par T4 survivrait au pas et
     # `set_moved_flag` poserait `UnitFlag.Teleported` sur un deplacement ordinaire.
     TELEPORT_STRIKE_MOVING: [TeleportStrikeMovingRemoveOnAfterMove],           # 1036 -> retrait On(4)
+    # 1238 FearOfTheUnseen_TeleportingIn (#448-r2c, tranche 2/4) -- MEME `ArraySet` natif que 1035,
+    # mais la SEULE des quatre soeurs a surcharger le vslot 0x738, et la surcharge n'est PAS le
+    # conjonct neutre : `IdunBattle.Entities.Effects.Loki.FearOfTheUnseen_TeleportingInEffect$$
+    # GetAdditionalRemoveTriggers` = `AmountIsEqual(EffectRemainingTurns(EffectSelf), Direct(1))`.
+    # Ce vslot conditionne les QUATRE `Triggered()` (T4 compris), donc rien ne fire tant qu'il reste
+    # plus d'un tour a l'effet -- pose a 3 par `FearOfTheUnseenAbility$$ExecuteBehaviour`
+    # (`Sum(TurnsFromRounds(1), Direct(1))`, 2 joueurs), il SURVIT au `FinishUnitTurn` qui suit son
+    # propre cast puis a tout le tour adverse. Collapser le vslot a `True` ferait disparaitre le
+    # Deep Strike du Deathleaper immediatement apres son cast. Cf. loki/teleporting_in.py.
+    FEAR_OF_THE_UNSEEN_TELEPORTING_IN: [
+        FearOfTheUnseenTeleportingInRemoveOnAfterMove,          # T1 On(4)
+        FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility,     # T2 On(0x2a)
+        FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn,   # T3 On(0x28) & HasTile
+        FearOfTheUnseenTeleportingInAddMovingOnPreMove],        # T4 On(0x1f) -> AddEffect(1241)
+    # 1241 FearOfTheUnseen_Moving : DEUXIEME des trois `EffectType` que la fabrique native construit
+    # par `IdunBattleLogic.Effects.TeleportMovingEffect` -- meme `Triggered` unique que 1036.
+    FEAR_OF_THE_UNSEEN_MOVING: [FearOfTheUnseenMovingRemoveOnAfterMove],       # 1241 -> retrait On(4)
     # 1098 RammingSpeed_ExtraExplode (case-389-r1, pose sur le CASTER par `RammingSpeedAbility$$
     # ExecuteBehaviour`). Le natif le POSE et le RETIRE dans le MEME `applyAction` : son
     # `CreateTargetTrigger` est `On(0x3a = PhaseEnd, ownerNeedsToBeAlive: false)` -- un `On(...)` NU --

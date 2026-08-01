@@ -271,7 +271,25 @@ neuve n'est attendue.
 * **Discriminant attendu** : après un `endturn` complet, le natif garde 1140 sur l'unité hors
   plateau ; un port qui aurait oublié `HasTile` le retirerait.
 
-### `#448-r2c` — `1238 FearOfTheUnseen_TeleportingIn`
+### `#448-r2c` — `1238 FearOfTheUnseen_TeleportingIn` — **LIVRÉE**
+
+**PORTÉE ET CONFRONTÉE** : `docs/rl/case-448-r2c-fear-of-the-unseen-teleporting-in.md`.
+Deux rectifications de ce qui suit, l'une de forme, l'autre de FOND :
+
+* la surcharge du vslot 0x738 est **CONFIRMÉE** telle qu'écrite ici (`AmountIsEqual(
+  EffectRemainingTurns(EffectSelf), Direct(1))`) — elle est NOMMÉE dans le binaire, donc lisible
+  sans passer par le runtime ; le corps NEUTRE relevé par `resolveMethodPtr` est celui de la BASE,
+  pas de la surcharge ;
+* ⚠ **le vslot 0x738 gouverne les QUATRE `Triggered()`, T4 COMPRIS** — le tableau §1.3 ci-dessus
+  laisse croire qu'il ne concerne que les trois RETRAITS (« le 0x738 apparaît dans T1/T2/T3 »).
+  Le décompilé de `$$CreateHandleTriggerAbilitiesInternal` l'appelle aussi dans T4, avant le 0x748.
+  La condition « il reste exactement 1 tour » conditionne donc AUSSI la pose de `1241`.
+
+Le reste de la fiche fille ci-dessous était juste ; le montage a en revanche révélé un verrou non
+prévu : `tyranDeathleaper` **arrive lui-même sous 1035** et
+`FearOfTheUnseenAbility$$GetDynamicInvalidCasterReason` refuse le cast tant qu'il descend.
+
+### `#448-r2c` — la fiche d'origine
 
 * **Porteur / chemin** : `tyranDeathleaper`, **HERO du pool rank 17** — aucun montage. Le poseur
   (`FearOfTheUnseenAbility`, ACTIVE 1115) est **déjà porté**
