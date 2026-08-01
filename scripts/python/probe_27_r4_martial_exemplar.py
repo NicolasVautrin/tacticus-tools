@@ -208,51 +208,172 @@ def _native_choice(rid: int, cid: int) -> list:
     return []
 
 
-def _arm(rid: int, name: str, cid: int, cpos: tuple, expect_ability: int) -> bool:
+def _engine(rid: int, cid: int) -> dict:
+    """Trois decisions MOTEUR sur le MEME etat : telle quelle / custom force a 0 / route desactivee.
+
+    Les deux dernieres sont les CONTRE-EPREUVES : si le choix ne bouge pas quand on desarme le
+    terme, c'est que l'accord ne vient pas de lui."""
+    import engine_validate as EV
+    import engine.playbook as PB
+    from engine import weights as W
+    from engine.playbook import scene as _scene
+    from engine.playbook import nonattack as NA
+    from engine.ai import context as AICTX
+    from engine.playbook.base import tile_utility
+
+    sid = L.INV._session_id()
+
+    def rpc(m, b, t):
+        return EV._r(sid, m, b, t)
+
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
+    mov = rpc("aiMovableTiles", {"runnerId": rid}, 60)
+    mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
+    wt = W.load()
+    predictor = _scene.build_predictor(rpc, rid)
+
+    ctx = AICTX.build(rpc, rid, dv, mov_by_unit, cid, wt, predictor)
+    pb = PB.REGISTRY.get(MARTIAL_EXEMPLAR)
+    targets = pb.eligible_targets(ctx, MARTIAL_EXEMPLAR)
+    custom = pb.calculate_custom_utility(ctx, ctx.origin, cid, MARTIAL_EXEMPLAR)
+    gate = pb.should_evaluate(ctx, ctx.origin, MARTIAL_EXEMPLAR)
+    # `CasterHasNotMoved` : toute tuile autre que l'origine doit etre REFUSEE
+    off_origin = [T for T in (ctx.reach_nc or []) if T != ctx.origin]
+    added_off = [T for T in off_origin if pb.is_caster_added(ctx, T)]
+
+    on = EV.engine_decide(sid, rid, dv, mov_by_unit, cid, wt, predictor)
+    orig = type(pb).calculate_custom_utility
+    type(pb).calculate_custom_utility = lambda self, c, t, target, aid: 0.0
+    try:
+        zero = EV.engine_decide(sid, rid, dv, mov_by_unit, cid, wt, predictor)
+    finally:
+        type(pb).calculate_custom_utility = orig
+    saved = dict(NA.NONATTACK_PLAYBOOKS)
+    NA.NONATTACK_PLAYBOOKS.clear()
+    try:
+        noroute = EV.engine_decide(sid, rid, dv, mov_by_unit, cid, wt, predictor)
+    finally:
+        NA.NONATTACK_PLAYBOOKS.update(saved)
+    return {"on": (on.get("ability"), on.get("target")), "to": on.get("to"),
+            "zero": (zero.get("ability"), zero.get("target")),
+            "noroute": (noroute.get("ability"), noroute.get("target")),
+            "targets": targets, "custom": custom, "gate": gate,
+            "tile": tile_utility(ctx, ctx.origin),
+            "off_origin": len(off_origin), "added_off": added_off}
+
+
+def _arm(rid: int, name: str, cid: int, cpos: tuple, expect_ability: int,
+         expect_custom: float, engine: bool) -> bool:
     n = _adjacent_enemy_count(rid, cpos)
     tg = _targets(rid, cid)
     ch = _native_choice(rid, cid)
     ab = [a for cls, a, _t in ch if cls == "ActiveAbilityMessage"]
     got = ab[-1] if ab else None
     ok = got == expect_ability
-    print("  [%s] n(adjacents normaux)=%d  abilityTargets(1216)=%s  natif=%s  attendu=%s  %s"
-          % (name, n, tg, ch, expect_ability, "OK" if ok else "MISMATCH"))
-    return ok
+    print("  [%s] n(adjacents normaux)=%d  abilityTargets(1216)=%s" % (name, n, tg))
+    print("        natif  : %s -> ability=%s  attendu=%s  %s"
+          % ([c for c, _a, _t in ch], got, expect_ability, "OK" if ok else "MISMATCH"))
+    if not engine:
+        return ok
+    e = _engine(rid, cid)
+    eng_ab = e["on"][0]
+    ok_eng = eng_ab == expect_ability
+    ok_custom = abs(float(e["custom"]) - expect_custom) < 1e-9
+    # CasterHasNotMoved : AUCUNE tuile hors origine ne doit passer `is_caster_added`
+    ok_moved = not e["added_off"]
+    print("        moteur : on=%s to=%s | custom=%s (attendu %s) gate=%s cibles=%s"
+          % (e["on"], e["to"], e["custom"], expect_custom, e["gate"], e["targets"]))
+    print("        contre-epreuves : custom force a 0 -> %s | route DESACTIVEE -> %s"
+          % (e["zero"], e["noroute"]))
+    print("        CasterHasNotMoved : %d tuiles hors origine, %d acceptees (attendu 0)"
+          % (e["off_origin"], len(e["added_off"])))
+    for lbl, v in (("moteur==natif", ok_eng), ("custom", ok_custom),
+                   ("CasterHasNotMoved", ok_moved)):
+        if not v:
+            print("        !! ECHEC %s" % lbl)
+    return ok and ok_eng and ok_custom and ok_moved
 
 
-def main() -> int:
-    rid = build() if "--build" in sys.argv[1:] else _runner_id()
-    print("[probe #27-r4] runner=%d board=%s" % (rid, BOARD))
+def run_ab(rid: int, engine: bool = True) -> dict:
+    """Joue les quatre bras et rend les lignes structurees (consommees par le test de garde).
+
+    Chaque bras : `{n, native, engine, targets, custom_expected}`. Le bras D est rendu a part sous
+    la cle `caster_has_not_moved` (`{before, after}`) -- il MUTE l'etat (il deplace le caster), donc
+    il est joue EN DERNIER."""
     ids = {v: i for v, (i, _p) in _units(rid).items()}
     cid = ids[CASTER_VID]
     cpos = _units(rid)[CASTER_VID][1]
-    print("  caster %s id=%d spawn=%s (JAMAIS deplace)" % (CASTER_VID, cid, cpos))
+    rows: dict = {}
 
-    ok = True
-    # --- bras A : aucun ennemi adjacent au caster
+    def arm(key, expect_ability, expect_custom):
+        n = _adjacent_enemy_count(rid, cpos)
+        ch = _native_choice(rid, cid)
+        ab = [a for cls, a, _t in ch if cls == "ActiveAbilityMessage"]
+        tgt = [t for cls, _a, t in ch if cls == "ActiveAbilityMessage"]
+        row = {"n": n, "native": (ab[-1] if ab else None, tgt[-1] if tgt else None),
+               "msgs": [c for c, _a, _t in ch], "targets_rpc": _targets(rid, cid),
+               "expect_ability": expect_ability, "expect_custom": expect_custom}
+        if engine:
+            row["engine"] = _engine(rid, cid)
+        rows[key] = row
+
     want = [(ids[v], to) for v, to in FAR.items()]
     for uid, to in want:
         _move(rid, uid, to)
     _assert_placed(rid, want)
-    ok &= _arm(rid, "A n=0", cid, cpos, NORMAL)
+    arm("n=0", NORMAL, 0.0)
 
-    # --- bras B : un ennemi amene sur un voisin du caster
     _move(rid, ids[E1_VID], NEAR_1)
     _assert_placed(rid, [(ids[E1_VID], NEAR_1)])
-    ok &= _arm(rid, "B n=1", cid, cpos, MARTIAL_EXEMPLAR)
+    arm("n=1", MARTIAL_EXEMPLAR, 1000.0)
 
-    # --- bras C : un second ennemi adjacent -- le choix ne doit PAS changer
     _move(rid, ids[E2_VID], NEAR_2)
     _assert_placed(rid, [(ids[E2_VID], NEAR_2)])
-    ok &= _arm(rid, "C n=2", cid, cpos, MARTIAL_EXEMPLAR)
+    arm("n=2", MARTIAL_EXEMPLAR, 2000.0)
 
-    # --- bras D : contre-epreuve CasterHasNotMoved (0x10 du masque effectif 0x8014)
     before = _targets(rid, cid)
     _move(rid, cid, "2,0")
-    after = _targets(rid, cid)
-    moved_ok = bool(before) and not after
+    rows["caster_has_not_moved"] = {"before": before, "after": _targets(rid, cid)}
+    return rows
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    engine = "--no-engine" not in argv
+    rid = build() if "--build" in argv else _runner_id()
+    print("[probe #27-r4] runner=%d board=%s engine=%s" % (rid, BOARD, engine))
+    ids = {v: i for v, (i, _p) in _units(rid).items()}
+    cid = ids[CASTER_VID]
+    print("  caster %s id=%d spawn=%s (JAMAIS deplace)"
+          % (CASTER_VID, cid, _units(rid)[CASTER_VID][1]))
+
+    rows = run_ab(rid, engine=engine)
+    ok = True
+    for key in ("n=0", "n=1", "n=2"):
+        r = rows[key]
+        got = r["native"][0]
+        okr = got == r["expect_ability"]
+        print("  [%s] n(adjacents normaux)=%d  abilityTargets(1216)=%s"
+              % (key, r["n"], r["targets_rpc"]))
+        print("        natif  : %s -> ability=%s  attendu=%s  %s"
+              % (r["msgs"], got, r["expect_ability"], "OK" if okr else "MISMATCH"))
+        if engine:
+            e = r["engine"]
+            oke = e["on"][0] == r["expect_ability"]
+            okc = abs(float(e["custom"]) - r["expect_custom"]) < 1e-9
+            okm = not e["added_off"]
+            print("        moteur : on=%s to=%s | custom=%s (attendu %s) gate=%s cibles=%s"
+                  % (e["on"], e["to"], e["custom"], r["expect_custom"], e["gate"], e["targets"]))
+            print("        contre-epreuves : custom force a 0 -> %s | route DESACTIVEE -> %s"
+                  % (e["zero"], e["noroute"]))
+            print("        CasterHasNotMoved : %d tuiles hors origine, %d acceptees (attendu 0)"
+                  % (e["off_origin"], len(e["added_off"])))
+            okr = okr and oke and okc and okm
+        ok &= okr
+    d = rows["caster_has_not_moved"]
+    moved_ok = bool(d["before"]) and not d["after"]
     print("  [D CasterHasNotMoved] avant move=%s  apres move=%s  %s"
-          % (before, after, "OK" if moved_ok else "MISMATCH"))
+          % (d["before"], d["after"], "OK" if moved_ok else "MISMATCH"))
     ok &= moved_ok
 
     print("[probe #27-r4] %s" % ("TOUS LES BRAS OK" if ok else "AU MOINS UN BRAS EN ECHEC"))

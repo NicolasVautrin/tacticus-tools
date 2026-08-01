@@ -1263,7 +1263,7 @@ re-derouler la recon : elle part d'ici.
 | 23 | `SavageEchoesPlaybook` @1811586d0 | SavageEchoes (1230) | bloodTerminator | hero hors catalogue seed BC -> **confrontable via `catalog_inject.py`** | **PORTE** (#27-3) | — (verdicts « porteur hors pool » + « evaluateur de CONDITION manquant » des tranches 1-2 **CORRIGES** : le catalogue se complete, et la condition est un simple ratio de PV lu au decompile) |
 | 24 | `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$CalculateCustomUtility` | MortarionsPlagueWind (1093) | deathBossMortarion | npc **-> GREFFABLE** | **residu nomme (#27-r4)** | inventaire #27-r4 : `Count(UnitsWithTrait(t1+t2+t3, Psyker))` — ne lit ni stat ni trait du CASTER, donc greffable ; verrou restant = l'evaluateur DSL `UnitsWithTrait` + la chaine `AdjacentUnits` a 3 vagues |
 | 25 | `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$CalculateCustomUtility` | InstrumentsOfVengeance (1215) | darkaBossLion | npc **-> GREFFABLE** | **residu nomme (#27-r4)** | inventaire #27-r4 : `20000 + 100*[aucun ennemi adjacent] + 20*|ennemis a d=2 non adjacents|` — ne lit ni stat ni trait du CASTER ; reserve = `GetUseProbability` est un TIRAGE (0 / Half / One selon `GetTurnsFinished`) |
-| 26 | `IdunBattle.AI.Playbook.Loki.MartialExemplarPlaybook$$CalculateCustomUtility` | MartialExemplar (1216) | darkaBossLion | npc **-> GREFFE** | **PORTE (#27-r4)** | — (`1000 x |ennemis adjacents a la TUILE CANDIDATE qui sont `IsNormalUnit`|` ; ne lit ni stat ni trait du caster -> confronte par greffe sur `darkaCalibanCommander`) |
+| 26 | `IdunBattle.AI.Playbook.Loki.MartialExemplarPlaybook$$CalculateCustomUtility` | MartialExemplar (1216) | darkaBossLion | npc **-> GREFFE sur `darkaAsmodai`** | **PORTE (#27-r4)** | — (`1000 x` le compte d'ennemis adjacents `IsNormalUnit` ; ne lit ni stat ni trait du caster. Le natif emet `ActiveAbilityMessage(1216)` sous greffe. Route NON-ATTAQUE malgre un `damageProfile`, parce que le masque effectif `0x8014` est SELF-CAST) |
 | 27 | `IdunBattle.AI.Playbook.Loki.TheLionsWrathPlaybook$$CalculateCustomUtility` | TheLionsWrath (1217) | darkaBossLion | npc **-> GREFFABLE** | **residu nomme (#27-r4)** | inventaire #27-r4 : `30*FindMeleeWeapon(CIBLE).Hits + 2000*|adjacents Chaos+Hero| + 150*[CIBLE est Hero]` — les traits/armes lus sont ceux de la CIBLE, jamais du caster |
 
 ### Ventilation (les 22 overrides par-ability, apres correction #218)
@@ -2828,17 +2828,103 @@ Traits qualifies contre `data/symbols/rnca9r7q6c/frida/enums.tsv`, enum `IdunBat
 
 ### L'override PORTE : 1216 `MartialExemplar`
 
-- `engine/playbook/loki_custom.py::MartialExemplarPlaybook` (`_CustomOnlyPlaybook`, registre
-  `REGISTRY` par `register`), plus `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE` poses DANS LE MEME
-  COMMIT (litteraux relus au `.ctor` de l'ability, cf. ci-dessous).
-- Le terme est **PAR-TUILE** : il est ancre sur `casterPosition`, pas sur la cible. C'est le meme
-  regime que `DrachnyenPlaybook`, et c'est pour cela que `_best_attack` somme le custom PENDANT le
-  sweep de tuiles (sinon il serait inerte).
-- Mirror de l'ensemble : `battle_query.count_adjacent_matching` — meme `is_adjacent` (donc la meme
-  porte d'elevation `|delta| < 2` d'`IterateAdjacentTiles`) que `count_adjacent`, avec un predicat
-  par unite. `IsNormalUnit` est ecrit la ou vit son homonyme natif
-  (`engine/entities/traits/unit_trait.py::is_normal_unit`), pas recable dans le playbook.
+#### Le masque EFFECTIF, et ce qu'il retourne du dossier
 
-**Masque de ciblage et type d'attaque, relus au decompile** :
-`IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$.ctor` -> voir le commit ;
-ce sont les litteraux EFFECTIFS (surcharge explicite, pas la forme preset+flags).
+`IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$.ctor` n'appelle PAS la
+surcharge explicite : il recopie le preset `<TargetingOptions statics>+0x280` et passe
+`additionalRules = 0x10` a `IdunBattle.Core.Services.TargetingOptions$$.ctor(this, template,
+additionalRules)`, dont le corps fait `this.rules(+0x28) = additionalRules | template.rules(+0x28)`.
+Le preset porte `rules = 0x8004` (ecrit par `...TargetingOptions$$.cctor`), donc :
+
+    0x8004 | 0x10 = 0x8014
+      = CasterIsPossibleTarget(0x8000) | CasterHasNotMoved(0x10) | CasterMatchesDynamicRule(0x4)
+
+**Recopier `0x10` seul aurait donne un masque FAUX** — c'est exactement le piege « PRESET + flags ».
+Les deux bits portants sont MESURES, pas deduits (`probe_27_r4_martial_exemplar.py`) :
+
+| bit | consequence | mesure live |
+|---|---|---|
+| `CasterIsPossibleTarget` | 1216 est **SELF-CAST** | `abilityTargets(1216)` rend UNE cible : le caster. Les `attackPlans.evals` de 1216 sur les ENNEMIS rendent tous `rankCount = 0` |
+| `CasterHasNotMoved` | cast interdit apres deplacement | un `act move` du caster fait tomber `abilityTargets(1216)` de 1 cible a **0** |
+
+C'est le premier bit qui dicte la ROUTE : `_best_attack` consomme des evals a `rankCount > 0` sur des
+ennemis, elle ne peut donc RIEN produire pour 1216. Le port passe par la **route non-attaque**
+(`playbook/nonattack.py`), 3e motif d'entree apres « pas de `damageProfile` » (1226, 1185) et « masque
+refusant toute cible ennemie » (1100) — et ce alors meme que 1216 A un `damageProfile` (`Power`).
+`make_damage_predictions` rend `[]` : la cible etant le caster, le natif ne predit aucun degat sur
+elle (**mesure** : `pairUtility(1216, SELF) = 0` sur les trois tuiles testees).
+
+#### Ce qui est porte
+
+- `engine/playbook/loki_custom.py::MartialExemplarPlaybook` (`NonAttackComparablePlaybook`, registre
+  `NONATTACK_PLAYBOOKS` par `register_nonattack`) :
+  `calculate_custom_utility` = `1000 x |adjacents IsNormalUnit|`, `should_evaluate` = le gate,
+  `is_caster_added` = mirror de `CasterHasNotMoved` (seule l'origine passe).
+- `engine/playbook/nonattack.py` : hook **`should_evaluate(ctx, tile, ability_id)`** dans
+  `nonattack_candidates`, defaut `True`. C'est le slot de vtable **6**, et il est appele **PAR TUILE
+  CANDIDATE** — etabli sur la machine a etats de
+  `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`,
+  qui appelle `playbook.<slot 6>(unit, position, positions)` a chaque `MoveNext` de l'enumerateur de
+  positions. ⚠ **Trois surcharges distinctes coexistent** — slot 4 `(unit)`, slot 5
+  `(unit, possiblePositions)`, slot 6 `(unit, position, possiblePositions)` — et les deux premieres
+  sont appelees UNE fois, AVANT la boucle. `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate`
+  override la 2-args, 1216 et 1217 la 4-args : les confondre inverse la semantique du gate.
+- `engine/battle_query.py::count_adjacent_matching` — meme `is_adjacent` que `count_adjacent` (donc
+  la meme porte d'elevation `|delta| < 2` d'`IterateAdjacentTiles`), avec un predicat par unite.
+  Aucun fork d'adjacence.
+- `engine/entities/traits/unit_trait.py::is_normal_unit` — ecrit la ou vit son homonyme natif.
+- `engine/runner/abilities/targeting.py::TARGETING_OPTIONS_UNPORTED[1216] = 0x8014`. C'est la table
+  « masque lu, behaviour NON portee » : la face COMBAT de 1216 n'est pas portee, elle n'entre donc
+  pas dans `ABILITY_CLASSES` (et `probe_181` reste a 102/102, `probe_120` etape 0 a « aucun »).
+
+⚠ **Le gate et l'utilite ne comptent PAS le meme ensemble.** `ShouldEvaluate` compte TOUS les ennemis
+adjacents ; `CalculateCustomUtility` seulement les `IsNormalUnit`. Les deux divergent des qu'un ennemi
+`Object`/`Steppable` est adjacent — l'action est alors generee avec `custom = 0`. Les confondre serait
+un port faux dans exactement ce regime.
+
+#### Validation live (4 bras, `probe_27_r4_martial_exemplar.py`, board MC1_67, seed 909)
+
+Porteur GREFFE sur **`darkaAsmodai`** (Dark Angels comme `darkaBossLion`, arme de melee, present dans
+`rl_duel build --list-pool`). **Le caster n'est JAMAIS deplace** — c'est une assertion du probe, pas
+une precaution : un `act move` du caster arme `CasterHasNotMoved` et desarme l'ability, et les bras
+degenereraient en « le natif ne propose jamais 1216 », un faux negatif parfaitement coherent. Ce sont
+les ENNEMIS qu'on deplace.
+
+| bras | n | natif | moteur | custom | contre-epreuve `custom = 0` |
+|---|---|---|---|---|---|
+| A | 0 | `MoveUnitMessage` + `ActiveAbilityMessage(69)` | `(69, 77)` | 0.0 | `(69, 77)` |
+| B | 1 | **`ActiveAbilityMessage(1216, self)`**, sans deplacement | `(1216, 83)`, `to=None` | 1000.0 | **`(69, 77)`** |
+| C | 2 | `ActiveAbilityMessage(1216, self)` | `(1216, 83)`, `to=None` | 2000.0 | **`(69, 79)`** |
+| D | — | `abilityTargets(1216)` : 1 cible avant le move du caster, **0 apres** | 12 tuiles hors origine, **0** acceptees par `is_caster_added` | — | — |
+
+Le natif emet `ActiveAbilityMessage(1216)` : **c'est la preuve directe que « npc-only » n'etait pas
+« non confrontable »**. Les deux contre-epreuves (custom force a 0, registre `NONATTACK_PLAYBOOKS`
+vide) font DIVERGER le moteur du natif sur B et C — le terme et la route sont donc necessaires, pas
+decoratifs. Garde : `tests/engine/test_martial_exemplar_decision_live.py` (9 tests).
+
+#### Ce qui n'est PAS couvert, et pourquoi
+
+- **La MAGNITUDE `1000` n'est pas discriminable par le choix natif.** `CasterHasNotMoved` fige la
+  tuile et `CasterIsPossibleTarget` fige la cible : il n'existe qu'**UNE** action 1216 par tour, donc
+  le terme ne departage jamais deux actions de 1216 entre elles ; face aux autres abilities il gagne
+  des `n >= 1`. Toute constante `>= ~10` produirait les memes decisions dans tous les regimes
+  atteignables. Le `1000` est LU (constante en dur, aucun `GetUtilityValue`), il n'est pas mesure —
+  et les assertions du test gardent le PORT contre une derive de code, pas contre le natif.
+- **Le filtre `IsNormalUnit` n'est pas exerce en LIVE** : il faudrait un ennemi `Object` ou
+  `Steppable` adjacent au caster **au spawn** (le caster ne peut pas aller le chercher). Garde
+  OFFLINE uniquement (`test_is_normal_unit_mirrors_the_native_predicate`).
+- **La face COMBAT de 1216 n'est pas portee.**
+  `...MartialExemplarAbility$$ExecuteBehaviour` est un arbre DSL substantiel (`AddEffect(0x5f0)`,
+  `AttackWithAttackDamage(AdjacentEnemies)`, puis `MoveUnit(ClosestPositionToTarget(Nearest(...)))`,
+  `UseNormalAttackIfAble`, `SortUnitsByDamageUtility`, `KillDeadUnits`) — une charge suivie d'une
+  attaque. Hors perimetre de cette tranche, qui ne couvre que la DECISION.
+- La greffe ne couvre pas les stats, traits et armes de `darkaBossLion` — legitime ICI puisque la
+  formule n'en lit aucun, et ce serait illegitime pour une prediction de degat.
+
+- **1004 `MortisRound`** reste un residu d'une nature encore differente :
+  `IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` =
+  `(Fix64)(int)(Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetTargetUtilityDiffOnDisplace(caster, casterPosition.MainTile, <liste>, target).<+0x18>)`
+  — une TRONCATURE vers `int` d'un differentiel d'utilite de DEPLACEMENT. La troncature explique le
+  « terme mesure NUL (< 0.012) » des tranches precedentes : tout differentiel de module < 1 rend 0.
+  Debloqueur : porter `GetTargetUtilityDiffOnDisplace` (evaluateur `UtilityMovementCase`), pas un
+  scalaire.
