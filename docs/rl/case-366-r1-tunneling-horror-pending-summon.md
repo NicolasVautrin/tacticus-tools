@@ -253,6 +253,9 @@ Deux choses le rendaient piégeux, et une seule a demandé du travail :
   la position d'avant — **aucun lecteur porté**. Le seul candidat natif est le repli
   `MoveUnit(Owner, <repli>)` de `TunnelingHorror_AppearAbility$$ExecuteBehaviour` : à porter EN MÊME
   TEMPS que 1060, pas avant.
+* ⚠ **AJOUT #366-r1 tranche 1** — le port ACCEPTAIT un second cast de 1011 depuis une unité déjà
+  sous terre (aucune règle CASTER dans son masque, et la clause TUILE-NULLE générique n'était pas
+  portée). Régression PERMISSIVE fermée par la tranche 1 : cf. §5.4.
 * Le refus (b) de `GetDynamicInvalidTargetReason` (`IsTemporary` sur les tuiles du caster, §1.4) —
   le port ne matérialise pas `isTemporary` côté RUNNER (`state.board` ne porte que la géométrie et
   `walkable` ; le canal `tileMeta.isTemporary` n'est seedé que côté DÉCISION,
@@ -271,7 +274,7 @@ porté, tous le sont désormais SANS nouvelle primitive :
 
 | appelant natif | ability | état du port |
 |---|---|---|
-| `…Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` | `1023 Burrowers` (+ `1024 Burrowers_Appear`, effet `1040 Burrowers_Hidden`) | non porté ; **jumeau exact** de 1011 — c'est le seul autre appelant qui prend AUSSI `RemoveAllForcedAttackTargets`, et son `$$GetDynamicInvalidCasterReason` lit `IsTemporary` |
+| `…Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` | `1023 Burrowers` (+ `1024 Burrowers_Appear`, effet `1040 Burrowers_Hidden`) | **PORTÉ + confronté live** (§5). ⚠ « jumeau exact de 1011 » était l'hypothèse d'entrée : **RÉFUTÉE** sur trois points, cf. §5.1 |
 | `…Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` | `1090 GrapnelLauncher` | face DÉCISION portée (`playbook/noncomparable/grapnel_launcher.py`), face COMBAT non portée |
 | `…Abilities.Triggered.Loki.StormboyzStrike_TeleportAbility$$CreateBehaviour` | `1141 StormboyzStrike` (effets `1140 _TeleportingIn`, `1179 _AlreadyUsedTile`) | non porté |
 
@@ -287,3 +290,129 @@ le bond ; montage non joué.
     python -m pytest scripts/python/tests/engine/test_366_r1_tunneling_horror_pending_summon_offline.py
     python -m pytest scripts/python/tests/engine/runner/test_366_r1_tunneling_horror_cast_offline.py
     python -m pytest scripts/python/tests/engine/runner/test_366_r1_tunneling_horror_live.py
+
+---
+
+# 5. `#366-r1-tunnel-family` tranche 1 — `1023 Burrowers` : PORTÉE
+
+i2 : « This unit may burrow in its turn, disappearing from the battlefield. In its following turn it
+must surface and may do so in any free hex. If adjacent to an enemy unit, it may attack in melee
+immediately. »
+
+## 5.1 Ce que « jumeau exact de 1011 » disait, et ce que le décompilé dit
+
+L'inventaire §3 annonçait 1023 comme le **jumeau exact** de 1011 (seul autre appelant à prendre
+AUSSI `RemoveAllForcedAttackTargets`). L'appariement des deux premiers étages est juste ; **les trois
+autres points sont faux**, et chacun change le port :
+
+| | `1011 TunnelingHorror` | `1023 Burrowers` |
+|---|---|---|
+| étage 3 | `AddBondEffect(0x459, …, targets: TargetTiles, bondedEntity: Caster)` → effet sur la **TUILE** | `AddEffect(0x410, stateRef, targets: Caster, turns: null)` → effet sur le **CASTER** |
+| gate | `$$GetDynamicInvalid**Target**Reason`, littéral **2** | `$$GetDynamicInvalid**Caster**Reason`, littéral **4** |
+| ctor | overload FLAGS DIRECTS 6 args, `rules = 0x8000000001042`, TILE-TARGET plateau entier | **AUCUN ctor** : recopie du preset statique `<TargetingOptions statics>+0x280` → SELF-CAST, portée 0, `rules = 0x8004` |
+
+L'étage 3 passe la surcharge à 5 arguments d'`IdunBattleLogic.Entities.DSLBehaviors$$AddEffect`
+(`effectType, abilityState, targets, turns`), qui passe littéralement `0` en 5ᵉ argument
+d'`IdunBattle.Entities.Behaviours.AddEffectBehaviour$$.ctor` — le sélecteur **SOURCE**. Le fallback
+natif d'`AddEffectBehaviour$$Execute` est alors « la source EST la cible ».
+
+`turns` est un `Nullable<int>` VIDE → pas d'override →
+`idun…StaticBattleRules.Effect$$DefaultAmountOfRounds`, dont le switch relu en entier ne connaît que
+`{5, 0x11, 0x12, 0x3a, 0x4dc, 0x5c4} → 2`, `{0x429, 0x48a} → 1`, `{0x4f} → 3` : **0x410 n'y est
+pas** → `remaining = 0` = **PERMANENT**. Retrait explicite par le
+`RemoveEffect(Owner, Nullable(0x410))` de `…BurrowersAbility_Appear$$ExecuteBehaviour`.
+
+**Aucune classe d'effet dédiée pour 1040**, et c'est une MESURE : `frida/classes.tsv` ne contient
+aucune `Burrowers*Effect` (13 lignes `Burrower*`, toutes `Ability`/`Playbook`/`Visuals`). Le port
+laisse donc 1040 hors d'`EFFECT_CLASSES` → `BaseEffect` nu, symétrie exacte.
+
+Le masque `0x8004` se décompose sans bit résiduel : `CasterMatchesDynamicRule` (0x4) |
+`CasterIsPossibleTarget` (0x8000, déclaratif). Même preset et même masque que `1045 GetEmRuntz`.
+`AActiveAbility..ctor(this, &opts, 2)` → `ABILITY_ATTACK_TYPE = Others`.
+
+Le gate, VERBATIM : `casterTiles` nul ou vide → **4** ; sinon une tuile `TileExtensions$$IsTemporary`
+→ **4** ; sinon 0.
+
+## 5.2 Confrontabilité
+
+`unit_map.py find --ability Burrowers` → **6** unités : le SUMMON `tyranSmnRipperSwarm` (traits
+`Summon`, `InstinctiveBehaviour`, `Swarm`, `BattleFatigue`) et cinq NPC `tyranNpc2RipperSwarm*`. Le
+summon a bien deux invocateurs (`ItItches`, `BarbedOvipositor`, `constants.unitId`) mais il
+s'**observe** et ne se **commande** pas (#291) → recours 3 de `case-92` §5bis : GREFFE de 1023 sur
+`tyranParasite` + `tyranNeurothrope` (pool rank 17), dans une COPIE du seed BC. Condition vérifiée :
+`gameconfig.ability("Burrowers")` = `{upgrades: null, variables: {}}` et le behaviour ne lit ni stat,
+ni trait, ni arme du caster — seulement ses TUILES.
+
+## 5.3 Les mesures (`probe_366_r1_burrowers.py`, 2 couples board/seed)
+
+**CONFRONT** — même état de départ, cast rejoué OFFLINE par la voie complète puis LIVE, états finaux
+comparés terme à terme. `MC1_67`/777 et `C3_26`/31337, identiques des deux côtés :
+
+    avant  {pos: (1,0), feet: [(1,0)], alive: True,  hidden: []}
+    après  {pos: None,  feet: [],      alive: True,  hidden: [(1040, None)]}
+
+L'effet est sur le CASTER, permanent, et le caster est HORS PLATEAU — pas mort.
+
+**E-SWAP — le piège de lecture de ce cas.** La matrice 2×2 des `casterReason` natifs est **CROISÉE** :
+
+    1023 sur l'ENFOUI -> 0x1   |  1023 sur le TÉMOIN -> 0
+    1024 sur l'ENFOUI -> 0     |  1024 sur le TÉMOIN -> 0x1
+
+Le `0x1` ne vient PAS de la cascade de ciblage : `IdunBattle.Core.Services.AttackQuery$$GetInvalidCasterReason`
+(l'étage qu'interroge le RPC `abilityReason`, AU-DESSUS de `TargetingQuery`) rend
+`GenericBrokenTargetingRule(1)` dès que `ActiveAbilityComponent$$GetOrNull(baseUnit, type)` est nul,
+que `ActiveAbility$$get_CanCurrentlyBeUsed` est faux ou que `+0x44 == 0`. **Le natif remplace 1023
+par 1024 sur le caster pendant l'enfouissement** — la matrice tient encore au tour suivant, avec
+`hasAction = true` : ce n'est donc pas la consommation d'action. Cette couche n'est **pas portée**
+(le port n'a aucune notion de disponibilité d'ability) — RÉSIDU NOMMÉ.
+⚠ Cette matrice ne SÉPARE PAS l'échange d'ability de la règle `HasEffect(caster, 0x410)` de
+`…BurrowersAbility_Appear$$GetDynamicInvalidCasterReason` : les deux la prédisent, les deux rendent
+le littéral 1. La PRÉSENCE de l'effet est établie ailleurs, sans ambiguïté, par CONFRONT.
+
+**E-GATE — discriminant de VERDICT**, après un tour complet (anti-confond) : natif et port refusent
+tous deux un second 1023 sur l'unité enfouie, acceptent tous deux sur le témoin — à des **étages
+différents**, tous deux lus au décompilé (natif : `AttackQuery`, échange d'ability ; port : clause
+tuile-nulle, `0x40000000`).
+
+## 5.4 La clause TUILE-NULLE — trouvée par la confrontation, portée ici
+
+`IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`, verbatim :
+
+    if ( !(rules & AllowNullCasterTile) && !(rules & CasterHasNoTile)
+         && CollectionExtensions.IsNullOrEmpty(casterTiles) )
+        return GenericBrokenTargetingRule(AllowNullCasterTile);   // 0x40000000
+
+Elle précède l'invocation de la règle-déléguée `CasterMatchesDynamicRule`, donc **la clause (a) de
+`BurrowersAbility$$GetDynamicInvalidCasterReason` est PRÉEMPTÉE** sur le chemin
+`ActiveAbilityOperation$$ExecuteInternal` (le mirror est conservé quand même : le natif porte bien ce
+test, et le rang de la cascade générique n'est pas une propriété de cette ability).
+
+Elle était NON PORTÉE, et ce choix était **juste jusqu'à #438** : le seul caster sans tuile était la
+MACHINE OF WAR, et la porter n'aurait fait qu'inventer un refus. Depuis que
+`RemoveUnitFromTilesOperation` produit une UNITÉ ordinaire sans tuile, son absence est une régression
+**PERMISSIVE** : le port acceptait un second cast de 1011 **comme** de 1023 depuis une unité sous
+terre. Portée au rang natif dans `get_invalid_caster_reason`.
+Argument MoW **re-mesuré** : les 17 abilities MoW du registre posent TOUTES `AllowNullCasterTile` —
+contre-bras testé (`test_the_null_tile_clause_spares_abilities_that_allow_it`). Clause 4b
+(`CasterHasNoTile` + tuiles non vides) : **0 porteur au registre**, non portée.
+
+## 5.5 Ce qui n'est PAS couvert
+
+* le 2ᵉ refus du gate (`TileExtensions$$IsTemporary` sur les tuiles du caster) — `isTemporary` n'est
+  pas seedé côté RUNNER (`state.board` ne porte que géométrie et `walkable`) ; même résidu que 1011,
+  dégradation PERMISSIVE ;
+* `RemoveAllForcedAttackTargets` sur un caster **réellement** sous Taunt / `InstinctiveBehaviour` —
+  exercé OFFLINE (liste non vide) mais pas en live ;
+* l'échange d'ability 1023 → 1024 (couche `ActiveAbilityComponent`) ;
+* l'ability `1024 Burrowers_Appear` elle-même (arbre `Enemies → AdjacentTiles → CanAddUnit → Unique`
+  `Otherwise` `First(SortTilesByUtility(…, 7))`, puis `PerformAIAbility` /
+  `If(!AmountIsEqualOrGreater, MoveUnit)` / `If(…, Kill)` / `RemoveEffect(0x410)`, aucune config au
+  gameconfig). Son ctor : `rules = 0x8040000004` = `CasterMatchesDynamicRule` | `AllowNullCasterTile`
+  | `TargetIsCaster`, `RANGE_SELF`, `AbilityAttackType.Others` ; son
+  `$$GetDynamicInvalidCasterReason` = `HasEffect(caster, 0x410, onlyActive: false) ? 0 : 1`.
+
+## 5.6 Reproduction (tranche 1)
+
+    python scripts/python/probe_366_r1_burrowers.py
+    python -m pytest scripts/python/tests/engine/runner/test_366_r1_burrowers_cast_offline.py
+    python -m pytest scripts/python/tests/engine/runner/test_366_r1_burrowers_live.py

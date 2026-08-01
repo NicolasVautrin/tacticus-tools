@@ -242,6 +242,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others (le behaviour n'attaque pas :
     # il retire le caster de ses tuiles et pose un bond sur la tuile visee).
     1011: AbilityAttackType.Others,   # TunnelingHorrorAbility
+    # Burrowers (1023, tyranSmnRipperSwarm) -- tranche 1 de `#366-r1-tunnel-family`. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. RELU au decompile, pas
+    # deduit du fait que le behaviour n'attaque pas (il retire le caster de ses tuiles et se pose un
+    # effet).
+    1023: AbilityAttackType.Others,   # BurrowersAbility
     1018: AbilityAttackType.Others,   # ValkyrieStrikeAbility
     1028: AbilityAttackType.Others,   # SupremeCommanderAbility
     1037: AbilityAttackType.Others,   # RevitalizingMalignancyAbility
