@@ -122,7 +122,7 @@ def _extra_rolls_variant(k):
     decoupage natif (l'etage limites/rogne et la failedList sont per-ATTAQUE)."""
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
               block_sources, shc, spread_pct=20, extra_pierce=0,
-              bonus_hit_chance=None, hit_index0=0, attack_profile=None,
+              bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
               hit_interceptor=None):
         # Comme `additional_hits_variant` : la signature suit `execute_additional_hits` PARAMETRE
         # POUR PARAMETRE et repasse tout ce que ce diagnostic ne fait pas varier -- sa SEULE
@@ -164,6 +164,12 @@ def _extra_rolls_variant(k):
                     shield=(shc.get_total_shield() if shc is not None else 0),
                     post_roll=_red, is_attack_damage_op=True,
                     hit_interceptor=hit_interceptor,      # #366-r1 : threade VERBATIM
+                    # #366-r1-crit-multihit : `isCriticalDamageAllowed` (`OngoingAttack+0x40`)
+                    # repasse VERBATIM. Non CHAINE d'un coup a l'autre (le port livre chaine
+                    # `r["crit_allowed"]`) : ce diagnostic passe `crit_enabled=False` ci-dessus,
+                    # donc le canal crit y est structurellement ferme -- sa SEULE variable reste
+                    # le nombre `k` de tirages intercalaires.
+                    crit_allowed0=crit_allowed0,
                     limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
                     limits_hp=int(thc.hp or 0))
                 out["per_hit"] += r["per_hit"]

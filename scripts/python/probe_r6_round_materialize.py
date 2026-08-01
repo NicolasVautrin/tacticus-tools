@@ -374,7 +374,7 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
     """
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
               block_sources, shc, spread_pct=20, extra_pierce=0,
-              bonus_hit_chance=None, hit_index0=0, attack_profile=None,
+              bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
               hit_interceptor=None):
         import gameconfig as GC
         from engine.runner.operations.damage import AttackDamageOperation, HitDamage
@@ -428,6 +428,13 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
                 # (`should_discard` / `on_blocked` + `RegisterBlockMade`) n'est PAS une variable de
                 # ce contrefactuel. Cf. l'avertissement de la docstring.
                 hit_interceptor=hit_interceptor,
+                # #366-r1-crit-multihit : idem -- `isCriticalDamageAllowed` (`OngoingAttack+0x40`)
+                # est repasse VERBATIM, jamais reconstruit. Il est REÇU et non CHAINE d'un groupe
+                # a l'autre (le port livre, lui, chaine `r["crit_allowed"]`) : ce contrefactuel
+                # passe `crit_enabled=False` ci-dessus, donc le canal crit y est structurellement
+                # ferme et les deux formes sont indiscernables. Limite NOMMEE : un contrefactuel
+                # qui ouvrirait le crit devrait chainer comme `execute_additional_hits`.
+                crit_allowed0=crit_allowed0,
                 limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
                 limits_hp=int(thc.hp or 0), is_attack_damage_op=is_attack_op)
             AttackDamageOperation._deplete_shield(shc, r)
