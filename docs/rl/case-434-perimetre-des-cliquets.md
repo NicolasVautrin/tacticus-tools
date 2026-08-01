@@ -221,6 +221,17 @@ python scripts/python/probe_283_enum_ordinal_sweep.py --step mirror
 Banque entière re-jouée après le correctif, depuis le worktree : **VERTE 19/19, mur 91,3 s**,
 `probe_283:mirror` **51,8 s** et `:tables` **52,9 s** — ils ne tiennent plus le mur nulle part.
 
+## 9. Re-joué après rebase sur `origin/master`
+
+Rebase **sans conflit** (3 PR intégrées entre-temps : #472, #473, #474). Re-jeu complet :
+
+* banque entière **VERTE 20/20**, mur **91,1 s** (`origin/master` a ajouté `probe_431`) ;
+  `probe_283:mirror` **54,1 s**, `:tables` **54,6 s** ;
+* ancienne vs nouvelle version sur l'arbre rebasé, `REPO` = le worktree : sortie
+  **strictement identique octet à octet** pour `mirror` et pour `tables`, listes énumérées
+  **1 778 = 1 778, ordre compris**. Depuis un worktree le correctif ne change donc **rien** au
+  verdict — seulement le coût (`mirror` 84,3 → 34,3 s, l'élagage de `.git`/`dist`/`logs`).
+
 Équivalence contre la révision antérieure — c'est ainsi que celle-ci a été prouvée : charger
 les deux versions du probe avec `REPO` **forcé sur l'arbre principal**, comparer les sorties
 après retrait des seules lignes sous `.claude/worktrees/` et `node_modules/`.
