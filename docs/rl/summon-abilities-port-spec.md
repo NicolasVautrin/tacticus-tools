@@ -191,9 +191,16 @@ duration_override=<turns>)` (`effects.py:72`). Aucun de ces EffectType dans `EFF
   `RemoveAllForcedAttackTargets` + `AddEffect(Burrowers_Hidden 1040, target=self, default→1 round)`. Port =
   `AddEffect(1040, source=caster, target=caster)`. **GAP** : retrait off-board (burrow) non modélisable (le ripper
   quitte le board puis ré-émerge ; offline ne peut que tagger l'effet).
-- **TunnelingHorror (1011)** @181216860 — necroSmnDestroyer, self, no dmg : `RemoveUnitFromItsTiles(self)` +
-  `RemoveAllForcedAttackTargets` + `AddBondEffect(TunnelingHorror_PendingSummon 1113, default→1 round)`. Port =
-  `AddEffect(1113,...)`. **GAP** : reposition off-board + ré-émerge/summon bond non modélisables.
+- **TunnelingHorror (1011)** `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$ExecuteBehaviour`
+  — necroSmnDestroyer, no dmg : `RemoveUnitFromItsTiles(Caster, removeTileFromUnit: true)` +
+  `RemoveAllForcedAttackTargets(Caster)` + `AddBondEffect(TunnelingHorror_PendingSummon 1113,
+  source: Caster, targets: **TargetTiles**, bondedEntity: Caster)`.
+  ⚠ **Deux corrections MESURÉES (#366-r1, `docs/rl/case-366-r1-tunneling-horror-pending-summon.md`)** :
+  la cible n'est PAS le caster mais la **TUILE** visée (`decisionView` est aveugle aux effets de tuile —
+  lire `tileMeta`), et il n'y a **AUCUN `TurnsFromRounds`** : `remaining = 0`, l'effet est **PERMANENT**
+  jusqu'au `RemoveEffect` de `TunnelingHorror_Appear` (1060). Le « default → 1 round » écrit ici était FAUX.
+  L'effet 1113 EST porté (marqueur, `EFFECT_CLASSES`) ; **GAP restant** = le vecteur, faute de
+  `IdunBattle.Operations.RemoveUnitFromTilesOperation$$Execute` (unité hors plateau) côté port.
 
 ## GAPS — non portables offline proprement (valeur capturée ou nœud DSL non-RE)
 - **ValkyrieStrike (1018)** @181229e40 — astraSmnVoxcaster : ExecuteBehaviour = **UNIQUEMENT** `AddBondEffect(
