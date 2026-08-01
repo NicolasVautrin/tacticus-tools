@@ -387,10 +387,20 @@ n'est donc PAS l'architecture mais le **terme de tuile** : le natif score chaque
   ⇒ **pour une ATTAQUE, ce terme VARIE par tuile** (les prédictions de dégât dépendent des cibles
   atteignables/à portée depuis chaque tuile → l'IA préfère les tuiles qui tuent/frappent plus). ⇒ **pour un
   SELF-HEAL, il est CONSTANT** (`CalculateUtilityFromHealEvent(self, montant fixe)`, indépendant de la tuile).
-- **key-0x36 = UtilityType 54 = `WireweaveNet_FirstAttack`** (dump.cs gqfc5mff6c ; le label journal §13.1
-  « position du caster » était une **inférence fausse**). Son `Evaluate` (`MoveNext @1810f76f0`) est gaté :
-  cible **adjacente** ET cible **possédant l'effet 1111 (0x457, WireweaveNet)** → sinon **`return 0`**.
-  ⇒ **= 0 pour tout ce qui n'est pas une attaque WireweaveNet** (donc 0 pour un heal).
+- **key-0x36 = `UtilityType.WireweaveNet_FirstAttack`** — **54** sur `gqfc5mff6c`, **55** sur
+  `rnca9r7q6c` (l'insertion d'`AttackTile` en 8 a décalé toute la queue) ; le label journal §13.1
+  « position du caster » était une **inférence fausse**. Son corps
+  (`IdunBattle.AI.Utilities.WireweaveNet_FirstAttack.<EvaluateAttackInSteps>d__1$$MoveNext`) est gaté
+  par **DEUX** conjoints, dont **UN SEUL mord** : `CasterPosition.MainTile != null`, puis
+  `GetOwnedEffects(target, state, 1111).Any(e => e.IsActive)` → sinon **`return 0`**.
+  ⚠ **Le conjoint d'adjacence est DÉGÉNÉRÉ** (relu sur `rnca9r7q6c`, case-366-r1b §6) : les DEUX
+  opérandes d'`IsAdjacentTo` sortent du MÊME champ `case+0x18` (trois `add rcx, 0x18` à
+  l'assembleur), et `MovementUtil$$AreTilesAdjacent` court-circuite `tile1 == tile2 -> true`. Ce
+  n'est donc **pas** un gate d'adjacence porteur/cible : le malus (`-30`) porte aussi sur une
+  attaque à DISTANCE contre une Calandis armée.
+  ⇒ **= 0 pour tout ce qui n'est pas une attaque contre un filet ARMÉ** (donc 0 pour un heal, et 0
+  dans toute bataille sans `eldarRanger`). PORTÉ depuis case-366-r1b :
+  `engine/utilities/wireweave_net.py`, sommé dans `playbook/base.calculate_action_utility`.
 
 **Conclusion du (1,2) (DÉFINITIVE)** : pour un **self-heal sur carte plate**, TOUS les termes de
 `CalculateActionUtility` sont **constants/nuls par tuile** (predictions=constant, CasterPositionUtility=0,
