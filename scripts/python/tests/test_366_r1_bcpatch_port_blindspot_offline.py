@@ -40,6 +40,37 @@ def patches():
     return P.scan_patches()
 
 
+# --- LA PREMISSE, MESUREE (et non supposee) -----------------------------------------------------
+
+def test_le_patch_arrive_au_natif_et_PAS_au_port(tmp_path):
+    """LES DEUX LECTURES, cote a cote. C'est tout le cas, en six lignes.
+
+    On patche `InescapableAccuracy.extraCritDmg` a une valeur impossible, puis on lit :
+      * par le CHEMIN DU BUILD (`_load_seed_bc`, celui que le runner natif recoit) -> la valeur
+        patchee, epinglee (#375) donc survivante ;
+      * par le FOYER DU PORT (`magnitude.ability_var`) -> la valeur du GAMECONFIG, intacte.
+    Sans cette mesure, le cliquet reposerait sur une premisse supposee.
+    """
+    import catalog_inject as CI
+    from rl_collect_batch import _load_seed_bc
+    from engine.entities.effects.magnitude import ability_var
+
+    forced = 12345
+    p, _rep = CI.write_variable_patched_seed_bc(
+        tmp_path / "bc.json", [("InescapableAccuracy", 50, {"extraCritDmg": forced})])
+
+    bc = _load_seed_bc(str(p))
+    arr = (bc["Abilities"]["PassiveAbilities"]["InescapableAccuracy"]["Variables"]["extraCritDmg"])
+    assert int(arr[49]) == forced, "le NATIF doit voir le patch (sinon c'est #375, pas ce cas)"
+
+    import gameconfig as GC
+    from_gc = int(((GC.ability("InescapableAccuracy") or {})["variables"]["extraCritDmg"])[49])
+    port = ability_var("InescapableAccuracy", "extraCritDmg", 50)
+    assert port == from_gc != forced, (
+        "le PORT doit lire le GAMECONFIG, pas le patch -- si ce test devient rouge, `ability_var` "
+        "a change de source et TOUT ce cliquet est a re-deriver")
+
+
 # --- L'INVARIANT --------------------------------------------------------------------------------
 
 def test_aucune_intersection_non_declaree(reads, patches):

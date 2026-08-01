@@ -9,12 +9,18 @@ neutralisation la veille, erreur de **997 points** le lendemain.
 
 **Le cliquet.** `python scripts/python/probe_366_r1_bcpatch_port_blindspot.py` (rc 0 attendu,
 ~30 s, 100 % offline) + garde pytest `scripts/python/tests/test_366_r1_bcpatch_port_blindspot_offline.py`
-(13 tests). Il croise deux recensements statiques et **rougit sur l'intersection** :
+(14 tests). Il croise deux recensements statiques et **rougit sur l'intersection** :
 
 | côté | ce qui est recensé | mesure du 2026-08-01 |
 |---|---|---|
 | SEED BC | `patch_ability_variables`, `write_variable_patched_seed_bc`, écriture directe dans `BC.Abilities` (alias de sous-arbre suivis) | **3 couples**, 4 modules |
 | PORT | `ability_var(<ability>, <var>)` sous `engine/**`, **relais propagés** | **938 couples**, 261 sites |
+
+**La prémisse est MESURÉE, pas supposée** (`test_le_patch_arrive_au_natif_et_PAS_au_port`) : on
+force `InescapableAccuracy.extraCritDmg = 12345`, puis on lit des deux côtés — par le chemin du
+build (`_load_seed_bc`, ce que le runner natif reçoit) on relit `12345` ; par `magnitude.ability_var`
+on relit la valeur du gameconfig, intacte. Si ce test rougit un jour, `ability_var` a changé de
+source et tout le cliquet est à re-dériver.
 
 **Une SECONDE SOURCE le contrôle** (`grep_literal_pairs`) : les couples littéraux repérés au grep,
 sans le moindre AST, doivent tous figurer au recensement. Elle a trouvé **3 faux négatifs** que
