@@ -35,7 +35,7 @@ call-sites `from ..behaviours import X` restent inchanges) :
 - `combat`    : `AttackWithAttackDamage`, `AttackWithAbilityDamage`, `EvaluateAbilities`, `UseActiveAbility`.
 - `effects`   : `AddBondEffect`, `AddEffect`, `RemoveEffect`, `SetOnFire`, `CreateShield`.
 - `stats`     : `Heal`, `ChangeStat`, `SetHealth` (+ futur `AddStaticStatModifierEffect`).
-- `movement`  : `PushUnit`, `MoveUnit` (+ futur `ResetMovement`).
+- `movement`  : `PushUnit`, `MoveUnit`, `SwitchPosition`, `PullUnitOneTile`, `FlyUnit`.
 - `lifecycle` : `KillDeadUnits`, `RemoveUnit`, `RemoveMachine`, `RemoveUnitFromItsTiles`,
                 `RemoveAllForcedAttackTargets`, `TriggerAbility` (+ futur REVIVE).
 - `grants`    : `AddTrait` (`AddTraitBehaviour`), `AddTriggeredAbility` (`AddTriggeredAbilityBehaviour`).
@@ -67,7 +67,7 @@ from .ability_state import ResetActiveAbility
 from .stats import (Heal, Repair, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical,
                     healable_heal_type_0, repairable_heal_type_1, RefreshDynamicStatModifierValue,
                     AddStatOverrideEffect)
-from .movement import PushUnit, MoveUnit, SwitchPosition
+from .movement import PushUnit, MoveUnit, SwitchPosition, PullUnitOneTile, FlyUnit
 from .lifecycle import (KillDeadUnits, RemoveUnit, RemoveMachine, RemoveUnitFromItsTiles,
                         RemoveAllForcedAttackTargets, TriggerAbility,
                         TriggerAbilityDelayed, TRIGGERED_ABILITY_BEHAVIOURS,
@@ -89,7 +89,7 @@ __all__ = [
     "Heal", "Repair", "ChangeStat", "SetHealth", "SubtractHealthPercent", "is_mechanical",
     "healable_heal_type_0", "repairable_heal_type_1",
     "RefreshDynamicStatModifierValue",
-    "PushUnit", "MoveUnit", "SwitchPosition",
+    "PushUnit", "MoveUnit", "SwitchPosition", "PullUnitOneTile", "FlyUnit",
     "KillDeadUnits", "RemoveUnit", "RemoveMachine", "RemoveUnitFromItsTiles",
     "RemoveAllForcedAttackTargets", "TriggerAbility", "TriggerAbilityDelayed",
     "TRIGGERED_ABILITY_BEHAVIOURS", "TRIGGERED_ABILITY_DELAYED_BEHAVIOURS",

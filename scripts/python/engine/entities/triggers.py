@@ -257,6 +257,41 @@ class AmountIsGreaterThanZero(AbilityTrigger):
         return self.a.evaluate(ctx) > 0
 
 
+class IsCanAddUnit(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsCanAddUnit(selector)` -- MIRROR du decompile :
+
+        return <trigger DAT_1833d73e0>( DSLSelectors.CanAddUnit(selector), DSLFormulas+0x20 )
+
+    DEUX pieges tenus ensemble, et c'est leur conjonction qui donne le sens :
+
+    1. **La CLASSE du trigger n'est PAS celle que ghidra nomme.** Le ctor affiche
+       `AmountIsGreaterAbilityTrigger..ctor` -- corps DEDUPLIQUE (`base() ; +0x10 = selector ;
+       +0x20 = minAmount`), donc UN seul proprietaire dans la table pour les deux classes soeurs. Le
+       `Il2CppClass*` reellement alloue (`DAT_1833d73e0`) est celui qu'alloue AUSSI
+       `IdunBattleLogic.Entities.DSLTriggers$$AmountIsZero`, dont la semantique (`NOT(...)` = « la
+       selection est VIDE ») ne tient QUE si la comparaison est `>=`. C'est donc
+       `AmountIsEqualOrGreaterAbilityTrigger`. (`AmountIsGreaterThanZero`, lui, alloue une classe
+       DIFFERENTE -- `DAT_1833d7670` -- et lit `DSLFormulas+0x18`.)
+    2. **`DSLFormulas+0x20` = `Direct(1)`**, pas `Direct(0)` : `IdunBattleLogic.Entities.DSLFormulas
+       $$.ctor` pose `+0x18 = Direct(0)`, `+0x20 = Direct(1)`, `+0x28 = Direct(2)`,
+       `+0x30 = Direct(100)`, `+0x38 = Direct(-1)`.
+
+    => `IsCanAddUnit(sel)` = `Count(CanAddUnit(sel)) >= 1` = « AU MOINS UNE tuile de `sel` peut
+    accueillir une unite ». Lire la paire a l'envers (`> 1` avec la classe affichee) rendrait le
+    predicat TOUJOURS FAUX sur un `First(...)`, et tuerait silencieusement une branche.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility$$
+    ExecuteBehaviour` = `IsCanAddUnit(First(Cache(Tiles(Target))))` -- « la tuile d'origine de la
+    cible est-elle libre ». Le `CanAddUnit` est celui du port (`selectors.tiles.CanAddUnit` :
+    walkable ET aucun pied d'unite VIVANTE), evalue sur l'etat LIVE."""
+    def __init__(self, selector):
+        self.selector = selector
+
+    def should_trigger(self, ctx):
+        from .selectors.tiles import CanAddUnit
+        return len(CanAddUnit(self.selector).evaluate(ctx) or []) >= 1
+
+
 class AmountIsZero(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$AmountIsZero(a)` = `NOT(AmountIsEqualOrGreater(a, 1))` : `a <= 0`
     (== 0 pour un cardinal). ⚠ `a <= 0`, PAS `a == 0` (mirror exact du natif `NOT(a >= 1)`)."""

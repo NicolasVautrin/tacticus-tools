@@ -57,6 +57,31 @@ def bc_effect_config(key: str, default: int | None = None) -> int | None:
     return int(v) if v is not None else None
 
 
+def _lookup_config_key(table: dict, key: str):
+    """Resolution d'une cle de `constants`/`variables` du gameconfig, avec repli TRIMME.
+
+    POURQUOI : le natif n'indexe PAS ces tables par CHAINE. `IdunBattle.Configuration.
+    AbilityConfiguration$$GetStringConstant` fait un `Dictionary<AbilityConstantType, string>.
+    TryGetValue` -- la conversion `chaine du gameconfig -> membre d'enum` a lieu AU CHARGEMENT, et
+    `Enum.Parse` **TRIM les blancs**. Une cle a espace parasite est donc INVISIBLE cote natif ; cote
+    port, qui lit le JSON par nom, elle rate silencieusement (`None`).
+
+    MESURE (2026-08-01, gameconfig `rnca9r7q6c`, 572 abilities) : **6** cles concernees --
+    `GrapnelLauncher."knockbackRange "`, `ReanimationBeam."initialCooldownTurns "` /
+    `."munitionsCost "`, `DeathOnTheWind` (les deux memes), et la VARIABLE
+    `HarbingerOfDestruction."nrOfUnits "`.
+
+    Le repli n'est tente QUE si la cle exacte est absente (aucun changement pour les 566 autres), et
+    il exige une correspondance UNIQUE apres `strip()` -- une ambiguite rend `None` plutot que de
+    choisir. `GetStringConstant` LEVE sur cle absente ; le port, lui, se degrade en `None` (le
+    contrat de tous ses appelants)."""
+    if key in table:
+        return table[key]
+    k = key.strip()
+    hits = [v for kk, v in table.items() if kk.strip() == k]
+    return hits[0] if len(hits) == 1 else None
+
+
 def ability_var(ability_id: str, var_key: str, level: int | None = None,
                 is_constant: bool = False, multiplier_pct: int = 100) -> int | None:
     """Variable/constante d'ability. Constante = scalaire ; variable = tableau per-niveau indexé `level`
@@ -75,9 +100,9 @@ def ability_var(ability_id: str, var_key: str, level: int | None = None,
         return None
     a = _GC.ability(ability_id) or {}
     if is_constant:
-        v = (a.get("constants") or {}).get(var_key)
+        v = _lookup_config_key(a.get("constants") or {}, var_key)
         return int(v) if v is not None else None
-    arr = (a.get("variables") or {}).get(var_key)
+    arr = _lookup_config_key(a.get("variables") or {}, var_key)
     if arr is None:
         return None
     if isinstance(arr, list):

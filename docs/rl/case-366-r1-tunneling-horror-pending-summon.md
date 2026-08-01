@@ -275,7 +275,7 @@ porté, tous le sont désormais SANS nouvelle primitive :
 | appelant natif | ability | état du port |
 |---|---|---|
 | `…Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` | `1023 Burrowers` (+ `1024 Burrowers_Appear`, effet `1040 Burrowers_Hidden`) | **PORTÉ + confronté live** (§5). ⚠ « jumeau exact de 1011 » était l'hypothèse d'entrée : **RÉFUTÉE** sur trois points, cf. §5.1 |
-| `…Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` | `1090 GrapnelLauncher` | face DÉCISION portée (`playbook/noncomparable/grapnel_launcher.py`), face COMBAT non portée |
+| `…Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` | `1090 GrapnelLauncher` | **PORTÉ + confronté live** (§6). ⚠ il n'appelle PAS `RemoveUnitFromItsTiles` sur le CASTER mais sur la CIBLE, et seulement si elle est MORTE sur sa tuile d'origine |
 | `…Abilities.Triggered.Loki.StormboyzStrike_TeleportAbility$$CreateBehaviour` | `1141 StormboyzStrike` (effets `1140 _TeleportingIn`, `1179 _AlreadyUsedTile`) | non porté |
 
 **NON COUVERT (et probablement inatteignable par construction)** : la conséquence de
@@ -416,3 +416,109 @@ contre-bras testé (`test_the_null_tile_clause_spares_abilities_that_allow_it`).
     python scripts/python/probe_366_r1_burrowers.py
     python -m pytest scripts/python/tests/engine/runner/test_366_r1_burrowers_cast_offline.py
     python -m pytest scripts/python/tests/engine/runner/test_366_r1_burrowers_live.py
+
+---
+
+# 6. `#366-r1-tunnel-family` tranche 2 — `1090 GrapnelLauncher` (face COMBAT) : PORTÉE
+
+i2 : « Targets an enemy unit within 3 hexes and deals 1x <dmg> Physical Damage to it. If Tjark is not
+already adjacent to the target, it is then pulled 1 hex towards Tjark if possible, and can be pulled
+over any elevation but not through impassable terrain. Tjark then moves to occupy the hex the target
+originally occupied if it's free, or a free adjacent hex if it is not. If there are no free hexes,
+then Tjark does not move. »
+
+## 6.1 L'arbre, et les deux points où il contredit l'i2
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour`, un seul
+`AActiveAbility$$Execute` sur quatre `op_Addition` :
+
+    cache = Cache( Tiles(Target@0x60), matchAbilityEntities: true )
+    pick  = PickRandomly( CanAddUnit(AdjacentTiles(cache)), Direct(1), null, 0x7fffffff, false )
+
+    PullUnitOneTile( Caster@0x48, Units(cache), Nullable(GetNumberConstant(0x5b = knockbackRange)) )
+  + If( NOT IsDead(Target@0x60), AttackWithAttackDamage(…, GetNumberConstant(0x2f = nrOfHits)) )
+  + If( IsDead(Target@0x60) & AreEqual(TargetTiles@0x78, cache),
+        KillDeadUnits(Owner@0x30, Target@0x60) + If( IsDead(Target), RemoveUnitFromItsTiles(Target, true) ) )
+  + If( IsCanAddUnit(First(cache)), FlyUnit(Caster@0x48, First(cache)),
+        If( AmountIsGreaterThanZero(pick), FlyUnit(Caster@0x48, pick) ) )
+
+1. **Le PULL PRÉCÈDE l'ATTAQUE.** L'i2 dit l'inverse. `op_Addition(left@+0x50, right@+0x58)` et
+   `IdunBattle.DSL.CombinedBehaviour$$Execute` exécutent gauche puis droite ; et le gate
+   `If(NOT IsDead(Target))` devant l'attaque n'aurait aucun sens dans l'autre ordre — il n'existe que
+   parce que le pull PEUT tuer (knockback).
+2. **Le `Cache` est LOAD-BEARING** (même rôle qu'#27) : primé par le pull, il fige la tuile
+   d'ORIGINE ; le `AreEqual` (« la cible n'a pas bougé, donc le pull a échoué »), le `First` du vol
+   et l'`AdjacentTiles` du repli la relisent tous.
+
+`$$.ctor` = forme FLAGS DIRECTS 6 args : `TargetingOptions..ctor(&opts, 0, <TargetingRange
+statics+0x18> = RANGE_FROM_CONFIG, 1, rules = 0x8004000, 0, 0)` puis `AActiveAbility..ctor(this,
+&opts, 0)`. `0x8004000` = `TargetIsEnemy` | `TargetIsInRange`, **0 bit résiduel** ; ni
+`TargetMatchesDynamicRule` ni `CasterMatchesDynamicRule` → aucun gate dynamique (cohérent : la classe
+n'a aucun corps `GetDynamicInvalid*Reason`). `ABILITY_ATTACK_TYPE` = 0 = `DirectTargetAttack`.
+
+## 6.2 Le pull — géométrie et **le quirk que l'i2 tait**
+
+`PullUnitOneTile` → `DisplaceUnitBehaviour(direction = 6)` → `IdunBattle.Operations.
+DisplaceUnitOperation$$FindTileToPullOnce` → `BattleQuery$$GetMinimumTiles180Front(caster, target,
+isReachable: 0)` = l'arc **AVANT** (vers le tireur) à un hex de la cible — le symétrique EXACT de
+l'arc arrière du push, au signe des vecteurs près. Aligné → 1 candidate ; non aligné → 2, puis
+`Random(0, n)`. Mirror : `engine/battle_query.py::get_minimum_tiles_180_front`.
+
+`AddNewTileToList(…, checkWalkability = 1, checkElevation = 0)` → `TileUtil$$IsTileValidForList` teste
+`IsWalkable` et **saute** le gate `|Δelev| < 2` : c'est mot pour mot « over any elevation but not
+through impassable terrain ».
+
+⚠ **`FindTileToPullOnce` n'applique son filtre `IsEmptyOrSteppable` que si la liste a PLUS d'une
+tuile.** Cible DÉJÀ ADJACENTE → l'arc se réduit à la **tuile du caster**, rendue telle quelle,
+occupée → la queue commune part sur `ApplyKnockbackTo(caster, target, doIt)`, avec `doIt` =
+`options+0x11` que `PullUnitOneTile` pose à **1**. Donc : **cible au contact = pas de pull, mais
+`ceil(hp_max × BC.Damage.KnockbackPercentage / 100)` en plus de l'attaque.**
+
+## 6.3 Confrontabilité
+
+`unit_map.py find --ability GrapnelLauncher` → **1** unité : `spaceHound` (« Tjark »), **HERO**,
+**présent** au pool rank 17. Aucune greffe, aucune injection catalogue.
+
+## 6.4 Les mesures (`probe_366_r1_grapnel_launcher.py`, 2 couples board/seed)
+
+Positions : accord **terme à terme** des deux côtés (pull d'exactement 1 hex vers le tireur ; caster
+sur la tuile d'origine libérée). Discriminant du quirk, à DEUX BRAS :
+
+| couple | Δhp natif ADJ | Δhp natif FAR | écart | knockback attendu |
+|---|---|---|---|---|
+| `MC1_67`/777 | 2777 | 1301 | 1476 | 1707 |
+| `C3_26`/31337 | 2547 | 628 | **1919** | **1908** |
+
+Le bras FAR (pull réussi, aucun knockback) donne l'attaque seule ; le bras ADJ y ajoute le knockback,
+et le port prédit sa composante **à l'unité près** (Δport = 1707 / 1908 = le knockback exact).
+
+⚠ **Le `hp` n'est PAS comparable terme à terme** : sur un état rechargé le MT natif n'est pas
+reproductible (aucun canal ne l'expose à mi-bataille), donc le port n'inflige pas le dégât
+d'ATTAQUE. Même limite pour la branche `PickRandomly` du vol (le probe y compare la PROPRIÉTÉ —
+voisine de la tuile d'origine — pas la tuile).
+
+## 6.5 Ce qui n'est PAS couvert
+
+* le **steppable-crush** (`IsFilled && IsSteppable(occupant)` → `KillUnit(ForSteppable)` puis le move
+  a lieu) — même résidu que le push ;
+* la garde `TileComponent+0x2c` (tuile TEMPORAIRE) sur la destination — `state.board` est statique ;
+* la **sémantique** du `Nullable(3)` que `DSLBehaviors$$FlyUnit` pose à `MoveUnitBehaviourOptions
+  +0x08` (aucun lecteur lu) : le port rend le même déplacement que `MoveUnit`, sans traversée
+  particulière — le pas est de toute façon d'AU PLUS 1 hex ici ;
+* le knockback de **dénivelé** (`elevationDifferenceForKnockback` = 2) est porté et testé OFFLINE,
+  mais NON exercé live (aucun dénivelé ≥ 2 sur les deux boards joués).
+
+## 6.6 Effet de bord mesuré — 6 clés de config à espace parasite
+
+`GrapnelLauncher.constants` porte `"knockbackRange "` (espace FINAL). Le natif ne le voit pas : son
+dictionnaire est indexé par `AbilityConstantType` et `Enum.Parse` **trim**. Le port, qui lit le JSON
+par nom, rendait `None` → knockback de dénivelé éteint EN SILENCE. Repli trimmé (exact d'abord,
+correspondance UNIQUE ensuite) dans `engine/entities/effects/magnitude.py::_lookup_config_key`.
+Balayage des **572** abilities : **6** clés concernées — `GrapnelLauncher."knockbackRange "`,
+`ReanimationBeam` et `DeathOnTheWind` (`"initialCooldownTurns "`, `"munitionsCost "`), et la variable
+`HarbingerOfDestruction."nrOfUnits "`.
+
+## 6.7 Reproduction (tranche 2)
+
+    python scripts/python/probe_366_r1_grapnel_launcher.py
+    python -m pytest scripts/python/tests/engine/runner/test_366_r1_grapnel_launcher_cast_offline.py
