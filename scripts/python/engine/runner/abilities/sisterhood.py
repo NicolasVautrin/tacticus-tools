@@ -25,7 +25,7 @@ from ...entities.selectors import (Target, TargetTile, Caster, AdjacentUnits, En
                                    TilesBehindInLine, Units, UnitsWithTrait,
                                    TileFromVector, TileUnique, Unobscured, FixedTiles, Union)
 from ...entities.triggers import (Not, AreEnemies, HasFaction, HasTrait, HasUnit, IsAlive, IsAdjacent,
-                                  TriggerAnd, IsPositionMachineForCurrentPlayer)
+                                  OwnerIsAlive, TriggerAnd, IsPositionMachineForCurrentPlayer)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.stats import StatType
@@ -214,10 +214,13 @@ class SanctorumMissileAbility(ActiveAbility):
 #    le pipeline de l'attaque NORMALE). CONTRASTE mesure : le smite Psyker passe ce meme `Nullable` VIDE et n'a
 #    AUCUNE variance (live). `Sum(base, extraDmg)` == pattern MurderousSwing/SavageEchoes pour la STRUCTURE,
 #    mais PAS pour le pipeline de degat (ceux-la sont en mode bornes).
-#  - ATTACK gate = `factory+0x98` = trigger cache du DslContext (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, construit depuis
-#    +0x28) = gate "alive". Porte comme `IsAlive(caster) & IsAlive(target)` (== gate VigilanceEternal, template
-#    EXACT ; post-charge non-reactive les deux sont vivants -> l'attaque tire). +0x98 exact non byte-resolu
-#    (variante IsAlive) -- INERTE en runner (aucune mort reactive intra-arbre sur board plat 1v1).
+#  - ATTACK gate = le SINGLETON PARTAGE `<DSLTriggers+0x20>` (`<dsl+0x88>+0x20`), alloue par
+#    `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` = **`OwnerIsAlive`**
+#    (`IdunBattle.Entities.Triggers.OwnerIsAliveAbilityTrigger`, NOMME par #389 -- preuve dans le
+#    docstring de `entities/triggers.py::OwnerIsAlive`). ⚠ CORRIGE par #389 : ce port ecrivait
+#    `IsAlive(caster) & IsAlive(target)`, un conjoint INVENTE -- le noeud natif est SANS operande et
+#    ne teste QUE l'Owner. Les deux lectures coincident sur tout montage joue (la cible ne peut pas
+#    mourir entre le move et l'attaque), mais le mirror etait FAUX.
 # native_factory = "attack" (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage -> AttackDamageBehaviour -> ExecuteHit resolve slot-8). Config 1025
 # (gameconfig LU) : attackRangeType=Melee, extraDmg[level] rarity-scaled (variablesAffectedByRarityBonus),
 # initialCooldownTurns=1. Porteuse = Celestine (SkyStrike = sa SEULE active).
@@ -309,7 +312,7 @@ def sky_strike_tree(dest, extra_dmg: int, profile: str, hits: int):
     + config, comme VigilanceEternal `dest`) :
         op_BitwiseAnd(
           If(Not(IsAdjacent(caster,target)), MoveUnit(caster, dest)),                    # MOVE (charge)
-          If(IsAlive(caster) & IsAlive(target),                                          # ATTACK gate (factory+0x98)
+          If(OwnerIsAlive,                                    # ATTACK gate = `<DSLTriggers+0x20>` (#389)
              AttackWithAttackDamage(caster->target,
                  Sum(NormalAttackDamage(caster), Direct(extraDmg)),                      #   attaque normale + var8
                  NormalMeleeAttackDamageProfile(caster), MeleeWeaponHits(caster),
@@ -334,7 +337,7 @@ def sky_strike_tree(dest, extra_dmg: int, profile: str, hits: int):
                                     hits=int(hits), amount_spread_pct=20,
                                     native_factory="attack",
                                     ability_type=int(ActiveAbilityType.SkyStrike))
-    attack_branch = If(TriggerAnd(IsAlive(Caster()), IsAlive(Target())), attack)
+    attack_branch = If(OwnerIsAlive(), attack)          # `<DSLTriggers+0x20>`, SANS operande (#389)
     return op_and(move, attack_branch)
 
 

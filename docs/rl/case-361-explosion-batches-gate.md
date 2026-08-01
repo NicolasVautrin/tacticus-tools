@@ -153,9 +153,9 @@ on lisait 2 events des deux côtés. Le probe porte la garde qui refuse ce monta
 ## 8. Ce qui n'est PAS couvert
 
 * ~~**`1059` n'entre toujours pas dans `ABILITY_CLASSES`** — port des batchs 3/4 à faire~~ —
-  **les batchs 3/4 sont PORTÉS et confrontés 4/4 (#383, `case-383`)** ; la face COMBAT, elle, reste
-  hors `ABILITY_CLASSES` (résidu `#383-r1` : le nœud `<DSLTriggers+0x20>` du `If` autour des deux
-  attaques n'est nommé nulle part). Les deux données de registre sont LUES dans `case-383` §6.
+  **les batchs 3/4 sont PORTÉS et confrontés 4/4 (#383, `case-383`)**, et **la face COMBAT est
+  PORTÉE et confrontée 5/5 bras (#389, `case-389`)** — `<DSLTriggers+0x20>` =
+  `IdunBattle.Entities.Triggers.OwnerIsAliveAbilityTrigger`.
 * ~~**Écart PORT/NATIF sur un ring saturé**~~ — **FERMÉ (`#381-r1`, `case-381-r1`)**. La cause n'était
   pas celle écrite ici : le 4ᵉ argument du nœud n'est pas un `canReachOnly` mais `ignoreFlags`, et le
   pool natif est TOUJOURS filtré (`AnyOrFillMoveableTiles` termine par

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 import gameconfig as GC
+import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
@@ -25,13 +26,14 @@ from ...entities.formulas import Count, Get, VisualUnitIdFromUnitId
 from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles, AdjacentUnits,
                                    AllUnits, Cache, CanAddUnit, Caster, CasterTile, Damageable,
                                    EntitiesWithoutEffects, FixedTileIds, FixedTiles, Friends,
-                                   MovableTilesInRange, SurroundingEnemies, SurroundingTiles, Target,
-                                   TargetTile, TileIntersect, Union, Unique, UnitSet,
+                                   MovableTilesInRange, Owner, SurroundingEnemies, SurroundingTiles,
+                                   Target, TargetTile, TileIntersect, Union, Unique, UnitSet,
                                    UnitsFromFaction, UnitsWithVisualId, Unobscured,
                                    non_steppable_or_object_units,
                                    tiles_unit_can_move_to_charge_target)
 from ...entities.stats import StatType
-from ...entities.triggers import AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, TriggerOr
+from ...entities.triggers import (AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, Not,
+                                  OwnerIsAlive, TriggerOr)
 from ...utilities.decider import UtilityBucket, UtilityDefinition, WeightedUtility
 from ...utilities.tile import first_tile_by_utility
 from ...utilities.utility_type import UtilityType
@@ -326,10 +328,10 @@ def ramming_speed_tile_to_move_to(state: "State", caster_id: int, target_id: int
     la source de `GetNumberConstant(0x16)`. Rend une `(col, row)`, ou None si l'intersection est
     vide (le `MoveUnit` en aval est alors no-op, et le gate de ciblage refuse le cast).
 
-    ⚠ La face COMBAT de 1059 n'est PAS au registre `ABILITY_CLASSES` : ce port ne couvre que
-    `GetTileToMoveTo`, la fonction que le batch EXPLOSION de
-    `IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions` reclame (residu #353) et
-    qui est confrontable seule (la position d'arrivee du caster APRES le cast natif l'expose)."""
+    TROIS consommateurs portes : les deux ci-dessus (face COMBAT, `ramming_speed_tree` et
+    `RammingSpeedAbility.get_dynamic_invalid_target_reason`) et le batch EXPLOSION de
+    `IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions` (face DECISION,
+    `playbook/prediction/ramming_speed.tile_to_move_to`, MEME arbre sur substrat `Scene`)."""
     board = getattr(state, "board", None)
     ce = state.get_entity(caster_id)
     if board is None or ce is None or state.get_entity(target_id) is None:
@@ -346,6 +348,197 @@ def ramming_speed_tile_to_move_to(state: "State", caster_id: int, target_id: int
     best = first_tile_by_utility(state, cands, unit_id=caster_id,
                                  utility_definition=RAMMING_SPEED_TILE_UTILITY)
     return board.coord(best) if best is not None else None
+
+
+RAMMING_SPEED_ID = "RammingSpeed"
+RS_CONST_NR_OF_HITS = 0x2f       # GetNumberConstant(0x2f)     -> "nrOfHits"   = 4
+RS_CONST_NR_OF_HITS_2 = 0x32     # GetNumberConstant(0x32)     -> "nrOfHits_2" = 2
+RS_VAR_MIN_DMG = 0x0c            # GetVariableForLevel(0xc)    -> "minDmg"
+RS_VAR_MAX_DMG = 0x0d            # GetVariableForLevel(0xd)    -> "maxDmg"
+RS_EXTRA_EXPLODE = int(EffectType.RammingSpeed_ExtraExplode)   # 0x44a = 1098
+# `TargetingRule` rendue par `GetDynamicInvalidTargetReason` quand AUCUNE tuile de charge n'est
+# atteignable : le litteral natif est `0x8000000` = `TargetIsInRange` (bit 27).
+RS_NO_REACHABLE_CHARGE_TILE = int(TR.TargetIsInRange)
+
+
+def ramming_speed_tree(dest, profile: str):
+    """MIRROR 1:1 de `IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$
+    ExecuteBehaviour` (id 1059). Decompile, dans l'ordre de CONSTRUCTION :
+
+        amount = RandomAmount( GetVariableForLevel(0xc = minDmg), GetVariableForLevel(0xd = maxDmg) )
+        prof   = GetDamageProfile(config@0x60)                            # constants.damageProfile
+        ifMove = If( op_LogicalNot(IsAdjacent(Caster@0x48, Target@0x60, 3)),
+                     MoveUnit(Caster@0x48, GetTileToMoveTo(), <options ZERO>) )
+        atk1   = AttackWithAttackDamage( Owner@0x30, Target@0x60, amount, prof,
+                                         hits = GetNumberConstant(0x2f = nrOfHits),
+                                         AbilityOrEffect(this+0x10), <options ZERO>, 2 )
+        atk2   = AttackWithAttackDamage( Owner@0x30, Owner@0x30,  amount, prof,
+                                         hits = GetNumberConstant(0x32 = nrOfHits_2), ... )
+        addEff = AddEffect( 0x44a = 1098 RammingSpeed_ExtraExplode, AbilityStateReference,
+                            source = Owner@0x30, targets = Owner@0x30, <options ZERO> )
+        AActiveAbility.Execute( op_Addition( op_Addition(ifMove, addEff),
+                                             If(<DSLTriggers+0x20>, op_Addition(atk1, atk2)) ) )
+
+    C'est-a-dire : CHARGE (sautee si deja au contact) -> pose de l'effet 1098 sur SOI -> si le
+    porteur a SURVECU au deplacement, `nrOfHits` coups sur la cible PUIS `nrOfHits_2` coups sur
+    SOI-MEME (le contrecoup). `Execute` PLAIN, aucun `ExecuteAtomic`, aucun `Group`.
+
+    `<DSLTriggers+0x20>` = **`OwnerIsAlive`** (`IdunBattle.Entities.Triggers.
+    OwnerIsAliveAbilityTrigger`) -- nommage et preuve dans le docstring du noeud
+    (`entities/triggers.py::OwnerIsAlive`). Il ne porte AUCUN operande : le port ne doit donc PAS y
+    conjoindre un `IsAlive(Target())` (le natif ne teste pas la cible ; sur ce chemin elle ne peut
+    pas mourir entre le move et l'attaque, mais un conjoint invente est un mirror FAUX).
+
+    SURCHARGE natives resolues PAR L'ADRESSE DU CALL, pas par le nom :
+      * `AttackWithAttackDamage` -> l'overload dont le parametre `hits` est un **INT** (les deux
+        autres candidats de meme arite prennent un NOEUD ; le natif passe ici le retour d'un
+        `GetNumberConstant`, donc un int, et les deux surcharges restantes n'ont pas
+        `RammingSpeedAbility$$ExecuteBehaviour` dans leurs xrefs). Elle construit un
+        `IdunBattle.Entities.Behaviours.AttackDamageBehaviour` + un `...AttackBehaviour` => famille
+        **ATTACK** -> `native_factory="attack"`.
+      * `AddEffect` -> l'overload a SIX parametres dont le dernier est une **struct d'options de
+        0x20 octets copiee par valeur** (l'autre 6-args prend un NOEUD de duree ; le natif zeroifie
+        4 qwords et passe leur adresse). Options ZERO => AUCUN override de duree -> duree DEFAUT de
+        l'effet (`duration_rounds=None`), et une SOURCE explicite = `Owner`.
+
+    `dest` = collapse imperatif de `GetTileToMoveTo()` (selecteur S), comme SkyStrike/HammerOfWrath.
+    `dest is None` -> `FixedTiles([])` = `MoveUnit` no-op (le natif passe alors un selecteur qui ne
+    designe rien, et `MoveUnitBehaviour` ne bouge personne) -- mais le gate de ciblage refuse deja
+    le cast dans ce regime (`RS_NO_REACHABLE_CHARGE_TILE`).
+
+    Le degat est en mode BORNES : `RandomAmount(minDmg[level], maxDmg[level])` == exactement ce que
+    `ability_attack_params` lit (`min_key`/`max_key` par defaut), et les DEUX attaques partagent le
+    MEME noeud `amount` (donc les MEMES bornes) -- seul le nombre de coups differe."""
+    if_move = If(Not(IsAdjacent(Caster(), Target())),
+                 MoveUnit(Caster(), FixedTiles([dest] if dest is not None else [])))
+    add_eff = AddEffect(RS_EXTRA_EXPLODE, "RammingSpeed_ExtraExplode", Owner(),
+                        duration_rounds=None, source_ref=Owner())
+    atk_target = AttackWithAttackDamage(Target(), RAMMING_SPEED_ID, profile, is_melee=True,
+                                        native_factory="attack",
+                                        ability_type=int(ActiveAbilityType.RammingSpeed))
+    atk_self = AttackWithAttackDamage(Owner(), RAMMING_SPEED_ID, profile, is_melee=True,
+                                      hits_key="nrOfHits_2", native_factory="attack",
+                                      ability_type=int(ActiveAbilityType.RammingSpeed))
+    return op_add(op_add(if_move, add_eff),
+                  If(OwnerIsAlive(), op_add(atk_target, atk_self)))
+
+
+class RammingSpeedAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$ExecuteBehaviour`
+    (id 1059) -- cf. `ramming_speed_tree()`.
+
+    ZERO porteur au gameconfig (mesure #353 : les 4 citations de `RammingSpeed` sont des
+    DEFINITIONS). Confrontee par GREFFE sur `orksKillaKan` (case-92 sec.5bis + injection EXPLICITE
+    de la config d'ability, `probe_353_ramming_speed_prediction.build_grafted_seed_bc`).
+
+    Turn-flags = defauts base (1059 ABSENT des overrides `NO_END_TURN`/`NO_ABILITY_USED_FLAG`).
+
+    Renvoie {ability, caster, target, tile, move, add_effect, attack_target, attack_self, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.RammingSpeed)   # 1059
+    ABILITY_ID = RAMMING_SPEED_ID
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$.ctor`
+    # -- forme « FLAGS DIRECTS » (7 arguments, le `range` est une struct `TargetingRange` de 0x18
+    # octets copiee depuis les statiques ; ce n'est NI la surcharge `(this, template)` NI
+    # `(this, template, additionalRules)`, dont les xrefs entrantes ne contiennent pas ce ctor) :
+    #     TargetingOptions..ctor(&opts, isSelfCasting = 0,
+    #                            range = &<TargetingRange statics>+0x18,
+    #                            forceMeleeTarget = 1, rules = 0x4002, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 0)          <- 0 = AbilityAttackType.DirectTargetAttack
+    # Le litteral EST donc le masque effectif. Decomposition :
+    #     0x2      TargetMatchesDynamicRule -> PORTE ci-dessous (l'override VIRTUEL
+    #              `RammingSpeedAbility$$GetDynamicInvalidTargetReason` ; le delegue `options+0x38`
+    #              est passe NUL, la regle passe par le slot de vtable)
+    #     0x4000   TargetIsEnemy            -> PORTE (generique)
+    # PORTEE : `TargetingRange` statics `+0x18` = `useRangeFromConfig` ->
+    # `AActiveAbility$$SetConfigValuesInTargetingOptions` pose `overrideRange =
+    # GetNumberConstant(0x16 = range)` = `abilities.RammingSpeed.constants.range` = 5.
+    # `forceMeleeTarget = 1` = `RangedBool.False`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$
+        GetDynamicInvalidTargetReason` -- MIRROR du decompile :
+
+            casterTile = casterTiles[0]
+            movedOrOffTile = UnitExtensions.DidMove(caster)
+                             || EntityExtensions.GetMainTile(caster) != casterTile
+            isAdjacent = battleQuery.<slot 0x61>(casterTiles, target)      # AreEntitiesAdjacent
+            if (movedOrOffTile && !isAdjacent)          return 0x10;       # CasterHasNotMoved
+            if (!isAdjacent) {
+                if (battleQuery.<slot 0x4f>(target, 1, 1, 1).Count < 1) return 0x20;  # TargetHasFree-
+                tile = GetTileToMoveTo().SelectTile(<ctx: caster, target, casterTile>);  # AdjacentTile
+                if (tile != null) {
+                    path = battleQuery.<slot 0x14>(caster, tile, 0)
+                    if (path != null && path.Count != 0) return 0;
+                }
+                return 0x8000000;                                          # TargetIsInRange
+            }
+            return 0;                                   # DEJA au contact -> toujours valide
+
+        La 2e clause de `movedOrOffTile` (`MainTile != casterTiles[0]`) se reduit a `DidMove` sur le
+        chemin `ExecuteInternal`, qui passe les tuiles REELLES du caster -- meme lecture que
+        `targeting.get_invalid_caster_reason`.
+
+        Le test de CHEMIN (`slot 0x14`) est SUBSUME cote port : `ramming_speed_tile_to_move_to`
+        n'emet que des tuiles issues de `MovableTilesInRange`, donc deja atteignables au sens du
+        port. RESIDU NOMME `#381-r1` : ce pool est le `visited` d'un BFS qui TRAVERSE, la ou le
+        natif fait un PATHFINDING -- sur un ring SATURE le port peut donc accepter une cible que le
+        natif refuse par `0x8000000`. Ecart d'ACCEPTATION, jamais de refus invente.
+
+        Caster/cible non resolvables -> 0 (permissif, jamais de refus invente)."""
+        if target_id is None:
+            return 0
+        from ..components import unit_has_moved
+        cp = self._rs_pos(state, caster_id)
+        tp = self._rs_pos(state, target_id)
+        if cp is None or tp is None:
+            return 0
+        is_adjacent = hexgeo.distance(cp, tp) == 1
+        if is_adjacent:
+            return 0                                     # deja au contact : aucun move, aucun gate
+        if unit_has_moved(state, int(caster_id)):
+            return int(TR.CasterHasNotMoved)             # 0x10
+        board = getattr(state, "board", None)
+        if board is None:
+            return 0
+        ttile = board.id_at(tp[0], tp[1])
+        occupied = {self._rs_pos(state, uid) for uid in state.entities}
+        free = [n for n in (board.neighbours_native(ttile) if ttile is not None else [])
+                if board.walkable(n) and board.coord(n) not in occupied]
+        if not free:                                     # `GetFreeAdjacentTiles(target).Count < 1`
+            return int(TR.TargetHasFreeAdjacentTile)     # 0x20
+        if ramming_speed_tile_to_move_to(state, int(caster_id), int(target_id)) is None:
+            return RS_NO_REACHABLE_CHARGE_TILE           # 0x8000000
+        return 0
+
+    @staticmethod
+    def _rs_pos(state: "State", unit_id):
+        e = state.get_entity(unit_id)
+        pc = e.get_component(PositionComponent) if e is not None else None
+        return (pc.col, pc.row) if pc is not None else None
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        profile = ((GC.ability(RAMMING_SPEED_ID) or {}).get("constants")
+                   or {}).get("damageProfile") or "Physical"     # GetDamageProfile(config@0x60)
+        dest = ramming_speed_tile_to_move_to(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        ramming_speed_tree(dest, str(profile)).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        moved = next((p for n, p in ectx.emitted if n == "MoveUnit"), None)
+        eff = next((p for n, p in ectx.emitted if n == "AddEffect"), None)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": RAMMING_SPEED_ID, "caster": caster_id, "target": target_id,
+                "tile": list(dest) if dest else None, "move": moved, "add_effect": eff,
+                "attack_target": atks[0] if len(atks) > 0 else None,
+                "attack_self": atks[1] if len(atks) > 1 else None, "dsl": True}
 
 
 def waaagh_ai_tree(unit_id: str) -> PerformAIAction:

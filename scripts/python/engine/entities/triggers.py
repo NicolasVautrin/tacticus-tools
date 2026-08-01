@@ -714,6 +714,58 @@ class IsAlive(AbilityTrigger):
         return any(_is_alive(u) for u in _units_of(self.unit, ctx))
 
 
+class OwnerIsAlive(AbilityTrigger):
+    """`IdunBattle.Entities.Triggers.OwnerIsAliveAbilityTrigger$$ShouldTrigger` -- le SINGLETON
+    PARTAGE `<DSLTriggers+0x20>`, sans operande (ni selecteur, ni formule).
+
+    MIRROR du decompile :
+
+        if (!EntityExtensions.IsUnit(entities.Owner@+0x18))  return true;   // pas une unite -> VRAI
+        return UnitExtensions.IsAlive(entities.Owner@+0x18, this._state@+0x10);
+
+    ###### POURQUOI IL A FALLU LE NOMMER, ET COMMENT ######
+    Ce noeud n'est NOMME NULLE PART : `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared`
+    l'alloue par `new <DAT_183343468>(dsl.state@+0x10)` et l'assigne a `<DSLTriggers+0x20>`, et ce
+    slot de metadata-usage n'a QUE cette xref dans tout le binaire (donc la classe n'est instanciee
+    nulle part ailleurs, donc aucun `DSLTriggers$$X` ne la nomme). Identification, TROIS sources :
+
+      1. **FORME** -- le ctor pose UN champ (`+0x10`), donc `taille = 24`, parent
+         `IdunBattle.DSL.AbilityTrigger` (taille 16). Il y a **23** classes de ce gabarit dans
+         `data/symbols/<build>/frida/classes.tsv`.
+      2. **TYPE DU CHAMP** -- l'argument est `dsl.state` (un `MatchState`), pas un selecteur.
+         Sur les 23, 21 sont allouees par un `IdunBattleLogic.Entities.DSLTriggers$$<X>` NOMME qui
+         leur passe un SELECTEUR (`CanMove`/`HasTile`/`IsMoving`/`IsWounded`/`IsEffectActive`/
+         `IsEffectCreatedThisTurn`/`TriggeringAbilityIsNone`/`IsAbilityCountedOnlyOnce`/
+         `IsPartialAttackAbility`/`CanBeDisplaced`/`IsSpecialActiveAbility`/... ) -- donc leur slot
+         de classe n'est PAS `DAT_183343468`. Restent DEUX classes sans allocateur nomme, et ce sont
+         exactement les DEUX que `InitializeShared` alloue :
+         `IdunBattle.Entities.Triggers.IsMeleePositionAbilityTrigger` (son `ShouldTrigger` invoque
+         le slot d'interface 9 d'`IBattleQuery` SUR `this+0x10` -> son champ est un **BattleQuery**,
+         = `dsl+0x28`, donc `<DSLTriggers+0x18>`) et `OwnerIsAliveAbilityTrigger` (son champ part en
+         2e argument d'`IdunBattle.Entities.UnitExtensions$$IsAlive(unit, state)` -> un
+         **MatchState**, = `dsl+0x10`, donc `<DSLTriggers+0x20>`). L'appariement est FORCE.
+      3. **CORPS TRIVIAL DONT LE SLOT EST L'UNIQUE OPERANDE** -- `IdunBattleLogic.Entities.
+         DSLTriggers$$IsRangedPosition` est litteralement
+         `IdunBattle.DSL.AbilityTrigger$$op_LogicalNot(this+0x18)`. Cela NOMME `<+0x18>` =
+         « IsMeleePosition » de facon independante, et confirme la moitie battleQuery de
+         l'appariement ci-dessus. (Meme voie que celle qui a nomme `<+0x28>` = `IsTurnOf(Owner)` :
+         `DSLTriggers$$IsTurnOf` alloue le MEME `DAT_1833ab568` avec les MEMES arguments.)
+
+    Les trois porteurs LUS de `<+0x20>` (xrefs du motif `<dsl+0x88>+0x20`) le placent tous au meme
+    endroit -- APRES un deplacement, AVANT l'attaque :
+    `RammingSpeedAbility$$ExecuteBehaviour`, `SkyStrikeAbility$$ExecuteBehaviour`,
+    `ExemplarOfTheKauyonAbility$$ExecuteBehaviour`. C'est le gate « le porteur a-t-il SURVECU au
+    deplacement ? » (overwatch/piege/DoT declenches par la charge).
+
+    `ctx.owner` (repli `ctx.caster`) ; owner non resolvable -> **True**, mirror de la branche
+    `!IsUnit(Owner)` (le natif ne refuse pas, il laisse passer)."""
+    def should_trigger(self, ctx):
+        u = ctx.owner or ctx.caster
+        if u is None:
+            return True                       # `!EntityExtensions.IsUnit(Owner)` -> return true
+        return _is_alive(u)
+
+
 class IsDead(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$IsDead(unit)` = `NOT(IsAlive)`."""
     def __init__(self, unit: AbilityTrigger):
