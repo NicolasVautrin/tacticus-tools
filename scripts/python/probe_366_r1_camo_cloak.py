@@ -467,7 +467,14 @@ def _run(rpc, r: dict, cover: str, axis: str, seed: str, board_id: str,
     r["port_hits_no_cover"] = offline_hits(cap, board, foe["id"], car["id"], strip_cover=True)
     r["agree"] = (r["live_hits"] == r["port_hits"])
     r["discriminant"] = (r["port_hits"] != r["port_hits_no_effect"])
-    r["cover_gate_bites"] = (r["port_hits_no_cover"] == r["port_hits_no_effect"])
+    # ⚠ Le contrefactuel de couvert se compare COUP A COUP, jamais liste a liste : retirer le
+    # support (`1013` ou `1026`) retire du MEME geste sa reduction de COUPS (LightCover -2 ranged,
+    # BigTarget_Adjacent -1 ranged) -- c'est litteralement ce que dit l'i2 (<< whenever an incoming
+    # ranged attack has its NUMBER OF HITS reduced >>). Le nombre de coups change donc, et c'est la
+    # consequence NATIVE attendue, pas un artefact. Ce qu'on teste ici est que le PREMIER coup
+    # retombe sur la valeur SANS reduction.
+    r["cover_gate_bites"] = (r["port_hits_no_cover"][:1] == r["port_hits_no_effect"][:1]
+                             and r["port_hits_no_cover"][:1] != r["port_hits"][:1])
     if r["live_hits"] and r["port_hits_no_effect"]:
         n = min(len(r["live_hits"]), len(r["port_hits_no_effect"]))
         r["delta_per_hit"] = sorted({r["port_hits_no_effect"][i] - r["live_hits"][i]
