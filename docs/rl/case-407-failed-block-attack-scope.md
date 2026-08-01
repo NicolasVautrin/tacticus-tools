@@ -116,8 +116,12 @@ Gardes : `tests/engine/runner/test_failed_block_attack_scope_live.py` (3 seeds) 
   `PrimarchOfTheFirstLegionAbility` (1511) — les DEUX seuls propriétaires de
   `DSLBehaviors$$TransferHit`. Mesuré (greffe du passif, `MC1_67`/31337) : 6597/0 → 3153/3488.
   Détail, gate et plan de port : **`case-411-transfer-hit-guaranteed-block.md`**.
-* **L'ordre évasion-puis-block** de `CalculateDamageOperation` : le port a les deux branches en
-  XOR (`evasion_branch`) et passe toujours `False`. Équivalent tant qu'`evasionChance == 0` (0
-  tirage). Résidu nommé, préexistant.
+* ~~**L'ordre évasion-puis-block** de `CalculateDamageOperation`~~ → **FERMÉ (#407-r1,
+  `case-407-r1-evasion-order.md`)**. Le résidu était mal nommé : ce n'était pas un ordre non porté
+  mais un **mapping natif FAUX** — il n'existe aucun drapeau XOR, et `uStack_5b0>>0x28` désigne
+  `damageInfo[+0x1D]` (le block **GARANTI**), pas un sélecteur « esquive plutôt que block ». Corrigé
+  en séquence 1:1. Le régime `evasionChance > 0` est **NON CONFRONTÉ** : `GetStat(unit, 0xf)` n'est
+  jamais écrit (0 porteur sur 5 voies, `probe_407r1_evasion_carriers.py`) ⇒ le correctif est
+  **bit-exact identique** à l'ancien port (mesuré : `legacy` identique 6/6, 18 tirages).
 * **`OngoingAttack+0x3c`** (compteur de coups bloqués, incrémenté par `UpdateCurrentAttackAfterHit`,
   lu par `FinishAttackOperation$$Execute`) : aucun consommateur côté port.

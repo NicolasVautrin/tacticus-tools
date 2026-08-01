@@ -244,10 +244,13 @@ def calculate_damage_operation(
         slot 4, sans tirage), et `uStack_5b0>>0x30` désigne `damageInfo[+0x1E]`, celui qui saute
         block ET esquive. Aucun des deux n'est un sélecteur « évasion plutôt que block ».
     Ces deux octets ne sont PAS portés ici, et c'est délibéré : `+0x1E` est déjà traité EN AMONT
-    par les appelants (gate `NoBlocking` du profil de dégât, #65 — ils passent `block_sources=None`)
-    et `+0x1D` n'a **aucun porteur identifié** (résidu §7 de `case-407`), donc le porter serait
-    spéculatif. La surcharge slot 4 qu'il appelle prend d'ailleurs la LISTE de blockChances, pas
-    un montant — ce n'est pas `apply_block_damage` ci-dessus.
+    par les appelants (gate `NoBlocking` du profil de dégât, #65 — ils passent `block_sources=None`),
+    et `+0x1D` est le périmètre de **#411** (`case-411-transfer-hit-guaranteed-block.md`), qui en a
+    nommé l'unique écrivain — `IdunBattle.Operations.TransferHitOperation$$Execute`, qui efface le
+    `Nullable<AttackHit> PendingHit` de la cible — et confronté le gate live sans livrer le port.
+    #407-r1 ne touche donc que la séquence esquive→block et laisse cette branche où elle est. NB : la
+    surcharge slot 4 qu'elle appelle prend la LISTE de blockChances, pas un montant — ce n'est pas
+    `apply_block_damage` ci-dessus.
 
     ⚠ **Le natif passe à `ApplyRandomBlockDamage` le dégât PRÉ-esquive** (`iVar24`, pas le retour du
     slot 3). C'est sans effet : on n'atteint cette ligne que si l'esquive a échoué, et
