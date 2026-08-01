@@ -163,13 +163,16 @@ playbook chiffre : +20 par ennemi qui sera touche, -20 par ami qui le sera. Le d
 (le caster compte cote playbook alors que le behaviour l'exclut) est un ecart NATIF, pas une erreur
 de lecture : les deux corps sont lus separement et ne partagent pas ce selecteur.
 
-## Face MOVE : NON PORTEE
+## Face MOVE : `yield Fix64(0)` CONSTANT -- ce n'est PAS un residu
 
-`FireOfAbsolutionPlaybook$$CalculateMovementUtilityInStepsInternal` a un corps propre
-(`...u003CCalculateMovementUtilityInStepsInternalu003Ed__3$$MoveNext`) -- elle n'est donc PAS dans
-les corps MOVE triviaux inventories par #193, contrairement a `Lakrimae`, `BarbedOvipositor`,
-`Neuroparasite` et `Boltstorm`. Elle est **hors perimetre de cette tranche** (residu ATTACK) et
-reste absente de `TRIGGERED_MOVE_PLAYBOOKS` : residu nomme `#419-r1/1017-move`.
+⚠ L'inventaire `probe_419_triggered_playbook_inventory.py` classe cette face `SM` (machine a etats),
+ce qui dit seulement qu'un corps EXISTE -- pas qu'il calcule quelque chose. Il a ete LU :
+`FireOfAbsolutionPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__3$$MoveNext` n'a qu'un
+etat, et cet etat est `Fix64.op_Implicit(0)`. Aucun champ de la SM n'est meme lu.
+
+Elle n'entre donc PAS dans `TRIGGERED_MOVE_PLAYBOOKS`, et **son absence EST le comportement natif**
+(meme forme que `Lakrimae`, `BarbedOvipositor`, `Neuroparasite` et `Boltstorm`) : il n'y a rien a
+porter et aucun residu a nommer sur cet axe.
 """
 from __future__ import annotations
 
