@@ -175,6 +175,11 @@ sous le gate `Tiles(Caster) == 0`, faux ici : il vient du 3ᵉ trigger propre de
 qui devient vrai dès que le `MoveUnitBehaviour` a redonné une tuile au porteur. Les deux lectures se
 recoupent exactement.
 
+> Ce trigger est le T3 de **`#448-r2b`** (`docs/rl/case-448-r2-ateleporting-effect-family.md`), qui
+> le note NON PORTÉ pour `1140` et relève que ce régime est **le seul qui exerce son gate
+> `HasTile(Owner)`**. La mesure ci-dessus le montre en action : c'est exactement le pas où
+> le porteur repasse de « sans tuile » à « sur (1,3) ».
+
 **Trois pièges de canal, mesurés, à ne pas relire comme des trous de moteur** :
 1. le porteur sous `1140` est **absent d'`observeBattle.units[]`** ;
 2. dans `decisionView` il sort avec `visualId`, `team` ET `pos` à `null` — on ne peut pas le
