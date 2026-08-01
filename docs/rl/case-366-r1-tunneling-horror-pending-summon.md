@@ -569,6 +569,14 @@ une lecture neuve.
 
 ## 7.2 `1179` n'appartient PAS à cette tranche
 
+> **SUITE — #448-r1 : `docs/rl/case-448-r1-stormboyz-fallback-miss.md`.** Les trois classes
+> `_Teleport` / `_Fallback` / `_Miss` partagent le MÊME `TriggeredAbilityType` 1141 (le builder
+> `AbilitiesDatabase.u003Cu003Ec$$u003CInitializeTriggeredAbilitiesu003Eb__28_134` en construit
+> TROIS) : la greffe du passif les monte toutes. `1179` est enregistré vers un **`NoneEffect`**
+> (aucune contribution de combat) et n'a **aucun lecteur par immédiat** — son unique lecteur est
+> le poids IA `BC.Utilities.*.TileEffects` (**−100**, le plus négatif de sa catégorie), lu PAR NOM
+> par `TileEffectsUtility`. Le port le lit déjà ; c'est le canal `tileMeta` qui ne l'alimente pas.
+
 L'inventaire annonçait « effets `1140` **et** `1179` ». Le décompilé le refuse : `0x49b = 1179` est
 posé par `IdunBattleLogic.Abilities.Triggered.Loki.StormboyzStrike_FallbackAbility$$CreateBehaviour`
 (`AddEffect(0x49b, stateRef, <la tuile choisie>, turns: Nullable<int>(1))`), une ability DISTINCTE,
