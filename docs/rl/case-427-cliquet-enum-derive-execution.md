@@ -60,9 +60,17 @@ résultat suspect) :
 | classe `IntEnum` neuve non classée sous `engine/` | rouge | `ORPHELINES=1`, sonde `rc=1`, pytest FAILED |
 | `AfterUnitRemove` → `AFTER_UNIT_REMOVE` | rouge | `RENUMEROTES=1` + 3 références INTROUVABLES, `rc=1` |
 | `BASES_ENUM` rétréci à `{IntEnum, IntFlag}` | rouge | le test de détecteur FAILED |
+| entrée `HORS_MIRROR` sans classe correspondante | rouge | le test d'exception périmée FAILED |
 
-Restauré dans les trois cas ; `probe_313` rend `rc=0`, 12 mirrors sous garde, 0 dette,
-1795 références qualifiées résolues.
+Restauré dans les quatre cas ; `probe_313` rend `rc=0`, 12 mirrors sous garde, 0 dette,
+1795 références qualifiées résolues ; le fichier de cliquet passe à **19 tests**.
+
+Le dernier ferme le **symétrique** du trou : `test_le_registre_ne_designe_aucun_mirror_disparu`
+gardait déjà le registre, rien ne gardait la liste d'EXCEPTIONS. Une entrée `HORS_MIRROR` qui
+survit à la classe qu'elle justifiait devient un blanc-seing **portant sur un nom** — la prochaine
+classe qui reprend ce nom est réputée justifiée sans que personne ne l'ait décidé. C'est le même
+mode de défaillance, par une liste de trop plutôt que de trop peu. **Une exception se périme avec
+son objet.**
 
 ## 4. Ce qui a réellement échoué : l'EXÉCUTION, pas la conception
 
