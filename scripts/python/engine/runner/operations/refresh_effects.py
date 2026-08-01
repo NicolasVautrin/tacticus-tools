@@ -152,12 +152,14 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -
             # ou non, un port de la `CreateActiveCondition` de cette classe ?
             #
             #   * OUI (la classe SURCHARGE `is_active`) -> on tient une LECTURE du natif : on
-            #     re-evalue et on ECRIT le flag, exactement comme avant #366-r1b. 13 classes sur les
-            #     145 du registre (`AnvilShield_BlockChanceBelowHealthCap`, les DEUX
-            #     `ContagionsOfNurgle_ArmorReduction`, les DEUX `DestroyTheWitch_*`,
+            #     re-evalue et on ECRIT le flag, exactement comme avant #366-r1b. 14 classes du
+            #     registre (`AnvilShield_BlockChanceBelowHealthCap`, `CamoCloak_DmgReduction`, les
+            #     DEUX `ContagionsOfNurgle_ArmorReduction`, les DEUX `DestroyTheWitch_*`,
             #     `HammerOfWrath_ConditionalDamage`, les DEUX `InescapableAccuracy_*`,
-            #     `ModifiedExoarmour_ExtraDmg`, `Pinned`, `PowerTrip_FullHealth`, les DEUX
-            #     `VisionsOfHeresy_ExtraPierce*`).
+            #     `MartialSuperiority_Visual`, `ModifiedExoarmour_ExtraDmg`, `Pinned`,
+            #     `PowerTrip_FullHealth`, les DEUX `VisionsOfHeresy_ExtraPierce*`). Compte RE-DERIVE
+            #     par `test_refresh_active_flag_discriminant_offline` -- ne pas citer ce commentaire
+            #     comme source.
             #   * NON -> `BaseEffect.is_active` rend `True` INCONDITIONNELLEMENT : c'est une VALEUR
             #     PAR DEFAUT, pas une lecture. L'ecrire ECRASERAIT le flag que
             #     `ActivateEffect`/`DeactivateEffect` viennent de poser. On CONSERVE donc le flag et

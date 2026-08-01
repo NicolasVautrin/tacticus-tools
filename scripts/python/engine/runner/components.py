@@ -1688,6 +1688,13 @@ class UnitEffectStateView(Mapping):
         CreateActiveCondition` = `op_LogicalNot(HasFlag(Owner, 0))`. La cle n'est presente que si
         l'entite existe ; le composant absent vaut « n'a pas bouge » (comme le natif, dont le
         `UnitFlagsComponent$$Has` sur un set vide rend faux).
+      * `is_turn_of_owner` — `IsTurnOf(Owner)` = `<DSLTriggers+0x28>`, MEME noeud natif que le canal
+        `att_ctx["is_turn_of_owner"]` (foyer `entities/effects/base.py::is_turn_of_owner`) : ici
+        `OwnerComponent.player == State.current_player_id`, mirror de
+        `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer`. Lu par
+        `MartialSuperiority_VisualEffect$$CreateActiveCondition` = `op_LogicalNot(...)`. La cle
+        n'est presente que si le proprietaire ET le joueur courant sont connus ; absente = « non
+        mesure » -> la condition degrade en VRAI.
       * `has_effect_light_cover` / `is_target_of_big_target_adjacent` — les DEUX membres du
         `op_BitwiseOr` de `IdunBattle.Entities.Effects.Loki.CamoCloak_DmgReductionEffect$$
         HasValidEffectTrigger` (`HasEffect(sel, 1013, onlyActive=0, 6)` /
@@ -1738,8 +1745,19 @@ class UnitEffectStateView(Mapping):
         # peuvent pas diverger.
         if ent is not None:
             eager["has_moved"] = unit_has_moved(state, self._uid)
-        self._eager = eager
         oc = ent.get_component(OwnerComponent) if ent is not None else None
+        # `IsTurnOf(Owner)` (`<DSLTriggers+0x28>`) — MEME noeud natif que le canal
+        # `att_ctx["is_turn_of_owner"]` (foyer `entities/effects/base.py::is_turn_of_owner`), donc
+        # MEME lecture : `OwnerComponent.player == State.current_player_id`, mirror de
+        # `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer`. Lu par la
+        # `CreateActiveCondition` de `1255 MartialSuperiority_Visual`
+        # (`op_LogicalNot(<DSLTriggers+0x28>)`). EAGER : deux lectures de champ, aucun balayage.
+        # Cle ABSENTE si le proprietaire ou le joueur courant n'est pas connu = « non mesure » ->
+        # la condition degrade en VRAI (on ne masque pas l'effet a tort).
+        cur = getattr(state, "current_player_id", None) if state is not None else None
+        if oc is not None and cur is not None:
+            eager["is_turn_of_owner"] = (int(oc.player) == int(cur))
+        self._eager = eager
         self._has_psy = oc is not None            # `Enemies(Owner, …)` calculable
         self._psy: Optional[int] = None
         # `ContagionsOfNurgleAmount(team, unit)` : le natif `SelectSingle` la cible et sort a 0 si

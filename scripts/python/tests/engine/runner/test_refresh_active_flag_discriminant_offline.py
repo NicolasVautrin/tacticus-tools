@@ -78,7 +78,10 @@ def test_discriminant_is_the_is_active_override_not_the_case322_flag():
                if getattr(k, "active_condition_ported", False)}
     assert helper == overrides, (
         f"le helper ne mirrore plus la surcharge de `is_active` : {helper ^ overrides}")
-    assert len(overrides) >= 13, (
+    # 13 au #366-r1b, 14 depuis `MartialSuperiority_Visual` (1255, case-366-r1) : le cliquet monte
+    # DELIBEREMENT avec chaque `CreateActiveCondition` portee, il ne se contente pas de ne pas
+    # descendre.
+    assert len(overrides) >= 14, (
         f"seulement {len(overrides)} classes a condition PORTEE -- une surcharge a disparu ?")
     assert flagged < overrides, (
         "`active_condition_ported` n'est PAS un sur-ensemble des conditions portees : "
