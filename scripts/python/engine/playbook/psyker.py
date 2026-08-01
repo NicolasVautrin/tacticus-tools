@@ -201,6 +201,7 @@ from .neuroparasite import NeuroparasitePlaybook                # #441 (registre
 from .savior_protocols import SaviorProtocolsPlaybook           # #443 (registre, cf. module dedie)
 from .avalanche_of_muscle import AvalancheOfMusclePlaybook      # #445 (registre, cf. module dedie)
 from .boltstorm import BoltstormPlaybook                        # #446 (registre, cf. module dedie)
+from .light_im_up import LightImUpPlaybook                      # #419-r1-tr5 (registre, module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -261,6 +262,20 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # `Target@0x60`), donc toute cible vaut deja 10. Il n'a besoin ni du canal `prediction` (#438) ni
     # de la tuile d'attaque : la struct `AbilityEntities` du corps natif ne porte pas `CasterTile`.
     int(TriggeredAbilityType.Boltstorm): BoltstormPlaybook(),
+    # #419-r1-tr5 : LightImUp (1103, passif d'`orksWarboss` << Gulgortz >> + 4 npc) -- l'utilite du
+    # SECOND tir que le passif ajoute a une attaque normale de MELEE : arbre a TROIS sorties selon
+    # que l'attaque normale tue a coup sur (-> cibles SECONDAIRES, moyenne), que meme le total ne
+    # peut pas tuer (-> cible PRINCIPALE), ou que l'issue est indeterminee (-> moyenne des deux).
+    # Corps IdunBattle.AI.Playbook.Loki.
+    # LightImUpPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext (CINQ etats),
+    # plus les deux methodes PROPRES `$$CalculateAttackUtilityForMainTarget` et
+    # `$$CalculateAttackUtilityForSecondaryTarget`.
+    # PREMIER playbook attack porte qui (a) passe par le slot 0x28 `GetMultiHitAttackPrediction`
+    # (les autres appellent le 0x23 nu, hits force 1), (b) RECALCULE la prediction de l'attaque
+    # NORMALE (slot 0x22) au lieu de lire `case.DamagePrediction`, et (c) alimente
+    # `AbilityEntities.CasterTile` -- ce qui ancre son disque de cibles secondaires sur la TUILE
+    # D'ATTAQUE, la ou son `Unobscured` vise depuis la tuile REELLE.
+    int(TriggeredAbilityType.LightImUp): LightImUpPlaybook(),
 }
 
 
