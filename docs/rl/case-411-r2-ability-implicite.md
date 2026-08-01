@@ -134,13 +134,27 @@ cible. Seuls les scalaires changent. Idem pour les deux probes Harlequins, dont 
 (`DISCARD CONFIRME`, `ACCORD PORT/NATIF sur la TUILE`) sont preserves — et dont le ratio 0,142
 ~= 1/6 devient enfin coherent avec le « ~1/N pour une arme a N coups » que le probe annonce.
 
-## 7. NON couvert
+## 7. Residu MESURE en marge : une garde qui skippe alors que sa condition est remplie
 
-* **`probe_411r1_transfer_port.py` n'est pas corrige ici** : il vit dans la PR #455, non
-  mergee au moment de ce travail. Il porte le meme appel implicite et **doit** recevoir
-  `--ability` explicite ; sinon `rl_duel` le fera desormais echouer en rc 2 (bruyamment, ce qui
-  est l'effet recherche). Ses verdicts structurels (ventilation per-coup, ledger de tirages de
-  block) sont a rejouer apres fix.
+`tests/engine/test_411_transfer_hit_wiring_offline.py` (livre par #411) cherche le port de
+`TransferHit` en balayant `ABILITY_TRIGGERS` / `CUSTOM_TRIGGERED_ABILITIES` a la recherche d'une
+classe dont `TRIGGERED_ABILITY_ID` vaut `1109` ou `1511` ; s'il n'en trouve aucune, il
+`pytest.skip`. **Mesure** : ce balayage rend `[]`, alors que `DrawFire` EST porte depuis #411-r1
+(`triggers/loki/draw_fire.py`, `DrawFireTransfer` / `find_transfer_carrier`) et que
+`HarlequinsPanoplyHitInterceptor.should_transfer` — l'accroche meme que la garde protege —
+**existe**. Le port a pris une autre forme de cablage que celle attendue par la sonde.
+
+La garde n'est donc pas fausse, elle est **AVEUGLE** : elle skipperait a l'identique si
+`should_transfer` etait retire demain. C'est le motif « un echec de montage parti en
+`pytest.skip` est un skip VERT ». **Non corrige ici** (hors perimetre de #411-r2, et rectifier la
+sonde d'une garde sans rejouer l'intention de son auteur est precisement ce qu'on reproche) —
+le correctif est d'elargir la detection a la forme reellement livree.
+
+## 8. NON couvert
+
+* **Le couple `C3_01`/777** de `case-411` §« Ce que la confrontation a mesure » n'a **pas** ete
+  rejoue : seuls les chiffres de `MC1_67`/31337 sont corriges. Ceux du second couple restent
+  perimes et sont annotes comme tels.
 * **Les autres commandes de `rl_duel`** ne sont pas balayees : seul `cmd_act` est durci.
   `_plan_ab_map` conserve son ecrasement « dernier gagne » pour `play`/`_apply_spec` — la
   parade y est `_normal_ability_map`, mais je n'ai pas mesure si tous les chemins l'utilisent.
