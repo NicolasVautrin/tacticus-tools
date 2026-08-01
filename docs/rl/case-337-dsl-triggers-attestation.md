@@ -95,7 +95,7 @@ voie, puisque chaque PR est verte a SA base. Le cliquet est le seul endroit ou c
 | primitive | PR qui l'a fait basculer | verdict apres RE |
 |---|---|---|
 | `DamageProfileIs` | `635a3431` (#372, DefenderOfTheGreaterGood) | `PORTE_HORS_FACADE` -- cf. ci-dessous |
-| `IsEffectTarget` | #418 (`1014 CamoCloak_DmgReduction`) | `PORTE_HORS_FACADE` + 2 ecarts nommes (`#418-r1`) -- cf. `case-392` §5 |
+| `IsEffectTarget` | #418 (`1014 CamoCloak_DmgReduction`) | `PORTE_HORS_FACADE` -- les 2 ecarts de `#418-r1` sont FERMES (`case-418-r1-is-effect-target.md`) : geometrie indexee PAR effectType, et le regime << apres deplacement, avant refresh >> ne diverge pas |
 
 Dans les deux cas, le `NON_PORTE` d'avant etait un FAUX NEGATIF : les deux primitives etaient
 portees, collapsees en imperatif, et invisibles a toute heuristique de nom.

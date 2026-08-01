@@ -43,6 +43,7 @@ from fractions import Fraction
 import hexgeo
 import gameconfig as GC
 
+from ..entities.effect_type import EffectType
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.formulas import _round_fix64
 from ..entities.stats import ARMOR_STAT_TYPES
@@ -52,15 +53,17 @@ from ..services.battle_query import select_weapon_pierce
 from ..services.damage_prediction import get_attack_prediction
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
 
-# Effets de suppression du splash (`IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$IsPsykerAttackSuppressed`) — noms captés (EffectType
-# 1191 / 1533), lus sur les units decisionView (capture brute, indépendante de la factory d'effets).
-_OWNER_SUPPRESS = "HuntersBeyondDeathPsykerSuppression"    # EffectType 1191, sur le CASTER
-_TARGET_SUPPRESS = "WatchedOver_PsykerSuppression"         # EffectType 1533, sur la CIBLE du case
-
-
-def _unit_has_effect(scene, uid: int, name: str) -> bool:
-    u = next((x for x in (scene.units or []) if x.get("id") == uid), None)
-    return any((e.get("name") == name) for e in ((u or {}).get("effects") or []))
+# Effets de suppression du splash (`IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$IsPsykerAttackSuppressed`)
+# = `IsEffectTarget(Caster@DSLSelectors+0x48, 1191) op_BitwiseOr IsEffectTarget(Target@+0x60, 1533)`.
+#
+# ⚠ `IsEffectTarget` != « l'unité PORTE l'effet ». L'instance `1191` est posée SUR SON PORTEUR
+# (`HuntersBeyondDeathAbility$$CreateBehaviour` = `AddEffect(0x4a7, ref, Owner, Owner, …)`) et c'est le
+# PSYKER ENNEMI qui figure dans sa liste `EffectComponent.Targets @+0x48`, maintenue par
+# `RefreshEffectsOperation$$UpdateEffectTargets` depuis
+# `HuntersBeyondDeathPsykerSuppressionEffect$$CreateTargetSelector`. Le gate lisait
+# `decisionView.units[caster].effects` — structurellement TOUJOURS faux (case-418-r1).
+_OWNER_SUPPRESS = int(EffectType.HuntersBeyondDeathPsykerSuppression)   # 1191, sur le CASTER
+_TARGET_SUPPRESS = int(EffectType.WatchedOver_PsykerSuppression)        # 1533, sur la CIBLE du case
 
 
 class PsykerPlaybook:
@@ -159,8 +162,10 @@ class PsykerPlaybook:
         if not is_ranged or prof_name != "Psychic":
             return 0.0
         # 3. IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$IsPsykerAttackSuppressed (caster 1191 || cible du case 1533).
-        if (_unit_has_effect(sc, attacker_uid, _OWNER_SUPPRESS)
-                or _unit_has_effect(sc, case_tgt_id, _TARGET_SUPPRESS)):
+        #    `1533` : géométrie NON LUE (le `CreateTargetSelector` de l'effet n'a aucun symbole) →
+        #    le foyer rend `None`, on ne ferme PAS sur un inconnu (résidu nommé, case-418-r1).
+        if (sc.is_effect_target(attacker_uid, _OWNER_SUPPRESS)
+                or sc.is_effect_target(case_tgt_id, _TARGET_SUPPRESS) is True):
             return 0.0
         # 4. amount = IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$GetAttackDamage (PercentageOf Fix64, mirror runner psyker_smite_tree).
         #    StatAmount(Attack, Current) = le stat DU PAS (`scene.attack_current`, refresh par-pas) —

@@ -533,6 +533,18 @@ class Scene:
                 break
         out["is_target_of_big_target_adjacent"] = hit
 
+    def is_effect_target(self, uid, effect_type) -> "bool | None":
+        """`IdunBattleLogic.Entities.DSLTriggers$$IsEffectTarget(sel, effectType)`, face DÉCISION.
+
+        Même foyer que la face COMBAT (`runner.components.is_effect_target`) : un nœud natif, deux
+        substrats — l'ECS côté runner, les tables de `Scene` ici. `None` = géométrie non portée pour
+        ce type, ou substrat manquant ⇒ l'appelant dégrade explicitement."""
+        from ..entities.effect_targets import is_effect_target as _iet
+        if self.eff_state is None or self.pos_by_id.get(uid) is None \
+                or self.team_by_id.get(uid) is None:
+            return None
+        return _iet(_SceneEffectTargetWorld(self), int(uid), int(effect_type))
+
     def unit_state(self, uid) -> dict:
         """`unit_state` COMPLET de l'unité — le contexte d'évaluation des `CreateActiveCondition`
         (`BaseEffect.is_active`), pendant PRÉDICTION de `runner.components.unit_state_for_effects`.
@@ -623,6 +635,37 @@ class Scene:
         capturé (uid absent des tables) → l'appelant ne gate pas à l'aveugle."""
         v = (self.turns_started_by_id or {}).get(uid)
         return None if v is None else int(v)
+
+
+class _SceneEffectTargetWorld:
+    """Substrat DÉCISION de `entities.effect_targets.EffectTargetWorld` (pendant exact de
+    `runner/components.py::_RunnerEffectTargetWorld`). Lit les tables de `Scene`, rien d'autre."""
+    __slots__ = ("sc",)
+
+    def __init__(self, scene: "Scene"):
+        self.sc = scene
+
+    def unit_ids(self):
+        return [u.get("id") for u in (self.sc.units or ()) if u.get("id") is not None]
+
+    def carries(self, uid: int, effect_type: int) -> bool:
+        # `onlyActive = 0` : `EffectsState.has_effect` (filtre `consumed` seul), pas `active_effects`.
+        es = self.sc.eff_state
+        return bool(es.has_effect(int(uid), int(effect_type))) if es is not None else False
+
+    def pos(self, uid: int):
+        return self.sc.pos_by_id.get(uid)
+
+    def team(self, uid: int):
+        return self.sc.team_by_id.get(uid)
+
+    def alive(self, uid: int) -> bool:
+        u = next((x for x in (self.sc.units or ()) if x.get("id") == uid), None)
+        return True if u is None else bool(u.get("alive"))
+
+    def traits(self, uid: int):
+        c = self.sc.ctx_by_id.get(uid)
+        return (getattr(c, "traits", None) or ()) if c is not None else ()
 
 
 # ── SEAM live-feed (RPC) — tables cold + état par-pas. `rpc(method, body, timeout) -> result dict`. ──

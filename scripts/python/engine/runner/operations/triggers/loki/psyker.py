@@ -8,6 +8,7 @@ from typing import Optional
 import gameconfig as GC
 
 from ....state import State
+from ....components import is_effect_target
 from ....abilities.behaviours import AttackWithAttackDamage, entities_from_state
 from .....entities.effect_type import EffectType
 from .....entities.stats import StatType
@@ -64,9 +65,23 @@ class PsykerExtraAttackAbility(TriggeredAbility):
             return False
         if not ev.ranged or ev.profile != PSYCHIC_PROFILE:     # IsRangedAttack & DamageProfileIs(0xd)
             return False
-        if state.effects is not None and (                     # NOT(owner 1191 OR cible 1533)
-                state.effects.has_effect(self.owner_id, effect_type=PSYKER_OWNER_SUPPRESS)
-                or state.effects.has_effect(ev.target_id, effect_type=PSYKER_TARGET_SUPPRESS)):
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$
+        # IsPsykerAttackSuppressed` = `IsEffectTarget(Caster@DSLSelectors+0x48, 0x4a7 = 1191)
+        # op_BitwiseOr IsEffectTarget(Target@+0x60, 0x5fd = 1533)`, pris en `op_LogicalNot`.
+        #
+        # ⚠ `IsEffectTarget` != `HasEffect` : l'instance `1191` est POSEE SUR SON PORTEUR
+        # (`HuntersBeyondDeathAbility$$CreateBehaviour` = `AddEffect(0x4a7, ref, Owner, Owner, ...)`),
+        # et c'est le PSYKER ENNEMI qui figure dans sa liste `EffectComponent.Targets @+0x48`. Le
+        # gate lisait `has_effect(psyker, 1191)`, structurellement TOUJOURS faux -> le splash
+        # n'etait JAMAIS supprime (mesure case-418-r1 : `spaceHound` a d = 2, live 0 splash, port
+        # 1506 de degat Psychic fantome).
+        if is_effect_target(state, self.owner_id, PSYKER_OWNER_SUPPRESS):
+            return False
+        # `1533` : le `WatchedOver_PsykerSuppressionEffect$$CreateTargetSelector` n'a AUCUN symbole
+        # (corps deduplique) -> geometrie NON LUE, donc NON INSCRITE (pas de port speculatif). Le
+        # foyer rend `None` ; on ne ferme pas sur un inconnu -- comportement strictement anterieur,
+        # et residu NOMME (case-418-r1 §residus).
+        if is_effect_target(state, ev.target_id, PSYKER_TARGET_SUPPRESS) is True:
             return False
         return True
 
