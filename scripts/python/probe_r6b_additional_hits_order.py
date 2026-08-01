@@ -123,7 +123,7 @@ def _extra_rolls_variant(k):
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
               block_sources, shc, spread_pct=20, extra_pierce=0,
               bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
-              hit_interceptor=None):
+              hit_interceptor=None, failed_block0=None):
         # Comme `additional_hits_variant` : la signature suit `execute_additional_hits` PARAMETRE
         # POUR PARAMETRE et repasse tout ce que ce diagnostic ne fait pas varier -- sa SEULE
         # variable est le nombre `k` de tirages intercalaires. (Garde :
@@ -136,6 +136,10 @@ def _extra_rolls_variant(k):
         if not groups or thc is None or int(thc.hp or 0) <= 0:
             return None
         out = {"groups": 0, "hits": 0, "total": 0, "per_hit": [], "rolls": [], "profiles": []}
+        # #407 : `OngoingAttack+0x48` (`FailedBlockIds`) CHAINE, comme le port livre. Ce diagnostic
+        # decoupe chaque coup en un `_run_hits` distinct : sans chainage la failed-list se perdrait
+        # meme ENTRE COUPS d'un groupe, ce qui n'est pas la variable mesuree ici (`k`).
+        failed_block = set(failed_block0 or ())
         for g in groups:
             # #227 : meme convention que le port livre -- profil NULL = profil de l'ATTAQUE.
             g_profile = g.get("profile")
@@ -170,8 +174,10 @@ def _extra_rolls_variant(k):
                     # donc le canal crit y est structurellement ferme -- sa SEULE variable reste
                     # le nombre `k` de tirages intercalaires.
                     crit_allowed0=crit_allowed0,
+                    failed_block0=failed_block,          # #407 : chaine (cf. ci-dessus)
                     limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
                     limits_hp=int(thc.hp or 0))
+                failed_block = r["failed_block"]
                 out["per_hit"] += r["per_hit"]
                 out["total"] += r["total"]
             out["groups"] += 1

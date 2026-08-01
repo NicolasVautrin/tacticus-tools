@@ -538,7 +538,10 @@ class _AbilityAttack:
                 bonus_hit_chance=_gsi, hit_index0=r["next_hit_index"],
                 # #366-r1-crit-multihit : idem `damage_ops/normal.py` -- `isCriticalDamageAllowed`
                 # est porte par l'`OngoingAttack`, donc il traverse les sous-operations de groupe.
-                crit_allowed0=r["crit_allowed"])
+                crit_allowed0=r["crit_allowed"],
+                # #407 : JUMEAU BLOCK -- `OngoingAttack+0x48` (`FailedBlockIds`), meme portee et
+                # meme threading (`SetupHitGroup` le seme par reference dans `OngoingHitGroup+0x60`).
+                failed_block0=r["failed_block"])
         # DE-FORK — la POSE on-hit des tile-effects de profil (`OnFireDamageAbility` 1016,
         # `OnToxicDamageAbility` 1203) N'EST PLUS appelee ici. Leur vecteur natif est
         # `On(DamageDealt = 0x10)`, emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`

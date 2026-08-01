@@ -465,6 +465,10 @@ class _Normal:
             # #366-r1-crit-multihit : `attack[+0x40] &= hitGroup[+0x3c]` -- l'etat
             # `isCriticalDamageAllowed` sort de la phase d'arme et entre dans les groupes.
             crit_allowed0=r["crit_allowed"],
+            # #407 : le JUMEAU BLOCK -- `OngoingAttack+0x48` (`FailedBlockIds`), seme par reference
+            # dans `OngoingHitGroup+0x60` par `ADamageOperation$$SetupHitGroup` et alimente par
+            # `RegisterBlocks`. Une source ayant echoue en phase d'arme reste EXCLUE des groupes.
+            failed_block0=r["failed_block"],
             hit_interceptor=_hit_icept)      # #366-r1 : meme attaque -> meme intercepteur per-coup
         if _ah is not None:
             death = death or _ah.get("death")
