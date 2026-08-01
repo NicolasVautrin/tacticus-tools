@@ -82,6 +82,38 @@ dans `probe_229.py` seul, ni le decalage inverse. La question « le balayage cou
 pretend balayer ? » ne se deduit d'aucun chemin de fichier : elle se pose au registre, a chaque
 execution.
 
+### 0ter. La garde a MORDU a sa premiere exposition reelle — et c'est generalisable
+
+**Mesure, pas raisonnement.** Entre l'ouverture de la PR #462 et son merge, `#448-r2c` (PR #463) a
+inscrit **cinq** classes de plus (`FearOfTheUnseen*`, effectTypes `1238` / `1241`). Sur l'etat
+fusionne, le seul test rouge de tout le lot etait
+`test_the_probe_rail_covers_the_whole_registry` — la garde ecrite quelques heures plus tot,
+attrapant une derive nee APRES son ecriture. Le RAIL est passe de 46 a **51** entrees dans le meme
+mouvement. Verdict des cinq, RE au decompile : **rail ARRAYSET pour les cinq**, donc **aucun gate a
+poser** (`ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` pour les quatre de 1238,
+`TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal` pour 1241) — un trou de RECENSEMENT
+pur, pas une regression. C'est le resultat UTILE d'un cliquet : il a coute une declaration, pas un
+bug.
+
+Deux enseignements que la mesure impose, et qui depassent ce probe :
+
+1. **La cadence de derive est celle de la campagne, pas celle des tranches d'audit.** 46 -> 51 en
+   une PR, 28 -> 46 en trois jours. Toute garde dont la periode de re-verification est plus longue
+   que l'intervalle entre deux merges est structurellement en retard.
+2. **La regle generale** : *tout balayage dont le perimetre est une LISTE SAISIE A LA MAIN doit
+   prouver sa COUVERTURE dans le meme processus que sa verification de conformite.* Sans quoi son
+   verdict vert ne porte que sur ce qu'il regarde, et ne dit RIEN de ce qu'il a cesse de regarder —
+   pire, il peut affirmer une resorption (`EXPECTED_GAPS`) sur une entree devenue morte. La forme
+   est mecanique et tient en quatre assertions : registre \ liste = ∅ (couverture), liste \ registre
+   = ∅ (fraicheur), et les tables auxiliaires ne citent que des membres du registre. Elle
+   s'applique telle quelle a tout couple (liste saisie, registre derive) — `probe_283` et
+   `test_enum_mirror_ratchet` sont dans ce cas.
+
+Corollaire pour l'auteur d'un balayage : **ne jamais rendre un verdict sur un perimetre qu'on n'a
+pas mesure**. Un compte imprime doit etre le compte du REGISTRE, pas celui de la liste — sinon
+« 4 gaps » se lit « 4 gaps dans le jeu » alors qu'il signifie « 4 gaps parmi les 27 classes que je
+regarde, sur 46 ».
+
 ## 1. Le critere natif : DEUX rails d'evaluation, UN SEUL a gate `IsActive`
 
 `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTrigger` appelle DEUX evaluateurs

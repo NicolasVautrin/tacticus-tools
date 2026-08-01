@@ -161,6 +161,28 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
     "TeleportStrikeMovingRemoveOnAfterMove":
         (ARRAYSET, "IdunBattleLogic.Effects.TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #448-r2c (1238 / 1241) -- MEMES DEUX fabriques natives que 1035 / 1036, donc memes rails.
+    # La parente est tranchee par `data/symbols/<build>/frida/classes.tsv` et NON par le nom du
+    # ctor : `FearOfTheUnseen_TeleportingInEffect$$.ctor` appelle un corps que ghidra nomme
+    # `APsychicStalkEffect$$.ctor` (corps DEDUPLIQUE), alors que le champ parent dit
+    # `IdunBattle.Entities.Effects.Loki.ATeleportingEffect`. Lire la STRUCTURE, jamais le nom.
+    #
+    # ⚠ Le vslot `+0x738` (surcharge `FearOfTheUnseen_TeleportingInEffect$$GetAdditionalRemoveTriggers`
+    # = `AmountIsEqual(EffectRemainingTurns(EffectSelf), Direct(1))`) est conjoint aux QUATRE
+    # `Triggered()`, **T4 compris** -- lu au decompile, 4 occurrences de `(**(code **)(*in_RDX +
+    # 0x738))()` dans `ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal`. C'est un noeud de
+    # l'ARBRE, pas un gate d'evaluation : il ne change donc PAS le rail, et n'autorise aucune lecture
+    # du flag `IsActive`.
+    "FearOfTheUnseenTeleportingInRemoveOnAfterMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FearOfTheUnseenTeleportingInRemoveOnPreUnitAbility":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FearOfTheUnseenTeleportingInRemoveOnUnitFinishedTurn":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FearOfTheUnseenTeleportingInAddMovingOnPreMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FearOfTheUnseenMovingRemoveOnAfterMove":
+        (ARRAYSET, "IdunBattleLogic.Effects.TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal"),
 }
 
 # Classes du rail ARRAYSET qui lisent QUAND MEME le flag -- non par gate d'evaluation, mais
