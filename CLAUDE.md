@@ -271,7 +271,12 @@ elle ne **définit** pas la banque.
   code en cours des autres agents (89 % des lignes de `mirror` et de `tables`, mesuré le
   2026-08-01 à 8 worktrees), donc un rouge d'agent attribué à l'arbre principal. Mur 428,5 → ~157 s.
   Le filtre porte sur le chemin **relatif** au dépôt : c'est ce qui l'empêche de s'auto-exclure
-  quand il tourne DANS un worktree. Détail : `docs/rl/case-434-perimetre-des-cliquets.md`.
+  quand il tourne DANS un worktree. La correction **naïve** — ajouter `worktrees` au filtre par
+  segment sur `p.parts` (absolu) — est **pire que le trou** : mesurée le 2026-08-01, elle rend
+  1 521 fichiers depuis l'arbre principal et **0 depuis un worktree**, avec `VERDICT: PASS`.
+  Un cliquet garde ce périmètre pour tout `scripts/python/**` (`probe_440`, dans la banque) ;
+  il n'a **pas d'allowlist** — ses deux critères se dérivent du chemin canonique.
+  Détail : `docs/rl/case-434-perimetre-des-cliquets.md` (§10 pour #440).
 - **Un cliquet qui ne peut pas ROUGIR est gardé mécaniquement (#439)** : `probe_439` vérifie que
   chaque entrée a un chemin de sortie **non nul**. Trois occurrences du vice, **toutes trouvées à
   l'œil** — et l'audit manuel de #430 en avait raté une. La liste se **dérive** de `ratchets.ps1`

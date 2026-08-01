@@ -129,6 +129,14 @@ $Ratchets = @(
        Seul = 'une fixture qui patche dans le seed BC une variable d ability que le port lit DEPUIS gameconfig : desynchronisation ARMEE, inerte tant que l effet n est pas porte, FAUSSE le lendemain'
        Doc  = 'docs/rl/case-366-r1-bcpatch-port-blindspot.md' }
 
+    @{ Id = 'probe_440'; Argv = @('probe_440_repo_root_scan_guard.py')
+       Seul = 'un balayage qui part de la RACINE du depot sans exclure .claude/worktrees -- il lit et RAPPORTE le code en cours des autres agents (rouge d agent attribue a l arbre principal) ; et la correction NAIVE de ce trou, le filtre par SEGMENT sur un chemin absolu, qui s auto-exclut depuis un worktree : 0 fichier, verdict vert'
+       Doc  = 'docs/rl/case-434-perimetre-des-cliquets.md' }
+
+    @{ Id = 'probe_274'; Argv = @('probe_274_step_ordinals_sweep.py')
+       Seul = 'un ordinal StepType/GroupType fige en dur, y compris derriere un ALIAS (`step = ev.get("step")` puis `step == 13`) ou une CLE de dict, et la table de labels POSITIONNELLE du frontend -- GroupType (104 membres) n est couvert par aucune etape de probe_283'
+       Doc  = 'docs/rl/case-254b-b-ordinaux-en-dur.md' }
+
     @{ Id = 'probe_431'; Argv = @('probe_431_build_literals.py', '--cliquet')
        Seul = 'un hash de build ecrit en dur qui RESOUT un artefact du jeu (chemin de GameAssembly.dll, table de symboles, defaut de --build) HORS du foyer build_pin : le litteral court-circuite a la fois data/symbols/CURRENT et le binaire installe, donc symbols_sync peut etre VERT pendant que le script lit un autre build'
        Doc  = 'docs/rl/case-431-litteraux-de-build.md' }
