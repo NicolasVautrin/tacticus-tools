@@ -134,22 +134,25 @@ la doc seule qui mentait.
 
 ## 8. Ce que ça coûte, et la recommandation
 
-A/B **sur le même arbre** (celui d'après correction), back-to-back :
+A/B **sur le même arbre** (celui d'après correction), trois paires alternées :
 
-| | probe d'origine | probe #420 |
+| paire | probe d'origine | probe #420 |
 |---|---|---|
-| mur `--step all` | **147,1 s** | **128,0 s** |
-| verdict | `FAIL (1)` — faux positif | **`PASS`** |
+| back-to-back, machine calme | **147,1 s** — `FAIL (1)` | **128,0 s** — `PASS` |
+| alternée, machine chargée | 307,5 s — `FAIL (1)` | 336,3 s — `PASS` |
+| alternée, machine chargée | 236,1 s — `FAIL (1)` | (interrompue) |
 
-Le probe **coûte moins cher qu'avant** tout en gagnant deux surfaces de détection : l'étape 5
-n'itère plus 220 sites à l'affichage (`on` seul : 39,9 s → 11,4 s) et 4bis coûte ~3 s.
+**Conclusion honnête : le coût est INCHANGÉ au bruit de mesure près** — la 1re paire donne
+−13 %, la 2e +9 %. Ce qui est **constant sur toutes les mesures**, c'est le verdict :
+`FAIL` → `PASS`. Deux surfaces de détection sont donc gagnées **sans surcoût mesurable** : 4bis
+coûte ~3 s, et l'étape 5 récupère ce qu'elle perd (elle n'itère plus 220 sites à l'affichage,
+`on` seul : 39,9 s → 11,4 s).
 Ventilation `--step` : `diff` 0,5 · `mirror` 46 · `exec` 57-72 · `tables` 34 · `prose`+4bis
 33-49 · `on` 11.
 
-⚠ **L'absolu se lit à ±2×, pas au dixième.** Le même probe a été mesuré entre **128 s** et
-**260 s** selon le nombre d'agents en vol — c'est exactement le régime décrit par `case-409`
-(« 3 mesures alternées, 3 agents en vol : 100,1 / 153,9 / 221,9 s »). Seule la comparaison
-**back-to-back** ci-dessus est interprétable ; l'absolu doit être re-mesuré machine calme.
+⚠ **L'absolu se lit à ±2,5×, pas au dixième** : de **128 s** à **336 s** selon le nombre
+d'agents en vol — même régime que `case-409` (« 3 mesures alternées, 3 agents en vol :
+100,1 / 153,9 / 221,9 s »). Toute comparaison doit être **alternée**, jamais deux runs séparés.
 Piège de mesure, payé une fois : poser la copie de référence dans `scripts/python/` la fait
 **scanner par le probe** (elle cite `On(0x2b)` dans sa propre docstring) — le verdict tombe à
 `FAIL` pour une raison qui n'existe pas dans l'arbre. La supprimer AVANT de mesurer.
@@ -159,9 +162,11 @@ Piège de mesure, payé une fois : poser la copie de référence dans `scripts/p
 * **Cliquet permanent** (obligatoire). C'est le seul des deux qui voit la casse qui a
   RÉELLEMENT eu lieu : une **migration de build** a invalidé 220 citations **sans toucher une
   seule ligne** de ces fichiers. Un déclencheur sur diff y est **structurellement aveugle**.
-  Coût : 128 s. La banque des 9 cliquets tourne en parallèle et son mur n'est plus `probe_273`
-  (24 s depuis #409) mais `pytest signatures` (~59 s en série) — probe_283 **deviendrait le
-  nouveau mur**, à ~128 s. C'est le prix à énoncer.
+  Coût : ~128 s machine calme — et ce n'est **pas** un surcoût de #420, le probe de `master`
+  coûtait déjà autant (§8). La banque des 9 cliquets tourne en parallèle et son mur n'est plus
+  `probe_273` (24 s depuis #409) mais `pytest signatures` (~59 s en série) — probe_283
+  **deviendrait le nouveau mur**. C'est le prix à énoncer, et il est **entier** : le probe
+  existait déjà, mais hors banque.
   Réduction disponible si ce prix est jugé trop élevé : ne jouer que les GATES
   (`mirror` + `exec` + `tables` + `prose`) et laisser `on` (compteur) hors banque — ~117 s.
 * **Déclencheur sur diff** (complémentaire, quasi gratuit) : dès qu'un diff touche un littéral
