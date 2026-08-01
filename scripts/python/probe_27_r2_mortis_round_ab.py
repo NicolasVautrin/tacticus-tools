@@ -176,8 +176,43 @@ def _native(rid: int, caster: int, targets: list) -> tuple[dict, tuple, list]:
     return pairs, chosen, msgs
 
 
+def _no_occupancy_filter(self, ctx, caster_tile, target, ability_id) -> float:
+    """MUTANT A -- le port SANS `DSLSelectors.EmptyOrHasSteppableUnit` : l'arc arriere est score
+    tel quel, meme quand une unite non-Steppable occupe la tuile d'arrivee. Doit DIVERGER du natif
+    dans les deux bras BLOQUE, sinon le montage ne teste pas ce filtre."""
+    from engine import battle_query as bq
+    from engine.playbook.base import tile_utility_for_unit
+    tu = self._unit(ctx, target)
+    if tu is None or not self._is_displaceable(ctx, tu):
+        return 0.0
+    tpos = (tu["pos"]["col"], tu["pos"]["row"])
+    wa, ea, te = bq.tiles_behind_accessors(getattr(ctx, "walkable_by_pos", None),
+                                           getattr(ctx, "elev_by_pos", None))
+    tiles = bq.get_minimum_tiles_180_behind_from_tile(
+        caster_tile, tpos, walkable_at=wa, elevation_at=ea, tile_exists=te)
+    u0 = tile_utility_for_unit(ctx, tu, tpos)
+    best = 0.0
+    for p in tiles:
+        d = u0 - tile_utility_for_unit(ctx, tu, p)
+        if d > best:
+            best = d
+    return float(int(best))
+
+
+MUTANTS = {
+    # nom -> {attribut de classe: valeur}. Restaure apres coup.
+    "zero": {"calculate_custom_utility":
+             (lambda self, ctx, tile, target, ability_id: 0.0)},
+    "no_occupancy": {"calculate_custom_utility": _no_occupancy_filter},
+    # MUTANT B -- le port SANS le gate `IdunBattle.Entities.UnitExtensions$$IsDisplaceable`.
+    "no_displaceable": {"_is_displaceable": classmethod(lambda cls, ctx, unit: True)},
+}
+
+
 def _engine(rid: int, caster: int, targets: list):
-    """Decision MOTEUR, puis avec le custom 1004 FORCE a 0 (test de NECESSITE)."""
+    """Decision MOTEUR telle quelle, puis sous chacune des mutations de `MUTANTS`.
+
+    Rend `((ability, target), {nom_mutant: (ability, target)}, {cible: custom})`."""
     import engine_validate as EV
     import engine.playbook as PB
     from engine import weights as W
@@ -199,18 +234,22 @@ def _engine(rid: int, caster: int, targets: list):
     mp = (ctx.me or {}).get("pos") or {}
     here = (mp.get("col"), mp.get("row"))
     pb = PB.REGISTRY.get(1004)
+    cls = type(pb)
     customs = {t: pb.calculate_custom_utility(ctx, here, t, 1004) for t in targets}
 
     a = EV.engine_decide(sid, rid, dv, mov_by_unit, caster, wt, predictor)
-    orig = type(pb).calculate_custom_utility
-    type(pb).calculate_custom_utility = (
-        lambda self, ctx, tile, target, ability_id: 0.0)
-    try:
-        b = EV.engine_decide(sid, rid, dv, mov_by_unit, caster, wt, predictor)
-    finally:
-        type(pb).calculate_custom_utility = orig
-    return ((a.get("ability"), a.get("target")),
-            (b.get("ability"), b.get("target")), customs)
+    muts = {}
+    for name, attrs in MUTANTS.items():
+        saved = {k: getattr(cls, k) for k in attrs}
+        for k, v in attrs.items():
+            setattr(cls, k, v)
+        try:
+            m = EV.engine_decide(sid, rid, dv, mov_by_unit, caster, wt, predictor)
+            muts[name] = (m.get("ability"), m.get("target"))
+        finally:
+            for k, v in saved.items():
+                setattr(cls, k, v)
+    return (a.get("ability"), a.get("target")), muts, customs
 
 
 def measure(rid: int, ids: dict, label: str, engine: bool, target_vis: str) -> dict:
@@ -229,12 +268,28 @@ def measure(rid: int, ids: dict, label: str, engine: bool, target_vis: str) -> d
     row = {"pairs": {"%d,%d" % k: v for k, v in pairs.items()}, "native": chosen, "gap": gap,
            "target": tgt}
     if engine:
-        eng, eng0, customs = _engine(rid, caster, [tgt])
+        eng, muts, customs = _engine(rid, caster, [tgt])
         print("      moteur : ability=%s target=%s | custom(u%d)=%s"
               % (eng[0], eng[1], tgt, customs.get(tgt)))
-        print("      moteur [custom 1004 force a 0] : ability=%s target=%s" % eng0)
-        row.update({"engine": eng, "engine0": eng0, "custom": customs.get(tgt)})
+        for name in sorted(muts):
+            print("      mutant %-16s : ability=%s target=%s" % (name, muts[name][0],
+                                                                 muts[name][1]))
+        row.update({"engine": eng, "mutants": muts, "engine0": muts["zero"],
+                    "custom": customs.get(tgt)})
     return row
+
+
+ARMS = ("a-libre", "a-bloque", "b-libre", "b-bloque", "bigtarget")
+
+
+def scenario(hp_target: int = HP_TARGET, engine: bool = True, rid: int | None = None):
+    """Joue les CINQ bras et rend `(rows, rid)`. Point d'entree du test de garde."""
+    if rid is None:
+        rid, ids = build(hp_target)
+    else:
+        ids = {v: i for v, (i, _p) in _units(rid).items()}
+    rows = _play(rid, ids, engine)
+    return rows, rid
 
 
 def main() -> int:
@@ -253,7 +308,11 @@ def main() -> int:
         measure(rid, ids, "calibration (geom a, arc libre)", False, TARGET_VIS)
         print("(vise ecart dans (10, 20) ; ajuste --hp-target puis relance)")
         return 0
+    rows = _play(rid, ids, engine)
+    return _report(rows, engine)
 
+
+def _play(rid: int, ids: dict, engine: bool) -> dict:
     rows = {}
     for g in ("a", "b"):
         place(rid, ids, g)
@@ -273,7 +332,10 @@ def main() -> int:
     rows["bigtarget"] = measure(
         rid, ids, "geom A, cible BigTarget (arc LIBRE) -> custom attendu 0", engine,
         IMMOVABLE_VIS)
+    return rows
 
+
+def _report(rows: dict, engine: bool) -> int:
     print("\n=== SYNTHESE ===")
     ref = rows["a-libre"]["pairs"]
     same = all(rows[k]["pairs"] == ref for k in ("a-bloque", "b-libre", "b-bloque"))
@@ -301,6 +363,14 @@ def main() -> int:
     if disc:
         print("            encadrement 100%% natif : %.4f < custom(geom A) et"
               " custom(geom B) < %.4f" % (gap, gap))
+    if engine:
+        print("  MUTATIONS ADVERSARIALES (chacune DOIT diverger du natif quelque part) :")
+        for name in sorted(MUTANTS):
+            hit = [k for k in ARMS
+                   if rows[k]["mutants"][name] != tuple(rows[k]["native"])]
+            print("    %-16s : diverge sur %s %s"
+                  % (name, hit or "AUCUN BRAS",
+                     "" if hit else "<- le montage ne teste PAS cette piece"))
     print("(pense a disposer le runner : disposeRunner)")
     return 0 if ok else 1
 
