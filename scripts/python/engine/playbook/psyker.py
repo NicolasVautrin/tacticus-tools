@@ -201,6 +201,7 @@ from .neuroparasite import NeuroparasitePlaybook                # #441 (registre
 from .savior_protocols import SaviorProtocolsPlaybook           # #443 (registre, cf. module dedie)
 from .avalanche_of_muscle import AvalancheOfMusclePlaybook      # #445 (registre, cf. module dedie)
 from .boltstorm import BoltstormPlaybook                        # #446 (registre, cf. module dedie)
+from .cosmic_horror import CosmicHorrorPlaybook                 # #419-t6 (registre, cf. module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -261,6 +262,16 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # `Target@0x60`), donc toute cible vaut deja 10. Il n'a besoin ni du canal `prediction` (#438) ni
     # de la tuile d'attaque : la struct `AbilityEntities` du corps natif ne porte pas `CasterTile`.
     int(TriggeredAbilityType.Boltstorm): BoltstormPlaybook(),
+    # #419-t6 : CosmicHorror (1277, passif de `genesPatriarch` HERO + 3 npc `genes*Patriarch*`) --
+    # `COSMICHORROR_StepOnDecoyToAttack` (10) quand la TUILE D'ATTAQUE (`case.CasterPosition.
+    # MainTile`, `UtilityAttackCase@+0x18`) est OCCUPEE par un leurre AMI (`HasTrait(u, 0x41d)` =
+    # `UnitTrait.Decoy` + `IsFriend(u, case.Caster)`), 0 sinon. Corps IdunBattle.AI.Playbook.Loki.
+    # CosmicHorrorPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext.
+    # PREMIER playbook attack porte dont la sortie ne depend d'AUCUNE propriete de la cible : c'est
+    # un terme de TUILE, constant a cible variable, qui ne bouge qu'en DEPLACANT le caster. Il
+    # n'exige aucune piece neuve (`attack_tile` est deja le 5e parametre du dispatcher) -- ni le
+    # canal `prediction` (#438), qu'il accepte et ignore comme son corps natif.
+    int(TriggeredAbilityType.CosmicHorror): CosmicHorrorPlaybook(),
 }
 
 
