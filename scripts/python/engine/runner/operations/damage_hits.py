@@ -73,7 +73,8 @@ class _DamageHitsMixin:
                   limits: Optional[dict] = None, limits_hp: int = 0,
                   is_attack_damage_op: bool = True, force_overkill: bool = False,
                   prevent_overkill: bool = False,
-                  force_crit: bool = False, hit_index0: int = 0) -> dict:
+                  force_crit: bool = False, hit_index0: int = 0,
+                  hit_interceptor=None) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -149,6 +150,22 @@ class _DamageHitsMixin:
           * AUCUN tirage crit n'est consomme (le natif SAUTE `RollCritical`) -> a cc >= 1 le port
             ne doit pas rouler non plus, sous peine de desynchroniser le flux RNG.
         Porteur : TacticalPrecision (1154, branche CHARGE ; i2 « This attack is always a Crit »).
+
+        `hit_interceptor` (defaut None, #366-r1) = les DEUX accroches PER-COUP d'`ExecuteHit(s)` que le
+        bus per-attaque du port ne sait pas exprimer (cf.
+        `triggers/loki/harlequins_panoply.py::HarlequinsPanoplyHitInterceptor`) :
+          * `should_discard(idx)` -- l'etape que `IdunBattle.Operations.AttackDamageOperation$$
+            ExecuteHit` execute JUSTE APRES avoir emis `On(6 = PreAttackHit)` / `On(7)` : elle relit
+            `OngoingAttack+0x98` (`Nullable<AttackHit>`) et, si son octet `discard` (`+0x08`) est pose,
+            fait `return this` sur un `OperationResult` **memset a 0** -- ni degat, ni block, ni
+            `EvaluateAfterHitTriggers`. Les tirages DEJA consommes a ce point (le `GetDamage` de tete
+            et le `RollCritical`) le restent : c'est pour ca que l'appel se place ICI, entre l'etape
+            crit et l'etage de resolution, et pas en tete de coup ;
+          * `on_blocked(idx)` -- la branche `param_6 != 0` d'`ADamageOperation$$EvaluateAfterHitTriggers`
+            (emission de `On(0x3c = UnitBlocked)`), suivie de `RegisterBlocks`. Appele APRES le split
+            combat, comme le natif (l'evenement part de la DERNIERE instruction d'`ExecuteHit`).
+        `None` = strict no-op (retro-compat totale : aucun test, aucun tirage, aucune branche modifies).
+
         Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
         did_crit = did_block = did_evade = False
@@ -252,6 +269,12 @@ class _DamageHitsMixin:
             did_crit |= crit
             did_block |= dmg.did_block
             did_evade |= dmg.did_evade
+            # #366-r1 : `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` branche
+            # `param_6 != 0` -> `On(0x3c = UnitBlocked)`, PUIS `RegisterBlocks` (le compteur
+            # `ActorStatisticsComponent+0x8c`). PAR COUP, comme le natif, et AVANT le Maybe GetStuckIn
+            # (qui vit sur l'after-hit `On(8)`, emis APRES `On(0x3c)` par la meme fonction).
+            if hit_interceptor is not None and dmg.did_block:
+                hit_interceptor.on_blocked(idx)
             # #62c : behaviour Maybe(GetBonusHitChance) sur coup d'INDEX IMPAIR (0-based), APRES le degat.
             if bonus_hit_chance is not None and (idx % 2 == 1):
                 return rng.next_bool(bonus_hit_chance)      # 1 tirage genrand (chance 30/100, toujours >=1)
@@ -287,6 +310,21 @@ class _DamageHitsMixin:
             sont RÉFUTÉS par la mesure (M1/M2 mismatch total ET per-hit)."""
             nonlocal total, shield, armor_pool, shield_dmg, armor_dmg, did_crit, did_block, did_evade
             denied_before.append(_rogne[0])       # #R33 : rogne des coups PRECEDENTS (avant ce coup)
+
+            def _discarded(crit_flag: bool) -> bool:
+                """#366-r1 -- l'etape 5 d'`ExecuteHit` : `if (attackHit.discard != 0) return this;` sur
+                un `OperationResult` MEMSET A 0. Appelee APRES le `GetDamage` de tete et le
+                `RollCritical` (donc leurs tirages sont deja consommes) et AVANT le slot 4/8 et la
+                sub-op 0x42 (donc AUCUN de ces tirages-la ne l'est). Le coup est compte (l'index
+                avance, `ExecuteHits` fait `i++`) mais n'inflige RIEN et ne bloque RIEN."""
+                if hit_interceptor is None or not hit_interceptor.should_discard(idx):
+                    return False
+                crits.append(crit_flag)
+                rolls.append(0)
+                per_hit.append(0)
+                per_hit_health.append(0)
+                return True
+
             if post_roll is not None:
                 # VECTEUR ABILITY bounds-mode (roll-then-reduce) — ordre natif ExecuteHit :
                 # (1) VALEUR = tirage BRUT dans les bornes config (GetDamage-top, struct min<max).
@@ -294,6 +332,8 @@ class _DamageHitsMixin:
                 # (2) crit-roll APRÈS le tirage de valeur (gate cc<1 -> 0 tirage, cf. bloc ci-dessus).
                 # `force_crit` = flag options+5 : le natif SAUTE `RollCritical` -> crit acquis, 0 tirage.
                 crit = True if force_crit else (roll_critical(rng, crit_chance) if crit_enabled else False)
+                if _discarded(crit):              # `ExecuteHit` etape 5 (cf. `_discarded`)
+                    return False
                 crits.append(crit)
                 if crit:
                     # `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` -> `IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage` : critBonus
@@ -335,6 +375,8 @@ class _DamageHitsMixin:
                     rng.next_internal(max(0, roll), max(0, roll) + 1)
                 return _one_hit_tail(idx, crit, roll)
             crit = True if force_crit else (roll_critical(rng, crit_chance) if crit_enabled else False)
+            if _discarded(crit):                  # `ExecuteHit` etape 5 (cf. `_discarded`)
+                return False
             crits.append(crit)
             hd = hit_cr if crit else hit_nc
             # #67 : etage LIMITES du natif (`IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage`) — MEME etage

@@ -269,6 +269,15 @@ class StartTurnOperation:
             if uc is not None:
                 uc.last_hit_damage_taken_last_turn = int(uc.last_hit_damage_taken_this_turn or 0)
                 uc.last_hit_damage_taken_this_turn = 0
+            # #366-r1 : `IdunBattle.Entities.Components.ActorStatisticsComponent$$
+            # ResetBlocksMadeThisTurn` (`+0x8c = 0`) -- la TROISIEME instruction de la sequence de
+            # `IdunBattle.Operations.StartTurnOperation$$ResetUnit`, entre `ResetUnitsAttackedThisTurn`
+            # et `ResetReceivedDamageThisTurn`. MEME portee que les deux resets ci-dessus : les unites
+            # du joueur ENTRANT. Lecteur unique : le gate `NOT HasBlockedThisTurn(Target)` de
+            # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HarlequinsPanoplyAbility$$CreateTrigger`
+            # (« the FIRST time each turn this unit blocks a hit »).
+            if uc is not None:
+                uc.blocks_made_this_turn = 0
             # #213 : `UnitComponent + 0x18c` = la TUILE de debut de tour. Mirror des DEUX lignes qui
             # suivent le bump de `turnsStarted@+0x58` dans la MEME boucle native
             # (`IdunBattle.Operations.StartTurnOperation$$Execute`) :

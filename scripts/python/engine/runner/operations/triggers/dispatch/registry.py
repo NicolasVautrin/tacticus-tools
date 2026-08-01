@@ -101,6 +101,8 @@ from ..loki.chronometron import (ChronometronExtraDamageRemove,                 
 from ..loki.shock_assault import (ShockAssaultBuffRemove,                          # case-366-r1 (1000)
                                   SHOCK_ASSAULT_BUFF)
 from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
+from ..loki.harlequins_panoply import (HarlequinsPanoplyIgnoreHitsRemove,  # case-366-r1 (1227)
+                                       HARLEQUINS_PANOPLY_IGNORE_HITS)
 from ..loki.until_of_end_turn import (HatefulAssaultAlreadyAttackedRemove,
                                       HATEFUL_ASSAULT_ALREADY_ATTACKED)
 from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
@@ -594,6 +596,14 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `AddEffect` avec `turns` vide) et HatefulAssault cesserait a jamais de frapper une unite deja
     # touchee une fois : regression PERMISSIVE-INVERSE et SILENCIEUSE. Cf. loki/until_of_end_turn.py.
     HATEFUL_ASSAULT_ALREADY_ATTACKED: [HatefulAssaultAlreadyAttackedRemove],   # 1175 -> retrait On(0x17)
+    # 1227 HarlequinsPanoply_IgnoreHits (#366-r1) : la classe d'effet ne surcharge QUE
+    # `$$CreateTargetTrigger` -- pour un `BaseEffect` c'est le trigger de RETRAIT
+    # (`CreateHandleTriggerAbilities` -> `Triggered(<trigger>, RemoveEffect(Effect@0x38))`), ici
+    # `On(9 = Attack) & get_OwnerIsTarget` = la CLOTURE de l'attaque qui visait le porteur. Les deux
+    # AUTRES faces du cluster (pose on-block, discard per-coup) ne peuvent PAS passer par ce registre :
+    # elles sont per-COUP alors que le bus du port emet `On(6)`/`On(0x3c)` une fois par attaque ->
+    # elles sont appelees par l'intercepteur de `_run_hits` (cf. loki/harlequins_panoply.py).
+    HARLEQUINS_PANOPLY_IGNORE_HITS: [HarlequinsPanoplyIgnoreHitsRemove],       # 1227 -> retrait On(9)
     # EarlyWarningOverride_ReactivateOverwatch (#114 residu 3, effet 1145 pose par l'active 1077 de
     # tauCrisis) : `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` rend un ArraySet
     # de DEUX `Triggered()` -> DEUX classes. (1) `On(1=PreUnitDeath) & OwnerIsActor & NOT IsTurnOf(owner)
