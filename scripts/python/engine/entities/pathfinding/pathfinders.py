@@ -103,44 +103,39 @@ def titanhammer_target_tiles(tile_has_effect_with_source, board) -> set:
     return {int(t) for t in board.by_id if tile_has_effect_with_source(int(t))}
 
 
-def _teleport_predicate(family: str, board, occupants: dict,
-                        target_tiles: Optional[set]) -> Optional[Callable[[int], bool]]:
+def _teleport_predicate(family: str, board, occupants: dict, moving_team,
+                        target_tiles: Optional[set],
+                        synapse_tiles: Optional[set]) -> Optional[Callable[[int], bool]]:
     """Le slot virtuel `IsValidTeleportTile(unit, tile)` de la SOUS-CLASSE (vslot 11), ferme sur le
-    substrat disponible. `None` = filtre absent.
+    substrat disponible. Les QUATRE sont DISTINCTS -- ce ne sont pas quatre copies :
 
-    ⚠ RESULTAT DE RE, et il compte : sur le pool que `FindTilesReachableByTeleport` a DEJA filtre
-    (`IsEmptyOrSteppable` retire toute tuile occupee), TROIS des quatre predicats sont
-    IDENTIQUEMENT VRAIS -- ce ne sont donc pas « quatre variantes du meme pathfinder » par hasard,
-    c'est que trois d'entre eux ne restreignent rien de plus :
+      * `TeleportStrike` : « aucun ennemi non-Steppable ADJACENT » (`GetAdjacentEnemies`) ;
+      * `FearOfTheUnseen` : le meme, plus DEUX echappatoires (`IsTallGrass`, bulle `Synapse_Effect`
+        d'un allie au rayon 2) ;
+      * `StormboyzStrike` : corps trivial, non nomme -> `True` (HYPOTHESE, cf. le module) ;
+      * `TitanhammerSquad` : le seul VRAIMENT restrictif -- la zone `TitanhammerSquad_TargetTile`
+        marquee par un allie, elle-meme ou une voisine.
 
-      * `TeleportStrike` : `Count(entites sur la tuile, e => !IsSteppable(e)) == 0` ;
-      * `FearOfTheUnseen` : `IsTallGrass(tile) || <ce meme compte> == 0 || <zone d'un allie qui
-        porte l'effet 0x41c>` -- la 2e branche suffit et court-circuite les deux autres ;
-      * `StormboyzStrike` : aucune methode nommee, corps trivial (cf. `teleport_pathfinder`).
-
-    Le QUATRIEME, `TitanhammerSquad`, est le seul RESTRICTIF : la tuile n'est valide que si
-    ELLE-MEME ou une de ses VOISINES porte `TitanhammerSquad_TargetTile` (1571) pose par un allie
-    -- `IsValidTitanhammerSquadTargetTile(unit, tile) || GetAdjacentTiles(tile, ...)
-    .Any(t => IsValidTitanhammerSquadTargetTile(unit, t))`. Sans substrat (`target_tiles is None`)
-    on ne peut pas trancher : on rend un predicat TOUJOURS FAUX, donc un pool de teleport VIDE.
-    Degradation RESTRICTIVE et NOMMEE -- exactement le comportement d'avant `#381-r5`, jamais un
-    pool board-wide invente."""
-    if family in ("TeleportStrike", "FearOfTheUnseen"):
-        return lambda tid: _tp.is_valid_teleport_tile_teleport_strike(tid, occupants)
+    Substrats absents (`None`) : la branche concernee est INERTE, et l'effet est nomme dans chaque
+    predicat -- jamais un pool invente."""
+    if family == "TeleportStrike":
+        return lambda tid: _tp.is_valid_teleport_tile_teleport_strike(
+            tid, board, occupants, moving_team)
+    if family == "FearOfTheUnseen":
+        return lambda tid: _tp.is_valid_teleport_tile_fear_of_the_unseen(
+            tid, board, occupants, moving_team, synapse_tiles)
     if family == "StormboyzStrike":
-        return lambda tid: _tp.is_valid_teleport_tile_stormboyz(tid, occupants)
+        return lambda tid: _tp.is_valid_teleport_tile_stormboyz(
+            tid, board, occupants, moving_team)
     if family == "TitanhammerSquad":
-        if target_tiles is None:
-            return lambda tid: False
-        tt = {int(t) for t in target_tiles}
-        return lambda tid: (int(tid) in tt
-                            or any(int(n) in tt for n in board.neighbours(int(tid))))
+        return lambda tid: _tp.is_valid_teleport_tile_titanhammer(tid, board, target_tiles)
     return None
 
 
 def find_reachable_tiles(board, pathfinder_type: int, start_id: int, depth: int,
                          occupants: dict, moving_team, can_continue=None,
-                         teleport_target_tiles: Optional[set] = None) -> tuple[set, set]:
+                         teleport_target_tiles: Optional[set] = None,
+                         synapse_tiles: Optional[set] = None) -> tuple[set, set]:
     """`IdunBattle.Entities.Pathfinding.Pathfinders$$FindReachableTiles(type, start, depth, unit)`
     -- `dict[type].FindReachableTiles(...)`, rendu sous la forme `(visited, stop)` du port.
 
@@ -160,7 +155,8 @@ def find_reachable_tiles(board, pathfinder_type: int, start_id: int, depth: int,
     if not is_teleport_type(t):
         return visited, stop
     family = TELEPORT_DECORATORS[t][1]
-    pred = _teleport_predicate(family, board, occupants, teleport_target_tiles)
+    pred = _teleport_predicate(family, board, occupants, moving_team,
+                               teleport_target_tiles, synapse_tiles)
     tele = _tp.find_tiles_reachable_by_teleport(board, occupants, is_valid_teleport_tile=pred)
     return _tp.iterate_reachable_tiles(visited, stop, tele)
 
@@ -168,8 +164,8 @@ def find_reachable_tiles(board, pathfinder_type: int, start_id: int, depth: int,
 def movable_positions_for_unit(board, start_id: int, depth: int, occupants: dict, moving_team,
                                traits, has_effect, can_continue=None,
                                ignore_special_movement: bool = False,
-                               teleport_target_tiles: Optional[set] = None
-                               ) -> tuple[set, set]:
+                               teleport_target_tiles: Optional[set] = None,
+                               synapse_tiles: Optional[set] = None) -> tuple[set, set]:
     """LES DEUX ETAGES, dans l'ordre du natif : `MovementQuery$$GetPathfinderTypeForUnit` puis
     `MovementQuery$$GetReachableTiles`. C'est ce que les TROIS consommateurs appellent -- ils ne
     choisissent plus le pathfinder eux-memes.
@@ -182,4 +178,5 @@ def movable_positions_for_unit(board, start_id: int, depth: int, occupants: dict
                                          ignore_special_movement=ignore_special_movement)
     return find_reachable_tiles(board, ptype, start_id, depth, occupants, moving_team,
                                 can_continue=can_continue,
-                                teleport_target_tiles=teleport_target_tiles)
+                                teleport_target_tiles=teleport_target_tiles,
+                                synapse_tiles=synapse_tiles)

@@ -44,7 +44,8 @@ from engine.runner.components import (StatsComponent, OwnerComponent, PositionCo
 from engine.entities.pathfinding.ignore_terrain_pathfinder import get_path_node_counts
 from engine.entities.pathfinding.tile_blocking import make_can_continue
 from engine.entities.pathfinding.pathfinders import movable_positions_for_unit
-from engine.services.movement_query import titanhammer_target_tiles_for, unit_has_effect_fn
+from engine.services.movement_query import (synapse_tiles_for, titanhammer_target_tiles_for,
+                                            unit_has_effect_fn)
 from engine.entities.effect_type import EffectType
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.traits.unit_trait import entity_trait_names
@@ -209,7 +210,8 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -
     _, stop = movable_positions_for_unit(
         board, otile, depth, _occupants(state), my_team, traits=traits,
         has_effect=unit_has_effect_fn(state, uid), can_continue=_cc,
-        teleport_target_tiles=titanhammer_target_tiles_for(state, board, my_team))
+        teleport_target_tiles=titanhammer_target_tiles_for(state, board, my_team),
+        synapse_tiles=synapse_tiles_for(state, board, my_team))
     out = []
     for t in stop:
         c, r = board.coord(t)

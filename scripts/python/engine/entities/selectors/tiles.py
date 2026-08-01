@@ -273,6 +273,25 @@ def _movement_can_continue(ctx, board, mover_traits):
     return lambda tid: not _blocks(tid)
 
 
+def _synapse_tiles(ctx, board, moving_team):
+    """La BULLE SYNAPSE de l'equipe du mover, montee sur le substrat DSL -- troisieme branche de
+    `FearOfTheUnseenPathfinder$$IsValidTeleportTile` (`Synapse_Effect` 0x41c + `GetSurroundingTiles
+    (allie, 2, ..., includeCenter: true)`). `ctx.has_effect` absent -> `None` (NON MESURE), branche
+    inerte. Meme mirror que `services.movement_query.synapse_tiles_for`, autre substrat."""
+    from ..effect_type import EffectType
+    he = getattr(ctx, "has_effect", None)
+    if he is None or board is None or moving_team is None:
+        return None
+    want = int(EffectType.Synapse_Effect)
+    centers = [_pos(o) for o in ctx.units
+               if _is_alive(o) and o.get("team") == moving_team and he(o, want)]
+    centers = [c for c in centers if c is not None]
+    if not centers:
+        return set()
+    return {int(t) for t in board.by_id
+            if any(hexgeo.distance(board.coord(int(t)), c) <= 2 for c in centers)}
+
+
 class MovableTilesInRange(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$MovableTilesInRange(unitSelector, unitTileSelector,
     overrideRange, ignoreFlags, ignoreUnitsOnTiles)` -> `IdunBattle.Entities.Selectors.
@@ -427,7 +446,8 @@ class MovableTilesInRange(TargetsSelector):
             # `TitanhammerSquad_TargetTile` sur la tuile ; `ctx.tile_has_effect` n'expose pas la
             # source -> NON MESURE (`None`), pool de teleport Titanhammer vide. Residu NOMME et
             # RESTRICTIF ; inventer « n'importe quel poseur » serait plus faux.
-            teleport_target_tiles=None)
+            teleport_target_tiles=None,
+            synapse_tiles=_synapse_tiles(ctx, board, u.get("team")))
         # `RemoveAll(t => !IsMovableTile(..., ignoreUnitsOnTiles))` : sans `ignoreUnitsOnTiles` le
         # natif ne garde que les tuiles LIBRES (`IsFreeTile`), depart compris — c'est le stop_set.
         return sorted(visited if self.ignore_units_on_tiles else stop)

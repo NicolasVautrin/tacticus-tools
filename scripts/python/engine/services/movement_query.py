@@ -324,6 +324,42 @@ def unit_has_effect_fn(state, unit_id: int):
     return lambda et: eff.has_effect(uid, effect_type=int(et))
 
 
+def synapse_tiles_for(state, board, moving_team) -> set | None:
+    """La BULLE SYNAPSE de l'equipe du mover -- la troisieme branche de
+    `FearOfTheUnseenPathfinder$$IsValidTeleportTile` :
+
+        <unites du player>.Any(e => HasEffect(e, state, 0x41c, 0)
+            && BattleQuery$$GetSurroundingTiles(e, 2, onlyEmptyOrSteppable: true,
+                   onlyWalkable: true, onlyMovable: false, includeCenter: true).Contains(tile))
+
+    `0x41c` = `Synapse_Effect` (1052). Le rayon est une distance HEX (`GetSurroundingTiles`), pas
+    un nombre de pas. Les deux gates `onlyEmptyOrSteppable`/`onlyWalkable` sont deja appliques en
+    amont par `FindTilesReachableByTeleport` -- on ne les rejoue pas. Aucun canal -> `None` (NON
+    MESURE), et la branche reste inerte."""
+    eff = getattr(state, "effects", None) if state is not None else None
+    if eff is None or board is None:
+        return None
+    from ..entities.effect_type import EffectType
+    from ..runner.components import OwnerComponent, PositionComponent, UnitComponent
+    want = int(EffectType.Synapse_Effect)
+    out = set()
+    for eid, e in (getattr(state, "entities", None) or {}).items():
+        uc = e.get_component(UnitComponent)
+        oc = e.get_component(OwnerComponent)
+        pc = e.get_component(PositionComponent)
+        if uc is None or not uc.alive or oc is None or pc is None:
+            continue
+        if moving_team is None or oc.team != moving_team:
+            continue
+        if not eff.has_effect(int(eid), effect_type=want):
+            continue
+        for tid in board.by_id:
+            c, r = board.coord(int(tid))
+            if hexgeo.distance((c, r), (pc.col, pc.row)) <= 2:
+                out.add(int(tid))
+    return out
+
+
 def titanhammer_target_tiles_for(state, board, moving_team) -> set | None:
     """Les tuiles portant `TitanhammerSquad_TargetTile` (1571) posees par un ALLIE du mover --
     le seul substrat que reclame `TitanhammerSquadPathfinder$$IsValidTeleportTile` (cf.
@@ -395,7 +431,8 @@ def get_movable_tiles_for(board, state, unit_id: int, from_tile: int, override_r
     _visited, stop = movable_positions_for_unit(
         board, int(from_tile), int(override_range), occupants, moving_team,
         traits=traits, has_effect=unit_has_effect_fn(state, unit_id), can_continue=cc,
-        teleport_target_tiles=titanhammer_target_tiles_for(state, board, moving_team))
+        teleport_target_tiles=titanhammer_target_tiles_for(state, board, moving_team),
+        synapse_tiles=synapse_tiles_for(state, board, moving_team))
     return stop
 
 
