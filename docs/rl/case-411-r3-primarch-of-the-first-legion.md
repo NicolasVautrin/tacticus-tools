@@ -289,6 +289,35 @@ avoir manqué au premier passage.
 
 **Verdict : 20 checks, `PORT CONFORME`.**
 
+## 6.2 Les gardes, et les six mutants qu'elles tuent
+
+* `tests/engine/test_418_primarch_transfer_offline.py` — **16 tests** qui comptent les TIRAGES
+  (`next_internal`) et non les dégâts : pool de N ⇒ N tirages, pool de 1 ⇒ **1** (le cas dégénéré),
+  pool vide ⇒ 0, le `Cache` évite de re-tirer sur une seconde lecture mais un arbre NEUF re-tire,
+  l'allié déjà servi passe derrière, tous servis ⇒ le tri redevient neutre. Plus les deux primitives
+  neuves prises isolément (`Contains` : `SelectSingle` + comparaison par id ; `EntitiesFromPersistentDataList` :
+  ordre d'insertion, id inconnu jeté).
+* `tests/engine/test_411_transfer_hit_wiring_offline.py` — le **bras 1511 d'EXÉCUTION**, que le
+  fichier réclamait explicitement (« Le jour où 1511 entre, ce test ROUGIT et demande son bras
+  d'EXÉCUTION (pas une empreinte) »). Montage ECS réel, vrai `make_hit_interceptor`, vraie
+  `AttackDamageOperation.execute`, deux bras témoins (aucun allié / allié hors faction), et le
+  ledger mesuré comme un **surcoût** (pool 2 − pool 1), sans coder en dur le coût d'un tirage.
+  ⚠ **Sa détection d'origine ne m'aurait PAS vu** : elle cherchait `PrimarchOfTheFirstLegionTransfer`
+  dans le module `draw_fire`, la classe livrée s'appelle `PrimarchTransfer` et vit ailleurs. Le bras
+  aurait skippé **en vert** sur un port bien vivant — la même forme de faute que #426 venait de
+  corriger un cran plus haut. C'est consigné dans l'en-tête du fichier.
+* `probe_418_mutants.py` — **6 mutations, 6 tuées** (une ancre introuvable y compte comme un ÉCHEC,
+  pas comme un vert) :
+
+| mutant | ce qu'il retire | rouges |
+|---|---|---|
+| **M1** | le court-circuit du `Randomize` (« le pool tient déjà dans `amount` ») — **LA faute que #411 refusait de commettre à l'aveugle** | **7** |
+| M2 | le filtre `UnitsFromFaction(0xa)` | 2 |
+| M3 | le gate `AmountIsOdd(CurrentHitIndex)` | 2 |
+| M4 | l'anti-répétition (`If(Contains(…), 0, 1)` → constante) | 1 |
+| M5 | le `Cache` | 1 |
+| M6 | le sens du tri (`ascending=True`) | 1 |
+
 ## 7. Ce qui n'est PAS couvert (résidus NOMMÉS)
 
 * **`PrimarchOfTheFirstLegion_EndTurnAbility` — la purge, NON PORTÉE.** Son `CreateBehaviour` est lu
