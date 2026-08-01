@@ -201,6 +201,7 @@ from .neuroparasite import NeuroparasitePlaybook                # #441 (registre
 from .savior_protocols import SaviorProtocolsPlaybook           # #443 (registre, cf. module dedie)
 from .avalanche_of_muscle import AvalancheOfMusclePlaybook      # #445 (registre, cf. module dedie)
 from .boltstorm import BoltstormPlaybook                        # #446 (registre, cf. module dedie)
+from .fire_of_absolution import FireOfAbsolutionPlaybook        # #419-r1 (registre, cf. module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -261,6 +262,17 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # `Target@0x60`), donc toute cible vaut deja 10. Il n'a besoin ni du canal `prediction` (#438) ni
     # de la tuile d'attaque : la struct `AbilityEntities` du corps natif ne porte pas `CasterTile`.
     int(TriggeredAbilityType.Boltstorm): BoltstormPlaybook(),
+    # #419-r1 : FireOfAbsolution (1017, passif des quatre `adept*Retributor`) --
+    # `FIREOFABSOLUTION_AdjacentFriend` (-20) x |amis du caster adjacents a la CIBLE|
+    # + `FIREOFABSOLUTION_AdjacentEnemy` (20) x |ennemis adjacents a la CIBLE|. Corps
+    # IdunBattle.AI.Playbook.Loki.FireOfAbsolutionPlaybook.
+    # u003CCalculateAttackUtilityInStepsInternalu003Ed__4$$MoveNext.
+    # PREMIER playbook attack porte qui SOMME DEUX produits poids x cardinal, et le premier dont un
+    # poids est NEGATIF (il peut donc rendre une utilite < 0). Il compte le CASTER parmi les amis
+    # -- aucun retrait au natif, la ou la face COMBAT de la MEME ability exclut nommement le caster
+    # de son splash. `1017` est un homonyme a trois faces : `ActiveAbilityType` 1017 = FragBomb
+    # (celui de #249/`TargetTileHasEnemyUnit`), `EffectType` 1017 = ActOfFaith_Effect.
+    int(TriggeredAbilityType.FireOfAbsolution): FireOfAbsolutionPlaybook(),
 }
 
 
