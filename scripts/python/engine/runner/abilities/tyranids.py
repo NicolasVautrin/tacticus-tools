@@ -663,12 +663,18 @@ class BurrowersAbility(ActiveAbility):
         natif rend ce code tel quel et `GetInvalidCasterReason` le re-emballe par
         `GenericBrokenTargetingRule(r)`.
 
-        (a) **PORTE, et c'est le refus DISCRIMINANT** : `casterTiles` VIDE => refus. C'est
-        exactement l'etat que le cast lui-meme cree (`RemoveUnitFromItsTiles` -> `feet = []`), donc
-        une unite DEJA enfouie ne peut pas re-creuser -- et c'est ce qui rend le port observable sans
-        hook (cf. la mesure E3). Le port lit `get_unit_feet` = l'equivalent 1:1 de
-        `IdunBattle.Entities.EntityExtensions$$GetTiles` que le natif passe en `casterTiles` sur le
-        chemin `ActiveAbilityOperation$$ExecuteInternal`.
+        (a) PORTE, mais **PREEMPTE sur le chemin `ActiveAbilityOperation$$ExecuteInternal`** -- et ce
+        n'est pas une nuance : c'est la MESURE qui l'a etabli. `casterTiles` VIDE est exactement
+        l'etat que le cast lui-meme cree (`RemoveUnitFromItsTiles` -> `feet = []`), donc une unite
+        DEJA enfouie ne peut pas re-creuser ; mais le refus RENDU n'est PAS `4`, c'est
+        `AllowNullCasterTile` (0x40000000), parce que la clause TUILE-NULLE de
+        `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason` PRECEDE l'invocation de
+        cette regle-delegue (cf. `targeting.py::get_invalid_caster_reason`, clause 4a, portee par
+        cette meme tranche). Le mirror est conserve tel quel -- le natif porte bien ce test, et le
+        rang de la cascade generique n'est pas une propriete de cette ability. Meme forme d'inertie
+        que `CasterHasFreeAdjacentTile` chez ses deux porteurs. Le port lit `get_unit_feet` =
+        l'equivalent 1:1 d'`IdunBattle.Entities.EntityExtensions$$GetTiles`, que le natif passe en
+        `casterTiles`.
 
         (b) **RESIDU NOMME, identique a celui de 1011** : `IsTemporary` lit le booleen `@+0x2c` du
         `TileComponent`, que le port ne materialise PAS cote RUNNER (`state.board` ne porte que la

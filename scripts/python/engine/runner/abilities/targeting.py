@@ -181,8 +181,11 @@ non-port converge, mais PAS pour la meme raison, et la nuance vaut d'etre ecrite
   * `AllowNullCasterTile` (bit 30, 0x40000000) n'est PAS une regle, c'est une **PERMISSION** : le
     natif refuse `broken(0x40000000)` quand `casterTiles` est vide et que NI ce bit NI
     `CasterHasNoTile` (bit 55) ne sont poses. Une MoW n'a aucune position -> sans ce bit, aucune de
-    ses abilities ne serait castable. Le port ne portant pas ce refus, il converge trivialement, et
-    la SEULE erreur possible serait d'en faire une regle (elle refuserait tout).
+    ses abilities ne serait castable. ⚠ FICHE CORRIGEE (#366-r1 tranche 1) : ce refus EST desormais
+    porte (`get_invalid_caster_reason`, clause 4a) -- il ne pouvait etre laisse de cote que tant que
+    la MoW etait le SEUL caster sans tuile ; depuis que `RemoveUnitFromTilesOperation` produit une
+    UNITE ordinaire sans tuile, son absence etait une regression PERMISSIVE. La PERMISSION reste ce
+    qui protege les MoW : les 17 abilities MoW du registre posent TOUTES le bit 30 (re-mesure).
   * `CasterHas2TurnsLeft` (bit 52, 0x10000000000000, porteur 1142) refuse quand le slot 0x1a
     d'`IBattleQuery` rend faux sur `(caster, 2)` — slot non resolu -> NON portee, degradation
     PERMISSIVE ordinaire.
@@ -1509,12 +1512,39 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
         1. `CasterHasNotMoved` (0x10)                    PORTEE
         2. `CasterCanMove` (0x10000000)                  non portee
         3. `CasterHasCompletedOneTurn` (0x80000000)      non portee (`GetStat(caster, 0xc) <= 1`)
-        4. `AllowNullCasterTile` (0x40000000) / `CasterHasNoTile` (bit 55), la paire tuile-nulle
+        4a. **la clause TUILE-NULLE**                    PORTEE depuis #366-r1 tranche 1 (cf. plus bas)
+        4b. `CasterHasNoTile` (bit 55) + tuiles NON vides -> refus (bit 55) : non portee, **0 porteur
+            au registre** (compte re-derive, cf. `probe_249_unported_rule_carriers.py`) -- rien a y
+            porter, ce serait du code mort.
         5. **`CasterMatchesDynamicRule` (0x4)**          PORTEE depuis #250 (regle-delegue
            `options+0x30` = slot vtable `+0x470` = `<X>Ability$$GetDynamicInvalidCasterReason`)
         6. `CasterHas1/3/7Tiles` (bits 35/36/37), `CasterHas2TurnsLeft` (52), `CasterIsMachine` (53)
 
-    NON PORTEES (memes motifs qu'en tete de module) : les points 2, 3, 4 et 6.
+    NON PORTEES (memes motifs qu'en tete de module) : les points 2, 3, 4b et 6.
+
+    LA CLAUSE TUILE-NULLE (4a) -- PORTEE PAR #366-r1 tranche 1, et c'est un REVIREMENT MESURE.
+    VERBATIM du decompile (`IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`,
+    surcharge `IList<IEntity> casterTiles`) :
+
+        if ( (rules & AllowNullCasterTile) == 0 && (rules & CasterHasNoTile) == 0
+             && CollectionExtensions.IsNullOrEmpty(casterTiles) )
+            return GenericBrokenTargetingRule(AllowNullCasterTile);   // 0x40000000
+
+    Elle etait NON PORTEE tant qu'AUCUN caster porte ne pouvait etre sans tuile : le seul cas etait
+    la MACHINE OF WAR, et le port n'aurait fait qu'inventer un refus (« sans ce bit, aucune de ses
+    abilities ne serait castable »). Ce raisonnement etait JUSTE mais il est PERIME depuis #366-r1 :
+    `RemoveUnitFromTilesOperation` cree desormais, offline comme en live, une UNITE ORDINAIRE sans
+    aucune tuile (`feet = []`). Sans cette clause, le port ACCEPTAIT un second cast de 1011/1023
+    depuis une unite sous terre, que le natif REFUSE -- une regression PERMISSIVE, silencieuse, dans
+    le sens exact que ce module cherche a eviter.
+
+    L'ARGUMENT MoW EST RE-MESURE, il ne casse rien : sur les 17 abilities du registre portees par une
+    MoW, les **17** posent `AllowNullCasterTile` (bit 30) -- elles sortent donc par le 1er terme,
+    exactement comme le natif. Les 84 autres masques n'ont ni bit 30 ni bit 55, mais leurs casters
+    sont sur le plateau : la clause y est INERTE. Compte re-derivable :
+    `ABILITY_CLASSES` x `TARGETING_OPTIONS.rules`, ne pas le citer de memoire.
+    Le port lit `get_unit_feet` = l'equivalent 1:1 d'`IdunBattle.Entities.EntityExtensions$$GetTiles`
+    que le natif passe en `casterTiles` sur le chemin `ActiveAbilityOperation$$ExecuteInternal`.
 
     NB `unit_has_moved` lit le `UnitFlagsComponent`. ⚠ FICHE CORRIGEE (2026-07-28, #210) : la regle
     n'est PLUS inerte sur un etat CHARGE -- `load_state` seede ce flag depuis
@@ -1529,6 +1559,14 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
         from ..components import unit_has_moved
         if unit_has_moved(state, int(caster_id)):
             return int(TR.CasterHasNotMoved)
+    # CLAUSE TUILE-NULLE (4a) -- placee ici, au rang NATIF : APRES `CasterHasNotMoved`, AVANT
+    # `CasterMatchesDynamicRule`. L'ordre n'est pas cosmetique, c'est lui qui fixe la RAISON rendue :
+    # une unite sous terre rompt CETTE regle et non la regle-delegue de son ability (cf. la section
+    # dediee dans la docstring).
+    if not (options.has(TR.AllowNullCasterTile) or options.has(TR.CasterHasNoTile)):
+        from ..components import get_unit_feet
+        if not get_unit_feet(state, int(caster_id)):
+            return int(TR.AllowNullCasterTile)
     # `CasterMatchesDynamicRule` -- LE POINT D'EXTENSION du volet caster (#250), place ici comme dans
     # le natif (apres la paire tuile-nulle, avant les filtres de `FeetCount`). Le natif rend le code
     # que la regle-delegue lui donne, tel quel : `if (r != 0) return GenericBrokenTargetingRule(r)`.
