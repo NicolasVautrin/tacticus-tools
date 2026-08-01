@@ -243,9 +243,14 @@ def test_g6b_once_per_turn_then_rearm(g6b_state):
 
 
 def test_g6b_on9_emitted_from_normal_attack(g6b_state):
-    """(E) Integration : `after_hit_normal_attack` emet On(9) -> le trigger MoveAndSpawnDecoy fire depuis le
-    vecteur d'attaque NORMALE (bout-en-bout, sans passer par evaluate_trigger_operation a la main)."""
-    from engine.runner.operations.triggers.dispatch import after_hit_normal_attack
+    """(E) Integration : le vecteur `On(9)` de la CLOTURE d'attaque declenche MoveAndSpawnDecoy
+    (bout-en-bout, sans passer par evaluate_trigger_operation a la main).
+
+    ⚠ #437 : ce vecteur n'est plus `after_hit_normal_attack` (niveau MESSAGE) mais
+    `finish_attack_triggers`, emis a la SORTIE de `AttackDamageOperation.execute` -- mirror du noeud
+    DSL `Attack(...)` natif (`AttackBehaviour$$Execute` -> `processor.FinishAttack` slot 0x3b ->
+    `FinishAttackOperation$$Execute`). Le test suit le foyer ; l'observable est inchange."""
+    from engine.runner.operations.triggers.dispatch import finish_attack_triggers
     state = g6b_state["build_state"]()
     board = g6b_state["board"]
     judh, enemy = _je(state)
@@ -253,7 +258,7 @@ def test_g6b_on9_emitted_from_normal_attack(g6b_state):
         pytest.skip("pas de tuile adjacente libre")
     jpos0 = _pos(state, judh)
     _uc(state, judh).times_attacked_this_turn = 1     # etat post-1re-attaque (record_attacked deja passe)
-    res = after_hit_normal_attack(state, enemy, judh, ranged=False, profile=None, is_crit=False)
+    res = finish_attack_triggers(state, enemy, judh, ranged=False, profile=None, is_crit=False)
     assert any(isinstance(d, dict) and d.get("ability") == "HypersensoryAbilities_MoveAndSpawnDecoy"
-               for d in (res or [])), f"On(9) via after_hit_normal_attack doit declencher MoveAndSpawnDecoy ; res={res}"
+               for d in (res or [])), f"On(9) via finish_attack_triggers doit declencher MoveAndSpawnDecoy ; res={res}"
     assert _pos(state, judh) != jpos0, "Judh doit avoir bouge suite au On(9) de l'attaque normale"

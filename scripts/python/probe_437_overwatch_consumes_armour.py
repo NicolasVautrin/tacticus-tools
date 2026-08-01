@@ -77,13 +77,14 @@ OVERWATCH_EFFECT = 1009
 # --------------------------------------------------------------------------- montage live
 
 
-def _build(seed, board, rank=17):
+def _build(seed, board, rank=17, overwatchers=None):
     sf = ROOT / "logs" / "runners" / ("p437-%s.json" % uuid.uuid4().hex[:8])
     sf.parent.mkdir(parents=True, exist_ok=True)
+    ow = list(overwatchers or [OVERWATCHER])
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
          "--board", board, "--rank", str(rank),
-         "--p-units", "%s,%s" % (CARRIER, SPECTATOR), "--a-units", OVERWATCHER,
+         "--p-units", "%s,%s" % (CARRIER, SPECTATOR), "--a-units", ",".join(ow),
          # PV du MOVER tres hauts : le tir d'overwatch ne doit ni le tuer ni le faire fuir.
          "--hp-player", "400000",
          "--crit", "0,0", "--crit-target", "0,0",
@@ -230,13 +231,15 @@ def _port_armour_active(state, uid):
 # --------------------------------------------------------------------------- pilote
 
 
-def run(seed=SEED, board=BOARD, mutate=False, verbose=True) -> dict:
-    rid, sf, err = _build(seed, board)
+def run(seed=SEED, board=BOARD, mutate=False, verbose=True, overwatchers=None) -> dict:
+    ow = list(overwatchers or [OVERWATCHER])
+    rid, sf, err = _build(seed, board, overwatchers=ow)
     if rid is None:
         return {"error": "build KO : %s" % err}
     rpc = _mkrpc()
     try:
-        return _measure(rpc, rid, mutate, verbose, board_id=board, seed_id=str(seed))
+        return _measure(rpc, rid, mutate, verbose, board_id=board, seed_id=str(seed),
+                        overwatchers=ow)
     finally:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 60)
@@ -244,22 +247,24 @@ def run(seed=SEED, board=BOARD, mutate=False, verbose=True) -> dict:
             pass
 
 
-def _measure(rpc, rid, mutate, verbose, board_id=None, seed_id=None):
+def _measure(rpc, rid, mutate, verbose, board_id=None, seed_id=None, overwatchers=None):
     from engine.entities.pathfinding.board import Board
 
+    ows = list(overwatchers or [OVERWATCHER])
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     board = Board(bg["tiles"], adjacency="native_sym")
     dv = _view(rpc, rid, inactive=True)
     ids = {}
-    for v in (CARRIER, SPECTATOR, OVERWATCHER):
+    for v in [CARRIER, SPECTATOR] + ows:
         u = _by_vis(dv, v)
         if u is None:
             return {"error": "unite absente du build : %s" % v}
         ids[v] = int(u["id"])
 
-    ow_effs = [e.get("effectType") for e in ((_unit(dv, ids[OVERWATCHER]) or {}).get("effects") or [])]
-    if OVERWATCH_EFFECT not in [int(x) for x in ow_effs if x is not None]:
-        return {"error": "overwatcher sans effet 1009 actif (effets=%s)" % ow_effs}
+    for v in ows:
+        ow_effs = [e.get("effectType") for e in ((_unit(dv, ids[v]) or {}).get("effects") or [])]
+        if OVERWATCH_EFFECT not in [int(x) for x in ow_effs if x is not None]:
+            return {"error": "overwatcher %s sans effet 1009 actif (effets=%s)" % (v, ow_effs)}
 
     present0, _ = _armour_state(dv, ids[CARRIER])
     if not present0:
@@ -278,13 +283,20 @@ def _measure(rpc, rid, mutate, verbose, board_id=None, seed_id=None):
         if mvu is None or not mvu.get("alive"):
             return {"error": "le porteur est mort pendant l'approche", "approach": approach}
         reach = _mover_reach(dv, ids[CARRIER])
-        to_tile, d_ow = _pick_move_tile(board, dv, ids[CARRIER], ids[OVERWATCHER], reach)
+        # On vise le PREMIER overwatcher declare ; les autres tirent s'ils couvrent aussi la tuile
+        # d'arrivee (c'est exactement le regime a DEUX tirs qui rend le DEGAT observable).
+        to_tile, d_ow = _pick_move_tile(board, dv, ids[CARRIER], ids[ows[0]], reach)
         if to_tile is None:
             return {"error": "aucune tuile d'arrivee libre a portee de mouvement",
                     "approach": approach}
         present0, act0 = _armour_state(dv, ids[CARRIER])
         hp0 = _hp(dv, ids[CARRIER])
         player0 = dv.get("currentPlayer")
+        # Etat 1009 de CHAQUE overwatcher AVANT le move. Le 3e `Triggered()` de
+        # `RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` (`On(10) & OwnerIsActor ->
+        # DeactivateEffect`) desarme celui qui TIRE : le passage True->False compte donc les tirs
+        # REELLEMENT partis, sans avoir a deviner la geometrie.
+        ow_before = {v: _armour_state(dv, ids[v], OVERWATCH_EFFECT)[1] for v in ows}
         cap = {"dec": _view(rpc, rid), "ob": rpc("observeBattle", {"runnerId": rid}, 60),
                "snap": rpc("combatSnapshot", {"runnerId": rid}, 120),
                "rng": rpc("dumpRng", {"runnerId": rid}, 30)}
@@ -294,8 +306,11 @@ def _measure(rpc, rid, mutate, verbose, board_id=None, seed_id=None):
         dv2 = _view(rpc, rid, inactive=True)
         hp1 = _hp(dv2, ids[CARRIER])
         present1, act1 = _armour_state(dv2, ids[CARRIER])
+        ow_after = {v: _armour_state(dv2, ids[v], OVERWATCH_EFFECT)[1] for v in ows}
+        shots = [v for v in ows if ow_before.get(v) is True and ow_after.get(v) is False]
         approach.append({"to": [int(col), int(row)], "d_ow": d_ow, "hp": hp1,
-                         "armour": act1, "player": dv2.get("currentPlayer")})
+                         "armour": act1, "shots": list(shots),
+                         "player": dv2.get("currentPlayer")})
         if hp0 is not None and hp1 is not None and hp1 < hp0:
             break                                   # LE tir d'overwatch a eu lieu sur CE move
         # pas de tir : on clot le tour (le SPECTATEUR n'agit jamais, donc la cloture est explicite)
@@ -309,11 +324,13 @@ def _measure(rpc, rid, mutate, verbose, board_id=None, seed_id=None):
     port = _replay_move(cap, board, ids[CARRIER], to_tile, mutate=mutate)
 
     out = {"runner": rid, "ids": ids, "board": board_id, "seed": seed_id,
+           "overwatchers": ows,
            "move_to": [int(col), int(row)], "dist_to_overwatcher": d_ow,
            "approach": approach,
            "native": {"armour_before": act0, "armour_after": act1,
                       "present_after": present1, "hp_before": hp0, "hp_after": hp1,
                       "hp_delta": (hp0 - hp1) if (hp0 is not None and hp1 is not None) else None,
+                      "shots": list(shots), "n_shots": len(shots),
                       "player_before": player0, "player_after": dv2.get("currentPlayer")},
            "port": port, "mutate": bool(mutate)}
     if verbose:
@@ -325,9 +342,9 @@ def _report(r):
     n, p = r["native"], r["port"]
     print("[437] board=%s seed=%s runner=%s ids=%s move_to=%s d(overwatcher)=%s"
           % (r["board"], r["seed"], r["runner"], r["ids"], r["move_to"], r["dist_to_overwatcher"]))
-    print("[437] NATIF : armure avant=%-5s apres=%-5s | hp %s -> %s (delta=%s) | player %s -> %s"
+    print("[437] NATIF : armure avant=%-5s apres=%-5s | hp %s -> %s (delta=%s) | tirs=%d %s"
           % (n["armour_before"], n["armour_after"], n["hp_before"], n["hp_after"],
-             n["hp_delta"], n["player_before"], n["player_after"]))
+             n["hp_delta"], n.get("n_shots", 0), n.get("shots")))
     print("[437] PORT  (mutate=%s) : armure apres=%-5s | hp %s -> %s (delta=%s)"
           % (r["mutate"], p["armour_active"], p["hp_before"], p["hp_after"], p["hp_delta"]))
 
@@ -362,9 +379,23 @@ def verdict(base: dict, mut: dict = None) -> list:
         if mp["armour_active"] is not True:
             f.append("[mutation] LA MUTATION N'A PAS MORDU : le flag tombe quand meme (=%s) -- le "
                      "verdict [port] ne prouverait rien" % mp["armour_active"])
-        if int(mp["hp_delta"]) != int(p["hp_delta"]):
-            f.append("[mutation] le DEGAT a change (%d vs %d) : la mutation deborde du seul vecteur "
+        # Le DEGAT attendu depend du REGIME, et c'est ce qui separe les deux montages :
+        #  * UN seul overwatcher -> son tir est la 1re attaque du tour, REDUITE dans les deux bras :
+        #    le degat doit etre IDENTIQUE (la mutation ne deborde pas du vecteur qu'elle vise) ;
+        #  * DEUX overwatchers couvrant la tuile d'arrivee -> deux tirs sur le MEME move : le 2e est
+        #    PLEIN quand l'armure a ete consommee par le 1er, REDUIT sinon. Le degat total doit donc
+        #    CHUTER sous mutation -- c'est l'observable de DEGAT, celui que le flag seul ne donne pas.
+        # Le regime est celui des tirs REELLEMENT partis (compte par le desarmement 1009 de chaque
+        # overwatcher), pas celui des overwatchers DECLARES : la geometrie peut n'en amener qu'un.
+        multi = int(n.get("n_shots", 0)) >= 2
+        if not multi and int(mp["hp_delta"]) != int(p["hp_delta"]):
+            f.append("[mutation] le DEGAT a change (%d vs %d) : avec UN seul tir (donc la 1re "
+                     "attaque du tour, reduite des deux cotes) la mutation deborde du seul vecteur "
                      "d'evenement qu'elle vise" % (mp["hp_delta"], p["hp_delta"]))
+        if multi and int(mp["hp_delta"]) >= int(p["hp_delta"]):
+            f.append("[mutation] regime DEUX TIRS : degat mute=%d >= normal=%d -- le 2e tir n'est "
+                     "donc pas PLEIN dans le bras normal, la garde ne rougirait PAS"
+                     % (mp["hp_delta"], p["hp_delta"]))
     return f
 
 
@@ -373,15 +404,20 @@ def main() -> int:
     ap.add_argument("--seed", default=SEED)
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--mutate", action="store_true")
+    ap.add_argument("--overwatchers", default=OVERWATCHER,
+                    help="liste d'overwatchers ENNEMIS separee par virgule (defaut : %s). Deux "
+                         "overwatchers couvrant la meme tuile = DEUX tirs sur le meme move -> le "
+                         "DEGAT devient l'observable (tir 1 REDUIT, tir 2 PLEIN)." % OVERWATCHER)
     ap.add_argument("--verdict", action="store_true",
                     help="joue les deux bras (normal + mutate) et imprime le verdict")
     a = ap.parse_args()
+    ows = [x.strip() for x in a.overwatchers.split(",") if x.strip()]
     if a.verdict:
-        base = run(seed=a.seed, board=a.board)
+        base = run(seed=a.seed, board=a.board, overwatchers=ows)
         if "error" in base:
             print("[437] ERREUR (base) : %s" % base["error"])
             return 2
-        mut = run(seed=a.seed, board=a.board, mutate=True)
+        mut = run(seed=a.seed, board=a.board, mutate=True, overwatchers=ows)
         if "error" in mut:
             print("[437] ERREUR (mutate) : %s" % mut["error"])
             return 2
@@ -390,7 +426,7 @@ def main() -> int:
         for x in fails:
             print("   - %s" % x)
         return 0 if not fails else 1
-    r = run(seed=a.seed, board=a.board, mutate=a.mutate)
+    r = run(seed=a.seed, board=a.board, mutate=a.mutate, overwatchers=ows)
     if "error" in r:
         print("[437] ERREUR : %s" % r["error"])
         return 2
