@@ -666,7 +666,11 @@ NATIF produit sur le même montage. C'est le même régime que `ListenUpMaggotsA
 * `1179 StormboyzStrike_AlreadyUsedTile` et son poseur `StormboyzStrike_FallbackAbility` (§7.2) ;
 * `StormboyzStrike_MissAbility` (§7.2) ;
 * `IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` — les
-  QUATRE triggers PROPRES de 1140, **partagés par ses trois sœurs** (1035, 1238, 1573) :
+  QUATRE triggers PROPRES de 1140, **partagés par ses trois sœurs** (1035, 1238, 1573).
+  ⇒ **INVENTAIRÉS ET TRANCHE 1/4 PORTÉE par `docs/rl/case-448-r2-ateleporting-effect-family.md`**
+  (`1035 TeleportStrike_TeleportingIn`, 7 porteurs du pool, aucun montage) ; les trois sœurs sont
+  les tâches filles `#448-r2b/c/d`. Ci-dessous, la lecture d'origine — **dont le dernier point est
+  RECTIFIÉ par #448-r2** :
 
       On(0x04 UnitAfterMove)    & OwnerIsActor                  & <vslot 0x738> -> RemoveEffect(self)
       On(0x2a PreUnitAbility)   & OwnerIsActor                  & <vslot 0x738> -> RemoveEffect(self)
@@ -678,10 +682,15 @@ NATIF produit sur le même montage. C'est le même régime que `ListenUpMaggotsA
   `FearOfTheUnseen_TeleportingInEffect$$GetAdditionalRemoveTriggers`
   (`AmountIsEqual(EffectRemainingTurns(<Sel+0x38>), Direct(1))`) ; le corps de base est trivial donc
   dédupliqué → il faut le lire au RUNTIME (`resolveMethodPtr` sur le slot) avant de porter la
-  famille. **TRANCHE DE FAMILLE, pas celle-ci.** Le 4ᵉ trigger, lui, est INERTE pour 1140 et c'est
-  une MESURE : `StormboyzStrike_TeleportingInEffect` ne surcharge pas `GetMovingEffectType` (ses
-  trois sœurs, si) et l'`EffectType` du build ne contient AUCUN `StormboyzStrike_Moving` (le seul
-  `*_Moving` est `1036 TeleportStrike_Moving`) ;
+  famille. **FAIT par #448-r2** : le corps de base est `<DSLTriggers+0x40>`, le conjonct NEUTRE
+  (même classe que `<+0x70>`), et `<vslot 0x748>` = `GetCustomMovingEffectCondition` a le MÊME corps
+  de base, surchargé par la seule `TitanhammerSquad_TeleportingInEffect`.
+  ⚠ **RECTIFICATION #448-r2** — « `StormboyzStrike_TeleportingInEffect` ne surcharge pas
+  `GetMovingEffectType` » est FAUX en lettre : la surcharge EXISTE, c'est son corps qui est TRIVIAL
+  (`return 0`, dédupliqué avec `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId` — relevé
+  par `resolveMethodPtr`, ses trois sœurs pointent bien sur des corps propres). Le `Nullable` rendu
+  est sans valeur ⇒ branche `Nothing()` du 4ᵉ trigger : **conclusion observable INCHANGÉE** (et
+  l'`EffectType` du build ne contient effectivement aucun `StormboyzStrike_Moving`) ;
 * **aucune classe d'effet pour 1140**, et c'est délibéré : `StormboyzStrike_TeleportingInEffect`
   existe (`classes.tsv`, base `ATeleportingEffect`) mais ne définit que son `$$.ctor`
   (`ATeleportingEffect(AbilityOrEffect(TriggeredAbilityType.StormboyzStrike))`, lu à l'octet :
