@@ -550,6 +550,14 @@ class Scene:
         n = self._enemy_psykers_alive(uid)
         if n is not None:
             out["enemy_psykers_alive"] = n
+        # `IsTurnOf(Owner)` (`<DSLTriggers+0x28>`) — face DECISION de la MEME cle que
+        # `runner.components.UnitEffectStateView`, servie par `Scene.is_turn_of` (qui LIT
+        # `decisionView.units[].ctrl`, ou le hook INVOQUE la methode native). Lue par
+        # `MartialSuperiority_VisualEffect$$CreateActiveCondition` (`1255`, case-366-r1). `None` =
+        # non mesure -> cle OMISE, la condition degrade en VRAI (jamais une valeur devinee).
+        t = self.is_turn_of(uid)
+        if t is not None:
+            out["is_turn_of_owner"] = bool(t)
         self._camo_cloak_cover_keys(uid, out)     # `1014 CamoCloak_DmgReduction` (case-366-r1)
         return out
 

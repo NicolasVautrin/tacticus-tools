@@ -146,6 +146,7 @@ from .loki import (
     InescapableAccuracyOverrideHitsEffect,
     UntilOfEndTurnEffect,
     StructuralAnalyserVisualEffect,
+    MartialSuperiorityVisualEffect,
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
@@ -640,6 +641,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # nommer la classe NATIVE au lieu de router sur `BaseEffect`, et porter les litteraux du `.ctor`
     # (`turnsEnabled=1` -> tour ENNEMI, `activationFrequency=2`, `hasAutomaticActivation=False`).
     "WireweaveNet_CounterAttack": WireweaveNetCounterAttackEffect,
+    # 1255 MartialSuperiority_Visual (case-366-r1) : MARQUEUR « riposte armee » du passif
+    # `MartialSuperiority` (1092) de `templChampion`, pose a l'init par
+    # `MartialSuperiorityAddEffectAbility` (`AOwnerEffectTriggeredAbility`, corps de BASE). Sa SEULE
+    # semantique native est `CreateActiveCondition = op_LogicalNot(<DSLTriggers+0x28>)` =
+    # `NOT IsTurnOf(Owner)` -- aucun `CreateEffect*`, aucun stat-mod, `hasAutomaticActivation=TRUE`.
+    # AUCUN consommateur logique de l'id 1255 dans tout le binaire (balayage exhaustif de l'immediat
+    # 0x4e7 : que des sites d'ENREGISTREMENT), et aucun poids `MartialSuperiority*` dans
+    # `BC.Utilities` -> contribution de FIDELITE seule (le flag `IsActive` de l'instance suit la
+    # condition native au lieu de rester `True` inconditionnellement). Detail :
+    # `loki/martial_superiority.py`.
+    "MartialSuperiority_Visual": MartialSuperiorityVisualEffect,
     # PsychicFortress (passif Tigurius ultraTigurius, ability enum 0x3e8=1000) -- 2 effets posEs par
     # IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicFortressAbility$$CreateBehaviour :
     #  - DmgReduction (0x3f2=1010) : AURA -dmgReduction[ablvl]xmult PLAT du degat PSYCHIQUE recu par les AMIS
@@ -1054,6 +1066,15 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # 1174 n'a AUCUN canal de contribution (MESURE : prediction native identique des deux cotes de la
     # bascule) et AUCUN `HasEffect(0x496)` ne le lit. L'inscrire n'apporterait donc que le risque du
     # point 2 ci-dessus (materialisation sur une unite privee du passif par `--unit-stat`).
+    #
+    # PAS d'entree `"MartialSuperiority"` non plus, MEME raisonnement en plus fort (case-366-r1) :
+    # `1255 MartialSuperiority_Visual` est bien un owner-effect pose a l'init
+    # (`MartialSuperiorityAddEffectAbility`, corps de BASE `AOwnerEffectTriggeredAbility$$
+    # CreateBehaviour` = `If(Yes, AddEffect(0x4e7, .., targets=Owner, source=Owner))`) et INACTIF
+    # pendant le tour de son porteur. Mais AUCUN consommateur logique ne lit 1255 (balayage
+    # exhaustif de l'immediat, cf. `loki/martial_superiority.py`) : materialiser l'instance quand le
+    # canal de capture ne l'a pas vue n'apporte AUCUN observable, et exposerait au piege #312
+    # (le seed lit les passives du KIT gameconfig, pas de la MESURE).
 }
 
 

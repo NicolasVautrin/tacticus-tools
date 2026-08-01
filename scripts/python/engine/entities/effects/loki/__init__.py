@@ -38,6 +38,10 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
                           `StructuralAnalyser_Visual` (1174), cible Owner, ZERO contribution,
                           ACTIF tant qu'un allie est adjacent (toute faction) ou T'au a <= 2 hexes
                           (case-366-r1). SOEUR de `1156` (non porte), pas sa fille.
+- `martial_superiority.py` — `MartialSuperiority_Visual` (1255, `templChampion`) : marqueur « riposte
+                          armee », dont la SEULE semantique est `CreateActiveCondition =
+                          NOT IsTurnOf(Owner)`. AUCUN consommateur logique de l'id (mesure
+                          exhaustive) -> contribution de FIDELITE seule (case-366-r1).
 - `crit_aura.py`        — auras stat-mod dont le `StatType` ecrit chez la cible est le CRIT
                           (`PathOfCommand_ExtraCrit` 1107, eldarAutarch). Meme interface
                           `aura_stat_modification_*` que le volet block de LionHelm."""
@@ -148,8 +152,11 @@ from .inescapable_accuracy import (InescapableAccuracyExtraCritChanceEffect,
                                    InescapableAccuracyOverrideHitsEffect)
 from .until_of_end_turn import UntilOfEndTurnEffect
 from .structural_analyser import StructuralAnalyserVisualEffect
+from .martial_superiority import MartialSuperiorityVisualEffect
 
 __all__ = [
+    # martial_superiority (case-366-r1) -- marqueur « riposte armee », condition NOT IsTurnOf(Owner)
+    "MartialSuperiorityVisualEffect",
     # dark_angels_passives (passifs LionHelm 1163 / FearedInterrogator 1235)
     "LionHelmExtraDmgEffect", "LionHelmExtraBlockDamageEffect", "LionHelmExtraBlockChanceEffect",
     "FearedInterrogatorOwnerEffect", "FearedInterrogatorTargetEffect",
