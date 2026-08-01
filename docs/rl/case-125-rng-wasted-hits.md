@@ -55,6 +55,13 @@ Et dans `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, les tirages d
 Le port fait exactement pareil : `engine/runner/operations/damage_hits.py::_run_hits` boucle
 `for i in range(hits)` sans aucun gate de mort. **Aucune divergence de flux.**
 
+⚠ **RECTIFICATION (2026-08-01, `case-366-r1-crit-multihit.md`)** : la branche de fin de boucle
+d'`ExecuteHits` que ce cas lisait comme « le coup a ete DISCARD » teste en fait
+`OperationResult+0x21` = **le coup a CRITE** (le voisin `+0x22` est `didBlock`, etabli par le nom
+du parametre d'`ADamageOperation$$EvaluateAfterHitTriggers`). `hitGroup+0x4c` compte donc les
+CRITS, pas les discards. Sans consequence sur les conclusions de ce cas — la boucle reste sans
+gate de mort, et `_run_hits` roule bien tous ses coups.
+
 Seule sortie anticipee d'`ExecuteHit` : le coup a ete **DISCARD** (`IdunBattle.Core.AttackHit` champ
 `+0x8`, pose par `IdunBattle.Operations.DiscardHitOperation$$Execute` via
 `Core.Services.OperationProcessor$$DiscardHit`, lui-meme atteint par le behaviour
