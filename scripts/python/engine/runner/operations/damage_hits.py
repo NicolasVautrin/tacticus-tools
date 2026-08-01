@@ -60,6 +60,23 @@ class HitDamage:
         return rng.next_internal(self.min, self.max + 1)
 
 
+def crit_gate_open(crit_allowed: bool, is_attack_damage_op: bool) -> bool:
+    """Le gate « never crit » d'`IdunBattle.Operations.AttackDamageOperation$$ExecuteHits`
+    (`options[+0x29] |= (hitGroup.isCriticalDamageAllowed == 0)`), lu par
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` juste avant `RollCritical` :
+    fermé => `isCrit = 0` **sans aucun tirage**.
+
+    Fonction de MODULE, et pas une expression inline, pour une seule raison : c'est le point de
+    MUTATION des probes/cliquets (`probe_366r1_crit_multihit.py --mutate nogate`,
+    `test_crit_multihit_stops_live.py`). La rendre toujours vraie restaure exactement le port
+    d'AVANT #366-r1-crit-multihit (un crit-roll par coup) -- une contre-épreuve qui DOIT diverger
+    du live. Même pattern que `apply_all_modifiers` pour #131.
+
+    `is_attack_damage_op` False = famille ABILITY (`AbilityDamageOperation$$ExecuteHits`, boucle
+    PLATE : ni `|=`, ni recalcul) -> le gate n'y existe pas."""
+    return (not is_attack_damage_op) or crit_allowed
+
+
 class _DamageHitsMixin:
     """Mixin PAR COUP de `AttackDamageOperation` : la boucle `_run_hits` (attaque normale ET
     ability). Sans etat (staticmethod) ; herite tel quel -> `AttackDamageOperation._run_hits`."""
@@ -238,7 +255,7 @@ class _DamageHitsMixin:
             `ExecuteHit` rend alors `isCrit = 0` **sans appeler `RollCritical`** (0 tirage)."""
             if force_crit:                      # options+5 -> le natif SAUTE RollCritical
                 return True
-            if is_attack_damage_op and not _crit_allowed[0]:
+            if not crit_gate_open(_crit_allowed[0], is_attack_damage_op):
                 return False                    # flag « never crit » arme -> 0 tirage
             return roll_critical(rng, crit_chance) if crit_enabled else False
 
