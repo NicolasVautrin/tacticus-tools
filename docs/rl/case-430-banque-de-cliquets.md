@@ -132,7 +132,31 @@ relevé daté, ex. « `probe_181` 98/98 ») ; elle ne **définit** pas la banque
   sur les 13 scripts (un seul défaillant, `probe_181`). Un cliquet neuf qui rendrait `0`
   inconditionnellement entrerait sans être vu — c'est le résidu le plus proche d'un vrai trou.
 
-## 8. Fichiers
+## 8. Relevé #435 — `pytest_attestations` (20 → 21 entrées)
+
+Deuxième fois qu'**admettre** un cliquet trouve un rouge **immédiat** (après `probe_313` au §1) :
+`test_337` est entré et a rougi **au premier passage, sur l'arbre NON muté** — `WasBlock` retombée
+`CITE_A_QUALIFIER`, ouverte par `5e9765cd` (#432). Détail : `case-337` §#435.
+
+Le candidat naturel `probe_326_dsl_port_matching.py` est exactement le résidu nommé au §7 (« un
+cliquet neuf qui rendrait `0` inconditionnellement ») : son `main` finit par `return 0`, il
+inventorie les verdicts sans en rougir. **Ce résidu n'est toujours pas gardé automatiquement** —
+il a été vérifié à la main ici, une troisième fois.
+
+Contre-épreuves en **run complet** (jamais `-Only`), jouées dans un **clone temporaire** du dépôt —
+le TSV versionné n'a pas été touché, et l'arbre est resté bit-exact (sha256 identique avant/après,
+`git diff` vide). Mutation vérifiée **avant** de lire le verdict (sha256 + relecture) : sur une
+contre-épreuve, VERT est le résultat suspect.
+
+| Mutant (dans le clone) | Résultat |
+|---|---|
+| ligne d'attestation `WasBlock` retirée | `rc 1`, `pytest_attestations` nommé, `primitives DSLTriggers encore non tranchees : ['WasBlock']` |
+| ancre `final_justice.py:FinalJusticeAbility` déplacée | `rc 1`, **2** tests, `ancre ... introuvable` |
+
+Coût : **31,6 s** en parallèle sous un mur de **81,1 s** (tenu par `probe_319`) — marginal nul.
+Banque re-jouée **verte, 21/21**. ⚠ Chiffres à re-dériver, pas à citer.
+
+## 9. Fichiers
 
 | quoi | où |
 |---|---|
