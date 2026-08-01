@@ -167,11 +167,14 @@ sur la conjonction (a) ∧ (b), pas sur (b) seul.
 ## 6. Ce qui n'est PAS couvert
 
 * **Aucun port des 8 non inscrits** — verdicts ci-dessus, RE écrite pour chacun.
-* **Le buff cross-unité de 1171 n'est mesuré que sur le porteur-SOURCE.** Aun'Shi arrose aussi ses
-  amis adjacents et les amis T'au à <= 2 ; pour eux le seed porte le niveau d'ability du PORTEUR, pas
-  du POSEUR (même limite que `RitesOfBattle`), donc la magnitude offline n'y est pas exacte et une
-  part reste dans le résidu opaque. **Sous-attribution, jamais sur-attribution** — `seed_unit_stats`
-  reproduit toujours le `Current` capté.
+* ~~**Le buff cross-unité de 1171 n'est mesuré que sur le porteur-SOURCE.**~~ **FERMÉ (2026-08-01,
+  `case-366-r1-statmod-canal-capte.md`)** : la sous-attribution était réelle et chiffrée — sur un
+  allié à `PassiveAbilityLevel = 20`, le seed attribuait **76** là où le natif avait écrit **797**,
+  laissant **721** dans le résidu opaque et 721 points d'ATTACK collés après l'expiration. La cause
+  n'est pas rattrapable côté `baked_ability_state` : la feuille `AddStaticStatModifierEffect` passe
+  `source = NULL`, donc `EffectComponent.SourceUnit` **désigne le porteur**. `1171` lit désormais
+  `StatModifierComponent+0x14` (`captured_stat_mod_amount()`), la dérivation ne servant plus que de
+  repli hors capture. Résidu 0, ATTACK après expiration 704 == live.
 * **`1170 SereneUnifierZephyrsGrace`** (même feuille, même durée, stat MOVEMENT) est hors du lot des
   11 et n'est pas inscrit.
 * **Le retrait des permanents 1251/1256 n'est exercé par aucun montage** — et c'est structurel :

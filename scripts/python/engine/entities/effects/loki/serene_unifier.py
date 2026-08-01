@@ -35,12 +35,21 @@ MAGNITUDE : `ConfigVar(8 = extraDmg, <AbilityState du POSEUR>)` == gameconfig
 -> scalee par l'`AbilityVariablesMultiplierPercentage`. `SereneUnifier` est un PASSIF -> le niveau est
 `ability_level` (slot passif), jamais `active_ability_level`.
 
-LIMITE ASSUMEE (identique a `RitesOfBattle`, buff cross-unite) : au SEED, l'instance porte le niveau
-du PORTEUR, pas celui du POSEUR. Sur AUN'SHI LUI-MEME (source == porteur) la magnitude est donc
-EXACTE et le residu opaque tombe a 0 — c'est le regime que la garde mesure. Sur un ALLIE buffe, le
-niveau lu peut differer de celui d'Aun'Shi : la contribution reste alors partiellement dans le residu
-(sous-attribution), jamais une sur-attribution — `seed_unit_stats` reproduit toujours le `Current`
-capte exactement.
+LE REGIME CROSS-UNITE ETAIT FAUX, ET IL EST DESORMAIS LU (case-366-r1-statmod). La feuille
+`AddStaticStatModifierEffect` construit `AddStatModifierEffectBehaviour..ctor` avec **source = NULL**
+(4e argument) ; `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$Execute` retombe alors
+sur l'ENTITE-CIBLE (`lVar9 = <target>; if (sourceSelectionne != 0) lVar9 = <source>;`). Donc
+`EffectComponent.SourceUnit` -- le canal que consulte `effects_state.baked_ability_state` -- designe
+le PORTEUR, jamais Aun'Shi : sur un ALLIE, la re-derivation lisait son niveau et son multiplier a lui.
+MESURE live du 2026-08-01 (MC1_67 / 3711, `--unit-stat "tauCrisis:PassiveAbilityLevel=20"`) :
+`SourceUnit` = **l'allie lui-meme** (u83, pas Aun'Shi u81), `StatModifierComponent.Amount` = **797**
+sur les DEUX porteurs, re-derivation depuis l'allie = **76** (`extraDmg[20] x 180 %`) -> residu opaque
+721, et a l'expiration l'ATTACK de l'allie restait a 1425 la ou le natif la ramene a 704.
+
+D'ou la lecture du canal CAPTE en priorite ci-dessous. Le repli (canal absent : pose OFFLINE, ou
+capture anterieure au capteur) reste la re-derivation, EXACTE sur Aun'Shi lui-meme (source == porteur)
+et APPROCHEE sur un allie -- sous-attribution absorbee par le residu opaque, jamais une
+sur-attribution.
 """
 from __future__ import annotations
 
@@ -60,9 +69,30 @@ class SereneUnifierStormOfFireEffect(BaseEffect):
     `CreateEffectDamageMalusForDefense`) : lui n'a aucune stat-modification."""
 
     def get_stat_modification_stat(self) -> int | None:
-        return 0                                     # StatType.ATTACK (statType du CreateBehaviour)
+        """`AStatModifierEffect$$GetStatModificationStat` = `StatModifierComponent+0x10`.
+
+        On lit le champ tel que la capture le publie (MESURE : `StatType = 0`), avec repli sur le
+        litteral `0 = ATTACK` du `CreateBehaviour` quand le canal est absent -- les deux valent 0,
+        le natif n'ayant qu'UNE feuille de pose pour 1171."""
+        native = self.captured_stat_mod_stat()
+        return native if native is not None else 0
 
     def get_stat_modification_amount(self) -> int | None:
+        """`StaticStatModifierEffect$$GetStatModificationAmount` = `StatModifierComponent+0x14`.
+
+        Canal CAPTE en priorite : c'est litteralement ce que le natif relit, et la SEULE lecture
+        exacte hors d'Aun'Shi -- la feuille de pose passe `source = null`, donc
+        `EffectComponent.SourceUnit` (la cle de `baked_ability_state`) designe le PORTEUR.
+        MESURE 2026-08-01 : natif `Amount = 797` sur l'allie, re-derivation depuis lui `76`.
+
+        REPLI, canal absent (pose OFFLINE, capture anterieure au capteur) : `ConfigVar(8 = extraDmg)`
+        indexe par `ability_level` -- `SereneUnifier` est un PASSIF, donc le slot passif, JAMAIS
+        `active_ability_level`. EXACT sur Aun'Shi (source == porteur), APPROCHE sur un allie dont le
+        niveau/multiplier differe (sous-attribution : le residu opaque absorbe l'ecart, jamais une
+        sur-attribution)."""
+        native = self.captured_stat_mod_amount()
+        if native is not None:
+            return native
         # `SereneUnifier` = passif -> `ability_level` (slot passif) ; fallback sur le stack `level`.
         lvl = self.ability_level if self.ability_level is not None else self.level
         return ability_var(_ABILITY_ID, "extraDmg", lvl,
