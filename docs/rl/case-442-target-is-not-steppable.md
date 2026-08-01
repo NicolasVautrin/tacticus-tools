@@ -162,7 +162,7 @@ tuiles Steppable, summons, splash, attaque, choix de cible IA. Aucun n'a bougé.
 * **Les 25 npc `Steppable`** (loot, power-ups) ne sont pas dans un duel `rl_duel build` : leur
   régime est celui de l'étage B, par le même prédicat, mais n'a pas été observé.
 
-## 7. Ce qui a été joué (relevé daté)
+## 7. Ce qui a été joué (relevé daté, AVANT rebase)
 
 `test_steppable_targeting_live` 8 ✅ · `test_ability_target_gate_live` 13 ✅ ·
 `test_taunt_targeting_live` 7 ✅ · `test_targeting_masks_live` 13 ✅ ·
@@ -176,6 +176,14 @@ tuiles Steppable, summons, splash, attaque, choix de cible IA. Aucun n'a bougé.
 
 Audits régénérés (`audit_kit_coverage.py`, `audit_combat_ability_coverage.py`) : **inchangés** —
 cette tranche ne porte aucune ability, elle porte une règle de la cascade.
+
+**Re-jeu APRÈS rebase sur `origin/master`** (branche repartie de `dca7fa73`, soit 4 commits
+entre-temps — #441 `Neuroparasite`, #419-r1 tranche 2) : `test_steppable_targeting_live` 8 ✅ ·
+`test_ability_target_gate_live` 13 ✅ · `test_taunt_targeting_live` 7 ✅ ·
+`test_targeting_masks_live` 13 ✅ · `test_steppable_decoy_tile_leaves_live` 14 ✅ ·
+`test_summon_targeting_live` 6 ✅ · `test_cultdemagogue_migration_live` 6 ✅ ·
+`test_runner_attack_live` 2 ✅ — et la **banque VERTE, 24 cliquets, mur 96,2 s** (elle en comptait
+22 avant le rebase : deux entrées sont arrivées avec les merges).
 
 ## 8. Re-dériver
 
