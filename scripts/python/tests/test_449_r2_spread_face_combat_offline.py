@@ -28,18 +28,23 @@ octet a **1** en dur (seul octet non nul de la struct), et le port lui donne bie
 CE QUE CE CLIQUET GARDE, et que rien d'autre ne voit :
 
   1. l'INVENTAIRE (`probe_449r2_spread_inventory`), dans les DEUX sens -- un zero non justifie au
-     decompile, ET un zero juste qu'on retire. Le second sens n'est pas cosmetique : sans lui, le
-     mutant `amount_spread_pct=20` pose sur les trois porteurs laissait le probe VERT (plus aucun
-     zero a justifier). C'est la forme exacte du trou nomme en #449 §8.
-  2. la NON-DEGENERESCENCE du canal. Une contre-epreuve qui tourne dans un regime ou les deux
+     decompile, ET un zero juste qu'on retire.
+  2. le DEFAUT DE SIGNATURE lui-meme (#449-r2-r5). Le point 1 seul ne suffit PAS : mesure du
+     2026-08-02, changer `amount_spread_pct: int = 0` en `= 20` bascule en +-20 % les DEUX
+     porteurs qui OMETTENT le mot-cle, et la premiere version de ce cliquet restait VERTE parce
+     qu'elle codait ce defaut en dur au lieu de le LIRE. Le probe derive desormais le defaut, la
+     position positionnelle et le gate d'activation ; ce fichier garde l'accord avec
+     `EXPECTED_DEFAULT`, l'attestation lue au decompile.
+  3. la NON-DEGENERESCENCE du canal. Une contre-epreuve qui tourne dans un regime ou les deux
      modeles rendent le meme nombre ne prouve rien -- c'est ainsi que la lecture `spread_pct=0`
-     de la face DECISION avait « passe » pendant des mois. On atteste donc que sur les montants
-     REELLEMENT mesures en bataille, le modele plat et le modele +-20 % sont SEPARES.
+     de la face DECISION avait << passe >> pendant des mois.
+  4. le DETECTEUR lui-meme (`INV.self_test()`), qui a rendu FAUX deux de ses propres verdicts
+     pendant l'ecriture de ce cliquet.
 
 ASCII only, 100 % OFFLINE (aucun runner, aucun RPC). La confrontation LIVE correspondante est
 faite par les tests des trois porteurs -- `tests/engine/runner/test_psyker_splash_live.py`,
 `test_cursed_plague_bell_attack_live.py`, `test_haze_of_corruption_transfer_live.py` -- dont le
-relevé de contre-epreuve vit dans `docs/rl/case-449-r2-spread-face-combat.md`.
+releve de contre-epreuve vit dans `docs/rl/case-449-r2-spread-face-combat.md`.
 """
 from __future__ import annotations
 
@@ -47,17 +52,67 @@ import probe_449r2_spread_inventory as INV
 
 from engine.services.damage_calculations import spread_to_min_max
 
-# Montants relevés LIVE pendant la contre-épreuve du 2026-08-02 (cf. la case-doc) : ce sont les
-# bases sur lesquelles les trois porteurs ont réellement travaillé en bataille. Ils servent ici
-# à prouver que le régime mesuré SEPARE les deux modèles -- pas à figer une valeur de dégât.
+# Montants releves LIVE pendant la contre-epreuve du 2026-08-02 (cf. la case-doc) : ce sont les
+# bases sur lesquelles les trois porteurs ont reellement travaille en bataille. Ils servent ici
+# a prouver que le regime mesure SEPARE les deux modeles -- pas a figer une valeur de degat.
 MONTANTS_MESURES = (1506, 1795, 4860, 4164)
 
 
+def _inventaire():
+    defs = INV.collect_definitions(INV.ENGINE)
+    INV._index_gates(INV.ENGINE, defs)
+    _, sites, ambigus = INV.collect(INV.ENGINE, defs)
+    actifs = [s for s in sites if not s["inert"]]
+    return defs, actifs, ambigus
+
+
+def test_le_detecteur_fait_ce_qu_il_dit():
+    """Le garde du garde. Sur les trois derniers cliquets livres, l'auto-test a trouve un bug
+    DU DETECTEUR deux fois (#440, #455) ; il en a trouve trois ici."""
+    echecs = INV.self_test()
+    assert not echecs, (
+        "le detecteur de variance ne se comporte pas comme annonce, donc son verdict sur "
+        "l'arbre ne vaut rien : %s" % (echecs,))
+
+
+def test_chaque_defaut_de_variance_est_celui_qui_a_ete_LU():
+    """#449-r2-r5 : c'est le DEFAUT qui porte la decision, pas seulement les call-sites.
+
+    Deux des trois porteurs a variance nulle n'ecrivent pas le mot-cle du tout -- ils prennent
+    ce defaut. Le muter les bascule en +-20 % en silence.
+    """
+    defs, _, _ = _inventaire()
+    assert defs, "aucune porte de variance derivee : le perimetre du probe est devenu aveugle"
+    divergents = []
+    for d in defs:
+        att = INV.EXPECTED_DEFAULT.get(d.key)
+        if att is None:
+            divergents.append((d.file, d.line, d.call_name, d.param,
+                               "NON ATTESTE (porte de variance neuve)"))
+        elif d.default_dynamic or d.default != att[0]:
+            divergents.append((d.file, d.line, d.call_name, d.param,
+                               "defaut LU=%s attendu=%s"
+                               % ("dyn" if d.default_dynamic else d.default, att[0])))
+    assert not divergents, (
+        "defaut(s) de variance en desaccord avec la lecture du decompile : %s -- lire le canal "
+        "de variance concerne, puis corriger le port ou inscrire la raison dans "
+        "EXPECTED_DEFAULT" % (divergents,))
+
+
+def test_aucun_parametre_de_variance_n_est_mort():
+    """Un parametre accepte et JAMAIS LU est un no-op silencieux : la variance cesse d'etre
+    appliquee et tout call-site qui la passe devient decoratif."""
+    defs, _, _ = _inventaire()
+    morts = [(d.file, d.line, d.call_name, d.param) for d in defs if d.reads == 0]
+    assert not morts, ("parametre(s) de variance accepte(s) mais lu(s) nulle part : %s"
+                       % (morts,))
+
+
 def test_inventaire_des_sites_a_variance_nulle_est_justifie():
-    """Sens 1 : tout site a variance NULLE porte sa raison LUE au decompile."""
-    amount_sites, nl_sites, foyer_sites = INV.collect(INV.ENGINE)
-    zero = [s for s in amount_sites + nl_sites + foyer_sites
-            if not s["dynamic"] and int(s["value"]) == 0]
+    """Sens 1 : tout call-site ACTIF a variance NULLE porte sa raison LUE au decompile."""
+    _, actifs, _ = _inventaire()
+    zero = [s for s in actifs
+            if not s["dynamic"] and not s["unresolved"] and int(s["value"]) == 0]
     assert zero, ("aucun site a variance nulle : le gisement de ce cliquet a disparu, "
                   "ce qui invalide sa raison d'etre -- re-lire la case-doc avant de le retirer")
     orphelins = [(s["file"], s["line"], s["callee"]) for s in zero
@@ -70,14 +125,14 @@ def test_inventaire_des_sites_a_variance_nulle_est_justifie():
 
 def test_les_sites_lus_au_decompile_sont_toujours_a_zero():
     """Sens 2 : un zero JUSTE qu'on retire doit faire rougir (c'est ce qui manquait a #449)."""
-    amount_sites, nl_sites, foyer_sites = INV.collect(INV.ENGINE)
+    _, actifs, _ = _inventaire()
     par_site = {}
-    for s in amount_sites + nl_sites + foyer_sites:
+    for s in actifs:
         par_site.setdefault((s["file"], s["callee"]), []).append(s)
     regressions = []
     for key in INV.EXPECTED_ZERO:
         for s in par_site.get(key, []):
-            if s["dynamic"] or int(s["value"]) != 0:
+            if s["dynamic"] or s["unresolved"] or int(s["value"]) != 0:
                 regressions.append((s["file"], s["line"], s["callee"],
                                     "dyn" if s["dynamic"] else s["value"]))
     assert not regressions, (
@@ -87,10 +142,15 @@ def test_les_sites_lus_au_decompile_sont_toujours_a_zero():
 
 def test_chaque_justification_designe_un_site_reel():
     """Une justification qui ne designe plus rien est une garde qui a survecu a son gisement."""
-    amount_sites, nl_sites, foyer_sites = INV.collect(INV.ENGINE)
-    vus = {(s["file"], s["callee"]) for s in amount_sites + nl_sites + foyer_sites}
+    defs, actifs, _ = _inventaire()
+    vus = {(s["file"], s["callee"]) for s in actifs}
     perimes = [k for k in INV.EXPECTED_ZERO if k not in vus]
-    assert not perimes, ("entree(s) de EXPECTED_ZERO sans site correspondant : %s" % (perimes,))
+    assert not perimes, ("entree(s) de EXPECTED_ZERO sans call-site actif correspondant : %s"
+                         % (perimes,))
+    cles = {d.key for d in defs}
+    perimes_def = [k for k in INV.EXPECTED_DEFAULT if k not in cles]
+    assert not perimes_def, (
+        "entree(s) de EXPECTED_DEFAULT sans signature correspondante : %s" % (perimes_def,))
 
 
 def test_le_canal_separe_les_deux_modeles_sur_les_montants_mesures():
