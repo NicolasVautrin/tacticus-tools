@@ -69,31 +69,39 @@ n'apprendrait rien.
 Le garde runtime est ce qui **voit** le gisement, à chaque passe ciblée que joue n'importe quel
 agent. Le cliquet garde que ce garde **mord** et **est branché**.
 
-Trois étapes, **25 cas**, **14,3 s** (mesure du 2026-08-02, machine sous charge) — très en dessous
-du mur de la banque, donc coût marginal en parallèle quasi nul.
+Trois étapes, **26 cas**, **10,8 s** machine calme (62,6 s dans la banque en parallèle, mur 102,9 s)
+— très en dessous du mur, donc coût marginal quasi nul.
 
 0. **Auto-test du critère** sur des rapports synthétiques (14 cas). Chaque cas positif a son jumeau
    NÉGATIF : c'est lui qui interdit de faire mordre le garde en élargissant son critère.
 1. **Bout en bout** dans un répertoire isolé, plugin chargé par `-p green_skip_guard` (8 cas). Le
    cas « le MÊME fichier **sans** le plugin → vert » rend le rouge **attribuable** : sans lui, on
    ne saurait pas si c'est le garde qui rougit ou le fichier synthétique.
-2. **CÂBLAGE** (#421 — prouver sa couverture dans le MÊME processus que sa conformité). Un garde
-   qui mord dans un tmpdir mais n'est pas chargé par la suite réelle ne garde **rien**. On dépose
-   donc un fichier inerte sous `scripts/python/tests/` et on exige un rouge **sans aucun `-p`** :
-   le seul chemin de chargement possible est l'import du conftest de production. Contre-épreuve
-   dans le même geste : le même fichier, hors de `tests/`, doit rendre vert. Le dépôt est
-   temporaire (nom porté par le PID), effacé en `finally`.
+2. **CÂBLAGE** (#421 — prouver sa couverture dans le MÊME processus que sa conformité), 4 cas. Un
+   garde qui mord dans un tmpdir mais n'est pas chargé par la suite réelle ne garde **rien**. On
+   **copie** donc le `tests/conftest.py` DE PRODUCTION dans une arborescence MIROIR en tmpdir
+   système, et on exige un rouge **sans aucun `-p`** : le seul chemin de chargement possible est ce
+   conftest. Contre-épreuve dans le même geste (même miroir SANS le conftest → vert), plus deux
+   volets qui lisent le chemin de PRODUCTION (hooks re-exportés ; le conftest couvre bien des tests
+   réels) — ce que la copie ne prouve plus.
+
+   Deux détails du miroir ne sont pas décoratifs, et tous deux sont **mesurés** (§8) : sa
+   **profondeur** (`scripts/python/tests/cas`, parce que le conftest calcule `ROOT = parents[3]` et
+   y crée `logs/`), et la **copie du `pytest.ini`** — c'est lui qui fixe `rootdir`, donc
+   `confcutdir`, donc jusqu'où pytest REMONTE chercher les conftest. Sans lui : `3 skipped`, aucun
+   rapport de garde, un **faux négatif du cliquet**.
 
 **Preuve dans les deux sens** (2026-08-02, mutations jouées puis restaurées) :
 
 | mutation | étape 0 | étape 1 | étape 2 | verdict |
 |---|---|---|---|---|
-| aucune | 0/14 | 0/8 | 0/3 | **PASS** |
+| aucune | 0/14 | 0/8 | 0/4 | **PASS** |
 | critère neutralisé (`fichiers_inertes` rend toujours vide) | 5 KO | 2 KO | 1 KO | **FAIL (8)** |
 | import retiré de `tests/conftest.py` | 0 | 0 | **2 KO** | **FAIL (2)** |
 
 La seconde mutation est la plus instructive : le garde reste parfaitement fonctionnel (étapes 0 et
-1 vertes) et ne garde plus rien. Seule l'étape 2 le voit.
+1 vertes) et ne garde plus rien. Seule l'étape 2 le voit — et elle le voit **toujours** depuis
+qu'elle travaille sur une copie (§8).
 
 `probe_439` classe l'entrée CAPABLE de rougir (`sys.exit(main(...))`).
 
@@ -206,6 +214,13 @@ accuse. Posé au FOYER (`_pierce_floor_regime.replay_materializations`, 2 consom
 `test_failed_block_attack_scope_live.py` (3 passed), `test_evasion_order_before_block_live.py`
 (3 passed), `test_additional_hits_rounding_live.py` (3 passed).
 
+### Banque, après la correction de §8
+
+**3 passages complets EN PARALLÈLE** (jamais `-Serial`, jamais `-Only` : un passage série
+masquerait précisément le défaut de §8) : **VERTE 3/3, 29 cliquets**, murs **102,9 / 88,6 / 91,3 s**.
+`probe_391` et `probe_455` verts ensemble à chaque fois. ⚠ Ces trois verts ne sont pas la preuve —
+la preuve est structurelle (`probe_440` R3) ; ils en sont la confirmation.
+
 ### Ce que l'échantillon ne dit pas
 
 108 des 153 candidats n'ont pas été joués, et 349 fichiers ne sont même pas candidats. Le taux
@@ -233,3 +248,61 @@ reste se révélera au fil de l'eau — c'est le résidu **#455-r1**.
   est ROUGE sur `master` : `pytest.fail("cible morte avant la fenetre discriminante")`. C'est un
   rouge de MONTAGE conforme à #268 (il échoue au lieu de skipper, c'est correct), sans rapport avec
   ce cas ni avec #446-r2. Trouvé par l'échantillon, non traité — hors périmètre.
+* **#455-r5** — FERMÉ dans cette même livraison, et gardé : la première version de l'étape 2
+  écrivait dans l'arbre de production. Détail en §8 ; le garde générique est `probe_440` R3
+  (`docs/rl/case-434-perimetre-des-cliquets.md` §11).
+
+---
+
+## 8. La faute que cette livraison a commise — un cliquet ne doit rien ÉCRIRE dans l'arbre partagé
+
+Elle vaut d'être écrite ici, parce qu'elle a **fait renvoyer la PR** et qu'elle n'était ni dans le
+critère ni dans le câblage.
+
+**La mesure.** La première étape 2 déposait `_probe455_cablage_<pid>` sous `tests/` et
+`_probe455_hors_<pid>` sous `scripts/python/`, le temps d'un run pytest. Or **la banque tourne en
+PARALLÈLE par conception** (`ForEach-Object -Parallel`) :
+
+| ce qui a été joué | résultat |
+|---|---|
+| `probe_391` SEUL | **VERT** |
+| `probe_455` SEUL | **VERT**, zéro résidu après coup |
+| les DEUX dans la banque, EN PARALLÈLE | `probe_391` **ROUGE** — `FileNotFoundError: ...\scripts\python\_probe455_hors_87960` |
+
+`probe_391` (`TESTS_ROOT.rglob` + `pytest --co`) collecte cet arbre au même moment et voyait un
+répertoire **apparaître puis DISPARAÎTRE**. Le rouge était attribué au mauvais cliquet.
+
+**C'est la leçon de #434 transposée** : là-bas un cliquet **LISAIT** hors de son périmètre, ici il
+y **ÉCRIVAIT**. Même faute, autre sens.
+
+**Ce qu'il ne fallait pas faire** : supprimer l'étape 2. C'est la moitié qui compte — la ligne de
+banque de ce cliquet le dit, et la table des mutations le prouve (seule l'étape 2 voit un conftest
+débranché). Le problème n'était pas qu'elle écrive, mais qu'elle laisse une **fenêtre visible aux
+autres**.
+
+**La correction** : arborescence miroir en **tmpdir système**, où l'on copie le conftest de
+production. Ce que la copie prouve est exactement ce qu'on veut — *le conftest réel, tel qu'il est
+sur disque, charge le garde quand pytest l'applique* — et elle importe le **vrai**
+`green_skip_guard` via `PYTHONPATH`. Vérifié : la mutation « import retiré du conftest de
+production » fait **toujours** rougir l'étape 2 (2 cas), étapes 0 et 1 vertes. Ce que la copie ne
+prouve plus (que `tests/` est l'ancêtre des tests réels) est repris par deux volets qui lisent le
+chemin de production.
+
+Deux pièges du miroir, tous deux **mesurés, pas anticipés** :
+
+* **la profondeur**. Le conftest calcule `ROOT = Path(__file__).resolve().parents[3]` puis crée
+  `<ROOT>/logs`. Copié *à plat* dans un tmpdir, il aurait écrit dans un répertoire quelconque du
+  système — le vice qu'on corrige, simplement déplacé. Le miroir `scripts/python/tests/cas` rend
+  `parents[3]` = le tmpdir.
+* **le `pytest.ini`**, qu'il faut copier AUSSI : il fixe `rootdir`, donc `confcutdir`, donc jusqu'où
+  pytest remonte chercher les conftest. Sans lui, `rootdir` vaut le répertoire de test et le
+  conftest parent n'est **jamais chargé** : `3 skipped`, aucun rapport — un **faux négatif du
+  cliquet**, découvert en le jouant. Le copier rend le miroir identique à la production et laisse
+  le conftest comme **seule** variable entre les deux bras.
+
+**Et la règle générale, gardée** (`probe_440` R3, `case-434` §11) : un rejeu qui passe ne prouve
+**rien** sur une course — le vert est ici le résultat *suspect*. La garantie doit être
+**structurelle**. R3 rougit sur toute entrée de la banque qui crée ou supprime une entrée de
+répertoire sous `scripts/python/`, périmètre dérivé de `ratchets.ps1`. Auto-test **23/23**
+(4 cas négatifs, dont « `write_text` en place », qui protège les modes `--fix`), étape 3 = **0** sur
+les 29 entrées, et **FAIL (2)** quand la faute d'origine est remise.

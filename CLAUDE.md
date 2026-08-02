@@ -285,6 +285,14 @@ elle ne **définit** pas la banque.
   Un cliquet garde ce périmètre pour tout `scripts/python/**` (`probe_440`, dans la banque) ;
   il n'a **pas d'allowlist** — ses deux critères se dérivent du chemin canonique.
   Détail : `docs/rl/case-434-perimetre-des-cliquets.md` (§10 pour #440).
+- **Un cliquet n'ÉCRIT JAMAIS dans `scripts/python/` (#455)** — la banque tourne **en parallèle par
+  conception**, donc un cliquet qui y dépose un répertoire le fait apparaître puis **disparaître**
+  pendant qu'un voisin énumère ce même arbre. Mesuré : `probe_455` seul = vert, `probe_391` seul =
+  vert, **les deux en parallèle** = `probe_391` rouge sur `FileNotFoundError`. C'est #434 dans
+  l'autre sens (là-bas on LISAIT hors périmètre, ici on y ÉCRIVAIT). Travailler dans un **tmpdir
+  système** (`mkdtemp()` **sans** `dir=`). ⚠ Le symptôme est une COURSE : un rejeu qui passe ne
+  prouve rien — la garantie doit être structurelle, et c'est `probe_440` R3 qui la tient (périmètre
+  dérivé de `ratchets.ps1` ; une réécriture EN PLACE, ce que font les modes `--fix`, reste permise).
 - **Un cliquet qui ne peut pas ROUGIR est gardé mécaniquement (#439)** : `probe_439` vérifie que
   chaque entrée a un chemin de sortie **non nul**. Trois occurrences du vice, **toutes trouvées à
   l'œil** — et l'audit manuel de #430 en avait raté une. La liste se **dérive** de `ratchets.ps1`

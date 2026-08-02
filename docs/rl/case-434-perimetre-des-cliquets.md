@@ -333,3 +333,53 @@ en dessous du mur, donc **coût marginal nul**. Seuls : 42,0 s et 43,6 s hors ch
   ne soit pas appliqué à des segments.
 * **`probe_274` reste `PASS` sur le fond** : sa correction est un périmètre, pas un ordinal. Le
   gisement d'ordinaux en dur est à 0 depuis #279, et c'est maintenant un cliquet qui le tient.
+
+---
+
+## 11. #455 — R3 : la même leçon, dans l'autre sens (un cliquet qui **ÉCRIT**)
+
+R1 garde le cliquet qui **LIT** hors de son périmètre. **R3 garde celui qui y ÉCRIT** — et c'est le
+même gisement, découvert par la voie inverse.
+
+**La mesure (2026-08-02).** L'étape de câblage de `probe_455` déposait deux répertoires de travail
+sous `scripts/python/` le temps d'un run pytest. Or **la banque tourne en PARALLÈLE par conception**
+(`ForEach-Object -Parallel`, `ThrottleLimit = min(nb cliquets, nb cœurs)`) : c'est son modèle de
+coût, et c'est ce qui fonde son critère d'admission (« coût MARGINAL en parallèle »).
+
+| ce qui a été joué | résultat |
+|---|---|
+| `probe_391` SEUL | **VERT**, rc 0, 3 motifs vérifiés |
+| `probe_455` SEUL | **VERT**, rc 0, et zéro résidu après coup |
+| les DEUX dans la banque, EN PARALLÈLE | `probe_391` **ROUGE** — `FileNotFoundError: ...\scripts\python\_probe455_hors_87960` |
+
+Ni le critère ni le câblage de `probe_455` n'étaient en cause : `probe_391` collecte cet arbre au
+même moment et voyait un répertoire **apparaître puis DISPARAÎTRE** en cours de scan. Le rouge
+était attribué au mauvais cliquet, et la PR a été renvoyée dessus.
+
+**Pourquoi un garde STATIQUE, et pas « on rejoue la banque quelques fois ».** Le symptôme est une
+**course** : un rejeu qui passe ne prouve **rien**. C'est exactement le piège « vérifier que la
+mutation a mordu », en négatif — le vert est ici le résultat **suspect**. La seule garantie qui
+vaille est structurelle : *aucune écriture*.
+
+**Le critère.** R3 rougit sur toute entrée de la banque qui **CRÉE ou SUPPRIME une entrée de
+répertoire** sous `scripts/python/` — c'est le déplacement d'entrée qui casse un énumérateur
+concurrent, pas le contenu. Une **réécriture EN PLACE** (`write_text` sur un fichier existant, ce
+que font les modes `--fix`) ne déplace rien et n'est **pas** retenue : son jumeau négatif est dans
+l'auto-test, et sans lui le cliquet ferait rougir les modes de correction légitimes.
+
+**Périmètre DÉRIVÉ, jamais saisi** (règle #421) : les entrées de `scripts/ratchets.ps1`, lues par
+`probe_439.banque_par_texte` — la source unique déjà éprouvée, et qui n'exige pas `pwsh`. Hors
+banque, la propriété n'est pas nécessaire : un probe isolé n'est pas lancé en parallèle de la
+banque.
+
+**Un cran d'affectation est résolu**, et ce n'est pas du zèle : la faute réelle avait la forme
+`d = PYDIR / ('_travail_%d' % os.getpid())` puis `d.mkdir()`. `_niveau` ne sait pas lire un
+`BinOp`, donc `d` n'entrait pas dans l'environnement et le receveur ne résolvait rien — le premier
+jet du détecteur **ratait la faute qu'il était écrit pour voir**, et c'est l'auto-test qui l'a dit.
+
+**Mesures** : auto-test **23/23** (8 cas neufs, dont **4 négatifs**) ; étape 3 = **0** sur les
+29 entrées de la banque. Contre-épreuve : la faute d'origine remise dans `probe_455` →
+**FAIL (2)**, les deux lignes (`mkdir()`, `rmtree()`) nommées avec leur numéro.
+
+**Ce que R3 ne couvre pas** : une écriture par un chemin qu'il ne sait pas résoudre symboliquement
+(chaîne construite dynamiquement, `os.environ`), et les écritures d'un probe **hors** banque.
