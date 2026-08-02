@@ -276,8 +276,21 @@ def main() -> int:
                            "action": {"kind": "move", "unitId": int(uid),
                                       "to": {"col": col, "row": row}}}, 90,
                           tolerate_unknown=True)
-                print("   move %-16s u%-4s -> (%d,%d)  %s"
-                      % (vis, uid, col, row, "ok" if res is not None else "REFUSE"))
+                # ⚠ `applyAction` rend `ok` meme quand la tuile est HORS du movable set : le move
+                # est alors SILENCIEUSEMENT sans effet. Mesure du 2026-08-02 : sur 4 moves rendus
+                # `ok`, UN n'avait pas pris (l'unite est restee a son spawn) -- et le montage
+                # d'elevation qui en dependait rendait « branche non atteinte » alors que c'etait
+                # le DRIVE qui n'avait pas mordu. On RELIT donc la position.
+                got = None
+                for u in ((rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1}, 90)
+                           or {}).get("units") or []):
+                    if u.get("id") == uid:
+                        p = u.get("pos") or {}
+                        got = (p.get("col"), p.get("row"))
+                pris = (got == (col, row))
+                print("   move %-16s u%-4s -> (%d,%d)  %s (position relue %s)"
+                      % (vis, uid, col, row,
+                         "PRIS" if pris else "SANS EFFET (hors movable set)", got))
             # Deux `endturn` : une unite qui vient de bouger n'a plus d'activation, donc le sweep
             # `aiDryRunAllUnits` ne l'evaluerait plus. Faire le tour complet la rend au tour
             # suivant, AVEC ses nouvelles positions. `applyAction` ne fait jamais jouer l'IA : les
@@ -354,6 +367,40 @@ def main() -> int:
         prows = P443._port_rows(s, rid, entries, bind=not a.no_bind)
         v5 = P443.check_value(prows)
         print("E4 valeur  [%s] %s" % (v5["status"], v5["message"]))
+
+        # ---- E5 : la PORTE D'ELEVATION a-t-elle ete EXERCEE ? --------------------------------- #
+        # `TileQuery.<IterateAdjacentTiles>d__8$$MoveNext` applique un gate INCONDITIONNEL
+        # `abs(delta elev) < 2`. Un accord obtenu sur un board PLAT ne dit RIEN de ce gate : il
+        # n'aurait simplement jamais ete atteint. On COMPTE donc les couples (tuile candidate, ami
+        # en ring-1 geometrique) que la porte a effectivement retires -- si le compte est 0, la
+        # branche est NON CONFRONTEE, et on le DIT au lieu de laisser le vert le suggerer.
+        import hexgeo
+        elev = {(t["col"], t["row"]): t.get("elevation")
+                for t in (bg.get("tiles") or []) if t.get("col") is not None}
+        pos_by = {int(u["id"]): (u["pos"]["col"], u["pos"]["row"])
+                  for u in (dv.get("units") or [])
+                  if u.get("id") is not None and (u.get("pos") or {}).get("col") is not None}
+        team_by = {int(u["id"]): u.get("team") for u in (dv.get("units") or [])
+                   if u.get("id") is not None}
+        porteurs = {r["unitId"] for r in rows if 1145 in (r.get("kit_natif") or ())}
+        exerce = 0
+        for e in entries:
+            uid, t = e.get("unitId"), e.get("tile")
+            if uid not in porteurs or e.get("utility") != "TriggeredAbilitiesUtility" or not t:
+                continue
+            tp = (int(t["col"]), int(t["row"]))
+            for oid, op in pos_by.items():
+                if oid == uid or team_by.get(oid) != team_by.get(int(uid)):
+                    continue
+                if hexgeo.distance(tp, op) != 1:
+                    continue
+                te, oe = elev.get(tp), elev.get(op)
+                if te is not None and oe is not None and abs(int(te) - int(oe)) >= 2:
+                    exerce += 1
+        print("E5 elev    [%s] %d couple(s) (tuile candidate, ami ring-1) a |delta elev| >= 2 "
+              "rencontres sur un porteur de 1145 -- la porte native les RETIRE%s"
+              % ("exercee" if exerce else "NON CONFRONTEE", exerce,
+                 "" if exerce else " ; sur ce board la branche n'est jamais atteinte"))
 
         # VERDICT. (b) est un fait de canal : un kit divergent rougit, sans appel. (a) n'est qu'une
         # SUSPICION tant que la valeur n'a pas parle -- et E4 la LEVE quand l'accord est total, car
