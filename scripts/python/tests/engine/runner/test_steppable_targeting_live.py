@@ -23,8 +23,9 @@ CE QUE LE TEST EXIGE, ET POURQUOI CHAQUE EXIGENCE EST LA :
   * le DESARMEMENT `AllowSteppableUnit` (bit 20) fait basculer les lignes refusees, et RIEN
     d'autre. NON CONFRONTE au natif : aucune ability du registre ne pose ce bit ;
   * la voie du BIT 51 : une ability qui le POSE refuse MALGRE le bit 20 et refuse aussi en mode
-    TILE-targeting sur la tuile du decoy -- le regime de 1011 `TunnelingHorror`, dont le seul
-    porteur est un summon d'ENVIRONNEMENT (`EnvFactionSummons:Necrons`), donc NON CONFRONTE.
+    TILE-targeting sur la tuile du decoy -- le regime de 1011 `TunnelingHorror`. CONFRONTEE AU
+    NATIF depuis #447 (`test_bit51_native_live.py`, greffe de l'ACTIVE sur une unite du pool) ;
+    seul le contrefactuel du bit 20 reste offline (0 porteur au registre).
 
 ASCII only (console Windows cp1252).
 """

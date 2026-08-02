@@ -108,7 +108,8 @@ Les étages :
   registre, aucun cast live ne l'exerce.
 * **D — LA VOIE DU BIT 51** (offline) : une ability qui pose le bit refuse **malgré** le bit 20
   (5/5), et refuse aussi en mode TILE-targeting sur la **tuile** du decoy (5/5) — le régime de 1011.
-  **NON CONFRONTÉ** au natif : voir §6.
+  **Confronté au natif depuis #447** (`case-447-bit51-confrontation-native.md`) ; seul le
+  contrefactuel du bit 20 reste offline.
 
 Garde : `tests/engine/runner/test_steppable_targeting_live.py` (8 tests, ~74 s).
 
@@ -148,14 +149,14 @@ tuiles Steppable, summons, splash, attaque, choix de cible IA. Aucun n'a bougé.
 
 ## 6. Résidus nommés
 
-* **La voie du BIT 51 est NON CONFRONTÉE au natif.** Son unique porteur, `1011 TunnelingHorror`, n'a
-  que des npc (`necroNpc4Destroyer*`) et le summon **`necroSmnDestroyer`**, qui est un summon
-  d'**ENVIRONNEMENT** (`EnvFactionSummons:Necrons`, `nrOfSummons: 2`) — posé par le BOARD, sans
-  aucun summoner d'unité. La greffe (#92 §5bis) ne s'applique pas : `catalog_inject` ne greffe que
-  les abilities **passives**, et `abilityReason` exige que le caster POSSÈDE l'ability. Le montage
-  qui fermerait ce résidu : faire entrer `necroSmnDestroyer` au catalogue comme unité régulière
-  (`write_augmented_seed_bc`), ou un board qui pose ses `EnvFactionSummons` — non tenté. La voie
-  est confrontée OFFLINE (étage D) et le mirror est verbatim.
+* ~~**La voie du BIT 51 est NON CONFRONTÉE au natif.**~~ **FERMÉ par #447** —
+  `docs/rl/case-447-bit51-confrontation-native.md`. Deux points de cette fiche étaient **faux** :
+  `write_augmented_seed_bc` n'y peut rien (l'entrée `necroSmnDestroyer` et sa config
+  `TunnelingHorror` sont **déjà** au seed BC ; le refus vient de `buildNormalizedBC`, qui ne
+  normalise pas les summons), et la greffe **s'applique** — elle n'était pas outillée pour les
+  ACTIVES, ce que #447 a corrigé (`catalog_inject.graft_active_ability`). Mesuré : accord natif/port
+  **27/27** sur deux étages live, dont **4 lignes discriminantes** où la tuile d'un decoy est
+  refusée par 51 et **acceptée** par 12.
 * **`AllowSteppableUnit` (bit 20) non confronté** — 0 porteur au registre (§4, étage C).
 * **`astarSmnHaywireMine` non joué** : second summon `Steppable`, poseur `astarCyrus` **hors pool**
   (injection catalogue requise). Le régime est le même que celui du decoy ; rien n'indique un écart.

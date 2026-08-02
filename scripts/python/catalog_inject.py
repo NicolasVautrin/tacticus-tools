@@ -683,6 +683,56 @@ def graft_passive_ability(bc: dict, unit_id: str, ability_name: str,
             "passiveAbilitiesAfter": list(hits[0].get("PassiveAbilities") or [])}
 
 
+# ------------------------------------ #447 : le pendant ACTIF de la meme greffe
+#
+# `case-92` §5bis DECRIT la greffe ACTIVE (recours 3) mais ne l'OUTILLE pas : seul le volet passif
+# avait sa fonction. Les appelants la refaisaient a la main -- `u["ActiveAbilities"] = [aid]` en
+# boucle sur `bc["Units"]` -- ou passaient par `write_augmented_seed_bc(restrict_abilities=...)`,
+# qui RESTREINT (ecrase les deux listes) au lieu de greffer.
+#
+# MEMES DEUX ECRITURES que le volet passif, avec le catalogue et l'enum de l'autre famille :
+#   1. `BC.Units[<greffon>].ActiveAbilities` <- `ActiveAbilityType` ;
+#   2. `BC.Abilities.ActiveAbilities[<nom>]` = la config.
+# Et le meme verrou natif en aval, qui vaut ici aussi :
+# `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason` commence par
+# `ActiveAbilityComponent$$GetOrNull(unit, abilityType)` et rend `broken(ValidRequest)` quand
+# l'unite NE POSSEDE PAS l'ability -- c'est ce qui interdit d'interroger le natif sur une ability
+# qu'on n'a pas greffee, et donc ce qui rend la greffe NECESSAIRE.
+#
+# CE QUE LA GREFFE COUVRE ICI : les `TargetingOptions` sont un champ de l'objet `AActiveAbility`
+# resolu PAR TYPE (le natif les lit sur l'instance rendue par le service d'abilities, jamais sur
+# l'unite) -- le masque exerce est donc EXACTEMENT celui du ctor de la classe visee. La limite
+# habituelle (« ni les stats ni les traits ni les armes du vrai porteur ») ne mord que sur les
+# regles qui les lisent ; pour un gate de cible arme par des bits de domaine, elle ne mord pas.
+
+def graft_active_ability(bc: dict, unit_id: str, ability_name: str,
+                         *, replace: bool = True) -> dict:
+    """GREFFE l'ACTIVE `ability_name` sur `unit_id` DANS `bc` (mute en place). Rend un rapport.
+
+    Pendant exact de `graft_passive_ability`, sur `ActiveAbilities` / `BC.Abilities.ActiveAbilities`
+    et l'enum `ActiveAbilityType`. `replace=True` (defaut) REMPLACE la liste (isole la mecanique
+    mesuree, et evite qu'une autre active du greffon reponde a la place) ; `replace=False` l'AJOUTE.
+    """
+    aid = active_ability_id(ability_name)
+    hits = [u for u in (bc.get("Units") or []) if u.get("Id") == unit_id]
+    if not hits:
+        raise KeyError(f"{unit_id!r} absent de BC.Units -- injecter d'abord le greffon "
+                       f"(write_augmented_seed_bc)")
+    node = bc.setdefault("Abilities", {}).setdefault("ActiveAbilities", {})
+    config_added = False
+    if ability_name not in node:
+        node[ability_name] = synthesize_ability(ability_name)
+        config_added = True
+    before = []
+    for u in hits:
+        before = list(u.get("ActiveAbilities") or [])
+        u["ActiveAbilities"] = [aid] if replace else sorted(set(before) | {aid})
+    return {"unitId": unit_id, "ability": ability_name, "abilityId": aid,
+            "configAdded": config_added, "unitsPatched": len(hits),
+            "activeAbilitiesBefore": before,
+            "activeAbilitiesAfter": list(hits[0].get("ActiveAbilities") or [])}
+
+
 def parse_graft_spec(spec: str) -> tuple[str, str]:
     """`'unitId:AbilityName'` -> `(unitId, ability)`."""
     parts = [p.strip() for p in spec.split(":")]
@@ -692,23 +742,27 @@ def parse_graft_spec(spec: str) -> tuple[str, str]:
 
 
 def write_grafted_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
-                          rank: int = 17, ability_level: int = 50, replace: bool = True):
-    """FIXTURE : ecrit un seed BC ou chaque `spec` greffe son passif. Rend `(Path, rapports)`.
+                          rank: int = 17, ability_level: int = 50, replace: bool = True,
+                          kind: str = "passive"):
+    """FIXTURE : ecrit un seed BC ou chaque `spec` greffe son ability. Rend `(Path, rapports)`.
 
     `specs` = iterable de `'unitId:AbilityName'` (ou de tuples deja parses). Le greffon est
-    injecte au catalogue s'il en manque (`augment`), puis greffe (`graft_passive_ability`).
+    injecte au catalogue s'il en manque (`augment`), puis greffe. `kind` choisit la famille :
+    `"passive"` (defaut, `graft_passive_ability`) ou `"active"` (`graft_active_ability`).
 
     SURVIE AU RECHARGEMENT (#380) : `rl_collect_batch._load_seed_bc` rappelle
     `refresh_ability_configs`, dont la 1re boucle RE-SYNTHETISE les configs DEJA presentes. Celle
     qu'on vient de poser l'est donc aussi -- a l'identique, puisqu'elle sort de la MEME
-    `synthesize_ability`. Rien n'est perdu, et `BC.Units[].PassiveAbilities` n'est touche par
-    aucune des deux boucles.
+    `synthesize_ability`. Rien n'est perdu, et `BC.Units[].PassiveAbilities` /
+    `BC.Units[].ActiveAbilities` ne sont touches par aucune des deux boucles.
     """
+    if kind not in ("passive", "active"):
+        raise ValueError(f"kind invalide {kind!r} -- attendu 'passive' ou 'active'")
+    graft = graft_active_ability if kind == "active" else graft_passive_ability
     parsed = [parse_graft_spec(s) if isinstance(s, str) else tuple(s) for s in specs]
     seed = seed_bc if seed_bc is not None else _load_seed(None)
     bc, _added, _added_ab, _unres = augment(seed, [u for u, _a in parsed], rank, ability_level)
-    reports = [graft_passive_ability(bc, uid, ability, replace=replace)
-               for uid, ability in parsed]
+    reports = [graft(bc, uid, ability, replace=replace) for uid, ability in parsed]
     p = host_inputs.reject_data_output(out_path, "write_grafted_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
