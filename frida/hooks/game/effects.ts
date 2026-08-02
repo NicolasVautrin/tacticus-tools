@@ -223,6 +223,100 @@ function readEffectTargetIds(ecPtr: NativePointer): number[] | null {
     return out;
 }
 
+// --- BondComponent de l'entité-effet (#436-r1) --------------------------------
+// Le lien BONDÉ d'un effet — pour le TAUNT (effet 27 `Taunted_OnlySpecificTargets`),
+// c'est L'UNITÉ QUI TAUNTE. Sans ce canal, un état reconstruit depuis un snapshot natif
+// est AVEUGLE à un taunt posé par le jeu : `ForcedAttackTargetsComponent` reste vide et
+// la règle `TargetIsAllowedForCaster` (bit 23) ne refuse rien — dégradation PERMISSIVE,
+// invisible. Le port ne voyait la restriction que quand c'était LUI qui avait posé l'effet.
+//
+// OFFSET LU AU DÉCOMPILÉ, CINQ FOIS, dont l'ÉCRIVAIN — aucune déduction :
+//   * `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder(id,
+//     abilityState, bondedEntityId)` — L'ÉCRIVAIN : après `Blueprints$$BondEffect(id)` (qui
+//     attache un `BondComponent` neuf à l'entité-effet), il récupère le composant par son
+//     `ComponentId` et fait `*(int *)(comp + 0x10) = (int)bondedEntityId`. Le NOM du champ
+//     vient de ce paramètre.
+//   * `IdunBattle.Entities.Components.BondComponent$$ToString` — `il2cpp_value_box(Int32,
+//     *(int *)(this + 0x10))`, un champ UNIQUE (classe de 24 o = header 0x10 + int32).
+//   * `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId(this, effect)` — le LECTEUR
+//     public : `TryGetComponent<BondComponent>(effect)` puis `*(uint *)(comp + 0x10)`.
+//   * `IdunBattle.Entities.Selectors.SelectBondedEntityFromEffectSelector$$Select` — même
+//     `TryGetComponent`, puis `state.GetEntity(*(int *)(comp + 0x10))`.
+//   * `IdunBattle.Entities.EntityExtensions$$TryGetBondEffect` — `*(int *)(comp + 0x10)`
+//     comparé à `EntityId(bondedEntity)`.
+//
+// C'est ce champ que consomme `IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal` :
+// il appelle `ABondEffect$$BondedEntityId(effect)` et écrit `[cette valeur]` dans le
+// `ForcedAttackTargetsComponent@+0x50` de la CIBLE (liste REMPLACÉE, un seul élément).
+//
+// ⚠ CE N'EST PAS `ChildComponent` (#378) MALGRÉ LE MÊME OFFSET `+0x10`. Les deux sont des
+// `BEntityId` int32 dans une classe de 24 octets ; ils ne se distinguent QUE par la classe du
+// composant et par l'entité qui le porte (unité pour `ChildComponent`, entité-EFFET ici).
+const bondComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "BondComponent");
+
+// Le NOM du champ n'est PAS deviné : la table de symboles ne porte pas la table de champs de
+// cette classe (mesuré sur `rnca9r7q6c` : colonne vide, classe de 24 o). On énumère les champs
+// DÉCLARÉS au chargement — la classe n'en a qu'UN — et on publie son nom. Repli sur `0x10`,
+// l'offset lu ci-dessus, si la classe n'est pas énumérable.
+const BOND_COMPONENT_FIELDS = declaredFields(bondComponentClass);
+const BOND_FIELD = BOND_COMPONENT_FIELDS.length === 1
+    ? BOND_COMPONENT_FIELDS[0]
+    : (BOND_COMPONENT_FIELDS.find((f) => f.off === 0x10) ?? null);
+const bondedEntityIdOff = BOND_FIELD ? BOND_FIELD.off : 0x10;
+
+/** Nom natif du champ retenu pour `bondedEntityId` (null s'il n'a pas été résolu — la
+ *  lecture retombe alors sur l'offset `0x10` lu au décompilé). Exporté pour qu'une MAJ qui
+ *  redispose la classe se VOIE au lieu de mentir sous un nom figé. */
+export const BOND_ENTITY_ID_FIELD_NAME: string | null =
+    BOND_FIELD ? BOND_FIELD.name : null;
+
+export interface BondLink {
+    /** `BondComponent.BondedEntityId` de l'entité-effet — pour le TAUNT, le TAUNTANT.
+     *  `null` = pas de lien bondé (ou pas mesuré : lire `bondMeasured`). */
+    bondedEntityId: number | null;
+    /** TRI-ÉTAT du champ ci-dessus. `false` = capteur MUET (classe `BondComponent`
+     *  irrésolue, ou lecture en erreur) — `bondedEntityId: null` n'y veut PAS dire
+     *  « pas de lien ». `true` = mesure faite. */
+    bondMeasured: boolean;
+}
+
+/** Lien BONDÉ de l'entité-effet, TRI-ÉTAT.
+ *
+ *  MIRROR de `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`, à un écart NOMMÉ près :
+ *  le natif, quand `TryGetComponent<BondComponent>` échoue, LOGUE une erreur et rend `0`.
+ *  Ici l'absence rend `bondMeasured: true` + `bondedEntityId: null` — parce que ce capteur
+ *  balaie TOUS les effets, dont l'immense majorité n'est pas un bond effect (`BondComponent`
+ *  n'est attaché que par `IdunBattle.Entities.Blueprints$$BondEffect`, pas par le
+ *  `Blueprints$$Effect` ordinaire). L'absence est donc ici le régime NORMAL, pas une anomalie :
+ *  la rapporter comme le natif la traite (une erreur) noierait le canal.
+ *
+ *  ⚠ DIFFÉRENCE avec `readParentLink` (#378), et elle est structurelle : là-bas CHAQUE unité
+ *  porte son `ChildComponent`, donc la branche « composant absent » ne se déclenchait jamais.
+ *  Ici elle est le cas dominant.
+ *
+ *  `0` VAUT « pas de lien » et est normalisé en `null`, pour la raison établie par #378 :
+ *  `IdunBattle.Entities.Components.MatchComponent$$NextId` est un PRÉ-incrément sur un champ
+ *  zéroé (`*(int *)(this + 0x10) += 1 ; return`), donc le premier id émis est `1` et **`0`
+ *  n'est jamais un id d'entité** — c'est le zéro d'un champ que `BondComponent$$.ctor`
+ *  n'écrit pas (son corps n'appelle que le ctor de `BaseComponent`). */
+function readBondLink(effEntityPtr: NativePointer): BondLink {
+    // Classe irrésolue -> AUCUNE mesure possible. Distinguer ce cas de « composant absent »
+    // est tout l'objet de `bondMeasured` : sans lui les deux rendraient `null`, et un seed
+    // écraserait un lien que la simulation offline avait, elle, correctement posé.
+    if (!bondComponentClass) return { bondedEntityId: null, bondMeasured: false };
+    let comp: NativePointer | null = null;
+    forEachComponent(effEntityPtr, (c, klass) => {
+        if (comp === null && klass.equals(bondComponentClass)) comp = c;
+    });
+    // Composant absent = mesure FAITE : cet effet n'est pas un bond effect.
+    if (comp === null) return { bondedEntityId: null, bondMeasured: true };
+    try {
+        const raw = (comp as NativePointer).add(bondedEntityIdOff).readS32();
+        return { bondedEntityId: raw === 0 ? null : raw, bondMeasured: true };
+    } catch { return { bondedEntityId: null, bondMeasured: false }; }
+}
+
 export interface EffectInfo {
     /** Effect entity id (EntityType.Effect). */
     effectId: number;
@@ -251,6 +345,14 @@ export interface EffectInfo {
      *  (`EffectComponent+0x48`, écrit par `EffectComponent$$AddTargetId`).
      *  TRI-ÉTAT : `null` = PAS MESURÉ, `[]` = mesuré et vide. */
     targetIds: number[] | null;
+    /** `BondComponent.BondedEntityId` de l'entité-effet (#436-r1) — pour l'effet 27
+     *  `Taunted_OnlySpecificTargets`, l'unité QUI TAUNTE, celle que
+     *  `IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal` écrit dans le
+     *  `ForcedAttackTargetsComponent` de la cible. TRI-ÉTAT avec `bondMeasured`. */
+    bondedEntityId: number | null;
+    /** `false` = capteur MUET (classe `BondComponent` irrésolue / lecture en erreur) :
+     *  `bondedEntityId: null` n'y veut PAS dire « pas de lien ». `true` = mesure faite. */
+    bondMeasured: boolean;
 }
 
 /** Decoded effect + liveness flags (IsActive/Removed) used to drop effects
@@ -285,7 +387,11 @@ function readEffect(effEntityPtr: NativePointer): Decoded | null {
     return { name, effectType, remaining, level, source, active, removed,
              statMod: readStatModifier(effEntityPtr),
              statOverride: readStatOverride(effEntityPtr),
-             targetIds: readEffectTargetIds(c) };
+             targetIds: readEffectTargetIds(c),
+             // Lu sur l'ENTITÉ-EFFET (comme statMod/statOverride), pas sur son
+             // `EffectComponent` : `Blueprints$$BondEffect` attache le `BondComponent`
+             // à l'entité, à côté de l'`EffectComponent`.
+             ...readBondLink(effEntityPtr) };
 }
 
 // AbilityStateReference (struct inline, EffectComponent.AbilityState @0x18, dump gqfc5mff6c
@@ -382,6 +488,10 @@ function toInfo(eid: number, info: Decoded | undefined): EffectInfo {
         // `?? null` = PAS MESURÉ. Un effet non décodé (`info` absent) n'a PAS
         // « zéro cible » : il n'a rien été mesuré du tout. Ne pas rabattre sur `[]`.
         targetIds: info?.targetIds ?? null,
+        bondedEntityId: info?.bondedEntityId ?? null,
+        // MÊME raisonnement, et il est LOAD-BEARING : un effet non décodé n'a pas
+        // « aucun lien bondé », il n'a RIEN été mesuré. `false` par défaut, jamais `true`.
+        bondMeasured: info?.bondMeasured ?? false,
     };
 }
 
