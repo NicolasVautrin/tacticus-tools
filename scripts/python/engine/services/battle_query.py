@@ -62,6 +62,47 @@ def are_tiles_adjacent(a_pos, t_pos, board=None):
     return hexgeo.distance(a_pos, t_pos) == 1
 
 
+def are_entities_adjacent(feet_a, feet_b, board=None) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent(entity1, entity2)` -- la surcharge
+    ENTITE/ENTITE, celle que le DSL invoque (slot 0x60 d'`IBattleQuery`) :
+
+        tiles1 = EntityExtensions.GetTiles(entity1, state);
+        tiles2 = EntityExtensions.GetTiles(entity2, state);
+        return MovementUtil.AreTilesAdjacent(tiles1, tiles2);
+
+    Elle compare donc les EMPREINTES COMPLETES, pas les main tiles. Et la surcharge LISTE de
+    `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent(IList, IList)` est un OU sur les paires
+    (mirror du decompile) :
+
+        foreach (t1 in tiles1) foreach (t2 in tiles2)
+            if (AreTilesAdjacent(t1, t2)) return true;      // la surcharge SCALAIRE
+        return false;                                       // enumeration epuisee
+
+    Une liste VIDE rend donc FAUX (aucune paire evaluee) ; une liste NULLE fait LEVER cote natif --
+    ici `None` est traite comme vide, le port n'ayant pas de domaine null distinct.
+
+    UN SEUL LIEU boucle sur les empreintes dans tout le port, et c'est celui-ci :
+      * `board` fourni -> DELEGUE a `engine.runner.abilities.targeting.are_entities_adjacent`, le
+        foyer pose par #R30 (tuiles resolues par `board.id_at`, gate d'elevation et court-circuit
+        d'identite par `targeting.are_tiles_adjacent`). Rien n'est reimplemente ici : le verdict
+        de ciblage et le verdict DSL sortent litteralement de la meme fonction.
+      * `board` ABSENT (contexte de FORMULE, scene de test) -> DEGRADATION NOMMEE : meme double
+        boucle, primitive `are_tiles_adjacent(a, b, None)` ci-dessus = adjacence hex pure +
+        court-circuit d'identite, SANS porte d'elevation (aucune elevation lisible). Sure sur un
+        board plat, jamais un mirror.
+
+    `feet_a`/`feet_b` = listes de `(col, row)` (mirror `EntityExtensions$$GetTiles`, cf.
+    `dsl/base.py::_feet` cote DSL et `runner/components.get_unit_feet` cote ECS)."""
+    fa = [f for f in (feet_a or ()) if f is not None]
+    fb = [f for f in (feet_b or ()) if f is not None]
+    if not fa or not fb:
+        return False                       # `AreTilesAdjacent(IList, IList)` : boucle vide -> false
+    if board is not None:
+        from ..runner.abilities.targeting import are_entities_adjacent as _r30   # lazy : anti-cycle
+        return bool(_r30(board, fa, fb))
+    return any(are_tiles_adjacent(a, b, None) is True for a in fa for b in fb)
+
+
 def _find_by_hits(cands: list, prefer_hits) -> dict:
     """Parmi les armes candidates (même type), celle dont `hits == prefer_hits` (capté), sinon la 1re."""
     if prefer_hits is not None:

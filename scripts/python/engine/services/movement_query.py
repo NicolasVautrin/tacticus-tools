@@ -67,6 +67,29 @@ def get_distance(tiles_a: Optional[Sequence[Pos]], tiles_b: Optional[Sequence[Po
     return best
 
 
+def get_min_distance(tiles_a: Optional[Sequence[Pos]], tiles_b: Optional[Sequence[Pos]]) -> int:
+    """`IdunBattle.Core.Services.BattleQuery$$GetMinDistance(IList<TileEntity>, IList<TileEntity>)`
+    -- le slot 0x6f d'`IBattleQuery` (identifie par son proxy
+    `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass138_0$$u003CGetMinDistanceu003Eb__0`,
+    dont tout le corps est cet appel-la). Mirror du decompile :
+
+        int best = int.MaxValue;
+        foreach (a in tilesA) foreach (b in tilesB)
+            best = Math.Min(best, GetDistance(a, b));       // la surcharge TUILE/TUILE
+        return best == int.MaxValue ? -1 : best;
+
+    C'est la MEME double boucle que `get_distance` ci-dessus (meme seed `int.MaxValue`, meme
+    primitive de distance hex) -- la SEULE difference lue est le SENTINEL DE SORTIE : quand aucune
+    paire n'a ete evaluee, `MovementQuery$$GetDistance` rend `int.MaxValue` alors que celle-ci rend
+    **-1**. La distinction n'est pas cosmetique : son unique consommateur DSL,
+    `IdunBattle.Entities.Triggers.IsInRangeAbilityTrigger$$ShouldTrigger`, conclut par
+    `return GetMinDistance(...) <= range` -- donc un selecteur qui rend VIDE fait rendre VRAI au
+    predicat (`-1 <= range`), la ou `int.MaxValue` aurait rendu faux. Ne jamais substituer l'une a
+    l'autre."""
+    d = get_distance(tiles_a, tiles_b)
+    return -1 if d == INT_MAX else d
+
+
 def get_entity_distance(state, entity_a, entity_b) -> int:
     """`IdunBattle.Core.Services.MovementQuery$$GetDistance(IEntity, IEntity)` — mirror :
 

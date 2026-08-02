@@ -12,7 +12,7 @@ import hexgeo
 
 from .. import battle_query as _bq
 from ..dsl.base import (AAmountFormula, TargetsSelector, Const, _round_fix64, _effect_field,
-                        _default_get_stat, resolve_unit, _units_of, _pos)
+                        _default_get_stat, resolve_unit, _units_of, _pos, _feet)
 
 
 class Sum(AAmountFormula):
@@ -636,16 +636,24 @@ class MinDistance(AAmountFormula):
     `IdunBattle.Entities.Formulas.MinDistanceFormula$$Calculate` -- MIRROR du decompile :
 
         min = int.MaxValue                                  # 0x7fffffff
-        foreach (ea in <a @+0x10>.<slot 10>(entities))       # entites, pas tuiles nues
-            foreach (eb in <b @+0x18>.<slot 10>(entities))
-                min = Math.Min(min, PositionComponent.Distance(eb, ea))
+        foreach (ta in <a @+0x10>.SelectTiles(entities))     # slot 10 = TargetsSelector$$SelectTiles
+            foreach (tb in <b @+0x18>.SelectTiles(entities))
+                min = Math.Min(min, PositionComponent.Distance(tb.Position, ta.Position))
         return min
 
-    Le natif lit UNE position par ENTITE (`GetComponent<PositionComponent>` puis `Distance`), donc la
-    MainTile -- PAS l'empreinte de pieds (contraste `EntityExtensions$$GetTiles`). Le port fait de meme
-    (`dsl.base._pos`). Une entite sans position est SAUTEE (le natif deref son PositionComponent ; cote
-    port on ne peut pas mesurer une distance sans coordonnee) ; si aucune paire n'est mesurable on rend
-    `MIN_DISTANCE_EMPTY`, exactement le `int.MaxValue` du natif quand la boucle ne tourne pas.
+    EMPREINTES (#433-r3-r1). L'ancienne docstring de ce noeud concluait « le natif lit UNE position
+    par ENTITE, donc la MainTile -- PAS l'empreinte » : c'etait FAUX, et c'est la faute que le
+    slot 10 rend facile. `GetComponent<PositionComponent>` est bien applique a l'element ENUMERE,
+    mais cet element est une TUILE, pas l'entite selectionnee : le slot 10 est
+    `IdunBattle.DSL.TargetsSelector$$SelectTiles`, qui materialise `EntityExtensions$$IterateTiles`
+    de chaque entite (= l'empreinte COMPLETE) dans une liste plate. Le port lit donc `_feet`.
+    Pour une unite mono-tuile `feet == [main tile]` -> resultat inchange.
+
+    Une entite sans position rend une empreinte VIDE et ne contribue a aucune paire (le natif
+    deref son `PositionComponent`) ; si aucune paire n'est mesurable on rend `MIN_DISTANCE_EMPTY`,
+    exactement le `int.MaxValue` du natif quand la boucle ne tourne pas. ⚠ Ce sentinel est celui
+    de CETTE formule ; `IdunBattle.Core.Services.BattleQuery$$GetMinDistance` (le slot 0x6f que lit
+    `IsInRangeAbilityTrigger`) rend **-1** dans le meme cas -- deux fonctions, deux sentinels.
 
     ⚠ **AUCUN offset sur le chemin de distance** -- le chemin est lu de bout en bout :
     `IdunBattle.Entities.Components.PositionComponent$$Distance` =
@@ -659,17 +667,11 @@ class MinDistance(AAmountFormula):
         self.a, self.b = a, b
 
     def calculate(self, ctx):
-        best = MIN_DISTANCE_EMPTY
-        pa = [p for p in (_pos(u) for u in _units_of(self.a, ctx) if isinstance(u, dict))
-              if p is not None]
-        pb = [p for p in (_pos(u) for u in _units_of(self.b, ctx) if isinstance(u, dict))
-              if p is not None]
-        for x in pa:
-            for y in pb:
-                d = hexgeo.distance(x, y)
-                if d < best:
-                    best = d
-        return best
+        from ..services.movement_query import get_distance    # lazy : garde anti-circulaire
+        # `SelectTiles` = liste PLATE des tuiles de toutes les entites selectionnees.
+        ta = [f for u in _units_of(self.a, ctx) if isinstance(u, dict) for f in _feet(u)]
+        tb = [f for u in _units_of(self.b, ctx) if isinstance(u, dict) for f in _feet(u)]
+        return get_distance(ta, tb)                           # meme seed `int.MaxValue`
 
 
 class AuraEffectRange(AAmountFormula):

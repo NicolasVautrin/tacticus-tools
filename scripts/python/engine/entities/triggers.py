@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import hexgeo
 
-from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, Const, _pos, _units_of,
-                        _is_alive, _same_entity, _c_mod)
+from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, Const, _pos, _feet,
+                        _units_of, _is_alive, _same_entity, _c_mod)
 # `IdunBattle.Entities.Enum.UnitFaction` — FOYER UNIQUE (#241) : mirror 1:1 des 21 membres transcrits
 # de `data/symbols/<build>/frida/enums.tsv`. La table locale etait PARTIELLE (8 valeurs, « ajouter au
 # fil des call-sites ») ; elle en derive maintenant, ce qui la rend complete sans changer aucune des
@@ -1015,28 +1015,33 @@ class IsAdjacent(AbilityTrigger):
     `ctx.board` = le graphe de tuiles (`state.board` cote COMBAT, `scene.board` cote DECISION) :
     fourni -> voisinage natif + porte d'elevation ; ABSENT -> degradation documentee du depot =
     adjacence hex pure (sure sur un board PLAT, ou `|dElev| = 0 < 2` partout). Une unite sans
-    position -> `are_tiles_adjacent` rend `None` -> la paire n'est PAS adjacente, donc le `forall`
-    rend FAUX -- exactement le natif, dont `GetTiles` rend alors une liste vide et dont la double
-    boucle d'`AreTilesAdjacent(IList, IList)` ne tourne pas.
+    position -> empreinte VIDE -> la paire n'est PAS adjacente, donc le `forall` rend FAUX --
+    exactement le natif, dont `GetTiles` rend alors une liste vide et dont la double boucle
+    d'`AreTilesAdjacent(IList, IList)` ne tourne pas.
 
-    EMPREINTES : le natif compare `GetTiles(x)` x `GetTiles(y)` (l'empreinte COMPLETE d'une unite
-    multi-hex) ; le port collapse chaque entite sur sa MAIN TILE via `_pos`, comme tous les noeuds
-    freres du DSL (`IsInRange`, `IsSurrounding`). Identique a 1 pied, residu `#433-r3-r1` au-dela."""
+    EMPREINTES (#433-r3-r1, FERME). La surcharge appelee est
+    `AreTilesAdjacent(GetTiles(entity1), GetTiles(entity2))` -- l'empreinte COMPLETE de chaque
+    entite, LUE au decompile (`tiles1 = EntityExtensions.GetTiles(entity1, this@+0x38)`, idem pour
+    `entity2`), et la surcharge LISTE de `MovementUtil$$AreTilesAdjacent` est un OU sur les paires
+    de tuiles (elle rend FAUX sur une liste vide). Le port lit donc `_feet` (mirror `GetTiles`) et
+    delegue chaque paire d'ENTITES au foyer UNIQUE `services/battle_query.py::are_entities_adjacent`,
+    qui redescend sur le foyer d'empreintes de `runner/abilities/targeting.py` (#R30) des qu'un
+    board est la. Une unite mono-tuile a `feet == [main tile]` -> resultat bit-a-bit inchange."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger, selection_type: int | None = None):
         # `selection_type` = `UnitSelectionType` du 3e argument de la factory : il part au SELECTEUR
         # (slot 3), jamais dans la comparaison par paire. Garde-le INERTE (cf. docstring).
         self.a, self.b, self.selection_type = a, b, selection_type
 
     def should_trigger(self, ctx):
-        from ..services.battle_query import are_tiles_adjacent   # lazy : garde anti-circulaire
-        pa = [_pos(u) for u in _units_of(self.a, ctx)]
-        pb = [_pos(u) for u in _units_of(self.b, ctx)]
-        if not pa or not pb:                          # `!A.Any() || !B.Any()` -> false
+        from ..services.battle_query import are_entities_adjacent   # lazy : garde anti-circulaire
+        ua = _units_of(self.a, ctx)
+        ub = _units_of(self.b, ctx)
+        if not ua or not ub:                          # `!A.Any() || !B.Any()` -> false
             return False
         board = getattr(ctx, "board", None)
-        for x in pa:
-            for y in pb:                              # `foreach x foreach y : if (!adj) return false`
-                if are_tiles_adjacent(x, y, board) is not True:
+        for x in ua:
+            for y in ub:                              # `foreach x foreach y : if (!adj) return false`
+                if not are_entities_adjacent(_feet(x), _feet(y), board):
                     return False
         return True                                   # enumeration epuisee sans echec -> true
 
@@ -1064,55 +1069,100 @@ class IsCharging(AbilityTrigger):
     sur-accordait (mesure `+599`/coup sur `astraBullgryn`). L'inventaire complet des 16 xrefs du
     noeud, avec ce qui reste non porte, vit dans `docs/rl/case-ischarging-hits-channel.md`.
 
-    `ctx.charged_units` absent -> ensemble vide -> False (degradation fidele)."""
+    `ctx.charged_units` absent -> ensemble vide -> False (degradation fidele).
+
+    EMPREINTES + PORTE D'ELEVATION (#433-r3-r1). Le terme geometrique de `BattleQuery$$IsCharging`
+    est litteralement `AreEntitiesAdjacent(caster, target)`, donc
+    `AreTilesAdjacent(GetTiles(caster), GetTiles(target))` : empreintes COMPLETES, gate
+    `|dElev| < 2` et court-circuit d'identite compris. Le port ecrivait ici
+    `hexgeo.distance(pa, pb) != 1` sur les MAIN TILES -- un TROISIEME ecart au meme foyer (ni
+    empreinte, ni elevation, ni identite : la correction #433-r1 n'avait jamais atteint ce noeud).
+    Il passe desormais par `services/battle_query.py::are_entities_adjacent`, comme `IsAdjacent`.
+
+    RESIDU (quantificateur, NON traite ici) : le natif prend UNE unite de chaque cote --
+    `IsChargingTrigger$$ShouldTrigger` appelle `TargetsSelector$$SelectUnit(entities, 3)` puis
+    `SelectUnit(entities, 0)`, un `FirstOrDefault` filtre par `UnitExtensions$$MatchesUnitSelectionType`,
+    et ne fait qu'UN appel a `IsCharging`. Le port boucle sur les deux listes (`any`). Identique sur
+    des singletons (`Caster`/`Target`, tous les call-sites lus) ; le porter demanderait d'abord le
+    filtre `UnitSelectionType`, qui est le residu `#433-r3-r2`."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
         self.a, self.b = a, b
 
     def should_trigger(self, ctx):
+        from ..services.battle_query import are_entities_adjacent   # lazy : garde anti-circulaire
         us_a = [u for u in _units_of(self.a, ctx) if isinstance(u, dict)]
         us_b = [u for u in _units_of(self.b, ctx) if isinstance(u, dict)]
         acc = getattr(ctx, "charged_units", None)
+        board = getattr(ctx, "board", None)
         for ua in us_a:
             charged = set(acc(ua)) if acc is not None else set()
-            pa = _pos(ua)
+            fa = _feet(ua)
             for ub in us_b:
-                pb = _pos(ub)
-                if pa is None or pb is None or hexgeo.distance(pa, pb) != 1:
-                    continue                          # AreEntitiesAdjacent
+                if not are_entities_adjacent(fa, _feet(ub), board):
+                    continue                          # AreEntitiesAdjacent(caster, target)
                 if ub.get("id") in charged:           # ChargedUnitIds.Contains(target.Id)
                     return True
         return False
 
 
 class IsInRange(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsInRange(a, b, range)` → `IdunBattle.Entities.Triggers.IsInRangeAbilityTrigger$$ShouldTrigger` : `dist(a, b) <= range`. ⚠ ordre
-    exact des args factory (slots +0x28/+0x18/+0x20) = structure prouvée, mapping à confirmer au câblage."""
+    """`IdunBattleLogic.Entities.DSLFactory$$IsInRange(a, b, range)` ->
+    `IdunBattle.Entities.Triggers.IsInRangeAbilityTrigger$$ShouldTrigger` -- MIRROR du decompile,
+    et il n'est NI `dist(mainTile, mainTile)` NI un `any` sur les entites :
+
+        range = <formule @+0x28>.Calculate(entities);             // slot 1 d'IAmountFormula
+        A     = <selecteur @+0x18>.SelectTiles(entities);         // slot 10 -> EMPREINTES
+        B     = <selecteur @+0x20>.SelectTiles(entities);         // slot 10 -> EMPREINTES
+        return query@+0x10.GetMinDistance(A, B) <= range;         // slot 0x6f d'IBattleQuery
+
+    TROIS lectures :
+
+    * **EMPREINTES** (#433-r3-r1). `IdunBattle.DSL.TargetsSelector$$SelectTiles` materialise
+      `EntityExtensions$$IterateTiles` de CHAQUE entite selectionnee dans UNE liste plate -- donc
+      toutes les tuiles de tous les pieds. `IdunBattle.Core.Services.BattleQuery$$GetMinDistance`
+      prend ensuite le MIN sur toutes les paires de cette liste. Le port lisait la seule MAIN TILE.
+    * **LE VIDE REND VRAI.** `GetMinDistance` seed a `int.MaxValue` et, si aucune paire n'a ete
+      evaluee, rend **-1** (`if (best == int.MaxValue) best = -1`) -- donc `-1 <= range` = VRAI.
+      Le port rendait FAUX (un `any` sur un produit vide). C'est le SEUL des trois ecarts qui
+      change le verdict sur une unite MONO-tuile : il suffit qu'un selecteur ne rende rien.
+      Mirror dans `services/movement_query.py::get_min_distance`, qui NOMME l'ecart au sentinel
+      d'`IdunBattle.Core.Services.MovementQuery$$GetDistance` (`int.MaxValue`).
+    * la comparaison est `<=` sur le MINIMUM, ce qui EST un `exists` sur les paires -- le `any`
+      du port etait juste sur ce point-la (mais applique aux mauvaises tuiles).
+
+    Ordre des args factory : `a@+0x18`, `b@+0x20`, `range@+0x28`, `query@+0x10` (lu au `.ctor`)."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger, rng: AbilityTrigger):
         self.a, self.b, self.rng = a, b, rng
 
     def should_trigger(self, ctx):
+        from ..services.movement_query import get_min_distance   # lazy : garde anti-circulaire
         r = self.rng.evaluate(ctx)
-        pa = [_pos(u) for u in _units_of(self.a, ctx)]
-        pb = [_pos(u) for u in _units_of(self.b, ctx)]
-        return any(x is not None and y is not None and hexgeo.distance(x, y) <= r for x in pa for y in pb)
+        ta = [f for u in _units_of(self.a, ctx) for f in _feet(u)]   # `SelectTiles` = liste PLATE
+        tb = [f for u in _units_of(self.b, ctx) for f in _feet(u)]
+        return get_min_distance(ta, tb) <= r
 
 
-class IsSurrounding(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsSurrounding(a, b, radius)` : une unite de `b` est-elle a distance hex
-    <= `radius` d'une unite de `a` (b "entoure" a) ? Distance SYMETRIQUE -> semantique == `IsInRange`
-    (l'ordre a/b est indifferent). ctor IL2CPP mislabele (`AttackHitsWithModifiersFormula.ctor` = corps
-    gshared partage) ; sens DEDUIT de l'usage + i2 : HeroicFusillade IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour gate son move par
-    `Not(IsSurrounding(caster@0x148, target@0x178, radius=1))` = move SEULEMENT si la cible n'entoure pas
-    DEJA le caster (i2 « ... or is already on a hex surrounding Judh. She then moves to the free hex »).
-    `radius` = noeud VALEUR (`.evaluate`). None d'un cote -> False."""
+class IsSurrounding(IsInRange):
+    """`IdunBattleLogic.Entities.DSLFactory$$IsSurrounding(a, b, radius)` -- et c'est **LA MEME
+    CLASSE NATIVE QUE `IsInRange`**, pas un noeud frere.
+
+    MESURE (#433-r3-r1) : `IdunBattleLogic.Entities.DSLTriggers$$IsSurrounding` et
+    `IdunBattleLogic.Entities.DSLTriggers$$IsInRange` allouent le MEME pointeur de classe
+    (`DAT_1833a9d10` sur le build `rnca9r7q6c`) et appellent le MEME `.ctor` avec les arguments
+    dans le MEME ordre (`query`, `selector1`, `selector2`, `range`). Les deux factories ne
+    different que par leur nom : il n'existe pas de `IsSurroundingAbilityTrigger` dans le binaire.
+    L'ancienne docstring disait « semantique DEDUITE de l'usage + i2 » -- la deduction tombait
+    juste, la voila LUE.
+
+    ⚠ Ghidra mislabel le `.ctor` partage en `IdunBattle.Entities.Triggers.IsUnitOnTileEffectTrigger$$.ctor`
+    (corps gshared dedupliqué) : c'est le pointeur de classe qui tranche, jamais le nom.
+
+    Le port herite donc de `IsInRange` -- aucun corps propre, aucune chance de divergence entre les
+    deux. Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour`,
+    qui gate son move par `Not(IsSurrounding(caster@0x148, target@0x178, radius=1))`."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger, radius: AbilityTrigger):
-        self.a, self.b, self.radius = a, b, radius
-
-    def should_trigger(self, ctx):
-        r = self.radius.evaluate(ctx)
-        pa = [_pos(u) for u in _units_of(self.a, ctx)]
-        pb = [_pos(u) for u in _units_of(self.b, ctx)]
-        return any(x is not None and y is not None and hexgeo.distance(x, y) <= r for x in pa for y in pb)
+        super().__init__(a, b, radius)
+        self.radius = radius            # alias historique du 3e argument (meme objet que `rng`)
 
 
 class OwnerIsTarget(AbilityTrigger):
