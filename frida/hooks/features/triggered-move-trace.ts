@@ -42,9 +42,13 @@
 //     }
 //     yield return x;                                        // le TOTAL
 //
-// Layout de la state machine (offsets LUS, mais résolus PAR NOM au runtime — cf. `resolveSm`) :
+// Layout de la state machine (offsets LUS au décompilé, mais résolus au runtime — cf. `install`) :
 //   +0x10 `<>1__state` · +0x18 `<>2__current` (Fix64) · +0x20 `case` · +0x28 `<>4__this`
 //   +0x30 accumulateur `x` (Fix64) · +0x38 énumérateur EXTERNE · +0x40 énumérateur INTERNE
+// Le décompilé le dit sans ambiguïté : `this+0x40` reçoit le retour du slot
+// `CalculateMovementUtilityInSteps`, sert de récepteur au `MoveNext`/`get_Current` interne, puis
+// est REMIS À ZÉRO juste après `this+0x30 = op_Addition(this+0x30, it.Current)`. `this+0x38`, lui,
+// reçoit le `GetEnumerator()` de la collection d'abilities et est disposé en fin de boucle.
 //
 // `IdunBattle.AI.Utilities.UtilityMovementCase` (64 o), lu sur ses propres accesseurs :
 //   +0x10 `Unit`             — `$$get_UnitOrParent` (`this+0x10` sinon `this+0x30`),
@@ -72,8 +76,9 @@
 
 import { Ctx } from "../controller.js";
 import {
-    class_get_declaring_type, class_get_name, class_get_nested_types,
-    findClassAnywhere, findMethod, getFieldOffset, s,
+    class_get_declaring_type, class_get_fields, class_get_name, class_get_nested_types,
+    field_get_name, field_get_offset, field_get_type, findClassAnywhere, findMethod,
+    getFieldOffset, s, type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { log } from "../runtime/diag.js";
 import { queueOnMainThread } from "../runtime/queue.js";
@@ -93,9 +98,9 @@ const SM_FALLBACK = {
     current: 0x18,      // <>2__current (Fix64)
     caseArg: 0x20,      // le paramètre `case` capturé
     outerThis: 0x28,    // <>4__this
-    acc: 0x30,          // l'accumulateur Fix64
-    outerEnum: 0x38,    // <>7__wrap1 — les triggered abilities du mover
-    innerEnum: 0x40,    // <>7__wrap2 — l'itérateur rendu par le playbook
+    acc: 0x30,          // l'accumulateur Fix64 (`<evaluation>5__N`)
+    outerEnum: 0x38,    // `<>7__wrapN` — le foreach sur les triggered abilities du mover
+    innerEnum: 0x40,    // le local NOMMÉ qui porte l'itérateur rendu par le playbook
 } as const;
 
 const CASE_FALLBACK = {
@@ -108,22 +113,82 @@ const CASE_FALLBACK = {
 // Mêmes constantes que `game/match-state.ts` — offsets de struct, pas des RVA.
 const ENTITY_ID_OFF = 0x10;
 
-/** Noms de champ candidats, dans l'ordre d'essai. Le compilateur C# nomme ses locals capturés
- *  `<nom>5__N` et ses énumérateurs imbriqués `<>7__wrapN`, mais l'indice N dépend de la version
- *  du compilateur : on essaie, et on DIT ce qu'on a trouvé (`triggeredMoveTraceStatus`) plutôt
- *  que de supposer. Le repli reste l'offset LU. */
-const FIELD_CANDIDATES: Record<keyof typeof SM_FALLBACK, string[]> = {
+/** Noms de champ candidats, pour les seuls champs dont le compilateur FIXE le nom (`<>1__state`,
+ *  `<>2__current`, `<>4__this`). Les trois autres — `case`, l'accumulateur et les deux
+ *  énumérateurs — portent un nom DÉRIVÉ du source C#, donc indevinable : ils se résolvent par
+ *  STRUCTURE (`resolveByStructure`), jamais par liste. */
+const FIELD_CANDIDATES: Partial<Record<keyof typeof SM_FALLBACK, string[]>> = {
     state: ["<>1__state"],
     current: ["<>2__current"],
-    caseArg: ["case", "<>3__case", "movementCase", "<case>5__1"],
     outerThis: ["<>4__this"],
-    // L'accumulateur : un local `Fix64` capturé. Son nom source est inconnu hors métadonnées ;
-    // les indices 1..3 couvrent les formes vues sur cette famille de state machines.
-    acc: ["<utility>5__1", "<x>5__1", "<result>5__1", "<sum>5__1",
-          "<utility>5__2", "<x>5__2", "<result>5__2"],
-    outerEnum: ["<>7__wrap1"],
-    innerEnum: ["<>7__wrap2", "<>7__wrap3"],
 };
+
+// ═══ POURQUOI LA RÉSOLUTION PAR NOM A ÉTÉ REMPLACÉE (#456) ═══════════════════════════════════
+// Mesuré en live sur `rnca9r7q6c` via le RPC `classFields`, sur la state machine dont le
+// `<>4__this` est bien `TriggeredAbilitiesNonOwnerUtility` (c'est ce champ qui l'identifie —
+// 39 classes du build portent un `<EvaluateMovementInSteps>d__N`) :
+//
+//   <>1__state @0x10 Int32 · <>2__current @0x18 Fix64 · moveCase @0x20 UtilityMovementCase
+//   <>4__this @0x28 · <evaluation>5__2 @0x30 Fix64 · <>7__wrap2 @0x38 IEnumerator`1
+//   <triggeredAbilityUtility>5__4 @0x40 IEnumerator`1
+//
+// Trois écarts avec les listes de noms qui étaient ici, dont un FAUX SILENCIEUX :
+//   * le `case` s'appelle `moveCase` sur la jumelle NonOwner (et `case` sur l'Owner) ;
+//   * l'accumulateur s'appelle `<evaluation>5__N` — aucun des sept candidats devinés ;
+//   * et surtout : **le seul `<>7__wrapN` de la SM est l'énumérateur EXTERNE**, l'INTERNE étant
+//     un local NOMMÉ (`<triggeredAbilityUtility>5__4`). La liste `innerEnum: ["<>7__wrap2", …]`
+//     résolvait donc `innerEnum` sur l'énumérateur EXTERNE — au même offset que `outerEnum`, et
+//     SANS entrer dans `fallbacks`. Le repli LU (`0x40`), lui, était juste : la résolution par nom
+//     était STRICTEMENT PIRE que de ne pas résoudre, et le status l'aurait annoncée comme un
+//     succès. C'est le décompilé qui tranche (`…d__2$$MoveNext` : `this+0x40` reçoit le retour de
+//     `CalculateMovementUtilityInSteps` puis est remis à 0 après `x += it.Current`).
+//
+// La règle de nommage Roslyn est, elle, STABLE : `<>7__wrapN` pour un énumérateur de `foreach`
+// implicite, `<nom>5__N` pour un local explicite hoisté. Combinée au TYPE du champ, elle donne un
+// critère structurel qui ne dépend d'aucun nom de variable source.
+
+interface FieldInfo { name: string; offset: number; type: string }
+
+/** Les champs d'INSTANCE déclarés par la classe (une state machine n'hérite d'aucun champ). */
+function listFields(klass: NativePointer): FieldInfo[] {
+    const out: FieldInfo[] = [];
+    try {
+        const iter = Memory.alloc(Process.pointerSize);
+        iter.writePointer(ptr(0));
+        for (;;) {
+            const f = class_get_fields(klass, iter) as NativePointer;
+            if (f.isNull()) break;
+            let type = "?";
+            try {
+                const tc = type_get_class_or_element_class(
+                    field_get_type(f) as NativePointer) as NativePointer;
+                if (!tc.isNull()) type = s(class_get_name(tc) as NativePointer) || "?";
+            } catch { /* le nom + l'offset suffisent à disqualifier ce champ */ }
+            out.push({
+                name: s(field_get_name(f) as NativePointer) || "?",
+                offset: field_get_offset(f) as number,
+                type,
+            });
+        }
+    } catch { /* classe sans champs itérables -> les replis prendront la main */ }
+    return out;
+}
+
+/** Résout un champ par un PRÉDICAT sur (nom, type), en EXIGEANT l'unicité.
+ *  Zéro candidat comme deux candidats retombent sur le repli LU et sont NOMMÉS dans `fallbacks` :
+ *  une résolution ambiguë est exactement ce qui avait produit le faux silencieux ci-dessus. */
+function resolveByStructure(
+    fields: FieldInfo[], key: string, pred: (f: FieldInfo) => boolean,
+    fallback: number, fallbacks: string[],
+): number {
+    const hits = fields.filter(pred);
+    if (hits.length === 1) return hits[0].offset;
+    fallbacks.push(key + (hits.length === 0 ? ":none" : ":ambiguous(" + hits.length + ")"));
+    return fallback;
+}
+
+const isEnumerator = (f: FieldInfo): boolean => f.type.startsWith("IEnumerator");
+const isWrap = (f: FieldInfo): boolean => f.name.startsWith("<>7__wrap");
 
 const CASE_CANDIDATES: Record<keyof typeof CASE_FALLBACK, string[]> = {
     unit: ["Unit"],
@@ -313,12 +378,36 @@ function install(): boolean {
         const mn = findMethod(sm, "MoveNext");
         if (!mn || mn.ptr.isNull()) { installed[cls] = "movenext_not_found"; continue; }
         const fallbacks: string[] = [];
-        const off: Record<string, number> = {};
-        for (const key of Object.keys(SM_FALLBACK) as Array<keyof typeof SM_FALLBACK>) {
-            off[key] = offsetOf(sm, key, FIELD_CANDIDATES[key], SM_FALLBACK[key], fallbacks);
-        }
+        const fields = listFields(sm);
+        const off: Record<string, number> = {
+            // Noms FIXÉS par le compilateur — non ambigus, résolus par nom.
+            state: offsetOf(sm, "state", FIELD_CANDIDATES.state ?? [],
+                            SM_FALLBACK.state, fallbacks),
+            current: offsetOf(sm, "current", FIELD_CANDIDATES.current ?? [],
+                              SM_FALLBACK.current, fallbacks),
+            outerThis: offsetOf(sm, "outerThis", FIELD_CANDIDATES.outerThis ?? [],
+                                SM_FALLBACK.outerThis, fallbacks),
+            // Noms DÉRIVÉS du source -> structure seule.
+            caseArg: resolveByStructure(fields, "caseArg",
+                                        (f) => f.type === "UtilityMovementCase",
+                                        SM_FALLBACK.caseArg, fallbacks),
+            // L'accumulateur : le SEUL autre `Fix64` que `<>2__current`.
+            acc: resolveByStructure(fields, "acc",
+                                    (f) => f.type === "Fix64" && f.name !== "<>2__current",
+                                    SM_FALLBACK.acc, fallbacks),
+            // `foreach` implicite sur les triggered abilities du mover.
+            outerEnum: resolveByStructure(fields, "outerEnum",
+                                          (f) => isEnumerator(f) && isWrap(f),
+                                          SM_FALLBACK.outerEnum, fallbacks),
+            // L'itérateur RENDU PAR LE PLAYBOOK : un local explicite, donc jamais un `<>7__wrapN`.
+            innerEnum: resolveByStructure(fields, "innerEnum",
+                                          (f) => isEnumerator(f) && !isWrap(f),
+                                          SM_FALLBACK.innerEnum, fallbacks),
+        };
         const r: Resolved = { utility: cls, off, fallbacks };
-        resolvedInfo[cls] = { off, fallbacks, movenext: mn.ptr.toString() };
+        // `fields` est publié TEL QUEL : c'est ce qui a permis de trouver le faux silencieux de
+        // #456, et c'est ce qui permettra de le refaire au prochain build sans re-RE.
+        resolvedInfo[cls] = { off, fallbacks, fields, movenext: mn.ptr.toString() };
         try {
             attach(mn.ptr, r, caseOff);
             installed[cls] = "ok";
