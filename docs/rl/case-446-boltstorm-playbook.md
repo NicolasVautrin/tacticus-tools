@@ -142,7 +142,15 @@ Le port reste **sous** le natif de `4.159792` sur `T` et de `5.639718` sur `A`. 
 
 C'est pour cela que la garde n'asserte **pas** `natif == port` en niveau (elle rougirait pour une
 cause étrangère) mais l'**invariance** de cet écart à travers le balayage — strictement plus fort sur
-l'axe testé. Résidu ouvert : `#446-r1`.
+l'axe testé.
+
+> **`#446-r1` — FERMÉ (2026-08-02), et les deux candidats ci-dessus sont RÉFUTÉS.** L'écart était
+> **entièrement** en PRÉDICTION (l'étage utilité est exact au chiffre près) : l'attaque normale du
+> porteur est `1128 Boltstorm_NormalAttack`, dont le mold
+> `IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$PredictAttack`
+> ajoute `nrOfHits` coups — **porté depuis #57c-C mais jamais dispatché**. Écart ramené à
+> `-0.007500` / `0.000000`. Ni `CrushingStrike` ni `MkXGravis` n'y intervient (contrôle apparié sans
+> traits : natif inchangé). Détail : `case-446-r1-boltstorm-followup.md`.
 
 Une tentative de contrôle sur un caster sans playbook triggered (`astraCreed`) n'a **rien conclu** :
 sans drive, les cibles étaient hors portée et `pairUtility` rendait 0 sur toutes les paires (régime
