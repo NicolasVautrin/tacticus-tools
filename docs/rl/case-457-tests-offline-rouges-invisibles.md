@@ -188,3 +188,99 @@ nombre de cliquets annoncé avant de lire un mur.
 - **`#457-r4` — les 24 fichiers de test sans suffixe** (`_live` ni `_offline`) restent tels quels.
   Le cliquet les joue, donc l'invisibilité est fermée sans les renommer ; mais leur nature ne se lit
   toujours pas au nom.
+
+## 6. `#457-r5` — le périmètre du cliquet ratait 23 fichiers, dont 21 gardés par personne
+
+**Le cliquet censé garder « tout test offline est vert » n'en énumérait que 86 sur 109.**
+
+`TESTS_GLOB = "scripts/python/tests/**/test_*.py"` : `**/` **exige un niveau intermédiaire**, donc
+les fichiers posés **directement** dans `tests/` en étaient exclus. Mesuré le 2026-08-02, contre-épreuve
+du glob lui-même :
+
+| pathspec | fichiers |
+| --- | --- |
+| `scripts/python/tests/**/test_*.py` | 496 |
+| `scripts/python/tests/test_*.py` | 23 |
+| total réel | **519** |
+
+Deux des 23 étaient rattrapés par les allowlists (`pytest_signatures`, `pytest_attestations`).
+**Les 21 autres n'étaient joués par aucune entrée de la banque** — et ce sont des gardes de premier
+rang : `test_431_build_pin_offline`, `test_host_inputs_offline`, `test_391_conftest_dir_identity_offline`,
+les quatre ratchets d'enum, `test_366_r1_bcpatch_port_blindspot_offline`, `test_323_unit_map_voies_offline`.
+Dont `test_449_r2_spread_face_combat_offline.py`, que l'orchestrateur avait dû rejouer **à la main**
+en validant #515 : s'être appuyé sur la banque ne l'aurait pas couvert.
+
+**La garde anti-effondrement existait mais ne voyait que le cas TOTAL.** §3 ci-dessus se prémunit
+d'un périmètre vide (« un shard vide rend 1, pas 0 — un périmètre effondré, glob faux, doit se
+dire »). C'est un périmètre **partiel** qui est arrivé, et un périmètre partiel passe pour un succès.
+Un compte non nul n'est pas une preuve de couverture.
+
+**Verdict sur le gisement : aucun rouge caché.** Les 24 fichiers entrants sont **tous verts**
+(24/24, 300 tests), et les trois shards du périmètre complet rendent `rc=0`. Le trou était réel mais
+n'avait pas encore mordu — ce que le cliquet garde désormais, c'est demain.
+
+### La correction
+
+Le répertoire est passé à git (`git ls-files scripts/python/tests`, qui descend seul, **sans
+sémantique `**` à deviner**) et la sélection se fait en Python sur le basename. Le critère couvre
+les **deux** conventions pytest (`test_*.py` **et** `*_test.py`) : `pytest.ini` ne pose pas
+`python_files`, donc le périmètre doit couvrir ce que pytest **collecte**, pas ce qui se trouve exister.
+
+**Garde posée** : `scripts/python/tests/test_457_r5_perimetre_offline.py` (8 tests) — accord entre
+**deux dérivations indépendantes sur l'axe qui a cassé** (pathspec git *vs* walk disque intersecté à
+`git ls-files` **sans pathspec**), plus une propriété dédiée sur la profondeur 1, plus le critère de
+nommage. **Anti-vacuité** posée partout : deux ensembles vides seraient trivialement égaux — chaque
+test asserte d'abord que sa source n'est pas vide (leçon du vert vacueux, §2).
+Le fichier est lui-même en profondeur 1 : il ne peut pas être invisible au trou qu'il garde.
+
+### Le coût a changé d'ordre — et c'est assumé
+
+Les 24 entrants pèsent **2150 s en série** pour ~300 tests, contre 116 s pour les 896 tests
+préexistants : **~20× le coût par test**. Rien d'anormal — ce sont les **gardes de dépôt**
+(balayages d'arbre, tables de symboles, 669 kits), là où la profondeur ≥ 2 abrite les tests
+unitaires du moteur. Les cinq plus lourds : `test_380_seed_bc_patch_survival` 268 s,
+`test_431_build_pin` 258 s, `test_366_r1_bcpatch_port_blindspot` 234 s, `test_enum_ordinal_ratchet`
+201 s, `test_additional_hits_variant_signatures` 169 s.
+
+Simulation sur les durées mesurées (`shard_of` réel, md5 % N) :
+
+| shards | mur | écart-type |
+| --- | --- | --- |
+| 3 | 924 s | 217 |
+| 4 | 697 s | 121 |
+| **8** | **629 s** | 176 |
+| 16 | 443 s | 131 |
+
+**Passage à 8 shards** (banque 33 → 38 entrées, union re-vérifiée stricte : 110 = 110 distincts,
+0 doublon, 0 manquant). Au-delà le rendement s'effondre : le md5 **regroupe les lourds**, et le
+plancher irréductible est le fichier le plus lourd, insécable. Sharder n'est donc plus le levier ;
+alléger les balayages l'est (`#457-r6`), et **#524 vient de le démontrer** sur `probe_431` :
+périmètre ×2,1 pour **−14 %** de temps, le `Path.match` coûtant plus cher que le gisement qu'il ratait.
+
+⚠ **La simulation SURESTIME — c'est la mesure isolée qui fait foi.** Mur réel des 8 shards, mesuré
+isolé (`ratchets.ps1 -Only probe_439,probe_440,probe_457`, 10 cliquets, `rc=0`) : **297,8 s**, shard
+le plus long 295,7 s, le plus court 48,3 s. La simulation annonçait 629 s parce qu'elle additionne
+des durées par fichier **déjà gonflées par la contention** (5 agents actifs au moment du profil).
+Même leçon que §4 : un mur ne se déduit pas, il se mesure isolé.
+
+⚠ **Ne jamais « régler » ce coût en rétrécissant le périmètre** : c'est exactement la faute réparée ici.
+
+### Convergence indépendante
+
+**#458 / PR #524 a trouvé la même sémantique le même jour, sur un autre outil** : `probe_431` ratait
+17 fichiers « par le haut » — « le `**` exige un segment, donc un fichier posé à la racine même du
+glob échappe ». Deux outils, deux auteurs, un seul vice. C'est la **cinquième** forme du « périmètre
+saisi au lieu d'être dérivé », et la première où le périmètre *se voulait* dérivé : c'est la
+**sémantique du glob** qui le restreignait en silence.
+
+### Résidus ouverts par cette section
+
+- **`#457-r6` — les gardes de dépôt coûtent 20× le coût/test des tests moteur.** 2150 s pour ~300
+  tests ; `test_391_conftest_dir_identity_offline` fait **1 test en 122 s**. Ces balayages relisent
+  l'arbre indépendamment les uns des autres ; un cache d'arbre partagé (fixture de session) est le
+  levier. Chiffré, non traité.
+- **`#457-r7` — le probe rend un FAUX `VERDICT: FAIL` s'il est lancé hors `scripts/python`.** Les
+  chemins passés à `pytest.main` sont relatifs au rootdir ; depuis la racine du dépôt il rend
+  `pytest rc=4` (*usage error*, « file or directory not found ») que le probe traduit en rouge de
+  test. La banque le lance depuis le bon répertoire, donc le gisement est nul aujourd'hui — mais un
+  rc d'usage ne doit pas se lire comme un rouge de gisement.

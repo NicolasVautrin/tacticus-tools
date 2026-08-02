@@ -8,8 +8,10 @@ Mesure du 2026-08-02, sur `master` propre : `tests/engine/runner/test_multihex_s
 rendait `3 failed, 15 passed` -- et le rouge datait du 2026-08-01. Trois raisons CUMULEES le
 rendaient invisible, et aucune n'est un oubli individuel :
 
-  1. `CLAUDE.md` PROSCRIT la suite complete -- a raison : 405 des 489 fichiers de test montent un
-     runner, la suite entiere sature la session Frida partagee.
+  1. `CLAUDE.md` PROSCRIT la suite complete -- a raison : 410 des 519 fichiers de test sont
+     `_live.py`, la suite entiere sature la session Frida partagee. (Comptes RE-DERIVES le
+     2026-08-02 apres #457-r5 ; les precedents -- 489 et 405 -- etaient eux-memes fausses par
+     le glob corrige ci-dessous, qui masquait 23 fichiers.)
   2. Un agent ne rejoue que les tests de SA tranche, et ce fichier n'etait la tranche de personne.
   3. Les trois entrees pytest de la banque (`pytest_signatures`, `pytest_attestations`,
      `pytest_adjacency`) nomment leurs fichiers A LA MAIN. C'est une ALLOWLIST : un fichier n'y
@@ -24,13 +26,34 @@ mesure, un quatrieme test passait au vert avec zero assertion utile -- son annea
 vide, donc `set([centre]) == {centre} | set([])` etait trivialement vraie. Un fichier rouge se
 repare ; un fichier vert-a-vide s'accumule.
 
-POURQUOI IL NE COUTE (PRESQUE) RIEN
------------------------------------
-La proscription de la suite complete vise le cout des tests LIVE. Les OFFLINE, eux, ne montent
-aucun runner : mesure du 2026-08-02, 84 fichiers, 896 tests, 116 s d'un bloc -- et ~56 s de ce
-total sont l'IMPORT des modules, pas les assertions. Eclate en trois shards, le plus long tombe a
-86 s, donc SOUS le mur de la banque : le cout marginal en parallele est nul. Meme arbitrage que
-`probe_283`, pour la meme raison.
+CE QU'IL COUTE -- ET POURQUOI CE N'EST PLUS << presque rien >>
+--------------------------------------------------------------
+La proscription de la suite complete vise le cout des tests LIVE : les OFFLINE ne montent aucun
+runner. Mais le cout a CHANGE D'ORDRE avec #457-r5, et l'ancienne redaction (<< 84 fichiers,
+896 tests, 116 s d'un bloc ; 86 s pour le plus long des trois shards >>) mesurait un perimetre
+AMPUTE de 23 fichiers.
+
+Mesure du 2026-08-02, perimetre COMPLET, 109 fichiers / 1195 tests, trois shards joues en
+parallele SOUS CHARGE (5 agents actifs) : **602 / 770 / 431 s**. Les 24 fichiers entrants pesent a
+eux seuls plus de 600 s en serie -- ce sont pour l'essentiel des BALAYAGES (tables de symboles,
+669 kits, arbre `scripts/**`), lourds mais legitimement offline.
+
+Consequence assumee : a trois shards ce cliquet DEVIENT le mur de la banque, d'ou le passage a
+HUIT dans `scripts/ratchets.ps1`.
+
+ATTENTION -- NE PAS CONFONDRE LES DEUX CHIFFRES. La simulation sur les durees par fichier (mesurees SOUS
+CHARGE) annoncait un mur de 629 s a 8 shards ; le mur REEL, mesure ISOLE le 2026-08-02
+(`ratchets.ps1 -Only probe_439,probe_440,probe_457`), est **297,8 s** -- shard le plus long 295,7 s,
+le plus court 48,3 s. La simulation surestime parce qu'elle additionne des durees deja gonflees par
+la contention. Le mur d'une banque ne se SIMULE pas, il se MESURE isole (cf. les 4 releves du meme
+jour, 126,6 / 136,2 / 159,1 / 319,8 s, sur des compositions quasi identiques).
+
+Sharder plus ne rachete pas son cout : le md5 regroupe les lourds, et le plancher irreductible
+reste le fichier le plus lourd, insecable (268 s en serie sous charge). Le vrai levier est
+d'alleger les balayages eux-memes (residu #457-r6).
+
+NE PAS << regler >> ce cout en retrecissant le perimetre : c'est exactement la faute que #457-r5
+repare. Chiffres a RE-DERIVER, jamais a citer.
 
 LE PERIMETRE, ET POURQUOI CE CRITERE-LA
 ---------------------------------------
@@ -69,8 +92,24 @@ import pytest
 #: sous-ensembles stricts (294 / 248 / 2). Une seule racine suffit donc a tous les reconnaitre.
 LIVE_FIXTURE_ROOT = "host"
 
-#: Repertoire des tests, relatif a `scripts/python` (= rootdir pytest, cf. `pytest.ini`).
-TESTS_GLOB = "scripts/python/tests/**/test_*.py"
+#: Repertoire des tests (`testpaths = tests` dans `pytest.ini`). C'est un PATHSPEC DE REPERTOIRE,
+#: pas un glob : `git ls-files <dir>` descend recursivement, sans semantique `**` a deviner.
+#:
+#: ATTENTION #457-r5 : la forme precedente etait `scripts/python/tests/**/test_*.py`, et `**/` EXIGE un
+#: niveau intermediaire -- les fichiers poses DIRECTEMENT dans `tests/` en etaient exclus.
+#: Mesure du 2026-08-02 : 496 fichiers avec `**`, 519 sans, soit 23 invisibles, dont 21 que AUCUNE
+#: entree de la banque ne jouait (les 2 autres etant nommes a la main par `pytest_signatures` et
+#: `pytest_attestations`). C'est le vice de #458 (`Path.match` n'etend pas `**`) sur un autre outil.
+TESTS_DIR = "scripts/python/tests"
+
+
+def _is_test_file(name: str) -> bool:
+    """Convention de collecte de pytest, laissee au DEFAUT par `pytest.ini` (pas de `python_files`).
+
+    Les DEUX formes comptent. `*_test.py` n'existe pas dans le depot aujourd'hui, mais un perimetre
+    DERIVE doit couvrir ce que pytest collecte, pas ce qui se trouve exister -- sinon le prochain
+    fichier ainsi nomme rouvre exactement le trou qu'on vient de fermer."""
+    return name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
 
 _PYDIR = Path(__file__).resolve().parent
 
@@ -85,14 +124,20 @@ def candidate_files() -> list[str]:
     """Les fichiers de test NON `_live.py`, en chemins relatifs a `scripts/python`.
 
     Passe par `git ls-files` : seul l'index de CE checkout est consulte, donc ni les worktrees
-    voisins ni les fichiers non suivis n'y entrent. Tri stable -- le shard doit etre reproductible."""
-    out = subprocess.run(["git", "ls-files", TESTS_GLOB], capture_output=True, text=True,
+    voisins ni les fichiers non suivis n'y entrent. Tri stable -- le shard doit etre reproductible.
+
+    Le REPERTOIRE est passe a git (qui descend seul), et la selection des fichiers se fait ICI, en
+    Python : c'est ce qui rend le perimetre relisable et testable, au lieu de dependre de la
+    semantique d'un glob (#457-r5)."""
+    out = subprocess.run(["git", "ls-files", TESTS_DIR], capture_output=True, text=True,
                          cwd=str(repo_root()), check=True)
     prefix = "scripts/python/"
     rels = []
     for line in out.stdout.splitlines():
         rel = line.strip()
         if not rel or rel.endswith("_live.py") or not rel.startswith(prefix):
+            continue
+        if not _is_test_file(rel.rsplit("/", 1)[-1]):
             continue
         rels.append(rel[len(prefix):])
     return sorted(rels)

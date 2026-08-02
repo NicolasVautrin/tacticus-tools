@@ -225,24 +225,50 @@ $Ratchets = @(
        Seul = 'COMPTEUR : les litteraux On(<n>) stables vs decales'
        Doc  = 'docs/rl/case-283-quatre-enums-renumerotes.md' }
 
-    # --- probe_457, en TROIS shards. L'union des trois est STRICTE (verifiee : 30+30+24 = 84
-    #     fichiers, aucun doublon, aucun manquant) et le shard se derive d'un md5 du chemin --
-    #     stable, donc un fichier neuf ne redistribue pas les autres.
-    #     MEME ARBITRAGE QUE probe_283 : joue d'un bloc il fait 116 s et DEVIENT le mur ; eclate,
-    #     son plus long shard tombe a 86 s et passe SOUS lui (mur mesure a 132 s le 2026-08-02).
-    #     Les trois entrees partagent la meme ligne `Seul` : c'est le meme gisement, decoupe pour
-    #     le cout, exactement comme les six etapes de probe_283.
+    # --- probe_457, en HUIT shards (etait TROIS). Le shard se derive d'un md5 du chemin -- stable,
+    #     donc un fichier neuf ne redistribue pas les autres, et l'union des shards est STRICTE.
+    #     Les entrees partagent la meme ligne `Seul` : meme gisement, decoupe pour le cout,
+    #     exactement comme les six etapes de probe_283.
     #     Ce cliquet est le SEUL de la banque dont le perimetre se DERIVE au lieu d'etre nomme :
     #     les trois entrees `pytest_*` ci-dessus sont des allowlists, et c'est precisement ce qui
     #     a laisse `test_multihex_substrate.py` rouge pendant un jour sans que rien ne le dise.
-    @{ Id = 'probe_457:s0'; Argv = @('probe_457_offline_tests_green.py', '--shard', '0/3')
-       Seul = 'un fichier de test 100 % OFFLINE ROUGE EN PERMANENCE sur master -- invisible parce que la suite complete est proscrite (405 des 489 fichiers montent un runner), qu un agent ne rejoue que SA tranche, et que les trois entrees pytest_* de cette banque nomment leurs fichiers A LA MAIN (allowlist : on n y entre que si quelqu un y pense). Mesure : test_multihex_substrate.py, 3 failed / 15 passed sur master. Il voit aussi la moitie plus couteuse du meme vice -- le VERT VACUEUX, un 4e test du meme fichier passant avec zero assertion utile parce que son anneau etait vide'
+    #
+    #     POURQUOI HUIT (#457-r5). Le perimetre passe de 86 a 110 fichiers : le glob precedent
+    #     (`tests/**/test_*.py`) excluait les fichiers poses DIRECTEMENT dans `tests/`, car `**/`
+    #     exige un niveau intermediaire. Les 24 entrants sont les GARDES DE DEPOT (balayages
+    #     d'arbre, tables de symboles) et pesent a eux seuls ~2150 s en serie, contre 116 s pour
+    #     les 896 tests preexistants -- ~20x le cout par test. Le md5 regroupe les lourds
+    #     (ecart-type 131-218 s), donc sharder davantage ne rachete plus son cout d'ordonnancement :
+    #     la simulation donne 924 s a 3 shards, 629 s a 8, et seulement 443 s a SEIZE.
+    #     MUR REEL, MESURE ISOLE le 2026-08-02 (-Only probe_439,probe_440,probe_457) : 297,8 s
+    #     (shard le plus long 295,7 s, le plus court 48,3 s). La SIMULATION SURESTIME -- elle
+    #     additionne des durees par fichier deja gonflees par la contention. Mesurer, pas simuler.
+    #     Le vrai levier est d'alleger les balayages eux-memes -- residu #457-r6, et #524 vient de
+    #     le demontrer sur probe_431 (perimetre x2,1 pour -14 % de temps).
+    #     NE PAS << regler >> ce cout en retrecissant le perimetre : c'est la faute que #457-r5 repare.
+    @{ Id = 'probe_457:s0'; Argv = @('probe_457_offline_tests_green.py', '--shard', '0/8')
+       Seul = 'un fichier de test 100 % OFFLINE ROUGE EN PERMANENCE sur master -- invisible parce que la suite complete est proscrite (410 des 519 fichiers sont _live.py), qu un agent ne rejoue que SA tranche, et que les trois entrees pytest_* de cette banque nomment leurs fichiers A LA MAIN (allowlist : on n y entre que si quelqu un y pense). Mesure : test_multihex_substrate.py, 3 failed / 15 passed sur master. Il voit aussi la moitie plus couteuse du meme vice -- le VERT VACUEUX, un 4e test du meme fichier passant avec zero assertion utile parce que son anneau etait vide'
        Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
-    @{ Id = 'probe_457:s1'; Argv = @('probe_457_offline_tests_green.py', '--shard', '1/3')
-       Seul = 'idem probe_457:s0 -- shard 1/3 du MEME gisement (perimetre DERIVE, pas d allowlist)'
+    @{ Id = 'probe_457:s1'; Argv = @('probe_457_offline_tests_green.py', '--shard', '1/8')
+       Seul = 'idem probe_457:s0 -- shard 1/8 du MEME gisement (perimetre DERIVE, pas d allowlist)'
        Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
-    @{ Id = 'probe_457:s2'; Argv = @('probe_457_offline_tests_green.py', '--shard', '2/3')
-       Seul = 'idem probe_457:s0 -- shard 2/3 du MEME gisement (perimetre DERIVE, pas d allowlist)'
+    @{ Id = 'probe_457:s2'; Argv = @('probe_457_offline_tests_green.py', '--shard', '2/8')
+       Seul = 'idem probe_457:s0 -- shard 2/8 du MEME gisement (perimetre DERIVE, pas d allowlist)'
+       Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
+    @{ Id = 'probe_457:s3'; Argv = @('probe_457_offline_tests_green.py', '--shard', '3/8')
+       Seul = 'idem probe_457:s0 -- shard 3/8 du MEME gisement (perimetre DERIVE, pas d allowlist)'
+       Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
+    @{ Id = 'probe_457:s4'; Argv = @('probe_457_offline_tests_green.py', '--shard', '4/8')
+       Seul = 'idem probe_457:s0 -- shard 4/8 du MEME gisement (perimetre DERIVE, pas d allowlist)'
+       Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
+    @{ Id = 'probe_457:s5'; Argv = @('probe_457_offline_tests_green.py', '--shard', '5/8')
+       Seul = 'idem probe_457:s0 -- shard 5/8 du MEME gisement (perimetre DERIVE, pas d allowlist)'
+       Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
+    @{ Id = 'probe_457:s6'; Argv = @('probe_457_offline_tests_green.py', '--shard', '6/8')
+       Seul = 'idem probe_457:s0 -- shard 6/8 du MEME gisement (perimetre DERIVE, pas d allowlist)'
+       Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
+    @{ Id = 'probe_457:s7'; Argv = @('probe_457_offline_tests_green.py', '--shard', '7/8')
+       Seul = 'idem probe_457:s0 -- shard 7/8 du MEME gisement (perimetre DERIVE, pas d allowlist)'
        Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
 
     # Le cliquet de la BANQUE elle-meme. Il est dans la banque, donc soumis a son propre critere.
