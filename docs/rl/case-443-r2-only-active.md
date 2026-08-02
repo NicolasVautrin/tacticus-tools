@@ -113,7 +113,15 @@ pas un rejeu.
    substrats **coïncident** — le §2bis du test garde désormais ce contre-cas.
 3. **Le résidu #443-r2 est CLOS** : le paramètre n'est pas mort, il est *load-bearing*.
 
-## 5. Ce que la discrimination a fait tomber — résidu `#443-r2-b1` (BUG, mesuré)
+## 5. Ce que la discrimination a fait tomber — résidu `#443-r2-b1` (BUG, mesuré) — **FERMÉ**
+
+> **FERMÉ le 2026-08-02** : la face DÉCISION prend désormais la MÊME porte
+> (`decision_view_seed_body`), et ce que le canal ajoute n'atteint que le substrat STRUCTURÉ.
+> Gain confirmé à une autre échelle que celle qui l'avait ouvert : **une décision de CIBLE passe de
+> MISS à MATCH** sur une marche d'agreement (`C4_09`/777, `ability` 9/13 → 10/13), déplacement
+> intégralement dans la feuille TRIGGERED et égal à `35.000000`. Détail, contre-épreuves et résidus :
+> **`docs/rl/case-443-r2-b1-canal-decision.md`**. Ce qui suit décrit l'état AVANT la fermeture, et
+> reste vrai comme diagnostic.
 
 **La face DÉCISION seede son `EffectsState` depuis le canal `decisionView` PAR DÉFAUT** — donc elle
 ne voit AUCUN effet inerte, là où le natif en voit. Écart mesuré : **−35 points d'utilité de paire**
@@ -178,8 +186,10 @@ est sensible, seul l'oracle manque.
 
 ## 7. Résidus nommés
 
-* **`#443-r2-b1`** — la face DÉCISION est aveugle aux effets INERTES (canal de seed par défaut).
-  **BUG mesuré à −35** ; foyer, remède et rayon de souffle au §5.
+* ~~**`#443-r2-b1`**~~ — la face DÉCISION est aveugle aux effets INERTES (canal de seed par défaut).
+  **BUG mesuré à −35**. **FERMÉ le 2026-08-02** — `docs/rl/case-443-r2-b1-canal-decision.md`.
+  Trois résidus en sont nés (`-r1` lecteurs de la liste brute en présence native, `-r2` slot 0x13 de
+  `CanUseAbility` non résolu, `-r3` rallumage de `1014` en simulation).
 * **`#443-r2-c1`** — la conformité n'est gardée que là où une citation est ATTACHABLE. Les **157**
   lectures d'effet NON DÉCLARÉES (aucun nœud `HasEffect` cité en portée) sont inventoriées, jamais
   rouges : un mirror écrit sans citer son littéral échappe à l'étape de conformité.
