@@ -57,10 +57,16 @@ RE (décompilé, VAs) :
   N=count, prob=1/N ; `total = Σ_E [GDU(E,1/N) + GDU(second(E),1/N)]` ; second(E) =
   `Friends(AdjacentUnits(E,1))` → `SelectUnit(…,3)` = premier ennemi vivant adjacent à E
   (à s5 : {91,95} mutuels → le ×2 annule le 1/N → total = c₉₁+c₉₅).
-- Prédiction (`GetDamagePrediction @1811662a0`) = slot 0x23 : **montant PRÉDÉFINI
-  avg(minDmg,maxDmg)[lvl PASSIF 50 × mult 180 → (599+797)/2=698], hits FORCÉS 1, spread 0**
-  (comme Psyker) — PROUVÉ `probe_32d_fury.py` (matrice hits×canal : delta ~1e-8 sur les 2
-  cibles ; hits=2 → ×2, canal plage [min,max] → −0.006). `nrOfHits`=2 = l'EXÉCUTION seulement.
+- Prédiction (`IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction`) =
+  slot 0x23 : **montant DONNÉ avg(minDmg,maxDmg)[lvl PASSIF 50 × mult 180 → (599+797)/2=698],
+  hits FORCÉS 1, spread ±20 %** (comme Psyker) — `probe_32d_fury.py` (matrice hits×canal :
+  delta ~1e-8 sur les 2 cibles ; hits=2 → ×2, canal plage [min,max] → −0.006).
+  `nrOfHits`=2 = l'EXÉCUTION seulement.
+  ⚠ **CORRIGÉ par #449** : cette ligne disait « spread 0 ». La matrice de `probe_32d` ne
+  discriminait **pas** cet axe — re-jouée, elle rend le MÊME chiffre pour `avg0` et `avg20`
+  (`9.660285492973332` / `10.866318147871546`, à 1e-15 près), parce que le composite consomme
+  `MinMaxDamage$$Avg`, la MOYENNE des deux bornes. Ce qu'elle a discriminé (plage vs moyenne,
+  hits 1 vs 2) reste acquis. Détail : `case-449-spread-du-slot-de-montant.md`.
 - Implémentation : `engine/playbook/fury_of_the_ancients.py` (module homonyme de la classe
   native) ; registre `TRIGGERED_MOVE_PLAYBOOKS[1247]` ; signature dispatcher généralisée
   `calculate_movement_utility_in_steps(tile, ctx, wt)` (ctx = `tile_leaf_ctx` enrichi :

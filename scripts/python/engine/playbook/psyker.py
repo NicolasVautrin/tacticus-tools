@@ -37,7 +37,11 @@ case-34 §MAJ #45quater) :
   5. `ProbableDamageEvent(U, prediction)` -> `TriggeredAbilityPlaybook.CalculateUtilityFromDamageEvent`
      (composite Damage standard, hpmax EFFECTIF part-2) ; **u = Σ / Count(targets) (MOYENNE)** —
      `Fix64.op_Division` de sortie du SM. Validé : mean(u77(1602)=21.3896, u79(1282)=14.3181)
-     = 17.85385 == L3 natif 17.85381752299145 (delta < 4e-5).
+     = 17.85385 == L3 natif 17.85381752299145 (`probe_45_psyker`, re-joué le 2026-08-02 :
+     17.853817519579994, delta **-3,4e-9**).
+     ⚠ #449 — cet accord ne dit RIEN du spread : le composite consomme la MOYENNE des deux
+     bornes, donc `spread_pct=0` et le spread ±20 % rendent ici le MÊME nombre, à
+     `0.000000000` près (mesuré). Le spread est établi sur les BORNES, pas sur cette valeur.
 """
 from __future__ import annotations
 

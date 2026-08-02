@@ -114,9 +114,17 @@ return  <slot 0x62>( [casterTile],           GetTiles(case.Target) )
 
 7. **La prédiction est celle du slot `0x23`**,
    `IdunBattle.Core.Services.BattleQuery$$GetAttackPrediction(caster, target, casterTile, ability,
-   amount, Nullable<DamageProfileType>, …)` : montant **prédéfini**, **hits forcés à 1** (littéral
-   `1` passé au slot 10 d'`IDamagePredictionQuery`), spread 0 — même canal que `psyker.py` et
-   `fury_of_the_ancients.py`. Le profil n'est PAS une constante d'ability : c'est `w.<+0x10>`, le
+   amount, Nullable<DamageProfileType>, …)` : montant **donné**, **hits forcés à 1** (littéral
+   `1` passé au slot 10 d'`IDamagePredictionQuery`), et le montant **passe par le spread ±20 %** —
+   même canal que `psyker.py` et `fury_of_the_ancients.py`.
+   ⚠ **CORRIGÉ par #449** : cette ligne disait « montant *prédéfini*, spread 0 ». C'est FAUX.
+   `DamagePredictionQuery$$GetAttackPrediction` écrit le littéral `1` à
+   `DamagePredictionRequest+0x6a`, l'octet que `DamagePrediction$$PredictAttackRaw` teste pour
+   router vers `DamagePrediction$$GetBaseDamageFix64`. Mesuré sur les bornes capturées :
+   natif **[11, 13]** contre [12, 12]. La faute était invisible du canal qui l'avait validée
+   (`pairUtility` → composite Damage → `MinMaxDamage$$Avg`, la MOYENNE des deux bornes).
+   Détail : `case-449-spread-du-slot-de-montant.md`.
+   Le profil n'est PAS une constante d'ability : c'est `w.<+0x10>`, le
    `DamageProfile` de l'arme rendue par le slot `0xaf` =
    `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack(caster,
    attackerTiles, target)` (foyer porté : `services/battle_query.py::select_weapon_pierce`, `case-184`).

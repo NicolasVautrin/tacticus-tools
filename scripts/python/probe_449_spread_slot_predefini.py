@@ -134,8 +134,14 @@ def bounds_of(ev: dict) -> tuple:
 def _forced_spread(mod, pct):
     """Remplace le foyer `get_attack_prediction` VU PAR LE MODULE par un wrapper qui IMPOSE
     `spread_pct`. C'est ce qui permet de mesurer les DEUX lectures sur le MEME port, sans
-    recompiler ni supposer laquelle est en place dans la source."""
+    recompiler ni supposer laquelle est en place dans la source.
+
+    `pct is None` = AUCUN forcage : on mesure ce que la SOURCE fait. C'est la colonne qui rend
+    ce probe capable de rougir sur une regression -- les deux colonnes forcees, elles, sont
+    indifferentes a la valeur ecrite dans le port."""
     real = mod.get_attack_prediction
+    if pct is None:
+        return real, real
 
     def wrapper(*a, **kw):
         kw["spread_pct"] = pct
@@ -338,13 +344,15 @@ def measure(rpc, case: dict) -> list:
     ab = next(iter(case["ctx_bull"].normal_ids or ()), None)
     pf, amt = port_bounds_avalanche(case["ctx_bull"], ids[BULL], ab, ids[TGT], case["c_bull"], 0)
     ps, _ = port_bounds_avalanche(case["ctx_bull"], ids[BULL], ab, ids[TGT], case["c_bull"], 20)
+    pc, _ = port_bounds_avalanche(case["ctx_bull"], ids[BULL], ab, ids[TGT], case["c_bull"], None)
     f_lo, f_hi, f_u = bounds_and_utility(case["ctx_bull"], pf, ids[TGT])
     s_lo, s_hi, s_u = bounds_and_utility(case["ctx_bull"], ps, ids[TGT])
+    c_lo, c_hi, _cu = bounds_and_utility(case["ctx_bull"], pc, ids[TGT])
     rows.append({"regime": "A_CHARGE", "playbook": "AvalancheOfMuscle(1028)", "amount": amt,
                  "events": len(ev), "native": [n_lo, n_hi], "target": ev[0].get("targetId"),
                  "hpBefore": ev[0].get("hpBefore"), "nativeUtility": None,
                  "port_flat": [f_lo, f_hi], "port_spread": [s_lo, s_hi],
-                 "u_flat": f_u, "u_spread": s_u})
+                 "port_src": [c_lo, c_hi], "u_flat": f_u, "u_spread": s_u})
 
     ev = native_events(rpc, case["rid"], ids[NJAL], ids[TGT], AB_PSYKER, case["p_njal"],
                        "PsykerPlaybook")
@@ -354,14 +362,16 @@ def measure(rpc, case: dict) -> list:
         raise MontageError("event psyker sans cible resolue : %r" % (str(ev[0])[:250],))
     pf, amt = port_bounds_psyker(case["ctx_njal"], ids[NJAL], tgt_id, case["p_njal"], 0)
     ps, _ = port_bounds_psyker(case["ctx_njal"], ids[NJAL], tgt_id, case["p_njal"], 20)
+    pc, _ = port_bounds_psyker(case["ctx_njal"], ids[NJAL], tgt_id, case["p_njal"], None)
     f_lo, f_hi, f_u = bounds_and_utility(case["ctx_njal"], pf, tgt_id)
     s_lo, s_hi, s_u = bounds_and_utility(case["ctx_njal"], ps, tgt_id)
+    c_lo, c_hi, _cu = bounds_and_utility(case["ctx_njal"], pc, tgt_id)
     rows.append({"regime": "P_SPLASH", "playbook": "PsykerExtraAttack(1013)", "amount": amt,
                  "events": len(ev), "native": [n_lo, n_hi], "target": tgt_id,
                  "hpBefore": ev[0].get("hpBefore"),
                  "nativeKill": [ev[0].get("willBeKill"), ev[0].get("mightBeKill")],
                  "port_flat": [f_lo, f_hi], "port_spread": [s_lo, s_hi],
-                 "u_flat": f_u, "u_spread": s_u})
+                 "port_src": [c_lo, c_hi], "u_flat": f_u, "u_spread": s_u})
     return rows
 
 
@@ -396,17 +406,30 @@ def verdict(rows: list) -> tuple:
         if abs(r["port_spread"][0] - lo) > EPS or abs(r["port_spread"][1] - hi) > EPS:
             errs.append("%s: le port au spread par defaut rend %r contre %r au natif"
                         % (r["regime"], r["port_spread"], r["native"]))
+        # (d) LE CLIQUET : ce que la SOURCE fait, sans forcage. Sans cette ligne, le probe
+        #     resterait VERT si `spread_pct=0` revenait dans le port -- les deux colonnes
+        #     precedentes sont forcees, donc indifferentes a la source.
+        if abs(r["port_src"][0] - lo) > EPS or abs(r["port_src"][1] - hi) > EPS:
+            errs.append("%s: le port TEL QU'ECRIT rend %r contre %r au natif -- le `spread_pct` "
+                        "de la source n'est pas celui du natif (#449)"
+                        % (r["regime"], r["port_src"], r["native"]))
     return (not errs), errs
 
 
 # --------------------------------------------------------------------------- entree
 
+def build_args(hp_splash: int | None = None) -> list:
+    """Les arguments `rl_duel build` du montage. `hp_splash` cale les PV de la cible de splash
+    (phase FLIP). Partages avec la garde jumelle, qui passe par la fixture `build_runner`."""
+    a = ["--board", BOARD, "--p-units", ",".join((BULL, NJAL)), "--a-units", ",".join(FOES)]
+    if hp_splash is not None:
+        a += ["--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (SPLASH, hp_splash, hp_splash)]
+    return a
+
+
 def _build(state_file: str, hp_splash: int | None = None) -> int:
     args = [sys.executable, "rl_duel.py", "build", "--seed", SEED, "--state-file", state_file,
-            "--board", BOARD, "--p-units", ",".join((BULL, NJAL)),
-            "--a-units", ",".join(FOES)]
-    if hp_splash is not None:
-        args += ["--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (SPLASH, hp_splash, hp_splash)]
+            *build_args(hp_splash)]
     proc = subprocess.run(args, cwd=_HERE, capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     if not os.path.exists(state_file):
@@ -534,6 +557,8 @@ def main(argv=None) -> int:
             print("      port sp=20  [%10.2f, %10.2f]  u=%.9f" % (r["port_spread"][0],
                                                                   r["port_spread"][1],
                                                                   r["u_spread"]))
+            print("      port SOURCE [%10.2f, %10.2f]  <- sans forcage (le cliquet)"
+                  % tuple(r["port_src"]))
             print("      delta u (sp=20 - sp=0) = %+.9f   <- le canal UTILITE" % (
                 r["u_spread"] - r["u_flat"]))
         if fl is not None:
