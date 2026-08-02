@@ -134,7 +134,25 @@ class AdjacentTiles(TargetsSelector):
     `PickRandomly`/`First`/tri stable consomme le resultat (== `_free_tiles_adjacent(native_order=True)`,
     valide live par fc23f1e). 2e consommateur confronte live : le splash de
     `IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility$$ExecuteBehaviour`, itere par un
-    `SortedAttackSeries` SANS `OrderBy` -> l'ordre fixe la sequence de tirages de degat."""
+    `SortedAttackSeries` SANS `OrderBy` -> l'ordre fixe la sequence de tirages de degat.
+
+    EXCLUSION DE L'ORIGINE (#459) -- `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select`,
+    VERBATIM :
+
+        result = new OrderedSet<TileEntity>();
+        tiles  = this.source.SelectTiles(entities);        // vslot 0xa -- l'EMPREINTE de l'origine
+        foreach (t in tiles)
+            foreach (a in battleQuery.GetAdjacentTiles(t, false, true, true))
+                if (!tiles.Contains(a)) result.Add(a);
+        return result;
+
+    Le `Contains` porte sur ce que rend `SelectTiles`, c'est-a-dire l'EMPREINTE ENTIERE de l'origine
+    -- que le call-site passe une ENTITE (que `SelectTiles` deplie) ou un selecteur de TUILES. Sur
+    une origine MONO-hex il est INERTE (une tuile n'est jamais dans son propre voisinage) ; sur une
+    origine MULTI-hex il retire les pieds, qui sont voisins les uns des autres.
+
+    ⚠ RESIDU `#459-r2` : le `OrderedSet` natif DEDOUBLONNE aussi ; le port rend toujours l'union
+    BRUTE (les call-sites portes font suivre d'un `Unique`/`TileUnique`, cf. l'en-tete)."""
     def __init__(self, source: TargetsSelector):
         self.source = source
 
@@ -142,12 +160,14 @@ class AdjacentTiles(TargetsSelector):
         board = getattr(ctx, "board", None)
         if board is None:
             return []
+        tiles = _tile_positions(self.source, ctx, board)
+        origin_ids = {board.id_at(p[0], p[1]) for p in tiles}      # les `tiles` du `Contains` natif
         out: list = []
-        for p in _tile_positions(self.source, ctx, board):
+        for p in tiles:
             tid = board.id_at(p[0], p[1])
             if tid is None:
                 continue
-            out.extend(board.neighbours_native(tid))
+            out.extend(n for n in board.neighbours_native(tid) if n not in origin_ids)
         return out
 
 

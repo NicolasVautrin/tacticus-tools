@@ -31,7 +31,8 @@ from ...entities.formulas import (If as FormulaIf, Min, Multiply, StatAmount, Su
                                   TotalActiveAbilityUsed)
 from ...entities.selectors import (ActiveTarget, AdjacentTiles, AdjacentUnits, CanAddUnit, Caster,
                                    CasterTile, Damageable, Enemies, Filter, FixedTileIds, Friends,
-                                   Nothing, Null, PickFirstN, SortByDistance, Sub, Subject,
+                                   Nothing, Null, PickFirstN, SelectTile, SortByDistance, Sub,
+                                   Subject,
                                    SurroundingUnits, Target, Tiles, TilesBehindInLine,
                                    TilesInTriangleShape, TilesOnSameElevation, Union, Units)
 from ...entities.triggers import (HasEffect, IsAlive, IsInRange, IsPositionMachineForCurrentPlayer,
@@ -1004,8 +1005,11 @@ def herald_of_the_apocalypse_targets():
     `TilesBehindInLine(from=CasterTile, to=<tuile cible>, maxCount=2)` rend `[tuileCible, tuileDerriere]`
     (la 1re tuile rendue EST `to`) ; `Units` en prend les occupants VIVANTS, `- Target()` retire la cible,
     `Enemies` filtre a l'equipe adverse du caster."""
-    tgt_tile = PickFirstN(SortByDistance(Tiles(Target()), CasterTile()), 1)
-    line = TilesBehindInLine(CasterTile(), tgt_tile, Const(TILES_BEHIND_COUNT),
+    # Les DEUX consommateurs sont SCALAIRES au decompile (`SortByDistanceSelector` ferme son
+    # comparateur sur UN `PositionComponent` ; `TilesBehindInLineSelector` resout origin ET direction
+    # par `TargetsSelector$$SelectTile`) -> `SelectTile` autour de l'accesseur d'empreinte (#459).
+    tgt_tile = PickFirstN(SortByDistance(Tiles(Target()), SelectTile(CasterTile())), 1)
+    line = TilesBehindInLine(SelectTile(CasterTile()), tgt_tile, Const(TILES_BEHIND_COUNT),
                              check_walkable=True, update_reference=True)   # settings +0x10=1 / +0x11=1
     behind = Enemies(Sub(Units(line), Target()))
     return Union(Target(), behind)

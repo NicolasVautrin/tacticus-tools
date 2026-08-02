@@ -26,7 +26,8 @@ from ...entities.formulas import Count, Get, VisualUnitIdFromUnitId
 from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles, AdjacentUnits,
                                    AllUnits, Cache, CanAddUnit, Caster, CasterTile, Damageable,
                                    EntitiesWithoutEffects, FixedTileIds, FixedTiles, Friends,
-                                   MovableTilesInRange, Owner, SurroundingEnemies, SurroundingTiles,
+                                   MovableTilesInRange, Owner, SelectTile, SurroundingEnemies,
+                                   SurroundingTiles,
                                    Target, TargetTile, TileIntersect, Union, Unique, UnitSet,
                                    UnitsFromFaction, UnitsWithVisualId, Unobscured,
                                    non_steppable_or_object_units,
@@ -175,8 +176,12 @@ def waaagh_possible_movement_tiles_selector(move_range: int):
       * l'etage MOVE de `WaaaghAbility$$ExecuteBehaviour` (`waaagh_charge_tile`, qui trie et prend
         la 1re tuile) ;
       * le gate de ciblage `WaaaghAbility$$GetDynamicInvalidTargetReason` (qui n'en prend que le
-        `Count`). Les deux voient donc TOUJOURS le meme ensemble."""
-    return tiles_unit_can_move_to_charge_target(Caster(), CasterTile(), Target(),
+        `Count`). Les deux voient donc TOUJOURS le meme ensemble.
+
+    `SelectTile` = mirror du `TargetsSelector$$SelectTile` (vslot 0xc) par lequel
+    `MovableTilesInRangeSelector$$Select` -- le selecteur que construit
+    `DSLSelectors$$TilesUnitCanMoveToChargeTarget` -- resout son `casterTiles` (#459)."""
+    return tiles_unit_can_move_to_charge_target(Caster(), SelectTile(CasterTile()), Target(),
                                                 Const(int(move_range)), ignore_flags=False)
 
 
@@ -300,7 +305,10 @@ def ramming_speed_charge_tiles_selector(move_range: int) -> TileIntersect:
     `MovableTilesInRange` etait a DROITE de toutes les intersections portees, cet ordre etait
     inobservable ; ici il devient l'ordre source du tri. Il ne departage que des utilites
     STRICTEMENT egales."""
-    return TileIntersect(MovableTilesInRange(Caster(), CasterTile(), Const(int(move_range)),
+    # `MovableTilesInRangeSelector$$Select` resout son `unitTileSelector` (+0x28) par
+    # `TargetsSelector$$SelectTile` -- UNE tuile de depart, pas l'empreinte (#459).
+    return TileIntersect(MovableTilesInRange(Caster(), SelectTile(CasterTile()),
+                                             Const(int(move_range)),
                                              ignore_flags=False, ignore_units_on_tiles=False),
                          CanAddUnit(AdjacentTiles(Target())))
 

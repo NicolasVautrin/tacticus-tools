@@ -20,7 +20,7 @@ from ....dsl.effects import ExecutionContext
 from ....dsl.event_trigger_type import EventTriggerType   # #209 : EvaluateAbilities(EventTriggerType) node
 from ....entities.behaviours import AtomicGroup, op_add, op_and
 from ....entities.selectors import (Caster, Target, CasterTile, TargetTile, Union, UnitsFromFaction,
-                                    AdjacentFriends, Alive, Cache, FixedTiles,
+                                    AdjacentFriends, Alive, Cache, FixedTiles, SelectTile,
                                     tiles_unit_can_move_to_charge_target)
 from ....utilities.tile import first_tile_by_utility
 from ....utilities.utility_type import UtilityType
@@ -82,7 +82,9 @@ def thunderous_assault_tree(charge_dest: "TargetsSelector | None" = None) -> Ato
     PRE-push : la charge vise la tuile liberee. La garde `CanAddUnit` (tuile libre) est LIVE dans la feuille
     `MoveUnit` (mirror `CanAddUnitFromAbility` sur contenu de tuile live) : le caster ne suit QUE si le push a
     reussi a liberer la tuile (sinon no-op)."""
-    dest = charge_dest if charge_dest is not None else Cache(TargetTile())
+    # `SelectTile` = mirror `TargetsSelector$$SelectTile` : la destination de `MoveUnit` est UNE tuile,
+    # et le natif collapse ici `First(Nearest(Tiles(target), casterPos))` -- une main tile (#459).
+    dest = charge_dest if charge_dest is not None else Cache(SelectTile(TargetTile()))
     return AtomicGroup(op_and(op_and(op_and(op_and(
         AttackWithAttackDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
         AddEffect(STUNNED, "Stunned", Target(), duration_rounds=1)),   # TurnsFromRounds(1) IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility$$ExecuteBehaviour -> converti (#98)
@@ -359,7 +361,7 @@ class ThunderousAssaultAbility(ActiveAbility):
         # la cible. Sans ce prime, la charge relirait `TargetTile()` POST-push (tuile d'atterrissage occupee) et
         # le caster ne chargerait jamais. On injecte le MEME cache dans l'arbre -> la feuille MoveUnit relit la
         # tuile PRE-push liberee par le push.
-        charge_cache = Cache(TargetTile())
+        charge_cache = Cache(SelectTile(TargetTile()))    # UNE tuile (`SelectTile`, #459)
         charge_cache.evaluate(entities)                   # prime pre-push (1re eval == timing natif a l'attaque)
         thunderous_assault_tree(charge_dest=charge_cache).execute(entities, ectx)
         atk = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
@@ -697,8 +699,13 @@ def black_rage_possible_movement_tiles_selector(move_range: int):
     tri collapsé prenait la plus PROCHE du caster ; il devient décisif dès que le tri est celui du natif.
 
     `move_range` arrive DÉJÀ CALCULÉ (`_black_rage_move_range`) et est présenté au nœud par un `Const` :
-    c'est LA valeur du 4e argument natif."""
-    return tiles_unit_can_move_to_charge_target(Caster(), CasterTile(), Target(),
+    c'est LA valeur du 4e argument natif.
+
+    `DSLSelectors$$TilesUnitCanMoveToChargeTarget` passe son `casterTiles` au ctor de
+    `MovableTilesInRangeSelector`, dont le `Select` le resout par `TargetsSelector$$SelectTile`
+    (vslot 0xc, UNE tuile -- il remplace le `GetMainTile(unit)` par defaut) : d'ou le `SelectTile`
+    autour de l'accesseur d'empreinte (#459)."""
+    return tiles_unit_can_move_to_charge_target(Caster(), SelectTile(CasterTile()), Target(),
                                                 Const(int(move_range)), ignore_flags=False)
 
 

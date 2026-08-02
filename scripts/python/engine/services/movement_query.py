@@ -103,21 +103,60 @@ def get_entity_distance(state, entity_a, entity_b) -> int:
     return get_distance(get_unit_feet(state, entity_a), get_unit_feet(state, entity_b))
 
 
+def adjacent_tile_ids(board, tile: Optional[Pos]) -> List[int]:
+    """`IBattleQuery` slot `0x4f` = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(tile,
+    onlyEmptyOrSteppable: false, onlyWalkableTiles: true, allowTemporary: true)` -- FOYER UNIQUE des
+    DEUX appels de ce module (#457-r1), qui sont le MEME appel a l'octet pres : meme slot, meme
+    receveur (`MovementQuery+0x30`), memes flags `(0, 1, 1)`.
+
+    LA VUE, tranchee au decompile. `GetAdjacentTiles` delegue a
+    `IdunBattle.Core.Services.BattleQuery$$IterateAdjacentTiles` -> `TileQuery$$IterateAdjacentTiles`,
+    dont le `MoveNext` (`IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`)
+    enumere la liste d'adjacence **STOCKEE** sur la tuile (`ConnectivityComponent`), pas une couronne
+    geometrique :
+
+        elev0 = tile.TileComponent.Elevation;
+        foreach (nid in tile.ConnectivityComponent.Neighbours) {
+            t = state.GetTileEntity(nid);                 if (t == null) continue;
+            if (!allowTemporary       && IsTemporary(t))  continue;
+            if (onlyWalkableTiles     && !IsWalkable(t, true))          continue;
+            if (onlyEmptyOrSteppable  && !IsEmptyOrSteppable(t, state)) continue;
+            if (Math.Abs(elev0 - t.Elevation) < 2) yield return t;      // porte INCONDITIONNELLE
+        }
+
+    ⇒ **`Board.neighbours_native`** (le champ BRUT `boardGraph.neighbours`), et surtout PAS
+    `Board.neighbours()`, qui trie les ids ET symetrise les aretes. Le capteur du `boardGraph` passe
+    par ce meme `IterateAdjacentTiles` avec `(0, 0, 1)`, donc la porte d'elevation est deja appliquee
+    dans le champ capte ; l'asymetrie residuelle du graphe stocke est une PROPRIETE du natif, pas un
+    artefact a corriger. Avant #459 `is_adjacent` lisait la vue symetrisee et la branche `feetCount
+    == 7` la vue brute -- deux mirrors du meme appel sur deux graphes differents.
+
+    ⚠ RESIDU `#457-r2`, toujours ouvert : `onlyWalkableTiles = 1` n'est PAS reapplique ici. Le
+    `boardGraph` est capte avec `requireWalkable = 0` (murs inclus, a dessein) et le port ne refiltre
+    pas. Inerte sur les DEUX consommateurs mesures -- leurs tuiles viennent toutes de
+    `GetMovableTilesFor` (pathfinding) ou de l'empreinte courante de l'unite, donc marchables par
+    construction -- mais mordant des qu'un appelant y ferait entrer un mur."""
+    if board is None or tile is None:
+        return []
+    tid = board.id_at(tile[0], tile[1])
+    return [] if tid is None else list(board.neighbours_native(tid))
+
+
 def is_adjacent(board, tile_a: Optional[Pos], tile_b: Optional[Pos]) -> bool:
     """`IdunBattle.Core.Services.MovementQuery$$IsAdjacent(a, b)` =
-    `GetAdjacentTiles(a, false, true, true).Contains(b)` (slot 0x4e, flags `(0,1,1)`).
+    `GetAdjacentTiles(a, false, true, true).Contains(b)` -- mirror 1:1, via le foyer
+    `adjacent_tile_ids` ci-dessus (c'est la MEME instruction d'appel que la branche `feetCount == 7`
+    de `GetPossibleTileListsFromMovableTiles`, #457-r1).
 
-    Offline : le graphe d'adjacence NATIF du `boardGraph` (`Board.neighbours`), la meme adjacence
-    que partout ailleurs dans le port. Sans board on ne sait pas decider -> False (aucun voisinage
-    invente ; le seul appelant est `is_valid_unit_feet_list`, qui degrade alors en « empreinte non
-    validable », jamais en « valide par defaut »)."""
+    Sans board on ne sait pas decider -> False (aucun voisinage invente ; le seul appelant est
+    `is_valid_unit_feet_list`, qui degrade alors en « empreinte non validable », jamais en « valide
+    par defaut »)."""
     if board is None or tile_a is None or tile_b is None:
         return False
-    tid_a = board.id_at(tile_a[0], tile_a[1])
     tid_b = board.id_at(tile_b[0], tile_b[1])
-    if tid_a is None or tid_b is None:
+    if tid_b is None:
         return False
-    return tid_b in board.neighbours(tid_a)
+    return tid_b in adjacent_tile_ids(board, tile_a)
 
 
 def _elevation(board, tile: Pos) -> Optional[int]:
@@ -216,8 +255,12 @@ def get_possible_tile_lists_from_movable_tiles(
         return null;
 
     Branche 7 : le CENTRE est ajoute EN PREMIER, l'anneau ensuite dans l'ordre d'enumeration natif
-    des voisins (`Board.neighbours_native`) -> `feet[0]` = le centre = la main tile.
-    `feetCount` hors {1,3,7} -> `None` (et non une liste vide : le natif rend bien null)."""
+    des voisins (`adjacent_tile_ids` -> `Board.neighbours_native`) -> `feet[0]` = le centre = la main
+    tile. `feetCount` hors {1,3,7} -> `None` (et non une liste vide : le natif rend bien null).
+
+    Le `GetAdjacentTiles(t, false, true, true)` de cette branche et celui d'`is_adjacent` sont le
+    MEME appel (meme slot d'interface, memes flags, meme receveur) : ils partagent donc le foyer
+    `adjacent_tile_ids` depuis #459 (residu `#457-r1` ferme)."""
     n = int(feet_count)
     tiles = list(tiles)
     if n in (1, 3):
@@ -226,10 +269,7 @@ def get_possible_tile_lists_from_movable_tiles(
         pool = set(tiles)
         out: List[List[Pos]] = []
         for t in tiles:
-            tid = board.id_at(t[0], t[1]) if board is not None else None
-            if tid is None:
-                continue
-            nb = [board.coord(x) for x in board.neighbours_native(tid)]
+            nb = [board.coord(x) for x in adjacent_tile_ids(board, t)]
             if nb and all(x in pool for x in nb):
                 out.append([t] + nb)
         return out

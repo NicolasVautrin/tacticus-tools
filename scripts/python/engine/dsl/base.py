@@ -380,9 +380,17 @@ def _origin_tiles(origin, board=None) -> list:
 
     DOMAINE MIXTE, comme le natif (qui manipule des ENTITES ECS) : dict d'unite -> son empreinte
     (`_feet`) ; position `(col,row)` -> `[pos]` ; LISTE de positions -> elles-memes ; id de tuile
-    (int) -> `board.coord`. Une origine deja collapsee en POSITION a perdu son empreinte EN AMONT
-    (c'est le cas des accesseurs `CasterTile`/`TargetTile`/`OwnerTile` du port) : ici on ne peut
-    plus la retrouver -- residu documente, jamais devine."""
+    (int) -> `board.coord`.
+
+    C'est le mirror de `IdunBattle.DSL.TargetsSelector$$SelectTiles` (le PLURIEL) :
+
+        list = this.Select(entities);
+        if (this.<IsTileSelector>) return list;            // deja des tuiles -> telles quelles
+        foreach (e in list) foreach (t in EntityExtensions.IterateTiles(e, state)) result.Add(t);
+
+    -- une entite y est DEPLIEE en son empreinte, une tuile passe telle quelle. Depuis #459 les
+    accesseurs `CasterTile`/`TargetTile`/`OwnerTile` rendent eux aussi une LISTE (l'empreinte), donc
+    l'origine n'est plus collapsee en amont ; le pendant SINGULIER est `_select_tile` ci-dessous."""
     if origin is None:
         return []
     if isinstance(origin, dict):
@@ -418,6 +426,28 @@ def _main_tile(origin) -> tuple | None:
     multi-hex RESTENT dans l'anneau, et l'origine peut donc se selectionner elle-meme. Retrancher
     toute l'empreinte serait une SECONDE erreur, pas une correction."""
     ts = _origin_tiles(origin)
+    return ts[0] if ts else None
+
+
+def _select_tile(origin, board=None) -> tuple | None:
+    """UNE tuile depuis une origine de domaine MIXTE -- mirror 1:1 de
+    `IdunBattle.DSL.TargetsSelector$$SelectTile` (le SINGULIER, vslot 0xc) :
+
+        foreach (e in this.Select(entities)) {
+            if (e == null) continue;
+            if (EntityExtensions.IsTile(e)) return e;                       // une TUILE : telle quelle
+            if (IsUnit(e) || IsUnitFoot(e)) { t = GetMainTile(e, state); if (t != null) return t; }
+        }
+        return null;
+
+    C'est le contrat que lisent les consommateurs SCALAIRES du natif, tous verifies au decompile :
+    `IdunBattle.Entities.Selectors.MovableTilesInRangeSelector$$Select` (son `unitTileSelector`
+    @+0x28, qui remplace le `GetMainTile(unit)` par defaut), `IdunBattle.Entities.Selectors.
+    TilesBehindInLineSelector$$Select` (origin @+0x18 ET direction @+0x20) et le referent de
+    `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` (dont le comparateur ferme sur UN
+    `PositionComponent`). Sur une origine MONO-hex il rend exactement ce que rendait l'accesseur
+    scalaire d'avant #459 -- la premiere tuile de l'empreinte EST la main tile."""
+    ts = _origin_tiles(origin, board)
     return ts[0] if ts else None
 
 
@@ -538,20 +568,44 @@ def _within(units, center, radius, include_center=False, board=None, order=None)
         entite multi-hex est l'UNION du voisinage de ses pieds ;
       * l'OCCUPANT, par `_feet` (mirror `TargetsSelector$$SelectUnit` -> `UnitExtensions$$GetUnit`
         -> `TileContentComponent`) : une unite est prise des qu'UN de ses pieds tombe dans l'anneau.
-    L'exclusion du centre reste `_main_tile` SEULE (mirror `- Tiles(origin)` = `UnitsMainTilesSelector`).
-    Sur des unites MONO-tuile la formule se reduit terme a terme a l'ancienne (`d <= radius and
-    (include_center or d > 0)`) -- aucune variation possible hors multi-hex."""
+
+    L'EXCLUSION DU CENTRE N'EST PAS LA MEME DES DEUX COTES (#459), et les deux formes ne se
+    distinguent que sur une origine MULTI-HEX -- c'est `order` qui tranche, parce que c'est le
+    SELECTEUR natif qui porte l'exclusion, pas le rayon :
+
+      * `order='adjacent'` -- l'exclusion est INTERNE a
+        `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select`, qui resout son origine par
+        `TargetsSelector$$SelectTiles` (donc l'EMPREINTE) puis n'ajoute une voisine que
+        `if (!tiles.Contains(a))`. On retranche donc TOUTES les tuiles du centre. Le
+        `op_Subtraction(units, origin)` que `DSLSelectors$$AdjacentUnits`/`$$AdjacentEnemies`
+        appliquent par-dessus est alors redondant sur ce chemin (il retire l'ENTITE origine, deja
+        absente puisque tous ses pieds sont hors anneau).
+      * `order='surrounding'` -- l'exclusion est EXTERNE :
+        `DSLSelectors$$SurroundingTiles(origin, includeCenter: 0, ...)` vaut
+        `SurroundingTiles(origin, includeCenter: 1, ...) op_Subtraction Tiles(origin)`, et
+        `Tiles` = `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` = `GetMainTile`
+        par ENTITE. On ne retranche donc QU'UNE tuile, et une origine multi-hex peut se selectionner
+        elle-meme par un pied secondaire. Retrancher toute l'empreinte y serait une seconde erreur.
+
+    Sur des unites MONO-tuile les deux formes coincident et se reduisent terme a terme a l'ancienne
+    (`d <= radius and (include_center or d > 0)`) -- aucune variation possible hors multi-hex."""
     centers = _origin_tiles(center, board)
     if not centers:
         return []
-    excluded = None if include_center else _main_tile(center)
+    if include_center:
+        excluded: tuple = ()
+    elif order == "adjacent":
+        excluded = tuple(centers)                     # `AdjacentTilesSelector` : !tiles.Contains(a)
+    else:
+        m = _main_tile(center)                        # `op_Subtraction Tiles(origin)` : UNE tuile
+        excluded = () if m is None else (m,)
     r = int(radius)
     out = []
     for u in units:
         if not _is_alive(u):
             continue
         for f in _feet(u):
-            if excluded is not None and f == excluded:
+            if f in excluded:
                 continue
             if any(hexgeo.distance(f, c) <= r for c in centers):
                 out.append(u)

@@ -18,8 +18,8 @@ from ...entities.behaviours import AtomicGroup, Foreach, op_add
 from ...entities.formulas import (Const as _AmountConst, RoundsStarted, Sum,
                                   TotalRepairActionsAmount)
 from ...entities.selectors import (AdjacentUnits, AllUnits, Blocking, Caster, CasterTile,
-                                   FixedTileIds, Friends, SortReverse, Sub, Subject, Target,
-                                   TilesBehindInLine, Union, Units, UnitsWithTrait)
+                                   FixedTileIds, Friends, SelectTile, SortReverse, Sub, Subject,
+                                   Target, TilesBehindInLine, Union, Units, UnitsWithTrait)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.traits.unit_trait import UnitTrait
@@ -238,7 +238,10 @@ def rad_bombardment_affected_tiles(aim_tile_id: int, n_tiles: int):
       l'arbre reste lisible via `rad_bombardment_affected_tile_amount()`.
     - `Blocking(rev)` retire les tuiles NON walkable de la ligne (murs) ; `op_Subtraction` en domaine
       TUILE (cf. `Sub._key`)."""
-    line = TilesBehindInLine(CasterTile(), FixedTileIds([int(aim_tile_id)]), max_count=int(n_tiles),
+    # `TilesBehindInLineSelector$$Select` resout SON origin par `TargetsSelector$$SelectTile`
+    # (vslot 0xc, UNE tuile) -- d'ou le `SelectTile` autour de l'accesseur d'empreinte (#459).
+    line = TilesBehindInLine(SelectTile(CasterTile()), FixedTileIds([int(aim_tile_id)]),
+                             max_count=int(n_tiles),
                              check_walkable=False, update_reference=True)
     rev = SortReverse(line)
     return Sub(rev, Blocking(rev))
