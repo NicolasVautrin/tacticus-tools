@@ -1154,7 +1154,23 @@ def step_context(predictor, dv):
     Purement ADDITIF : aucune clé existante n'est réécrite (les ids de Machine sont disjoints de
     ceux de `.units`), et `units` reste `dv.units` — les consommateurs qui COMPTENT des unités
     (ex. `_enemy_psykers_alive`) ne voient donc aucun changement. `pos` n'est versée que si la
-    ligne en porte une : une MoW est off-board et n'a pas de `PositionComponent`."""
+    ligne en porte une : une MoW est off-board et n'a pas de `PositionComponent`.
+
+    #443-r2-b1 — LE CANAL DE SEED. `dv` accepte les DEUX canaux de `readEffectsByUnit`, exactement
+    comme `runner/snapshot.py::load_state` côté COMBAT, et la porte est la MÊME
+    (`snapshot.decision_view_seed_body`). Capté par elle, `EffectsState` reçoit AUSSI les effets
+    POSÉS mais INERTES avec leur flag : `has_effect` les voit (mirror des call-sites
+    `HasEffect(..., onlyActive = 0)`) et ils restent HORS d'`active_effects`, donc ils ne
+    contribuent à aucun nombre. Capté par le canal NU, ils sont simplement absents — comportement
+    d'avant #443-r2-b1, où la face DÉCISION perdait **35** points d'utilité de paire sur un
+    overwatch `1009` désarmé (le poids BC `SUPPRESSIVEFIRE_TargetWithOverwatch`).
+
+    La clé `units` rendue est, elle, PROJETÉE ACTIF-ONLY (`snapshot.active_only_rows`) : c'est le
+    substrat des lecteurs de la liste BRUTE (`Scene.units[].effects`), qui n'ont pas de flag à
+    consulter. Ils restent donc INDÉPENDANTS DU CANAL — même discipline que `snapshot._effect_names`
+    sur la face COMBAT. Sur un `dv` du canal nu la projection est l'IDENTITÉ (aux lignes près, qui
+    ne sont même pas copiées)."""
+    from ..runner.snapshot import active_only_rows      # lazy : playbook <- runner (cf. l.191)
     units = dv.get("units") or []
     mows = dv.get("mows") or []
     eff_state = EffectsState.seed(
@@ -1179,7 +1195,7 @@ def step_context(predictor, dv):
         if m.get("pos"):
             pos_by_id[mid] = (m["pos"]["col"], m["pos"]["row"])
     return {
-        "units": units,
+        "units": active_only_rows(units),
         "hp_by_id": hp_by_id,
         "pos_by_id": pos_by_id,
         "team_by_id": team_by_id,

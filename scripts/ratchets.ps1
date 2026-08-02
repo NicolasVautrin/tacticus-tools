@@ -145,6 +145,10 @@ $Ratchets = @(
        Seul = 'un mirror de `EntityExtensions$$HasEffect` dont le SUBSTRAT contredit le litteral `onlyActive` qu il cite : `active_effects` (activite) sous un litteral 0/false/null, ou `has_effect` (presence) sous un 1/true. La divergence est SILENCIEUSE et ne se voit que sur un effet PRESENT-mais-INACTIF -- regime qu aucun montage naif n atteint (le canal decisionView par defaut DROPPE les inertes), donc invisible a tout test de conformite ordinaire. MESURE #443-r2 : 35 points d utilite de paire, sur le choix de CIBLE de l attaque normale'
        Doc  = 'docs/rl/case-443-r2-only-active.md' }
 
+    @{ Id = 'probe_443r2b1'; Argv = @('probe_443r2b1_decision_inactive_readers.py')
+       Seul = 'le CANAL de seed de la face DECISION, la ou probe_443r2 ne garde que le SUBSTRAT : un consommateur de PRODUCTION qui capte lui-meme son decisionView repart par DEFAUT sur le canal NU, qui DROPPE les effets inertes -- le port rend alors FAUX la ou le natif rend VRAI, sans erreur ni crash (mesure #443-r2-b1 : 35 points d utilite de paire, et une decision de CIBLE qui bascule sur une marche d agreement). Il voit aussi la faute SYMETRIQUE : la liste BRUTE qui laisse fuir l inerte vers des lecteurs qui n ont pas de flag a consulter'
+       Doc  = 'docs/rl/case-443-r2-b1-canal-decision.md' }
+
     @{ Id = 'probe_431'; Argv = @('probe_431_build_literals.py', '--cliquet')
        Seul = 'un hash de build ecrit en dur qui RESOUT un artefact du jeu (chemin de GameAssembly.dll, table de symboles, defaut de --build) HORS du foyer build_pin : le litteral court-circuite a la fois data/symbols/CURRENT et le binaire installe, donc symbols_sync peut etre VERT pendant que le script lit un autre build'
        Doc  = 'docs/rl/case-431-litteraux-de-build.md' }

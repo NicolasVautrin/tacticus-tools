@@ -132,6 +132,45 @@ def test_le_canal_de_seed_par_defaut_ne_peut_que_PERDRE_le_poids(ow_case):
         "regime ACTIF : le canal par defaut publie l'instance, il ne doit y avoir aucun ecart")
 
 
+def test_le_canal_de_PRODUCTION_separe_le_substrat_STRUCTURE_de_la_liste_BRUTE(ow_case, rpc):
+    """(5) #443-r2-b1, sur un payload LIVE et en regime INERTE -- la seule forme de la garde qui ne
+    peut PAS etre satisfaite par un dict synthetique.
+
+    Depuis #443-r2-b1 la face DECISION capte par `decision_view_seed_body` (la porte du canal
+    `includeInactive`, PARTAGEE avec le seed COMBAT). Ce que ce canal ajoute doit atterrir dans
+    EXACTEMENT un endroit :
+
+      * `scene.eff_state` (STRUCTURE, porteur du flag par instance) -> `has_effect` VOIT l'inerte,
+        et c'est ce qui referme les 35 points ;
+      * PAS dans `ctx.units[].effects` (la liste BRUTE), dont les lecteurs n'ont aucun flag a
+        consulter : eux doivent rester INDEPENDANTS DU CANAL.
+
+    Les deux moities sont assertees : sans la premiere le fix n'existe pas, sans la seconde il
+    deplace des verdicts que personne n'a demandes."""
+    case, tgt = ow_case["case"], ow_case["case"]["tgt"]
+    ctx = P._ctx_for(rpc, case["rid"], case["cid"], seed_inactive=True)
+
+    eff = getattr(getattr(ctx, "scene", None), "eff_state", None)
+    assert eff is not None, "la Scene du contexte n'a pas d'EffectsState -- rien n'est mesurable"
+    assert eff.has_effect(int(tgt), effect_type=P.OVERWATCH), (
+        "le canal de PRODUCTION doit publier l'instance 1009 INERTE dans le substrat STRUCTURE : "
+        "c'est la seule voie par laquelle un mirror d'`onlyActive = 0` la voit")
+    actifs = [int(e.effect_type or -1) for e in eff.active_effects(int(tgt), {})]
+    assert P.OVERWATCH not in actifs, (
+        "l'instance INERTE ne doit contribuer a AUCUN nombre : `active_effects` doit la filtrer "
+        f"(obtenu {actifs})")
+
+    ligne = next((u for u in (ctx.units or []) if u.get("id") == tgt), None)
+    assert ligne is not None, f"la cible u{tgt} est absente de `ctx.units`"
+    bruts = [(e.get("effectType"), e.get("active")) for e in (ligne.get("effects") or [])]
+    assert all(a is not False for _t, a in bruts), (
+        "la liste BRUTE de `ctx.units` doit rester ACTIF-ONLY (projection "
+        f"`snapshot.active_only_rows`) -- obtenu {bruts}")
+    assert P.OVERWATCH not in [t for t, _a in bruts], (
+        "l'instance 1009 INERTE a fuite dans la liste BRUTE : tout lecteur qui y mirroire un "
+        "predicat ACTIVE-ONLY change de verdict EN SILENCE")
+
+
 def test_le_call_site_onlyActive_VRAI_est_sensible_au_flag():
     """(4) `EarlyWarningOverrideHitReductionPurge.matches` -- l'autre call-site FLAG, litteral
     OPPOSE (`NOT HasEffect(Owner@0x148, 0x3f1, onlyActive=1, targetType=Both)`). 100 % OFFLINE :
