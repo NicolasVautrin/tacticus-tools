@@ -78,6 +78,23 @@ export const class_instance_size = (() => {
     return p ? new NativeFunction(p, "int32", ["pointer"]) : null;
 })();
 
+/** `il2cpp_class_get_declaring_type(Il2CppClass*)` — la classe ENGLOBANTE d'une classe nested,
+ *  `NULL` pour une classe top-level.
+ *
+ *  À quoi ça sert, concrètement : NOMMER une state machine d'itérateur. `class_get_name` d'un
+ *  `<Method>d__N` rend le nom COURT, qui **collisionne massivement** — mesuré sur `rnca9r7q6c` :
+ *  39 classes portent un `<EvaluateMovementInSteps>d__N`, dont plusieurs le même `d__2`. Publier
+ *  ce nom court seul rend un label AMBIGU, et le chercher par `findClassAnywhere` rendrait la
+ *  PREMIÈRE classe trouvée — potentiellement la mauvaise, sans la moindre erreur. Le déclarant
+ *  lève l'ambiguïté (`SaviorProtocolsPlaybook.<CalculateMovementUtilityInStepsInternal>d__4`).
+ *
+ *  Résolu de façon TOLÉRANTE (null si l'export manque) : à l'appelant de décider ce qu'il publie
+ *  quand il ne sait pas — un nom court étiqueté comme tel, jamais un nom qualifié inventé. */
+export const class_get_declaring_type = (() => {
+    const p = il2cpp!.findExportByName("il2cpp_class_get_declaring_type");
+    return p ? new NativeFunction(p, "pointer", ["pointer"]) : null;
+})();
+
 /** `il2cpp_class_is_valuetype(Il2CppClass*)` — non nul pour un `System.ValueType`.
  *
  *  Deux conséquences, et les deux comptent pour un décodeur de struct (#279) :

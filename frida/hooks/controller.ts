@@ -49,6 +49,11 @@ import * as aiStep from "./features/ai-step/index.js";
 import * as modifierObserve from "./features/modifier-observe.js";
 import * as abilityPrefs from "./features/ability-prefs.js";
 import * as scorerDamageTrace from "./features/scorer-damage-trace.js";
+// triggered-move-trace = le terme MOVE d'une triggered ability, ATTRIBUÉ à son unité ET à sa
+// tuile (#443-r1a). Même discipline que hitTrace : le register n'arme RIEN (ce `MoveNext` fire
+// une fois par tuile candidate ET par step du sweep de mouvement) — armement on-demand par
+// `triggeredMoveTraceOn`.
+import * as triggeredMoveTrace from "./features/triggered-move-trace.js";
 import * as triggerTrace from "./features/trigger-trace.js";
 import * as dslTrace from "./features/dsl-trace.js";
 import * as dslCtorTrace from "./features/dsl-ctor-trace.js";
@@ -391,7 +396,7 @@ export function wireRpc(ctx: Ctx): void {
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
      messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
-     scorerDamageTrace, triggerTrace, dslTrace, dslCtorTrace,
+     scorerDamageTrace, triggeredMoveTrace, triggerTrace, dslTrace, dslCtorTrace,
      // effectImmunityObserve = diag on-demand (#151) : le register n'arme RIEN,
      // et sa sonde `traitProbe` touche un chemin CHAUD (`UnitExtensions$$HasTrait`).
      effectImmunityObserve,
