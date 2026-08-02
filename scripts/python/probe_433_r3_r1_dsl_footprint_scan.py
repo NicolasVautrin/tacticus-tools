@@ -208,6 +208,25 @@ def scan_file(path: Path) -> list:
 # EXECUTABLES sont le rayon de souffle du correctif.
 FOOTPRINT_NODES = ("IsAdjacent", "IsInRange", "IsSurrounding", "IsCharging", "MinDistance")
 
+# --- #433-r3-r1a : les SELECTEURS dont le foyer commun est la RESOLUTION D'OCCUPANT ---------------
+# La fiche #433-r3-r1 Sec.7 en annonce QUATORZE (plus `CanAddUnit`, dit inobservable). Cette liste
+# est ce qu'on CONFRONTE ; le compte reel se derive par AST (`--step scan`).
+FICHE_R1A_CLAIM = {
+    "Units", "HasUnit", "AdjacentUnits", "AdjacentEnemies", "AdjacentFriends", "SurroundingUnits",
+    "SurroundingTiles", "SurroundingEnemies", "SurroundingFriends", "UnitsOnTilesWithEffect",
+    "CasterTile", "OwnerTile", "TargetTile", "Unobscured",
+}
+# Les noeuds que la fiche declare D'ACCORD avec le natif (main tile LUE au decompile).
+FICHE_R1A_AGREE = {"MovableTilesInRange", "Tiles"}
+
+# Les selecteurs dont la lecture d'occupant / d'origine geometrique a ete tranchee EMPREINTE ici.
+OCCUPANCY_NODES = (
+    "Units", "HasUnit", "AreEnemies",
+    "AdjacentUnits", "AdjacentEnemies", "AdjacentFriends",
+    "SurroundingUnits", "SurroundingEnemies", "SurroundingFriends", "SurroundingTiles",
+    "UnitsOnTilesWithEffect", "Unobscured", "UnitsDirectlyBehind",
+)
+
 
 def scan_readers(files: list) -> list:
     """Sites de CONSTRUCTION executables des noeuds ci-dessus (`IsAdjacent(...)`, `dsl.IsAdjacent(...)`).
@@ -240,10 +259,80 @@ def scan_readers(files: list) -> list:
     return out
 
 
+def scan_occupancy_readers(files: list) -> list:
+    """Sites de CONSTRUCTION executables des selecteurs a resolution d'OCCUPANT (#433-r3-r1a).
+
+    Rapporte AUSSI la FORME du 1er argument (le `center`/`source`), parce que c'est elle qui decide
+    si le correctif d'empreinte peut mordre : un centre passe comme ENTITE (`Target()`, `Caster()`,
+    `Owner()`, `Subject()`) porte ses pieds ; un centre deja collapse en POSITION (`TargetTile()`,
+    `CasterTile()`, `OwnerTile()`, `FixedTile(...)`) les a DEJA perdus en amont -- le correctif y est
+    inerte, et c'est un RESIDU a nommer, pas une couverture."""
+    entity_like = {"Target", "Caster", "Owner", "Subject", "Actor", "ActiveTarget", "Entity",
+                   "UnitSet", "Enemies", "Friends", "AllUnits", "First", "Cache", "Filter"}
+    tile_like = {"TargetTile", "CasterTile", "OwnerTile", "FixedTile", "FixedTiles", "FixedTileIds",
+                 "AdjacentTiles", "SurroundingTiles", "Tiles", "CenterTiles"}
+    out: list = []
+    for path in files:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        stack = _ClassStack()
+        stack.visit(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute)
+                                                           else None)
+            if name not in OCCUPANCY_NODES:
+                continue
+            cls, func = stack.cls_of.get(id(node), (None, None))
+            arg0 = ""
+            if node.args:
+                a = node.args[0]
+                if isinstance(a, ast.Call):
+                    f0 = a.func
+                    arg0 = f0.id if isinstance(f0, ast.Name) else (f0.attr if isinstance(
+                        f0, ast.Attribute) else "")
+                elif isinstance(a, ast.Name):
+                    arg0 = a.id
+            shape = ("entity" if arg0 in entity_like else
+                     "tile" if arg0 in tile_like else ("?" if arg0 else "-"))
+            out.append({"file": str(path).replace("\\", "/"), "line": node.lineno, "node": name,
+                        "cls": cls, "func": func, "defining": cls == name,
+                        "arg0": arg0, "shape": shape})
+    return out
+
+
+def _print_occupancy(files: list) -> int:
+    rs = [r for r in scan_occupancy_readers(files) if not r["defining"]]
+    print("=== RAYON DE SOUFFLE #433-r3-r1a -- lecteurs EXECUTABLES des selecteurs d'OCCUPATION ===")
+    per: dict = {}
+    for r in rs:
+        per.setdefault(r["node"], []).append(r)
+    tot_ent = tot_tile = 0
+    for n in OCCUPANCY_NODES:
+        lst = per.get(n, [])
+        ent = sum(1 for r in lst if r["shape"] == "entity")
+        til = sum(1 for r in lst if r["shape"] == "tile")
+        tot_ent += ent
+        tot_tile += til
+        print("%-24s %2d site(s) ; origine ENTITE %2d / TUILE %2d / autre %2d"
+              % (n, len(lst), ent, til, len(lst) - ent - til))
+        for r in sorted(lst, key=lambda x: (x["file"], x["line"])):
+            print("     %-52s:%-5d %-10s arg0=%s"
+                  % (r["file"].split("/engine/", 1)[-1], r["line"], r["shape"], r["arg0"] or "(n/a)"))
+    print("")
+    print("TOTAL : %d sites executables ; %d a origine ENTITE (le correctif MORD), %d a origine "
+          "TUILE (deja collapse en amont -> residu)" % (len(rs), tot_ent, tot_tile))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--step", choices=("scan", "readers", "all"), default="all")
+    ap.add_argument("--step", choices=("scan", "readers", "occupancy", "all"), default="all")
     args = ap.parse_args()
 
     root = _engine_root()
@@ -251,6 +340,8 @@ def main() -> int:
 
     if args.step == "readers":
         return _print_readers(files)
+    if args.step == "occupancy":
+        return _print_occupancy(files)
 
     hits: list = []
     for f in files:
@@ -288,11 +379,23 @@ def main() -> int:
     extra = sorted(found - FICHE_CLAIM)
     print("trouves HORS liste    : %d -> %s" % (len(extra), ", ".join(extra) or "(aucun)"))
 
+    print("")
+    print("--- confrontation a la liste de la fiche (residu #433-r3-r1a : 14 selecteurs) ---")
+    print("annonces DIVERGENTS   : %d" % len(FICHE_R1A_CLAIM))
+    print("annonces D'ACCORD     : %d -> %s" % (len(FICHE_R1A_AGREE),
+                                                ", ".join(sorted(FICHE_R1A_AGREE))))
+    print("annonces NON trouves  : %s"
+          % (", ".join(sorted(FICHE_R1A_CLAIM - found)) or "(aucun)"))
+    hors = sorted(found - FICHE_R1A_CLAIM - FICHE_R1A_AGREE)
+    print("trouves HORS des DEUX listes : %d -> %s" % (len(hors), ", ".join(hors) or "(aucun)"))
+
     if args.json:
         print(json.dumps([{**e, "kinds": sorted(e["kinds"])} for e in rows], indent=1))
     if args.step == "all":
         print("")
         _print_readers(files)
+        print("")
+        _print_occupancy(files)
     return 0
 
 

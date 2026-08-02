@@ -9,7 +9,7 @@ from __future__ import annotations
 import hexgeo
 
 from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, Const, _pos, _feet,
-                        _units_of, _is_alive, _same_entity, _c_mod)
+                        _units_of, _is_alive, _same_entity, _c_mod, _occupants_by_tile)
 # `IdunBattle.Entities.Enum.UnitFaction` — FOYER UNIQUE (#241) : mirror 1:1 des 21 membres transcrits
 # de `data/symbols/<build>/frida/enums.tsv`. La table locale etait PARTIELLE (8 valeurs, « ajouter au
 # fil des call-sites ») ; elle en derive maintenant, ce qui la rend complete sans changer aucune des
@@ -645,10 +645,16 @@ class HasUnit(AbilityTrigger):
 def _units_on(tiles: AbilityTrigger, ctx) -> list:
     """Occupants VIVANTS des tuiles rendues par `tiles` (mirror `IdunBattle.Entities.UnitExtensions$$GetUnitOrMachine`
     applique a une entite-TUILE). Accepte le domaine id-de-tuile (int), position (col,row) ou dict d'unite
-    (passthrough). Helper partage `HasUnit`/`AreEnemies` (tile-domain)."""
+    (passthrough). Helper partage `HasUnit`/`AreEnemies` (tile-domain).
+
+    OCCUPANT = `dsl.base._occupants_by_tile` (#433-r3-r1a), le foyer UNIQUE : `GetUnitOrMachine`
+    delegue a `IdunBattle.Entities.UnitExtensions$$GetUnit`, qui lit le `TileContentComponent` de la
+    tuile puis re-resout l'entite-PIED qu'il contient en son unite. Une tuile sous un pied SECONDAIRE
+    d'une unite multi-hex etait donc vue VIDE avant ce commit."""
     board = getattr(ctx, "board", None)
     raw = tiles.evaluate(ctx)
     items = [] if raw is None else ([raw] if isinstance(raw, (dict, int, tuple)) else list(raw))
+    occupant = _occupants_by_tile(ctx.units)
     out = []
     for it in items:
         if isinstance(it, dict):
@@ -663,9 +669,9 @@ def _units_on(tiles: AbilityTrigger, ctx) -> list:
             p = (it[0], it[1])
         if p is None:
             continue
-        for u in ctx.units:
-            if _is_alive(u) and _pos(u) == (int(p[0]), int(p[1])):
-                out.append(u)
+        u = occupant.get((int(p[0]), int(p[1])))
+        if u is not None:
+            out.append(u)
     return out
 
 

@@ -10,8 +10,9 @@ from dataclasses import replace
 import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
-from ...dsl.base import (TargetsSelector, Const, _pos, _within, _is_alive, _units_of, _effect_field,
-                         resolve_unit, _tile_enum_rank)
+from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
+                         _effect_field, resolve_unit, _tile_enum_rank, _occupants_by_tile,
+                         _origin_tiles, _main_tile)
 from ._shared import _entity_pos, _tile_positions
 
 
@@ -226,36 +227,51 @@ class UnitsDirectlyBehind(TargetsSelector):
     `ctx.units` (dégradation, pas un mirror)."""
 
     def select(self, ctx):
-        tpos = _pos(ctx.target)
+        # EMPREINTES (#433-r3-r1a). Le decompile de `IdunBattleLogic.Entities.DSLSelectors$$UnitsDirectlyBehind`
+        # se lit terme a terme : `SurroundingTiles(target, includeCenter:1, 1) op_Subtraction Tiles(target)`
+        # -> l'anneau part de TOUS les pieds de la cible et n'en retranche que sa MAIN TILE ;
+        # `Units(ring, unique:1, selectionType:3)` -> occupant par n'importe quel pied ;
+        # `AmountIsGreater(MinDistance(Tiles(caster), It), MinDistance(Tiles(caster), Tiles(target)))`
+        # -> le SEUIL compare deux MAIN TILES (`Tiles` = `UnitsMainTilesSelector`), tandis que la
+        # distance du CANDIDAT est un MIN sur SES pieds (`It` est un selecteur d'unite, et
+        # `MinDistanceFormula` balaie `SelectTiles` des deux cotes).
+        tfeet = _feet(ctx.target)
+        tmain = _main_tile(ctx.target)
         cpos = ctx.caster_pos or _pos(ctx.caster)
-        if tpos is None or cpos is None:
+        if not tfeet or cpos is None:
             return []
         ct = (ctx.caster or {}).get("team")
         tid = (ctx.target or {}).get("id")
-        d_ct = hexgeo.distance(cpos, tpos)
+        d_ct = hexgeo.distance(cpos, tmain)
         out = []
         for u in ctx.units:
             if not _is_alive(u):                                   # cands = Enemies(Units(ring)) : occupation (#57m)
                 continue
-            p = _pos(u)
-            if p is None or u.get("id") == tid or u.get("team") == ct:
+            feet = _feet(u)
+            if not feet or u.get("id") == tid or u.get("team") == ct:
                 continue
-            if hexgeo.distance(p, tpos) != 1:                      # anneau R1 de la cible
+            # anneau R1 de la cible = union des anneaux de ses pieds, MOINS sa seule main tile
+            ring = [p for p in feet
+                    if p != tmain and any(hexgeo.distance(p, t) <= 1 for t in tfeet)]
+            if not ring:
                 continue
             if ctx.elev_by_pos is not None:                        # TilesOnSameElevationSelector (maxDiff=1)
-                et, ec = ctx.elev_by_pos.get(tpos), ctx.elev_by_pos.get(p)
-                if et is not None and ec is not None and abs(et - ec) > 1:
+                et = ctx.elev_by_pos.get(tmain)
+                ring = [p for p in ring
+                        if et is None or ctx.elev_by_pos.get(p) is None
+                        or abs(et - ctx.elev_by_pos.get(p)) <= 1]
+                if not ring:
                     continue
-            if hexgeo.distance(cpos, p) > d_ct:                    # STRICT (AmountIsGreater) : « derrière » = plus loin
+            if min(hexgeo.distance(cpos, p) for p in feet) > d_ct:  # STRICT (AmountIsGreater) : « derrière » = plus loin
                 out.append(u)
         board = getattr(ctx, "board", None)
         if board is None or len(out) < 2:
             return out
-        rank = _tile_enum_rank(board, tpos, 1, "surrounding")       # SurroundingTiles(target, 1, 1)
+        rank = _tile_enum_rank(board, tfeet, 1, "surrounding")      # SurroundingTiles(target, 1, 1)
         if not rank:
             return out
         big = len(rank) + 1
-        return sorted(out, key=lambda u: rank.get(_pos(u), big))    # STABLE
+        return sorted(out, key=lambda u: min([rank.get(f, big) for f in _feet(u)] or [big]))  # STABLE
 
 
 class Friends(TargetsSelector):
@@ -286,7 +302,24 @@ class Units(TargetsSelector):
     `DarkTalonStrikeAbility$$ExecuteBehaviour` frappe la CIBLE puis les tuiles de la ligne en s'éloignant
     (cascade live u79 @(5,5) puis u77 @(5,6)) — l'ordre d'entité aurait donné u77 d'abord et désynchronisé
     `state.rng`. Dédoublonnage par id d'unité (première occurrence conservée) : une même tuile peut
-    apparaître deux fois dans une union de sélecteurs."""
+    apparaître deux fois dans une union de sélecteurs.
+
+    OCCUPANT = `dsl.base._occupants_by_tile` (#433-r3-r1a), le foyer UNIQUE : le natif resout par
+    `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> `IdunBattle.Entities.UnitExtensions$$GetUnit`, qui
+    lit le `TileContentComponent` de la tuile et re-resout l'entite-PIED qui s'y trouve. **N'importe
+    quel pied d'une unite multi-hex resout en cette unite** ; l'index par main tile d'avant voyait VIDE
+    une tuile sous un pied secondaire.
+
+    ⚠ DEDOUBLONNAGE INCONDITIONNEL = residu `#433-r3-r1a-r1`. Le natif a DEUX regimes, tranches par le
+    flag `unique` du ctor (`IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$.ctor(state,
+    tilesSelector, unique, selectionType)`, pose par `IdunBattleLogic.Entities.DSLSelectors$$Units`) :
+    `unique == 0` -> `IdunBattle.DSL.TargetsSelector$$SelectAllUnits` (List, AUCUN dedoublonnage : une
+    unite occupant DEUX tuiles du selecteur sort DEUX FOIS) ; `unique != 0` ->
+    `$$SelectUniqueUnits` (ArraySet). Le port fait toujours l'equivalent d'`unique = 1` -- c'est le flag
+    qu'ont les deux call-sites natifs LUS (les deux `Units(..., 1, 3)` de
+    `IdunBattleLogic.Entities.DSLSelectors$$UnitsDirectlyBehind`). Relever le flag aux ~100 call-sites
+    portes est une tranche a part ; le regime `unique = 0` n'etait de toute facon PAS atteignable avant
+    ce commit (l'index par main tile rendait au plus une tuile par unite)."""
     def __init__(self, tiles: TargetsSelector):
         self.tiles = tiles
 
@@ -298,20 +331,17 @@ class Units(TargetsSelector):
         # `ThriceBlessedConflagrationAbility$$GetTilesInLine`) rend UN element -> normalisation, sinon
         # `set(int)` leve. Domaine mixte accepte : id de tuile (int), position (col,row), dict d'unite.
         items = [] if raw is None else ([raw] if isinstance(raw, (dict, int, tuple)) else list(raw))
-        # Index position -> unite VIVANTE (occupation de tuile, #57m : un mort n'est plus DEBOUT sur sa
-        # tuile, cf. _within).
-        occupant: dict = {}
-        for u in ctx.units:
-            if not _is_alive(u):
-                continue
-            p = _pos(u)
-            if p is not None and p not in occupant:
-                occupant[p] = u
+        # Occupation de tuile par EMPREINTE (#433-r3-r1a) ; VIVANTS seulement (#57m : un mort n'est
+        # plus DEBOUT sur sa tuile -> son TileContentComponent est vide).
+        occupant = _occupants_by_tile(ctx.units)
         out, seen = [], set()
         for it in items:
             if isinstance(it, bool):
                 continue
             if isinstance(it, dict):
+                # Une ENTITE-unite en entree : le natif la rend telle quelle (`SelectUnit` court-circuite
+                # sur `IsUnit`). Le port passe par sa main tile, qui reindexe sur elle-meme via
+                # `_occupants_by_tile` -- meme resultat, et le filtre VIVANT y reste applique.
                 p = _pos(it)
             elif isinstance(it, int):
                 p = board.coord(it) if (board is not None and it in board.by_id) else None
@@ -340,8 +370,16 @@ class UnitsOnTilesWithEffect(TargetsSelector):
     du cast). Lit `ctx.tile_has_effect(tile_id, effect_type)` (wiré par `entities_from_state` sur
     `state.effects`, même clé tile-id que la pose `AddEffectOperation`, case-35) + `ctx.board.id_at`
     pour la tuile de l'unité. board/capacité absents → [] (dégradation documentée).
-    ⚠ MainTile seule (l'occupation multi-tuile BigTarget n'est pas raffinée — même réduction que
-    `Units`/`_within`)."""
+
+    EMPREINTE (#433-r3-r1a) — le prédicat est `IdunBattle.Entities.Triggers.IsUnitOnTileEffectTrigger$$ShouldTrigger`,
+    et il est EXISTENTIEL sur les pieds :
+
+        unit = <selecteur@+0x10>.SelectUnit(entities, 0);   if (unit == null) return false;
+        foreach (tile in EntityExtensions.IterateTiles(unit, state))
+            if (EntityExtensions.HasOneOfEffects(tile, effectsDb, config, true, 6)) return true;
+        return false;
+
+    ⇒ vrai dès qu'**UNE** tuile de l'unité porte l'effet ; le port ne testait que la main tile."""
     def __init__(self, source: TargetsSelector, effect_type: int):
         self.source, self.effect_type = source, int(effect_type)
 
@@ -352,10 +390,11 @@ class UnitsOnTilesWithEffect(TargetsSelector):
             return []
         out = []
         for u in _units_of(self.source, ctx):
-            p = _pos(u)
-            tid = board.id_at(p[0], p[1]) if p is not None else None
-            if tid is not None and the(tid, self.effect_type):
-                out.append(u)
+            for p in _feet(u):                      # IterateTiles(unit, state) -- existentiel
+                tid = board.id_at(p[0], p[1])
+                if tid is not None and the(tid, self.effect_type):
+                    out.append(u)
+                    break
         return out
 
 
@@ -803,8 +842,20 @@ class UnitsThatCanHaveActiveAbilityReset(TargetsSelector):
 class Unobscured(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Unobscured(from, source)` -> `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$Select` :
     garde les unites de `source` dont la tuile n'est PAS obscurcie (terrain) depuis la tuile du referent
-    `from` (`IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` -> `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain`, mask 6 = elevation bit2 + murs bit4 ; TERRAIN seul, aucun blocage par unite). Multi-tuiles :
-    unite obscurcie ssi TOUTES ses tuiles le sont (v1 : MainTile seule).
+    `from` (`IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` -> `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain`, mask 6 = elevation bit2 + murs bit4 ; TERRAIN seul, aucun blocage par unite).
+
+    MULTI-TUILES (#433-r3-r1a) -- mirror LU de `IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` :
+
+        foreach (tile in EntityExtensions.IterateTiles(target, state))
+            if (!IsTargetTileObscured(from, tile, onlyWalls)) return false;
+        return true;
+
+    ⇒ une unite est obscurcie ssi **TOUTES** ses tuiles le sont ; UNE seule tuile degagee la rend
+    visible. Le port ne testait que sa main tile -- une cible 3-hex a moitie decouverte etait donc
+    exclue a tort. ⚠ Le referent `from`, LUI, est bien une main tile :
+    `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$Select` calcule
+    `casterTile = EntityExtensions.GetMainTile(<casterSel>.SelectUnit(entities), state)` -- le port y
+    etait deja d'accord, et l'etendre a l'empreinte serait une SECONDE erreur.
 
     - **dist 1 : jamais obscurcie** (la ligne n'a aucune tuile intermediaire testable, cf. case-49x §3) -> gardee.
     - **dist 2 : `bq.is_target_tile_obscured(from, unit, elev)`** (elevation, cube-line ±eps) -- geometrie
@@ -835,12 +886,14 @@ class Unobscured(TargetsSelector):
         elev = ({k: t.get("elevation", 0) for k, t in bc.items()} if bc else None)
         out = []
         for u in units:
-            p = _pos(u)
-            if p is None:
+            feet = _feet(u)
+            if not feet:
                 continue
-            if hexgeo.distance(frm, p) == 2 and elev is not None \
-                    and is_target_tile_obscured(frm, p, elev):
-                continue                                    # terrain obscurcit la tuile dist-2 -> exclue
+            # `IsTargetUnitObscured` = ET sur TOUTES les tuiles -> l'unite est GARDEE des qu'UNE tuile
+            # n'est pas obscurcie (`return false` au premier degagement).
+            if all(hexgeo.distance(frm, p) == 2 and elev is not None
+                   and is_target_tile_obscured(frm, p, elev) for p in feet):
+                continue                                    # terrain obscurcit TOUTES les tuiles -> exclue
             out.append(u)
         return out
 

@@ -364,6 +364,97 @@ def _feet(u) -> list:
     return [] if p is None else [p]
 
 
+def _origin_tiles(origin, board=None) -> list:
+    """Les TUILES d'une ORIGINE de geometrie -- mirror de la boucle qui OUVRE les deux iterateurs
+    natifs de voisinage :
+
+        // IdunBattle.Core.Services.BattleQuery.u003CIterateAdjacentTilesu003Ed__95$$MoveNext
+        // IdunBattle.Core.Services.BattleQuery.u003CIterateSurroundingTilesu003Ed__117$$MoveNext
+        foreach (tile in EntityExtensions.IterateTiles(entity, state))
+            foreach (t in tileQuery.Iterate<Adjacent|Surrounding>Tiles(tile, ...)) yield t;
+
+    Donc `AdjacentTiles(origin)` / `SurroundingTiles(origin, r)` d'une entite MULTI-HEX unionnent le
+    voisinage de TOUS ses pieds -- ce n'est PAS l'anneau de sa seule main tile (#433-r3-r1a).
+    `BattleQuery$$GetAdjacentTiles` et `$$GetSurroundingTiles` collectent dans un `OrderedSet` :
+    l'union est DEDOUBLONNEE et l'ordre est celui de la premiere apparition.
+
+    DOMAINE MIXTE, comme le natif (qui manipule des ENTITES ECS) : dict d'unite -> son empreinte
+    (`_feet`) ; position `(col,row)` -> `[pos]` ; LISTE de positions -> elles-memes ; id de tuile
+    (int) -> `board.coord`. Une origine deja collapsee en POSITION a perdu son empreinte EN AMONT
+    (c'est le cas des accesseurs `CasterTile`/`TargetTile`/`OwnerTile` du port) : ici on ne peut
+    plus la retrouver -- residu documente, jamais devine."""
+    if origin is None:
+        return []
+    if isinstance(origin, dict):
+        return _feet(origin)
+    if isinstance(origin, bool):
+        return []
+    if isinstance(origin, tuple) and len(origin) == 2 and all(
+            isinstance(x, int) for x in origin):
+        return [(int(origin[0]), int(origin[1]))]
+    if isinstance(origin, int):
+        c = board.coord(origin) if (board is not None and origin in getattr(board, "by_id", {})) \
+            else None
+        return [] if c is None else [(int(c[0]), int(c[1]))]
+    if isinstance(origin, (list, tuple)):
+        out: list = []
+        for it in origin:
+            for p in _origin_tiles(it, board):
+                if p not in out:
+                    out.append(p)
+        return out
+    return []
+
+
+def _main_tile(origin) -> tuple | None:
+    """La MAIN TILE d'une origine -- mirror `IdunBattle.Entities.EntityExtensions$$GetMainTile`, et
+    c'est EXACTEMENT ce que soustrait le natif quand `includeCenter == 0` :
+
+        // IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles, branche includeCenter == 0
+        SurroundingTiles(origin, includeCenter: 1, ...) op_Subtraction Tiles(origin)
+
+    et `Tiles` = `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` = `GetMainTile` PAR
+    ENTITE. Donc l'exclusion du centre retire UNE SEULE tuile : les pieds SECONDAIRES d'une origine
+    multi-hex RESTENT dans l'anneau, et l'origine peut donc se selectionner elle-meme. Retrancher
+    toute l'empreinte serait une SECONDE erreur, pas une correction."""
+    ts = _origin_tiles(origin)
+    return ts[0] if ts else None
+
+
+def _occupants_by_tile(units) -> dict:
+    """Index `{(col,row) -> unite}` = mirror de la resolution d'occupant NATIVE, dont le foyer unique
+    est `IdunBattle.DSL.TargetsSelector$$SelectUnit(entity, selectionType)` (surcharge ENTITE) :
+
+        if (EntityExtensions.IsUnitFoot(e) || EntityExtensions.IsTile(e))
+            e = UnitExtensions.GetUnit(e, state);
+        return (e != null && IsUnit(e) && MatchesUnitSelectionType(e, selectionType, state)) ? e : null;
+
+    et `IdunBattle.Entities.UnitExtensions$$GetUnit` sur une TUILE lit son `TileContentComponent`
+    (`IsFilled` -> `state.GetEntity(content)`), puis BOUCLE : le contenu d'une tuile est l'entite-PIED
+    (`IdunBattle.Entities.Blueprints$$UnitFoot` -> `IdunBattle.Core.FootEntity`), que la surcharge
+    PIED re-resout en son unite proprietaire. ⇒ **N'IMPORTE QUEL pied d'une unite multi-hex resout
+    en cette unite** ; le port indexait par `_pos` (main tile) et voyait donc VIDE une tuile occupee
+    par un pied secondaire (#433-r3-r1a).
+
+    VIVANTS SEULEMENT (#57m) : un mort n'est plus sur sa tuile (`KillUnit` la libere), donc son
+    `TileContentComponent` est vide -- meme filtre que les autres consommateurs d'occupation.
+
+    ⚠ `MatchesUnitSelectionType` (`IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType` :
+    `0`=tout, `1`=vivant, `2`=non-`HasFlag(0x11)`, `3`=vivant ET non-`HasFlag(0x11)`) n'est PAS porte
+    ici -- c'est le residu `#433-r3-r2`, qui demande de relever le `selectionType` a chaque call-site.
+
+    Premiere occurrence gagnante dans l'ordre de `units` : le natif n'a qu'UN occupant par tuile
+    (`TileContentComponent` est un slot unique), donc la collision n'existe pas cote natif ; c'est une
+    tie-break de port pour un state incoherent."""
+    occ: dict = {}
+    for u in units:
+        if not _is_alive(u):
+            continue
+        for p in _feet(u):
+            occ.setdefault((int(p[0]), int(p[1])), u)
+    return occ
+
+
 def _tile_enum_rank(board, center, radius, order) -> dict:
     """{(col,row): index} = ORDRE D'ENUMERATION NATIF des tuiles parcourues par le selecteur
     d'occupation (`Units(<selecteur de tuiles>)` -> `IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select`,
@@ -388,19 +479,29 @@ def _tile_enum_rank(board, center, radius, order) -> dict:
     Pourquoi ca compte : `PickRandomAmountSelector$$Select` tire par `ElementAt(idx)` DANS
     l'ordre du `source.Select(entities).ToList()` — aucun tri n'intervient avant le tirage.
     L'ordre source decide donc QUI est pique des que `|pool| > amount`, et il tranche a egalite
-    sous les `OrderBy` natifs, qui sont STABLES (cf. fc23f1e)."""
+    sous les `OrderBy` natifs, qui sont STABLES (cf. fc23f1e).
+
+    `center` accepte UNE position **ou** la LISTE des tuiles de l'origine (son empreinte, #433-r3-r1a) :
+    le natif enumere `foreach tile in IterateTiles(origin)` puis le voisinage de chaque tuile, et
+    collecte dans un `OrderedSet` -> concatenation dans l'ordre des PIEDS, dedoublonnee, premiere
+    apparition gagnante."""
     if board is None or center is None:
         return {}
+    centers = (list(center) if isinstance(center, list)
+               else [center] if isinstance(center, tuple) and len(center) == 2 else [])
     positions: list = []
-    if order == "adjacent" and int(radius) == 1:
-        tid = board.id_at(center[0], center[1])
-        if tid is not None:
-            for t in board.neighbours_native(tid):
-                c = board.by_id.get(t)
-                if c is not None:
-                    positions.append((c["col"], c["row"]))
-    else:
-        positions = list(hexgeo.disk(center[0], center[1], int(radius)))
+    for c in centers:
+        if c is None:
+            continue
+        if order == "adjacent" and int(radius) == 1:
+            tid = board.id_at(c[0], c[1])
+            if tid is not None:
+                for t in board.neighbours_native(tid):
+                    xy = board.by_id.get(t)
+                    if xy is not None:
+                        positions.append((xy["col"], xy["row"]))
+        else:
+            positions.extend(hexgeo.disk(c[0], c[1], int(radius)))
     rank: dict = {}
     for i, p in enumerate(positions):
         rank.setdefault((p[0], p[1]), i)
@@ -418,8 +519,8 @@ def _within(units, center, radius, include_center=False, board=None, order=None)
     ctx.units.
 
     `center` accepte les DEUX domaines (mirror natif : `AdjacentUnits`/`SurroundingUnits` prennent une
-    ENTITE et le resolveur de tuiles en lit la `MainTile` — meme dualite que `AdjacentTiles`, deja
-    documentee) : une POSITION `(col,row)` **ou** un dict d'unite (-> sa position). Un centre non
+    ENTITE, que `BattleQuery$$Iterate<Adjacent|Surrounding>Tiles` ouvre en son EMPREINTE) : une
+    POSITION `(col,row)`, une LISTE de positions, **ou** un dict d'unite (-> ses pieds). Un centre non
     resolvable (unite sans position) -> aucun voisin.
 
     `board`+`order` = ORDRE D'ENUMERATION NATIF (R28-1). Le natif ne parcourt PAS les entites : il
@@ -429,28 +530,41 @@ def _within(units, center, radius, include_center=False, board=None, order=None)
     DEGRADATION, jamais un mirror. Le tri est STABLE et l'ENSEMBLE est INCHANGE — une unite dont la
     tuile n'apparait pas dans l'enumeration (arete d'adjacence absente du `boardGraph` alors que la
     distance hex vaut 1) reste presente, en fin de liste : le natif, lui, ne la verrait pas du tout
-    (porte |delta elevation| < 2 d'`IterateAdjacentTiles`) -> RESIDU distinct, non traite ici."""
-    if isinstance(center, dict):                      # entite -> MainTile (mirror UnitsOnTilesSelector)
-        center = _pos(center)
-    if center is None:
+    (porte |delta elevation| < 2 d'`IterateAdjacentTiles`) -> RESIDU distinct, non traite ici.
+
+    EMPREINTES (#433-r3-r1a) -- les DEUX bouts de la relation lisent desormais les pieds :
+      * le CENTRE, par `_origin_tiles` (mirror du `foreach tile in IterateTiles(entity)` qui ouvre
+        `BattleQuery$$IterateAdjacentTiles` / `$$IterateSurroundingTiles`) : le voisinage d'une
+        entite multi-hex est l'UNION du voisinage de ses pieds ;
+      * l'OCCUPANT, par `_feet` (mirror `TargetsSelector$$SelectUnit` -> `UnitExtensions$$GetUnit`
+        -> `TileContentComponent`) : une unite est prise des qu'UN de ses pieds tombe dans l'anneau.
+    L'exclusion du centre reste `_main_tile` SEULE (mirror `- Tiles(origin)` = `UnitsMainTilesSelector`).
+    Sur des unites MONO-tuile la formule se reduit terme a terme a l'ancienne (`d <= radius and
+    (include_center or d > 0)`) -- aucune variation possible hors multi-hex."""
+    centers = _origin_tiles(center, board)
+    if not centers:
         return []
+    excluded = None if include_center else _main_tile(center)
+    r = int(radius)
     out = []
     for u in units:
         if not _is_alive(u):
             continue
-        p = _pos(u)
-        if p is None:
-            continue
-        d = hexgeo.distance(p, center)
-        if d <= radius and (include_center or d > 0):
-            out.append(u)
+        for f in _feet(u):
+            if excluded is not None and f == excluded:
+                continue
+            if any(hexgeo.distance(f, c) <= r for c in centers):
+                out.append(u)
+                break
     if board is None or order is None or len(out) < 2:
         return out
-    rank = _tile_enum_rank(board, center, radius, order)
+    rank = _tile_enum_rank(board, centers, radius, order)
     if not rank:
         return out
     big = len(rank) + 1
-    return sorted(out, key=lambda u: rank.get(_pos(u), big))   # STABLE : hors-rang en fin, ordre garde
+    # rang d'une unite = celui du PREMIER de ses pieds atteint par l'enumeration des tuiles (le natif
+    # itere les TUILES et resout l'occupant de chacune : la premiere occurrence fixe la position).
+    return sorted(out, key=lambda u: min([rank.get(f, big) for f in _feet(u)] or [big]))
 
 
 def _round_fix64(value: Fraction, mode: int) -> int:
