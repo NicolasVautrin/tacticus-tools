@@ -220,6 +220,7 @@ from .righteous_repugnance import RighteousRepugnancePlaybook   # #419-r1-tr10 (
 from .special_issue_combi_melta import (                        # #419-r1-tr11 (registre, module dedie)
     SpecialIssueCombiMeltaPlaybook)
 from .electro_shock import ElectroShockPlaybook                 # #419-r1-tr12 (registre, module dedie)
+from .shrapnel import ShrapnelPlaybook                          # #419-r1-tr13 (registre, module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -370,6 +371,21 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # WrathfulDevotionKilled_Visual ; l'attaque normale du porteur vit sous `ActiveAbilityType`
     # **1178** = ElectroShock_NormalAttack, pas ici.
     int(TriggeredAbilityType.ElectroShock): ElectroShockPlaybook(),
+    # #419-r1-tr13 : Shrapnel (1116, passif des 2 npc `astraNpc4Mortar*` et du SUMMON
+    # `astraSmnMortar`) -- la SOMME, sur chaque unite adjacente a la CIBLE et non `Invincible`, de
+    # `nrOfHits` (2) fois l'utilite (composite Damage) d'une prediction de montant PREDEFINI
+    # `minDmg[niveau du passif]`, hits FORCES 1, au profil LITTERAL `Blast`. Corps
+    # IdunBattle.AI.Playbook.Loki.ShrapnelPlaybook.
+    # u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext (UN seul yield, precede d'un
+    # `yield break` sur `!IsRegularAttack`).
+    # PREMIER playbook attack porte (a) dont l'arbre de cibles n'a AUCUN filtre de camp -- les ALLIES
+    # du caster produisent leur propre event, NIE par les trois feuilles dominantes du composite
+    # (`friendly=True`, dont ce module est le premier consommateur), (b) dont `nrOfHits` multiplie
+    # l'UTILITE et non les degats (le slot 0x23 force `hits = 1`), et (c) qui SOMME ses cibles sans
+    # diviser (contrairement a Psyker et aux cibles secondaires de LightImUp). L'id 1116 est un
+    # homonyme a trois faces : `ActiveAbilityType` 1116 = RadBombardment, `EffectType` 1116 =
+    # InescapableAccuracy_extraCritDmg (celui de #414, axe CRIT).
+    int(TriggeredAbilityType.Shrapnel): ShrapnelPlaybook(),
 }
 
 
