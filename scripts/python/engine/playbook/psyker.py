@@ -217,6 +217,7 @@ from .cosmic_horror import CosmicHorrorPlaybook                 # #419-t6 (regis
 from .light_im_up import LightImUpPlaybook                      # #419-r1-tr5 (registre, module dedie)
 from .rapid_fire import RapidFirePlaybook                       # #419-r1-tr9 (registre, module dedie)
 from .righteous_repugnance import RighteousRepugnancePlaybook   # #419-r1-tr10 (registre, module dedie)
+from .electro_shock import ElectroShockPlaybook                 # #419-r1-tr12 (registre, module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -340,6 +341,21 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # Type` 1107 = Reveal, `EffectType` 1107 = PathOfCommand_ExtraCrit, et le mold d'attaque normale
     # du MEME passif vit sous `ActiveAbilityType` **1182** (#446-r3 / #509), pas ici.
     int(TriggeredAbilityType.RighteousRepugnance): RighteousRepugnancePlaybook(),
+    # #419-r1-tr12 : ElectroShock (1303, passif du SUMMON `admecSmnElectropriest` + des 2 npc
+    # `admecNpc3Electropriest`/`admecNpc3ElectropriestSurv`) --
+    # `ElectroShock_TargetHasAdjacentEnemy` (50) SI la CIBLE a au moins un
+    # ennemi du caster adjacent (ring-1 avec porte d'elevation, `ignoreSteppables: false`), et RIEN
+    # sinon. Corps IdunBattle.AI.Playbook.Loki.
+    # ElectroShockPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext (UN yield).
+    # MEME helper de cardinal (`get_Count`) et MEME famille de slot (`BattleQuery$$
+    # GetAdjacentEnemies`) que Boltstorm / FireOfAbsolution / RighteousRepugnance, mais il ne
+    # MULTIPLIE PAS : le compte ne sert qu'au test `== 0`, et le natif fait `yield break` -- pas
+    # meme un `yield 0`. C'est l'ability prise a l'envers qui l'explique : `ElectroShock_
+    # NormalAttackAbility$$GetCustomNormalAttackBehaviour` fait `PickRandomly(..., count: 1, ...)`,
+    # l'arc ne saute que sur UNE unite. L'id 1303 est un homonyme : `EffectType` 1303 =
+    # WrathfulDevotionKilled_Visual ; l'attaque normale du porteur vit sous `ActiveAbilityType`
+    # **1178** = ElectroShock_NormalAttack, pas ici.
+    int(TriggeredAbilityType.ElectroShock): ElectroShockPlaybook(),
 }
 
 
