@@ -138,6 +138,26 @@ choisir pour discriminer — c'est nommé en résidu `#449-r2-r1`.
 ATTEND, ne peut pas rougir sur une régression. Le sens 2 (« un site lu au décompilé DOIT rester à
 zéro ») a été ajouté, puis **vérifié rouge** sur le mutant.
 
+## 5bis. Relevé de validation (2026-08-02, APRÈS rebase sur `origin/master` = `133310ba`)
+
+| ce qui a été joué | résultat |
+|---|---|
+| `tests/engine/runner/test_psyker_splash_live.py` | **1 passed** |
+| `tests/engine/runner/test_cursed_plague_bell_attack_live.py` | **7 passed** |
+| `tests/engine/runner/test_haze_of_corruption_transfer_live.py` | **9 passed** |
+| `tests/test_449_r2_spread_face_combat_offline.py` (garde neuve) | **4 passed** |
+| `pwsh -File scripts/ratchets.ps1` | **BANQUE VERTE, rc=0**, mur 160 s ; `probe_449r2` = 7,1 s |
+
+**Contre-épreuves jouées, puis annulées** (toutes vérifiées comme ayant MORDU — par l'AST, pas
+seulement par `git diff`) :
+
+* mutant `amount_spread_pct=20` sur les **trois** porteurs → les trois tests live rougissent (§4) ;
+* le même mutant sur `psyker.py` seul → `probe_449r2` **rouge** (`regression: attendu 0`) ;
+* le même mutant sur `haze_of_corruption.py` (le site en DÉFAUT) → la garde pytest **rouge** sur
+  `test_les_sites_lus_au_decompile_sont_toujours_a_zero`.
+
+Après chaque contre-épreuve, `git diff` sur `engine/` est **vide** — aucun résidu de mutation.
+
 ## 6. Résidus NOMMÉS
 
 * **`#449-r2-r1`** — le montage Psyker **discrimine faiblement** (8 points sur 1506, seed 777) : le
