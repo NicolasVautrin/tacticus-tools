@@ -75,7 +75,7 @@ def test_les_REPLIS_d_offset_sont_DITS_pas_tus():
 
 def test_attribution_nominale():
     ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=11, col=5, row=5)]
-    movable = {10: {(3, 4), (3, 5)}, 11: {(5, 5)}}
+    movable = {10: {(3, 4)}, 11: {(5, 5)}}
     assert check_attribution(ev, movable)["status"] == "ok"
 
 
@@ -88,7 +88,41 @@ def test_LE_FAUX_POSITIF_DE_443r1_EST_REFUSE():
     movable = {10: {(3, 4)}, 11: {(5, 5)}, 99: {(9, 9), (8, 8)}}
     v = check_attribution(ev, movable)
     assert v["status"] == "wrong"
-    assert "HORS des tuiles atteignables" in v["message"]
+    assert "DIFFERE" in v["message"]
+
+
+def test_attribution_PARTIELLE_est_refusee():
+    """Ce que l'INCLUSION laissait passer et que l'IDENTITE refuse (#456) : une unite dont le
+    capteur ne rendrait qu'une tuile sur trois. Toutes ses tuiles vues sont pourtant atteignables --
+    l'ancien critere aurait donc dit `ok` sur un capteur qui perd 2/3 du sweep."""
+    ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=11, col=5, row=5)]
+    movable = {10: {(3, 4), (3, 5), (3, 6)}, 11: {(5, 5)}}
+    v = check_attribution(ev, movable)
+    assert v["status"] == "wrong"
+    assert "manquantes" in v["message"] or "DIFFERE" in v["message"]
+
+
+def test_la_tuile_COURANTE_est_une_candidate_LEGITIME():
+    """MESURE #456 : le sweep evalue aussi le fait de RESTER SUR PLACE
+    (`IdunBattle.AI.Utilities.UtilityMovementCase$$StaysOnTile` compare la tuile candidate a
+    `GetMainTile(case.Unit)`), et `aiMovableTiles` ne rend JAMAIS la tuile courante -- mesure du
+    2026-08-02 : 0 unite sur 6. Sans le terme `UNION {position}`, un capteur PARFAIT rougirait."""
+    ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=10, col=0, row=0),
+          _ev(unit_id=11, col=5, row=5)]
+    movable = {10: {(3, 4)}, 11: {(5, 5)}}
+    positions = {10: (0, 0), 11: (5, 5)}
+    v = check_attribution(ev, movable, positions)
+    assert v["status"] == "ok", v["message"]
+
+
+def test_le_terme_POSITION_est_LOAD_BEARING():
+    """Contre-epreuve du precedent : le MEME jeu d'events, sans `pos_by_unit`, DOIT rougir. Sans
+    ce controle, on ne saurait pas si le terme elargit reellement quoi que ce soit -- un
+    elargissement qui ne change rien serait un elargissement de confort."""
+    ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=10, col=0, row=0),
+          _ev(unit_id=11, col=5, row=5)]
+    movable = {10: {(3, 4)}, 11: {(5, 5)}}
+    assert check_attribution(ev, movable)["status"] == "wrong"
 
 
 def test_attribution_CONSTANTE_est_refusee():
@@ -124,7 +158,7 @@ def test_unite_SANS_reference_movable_n_est_pas_comptee_en_echec():
     ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=11, col=99, row=99)]
     v = check_attribution(ev, {10: {(3, 4)}})     # rien pour u11
     assert v["status"] == "ok", v["message"]
-    assert "1/1 tuiles confrontees" in v["message"]
+    assert "1/1 unite(s)" in v["message"]
 
 
 def test_zero_event_ne_conclut_RIEN():

@@ -23,14 +23,20 @@ CE QUE CE PROBE MESURE, par etages :
   E0 canal  -- le RPC `triggeredMoveTraceStatus` repond-il ? Sinon le capteur n'est pas charge ->
                NON CONFRONTE, et AUCUN etage suivant ne conclut quoi que ce soit.
   E1 tir    -- quel declencheur fait firer le hook ? On en essaie plusieurs et on RAPPORTE lequel a
-               produit des events : c'est l'information que la fenetre consommera en premier (le
-               case-443-r1 avait mesure qu'`aiStepDryRun` ne faisait firer AUCUN hook RVA).
+               produit des events (le case-443-r1 avait mesure qu'`aiStepDryRun` ne faisait firer
+               AUCUN hook RVA). MESURE le 2026-08-02, session 10, capteur CHARGE : `decisionView`
+               -> 0, `aiMovableTiles` -> 0, **`aiDryRunAllUnits` -> 102 events**. Le sweep de
+               mouvement n'est donc parcouru que par un TOUR D'IA, pas par une vue de decision.
   E2 ATTRIB -- LE CRITERE D'ACCEPTATION. Quatre questions, dans cet ordre :
                  (a) chaque event porte-t-il `unitMeasured` ET un `unitId` ?
                  (b) porte-t-il une `tile` ?
-                 (c) cette tuile est-elle DANS les tuiles atteignables de l'unite attribuee
-                     (`aiMovableTiles`) ? C'est CETTE question qui aurait demasque le faux positif
-                     de #443-r1 : la-bas les tuiles captees appartenaient a des tiers ;
+                 (c) l'ensemble des tuiles attribuees a une unite est-il EXACTEMENT
+                     `aiMovableTiles(u) UNION {position courante de u}` ? C'est CETTE question qui
+                     aurait demasque le faux positif de #443-r1 (les tuiles captees appartenaient a
+                     des tiers). L'identite -- et non l'inclusion -- refuse aussi une attribution
+                     qui n'evaluerait qu'une tuile sur dix. Le terme `UNION {position}` est ancre
+                     natif : `UtilityMovementCase$$StaysOnTile` compare la tuile candidate a la
+                     tuile courante, donc le sweep evalue le fait de RESTER SUR PLACE (#456) ;
                  (d) les events se repartissent-ils sur PLUSIEURS unites ? Une attribution
                      CONSTANTE passerait (a)-(c) sans rien attribuer du tout.
   E3 decomp -- `sum(contribs) == total` (auto-verification du decodage de l'accumulateur : si la
@@ -112,35 +118,62 @@ def check_channel(status) -> dict:
             "fallbacks": fb}
 
 
-def check_attribution(entries, movable_by_unit) -> dict:
-    """LE CRITERE D'ACCEPTATION. `movable_by_unit` = {unitId: set((col,row))} d'`aiMovableTiles`.
+def check_attribution(entries, movable_by_unit, pos_by_unit=None) -> dict:
+    """LE CRITERE D'ACCEPTATION. `movable_by_unit` = {unitId: set((col,row))} d'`aiMovableTiles` ;
+    `pos_by_unit` = {unitId: (col,row)} la position COURANTE.
 
-    (c) est le coeur : une tuile attribuee a une unite qui ne peut pas l'atteindre denonce
-    exactement le faux positif de #443-r1 (accord parfait sur la tuile d'un TIERS). On ne l'exige
-    QUE des unites pour lesquelles `aiMovableTiles` a rendu quelque chose -- sinon on transformerait
-    un trou de reference en echec du capteur."""
+    (c) est le coeur : ce que le capteur attribue a une unite doit etre EXACTEMENT l'ensemble des
+    tuiles que le sweep evalue pour elle. On exige donc l'IDENTITE d'ensemble
+
+        {tuiles vues pour u}  ==  aiMovableTiles(u) UNION {position courante de u}
+
+    et non une simple inclusion : une inclusion laisse passer une attribution qui n'evaluerait
+    qu'une tuile sur dix, ou qui rabattrait tout un sweep sur une constante.
+
+    LE TERME `UNION {position courante}` N'EST PAS UN ELARGISSEMENT DE CONFORT (#456). Le natif
+    evalue explicitement le fait de RESTER SUR PLACE :
+    `IdunBattle.AI.Utilities.UtilityMovementCase$$StaysOnTile` compare
+    `EntityExtensions.GetMainTile(case.Unit)` a `UnitPosition.get_MainTile(case + 0x18)` -- la tuile
+    candidate PEUT donc etre la tuile courante, et trois playbooks lisent ce predicat. La mesure du
+    2026-08-02 (session 10, MC1_67/777, `aiDryRunAllUnits`) le confirme des DEUX cotes :
+      * 8 events sur 102 tombaient hors `aiMovableTiles`, et **8/8** portaient EXACTEMENT la
+        position courante de leur unite ;
+      * controle apparie : `aiMovableTiles` n'inclut la position courante d'AUCUNE des 6 unites.
+    Avec le terme, les quatre unites mesurees rendent une identite STRICTE (0 manquante, 0 en trop)
+    -- c'est-a-dire un critere PLUS FORT que l'inclusion qu'il remplace, pas plus permissif.
+
+    L'identite n'est exigee que des unites pour lesquelles `aiMovableTiles` a rendu quelque chose :
+    sinon on transformerait un trou de reference en echec du capteur."""
     if not entries:
         return {"status": "no-events",
                 "message": ("aucun event capte -- le declencheur n'a fait scorer AUCUN mouvement, "
                             "ou le trace n'etait pas arme. RIEN n'est conclu de l'attribution.")}
+    pos_by_unit = pos_by_unit or {}
     sans_unite = [e for e in entries if not e.get("unitMeasured") or e.get("unitId") is None]
     sans_tuile = [e for e in entries if e.get("tile") is None]
     # Les evaluations de SPAWN n'ont legitimement pas d'unite (`case.Unit == null`) : le natif y
     # consulte le `Parent`. On les compte a part au lieu de les compter en echec.
     spawns = [e for e in sans_unite if e.get("isSpawning") and e.get("parentId") is not None]
     orphelins = [e for e in sans_unite if e not in spawns]
-    hors_portee = []
-    verifiables = 0
+    vues_par_unite: dict = {}
     for e in entries:
         uid, tile = e.get("unitId"), e.get("tile")
         if uid is None or tile is None:
             continue
+        vues_par_unite.setdefault(int(uid), set()).add(
+            (int(tile.get("col")), int(tile.get("row"))))
+    ecarts, verifiees = [], 0
+    for uid, vues in sorted(vues_par_unite.items()):
         reach = movable_by_unit.get(int(uid))
         if not reach:
             continue                       # pas de reference pour CETTE unite -> non verifiable
-        verifiables += 1
-        if (int(tile.get("col")), int(tile.get("row"))) not in reach:
-            hors_portee.append((uid, tile))
+        ref = set(reach)
+        courante = pos_by_unit.get(int(uid))
+        if courante is not None:
+            ref = ref | {(int(courante[0]), int(courante[1]))}
+        verifiees += 1
+        if vues != ref:
+            ecarts.append((uid, sorted(ref - vues)[:4], sorted(vues - ref)[:4]))
     unites = sorted({e.get("unitId") for e in entries if e.get("unitId") is not None})
     probs = []
     if orphelins:
@@ -149,10 +182,11 @@ def check_attribution(entries, movable_by_unit) -> dict:
                      "`scorerTileTermTrace`" % len(orphelins))
     if sans_tuile:
         probs.append("%d event(s) SANS tuile" % len(sans_tuile))
-    if hors_portee:
-        probs.append("%d/%d event(s) attribuent une tuile HORS des tuiles atteignables de leur "
-                     "unite : %s -- c'est la signature du faux positif de #443-r1"
-                     % (len(hors_portee), verifiables, hors_portee[:5]))
+    if ecarts:
+        probs.append("%d/%d unite(s) dont l'ensemble de tuiles attribuees DIFFERE de "
+                     "`aiMovableTiles UNION {position}` (uid, manquantes, en_trop) : %s -- c'est la "
+                     "signature du faux positif de #443-r1"
+                     % (len(ecarts), verifiees, ecarts[:4]))
     if len(unites) < 2:
         probs.append("les %d event(s) portent tous la MEME unite (%s) : l'attribution n'est pas "
                      "DISCRIMINEE -- une constante passerait les autres controles"
@@ -160,9 +194,10 @@ def check_attribution(entries, movable_by_unit) -> dict:
     if probs:
         return {"status": "wrong", "message": " | ".join(probs)}
     return {"status": "ok",
-            "message": ("%d events, %d unites distinctes, %d spawn(s), %d/%d tuiles confrontees a "
-                        "`aiMovableTiles` et TOUTES atteignables"
-                        % (len(entries), len(unites), len(spawns), verifiables, verifiables))}
+            "message": ("%d events, %d unites distinctes, %d spawn(s) ; %d/%d unite(s) dont "
+                        "l'ensemble de tuiles attribuees est IDENTIQUE a `aiMovableTiles UNION "
+                        "{position courante}`"
+                        % (len(entries), len(unites), len(spawns), verifiees, verifiees))}
 
 
 def check_decomposition(entries, eps: float = 1e-6) -> dict:
@@ -363,17 +398,24 @@ def main() -> int:
         movable = _movable_by_unit(s, rid)
 
         # ---- E2/E3/E4 ----------------------------------------------------------------------- #
-        carrier = None
+        # Les positions COURANTES entrent dans la reference de (c) : le sweep evalue aussi le fait
+        # de RESTER SUR PLACE (`UtilityMovementCase$$StaysOnTile`), et `aiMovableTiles` ne rend
+        # jamais la tuile courante (mesure #456 : 0 unite sur 6).
+        carrier, positions = None, {}
         try:
             dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1}, 90) or {}
             carrier = next((u["id"] for u in (dv.get("units") or [])
                             if u.get("visualId") == "tauCrisis"), None)
+            for u in (dv.get("units") or []):
+                p = u.get("pos") or {}
+                if p.get("col") is not None and u.get("id") is not None:
+                    positions[int(u["id"])] = (int(p["col"]), int(p["row"]))
         except Exception:
             pass
         if a.no_graft or not seed_bc:
             carrier = None
 
-        for tag, v in (("E2 attrib ", check_attribution(entries, movable)),
+        for tag, v in (("E2 attrib ", check_attribution(entries, movable, positions)),
                        ("E3 decomp ", check_decomposition(entries)),
                        ("E4 savior ", check_savior(entries, carrier))):
             print("%s [%s] %s" % (tag, v["status"], v["message"]))

@@ -256,5 +256,83 @@ def test_load_state_CABLE_bien_le_seed():
         "`_load_forced_attack_targets` doit venir APRES `_load_stats_and_effects`")
 
 
+# --------------------------------------------------------- E4 : le GATE, et son CONTREFACTUEL
+# `check_seed` prouve que l'ENTREE de la regle est peuplee ; il ne dit rien du gate lui-meme. Ces
+# tests gardent la logique de decision de l'etage E4, qui confronte natif et port CIBLE PAR CIBLE
+# sur un etat HYDRATE -- et qui exige que le port SANS CANAL, lui, ACCEPTE.
+
+def _row(target, nat, port=None, sans=None):
+    return {"target": target, "vis": "u%d" % target, "nat": nat,
+            "port": nat if port is None else port,
+            "portSansCanal": nat if sans is None else sans}
+
+
+def test_gate_nominal_prend_la_degradation_en_flagrant_delit():
+    """La forme EXACTE de la mesure live du 2026-08-02 (session 10, MC1_67/777) : le tauntant
+    accepte, l'autre ennemi refuse `0x800000`, et le port SANS CANAL l'acceptait."""
+    from probe_436r1_bond_channel import check_gate
+    rows = [_row(85, 0), _row(87, 0x800000, sans=0), _row(77, 0x4000)]
+    v = check_gate(rows)
+    assert v["status"] == "ok", v["message"]
+    assert "[87]" in v["message"]
+
+
+def test_gate_refuse_un_DESACCORD_natif_port():
+    from probe_436r1_bond_channel import check_gate
+    rows = [_row(85, 0), _row(87, 0x800000, port=0, sans=0)]
+    v = check_gate(rows)
+    assert v["status"] == "wrong"
+    assert "DESACCORD" in v["message"]
+
+
+def test_gate_refuse_un_montage_ou_le_natif_ne_REFUSE_JAMAIS():
+    """Un accord parfait sur un montage ou le gate n'a rien a mordre ne prouve rien : c'est le
+    piege du canal DEGENERE, celui-la meme que #456 existe pour fermer."""
+    from probe_436r1_bond_channel import check_gate
+    v = check_gate([_row(85, 0), _row(87, 0)])
+    assert v["status"] == "wrong"
+    assert "AUCUNE ligne" in v["message"]
+
+
+def test_gate_refuse_un_port_qui_REFUSE_TOUT():
+    from probe_436r1_bond_channel import check_gate
+    v = check_gate([_row(85, 0x800000, sans=0), _row(87, 0x800000, sans=0)])
+    assert v["status"] == "wrong"
+    assert "n'ACCEPTE aucune ligne" in v["message"]
+
+
+def test_gate_refuse_quand_le_CONTREFACTUEL_ne_mord_PAS():
+    """SANS cette condition, une cible deja refusee pour une AUTRE raison (portee, camp) ferait
+    passer l'etage : le port aurait rendu `0x800000` par un chemin qui n'a rien a voir avec le
+    canal. C'est le controle qui distingue une mesure d'une coincidence."""
+    from probe_436r1_bond_channel import check_gate
+    v = check_gate([_row(85, 0), _row(87, 0x800000, sans=0x8000000)])
+    assert v["status"] == "wrong"
+    assert "contrefactuel ne mord pas" in v["message"]
+
+
+def test_gate_sans_ligne_ne_conclut_RIEN():
+    from probe_436r1_bond_channel import check_gate
+    assert check_gate([])["status"] == "no-rows"
+
+
+def test_le_CONTREFACTUEL_coupe_bien_le_CANAL_et_pas_le_composant():
+    """`_strip_bond_channel` doit retirer les DEUX cles du canal sur CHAQUE effet, sans toucher au
+    reste du payload : c'est ce qui fait traverser la coupure a toute la chaine du port
+    (`EffectFactory.create` -> `_load_forced_attack_targets` -> `get_only_targets`) au lieu de
+    simuler le resultat final en SUPPOSANT le chemin."""
+    from probe_436r1_bond_channel import _strip_bond_channel
+    dv = {"units": [{"id": 1, "effects": [{"effectType": 27, "bondMeasured": True,
+                                           "bondedEntityId": 5, "source": 5}]},
+                    {"id": 2, "effects": []}]}
+    out = _strip_bond_channel(dv)
+    e = out["units"][0]["effects"][0]
+    assert "bondMeasured" not in e and "bondedEntityId" not in e
+    assert e["effectType"] == 27 and e["source"] == 5
+    # l'original n'est PAS mute : les deux etats doivent pouvoir etre construits depuis le MEME
+    # payload, sinon l'ordre des deux `load_state` changerait le resultat.
+    assert dv["units"][0]["effects"][0]["bondMeasured"] is True
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
