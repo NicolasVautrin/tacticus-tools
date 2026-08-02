@@ -102,6 +102,7 @@ def _toy_board(elev_by_pos=None):
 def etape_a(fails: list) -> None:
     """La propriete (I) sur les foyers DECLARES. Chaque entree porte le SYMBOLE natif dont elle est
     le mirror -- c'est ce qui rend la liste verifiable plutot que declarative."""
+    from engine.battle_query import are_entities_adjacent as pb_adj
     from engine.runner.abilities.targeting import (are_entities_adjacent,
                                                    are_tiles_adjacent as tgt_adj)
     from engine.services.battle_query import are_tiles_adjacent as bq_adj
@@ -122,6 +123,9 @@ def etape_a(fails: list) -> None:
         ("services/battle_query.py::are_tiles_adjacent (SANS board)",
          "IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent (degradation hex pure)",
          lambda: bq_adj(p, p, None)),
+        ("battle_query.py::are_entities_adjacent (playbook)",
+         "IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent / TileExtensions$$IsAdjacentTo",
+         lambda: pb_adj(p, p, {p: 0})),
     ]
     print("=== etape A -- (I) identite : chaque foyer declare doit rendre VRAI sur (t, t) ===")
     for name, sym, fn in cases:
@@ -131,6 +135,18 @@ def etape_a(fails: list) -> None:
             fails.append("A : %s rend %r sur une paire IDENTIQUE (le natif rend VRAI par "
                          "court-circuit, et |dElev| = 0 < 2 ne peut pas le contredire)"
                          % (name, got))
+    # LE CONTRE-EXEMPLE VOULU : `battle_query.is_adjacent` mirrore `TileQuery$$IterateAdjacentTiles`,
+    # qui ne rend JAMAIS la tuile source. Il DOIT rendre FAUX -- les confondre est la faute que
+    # #433-r1 corrige, et un << fix >> qui l'alignerait sur la primitive de portee serait un BUG.
+    from engine.battle_query import is_adjacent as iter_adj
+    got_iter = iter_adj(p, p, None)
+    print("  %-52s -> %r   [%s]"
+          % ("battle_query.py::is_adjacent (CONTRE-EXEMPLE)", got_iter,
+             "IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles -- doit rendre FAUX"))
+    if got_iter is not False:
+        fails.append("A : `battle_query.is_adjacent` rend %r sur (t, t) -- il mirrore "
+                     "`IterateAdjacentTiles`, qui parcourt la liste d'adjacence STOCKEE sur la "
+                     "tuile et ne se rend JAMAIS elle-meme" % got_iter)
 
 
 # --------------------------------------------------------------------------- etape B

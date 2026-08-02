@@ -46,6 +46,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 
 import hexgeo                                                            # noqa: E402
+from engine.battle_query import (                                        # noqa: E402
+    are_entities_adjacent as pb_entities_adjacent, is_adjacent as pb_is_adjacent)
 from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
 from engine.entities import EffectsState                                 # noqa: E402
 from engine.entities.effect_type import EffectType                       # noqa: E402
@@ -140,6 +142,19 @@ def test_every_declared_mirror_calls_a_tile_adjacent_to_itself(flat):
     assert are_entities_adjacent(flat, [MARK], [MARK]) is True
     assert bq_adj(MARK, MARK, flat) is True
     assert bq_adj(MARK, MARK, None) is True
+    assert pb_entities_adjacent(MARK, MARK, {MARK: 0}) is True
+
+
+def test_the_IterateAdjacentTiles_mirror_must_NOT_gain_the_shortcircuit():
+    """LE CONTRE-EXEMPLE, et il est aussi important que la propriete elle-meme.
+
+    `battle_query.is_adjacent` mirrore `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`
+    (les comptages `GetAdjacent*`, `DSLFactory$$AdjacentUnits`), dont le `MoveNext` parcourt la liste
+    d'adjacence STOCKEE sur la tuile : la source ne s'y trouve jamais. L'aligner sur la primitive de
+    PORTEE << par coherence >> ferait compter chaque unite comme sa propre voisine -- une inflation
+    silencieuse de toutes les utilites de voisinage. Les deux natifs sont distincts, le port aussi."""
+    assert pb_is_adjacent(MARK, MARK, None) is False
+    assert pb_is_adjacent(MARK, MARK, {MARK: 0}) is False
 
 
 def test_the_elevation_gate_is_not_weakened_by_the_shortcircuit(flat):
