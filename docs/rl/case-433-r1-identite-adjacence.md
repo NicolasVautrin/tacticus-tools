@@ -163,7 +163,14 @@ retrait du court-circuit sans board), **4 des 7 tests tombent** ; l'arbre a ét�
 
 ## 7. Résidus NOMMÉS, non portés ici
 
-* **`#433-r3` — `entities/triggers.py::IsAdjacent` (nœud DSL) rate DEUX choses.**
+* **`#433-r3` — FERMÉ le 2026-08-02, fiche `docs/rl/case-433-r3-isadjacent-noeud-dsl.md`.** Les
+  trois termes sont portés et le terme d'élévation est confronté LIVE sur deux géométries. Deux
+  corrections à ce qui est écrit ci-dessous : le prédicat par paire est le **slot 0x60** sur
+  `rnca9r7q6c` (pas 0x5f — décalage uniforme d'un cran depuis le build précédent), et **« threader
+  le board » n'était pas un verrou** : `DslContext.board` est déjà alimenté sur les deux faces, les
+  six consommateurs portés y passent tous. Le quantificateur, lui, reste **non atteint** par les
+  ~20 call-sites lus (tous mono-sélecteur) — même forme de verdict que le régime (I) ci-dessus.
+  Énoncé d'origine, conservé :
   `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger`, lu : il résout ses deux
   sélecteurs (`+0x20`, `+0x28`) par le **slot 3** en leur passant `+0x18` (le 3ᵉ argument de
   `DSLFactory$$IsAdjacent(a, b, n)`, qui va au SÉLECTEUR et **non** au prédicat par paire), exige les
