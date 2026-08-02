@@ -158,6 +158,15 @@ $Ratchets = @(
        Seul = 'une primitive `DSLTriggers` retombee en CITE_A_QUALIFIER -- l aveu que l outil ne sait pas attribuer, jamais un verdict -- et une ligne de `docs/rl/dsl-port-attestations.tsv` devenue MORTE (symbole disparu du build, porteur/ancre deplace, porteur devenu MUET sur sa primitive) : une attestation non verifiee ment avec l autorite d une mesure'
        Doc  = 'docs/rl/case-337-dsl-triggers-attestation.md' }
 
+    # Le gisement est SYMETRIQUE, et c est ce qui le rend invisible a l oeil : deux natifs
+    # d adjacence coexistent (`MovementUtil$$AreTilesAdjacent`, qui COMPTE la tuile elle-meme, et
+    # `TileQuery$$IterateAdjacentTiles`, qui ne la rend JAMAIS). Confondre dans un sens fait REFUSER
+    # une adjacence accordee ; dans l autre, compter chaque unite comme sa propre voisine.
+    @{ Id = 'pytest_adjacency'
+       Argv = @('-m', 'pytest', 'tests/engine/runner/test_433_r1_identity_shortcircuit_offline.py', '-q')
+       Seul = 'un foyer qui pretend mirrorer `MovementUtil$$AreTilesAdjacent` et rate un de ses DEUX termes foldes -- le COURT-CIRCUIT D IDENTITE (`tile1 == tile2` rend VRAI sans consulter la connectivite) ou la porte d ELEVATION (`|dElev| < 2`, qui mord sur 695 des 779 boards du depot) -- et la faute SYMETRIQUE, aligner le mirror d `IterateAdjacentTiles` dessus. Les deux degradent en SILENCE : un faux refus d adjacence d un cote, une inflation des comptages de voisins de l autre'
+       Doc  = 'docs/rl/case-433-r1-identite-adjacence.md' }
+
     # --- probe_283, en SIX entrees. `--step all` est l UNION STRICTE de ces six (lire `main`),
     #     et chaque etape est independante. Le decoupage ne change RIEN a la couverture ; il rend
     #     le cout MARGINAL en parallele quasi nul : joue d un bloc, probe_283 DOUBLE le mur du lot
