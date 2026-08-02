@@ -41,7 +41,15 @@ def psyker_smite_tree(pct: int, profile: str):
     feuille `base = round_fix64(pct * Attack / 100)` (Fix64 = mirror natif `PercentageOf.Calculate` ; l'ancien
     imperatif `round(float)` etait moins fidele -> ici aligne sur l'oracle) puis router via
     `execute_normal_like(base, pierce, hits=1, spread_pct=0, Psychic, ranged)` = MEME Operation/pipeline que
-    l'ancien corps (montant mono-valeur -> AUCUNE variance d'arme). Bit-exact BY CONSTRUCTION (meme base, meme
+    l'ancien corps. Le `spread_pct=0` est LU, pas suppose (#449-r2) : le 8e argument
+    `Nullable<AttackDamageBehaviourOptions>` est passe VIDE (`local_78..local_58 = 0`, les 0x28 octets mis a
+    zero juste avant l'appel a `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`), donc
+    `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$.ctor` (`GetValueOrDefault`) pose `+0x9e = 0`, qui
+    transite `$$ExecuteTarget` (options+0x2f) -> `AttackDamageOperation$$ExecuteHit` (request+0x6a) ->
+    `DamagePrediction$$PredictAttackRaw` branche PLATE `MinMaxDamageFix64(d, d)`. ⚠ La conclusion de #449
+    (cote PREDICTION le byte vaut 1 EN DUR, donc spread TOUJOURS) NE SE TRANSPORTE PAS ici : c'est le MEME
+    byte, mais cote COMBAT c'est l'ability qui l'ecrit -- `SkyStrikeAbility$$ExecuteBehaviour` le pose a 1.
+    Bit-exact BY CONSTRUCTION (meme base, meme
     pierce via `profile_pierce`, meme rng). `pct`/`profile` passes par l'appelant (`GC.trait("Psyker").
     variables.psykerExtraDmg` / `PSYCHIC_PROFILE`) pour eviter tout couplage d'import."""
     amount = PercentageOf(Const(pct), StatAmount(Caster(), int(StatType.ATTACK)))   # Direct(pct) x StatAmount(Attack)

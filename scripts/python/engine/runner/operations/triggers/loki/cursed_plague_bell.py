@@ -350,6 +350,17 @@ class CursedPlagueBellMovementAbility(TriggeredAbility):
 # `options` VIDE (`HasValue = 0`, les 0x28 octets sont mis a zero juste avant l'appel) => aucune
 # variance d'arme sur le montant => `amount_spread_pct = 0` (meme regime que le smite Psyker), et ni
 # `alwaysOverkilled` ni `alwaysCrit`.
+#
+# CHAINE VERIFIEE (#449-r2) : `GetValueOrDefault` dans
+# `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$.ctor` depose les 0x28 octets a `+0x98`, donc
+# l'octet d'aiguillage (options+6) est `behaviour+0x9e` -> `$$ExecuteTarget` (options+0x2f) ->
+# `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (request+0x6a) ->
+# `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`, ou `0` prend la branche PLATE
+# `MinMaxDamageFix64(d, d)` et non-zero prend `$$GetBaseDamageFix64` (+-20 %).
+# ⚠ Le byte est le MEME qu'en #449, mais sa conclusion ne se transporte PAS : cote PREDICTION il vaut
+# `1` EN DUR (les trois surcharges de `DamagePredictionQuery$$GetAttackPrediction`), cote COMBAT c'est
+# l'ability qui l'ecrit -- `SkyStrikeAbility$$ExecuteBehaviour` le pose a 1 (`uStack_1e2 = 1`).
+# MESURE live (case-449-r2 §4) : forcer 20 ici fait diverger le recul de 99 et 593 points.
 
 
 def cursed_plague_bell_attack_hits() -> int:

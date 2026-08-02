@@ -137,11 +137,14 @@ racine documentaire de la contradiction, recopiée d'un port à l'autre (`psyker
   (`attackUtilityInSteps` / `...ForMainTarget` / `...ForSecondaryTarget`). Le capteur manquant est
   nommé : une voie `movementUtilityInSteps` sur `rpc-nc-predict.ts` rendrait ce porteur mesurable
   au même titre que les deux autres (elle demande une fenêtre de reinject).
-* **`#449-r2`** — la **face COMBAT** n'est pas dans ce périmètre et n'a pas été touchée :
-  `runner/operations/triggers/loki/psyker.py` passe `spread_pct=0` à `execute_normal_like`, et
-  `.../cursed_plague_bell.py` pose `amount_spread_pct=0`. L'artefact natif y est un
-  `AttackDamageBehaviour` / `Operation`, **pas** `PredictAttackRaw` — la conclusion de ce cas ne
-  s'y transporte pas telle quelle, et l'exécution y est validée par des hp-diff. À RE séparément.
+* **`#449-r2`** — **FERMÉ** : `docs/rl/case-449-r2-spread-face-combat.md`. La face COMBAT atteint
+  **le même** `PredictAttackRaw` et **le même** byte `request+0x6a` ; ce qui diffère est **qui
+  l'écrit** — ici `AttackDamageOperation$$ExecuteHit` le copie des options du behaviour
+  (`AttackDamageBehaviourOptions+6` via `AttackDamageBehaviour+0x9e`), là où la face PRÉDICTION le
+  pose à `1` en dur. Les porteurs à variance nulle passent le `Nullable` **VIDE** : leurs `0` sont
+  **JUSTES**, aucune correction. Deux acquis au passage — un **troisième** porteur non nommé ici
+  (`haze_of_corruption.py`, qui prend le **défaut** et n'écrit donc aucun littéral), et la
+  confirmation par mutation que le canal hp-diff n'est **pas** dégénéré (les 3 tests rougissent).
 * **`#449-r3`** — le byte `DamagePredictionRequest+0x6a` n'est pas **nommé** : on a lu qu'il vaut
   `1` en dur dans les trois surcharges de `DamagePredictionQuery$$GetAttackPrediction` et qu'il
   route vers `GetBaseDamageFix64`. Les producteurs de requête qui y écriraient `0` (donc la branche
