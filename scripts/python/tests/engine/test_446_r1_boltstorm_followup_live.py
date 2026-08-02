@@ -14,11 +14,13 @@ CE QUE CE TEST GARDE -- quatre choses :
   1. **LES COUPS** -- `appliedHits` natif == port, EXACTEMENT. C'est le fait le plus dur du cas
      (natif 6, port 3 avant le fix) et il ne depend d'aucune tolerance.
   2. **L'ECART DE PAIRE EST FERME** -- `|port - natif|` sur `pairUtility` tombe sous `GAP_MAX`
-     (mesure #446 avant fix : -4.159792 sur la cible entouree, -5.639718 sur l'isolee ; apres :
-     -0.0075 et 0.0 exactement). Le seuil n'est PAS un ajustement : il borne le residu
-     `#446-r2` (3 points de degat sur la cible entouree, soit 0.0075 d'utilite a 40000 PV), qui
-     est ANTERIEUR au fold -- mesure au controle appariee « caster prive de son passif », ou le
-     natif rend `1302..1950` la ou le port rend `1299..1950` SANS aucun fold en jeu.
+     (mesure #446 avant fix : -4.159792 sur la cible entouree, -5.639718 sur l'isolee ; apres le
+     fold : -0.0075 et 0.0 ; apres **#446-r2** : **0.0 et 0.0**, champ a champ).
+     ⚠ Le seuil bornait le residu `#446-r2` (3 points de degat sur la cible entouree, soit 0.0075
+     d'utilite a 40000 PV). Ce residu est FERME (arrondi INTER-FACES de
+     `CalculateBaseDamageWithAllModifiers`, cf. `docs/rl/case-446-r2-arrondi-inter-faces.md`), donc
+     le seuil est RESSERRE a `EPS` : il n'y a plus rien a tolerer, et un seuil laxiste laisserait
+     re-passer exactement l'ecart qu'on vient de fermer.
   3. **LES CONTRE-EPREUVES MORDENT** -- trois mutants (dispatch retire, montant ramene a `minDmg`,
      modifiers retires) doivent DEPLACER le port. Le critere est le deplacement par rapport au
      port NON MUTE, jamais l'ecart au natif : la paire porte encore `#446-r2`, donc un critere
@@ -38,9 +40,9 @@ import probe_446_boltstorm_pair_term as P446
 import probe_446_r1_pair_residual as R1
 
 EPS = R1.EPS
-# Borne du residu `#446-r2` (voir docstring (2)) : 3 points de degat a 40000 PV = 0.0075 d'utilite.
-# Large de 4x pour ne pas rougir sur un arrondi voisin, et 500x plus serree que l'ecart d'origine.
-GAP_MAX = 0.03
+# #446-r2 FERME : la paire est desormais EXACTE (0.000000 sur les deux cibles, champ a champ). Le
+# seuil retombe donc a la tolerance Fix64-contre-float du harnais -- plus aucun residu a border.
+GAP_MAX = EPS
 
 
 @pytest.fixture(scope="module")
