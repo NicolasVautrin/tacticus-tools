@@ -132,7 +132,7 @@ def _find_layout(cells, elev, walk, n_foes: int):
     return None, None
 
 
-def build_case(sid, rpc, rid: int, foes: str) -> dict:
+def build_case(sid, rpc, rid: int, foes: str, drive: bool = True) -> dict:
     elev, walk, _tid = P124._board(sid, rid)
     cells = sorted(p for p, wk in walk.items() if wk and elev.get(p) is not None)
     if not cells:
@@ -152,17 +152,25 @@ def build_case(sid, rpc, rid: int, foes: str) -> dict:
             raise MontageError(f"montage NON INSTALLE : {vis} absent du roster adverse")
         vis_uid[vis] = u["id"]
 
-    C, EP = _find_layout(cells, elev, walk, len(want_vis))
-    if C is None:
-        raise MontageError(f"montage NON INSTALLE : aucune geometrie (caster a 3 voisins + "
-                           f"{len(want_vis)} tuiles a distance 2, meme elevation) sur {BOARD}")
-    want = {cid: C}
-    want.update({vis_uid[v]: p for v, p in zip(want_vis, EP)})
-    if not P124._drive_to(sid, rid, walk, elev, want):
-        _dv, pos = P124._positions(sid, rid)
-        raise MontageError(f"montage NON INSTALLE : placement incomplet -- voulu {want}, "
-                           f"obtenu { {u: pos.get(u) for u in want} }")
-    P124._give_turn_back(sid, rid, myplayer)
+    if drive:
+        C, EP = _find_layout(cells, elev, walk, len(want_vis))
+        if C is None:
+            raise MontageError(f"montage NON INSTALLE : aucune geometrie (caster a 3 voisins + "
+                               f"{len(want_vis)} tuiles a distance 2, meme elevation) sur {BOARD}")
+        want = {cid: C}
+        want.update({vis_uid[v]: p for v, p in zip(want_vis, EP)})
+        if not P124._drive_to(sid, rid, walk, elev, want):
+            _dv, pos = P124._positions(sid, rid)
+            raise MontageError(f"montage NON INSTALLE : placement incomplet -- voulu {want}, "
+                               f"obtenu { {u: pos.get(u) for u in want} }")
+        P124._give_turn_back(sid, rid, myplayer)
+    else:
+        # INSPECTION d'un runner deja place (ex. celui d'un AUTRE probe) : on prend les positions
+        # telles quelles. Aucun drive, donc aucune hypothese de geometrie -- c'est l'appelant qui
+        # sait ce qu'il a monte.
+        C = _pos.get(cid)
+        want = {cid: C}
+        want.update({vis_uid[v]: _pos.get(vis_uid[v]) for v in want_vis})
     dv, ctx = _fresh_ctx(rpc, rid, cid)
     if ctx.origin != C:
         raise MontageError(f"montage NON INSTALLE : le caster est en {ctx.origin}, voulu {C}")
@@ -218,6 +226,28 @@ def _sub(a: dict, b: dict) -> dict:
 
 # --------------------------------------------------------------------------- mesure
 
+def target_context(case: dict, uid: int) -> dict:
+    """Le CONTEXTE GEOMETRIQUE de la paire, tel que le port le lit -- ce qui decide l'arme (donc la
+    gate `!IsMelee` du mold), le compte de coups d'arme et le bonus d'elevation. Sans ces champs, un
+    ecart de coups se lit comme un mystere ; avec eux il se rattache a une lecture."""
+    from engine.playbook.prediction._shared import _weapon_pierce
+    from engine.services.battle_query import are_tiles_adjacent
+    ctx, tile = case["ctx"], case["C"]
+    sc = ctx.scene
+    t_pos = sc.pos(uid)
+    adj = are_tiles_adjacent(tile, t_pos, sc.board)
+    dist = hexgeo.distance(tile, t_pos) if (tile and t_pos) else None
+    pierce, ranged, whits, prof = _weapon_pierce(sc, case["cid"], adj, dist)
+    return {"pos": t_pos, "dist": dist, "adjacent": adj,
+            "elev_caster": case["elev"].get(tuple(tile)),
+            "elev_target": case["elev"].get(tuple(t_pos)) if t_pos else None,
+            "terrain": (sc.board.terrain_at(t_pos[0], t_pos[1])
+                        if (sc.board is not None and t_pos) else None),
+            "weapon": {"pierce": pierce, "ranged": ranged, "hits": whits, "profile": prof},
+            "tgt_effects": [e.name for e in (sc.effects(uid) or [])] or None,
+            "tile_effects": sorted((sc.tile_effects_by_pos or {}).get(tuple(t_pos)) or ()) or None}
+
+
 def measure(rpc, case: dict) -> list:
     """Une ligne par cible : natif TOTAL, port TOTAL, port BASE (registre vide), port FOLD."""
     out = []
@@ -229,6 +259,7 @@ def measure(rpc, case: dict) -> list:
         prt_base = port_fields(ctx.scene, cid, uid, tile, fold=False)
         out.append({"vis": vis, "uid": uid, "native": nat, "port": prt,
                     "port_base": prt_base, "port_fold": _sub(prt, prt_base),
+                    "ctx": target_context(case, uid),
                     "armor": ctx.scene.armor(uid), "shield": ctx.scene.shield(uid),
                     "hpmax": ctx.hpmax_by_id.get(uid)})
     return out
@@ -318,6 +349,8 @@ def main() -> int:
     ap.add_argument("--runner", type=int, default=None, help="reutilise un runner deja monte")
     ap.add_argument("--no-baseline", action="store_true",
                     help="saute le bras apparie (ne monte qu'UN runner)")
+    ap.add_argument("--no-drive", action="store_true",
+                    help="INSPECTE un runner deja place (avec --runner) sans rien deplacer")
     ap.add_argument("--mutants", action="store_true", help="joue les contre-epreuves")
     args = ap.parse_args()
 
@@ -329,7 +362,7 @@ def main() -> int:
         return r["result"] if isinstance(r, dict) and "result" in r else r
 
     rid = args.runner if args.runner else _build(args.state_file, args.foes, "kit")
-    case = build_case(sid, rpc, rid, args.foes)
+    case = build_case(sid, rpc, rid, args.foes, drive=not args.no_drive)
     print(f"runner {rid} | caster u{case['cid']} @ {case['C']} | attaque normale = {case['ab']}")
     rows = measure(rpc, case)
 
@@ -366,11 +399,18 @@ def main() -> int:
                   f"port=({pf['rawMin']}, {pf['rawMax']}, h{pf['hits']})   "
                   f"d_fold=({pf['rawMin'] - nf['rawMin']:+d}, {pf['rawMax'] - nf['rawMax']:+d}, "
                   f"h{pf['hits'] - nf['hits']:+d})")
+        else:
+            print(f"      BASE   port=({pb['rawMin']}, {pb['rawMax']}, h{pb['hits']})   "
+                  f"FOLD port=({pf['rawMin']}, {pf['rawMax']}, h{pf['hits']})")
         m = p.get("meta") or {}
         mb = pb.get("meta") or {}
         print(f"      meta port : base={mb.get('base')} hits={mb.get('hits')} "
               f"pierce={mb.get('pierce')} armor={mb.get('armor')} mods={mb.get('mods')} "
-              f"followup={m.get('followup')}")
+              f"mods_detail={mb.get('mods_detail')} followup={m.get('followup')}")
+        c = r["ctx"]
+        print(f"      ctx : pos={c['pos']} dist={c['dist']} adj={c['adjacent']} "
+              f"elev={c['elev_caster']}->{c['elev_target']} terrain={c['terrain']} "
+              f"weapon={c['weapon']} tgt_effects={c['tgt_effects']} tiles={c['tile_effects']}")
     if args.mutants:
         for mu in mutants(case, rows):
             det = " ".join(f"{k}:{v}" for k, v in sorted(mu["shift"].items()))
