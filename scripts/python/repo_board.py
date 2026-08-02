@@ -90,7 +90,7 @@ REC_SEP = "\x1e"
 REPO = Path(__file__).resolve().parents[2]
 # Le NOM DU FICHIER est l'identite de l'artefact publie : republier le meme chemin conserve
 # l'URL, un chemin different en cree une neuve. Ne pas le renommer sans republier derriere.
-OUT = REPO / "logs" / "repo-registry.html"
+OUT = REPO / "logs" / "repo-board.html"
 
 # Artefact genere, versionne expres, mais ce n'est pas du code ecrit -- cf. docstring.
 EXCLUDE = ":(exclude)data/symbols"
