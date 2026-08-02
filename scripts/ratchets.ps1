@@ -141,6 +141,10 @@ $Ratchets = @(
        Seul = 'un INDICE litteral (cle de dict/liste) qui vaut l ordinal ARCHIVE d un membre cite sur sa ligne, dans les DEUX angles morts de probe_283 : l acces par ACCESSEUR (.get/.pop/.setdefault -- son etape exec ne visite que Subscript) et le membre AMBIGU (son etape prose l ecarte quand la ligne ne nomme pas l enum, 4bis inconditionnellement). Mesure #443-r1c : le commentaire fautif s AUTO-ATTESTAIT A MOITIE -- sa moitie juste (10=TileEffects) entrait dans les ~1200 citations justes de l etape 4 pendant que sa moitie fausse (8=Elevation, ambigu dans 3 enums) restait invisible'
        Doc  = 'docs/rl/case-443-r1c-indices-perimes.md' }
 
+    @{ Id = 'probe_443r2'; Argv = @('probe_443r2_only_active_callsites.py')
+       Seul = 'un mirror de `EntityExtensions$$HasEffect` dont le SUBSTRAT contredit le litteral `onlyActive` qu il cite : `active_effects` (activite) sous un litteral 0/false/null, ou `has_effect` (presence) sous un 1/true. La divergence est SILENCIEUSE et ne se voit que sur un effet PRESENT-mais-INACTIF -- regime qu aucun montage naif n atteint (le canal decisionView par defaut DROPPE les inertes), donc invisible a tout test de conformite ordinaire. MESURE #443-r2 : 35 points d utilite de paire, sur le choix de CIBLE de l attaque normale'
+       Doc  = 'docs/rl/case-443-r2-only-active.md' }
+
     @{ Id = 'probe_431'; Argv = @('probe_431_build_literals.py', '--cliquet')
        Seul = 'un hash de build ecrit en dur qui RESOUT un artefact du jeu (chemin de GameAssembly.dll, table de symboles, defaut de --build) HORS du foyer build_pin : le litteral court-circuite a la fois data/symbols/CURRENT et le binaire installe, donc symbols_sync peut etre VERT pendant que le script lit un autre build'
        Doc  = 'docs/rl/case-431-litteraux-de-build.md' }

@@ -113,6 +113,24 @@ RX_DECL = re.compile(r"onlyActive\s*[:=]+\s*[`*]*(TRUE|FALSE|true|false|null|Non
 LITTERAL_REGIME = {"0": "PRESENCE", "false": "PRESENCE", "null": "PRESENCE", "none": "PRESENCE",
                    "1": "ACTIVITE", "true": "ACTIVITE"}
 
+#: Les deux etapes balaient le MEME arbre : sans ce cache, `engine/**` est lu et parse DEUX fois
+#: (mesure : 11,3 s -> 6,0 s). Cle = chemin resolu.
+_CACHE: dict = {}
+
+
+def _source(path: Path) -> tuple:
+    """(texte, lignes, AST) du fichier, parse UNE seule fois. AST `None` si le fichier ne parse pas
+    -- l'appelant l'ecarte, il ne devine pas."""
+    k = str(path)
+    if k not in _CACHE:
+        src = path.read_text(encoding="utf-8", errors="replace")
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            tree = None
+        _CACHE[k] = (src, src.splitlines(), tree)
+    return _CACHE[k]
+
 
 # ==========================================================================================
 #  Portees (AST) : a quelle fonction appartient une ligne ?
@@ -350,8 +368,8 @@ def inventaire_source(src: str, rel: str) -> list:
 
 
 def inventaire_fichier(path: Path) -> list:
-    return inventaire_source(path.read_text(encoding="utf-8", errors="replace"),
-                             path.relative_to(REPO).as_posix())
+    src, _lignes, _tree = _source(path)
+    return inventaire_source(src, path.relative_to(REPO).as_posix())
 
 
 # ==========================================================================================
@@ -371,12 +389,9 @@ def vecteurs_inactivite() -> dict:
     cond, flag = [], []
     for p in sorted((PYDIR / "engine").rglob("*.py")):
         rel = p.relative_to(REPO).as_posix()
-        src = p.read_text(encoding="utf-8", errors="replace")
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
+        _src, lignes, tree = _source(p)
+        if tree is None:
             continue
-        lignes = src.splitlines()
         portees = _portees(tree)
         consts = constantes_effect_type(tree)
 
