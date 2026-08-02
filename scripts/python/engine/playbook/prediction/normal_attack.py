@@ -61,7 +61,7 @@ _MELEE_FOLLOWUP_PASSIVES = ("RighteousRepugnance",)   # #446-r3 : porteur `adept
 _MELEE_KLAW_PASSIVES = ("ProperKilly",)
 
 
-def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name, mods=None):
+def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name, mods=None, hits_ctx=None):
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$GetAdditionalDamagePrediction` (et son JUMEAU au corps
     identique `IdunBattleLogic.Entities.Abilities.Active.Loki.RighteousRepugnance_NormalAttackAbility$$GetAdditionalDamagePrediction`) — le mold
     est le MEME des deux cotes de la gate : seul `PredictAttack` differe (`!IsMelee` pour `Boltstorm`,
@@ -69,9 +69,10 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name, mods=N
     amount = `CalculateAverage` du `RandomAmount(minDmg, maxDmg)` (SLOT 4 de `IAmountFormula` :
     `FUN_180025fb0(4, <IAmountFormula>, <noeud>, ...)` -> `IdunBattle.DSL.AAmountFormula$$CalculateAverage`,
     donc `(min + max) / 2` en division ENTIERE, cf. `engine.dsl.base.calculate_average`), hits =
-    ConfigConst(0x2f nrOfHits), profil propre du passif, scenario VIERGE (armure/bouclier de la
-    cible re-disponibles — quirk natif mirrore), et les MODIFIERS DE L'ATTAQUANT sont ceux de
-    l'attaque porteuse.
+    `GetAttackHits(caster, target, 0, <ability>, ConfigConst(0x2f nrOfHits))` (#419-r1-tr9-r4 : le
+    constant est la BASE D'ARME du fold, pas son compte de coups — cf. le bloc ci-dessous), profil
+    propre du passif, scenario VIERGE (armure/bouclier de la cible re-disponibles — quirk natif
+    mirrore), et les MODIFIERS DE L'ATTAQUANT sont ceux de l'attaque porteuse.
 
     ⚠ DEUX corrections de #446-r1, toutes deux mesurees sur `templAggressor` (voir
     `docs/rl/case-446-r1-boltstorm-followup.md`) — le port lisait `minDmg` seul et passait
@@ -98,6 +99,26 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name, mods=N
     amount = calculate_average(int(_mn), int(_mx))
     if amount <= 0:
         return None
+    # #419-r1-tr9-r4 : `nrOfHits` n'est PAS le compte de coups du fold, c'est sa BASE D'ARME. Le
+    # natif la fait traverser la MEME facade que les coups de l'attaque porteuse -- le slot `0xb5`
+    # de l'`IBattleQuery`, identifie par le proxy
+    # `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass216_0$$u003CGetAttackHitsu003Eb__0`
+    # (meme interface, meme forme d'arguments), c'est-a-dire
+    # `IdunBattle.Core.Services.BattleQuery$$GetAttackHits(attacker, defender, hitGroupIndex, ability,
+    # attackWeaponHits)` -> `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`, qui somme
+    # `weaponHits + ExtraHits(0x11) [+ ExtraHitsMelee(0x17) si melee]` puis applique les descripteurs
+    # de bonus/malus de coups et termine par `System.Math.Max(hits, 0)`.
+    # Le couple passe est le MEME que celui de la base (`caster` = `AbilityEntities@+0x08`, `target` =
+    # `@+0x10`), donc TOUS les canaux de coups s'appliquent au fold aussi -- y compris les malus
+    # DEFENSEUR. `hits_ctx` = exactement les arguments de l'appel de base, `weapon_hits` mis a part.
+    # MESURE (`probe_419r1tr9_r4_boltstorm_pred.py`, `templAggressor` -> `necroWarden` sur `LightCover`) :
+    # le natif rend 2 coups au total (1 de base + 1 de fold, le malus -2 mordant DES DEUX COTES) la ou
+    # le port en rendait 4 (1 + `nrOfHits` = 3) -- un facteur ~2 sur les deux bornes.
+    # ABSENT du mold KLAW (`get_klaw_attack1_prediction`) : son decompile boucle `nrOfHits` fois sur
+    # `GetKlawAttack1HitPrediction` et n'appelle JAMAIS `GetAttackHits` -- ne pas generaliser.
+    hits = int(n)
+    if hits_ctx is not None:
+        hits = attack_hits_with_modifiers(weapon_hits=int(n), **hits_ctx)
     prof = ((GC.ability(ability_name) or {}).get("constants") or {}).get("damageProfile") or ""
     prof_ratio = int((GC.damage_profile(prof) or {}).get("PiercingRatio") or 0)
     # pierce = profil + ExtraPierce stat (IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio, meme pipeline 0x27)
@@ -105,7 +126,7 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name, mods=N
     # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` -> HasTrait(defender, 0x3f5)).
     tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_entity_traits(scene, tgt_id)))
     return get_attack_prediction(
-        target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=int(n),
+        target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=int(hits),
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
         mods=mods, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof),
@@ -156,13 +177,19 @@ def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name, mods=None):
         attacker_ctx=ctx)                         # #R34 : MightCrit = CouldCrit(attaquant)
 
 
-def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_found, mods=None):
+def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_found, mods=None,
+                                       hits_ctx=None):
     """Selecteur du mold follow-up de l'attaquant (cf. bloc ci-dessus). None = pas de fold
     (pas d'arme trouvee / kit sans passif concerne / gate melee-ranged non satisfaite).
 
     `mods` = les modifiers de l'ATTAQUE PORTEUSE, threades jusqu'aux molds (#446-r1, #446-r3) : le
     natif ne les passe pas en argument, son service de prediction les recalcule — meme resultat,
     et c'est ce que la mesure impose.
+
+    `hits_ctx` = les arguments de l'appel de coups de l'ATTAQUE PORTEUSE, `weapon_hits` mis a part
+    (#419-r1-tr9-r4). Les DEUX molds additional-damage font traverser `nrOfHits` a la meme facade
+    `GetAttackHits` ; le mold KLAW, lui, ne l'appelle PAS (il boucle) — c'est pourquoi seul le
+    premier le recoit.
 
     ⚠ La gate melee/ranged est la SEULE chose qui separe les deux molds additional-damage : le mold
     RANGED (`Boltstorm`) folde quand l'arme choisie n'est PAS melee, le mold MELEE
@@ -178,11 +205,13 @@ def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_f
     if not is_melee:
         for nm in _RANGED_FOLLOWUP_PASSIVES:
             if nm in names:
-                return get_additional_damage_prediction(scene, att_id, tgt_id, nm, mods=mods)
+                return get_additional_damage_prediction(scene, att_id, tgt_id, nm, mods=mods,
+                                                        hits_ctx=hits_ctx)
     else:
         for nm in _MELEE_FOLLOWUP_PASSIVES:
             if nm in names:
-                return get_additional_damage_prediction(scene, att_id, tgt_id, nm, mods=mods)
+                return get_additional_damage_prediction(scene, att_id, tgt_id, nm, mods=mods,
+                                                        hits_ctx=hits_ctx)
         for nm in _MELEE_KLAW_PASSIVES:
             if nm in names:
                 return get_klaw_attack1_prediction(scene, att_id, tgt_id, nm, mods=mods)
@@ -537,21 +566,25 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # mirror du call-site combat (operations/damage.py). Board KO -> None = applique-sur-presence.
     _t_terrain = scene.board.terrain_at(t_pos[0], t_pos[1]) if scene.board is not None else None
     _on_cover = (_t_terrain == LIGHT_COVER_TILE_ID) if _t_terrain is not None else None
-    hits = attack_hits_with_modifiers(weapon_hits=whits,
-                                      extra_hits=_xh if _xh is not None else ctx.stat(StatType.EXTRA_HITS),
-                                      extra_hits_melee=ctx.extra_hits_melee,
-                                      attacker_effects=att_effects, trait_objects=ctx.trait_objects(),
-                                      target_effects=tgt_effects, aura_sources=aura_sources, board=board,
-                                      is_melee=is_melee, damage_profile=prof_name,
-                                      include_bonus_hit_behaviours=True,  # prediction folde GetStuckIn (deterministe)
-                                      # #227 : `LetTheGalaxyBurn` a QUITTE cette formule (son
-                                      # artefact natif est un descripteur `EffectAdditionalHits`,
-                                      # canal #179). Cote PREDICTION il ne contribue RIEN :
-                                      # `IdunBattle.Entities.Abilities.AActiveAbility$$GetAdditional
-                                      # HitsFromEffectsForPrediction` tourne hors `OngoingAttack`,
-                                      # donc `FirstHitInCurrentAttackDamageRange` rend 0 -> coup a
-                                      # 0 degat. Cf. `LetTheGalaxyBurnEffect`.
-                                      defender_on_cover=_on_cover)
+    # #419-r1-tr9-r4 : les arguments de la facade de COUPS sont montes UNE fois et reutilises tels
+    # quels par le fold `GetAdditionalDamagePrediction` (avec `weapon_hits = nrOfHits`). Le natif
+    # rappelle le MEME `GetAttackHits` avec le MEME couple (caster, cible) et ne change que la base
+    # d'arme : partager le dict est ce qui garantit qu'aucun canal ne diverge entre les deux etages.
+    _hits_kw = dict(extra_hits=_xh if _xh is not None else ctx.stat(StatType.EXTRA_HITS),
+                    extra_hits_melee=ctx.extra_hits_melee,
+                    attacker_effects=att_effects, trait_objects=ctx.trait_objects(),
+                    target_effects=tgt_effects, aura_sources=aura_sources, board=board,
+                    is_melee=is_melee, damage_profile=prof_name,
+                    include_bonus_hit_behaviours=True,  # prediction folde GetStuckIn (deterministe)
+                    # #227 : `LetTheGalaxyBurn` a QUITTE cette formule (son
+                    # artefact natif est un descripteur `EffectAdditionalHits`,
+                    # canal #179). Cote PREDICTION il ne contribue RIEN :
+                    # `IdunBattle.Entities.Abilities.AActiveAbility$$GetAdditional
+                    # HitsFromEffectsForPrediction` tourne hors `OngoingAttack`,
+                    # donc `FirstHitInCurrentAttackDamageRange` rend 0 -> coup a
+                    # 0 degat. Cf. `LetTheGalaxyBurnEffect`.
+                    defender_on_cover=_on_cover)
+    hits = attack_hits_with_modifiers(weapon_hits=whits, **_hits_kw)
     # MkXGravis (trait CIBLE 0x3f5) : l'armure est traversee 2× → hit_mult=2 dans predict_attack_raw
     # (IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor). No-op (=1) pour toute cible sans trait hit-twice.
     tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_tgt_traits))
@@ -616,7 +649,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # ProperKilly) — prediction ADDITIONNELLE sur scenario VIERGE sommee via DamagePredictionResult.add
     # (IdunBattle.Core.Services.DamagePredictionResult$$Add), cf. bloc _RANGED_FOLLOWUP_PASSIVES ci-dessus.
     _fw = _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee,
-                                             prof_name is not None, mods=mods)
+                                             prof_name is not None, mods=mods, hits_ctx=_hits_kw)
     if _fw is not None:
         res.add(_fw)
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
@@ -630,6 +663,9 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
               "mods_def": [round(m, 3) for m, _c in mods.pct_list_defender] or None,
               "effects": [e.name for e in att_effects] or None}
         if _fw is not None:
-            _m["followup"] = {"min": _fw.raw_health_damage.min, "max": _fw.raw_health_damage.max}
+            # `hits` = le retour de la facade `GetAttackHits` pour le fold (#419-r1-tr9-r4) : sans
+            # lui, un ecart de COMPTE DE COUPS du fold ne se distingue pas d'un ecart de montant.
+            _m["followup"] = {"min": _fw.raw_health_damage.min, "max": _fw.raw_health_damage.max,
+                              "hits": _fw.applied_hits}
         return ev, _m
     return ev
