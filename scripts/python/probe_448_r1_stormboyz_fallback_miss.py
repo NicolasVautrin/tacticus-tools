@@ -29,8 +29,17 @@ VOLET B -- LIVE (`--live`), confronte la RE
   pour `TriggeredAbilityType.StormboyzStrike = 0x475`, construit une `List` de TROIS instances.
   B1. Le porteur part hors plateau sous `1140` (acquis #366-r1 tranche 3/3).
   B2. On termine son tour SANS le bouger -> `On(0x28 = UnitFinishedTurn)` -> le Fallback le repose
-      sur une tuile et MARQUE cette tuile avec `1179`, `turns: 1`.
-  B3. La tuile marquee est EXACTEMENT celle ou il a atterri (discriminant de la pose).
+      sur une tuile et MARQUE une tuile avec `1179`, `turns: 1`.
+  B3. La tuile marquee est une AUTRE tuile que celle d'atterrissage -- quirk natif etabli par #425 :
+      `MoveUnitBehaviour` et `AddEffect` partagent le MEME noeud selecteur, mais `&` les execute EN
+      SEQUENCE, donc a la re-evaluation le caster occupe deja la meilleure tuile et `CanAddUnit`
+      l'exclut.
+
+  ⚠ MONTAGE -- UN ALLIE EST OBLIGATOIRE (#425). Avec le seul porteur, son `finish` CLOTURE le tour
+  d'equipe et la marque `turns: 1` est consommee dans le MEME `applyAction` : `tileMeta` ne publie
+  alors AUCUNE tuile marquee, et cette absence est CORRECTE. C'est exactement la mesure qui avait
+  fait conclure a tort a un « residu de canal » (capteur a poser, reinject requis) -- conclusion
+  REFUTEE par `docs/rl/case-425-canal-effet-de-tuile.md`. Le canal est sain de bout en bout.
 
 Reproduction :
     python probe_448_r1_stormboyz_fallback_miss.py            # volet A seul (offline, ~40 s)
@@ -240,7 +249,7 @@ def _carriers() -> list:
 
 
 # ---------------------------------------------------------------- VOLET B (live)
-def volet_b(board: str, seed: int, graft: str, foes: list) -> dict:
+def volet_b(board: str, seed: int, graft: str, foes: list, allies: list = None) -> dict:
     import catalog_inject as CI
     from rl_collect_batch import _resolve_session, _rpc
 
@@ -258,9 +267,14 @@ def volet_b(board: str, seed: int, graft: str, foes: list) -> dict:
     bc_path.write_text(json.dumps(bc), encoding="utf-8")
     print("== VOLET B (live) -- greffe %s sur %s : %s" % (ABILITY, graft, rep))
 
+    # #425 -- l'ALLIE est le discriminant du montage, pas un detail : sans lui le `finish` du
+    # porteur cloture le tour d'equipe et la marque `turns: 1` disparait dans le meme appel.
+    p_units = [graft] + [a for a in (allies or []) if a]
+
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--rank", "17",
-           "--board", board, "--p-units", graft, "--a-units", ",".join(foes), "--no-ai",
+           "--board", board, "--p-units", ",".join(p_units),
+           "--a-units", ",".join(foes), "--no-ai",
            "--seed-bc", str(bc_path), "--state-file", str(state_file)]
     p = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -358,10 +372,13 @@ def volet_b(board: str, seed: int, graft: str, foes: list) -> dict:
         print("      applyAction -> %s" % out["finish"])
         out["b2"] = snapshot("B2 apres finish")
 
-        # B3 -- SEPARER « la tuile ne possede pas l'effet » de « le capteur le filtre ».
-        # `readEffectsByTile` (frida/hooks/game/effects.ts) itere les entites Tile, lit leur
-        # `EffectsOwnedComponent` et JETTE tout ce qui est `removed` (meme sous includeInactive).
-        # `dumpEntityComponents` est read-only et ne filtre rien : c'est le seul arbitre.
+        # B3 -- TRANCHE, depuis #425 : la tuile MARQUEE n'est pas celle d'ATTERRISSAGE, et le
+        # discriminant n'est plus `dumpEntityComponents` mais `effectAbilityStates`, qui balaie
+        # TOUTES les entites `EntityType.Effect` sans filtre d'appartenance et publie leur
+        # `EffectComponent.SourceUnitId`. La surcharge
+        # `IdunBattleLogic.Entities.DSLBehaviors$$AddEffect(effectType, abilityState, targets, turns)`
+        # passe `source = NULL`, donc `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute`
+        # retombe sur la CIBLE : `SourceUnitId == OwnerId == l'entite-tuile marquee`.
         landed = ((out["b2"].get("me") or {}).get("pos")) or {}
         # ⚠ `tileMeta` ne publie PAS d'id d'entite (cles : col/row/elevation/isWall/isTemporary/
         # isTerritory/effects). C'est `boardGraph` qui porte l'id, et son `t.id` EST l'entityId
@@ -371,22 +388,24 @@ def volet_b(board: str, seed: int, graft: str, foes: list) -> dict:
         for t in (bg.get("tiles") or []):
             if t.get("col") == landed.get("col") and t.get("row") == landed.get("row"):
                 tile_entity = t.get("id")
-                print("   B3 tuile d'atterrissage (%s,%s) -> entite %s"
-                      % (landed.get("col"), landed.get("row"), tile_entity))
                 break
-        if tile_entity is not None:
-            dmp = rpc(sid, "dumpEntityComponents",
-                      {"runnerId": rid, "entityId": tile_entity, "withFields": True}, 90)
-            comps = [c.get("cls") for c in (dmp.get("components") or [])]
-            out["b3"] = {"tile_entity": tile_entity, "components": comps}
-            print("      composants de l'entite-tuile : %s" % comps)
-            print("      NB: `dumpEntityComponents` rend la STRUCTURE (noms/offsets de champs), PAS")
-            print("        les VALEURS : il ne peut pas lister le contenu de")
-            print("        `EffectsOwnedComponent.ActiveEffectIds`. Trancher \"la tuile ne possede")
-            print("        pas l'effet\" de \"le capteur le filtre\" demande un capteur NEUF ->")
-            print("        cf. docs/rl/case-448-r1-stormboyz-fallback-miss.md sec.4 (ancrage).")
-        else:
-            print("   B3 : entite-tuile non identifiable")
+        if tile_entity is None:
+            print("   B3 : entite-tuile d'atterrissage non identifiable")
+        # L'OWNER REEL de chaque entite 1179 -- canal SANS filtre d'appartenance.
+        eas = rpc(sid, "effectAbilityStates",
+                  {"runnerId": rid, "effectType": ALREADY_USED_TILE}, 120)
+        by_id = {int(t["id"]): (t.get("col"), t.get("row"))
+                 for t in (bg.get("tiles") or []) if t.get("id") is not None}
+        owners = [{"effectId": e.get("effectId"), "ownerEntity": e.get("source"),
+                   "ownerPos": by_id.get(int(e.get("source") or -1)), "active": e.get("active")}
+                  for e in (eas.get("effects") or [])]
+        out["b3"] = {"landing_tile_entity": tile_entity, "owners": owners}
+        print("   B3 entite-tuile d'ATTERRISSAGE (%s,%s) = %s"
+              % (landed.get("col"), landed.get("row"), tile_entity))
+        print("      entites 1179 et leur OWNER (effectAbilityStates) : %s" % (owners or "AUCUNE"))
+        if not owners:
+            print("      => aucune entite 1179 : verifier d'abord le MONTAGE (allie present ?),")
+            print("         cf. docs/rl/case-425-canal-effet-de-tuile.md")
 
         d = None
         if out["b1"].get("n_eff") is not None and out["b2"].get("n_eff") is not None:
@@ -420,14 +439,18 @@ def main() -> int:
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--graft", default="orksNob")
-    ap.add_argument("--foes", default="ultraTitus")
+    ap.add_argument("--foes", default="tauCrisis")
+    #: #425 -- allie OBLIGATOIRE par defaut : sans lui le `finish` du porteur cloture le tour
+    #: d'equipe et la marque `turns: 1` est consommee dans le meme `applyAction`.
+    ap.add_argument("--allies", default="ultraTitus")
     a = ap.parse_args()
     build = _build_hash()
     res = volet_a(build)
     print("\n   porteurs gameconfig de %s : %s" % (ABILITY, res["carriers"]))
     if a.live:
         print()
-        volet_b(a.board, a.seed, a.graft, a.foes.split(","))
+        volet_b(a.board, a.seed, a.graft, a.foes.split(","),
+                [x for x in a.allies.split(",") if x])
     return 0
 
 
