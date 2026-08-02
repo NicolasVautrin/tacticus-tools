@@ -284,3 +284,88 @@ saisi au lieu d'être dérivé », et la première où le périmètre *se voulai
   `pytest rc=4` (*usage error*, « file or directory not found ») que le probe traduit en rouge de
   test. La banque le lance depuis le bon répertoire, donc le gisement est nul aujourd'hui — mais un
   rc d'usage ne doit pas se lire comme un rouge de gisement.
+
+## 7. `#457-r6` — le mur de la banque : ce qui le fait, et ce qui ne le fait PAS
+
+Objectif pose le 2026-08-02 : **passer le mur sous 60 s** (il etait a 244 s).
+
+### Ce qui NE le fait pas : le parallelisme
+
+`ForEach-Object -Parallel -ThrottleLimit N` **est deja** un pool de N workers qui depile une file.
+Le mur n'en depend pas :
+
+| throttle | mur | dont le plus long cliquet |
+| --- | --- | --- |
+| 6 | 244,9 s | 236,9 s |
+| 10 | 228,3 s | 228,0 s |
+| 16 | 234,8 s | 234,7 s |
+
+Le mur EGALE la duree d'**une seule tache indivisible**. Quinze workers finissaient et attendaient.
+
+### Le plafond REEL, mesure
+
+Scaling d'un cliquet qui parse l'arbre (`probe_431`), N instances simultanees :
+
+| N | 1 | 8 | 16 |
+| --- | --- | --- | --- |
+| mur | 20,8 s | 40,0 s | 60,7 s |
+
+⇒ **~5 workers effectifs**, pas 16. Ces taches sont limitees par la bande passante memoire (AST de
+~1900 fichiers), pas par les coeurs. Contre-epreuve : `probe_313`, qui lit une TABLE au lieu de
+parser l'arbre, scale presque parfaitement (16 instances = 21,6 s contre 17,6 s pour une seule).
+La difference n'est donc pas la machine, c'est la NATURE de la charge.
+
+**Consequence : mur minimal ≈ travail_total / 5.** Somme isolee de la banque = **675 s** ⇒ plancher
+~135 s. **Tenir 60 s exige de diviser le travail par deux — aucun ordonnancement n'y suffira.**
+
+### Ce qui a ete fait
+
+1. **Ordonnancement LPT** (`ratchets.ps1`) : les cliquets partaient dans l'ordre de DECLARATION,
+   `probe_181` (1,2 s) en tete et les shards lourds en fin. Durees relues du run precedent
+   (`logs/ratchets/durations.json`), inconnu = suppose maximal. **N'affecte ni le verdict ni le
+   code de sortie** : des poids perimes coutent du mur, jamais un faux vert.
+2. **Parallelisme sur les coeurs PHYSIQUES** (16) et non logiques (22).
+3. **Shardage par COUT** de `probe_457` (bin-packing LPT) au lieu du md5, qui repartissait par
+   NOMBRE : il avait concentre 4 fichiers lourds dans `s7` (**106 s** isole contre **4,8 s** pour
+   `s3`), et ce shard faisait A LUI SEUL tout le mur. Apres : **60 / 38 / 32 x 6**.
+   Poids regeneres par `probe_457 --measure` (un seul passage chronometrant chaque fichier —
+   mesurer fichier par fichier couterait 110 demarrages a 3,1 s et surestimerait d'autant).
+
+**Mur : 244 → 213-229 s.** Le plancher est desormais le fichier le plus lourd, insecable.
+
+### La regression que ce travail a INDUITE, et sa correction
+
+`test_431_build_pin_offline.py` **mutait l'arbre de production** pour verifier que le cliquet
+rougit. Isole seul dans son shard par le nouveau partitionnement, LPT le fait demarrer en PREMIER
+— exactement quand `probe_431` balaie ce meme arbre. **Banque ROUGE 2 fois sur 2**, sur des
+residus TRANSITOIRES qui n'existaient deja plus quand on allait les chercher (`git status` propre,
+`git grep` muet). Le defaut etait pre-existant et occasionnel ; le partitionnement l'a rendu
+SYSTEMATIQUE.
+
+C'est **#455 dans l'autre sens** : la-bas un cliquet CREAIT un fichier sous `scripts/python/` ;
+ici un test y MODIFIE des fichiers, pendant qu'une dizaine de cliquets enumerent le meme arbre.
+
+Correction : les trois tests de mutation operent dans un **worktree jetable** (`git worktree add`
+sur un tmpdir SYSTEME, fixture de module). Aucune option n'a ete ajoutee a `probe_431` — il derive
+sa racine de son PROPRE chemin, donc lancer la copie du worktree suffit a l'y confiner. Le
+worktree part de `HEAD`, ce qui rend au passage le test independant du working tree.
+Cout : +25 s sur ce fichier (60 → 85 s), assume — la correction prime sur le mur.
+
+⚠ Un autre garde a fait son travail pendant ce chantier : la premiere version de `--measure`
+ecrivait ses poids **a cote du probe**, sous `scripts/python/`. **`probe_440` a rougi, a raison.**
+Les poids vivent donc sous `logs/` — gitignore, donc un checkout frais retombe sur le repli md5 :
+mur sous-optimal, **verdict inchange**.
+
+### Ce qui reste pour atteindre 60 s
+
+**`#457-r6` reste OUVERT.** Le gisement est identifie et chiffre : une dizaine de cliquets
+(`probe_431`, `probe_440`, `probe_273`, `probe_319`, `probe_365`, les 6 etapes de `probe_283`…)
+**re-parsent chacun les memes ~1900 fichiers**. Mutualiser ce balayage — un AST parse UNE fois,
+consomme par tous — est le seul levier qui reste, et #524 en a deja donne la preuve de concept sur
+`probe_431` : perimetre x2,1 pour **-14 %** de temps.
+
+Cibles secondaires, mesurees isolees : `test_431_build_pin` 85 s (dont 3 tests qui relancent le
+cliquet entier), `test_391_conftest_dir_identity` **1 seul test en ~78 s**,
+`test_enum_ordinal_ratchet` ~38 s, `test_ability_registry_ratchet` ~31 s.
+
+⚠ Chiffres a RE-DERIVER (`probe_457 --measure`, puis un relevé isolé), jamais a citer.

@@ -207,10 +207,16 @@ CIBLE = PYDIR / "probe_88_on3_emitter.py"
 #     trois premieres tiennent toutes sous 58 caracteres, qui etait la troncature d'affichage
 #     -- avec elles seules, le cliquet pouvait rougir sans NOMMER le fautif sur 641 des 1928
 #     fichiers du perimetre, et le test serait passe.
-CIBLES = (CIBLE,
-          PYDIR / "tools" / "damage_decomp.py",
-          REPO / "frida" / "hooks" / "controller.ts",
-          PYDIR / "engine" / "runner" / "operations" / "triggers" / "loki" / "anvil_shield.py")
+def _cibles(root: Path) -> tuple:
+    """Les 4 cibles de mutation, RELATIVES a une racine -- l'arbre reel ou un worktree jetable."""
+    py = root / "scripts" / "python"
+    return (py / CIBLE.name,
+            py / "tools" / "damage_decomp.py",
+            root / "frida" / "hooks" / "controller.ts",
+            py / "engine" / "runner" / "operations" / "triggers" / "loki" / "anvil_shield.py")
+
+
+CIBLES = _cibles(REPO)
 
 _PY_RESO = '_MUTANT_431 = "C:/Users/x/AppData/Local/tacticus/games/gqfc5mff6c/GameAssembly.dll"'
 _PY_NOTE = '_NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date"'
@@ -221,10 +227,46 @@ _NOTE = (_PY_NOTE, _PY_NOTE,
          'const _NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date";', _PY_NOTE)
 
 
-def _cliquet() -> tuple[int, str]:
+def _cliquet(root: Path = REPO) -> tuple[int, str]:
+    """Lance le cliquet DE `root`, sur l'arbre de `root`.
+
+    Le probe derive sa racine de SON PROPRE chemin (`Path(__file__).parents[2]`) : lancer la copie
+    du worktree suffit donc a l'y confiner, sans lui ajouter la moindre option."""
     r = subprocess.run([sys.executable, "probe_431_build_literals.py", "--cliquet"],
-                       cwd=str(PYDIR), capture_output=True, text=True, timeout=600)
+                       cwd=str(root / "scripts" / "python"),
+                       capture_output=True, text=True, timeout=600)
     return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+@pytest.fixture(scope="module")
+def arbre_isole(tmp_path_factory):
+    """Un WORKTREE JETABLE, hors de l'arbre partage -- #457-r6.
+
+    POURQUOI. Les trois tests de mutation ci-dessous ECRIVAIENT dans l'arbre de production pour
+    verifier que le cliquet rougit. Or la banque tourne EN PARALLELE par conception, et une
+    dizaine de ses cliquets ENUMERENT ce meme arbre : `probe_431` voyait alors les mutations d'un
+    voisin et rougissait sur elles. Mesure du 2026-08-02, apres le passage au shardage par cout
+    qui isole ce fichier dans son propre shard : banque ROUGE 2 fois sur 2, sur `probe_431`, pour
+    des residus TRANSITOIRES qui n'existaient deja plus quand on allait les chercher. C'est #455
+    dans l'autre sens -- la, un cliquet CREAIT un fichier sous `scripts/python` ; ici un test y
+    MODIFIE des fichiers.
+
+    Le worktree part de `HEAD` (pas du working tree) : le test valide le COMPORTEMENT du cliquet,
+    pas la proprete de l'arbre courant -- c'est le role du cliquet lui-meme dans la banque. Le
+    rendre independant du working tree le rend au passage DETERMINISTE.
+
+    `tmp_path_factory` pose sa base hors du depot (tmpdir systeme), donc rien n'apparait sous
+    `scripts/python/` -- l'interdit que `probe_440` garde."""
+    wt = tmp_path_factory.mktemp("arbre431") / "wt"
+    add = subprocess.run(["git", "worktree", "add", "--detach", str(wt), "HEAD"],
+                         cwd=str(REPO), capture_output=True, text=True)
+    if add.returncode != 0:
+        pytest.skip("git worktree indisponible : %s" % ((add.stderr or "").strip()[:200]))
+    try:
+        yield wt
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(wt)],
+                       cwd=str(REPO), capture_output=True, text=True)
 
 
 #: Les deux marqueurs n'existent dans le depot QUE par ce test. Les balayer en debut de
@@ -236,7 +278,7 @@ def _cliquet() -> tuple[int, str]:
 _MARQUEURS = ("_MUTANT_431", "_NOTE_431")
 
 
-def _oter_residus() -> list:
+def _oter_residus(root: Path = REPO) -> list:
     """Tronque chaque cible au `\\n` qui PRECEDE son premier marqueur.
 
     Sur les OCTETS, et par troncature -- pas par filtrage de lignes. La mutation ajoute
@@ -250,7 +292,7 @@ def _oter_residus() -> list:
     cours d'un agent sur ces memes fichiers.
     """
     nettoyes = []
-    for cible in CIBLES:
+    for cible in _cibles(root):
         try:
             brut = cible.read_bytes()
         except OSError:
@@ -272,14 +314,15 @@ class _Mutations:
     « le cliquet est calme », alors qu'il n'a rien eu a voir.
     """
 
-    def __init__(self, lignes):
+    def __init__(self, lignes, root: Path = REPO):
         self.lignes = lignes
+        self.root = root
         self.avant, self.sha = {}, {}
 
     def __enter__(self):
-        _oter_residus()                 # un run precedent a pu etre TUE avant son `finally`
+        _oter_residus(self.root)        # un run precedent a pu etre TUE avant son `finally`
         try:
-            for cible, ligne in zip(CIBLES, self.lignes):
+            for cible, ligne in zip(_cibles(self.root), self.lignes):
                 brut = cible.read_bytes()
                 self.avant[cible], self.sha[cible] = brut, hashlib.sha256(brut).hexdigest()
                 cible.write_bytes(brut + b"\n" + ligne.encode("ascii") + b"\n")
@@ -320,15 +363,15 @@ def test_le_nettoyage_des_residus_est_IDEMPOTENT_et_chirurgical():
         cible.write_bytes(intact)
 
 
-def test_le_cliquet_est_VERT_sur_l_arbre_intact():
-    residus = _oter_residus()
-    rc, out = _cliquet()
+def test_le_cliquet_est_VERT_sur_l_arbre_intact(arbre_isole):
+    residus = _oter_residus(arbre_isole)
+    rc, out = _cliquet(arbre_isole)
     assert rc == 0, out[-2000:]
     assert "CLIQUET VERT" in out
     assert residus == [], "residu(s) d'un run TUE, nettoye(s) ici : %s" % residus
 
 
-def test_le_cliquet_ROUGIT_sur_une_resolution_A_CHACUNE_DES_TROIS_PROFONDEURS():
+def test_le_cliquet_ROUGIT_sur_une_resolution_A_CHACUNE_DES_TROIS_PROFONDEURS(arbre_isole):
     """Mutation sur des fichiers REELLEMENT SUIVIS -- le perimetre vient de `git ls-files`.
 
     Un mutant non suivi ne serait jamais balaye : le test passerait au vert sans avoir rien
@@ -339,22 +382,22 @@ def test_le_cliquet_ROUGIT_sur_une_resolution_A_CHACUNE_DES_TROIS_PROFONDEURS():
     -- 967 fichiers versionnes hors de tout seau, dont l'integralite de `scripts/python/engine`
     et le coeur du host (`frida/host/router.ts`, `frida/hooks/main.ts`).
     """
-    with _Mutations(_RESO):
-        rc, out = _cliquet()
+    with _Mutations(_RESO, arbre_isole):
+        rc, out = _cliquet(arbre_isole)
     assert rc == 1, "GARDE-MUET : le cliquet n'a pas vu la resolution re-introduite\n" + out
     assert "CLIQUET ROUGE" in out
-    for cible in CIBLES:
+    for cible in _cibles(arbre_isole):
         # Le chemin RELATIF ENTIER, pas le seul nom de base : un rc=1 qui ne dit pas OU est
         # un demi-cliquet, et c'est exactement ce que la troncature d'affichage produisait
         # sur les chemins profonds -- rouge juste, fautif anonyme.
-        rel = cible.relative_to(REPO).as_posix()
+        rel = cible.relative_to(arbre_isole).as_posix()
         assert rel in out, \
             "GARDE-MUET sur %s -- soit le perimetre ne la couvre pas, soit le chemin est " \
             "tronque a l'affichage (%d caracteres)\n%s" % (rel, len(rel), out)
     assert "build_pin" in out, "le message doit nommer la sortie"
 
 
-def test_le_cliquet_reste_VERT_sur_une_MENTION_re_introduite():
+def test_le_cliquet_reste_VERT_sur_une_MENTION_re_introduite(arbre_isole):
     """Contre-mutation : une estampille en prose ne doit PAS rougir.
 
     Un cliquet qui rougit sur les rappels historiques serait desarme dans la semaine -- et
@@ -364,8 +407,8 @@ def test_le_cliquet_reste_VERT_sur_une_MENTION_re_introduite():
     Jouee aux TROIS profondeurs elle aussi : elargir le perimetre sans elargir ce temoin,
     c'est se donner les faux positifs du nouveau gisement sans les voir.
     """
-    with _Mutations(_NOTE):
-        rc, out = _cliquet()
+    with _Mutations(_NOTE, arbre_isole):
+        rc, out = _cliquet(arbre_isole)
     assert rc == 0, "FAUX POSITIF : une mention en prose a fait rougir le cliquet\n" + out
 
 

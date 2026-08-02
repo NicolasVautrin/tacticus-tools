@@ -107,6 +107,55 @@ def test_les_fichiers_a_la_racine_de_tests_sont_couverts():
         "(un glob `**/` exige un niveau intermediaire) :\n  %s" % (len(rates), "\n  ".join(rates)))
 
 
+@pytest.mark.parametrize("n", [1, 2, 3, 8, 12, 37])
+def test_les_bins_partitionnent_le_perimetre_SANS_trou_ni_doublon(n):
+    """#457-r6 -- le mode de defaillance a exclure ABSOLUMENT du partitionnement par cout.
+
+    Un fichier qui tomberait dans ZERO bin ne serait jamais joue, sous un verdict VERT : le trou
+    serait SILENCIEUX, exactement le vice que ce cliquet repare. Un fichier dans DEUX bins ne
+    ment pas, mais double son cout. On asserte donc la PARTITION, pas seulement la couverture."""
+    files = P.candidate_files()
+    assert len(files) > 50, "perimetre effondre (%d) -- le test ne prouverait rien" % len(files)
+
+    bins = P.bins_of(files, n, P._weights())
+    assert len(bins) == n
+
+    plat = [rel for b in bins for rel in b]
+    assert sorted(plat) == sorted(files), "les bins ne partitionnent pas le perimetre"
+    assert len(plat) == len(set(plat)), "un fichier apparait dans PLUSIEURS bins"
+
+
+def test_la_partition_est_DETERMINISTE_entre_deux_appels():
+    """Les 8 shards sont des PROCESSUS distincts : ils doivent calculer la MEME partition.
+
+    Si `bins_of` dependait de l'ordre d'iteration d'un dict ou d'un tri instable, deux shards du
+    meme run verraient des partitions differentes -- et un fichier pourrait n'etre joue par aucun."""
+    files = P.candidate_files()
+    poids = P._weights()
+    assert P.bins_of(files, 8, poids) == P.bins_of(list(reversed(files)), 8, poids)
+
+
+def test_le_partitionnement_EQUILIBRE_quand_les_poids_existent():
+    """Sans cette propriete, le cout du shardage par cout serait paye sans son benefice.
+
+    Mesure du 2026-08-02 : le repli md5 rendait 106 s pour `s7` contre 4,8 s pour `s3` -- un seul
+    shard faisait TOUT le mur de la banque. Le critere porte sur le rapport max/moyenne, pas sur
+    une valeur absolue (les poids se re-mesurent, l'equilibre doit tenir quand meme).
+
+    Le plancher est le fichier le PLUS LOURD, insecable : on ne peut pas exiger mieux que lui."""
+    poids = P._weights()
+    if not poids:
+        pytest.skip("aucun poids mesure (probe_457_durations.json absent) -- repli md5")
+
+    files = P.candidate_files()
+    charges = [sum(poids.get(r, 0.0) for r in b) for b in P.bins_of(files, 8, poids)]
+    plancher = max(poids.get(r, 0.0) for r in files)
+    moyenne = sum(charges) / len(charges)
+    assert max(charges) <= max(plancher, moyenne) * 1.35, (
+        "shards desequilibres : max=%.1f s, moyenne=%.1f s, plancher=%.1f s" % (
+            max(charges), moyenne, plancher))
+
+
 @pytest.mark.parametrize("name, attendu", [
     ("test_foo.py", True),          # convention pytest n1
     ("foo_test.py", True),          # convention pytest n2 -- absente du depot, mais collectee

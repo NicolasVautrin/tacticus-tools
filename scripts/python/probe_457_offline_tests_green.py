@@ -147,9 +147,67 @@ def shard_of(rel: str, total: int) -> int:
     """Shard STABLE d'un fichier : md5 du chemin relatif, modulo `total`.
 
     Stable = independant de l'ordre et du nombre de fichiers, donc l'ajout d'un fichier ne
-    redistribue pas les autres (un modulo sur l'INDEX du tri, lui, decale tout le monde)."""
+    redistribue pas les autres (un modulo sur l'INDEX du tri, lui, decale tout le monde).
+
+    C'est le REPLI, utilise quand aucun poids n'est disponible. Il repartit par NOMBRE, pas par
+    COUT -- mesure du 2026-08-02 : il avait concentre 4 fichiers lourds dans le seul `s7`
+    (106 s isole, contre 4,8 s pour `s3`), et ce shard-la faisait A LUI SEUL tout le mur de la
+    banque (234,7 s sur 234,8). D'ou `bins_of` ci-dessous."""
     digest = hashlib.md5(rel.encode("utf-8")).hexdigest()
     return int(digest[:8], 16) % total
+
+
+#: Poids MESURES (secondes par fichier), regeneres par `--measure`. VERSIONNE a dessein : sans
+#: lui, un checkout frais retomberait sur le repli md5 et paierait le mur que #457-r6 corrige.
+#:
+#: Ces poids ne conditionnent QUE la repartition. Perimes, ils coutent du MUR -- jamais un faux
+#: vert, jamais un trou : `bins_of` partitionne l'ENSEMBLE des fichiers quels que soient les
+#: poids, et la garde `test_457_r5_perimetre_offline.py` verifie l'union stricte des bins.
+#:
+#: SOUS `logs/`, JAMAIS sous `scripts/python/` (#455). Premiere version de ce mode : les poids
+#: etaient ecrits a cote du probe -- `probe_440` a ROUGI, a raison. La banque tourne en PARALLELE
+#: et plusieurs cliquets ENUMERENT `scripts/python/**` : y creer un fichier le fait apparaitre
+#: puis disparaitre sous les pieds d'un voisin. Le prix a payer est que `logs/` est gitignore,
+#: donc un checkout frais (un worktree d'agent) retombe sur le repli md5 : mur sous-optimal,
+#: verdict INCHANGE. C'est le bon arbitrage -- la correction prime sur le mur.
+def _weights_path():
+    return repo_root() / "logs" / "ratchets" / "457-durations.json"
+
+
+def _weights() -> dict:
+    """Les poids mesures, ou `{}` s'ils sont absents/illisibles (-> repli md5)."""
+    path = _weights_path()
+    if not path.exists():
+        return {}
+    try:
+        import json
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return {str(k): float(v) for k, v in raw.items()}
+    except Exception:
+        return {}
+
+
+def bins_of(files: list, total: int, weights: dict) -> list:
+    """Partitionne `files` en `total` paquets EQUILIBRES PAR COUT (LPT).
+
+    LPT (longest processing time first) : on place le plus lourd d'abord, toujours dans le paquet
+    le moins charge. Heuristique classique, bornee a 4/3 de l'optimal -- amplement suffisant ici.
+
+    DETERMINISTE : le tri porte sur `(-poids, chemin)`, donc deux shards du MEME run calculent
+    exactement la meme partition. C'est ce qui interdit qu'un fichier tombe dans zero paquet --
+    le mode de defaillance a eviter, puisqu'il serait SILENCIEUX (un fichier jamais joue, sous un
+    verdict vert). Un fichier sans poids prend le poids MAXIMUM connu : on ignore son cout, on le
+    suppose donc le pire (le choix sur, symetrique de l'ordonnancement de la banque)."""
+    if total < 1:
+        raise ValueError("total doit etre >= 1")
+    defaut = max(weights.values()) if weights else 1.0
+    charge = [0.0] * total
+    paquets = [[] for _ in range(total)]
+    for rel in sorted(files, key=lambda r: (-weights.get(r, defaut), r)):
+        i = min(range(total), key=lambda j: (charge[j], j))
+        paquets[i].append(rel)
+        charge[i] += weights.get(rel, defaut)
+    return [sorted(p) for p in paquets]
 
 
 class _DeselectLiveItems:
@@ -172,13 +230,82 @@ class _DeselectLiveItems:
         items[:] = keep
 
 
+class _TimePerFile:
+    """Accumule setup+call+teardown PAR FICHIER, pour regenerer les poids en UN SEUL passage.
+
+    Mesurer fichier par fichier couterait 110 demarrages de process (3,1 s piece, soit ~340 s de
+    pur demarrage) et surestimerait chaque fichier de ce meme cout fixe -- deux fois faux."""
+
+    def __init__(self) -> None:
+        self.sec: dict = {}
+        self.n: dict = {}
+
+    def pytest_runtest_logreport(self, report):                       # noqa: D102
+        # Le NODEID, pas `fspath` : mesure du 2026-08-02, `fspath` ne correspondait pas aux cles
+        # pour 13 des 111 fichiers (sous-repertoires a conftest imbrique) -- ils ressortaient a
+        # 0 s alors qu'ils collectaient et passaient leurs tests. Le nodeid, lui, commence
+        # TOUJOURS par le chemin relatif au rootdir, separateurs `/`.
+        nodeid = str(getattr(report, "nodeid", "") or "")
+        rel = nodeid.split("::")[0].replace("\\", "/")
+        if not rel:
+            rel = str(getattr(report, "fspath", "")).replace("\\", "/")
+        if rel:
+            self.sec[rel] = self.sec.get(rel, 0.0) + float(getattr(report, "duration", 0.0) or 0.0)
+            self.n[rel] = self.n.get(rel, 0) + 1
+
+
+def _measure(files: list) -> int:
+    """Rejoue tout le perimetre en chronometrant, et reecrit les poids. ASCII only."""
+    import json
+
+    if not files:
+        print("[457] --measure : perimetre VIDE, rien a mesurer")
+        return 1
+    horloge = _TimePerFile()
+    filet = _DeselectLiveItems()
+    started = time.time()
+    rc = pytest.main(["-q", "-p", "no:cacheprovider", *files], plugins=[horloge, filet])
+    elapsed = time.time() - started
+
+    poids = {rel: round(horloge.sec.get(rel, 0.0), 3) for rel in files}
+    # Le critere est le NOMBRE DE REPORTS, jamais la duree : un fichier offline pur peut passer
+    # ses 4 tests en moins de 5 ms. Mesure du 2026-08-02 -- l'arrondi a 2 decimales les rendait
+    # << sans mesure >>, et le compte VARIAIT d'un run a l'autre (13 puis 15), ce qui est la
+    # signature d'un seuil, pas d'un fichier muet.
+    manquants = [rel for rel in files if horloge.n.get(rel, 0) == 0]
+    path = _weights_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(poids, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+
+    total = sum(poids.values())
+    print("[457] --measure : %d fichier(s), %.1f s de tests mesures en %.1f s de mur ; poids -> %s"
+          % (len(poids), total, elapsed, path))
+    for rel, v in sorted(poids.items(), key=lambda kv: -kv[1])[:5]:
+        print("    %7.1f s  %s" % (v, rel))
+    if manquants:
+        # Un fichier a 0 s n'est pas anodin : il n'a produit AUCUN report (collecte vide, items
+        # tous deselectionnes). Le dire -- il prendra le poids MAXIMUM au partitionnement.
+        print("[457] %d fichier(s) sans mesure (0 report) : %s"
+              % (len(manquants), ", ".join(manquants[:5])))
+    if int(rc) != 0:
+        print("[457] --measure : pytest rc=%d -- poids ecrits, mais l'arbre est ROUGE" % int(rc))
+        return 1
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--shard", default="0/1",
                     help="k/N -- ne joue que le shard k parmi N (defaut 0/1 = tout).")
     ap.add_argument("--list", action="store_true",
                     help="Imprime les fichiers du shard et sort, sans rien jouer.")
+    ap.add_argument("--measure", action="store_true",
+                    help="Joue TOUT le perimetre d'un bloc en chronometrant chaque fichier, puis "
+                         "reecrit `probe_457_durations.json`. A rejouer quand le mur derive.")
     args = ap.parse_args(argv)
+
+    if args.measure:
+        return _measure(candidate_files())
 
     try:
         k_txt, n_txt = args.shard.split("/", 1)
@@ -191,9 +318,20 @@ def main(argv=None) -> int:
         return 2
 
     every = candidate_files()
-    mine = [rel for rel in every if shard_of(rel, n) == k]
-    print("[457] %d fichier(s) de test non-`_live.py` ; shard %d/%d -> %d fichier(s)"
-          % (len(every), k, n, len(mine)))
+    poids = _weights()
+    if poids:
+        mine = bins_of(every, n, poids)[k]
+        mode = "cout mesure"
+        charge = sum(poids.get(rel, 0.0) for rel in mine)
+    else:
+        # Repli : aucun poids disponible (checkout partiel, fichier supprime). Le cliquet reste
+        # CORRECT -- il est seulement moins bien equilibre. Le dire, plutot que le taire.
+        mine = [rel for rel in every if shard_of(rel, n) == k]
+        mode = "REPLI md5 (poids absents -> mur sous-optimal)"
+        charge = 0.0
+    print("[457] %d fichier(s) de test non-`_live.py` ; shard %d/%d -> %d fichier(s) [%s%s]"
+          % (len(every), k, n, len(mine), mode,
+             ("", " ~%.0f s" % charge)[bool(charge)]))
 
     if args.list:
         for rel in mine:

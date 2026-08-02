@@ -319,8 +319,43 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
 if (-not $LogDir) { $LogDir = Join-Path $Root 'logs\ratchets' }
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
+# ------------------------------------------------------------------ ORDONNANCEMENT (#457-r6)
+# `ForEach-Object -Parallel` consomme la liste DANS L'ORDRE de la liste. Un cliquet de 90 s
+# lance en DERNIER se colle en fin de mur ; lance en PREMIER, il est recouvert par tous les
+# autres. Mesure du 2026-08-02 : somme ISOLEE 675 s, mais mur 244 s pour un plus-long-cliquet
+# de 89,7 s -- l'ecart etait de l'ORDRE et de la CONTENTION, pas du travail.
+#
+# LPT (longest processing time first) : on trie par duree DECROISSANTE. Les durees viennent du
+# run PRECEDENT (`durations.json`, sous `logs/`, gitignore) -- elles se MESURENT, elles ne se
+# declarent pas, donc aucune liste de poids a maintenir. Un cliquet INCONNU passe en TETE :
+# on ignore son cout, on le suppose donc maximal (le choix sur).
+#
+# L'ordre n'affecte NI le verdict NI le code de sortie -- des poids perimes coutent du mur,
+# jamais un faux vert. C'est precisement pourquoi ce fichier peut vivre hors du depot.
+$durPath = Join-Path $LogDir 'durations.json'
+$dur = @{}
+if (Test-Path $durPath) {
+    try {
+        (Get-Content $durPath -Raw | ConvertFrom-Json).PSObject.Properties |
+            ForEach-Object { $dur[$_.Name] = [double] $_.Value }
+    } catch { $dur = @{} }
+}
+if ($dur.Count -gt 0) {
+    $sel = @($sel | Sort-Object -Property `
+        @{ Expression = { if ($dur.ContainsKey($_.Id)) { $dur[$_.Id] } else { [double]::MaxValue } }
+           Descending = $true })
+}
+
+# Parallelisme. Le defaut vise les coeurs PHYSIQUES, pas les logiques : ces cliquets sont des
+# process Python liants en CPU, et deux d'entre eux sur les deux fils d'un meme coeur se
+# ralentissent mutuellement. Mesure du 2026-08-02 sur un Ultra 9 185H (16 physiques / 22
+# logiques) : a 22, `probe_391` passe de 5,4 s isole a 98,5 s -- x18, entierement de la
+# contention. On plafonne donc au nombre de coeurs physiques quand on sait le lire.
+$physical = $null
+try { $physical = (Get-CimInstance Win32_Processor -ErrorAction Stop | Measure-Object -Property NumberOfCores -Sum).Sum } catch { }
+if (-not $physical -or $physical -lt 1) { $physical = [Environment]::ProcessorCount }
 $throttle = if ($Serial) { 1 } elseif ($ThrottleLimit -gt 0) { $ThrottleLimit }
-            else { [Math]::Min($sel.Count, [Environment]::ProcessorCount) }
+            else { [Math]::Min($sel.Count, $physical) }
 
 Write-Output ("[ratchets] {0} cliquet(s), parallelisme {1}, logs -> {2}" -f $sel.Count, $throttle, $LogDir)
 Write-Output ""
@@ -345,6 +380,12 @@ $results = $sel | ForEach-Object -Parallel {
     }
 } -ThrottleLimit $throttle
 $wall.Stop()
+
+# Les durees MESUREES de ce run alimentent l'ordonnancement du suivant. FUSION avec l'existant :
+# sous `-Only`/`-Skip` on ne mesure qu'une partie de la banque, et ecraser le fichier perdrait
+# le poids des cliquets non joues (donc les renverrait en tete au run d'apres, pour rien).
+foreach ($r in $results) { $dur[$r.Id] = $r.Sec }
+try { $dur | ConvertTo-Json -Compress | Set-Content -Path $durPath -Encoding utf8 } catch { }
 
 $results = @($results | Sort-Object -Property @{ Expression = { $_.Rc -eq 0 } }, @{ Expression = 'Sec'; Descending = $true })
 $rouges = @($results | Where-Object { $_.Rc -ne 0 })
