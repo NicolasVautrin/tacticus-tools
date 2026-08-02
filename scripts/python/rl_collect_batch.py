@@ -970,7 +970,15 @@ def _load_seed_bc(path=None) -> dict:
     `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetUtilityValue`, qui
     sur cle absente LOGUE et rend `Fix64(0)`. La degradation est SILENCIEUSE (pas d'exception) : le
     terme custom d'une ability neuve vaut 0 cote natif comme cote moteur, donc INVALIDABLE.
-    Detail, mesures et decompile : `catalog_inject.refresh_ai_utilities`."""
+    Detail, mesures et decompile : `catalog_inject.refresh_ai_utilities`.
+
+    #254-bc -- le PREMIER catalogue (`BC.Units`) n'est PAS rattrape, et sa peremption etait MUETTE.
+    C'est lui que `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig` parcourt et dont
+    `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` tire les passifs montes :
+    une entree perimee deploie le kit d'un ANCIEN build, sans erreur ni trace. On ne le rafraichit
+    pas ici (un re-dump change le pool spawnable ET les stats de reference de tous les tests live --
+    arbitrage ouvert), mais on le DIT a chaque chargement. Detail : `catalog_inject.stale_unit_report`
+    et `docs/rl/case-254-bc-bloc-units-perime.md`."""
     p = Path(path) if path else SEED_BC
     if not p.exists():
         raise RuntimeError(
@@ -1023,6 +1031,12 @@ def _load_seed_bc(path=None) -> dict:
               f"{len(u_add)} ajoutes / {len(u_chg)} changes / {len(u_del)} retires "
               f"| ajoutes={u_add} | changes={u_chg} | retires={u_del}",
               file=sys.stderr)
+    # #254-bc -- ce catalogue-la n'est PAS rattrape : il est seulement DIT. Le taire, c'est
+    # laisser un runner deployer un kit d'un ancien build sans que personne le sache (cout mesure :
+    # #354 a lu l'inertie qui en decoule comme un fait du jeu, et supprime 3 vecteurs valides).
+    stale = catalog_inject.stale_unit_report(bc)
+    if stale:
+        print(f"[seed-bc] {stale}", file=sys.stderr)
     return bc
 
 

@@ -30,6 +30,10 @@ l'entree CAPTUREE (stats natives, abilities, AbilityState, effets de trait).
 
 Lit l'etat LIVE, drive les positions (le camp joueur est DEPLACE au contact de l'IA), state-files
 uniques via la fixture `build_runner` du conftest, ASCII-only.
+
+La FIDELITE du synthetiseur (confrontation offline aux 175 entrees capturees) et la PEREMPTION du
+bloc `Units` vivent dans `test_catalog_inject_offline.py` -- fichier separe pour entrer au perimetre
+de `probe_457`, cf. le bloc (0) plus bas.
 """
 from __future__ import annotations
 
@@ -192,25 +196,12 @@ def _cast_first_active(call, rid, caster_row):
 
 
 # ------------------------------------------------------------------ (0) offline
-
-def test_synthese_reproduit_le_catalogue_capture():
-    """Le synthetiseur re-produit EXACTEMENT les 175 entrees Units et les 277 configs d'ability
-    du seed BC capture. C'est la garantie qu'une entree INJECTEE n'est pas une approximation :
-    la meme fonction, appliquee a une unite dont le jeu a construit l'entree, redonne l'entree
-    du jeu. Offline (aucun runner)."""
-    import rl_collect_batch as R
-    try:
-        seed = R._load_seed_bc()
-    except Exception as e:
-        pytest.skip(f"seed BC absent: {e}")
-    n, diffs = CI.validate(seed)
-    assert n > 100, f"catalogue anormalement petit ({n})"
-    assert not diffs, f"divergences UNITS: { {k: v[:2] for k, v in diffs.items()} }"
-    nc, ni, adiffs = CI.validate_abilities(seed)
-    assert nc > 100, f"peu de configs confrontees ({nc})"
-    assert not adiffs, f"divergences ABILITIES: { {k: v[:2] for k, v in adiffs.items()} }"
-    print(f"\n[catalog] {n} entrees Units + {nc} configs d'ability reproduites "
-          f"({ni} configs internes moteur ignorees)")
+#
+# LE VOLET OFFLINE A DEMENAGE dans `test_catalog_inject_offline.py` (#457). Il ne montait aucun
+# runner, mais il vivait ici -- donc dans un fichier `_live.py`, hors du perimetre de `probe_457`,
+# le seul cliquet qui voie un test offline ROUGE EN PERMANENCE. Son rouge (bloc `Units` du seed BC
+# perime, #254-bc) a tenu quatre jours sans que rien ne le signale. Dans un fichier non-`_live`, il
+# entre au cliquet TOUT SEUL. Ne pas re-deposer de test offline ici.
 
 
 # ------------------------------------------------------------------ (1) PRESENT
