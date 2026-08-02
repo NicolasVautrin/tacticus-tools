@@ -50,17 +50,33 @@ def _models(dv, ob, snap, rng0, board, att, tgt):
     # SILENCIEUX -- les deux modeles rendraient les MEMES cellules ; c'est l'assertion
     # `cells_f != cells_r` (garde de discrimination) qui l'attrape.
     from engine.runner.operations.damage_ops import normal as damage_ops_normal
+    from engine.services import damage_prediction as _dp
+    from engine.services import fix64 as _fx
     from engine.services.damage_modifiers import apply_all_modifiers as _aam
+    from engine.services.damage_modifiers import (
+        calculate_base_damage_with_modifiers as _cbdwm)
+
+    # #446-r2 : la materialisation a DEUX porteurs cote port depuis que l'etage MULTIPLICATEUR est
+    # mirrore la ou le natif le pose. `apply_pierce_and_modifiers` termine la face ATTAQUANT par
+    # `CalculateBaseDamageWithModifiers` (arrondi INCONDITIONNEL, meme a multiplicateur neutre) ;
+    # `apply_all_modifiers(round_materialize=...)` porte celle de la face DEFENSEUR. Neutraliser le
+    # SEUL second ne produit plus aucun contraste (mesure : cellules identiques (2700, 4050), la
+    # garde de discrimination l'a attrape) -- le bras TRONCATURE doit donc neutraliser les DEUX,
+    # sinon il ne decrit plus le modele `op_Explicit` qu'il pretend opposer.
+    def _mul_only(damage, multiplier=1.0):
+        return _fx.Fix64(_fx.mul(_fx.from_number(damage), _fx.mult_raw_from_float(multiplier)))
 
     def _one(force):
         st = load_state(dv, ob, snap, board=board)
         st.rng = _seed_rng(rng0)
         damage_ops_normal.apply_all_modifiers = (
             lambda v, m, round_materialize=False, _f=force: _aam(v, m, round_materialize=_f))
+        _dp.calculate_base_damage_with_modifiers = _cbdwm if force else _mul_only
         try:
             return AttackDamageOperation.execute(st, att, tgt) or {}
         finally:
             damage_ops_normal.apply_all_modifiers = _aam
+            _dp.calculate_base_damage_with_modifiers = _cbdwm
 
     return _one(False), _one(True)
 

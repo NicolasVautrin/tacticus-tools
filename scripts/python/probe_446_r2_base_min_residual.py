@@ -253,6 +253,57 @@ def sweep(rpc, case: dict, tiles: list, targets: list) -> list:
     return rows
 
 
+def mutants(rpc, case: dict, tiles: list, targets: list) -> list:
+    """CONTRE-EPREUVES du fix. Le critere est le DEPLACEMENT du port par rapport au port NON MUTE,
+    JAMAIS l'ecart au natif : un mutant INERTE laisserait `abs(port - natif)` a 0 sur les couples
+    deja justes, ce qui se lirait comme une reussite. (Meme piege que #446/#446-r1.)
+
+      `no_round_stages` -- les DEUX `CalculateBaseDamageWithModifiers` neutralises (identite) :
+                           c'est EXACTEMENT le modele d'AVANT le fix sur ce montage.
+      `drop_defender_face` -- la face DEFENSEUR (`pct_list_defender`) n'est plus consommee : prouve
+                           que le champ neuf n'est pas un cul-de-sac (une entree qui n'irait nulle
+                           part rendrait le meme resultat que la %-list fusionnee sur les couples
+                           sans stat-mod, donc verte partout sauf a le tester).
+    """
+    import engine.services.damage_prediction as DP
+    from engine.services import fix64 as fx
+    ref = {}
+    for t in tiles:
+        for k in targets:
+            ev, _m = port_stage(case["ctx"], case["ids"][k], t)
+            if ev is not None:
+                f = ev.composite_fields()
+                ref[(tuple(t), k)] = (f.get("rawHealthDmgMin"), f.get("rawHealthDmgMax"))
+    out = []
+    for name in ("no_round_stages", "drop_defender_face"):
+        saved_cbd = DP.calculate_base_damage_with_modifiers
+        saved_pct = DP.apply_pct_entries
+        try:
+            if name == "no_round_stages":
+                DP.calculate_base_damage_with_modifiers = (
+                    lambda d, m=1.0: fx.Fix64(fx.mul(fx.from_number(d), fx.mult_raw_from_float(m))))
+            else:
+                DP.apply_pct_entries = lambda v, entries: fx.Fix64(fx.from_number(v))
+            moved = 0
+            worst = None
+            for key, base in ref.items():
+                ev, _m = port_stage(case["ctx"], case["ids"][key[1]], key[0])
+                if ev is None:
+                    continue
+                f = ev.composite_fields()
+                got = (f.get("rawHealthDmgMin"), f.get("rawHealthDmgMax"))
+                if got != base:
+                    moved += 1
+                    d = (got[0] - base[0], got[1] - base[1])
+                    if worst is None or abs(d[0]) + abs(d[1]) > abs(worst[1][0]) + abs(worst[1][1]):
+                        worst = (key, d)
+        finally:
+            DP.calculate_base_damage_with_modifiers = saved_cbd
+            DP.apply_pct_entries = saved_pct
+        out.append({"mutant": name, "moved": moved, "total": len(ref), "worst": worst})
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state-file", required=True, help="chemin ABSOLU du state-file")
@@ -262,6 +313,8 @@ def main() -> int:
     ap.add_argument("--tiles", type=int, default=6,
                     help="nombre de tuiles de tir balayees (defaut 6)")
     ap.add_argument("--targets", default="T,A,N1,N2,F")
+    ap.add_argument("--mutants", action="store_true",
+                    help="joue les contre-epreuves du fix (chacune doit DEPLACER le port)")
     ap.add_argument("--unit-stat", action="append", default=None,
                     help="ABLATION : patch supplementaire de BC.Units (repetable), transmis a "
                          "`rl_duel build` -- ex. 'astraBullgryn:Traits=[\"Hero\"]'")
@@ -337,6 +390,10 @@ def main() -> int:
               f"nat/coup=({r['nat_min'] / max(1, r['nat_hits']):.4f},"
               f"{r['nat_max'] / max(1, r['nat_hits']):.4f})")
     print(f"  TOTAL {len(rows)} couples, {n_bad} DIFF")
+    if args.mutants:
+        for mt in mutants(rpc, case, tiles, targets):
+            print(f"  [mutant {mt['mutant']:<19}] DEPLACE {mt['moved']}/{mt['total']} couples "
+                  f"(pire {mt['worst']}) ({'MORD' if mt['moved'] else 'NE MORD PAS'})")
     return 0
 
 
