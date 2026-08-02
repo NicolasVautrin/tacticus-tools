@@ -99,7 +99,8 @@ def check_bond(dv: dict, tauntee_id: int, expected: int) -> dict:
     if got != expected:
         return {"status": "wrong",
                 "message": ("effet %d de u%s : bondedEntityId=%r, attendu u%s (le TAUNTANT). "
-                            "⚠ `source` vaut aussi u%s chez ce producteur -- une lecture qui les "
+                            "ATTENTION `source` vaut aussi u%s chez ce producteur -- une lecture "
+                            "qui les "
                             "confondrait passerait ici par accident."
                             % (TAUNTED, tauntee_id, got, expected, e.get("source")))}
     return {"status": "ok",
