@@ -151,19 +151,85 @@ sur-ensemble ne conclut rien, et le faire entrer au verdict ferait rougir des fi
 
 ## 6. Relevé du 2026-08-02
 
-<!-- RELEVE -->
+**Échantillon** : 45 des 153 candidats, tirés au sort (`random.Random(455).shuffle`), joués 3 en
+parallèle, instrument = le garde lui-même. **1 fichier INERTE**.
+
+| fichier | avant | après | verdict |
+|---|---|---|---|
+| `test_summon_trait_effects_live.py` | 8 skipped / 0 passed | **8 passed** | montage RÉPARÉ (§4) |
+| `test_offbyone_armor_38_live.py` | 2 skipped / 0 passed | **2 passed** | montage RÉPARÉ (ci-dessous) |
+
+Deux rouges **pré-existants** sont tombés au passage — ils ne sont pas dans le gisement (ils ont
+des `passed`), mais l'échantillon les a levés :
+
+| fichier | état | suite |
+|---|---|---|
+| `test_normal_like_bounds_rounding_live.py` | 1 failed / 1 passed | **RÉPARÉ → 2 passed** (même cause) |
+| `test_env_fire_tile_migration_live.py` | 1 failed / 2 passed | `pytest.fail("cible morte avant la fenetre discriminante")` — rouge de MONTAGE conforme à #268, sans rapport. Résidu **#455-r4**. |
+
+### Le premier inerte trouvé était un CLIQUET, éteint le jour même
+
+`test_offbyone_armor_38_live.py` est le cliquet du résidu **#38** (off-by-one `+1` à armure > 0).
+Il rendait `2 skipped` — donc ne gardait plus rien.
+
+**Cause, datée et prouvée offline.** `0ad4b9e8` (#446-r2, **2026-08-02**, l'arrondi INTER-FACES) a
+porté le mirror des étapes 3 et 4 de
+`IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` **dans**
+`apply_pierce_and_modifiers`, qui appelle désormais `calculate_base_damage_with_modifiers` **deux
+fois, inconditionnellement**. La valeur arrive donc **déjà entière** à `apply_all_modifiers`, où
+`round_materialize` — le seul knob que les tests forçaient — est devenu un **no-op strict**.
+Mesure directe du régime (pierce 40, armure 6000) :
+
+```
+apply_pierce_and_modifiers(2009.6) = 804.0     round=804  floor=804
+apply_pierce_and_modifiers(3014.4) = 1206.0    round=1206 floor=1206
+apply_pierce_and_modifiers(2890)   = 1156.0    round=1156 floor=1156
+```
+
+`round == floor` pour **toute** entrée : aucun seed, aucune armure ne peut plus discriminer.
+
+**Le point qui justifie ce cliquet à lui seul** : la MÊME dérive a produit **deux signaux
+opposés**. `test_normal_like_bounds_rounding_live.py` a **crié** (son `assert floor != round` a été
+atteint → rouge visible sur `master`). `test_offbyone_armor_38_live.py` a **avalé** : il possède le
+même assert, mais son balayage de seeds `pytest.skip` **avant** de l'atteindre — le skip a mangé
+l'assert. Sans le garde de ce cas, seul le premier se serait vu, et on aurait réparé un test en
+laissant l'autre éteint.
+
+**Correctif** : le forçage vise les **deux** étages. `_sans_round` mirrore
+`calculate_base_damage_with_modifiers` privé de son unique `Fix64.Round(x, AwayFromZero)` (gates
+`x <= 0 -> 0` et `0 < x < 1 -> 1` conservés) ; « floor » signifie désormais « aucune matérialisation
+intermédiaire, la fraction du perçage survit jusqu'à `op_Explicit` » — exactement la loi que #38
+accuse. Posé au FOYER (`_pierce_floor_regime.replay_materializations`, 2 consommateurs) et dans le
+`_replay` local de #38. Aucun code moteur touché.
+
+**Non-régression** des voisins du foyer : `test_additional_hits_roll_order_live.py` (5 passed),
+`test_failed_block_attack_scope_live.py` (3 passed), `test_evasion_order_before_block_live.py`
+(3 passed), `test_additional_hits_rounding_live.py` (3 passed).
+
+### Ce que l'échantillon ne dit pas
+
+108 des 153 candidats n'ont pas été joués, et 349 fichiers ne sont même pas candidats. Le taux
+mesuré (1/45) borne l'ordre de grandeur, pas le gisement. Le garde étant actif sur toute passe, le
+reste se révélera au fil de l'eau — c'est le résidu **#455-r1**.
 
 ---
 
 ## 7. Résidus nommés
 
-* **#455-r1** — le gisement n'est mesuré que sur un ÉCHANTILLON des 153 candidats. Le reste est
-  NON MESURÉ, pas « propre ». Il se révélera au fil de l'eau, chaque agent jouant sa tranche : le
-  garde est actif partout.
+* **#455-r1** — le gisement n'est mesuré que sur un ÉCHANTILLON (45 des 153 candidats). Le reste
+  est NON MESURÉ, pas « propre ». Il se révélera au fil de l'eau, chaque agent jouant sa tranche :
+  le garde est actif partout. Relever les inertes trouvés ici (§6) au lieu de les traiter en
+  silence.
 * **#455-r2** — le garde lit `terminalreporter.stats`. Sous `pytest -p no:terminal` (aucun agent
   ne le fait) il se tait, sans le dire. Le durcir demanderait un accumulateur propre via
   `pytest_runtest_logreport` — mais ce hook est résolu **par chemin** depuis un conftest non-racine,
-  ce qui rouvrirait un angle mort différent.
+  ce qui rouvrirait un angle mort différent. Même remarque pour `pytest-xdist` : **non installé**
+  ici (les agents lancent N processus pytest séparés, où le garde fonctionne pleinement) ; sous
+  xdist, `pytest_deselected` est appelé côté worker et le master pourrait ne pas le voir.
 * **#455-r3** — le critère ne voit pas un fichier dont **tous les tests ont disparu** (0 collecté) :
   aucun report, donc aucun bilan. Un fichier vidé de ses tests est un vert qui ment d'une autre
   forme, que ce cliquet ne couvre pas.
+* **#455-r4** — `test_env_fire_tile_migration_live.py::test_env_fire_tile_dot_applies_resilient_cap_live`
+  est ROUGE sur `master` : `pytest.fail("cible morte avant la fenetre discriminante")`. C'est un
+  rouge de MONTAGE conforme à #268 (il échoue au lieu de skipper, c'est correct), sans rapport avec
+  ce cas ni avec #446-r2. Trouvé par l'échantillon, non traité — hors périmètre.
