@@ -385,21 +385,124 @@ def _sites_r2(idx: "_Index") -> list:
 
 
 # ------------------------------------------------------------------------------------------
+# R3 -- un CLIQUET DE LA BANQUE qui ECRIT dans l'arbre de production
+# ------------------------------------------------------------------------------------------
+#
+# MEME LECON QUE R1/R2, DANS L'AUTRE SENS. R1 garde un cliquet qui LIT hors de son perimetre ;
+# R3 garde celui qui y ECRIT. La banque tourne en PARALLELE par conception
+# (`ForEach-Object -Parallel`) : un cliquet qui depose un repertoire sous `scripts/python/`
+# le fait apparaitre -- puis DISPARAITRE -- pendant que ses voisins enumerent ce meme arbre.
+#
+# MESURE (#455, 2026-08-02) : `probe_455` deposait `_probe455_hors_<pid>` sous `scripts/python/`
+# le temps d'un run pytest. Joue SEUL il est vert ; `probe_391` joue SEUL est vert ; joues
+# ENSEMBLE dans la banque, `probe_391` tombe en
+# `FileNotFoundError: ... \scripts\python\_probe455_hors_87960`. La PR a ete renvoyee sur ce
+# rouge, attribue au mauvais cliquet.
+#
+# POURQUOI UN GARDE STATIQUE, et pas << on rejoue la banque quelques fois >> : le symptome est
+# une COURSE. Un rejeu qui passe ne prouve RIEN -- c'est le piege << verifier que la mutation a
+# mordu >>, en negatif. La seule garantie qui vaille est STRUCTURELLE : aucune ecriture.
+#
+# PERIMETRE : les seules entrees de `scripts/ratchets.ps1`, DERIVEES de ce fichier (jamais
+# saisies) via `probe_439.banque_par_texte`. C'est la ou la propriete est NECESSAIRE : un probe
+# hors banque n'est pas lance en parallele de la banque.
+
+#: Appels qui font APPARAITRE ou DISPARAITRE une entree de repertoire -- c'est cela qui casse un
+#: enumerateur concurrent. Une reecriture EN PLACE (`write_text` sur un fichier existant, ce que
+#: font les modes `--fix`) ne deplace aucune entree et n'est donc PAS retenue.
+#: Cle = nom appele ; valeur = ou lire le chemin. `recv` = le receveur (methode de `Path`),
+#: `a<N>` = l'argument positionnel N, `dir` = le mot-cle `dir=`.
+_ECRITURES = {
+    "mkdir": ("recv", "a0"), "makedirs": ("a0",), "touch": ("recv",),
+    "rmdir": ("recv", "a0"), "unlink": ("recv", "a0"), "remove": ("a0",),
+    "rmtree": ("a0",), "copytree": ("a1",), "move": ("a1",),
+    "rename": ("recv", "a0", "a1"), "replace": ("recv", "a0", "a1"),
+    "symlink_to": ("recv",), "hardlink_to": ("recv",), "symlink": ("a1",),
+    "mkdtemp": ("dir",), "mkstemp": ("dir",), "TemporaryDirectory": ("dir",),
+    "NamedTemporaryFile": ("dir",),
+    # `write_text`/`write_bytes`/`open(..., "w")` CREENT le fichier s'il n'existe pas -- mais ils
+    # sont aussi la forme normale d'un `--fix`. On ne les retient QUE via `touch`/`mkdir` qui les
+    # accompagnent en pratique ; les inclure ferait rougir les modes de correction legitimes.
+}
+
+#: Niveau de `scripts/python` VU DEPUIS le fichier analyse. `scripts/python/x.py` -> 1 (le parent),
+#: `scripts/python/tests/x.py` -> 2. Se derive du chemin relatif, comme `niveau_racine`.
+def niveau_pydir(rel: str) -> int:
+    return len(Path(rel).parts) - 2
+
+
+def _cibles(n: ast.Call, ou: tuple) -> list:
+    """Les noeuds-chemin d'un appel d'ecriture, selon la table `_ECRITURES`."""
+    out = []
+    for spec in ou:
+        if spec == "recv":
+            if isinstance(n.func, ast.Attribute):
+                out.append(n.func.value)
+        elif spec == "dir":
+            out += [kw.value for kw in n.keywords if kw.arg == "dir"]
+        else:
+            i = int(spec[1:])
+            if i < len(n.args):
+                out.append(n.args[i])
+    return out
+
+
+def _ancre_sous_pydir(node, env: dict, pydir: int, derives: dict, prof: int = 0) -> bool:
+    """Le chemin designe par `node` part-il de `scripts/python` ?
+
+    `_segments` seul ne suffit PAS, et le cas qui l'a montre est la faute REELLE de #455 :
+    `d = PYDIR / ('_travail_%d' % os.getpid())` puis `d.mkdir()`. `_niveau` ne sait pas lire un
+    `BinOp`, donc `d` n'entre pas dans `env` et le receveur `d` ne resout rien. On suit donc UN
+    CRAN DE PLUS les affectations simples -- c'est le seul ajout, et son jumeau negatif
+    (`mkdtemp` sans `dir=`) le borne."""
+    if _segments(node, env, pydir) is not None:
+        return True
+    if isinstance(node, ast.Name) and prof < 4 and node.id in derives:
+        return _ancre_sous_pydir(derives[node.id], env, pydir, derives, prof + 1)
+    return False
+
+
+def _sites_r3(idx: "_Index", env: dict, pydir: int) -> list:
+    """[(ligne, appel)] : une ecriture dont le chemin est ANCRE sous `scripts/python`.
+
+    L'ancrage se lit avec le MEME resolveur symbolique que R1 (`_segments`), a une autre racine :
+    tout chemin qui part de `scripts/python` est fautif, quel que soit son premier segment -- il
+    n'y a pas de sous-repertoire << sur >> la-dedans, `probe_391` et pytest enumerent tout."""
+    derives = {t.id: val for cibles, val in idx.assigns for t in cibles
+               if isinstance(t, ast.Name)}
+    out = []
+    for n in idx.calls:
+        nom = n.func.attr if isinstance(n.func, ast.Attribute) else (
+            n.func.id if isinstance(n.func, ast.Name) else None)
+        ou = _ECRITURES.get(nom)
+        if ou is None:
+            continue
+        for cible in _cibles(n, ou):
+            if _ancre_sous_pydir(cible, env, pydir, derives):
+                out.append((n.lineno, "%s()" % nom))
+                break
+    return sorted(set(out))
+
+
+# ------------------------------------------------------------------------------------------
 # Analyse d'un fichier
 # ------------------------------------------------------------------------------------------
 
 def analyser(rel: str, src: str) -> tuple:
-    """(hits R1, hits R2). `rel` sert a calculer le niveau de la racine depuis CE fichier."""
+    """(hits R1, hits R2, hits R3). `rel` sert a calculer, depuis CE fichier, le niveau de la
+    racine du depot (R1) et celui de `scripts/python` (R3)."""
     try:
         tree = ast.parse(src, filename=rel)
     except (SyntaxError, ValueError):
-        return [], []
+        return [], [], []
     idx = _Index(tree)
     r2 = _sites_r2(idx)
+    pydir = niveau_pydir(rel)
+    r3 = _sites_r3(idx, _env_racines(idx, pydir), pydir)
     if _exclut_worktrees(idx):
-        return [], r2
+        return [], r2, r3
     racine = niveau_racine(rel)
-    return _sites_r1(idx, _env_racines(idx, racine), racine), r2
+    return _sites_r1(idx, _env_racines(idx, racine), racine), r2, r3
 
 
 # ------------------------------------------------------------------------------------------
@@ -467,17 +570,45 @@ CAS = [
      "SKIP = ('.claude/worktrees',)\n"
      "def ok(rel):\n    return not any(rel == s or rel.startswith(s + '/') for s in SKIP)\n",
      0, 0),
+    # --- R3 : l'ECRITURE dans l'arbre de production (le vice mesure de #455) ---
+    ("mkdir sous scripts/python : LA faute de #455",
+     "import os\nfrom pathlib import Path\nPYDIR = Path(__file__).resolve().parent\n"
+     "d = PYDIR / ('_travail_%d' % os.getpid())\nd.mkdir(parents=True, exist_ok=True)\n",
+     0, 0, 1),
+    ("mkdir sous tests/, depuis un fichier de tests/",
+     "from pathlib import Path\nTESTS = Path(__file__).resolve().parent\n"
+     "(TESTS / 'cas').mkdir()\n", 0, 0, 1),
+    ("rmtree sous scripts/python : la DISPARITION casse aussi un enumerateur",
+     "import shutil\nfrom pathlib import Path\nPYDIR = Path(__file__).resolve().parent\n"
+     "shutil.rmtree(PYDIR / 'tmp', ignore_errors=True)\n", 0, 0, 1),
+    ("mkdtemp(dir=PYDIR) : le tmpdir ancre dans l'arbre compte aussi",
+     "import tempfile\nfrom pathlib import Path\nPYDIR = Path(__file__).resolve().parent\n"
+     "t = tempfile.mkdtemp(prefix='x_', dir=str(PYDIR))\n", 0, 0, 1),
+    # --- jumeaux NEGATIFS de R3 : ce sont eux qui interdisent d'elargir le critere ---
+    ("mkdtemp SANS dir= : le tmpdir systeme, la forme CORRECTE",
+     "import tempfile\nt = tempfile.mkdtemp(prefix='x_')\n", 0, 0, 0),
+    ("mkdir sous logs/ (ancre RACINE, hors arbre de production)",
+     "from pathlib import Path\nREPO = Path(__file__).resolve().parents[2]\n"
+     "(REPO / 'logs' / 'x').mkdir(parents=True, exist_ok=True)\n", 0, 0, 0),
+    ("LECTURE sous scripts/python : hors cause, c'est le pain quotidien",
+     "from pathlib import Path\nPYDIR = Path(__file__).resolve().parent\n"
+     "src = (PYDIR / 'engine' / 'x.py').read_text()\n", 0, 0, 0),
+    ("write_text EN PLACE (mode --fix) : ne deplace aucune entree de repertoire",
+     "from pathlib import Path\nPYDIR = Path(__file__).resolve().parent\n"
+     "(PYDIR / 'engine' / 'x.py').write_text('corrige')\n", 0, 0, 0),
 ]
 
 
 def self_test(verbose: bool) -> list:
     bad = []
-    for nom, src, a1, a2 in CAS:
-        r1, r2 = analyser(_REL, src)
-        ok = (len(r1) == a1) and (len(r2) == a2)
+    for cas in CAS:
+        nom, src, a1, a2 = cas[:4]
+        a3 = cas[4] if len(cas) > 4 else 0
+        r1, r2, r3 = analyser(_REL, src)
+        ok = (len(r1) == a1) and (len(r2) == a2) and (len(r3) == a3)
         if verbose or not ok:
-            print("   %-5s %-44s R1=%d/%d R2=%d/%d"
-                  % ("OK" if ok else "FAIL", nom, len(r1), a1, len(r2), a2))
+            print("   %-5s %-44s R1=%d/%d R2=%d/%d R3=%d/%d"
+                  % ("OK" if ok else "FAIL", nom, len(r1), a1, len(r2), a2, len(r3), a3))
         if not ok:
             bad.append(nom)
     return bad
@@ -493,8 +624,33 @@ def self_test(verbose: bool) -> list:
 _TOKENS = ("rglob", "walk", "glob", ".parts")
 
 
+def fichiers_de_la_banque() -> list:
+    """Chemins RELATIFS des fichiers Python que `scripts/ratchets.ps1` LANCE.
+
+    DERIVE de la banque, jamais saisi : on reutilise le parse textuel de `probe_439` (source
+    unique deja eprouvee, et qui n'a pas besoin de `pwsh`). Une entree `pytest` a la forme
+    `-m pytest <fichier> -q` : on retient l'argument qui finit par `.py`."""
+    from probe_439_cliquet_peut_rougir import banque_par_texte
+    out = []
+    for _id, argv in sorted(banque_par_texte().items()):
+        cible = next((a for a in argv if a.endswith(".py")), None)
+        if cible is None:
+            continue
+        rel = "scripts/python/" + cible.replace("\\", "/")
+        if rel not in out:
+            out.append(rel)
+    return out
+
+
 def balayer(verbose: bool, prefiltre: bool = True) -> tuple:
-    r1s, r2s, lus, parses = [], [], 0, 0
+    r1s, r2s, r3s, lus, parses = [], [], [], 0, 0
+    # R3 ne porte QUE sur les cliquets de la banque -- c'est la que le parallelisme rend la
+    # propriete necessaire. Le perimetre se DERIVE de `ratchets.ps1`.
+    try:
+        banque = set(fichiers_de_la_banque())
+    except Exception as exc:                              # noqa: BLE001
+        banque = set()
+        r3s.append(("<banque illisible>", 0, str(exc)))
     for p in sorted((REPO / "scripts" / "python").rglob("*.py")):
         rel = _rel(p)
         if rel is None:
@@ -504,15 +660,19 @@ def balayer(verbose: bool, prefiltre: bool = True) -> tuple:
         except (UnicodeDecodeError, OSError):
             continue
         lus += 1
-        if prefiltre and not any(t in src for t in _TOKENS):
+        dans_banque = rel in banque
+        if prefiltre and not dans_banque and not any(t in src for t in _TOKENS):
             continue
         parses += 1
-        a, b = analyser(rel, src)
+        a, b, c = analyser(rel, src)
         r1s += [(rel, ln, forme) for ln, forme in a]
         r2s += [(rel, ln, seg) for ln, seg in b]
+        if dans_banque:
+            r3s += [(rel, ln, forme) for ln, forme in c]
     if verbose:
-        print("   (%d fichiers lus, %d analyses en AST)" % (lus, parses))
-    return r1s, r2s, lus
+        print("   (%d fichiers lus, %d analyses en AST, %d entree(s) de banque)"
+              % (lus, parses, len(banque)))
+    return r1s, r2s, r3s, lus
 
 
 def main(argv) -> int:
@@ -534,7 +694,7 @@ def main(argv) -> int:
         print("[440] VERDICT: %s" % ("PASS" if not mauvais else "FAIL (%d)" % len(mauvais)))
         return 0 if not mauvais else 1
 
-    r1, r2, lus = balayer(args.verbose, prefiltre=not args.sans_prefiltre)
+    r1, r2, r3, lus = balayer(args.verbose, prefiltre=not args.sans_prefiltre)
     print("[440] etape 1 : %d enumeration(s) depuis la RACINE sans exclusion de %s "
           "(%d fichiers lus)" % (len(r1), WORKTREES, lus))
     for rel, ln, forme in r1:
@@ -545,8 +705,15 @@ def main(argv) -> int:
         print("   FAIL %s:%d  segment %r teste contre `.parts` (chemin ABSOLU) -- depuis un "
               "worktree, TOUT chemin le porte : auto-exclusion, 0 fichier, verdict vert. "
               "Filtrer sur le chemin RELATIF au depot." % (rel, ln, seg))
+    print("[440] etape 3 : %d ecriture(s) d'un CLIQUET dans l'arbre de production" % len(r3))
+    for rel, ln, forme in r3:
+        print("   FAIL %s:%d  %s cree ou supprime une entree sous scripts/python -- la banque "
+              "tourne en PARALLELE, un voisin qui enumere cet arbre verra le chemin apparaitre "
+              "puis DISPARAITRE (mesure #455 : FileNotFoundError chez probe_391, rouge attribue "
+              "au mauvais cliquet). Travailler dans un tmpdir SYSTEME (`mkdtemp()` sans `dir=`)."
+              % (rel, ln, forme))
 
-    ko = len(mauvais) + len(r1) + len(r2)
+    ko = len(mauvais) + len(r1) + len(r2) + len(r3)
     print("[440] VERDICT: %s" % ("PASS" if ko == 0 else "FAIL (%d)" % ko))
     return 0 if ko == 0 else 1
 

@@ -24,15 +24,21 @@ TROIS ETAPES, ET LA TROISIEME EST LA COUVERTURE
    critere. Le cas << sans le plugin >> rend le rouge ATTRIBUABLE : sans lui, on ne saurait pas si
    c'est le garde qui rougit ou le fichier synthetique.
 2. CABLAGE (#421 -- prouver sa couverture dans le MEME processus que sa conformite). Un garde qui
-   mord dans un tmpdir mais n'est pas charge par la suite reelle ne garde RIEN. On depose donc un
-   fichier inerte SOUS `scripts/python/tests/` et on exige un rouge **sans aucun `-p`** : le seul
-   chemin possible est l'import du conftest de production. Contre-epreuve dans le meme geste : le
-   MEME fichier, hors de `tests/`, sans `-p`, doit rendre VERT.
-   Le depot est temporaire (nom porte le PID), efface en `finally`, et sa fenetre d'existence est
-   la duree d'un run pytest.
+   mord dans un tmpdir mais n'est pas charge par la suite reelle ne garde RIEN. On COPIE donc le
+   `tests/conftest.py` DE PRODUCTION dans une arborescence MIROIR en tmpdir et on exige un rouge
+   **sans aucun `-p`** : le seul chemin de chargement possible est ce conftest. Contre-epreuve dans
+   le meme geste (meme miroir SANS le conftest -> vert), plus deux volets qui lisent le chemin de
+   PRODUCTION : les hooks y sont-ils re-exportes, et couvre-t-il des tests REELS.
 
-PERIMETRE : ce probe n'enumere RIEN depuis la racine du depot (il ecrit dans un tmpdir et sous son
-PROPRE checkout, resolu par `Path(__file__)`), il est donc hors du gisement de `probe_440`.
+PERIMETRE -- CE PROBE N'ECRIT RIEN SOUS `scripts/python/`, ET C'EST UNE CONTRAINTE, PAS UN DETAIL
+(#455-r5). Sa premiere version deposait ses repertoires de travail dans l'arbre de PRODUCTION.
+Or **la banque tourne en PARALLELE par conception** (`ForEach-Object -Parallel`) : `probe_391`
+collecte ce meme arbre au meme moment et voyait un repertoire DISPARAITRE en cours de scan --
+`FileNotFoundError`, rouge INTERMITTENT attribue a `probe_391`, PR renvoyee. C'est la lecon de
+#434 transposee a l'ECRITURE : la-bas un cliquet LISAIT hors de son perimetre, ici il y ECRIVAIT.
+Un rejeu qui passe ne prouve rien sur une course -- la garantie doit etre STRUCTURELLE (aucune
+ecriture), et c'est `probe_440` R3 qui la tient pour toute la banque.
+Ce probe n'enumere par ailleurs rien depuis la racine du depot.
 
 ASCII only (console Windows cp1252).
 Usage: python probe_455_all_skipped_file.py [-v] [--self-test]
@@ -281,8 +287,46 @@ def bout_en_bout(verbose: bool) -> list:
     return bad
 
 
+def _miroir(racine: Path, avec_conftest: bool) -> Path:
+    """Arborescence MIROIR de l'arbre de production, dans un tmpdir : `scripts/python/tests/`.
+
+    LA PROFONDEUR N'EST PAS DECORATIVE. `tests/conftest.py` calcule
+    `ROOT = Path(__file__).resolve().parents[3]` puis fait `(<ROOT>/logs).mkdir(parents=True)`.
+    Copie a plat dans un tmpdir, ce `parents[3]` designerait un repertoire quelconque du systeme
+    et le conftest y creerait un `logs/` -- une ecriture hors depot, exactement le vice qu'on
+    corrige. Le miroir rend `parents[1]` = `<tmp>/scripts/python` et `parents[3]` = `<tmp>` : tout
+    ce que le conftest ecrit reste DANS le tmpdir.
+
+    LE `pytest.ini` EST COPIE AUSSI, et il est INDISPENSABLE : c'est lui qui fixe `rootdir`, donc
+    `confcutdir`, donc jusqu'ou pytest REMONTE chercher les conftest. Sans lui, `rootdir` vaut le
+    repertoire de test lui-meme et le conftest du PARENT n'est jamais charge -- mesure : `3 skipped`
+    et aucun rapport de garde, un faux NEGATIF du cliquet. Le copier rend le miroir identique a la
+    configuration de production ; le conftest reste ainsi la SEULE variable entre les deux bras."""
+    d = racine / "scripts" / "python" / "tests" / "cas"
+    d.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(PYDIR / "pytest.ini", d.parents[1] / "pytest.ini")
+    if avec_conftest:
+        shutil.copyfile(TESTS / "conftest.py", d.parent / "conftest.py")
+    (d / "test_455_cablage.py").write_text(SRC_INERTE, encoding="utf-8")
+    return d
+
+
 def cablage(verbose: bool) -> list:
-    """Etape 2 -- le garde est-il BRANCHE sur la suite reelle ? (#421 : couverture prouvee ici)"""
+    """Etape 2 -- le garde est-il BRANCHE sur la suite reelle ? (#421 : couverture prouvee ici)
+
+    ⚠ CE PROBE N'ECRIT RIEN SOUS `scripts/python/` (#455-r5). La premiere version y deposait ses
+    deux repertoires de travail, et la BANQUE TOURNE EN PARALLELE : `probe_391` collecte ce meme
+    arbre au meme moment et voyait un repertoire DISPARAITRE en cours de scan --
+    `FileNotFoundError`, rouge intermittent attribue a `probe_391`. C'est la lecon de #434
+    transposee a l'ECRITURE : un cliquet ne touche que son propre bac a sable.
+
+    Le cablage se prouve donc sur une arborescence MIROIR en tmpdir, ou l'on COPIE le
+    `tests/conftest.py` DE PRODUCTION. Ce que la copie prouve est exactement ce qu'on veut : le
+    conftest reel, tel qu'il est sur disque, charge le garde quand pytest l'applique a un
+    repertoire de test. Elle importe le VRAI `green_skip_guard` (via `PYTHONPATH`), pas une copie.
+    Contre-epreuve dans le meme geste : meme miroir SANS le conftest -> vert.
+    Ce que la copie ne prouve plus -- que `tests/` est bien l'ancetre des tests reels -- est
+    couvert par (a) et (c), qui lisent le chemin de production."""
     bad = []
     # (a) introspection : le conftest de production re-exporte-t-il TOUS les hooks du garde ?
     manquants = []
@@ -303,28 +347,34 @@ def cablage(verbose: bool) -> list:
     if not ok:
         bad.append("conftest ne re-exporte pas les hooks")
 
-    # (b) bout en bout SANS `-p` : le seul chemin de chargement possible est ce conftest.
-    rep = TESTS / ("_probe455_cablage_%d" % os.getpid())
-    hors = PYDIR / ("_probe455_hors_%d" % os.getpid())
+    # (b) bout en bout SANS `-p` : le seul chemin de chargement est le conftest COPIE.
+    tmp = Path(tempfile.mkdtemp(prefix="probe455_cab_"))
     try:
-        rep.mkdir(parents=True, exist_ok=True)
-        hors.mkdir(parents=True, exist_ok=True)
-        (rep / "test_455_cablage.py").write_text(SRC_INERTE, encoding="utf-8")
-        (hors / "test_455_cablage.py").write_text(SRC_INERTE, encoding="utf-8")
-        rc, out = _pytest([str(rep.relative_to(PYDIR).as_posix())], PYDIR)
-        r = _verifie("sous tests/, SANS -p -> ROUGE (le conftest charge le garde)",
+        d = _miroir(tmp / "avec", avec_conftest=True)
+        rc, out = _pytest([str(d)], d)
+        r = _verifie("conftest de PRODUCTION applique -> ROUGE (il charge le garde)",
                      rc, out, True, ("test_455_cablage.py",), (), verbose)
         if r:
             bad.append(r)
-        # Contre-epreuve : hors de `tests/`, le conftest ne s'applique pas -> vert.
-        rc, out = _pytest([str(hors.relative_to(PYDIR).as_posix())], PYDIR)
-        r = _verifie("hors tests/, SANS -p -> vert (contre-epreuve du cablage)",
+        d = _miroir(tmp / "sans", avec_conftest=False)
+        rc, out = _pytest([str(d)], d)
+        r = _verifie("meme miroir SANS le conftest -> vert (contre-epreuve)",
                      rc, out, False, (), (), verbose)
         if r:
             bad.append(r)
     finally:
-        shutil.rmtree(rep, ignore_errors=True)
-        shutil.rmtree(hors, ignore_errors=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # (c) le conftest de production est-il bien un ANCETRE de tests reels ? (ce que (b) ne voit
+    # plus depuis qu'il travaille sur une copie). Un `tests/` vide de tests rendrait le cablage
+    # sans objet, et l'introspection (a) resterait verte.
+    reels = sum(1 for _ in TESTS.rglob("test_*.py"))
+    ok = (TESTS / "conftest.py").is_file() and reels > 0
+    if verbose or not ok:
+        print("   %-5s %-58s %d fichier(s)"
+              % ("OK" if ok else "FAIL", "tests/conftest.py couvre des tests REELS", reels))
+    if not ok:
+        bad.append("tests/conftest.py absent ou ne couvre aucun test")
     return bad
 
 
@@ -431,7 +481,7 @@ def main(argv) -> int:
     e1 = bout_en_bout(args.verbose)
     print("[455] etape 1 : bout en bout (repertoire isole) -- 8 cas, %d en echec" % len(e1))
     e2 = cablage(args.verbose)
-    print("[455] etape 2 : CABLAGE sur la suite reelle -- 3 cas, %d en echec" % len(e2))
+    print("[455] etape 2 : CABLAGE sur la suite reelle -- 4 cas, %d en echec" % len(e2))
 
     ko = len(e0) + len(e1) + len(e2)
     for nom in e0 + e1 + e2:
