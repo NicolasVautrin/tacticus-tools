@@ -163,7 +163,10 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     #   * `IdunBattle.Entities.Effects.Loki.LegendaryCommander_ExtraHitsEffect$$IsValidAttack`
     #     (1395, en NEGATION : `get_OwnerIsTarget & AreFriends(Caster, EffectSource) & !IsNormalAttack
     #     & !(TriggeringAbilityIsNormalAttack & IsPartialAttackAbility)`, plus `!IsInPersistentDataList
-    #     & IsFirstHitGroupInAttack`) -- NON PORTE, residu `#419-r1-tr9-r4-r1-r2-r1`.
+    #     & IsFirstHitGroupInAttack`) -- PORTE (#419-r1-tr9-r4-r1-r2-r1), sur le canal **AURA**
+    #     (`aura_hits_bonus_for_attack`) : l'effet vit sur `custoTrajann` et ce sont ses `Targets`
+    #     (le `CreateTargetSelector`) qui designent les ennemis, pas le porteur. C'est le SEUL
+    #     consommateur du canal gate en NEGATION, et l'unique lecteur de `hit_group_index`.
     # Les bonus/malus du canal qui n'ont VRAIMENT pas ce gate restent ceux d'avant
     # (FightingRetreat_HitReduction, Parry, LightCover, Camouflage, Diminutive, BigTarget,
     # DefenderOfTheGreaterGood).
