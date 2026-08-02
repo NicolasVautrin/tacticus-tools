@@ -166,9 +166,13 @@ $Ratchets = @(
     # d adjacence coexistent (`MovementUtil$$AreTilesAdjacent`, qui COMPTE la tuile elle-meme, et
     # `TileQuery$$IterateAdjacentTiles`, qui ne la rend JAMAIS). Confondre dans un sens fait REFUSER
     # une adjacence accordee ; dans l autre, compter chaque unite comme sa propre voisine.
+    # S y ajoute le NOEUD DSL `IsAdjacent` (#433-r3), qui a le meme gisement PLUS un troisieme
+    # terme que la primitive n a pas : le QUANTIFICATEUR. Le natif rend FAUX des qu UNE paire ne
+    # l est pas (`forall`) ; sa classe soeur `IsAdjacentTilesTrigger` est un `exists`. Le second
+    # fichier partage l entree -- meme gisement, cout marginal quasi nul (offline pur).
     @{ Id = 'pytest_adjacency'
-       Argv = @('-m', 'pytest', 'tests/engine/runner/test_433_r1_identity_shortcircuit_offline.py', '-q')
-       Seul = 'un foyer qui pretend mirrorer `MovementUtil$$AreTilesAdjacent` et rate un de ses DEUX termes foldes -- le COURT-CIRCUIT D IDENTITE (`tile1 == tile2` rend VRAI sans consulter la connectivite) ou la porte d ELEVATION (`|dElev| < 2`, qui mord sur 695 des 779 boards du depot) -- et la faute SYMETRIQUE, aligner le mirror d `IterateAdjacentTiles` dessus. Les deux degradent en SILENCE : un faux refus d adjacence d un cote, une inflation des comptages de voisins de l autre'
+       Argv = @('-m', 'pytest', 'tests/engine/runner/test_433_r1_identity_shortcircuit_offline.py', 'tests/engine/runner/test_433_r3_isadjacent_node_offline.py', '-q')
+       Seul = 'un foyer qui pretend mirrorer `MovementUtil$$AreTilesAdjacent` et rate un de ses DEUX termes foldes -- le COURT-CIRCUIT D IDENTITE (`tile1 == tile2` rend VRAI sans consulter la connectivite) ou la porte d ELEVATION (`|dElev| < 2`, qui mord sur 695 des 779 boards du depot) -- la faute SYMETRIQUE, aligner le mirror d `IterateAdjacentTiles` dessus, et le QUANTIFICATEUR du noeud DSL `IsAdjacent` (un `any` y declenche des triggers que le natif REFUSE). Tous degradent en SILENCE : faux refus d adjacence d un cote, inflation des comptages de voisins de l autre, trigger permissif au troisieme'
        Doc  = 'docs/rl/case-433-r1-identite-adjacence.md' }
 
     # --- probe_283, en SIX entrees. `--step all` est l UNION STRICTE de ces six (lire `main`),

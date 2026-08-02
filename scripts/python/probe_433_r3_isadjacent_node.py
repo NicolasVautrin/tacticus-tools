@@ -304,15 +304,83 @@ def _pick_pair(board, want_gap: bool, occupied):
     return best
 
 
-def etape_f(board_id: str, seed_value: str, fails: list) -> bool:
-    """LIVE. Rend True si le cran a ete CONFRONTE."""
+def _walk_path(board, start, goal, blocked):
+    """Chemin de MARCHE start -> goal (BFS), avec la porte d'elevation du pathfinder natif
+    (`IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidPathNode` : voisin STOCKE et
+    `|dElev| < 2`). Rend la liste des `(col,row)`, ou None.
+
+    Pourquoi pas le pas glouton << la tuile la plus proche EN DISTANCE HEX >> : sur un board a
+    plateaux il tombe dans un minimum LOCAL au bord de la falaise et n'atteint jamais la tuile
+    d'en bas (mesure : `C2_02`, la cible s'immobilise a (3,5) au lieu de (5,4))."""
+    from collections import deque
+    sid_, gid = board.id_at(start[0], start[1]), board.id_at(goal[0], goal[1])
+    if sid_ is None or gid is None:
+        return None
+    prev = {sid_: None}
+    q = deque([sid_])
+    while q:
+        cur = q.popleft()
+        if cur == gid:
+            break
+        e = int(board.elevation(cur))
+        for n in board.neighbours(cur):
+            if n in prev or not board.walkable(n):
+                continue
+            if abs(e - int(board.elevation(n))) >= 2:
+                continue
+            if board.coord(n) in blocked and n != gid:
+                continue
+            prev[n] = cur
+            q.append(n)
+    if gid not in prev:
+        return None
+    out, cur = [], gid
+    while cur is not None:
+        out.append(board.coord(cur))
+        cur = prev[cur]
+    return list(reversed(out))
+
+
+def _drive(H, rid, board, wanted, max_turns: int = 20) -> bool:
+    """Amene chaque `uid -> (col,row)` a destination en suivant le CHEMIN DE MARCHE (pas le
+    gradient hex), un saut par tour, jusqu'a la tuile la plus avancee du chemin qui soit dans
+    `aiMovableTiles`."""
+    for _ in range(max_turns):
+        if all(H.live_pos(rid, u) == tuple(p) for u, p in wanted.items()):
+            return True
+        mov = H.rpc("aiMovableTiles", {"runnerId": rid}, 60) or {}
+        for mu in (mov.get("units") or []):
+            uid = int(mu.get("unitId") or -1)
+            if uid not in wanted:
+                continue
+            cur, dest = H.live_pos(rid, uid), tuple(wanted[uid])
+            if cur == dest:
+                continue
+            blocked = {H.live_pos(rid, o) for o in wanted if o != uid}
+            path = _walk_path(board, cur, dest, blocked)
+            if not path:
+                continue
+            reach = {(t.get("col"), t.get("row")) for t in (mu.get("tiles") or [])}
+            step = next((p for p in reversed(path[1:]) if p in reach), None)
+            if step is not None and step != cur:
+                H.move(rid, uid, step[0], step[1])
+        H.endturn(rid)
+    return all(H.live_pos(rid, u) == tuple(p) for u, p in wanted.items())
+
+
+def etape_f(board_id: str, seed_value: str, fails: list, want_gap: bool = True) -> bool:
+    """LIVE. `want_gap=True` = le CRAN (voisines a |dElev| >= 2, le natif doit CHARGER) ;
+    `want_gap=False` = le TEMOIN (voisines PLATES, le natif ne doit PAS bouger). Le temoin n'est
+    pas decoratif : sans lui, un port qui rendrait TOUJOURS `False` passerait le cran.
+    Rend True si le regime a ete CONFRONTE."""
     import probe_165b_sky_strike_border as H              # harnais #165b (jamais recopie)
     from engine.entities.selectors import Caster, Target
     from engine.entities.triggers import IsAdjacent
     from engine.runner.abilities.behaviours import entities_from_state
     from engine.runner.abilities.sisterhood import _sky_strike_dest_tile
 
-    print("=== etape F (LIVE) -- board=%s seed=%s ===" % (board_id, seed_value))
+    kind = "CRAN (|dElev| >= 2)" if want_gap else "TEMOIN (voisines PLATES)"
+    print("=== etape F (LIVE) -- %s -- board=%s seed=%s ===" % (kind, board_id, seed_value))
     bc = H.inject_bc(H.SKY_VIS)
     try:
         rid, _sf = H.build(seed_value, board_id,
@@ -330,17 +398,17 @@ def etape_f(board_id: str, seed_value: str, fails: list) -> bool:
         occupied = {H.live_pos(rid, u) for u in
                     (int(x["id"]) for x in (dv.get("units") or []) if x.get("pos"))}
         occupied -= {H.live_pos(rid, caster), H.live_pos(rid, target)}
-        pair = _pick_pair(board, want_gap=True, occupied=occupied)
+        pair = _pick_pair(board, want_gap=want_gap, occupied=occupied)
         if pair is None:
-            print("[MONTAGE] aucune paire voisine LIBRE a |dElev| >= 2 sur %s -- cran (E) "
-                  "inexistant sur ce board" % board_id)
+            print("[MONTAGE] aucune paire voisine LIBRE %s sur %s -- regime inexistant sur ce "
+                  "board" % ("a |dElev| >= 2" if want_gap else "PLATE", board_id))
             return False
         cpos, tpos, d = pair
-        print("[MONTAGE] cran (E) : caster -> %r (elev %d), cible -> %r (elev %d), |dElev| = %d, "
+        print("[MONTAGE] caster -> %r (elev %d), cible -> %r (elev %d), |dElev| = %d, "
               "dist hex = %d" % (cpos, board.elevation(board.id_at(*cpos)), tpos,
                                  board.elevation(board.id_at(*tpos)), d,
                                  hexgeo.distance(cpos, tpos)))
-        ok = H.drive_to(rid, {caster: cpos, target: tpos})
+        ok = _drive(H, rid, board, {caster: cpos, target: tpos})
         print("[MONTAGE] drive ok=%s  caster=%s cible=%s"
               % (ok, H.live_pos(rid, caster), H.live_pos(rid, target)))
         if not ok:
@@ -365,13 +433,18 @@ def etape_f(board_id: str, seed_value: str, fails: list) -> bool:
         moved = (after != cpos)
         print("[NATIF] tuile finale = %r  (deplacement = %s)" % (after, moved))
         confronted = True
-        if not moved:
-            fails.append("F(E) : le NATIF n'a PAS charge alors que caster %r et cible %r sont "
+        if want_gap and not moved:
+            fails.append("F(cran) : le NATIF n'a PAS charge alors que caster %r et cible %r sont "
                          "voisines a |dElev| = %d -- si le natif les voyait adjacentes, la porte "
                          "d'elevation ne serait pas dans `AreTilesAdjacent`" % (cpos, tpos, d))
+        if not want_gap and moved:
+            fails.append("F(temoin) : le NATIF a CHARGE alors que caster %r et cible %r sont "
+                         "voisines PLATES (|dElev| = %d) -- il devrait les voir adjacentes et "
+                         "gater le move" % (cpos, tpos, d))
         if pred != after:
-            fails.append("F(E) : DESACCORD port/natif sur la tuile finale -- port=%r natif=%r "
-                         "(IsAdjacent port = %r)" % (pred, after, adj_port))
+            fails.append("F(%s) : DESACCORD port/natif sur la tuile finale -- port=%r natif=%r "
+                         "(IsAdjacent port = %r)"
+                         % ("cran" if want_gap else "temoin", pred, after, adj_port))
         else:
             print("[VERDICT] ACCORD port/natif sur la tuile finale %r" % (after,))
         return confronted
@@ -437,9 +510,13 @@ def main() -> int:
         print()
     if "--offline" not in sys.argv:
         confronted = False
-        for board_id, seed_value in COUPLES:
+        # (board, seed, want_gap) : les DEUX couples pour le cran (geometries distinctes -- un
+        # resultat sur UN seul board n'en est pas un des que la mecanique est geometrique), et le
+        # TEMOIN plat sur le premier.
+        runs = [(b, s, True) for b, s in COUPLES] + [(COUPLES[0][0], COUPLES[0][1], False)]
+        for board_id, seed_value, want_gap in runs:
             try:
-                confronted = etape_f(board_id, seed_value, fails) or confronted
+                confronted = etape_f(board_id, seed_value, fails, want_gap) or confronted
             except SystemExit as e:
                 if not mutated:
                     raise
@@ -447,8 +524,8 @@ def main() -> int:
             if mutated and confronted:
                 break
         if not confronted:
-            print("[ETAPE F] NON CONFRONTE sur les %d couples essayes -- ecrit tel quel, jamais "
-                  "rabattu en << non pertinent >>." % len(COUPLES))
+            print("[ETAPE F] NON CONFRONTE sur les %d montages essayes -- ecrit tel quel, jamais "
+                  "rabattu en << non pertinent >>." % len(runs))
         print()
     if fails:
         print("=== %d ECHEC(S) ===" % len(fails))
