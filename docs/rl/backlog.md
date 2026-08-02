@@ -1912,3 +1912,63 @@ Detail complet + arbres relus : `docs/rl/case-27-custom-utility.md`, section « 
     `adeptMorvenn`, `orksKillaKan`, `tauCrisis`, ...). Bras a ajouter au probe existant.
   * cap `ConfigConst(maxSummons) = 5` au lieu de `Direct(6)` — il faudrait
     `Count(morts mecaniques) + TURNS_STARTED >= 6`, hors de portee d'un montage a deux tours.
+
+## Cliquets dont le PÉRIMÈTRE est saisi (audit `#449-r2-r5`, 2026-08-02)
+
+Détail, mesures et scénarios de mutation reproductibles :
+**`docs/rl/case-449-r2-r5-derive-vs-saisi.md`**. Bilan de l'audit des 30 entrées de
+`scripts/ratchets.ps1` : 6 DÉRIVÉ net, 1 SAISI, 21 MIXTE, 2 compteurs justes — et sur les
+5 risques HAUTS, **4 sont des périmètres, pas des critères**. Un périmètre trop étroit ne rend
+pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
+
+- **`probe_431` : `Path.match` n'étend pas `**` récursivement — 900 fichiers dans AUCUN seau.** `[opus]`
+  Mesuré : 1577 `.py` suivis sous `scripts/`, 677 atteints par `EXEC_GLOBS`, donc tout
+  `scripts/python/engine/**` et `scripts/python/tests/**` est hors périmètre effectif ; et ces
+  fichiers ne tombent pas dans la face PROSE (`.py` absent de `PROSE_EXT`). **316** d'entre eux
+  citent déjà un hash de build. Mutation qui reste VERTE : écrire
+  `data/symbols/gqfc5mff6c/frida/functions.tsv` dans un fichier d'`engine/`. Correctif :
+  `full_match` (3.13+) ou `fnmatch` sur le chemin POSIX — plus une contre-épreuve qui compte les
+  fichiers balayés dans les deux formes.
+
+- **`probe_283` : `ENUMS` est mécaniquement dérivable, et se périme au moment où il sert.** `[opus]`
+  Les 4 enums renumérotés sont le résultat exact d'un calcul que le fichier sait déjà faire
+  (`all_enums()`) : mesuré, 2194 enums communs entre `gqfc5mff6c` et `rnca9r7q6c`, 39 tables
+  changées, **exactement 4** avec un membre renuméroté. La prochaine MAJ qui en renumérote un
+  5<sup>e</sup> (`EffectType`, `TriggeredAbilityType`, `ActiveAbilityType` sont les candidats
+  mesurés) est invisible aux 4 étapes gardées, qui rendent `PASS`. Dériver `ENUMS`, et garder que
+  le calcul rend au moins une entrée.
+
+- **`probe_283:prose` : le périmètre exclut là où vivent les citations de décompilé.** `[opus]`
+  L'entrée de banque ne passe pas `--racine` (défaut `scripts/python`). Mesuré :
+  `--racine docs` rend **447 citations dérivées, 369 à l'ancien ordinal, 77 FAIL du gate 4bis**
+  (`case-100-anvil-shield-residus.md:40`, `backlog.md:166`, `case-220/votann.md:112`…). Aucun autre
+  cliquet ne couvre `docs/**`. Étendre le périmètre **après** avoir traité les 77.
+
+- **`probe_443r2` : le régime des substrats est recopié au lieu d'être lu.** `[opus]`
+  `SUBSTRATS` fige `"has_effect": "PRESENCE"` / `"active_effects": "ACTIVITE"` sans jamais lire le
+  corps de ces fonctions. Ajouter `and e.active` à `EffectsState.has_effect` bascule le régime,
+  rouvre exactement la divergence gardée, et laisse le probe VERT. Dériver le régime du corps
+  (le substrat lit-il le flag d'activité ?) — c'est ce que `probe_229::_reads_active` fait déjà
+  pour un autre axe.
+
+- **`probe_366pos` : un marqueur d'exemption qui ne prouve aucune garde.** `[opus]`
+  `GATES` contient `return`. Mesuré : 133 sites ont leur déréférencement neutralisé par un
+  marqueur, dont **17** par un marqueur qui ne prouve rien (`" and "` 7, `" or "` 4, `" else "` 3,
+  `"return"` 2, `"if not "` 1). `return e.get_component(PositionComponent).col` — la forme la plus
+  banale d'un accesseur — n'est jamais signalée. Restreindre `GATES` aux marqueurs qui prouvent
+  réellement une garde, et compter les sites neutralisés dans la sortie.
+
+- **`probe_439` : une entrée pytest multi-fichiers n'est jugée que sur son PREMIER fichier.** `[opus]`
+  `cibles[0]` est un ordinal saisi. `pytest_adjacency` porte 3 fichiers ; les deux autres (11 et 18
+  tests) ne sont jamais jugés — les vider de leurs `assert` laisse 439 vert. Boucler sur toutes les
+  cibles.
+
+- **Risques MOYENS, même motif (liste manuelle = motif #421).** `[opus]`
+  `probe_120` (`NORMAL_ATTACK_KIND` réinjecté par le probe au lieu de passer par l'appelant de
+  production) ; `probe_313` (`PAR_CLS` indexé par nom court de classe) ; `probe_274` (table JS
+  positionnelle gardée pour un seul fichier ; étape 1 aveugle aux `.ts`) ; `pytest_signatures`
+  (garde de transmission sur 2 des 20 paramètres) ; `pytest_adjacency` (5 foyers listés à la main —
+  une **sixième** fonction d'adjacence existe déjà, `engine/services/movement_query.py::is_adjacent`,
+  et n'apparaît dans aucun des trois fichiers) ; `probe_366bcp` (`PATCH_CALLS` non gardée) ;
+  `probe_319` (`_CASES`, 8 mutations manuelles qui ne se dérivent pas des étapes de `probe_273`) ;
+  `probe_273` (`_OUTPUT_ROOTS` non gardée) ; `probe_366camo` (`POSE_VECTOR` sans garde de fraîcheur).
