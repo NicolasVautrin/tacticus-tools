@@ -279,6 +279,43 @@ def mesure() -> list[tuple[str, bool, str]]:
     ok_e = seams.get("build") and seams.get("build_machine")
     out.append(("[E] `ai/context.py` : les 2 seams projettent (`build`, `build_machine`)",
                 bool(ok_e), "%s" % seams))
+
+    # [F] LE CLIQUET SUR NOTRE PROPRE CADENCE. Le gisement que ce fix ferme est le SEUL que notre
+    #     rythme de portage rouvre : tout nouveau consommateur de la face DECISION qui capte son
+    #     `decisionView` LUI-MEME repart, par defaut, sur le canal NU -- en silence, sans erreur ni
+    #     crash, exactement la signature de degradation qui a coute #443-r2-b1. Le critere se DERIVE
+    #     du code : un fichier de PRODUCTION (ni probe, ni test) qui appelle `step_context`/
+    #     `context.build` ET qui capte lui-meme un `decisionView` DOIT nommer la porte.
+    #     ⚠ Les trois predicats se lisent en AST, JAMAIS au texte. Mesure : la version `in src`
+    #     de ce cran NE MORDAIT PAS -- la contre-epreuve a retire l'appel a la porte dans
+    #     `engine_validate.py` et le cran est reste VERT, parce que le COMMENTAIRE qui explique la
+    #     porte contient son nom. Un garde-fou qu'une phrase de prose desarme ne garde rien.
+    manquants = []
+    for p in sorted(_HERE.glob("*.py")):
+        if p.name.startswith("probe_") or p.name.startswith("test_"):
+            continue
+        try:
+            t = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        noms, ctes, importe_ctx = set(), set(), False
+        for n in ast.walk(t):
+            if isinstance(n, ast.Attribute):
+                noms.add(n.attr)
+            elif isinstance(n, ast.Name):
+                noms.add(n.id)
+            elif isinstance(n, ast.Constant) and isinstance(n.value, str):
+                ctes.add(n.value)
+            elif isinstance(n, (ast.Import, ast.ImportFrom)):
+                mod = getattr(n, "module", "") or ""
+                if "engine.ai" in mod or any(al.name in ("context", "engine.ai.context")
+                                             for al in n.names):
+                    importe_ctx = importe_ctx or "ai" in mod or "context" in {a.name for a in n.names}
+        consomme = "step_context" in noms or (importe_ctx and {"build", "build_machine"} & noms)
+        if consomme and "decisionView" in ctes and "decision_view_seed_body" not in noms:
+            manquants.append(p.name)
+    out.append(("[F] tout consommateur de PRODUCTION qui capte passe par la porte", not manquants,
+                "sans appel a `decision_view_seed_body` : %s" % (manquants or "aucun")))
     return out
 
 
