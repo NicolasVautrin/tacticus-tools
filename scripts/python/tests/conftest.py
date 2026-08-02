@@ -28,6 +28,21 @@ from pathlib import Path
 
 import pytest
 
+# --- #455 : un FICHIER 100 % skippe est un vert qui ment ----------------------
+#
+# Les hooks vivent dans `green_skip_guard` (module a part, PAS ici) pour deux raisons :
+# un conftest non-racine ne peut pas declarer `pytest_plugins` (interdit depuis pytest 7),
+# et le cliquet `probe_455_all_skipped_file.py` doit pouvoir charger le garde par
+# `-p green_skip_guard` sur des fichiers de test SYNTHETIQUES, hors de cette suite.
+# Cet import EST le cablage : sans lui, le garde existe et ne garde rien -- le cliquet le
+# verifie en deposant un fichier inerte sous `tests/` et en exigeant un rouge SANS `-p`.
+#
+# DISTINCT du bloc « un SKIP harnais indisponible est un ECHEC » plus bas (#77) : celui-la
+# lit la RAISON d'un skip, test par test ; celui-ci lit un BILAN, fichier par fichier. Un
+# skip de MONTAGE ne porte aucun marqueur de harnais et passe donc intact le premier.
+from green_skip_guard import (                        # noqa: F401,E402  (hooks pytest)
+    pytest_deselected, pytest_sessionstart, pytest_sessionfinish, pytest_terminal_summary)
+
 PYDIR = Path(__file__).resolve().parents[1]          # scripts/python
 ROOT = Path(__file__).resolve().parents[3]           # racine repo
 # State-file DEDIE aux tests — jamais le data/duel_state.json par defaut :
