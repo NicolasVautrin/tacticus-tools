@@ -116,6 +116,32 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name, mods=N
     # le port en rendait 4 (1 + `nrOfHits` = 3) -- un facteur ~2 sur les deux bornes.
     # ABSENT du mold KLAW (`get_klaw_attack1_prediction`) : son decompile boucle `nrOfHits` fois sur
     # `GetKlawAttack1HitPrediction` et n'appelle JAMAIS `GetAttackHits` -- ne pas generaliser.
+    #
+    # #419-r1-tr9-r4-r1 -- LE CONTEXTE (`AbilityOrEffect`) DU FOLD EST CELUI DE L'ATTAQUE PORTEUSE.
+    # Un residu affirmait que le natif y passe l'ability du PASSIF, donc `IsNormalAttack` FAUX ; il
+    # est REFUTE, au decompile ET par mesure. La signature reelle est
+    # `GetAdditionalDamagePrediction(entities:AbilityEntities, abilityState:AbilityState)` -- ghidra
+    # INVERSE les noms (son `entities` est le `this` de l'ability, son `abilityState` est le vrai
+    # `entities`, et le vrai `abilityState` est un 4e argument qu'il ne montre pas). Le contexte sort
+    # de `IdunBattle.Core.AbilityOrEffect$$op_Implicit` (surcharge `activeAbility`) applique a CE
+    # parametre, que `Boltstorm_NormalAttackAbility$$PredictAttack` recopie depuis SON PROPRE
+    # parametre avant de le retransmettre -- il ne peut donc pas diverger de celui de la base.
+    # Partager `hits_ctx` (defaut `is_normal_attack=True`) est ainsi le mirror EXACT, pas un raccourci.
+    # MESURE (`probe_419r1tr9_r4_r1_fold_context.py`, `PowerTrip` greffe sur `templAggressor`, 4 bras
+    # NATIFS) : le fold natif passe de 3 a 4 coups quand `PowerTrip_FullHealth` -- dont le trigger est
+    # `IsNormalAttack & get_OwnerIsCaster` -- est actif, sur les 3 cibles. Un contexte de PASSIF
+    # rendrait `StaticBattleRules.ActiveAbility$$IsRegularAttack` FAUX et le fold ne gagnerait rien.
+    #
+    # #419-r1-tr9-r4-r2 (`hitGroupIndex`, le `0` litteral du 3e argument) -- TRANCHE : ce n'est pas
+    # une constante de facade mais un vrai parametre, que `DamagePrediction$$GetAttackHits` pose en
+    # `Nullable<int>` dans l'`AbilityEntities` qu'il synthetise. Il n'atteint le DSL que par
+    # `IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHitGroup` (`HasValue && Value == 0`),
+    # lu par `Idun.Source.IdunBattle.Logic.Entities.Triggers.IsFirstHitGroupInAttackTrigger$$ShouldTrigger`,
+    # dont l'unique consommateur est
+    # `IdunBattle.Entities.Effects.Loki.LegendaryCommander_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`
+    # -- NON PORTE. Balayage recoupe sur le dump GHIDRA (qui contient les gshared, contrairement au
+    # dump Frida) : ZERO autre symbole `HitGroupIndex`. Le port n'a donc RIEN a modeliser tant que cet
+    # effet n'entre pas au registre ; le jour ou il y entre, le fold vaut `IsFirstHitGroup == True`.
     hits = int(n)
     if hits_ctx is not None:
         hits = attack_hits_with_modifiers(weapon_hits=int(n), **hits_ctx)

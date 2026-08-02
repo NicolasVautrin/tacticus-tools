@@ -136,15 +136,21 @@ Banque de cliquets `pwsh -File scripts/ratchets.ps1` : **27 cliquets, VERTE**, m
 
 ## 5. Résidus NOMMÉS
 
-* **`#419-r1-tr9-r4-r1`** — le contexte passé à `GetAttackHits` par le fold est l'`AbilityOrEffect`
-  du **passif**, pas celle de l'attaque normale ; le port réutilise les arguments de l'attaque
-  porteuse, donc `is_normal_attack=True`. Le seul consommateur de ce nœud est
-  `IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack`
-  (`IsNormalAttack & OwnerIsCaster`) — aucun porteur dans les montages joués. **NON CONFRONTÉ** : il
-  faudrait un attaquant portant `PowerTrip` **et** l'un des deux passifs de fold.
-* **`#419-r1-tr9-r4-r2`** — même forme sur `hitGroupIndex` : le natif passe `0` au fold, et le port
-  n'a pas de modèle de ce paramètre (il n'apparaît nulle part dans la façade portée). Sans effet
-  mesurable ici ; à rouvrir si un descripteur de coups se met à le lire.
+* ~~**`#419-r1-tr9-r4-r1`**~~ — **RÉFUTÉ (2026-08-02)**, cf. `case-419-r1-tr9-r4-r1-contexte-du-fold.md`.
+  Le contexte du fold **est** celui de l'attaque porteuse : le natif passe le paramètre `abilityState`
+  que `$$PredictAttack` a lui-même reçu (assembleur : son R9 d'entrée recopié dans `[rsp+0x30]`, ce
+  même slot repassé en R9). La lecture ci-dessus venait d'un **piège de nommage Ghidra** — la méthode
+  est `GetAdditionalDamagePrediction(entities:AbilityEntities, abilityState:AbilityState)`, une
+  méthode d'INSTANCE à retbuf dont Ghidra décale tous les noms et masque le 4e argument. **CONFRONTÉ**
+  par greffe de `PowerTrip` sur `templAggressor` (4 bras natifs) : le fold passe de 3 à 4 coups quand
+  le bonus gaté `IsNormalAttack` est actif. « Seul consommateur » était faux : **six** sur le canal
+  coups.
+* ~~**`#419-r1-tr9-r4-r2`**~~ — **TRANCHÉ (2026-08-02)**, même fiche §5. `hitGroupIndex` est un vrai
+  paramètre, posé en `Nullable<int>` dans l'`AbilityEntities` synthétisé par
+  `DamagePrediction$$GetAttackHits`. Il n'atteint le DSL que par
+  `IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHitGroup` (`== 0`), dont l'unique
+  consommateur est `LegendaryCommander_ExtraHitsEffect` — **non porté**. Le port n'a donc rien à
+  modéliser aujourd'hui.
 * **`#419-r1-tr9-r4-r3`** — la face **COMBAT** du fold n'est pas portée : `engine/runner` ne connaît
   de `1128` que son entrée `ABILITY_ATTACK_TYPE`, et il n'existe aucun mirror de
   `Boltstorm_NormalAttackAbility$$GetAdditionalDamageBehaviour` / `$$ExecuteBoltstorm`. La question
