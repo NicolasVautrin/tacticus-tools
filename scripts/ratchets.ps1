@@ -186,9 +186,13 @@ $Ratchets = @(
     # terme que la primitive n a pas : le QUANTIFICATEUR. Le natif rend FAUX des qu UNE paire ne
     # l est pas (`forall`) ; sa classe soeur `IsAdjacentTilesTrigger` est un `exists`. Le second
     # fichier partage l entree -- meme gisement, cout marginal quasi nul (offline pur).
+    # TROISIEME fichier (#433-r3-r1) : le meme foyer sur l axe EMPREINTE. Il est SEUL a voir un
+    # noeud DSL de geometrie qui collapse une entite multi-hex sur sa MAIN TILE, et chacune de ses
+    # assertions porte sa CONTRE-EPREUVE (le collapse d avant, rejoue par monkeypatch, doit
+    # inverser le verdict). Offline pur : cout marginal quasi nul, meme entree.
     @{ Id = 'pytest_adjacency'
-       Argv = @('-m', 'pytest', 'tests/engine/runner/test_433_r1_identity_shortcircuit_offline.py', 'tests/engine/runner/test_433_r3_isadjacent_node_offline.py', '-q')
-       Seul = 'un foyer qui pretend mirrorer `MovementUtil$$AreTilesAdjacent` et rate un de ses DEUX termes foldes -- le COURT-CIRCUIT D IDENTITE (`tile1 == tile2` rend VRAI sans consulter la connectivite) ou la porte d ELEVATION (`|dElev| < 2`, qui mord sur 695 des 779 boards du depot) -- la faute SYMETRIQUE, aligner le mirror d `IterateAdjacentTiles` dessus, et le QUANTIFICATEUR du noeud DSL `IsAdjacent` (un `any` y declenche des triggers que le natif REFUSE). Tous degradent en SILENCE : faux refus d adjacence d un cote, inflation des comptages de voisins de l autre, trigger permissif au troisieme'
+       Argv = @('-m', 'pytest', 'tests/engine/runner/test_433_r1_identity_shortcircuit_offline.py', 'tests/engine/runner/test_433_r3_isadjacent_node_offline.py', 'tests/engine/runner/test_433_r3_r1_dsl_footprint_offline.py', '-q')
+       Seul = 'un foyer qui pretend mirrorer `MovementUtil$$AreTilesAdjacent` et rate un de ses DEUX termes foldes -- le COURT-CIRCUIT D IDENTITE (`tile1 == tile2` rend VRAI sans consulter la connectivite) ou la porte d ELEVATION (`|dElev| < 2`, qui mord sur 695 des 779 boards du depot) -- la faute SYMETRIQUE, aligner le mirror d `IterateAdjacentTiles` dessus, le QUANTIFICATEUR du noeud DSL `IsAdjacent` (un `any` y declenche des triggers que le natif REFUSE), et le collapse MAIN TILE d un noeud dont le natif lit l EMPREINTE (`GetTiles`/`SelectTiles`) -- plus le sentinel de `BattleQuery$$GetMinDistance` (-1 sur le vide, donc `IsInRange` rend VRAI la ou un `any` rendait FAUX, et celui-la mord meme sans multi-hex). Tous degradent en SILENCE : faux refus d adjacence d un cote, inflation des comptages de voisins de l autre, trigger permissif au troisieme, unite multi-hex ratee au quatrieme'
        Doc  = 'docs/rl/case-433-r1-identite-adjacence.md' }
 
     # --- probe_283, en SIX entrees. `--step all` est l UNION STRICTE de ces six (lire `main`),
