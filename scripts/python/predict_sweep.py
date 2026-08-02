@@ -33,6 +33,7 @@ import gameconfig as GC
 from engine.playbook import scene as SC
 from engine.playbook.scene import Scene
 from engine.playbook import prediction
+from engine.runner import snapshot as _snapshot   # porte du canal de seed `includeInactive` (#443-r2-b1)
 import predict_samples as PS   # reutilise _drive_into_range (meme drive que l'agrement normal)
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -200,7 +201,12 @@ def build_rows(sid, rid, my_team, max_turns, topk):
         if cp == amine:
             break
         rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 30)
-    dec = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 3, "allAbilities": True}, 90)
+    # Canal de SEED (#443-r2-b1) : `decision_view_seed_body` = la porte NOMMEE d'`includeInactive`,
+    # le seul canal qui publie les effets POSES mais INERTES -- ceux que les mirrors d'un
+    # `HasEffect(..., onlyActive = 0)` doivent voir. `SC.step_context` ci-dessous en seede son
+    # `EffectsState` ; la liste BRUTE (`Scene.units[].effects`) reste projetee ACTIF-ONLY.
+    dec = rpc(sid, "decisionView",
+              _snapshot.decision_view_seed_body(rid, maxRank=3, allAbilities=True), 90)
     _aps = dec.get("attackPlans") or []
     _dmg_evals = sum(1 for ap in _aps for ev in (ap.get("evals") or [])
                      if (ev.get("ranked") or []) and (ev["ranked"][0].get("dmgMax") is not None))

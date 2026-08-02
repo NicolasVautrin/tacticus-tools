@@ -55,9 +55,20 @@ def _hp_by_id(observe: dict) -> Dict[int, Tuple[Optional[int], Optional[int]]]:
 
 
 def decision_view_seed_body(runner_id: int, **extra) -> dict:
-    """Corps du RPC `decisionView` **destiné au SEED** de `load_state` — la porte NOMMÉE du canal
+    """Corps du RPC `decisionView` **destiné au SEED d'un `EffectsState`** — la porte NOMMÉE du canal
     `includeInactive`, à passer telle quelle à n'importe quel wrapper RPC
     (`rpc("decisionView", decision_view_seed_body(rid, allAbilities=True))`).
+
+    **LES DEUX FACES PASSENT PAR ICI** (#443-r2-b1). Côté COMBAT c'est le seed de `load_state` ; côté
+    DÉCISION c'est le seed de `playbook/scene.py::step_context` — même canal, même porte, un seul
+    foyer. La face DÉCISION est restée sur le canal NU de #219 à #443-r2-b1, donc AVEUGLE aux effets
+    inertes là où le natif en voit : écart MESURÉ à **-35** points d'utilité de paire (le poids BC
+    `SUPPRESSIVEFIRE_TargetWithOverwatch`) sur un overwatch `1009` désarmé par le
+    `Triggered(On(TurnStart_EffectActivation) & IsTurnOf(owner) -> DeactivateEffect)` de
+    `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal`.
+    Le pendant de ce corps est `active_only_rows` ci-dessous : ce que le canal AJOUTE ne doit
+    atteindre que le canal STRUCTURÉ (`EffectsState`, qui porte le flag par instance), jamais les
+    lecteurs de la liste BRUTE, qui n'ont pas de flag à consulter.
 
     POURQUOI une porte plutôt qu'un défaut global : les DEUX canaux du capteur
     `readEffectsByUnit` (`frida/hooks/game/effects.ts`) ont chacun un pendant EXACT côté port, et
@@ -89,18 +100,55 @@ def decision_view_seed_body(runner_id: int, **extra) -> dict:
     return {"runnerId": int(runner_id), "includeInactive": True, **extra}
 
 
+def active_only_effect_rows(rows) -> list:
+    """PROJECTION ACTIF-ONLY d'une liste d'entrées d'effet captées — le pendant EXACT du canal
+    `decisionView` par DÉFAUT, appliqué à un payload capté par `decision_view_seed_body`.
+
+    Le hook (`frida/hooks/game/effects.ts::readEffectsByUnit`) ne fait qu'UNE chose de plus sans
+    `includeInactive` : `if (info && !info.active && !includeInactive) continue`. Le drop des
+    `removed` et l'émission de la clé `active` (`active: info?.active ?? true`) sont, eux,
+    INCONDITIONNELS. ⇒ le canal `includeInactive` est un SUR-ENSEMBLE STRICT du canal par défaut, et
+    cette projection le ramène EXACTEMENT à lui. C'est ce qui rend un lecteur INDÉPENDANT DU CANAL.
+
+    À qui ça sert : un lecteur qui mirroire un prédicat natif ACTIVE-ONLY et qui lit la liste BRUTE
+    (au lieu du canal STRUCTURÉ `EffectsState`, qui porte le flag par instance) doit passer par ici,
+    sinon basculer le canal de capture change son verdict EN SILENCE. Un lecteur qui mirroire
+    `onlyActive = 0` (présence), lui, ne doit PAS passer par ici — il lui faut la liste complète.
+
+    Entrée non-dict (le canal NOMS d'`EffectsOwnedComponent`, `Scene.from_state`) → conservée telle
+    quelle : elle ne porte pas de flag, donc rien à filtrer. Clé `active` absente → active par
+    construction."""
+    return [e for e in (rows or [])
+            if not (isinstance(e, dict) and e.get("active") is False)]
+
+
+def active_only_rows(rows) -> list:
+    """Lignes d'entité (`decisionView.units` / `.mows`) dont les effets sont projetés ACTIF-ONLY.
+
+    Copie SUPERFICIELLE, et seulement des lignes qui portent au moins une entrée inerte : sur un
+    payload du canal par défaut la fonction rend les lignes d'origine, à l'identité près."""
+    out = []
+    for u in (rows or []):
+        effs = u.get("effects") if isinstance(u, dict) else None
+        if effs and any(isinstance(e, dict) and e.get("active") is False for e in effs):
+            out.append({**u, "effects": active_only_effect_rows(effs)})
+        else:
+            out.append(u)
+    return out
+
+
 def _effect_names(u: dict) -> List[str]:
     """Noms d'effets ACTIFS de la ligne — la vue NOMS d'`EffectsOwnedComponent` (diff structurel).
 
-    Le filtre sur `active` rend cette vue INDÉPENDANTE du canal de capture : une ligne venue de
-    `decisionView` par défaut et la même ligne venue de `decision_view_seed_body` produisent la MÊME
-    liste. C'est ce qui permet de seeder par le canal `includeInactive` sans qu'un
-    `diff(snapshot_live(...), snapshot(state))` dont les deux côtés n'ont pas été captés par le même
-    canal ne signale des écarts fantômes. Les inertes ne sont pas perdus : ils vivent dans le canal
-    STRUCTURÉ `State.effects.by_unit`, avec leur flag (cf. `EffectFactory.create`).
-    Clé `active` absente (canal par défaut) → l'entrée est active par construction."""
-    return sorted(n for n in (e.get("name") for e in (u.get("effects") or [])
-                              if e.get("active") is not False) if n)
+    Le filtre sur `active` (foyer unique : `active_only_effect_rows`) rend cette vue INDÉPENDANTE du
+    canal de capture : une ligne venue de `decisionView` par défaut et la même ligne venue de
+    `decision_view_seed_body` produisent la MÊME liste. C'est ce qui permet de seeder par le canal
+    `includeInactive` sans qu'un `diff(snapshot_live(...), snapshot(state))` dont les deux côtés
+    n'ont pas été captés par le même canal ne signale des écarts fantômes. Les inertes ne sont pas
+    perdus : ils vivent dans le canal STRUCTURÉ `State.effects.by_unit`, avec leur flag (cf.
+    `EffectFactory.create`)."""
+    return sorted(n for n in (e.get("name") for e in active_only_effect_rows(u.get("effects")))
+                  if n)
 
 
 def _active_abilities(u: dict) -> List[ActiveAbility]:

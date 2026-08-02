@@ -27,6 +27,7 @@ import hexgeo  # noqa: E402
 from engine import weights  # noqa: E402
 from engine.playbook import noncomparable as playbooks  # noqa: E402  (namespace unifié ; is_summon)
 from engine.playbook import scene as _scene  # noqa: E402  (seam live-feed : build_predictor/refresh_shields)
+from engine.runner import snapshot as _snapshot  # noqa: E402  (porte du canal de seed `includeInactive`)
 
 
 def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
@@ -151,7 +152,14 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None,
             # maxRank 32 (défaut 8) : le SWEEP de position par paire (ability,cible) doit voir TOUTES
             # les tuiles d'attaque — le rang natif est arbitraire pour les spéciales (dmg 0-0), la
             # meilleure tuile moteur peut être au-delà du rang 8 (step-11 : (6,3) pour (1150,82)).
-            dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
+            # `decision_view_seed_body` = la porte NOMMEE du canal `includeInactive` (#443-r2-b1,
+            # foyer PARTAGE avec le seed COMBAT de `load_state`). C'est le seul canal qui publie les
+            # effets POSES mais INERTES, que les mirrors d'un `HasEffect(..., onlyActive = 0)`
+            # DOIVENT voir -- ecart mesure a -35 (poids `SUPPRESSIVEFIRE_TargetWithOverwatch`) sur un
+            # overwatch 1009 desarme. Ce que le canal ajoute n'atteint que `sctx["eff_state"]` :
+            # `ai/context.build` projette la liste BRUTE en ACTIF-ONLY.
+            dv = _r(sid, "decisionView",
+                    _snapshot.decision_view_seed_body(rid, allAbilities=True, maxRank=32), 180)
             mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60)
             # Boucliers = état DYNAMIQUE (accordés en cours de bataille) → refresh par pas comparé
             # (cf. PV.refresh_shields ; le cold de build_predictor rate p.ex. worldTerminator 3989).

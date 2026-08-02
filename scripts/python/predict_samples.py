@@ -31,6 +31,7 @@ import rl_collect_batch as R
 from engine.playbook import scene as SC
 from engine.playbook.scene import Scene
 from engine.playbook import prediction
+from engine.runner import snapshot as _snapshot   # porte du canal de seed `includeInactive` (#443-r2-b1)
 
 ROOT = Path(__file__).resolve().parents[2]
 # state-file DEDIE au harnais CLI : jamais data/duel_state.json (reserve au runner de travail
@@ -57,7 +58,12 @@ def _drive_into_range(sid, rid, my_team, max_turns):
     amine = 3 if my_team == 1 else 4
 
     def dec():
-        return rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 3, "allAbilities": True}, 90)
+        # Canal de SEED (#443-r2-b1) : la vue rendue alimente `SC.step_context` (l'appelant), donc
+        # elle passe par `decision_view_seed_body`, la porte NOMMEE du canal `includeInactive` --
+        # le seul qui publie les effets POSES mais INERTES. La liste BRUTE reste ACTIF-ONLY
+        # (projection dans `step_context` / `ai.context.build`).
+        return rpc(sid, "decisionView",
+                   _snapshot.decision_view_seed_body(rid, maxRank=3, allAbilities=True), 90)
 
     def populated(d):
         return [ap for ap in (d.get("attackPlans") or [])

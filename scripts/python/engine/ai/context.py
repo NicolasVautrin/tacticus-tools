@@ -20,6 +20,9 @@ from typing import Any, Callable
 from engine import battle_query  # gate IdunBattle.Core.Services.AttackQuery$$CanUseAbility (stun/taunt)
 from engine.entities.active_ability_type import ActiveAbilityType  # repli de nom (cf. _ability_name)
 from engine.playbook.scene import Scene, step_context as _step_context  # état objet + seam live-feed
+# #443-r2-b1 : projection ACTIF-ONLY de la liste BRUTE d'effets — le pendant de la porte
+# `decision_view_seed_body` (canal `includeInactive`), UN SEUL foyer pour les deux faces.
+from engine.runner.snapshot import active_only_rows
 
 
 @dataclass
@@ -478,8 +481,15 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
           wt: Any, predictor: dict | None, debug: bool = False,
           spawn_groups=None) -> AiDecisionContext:
     """Une passe RPC -> `AiDecisionContext`. Reproduit exactement la tête de l'ancien `engine_decide`
-    (mêmes appels `observeBattle`/`tileMeta`/`pathDistToEnemies`, mêmes dérivations)."""
-    units = dv.get("units") or []
+    (mêmes appels `observeBattle`/`tileMeta`/`pathDistToEnemies`, mêmes dérivations).
+
+    #443-r2-b1 — `dv` accepte les DEUX canaux de `readEffectsByUnit`, et l'appelant DOIT le capter
+    par `runner/snapshot.py::decision_view_seed_body` (canal `includeInactive`) : c'est le seul qui
+    publie les effets POSÉS mais INERTES, que les mirrors d'un `HasEffect(..., onlyActive = 0)`
+    DOIVENT voir. Ce que le canal ajoute n'atteint QUE le canal STRUCTURÉ (`sctx["eff_state"]`,
+    porteur du flag par instance) : `ctx.units` / `ctx.me` sont projetés ACTIF-ONLY ci-dessous, donc
+    les lecteurs de la liste BRUTE gardent EXACTEMENT leur verdict d'avant la bascule."""
+    units = active_only_rows(dv.get("units"))
     cur = dv.get("currentPlayer")
     plans = {p.get("unitId"): p for p in (dv.get("attackPlans") or [])}
     enemies = _enemies(units)
@@ -709,11 +719,15 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
 
     Le reste (observeBattle / tileMeta / boardGraph / Scene) est la MÊME couture que `build` : ce sont
     des lectures d'ENVIRONNEMENT, indépendantes du caster."""
-    units = dv.get("units") or []          # `.units` ne contient JAMAIS de Machine (canal séparé)
+    # `.units` ne contient JAMAIS de Machine (canal séparé). Projection ACTIF-ONLY : cf. `build`
+    # (#443-r2-b1) — la liste BRUTE reste indépendante du canal de capture, seul `sctx["eff_state"]`
+    # (structuré, porteur du flag) voit ce que `includeInactive` ajoute.
+    units = active_only_rows(dv.get("units"))
     cur = dv.get("currentPlayer")
     me = machine_row(dv, uid)
     if me is None:
         raise ValueError(f"build_machine: {uid} absent de decisionView.mows")
+    me = active_only_rows([me])[0]          # la MoW aussi : `can_use_ability` lit `me["effects"]`
     # `ctrl` recalculé PAR RAPPORT AU CAMP DE LA MACHINE (et non au joueur courant) : c'est le camp
     # de l'acteur qui définit ami/ennemi pour ses sélecteurs (`Owner@0x148`).
     my_team = me.get("team")
