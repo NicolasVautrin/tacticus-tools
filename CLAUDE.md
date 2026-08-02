@@ -235,6 +235,14 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   108 porteurs de littéral acceptent tous `--state-file`, donc un chemin explicite dissout la
   collision. Les 264 probes qui prennent leur chemin *uniquement* par argument ne sont isolés que
   si l'appelant leur en donne un distinct.
+- **Un FICHIER dont le bilan est `passed == 0 and skipped > 0` fait désormais ROUGIR la passe
+  (#455).** Le skip n'est pas le défaut — l'INVISIBILITÉ l'est : `test_summon_trait_effects_live.py`
+  rendait 8 skipped / 0 passed / rc 0 sur `master`, zéro assertion évaluée, trouvé en ÉCARTANT une
+  PR. Le garde #77 ne le voyait pas : il lit la RAISON d'un skip, et un skip de MONTAGE ne porte
+  aucun marqueur de harnais. Si ton fichier rougit ainsi : **répare le montage** (c'était le cas —
+  8 skipped → 8 passed) ou **nomme** l'impossibilité, jamais retirer le skip pour faire taire.
+  Le garde se tait sur sélection partielle (`-k`, nodeid, `-x`) ; échappatoire consciente
+  `TACTICUS_ALLOW_GREEN_SKIP=1`. Détail : `docs/rl/case-455-fichier-integralement-skippe.md`.
 
 ## La banque de cliquets — `scripts/ratchets.ps1`, à faire passer AVANT toute PR
 
@@ -277,6 +285,14 @@ elle ne **définit** pas la banque.
   Un cliquet garde ce périmètre pour tout `scripts/python/**` (`probe_440`, dans la banque) ;
   il n'a **pas d'allowlist** — ses deux critères se dérivent du chemin canonique.
   Détail : `docs/rl/case-434-perimetre-des-cliquets.md` (§10 pour #440).
+- **Un cliquet n'ÉCRIT JAMAIS dans `scripts/python/` (#455)** — la banque tourne **en parallèle par
+  conception**, donc un cliquet qui y dépose un répertoire le fait apparaître puis **disparaître**
+  pendant qu'un voisin énumère ce même arbre. Mesuré : `probe_455` seul = vert, `probe_391` seul =
+  vert, **les deux en parallèle** = `probe_391` rouge sur `FileNotFoundError`. C'est #434 dans
+  l'autre sens (là-bas on LISAIT hors périmètre, ici on y ÉCRIVAIT). Travailler dans un **tmpdir
+  système** (`mkdtemp()` **sans** `dir=`). ⚠ Le symptôme est une COURSE : un rejeu qui passe ne
+  prouve rien — la garantie doit être structurelle, et c'est `probe_440` R3 qui la tient (périmètre
+  dérivé de `ratchets.ps1` ; une réécriture EN PLACE, ce que font les modes `--fix`, reste permise).
 - **Un cliquet qui ne peut pas ROUGIR est gardé mécaniquement (#439)** : `probe_439` vérifie que
   chaque entrée a un chemin de sortie **non nul**. Trois occurrences du vice, **toutes trouvées à
   l'œil** — et l'audit manuel de #430 en avait raté une. La liste se **dérive** de `ratchets.ps1`

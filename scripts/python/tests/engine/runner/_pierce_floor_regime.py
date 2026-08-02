@@ -172,7 +172,19 @@ def replay_materializations(dv, ob, snap, board, rng0, caster_id, target_id, abi
                           verrouillait que la loi).
     `recorder` = "normal_like" | "additional_hits". `ah_impl_factory(force_round)` (optionnel) =
     implementation de substitution du canal `additional_hits` (sert a ISOLER l'etage
-    materialisation d'un etage AMONT non encore porte) ; elle recoit `None` pour le run `shipped`."""
+    materialisation d'un etage AMONT non encore porte) ; elle recoit `None` pour le run `shipped`.
+
+    ⚠ LE FORCAGE VISE DEUX ETAGES DEPUIS `0ad4b9e8` (#446-r2), et n'en visait qu'un avant.
+    `round_materialize` d'`apply_all_modifiers` etait le seul point de materialisation tant que
+    l'arrondi vivait la. Depuis l'arrondi INTER-FACES, `apply_pierce_and_modifiers` appelle
+    `calculate_base_damage_with_modifiers` DEUX FOIS et INCONDITIONNELLEMENT (mirror des etapes 3
+    et 4 de `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`), donc
+    la valeur arrive DEJA ENTIERE en aval et le knob y est un NO-OP STRICT : `floor == round`
+    partout, et les gardes de discrimination des deux consommateurs tombaient
+    (`test_normal_like_bounds_rounding_live.py` en ROUGE, `test_offbyone_armor_38_live.py` en SKIP
+    -- meme cause, deux signaux opposes ; c'est ce contraste qui a motive le garde #455).
+    MESURE OFFLINE du regime (pierce 40, armure 6000) : `apply_pierce_and_modifiers(2009.6)` =
+    **804.0**, `(3014.4)` = **1206.0** -- entiers, quel que soit le seed."""
     import importlib
     from engine.runner.snapshot import load_state
     from engine.runner.runner import Runner
@@ -180,12 +192,25 @@ def replay_materializations(dv, ob, snap, board, rng0, caster_id, target_id, abi
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.components import set_moved_flag
     from engine.services.damage_modifiers import apply_all_modifiers as _aam
+    from engine.services import damage_prediction as _dpred
+    from engine.services import fix64 as _fx
     from engine.runner.operations.damage import AttackDamageOperation
     from engine.runner.operations import additional_hits as _ah_mod
     from engine.runner.operations.damage_ops import normal as _dnormal
     from engine.runner.operations.damage_ops import ability as _dability
 
     mod = importlib.import_module(module_path)
+
+    def _sans_round(damage, multiplier: float = 1.0):
+        """`calculate_base_damage_with_modifiers` PRIVE de son `Fix64.Round(x, AwayFromZero)`.
+        Corps mirror a l'identique par ailleurs (gates `x <= 0 -> 0`, `0 < x < 1 -> 1`) : seule la
+        materialisation saute, la fraction du percage SURVIT jusqu'a la troncature finale."""
+        x = _fx.mul(_fx.from_number(damage), _fx.mult_raw_from_float(multiplier))
+        if x <= 0:
+            return _fx.Fix64(0)
+        if x < _fx.ONE:
+            return _fx.Fix64(_fx.ONE)
+        return _fx.Fix64(x)
 
     def _one(force_round):
         st = load_state(dv, ob, snap, board=board)
@@ -198,6 +223,7 @@ def replay_materializations(dv, ob, snap, board, rng0, caster_id, target_id, abi
         per_hit: list = []
         arme: list = []
         o_aam = mod.apply_all_modifiers
+        o_cbd = _dpred.calculate_base_damage_with_modifiers
         o_nl = AttackDamageOperation.execute_normal_like
         o_ah = _ah_mod.execute_additional_hits
         o_n, o_a = _dnormal.execute_additional_hits, _dability.execute_additional_hits
@@ -218,6 +244,10 @@ def replay_materializations(dv, ob, snap, board, rng0, caster_id, target_id, abi
         if force_round is not None:                  # None = port LIVRE, aucun forcage
             mod.apply_all_modifiers = (
                 lambda v, m, round_materialize=False: _aam(v, m, round_materialize=force_round))
+        if force_round is False:
+            # ETAGE AMONT (#446-r2) : sans ce second patch le forcage ci-dessus est un NO-OP, la
+            # valeur etant deja entiere -- cf. l'avertissement en tete de cette fonction.
+            _dpred.calculate_base_damage_with_modifiers = _sans_round
         AttackDamageOperation.execute_normal_like = staticmethod(_rec_nl)
         _ah_mod.execute_additional_hits = _rec_ah
         _dnormal.execute_additional_hits = _rec_ah
@@ -237,6 +267,7 @@ def replay_materializations(dv, ob, snap, board, rng0, caster_id, target_id, abi
             return per_hit, arme
         finally:
             mod.apply_all_modifiers = o_aam
+            _dpred.calculate_base_damage_with_modifiers = o_cbd
             AttackDamageOperation.execute_normal_like = o_nl
             _ah_mod.execute_additional_hits = o_ah
             _dnormal.execute_additional_hits = o_n

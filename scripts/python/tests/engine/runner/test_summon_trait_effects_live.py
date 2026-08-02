@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from engine.runner.snapshot import load_state
-from engine.runner.operations.spawn import SpawnUnitOperation
+from engine.runner.operations.spawn import SpawnUnitOperation, _free_tiles_adjacent
 from engine.runner.damage_model import attacker_modifiers
 from engine.runner.components import OwnerComponent, StatsComponent
 
@@ -31,20 +31,57 @@ def _load(rpc, build_runner):
 
 
 def _spawn(state, dec, visual):
-    """Spawn 1 summon `visual` avec un caster réel (pour level/mult). Renvoie l'entityId."""
-    caster = next((u for u in (dec.get("units") or [])), None)
-    if caster is None:
-        pytest.skip("aucun caster")
-    caster_id = caster["id"]
-    if state.get_entity(caster_id) is None or \
-            state.get_entity(caster_id).get_component(StatsComponent) is None:
-        pytest.skip("caster sans StatsComponent")
-    target_id = caster_id                      # placement indifférent (on teste les effets, pas la tuile)
+    """Spawn 1 summon `visual` avec un caster réel (pour level/mult). Renvoie l'entityId.
+
+    #455 -- LA CIBLE N'EST PAS INDIFFERENTE, et la croire l'etait a rendu ce fichier INTEGRALEMENT
+    INERTE (8 skipped / 0 passed, rc 0, lu comme un succes). Le montage d'origine posait
+    `target_id = caster_id` en commentant « placement indifferent (on teste les effets, pas la
+    tuile) ». Il l'etait tant que le port creait l'entite PUIS lui cherchait une place ; il a cesse
+    de l'etre avec `case-spawn-requires-tile` (#251), qui mirrore `IdunBattle.Entities.Behaviours.
+    SpawnUnitBehaviour$$Execute` : l'entite NAIT DE L'ITERATION du tile-selecteur
+    `CanAddUnit(AdjacentTiles(target))` -- zero tuile libre, zero appel a
+    `IdunBattle.Operations.AddUnitOperation$$Execute`, donc **zero entite**. Le skip de secours a
+    alors avale les huit tests, en silence.
+
+    MESURE (#455, board MC1_67 / seed 777, la configuration par defaut de `build_runner`) : la
+    premiere unite de `decisionView` (u77) occupe une tuile a **2 voisins**, tous deux tenus par ses
+    allies -- `free = []` sur les CINQ visuals. Six des dix unites de cette bataille, elles, ont au
+    moins une tuile libre au contact.
+
+    On DERIVE donc la cible du MEME selecteur que l'operation (`_free_tiles_adjacent`, le mirror de
+    `CanAddUnit(AdjacentTiles(...))`) au lieu de la supposer. Le caster, lui, reste `units[0]` : il
+    ne fournit que le couple (`active_ability_level`, `ability_variables_multiplier`) qui dimensionne
+    les stats du summon, et sa position n'entre que dans le `SortByDistance` aval.
+
+    Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268) : aucune cible spawnable ->
+    `pytest.fail`. C'est un etat qui ne se produit que si le board est sature ou si le mirror du
+    selecteur rend vide -- deux vraies fautes, pas une indisponibilite du harnais."""
+    units = list(dec.get("units") or [])
+    if not units:
+        pytest.fail("montage NON INSTALLE : decisionView ne rend aucune unite", pytrace=False)
+    caster_id = units[0]["id"]
+    caster = state.get_entity(caster_id)
+    if caster is None or caster.get_component(StatsComponent) is None:
+        pytest.fail(f"montage NON INSTALLE : caster u{caster_id} absent du state ou sans "
+                    f"StatsComponent (level/mult du summon non resolvables)", pytrace=False)
+    # Cible = premiere unite dont l'anneau-1 offre une tuile libre, lue par le mirror du selecteur
+    # natif lui-meme. `_free_tiles_adjacent(..., native_order=True)` = `CanAddUnit(AdjacentTiles(t))`
+    # dans l'ordre d'enumeration natif -- exactement ce que `SpawnUnitOperation.execute` iterera.
+    ring = [(u["id"], _free_tiles_adjacent(state, u["id"], set(), native_order=True))
+            for u in units if state.get_entity(u["id"]) is not None]
+    target_id = next((uid for uid, free in ring if free), None)
+    if target_id is None:
+        pytest.fail("montage NON INSTALLE : aucune unite de la bataille n'a de tuile LIBRE au "
+                    "contact -- `CanAddUnit(AdjacentTiles(target))` rend vide partout, donc "
+                    f"aucun spawn n'est possible (anneaux lus : {[(u, len(f)) for u, f in ring]})",
+                    pytrace=False)
     before = set(state.entities.keys())
     SpawnUnitOperation.execute(state, caster_id, target_id, "ScarabHive", visual, 1)
     new = [i for i in state.entities.keys() if i not in before]
     if not new:
-        pytest.skip(f"spawn {visual} KO")
+        pytest.fail(f"spawn {visual} KO : `SpawnUnitOperation.execute` n'a cree aucune entite "
+                    f"alors que la cible u{target_id} avait des tuiles libres au contact "
+                    f"({dict(ring).get(target_id)})", pytrace=False)
     return new[0]
 
 
