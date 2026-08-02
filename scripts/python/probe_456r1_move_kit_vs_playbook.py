@@ -41,6 +41,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import requests
@@ -144,6 +145,13 @@ def native_kits(s: int, rid: int) -> dict:
     return out
 
 
+@contextmanager
+def _null_binder():
+    """Contre-epreuve `--no-bind` : AUCUN transport ambiant, donc `_auto_ability_states` rend
+    `no-transport` et le port lit le kit GAMECONFIG -- l'etat exact d'avant le cablage de #456-r1."""
+    yield None
+
+
 def _graft_seed_bc(tag: str):
     import catalog_inject as CI
     out = os.path.join(os.path.dirname(_HERE), "..", "logs", "seedbc-456r1-%s.json" % tag)
@@ -158,6 +166,9 @@ def main() -> int:
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--state-file", required=True)
     ap.add_argument("--no-graft", action="store_true")
+    ap.add_argument("--no-bind", action="store_true",
+                    help="CONTRE-EPREUVE : ne lie AUCUN transport ambiant -> le port lit le kit "
+                         "gameconfig (etat d'avant le cablage de #456-r1)")
     ap.add_argument("--reuse", action="store_true")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
@@ -208,14 +219,20 @@ def main() -> int:
         # ---- l'etat du port, MEME reconstruction que `probe_443r1a._port_rows` ---------------- #
         from engine.entities.pathfinding.board import Board
         from engine.playbook.adjacent_unit_preference import load_playbook
-        from engine.runner.snapshot import load_state
+        from engine.runner.snapshot import live_rpc, load_state
         from engine.utilities.tile import runner_tile_leaf_ctx
 
         dv = rpc(s, "decisionView", {"runnerId": rid}, 120)
         ob = rpc(s, "observeBattle", {"runnerId": rid}, 60)
         snap = rpc(s, "combatSnapshot", {"runnerId": rid}, 60)
         bg = rpc(s, "boardGraph", {"runnerId": rid}, 90)
-        state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
+        # Transport ambiant : sans lui `_auto_ability_states` rend `no-transport` et le kit lu par
+        # le port reste le kit GAMECONFIG. Avec `--no-bind`, c'est le regime d'AVANT le fix (b) --
+        # la contre-epreuve du cablage, dans le meme probe.
+        binder = (lambda: live_rpc(lambda m, ar=None, to=60: rpc(s, m, ar, to))) \
+            if not a.no_bind else _null_binder
+        with binder():
+            state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
         vis = {int(u["id"]): u.get("visualId") for u in (dv.get("units") or [])
                if u.get("id") is not None}
 
@@ -230,13 +247,20 @@ def main() -> int:
                 continue
             kp = [int(x) for x in (leaf.get("unit_triggered_abilities") or ())]
             kn = [int(x) for x in (kits.get(uid) or ())]
+            # Totaux NATIFS distincts de la face OWNER, par unite. C'est ce qui dit si une ability
+            # SANS playbook cote port en a un cote NATIF : un kit reduit a UNE ability sans playbook
+            # porte, dont le natif rend 0 partout, prouve que le natif la skippe LUI AUSSI
+            # (`PlaybookDatabase$$LoadPlaybook` -> null -> `continue`) -- donc PAS de trou de portage.
+            nats = sorted({round(float(e.get("total") or 0), 3) for e in entries
+                           if e.get("unitId") == uid
+                           and e.get("utility") == "TriggeredAbilitiesUtility"})
             rows.append({"unitId": uid, "visualId": vis.get(uid),
-                         "kit_natif": kn, "kit_port": kp,
+                         "kit_natif": kn, "kit_port": kp, "nat_owner": nats,
                          "sans_playbook": [x for x in kn if load_playbook(x) is None]})
         for r in rows:
-            print("   u%-4s %-16s natif=%-28s port=%-16s sans_playbook=%s"
+            print("   u%-4s %-16s natif=%-28s port=%-16s sans_playbook=%-22s nat_owner=%s"
                   % (r["unitId"], r["visualId"], r["kit_natif"], r["kit_port"],
-                     r["sans_playbook"]))
+                     r["sans_playbook"], r["nat_owner"]))
 
         v = check_kit_gap(rows)
         print("E3 tranche [%s] %s" % (v["status"], v["message"]))

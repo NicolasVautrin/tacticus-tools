@@ -519,6 +519,7 @@ from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 
 from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case-165b : corps propre)
 from .modified_exoarmour import ModifiedExoarmourPlaybook    # noqa: E402  (#304 : corps propre, PAR TUILE)
 from .savior_protocols import SaviorProtocolsPlaybook        # noqa: E402  (#443-r1 : face MOVE, cf. module)
+from .serene_unifier import SereneUnifierPlaybook            # noqa: E402  (#456-r1 : corps propre, 101/ami)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
@@ -560,6 +561,13 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # (`UnitExtensions$$GetParent`). Porteurs : 3 npc + 3 SUMMONS `tauSmn*Drone*` -- le porteur
     # confronte est `tauSmnDroneSniper`, invoque par l'attaque RANGED de `tauMarksman` (1076).
     int(TriggeredAbilityType.SaviorProtocols): SaviorProtocolsPlaybook(),        # 1120 (20 / +30 parent)
+    # #456-r1 -- la PREMIERE feuille du registre dont le facteur est un LITTERAL du corps natif
+    # (`imul 0x65` = 101), sans AUCUNE cle `BC.Utilities` : il n'y a rien a chercher dans la table,
+    # et une cle inventee la serait une fausse verite. C'est aussi la seule qui EXCLUE explicitement
+    # le mover de son comptage d'amis adjacents (`RemoveAll(u.Id == case.Unit.Id)`), la ou la famille
+    # `friends_in_range` le compte pour lui-meme. Porteur POOL-HERO : `tauAunShi` (kit NATIF verifie
+    # par `unitAbilityStates`, pas deduit du gameconfig).
+    int(TriggeredAbilityType.SereneUnifier): SereneUnifierPlaybook(),            # 1145 (101 / ami adjacent)
 }
 
 

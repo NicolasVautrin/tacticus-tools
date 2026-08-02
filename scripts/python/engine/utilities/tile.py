@@ -636,8 +636,14 @@ class TriggeredAbilitiesUtility(BaseUtility):
     `<EvaluateMovementInSteps>IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` : DISPATCHER — itère les abilities DE L'UNITÉ
     QUI BOUGE (`case.unit@0x10` → AbilitiesComponent), `IdunBattle.AI.PlaybookDatabase$$LoadPlaybook(abilityType)` (singleton par type, null → skip), Σ des `CalculateMovementUtilityInSteps` (famille
     `AdjacentUnitPreferenceTriggeredAbilityPlaybook` : `engine/playbook/adjacent_unit_preference.py`).
-    `ctx.unit_triggered_abilities` (kit passif du mover — `triggered_ability_ids(visualId)`) +
-    `ctx.friend_positions` (allies vivants self-exclu = `ctx.fpos`). Cf. case-36 (909 s4/s19 : 30/90).
+    `ctx.unit_triggered_abilities` (kit DÉCLENCHÉ du mover) + `ctx.friend_positions` (allies vivants
+    self-exclu = `ctx.fpos`). Cf. case-36 (909 s4/s19 : 30/90).
+
+    ⚠ SOURCE DU KIT — les trois producteurs du `ctx` lisent tous l'`AbilitiesComponent` RÉEL depuis
+    #456-r1, plus le kit gameconfig par `visualId` : `tile_leaf_ctx` par `ctx.live_triggered_ability_ids`
+    (#304), `runner_tile_leaf_ctx` et `scene_tile_leaf_ctx` par le substrat d'ENTITÉ
+    `entity_triggered_ability_ids(UnitContext)` (seedé par `snapshot._load_triggered_abilities`).
+    Sans canal, les trois retombent sur le gameconfig — tri-état, pas dégradation silencieuse.
 
     ⚠ case-205 — tout le corps natif est gardé par `if (case.unit != null) { … }` ; sujet ABSENT ⇒ le
     seul step émis est le `u = Fix64.FromInt(0)` initial. C'est le régime du call-site SUMMON
@@ -1127,6 +1133,11 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
     (`{pos, vis, id, triggered, traits, effects}`, self exclu), `friend_positions`, `elev_by_pos`,
     `neigh_by_pos` (ordre NATIF `board.neighbours_native`), `walkable_by_pos`.
 
+    #456-r1 — `unit_triggered_abilities` et le `triggered` des voisins sortent désormais du substrat
+    d'ENTITÉ (`UnitContext.triggered_abilities` = l'`AbilitiesComponent`, seedé depuis
+    `unitAbilityStates` par `snapshot._load_triggered_abilities`), plus du kit gameconfig par
+    `visualId`. Sans canal (`load_state` sans transport ambiant) le repli gameconfig est intact.
+
     NON produites, donc feuilles muettes ici (résidus nommés, mêmes que côté décision) : `scene` /
     `hpmax_by_id` / `enemies` (→ `FuryOfTheAncientsPlaybook` rend 0), `is_territory_by_pos` et
     `tile_effect_type_ids_by_pos` (le `meta` de ce foyer ne les porte pas non plus)."""
@@ -1136,7 +1147,7 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
         return {"is_spawning": True} if parent_id is not None else {}
     from ..runner.components import (OwnerComponent, PositionComponent, StatsComponent,
                                      UnitComponent)
-    from ..entities.triggered_ability_type import triggered_ability_ids
+    from ..entities.triggered_ability_type import entity_triggered_ability_ids
     from ..entities.traits.unit_trait import entity_trait_ids, entity_trait_names
     me = state.get_entity(unit_id)
     if me is None:
@@ -1158,10 +1169,14 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
         oc = e.get_component(OwnerComponent)
         sc = e.get_component(StatsComponent)
         rec = {"pos": (pc.col, pc.row), "vis": vis, "id": uid,
-               # Kit DECLENCHE du voisin (#241) -- feuilles SteppableUnit(20)/AttractToDecoys(64).
-               # Ici PAS de canal live : le kit gameconfig est le seul substrat de ce foyer (meme
-               # residu N13-b que `unit_triggered_abilities` ci-dessous : traits/reliques invisibles).
-               "triggered": tuple(triggered_ability_ids(vis)),
+               # Kit DECLENCHE du voisin -- feuilles SteppableUnit(20)/AttractToDecoys(64) et noeud
+               # `!ActorHasTriggeredAbility(Target, 1120)` de `SaviorProtocolsPlaybook`.
+               # #456-r1 : substrat d'ENTITE (`UnitContext.triggered_abilities` = l'AbilitiesComponent
+               # seede par `snapshot._load_triggered_abilities`), plus le kit gameconfig par visualId.
+               # C'est la fermeture du residu N13-b sur ce foyer : relique, greffe et abilities
+               # derivees d'un TRAIT y etaient invisibles.
+               "triggered": tuple(entity_triggered_ability_ids(
+                   sc.ctx if sc is not None else None, vis)),
                # #225 : substrat d'ENTITE (kit + traits accordes en bataille par le leaf `AddTrait`),
                # pas le kit gameconfig cache par visualId -- c'est ce que `HasTrait` interroge.
                "traits": entity_trait_names(sc.ctx if sc is not None else None, vis),
@@ -1182,7 +1197,14 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             neigh_by_pos[p] = [board.coord(n) for n in board.neighbours_native(tid)]
     from ..runner.components import parent_of
     _par = parent_of(state, unit_id)
-    return {"unit_triggered_abilities": list(triggered_ability_ids(my_vis)),
+    return {# #456-r1 : substrat d'ENTITE, exactement comme `unit_traits` juste en dessous -- le
+            # dispatcher natif itere l'`AbilitiesComponent`, pas le kit gameconfig par visualId.
+            # Ce foyer-la etait reste sur le gameconfig alors que la face DECISION avait ete
+            # recablee sur le canal live par #304 ; il en resultait un kit FAUX DANS LES DEUX SENS
+            # (mesure : 3 unites sur 4 divergentes, dont une ou le port iterait un id que la
+            # bataille n'avait pas monte).
+            "unit_triggered_abilities": entity_triggered_ability_ids(
+                msc.ctx if msc is not None else None, my_vis),
             # #225 : substrat d'ENTITE (cf. `entity_trait_ids`) -- le sujet peut s'etre vu accorder
             # un trait EN BATAILLE (`AddTrait`), que le kit gameconfig par visualId ignore.
             "unit_traits": entity_trait_ids(msc.ctx if msc is not None else None, my_vis),
@@ -1276,7 +1298,7 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
     donc jamais le régime `is_spawning` de case-205)."""
     if unit_id is None:
         return {}
-    from ..entities.triggered_ability_type import triggered_ability_ids
+    from ..entities.triggered_ability_type import entity_triggered_ability_ids
     from ..entities.traits.unit_trait import entity_trait_ids, entity_trait_names
     units = list(getattr(scene, "units", None) or [])
     my_team = scene.team(unit_id)
@@ -1295,7 +1317,10 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
             continue
         vis = u.get("visualId")
         rec = {"pos": (p["col"], p["row"]), "vis": vis, "id": uid,
-               "triggered": tuple(triggered_ability_ids(vis)),
+               # #456-r1 : substrat d'ENTITE (cf. `runner_tile_leaf_ctx`) -- `Scene.ctx(uid)` EST le
+               # `UnitContext` que `snapshot._load_triggered_abilities` seede (meme objet, cf.
+               # `Scene.from_state`), donc ce jumeau se ferme par le MEME foyer, sans canal propre.
+               "triggered": tuple(entity_triggered_ability_ids(scene.ctx(uid), vis)),
                "traits": entity_trait_names(scene.ctx(uid), vis),
                "effects": _effect_names(uid)}
         if my_team is not None and u.get("team") == my_team:
@@ -1311,7 +1336,7 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
             elev_by_pos[pp] = t.get("elevation")
             walkable_by_pos[pp] = bool(t.get("walkable"))
             neigh_by_pos[pp] = [board.coord(n) for n in board.neighbours_native(tid)]
-    return {"unit_triggered_abilities": list(triggered_ability_ids(my_vis)),
+    return {"unit_triggered_abilities": entity_triggered_ability_ids(scene.ctx(unit_id), my_vis),
             "unit_traits": entity_trait_ids(scene.ctx(unit_id), my_vis),
             "uid": unit_id,
             "unit_faction": faction_value(my_vis),

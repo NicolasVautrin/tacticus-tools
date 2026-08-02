@@ -388,7 +388,7 @@ def _port_rows(s: int, rid: int, entries) -> list:
     Rend [] -- et non des lignes fausses -- si un canal manque : E5 dira `no-rows`."""
     from engine.entities.pathfinding.board import Board
     from engine.playbook.adjacent_unit_preference import load_playbook
-    from engine.runner.snapshot import load_state
+    from engine.runner.snapshot import live_rpc, load_state
     from engine.utilities.tile import (
         TriggeredAbilitiesNonOwnerUtility, TriggeredAbilitiesUtility, runner_tile_leaf_ctx)
     from engine.weights import load as load_weights
@@ -399,7 +399,12 @@ def _port_rows(s: int, rid: int, entries) -> list:
     bg = rpc(s, "boardGraph", {"runnerId": rid}, 90)
     if not (isinstance(bg, dict) and bg.get("tiles")):
         return []
-    state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
+    # `live_rpc` est OBLIGATOIRE (#363, et #456-r1 pour le kit declenche) : sans transport ambiant,
+    # `_auto_ability_states` rend `no-transport` et `runner_tile_leaf_ctx` retombe sur le kit
+    # GAMECONFIG -- c'est exactement l'etat aveugle que #456 a mesure (`unit_triggered_abilities`
+    # rendait `[1133]` sur une unite dont l'`AbilitiesComponent` porte `[1120, 1030]`).
+    with live_rpc(lambda method, args=None, timeout=60: rpc(s, method, args, timeout)):
+        state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
     wt = load_weights()
     feuilles = {"TriggeredAbilitiesUtility": TriggeredAbilitiesUtility(),
                 "TriggeredAbilitiesNonOwnerUtility": TriggeredAbilitiesNonOwnerUtility()}
