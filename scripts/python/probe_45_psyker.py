@@ -10,8 +10,11 @@ TriggeredAbilities(2) face ATTACK IdunBattle.AI.Utilities.TriggeredAbilitiesUtil
 Chaine offline (chaque terme = mirror nomme) :
   amount  = PercentageOf(attack, psykerExtraDmg=50) -> _round_fix64(Fraction(pct*atk,100))
   targets = Damageable(Enemies(caster, AdjacentUnits(CIBLE,1))) -> hexdist==1, team!=, alive
-  pred    = GetAttackPrediction slot 0x23 (predefined amount, hits=1, Psychic pierce 100,
-            SANS spread ±20% ni mods attaquant) -> get_attack_prediction(spread_pct=0)
+  pred    = GetAttackPrediction slot 0x23 (montant DONNE, hits=1, Psychic pierce 100)
+            -> get_attack_prediction(spread_pct=20, le defaut). #449 : le « SANS spread ±20% »
+            de cette ligne etait FAUX -- mesure directe sur les bornes natives capturees,
+            montant 402 -> [322, 482]. La cible L3 ci-dessous ne bouge pas : le composite
+            consomme la MOYENNE des deux bornes, il est AVEUGLE au spread dans ce regime.
   u       = MEAN_U( CalculateUtilityFromDamageEvent(ProbableDamageEvent(U, pred)) )
 
 Usage: python probe_45_psyker.py --seed 31337 --stop-step 18 --uid 89 --ab 69 --tgt 81

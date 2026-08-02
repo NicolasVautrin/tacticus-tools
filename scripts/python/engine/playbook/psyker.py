@@ -22,9 +22,12 @@ case-34 §MAJ #45quater) :
      -> ennemis VIVANTS hex-adjacents à la cible du case (self/cible exclus) ; vide -> 0.
   4. PAR TARGET U : prédiction du montant vs U via l'interface query slot 0x23 =
      `IdunBattle.Core.Services.BattleQuery$$GetAttackPrediction` (amount, Nullable<profil 13>) -> hits FORCÉS 1,
-     profil résolu, montant PRÉDÉFINI (`IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction` boxe
-     l'amount en Nullable<int> : canal predefined SANS spread ±20%, même famille que les
-     additional-hits `RandomAmount`) -> le pipeline standard applique la COUCHE MODIFIERS complète.
+     profil résolu, montant DONNÉ (`IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction` le boxe
+     en `Nullable<int>` à `DamagePredictionRequest+0x58`, et écrit le LITTÉRAL `1` à `+0x6a` --
+     l'octet que `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` teste pour router
+     vers `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64` : le montant PASSE donc
+     par le spread ±20 %, ce N'EST PAS un canal « prédéfini ». #449, MESURÉ : montant 402 ->
+     bornes natives [322, 482]) -> le pipeline standard applique la COUCHE MODIFIERS complète.
      PROUVÉ 31337 s18 (u89 Njal -> u81, splash sur {u77, u79}) : base 402 (50% x attack 803)
      + LordOfTempests_ExtraDamage ADDITIF 1200 (= 400/hex x 3 hexes glacés ring-1 de la TUILE DU CASE
      (2,4)) = 1602 ; u79 custoBladeChampion -20% MartialKatah_DmgReduction -> 1282 (== splash EXÉCUTÉ
@@ -75,11 +78,12 @@ class PsykerPlaybook:
     # ---- mirror slot 0x23 : prédiction d'un MONTANT prédéfini vs U (pipeline modifiers complet) ----
     def _predict_amount_vs_target(self, scene, att_id: int, tgt_id: int, amount: int, attack_pos):
         """`IdunBattle.Core.Services.BattleQuery$$GetAttackPrediction` (slot 0x23) -> `DamagePredictionQuery.
-        IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction` (amount en Nullable<int> = predefined, hits=1, profil Psychic
+        IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction` (amount en Nullable<int>, hits=1, profil Psychic
         résolu via `GetDamageProfile`). Pipeline = LE MÊME chemin amount que `generate_multi_hit_attack_
         prediction` : mods attaquant (builder IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction, additifs positionnels LordOfTempests inclus
         via `att_ctx.att_pos` = tuile du case) + mods défenseur par-cible + hit_mult MkXGravis + caps
-        cibles ; spread 0 (canal predefined). `is_normal_attack=True` : mesuré (cf. docstring module)."""
+        cibles ; spread ±20 % (#449 : `request+0x6a = 1` -> `GetBaseDamageFix64`, MESURÉ sur les
+        bornes capturées). `is_normal_attack=True` : mesuré (cf. docstring module)."""
         prof = GC.damage_profile("Psychic") or {}
         actx = scene.ctx(att_id)
         pierce = max(0, min(100, int(prof.get("PiercingRatio") or 0)
@@ -116,7 +120,10 @@ class PsykerPlaybook:
         return get_attack_prediction(
             target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=1,
             profile_type=_PROFILE_INDEX.get("Psychic", 0), pierce_pct=pierce,
-            armor=scene.armor(tgt_id), mods=mods, hit_mult=hit_mult, spread_pct=0,
+            # spread_pct : le DEFAUT (+/-20 %). #449 -- MESURE DIRECTE sur les bornes capturees
+            # (`ProbableDamageEvent$$.ctor`) : montant 402 -> natif [322, 482] == {0.8, 1.2} x 402.
+            # Le `spread_pct=0` d'avant rendait [402, 402].
+            armor=scene.armor(tgt_id), mods=mods, hit_mult=hit_mult,
             target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
             target_prevents_overkill=scene.prevents_overkill(tgt_id),   # #195 : HasFlag(cible, 0x13)
             attacker_effects=scene.effects(att_id),   # #202 : max-out evalue DANS predict_attack_raw

@@ -77,11 +77,6 @@ FOES = (TGT, SPLASH)
 AB_AVALANCHE = int(TriggeredAbilityType.AvalancheOfMuscle)       # 1028
 AB_PSYKER = int(TriggeredAbilityType.PsykerExtraAttack)          # 1013
 
-# Le rapport ATTENDU si le spread +/-20 % s'applique : `slot9 / slot8` de
-# `DamageCalculations` = `1.2 / 0.8`. Tolerance large : les bornes passent ensuite par
-# l'armure, le percage et les caps, tous appliques aux DEUX bornes.
-SPREAD_RATIO = 1.2 / 0.8
-RATIO_TOL = 0.02
 EPS = 1e-4
 
 
@@ -121,8 +116,14 @@ def native_events(rpc, rid: int, cid: int, tgt: int, ability: int, tile, klass: 
 
 
 def bounds_of(ev: dict) -> tuple:
-    """Les bornes BRUTES (non capees par les PV) du degat sante d'un event capture."""
-    lo, hi = ev.get("rawHealthDmgMin"), ev.get("rawHealthDmgMax")
+    """Les bornes BRUTES (non capees par les PV) du degat sante d'un event capture.
+
+    Le decodeur les publie sous `willKillDmg` / `mightKillDmg` : ce sont
+    `DamagePredictionResult@+0x24` / `@+0x28`, les DEUX bornes du degat sante NON capees,
+    celles-la memes que lisent `get_WillBeKill` et `get_MightBeKill`. On lit les brutes et pas
+    `healthDmg*` (capees a `CurrentHealth`) pour qu'un cap PV ne puisse pas ecraser l'ecart et
+    faire passer un canal a spread pour un canal predefini."""
+    lo, hi = ev.get("willKillDmg"), ev.get("mightKillDmg")
     if not isinstance(lo, (int, float)) or not isinstance(hi, (int, float)):
         raise MontageError("event capture sans bornes brutes : %r" % (str(ev)[:250],))
     return float(lo), float(hi)
@@ -170,7 +171,7 @@ def port_bounds_avalanche(ctx, cid: int, ability_id: int, tgt: int, tile, spread
         AOM.get_attack_prediction = real
     if pred is None:
         raise MontageError("port : prediction absente")
-    return float(pred.raw_health_damage.min), float(pred.raw_health_damage.max), int(extra)
+    return pred, int(extra)
 
 
 def port_bounds_psyker(ctx, cid: int, tgt: int, tile, spread_pct: int):
@@ -193,7 +194,20 @@ def port_bounds_psyker(ctx, cid: int, tgt: int, tile, spread_pct: int):
         PSY.get_attack_prediction = real
     if pred is None:
         raise MontageError("port : prediction absente")
-    return float(pred.raw_health_damage.min), float(pred.raw_health_damage.max), amount
+    return pred, amount
+
+
+def bounds_and_utility(ctx, pred, tgt: int) -> tuple:
+    """`(min, max, utilite)` d'une prediction du port -- les bornes BRUTES et le terme que la
+    feuille en tire (`CalculateUtilityFromDamageEvent` = composite Damage).
+
+    Les DEUX sont rendus parce que c'est leur ECART qui nomme la panne : les bornes SEPARENT les
+    hypotheses, l'utilite non (le composite consomme `MinMaxDamage$$Avg`, la MOYENNE)."""
+    from engine.playbook.probable_damage_event import (ProbableDamageEvent,
+                                                       calculate_utility_from_damage_event)
+    ev = ProbableDamageEvent(target=tgt, prediction=pred)
+    u = calculate_utility_from_damage_event(ev, ctx.wt, (ctx.hpmax_by_id or {}).get(tgt))
+    return (float(pred.raw_health_damage.min), float(pred.raw_health_damage.max), float(u))
 
 
 # --------------------------------------------------------------------------- montage
@@ -322,13 +336,15 @@ def measure(rpc, case: dict) -> list:
                        "AvalancheOfMusclePlaybook")
     n_lo, n_hi = bounds_of(ev[0])
     ab = next(iter(case["ctx_bull"].normal_ids or ()), None)
-    f_lo, f_hi, amt = port_bounds_avalanche(case["ctx_bull"], ids[BULL], ab, ids[TGT],
-                                            case["c_bull"], 0)
-    s_lo, s_hi, _ = port_bounds_avalanche(case["ctx_bull"], ids[BULL], ab, ids[TGT],
-                                          case["c_bull"], 20)
+    pf, amt = port_bounds_avalanche(case["ctx_bull"], ids[BULL], ab, ids[TGT], case["c_bull"], 0)
+    ps, _ = port_bounds_avalanche(case["ctx_bull"], ids[BULL], ab, ids[TGT], case["c_bull"], 20)
+    f_lo, f_hi, f_u = bounds_and_utility(case["ctx_bull"], pf, ids[TGT])
+    s_lo, s_hi, s_u = bounds_and_utility(case["ctx_bull"], ps, ids[TGT])
     rows.append({"regime": "A_CHARGE", "playbook": "AvalancheOfMuscle(1028)", "amount": amt,
-                 "events": len(ev), "native": [n_lo, n_hi],
-                 "port_flat": [f_lo, f_hi], "port_spread": [s_lo, s_hi]})
+                 "events": len(ev), "native": [n_lo, n_hi], "target": ev[0].get("targetId"),
+                 "hpBefore": ev[0].get("hpBefore"), "nativeUtility": None,
+                 "port_flat": [f_lo, f_hi], "port_spread": [s_lo, s_hi],
+                 "u_flat": f_u, "u_spread": s_u})
 
     ev = native_events(rpc, case["rid"], ids[NJAL], ids[TGT], AB_PSYKER, case["p_njal"],
                        "PsykerPlaybook")
@@ -336,34 +352,44 @@ def measure(rpc, case: dict) -> list:
     tgt_id = ev[0].get("targetId")
     if not isinstance(tgt_id, int):
         raise MontageError("event psyker sans cible resolue : %r" % (str(ev[0])[:250],))
-    f_lo, f_hi, amt = port_bounds_psyker(case["ctx_njal"], ids[NJAL], tgt_id, case["p_njal"], 0)
-    s_lo, s_hi, _ = port_bounds_psyker(case["ctx_njal"], ids[NJAL], tgt_id, case["p_njal"], 20)
+    pf, amt = port_bounds_psyker(case["ctx_njal"], ids[NJAL], tgt_id, case["p_njal"], 0)
+    ps, _ = port_bounds_psyker(case["ctx_njal"], ids[NJAL], tgt_id, case["p_njal"], 20)
+    f_lo, f_hi, f_u = bounds_and_utility(case["ctx_njal"], pf, tgt_id)
+    s_lo, s_hi, s_u = bounds_and_utility(case["ctx_njal"], ps, tgt_id)
     rows.append({"regime": "P_SPLASH", "playbook": "PsykerExtraAttack(1013)", "amount": amt,
-                 "events": len(ev), "native": [n_lo, n_hi],
-                 "port_flat": [f_lo, f_hi], "port_spread": [s_lo, s_hi]})
+                 "events": len(ev), "native": [n_lo, n_hi], "target": tgt_id,
+                 "hpBefore": ev[0].get("hpBefore"),
+                 "nativeKill": [ev[0].get("willBeKill"), ev[0].get("mightBeKill")],
+                 "port_flat": [f_lo, f_hi], "port_spread": [s_lo, s_hi],
+                 "u_flat": f_u, "u_spread": s_u})
     return rows
 
 
 def verdict(rows: list) -> tuple:
-    """PASS ssi, sur CHAQUE regime : (a) les bornes natives sont DISTINCTES et dans le rapport
-    `1.2/0.8` -- le canal N'EST PAS predefini ; (b) la lecture `spread_pct=0` du port en est
-    SEPAREE (elle rend `min == max`) ; (c) la lecture au spread par defaut y COLLE."""
+    """PASS ssi, sur CHAQUE regime :
+
+      (a) les bornes NATIVES sont DISTINCTES -- le canal N'EST PAS << predefini >>. C'est le
+          discriminant NU : `min == max` est la signature EXCLUSIVE d'un montant predefini
+          (`spread_to_min_max(base, 0)`), et aucun autre etage du pipeline ne peut ecarter les
+          deux bornes -- armure, percage et caps sont appliques aux DEUX ;
+      (b) la lecture `spread_pct=0` du port rend bien `min == max` -- la contre-epreuve MORD
+          (sans ca, la comparaison serait aveugle au bouton mesure) ;
+      (c) la lecture du port au spread PAR DEFAUT reproduit les DEUX bornes natives.
+
+    Le RAPPORT `1.2/0.8` n'est PAS un critere : l'armure est SOUSTRACTIVE, elle deplace les deux
+    bornes de la meme quantite et ne conserve donc pas leur rapport. Ce qu'elle conserve, c'est
+    leur ECART -- d'ou le critere (a) sur la difference, et (c) sur les valeurs."""
     errs = []
     for r in rows:
         lo, hi = r["native"]
-        if lo <= 0:
-            errs.append("%s: borne native min nulle (%r) -- regime degenere, la mesure ne separe "
+        if hi <= 0:
+            errs.append("%s: bornes natives nulles (%r) -- regime degenere, la mesure ne separe "
                         "rien" % (r["regime"], r["native"]))
             continue
-        ratio = hi / lo
         if abs(hi - lo) <= EPS:
             errs.append("%s: le natif rend min == max (%r) -- le canal EST predefini, la lecture "
                         "`spread_pct=0` serait la bonne" % (r["regime"], r["native"]))
             continue
-        if abs(ratio - SPREAD_RATIO) > RATIO_TOL:
-            errs.append("%s: rapport natif %.6f hors de %.6f +/- %.2f -- ce n'est ni le spread "
-                        "+/-20 %% ni un canal predefini (bornes %r)"
-                        % (r["regime"], ratio, SPREAD_RATIO, RATIO_TOL, r["native"]))
         if abs(r["port_flat"][1] - r["port_flat"][0]) > EPS:
             errs.append("%s: la lecture `spread_pct=0` ne rend PAS min == max (%r) -- la "
                         "contre-epreuve ne mord pas" % (r["regime"], r["port_flat"]))
@@ -375,10 +401,12 @@ def verdict(rows: list) -> tuple:
 
 # --------------------------------------------------------------------------- entree
 
-def _build(state_file: str) -> int:
+def _build(state_file: str, hp_splash: int | None = None) -> int:
     args = [sys.executable, "rl_duel.py", "build", "--seed", SEED, "--state-file", state_file,
             "--board", BOARD, "--p-units", ",".join((BULL, NJAL)),
             "--a-units", ",".join(FOES)]
+    if hp_splash is not None:
+        args += ["--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (SPLASH, hp_splash, hp_splash)]
     proc = subprocess.run(args, cwd=_HERE, capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     if not os.path.exists(state_file):
@@ -387,10 +415,67 @@ def _build(state_file: str) -> int:
         return int(json.load(fh)["runnerId"])
 
 
+def measure_flip(rpc, case: dict, hp: int) -> dict:
+    """GENERALISATION -- un regime ou la lecture du spread CHANGE le resultat observable.
+
+    Les PV de la cible de splash sont cales STRICTEMENT ENTRE la borne basse a spread et le
+    montant plat : le natif ne peut alors PAS garantir le kill (`WillBeKill` faux, borne min
+    `0.8 x d` sous les PV) mais il le juge POSSIBLE (`MightBeKill` vrai, borne max `1.2 x d`
+    au-dessus). La lecture `spread_pct=0`, elle, a `min == max == d >= PV` : elle rend
+    `killSure` VRAI. C'est la bascule `DefinitelyKill` -> `PossibleKill` de
+    `IdunBattle.AI.Utilities.KillUnitUtility`, soit un ECART D'UTILITE FRANC, la ou le regime
+    de la phase 1 rendait le MEME chiffre des deux cotes."""
+    ids = case["ids"]
+    ev = native_events(rpc, case["rid"], ids[NJAL], ids[TGT], AB_PSYKER, case["p_njal"],
+                       "PsykerPlaybook")
+    e0 = next((e for e in ev if e.get("targetId") == ids[SPLASH]), None)
+    if e0 is None:
+        raise MontageError("FLIP : aucun event capture sur la cible de splash %d -- le regime "
+                           "n'est pas celui qu'on croit (cibles vues : %r)"
+                           % (ids[SPLASH], [e.get("targetId") for e in ev]))
+    n_lo, n_hi = bounds_of(e0)
+    pf, _amt = port_bounds_psyker(case["ctx_njal"], ids[NJAL], ids[SPLASH], case["p_njal"], 0)
+    ps, _ = port_bounds_psyker(case["ctx_njal"], ids[NJAL], ids[SPLASH], case["p_njal"], 20)
+    f_lo, f_hi, f_u = bounds_and_utility(case["ctx_njal"], pf, ids[SPLASH])
+    s_lo, s_hi, s_u = bounds_and_utility(case["ctx_njal"], ps, ids[SPLASH])
+    return {"regime": "P_KILLFLIP", "hp": hp, "hpBefore": e0.get("hpBefore"),
+            "native": [n_lo, n_hi],
+            "nativeWillBeKill": e0.get("willBeKill"), "nativeMightBeKill": e0.get("mightBeKill"),
+            "port_flat": [f_lo, f_hi], "port_spread": [s_lo, s_hi],
+            "u_flat": f_u, "u_spread": s_u,
+            "killSure_flat": pf.will_be_kill(), "killSure_spread": ps.will_be_kill()}
+
+
+def verdict_flip(fl: dict) -> tuple:
+    """PASS ssi le natif REFUSE le kill garanti et l'ADMET comme possible, la ou la lecture
+    `spread_pct=0` le GARANTIT -- et que l'utilite en differe franchement."""
+    errs = []
+    if fl["nativeWillBeKill"] is not False:
+        errs.append("FLIP : le natif rend willBeKill=%r (attendu False) -- les PV %d ne sont pas "
+                    "entre les bornes %r" % (fl["nativeWillBeKill"], fl["hp"], fl["native"]))
+    if fl["nativeMightBeKill"] is not True:
+        errs.append("FLIP : le natif rend mightBeKill=%r (attendu True) -- les PV %d sont "
+                    "au-dessus de la borne haute %r" % (fl["nativeMightBeKill"], fl["hp"],
+                                                        fl["native"]))
+    if fl["killSure_flat"] is not True:
+        errs.append("FLIP : la lecture `spread_pct=0` ne garantit PAS le kill (%r) -- le regime "
+                    "ne separe pas les deux lectures" % (fl["killSure_flat"],))
+    if fl["killSure_spread"] is not False:
+        errs.append("FLIP : la lecture au spread garantit le kill (%r) alors que le natif ne le "
+                    "garantit pas" % (fl["killSure_spread"],))
+    if abs(fl["u_flat"] - fl["u_spread"]) < 1.0:
+        errs.append("FLIP : les deux lectures rendent la MEME utilite (%.6f vs %.6f) -- le canal "
+                    "reste degenere, la generalisation ne prouve rien"
+                    % (fl["u_flat"], fl["u_spread"]))
+    return (not errs), errs
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state-file", required=True,
                     help="chemin ABSOLU du state-file du runner (hors data/)")
+    ap.add_argument("--no-flip", action="store_true",
+                    help="ne joue que la phase BORNES (pas la generalisation kill-flip)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
@@ -410,19 +495,60 @@ def main(argv=None) -> int:
             rpc("disposeRunner", {"runnerId": rid}, 60)
         except Exception:
             pass
-
     ok, errs = verdict(rows)
+
+    fl, fok, ferrs = None, True, []
+    if not args.no_flip:
+        psy = next(r for r in rows if r["regime"] == "P_SPLASH")
+        lo = psy["native"][0]
+        flat = psy["port_flat"][0]
+        if flat <= lo + 1:
+            raise MontageError("FLIP impossible : la borne plate %.2f n'est pas strictement "
+                               "au-dessus de la borne basse %.2f" % (flat, lo))
+        hp = int((lo + flat) // 2) + 1                 # lo < hp <= flat  -> la bascule
+        rid2 = _build(args.state_file, hp_splash=hp)
+        try:
+            case2 = stage(sid, rpc, rid2)
+            fl = measure_flip(rpc, case2, hp)
+        finally:
+            try:
+                rpc("disposeRunner", {"runnerId": rid2}, 60)
+            except Exception:
+                pass
+        fok, ferrs = verdict_flip(fl)
+
+    ok = ok and fok
+    errs = errs + ferrs
     if args.json:
-        print(json.dumps({"rows": rows, "ok": ok, "errors": errs}, indent=1))
+        print(json.dumps({"rows": rows, "flip": fl, "ok": ok, "errors": errs}, indent=1))
     else:
         print("== #449 -- spread du slot de montant (board %s, seed %s) ==" % (BOARD, SEED))
         for r in rows:
             lo, hi = r["native"]
-            print("  %-9s %-24s amount=%-6d events=%d" % (r["regime"], r["playbook"],
-                                                          r["amount"], r["events"]))
-            print("      natif       [%10.2f, %10.2f]  ratio=%.6f" % (lo, hi, (hi / lo) if lo else 0.0))
-            print("      port sp=0   [%10.2f, %10.2f]" % tuple(r["port_flat"]))
-            print("      port sp=20  [%10.2f, %10.2f]" % tuple(r["port_spread"]))
+            print("  %-10s %-24s amount=%-6d events=%d target=%r hp=%r"
+                  % (r["regime"], r["playbook"], r["amount"], r["events"], r["target"],
+                     r["hpBefore"]))
+            print("      natif       [%10.2f, %10.2f]  ecart=%.2f" % (lo, hi, hi - lo))
+            print("      port sp=0   [%10.2f, %10.2f]  u=%.9f" % (r["port_flat"][0],
+                                                                  r["port_flat"][1], r["u_flat"]))
+            print("      port sp=20  [%10.2f, %10.2f]  u=%.9f" % (r["port_spread"][0],
+                                                                  r["port_spread"][1],
+                                                                  r["u_spread"]))
+            print("      delta u (sp=20 - sp=0) = %+.9f   <- le canal UTILITE" % (
+                r["u_spread"] - r["u_flat"]))
+        if fl is not None:
+            print("  %-10s PV cales a %d (entre la borne basse et le montant plat)"
+                  % (fl["regime"], fl["hp"]))
+            print("      natif       [%10.2f, %10.2f]  willBeKill=%r mightBeKill=%r"
+                  % (fl["native"][0], fl["native"][1], fl["nativeWillBeKill"],
+                     fl["nativeMightBeKill"]))
+            print("      port sp=0   [%10.2f, %10.2f]  killSure=%r u=%.9f"
+                  % (fl["port_flat"][0], fl["port_flat"][1], fl["killSure_flat"], fl["u_flat"]))
+            print("      port sp=20  [%10.2f, %10.2f]  killSure=%r u=%.9f"
+                  % (fl["port_spread"][0], fl["port_spread"][1], fl["killSure_spread"],
+                     fl["u_spread"]))
+            print("      delta u (sp=20 - sp=0) = %+.9f   <- le canal MORD ici"
+                  % (fl["u_spread"] - fl["u_flat"]))
         for e in errs:
             print("  KO: %s" % e)
         print("VERDICT: %s" % ("PASS" if ok else "FAIL"))
