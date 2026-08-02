@@ -975,16 +975,70 @@ class IsNormalAttack(AbilityTrigger):
 
 
 class IsAdjacent(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsAdjacent(a, b)` → `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger` : une unité de `a` est-elle hex-adjacente
-    (dist == 1) à une de `b` ? DEUX sélecteurs explicites (PAS `subject`). [seuil dist==1 DÉDUIT du
-    helper d'adjacence 0x5f]."""
-    def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
-        self.a, self.b = a, b
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent(a, b, selectionType)` ->
+    `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger` -- MIRROR 1:1 du
+    decompile, et il ne dit NI << une paire suffit >> NI << dist == 1 >> (#433-r3) :
+
+        A = <sel a>.Select(entities, selectionType)      // slot 3 ; `.ctor` : a@+0x20, b@+0x28,
+        B = <sel b>.Select(entities, selectionType)      //          selectionType@+0x18, query@+0x10
+        if (A == null || B == null) throw;
+        if (!A.Any() || !B.Any()) return false;
+        foreach (x in A) foreach (y in B)
+            if (!query.AreEntitiesAdjacent(x, y)) return false;      // slot 0x60
+        return true;
+
+    TROIS lectures, chacune contre le port d'avant :
+
+    * **QUANTIFICATEUR UNIVERSEL.** Le natif rend FAUX des qu'UNE paire n'est pas adjacente et VRAI
+      quand l'enumeration de `A` s'epuise sans echec -- un `forall`, pas un `exists`. Le port faisait
+      `any(...)`, donc il declenchait des que N'IMPORTE QUELLE paire l'etait : divergence
+      PERMISSIVE. La classe SOEUR `IdunBattle.Entities.Triggers.IsAdjacentTilesTrigger$$ShouldTrigger`
+      (resolue par le slot 10, cf. `runner/operations/triggers/loki/teleporting_in.py`) est, elle,
+      un `exists` -- les deux ne se deduisent pas l'une de l'autre, elles se LISENT.
+      Listes VIDES : le natif teste `Any()` AVANT la boucle et rend FAUX (un `All` nu rendrait vrai
+      sur le vide) -> `not pa or not pb` -> False.
+    * **La comparaison par paire est `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent`**
+      (surcharge `(entity1, entity2)` -- slot 0x60 de `IBattleQuery` sur ce build ; les deux
+      arguments sont des elements d'enumeration, et c'est la seule des trois surcharges qui prenne
+      deux entites nues ; recoupe par `IdunBattle.View.FSM.VisualBattleQuery$$AreAdjacent`, qui
+      resout deux entites avant d'appeler ce meme slot). Elle delegue a
+      `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent`, dont la surcharge SCALAIRE vaut
+      `(|dElev| < 2) & (tile1 == tile2 || ConnectivityComponent$$IsNeighbour(tile1, tile2))` : donc
+      **PORTE D'ELEVATION** et **court-circuit d'IDENTITE**, tous deux absents du port d'avant.
+      Le foyer est `services/battle_query.py::are_tiles_adjacent` (#433-r1) -- pas un 5e mirror.
+    * **Le 3e argument va au SELECTEUR, PAS au predicat.** `selectionType` (`UnitSelectionType`,
+      champ `+0x18`) n'est lu QUE comme 2e argument du `Select` des deux selecteurs ; il n'entre pas
+      dans la comparaison par paire. Le port le prend au constructeur pour mirrorer la signature
+      native et le garder INERTE ici ; la couche selecteur du port ne consomme pas encore le
+      `UnitSelectionType` (residu `#433-r3-r2`).
+
+    `ctx.board` = le graphe de tuiles (`state.board` cote COMBAT, `scene.board` cote DECISION) :
+    fourni -> voisinage natif + porte d'elevation ; ABSENT -> degradation documentee du depot =
+    adjacence hex pure (sure sur un board PLAT, ou `|dElev| = 0 < 2` partout). Une unite sans
+    position -> `are_tiles_adjacent` rend `None` -> la paire n'est PAS adjacente, donc le `forall`
+    rend FAUX -- exactement le natif, dont `GetTiles` rend alors une liste vide et dont la double
+    boucle d'`AreTilesAdjacent(IList, IList)` ne tourne pas.
+
+    EMPREINTES : le natif compare `GetTiles(x)` x `GetTiles(y)` (l'empreinte COMPLETE d'une unite
+    multi-hex) ; le port collapse chaque entite sur sa MAIN TILE via `_pos`, comme tous les noeuds
+    freres du DSL (`IsInRange`, `IsSurrounding`). Identique a 1 pied, residu `#433-r3-r1` au-dela."""
+    def __init__(self, a: AbilityTrigger, b: AbilityTrigger, selection_type: int | None = None):
+        # `selection_type` = `UnitSelectionType` du 3e argument de la factory : il part au SELECTEUR
+        # (slot 3), jamais dans la comparaison par paire. Garde-le INERTE (cf. docstring).
+        self.a, self.b, self.selection_type = a, b, selection_type
 
     def should_trigger(self, ctx):
+        from ..services.battle_query import are_tiles_adjacent   # lazy : garde anti-circulaire
         pa = [_pos(u) for u in _units_of(self.a, ctx)]
         pb = [_pos(u) for u in _units_of(self.b, ctx)]
-        return any(x is not None and y is not None and hexgeo.distance(x, y) == 1 for x in pa for y in pb)
+        if not pa or not pb:                          # `!A.Any() || !B.Any()` -> false
+            return False
+        board = getattr(ctx, "board", None)
+        for x in pa:
+            for y in pb:                              # `foreach x foreach y : if (!adj) return false`
+                if are_tiles_adjacent(x, y, board) is not True:
+                    return False
+        return True                                   # enumeration epuisee sans echec -> true
 
 
 class IsCharging(AbilityTrigger):
