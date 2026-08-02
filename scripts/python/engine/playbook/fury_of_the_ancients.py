@@ -24,9 +24,18 @@ TriggeredAbilityType 0x4df=1247) — RE re-expert #32, réconcilié EXACT :
   (= `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage` = `DSLFormulas.RandomAmount(minDmg 0xc, maxDmg 0xd)`,
   ×mult rareté) évalué en MOYENNE par le slot 4 d'`IAmountFormula` = `IdunBattle.DSL.AAmountFormula$$CalculateAverage`
   — qui TRONQUE (#339, cf. `engine.dsl.base.calculate_average`), routé par le slot 0x23
-  (`IdunBattle.Core.Services.BattleQuery$$GetAttackPrediction`, cf. `psyker.py`) = **montant PRÉDÉFINI
-  avg(min,max), hits FORCÉS 1, spread 0** — PROUVÉ probe_32d (matrice hits×canal) : delta ~1e-8
-  vs les composites natifs pour les DEUX cibles ; hits=2/canal plage → ×2/off. Le const
+  (`IdunBattle.Core.Services.BattleQuery$$GetAttackPrediction`, cf. `psyker.py`) = **montant DONNÉ
+  avg(min,max), hits FORCÉS 1, spread ±20 %** — probe_32d (matrice hits×canal) rendait delta ~1e-8
+  vs les composites natifs pour les DEUX cibles ; hits=2/canal plage → ×2/off.
+  ⚠ #449 — cette matrice ne discriminait PAS l'axe spread : re-jouée, elle rend le MÊME chiffre
+  pour `avg0` et `avg20` (9.660285492973332 / 10.866318147871546, à 1e-15 près), parce que le
+  composite Damage consomme `MinMaxDamage$$Avg` = la MOYENNE des deux bornes, et
+  `avg(0,8·d, 1,2·d) == d`. Ce qu'elle a discriminé (canal plage vs moyenne, hits 1 vs 2) reste
+  acquis ; le « spread 0 » n'y était PAS mesuré. La valeur juste est établie au décompilé
+  (`DamagePredictionQuery$$GetAttackPrediction` écrit le littéral `1` à
+  `DamagePredictionRequest+0x6a`, que `DamagePrediction$$PredictAttackRaw` teste pour router vers
+  `DamagePrediction$$GetBaseDamageFix64`) et MESURÉE sur les deux autres lecteurs du même foyer
+  (`psyker.py`, `avalanche_of_muscle.py` — probe_449). Le const
   `nrOfHits`=2 (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuryOfTheAncientsAbility$$GetAttackHits`) concerne l'EXÉCUTION du trigger, pas cette prédiction.
   Profil `GetDamageProfileOrDefault(0xd)` = Psychic (pierce 100) ; pipeline modifiers/armure/
   bouclier/caps COMPLET vs cible, tuile caster du case (mods positionnels).
@@ -65,10 +74,11 @@ class FuryOfTheAncientsPlaybook:
     # ---- mirror `IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction` ----------------------------------------------
     def _get_damage_prediction(self, scene, uid: int, tgt_id: int, attack_pos):
         """Prédiction du dégât Fury vs `tgt_id` depuis `attack_pos` (tuile du case) : montant
-        PRÉDÉFINI = avg(minDmg,maxDmg)[niveau PASSIF × mult rareté], hits FORCÉS 1, spread 0
+        DONNÉ = avg(minDmg,maxDmg)[niveau PASSIF × mult rareté], hits FORCÉS 1, spread ±20 %
         (slot 0x23 `BattleQuery.GetAttackPrediction`, mirror `psyker.py`) — routé par le MÊME
-        pipeline modifiers/armure/bouclier que les prédictions d'attaque. PROUVÉ probe_32d :
-        delta ~1e-8 vs composites natifs ; les variantes hits=2 / canal plage sont OFF."""
+        pipeline modifiers/armure/bouclier que les prédictions d'attaque. probe_32d :
+        delta ~1e-8 vs composites natifs ; les variantes hits=2 / canal plage sont OFF.
+        Le spread est celui de #449 (cf. en-tête) : son axe n'était pas mesuré par probe_32d."""
         lvl = (scene.ablvl_by_id or {}).get(uid)
         mult = int((scene.mult_by_id or {}).get(uid) or 100)
         dmin = ability_var(_ABILITY_NAME, "minDmg", lvl, multiplier_pct=mult)
@@ -129,7 +139,14 @@ class FuryOfTheAncientsPlaybook:
             target_current_health=scene.hp(tgt_id) or 0, initial_damage=avg,
             hits=1,                              # slot 0x23 : hits forcés 1 (probe_32d)
             profile_type=_PROFILE_INDEX.get(prof_name, 0), pierce_pct=pierce,
-            armor=scene.armor(tgt_id), mods=mods, hit_mult=hit_mult, spread_pct=0,
+            # spread_pct : le DEFAUT (+/-20 %). #449 -- TROISIEME lecteur du MEME foyer
+            # (`BattleQuery$$GetAttackPrediction` a montant -> `DamagePredictionQuery$$
+            # GetAttackPrediction` -> `request+0x6a = 1` -> `GetBaseDamageFix64`). Corrige PAR
+            # STRUCTURE : sa face est MOVE, et `ncPlaybookPredict` n'expose aucune voie MOVE --
+            # ses bornes propres restent NON CONFRONTEES (residu `#449-r1`). Ce que la mesure
+            # etablit, c'est que le canal qui l'avait << valide >> (composite, probe_32d
+            # `avg0` vs `avg20`) rend le MEME chiffre a 1e-15 pres : il ne separait rien.
+            armor=scene.armor(tgt_id), mods=mods, hit_mult=hit_mult,
             target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
             target_prevents_overkill=scene.prevents_overkill(tgt_id),   # #195 : HasFlag(cible, 0x13)
             attacker_effects=scene.effects(uid),   # #202 : max-out evalue DANS predict_attack_raw

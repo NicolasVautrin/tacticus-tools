@@ -102,8 +102,17 @@ Sept lectures qui ne se devinent pas, et dont aucune ne se generalise depuis un 
 
 7. **La prediction est celle du slot 0x23**, `IdunBattle.Core.Services.BattleQuery$$
    GetAttackPrediction(caster, target, casterTile, ability, amount, Nullable<DamageProfileType>,
-   ...)` : montant PREDEFINI, **hits FORCES a 1** (litteral `1` passe au slot 10 d'
-   `IDamagePredictionQuery`), spread 0 -- meme canal que `psyker.py` et `fury_of_the_ancients.py`.
+   ...)` : montant DONNE, **hits FORCES a 1** (litteral `1` passe au slot 10 d'
+   `IDamagePredictionQuery`), et le montant PASSE PAR LE SPREAD +/-20 % -- meme canal que
+   `psyker.py` et `fury_of_the_ancients.py`, et le meme que le slot 0x28 de `LightImUp`.
+   ⚠ #449 : la premiere version de ce port ecrivait << canal predefini, spread 0 >>. C'est FAUX,
+   et la faute etait invisible du canal qui l'avait validee (`pairUtility` -> composite Damage
+   -> `MinMaxDamage$$Avg`, la MOYENNE des deux bornes : `avg(0.8d, 1.2d) == d`).
+   `IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction` ecrit le LITTERAL `1` a
+   `DamagePredictionRequest+0x6a`, et c'est exactement l'octet que
+   `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` teste pour router vers
+   `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64` (slots 8/9 = 0,8 / 1,2).
+   MESURE : montant `extraDmg` -> bornes natives [11, 13], la lecture << predefinie >> [12, 12].
    Le profil n'est PAS une constante d'ability : c'est `w.<+0x10>`, le `DamageProfile` de l'arme
    rendue par `GetAttackWeaponForDefaultNormalAttack(caster, [casterTile], target)` (foyer porte :
    `services/battle_query.py::select_weapon_pierce`, cf. `case-184`).
@@ -167,7 +176,8 @@ class AvalancheOfMusclePlaybook:
                                  profile_name: str, is_ranged: bool, pierce: int,
                                  is_normal_attack: bool):
         """`BattleQuery$$GetAttackPrediction` (slot 0x23) -> `DamagePredictionQuery$$
-        GetAttackPrediction` : montant PREDEFINI (`amount`), **hits forces 1**, spread 0, profil
+        GetAttackPrediction` : montant DONNE (`amount`), **hits forces 1**, spread +/-20 %
+        (#449, cf. lecture 7 de l'en-tete), profil
         = celui de l'ARME rendue par `GetAttackWeaponForDefaultNormalAttack`. Pipeline modifiers /
         armure / bouclier / caps COMPLET vs la cible, depuis la tuile CANDIDATE `attack_pos`
         (mods positionnels). Meme foyer que `psyker.py` et `fury_of_the_ancients.py`.
@@ -218,7 +228,9 @@ class AvalancheOfMusclePlaybook:
             target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount),
             hits=1,                                   # slot 0x23 : hits FORCES 1 (litteral natif)
             profile_type=_PROFILE_INDEX.get(profile_name, 0), pierce_pct=pierce,
-            armor=scene.armor(tgt_id), mods=mods, hit_mult=hit_mult, spread_pct=0,
+            # spread_pct : le DEFAUT (+/-20 %). #449 -- MESURE DIRECTE sur les bornes capturees
+            # (`ProbableDamageEvent$$.ctor`) : natif [11, 13], port a spread 0 [12, 12].
+            armor=scene.armor(tgt_id), mods=mods, hit_mult=hit_mult,
             target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
             target_prevents_overkill=scene.prevents_overkill(tgt_id),
             attacker_effects=scene.effects(att_id),
