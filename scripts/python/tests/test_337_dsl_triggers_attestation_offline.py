@@ -191,10 +191,17 @@ def test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE(tmp_path, capsys):
     a_qualifier = [r[1] for r in trig if r[5] == "CITE_A_QUALIFIER"]
     assert not a_qualifier, "primitives DSLTriggers encore non tranchees : %s" % a_qualifier
 
-    # Les quatre `NON_PORTE` LUES de #337 : leur verdict vient d'une lecture, pas d'un silence.
+    # Les `NON_PORTE` LUES : leur verdict vient d'une lecture, pas d'un silence.
+    # ⚠ CET ENSEMBLE EST UN INVENTAIRE, PAS UNE PROPRIETE : il CROIT des qu'une tranche cite une
+    # primitive `DSLTriggers` a titre documentaire (ancrer une carte de slots, nommer un producteur).
+    # L'y ajouter est le geste que ce cliquet EXIGE -- ce qui serait interdit, c'est de retirer la
+    # ligne d'attestation pour faire taire le rouge. Les quatre premiers viennent de #337, les trois
+    # `get_*` de #459 (identification des slots `CasterTile`/`TargetTile`, et la preuve que le natif
+    # n'a PAS de slot `OwnerTile`).
     lus = {r[1] for r in trig if r[6].startswith("attestation:") and r[5] == "NON_PORTE"}
     assert lus == {"ActorHasTriggeredAbility", "Direct", "IsFirstHitGroupInAttack",
-                   "IsInTeamSynapseRange"}, lus
+                   "IsInTeamSynapseRange",
+                   "get_CasterIsCasterTile", "get_OwnerIsTargetTile", "get_OwnerTileIsTarget"}, lus
 
     # Les quatre premiers rangs du classement par levier (#337 les cible nommement).
     porte = {r[1] for r in trig if r[5] in ("PORTE", "PORTE_ALIAS_FACADE", "PORTE_HORS_FACADE")}
