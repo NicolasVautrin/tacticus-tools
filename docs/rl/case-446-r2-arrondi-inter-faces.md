@@ -123,6 +123,25 @@ Et sur la PAIRE de #446-r1 (fold `Boltstorm` actif, `probe_446_r1_pair_residual.
 `DELTA prediction: AUCUN (champs identiques)` sur les DEUX cibles — `rawHealthDmgMin` de `T` passe de
 `2628` à `2631` = natif. **#446-r1 est donc fermé à l'unité près, résidu compris.**
 
+### 4bis. Généralisation — les DEUX faces à la fois
+
+Le montage de #446 ne l'atteint pas : la tuile Thorns de `T` est à l'élévation 4 et **aucune tuile
+de tir du board ne la surplombe** (mesuré). On amène donc `A` — qui ne porte aucune modification de
+stat — sur une AUTRE tuile Thorns, plus basse (`(4,6)`, élévation 1), et le caster au-dessus
+(`(2,5)`, élévation 2, distance 2 = même arme) :
+
+```
+[DEUX FACES] A sur Thorns (4,6) elev 1, tir depuis (2,5) elev 2
+             stat-mod DEFENSE=-50 | modsATT=[1.5] modsDEF=[1.5]
+             nat=(1950, 4455, 3)  port=(1950, 4455, 3)   ACCORD
+```
+
+⚠ **C'est une NON-RÉGRESSION, pas une reproduction du résidu** : sur ces valeurs les deux modèles
+coïncident (`Round(Round(288.99999993 × 1.5) × 1.5)` = `Round(649.5)` = 650, et le modèle fusionné
+`Round(288.99999993 × 2.25)` = `Round(650.2499)` = 650). Ce cran garde donc que la séparation des
+faces **ne casse rien là où elle ne devait rien changer** — et il rougirait si un arrondi
+surnuméraire s'y glissait.
+
 ## 5. Contre-épreuves — critère = déplacement du port NON MUTÉ
 
 | mutant | déplace | pire |

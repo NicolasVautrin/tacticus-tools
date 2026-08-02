@@ -253,6 +253,75 @@ def sweep(rpc, case: dict, tiles: list, targets: list) -> list:
     return rows
 
 
+def both_faces(sid, rpc, case: dict) -> dict:
+    """GENERALISATION -- le regime que le montage de #446 n'atteint PAS : les DEUX faces non neutres
+    EN MEME TEMPS. `T` n'y arrive jamais (sa tuile Thorns est a l'elevation 4, aucune tuile de tir
+    du board ne la surplombe) ; on amene donc `A` -- qui ne porte AUCUNE modification de stat -- sur
+    une AUTRE tuile Thorns, plus basse, et le caster au-dessus d'elle.
+
+    C'est le regime ou le fix change le PLUS de choses (deux arrondis la ou le port n'en faisait
+    qu'un) : la garde y est une NON-REGRESSION, pas une reproduction du residu.
+
+    ⚠ DEPLACE les unites -- a jouer EN DERNIER."""
+    import hexgeo
+    from engine import battle_query as bq
+    elev, walk, ids = case["elev"], case["walk"], case["ids"]
+    te = case["ctx"].scene.tile_effects_by_pos or {}
+    thorns = sorted((tuple(p) for p, names in te.items()
+                     if "Thorns_DefenseReduction" in (names or ())),
+                    key=lambda q: elev.get(q, 99))
+    pick = None
+    for th in thorns:
+        e0 = elev.get(th)
+        if e0 is None or not walk.get(th):
+            continue
+        for q, w in sorted(walk.items()):
+            if not w or elev.get(q) is None or elev[q] <= e0:
+                continue
+            if hexgeo.distance(q, th) != P446.WEAPON_RANGE:      # RANGED, meme arme que le montage
+                continue
+            if bq.is_target_tile_obscured(q, th, elev):
+                continue
+            pick = (th, q)
+            break
+        if pick:
+            break
+    if pick is None:
+        raise MontageError("regime DEUX FACES NON INSTALLE : aucune tuile Thorns surplombee par une "
+                           "tuile de tir a portee exacte -- le cumul elevation+stat-mod n'est pas "
+                           "exerce et ce bras ne prouverait rien")
+    th, cq = pick
+    wanted = dict(case["wanted"])
+    wanted[ids["A"]] = th
+    wanted[ids["C"]] = cq
+    if not P124._drive_to(sid, case["rid"], walk, elev, wanted):
+        _dv, pos = P124._positions(sid, case["rid"])
+        raise MontageError(f"regime DEUX FACES NON INSTALLE : placement incomplet -- voulu "
+                           f"A->{th} C->{cq}, obtenu { {u: pos.get(u) for u in wanted} }")
+    P124._give_turn_back(sid, case["rid"], case["myplayer"])
+    dv, ctx = P446._fresh_ctx(rpc, case["rid"], case["cid"])
+    case["ctx"], case["dv"] = ctx, dv
+    uid = ids["A"]
+    nat = native_event(rpc, case["rid"], case["cid"], uid, case["ab"], cq)
+    ev, meta = port_stage(ctx, uid, cq)
+    if nat is None or ev is None:
+        raise MontageError(f"regime DEUX FACES : mesure indisponible (nat={nat is None} "
+                           f"port={ev is None})")
+    f = ev.composite_fields()
+    sms = rpc("statModSources", {"runnerId": case["rid"], "unitId": uid,
+                                 "stats": ["defense"], "minAbs": 0}, 120) or {}
+    dmod = None
+    for u in (sms.get("units") or []):
+        if u.get("entityId") == uid:
+            dmod = ((u.get("mods") or {}).get("defense") or {}).get("total")
+    return {"thorns": th, "tile": cq, "elev": (elev.get(cq), elev.get(th)), "defense_mod": dmod,
+            "meta": meta,
+            "nat": (int(nat.get("willKillDmg") or 0), int(nat.get("mightKillDmg") or 0),
+                    int(nat.get("appliedHits") or 0)),
+            "port": (int(f.get("rawHealthDmgMin") or 0), int(f.get("rawHealthDmgMax") or 0),
+                     int(f.get("appliedHits") or 0))}
+
+
 def mutants(rpc, case: dict, tiles: list, targets: list) -> list:
     """CONTRE-EPREUVES du fix. Le critere est le DEPLACEMENT du port par rapport au port NON MUTE,
     JAMAIS l'ecart au natif : un mutant INERTE laisserait `abs(port - natif)` a 0 sur les couples
@@ -313,6 +382,9 @@ def main() -> int:
     ap.add_argument("--tiles", type=int, default=6,
                     help="nombre de tuiles de tir balayees (defaut 6)")
     ap.add_argument("--targets", default="T,A,N1,N2,F")
+    ap.add_argument("--both-faces", action="store_true",
+                    help="scenario de GENERALISATION : les deux faces non neutres a la fois "
+                         "(DEPLACE les unites -- joue en dernier)")
     ap.add_argument("--mutants", action="store_true",
                     help="joue les contre-epreuves du fix (chacune doit DEPLACER le port)")
     ap.add_argument("--unit-stat", action="append", default=None,
@@ -394,6 +466,16 @@ def main() -> int:
         for mt in mutants(rpc, case, tiles, targets):
             print(f"  [mutant {mt['mutant']:<19}] DEPLACE {mt['moved']}/{mt['total']} couples "
                   f"(pire {mt['worst']}) ({'MORD' if mt['moved'] else 'NE MORD PAS'})")
+    if args.both_faces:
+        bf = both_faces(sid, rpc, case)
+        ok = bf["nat"] == bf["port"]
+        print(f"  [DEUX FACES] A sur Thorns {bf['thorns']} (elev {bf['elev'][1]}), tir depuis "
+              f"{bf['tile']} (elev {bf['elev'][0]}) | stat-mod DEFENSE={bf['defense_mod']} "
+              f"| modsATT={bf['meta'].get('mods')} modsDEF={bf['meta'].get('mods_def')}")
+        print(f"               nat={bf['nat']} port={bf['port']} "
+              f"({'ACCORD' if ok else 'DELTA'})")
+        if not (bf["meta"].get("mods") and bf["meta"].get("mods_def")):
+            print("               ATTENTION regime NON exerce : une des deux faces est vide")
     return 0
 
 
