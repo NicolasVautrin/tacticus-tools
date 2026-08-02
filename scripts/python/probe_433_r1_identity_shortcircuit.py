@@ -304,9 +304,12 @@ def _elev(board, pos) -> int:
     return int(board.elevation(board.id_at(pos[0], pos[1])))
 
 
-def etape_d(board_id: str, seed_value: str, fails: list) -> None:
+def etape_d(board_id: str, seed_value: str, fails: list) -> bool:
     """LIVE. MEME montage que #448-r2d, mais la destination est CHOISIE pour exercer (E) : une
-    voisine de la marque separee de >= 2 crans. Attendu : ni le port ni le natif ne posent `1574`."""
+    voisine de la marque separee de >= 2 crans. Attendu : ni le port ni le natif ne posent `1574`.
+
+    Rend True si le regime a ete CONFRONTE (un pas joue des deux cotes), False s'il ne l'a pas ete
+    -- auquel cas le probe le DIT, avec le diagnostic, au lieu de rendre un vert muet."""
     print("=== etape D (LIVE) -- board=%s seed=%s ===" % (board_id, seed_value))
     rid = H.build(seed_value, board_id)
     try:
@@ -323,20 +326,34 @@ def etape_d(board_id: str, seed_value: str, fails: list) -> None:
         if not tiles:
             raise SystemExit("MONTAGE : %d n'a AUCUNE tuile-cible `fromHere`" % H.ABILITY)
 
-        # La cible du cast est choisie pour MAXIMISER l'ecart d'elevation avec une de ses voisines :
-        # c'est la seule facon d'exercer (E) au lieu de le subir. Doctrine << on deplace, on ne
-        # subit pas la geometrie >>.
-        def _best_gap(t):
+        # LA CIBLE DU CAST EST CHOISIE POUR QUE LE REGIME SOIT ATTEIGNABLE, pas seulement present :
+        # il faut une tuile marquable `t` ayant une voisine `v` a |dElev| >= 2 qui soit DEJA dans le
+        # pool de MARCHE d'un futur porteur de 1573. Le pool ne peut que grandir apres le cast
+        # (`ATeleportPathfinder$$IterateReachableTiles` est un DECORATEUR : union marche + teleport),
+        # donc ce critere GARANTIT le pas. Doctrine << on deplace, on ne subit pas la geometrie >>.
+        mv0 = H.rpc("aiMovableTiles", {"runnerId": rid}, 120)
+        pool0 = {int(u.get("unitId")): {(t.get("col"), t.get("row")) for t in (u.get("tiles") or [])}
+                 for u in (mv0.get("units") or [])}
+        reachable = set().union(*pool0.values()) if pool0 else set()
+
+        def _gaps(t):
+            """Les voisines de `t` a |dElev| >= 2, et celles d'entre elles deja ATTEIGNABLES."""
             tid = board.id_at(t[0], t[1])
             if tid is None:
-                return -1
+                return [], []
             e = int(board.elevation(tid))
-            return max([abs(e - int(board.elevation(n))) for n in board.neighbours(tid)] or [-1])
+            hi = [board.coord(n) for n in board.neighbours(tid)
+                  if abs(e - int(board.elevation(n))) >= 2]
+            return hi, [v for v in hi if v in reachable]
 
-        target = max(tiles, key=_best_gap)
-        gap = _best_gap(target)
-        print("[MONTAGE] cible du cast %r (meilleur ecart d'elevation avec une voisine = %d)"
-              % (target, gap))
+        ranked = sorted(tiles, key=lambda t: (len(_gaps(t)[1]), len(_gaps(t)[0])), reverse=True)
+        target = ranked[0]
+        hi, hi_reach = _gaps(target)
+        print("[MONTAGE] cible du cast %r : voisines a |dElev| >= 2 = %r, dont ATTEIGNABLES avant "
+              "cast = %r  (candidates examinees : %d)" % (target, hi, hi_reach, len(tiles)))
+        if not hi:
+            print("[MONTAGE] /!\\ aucune tuile-cible castable n'a de voisine a |dElev| >= 2 sur ce "
+                  "couple -- le regime (E) n'y existe pas")
         r = H.rpc("applyAction", {"runnerId": rid, "action": {
             "kind": "ability", "casterId": caster, "to": {"col": target[0], "row": target[1]},
             "abilityType": H.ABILITY}}, 180)
@@ -377,15 +394,25 @@ def etape_d(board_id: str, seed_value: str, fails: list) -> None:
                 chosen = (uid, hit[0])
                 break
         if chosen is None:
+            # DIAGNOSTIC : dire POURQUOI, tuile par tuile -- << non atteignable >> n'est une mesure
+            # que si l'on publie de quoi la refuter (walkable ? occupee ? dans le pool de QUI ?).
+            for v in sorted(near_hi):
+                vid = board.id_at(v[0], v[1])
+                occ = st.unit_at(v)
+                holders = sorted(u for u, s in pool.items() if v in s)
+                print("  [DIAG] %r walkable=%s occupee_par=%r dans_le_pool_de=%r"
+                      % (v, (board.walkable(vid) if vid is not None else None),
+                         (None if occ is None else int(occ.id)), holders))
             print("[NON CONFRONTE] aucune voisine de la marque a |dElev| >= 2 n'est ATTEIGNABLE "
                   "par un porteur de 1573 sur ce couple. Le terme (E) reste porte par FIDELITE ; "
-                  "les elevations mesurees ci-dessus l'attestent, pas une hypothese.")
-            return
+                  "les elevations et le diagnostic ci-dessus l'attestent, pas une hypothese.")
+            return False
         uid, dest = chosen
         print("[CONFRONTE] (E) : u%d -> %r, voisine de la marque a |dElev| = %d -- le natif NE DOIT "
               "PAS poser 1574 (le port d'avant #433-r1, qui lisait `board.neighbours` nu, en posait "
               "un)" % (uid, dest, abs(me - _elev(board, dest))))
         H.confront_arm("ARM-NEAR-ADJ-ELEV", rid, uid, dest, False, fails)
+        return True
     finally:
         H._duel(["dispose", "--state-file", str(H.STATE)])
 
@@ -434,13 +461,19 @@ def main() -> int:
     etape_c(fails)
     print()
     if "--offline" not in sys.argv:
-        board_id, seed_value = H.COUPLES[0]
-        try:
-            etape_d(board_id, seed_value, fails)
-        except SystemExit as e:
-            if not mutated:
-                raise
-            fails.append("MUTATE : %s" % e)
+        confronted = False
+        for board_id, seed_value in H.COUPLES:
+            try:
+                confronted = etape_d(board_id, seed_value, fails) or confronted
+            except SystemExit as e:
+                if not mutated:
+                    raise
+                fails.append("MUTATE : %s" % e)
+            if confronted or mutated:
+                break
+        if not confronted:
+            print("[ETAPE D] NON CONFRONTE sur les %d couples essayes -- ecrit tel quel, jamais "
+                  "rabattu en << non pertinent >>." % len(H.COUPLES))
     print()
     if fails:
         print("=== %d ECHEC(S) ===" % len(fails))
