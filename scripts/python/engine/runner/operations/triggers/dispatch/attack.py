@@ -284,7 +284,9 @@ def finish_attack_triggers(state: State, attacker_id: int, target_id: int,
 
 
 def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int,
-                                  ranged: bool, profile: Optional[str] = None) -> list[dict]:
+                                  ranged: bool, profile: Optional[str] = None,
+                                  is_normal_attack: Optional[bool] = None,
+                                  triggering_effect: Optional[int] = None) -> list[dict]:
     """Vecteur `On(AttackDamageAttack = 10)` — 2e des DEUX events que `IdunBattle.Operations.
     FinishAttackOperation$$Execute` emet a la CLOTURE d'une attaque :
 
@@ -312,7 +314,13 @@ def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int
     `RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal`) = « un seul tir d'overwatch par
     activation ». No-op pour toute unite sans effet 1009 actif."""
     ev = TriggerEvent(EventTriggerType.AttackDamageAttack, attacker_id, target_id,
-                      ranged=ranged, profile=profile)
+                      ranged=ranged, profile=profile,
+                      # `!IsNormalAttack(CurrentAbility@0x88)` et `TriggeringAbilityIsNormalAttack`
+                      # (`+0x98`) : les deux canaux que porte le predicat `IsValidAttack` de
+                      # `LegendaryCommander_ExtraHits` (2e consommateur de ce vecteur, #419-r1-tr9-
+                      # r4-r1-r2-r1). `None` = non threade par l'appelant -> ce consommateur se tait.
+                      is_normal_attack=is_normal_attack,
+                      triggering_effect=triggering_effect)
     return evaluate_trigger_operation(state, ev)
 
 

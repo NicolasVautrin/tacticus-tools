@@ -99,7 +99,8 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                                board: dict, is_melee: bool | None, damage_profile: str | None,
                                include_bonus_hit_behaviours: bool = False,
                                defender_on_cover: bool | None = None,
-                               is_normal_attack: bool = True) -> int:
+                               is_normal_attack: bool = True,
+                               hit_group_index: int = 0) -> int:
     """`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate` : nb de coups d'une attaque normale. `board` =
     {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id} (base_hits pose ici) ;
     `aura_sources` = [(owner_id, pos, team, effets)] des unites != cible. Ordre = base (APRES PowerTrip) ->
@@ -187,7 +188,26 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # divergent). Le port INTEGRAL des caps par-effet reste un chantier separe (composant PARTAGE).
     _floor = min(1, base_default)
     hits_pre = max(_floor, base_default + eff_hits)   # base APRES PowerTrip, AVANT GetStuckIn
-    board = {**(board or {}), "base_hits": hits_pre}
+    # `hit_group_index` = le 3e argument de `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`,
+    # que le natif pose en `Nullable<int>` dans l'`AbilityEntities` qu'il synthetise et qui n'atteint
+    # le DSL que par `IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHitGroup`
+    # (`HasValue && Value == 0`), lu par le seul
+    # `IdunBattleLogic.Entities.DSLTriggers$$IsFirstHitGroupInAttack` -> `LegendaryCommander_ExtraHits`.
+    # LES QUATRE FACADES PORTEES SONT LE GROUPE D'ARME, INDEX 0, et c'est LU, pas suppose :
+    #   * COMBAT -- `IdunBattle.Operations.AttackDamageOperation$$Execute` passe
+    #     `*(int*)(currentAttack + 0x34)` au slot 0xb6 (`$$GetAttackHits`), et
+    #     `IdunBattle.Core.OngoingAttack$$.ctor` initialise ce bloc (`+0x30`, 8 octets) a ZERO.
+    #     Les groupes de coups ADDITIONNELS a profil re-entrent `Execute` avec un index INCREMENTE --
+    #     le port ne leur fait PAS traverser cette formule (`execute_additional_hits` consomme le
+    #     `count` du descripteur #179), donc aucune sur-application de ce cote.
+    #   * PREDICTION -- `make_normal_attack_predictions` et le fold `GetAdditionalDamagePrediction`
+    #     passent tous deux le litteral `0` (tranche #419-r1-tr9-r4-r2).
+    # Parametre (et non constante) pour qu'un test puisse le faire MORDRE.
+    board = {**(board or {}), "base_hits": hits_pre,
+             "hit_group_index": (None if hit_group_index is None else int(hit_group_index)),
+             # nature du VECTEUR, deja threadee aux canaux ATTAQUANT et DEFENSEUR : le canal AURA en
+             # a besoin lui aussi depuis `LegendaryCommander_ExtraHits` (`!IsNormalAttack`).
+             "is_normal_attack": bool(is_normal_attack)}
     # (2) GetStuckIn = behaviour d'exec chance-gate (`AddBonusHitsToCurrentHitGroupBehaviour IdunBattle.Entities.Behaviours.AddBonusHitsToCurrentHitGroupBehaviour$$Execute`) :
     # DETERMINISTE en prediction (fold ICI), chance-roll a l'EXECUTION en combat (porte #62c dans
     # `_run_hits`, PAS dans cette formule -> gate False). Seul GetStuckInTrait override `as_attacker_bonus_
@@ -207,7 +227,14 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # Les porteurs sont les MÊMES `aura_sources` que le canal malus (BigTarget) : le natif énumère
     # TOUS les effets actifs du board (`EffectsQuery$$GetActiveEffectsWithBonuses`), attaquant exclu
     # par le sélecteur de l'effet, pas par la boucle.
+    # Le ctx du canal AURA part du `board` COMPLET -- mirror : le natif passe LE MEME
+    # `AbilityEntities` a tous les effets de la boucle, il n'en construit pas un sous-ensemble par
+    # canal. Les clés `att_*` ci-dessous restent les ALIAS historiques que lisent les porteurs
+    # existants (`DefenderOfTheGreaterGood`), et `LegendaryCommander_ExtraHits` lit les clés CIBLE
+    # (`tgt_id`/`t_pos`/`team_by_id`/`pos_by_id`) + `is_normal_attack`/`hit_group_index`/
+    # `trigger_ability_type`/`used_active_by_id`/`persistent_data_list` que le board porte deja.
     hits += aura_hits_bonus_for_attack(aura_sources, {
+        **board,
         "att_id": board.get("att_id"), "att_pos": board.get("attack_pos"),
         "att_team": (board.get("team_by_id") or {}).get(board.get("att_id")),
         # `UnitsFromFaction(SurroundingFriends(owner, 2), 9 = Tau)` du sélecteur DotGG.

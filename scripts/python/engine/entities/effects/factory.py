@@ -60,6 +60,7 @@ from .loki import (
     KanOpenerEffect,
     ShroudPsalmEffect,
     VoltagheistFieldExtraHitEffect,
+    LegendaryCommanderExtraHitsEffect,
     LightCoverEffect,
     MartialKatahDmgReductionEffect,
     MarkerlightEffect,
@@ -582,6 +583,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `ForAddition(get_OwnerIsCaster & IsNormalAttack, Get(ConfigConst 0x2b))`) -- jumeau structurel
     # de `PowerTrip_FullHealth`. #419-r1-tr9-r4-r1-r2.
     "VoltagheistField_ExtraHit": VoltagheistFieldExtraHitEffect,
+    # LegendaryCommander_ExtraHits (effet 0x573=1395, pose SUR custoTrajann par
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour`
+    # = `AddEffect(0x572, .., Owner, Owner) & AddEffect(0x573, .., Owner, Owner)`) : AURA source-side
+    # (+ConfigVar(0x2f = nrOfHits) coups) dont le trigger est le SEUL du canal COUPS pose en NEGATION
+    # (`!IsNormalAttack`), avec un etat persistant (<< first attack >>) et
+    # `IsFirstHitGroupInAttack`. #419-r1-tr9-r4-r1-r2-r1.
+    "LegendaryCommander_ExtraHits": LegendaryCommanderExtraHitsEffect,
     "MasterAnnihilator_extraHit": MasterAnnihilatorAdditionalHitEffect,  # debuff Vitruvius : +1 coup reçu (non-Psychic)
     # LetTheGalaxyBurn (effet 0x5c5=1477, owner-effect auto-porte par les 5 heros Black Legion qui ont le
     # TRAIT 0x422=1058) : +1 coup d'ARME a l'attaque du porteur, gate `OwnerIsCaster &
