@@ -10,44 +10,84 @@ from dataclasses import replace
 import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
-from ...dsl.base import (TargetsSelector, Const, _pos, _within, _is_alive, _units_of, _effect_field,
-                         resolve_unit, _origin_tiles, _main_tile)
+from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
+                         _effect_field, resolve_unit, _origin_tiles, _main_tile, _select_tile)
 
 
 # --- Accesseurs SELECTEUR (mirror `DSLFactory.X` -> tuiles/entites/sujet natifs ; kind S). ---
 #
-# ⚠ RESIDU `#433-r3-r1a-r2` -- LES TROIS ACCESSEURS DE TUILE CI-DESSOUS RENDENT **UNE** POSITION,
-# la ou le natif rend une LISTE (l'EMPREINTE). Lu au decompile :
+# LES TROIS ACCESSEURS DE TUILE CI-DESSOUS RENDENT UNE **LISTE** DE POSITIONS -- l'EMPREINTE (#459,
+# residu `#433-r3-r1a-r2` ferme). Lu au decompile (`rnca9r7q6c`) :
 #   * `IdunBattle.Entities.Selectors.CasterTileSelector$$Select` :
-#         tiles = entities.CasterTiles ?? entities.<casterTilesAlt>.ToList()
-#                                      ?? EntityExtensions.GetTiles(entities.Caster, state);
+#         tiles = entities.CasterPosition.Tiles            (+0x48, la UnitPosition CANDIDATE)
+#              ?? entities.CasterTile.ToList()             (+0x40, UNE tuile posee explicitement)
+#              ?? EntityExtensions.GetTiles(entities.Caster, state);   (+0x08, l'EMPREINTE courante)
 #         return new List(tiles);
 #     -- il n'existe AUCUNE branche qui rende `GetMainTile`. Et `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`
 #     alloue `CasterTile` (+0x50) et `CasterTiles` (+0x58) depuis le **MEME pointeur de classe**, avec
 #     le meme ctor `(state)` : le singulier ne se distingue du pluriel par RIEN (meme forme que
-#     `IsSurrounding` == `IsInRange`, #433-r3-r1 Sec.3).
-#   * `IdunBattle.Entities.Selectors.TargetTilesSelector$$Select` : meme forme, fallback
-#     `EntityExtensions.GetTiles(entities.Target, state)`.
-# Le port ne peut pas les elargir sans convertir leurs consommateurs SCALAIRES (destination de
-# `MoveUnit` via `Cache(TargetTile())`, `TilesBehindInLine`, `SortByDistance`, `MovableTilesInRange`,
-# `CanAddUnit`, `tiles_unit_can_move_to_charge_target`) -- tranche a part. Mesure du rayon de souffle :
-# `probe_433_r3_r1_dsl_footprint_scan.py --step occupancy` compte les sites dont l'ORIGINE est deja
-# collapsee en tuile ; sur eux le correctif d'empreinte du centre est INERTE (celui d'OCCUPANT, lui,
-# mord partout : il porte sur les unites balayees, pas sur le centre).
+#     `IsSurrounding` == `IsInRange`, #433-r3-r1 Sec.3). Les deux slots sont identifies sans ambiguite
+#     par `IdunBattleLogic.Entities.DSLTriggers$$get_CasterIsCasterTile` = `AreEqual(+0x48, +0x50)`.
+#   * `IdunBattle.Entities.Selectors.TargetTilesSelector$$Select` : meme cascade sur
+#     `TargetPosition` (+0x38) / `TargetTile` (+0x30) / `GetTiles(entities.Target)` (+0x10). Le slot
+#     est identifie par `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsTargetTile` =
+#     `AreEqual(+0x78, +0x30)`.
+#   * `OwnerTile` n'est PAS un slot du contexte : le natif ecrit `DSLSelectors$$MainTileOfUnits(Owner)`
+#     quand il veut la main tile de l'owner (`DSLTriggers$$get_OwnerTileIsTarget`). Aux TROIS
+#     call-sites portes ici, le natif passe le slot **Owner@0x148 (l'ENTITE)** a `Adjacent*`, que
+#     `TargetsSelector$$SelectTiles` deplie en son empreinte -- donc empreinte, comme les deux autres.
+#
+# Le contrat de CONSOMMATION est celui du natif, et il a deux faces (toutes deux mirrorees) :
+#   * PLURIEL  -- `TargetsSelector$$SelectTiles` : l'empreinte (voisinage, `_within`, `AdjacentTiles`) ;
+#   * SINGULIER -- `TargetsSelector$$SelectTile` : la PREMIERE tuile, cf. `dsl.base._select_tile`.
+#     Les consommateurs scalaires du port l'appellent explicitement (`MovableTilesInRange`,
+#     `TilesBehindInLine`, `SortByDistance`, `tiles_unit_can_move_to_charge_target`, la destination
+#     de `MoveUnit` via `Cache(SelectTile(TargetTile()))`).
 
 class CasterTile(TargetsSelector):
-    """Tuile du caster (`UnitPosition.MainTile` du casterPosition passé par le generator) — pour une
-    décision balayée c'est la TUILE D'ATTAQUE candidate (`ctx.caster_pos`), pas la position courante.
-    ⚠ Collapse SCALAIRE d'une liste native — cf. le résidu `#433-r3-r1a-r2` ci-dessus."""
+    """`DSLSelectors+0x50`/`+0x58` -> `IdunBattle.Entities.Selectors.CasterTileSelector$$Select` :
+    l'EMPREINTE du caster, ou celle de la position d'attaque CANDIDATE quand elle est posee.
+
+    Mirror de la cascade native (cf. l'en-tete de section) : `CasterPosition.Tiles` d'abord (pour une
+    decision balayee, c'est la `UnitPosition` candidate = `ctx.caster_pos`), sinon `GetTiles(Caster)`
+    = l'empreinte COURANTE (`_feet`). Retour list[(col,row)].
+
+    ⚠ RESIDU `#459-r1` : le port ne stocke de la position candidate que sa MAIN TILE (`ctx.caster_pos`
+    est un `(col,row)`), la ou le natif porte la `UnitPosition` ENTIERE. Sur la face DECISION d'une
+    unite multi-hex, cette branche rend donc une liste d'UN element au lieu de l'empreinte candidate.
+    Inerte cote runner (`ctx.caster_pos` None -> `_feet`) et pour toute unite mono-hex."""
     def select(self, ctx):
-        return ctx.caster_pos or _pos(ctx.caster)
+        cp = getattr(ctx, "caster_pos", None)
+        if cp:
+            return [(int(cp[0]), int(cp[1]))]          # UnitPosition candidate (#459-r1 : main tile)
+        return _feet(ctx.caster)                       # EntityExtensions.GetTiles(Caster, state)
 
 
 class TargetTile(TargetsSelector):
-    """Tuile de la cible principale (`MainTile` de la cible) — centre de `SurroundingUnits`.
-    ⚠ Collapse SCALAIRE d'une liste native — cf. le résidu `#433-r3-r1a-r2` ci-dessus."""
+    """`DSLSelectors+0x78` -> `IdunBattle.Entities.Selectors.TargetTilesSelector$$Select` :
+    l'EMPREINTE de la cible (`TargetPosition.Tiles ?? [TargetTile] ?? GetTiles(Target)`), centre des
+    selecteurs de voisinage. Retour list[(col,row)] ; cible absente -> []."""
     def select(self, ctx):
-        return _pos(ctx.target)
+        return _feet(ctx.target)                       # EntityExtensions.GetTiles(Target, state)
+
+
+class SelectTile(TargetsSelector):
+    """`IdunBattle.DSL.TargetsSelector$$SelectTile` (le SINGULIER, vslot 0xc) : la PREMIERE tuile que
+    rend le sélecteur enveloppé — une entité-TUILE telle quelle, une UNITÉ/un PIED par sa
+    `EntityExtensions$$GetMainTile`. C'est le contrat des consommateurs SCALAIRES du natif, par
+    opposition au `SelectTiles` PLURIEL (l'empreinte) que lisent les sélecteurs de voisinage.
+
+    Ce n'est donc PAS un véhicule de collapse : c'est un accesseur natif à part entière, et il est
+    ce qui rend l'élargissement de `CasterTile`/`TargetTile` en empreinte (#459) sans effet là où le
+    natif ne veut qu'une tuile. Consommateurs portés : `MovableTilesInRangeSelector` (son
+    `unitTileSelector`), `TilesBehindInLineSelector` (origin ET direction), le référent de
+    `SortByDistanceSelector`, et `DSLSelectors$$TilesUnitCanMoveToChargeTarget` (qui passe son
+    `casterTiles` au même `MovableTilesInRangeSelector`). Retour `(col,row)` ou None."""
+    def __init__(self, inner: TargetsSelector):
+        self.inner = inner
+
+    def select(self, ctx):
+        return _select_tile(self.inner.evaluate(ctx), getattr(ctx, "board", None))
 
 
 class FixedTiles(TargetsSelector):
@@ -99,17 +139,22 @@ class FixedTileIds(TargetsSelector):
 
 
 class OwnerTile(TargetsSelector):
-    """Tuile COURANTE (réelle) de l'owner/caster — position du composant entité, PAS la tuile d'attaque
-    balayée. `IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetSurroundingUnits` ancre son `SurroundingUnits(sel@0x160,
+    """EMPREINTE COURANTE (réelle) de l'owner/caster — les tuiles du composant entité, PAS la tuile
+    d'attaque balayée. `IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetSurroundingUnits` ancre son `SurroundingUnits(sel@0x160,
     range)` sur ce sélecteur (sel@0x160 = OWNER : cf. `StatAmount(@0x160,Health)`=maxHP caster dans
     `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetHealthToLose`, `HasFlag(@0x160)` du caster dans `Harvester.GetHits`).
     La fonction native ne reçoit AUCUN `casterPosition` (elle ne prend que l'ability) -> sel@0x160 résout
     la position LIVE de l'owner (non déplacé pendant la prédiction), != `CasterTile` (= `ctx.caster_pos`,
     la tuile d'attaque post-move). Preuve ground-truth seed777 step-17 : AoE ancré sur (5,6)=owner-réel
     (et non (4,3)=tuile d'attaque) reproduit les 4 sets natifs (cf. active_ability.HarvesterOfSoulsAbility).
-    ⚠ Collapse SCALAIRE d'une liste native — cf. le résidu `#433-r3-r1a-r2` en tête de section."""
+
+    ⚠ CE N'EST PAS `MainTileOfUnits` (#459). Le natif n'a pas de slot « OwnerTile » : quand il veut la
+    MAIN tile de l'owner il écrit `IdunBattleLogic.Entities.DSLSelectors$$MainTileOfUnits(Owner@0x148)`
+    (`IdunBattleLogic.Entities.DSLTriggers$$get_OwnerTileIsTarget`). Aux call-sites portés ici, il passe
+    l'ENTITÉ `Owner@0x148` directement à `AdjacentEnemies`/`AdjacentFriends`/`AdjacentUnits`, et
+    `IdunBattle.DSL.TargetsSelector$$SelectTiles` la déplie en son EMPREINTE — d'où la liste."""
     def select(self, ctx):
-        return _pos(ctx.caster)
+        return _feet(ctx.caster)                       # SelectTiles(Owner@0x148) = son empreinte
 
 
 class Subject(TargetsSelector):

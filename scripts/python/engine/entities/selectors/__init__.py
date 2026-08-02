@@ -45,7 +45,7 @@ from .tiles import (  # noqa: F401
 
 from .accessors import (  # noqa: F401
     CasterTile, TargetTile, FixedTile, FixedTiles, FixedTileIds, OwnerTile, Subject, Actor, Target,
-    ActiveTarget, SurroundingTiles, _center_pos, Owner,
+    ActiveTarget, SurroundingTiles, _center_pos, Owner, SelectTile,
 )
 
 from .geometry import (  # noqa: F401
@@ -78,7 +78,7 @@ __all__ = [
     "Parent", "LastUnitAttackedBy", "AdjacentTiles", "TileUnique", "CanAddUnit",
     "TileIntersect", "MovableTilesInRange", "tiles_unit_can_move_to_charge_target",
     "CasterTile", "TargetTile", "FixedTile", "FixedTiles", "FixedTileIds", "OwnerTile", "Subject",
-    "Actor",
+    "SelectTile", "Actor",
     "Target", "ActiveTarget", "SurroundingTiles", "_center_pos", "neighbour_at",
     "TilesInTriangleShape", "ThreeTileUnitSpawnShape", "TileFromVector", "Walkable", "Blocking",
     "SortReverse",
