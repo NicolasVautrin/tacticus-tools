@@ -28,6 +28,13 @@ class ProbableDamageEvent:
     probability1: float = 1.0
     probability2: float = 1.0
     friendly: bool = False
+    # #419-r1-tr9 : santé/bouclier de l'ENTITÉ `target`, quand ils ne sont PAS ceux de la cible de
+    # `prediction`. `DamageUtility` (leaf 36) lit `GetStat(case.Target, Health, Max|Current)` et
+    # `DamageUtility$$GetShield(case.Target)`, jamais le `DamagePredictionResult` — cf.
+    # `engine/utilities/damage.py::DamageUtility.evaluate`. `None` (défaut) = les deux cibles
+    # coïncident, on garde le proxy `hpBefore`/`shieldBefore` de la prédiction.
+    target_hp: int | None = None
+    target_shield: int | None = None
 
     @property
     def probability(self) -> float:
@@ -68,7 +75,15 @@ class ProbableDamageEvent:
         # rend `true`), sinon on changerait le verdict sur les cibles a 0 PV que `decisionView`
         # conserve. Le flag, lui, est le MEME fait des deux cotes.
         will_sure = (not dp.cannot_be_guaranteed_killed) and will_min >= hp
-        return {"hpBefore": hp, "shieldBefore": dp.shield,
+        # #419-r1-tr9 : la lecture d'ENTITE de `case.Target`, publiee SEULEMENT quand l'appelant a
+        # su la distinguer du proxy. Absente -> `DamageUtility` retombe sur `hpBefore`/`shieldBefore`
+        # (comportement anterieur, exact des que event.target == prediction.target).
+        extra = {}
+        if self.target_hp is not None:
+            extra["targetHp"] = int(self.target_hp)
+        if self.target_shield is not None:
+            extra["targetShield"] = int(self.target_shield)
+        return {**extra, "hpBefore": hp, "shieldBefore": dp.shield,
                 "healthDmgMin": min(r.min, hp), "healthDmgMax": min(r.max, hp),
                 "rawHealthDmgMin": rr.min, "rawHealthDmgMax": rr.max, "forceOverkill": dp.force_overkill,
                 "mightCrit": dp.might_crit, "preventOverkill": dp.prevent_overkill,

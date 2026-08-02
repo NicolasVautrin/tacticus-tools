@@ -257,8 +257,16 @@ class RapidFirePlaybook:
         best = 0.0
         for t in targets:
             p = _FIX64_HALF if (t == case_tgt_id and might) else _FIX64_ONE
+            # `target_hp` / `target_shield` : la feuille `DamageUtility` lit `GetStat(case.Target,
+            # Health, Max|Current)` et `DamageUtility$$GetShield(case.Target)` sur l'ENTITE de
+            # l'event, PAS sur le `DamagePredictionResult` (qui porte, lui, la sante de
+            # `case.Target` du case). Ce playbook est le PREMIER producteur ou les deux cibles
+            # different -- sans ces deux champs, le composite noterait chaque cible avec les PV
+            # d'une autre. Les feuilles `KillUnit` / `OverkillUnit`, elles, restent sur la
+            # prediction (cf. `utilities/damage.py::DamageUtility.evaluate`).
             u = calculate_utility_from_damage_event(
-                ProbableDamageEvent(target=t, prediction=pred, probability1=p),
+                ProbableDamageEvent(target=t, prediction=pred, probability1=p,
+                                    target_hp=sc.hp(t), target_shield=sc.shield(t)),
                 ctx.wt, (ctx.hpmax_by_id or {}).get(t))
             if u > best:
                 best = u
