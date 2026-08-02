@@ -107,7 +107,7 @@ def r2_both(r2_case, r2_rows, rpc, live_session):
     prises. Amene `A` (aucune modification de stat) sur une AUTRE tuile Thorns, plus basse, et le
     caster au-dessus d'elle : les DEUX faces portent alors un `x1.5`."""
     try:
-        return __import__("probe_446_r2_base_min_residual").both_faces(live_session, rpc, r2_case)
+        return R2.both_faces(live_session, rpc, r2_case)
     except P446.MontageError as e:
         pytest.fail(str(e), pytrace=False)
 
