@@ -132,7 +132,7 @@ def native_event(rpc, rid, cid, tgt, ab, tile) -> dict | None:
 def port_stage(ctx, tgt, tile) -> tuple:
     """Le port + ses ENTREES d'etage (`meta=True` : base, percage, armure, coups, %-list).
 
-    ⚠ Le FOLD `Boltstorm` est NEUTRALISE ici : le controle apparie RETIRE le passif de l'unite
+    ATTENTION Le FOLD `Boltstorm` est NEUTRALISE ici : le controle apparie RETIRE le passif de l'unite
     LIVE (`--unit-stat PassiveAbilities=[]`), mais le dispatch du port lit le KIT gameconfig, pas
     l'AbilitiesComponent -- il folderait donc la ou le natif ne folde plus, et la comparaison ne
     porterait plus sur la meme chose. La neutralisation est LOCALE et RESTAUREE."""
@@ -228,7 +228,7 @@ def chain(base: int, pierce: int, armor: int, mults: list, hits: int, hit_mult: 
 
 def sweep(rpc, case: dict, tiles: list, targets: list) -> list:
     """Balayage (tuile de tir x cible). Chaque ligne porte les ENTREES d'etage du port ET les bornes
-    natives -- c'est la matiere qui separe « arrondi » de « operation »."""
+    natives -- c'est la matiere qui separe " arrondi " de " operation "."""
     ctx = case["ctx"]
     rows = []
     for tile in tiles:
@@ -262,7 +262,7 @@ def both_faces(sid, rpc, case: dict) -> dict:
     C'est le regime ou le fix change le PLUS de choses (deux arrondis la ou le port n'en faisait
     qu'un) : la garde y est une NON-REGRESSION, pas une reproduction du residu.
 
-    ⚠ DEPLACE les unites -- a jouer EN DERNIER."""
+    ATTENTION DEPLACE les unites -- a jouer EN DERNIER."""
     import hexgeo
     from engine import battle_query as bq
     elev, walk, ids = case["elev"], case["walk"], case["ids"]

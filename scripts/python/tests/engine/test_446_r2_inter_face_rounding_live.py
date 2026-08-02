@@ -103,7 +103,7 @@ def test_natif_egale_port_sur_les_deux_faces(r2_rows):
 
 @pytest.fixture(scope="module")
 def r2_both(r2_case, r2_rows, rpc, live_session):
-    """⚠ DEPLACE les unites -- depend de `r2_rows` pour que les mesures appariees soient DEJA
+    """ATTENTION DEPLACE les unites -- depend de `r2_rows` pour que les mesures appariees soient DEJA
     prises. Amene `A` (aucune modification de stat) sur une AUTRE tuile Thorns, plus basse, et le
     caster au-dessus d'elle : les DEUX faces portent alors un `x1.5`."""
     try:
@@ -128,7 +128,7 @@ def test_generalisation_les_deux_faces_a_la_fois(r2_both):
     ET modification de stat DEFENSE (DEFENSEUR) sur la MEME paire. C'est la ou le fix change le plus
     de choses (DEUX arrondis la ou le port n'en faisait qu'un).
 
-    ⚠ Ce cran est une NON-REGRESSION, pas une reproduction du residu : sur ces valeurs les deux
+    ATTENTION Ce cran est une NON-REGRESSION, pas une reproduction du residu : sur ces valeurs les deux
     modeles COINCIDENT (`Round(Round(288.99999993 x 1.5) x 1.5)` = `Round(649.5)` = 650 et
     `Round(288.99999993 x 2.25)` = `Round(650.2499)` = 650). Il garde donc que la SEPARATION des
     faces ne casse rien la ou elle ne devait rien changer -- et il rougirait si un arrondi

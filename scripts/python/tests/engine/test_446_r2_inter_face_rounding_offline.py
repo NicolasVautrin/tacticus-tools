@@ -71,7 +71,7 @@ def test_face_defenseur_seule_arrondi_intermediaire():
 
 def test_face_attaquant_seule_pas_d_arrondi_intermediaire():
     """`A` : `x1.5` ATTAQUANT (elevation), rien cote defenseur. Le MEME percage donne 433 -- c'est
-    l'ASYMETRIE mesuree live, et c'est elle qui interdit de « corriger » en arrondissant partout."""
+    l'ASYMETRIE mesuree live, et c'est elle qui interdit de " corriger " en arrondissant partout."""
     m = _mods(att=(1.5,), deff=())
     lo = apply_pierce_and_modifiers(BASE_MIN, PIERCE, ARMOR, m, attacker_additive_pre=True)
     hi = apply_pierce_and_modifiers(BASE_MAX, PIERCE, ARMOR, m, attacker_additive_pre=True)
