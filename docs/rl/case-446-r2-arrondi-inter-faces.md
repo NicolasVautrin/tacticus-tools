@@ -153,14 +153,21 @@ Les trois contre-épreuves de #446-r1 (`no_dispatch`, `amount_min`, `no_mods`) M
 
 ## 6. Résidus NOMMÉS
 
-* **`#446-r2-r1` — `ApplyCappedModifiers` arrondit PAR ENTRÉE au décompilé, le port une seule fois en
-  fin d'appel.** Le corps natif est sans ambiguïté (`value = Fix64.Round(Mul(baseDamage, entry.mult), 1)`
-  puis `Clamp(value, -cap, cap)`, à chaque tour de boucle). Le port garde la sémantique de #98
-  (« mul tronquant par entrée, `Round` en fin d'appel ») — non touchée ici parce que #446-r2 n'a
-  produit aucun cas à DEUX entrées sur la MÊME face, et parce que la contre-mesure #98
-  (`darkaTerminator` `×1.5×1.5` → `3980`) doit être re-dérivée en Fix64 EXACT avant d'être opposée au
-  décompilé : avec un perçage fractionnaire, l'arrondi par entrée rend `3980` LUI AUSSI, donc elle ne
-  tranche peut-être rien. **À re-mesurer sur un régime à deux entrées de même face.**
+* **`#446-r2-r1` — la liste CAPÉE `@0x18` n'a AUCUN canal propre côté port, et `ApplyCappedModifiers`
+  arrondit PAR ENTRÉE au décompilé.** Deux faits liés, tous deux inertes aujourd'hui :
+  * le port n'a pas de slot `Multiplier` séparé — tout pourcentage d'une face vit dans la `%-list`
+    de cette face. La séquence portée est donc `(1+3)` puis `(2+4)`, qui coïncide avec la séquence
+    native `1,2,3,4` **tant que les listes capées natives sont vides**. Elles le sont : aucun
+    `EffectBonus` du port ne pose de `cap` (le port le disait déjà — « aucun consommateur actuel :
+    tous les pct portés sont `cap=None` »). Un bonus CAPÉ qui entrerait aurait besoin de son propre
+    canal, appliqué AVANT les deux `Round` ;
+  * le corps natif de `ApplyCappedModifiers` est sans ambiguïté (`value = Fix64.Round(Mul(baseDamage,
+    entry.mult), 1)` puis `Clamp(value, -cap, cap)`, à CHAQUE tour de boucle). Le port garde la
+    sémantique de #98 (« mul tronquant par entrée, `Round` en fin d'appel ») — non touchée ici parce
+    que #446-r2 n'a produit aucun cas à DEUX entrées sur la MÊME face, et parce que la contre-mesure
+    #98 (`darkaTerminator` `×1.5×1.5` → `3980`) doit être re-dérivée en Fix64 EXACT avant d'être
+    opposée au décompilé : avec un perçage fractionnaire, l'arrondi par entrée rend `3980` LUI AUSSI,
+    donc elle ne tranche peut-être rien. **À re-mesurer sur un régime à deux entrées de même face.**
 * **La face ATTAQUANT de `CalculateModifiersFromStatModifications` est `AddRange`-ée dans la liste
   BREAKDOWN `@0x38`**, pas dans `Multiplier@0x30` ni dans la `%-list` — donc numériquement INERTE.
   Cela corrobore le gate `apply_stat_mod_debuff=False` du port (#49 bit-exact sans lui), qui reste

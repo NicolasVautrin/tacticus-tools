@@ -408,22 +408,28 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
         if attacker_additive_pre:
             # additif déjà dans la base → %-list SEUL (IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers) + plancher 0
             d = max(0, apply_capped_modifiers(d, mods))
-            # #446-r2 — LES QUATRE ÉTAPES ORDONNÉES de
-            # `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`, dans
-            # l'ordre LU au décompilé :
-            #   1. `ApplyCappedModifiers(attackModifiers)`   <- la ligne ci-dessus (`mods.pct_list`)
-            #   2. `ApplyCappedModifiers(defenseModifiers)`  <- `mods.pct_list_defender`
+            # #446-r2 — `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`
+            # a QUATRE étapes, LUES au décompilé, sur DEUX `Nullable<DamageModifiers>` distincts :
+            #   1. `ApplyCappedModifiers(attackModifiers)`     — liste CAPÉE `@0x18` de l'attaquant
+            #   2. `ApplyCappedModifiers(defenseModifiers)`    — liste CAPÉE `@0x18` du défenseur
             #   3. `CalculateBaseDamageWithModifiers(attackModifiers.Multiplier@0x30)`   -> Round
             #   4. `CalculateBaseDamageWithModifiers(defenseModifiers.Multiplier@0x30)`  -> Round
-            # Le port replie chaque multiplicateur natif dans SA `%-list` de face (elles ne portent
-            # pas de cap : `Round` de fin d'appel == `Round` de l'étape 3/4), d'où l'appariement
-            # 1+3 = face ATTAQUANT, 2+4 = face DÉFENSEUR. Les étapes 3 et 4 sont INCONDITIONNELLES
-            # côté natif : elles arrondissent MÊME à multiplicateur neutre, et c'est cet arrondi
-            # INTERMÉDIAIRE — entre les deux faces — qui manquait au port (résidu #446-r2, mesuré
-            # `+3` sur 3 coups, cf. `docs/rl/case-446-r2-arrondi-inter-faces.md`).
+            # Les étapes 3 et 4 sont INCONDITIONNELLES : elles arrondissent MÊME à multiplicateur
+            # neutre. C'est cet arrondi INTERMÉDIAIRE — entre les deux faces — qui manquait au port
+            # (résidu #446-r2, `+3` sur 3 coups, `docs/rl/case-446-r2-arrondi-inter-faces.md`).
+            #
+            # ⚠ CORRESPONDANCE, à lire avant de comparer les ordres : le port n'a PAS de slot
+            # `Multiplier` séparé — TOUT pourcentage d'une face vit dans la `%-list` de CETTE face
+            # (`pct_list` = attaquant, `pct_list_defender` = défenseur), et `apply_capped_modifiers`
+            # /`apply_pct_entries` termine par le `Round` qui EST celui de l'étape 3/4. La séquence
+            # ci-dessous est donc `(1+3)` puis `(2+4)`, et elle coïncide avec la séquence native
+            # `1,2,3,4` tant que les listes CAPÉES natives sont vides — ce qui est le cas de TOUS
+            # les porteurs actuels (aucun `EffectBonus` du port ne pose de `cap`). Si un jour un
+            # bonus CAPÉ entre, il lui faudra son propre canal, appliqué AVANT les deux `Round` :
+            # c'est le résidu `#446-r2-r1` de la case-doc, pas un raccourci silencieux.
             d = calculate_base_damage_with_modifiers(d)      # étape 3 (Round face ATTAQUANT)
             if mods.pct_list_defender:
-                d = max(0, apply_pct_entries(d, mods.pct_list_defender))   # étape 2
+                d = max(0, apply_pct_entries(d, mods.pct_list_defender))   # face DÉFENSEUR (2)
             d = calculate_base_damage_with_modifiers(d)      # étape 4 (Round face DÉFENSEUR)
         else:
             d = apply_all_modifiers(d, mods)   # %-list PUIS additif (@+0x10) — APRES percage (§17.7)
