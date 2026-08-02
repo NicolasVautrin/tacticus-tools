@@ -48,10 +48,31 @@ que `ChronometronExtraDamageRemove` / `InspiredToGreatnessOverrideLevelRemove`.
   `$$IsCasterMarked` (le pendant lecteur) : xrefs = metadata IL2CPP seule, AUCUN appelant. Doublons
   morts -- le couple vivant est `CreateTargetTrigger`/`CreateTargetTriggerBehaviour`.
 * `$$GetClearAllMarkedAttackersBehaviour` : idem, sans appelant.
-* `$$RevertInternal` = `ExecuteBehaviour(ClearPersistentData(<AbilityOrEffect>, EffectSource(
-  Get(effect)), EntityId(Target@0x60)))`. `LegendaryCommanderAbility$$CreateBehaviour` pose 1395
-  SANS duree (`AddEffect(0x573, .., Owner, Owner, <turns VIDE>)`), donc aucun vecteur de retrait
-  n'est atteignable dans les montages portes : le clear n'a pas de site d'appel a mirrorer.
+## `$$RevertInternal` -- PORTE, et c'est une MESURE qui l'a impose
+
+`...$$RevertInternal(owner, target, effect)` = `ExecuteBehaviour(ClearPersistentData(
+<AbilityOrEffect>, EffectSource(Get(effect)), EntityId(Target@0x60)))` : la marque d'UNE cible est
+purgee quand l'effet cesse de s'appliquer A ELLE. Cote natif ce site est
+`IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets`, qui recalcule
+`EffectComponent.Targets @+0x48` a chaque refresh : une cible qui SORT du selecteur voit sa cle
+effacee. L'effet lui-meme, lui, ne part jamais (`AddEffect(0x573, .., <turns VIDE>)`).
+
+MESURE LIVE (2026-08-02, `probe_419r1tr9_r4_r1_r2_r1_legendary_commander.py`) : deuxieme attaque du
+MEME attaquant sur la MEME victime, apres que Trajann a RE-caste son active au tour suivant ->
+**le natif rend de nouveau 5 coups** (3 + 2). Le << first attack >> est donc PAR FENETRE DE
+COUVERTURE, pas par bataille : entre les deux tours, `HasUsedActiveAbilityThisTurn` retombe
+(`IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags`), la victime sort des targets,
+et sa marque part avec.
+
+Le port ne MATERIALISE pas `Targets` (il re-derive le selecteur a chaque lecture, modele #49/#153) :
+il n'a donc pas d'evenement << sortie de target >>. COLLAPSE ASSUME -- la purge est faite par CE
+MEME trigger, a la cloture d'attaque, quand la cible n'est PLUS couverte alors qu'elle porte encore
+une marque. C'est le seul instant ou le port observe le couple (cible, couverture), et c'est aussi
+le seul instant ou la marque a un observable. Residu : une cible qui sort puis rentre SANS qu'aucune
+attaque ne la vise entre-temps garde sa marque cote port ; le natif l'aurait effacee au refresh.
+
+* `$$GetClearAllMarkedAttackersBehaviour` (`ClearPersistentData(.., EntityId(Target@0x60))`, meme
+  corps que le clear ci-dessus) : xrefs = metadata IL2CPP seule, AUCUN appelant -> doublon mort.
 """
 from __future__ import annotations
 
@@ -123,19 +144,45 @@ class LegendaryCommanderExtraHitsMarkCaster(EffectTrigger):
                 return e
         return None
 
-    def matches(self, state: State, ev: TriggerEvent) -> bool:
+    def _decide(self, state: State, ev: TriggerEvent):
+        """`(instance, 'mark' | 'clear' | None)`.
+
+        `mark` = `CreateTargetTrigger` a tenu. `clear` = mirror de `$$RevertInternal` (cf. l'entete
+        du module) : la cible N'EST PLUS couverte par le selecteur alors qu'elle porte encore une
+        marque -> le natif a deja purge SA cle, le port purge la sienne."""
         inst = self._instance(state)
-        if inst is None:
-            return False
+        if inst is None or ev.target_id is None or ev.actor_id is None:
+            return None, None
         ctx = _owner_ctx(state, int(self.owner_id), ev)
         if ctx is None:
-            return False
-        return bool(inst.is_valid_attack(ctx))
+            return inst, None
+        if inst.is_valid_attack(ctx):
+            return inst, "mark"
+        if inst.aura_selector_covers(ctx):
+            return inst, None          # couverte, mais l'attaque n'est pas valide -> on ne touche a rien
+        src = inst.source if inst.source is not None else int(self.owner_id)
+        fn = ctx.get("persistent_data_list")
+        if fn is not None and fn(src, legendary_commander_marked_key(int(ev.target_id))):
+            return inst, "clear"
+        return inst, None
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        return self._decide(state, ev)[1] is not None
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        inst = self._instance(state)
-        if inst is None:
+        inst, what = self._decide(state, ev)
+        if inst is None or what is None:
             return None
+        if what == "clear":
+            from ....components import PersistentDataComponent
+            src = inst.source if inst.source is not None else int(self.owner_id)
+            e = state.get_entity(int(src))
+            c = e.get_component(PersistentDataComponent) if e is not None else None
+            if c is None:
+                return None
+            c.clear_persistent_data(legendary_commander_marked_key(int(ev.target_id)))
+            return {"effect": "LegendaryCommander_ExtraHits", "owner": int(self.owner_id),
+                    "source": int(src), "cleared": int(ev.target_id)}
         # `unit = EffectSource(Get(effect))` -- le sac vit sur le POSEUR (Trajann), pas sur l'ennemi.
         src = inst.source if inst.source is not None else int(self.owner_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
