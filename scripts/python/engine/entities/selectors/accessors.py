@@ -11,20 +11,41 @@ import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
 from ...dsl.base import (TargetsSelector, Const, _pos, _within, _is_alive, _units_of, _effect_field,
-                         resolve_unit)
+                         resolve_unit, _origin_tiles, _main_tile)
 
 
 # --- Accesseurs SELECTEUR (mirror `DSLFactory.X` -> tuiles/entites/sujet natifs ; kind S). ---
+#
+# ⚠ RESIDU `#433-r3-r1a-r2` -- LES TROIS ACCESSEURS DE TUILE CI-DESSOUS RENDENT **UNE** POSITION,
+# la ou le natif rend une LISTE (l'EMPREINTE). Lu au decompile :
+#   * `IdunBattle.Entities.Selectors.CasterTileSelector$$Select` :
+#         tiles = entities.CasterTiles ?? entities.<casterTilesAlt>.ToList()
+#                                      ?? EntityExtensions.GetTiles(entities.Caster, state);
+#         return new List(tiles);
+#     -- il n'existe AUCUNE branche qui rende `GetMainTile`. Et `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`
+#     alloue `CasterTile` (+0x50) et `CasterTiles` (+0x58) depuis le **MEME pointeur de classe**, avec
+#     le meme ctor `(state)` : le singulier ne se distingue du pluriel par RIEN (meme forme que
+#     `IsSurrounding` == `IsInRange`, #433-r3-r1 Sec.3).
+#   * `IdunBattle.Entities.Selectors.TargetTilesSelector$$Select` : meme forme, fallback
+#     `EntityExtensions.GetTiles(entities.Target, state)`.
+# Le port ne peut pas les elargir sans convertir leurs consommateurs SCALAIRES (destination de
+# `MoveUnit` via `Cache(TargetTile())`, `TilesBehindInLine`, `SortByDistance`, `MovableTilesInRange`,
+# `CanAddUnit`, `tiles_unit_can_move_to_charge_target`) -- tranche a part. Mesure du rayon de souffle :
+# `probe_433_r3_r1_dsl_footprint_scan.py --step occupancy` compte les sites dont l'ORIGINE est deja
+# collapsee en tuile ; sur eux le correctif d'empreinte du centre est INERTE (celui d'OCCUPANT, lui,
+# mord partout : il porte sur les unites balayees, pas sur le centre).
 
 class CasterTile(TargetsSelector):
     """Tuile du caster (`UnitPosition.MainTile` du casterPosition passé par le generator) — pour une
-    décision balayée c'est la TUILE D'ATTAQUE candidate (`ctx.caster_pos`), pas la position courante."""
+    décision balayée c'est la TUILE D'ATTAQUE candidate (`ctx.caster_pos`), pas la position courante.
+    ⚠ Collapse SCALAIRE d'une liste native — cf. le résidu `#433-r3-r1a-r2` ci-dessus."""
     def select(self, ctx):
         return ctx.caster_pos or _pos(ctx.caster)
 
 
 class TargetTile(TargetsSelector):
-    """Tuile de la cible principale (`MainTile` de la cible) — centre de `SurroundingUnits`."""
+    """Tuile de la cible principale (`MainTile` de la cible) — centre de `SurroundingUnits`.
+    ⚠ Collapse SCALAIRE d'une liste native — cf. le résidu `#433-r3-r1a-r2` ci-dessus."""
     def select(self, ctx):
         return _pos(ctx.target)
 
@@ -85,7 +106,8 @@ class OwnerTile(TargetsSelector):
     La fonction native ne reçoit AUCUN `casterPosition` (elle ne prend que l'ability) -> sel@0x160 résout
     la position LIVE de l'owner (non déplacé pendant la prédiction), != `CasterTile` (= `ctx.caster_pos`,
     la tuile d'attaque post-move). Preuve ground-truth seed777 step-17 : AoE ancré sur (5,6)=owner-réel
-    (et non (4,3)=tuile d'attaque) reproduit les 4 sets natifs (cf. active_ability.HarvesterOfSoulsAbility)."""
+    (et non (4,3)=tuile d'attaque) reproduit les 4 sets natifs (cf. active_ability.HarvesterOfSoulsAbility).
+    ⚠ Collapse SCALAIRE d'une liste native — cf. le résidu `#433-r3-r1a-r2` en tête de section."""
     def select(self, ctx):
         return _pos(ctx.caster)
 
@@ -165,7 +187,20 @@ class SurroundingTiles(TargetsSelector):
     IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetPossibleSpawnTiles/IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnTilesSelector, CultDemagogue IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour -> centre EXCLU). Retour list[int] (tile ids), ordre
     hexgeo deterministe. Generalisation d'`AdjacentTiles` (= radius 1 via le voisinage board) au disque :
     ici la geometrie vient de `hexgeo.disk` (meme primitive que le collapse `_surrounding_free_tiles` du
-    port CultDemagogue). board None -> []."""
+    port CultDemagogue). board None -> [].
+
+    EMPREINTE de l'ORIGINE (#433-r3-r1a) : `IdunBattle.Core.Services.BattleQuery.u003CIterateSurroundingTilesu003Ed__117$$MoveNext`
+    ouvre par `foreach (tile in EntityExtensions.IterateTiles(center, state))` avant d'appeler
+    `TileQuery.IterateSurroundingTiles(tile, ...)` -> le disque d'une entite MULTI-HEX est l'UNION des
+    disques de TOUS ses pieds. La collecte se fait dans un `OrderedSet` (dedoublonnee, premiere
+    apparition gagnante), ce que reproduit le `seen` ci-dessous.
+
+    EXCLUSION DU CENTRE : la branche `includeCenter == 0` de
+    `IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles` est
+    `SurroundingTiles(origin, includeCenter: 1, ...) op_Subtraction Tiles(origin)`, et `Tiles` =
+    `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` = `GetMainTile` PAR ENTITE. On ne
+    retranche donc QUE la main tile : les pieds SECONDAIRES d'une origine multi-hex RESTENT dans
+    l'anneau. Retrancher toute l'empreinte serait une seconde erreur, pas une correction."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False):
         self.center, self.radius = center, radius
         self.include_center = bool(include_center)
@@ -175,29 +210,33 @@ class SurroundingTiles(TargetsSelector):
         if board is None:
             return []
         r = int(self.radius.evaluate(ctx) or 0)
-        centers = self.center.evaluate(ctx)
-        if isinstance(centers, tuple) and len(centers) == 2:
-            centers = [centers]
-        elif isinstance(centers, dict) or centers is None:
-            centers = [_pos(centers)] if centers is not None else []
+        raw = self.center.evaluate(ctx)
+        if isinstance(raw, tuple) and len(raw) == 2:
+            origins = [raw]
+        elif isinstance(raw, dict) or raw is None:
+            origins = [raw] if raw is not None else []
         else:
             # Le centre natif est une ENTITE-tuile : le domaine ID (list[int], ce que rendent
             # `AdjacentTiles`/`FixedTileIds`) est accepte au meme titre que (col,row) et le dict d'unite
             # — necessaire pour un cast TILE-TARGET (`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour` :
             # `SurroundingTiles(Target@0x178 = la TUILE ciblee, range)`).
-            centers = [_center_pos(c, board) for c in centers]
-        seen, out = set(), []
-        for c in centers:
-            if c is None:
+            origins = [_center_pos(c, board) for c in raw]
+        seen, out, excluded = set(), [], set()
+        for origin in origins:
+            if origin is None:
                 continue
-            for (col, row) in hexgeo.disk(c[0], c[1], r):
-                if not self.include_center and (col, row) == (c[0], c[1]):
-                    continue
-                t = board.id_at(col, row)
-                if t is not None and t not in seen:
-                    seen.add(t)
-                    out.append(t)
-        return out
+            feet = _origin_tiles(origin, board)          # IterateTiles(center, state)
+            if not self.include_center:
+                m = _main_tile(origin)                    # op_Subtraction Tiles(origin) : MAIN TILE seule
+                if m is not None:
+                    excluded.add(m)
+            for c in feet:
+                for (col, row) in hexgeo.disk(c[0], c[1], r):
+                    t = board.id_at(col, row)
+                    if t is not None and t not in seen:
+                        seen.add(t)
+                        out.append((t, (col, row)))
+        return [t for (t, p) in out if p not in excluded]
 
 
 def _center_pos(c, board):
