@@ -141,18 +141,23 @@ retombent pas au même endroit.
 `tests/engine/test_448_r1_already_used_tile_offline.py` (6 gardes, dont le contre-bras « tuile non
 marquée → 0 » et la domination du poids dans sa catégorie).
 
-⚠ **RÉSIDU DE CANAL, mesuré (§5, volet B)** : `engine/ai/context.py` seede `effects_by_pos` depuis
-le RPC `tileMeta`, et **`tileMeta` ne publie pas cet effet** — même sous `includeInactive: true`. Le
-poids, pourtant correct et le plus fort de sa catégorie, est donc **inatteignable en pratique par le
-port**. `frida/hooks/game/effects.ts::readEffectsByTile` part de l'`EffectsOwnedComponent` de la
-tuile et jette inconditionnellement les effets `removed` ; **point d'ancrage du capteur à poser** :
-publier, sous `includeInactive`, les entités `EntityType.Effect` dont la CIBLE est une tuile (voie
-`targetIds`, comme `readEffectsByUnit`), au lieu de partir de la seule liste possédée par la tuile.
-**Exige un reinject — non fait, cf. rapport.**
+Le poids est **atteignable** par le port : `engine/ai/context.py` seede `effects_by_pos` depuis le
+RPC `tileMeta`, et `tileMeta` publie bien cet effet.
+
+> ⚠ **Cet alinéa portait un « RÉSIDU DE CANAL » — il est RÉFUTÉ (#425).** Il concluait de la mesure
+> du §5 que `tileMeta` ne publiait pas l'effet, donc que le −100 était « inatteignable en pratique »
+> et qu'un capteur restait à poser (voie `targetIds`, reinject requis). **Aucun étage de code
+> n'était en cause** : capteur, décodeur, transport RPC et ingestion sont sains. La cause était le
+> MONTAGE — un roster allié d'UNE unité, dont le `finish` clôture le tour d'équipe et consomme la
+> marque `turns: 1` dans le même `applyAction`. Avec un allié, `tileMeta` publie
+> `(0,3) → 1179, remaining=1`. Mesure, contre-épreuve et gardes :
+> **`docs/rl/case-425-canal-effet-de-tuile.md`**.
 
 ## 5. La mesure live — `probe_448_r1_stormboyz_fallback_miss.py`
 
-Montage : greffe de `StormboyzStrike` sur `orksNob`, board `MC1_67`, seed 777, rank 17, un adversaire.
+Montage : greffe de `StormboyzStrike` sur `orksNob`, board `MC1_67`, seed 777, rank 17, un adversaire
+— **et un ALLIÉ, obligatoire (#425)** : avec le seul porteur, son `finish` clôture le tour d'équipe et
+la marque `turns: 1` est consommée dans le même `applyAction`.
 
 **Volet A (offline)** re-dérive les §4.1 à §4.5 sans session.
 
@@ -163,13 +168,20 @@ Montage : greffe de `StormboyzStrike` sur `orksNob`, board `MC1_67`, seed 777, r
 | `pos` du porteur | `null` (hors plateau) | **(1,3)** |
 | effet `1140` | `remaining = 2` | **absent** |
 | présence dans `observeBattle.units` | **non** | oui |
-| entités `EntityType.Effect` | 17 | **18** |
-| tuiles marquées `1179` (`tileMeta`, `includeInactive`) | aucune | **aucune** |
-| liste des tuiles à effets | — | **identique** |
+| entités `EntityType.Effect` | 20 | **21** |
+| tuiles marquées `1179` (`tileMeta`, `includeInactive`) | aucune | **(0,3), `remaining=1`** |
+| owner de l'entité `1179` (`effectAbilityStates.source`) | — | **15 = la tuile (0,3)** |
 
 ⇒ **le Fallback a firé** (rien d'autre ne repose sur une tuile une unité hors plateau au
-`UnitFinishedTurn`) et **une entité Effect a été créée**, sans qu'aucune tuile ne change côté
-`tileMeta`. Le retrait de `1140`, lui, ne vient PAS du `RemoveEffect` du Fallback — celui-ci est
+`UnitFinishedTurn`), **une entité Effect a été créée**, et **elle marque une tuile**.
+
+⚠ **La tuile marquée (0,3) n'est PAS la tuile d'atterrissage (1,3)** — quirk natif établi par #425 :
+`MoveUnitBehaviour` et `AddEffect` partagent le MÊME objet-nœud sélecteur, mais `&` les exécute EN
+SÉQUENCE, donc à la ré-évaluation le caster occupe déjà la meilleure tuile et `CanAddUnit` l'exclut.
+La ligne B3 de l'en-tête de ce probe affirmait l'inverse ; elle était **fausse** et n'avait jamais
+été confrontée (les deux colonnes rendaient « aucune »).
+
+Le retrait de `1140`, lui, ne vient PAS du `RemoveEffect` du Fallback — celui-ci est
 sous le gate `Tiles(Caster) == 0`, faux ici : il vient du 3ᵉ trigger propre de
 `ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` (`On(0x28) & OwnerIsActor & HasTile(Owner)`),
 qui devient vrai dès que le `MoveUnitBehaviour` a redonné une tuile au porteur. Les deux lectures se
@@ -186,11 +198,13 @@ recoupent exactement.
    retrouver par son `visualId`, seulement par `pos is None` ;
 3. `tileMeta` ne publie **pas** d'id d'entité de tuile (`boardGraph.tiles[].id` le porte).
 
-**NON TRANCHÉ, et nommé** : distinguer « la tuile ne possède pas l'effet » de « le capteur le
-filtre » exige de lire le contenu d'`EffectsOwnedComponent.ActiveEffectIds` ;
-`dumpEntityComponents` rend la STRUCTURE (noms/offsets), pas les VALEURS. Le +1 d'entité Effect
-n'a aucune source alternative observée (aucun effet neuf sur le porteur dans `decisionView.effects`,
-aucune tuile modifiée dans `tileMeta`), mais il n'est pas nominatif.
+**TRANCHÉ depuis #425** : le `+1` d'entité Effect est **nominatif**, et l'arbitre n'est pas
+`dumpEntityComponents` (qui rend la STRUCTURE, pas les VALEURS) mais **`effectAbilityStates`** — il
+balaie toutes les entités `EntityType.Effect` sans filtre d'appartenance et publie
+`{effectId, effectType, name, source, active}`. Comme la surcharge
+`IdunBattleLogic.Entities.DSLBehaviors$$AddEffect(effectType, abilityState, targets, turns)` passe
+`source = NULL`, `AddEffectBehaviour$$Execute` retombe sur la cible et **`SourceUnitId == OwnerId`** :
+`source` désigne donc directement l'entité-tuile marquée.
 
 ## 6. Ce qui N'EST PAS porté — résidus nommés
 
@@ -213,3 +227,4 @@ l'unité sans marquer sa tuile.
     python scripts/python/probe_448_r1_stormboyz_fallback_miss.py            # volet A (offline)
     python scripts/python/probe_448_r1_stormboyz_fallback_miss.py --live     # A + B (1 runner)
     python -m pytest scripts/python/tests/engine/test_448_r1_already_used_tile_offline.py
+    python -m pytest scripts/python/tests/engine/runner/test_425_tile_effect_channel_live.py
