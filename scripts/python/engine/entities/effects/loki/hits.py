@@ -1929,3 +1929,215 @@ class VoltagheistFieldExtraHitEffect(BaseEffect):
             return None
         n = ability_var("VoltagheistField", "extraHit", is_constant=True)   # ConfigConst 0x2b (=1)
         return for_addition(True, int(n)) if n else None
+
+
+#: Cle de la LISTE persistante d'attaquants deja servis (`AddToPersistentDataList` /
+#: `IsInPersistentDataList` de `LegendaryCommander_ExtraHitsEffect`). Le sac natif est porte par
+#: l'`EffectSource` (custoTrajann) et indexe par `GetPersistentDataId(<AbilityOrEffect de l'effet>)`
+#: puis par la `dataKey` = `EntityId(Owner@0x30)` = l'id de l'ENNEMI marque ; la valeur empilee est
+#: `EntityId(Caster@0x48)` = l'id de l'ATTAQUANT. Le port aplatit en cle composite
+#: `(ability_or_effect, data_key)` (cf. `runner/components.py::PersistentDataComponent`), d'ou ce
+#: helper partage entre le LECTEUR (`LegendaryCommanderExtraHitsEffect`) et l'ECRIVAIN
+#: (`runner/operations/triggers/loki/legendary_commander.py`) -- un seul foyer, jamais deux formes.
+LEGENDARY_COMMANDER_EXTRA_HITS = 1395            # 0x573 `EffectType.LegendaryCommander_ExtraHits`
+
+
+def legendary_commander_marked_key(marked_unit_id: int) -> tuple:
+    """Cle composite du port pour la liste des attaquants deja servis CONTRE `marked_unit_id`."""
+    return (LEGENDARY_COMMANDER_EXTRA_HITS, int(marked_unit_id))
+
+
+class LegendaryCommanderExtraHitsEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.LegendaryCommander_ExtraHitsEffect` (effet 0x573 = 1395,
+    passif `LegendaryCommander` de `custoTrajann`) -- AURA source-side sur l'axe COUPS, et le SEUL
+    consommateur du canal gate en NEGATION (`!IsNormalAttack`). #419-r1-tr9-r4-r1-r2-r1.
+
+    i2 : << Whenever a friendly unit uses an Active ability, enemies adjacent to it take
+    +[extraDmg] damage from friendly Characters. If the affected enemies are also adjacent to
+    Trajann, friendly Characters score [nrOfHits] additional hits against them with their first
+    attack that is not a normal attack. >>
+
+    POSE -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour`
+    = `AddEffect(0x572 = 1394, <abilityStateRef>, Owner@0x30, Owner@0x30, <turns VIDE>)
+       & AddEffect(0x573 = 1395, <abilityStateRef>, Owner@0x30, Owner@0x30, <turns VIDE>)`.
+    Les DEUX effets vivent donc sur TRAJANN (le porteur du passif), jamais sur les ennemis : ce sont
+    les `EffectComponent.Targets @+0x48` -- re-derives par le `CreateTargetSelector` ci-dessous --
+    qui designent les ennemis affectes (modele `effect_targets.py` : << le PORTEUR n'est pas la
+    CIBLE >>). D'ou le canal AURA, et non le canal DEFENSEUR.
+
+    ⚠ `LegendaryCommander_ExtraHitsEffect$$.ctor` est le corps DEDUPLIQUE de deux classes : les
+    lambdas `EffectsDatabase.<InitializeEffects>b__14_403` / `b__14_404` l'appellent toutes deux sur
+    des `Il2CppClass*` DISTINCTS (0x572 = `ExtraDamage`, 0x573 = `ExtraHits`). Le nom du ctor ne dit
+    donc PAS l'identite de classe (piege `reference_ctor_name_is_not_class_identity`) -- les deux
+    effets ont bien chacun leur canal (`CreateEffectDamageBonusForAttack` pour 1394,
+    `CreateEffectHitsBonusForAttack` pour 1395).
+
+    ## SELECTEUR -- `LegendaryCommander_ExtraHitsEffect$$CreateTargetSelector`, lu verbatim
+
+        sel = Friends( of = Owner@0x30, entities = AllUnits@0x20, selectionType = 3 )
+        sel = Filter( sel, HasUsedActiveAbilityThisTurn(Subject@0x68) )
+        sel = AdjacentEnemies( unit = sel, unique = 1, selectionType = 3 )
+        sel = Filter( sel, IsAdjacent(Owner@0x30, Subject@0x68, 3) )
+
+    Le tronc des TROIS premiers noeuds est celui de la base
+    `ALegendaryCommander_BaseEffect$$CreateTargetSelector` (partage avec 1394) ; le QUATRIEME
+    (`IsAdjacent(Owner, Subject)`) n'existe QUE sur 1395 -- c'est exactement le << If the affected
+    enemies are ALSO adjacent to Trajann >> de l'i2. `Friends(Owner, AllUnits)` n'a AUCUNE
+    soustraction `- Owner` : Trajann est ami de lui-meme, donc SON propre cast d'active arme l'aura.
+
+    ## TRIGGER -- `$$IsValidAttack(<selecteur>)`, lu verbatim (ordre des `op_BitwiseAnd` du corps)
+
+        get_OwnerIsTarget
+      & AreFriends( Caster@0x48, EffectSource(<selecteur passe>) )
+      & !IsNormalAttack( CurrentAbility@0x88 )
+      & !( TriggeringAbilityIsNormalAttack & IsPartialAttackAbility(CurrentAbility@0x88) )
+
+    et `$$CreateEffectHitsBonusForAttack` l'enveloppe :
+
+        EffectBonus.ForAddition(
+            trigger  = ( IsValidAttack(Effect@0x38)
+                         & !IsInPersistentDataList(<AbilityOrEffect>, EffectSource(Effect@0x38),
+                                                   EntityId(Owner@0x30), EntityId(Caster@0x48)) )
+                       & IsFirstHitGroupInAttack(),
+            addition = ConfigVar(0x2f = nrOfHits, <abilityState>, config@+0x60) )
+
+    `get_OwnerIsTarget` = << la CIBLE DE L'EFFET est la cible de l'attaque >> (la boucle native
+    ecrit `AbilityEntities+0x18 (Owner) <- la cible de l'effet`, cf.
+    `create_aura_hits_bonus_for_attack` de la base) -> cote port c'est `aura_selector_covers(tgt_id)`.
+
+    ## `IsFirstHitGroupInAttack` -- UNIQUE consommateur du canal `hitGroupIndex`
+    `IdunBattleLogic.Entities.DSLTriggers$$IsFirstHitGroupInAttack` ->
+    `Idun.Source.IdunBattle.Logic.Entities.Triggers.IsFirstHitGroupInAttackTrigger$$ShouldTrigger` ->
+    `IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHitGroup`, qui rend
+    `Nullable<bool>( (hitGroupIndex.GetValueOrDefault() == 0) && hitGroupIndex.HasValue )` sur le
+    `Nullable<int>` @`AbilityEntities+0x110`. Ce champ n'a qu'UN peupleur sur la face PREDICTION
+    (`IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` le construit depuis son 3e parametre)
+    et le COMBAT le lui passe depuis `OngoingAttack+0x34`
+    (`IdunBattle.Operations.AttackDamageOperation$$Execute` -> `$$GetAttackHits`, slot 0xb6).
+    `IdunBattle.Core.OngoingAttack$$.ctor` initialise ce bloc a **0** -> la phase d'ARME (le seul
+    etage que le port fait traverser la formule) est bien le groupe **0**. Cf.
+    `services/attack_hits_formula.py::attack_hits_with_modifiers(hit_group_index=...)`.
+
+    ## `!IsInPersistentDataList` -- le << FIRST attack >>
+    L'ECRIVAIN est le TARGET-TRIGGER de l'effet, porte a part
+    (`runner/operations/triggers/loki/legendary_commander.py`) :
+    `$$CreateTargetTrigger` = `On(0xa = AttackDamageAttack) & IsValidAttack(Effect@0x38)` ->
+    `$$CreateTargetTriggerBehaviour` = `AddToPersistentDataList(<AbilityOrEffect>,
+    EffectSource(Get(effect)), EntityId(Owner@0x30), EntityId(Caster@0x48))`. La cle est donc
+    (ennemi marque -> liste des attaquants deja servis), le sac vivant sur TRAJANN.
+    `$$GetMarkCasterBehaviour` a le corps IDENTIQUE et `$$IsCasterMarked` le pendant lecteur, mais
+    AUCUN des deux n'a d'appelant (xrefs = metadata IL2CPP seule) : ce sont des doublons morts, le
+    couple VIVANT est `CreateTargetTrigger`/`CreateTargetTriggerBehaviour`.
+    `$$RevertInternal` = `ExecuteBehaviour(ClearPersistentData(<AbilityOrEffect>,
+    EffectSource(Get(effect)), EntityId(Target@0x60)))` -- purge la cle d'UNE cible au retrait de
+    l'effet ; `AddEffect` posant 1395 SANS duree, le retrait n'a aucun vecteur porte (residu nomme).
+
+    ## RESIDU NOMME -- `IsPartialAttackAbility` non porte, conjonction APPROXIMEE PAR EXCES
+    `Idun.Source.IdunBattle.Logic.Entities.Triggers.AbilityIsPartialAttackAbilityTrigger$$IsPartialAttack`
+    teste l'appartenance du `CurrentAbility` a l'un de DEUX `HashSet` statiques
+    (`StaticBattleRules.TriggeredAbility$$IsPartialAttackAbility` pour un `TriggeredAbilityType`,
+    `StaticBattleRules.Effect$$IsPartialAttack` pour un `EffectType`) et rend FAUX pour toute
+    ACTIVE. Ces deux ensembles ne sont pas lus ici. Le port remplace donc
+    `!(TriggeringAbilityIsNormalAttack & IsPartialAttackAbility)` par son PREMIER conjoint seul,
+    `!TriggeringAbilityIsNormalAttack` -- une borne qui ne peut que RESTREINDRE (fermer le gate
+    alors que le natif l'aurait laisse passer), jamais elargir. Regime concerne : une attaque
+    d'ability DECLENCHEE par une attaque normale ; hors de lui les deux formes coincident, le
+    premier conjoint etant deja faux. `TriggeringAbilityIsNormalAttack` =
+    `IsNormalAttack(TriggeringAbility@DSLSelectors+0x90)` = le canal `trigger_ability_type` du board.
+
+    ## FACE PREDICTION -- structurellement INERTE, et c'est le natif
+    Les deux facades de prediction qui traversent `attack_hits_with_modifiers`
+    (`make_normal_attack_predictions` et le fold `GetAdditionalDamagePrediction`) portent
+    `is_normal_attack = True` : le gate `!IsNormalAttack` les ferme toutes deux. La prediction d'une
+    attaque d'ABILITY, elle, n'interpose PAS la formule (cf. l'entete de `attack_hits_formula`,
+    point 4). Le seul vecteur ou cet effet mord est donc le COMBAT, famille ATTACK
+    (`runner/operations/damage_ops/ability.py`).
+
+    ## MAGNITUDE
+    `ConfigVar(0x2f = nrOfHits)` = une VARIABLE par niveau de l'ability `LegendaryCommander`
+    (contraste avec les `ConfigConst` de `PowerTrip`/`Waaagh`/`VoltagheistField`) -> lue au niveau
+    d'ability de l'instance, avec le multiplier de rarete que `ability_var` applique SSI la cle est
+    dans `variablesAffectedByRarityBonus`."""
+
+    def aura_selector_covers(self, ctx: "Mapping | None" = None) -> bool:
+        """`LegendaryCommander_ExtraHitsEffect$$CreateTargetSelector` evalue sur la CIBLE de
+        l'attaque (`get_OwnerIsTarget` : `Owner` = la cible de l'EFFET).
+
+        Substrat manquant (positions/equipes/`used_active_by_id` absents du contexte) -> `False` :
+        << present != applique >>, jamais un booleen invente."""
+        c = ctx or {}
+        tgt = c.get("tgt_id")
+        oid, opos, oteam = c.get("owner_id"), c.get("owner_pos"), c.get("owner_team")
+        pos = c.get("pos_by_id") or {}
+        team = c.get("team_by_id") or {}
+        used = c.get("used_active_by_id")
+        if tgt is None or oid is None or opos is None or oteam is None or used is None:
+            return False
+        tpos = c.get("t_pos") or pos.get(tgt)
+        if tpos is None:
+            return False
+        if team.get(tgt) is None or team.get(tgt) == oteam:
+            return False                                  # `AdjacentEnemies` : ennemi de l'owner
+        # 4e noeud, PROPRE a 1395 : `Filter(., IsAdjacent(Owner@0x30, Subject@0x68, 3))`.
+        if hexgeo.distance(tuple(opos), tuple(tpos)) != 1:
+            return False
+        # `AdjacentEnemies( Filter(Friends(Owner, AllUnits, 3), HasUsedActiveAbilityThisTurn) , 1, 3)`
+        # -- au moins UN allie de l'owner (Trajann INCLUS : aucun `- Owner` dans le `Friends`) ayant
+        # utilise une active ce tour est adjacent a la cible.
+        for uid, p in pos.items():
+            if team.get(uid) != oteam or p is None:
+                continue
+            if not used.get(uid):                         # `HasUsedActiveAbilityThisTurn(Subject)`
+                continue
+            if hexgeo.distance(tuple(p), tuple(tpos)) == 1:
+                return True
+        return False
+
+    def is_valid_attack(self, ctx: "Mapping | None" = None) -> bool:
+        """`LegendaryCommander_ExtraHitsEffect$$IsValidAttack(<selecteur>)` -- les QUATRE noeuds, dans
+        l'ordre du corps natif."""
+        c = ctx or {}
+        if not self.aura_selector_covers(c):              # get_OwnerIsTarget
+            return False
+        # `AreFriends(Caster@0x48, EffectSource(<sel>))` -- `EffectSource` = `EffectComponent.
+        # SourceUnit @+0x10` de l'instance (= `BaseEffect.source`), et `AddEffect` la pose sur
+        # `Owner@0x30` : source == porteur == Trajann. On lit la source REELLE, pas le porteur.
+        src = self.source if self.source is not None else c.get("owner_id")
+        team = c.get("team_by_id") or {}
+        att = c.get("att_id")
+        if att is None or src is None:
+            return False
+        if team.get(att) is None or team.get(att) != team.get(src):
+            return False
+        # `!IsNormalAttack(CurrentAbility@0x88)` -- le SEUL gate du canal COUPS pose en NEGATION.
+        if c.get("is_normal_attack", True):
+            return False
+        # `!(TriggeringAbilityIsNormalAttack & IsPartialAttackAbility(CurrentAbility@0x88))`,
+        # APPROXIME par son premier conjoint seul (residu nomme, cf. docstring de classe).
+        from ....runner.abilities.attack_type import is_regular_attack
+        if is_regular_attack(c.get("trigger_ability_type")):
+            return False
+        return True
+
+    def create_aura_hits_bonus_for_attack(self, ctx: "Mapping | None" = None) -> "EffectBonus | None":
+        c = ctx or {}
+        if not self.is_valid_attack(c):
+            return None
+        # `!IsInPersistentDataList(<AbilityOrEffect>, EffectSource(Effect), EntityId(Owner),
+        # EntityId(Caster))` : l'attaquant a-t-il DEJA ete servi contre CETTE cible ? Le sac est
+        # celui de l'`EffectSource` (Trajann). Substrat absent -> liste VIDE -> le natif rend FAUX
+        # (`TryGetPersistDataList` sur une cle absente), donc le `!` laisse passer : c'est bien le
+        # comportement du natif hors runner, pas une degradation choisie.
+        fn = c.get("persistent_data_list")
+        if fn is not None:
+            src = self.source if self.source is not None else c.get("owner_id")
+            served = fn(src, legendary_commander_marked_key(c.get("tgt_id"))) or ()
+            if c.get("att_id") in served:
+                return None
+        # `IsFirstHitGroupInAttack()` -- `get_IsFirstHitGroup` = `HasValue && Value == 0`.
+        # Cle ABSENTE = `Nullable` vide cote natif -> le trigger rend FAUX.
+        if c.get("hit_group_index") != 0:
+            return None
+        n = ability_var("LegendaryCommander", "nrOfHits", self.ability_level,
+                        multiplier_pct=self.ability_variables_multiplier)   # ConfigVar 0x2f
+        return for_addition(True, int(n)) if n else None

@@ -586,7 +586,13 @@ class _AbilityAttack:
             # le lit aujourd'hui, mais le payload reste coherent entre les deux events de cloture.
             attack_damage_attack_triggers(state, attacker_id, target_id,
                                           ranged=_is_ranged_position(state, attacker_id, target_id),
-                                          profile=damage_profile)
+                                          profile=damage_profile,
+                                          # `!IsNormalAttack(CurrentAbility@0x88)` : MEME donnee que
+                                          # celle passee a `attack_hits_with_modifiers` ci-dessus
+                                          # (`is_normal_attack=False`, vecteur ABILITY) -- un seul
+                                          # point de resolution de la nature du vecteur.
+                                          is_normal_attack=False,
+                                          triggering_effect=state.trigger_ability_type)
         # NB (de-fork) : les cles diagnostiques `fire`/`toxic` ont disparu de ce retour -- la pose
         # on-hit ne passe plus par ici mais par le bus `On(0x10)` emis dans `_apply_damage_pipeline`.
         # L'observable reste `state.effects` (la tuile porte l'effet), qui est la VRAIE source et celle

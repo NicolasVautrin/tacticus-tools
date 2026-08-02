@@ -24,6 +24,7 @@ from typing import Optional, Tuple
 from .state import State
 from .components import (StatsComponent, HealthComponent, OwnerComponent, PositionComponent,
                          UnitComponent, unit_has_moved, unit_has_teleported,
+                         unit_has_used_active_ability,
                          unit_tiles_moved_this_turn, unit_state_for_effects)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
@@ -776,6 +777,9 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     # le lien `ParentComponent` (summoner), lus sur les MÊMES unités VIVANTES que les auras.
     turns_started_by_id: dict = {}
     parent_by_id: dict = {}
+    # `HasUsedActiveAbilityThisTurn` (`HasFlag(unit, 2)`) -- substrat du selecteur d'aura de
+    # `LegendaryCommander_ExtraHits` (#419-r1-tr9-r4-r1-r2-r1), sur les MEMES unites vivantes.
+    used_active_by_id: dict = {}
     aura_sources = []
     target_effects: list = []
     for uid, e in state.entities.items():
@@ -794,6 +798,7 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
             team_by_id[uid] = oc.team
         if _uc is not None:
             parent_by_id[uid] = getattr(_uc, "parent_id", None)
+            used_active_by_id[uid] = unit_has_used_active_ability(state, uid)
         _sc = e.get_component(StatsComponent)
         if _sc is not None:
             turns_started_by_id[uid] = int(_sc.ctx.stat(StatType.TURNS_STARTED) or 0)
@@ -848,8 +853,38 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              # None (attaque normale ordinaire / attaque d'ability) -> le noeud est FAUX, exactement
              # comme le `Nullable` vide du natif (`TriggeringAbilityIsNoneTrigger`).
              "trigger_ability_type": (None if trigger_ability_type is None
-                                      else int(trigger_ability_type))}
+                                      else int(trigger_ability_type)),
+             # `HasUsedActiveAbilityThisTurn(Subject@0x68)` du `Filter` de
+             # `IdunBattle.Entities.Effects.Loki.ALegendaryCommander_BaseEffect$$CreateTargetSelector`
+             # -- MEME store (`UnitFlagsComponent`, flag 2 `ActiveAbilityUsed`) et MEME foyer que le
+             # gate d'entree du generateur d'abilities de l'IA. Table par unite VIVANTE, montee ici
+             # parce que le selecteur d'aura doit la parcourir (il ne connait qu'un board).
+             "used_active_by_id": used_active_by_id,
+             # Accesseur au sac `PersistentDataComponent` d'une unite ARBITRAIRE (le natif lit celui
+             # de l'`EffectSource`, pas celui de l'attaquant) -- meme tri-etat que
+             # `entities.triggers.IsInPersistentDataList` : `None` hors runner -> liste vide, ce que
+             # rend aussi `TryGetPersistDataList` sur une cle absente.
+             "persistent_data_list": _persistent_data_list_reader(state)}
     return board, aura_sources, target_effects
+
+
+def _persistent_data_list_reader(state: State):
+    """`(unit_id, composite_key) -> list` sur le `PersistentDataComponent` de l'unite demandee.
+
+    Mirror de l'acces natif `entity.GetComponent<PersistentDataComponent>().TryGetPersistDataList(
+    GetPersistentDataId(abilityOrEffect), key)` (`IsInPersistentDataListTrigger$$ShouldTrigger`).
+    Composant/entite absents -> `()`, exactement le `?? new List<T>()` du natif."""
+    from .components import PersistentDataComponent
+
+    def _read(unit_id, key):
+        if unit_id is None:
+            return ()
+        e = state.get_entity(int(unit_id))
+        c = e.get_component(PersistentDataComponent) if e is not None else None
+        if c is None:
+            return ()
+        return c.try_get_persist_data_list(key) or ()
+    return _read
 
 
 def getstuckin_combat_chance(state: State, att_id: int, tgt_id: int,

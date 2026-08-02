@@ -62,6 +62,8 @@ from ..loki.phoenix_gem import (PhoenixGemReviveAbility,              # #79 (rel
                                PhoenixGemRemoveMarkerOnRevive,       # #89-B3 (On(0x2d = UnitRevived) -> RemoveEffect)
                                PhoenixGemRemoveMarkerOnResurrect,    # #89-B3 (On(0x2e = UnitResurrected) -> RemoveEffect)
                                PHOENIX_GEM_CAN_REVIVE)
+from ..loki.legendary_commander import (                             # #419-r1-tr9-r4-r1-r2-r1
+    LegendaryCommanderExtraHitsMarkCaster, LEGENDARY_COMMANDER_EXTRA_HITS)
 from ..loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trait SuppressiveFire 1010)
 from ..loki.death_nova import ExplodesAbility, PutridExplosionAbility  # death-nova (traits 1008 / 2028)
 from ..loki.master_annihilator import MasterAnnihilatorMarkAbility   # lot POSE (passif admecDominus)
@@ -670,6 +672,15 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # mais sur un `OwnerIsCaster` qui designe le BELLATOR -- ici c'est l'INCEPTOR.
     # Cf. loki/shock_assault.py.
     SHOCK_ASSAULT_BUFF: [ShockAssaultBuffRemove],                    # 1000 -> retrait On(0xa)
+    # LegendaryCommander_ExtraHits 1395 (#419-r1-tr9-r4-r1-r2-r1, effet pose SUR `custoTrajann` par
+    # son passif) : le TARGET-TRIGGER de l'effet, `LegendaryCommander_ExtraHitsEffect$$
+    # CreateTargetTrigger` = `On(0xa = AttackDamageAttack) & IsValidAttack(Effect@0x38)` ->
+    # `$$CreateTargetTriggerBehaviour` = `AddToPersistentDataList(<AbilityOrEffect>,
+    # EffectSource(Get(effect)), EntityId(Owner@0x30), EntityId(Caster@0x48))`. C'est l'ECRIVAIN du
+    # << first attack >> : sans lui la liste reste vide et le bonus de coups s'applique a CHAQUE
+    # attaque d'ability -- regression PERMISSIVE et SILENCIEUSE (forme de #436).
+    # Cf. loki/legendary_commander.py.
+    LEGENDARY_COMMANDER_EXTRA_HITS: [LegendaryCommanderExtraHitsMarkCaster],
     # HatefulAssault_AlreadyAttacked (case-366-r1, effet 1175 pose par `HatefulAssaultAbility$$
     # CreateBehaviour` sur l'ennemi qu'Angrax vient de frapper). Fabrique native = la GENERIQUE
     # `UntilOfEndTurnEffect`, dont le SEUL contenu est

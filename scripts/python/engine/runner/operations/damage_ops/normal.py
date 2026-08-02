@@ -526,7 +526,12 @@ class _Normal:
                                      health_damage=int(r["total"] or 0),
                                      was_block=bool(r["did_block"]))
         attack_damage_attack_triggers(state, attacker_id, target_id,
-                                      ranged=bool(_ranged), profile=_profile)
+                                      ranged=bool(_ranged), profile=_profile,
+                                      # vecteur NORMAL : `IsNormalAttack(CurrentAbility@0x88)` VRAI,
+                                      # MEME donnee que le `is_normal_attack` (defaut True) passe a
+                                      # `attack_hits_with_modifiers` par cette meme facade.
+                                      is_normal_attack=True,
+                                      triggering_effect=state.trigger_ability_type)
         # `target` (#120bis) = la cible REELLEMENT frappee. Elle differe de celle du message quand la
         # re-resolution d'`ExecuteInternal` a bascule l'attaque sur une remplacante (SwornProtector) :
         # les vecteurs AVAL du natif (after-hit d'`ExecuteHit`) portent l'AttackData de CETTE

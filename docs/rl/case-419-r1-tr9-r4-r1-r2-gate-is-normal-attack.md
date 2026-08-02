@@ -7,7 +7,7 @@
 | `ShroudPsalm` (1366) | `get_OwnerIsTarget & IsNormalAttack` — **MALUS défenseur**, `ForAdditionWithMinimum(−hitsReduction, min 1)` | **PORTÉ + CONFRONTÉ** |
 | `VoltagheistField_ExtraHit` (1381) | `get_OwnerIsCaster & IsNormalAttack`, `ForAddition(+extraHit)` | **PORTÉ + CONFRONTÉ** |
 | `Dakka_ExtraHits` (1105) | `AmountIsEqual(MinDistance(Caster,Target), 2) & AmountIsEqualOrGreater(AttackWeaponRange, 3) & get_OwnerIsActor & IsNormalAttack & IsRangedAttack` | **registered-but-DEAD** — aucun porteur du trait |
-| `LegendaryCommander_ExtraHits` (1395) | en NÉGATION, + état persistant + `IsFirstHitGroupInAttack` | **résidu `#419-r1-tr9-r4-r1-r2-r1`** |
+| `LegendaryCommander_ExtraHits` (1395) | en NÉGATION, + état persistant + `IsFirstHitGroupInAttack` | **PORTÉ + CONFRONTÉ** — `case-419-r1-tr9-r4-r1-r2-r1-legendary-commander.md` |
 
 Le tableau du cas amont (`case-419-r1-tr9-r4-r1-contexte-du-fold.md` §3) est **confirmé sur les
 quatre triggers**, avec deux précisions qu'il n'avait pas : les nœuds de `Dakka` et de `1395` sont
@@ -248,10 +248,13 @@ contre-épreuve discriminante).
 
 ## 7. Résidus NOMMÉS
 
-* **`#419-r1-tr9-r4-r1-r2-r1`** — `LegendaryCommander_ExtraHits` (1395) non porté. RE complète en
-  §4 ; il lui manque trois pièces (négation, liste persistante d'attaquants déjà servis, clé
-  `is_first_hit_group` au board de la formule) et son porteur `custoTrajann` est au pool, donc
-  confrontable. Candidat naturel pour une tranche dédiée.
+* ~~**`#419-r1-tr9-r4-r1-r2-r1`**~~ — **FERMÉ** : `LegendaryCommander_ExtraHits` (1395) est porté et
+  confronté live (`case-419-r1-tr9-r4-r1-r2-r1-legendary-commander.md`). ⚠ Deux points de la RE §4
+  ci-dessous se sont révélés **faux ou incomplets** à la relecture : l'effet vit sur **Trajann**
+  (canal AURA), pas sur la cible ; et `$$GetMarkCasterBehaviour` / `$$IsCasterMarked` /
+  `$$GetClearAllMarkedAttackersBehaviour` **n'ont aucun appelant** — le couple vivant est
+  `$$CreateTargetTrigger` / `$$CreateTargetTriggerBehaviour`, plus `$$RevertInternal`. Trois résidus
+  nommés lui survivent (`-r1a`/`-r1b`/`-r1c` au backlog).
 * **`#419-r1-tr9-r4-r1-r2-r2`** — `Dakka_ExtraHits` (1105) : DEAD **aujourd'hui**, pas pour
   toujours. Le verdict tient au gameconfig courant ; il est à re-dériver au changement de build (le
   balayage tient en une ligne : porteurs du trait `Dakka` dans `units.{lineup,npc,summons}`).

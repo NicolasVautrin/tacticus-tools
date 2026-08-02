@@ -114,6 +114,8 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    DefenderOfTheGreaterGoodExtraHitsDroneEffect,
                    PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
                    KanOpenerEffect, ShroudPsalmEffect, VoltagheistFieldExtraHitEffect,
+                   LegendaryCommanderExtraHitsEffect, legendary_commander_marked_key,
+                   LEGENDARY_COMMANDER_EXTRA_HITS,
                    LIGHT_COVER_TILE_ID)
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, ContaminatedUnitEffect,
                      ContagionsOfNurgleArmorReductionEffect,
@@ -225,6 +227,8 @@ __all__ = [
     "DefenderOfTheGreaterGoodExtraHitsEffect", "DefenderOfTheGreaterGoodExtraHitsDroneEffect",
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",
     "ShroudPsalmEffect", "VoltagheistFieldExtraHitEffect",
+    "LegendaryCommanderExtraHitsEffect", "legendary_commander_marked_key",
+    "LEGENDARY_COMMANDER_EXTRA_HITS",
     # status
     "HypersensoryMinimalHealthEffect", "ContaminatedEffect", "ContaminatedUnitEffect",
     "ContagionsOfNurgleArmorReductionEffect",

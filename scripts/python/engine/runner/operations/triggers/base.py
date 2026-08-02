@@ -30,7 +30,7 @@ class TriggerEvent:
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
                  "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles",
                  "triggering_effect", "is_first_hit", "triggering_ability", "dest_tile",
-                 "health_damage", "was_block")
+                 "health_damage", "was_block", "is_normal_attack")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
@@ -41,13 +41,20 @@ class TriggerEvent:
                  is_first_hit: Optional[bool] = None,
                  triggering_ability: Optional[int] = None,
                  dest_tile=None,
-                 health_damage: Optional[int] = None, was_block: Optional[bool] = None):
+                 health_damage: Optional[int] = None, was_block: Optional[bool] = None,
+                 is_normal_attack: Optional[bool] = None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
         self.ranged = ranged
         self.profile = profile
         self.is_crit = is_crit
+        # `IsNormalAttack(CurrentAbility@DSLSelectors+0x88)` -- la nature du VECTEUR d'attaque, telle
+        # que la facade la resout deja pour `attack_hits_with_modifiers` (attaque normale vs attaque
+        # d'ABILITY). TRI-ETAT : `None` = non threadee sur cet event, et le consommateur doit alors
+        # se TAIRE plutot que supposer. Consommateur : le target-trigger de
+        # `LegendaryCommander_ExtraHits`, dont le predicat porte `!IsNormalAttack`.
+        self.is_normal_attack = is_normal_attack
         self.killer_id = killer_id
         self.dying_id = dying_id
         self.player_id = player_id          # tour DÉBUTÉ (event turn-start On(0x16)) — owner doit appartenir
