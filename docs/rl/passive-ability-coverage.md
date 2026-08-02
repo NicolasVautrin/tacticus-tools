@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1795 assignations ecartees dans 363 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (8303 symboles distincts) de la PROSE (5415 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1795 assignations ecartees dans 363 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (8303 symboles distincts) de la PROSE (5419 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, move, playbook, predict, runner, services, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -67,7 +67,7 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
 - **PORTES** (>=1 canal structurel) : **79** (37 %)
 - **ZONE-GRISE** (direct-read hors registre, a trancher) : **16**
-- **GAPS** (mention seule + absent) : **116** = 48 mention + 68 absent
+- **GAPS** (mention seule + absent) : **116** = 50 mention + 66 absent
 - Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **49 gaps** et **12 zone-grise** -> c'est la FILE reelle.
 
 Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=32, **O**=9, **E**=54, **G**=4, **X**=0, **B**=6
@@ -88,7 +88,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | HeadClaimer | L+=1 N=5 | blackHaarken | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.HeadClaimerAbility$$CreateBehaviour` |
 | InescapableDeath | L+=1 N=5 | necroDestroyer | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.InescapableDeathAbility` |
 | LegacyOfCombat | L+=1 | custoBladeChampion | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegacyOfCombatAbility$$CreateBehaviour` |
-| LegendaryCommander | L+=1 | custoTrajann | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour` |
+| LegendaryCommander | L+=1 | custoTrajann | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour` |
 | MedicusMinistorum | L+=1 N=3 | adeptHospitaller | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.MedicusMinistorumAbility$$CreateBehaviour` |
 | ObsessiveAnnunciation | L+=1 | emperKakophonist | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ObsessiveAnnunciationAbility` |
 | OptimizedGait | L+=1 N=5 | admecRuststalker | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.OptimizedGaitAbility$$CreateBehaviour` |
@@ -209,7 +209,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | RunsAway | N=1 | - | GAP-MENTION | **.** | - |
 | SelfRepairMechanismReworked | N=1 | - | GAP-ABSENT | - | - |
 | Shrapnel | S?=1 N=2 | - | GAP-ABSENT | - | - |
-| ShroudPsalm | N=1 | - | GAP-ABSENT | - | - |
+| ShroudPsalm | N=1 | - | GAP-MENTION | **.** | - |
 | SynapticImperative | N=1 | - | GAP-ABSENT | - | - |
 | SynapticInsight | S?=1 N=2 | - | GAP-MENTION | **.** | - |
 | TargetLock | N=1 | - | GAP-ABSENT | - | - |
@@ -326,7 +326,7 @@ Passifs **non couverts** (GAP-MENTION ou GAP-ABSENT) **ET confrontables** (>=1 p
 | 6 | **HeadClaimer** | blackHaarken | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.HeadClaimerAbility$$CreateBehaviour` |
 | 7 | **InescapableDeath** | necroDestroyer | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.InescapableDeathAbility` |
 | 8 | **LegacyOfCombat** | custoBladeChampion | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegacyOfCombatAbility$$CreateBehaviour` |
-| 9 | **LegendaryCommander** | custoTrajann | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour` |
+| 9 | **LegendaryCommander** | custoTrajann | L+=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour` |
 | 10 | **MedicusMinistorum** | adeptHospitaller | L+=1 N=3 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.MedicusMinistorumAbility$$CreateBehaviour` |
 | 11 | **ObsessiveAnnunciation** | emperKakophonist | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ObsessiveAnnunciationAbility` |
 | 12 | **OptimizedGait** | admecRuststalker | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.OptimizedGaitAbility$$CreateBehaviour` |
