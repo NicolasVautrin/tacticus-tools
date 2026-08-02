@@ -153,6 +153,11 @@ class LegendaryCommanderExtraHitsMarkCaster(EffectTrigger):
         inst = self._instance(state)
         if inst is None or ev.target_id is None or ev.actor_id is None:
             return None, None
+        # RAIL `TARGETS` (#229) : `IdunBattle.Operations.EvaluateTriggerOperation$$
+        # EvaluateEffectTriggerTargets` lit `EffectComponent.IsActive @+0x5c` AVANT d'evaluer le
+        # trigger d'un `$$CreateTargetTrigger` -- le gate est NATIF, le port doit le rendre.
+        if not inst.active:
+            return None, None
         ctx = _owner_ctx(state, int(self.owner_id), ev)
         if ctx is None:
             return inst, None

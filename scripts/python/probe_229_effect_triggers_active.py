@@ -224,6 +224,11 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
     "TitanhammerSquadMovingRemoveOnAfterMove":
         (ARRAYSET, "IdunBattleLogic.Effects.TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #419-r1-tr9-r4-r1-r2-r1 -- `LegendaryCommander_ExtraHits` (1395). Rail TARGETS : le trigger
+    # vient de `$$CreateTargetTrigger` (`On(0xa = AttackDamageAttack) & IsValidAttack(Effect@0x38)`),
+    # donc `EvaluateEffectTriggerTargets` lit `IsActive` avant de l'evaluer -> le port le lit aussi.
+    "LegendaryCommanderExtraHitsMarkCaster":
+        (TARGETS, "IdunBattle.Entities.Effects.Loki.LegendaryCommander_ExtraHitsEffect$$CreateTargetTrigger"),
 }
 
 # Classes du rail ARRAYSET qui lisent QUAND MEME le flag -- non par gate d'evaluation, mais
