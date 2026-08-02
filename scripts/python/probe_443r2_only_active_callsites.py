@@ -92,6 +92,15 @@ SUBSTRATS = {
     "is_effect_target": "TARGET",
 }
 
+#: Substrat INLINE : une portee qui lit `EffectsState.by_unit` en direct au lieu d'appeler un
+#: foyer nomme. RECENSE, jamais confronte au litteral -- et ce n'est PAS un formalisme : le gate
+#: d'activite d'un substrat inline peut venir d'un AUTRE artefact natif que le `onlyActive` cite.
+#: MESURE : `master_of_the_tutelaries._master_effect_is_carried_and_active` declare
+#: `HasEffect(owner, 0x4ad, onlyActive=0)` ET lit `any(e.active ...)` -- le gate y mirroire le
+#: couplage `DeactivateEffect -> UpdateEffectTargets(vide) -> Revert -> RemoveTriggeredAbility`
+#: (#231), pas le 4e argument. Un verdict mecanique le rougirait a tort.
+SUBSTRAT_INLINE = "by_unit"
+
 #: Tokens de noeud natif. Une mention `onlyActive` qui n'en porte AUCUN parle d'autre chose que du
 #: call-site du fichier (contraste, note de doctrine) -- c'est ce filtre qui separe les deux.
 NOEUDS_NATIFS = ("HasEffect", "HasEffectOfType", "IsOwnerOfEffect", "IsOwnerOfEffectOfType",
@@ -163,23 +172,145 @@ def appels_substrat(tree: ast.AST) -> list:
     return sorted(out)
 
 
+def lectures_inline(tree: ast.AST) -> list:
+    """(ligne,) de chaque lecture DIRECTE de `EffectsState.by_unit` -- le substrat re-implemente
+    localement, que `appels_substrat` ne peut pas voir (il n'y a aucun appel de foyer)."""
+    out = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Attribute) and n.attr == SUBSTRAT_INLINE:
+            out.append(n.lineno)
+    return sorted(set(out))
+
+
+def _docstrings(tree: ast.AST) -> list:
+    """(debut, fin) de chaque docstring (module, classe, fonction). C'est l'unite de CITATION :
+    une declaration `onlyActive` y est rattachable au token natif de la MEME docstring, meme si
+    les deux sont a plusieurs lignes d'ecart (`components.has_effect_of_type` : token L1616,
+    litteral L1620)."""
+    out = []
+    for n in ast.walk(tree):
+        body = getattr(n, "body", None)
+        if not isinstance(body, list) or not body:
+            continue
+        first = body[0]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
+                and isinstance(first.value.value, str):
+            out.append((first.lineno, getattr(first, "end_lineno", first.lineno) or first.lineno))
+    return sorted(set(out))
+
+
+def declarations_docstring(lignes: list, tree: ast.AST) -> list:
+    """(debut_docstring, fin_docstring, {litteraux}) pour chaque docstring qui CITE un noeud natif
+    et declare au moins un litteral. C'est le MODE 2 d'attachement -- il ne sert que si le mode 1
+    (contexte immediat) n'a rien attache, et seulement si les litteraux y sont UNANIMES."""
+    out = []
+    for a, b in _docstrings(tree):
+        bloc = "\n".join(lignes[a - 1:b])
+        if not any(tok in bloc for tok in NOEUDS_NATIFS):
+            continue
+        lits = {m.group(1).lower() for m in RX_DECL.finditer(bloc)}
+        if lits:
+            out.append((a, b, lits))
+    return out
+
+
+RX_EFFECT_TYPE = re.compile(r"EffectType\.([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def constantes_effect_type(tree: ast.AST) -> dict:
+    """{nom de constante MODULE -> `EffectType.<Nom>`}. Les call-sites passent une constante
+    (`_MARKERLIGHT = int(EffectType.Markerlight)`), jamais le membre d'enum en clair : sans cette
+    table, l'effectType interroge reste invisible."""
+    out = {}
+    for n in getattr(tree, "body", []):
+        if not isinstance(n, ast.Assign) or len(n.targets) != 1:
+            continue
+        t = n.targets[0]
+        if not isinstance(t, ast.Name):
+            continue
+        for sub in ast.walk(n.value):
+            if isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name) \
+                    and sub.value.id == "EffectType":
+                out[t.id] = sub.attr
+                break
+    return out
+
+
+def _effect_types_appel(node: ast.Call, consts: dict) -> list:
+    """`EffectType.<Nom>` reellement passes A CET APPEL -- membre en clair ou constante de module."""
+    vus = []
+    for arg in list(node.args) + [k.value for k in node.keywords]:
+        for sub in ast.walk(arg):
+            nom = None
+            if isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name) \
+                    and sub.value.id == "EffectType":
+                nom = sub.attr
+            elif isinstance(sub, ast.Name) and sub.id in consts:
+                nom = consts[sub.id]
+            if nom and nom not in vus:
+                vus.append(nom)
+    return vus
+
+
 def _effect_types_visibles(lignes: list, debut: int, fin: int) -> list:
-    """`EffectType.<Nom>` cites dans l'intervalle -- l'effectType interroge, tel que le code le
-    NOMME. Derive du texte : les call-sites passent une constante de module (`_MARKERLIGHT`), dont
-    la definition porte l'`EffectType`."""
-    rx = re.compile(r"EffectType\.([A-Za-z_][A-Za-z0-9_]*)")
+    """`EffectType.<Nom>` cites dans l'intervalle -- repli quand l'appel ne porte aucun argument
+    resolvable (constante locale, entier litteral)."""
     vus = []
     for ligne in lignes[max(0, debut - 1):fin]:
-        for m in rx.finditer(ligne):
+        for m in RX_EFFECT_TYPE.finditer(ligne):
             if m.group(1) not in vus:
                 vus.append(m.group(1))
     return vus
 
 
-def inventaire_fichier(path: Path) -> list:
-    """Les call-sites PORTES du fichier : un appel de substrat + la declaration attachee."""
-    src = path.read_text(encoding="utf-8", errors="replace")
-    if not any(s in src for s in SUBSTRATS):
+def _effect_types_portee(lignes: list, consts: dict, debut: int, fin: int) -> list:
+    """`EffectType.<Nom>` de la portee, membres EN CLAIR plus constantes de module CITEES."""
+    vus = _effect_types_visibles(lignes, debut, fin)
+    bloc = "\n".join(lignes[max(0, debut - 1):fin])
+    for nom_const, membre in consts.items():
+        if re.search(r"\b%s\b" % re.escape(nom_const), bloc) and membre not in vus:
+            vus.append(membre)
+    return vus
+
+
+def _prend_effect_type(tree: ast.AST, debut: int) -> bool:
+    """La fonction qui commence a `debut` recoit-elle son effectType en PARAMETRE ? Alors c'est un
+    FOYER : l'effectType interroge n'est pas une propriete de ce call-site."""
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.lineno == debut:
+            noms = [a.arg for a in list(n.args.args) + list(n.args.kwonlyargs)]
+            return any(x in ("effect_type", "effectType", "effect_types", "requestedEffectType")
+                       for x in noms)
+    return False
+
+
+def _attache(decls, decls_doc, portees, pdeb, pnom, lineno):
+    """(litteral, ligne, mode) attache a l'appel de la ligne `lineno`, ou (None, None, None).
+
+    MODE 1 -- contexte IMMEDIAT : la declaration la plus proche AU-DESSUS, dans la meme portee.
+      C'est ce qui donne le bon verdict quand une portee porte PLUSIEURS lectures d'effet dont une
+      seule est le `HasEffect` cite (`reactivate_overwatch.matches` : le `has_effect` du gate
+      << rien a retirer >> precede le `active_effects` du noeud `onlyActive=true`).
+    MODE 2 -- DOCSTRING de la portee : n'intervient que si le mode 1 n'a rien attache, et seulement
+      si les litteraux de la docstring sont UNANIMES. Il rattrape les citations dont le token natif
+      et le litteral sont a plusieurs lignes d'ecart.
+    """
+    cands = [d for d in decls if pdeb <= d[0] <= lineno]
+    if not cands and pnom == "<module>":
+        cands = [d for d in decls if d[0] <= lineno]
+    if cands:
+        return cands[-1][1], cands[-1][0], 1
+    pfin = next((b for a, b, n in portees if a == pdeb and n == pnom), lineno)
+    for a, b, lits in decls_doc:
+        if pdeb <= a and b <= max(pfin, lineno) and len(lits) == 1:
+            return next(iter(lits)), a, 2
+    return None, None, None
+
+
+def inventaire_source(src: str, rel: str) -> list:
+    """Les call-sites d'UNE source : un appel de substrat (ou une lecture INLINE) + sa declaration.
+    Foyer UNIQUE -- l'auto-test passe par ici, sinon il garderait un detecteur qui a diverge."""
+    if not any(s in src for s in SUBSTRATS) and SUBSTRAT_INLINE not in src:
         return []
     try:
         tree = ast.parse(src)
@@ -188,28 +319,39 @@ def inventaire_fichier(path: Path) -> list:
     lignes = src.splitlines()
     portees = _portees(tree)
     decls = declarations(lignes)
-    rel = path.relative_to(REPO).as_posix()
+    decls_doc = declarations_docstring(lignes, tree)
+    consts = constantes_effect_type(tree)
+    appels = {n.lineno: n for n in ast.walk(tree)
+              if isinstance(n, ast.Call) and isinstance(getattr(n, "func", None),
+                                                        (ast.Attribute, ast.Name))}
     out = []
-    for lineno, substrat in appels_substrat(tree):
+    entrees = [(l, s, SUBSTRATS[s]) for l, s in appels_substrat(tree)]
+    entrees += [(l, SUBSTRAT_INLINE, "INLINE") for l in lectures_inline(tree)]
+    for lineno, substrat, regime in sorted(entrees):
         pdeb, pnom = portee_de(portees, lineno)
-        # La declaration ATTACHEE = la plus proche AU-DESSUS, DANS LA MEME PORTEE. Hors portee
-        # (une declaration d'en-tete pour un appel de methode) elle n'est pas attachee : elle
-        # decrit l'arbre natif du fichier, pas ce call-site precis.
-        cands = [d for d in decls if pdeb <= d[0] <= lineno]
-        decl = cands[-1] if cands else None
-        # Le module entier fait portee pour un appel module-level.
-        if decl is None and pnom == "<module>":
-            cands = [d for d in decls if d[0] <= lineno]
-            decl = cands[-1] if cands else None
+        lit, lit_ligne, mode = _attache(decls, decls_doc, portees, pdeb, pnom, lineno)
         pfin = next((b for a, b, n in portees if a == pdeb and n == pnom), lineno)
+        node = appels.get(lineno)
+        # effectType(s) interroges : d'abord les ARGUMENTS de l'appel (resolution exacte), sinon
+        # la PORTEE -- un `active_effects(uid, st)` filtre son type APRES l'appel
+        # (`if e.effect_type == _MARKERLIGHT`), donc l'argument seul ne dit rien.
+        ets = _effect_types_appel(node, consts) if node is not None else []
+        if not ets:
+            ets = _effect_types_portee(lignes, consts, pdeb or 1, pfin or lineno)
+        # FOYER GENERIQUE : la portee ne fixe aucun type et recoit `effect_type` en parametre --
+        # l'atteignabilite s'y juge chez l'APPELANT, pas ici.
+        foyer = (not ets) and _prend_effect_type(tree, pdeb)
         out.append({
             "fichier": rel, "ligne": lineno, "portee": pnom, "substrat": substrat,
-            "regime_substrat": SUBSTRATS[substrat],
-            "litteral": decl[1] if decl else None,
-            "ligne_decl": decl[0] if decl else None,
-            "effect_types": _effect_types_visibles(lignes, pdeb or 1, pfin or lineno),
+            "regime_substrat": regime, "litteral": lit, "ligne_decl": lit_ligne, "mode": mode,
+            "effect_types": ets, "foyer": bool(foyer),
         })
     return out
+
+
+def inventaire_fichier(path: Path) -> list:
+    return inventaire_source(path.read_text(encoding="utf-8", errors="replace"),
+                             path.relative_to(REPO).as_posix())
 
 
 # ==========================================================================================
@@ -235,12 +377,33 @@ def vecteurs_inactivite() -> dict:
         except SyntaxError:
             continue
         lignes = src.splitlines()
+        portees = _portees(tree)
+        consts = constantes_effect_type(tree)
+
+        def _ets(ligne: int) -> list:
+            """effectType(s) du vecteur : ceux cites dans SA portee, plus ceux qu'y designent les
+            constantes de module. REPLI AU FICHIER quand la portee ne fixe rien -- l'ecriture du
+            flag est souvent DEPORTEE d'un cran (`_set_ranged_auto_attack_active` ecrit
+            `e.active`, c'est `_ranged_auto_attack_instances` qui nomme l'effectType). La
+            granularite est alors le FICHIER, et c'est assume : un vecteur mal attribue ELARGIT
+            l'atteignabilite (donc n'en cache aucune), il ne la retrecit pas."""
+            pdeb, pnom = portee_de(portees, ligne)
+            pfin = next((b for a, b, n in portees if a == pdeb and n == pnom), ligne)
+            vus = _effect_types_portee(lignes, consts, pdeb or 1, pfin or ligne)
+            if not vus:
+                vus = _effect_types_portee(lignes, consts, 1, len(lignes))
+            return vus
+
         for n in ast.walk(tree):
             if isinstance(n, ast.ClassDef):
                 for b in n.body:
                     if isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef)) and b.name == "is_active":
-                        et = _effect_types_visibles(lignes, n.lineno,
-                                                    getattr(n, "end_lineno", n.lineno) or n.lineno)
+                        fin = getattr(n, "end_lineno", n.lineno) or n.lineno
+                        et = _effect_types_visibles(lignes, n.lineno, fin)
+                        bloc = "\n".join(lignes[n.lineno - 1:fin])
+                        for nom_const, membre in consts.items():
+                            if re.search(r"\b%s\b" % re.escape(nom_const), bloc) and membre not in et:
+                                et.append(membre)
                         cond.append({"fichier": rel, "classe": n.name, "ligne": n.lineno,
                                      "effect_types": et})
             # `<x>.active = False` -- l'ecriture directe du flag.
@@ -248,15 +411,57 @@ def vecteurs_inactivite() -> dict:
                 for t in n.targets:
                     if isinstance(t, ast.Attribute) and t.attr == "active":
                         flag.append({"fichier": rel, "ligne": n.lineno,
-                                     "code": lignes[n.lineno - 1].strip()[:100]})
+                                     "code": lignes[n.lineno - 1].strip()[:100],
+                                     "effect_types": _ets(n.lineno)})
             # `DeactivateEffect(...)` -- la feuille DSL qui ecrit `+0x5c = 0`.
             if isinstance(n, ast.Call):
                 f = n.func
                 nom = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else None)
                 if nom == "DeactivateEffect":
                     flag.append({"fichier": rel, "ligne": n.lineno,
-                                 "code": lignes[n.lineno - 1].strip()[:100]})
+                                 "code": lignes[n.lineno - 1].strip()[:100],
+                                 "effect_types": _ets(n.lineno)})
     return {"condition": cond, "flag": flag}
+
+
+def atteignabilite(sites: list, vec: dict) -> list:
+    """Pour chaque call-site PORTE : par quel vecteur un effet de CE type peut-il etre
+    PRESENT-mais-INACTIF ? C'est la question qui decide si `onlyActive` y a un contenu OBSERVABLE.
+
+    Trois etats, du plus fort au plus faible :
+      FLAG      -- un vecteur PORTE ecrit `IsActive` a faux pour cet effectType : le regime
+                   s'atteint EN JEU, sans canal special.
+      CONDITION -- l'effectType a une `CreateActiveCondition` portee : l'inactivite se recalcule
+                   A LA LECTURE, donc elle s'atteint en changeant l'ETAT, sans canal special.
+      SEED      -- ni l'un ni l'autre cote port : reste le canal `includeInactive`, qui publie
+                   l'instance inerte si le NATIF la rend inerte. Generique, jamais une preuve.
+    """
+    par_flag, par_cond = {}, {}
+    for f in vec["flag"]:
+        for t in f.get("effect_types") or []:
+            par_flag.setdefault(t, []).append(f)
+    for c in vec["condition"]:
+        for t in c.get("effect_types") or []:
+            par_cond.setdefault(t, []).append(c)
+    out = []
+    for s in sites:
+        if s["litteral"] is None:
+            continue
+        ts = s["effect_types"]
+        f = [t for t in ts if t in par_flag]
+        c = [t for t in ts if t in par_cond]
+        if f:
+            etat = "FLAG"
+        elif c:
+            etat = "CONDITION"
+        elif ts:
+            etat = "SEED"
+        elif s.get("foyer"):
+            etat = "FOYER"          # l'effectType vient de l'APPELANT : rien a conclure ici
+        else:
+            etat = "INDETERMINE"
+        out.append({**s, "atteignabilite": etat, "via": (f or c or ts)})
+    return out
 
 
 # ==========================================================================================
@@ -268,8 +473,8 @@ def conformite(sites: list) -> list:
     ko = []
     for s in sites:
         lit = s["litteral"]
-        if lit is None or s["regime_substrat"] == "TARGET":
-            continue                       # non declare, ou branche `IsTargetOfEffect`
+        if lit is None or s["regime_substrat"] in ("TARGET", "INLINE"):
+            continue                       # non declare / `IsTargetOfEffect` / substrat inline
         attendu = LITTERAL_REGIME.get(lit)
         if attendu and attendu != s["regime_substrat"]:
             ko.append(s)
@@ -302,46 +507,43 @@ def _porte(scene, uid):
 '''
 
 
-def _analyse_source(src: str) -> list:
-    tree = ast.parse(src)
-    lignes = src.splitlines()
-    portees = _portees(tree)
-    decls = declarations(lignes)
-    out = []
-    for lineno, substrat in appels_substrat(tree):
-        pdeb, pnom = portee_de(portees, lineno)
-        cands = [d for d in decls if pdeb <= d[0] <= lineno]
-        decl = cands[-1] if cands else None
-        out.append({"fichier": "<self>", "ligne": lineno, "portee": pnom, "substrat": substrat,
-                    "regime_substrat": SUBSTRATS[substrat],
-                    "litteral": decl[1] if decl else None,
-                    "ligne_decl": decl[0] if decl else None, "effect_types": []})
-    return out
+_SELF_DOC_ECARTEE = '''
+def _porte(state, uid):
+    """`DSLTriggers$$HasEffect(sel, 1013, onlyActive, 6)` -> `HasOneOfEffects(...)`.
+
+    Le litteral vaut ici `onlyActive = 0` : le natif ne consulte pas `IsActive @+0x5c`.
+    """
+    return state.effects.has_effect(uid, effect_type=1013)
+'''
+
+_SELF_INLINE = '''
+def _porte(state, uid):
+    """`HasEffect(Owner, 0x4cb, onlyActive: false, 6)` -- PRESENCE seule."""
+    return any(e.effect_type == 0x4cb and e.active for e in state.effects.by_unit.get(uid, []))
+'''
 
 
 def self_test(verbose: bool) -> int:
+    """Un cliquet dont le detecteur a cesse de mordre rend VERT sur un depot fautif : l'auto-test
+    fait partie du verdict, il n'est pas un mode a part."""
     ko = 0
     cas = [
-        ("conforme (onlyActive true -> active_effects)", _SELF_OK, 0),
-        ("fautif   (onlyActive true -> has_effect)", _SELF_KO, 1),
-        ("contraste (la 2e mention ne doit PAS s'attacher)", _SELF_CONTRASTE, 0),
+        ("conforme  (onlyActive true -> active_effects)", _SELF_OK, 0, "true"),
+        ("fautif    (onlyActive true -> has_effect)", _SELF_KO, 1, "true"),
+        ("contraste (la 2e mention ne s'attache PAS)", _SELF_CONTRASTE, 0, "false"),
+        ("mode 2    (litteral loin du token, en docstring)", _SELF_DOC_ECARTEE, 0, "0"),
+        ("inline    (`by_unit` + `.active` : RECENSE, jamais rouge)", _SELF_INLINE, 0, "false"),
     ]
-    for nom, src, attendu in cas:
-        sites = _analyse_source(src)
+    for nom, src, attendu, lit_attendu in cas:
+        sites = inventaire_source(src, "<self>")
         got = len(conformite(sites))
-        etat = "OK " if got == attendu else "KO "
-        if got != attendu:
+        lit = sites[0]["litteral"] if sites else None
+        bon = (got == attendu) and (lit == lit_attendu)
+        if not bon:
             ko += 1
-        if verbose or got != attendu:
-            print("  [self-test] %s %-52s attendu=%d obtenu=%d" % (etat, nom, attendu, got))
-    # Le cas CONTRASTE doit en plus avoir attache le litteral `false`, pas `true`.
-    s = _analyse_source(_SELF_CONTRASTE)
-    lit = s[0]["litteral"] if s else None
-    if lit != "false":
-        print("  [self-test] KO  le litteral attache au cas CONTRASTE est %r, attendu 'false'" % lit)
-        ko += 1
-    elif verbose:
-        print("  [self-test] OK  litteral attache au cas CONTRASTE = 'false'")
+        if verbose or not bon:
+            print("  [self-test] %s %-52s rouges attendu=%d obtenu=%d | litteral attendu=%r "
+                  "obtenu=%r" % ("OK " if bon else "KO ", nom, attendu, got, lit_attendu, lit))
     return ko
 
 
@@ -374,24 +576,25 @@ def main() -> int:
     non_dec = [s for s in sites if s["litteral"] is None]
     cibles = [s for s in sites if s["regime_substrat"] == "TARGET"]
 
-    print("\n[1] INVENTAIRE -- %d appel(s) de substrat sous engine/, dont %d PORTE(S) "
-          "(litteral attache)" % (len(sites), len(declares)))
-    print("    %-58s %-6s %-9s %s" % ("fichier::portee", "lit.", "substrat", "effectType(s) cites"))
-    print("    " + "-" * 86)
+    print("\n[1] INVENTAIRE -- %d lecture(s) d'effet sous engine/, dont %d PORTE(S) "
+          "(litteral `onlyActive` attache)" % (len(sites), len(declares)))
+    print("    %-52s %-5s %-6s %-9s %s"
+          % ("fichier::portee", "lit.", "mode", "substrat", "effectType(s)"))
+    print("    " + "-" * 92)
     for s in sorted(declares, key=lambda x: (x["fichier"], x["ligne"])):
         rel = s["fichier"].replace("scripts/python/engine/", "")
-        print("    %-58s %-6s %-9s %s" % (
-            ("%s::%s" % (rel, s["portee"]))[:58], s["litteral"],
-            "PRESENCE" if s["regime_substrat"] == "PRESENCE" else s["regime_substrat"][:9],
-            ", ".join(s["effect_types"][:4]) or "-"))
-    print("    -> %d call-site(s) PRESENCE (onlyActive 0/false/null), %d ACTIVITE (1/true), "
+        print("    %-52s %-5s %-6s %-9s %s" % (
+            ("%s::%s" % (rel, s["portee"]))[:52], s["litteral"], "mode%d" % s["mode"],
+            s["regime_substrat"][:9], ", ".join(s["effect_types"][:3]) or "-"))
+    print("    -> %d PRESENCE (onlyActive 0/false/null), %d ACTIVITE (1/true), %d INLINE, "
           "%d branche TARGET" % (
               sum(1 for s in declares if s["regime_substrat"] == "PRESENCE"),
               sum(1 for s in declares if s["regime_substrat"] == "ACTIVITE"),
+              sum(1 for s in declares if s["regime_substrat"] == "INLINE"),
               sum(1 for s in declares if s["regime_substrat"] == "TARGET")))
-    print("    -> %d appel(s) NON DECLARE(S) (aucun noeud `HasEffect` cite en portee) -- "
+    print("    -> %d lecture(s) NON DECLAREE(S) (aucun noeud `HasEffect` cite en portee) -- "
           "hors gisement, residu #443-r2-c1" % len(non_dec))
-    print("    -> %d appel(s) sur la branche `IsTargetOfEffect` (active-only INCONDITIONNEL "
+    print("    -> %d lecture(s) sur la branche `IsTargetOfEffect` (active-only INCONDITIONNEL "
           "cote natif : `onlyActive` ne la traverse pas)" % len(cibles))
     if args.verbose:
         print("\n    --- NON DECLARES ---")
@@ -415,8 +618,26 @@ def main() -> int:
     print("    SEED : canal `decisionView { includeInactive: true }` "
           "(`runner/snapshot.py::decision_view_seed_body`) -- GENERIQUE, tout effectType.")
 
+    att = atteignabilite(sites, vec)
+    print("\n[3] ATTEIGNABILITE -- un etat PRESENT-mais-INACTIF est-il atteignable "
+          "a chaque call-site PORTE ?")
+    print("    %-52s %-5s %-11s %s" % ("fichier::portee", "lit.", "atteignable", "via"))
+    print("    " + "-" * 92)
+    for s in sorted(att, key=lambda x: (x["atteignabilite"] != "FLAG", x["fichier"], x["ligne"])):
+        rel = s["fichier"].replace("scripts/python/engine/", "")
+        via = ", ".join(dict.fromkeys(
+            [v if isinstance(v, str) else (v.get("classe") or v.get("code", ""))[:34]
+             for v in s["via"]])) if s["via"] else "-"
+        print("    %-52s %-5s %-11s %s" % (("%s::%s" % (rel, s["portee"]))[:52], s["litteral"],
+                                           s["atteignabilite"], via[:32]))
+    print("    -> %d FLAG (regime atteignable EN JEU), %d CONDITION, %d SEED, %d INDETERMINE"
+          % (sum(1 for s in att if s["atteignabilite"] == "FLAG"),
+             sum(1 for s in att if s["atteignabilite"] == "CONDITION"),
+             sum(1 for s in att if s["atteignabilite"] == "SEED"),
+             sum(1 for s in att if s["atteignabilite"] == "INDETERMINE")))
+
     ko = conformite(sites)
-    print("\n[3] CONFORMITE substrat <-> litteral -- %d ecart(s)" % len(ko))
+    print("\n[4] CONFORMITE substrat <-> litteral -- %d ecart(s)" % len(ko))
     for s in ko:
         rel = s["fichier"].replace("scripts/python/engine/", "")
         print("      ROUGE %s::%s L%d -- litteral `onlyActive=%s` (regime %s) mais substrat "
