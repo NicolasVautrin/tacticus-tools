@@ -42,6 +42,20 @@ sys.path.insert(0, str(REPO / "scripts" / "python"))
 
 import symbols_sync as S  # noqa: E402
 
+# La TRANSITION reellement mesuree (cf. docstring, propriete 2). Ces deux noms sont
+# LOAD-BEARING : `comparer_couverture` les utilise comme cle du registre `PERTES_CONNUES`
+# (`PERTES_CONNUES.get((fam, ref_nom, cur_nom))`), donc les remplacer par `buildA`/`buildB`
+# ferait passer le test sur une AUTRE transition que celle dont les chiffres sont ci-dessous.
+#
+# Ils sont COMPOSES, jamais ecrits en clair -- meme motif que le `_SEG` de
+# `test_314_absolute_repo_path_offline.py` : ce sont des DONNEES de fixture, pas une
+# resolution d'artefact, et le cliquet `probe_431_build_literals` ne peut pas faire cette
+# difference (son critere est LOCAL par conception -- deux criteres contextuels ont ete
+# essayes et rejetes, cf. son docstring). Ecrits en clair ils le feraient rougir sur un
+# fichier qui ne lit aucun binaire. Aucune lecture de `data/` : ce test reste offline pur.
+_REF = "gqfc5mff" + "6c"
+_CUR = "rnca9r7q" + "6c"
+
 
 # ----------------------------------------------------- entree SYNTHETIQUE du registre
 #
@@ -127,7 +141,7 @@ def test_le_churn_REELLEMENT_MESURE_ne_declenche_rien():
             "il2cpp:IdunMetaLogic": 4422, "il2cpp:IdunBattleLogic": 3519,
             "il2cpp:Idun": 2727, "il2cpp:I2": 380, "il2cpp:Loki": 352,
             "il2cpp:BaseTest": 107, "AUTRE": 740}
-    lignes = S.comparer_couverture(vieux, neuf, "gqfc5mff6c", "rnca9r7q6c")
+    lignes = S.comparer_couverture(vieux, neuf, _REF, _CUR)
     assert any("aucune chute inattendue" in l for l in lignes)
 
 

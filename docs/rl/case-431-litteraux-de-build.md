@@ -2,6 +2,13 @@
 
 > Build courant `rnca9r7q6c`. Etat FINAL au 2026-08-01. Cliquet : `probe_431_build_literals.py --cliquet`.
 
+> ⚠ **Le PERIMETRE de ce cliquet a ete refait le 2026-08-02 (#458)** : ses globs passaient par
+> `Path.match`, qui ne developpe pas `**`, et **967 fichiers versionnes tombaient dans AUCUN seau**
+> — tout `scripts/python/engine/**`, tout `tests/**`, et par le HAUT `frida/host/router.ts`,
+> `frida/hooks/main.ts`. Le perimetre se derive desormais de l'**extension**, et une etape 0
+> **prouve la couverture**. Les comptes de la §1 ci-dessous sont ceux de l'ancien perimetre.
+> Detail et re-mesures : **`docs/rl/case-458-perimetre-derive-du-cliquet-431.md`**.
+
 ## 1. Le recensement, re-derive
 
 **Les 5 probes** qui construisaient le chemin du `GameAssembly.dll` de `gqfc5mff6c` :

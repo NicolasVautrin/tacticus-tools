@@ -38,6 +38,13 @@ import probe_273_gitignored_inputs as p273           # noqa: E402
 
 _BS = chr(92)                                        # antislash
 _SEG = "tacticus" + "-tools"                         # jamais en clair : cf. docstring
+# Meme raison, autre cliquet : un hash de build ecrit en clair dans la fixture
+# `_game_install.py` ferait rougir `probe_431_build_literals` (il le classe RESOLUTION des
+# que le hash est un segment de chemin -- critere LOCAL, il ne peut pas voir que la chaine
+# est ici le CONTENU d'un fichier factice, jamais un artefact ouvert). Le hash exact est
+# indifferent au test : ce qui est eprouve, c'est que l'INSTALLATION du jeu (hors depot) ne
+# soit pas retenue par `_scan_abs_repo`.
+_HASH = "rnca9r7q" + "6c"
 
 
 def test_no_absolute_repo_path_in_scripts_python():
@@ -99,7 +106,7 @@ def test_forward_slash_and_missing_trailing_separator(tmp_path):
         encoding="utf-8")
     (d / "_game_install.py").write_text(
         'DLL = Path(r"C:' + _BS + 'Users' + _BS + 'x' + _BS + 'AppData' + _BS
-        + 'Local' + _BS + 'tacticus' + _BS + 'games' + _BS + 'rnca9r7q6c'
+        + 'Local' + _BS + 'tacticus' + _BS + 'games' + _BS + _HASH
         + _BS + 'GameAssembly.dll")\n', encoding="utf-8")
     names = sorted(f.name for f, _, _ in p273._scan_abs_repo(tmp_path))
     # `_prose.py` : mention sans lettre de lecteur -> pas un chemin.

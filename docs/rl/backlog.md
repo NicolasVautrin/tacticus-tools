@@ -1933,14 +1933,21 @@ Détail, mesures et scénarios de mutation reproductibles :
 5 risques HAUTS, **4 sont des périmètres, pas des critères**. Un périmètre trop étroit ne rend
 pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
 
-- **`probe_431` : `Path.match` n'étend pas `**` récursivement — 900 fichiers dans AUCUN seau.** `[opus]`
-  Mesuré : 1577 `.py` suivis sous `scripts/`, 677 atteints par `EXEC_GLOBS`, donc tout
-  `scripts/python/engine/**` et `scripts/python/tests/**` est hors périmètre effectif ; et ces
-  fichiers ne tombent pas dans la face PROSE (`.py` absent de `PROSE_EXT`). **316** d'entre eux
-  citent déjà un hash de build. Mutation qui reste VERTE : écrire
-  `data/symbols/gqfc5mff6c/frida/functions.tsv` dans un fichier d'`engine/`. Correctif :
-  `full_match` (3.13+) ou `fnmatch` sur le chemin POSIX — plus une contre-épreuve qui compte les
-  fichiers balayés dans les deux formes.
+- ~~**`probe_431` : `Path.match` n'étend pas `**` récursivement.**~~ **FERMÉ (2026-08-02, #458)** —
+  `docs/rl/case-458-perimetre-derive-du-cliquet-431.md`. Le mécanisme est confirmé, **trois des
+  quatre chiffres annoncés étaient faux** (1 592 et non 1 577 ; 909 et non 900 ; **284** et non 316
+  — seul « tout `engine/**` », 364/364, était exact), et le trou était **bilatéral** : 950 fichiers
+  *trop profonds*, mais aussi **17 ratés par le haut** (le `**` exige un segment), dont
+  `frida/host/router.ts`, `frida/host/index.ts`, `frida/hooks/main.ts` — que l'audit, borné à
+  `scripts/`, n'avait pas vus. **967 fichiers hors de tout seau au total.**
+  **Sur ce gisement neuf : zéro rouge réel.** 278 des 284 citations sont en prose ; les 17
+  RESOLUTION restantes sont des **données de fixture** dans 3 fichiers de test (dont l'auto-test du
+  cliquet lui-même). Correctif livré : le périmètre se dérive de l'**extension** (plus aucune racine
+  saisie — la liste n'avait jamais couvert `scripts/frida/*.js`, `scripts/node/*.mjs`, `lib/*.py`,
+  `frida/tools/*.ts`) et une **étape 0 de COUVERTURE** rougit sur toute extension hors des trois
+  seaux. Seau EXEC 903 → **1 928**, non classés 967 → **0**, et le cliquet est **plus rapide**
+  (33,1 → 28,6 s : le `Path.match` coûtait plus que le gisement qu'il ratait). Résidus `#458-r1`
+  à `#458-r3` en §8 de la fiche.
 
 - **`probe_283` : `ENUMS` est mécaniquement dérivable, et se périme au moment où il sert.** `[opus]`
   Les 4 enums renumérotés sont le résultat exact d'un calcul que le fichier sait déjà faire

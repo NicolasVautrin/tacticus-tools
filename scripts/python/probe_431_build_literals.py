@@ -101,17 +101,80 @@ SEPARATORS = ("/", "\\")
 # l'arbre plutot que d'une liste d'exceptions a maintenir.
 FOYER_CALLS = ("require_pinned", "archived_build")
 
-# Sources EXECUTABLES versionnees. `data/symbols/<hash>/` est exclu : ces tables PORTENT le
-# hash de leur propre build, c'est leur identite, pas une citation.
-EXEC_GLOBS = ("scripts/**/*.py", "frida/hooks/**/*.ts", "frida/host/**/*.ts",
-              "frida/public/**/*.js", ".claude/**/*.js", "hooks-legacy/**/*.js")
-PROSE_EXT = {".md", ".txt", ".tsv", ".json"}
+# --------------------------------------------------------- LE PERIMETRE : DERIVE, PAS SAISI
+#
+# CE QUI ETAIT ECRIT ICI, ET POURQUOI C'ETAIT UN VERT FAUX (#458)
+# ----------------------------------------------------------------
+# Le perimetre etait une liste de GLOBS passes a `Path.match` :
+#
+#     EXEC_GLOBS = ("scripts/**/*.py", "frida/hooks/**/*.ts", ...)
+#     any(Path(rel).match(g) for g in EXEC_GLOBS)
+#
+# `PurePath.match` ne developpe PAS `**` recursivement -- il le traite comme UN segment, et
+# il matche depuis la DROITE (`full_match`, qui le developpe, n'existe qu'a partir de 3.13 et
+# n'etait pas appele ici). Le motif `scripts/**/*.py` selectionnait donc EXACTEMENT les
+# fichiers a profondeur 3, ni plus ni moins. Le trou etait BILATERAL, et sa moitie haute
+# n'avait meme pas ete soupconnee :
+#
+#   * TROP PROFOND -- 950 fichiers, dont l'INTEGRALITE de `scripts/python/engine/**` (364) et
+#     de `scripts/python/tests/**` (544) ;
+#   * PAS ASSEZ PROFOND -- 17 fichiers a la racine meme du glob, parce que le `**` exige un
+#     segment : `frida/host/router.ts`, `frida/host/index.ts`, `frida/hooks/main.ts`,
+#     `frida/public/app.js`... c'est-a-dire le coeur du host et du hook.
+#
+# Total : 967 fichiers versionnes dans AUCUN seau -- ni EXECUTABLE, ni PROSE. Le probe les
+# lisait (`tracked_files` les rendait), puis les jetait en silence, et imprimait un
+# denominateur qui avait l'air d'une couverture.
+#
+# LA CORRECTION : L'EXTENSION, ET RIEN D'AUTRE
+# ---------------------------------------------
+# Une liste de RACINES est un inventaire a maintenir -- elle se perime des qu'un repertoire
+# nait, et sa peremption est MUETTE. `scripts/frida/*.js` (les scripts Frida vivants, que
+# `CLAUDE.md` nomme), `scripts/node/*.mjs`, `lib/*.py`, `frida/tools/*.ts` n'y ont jamais
+# figure. Le seul critere qui ne se perime pas est l'EXTENSION : elle dit quel analyseur sait
+# lire le fichier, ce qui est exactement la question posee.
+#
+# Et parce qu'une table d'extensions peut elle aussi se perimer, l'etape 0 la CONFRONTE a
+# l'arbre : toute extension presente dans le depot et absente des trois seaux fait ROUGIR
+# (mecanisme #421 -- prouver la couverture dans le MEME processus que la conformite).
+#
+# `data/symbols/<hash>/` est exclu : ces tables PORTENT le hash de leur propre build, c'est
+# leur identite, pas une citation. `.claude/worktrees/` l'est au titre de #434 -- et le filtre
+# porte sur le chemin RELATIF (`rel.startswith`), jamais sur les segments d'un chemin absolu :
+# depuis un worktree, `git ls-files` ne rend que CE checkout et le prefixe n'apparait pas, donc
+# le probe ne s'auto-exclut pas (le faux vert a 0 fichier mesure par #440).
 EXCLUDED_PREFIXES = ("data/symbols/", ".claude/worktrees/", "node_modules/", "frida/dist/")
 
-TS_COMMENT = re.compile(r"^\s*(//|/\*|\*)")
-# Commentaire de FIN DE LIGNE : `case "X": // retire par <hash>`. Sans ce retrait, une
-# estampille en commentaire de queue passe pour du code (mesure : `battle-log.js:242`).
-TS_TRAILING_COMMENT = re.compile(r"//.*$")
+# (ligne ENTIEREMENT commentaire, commentaire de FIN DE LIGNE) par famille de syntaxe.
+# Le second compte autant que le premier : `case "X": // retire par <hash>` ferait passer une
+# estampille de queue pour du code (mesure : `battle-log.js:242`).
+_SLASH = (re.compile(r"^\s*(//|/\*|\*)"), re.compile(r"//.*$"))
+_DIESE = (re.compile(r"^\s*#"), re.compile(r"#.*$"))
+_TIRET = (re.compile(r"^\s*--"), re.compile(r"--.*$"))
+
+# Extension -> comment la lire. `None` = AST (exact, .py seulement) ; un couple = heuristique
+# de ligne, ANNONCEE comme telle. Ajouter une extension ici est le geste normal quand l'arbre
+# en accueille une : l'etape 0 le RECLAME, elle ne le devine pas.
+EXT_EXEC = {
+    ".py": None,
+    ".ts": _SLASH, ".js": _SLASH, ".mjs": _SLASH, ".cjs": _SLASH, ".java": _SLASH,
+    ".ps1": _DIESE,
+    ".sql": _TIRET,
+}
+PROSE_EXT = {".md", ".txt", ".tsv", ".json"}
+# Ni code ni prose : aucun hash n'y a de sens executable, et on le DECLARE plutot que de
+# laisser ces fichiers tomber dans un trou muet.
+NEUTRE_EXT = {".css", ".html", ".ini", ".example", ""}
+
+# Le fichier qui IMPORTE ce module est son AUTO-TEST : il porte, par construction, un exemple
+# de CHAQUE classe que le cliquet distingue -- c'est precisement ce qui prouve que le
+# classifieur mord (`classify` est parametre sur des chaines qui SONT des hashes et sur des
+# chemins d'artefact ; `scan_python` est confronte a une source factice qui en contient).
+# Le faire rougir dessus, ce serait faire rougir le cliquet sur la preuve qu'il rougit.
+# L'exemption se DERIVE du nom du module courant -- elle ne se saisit pas -- et elle est
+# IMPRIMEE a chaque run : un fichier qui s'y glisserait pour se taire se verrait.
+# Pendant exact de `probe_440` (<< le probe n'a pas besoin de s'exempter lui-meme >>).
+AUTO_TEST_MODULE = Path(__file__).stem
 
 
 def classify(text: str, start: int, end: int) -> str:
@@ -178,14 +241,34 @@ def _foyer_controlled(tree: ast.AST) -> set[int]:
     return out
 
 
-def scan_python(rel: str, text: str) -> list[tuple[int, str, str, str]]:
+def importe_le_cliquet(tree: ast.AST) -> bool:
+    """Le fichier importe-t-il CE module ? (cf. `AUTO_TEST_MODULE`)"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(a.name == AUTO_TEST_MODULE for a in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == AUTO_TEST_MODULE:
+                return True
+    return False
+
+
+def scan_python(rel: str, text: str,
+                auto_tests: list | None = None) -> list[tuple[int, str, str, str]]:
     """[(ligne, hash, RESOLUTION|MESSAGE, extrait)] des hashes en position EXECUTABLE.
 
     L'AST est la source de verite : un commentaire n'y est pas, un docstring y est mais
     s'identifie a sa position. Un fichier qui ne parse pas est REMONTE, pas ignore -- un
     parse rate qui rendrait zero serait exactement le faux negatif qu'on chasse.
+
+    `auto_tests` (optionnel) recueille les fichiers exemptes au titre d'AUTO-TEST, pour que
+    le run les IMPRIME : une exemption muette est une allowlist deguisee.
     """
     tree = ast.parse(text, filename=rel)
+    if importe_le_cliquet(tree):
+        if auto_tests is not None:
+            auto_tests.append(rel)
+        return []
     docs = _docstring_nodes(tree)
     foyer = _foyer_controlled(tree)
     lines = text.splitlines()
@@ -215,24 +298,45 @@ def scan_python(rel: str, text: str) -> list[tuple[int, str, str, str]]:
     return out
 
 
-def scan_textual(rel: str, text: str, comment_re) -> list[tuple[int, str, str, str]]:
-    """Meme sortie, par HEURISTIQUE de ligne (pas d'AST) -- pour `.ts` / `.js`."""
+def scan_textual(rel: str, text: str, commentaires) -> list[tuple[int, str, str, str]]:
+    """Meme sortie, par HEURISTIQUE de ligne (pas d'AST) -- tout ce qui n'est pas `.py`.
+
+    `commentaires` = (ligne entierement commentaire, commentaire de fin de ligne), pris dans
+    `EXT_EXEC` selon l'extension : les familles `//`, `#` et `--` ne se melangent pas.
+    """
+    ligne_re, queue_re = commentaires
     out = []
     for lineno, brut in enumerate(text.splitlines(), 1):
-        if comment_re.search(brut):
+        if ligne_re.search(brut):
             continue
-        line = TS_TRAILING_COMMENT.sub("", brut)
+        line = queue_re.sub("", brut)
         for m in BUILD_RE.finditer(line):
             kind = classify(line, m.start(1), m.end(1))
             out.append((lineno, m.group(1), kind, " ".join(brut.split())[:110]))
     return out
 
 
-def is_exec(rel: str) -> bool:
-    p = Path(rel)
+def seau(rel: str) -> str:
+    """`EXEC` | `PROSE` | `NEUTRE` | `INCONNU` -- la classification est TOTALE.
+
+    `INCONNU` n'est pas un silence : c'est ce que l'etape 0 fait ROUGIR. C'est la difference
+    exacte avec l'ancien `Path.match`, qui laissait 967 fichiers hors de tout seau sans rien
+    en dire.
+    """
     if any(rel.startswith(x) for x in EXCLUDED_PREFIXES):
-        return False
-    return any(Path(rel).match(g) for g in EXEC_GLOBS)
+        return "NEUTRE"
+    ext = Path(rel).suffix.lower()
+    if ext in EXT_EXEC:
+        return "EXEC"
+    if ext in PROSE_EXT:
+        return "PROSE"
+    if ext in NEUTRE_EXT:
+        return "NEUTRE"
+    return "INCONNU"
+
+
+def is_exec(rel: str) -> bool:
+    return seau(rel) == "EXEC"
 
 
 def main() -> int:
@@ -255,40 +359,70 @@ def main() -> int:
     prose_files: Counter = Counter()
     prose_hash: Counter = Counter()
     exec_files: set[str] = set()
+    auto_tests: list[str] = []
+    inconnues: dict[str, list[str]] = defaultdict(list)
+    par_seau: Counter = Counter()
     n_exec_scanned = n_prose_scanned = 0
 
     for rel in files:
-        if any(rel.startswith(x) for x in EXCLUDED_PREFIXES):
+        s = seau(rel)
+        par_seau[s] += 1
+        if s == "INCONNU":
+            inconnues[Path(rel).suffix.lower() or "(sans extension)"].append(rel)
+            continue
+        if s == "NEUTRE":
             continue
         p = REPO / rel
         try:
             text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        if not BUILD_RE.search(text):
-            # pas de hash du tout -> on ne compte que le denominateur
-            if is_exec(rel):
-                n_exec_scanned += 1
-            elif p.suffix.lower() in PROSE_EXT:
-                n_prose_scanned += 1
-            continue
-        if is_exec(rel):
+        if s == "EXEC":
             n_exec_scanned += 1
+            if not BUILD_RE.search(text):
+                continue                          # pas de hash -> denominateur seulement
+            commentaires = EXT_EXEC[Path(rel).suffix.lower()]
             try:
-                hits = (scan_python(rel, text) if rel.endswith(".py")
-                        else scan_textual(rel, text, TS_COMMENT))
+                hits = (scan_python(rel, text, auto_tests) if commentaires is None
+                        else scan_textual(rel, text, commentaires))
             except SyntaxError as exc:
                 parse_errors.append((rel, str(exc)))
                 continue
             for lineno, h, kind, ctx in hits:
                 exec_hits.append((rel, lineno, h, kind, ctx))
                 exec_files.add(rel)
-        elif p.suffix.lower() in PROSE_EXT:
+        else:                                     # PROSE
             n_prose_scanned += 1
-            n = len(BUILD_RE.findall(text))
-            prose_files[rel] += n
-            for h in BUILD_RE.findall(text):
+            if not BUILD_RE.search(text):
+                continue
+            trouves = BUILD_RE.findall(text)
+            prose_files[rel] += len(trouves)
+            for h in trouves:
                 prose_hash[h] += 1
+
+    # ----------------------------------------------------------------- (0) COUVERTURE
+    # Le cliquet PROUVE qu'il voit son gisement, dans le MEME processus que la conformite
+    # (#421). Sans cette etape, un fichier hors de tout seau est indiscernable d'un fichier
+    # propre -- c'est litteralement ce qui a rendu ce probe VERT sur 967 fichiers (#458).
+    print("=== (0) COUVERTURE DU PERIMETRE (derive de l'EXTENSION, pas d'une liste de racines) ===")
+    print("fichiers suivis                  : %d" % len(files))
+    print("  seau EXECUTABLE                : %d" % par_seau["EXEC"])
+    print("  seau PROSE                     : %d" % par_seau["PROSE"])
+    print("  NEUTRE (ni code ni prose, exclus): %d" % par_seau["NEUTRE"])
+    print("  NON CLASSES                    : %d" % par_seau["INCONNU"])
+    if inconnues:
+        print("  !! extension(s) presente(s) dans l'arbre et dans AUCUN seau :")
+        for ext, rels in sorted(inconnues.items()):
+            avec = sum(1 for r in rels
+                       if BUILD_RE.search((REPO / r).read_text(encoding="utf-8", errors="replace")))
+            print("     %-12s %d fichier(s), dont %d citant un hash -- ex. %s"
+                  % (ext, len(rels), avec, rels[0]))
+    if auto_tests:
+        print("  exempte(s) comme AUTO-TEST (importe(nt) %s) : %d"
+              % (AUTO_TEST_MODULE, len(auto_tests)))
+        for rel in sorted(auto_tests):
+            print("     %s" % rel)
+    print("")
 
     # ------------------------------------------------------------------ (1) EXECUTABLE
     reso = [h for h in exec_hits if h[3] == "RESOLUTION"]
@@ -304,16 +438,22 @@ def main() -> int:
         for rel, exc in parse_errors:
             print("     %s : %s" % (rel, exc[:90]))
     print("")
+    # ⚠ CHEMIN ENTIER, JAMAIS TRONQUE. Ces lignes portaient `rel[:58]`, ce qui convenait a
+    # l'ancien perimetre (profondeur 3 imposee par `Path.match`). Sur le perimetre derive,
+    # 641 des 1928 chemins depassent 58 caracteres -- pour un tiers du gisement, le cliquet
+    # rougissait donc SANS NOMMER le fichier fautif, la troncature emportant jusqu'au nom de
+    # base. Trouve par contre-epreuve adversariale, pas par relecture : les trois cibles de
+    # mutation du test avaient toutes un chemin plus court que la troncature.
     if reso:
         print("  --- RESOLUTIONS (chacune resout un artefact du jeu par un hash en dur) ---")
         for rel, lineno, h, _k, ctx in sorted(reso):
             drapeau = "PERIME" if h != courant else "epingle-au-courant"
-            print("    %-58s:%-5d [%s %s]" % (rel[:58], lineno, h, drapeau))
+            print("    %s:%d  [%s %s]" % (rel, lineno, h, drapeau))
             print("        %s" % ctx)
     if msg and args.list_messages:
         print("  --- MESSAGES (litteral executable, mais ne resout aucun artefact) ---")
         for rel, lineno, h, _k, ctx in sorted(msg):
-            print("    %-58s:%-5d [%s]  %s" % (rel[:58], lineno, h, ctx[:60]))
+            print("    %s:%d  [%s]  %s" % (rel, lineno, h, ctx[:60]))
     print("")
 
     # ---------------------------------------------------------------------- (2) PROSE
@@ -327,7 +467,7 @@ def main() -> int:
     print("")
     print("  top fichiers par volume :")
     for rel, n in prose_files.most_common(args.top):
-        print("    %-70s %d" % (rel[:70], n))
+        print("    %-70s %d" % (rel, n))
     if len(prose_files) > args.top:
         print("    ... et %d autre(s) fichier(s)" % (len(prose_files) - args.top))
     print("")
@@ -337,14 +477,27 @@ def main() -> int:
     print("")
 
     if args.cliquet:
+        ko = 0
+        if inconnues:
+            ko += len(inconnues)
+            print("CLIQUET ROUGE : %d extension(s) hors de tout seau -- le perimetre a un TROU."
+                  % len(inconnues))
+            print("  Un fichier non classe n'est pas un fichier propre : il n'est PAS LU, et le")
+            print("  denominateur imprime plus haut se lit quand meme comme une couverture.")
+            print("  C'est le vice mesure par #458 (967 fichiers, dont tout scripts/python/engine).")
+            print("  Classer l'extension dans `EXT_EXEC` (avec sa syntaxe de commentaire),")
+            print("  `PROSE_EXT` ou `NEUTRE_EXT` -- selon qu'un hash y designe, y mentionne, ou rien.")
         if reso:
+            ko += len(reso)
             print("CLIQUET ROUGE : %d resolution(s) d'artefact par hash de build en dur." % len(reso))
             print("  Un chemin en dur court-circuite `data/symbols/CURRENT` ET le binaire installe :")
             print("  aucune garde de synchronisation ne peut le voir. Passer par `build_pin` :")
             print("      from build_pin import game_dll, functions_tsv, install_dir")
             print("  et, pour des VA/ordinaux transcrits a la main, `build_pin.require_pinned`.")
+        if ko:
             return 1
-        print("CLIQUET VERT : aucune resolution d'artefact par hash de build en dur.")
+        print("CLIQUET VERT : perimetre integralement classe, aucune resolution d'artefact"
+              " par hash de build en dur.")
     return 0
 
 

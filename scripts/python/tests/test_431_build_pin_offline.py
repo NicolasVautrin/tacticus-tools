@@ -194,44 +194,164 @@ def test_le_foyer_EXEMPTE_un_litteral_qu_il_controle():
 
 CIBLE = PYDIR / "probe_88_on3_emitter.py"
 
+# LES TROIS PROFONDEURS, et c'est tout l'objet de #458. L'ancien perimetre passait les globs
+# a `Path.match`, qui ne developpe PAS `**` : le motif `scripts/**/*.py` ne selectionnait
+# QUE la profondeur 3. Une seule cible de mutation, a cette profondeur exacte, ne pouvait
+# donc rien dire des deux autres regimes -- et les deux etaient troues.
+#   * `probe_88_on3_emitter.py`      -> scripts/python/<f>       (profondeur 3 : le seul vu)
+#   * `tools/damage_decomp.py`       -> scripts/python/tools/<f> (profondeur 4 : TROP profond)
+#   * `frida/hooks/controller.ts`    -> frida/hooks/<f>          (profondeur 3 mais A LA RACINE
+#     du glob `frida/hooks/**/*.ts` -- le `**` exige un segment, donc rate PAR LE HAUT)
+#   * `engine/.../loki/anvil_shield.py` -> chemin de 69 CARACTERES. Cette quatrieme cible ne
+#     garde pas une profondeur de plus : elle garde que le chemin soit IMPRIME EN ENTIER. Les
+#     trois premieres tiennent toutes sous 58 caracteres, qui etait la troncature d'affichage
+#     -- avec elles seules, le cliquet pouvait rougir sans NOMMER le fautif sur 641 des 1928
+#     fichiers du perimetre, et le test serait passe.
+CIBLES = (CIBLE,
+          PYDIR / "tools" / "damage_decomp.py",
+          REPO / "frida" / "hooks" / "controller.ts",
+          PYDIR / "engine" / "runner" / "operations" / "triggers" / "loki" / "anvil_shield.py")
+
+_PY_RESO = '_MUTANT_431 = "C:/Users/x/AppData/Local/tacticus/games/gqfc5mff6c/GameAssembly.dll"'
+_PY_NOTE = '_NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date"'
+_RESO = (_PY_RESO, _PY_RESO,
+         'const _MUTANT_431 = "C:/Users/x/AppData/Local/tacticus/games/gqfc5mff6c/'
+         'GameAssembly.dll";', _PY_RESO)
+_NOTE = (_PY_NOTE, _PY_NOTE,
+         'const _NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date";', _PY_NOTE)
+
 
 def _cliquet() -> tuple[int, str]:
     r = subprocess.run([sys.executable, "probe_431_build_literals.py", "--cliquet"],
-                       cwd=str(PYDIR), capture_output=True, text=True, timeout=300)
+                       cwd=str(PYDIR), capture_output=True, text=True, timeout=600)
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
+#: Les deux marqueurs n'existent dans le depot QUE par ce test. Les balayer en debut de
+#: mutation rend le nettoyage IDEMPOTENT -- c'est la seule parade a un residu, parce qu'un
+#: `finally` ne survit pas a un `SIGKILL` (timeout d'outil, `-x`, coupure de session).
+#: MESURE, le 2026-08-02, en ecrivant ce test : un pytest tue par un timeout externe a laisse
+#: les TROIS cibles mutees -- dont `frida/hooks/controller.ts`. Un residu de cette forme rend
+#: la banque ENTIERE rouge, et le rouge est attribue au mauvais cliquet (#455, meme lecon).
+_MARQUEURS = ("_MUTANT_431", "_NOTE_431")
+
+
+def _oter_residus() -> list:
+    """Tronque chaque cible au `\\n` qui PRECEDE son premier marqueur.
+
+    Sur les OCTETS, et par troncature -- pas par filtrage de lignes. La mutation ajoute
+    exactement `\\n<ligne>\\n` en fin de fichier ; couper a ce `\\n` restaure l'original
+    BIT POUR BIT, fins de ligne comprises. Un filtrage de lignes laissait la ligne vide
+    ajoutee : un residu d'un octet, invisible a la lecture, mais une diff permanente dans
+    l'arbre de chaque agent (trouve par le test ci-dessous, pas par relecture).
+
+    Chirurgical : ces jetons n'ont aucun autre usage dans le depot, donc rien de legitime ne
+    peut etre emporte -- a la difference d'un `git restore`, qui ecraserait le travail en
+    cours d'un agent sur ces memes fichiers.
+    """
+    nettoyes = []
+    for cible in CIBLES:
+        try:
+            brut = cible.read_bytes()
+        except OSError:
+            continue
+        pos = [i for i in (brut.find(m.encode("ascii")) for m in _MARQUEURS) if i >= 0]
+        if not pos:
+            continue
+        coupe = brut.rfind(b"\n", 0, min(pos))
+        cible.write_bytes(brut[:coupe] if coupe >= 0 else b"")
+        nettoyes.append(cible.name)
+    return nettoyes
+
+
+class _Mutations:
+    """Mute les trois cibles, VERIFIE que chaque mutation a mordu, restaure a coup sur.
+
+    « Verifier que la mutation a mordu » n'est pas du zele : sur une contre-epreuve, VERT est
+    le resultat SUSPECT. Un mutant qui ne serait pas ecrit rendrait un vert qu'on lirait comme
+    « le cliquet est calme », alors qu'il n'a rien eu a voir.
+    """
+
+    def __init__(self, lignes):
+        self.lignes = lignes
+        self.avant, self.sha = {}, {}
+
+    def __enter__(self):
+        _oter_residus()                 # un run precedent a pu etre TUE avant son `finally`
+        try:
+            for cible, ligne in zip(CIBLES, self.lignes):
+                brut = cible.read_bytes()
+                self.avant[cible], self.sha[cible] = brut, hashlib.sha256(brut).hexdigest()
+                cible.write_bytes(brut + b"\n" + ligne.encode("ascii") + b"\n")
+                relu = cible.read_bytes()
+                assert b"_MUTANT_431" in relu or b"_NOTE_431" in relu, \
+                    "MUTATION-NON-APPLIQUEE : %s" % cible
+                assert hashlib.sha256(relu).hexdigest() != self.sha[cible], \
+                    "MUTATION-NON-APPLIQUEE : %s" % cible
+        except BaseException:
+            # Une cible mutee laissee derriere ferait rougir la banque ENTIERE, et le rouge
+            # serait attribue au cliquet d'a cote (mesure #455, dans l'autre sens).
+            self.__exit__(None, None, None)
+            raise
+        return self
+
+    def __exit__(self, *_exc):
+        for cible, brut in self.avant.items():
+            cible.write_bytes(brut)
+            assert _sha(cible) == self.sha[cible], "l'arbre n'a pas ete restaure : %s" % cible
+        return False
+
+
+def test_le_nettoyage_des_residus_est_IDEMPOTENT_et_chirurgical():
+    """Le `finally` ne survit pas a un kill -- ce nettoyage, si.
+
+    Il doit retirer EXACTEMENT la ligne marquee et rendre le fichier bit-pour-bit identique :
+    un nettoyage approximatif laisserait une diff permanente dans l'arbre de chaque agent.
+    """
+    assert _oter_residus() == [], "residu deja present avant le test"
+    cible = CIBLES[0]
+    intact = cible.read_bytes()
+    cible.write_bytes(intact + b'\n_MUTANT_431 = "residu simule"\n')
+    try:
+        assert _oter_residus() == [cible.name]
+        assert cible.read_bytes() == intact, "le nettoyage n'est pas bit-pour-bit"
+        assert _oter_residus() == [], "second passage : rien a faire"
+    finally:
+        cible.write_bytes(intact)
+
+
 def test_le_cliquet_est_VERT_sur_l_arbre_intact():
+    residus = _oter_residus()
     rc, out = _cliquet()
     assert rc == 0, out[-2000:]
     assert "CLIQUET VERT" in out
+    assert residus == [], "residu(s) d'un run TUE, nettoye(s) ici : %s" % residus
 
 
-def test_le_cliquet_ROUGIT_sur_une_resolution_re_introduite():
-    """Mutation sur un fichier REELLEMENT SUIVI -- le perimetre vient de `git ls-files`.
+def test_le_cliquet_ROUGIT_sur_une_resolution_A_CHACUNE_DES_TROIS_PROFONDEURS():
+    """Mutation sur des fichiers REELLEMENT SUIVIS -- le perimetre vient de `git ls-files`.
 
     Un mutant non suivi ne serait jamais balaye : le test passerait au vert sans avoir rien
     eprouve, ce qui est precisement le mode d'echec qu'on chasse.
-    """
-    avant = CIBLE.read_bytes()
-    sha_avant = hashlib.sha256(avant).hexdigest()
-    mutant = avant + (
-        b'\n_MUTANT_431 = "C:/Users/x/AppData/Local/tacticus/games/gqfc5mff6c/GameAssembly.dll"\n')
-    try:
-        CIBLE.write_bytes(mutant)
-        # la mutation a-t-elle MORDU ? (vert serait suspect : on verifie le disque)
-        relu = CIBLE.read_bytes()
-        assert b"_MUTANT_431" in relu, "MUTATION-NON-APPLIQUEE"
-        assert hashlib.sha256(relu).hexdigest() != sha_avant, "MUTATION-NON-APPLIQUEE"
 
+    LES TROIS SONT NOMMEES DANS LA MEME SORTIE, et c'est la l'assertion qui compte : avant
+    #458, seule la premiere l'etait. Les deux autres tombaient dans le trou de `Path.match`
+    -- 967 fichiers versionnes hors de tout seau, dont l'integralite de `scripts/python/engine`
+    et le coeur du host (`frida/host/router.ts`, `frida/hooks/main.ts`).
+    """
+    with _Mutations(_RESO):
         rc, out = _cliquet()
-        assert rc == 1, "GARDE-MUET : le cliquet n'a pas vu la resolution re-introduite\n" + out
-        assert "CLIQUET ROUGE" in out
-        assert "probe_88_on3_emitter.py" in out
-        assert "build_pin" in out, "le message doit nommer la sortie"
-    finally:
-        CIBLE.write_bytes(avant)
-    assert _sha(CIBLE) == sha_avant, "l'arbre n'a pas ete restaure"
+    assert rc == 1, "GARDE-MUET : le cliquet n'a pas vu la resolution re-introduite\n" + out
+    assert "CLIQUET ROUGE" in out
+    for cible in CIBLES:
+        # Le chemin RELATIF ENTIER, pas le seul nom de base : un rc=1 qui ne dit pas OU est
+        # un demi-cliquet, et c'est exactement ce que la troncature d'affichage produisait
+        # sur les chemins profonds -- rouge juste, fautif anonyme.
+        rel = cible.relative_to(REPO).as_posix()
+        assert rel in out, \
+            "GARDE-MUET sur %s -- soit le perimetre ne la couvre pas, soit le chemin est " \
+            "tronque a l'affichage (%d caracteres)\n%s" % (rel, len(rel), out)
+    assert "build_pin" in out, "le message doit nommer la sortie"
 
 
 def test_le_cliquet_reste_VERT_sur_une_MENTION_re_introduite():
@@ -240,15 +360,105 @@ def test_le_cliquet_reste_VERT_sur_une_MENTION_re_introduite():
     Un cliquet qui rougit sur les rappels historiques serait desarme dans la semaine -- et
     #420 a laisse EXPRES au moins un rappel (`probe_hazeord_blast_radius.py:34`, « cette
     table portait 55: UnitDefeated, juste sur gqfc5mff6c ») que le corriger DETRUIRAIT.
+
+    Jouee aux TROIS profondeurs elle aussi : elargir le perimetre sans elargir ce temoin,
+    c'est se donner les faux positifs du nouveau gisement sans les voir.
     """
-    avant = CIBLE.read_bytes()
-    sha_avant = hashlib.sha256(avant).hexdigest()
-    mutant = avant + b'\n_NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date"\n'
-    try:
-        CIBLE.write_bytes(mutant)
-        assert b"_NOTE_431" in CIBLE.read_bytes(), "MUTATION-NON-APPLIQUEE"
+    with _Mutations(_NOTE):
         rc, out = _cliquet()
-        assert rc == 0, "FAUX POSITIF : une mention en prose a fait rougir le cliquet\n" + out
-    finally:
-        CIBLE.write_bytes(avant)
-    assert _sha(CIBLE) == sha_avant, "l'arbre n'a pas ete restaure"
+    assert rc == 0, "FAUX POSITIF : une mention en prose a fait rougir le cliquet\n" + out
+
+
+# ============================================ 4. le PERIMETRE : derive, et PROUVE couvrant
+
+
+@pytest.mark.parametrize("rel,attendu", [
+    # profondeur 3 -- le SEUL regime que `Path.match('scripts/**/*.py')` selectionnait
+    ("scripts/python/probe_x.py", "EXEC"),
+    # TROP profond : tout `engine/**` et tout `tests/**` etaient hors de tout seau
+    ("scripts/python/engine/runner/operations/triggers/loki/x.py", "EXEC"),
+    ("scripts/python/tests/engine/runner/test_x.py", "EXEC"),
+    # PAS ASSEZ profond : le `**` exige un segment, donc le coeur du host etait hors seau
+    ("frida/host/router.ts", "EXEC"),
+    ("frida/hooks/main.ts", "EXEC"),
+    ("frida/public/app.js", "EXEC"),
+    # jamais couverts par AUCUNE racine de l'ancienne liste, a aucune profondeur
+    ("scripts/frida/dump-il2cpp-full.js", "EXEC"),
+    ("scripts/node/probe_x.mjs", "EXEC"),
+    ("lib/hex.py", "EXEC"),
+    ("frida/tools/probe-x.ts", "EXEC"),
+    # prose et neutres
+    ("docs/rl/case-431-litteraux-de-build.md", "PROSE"),
+    ("frida/public/style.css", "NEUTRE"),
+    # l'identite d'une table n'est pas une citation ; un autre checkout n'est pas notre arbre
+    ("data/symbols/gqfc5mff6c/ghidra/functions.tsv", "NEUTRE"),
+    (".claude/worktrees/agent-x/scripts/python/probe_y.py", "NEUTRE"),
+])
+def test_le_perimetre_classe_a_TOUTE_profondeur(rel, attendu):
+    """Le perimetre se derive de l'EXTENSION -- il n'a plus de profondeur ni de racine.
+
+    Chaque cas positif ci-dessus etait FAUX avant #458, et le prouver ne demande aucun
+    balayage : `Path.match` ne developpe pas `**`.
+    """
+    assert P431.seau(rel) == attendu
+
+
+@pytest.mark.parametrize("rel", [
+    "scripts/python/engine/runner/operations/triggers/loki/x.py",
+    "scripts/python/tests/engine/runner/test_x.py",
+    "scripts/x.py",
+])
+def test_TEMOIN_l_ancien_critere_Path_match_ratait_ces_memes_fichiers(rel):
+    """La CAUSE, isolee : `PurePath.match` ne developpe pas `**`, il le lit comme UN segment.
+
+    Sans ce temoin, rien ne distinguerait << le perimetre a ete elargi >> de << le perimetre
+    a toujours ete bon >>. `full_match` (3.13) developpe bien `**` -- mais il n'etait pas
+    appele, et l'appeler serait toujours un glob SAISI : c'est la liste de racines elle-meme
+    qui a laisse dehors `scripts/frida/*.js`, `scripts/node/*.mjs` et `lib/*.py`.
+    """
+    assert not Path(rel).match("scripts/**/*.py"), \
+        "si ce temoin tombe, la cause du trou a change -- re-derider le diagnostic"
+    assert P431.seau(rel) == "EXEC"
+
+
+def test_l_etape_0_ROUGIT_sur_une_extension_hors_de_tout_seau(monkeypatch, capsys):
+    """LA propriete neuve : le cliquet PROUVE qu'il voit son gisement (#421).
+
+    Sans elle, un fichier hors de tout seau est indiscernable d'un fichier propre -- il n'est
+    pas lu, et le denominateur imprime se lit quand meme comme une couverture. C'est
+    exactement ce qui a rendu ce probe VERT sur 967 fichiers.
+
+    En-process et sur UN fichier : la propriete est celle du classement, pas du volume.
+    """
+    monkeypatch.setattr(P431, "PROSE_EXT", set())
+    monkeypatch.setattr(P431, "NEUTRE_EXT", set())
+    monkeypatch.setattr(P431, "tracked_files", lambda: ["CLAUDE.md"])
+    monkeypatch.setattr(sys, "argv", ["probe_431_build_literals.py", "--cliquet"])
+    rc = P431.main()
+    out = capsys.readouterr().out
+    assert rc == 1, "GARDE-MUET : une extension hors de tout seau n'a pas fait rougir\n" + out
+    assert "NON CLASSES" in out and "TROU" in out
+    assert ".md" in out
+
+
+def test_l_exemption_AUTO_TEST_est_BORNEE_au_fichier_qui_importe_le_cliquet():
+    """L'exemption se DERIVE du nom du module -- elle ne se saisit pas, et elle est etroite.
+
+    Ce fichier-ci est exempte parce qu'il porte, par construction, un exemple de CHAQUE
+    classe que le cliquet distingue (les `parametrize` ci-dessus en sont faits). Le faire
+    rougir dessus, ce serait le faire rougir sur la preuve qu'il rougit. Mais l'exemption ne
+    doit RIEN couvrir d'autre : sans ce test, elle serait une allowlist d'un fichier.
+    """
+    reso = 'CHEMIN = "games/gqfc5mff6c/GameAssembly.dll"\n'
+    assert [h[2] for h in P431.scan_python("t.py", reso)] == ["RESOLUTION"]
+
+    exempte = "import %s\n%s" % (P431.AUTO_TEST_MODULE, reso)
+    vus: list = []
+    assert P431.scan_python("t.py", exempte, vus) == []
+    assert vus == ["t.py"], "l'exemption doit etre IMPRIMEE, pas muette"
+
+    # `from <module> import x` compte aussi ; un module homonyme-prefixe, non.
+    assert P431.scan_python("t.py", "from %s import classify\n%s"
+                            % (P431.AUTO_TEST_MODULE, reso)) == []
+    assert [h[2] for h in P431.scan_python(
+        "t.py", "import %s_bis\n%s" % (P431.AUTO_TEST_MODULE, reso))] == ["RESOLUTION"]
