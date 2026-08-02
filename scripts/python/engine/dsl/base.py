@@ -326,8 +326,42 @@ class Const(AAmountFormula):
 
 
 def _pos(u):
+    """MAIN TILE d'une entite (`IdunBattle.Entities.EntityExtensions$$GetMainTile`, = la tuile du
+    PREMIER pied). ⚠ N'EST PAS l'empreinte : tout noeud dont le natif passe par `GetTiles` /
+    `TargetsSelector$$SelectTiles` doit lire `_feet` ci-dessous, pas ceci (#433-r3-r1)."""
     p = u.get("pos") if u else None
     return (p["col"], p["row"]) if p else None
+
+
+def _feet(u) -> list:
+    """EMPREINTE d'une entite = `IdunBattle.Entities.EntityExtensions$$GetTiles(entity, state)`, la
+    materialisation en liste de `$$IterateTiles` : les tuiles de TOUS les pieds, dans l'ordre des
+    pieds (donc `feet[0]` EST la main tile). C'est ce que rend
+    `IdunBattle.DSL.TargetsSelector$$SelectTiles(entities)` pour chaque entite selectionnee :
+
+        sel = Select(entities);
+        if (<this est deja un selecteur de TUILES>) return sel;
+        foreach (entity in sel) foreach (tile in EntityExtensions.IterateTiles(entity, state))
+            out.Add(tile);
+        return out;
+
+    -- a ne pas confondre avec `$$SelectTile` (SINGULIER), qui rend `GetMainTile(entity)`.
+
+    SUBSTRAT : le dict d'unite porte `feet` (liste de `(col,row)`) des qu'il vient du runner
+    (`runner/abilities/behaviours/context.py::_unit_dict`, alimente par `get_unit_feet`, #R30/#91).
+    Un dict SANS `feet` -- face DECISION (scene de playbook/prediction), contexte de test -- retombe
+    sur `[_pos(u)]` : c'est la MAIN TILE seule, donc une DEGRADATION documentee et non un mirror.
+    Elle est EXACTE pour toute unite mono-tuile (le natif rend alors lui aussi un seul pied) et ne
+    peut diverger que sur une unite multi-hex, ou elle refuse ce que le natif accorde par un autre
+    pied. Entite sans position du tout -> `[]` (le natif rend une liste vide, et ses consommateurs
+    -- `AreTilesAdjacent(IList,IList)`, `GetMinDistance` -- ne bouclent alors sur rien)."""
+    if not u:
+        return []
+    feet = u.get("feet")
+    if feet:
+        return [(int(f[0]), int(f[1])) for f in feet]
+    p = _pos(u)
+    return [] if p is None else [p]
 
 
 def _tile_enum_rank(board, center, radius, order) -> dict:

@@ -9,7 +9,7 @@ Selectors,Behaviours}` -> `entities/{formulas,triggers,selectors,behaviours}.py`
 """
 from .base import *  # noqa: F401,F403
 from .base import (  # noqa: F401
-    AAmountFormula, AbilityTrigger, TargetsSelector, DslContext, Const, _pos, _within,
+    AAmountFormula, AbilityTrigger, TargetsSelector, DslContext, Const, _pos, _feet, _within,
     _round_fix64, _c_mod, _same_entity, _units_of, _effect_field, _is_alive, _default_get_stat,
 )
 from .effects import AbilityBehaviour, OperationResult, ExecutionContext  # noqa: F401

@@ -175,12 +175,18 @@ tombent, couvrant les trois termes ET la branche sans board.
 
 ## 7. Résidus NOMMÉS
 
-* **`#433-r3-r1` — EMPREINTES.** Le natif compare `GetTiles(x) × GetTiles(y)`, l'empreinte complète
-  d'une unité multi-hex ; le port collapse chaque entité sur sa MAIN TILE (`dsl/base.py::_pos`),
-  comme **tous** les nœuds frères du DSL (`IsInRange`, `IsSurrounding`, `IsCharging`). Identique à
-  un pied ; au-delà, le port peut refuser une adjacence que le natif accorde par un autre pied.
-  Le foyer `runner/abilities/targeting.py::are_entities_adjacent` porte, lui, les empreintes (#R30) :
-  la voie existe, c'est la couche DSL qui ne les expose pas.
+* **`#433-r3-r1` — EMPREINTES. FERMÉ pour CINQ nœuds — `docs/rl/case-433-r3-r1-empreintes-dsl.md`.**
+  Le natif compare bien `GetTiles(x) × GetTiles(y)`, et `IsInRange`/`IsSurrounding`/`IsCharging`/
+  `MinDistance` relèvent du même traitement (chacun LU, aucun déduit d'`IsAdjacent`). Les cinq
+  passent désormais par `dsl/base.py::_feet` et par le foyer unique
+  `services/battle_query.py::are_entities_adjacent`, qui délègue à
+  `runner/abilities/targeting.py::are_entities_adjacent` (#R30). Confronté LIVE (Galatian 3 pieds ×
+  `VigilanceEternal`).
+  ⚠ Le « comme tous les nœuds frères » écrit ici était une PISTE, et le balayage AST l'a réfutée
+  dans les deux sens : le périmètre réel est de **24 nœuds**, pas 4 ; `IsSurrounding` s'est révélé
+  être **la même classe native** qu'`IsInRange` ; et `IsInRange` porte un quirk que rien n'annonçait
+  (sélecteur vide → VRAI). **14 sélecteurs restent divergents**, classés par gravité dans la
+  case-doc (résidu `#433-r3-r1a`) — le foyer est la résolution de l'occupant d'une tuile.
 * **`#433-r3-r2` — `UnitSelectionType` non consommé.** Le 3ᵉ argument est stocké et inerte ; la
   couche sélecteur du port n'applique aucun filtre `OnlyAlive`/`OnlyTargetable` à ce titre. Observable
   seulement si un sélecteur pouvait rendre une entité morte ou non ciblable là où le natif la

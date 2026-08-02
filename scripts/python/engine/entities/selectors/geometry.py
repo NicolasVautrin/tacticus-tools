@@ -10,8 +10,8 @@ from dataclasses import replace
 import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
-from ...dsl.base import (TargetsSelector, Const, _pos, _within, _is_alive, _units_of, _effect_field,
-                         resolve_unit)
+from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
+                         _effect_field, resolve_unit)
 from ._shared import _entity_pos, _tile_positions
 
 
@@ -112,11 +112,7 @@ class ThreeTileUnitSpawnShape(TargetsSelector):
         for u in ctx.units:
             if not _is_alive(u):
                 continue
-            feet = (u or {}).get("feet")
-            if not feet:
-                p = _pos(u)
-                feet = [] if p is None else [p]
-            for f in feet:
+            for f in _feet(u):                            # `GetTiles` (repli main tile documente)
                 occ.add((int(f[0]), int(f[1])))
         anchors = _tile_positions(self.inner, ctx, board)
         if not anchors:                                   # `tile == null` -> liste VIDE
