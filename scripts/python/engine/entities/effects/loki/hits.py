@@ -890,7 +890,10 @@ class LightCoverEffect(BaseEffect):
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
-                                             dist: int | None = None) -> EffectBonus | None:
+                                             dist: int | None = None,
+                                             is_normal_attack: bool = True) -> EffectBonus | None:
+        # PAS de gate `IsNormalAttack` : le trigger natif n'a QUE `OwnerIsTarget(tuiles egales) &
+        # !IsMeleeAttack` -- la reduction porte aussi sur les attaques d'ABILITY.
         if is_melee:                        # trigger natif = !IsMeleeAttack (IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack)
             return None
         if defender_on_cover is False:      # AreEqual(coverPatch, target) FAUX : cible hors tuile de cover
@@ -911,7 +914,9 @@ class ParryEffect(BaseEffect):
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
-                                             dist: int | None = None) -> EffectBonus | None:
+                                             dist: int | None = None,
+                                             is_normal_attack: bool = True) -> EffectBonus | None:
+        # PAS de gate `IsNormalAttack` : le trigger natif n'a QUE `OwnerIsTarget & IsMeleeAttack`.
         if not is_melee:                    # trigger natif = IsMeleeAttack (IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack)
             return None
         n = trait_var("Parry", "parryHitReduction")  # miroir du ConfigConst 0x2c (=1)
@@ -947,8 +952,9 @@ class DiminutiveHitReductionEffect(BaseEffect):
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
-                                             dist: int | None = None) -> EffectBonus | None:
-        # trigger natif = OwnerIsTarget SEUL (IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack) : AUCUN gate melee/ranged, aucun gate profil.
+                                             dist: int | None = None,
+                                             is_normal_attack: bool = True) -> EffectBonus | None:
+        # trigger natif = OwnerIsTarget SEUL (IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack) : AUCUN gate melee/ranged, aucun gate profil, aucun gate IsNormalAttack.
         n = trait_var("Diminutive", "diminutiveHitReduction")   # ConfigConst 0x2c (=1)
         return for_addition(True, -int(n)) if n else None
 
@@ -989,7 +995,9 @@ class CamouflageHitReductionEffect(BaseEffect):
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
-                                             dist: int | None = None) -> EffectBonus | None:
+                                             dist: int | None = None,
+                                             is_normal_attack: bool = True) -> EffectBonus | None:
+        # PAS de gate `IsNormalAttack` : le trigger natif n'a QUE `OwnerIsTarget & IsRangedAttack`.
         # #122 : trigger `OwnerIsTarget & IsRangedAttack` (LU au decompile) ->
         # `BattleQuery$$IsRangedAttack`, VRAI pour le SEUL `attackRangeType = Ranged` (et pour `Normal`
         # hors-melee). `is_melee = None` = nature NON DECLAREE (`rangeType 0`) : le natif y rend FAUX
@@ -1078,7 +1086,7 @@ class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
 
 # Cle du sac `PersistentDataComponent` armee par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour`
 # (`SetPersistentData(AbilityOrEffect(0x5ca=1482), Self@0x148, Get(<champ statique IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$.cctor>),
-# Direct(1)@0xc0)`) et lue par `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData` dans le gate de
+# Direct(1)@0xc0)`) et lue par `IdunBattleLogic.Entities.DSLTriggers$$IsPersistentData` dans le gate de
 # `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`. Le tuple = la cle composite native
 # (AbilityOrEffect, nom de la donnee) ; PARTAGEE entre le poseur (runner/.../let_the_galaxy_burn.py),
 # le nettoyeur (Reset) et ce lecteur -> une seule source de verite.
@@ -1185,7 +1193,7 @@ class LetTheGalaxyBurnEffect(BaseEffect):
         tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
         on_tile_fx = bool(set((tfx or {}).get(tuple(tp)) or ()) & TILE_STATUS_EFFECT_NAMES) \
             if (tfx is not None and tp is not None) else False
-        # `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData(0x5ca, Self@0x148, Get(<statique>)) — flag intra-attaque arme par
+        # `IdunBattleLogic.Entities.DSLTriggers$$IsPersistentData(0x5ca, Self@0x148, Get(<statique>)) — flag intra-attaque arme par
         # le trigger de pose (33%) et efface en fin d'attaque par le Reset IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour.
         armed = LET_THE_GALAXY_BURN_PERSISTENT_KEY in (c.get("persistent_data") or ())
         if not (on_tile_fx or armed):
@@ -1440,7 +1448,7 @@ class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
                                             att_ctx: "Mapping | None" = None) -> EffectBonus | None:
-        # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging -> BattleQuery$$IsCharging).
+        # IsCharging (IdunBattleLogic.Entities.DSLTriggers$$IsCharging -> BattleQuery$$IsCharging).
         # PAS de gate is_normal_attack / is_melee : le decompile n'a QUE ces deux noeuds.
         if not is_charging_attack(att_ctx):
             return None
@@ -1518,7 +1526,7 @@ class UnstoppableFerocityOwnerEffect(BaseEffect):
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
                                             att_ctx: "Mapping | None" = None) -> EffectBonus | None:
-        # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging -> BattleQuery$$IsCharging).
+        # IsCharging (IdunBattleLogic.Entities.DSLTriggers$$IsCharging -> BattleQuery$$IsCharging).
         # PAS de gate is_normal_attack / is_melee : le decompile n'a QUE ces deux noeuds.
         if not is_charging_attack(att_ctx):
             return None
@@ -1818,3 +1826,106 @@ class Swarm_HitReductionEffect(BaseEffect):
 
     def get_stat_modification_amount(self) -> "int | None":
         return self._bound_amount
+
+
+class ShroudPsalmEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.ShroudPsalmEffect` (EffectType 0x556 = 1366 `ShroudPsalm`) --
+    MALUS DEFENSEUR de coups, gate ATTAQUE NORMALE. #419-r1-tr9-r4-r1-r2.
+
+    Natif, relu au decompile (2026-08-02, `rnca9r7q6c`) --
+    `IdunBattle.Entities.Effects.Loki.ShroudPsalmEffect$$CreateEffectHitsBonusForAttack` :
+
+        EffectBonus.ForAdditionWithMinimum(
+            trigger  = get_OwnerIsTarget & IsNormalAttack,
+            addition = Negative(Get(GetNumberConstant(config, 0x2c = hitsReduction))),
+            minimum  = Get(1))
+
+    Les DEUX noeuds du trigger sont lus dans cet ordre exact
+    (`IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsTarget` puis
+    `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack`, joints par
+    `IdunBattle.DSL.AbilityTrigger$$op_BitwiseAnd`). AUCUN noeud melee/ranged, AUCUN gate de profil,
+    AUCUN gate de distance : la reduction porte sur TOUTE attaque NORMALE recue par le porteur.
+    `IdunBattleLogic.Entities.DSLFormulas$$Get(int)` a le MEME corps que `$$Direct(int)` (meme classe
+    de formule `DAT_183395500`, meme ctor) -- c'est une constante directe, pas un acces indexe.
+
+    MAGNITUDE : `GetNumberConstant(0x2c)` = la CONSTANTE `hitsReduction` de l'ability `ShroudPsalm`
+    (= **2**, meme slot 0x2c que `parryHitReduction` / `camouflageHitReduction_1` /
+    `diminutiveHitReduction` / `FightingRetreat.hitsReduction`). Constante, donc jamais indexee par
+    niveau ni scalee par le multiplier de rarete.
+    i2 : << Up to 2 other friendly units gain 2 levels of Machine Vengeance and are affected by
+    Shroud Psalm until the start of their next turn. Affected units have +728 Armour and normal
+    attacks against them score -2 hits, to a minimum of 1. >>
+
+    QUI POSE L'EFFET (#436 -- un effet au registre sans poseur reste inerte en silence) :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ShroudPsalmAbility$$ExecuteBehaviour`, sur le
+    selecteur `First(SortByFormula(Randomize(Friends(Caster, AllUnits - Caster, 3))), <formule>,
+    ConfigConst(0x11 = nrOfTargets = 2))` -- donc **jusqu'a 2 ALLIES du caster, caster EXCLU**, pour
+    `TurnsFromRounds(1)`. Le meme `ExecuteBehaviour` pose deux AUTRES effets sur les memes cibles :
+    `AddStaticStatModifierEffect(., 0x55a = 1370 ShroudPsalm_Armor, stat 0x10, ConfigVar(0x1b =
+    extraArmor[L]))` et `AddEffect(0x555 = 1365 MachineVengeance, ., Get(ConfigConst 0x73))`. Seul
+    0x556 porte le canal COUPS.
+
+    PLANCHER `minimum = Get(1)` : le natif l'applique DANS
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`, juste apres l'addition du bonus
+    concerne -- `hits = Math.Max(hits, Math.Min(base, minimum))`. Le port l'approxime par le plancher
+    GLOBAL `max(min(1, base), .)` de `services.attack_hits_formula` : identique tant que tous les
+    minimums valent 1 (c'est le cas de TOUS les porteurs du canal : Parry, LightCover, Camouflage,
+    Diminutive, BigTarget, FightingRetreat, ShroudPsalm). Le port INTEGRAL du clamp par-effet reste
+    le chantier separe deja nomme dans l'entete de `attack_hits_formula`."""
+
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
+                                             damage_profile: str | None = None,
+                                             defender_on_cover: bool | None = None,
+                                             dist: int | None = None,
+                                             is_normal_attack: bool = True) -> EffectBonus | None:
+        # trigger natif = `get_OwnerIsTarget & IsNormalAttack` : le SEUL gate est la nature du
+        # VECTEUR (attaque normale vs attaque d'ABILITY). Aucun gate melee/ranged.
+        if not is_normal_attack:
+            return None
+        n = ability_var("ShroudPsalm", "hitsReduction", is_constant=True)   # ConfigConst 0x2c (=2)
+        return for_addition(True, -int(n)) if n else None
+
+
+class VoltagheistFieldExtraHitEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.VoltagheistField_ExtraHitEffect` (EffectType 0x565 = 1381
+    `VoltagheistField_ExtraHit`) -- +coups de l'ATTAQUANT, gate ATTAQUE NORMALE.
+    #419-r1-tr9-r4-r1-r2 ; jumeau STRUCTUREL exact de `PowerTrip_FullHealthEffect` (memes deux noeuds,
+    ordre inverse, meme cle de constante).
+
+    Natif, relu au decompile (2026-08-02, `rnca9r7q6c`) --
+    `IdunBattle.Entities.Effects.Loki.VoltagheistField_ExtraHitEffect$$CreateEffectHitsBonusForAttack` :
+
+        EffectBonus.ForAddition(
+            trigger  = get_OwnerIsCaster & IsNormalAttack,
+            addition = Get(GetNumberConstant(config, 0x2b = extraHit)))
+
+    PAS de `minimum` (`ForAddition`, pas `ForAdditionWithMinimum`) -- coherent : c'est une addition.
+    MAGNITUDE : constante `extraHit` de l'ability `VoltagheistField` = **1** (meme cle 0x2b que
+    `PowerTrip.extraHit` / `Waaagh.extraHit` / `UnstoppableFerocity.extraHit`).
+    i2 : << If Health is restored to this unit, the amount restored is reduced by 50% and it then
+    scores +1 hit with normal attacks until the end of its turn. >>
+
+    QUI POSE L'EFFET (#436) :
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.VoltagheistField_OnRepairAbility` --
+    `CreateTrigger` = `On(0x30 = 48 UnitRepaired) & get_OwnerIsTarget` (le porteur du passif est la
+    CIBLE du soin), `CreateBehaviour` = `AddEffect(0x565, <abilityStateRef>, Target, Owner,
+    <duree UntilEndOfTurn>)`. L'effet n'existe donc QUE dans la fenetre qui suit un soin recu.
+    La seconde moitie du passif (`-50%` sur le montant soigne) est l'effet SEPARE 0x566 = 1382
+    `VoltagheistField_RepairReduction`
+    (`IdunBattle.Entities.Effects.Loki.VoltagheistField_RepairReductionEffect$$CreateEffectRepairBonus`),
+    canal REPAIR -- hors du canal COUPS, non porte ici.
+
+    PORTEURS : `admecNpc3Electropriest` / `admecNpc3ElectropriestSurv` (npc) et
+    `admecSmnElectropriest` (summon d'ENVIRONNEMENT -- son unique invocateur est l'ability
+    `EnvFactionSummons:AdeptusMechanicus`, portee par aucune unite). Confrontation = greffe du PASSIF
+    sur une unite du pool (`catalog_inject.graft_passive_ability`) + un soin recu."""
+
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: "Mapping | None" = None) -> EffectBonus | None:
+        # trigger natif = `get_OwnerIsCaster & IsNormalAttack` : ce canal n'est evalue QUE pour
+        # l'attaque du PORTEUR (get_OwnerIsCaster implicitement vrai, meme traitement que
+        # `PowerTripFullHealthEffect`), le seul gate restant est la nature du vecteur.
+        if not is_normal_attack:
+            return None
+        n = ability_var("VoltagheistField", "extraHit", is_constant=True)   # ConfigConst 0x2b (=1)
+        return for_addition(True, int(n)) if n else None
