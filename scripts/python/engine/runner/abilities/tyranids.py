@@ -37,7 +37,7 @@ from .behaviours import (entities_from_state, AddEffect, RemoveAllForcedAttackTa
                          RemoveUnitFromItsTiles, TriggerAbility)
 from .targeting import RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
-from ..components import OwnerComponent, StatsComponent, get_unit_feet
+from ..components import OwnerComponent, StatsComponent, get_unit_feet, is_teleporting
 from ...dsl.base import Const
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import If as IfBehaviour, op_add
@@ -434,12 +434,12 @@ class FearOfTheUnseenAbility(ActiveAbility):
         (Effect@0x150), dsl@0xc0 = 1)`, et le pathfinder dedie
         `IdunBattle.Entities.Pathfinding.FearOfTheUnseenPathfinder$$IsValidTeleportTile` -- est un
         sous-systeme MOUVEMENT separe, non porte.
-      * `$$GetDynamicInvalidCasterReason` = `IsTeleporting(caster) ? 4 : 0` : cette regle-delegue
-        CASTER n'est PAS invoquee par la cascade de REFUS (le bit `CasterMatchesDynamicRule` 0x4
-        n'est pas dans le masque), elle l'est par le constructeur de LISTE de cibles via
-        `AddCasterIfMatchesDynamicRule` (0x8), etage non porte (`get_caster_not_added_reason` rend 0,
-        permissif documente). Consequence : offline, un cast depuis le Deep Strike n'est pas refuse
-        alors que le natif le refuse -- ecart du cote PERMISSIF, nomme.
+      * `$$GetDynamicInvalidCasterReason` = `IsTeleporting(caster) ? 4 : 0` -- ⚠ FICHE CORRIGEE
+        (#447) : ce residu est FERME. La regle-delegue CASTER n'est effectivement PAS invoquee par
+        `GetInvalidCasterReason` (le bit `CasterMatchesDynamicRule` 0x4 n'est pas dans le masque) ;
+        elle l'est par `TargetingQuery$$GetCasterNotAddedReason` sous
+        `AddCasterIfMatchesDynamicRule` (0x8), etage DESORMAIS porte -- cf.
+        `targeting.get_caster_not_added_reason` et `get_dynamic_invalid_caster_reason` ci-dessous.
       * Le `Maybe(GetFleeChance)` de `BattleFatigueAbility$$CreateBehaviour` garde son residu
         pre-existant : la feuille `TriggerAbility` (behaviours/lifecycle.py) RESOUT et TRACE le set
         declenche mais ne DISPATCHE pas 1025 -- `GetFleeChance` lit une `AbilityConfiguration` absente
@@ -464,6 +464,33 @@ class FearOfTheUnseenAbility(ActiveAbility):
     TARGETING_OPTIONS = TargetingOptions(
         rules=TR.AddCasterIfMatchesDynamicRule | TR.CasterHasNotMoved,
         self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_caster_reason(self, state: "State", caster_id: int) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$GetDynamicInvalidCasterReason`
+        — mirror 1:1 du decompile, qui tient en une ligne :
+
+            return -(uint)(IsTeleporting(caster, state) != 0) & 4;
+
+        soit `IsTeleporting(caster) ? 4 : 0`, et `4` est le litteral
+        `TargetingRule.CasterMatchesDynamicRule` (le natif rend le code de la DELEGUE tel quel, cf.
+        `targeting.get_caster_not_added_reason`).
+
+        QUI L'INVOQUE : **pas** `GetInvalidCasterReason` -- le masque `0x18` de cette ability ne pose
+        PAS le bit `CasterMatchesDynamicRule` (0x4). C'est `TargetingQuery$$GetCasterNotAddedReason`,
+        sous le bit `AddCasterIfMatchesDynamicRule` (0x8), atteint parce que 1115 est SELF-CASTEE et
+        que la cible du cast est son propre caster.
+
+        CE QUE CA REFUSE, en clair : le cast de `FearOfTheUnseen` pendant que le Deathleaper est en
+        **DEEP STRIKE** (`TeleportStrike_TeleportingIn` 0x40b au deploiement, ou
+        `FearOfTheUnseen_TeleportingIn` 0x4d6 apres un premier cast). C'est litteralement le « and is
+        not in Deep Strike » du texte i2 de l'ability -- l'autre moitie, « has not moved this turn »,
+        etant le bit `CasterHasNotMoved` (0x10) du meme masque, deja porte.
+
+        MESURE (#447, `probe_447_add_caster_dynamic_rule.py`, board MC1_67 / seed 777) : au tour de
+        deploiement le natif rend **0 cible** pour 1115 (`abilityTargets.fromHere`), et **1** (le
+        caster) une fois `TeleportStrike_TeleportingIn` expire. Le port rendait `0` (= valide) dans
+        les DEUX regimes : c'est la degradation permissive que ce port ferme."""
+        return int(TR.CasterMatchesDynamicRule) if is_teleporting(state, caster_id) else 0
 
     def _range(self) -> int:
         """`GetNumberConstant(config, 0x16)` = `constants.range` (CONSTANTE, pas une variable par

@@ -86,6 +86,23 @@ class Role:
     # domaine TUILE rend le litteral `1` = `ValidRequest`, jamais `TargetIsTile`. Un audit qui
     # chercherait « le port rend-il `TargetIsTile` ? » conclurait donc a tort au non-port.
     reason_code: Optional[str] = None
+    # (fonction du PORT, jeton a y trouver) -- pour les regles qui ne sont JAMAIS un code de refus.
+    #
+    # POURQUOI CE CHAMP (#447). Le critere de derivation « le port peut RENDRE `int(TR.<X>)` » est
+    # le bon pour l'ecrasante majorite des regles, mais il est STRUCTURELLEMENT aveugle a deux
+    # familles -- parce que le NATIF LUI-MEME ne rend jamais leur code :
+    #   * les COURT-CIRCUITS (`AddCaster`) : le bit fait rendre VALIDE, jamais un refus ;
+    #   * les POINTS D'EXTENSION (`TargetMatchesDynamicRule`, `CasterMatchesDynamicRule`,
+    #     `AddCasterIfMatchesDynamicRule`) : le natif rend le code de la DELEGUE tel quel
+    #     (`return GenericBrokenTargetingRule(r)`), donc le bit n'est qu'un AIGUILLAGE.
+    # Pour ces quatre-la, « portee » se derive autrement : la fonction nommee ici doit contenir le
+    # jeton nomme ici -- soit un APPEL (`get_dynamic_invalid_caster_reason(...)`), soit un
+    # `TR.<jeton>` (le test du bit). La granularite est la FONCTION PORTEUSE, ce qui est
+    # essentiel : `get_dynamic_invalid_caster_reason` est appele par DEUX foyers distincts
+    # (`get_invalid_caster_reason` sous le bit 2, `get_caster_not_added_reason` sous le bit 3), et
+    # un critere « la methode est appelee quelque part » compterait le second porte alors que seul
+    # le premier l'etait. La derivation reste une DERIVATION : rien n'est saisi sur l'etat de port.
+    ported_by: Optional[tuple] = None
 
     def code(self, nom: str) -> str:
         return self.reason_code or nom
@@ -116,7 +133,9 @@ RULE_ROLE = {
     "TargetMatchesDynamicRule": Role(
         "GATE_TARGET", READERS["TARGET"], SELF,
         "Point d'extension : invoque la regle-delegue `options+0x38` (slot vtable +0x480 = "
-        "`<X>Ability$$GetDynamicInvalidTargetReason`) et rend son code tel quel."),
+        "`<X>Ability$$GetDynamicInvalidTargetReason`) et rend son code TEL QUEL -- son propre bit "
+        "n'est donc JAMAIS le code rendu, d'ou `ported_by`.",
+        ported_by=("get_invalid_target_reason", "get_dynamic_invalid_target_reason")),
     "TargetHasFreeAdjacentTile": Role(
         "GATE_TARGET", READERS["TARGET"], SELF,
         "`<IBattleQuery slot 0x52>(target)` -- la cible doit avoir >= 1 tuile adjacente libre."),
@@ -219,7 +238,9 @@ RULE_ROLE = {
     # ---------------------------------------------------------------------------------------
     "CasterMatchesDynamicRule": Role(
         "GATE_CASTER", READERS["CASTER"], SELF,
-        "Regle-delegue `options+0x30` (slot vtable +0x470 = `GetDynamicInvalidCasterReason`)."),
+        "Regle-delegue `options+0x30` (slot vtable +0x470 = `GetDynamicInvalidCasterReason`). "
+        "Comme son jumeau CIBLE, le natif rend le code de la DELEGUE, jamais ce bit -> `ported_by`.",
+        ported_by=("get_invalid_caster_reason", "get_dynamic_invalid_caster_reason")),
     "CasterHasNotMoved": Role(
         "GATE_CASTER", READERS["CASTER"], SELF,
         "`DidMove(caster)` et tuiles non equivalentes -> refus. Gate `<IBattleQuery slot 0x35>` en tete."),
@@ -251,10 +272,16 @@ RULE_ROLE = {
     "AddCaster": Role(
         "GATE_ADD_CASTER", READERS["ADD_CASTER"], SELF,
         "Teste par le SIGNE de l'octet de poids faible (`-1 < (char)rules`) : s'il est pose, le "
-        "caster est ajoute d'office et `GetCasterNotAddedReason` ne refuse RIEN."),
+        "caster est ajoute d'office et `GetCasterNotAddedReason` ne refuse RIEN. COURT-CIRCUIT : "
+        "il ne peut donc jamais etre un code de refus, d'ou `ported_by` (porte par #447).",
+        ported_by=("get_caster_not_added_reason", "AddCaster")),
     "AddCasterIfMatchesDynamicRule": Role(
         "GATE_ADD_CASTER", READERS["ADD_CASTER"], SELF,
-        "Invoque la regle-delegue CASTER `options+0x30` et rend son code."),
+        "Invoque la regle-delegue CASTER `options+0x30` et rend SON code, jamais ce bit. Unique "
+        "porteur du registre : 1115 `FearOfTheUnseen`, dont la delegue rend "
+        "`CasterMatchesDynamicRule` sur `UnitExtensions$$IsTeleporting` (le DEEP STRIKE). "
+        "Porte par #447 -- cf. `probe_447_add_caster_dynamic_rule.py`.",
+        ported_by=("get_caster_not_added_reason", "get_dynamic_invalid_caster_reason")),
     "AddCasterIfAtLeastOneTarget": Role(
         "GATE_ADD_CASTER", READERS["ADD_CASTER"], SELF,
         "`GetValidTargets(...).AllTargets.Count == 0` -> `broken(AddCasterIfAtLeastOneTarget)`."),

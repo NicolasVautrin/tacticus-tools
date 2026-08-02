@@ -1239,6 +1239,33 @@ def unit_is_alive(entity) -> bool:
 _TELEPORT_MOVE_EFFECTS = (0x40c, 0x40b, 0x4d9, 0x4d6)
 
 
+def is_teleporting(state, unit_id: int) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsTeleporting(unit, state)` — mirror 1:1 :
+
+        IsOwnerOfEffect (unit, state, 0x40c, 0) || IsTargetOfEffect(unit, state, 0x40c)
+     || IsOwnerOfEffect (unit, state, 0x40b, 0) || IsTargetOfEffect(unit, state, 0x40b)
+     || IsOwnerOfEffect (unit, state, 0x4d9, 0) || IsTargetOfEffect(unit, state, 0x4d9)
+     || IsOwnerOfEffect (unit, state, 0x4d6, 0) || IsTargetOfEffect(unit, state, 0x4d6)
+
+    C'est le predicat « l'unite est en DEEP STRIKE / en cours de teleportation ». Les quatre types,
+    DANS CET ORDRE, sont exactement `_TELEPORT_MOVE_EFFECTS` : `IdunBattle.Entities.UnitExtensions$$SetMovedFlag`
+    INLINE la meme chaine (verifie au decompile : memes quatre litteraux, meme ordre, memes deux
+    roles), donc les deux lecteurs du port partagent UNE source -- une 2e liste divergerait au
+    premier effet ajoute.
+
+    `onlyActive = 0` sur la branche OWNER -> aucune lecture d'`EffectComponent.IsActive @+0x5c` :
+    la simple PRESENCE suffit, ce que rend `EffectsState.has_effect` (meme convention que
+    `set_moved_flag`, ou les roles owner/target sont confondus offline -- l'`EffectsState` du port
+    stocke par-PORTEUR).
+
+    CONSOMMATEURS : `set_moved_flag` (flag `Teleported`), et la regle-delegue CASTER de 1115
+    `FearOfTheUnseenAbility$$GetDynamicInvalidCasterReason` (#447)."""
+    if state is None or getattr(state, "effects", None) is None:
+        return False
+    return any(state.effects.has_effect(int(unit_id), effect_type=t)
+               for t in _TELEPORT_MOVE_EFFECTS)
+
+
 def set_moved_flag(state, unit_id: int) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$SetMovedFlag` — mirror 1:1, appele par
     `IdunBattle.Operations.MoveUnitOperation$$Execute` (SEUL chemin de pose du flag avec
@@ -1261,8 +1288,7 @@ def set_moved_flag(state, unit_id: int) -> bool:
         fl = e.add_component(UnitFlagsComponent())
     added = not fl.has(UnitFlagsComponent.MOVED)
     fl.add(UnitFlagsComponent.MOVED)
-    if added and state.effects is not None and any(
-            state.effects.has_effect(unit_id, effect_type=t) for t in _TELEPORT_MOVE_EFFECTS):
+    if added and is_teleporting(state, unit_id):
         fl.add(UnitFlagsComponent.TELEPORTED)                 # Add(0xc) — le move etait un teleport
     return added
 
