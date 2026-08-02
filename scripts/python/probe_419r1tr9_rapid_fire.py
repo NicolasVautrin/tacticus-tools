@@ -200,14 +200,21 @@ def _seed_bc(regime: str, logs_dir: str, arm: str) -> str:
     return str(p)
 
 
-def _build(state_file: str, regime: str, logs_dir: str, arm: str = "graft") -> int:
+def build_args(regime: str, logs_dir: str, arm: str = "graft") -> list:
+    """Les arguments `rl_duel build` du bras demande, SANS `--seed` ni `--state-file` : c'est ce que
+    la fixture `build_runner` de la garde jumelle attend (elle gere state-file, cap et liberation).
+    Le CLI du probe, lui, les complete."""
     host, _replace = HOSTS[regime]
     stats = f"{host}:Health={HP_CASTER},RemainingHealth={HP_CASTER}"
     if regime in KILL_STATS:
         stats = stats + ";" + KILL_STATS[regime]
-    argv = [sys.executable, "rl_duel.py", "build", "--seed", SEED, "--board", BOARD,
-            "--seed-bc", _seed_bc(regime, logs_dir, arm), "--p-units", host, "--a-units", FOES,
-            "--unit-stat", stats, "--state-file", state_file]
+    return ["--board", BOARD, "--seed-bc", _seed_bc(regime, logs_dir, arm),
+            "--p-units", host, "--a-units", FOES, "--unit-stat", stats]
+
+
+def _build(state_file: str, regime: str, logs_dir: str, arm: str = "graft") -> int:
+    argv = [sys.executable, "rl_duel.py", "build", "--seed", SEED,
+            *build_args(regime, logs_dir, arm), "--state-file", state_file]
     p = subprocess.run(argv, cwd=_HERE, capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if p.returncode != 0:
@@ -442,8 +449,7 @@ def build_case(sid, rpc, rid: int, regime: str) -> dict:
             "hpmax": {u: (ctx.hpmax_by_id or {}).get(u) for u in foes}}
 
 
-def measure_native_baseline(sid, rpc, st: dict, lines: list, logs_dir: str,
-                            state_file: str) -> dict:
+def measure_native_baseline(sid, rpc, st: dict, lines: list, make_rid, dispose=None) -> dict:
     """BRAS APPARIE : re-monte la MEME bataille avec l'hote PRIVE du passif 1135, y rejoue le MEME
     placement (apparie par `visualId`, les ids d'entite differant d'un runner a l'autre) et rend le
     `pairUtility` NATIF de chaque ligne. `terme_natif = natif_graft - natif_base` devient une
@@ -451,7 +457,7 @@ def measure_native_baseline(sid, rpc, st: dict, lines: list, logs_dir: str,
 
     Le runner du bras est DISPOSE des la mesure faite (discipline `runner.md` : liberer au fil de
     l'eau)."""
-    rid = _build(state_file, st["regime"], logs_dir, arm="base")
+    rid = make_rid()
     try:
         elev, walk, _tid = P124._board(sid, rid)
         dv, _pos = P124._positions(sid, rid)
@@ -483,8 +489,8 @@ def measure_native_baseline(sid, rpc, st: dict, lines: list, logs_dir: str,
                 rpc, rid, cid, inv[r["target"]], st["ab"], tile)
         return out
     finally:
-        subprocess.run([sys.executable, "rl_duel.py", "dispose", "--state-file", state_file],
-                       cwd=_HERE, capture_output=True, text=True)
+        if dispose is not None:
+            dispose(rid)
 
 
 # --------------------------------------------------------------------------- mesure
@@ -623,6 +629,47 @@ def measure_mutant(rpc, st: dict, mutant: str, lines: list) -> list:
         PSY.TRIGGERED_ATTACK_PLAYBOOKS[ABILITY] = saved
 
 
+# --------------------------------------------------------------------------- orchestration
+
+def run_regime(sid, rpc, rid: int, regime: str, make_base_rid, dispose=None,
+               with_mutants: bool = True) -> dict:
+    """Monte le regime sur `rid`, joue toutes ses lignes (phase 1, mutants, phase 2 si elle
+    existe), puis le BRAS APPARIE (`make_base_rid` -> un rid sans le passif 1135) et rend :
+
+        {"case": <etat du montage>, "rows": [<lignes, term_native/socle remplis>],
+         "mutants": {<nom>: [<deplacements>]}}
+    """
+    st = build_case(sid, rpc, rid, regime)
+    rows = measure(rpc, st)
+    muts = {m: measure_mutant(rpc, st, m, rows) for m in MUTANTS} if with_mutants else {}
+    if regime in ("home", "kill"):
+        moved = measure_moved(rpc, sid, st)
+        rows.append(moved)
+        for m in muts:
+            muts[m].extend(measure_mutant(rpc, st, m, [moved]))
+    base = measure_native_baseline(sid, rpc, st, rows, make_base_rid, dispose)
+    for r in rows:
+        nb = base[(r["tag"], r["tile"], r["target"])]
+        r["native_base"] = nb
+        r["term_native"] = r["native"] - nb
+        r["socle"] = nb - r["port_muted"]
+    return {"case": st, "rows": rows, "mutants": muts}
+
+
+def term_tolerance(st: dict, row: dict) -> float:
+    """Tolerance de l'ecart `terme_port - terme_natif` sur une ligne, DERIVEE du residu de
+    PREDICTION mesure sur la paire (caster, cible du case) -- jamais un seuil de confort.
+
+    Le terme est `u(pred_vs_case.Target)` note contre une AUTRE cible : un ecart de `d` points de
+    degat moyen s'y propage a `d * 100 / (combinedMax de la cible notee)`, et le pire cas est le
+    plus PETIT `combinedMax` du plateau. `d == 0` -> la tolerance retombe a `EPS`."""
+    d = abs((st["dmg"].get(row["target"]) or {}).get("d_avg") or 0)
+    if not d:
+        return EPS
+    mins = [v for v in (st["hpmax"] or {}).values() if v]
+    return EPS + d * 100.0 / ((min(mins) if mins else 1) + 2)
+
+
 # --------------------------------------------------------------------------- CLI
 
 def main() -> int:
@@ -644,7 +691,18 @@ def main() -> int:
     logs = os.path.abspath(os.path.join(_HERE, "..", "..", "logs"))
     os.makedirs(logs, exist_ok=True)
     rid = _build(args.state_file, args.regime, logs)
-    st = build_case(sid, rpc, rid, args.regime)
+    base_state = args.state_file.replace(".json", "_base.json")
+
+    def _make_base():
+        return _build(base_state, args.regime, logs, arm="base")
+
+    def _dispose(_rid):
+        subprocess.run([sys.executable, "rl_duel.py", "dispose", "--state-file", base_state],
+                       cwd=_HERE, capture_output=True, text=True)
+
+    res = run_regime(sid, rpc, rid, args.regime, _make_base, _dispose,
+                     with_mutants=args.mutants)
+    st, rows, muts = res["case"], res["rows"], res["mutants"]
     print(f"runner {rid} | regime {args.regime} | caster u{st['cid']} @ {st['C']} "
           f"| attaque normale = {st['ab']}")
     print(f"  ennemis {st['EP']} hp={st['hp']} hpmax={st['hpmax']}")
@@ -655,35 +713,20 @@ def main() -> int:
     if st["verdicts"]:
         print("  verdicts (mightBeKill, willBeKill) = "
               + " ".join(f"u{t}:{v}" for t, v in sorted(st["verdicts"].items())))
-    rows = measure(rpc, st)
-    if args.mutants:
-        muts = {m: measure_mutant(rpc, st, m, rows) for m in MUTANTS}
-    if args.regime in ("home", "kill"):
-        moved = measure_moved(rpc, sid, st)
-        rows.append(moved)
-        if args.mutants:
-            for m in MUTANTS:
-                muts[m].extend(measure_mutant(rpc, st, m, [moved]))
-    base = measure_native_baseline(sid, rpc, st, rows, logs,
-                                   args.state_file.replace(".json", "_base.json"))
     for r in rows:
-        nb = base[(r["tag"], r["tile"], r["target"])]
-        r["native_base"] = nb
-        r["term_native"] = r["native"] - nb
-        r["socle"] = nb - r["port_muted"]
         print(f"  [{r['tag']:<5}] {r['tile']} tgt=u{r['target']:<3} nat={r['native']:.6f} "
-              f"port={r['port']:.6f} | base={nb:.6f} socle={r['socle']:+.9f} "
+              f"port={r['port']:.6f} | base={r['native_base']:.6f} socle={r['socle']:+.9f} "
               f"terme_natif={r['term_native']:+.6f} terme_port={r['term_port']:+.6f} "
-              f"ecart_terme={r['term_port'] - r['term_native']:+.9f}")
-    if args.mutants:
-        for m in MUTANTS:
-            worst = max(abs(x["port"] - x["port_ref"]) for x in muts[m])
-            detail = " ".join(f"{x['tag']}/u{x['target']}:{x['port'] - x['port_ref']:+.4f}"
-                              for x in muts[m])
-            need = m in MUST_BITE[args.regime]
-            verdict = "MORD" if worst > EPS else "NE MORD PAS"
-            print(f"  [mutant {m:<14}] deplacement max = {worst:+.9f} [{detail}] ({verdict}"
-                  f"{'' if need else ' -- non exige dans ce regime'})")
+              f"ecart_terme={r['term_port'] - r['term_native']:+.9f} "
+              f"(tolerance {term_tolerance(st, r):.2e})")
+    for m in sorted(muts):
+        worst = max(abs(x["port"] - x["port_ref"]) for x in muts[m])
+        detail = " ".join(f"{x['tag']}/u{x['target']}:{x['port'] - x['port_ref']:+.4f}"
+                          for x in muts[m])
+        need = m in MUST_BITE[args.regime]
+        verdict = "MORD" if worst > EPS else "NE MORD PAS"
+        print(f"  [mutant {m:<14}] deplacement max = {worst:+.9f} [{detail}] ({verdict}"
+              f"{'' if need else ' -- non exige dans ce regime'})")
     return 0
 
 
