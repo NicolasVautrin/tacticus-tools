@@ -204,13 +204,54 @@ def scan_file(path: Path) -> list:
     return hits
 
 
+# Les noeuds dont la lecture native a ete TRANCHEE en EMPREINTE (#433-r3-r1) -> leurs lecteurs
+# EXECUTABLES sont le rayon de souffle du correctif.
+FOOTPRINT_NODES = ("IsAdjacent", "IsInRange", "IsSurrounding", "IsCharging", "MinDistance")
+
+
+def scan_readers(files: list) -> list:
+    """Sites de CONSTRUCTION executables des noeuds ci-dessus (`IsAdjacent(...)`, `dsl.IsAdjacent(...)`).
+
+    Un `Select-String` sur le nom rend ~110 lignes dont l'ecrasante majorite sont des DOCSTRINGS et
+    des commentaires qui NOMMENT le noeud. L'AST ne voit que les appels reels -- c'est la difference
+    entre « combien de fois le nom apparait » et « combien de lecteurs EXECUTABLES »."""
+    out: list = []
+    for path in files:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        stack = _ClassStack()
+        stack.visit(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute)
+                                                           else None)
+            if name not in FOOTPRINT_NODES:
+                continue
+            cls, func = stack.cls_of.get(id(node), (None, None))
+            # `defining` = le site est DANS la classe homonyme (auto-reference : `super().__init__`,
+            # alias). Exclure le FICHIER entier serait un faux negatif : `triggers.py::IsInUnitAura`
+            # CONSTRUIT un `MinDistance` et c'est un vrai lecteur -- mesure qui a corrige ce probe.
+            out.append({"file": str(path).replace("\\", "/"), "line": node.lineno, "node": name,
+                        "cls": cls, "func": func, "defining": cls == name})
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--step", choices=("scan", "readers", "all"), default="all")
     args = ap.parse_args()
 
     root = _engine_root()
     files = sorted(root.rglob("*.py"))
+
+    if args.step == "readers":
+        return _print_readers(files)
+
     hits: list = []
     for f in files:
         hits.extend(scan_file(f))
@@ -249,6 +290,28 @@ def main() -> int:
 
     if args.json:
         print(json.dumps([{**e, "kinds": sorted(e["kinds"])} for e in rows], indent=1))
+    if args.step == "all":
+        print("")
+        _print_readers(files)
+    return 0
+
+
+def _print_readers(files: list) -> int:
+    readers = scan_readers(files)
+    ext = [r for r in readers if not r["defining"]]
+    print("=== RAYON DE SOUFFLE -- lecteurs EXECUTABLES des noeuds a EMPREINTE ===")
+    per_node: dict = {}
+    for r in ext:
+        per_node.setdefault(r["node"], []).append(r)
+    for n in FOOTPRINT_NODES:
+        rs = per_node.get(n, [])
+        files_n = sorted({r["file"].split("/engine/", 1)[-1] for r in rs})
+        print("%-14s %2d site(s) executable(s) dans %d fichier(s)" % (n, len(rs), len(files_n)))
+        for f in files_n:
+            lines = sorted(r["line"] for r in rs if r["file"].endswith(f))
+            print("               %-58s %s" % (f, ",".join(str(x) for x in lines)))
+    print("")
+    print("TOTAL : %d sites executables (hors les modules qui DEFINISSENT les noeuds)" % len(ext))
     return 0
 
 
