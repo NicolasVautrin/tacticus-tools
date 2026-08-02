@@ -23,14 +23,20 @@ CE QUE CE PROBE MESURE, par etages :
   E0 canal  -- le RPC `triggeredMoveTraceStatus` repond-il ? Sinon le capteur n'est pas charge ->
                NON CONFRONTE, et AUCUN etage suivant ne conclut quoi que ce soit.
   E1 tir    -- quel declencheur fait firer le hook ? On en essaie plusieurs et on RAPPORTE lequel a
-               produit des events : c'est l'information que la fenetre consommera en premier (le
-               case-443-r1 avait mesure qu'`aiStepDryRun` ne faisait firer AUCUN hook RVA).
+               produit des events (le case-443-r1 avait mesure qu'`aiStepDryRun` ne faisait firer
+               AUCUN hook RVA). MESURE le 2026-08-02, session 10, capteur CHARGE : `decisionView`
+               -> 0, `aiMovableTiles` -> 0, **`aiDryRunAllUnits` -> 102 events**. Le sweep de
+               mouvement n'est donc parcouru que par un TOUR D'IA, pas par une vue de decision.
   E2 ATTRIB -- LE CRITERE D'ACCEPTATION. Quatre questions, dans cet ordre :
                  (a) chaque event porte-t-il `unitMeasured` ET un `unitId` ?
                  (b) porte-t-il une `tile` ?
-                 (c) cette tuile est-elle DANS les tuiles atteignables de l'unite attribuee
-                     (`aiMovableTiles`) ? C'est CETTE question qui aurait demasque le faux positif
-                     de #443-r1 : la-bas les tuiles captees appartenaient a des tiers ;
+                 (c) l'ensemble des tuiles attribuees a une unite est-il EXACTEMENT
+                     `aiMovableTiles(u) UNION {position courante de u}` ? C'est CETTE question qui
+                     aurait demasque le faux positif de #443-r1 (les tuiles captees appartenaient a
+                     des tiers). L'identite -- et non l'inclusion -- refuse aussi une attribution
+                     qui n'evaluerait qu'une tuile sur dix. Le terme `UNION {position}` est ancre
+                     natif : `UtilityMovementCase$$StaysOnTile` compare la tuile candidate a la
+                     tuile courante, donc le sweep evalue le fait de RESTER SUR PLACE (#456) ;
                  (d) les events se repartissent-ils sur PLUSIEURS unites ? Une attribution
                      CONSTANTE passerait (a)-(c) sans rien attribuer du tout.
   E3 decomp -- `sum(contribs) == total` (auto-verification du decodage de l'accumulateur : si la
@@ -38,6 +44,10 @@ CE QUE CE PROBE MESURE, par etages :
                la forme `<Playbook>.<CalculateMovementUtilityInSteps...>d__N` ?
   E4 savior -- (montage GREFFE) la contribution etiquetee `SaviorProtocolsPlaybook` apparait-elle
                sur le porteur de 1120 ? C'est l'ouverture de la confrontation de #443-r1a.
+  E5 valeur -- LA VALEUR, et elle ne demande PAS la decomposition (#456) : le TOTAL natif est
+               confronte a `TriggeredAbilities{,NonOwner}Utility.evaluate` du port sur la MEME
+               (unite, tuile). Trois gardes contre l'ACCORD DEGENERE : au moins une valeur native
+               non nulle, au moins deux valeurs natives distinctes, puis accord partout.
 
 Les VERDICTS sont des fonctions PURES (`check_channel`, `check_attribution`, `check_decomposition`,
 `check_savior`), pour que la garde jumelle offline les exerce SANS live -- y compris la detection du
@@ -112,35 +122,62 @@ def check_channel(status) -> dict:
             "fallbacks": fb}
 
 
-def check_attribution(entries, movable_by_unit) -> dict:
-    """LE CRITERE D'ACCEPTATION. `movable_by_unit` = {unitId: set((col,row))} d'`aiMovableTiles`.
+def check_attribution(entries, movable_by_unit, pos_by_unit=None) -> dict:
+    """LE CRITERE D'ACCEPTATION. `movable_by_unit` = {unitId: set((col,row))} d'`aiMovableTiles` ;
+    `pos_by_unit` = {unitId: (col,row)} la position COURANTE.
 
-    (c) est le coeur : une tuile attribuee a une unite qui ne peut pas l'atteindre denonce
-    exactement le faux positif de #443-r1 (accord parfait sur la tuile d'un TIERS). On ne l'exige
-    QUE des unites pour lesquelles `aiMovableTiles` a rendu quelque chose -- sinon on transformerait
-    un trou de reference en echec du capteur."""
+    (c) est le coeur : ce que le capteur attribue a une unite doit etre EXACTEMENT l'ensemble des
+    tuiles que le sweep evalue pour elle. On exige donc l'IDENTITE d'ensemble
+
+        {tuiles vues pour u}  ==  aiMovableTiles(u) UNION {position courante de u}
+
+    et non une simple inclusion : une inclusion laisse passer une attribution qui n'evaluerait
+    qu'une tuile sur dix, ou qui rabattrait tout un sweep sur une constante.
+
+    LE TERME `UNION {position courante}` N'EST PAS UN ELARGISSEMENT DE CONFORT (#456). Le natif
+    evalue explicitement le fait de RESTER SUR PLACE :
+    `IdunBattle.AI.Utilities.UtilityMovementCase$$StaysOnTile` compare
+    `EntityExtensions.GetMainTile(case.Unit)` a `UnitPosition.get_MainTile(case + 0x18)` -- la tuile
+    candidate PEUT donc etre la tuile courante, et trois playbooks lisent ce predicat. La mesure du
+    2026-08-02 (session 10, MC1_67/777, `aiDryRunAllUnits`) le confirme des DEUX cotes :
+      * 8 events sur 102 tombaient hors `aiMovableTiles`, et **8/8** portaient EXACTEMENT la
+        position courante de leur unite ;
+      * controle apparie : `aiMovableTiles` n'inclut la position courante d'AUCUNE des 6 unites.
+    Avec le terme, les quatre unites mesurees rendent une identite STRICTE (0 manquante, 0 en trop)
+    -- c'est-a-dire un critere PLUS FORT que l'inclusion qu'il remplace, pas plus permissif.
+
+    L'identite n'est exigee que des unites pour lesquelles `aiMovableTiles` a rendu quelque chose :
+    sinon on transformerait un trou de reference en echec du capteur."""
     if not entries:
         return {"status": "no-events",
                 "message": ("aucun event capte -- le declencheur n'a fait scorer AUCUN mouvement, "
                             "ou le trace n'etait pas arme. RIEN n'est conclu de l'attribution.")}
+    pos_by_unit = pos_by_unit or {}
     sans_unite = [e for e in entries if not e.get("unitMeasured") or e.get("unitId") is None]
     sans_tuile = [e for e in entries if e.get("tile") is None]
     # Les evaluations de SPAWN n'ont legitimement pas d'unite (`case.Unit == null`) : le natif y
     # consulte le `Parent`. On les compte a part au lieu de les compter en echec.
     spawns = [e for e in sans_unite if e.get("isSpawning") and e.get("parentId") is not None]
     orphelins = [e for e in sans_unite if e not in spawns]
-    hors_portee = []
-    verifiables = 0
+    vues_par_unite: dict = {}
     for e in entries:
         uid, tile = e.get("unitId"), e.get("tile")
         if uid is None or tile is None:
             continue
+        vues_par_unite.setdefault(int(uid), set()).add(
+            (int(tile.get("col")), int(tile.get("row"))))
+    ecarts, verifiees = [], 0
+    for uid, vues in sorted(vues_par_unite.items()):
         reach = movable_by_unit.get(int(uid))
         if not reach:
             continue                       # pas de reference pour CETTE unite -> non verifiable
-        verifiables += 1
-        if (int(tile.get("col")), int(tile.get("row"))) not in reach:
-            hors_portee.append((uid, tile))
+        ref = set(reach)
+        courante = pos_by_unit.get(int(uid))
+        if courante is not None:
+            ref = ref | {(int(courante[0]), int(courante[1]))}
+        verifiees += 1
+        if vues != ref:
+            ecarts.append((uid, sorted(ref - vues)[:4], sorted(vues - ref)[:4]))
     unites = sorted({e.get("unitId") for e in entries if e.get("unitId") is not None})
     probs = []
     if orphelins:
@@ -149,10 +186,11 @@ def check_attribution(entries, movable_by_unit) -> dict:
                      "`scorerTileTermTrace`" % len(orphelins))
     if sans_tuile:
         probs.append("%d event(s) SANS tuile" % len(sans_tuile))
-    if hors_portee:
-        probs.append("%d/%d event(s) attribuent une tuile HORS des tuiles atteignables de leur "
-                     "unite : %s -- c'est la signature du faux positif de #443-r1"
-                     % (len(hors_portee), verifiables, hors_portee[:5]))
+    if ecarts:
+        probs.append("%d/%d unite(s) dont l'ensemble de tuiles attribuees DIFFERE de "
+                     "`aiMovableTiles UNION {position}` (uid, manquantes, en_trop) : %s -- c'est la "
+                     "signature du faux positif de #443-r1"
+                     % (len(ecarts), verifiees, ecarts[:4]))
     if len(unites) < 2:
         probs.append("les %d event(s) portent tous la MEME unite (%s) : l'attribution n'est pas "
                      "DISCRIMINEE -- une constante passerait les autres controles"
@@ -160,9 +198,10 @@ def check_attribution(entries, movable_by_unit) -> dict:
     if probs:
         return {"status": "wrong", "message": " | ".join(probs)}
     return {"status": "ok",
-            "message": ("%d events, %d unites distinctes, %d spawn(s), %d/%d tuiles confrontees a "
-                        "`aiMovableTiles` et TOUTES atteignables"
-                        % (len(entries), len(unites), len(spawns), verifiables, verifiables))}
+            "message": ("%d events, %d unites distinctes, %d spawn(s) ; %d/%d unite(s) dont "
+                        "l'ensemble de tuiles attribuees est IDENTIQUE a `aiMovableTiles UNION "
+                        "{position courante}`"
+                        % (len(entries), len(unites), len(spawns), verifiees, verifiees))}
 
 
 def check_decomposition(entries, eps: float = 1e-6) -> dict:
@@ -199,6 +238,76 @@ def check_decomposition(entries, eps: float = 1e-6) -> dict:
     return {"status": "ok",
             "message": ("%d/%d event(s) decomposes, sum(contribs) == total partout ; playbooks vus "
                         ": %s" % (len(mesurees), len(entries), sorted(etiquettes)[:10]))}
+
+
+def check_value(rows, eps: float = 1e-6) -> dict:
+    """E5 -- LA VALEUR. Le TOTAL yielde par la state machine native, confronte au port.
+
+    Pourquoi cet etage existe SANS attendre la decomposition (#456) : le total natif est la SOMME
+    des contributions des triggered abilities du mover, et le port en a l'homologue EXACT --
+    `engine/utilities/tile.py::TriggeredAbilitiesUtility.evaluate` (et son jumeau
+    `TriggeredAbilitiesNonOwnerUtility.evaluate`), qui bouclent sur `load_playbook(ab)` exactement
+    comme `PlaybookDatabase$$LoadPlaybook` dans `<EvaluateMovementInSteps>d__2$$MoveNext`. La
+    DECOMPOSITION n'est indispensable que pour imputer un ECART a une ability quand le mover en
+    porte plusieurs ; elle ne l'est pas pour confronter la valeur.
+
+    `rows` : une par event confrontable, avec `unitId`, `utility`, `tile`, `nat` (le total publie
+    par le capteur) et `port`.
+
+    QUATRE conditions -- les trois premieres sont la pour refuser un ACCORD DEGENERE, qui est
+    exactement le vice que ce cas ferme :
+      (1) au moins une ligne confrontee ;
+      (2) au moins une ligne dont le natif est NON NUL -- « 0 == 0 » sur toute la table ne prouve
+          rien du port ;
+      (3) au moins DEUX valeurs natives distinctes -- un port qui rendrait une constante egale a
+          l'unique valeur native passerait (1)+(2) ;
+      (4) accord natif/port sur TOUTES les lignes."""
+    if not rows:
+        return {"status": "no-rows",
+                "message": ("aucune ligne confrontable (pas d'event attribue, ou l'etat du port "
+                            "n'a pas pu etre construit) -- RIEN n'est conclu de la valeur")}
+    ecarts = [r for r in rows if abs(float(r.get("nat") or 0) - float(r.get("port") or 0)) > eps]
+    non_nuls = [r for r in rows if abs(float(r.get("nat") or 0)) > eps]
+    distinctes = sorted({round(float(r.get("nat") or 0), 6) for r in rows})
+    probs = []
+    if not non_nuls:
+        probs.append("le natif rend 0 sur les %d ligne(s) : la confrontation est DEGENEREE, un "
+                     "port qui rendrait 0 partout passerait" % len(rows))
+    if len(distinctes) < 2:
+        probs.append("une SEULE valeur native distincte (%s) : le montage ne DISCRIMINE pas -- une "
+                     "constante cote port passerait" % distinctes)
+    if probs:
+        return {"status": "wrong", "message": " | ".join(probs)}
+    if not ecarts:
+        return {"status": "ok",
+                "message": ("%d ligne(s) confrontees, accord natif/port PARTOUT ; %d non nulle(s), "
+                            "%d valeur(s) natives distinctes : %s"
+                            % (len(rows), len(non_nuls), len(distinctes), distinctes[:8]))}
+    # VENTILATION DE L'ECART, et c'est la decomposition par etage appliquee au VERDICT. Un ecart sur
+    # une unite qui porte une triggered ability ABSENTE du registre du port n'accuse pas une formule
+    # : il accuse un playbook NON PORTE (`load_playbook` rend `None` -> `continue`, exactement comme
+    # le natif quand `PlaybookDatabase$$LoadPlaybook` rend null -- sauf qu'ici le natif, lui, en
+    # trouve un). Les confondre ferait chercher un bug de calcul la ou il n'y a rien de calcule.
+    imputables = [r for r in ecarts if r.get("missing")]
+    formule = [r for r in ecarts if not r.get("missing")]
+    manquantes = sorted({int(a) for r in imputables for a in (r.get("missing") or ())})
+    if formule:
+        return {"status": "wrong",
+                "message": ("%d/%d ligne(s) en ECART sur des unites dont TOUTES les triggered "
+                            "abilities sont au registre -- c'est une divergence de FORMULE : %s"
+                            % (len(formule), len(rows),
+                               [(r.get("unitId"), r.get("tile"), r.get("utility"),
+                                 r.get("nat"), r.get("port")) for r in formule[:5]]))}
+    return {"status": "gap",
+            "message": ("%d/%d ligne(s) en ecart, TOUTES sur des unites portant une triggered "
+                        "ability que le registre MOVE du port NE CHARGE PAS : %s. Le port rend 0 "
+                        "par `load_playbook -> None`, le natif rend %s. Ce n'est PAS une "
+                        "divergence de FORMULE. Deux causes restent NON DEPARTAGEES a cet etage -- "
+                        "(i) le playbook de ces abilities n'est pas porte, (ii) le kit lu par le "
+                        "port est plus etroit que l'`AbilitiesComponent` que le natif itere -- et "
+                        "les separer exige la DECOMPOSITION (E3), qui attend sa fenetre."
+                        % (len(ecarts), len(rows), manquantes,
+                           sorted({round(float(r["nat"]), 3) for r in imputables})[:8]))}
 
 
 def check_savior(entries, carrier_id) -> dict:
@@ -262,6 +371,71 @@ def _movable_by_unit(s: int, rid: int) -> dict:
                 (int(t["col"]), int(t["row"])) for t in (u.get("tiles") or [])
                 if t.get("col") is not None)
     return out
+
+
+def _port_rows(s: int, rid: int, entries) -> list:
+    """Evalue COTE PORT le terme MOVE de chaque event attribue, sur la MEME (unite, tuile).
+
+    L'etat du port est reconstruit depuis les canaux de capture (`load_state`), puis pour chaque
+    unite on batit son `runner_tile_leaf_ctx` -- l'equivalent du `UtilityMovementCase` reduit a ce
+    que les feuilles consomment (`dc.unit`, `dc.parent`). Le premier argument d'`evaluate` est la
+    POSITION `(col,row)`, ce que le capteur publie tel quel.
+
+    `meta` (elevation/effets de tuile) n'est PAS lu par ces deux feuilles -- elles ne consomment que
+    `tile`, `ctx` et les poids. On passe donc un dict vide plutot qu'un meta a moitie construit qui
+    ferait croire a une entree qu'aucune des deux ne lit.
+
+    Rend [] -- et non des lignes fausses -- si un canal manque : E5 dira `no-rows`."""
+    from engine.entities.pathfinding.board import Board
+    from engine.playbook.adjacent_unit_preference import load_playbook
+    from engine.runner.snapshot import load_state
+    from engine.utilities.tile import (
+        TriggeredAbilitiesNonOwnerUtility, TriggeredAbilitiesUtility, runner_tile_leaf_ctx)
+    from engine.weights import load as load_weights
+
+    dv = rpc(s, "decisionView", {"runnerId": rid}, 120)
+    ob = rpc(s, "observeBattle", {"runnerId": rid}, 60)
+    snap = rpc(s, "combatSnapshot", {"runnerId": rid}, 60)
+    bg = rpc(s, "boardGraph", {"runnerId": rid}, 90)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        return []
+    state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
+    wt = load_weights()
+    feuilles = {"TriggeredAbilitiesUtility": TriggeredAbilitiesUtility(),
+                "TriggeredAbilitiesNonOwnerUtility": TriggeredAbilitiesNonOwnerUtility()}
+    ctx_cache: dict = {}
+    rows = []
+    for e in entries:
+        uid, tile, ut = e.get("unitId"), e.get("tile"), e.get("utility")
+        feuille = feuilles.get(ut)
+        if uid is None or tile is None or feuille is None:
+            continue
+        cle = (int(uid), e.get("parentId"))
+        if cle not in ctx_cache:
+            try:
+                ctx_cache[cle] = runner_tile_leaf_ctx(state, int(uid), e.get("parentId"))
+            except Exception:
+                ctx_cache[cle] = None
+        leaf = ctx_cache[cle]
+        if leaf is None:
+            continue
+        try:
+            val = float(feuille.evaluate((int(tile["col"]), int(tile["row"])), {}, leaf, wt))
+        except Exception:
+            continue
+        # Les triggered abilities du mover que le registre du port NE CHARGE PAS. C'est ce qui
+        # permet a E5 de distinguer un TROU DE PORTAGE d'une divergence de formule -- sans quoi
+        # « le port rend 0 » enverrait chercher un bug de calcul dans un chemin ou rien n'est
+        # calcule. On ne le renseigne que pour la face OWNER : la face NON-OWNER a son propre
+        # registre (`load_playbook_non_owner`) et son propre sujet (les AUTRES unites).
+        missing = ()
+        if ut == "TriggeredAbilitiesUtility":
+            missing = tuple(int(ab) for ab in ((leaf or {}).get("unit_triggered_abilities") or ())
+                            if load_playbook(int(ab)) is None)
+        rows.append({"unitId": int(uid), "utility": ut,
+                     "tile": (int(tile["col"]), int(tile["row"])),
+                     "nat": float(e.get("total") or 0), "port": val, "missing": missing})
+    return rows
 
 
 def _graft_seed_bc(tag: str):
@@ -363,19 +537,33 @@ def main() -> int:
         movable = _movable_by_unit(s, rid)
 
         # ---- E2/E3/E4 ----------------------------------------------------------------------- #
-        carrier = None
+        # Les positions COURANTES entrent dans la reference de (c) : le sweep evalue aussi le fait
+        # de RESTER SUR PLACE (`UtilityMovementCase$$StaysOnTile`), et `aiMovableTiles` ne rend
+        # jamais la tuile courante (mesure #456 : 0 unite sur 6).
+        carrier, positions = None, {}
         try:
             dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1}, 90) or {}
             carrier = next((u["id"] for u in (dv.get("units") or [])
                             if u.get("visualId") == "tauCrisis"), None)
+            for u in (dv.get("units") or []):
+                p = u.get("pos") or {}
+                if p.get("col") is not None and u.get("id") is not None:
+                    positions[int(u["id"])] = (int(p["col"]), int(p["row"]))
         except Exception:
             pass
         if a.no_graft or not seed_bc:
             carrier = None
 
-        for tag, v in (("E2 attrib ", check_attribution(entries, movable)),
+        try:
+            prows = _port_rows(s, rid, entries)
+        except Exception as e:                                        # noqa: BLE001
+            print("   E5 : etat du port INDISPONIBLE (%s)" % str(e)[:160])
+            prows = []
+
+        for tag, v in (("E2 attrib ", check_attribution(entries, movable, positions)),
                        ("E3 decomp ", check_decomposition(entries)),
-                       ("E4 savior ", check_savior(entries, carrier))):
+                       ("E4 savior ", check_savior(entries, carrier)),
+                       ("E5 valeur ", check_value(prows))):
             print("%s [%s] %s" % (tag, v["status"], v["message"]))
             verdicts.append(v)
 

@@ -22,8 +22,58 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from probe_443r1a_triggered_move_anchor import (      # noqa: E402
-    check_attribution, check_channel, check_decomposition, check_savior,
+    check_attribution, check_channel, check_decomposition, check_savior, check_value,
 )
+
+
+# ------------------------------------------------------------- E5 la VALEUR (et l'accord DEGENERE)
+
+def _vr(nat, port, missing=(), uid=81, tile=(1, 0)):
+    return {"unitId": uid, "utility": "TriggeredAbilitiesUtility", "tile": tile,
+            "nat": nat, "port": port, "missing": missing}
+
+
+def test_valeur_nominale():
+    v = check_value([_vr(40.0, 40.0), _vr(20.0, 20.0, tile=(2, 0)), _vr(0.0, 0.0, tile=(3, 0))])
+    assert v["status"] == "ok", v["message"]
+
+
+def test_un_ACCORD_TOUT_A_ZERO_ne_prouve_RIEN():
+    """LE vice que #456 ferme, transpose sur l'axe VALEUR : « 0 == 0 » sur toute la table est un
+    accord PARFAIT et vide. Un port qui rendrait 0 partout -- ce qu'il fait quand aucun playbook
+    n'est charge -- passerait un critere d'accord naif."""
+    v = check_value([_vr(0.0, 0.0), _vr(0.0, 0.0, tile=(2, 0))])
+    assert v["status"] == "wrong"
+    assert "DEGENEREE" in v["message"]
+
+
+def test_une_SEULE_valeur_native_ne_DISCRIMINE_pas():
+    v = check_value([_vr(20.0, 20.0), _vr(20.0, 20.0, tile=(2, 0))])
+    assert v["status"] == "wrong"
+    assert "ne DISCRIMINE pas" in v["message"]
+
+
+def test_ecart_sur_ability_NON_PORTEE_est_un_TROU_pas_une_FORMULE():
+    """La decomposition par etage appliquee au VERDICT (#456) : le port rend 0 parce que
+    `load_playbook` rend `None`, pas parce qu'une formule diverge. Confondre les deux enverrait
+    chercher un bug de calcul dans un chemin ou rien n'est calcule.
+
+    Le verdict `gap` s'arrete la ou la MESURE s'arrete : il NOMME l'ability et refuse de departager
+    « playbook non porte » de « kit du port trop etroit », ce que seule la decomposition tranche."""
+    v = check_value([_vr(40.0, 0.0, missing=(1133,)), _vr(0.0, 0.0, tile=(9, 9))])
+    assert v["status"] == "gap", v["message"]
+    assert "1133" in v["message"]
+    assert "FORMULE" in v["message"] and "DECOMPOSITION" in v["message"]
+
+
+def test_ecart_sur_ability_PORTEE_est_une_divergence_de_FORMULE():
+    v = check_value([_vr(40.0, 33.0), _vr(0.0, 0.0, tile=(9, 9))])
+    assert v["status"] == "wrong"
+    assert "FORMULE" in v["message"]
+
+
+def test_valeur_sans_ligne_ne_conclut_RIEN():
+    assert check_value([])["status"] == "no-rows"
 
 
 def _ev(unit_id=10, col=3, row=4, total=50.0, contribs=None, spawning=False, parent=None,
@@ -75,7 +125,7 @@ def test_les_REPLIS_d_offset_sont_DITS_pas_tus():
 
 def test_attribution_nominale():
     ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=11, col=5, row=5)]
-    movable = {10: {(3, 4), (3, 5)}, 11: {(5, 5)}}
+    movable = {10: {(3, 4)}, 11: {(5, 5)}}
     assert check_attribution(ev, movable)["status"] == "ok"
 
 
@@ -88,7 +138,41 @@ def test_LE_FAUX_POSITIF_DE_443r1_EST_REFUSE():
     movable = {10: {(3, 4)}, 11: {(5, 5)}, 99: {(9, 9), (8, 8)}}
     v = check_attribution(ev, movable)
     assert v["status"] == "wrong"
-    assert "HORS des tuiles atteignables" in v["message"]
+    assert "DIFFERE" in v["message"]
+
+
+def test_attribution_PARTIELLE_est_refusee():
+    """Ce que l'INCLUSION laissait passer et que l'IDENTITE refuse (#456) : une unite dont le
+    capteur ne rendrait qu'une tuile sur trois. Toutes ses tuiles vues sont pourtant atteignables --
+    l'ancien critere aurait donc dit `ok` sur un capteur qui perd 2/3 du sweep."""
+    ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=11, col=5, row=5)]
+    movable = {10: {(3, 4), (3, 5), (3, 6)}, 11: {(5, 5)}}
+    v = check_attribution(ev, movable)
+    assert v["status"] == "wrong"
+    assert "manquantes" in v["message"] or "DIFFERE" in v["message"]
+
+
+def test_la_tuile_COURANTE_est_une_candidate_LEGITIME():
+    """MESURE #456 : le sweep evalue aussi le fait de RESTER SUR PLACE
+    (`IdunBattle.AI.Utilities.UtilityMovementCase$$StaysOnTile` compare la tuile candidate a
+    `GetMainTile(case.Unit)`), et `aiMovableTiles` ne rend JAMAIS la tuile courante -- mesure du
+    2026-08-02 : 0 unite sur 6. Sans le terme `UNION {position}`, un capteur PARFAIT rougirait."""
+    ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=10, col=0, row=0),
+          _ev(unit_id=11, col=5, row=5)]
+    movable = {10: {(3, 4)}, 11: {(5, 5)}}
+    positions = {10: (0, 0), 11: (5, 5)}
+    v = check_attribution(ev, movable, positions)
+    assert v["status"] == "ok", v["message"]
+
+
+def test_le_terme_POSITION_est_LOAD_BEARING():
+    """Contre-epreuve du precedent : le MEME jeu d'events, sans `pos_by_unit`, DOIT rougir. Sans
+    ce controle, on ne saurait pas si le terme elargit reellement quoi que ce soit -- un
+    elargissement qui ne change rien serait un elargissement de confort."""
+    ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=10, col=0, row=0),
+          _ev(unit_id=11, col=5, row=5)]
+    movable = {10: {(3, 4)}, 11: {(5, 5)}}
+    assert check_attribution(ev, movable)["status"] == "wrong"
 
 
 def test_attribution_CONSTANTE_est_refusee():
@@ -124,7 +208,7 @@ def test_unite_SANS_reference_movable_n_est_pas_comptee_en_echec():
     ev = [_ev(unit_id=10, col=3, row=4), _ev(unit_id=11, col=99, row=99)]
     v = check_attribution(ev, {10: {(3, 4)}})     # rien pour u11
     assert v["status"] == "ok", v["message"]
-    assert "1/1 tuiles confrontees" in v["message"]
+    assert "1/1 unite(s)" in v["message"]
 
 
 def test_zero_event_ne_conclut_RIEN():
