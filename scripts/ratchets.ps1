@@ -110,8 +110,8 @@ $Ratchets = @(
        Doc  = 'docs/rl/case-313-enum-mirror-bijection.md ; case-318' }
 
     @{ Id = 'probe_449r2'; Argv = @('probe_449r2_spread_inventory.py')
-       Seul = 'un port de la face COMBAT qui suppose l ABSENCE de variance d arme sur un montant sans l avoir LUE (le byte AttackDamageBehaviourOptions+6) -- et le sens inverse, un zero JUSTE qu on retire. Le gisement est invisible au grep : 5 des 6 occurrences textuelles de spread_pct=0 sont des commentaires, et le vrai porteur (haze_of_corruption) n en porte AUCUNE -- il prend le DEFAUT du constructeur'
-       Doc  = 'docs/rl/case-449-r2-spread-face-combat.md' }
+       Seul = 'un port de la face COMBAT qui suppose l ABSENCE de variance d arme sur un montant sans l avoir LUE (le byte AttackDamageBehaviourOptions+6), le sens inverse (un zero JUSTE qu on retire), et surtout la VALEUR PAR DEFAUT de chaque porte de variance -- c est elle qui porte la decision, puisque deux des trois porteurs a variance nulle n ECRIVENT PAS le mot-cle. Le gisement est invisible au grep (5 des 6 occurrences textuelles de spread_pct=0 sont des commentaires) et invisible a un inventaire par mot-cle (un call-site peut passer la variance POSITIONNELLEMENT). Il voit aussi un parametre de variance devenu MORT -- accepte et lu nulle part, donc plus jamais applique, sans qu un seul call-site change'
+       Doc  = 'docs/rl/case-449-r2-spread-face-combat.md (#449-r2-r5)' }
 
     @{ Id = 'probe_229'; Argv = @('probe_229_effect_triggers_active.py')
        Seul = 'un effet-trigger de EFFECT_TRIGGERS qui ne lit pas EffectComponent.IsActive alors que son RAIL natif l exige (ou l inverse)'

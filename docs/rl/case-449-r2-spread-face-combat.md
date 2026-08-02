@@ -158,7 +158,109 @@ seulement par `git diff`) :
 
 Après chaque contre-épreuve, `git diff` sur `engine/` est **vide** — aucun résidu de mutation.
 
-## 6. Résidus NOMMÉS
+## 6. `#449-r2-r5` — le cliquet gardait les call-sites, pas la valeur dont ils dépendent
+
+**Le garde livré ci-dessus restait VERT sous la mutation qui compte.** Contre-épreuve jouée le
+2026-08-02, *différente* de celles du §5bis : au lieu d'écrire `spread_pct=20` sur les
+call-sites, on change le **défaut de la signature** —
+
+```python
+# engine/runner/abilities/behaviours/combat.py
+-  is_first_hit: bool = True, amount_spread_pct: int = 0):
++  is_first_hit: bool = True, amount_spread_pct: int = 20):
+```
+
+| garde | verdict sous mutation |
+|---|---|
+| `probe_449r2_spread_inventory.py` | **VERT**, rc 0 |
+| `test_449_r2_spread_face_combat_offline.py` | **4 passed** |
+
+**Cause lue** : le probe *écrivait* les défauts (`defaut 0` l.17, `defaut 20` l.19, `else 20`
+l.111) au lieu de lire `ast.FunctionDef.args.defaults`. Or le §3 de ce même document établit que
+ce défaut **est** la décision de portage : **deux des trois porteurs n'écrivent pas le mot-clé**.
+Le garde protégeait donc tout sauf le point unique de vérité.
+
+### Ce qui est désormais DÉRIVÉ, et ce qui reste ATTESTÉ
+
+La ligne de partage : est **attestable** (saisi avec sa raison) ce dont la source est le
+**décompilé**, qui n'est pas dans le dépôt ; est **dérivable** — donc jamais recopié — tout fait
+lisible dans le dépôt lui-même.
+
+| DÉRIVÉ du dépôt | ce que ça ferme |
+|---|---|
+| le **périmètre** : toute définition de `engine/` dont la signature porte un nom de `VARIANCE_PARAMS` | 3 rails saisis → **14 définitions**, dont **10** invisibles à l'ancienne liste (`UseActiveAbility`, `DamageHandler`, `install_default_handlers`, `execute_additional_hits`, `predict_attack_raw`, `get_attack_prediction`…). En sens inverse, `AttackWithAbilityDamage` y était déclaré rail alors que sa signature ne porte **aucun** paramètre de variance — il n'a jamais rien capté |
+| la **valeur** par défaut | la mutation ci-dessus |
+| la **position** positionnelle du paramètre | un call-site qui passe la variance sans mot-clé. Mesuré, ça existe déjà : `DamageHandler(state, spread_pct)` et `spread_to_min_max(base, spread_pct)` |
+| le **gate d'activation**, lu dans le corps (`AttackWithAttackDamage` ne lit `amount_spread_pct` que sous `if self.amount is not None`) | les **83** call-sites en mode bornes restent INERTES sans qu'aucune liste ne les déclare — et si le gate disparaît du code, ils redeviennent tous comptés |
+
+| ATTESTÉ (raison native inscrite) | rôle |
+|---|---|
+| `EXPECTED_ZERO` (inchangé, 3 entrées) | les call-sites dont le natif impose la variance nulle |
+| `EXPECTED_DEFAULT` (**neuf**, 14 entrées) | ce que le natif impose à chaque **défaut** |
+
+`EXPECTED_DEFAULT` n'est pas un doublon du sens 2 : pour `execute_normal_like`, **aucun**
+call-site ne prend le défaut, donc la voie « call-sites » y est structurellement aveugle. La
+contre-épreuve `spread_pct: int = 20 → 0` sur `normal_like.py` n'est vue que par lui.
+
+⚠ Les 13 attestations à `20` portent une **réserve écrite dans le probe** : ce 20 est le
+littéral hérité du résidu `#449-r2-r4`, **pas** une lecture de `BattleConfiguration.Damage.
+DamageSpreadPercentage`. Les attester rend leur *modification* visible ; ça ne prétend pas
+qu'elles sont lues.
+
+### Gardes du garde (tous neufs)
+
+Un `VARIANCE_PARAMS` qui ne désigne plus aucune signature (le probe serait devenu **aveugle**) ;
+un défaut **non littéral** ; un **paramètre MORT** — accepté et lu nulle part, donc la variance
+cesse d'être appliquée *sans qu'un seul call-site change* ; un `*args`/`**kwargs` classé
+**INDÉTERMINÉ** et jamais « défaut » ; les noms d'appel **AMBIGUS** déclarés au lieu d'être
+résolus en silence.
+
+### L'auto-test est DANS le probe, et il a trouvé trois bugs du détecteur
+
+Il tourne à chaque run — #427 a mesuré que « être un test » et « être joué » sont indépendants
+ici. 13 cas, dont **6 négatifs**, et une contre-épreuve directe du vice : deux arbres synthétiques
+identiques *à un caractère près* doivent produire deux classements différents. Ce qu'il a trouvé :
+
+1. la détection « paramètre MORT » cherchait `self.<param>` jusque dans les `@staticmethod`, où
+   il est une variable **locale** → 4 paramètres bien vivants déclarés morts ;
+2. `ast.walk` revisitant les méthodes en nœuds indépendants → tout nom de méthode comptait
+   **double**, et `execute_normal_like` sortait « ambigu », donc **exclu** de la résolution par
+   nom, donc ses call-sites en défaut invisibles — le trou se rouvrait par un autre chemin ;
+3. la garde « périmètre aveugle » rougissait sur l'arbre synthétique du cas C13 (corrigé dans le
+   **cas de test**, jamais dans la garde).
+
+Écriture en **tmpdir système** (`mkdtemp()` sans `dir=`) — #455. Cache de parsing : le verdict
+traverse `engine/` trois fois, 19 s → **6,1 s**, sous les 7,1 s de la version précédente.
+
+### Contre-épreuves jouées (2026-08-02), toutes vérifiées comme ayant MORDU (relecture AST)
+
+| mutation | `probe_449r2` | garde pytest |
+|---|---|---|
+| `amount_spread_pct: int = 0 → 20` (celle de l'énoncé) | **ROUGE**, par **2** voies : défaut attesté **et** régression des 2 porteurs en défaut | **2 failed / 5 passed** |
+| `execute_normal_like(spread_pct: int = 20 → 0)` | **ROUGE** (défaut attesté — seule voie possible) | — |
+| lecture supprimée : `spread_pct=self.amount_spread_pct` → `spread_pct=0` | **ROUGE**, cause `parametre MORT` en tête + 84 conséquences capées | — |
+| `sisterhood.py` `amount_spread_pct=20 → 0` | **ROUGE**, `zero NON JUSTIFIE`, 1 ligne | — |
+| aucune mutation (`master` propre) | **VERT** | **7 passed** |
+
+Après chaque contre-épreuve, `git diff` sur `engine/` est **vide**.
+
+### Ce que ce critère NE PEUT PAS voir (nommé, pas laissé croire)
+
+* **Les noms d'appel ambigus.** `AttackDamageOperation.execute(...)` : `execute` désigne **94**
+  définitions sous `engine/`, dont **une seule** porte `spread_pct`. Ses call-sites ne sont pas
+  inventoriables par nom — seuls leurs **mots-clés littéraux** sont vus (filet de rattrapage), et
+  un appelant qui prendrait son **défaut** n'est vu que par l'attestation du défaut. Le probe
+  l'imprime en clair sous « ANGLE MORT NOMMÉ ». Résolu par MRO, ce serait une réimplémentation de
+  l'import Python : non fait, nommé.
+* **Un paramètre de variance au nom différent** (`spread`, `variance_pct`…) est hors périmètre par
+  construction. Le garde qui l'atténue : `VARIANCE_PARAMS` doit désigner ≥ 1 signature, sinon
+  rouge.
+* **Une valeur dynamique** (`spread_pct=x`) n'est pas tranchée — elle est classée DYNAMIQUE, pas
+  « nulle » ni « juste ». 13 call-sites sont dans ce cas.
+* **La face `frida/` (TypeScript)** n'est pas balayée : le port de la variance y est absent, mais
+  ce n'est pas *vérifié* ici.
+
+## 7. Résidus NOMMÉS
 
 * **`#449-r2-r1`** — le montage Psyker **discrimine faiblement** (8 points sur 1506, seed 777) : le
   tirage `spread 20` y est tombé près de `d`. La garde tient parce que le seed est fixe, mais un
@@ -178,6 +280,22 @@ Après chaque contre-épreuve, `git diff` sur `engine/` est **vide** — aucun r
   hérité, alors que le natif le lit dans `BattleConfiguration.Damage.DamageSpreadPercentage`. Hors
   périmètre de ce cas (c'est le canal de l'attaque normale, pas le slot de montant) et sans effet
   observé — la seed BC porte 20 — mais c'est un couplage non lu.
+
+* **`#449-r2-r5-r1`** — l'**angle mort des noms d'appel ambigus** (§6). `AttackDamageOperation.
+  execute(...)` n'est pas inventoriable par nom. Ce qui le fermerait : résoudre le receveur par la
+  MRO syntaxique (`AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin)` → … → `_Normal`), ce
+  qui revient à réimplémenter la résolution d'attribut de Python. Le défaut, lui, est gardé par
+  attestation, donc le résidu porte uniquement sur un call-site **explicite** à valeur nulle sur
+  un nom ambigu.
+* **`#449-r2-r5-r2`** — les **13 attestations à `20`** figent un littéral hérité (`#449-r2-r4`),
+  pas une lecture de `BattleConfiguration.Damage.DamageSpreadPercentage`. Le jour où le couplage
+  sera porté, ces 13 entrées devront devenir *dérivées de la BC* et non plus attestées ; en l'état
+  elles rendent la modification visible, rien de plus.
+* **`#449-r2-r5-r3`** — le gate d'activation n'est dérivé que pour la forme `if self.G ...` /
+  `if self.G is not None` **positive**. Une réécriture en `if self.amount is None: continue` ferait
+  perdre le gate : le probe rougirait alors massivement (83 sites), ce qui est un **faux rouge**
+  bruyant, jamais un faux vert. Non fermé : la sortie est capée à 10 lignes par motif et la CAUSE
+  est imprimée en tête.
 
 **Ce qui n'est PAS couvert** : les régimes ÉLÉVATION (hérité `#449-r4`), et la face PRÉDICTION des
 trois porteurs (hors périmètre — `#449` l'a traitée pour son propre lot).
