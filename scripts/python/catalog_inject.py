@@ -97,8 +97,8 @@ def _build_hash() -> str:
     return current_build()
 
 
-@functools.lru_cache(maxsize=8)
-def enum_map(enum_name: str) -> dict:
+@functools.lru_cache(maxsize=16)
+def enum_map(enum_name: str, build: str | None = None) -> dict:
     """{membre: id} d'un enum, lu dans data/symbols/<build>/frida/enums.tsv.
 
     C'est la SEULE source acceptable pour les ids d'ability : elle est estampillee
@@ -106,8 +106,12 @@ def enum_map(enum_name: str) -> dict:
     ability-names.ts` NE l'est pas et se revele STALE sur gqfc5mff6c (il ignore
     ReanimationBeam=1223 / NanoscarabRepairProtocols=1224, les deux abilities de
     necroReanimator) -> l'utiliser produirait un porteur SANS ability, silencieusement.
+
+    `build` = un hash ARCHIVE (`symbols_layout.archived_builds()`) au lieu du build courant.
+    Sert a ATTRIBUER une derive : un membre absent de l'enum d'un build ne peut pas avoir ete
+    attribue par le gameconfig de ce build-la (cf. `STALE_UNIT_ENTRIES`).
     """
-    p = SYMBOLS / _build_hash() / "frida" / "enums.tsv"
+    p = SYMBOLS / (build or _build_hash()) / "frida" / "enums.tsv"
     if not p.exists():
         raise RuntimeError(f"table d'enums absente: {p}")
     with p.open(encoding="utf-8") as f:
@@ -1200,6 +1204,75 @@ def validate_abilities(seed_bc: dict) -> tuple[int, int, dict]:
     return checked, internal, diffs
 
 
+# ------------------------------ #449 : le PREMIER catalogue, lui, n'est PAS rattrape
+#
+# `refresh_ability_configs` (#254) et `refresh_ai_utilities` (#27-4) re-synthetisent DEUX des trois
+# catalogues du BC a chaque chargement. Le TROISIEME -- `BC.Units`, celui que
+# `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig` parcourt et dont
+# `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` tire les passifs montes --
+# reste la CAPTURE. Sa peremption etait donc parfaitement MUETTE : un runner bati sur ce seed
+# deploie le kit du build de la capture, sans un mot, et rien ne le dit a personne.
+#
+# CE QUE CE SILENCE A COUTE (mesure, pas hypothese) : #354 a lu l'inertie qui en decoule comme un
+# fait du jeu (« porteur retire »), puis SUPPRIME trois vecteurs de test valides ; #392 a du les
+# restaurer. Le meme silence tient `MyWillBeDoneOverlord` INERTE dans tout runner bati sur ce seed
+# (#392-r1), donc ses deux entrees de `ABILITY_TRIGGERS` ne sont jamais dispatchees par cette voie.
+#
+# CE MODULE NE RATTRAPE PAS -- il MESURE et il DIT. Rafraichir le bloc `Units` change le pool
+# spawnable et les stats de reference de tous les tests live : c'est #254-bc, une decision
+# d'arbitrage, pas un geste de passage.
+#
+# LA DERIVE ATTENDUE, ET SON ATTRIBUTION. `data/seed-bc.json` a UN SEUL commit (`f467e649`) : le
+# bloc `Units` est reste celui de `gqfc5mff6c`. `necroOverlord` a change de kit a `rnca9r7q6c` --
+# attribue mecaniquement par les DEUX tables d'enum versionnees :
+#   * `MyWillBeDoneOverlord` est ABSENTE de `gqfc5mff6c/frida/enums.tsv` (468 membres de
+#     `IdunBattle.Entities.Enum.TriggeredAbilityType`) et vaut 1556 dans `rnca9r7q6c` (477) ->
+#     le gameconfig de `gqfc5mff6c` ne POUVAIT pas l'attribuer ; c'est donc la capture qui est en
+#     arriere, pas la synthese qui invente. La capture porte `1045 MartialApotheosis`.
+#   * `Resilient` (1009) existe dans les DEUX enums -> le trait gagne est un pur changement de
+#     gameconfig, meme migration.
+# Toute AUTRE derive est INATTENDUE : elle accuse la synthese (ou une capture re-faite), et doit
+# etre lue avant d'etre inscrite ici.
+STALE_UNIT_ENTRIES = {
+    "necroOverlord": ("PassiveAbilities", "Traits"),
+}
+
+
+def stale_unit_entries(seed_bc: dict) -> dict:
+    """`{unitId: {champ: (synthetise, capture)}}` -- les entrees `Units` que le gameconfig VIVANT
+    ne rebatirait plus a l'identique. Dict vide = le bloc `Units` est a jour.
+
+    Meme confrontation que `validate` (donc les memes champs exclus : etat JOUEUR et champs
+    recalcules par `buildNormalizedBC`), re-indexee PAR UNITE : c'est l'unite qui arrive en
+    bataille avec un kit perime, pas le champ.
+    """
+    out: dict = {}
+    _n, diffs = validate(seed_bc)
+    for field, rows in diffs.items():
+        for uid, synth, real in rows:
+            out.setdefault(uid, {})[field] = (synth, real)
+    return out
+
+
+def stale_unit_report(seed_bc: dict) -> str | None:
+    """Une ligne ASCII decrivant la peremption du bloc `Units`, ou `None` s'il est a jour.
+
+    Les entrees dont les champs derives sont EXACTEMENT ceux de `STALE_UNIT_ENTRIES` sont
+    attendues (#254-bc) ; toute autre est marquee `INATTENDUE` -- jamais fondue dans le lot.
+    """
+    stale = stale_unit_entries(seed_bc)
+    if not stale:
+        return None
+    parts = []
+    for uid in sorted(stale):
+        fields = sorted(stale[uid])
+        attendu = STALE_UNIT_ENTRIES.get(uid)
+        tag = "" if attendu is not None and fields == sorted(attendu) else " INATTENDUE"
+        parts.append("%s{%s}%s" % (uid, ",".join(fields), tag))
+    return ("bloc Units NON rattrape (#254-bc) : %d entree(s) perimee(s) vs le gameconfig courant "
+            "-- %s" % (len(stale), " | ".join(parts)))
+
+
 # --------------------------------------------------------------------------- CLI
 
 def _load_seed(path: str | None) -> dict:
@@ -1267,27 +1340,53 @@ def main(argv: list[str]) -> int:
         return 0
 
     if a.validate:
+        # DEUX verdicts distincts, et les confondre a coute quatre jours de rouge mal attribue
+        # (#254-bc) : la FIDELITE de la synthese (un defaut de CODE, rc=1) et la PEREMPTION de la
+        # capture face au gameconfig VIVANT (un fait de DONNEE, rapporte, rc=0 tant qu'il est
+        # epingle ou rattrape au chargement).
         rc = 0
         n, diffs = validate(seed)
+        infidele = {}
+        for field, rows in diffs.items():
+            for uid, synth, real in rows:
+                if field not in STALE_UNIT_ENTRIES.get(uid, ()):
+                    infidele.setdefault(field, []).append((uid, synth, real))
         print(f"[validate] catalogue UNITS : {n} entrees re-synthetisees depuis le gameconfig")
-        if diffs:
+        if infidele:
             rc = 1
-            for field, rows in sorted(diffs.items()):
+            for field, rows in sorted(infidele.items()):
                 print(f"  MISMATCH {field}: {len(rows)}")
                 for r in rows[:4]:
                     print(f"    {r[0]}: attendu={r[1]!r} capture={r[2]!r}")
         else:
-            print("[validate] OK - 0 divergence sur les champs derives")
+            print("[validate] OK - 0 divergence de FIDELITE sur les champs derives")
+        rapport = stale_unit_report(seed)
+        if rapport:
+            print(f"[validate] PEREMPTION (pas un defaut de synthese) : {rapport}")
+            for uid in sorted(stale_unit_entries(seed)):
+                for field, (synth, real) in sorted(stale_unit_entries(seed)[uid].items()):
+                    print(f"    {uid}.{field}: gameconfig={synth!r} capture={real!r}")
         nc, ni, adiffs = validate_abilities(seed)
+        derivees = {name for rows in adiffs.values() for name, _s, _r in rows}
         print(f"[validate] catalogue ABILITIES : {nc} entrees confrontees "
               f"({ni} internes moteur, non derivables, ignorees)")
         if adiffs:
-            rc = 1
             for field, rows in sorted(adiffs.items()):
-                print(f"  MISMATCH {field}: {len(rows)}")
+                print(f"  DERIVE {field}: {len(rows)}")
                 for r in rows[:4]:
-                    print(f"    {r[0]}: attendu={json.dumps(r[1])[:160]} "
+                    print(f"    {r[0]}: gameconfig={json.dumps(r[1])[:160]} "
                           f"capture={json.dumps(r[2])[:160]}")
+        # Une derive de config n'est un DEFAUT que si le rattrapage #254 ne la repare pas : c'est
+        # lui qui court-circuite le « system error » au cast/au deploiement.
+        probe = copy.deepcopy(seed)
+        refreshed, _added = refresh_ability_configs(probe)
+        non_reparees = derivees - set(refreshed)
+        if non_reparees:
+            rc = 1
+            print(f"  NON RATTRAPEES par refresh_ability_configs: {sorted(non_reparees)}")
+        elif derivees:
+            print(f"[validate] OK - les {len(derivees)} config(s) derivees sont rattrapees au "
+                  f"chargement (#254): {sorted(derivees)}")
         else:
             print("[validate] OK - 0 divergence sur les configs d'ability")
         return rc
