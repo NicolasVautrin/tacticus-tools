@@ -298,6 +298,10 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # ENTREE que seule la simulation posait (au spawn) -- cf. `_load_unit_parent`.
         _load_unit_parent(state, snapshot)
         _load_stats_and_effects(state, decision, snapshot)
+        # APRES `_load_stats_and_effects` : cette passe LIT `state.effects`, que la precedente vient
+        # de remplacer par un `EffectsState.seed` frais. MEME nature que `_load_unit_parent` -- une
+        # ENTREE de gate que seule la simulation posait, cf. `_load_forced_attack_targets`.
+        _load_forced_attack_targets(state)
         # APRES les stats : le substrat de traits vit dans `UnitContext.traits`, que
         # `_load_stats_and_effects` vient de construire (unites ET MoW). Meme nature que les deux
         # seeds ci-dessus -- une ENTREE de gate que rien ne peuplait sur un etat recharge, le port
@@ -678,6 +682,66 @@ def _load_unit_parent(state: State, snapshot: dict) -> None:
             continue                      # capteur muet -> on garde ce que la simulation a pose
         pid = su.get("parentId")
         uc.parent_id = None if pid is None else int(pid)
+
+
+def _load_forced_attack_targets(state: State) -> None:
+    """Seede `ForcedAttackTargetsComponent` depuis les effets DEJA materialises dans `state.effects`
+    (canal `bondedEntityId` + `bondMeasured` de la vue d'effet, capteur #436-r1).
+
+    MIRROR de `IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal`, queue de la fonction :
+
+        comp = target.GetComponent<ForcedAttackTargetsComponent>();
+        list = new List<int>(); list.Add(ABondEffect.BondedEntityId(this, effect));
+        comp.<+0x50> = list;                          // REMPLACE la liste
+
+    C'est exactement ce que fait `AddEffectOperation._apply_forced_attack_targets` sur la voie de
+    POSE ; ici on rejoue la MEME ecriture pour un effet 27 arrive par HYDRATATION.
+
+    POURQUOI. Pendant EXACT de `_load_unit_parent` (#378) : une ENTREE de gate que RIEN ne peuplait
+    sur un etat recharge. Seule la voie OFFLINE l'ecrivait -- le port ne voyait donc la restriction
+    `TargetIsAllowedForCaster` (bit 23, `engine/runner/abilities/targeting.py::get_only_targets`)
+    que quand c'etait LUI qui avait pose l'effet. Un etat reconstruit d'une capture prise APRES un
+    taunt du jeu repartait `GetOnlyTargets == []`, et la regle -- dont le natif ne l'arme QUE si la
+    liste est non vide -- ne refusait plus rien. Degradation PERMISSIVE : ni erreur ni crash, donc
+    invisible en self-play, et c'est le trou qu'un entrainement irait exploiter.
+
+    TRI-ETAT : la selection porte sur `eff.bonded is not None`, que `EffectFactory.create` n'ecrit
+    QUE sous `bondMeasured is True` (cf. son commentaire). Un capteur MUET -- hook anterieur a
+    #436-r1, classe `BondComponent` irresolue -- laisse donc `bonded = None` sur tous les effets, et
+    cette passe ne pose RIEN : comportement STRICTEMENT anterieur, jamais une liste inventee.
+    ⚠ Ne PAS retomber sur `eff.source` en repli : pour les quatre producteurs lus,
+    `bondedEntityId == source de l'effet`, mais hydrater par `source` serait une DEDUCTION, pas une
+    lecture -- et une liste fausse ici fait REFUSER un cast que le natif accepte (degradation
+    RESTRICTIVE, l'inverse de la convention permissive de tout ce module).
+
+    Le gate de CLASSE est `BaseEffect.writes_forced_attack_targets()` -- la meme part DATA que la
+    voie de pose, donc aucune duplication de la regle : seul `TauntedEffect` (27
+    `Taunted_OnlySpecificTargets`) la pose. Un effet BONDE qui n'ecrit pas de cible forcee
+    (`TunnelingHorror_PendingSummon`, `HazeOfCorruption_DamageTransfer`) est ignore ici, et c'est
+    correct : son bonded sert ailleurs.
+
+    Le composant est CREE a la demande, comme sur la voie de pose (le natif l'a par blueprint sur
+    toute unite ; offline il n'existe que la ou une ecriture a eu lieu -- `get_only_targets` traite
+    son absence comme la liste vide, exactement comme le `TryGetComponent` faux du natif)."""
+    from .components import ForcedAttackTargetsComponent
+    effects = getattr(state, "effects", None)
+    if effects is None:
+        return
+    for uid, effs in (getattr(effects, "by_unit", None) or {}).items():
+        for eff in (effs or []):
+            if not eff.writes_forced_attack_targets():
+                continue
+            bonded = getattr(eff, "bonded", None)
+            if bonded is None:
+                continue                  # capteur muet OU effet sans lien -> on n'ecrit RIEN
+            ent = state.get_entity(int(uid))
+            if ent is None:
+                continue
+            comp = ent.get_component(ForcedAttackTargetsComponent)
+            if comp is None:
+                comp = ForcedAttackTargetsComponent()
+                ent.add_component(comp)
+            comp.set_from_effect(eff, [int(bonded)])
 
 
 def _load_actor_statistics(state: State, actor_stats: dict) -> None:

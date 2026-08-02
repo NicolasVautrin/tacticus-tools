@@ -1228,13 +1228,37 @@ class EffectFactory:
         # exacte pour un buff CROSS-UNITE dont `source` designe le porteur. Cf. `BaseEffect.stat_mod`
         # / `captured_stat_mod_amount`. Absent -> None, la classe retombe sur sa derivation.
         sm = captured.get("statMod")
-        return klass(
+        eff = klass(
             name=name, effect_type=captured.get("effectType"), level=captured.get("level"),
             ability_level=ability_level, active_ability_level=active_ability_level,
             remaining_turns=remaining_turns, source=captured.get("source"),
             active=(True if active is None else bool(active)),
             stat_mod=(sm if isinstance(sm, Mapping) else None),
             ability_variables_multiplier=ability_variables_multiplier)
+        # `BondComponent.BondedEntityId` de l'entite-effet (#436-r1) -- le champ `+0x10` qu'ecrit
+        # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder` et que relit
+        # `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`. Pour l'effet 27
+        # `Taunted_OnlySpecificTargets`, c'est l'unite QUI TAUNTE : la seule que le tauntee aura le
+        # droit d'attaquer (`TargetIsAllowedForCaster`, #436).
+        #
+        # POSE EN ATTRIBUT D'INSTANCE, pas en champ de ctor : `BaseEffect.bonded` est un attribut de
+        # CLASSE simple (sans annotation -- sinon dataclass field ecrase par l'`__init__`), et le
+        # vecteur de pose OFFLINE (`AddEffectOperation.execute`) l'ecrit de la meme facon.
+        #
+        # TRI-ETAT, et il est LOAD-BEARING. Le capteur rend DEUX champs : `bondMeasured` (la mesure
+        # a-t-elle eu lieu ?) et `bondedEntityId` (son resultat). On n'ecrit QUE si `bondMeasured is
+        # True` ET que l'id est non nul :
+        #   * capteur MUET (hook anterieur a #436-r1, classe `BondComponent` irresolue) -> on ne
+        #     TOUCHE A RIEN, donc l'attribut de classe `None` = comportement STRICTEMENT anterieur ;
+        #   * mesure faite, pas de lien (l'immense majorite des effets, qui ne sont pas des bond
+        #     effects) -> `None` aussi, et c'est la MEME valeur : les deux collapsent ici sur le
+        #     defaut du port, mais les distinguer reste la seule lecture correcte du canal -- un
+        #     consommateur qui voudrait ECRIRE (et donc effacer) doit pouvoir les separer.
+        if captured.get("bondMeasured") is True:
+            bonded = captured.get("bondedEntityId")
+            if bonded is not None:
+                eff.bonded = int(bonded)
+        return eff
 
     @classmethod
     def create_many(cls, captured_list, ability_variables_multiplier: int = 100,

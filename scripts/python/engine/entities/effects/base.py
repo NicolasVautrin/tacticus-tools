@@ -354,7 +354,12 @@ class BaseEffect:
     # DISTINCT de `source` (`EffectComponent.SourceUnit @+0x10`, l'EffectSource) et de `target`
     # (`EffectComponent.Target @+0x14`, le porteur) : sur `HazeOfCorruption_DamageTransfer` (1077) les trois
     # sont TROIS unites differentes -- source = la cible initiale, target = le relais, bonded = Maladus.
-    # None = effet non-bond, ou effet SEEDE (le canal `decisionView.effects` ne publie pas le bonded).
+    # None = effet non-bond, OU capteur muet. Depuis #436-r1 la vue d'effet PUBLIE le bonded
+    # (`bondedEntityId` + `bondMeasured`, `frida/hooks/game/effects.ts::readBondLink`), et
+    # `EffectFactory.create` le pose sur les effets SEEDES -- il ne reste `None` sur un effet hydrate
+    # que si le hook charge est anterieur a ce capteur (`bondMeasured: false`), auquel cas le port
+    # garde son comportement d'avant. ⚠ Le capteur exige une fenetre de reinject pour etre CHARGE :
+    # tant qu'elle n'a pas eu lieu, tout etat hydrate reste `bonded = None`.
     bonded = None
 
     def applied_stat_mods(self, stats_ctx) -> "list":
