@@ -216,6 +216,7 @@ from .fire_of_absolution import FireOfAbsolutionPlaybook        # #419-r1 (regis
 from .cosmic_horror import CosmicHorrorPlaybook                 # #419-t6 (registre, cf. module dedie)
 from .light_im_up import LightImUpPlaybook                      # #419-r1-tr5 (registre, module dedie)
 from .rapid_fire import RapidFirePlaybook                       # #419-r1-tr9 (registre, module dedie)
+from .righteous_repugnance import RighteousRepugnancePlaybook   # #419-r1-tr10 (registre, module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -324,6 +325,21 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # caster, et (c) agrege par `Fix64.Max` au lieu de sommer/moyenner. Il RE-UTILISE pour chaque
     # cible la prediction calculee contre `case.Target` -- quirk natif LU A L'ASSEMBLEUR.
     int(TriggeredAbilityType.RapidFire): RapidFirePlaybook(),
+    # #419-r1-tr10 : RighteousRepugnance (1107, passif d'`adeptMorvenn` << Morvenn Vahl >> HERO au
+    # pool + 3 npc `adept*Morvenn*`) -- `RIGHTEOUSREPUGNANCE_AdjacentEnemy` (10) MULTIPLIE par le
+    # cardinal de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RighteousRepugnanceAbility$$
+    # GetAdditionalTargets` = `AdjacentEnemies(Caster@0x48) & AdjacentUnits(Target@0x60)`, soit les
+    # ennemis du caster adjacents A LA FOIS au caster et a la cible. Corps
+    # IdunBattle.AI.Playbook.Loki.RighteousRepugnancePlaybook.
+    # u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext (UN seul yield).
+    # MEME FORME que Boltstorm (produit poids x cardinal) mais **pas le meme cardinal** : l'arbre
+    # d'ici n'a AUCUN `op_Addition` avec `Target@0x60`, donc la cible principale n'est jamais
+    # comptee et une cible isolee vaut 0 (chez Boltstorm elle valait deja 10). Il n'a besoin ni du
+    # canal `prediction` (#438) ni de la tuile d'attaque (`AbilityEntities` memset a 0, seuls
+    # `Caster` et `Target` ecrits). L'id `1107` est un homonyme a plusieurs faces : `ActiveAbility
+    # Type` 1107 = Reveal, `EffectType` 1107 = PathOfCommand_ExtraCrit, et le mold d'attaque normale
+    # du MEME passif vit sous `ActiveAbilityType` **1182** (#446-r3 / #509), pas ici.
+    int(TriggeredAbilityType.RighteousRepugnance): RighteousRepugnancePlaybook(),
 }
 
 
