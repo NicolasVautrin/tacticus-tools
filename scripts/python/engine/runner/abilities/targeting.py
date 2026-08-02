@@ -171,8 +171,14 @@ Il est lu, en DECLARATIF, par `IdunBattle.Core.Services.TargetingOptions$$get_Ca
 les consommateurs de ciblage (preview / IA). ⚠ MAIS il a un TROISIEME lecteur, et celui-la EST un
 gate : `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason` (`rules >> 0xf & 1`)
 RE-APPLIQUE la cascade CIBLE complete au caster pris comme cible. « Deux cascades » n'est donc pas
-« exhaustivement » — la troisieme existe (#429), elle est NON PORTEE, et 13 masques du registre
-l'arment. Meme famille de lectures declaratives : `get_IsTileTargeting` (`TargetIsTile`),
+« exhaustivement » — la troisieme existe (#429), et elle est PARTIELLEMENT PORTEE depuis #447
+(branches `AddCaster` et `AddCasterIfMatchesDynamicRule` ; cf. `get_caster_not_added_reason`).
+⚠ MAIS PAS la branche du bit 15, et c'est une MESURE, pas un choix : elle exige `isSelfCasting == 0`
+alors que l'aiguillage qui mene a cette cascade — l'overload 5 arguments — n'y branche QUE sous
+`isSelfCasting != 0`. Les deux conditions sont contradictoires, donc **ses 13 masques armes ne
+mordent JAMAIS sur le chemin du CAST** : ils ne comptent que par l'autre appelant,
+`TargetingQuery$$GetValidTargets` (l'ENUMERATION preview/IA), non porte. Meme famille de lectures
+declaratives : `get_IsTileTargeting` (`TargetIsTile`),
 `get_IsUnitTargeting` (= ABSENCE des bits 6/44/46, et pas un bit a lui), `get_IsEnemyTargeting`
 (`TargetIsEnemy` OU `TargetIsCasterOrEnemy`), `get_IsCasterOrEnemyTargeting`, `get_IsActorTargeting`
 (`TargetIsActor`) — des LECTURES du masque, pas des regles supplementaires.
@@ -1855,10 +1861,10 @@ def _targets_the_caster(state: "State", caster_id: int, target_id: Optional[int]
 def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
     """`IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason` — la branche que prend le
     natif quand une ability SELF-CASTEE (`options+0x00 != 0`) est castee SUR SON PROPRE CASTER.
-    NON PORTEE -> 0 (permissif), pour la meme raison que la portee : sa decision depend d'un etage
-    non porte.
 
-    DECOMPILE (rules = `options+0x28`) :
+    DECOMPILE (rules = `options+0x28`), relu VERBATIM sur `rnca9r7q6c` (#447) -- c'est une chaine
+    `if / else if / else`, donc les branches sont MUTUELLEMENT EXCLUSIVES et leur ORDRE fixe qui
+    tranche :
 
         if ((char)rules < 0) return valide;                    # AddCaster pose -> court-circuit
         if (rules & 0x8) {                                     # AddCasterIfMatchesDynamicRule
@@ -1874,20 +1880,59 @@ def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
         }
         return valide;
 
-    POURQUOI 0 : sur le chemin qui nous concerne (`options+0x00 != 0`), le verdict est
-    `GetValidTargets(...).AllTargets.Count == 0`, et
-    `IdunBattle.Core.Services.TargetingQuery$$GetValidTargets` n'est PAS porte : il ENUMERE toutes
-    les cibles legales du plateau (`GetPossibleTargetsForOptions` + la cascade complete, y compris
-    les regles que ce module ne porte pas). Ce n'est plus la portee qui bloque — `GetRange` est
-    porte depuis #241 — c'est l'enumeration. Rendre 0x800 « au juge » inventerait un refus ; rendre
-    0 degrade du cote PERMISSIF, la convention de tout ce module.
+    ⚠ LA BRANCHE `CasterIsPossibleTarget` EST INATTEIGNABLE PAR CE CHEMIN, et c'est une mesure, pas
+    une opinion : elle exige `options+0x00 == 0` (ability NON self-castee), alors que l'AIGUILLAGE
+    qui mene ici -- `TargetingQuery$$GetInvalidTargetReason` surcharge 5 arguments -- ne branche sur
+    `GetCasterNotAddedReason` QUE sous `if (*(char *)options != 0)`, c'est-a-dire self-cast POSE.
+    Les deux conditions sont contradictoires. Ses **13** masques armes au registre (compte
+    `probe_429_targeting_rule_inventory.py`) ne mordent donc QUE par l'autre appelant,
+    `TargetingQuery$$GetValidTargets` (l'ENUMERATION : preview / IA), et le porter exigerait de
+    porter cette enumeration -- residu nomme, cf. #429 §7.
 
-    EXCEPTION deja lue au decompile : `CalibaniteGreatsword` (`AddCaster`) prend le tout premier
-    court-circuit `if ((char)rules < 0) return valide;` — pour elle, 0 EST le verdict natif.
+    CE QUI EST PORTE (#447) : les deux premieres branches.
 
-    MESURE (probe `probe_targeting_masks_lot4.py`, Chronometron 1226 self-cast, ennemis hors du
-    disque range 2) : le natif rend bien `0x800 AddCasterIfAtLeastOneTarget`. C'est le seul ecart
-    connu, et il est du BON cote (le port accepte un cast que le natif refuse)."""
+      * `AddCaster` (bit 7) -- le court-circuit. `(char)rules < 0` teste le SIGNE de l'octet de poids
+        faible, donc exactement le bit 7. Deja le verdict rendu avant #447 (0), mais il l'etait par
+        DEFAUT ; il est desormais rendu par la BRANCHE. Porteurs : 1118 `DoctrinaImperatives`,
+        1189 `CalibaniteGreatsword`.
+      * `AddCasterIfMatchesDynamicRule` (bit 3) -- la regle-delegue CASTER `options+0x30`
+        (= slot vtable `+0x470` = `<X>Ability$$GetDynamicInvalidCasterReason`, cf.
+        `ActiveAbility.get_dynamic_invalid_caster_reason`). Le natif rend le code de la DELEGUE
+        TEL QUEL (`broken(r)`), jamais le bit 3 -- ce bit n'est qu'un AIGUILLAGE. Unique porteur du
+        registre : 1115 `FearOfTheUnseen` (`tyranDeathleaper`), dont la delegue rend
+        `CasterMatchesDynamicRule` (0x4) quand `UnitExtensions$$IsTeleporting(caster)` -- le
+        DEEP STRIKE. C'est le « and is not in Deep Strike » du texte i2 de l'ability.
+
+    CE QUI RESTE NON PORTE, et pourquoi (degradation PERMISSIVE, la convention de tout ce module) :
+      * `AddCasterIfAtLeastOneFreeTileInRange` (bit 22) -> `TargetingQuery$$HasFreeTilesInRange`
+        non porte. **0 porteur au registre** (compte re-derive) : rien a y gagner aujourd'hui.
+      * la branche `else` -> `TargetingQuery$$GetValidTargets` non porte (il ENUMERE toutes les
+        cibles legales du plateau). Rendre `0x800` « au juge » inventerait un refus.
+        MESURE (probe `probe_targeting_masks_lot4.py`, Chronometron 1226 self-cast, ennemis hors du
+        disque range 2) : le natif rend bien `0x800 AddCasterIfAtLeastOneTarget` la ou le port rend
+        `0` -- ecart connu, du cote permissif, et c'est CETTE branche.
+
+    ⚠ LE CANAL DE MESURE DE CETTE FONCTION N'EST PAS `abilityReason` (#447, mesure) : ce RPC passe
+    par `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason`, qui court-circuite sur
+    `ActiveAbility$$get_CanCurrentlyBeUsed` AVANT toute cascade et rend alors le litteral `1`
+    (`ValidRequest`). 1115 porte `initialCooldownTurns = 1` -> au tour 1, `abilityReason` publie
+    `0x1` quel que soit le verdict de ciblage. Le canal qui EXPRIME ce refus est
+    `abilityTargets.fromHere`, dont le chemin natif (`AttackQuery$$GetValidTargets`) ne gate que sur
+    `IsAlreadyUsedThisTurn`."""
+    options = getattr(ability, "TARGETING_OPTIONS", None)
+    if options is None:
+        return 0
+    # `if ((char)rules < 0) return valide;` -- le SIGNE de l'octet bas = le bit 7 `AddCaster`.
+    if options.has(TR.AddCaster):
+        return 0
+    # `if (rules & 0x8) { r = options[+0x30].Invoke(...); if (r) return broken(r); }`
+    # Le code rendu est celui de la DELEGUE, pas le bit 3.
+    if options.has(TR.AddCasterIfMatchesDynamicRule):
+        reason = int(ability.get_dynamic_invalid_caster_reason(state, caster_id) or 0)
+        if reason:
+            return reason
+        return 0                       # branche EXCLUSIVE : la suite de la chaine est un `else if`
+    # `else if (rules & 0x400000)` / `else` : les deux etages non portes (cf. la docstring).
     return 0
 
 

@@ -189,6 +189,56 @@ def test_le_port_ne_rend_jamais_une_permission_qui_ne_soit_pas_un_refus_natif():
         "le port rend une PERMISSION comme code de refus (refus INVENTE) : %s" % ", ".join(fautives))
 
 
+def test_ported_by_designe_une_fonction_qui_existe_dans_le_port():
+    """#447 -- une entree `ported_by` nomme (fonction du port, jeton). Si la FONCTION n'existe pas,
+    la derivation rend « non portee » SANS RIEN DIRE : un faux negatif indiscernable d'un vrai
+    non-port. C'est le meme mode de defaillance que le zero de methode que #429 a ferme -- on garde
+    donc l'existence de la fonction, pas seulement le resultat."""
+    import ast
+    fns = set()
+    for f in P._port_modules():
+        try:
+            tree = ast.parse(f.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        fns |= {n.name for n in ast.walk(tree)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    orphelines = sorted(n for n, r in RULE_ROLE.items()
+                        if r.ported_by and r.ported_by[0] not in fns)
+    assert not orphelines, (
+        "ported_by designe une fonction ABSENTE du port (la derivation rendrait un faux "
+        "« non portee ») : %s" % ", ".join(orphelines))
+
+
+def test_ported_by_reserve_aux_regles_qui_ne_sont_jamais_un_code_de_refus():
+    """`ported_by` est une DEROGATION au critere ordinaire (`int(TR.<X>)` rendu), et elle n'est
+    legitime que la ou le NATIF lui-meme ne rend jamais le code de la regle : le court-circuit
+    `AddCaster` et les trois POINTS D'EXTENSION. L'ouvrir a une regle qui rend bel et bien son
+    code permettrait de declarer « portee » une regle que le port ne rend nulle part."""
+    autorisees = {"AddCaster", "AddCasterIfMatchesDynamicRule",
+                  "TargetMatchesDynamicRule", "CasterMatchesDynamicRule"}
+    declarees = {n for n, r in RULE_ROLE.items() if r.ported_by}
+    assert declarees <= autorisees, (
+        "ported_by pose sur une regle qui EST un code de refus natif : %s"
+        % ", ".join(sorted(declarees - autorisees)))
+
+
+def test_contre_epreuve_ported_by_sans_le_jeton(monkeypatch):
+    """Le jeton retire de l'entree -> la regle doit REDEVENIR non portee. Sans cette morsure,
+    `ported_by` serait un interrupteur « declare portee » au lieu d'une derivation."""
+    from dataclasses import replace as _replace
+    cible = "AddCasterIfMatchesDynamicRule"
+    assert cible in P.rules_ported_by_delegation(), "etat de depart : la regle doit etre portee"
+    mute = dict(RULE_ROLE)
+    mute[cible] = _replace(RULE_ROLE[cible],
+                           ported_by=("get_caster_not_added_reason", "__jeton_inexistant__"))
+    monkeypatch.setattr(P, "RULE_ROLE", mute)
+    assert P.RULE_ROLE[cible].ported_by[1] == "__jeton_inexistant__", "la mutation n'a pas mordu"
+    assert cible not in P.rules_ported_by_delegation(), (
+        "la derivation rend la regle portee alors que son jeton est absent de la fonction "
+        "porteuse -- `ported_by` ne derive plus rien")
+
+
 def test_toute_regle_gate_a_un_compte_de_porteurs_calculable():
     """Le rapport doit etre calculable pour CHAQUE gate -- pas seulement pour ceux qu'une table
     historique avait retenus. C'est la garantie de couverture du rapport lui-meme."""

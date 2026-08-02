@@ -108,6 +108,40 @@ def rules_returned_by_port() -> dict:
     return out
 
 
+def rules_ported_by_delegation() -> dict:
+    """{nom: "<fichier>:<fonction>"} -- les regles portees par DELEGATION ou par COURT-CIRCUIT.
+
+    Le critere `int(TR.<X>)` de `rules_returned_by_port` est STRUCTURELLEMENT aveugle a quatre
+    regles, parce que le NATIF ne rend jamais leur code (cf. `Role.ported_by`) : le court-circuit
+    `AddCaster`, et les trois points d'extension, dont le natif rend le code de la DELEGUE.
+
+    La derivation reste une derivation : pour chaque entree a `ported_by = (fonction, jeton)`, on
+    cherche la FONCTION nommee dans les modules du port et le JETON dans SON corps -- soit un
+    APPEL de ce nom, soit un `TR.<jeton>`. La granularite « fonction porteuse » n'est pas
+    cosmetique : `get_dynamic_invalid_caster_reason` a DEUX foyers d'appel distincts
+    (`get_invalid_caster_reason` sous le bit 2, `get_caster_not_added_reason` sous le bit 3), et un
+    critere « la methode est appelee quelque part » compterait le second porte alors que seul le
+    premier l'etait."""
+    besoins = {n: r.ported_by for n, r in RULE_ROLE.items() if r.ported_by}
+    out = {}
+    for f in _port_modules():
+        try:
+            tree = ast.parse(f.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        fns = {n.name: n for n in ast.walk(tree)
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        for nom, (fn_name, jeton) in besoins.items():
+            fn = fns.get(fn_name)
+            if fn is None or nom in out:
+                continue
+            appels = {n.func.attr for n in ast.walk(fn)
+                      if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+            if jeton in appels or jeton in _tr_names(fn):
+                out[nom] = "%s:%s" % (f.name, fn_name)
+    return out
+
+
 def rules_tested_by_port() -> dict:
     """{nom: [fichier:ligne]} -- les regles dont le port TESTE le bit (`options.has(TR.<X>)`)."""
     out = {}
@@ -229,15 +263,18 @@ def main() -> int:
 
     # --- ce que le port porte, DERIVE ----------------------------------------------------
     rendues = rules_returned_by_port()
+    deleguees = rules_ported_by_delegation()
     testees = rules_tested_by_port()
     gates = [n for n in noms
              if RULE_ROLE.get(n) is not None
              and RULE_ROLE[n].kind in ("GATE_TARGET", "GATE_CASTER", "GATE_ADD_CASTER")]
-    portees = [n for n in gates if RULE_ROLE[n].code(n) in rendues]
+    portees = [n for n in gates if RULE_ROLE[n].code(n) in rendues or n in deleguees]
     print("")
     print("--- CE QUE LE PORT PORTE (derive de l'AST) ------------------------------")
-    print("  regles GATE : %d ; RENDUES par le port : %d ; NON PORTEES : %d"
-          % (len(gates), len(portees), len(gates) - len(portees)))
+    print("  regles GATE : %d ; PORTEES : %d (dont %d par DELEGATION/COURT-CIRCUIT) ; "
+          "NON PORTEES : %d"
+          % (len(gates), len(portees), len([n for n in portees if n in deleguees]),
+             len(gates) - len(portees)))
 
     masks = collect_masks()
     print("  masques lisibles au registre : %d" % len(masks))
@@ -271,6 +308,11 @@ def main() -> int:
         print("")
         print("--- REGLES PORTEES (le port les rend) ----------------------------------")
         for n in portees:
+            if n in deleguees:
+                # Le natif ne rend JAMAIS le code de ces regles-la (court-circuit ou point
+                # d'extension) : leur port se lit dans la FONCTION porteuse, pas dans un `int(TR.X)`.
+                print("  %-42s %s   [DELEGATION/COURT-CIRCUIT]" % (n, deleguees[n]))
+                continue
             # La cle de `rendues` est le CODE RENDU, pas le nom de la regle -- les deux different
             # des qu'une regle rend un litteral qui n'est pas le sien (`TargetIsTile` -> `1` =
             # `ValidRequest`, cf. `Role.reason_code`). `rendues[n]` levait donc un `KeyError` sur
