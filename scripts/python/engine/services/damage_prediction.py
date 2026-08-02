@@ -24,7 +24,8 @@ from .min_max_damage import MinMaxDamage
 from .damage_calculations import spread_to_min_max
 from .static_battle_rules import get_damage_with_piercing, get_piercing_ratio, W_LASCANNON_PIERCE_BONUS
 from .damage_modifiers import (
-    DamageModifiers, apply_all_modifiers, apply_capped_modifiers, capped_reduction_flat,
+    DamageModifiers, apply_all_modifiers, apply_capped_modifiers, apply_pct_entries,
+    calculate_base_damage_with_modifiers, capped_reduction_flat,
 )
 from .trait_damage_limits import (apply_trait_damage_limits_to_damage,  # noqa: F401 (re-export #178)
                                   compute_prediction_overkill,
@@ -407,6 +408,23 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
         if attacker_additive_pre:
             # additif déjà dans la base → %-list SEUL (IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers) + plancher 0
             d = max(0, apply_capped_modifiers(d, mods))
+            # #446-r2 — LES QUATRE ÉTAPES ORDONNÉES de
+            # `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`, dans
+            # l'ordre LU au décompilé :
+            #   1. `ApplyCappedModifiers(attackModifiers)`   <- la ligne ci-dessus (`mods.pct_list`)
+            #   2. `ApplyCappedModifiers(defenseModifiers)`  <- `mods.pct_list_defender`
+            #   3. `CalculateBaseDamageWithModifiers(attackModifiers.Multiplier@0x30)`   -> Round
+            #   4. `CalculateBaseDamageWithModifiers(defenseModifiers.Multiplier@0x30)`  -> Round
+            # Le port replie chaque multiplicateur natif dans SA `%-list` de face (elles ne portent
+            # pas de cap : `Round` de fin d'appel == `Round` de l'étape 3/4), d'où l'appariement
+            # 1+3 = face ATTAQUANT, 2+4 = face DÉFENSEUR. Les étapes 3 et 4 sont INCONDITIONNELLES
+            # côté natif : elles arrondissent MÊME à multiplicateur neutre, et c'est cet arrondi
+            # INTERMÉDIAIRE — entre les deux faces — qui manquait au port (résidu #446-r2, mesuré
+            # `+3` sur 3 coups, cf. `docs/rl/case-446-r2-arrondi-inter-faces.md`).
+            d = calculate_base_damage_with_modifiers(d)      # étape 3 (Round face ATTAQUANT)
+            if mods.pct_list_defender:
+                d = max(0, apply_pct_entries(d, mods.pct_list_defender))   # étape 2
+            d = calculate_base_damage_with_modifiers(d)      # étape 4 (Round face DÉFENSEUR)
         else:
             d = apply_all_modifiers(d, mods)   # %-list PUIS additif (@+0x10) — APRES percage (§17.7)
     return d

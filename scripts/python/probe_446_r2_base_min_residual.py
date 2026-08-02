@@ -52,10 +52,12 @@ MontageError = P446.MontageError
 STRIP_PASSIVES = ["--unit-stat", f"{P446.CASTER}:PassiveAbilities=[]"]
 
 
-def build_args(armor_target: int | None) -> list:
+def build_args(armor_target: int | None, unit_stat: list | None = None) -> list:
     extra = list(P446.BUILD_ARGS) + STRIP_PASSIVES
     if armor_target is not None:
         extra += ["--armor-target", str(armor_target)]
+    for spec in (unit_stat or []):
+        extra += ["--unit-stat", spec]
     return extra
 
 
@@ -128,16 +130,70 @@ def native_event(rpc, rid, cid, tgt, ab, tile) -> dict | None:
 
 
 def port_stage(ctx, tgt, tile) -> tuple:
-    """Le port + ses ENTREES d'etage (`meta=True` : base, percage, armure, coups, %-list)."""
+    """Le port + ses ENTREES d'etage (`meta=True` : base, percage, armure, coups, %-list).
+
+    ⚠ Le FOLD `Boltstorm` est NEUTRALISE ici : le controle apparie RETIRE le passif de l'unite
+    LIVE (`--unit-stat PassiveAbilities=[]`), mais le dispatch du port lit le KIT gameconfig, pas
+    l'AbilitiesComponent -- il folderait donc la ou le natif ne folde plus, et la comparaison ne
+    porterait plus sur la meme chose. La neutralisation est LOCALE et RESTAUREE."""
+    import engine.playbook.prediction.normal_attack as NA
     from engine.playbook.prediction import make_normal_attack_predictions
-    out = make_normal_attack_predictions(ctx.scene, ctx.uid, tgt, tuple(tile), meta=True)
+    saved = NA._RANGED_FOLLOWUP_PASSIVES
+    NA._RANGED_FOLLOWUP_PASSIVES = ()
+    try:
+        out = make_normal_attack_predictions(ctx.scene, ctx.uid, tgt, tuple(tile), meta=True)
+    finally:
+        NA._RANGED_FOLLOWUP_PASSIVES = saved
     if out is None:
         return None, None
     ev, meta = out
     return ev, meta
 
 
-def chain(base: int, pierce: int, armor: int, mults: list, hits: int, hit_mult: int = 1) -> dict:
+def target_facts(ctx, uid) -> dict:
+    """Ce que le port SAIT de la cible (armure, traits, effets, modifications de DEFENSE) -- la
+    matiere qui distingue deux cibles a entrees d'etage par ailleurs identiques."""
+    sc = ctx.scene
+    tctx = sc.ctx(uid)
+    stats = getattr(tctx, "stats", None) if tctx is not None else None
+    dmods = None
+    if stats is not None:
+        d = getattr(stats, "defense", None)
+        if d is not None:
+            dmods = {"initial": getattr(d, "initial", None),
+                     "current": d.get_current_value() if hasattr(d, "get_current_value") else None,
+                     "per_source": dict(getattr(getattr(d, "modification", None),
+                                                "per_source", {}) or {})}
+    pos = sc.pos(uid)
+    return {"pos": pos, "elev": (sc.elev_by_pos or {}).get(tuple(pos)) if pos else None,
+            "armor": sc.armor(uid), "hp": sc.hp(uid), "shield": sc.shield(uid),
+            "traits": sorted(getattr(tctx, "traits", None) or ()) if tctx is not None else None,
+            "effects": sorted({getattr(e, "name", "?") for e in (sc.effects(uid) or [])}),
+            "defense": dmods}
+
+
+def port_mod_details(ctx, tgt, tile) -> list:
+    """Les EffectBonus que le port accumule pour CETTE paire -- c'est ce qui dit si le `1.5` du
+    port est l'ELEVATION ou la modification de stat DEFENSE (les deux valent 1.5)."""
+    from engine.playbook.prediction._shared import (_add_positional_and_defender_mods,
+                                                    _weapon_pierce)
+    from engine.services.battle_query import are_tiles_adjacent
+    from engine.services.damage_modifiers import DamageModifiers
+    sc = ctx.scene
+    t_pos = sc.pos(tgt)
+    adj = are_tiles_adjacent(tuple(tile), t_pos, sc.board)
+    import hexgeo
+    _d = hexgeo.distance(tuple(tile), t_pos) if t_pos else None
+    _p, _ranged, _wh, prof = _weapon_pierce(sc, ctx.uid, adj, _d)
+    m = DamageModifiers()
+    _add_positional_and_defender_mods(m, sc, ctx.uid, tgt, not _ranged, tuple(tile), t_pos,
+                                      damage_profile=prof)
+    return [(getattr(e, "kind", "?"), getattr(e, "value", None),
+             getattr(e, "owner_is_caster", None)) for e in m.details]
+
+
+def chain(base: int, pierce: int, armor: int, mults: list, hits: int, hit_mult: int = 1,
+          mults_def: list | None = None) -> dict:
     """Re-joue la chaine PORT etage par etage, en gardant les Fix64 EXACTS (raw). Rend, PAR BORNE :
       `spread`   -- IdunBattle.Core.Services.DamageCalculations$$CalculateDamageSpread
       `base_mm`  -- IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64
@@ -147,6 +203,8 @@ def chain(base: int, pierce: int, armor: int, mults: list, hits: int, hit_mult: 
                     au prochain entier : c'est ce qui dit si un `+1` est un ARRONDI ou une OPERATION)
     """
     from engine.services.damage_calculations import calculate_damage_spread
+    from engine.services.damage_modifiers import (apply_pct_entries,
+                                                  calculate_base_damage_with_modifiers)
     from engine.services.static_battle_rules import get_damage_with_piercing
     d = calculate_damage_spread(base, 20)
     lo_b, hi_b = base - d, base + d
@@ -157,15 +215,14 @@ def chain(base: int, pierce: int, armor: int, mults: list, hits: int, hit_mult: 
             v = get_damage_with_piercing(v, pierce, armor)
         raw = _fx.from_number(v)
         res[f"pierced_{name}"] = raw
-        for m in mults:
-            raw = _fx.mul(raw, _fx.mult_raw_from_float(m))
-        if mults:
-            raw_r = _fx.round_raw(raw, 1)
-        else:
-            raw_r = raw
-        res[f"modded_{name}"] = raw
         res[f"exact_{name}"] = Fraction(raw, _fx.ONE)
-        res[f"out_{name}"] = _fx.to_int(_fx.round_raw(_fx.from_number(_fx.Fix64(raw_r)), 1))
+        # LES QUATRE ETAPES de `CalculateBaseDamageWithAllModifiers`, dans l'ordre natif.
+        x = apply_pct_entries(_fx.Fix64(raw), [(m, None) for m in mults])
+        x = calculate_base_damage_with_modifiers(x)                             # Round ATTAQUANT
+        res[f"after_att_{name}"] = Fraction(x.raw, _fx.ONE)
+        x = apply_pct_entries(x, [(m, None) for m in (mults_def or [])])
+        x = calculate_base_damage_with_modifiers(x)                             # Round DEFENSEUR
+        res[f"out_{name}"] = _fx.to_int(_fx.round_raw(x.raw, 1))
     return res
 
 
@@ -205,6 +262,9 @@ def main() -> int:
     ap.add_argument("--tiles", type=int, default=6,
                     help="nombre de tuiles de tir balayees (defaut 6)")
     ap.add_argument("--targets", default="T,A,N1,N2,F")
+    ap.add_argument("--unit-stat", action="append", default=None,
+                    help="ABLATION : patch supplementaire de BC.Units (repetable), transmis a "
+                         "`rl_duel build` -- ex. 'astraBullgryn:Traits=[\"Hero\"]'")
     args = ap.parse_args()
 
     from rl_collect_batch import _resolve_session, _rpc
@@ -214,7 +274,8 @@ def main() -> int:
         r = _rpc(sid, method, [body] if body is not None else [], timeout=timeout)
         return r["result"] if isinstance(r, dict) and "result" in r else r
 
-    rid = args.runner if args.runner else P446._build(args.state_file, build_args(args.armor_target))
+    rid = args.runner if args.runner else P446._build(
+        args.state_file, build_args(args.armor_target, args.unit_stat))
     case = stage(sid, rpc, rid)
     ctx = case["ctx"]
     lay = case["layout"]
@@ -228,9 +289,28 @@ def main() -> int:
     tiles = tiles[:max(1, args.tiles)]
     targets = [k for k in args.targets.split(",") if k in case["ids"] and k != "C"]
 
+    for key in targets:
+        uid = case["ids"][key]
+        print(f"  FACTS[{key}] u{uid} {target_facts(ctx, uid)}")
+        # GROUND TRUTH NATIVE des modifications de stat de la cible : c'est la SEULE voie qui
+        # alimente `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
+        # (face DEFENSEUR, negate=1), donc une entree %-list que le port pourrait ne pas voir.
+        sms = rpc("statModSources", {"runnerId": case["rid"], "unitId": uid,
+                                     "stats": ["defense", "attack", "armor"], "minAbs": 0}, 120) or {}
+        if sms.get("ok"):
+            for u in (sms.get("units") or []):
+                if u.get("mods"):
+                    print(f"    statModSources u{u.get('entityId')}: {u.get('mods')}")
+        else:
+            print(f"    statModSources KO: {sms.get('error')}")
+        print(f"    port EffectBonus @ {tuple(lay['C'])}: {port_mod_details(ctx, uid, lay['C'])}")
+    print(f"  elev caster {tuple(lay['C'])} = {(ctx.scene.elev_by_pos or {}).get(tuple(lay['C']))}")
+
     rows = sweep(rpc, case, tiles, targets)
     n_bad = 0
     for r in rows:
+        if r["nat_hits"] <= 1 and r["nat_min"] == 0 and r["nat_max"] == 0:
+            continue          # cible hors portee depuis cette tuile : le natif rend une prediction NULLE
         m = r["meta"] or {}
         dmin = r["port_min"] - r["nat_min"]
         dmax = r["port_max"] - r["nat_max"]
@@ -239,16 +319,20 @@ def main() -> int:
         if tag == "DIFF":
             n_bad += 1
         ch = chain(int(m.get("base") or 0), int(m.get("pierce") or 0), int(m.get("armor") or 0),
-                   list(m.get("mods") or []), int(r["port_hits"] or 1))
+                   list(m.get("mods") or []), int(r["port_hits"] or 1),
+                   mults_def=list(m.get("mods_def") or []))
         e_lo, e_hi = ch["exact_min"], ch["exact_max"]
         print(f"  [{tag}] tile={r['tile']} {r['target']} u{r['uid']} "
               f"nat=({r['nat_min']},{r['nat_max']},{r['nat_hits']}) "
               f"port=({r['port_min']},{r['port_max']},{r['port_hits']}) "
               f"d=({dmin:+d},{dmax:+d},{dh:+d})")
         print(f"        base={m.get('base')} pierce={m.get('pierce')} armor={m.get('armor')} "
-              f"hits={m.get('hits')} mods={m.get('mods')} "
+              f"hits={m.get('hits')} modsATT={m.get('mods')} modsDEF={m.get('mods_def')} "
+              f"detail={m.get('mods_detail')} "
               f"baseMM=({ch['base_min']},{ch['base_max']}) spread={ch['spread']}")
-        print(f"        per-coup EXACT min={float(e_lo):.6f} max={float(e_hi):.6f} "
+        print(f"        percage EXACT min={float(e_lo):.8f} max={float(e_hi):.8f} "
+              f"| apres face ATT min={float(ch['after_att_min']):.4f} "
+              f"max={float(ch['after_att_max']):.4f} "
               f"-> port/coup=({ch['out_min']},{ch['out_max']}) "
               f"nat/coup=({r['nat_min'] / max(1, r['nat_hits']):.4f},"
               f"{r['nat_max'] / max(1, r['nat_hits']):.4f})")

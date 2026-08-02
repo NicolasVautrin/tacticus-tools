@@ -623,6 +623,11 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     if meta:
         _m = {"base": attack_base, "pierce": pierce, "armor": scene.armor(tgt_id), "hits": hits,
               "mods": [round(m, 3) for m, _c in mods.pct_list] or None,
+              # #446-r2 : QUELLE feuille produit chaque entree de la %-list. Sans ce detail, deux
+              # sources distinctes de meme facteur (elevation vs modification de stat DEFENSE, toutes
+              # deux x1.5) sont indiscernables -- et elles n'atterrissent PAS dans le meme champ natif.
+              "mods_detail": [(e.kind, e.value, bool(e.owner_is_caster)) for e in mods.details] or None,
+              "mods_def": [round(m, 3) for m, _c in mods.pct_list_defender] or None,
               "effects": [e.name for e in att_effects] or None}
         if _fw is not None:
             _m["followup"] = {"min": _fw.raw_health_damage.min, "max": _fw.raw_health_damage.max}
