@@ -67,7 +67,26 @@ def _replay(dv, ob, snap, board, rng0, caster_id, target_id, ability_id, moved):
     patcher son `__init__` serait un NO-OP SILENCIEUX, les trois rejeux rendraient la meme chose ;
     c'est l'assert de discrimination qui l'attrape). Le vecteur ABILITY passe par le registre
     (`ActiveAbilityMessage` -> `VigilanceEternalAbility`), donc la garde tient la route REELLE du
-    moteur, pas un appel fabrique."""
+    moteur, pas un appel fabrique.
+
+    ⚠ L'ETAGE A MIGRE, ET CE FICHIER A ETE INERTE 2 SKIPS / 0 PASSED POUR CETTE RAISON (#455).
+    `round_materialize` d'`apply_all_modifiers` etait le SEUL point de forcage tant que la
+    materialisation vivait la. Depuis `0ad4b9e8` (#446-r2, l'arrondi INTER-FACES), le mirror des
+    etapes 3 et 4 de `IdunBattle.Core.Services.DamagePrediction$$
+    CalculateBaseDamageWithAllModifiers` vit dans `apply_pierce_and_modifiers`, qui appelle
+    `calculate_base_damage_with_modifiers` DEUX FOIS, INCONDITIONNELLEMENT -- donc la valeur
+    arrive DEJA ENTIERE a `apply_all_modifiers` et `round_materialize` y est un no-op strict.
+    MESURE OFFLINE du regime de ce fichier (pierce 40, armure 6000) :
+    `apply_pierce_and_modifiers(2009.6) = 804.0`, `(3014.4) = 1206.0` -- `round == floor` pour
+    TOUTE entree, quel que soit le seed ou l'armure. Le balayage de seeds tombait donc
+    systematiquement sur `pytest.skip("aucun seed discriminant")`, AVANT l'assert de
+    discrimination qui existait justement pour attraper ca : **le skip mangeait l'assert**.
+
+    Le forcage vise desormais les DEUX etages, et `floor` signifie « aucune materialisation
+    intermediaire, la fraction du percage survit jusqu'a la troncature finale `op_Explicit` » --
+    c'est exactement la loi que le residu #38 accuse."""
+    from engine.services import damage_prediction as _dpred
+    from engine.services import fix64 as _fx
     from engine.runner.snapshot import load_state
     from engine.runner.runner import Runner
     from engine.runner.messages import ActiveAbilityMessage, AttackUnitMessage
@@ -80,6 +99,17 @@ def _replay(dv, ob, snap, board, rng0, caster_id, target_id, ability_id, moved):
 
     mod = _dnormal if ability_id is None else _dability
 
+    def _sans_round(damage, multiplier: float = 1.0):
+        """`calculate_base_damage_with_modifiers` PRIVE de son `Fix64.Round(x, AwayFromZero)`.
+        Corps mirror a l'identique par ailleurs (gates `x <= 0 -> 0` et `0 < x < 1 -> 1`) : seule
+        la materialisation saute, la fraction du percage SURVIT jusqu'a la troncature finale."""
+        x = _fx.mul(_fx.from_number(damage), _fx.mult_raw_from_float(multiplier))
+        if x <= 0:
+            return _fx.Fix64(0)
+        if x < _fx.ONE:
+            return _fx.Fix64(_fx.ONE)
+        return _fx.Fix64(x)
+
     def _one(force):
         st = load_state(dv, ob, snap, board=board)
         if moved:
@@ -90,10 +120,15 @@ def _replay(dv, ob, snap, board, rng0, caster_id, target_id, ability_id, moved):
         st.rng = rng
         per_hit: list = []
         o_aam = mod.apply_all_modifiers
+        o_cbd = _dpred.calculate_base_damage_with_modifiers
         o_eaa = AttackDamageOperation.execute_ability_attack
         if force is not None:
             mod.apply_all_modifiers = (
                 lambda v, m, round_materialize=False: _aam(v, m, round_materialize=force))
+        if force is False:
+            # ETAGE AMONT (#446-r2) : sans ce second patch le forcage ci-dessus est un NO-OP, la
+            # valeur etant deja entiere -- c'est ce qui a rendu ce fichier inerte (cf. docstring).
+            _dpred.calculate_base_damage_with_modifiers = _sans_round
         if ability_id is not None:
             def _rec(*a, **kw):
                 out = o_eaa(*a, **kw)
@@ -113,6 +148,7 @@ def _replay(dv, ob, snap, board, rng0, caster_id, target_id, ability_id, moved):
             return per_hit
         finally:
             mod.apply_all_modifiers = o_aam
+            _dpred.calculate_base_damage_with_modifiers = o_cbd
             AttackDamageOperation.execute_ability_attack = o_eaa
 
     return {"floor": _one(False), "round": _one(True), "shipped": _one(None)}
