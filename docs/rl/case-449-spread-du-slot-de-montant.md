@@ -152,6 +152,26 @@ racine documentaire de la contradiction, recopiée d'un port à l'autre (`psyker
   (les gates d'adjacence portent une porte `|Δelev| < 2` qui changerait les régimes mesurés, pas
   le canal de spread).
 
-## 8. Relevé de validation
+## 8. Relevé de validation (2026-08-02, APRÈS rebase sur `origin/master` = `497aa9b7`)
 
-Voir le message de PR : tests ciblés re-joués (avant/après rebase) et banque de cliquets.
+| ce qui a été joué | résultat |
+|---|---|
+| `test_449_spread_slot_predefini_live.py` (garde neuve) | **5 passed** |
+| `test_445_avalanche_of_muscle_pair_term_live.py` (garde du port modifié) | **5 passed** |
+| `test_419_t6_cosmic_horror_pair_term_live.py` (mergé APRÈS ma base) | **9 passed** |
+| `test_419_r1_fire_of_absolution_pair_term_live.py` (mergé APRÈS ma base) | **7 passed** |
+| `test_446_boltstorm_pair_term_live.py` (voisin du même registre, avant rebase) | **5 passed** |
+| `tests/engine/runner/test_psyker_splash_live.py` (face COMBAT, non touchée) | **1 passed** |
+| `probe_45_psyker.py` (repère historique) | `17.853817519579994` vs L3 `17.85381752299145`, **delta −3,4e-9** — inchangé par le correctif (canal aveugle) |
+| `probe_32d_fury.py` | `avg0 == avg20` sur les deux cibles ; repère `case-32` inchangé |
+| `pwsh -File scripts/ratchets.ps1` | **25 cliquets, BANQUE VERTE, rc=0**, mur 82,7 s |
+
+**Contre-épreuve du garde lui-même** (jouée, puis annulée) : `spread_pct=0` ré-injecté dans
+`psyker.py` et `avalanche_of_muscle.py` → `test_449` rend **1 rouge / 4 verts**, et le rouge est
+`test_source_reading_matches_the_native`. Les quatre autres restent vertes — c'est la
+démonstration que les gardes qui FORCENT le spread des deux côtés sont indifférentes à la source,
+et qu'une garde sans cette cinquième assertion **n'aurait pas pu rougir** sur une régression.
+
+**Ce qui N'EST PAS couvert** : les régimes ÉLÉVATION (`#449-r4`), les bornes propres de
+`FuryOfTheAncients` (`#449-r1`), la face COMBAT (`#449-r2`), et l'énumération des producteurs de
+requête qui écriraient `0` à `+0x6a` (`#449-r3`).
