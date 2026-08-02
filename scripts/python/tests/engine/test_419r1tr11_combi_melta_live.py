@@ -40,9 +40,41 @@ import uuid
 import pytest
 
 import probe_419r1tr11_combi_melta as P
+from engine.entities.effect_type import EffectType
 
 
 EPS = P.EPS
+
+# Les DEUX effets de la face COMBAT de 1545 (`SpecialIssueCombiMelta_InitAbility$$CreateBehaviour`
+# = `AddEffect(0x61b) & AddEffect(0x61c)`). ⚠ Ces ids vivent dans un espace de numerotation
+# DIFFERENT de l'ability 1545 : ils sont RE-DERIVES de l'enum du port (mirror 1:1 du natif), jamais
+# recopies d'une fiche.
+_COMBAT_EFFECTS = (int(EffectType.SpecialIssueCombiMelta_AdditionalHits),      # 1563
+                   int(EffectType.SpecialIssueCombiMelta_ExtraDmg))            # 1564
+
+
+def test_neutered_arm_condition_of_validity():
+    """(0) OFFLINE -- la CONDITION sous laquelle le bras `neutered` est licite.
+
+    Ce bras force a 0, DANS LE SEED BC, les variables de degat de l'ability. Le patch ne vit que
+    cote NATIF : `engine/entities/effects/magnitude.py::ability_var` lit `gameconfig`. Il fait
+    donc CONVERGER les deux faces -- mais seulement tant que le port ne modelise PAS les effets
+    que ces variables alimentent. Des que la face COMBAT entre au registre, le meme geste devient
+    une DESYNCHRONISATION (le motif #366-r1-bcpatch-invisible, dont l'exception est declaree dans
+    `probe_366_r1_bcpatch_port_blindspot._EXCEPTIONS`).
+
+    Le critere est DERIVE du registre, jamais saisi : la presence d'une des deux entrees suffit a
+    invalider le montage."""
+    from engine.entities.effects import EFFECT_CLASSES
+    ported = [EffectType(e).name for e in _COMBAT_EFFECTS
+              if EffectType(e).name in EFFECT_CLASSES]
+    assert not ported, (
+        "la face COMBAT de SpecialIssueCombiMelta est desormais portee (%s au registre "
+        "`EFFECT_CLASSES`) : le bras `neutered` de ce montage devient une DESYNCHRONISATION "
+        "(le port lirait ces variables depuis `gameconfig`, le natif les lit a 0 dans le seed BC). "
+        "A refaire : soit neutraliser AUSSI le port, soit retomber sur le seul bras `raw` (qui ne "
+        "confronte que la distance 3). Retirer aussi les trois entrees `SpecialIssueCombiMelta` de "
+        "`probe_366_r1_bcpatch_port_blindspot._EXCEPTIONS`." % ", ".join(ported))
 
 
 def _arm(build_runner, live_session, rpc, writer):

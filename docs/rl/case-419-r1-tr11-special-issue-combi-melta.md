@@ -126,6 +126,29 @@ distance `d` de l'une et `d ± 1` de l'autre. Un port qui lirait autre chose que
 (l'ennemi le plus proche, le caster) rendrait la MÊME valeur sur les deux — ces lignes-là le
 trahissent, et le test les exige (`test_target_read_is_the_case_target`).
 
+### 3bis. Le bras `neutered` déclenche `#366-r1-bcpatch-invisible` — et ce que ça a coûté d'honnêteté
+
+La banque de cliquets a **rougi** sur ce montage, au premier passage :
+`probe_366_r1_bcpatch_port_blindspot` recense les couples `(ability, variable)` qu'une fixture écrit
+dans un seed BC **et** que le moteur Python lit depuis `gameconfig` — toute intersection est une
+**désynchronisation ARMÉE**. Les trois variables patchées y entrent, par un site de lecture à
+ability DYNAMIQUE.
+
+Le verdict n'est pas silencé, il est **qualifié**. Ici le patch fait **CONVERGER** les deux faces au
+lieu de les écarter : le port ne modélise pas les effets 1563/1564, donc les mettre à 0 côté natif
+supprime un écart, il n'en crée pas. Trois entrées NOMMÉES sont déclarées dans
+`probe_366_r1_bcpatch_port_blindspot._EXCEPTIONS`, avec leur **condition de validité** — *tant que la
+face COMBAT n'est pas portée*.
+
+Et cette condition est **mécaniquement gardée**, pas promise :
+`test_neutered_arm_condition_of_validity` (OFFLINE, dérivé du registre `EFFECT_CLASSES`, jamais
+d'une liste saisie) rougit dès que `SpecialIssueCombiMelta_AdditionalHits` ou `_ExtraDmg` y entre,
+et dit quoi refaire. **Contre-épreuve JOUÉE** : l'entrée injectée à la main dans `EFFECT_CLASSES`
+fait bien rougir le garde. Second filet, indépendant : le jour où la face COMBAT sera portée,
+`test_pair_utility_matches_native_on_all_distances` rougira LIVE — le port appliquerait les coups
+supplémentaires du gameconfig là où le natif en applique zéro. Les deux échecs sont **bruyants**,
+c'est-à-dire exactement le contraire du mode de panne que le cliquet redoute.
+
 ## 4. Mesures (board `MC1_67`, seed 41545, 26 lignes, 2026-08-02)
 
 `python scripts/python/probe_419r1tr11_combi_melta.py --state-file <abs> [--stage] [--mutants]`
@@ -172,8 +195,8 @@ COMBAT ferait croire (ses effets mordent à 1 et 2), et elle est fausse.
 
 ## 5. Ce qui a été rejoué
 
-* Garde jumelle `scripts/python/tests/engine/test_419r1tr11_combi_melta_live.py` : **6 tests,
-  0 skip**, 28,7 s (2 runners, libérés au fil de l'eau).
+* Garde jumelle `scripts/python/tests/engine/test_419r1tr11_combi_melta_live.py` : **7 tests,
+  0 skip**, ~23 s (2 runners, libérés au fil de l'eau).
 * Cliquet `tests/test_419_playbook_wiring_ratchet_offline.py` : **3 passés** (l'entrée 1545 a un
   porteur réel et un corps natif non trivial).
 * Voisins de registre : `test_419_lakrimae_pair_term_live.py`,
