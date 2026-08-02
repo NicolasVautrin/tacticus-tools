@@ -146,18 +146,26 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     #     (`IsNormalAttack & get_OwnerIsCaster`)                                        -- PORTE ici ;
     #   * `IdunBattle.Entities.Effects.Loki.Waaagh_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`
     #     (`IsNormalAttack & IsMeleeAttack & get_OwnerIsCaster`)                        -- PORTE ici ;
-    #   * `IdunBattle.Entities.Effects.Loki.Dakka_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`
-    #     (1105, `... & get_OwnerIsActor & IsNormalAttack & IsRangedAttack`)            -- NON PORTE ;
     #   * `IdunBattle.Entities.Effects.Loki.ShroudPsalmEffect$$CreateEffectHitsBonusForAttack`
-    #     (1366, `get_OwnerIsTarget & IsNormalAttack` -- un MALUS defenseur)             -- NON PORTE ;
+    #     (1366, `get_OwnerIsTarget & IsNormalAttack` -- un MALUS defenseur, `ForAdditionWithMinimum`)
+    #     -- PORTE (#419-r1-tr9-r4-r1-r2), cote DEFENSE : c'est pourquoi `is_normal_attack` est
+    #     desormais threade jusqu'a `hits_malus_from_defender_effects` ;
     #   * `IdunBattle.Entities.Effects.Loki.VoltagheistField_ExtraHitEffect$$CreateEffectHitsBonusForAttack`
-    #     (1381, `get_OwnerIsCaster & IsNormalAttack`)                                   -- NON PORTE ;
+    #     (1381, `get_OwnerIsCaster & IsNormalAttack`)     -- PORTE (#419-r1-tr9-r4-r1-r2) ;
+    #   * `IdunBattle.Entities.Effects.Loki.Dakka_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`
+    #     (1105, `AmountIsEqual(MinDistance(Caster,Target), 2) & AmountIsEqualOrGreater(
+    #     AttackWeaponRange, 3) & get_OwnerIsActor & IsNormalAttack & IsRangedAttack`)
+    #     -- NON PORTE, **registered-but-DEAD** : son unique voie d'attribution est le TRAIT `Dakka`
+    #     (`DakkaAbility` = `AOwnerEffectSpecificTriggeredAbility`, seul appelant de son ctor =
+    #     `AbilitiesDatabase.<InitializeTriggeredAbilities>b__28_107`), et AUCUNE unite du gameconfig
+    #     `rnca9r7q6c` ne porte ce trait ;
     #   * `IdunBattle.Entities.Effects.Loki.LegendaryCommander_ExtraHitsEffect$$IsValidAttack`
-    #     (1395, en NEGATION : `... & !IsNormalAttack(<selecteur>) & !(...)`)            -- NON PORTE.
-    # Les quatre non portes sont dans `entities/effect_type.py` mais absents du registre
-    # `entities/effects/factory.py` : residu `#419-r1-tr9-r4-r1-r2`. Les bonus/malus du canal qui
-    # n'ont VRAIMENT pas ce gate restent ceux d'avant (FightingRetreat_HitReduction, Parry,
-    # LightCover, Camouflage, Diminutive, BigTarget, DefenderOfTheGreaterGood).
+    #     (1395, en NEGATION : `get_OwnerIsTarget & AreFriends(Caster, EffectSource) & !IsNormalAttack
+    #     & !(TriggeringAbilityIsNormalAttack & IsPartialAttackAbility)`, plus `!IsInPersistentDataList
+    #     & IsFirstHitGroupInAttack`) -- NON PORTE, residu `#419-r1-tr9-r4-r1-r2-r1`.
+    # Les bonus/malus du canal qui n'ont VRAIMENT pas ce gate restent ceux d'avant
+    # (FightingRetreat_HitReduction, Parry, LightCover, Camouflage, Diminutive, BigTarget,
+    # DefenderOfTheGreaterGood).
     # Defaut True = attaque normale (comportement historique inchange).
     eff_hits = hits_bonus_from_effects(attacker_effects, bool(is_normal_attack), att_ctx=att_hits_ctx,
                                        block_reduction=block_reduction)
@@ -229,7 +237,11 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                + hits_malus_from_defender_effects(target_effects, is_melee, damage_profile,
                                                   defender_on_cover=defender_on_cover,
                                                   dist=_cam_dist,
-                                                  block_reduction=block_reduction)
+                                                  block_reduction=block_reduction,
+                                                  # #419-r1-tr9-r4-r1-r2 : `ShroudPsalmEffect` porte
+                                                  # `get_OwnerIsTarget & IsNormalAttack` -- le canal
+                                                  # DEFENSE a lui aussi ce noeud.
+                                                  is_normal_attack=bool(is_normal_attack))
                + aura_hits_malus_for_defense(aura_sources, board,
                                              block_reduction=block_reduction))
     return hits

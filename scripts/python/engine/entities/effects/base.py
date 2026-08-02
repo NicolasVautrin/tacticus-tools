@@ -31,7 +31,7 @@ SAME_TURNS = "same"
 # `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` / `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack`
 # (consommés par `IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger` /
 # `IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger$$ShouldTrigger`, eux-mêmes les nœuds
-# `IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack` / `$$IsRangedAttack` des `CreateEffectDamageBonusForAttack`).
+# `IdunBattleLogic.Entities.DSLTriggers$$IsMeleeAttack` / `$$IsRangedAttack` des `CreateEffectDamageBonusForAttack`).
 # Les DEUX partent de `GetAbilityAttackRangeType(abilityDuCoup)` et rendent un **bool**, jamais un tri-état :
 #   • `Nullable<AbilityOrEffect>` VIDE (pas d'ability dans le contexte) → `GetAbilityAttackRangeType` = 0
 #     → melee=FALSE **et** ranged=FALSE ;
@@ -422,7 +422,8 @@ class BaseEffect:
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
-                                             dist: int | None = None) -> EffectBonus | None:
+                                             dist: int | None = None,
+                                             is_normal_attack: bool = True) -> EffectBonus | None:
         """Contribution DÉFENSEUR à l'axe COUPS (l'effet est sur la CIBLE, modifie les coups reçus).
         Natif : même canal `CreateEffectHitsBonusForAttack` mais trigger `OwnerIsTarget` (ex.
         `IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack = `ForAdditionWithMinimum(
@@ -433,7 +434,13 @@ class BaseEffect:
         NOM du profil de l'attaque (gate Psychic). `defender_on_cover` = gate compute-time des effets de
         TUILE (LightCover) : True=cible sur sa tuile de cover, False=hors-cover (effet périmé, ne s'applique
         pas), None=inconnu (applique sur présence — cas prédiction, cible immobile). Plancher min=1 chez le
-        consommateur. Défaut None."""
+        consommateur. Défaut None.
+        `is_normal_attack` = nature du VECTEUR (attaque normale vs attaque d'ABILITY), MEME donnee que
+        celle threadee par `create_effect_hits_bonus_for_attack` -- le natif n'a qu'UN canal
+        (`CreateEffectHitsBonusForAttack`) et le noeud `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack`
+        y apparait des DEUX cotes du trigger `OwnerIsTarget`/`OwnerIsCaster`. Porteur cote DEFENSE :
+        `IdunBattle.Entities.Effects.Loki.ShroudPsalmEffect$$CreateEffectHitsBonusForAttack`
+        (`get_OwnerIsTarget & IsNormalAttack`). Defaut True = attaque normale."""
         return None
 
     def create_aura_hits_malus_for_defense(self, ctx: Mapping | None = None) -> EffectBonus | None:
@@ -646,7 +653,7 @@ class BaseEffect:
 
         Clés threadées aujourd'hui par l'agrégateur `crit_damage_bonus_from_effects` (foyer unique =
         `runner/operations/damage.py::AttackDamageOperation._crit_params`) :
-          • `is_charging` → `IdunBattleLogic.Entities.DSLFactory$$IsCharging(owner@0x148, target@0x178)`,
+          • `is_charging` → `IdunBattleLogic.Entities.DSLTriggers$$IsCharging(owner@0x148, target@0x178)`,
             lue par le gate partagé `is_charging_attack(att_ctx)`.
         Clé absente ⇒ le gate correspondant se TAIT (« présent ≠ appliqué »), jamais une valeur devinée."""
         return None

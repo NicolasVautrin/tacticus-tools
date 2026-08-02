@@ -58,6 +58,8 @@ from .loki import (
     HeavyWeaponExtraDmgEffect,
     HypersensoryMinimalHealthEffect,
     KanOpenerEffect,
+    ShroudPsalmEffect,
+    VoltagheistFieldExtraHitEffect,
     LightCoverEffect,
     MartialKatahDmgReductionEffect,
     MarkerlightEffect,
@@ -566,6 +568,20 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # TOUTE attaque recue, plancher 1 (IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack = jumeau BigTarget IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack SANS le noeud
     # IsRangedAttack ; trigger OwnerIsTarget seul -> melee ET ranged). #75.
     "Diminutive_HitReduction": DiminutiveHitReductionEffect,
+    # ShroudPsalm (effet 0x556=1366, pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # ShroudPsalmAbility$$ExecuteBehaviour` sur jusqu'a 2 ALLIES du caster, caster EXCLU, pour
+    # TurnsFromRounds(1)) : -hitsReduction(=2) coups sur les attaques NORMALES recues, plancher 1
+    # (`IdunBattle.Entities.Effects.Loki.ShroudPsalmEffect$$CreateEffectHitsBonusForAttack` =
+    # `ForAdditionWithMinimum(get_OwnerIsTarget & IsNormalAttack, Negative(Get(ConfigConst 0x2c)),
+    # min=Get(1))`). SEUL porteur du noeud `IsNormalAttack` cote DEFENSE. #419-r1-tr9-r4-r1-r2.
+    "ShroudPsalm": ShroudPsalmEffect,
+    # VoltagheistField_ExtraHit (effet 0x565=1381, pose par `IdunBattleLogic.Entities.Abilities.
+    # Triggered.Loki.VoltagheistField_OnRepairAbility` sur `On(0x30 = UnitRepaired) & OwnerIsTarget`,
+    # duree UntilEndOfTurn) : +extraHit(=1) coup sur les attaques NORMALES du porteur
+    # (`...VoltagheistField_ExtraHitEffect$$CreateEffectHitsBonusForAttack` =
+    # `ForAddition(get_OwnerIsCaster & IsNormalAttack, Get(ConfigConst 0x2b))`) -- jumeau structurel
+    # de `PowerTrip_FullHealth`. #419-r1-tr9-r4-r1-r2.
+    "VoltagheistField_ExtraHit": VoltagheistFieldExtraHitEffect,
     "MasterAnnihilator_extraHit": MasterAnnihilatorAdditionalHitEffect,  # debuff Vitruvius : +1 coup reçu (non-Psychic)
     # LetTheGalaxyBurn (effet 0x5c5=1477, owner-effect auto-porte par les 5 heros Black Legion qui ont le
     # TRAIT 0x422=1058) : +1 coup d'ARME a l'attaque du porteur, gate `OwnerIsCaster &

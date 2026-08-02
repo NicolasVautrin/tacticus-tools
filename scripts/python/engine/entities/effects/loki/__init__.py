@@ -113,7 +113,8 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    DefenderOfTheGreaterGoodExtraHitsEffect,
                    DefenderOfTheGreaterGoodExtraHitsDroneEffect,
                    PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
-                   KanOpenerEffect, LIGHT_COVER_TILE_ID)
+                   KanOpenerEffect, ShroudPsalmEffect, VoltagheistFieldExtraHitEffect,
+                   LIGHT_COVER_TILE_ID)
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, ContaminatedUnitEffect,
                      ContagionsOfNurgleArmorReductionEffect,
                      DespoiledGroundEffect, DespoiledGroundExtraDamagePctEffect,
@@ -223,6 +224,7 @@ __all__ = [
     "SagaOfTheWarriorBornOwnerEffect", "UnstoppableFerocityOwnerEffect",
     "DefenderOfTheGreaterGoodExtraHitsEffect", "DefenderOfTheGreaterGoodExtraHitsDroneEffect",
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",
+    "ShroudPsalmEffect", "VoltagheistFieldExtraHitEffect",
     # status
     "HypersensoryMinimalHealthEffect", "ContaminatedEffect", "ContaminatedUnitEffect",
     "ContagionsOfNurgleArmorReductionEffect",
