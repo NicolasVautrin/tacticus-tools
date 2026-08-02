@@ -70,7 +70,21 @@ de `probe_457`** (`not name.endswith("_live.py")`), le seul cliquet qui voie un 
 en permanence. S'y ajoutent les deux autres facteurs de #457 : la suite complète est proscrite, et
 ce fichier n'était la tranche de personne.
 
-## 6. Ce qui est livré
+## 6. Ce que la péremption fait EN BATAILLE — re-mesuré live le 2026-08-02
+
+Voie de production, `rl_duel build --seed 777 --board MC1_67 --p-units necroOverlord,necroWarden
+--a-units ultraTitus` (runner 738, disposé) :
+
+| canal | mesure live | gameconfig vivant |
+|---|---|---|
+| `unitAbilityStates`, hiérarchie triggered de l'entité 79 | **`1045`** (+ `1010`) | `MyWillBeDoneOverlord` = `1556` |
+| `combatSnapshot.units[].traits` | `[Mechanical, Hero, LivingMetal, Xenos]` | + **`Resilient`** (1009) |
+
+Le runner déploie donc le kit de `gqfc5mff6c`, et le rapport de chargement le dit désormais avant
+même le build. (L'identité de l'entité est établie par son active `1009`, celle que la capture porte.)
+Ce n'est pas une citation de `case-392` : c'est la même mesure rejouée sur le build courant.
+
+## 7. Ce qui est livré
 
 * **`test_catalog_inject_offline.py`** (fichier neuf, non-`_live` ⇒ entre au cliquet `probe_457`
   tout seul). Cinq gardes, toutes confrontées à la capture **BRUTE** : fidélité stricte hors épingle ;
@@ -94,7 +108,7 @@ quoi faire) et rend `MyWillBeDoneOverlord` dispatchable (#392-r1). C'est un **ar
 geste de passage. La ligne #254-bc du backlog reste ouverte ; ce qui change, c'est qu'elle n'est
 plus **muette**.
 
-## 7. Contre-épreuves (étape 4 du probe) — 8 mutations, 8 rouges
+## 8. Contre-épreuves (étape 4 du probe) — 8 mutations, 8 rouges
 
 | mutation | garde qui doit rougir |
 |---|---|
@@ -115,7 +129,7 @@ indiscernable` compare deux BC qui diffèrent sur **12 champs** (placeholders re
 `buildNormalizedBC`) et rougit sous mutation (`ActiveAbilities` vidée → `1 failed`), le rapport de
 chargement nommant au passage `genesBiophagus{ActiveAbilities} INATTENDUE`.
 
-## 8. Trouvé en marge — `probe_431` balaie moins de la moitié de ce qu'il déclare (`#431-r1`)
+## 9. Trouvé en marge — `probe_431` balaie moins de la moitié de ce qu'il déclare (`#431-r1`)
 
 Le cliquet a rougi sur mon propre littéral `"gqfc5mff6c"` — à raison, et le foyer sanctionné
 existait : `build_pin.archived_build(name, what)`, qui **lève** si l'archive a disparu. Les deux
@@ -131,7 +145,7 @@ tests de `build_pin`, chemin écrit dans un tmpdir) — **0 dans `engine/**`**. 
 aucun défaut vivant, mais le fermer demande une règle pour le hash synthétique de test, axe que
 #431 n'a pas tranché. **Non corrigé ici** (hors périmètre) → backlog `#431-r1`.
 
-## 9. Résidus
+## 10. Résidus
 
 * **`#254-bc`** — le re-dump lui-même, inchangé, toujours `[opus]`+arbitrage.
 * **`#392-r1`** — `MyWillBeDoneOverlord` reste inerte dans tout runner bâti sur ce seed ; se ferme
