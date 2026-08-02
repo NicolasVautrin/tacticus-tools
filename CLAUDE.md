@@ -235,6 +235,14 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   108 porteurs de littéral acceptent tous `--state-file`, donc un chemin explicite dissout la
   collision. Les 264 probes qui prennent leur chemin *uniquement* par argument ne sont isolés que
   si l'appelant leur en donne un distinct.
+- **Un FICHIER dont le bilan est `passed == 0 and skipped > 0` fait désormais ROUGIR la passe
+  (#455).** Le skip n'est pas le défaut — l'INVISIBILITÉ l'est : `test_summon_trait_effects_live.py`
+  rendait 8 skipped / 0 passed / rc 0 sur `master`, zéro assertion évaluée, trouvé en ÉCARTANT une
+  PR. Le garde #77 ne le voyait pas : il lit la RAISON d'un skip, et un skip de MONTAGE ne porte
+  aucun marqueur de harnais. Si ton fichier rougit ainsi : **répare le montage** (c'était le cas —
+  8 skipped → 8 passed) ou **nomme** l'impossibilité, jamais retirer le skip pour faire taire.
+  Le garde se tait sur sélection partielle (`-k`, nodeid, `-x`) ; échappatoire consciente
+  `TACTICUS_ALLOW_GREEN_SKIP=1`. Détail : `docs/rl/case-455-fichier-integralement-skippe.md`.
 
 ## La banque de cliquets — `scripts/ratchets.ps1`, à faire passer AVANT toute PR
 

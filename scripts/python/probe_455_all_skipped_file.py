@@ -40,6 +40,7 @@ Usage: python probe_455_all_skipped_file.py [-v] [--self-test]
 from __future__ import annotations
 
 import argparse
+import ast
 import os
 import shutil
 import subprocess
@@ -327,12 +328,97 @@ def cablage(verbose: bool) -> list:
     return bad
 
 
+# ==========================================================================================
+#  INVENTAIRE -- HORS VERDICT, et il faut dire pourquoi
+# ==========================================================================================
+#
+# Le gisement REEL (« quels fichiers sont inertes aujourd'hui ») ne se dérive que d'une
+# EXECUTION : un skip de montage depend de l'etat live, il est indecidable statiquement. Or la
+# suite complete est proscrite (`CLAUDE.md`) et chaque fichier live monte un runner.
+#
+# Ce mode ne repond donc PAS a cette question : il rend le SUR-ENSEMBLE statique des fichiers
+# dont TOUS les tests peuvent atteindre un `pytest.skip` -- le seul sous-ensemble qu'il vaille
+# la peine de jouer pour mesurer le gisement. Il rend TOUJOURS 0 : un sur-ensemble ne conclut
+# rien, et le faire entrer au verdict en ferait un cliquet qui rougit sur des fichiers sains.
+# C'est le garde RUNTIME (`green_skip_guard`) qui voit le gisement, a chaque passe.
+
+_SKIPPEURS = ("skip", "importorskip", "xfail")          # `pytest.<nom>(...)` qui sort du test
+
+
+def _appels_pytest(noeud) -> set:
+    """Noms `pytest.<x>(...)` appeles dans le sous-arbre (`x` dans `_SKIPPEURS`)."""
+    out = set()
+    for n in ast.walk(noeud):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) \
+                and n.func.attr in _SKIPPEURS \
+                and isinstance(n.func.value, ast.Name) and n.func.value.id == "pytest":
+            out.add(n.func.attr)
+    return out
+
+
+def _noms_appeles(noeud) -> set:
+    """Noms de fonctions appelees dans le sous-arbre (appels simples `f(...)`)."""
+    return {n.func.id for n in ast.walk(noeud)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+
+
+def _marque_skip(fn) -> bool:
+    """`@pytest.mark.skip` / `@pytest.mark.skipif` sur la fonction."""
+    for d in fn.decorator_list:
+        cible = d.func if isinstance(d, ast.Call) else d
+        if isinstance(cible, ast.Attribute) and cible.attr in ("skip", "skipif"):
+            return True
+    return False
+
+
+def candidats(verbose: bool) -> list:
+    """[(fichier, nb tests)] dont TOUS les tests peuvent atteindre un skip."""
+    out = []
+    for p in sorted(TESTS.rglob("test_*.py")):
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8"), filename=p.name)
+        except (SyntaxError, ValueError, OSError):
+            continue
+        fns = {n.name: n for n in ast.walk(tree)
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        direct = {nom: bool(_appels_pytest(fn)) for nom, fn in fns.items()}
+        appels = {nom: _noms_appeles(fn) for nom, fn in fns.items()}
+        # Fermeture transitive : un test qui appelle un helper skippeur skippe aussi.
+        for _ in range(6):
+            avant = sum(direct.values())
+            for nom in fns:
+                if not direct[nom] and any(direct.get(a) for a in appels[nom]):
+                    direct[nom] = True
+            if sum(direct.values()) == avant:
+                break
+        tests = [nom for nom in fns if nom.startswith("test_")]
+        if not tests:
+            continue
+        if all(direct[t] or _marque_skip(fns[t]) for t in tests):
+            out.append((p.relative_to(PYDIR).as_posix(), len(tests)))
+    if verbose:
+        for rel, n in out:
+            print("   %-72s %d test(s)" % (rel, n))
+    return out
+
+
 def main(argv) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--self-test", action="store_true",
                     help="ne joue QUE l'auto-test du critere, en detail")
+    ap.add_argument("--inventaire", action="store_true",
+                    help="HORS VERDICT : sur-ensemble statique des fichiers dont TOUS les tests "
+                         "peuvent atteindre un skip (le sous-ensemble a jouer pour mesurer le "
+                         "gisement reel). Rend toujours 0.")
     args = ap.parse_args(argv)
+
+    if args.inventaire:
+        c = candidats(True)
+        total = len(list(TESTS.rglob("test_*.py")))
+        print("[455] inventaire (HORS VERDICT) : %d fichier(s) candidat(s) sur %d -- "
+              "SUR-ENSEMBLE statique, un candidat n'est pas un fichier inerte." % (len(c), total))
+        return 0
 
     print("[455] garde : %s" % (PYDIR / "green_skip_guard.py"))
     e0 = self_test(args.verbose or args.self_test)
