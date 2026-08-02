@@ -202,17 +202,23 @@ CIBLE = PYDIR / "probe_88_on3_emitter.py"
 #   * `tools/damage_decomp.py`       -> scripts/python/tools/<f> (profondeur 4 : TROP profond)
 #   * `frida/hooks/controller.ts`    -> frida/hooks/<f>          (profondeur 3 mais A LA RACINE
 #     du glob `frida/hooks/**/*.ts` -- le `**` exige un segment, donc rate PAR LE HAUT)
+#   * `engine/.../loki/anvil_shield.py` -> chemin de 69 CARACTERES. Cette quatrieme cible ne
+#     garde pas une profondeur de plus : elle garde que le chemin soit IMPRIME EN ENTIER. Les
+#     trois premieres tiennent toutes sous 58 caracteres, qui etait la troncature d'affichage
+#     -- avec elles seules, le cliquet pouvait rougir sans NOMMER le fautif sur 641 des 1928
+#     fichiers du perimetre, et le test serait passe.
 CIBLES = (CIBLE,
           PYDIR / "tools" / "damage_decomp.py",
-          REPO / "frida" / "hooks" / "controller.ts")
+          REPO / "frida" / "hooks" / "controller.ts",
+          PYDIR / "engine" / "runner" / "operations" / "triggers" / "loki" / "anvil_shield.py")
 
-_RESO = ('_MUTANT_431 = "C:/Users/x/AppData/Local/tacticus/games/gqfc5mff6c/GameAssembly.dll"',
-         '_MUTANT_431 = "C:/Users/x/AppData/Local/tacticus/games/gqfc5mff6c/GameAssembly.dll"',
+_PY_RESO = '_MUTANT_431 = "C:/Users/x/AppData/Local/tacticus/games/gqfc5mff6c/GameAssembly.dll"'
+_PY_NOTE = '_NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date"'
+_RESO = (_PY_RESO, _PY_RESO,
          'const _MUTANT_431 = "C:/Users/x/AppData/Local/tacticus/games/gqfc5mff6c/'
-         'GameAssembly.dll";')
-_NOTE = ('_NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date"',
-         '_NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date"',
-         'const _NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date";')
+         'GameAssembly.dll";', _PY_RESO)
+_NOTE = (_PY_NOTE, _PY_NOTE,
+         'const _NOTE_431 = "mesure faite sur gqfc5mff6c, juste a cette date";', _PY_NOTE)
 
 
 def _cliquet() -> tuple[int, str]:
@@ -338,8 +344,13 @@ def test_le_cliquet_ROUGIT_sur_une_resolution_A_CHACUNE_DES_TROIS_PROFONDEURS():
     assert rc == 1, "GARDE-MUET : le cliquet n'a pas vu la resolution re-introduite\n" + out
     assert "CLIQUET ROUGE" in out
     for cible in CIBLES:
-        assert cible.name in out, \
-            "GARDE-MUET a la profondeur de %s -- le perimetre ne la couvre pas\n%s" % (cible, out)
+        # Le chemin RELATIF ENTIER, pas le seul nom de base : un rc=1 qui ne dit pas OU est
+        # un demi-cliquet, et c'est exactement ce que la troncature d'affichage produisait
+        # sur les chemins profonds -- rouge juste, fautif anonyme.
+        rel = cible.relative_to(REPO).as_posix()
+        assert rel in out, \
+            "GARDE-MUET sur %s -- soit le perimetre ne la couvre pas, soit le chemin est " \
+            "tronque a l'affichage (%d caracteres)\n%s" % (rel, len(rel), out)
     assert "build_pin" in out, "le message doit nommer la sortie"
 
 

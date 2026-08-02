@@ -101,6 +101,23 @@ octets** au `\n` qui précède le marqueur : un filtrage par lignes laissait la 
 soit une diff permanente d'un octet dans l'arbre de chaque agent — trouvé par son propre test, pas
 par relecture.
 
+## 6bis. Le second défaut, trouvé en essayant de casser le fix
+
+Élargir le périmètre a réveillé un défaut d'**affichage** que l'ancien périmètre masquait :
+les lignes de verdict imprimaient `rel[:58]`. Sous `Path.match`, tout chemin retenu tenait à la
+profondeur 3 ; sur le périmètre dérivé, **641 des 1 928** chemins dépassent 58 caractères. Pour un
+tiers du gisement, le cliquet rendait donc `rc=1` **sans nommer le fichier fautif** — la troncature
+emportait jusqu'au nom de base (`.../triggers/loki/anvil_shield.py`).
+
+Un rouge qui ne dit pas *où* est un demi-cliquet, et le test ne le voyait pas : ses trois cibles de
+mutation tenaient **toutes** sous 58 caractères. D'où la quatrième cible, choisie pour son
+**chemin de 69 caractères**, et l'assertion durcie — le chemin **relatif entier**, pas le nom de base.
+
+Contre-épreuve adversariale finale, cinq régimes chacun raté par l'ancien périmètre pour une raison
+différente — `engine/**` profond, `tests/**` profond (87 car.), `frida/host/*.ts` à la racine du
+glob, `scripts/frida/*.js` jamais couvert, `lib/*.py` hors des deux racines : **5/5 MORD, 5/5
+nommés**, arbre restauré vert.
+
 ## 7. Coût : le périmètre double, le cliquet accélère
 
 | | avant | après |

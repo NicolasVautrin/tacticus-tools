@@ -438,16 +438,22 @@ def main() -> int:
         for rel, exc in parse_errors:
             print("     %s : %s" % (rel, exc[:90]))
     print("")
+    # ⚠ CHEMIN ENTIER, JAMAIS TRONQUE. Ces lignes portaient `rel[:58]`, ce qui convenait a
+    # l'ancien perimetre (profondeur 3 imposee par `Path.match`). Sur le perimetre derive,
+    # 641 des 1928 chemins depassent 58 caracteres -- pour un tiers du gisement, le cliquet
+    # rougissait donc SANS NOMMER le fichier fautif, la troncature emportant jusqu'au nom de
+    # base. Trouve par contre-epreuve adversariale, pas par relecture : les trois cibles de
+    # mutation du test avaient toutes un chemin plus court que la troncature.
     if reso:
         print("  --- RESOLUTIONS (chacune resout un artefact du jeu par un hash en dur) ---")
         for rel, lineno, h, _k, ctx in sorted(reso):
             drapeau = "PERIME" if h != courant else "epingle-au-courant"
-            print("    %-58s:%-5d [%s %s]" % (rel[:58], lineno, h, drapeau))
+            print("    %s:%d  [%s %s]" % (rel, lineno, h, drapeau))
             print("        %s" % ctx)
     if msg and args.list_messages:
         print("  --- MESSAGES (litteral executable, mais ne resout aucun artefact) ---")
         for rel, lineno, h, _k, ctx in sorted(msg):
-            print("    %-58s:%-5d [%s]  %s" % (rel[:58], lineno, h, ctx[:60]))
+            print("    %s:%d  [%s]  %s" % (rel, lineno, h, ctx[:60]))
     print("")
 
     # ---------------------------------------------------------------------- (2) PROSE
@@ -461,7 +467,7 @@ def main() -> int:
     print("")
     print("  top fichiers par volume :")
     for rel, n in prose_files.most_common(args.top):
-        print("    %-70s %d" % (rel[:70], n))
+        print("    %-70s %d" % (rel, n))
     if len(prose_files) > args.top:
         print("    ... et %d autre(s) fichier(s)" % (len(prose_files) - args.top))
     print("")
