@@ -134,11 +134,31 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                               (board or {}).get("tgt_id"), target_effects, aura_sources),
         att_hits_ctx)
     # `is_normal_attack` = nature du VECTEUR (attaque normale vs attaque d'ABILITY), threade jusqu'aux
-    # bonus dont le trigger natif porte le noeud `IsNormalAttack` (`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack`) —
-    # aujourd'hui `IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack`
-    # (`IsNormalAttack & OwnerIsCaster`). Les autres bonus/malus du canal n'ont PAS ce gate
-    # (FightingRetreat_HitReduction, Parry, LightCover, Camouflage, Diminutive, BigTarget, AstartesBanner) :
-    # ils s'appliquent aux DEUX vecteurs. Defaut True = attaque normale (comportement historique inchange).
+    # bonus dont le trigger natif porte le noeud `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack`
+    # (la surcharge SANS argument delegue a celle qui en prend un ; toutes deux finissent sur
+    # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$IsRegularAttack`,
+    # evalue par `IdunBattle.Entities.Triggers.AbilityIsNormalAttackTrigger$$ShouldTrigger` sur
+    # l'`ActiveAbilityType` de l'`AbilityEntities` du coup).
+    # RE-BALAYE le 2026-08-02 (#419-r1-tr9-r4-r1, xrefs des DEUX surcharges) -- ce canal en a **SIX**
+    # consommateurs, pas un ; le commentaire d'avant n'en citait qu'un et affirmait a tort que « les
+    # autres bonus/malus du canal n'ont PAS ce gate » :
+    #   * `IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack`
+    #     (`IsNormalAttack & get_OwnerIsCaster`)                                        -- PORTE ici ;
+    #   * `IdunBattle.Entities.Effects.Loki.Waaagh_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`
+    #     (`IsNormalAttack & IsMeleeAttack & get_OwnerIsCaster`)                        -- PORTE ici ;
+    #   * `IdunBattle.Entities.Effects.Loki.Dakka_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`
+    #     (1105, `... & get_OwnerIsActor & IsNormalAttack & IsRangedAttack`)            -- NON PORTE ;
+    #   * `IdunBattle.Entities.Effects.Loki.ShroudPsalmEffect$$CreateEffectHitsBonusForAttack`
+    #     (1366, `get_OwnerIsTarget & IsNormalAttack` -- un MALUS defenseur)             -- NON PORTE ;
+    #   * `IdunBattle.Entities.Effects.Loki.VoltagheistField_ExtraHitEffect$$CreateEffectHitsBonusForAttack`
+    #     (1381, `get_OwnerIsCaster & IsNormalAttack`)                                   -- NON PORTE ;
+    #   * `IdunBattle.Entities.Effects.Loki.LegendaryCommander_ExtraHitsEffect$$IsValidAttack`
+    #     (1395, en NEGATION : `... & !IsNormalAttack(<selecteur>) & !(...)`)            -- NON PORTE.
+    # Les quatre non portes sont dans `entities/effect_type.py` mais absents du registre
+    # `entities/effects/factory.py` : residu `#419-r1-tr9-r4-r1-r2`. Les bonus/malus du canal qui
+    # n'ont VRAIMENT pas ce gate restent ceux d'avant (FightingRetreat_HitReduction, Parry,
+    # LightCover, Camouflage, Diminutive, BigTarget, DefenderOfTheGreaterGood).
+    # Defaut True = attaque normale (comportement historique inchange).
     eff_hits = hits_bonus_from_effects(attacker_effects, bool(is_normal_attack), att_ctx=att_hits_ctx,
                                        block_reduction=block_reduction)
     # base = `IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits` : weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17)).
