@@ -42,13 +42,24 @@ from __future__ import annotations
 import copy
 import json
 
+import build_pin
 import catalog_inject as CI
 import gameconfig as G
 import symbols_layout
 
-#: Le build sur lequel `data/seed-bc.json` a ete capture. Sert a ATTRIBUER la derive, pas a la
-#: constater : c'est la table d'enums de CE build qui etablit qu'elle vient de la MAJ.
-BUILD_DE_LA_CAPTURE = "gqfc5mff6c"
+
+def build_de_la_capture() -> str:
+    """Le build sur lequel `data/seed-bc.json` a ete capture, CONTROLE.
+
+    Sert a ATTRIBUER la derive, pas a la constater : c'est la table d'enums de CE build qui
+    etablit qu'elle vient de la MAJ. Le litteral passe par `build_pin.archived_build`, le seul
+    foyer ou un hash ecrit a la main est legitime (#431) : il LEVE si l'archive a disparu, au lieu
+    de laisser la comparaison rendre un vide qui se lirait comme un resultat.
+    """
+    return build_pin.archived_build(
+        "gqfc5mff6c",
+        "le build de la capture data/seed-bc.json -- sa table d'enums ATTRIBUE la derive de "
+        "necroOverlord a la MAJ vers rnca9r7q6c (#254-bc)")
 
 
 def _raw_seed() -> dict:
@@ -117,28 +128,27 @@ def test_la_derive_du_bloc_units_est_attribuee_a_la_migration_de_build():
     gc = G.unit("necroOverlord") or {}
     assert gc.get("passiveAbilities") == ["MyWillBeDoneOverlord"], gc.get("passiveAbilities")
     assert "Resilient" in (gc.get("traits") or []), gc.get("traits")
-    archives = symbols_layout.archived_builds()
     # PAS de repli silencieux : sans la table du build de la capture l'attribution n'est plus
-    # RE-DERIVABLE, et un test qui se contenterait de le dire serait un vert vacueux (contre-epreuve
-    # M4 : viser le build COURANT le rendait vert). Les builds archives sont conserves EXPRES --
-    # leur diff EST le rapport de changement du jeu (cf. `symbols_layout`).
-    assert BUILD_DE_LA_CAPTURE in archives, (
-        "la table d'enums du build de la capture (%s) n'est pas archivee (archives=%r, courant=%s) "
-        "-- l'attribution de la derive n'est plus re-derivable. Si le seed BC a ete re-dumpe "
-        "(#254-bc), ce test et STALE_UNIT_ENTRIES n'ont plus d'objet ; sinon, restaurer l'archive."
-        % (BUILD_DE_LA_CAPTURE, archives, symbols_layout.current_build()))
-    ancien = CI.enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType", BUILD_DE_LA_CAPTURE)
-    traits_ancien = CI.enum_map("IdunBattle.Entities.Enum.UnitTrait", BUILD_DE_LA_CAPTURE)
+    # RE-DERIVABLE. `archived_build` LEVE si l'archive a disparu (les archives sont conservees
+    # EXPRES -- leur diff EST le rapport de changement du jeu) ; et viser le build COURANT ne
+    # comparerait rien, ce qui serait un vert vacueux (contre-epreuve M4).
+    capture = build_de_la_capture()
+    assert capture != symbols_layout.current_build(), (
+        "le build de reference (%s) EST le build courant -- il n'y a plus de comparaison "
+        "inter-build, donc plus d'attribution. Si le seed BC a ete re-dumpe (#254-bc), ce test et "
+        "STALE_UNIT_ENTRIES n'ont plus d'objet." % capture)
+    ancien = CI.enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType", capture)
+    traits_ancien = CI.enum_map("IdunBattle.Entities.Enum.UnitTrait", capture)
     assert "MyWillBeDoneOverlord" not in ancien, (
         "l'ability existait deja sur %s : l'attribution de la derive a la MAJ tombe, "
-        "relire avant de conclure" % BUILD_DE_LA_CAPTURE)
+        "relire avant de conclure" % capture)
     assert ancien.get("MartialApotheosis") == 1045
     assert traits_ancien.get("Resilient") == 1009, (
         "Resilient absent de l'enum de %s : la derive de trait serait un changement d'ENUM, "
-        "pas de gameconfig" % BUILD_DE_LA_CAPTURE)
+        "pas de gameconfig" % capture)
     print("\n[catalog/attribution] TriggeredAbilityType: %s=%d membres (sans MyWillBeDoneOverlord) "
           "-> %s=%d membres (MyWillBeDoneOverlord=1556) ; Resilient=1009 dans les DEUX"
-          % (BUILD_DE_LA_CAPTURE, len(ancien), symbols_layout.current_build(), len(courant)))
+          % (capture, len(ancien), symbols_layout.current_build(), len(courant)))
 
 
 def test_le_chargement_rafraichit_abilities_et_utilities_mais_PAS_units():

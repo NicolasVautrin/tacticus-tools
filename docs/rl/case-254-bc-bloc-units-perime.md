@@ -115,7 +115,23 @@ indiscernable` compare deux BC qui diffèrent sur **12 champs** (placeholders re
 `buildNormalizedBC`) et rougit sous mutation (`ActiveAbilities` vidée → `1 failed`), le rapport de
 chargement nommant au passage `genesBiophagus{ActiveAbilities} INATTENDUE`.
 
-## 8. Résidus
+## 8. Trouvé en marge — `probe_431` balaie moins de la moitié de ce qu'il déclare (`#431-r1`)
+
+Le cliquet a rougi sur mon propre littéral `"gqfc5mff6c"` — à raison, et le foyer sanctionné
+existait : `build_pin.archived_build(name, what)`, qui **lève** si l'archive a disparu. Les deux
+sites y sont passés (il rend `0 RESOLUTION`), et l'assertion « le build de référence n'est pas le
+build courant » reste à côté — sans elle, la mutation M4 redevenait verte.
+
+Mais il n'avait vu **qu'un** des deux littéraux ajoutés le même jour. Cause :
+`is_exec` teste `Path(rel).match("scripts/**/*.py")`, et `PurePath.match` ne traite pas `**`
+récursivement — un seul niveau intermédiaire. **904 fichiers balayés sur 1 814** `.py` versionnés
+sous `scripts/`, **910 invisibles**, dont **tout `engine/**`**. Avec un périmètre récursif :
+1 872 fichiers, **17 RESOLUTIONs**, toutes dans `tests/**` et toutes synthétiques (hashes bidon des
+tests de `build_pin`, chemin écrit dans un tmpdir) — **0 dans `engine/**`**. Le trou ne cache donc
+aucun défaut vivant, mais le fermer demande une règle pour le hash synthétique de test, axe que
+#431 n'a pas tranché. **Non corrigé ici** (hors périmètre) → backlog `#431-r1`.
+
+## 9. Résidus
 
 * **`#254-bc`** — le re-dump lui-même, inchangé, toujours `[opus]`+arbitrage.
 * **`#392-r1`** — `MyWillBeDoneOverlord` reste inerte dans tout runner bâti sur ce seed ; se ferme
@@ -123,3 +139,4 @@ chargement nommant au passage `genesBiophagus{ActiveAbilities} INATTENDUE`.
 * **`#254-bc-r1`** — l'épingle couvre l'axe `Units` **capturé**. Une unité que le gameconfig a
   ajoutée depuis la capture n'y est pas du tout : elle relève de `missing_from_seed_bc`, qui ne
   compare rien — aucun garde ne dit si le catalogue a *perdu* des entrées face au gameconfig vivant.
+* **`#431-r1`** — §8, le périmètre de `probe_431` (non corrigé, hors périmètre).

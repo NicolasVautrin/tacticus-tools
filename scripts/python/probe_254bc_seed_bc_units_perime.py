@@ -37,12 +37,22 @@ import copy
 import json
 import sys
 
+import build_pin
 import catalog_inject as CI
 import gameconfig as G
 import symbols_layout
 
-#: Build sur lequel `data/seed-bc.json` a ete capture (UN seul commit : `f467e649`).
-BUILD_CAPTURE = "gqfc5mff6c"
+
+def build_capture() -> str:
+    """Build sur lequel `data/seed-bc.json` a ete capture (UN seul commit : `f467e649`).
+
+    Passe par le foyer `build_pin.archived_build` (#431) : il LEVE si l'archive a disparu, au lieu
+    de laisser la comparaison inter-build rendre un vide qui se lirait comme une mesure.
+    """
+    return build_pin.archived_build(
+        "gqfc5mff6c",
+        "le build de la capture data/seed-bc.json -- sa table d'enums ATTRIBUE la derive de "
+        "necroOverlord a la MAJ vers rnca9r7q6c (#254-bc)")
 
 
 def _raw_seed() -> dict:
@@ -77,27 +87,32 @@ def step_attribution() -> int:
     cur_name = symbols_layout.current_build()
     cur = CI.enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType")
     cur_tr = CI.enum_map("IdunBattle.Entities.Enum.UnitTrait")
-    archives = symbols_layout.archived_builds()
-    print("[2] builds versionnes : courant=%s archives=%r" % (cur_name, archives))
-    if BUILD_CAPTURE not in archives:
+    print("[2] builds versionnes : courant=%s archives=%r"
+          % (cur_name, symbols_layout.archived_builds()))
+    try:
+        capture = build_capture()
+    except build_pin.BuildPinRefused as e:
         # On DIT qu'on ne mesure pas -- jamais un zero muet (#273).
-        print("[2] BLOQUANT : la table du build de la capture (%s) n'est pas archivee, "
-              "l'attribution n'est pas re-derivable" % BUILD_CAPTURE)
+        print("[2] BLOQUANT : %s" % e)
         return 1
-    old = CI.enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType", BUILD_CAPTURE)
-    old_tr = CI.enum_map("IdunBattle.Entities.Enum.UnitTrait", BUILD_CAPTURE)
+    if capture == cur_name:
+        print("[2] BLOQUANT : le build de reference EST le build courant (%s) -- il n'y a plus de "
+              "comparaison inter-build, donc plus d'attribution" % capture)
+        return 1
+    old = CI.enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType", capture)
+    old_tr = CI.enum_map("IdunBattle.Entities.Enum.UnitTrait", capture)
     print("[2] TriggeredAbilityType : %s=%d membres, %s=%d membres"
-          % (BUILD_CAPTURE, len(old), cur_name, len(cur)))
+          % (capture, len(old), cur_name, len(cur)))
     for nom in ("MyWillBeDoneOverlord", "MartialApotheosis"):
-        print("      %-22s %s=%s  %s=%s" % (nom, BUILD_CAPTURE, old.get(nom), cur_name,
+        print("      %-22s %s=%s  %s=%s" % (nom, capture, old.get(nom), cur_name,
                                             cur.get(nom)))
-    print("      %-22s %s=%s  %s=%s" % ("UnitTrait.Resilient", BUILD_CAPTURE,
+    print("      %-22s %s=%s  %s=%s" % ("UnitTrait.Resilient", capture,
                                         old_tr.get("Resilient"), cur_name,
                                         cur_tr.get("Resilient")))
     if "MyWillBeDoneOverlord" in old:
         ko += 1
         print("[2] BLOQUANT : l'ability existait deja sur %s -- la derive n'est plus attribuable "
-              "a la MAJ" % BUILD_CAPTURE)
+              "a la MAJ" % capture)
     if old_tr.get("Resilient") != cur_tr.get("Resilient"):
         ko += 1
         print("[2] BLOQUANT : Resilient a change d'ordinal -- la derive de trait serait un "
@@ -117,7 +132,7 @@ def step_attribution() -> int:
         ko += 1
         print("[2] BLOQUANT : le kit vivant de necroOverlord a change -- relire avant d'epingler")
     print("[2] verdict : la CAPTURE est en arriere (le gameconfig de %s ne POUVAIT pas attribuer "
-          "une ability absente de son propre enum)" % BUILD_CAPTURE)
+          "une ability absente de son propre enum)" % capture)
     return ko
 
 
@@ -153,14 +168,14 @@ def step_mutations() -> int:
     import tests.engine.runner.test_catalog_inject_offline as T
 
     save = {"pin": CI.STALE_UNIT_ENTRIES, "traits": CI._traits,
-            "refresh": CI.refresh_ability_configs, "build": T.BUILD_DE_LA_CAPTURE,
+            "refresh": CI.refresh_ability_configs, "build": T.build_de_la_capture,
             "raw": T._raw_seed}
 
     def restore():
         CI.STALE_UNIT_ENTRIES = save["pin"]
         CI._traits = save["traits"]
         CI.refresh_ability_configs = save["refresh"]
-        T.BUILD_DE_LA_CAPTURE = save["build"]
+        T.build_de_la_capture = save["build"]
         T._raw_seed = save["raw"]
 
     def raw_corrige():
@@ -188,7 +203,7 @@ def step_mutations() -> int:
         CI._traits = lambda gc: vrai_traits(gc)[:-1]
 
     def mauvais_build():
-        T.BUILD_DE_LA_CAPTURE = symbols_layout.current_build()
+        T.build_de_la_capture = symbols_layout.current_build
 
     def rattrapage_inerte():
         CI.refresh_ability_configs = lambda bc, skip=(), withhold=(): ([], [])
