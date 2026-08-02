@@ -177,6 +177,63 @@ def test_get_only_targets_lit_le_taunt_HYDRATE():
     assert get_only_targets(st, 5) == [77], "apres le seed : la regle est ARMEE sur le tauntant"
 
 
+# ---------------------------------------------------------------- les verdicts PURS du probe
+
+def _dv(effects):
+    return {"units": [{"id": 5, "effects": effects}]}
+
+
+def test_probe_dit_NON_CONFRONTE_quand_le_capteur_est_ABSENT():
+    """La seule issue qui ne conclut RIEN du natif. Elle doit venir de l'ABSENCE de la cle, pas
+    d'un `bondedEntityId` nul -- qui vaut `null` dans les deux mondes pour l'immense majorite des
+    effets, et ne discrimine donc rien."""
+    from probe_436r1_bond_channel import check_channel
+
+    v = check_channel(_dv([{"name": TAUNTED_NAME, "effectType": TAUNTED, "bondedEntityId": None}]))
+    assert v["status"] == "not_reinjected"
+    assert "NON CONFRONTE" in v["message"]
+
+
+def test_probe_voit_le_capteur_meme_MUET():
+    """`bondMeasured: false` = capteur CHARGE mais aveugle. C'est un etat different de « absent »,
+    et le confondre ferait demander une fenetre de reinject deja consommee."""
+    from probe_436r1_bond_channel import check_channel
+
+    v = check_channel(_dv([{"name": TAUNTED_NAME, "effectType": TAUNTED,
+                            "bondMeasured": False, "bondedEntityId": None}]))
+    assert v["status"] == "measured"
+
+
+def test_probe_ne_confond_PAS_bonded_et_source():
+    """Chez les quatre producteurs lus, `bondedEntityId == source` : une lecture qui les
+    confondrait passerait par accident. Le message du verdict le DIT explicitement, pour qu'un
+    futur lecteur ne prenne pas cet accord pour une preuve."""
+    from probe_436r1_bond_channel import check_bond
+
+    v = check_bond(_dv([{"effectType": TAUNTED, "bondMeasured": True,
+                         "bondedEntityId": 99, "source": 77}]), 5, 77)
+    assert v["status"] == "wrong"
+    assert "source" in v["message"]
+
+
+def test_probe_refuse_de_conclure_sur_un_capteur_MUET():
+    from probe_436r1_bond_channel import check_bond
+
+    v = check_bond(_dv([{"effectType": TAUNTED, "bondMeasured": False, "bondedEntityId": 77}]),
+                   5, 77)
+    assert v["status"] == "not-measured"
+    assert "ne veut RIEN dire" in v["message"]
+
+
+def test_probe_distingue_ABSENCE_DE_TAUNT_d_un_echec_de_canal():
+    """Pas d'effet 27 = le CAST n'a pas pose le taunt : un echec de MONTAGE, pas du capteur.
+    Les confondre accuserait le mauvais coupable."""
+    from probe_436r1_bond_channel import check_bond
+
+    v = check_bond(_dv([{"effectType": 26, "bondMeasured": True}]), 5, 77)
+    assert v["status"] == "no-taunt"
+
+
 def test_load_state_CABLE_bien_le_seed():
     """MUTATION (d). Les tests ci-dessus appellent `_load_forced_attack_targets` DIRECTEMENT : ils
     prouvent la fonction, pas son CABLAGE. Sans cette garde, retirer l'appel de `load_state` les
