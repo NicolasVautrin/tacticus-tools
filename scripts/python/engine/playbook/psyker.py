@@ -217,6 +217,8 @@ from .cosmic_horror import CosmicHorrorPlaybook                 # #419-t6 (regis
 from .light_im_up import LightImUpPlaybook                      # #419-r1-tr5 (registre, module dedie)
 from .rapid_fire import RapidFirePlaybook                       # #419-r1-tr9 (registre, module dedie)
 from .righteous_repugnance import RighteousRepugnancePlaybook   # #419-r1-tr10 (registre, module dedie)
+from .special_issue_combi_melta import (                        # #419-r1-tr11 (registre, module dedie)
+    SpecialIssueCombiMeltaPlaybook)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -340,6 +342,18 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # Type` 1107 = Reveal, `EffectType` 1107 = PathOfCommand_ExtraCrit, et le mold d'attaque normale
     # du MEME passif vit sous `ActiveAbilityType` **1182** (#446-r3 / #509), pas ici.
     int(TriggeredAbilityType.RighteousRepugnance): RighteousRepugnancePlaybook(),
+    # #419-r1-tr11 : SpecialIssueCombiMelta (1545, passif de `darkaSternguard` << Ramus >> HERO +
+    # du npc `darkaBossSternguardLHE`) -- `SpecialIssueCombiMelta_LikesRange3` (25) quand la
+    # distance HEXAGONALE entre `case.Target` (`UtilityAttackCase@+0x20`) et la TUILE D'ATTAQUE
+    # (`case.CasterPosition.MainTile`, `@+0x18`) vaut EXACTEMENT 3, 0 sinon. Corps
+    # IdunBattle.AI.Playbook.Loki.SpecialIssueCombiMeltaPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext.
+    # PREMIER playbook attack porte (a) dont la branche negative ne fait AUCUN yield (`yield break`,
+    # pas `yield Fix64(0)` -- le dispatcher SOMME les steps, donc 0), (b) dont la sortie est une
+    # fonction de la seule DISTANCE cible <-> tuile d'attaque (ni stat, ni trait, ni effet, ni
+    # prediction, ni ability du case : AUCUNE gate `IsRegularAttack`, contrairement a RapidFire), et
+    # (c) dont le litteral de portee est corrobore par la face COMBAT (`SpecialIssueCombiMelta_
+    # AddEffectAbility$$CreateTrigger` = `IsAtRange(..., DSLFormulas.Get(3))`).
+    int(TriggeredAbilityType.SpecialIssueCombiMelta): SpecialIssueCombiMeltaPlaybook(),
 }
 
 
