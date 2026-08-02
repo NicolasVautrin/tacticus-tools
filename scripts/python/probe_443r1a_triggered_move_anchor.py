@@ -66,6 +66,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import requests
@@ -373,7 +374,15 @@ def _movable_by_unit(s: int, rid: int) -> dict:
     return out
 
 
-def _port_rows(s: int, rid: int, entries) -> list:
+@contextmanager
+def _no_binder():
+    """CONTRE-EPREUVE du cablage #456-r1 : aucun transport ambiant, donc `_auto_ability_states`
+    rend `no-transport` et le port lit le kit GAMECONFIG. C'est l'etat exact d'avant le cablage --
+    et sans ce bras, rien ne dirait si le canal deplace la moindre valeur."""
+    yield None
+
+
+def _port_rows(s: int, rid: int, entries, bind: bool = True) -> list:
     """Evalue COTE PORT le terme MOVE de chaque event attribue, sur la MEME (unite, tuile).
 
     L'etat du port est reconstruit depuis les canaux de capture (`load_state`), puis pour chaque
@@ -403,7 +412,9 @@ def _port_rows(s: int, rid: int, entries) -> list:
     # `_auto_ability_states` rend `no-transport` et `runner_tile_leaf_ctx` retombe sur le kit
     # GAMECONFIG -- c'est exactement l'etat aveugle que #456 a mesure (`unit_triggered_abilities`
     # rendait `[1133]` sur une unite dont l'`AbilitiesComponent` porte `[1120, 1030]`).
-    with live_rpc(lambda method, args=None, timeout=60: rpc(s, method, args, timeout)):
+    binder = ((lambda: live_rpc(lambda m, ar=None, to=60: rpc(s, m, ar, to)))
+              if bind else _no_binder)
+    with binder():
         state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
     wt = load_weights()
     feuilles = {"TriggeredAbilitiesUtility": TriggeredAbilitiesUtility(),
