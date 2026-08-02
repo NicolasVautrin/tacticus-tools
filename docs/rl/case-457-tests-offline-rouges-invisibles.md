@@ -105,15 +105,23 @@ mêmes 359 fichiers, et `rpc` / `build_runner` / `live_runner` en sont des sous-
 
 ### Le coût, et pourquoi trois shards
 
+Mesures **isolées** (reproductibles, hors contention) :
+
 | forme | mesure (2026-08-02) |
 | --- | --- |
 | d'un bloc | 84 fichiers, **896 tests, 116 s** — dont ~56 s d'**import** de modules |
-| éclaté en 3 | **22 s / 28 s / 86 s** |
-| mur de la banque, avant | 30 cliquets, **132 s** (verte) |
-| mur de la banque, après | 33 cliquets, **voir §4** |
+| éclaté en 3 shards | **22 s / 28 s / 86 s** |
 
-Joué d'un bloc il **devient** le mur ; éclaté, son plus long shard passe **sous** lui — coût marginal
-en parallèle nul. Même arbitrage que `probe_283`, pour la même raison.
+Joué d'un bloc il **devient** le mur (~132 s) ; éclaté, son plus long shard passe **sous** lui. Même
+arbitrage que `probe_283`, pour la même raison — à une nuance près, qui joue en sens inverse :
+éclater **multiplie l'import fixe** (~40 s par process Python), donc le CPU cumulé monte (116 s →
+136 s) pendant que la latence max baisse. C'est la latence qui décide ici, parce que la banque a
+plus de slots (22 cœurs) que de vagues.
+
+⚠ **Le mur de la banque n'est PAS une mesure stable** : la machine est partagée avec les autres
+agents. Quatre relevés du même jour, sur des compositions quasi identiques, ont rendu 126,6 / 136,2 /
+159,1 / **319,8** s. Aucun arbitrage fin ne peut s'appuyer dessus — d'où le choix de trancher sur les
+mesures isolées ci-dessus. Le seul relevé exploitable est un **dos-à-dos** dans la même fenêtre.
 
 Le shard se dérive d'un **md5 du chemin relatif**, pas d'un modulo sur l'index du tri : un fichier
 neuf ne redistribue donc pas les autres. Union des trois **vérifiée stricte** : 30 + 30 + 24 = 84,
@@ -141,10 +149,20 @@ dire, pas passer pour un succès.
 Relevé daté, joué depuis ce worktree — la banque se **définit** dans `scripts/ratchets.ps1`, elle ne
 se recopie pas ici.
 
-| date | composition | verdict | mur |
-| --- | --- | --- | --- |
-| 2026-08-02, avant | 30 cliquets | VERTE | 132 s |
-| 2026-08-02, après | 33 cliquets (+ `probe_457:s0/s1/s2`) | VERTE | 137 s |
+**Dos-à-dos**, même fenêtre, machine la plus calme obtenue (`-Skip probe_457` puis complet) :
+
+| composition | verdict | mur |
+| --- | --- | --- |
+| 30 cliquets (sans #457) | VERTE | **136,2 s** |
+| 33 cliquets (avec `probe_457:s0/s1/s2`) | VERTE | **147,2 s** |
+
+Coût marginal **+11 s (+8 %)**. Un dos-à-dos antérieur, sous charge plus forte, avait rendu
+126,6 → 178,4 s (+41 %) : l'écart entre les deux mesures est le bruit de la machine partagée, pas une
+propriété du cliquet.
+
+⚠ Piège d'outillage rencontré : `pwsh -File scripts/ratchets.ps1 -Skip a,b` passe **une seule
+chaîne** `"a,b"` et n'exclut donc **rien** — la banque rapporte alors son compte complet. Vérifier le
+nombre de cliquets annoncé avant de lire un mur.
 
 ## 5. Résidus nommés
 
@@ -158,9 +176,12 @@ se recopie pas ici.
   Une des deux lectures est fausse ; laquelle demande de trancher quelle vue le natif consulte, ce
   qui sort du périmètre de ce cas. Non confronté.
 - **`#457-r2` — le flag `requireWalkable = 1` n'est appliqué nulle part.** Les deux appels ci-dessus
-  passent `true` en 3ᵉ position, mais le port ne filtre pas les tuiles non marchables ; le
-  `boardGraph` est capté avec `requireWalkable = 0`. Inerte sur un plateau tout marchable, mordant
-  dès qu'un mur borde une empreinte.
+  passent `(0, 1, 1)`, et `docs/rl/playbook/playbooks.md` §#148 — source indépendante, qui a établi
+  le mapping en lisant les **ctors** des deux itérateurs — confirme que `MovementQuery.IsAdjacent`
+  passe bien `param4 = requireWalkable = 1`. Or le `boardGraph` est capté avec `(0, 0, 1)` (murs
+  inclus, à dessein) et le port ne réapplique le filtre nulle part : il rend donc `True` là où le
+  natif rend `False` pour une tuile non marchable. Inerte sur un plateau tout marchable, mordant dès
+  qu'un mur entre dans une empreinte candidate.
 - **`#457-r3` — un test live SANS suffixe `_live.py` ET sans fixture live serait joué par le
   cliquet**, et monterait un runner depuis la banque. Aucun cas aujourd'hui (84 fichiers, 896 tests,
   aucun montage observé) ; le filet de déselection ne couvre que la voie par fixtures.
