@@ -8,6 +8,10 @@ from ._shared import *   # vocabulaire commun (GC, hexgeo, get_attack_prediction
 from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defender_mods,
                       _prediction_is_charging, _target_damage_limits, _apply_ally_attack_dmg_bonus,
                       _round_fix64, _entity_traits)
+# SLOT 4 d'`IAmountFormula` = `IdunBattle.DSL.AAmountFormula$$CalculateAverage` (division ENTIERE) —
+# le foyer PARTAGE (#339/#350-r3b), consomme ici par le mold RANGED (#446-r1). Ne PAS substituer
+# `MinMaxDamage$$Avg` ni `AActiveAbility$$MinMaxDamageAverage` : ils arrondissent demi-vers-le-PAIR.
+from engine.dsl.base import calculate_average
 
 
 # ── #57c-C : overrides `<Boss>_NormalAttackAbility.PredictAttack` (attaque normale + follow-up) ──
@@ -16,13 +20,18 @@ from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defend
 # sur scenario VIERGE puis sommee via `IdunBattle.Core.Services.DamagePredictionResult$$Add` (appliedHits natif 1+1=2).
 # Deux molds (corps COMDAT partages par famille — l'instance porte la CONFIG du passif du kit) :
 #  - RANGED (`IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$PredictAttack`, gate arme choisie `!IsMelee`) :
-#    `IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$GetAdditionalDamagePrediction` = eval MODE 4 (= MIN) de `GetAdditionalDamageAmount
-#    IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$GetAdditionalDamageAmount` = `RandomAmount(var 0xc minDmg, var 0xd maxDmg)` → hits = ConfigConst(0x2f nrOfHits),
-#    profil = `AbilityConfiguration.GetDamageProfile` du passif, slot 0x27 SANS widgets modifiers.
-#    ⚠ AUCUN porteur confirme : l'hypothese « Gulgortz/LightImUp = ce mold » est REFUTEE (varTrace
-#    2468 s14 : le +3×1496 de u89 = les 3 effets FoulInfusion_ExtraHits du canal #179 GLOBAL, cf.
-#    FoulInfusionExtraHitsEffect ; la coincidence LightImUp.minDmg[50] == FoulInfusion.dmg[50] == 831
-#    a masque la vraie source). Registre VIDE tant qu'un porteur reel du mold n'est pas mesure.
+#    `IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$GetAdditionalDamagePrediction` = eval SLOT 4 (= `AAmountFormula$$CalculateAverage`,
+#    donc `(min + max) / 2` TRONQUE) de `GetAdditionalDamageAmount
+#    IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility$$GetAdditionalDamageAmount` = `RandomAmount(var 0xc minDmg, var 0xd maxDmg)` → hits = ConfigConst(0x2f nrOfHits),
+#    profil = `AbilityConfiguration.GetDamageProfile` du passif, et le pipeline de prediction du
+#    slot appele APPLIQUE les modifiers de l'attaquant (aucun argument ne les transporte, mais le
+#    service les recalcule : mesure #446-r1, cf. ci-dessous).
+#    PORTEUR REEL CONFIRME (#446-r1) : `Boltstorm` (passif 1090 de `templAggressor`, dont l'attaque
+#    normale concrete EST `1128 Boltstorm_NormalAttack`). L'ancienne hypothese « Gulgortz/LightImUp
+#    = ce mold » reste REFUTEE (varTrace 2468 s14 : le +3×1496 de u89 = les 3 effets
+#    FoulInfusion_ExtraHits du canal #179 GLOBAL ; la coincidence LightImUp.minDmg[50] ==
+#    FoulInfusion.dmg[50] == 831 avait masque la vraie source) — c'est un AUTRE porteur qui a ferme
+#    le registre, pas celle-la.
 #  - MELEE (`IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$PredictAttack`, gate `!IsRanged`) :
 #    `IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$GetKlawAttack1Prediction` = n = ConfigConst(0x2f nrOfHits=1) coups de
 #    `IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$GetFirstAttackDamage` = `PercentageOf(StatAmount(target, Health=5, part=2 Max),
@@ -30,22 +39,43 @@ from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defend
 #    Prediction IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$GetKlawAttack1HitPrediction` (meme slot standard). Ghazghkull — NON exerce au batch gen (port 1:1
 #    du decompile, non valide live).
 # Cle de dispatch = le PASSIF du kit gameconfig (l'instance native lit SA config = celle du passif).
-_RANGED_FOLLOWUP_PASSIVES = ()          # vide — cf. refutation LightImUp ci-dessus (#57c-C)
+_RANGED_FOLLOWUP_PASSIVES = ("Boltstorm",)   # #446-r1 : porteur `templAggressor`, confronte live
 _MELEE_KLAW_PASSIVES = ("ProperKilly",)
 
 
-def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
+def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name, mods=None):
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$GetAdditionalDamagePrediction` — follow-up RANGED :
-    amount = MIN du `RandomAmount(minDmg, maxDmg)` (eval mode 4), hits = nrOfHits, profil propre du
-    passif, mods attaquant ABSENTS (le call slot 0x27 natif ne passe pas les widgets modifiers),
-    scenario VIERGE (armure/bouclier de la cible re-disponibles — quirk natif mirrore)."""
+    amount = `CalculateAverage` du `RandomAmount(minDmg, maxDmg)` (SLOT 4 de `IAmountFormula` :
+    `FUN_180025fb0(4, <IAmountFormula>, <noeud>, ...)` -> `IdunBattle.DSL.AAmountFormula$$CalculateAverage`,
+    donc `(min + max) / 2` en division ENTIERE, cf. `engine.dsl.base.calculate_average`), hits =
+    ConfigConst(0x2f nrOfHits), profil propre du passif, scenario VIERGE (armure/bouclier de la
+    cible re-disponibles — quirk natif mirrore), et les MODIFIERS DE L'ATTAQUANT sont ceux de
+    l'attaque porteuse.
+
+    ⚠ DEUX corrections de #446-r1, toutes deux mesurees sur `templAggressor` (voir
+    `docs/rl/case-446-r1-boltstorm-followup.md`) — le port lisait `minDmg` seul et passait
+    `mods=None` :
+
+    * le SLOT 4 n'est pas « le MIN » : c'est `CalculateAverage`, deja porte et deja documente comme
+      tel par `engine.dsl.base` (#339/#350-r3b). Sur `Boltstorm` a (level 50, mult 180) :
+      `minDmg = 1496`, `maxDmg = 2194` -> amount = `1845`, pas `1496` ;
+    * les modifiers sont APPLIQUES. Aucun argument du slot appele ne les transporte — d'ou la
+      lecture d'origine — mais le service de prediction les recalcule depuis l'attaquant. Mesure :
+      sur la cible ISOLEE, le fold vaut exactement `(1329, 3183)` avec les mods de l'attaque
+      porteuse (`[1.5]`, bonus d'ELEVATION sur `MC1_67`) contre `(885, 2121)` sans eux, et
+      `natif - base_native_mesuree` vaut `(1329, 3183)`."""
     ctx = scene.ctx(att_id)
     if ctx is None:
         return None
     lvl = scene.ablvl_by_id.get(att_id)
-    amount = ability_var(ability_name, "minDmg", lvl, multiplier_pct=scene.mult(att_id))
+    _mult = scene.mult(att_id)
+    _mn = ability_var(ability_name, "minDmg", lvl, multiplier_pct=_mult)
+    _mx = ability_var(ability_name, "maxDmg", lvl, multiplier_pct=_mult)
     n = ability_var(ability_name, "nrOfHits", is_constant=True)
-    if not amount or amount <= 0 or not n or n <= 0:
+    if not _mn or _mn <= 0 or not _mx or _mx <= 0 or not n or n <= 0:
+        return None
+    amount = calculate_average(int(_mn), int(_mx))
+    if amount <= 0:
         return None
     prof = ((GC.ability(ability_name) or {}).get("constants") or {}).get("damageProfile") or ""
     prof_ratio = int((GC.damage_profile(prof) or {}).get("PiercingRatio") or 0)
@@ -56,7 +86,7 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
     return get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=int(n),
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
-        mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
+        mods=mods, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof),
         target_prevents_overkill=scene.prevents_overkill(tgt_id),   # #195 : HasFlag(cible, 0x13)
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id, prof),  # #69 gate NoBlocking
@@ -94,9 +124,13 @@ def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
         attacker_ctx=ctx)                         # #R34 : MightCrit = CouldCrit(attaquant)
 
 
-def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_found):
+def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_found, mods=None):
     """Selecteur du mold follow-up de l'attaquant (cf. bloc ci-dessus). None = pas de fold
-    (pas d'arme trouvee / kit sans passif concerne / gate melee-ranged non satisfaite)."""
+    (pas d'arme trouvee / kit sans passif concerne / gate melee-ranged non satisfaite).
+
+    `mods` = les modifiers de l'ATTAQUE PORTEUSE, threades jusqu'au mold RANGED (#446-r1) : le
+    natif ne les passe pas en argument, son service de prediction les recalcule — meme resultat,
+    et c'est ce que la mesure impose."""
     if not weapon_found:
         return None                       # mirror `FindAttackWeapon != null` (IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$PredictAttack / IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$PredictAttack)
     try:
@@ -108,7 +142,7 @@ def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_f
     if not is_melee:
         for nm in _RANGED_FOLLOWUP_PASSIVES:
             if nm in names:
-                return get_additional_damage_prediction(scene, att_id, tgt_id, nm)
+                return get_additional_damage_prediction(scene, att_id, tgt_id, nm, mods=mods)
     else:
         for nm in _MELEE_KLAW_PASSIVES:
             if nm in names:
@@ -542,7 +576,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # #57c-C : override PredictAttack des attaques normales de boss (Gulgortz/LightImUp, Ghazghkull/
     # ProperKilly) — prediction ADDITIONNELLE sur scenario VIERGE sommee via DamagePredictionResult.add
     # (IdunBattle.Core.Services.DamagePredictionResult$$Add), cf. bloc _RANGED_FOLLOWUP_PASSIVES ci-dessus.
-    _fw = _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, prof_name is not None)
+    _fw = _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee,
+                                             prof_name is not None, mods=mods)
     if _fw is not None:
         res.add(_fw)
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
