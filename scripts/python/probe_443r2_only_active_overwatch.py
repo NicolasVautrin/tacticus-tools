@@ -250,11 +250,50 @@ def measure(rpc, case: dict, regime: str) -> dict:
     return row
 
 
+# --------------------------------------------------------------------------- rayon de souffle
+
+def blast_radius(rpc, rid: int) -> dict:
+    """Ce que la bascule du canal AJOUTERAIT au substrat de la face DECISION, sur CET etat.
+
+    Mesure, pas deduction : on lit les deux canaux et on DIFFERENCE, par unite et par effectType.
+    Un effet ajoute n'entre dans AUCUN nombre passant par `EffectsState.active_effects` (il y est
+    filtre par le flag) ; il n'est vu que des lecteurs `has_effect` -- c'est-a-dire exactement les
+    mirrors d'un `onlyActive` FAUX, qui DOIVENT le voir."""
+    d0 = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
+    d1 = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32,
+                              "includeInactive": True}, 180)
+
+    def index(d):
+        out = {}
+        for u in (d.get("units") or []) + (d.get("mows") or []):
+            uid = u.get("id") if u.get("id") is not None else u.get("casterId")
+            out[uid] = [(int(e.get("effectType") or -1), bool(e.get("active")), e.get("name"))
+                        for e in (u.get("effects") or [])]
+        return out
+
+    i0, i1 = index(d0), index(d1)
+    ajouts = {}
+    for uid, effs in i1.items():
+        base = i0.get(uid) or []
+        for t, act, nom in effs:
+            if (t, act, nom) not in base:
+                ajouts.setdefault(uid, []).append((t, act, nom))
+    par_type = {}
+    for uid, lst in ajouts.items():
+        for t, act, nom in lst:
+            par_type.setdefault((t, nom), 0)
+            par_type[(t, nom)] += 1
+    return {"entrees_defaut": sum(len(v) for v in i0.values()),
+            "entrees_include": sum(len(v) for v in i1.values()),
+            "unites_touchees": len(ajouts), "par_type": par_type}
+
+
 # --------------------------------------------------------------------------- CLI
 
-def _build(state_file: str, board: str, seed: str) -> int:
+def _build(state_file: str, board: str, seed: str, roster: str = None) -> int:
+    p_units, a_units = (roster.split("|", 1) if roster else (CASTER, TARGET))
     argv = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--state-file", state_file,
-            "--board", board, "--p-units", CASTER, "--a-units", TARGET,
+            "--board", board, "--p-units", p_units, "--a-units", a_units,
             "--hp-target", "90000", "--hp-player", "90000"]
     p = subprocess.run(argv, cwd=_HERE, capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -283,6 +322,10 @@ def main() -> int:
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--seed", default=SEED)
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--blast", action="store_true",
+                    help="mesure ce que la bascule du canal AJOUTERAIT au substrat de la decision")
+    ap.add_argument("--roster", default=None,
+                    help="rosters explicites `p-units|a-units` (rayon de souffle sur 5v5)")
     args = ap.parse_args()
 
     from rl_collect_batch import _resolve_session, _rpc
@@ -292,7 +335,7 @@ def main() -> int:
         r = _rpc(sid, method, [body] if body is not None else [], timeout=timeout)
         return r["result"] if isinstance(r, dict) and "result" in r else r
 
-    rid = _build(args.state_file, args.board, args.seed)
+    rid = _build(args.state_file, args.board, args.seed, args.roster)
     try:
         case = _stage(sid, rpc, rid)
         print("runner %d | board %s seed %s | %s u%d @%s vs %s u%d @%s (dist %d) | ability %d"
@@ -335,6 +378,16 @@ def main() -> int:
             print("  contre-epreuve [seed %-15s] deplacement du terme : A=%+.6f  B=%+.6f  %s"
                   % (canal, dep_a, dep_b,
                      "MORD" if abs(dep_b) > EPS else "NE MORD PAS"))
+
+        if args.blast:
+            br = blast_radius(rpc, rid)
+            print("\n  RAYON DE SOUFFLE de la bascule de canal (etat courant, regime B) :")
+            print("    entrees d'effet : defaut=%d  includeInactive=%d  (+%d)"
+                  % (br["entrees_defaut"], br["entrees_include"],
+                     br["entrees_include"] - br["entrees_defaut"]))
+            print("    unites touchees : %d" % br["unites_touchees"])
+            for (t, nom), n in sorted(br["par_type"].items(), key=lambda kv: -kv[1]):
+                print("      %-6s %-38s x%d" % (t, nom, n))
     finally:
         if not args.keep:
             rpc("disposeRunner", {"runnerId": rid}, 30)
