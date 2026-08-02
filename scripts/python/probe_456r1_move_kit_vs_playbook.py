@@ -179,12 +179,15 @@ def _null_binder():
     yield None
 
 
-def _graft_seed_bc(tag: str):
+def _graft_seed_bc(tag: str, spec: str = "tauCrisis:SaviorProtocols"):
+    """Greffe `replace=True` : elle REMPLACE les passifs du porteur. C'est ce qui rend le montage
+    discriminant dans les DEUX sens -- le natif perd l'ability de kit ET gagne la greffee, donc le
+    kit gameconfig devient faux par exces ET par defaut sur la meme unite."""
     import catalog_inject as CI
     out = os.path.join(os.path.dirname(_HERE), "..", "logs", "seedbc-456r1-%s.json" % tag)
     out = os.path.abspath(out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    return CI.write_grafted_seed_bc(out, ["tauCrisis:SaviorProtocols"], replace=True)
+    return CI.write_grafted_seed_bc(out, [spec], replace=True)
 
 
 def main() -> int:
@@ -193,12 +196,18 @@ def main() -> int:
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--state-file", required=True)
     ap.add_argument("--no-graft", action="store_true")
+    ap.add_argument("--graft", default="tauCrisis:SaviorProtocols", metavar="VISUALID:Ability",
+                    help="greffe REMPLACANTE posee au seed BC (defaut : le montage de #443-r1a)")
     ap.add_argument("--no-bind", action="store_true",
                     help="CONTRE-EPREUVE (b) : ne lie AUCUN transport ambiant -> le port lit le "
                          "kit gameconfig (etat d'avant le cablage de #456-r1)")
     ap.add_argument("--drop-playbook", type=int, default=None, metavar="ABILITY_ID",
                     help="CONTRE-EPREUVE (a) : retire cette entree de TRIGGERED_MOVE_PLAYBOOKS "
                          "avant de confronter (ex. 1145) -- l'etat d'avant le port du playbook")
+    ap.add_argument("--moves", default=None, metavar="VISUALID:COL,ROW;...",
+                    help="DRIVE les positions avant de mesurer (`applyAction move`). C'est le "
+                         "levier de GENERALISATION : la geometrie de spawn ne produit qu'UNE "
+                         "configuration, et un port faux peut y passer.")
     ap.add_argument("--reuse", action="store_true")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
@@ -223,7 +232,7 @@ def main() -> int:
     seed_bc = None
     if not a.no_graft:
         try:
-            seed_bc, _ = _graft_seed_bc(str(os.getpid()))
+            seed_bc, _ = _graft_seed_bc(str(os.getpid()), a.graft)
         except Exception as e:                                            # noqa: BLE001
             print("   greffe 1120 INDISPONIBLE (%s) -- on continue sans" % str(e)[:160])
 
@@ -246,6 +255,37 @@ def main() -> int:
           % (rid, a.board, a.seed, s, bool(seed_bc)))
 
     try:
+        if a.moves:
+            # DRIVE des positions. `applyAction` ne verifie pas la propriete du `unitId` : on
+            # positionne les deux camps a volonte, sans passer par l'IA ni par un tour. On lit le
+            # mapping visualId -> entityId sur la vue de decision AVANT de bouger.
+            dv0 = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1}, 90) or {}
+            by_vis = {u.get("visualId"): u.get("id") for u in (dv0.get("units") or [])}
+            for spec in a.moves.split(";"):
+                spec = spec.strip()
+                if not spec:
+                    continue
+                vis, cr = spec.split(":", 1)
+                col, row = (int(x) for x in cr.split(","))
+                uid = by_vis.get(vis.strip())
+                if uid is None:
+                    print("   move %-16s IGNORE -- visualId absent de la vue" % vis)
+                    continue
+                res = rpc(s, "applyAction",
+                          {"runnerId": rid,
+                           "action": {"kind": "move", "unitId": int(uid),
+                                      "to": {"col": col, "row": row}}}, 90,
+                          tolerate_unknown=True)
+                print("   move %-16s u%-4s -> (%d,%d)  %s"
+                      % (vis, uid, col, row, "ok" if res is not None else "REFUSE"))
+            # Deux `endturn` : une unite qui vient de bouger n'a plus d'activation, donc le sweep
+            # `aiDryRunAllUnits` ne l'evaluerait plus. Faire le tour complet la rend au tour
+            # suivant, AVEC ses nouvelles positions. `applyAction` ne fait jamais jouer l'IA : les
+            # positions posees ici sont donc celles qu'on mesure.
+            for _ in range(2):
+                rpc(s, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90,
+                    tolerate_unknown=True)
+
         rpc(s, "triggeredMoveTraceClear", {}, 30)
         rpc(s, "triggeredMoveTraceOn", {}, 60)
         rpc(s, "aiDryRunAllUnits", {"runnerId": rid}, 180, tolerate_unknown=True)
