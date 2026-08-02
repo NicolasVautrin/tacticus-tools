@@ -180,6 +180,14 @@ class AttackWithAttackDamage(AbilityBehaviour):
         # MESURE bit-exacte (`probe_226r_skystrike_spread.py`, meme etat + meme rng dumpe) : SkyStrike live
         # = [3334, 3156, 2477] == `execute_normal_like(V, spread_pct=20)` 3/3, != bornes degenerees (V,V)
         # et != bornes brutes roll-then-reduce. Defaut 0 => strict no-op pour les call-sites existants.
+        #
+        # ⚠ Le DEFAUT 0 est PORTEUR DE SENS, donc invisible a tout grep (#449-r2) : deux des trois
+        # porteurs a variance nulle (`triggers/loki/psyker.py`, `triggers/loki/haze_of_corruption.py`)
+        # ne l'ECRIVENT PAS -- ils le prennent ici. L'inventaire de ce parametre se fait par AST sur les
+        # CALL-SITES (`probe_449r2_spread_inventory.py`, dans la banque de cliquets), jamais sur le texte
+        # du mot-cle : mesure du 2026-08-02, `spread_pct=0` rend 6 lignes dans `engine/` dont UNE SEULE
+        # executable. Tout nouveau call-site en mode `amount` doit LIRE le 8e argument
+        # `Nullable<AttackDamageBehaviourOptions>` de son `CreateBehaviour` natif et inscrire sa raison.
         self.amount_spread_pct = int(amount_spread_pct)
 
     def execute(self, entities, ectx):

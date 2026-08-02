@@ -499,6 +499,16 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
             # TROP, et une pose de `Contaminated` sur la tuile du RELAIS. MESURE : 2 seeds (13, 314)
             # dont le rang du flux qui suit les transferts passe sous 25 -> le live ne contamine
             # AUCUNE tuile, ni celle du relais ni une autre.
+            # `amount_spread_pct` reste au DEFAUT 0 -- decision LUE, pas subie (#449-r2). Chaque
+            # feuille native est un `IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` dont le 8e
+            # argument `Nullable<AttackDamageBehaviourOptions>` est passe VIDE (`local_328..local_308
+            # = 0`), donc `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$.ctor`
+            # (`GetValueOrDefault`) pose `+0x9e = 0` -> `$$ExecuteTarget` (options+0x2f) ->
+            # `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (request+0x6a) ->
+            # `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` branche PLATE
+            # `MinMaxDamageFix64(d, d)`. Le montant transfere n'est PAS une base d'arme : c'est le
+            # LeftOverDamage deja resolu, et l'etaler une seconde fois le fausserait.
+            # MESURE live : forcer 20 ici fait diverger le relais de 38 points (hp 5000).
             AttackWithAttackDamage(Target(), HAZE_OF_CORRUPTION_ABILITY,
                                    d.get("profile") or HAZE_BONUS_PROFILE,
                                    is_melee=True, amount=Const(amount), hits=1,
