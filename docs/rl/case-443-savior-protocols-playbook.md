@@ -130,12 +130,19 @@ identique au commit (`git diff` vide) **après**.
 
 ## 5. Ce que ce cas ne couvre PAS
 
-* **Le paramètre `onlyActive` n'est PAS discriminé par la mesure** (résidu `#443-r2`). CE3 est
-  verte : sur ce substrat, `active_effects` et `has_effect` rendent la même chose pour
-  `Markerlight`. Deux raisons, mesurées : `readEffectsByUnit` ne publie pas les effets `IsActive
-  == 0` (sauf `includeInactive`), et `MarkerlightEffect` n'a pas de `CreateActiveCondition`. Le
-  choix `active_effects` est donc un **mirror du décompilé** (le littéral `1` du call-site), pas un
-  résultat de mesure — il sera juste le jour où un `Markerlight` inactif atteindra la `Scene`.
+* **Le paramètre `onlyActive` n'est pas discriminé PAR CE MONTAGE** (résidu `#443-r2`, **CLOS** —
+  `docs/rl/case-443-r2-only-active.md`). CE3 est verte : sur ce substrat, `active_effects` et
+  `has_effect` rendent la même chose pour `Markerlight`. Deux raisons, mesurées :
+  `readEffectsByUnit` ne publie pas les effets `IsActive == 0` (sauf `includeInactive`), et
+  `MarkerlightEffect` n'a pas de `CreateActiveCondition`. Le choix `active_effects` reste ici un
+  **mirror du décompilé** (le littéral `1` du call-site), pas un résultat de mesure.
+  ⚠ **Mais « CE3 muette » ne voulait PAS dire « paramètre mort »** — l'hypothèse concurrente était
+  la bonne. #443-r2 a DÉRIVÉ l'inventaire des call-sites `onlyActive` et trouvé le régime
+  manquant : un effet PRÉSENT-mais-INACTIF, atteint **en un `endturn`** sur `Overwatch_AutoAttack`
+  (1009), dont le tour du porteur désactive l'instance
+  (`RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal`, 2ᵉ `Triggered`). Là, la MÊME
+  mutation de substrat MORD de **35 points** — et la mesure a fait tomber un écart de port
+  (résidu `#443-r2-b1`, la face DÉCISION est aveugle aux effets inertes).
 * **La face MOVE de 1120 n'est PAS portée** (résidu `#443-r1`, item à part entière) — et son
   absence de `TRIGGERED_MOVE_PLAYBOOKS` est un **TROU**, pas le comportement natif, contrairement à
   `Lakrimae` et `BarbedOvipositor`. `SaviorProtocolsPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__4$$MoveNext`
