@@ -35,7 +35,19 @@ COLS, ROWS = 8, 9
 
 def _flat_board(elev_overrides=None, unplayable=()) -> Board:
     """Plateau plat COLSxROWS, adjacence `evenq` recalculee (aucun trou), pour isoler la
-    geometrie de l'empreinte de toute particularite d'un board dumpe."""
+    geometrie de l'empreinte de toute particularite d'un board dumpe.
+
+    Le champ `neighbours` est REMPLI (voisinage even-q clippe aux bords), comme dans tout autre
+    montage offline du depot. Il ne peut PAS rester `[]` : `Board.neighbours_native` distingue le
+    champ ABSENT (repli sur `neighbours()`) du champ PRESENT ET VIDE (rend `[]`), et cette seconde
+    lecture est EXACTE sur un board reel -- `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`
+    applique une porte d'elevation inconditionnelle, donc une tuile dont tous les voisins stockes
+    sont a 2 niveaux d'ecart ressort bien sans aucun voisin. Un `[]` litteral declarait donc
+    « aucun voisin natif » sur un plateau que cette docstring annonce sans trou.
+
+    Les MURS restent presents dans la liste : le capteur `boardGraph` appelle
+    `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(tile, false, false, true)`
+    (`requireWalkable = 0`), donc `unplayable` retire la marchabilite, jamais l'arete."""
     tiles, tid = [], 1
     idof = {}
     for c in range(COLS):
@@ -47,7 +59,8 @@ def _flat_board(elev_overrides=None, unplayable=()) -> Board:
             "id": i, "col": c, "row": r,
             "elevation": (elev_overrides or {}).get((c, r), 0),
             "tileDefId": "Grass", "isTemporary": False, "isWall": (c, r) in unplayable,
-            "walkable": (c, r) not in unplayable, "neighbours": [], "occupantUnitId": None,
+            "walkable": (c, r) not in unplayable, "occupantUnitId": None,
+            "neighbours": [idof[n] for n in hexgeo.neighbors(c, r) if n in idof],
         })
     return Board(tiles, adjacency="evenq")
 
@@ -58,6 +71,27 @@ def _unit(state: State, uid: int, pos, feet=None) -> None:
     e.add_component(PositionComponent(pos[0], pos[1]))
     if feet:
         set_unit_feet(state, uid, feet)
+
+
+# ------------------------------------------------------------------------- garde DU MONTAGE
+
+def test_flat_board_publishes_native_neighbours():
+    """GARDE DU MONTAGE, pas du port : `_flat_board` doit exposer un voisinage NATIF non vide.
+
+    Sans elle, un montage qui rend `neighbours_native == []` ne se signale pas franchement -- il
+    fait passer a VIDE l'anneau des tests a 7 pieds. Trois d'entre eux tombaient alors en
+    `IndexError` (`ring[0]`), mais `test_dislike_starting_tiles_footprint_follows_feet_count`
+    restait VERT avec zero assertion utile : `set([center]) == {center} | set([])` est vraie.
+    C'est un vert vacueux, la forme la plus couteuse -- on la rend impossible ici."""
+    board = _flat_board()
+    inner = (3, 4)
+    ring = board.neighbours_native(board.id_at(*inner))
+    assert len(ring) == 6, f"tuile interieure a {len(ring)} voisins natifs au lieu de 6"
+    assert set(ring) == set(board.neighbours(board.id_at(*inner))), \
+        "vue NATIVE et vue evenq du montage doivent coincider sur un plateau plat sans trou"
+    # un coin en a strictement moins (clip aux bords), et jamais zero
+    corner = board.neighbours_native(board.id_at(0, 0))
+    assert 0 < len(corner) < 6
 
 
 # ---------------------------------------------------------------- formes natives (les 3 tailles)
@@ -282,6 +316,7 @@ def test_dislike_starting_tiles_footprint_follows_feet_count():
     board = _flat_board()
     center = (3, 4)
     ring = [board.coord(t) for t in board.neighbours_native(board.id_at(*center))]
+    assert len(ring) == 6, "anneau vide -> les assertions ci-dessous seraient VACUEUSES"
     neigh = {center: ring}
     assert u.candidate_footprint(_Ctx(feet_count=1, neigh_by_pos=neigh), center) == [center]
     assert u.candidate_footprint(_Ctx(feet_count=3, neigh_by_pos=neigh), center) == [center]

@@ -225,6 +225,26 @@ $Ratchets = @(
        Seul = 'COMPTEUR : les litteraux On(<n>) stables vs decales'
        Doc  = 'docs/rl/case-283-quatre-enums-renumerotes.md' }
 
+    # --- probe_457, en TROIS shards. L'union des trois est STRICTE (verifiee : 30+30+24 = 84
+    #     fichiers, aucun doublon, aucun manquant) et le shard se derive d'un md5 du chemin --
+    #     stable, donc un fichier neuf ne redistribue pas les autres.
+    #     MEME ARBITRAGE QUE probe_283 : joue d'un bloc il fait 116 s et DEVIENT le mur ; eclate,
+    #     son plus long shard tombe a 86 s et passe SOUS lui (mur mesure a 132 s le 2026-08-02).
+    #     Les trois entrees partagent la meme ligne `Seul` : c'est le meme gisement, decoupe pour
+    #     le cout, exactement comme les six etapes de probe_283.
+    #     Ce cliquet est le SEUL de la banque dont le perimetre se DERIVE au lieu d'etre nomme :
+    #     les trois entrees `pytest_*` ci-dessus sont des allowlists, et c'est precisement ce qui
+    #     a laisse `test_multihex_substrate.py` rouge pendant un jour sans que rien ne le dise.
+    @{ Id = 'probe_457:s0'; Argv = @('probe_457_offline_tests_green.py', '--shard', '0/3')
+       Seul = 'un fichier de test 100 % OFFLINE ROUGE EN PERMANENCE sur master -- invisible parce que la suite complete est proscrite (405 des 489 fichiers montent un runner), qu un agent ne rejoue que SA tranche, et que les trois entrees pytest_* de cette banque nomment leurs fichiers A LA MAIN (allowlist : on n y entre que si quelqu un y pense). Mesure : test_multihex_substrate.py, 3 failed / 15 passed sur master. Il voit aussi la moitie plus couteuse du meme vice -- le VERT VACUEUX, un 4e test du meme fichier passant avec zero assertion utile parce que son anneau etait vide'
+       Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
+    @{ Id = 'probe_457:s1'; Argv = @('probe_457_offline_tests_green.py', '--shard', '1/3')
+       Seul = 'idem probe_457:s0 -- shard 1/3 du MEME gisement (perimetre DERIVE, pas d allowlist)'
+       Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
+    @{ Id = 'probe_457:s2'; Argv = @('probe_457_offline_tests_green.py', '--shard', '2/3')
+       Seul = 'idem probe_457:s0 -- shard 2/3 du MEME gisement (perimetre DERIVE, pas d allowlist)'
+       Doc  = 'docs/rl/case-457-tests-offline-rouges-invisibles.md' }
+
     # Le cliquet de la BANQUE elle-meme. Il est dans la banque, donc soumis a son propre critere.
     @{ Id = 'probe_439'; Argv = @('probe_439_cliquet_peut_rougir.py')
        Seul = 'un cliquet de CETTE banque incapable de rendre un code non nul -- il occupe la place d un garde-fou et s imprime comme << rien a signaler >> (3 occurrences, TOUTES trouvees a l oeil : probe_181 #430, probe_326 #435, et l audit manuel de #430 qui a rate la seconde)'
