@@ -64,6 +64,20 @@ class DamageModifiers:
     detail@+0x38). `pct_list` = liste de `(mult, cap)` (mult=1±pct/100 ; cap=None si non plafonné)."""
     additive: float = 0.0
     pct_list: list[tuple[float, int | None]] = field(default_factory=list)
+    # #446-r2 — LES ENTREES DU DEFENSEUR, FUSIONNEES DANS L'ACCUMULATEUR DE L'ATTAQUANT, VIVENT A
+    # PART. Le natif tient DEUX `Nullable<DamageModifiers>` (`attackModifiers`, `defenseModifiers`)
+    # et `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` les
+    # consomme en QUATRE etapes ORDONNEES : `ApplyCappedModifiers(attaquant)`,
+    # `ApplyCappedModifiers(defenseur)`, puis `CalculateBaseDamageWithModifiers(attaquant)` et
+    # `CalculateBaseDamageWithModifiers(defenseur)` -- ces DEUX dernieres portant chacune un
+    # `Fix64.Round(., AwayFromZero)`. Le port fusionnait les deux faces dans UNE seule `pct_list`,
+    # donc UN seul arrondi : l'arrondi INTERMEDIAIRE entre les deux faces manquait. Mesure #446-r2 :
+    # cible sur tuile Thorns (modification de stat DEFENSE -50 -> x1.5 cote DEFENSEUR) sans bonus
+    # d'elevation (donc face ATTAQUANT a 1.0) -- natif 1302 contre 1299 pour le port sur 3 coups.
+    # La PREDICTION fusionne (elle n'a qu'un `mods`) -> ce champ porte la face DEFENSEUR ; le COMBAT
+    # garde ses deux appels distincts (`apply_pierce_and_modifiers(att_mods)` puis
+    # `apply_all_modifiers(def_mods)`) et n'utilise donc PAS ce champ.
+    pct_list_defender: list[tuple[float, int | None]] = field(default_factory=list)
     multiplicative: float = 1.0
     details: list[EffectBonus] = field(default_factory=list)
     # axe ARMURE/PERÇAGE (champs du DamageModifiers natif lus par CalculateBaseDamageWithAllModifiers
@@ -149,15 +163,55 @@ def apply_capped_modifiers(value, mods: DamageModifiers) -> "_fx.Fix64":
     perçage #111) : la conversion est alors faite au caller (prédiction : Round des bornes ;
     COMBAT : op_Explicit=floor du dégât tiré, `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`). Le retour est
     toujours un Fix64 (`.raw` exact — intégral si matérialisé)."""
+    return apply_pct_entries(value, mods.pct_list)
+
+
+def apply_pct_entries(value, entries) -> "_fx.Fix64":
+    """Le CORPS de `apply_capped_modifiers`, sur une liste d'entrees EXPLICITE. Extrait (#446-r2)
+    pour que la face DEFENSEUR fusionnee (`DamageModifiers.pct_list_defender`) traverse EXACTEMENT
+    le meme etage que la face ATTAQUANT, dans un appel SEPARE -- comme le natif, qui appelle
+    `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers` DEUX fois."""
     v_raw = _fx.from_number(value)
-    if not mods.pct_list:
+    if not entries:
         return _fx.Fix64(v_raw)
-    for mult, cap in mods.pct_list:
+    for mult, cap in entries:
         v_raw = _fx.mul(v_raw, _fx.mult_raw_from_float(mult))
         if cap is not None:
             cap_raw = _fx.from_int(cap)
             v_raw = max(-cap_raw, min(cap_raw, _fx.round_raw(v_raw, 1)))
     return _fx.Fix64(_fx.round_raw(v_raw, 1))
+
+
+def calculate_base_damage_with_modifiers(damage, multiplier: float = 1.0) -> "_fx.Fix64":
+    """`IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers` (slot 0x10) --
+    l'etage MULTIPLICATEUR (`DamageModifiers.Multiplier@0x30`), mirror LU du decompile :
+
+        x = Fix64.op_Multiply(baseDamage, multiplier)
+        if x <= Fix64.Zero                     : return Fix64.Zero      # statics+0x28
+        if Fix64.Zero < x && x < Fix64.One     : return Fix64.One       # statics+0x20
+        return Fix64.Round(x, AwayFromZero)
+
+    ⚠ Ce que ce mirror APPORTE, et c'est TOUT l'objet de #446-r2 : `CalculateBaseDamageWithAllModifiers`
+    l'appelle DEUX FOIS -- une fois avec le multiplicateur de l'ATTAQUANT, une fois avec celui du
+    DEFENSEUR -- et l'appel est INCONDITIONNEL des que le `Nullable<DamageModifiers>` correspondant
+    HasValue, donc **meme quand le multiplicateur vaut 1**. C'est cet arrondi-la, sur un
+    multiplicateur NEUTRE, qui MATERIALISE la sortie fractionnaire du percage avant que le
+    multiplicateur de l'autre face ne s'applique.
+
+    Mesure #446-r2 (`MC1_67`, `templAggressor` -> `astraBullgryn` sur tuile Thorns) : percage
+    `1445 x fix(0.20)` = `288.99999993` (Fix64, JUSTE sous 289) ; face attaquant a 1.0 ->
+    `Round(288.99999993) = 289` ; face defenseur a 1.5 (modification de stat DEFENSE -50, negee) ->
+    `Round(289 x 1.5) = Round(433.5) = 434`. Sans l'arrondi intermediaire on obtient
+    `Round(288.99999993 x 1.5) = Round(433.49999990) = 433` -- le `-1` par coup, `-3` sur 3 coups.
+
+    `multiplier` reste un float (format `pct_list` du port) : `mult_raw_from_float` reconstruit le
+    raw natif EXACT pour tout pourcentage entier (cf. sa docstring)."""
+    x = _fx.mul(_fx.from_number(damage), _fx.mult_raw_from_float(multiplier))
+    if x <= 0:
+        return _fx.Fix64(0)
+    if x < _fx.ONE:
+        return _fx.Fix64(_fx.ONE)
+    return _fx.Fix64(_fx.round_raw(x, 1))
 
 
 def apply_all_modifiers(value: int, mods: DamageModifiers, round_materialize: bool = False) -> int:

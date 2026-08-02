@@ -30,7 +30,7 @@ from engine.entities.stats import StatType, StatPart, ARMOR_STAT_TYPES
 from engine.services.damage_prediction import get_attack_prediction
 from engine.services.min_max_damage import MinMaxDamage
 from engine.services.damage_modifiers import (
-    ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION, add_modifier,
+    ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION, add_modifier, DamageModifiers,
     calculate_elevation_bonus_modifier, calculate_ranged_in_melee_reduction,
     calculate_trench_reduction,
     TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
@@ -490,8 +490,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee, damage_profile,
                                                      attacker_ctx=att_ctx,
                                                      defense_stat=scene.defense_stat(tgt_id))
+    # #446-r2 : la face DEFENSEUR entre desormais dans `pct_list_defender`, PAS dans `pct_list`.
+    # Le natif ne fusionne JAMAIS les deux faces : `CalculateBaseDamageWithAllModifiers` les
+    # consomme separement, et intercale un `Fix64.Round(., AwayFromZero)` INCONDITIONNEL entre
+    # elles (`CalculateBaseDamageWithModifiers`, slot 0x10, appele une fois par face). La phrase
+    # « composition %-list commutative sans arrondi intermediaire (#98) » ci-dessus valait pour
+    # DEUX entrees de la MEME face -- elle ne vaut pas d'une face a l'autre. Mesure : #446-r2.
     for mult, cap in def_mods.pct_list:
-        mods.pct_list.append((mult, cap))
+        mods.pct_list_defender.append((mult, cap))
     # ADDITIF defenseur (ForAddition, ex. Neuroparasite +extraDmg x niveau) — le %-list SEUL etait fusionne,
     # l'additif defenseur etait DROPPE. PLACEMENT = MEME slot @+0x10 que l'additif ATTAQUANT #75 : ajoute a la
     # base PRE-percage, puis traverse percage et est scale ×%-list UNE fois (le natif ajoute l'additif @+0x10
@@ -547,7 +553,20 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # (`damage_model.defender_modifiers`) -- pas de fork.
                             "att_id": att_id, "att_is_unit": att_ctx.get("is_unit"),
                             "tile_effects_by_pos": scene.tile_effects_by_pos}):
-        add_modifier(mods, _eb)
+        # #446-r2 : ces auras sortent de la boucle `EffectWithTarget` de
+        # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` --
+        # face DEFENSEUR, donc `pct_list_defender` (cf. le merge ci-dessus). `add_modifier` sur un
+        # accumulateur JETABLE puis transfert : le routage reste dans `add_modifier`, pas duplique.
+        _tmp = DamageModifiers()
+        add_modifier(_tmp, _eb)
+        mods.pct_list_defender.extend(_tmp.pct_list)
+        mods.additive += _tmp.additive
+        mods.extra_pierce += _tmp.extra_pierce
+        mods.armor_penetration += _tmp.armor_penetration
+        mods.ignore_armor = mods.ignore_armor or _tmp.ignore_armor
+        mods.capped_reductions.extend(_tmp.capped_reductions)
+        mods.flat_reductions.extend(_tmp.flat_reductions)
+        mods.details.extend(_tmp.details)
 
 
 def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
