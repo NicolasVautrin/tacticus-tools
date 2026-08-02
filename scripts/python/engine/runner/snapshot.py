@@ -322,10 +322,15 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # MEME payload, MEME composant, hierarchie 2 : les passiveAbilities REELLEMENT montees
         # (#366-r1). Cf. `_load_passive_abilities`.
         seeded_pas = _load_passive_abilities(state, payload)
+        # MEME payload, MEME composant, TOUTES hierarchies : l'`AbilitiesComponent` entier, ce que le
+        # dispatcher d'utilite itere (#456-r1). Cf. `_load_triggered_abilities`.
+        seeded_kit = _load_triggered_abilities(state, payload)
         state.ability_states_seed = {"source": source, "seeded": seeded,
-                                     "seededPassives": seeded_pas}
+                                     "seededPassives": seeded_pas,
+                                     "seededTriggeredKits": seeded_kit}
     else:
-        state.ability_states_seed = {"source": source, "seeded": None, "seededPassives": None}
+        state.ability_states_seed = {"source": source, "seeded": None, "seededPassives": None,
+                                     "seededTriggeredKits": None}
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
     # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
     # niveau/multiplicateur d'un effet de tuile se lit sur son unité SOURCE, cf. `_load_tile_effects`).
@@ -1107,6 +1112,59 @@ def _load_passive_abilities(state: State, ability_states: dict) -> int:
             if name not in names:             # `TryAdd` sur une KeyedCollection : une entree par id
                 names.append(name)
         sc.ctx.passive_abilities = names
+        seeded += 1
+    return seeded
+
+
+def _load_triggered_abilities(state: State, ability_states: dict) -> int:
+    """Seede `UnitContext.triggered_abilities` depuis le RPC `unitAbilityStates` (#456-r1).
+    Rend le nombre d'unites seedees.
+
+    MIRROR -- ce qu'on lit est la collection COMPLETE du `TriggeredAbilityComponent`, celle que
+    `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`
+    enumere : `case.unit@+0x10` -> GetComponent -> `+0x18` -> `GetEnumerator`, SANS aucun filtre de
+    hierarchie. C'est la difference avec `_load_passive_abilities` (hierarchie 2 seule) et
+    `_load_tertiary_abilities` (hierarchie 3 seule), qui lisent le MEME payload pour d'autres
+    consommateurs : ici on ne filtre pas, parce que le natif ne filtre pas.
+
+    POURQUOI. Les trois producteurs du `ctx` tile-leaf derivaient ce kit du gameconfig par
+    `visualId`. La face DECISION a ete recablee sur le canal live par #304 ; les deux autres
+    (`runner_tile_leaf_ctx`, `scene_tile_leaf_ctx`) ne l'ont jamais ete. Mesure #456-r1
+    (`MC1_67`/777, 4 unites confrontees, `probe_456r1_move_kit_vs_playbook.py`) : le kit gameconfig
+    diverge de l'`AbilitiesComponent` sur **3 des 4** unites, et il diverge DANS LES DEUX SENS --
+    `tauDarkstrider` natif `[1143, 1051, 1044]` contre port `[1143]`, et `tauCrisis` greffe natif
+    `[1120, 1030]` contre port `[1133]`, c.-a-d. un id que le port ITERAIT et que la bataille n'a
+    PAS monte. C'est la meme faute que #264 sur l'axe TRAITS : une RECONSTRUCTION a partir d'une
+    autre source, fausse dans les deux sens.
+
+    `raw[0]` = `TriggeredAbility.AbilityName` (le capteur dumpe 12 x int32 depuis `+0x10` ; base
+    verifiee par recoupement `level`/`mult` = `raw[4]`/`raw[5]`, cf. `_load_tertiary_abilities`).
+    Un id est garde TEL QUEL meme s'il est hors de l'enum du mirror : le dispatcher natif le
+    presente a `PlaybookDatabase$$LoadPlaybook`, qui rend `null` et le skippe -- le port doit
+    reproduire ce skip, pas faire disparaitre l'entree (c'est le choix INVERSE de
+    `_load_passive_abilities`, qui porte des NOMS et n'a donc pas d'autre issue que d'ignorer un id
+    hors enum).
+
+    TRI-ETAT, meme discipline que les seeds voisins : sans canal, rien n'est pose et les foyers
+    retombent sur le kit gameconfig. Une unite PRESENTE dans le payload mais sans aucune entree
+    declenchee recoit `[]` -- une MESURE (« cette unite n'a aucun passif monte »), qui doit se
+    distinguer d'un canal muet."""
+    seeded = 0
+    for su in ((ability_states or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None:
+            continue
+        ent = state.get_entity(uid)
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        if sc is None or getattr(sc, "ctx", None) is None:
+            continue
+        ids: list[int] = []
+        for t in (su.get("triggered") or []):
+            raw = (t or {}).get("raw") or []
+            v = raw[0] if raw else None
+            if isinstance(v, int) and v > 0 and v not in ids:   # `TryAdd` : une entree par id
+                ids.append(v)
+        sc.ctx.triggered_abilities = ids
         seeded += 1
     return seeded
 

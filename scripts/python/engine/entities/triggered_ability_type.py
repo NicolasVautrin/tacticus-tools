@@ -564,6 +564,41 @@ TRAIT_TRIGGERED_ABILITY_IDS: dict[str, tuple[int, ...]] = {
 }
 
 
+def entity_triggered_ability_ids(unit_ctx, visual_id: str | None = None) -> list[int]:
+    """IDS du kit DECLENCHE d'une ENTITE -- le substrat COMPLET que le dispatcher d'utilite itere,
+    cote port. FOYER UNIQUE : c'est la version ENTITE de `triggered_ability_ids`, exactement comme
+    `entity_trait_ids` est la version entite d'`unit_trait_ids` (#225).
+
+    `unit_ctx` = le `UnitContext` de l'entite (`StatsComponent.ctx` cote runner, `Scene.ctx(uid)`
+    cote prediction : c'est le MEME objet, cf. `Scene.from_state`). Son champ `triggered_abilities`
+    est l'image du `TriggeredAbilityComponent` -- ce que
+    `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`
+    enumere reellement (`case.unit@+0x10` -> GetComponent -> `+0x18` -> `GetEnumerator`).
+
+    TRI-ETAT, et le REMPLACEMENT est DELIBERE (#304, meme arbitrage cote DECISION) :
+      * `triggered_abilities is None` -> canal NON MESURE : repli sur le kit gameconfig
+        `triggered_ability_ids(visual_id)`, comportement strictement d'avant #456-r1 ;
+      * une LISTE -> MESURE, et elle FAIT AUTORITE. Une UNION serait fausse dans le sens qui compte :
+        elle ne peut qu'AJOUTER, donc elle REINTRODUIRAIT un passif que la bataille n'a PAS monte.
+        Mesure #456-r1 (`MC1_67`/777, greffe `tauCrisis:SaviorProtocols`) : natif `[1120, 1030]`,
+        gameconfig `[1133]`, union `[1133, 1120, 1030]` -- l'union fait iterer `1133`, que
+        l'`AbilitiesComponent` ne contient pas.
+
+    `unit_ctx is None` -> borne STATIQUE `triggered_ability_ids(visual_id)`, comme
+    `entity_trait_ids`. Ce n'est pas une verite : relique, greffe et abilities derivees d'un trait y
+    sont invisibles.
+
+    ⚠ NON CACHE : le champ est MUTABLE (deux entites de meme `visualId` n'ont pas forcement le meme
+    kit des qu'une greffe, une relique ou un `AddTrait` est en jeu)."""
+    if unit_ctx is not None:
+        got = getattr(unit_ctx, "triggered_abilities", None)
+        if got is not None:
+            return [int(x) for x in got]
+        if visual_id is None:
+            visual_id = getattr(unit_ctx, "visual_id", None)
+    return triggered_ability_ids(visual_id)
+
+
 def kit_triggered_ability_ids(visual_id: str | None) -> list[int]:
     """Kit déclenché COMPLET d'une unité = passifs gameconfig (`triggered_ability_ids`) + abilities
     accordées par TRAIT (`TRAIT_TRIGGERED_ABILITY_IDS`) — le miroir fidèle de l'AbilitiesComponent

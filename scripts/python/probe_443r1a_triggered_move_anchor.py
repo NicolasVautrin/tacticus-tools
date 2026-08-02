@@ -66,6 +66,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import requests
@@ -373,7 +374,15 @@ def _movable_by_unit(s: int, rid: int) -> dict:
     return out
 
 
-def _port_rows(s: int, rid: int, entries) -> list:
+@contextmanager
+def _no_binder():
+    """CONTRE-EPREUVE du cablage #456-r1 : aucun transport ambiant, donc `_auto_ability_states`
+    rend `no-transport` et le port lit le kit GAMECONFIG. C'est l'etat exact d'avant le cablage --
+    et sans ce bras, rien ne dirait si le canal deplace la moindre valeur."""
+    yield None
+
+
+def _port_rows(s: int, rid: int, entries, bind: bool = True) -> list:
     """Evalue COTE PORT le terme MOVE de chaque event attribue, sur la MEME (unite, tuile).
 
     L'etat du port est reconstruit depuis les canaux de capture (`load_state`), puis pour chaque
@@ -388,7 +397,7 @@ def _port_rows(s: int, rid: int, entries) -> list:
     Rend [] -- et non des lignes fausses -- si un canal manque : E5 dira `no-rows`."""
     from engine.entities.pathfinding.board import Board
     from engine.playbook.adjacent_unit_preference import load_playbook
-    from engine.runner.snapshot import load_state
+    from engine.runner.snapshot import live_rpc, load_state
     from engine.utilities.tile import (
         TriggeredAbilitiesNonOwnerUtility, TriggeredAbilitiesUtility, runner_tile_leaf_ctx)
     from engine.weights import load as load_weights
@@ -399,7 +408,14 @@ def _port_rows(s: int, rid: int, entries) -> list:
     bg = rpc(s, "boardGraph", {"runnerId": rid}, 90)
     if not (isinstance(bg, dict) and bg.get("tiles")):
         return []
-    state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
+    # `live_rpc` est OBLIGATOIRE (#363, et #456-r1 pour le kit declenche) : sans transport ambiant,
+    # `_auto_ability_states` rend `no-transport` et `runner_tile_leaf_ctx` retombe sur le kit
+    # GAMECONFIG -- c'est exactement l'etat aveugle que #456 a mesure (`unit_triggered_abilities`
+    # rendait `[1133]` sur une unite dont l'`AbilitiesComponent` porte `[1120, 1030]`).
+    binder = ((lambda: live_rpc(lambda m, ar=None, to=60: rpc(s, m, ar, to)))
+              if bind else _no_binder)
+    with binder():
+        state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
     wt = load_weights()
     feuilles = {"TriggeredAbilitiesUtility": TriggeredAbilitiesUtility(),
                 "TriggeredAbilitiesNonOwnerUtility": TriggeredAbilitiesNonOwnerUtility()}

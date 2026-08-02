@@ -220,10 +220,15 @@ sans quoi rien ne dirait si l'élargissement élargit réellement quoi que ce so
 
 ### Ce qui n'est PAS couvert, nommé
 
-* **`#456-r1` — l'écart de valeur de E5 n'est pas FERMÉ, il est LOCALISÉ.** 9 lignes sur 102, sur
-  `1133 CyclicIonBlaster` et `1145 SereneUnifier`, et les deux causes (playbook non porté / kit du
-  port trop étroit) ne sont pas départagées. Le fermer est un cas de PORTAGE à part entière — hors
-  périmètre de #456, qui est un cas de CONFRONTATION.
+* ~~**`#456-r1` — l'écart de valeur de E5 n'est pas FERMÉ, il est LOCALISÉ.**~~ **FERMÉ le
+  2026-08-02 — `case-456-r1-terme-move-kit-et-playbook.md`.** Les deux causes mordaient, sur des
+  abilities **différentes**, et elles sont additives (4 + 5 = 9) : `1145 SereneUnifier` = playbook
+  non porté, `1120 SaviorProtocols` (greffée) = kit du port trop étroit. Deux rectifications de
+  cette fiche : **(i)** `1133 CyclicIonBlaster` était un **faux coupable** — le `missing` de E5
+  dérive du kit **PORT**, jamais confronté au kit natif, et le natif rend `0.0` pour son porteur
+  (il la skippe aussi) ; **(ii)** la **DÉCOMPOSITION n'était PAS nécessaire** au tranchage — le
+  discriminant est le KIT (`unitAbilityStates` contre `runner_tile_leaf_ctx`), pas la valeur.
+  102/102 en accord.
 * **La DÉCOMPOSITION par playbook** (`contribs`) et donc **la valeur du terme `SaviorProtocols`** :
   NON CONFRONTÉES. Le capteur corrigé n'est pas chargé — fenêtre requise. Le montage est prêt et
   discriminant (greffe 1120 sur `tauCrisis`, `aiDryRunAllUnits` identifié comme LE déclencheur).

@@ -72,6 +72,22 @@ class UnitContext:
     # une LISTE (fut-elle vide) = mesure, et elle FAIT AUTORITE. Les NOMS sont portes, comme
     # `tertiary_ability`, parce que les registres de dispatch sont indexes par nom.
     passive_abilities: list[str] | None = None
+    # --- l'`AbilitiesComponent` ENTIER (#456-r1) -----------------------------------------------------
+    # `passive_abilities` ci-dessus ne porte que la HIERARCHIE 2. Le dispatcher d'utilite, lui, itere
+    # la collection COMPLETE : `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.
+    # u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` fait `case.unit@+0x10` -> GetComponent ->
+    # `+0x18` (la Collection) -> `GetEnumerator`, sans aucun filtre de hierarchie -- passifs de kit
+    # (2), relique (3) et abilities derivees d'un TRAIT y sont indistinctes.
+    # Ce champ porte donc les IDS (`TriggeredAbility.AbilityName`, `raw[0]` du RPC
+    # `unitAbilityStates`), et non des noms : le registre de playbooks est indexe par id.
+    # TRI-ETAT, meme discipline que `passive_abilities` : `None` = canal non mesure -> repli
+    # gameconfig (`triggered_ability_ids`, comportement strictement d'avant) ; une LISTE (fut-elle
+    # vide) = mesure, et elle FAIT AUTORITE -- elle peut donc RETIRER un passif que le gameconfig
+    # connait et que la bataille ne monte pas (mesure #456-r1 : `tauCrisis` greffe rend `[1120, 1030]`
+    # la ou le gameconfig annonce `[1133]`).
+    # Seede par `snapshot._load_triggered_abilities` ; lu par le foyer unique
+    # `entities.triggered_ability_type.entity_triggered_ability_ids`.
+    triggered_abilities: list[int] | None = None
     # gameconfig-units (offline) — SAUF quand `traits_measured` est vrai (cf. ci-dessous).
     traits: list[int] = field(default_factory=list)
     # #264 — `traits` a-t-il ete SEEDE depuis la MESURE live (`combatSnapshot.units[].traits`) plutot
