@@ -44,6 +44,10 @@ CE QUE CE PROBE MESURE, par etages :
                la forme `<Playbook>.<CalculateMovementUtilityInSteps...>d__N` ?
   E4 savior -- (montage GREFFE) la contribution etiquetee `SaviorProtocolsPlaybook` apparait-elle
                sur le porteur de 1120 ? C'est l'ouverture de la confrontation de #443-r1a.
+  E5 valeur -- LA VALEUR, et elle ne demande PAS la decomposition (#456) : le TOTAL natif est
+               confronte a `TriggeredAbilities{,NonOwner}Utility.evaluate` du port sur la MEME
+               (unite, tuile). Trois gardes contre l'ACCORD DEGENERE : au moins une valeur native
+               non nulle, au moins deux valeurs natives distinctes, puis accord partout.
 
 Les VERDICTS sont des fonctions PURES (`check_channel`, `check_attribution`, `check_decomposition`,
 `check_savior`), pour que la garde jumelle offline les exerce SANS live -- y compris la detection du
@@ -236,6 +240,76 @@ def check_decomposition(entries, eps: float = 1e-6) -> dict:
                         ": %s" % (len(mesurees), len(entries), sorted(etiquettes)[:10]))}
 
 
+def check_value(rows, eps: float = 1e-6) -> dict:
+    """E5 -- LA VALEUR. Le TOTAL yielde par la state machine native, confronte au port.
+
+    Pourquoi cet etage existe SANS attendre la decomposition (#456) : le total natif est la SOMME
+    des contributions des triggered abilities du mover, et le port en a l'homologue EXACT --
+    `engine/utilities/tile.py::TriggeredAbilitiesUtility.evaluate` (et son jumeau
+    `TriggeredAbilitiesNonOwnerUtility.evaluate`), qui bouclent sur `load_playbook(ab)` exactement
+    comme `PlaybookDatabase$$LoadPlaybook` dans `<EvaluateMovementInSteps>d__2$$MoveNext`. La
+    DECOMPOSITION n'est indispensable que pour imputer un ECART a une ability quand le mover en
+    porte plusieurs ; elle ne l'est pas pour confronter la valeur.
+
+    `rows` : une par event confrontable, avec `unitId`, `utility`, `tile`, `nat` (le total publie
+    par le capteur) et `port`.
+
+    QUATRE conditions -- les trois premieres sont la pour refuser un ACCORD DEGENERE, qui est
+    exactement le vice que ce cas ferme :
+      (1) au moins une ligne confrontee ;
+      (2) au moins une ligne dont le natif est NON NUL -- « 0 == 0 » sur toute la table ne prouve
+          rien du port ;
+      (3) au moins DEUX valeurs natives distinctes -- un port qui rendrait une constante egale a
+          l'unique valeur native passerait (1)+(2) ;
+      (4) accord natif/port sur TOUTES les lignes."""
+    if not rows:
+        return {"status": "no-rows",
+                "message": ("aucune ligne confrontable (pas d'event attribue, ou l'etat du port "
+                            "n'a pas pu etre construit) -- RIEN n'est conclu de la valeur")}
+    ecarts = [r for r in rows if abs(float(r.get("nat") or 0) - float(r.get("port") or 0)) > eps]
+    non_nuls = [r for r in rows if abs(float(r.get("nat") or 0)) > eps]
+    distinctes = sorted({round(float(r.get("nat") or 0), 6) for r in rows})
+    probs = []
+    if not non_nuls:
+        probs.append("le natif rend 0 sur les %d ligne(s) : la confrontation est DEGENEREE, un "
+                     "port qui rendrait 0 partout passerait" % len(rows))
+    if len(distinctes) < 2:
+        probs.append("une SEULE valeur native distincte (%s) : le montage ne DISCRIMINE pas -- une "
+                     "constante cote port passerait" % distinctes)
+    if probs:
+        return {"status": "wrong", "message": " | ".join(probs)}
+    if not ecarts:
+        return {"status": "ok",
+                "message": ("%d ligne(s) confrontees, accord natif/port PARTOUT ; %d non nulle(s), "
+                            "%d valeur(s) natives distinctes : %s"
+                            % (len(rows), len(non_nuls), len(distinctes), distinctes[:8]))}
+    # VENTILATION DE L'ECART, et c'est la decomposition par etage appliquee au VERDICT. Un ecart sur
+    # une unite qui porte une triggered ability ABSENTE du registre du port n'accuse pas une formule
+    # : il accuse un playbook NON PORTE (`load_playbook` rend `None` -> `continue`, exactement comme
+    # le natif quand `PlaybookDatabase$$LoadPlaybook` rend null -- sauf qu'ici le natif, lui, en
+    # trouve un). Les confondre ferait chercher un bug de calcul la ou il n'y a rien de calcule.
+    imputables = [r for r in ecarts if r.get("missing")]
+    formule = [r for r in ecarts if not r.get("missing")]
+    manquantes = sorted({int(a) for r in imputables for a in (r.get("missing") or ())})
+    if formule:
+        return {"status": "wrong",
+                "message": ("%d/%d ligne(s) en ECART sur des unites dont TOUTES les triggered "
+                            "abilities sont au registre -- c'est une divergence de FORMULE : %s"
+                            % (len(formule), len(rows),
+                               [(r.get("unitId"), r.get("tile"), r.get("utility"),
+                                 r.get("nat"), r.get("port")) for r in formule[:5]]))}
+    return {"status": "gap",
+            "message": ("%d/%d ligne(s) en ecart, TOUTES sur des unites portant une triggered "
+                        "ability que le registre MOVE du port NE CHARGE PAS : %s. Le port rend 0 "
+                        "par `load_playbook -> None`, le natif rend %s. Ce n'est PAS une "
+                        "divergence de FORMULE. Deux causes restent NON DEPARTAGEES a cet etage -- "
+                        "(i) le playbook de ces abilities n'est pas porte, (ii) le kit lu par le "
+                        "port est plus etroit que l'`AbilitiesComponent` que le natif itere -- et "
+                        "les separer exige la DECOMPOSITION (E3), qui attend sa fenetre."
+                        % (len(ecarts), len(rows), manquantes,
+                           sorted({round(float(r["nat"]), 3) for r in imputables})[:8]))}
+
+
 def check_savior(entries, carrier_id) -> dict:
     """L'ouverture de la confrontation de #443-r1a : la contribution du playbook de 1120 est-elle
     ATTRIBUEE au porteur, tuile par tuile ?"""
@@ -297,6 +371,71 @@ def _movable_by_unit(s: int, rid: int) -> dict:
                 (int(t["col"]), int(t["row"])) for t in (u.get("tiles") or [])
                 if t.get("col") is not None)
     return out
+
+
+def _port_rows(s: int, rid: int, entries) -> list:
+    """Evalue COTE PORT le terme MOVE de chaque event attribue, sur la MEME (unite, tuile).
+
+    L'etat du port est reconstruit depuis les canaux de capture (`load_state`), puis pour chaque
+    unite on batit son `runner_tile_leaf_ctx` -- l'equivalent du `UtilityMovementCase` reduit a ce
+    que les feuilles consomment (`dc.unit`, `dc.parent`). Le premier argument d'`evaluate` est la
+    POSITION `(col,row)`, ce que le capteur publie tel quel.
+
+    `meta` (elevation/effets de tuile) n'est PAS lu par ces deux feuilles -- elles ne consomment que
+    `tile`, `ctx` et les poids. On passe donc un dict vide plutot qu'un meta a moitie construit qui
+    ferait croire a une entree qu'aucune des deux ne lit.
+
+    Rend [] -- et non des lignes fausses -- si un canal manque : E5 dira `no-rows`."""
+    from engine.entities.pathfinding.board import Board
+    from engine.playbook.adjacent_unit_preference import load_playbook
+    from engine.runner.snapshot import load_state
+    from engine.utilities.tile import (
+        TriggeredAbilitiesNonOwnerUtility, TriggeredAbilitiesUtility, runner_tile_leaf_ctx)
+    from engine.weights import load as load_weights
+
+    dv = rpc(s, "decisionView", {"runnerId": rid}, 120)
+    ob = rpc(s, "observeBattle", {"runnerId": rid}, 60)
+    snap = rpc(s, "combatSnapshot", {"runnerId": rid}, 60)
+    bg = rpc(s, "boardGraph", {"runnerId": rid}, 90)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        return []
+    state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
+    wt = load_weights()
+    feuilles = {"TriggeredAbilitiesUtility": TriggeredAbilitiesUtility(),
+                "TriggeredAbilitiesNonOwnerUtility": TriggeredAbilitiesNonOwnerUtility()}
+    ctx_cache: dict = {}
+    rows = []
+    for e in entries:
+        uid, tile, ut = e.get("unitId"), e.get("tile"), e.get("utility")
+        feuille = feuilles.get(ut)
+        if uid is None or tile is None or feuille is None:
+            continue
+        cle = (int(uid), e.get("parentId"))
+        if cle not in ctx_cache:
+            try:
+                ctx_cache[cle] = runner_tile_leaf_ctx(state, int(uid), e.get("parentId"))
+            except Exception:
+                ctx_cache[cle] = None
+        leaf = ctx_cache[cle]
+        if leaf is None:
+            continue
+        try:
+            val = float(feuille.evaluate((int(tile["col"]), int(tile["row"])), {}, leaf, wt))
+        except Exception:
+            continue
+        # Les triggered abilities du mover que le registre du port NE CHARGE PAS. C'est ce qui
+        # permet a E5 de distinguer un TROU DE PORTAGE d'une divergence de formule -- sans quoi
+        # « le port rend 0 » enverrait chercher un bug de calcul dans un chemin ou rien n'est
+        # calcule. On ne le renseigne que pour la face OWNER : la face NON-OWNER a son propre
+        # registre (`load_playbook_non_owner`) et son propre sujet (les AUTRES unites).
+        missing = ()
+        if ut == "TriggeredAbilitiesUtility":
+            missing = tuple(int(ab) for ab in ((leaf or {}).get("unit_triggered_abilities") or ())
+                            if load_playbook(int(ab)) is None)
+        rows.append({"unitId": int(uid), "utility": ut,
+                     "tile": (int(tile["col"]), int(tile["row"])),
+                     "nat": float(e.get("total") or 0), "port": val, "missing": missing})
+    return rows
 
 
 def _graft_seed_bc(tag: str):
@@ -415,9 +554,16 @@ def main() -> int:
         if a.no_graft or not seed_bc:
             carrier = None
 
+        try:
+            prows = _port_rows(s, rid, entries)
+        except Exception as e:                                        # noqa: BLE001
+            print("   E5 : etat du port INDISPONIBLE (%s)" % str(e)[:160])
+            prows = []
+
         for tag, v in (("E2 attrib ", check_attribution(entries, movable, positions)),
                        ("E3 decomp ", check_decomposition(entries)),
-                       ("E4 savior ", check_savior(entries, carrier))):
+                       ("E4 savior ", check_savior(entries, carrier)),
+                       ("E5 valeur ", check_value(prows))):
             print("%s [%s] %s" % (tag, v["status"], v["message"]))
             verdicts.append(v)
 
