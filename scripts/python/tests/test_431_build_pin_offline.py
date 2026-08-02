@@ -221,6 +221,43 @@ def _cliquet() -> tuple[int, str]:
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
+#: Les deux marqueurs n'existent dans le depot QUE par ce test. Les balayer en debut de
+#: mutation rend le nettoyage IDEMPOTENT -- c'est la seule parade a un residu, parce qu'un
+#: `finally` ne survit pas a un `SIGKILL` (timeout d'outil, `-x`, coupure de session).
+#: MESURE, le 2026-08-02, en ecrivant ce test : un pytest tue par un timeout externe a laisse
+#: les TROIS cibles mutees -- dont `frida/hooks/controller.ts`. Un residu de cette forme rend
+#: la banque ENTIERE rouge, et le rouge est attribue au mauvais cliquet (#455, meme lecon).
+_MARQUEURS = ("_MUTANT_431", "_NOTE_431")
+
+
+def _oter_residus() -> list:
+    """Tronque chaque cible au `\\n` qui PRECEDE son premier marqueur.
+
+    Sur les OCTETS, et par troncature -- pas par filtrage de lignes. La mutation ajoute
+    exactement `\\n<ligne>\\n` en fin de fichier ; couper a ce `\\n` restaure l'original
+    BIT POUR BIT, fins de ligne comprises. Un filtrage de lignes laissait la ligne vide
+    ajoutee : un residu d'un octet, invisible a la lecture, mais une diff permanente dans
+    l'arbre de chaque agent (trouve par le test ci-dessous, pas par relecture).
+
+    Chirurgical : ces jetons n'ont aucun autre usage dans le depot, donc rien de legitime ne
+    peut etre emporte -- a la difference d'un `git restore`, qui ecraserait le travail en
+    cours d'un agent sur ces memes fichiers.
+    """
+    nettoyes = []
+    for cible in CIBLES:
+        try:
+            brut = cible.read_bytes()
+        except OSError:
+            continue
+        pos = [i for i in (brut.find(m.encode("ascii")) for m in _MARQUEURS) if i >= 0]
+        if not pos:
+            continue
+        coupe = brut.rfind(b"\n", 0, min(pos))
+        cible.write_bytes(brut[:coupe] if coupe >= 0 else b"")
+        nettoyes.append(cible.name)
+    return nettoyes
+
+
 class _Mutations:
     """Mute les trois cibles, VERIFIE que chaque mutation a mordu, restaure a coup sur.
 
@@ -234,6 +271,7 @@ class _Mutations:
         self.avant, self.sha = {}, {}
 
     def __enter__(self):
+        _oter_residus()                 # un run precedent a pu etre TUE avant son `finally`
         try:
             for cible, ligne in zip(CIBLES, self.lignes):
                 brut = cible.read_bytes()
@@ -258,10 +296,30 @@ class _Mutations:
         return False
 
 
+def test_le_nettoyage_des_residus_est_IDEMPOTENT_et_chirurgical():
+    """Le `finally` ne survit pas a un kill -- ce nettoyage, si.
+
+    Il doit retirer EXACTEMENT la ligne marquee et rendre le fichier bit-pour-bit identique :
+    un nettoyage approximatif laisserait une diff permanente dans l'arbre de chaque agent.
+    """
+    assert _oter_residus() == [], "residu deja present avant le test"
+    cible = CIBLES[0]
+    intact = cible.read_bytes()
+    cible.write_bytes(intact + b'\n_MUTANT_431 = "residu simule"\n')
+    try:
+        assert _oter_residus() == [cible.name]
+        assert cible.read_bytes() == intact, "le nettoyage n'est pas bit-pour-bit"
+        assert _oter_residus() == [], "second passage : rien a faire"
+    finally:
+        cible.write_bytes(intact)
+
+
 def test_le_cliquet_est_VERT_sur_l_arbre_intact():
+    residus = _oter_residus()
     rc, out = _cliquet()
     assert rc == 0, out[-2000:]
     assert "CLIQUET VERT" in out
+    assert residus == [], "residu(s) d'un run TUE, nettoye(s) ici : %s" % residus
 
 
 def test_le_cliquet_ROUGIT_sur_une_resolution_A_CHACUNE_DES_TROIS_PROFONDEURS():
