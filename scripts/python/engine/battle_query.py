@@ -127,6 +127,30 @@ def is_adjacent(tile: tuple, pos: tuple, elev_by_pos: dict | None = None) -> boo
     return True
 
 
+def are_entities_adjacent(a: tuple, b: tuple, elev_by_pos: dict | None = None) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` -> `IdunBattle.Core.Services.
+    MovementUtil$$AreTilesAdjacent`, et ce N'EST PAS `is_adjacent` ci-dessus.
+
+    Les deux natifs sont DISTINCTS et ne rendent pas la même chose sur une paire identique :
+
+        MovementUtil$$AreTilesAdjacent(t1, t2) = (|dElev| < 2) & (t1 == t2 || IsNeighbour(t1, t2))
+        TileQuery$$IterateAdjacentTiles(t, ...) parcourt la liste d'adjacence STOCKÉE sur `t`,
+                                                donc ne rend JAMAIS `t` elle-même
+
+    `is_adjacent` mirrore le SECOND (les comptages `GetAdjacent*`, `DSLFactory$$AdjacentUnits`) et a
+    donc raison de ne pas compter la tuile source. Le premier, lui, porte le COURT-CIRCUIT
+    D'IDENTITÉ : `t1 == t2` court-circuite `IsNeighbour` et rend VRAI, et `|dElev| = 0 < 2` ne peut
+    pas le contredire. Confondre les deux fait REFUSER une adjacence que le natif accorde — sans
+    erreur ni crash (#433-r1, `docs/rl/case-433-r1-identite-adjacence.md`).
+
+    La porte d'élévation est commune aux deux et reste déléguée à `is_adjacent`."""
+    if a is None or b is None:
+        return False
+    if (a[0], a[1]) == (b[0], b[1]):
+        return True                    # `tile1 == tile2` -> `b = 1`, et `|dElev| = 0 < 2`
+    return is_adjacent(a, b, elev_by_pos)
+
+
 def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None) -> int:
     """`GetAdjacentEnemies/Friends(tile).Count` — nombre d'unités de `positions` sur une tuile
     ADJACENTE à `tile`, filtrées par la porte d'élévation native (cf. `is_adjacent`)."""
@@ -301,15 +325,24 @@ def is_charging(caster_pos: tuple | None, target_pos: tuple | None, target_id,
 
     `AreEntitiesAdjacent` = `MovementUtil$$AreTilesAdjacent(GetTiles(caster), GetTiles(target))`, dont
     l'overload scalaire vaut `abs(elev(b) - elev(a)) < 2 && (a == b || ConnectivityComponent(a).
-    IsNeighbour(b))` -> `is_adjacent` ci-dessus (distance hex 1 + porte d'elevation quand elle est
-    connue). `elev_by_pos=None` degrade en hex pur, MEME niveau d'approximation que le socle
-    (`components.update_charging` et le noeud DSL `entities.triggers.IsCharging` comparent en hex pur).
+    IsNeighbour(b))` -> `are_entities_adjacent` ci-dessus, et NON `is_adjacent` : ce dernier mirrore
+    `IterateAdjacentTiles`, qui ne rend jamais la tuile source, alors que la primitive de PORTEE
+    porte le COURT-CIRCUIT D'IDENTITE (#433-r1). `elev_by_pos=None` degrade en hex pur, MEME niveau
+    d'approximation que le socle (`components.update_charging` et le noeud DSL
+    `entities.triggers.IsCharging` comparent en hex pur).
+
+    ⚠ Le court-circuit est ici SANS EFFET OBSERVABLE, et par COMPOSITION -- pas par chance : le 2e
+    terme (`ChargedUnitIds.Contains`) est ecrit par `MoveUnitOperation$$UpdateCharging`, qui n'ajoute
+    que les unites NOUVELLEMENT rendues par `GetAdjacentUnits` (donc `IterateAdjacentTiles`, qui ne
+    rend JAMAIS la tuile d'arrivee elle-meme). Une unite partageant la tuile du caster n'entre donc
+    jamais dans cette liste, et la conjonction reste FAUSSE des deux cotes. Le mirror est pose par
+    FIDELITE, pas parce qu'un regime l'exige.
 
     Position manquante (unite hors plateau) -> False (le natif deref `MainTile` et sortirait ; la
     degradation fidele est « pas de charge »)."""
     if caster_pos is None or target_pos is None or target_id is None:
         return False
-    if not is_adjacent(caster_pos, target_pos, elev_by_pos):        # AreEntitiesAdjacent
+    if not are_entities_adjacent(caster_pos, target_pos, elev_by_pos):   # AreEntitiesAdjacent
         return False
     return int(target_id) in {int(i) for i in (charged_unit_ids or ())}   # ChargedUnitIds.Contains
 

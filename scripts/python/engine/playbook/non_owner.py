@@ -96,10 +96,12 @@ class KustomForceFieldReworkedNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook)
 
     `IsAdjacentTo` = `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent(a, b)` =
     `|elev(b) - elev(a)| < 2 && (a == b || ConnectivityComponent(a).IsNeighbour(b))` — mirror
-    `battle_query.is_adjacent` (distance hex 1 + porte d'elevation), plus la branche `a == b` que
-    le natif accepte et que `is_adjacent` exclut (distance 0). Cette branche est INATTEIGNABLE ici
-    (la tuile du porteur est occupee, donc jamais candidate pour le mover) ; on la mirror quand
-    meme plutot que de la supprimer sur un argument d'atteignabilite."""
+    `battle_query.are_entities_adjacent`, le foyer qui porte la branche `a == b` (COURT-CIRCUIT
+    D'IDENTITE, #433-r1) en plus de la distance hex 1 et de la porte d'elevation. ⚠ NE PAS retomber
+    sur `battle_query.is_adjacent` : celui-la mirrore `TileQuery$$IterateAdjacentTiles` et exclut
+    `a == b` a bon droit (distance 0). Cette branche est INATTEIGNABLE ici (la tuile du porteur est
+    occupee, donc jamais candidate pour le mover) ; on la mirror quand meme plutot que de la
+    supprimer sur un argument d'atteignabilite."""
 
     ABILITY_ID = int(TriggeredAbilityType.KustomForceFieldReworked)     # 0x60b = 1547
     KEY = "KustomForceFieldReworked_FriendsLikeToBeAdjacent"            # gameconfig vivant = 10
@@ -113,7 +115,7 @@ class KustomForceFieldReworkedNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook)
             return 0.0
         tile, opos = (tile[0], tile[1]), (opos[0], opos[1])
         elev = (ctx or {}).get("elev_by_pos")
-        if not (tile == opos or bq.is_adjacent(tile, opos, elev)):     # TileExtensions.IsAdjacentTo
+        if not bq.are_entities_adjacent(tile, opos, elev):             # TileExtensions.IsAdjacentTo
             return 0.0
         v = float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
         if (ctx or {}).get("unit_faction") == int(UnitFaction.Orks):   # HasFaction(case.unit, 5)

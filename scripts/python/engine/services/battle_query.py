@@ -35,9 +35,17 @@ def are_tiles_adjacent(a_pos, t_pos, board=None):
     (parité evenq validée vs boardGraph) SANS porte d'élévation (aucune info dispo → dégradation sûre =
     adjacence hex pure, comme le playbook `is_adjacent` sans `elev_by_pos`). Sur un board PLAT
     (Δelev=0<2 partout) la porte ne mord jamais → aucune régression ; elle ne discrimine que les boards
-    à élévation. Renvoie `True`/`False`, ou `None` si une position est inconnue (→ ranged)."""
+    à élévation. Renvoie `True`/`False`, ou `None` si une position est inconnue (→ ranged).
+
+    ⚠ Le COURT-CIRCUIT D'IDENTITÉ (`A == B` → vrai sans consulter la connectivité) vaut dans les DEUX
+    branches, et c'est la branche SANS board qui l'avait perdu : `hexgeo.distance(p, p)` vaut `0`,
+    donc `== 1` rendait FAUX là où le natif rend VRAI. Le gate d'élévation ne le contredit jamais
+    (`|Δelev| = 0 < 2` sur une tuile et elle-même), donc le natif rend VRAI **inconditionnellement**
+    sur une paire identique — cf. `docs/rl/case-433-r1-identite-adjacence.md`."""
     if a_pos is None or t_pos is None:
         return None
+    if (a_pos[0], a_pos[1]) == (t_pos[0], t_pos[1]):
+        return True     # `tile1 == tile2` -> `b = 1`, et `|Delta elev| = 0 < 2` : VRAI des deux cotes
     if board is not None:
         a_tile = board.id_at(a_pos[0], a_pos[1])
         t_tile = board.id_at(t_pos[0], t_pos[1])

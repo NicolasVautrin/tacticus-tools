@@ -170,6 +170,7 @@ from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.effect_type import EffectType
 from .....entities.selectors import Caster
 from ....abilities.behaviours import AddEffect, RemoveEffect, entities_from_state
+from ....abilities.targeting import are_tiles_adjacent
 from ....components import get_unit_feet
 from ....state import State
 from ..base import EffectTrigger, TriggerEvent
@@ -629,8 +630,7 @@ class _TitanhammerSquadTargetTileCondition:
     ET `targetTiles` (10e) avec la MEME liste `position` : ce slot porte donc la tuile d'ARRIVEE,
     que le port threade dans `TriggerEvent.dest_tile`.
 
-    LES DEUX BRAS NE SE COLLAPSENT PAS L'UN DANS L'AUTRE, et leurs selecteurs ne sont pas invoques
-    de la meme facon (decompile lu) :
+    LES DEUX BRAS n'invoquent PAS leurs selecteurs de la meme facon (decompile lu) :
 
     * `IdunBattle.Entities.Triggers.XContainsYTrigger$$ShouldTrigger` resout X (`+0x10` = les tuiles
       de destination) par le slot d'interface **0** (liste d'entites) et Y (`+0x18` = `tgt`) par le
@@ -641,13 +641,26 @@ class _TitanhammerSquadTargetTileCondition:
       (`+0x18`, `+0x20`) par le slot **10** (liste de TUILES) et fait une double boucle : vrai des
       qu'UNE paire est adjacente (`<query>` slot 0x60). Ce bras-la balaye TOUTES les tuiles marquees.
 
-    RESIDU NOMME, et sa portee est bornee : l'asymetrie n'est observable que si `1571` marque
-    PLUSIEURS tuiles ET que la destination est une tuile marquee AUTRE que la premiere, sans etre
-    adjacente a aucune. `TitanhammerSquadAbility$$ExecuteBehaviour` pose `AddEffect(0x623, ...,
-    targets: <Sel+0x60> = Target)` -- la cible de l'active, une seule tuile ; mesure a l'appui dans
-    `probe_448_r2d_titanhammer_squad.py` (cle `marked_tiles`). L'ORDRE du port (iteration de
-    `EffectsState.by_unit`) n'est de toute facon pas celui du natif (ordre de creation des
-    entites-effet) : tant que la cardinalite vaut 1, les deux coincident exactement."""
+    `<query>` slot 0x60 = `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` ->
+    `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent`, dont la surcharge scalaire vaut
+    `(|dElev| < 2) & (tile1 == tile2 || ConnectivityComponent$$IsNeighbour(tile1, tile2))`. Ce bras
+    passe donc par le foyer mirror `abilities/targeting.py::are_tiles_adjacent` (#433-r1) : le
+    voisinage nu de `board.neighbours` qu'il utilisait avant ratait les DEUX termes foldes -- le
+    court-circuit d'IDENTITE (une destination QUI EST une marque satisfait aussi ce bras, pas
+    seulement `Contains`) et la porte d'ELEVATION (une voisine a `|dElev| >= 2` n'est PAS adjacente).
+
+    LE RESIDU D'ORDRE de #448-r2d TOMBE AVEC #433-r1, et c'est une CONSEQUENCE du court-circuit, pas
+    une coincidence : puisque `AreTilesAdjacent(t, t)` est VRAI, tout `dest` egal a une marque -- la
+    premiere ou une autre -- satisfait deja le bras `IsAdjacentTiles`. Le bras `Contains` est donc
+    SUBSUME par lui **cote natif aussi** (`Contains(X, marked[0])` implique
+    `IsAdjacentTiles(X, marked)`), et la disjonction entiere se reduit a
+    `EXISTE j : AreTilesAdjacent(dest, marked[j])`. Le port garde le bras `Contains` en tete par
+    fidelite structurelle (mirror 1:1 de l'`op_BitwiseOr`), mais il ne peut plus rien decider seul :
+    l'ordre de `EffectsState.by_unit` (qui n'est PAS l'ordre de creation des entites-effet du natif)
+    est devenu sans effet sur le verdict, a toute cardinalite de `marked`. Ce que
+    `TitanhammerSquadAbility$$ExecuteBehaviour` ne pose qu'UNE marque
+    (`AddEffect(0x623, ..., targets: <Sel+0x60> = Target)`, mesure `marked_tiles` du probe) n'est donc
+    plus ce qui protege le port -- c'est desormais vrai independamment."""
 
     def _target_tiles(self, state: State) -> list:
         """`EffectTarget( EffectsFromUnitSource( EffectSource(EffectSelf), 1571 ) )`.
@@ -696,8 +709,14 @@ class _TitanhammerSquadTargetTileCondition:
             return False
         if int(marked[0]) == int(dest_id):            # Contains(X, Y) -- Y reduite a UNE entite
             return True
-        neigh = set(board.neighbours(int(dest_id)))   # IsAdjacentTiles : toute paire adjacente
-        return any(int(t) in neigh for t in marked)
+        # `IsAdjacentTiles` : double boucle sur les DEUX listes, chaque paire tranchee par le slot
+        # 0x60 du query = `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` ->
+        # `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent`. C'est le foyer mirror
+        # `abilities/targeting.py::are_tiles_adjacent` qu'il faut appeler, PAS `board.neighbours` :
+        # la primitive native folde DEUX termes que le voisinage nu n'a pas -- le COURT-CIRCUIT
+        # D'IDENTITE (`tile1 == tile2` -> vrai sans consulter la connectivite) et la porte
+        # d'ELEVATION (`|dElev| < 2`). Cf. `docs/rl/case-433-r1-identite-adjacence.md`.
+        return any(are_tiles_adjacent(board, int(dest_id), int(t)) for t in marked)
 
 
 class TitanhammerSquadTeleportingInRemoveOnAfterMove(ATeleportingRemoveOnAfterMove):

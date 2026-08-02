@@ -114,7 +114,7 @@ voie, puisque chaque PR est verte a SA base. Le cliquet est le seul endroit ou c
 | `IsEffectTarget` | #418 (`1014 CamoCloak_DmgReduction`) | `PORTE_HORS_FACADE` -- les 2 ecarts de `#418-r1` sont FERMES (`case-418-r1-is-effect-target.md`) : geometrie indexee PAR effectType, et le regime << apres deplacement, avant refresh >> ne diverge pas |
 | `HasBlockedThisTurn` | #426 (`1227 HarlequinsPanoply`) | `PORTE_HORS_FACADE` -- cf. §#393 |
 | `HasTile` | #448-r2b (`1140 StormboyzStrike_TeleportingIn`) | `PORTE_HORS_FACADE` -- cf. §#433 |
-| `IsAdjacentTiles` | #448-r2d (`1573 TitanhammerSquad_TeleportingIn`) | `PORTE_HORS_FACADE`, PARTIEL -- cf. §#433 et residu `#433-r1` |
+| `IsAdjacentTiles` | #448-r2d (`1573 TitanhammerSquad_TeleportingIn`) | `PORTE_HORS_FACADE` -- cf. §#433 ; le residu `#433-r1` est FERME (`case-433-r1-identite-adjacence.md`) |
 
 Dans les CINQ cas, le `NON_PORTE` d'avant etait un FAUX NEGATIF : les primitives etaient portees,
 collapsees en imperatif, et invisibles a toute heuristique de nom. **Le taux est desormais de 5/5 :
@@ -263,18 +263,26 @@ L'asymetrie de resolution etablie par #448-r2d est **re-verifiee ici, au decompi
 **slot 10** (liste de tuiles) et double-boucle, la ou `XContainsYTrigger$$ShouldTrigger` reduit son
 2e operande a UNE entite par le **slot 1** puis compare les `Id`.
 
-**Residu `#433-r1`, trouve en descendant la chaine** : le ctor recoit en 3e argument le `query` =
+**Residu `#433-r1`, trouve en descendant la chaine -- FERME, detail dans
+`case-433-r1-identite-adjacence.md`** : le ctor recoit en 3e argument le `query` =
 `<ctx DSL>+0x10 -> +0x28`, dont le slot `0x60` est
 `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` -> `IdunBattle.Core.Services.
 MovementUtil$$AreTilesAdjacent`. Sa surcharge SCALAIRE rend `(abs(elev1 - elev2) < 2) & b`, avec
-`b = 1` par **COURT-CIRCUIT si `tile1 == tile2`**, sinon
-`ConnectivityComponent$$IsNeighbour`. Une destination QUI EST une tuile marquee satisfait donc
-AUSSI le bras `IsAdjacentTiles` ; le port, lui, ne teste l'identite que par le bras `Contains`, sur
-`marked[0]` seul, et `board.neighbours(dest)` n'inclut jamais `dest`. **Regime d'observabilite
-identique au residu d'ORDRE deja nomme** dans la docstring de l'ancre : il faut `|marked| > 1` ET
-une destination = marque AUTRE que la premiere -- inatteignable tant que
-`TitanhammerSquadAbility$$ExecuteBehaviour` ne pose qu'UNE marque
-(`AddEffect(0x623, ..., targets: <Sel+0x60> = Target)`).
+`b = 1` par **COURT-CIRCUIT si `tile1 == tile2`**, sinon `ConnectivityComponent$$IsNeighbour`. Le
+port lisait `board.neighbours(dest)` NU sur ce bras : il ratait les DEUX termes foldes.
+
+Ce que la fermeture apprend, et qui n'etait pas vu ici :
+
+* **le terme qui MORD n'est pas celui qu'on avait nomme.** L'identite y est SANS OBJET a
+  cardinalite 1 (le bras `Contains` couvre deja `dest == marked[0]`) ; c'est la porte d'ELEVATION,
+  perdue par le meme `board.neighbours`, qui discrimine -- **695 des 779** boards du depot portent
+  une paire VOISINE a `|dElev| >= 2`. Confronte LIVE sur `MC1_67`/777 : le natif ne pose AUCUN
+  `1574` sur une destination voisine a `|dElev| = 2`, le port mute en pose un.
+* **le residu d'ORDRE de #448-r2d tombe AVEC lui**, par consequence : `AreTilesAdjacent(t, t)` etant
+  vrai, `Contains(X, marked[0])` IMPLIQUE `IsAdjacentTiles(X, marked)` -- le premier bras est
+  SUBSUME par le second cote natif aussi, et l'ordre d'enumeration ne decide plus rien, a toute
+  cardinalite. Il n'etait donc pas protege par << une seule marque posee >> : il ne l'est plus par
+  rien, ce qui est mieux.
 
 ### Le point de MECANISME : ce rouge n'a AUCUN porteur, et c'est la 4e fois
 

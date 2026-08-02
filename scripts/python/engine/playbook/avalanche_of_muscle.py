@@ -273,7 +273,11 @@ class AvalancheOfMusclePlaybook:
             return 0.0
         elev = getattr(sc, "elev_by_pos", None)
         # etat 4 -- `<slot 0x60>(casterTile, case.Target)` = `AreEntitiesAdjacent(Tile, IEntity)`.
-        if not bq.is_adjacent(attack_tile, tpos, elev):
+        # Foyer `are_entities_adjacent`, PAS `is_adjacent` : la primitive de portee porte le
+        # court-circuit d'identite (#433-r1) que le mirror d'`IterateAdjacentTiles` n'a pas.
+        # REGIME INATTEIGNABLE ICI (`attack_tile` est une tuile ou le caster PEUT aller, donc pas la
+        # position d'une cible vivante) -- pose par FIDELITE.
+        if not bq.are_entities_adjacent(attack_tile, tpos, elev):
             return 0.0
         # etat 5 -- `GetAttackWeaponForDefaultNormalAttack(caster, [casterTile], target) == null`.
         # `select_weapon_pierce` rend `profile_name is None` exactement dans ce cas (`w is None`).
