@@ -215,6 +215,7 @@ from .boltstorm import BoltstormPlaybook                        # #446 (registre
 from .fire_of_absolution import FireOfAbsolutionPlaybook        # #419-r1 (registre, cf. module dedie)
 from .cosmic_horror import CosmicHorrorPlaybook                 # #419-t6 (registre, cf. module dedie)
 from .light_im_up import LightImUpPlaybook                      # #419-r1-tr5 (registre, module dedie)
+from .rapid_fire import RapidFirePlaybook                       # #419-r1-tr9 (registre, module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -310,6 +311,19 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # `AbilityEntities.CasterTile` -- ce qui ancre son disque de cibles secondaires sur la TUILE
     # D'ATTAQUE, la ou son `Unobscured` vise depuis la tuile REELLE.
     int(TriggeredAbilityType.LightImUp): LightImUpPlaybook(),
+    # #419-r1-tr9 : RapidFire (1135, passif de 3 npc `ultra*Intercessor*` + du SUMMON
+    # `ultraSmnHeavyIntercessor`) -- l'utilite du SECOND tir que le passif offre a une unite qui
+    # N'A PAS BOUGE : 0 hors de la tuile courante, 0 si le caster porte `UnitFlag.Moved`, sinon le
+    # MAXIMUM (borne en bas par 0) de l'utilite d'une attaque normale par cible legale de l'attaque
+    # normale GENERIQUE. Corps IdunBattle.AI.Playbook.Loki.
+    # RapidFirePlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext (CINQ etats).
+    # PREMIER playbook attack porte qui (a) gate sur l'EGALITE tuile-d'attaque / tuile-reelle --
+    # tout le balayage de tuiles rend donc 0 sauf une, (b) demande son ensemble de cibles au
+    # ciblage natif (`AttackQuery$$GetValidTargets`, canal `abilityTargets.fromHere`) par le
+    # LITTERAL `0x45` = `ActiveAbilityType.Loki_NormalAttack` et non par le `NormalAttackType` du
+    # caster, et (c) agrege par `Fix64.Max` au lieu de sommer/moyenner. Il RE-UTILISE pour chaque
+    # cible la prediction calculee contre `case.Target` -- quirk natif LU A L'ASSEMBLEUR.
+    int(TriggeredAbilityType.RapidFire): RapidFirePlaybook(),
 }
 
 

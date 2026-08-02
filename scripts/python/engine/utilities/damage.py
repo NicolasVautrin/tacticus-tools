@@ -76,10 +76,34 @@ class DamageUtility(BaseUtility):
         return float(min_max_avg(pred.get("shieldDmgMin") or 0, pred.get("shieldDmgMax") or 0))
 
     def evaluate(self, pred, target_max_hp, wt) -> float:
+        """⚠ #419-r1-tr9 -- LA SANTE ET LE BOUCLIER VIENNENT DE L'ENTITE `case.Target`, PAS DE LA
+        PREDICTION. Lu au decompile : le corps natif prend `actor = case.Target` (`case@+0x20`) puis
+        `UnitExtensions.GetStat(actor, 5 /*Health*/, 2 /*Max*/) + 1` pour le `combinedMax`,
+        `IdunBattle.AI.Utilities.DamageUtility$$GetShield(actor)` pour le bouclier, et
+        `IdunBattle.AI.Utilities.DamageUtility$$GetRemainingHealth(this, actor)` (=
+        `GetStat(actor, 5, 0 /*Current*/) + 1 + GetShield(actor) + 1`) pour le restant. SEUL le
+        DEGAT (et le repli `LimitedByMinHp -> CurrentHealth`) sort du `DamagePredictionResult`.
+
+        `hpBefore` / `shieldBefore` sont donc un PROXY : ils valent la sante et le bouclier de la
+        cible de la PREDICTION. Le proxy est EXACT tant que l'event et la prediction portent la meme
+        cible -- ce qui etait vrai de tous les producteurs jusqu'a `RapidFirePlaybook`, dont le corps
+        natif re-utilise pour CHAQUE cible la prediction calculee contre `case.Target` (cf.
+        `engine/playbook/rapid_fire.py`, point 5 de son en-tete). Les cles OPTIONNELLES `targetHp` /
+        `targetShield` portent la lecture d'ENTITE quand l'appelant sait les distinguer ; absentes,
+        on retombe sur le proxy, c.-a-d. le comportement anterieur, a l'identique.
+
+        Les DEUX autres feuilles du composite ne sont PAS concernees : `KillUnitUtility` et
+        `OverkillUnitUtility` lisent `WillBeKill`/`MightBeKill`/`WillBeOverkill`/`MightBeOverkill`,
+        qui sont des proprietes du `DamagePredictionResult` et comparent a son `CurrentHealth@+0x00`
+        -- elles doivent donc rester sur `hpBefore`."""
         if not pred:
             return 0.0
-        hp = pred.get("hpBefore") or 0
-        shield = pred.get("shieldBefore") or 0
+        hp = pred.get("targetHp")
+        if hp is None:
+            hp = pred.get("hpBefore") or 0
+        shield = pred.get("targetShield")
+        if shield is None:
+            shield = pred.get("shieldBefore") or 0
         # combinedMax = (MaxHealth+1) + (Shield+1). Fallback maxHP=hpBefore si non fourni (cible pleine).
         max_hp = target_max_hp if (target_max_hp and target_max_hp > 0) else hp
         combined_max = (max_hp + 1) + (shield + 1)
