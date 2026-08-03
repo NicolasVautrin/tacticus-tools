@@ -150,13 +150,9 @@ tout début du tour suivant (recette E4 de `probe_291_summon_activation.py`).
 
 ## 7. Résidus
 
-* **`#433-r4-r3-r1` — 19 faces MOVE `*NonOwnerPlaybook` restent non portées.** Compte re-dérivé :
-  **25** concrets (**15** dérivés directs de `TriggeredAbilityNonOwnerPlaybook<T>`, **10** via
-  `AdjacentToOwnerNonOwnerPlaybook<T>`), dont **22** ont une face MOVE et **3** une face ATTACK ;
-  **3** sont au registre après ce cas. L'argument d'absence de `non_owner.py` ne les couvre pas non
-  plus — leurs classes existent. Les 10 de `AdjacentToOwnerNonOwnerPlaybook<T>` partagent UN corps
-  (`…AdjacentToOwnerNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2u003C…u003E$$MoveNext`),
-  donc le porter fermerait 10 entrées d'un coup.
+* ~~**`#433-r4-r3-r1` — 19 faces MOVE `*NonOwnerPlaybook` restent non portées.**~~ **FERMÉ pour les
+  10 du corps partagé — §8.** Le compte cité ici (25 / 22 / 19) était un compte **par NOM** et il
+  est FAUX : rectifié au §8.
 * **`#433-r4-r3-r2` — les faces OWNER de 1000 et 1487 ne sont pas portées non plus** :
   `PsychicFortressPlaybook$$GetAdjacentFriendUtility` et
   `ECogSupportPlaybook$$CalculateMovementUtilityInStepsInternal`. Elles ne pèsent que le sweep du
@@ -167,3 +163,162 @@ tout début du tour suivant (recette E4 de `probe_291_summon_activation.py`).
   fermable en une ligne, non fait ici (hors périmètre, et rayon de souffle non mesuré).
 * **Le régime SPAWN de la feuille 4** (`case.unit == null`, `case.parent != null`) reste muet — le
   `ctx` de spawn ne porte aucune clé de sujet. Résidu préexistant, inchangé.
+
+---
+
+# case-433-r4-r3-r1 — les DIX `AdjacentToOwnerNonOwnerPlaybook<T>`, fermees d'un seul geste
+
+**Verdict : 10 classes portees, 9 au registre, et DEUX confronts LIVE qui sont des CHANGEMENTS DE
+TUILE.** Le corps est PARTAGE (un unique iterateur gshared) : le confronter une fois vaut pour les
+dix, et le second montage prouve en plus la face variable `GetAdjacencyUtility` ET la cle de
+registre de la classe que son propre `.ctor` designe faux.
+
+## 8. Le compte, RE-DERIVE — et il etait faux
+
+| | herite | mesure #433-r4-r3-r1 | ecart |
+|---|---|---|---|
+| concrets derivant de `TriggeredAbilityNonOwnerPlaybook<T>` | 25 | **28** | +3 |
+| dont derivees DIRECTES | 15 | **18** | +3 |
+| dont via `AdjacentToOwnerNonOwnerPlaybook<T>` | 10 | **10** | = |
+| faces MOVE | 22 | **24** | +2 |
+| faces ATTACK | 3 | **3** | = |
+| faces REPAIR | (non compte) | **1** | +1 |
+
+**La cause de l'ecart** : le compte herite filtrait sur le NOM (`*NonOwnerPlaybook`). Trois concrets
+ne portent pas ce suffixe alors que leur PARENT est bien `TriggeredAbilityNonOwnerPlaybook`1` dans
+`data/symbols/<build>/frida/classes.tsv` :
+
+* `IdunBattle.AI.Playbook.Loki.CabalOfSorcerersPlaybook` — **a une face MOVE**
+  (`…CabalOfSorcerersPlaybook$$CalculateMovementUtilityInSteps` + sa SM `d__2`) ;
+* `IdunBattle.AI.Playbook.Loki.WisdomOfTheAncientsPlaybook` — **a une face MOVE** ;
+* `IdunBattle.AI.Playbook.Loki.VoltagheistFieldPlaybook` — face **REPAIR**
+  (`…$$CalculateRepairUtilityInSteps`), une 4e face que le compte herite ne mentionnait pas.
+
+Leurs SM nichees (`CabalOfSorcerersPlaybook.<CalculateMovementUtilityInSteps>d__2`) ne contiennent pas
+non plus la chaine `NonOwnerPlaybook` : le grep les ratait **deux fois**. Filtrer sur le PARENT, jamais
+sur le nom.
+
+## 9. Le corps PARTAGE, et les trois pieges qu'il tend
+
+`IdunBattle.AI.Playbook.AdjacentToOwnerNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2u003C__Il2CppFullySharedGenericTypeu003E$$MoveNext` :
+
+    if (case.unit == null) yield break;
+    if (!Query.AreEntitiesAdjacent(case.Position.Tiles, owner)) yield break;
+    yield return GetAdjacencyUtility(case.unit, owner);
+
+1. **La disposition de la state machine est une TROISIEME**, distincte des deux deja mesurees par
+   #433-r4-r3 : `case@+0x20, playbook@+0x28, owner@+0x30` ici, contre `case/owner/playbook` pour
+   `ECogSupport` et `owner/playbook/case` pour `PsychicFortress`. Trois classes, trois ordres — la
+   transposition est morte a chaque fois.
+2. **Le gate d'adjacence n'est PAS celui des voisins nommes.** Eux font `GetMainTile(owner)` puis
+   `TileExtensions$$IsAdjacentTo` (UNE tuile contre UNE). Ici le corps lit le champ `Query` du
+   playbook — **`+0x60`** dans le bloc de champs, confirme par
+   `IdunBattle.AI.Playbook.TriggeredAbilityNonOwnerPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$get_Query`
+   qui lit le MEME offset (et `get_State` lit `+0x40`, ce qui ecarte la confusion) — et invoque
+   `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` sur **des LISTES de tuiles**.
+   ⚠ L'overload se fixe par les TYPES des arguments (liste de tuiles, puis ENTITE), **pas** par un
+   indice de slot : les indices cites ailleurs dans le port pour cette methode ont bouge de +1 a ce
+   build (residu `#433-r3-r3`) et auraient designe une autre surcharge. De toute facon les TROIS
+   convergent vers `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent` et ne different que par
+   les `GetTiles` interposes : pour des entites d'UNE tuile le port est insensible a la question.
+3. **`GetAdjacencyUtility(movingUnit, owner)` est le SEUL point de variation**, et les dix corps lus
+   un par un ne lisent QUE `movingUnit`. Aucun ne lit `owner`, ni l'etat, ni une stat. C'est ce qui
+   rend ces termes **greffables** (regle « npc GREFFABLE » du `CLAUDE.md`) — et c'est ce qui a rendu
+   la confrontation possible du tout.
+
+## 10. `PrimarchOfTheFirstLegion` — le `.ctor` designe la MAUVAISE ability
+
+`IdunBattle.AI.Playbook.Loki.PrimarchOfTheFirstLegionNonOwnerPlaybook$$.ctor` passe `0x5b6` =
+**1462** = `NetherRealmCasket` a sa base, alors que l'enum la numerote **1511**. Ce n'est pas une
+mauvaise lecture : les octets sont `ba b6 05 00 00` dans les DEUX `.ctor`, et les deux passent aussi
+le MEME `MethodInfo*` de base inflate — la classe derive donc litteralement
+d'`AdjacentToOwnerNonOwnerPlaybook<NetherRealmCasketAbility>`, ce qui explique que `classes.tsv`
+n'ait AUCUNE instanciation `AdjacentToOwnerNonOwnerPlaybook<PrimarchOfTheFirstLegion…>`.
+
+**Ce n'est pas le `.ctor` qui indexe le registre.** `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner`
+fait `TryGetValue(<factories @+0x98>, abilityType)` ; la cle est posee au SITE D'ENREGISTREMENT
+(`IdunBattle.AI.PlaybookDatabase$$InitializePlaybookBuilders`). Tranche **deux fois, independamment** :
+
+* **offline** — `probe_433_r4_r3_r1_non_owner_registry.py` balaie les `mov edx, imm32` du corps
+  d'enregistrement (0xfcb0 octets) : les dix ids d'enum y figurent, **1511 present**, **1462 une
+  seule fois** (donc aucune des deux entrees n'ecrase l'autre) ;
+* **en vivant** — §11 etape B : on greffe l'ability **1511** et le natif SUIT le terme. S'il n'avait
+  pas d'entree sous 1511, `LoadPlaybookNonOwner` rendrait null et il ne la suivrait pas.
+
+Suivre le `.ctor` aurait, au choix, **tue l'entree 1462** de `NetherRealmCasket` (dont les porteurs
+`necroDestroyer`/`necroSpyder` sont au pool par la voie relique) en lui substituant un gate de
+FACTION la ou le natif teste un TRAIT, ou pose une entree morte sous 1511. Aucune erreur, aucun
+crash : les deux sont des regressions silencieuses.
+
+## 11. Confront LIVE — deux CHANGEMENTS DE TUILE
+
+**Montage : la GREFFE.** Aucun des dix porteurs n'arrive en bataille par la voie ordinaire. Le seul
+hero du pool qui porte un de ces passifs nativement, `necroOverlord` (`MyWillBeDoneOverlord`), a une
+entree `BC.Units` **PERIMEE** (`catalog_inject.STALE_UNIT_ENTRIES`, #254-bc/#392-r1) : tout runner
+bati sur ce seed le deploie avec le kit de `gqfc5mff6c`, donc SANS l'ability — le terme y serait
+inerte des DEUX cotes. On greffe donc (`catalog_inject.graft_passive_ability`, `replace=True`) sur
+`astraBullgryn`, unite DU POOL. La greffe est legitime ici parce que les dix
+`GetAdjacencyUtility` ne lisent rien du caster (§9.3), condition explicitement exigee par le
+`CLAUDE.md` avant toute greffe.
+
+| etape | ability | poids | mover | argmax SANS | argmax AVEC | NATIF |
+|---|---|---|---|---|---|---|
+| A | `WatchedOver` 1524 (aucun gate) | 20 | `darkaAzrael` | (0, 4) | **(1, 4)** | **(1, 4)** |
+| B | `PrimarchOfTheFirstLegion` 1511 (gate DarkAngels) | 20 | `darkaAzrael` | (0, 4) | **(1, 4)** | **(1, 4)** |
+
+Board `MC1_67`, seed 777. Le couple n'est retenu que si l'ecart sans terme est INFERIEUR au poids —
+sinon le terme ne pourrait rien renverser. La proposition native est verifiee **MOVE PUR** (aucun
+`ActiveAbilityMessage`), sans quoi la tuile viendrait du sweep d'ATTAQUE, hors du modele
+`UnitMovement(6)`. Le kit du greffon porte l'id sur les DEUX substrats (`triggered` cote port,
+`unitAbilityStates` cote natif).
+
+**Le GATE, mesure et non deduit** (etape B, greffon a la MEME position) : sur `necroWarden`
+(faction 7), le terme vaut **exactement 0 sur ses 12 tuiles candidates** — `max_delta = 0.0`.
+
+## 12. `RedemptionOfTheRisen` (1522) — PORTEE, mais DEAD CODE nomme
+
+La 10e classe est portee et son corps est exact (identique a celui de `PrimarchOfTheFirstLegion`,
+cle et poids compris), mais elle est **volontairement HORS du registre** : l'ability n'est attribuee
+a AUCUNE unite sur `rnca9r7q6c`. Deux sources independantes :
+
+* `unit_map.py find --ability RedemptionOfTheRisen` -> 0 unite sur les 5 voies derivables ;
+* balayage TEXTUEL du gameconfig entier : ses **4** occurrences sont sa definition
+  (`variables.hp`), son `baseMultiplier` et ses DEUX cles d'utilite. Aucune liste de passifs d'unite
+  ne la cite.
+
+C'est le cliquet **#419** qui l'a trouve, et il avait raison : l'enregistrer aurait ajoute du code
+que le dispatcher n'itere jamais. **La banque a rougi sur mon propre port avant que je ne le livre**
+— la classe reste, l'entree de registre part, et la reactiver tient en UNE ligne au build ou une
+unite portera 1522.
+
+## 13. Validation
+
+* **38 tests** (`tests/engine/test_433_r4_r3_r1_adjacent_to_owner_live.py`) : 34 offline (dont 26
+  cas parametres de gate) + 4 live.
+* **5 mutations, 5 rouges**, arbre restaure BIT-EXACT a chaque fois (verifie par comparaison
+  binaire, pas par relecture) : `Primarch` indexee sur le litteral du `.ctor` -> **6** rouges ;
+  `IsMechanical` rabattu sur `HasTrait(Mechanical)` nu -> 2 ; gate d'adjacence retire du corps
+  partage -> 1 ; `PropheticSentinel` rendu exclusif au lieu de cumulatif -> 1 ; porteur sans
+  position accepte -> 1. **6e contre-epreuve, involontaire et la meilleure** : re-enregistrer 1522
+  fait rougir `probe_457:s2` de la banque (§12).
+* **Banque de cliquets VERTE** — 35/35, mur 389,9 s (apres avoir ete ROUGE 1/35 sur mon port).
+* **Gardes re-jouees vertes** (foyer partage `non_owner.py` + feuille 4) :
+  `test_kustom_force_field_reworked_live.py` (9), `test_433_r4_r3_non_owner_playbooks_live.py` (12),
+  `test_419_playbook_wiring_ratchet_offline.py` (3), `test_443r1a_triggered_move_anchor_offline.py`
+  (26), `test_tile_term_triggered_playbooks_live.py` (12),
+  `test_tile_term_unit_gated_playbooks_live.py` (30), `test_playbook_live.py` (3).
+* **Rebase sur `a060d971`** (qui active la porte d'elevation du substrat DSL, #535) puis RE-JEU
+  integral : aucun ecart.
+
+### Ce qui n'est PAS couvert
+
+* **8 des 10 termes ne sont pas confrontes INDIVIDUELLEMENT en live.** Le corps partage l'est (A) et
+  la face variable l'est (B, gate + non-gate) ; les huit autres `GetAdjacencyUtility` sont gardes
+  offline, corps par corps, par les 26 cas parametres.
+* **Les entites MULTI-TUILES.** Le natif compare ici deux LISTES de tuiles ; le port compare deux
+  positions. Pour une Machine of War le natif est PLUS permissif. Aucun des 10 porteurs connus n'est
+  multi-tuiles, mais le mover, lui, pourrait l'etre.
+* **Le regime SPAWN** de la feuille 4 reste muet (le `ctx` de spawn ne porte aucune cle de sujet) —
+  residu preexistant, inchange.
+* **`PrimarchOfTheFirstLegion` n'a qu'un porteur npc** (`darkaBossLion`) : le confront passe par la
+  greffe, qui est fidele ici (§9.3) mais ne prouve rien sur les stats/traits du vrai porteur.
