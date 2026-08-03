@@ -137,13 +137,25 @@ garde `try` se lisent du même parcours ; la collecte des walrus s'élague aux `
 
 ## 6. Validation
 
+Tout ce qui suit est **re-joué APRÈS rebase** sur `origin/master` (28 commits d'écart, conflit
+`backlog.md` résolu à la main).
+
 | | avant | après |
 |---|---|---|
-| `tests/engine/test_fabricator_claw_cap_live.py` | **0 passed / 10 errors** | **10 passed** (19,1 s) |
-| `probe_462r5_dead_imports.py` | rc=1, 5 sites | rc=0 |
+| `tests/engine/test_fabricator_claw_cap_live.py` | **0 passed / 10 errors** | **10 passed** |
+| `tests/engine/test_spiritual_leader_tile_term_live.py` | — | 10 passed |
+| `tests/engine/test_steppable_decoy_tile_leaves_live.py` | — | 14 passed |
+| `tests/engine/test_tile_term_unit_gated_playbooks_live.py` | — | 30 passed |
+| `probe_462r5_dead_imports.py` | rc=1, **5 sites** | rc=0 |
 | `probe_462r5 --self-test` | — | 21/21 |
-| `probe_439` (banque augmentée) | — | PASS, `probe_462r5` = capable |
+| `probe_439` (banque augmentée) | — | PASS, `probe_462r5` = capable de rougir |
 | `probe_440` | — | PASS (0/0/0) |
+| **banque complète** `ratchets.ps1 -Since origin/master` | — | **VERTE, 37 cliquets, mur 275,9 s** |
+| `probe_462 --run --since origin/master` | — | 0 fichier live touché, rien à attester |
+
+Les **quatre** fichiers de test ci-dessus sont **tous** les consommateurs des probes modifiés
+(dérivé par grep sur `scripts/python/tests/**`) — **64 tests, 0 échec**. Ce n'est pas un
+échantillon : c'est la clôture.
 
 Les quatre probes `BUILD_HASH` **s'exécutent** : elles franchissent la garde `build_pin`, montent
 leur runner et jouent leur boucle de mesure (`probe_211` passe aussi son étape 0 hors ligne —

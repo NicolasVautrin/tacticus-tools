@@ -43,9 +43,11 @@ CE QU'IL NE PRETEND PAS FAIRE, et pourquoi c'est deliberement etroit
     rien dans l'arbre ne permet de trancher. Seul `from X import Y` porte de l'information,
     parce qu'il faut deja que `X` soit a nous pour qu'on lise `Y`.
   * Un module OPAQUE est ECARTE, et le DIT (`--verbose`) : `import *` d'une cible hors index,
-    `globals()[...] = ...`, `__getattr__` de module (PEP 562). Trois sites de `globals()[` dans
-    l'arbre -- les ecarter est ce qui garde le zero faux positif ; les compter fabriquerait des
-    rouges sur des modules dont les liaisons ne se lisent PAS a l'AST.
+    `globals()[...] = ...`, `__getattr__` de module (PEP 562). Les ecarter est ce qui garde le
+    zero faux positif ; les compter fabriquerait des rouges sur des modules dont les liaisons ne
+    se lisent PAS a l'AST. Le cout est minuscule et se MESURE : trois fichiers portent
+    `globals()[` mais UN SEUL est la cible d'un `from ... import` (`engine_agreement_stages`),
+    donc UN SEUL module est reellement soustrait au verdict.
   * Un `from X import Y` dont le `try` englobant attrape `ImportError` est EXEMPTE : l'auteur a
     DECLARE que l'import peut echouer. C'est une dependance optionnelle, pas un import mort.
 
@@ -283,8 +285,8 @@ def resoudre_relatif(mod: "str | None", level: int, paquet: str) -> "str | None"
 class Index:
     """Les modules de premiere partie, avec leurs liaisons calculees A LA DEMANDE.
 
-    PARESSEUX par mesure : sur l'arbre reel, 1 640 modules sont a l'index mais quelques
-    centaines seulement sont la CIBLE d'un `from ... import`. Calculer les liaisons de tous
+    PARESSEUX par mesure : sur l'arbre reel, ~1 635 modules sont a l'index mais une petite
+    fraction seulement est la CIBLE d'un `from ... import`. Calculer les liaisons de TOUS
     coutait 19 s pour un verdict identique.
     """
 
