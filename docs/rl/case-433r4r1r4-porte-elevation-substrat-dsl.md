@@ -3,7 +3,8 @@
 **FERMÉ.** `DslContext.elev_by_pos` se **dérive** désormais du `board` quand il n'est pas fourni
 (`DslContext.__post_init__`), via le foyer unique `entities/pathfinding/board.py::elevations_by_pos`.
 **17 tests offline** dont le rejeu du montage sur un board RÉEL (`MC1_67`), **4 mutations → 4 rouges**,
-arbre restauré bit-exact. **NON CONFRONTÉ LIVE** : plateforme éteinte (§6).
+arbre restauré bit-exact, et **CONFRONTÉ LIVE par deux oracles indépendants** (§6) — dont le couple
+divergence → convergence sur une cascade de dégât.
 
 ## 1. Le décompilé, relu — la porte et sa source
 
@@ -133,7 +134,8 @@ le pool `UnitsDirectlyBehind` passe de `{10, 11}` à `{11}`.
 (35 cliquets).
 
 **Non-régression des tests LIVE consommateurs, établie par LECTURE de leur montage** — aucun n'a
-été modifié :
+été modifié (et la confrontation §6 B les corrobore : sur un montage à `|dElev| <= 1`, comme le
+leur, le port rend le même ensemble avant et après) :
 
 * `test_plasma_cannon_live.py` et `test_plasma_cannon_lateral_live.py` **contraignent déjà** leur
   géométrie à `|elev(behind) − elev(target)| <= 1` (et `|elev(target) − elev(caster)| <= 1`) au moment
@@ -143,22 +145,53 @@ le pool `UnitsDirectlyBehind` passe de `{10, 11}` à `{11}`.
   passe, `géométrique == gaté`, donc le port d'après vaut le port d'avant. S'il venait à rougir, la
   cause serait le montage (oracle élévation-aveugle), pas le fix.
 
-## 6. NON CONFRONTÉ LIVE — refus MESURÉ
+## 6. CONFRONTATION LIVE — deux oracles indépendants
 
-La confrontation live est **impossible en l'état de la plateforme, pas du montage** : aucun processus
-`Tacticus`, aucun host Node, `127.0.0.1:3000` refusé (seul `13337`/ghidra-mcp écoute). Lancer le jeu
-est un geste utilisateur, injecter est interdit à un agent.
+`tests/engine/runner/test_433r4r1r4_elevation_gate_live.py`, **1 passed**, board `MC1_67`, runner
+isolé disposé au `finally`. Le quadruplet est **dérivé du `boardGraph`**, pas hardcodé.
 
-**Le montage exact est prêt** (`--step montage` le dérive des entrées versionnées) :
+### (A) La porte elle-même, lue sur la liste d'adjacence NATIVE — le sens PERMISSIF
 
-* carrier `darkaTerminator` (**présent au seed BC**, 168 unités), ability `PlasmaCannon` 1150,
-  `range = 3`, splash `PickRandomly(UnitsDirectlyBehind(caster, target), 2)` ;
-* board `MC1_67` — `rl_duel build --board MC1_67 --p-units darkaTerminator --a-units <3 ennemis>` ;
-* positions à driver (`applyAction move`, qui ignore portée et propriété) :
-  `caster (0,0)`, `target (1,2)`, `behindHIGH (1,3)`, `behindFLAT (2,2)` ;
-* oracle **à 1 bit** : le splash doit frapper `behindFLAT` **seul**. Le port d'avant frappait les deux.
+Le `boardGraph` est capté par `BattleQuery$$GetAdjacentTiles` → `TileQuery$$IterateAdjacentTiles` :
+la liste rendue a **déjà traversé la porte**. Mesuré live sur `MC1_67` (63 tuiles) :
 
-**684 boards versionnés sur 779** admettent ce quadruplet, donc le montage n'est pas un cas de bord.
+| arêtes de la couronne hex | compte |
+|---|---|
+| présentes dans la liste native | **298** |
+| **absentes** de la liste native | **18** — dont `\|dElev\| >= 2` : **18**, autres : **0** |
+| présentes dans la liste native hors couronne | **0** |
+
+Le natif exclut donc **exactement** les arêtes que la porte prédit, et rien d'autre — le chiffre
+`18 / 316` est identique à la mesure offline. C'est le **sens permissif** confronté : ces voisins-là
+ne sont pas itérés, donc `GetAdjacentUnits(tile, null, enemyOf, false).Count` ne les compte pas, et
+le PREMIER bras de `FilterTilesIfCanAttackTargetTileFrom` garde la tuile. (Le bras applicatif
+lui-même reste hors d'atteinte — §7, `#433-r4-r1-r4-r4`.) Sur ce board, `0` arête stockée hors
+couronne : le quirk de connectivité du résidu `-r2` n'y mord pas.
+
+### (B) Le sens RESTRICTIF, sur une cascade de dégât — oracle à 1 bit
+
+`darkaTerminator` (deep-strike, on le fait atterrir), `PlasmaCannon` 1150, splash
+`PickRandomly(UnitsDirectlyBehind(caster, target), 2)`. Positions **drivées** :
+
+| rôle | tuile | élévation | `\|dElev\|` vs cible |
+|---|---|---|---|
+| caster `u85` | `(1,0)` | 3 | — |
+| cible `u77` | `(1,2)` | 2 | — |
+| derrière HAUT `u79` | `(1,3)` | **4** | **2** ⇒ hors tolérance |
+| derrière PLAT `u81` | `(2,2)` | 2 | 0 ⇒ dans la tolérance |
+
+Trois lectures du **même** état :
+
+| lecture | `UnitsDirectlyBehind` / cibles frappées | verdict |
+|---|---|---|
+| **LIVE (natif)** | frappe `{u77, u81}`, 3 coups chacun — `u79` **jamais touché** | référence |
+| **port AVEC le canal** (livré) | `[u81]` | **ACCORD** |
+| **port canal NEUTRALISÉ** (`elev_by_pos = {}`, l'état d'avant) | `[u79, u81]` | **DÉSACCORD** |
+
+C'est le couple exigé : **divergent avant, convergent après**, sur le même montage. La troisième
+lecture est dans le test — sans elle, l'accord live/port ne prouverait pas que la porte mord.
+
+**684 boards versionnés sur 779** admettent ce quadruplet : ce n'est pas un cas de bord.
 
 ## 7. Résidus NOMMÉS
 
@@ -177,3 +210,11 @@ est un geste utilisateur, injecter est interdit à un agent.
 * **`#433-r4-r1-r4-r3` — la face DÉCISION n'a pas été re-mesurée.** `AiDecisionContext.elev_by_pos`
   est peuplé depuis `tileMeta` et les playbooks passent déjà `ctx.elev_by_pos` ; le balayage n'a
   trouvé aucun lecteur DSL inerte de ce côté. Aucune anomalie constatée, aucun test décision rejoué.
+* **`#433-r4-r1-r4-r4` — le BRAS APPLICATIF permissif reste NON CONFRONTÉ, pour raison
+  STRUCTURELLE.** La porte, elle, l'est (§6 A). Ce qui ne l'est pas, c'est le premier bras de
+  `FilterTilesIfCanAttackTargetTileFrom` **en tant que branche exécutée**, et ses deux seuls
+  consommateurs l'interdisent : le repli de `MV71SniperDroneSquadAttackAbility$$PickTile` n'est
+  atteint que si **aucune** des ~60 tuiles libres à distance 1..4 de la cible ne passe `IsFreeTile`
+  (hors d'atteinte d'un roster), et `WallOfMirrorsAbility$$GetPossibleTiles` (1186) n'est pas portée
+  — porteurs npc + summon sans summoner, donc greffe requise. L'oracle (A) couvre la **primitive**
+  dont ce bras dépend, pas la branche.
