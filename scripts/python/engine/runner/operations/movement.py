@@ -41,6 +41,18 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     face DECISION (`prediction/_shared.py::_walk_path_counts_from`) et avec la face MOUVEMENT du
     meme passif (#304). `Count` = NOEUDS, extremites incluses -> `- 1`.
 
+    ⚠ RESIDU `#448-r1-r1-r1-r1`, OUVERT et MESURE : ce port prend le **WalkPathfinder
+    INCONDITIONNELLEMENT**, alors que `GetConnectedPathTo` resout
+    `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit(unit)` =
+    `IsLikeFlying(unit) ? 3 : 0` -- donc le **FlyPathfinder** pour un volant. Pour une unite
+    volante, `record_tiles_moved` enregistre ainsi des pas de MARCHE. Mesure sur MC1_67 :
+    `(1,1) -> (1,3)` vaut 3 pas de marche et 2 de vol. Consommateurs impactes : tout lecteur de
+    `TilesMovedThisTurn` / `TilesMovedLastTurn`. Hors du perimetre de #448-r1-r1-r1 (qui ne porte
+    que `_movement_steps`, lequel n'appelle PAS cette fonction sur la branche volante) : le fermer
+    demande un compteur de noeuds FLY et le `maxRange = GetStat(unit, Movement)` que
+    `GetConnectedPathTo` passe -- et il deplace `TilesMovedThisTurn`, donc sa propre validation.
+    Detail : `docs/rl/case-448-r1-r1-r1-flying-movement-steps.md` §6.
+
     RESIDUS, tous nommes (identiques a ceux de la face DECISION) :
       * `MovementQuery$$GetConnectedPathTo` DENSIFIE le chemin du pathfinder (re-insertion des
         tuiles intermediaires entre deux noeuds distants de plus de 1 -- teleporteurs/sauts). Sur
@@ -95,7 +107,7 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos) -> int:
 
     LE NATIF, lu au site d'appel de fin de mouvement :
 
-        movementSteps = IsLikeFlying ? <IBattleQuery slot 0x6c>(path.First(), path.Last())
+        movementSteps = IsLikeFlying ? <IBattleQuery slot itf 0x6c>(path.First(), path.Last())
                                      : path.Count
 
     ⚠ **`path.Count`, PAS le nombre de pas** -- et l'ecart d'UN est structurel, pas une coquille :
@@ -106,13 +118,38 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos) -> int:
     parcourus**, pas des 3. C'est exactement le genre de constante qu'on ne DEDUIT pas du nom :
     confronte live (cf. `docs/rl/case-448-r1-r1-full-throttle-gate.md`).
 
-    Les DEUX branches sont asymetriques cote natif -- la branche volante rend une DISTANCE, qui n'a
-    pas ce `+1`. Le port les mirrore telles quelles.
+    LA BRANCHE VOLANTE (#448-r1-r1-r1) rend une **DISTANCE**, qui n'a pas ce `+1` et qui **ne
+    depend pas du chemin**. Le slot d'interface `0x6c` est RE-DERIVE AU RUNTIME
+    (`probe_27_4g_battlequery_slots.py` : index de vtable `0x70`, ancres `+4` confirmees) et
+    resout la chaine :
+
+        `IdunBattle.Core.Services.BattleQuery$$GetDistance(tileA, tileB)`
+          -> `IdunBattle.Core.Services.MovementQuery$$GetDistance(origin, destination)`
+          -> min sur GetTiles(origin) x GetTiles(destination) de
+             `IdunBattle.Utils.Hex.CubeCoordinate$$Distance` = max(|dx|, |dy|, |dz|)
+
+    -- soit exactement `hexgeo.distance`. Corroboration STRUCTURELLE independante :
+    `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` appelle **le meme slot** avec
+    `(startTile, endTile)` et compare son retour au stat `Movement` (`GetStat(unit, 1)`), ce qui
+    n'a de sens que pour une distance en hexes.
+
+    ⚠ L'ECART ENTRE LES DEUX BRANCHES N'EST PAS CONSTANT : il vaut `pas_de_marche + 1 - distance`,
+    donc `1` seulement quand le chemin de marche est DIRECT. Mesure sur MC1_67 : une destination a
+    `d = 2` peut couter 3 pas de marche (relief) -> volant 2, marcheur 4.
+
+    CONFRONTE LIVE (greffe de `FullThrottle` sur 5 volants du pool ; detail et contre-epreuves
+    dans `docs/rl/case-448-r1-r1-r1-flying-movement-steps.md`) : a `d = 2` le natif ne tue
+    **jamais** un volant (0 / 20) la ou il tue un marcheur a la MEME distance (3 / 8), et il tue
+    le volant a `d = 3` (4 / 13). Le discriminant fin -- 14 mouvements a `d = 2` dont le chemin de
+    VOL fait 3 ou 4 pas (murs de C6_25), 0 mort -- exclut la lecture `path.Count - 1`, qui
+    coincide avec la distance sur tout vol direct.
 
     `IdunBattle.Operations.MoveUnitOperation$$IsLikeFlying(unit, options)` =
-    `IdunBattle.Entities.UnitExtensions$$IsLikeFlying(unit) || options.<+0x8> == 3`. Seul le premier
-    bras est porte : le second est un OVERRIDE de type de mouvement porte par la struct `options`
-    d'`Execute`, qu'AUCUN call-site du port ne pose (le port n'a pas d'`options`). RESIDU NOMME.
+    `IdunBattle.Entities.UnitExtensions$$IsLikeFlying(unit) || options.<+0x8> == 3`, et le premier
+    bras est `HasTrait(0x4 = Flying) || HasTrait(0x13 = Burrow)`. Seul ce premier bras est porte :
+    `options+0x8` est le `Nullable<PathfinderType>` d'override que `CalculatePaths` relit pour
+    choisir son pathfinder (il force lui-meme la valeur `3` quand `previousPosition.IsEmpty()`), et
+    qu'AUCUN call-site du port ne pose (le port n'a pas d'`options`). RESIDU NOMME.
 
     RESIDU, herite de `_num_tiles_moved` : le natif tire `movementSteps` de `path` (8e out-param de
     `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths`) tandis que

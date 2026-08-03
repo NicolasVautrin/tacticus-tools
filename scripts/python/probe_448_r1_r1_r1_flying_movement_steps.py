@@ -503,6 +503,67 @@ def scan(board_ids: list, seed: int, foes: list, grafts=None, want: int = 2) -> 
     return out
 
 
+def volet_port(board_id: str, seed: int, grafts: list, foes: list, modes: list,
+               trials: int) -> dict:
+    """VOLET PORT -- la CHAINE COMPLETE cote python (`MovementHandler.visit_MoveUnitMessage`,
+    le chemin du runner), sur l'etat de depart d'une VRAIE bataille.
+
+    C'est LUI que `--mutate-fly` fait diverger : les bras natifs ne dependent pas du port,
+    donc une contre-epreuve qui ne s'appliquerait qu'a eux ne prouverait rien. Ici le mutant
+    NIE l'asymetrie et le bras `fly/2` doit passer de 0 % a ~30 % -- soit exactement le
+    desaccord avec le natif mesure a 0 / 20."""
+    import copy
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.events import EventBus
+    from engine.runner.operations.movement import MovementHandler
+    from engine.runner.components import UnitComponent
+    from engine.runner.prng import IntBasedMersenneTwister
+
+    rid, _sf, grafts = _build(board_id, seed, "port_%s_%d" % (board_id, seed), grafts, foes)
+    sid, rpc = _rpc_factory()
+    print("== VOLET PORT  board=%s seed=%d  runner=%s (%d graines/porteur)"
+          % (board_id, seed, rid, trials))
+    out = {}
+    try:
+        bg = rpc(sid, "boardGraph", {"runnerId": rid}, 90)
+        brd = Board(bg["tiles"], adjacency="native_sym")
+        base, dv, _ob = _port_state(sid, rpc, rid, brd)
+        carriers = sorted(_carriers(dv, grafts))
+        for mode, want in modes:
+            morts, essais, skipped = 0, 0, 0
+            for uid in carriers:
+                legal = _legal_moves(sid, rpc, rid, uid)
+                got = _pick(base, brd, uid, legal, mode, want)
+                if got is None:
+                    skipped += 1
+                    continue
+                dest, _info = got
+                for t in range(trials):
+                    st = copy.deepcopy(base)
+                    st.rng = IntBasedMersenneTwister(seed=1000 * want + 7 * t + uid)
+                    h = MovementHandler(st, EventBus())
+
+                    class _Msg:                      # le message que le runner poste
+                        unit_id = uid
+                        to = dest
+                    h.visit_MoveUnitMessage(_Msg())
+                    e = st.get_entity(int(uid))
+                    uc = e.get_component(UnitComponent) if e is not None else None
+                    essais += 1
+                    morts += 0 if (uc is None or uc.alive) else 1
+            pct = (100.0 * morts / essais) if essais else 0.0
+            out["%s/%d" % (mode, want)] = {"morts": morts, "essais": essais, "pct": pct,
+                                           "skipped": skipped}
+            print("     %-6s d=%d : %d mort(s) / %d essai(s) = %.1f %%  (%d porteur(s) sans "
+                  "trajet)" % (mode, want, morts, essais, pct, skipped))
+    finally:
+        try:
+            rpc(sid, "disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--scan", default="",
@@ -520,7 +581,11 @@ def main() -> int:
     ap.add_argument("--only", default="", help="sous-ensemble des bras (M2,V2,V3,VD)")
     ap.add_argument("--mutate-fly", action="store_true",
                     help="CONTRE-EPREUVE : la branche volante rend `path.Count` comme la "
-                         "marcheuse (asymetrie NIEE). Le bras V2 doit alors DIVERGER du natif.")
+                         "marcheuse (asymetrie NIEE). Avec --port, `fly/2` doit passer de "
+                         "0 %% a ~30 %% -- c'est-a-dire DIVERGER du natif mesure a 0 / 20.")
+    ap.add_argument("--port", action="store_true",
+                    help="VOLET PORT : joue les mouvements cote python (chaine complete)")
+    ap.add_argument("--trials", type=int, default=40)
     ap.add_argument("--json", default="")
     a = ap.parse_args()
 
@@ -547,6 +612,11 @@ def main() -> int:
     if a.scan:
         print("== SCAN de boards (trajets DETOURNES a d=2)")
         res = scan([s.strip() for s in a.scan.split(",") if s.strip()], a.seed, foes, grafts=fly)
+        if a.json:
+            pathlib.Path(a.json).write_text(json.dumps(res, indent=1), encoding="utf-8")
+        return 1 if bad else 0
+    if a.port:
+        res = volet_port(a.board, a.seed, fly, foes, [("fly", 2), ("fly", 3)], a.trials)
         if a.json:
             pathlib.Path(a.json).write_text(json.dumps(res, indent=1), encoding="utf-8")
         return 1 if bad else 0
