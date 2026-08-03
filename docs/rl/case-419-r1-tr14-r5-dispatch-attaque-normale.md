@@ -381,6 +381,20 @@ pas). C'est le premier bras qui porte la preuve, et la contre-épreuve « table 
 sur la prédiction de dégât (le fold `Boltstorm_NormalAttackAbility$$GetAdditionalDamagePrediction`
 s'ajoute à tort).
 
+**Chiffres, bras `[HeavyBoltPistol, Boltstorm]`** (board `C2_02`, `templAggressor` → `astraBullgryn`,
+tuile `(0,2)` à distance, ability native `1046`) :
+
+| | bornes de dégât |
+|---|---|
+| natif | `1299..1950` |
+| port, table à 14 | **`1299..1950`** — exact |
+| port, table à 4 (avant `-r1`) | **`2628..3942`** — **+102 % / +102 %** |
+
+`2628..3942` est exactement la valeur `kit` de la généralisation de #551 (6 coups au lieu de 3) : la
+table partielle faisait folder le porteur comme si `Boltstorm` avait gagné la boucle. L'écart de
+`-r1` n'est donc **pas** un raffinement de couverture — c'est un **facteur 2 sur les deux bornes**,
+dans un régime qu'un montage de confrontation atteint.
+
 ## 11. `-r4` — `Erratic` et `Harmless`
 
 ### 11.1 Ce que le décompilé dit, verbatim
@@ -437,7 +451,26 @@ diffère que par ce trait, avec un **témoin sans trait dans chaque bras** :
 | `ctrl` | `69` | `69` | `69` |
 | `trait` | **aucune** | **aucune** | `69` |
 
-et côté port, `state_bridge.build_from_state(...).normal_ids` : `[]` sous le trait, non vide sans.
+et côté port, `state_bridge.build_from_state(...).normal_ids` :
+
+| bras | garde armée | garde COUPÉE (= avant `-r4`) |
+|---|---|---|
+| `ctrl` (`necroWarden`, `orksNob`) | `[17]` | `[17]` — **inerte**, la réciproque |
+| `trait` (`necroWarden`, `orksNob`) | **`[]`** | **`[17]`** — **MORD** |
+
+La contre-épreuve est ce qui interdit de lire le `[]` comme un artefact (unité sans arme, montage
+mort) : couper la garde le fait **redevenir** `[17]`, et seulement sur le bras qui porte le trait.
+
+## 11.4 Où la garde est posée — et où elle ne l'est PAS
+
+Sur les **trois** sorties de `build_from_state` (`abilities`, `ab_name_by_id`, `normal_ids`) **et**
+sur `_attack_abilities`, qui alimente les `plans`. Ne garder que `normal_ids` aurait produit un
+`normal_ids` vide avec des `evals` d'attaque normale dans le plan — un état **incohérent**, pire
+qu'un port permissif : `_best_attack` itère les `evals` et prend `NORMAL_ATTACK_PLAYBOOK` pour
+`ab in ctx.normal_ids`, sinon `get_playbook_or_default(ab)`. Une attaque normale restée dans les
+plans mais absente de `normal_ids` serait donc scorée par le playbook **par défaut**.
+
+Rien n'est posé côté LIVE ni côté COMBAT — par lecture, pas par omission : cf. §11.2 et §12.
 
 ## 12. Ce qui n'est PAS couvert
 
@@ -458,3 +491,47 @@ et côté port, `state_bridge.build_from_state(...).normal_ids` : `[]` sous le t
   entrées le sont par greffe (§10.3, chemin B), ce qui teste la fabrique, pas la chaîne de spawn.
 * **Aucun chiffre de coût** n'a été pris pour le RPC supplémentaire — la gate `-r4` n'en ajoute
   aucun (elle lit un `UnitContext` déjà chargé).
+
+## 13. Ce que les gardes éprouvent — et qu'elles ROUGISSENT
+
+`tests/engine/test_419r1tr14r5_r1r4_normal_attack_table_live.py`, **9 crans** : la taille de la
+table (cran OFFLINE), les 14 entrées contre le natif, les 3 témoins, les deux ordres de la même
+paire, la conformité de la prédiction sur le bras discriminant, la contre-épreuve « table d'avant »,
+la garde des traits côté natif, côté port, et sa contre-épreuve avec réciproque.
+
+**Éprouvées par MUTATION DU CODE LIVRÉ**, motif vérifié avant écriture à chaque fois :
+
+| mutation | rouges |
+|---|---|
+| `CUSTOM_NORMAL_ATTACK_BY_PASSIVE` réduit à ses 4 entrées d'avant | **4 failed** / 5 passed |
+| `has_normal_attack` → `True` inconditionnel | **2 failed** / 7 passed |
+| restauration | **9 passed** |
+
+⚠ La première mutation rendait d'abord **5 ERROR de fixture** (`KeyError` sur la table réduite) au
+lieu d'un rouge assertionnel. Un rouge de fixture *est* un rouge, mais il ne dit pas **ce qui** a
+bougé — le probe lit désormais la table par `.get`, et une entrée retirée produit un `MISMATCH`
+nommé. C'est la différence entre « le test casse » et « le test accuse ».
+
+## 14. Tests rejoués (37 verts, 0 rouge)
+
+| fichier | verdict |
+|---|---|
+| `test_419r1tr14r5_r1r4_normal_attack_table_live.py` (neuf) | 9 passed |
+| `test_419r1tr14r5_normal_attack_dispatch_live.py` (le foyer touché) | 6 passed |
+| `runner/test_mv71_sniper_drone_live.py` | 5 passed |
+| `test_446_r1_boltstorm_followup_live.py` | 5 passed |
+| `runner/test_skitarii_turn_live.py` (le bridge OFFLINE, consommateur de `-r4`) | 16 passed (avec le suivant) |
+| `test_min_distance_move_leaf_live.py` | ↑ |
+| `runner/test_381r1_movable_tiles_pool_live.py` | 5 passed (avec le suivant) |
+| `runner/test_deep_strike_live.py` | ↑ |
+
+## 15. Livré (`-r1` / `-r4`)
+
+* `scripts/python/engine/services/custom_normal_attack.py` — la table à 14 entrées,
+  `NORMAL_ATTACK_SUPPRESSING_TRAITS` + `has_normal_attack`, et le `None == None` de
+  `substitutes_normal_attack` fermé.
+* `scripts/python/engine/ai/state_bridge.py` — la garde des traits sur les trois sorties et sur
+  `_attack_abilities`.
+* `scripts/python/probe_419r1tr14r5_r1r4_normal_attack_table.py` — trois volets (table / ordre /
+  traits), greffe écrite, deux contre-épreuves.
+* `scripts/python/tests/engine/test_419r1tr14r5_r1r4_normal_attack_table_live.py` — 9 gardes.
