@@ -67,23 +67,6 @@ def _hp(state, uid):
     return None if hc is None else hc.hp
 
 
-def dump_effects(state, uid, label):
-    """ETAGE 1 -- toutes les instances d'effet portees par `uid`, avec leurs deux conjoints
-    d'activite (`EffectComponent.IsActive @+0x5c` et `<Effect>$$CreateActiveCondition`)."""
-    from engine.runner.components import StatsComponent, unit_state_for_effects
-    us = unit_state_for_effects(state, int(uid))
-    ent = state.get_entity(int(uid))
-    sc = ent.get_component(StatsComponent) if ent is not None else None
-    print("  [1] %s traits=%s" % (label, sorted((sc.ctx.traits if sc is not None else []) or [])))
-    for e in (state.effects.by_unit.get(int(uid), []) if state.effects else []):
-        print("      eff %-6s %-34s cls=%-34s consumed=%s active=%s is_active=%s"
-              % (e.effect_type, e.name, type(e).__name__, e.consumed, e.active, e.is_active(us)))
-    act = {x.effect_type for x in state.effects.active_effects(int(uid), us)} if state.effects else set()
-    print("      -> 1147 dans active_effects: %s   (1375: %s)"
-          % (TERMINATOR_REDUCE in act, TERMINATOR_VISUAL in act))
-    return act
-
-
 def _mods_repr(m):
     """Vue ASCII des DEUX canaux de `DamageModifiers` (#462-r4a) : la LISTE `@0x18` et le
     `Multiplier@0x30`, plus les additifs/soustractions plates."""
@@ -194,20 +177,51 @@ def _live_hits(action, tgt):
     return hits
 
 
-def run(sid, victim_visual, layout):
+def _no_merge_variant(mods, def_mods) -> None:
+    """CONTRE-MODELE ECRIT = l'etat d'`origin/master` AVANT #462-r4b-r1 : tout le foyer SAUF le
+    transfert de l'additif defenseur. L'additif reste alors dans `def_mods` et `apply_all_modifiers`
+    l'ajoute APRES les %-list et les deux `Multiplier@0x30`. Ce n'est pas une caricature : c'est
+    exactement le corps precedent de `_apply_defender_flat_reductions`."""
+    if def_mods.flat_reductions:
+        mods.additive -= sum(def_mods.flat_reductions)
+    if def_mods.pct_list:
+        mods.pct_list_defender.extend(def_mods.pct_list)
+        def_mods.pct_list = []
+    if def_mods.multiplicative != 1.0:
+        mods.multiplicative_defender *= def_mods.multiplicative
+        def_mods.multiplicative = 1.0
+    if def_mods.extra_pierce:
+        mods.extra_pierce += def_mods.extra_pierce
+
+
+def measure(sid, victim_visual, layout, with_variant: bool = False) -> dict:
+    """MONTAGE NOMME : un runner, la chaine `ExemplarOfHate` jouee cote PORT sur l'etat CALE SUR LE
+    RNG DU RUNNER, puis le MEME cast cote NATIF. Rend le ledger PAR COUP des deux cotes.
+
+    `with_variant=True` rejoue AUSSI la chaine sur un SECOND etat charge a l'identique, avec le
+    contre-modele `_no_merge_variant` en place -- c'est ce qui rend la mesure auto-discriminante :
+    sans lui, un port qui n'exercerait plus du tout l'axe passerait pour juste."""
     from engine.runner.abilities.darkangels import ExemplarOfHateAbility
+    from engine.runner.components import unit_state_for_effects
+    from engine.runner.operations.damage import AttackDamageOperation
     rid = N5._build(sid, N5.P_UNITS, N5.A_UNITS, anchor=layout[victim_visual],
                     occupied=layout.values())
     try:
         board, dv, ob, cs = _snapshot(sid, rid)
         bv = PR.units_by_visual(dv)
+        if "darkaAsmodai" not in bv or victim_visual not in bv:
+            return {"skip": "roster incomplet: %s" % sorted(bv)}
         caster, tgt = bv["darkaAsmodai"]["id"], bv[victim_visual]["id"]
-        print("[%s] cible u%s (caster u%s)" % (victim_visual, tgt, caster))
-        print("  LIVE decisionView effets PRE :", PR.eff_names(dv, tgt))
+        import hexgeo
+        pos = PR.positions(dv)
+        if hexgeo.distance(pos[caster], pos[tgt]) > 1:
+            return {"skip": "caster non adjacent -> l'attaquant elu n'est pas garanti"}
+        if tgt not in PR.legal_from_here(sid, rid, caster, EXEMPLAR):
+            return {"skip": "cible %s non legale depuis la position courante" % victim_visual}
 
         st = _seeded_state(sid, rid, board, dv, ob, cs)
-        dump_effects(st, tgt, "cible")
-
+        us = unit_state_for_effects(st, tgt)
+        pre_active = sorted(e.effect_type for e in st.effects.active_effects(tgt, us))
         calls, restore = instrument_defender_modifiers()
         rows, restore_b = instrument_bounds()
         try:
@@ -217,34 +231,224 @@ def run(sid, victim_visual, layout):
         finally:
             restore_b()
             restore()
-        for row in rows:
-            print("  [2bis] %s" % json.dumps(row, default=str))
-        for c in calls:
-            print("  [2] defender_modifiers u%s melee=%s profil=%s att=%s normal=%s"
-                  % (c["unit"], c["is_melee"], c["profile"], c["attacker"], c["is_normal_attack"]))
-            print("      active=%s" % (c["active"],))
-            print("      mods=%s" % (c["mods"],))
-        atk = (port or {}).get("attack") or {}
-        print("  [3] PORT hp %s -> %s  (inflige %s)" % (php0, php1, (php0 or 0) - (php1 or 0)))
-        print("      PORT attack total=%s per_hit=%s profil=%s hits=%s"
-              % (atk.get("total"), atk.get("per_hit"), atk.get("profile"), atk.get("hits")))
-        print("      PORT attack effets vus=%s" % (atk.get("effects"),))
-        print("      PORT override=%s attaquant=%s" % (port.get("attack_override"), port.get("attacker")))
+
+        variant = None
+        if with_variant:
+            st2 = _seeded_state(sid, rid, board, dv, ob, cs)
+            _orig = AttackDamageOperation._apply_defender_flat_reductions
+            AttackDamageOperation._apply_defender_flat_reductions = staticmethod(_no_merge_variant)
+            try:
+                v = ExemplarOfHateAbility().execute_behaviour(st2, caster, tgt)
+                variant = ((v or {}).get("attack") or {}).get("per_hit")
+            finally:
+                AttackDamageOperation._apply_defender_flat_reductions = _orig
 
         hp0 = PR.hp_of(sid, rid)
         res = PR.act(sid, rid, {"kind": "ability", "casterId": caster, "targetId": tgt,
                                 "abilityType": EXEMPLAR})
+        if not res.get("ok"):
+            return {"skip": "cast live KO: %s" % str(res)[:200]}
         hp1 = PR.hp_of(sid, rid)
-        srcs = [e.get("source") for e in (res.get("events") or []) if e.get("kind") == "group"]
-        print("  [3] LIVE hp %s -> %s  (inflige %s)"
-              % (hp0.get(tgt), hp1.get(tgt),
-                 (hp0.get(tgt) or (0,))[0] - (hp1.get(tgt) or (0,))[0]))
-        print("      LIVE per_hit=%s" % (_live_hits(res, tgt),))
-        print("      LIVE groupes=%s" % (srcs,))
-        dv2 = PR.rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 60)
-        print("      LIVE effets cible POST=%s" % (PR.eff_names(dv2, tgt),))
+        atk = (port or {}).get("attack") or {}
+        return {
+            "caster": caster, "target": tgt,
+            "pre_active": pre_active,
+            "port_per_hit": list(atk.get("per_hit") or []),
+            "port_total": atk.get("total"), "port_hits": atk.get("hits"),
+            "port_profile": atk.get("profile"), "port_override": port.get("attack_override"),
+            "port_hp": (php0, php1), "port_delta": (php0 or 0) - (php1 or 0),
+            "variant_per_hit": variant,
+            "live_per_hit": _live_hits(res, tgt),
+            "live_hp": (hp0.get(tgt), hp1.get(tgt)),
+            "live_delta": (hp0.get(tgt) or (0,))[0] - (hp1.get(tgt) or (0,))[0],
+            "live_groups": [e.get("source") for e in (res.get("events") or [])
+                            if e.get("kind") == "group"],
+            "def_mods_calls": calls, "bounds_rows": rows,
+            "live_effects_post": PR.eff_names(
+                PR.rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 60), tgt),
+        }
     finally:
         PR.dispose(sid, rid)
+
+
+def measure_followup(sid, victim_visual=None) -> dict:
+    """GENERALISATION d'ACCORD -- MEME foyer, TROIS variables changees d'un coup :
+
+      * le VECTEUR : plus `UseActiveAbility` mais l'attaque NORMALE ordinaire
+        (`AttackUnitMessage` -> `IdunBattle.Operations.AttackDamageOperation$$Execute`) ;
+      * l'ATTAQUANT : `darkaHellblaster`, AMENE AU CONTACT (son arme melee `Physical` 1 coup) --
+        il ne porte PAS `FearedInterrogator_Owner`, donc l'additif ATTAQUANT est NUL et l'additif
+        DEFENSEUR est SEUL en jeu ;
+      * le REGIME : la chaine a deja CONSOMME `TerminatorArmour_ReduceDmg` (#432), donc aucune
+        `%-list` defenseur -- ce qui reste est l'axe ARMURE a nu.
+
+    ⚠ CE BRAS N'EST PAS DISCRIMINANT, ET C'EST LA MESURE QUI LE DIT (port == contre-modele == natif
+    == 2746). Raison, exacte : le plancher de `GetBaseDamageWithFixedPiercedArmor` est
+    `max(d x pierce%, d - armure)` ; sur la branche ARMURE il est AFFINE de pente 1, donc
+    `P(v + A) = P(v) + A` et les deux placements COINCIDENT. Le profil `Physical` du Hellblaster a un
+    perçage tres bas et l'armure de `blackAbaddon` (2510) ne suffit pas a faire gagner la branche
+    PERCAGE. C'est exactement pourquoi le residu ne s'etait vu que sur un bras a `%-list` : il faut
+    OU une reduction defenseur, OU la branche PERCAGE gagnante, pour que le placement se voie.
+    Ce bras vaut donc comme datapoint d'ACCORD sur un autre vecteur, PAS comme garde du correctif.
+
+    Sequence : cast `ExemplarOfHate` (qui POSE `ExemplarOfHate_Target` sur la cible et consomme
+    l'armure), puis on DEPLACE le Hellblaster au contact si besoin, on capture l'etat + le RNG, on
+    rejoue l'attaque cote PORT, puis on la joue cote NATIF.
+
+    ROSTER ADVERSE REDUIT A LA SEULE VICTIME. Mesure de la geometrie du montage a deux ennemis :
+    la tuile de `blackAbaddon` (6,8) sur `MC1_67`/112112 n'a que DEUX voisins MARCHABLES -- (5,8) et
+    (6,7) -- et `blackPossession` occupe le second. Aucune tuile LEGALE (`GetMovableTilesFor` natif)
+    n'amene alors le Hellblaster au contact : sa plus proche est a d=2. Retirer le second ennemi
+    LIBERE (6,7) et les deux unites joueur se deploient a d=1. On CHOISIT la configuration au lieu
+    de la subir -- ce n'est pas « bloque par la geometrie de spawn »."""
+    import hexgeo
+    from engine.runner.messages import AttackUnitMessage
+    from engine.runner.operations.damage import AttackDamageOperation
+    from engine.runner.runner import Runner
+    victim_visual = victim_visual or N5.IMMUNE_VICTIM
+    a_units = [victim_visual]
+    layout = N5.enemy_layout(sid, a_units=a_units)
+    rid = N5._build(sid, N5.P_UNITS, a_units, anchor=layout[victim_visual],
+                    occupied=layout.values())
+    try:
+        dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        bv = PR.units_by_visual(dv)
+        for need in ("darkaAsmodai", "darkaHellblaster", victim_visual):
+            if need not in bv:
+                return {"skip": "roster incomplet: %s" % sorted(bv)}
+        caster, hell, tgt = (bv["darkaAsmodai"]["id"], bv["darkaHellblaster"]["id"],
+                             bv[victim_visual]["id"])
+        pos = PR.positions(dv)
+        if hexgeo.distance(pos[caster], pos[tgt]) > 1:
+            return {"skip": "caster non adjacent -> la chaine ne porte pas son attaque"}
+        if tgt not in PR.legal_from_here(sid, rid, caster, EXEMPLAR):
+            return {"skip": "cible non legale depuis la position courante"}
+        if not PR.cast(sid, rid, caster, tgt, EXEMPLAR).get("ok"):
+            return {"skip": "cast ExemplarOfHate KO"}
+
+        # Le Hellblaster AU CONTACT : son arme melee (`Physical`, 1 coup) est la seule qui satisfasse
+        # le gate `IsMeleeAttack` d'`ExemplarOfHate_Target`. On DEPLACE, on ne subit pas la geometrie.
+        dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        pos = PR.positions(dv)
+        if hexgeo.distance(pos[hell], pos[tgt]) > 1:
+            # Tuiles LEGALES pour CETTE unite (`GetMovableTilesFor` natif) -- jamais l'anneau
+            # geometrique brut, qui inclut des tuiles non marchables ou hors portee de mouvement.
+            mv = PR.rpc(sid, "aiMovableTiles", {"runnerId": rid}, 90)
+            cands = []
+            for u in (mv.get("units") or []):
+                if int(u.get("unitId") or u.get("id") or -1) != int(hell):
+                    continue
+                for t in (u.get("tiles") or []):
+                    c, r_ = t.get("col"), t.get("row")
+                    if c is None or r_ is None:
+                        continue
+                    cands.append((hexgeo.distance((c, r_), pos[tgt]), (c, r_)))
+            cands.sort()
+            moved = False
+            for _d, (col, row) in [c for c in cands if c[0] == 1]:
+                r = PR.act(sid, rid, {"kind": "move", "unitId": int(hell),
+                                      "to": {"col": int(col), "row": int(row)}})
+                if r.get("ok") and r.get("mutated"):
+                    moved = True
+                    break
+            if not moved:
+                return {"skip": "aucune tuile legale au contact pour le Hellblaster (%s)"
+                                % (cands[:6],)}
+            dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+            pos = PR.positions(dv)
+            if hexgeo.distance(pos[hell], pos[tgt]) > 1:
+                return {"skip": "Hellblaster toujours hors contact"}
+
+        normal_id = None
+        for a in ((next((u for u in (dv.get("units") or []) if u.get("id") == hell), {})
+                   ).get("abilities") or []):
+            if a.get("kind") == "normal":
+                normal_id = int(a.get("id"))
+        if normal_id is None:
+            return {"skip": "attaque normale du Hellblaster introuvable"}
+
+        bg = PR.rpc(sid, "boardGraph", {"runnerId": rid}, 60)
+        from engine.entities.pathfinding.board import Board
+        board = Board(bg["tiles"], adjacency="native_sym")
+        ob = PR.rpc(sid, "observeBattle", {"runnerId": rid}, 40)
+        cs = PR.rpc(sid, "combatSnapshot", {"runnerId": rid}, 60)
+
+        def _replay(patch=None):
+            st = _seeded_state(sid, rid, board, dv, ob, cs)
+            saved = AttackDamageOperation._apply_defender_flat_reductions
+            if patch is not None:
+                AttackDamageOperation._apply_defender_flat_reductions = staticmethod(patch)
+            try:
+                rn = Runner(st).install_default_handlers(20)
+                rn.apply(AttackUnitMessage(int(hell), int(tgt)))
+                return dict(rn.damage_handler.last or {}), st
+            finally:
+                AttackDamageOperation._apply_defender_flat_reductions = saved
+
+        calls, restore = instrument_defender_modifiers()
+        try:
+            last, _st = _replay()
+        finally:
+            restore()
+        variant, _ = _replay(_no_merge_variant)
+
+        hp0 = PR.hp_of(sid, rid)
+        res = PR.act(sid, rid, {"kind": "ability", "casterId": hell, "targetId": tgt,
+                                "abilityType": normal_id})
+        if not res.get("ok"):
+            return {"skip": "attaque normale live KO: %s" % str(res)[:200]}
+        hp1 = PR.hp_of(sid, rid)
+        return {"attacker": hell, "target": tgt,
+                "port_per_hit": list(last.get("per_hit") or []),
+                "port_total": last.get("total"), "port_profile": last.get("profile"),
+                "variant_per_hit": list(variant.get("per_hit") or []),
+                "live_per_hit": _live_hits(res, tgt),
+                "live_delta": (hp0.get(tgt) or (0,))[0] - (hp1.get(tgt) or (0,))[0],
+                "def_mods_calls": calls}
+    finally:
+        PR.dispose(sid, rid)
+
+
+def run(sid, victim_visual, layout):
+    m = measure(sid, victim_visual, layout, with_variant=True)
+    print("[%s] %s" % (victim_visual, m.get("skip") or "cible u%s (caster u%s)"
+                       % (m["target"], m["caster"])))
+    if m.get("skip"):
+        return
+    print("  [1] effets ACTIFS cible au chargement : %s" % (m["pre_active"],))
+    for row in m["bounds_rows"]:
+        print("  [2bis] %s" % json.dumps(row, default=str))
+    for c in m["def_mods_calls"]:
+        print("  [2] defender_modifiers u%s melee=%s profil=%s att=%s normal=%s"
+              % (c["unit"], c["is_melee"], c["profile"], c["attacker"], c["is_normal_attack"]))
+        print("      active=%s" % (c["active"],))
+        print("      mods=%s" % (c["mods"],))
+    print("  [3] PORT hp %s -> %s (inflige %s) total=%s hits=%s profil=%s override=%s"
+          % (m["port_hp"][0], m["port_hp"][1], m["port_delta"], m["port_total"],
+             m["port_hits"], m["port_profile"], m["port_override"]))
+    print("      PORT per_hit    = %s" % (m["port_per_hit"],))
+    print("      VARIANT per_hit = %s   (contre-modele POST-%%list)" % (m["variant_per_hit"],))
+    print("      LIVE per_hit    = %s" % (m["live_per_hit"],))
+    print("  [3] LIVE hp %s -> %s (inflige %s)"
+          % (m["live_hp"][0], m["live_hp"][1], m["live_delta"]))
+    print("      LIVE groupes=%s" % (m["live_groups"],))
+    print("      LIVE effets cible POST=%s" % (m["live_effects_post"],))
+
+
+def run_followup(sid, _layout=None):
+    m = measure_followup(sid)
+    if m.get("skip"):
+        print("[followup] %s" % m["skip"])
+        return
+    print("[followup] u%s (Hellblaster, melee) -> u%s   profil=%s"
+          % (m["attacker"], m["target"], m["port_profile"]))
+    for c in m["def_mods_calls"]:
+        print("  [2] defender_modifiers u%s melee=%s profil=%s att=%s  active=%s"
+              % (c["unit"], c["is_melee"], c["profile"], c["attacker"], c["active"]))
+        print("      mods=%s" % (c["mods"],))
+    print("  PORT per_hit    = %s (total %s)" % (m["port_per_hit"], m["port_total"]))
+    print("  VARIANT per_hit = %s   (contre-modele POST-%%list)" % (m["variant_per_hit"],))
+    print("  LIVE per_hit    = %s (delta PV %s)" % (m["live_per_hit"], m["live_delta"]))
 
 
 def main():
@@ -252,10 +456,12 @@ def main():
     only = sys.argv[1] if len(sys.argv) > 1 else "immune"
     try:
         layout = N5.enemy_layout(sid)
-        if only in ("immune", "both"):
+        if only in ("immune", "both", "all"):
             run(sid, N5.IMMUNE_VICTIM, layout)
-        if only in ("control", "both"):
+        if only in ("control", "both", "all"):
             run(sid, N5.CONTROL_VICTIM, layout)
+        if only in ("followup", "all"):
+            run_followup(sid, layout)
     finally:
         for rid in list(PR._rids):
             PR.dispose(sid, rid)
