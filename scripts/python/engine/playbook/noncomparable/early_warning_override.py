@@ -5,20 +5,36 @@ from __future__ import annotations
 import hexgeo
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
+from engine.services import battle_query as bqs
 
-from ._base import NCContext, NonComparablePlaybook, _unit_cfg, _sweep_origin_first
+from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
 
 
-def _enemy_max_range(visual_id) -> int:
-    """Portee d'attaque MAX d'une unite (gameconfig `weapons` : `Range` present -> ranged, absent ->
-    melee=1). Mirror APPROCHE d'`IsTileInRangeOfAnyAbility` (slot 0xc5) : la vraie methode
-    court-circuite a VRAI sur un caster multi-tuiles puis interroge le slot 0xe du service a
-    `BattleQuery+0x20` avec `{GetMainTile(unit)}`, donc MOUVEMENT et LoS compris. On approxime par la
-    portee d'ARME max (ni mouvement, ni LoS, ni nombre de pieds). >=1 toujours.
-    Residu `#433-r4-r2-r1` -- mesure de l'ecart dans `docs/rl/case-433-r4-r2-consommateurs-hors-foyer.md` §7."""
-    ws = _unit_cfg(visual_id).get("weapons") or []
-    rs = [int(w["Range"]) if "Range" in w else 1 for w in ws]
-    return max(rs) if rs else 1
+def _ranged_weapon_threshold(visual_id) -> int:
+    """`threshold(E)` de la BRANCHE B, mirror 1:1 du fragment natif d'
+    `IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable` :
+
+        w   = <IBattleQuery slot 0xb3>(otherUnit)          // BattleQuery$$FindRangedWeapon(unit)
+        n   = (w != null) ? *(Nullable<int>*)(w + 0x24) : default(Nullable<int>)
+        thr = n.HasValue ? n.GetValueOrDefault() : 1        // le `?? 1` du natif, LU
+        if (thr < d) util += 50
+
+    Le foyer de la 1re ligne est `engine.services.battle_query.find_ranged_weapon` (deja porte, 1:1 :
+    filtre `!WeaponProfile.get_IsMelee` puis `SelectMaxRangeWeapon`). Ce module ne le REECRIT pas --
+    c'etait precisement la faute de `_enemy_max_range` (residu `#433-r4-r2-r2`), un fork de foyer qui
+    figeait le seuil a `1`.
+
+    Deux consequences LUES qui ne se devinent pas, et que le fork ratait toutes les deux :
+      * `get_IsMelee` = `!Range.HasValue || Range.Value < 2` -> une arme de portee **1 est MELEE** et
+        n'entre donc PAS dans le set de `FindRangedWeapon` ;
+      * `w == null` (aucune arme a distance) -> `Nullable` par defaut -> `HasValue` faux -> **1**.
+
+    MESURE (`probe_433_r4_r2_adjacency_foyer.py --step partition`, ennemi PLAT `tauMarksman`, dont le
+    kit porte une arme `Range=3` et une arme de melee sans `Range`) : le bonus natif vaut `0` jusqu'a
+    `d = 3` et `50` a `d = 4`, c'est-a-dire `d > 3` = sa portee -- et non `d > 1`."""
+    w = bqs.find_ranged_weapon(visual_id)
+    r = (w or {}).get("Range")
+    return int(r) if r is not None else 1
 
 
 class EarlyWarningOverridePlaybook(NonComparablePlaybook):
