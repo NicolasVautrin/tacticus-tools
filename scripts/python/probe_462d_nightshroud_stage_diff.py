@@ -157,8 +157,15 @@ def _drive_target_to_thorns(live, rid, board, rounds=14):
     ou None si le regime ne s'installe pas."""
     tm = live.rpc("tileMeta", {"runnerId": rid}, 60)
     rows = tm.get("tiles") if isinstance(tm, dict) else tm
+    # ⚠ #462-r4d-r3 -- `tileMeta.tiles[].effects` est une liste de DICTS
+    # (`{name, effectType, source, remaining, level}`), PAS de chaines. Le predicat d'origine
+    # (`"Thorns_DefenseReduction" in effects`) rendait donc TOUJOURS faux, `want` restait vide, et
+    # le montage repondait « aucune tuile Thorns marchable atteinte » -- ce qui s'est lu comme une
+    # impossibilite GEOMETRIQUE alors que les 4 Swamp de `MC1_67` etaient bien la (MESURE : elles
+    # portent `BlockEnteringUnits` + `Thorns_DefenseReduction`, aux positions (1,3) (1,6) (4,6)
+    # (5,3)). Un zero d'outil n'est pas une preuve d'absence.
     want = [(t.get("col"), t.get("row")) for t in (rows or [])
-            if "Thorns_DefenseReduction" in (t.get("effects") or [])]
+            if any(e.get("name") == "Thorns_DefenseReduction" for e in (t.get("effects") or []))]
     if not want:
         return None
     for _ in range(rounds):
