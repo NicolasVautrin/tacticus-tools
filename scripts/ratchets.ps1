@@ -32,9 +32,13 @@
 
 .PARAMETER Only
     Ne joue que ces ids (accepte le prefixe : `-Only probe_283` prend ses 6 etapes).
+    Sous `pwsh -File`, un argument reste UNE chaine : `-Only a,b` arrivait donc comme l'id
+    litteral `a,b`, qui ne matche rien -- l'exemple ci-dessous etait FAUX depuis #430. Les valeurs
+    sont desormais RE-DECOUPEES sur la virgule, ce qui rend les deux formes equivalentes.
 
 .PARAMETER Skip
-    Exclut ces ids (meme regle de prefixe). A n'utiliser QUE pour un diagnostic local.
+    Exclut ces ids (meme regle de prefixe, virgule comprise). A n'utiliser QUE pour un
+    diagnostic local.
 
 .PARAMETER ThrottleLimit
     Degre de parallelisme. 0 (defaut) = min(nombre de cliquets, nombre de coeurs). Les cliquets
@@ -52,6 +56,13 @@
 
 .OUTPUTS
     Code de sortie = NOMBRE de cliquets rouges (0 = banque verte). Sortie ASCII stricte (cp1252).
+
+    ⚠ EXCEPTION, et c'est un CONTRAT : une erreur d'USAGE (aucun cliquet selectionne, repertoire
+    introuvable, `python` absent du PATH) rend **64**, jamais 1. Elle rendait 1, donc elle etait
+    INDISTINGUABLE d'« un cliquet a rougi » -- un appelant lisait « 1 rouge » la ou RIEN n'avait
+    ete joue. C'est la faute que `#457-r7` nomme sur `probe_457` (un `pytest rc=4` d'usage lu comme
+    un rouge de gisement), et de la meme famille que « un echec RENDU se lit comme une mesure ».
+    Un appelant DOIT traiter 64 comme « non mesure », jamais comme un verdict sur le depot.
 
 .EXAMPLE
     pwsh -File scripts/ratchets.ps1
@@ -293,22 +304,35 @@ if ($List) {
     exit 0
 }
 
+# `pwsh -File` ne decoupe PAS sur la virgule : `-Only a,b` arrive comme l'id litteral `a,b`.
+# On re-decoupe, sinon la forme documentee ne selectionne rien -- et ne rien selectionner se
+# lisait comme un rouge (cf. le code 64 ci-dessous).
+$Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Skip = @($Skip | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+
 $sel = $Ratchets
 if ($Only) { $sel = $sel | Where-Object { $id = $_.Id; ($Only | Where-Object { $id -eq $_ -or $id.StartsWith($_ + ':') }).Count -gt 0 } }
 if ($Skip) { $sel = $sel | Where-Object { $id = $_.Id; ($Skip | Where-Object { $id -eq $_ -or $id.StartsWith($_ + ':') }).Count -eq 0 } }
 $sel = @($sel)
 
+# 64 = erreur d'USAGE, jamais un verdict. Rendre 1 ici la rendait indistinguable d'un cliquet
+# rouge : l'appelant lisait « 1 rouge » alors que RIEN n'avait tourne. Contrat documente en .OUTPUTS.
+$EX_USAGE = 64
+
 if ($sel.Count -eq 0) {
-    Write-Output "[ratchets] AUCUN cliquet selectionne. `-List` pour voir la banque."
-    exit 1
+    Write-Output "[ratchets] USAGE : aucun cliquet selectionne. `-List` pour voir la banque."
+    Write-Output "[ratchets] rc=$EX_USAGE -- RIEN n'a ete joue. Ce n'est PAS un verdict sur le depot."
+    exit $EX_USAGE
 }
 if (-not (Test-Path $WorkDir)) {
-    Write-Output ("[ratchets] repertoire introuvable : {0}" -f $WorkDir)
-    exit 1
+    Write-Output ("[ratchets] USAGE : repertoire introuvable : {0}" -f $WorkDir)
+    Write-Output "[ratchets] rc=$EX_USAGE -- RIEN n'a ete joue. Ce n'est PAS un verdict sur le depot."
+    exit $EX_USAGE
 }
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Output "[ratchets] `python` introuvable dans le PATH (ne PAS utiliser `py` : il skippe des dependances)."
-    exit 1
+    Write-Output "[ratchets] USAGE : `python` introuvable dans le PATH (ne PAS utiliser `py` : il skippe des dependances)."
+    Write-Output "[ratchets] rc=$EX_USAGE -- RIEN n'a ete joue. Ce n'est PAS un verdict sur le depot."
+    exit $EX_USAGE
 }
 
 if (-not $LogDir) { $LogDir = Join-Path $Root 'logs\ratchets' }
