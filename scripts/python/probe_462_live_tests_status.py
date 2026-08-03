@@ -119,21 +119,38 @@ def _blobs(rels: list[str]) -> dict:
 
 
 def _live_in_diff(ref: str) -> tuple:
-    """(fichiers live touches par `ref..HEAD` + arbre de travail, raison).
+    """(fichiers live touches par MOI depuis `ref`, raison).
 
-    `diff <ref> HEAD` PUIS `diff <ref>` (arbre de travail inclus) : un agent qui n'a pas encore
-    commite doit voir sa propre modification, sinon la gate serait verte jusqu'au commit -- soit
-    exactement au moment ou elle ne sert plus a rien."""
+    Le diff part du MERGE-BASE, pas de `ref` lui-meme -- semantique `...`, celle de GitHub pour une
+    PR. La difference n'est pas cosmetique : `git diff origin/master` compare `origin/master` a mon
+    arbre de travail, donc il inclut EN SENS INVERSE tout ce que les autres agents ont pousse
+    depuis mon point de branchement. Sur ce depot (~40 commits/jour, 5 agents en vol), la gate
+    exigerait alors d'attester des fichiers live que je n'ai jamais touches -- un rouge qui n'accuse
+    personne, et le plus sur moyen de la faire desarmer.
+
+    L'arbre de TRAVAIL est inclus (pas de `HEAD` en second terme) : un agent qui n'a pas encore
+    commite doit voir sa propre modification, sinon la gate ne mordrait qu'apres le commit."""
     racine = repo_root()
-    r = subprocess.run(["git", "-C", str(racine), "diff", "--name-only", ref],
+    mb = subprocess.run(["git", "-C", str(racine), "merge-base", ref, "HEAD"],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    base = (mb.stdout or "").strip()
+    if mb.returncode != 0 or not base:
+        # Ni merge-base ni ref lisible -> on ne PRETEND pas savoir. C'est un refus, pas un vert.
+        verif = subprocess.run(["git", "-C", str(racine), "rev-parse", "--verify", ref + "^{commit}"],
+                               capture_output=True, text=True)
+        if verif.returncode != 0:
+            return None, "ref `%s` inconnue de git" % ref
+        base = ref                       # histoires sans ancetre commun : on prend `ref` tel quel
+    r = subprocess.run(["git", "-C", str(racine), "diff", "--name-only", base],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
-        return None, "ref `%s` inconnue de git" % ref
+        return None, "diff depuis `%s` impossible" % base[:12]
     prefix = "scripts/python/"
     live = set(live_files())
     vus = {l.strip()[len(prefix):] for l in (r.stdout or "").splitlines()
            if l.strip().startswith(prefix)}
-    return sorted(vus & live), "%d fichier(s) live touche(s) depuis %s" % (len(vus & live), ref)
+    return sorted(vus & live), ("%d fichier(s) live touche(s) depuis le merge-base %s (avec %s)"
+                                % (len(vus & live), base[:8], ref))
 
 
 def _is_test_file(name: str) -> bool:
