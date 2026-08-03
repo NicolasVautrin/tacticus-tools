@@ -29,11 +29,11 @@ LE COUPLE DISCRIMINANT. Le gate de `1134 FullThrottle`
 (`AmountIsEqualOrGreater(MovementSteps(), 'movement' = 3)`, `chance` = 30 %) rend
 `movementSteps` OBSERVABLE par la mort du caster :
 
-    | bras | trajet                          | movementSteps NATIF | gate >= 3 | mort |
-    | M2   | MARCHEUR, 2 pas (d = 2)         | path.Count = 3      | VRAI      | ~30 %|
-    | V2   | VOLANT,   d = 2, vol direct     | distance   = 2      | FAUX      |   0 %|
-    | V3   | VOLANT,   d = 3, vol direct     | distance   = 3      | VRAI      | ~30 %|
-    | VD   | VOLANT,   d = 2, vol DETOURNE   | distance   = 2      | FAUX      |   0 %|
+    | bras | trajet                        | movementSteps | gate >= 3 | MESURE NATIF   |
+    | M2   | MARCHEUR, 2 pas (d = 2)       | path.Count = 3| VRAI      | 3 / 8  (37,5 %)|
+    | V2   | VOLANT,   d = 2, vol direct   | distance   = 2| FAUX      | 0 / 20 ( 0,0 %)|
+    | V3   | VOLANT,   d = 3, vol direct   | distance   = 3| VRAI      | 4 / 13 (30,8 %)|
+    | VD   | VOLANT,   d = 2, vol DETOURNE | distance   = 2| FAUX      | 0 / 14 ( 0,0 %)|
 
 * `M2` + `V2` = le couple demande : MEME distance parcourue, `movementSteps` DIFFERENT
   selon que l'unite vole ou marche. C'est ce couple, et lui seul, qui prouve l'asymetrie.
@@ -48,8 +48,10 @@ LE COUPLE DISCRIMINANT. Le gate de `1134 FullThrottle`
 Usage :
     python probe_448_r1_r1_r1_flying_movement_steps.py --offline    # etape 0 SEULE (0 runner)
     python probe_448_r1_r1_r1_flying_movement_steps.py              # etape 0 + M2/V2/V3
-    python probe_448_r1_r1_r1_flying_movement_steps.py --detour     # + le bras VD
-    python probe_448_r1_r1_r1_flying_movement_steps.py --mutate-fly # CONTRE-EPREUVE (doit ROUGIR)
+    python probe_448_r1_r1_r1_flying_movement_steps.py --only VD --turns 16   # le bras VD
+    python probe_448_r1_r1_r1_flying_movement_steps.py --port       # chaine PORT (200 graines)
+    python probe_448_r1_r1_r1_flying_movement_steps.py --port --mutate-fly    # CONTRE-EPREUVE
+    python probe_448_r1_r1_r1_flying_movement_steps.py --scan C6_09,C6_25     # diag de board
 """
 from __future__ import annotations
 
@@ -572,8 +574,13 @@ def main() -> int:
                     help="nombre de greffons (certains boards n'ont que 4 spawns joueur)")
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--board", default="MC1_67")
-    ap.add_argument("--detour-board", default="C6_02",
-                    help="board portant des HulkWall (seul obstacle que le vol contourne)")
+    ap.add_argument("--detour-board", default="C6_25",
+                    help="board offrant des trajets DETOURNES a d=2. Les murs (`HulkWall` / "
+                         "`HulkDoor`) sont le SEUL obstacle que le vol contourne, et ils ne "
+                         "vivent que sur 17 boards `C6_*` -- dont UN SEUL, `C6_25` (7 departs, "
+                         "14 couples), en produit reellement. C6_09 a pourtant 16 murs et ZERO "
+                         "trajet detourne : sa barriere coupe le plateau, donc les paires « a "
+                         "travers » sont DECONNECTEES et les autres directes. `--scan` le mesure.")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--foes", default="tauCrisis")
     ap.add_argument("--turns", type=int, default=5)
