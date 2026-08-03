@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785793017,
+ "_ecrit_le": 1785798222,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -88,6 +88,19 @@
    "messages": [],
    "passed": 6,
    "sec": 46.9,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_462_r4b_r1_r1_r1_neuroparasite_pose_live.py": {
+   "_at": 1785798222,
+   "_blob": "286dc3698bf8ce59070109f114452f7663033e13",
+   "_commit": "f2331e43d905f08bb4a1d4c4f20205c1e30b49fb",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 7,
+   "sec": 60.1,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
