@@ -49,6 +49,7 @@ from engine.services.movement_query import (synapse_tiles_for, titanhammer_targe
 from engine.entities.effect_type import EffectType
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.traits.unit_trait import entity_trait_names
+from engine.services.custom_normal_attack import has_normal_attack
 from engine.utilities.move import UtilityMovementCase
 
 NORMAL_ATTACK_ID = int(ActiveAbilityType.NormalAttack)   # 17 (id synthetique offline ; cf. en-tete) #158
@@ -404,10 +405,13 @@ def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
     return "self"
 
 
-def _attack_abilities(vid: str) -> list:
+def _attack_abilities(vid: str, has_normal: bool = True) -> list:
     """[(ability_id, reach)] des abilities d'ATTAQUE de l'unite : l'attaque normale (17, portee=max arme) + chaque
-    active a `damageProfile` (non-NonComparable), portee = `_ability_reach`."""
-    out = [(NORMAL_ATTACK_ID, _max_attack_range(vid))]
+    active a `damageProfile` (non-NonComparable), portee = `_ability_reach`.
+
+    `has_normal=False` (#419-r1-tr14-r5-r4) : l'unite porte `Erratic`/`Harmless`, donc la fabrique
+    ne lui a POSE aucune attaque normale -- il ne faut pas en planifier une. Cf. le call-site."""
+    out = [(NORMAL_ATTACK_ID, _max_attack_range(vid))] if has_normal else []
     for aid, _name in _abilities_of(vid):
         if aid == NORMAL_ATTACK_ID:
             continue
@@ -418,7 +422,7 @@ def _attack_abilities(vid: str) -> list:
 
 
 def _plans_for_unit(uid: int, vid: str, origin: tuple | None, move_tiles: list,
-                    enemies: list) -> dict:
+                    enemies: list, has_normal: bool = True) -> dict:
     """Enumere le `plan` d'attaque de `uid` : pour chaque (ability d'ATTAQUE, ennemi), le SET de tuiles-caster
     (origine + tuiles de move) d'ou l'attaque est legale (dist hex <= portee de l'ability). Forme mirroir de
     `decisionView.attackPlans[uid]` REDUITE a ce que le spine lit (`_best_attack` : abilityId/targetId/rankCount/
@@ -443,7 +447,7 @@ def _plans_for_unit(uid: int, vid: str, origin: tuple | None, move_tiles: list,
     cand_tiles = [] if origin is None else [origin]
     cand_tiles += [t for t in ((x["col"], x["row"]) for x in move_tiles) if t != origin]
     evals: list = []
-    for (aid, reach) in _attack_abilities(vid):
+    for (aid, reach) in _attack_abilities(vid, has_normal):
         for en in enemies:
             ep = en.get("pos")
             if not ep:
@@ -636,9 +640,24 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
 
-    abilities = [{"id": aid, "name": nm, "usable": True} for (aid, nm) in _abilities_of(vid or "")]
-    ab_name_by_id = {aid: nm for (aid, nm) in _abilities_of(vid or "")}
-    normal_ids = {NORMAL_ATTACK_ID} if any(a[0] == NORMAL_ATTACK_ID for a in _abilities_of(vid or "")) else set()
+    # #419-r1-tr14-r5-r4 -- `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` REND
+    # SANS RIEN AJOUTER quand `config.Traits` contient `Erratic` (0x0e) ou `Harmless` (0x15) : la
+    # fabrique n'appelle alors NI `GetCustomNormalAttackTypeFromPassive`, NI la voie active, NI
+    # `ActiveAbilityComponent$$Add`. L'unite n'a AUCUNE attaque normale, son
+    # `ActiveAbilityComponent.NormalAttackType@0x28` reste a 0, et le natif ne publie donc aucune
+    # ability `kind == "normal"` pour elle. Le port, lui, en posait une des que le KIT gameconfig
+    # portait une arme -- une divergence PERMISSIVE (ni erreur ni crash) : le decideur offline
+    # generait, scorait et pouvait CHOISIR une attaque que le natif ne propose pas.
+    # SUBSTRAT D'ENTITE : le natif lit `UnitConfiguration.Traits`, c.-a-d. `BC.Units[].Traits`, que
+    # le kit gameconfig ne reproduit PAS (#264). `entity_trait_names` est le foyer qui lit ce
+    # substrat -- et son repli kit, quand l'entite n'a pas de `UnitContext`, reste une BORNE.
+    _me_sc = me_ent.get_component(StatsComponent)
+    has_normal = has_normal_attack(entity_trait_names(getattr(_me_sc, "ctx", None), vid))
+    _me_abilities = [(aid, nm) for (aid, nm) in _abilities_of(vid or "")
+                     if has_normal or aid != NORMAL_ATTACK_ID]
+    abilities = [{"id": aid, "name": nm, "usable": True} for (aid, nm) in _me_abilities]
+    ab_name_by_id = {aid: nm for (aid, nm) in _me_abilities}
+    normal_ids = {NORMAL_ATTACK_ID} if any(a[0] == NORMAL_ATTACK_ID for a in _me_abilities) else set()
 
     me = next((u for u in units if u.get("id") == uid), None)
     if me is not None:
@@ -697,7 +716,7 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     # Plans d'ATTAQUE : ne cibler que les ennemis CIBLABLES (exclut les deep-strike teleporting-in, non-ciblables
     # jusqu'a l'atterrissage). `enemies` reste complet pour le positionnement (ils occupent le board).
     tgt_enemies = [e for e in enemies if not _is_untargetable(state, e.get("id"))]
-    plans = {uid: _plans_for_unit(uid, vid or "", origin, move_tiles, tgt_enemies)}
+    plans = {uid: _plans_for_unit(uid, vid or "", origin, move_tiles, tgt_enemies, has_normal)}
 
     def _rpc(method, body, timeout=0):
         """Seam RPC offline (SLICE 2) : `abilityTargets` -> enumerateur offline (heal/repair/summon/Nova) ;
