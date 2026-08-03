@@ -1385,7 +1385,7 @@ class MortarionsPlagueWindPlaybook(_CustomOnlyPlaybook):
     Select>(entities))`), et `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` ne recoit que
     `caster`/`actor`/`target` -- cf. `_mortarions_plague_wind_dsl_context`.
 
-    Les trois vagues sont le mirror `mortarions_plague_wind_target_selectors()`
+    Les trois vagues sont le mirror `plague_wind_wave_selectors()`
     (`runner/abilities/deathguard.py`), ou vit deja la MEME chaine pour la face COMBAT de son jumeau
     `PlagueWind` (1035, `deathTyphus`) : un seul artefact natif, un seul port. Ce qui les distingue
     n'est PAS la geometrie mais le `DSLSelectors$$Cache` que les deux `ExecuteBehaviour` posent et

@@ -25,17 +25,21 @@ E. **La VAGUE 3 est portee.** Bras C : le Psyker est en `W1`, voisin de `V1` et 
 F. **La chaine DSL est EXACTE, pas approchee** (offline) : les trois vagues, l'exclusion `- t1 - t2`,
    et le filtre `Psyker` sont verifies sur une geometrie synthetique ou chaque vague est peuplee.
 
+G. **L'ACCORD DE DECISION de bout en bout, moteur<->natif** (#27-r5-r1). Il etait IMPOSSIBLE tant que
+   `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$MakeDamagePredictions` n'etait pas
+   porte : le natif y fait TROIS batchs `GenerateMultiHitAttackPredictions` (un par vague, avec
+   `GetDamage1`/`GetDamage2`/`GetDamage3`), la ou le port heritait du chemin generique mono-cible.
+   MESURE d'alors, bras A : `u_full` port 1.1220 / 5.6097 contre natif 13.2764 / 13.7118, et le
+   moteur choisissait `T2` dans les TROIS bras. Depuis #27-r5-r1, `u_full` port et natif coincident
+   a **1e-8** (Fix64 vs double) et `engine_decide` rend la cible du natif dans les trois bras --
+   bras A COMPRIS, celui ou le natif va CONTRE son propre `u_full`. Ces deux assertions auraient
+   ete ROUGES avant ce port : c'est ce qui les rend non triviales.
+
 CE QUI N'EST PAS GARDE, ET POURQUOI (dit plutot que masque) :
 
-* **L'ACCORD DE DECISION de bout en bout moteur<->natif ne peut PAS l'etre**, et la cause est un
-  RESIDU NOMME, exterieur a cette tranche : `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWind
-  Playbook$$MakeDamagePredictions` fait TROIS batchs `GenerateMultiHitAttackPredictions` (un par
-  vague, avec `GetDamage1`/`GetDamage2`/`GetDamage3`), la ou le port herite du chemin generique
-  mono-cible. MESURE sur le bras A : `u_full` port = 1.1220 / 5.6097 contre natif 13.2764 / 13.7118.
-  Le moteur choisit donc `T2` dans les trois bras. Le custom, lui, est EXACT dans les trois --
-  c'est pourquoi ce fichier assert sur le CUSTOM et sur le CHOIX NATIF, jamais sur `engine_decide`.
-* La branche `If(HasTrait(Target, 2 = Summon), Multiply(..., x2), ...)` des formules de degat
-  appartient au meme residu et n'est ni portee ni exercee.
+* La branche `If(HasTrait(Target, 2 = Summon), Multiply(..., x2), ...)` des formules de degat n'est
+  pas exercee ICI (aucune cible `Summon` dans ce montage) : elle l'est dans
+  `test_plague_wind_prediction_live.py`, sur le meme porteur greffe.
 * Le filtre `Enemies` est exerce (les allies du caster ne sont jamais dans `t2`/`t3` puisque le
   caster est seul de son camp), mais pas avec un allie POSITIONNE dans l'anneau : garde offline.
 
@@ -55,7 +59,7 @@ import probe_27_r5_mortarions_plague_wind as AB             # noqa: E402
 from engine import dsl                                      # noqa: E402
 from engine.entities.traits.unit_trait import UnitTrait      # noqa: E402
 from engine.runner.abilities.deathguard import (             # noqa: E402
-    mortarions_plague_wind_psyker_selector, mortarions_plague_wind_target_selectors)
+    mortarions_plague_wind_psyker_selector, plague_wind_wave_selectors)
 
 MPW = AB.MPW
 
@@ -104,7 +108,7 @@ def test_the_three_waves_are_exactly_t1_t2_t3():
     """F -- structure : chaque vague contient ce que le decompile dit, et rien d'autre."""
     caster, t, s, x, y = _chain()
     ctx = _ctx([caster, t, s, x, y], caster, t)
-    n1, n2, n3 = mortarions_plague_wind_target_selectors()
+    n1, n2, n3 = plague_wind_wave_selectors()
     # `_units_of` = le normaliseur du DSL (`Target()` rend l'ENTITE, pas une liste ; c'est lui que
     # `Union`/`Sub` appliquent aux operandes). L'utiliser ici, c'est lire les vagues comme le port
     # les consomme -- iterer `evaluate()` a nu rendrait les CLES du dict.
@@ -122,7 +126,7 @@ def test_the_caster_is_never_in_a_wave_even_when_adjacent():
     caster, t, s, x, y = _chain()
     friend = _unit(15, 2, team=1)                     # allie, adjacent au secondaire ET a la cible
     ctx = _ctx([caster, friend, t, s, x, y], caster, t)
-    _n1, n2, n3 = mortarions_plague_wind_target_selectors()
+    _n1, n2, n3 = plague_wind_wave_selectors()
     got = {u["id"] for u in n2.evaluate(ctx)} | {u["id"] for u in n3.evaluate(ctx)}
     assert 10 not in got and 15 not in got, (
         "un allie est entre dans une vague -> le filtre `Enemies` n'est pas applique : %r" % (got,))
@@ -219,3 +223,41 @@ def test_third_wave_is_counted_live(arms):
 def test_magnitude_is_bracketed_by_the_native_flip():
     """D -- encadrement de la constante par bascule : (0.90, 1.10) pour UN Psyker."""
     assert AB.run_magnitude(), "l'encadrement de la magnitude a echoue -- cf. la sortie du probe"
+
+
+# ------------------------------------------------------- G : l'accord de DECISION (#27-r5-r1)
+
+def test_port_u_full_matches_the_native_in_every_arm(arms):
+    """G -- `CalculateUtilityFromPredictions` port == natif, dans les trois bras.
+
+    C'est l'etage qui portait le residu : le port n'emettait qu'UN des trois batchs de
+    `MakeDamagePredictions`. Ecart d'alors, bras A : `1.1220` contre `13.2764` (facteur ~12).
+    Tolerance `1e-6` -- le natif calcule en `Fix64` (pas 2^-32) et le port en `double` ; l'ecart
+    RESIDUEL mesure est ~`1e-8`, soit deux ordres de grandeur sous la tolerance et sept sous
+    l'ecart que ce test existe pour interdire."""
+    for name, r in arms.items():
+        for key in ("T1", "T2"):
+            d = abs(r["uf_port"][key] - r["uf_native"][key])
+            assert d < 1e-6, (
+                "bras %s / %s : u_full port %.6f != natif %.6f (ecart %.3e) -- un batch de "
+                "`MakeDamagePredictions` manque ou porte la mauvaise base"
+                % (name, key, r["uf_port"][key], r["uf_native"][key], d))
+
+
+def test_engine_decides_the_same_target_as_the_native_in_every_arm(arms):
+    """G -- `engine_decide` rend l'ability ET la cible du natif dans les trois bras.
+
+    Le bras A est le plus fort des trois : le natif y va CONTRE son propre `u_full` (il retient
+    `T1` alors que `T2` vaut 0.435 de plus), donc le moteur ne peut le suivre qu'en portant A LA
+    FOIS les trois batchs de degat ET le terme custom. La contre-epreuve est dans le meme dict :
+    `zero` (custom force a 0) doit designer l'AUTRE cible sur ce bras -- sinon l'accord ne viendrait
+    pas du terme."""
+    for name, r in arms.items():
+        want = r["targets"][r["chosen"]]
+        assert r["on"] == (MPW, want), (
+            "bras %s : moteur %r, natif (%d, %s)" % (name, r["on"], MPW, want))
+    a = arms["A"]
+    assert a["zero"] == (MPW, a["targets"]["T2"]), (
+        "bras A : custom desarme -> le moteur devrait retomber sur T2 (l'argmax de `u_full`) ; il "
+        "rend %r. Sans cette bascule, l'accord du bras A ne prouverait pas que le terme decide."
+        % (a["zero"],))

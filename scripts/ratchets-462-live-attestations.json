@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785773946,
+ "_ecrit_le": 1785774501,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -681,9 +681,9 @@
    "error": 0,
    "failed": 4,
    "messages": [
-    "test_damage_catalog_live.py::test_normal_attack_bit_exact[adeptSmnGeminaeSuperia] -- HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live. Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune assertion n'a ete evaluee (cf. conftest, bloc \u00ab un SKIP harnais \u00bb).  Raison d'origine : Skipped: build runner KO (rl_duel): jacent 0->10'] | retires=[] [seed-bc] bloc Unit",
-    "test_damage_catalog_live.py::test_normal_attack_bit_exact[admecBossBelisarius] -- HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live. Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune assertion n'a ete evaluee (cf. conftest, bloc \u00ab un SKIP harnais \u00bb).  Raison d'origine : Skipped: build runner KO (rl_duel): eAdjacent 0->10'] | retires=[] [seed-bc] bloc U",
-    "test_damage_catalog_live.py::test_normal_attack_bit_exact[admecBossManipulus] -- HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live. Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune assertion n'a ete evaluee (cf. conftest, bloc \u00ab un SKIP harnais \u00bb).  Raison d'origine : Skipped: build runner KO (rl_duel): BeAdjacent 0->10'] | retires=[] [seed-bc] bloc "
+    "test_damage_catalog_live.py::test_normal_attack_bit_exact[adeptSmnGeminaeSuperia] -- HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live. Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune assertion n'a ete evaluee (cf. conftest, bloc « un SKIP harnais »).  Raison d'origine : Skipped: build runner KO (rl_duel): jacent 0->10'] | retires=[] [seed-bc] bloc Unit",
+    "test_damage_catalog_live.py::test_normal_attack_bit_exact[admecBossBelisarius] -- HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live. Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune assertion n'a ete evaluee (cf. conftest, bloc « un SKIP harnais »).  Raison d'origine : Skipped: build runner KO (rl_duel): eAdjacent 0->10'] | retires=[] [seed-bc] bloc U",
+    "test_damage_catalog_live.py::test_normal_attack_bit_exact[admecBossManipulus] -- HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live. Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune assertion n'a ete evaluee (cf. conftest, bloc « un SKIP harnais »).  Raison d'origine : Skipped: build runner KO (rl_duel): BeAdjacent 0->10'] | retires=[] [seed-bc] bloc "
    ],
    "passed": 0,
    "sec": 42.9,
@@ -2878,6 +2878,19 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/test_mortarions_plague_wind_decision_live.py": {
+   "_at": 1785774501,
+   "_blob": "ff1b08e060d93164e0803253693547610684a26d",
+   "_commit": "d857fd7cf2cb71336b565303fabf2c9ff890dc62",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 17,
+   "sec": 487.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/test_move_tile_sweep_order_live.py": {
    "_at": 1785765555,
    "_blob": "2692179ea7d31ccf4affecefbbf68b3b2f1cfa07",
@@ -2899,6 +2912,19 @@
    "messages": [],
    "passed": 2,
    "sec": 7.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/test_plague_wind_prediction_live.py": {
+   "_at": 1785774501,
+   "_blob": "cfad3c3a832f114ba8b1035c71846f6e852c523d",
+   "_commit": "d857fd7cf2cb71336b565303fabf2c9ff890dc62",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 22,
+   "sec": 538.0,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0

@@ -1086,12 +1086,14 @@ class PlagueWindAbility(ActiveAbility):
                 "dsl": True}
 
 
-# ============== MortarionsPlagueWind (deathBossMortarion, actif 1093) -- vagues ==============
+# ========== Vagues de la face DECISION -- PARTAGEES par PlagueWind (1035) et 1093 ==========
 #
 # Les TROIS methodes de l'ability que `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$
-# CalculateCustomUtility` appelle pour reconstruire ses vagues. Leurs corps sont DEDUPLIQUES par
-# IL2CPP -- ghidra les nomme d'apres UN proprietaire arbitraire, jamais d'apres l'appelant. On les
-# cite donc sous le nom que ghidra rend, et on lit leur STRUCTURE :
+# CalculateCustomUtility`, `...MortarionsPlagueWindPlaybook$$MakeDamagePredictions` ET
+# `IdunBattle.AI.Playbook.Loki.PlagueWindPlaybook$$MakeDamagePredictions` appellent pour
+# reconstruire leurs vagues. Leurs corps sont DEDUPLIQUES par IL2CPP -- ghidra les nomme d'apres UN
+# proprietaire arbitraire, jamais d'apres l'appelant. On les cite donc sous le nom que ghidra rend,
+# et on lit leur STRUCTURE :
 #
 #   t1 = `...StrikeFromTheShadowsAbility$$GetTarget(ability)`
 #        = `return *(*(ability+0x30)+0x90) + 0x60` = le selecteur partage `<DSLSelectors+0x60>`
@@ -1114,15 +1116,24 @@ class PlagueWindAbility(ActiveAbility):
 # raison pour laquelle cette fonction n'est pas `plague_wind_target_selectors` :
 # `...MortarionsPlagueWindAbility$$ExecuteBehaviour` (comme `...PlagueWindAbility$$ExecuteBehaviour`)
 # enveloppe CHACUNE des trois vagues dans un `DSLSelectors$$Cache` -- la memoisation qui fige un
-# ensemble entre les bandes de degat. Les trois methodes ci-dessus n'en ont AUCUN : le playbook les
-# appelle a froid, sur un etat que rien ne mute (aucune attaque n'est executee pendant l'evaluation
-# d'une utilite). Porter le `Cache` cote decision serait donc un mirror INFIDELE, sans consequence
-# observable ici -- on porte ce que le decompile montre.
+# ensemble entre les bandes de degat. Les trois methodes ci-dessus n'en ont AUCUN : les playbooks
+# les appellent a froid, sur un etat que rien ne mute (aucune attaque n'est executee pendant
+# l'evaluation d'une utilite). Porter le `Cache` cote decision serait donc un mirror INFIDELE, sans
+# consequence observable ici -- on porte ce que le decompile montre.
+#
+# ⚠ CES TROIS CORPS SONT APPELES PAR LES DEUX PLAYBOOKS, aux MEMES adresses (lecture directe des
+# deux `MakeDamagePredictions` : `PlagueWindPlaybook$$MakeDamagePredictions` et
+# `MortarionsPlagueWindPlaybook$$MakeDamagePredictions` appellent litteralement les MEMES fonctions).
+# C'est pourquoi cette fonction ne porte PAS le nom de 1093 : elle est le mirror d'un artefact
+# PARTAGE, et 1035 le consomme autant que 1093. Ce que la deduplication IL2CPP masque, ce n'est pas
+# une ressemblance -- c'est l'IDENTITE du code.
 
 
-def mortarions_plague_wind_target_selectors() -> tuple:
-    """Les TROIS vagues de `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$
-    CalculateCustomUtility` (ability 1093) -- cf. le bloc ci-dessus.
+def plague_wind_wave_selectors() -> tuple:
+    """Les TROIS vagues de la face DECISION de `PlagueWind` (1035) et `MortarionsPlagueWind` (1093)
+    -- `...PlagueWindPlaybook$$MakeDamagePredictions`,
+    `...MortarionsPlagueWindPlaybook$$MakeDamagePredictions` et
+    `...MortarionsPlagueWindPlaybook$$CalculateCustomUtility` -- cf. le bloc ci-dessus.
 
       * `t1` = `Target()` -- le selecteur partage `<DSLSelectors+0x60>`, evalue sur le `target` de
         l'`AbilityEntities` que le playbook construit.
@@ -1133,8 +1144,8 @@ def mortarions_plague_wind_target_selectors() -> tuple:
         `adjacent_units` (source = un ENSEMBLE) : l'exclusion native y est l'APPARTENANCE a la
         source, pas une distance par-centre.
 
-    Nœuds NEUFS a chaque appel (le natif reconstruit les trois selecteurs a chaque
-    `CalculateCustomUtility`), donc aucun etat porte d'une evaluation a la suivante."""
+    Nœuds NEUFS a chaque appel (le natif reconstruit les trois selecteurs a chaque appel de
+    playbook), donc aucun etat porte d'une evaluation a la suivante."""
     t1 = Target()                                                # <DSLSelectors+0x60>
     t2 = Enemies(adjacent_units(t1))                             # Enemies(<+0x48>, AdjacentUnits(t1, 1, 3), 3)
     t3 = Sub(Sub(Unique(Enemies(adjacent_units(t2))),            # Unique(Enemies(AdjacentUnits(t2)))
@@ -1156,5 +1167,5 @@ def mortarions_plague_wind_psyker_selector() -> "UnitsWithTrait":
     decompile, dans cet ordre. AUCUN `Unique` par-dessus : les trois vagues sont deja disjointes par
     construction (`t3` retranche `t1` et `t2` ; `t2` exclut `t1` via le `- origin` d'`AdjacentUnits`),
     et le natif n'en insere pas."""
-    t1, t2, t3 = mortarions_plague_wind_target_selectors()
+    t1, t2, t3 = plague_wind_wave_selectors()
     return UnitsWithTrait(Union(Union(t1, t2), t3), int(UnitTrait.Psyker))   # 0x3ea = 1002
