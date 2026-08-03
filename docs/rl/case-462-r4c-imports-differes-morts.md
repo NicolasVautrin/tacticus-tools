@@ -120,7 +120,16 @@ d'import, ni à l'index, le probe FAIL. Contre-épreuve mesurée (racine d'impor
 `scripts/pythonn`) : **0 module à l'index, `FAIL`, rc=1** — au lieu du `PASS` qu'il aurait rendu
 sans l'ancrage.
 
-**Coût** : **35,5 s** de mur pour 1 638 fichiers, dont ~25 s de lecture+parse (le filtre système
+**Le faux positif qu'il faut chercher avant de le croire : la COLLISION de nom de module.** Le
+dépôt compte **861** basenames partagés entre `scripts/python/*.py` et un fichier plus profond
+(`base`, `context`, `nodes`, `utilities`…), et **362** fichiers insèrent un chemin littéral dans
+`sys.path`. Un fichier qui insère un répertoire profond puis fait `from <basename> import X`
+résoudrait, chez le cliquet, vers l'homonyme de premier niveau — et rougirait à tort. **Mesuré :
+ZÉRO occurrence** (croisement des chemins insérés × modules bare importés × basenames présents des
+deux côtés). Le risque est latent, pas actuel — résidu `#462-r4c-r4`.
+
+**Coût** : **35,5 s** de mur isolé pour 1 638 fichiers, **61,1 s** dans la banque à 16 en
+parallèle (20e sur 37, très en dessous du mur de **391,7 s** que dominent les shards `probe_457`) — dont ~25 s de lecture+parse (le filtre système
 sur les extensions exécutables, cf. `repo_read`). Deux décisions de conception l'ont amené là
 depuis **~85 s** : index **PARESSEUX** (quelques centaines de modules sont réellement cible d'un
 `from … import`, pas 1 635) et **une seule descente d'AST** par fichier (l'import différé et la
@@ -175,6 +184,12 @@ d'un refus légitime).
   (0x504 = 1284, `ECHOES_GHOST_EFFECT`) — n'a **aucun** équivalent dans ce probe : il n'existe
   toujours qu'un seul `case`, monté sur `thousTerminator`. Canal : un `--case ghost-echoes` sur
   un porteur de `EchoesFromTheWarp` (1219), même décomposition.
+* **`#462-r4c-r4`** — **Risque LATENT de faux positif par collision de nom de module** : un
+  fichier qui insère un répertoire profond dans `sys.path` puis importe un bare name homonyme
+  d'un `scripts/python/*.py` serait résolu vers le mauvais fichier. **861** basenames en
+  collision, **362** fichiers qui insèrent un chemin littéral, **0** occurrence du croisement
+  aujourd'hui. Canal si ça survient : ne résoudre un bare name que si les racines `sys.path`
+  déclarées par le fichier ne l'exposent pas ailleurs — écarter (`--verbose`) au lieu de rougir.
 * **`#462-r4c-r3`** — Le cliquet ne balaie **que le Python**. Le pendant TypeScript existe
   (`probe_365`) mais son critère est la CIBLE (absente/gitignorée/vide), jamais le **NOM** :
   un `import { X } from "./y.js"` où `y.ts` n'exporte plus `X` n'est gardé par rien côté
