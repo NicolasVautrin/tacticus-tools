@@ -1788,11 +1788,15 @@ class InstrumentsOfVengeancePlaybook(NonAttackComparablePlaybook):
         `GetSurroundingUnits(casterPosition, 2, includeCenter: false)` filtre par `IsEnemy(u, caster)`.
         Disque hex PUR de rayon 2, centre EXCLU, SANS porte d'elevation
         (`battle_query.is_surrounding`)."""
-        return [u for u in (ctx.enemies or [])
-                if ((u.get("pos") or {}).get("col") is not None
-                    and bq.is_surrounding(caster_tile,
-                                          (u["pos"]["col"], u["pos"]["row"]),
-                                          self.SURROUNDING_RANGE, include_center_tile=False))]
+        out = []
+        for u in (ctx.enemies or []):
+            p = (u or {}).get("pos") or {}
+            if p.get("col") is None or p.get("row") is None:
+                continue                       # hors plateau : sur aucune tuile du disque
+            if bq.is_surrounding(caster_tile, (p["col"], p["row"]),
+                                 self.SURROUNDING_RANGE, include_center_tile=False):
+                out.append(u)
+        return out
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
         adj_ids = {u.get("id") for u in self._adjacent_enemies(ctx, caster_tile)}
