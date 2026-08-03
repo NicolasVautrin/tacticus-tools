@@ -371,7 +371,7 @@ le NOM change (`test_*.py` → rouge, `_*.py` → vert).
   l'autre critère (le résidu **#455-r2 reste ouvert pour celui-là**).
 * **STATIQUE** — étape 3 du cliquet, périmètre **dérivé** (`git ls-files` des `testpaths` de
   `pytest.ini`, motifs lus dans `python_files`/`python_functions`). Le volet runtime ne voit que
-  les fichiers qu'une passe **joue** ; **410 des 530** fichiers de test sont `_live.py` et personne
+  les fichiers qu'une passe **joue** ; **417 des 533** fichiers de test sont `_live.py` et personne
   ne les rejoue en entier, donc un fichier vidé peut n'être **plus jamais** collecté.
 
 **Pourquoi statique et pas une collecte réelle** : `pytest --collect-only` sur les 530 fichiers coûte
@@ -383,7 +383,7 @@ collectés OK, **0** à zéro item — même verdict que l'AST), pas à le rempl
 suffit à déclarer le fichier non vide. Un fichier « déclaré mais non collectable » lui échappe donc
 — et c'est exactement ce que le volet runtime attrape. Chacun voit ce que l'autre ne peut pas voir.
 
-**État du gisement, re-dérivé le 2026-08-03** : **530** fichiers de test versionnés, **0** sans
+**État du gisement, re-dérivé le 2026-08-03** : **533** fichiers de test versionnés, **0** sans
 test — mesuré deux fois, par AST et par collecte réelle. C'est donc un **cliquet**, pas une dette :
 zéro à tenir, et la seule chose qui puisse le rouvrir est notre propre cadence.
 
@@ -402,14 +402,23 @@ zéro à tenir, et la seule chose qui puisse le rouvrir est notre propre cadence
 
 ### Relevé de la livraison (2026-08-03)
 
-Banque jouée **deux fois**, avant et après rebase sur `origin/master` (11 commits d'écart) :
-**35 cliquets, VERTE** dans les deux cas — murs 520 s puis 353,8 s. `probe_455` y pèse 191,2 s puis
-154 s, **loin sous le mur** (`probe_457:s7`, 353,6 s) : coût marginal en parallèle nul, ce qui est
-le critère d'admission, jamais le coût absolu. `probe_391` et `probe_440` verts — le volet statique
-ne fait que **lire**.
+Banque jouée **trois fois** — avant rebase, puis après chacun des deux rebases sur `origin/master`
+(11 puis 2 commits d'écart, le second amenant #455-r4, qui touche ce fichier et le backlog :
+conflits résolus à la main) : **35 cliquets, VERTE** les trois fois.
+
+| relevé | mur | `probe_455` | cliquet le plus long |
+|---|---|---|---|
+| avant rebase | 520 s | 191,2 s | `probe_457:s4`, 400,2 s |
+| après rebase 1 | 353,8 s | 154 s | `probe_457:s7`, 353,6 s |
+| après rebase 2 | 522,1 s | 383,2 s | `probe_457:s7`, 491,3 s |
+
+Le mur reste tenu par `probe_457` dans les trois cas — c'est le **coût marginal en parallèle** qui
+est le critère d'admission, jamais le coût absolu. L'écart entre les trois relevés est de la
+**contention** (plusieurs agents actifs), pas du travail : chiffres à re-dériver, pas à citer.
+`probe_391` et `probe_440` verts partout — le volet statique ne fait que **lire**.
 
 Non-régression la plus large disponible : les 8 shards de `probe_457` jouent l'ensemble des tests
 offline **avec le nouveau hook actif** dans le conftest de production, et aucun ne rougit.
 
-Le rebase a fait entrer **3 fichiers de test neufs** (530 → 533) : l'étape 3 les a absorbés sans
+Les rebases ont fait entrer **3 fichiers de test neufs** (530 → 533) : l'étape 3 les a absorbés sans
 qu'aucune liste ne soit touchée — la propriété du périmètre dérivé, vérifiée en passant.
