@@ -61,7 +61,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hexgeo                                                        # noqa: E402
 from rl_collect_batch import _resolve_session                        # noqa: E402
 from probe_193c_move_playbook_terms import (_r, _build, _apply_native, _visual_map,  # noqa: E402
-                                            _port_leaves)
+                                            _port_leaves, x_port)
 from probe_242_fabricator_claw_cap import (ABILITY, CARRIER, KEY, MECH_TRAIT,  # noqa: E402
                                            _seed_bc_montage, _drive_cluster, _hp_by_pos, _counts)
 
@@ -98,7 +98,7 @@ def _report(sid, rid, ctx, dv, uid, hp, wt, pb, nocap, dry):
     rows = {}
     for t in (ctx.action_tiles or []):
         leaves, leaf_ctx = _port_leaves(ctx, t)
-        base = sum(leaves.values()) - leaves.get(8, 0.0) - leaves.get(9, 0.0)
+        base = x_port(leaves)                  # foyer UNIQUE du retranchement (#254, cf. `x_port`)
         t_cap = pb.calculate_movement_utility_in_steps(t, leaf_ctx, wt)
         t_sum = nocap.term(t, leaf_ctx, wt)
         nm, nr = _counts(leaf_ctx, t, hp)

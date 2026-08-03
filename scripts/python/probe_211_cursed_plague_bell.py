@@ -45,7 +45,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_pin import BuildPinRefused                          # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc            # noqa: E402
 from probe_193c_move_playbook_terms import (                   # noqa: E402
-    _apply_native, _build, _by_tile, _exiger_build_des_rva, _one, _port_leaves, _visual_map)
+    _apply_native, _build, _by_tile, _exiger_build_des_rva, _one, _port_leaves, _visual_map,
+    x_port)
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
@@ -144,7 +145,7 @@ def _confront(sid, rid, dv, ctx, uid, tterm, elev, leaf, cases, rows):
         amputated = {}
         for t in tiles:
             lv = _port_leaves(ctx, t)[0]
-            amputated[t] = sum(lv.values()) - lv.get(8, 0.0) - lv.get(9, 0.0)
+            amputated[t] = x_port(lv)          # foyer UNIQUE du retranchement (#254, cf. `x_port`)
     finally:
         if saved is not None:
             TRIGGERED_MOVE_PLAYBOOKS[ABILITY] = saved
@@ -154,7 +155,7 @@ def _confront(sid, rid, dv, ctx, uid, tterm, elev, leaf, cases, rows):
         if None in (vt, ve, vf):
             continue
         leaves, leaf_ctx = _port_leaves(ctx, t)
-        p_x = sum(leaves.values()) - leaves.get(8, 0.0) - leaves.get(9, 0.0)
+        p_x = x_port(leaves)                   # foyer UNIQUE du retranchement (#254, cf. `x_port`)
         term = TRIGGERED_MOVE_PLAYBOOKS[ABILITY].calculate_movement_utility_in_steps(t, leaf_ctx,
                                                                                     ctx.wt)
         nb = []
