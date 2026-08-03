@@ -40,6 +40,10 @@ BRAS
                                                     PAS des summons -- c'est le quirk) ; 1035 : x1
   summon_V     : V porte `Summon`, T non         -> 1093 : x1 PARTOUT, y compris sur V lui-meme
                                                     (le trait de l'unite frappee n'entre pas)
+  wide         : geometrie DERIVEE du boardGraph -> DEUX unites en vague 2, une en vague 3
+                                                    (4 events). GENERALISATION de la multiplicite :
+                                                    les trois bras `line` ne peuplent jamais une
+                                                    vague de plus d'une unite.
 
 MUTATIONS ADVERSARIALES (le port, pas le natif)
 -----------------------------------------------
@@ -89,13 +93,25 @@ T = (3, 1)
 V = (3, 2)
 W = (3, 3)
 F = (0, 1)
-LAYOUT = {TGT: T, SEC: V, TER: W, FAR: F}
+LINE_LAYOUT = {TGT: T, SEC: V, TER: W, FAR: F}
 
 # Champs compares event par event -- les MEMES que #305 (`probe_305_massdriver_splash`).
 CMP_KEYS = ("appliedHits", "healthDmgMin", "healthDmgMax", "rawHealthDmgMin", "rawHealthDmgMax")
 
-# Un bras = la ligne `BC.Units[].Traits` d'UNE unite (le reste est identique). `None` = aucun patch.
-ARMS = {"plain": None, "summon_T": (TGT, ["Summon"]), "summon_V": (SEC, ["Summon"])}
+# Un bras = une GEOMETRIE + un patch `BC.Units[].Traits` sur UNE unite (`None` = aucun patch).
+#   `line` : la grappe en ligne ci-dessus -- UNE unite par vague (1/1/1), 3 events.
+#   `wide` : geometrie DERIVEE du `boardGraph` vivant -- DEUX unites en vague 2, une en vague 3
+#            (1/2/1), 4 events. C'est la generalisation de la MULTIPLICITE : les trois bras `line`
+#            ne verifient jamais qu'une vague peuple plus d'un event, ni que la vague 3 se derive
+#            de PLUSIEURS ancres.
+ARMS = {"plain": {"layout": "line", "patch": None},
+        "summon_T": {"layout": "line", "patch": (TGT, ["Summon"])},
+        "summon_V": {"layout": "line", "patch": (SEC, ["Summon"])},
+        "wide": {"layout": "wide", "patch": None}}
+
+# Nombre d'events attendu par bras (identique pour les deux abilities : le SET ne depend pas de
+# l'ability, seules les BASES en dependent).
+EXPECT_EVENTS = {"plain": 3, "summon_T": 3, "summon_V": 3, "wide": 4}
 
 
 def _run(args) -> subprocess.CompletedProcess:
@@ -146,7 +162,7 @@ def build(arm: str) -> int:
            "--unit-stat", "%s:Movement=0" % CASTER_PW,
            "--unit-stat", "%s:Movement=0" % CASTER_MPW,
            "--state-file", str(STATE)]
-    patch = ARMS[arm]
+    patch = ARMS[arm]["patch"]
     if patch is not None:
         vid, traits = patch
         # `--unit-stat` separe les CHAMPS par une virgule : le JSON ne doit pas en contenir.
@@ -167,15 +183,64 @@ def dispose() -> None:
         print("[dispose] runner du state-file libere")
 
 
-def place(rid: int) -> None:
+def wide_layout(rid: int) -> dict:
+    """Geometrie DERIVEE du `boardGraph` vivant : `T` + **DEUX** voisins de `T` (vague 2) + un
+    voisin de l'un d'eux qui n'est PAS voisin de `T` (vague 3).
+
+    L'adjacence lue est celle du `boardGraph` (`tiles[].neighbours`), c.-a-d. celle
+    d'`IterateAdjacentTiles` avec sa porte d'elevation -- jamais `hexgeo`, qui ignore l'elevation
+    et rangerait dans une vague une tuile que le natif exclut. Meme voie que #305.
+
+    Les tuiles des DEUX casters sont bannies : ils ne bougent pas (`Movement=0`) et un `act move`
+    vers une tuile occupee echouerait, ce que `_assert_placed` transformerait en arret -- mais
+    autant ne pas les proposer."""
+    bg = L._rpc("boardGraph", [{"runnerId": rid}])
+    tiles = bg.get("tiles") or []
+    by_id = {t.get("id"): t for t in tiles}
+    by_pos = {(t.get("col"), t.get("row")): t for t in tiles}
     u = _units(rid)
-    for vid, to in LAYOUT.items():
+    banned = {u[CASTER_PW][1], u[CASTER_MPW][1], T}
+    ttile = by_pos.get(T)
+    if ttile is None:
+        raise SystemExit("tuile T=%s absente du boardGraph" % (T,))
+
+    def _free_neighbours(tile, extra_banned=frozenset()) -> list:
+        out = []
+        for i in (tile.get("neighbours") or []):
+            t = by_id.get(i)
+            if t is None or not t.get("walkable"):
+                continue
+            p = (t.get("col"), t.get("row"))
+            if p in banned or p in extra_banned:
+                continue
+            out.append(p)
+        return sorted(out)
+
+    ring1 = _free_neighbours(ttile)
+    if len(ring1) < 2:
+        raise SystemExit("T=%s n'a que %d voisin(s) walkable libre(s) : le bras `wide` exige 2 "
+                         "unites en vague 2 -- changer de board/seed" % (T, len(ring1)))
+    v1, v2 = ring1[0], ring1[1]
+    # La vague 3 = adjacent a un SECONDAIRE et PAS a la cible : on bannit tout l'anneau 1.
+    ring2 = _free_neighbours(by_pos[v1], extra_banned=set(ring1))
+    if not ring2:
+        raise SystemExit("aucun voisin de %s hors de l'anneau 1 de T : pas de vague 3" % (v1,))
+    return {TGT: T, SEC: v1, TER: v2, FAR: ring2[0]}
+
+
+def layout_for(rid: int, arm: str) -> dict:
+    return LINE_LAYOUT if ARMS[arm]["layout"] == "line" else wide_layout(rid)
+
+
+def place(rid: int, layout: dict) -> None:
+    u = _units(rid)
+    for vid, to in layout.items():
         if vid not in u:
             raise SystemExit("unite %r absente du runner" % vid)
         _run(["act", "move", "--unit", str(u[vid][0]), "--to", "%d,%d" % to,
               "--state-file", str(STATE), "--runner", str(rid)])
     got = {v: p for v, (_i, p) in _units(rid).items()}
-    bad = [(v, to, got.get(v)) for v, to in LAYOUT.items() if got.get(v) != to]
+    bad = [(v, to, got.get(v)) for v, to in layout.items() if got.get(v) != to]
     if bad:
         # Un `act move` REFUSE ne leve rien (`rl_duel` rend `ok=False` sur une unite adverse alors
         # que le deplacement EST applique) : seule la position RELUE fait foi.
@@ -354,19 +419,24 @@ def _mutate(kind: str):
 EXPECT_MUTATION = {
     # mutation -> {bras: doit ROUGIR ?}. Une mutation qui ne rougit NULLE PART ne garde rien ;
     # une qui rougit PARTOUT ne discrimine pas ce qu'elle pretend garder.
-    "waves": {"plain": True, "summon_T": True, "summon_V": True},
-    "summon": {"plain": False, "summon_T": True, "summon_V": False},
-    "quirk": {"plain": False, "summon_T": True, "summon_V": True},
+    "waves": {"plain": True, "summon_T": True, "summon_V": True, "wide": True},
+    "summon": {"plain": False, "summon_T": True, "summon_V": False, "wide": False},
+    "quirk": {"plain": False, "summon_T": True, "summon_V": True, "wide": False},
 }
 
 
 def run_arm(arm: str, mutations: bool = True) -> dict:
     rid = build(arm)
-    place(rid)
-    print("[bras %s] runner=%d" % (arm, rid))
+    layout = layout_for(rid, arm)
+    place(rid, layout)
+    print("[bras %s] runner=%d layout=%s" % (arm, rid, layout))
     base = measure(rid)
     ok = all(r["match"] for r in base.values())
-    print("[bras %s] ACCORD natif<->port : %s" % (arm, "OK" if ok else "KO"))
+    n_ok = all(sum(len(v) for v in r["nat"].values()) == EXPECT_EVENTS[arm]
+               for r in base.values())
+    ok = ok and n_ok
+    print("[bras %s] ACCORD natif<->port : %s | events attendus %d : %s"
+          % (arm, "OK" if ok else "KO", EXPECT_EVENTS[arm], "OK" if n_ok else "KO"))
     muts = {}
     if mutations:
         for kind, per_arm in sorted(EXPECT_MUTATION.items()):
@@ -379,7 +449,7 @@ def run_arm(arm: str, mutations: bool = True) -> dict:
             muts[kind] = {"red": red, "want": want, "ok": red == want}
             print("  [mutation %-6s] rouge=%s (attendu %s) %s"
                   % (kind, red, want, "OK" if red == want else "KO"))
-    return {"arm": arm, "rid": rid, "ok": ok, "base": base, "mutations": muts}
+    return {"arm": arm, "rid": rid, "ok": ok, "base": base, "mutations": muts, "layout": layout}
 
 
 def main() -> int:

@@ -24,11 +24,15 @@ D. **1035 N'A PAS le facteur.** Son `d_i` est `MinMaxDamage{,2,3}Average` NUE
    (`StranglethornCannonAbility$$GetDamageAmountMain` / `$$GetDamageAmountAdjacent` /
    `PlagueWindAbility$$GetDamage3`). Les deux abilities sont mesurees sur le MEME etat, dans les
    MEMES bras : si le port appliquait le facteur aux deux, 1035 rougirait sur `summon_T`.
-E. **LES MUTATIONS DEBORDENT ZERO.** `waves` (pas de batch 2/3) rougit dans les trois bras ;
+E. **LES MUTATIONS DEBORDENT ZERO.** `waves` (pas de batch 2/3) rougit dans TOUS les bras ;
    `summon` (facteur retire) rougit sur `summon_T` SEUL ; `quirk` (formule evaluee par unite
-   frappee) rougit sur `summon_T` ET `summon_V` mais pas sur `plain`. Une mutation qui rougirait
-   partout ne discriminerait rien.
+   frappee) rougit sur `summon_T` ET `summon_V` mais pas sur `plain` ni `wide`. Une mutation qui
+   rougirait partout ne discriminerait rien.
 F. **La structure de la formule et l'arrondi, OFFLINE** -- sans runner.
+G. **LA MULTIPLICITE DANS UNE VAGUE** (bras `wide`, geometrie DERIVEE du `boardGraph` vivant) :
+   DEUX unites en vague 2, une en vague 3, soit QUATRE events dont deux partagent la base de la
+   vague 2. Les trois bras `line` ne peuplent jamais une vague de plus d'une unite -- un port qui
+   emettrait un event par VAGUE au lieu d'un par UNITE y serait indiscernable.
 
 CE QUI N'EST PAS COUVERT, ET POURQUOI (dit plutot que masque) :
 
@@ -225,16 +229,38 @@ def test_native_and_port_agree_event_by_event_in_every_arm(arms):
                 % (name, aid, res["deltas"][:6], res["missing"], res["extra"]))
 
 
-def test_three_events_are_emitted_one_per_wave(arms):
-    """A -- le COMPTE. La grappe est T / voisin de T / voisin du voisin + un temoin LOIN : le natif
-    rend exactement trois events, et le temoin n'en recoit aucun (borne de la chaine)."""
+def test_the_event_count_is_the_one_the_geometry_dictates(arms):
+    """A -- le COMPTE. Bras `line` : T / voisin de T / voisin du voisin + un temoin LOIN -> trois
+    events, le temoin exclu (borne de la chaine). Bras `wide` : DEUX voisins de T -> quatre."""
     for name, r in arms.items():
+        want = PB.EXPECT_EVENTS[name]
         for aid, res in r["base"].items():
             n_nat = sum(len(v) for v in res["nat"].values())
             n_off = sum(len(v) for v in res["off"].values())
-            assert n_nat == n_off == 3, (
-                "bras %s / ability %d : natif %d events, port %d (attendu 3 -- une vague par "
-                "anneau, le temoin exclu)" % (name, aid, n_nat, n_off))
+            assert n_nat == n_off == want, (
+                "bras %s / ability %d : natif %d events, port %d (attendu %d)"
+                % (name, aid, n_nat, n_off, want))
+
+
+def test_a_wave_with_TWO_units_gives_both_the_SAME_base(arms):
+    """A, GENERALISATION -- bras `wide` : la vague 2 porte DEUX unites. Le natif leur donne la MEME
+    base (`MinMaxDamage2Average`), DISTINCTE de celle de la vague 1 et de celle de la vague 3.
+
+    Les trois bras `line` ne peuvent pas voir ce point : ils ne peuplent jamais une vague de plus
+    d'une unite, donc un port qui n'emettrait qu'UN event par vague (au lieu d'un par UNITE) y
+    serait indiscernable. Le montage derive ses tuiles du `boardGraph` vivant -- la geometrie
+    n'est pas la meme que celle des bras `line`, ce qui en fait aussi une generalisation du SET."""
+    r = arms["wide"]["base"]
+    for aid in (PLAGUE_WIND, MORTARIONS):
+        bases = sorted(e["healthDmgMax"] for evs in r[aid]["nat"].values() for e in evs)
+        assert len(bases) == 4, "bras wide : %d events, attendu 4" % len(bases)
+        # 4 events = {vague1} + {vague2 x2} + {vague3} -> une valeur EXACTEMENT en double.
+        doubled = [v for v in set(bases) if bases.count(v) == 2]
+        assert len(doubled) == 1 and len(set(bases)) == 3, (
+            "ability %d : les 4 events devraient valoir 3 valeurs distinctes dont UNE en double "
+            "(les deux unites de la vague 2) -- lu %r" % (aid, bases))
+        off = sorted(e["healthDmgMax"] for evs in r[aid]["off"].values() for e in evs)
+        assert off == bases, "ability %d : port %r != natif %r" % (aid, off, bases)
 
 
 def test_the_summon_factor_doubles_all_three_waves_of_1093_only(arms):

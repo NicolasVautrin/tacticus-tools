@@ -3184,18 +3184,26 @@ par cible, champ par champ** (`appliedHits`, `healthDmgMin/Max`, `rawHealthDmgMi
 | **plain** | `[4845,7269]` / `[3651,5475]` / `[1795,2693]` | `[2693,4040]` / `[3890,5834]` / `[4786,7180]` |
 | **summon_T** (T porte `Summon`) | IDENTIQUE au bras plain | `[5385,8079]` / `[7779,11667]` / `[9573,14359]` |
 | **summon_V** (V porte `Summon`, T non) | IDENTIQUE | IDENTIQUE au bras plain |
+| **wide** (2 unites en vague 2) | `[4845,7269]` / `[3651,5475]` **x2** / `[1795,2693]` | `[2693,4040]` / `[3890,5834]` **x2** / `[4786,7180]` |
 
-**MATCH bit-a-bit natif<->port sur les 18 events** (3 bras x 2 abilities x 3 vagues). Le bras
+**MATCH bit-a-bit natif<->port sur les 26 events** (3 bras x 2 x 3 vagues + 1 bras x 2 x 4). Le bras
 `summon_T` prouve le quirk dans un sens (V et W ne sont PAS des summons et doublent quand meme) ;
 `summon_V` le prouve dans l'autre (le summon FRAPPE ne double rien, pas meme son propre event).
 
+**Le bras `wide` est la GENERALISATION du SET**, et sa geometrie est DERIVEE du `boardGraph` vivant
+(adjacence native, porte d'elevation comprise — jamais `hexgeo`) : `T` + **DEUX** voisins libres de
+`T` + un voisin de l'un d'eux hors de l'anneau 1. Les trois bras `line` ne peuplent JAMAIS une vague
+de plus d'une unite : un port qui emettrait un event par VAGUE au lieu d'un par UNITE y serait
+indiscernable. Ici les deux unites de la vague 2 recoivent la MEME base et une valeur DISTINCTE de
+celles des vagues 1 et 3 (4 events = 3 valeurs, dont une en double).
+
 **Trois mutations adversariales, chacune DEBORDANT ZERO** :
 
-| mutation | plain | summon_T | summon_V |
-|---|---|---|---|
-| `waves` — `_MAKE_DMG_EXTRA_EVENTS` vide (retour a UN event) | ROUGE | ROUGE | ROUGE |
-| `summon` — `wave_damage_formula` rend toujours l'avg nue | vert | **ROUGE** | vert |
-| `quirk` — formule re-evaluee PAR UNITE FRAPPEE | vert | **ROUGE** | **ROUGE** |
+| mutation | plain | summon_T | summon_V | wide |
+|---|---|---|---|---|
+| `waves` — `_MAKE_DMG_EXTRA_EVENTS` vide (retour a UN event) | ROUGE | ROUGE | ROUGE | ROUGE |
+| `summon` — `wave_damage_formula` rend toujours l'avg nue | vert | **ROUGE** | vert | vert |
+| `quirk` — formule re-evaluee PAR UNITE FRAPPEE | vert | **ROUGE** | **ROUGE** | vert |
 
 ⚠ La premiere version de la mutation `quirk` etait **INERTE** et rendait vert la ou elle devait
 rougir : elle changeait l'ARBRE (`HasTrait(Subject())`), or `ctx.subject` est `None` hors `Filter`,
