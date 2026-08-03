@@ -109,11 +109,16 @@ def _ring_placement(bc, anchor, n_units, occupied=()):
     return cands[:n_units]
 
 
-def enemy_layout(sid):
+def enemy_layout(sid, a_units=None):
     """Build de RECONNAISSANCE : rend `{visualId: (col,row)}` du camp adverse. Il est place par la BC
     (spawn points), independamment des positions joueur -> a seed et BC egales, REPRODUCTIBLE dans le
-    build suivant."""
-    rid = _build(sid, P_UNITS, A_UNITS, anchor=None)
+    build suivant.
+
+    `a_units` (defaut `A_UNITS`) : le camp adverse a reconnaitre. Un roster REDUIT change les tuiles
+    LIBRES autour de la victime -- c'est le levier qui permet d'amener une seconde unite joueur au
+    contact quand la tuile de la cible n'a que deux voisins marchables (#462-r4b-r1)."""
+    a_units = list(a_units or A_UNITS)
+    rid = _build(sid, P_UNITS, a_units, anchor=None)
     try:
         dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
         pos = PR.positions(dv)
