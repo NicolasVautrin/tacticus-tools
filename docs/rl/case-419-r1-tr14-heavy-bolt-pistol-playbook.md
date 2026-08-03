@@ -261,7 +261,15 @@ Le montant, le profil et le nombre de coups, eux, coïncident entre les deux fac
   n'a **aucun** mirror dans `engine/runner` : une attaque de mêlée d'un `Initiate` ne fait donc pas
   partir le coup de pistolet côté exécution. Même forme que `#419-r1-tr9-r4-r3`, `#419-r1-tr10-r3`,
   `#419-r1-tr12-r3` et `#419-r1-tr13-r3`. La face DÉCISION livrée ne dit rien de l'exécution.
-* **`#419-r1-tr14-r5` — l'écart de NIVEAU hors périmètre VARIE, et il se décompose.** `port −
+* **`#419-r1-tr14-r5` — FERMÉ** (`docs/rl/case-419-r1-tr14-r5-dispatch-attaque-normale.md`). Les deux
+  termes n'en font qu'un : le port dispatchait l'attaque normale sur le **KIT gameconfig** là où
+  `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromPassive` lit
+  `UnitConfiguration.PassiveAbilities` — et `replace=True` retire précisément cette liste, ramenant
+  l'attaque normale native de `1076 MV71SniperDroneSquadAttack` à `69 Loki_NormalAttack`. Les deux
+  pistes nommées ci-dessous (feuille de dégât `has_moved`, feuille de position) sont **RÉFUTÉES par
+  mesure** : dispatch forcé sur le chemin arme, le port reproduit le natif bit à bit dans les deux
+  régimes de mouvement. Les quatre crans sont à `0.000000`. Relevé d'origine conservé ci-dessous.
+* **`#419-r1-tr14-r5` (relevé d'ouverture) — l'écart de NIVEAU hors périmètre VARIE, et il se décompose.** `port −
   natif_graft` vaut `+0.000001` (tuile A, sans mouvement), `0.000000` (tuile A, après mouvement),
   `+5.458908` (tuile B, sans mouvement) et `+16.056789` (tuile B, après mouvement). Deux composantes,
   exactes à 1e-6 : **+5.458908** dès que l'attaque évaluée est un TIR — c'est *exactement* le résidu

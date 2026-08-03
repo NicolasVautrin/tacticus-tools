@@ -70,6 +70,7 @@ from ...operations.remove_unit import RemoveUnitOperation
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effect_type import EffectType
 from ....services.battle_query import are_tiles_adjacent
+from ....services.custom_normal_attack import substitutes_normal_attack
 
 if TYPE_CHECKING:
     from ...state import State
@@ -88,29 +89,20 @@ def _drone_attack_range(unit_id: str) -> int:
     return mx if mx > 0 else 1
 
 
-def is_mv71_normal_attacker(visual_id) -> bool:
+def is_mv71_normal_attacker(visual_id, passive_abilities=None) -> bool:
     """L'attaque NORMALE de cette unité est-elle `MV71SniperDroneSquadAttack` (1076) ? Mirror du
-    dispatch natif par `ActiveAbilityComponent.NormalAttackType@0x28` (per-unit, vtable de l'instance),
-    résolu OFFLINE depuis le KIT gameconfig : porteur du passif `MV71SniperDroneSquad` (Sho'syl /
-    `tauMarksman`) — même doctrine de résolution kit que `UnitNormalAttackType` (formulas.py)."""
-    if not visual_id:
-        return False
-    v = _MV71_KIT_CACHE.get(visual_id)
-    if v is None:
-        names = []
-        for _slot, x in (GC.unit_abilities(visual_id) or {}).items():
-            if isinstance(x, str):
-                names.append(x)
-            elif isinstance(x, dict):
-                names.append(x.get("name") or x.get("id"))
-            elif isinstance(x, list):
-                names += [(y.get("name") if isinstance(y, dict) else y) for y in x]
-        v = CONFIG in names
-        _MV71_KIT_CACHE[visual_id] = v
-    return v
+    dispatch natif par `ActiveAbilityComponent.NormalAttackType@0x28`, écrit UNE fois par
+    `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` depuis
+    `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromPassive`.
 
-
-_MV71_KIT_CACHE: dict = {}
+    ⚠ La clé de dispatch native est `UnitConfiguration.PassiveAbilities` — un fait d'ENTITÉ, pas le
+    kit gameconfig. `passive_abilities` (la liste MESURÉE, `UnitContext.passive_abilities`) fait donc
+    autorité quand elle existe ; `None` = canal muet -> repli KIT, le comportement d'avant.
+    Résoudre par le kit SEUL était le fork mesuré par #419-r1-tr14-r5 : sur un bras
+    `write_grafted_seed_bc(..., replace=True)` le natif ramène l'attaque normale à `69` et le port
+    continuait de prendre le chemin drone. RE et mesure : `engine.services.custom_normal_attack`."""
+    return substitutes_normal_attack(CONFIG, passive_abilities=passive_abilities,
+                                     visual_id=visual_id)
 
 
 def _friendly_drones(state: "State", team, unit_id: str) -> list:

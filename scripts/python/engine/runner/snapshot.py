@@ -1113,6 +1113,39 @@ La branche TERTIAIRE (relique) juste apres passe `3` ; les ACTIVES ne passent pa
 configuration »."""
 
 
+def passive_ability_names_by_unit(ability_states: dict) -> dict:
+    """`{entityId: [noms de TriggeredAbilityType de HIERARCHIE 2]}` depuis le payload du RPC
+    `unitAbilityStates`.
+
+    FOYER UNIQUE du parsing. `_load_passive_abilities` (face COMBAT) et
+    `engine.playbook.scene._seed_measured_passives` (face DECISION) l'appellent toutes les deux :
+    le dispatch d'attaque normale (`engine.services.custom_normal_attack`) consomme ce champ des
+    DEUX cotes, et deux parsings distincts feraient exactement le fork « ce que la prediction
+    annonce != ce que le moteur fait » que le port proscrit.
+
+    Une unite PRESENTE dans le payload mais sans aucune entree de hierarchie 2 recoit `[]` -- une
+    MESURE (unite sans passif), a distinguer d'un canal muet, qui lui n'a aucune cle."""
+    from ..entities.triggered_ability_type import TriggeredAbilityType
+    out: dict = {}
+    for su in ((ability_states or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None:
+            continue
+        names: list[str] = []
+        for t in (su.get("triggered") or []):
+            raw = t.get("raw") or []
+            if len(raw) <= 10 or raw[10] != PASSIVE_HIERARCHY:
+                continue
+            try:
+                name = TriggeredAbilityType(int(raw[0])).name
+            except ValueError:
+                continue                      # id hors enum du build -> non ingerable, non devinable
+            if name not in names:             # `TryAdd` sur une KeyedCollection : une entree par id
+                names.append(name)
+        out[uid] = names
+    return out
+
+
 def _load_passive_abilities(state: State, ability_states: dict) -> int:
     """Seede `UnitContext.passive_abilities` depuis le RPC `unitAbilityStates` (#366-r1).
     Rend le nombre d'unites seedees.
@@ -1137,28 +1170,15 @@ def _load_passive_abilities(state: State, ability_states: dict) -> int:
     transport lie), rien n'est pose et `collect_triggered_abilities` retombe sur le gameconfig,
     STRICTEMENT comme avant. Une unite PRESENTE dans le payload mais sans aucune entree de
     hierarchie 2 recoit `[]` -- une mesure, pas une absence de mesure : c'est le cas legitime d'une
-    unite sans passif, et il doit se distinguer de « canal muet »."""
-    from ..entities.triggered_ability_type import TriggeredAbilityType
+    unite sans passif, et il doit se distinguer de « canal muet ».
+
+    Le PARSING vit dans `passive_ability_names_by_unit` (foyer partage avec la face DECISION)."""
     seeded = 0
-    for su in ((ability_states or {}).get("units") or []):
-        uid = su.get("entityId")
-        if uid is None:
-            continue
+    for uid, names in passive_ability_names_by_unit(ability_states).items():
         ent = state.get_entity(uid)
         sc = ent.get_component(StatsComponent) if ent is not None else None
         if sc is None or getattr(sc, "ctx", None) is None:
             continue
-        names: list[str] = []
-        for t in (su.get("triggered") or []):
-            raw = t.get("raw") or []
-            if len(raw) <= 10 or raw[10] != PASSIVE_HIERARCHY:
-                continue
-            try:
-                name = TriggeredAbilityType(int(raw[0])).name
-            except ValueError:
-                continue                      # id hors enum du build -> non ingerable, non devinable
-            if name not in names:             # `TryAdd` sur une KeyedCollection : une entree par id
-                names.append(name)
         sc.ctx.passive_abilities = names
         seeded += 1
     return seeded
