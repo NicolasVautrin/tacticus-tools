@@ -38,11 +38,13 @@ from engine.entities.triggered_ability_type import TriggeredAbilityType       # 
 from engine.runner.abilities.behaviours.effects import AddBondEffect          # noqa: E402
 from engine.runner.components import StatsComponent                           # noqa: E402
 from engine.runner.state import Entity, State                                 # noqa: E402
+from engine.entities.selectors import Caster, Target                          # noqa: E402
 from engine.runner.operations.triggers.dispatch.registry import (             # noqa: E402
     ABILITY_TRIGGERS, EFFECT_TRIGGERS)
 from engine.runner.operations.triggers.loki.neuroparasite import (            # noqa: E402
     NEUROPARASITE_EFFECT, NeuroparasiteAddBondEffectAbility,
     NeuroparasiteIncreaseLevelOnPinned, NeuroparasiteIncreaseLevelOnPsychicHit,
+    neuroparasite_bond_tree, neuroparasite_increase_level_tree,
     neuroparasite_maximum_level)
 
 _ON_ATTACK = 9                     # `EventTriggerType.Attack`
@@ -219,16 +221,47 @@ def test_AddBondEffect_transporte_l_abilityState():
 
     Le port ne l'exprimait PAS sur cette feuille (seul son jumeau `AddEffect` l'avait). Sans lui,
     l'instance 1218 posee offline n'aurait ni niveau ni multiplier, et `$$GetMaximumLevel` rendrait
-    `None`. Le defaut reste `False` -- les trois call-sites historiques sont inchanges."""
+    `None`. Le defaut reste `False` -- les trois call-sites historiques sont inchanges.
+
+    ⚠ Ce garde inspecte l'ARBRE (l'objet rendu par l'usine), JAMAIS le texte du `execute_*`. Sa
+    premiere ecriture faisait `\"scale_from_source=True\" in getsource(...)` et etait INCAPABLE DE
+    ROUGIR : le commentaire voisin contenait la meme chaine, donc la contre-epreuve (`True` ->
+    `False`) passait au vert. C'est le vice #439, trouve par la mutation, pas a l'oeil."""
     params = inspect.signature(AddBondEffect.__init__).parameters
     assert "scale_from_source" in params, (
         "`AddBondEffect` ne transporte plus l'`abilityState` -- le 3e argument natif est perdu")
     assert params["scale_from_source"].default is False, (
         "le defaut doit rester False : les call-sites historiques ne passent pas cet argument")
-    tree = NeuroparasiteAddBondEffectAbility(1)
-    src = inspect.getsource(type(tree).execute_behaviour)
-    assert "scale_from_source=True" in src, (
+    tree = neuroparasite_bond_tree()
+    assert isinstance(tree, AddBondEffect)
+    assert tree.effect_type == NEUROPARASITE_EFFECT
+    assert tree.scale_from_source is True, (
         "la POSE de Neuroparasite ne bake plus l'etat d'ability du Neurothrope")
-    assert "duration_rounds=None" in src, (
-        "la POSE natif passe des options VIDES -> duree DEFAUT (absente) = PERMANENT ; un "
-        "`duration_rounds` explicite serait un timer INVENTE")
+    assert tree.duration_rounds is None and tree.duration_turns is None, (
+        "la POSE native passe des options VIDES -> duree DEFAUT (absente) = PERMANENT ; une duree "
+        "explicite serait un timer INVENTE (rounds=%s turns=%s)"
+        % (tree.duration_rounds, tree.duration_turns))
+    # `source` ET `bondedEntity` sont le MEME slot natif `Owner@0x30` -> le meme selecteur cote port.
+    assert type(tree.source_ref) is type(tree.bonded_ref) is Caster, (
+        "source=%s bonded=%s : le natif passe `Owner@0x30` aux DEUX (2e et 5e arguments)"
+        % (type(tree.source_ref).__name__, type(tree.bonded_ref).__name__))
+    assert type(tree.target_ref) is Target, (
+        "les cibles doivent etre `Target@0x60` (%s)" % type(tree.target_ref).__name__)
+
+
+def test_l_arbre_de_montee_est_IncreaseEffectLevel_de_UN():
+    """`$$GetIncreaseLevelBehaviour` = `IncreaseEffectLevel(Effect@0x38, Direct(1)@DSLFormulas+0x20,
+    $$GetMaximumLevel())`.
+
+    `Direct(1)` est LU : `IdunBattleLogic.Entities.DSLFormulas$$.ctor` ecrit `+0x18 Direct(0)`,
+    `+0x20 Direct(1)`, `+0x28 Direct(2)`, `+0x30 Direct(100)`, `+0x38 Direct(-1)` -- et
+    `GetIncreaseLevelBehaviour` prend `+0x20`. Un increment de 2 doublerait la vitesse
+    d'accumulation de l'additif de degat, sans rien casser d'autre."""
+    from engine.runner.abilities.behaviours.effects import IncreaseEffectLevel as IEL
+    tree = neuroparasite_increase_level_tree(_BUFF_MAX_LEVEL_50)
+    assert isinstance(tree, IEL)
+    assert tree.effect_type == NEUROPARASITE_EFFECT
+    assert tree.amount == 1, "l'increment natif est `Direct(1)`, pas %s" % (tree.amount,)
+    assert tree.max_level == _BUFF_MAX_LEVEL_50
+    assert neuroparasite_increase_level_tree(None).max_level is None, (
+        "un cap absent doit rester `None` (= `!max.HasValue` natif), pas etre substitue")

@@ -221,16 +221,49 @@ def neuroparasite_maximum_level(state: State, eff) -> Optional[int]:
     return int(base) + int(bonus or 0)
 
 
+def neuroparasite_bond_tree() -> AddBondEffect:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.NeuroparasiteAbility$$
+    CreateBehaviour` :
+
+        AddBondEffect( 0x4c2 = 1218,
+                       abilityState = get_AbilityStateReference(this),
+                       source       = Owner@DSLSelectors+0x30,
+                       targets      = Target@DSLSelectors+0x60,
+                       bondedEntity = Owner@DSLSelectors+0x30,
+                       options      = <vide> )
+
+    `entities_from_state(state, owner, target)` pose `caster = owner` -> `Caster()` EST le selecteur
+    `Owner@0x30` sur ce vecteur (une triggered a Owner == Caster).
+    `duration_rounds=None` = les options natives VIDES -> `DefaultAmountOfRounds(0x4c2)`, absente ->
+    PERMANENT. `scale_from_source=True` = le 3e argument natif `abilityState` : l'entite-effet BAKE
+    l'etat d'ability du NEUROTHROPE, ce que relit `GetAbilityState(effect)` dans `GetMaximumLevel`.
+
+    Rendu par une USINE (patron `barbed_ovipositor_spawn_tree`) et non construit inline : c'est ce
+    qui rend l'arbre INSPECTABLE par un garde offline. Un garde qui lirait le TEXTE du `execute_*`
+    ne pourrait pas rougir -- il matcherait ses propres commentaires."""
+    return AddBondEffect(NEUROPARASITE_EFFECT, EffectType.Neuroparasite.name,
+                         Caster(), Target(), duration_rounds=None, bonded_ref=Caster(),
+                         scale_from_source=True)
+
+
+def neuroparasite_increase_level_tree(max_level: Optional[int]) -> IncreaseEffectLevel:
+    """Arbre de `IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$GetIncreaseLevelBehaviour` :
+
+        IncreaseEffectLevel( effect = Effect@DSLSelectors+0x38,
+                             amount = Direct(1)@DSLFormulas+0x20,
+                             max    = $$GetMaximumLevel() )
+
+    Frontiere #149 : feuille DECLARATIVE ici, le mutateur
+    `IdunBattle.Operations.IncreaseEffectLevelOperation` EN DESSOUS."""
+    return IncreaseEffectLevel(NEUROPARASITE_EFFECT, Caster(), _LEVEL_INCREMENT, max_level)
+
+
 def _increase_level(state: State, owner_id: int) -> Optional[dict]:
-    """`$$GetIncreaseLevelBehaviour` = `IncreaseEffectLevel(Effect@0x38, Direct(1), GetMaximumLevel())`
-    -- ARBRE DSL (feuille `IncreaseEffectLevel`, frontiere #149 : le mutateur
-    `IdunBattle.Operations.IncreaseEffectLevelOperation` est EN DESSOUS)."""
     eff = _neuroparasite_instance(state, owner_id)
     if eff is None:
         return None                              # plus d'instance -> le behaviour natif est un no-op
     ectx = ExecutionContext(state=state, rng=state.rng)
-    IncreaseEffectLevel(NEUROPARASITE_EFFECT, Caster(), _LEVEL_INCREMENT,
-                        neuroparasite_maximum_level(state, eff)).execute(
+    neuroparasite_increase_level_tree(neuroparasite_maximum_level(state, eff)).execute(
         entities_from_state(state, owner_id, owner_id), ectx)
     lvls = [p for n, p in ectx.emitted if n == "IncreaseEffectLevel"]
     if not lvls:
@@ -281,17 +314,7 @@ class NeuroparasiteAddBondEffectAbility(TriggeredAbility):
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         ectx = ExecutionContext(state=state, rng=state.rng)
-        # `AddBondEffect(0x4c2, AbilityStateReference, source=Owner@0x30, targets=Target@0x60,
-        #                bondedEntity=Owner@0x30, options=<vide>)`.
-        # `entities_from_state(state, owner, target)` pose `caster = owner` -> `Caster()` EST le
-        # selecteur `Owner@0x30` sur ce vecteur (triggered : Owner == Caster).
-        # `duration_rounds=None` = les options natives VIDES -> `DefaultAmountOfRounds(0x4c2)`,
-        # absente -> PERMANENT. `scale_from_source=True` = le 3e argument natif `abilityState` :
-        # l'entite-effet BAKE l'etat d'ability du NEUROTHROPE, ce que relit `GetAbilityState(effect)`
-        # dans `GetMaximumLevel`.
-        AddBondEffect(NEUROPARASITE_EFFECT, EffectType.Neuroparasite.name,
-                      Caster(), Target(), duration_rounds=None, bonded_ref=Caster(),
-                      scale_from_source=True).execute(
+        neuroparasite_bond_tree().execute(
             entities_from_state(state, self.owner_id, int(ev.target_id)), ectx)
         posed = [p for n, p in ectx.emitted if n == "AddBondEffect"]
         if not posed:
