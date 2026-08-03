@@ -52,6 +52,7 @@ PYDIR = Path(__file__).resolve().parent
 REPO = PYDIR.parents[1]
 sys.path.insert(0, str(PYDIR))
 
+import repo_read  # noqa: E402
 import stream_events as SE  # noqa: E402
 from symbols_layout import current_build  # noqa: E402
 
@@ -288,14 +289,19 @@ def sweep_py(verbose: bool) -> tuple:
     group_prev = _enum_map(prev[-1], GROUP_ENUM) if prev else {}
 
     fails, infos = [], []
-    for p in _py_du_depot():
+    # Lecture PARALLELE (#457-r6) : l'OUVERTURE d'un fichier sous `scripts/` pese ~7 ms
+    # (filtre systeme sur les extensions executables) -- devant `ast.parse`. L'ordre du
+    # balayage est preserve : `read_bytes_many` rend une liste ALIGNEE sur son entree.
+    a_lire = [p for p in _py_du_depot()
+              if _rel_ou_none(p) is not None and _rel_ou_none(p) not in ALLOWLIST]
+    for p, data in zip(a_lire, repo_read.read_bytes_many(a_lire)):
         rel = _rel_ou_none(p)
-        if rel is None or rel in ALLOWLIST:
+        if data is None:
             continue
         try:
-            src = io.open(p, encoding="utf-8").read()
+            src = repo_read.to_text(data)
             tree = ast.parse(src, filename=rel)
-        except (SyntaxError, UnicodeDecodeError, OSError):
+        except (SyntaxError, UnicodeDecodeError):
             continue
         al = _Aliases()
         al.visit(tree)
