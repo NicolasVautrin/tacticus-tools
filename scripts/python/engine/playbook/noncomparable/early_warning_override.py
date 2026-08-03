@@ -29,8 +29,9 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
     unit 77 SEUL). L'utilite est POSITIONNELLE (choisit une tuile qui menace des ennemis en restant hors
     de leur portee) -> le natif BOUGE avant de caster.
 
-    Structure native (mirror EvaluateNonComparable) : Bucket ctor 2-arg, min = Fix64(1) (IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor
-    pose `**(DAT_1832106c0+0xb8)=Fix64(1)` -> MIN_UTILITY=1). Par position P balayee, enumere
+    Structure native (mirror EvaluateNonComparable) : Bucket construit par le ctor a DEUX arguments,
+    donc SANS `min` -- le `Fix64(1)` que pose IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor a `<statics>+0xb8` n'est lu par AUCUN
+    des deux arguments (cf. `MIN_UTILITY` plus bas, residu `#433-r4-r2-r3`). Par position P balayee, enumere
     `GetEligibleTargetsSelectable(MainTile=P)` (= SOI) ; pour la cible eligible :
       GATE : nearest = slot0x4a `GetNearestEnemy(self)` ; si `dist(nearest, self) < 9` (slot0x6c, dist des
              tuiles COURANTES = position-INDEPENDANT) -> evalue, sinon skip (pas d'action).

@@ -216,10 +216,12 @@ validation.
   slots, l'absence du voisin haut de la liste d'adjacence native, la bascule A/B du natif (§3), le
   confinement du sweep, la mutation du canal qui mord, la convergence 0/15 contre 9/15, et l'utilité
   émise qui cesse de dépasser le maximum natif.
-* **Non-régression** — 54 tests offline de la famille 433 + `test_nc_priority_tiers_offline.py` ;
-  gardes LIVE des consommateurs voisins du foyer partagé : `test_356_noncomparable_oracle_live.py`,
-  `test_433_r4_r3_non_owner_playbooks_live.py`, `test_433_r3_r1_dsl_footprint_live.py`.
-  Banque de cliquets jouée.
+* **Non-régression** — 69 tests offline de la famille 433 + `test_nc_priority_tiers_offline.py` ;
+  gardes LIVE des consommateurs voisins du foyer partagé : `test_356_noncomparable_oracle_live.py`
+  (14 passed), `test_433_r4_r3_non_owner_playbooks_live.py` (12 passed),
+  `test_433_r3_r1_dsl_footprint_live.py` (4 passed). Banque de cliquets **VERTE**, rejouée après
+  chacun des deux rebases sur `origin/master` (le second amène `probe_462`, qui rejoue tout
+  `*_live.py` modifié par la PR — donc ce cas-ci).
 * **NON CONFRONTÉ** — `MasterOfTheTutelariesPlaybook` n'a **aucune** confrontation live ici, et
   c'est assumé : le re-pointage y est inerte (§2.2), donc un test live serait une tautologie. Le
   canal qui le confronterait si le régime devenait observable : un ennemi **multi-tuiles**, qui fait
