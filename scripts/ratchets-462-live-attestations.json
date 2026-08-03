@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785773946,
+ "_ecrit_le": 1785776902,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -455,18 +455,16 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_chain_after_refused_addeffect_live.py": {
-   "_at": 1785765555,
-   "_blob": "57ec50f7e5cde92333d487117338af14364138a2",
-   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "_at": 1785776902,
+   "_blob": "8994e242913a45935b906338e269e4f3ea4609e8",
+   "_commit": "c2dc1004cdd947c5e06424a9c40e1521f6a5c7d9",
    "error": 0,
-   "failed": 1,
-   "messages": [
-    "test_chain_after_refused_addeffect_live.py::test_chain_survives_placed_addeffect -- AssertionError: PORT: Pinned refuse sur une cible sans TerminatorArmour assert False is True"
-   ],
-   "passed": 3,
-   "sec": 16.2,
+   "failed": 0,
+   "messages": [],
+   "passed": 4,
+   "sec": 19.1,
    "skipped": 0,
-   "verdict": "ROUGE",
+   "verdict": "VERT",
    "xfailed": 0
   },
   "tests/engine/runner/test_chain_leftover_hits_live.py": {
