@@ -243,6 +243,7 @@ from ..entities.formulas import _round_fix64
 from ..entities.stats import ARMOR_STAT_TYPES
 from ..entities.traits import TraitFactory, target_hit_multiplier
 from ..entities.triggered_ability_type import TriggeredAbilityType
+from ..services.battle_query import is_melee_attack as _is_melee_attack
 from ..services.damage_prediction import get_attack_prediction
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
 
@@ -323,17 +324,16 @@ class LightImUpPlaybook:
         (`gameconfig.attackRangeType`). Les attaques normales CONCRETES (id per-unite) n'ont pas
         d'entree nommee au gameconfig : elles retombent donc sur la branche `Normal(3)`, qui est
         precisement la semantique << melee si adjacent >>. `ForceRangedAttack` : cf. le residu
-        `#419-r1-tr5-r1` de l'en-tete (lu comme absent)."""
+        `#419-r1-tr5-r1` de l'en-tete (lu comme absent).
+
+        FOYER (#419-r1-tr14) : le corps a migre dans `services/battle_query.is_melee_attack` --
+        `HeavyBoltPistolPlaybook` consomme le MEME slot 2, et le natif n'a qu'UNE fonction. Cette
+        methode reste l'ADAPTATEUR `(ctx, scene, ability_id)` -> `(nom d'ability, elevations)`."""
         if ability_id is None or attack_tile is None or tgt_pos is None:
             return False
         name = (getattr(ctx, "ab_name_by_id", None) or {}).get(int(ability_id))
-        rt = ((GC.ability(name) or {}) if name else {}).get("attackRangeType")
-        if rt == "Melee":
-            return True
-        if rt == "Ranged":
-            return False
-        return bool(bq.is_adjacent(tuple(attack_tile), tuple(tgt_pos),
-                                   getattr(scene, "elev_by_pos", None)))
+        return _is_melee_attack(name, attack_tile, tgt_pos,
+                                getattr(scene, "elev_by_pos", None))
 
     # ---- mirror du slot 0x28 : `GetMultiHitAttackPrediction` ---------------------------------
     def _predict_extra_vs_target(self, scene, att_id: int, tgt_id: int, amount: int, hits: int,

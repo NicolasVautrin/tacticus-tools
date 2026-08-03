@@ -103,6 +103,60 @@ def are_entities_adjacent(feet_a, feet_b, board=None) -> bool:
     return any(are_tiles_adjacent(a, b, None) is True for a in fa for b in fb)
 
 
+def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=None,
+                    force_ranged_attack: bool = False) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack(ability, caster, casterPosition,
+    target)` -- le slot **2** d'`IBattleQuery`, mirror 1:1 du decompile :
+
+        if (!ability.HasValue) return false;
+        switch (GetAbilityAttackRangeType(ability)) {   // 0 None, 1 Melee, 2 Ranged, 3 Normal
+          case 0: return false;
+          case 1: return true;
+          case 2: return false;
+          case 3: return !UnitExtensions.HasFlag(caster, 0x15)      // UnitFlag.ForceRangedAttack
+                         && AreEntitiesAdjacent(casterPosition, target);
+          default: throw new NotImplementedException();
+        }
+
+    FOYER UNIQUE de ce predicat : il est consomme par DEUX chemins natifs distincts, et les deux
+    passent ici -- la gate `TriggeredAbilityPlaybook<T>$$IsMeleeAttack(case)` (cote DECISION, ex.
+    `playbook/light_im_up.py`) et le predicat des effets d'attaquant
+    (`IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger`, qui appelle le MEME
+    slot 2 sur `AbilityEntities.Ability`). Un service natif appele par N chemins = UNE fonction.
+
+    `ability_name` = le NOM gameconfig de l'ability EVALUEE (`case.AbilityType` cote playbook) ;
+    `None` / nom inconnu -> `attackRangeType` absent -> branche `Normal(3)`, qui est CELLE QUE LE
+    NATIF PREND pour les attaques normales concretes (leur id per-unite n'a pas d'entree nommee au
+    gameconfig, cf. `light_im_up` residu `#419-r1-tr5-r3`).
+
+    `caster_position` = la tuile d'ATTAQUE (`case.CasterPosition.MainTile`), pas la tuile reelle :
+    c'est litteralement le 3e argument du natif. L'adjacence passe par le foyer
+    `battle_query.are_entities_adjacent` (`AreEntitiesAdjacent`, court-circuit d'identite #433-r1),
+    pas par `is_adjacent` (`IterateAdjacentTiles`, qui ne rend jamais la tuile source).
+
+    `force_ranged_attack` = `UnitFlag.ForceRangedAttack` (21) ; le capteur
+    `combatSnapshot.unitFlags` ne le publie pas (residu `#419-r1-tr5-r1`), donc l'appelant le laisse
+    a `False` -- degradation PERMISSIVE-EN-PLUS, nommee.
+
+    ⚠ HOMONYME A NE PAS CONFONDRE : `engine.entities.effects.base.is_melee_attack(is_ranged)` est un
+    AUTRE artefact -- le gate TRI-ETAT (`is_ranged is False`) que les effets d'attaquant consomment
+    une fois la nature du coup DEJA resolue. Celui-ci la RESOUT."""
+    if caster_position is None or target_position is None:
+        return False
+    rt = ((GC.ability(ability_name) or {}) if ability_name else {}).get("attackRangeType")
+    if rt == "Melee":                       # `AttackRangeType.Melee` (1)
+        return True
+    if rt == "Ranged":                      # `AttackRangeType.Ranged` (2)
+        return False
+    if rt == "None":                        # `AttackRangeType.None` (0)
+        return False
+    if force_ranged_attack:                 # `HasFlag(caster, 0x15)` -> pas de melee
+        return False
+    from .. import battle_query as _bq      # lazy : anti-cycle (le module playbook importe celui-ci)
+    return bool(_bq.are_entities_adjacent(tuple(caster_position), tuple(target_position),
+                                          elev_by_pos))
+
+
 def _find_by_hits(cands: list, prefer_hits) -> dict:
     """Parmi les armes candidates (même type), celle dont `hits == prefer_hits` (capté), sinon la 1re."""
     if prefer_hits is not None:

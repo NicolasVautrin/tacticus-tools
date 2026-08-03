@@ -221,6 +221,7 @@ from .special_issue_combi_melta import (                        # #419-r1-tr11 (
     SpecialIssueCombiMeltaPlaybook)
 from .electro_shock import ElectroShockPlaybook                 # #419-r1-tr12 (registre, module dedie)
 from .shrapnel import ShrapnelPlaybook                          # #419-r1-tr13 (registre, module dedie)
+from .heavy_bolt_pistol import HeavyBoltPistolPlaybook          # #419-r1-tr14 (registre, module dedie)
 
 TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
@@ -386,6 +387,22 @@ TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     # homonyme a trois faces : `ActiveAbilityType` 1116 = RadBombardment, `EffectType` 1116 =
     # InescapableAccuracy_extraCritDmg (celui de #414, axe CRIT).
     int(TriggeredAbilityType.Shrapnel): ShrapnelPlaybook(),
+    # #419-r1-tr14 : HeavyBoltPistol (1083, passif du SUMMON `templInitiate` et du npc
+    # `templNpc1Initiate`) -- l'utilite (composite Damage) d'une prediction de montant PREDEFINI
+    # `dmg[niveau du passif]`, hits FORCES 1, au profil de l'ABILITY (`Bolter`), contre `case.Target`
+    # -- et RIEN si le caster n'est pas DEJA au contact de sa cible. Corps
+    # IdunBattle.AI.Playbook.Loki.
+    # HeavyBoltPistolPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext (DEUX
+    # etats de yield).
+    # PREMIER playbook attack porte dont la gate geometrique est ancree sur la position REELLE du
+    # caster : le trigger DSL `IsAdjacent(Get(Caster), Get(Target), 3)` prend deux ENTITES (le slot
+    # 0x60 `BattleQuery$$AreEntitiesAdjacent` fait `GetTiles(entity)`), pas `case.CasterPosition` --
+    # donc le terme est CONSTANT sur tout le balayage de tuiles d'une meme cible, la ou
+    # `avalanche_of_muscle` gate sur la TUILE. La tuile d'attaque n'entre que PAR la prediction
+    # (slot 0x24, la surcharge `casterPosition` du 0x23). L'id 1083 est un homonyme a trois faces :
+    # `ActiveAbilityType` 1083 = NeedsMoreDakka, `EffectType` 1083 =
+    # ChampionOfTheFeast_ReduceArmor.
+    int(TriggeredAbilityType.HeavyBoltPistol): HeavyBoltPistolPlaybook(),
 }
 
 
