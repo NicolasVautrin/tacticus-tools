@@ -1,0 +1,167 @@
+"""GARDES #433-r4-r2-r1 + -r2 -- le CONTENU des deux branches d'`EarlyWarningOverridePlaybook`.
+
+Les deux residus sont fermes ENSEMBLE, et ces gardes disent pourquoi : `threshold` (branche B) et
+l'ancienne approximation de la branche A (`portee d'arme max`) sont NUMERIQUEMENT egales sur toute
+unite a une seule arme a distance. Fermer `-r2` seul aurait rendu les deux branches du PORT
+identiques -- un port qui donne la bonne reponse pour la mauvaise raison, qu'aucun test d'utilite
+n'aurait rattrape. La garde `test_the_two_branches_are_not_the_same_quantity` verrouille cela.
+
+Ce que chaque garde protege :
+  * la CASCADE de `IdunBattle.Core.Services.TargetingQuery$$GetRange` (override du ctor > config >
+    arme) et son ORDRE -- un clamp applique trop tot serait ecrase ;
+  * les DEUX regimes ou le port ne sait pas decider (`UseWholeBoard`, `CustomRange(GetRange)`) :
+    ils rendent `None` et l'ability ne verse RIEN, borne INFERIEURE assumee ;
+  * le court-circuit MULTI-TUILES de `IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility` ;
+  * `IdunShared.Battle.WeaponProfile$$get_IsMelee` : une arme de portee 1 est MELEE, donc HORS du
+    set de `FindRangedWeapon` -- c'est ce qui fait retomber le `threshold` sur son `?? 1` ;
+  * la NON-DUPLICATION du substrat : une ability presente dans les DEUX sources (registre du runner
+    et table locale) aurait deux verites possibles.
+
+Les valeurs de reach citees ici sont celles MESUREES live (`probe_433_r4_r2_r1_ability_range.py
+--step kit`, sweep de 40 positions par kit) -- cf. `docs/rl/case-433-r4-r2-r1-r2-portees.md`.
+ASCII only.
+"""
+from __future__ import annotations
+
+import pytest
+
+from engine.playbook.noncomparable.early_warning_override import _ranged_weapon_threshold
+from engine.runner.abilities.handler import ABILITY_CLASSES
+from engine.runner.abilities.targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER,
+                                               RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
+                                               RANGED_BOOL_FALSE,
+                                               RANGED_BOOL_IF_NOT_RANGED_CASTER, RANGED_BOOL_TRUE,
+                                               TargetingRange)
+from engine.services import ability_range as ar
+
+RANGED = "tauMarksman"          # arme Range=3 + SeekerMissileFrequencyLock (constants.range = 5)
+MELEE = "custoBladeChampion"    # arme de melee seule + MartialInspiration (RANGE_ADJACENT)
+CHARGE = "astraDreir"           # arme de melee seule + LeadingTheCharge (RANGE_WHOLE_BOARD)
+
+
+# --------------------------------------------------------------- 1. la cascade `GetRange`
+
+def test_the_five_static_targeting_ranges_are_the_runner_foyer():
+    """Aucun fork : la table locale REUTILISE les cinq statiques deja RE-lus cote runner. Si l'un
+    d'eux changeait de contenu, les portees derivees ici suivraient -- c'est le but."""
+    assert RANGE_ADJACENT_IF_MELEE_CASTER.only_adjacent == RANGED_BOOL_IF_NOT_RANGED_CASTER
+    assert RANGE_FROM_CONFIG.use_range_from_config is True
+    assert (RANGE_ADJACENT.only_adjacent, RANGE_ADJACENT.override_range) == (RANGED_BOOL_TRUE, 1)
+    assert RANGE_WHOLE_BOARD.use_whole_board is True
+    assert RANGE_SELF.override_range == 0
+    for r in (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGE_SELF):
+        assert r.only_adjacent == RANGED_BOOL_FALSE
+
+
+def test_config_range_only_when_use_range_from_config():
+    """`AActiveAbility$$SetConfigValuesInTargetingOptions` ne recopie `constants.range` que si
+    `UseRangeFromConfig` -- sans le flag, la config est MUETTE et la portee retombe sur l'arme.
+
+    C'est LE discriminant mesure entre `tauMarksman` (Seeker, `RANGE_FROM_CONFIG`, reach 5) et
+    `astraDreir` (`LeadingTheCharge`, `RANGE_WHOLE_BOARD`, `constants.range = 4` IGNORE, reach 1)."""
+    assert ar.ability_range_value(1069, RANGED) == 5        # SeekerMissileFrequencyLock
+    assert ar.ability_range_value(1204, CHARGE) is None     # LeadingTheCharge (whole board)
+
+
+def test_override_range_wins_over_config():
+    """L'ORDRE natif : `SetConfigValues...` ne pose la config que si `OverrideRange` est encore
+    vide, donc un override du ctor GAGNE. On le prouve sur un `TargetingRange` synthetique qui
+    porte les DEUX (aucune ability du lot ne le fait -- la garde protege l'ordre, pas un cas)."""
+    both = TargetingRange(use_range_from_config=True, override_range=2)
+    assert ar._config_range(1069) == 5, "montage : l'ability doit bien porter constants.range = 5"
+    monkey = dict(ar.TARGETING_RANGE_BY_ABILITY)
+    try:
+        ar.TARGETING_RANGE_BY_ABILITY[1069] = both
+        ar._REACH_CACHE.clear()
+        assert ar.ability_range_value(1069, RANGED) == 2
+    finally:
+        ar.TARGETING_RANGE_BY_ABILITY.clear()
+        ar.TARGETING_RANGE_BY_ABILITY.update(monkey)
+        ar._REACH_CACHE.clear()
+
+
+def test_only_adjacent_collapses_the_range_to_one():
+    """`RangedBoolExtensions$$IsTrue` : `True` -> adjacence ; `IfNotRangedCaster` -> adjacence pour
+    un caster SANS arme a distance, portee d'arme sinon."""
+    assert ar.ability_range_value(1191, MELEE) == 1          # MartialInspiration, only_adjacent=True
+    assert ar._ranged_bool_is_true(RANGED_BOOL_IF_NOT_RANGED_CASTER, MELEE) is True
+    assert ar._ranged_bool_is_true(RANGED_BOOL_IF_NOT_RANGED_CASTER, RANGED) is False
+
+
+def test_undecidable_ranges_return_none_and_never_widen():
+    """`UseWholeBoard` et `CustomRange(GetRange)` -> `None` = « le port ne sait pas ». L'ability ne
+    verse RIEN a la zone : BORNE INFERIEURE assumee, jamais un elargissement a l'aveugle."""
+    assert ar.ability_range_value(1204, CHARGE) is None      # LeadingTheCharge  (whole board)
+    assert ar.ability_range_value(1038, "deathPutrifier") is None   # FoulInfusion (delegue)
+    assert ar.unit_threat_reach(CHARGE) == 1, "l'ability whole-board ne doit rien ajouter a l'arme"
+
+
+# --------------------------------------------------------------- 2. la zone, et le consommateur
+
+@pytest.mark.parametrize("visual,expected", [(RANGED, 5), (MELEE, 1), (CHARGE, 1)])
+def test_unit_threat_reach_matches_the_live_partition(visual, expected):
+    """Les trois kits dont la partition native a ete mesuree tuile par tuile (40 positions,
+    `d = 2..10`) : le port doit rendre EXACTEMENT la meme frontiere."""
+    assert ar.unit_threat_reach(visual) == expected
+
+
+def test_multi_tile_unit_short_circuits_to_true():
+    """1re ligne du natif : `if (GetFeetCount(unit) > 1) return true;` -- avant toute lecture de
+    portee. Le port l'expose ; cote DECISION aucun canal ne publie le compte de pieds, donc
+    l'appelant passe 1 et le residu est NOMME."""
+    far = (0, 0), (9, 9)
+    assert ar.is_tile_in_range_of_any_ability(far[0], far[1], MELEE, feet_count=1) is False
+    assert ar.is_tile_in_range_of_any_ability(far[0], far[1], MELEE, feet_count=3) is True
+
+
+def test_missing_main_tile_is_out_of_range():
+    """`GetMainTile == null` -> l'`OrderedSet` d'entree est VIDE -> `GetAllTilesInAbilityRange` rend
+    un ensemble vide -> `Contains` est faux."""
+    assert ar.is_tile_in_range_of_any_ability(None, (1, 1), RANGED) is False
+    assert ar.is_tile_in_range_of_any_ability((1, 1), None, RANGED) is False
+
+
+@pytest.mark.parametrize("d,expected", [(1, True), (5, True), (6, False), (9, False)])
+def test_the_zone_is_a_disc_of_radius_reach(d, expected):
+    """La frontiere mesuree sur `tauMarksman` : en portee jusqu'a `d <= 5` INCLUS, hors au-dela."""
+    assert ar.is_tile_in_range_of_any_ability((0, 0), (d, 0), RANGED) is expected
+
+
+# --------------------------------------------------------------- 3. la branche B, et le partage
+
+def test_ranged_weapon_threshold_mirrors_find_ranged_weapon():
+    """`threshold(E) = FindRangedWeapon(E).Range ?? 1`. `get_IsMelee` = `!Range.HasValue ||
+    Range < 2` -> une unite sans arme de portee >= 2 retombe sur le `?? 1`."""
+    assert _ranged_weapon_threshold(RANGED) == 3
+    assert _ranged_weapon_threshold(MELEE) == 1
+    assert _ranged_weapon_threshold(CHARGE) == 1
+    assert _ranged_weapon_threshold("unite-qui-n-existe-pas") == 1
+
+
+def test_the_two_branches_are_not_the_same_quantity():
+    """LA garde de ce cas. Si le port derivait les deux branches de la MEME quantite, le partage
+    A/B cesserait d'etre observable -- et un test d'utilite ne le verrait pas, puisque les deux
+    branches rendraient la meme chose. Sur `tauMarksman` : zone d'ability 5, arme a distance 3."""
+    assert ar.unit_threat_reach(RANGED) != _ranged_weapon_threshold(RANGED)
+    assert (ar.unit_threat_reach(RANGED), _ranged_weapon_threshold(RANGED)) == (5, 3)
+
+
+# --------------------------------------------------------------- 4. hygiene du substrat
+
+def test_no_ability_has_two_contradictory_sources():
+    """Une ability presente a la fois dans `ABILITY_CLASSES` (avec un `TargetingRange`) et dans la
+    table locale aurait DEUX verites ; `targeting_range_of` en choisirait une en silence."""
+    dupes = []
+    for aid in ar.TARGETING_RANGE_BY_ABILITY:
+        cls = ABILITY_CLASSES.get(aid)
+        opts = getattr(cls, "TARGETING_OPTIONS", None) if cls is not None else None
+        if getattr(opts, "range", None) is not None:
+            dupes.append(aid)
+    assert dupes == [], "abilities a deux sources de portee : %r" % (dupes,)
+
+
+def test_registry_ranges_are_reachable_through_the_same_accessor():
+    """`targeting_range_of` doit lire le registre du runner AUSSI -- sinon les 102 abilities deja
+    RE-lues seraient ignorees et la zone retomberait partout sur la portee d'arme."""
+    from_registry = [aid for aid in ABILITY_CLASSES if ar.targeting_range_of(aid) is not None]
+    assert len(from_registry) >= 100, "seulement %d portees lues au registre" % len(from_registry)

@@ -166,26 +166,23 @@ validation.
 
 ## 7. Résidus NOMMÉS
 
-* **`#433-r4-r2-r1` — branche A : `IsTileInRangeOfAnyAbility` (slot `0xc5`) n'est pas portée.**
-  Le natif, lu :
-  `if (GetFeetCount(unit) > 1) return true ; return slot0xe(<this+0x20>, unit, OrderedSet{GetMainTile(unit)}, true).Contains(tile)`
-  — donc **mouvement et LoS compris**, plus un court-circuit **multi-tuiles → toujours en portée**.
-  Le port approxime par `d <= portée d'arme max`. **Mesuré** (`tauMarksman`, portée 3, sweep de 33
-  positions) : le natif rend « en portée » jusqu'à `d = 5` **inclus**, et exclut **une** tuile à
-  `d = 5` que ses voisines de même distance incluent (LoS/élévation). L'approximation est donc
-  fausse dès `d > portée`, **dans les deux sens**.
-  *Canal pour la fermer* : RE du slot `0xe` du service à `BattleQuery+0x20`, puis oracle
-  `ncEvaluate` sur un sweep dépassant la portée de l'ennemi (le montage de `--step partition` le
-  produit déjà).
-* **`#433-r4-r2-r2` — branche B : le `threshold` reste figé à `1`.** Il vaut
-  `FindRangedWeapon(E)?.[+0x24] ?? 1`. Le port n'a pas de modèle « l'arme à distance » (il ne
-  connaît qu'un max sur `weapons`), donc la fermeture demande de lire le corps de
-  `FindRangedWeapon` (quelle arme, quel départage).
-  ⚠ **À garder en tête** : une fois fermé, `threshold` vaudra la portée de l'arme à distance —
-  la **même** valeur que `portée d'arme max` pour toute unité à une seule arme à distance. Les deux
-  branches du **port** deviendront alors identiques, et le partage A/B cessera d'être observable
-  *dans le port* tant que `#433-r4-r2-r1` n'est pas fermé lui aussi. C'est pourquoi l'oracle §3
-  (le natif contre lui-même) est la mesure qui fait foi ici, et pas §4.
+* **`#433-r4-r2-r1` et `#433-r4-r2-r2` — FERMÉS ENSEMBLE**, cf.
+  **`case-433-r4-r2-r1-r2-portees.md`**. Deux points de cette fiche y sont corrigés par la lecture
+  du slot `0xe` :
+  * il n'y a **AUCUN mouvement** dans `IsTileInRangeOfAnyAbility` — l'ensemble de positions passé à
+    `AttackQuery$$GetAllTilesInAbilityRange` est le **singleton** `{GetMainTile(unit)}`. Le `d = 5`
+    mesuré sur `tauMarksman` (arme de portée 3) vient de son ability `SeekerMissileFrequencyLock`
+    (`RANGE_FROM_CONFIG`, `constants.range = 5`) ;
+  * la tuile exclue « à `d = 5` » est en fait à `d = 4`, et l'exclusion est portée par le **relief**
+    (1/34 sur montage à relief, **0/40** sur montage plat du même kit) — c'est le résidu
+    `#433-r4-r2-r1-r2`, LoS/élévation.
+  L'avertissement ci-dessous reste la raison pour laquelle les deux ont été traités dans la même
+  tranche.
+  ⚠ `threshold` (branche B) et l'ancienne approximation de la branche A (`portée d'arme max`) sont
+  **numériquement égales** sur toute unité à une seule arme à distance. Les fermer séparément aurait
+  rendu les deux branches du **port** identiques, et le partage A/B inobservable — un port juste
+  pour la mauvaise raison. C'est pourquoi l'oracle §3 (le natif contre lui-même) est la mesure qui
+  fait foi ici, et pas §4.
 * **`#433-r4-r2-r3` — `MIN_UTILITY = 1` sur `EarlyWarningOverridePlaybook` est CONTESTÉ.** Son
   Bucket est construit par le ctor à **deux** arguments — donc sans `min` — là où
   `MasterOfTheTutelariesPlaybook` lit le statique `+0xb8` et le passe au ctor à quatre arguments.
