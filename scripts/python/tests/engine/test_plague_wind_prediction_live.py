@@ -33,6 +33,17 @@ G. **LA MULTIPLICITE DANS UNE VAGUE** (bras `wide`, geometrie DERIVEE du `boardG
    DEUX unites en vague 2, une en vague 3, soit QUATRE events dont deux partagent la base de la
    vague 2. Les trois bras `line` ne peuplent jamais une vague de plus d'une unite -- un port qui
    emettrait un event par VAGUE au lieu d'un par UNITE y serait indiscernable.
+H. **LA PORTE D'ELEVATION `|dElev| < 2`** (bras `relief`, #433-r4-r1-r4 / PR #535). Les vagues 2 et
+   3 SONT de l'adjacence : elles passent par `DSLSelectors$$AdjacentUnits` ->
+   `AdjacentTiles` -> `Board.neighbours_native`. Ce champ est le `boardGraph.neighbours` BRUT, et
+   son capteur passe par `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`, qui applique
+   `|dElev| < 2` **INCONDITIONNELLEMENT** : la porte est donc CUITE dans le canal, et n'est PAS lue
+   via `DslContext.elev_by_pos` (qu'`AdjacentTiles` ne consulte jamais). Mesure sur le board vivant :
+   **316 paires hex-voisines, 18 absentes du champ brut, TOUTES a `|dElev| = 2`, AUCUNE sous 2.**
+   Le bras pose une unite sur une tuile hex-voisine de la cible mais GATEE : le natif ne lui donne
+   AUCUN event, le port non plus, et la mutation `hexgeo` (geometrie hex NUE) rougit LA et nulle
+   part ailleurs. Sans ce bras, le vert des quatre autres ne prouverait rien sur cet axe -- leur
+   `max |dElev|` vaut **1** (mesure imprimee par chaque bras).
 
 CE QUI N'EST PAS COUVERT, ET POURQUOI (dit plutot que masque) :
 
@@ -295,9 +306,53 @@ def test_a_summon_that_is_not_the_target_changes_nothing(arms):
 
 @pytest.mark.parametrize("mutation", sorted(PB.EXPECT_MUTATION))
 def test_each_mutation_reddens_exactly_where_the_re_says(arms, mutation):
-    """E -- les trois mutations debordent zero : chacune rougit LA ou la RE dit, et reste VERTE
+    """E -- les quatre mutations debordent zero : chacune rougit LA ou la RE dit, et reste VERTE
     ailleurs. Une mutation rouge partout ne discriminerait pas ce qu'elle pretend garder."""
     for name, r in arms.items():
         m = r["mutations"][mutation]
         assert m["ok"], ("bras %s / mutation %s : rouge=%s, attendu %s"
                          % (name, mutation, m["red"], m["want"]))
+
+
+# ------------------------------------------- H : la porte d'elevation (#433-r4-r1-r4 / PR #535)
+
+def test_the_board_channel_carries_the_elevation_gate(arms):
+    """H -- MESURE du canal, pas une deduction. Les aretes hex-voisines ABSENTES du champ brut
+    `boardGraph.neighbours` sont EXACTEMENT celles a `|dElev| >= 2`.
+
+    C'est ce qui etablit que la porte de
+    `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` entre dans mes vagues par le CANAL
+    (`Board.neighbours_native`) et non par `DslContext.elev_by_pos` -- qu'`AdjacentTiles` ne lit
+    jamais. Si une arete etait refusee SOUS 2, le refus serait autre chose que l'elevation et
+    toute la lecture serait fausse."""
+    gated = arms["relief"]["gated_edges"]
+    assert gated, ("aucune arete gatee sur ce board : le bras `relief` ne pourrait rien exercer "
+                   "et son vert ne prouverait rien")
+    under = [g for g in gated if g["d_elev"] < 2]
+    assert not under, ("des aretes sont refusees par le canal SOUS `|dElev| = 2` : le refus n'est "
+                       "donc pas la porte d'elevation -- %r" % under[:4])
+
+
+def test_a_unit_on_an_elevation_gated_tile_is_in_no_wave(arms):
+    """H -- le bras `relief` : une unite hex-voisine de la CIBLE mais 2 crans plus haut n'entre
+    dans AUCUNE vague, ni cote natif ni cote port.
+
+    Le montage est verifie AVANT d'etre cru : il doit porter au moins une arete a
+    `|dElev| >= 2` (sinon il ne teste pas la porte), et les quatre autres bras doivent rester SOUS
+    ce seuil (sinon leur vert melangerait deux axes)."""
+    prof = arms["relief"]["elevation"]
+    assert prof["max_d_elev"] >= 2, (
+        "le montage `relief` n'a aucune arete gatee (max |dElev| = %d) : il ne teste pas la porte"
+        % prof["max_d_elev"])
+    for name in ("plain", "summon_T", "summon_V", "wide"):
+        assert arms[name]["elevation"]["max_d_elev"] < 2, (
+            "bras %s : une arete du montage est gatee (|dElev| = %d) -- son accord ne serait plus "
+            "attribuable au seul SET des vagues"
+            % (name, arms[name]["elevation"]["max_d_elev"]))
+    # La cible a TROIS voisins hex poses (le gate, le voisin natif, et rien d'autre) mais le natif
+    # n'emet que 2 events : la tuile gatee est bien hors des vagues.
+    for aid, res in arms["relief"]["base"].items():
+        assert sum(len(v) for v in res["nat"].values()) == 2, (
+            "ability %d : le natif rend %d events la ou la porte en impose 2"
+            % (aid, sum(len(v) for v in res["nat"].values())))
+        assert res["match"], "ability %d : deltas=%r" % (aid, res["deltas"][:6])

@@ -104,14 +104,19 @@ CMP_KEYS = ("appliedHits", "healthDmgMin", "healthDmgMax", "rawHealthDmgMin", "r
 #            (1/2/1), 4 events. C'est la generalisation de la MULTIPLICITE : les trois bras `line`
 #            ne verifient jamais qu'une vague peuple plus d'un event, ni que la vague 3 se derive
 #            de PLUSIEURS ancres.
+#   `relief` : la PORTE D'ELEVATION. `T` + une unite sur une tuile hex-voisine de `T` mais
+#              **GATEE** (`|dElev| >= 2`, donc ABSENTE du voisinage natif) + une unite sur un
+#              voisin NATIF. Attendu : **2 events** (T et le voisin natif), l'unite gatee n'entrant
+#              dans AUCUNE vague. Un port qui lirait la geometrie hex NUE en rendrait 3.
 ARMS = {"plain": {"layout": "line", "patch": None},
         "summon_T": {"layout": "line", "patch": (TGT, ["Summon"])},
         "summon_V": {"layout": "line", "patch": (SEC, ["Summon"])},
-        "wide": {"layout": "wide", "patch": None}}
+        "wide": {"layout": "wide", "patch": None},
+        "relief": {"layout": "relief", "patch": None}}
 
 # Nombre d'events attendu par bras (identique pour les deux abilities : le SET ne depend pas de
 # l'ability, seules les BASES en dependent).
-EXPECT_EVENTS = {"plain": 3, "summon_T": 3, "summon_V": 3, "wide": 4}
+EXPECT_EVENTS = {"plain": 3, "summon_T": 3, "summon_V": 3, "wide": 4, "relief": 2}
 
 
 def _run(args) -> subprocess.CompletedProcess:
@@ -228,8 +233,86 @@ def wide_layout(rid: int) -> dict:
     return {TGT: T, SEC: v1, TER: v2, FAR: ring2[0]}
 
 
+def board_graph(rid: int) -> tuple:
+    """`(by_id, by_pos)` du `boardGraph` vivant."""
+    tiles = (L._rpc("boardGraph", [{"runnerId": rid}]).get("tiles") or [])
+    return ({t.get("id"): t for t in tiles},
+            {(t.get("col"), t.get("row")): t for t in tiles})
+
+
+def gated_edges(rid: int) -> list:
+    """Les aretes hex-voisines ABSENTES du champ brut `boardGraph.neighbours` -- c.-a-d. celles que
+    la porte `|dElev| < 2` de `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` REFUSE.
+
+    Le capteur du `boardGraph` passe par ce meme `IterateAdjacentTiles` : la porte est donc deja
+    CUITE dans le champ, et c'est par la -- pas par `DslContext.elev_by_pos` -- qu'elle entre dans
+    `AdjacentTiles` (`Board.neighbours_native`). Cette fonction MESURE ce fait au lieu de le
+    supposer : elle rend les aretes refusees ET leur `dElev`, ce qui permet d'assurer qu'AUCUNE
+    n'est refusee sous 2 (le refus serait alors autre chose que l'elevation)."""
+    import hexgeo
+    by_id, by_pos = board_graph(rid)
+    out = []
+    for p, t in by_pos.items():
+        nat = {by_id[i]["id"] for i in (t.get("neighbours") or []) if i in by_id}
+        for q, u in by_pos.items():
+            if hexgeo.distance(p, q) == 1 and u.get("id") not in nat:
+                out.append({"a": p, "b": q, "elev_a": t.get("elevation"),
+                            "elev_b": u.get("elevation"),
+                            "d_elev": abs((t.get("elevation") or 0) - (u.get("elevation") or 0)),
+                            "walkable": bool(t.get("walkable") and u.get("walkable"))})
+    return out
+
+
+def relief_layout(rid: int) -> dict:
+    """Le bras qui fait MORDRE la porte d'elevation, DERIVE du `boardGraph` vivant.
+
+    On cherche un triplet `(T, G, K)` ou :
+      * `G` est hex-voisine de `T` mais **GATEE** (absente du voisinage natif de `T`) et walkable ;
+      * `K` est un voisin **NATIF** walkable de `T` ;
+      * `G` n'est PAS non plus voisin natif de `K` -- sans quoi elle rentrerait par la vague 3 et
+        le bras cesserait de discriminer (le compte redeviendrait le meme des deux cotes).
+    Le 4e mannequin est parque LOIN (distance >= 3 de `T`, donc hors de toute vague).
+
+    Attendu : `t1 = {T}`, `t2 = {K}`, `t3 = {}` -> **2 events**. Un port qui lirait la geometrie
+    hex NUE mettrait `G` en vague 2 et en rendrait 3."""
+    import hexgeo
+    by_id, by_pos = board_graph(rid)
+    u = _units(rid)
+    banned = {u[CASTER_PW][1], u[CASTER_MPW][1]}
+
+    def _nat(p) -> set:
+        return {(by_id[i]["col"], by_id[i]["row"]) for i in (by_pos[p].get("neighbours") or [])
+                if i in by_id}
+
+    def _hex(p) -> set:
+        return {q for q in by_pos if hexgeo.distance(p, q) == 1}
+
+    for tp in sorted(by_pos):
+        if not by_pos[tp].get("walkable") or tp in banned:
+            continue
+        gates = sorted(g for g in (_hex(tp) - _nat(tp))
+                       if by_pos[g].get("walkable") and g not in banned)
+        if not gates:
+            continue
+        for g in gates:
+            for k in sorted(_nat(tp)):
+                if k in banned or k == g or not by_pos[k].get("walkable") or g in _nat(k):
+                    continue
+                far = sorted(q for q in by_pos
+                             if by_pos[q].get("walkable") and q not in banned
+                             and q not in (tp, g, k) and hexgeo.distance(q, tp) >= 3)
+                if not far:
+                    continue
+                return {TGT: tp, SEC: g, TER: k, FAR: far[0]}
+    raise SystemExit("aucun triplet (T, voisin GATE, voisin natif) sur ce board : la porte "
+                     "d'elevation n'y est pas exercable -- changer de board")
+
+
 def layout_for(rid: int, arm: str) -> dict:
-    return LINE_LAYOUT if ARMS[arm]["layout"] == "line" else wide_layout(rid)
+    kind = ARMS[arm]["layout"]
+    if kind == "line":
+        return LINE_LAYOUT
+    return wide_layout(rid) if kind == "wide" else relief_layout(rid)
 
 
 def place(rid: int, layout: dict) -> None:
@@ -413,23 +496,74 @@ def _mutate(kind: str):
         def _restore():
             PWM.wave_events = orig
         return _restore
+    if kind == "hexgeo":
+        # LA PORTE D'ELEVATION, desarmee. `AdjacentTiles` lit `Board.neighbours_native` = le champ
+        # BRUT `boardGraph.neighbours`, dont le capteur passe par
+        # `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` -- lequel applique
+        # `|dElev| < 2` INCONDITIONNELLEMENT. La porte est donc CUITE dans le canal, et non lue par
+        # `DslContext.elev_by_pos` (qu'`AdjacentTiles` ne consulte pas). On la desarme en rendant la
+        # geometrie hex NUE : si le port etait aveugle a l'elevation, c'est CE resultat qu'il
+        # produirait -- et il doit rougir sur `relief`.
+        import hexgeo
+        from engine.entities.pathfinding.board import Board
+        orig = Board.neighbours_native
+
+        def _pure_hex(self, tid):
+            src = self.by_id.get(tid)
+            if src is None:
+                return orig(self, tid)
+            p = (src.get("col"), src.get("row"))
+            return [i for i, t in self.by_id.items()
+                    if hexgeo.distance(p, (t.get("col"), t.get("row"))) == 1]
+        Board.neighbours_native = _pure_hex
+
+        def _restore():
+            Board.neighbours_native = orig
+        return _restore
     raise SystemExit("mutation inconnue : %r" % kind)
 
 
 EXPECT_MUTATION = {
     # mutation -> {bras: doit ROUGIR ?}. Une mutation qui ne rougit NULLE PART ne garde rien ;
     # une qui rougit PARTOUT ne discrimine pas ce qu'elle pretend garder.
-    "waves": {"plain": True, "summon_T": True, "summon_V": True, "wide": True},
-    "summon": {"plain": False, "summon_T": True, "summon_V": False, "wide": False},
-    "quirk": {"plain": False, "summon_T": True, "summon_V": True, "wide": False},
+    "waves": {"plain": True, "summon_T": True, "summon_V": True, "wide": True, "relief": True},
+    "summon": {"plain": False, "summon_T": True, "summon_V": False, "wide": False,
+               "relief": False},
+    "quirk": {"plain": False, "summon_T": True, "summon_V": True, "wide": False, "relief": False},
+    # La porte d'elevation ne MORD que la ou une unite est posee sur une tuile GATEE : c'est le
+    # bras `relief`, et lui seul. Verte ailleurs = la mutation ne fabrique pas un rouge global.
+    "hexgeo": {"plain": False, "summon_T": False, "summon_V": False, "wide": False, "relief": True},
 }
+
+
+def elevation_profile(rid: int, layout: dict) -> dict:
+    """Le PROFIL D'ELEVATION du montage : l'elevation de chaque tuile posee et le `dElev` de chaque
+    arete hex du montage. Sans lui, un accord VERT ne dit RIEN sur la porte d'elevation -- il peut
+    tenir simplement parce qu'aucune arete du montage n'a d'ecart. On l'IMPRIME donc, toujours."""
+    import hexgeo
+    _by_id, by_pos = board_graph(rid)
+    elev = {vid: by_pos.get(p, {}).get("elevation") for vid, p in layout.items()}
+    edges = []
+    items = sorted(layout.items())
+    for i, (va, pa) in enumerate(items):
+        for vb, pb in items[i + 1:]:
+            if hexgeo.distance(pa, pb) == 1:
+                edges.append({"a": va, "b": vb,
+                              "d_elev": abs((elev[va] or 0) - (elev[vb] or 0))})
+    return {"elev": elev, "hex_edges": edges,
+            "max_d_elev": max([e["d_elev"] for e in edges], default=0)}
 
 
 def run_arm(arm: str, mutations: bool = True) -> dict:
     rid = build(arm)
     layout = layout_for(rid, arm)
     place(rid, layout)
+    prof = elevation_profile(rid, layout)
     print("[bras %s] runner=%d layout=%s" % (arm, rid, layout))
+    print("          elevation=%s aretes-hex=%s  max|dElev|=%d%s"
+          % (prof["elev"], [(e["a"], e["b"], e["d_elev"]) for e in prof["hex_edges"]],
+             prof["max_d_elev"],
+             "  <- une arete du montage est GATEE" if prof["max_d_elev"] >= 2 else ""))
     base = measure(rid)
     ok = all(r["match"] for r in base.values())
     n_ok = all(sum(len(v) for v in r["nat"].values()) == EXPECT_EVENTS[arm]
@@ -449,7 +583,8 @@ def run_arm(arm: str, mutations: bool = True) -> dict:
             muts[kind] = {"red": red, "want": want, "ok": red == want}
             print("  [mutation %-6s] rouge=%s (attendu %s) %s"
                   % (kind, red, want, "OK" if red == want else "KO"))
-    return {"arm": arm, "rid": rid, "ok": ok, "base": base, "mutations": muts, "layout": layout}
+    return {"arm": arm, "rid": rid, "ok": ok, "base": base, "mutations": muts, "layout": layout,
+            "elevation": prof, "gated_edges": gated_edges(rid)}
 
 
 def main() -> int:

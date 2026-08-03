@@ -3179,31 +3179,58 @@ une vague ou melangerait deux bases se voit sur les VALEURS, pas seulement sur l
 Oracle = `aiPlaybookPredict` (le `MakeDamagePredictions` NATIF), compare **event par event, cible
 par cible, champ par champ** (`appliedHits`, `healthDmgMin/Max`, `rawHealthDmgMin/Max`).
 
-| bras | 1035 (`deathTyphus`) | 1093 (`deathBlightlord`) |
-|---|---|---|
-| **plain** | `[4845,7269]` / `[3651,5475]` / `[1795,2693]` | `[2693,4040]` / `[3890,5834]` / `[4786,7180]` |
-| **summon_T** (T porte `Summon`) | IDENTIQUE au bras plain | `[5385,8079]` / `[7779,11667]` / `[9573,14359]` |
-| **summon_V** (V porte `Summon`, T non) | IDENTIQUE | IDENTIQUE au bras plain |
-| **wide** (2 unites en vague 2) | `[4845,7269]` / `[3651,5475]` **x2** / `[1795,2693]` | `[2693,4040]` / `[3890,5834]` **x2** / `[4786,7180]` |
+| bras | max \|dElev\| | 1035 (`deathTyphus`) | 1093 (`deathBlightlord`) |
+|---|---|---|---|
+| **plain** | 1 | `[4845,7269]` / `[3651,5475]` / `[1795,2693]` | `[2693,4040]` / `[3890,5834]` / `[4786,7180]` |
+| **summon_T** (T porte `Summon`) | 1 | IDENTIQUE au bras plain | `[5385,8079]` / `[7779,11667]` / `[9573,14359]` |
+| **summon_V** (V porte `Summon`, T non) | 1 | IDENTIQUE | IDENTIQUE au bras plain |
+| **wide** (2 unites en vague 2) | 1 | `[4845,7269]` / `[3651,5475]` **x2** / `[1795,2693]` | `[2693,4040]` / `[3890,5834]` **x2** / `[4786,7180]` |
+| **relief** (voisin GATE a `\|dElev\| = 2`) | **2** | `[4845,7269]` / `[2434,3650]` — **2 events** | `[2693,4040]` / `[2593,3889]` — **2 events** |
 
-**MATCH bit-a-bit natif<->port sur les 26 events** (3 bras x 2 x 3 vagues + 1 bras x 2 x 4). Le bras
-`summon_T` prouve le quirk dans un sens (V et W ne sont PAS des summons et doublent quand meme) ;
-`summon_V` le prouve dans l'autre (le summon FRAPPE ne double rien, pas meme son propre event).
+**MATCH bit-a-bit natif<->port sur les 32 events.** Le bras `summon_T` prouve le quirk dans un sens
+(V et W ne sont PAS des summons et doublent quand meme) ; `summon_V` le prouve dans l'autre (le
+summon FRAPPE ne double rien, pas meme son propre event).
 
-**Le bras `wide` est la GENERALISATION du SET**, et sa geometrie est DERIVEE du `boardGraph` vivant
-(adjacence native, porte d'elevation comprise — jamais `hexgeo`) : `T` + **DEUX** voisins libres de
-`T` + un voisin de l'un d'eux hors de l'anneau 1. Les trois bras `line` ne peuplent JAMAIS une vague
-de plus d'une unite : un port qui emettrait un event par VAGUE au lieu d'un par UNITE y serait
-indiscernable. Ici les deux unites de la vague 2 recoivent la MEME base et une valeur DISTINCTE de
-celles des vagues 1 et 3 (4 events = 3 valeurs, dont une en double).
+**Le bras `wide` est la GENERALISATION du SET**, et sa geometrie est DERIVEE du `boardGraph` vivant :
+`T` + **DEUX** voisins libres de `T` + un voisin de l'un d'eux hors de l'anneau 1. Les trois bras
+`line` ne peuplent JAMAIS une vague de plus d'une unite : un port qui emettrait un event par VAGUE
+au lieu d'un par UNITE y serait indiscernable. Ici les deux unites de la vague 2 recoivent la MEME
+base et une valeur DISTINCTE de celles des vagues 1 et 3 (4 events = 3 valeurs, dont une en double).
 
-**Trois mutations adversariales, chacune DEBORDANT ZERO** :
+### La PORTE D'ELEVATION — par ou elle entre, et le bras qui la fait mordre
 
-| mutation | plain | summon_T | summon_V | wide |
-|---|---|---|---|---|
-| `waves` — `_MAKE_DMG_EXTRA_EVENTS` vide (retour a UN event) | ROUGE | ROUGE | ROUGE | ROUGE |
-| `summon` — `wave_damage_formula` rend toujours l'avg nue | vert | **ROUGE** | vert | vert |
-| `quirk` — formule re-evaluee PAR UNITE FRAPPEE | vert | **ROUGE** | **ROUGE** | vert |
+`#433-r4-r1-r4` (PR #535) a branche `DslContext.elev_by_pos` sur le board. Ces vagues **SONT** de
+l'adjacence, donc la question se pose : ce port a-t-il ete mesure porte INERTE ? **NON, et la voie
+n'est pas celle qu'on croit.**
+
+`adjacent_units` -> `AdjacentTiles` -> **`Board.neighbours_native`**, qui rend le champ **BRUT**
+`boardGraph.neighbours`. `AdjacentTiles` **ne consulte JAMAIS `ctx.elev_by_pos`** (les deux seuls
+lecteurs de ce canal sont `FilterTilesIfCanAttackTargetTileFrom` et `TilesOnSameElevationSelector`).
+Or le capteur du `boardGraph` passe par `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`,
+qui applique `|dElev| < 2` **INCONDITIONNELLEMENT** : **la porte est CUITE dans le canal**. Elle
+etait donc deja active dans ces vagues, avant comme apres #535 — qui leur est INERTE.
+
+**MESURE, pas deduction** (`gated_edges`, board vivant MC1_67) : **316** paires hex-voisines
+orientees, **18 ABSENTES** du champ brut, **toutes a `|dElev| = 2`**, et **ZERO** absente sous 2.
+Le refus du canal est donc exactement la porte d'elevation, et rien d'autre.
+
+**Le bras `relief`** derive du `boardGraph` un triplet `(T, G, K)` ou `G` est hex-voisine de `T`
+mais **GATEE**, `K` est un voisin **NATIF**, et `G` n'est voisin natif NI de `T` NI de `K` (sans
+quoi elle rentrerait par la vague 3 et le bras cesserait de discriminer). Mesure : `T = (1,2)`
+elev **2**, `G = (1,3)` elev **4**, `K = (0,1)` elev 3 -> le natif rend **2 events** (T et K),
+`G` n'entre dans AUCUNE vague, et le port rend la meme chose.
+
+⚠ **Sans ce bras, le vert des quatre autres ne prouvait RIEN sur cet axe** : leur `max |dElev|`
+mesure vaut **1** (profil imprime par chaque bras). C'est exactement pour ca qu'il est la.
+
+**Quatre mutations adversariales, chacune DEBORDANT ZERO** :
+
+| mutation | plain | summon_T | summon_V | wide | relief |
+|---|---|---|---|---|---|
+| `waves` — `_MAKE_DMG_EXTRA_EVENTS` vide (retour a UN event) | ROUGE | ROUGE | ROUGE | ROUGE | ROUGE |
+| `summon` — `wave_damage_formula` rend toujours l'avg nue | vert | **ROUGE** | vert | vert | vert |
+| `quirk` — formule re-evaluee PAR UNITE FRAPPEE | vert | **ROUGE** | **ROUGE** | vert | vert |
+| `hexgeo` — `neighbours_native` rendu en geometrie hex NUE | vert | vert | vert | vert | **ROUGE** |
 
 ⚠ La premiere version de la mutation `quirk` etait **INERTE** et rendait vert la ou elle devait
 rougir : elle changeait l'ARBRE (`HasTrait(Subject())`), or `ctx.subject` est `None` hors `Filter`,
