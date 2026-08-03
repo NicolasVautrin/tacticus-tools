@@ -29,6 +29,14 @@ POURQUOI UN COMPTAGE ET PAS UNE EGALITE DE DEGATS : sur ce vecteur le montant du
 (`PercentageOf(StatAmount(Attack), psykerExtraDmg)`, aucune variance) -> deux flux RNG DECALES rendent
 le MEME degat. La mesure par degat ne separe RIEN ici ; seul le comptage tranche.
 
+QUI ACCUSE QUI (#462-r6). Les assertions de ce fichier sont de DEUX natures, et leurs echecs ne se
+lisent pas pareil. Celles dont le sujet est le PORT REEL (contraste live/M1, per-coup) accusent le
+moteur -- leur message commence par `PORT :`. Celles dont le sujet est une MUTATION fabriquee ici
+(le modele M0 court-circuite) ou le REGIME que le montage doit realiser (pool == k) n'accusent NI le
+port NI le harnais : elles passent par `counterproof.assert_counterproof` /
+`assert_sample_confrontable` et echouent sous les types `InertCounterproof` /
+`UnconfrontableSample`, dont le nom traverse pytest et le ledger de `probe_462`.
+
 Scenario live (build + parcage des ennemis + drive de la geometrie + cast + capture) =
 `probe_130_pick_randomly_one_rng.py` (probe versionne) : le test l'IMPORTE au lieu de le dupliquer.
 Chaque runner est dispose des sa mesure capturee. ASCII only.
@@ -38,6 +46,7 @@ from __future__ import annotations
 import pytest
 
 import probe_130_pick_randomly_one_rng as P
+from counterproof import assert_counterproof, assert_sample_confrontable
 from engine.runner.operations.triggers.base import _pick_randomly
 from engine.runner.operations.spawn import (_pick_randomly_one, _first,
                                             _sort_tiles_by_utility_for_summon)
@@ -145,12 +154,19 @@ def regimes(live_session, rpc):
     if len(out) < 3:
         pytest.skip(f"scenario live indisponible (regimes obtenus: {sorted(out)})")
     for k, r in out.items():
-        assert r["pool"] == k, (
-            f"k={k} : le pool du pick vaut {r['pool']} offline -- la geometrie craftee ne realise pas "
-            f"le regime voulu (setup a re-crafter, pas un verdict)")
-        assert r["live_n"] is not None, (
-            f"k={k} : etat RNG apres le cast non atteint en re-simulation -- quelque chose a consomme "
-            f"un volume anormal (mesure invalide, pas un verdict)")
+        assert_sample_confrontable(
+            r["pool"] == k,
+            mutation=f"k={k} : geometrie craftee pour que le pool du pick vaille EXACTEMENT {k}",
+            doit_casser=f"le pool offline doit valoir {k}",
+            observe=f"pool = {r['pool']}",
+            remede="le regime vise n'est pas realise (parcage des ennemis) : re-crafter le montage "
+                   "-- rien n'est confronte, ce n'est pas un verdict sur le port.")
+        assert_sample_confrontable(
+            r["live_n"] is not None,
+            mutation=f"k={k} : comptage live par re-simulation du MT (dumpRng avant/apres)",
+            doit_casser="l'etat RNG d'apres doit etre atteint en moins de `cap` pas",
+            observe="non atteint -- quelque chose a consomme un volume anormal",
+            remede="mesure INVALIDE : isoler le consommateur et rejouer -- pas un verdict.")
     return out
 
 
@@ -161,9 +177,13 @@ def test_native_pick_of_one_consumes_rng_even_when_pool_has_one_candidate(regime
     assert live[1] == live[2], (
         f"tirages LIVE {live} : k=1 et k=2 different -> le natif consommerait selon la TAILLE du pool "
         f"a amount=1, ce qui contredit `PickRandomAmountSelector$$Select` (boucle bornee par amount).")
-    assert live[1] > live[0], (
-        f"tirages LIVE {live} : le splash Psyker (k=1) ne consomme rien de plus que la baseline sans "
-        f"splash (k=0) -> le scenario ne mesure PAS le pick (setup a re-crafter, pas un verdict)")
+    assert_sample_confrontable(
+        live[1] > live[0],
+        mutation="regimes k=0 (baseline sans splash) et k=1 (un candidat au pick)",
+        doit_casser="le splash doit consommer STRICTEMENT plus que la baseline",
+        observe=f"tirages LIVE {live}",
+        remede="le scenario ne mesure PAS le pick (le splash ne fire pas a k=1) : re-crafter le "
+               "montage -- pas un verdict sur le port.")
 
 
 def test_port_tracks_the_live_contrast_and_short_circuit_would_be_red(regimes):
@@ -173,32 +193,55 @@ def test_port_tracks_the_live_contrast_and_short_circuit_would_be_red(regimes):
     m0 = {k: r["m0_n"] for k, r in regimes.items()}
     live = {k: r["live_n"] for k, r in regimes.items()}
     assert m1[2] - m1[1] == live[2] - live[1] == 0, (
-        f"port corrige {m1} vs live {live} : le contraste k=1/k=2 n'est pas reproduit")
-    assert m0[2] - m0[1] == 1, (
-        f"le modele court-circuite rend {m0} : il devrait tirer 1 fois de MOINS a k=1 qu'a k=2. "
-        f"S'il ne le fait plus, ce scenario ne distingue plus les deux reponses -> la garde ne garde "
-        f"rien (re-crafter la geometrie).")
-    assert m0[1] != m1[1], "les deux modeles coincident a k=1 -> scenario non discriminant"
+        f"PORT : port corrige {m1} vs live {live} : le contraste k=1/k=2 n'est pas reproduit")
+    assert_counterproof(
+        m0[2] - m0[1] == 1,
+        mutation="modele M0 = `_pick_randomly` court-circuite a pool == 1 (le port d'AVANT), "
+                 "monkeypatche sur le SEUL consommateur psyker",
+        doit_casser="le contraste k=1/k=2 : M0 doit tirer 1 fois de MOINS a k=1 qu'a k=2",
+        observe=f"M0 rend {m0} (M1 = {m1}, live = {live})",
+        remede="soit le simulacre n'intercepte plus le chemin (verifier que `PS._pick_randomly` est "
+               "bien le noeud appele), soit la geometrie ne realise plus k=1 vs k=2 : re-crafter. "
+               "Si l'assertion de FOND ci-dessus tombe aussi, reclasser en rouge de PORT.")
+    assert_counterproof(
+        m0[1] != m1[1],
+        mutation="modele M0 (court-circuit) vs M1 (le port courant), a k=1",
+        doit_casser="les deux modeles doivent DIVERGER au regime k=1",
+        observe=f"M0[1]={m0[1]} == M1[1]={m1[1]}",
+        remede="le regime k=1 ne separe plus les deux reponses : re-crafter -- pas un verdict.")
 
 
-def test_main_attack_alone_is_exact_and_names_the_remaining_gap(regimes):
-    """DECOMPOSITION PAR ETAGE (ne jamais fitter un scalaire) : a k=0 (aucun splash) le port consomme
-    EXACTEMENT ce que le live consomme -> l'attaque principale est exacte, et le residu constant de 1
-    tirage observe des que le splash fire est imputable au VOLET SMITE, pas au pick.
+def test_port_consumption_is_bit_exact_at_every_regime(regimes):
+    """DECOMPOSITION PAR ETAGE (ne jamais fitter un scalaire) : le port consomme EXACTEMENT ce que
+    le live consomme, A CHACUN DES TROIS REGIMES -- k=0 isole l'attaque principale, k=1 et k=2 y
+    ajoutent le volet SMITE. Trois egalites, pas une : un ecart NOMME dit alors quel etage bouge.
 
-    Ce residu est NOMME et hors perimetre de case-130 SS4 : `HitDamage.get_damage` court-circuite a
-    `min == max` (montant plat `StatAmount`), alors que le resolve natif
-    `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` appelle `Next(v, v+1)`
-    SANS gate largeur-1 (le port ne le materialise que dans la branche ability bounds-mode,
-    `is_attack_damage_op`). Le figer ici EMPECHE qu'il derive en silence."""
+    ⚠ CE CONTRAT A CHANGE, ET C'EST UN GAIN (#462-r6). Jusqu'a `70dc9769` (#221, 2026-07-29) ce
+    test figeait un GAP CONNU de **1 tirage par volet splash** : `IdunBattle.Core.HitDamage$$
+    GetDamage` court-circuite a `min == max` (le montant du smite est PLAT -- `PercentageOf(
+    StatAmount(Attack), psykerExtraDmg)`), la ou le natif passe par le resolve slot 8
+    `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`, qui appelle
+    `Next(v, v+1)` SANS gate largeur-1. #221 a porte ce resolve sur la branche reduce-then-roll de
+    `_run_hits`, gate par la FAMILLE (`is_attack_damage_op`) -- et le smite EST de la famille ATTACK
+    (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`). Le residu est donc passe de 1 a
+    **0**, mesure sur les deux regimes.
+
+    L'attente d'alors etait ecrite pour se faire remarquer (« s'il a bouge, le resolve slot-8 a ete
+    porte (bonne nouvelle) ou un autre etage a change ») : elle a rougi 5 jours plus tard, sans
+    designer laquelle des deux lectures etait la bonne. C'est la limite d'un ECART FIGE -- il
+    n'accuse personne. Le contrat est desormais l'EGALITE, qui, elle, accuse le PORT quand elle
+    tombe. Le gap n'est plus << nomme puis fige >> : il est FERME."""
     r0, r1, r2 = regimes[0], regimes[1], regimes[2]
     assert r0["live_n"] == r0["m1_n"], (
-        f"k=0 : live={r0['live_n']} vs port={r0['m1_n']} -- l'attaque principale SEULE diverge deja, "
-        f"le residu ne peut pas etre attribue au volet splash")
+        f"PORT : k=0 : live={r0['live_n']} vs port={r0['m1_n']} -- l'attaque principale SEULE "
+        f"diverge deja, aucun ecart des regimes splash ne peut etre attribue au volet smite")
     gaps = {1: r1["live_n"] - r1["m1_n"], 2: r2["live_n"] - r2["m1_n"]}
-    assert gaps == {1: 1, 2: 1}, (
-        f"residu smite {gaps} != 1 tirage par volet splash (attendu, cf. docstring). "
-        f"S'il a bouge, le resolve slot-8 a ete porte (bonne nouvelle) ou un autre etage a change.")
+    assert gaps == {1: 0, 2: 0}, (
+        f"PORT : residu smite {gaps} != 0 -- k=0 etant exact, l'ecart est DANS le volet splash. "
+        f"Premier etage a instruire : le resolve slot 8 `IdunBattle.Core.Services.DamagePrediction"
+        f"$$RandomlyResolveMinMaxDamage` sur la cellule DEGENEREE du smite (branche "
+        f"`is_attack_damage_op` de `_run_hits`, portee par #221) -- un residu POSITIF dit que le "
+        f"port ne le consomme plus, un residu NEGATIF qu'il le consomme deux fois.")
     for tid, ph in r1["m1_per"].items():
         assert r1["live"].get(tid) == ph, (
-            f"per-coup offline {ph} != live {r1['live'].get(tid)} sur la cible {tid}")
+            f"PORT : per-coup offline {ph} != live {r1['live'].get(tid)} sur la cible {tid}")

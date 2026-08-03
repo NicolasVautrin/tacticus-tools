@@ -143,7 +143,16 @@ class CountingRng:
 class _LegacyPlacement:
     """Restaure le comportement d'AVANT sur les SEULS helpers de placement : pool en ids tries, tri
     natif ABSENT, et **1 tirage des que le pool depasse 1** (l'ex-`_pick_placement_tile`). Reproduit
-    ICI, jamais importe : le fichier de production n'en garde aucune trace."""
+    ICI, jamais importe : le fichier de production n'en garde aucune trace.
+
+    ⚠ IL S'ANCRE SUR LES MIRRORS NATIFS NOMMES, PAS SUR UNE FORME D'ECRITURE (#462-r6). Les quatre
+    sites de placement resolvent leur tuile par un noeud `First(<tri>(...), n)` : `_first` pour les
+    trois sites a n = 1, et `_first_n` pour le site ScarabHive, dont le `count` vient du behaviour.
+    Ce dernier s'ecrivait `[:count]` en slice ANONYME depuis `54c04b59` (le tile-selecteur s'evalue
+    UNE fois) : le simulacre, qui ne patchait que `_first`, n'interceptait plus le chemin ScarabHive
+    -- M0 et M1 rendaient le MEME compte, et le contre-controle rougissait en accusant le port. La
+    lecon est generale : substituer un modele exige un point d'ancrage qui soit le MIRROR D'UN NOEUD
+    NATIF (stable par construction), jamais un detail de la facon dont le port l'ecrit."""
 
     def __init__(self, state):
         self.state = state
@@ -153,7 +162,8 @@ class _LegacyPlacement:
         import engine.runner.operations.spawn as SP
         st = self.state
         self.SP = SP
-        for k in ("_sort_by_distance", "_sort_tiles_by_utility_for_summon", "_randomize", "_first"):
+        for k in ("_sort_by_distance", "_sort_tiles_by_utility_for_summon", "_randomize",
+                  "_first", "_first_n"):
             self.saved[k] = getattr(SP, k)
 
         def _identity_sorted(_st, tiles, _origin_id):
@@ -166,10 +176,26 @@ class _LegacyPlacement:
                 return tiles[0]
             return tiles[st.rng.next_internal(0, len(tiles))]
 
+        def _pick_placement_tiles(tiles, count):
+            """Le port d'AVANT sur le site a COUNT : une boucle `for _ in range(count)` qui
+            RE-CHERCHAIT sa tuile a chaque tour dans le pool restant -- donc `_pick_placement_tile`
+            applique `count` fois, en retirant la tuile prise. C'est ce que faisait
+            `SpawnUnitOperation.execute` avant `54c04b59` (`tile = _first(_sort_by_distance(...))`
+            DANS la boucle des summons), transpose sur la structure d'aujourd'hui."""
+            rest, out = list(tiles), []
+            for _ in range(max(0, int(count))):
+                t = _pick_placement_tile(rest)
+                if t is None:
+                    break
+                out.append(t)
+                rest.remove(t)
+            return out
+
         SP._sort_by_distance = _identity_sorted
         SP._sort_tiles_by_utility_for_summon = _identity_sorted
         SP._randomize = lambda _st, tiles: sorted(tiles)
         SP._first = _pick_placement_tile
+        SP._first_n = _pick_placement_tiles
         return self
 
     def __exit__(self, *a):

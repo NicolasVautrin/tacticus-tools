@@ -198,8 +198,20 @@ def _port_reason(dv, ob, snap, board, caster_id, target_id, variant: str) -> int
 
       * `apres`     = l'ability du registre (masque pose par cette tranche) ;
       * `avant`     = la MEME classe, `TARGETING_OPTIONS = None` -> l'etat de `master` ;
-      * `sansTile`  = CONTREFACTUEL : le masque prive du seul bit qui mord (`TargetIsTile`).
-        Il doit rendre 0 la ou le natif refuse -- preuve que le bit est PORTEUR et pas decoratif.
+      * `desarme`   = CONTREFACTUEL, le DESARMEMENT NATIF de la branche etudiee : le masque PLUS
+        `AllowUnwalkableTargetTile` (bit 43). Le filtre statique lit
+        `if ((rules & 0x40 TargetIsTile) && !IsWalkable(mainTile) && (rules & 0x80000000000
+        AllowUnwalkableTargetTile) == 0) -> broken(1)` : poser le bit 43 eteint EXACTEMENT ce
+        refus, et RIEN d'autre. Il doit donc rendre 0 la ou le natif refuse -- preuve que le
+        refus mesure vient bien de CETTE branche, et pas d'une autre porte de la cascade ;
+      * `sansTile`  = CONTREFACTUEL de NECESSITE : le masque prive de `TargetIsTile`. Il ne peut
+        PAS servir a prouver le faux-accept, et c'est une mesure, pas une opinion (#462-r6) --
+        le bit 6 est aussi le bit de DOMAINE (`get_target_domain_broken_rule`, tete de la
+        cascade). Le retirer bascule l'ability en unit-targeting, ou une tuile VIDE rompt
+        `TargetIsUnit` (elargissement #253, `a644607e`, porte DEUX HEURES apres cette tranche).
+        Le port refuse donc toujours -- par une AUTRE porte, avec un AUTRE code. Ce que cette
+        variante garde reste juste et utile : privee du bit, le port CESSE D'ACCORDER avec le
+        natif sur ces lignes.
     """
     from dataclasses import replace as _replace
     st = load_state(dv, ob, snap, board=board)
@@ -211,6 +223,13 @@ def _port_reason(dv, ob, snap, board, caster_id, target_id, variant: str) -> int
             __slots__ = ()
             TARGETING_OPTIONS = None
         ability = _NoMask()
+    elif variant == "desarme":
+        class _AllowUnwalkable(klass):
+            __slots__ = ()
+            TARGETING_OPTIONS = _replace(
+                klass.TARGETING_OPTIONS,
+                rules=int(klass.TARGETING_OPTIONS.rules) | int(TR.AllowUnwalkableTargetTile))
+        ability = _AllowUnwalkable()
     else:
         class _NoTile(klass):
             __slots__ = ()
@@ -291,25 +310,29 @@ def main(argv=None) -> int:
                 "nat_class": tr.get("ruleClass"),
                 "apres": _port_reason(dv, ob, snap, board, cid, tid, "apres"),
                 "avant": _port_reason(dv, ob, snap, board, cid, tid, "avant"),
+                "desarme": _port_reason(dv, ob, snap, board, cid, tid, "desarme"),
                 "sansTile": _port_reason(dv, ob, snap, board, cid, tid, "sansTile"),
             })
 
         print("\n[reasons] caster=u%d ability=%d" % (cid, VALKYRIE_STRIKE))
-        print("  %-26s %-6s %-10s %-22s %-8s %-8s %-9s %s"
-              % ("cible", "id", "natif", "regle", "APRES", "AVANT", "sansTile", "accord"))
-        n_agree = n_gain = n_cf = 0
+        print("  %-26s %-6s %-10s %-22s %-8s %-8s %-9s %-9s %s"
+              % ("cible", "id", "natif", "regle", "APRES", "AVANT", "desarme", "sansTile",
+                 "accord"))
+        n_agree = n_gain = n_cf = n_nec = 0
         for r in rows:
             agree = (r["nat"] == r["apres"])
             n_agree += 1 if agree else 0
             gain = (r["nat"] not in (None, 0)) and r["avant"] == 0
             n_gain += 1 if gain else 0
-            cf = (r["nat"] not in (None, 0)) and r["sansTile"] == 0
+            cf = (r["nat"] not in (None, 0)) and r["desarme"] == 0
             n_cf += 1 if cf else 0
-            print("  %-26s %-6d %-10s %-22s %-8s %-8s %-9s %s%s"
+            nec = (r["nat"] not in (None, 0)) and r["sansTile"] != r["nat"]
+            n_nec += 1 if nec else 0
+            print("  %-26s %-6d %-10s %-22s %-8s %-8s %-9s %-9s %s%s"
                   % (r["label"], r["targetId"],
                      "-" if r["nat"] is None else hex(r["nat"]),
                      ",".join(r["nat_reasons"]) or r["nat_class"] or "-",
-                     hex(r["apres"]), hex(r["avant"]), hex(r["sansTile"]),
+                     hex(r["apres"]), hex(r["avant"]), hex(r["desarme"]), hex(r["sansTile"]),
                      "OK" if agree else "MISMATCH", "  <-GAIN" if gain else ""))
 
         walk_ok = any(r["nat"] == 0 for r in rows if r["label"].startswith("tile-WALK"))
@@ -318,9 +341,15 @@ def main(argv=None) -> int:
         print("[garde 0x1] au moins une tuile MARCHABLE rend 0x0 : %s  -> le court-circuit "
               "d'ability ne mord pas, les 0x1 des NON MARCHABLES viennent de `TargetIsTile`"
               % ("OUI" if walk_ok else "NON"))
-        print("[contrefactuel] masque prive de `TargetIsTile` -> faux accept sur %d/%d des lignes "
-              "REFUSEES par le natif : le bit est PORTEUR" % (n_cf, n_gain))
-        ok = (n_agree == len(rows)) and walk_ok and n_gain > 0 and n_cf == n_gain
+        print("[contrefactuel/desarme] masque PLUS `AllowUnwalkableTargetTile` -> faux accept sur "
+              "%d/%d des lignes REFUSEES par le natif : le refus vient bien de CETTE branche"
+              % (n_cf, n_gain))
+        print("[contrefactuel/necessite] masque prive de `TargetIsTile` -> l'accord natif/port "
+              "CASSE sur %d/%d des lignes REFUSEES (il n'y faux-accepte PAS : le bit 6 est aussi "
+              "le bit de DOMAINE, et une tuile vide y rompt TargetIsUnit -- elargissement #253)"
+              % (n_nec, n_gain))
+        ok = (n_agree == len(rows)) and walk_ok and n_gain > 0 and n_cf == n_gain \
+            and n_nec == n_gain
         print("[VERDICT] %s" % ("PASS" if ok else "FAIL"))
         print("[RAW] " + json.dumps(rows))
         return 0 if ok else 1
