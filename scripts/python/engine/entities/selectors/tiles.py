@@ -11,7 +11,7 @@ import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
 from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
-                         _effect_field, resolve_unit)
+                         _effect_field, resolve_unit, _select_tile, _occupants_by_tile)
 from ._shared import _entity_pos, _tile_positions
 
 
@@ -229,6 +229,109 @@ class TileIntersect(TargetsSelector):
             if t in rs and t not in seen:
                 seen.add(t)
                 out.append(t)
+        return out
+
+
+class FilterTilesIfCanAttackTargetTileFrom(TargetsSelector):
+    """`IdunBattle.Entities.Selectors.FilterTilesIfCanAttackTargetTileFromSelector$$Select` --
+    « garde les tuiles DEPUIS lesquelles `enemyOf` peut attaquer la tuile cible ». Mirror 1:1 :
+
+        enemyOf    = this.<+0x18>.SelectUnit(entities, 0);      // vslot 7
+        targetTile = this.<+0x20>.SelectTile(entities);         // vslot 0xc (SINGULIER)
+        if (enemyOf == null || targetTile == null) return new List<Tile>();
+        result = new List<Tile>();
+        foreach (tile in this.<+0x28>.SelectTiles(entities))    // vslot 0xa
+            if (query.GetAdjacentUnits(tile, friendsOf: null, enemiesOf: enemyOf,
+                                       ignoreSteppables: false).Count == 0
+                || TileExtensions.IsAdjacentTo(tile, targetTile))
+                result.Add(tile);
+        return result;
+
+    LE PREMIER OPERANDE N'EST PAS UNE « RAISON D'INVALIDITE » -- c'est un CARDINAL. Le slot
+    d'interface est `IBattleQuery` **0x7a**, etabli MECANIQUEMENT : les trois fermetures
+    `RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass149_0$$u003CGetAdjacentUnitsu003Eb__0`
+    / `...DisplayClass150_0...` / `...DisplayClass151_0...` -- le decorateur d'enregistrement, qui
+    re-appelle la query interne PAR LE MEME SLOT -- portent respectivement `0x7a`, `0x7b`, `0x7c`,
+    et sont toutes trois nommees `GetAdjacentUnits`. Le retour est donc une LISTE d'unites, et
+    `iVar5` du decompile est son `ICollection.get_Count` (meme paire lue dans
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility$$GetDynamicInvalidTargetReason`,
+    qui appelle le MEME slot puis `ICollection.Remove(caster)` -- on ne retire pas un caster d'une
+    liste de raisons).
+
+    Semantique, une fois les deux operandes lus : une unite est empechee de TIRER quand elle est
+    engagee au contact -> la tuile candidate n'est gardee que si `enemyOf` n'y aurait AUCUN ennemi
+    adjacent, **ou** si elle est adjacente a la tuile cible (auquel cas c'est une attaque de MELEE
+    qui devient possible). C'est ce SECOND bras -- le bras de RATTRAPAGE -- qui n'etait pas porte
+    (#433-r4-r1).
+
+    Les DEUX adjacences sont NATIVEMENT DIFFERENTES et le port ne les confond pas (#433-r1) :
+
+      * `GetAdjacentUnits` -> `BattleQuery$$IterateAdjacentTiles` -> la liste d'adjacence STOCKEE
+        (une tuile n'y est jamais sa propre voisine) + la porte d'elevation `|dElev| < 2`
+        -> foyer `battle_query.is_adjacent` ;
+      * `TileExtensions$$IsAdjacentTo` -> `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent`
+        (surcharge SCALAIRE), qui porte le COURT-CIRCUIT D'IDENTITE `tile1 == tile2` -> foyer
+        `battle_query.are_entities_adjacent`. Un port en `distance == 1` REFUSERAIT la paire
+        identique que le natif accorde.
+
+    FILTRE d'unites de `BattleQuery$$CountOrGetUnitsOnTiles`, verbatim : `GetUnit(tile)` (le
+    `TileContentComponent`, donc N'IMPORTE QUEL pied resout en son unite -> `_occupants_by_tile`,
+    #433-r3-r1a), puis `if (ignoreSteppables && IsSteppable) skip` (ici `ignoreSteppables == false`
+    -> les steppables COMPTENT), `if (friendsOf != null && !IsFriend) skip` (ici null -> inerte),
+    `if (enemiesOf != null && !IsEnemy(u, enemyOf)) skip`. Seul le CARDINAL est lu, donc l'ordre et
+    la deduplication de l'`OrderedSet` natif ne sont pas observables.
+
+    CONSOMMATEURS (xrefs de `IdunBattleLogic.Entities.DSLSelectors$$FilterTilesIfCanAttackTargetTileFrom`,
+    cloture MECANIQUE : refcount 6 = 2 appels + 4 entrees DATA) -- **UN SEUL noeud DSL, DEUX abilities** :
+      * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile`
+        (1076), branche de REPLI uniquement ;
+      * `IdunBattleLogic.Entities.Abilities.Active.Loki.WallOfMirrorsAbility$$GetPossibleTiles` (1186,
+        NON PORTEE -- residu `#433-r4-r1-r1`).
+    Les deux passent `(enemyOf = Caster()@DSLSelectors+0x48, target = Target()@+0x60)`.
+    ⚠ `DSLSelectors$$AttackTilesForTarget` et `$$CanAddMultiTileUnit` ne construisent PAS ce
+    selecteur-la : ils partagent seulement son `.ctor` (corps DEDUPLIQUE par IL2CPP) et ont leurs
+    propres `AttackTilesForTargetSelector$$Select` / `CanAddMultiTileUnitTileSelector$$Select`,
+    dont AUCUN n'appelle `IsAdjacentTo`.
+
+    DOMAINE : les elements de `from_tiles` sont rendus TELS QUELS (ids de tuile aux call-sites
+    portes), dans l'ordre source et sans dedup -- le natif accumule dans un `List<Tile>`, pas un
+    `OrderedSet`. Un element non resolvable en position (`board` absent pour un id) est JETE."""
+    def __init__(self, enemy_of: TargetsSelector, target: TargetsSelector,
+                 from_tiles: TargetsSelector):
+        self.enemy_of, self.target, self.from_tiles = enemy_of, target, from_tiles
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        attacker = resolve_unit(self.enemy_of, ctx)                       # vslot 7  SelectUnit
+        target_tile = _select_tile(self.target.evaluate(ctx), board)      # vslot 0xc SelectTile
+        if attacker is None or target_tile is None:
+            return []                                    # `new List<Tile>()` -- selection vide
+        elev = getattr(ctx, "elev_by_pos", None)
+        team = attacker.get("team")
+        # `GetUnitsOnTiles(..., enemiesOf: enemyOf, ...)` : occupation PAR PIED (TileContentComponent),
+        # vivants seulement (un mort n'occupe plus sa tuile), filtre `IsEnemy` vs le referent.
+        enemy_tiles = [p for p, u in _occupants_by_tile(ctx.units).items()
+                       if u.get("team") != team]
+        v = self.from_tiles.evaluate(ctx)                                 # vslot 0xa SelectTiles
+        if v is None:
+            items = []
+        elif isinstance(v, (dict, int)) or (isinstance(v, tuple) and len(v) == 2
+                                            and all(isinstance(x, int) for x in v)):
+            items = [v]
+        else:
+            items = list(v)
+        out: list = []
+        for item in items:
+            pos = _entity_pos(item, board)
+            if pos is None:
+                continue
+            # `GetAdjacentUnits(tile, null, enemyOf, false).Count == 0`
+            no_adjacent_enemy = not any(battle_query.is_adjacent(pos, p, elev)
+                                        for p in enemy_tiles)
+            # `|| TileExtensions.IsAdjacentTo(tile, targetTile)` -- LE BRAS DE RATTRAPAGE, sur la
+            # primitive a court-circuit d'identite (surtout PAS `hexgeo.distance == 1`).
+            if no_adjacent_enemy or battle_query.are_entities_adjacent(pos, target_tile, elev):
+                out.append(item)
         return out
 
 
