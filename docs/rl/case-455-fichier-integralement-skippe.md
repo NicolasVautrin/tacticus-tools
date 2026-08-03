@@ -244,10 +244,12 @@ reste se révélera au fil de l'eau — c'est le résidu **#455-r1**.
 * **#455-r3** — le critère ne voit pas un fichier dont **tous les tests ont disparu** (0 collecté) :
   aucun report, donc aucun bilan. Un fichier vidé de ses tests est un vert qui ment d'une autre
   forme, que ce cliquet ne couvre pas.
-* **#455-r4** — `test_env_fire_tile_migration_live.py::test_env_fire_tile_dot_applies_resilient_cap_live`
-  est ROUGE sur `master` : `pytest.fail("cible morte avant la fenetre discriminante")`. C'est un
-  rouge de MONTAGE conforme à #268 (il échoue au lieu de skipper, c'est correct), sans rapport avec
-  ce cas ni avec #446-r2. Trouvé par l'échantillon, non traité — hors périmètre.
+* **#455-r4** — FERMÉ (`docs/rl/case-455-r4-fenetre-cap-resilient.md`). Le rouge accusait bien le
+  MONTAGE, mais pas pour la raison écrite dans le `pytest.fail` : le pas de descente (~110 000)
+  dépassait la fenêtre entière (50 000), **et** l'attaque terminait l'activation de la seule p-unit,
+  donc le tour basculait tout seul et le tick n'était pas isolable. Réparé par deux leviers
+  (`--unit-stat RemainingHealth`, une 2ᵉ p-unit inerte) ; assertions inchangées. Résidu ouvert :
+  **#455-r4-r1**.
 * **#455-r5** — FERMÉ dans cette même livraison, et gardé : la première version de l'étape 2
   écrivait dans l'arbre de production. Détail en §8 ; le garde générique est `probe_440` R3
   (`docs/rl/case-434-perimetre-des-cliquets.md` §11).
