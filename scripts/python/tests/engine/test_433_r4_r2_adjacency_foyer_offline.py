@@ -122,9 +122,6 @@ def test_early_warning_emitted_action_changes_with_the_gate():
     pb = EarlyWarningOverridePlaybook()
     nb = _neighbours(O)
     high = nb[1]
-    reach = [O] + [p for p in sorted(
-        {q for r in range(1, 5)
-         for q in (hexgeo.neighbors(O[0], O[1]) if r == 1 else [])} | set())]
     # sweep explicite : une tuile a chaque distance 2..4 de l'ennemi, derivee par hexgeo
     ring = {}
     for col in range(O[0] - 5, O[0] + 6):

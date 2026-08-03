@@ -352,8 +352,8 @@ def step_couple(verbose=True) -> dict:
                          "port_off": pb.utility_at(P, enemies, adj_off)})
         out = {
             "O": O, "Y": Y, "elev_O": elev[O], "elev_Y": elev[Y],
-            "caster": c["id"], "enemy": e["id"], "enemies": [list(map(list, [e0])) + [rg]
-                                                             for (e0, rg) in enemies],
+            "caster": c["id"], "enemy": e["id"],
+            "enemies": [{"pos": list(pos), "range": rg} for (pos, rg) in enemies],
             "adj_on": sorted(adj_on), "adj_off": sorted(adj_off),
             "d_max": max(r["d"] for r in rows) if rows else None,
             "n": len(rows),
