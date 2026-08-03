@@ -139,6 +139,128 @@ def _ranged_bool_is_true(value: int, visual_id) -> bool:
     return not _has_ranged_weapon(visual_id)          # IfNotRangedCaster
 
 
+# ------------------------------------------------------------------------------------------------
+# L'ETAGE `GetDynamicInvalidTargetReason` -- ce qui SEPARE deux abilities au MEME preset (#-r1-r1)
+#
+# `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` ne se contente pas de recopier les 0x40
+# octets du preset dans `this.<TargetingOptions @+0x70>` : il ECRASE ensuite le champ `+0x38` par
+# `new TargetingOptions.DynamicTargetingTargetRule(this, <klass+0x480>)`. `klass+0x480` est le champ
+# `MethodInfo*` du slot de vtable commencant a `klass+0x478` (vtable a `klass+0x138`, pas 0x10 :
+# index 52) -- RESOLU AU RUNTIME (`resolveVtableSlot`), c'est `GetDynamicInvalidTargetReason`.
+#
+# Ce champ `+0x38` est EXACTEMENT celui qu'invoque le TROISIEME predicat de
+# `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions` -- la lambda
+# `TargetingQuery.u003Cu003Ec__DisplayClass34_0$$u003CGetPossibleTargetsForOptionsu003Eb__2`,
+# appliquee en `RemoveAll` quand `Rules & 2` : la tuile est RETIREE de la zone quand le delegue rend
+# une raison NON NULLE. C'est donc `GetDynamicInvalidTargetReason` -- et lui seul -- qui donne sa
+# FORME a la zone AU-DELA du `TargetingRange`, et c'est ce qui separait `LightOfSanguinius` (1177) de
+# `LeadingTheCharge` (1204), pourtant au MEME preset `TargetingOptions statics+0x240`.
+#
+# Le gate ne peut que RETIRER (`RemoveAll`) : le rayon de `GetTilesInRange` en est donc une borne
+# SUPERIEURE, que le gate abaisse.
+# ------------------------------------------------------------------------------------------------
+
+#: La base `AActiveAbility$$GetDynamicInvalidTargetReason` rend 0 -- elle ne retire RIEN. C'est le
+#: DEFAUT (ability absente de la table) et c'est un FAIT runtime, pas une hypothese : le corps de
+#: base est DEDUPLIQUE par IL2CPP, donc l'absence d'un `<X>$$GetDynamicInvalidTargetReason` dans les
+#: tables ne prouverait rien -- ce qui le prouve, c'est l'egalite des pointeurs de slot lue sur la
+#: vtable (`probe_433_r4_r2_r1_r1_dynamic_target_gate.py --step gate`).
+GATE_NONE = "none"
+
+#: `GetFreeAdjacentTiles(targetTiles).Any(t => GetDistance(t, casterTiles) <= config.range)`
+#: -- slots `IBattleQuery` 0x53 et 0x6d, re-derives au RUNTIME (ifaceOffset = 4, prouve sur
+#: `IsTileInRangeOfAnyAbility` 0xc5 -> index 201 et `FindRangedWeapon` 0xb3 -> index 183).
+#: La zone est donc bornee par `config.range + 1` : le `+1` vient de ce que le test porte sur les
+#: VOISINES de la cible, pas sur la cible.
+GATE_FREE_ADJACENT_IN_CONFIG_RANGE = "free_adjacent_in_config_range"
+
+#: Gate LU, mais dont la condition n'est pas derivable du seul kit gameconfig -- elle interroge
+#: l'ETAT de bataille (tuiles mouvables et pathfinding, portee de synapse, occupation des tuiles,
+#: forme de spawn). Le port ne le modelise pas.
+GATE_NOT_DERIVABLE = "not_derivable"
+
+#: L'ability SURCHARGE (fait runtime), mais son corps n'a pas ete lu par cette tranche.
+GATE_NOT_READ = "not_read"
+
+#: `TargetingQuery$$GetTilesInRange` branche AVANT tout le reste sur `range.UseWholeBoard` et rend
+#: `<IBattleQuery slot 0x69>()` = `GetAllTiles()` : le natif ne borne AUCUNE distance. Le port
+#: modelisant la zone par un RAYON, on lui donne ici un infini pratique -- aucune donnee n'y est
+#: ajustee, la seule propriete requise est de majorer tout plateau.
+WHOLE_BOARD_REACH = 1_000_000
+
+#: Le regime du gate, ability par ability. **Une entree ABSENTE signifie `GATE_NONE`** -- ce qui se
+#: verifie au runtime, slot par slot. Ne figurent donc ici QUE les abilities dont la vtable montre
+#: une surcharge.
+DYNAMIC_TARGET_GATE_BY_ABILITY: dict[int, str] = {
+    # --- LU et derivable : la borne est une DISTANCE au caster -------------------------------
+    1177: GATE_FREE_ADJACENT_IN_CONFIG_RANGE,  # LightOfSanguiniusAbility$$GetDynamicInvalidTargetReason
+    1153: GATE_FREE_ADJACENT_IN_CONFIG_RANGE,  # HammerOfWrathAbility$$GetDynamicInvalidTargetReason
+    # --- LU, NON derivable hors etat de bataille ---------------------------------------------
+    1058: GATE_NOT_DERIVABLE,   # WaaaghAbility -- GetPossibleMovementTiles (selecteur DSL)
+    1087: GATE_NOT_DERIVABLE,   # ExemplarOfTheKauyonAbility -- TileExtensions$$IsFreeTile + slot 0x7a
+    1112: GATE_NOT_DERIVABLE,   # AlphaWarriorAbility -- IsInSynapseRange(caster, target)
+    1158: GATE_NOT_DERIVABLE,   # DutyEternalAbility -- DSLSelectors$$ThreeTileUnitSpawnShape
+    1163: GATE_NOT_DERIVABLE,   # BlackRageAbility -- GetPossibleMovementTiles (selecteur DSL)
+    1180: GATE_NOT_DERIVABLE,   # HeroicFusilladeAbility -- GetSurroundingTiles + GetMinDistance
+    1202: GATE_NOT_DERIVABLE,   # VigilanceEternalAbility -- AreEntitiesAdjacent, sinon mouvement
+    1204: GATE_NOT_DERIVABLE,   # LeadingTheChargeAbility -- DSLSelectors$$TilesUnitCanMoveToChargeTarget
+    # --- SURCHARGE etablie au runtime, corps NON LU par cette tranche -------------------------
+    28:   GATE_NOT_READ,        # RepairAbility
+    1005: GATE_NOT_READ,        # AdaptiveStrategyAbility
+    1011: GATE_NOT_READ,        # TunnelingHorrorAbility
+    1016: GATE_NOT_READ,        # SendInTheNextWaveAbility
+    1025: GATE_NOT_READ,        # SkyStrikeAbility
+    1038: GATE_NOT_READ,        # FoulInfusionAbility
+    1059: GATE_NOT_READ,        # RammingSpeedAbility
+    1081: GATE_NOT_READ,        # FightingRetreatAbility
+    1082: GATE_NOT_READ,        # InspiredToGreatnessAbility
+    1100: GATE_NOT_READ,        # SorcerousFacadeAbility
+    1101: GATE_NOT_READ,        # AttemptedPossessionAbility
+    1116: GATE_NOT_READ,        # RadBombardmentAbility
+    1117: GATE_NOT_READ,        # DefendTheDivineWorkAbility
+    1119: GATE_NOT_READ,        # Repair_GalvanicFieldAbility
+    1143: GATE_NOT_READ,        # ForwardSpotterAbility
+    1145: GATE_NOT_READ,        # SporeMineLauncherAbility
+    1151: GATE_NOT_READ,        # TheQuickeningAbility
+    1164: GATE_NOT_READ,        # MindControlAbility
+    1168: GATE_NOT_READ,        # EntropyCannonsAbility
+    1175: GATE_NOT_READ,        # BloodChaliceAbility
+    1179: GATE_NOT_READ,        # CultDemagogueAbility
+    1197: GATE_NOT_READ,        # ExcruciatingFrequenciesAbility
+    1200: GATE_NOT_READ,        # SquigLaunchasAbility
+    1201: GATE_NOT_READ,        # SquigMineAbility
+    1213: GATE_NOT_READ,        # DeathOnTheWindAbility
+}
+
+
+def dynamic_target_gate_of(ability_id) -> str:
+    """Le regime du gate `GetDynamicInvalidTargetReason` de cette ability.
+
+    L'ABSENCE de la table vaut `GATE_NONE` : la base `AActiveAbility` rend 0, donc ne retire rien.
+    Ce defaut est un FAIT runtime (egalite des pointeurs de slot), pas une deduction d'absence."""
+    try:
+        aid = int(ability_id)
+    except (TypeError, ValueError):
+        return GATE_NONE
+    return DYNAMIC_TARGET_GATE_BY_ABILITY.get(aid, GATE_NONE)
+
+
+def dynamic_target_gate_reach(ability_id) -> int | None:
+    """Le rayon que le gate LAISSE SUBSISTER -- `WHOLE_BOARD_REACH` quand il ne retire rien,
+    `None` quand le port ne sait pas decider.
+
+    `GATE_NOT_READ` ne retire rien NON PLUS : ne pas retrecir sur un corps non lu preserve le
+    comportement de la tranche precedente pour les 15 abilities non-whole-board concernees, plutot
+    que de leur substituer un `None` qui les retirerait toutes de la zone d'un coup."""
+    gate = dynamic_target_gate_of(ability_id)
+    if gate == GATE_FREE_ADJACENT_IN_CONFIG_RANGE:
+        cfg = _config_range(ability_id)
+        return None if cfg is None else int(cfg) + 1
+    if gate == GATE_NOT_DERIVABLE:
+        return None
+    return WHOLE_BOARD_REACH                       # GATE_NONE et GATE_NOT_READ : aucun retrait
+
+
 def _config_range(ability_id) -> int | None:
     """`AbilityConfiguration.GetNumberConstant(0x16 range)` = `constants.range` de gameconfig --
     ce que `IdunBattle.Entities.Abilities.AActiveAbility$$SetConfigValuesInTargetingOptions` recopie
@@ -157,30 +279,34 @@ def _config_range(ability_id) -> int | None:
         return None
 
 
-def ability_range_value(ability_id, visual_id) -> int | None:
-    """La PORTEE effective d'une ability pour ce caster -- `TargetingQuery$$GetRange` restreint.
+def tiles_in_range_reach(ability_id, visual_id) -> int | None:
+    """Le rayon de `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange` -- la zone AVANT les
+    trois predicats de `GetPossibleTargetsForOptions`. C'est une borne SUPERIEURE exacte.
 
     L'ORDRE natif, respecte : `SetConfigValuesInTargetingOptions` pose `OverrideRange = config`
     **seulement si** `UseRangeFromConfig` ET `OverrideRange` encore vide ; puis `GetRange` fait
     `value = weaponRange` puis `value = OverrideRange.GetValueOrDefault(value)`. Un override du ctor
     GAGNE donc sur la config, et la config gagne sur l'arme.
 
+    `UseWholeBoard` COURT-CIRCUITE tout le reste, et dans les DEUX etages : `GetRange` rend
+    `{ Range = 1, OnlyAdjacent = false, UseWholeBoard = true }` sans meme evaluer `only_adjacent` ni
+    la portee d'arme, puis `GetTilesInRange` branche dessus EN PREMIER et rend
+    `<IBattleQuery slot 0x69>()` = `GetAllTiles()`. D'ou `WHOLE_BOARD_REACH`.
+
     `only_adjacent` (resolu par `RangedBoolExtensions$$IsTrue`) ramene la portee EFFECTIVE a 1 : le
     consommateur (`TargetingQuery$$GetInvalidTargetReason`, volet portee) bascule alors sur
     `AreEntitiesAdjacent` au lieu de la comparaison de distance.
 
-    Rend `None` -- « le port ne sait pas decider » -- dans QUATRE cas, tous natifs :
+    Rend `None` -- « le port ne sait pas decider » -- dans TROIS cas, tous natifs :
       * `TargetingRange` non RE-lu (ability absente des deux sources) ;
-      * `UseWholeBoard` : le natif ne borne PAS la portee ici. Le port n'ELARGIT PAS pour autant
-        (borne INFERIEURE assumee) -- MESURE (`probe_433_r4_r2_r1_ability_range.py --step seam`,
-        `astraDreir`, dont `LeadingTheCharge` est whole-board) : le natif rend « hors portee » a
-        TOUTE distance `d >= 2`, donc l'ability ne verse RIEN a la zone. Elargir aurait ete faux ;
       * `OverrideRangeFunc` : le delegue ECRASE la valeur et n'est pas resolu (meme arbitrage que
         `engine.runner.abilities.targeting.get_range`) ;
       * `UseRangeFromConfig` sans `constants.range` dans le kit."""
     rng = targeting_range_of(ability_id)
-    if rng is None or rng.use_whole_board or rng.override_range_func:
+    if rng is None or rng.override_range_func:
         return None
+    if rng.use_whole_board:
+        return WHOLE_BOARD_REACH
     ov = rng.override_range
     if ov is None and rng.use_range_from_config:
         ov = _config_range(ability_id)
@@ -191,6 +317,38 @@ def ability_range_value(ability_id, visual_id) -> int | None:
         if ov is None:
             return None                               # `!HasAnyWeapon` -> `GetStat(Range)`, non observable
     return 1 if _ranged_bool_is_true(rng.only_adjacent, visual_id) else int(ov)
+
+
+def ability_range_value(ability_id, visual_id) -> int | None:
+    """La PORTEE effective d'une ability pour ce caster -- la COMPOSITION des deux etages natifs :
+    le rayon de `GetTilesInRange` (borne SUPERIEURE) puis le retrait opere par le predicat
+    `GetDynamicInvalidTargetReason` (`RemoveAll`, donc il ne peut que RETRECIR).
+
+    Le regime `UseWholeBoard` se scinde alors en DEUX, et c'est ce qui ferme `#433-r4-r2-r1-r1` :
+
+      * gate `GATE_NONE` -- la zone est le plateau ENTIER. MESURE (`darkaAsmodai`,
+        `ExemplarOfHate`, sweep de 40 positions `d = 2..10`) : le natif rend « en portee » sur
+        **40/40**, a TOUTE distance. L'ancienne tranche rendait `None` ici, soit 40 faux negatifs ;
+      * gate LU et derivable -- la zone est bornee par le gate. MESURE (`bloodDante`,
+        `LightOfSanguinius`, `constants.range = 5`) : le natif est « en portee » a **100 %** pour
+        `d <= 5` et encore **4/6** a `d = 6`, puis **0** des `d >= 7`. C'est `config.range + 1`,
+        le `+1` venant de ce que `GetFreeAdjacentTiles` teste les VOISINES de la cible. Un modele
+        en `config.range` aurait predit zero a `d = 6` : seule la ventilation PAR DISTANCE separe
+        les deux, une comparaison globale ne l'aurait pas vu ;
+      * gate LU mais NON derivable -- `None`, comme avant. C'est le SEUL regime ou la borne
+        superieure est inutilisable : la verser reviendrait a declarer tout le plateau menace.
+        MESURE (`astraDreir`, `LeadingTheCharge`) : le natif rend « hors portee » des `d >= 2`,
+        donc verser le plateau ferait 40 faux POSITIFS la ou `None` en fait 0."""
+    base = tiles_in_range_reach(ability_id, visual_id)
+    if base is None:
+        return None
+    gate = dynamic_target_gate_reach(ability_id)
+    if gate is None:
+        # Gate non derivable. Si la zone de base est bornee, elle reste une borne SUPERIEURE
+        # exacte et le port la garde (statu quo de la tranche precedente) ; si elle est le plateau
+        # entier, il n'y a plus rien d'exploitable -> `None`.
+        return None if base == WHOLE_BOARD_REACH else base
+    return min(base, gate)
 
 
 def _active_ability_ids(visual_id) -> list:
@@ -221,10 +379,16 @@ def unit_threat_reach(visual_id, ability_ids=None) -> int:
       * chaque ability ACTIVE du kit dont la portee est derivable (`ability_range_value`).
 
     APPROXIMATION NOMMEE : le natif rend un ENSEMBLE de tuiles (les slots 9/10 de chaque
-    `AActiveAbility`, LoS et forme comprises) ; le port n'en garde que le RAYON. L'ecart est donc un
-    sur-ensemble (le disque contient la zone reelle), a une exception mesuree pres : les gates par
-    ability du natif (`GetInvalidCasterReason`, `CanCurrentlyBeUsed`) peuvent RETIRER une ability
-    entiere -- residu `#433-r4-r2-r1` de la case-doc.
+    `AActiveAbility`, LoS et forme comprises) ; le port n'en garde que le RAYON. Le predicat de
+    ciblage dynamique (`GetDynamicInvalidTargetReason`) est desormais MODELISE -- c'est ce qui borne
+    la zone d'une ability `UseWholeBoard` (cf. `ability_range_value`) -- mais les deux autres
+    predicats de `GetPossibleTargetsForOptions` ne le sont pas : `b__1` retire les tuiles obscurcies
+    par le terrain (residu `#433-r4-r2-r1-r2`), et les gates par ability en AMONT
+    (`GetInvalidCasterReason`, `CanCurrentlyBeUsed`, `IsAbilityBlocked`) peuvent retirer une ability
+    ENTIERE sans que le kit gameconfig le dise.
+
+    `WHOLE_BOARD_REACH` se propage par le `max` : une seule ability `UseWholeBoard` SANS gate suffit
+    a rendre toute tuile du plateau menacee, ce qui est exactement `GetAllTiles()`.
 
     Cache par `visual_id` quand le kit n'est pas force par l'appelant : les deux sources sont
     STATIQUES (gameconfig + tables lues au decompile), donc le resultat ne depend d'AUCUN etat de
@@ -244,8 +408,67 @@ def unit_threat_reach(visual_id, ability_ids=None) -> int:
     return reach
 
 
+def _free_adjacent_gate_allows(unit_pos, tile, cfg_range: int, elev_by_pos) -> bool:
+    """Le gate `GATE_FREE_ADJACENT_IN_CONFIG_RANGE`, evalue TUILE PAR TUILE au lieu d'etre rabattu
+    sur son rayon :
+
+        free = <IBattleQuery slot 0x53>(targetTiles)            # GetFreeAdjacentTiles
+        return free.Count > 0 && free.Any(t => <slot 0x6d>(t, casterTiles) <= config.range)
+
+    `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles` = `GetAdjacentTiles(from,
+    onlyEmptyOrSteppable: 1, onlyWalkableTiles: 1)` filtre en place, et son iterateur
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` applique --
+    APRES les gardes de walkability -- une PORTE D'ELEVATION `|srcElev - tile.Elevation| < 2`.
+
+    Le foyer porte est donc `engine.battle_query.is_adjacent`, et surtout PAS
+    `are_entities_adjacent` : les deux natifs sont DISTINCTS (cf. `#433-r1`) et seul le premier
+    mirrore `IterateAdjacentTiles` -- le second porte un court-circuit d'IDENTITE qui compterait ici
+    la cible elle-meme comme sa propre voisine.
+
+    MESURE qui l'a attribuee (`bloodDante`, `bloodIntercessor`, sweep de 40 positions) : a `d = 6`
+    le natif accepte 4 tuiles sur 6. Les DEUX refusees sont a elevation 2 et n'ont, a `d <= 5`, que
+    des voisines a elevation 4 (ecart 2) ; les quatre acceptees ont toutes une voisine proche a
+    ecart `<= 1`. Separation parfaite -- puis CONFIRMEE au decompile, pas seulement ajustee dessus.
+
+    NON MODELISE, et c'est nomme : `onlyEmptyOrSteppable` / `onlyWalkableTiles` -- l'occupation et
+    la walkability des voisines ne sont publiees par aucun canal cote DECISION. Le port ne retire
+    donc pas les voisines occupees, ce qui ne peut qu'ELARGIR."""
+    from .. import battle_query as bq                  # foyer d'`IterateAdjacentTiles` (#124)
+    t = (int(tile[0]), int(tile[1]))
+    for n in hexgeo.neighbors(t[0], t[1]):
+        if not bq.is_adjacent(t, tuple(n), elev_by_pos):
+            continue                                   # porte d'elevation |dElev| < 2
+        if hexgeo.distance(tuple(n), tuple(unit_pos)) <= cfg_range:
+            return True
+    return False
+
+
+def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos) -> bool:
+    """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des deux etages, mais
+    evaluee sur la TUILE : `GetTilesInRange` puis le predicat `GetDynamicInvalidTargetReason`."""
+    base = tiles_in_range_reach(ability_id, visual_id)
+    if base is None:
+        return False
+    if hexgeo.distance(tuple(unit_pos), tuple(tile)) > base:
+        return False
+    gate = dynamic_target_gate_of(ability_id)
+    if gate == GATE_FREE_ADJACENT_IN_CONFIG_RANGE:
+        cfg = _config_range(ability_id)
+        if cfg is None:
+            return False
+        if elev_by_pos:
+            return _free_adjacent_gate_allows(unit_pos, tile, int(cfg), elev_by_pos)
+        # DEGRADATION NOMMEE : sans canal d'elevation, on ne garde du gate que sa consequence de
+        # DISTANCE (`config.range + 1`) -- borne SUPERIEURE exacte, mesuree a 2 faux positifs sur 40.
+        return hexgeo.distance(tuple(unit_pos), tuple(tile)) <= int(cfg) + 1
+    if gate == GATE_NOT_DERIVABLE:
+        # cf. `ability_range_value` : la borne superieure n'est exploitable que si elle est bornee.
+        return base != WHOLE_BOARD_REACH
+    return True                                        # GATE_NONE / GATE_NOT_READ : aucun retrait
+
+
 def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int = 1,
-                                    ability_ids=None) -> bool:
+                                    ability_ids=None, elev_by_pos=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility(unit, tile)` -- mirror :
 
         if (UnitExtensions.GetFeetCount(unit, state) > 1) return true;      // MULTI-TUILES
@@ -274,9 +497,22 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
 
     `unit_pos is None` (`GetMainTile` nul) -> l'`OrderedSet` est VIDE, `GetAllTilesInAbilityRange`
     rend un ensemble vide et `Contains` est faux. MESURE de ce regime : `--step seam` du probe, ou
-    le movable set vide d'une unite hors tour rend `threatTiles = []` sur les 3 variantes."""
+    le movable set vide d'une unite hors tour rend `threatTiles = []` sur les 3 variantes.
+
+    `elev_by_pos` -- le canal d'elevation de l'appelant. Fourni, il permet d'evaluer le gate
+    `GetDynamicInvalidTargetReason` SUR LA TUILE (porte d'elevation de `GetFreeAdjacentTiles`) au
+    lieu de le rabattre sur son rayon ; absent, le port se degrade sur le rayon, ce qui ne peut
+    qu'ELARGIR (mesure : 2 faux positifs sur 40 pour `bloodDante`, 0 avec le canal)."""
     if int(feet_count or 1) > 1:
         return True
     if unit_pos is None or tile is None:
         return False
-    return hexgeo.distance(tuple(unit_pos), tuple(tile)) <= unit_threat_reach(visual_id, ability_ids)
+    if hexgeo.distance(tuple(unit_pos), tuple(tile)) > unit_threat_reach(visual_id, ability_ids):
+        return False                          # hors de la borne SUPERIEURE : aucune ability ne porte
+    # `includeNormalAttack: true` -- l'attaque normale, dont le `TargetingRange` se reduit a
+    # `unit_weapon_range`, n'a PAS de gate dynamique : elle couvre son disque tel quel.
+    weapon = unit_weapon_range(visual_id, None)
+    if weapon is not None and hexgeo.distance(tuple(unit_pos), tuple(tile)) <= int(weapon):
+        return True
+    aids = _active_ability_ids(visual_id) if ability_ids is None else ability_ids
+    return any(_ability_covers_tile(aid, visual_id, unit_pos, tile, elev_by_pos) for aid in aids)

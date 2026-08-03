@@ -10,16 +10,25 @@ propre `+50/0` ET son propre `-10*d`. Le probe REFUSE un montage impur, et c'est
 invalide une premiere mesure (`genesMagus` amene DEUX summons au spawn, `genesSmnDecoy` et
 `genesSmnNeophyte` : la partition lue etait un melange de trois kits).
 
-DEUX KITS, deux proprietes DIFFERENTES :
-  * `tauMarksman` -- le cas que cette tranche corrige. Sa zone porte a 5 (l'ability
+TROIS KITS, trois proprietes DIFFERENTES :
+  * `tauMarksman` -- le cas que la tranche `-r1` corrigeait. Sa zone porte a 5 (l'ability
     `SeekerMissileFrequencyLock`, `RANGE_FROM_CONFIG`, `constants.range = 5`) alors que son arme a
     distance ne porte qu'a 3 : le port d'AVANT, qui prenait la portee d'ARME, se trompait sur
     l'anneau `4 <= d <= 5`. Attendu : accord EXACT, dans les deux sens.
-  * `bloodDante` -- le RESIDU, mesure plutot qu'affirme. Son ability `LightOfSanguinius` porte le
-    preset `RANGE_WHOLE_BOARD` (le MEME que `LeadingTheCharge` d'`astraDreir`), et pourtant les
-    deux kits rendent des zones DIFFERENTES : le discriminant est donc EN AVAL du `TargetingRange`.
-    Le port ne l'elargit pas -> ce qu'on garantit ici est la BORNE INFERIEURE (zero faux positif),
-    pas l'exactitude.
+  * `bloodDante` -- le residu `-r1-r1`, FERME depuis. `LightOfSanguinius` porte le preset
+    `RANGE_WHOLE_BOARD` (le MEME que `LeadingTheCharge` d'`astraDreir`) et les deux kits rendent
+    pourtant des zones DIFFERENTES : le discriminant est le slot de vtable `klass+0x478`
+    (`GetDynamicInvalidTargetReason`), invoque par le 3e predicat de
+    `TargetingQuery$$GetPossibleTargetsForOptions` en `RemoveAll`. Celui de `LightOfSanguinius` est
+    `GetFreeAdjacentTiles(targetTiles).Any(t => GetDistance(t, casterTiles) <= config.range)`, d'ou
+    un rayon `config.range + 1 = 6`. Le port passe de **18 faux negatifs** a **0**, au prix de deux
+    faux POSITIFS residuels a `d = 6` -- attribues, mesures, et gardes ici comme tels.
+  * `darkaAsmodai` -- l'autre moitie du meme residu. `ExemplarOfHate` est whole-board et ne
+    surcharge PAS le gate : sa zone est le plateau ENTIER (`GetAllTiles()`). Le port rendait `None`,
+    soit **40 faux negatifs sur 40** ; il est desormais EXACT.
+
+⚠ Ce fichier ne peut PAS coincider par hasard : les trois kits ont une arme de MELEE ou une portee
+d'arme STRICTEMENT inferieure a leur zone d'ability, donc « zone = portee d'arme » y est faux.
 
 Detail : `docs/rl/case-433-r4-r2-r1-r2-portees.md`. ASCII only.
 """
@@ -47,6 +56,11 @@ def dante(live_session) -> dict:
     return _measure("bloodDante")
 
 
+@pytest.fixture(scope="module")
+def asmodai(live_session) -> dict:
+    return _measure("darkaAsmodai")
+
+
 def test_marksman_sweep_is_large_enough_to_be_discriminant(marksman):
     """Sans un sweep qui DEPASSE la portee, l'accord serait vide de sens : le montage historique de
     `#433-r4-r2 --step partition` restait a `d <= 4`, donc entierement DANS la zone."""
@@ -69,11 +83,34 @@ def test_marksman_ability_range_beats_the_weapon_range(marksman):
     assert marksman["reach"] > _ranged_weapon_threshold("tauMarksman")
 
 
-def test_dante_residual_is_a_lower_bound_not_an_error(dante):
-    """RESIDU MESURE, pas suppose : `LightOfSanguinius` est whole-board et le port ne l'elargit pas.
-    Ce qui doit tenir, c'est le SENS de l'ecart -- le port ne declare JAMAIS « en portee » une tuile
-    que le natif exclut (zero faux positif). L'inverse (faux negatifs) est l'ecart assume."""
-    assert dante["faux_positifs"] == [], \
-        "le port a ELARGI la zone : la borne inferieure est rompue (%r)" % (dante["faux_positifs"],)
-    assert dante["faux_negatifs"], \
-        "l'ecart a DISPARU : si la zone whole-board est devenue derivable, re-lire le residu"
+def test_dante_whole_board_zone_is_bounded_by_its_dynamic_gate(dante):
+    """`#433-r4-r2-r1-r1`, FERME. `LightOfSanguinius` est whole-board, donc sa zone de BASE est le
+    plateau entier ; ce qui la borne est son gate `GetDynamicInvalidTargetReason` --
+    `GetFreeAdjacentTiles(targetTiles).Any(t => GetDistance(t, casterTiles) <= config.range)`.
+
+    D'ou un rayon `config.range + 1 = 6`, ET la porte d'elevation d'`IterateAdjacentTiles`. Le port
+    rendait 18 faux negatifs ; il est desormais EXACT dans les deux sens."""
+    assert dante["reach"] == 6, "config.range = 5, +1 pour le voisinage de la cible"
+    assert dante["faux_positifs"] == []
+    assert dante["faux_negatifs"] == []
+    assert dante["exact"] is True
+
+
+def test_dante_zone_is_not_its_weapon_range(dante):
+    """ANTI-COINCIDENCE. `bloodDante` n'a qu'une arme de MELEE : « zone = portee d'arme » y donnerait
+    1. Sans cette garde, l'accord des autres kits pourrait venir d'un modele degenere."""
+    from engine.playbook.noncomparable.early_warning_override import _ranged_weapon_threshold
+    assert _ranged_weapon_threshold("bloodDante") == 1
+    assert dante["reach"] == 6
+
+
+def test_asmodai_whole_board_without_gate_covers_the_board(asmodai):
+    """L'autre moitie du residu. `ExemplarOfHate` est whole-board et ne SURCHARGE PAS le gate (fait
+    runtime : egalite du pointeur de slot `klass+0x478` avec celui d'`AActiveAbility`), donc sa zone
+    est `GetAllTiles()`. Le natif rend « en portee » sur TOUT le sweep -- le port rendait `None`,
+    soit 40 faux negatifs sur 40."""
+    assert asmodai["faux_positifs"] == []
+    assert asmodai["faux_negatifs"] == []
+    assert asmodai["exact"] is True
+    from engine.services import ability_range as ar
+    assert ar.unit_threat_reach("darkaAsmodai") == ar.WHOLE_BOARD_REACH

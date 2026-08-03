@@ -181,7 +181,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         return {ep for (ep, _vid, _thr) in enemies
                 if bq.are_entities_adjacent(ctx.origin, ep, ctx.elev_by_pos)}
 
-    def utility_at(self, P: tuple, enemies: list, adj_origin: set) -> float:
+    def utility_at(self, P: tuple, enemies: list, adj_origin: set, elev_by_pos=None) -> float:
         """UTIL(P) du corps natif, ennemi par ennemi (mirror de la boucle `GetAllAliveUnits`).
 
         Extrait de `generate_candidates` pour etre CONFRONTABLE POSITION PAR POSITION a l'oracle
@@ -197,7 +197,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         for (ep, vid, thr) in enemies:
             d = hexgeo.distance(P, ep)
             if ep not in adj_origin:            # branche A : +50 si P hors de la zone d'ability de E
-                if not ar.is_tile_in_range_of_any_ability(ep, P, vid):
+                if not ar.is_tile_in_range_of_any_ability(ep, P, vid, elev_by_pos=elev_by_pos):
                     u += self._COVER_BONUS
             else:                               # branche B : +50 si `threshold(E) < d`
                 if thr < d:
@@ -236,7 +236,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         adj_origin = self.adjacent_at_origin(ctx, enemies)
         best_p, best_u = None, None
         for P in _sweep_origin_first(ctx):        # ORIGINE-FIRST + keep-first (strict >)
-            u = self.utility_at(P, enemies, adj_origin)
+            u = self.utility_at(P, enemies, adj_origin, ctx.elev_by_pos)
             if u < self.MIN_UTILITY:
                 continue                            # admission Bucket util>=1
             if best_u is None or u > best_u:        # strict > : 1re position du max gagne (keep-first)

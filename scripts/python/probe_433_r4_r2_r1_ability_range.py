@@ -223,6 +223,11 @@ def step_seam(verbose=True, enemy=None, want=8, movement=6) -> dict:
         for P in sweep:
             by_d.setdefault(hexgeo.distance(P, Y), set()).add(P in in_range)
         out = {"O": O, "Y": Y, "elev_O": elev[O], "elev_Y": elev[Y], "enemy_visual": ENEMY,
+               # La carte d'elevation COMPLETE : c'est le canal que consomme le gate
+               # `GetFreeAdjacentTiles` du port (porte `|dElev| < 2` de
+               # `TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`). Sans elle, `--step kit`
+               # comparerait le natif a un port volontairement degrade.
+               "elev": {p: v for p, v in elev.items() if v is not None},
                "caster": c["id"], "enemy": e["id"], "n_sweep": len(sweep),
                "natif_in_range": sorted(in_range), "natif_out_range": sorted(out_range),
                "in_range_par_distance": {d: sorted(v) for d, v in sorted(by_d.items())},
@@ -277,7 +282,9 @@ def step_kit(verbose=True, enemy=None, want=8, movement=6) -> dict:
     in_range = {tuple(p) for p in res["natif_in_range"]}
     out_range = {tuple(p) for p in res["natif_out_range"]}
     sweep = in_range | out_range
-    modeled = {P for P in sweep if ar.is_tile_in_range_of_any_ability(Y, P, vid)}
+    elev = res.get("elev") or None
+    modeled = {P for P in sweep
+               if ar.is_tile_in_range_of_any_ability(Y, P, vid, elev_by_pos=elev)}
     out = {"enemy_visual": vid, "reach": reach, "n_sweep": len(sweep),
            "faux_positifs": sorted(modeled - in_range),
            "faux_negatifs": sorted(in_range - modeled),
