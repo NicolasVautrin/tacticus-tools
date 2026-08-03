@@ -164,7 +164,7 @@ fois** (face attaquant puis face defenseur) avec un `Round` **inconditionnel** d
 `Nullable<DamageModifiers>` correspondant `HasValue` -- y compris a multiplicateur neutre. C'est
 exactement le foyer de **#446-r2**, qui y avait mesure un `-1` par coup, de signe oppose.
 
-### `test_nightshroud_combat_live.py` -- **PORT ou MONTAGE, a TRANCHER**
+### `test_nightshroud_combat_live.py` -- **PORT** (TRANCHE : `case-462-r4d-arrondi-inter-faces-combat.md`)
 
 ```
 off =[180, 180, 112, 158, 240, 183]
@@ -178,6 +178,20 @@ ou flux RNG qui a diverge). **Ne pas conclure sans decomposer par etage.**
 Ce fichier est le porteur du **trou B** : valide **bit-exact** par `51a16cba` (2026-07-12), touche
 depuis uniquement par `5fa788b7` et `6c112458` (deux refactors de masse), **ROUGE** au balayage.
 Personne ne l'a casse dans un diff qui le contenait.
+
+> **TRANCHE : PORT, et NI l'un NI l'autre des deux refactors.** La bissection designe **`0ad4b9e8`
+> (#446-r2, 2026-08-02)** -- un commit qui **ne touchait pas ce fichier** : son parent rend
+> `2 passed`, lui rend les valeurs exactes ci-dessus. **Le trou B a donc enfin un coupable nomme.**
+>
+> L'ecart n'avait « aucune forme » parce que ce n'est pas la valeur qui diverge mais la **borne
+> basse de la cellule tiree** (`[109,282]` port contre `[108,282]` natif) : le tirage est un modulo,
+> donc une largeur decalee de 1 diffracte les six coups. Le flux RNG, lui, etait **synchronise**
+> (6 tirages des deux cotes) -- ce qui ecarte d'emblee l'hypothese du desalignement ci-dessus.
+> ⚠ Le decalage ne se lit PAS par soustraction quand il n'est pas constant : il a fallu **INVERSER**
+> le tirage a etat PRNG connu (`probe_462d_nightshroud_stage_diff.py --solve`).
+>
+> **Ferme par #462-r4a**, qui reparait la meme cause en parallele -- cf. l'avertissement sous la
+> ventilation.
 
 ### `test_damage_catalog_live.py` -- **MONTAGE** (REPARE : `case-462-r4e-echantillon-non-confrontable.md`)
 
@@ -265,10 +279,20 @@ donc creux), soit le flag n'est plus lu (et la c'est un PORT). Le message ne sep
 | categorie | fichiers |
 |---|---|
 | **PORT** | 2 (`terrifying_defense`, `chain_after_refused_addeffect`) |
-| **PORT ou MONTAGE, a trancher** | 1 (`nightshroud_combat`) |
+| **PORT ou MONTAGE, a trancher** | 1 (`nightshroud_combat`) -- TRANCHE : **PORT**, MEME cause que `terrifying_defense` (#462-r4d) |
 | **MONTAGE / SCENARIO** | 3 (`damage_catalog` echantillon non spawnable ; `placement_sort_rng` et `valkyrie_strike_targeting` contre-controles devenus creux) |
 | **HARNAIS** | **1** (`fabricator_claw_cap` -- import mort depuis 2 jours) |
 | **Attente perimee** | 1 (`pick_randomly_one_rng`) |
+
+⚠ **Et elle SUR-COMPTE les causes.** `terrifying_defense` et `nightshroud_combat` y sont deux
+entrees, et ont ete dispatches comme **deux taches** ; ils n'avaient qu'**UNE** cause, fermee d'un
+seul fix (#462-r4a). Rien dans les symptomes ne le disait : regimes sans rapport (`-30 %`
+`Terrifying_ExtraDefense` contre `-20 %` `MartialKatah`), ecarts de signes **OPPOSES**, l'un
+CONSTANT et l'autre diffracte par le modulo. Le seul indice etait que cette meme section designait
+**deja le meme etage** (`CalculateBaseDamageWithModifiers`) pour les deux -- et c'etait le bon.
+Cout : deux solveurs ont instruit le meme foyer en parallele. **Un inventaire compte des SYMPTOMES ;
+le nombre de causes ne se decouvre qu'en les reparant** -- quand deux rouges pointent le meme etage
+nomme, les grouper est le pari le moins cher. Detail : `case-462-r4d-...md` §6.
 
 ⚠ **La ventilation a TROIS cases ne suffit pas.** Trois des huit rouges n'accusent ni le port ni le
 harnais : ils accusent le **SCENARIO** -- l'echantillon n'est plus confrontable, ou le
@@ -324,6 +348,14 @@ vu **par construction**.
 n'a ete touche que par **deux refactors de masse** (`5fa788b7` #64 state.board, 68 fichiers live ;
 `6c112458` citations par symbole, 103 fichiers live). Il est **ROUGE** au balayage du 2026-08-03.
 Personne n'a introduit ce rouge dans un diff qui contenait le fichier.
+
+**COUPABLE NOMME (#462-r4d)** : ni l'un ni l'autre de ces deux refactors -- c'est **`0ad4b9e8`
+(#446-r2, 2026-08-02)**, etabli par BISSECTION (parent `2 passed`, lui `1 failed` aux valeurs
+exactes du balayage). Ce commit ne touchait **aucun** fichier live : il a change un foyer PARTAGE
+(`apply_pierce_and_modifiers`) en ne migrant qu'une de ses deux faces. **Le trou B n'est donc pas
+theorique, et sa fenetre ici est d'UN JOUR** -- le rouge est ne le 2026-08-02 et a ete vu le
+2026-08-03, par ce balayage. Ce qui l'aurait vu au plus tot : la cloture arriere du graphe
+d'imports, chiffree ci-dessous.
 
 **Cout de la gate qui le verrait** (cloture arriere du graphe d'imports, machinerie `--since` de
 `probe_457`), meme echantillon :
