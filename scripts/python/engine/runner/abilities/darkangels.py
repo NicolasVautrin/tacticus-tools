@@ -1122,6 +1122,12 @@ class ExemplarOfHateAbility(ActiveAbility):
         return {"ability": "ExemplarOfHate", "caster": caster_id, "target": target_id,
                 "effects": [p["effect_type"] for n, p in ectx.emitted
                             if n == "AddEffect" and p.get("placed")],
+                # `effects_active` = les poses qui CONTRIBUENT a l'instant de la pose (le pendant du
+                # groupe d'evenement live, cf. `_placed_effect_is_active`). `effects` seul ne
+                # distingue pas la pose INERTE sur une cible `TerminatorArmour` (#208/#462-r4b), et
+                # l'etat FINAL ne le peut pas non plus des que la chaine TUE la cible.
+                "effects_active": [p["effect_type"] for n, p in ectx.emitted
+                                   if n == "AddEffect" and p.get("active")],
                 "attacker": attacker[0] if attacker else None,
                 "attack_override": (ov or {}).get("amount"),
                 "attack": (atk or {}).get("attack"), "dsl": True}

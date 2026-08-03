@@ -150,6 +150,36 @@ def _add_effect_target_id(elem, state):
     return None
 
 
+def _placed_effect_is_active(state, target_id, eff) -> bool:
+    """L'instance qui vient d'etre posee CONTRIBUE-t-elle, a CET instant ? (`placed` ne le dit pas.)
+
+    Predicat = celui d'`EffectsState.active_effects` : le FLAG `EffectComponent.IsActive @+0x5c`
+    ET la `CreateActiveCondition` de la classe (`<Effect>$$CreateActiveCondition`), evaluee contre
+    `unit_state_for_effects` -- le foyer unique du contexte, #208. Les deux conjoints sont ceux
+    qu'evalue `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` avant que
+    `UpdateEffectTargets` -> `ApplyEffectsForTargets` ne joue le `<Effect>.ApplyInternal` : un effet
+    dont la condition est fausse est materialise mais n'APPLIQUE RIEN.
+
+    POURQUOI CE CHAMP EXISTE (#462-r4b) : le canal LIVE d'un cast publie un GROUPE d'evenement par
+    effet qui APPLIQUE quelque chose (`applyAction.events[kind == group].source`). Un effet pose
+    INERTE n'emet aucun groupe -- l'observable live est donc « pose ET contribuant », pris A
+    L'INSTANT DE LA POSE. Cote port, le seul pendant lisible etait `EffectsState.active_effects` sur
+    l'etat FINAL, qui n'est PAS le meme observable des que l'effet disparait avant la fin de la
+    chaine. MESURE (`probe_462r4b_pinned_active_after_chain.py`, `ExemplarOfHate` sur
+    `blackPossession`) : l'attaque libre de la chaine TUE la cible des DEUX cotes (live
+    8034 -> 0 `isDead`, port 8034 -> 0 `alive=False`), et la sequence de mort
+    (`IdunBattle.Operations.KillUnitOperation$$RemoveEffects` -> `RemoveEffectsOperation$$Execute`)
+    retire TOUS les effets du mort -- live `decisionView.effects` post-cast = `[]`, port `consumed`.
+    Les deux moteurs sont d'ACCORD ; c'etait la LECTURE qui comparait deux canaux non homologues.
+
+    `eff is None` (cible nulle, gate d'immunite, effet deja present) -> False : rien n'a ete
+    materialise, donc rien n'applique."""
+    if eff is None or state is None or target_id is None:
+        return False
+    from ...components import unit_state_for_effects
+    return bool(eff.active) and bool(eff.is_active(unit_state_for_effects(state, int(target_id))))
+
+
 class AddEffect(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$AddEffect` -> `AddEffectBehaviour.Execute` : pose un effet, `source` =
     `AbilityStateReference` (= le caster), sur CHAQUE cible du selecteur `target_sel`, duree
@@ -157,7 +187,9 @@ class AddEffect(AbilityBehaviour):
     l'imperatif). DIFFERE de `AddBondEffect` (qui LIE source+target = deux unites distinctes) : ici la source
     EST le caster. Emet 'AddEffect' par cible (payload `placed` = l'effet a-t-il ete REELLEMENT pose, i.e.
     `AddEffectOperation` non-None : False si deja present / cible nulle -> laisse l'appelant distinguer la
-    re-pose no-op, cf. OnFireDamage). Effet PUR (stop=False).
+    re-pose no-op, cf. OnFireDamage ; payload `active` = l'instance posee CONTRIBUE-t-elle a cet instant,
+    cf. `_placed_effect_is_active` -- c'est le pendant EXACT du groupe d'evenement live, `placed` seul ne
+    distinguant pas une pose INERTE d'une pose contribuante). Effet PUR (stop=False).
 
     Le natif `AddEffectBehaviour` ITERE son selecteur-cible, qui rend des ENTITES ECS (UNITES ou TUILES) :
     - unit-domain (`Target()`/`Subject()`) -> effet sur l'unite (Stunned/Pinned de ThunderousAssault/
@@ -249,7 +281,8 @@ class AddEffect(AbilityBehaviour):
                                              ability_level=ab_lvl, active_ability_level=act_lvl,
                                              multiplier_pct=mult)
             ectx.emit("AddEffect", source=src, target=tgt, effect_type=self.effect_type,
-                      placed=eff is not None, level=(None if lvl is None else int(lvl)))
+                      placed=eff is not None, active=_placed_effect_is_active(state, tgt, eff),
+                      level=(None if lvl is None else int(lvl)))
         # `stop` JAMAIS pose, quel que soit le sort de l'operation (refus d'immunite, cible morte,
         # cible nulle, effet deja present) : `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute`
         # ZERO-INITIALISE son `OperationResult` de retour et ne le reecrit jamais -- la valeur rendue par
