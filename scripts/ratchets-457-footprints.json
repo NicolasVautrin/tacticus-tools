@@ -1,10 +1,11 @@
 {
- "_commit": "a060d9714d9ad3a97cc0dfcde75ce4e9caabba6f",
+ "_commit": "14fa02727955bab7e221313b5a5170806aa42efb",
  "_globales": [
   "data/seed-bc.json",
   "data/symbols/CURRENT",
   "scripts/python/pytest.ini",
-  "scripts/python/tests/engine/test_433r4r1r4_elevation_gate_dsl_offline.py"
+  "scripts/python/tests/engine/runner/test_448_r1_r1_r1_flying_movement_steps_offline.py",
+  "scripts/python/tests/engine/test_462_r4b_r1_r1_defender_additive_carriers_offline.py"
  ],
  "par_test": {
   "tests/engine/runner/test_353r1_ramming_speed_charge_tile_offline.py": [
@@ -167,6 +168,32 @@
    "data",
    "data/symbols/gqfc5mff6c/frida",
    "data/symbols/rnca9r7q6c/frida"
+  ],
+  "tests/engine/test_462_r4b_r1_r1_defender_additive_carriers_offline.py": [
+   "scripts/python/engine",
+   "scripts/python/engine/ai",
+   "scripts/python/engine/dsl",
+   "scripts/python/engine/entities",
+   "scripts/python/engine/entities/abilities",
+   "scripts/python/engine/entities/effects",
+   "scripts/python/engine/entities/effects/loki",
+   "scripts/python/engine/entities/pathfinding",
+   "scripts/python/engine/entities/selectors",
+   "scripts/python/engine/entities/traits",
+   "scripts/python/engine/playbook",
+   "scripts/python/engine/playbook/noncomparable",
+   "scripts/python/engine/playbook/prediction",
+   "scripts/python/engine/runner",
+   "scripts/python/engine/runner/abilities",
+   "scripts/python/engine/runner/abilities/behaviours",
+   "scripts/python/engine/runner/abilities/loki",
+   "scripts/python/engine/runner/operations",
+   "scripts/python/engine/runner/operations/damage_ops",
+   "scripts/python/engine/runner/operations/triggers",
+   "scripts/python/engine/runner/operations/triggers/dispatch",
+   "scripts/python/engine/runner/operations/triggers/loki",
+   "scripts/python/engine/services",
+   "scripts/python/engine/utilities"
   ],
   "tests/engine/test_effect_1582_inertia_binary.py": [
    "data/symbols",
@@ -376,6 +403,39 @@
   ],
   "tests/test_457_r6_banque_sans_doublon_offline.py": [
    "scripts"
+  ],
+  "tests/test_462r6_counterproof_marker_offline.py": [
+   "scripts/python",
+   "scripts/python/engine",
+   "scripts/python/engine/ai",
+   "scripts/python/engine/dsl",
+   "scripts/python/engine/entities",
+   "scripts/python/engine/entities/abilities",
+   "scripts/python/engine/entities/effects",
+   "scripts/python/engine/entities/effects/loki",
+   "scripts/python/engine/entities/pathfinding",
+   "scripts/python/engine/entities/selectors",
+   "scripts/python/engine/entities/traits",
+   "scripts/python/engine/playbook",
+   "scripts/python/engine/playbook/noncomparable",
+   "scripts/python/engine/playbook/prediction",
+   "scripts/python/engine/runner",
+   "scripts/python/engine/runner/abilities",
+   "scripts/python/engine/runner/abilities/behaviours",
+   "scripts/python/engine/runner/abilities/loki",
+   "scripts/python/engine/runner/operations",
+   "scripts/python/engine/runner/operations/damage_ops",
+   "scripts/python/engine/runner/operations/triggers",
+   "scripts/python/engine/runner/operations/triggers/dispatch",
+   "scripts/python/engine/runner/operations/triggers/loki",
+   "scripts/python/engine/services",
+   "scripts/python/engine/utilities",
+   "scripts/python/tests",
+   "scripts/python/tests/engine",
+   "scripts/python/tests/engine/entities",
+   "scripts/python/tests/engine/entities/pathfinding",
+   "scripts/python/tests/engine/runner",
+   "scripts/python/tools"
   ],
   "tests/test_additional_hits_variant_signatures_offline.py": [
    "scripts/python",
