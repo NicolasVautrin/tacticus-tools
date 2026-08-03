@@ -178,8 +178,10 @@ $Ratchets = @(
     # travaille A CHAQUE PASSE d'un agent, pour un cout nul -- ce cliquet garde qu'il mord ET
     # qu'il est BRANCHE. Sans son etape 2, un garde vert dans un tmpdir mais debranche du
     # conftest de production passerait pour un garde-fou.
+    # Son etape 3 est d'une autre nature : elle balaie le GISEMENT, parce que le garde runtime ne
+    # voit que les fichiers qu'une passe JOUE -- et 410 des 530 fichiers de test sont `_live.py`.
     @{ Id = 'probe_455'; Argv = @('probe_455_all_skipped_file.py')
-       Seul = 'un FICHIER de test dont le bilan est passed == 0 and skipped > 0 -- la suite le compte comme un SUCCES, il n a evalue AUCUNE assertion, et rien ne le signale (mesure : test_summon_trait_effects_live.py, 8 skipped / 0 passed / rc 0 sur master, trouve en ECARTANT une PR). Le garde #77 du conftest ne le voit PAS : il lit la RAISON d un skip test par test, et un skip de MONTAGE ne porte aucun marqueur de harnais'
+       Seul = 'un FICHIER de test qui n a RIEN confronte, sous ses DEUX formes. (a) bilan passed == 0 and skipped > 0 -- la suite le compte comme un SUCCES, aucune assertion evaluee, rien ne le signale (mesure : test_summon_trait_effects_live.py, 8 skipped / 0 passed / rc 0 sur master, trouve en ECARTANT une PR). Le garde #77 du conftest ne le voit PAS : il lit la RAISON d un skip test par test, et un skip de MONTAGE ne porte aucun marqueur de harnais. (b) #455-r3, 0 TEST COLLECTE -- le fichier dont les tests ont DISPARU n emet AUCUN report, donc aucun bilan : il est structurellement invisible au critere (a), et invisible aussi a pytest des lors qu un test existe ailleurs dans la passe (mesure du 2026-08-03 : rc=0, aucun rapport ; SEUL il rendrait rc=5, mais personne ne joue un fichier seul). Le signal qui separe ce gisement d une selection legitime est la COLLECTE, pas la selection : -k / -m / --deselect filtrent APRES elle, un nodeid explicite n emet aucun report de collecte, et un import KO rend deja rc=2'
        Doc  = 'docs/rl/case-455-fichier-integralement-skippe.md' }
 
     @{ Id = 'probe_431'; Argv = @('probe_431_build_literals.py', '--cliquet')

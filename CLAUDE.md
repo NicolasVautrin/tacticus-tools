@@ -243,6 +243,13 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   8 skipped → 8 passed) ou **nomme** l'impossibilité, jamais retirer le skip pour faire taire.
   Le garde se tait sur sélection partielle (`-k`, nodeid, `-x`) ; échappatoire consciente
   `TACTICUS_ALLOW_GREEN_SKIP=1`. Détail : `docs/rl/case-455-fichier-integralement-skippe.md`.
+- **Un fichier dont TOUS les tests ont DISPARU rougit aussi (#455-r3)** — autre porte, même vice.
+  Il n'émet aucun report, donc aucun bilan : le critère ci-dessus lui est structurellement aveugle,
+  et pytest ne le signale (`rc=5`) que s'il est joué SEUL. Le discriminant est la **COLLECTE**, pas
+  la sélection : `-k`/`-m`/`--deselect` filtrent APRÈS elle, un nodeid explicite n'émet aucun report
+  de collecte — donc **aucune allowlist**. Un helper reste hors de portée par son NOM (`_x.py`,
+  hors `python_files`). Deux volets : hook `pytest_collectreport` à chaque passe, et un balayage
+  statique à périmètre dérivé dans le cliquet (le runtime ne voit que ce qu'une passe joue).
 
 ## La banque de cliquets — `scripts/ratchets.ps1`, à faire passer AVANT toute PR
 
