@@ -63,6 +63,12 @@ code.
 Chronologie mesuree : `697fd116` (#245, le test) est **ancetre** de `a644607e` (#253), **2 h 38**
 plus tot le meme jour. Le contre-controle est ne discriminant et l'est reste... jusqu'a l'apres-midi.
 
+**Ce n'est pas une deduction : le code de refus est LU.** `probe_245_valkyrie_targeting.py` imprime
+desormais la colonne `sansTile`, et elle vaut **`0x200000000000`** sur toutes les tuiles --
+c'est-a-dire `1 << 45` = **`TargetIsUnit`**, la regle de la tete de domaine, et non le `0x1`
+(`ValidRequest`) de la branche `TargetIsTile`. Le port ne « refusait de refuser » a aucun moment :
+il refusait par une AUTRE porte, avec un AUTRE code.
+
 **Correctif -- deux contrefactuels, deux propos** :
 
 * **SUFFISANCE** (`desarme`) : masque **PLUS** `AllowUnwalkableTargetTile` (bit 43). Le filtre
