@@ -42,12 +42,23 @@ A ~16 s/fichier et un budget de +60 s de mur par passage, un passage couvre ~15 
 Ce n'est pas un garde, c'est une loterie : un rouge y dort des semaines. Le gisement mesure en §3
 (un fichier rouge depuis 22 jours) est precisement ce qu'une loterie ne rattrape pas.
 
-### Ce qui EST exhaustif et abordable : la collecte
+### La collecte est exhaustive et quasi gratuite -- mais elle prouve MOINS qu'il n'y parait
 
-`--collect` joue `--collect-only` sur les 533 fichiers : **aucun runner monte**.
-Mesure du 2026-08-03 : **36,8 s, rc=0, 3677 tests collectes, 0 erreur**.
-La categorie HARNAIS/COLLECTE est donc **VIDE au niveau import** sur la totalite du parc -- et cette
-affirmation-la, contrairement au reste, porte sur 417/417 fichiers.
+`--collect` joue `--collect-only` sur tout le perimetre : **aucun runner monte**. Mesures du
+2026-08-03 : **36,8 s** sur les 533 fichiers a froid, **273,8 s** sur les 417 live sous charge (un
+mur se mesure dans ses conditions). Dans les deux cas **rc=0, 0 erreur**.
+
+⚠ **ET POURTANT LE BALAYAGE A TROUVE UN ROUGE DE HARNAIS.** `test_fabricator_claw_cap_live.py` rend
+**10 erreurs de SETUP** sur `ImportError: cannot import name 'BUILD_HASH' from
+'probe_193c_move_playbook_terms'`. La collecte ne le voit pas, et c'est STRUCTUREL : l'import fautif
+est **a l'interieur d'une fonction** (`test_fabricator_claw_cap_live.py` L71 importe
+`probe_242_fabricator_claw_cap`, qui importe `BUILD_HASH` a sa L57), et `--collect-only`
+**n'execute ni les fixtures ni les corps de test**.
+
+**Ce que `--collect` prouve exactement** : les imports de NIVEAU MODULE resolvent, sur 417/417
+fichiers. **Ce qu'il ne prouve pas** : qu'un import differe resolve. Ecrire << la categorie
+HARNAIS est vide >> sur la foi de la collecte etait donc faux -- et c'est la meme faute que le
+dossier documente ailleurs : une mesure PARTIELLE lue comme une couverture.
 
 ---
 
@@ -58,30 +69,32 @@ d'abord), tranches de 60 fusionnees dans le ledger.
 
 | | fichiers |
 |---|---|
-| perimetre live | **417** |
-| **JOUES** | **180** (43 %) |
-| dont VERT | 174 |
-| dont **ROUGE** | **6** |
-| **ECARTES -- statut INCONNU, pas vert** | **237** |
+| perimetre live | **419** |
+| **JOUES** | **240** (57 %) |
+| dont VERT | 232 |
+| dont **ROUGE** | **8** |
+| **ECARTES -- statut INCONNU, pas vert** | **179** |
 
-**Taux de rouge sur l'echantillon : 3,3 %.** Extrapole naivement au parc : **~14 fichiers rouges**.
-⚠ L'echantillon est la cohorte des 180 fichiers au dernier commit le plus ANCIEN. Que ce biais
-tire le taux vers le haut ou vers le bas est **INCONNU** -- c'est exactement le residu `#462-r3`.
-Ne pas presenter 3,3 % comme le taux du parc.
+**Taux de rouge sur l'echantillon : 3,3 %** (et il est reste a 3,3 % sur les quatre tranches :
+3/60, 1/60, 2/60, 2/60). Extrapole naivement au parc : **~14 fichiers rouges**.
+⚠ L'echantillon est la cohorte au dernier commit le plus ANCIEN. Que ce biais tire le taux vers le
+haut ou vers le bas est **INCONNU** -- c'est le residu `#462-r3`. Ne pas presenter 3,3 % comme le
+taux du parc.
 
 | fichier ROUGE | bilan | symptome (verbatim, tronque) |
 |---|---|---|
 | `test_terrifying_defense_live.py` | p=4 f=1 | `per-hit offline != live : off=[433,402,434,378,350,403] live=[434,403,435,379,351,404]` |
 | `test_nightshroud_combat_live.py` | p=1 f=1 | `per-hit offline != live : off=[180,180,112,158,240,183] live=[250,212,168,122,220,221]` |
-| `test_damage_catalog_live.py` | p=0 f=4 | `build runner KO (rl_duel) [...] --p-units: hors pool / non spawnables au rank 17: ['adeptSmnGeminaeSuperia']` |
-| `test_pick_randomly_one_rng_live.py` | p=14 f=1 | `residu smite {1: 0, 2: 0} != 1 tirage par volet splash (attendu, cf. docstring)` |
 | `test_chain_after_refused_addeffect_live.py` | p=3 f=1 | `PORT: Pinned refuse sur une cible sans TerminatorArmour` |
+| `test_fabricator_claw_cap_live.py` | p=0 **e=10** | `failed on setup with ImportError: cannot import name 'BUILD_HASH' from 'probe_193c_move_playbook_terms'` |
+| `test_damage_catalog_live.py` | p=0 f=4 | `build runner KO (rl_duel) [...] --p-units: hors pool / non spawnables au rank 17: ['adeptSmnGeminaeSuperia']` |
 | `test_placement_sort_rng_live.py` | p=17 f=1 | `le modele d'avant rend 10 genrand pour 10 live -- il devrait SUR-tirer [...] le scenario n'est plus discriminant` |
+| `test_valkyrie_strike_targeting_live.py` | p=0 f=1 | `le masque prive de TargetIsTile devrait faux-accepter les 6 lignes refusees, il n'en faux-accepte que 0` |
+| `test_pick_randomly_one_rng_live.py` | p=14 f=1 | `residu smite {1: 0, 2: 0} != 1 tirage par volet splash (attendu, cf. docstring)` |
 
-**Cout de ce balayage** : 3 tranches, murs **971,9 / 1000,0 / 1975,1 s**. La derniere a paye la
-contention (un `--collect` concurrent + 4 autres agents) : le cout par fichier passe de **16,2 s**
-a **32,9 s** selon la charge. C'est la meme lecon que `probe_457` -- un mur se MESURE dans ses
-conditions, il ne se cite pas.
+**Cout de ce balayage** : 4 tranches, murs **971,9 / 1000,0 / 1975,1 / 2227,8 s**. Le cout par
+fichier passe de **16,2 s** (machine calme) a **37,1 s** (5 agents + un `--collect` concurrent).
+Meme lecon que `probe_457` : un mur se MESURE dans ses conditions, il ne se cite pas.
 
 ### Pourquoi le balayage s'arrete a 180 : QUATRE etats, pas deux
 
@@ -90,14 +103,14 @@ distinguer ce que le parc distingue :
 
 | etat | ce que ca veut dire | compte |
 |---|---|---|
-| **VERT** | joue, tous ses tests passent, a CE commit | 174 |
-| **ROUGE** | joue, au moins un echec -- ou 0 assertion evaluee (#455 / #455-r3) | 6 |
-| **ECARTE** | le balayage ne l'a pas atteint (borne assumee) | 232 |
-| **NON MESURE -- fenetre DRAIN** | la tranche etait en vol quand la maintenance a ouvert | 5 |
+| **VERT** | joue, tous ses tests passent, a CE commit | 232 |
+| **ROUGE** | joue, au moins un echec -- ou 0 assertion evaluee (#455 / #455-r3) | 8 |
+| **ECARTE / NON MESURE** | jamais atteint, ou atteint sans produire de report | 179 |
 
-Les tranches 0/60/120 (**180 fichiers**) sont completes. La tranche 180 a ete **INTERROMPUE a son
-demarrage** par une fenetre de maintenance (restart du jeu + reinject) : ses workers ont ete
-arretes et ses runners rendus avant d'avoir produit un seul report.
+Quatre tranches de 60 sont completes. Une cinquieme a ete **INTERROMPUE a son demarrage** par une
+fenetre de maintenance (restart du jeu + reinject) : ses workers ont ete arretes et ses runners
+rendus avant tout report. Ses fichiers ont ete **REJOUES apres la reouverture** via `--unmeasured`,
+donc ils ne restent pas dans un demi-etat.
 
 ⚠ **Un fichier non joue a cause du drain n'est ni rouge ni vert : il est NON MESURE.** Le confondre
 avec « vert » reproduirait exactement l'invisibilite que ce dossier ferme. Le probe le tient
@@ -216,6 +229,35 @@ donc que le scenario DISCRIMINE. Il rougit parce que la geometrie ne separe plus
 creuse. **Meme famille que le << vert vacueux >> de #457**, mais ici l'auteur avait arme le detecteur :
 le test rougit AU LIEU de passer a vide. C'est la bonne conception, et elle a mordu.
 
+### `test_fabricator_claw_cap_live.py` -- **HARNAIS**, et c'est le trou B a l'etat pur
+
+```
+failed on setup with "ImportError: cannot import name 'BUILD_HASH'
+from 'probe_193c_move_playbook_terms'"          (x10 tests)
+```
+
+Chaine lue : le test importe `probe_242_fabricator_claw_cap` (L71, **dans une fonction**), qui
+importe `BUILD_HASH` de `probe_193c_move_playbook_terms` (sa L57). Ce nom a ete **RETIRE le
+2026-08-01 par `8be764fb`** -- le nettoyage des litteraux de build de #431, un **bon** changement.
+
+Le fichier est donc mort depuis **2 jours**, et rien ne pouvait le dire :
+* ce n'est pas le port ;
+* le commit fautif ne touchait pas ce fichier de test (**trou B**) ;
+* `probe_365` garde << un fichier versionne qui importe une cible GITIGNOREE ou absente >> -- ici le
+  MODULE existe, seul le NOM a disparu : hors de son gisement ;
+* `--collect` ne le voit pas (import differe, cf. §1).
+
+### `test_valkyrie_strike_targeting_live.py` -- **MONTAGE (contre-controle vacueux), a trancher**
+
+```
+le masque prive de `TargetIsTile` devrait faux-accepter les 6 lignes refusees,
+il n'en faux-accepte que 0
+```
+
+Meme forme que `placement_sort_rng` : le test MUTE le masque et exige que la mutation CASSE. Elle
+ne casse plus -- soit une autre porte refuse desormais ces 6 lignes (le contre-controle est masque,
+donc creux), soit le flag n'est plus lu (et la c'est un PORT). Le message ne separe pas les deux.
+
 <!-- VENTILATION -->
 
 ### Bilan de la ventilation
@@ -224,17 +266,18 @@ le test rougit AU LIEU de passer a vide. C'est la bonne conception, et elle a mo
 |---|---|
 | **PORT** | 2 (`terrifying_defense`, `chain_after_refused_addeffect`) |
 | **PORT ou MONTAGE, a trancher** | 1 (`nightshroud_combat`) |
-| **MONTAGE** | 2 (`damage_catalog` -- echantillon non spawnable ; `placement_sort_rng` -- scenario non discriminant) |
+| **MONTAGE / SCENARIO** | 3 (`damage_catalog` echantillon non spawnable ; `placement_sort_rng` et `valkyrie_strike_targeting` contre-controles devenus creux) |
+| **HARNAIS** | **1** (`fabricator_claw_cap` -- import mort depuis 2 jours) |
 | **Attente perimee** | 1 (`pick_randomly_one_rng`) |
-| **HARNAIS / COLLECTE** | **0** |
 
-Le zero en HARNAIS/COLLECTE n'est pas une absence de mesure : `--collect` a balaye les **417**
-fichiers (rc=0, 2387 tests, 0 erreur). C'est le seul axe sur lequel ce dossier couvre le parc
-ENTIER.
+⚠ **La ventilation a TROIS cases ne suffit pas.** Trois des huit rouges n'accusent ni le port ni le
+harnais : ils accusent le **SCENARIO** -- l'echantillon n'est plus confrontable, ou le
+contre-controle ne discrimine plus. Un rouge de scenario ressemble trait pour trait a un rouge de
+port dans le message du test, et c'est exactement la forme de #533.
 
-⚠ **Deux des six rouges (`damage_catalog`, `placement_sort_rng`) n'accusent NI le port NI le
-harnais : ils accusent le SCENARIO.** Ni la ventilation a trois cases du brief, ni le message du
-test, ne les distinguent d'un rouge de port -- c'est precisement la forme de #533.
+⚠ **Et un rouge sur trois vient d'un CONTRE-CONTROLE qui rougit parce qu'il a cesse de mordre.**
+C'est le bon signe : ces tests-la sont concus pour rougir plutot que passer a vide. La leçon de
+#457 (le << vert vacueux >>) a ete appliquee, et elle rend ici.
 
 ---
 
@@ -327,5 +370,16 @@ suffisante serait exactement la faute que ce dossier documente.
   mesure : le parc est tres jeune (mediane 4,5 j, q3 6,9 j ; 317/417 fichiers touches dans la
   semaine), et cette jeunesse est en partie l'effet de 3 refactors de masse (191 touches). Un
   meilleur ordre serait << le plus longtemps sans MESURE >>, que le ledger permettra une fois peuple.
-* **`#462-r4`** -- Les rouges inventories sont RAPPORTES, non repares (hors perimetre de cette
+* **`#462-r4`** -- Les 8 rouges inventories sont RAPPORTES, non repares (hors perimetre de cette
   passe). Chacun est un candidat de tache a part entiere.
+* **`#462-r5`** -- **Un import DIFFERE mort n'est garde par rien.** `probe_365` couvre << importe une
+  cible gitignoree ou ABSENTE >> ; ici le module existe et seul le NOM a disparu, et l'import est
+  dans une fonction (donc invisible a la collecte). Mesure : `BUILD_HASH` retire le 2026-08-01,
+  10 tests morts pendant 2 jours. Un cliquet OFFLINE le verrait -- resolution AST des `from X import
+  Y` contre les symboles reellement definis par `X`, imports differes compris.
+* **`#462-r6`** -- **Le ROUGE DE SCENARIO n'a pas de nom dans la ventilation.** 3 des 8 rouges
+  n'accusent ni le port ni le harnais : l'echantillon n'est plus confrontable
+  (`damage_catalog` : les 4 premiers candidats alphabetiques sont un summon et trois npc), ou le
+  contre-controle ne discrimine plus (`placement_sort_rng`, `valkyrie_strike_targeting`). Ils se
+  presentent comme des rouges de port. Le cas `damage_catalog` a une correction evidente et bornee :
+  filtrer les candidats par `build --list-pool` avant d'echantillonner.
