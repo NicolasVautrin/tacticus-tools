@@ -69,6 +69,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO / "scripts" / "python") not in sys.path:
     sys.path.insert(0, str(REPO / "scripts" / "python"))
 
+import repo_read  # noqa: E402
 from symbols_layout import current_build  # noqa: E402
 
 # Hash de build Tacticus : 10 caracteres, suffixe de plateforme `6c`. Meme forme que
@@ -201,56 +202,63 @@ def tracked_files() -> list[str]:
     return [p for p in r.stdout.split("\0") if p]
 
 
-def _docstring_nodes(tree: ast.AST) -> set[int]:
-    """`id()` des `ast.Constant` qui sont des docstrings (module, classe, fonction)."""
-    out = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                                 ast.AsyncFunctionDef)):
-            continue
-        body = getattr(node, "body", None)
-        if not body:
-            continue
-        first = body[0]
-        if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
-                and isinstance(first.value.value, str)):
-            out.add(id(first.value))
-    return out
+def lire(p: Path) -> str:
+    """`Path.read_text(encoding="utf-8")`, sans ouvrir en mode texte (cf. `repo_read`).
 
-
-def _foyer_controlled(tree: ast.AST) -> set[int]:
-    """`id()` des `ast.Constant` passes en argument DIRECT a une fonction du foyer.
-
-    Un hash ecrit a la main y est LEGITIME parce qu'il y est CONTROLE : `archived_build`
-    exige que la table de ce build soit versionnee, `require_pinned` exige qu'il corresponde
-    au build installe. Deriver l'exemption de l'ARBRE plutot que d'une liste d'exceptions
-    ecrite a la main est tout l'objet de la manoeuvre -- une liste, il faudrait la maintenir,
-    et elle survivrait a son motif.
+    Conserve pour les appelants qui lisent UN fichier ; le balayage, lui, passe par
+    `repo_read.read_bytes_many` -- c'est la que le gain se joue (16,8 s -> ~4 s sur les 3254
+    fichiers versionnes, mesure du 2026-08-03).
     """
-    out = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        f = node.func
-        nom = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
-        if nom not in FOYER_CALLS:
-            continue
-        for arg in list(node.args) + [k.value for k in node.keywords]:
-            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                out.add(id(arg))
-    return out
+    return repo_read.to_text(p.read_bytes())
 
 
-def importe_le_cliquet(tree: ast.AST) -> bool:
-    """Le fichier importe-t-il CE module ? (cf. `AUTO_TEST_MODULE`)"""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            if any(a.name == AUTO_TEST_MODULE for a in node.names):
-                return True
-        elif isinstance(node, ast.ImportFrom):
-            if node.module == AUTO_TEST_MODULE:
-                return True
-    return False
+class _Index:
+    """Les noeuds utiles du fichier, ranges en UN SEUL parcours.
+
+    `importe_le_cliquet`, `_docstring_nodes`, `_foyer_controlled`, le releve des instructions
+    et le balayage des constantes relisaient CHACUN l'arbre entier : cinq `ast.walk` par
+    fichier. Mesure du 2026-08-03 : 3,7 millions de noeuds visites pour 418 fichiers parses,
+    17,3 s cumulees dans `ast.walk`. Le verdict est IDENTIQUE -- seul le nombre de traversees
+    change (meme argument, meme mesure, que `_Index` de `probe_440`).
+    """
+
+    __slots__ = ("constantes", "docstrings", "foyer", "importe_le_cliquet", "stmt_span")
+
+    def __init__(self, tree: ast.AST):
+        self.constantes: list = []
+        self.docstrings: set = set()
+        self.foyer: set = set()
+        self.importe_le_cliquet = False
+        self.stmt_span: list = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant):
+                if isinstance(node.value, str):
+                    self.constantes.append(node)
+            elif isinstance(node, ast.Call):
+                f = node.func
+                nom = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+                if nom in FOYER_CALLS:
+                    for arg in list(node.args) + [k.value for k in node.keywords]:
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                            self.foyer.add(id(arg))
+            elif isinstance(node, ast.Import):
+                if any(a.name == AUTO_TEST_MODULE for a in node.names):
+                    self.importe_le_cliquet = True
+            elif isinstance(node, ast.ImportFrom):
+                if node.module == AUTO_TEST_MODULE:
+                    self.importe_le_cliquet = True
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+                body = getattr(node, "body", None)
+                if body:
+                    first = body[0]
+                    if (isinstance(first, ast.Expr)
+                            and isinstance(first.value, ast.Constant)
+                            and isinstance(first.value.value, str)):
+                        self.docstrings.add(id(first.value))
+            if isinstance(node, ast.stmt) and hasattr(node, "lineno"):
+                self.stmt_span.append((node.lineno,
+                                       getattr(node, "end_lineno", node.lineno)))
 
 
 def scan_python(rel: str, text: str,
@@ -264,23 +272,17 @@ def scan_python(rel: str, text: str,
     `auto_tests` (optionnel) recueille les fichiers exemptes au titre d'AUTO-TEST, pour que
     le run les IMPRIME : une exemption muette est une allowlist deguisee.
     """
-    tree = ast.parse(text, filename=rel)
-    if importe_le_cliquet(tree):
+    idx = _Index(ast.parse(text, filename=rel))
+    if idx.importe_le_cliquet:
         if auto_tests is not None:
             auto_tests.append(rel)
         return []
-    docs = _docstring_nodes(tree)
-    foyer = _foyer_controlled(tree)
+    docs, foyer = idx.docstrings, idx.foyer
     lines = text.splitlines()
     # instruction englobante -> pour decider RESOLUTION vs MESSAGE
-    stmt_span: list[tuple[int, int]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.stmt) and hasattr(node, "lineno"):
-            stmt_span.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
+    stmt_span = idx.stmt_span
     out = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
-            continue
+    for node in idx.constantes:
         if id(node) in docs or id(node) in foyer:
             continue
         for m in BUILD_RE.finditer(node.value):
@@ -364,6 +366,14 @@ def main() -> int:
     par_seau: Counter = Counter()
     n_exec_scanned = n_prose_scanned = 0
 
+    # Lecture PARALLELE des seuls fichiers a balayer (#457-r6). L'ouverture d'un fichier pese
+    # ici ~7 ms sous `scripts/` (filtre systeme sur les extensions executables) : en serie,
+    # elle coutait a elle seule 16,8 s des ~22 s du cliquet -- plus que tout l'AST. L'ORDRE de
+    # `files` est conserve (`read_bytes_many` rend une liste ALIGNEE), donc rien ne bouge dans
+    # le rapport. Les deux echecs restent traites au meme endroit et de la meme facon qu'avant.
+    a_lire = [rel for rel in files if seau(rel) in ("EXEC", "PROSE")]
+    octets = dict(zip(a_lire, repo_read.read_bytes_many([REPO / r for r in a_lire])))
+
     for rel in files:
         s = seau(rel)
         par_seau[s] += 1
@@ -372,10 +382,12 @@ def main() -> int:
             continue
         if s == "NEUTRE":
             continue
-        p = REPO / rel
+        data = octets.get(rel)
+        if data is None:                              # OSError -- comme avant, on saute
+            continue
         try:
-            text = p.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+            text = repo_read.to_text(data)
+        except UnicodeDecodeError:
             continue
         if s == "EXEC":
             n_exec_scanned += 1
@@ -414,7 +426,8 @@ def main() -> int:
         print("  !! extension(s) presente(s) dans l'arbre et dans AUCUN seau :")
         for ext, rels in sorted(inconnues.items()):
             avec = sum(1 for r in rels
-                       if BUILD_RE.search((REPO / r).read_text(encoding="utf-8", errors="replace")))
+                       if BUILD_RE.search((REPO / r).read_bytes()
+                                          .decode("utf-8", errors="replace")))
             print("     %-12s %d fichier(s), dont %d citant un hash -- ex. %s"
                   % (ext, len(rels), avec, rels[0]))
     if auto_tests:

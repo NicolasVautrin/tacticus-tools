@@ -72,6 +72,7 @@ PYDIR = Path(__file__).resolve().parent
 REPO = PYDIR.parents[1]
 sys.path.insert(0, str(PYDIR))
 
+import repo_read  # noqa: E402
 from symbols_layout import archived_builds, current_build  # noqa: E402
 
 # Les quatre enums renumerotes, par leur nom PLEINEMENT QUALIFIE (= la cle de `enums.tsv`,
@@ -205,6 +206,43 @@ def _fichiers_du_depot(suffixe: str) -> list:
 # Lecture des tables versionnees
 # ------------------------------------------------------------------------------------------
 
+# {(racine, suffixe, brut): {Path: texte | None}} -- `None` = illisible ou non-UTF-8.
+_SOURCES: dict = {}
+
+
+def _sources(suffixe: str, brut: bool = False) -> dict:
+    """Textes des fichiers `*<suffixe>` du perimetre, LUS EN PARALLELE (#457-r6).
+
+    Les cinq etapes de ce probe relisaient chacune l'arbre, en SERIE et depuis un process
+    distinct (une entree de banque par etape). Mesure du 2026-08-03 : l'ouverture d'un fichier
+    sous `scripts/` coute ~7 ms (filtre systeme sur les extensions executables), soit ~13 s
+    par etape rien qu'a ouvrir -- devant `ast.parse` (7,1 s pour tout `scripts/python/**`).
+
+    `brut=False` reproduit `io.open(p, encoding="utf-8")` (fins de ligne universelles) ;
+    `brut=True` reproduit `io.open(p, encoding="utf-8", newline="")`, que les etapes `prose`
+    et `on` exigent -- `--fix` REECRIT ces fichiers, et une traduction des fins de ligne y
+    serait une modification silencieuse de tout l'arbre.
+    """
+    cle = (REPO, suffixe, brut)
+    cache = _SOURCES.get(cle)
+    if cache is not None:
+        return cache
+    fichiers = _fichiers_du_depot(suffixe)
+    out: dict = {}
+    for p, data in zip(fichiers, repo_read.read_bytes_many(fichiers)):
+        if data is None:
+            out[p] = None
+            continue
+        try:
+            texte = data.decode("utf-8")
+        except UnicodeDecodeError:
+            out[p] = None
+            continue
+        out[p] = texte if brut else texte.replace("\r\n", "\n").replace("\r", "\n")
+    _SOURCES[cle] = out
+    return out
+
+
 def enum_map(build: str, fq: str) -> dict:
     """{ordinal: NOM} d'un enum, lu dans `data/symbols/<build>/frida/enums.tsv`."""
     p = REPO / "data" / "symbols" / build / "frida" / "enums.tsv"
@@ -326,13 +364,17 @@ def step_mirror(verbose: bool) -> list:
     cur = current_build()
     refs = {court: _by_name(enum_map(cur, fq)) for court, fq in ENUMS.items()}
     bad, vus = [], []
+    textes = _sources(".py")
     for p in _fichiers_du_depot(".py"):
         rel = _ignore(p)
         if rel is None:
             continue
+        src = textes.get(p)
+        if src is None:
+            continue
         try:
-            tree = ast.parse(io.open(p, encoding="utf-8").read(), filename=rel)
-        except (SyntaxError, UnicodeDecodeError, OSError):
+            tree = ast.parse(src, filename=rel)
+        except SyntaxError:
             continue
         for cls, membres in _int_enum_classes(tree).items():
             if cls not in ENUMS:
@@ -617,15 +659,20 @@ def step_exec(verbose: bool) -> list:
     # Une seule passe de parse : les signatures sont GLOBALES au perimetre (un appel peut
     # preceder la `def` d'un autre fichier), donc elles se derivent avant toute visite.
     sources, arbres = {}, {}
-    for p in sorted((REPO / "scripts" / "python").rglob("*.py")):
-        rel = _ignore(p)
-        if rel is None:
+    # Lecture PARALLELE (#457-r6) : l'ouverture pese ~7 ms par fichier sous `scripts/`, soit
+    # ~13 s des ~37 s de cette etape. L'ordre du rapport ne change pas -- il vient du
+    # `sorted(arbres.items())` plus bas, pas de l'ordre de lecture.
+    a_lire = [p for p in sorted((REPO / "scripts" / "python").rglob("*.py"))
+              if _ignore(p) is not None]
+    for p, data in zip(a_lire, repo_read.read_bytes_many(a_lire)):
+        if data is None:
             continue
+        rel = _ignore(p)
         try:
-            src = io.open(p, encoding="utf-8").read()
+            src = data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
             arbres[rel] = ast.parse(src, filename=rel)
             sources[rel] = src
-        except (SyntaxError, UnicodeDecodeError, OSError):
+        except (SyntaxError, UnicodeDecodeError):
             continue
     sigs = _signatures_positionnelles(arbres)
     if verbose:
@@ -744,14 +791,15 @@ def step_tables(verbose: bool) -> list:
                 fails.append((rel, ligne, nom_tab, enum, o, nom, attendu))
 
     for suf in _SUFFIXES:
+        textes = _sources(suf)
         for p in _fichiers_du_depot(suf):
             rel = _ignore(p)
             if rel is None or rel in ALLOWLIST or rel.startswith(INFO_PREFIXES):
                 continue
-            try:
-                _scan_texte(rel, io.open(p, encoding="utf-8").read())
-            except (UnicodeDecodeError, OSError):
+            src_txt = textes.get(p)
+            if src_txt is None:
                 continue
+            _scan_texte(rel, src_txt)
 
     print("[283] etape 3 : tables de noms indexees par ordinal -- %d table(s), %d entree(s) "
           "divergente(s)" % (len(vues), len(fails)))
@@ -1002,17 +1050,19 @@ def step_prose(verbose: bool, racine: str = "scripts/python", fix: bool = False)
     fichiers = sorted(q for suf in (".py", ".md", ".ts", ".js")
                       for q in (REPO / racine).rglob("*" + suf))
     derive, justes, corriges, prouves = [], 0, 0, []
-    for p in fichiers:
+    # Lecture PARALLELE (#457-r6), en mode BRUT. `newline=""` DANS LES DEUX SENS : sans lui, la
+    # lecture texte traduit CRLF -> LF et la reecriture reposerait tout le fichier en LF. Le
+    # depot est en `autocrlf` (les fichiers sont CRLF sur disque) : le diff porterait alors sur
+    # TOUTES les lignes, ce qui noierait la correction et la rendrait irrelisable. Decoder les
+    # octets SANS traduction reproduit exactement `newline=""`.
+    a_lire = [p for p in fichiers if _ignore(p) is not None and _ignore(p) not in ALLOWLIST]
+    for p, data in zip(a_lire, repo_read.read_bytes_many(a_lire)):
         rel = _ignore(p)
-        if rel is None or rel in ALLOWLIST:
+        if data is None:
             continue
         try:
-            # `newline=""` DANS LES DEUX SENS : sans lui, la lecture texte traduit CRLF -> LF
-            # et la reecriture reposerait tout le fichier en LF. Le depot est en `autocrlf`
-            # (les fichiers sont CRLF sur disque) : le diff porterait alors sur TOUTES les
-            # lignes, ce qui noierait la correction et la rendrait irrelisable.
-            src = io.open(p, encoding="utf-8", newline="").read()
-        except (UnicodeDecodeError, OSError):
+            src = data.decode("utf-8")
+        except UnicodeDecodeError:
             continue
         cites, n_ok, larges = _scan_prose_fichier(src, refs, olds, rxs, p.suffix, larges_rx)
         justes += n_ok
@@ -1105,13 +1155,16 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
     old = enum_map(prev, ENUMS["EventTriggerType"]) if prev else {}
     stables, decales = 0, []
     for suf in (".py", ".md"):
-        for p in sorted((REPO / racine).rglob("*" + suf)):
+        # Lecture PARALLELE (#457-r6), mode BRUT (`newline=""`) comme l'etape 4.
+        a_lire = [p for p in sorted((REPO / racine).rglob("*" + suf))
+                  if _ignore(p) is not None and _ignore(p) not in ALLOWLIST]
+        for p, data in zip(a_lire, repo_read.read_bytes_many(a_lire)):
             rel = _ignore(p)
-            if rel is None or rel in ALLOWLIST:
+            if data is None:
                 continue
             try:
-                src = io.open(p, encoding="utf-8", newline="").read()
-            except (UnicodeDecodeError, OSError):
+                src = data.decode("utf-8")
+            except UnicodeDecodeError:
                 continue
             zones = _zones_prose(src, suf)
             if zones is None:
