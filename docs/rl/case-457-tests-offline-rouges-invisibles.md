@@ -453,6 +453,12 @@ Machine calme, memes poids d'ordonnancement des deux cotes (`durations.json` et
 | lecture parallele seule (38 cliquets) | -- | 234,7 / 242,4 s |
 | + les 3 doublons retires (35 cliquets) | **677,9 s** | **199,4 / 206,4 s** |
 
+⚠ Un TROISIEME releve du cote « apres », joue plus tard sur l'etat livre, a rendu **234,5 s**
+(banque VERTE, 35 cliquets, rc 0). Il est au-dessus des deux du dos-a-dos et il est INSCRIT ICI :
+la variance du mur sur cette machine partagee est de l'ordre de +/- 15 %, et c'est exactement
+pourquoi seul un dos-a-dos dans la MEME fenetre vaut quelque chose. Le lire comme une regression
+serait la meme erreur que lire 199,4 s comme un acquis.
+
 **Mur : -26 %. Somme isolee : -8,3 %**, dont 40,4 s de deduplication et ~21 s d'optimisation. Le
 mur baisse BEAUCOUP plus que la somme isolee, et c'est le point : le gain se manifeste SOUS
 CONTENTION, quand 16 process font chacun leurs 3254 ouvertures en serie et se bloquent
