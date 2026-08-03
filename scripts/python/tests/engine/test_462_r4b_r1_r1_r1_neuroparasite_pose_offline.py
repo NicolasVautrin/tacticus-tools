@@ -31,6 +31,7 @@ _PY = os.path.dirname(os.path.dirname(_HERE))
 if _PY not in sys.path:
     sys.path.insert(0, _PY)
 
+from engine.dsl.event_trigger_type import EventTriggerType                    # noqa: E402
 from engine.entities import UnitContext                                       # noqa: E402
 from engine.entities.effect_type import EffectType                            # noqa: E402
 from engine.entities.effects.magnitude import ability_var                     # noqa: E402
@@ -47,8 +48,8 @@ from engine.runner.operations.triggers.loki.neuroparasite import (            # 
     neuroparasite_bond_tree, neuroparasite_increase_level_tree,
     neuroparasite_maximum_level)
 
-_ON_ATTACK = 9                     # `EventTriggerType.Attack`
-_ON_PRE_EFFECT_ADDED = 0x3d        # 61 -- `EventTriggerType.PreEffectAdded`
+_ON_ATTACK = int(EventTriggerType.Attack)                    # 9
+_ON_PRE_EFFECT_ADDED = int(EventTriggerType.PreEffectAdded)  # 0x3d = 61
 _PASSIVE_LEVEL = 50
 _BUFF_MAX_LEVEL_50 = 15            # `ConfigVar(0x4c = buffMaxLevel)[50]`
 _NORN_CROWN_EFFECT_LEVEL = 1       # `ConfigConst(0x73 = effectLevel)` de `NornCrown`

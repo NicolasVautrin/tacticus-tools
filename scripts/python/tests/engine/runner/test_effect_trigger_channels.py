@@ -171,19 +171,26 @@ def test_a_nested_pose_does_not_inherit_the_death_context():
 def test_the_divergence_is_latent_and_says_why():
     """POURQUOI CE FIX NE CHANGE AUCUNE OBSERVABLE -- et le CLIQUET qui le rendra decisif.
 
-    Compte RE-DERIVE du registre (jamais herite) : un SEUL trigger porte ecoute un vecteur d'effet
-    (`TerrifyingCrescendoSuppressAbility` sur `On(61 = PreEffectAdded)`), et il lit `+0x98`, que ce fix ne touche pas.
-    Les CINQ autres vecteurs d'effet n'ont AUCUN consommateur. La correction porte donc sur le CANAL
-    seul : c'est exactement pourquoi elle etait muette et pourquoi la garde est cablee ici plutot
-    que sur un observable de bataille.
+    Compte RE-DERIVE du registre (jamais herite) : les triggers portes qui ecoutent un vecteur
+    d'effet le font TOUS sur `On(61 = PreEffectAdded)` -- un vecteur de POSE, ou
+    `AddEffectOperation$$Execute` ecrit la MEME `AbilityOrEffect` dans `+0x60` ET `+0x98`, donc ou
+    les deux canaux sont indiscernables. Les CINQ autres vecteurs d'effet n'ont AUCUN consommateur.
+    La correction porte donc sur le CANAL seul : c'est exactement pourquoi elle etait muette et
+    pourquoi la garde est cablee ici plutot que sur un observable de bataille.
 
     Ce test n'interdit pas d'ajouter un consommateur -- il rougit quand on en ajoute un sur un
     vecteur de RETRAIT, au moment precis ou le canal lu cesse d'etre indifferent : le porteur devra
     alors lire `CurrentAbilityIs` (`ev.triggering_ability`), jamais `TriggeringEffectIs`."""
     from engine.dsl.event_trigger_type import EventTriggerType
     c = EFC.consumers(verbose=False)
-    add61 = c["by_event"][int(EventTriggerType.PreEffectAdded)]
-    assert add61 == ["TerrifyingCrescendoSuppressAbility"], (
+    add61 = sorted(c["by_event"][int(EventTriggerType.PreEffectAdded)])
+    # Chaque entree DECLARE le canal qu'elle lit. Les deux lisent `+0x98` (`TriggeringEffectIs`),
+    # sur un vecteur de POSE ou ce canal est renseigne :
+    #   * `TerrifyingCrescendoSuppressAbility` -- `TriggeringEffectIs(0x429 = Pinned)` ;
+    #   * `NeuroparasiteIncreaseLevelOnPinned` (#462-r4b-r1-r1-r1) -- MEME predicat natif
+    #     (`NeuroparasiteEffect$$GetPreEffectAddedTrigger` = `OwnerIsTarget &
+    #     TriggeringEffectIs(0x429)`), donc MEME canal.
+    assert add61 == ["NeuroparasiteIncreaseLevelOnPinned", "TerrifyingCrescendoSuppressAbility"], (
         f"consommateurs de On(61) = {add61} ; un nouvel entrant doit declarer quel canal il lit "
         f"(+0x60 CurrentAbilityIs / +0x98 TriggeringEffectIs) et mettre ce test a jour")
     for ev in (EventTriggerType.PreEffectRemoved, EventTriggerType.EffectRemoved,
@@ -218,3 +225,37 @@ def test_the_pose_consumer_still_reads_the_0x98_channel():
                          triggering_ability=PINNED, triggering_effect=None)
     assert not trig.matches(st, ko_ev), (
         "le gate lit +0x60 : il verrait un declencheur la ou RemoveEffectOperation n'en publie aucun")
+
+
+def test_the_second_pose_consumer_reads_the_same_0x98_channel():
+    """`NeuroparasiteEffect$$GetPreEffectAddedTrigger` = `get_OwnerIsTarget &
+    TriggeringEffectIs(0x429 = 1065 Pinned)` -- le MEME predicat natif que
+    `TerrifyingCrescendoAbility` branche 2, donc le MEME slot `DSLSelectors+0x90` -> `+0x98` ->
+    `ev.triggering_effect` (#462-r4b-r1-r1-r1).
+
+    DIFFERENCE avec son voisin, et elle est LUE : Crescendo gate `get_OwnerIsActor` (le porteur est
+    la SOURCE de l'effet pose), Neuroparasite gate `get_OwnerIsTarget` (le porteur du parasite est
+    la CIBLE du `Pinned`). Deux slots distincts, deux semantiques opposees -- les confondre ferait
+    monter le parasite du POSEUR au lieu de celui de la VICTIME."""
+    from engine.runner.state import State
+    from engine.runner.operations.triggers.base import TriggerEvent
+    from engine.dsl.event_trigger_type import EventTriggerType
+    from engine.runner.operations.triggers.loki.neuroparasite import (
+        NeuroparasiteIncreaseLevelOnPinned)
+    from engine.entities.effect_type import EffectType
+
+    pinned = int(EffectType.Pinned)
+    st = State()
+    trig = NeuroparasiteIncreaseLevelOnPinned(2)          # le porteur du parasite = l'entite 2
+    ok_ev = TriggerEvent(int(EventTriggerType.PreEffectAdded), 1, 2, ranged=False, profile=None,
+                         triggering_ability=pinned, triggering_effect=pinned)
+    assert trig.matches(st, ok_ev), "le gate TriggeringEffectIs(Pinned) ne voit plus le canal +0x98"
+    ko_ev = TriggerEvent(int(EventTriggerType.PreEffectAdded), 1, 2, ranged=False, profile=None,
+                         triggering_ability=pinned, triggering_effect=None)
+    assert not trig.matches(st, ko_ev), (
+        "le gate lit +0x60 : il verrait un declencheur la ou RemoveEffectOperation n'en publie aucun")
+    # `get_OwnerIsTarget` : un `Pinned` pose sur QUELQU'UN D'AUTRE ne doit rien declencher.
+    other = TriggerEvent(int(EventTriggerType.PreEffectAdded), 1, 3, ranged=False, profile=None,
+                         triggering_ability=pinned, triggering_effect=pinned)
+    assert not trig.matches(st, other), (
+        "le gate n'est pas `OwnerIsTarget` : le parasite monterait sur un Pinned pose ailleurs")
