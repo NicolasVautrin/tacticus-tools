@@ -325,11 +325,30 @@ def _measure(files: list) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(poids, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
-    # Empreinte MESUREE, a cote des poids et sous `logs/` pour la meme raison (#455).
-    emp_path = path.parent / "457-footprints.json"
+    # Empreinte MESUREE -- VERSIONNEE, avec le commit qui l'horodate (cf. `_footprints_path`).
+    # Sans `_commit`, la selection ne peut pas mesurer son age et refuse de s'appliquer.
+    import subprocess as _sp
+    tete = _sp.run(["git", "-C", str(repo_root()), "rev-parse", "HEAD"],
+                   capture_output=True, text=True)
+    def _versionnable(r: str) -> bool:
+        # Bruit MACHINE, jamais dans un diff : bytecode et sorties de run. Les garder gonflerait
+        # un fichier versionne de 521 lignes illisibles (mesure) sans rien apporter -- ils sont
+        # deja ignores a la lecture.
+        return not (r.endswith(".pyc") or "__pycache__" in r or r.startswith("logs/"))
+
+    def _dossiers(chemins) -> list:
+        # On stocke les REPERTOIRES, pas les fichiers -- c'est exactement la granularite a laquelle
+        # `impacted_files` compare (un test qui lit `docs/rl/x.md` doit rejouer si `docs/rl/y.md`
+        # change, sinon un fichier NEUF passerait entre les mailles). Stocker chaque fichier ne
+        # rendrait donc AUCUNE precision, et pesait 961 Ko versionnes, regeneres periodiquement.
+        return sorted({c.rsplit("/", 1)[0] for c in chemins if _versionnable(c) and "/" in c})
+
+    emp_path = _footprints_path()
     emp = {
-        "_globales": sorted(empreinte.globales),
-        "par_test": {rel: sorted(v) for rel, v in sorted(empreinte.par_test.items())},
+        "_commit": (tete.stdout or "").strip() or None,
+        "_globales": sorted(g for g in empreinte.globales if _versionnable(g)),
+        "par_test": {rel: d for rel, d in
+                     ((r, _dossiers(v)) for r, v in sorted(empreinte.par_test.items())) if d},
     }
     emp_path.write_text(json.dumps(emp, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -422,15 +441,29 @@ def _import_graph(mods: dict) -> tuple:
     return inverse, incertains
 
 
+#: L'empreinte est VERSIONNEE, contrairement aux poids -- et l'asymetrie est le point.
+#: Des POIDS perimes coutent du MUR, jamais un faux vert : ils ne font que deplacer des fichiers
+#: entre shards. Une EMPREINTE perimee, elle, ferait SAUTER des tests. La versionner telle quelle
+#: convertirait donc un defaut local en faux vert PARTAGE.
+#: Ce qui la rend versionnable : elle porte le commit ou elle a ete mesuree, et `impacted_files`
+#: unit le diff de la PR avec TOUT ce qui a change depuis. Perimee, elle selectionne TROP -- et
+#: retombe continument sur le rejeu total a mesure qu'elle vieillit. Meme classe de surete que les
+#: poids, sans en partager la fragilite.
+#: Placee sous `scripts/`, PAS sous `scripts/python/` (#455 : la banque y enumere en parallele) et
+#: PAS sous `data/`, qui est reserve aux ENTREES du jeu et dont un cliquet garde la composition.
+def _footprints_path():
+    return repo_root() / "scripts" / "ratchets-457-footprints.json"
+
+
 def _footprints() -> dict:
     import json
-    p = _weights_path().parent / "457-footprints.json"
-    if not p.exists():
-        return {}
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    for p in (_footprints_path(), _weights_path().parent / "457-footprints.json"):
+        if p.exists():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return {}
+    return {}
 
 
 def _changed(ref: str) -> list:
@@ -456,6 +489,19 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
     emp = _footprints()
     if not emp:
         return perimetre, "AUCUNE empreinte mesuree (`--measure`) -- TOUT rejoue"
+
+    # INVALIDATION PAR L'AGE. L'empreinte decrit l'arbre tel qu'il etait au commit `_commit` ; tout
+    # ce qui a bouge depuis peut l'avoir invalidee. On UNIT donc ce diff-la a celui de la PR. Sans
+    # cela, versionner l'empreinte transformerait sa peremption en FAUX VERT partage.
+    mesure_a = emp.get("_commit")
+    if not mesure_a:
+        return perimetre, "empreinte SANS commit de mesure -- age inverifiable, TOUT rejoue"
+    depuis = _changed(mesure_a)
+    if depuis is None:
+        return perimetre, ("commit de mesure `%s` inconnu de git -- empreinte inverifiable, "
+                           "TOUT rejoue" % mesure_a[:8])
+    if depuis:
+        changes = sorted(set(changes) | set(depuis))
 
     racine = repo_root()
     r = subprocess.run(["git", "-C", str(racine), "ls-files", "scripts/python"],
@@ -486,10 +532,12 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
 
     # Un fichier hors-.py impacte les tests dont l'empreinte lit son REPERTOIRE (granularite
     # repertoire : un test qui lit `docs/rl/x.md` doit rejouer si `docs/rl/y.md` change).
+    # `par_test` stocke des REPERTOIRES (cf. `_dossiers` a l'ecriture). On tolere une empreinte
+    # ancienne qui contiendrait encore des fichiers : en prendre le repertoire est idempotent.
     par_test = emp.get("par_test", {})
-    dirs_par_test = {}
-    for t, lus in par_test.items():
-        dirs_par_test[t] = {x.rsplit("/", 1)[0] for x in lus if "/" in x} | set(lus)
+    dirs_par_test = {t: {x.rsplit("/", 1)[0] if "." in x.rsplit("/", 1)[-1] else x
+                         for x in lus} | set(lus)
+                     for t, lus in par_test.items()}
 
     dirs_changes = {c.rsplit("/", 1)[0] for c in hors_py if "/" in c} | set(hors_py)
 

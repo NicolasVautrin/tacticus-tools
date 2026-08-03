@@ -27,10 +27,16 @@ PERIMETRE = ["tests/a_offline.py", "tests/b_offline.py", "tests/c_offline.py"]
 @pytest.fixture
 def empreinte(monkeypatch):
     """Injecte une empreinte SYNTHETIQUE et un diff controle."""
+    MESURE = "mesure_ref"
+
     def poser(globales, par_test, changes, mods=None, inverse=None, incertains=None):
+        # `_commit` est OBLIGATOIRE depuis le versionnement : une empreinte sans lui a un age
+        # inverifiable et rejoue tout. Ici la mesure est supposee A JOUR (rien change depuis).
         monkeypatch.setattr(P, "_footprints",
-                            lambda: {"_globales": globales, "par_test": par_test})
-        monkeypatch.setattr(P, "_changed", lambda ref: changes)
+                            lambda: {"_commit": MESURE, "_globales": globales,
+                                     "par_test": par_test})
+        monkeypatch.setattr(P, "_changed",
+                            lambda ref: [] if ref == MESURE else changes)
         monkeypatch.setattr(P, "_import_graph",
                             lambda m: (inverse or {}, incertains or set()))
         if mods is not None:
@@ -122,6 +128,52 @@ def test_un_diff_VIDE_ne_joue_rien(empreinte):
     retenus, raison = P.impacted_files(PERIMETRE, "HEAD")
     assert retenus == [], "aucun changement -> aucun test a rejouer"
     assert "aucun fichier change" in raison
+
+
+def test_une_empreinte_SANS_commit_de_mesure_rejoue_TOUT(monkeypatch):
+    # L'empreinte est VERSIONNEE : sans commit d'horodatage, son age est inverifiable, donc son
+    # contenu n'autorise a sauter AUCUN test. C'est ce qui rend le versionnement sur.
+    monkeypatch.setattr(P, "_changed", lambda ref: ["scripts/python/engine/x.py"])
+    monkeypatch.setattr(P, "_footprints", lambda: {"_globales": [], "par_test": {}})
+    retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
+    assert retenus == PERIMETRE
+    assert "SANS commit" in raison
+
+
+def test_un_commit_de_mesure_INCONNU_rejoue_TOUT(monkeypatch):
+    monkeypatch.setattr(P, "_footprints",
+                        lambda: {"_commit": "dead" * 10, "_globales": [], "par_test": {}})
+    monkeypatch.setattr(P, "_changed",
+                        lambda ref: None if ref.startswith("dead") else ["scripts/python/e/x.py"])
+    retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
+    assert retenus == PERIMETRE
+    assert "inconnu de git" in raison
+
+
+def test_le_diff_DEPUIS_LA_MESURE_est_UNI_a_celui_de_la_PR(monkeypatch):
+    # Coeur de l'invalidation par l'age : un test modifie APRES la mesure mais AVANT la ref de la
+    # PR n'est dans aucun des deux diffs pris seuls -- il ne doit pas passer entre les mailles.
+    monkeypatch.setattr(P, "_footprints",
+                        lambda: {"_commit": "abc123", "_globales": [], "par_test": {}})
+
+    def diff(ref):
+        if ref == "abc123":
+            return ["scripts/python/tests/c_offline.py"]   # change depuis la MESURE
+        return ["docs/rl/note.md"]                          # diff de la PR : sans rapport
+
+    monkeypatch.setattr(P, "_changed", diff)
+    monkeypatch.setattr(P, "_import_graph", lambda m: ({}, set()))
+
+    import subprocess
+
+    class _R:
+        returncode = 0
+        stdout = ""
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _R())
+    retenus, _ = P.impacted_files(PERIMETRE, "HEAD~1")
+    assert "tests/c_offline.py" in retenus, \
+        "un test modifie depuis la MESURE doit etre rejoue meme s'il est hors du diff de la PR"
 
 
 def test_le_perimetre_reel_est_NON_VIDE(monkeypatch):
