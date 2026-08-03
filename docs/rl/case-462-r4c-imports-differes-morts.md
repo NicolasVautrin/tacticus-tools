@@ -183,14 +183,13 @@ d'un refus légitime).
 
 ## 7. Résidus
 
-* **`#462-r4c-r1`** — `probe_212` et `probe_241` **tournent mais ne discriminent plus**. Mesuré :
-  `probe_212` à sa profondeur par défaut (60 pas) épuise la trajectoire native **au pas 38**
-  (`stage Finished`) sans une seule activation qualifiée de `genesMagus` sur `MC1_67`/`777`. Leur
-  garde est réparée et leur boucle joue ; **la qualité de leur montage ne l'est pas** — et ce
-  n'était pas mesurable tant qu'ils levaient en `ImportError`. C'est le **rouge de SCÉNARIO** de
-  `#462-r6`, sur des probes cette fois. Canal : re-piloter les positions (DÉPLACER les porteurs
-  vers la configuration voulue, comme `_drive_cluster` le fait pour #242) plutôt que subir la
-  géométrie de spawn.
+* ~~**`#462-r4c-r1`**~~ — **FERMÉ le 2026-08-03**, voir
+  `case-462-r4c-r1-probes-qui-ne-discriminent-plus.md`. Le diagnostic « montage subi » était juste,
+  mais il n'était **qu'un des trois vices** : la MESURE elle-même était fausse (retranchement de
+  `X_port` sur les littéraux `8`/`9`, périmés depuis #254 — `probe_241` rendait 3 désaccords qui
+  valaient exactement `−TileEffects`), et `probe_212` **rendait `0` inconditionnellement**, ce qui
+  masquait le sien. Corrigés par un foyer unique (`x_port`), un verdict à deux volets, et
+  `walk_driven` / `_drive_carrier_toward` qui PILOTENT les positions.
 * **`#462-r4c-r2`** — `probe_230.case_ghost` re-mesure et ACCORDE (§6), mais **seulement sur la
   face `TimeFlux`**. La 2e instanciation qui a causé le renommage — `EchoesFromTheWarp_Revive`
   (0x504 = 1284, `ECHOES_GHOST_EFFECT`) — n'a **aucun** équivalent dans ce probe : il n'existe

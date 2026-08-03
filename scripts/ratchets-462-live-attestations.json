@@ -3060,14 +3060,14 @@
    "xfailed": 0
   },
   "tests/engine/test_spiritual_leader_tile_term_live.py": {
-   "_at": 1785768831,
-   "_blob": "7f87d22166cb22c3f80965b8847e31c7bdf3445f",
-   "_commit": "3b34a6ffe5bbadb4c98bfb66997797d28cdce1fe",
+   "_at": 1785789957,
+   "_blob": "45879dbf89318467293eac94d5caf28fe5ce7f41",
+   "_commit": "6495e03a29cd90f02be147a140ad9b53ecb1b2e9",
    "error": 0,
    "failed": 0,
    "messages": [],
    "passed": 10,
-   "sec": 183.8,
+   "sec": 296.6,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -3086,14 +3086,14 @@
    "xfailed": 0
   },
   "tests/engine/test_steppable_decoy_tile_leaves_live.py": {
-   "_at": 1785768831,
-   "_blob": "774e337a3303871041c86dc791ee9d043d0a8f1d",
-   "_commit": "3b34a6ffe5bbadb4c98bfb66997797d28cdce1fe",
+   "_at": 1785789957,
+   "_blob": "77eebcde9179fb1c2dc46056e69cbdf82c4b03da",
+   "_commit": "6495e03a29cd90f02be147a140ad9b53ecb1b2e9",
    "error": 0,
    "failed": 0,
    "messages": [],
    "passed": 14,
-   "sec": 138.8,
+   "sec": 105.1,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0

@@ -113,6 +113,34 @@ def _one(d, t, default=None):
     return sorted(v)[0] if len(v) == 1 else None      # ambigu -> None (jamais une moyenne)
 
 
+def x_port(leaves) -> float:
+    """`X_port` = somme des feuilles du PORT, retranchee des DEUX feuilles que `X_nat` retranche.
+
+    `X_nat = Tile(7) - Elevation - TileEffects` (les deux seules feuilles que les hooks de
+    `scorer-damage-trace` tracent separement) : les deux membres de la comparaison doivent porter la
+    MEME somme, sinon la difference mesure le retranchement au lieu du port.
+
+    DECLARATION UNIQUE de ce retranchement pour toute la famille des probes de terme de tuile
+    (#193c, #211, #212, #241, #242, #242b). Les cles sont des MEMBRES `UtilityType`, jamais des
+    litteraux (#254) : la MAJ de build a insere `AttackTile` en 8, decalant `Elevation` 8->9 et
+    `TileEffects` 9->10. CINQ sites portaient encore `leaves.get(8) - leaves.get(9)` -- ils
+    retranchaient donc
+    `AttackTile` (ABSENTE de `TILE_UTILITY.children`, soit 0.0) et `Elevation`, et **jamais**
+    `TileEffects`. Mesure du 2026-08-03 sur `MC1_67`/777 : `probe_241` rendait 3 tuiles en desaccord
+    sur 16, de valeur exactement `-TileEffects` (-9, +25, +25), et `probe_212` mesurait -9 sur
+    l'origine de `genesMagus` -- un rouge qui accusait le PORT alors que la MESURE etait fausse."""
+    return sum(leaves.values()) - sum(leaves.get(k, 0.0) for k in x_excluded())
+
+
+def x_excluded() -> tuple:
+    """Les `UtilityType` que `x_port` retranche -- pour que l'AFFICHAGE des feuilles non nulles
+    exclue EXACTEMENT ce que le calcul exclut. Les probes filtraient sur `(8, 9)` en dur : ils
+    montraient donc `Elevation` comme une feuille du terme (elle est retranchee) et cachaient une
+    colonne vide (`AttackTile`, qui n'est pas une feuille du composite Tile)."""
+    from engine.utilities.utility_type import UtilityType
+    return (int(UtilityType.Elevation), int(UtilityType.TileEffects))
+
+
 def _port_leaves(ctx, pos):
     """Les feuilles du `Tile(7)` du PORT, evaluees UNE PAR UNE sur la meme (tuile, meta, leaf_ctx).
 
@@ -145,7 +173,6 @@ def run(sid, rid, carrier, ability, max_steps, max_arm=6):
     from engine.ai import context as _ai_ctx
     from engine.playbook import scene as _scene
     from engine.playbook.adjacent_unit_preference import load_playbook
-    from engine.utilities.utility_type import UtilityType
     import hexgeo
 
     # --- avance jusqu'au 1er pas ou le PORTEUR est active ET son terme VARIE --
@@ -238,16 +265,7 @@ def run(sid, rid, carrier, ability, max_steps, max_arm=6):
         vt, ve, vf = _one(tt, t), _one(el, t), _one(te, t, 0.0)
         leaves, leaf_ctx = _port_leaves(ctx, t)
         p_tot = sum(leaves.values())
-        # `X_port` doit retrancher EXACTEMENT les deux feuilles que `X_natif` retranche
-        # (`Elevation` et `TileEffects`), sinon les deux membres de la comparaison ne portent pas
-        # la meme somme. Cles = MEMBRES `UtilityType`, jamais des litteraux (#254) : ce site
-        # portait `8` et `9`, l'ancienne numerotation de `gqfc5mff6c`. Depuis l'insertion
-        # d'`AttackTile` en 8 (#252, `Elevation` 8->9 et `TileEffects` 9->10), il retranchait une
-        # feuille INEXISTANTE (`AttackTile`, absente de `TILE_LEAVES` -> `0.0`) et ne retranchait
-        # JAMAIS `TileEffects` -- ecart silencieux, nul tant qu'aucune tuile ne porte d'effet.
-        p_x = (p_tot
-               - leaves.get(int(UtilityType.Elevation), 0.0)
-               - leaves.get(int(UtilityType.TileEffects), 0.0))
+        p_x = x_port(leaves)                   # foyer UNIQUE du retranchement (cf. `x_port`)
         term = pb.calculate_movement_utility_in_steps(t, leaf_ctx, wt)
         x = (vt - ve - vf) if None not in (vt, ve, vf) else None
         d = (x - p_x) if x is not None else None

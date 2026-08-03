@@ -26,16 +26,18 @@ InStepsu003Ed__1$$MoveNext`), que ces gardes verrouillent un par un :
     exclusion de self : c'est un compte de BATAILLE, pas de voisinage ;
   * `HasFaction(case.unit, 0xf)` = `UnitFaction.Genestealers` -- une autre faction ferme la feuille.
 
-MONTAGES : les memes deux que case-212 (`genesMagus`/Xybia fabrique elle-meme les decoys que ces
-feuilles lisent ; d'ou `--hp-*` eleve pour la laisser jouer plusieurs activations), plus
-`genesPrimus`/Isaak dans l'equipe -- c'est LUI le porteur de `DecoysAndMisdirection` (1304) que le
-compte de la feuille 64 retient.
-  * `MC1_67`/777   pas 47 -- 4 candidates a occupant decoy sur 16 ;
-  * `C4_09`/31337  pas 21 -- autre board, 2 candidates a occupant decoy sur 6.
+MONTAGE -- ON PILOTE LES POSITIONS (2026-08-03). `genesMagus`/Xybia fabrique elle-meme les decoys
+que ces feuilles lisent (d'ou `--hp-*` eleve pour la laisser jouer plusieurs activations), et
+`genesPrimus`/Isaak est dans l'equipe -- c'est LUI le porteur de `DecoysAndMisdirection` (1304) que
+le compte de la feuille 64 retient. Mais ATTENDRE que la geometrie de spawn amene un decoy sur une
+candidate est un echantillon SUBI : il tenait a un numero de pas en dur (47 / 21) sur une
+trajectoire native que rien ne fige. On marche donc la trajectoire en DEPLACANT le carrier vers les
+decoys (`walk_driven` de `probe_212_spiritual_leader_tile_term.py`, `goals_241` de
+`probe_241_decoy_tile_leaves.py`), et on s'arrete au premier pas ou le regime est REALISE.
 
 Aucune valeur n'est gelee : les assertions re-derivent tout de la BC et du contexte du pas. Le
 confront LIVE par tuile contre le natif (`X_nat - X_port == 0`, hooks `scorer-damage-trace`) vit dans
-`probe_212_spiritual_leader_tile_term.py` -- ces gardes-ci sont son cliquet sans hook.
+`probe_241_decoy_tile_leaves.py` -- ces gardes-ci sont son cliquet sans hook.
 
 ASCII only.
 """
@@ -43,14 +45,16 @@ from __future__ import annotations
 
 import os
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))      # tests/engine -> import du helper sibling
 
-from _move_tile_sweep_order import build_sweep_order_case  # noqa: E402
+from counterproof import assert_sample_confrontable  # noqa: E402
 
 CARRIER = "genesMagus"                             # HERO du pool, faction Genestealers
+MAX_STEPS = 140
 DECOY_UNIT = "genesSmnDecoy"                       # summon Steppable+Decoy pose par SpiritualLeader
 ATTRACT_ABILITY = 1304                             # TriggeredAbilityType.DecoysAndMisdirection
 CAT_19 = "SteppableUnit"
@@ -67,14 +71,54 @@ _GENES = _LONG + [
     "--p-units", "genesMagus,genesPrimus,genesKelermorph,orksNob,spaceWulfen",
     "--a-units", "darkaHellblaster,eldarRanger,worldKharn,templChampion,tauMarksman"]
 
-CASES = [("MC1_67", "777", 47, _GENES),
-         ("C4_09", "31337", 21, _GENES)]
+CASES = [("MC1_67", "777", _GENES),
+         ("C4_09", "31337", _GENES)]
 
 
-@pytest.fixture(scope="module", params=CASES, ids=lambda c: "%s-%s-s%d" % (c[0], c[1], c[2]))
+def _wants(ctx, lc) -> bool:
+    """Le regime de CE fichier : au moins une candidate a occupant steppable AMI (sans elle les deux
+    feuilles ne tirent nulle part) ET au moins une SANS occupant (sans elle, une pose TROP LARGE
+    rendrait exactement la meme chose -- c'est la contre-epreuve de `case-241` §4.4)."""
+    from probe_241_decoy_tile_leaves import _steppable_tiles
+    occ = _steppable_tiles(lc)
+    tiles = ctx.action_tiles or []
+    return (any(t in occ and not occ[t][1] for t in tiles) and any(t not in occ for t in tiles))
+
+
+@pytest.fixture(scope="module", params=CASES, ids=lambda c: "%s-%s" % (c[0], c[1]))
 def decoy_case(request, rpc, build_runner):
-    board, seed, step, extra = request.param
-    return build_sweep_order_case(rpc, build_runner, seed=seed, board=board, step=step, extra=extra)
+    """Etat de decision d'une activation de Xybia ou les DEUX natures de tuile sont presentes.
+
+    On ne SUBIT pas la geometrie : tant qu'aucune candidate ne porte de decoy, on DEPLACE le carrier
+    vers eux et on termine le tour des allies (`walk_driven`)."""
+    from probe_212_spiritual_leader_tile_term import walk_driven, carrier_id_of
+    from probe_241_decoy_tile_leaves import goals_241
+    board, seed, extra = request.param
+
+    def r(m, b, t=90):
+        return rpc(m, b, t)
+
+    rid = build_runner(seed, extra=list(extra), board=board)["rid"]
+    cid = carrier_id_of(r, rid, CARRIER)
+    assert cid is not None, "%s absent du runner (roster/pool a re-etalonner)" % CARRIER
+    for st in walk_driven(r, rid, cid, _wants, goals_241, MAX_STEPS):
+        me = next((u for u in (st["dv"].get("units") or []) if u.get("id") == st["uid"]), None)
+        return SimpleNamespace(rid=rid, step=st["step"], uid=st["uid"],
+                               visual_id=(me or {}).get("visualId"), ctx=st["ctx"],
+                               action_tiles=list(st["ctx"].action_tiles or []),
+                               decoys=st["decoys"], driven=st["driven"])
+    assert_sample_confrontable(
+        False,
+        mutation="montage %s/%s : trajectoire native marchee en PILOTANT les positions de %s vers "
+                 "les decoys poses par sa face COMBAT (walk_driven / goals_241)" % (board, seed,
+                                                                                    CARRIER),
+        doit_casser="une activation du carrier ou ses candidates portent A LA FOIS un occupant "
+                    "steppable ami et aucun occupant -- les deux natures que ces gardes opposent",
+        observe="aucune en %d pas : trajectoire epuisee, ou aucun decoy n'est jamais arrive sur une "
+                "candidate" % MAX_STEPS,
+        remede="rejouer `probe_241_decoy_tile_leaves.py --carrier genesMagus` (il imprime chaque "
+               "DRIVE et les candidates a occupant steppable) ; si aucun decoy n'est POSE, c'est la "
+               "face COMBAT de SpiritualLeader qu'il faut relire, pas ce montage")
 
 
 def _leaf(name: str):
@@ -110,10 +154,17 @@ def _occupant_visual(case, tile):
 
 
 def test_case_still_activates_the_carrier(decoy_case):
-    """Le montage n'a de sens que si le pas active bien Xybia ; sinon la trajectoire a derive."""
-    assert decoy_case.visual_id == CARRIER, (
-        "pas %d : porteur attendu %s, active %s -- trajectoire derivee, montage a re-etalonner"
-        % (decoy_case.step, CARRIER, decoy_case.visual_id))
+    """Le montage n'a de sens que si le pas active bien Xybia ; sinon rien n'a ete confronte.
+
+    ROUGE DE SCENARIO (#462-r6) : ce n'est ni un verdict sur le port ni sur le harnais."""
+    assert_sample_confrontable(
+        decoy_case.visual_id == CARRIER,
+        mutation="marche pilotee jusqu'a une activation du carrier %s" % CARRIER,
+        doit_casser="le pas retenu active bien %s (les gardes suivantes lisent SA faction et SON "
+                    "voisinage)" % CARRIER,
+        observe="pas %d : l'unite activee est %s" % (decoy_case.step, decoy_case.visual_id),
+        remede="`walk_driven` ne yield que sur `uid == carrier_id` : si ce message apparait, c'est "
+               "que `carrier_id_of` a resolu un autre `visualId` -- re-etalonner le roster")
 
 
 def test_bc_keys_are_present_and_shortcircuit_keys_are_absent(decoy_case):
@@ -152,13 +203,23 @@ def test_mover_faction_is_resolved_from_gameconfig(decoy_case):
 
 def test_montage_exercises_both_kinds_of_tile(decoy_case):
     """Sans candidate a occupant decoy ET candidate sans occupant steppable, les deux gardes
-    suivantes passeraient a vide (l'une ne verrait jamais la pose, l'autre jamais son absence)."""
+    suivantes passeraient a vide (l'une ne verrait jamais la pose, l'autre jamais son absence).
+
+    Premiere assertion = ECHANTILLON (rouge de SCENARIO, #462-r6) ; seconde = FOND (la pose ne doit
+    retenir QUE le decoy)."""
     metas, _ = _metas(decoy_case)
     with_occ = [t for t, m in metas.items() if m.get("steppable")]
     without = [t for t, m in metas.items() if not m.get("steppable")]
-    assert with_occ and without, (
-        "pas %d (%s) : %d candidate(s) a occupant steppable, %d sans -- il faut des DEUX"
-        % (decoy_case.step, decoy_case.visual_id, len(with_occ), len(without)))
+    assert_sample_confrontable(
+        bool(with_occ) and bool(without),
+        mutation="drive de %s vers les decoys de sa face COMBAT (%d drive(s), %d decoy(s) allie(s) "
+                 "vus au pas retenu)" % (CARRIER, decoy_case.driven, len(decoy_case.decoys)),
+        doit_casser="au moins une candidate a occupant steppable ET au moins une sans -- sans les "
+                    "deux, ni la pose ni son absence ne sont exercees",
+        observe="pas %d (%s) : %d candidate(s) a occupant steppable, %d sans"
+                % (decoy_case.step, decoy_case.visual_id, len(with_occ), len(without)),
+        remede="augmenter MAX_STEPS, ou rejouer `probe_241_decoy_tile_leaves.py --carrier %s`, qui "
+               "imprime chaque DRIVE et les candidates a occupant steppable" % CARRIER)
     # L'occupant steppable attendu sur ce montage est bien le decoy de Xybia, pas autre chose.
     vis = {_occupant_visual(decoy_case, t) for t in with_occ}
     assert vis == {DECOY_UNIT}, (
@@ -179,10 +240,17 @@ def test_leaves_fire_exactly_on_tiles_with_a_friendly_steppable_occupant(decoy_c
     n = 1 if ATTRACT_ABILITY in (lc.get("unit_triggered_abilities") or ()) else 0
     n += sum(1 for u in (lc.get("friend_units") or ())
              if ATTRACT_ABILITY in (u.get("triggered") or ()))
-    assert n >= 1, (
-        "pas %d : aucun ami porteur de %d (DecoysAndMisdirection) -- le terme de la feuille 64 vaut "
-        "0 par construction, le montage ne peut rien contredire (genesPrimus est-il encore vivant ?)"
-        % (decoy_case.step, ATTRACT_ABILITY))
+    # ECHANTILLON (rouge de SCENARIO, #462-r6) : sans porteur de 1304 la feuille 64 vaut 0 par
+    # CONSTRUCTION -- l'assertion de fond qui suit passerait alors sans rien confronter.
+    assert_sample_confrontable(
+        n >= 1,
+        mutation="roster avec genesPrimus (LE porteur de %d du montage) vivant" % ATTRACT_ABILITY,
+        doit_casser="au moins un ami porteur de %d, sinon `n x GSC` vaut 0 quoi que fasse le port"
+                    % ATTRACT_ABILITY,
+        observe="pas %d : n(amis porteurs de %d, self inclus) = %d"
+                % (decoy_case.step, ATTRACT_ABILITY, n),
+        remede="genesPrimus est-il encore vivant a ce pas ? relever `--hp-player`, ou arreter le "
+               "drive plus tot (MAX_STEPS)")
     exp19, exp64 = wt.sub(CAT_19, KEY_FRIENDLY_DECOY), n * wt.sub(CAT_64, KEY_GSC)
     bad = {}
     for t, m in metas.items():
