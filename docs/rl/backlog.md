@@ -353,6 +353,30 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#462-r4a-r1` — le décompilé route en APPARENCE les deux canaux vers `Multiplier@0x30`.**
+  `IdunBattle.Core.Services.DamageModifiers$$Add` surcharge 2-ARGUMENTS (celle des EFFETS) appelle
+  `Add(this, modifier.Value)` dès que `damageBonus@0x20` a une valeur — et cette surcharge écrit
+  `Multiplier@0x30`, l'étage qui porte un `Fix64.Round`. Or la MESURE (6 régimes, dont les 2 seuls
+  jamais montés avec les DEUX faces non neutres) établit que les %-list d'effets se composent SANS
+  arrondi intercalé : elles ne traversent donc PAS cet étage. Deux lectures restent ouvertes —
+  (a) le `damageBonus` d'un effet remplit `@0x48/@0x50` (l'entrée « capée » de la liste `@0x18`) et
+  non `@0x20` ; (b) Ghidra confond deux corps sous le même symbole. **Canal qui trancherait** : lire
+  champ par champ le `Nullable<DamageBonus>` rendu par le slot `0x1a` d'un effet, à l'exécution —
+  `readDamagePredictionResult` ne l'expose pas, il faut un capteur sur
+  `IdunBattle.Entities.Effects.DamageModifierAbilityEffect$$CreateEffectDamageBonusForAttack`
+  (retour, 0x58 octets) ⇒ **fenêtre de reinject**. Le port est bit-exact sur tout le corpus mesuré
+  sans cette réponse. `case-462-r4a-canal-du-multiplicateur.md` §6.
+- **`#462-r4a-r2` — `DamageModifiers.multiplicative` de la face ATTAQUANT n'a AUCUN producteur.**
+  Le canal existe et est consommé (étape 3), mais seule la face DÉFENSEUR l'alimente : côté
+  attaquant, `calculate_modifiers_from_stat_modifications` reste gaté `apply_stat_mod_debuff=False`
+  (#49). La branche « étape 3 avec un multiplicateur non neutre » est donc **NON CONFRONTÉE** ;
+  canal qui la confronterait : ouvrir le gate #49 sur un porteur mesuré.
+- **`#462-r4a-r3` — `attackModifiers` est un `Nullable` MIS À ZÉRO dans `CalculateAbilityDamage`**
+  (0x40 octets écrasés juste avant l'appel), alors que `PredictAttackRaw` construit ses DEUX
+  `Nullable`. Les deux appelants du MÊME foyer ne traversent donc pas les mêmes étapes ; le port
+  n'a qu'une chaîne pour les deux (modèle « bornes réduites puis tirage »), bit-exact sur tout le
+  corpus mais pas mirror littéral de la structure d'appel. À rouvrir si un régime les sépare.
+
 - **`#439-r1` — « peut rendre un code non nul » n'est pas « rougit sur SON gisement ».** `probe_439`
   garde le premier (banque verte 22/22) ; le second n'est gardé par rien de mécanique. Cas mesuré et
   imprimé à chaque passage : `probe_326` a **0** voie non nulle de la famille return/exit — son
