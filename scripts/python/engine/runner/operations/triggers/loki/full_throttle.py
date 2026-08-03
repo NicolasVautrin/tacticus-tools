@@ -12,10 +12,22 @@ RE (decompile ghidra, build `rnca9r7q6c`)
 -----------------------------------------
 `...FullThrottleAbility$$CreateTrigger` :
 
-    On(0x24)                                         # EventTriggerType, litteral LU
+    On(0x24 = UnitPositionChanged_1)                 # EventTriggerType, litteral LU
   & get_OwnerIsActor
   & AmountIsEqualOrGreater( MovementSteps(),
                             Direct(GetNumberConstant(0x51 = 'movement')) )
+
+⚠ **LE SEUIL EFFECTIF EST 2 PAS, PAS 3** -- et l'ecart d'UN est structurel, lu au site d'appel de
+`IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` dans
+`IdunBattle.Operations.MoveUnitOperation$$Execute` :
+
+    movementSteps = IsLikeFlying ? <distance(path.First(), path.Last())> : **path.Count**
+
+`path[0]` est la tuile de DEPART (la boucle `IdunBattle.Operations.MoveUnitOperation$$AddMoveEvent`
+demarre a `i = 1`), et le helper que le jeu utilise ailleurs pour compter les tuiles PARCOURUES,
+`IdunBattle.Core.Services.BattleQuery$$GetNumTilesMoved(path)`, rend explicitement `path.Count - 1`.
+Un marcheur qui franchit 2 hexes porte donc `movementSteps = 3` et PASSE le gate `>= 3`.
+Cf. `runner/operations/movement.py::_movement_steps` (les deux branches y sont mirrorees).
 
 `...FullThrottleAbility$$CreateBehaviour` :
 
@@ -39,21 +51,26 @@ TriggerTriggeredAbilityOperation$$TriggerAbility` -- lu au decompile -- va DIREC
 `ShouldTrigger`**. Le `CreateTrigger` n'est donc pas sur ce chemin, et le declenchement par le
 fly-in est INCONDITIONNEL cote gate de mouvement.
 
-**NON PORTE : le `CreateTrigger`** (le passif autonome, « bouger de >= 3 hexes »). RESIDU NOMME,
-avec sa cause exacte : la formule `IdunBattleLogic.Entities.DSLFormulas$$MovementSteps()` alloue une
-classe dont le `.ctor` ne prend QU'UN argument (un champ mis a `0`) et dont **aucun nom n'apparait
-dans les tables de symboles** -- ce n'est ni `TilesMovedThisTurnFormula` ni
-`TilesMovedLastTurnFormula` (leurs deux `DSLFormulas$$TilesMoved*Turn` allouent des classes
-DIFFERENTES, avec un ctor a DEUX arguments dont un selecteur d'unite). La seule xref de son cache de
-classe est `MovementSteps` elle-meme, donc rien ne la discrimine offline : il faudrait lire son slot
-`Calculate` au RUNTIME (`resolveMethodPtr`, cf. `reference_il2cpp_methodptr_uninit_class`). Porter
-le gate en SUPPOSANT que c'est « les tuiles parcourues ce tour » serait exactement l'invention que
-la doctrine proscrit -- et le supposer FAUX (gate toujours vrai) tuerait 30 % des Stormboyz a chaque
-pas. On ne l'inscrit donc PAS dans `ABILITY_TRIGGERS` : le passif autonome reste inerte, et le port
-le DIT au lieu de le deviner.
-⇒ Consequence, chiffree : `orksNpc6Stormboy` est le SEUL porteur de `FullThrottle`
-(`unit_map.py find --ability FullThrottle` -> 1 unite, bucket npc, voie `passive`) -- le residu n'a
-donc AUCUN rayon de souffle sur une unite du pool.
+**PORTE AUSSI, depuis #448-r1-r1 : le `CreateTrigger`** (le passif autonome). Le verrou qui l'avait
+fait classer RESIDU -- « la formule `IdunBattleLogic.Entities.DSLFormulas$$MovementSteps()` alloue
+une classe dont aucun nom n'apparait dans les tables, il faudrait lire son slot `Calculate` au
+RUNTIME » -- **n'existait pas** : la recherche avait porte sur le mauvais namespace. La classe est
+`IdunBattle.DSL.MovementStepFormula` (namespace `IdunBattle.DSL`, et non
+`IdunBattle.Entities.Formulas` ou vivent les deux `TilesMoved*TurnFormula` de comparaison), elle est
+dans `classes.tsv`, et son `Calculate` est nomme dans les DEUX tables. Detail et contre-epreuves :
+`docs/rl/case-448-r1-r1-full-throttle-gate.md`.
+
+    IdunBattle.DSL.MovementStepFormula$$Calculate = Nullable<int>.GetValueOrDefault(entities+0x11c)
+
+et `AbilityEntities+0x11c` se nomme **`movementSteps`** -- verbatim dans la signature du ctor a 33
+parametres d'`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor`. Ce n'est donc PAS « les tuiles
+parcourues ce tour » (l'invention que la doctrine proscrivait, et qui se serait revelee FAUSSE) :
+c'est une donnee de l'EVENEMENT, renseignee par le seul
+`IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers`.
+
+⇒ Rayon de souffle, chiffre : `orksNpc6Stormboy` est le SEUL porteur de `FullThrottle`
+(`unit_map.py find --ability FullThrottle` -> 1 unite, bucket npc, voie `passive`) -- le port n'a
+donc aucun effet sur une unite du pool tant qu'on ne greffe pas.
 
 CONFRONTABILITE : celle, deja acquise, du kit `StormboyzStrike` -- greffe du passif sur une unite du
 pool (`catalog_inject.graft_passive_ability`, `docs/rl/case-92-catalog-injection.md` §5bis).
@@ -73,6 +90,8 @@ from .....entities.triggers import MaybeTrigger
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
+from .....dsl.event_trigger_type import EventTriggerType
+from ..base import TriggeredAbility, TriggerEvent
 
 FULL_THROTTLE_ID = "FullThrottle"
 FULL_THROTTLE = int(TriggeredAbilityType.FullThrottle)                   # 0x46e = 1134
@@ -112,6 +131,50 @@ def execute_full_throttle(state: State, owner_id: int) -> Optional[dict]:
             "killed": killed}
 
 
+class FullThrottlePassiveAbility(TriggeredAbility):
+    """`...FullThrottleAbility$$CreateTrigger` + `$$CreateBehaviour` -- le PASSIF AUTONOME.
+
+        On(0x24 = UnitPositionChanged_1, true)
+          & get_OwnerIsActor
+          & AmountIsEqualOrGreater( MovementSteps(), Direct(GetNumberConstant(0x51='movement')) )
+        -> If( Maybe(chance), Kill(Caster, Caster, ForDirectKill), null )
+
+    C'est la SECONDE face de 1134, distincte du declenchement DIRECT par
+    `...StormboyzStrike_MissAbility` (nœud `TriggerAbility`, qui va au slot `Execute` sans jamais
+    evaluer ce `ShouldTrigger` -- cf. l'en-tete). Les deux partagent le MEME behaviour, et c'est
+    voulu : `execute_full_throttle` est le foyer unique.
+
+    ⚠ **LE TIRAGE PRNG N'A LIEU QUE SI LE GATE PASSE.** `Maybe` est evalue DANS le behaviour, apres
+    `ShouldTrigger` -- inscrire ce trigger CHANGE donc le nombre de `NextBool` consommes sur une
+    bataille, exactement comme le gate manquant de #448-r1 DECALAIT la sequence. Un gate trop
+    permissif ne se verrait pas seulement sur les morts : il decalerait tout l'aleatoire aval.
+
+    `matches` ne teste PAS `alive` : le gate « owner vivant » est applique en amont par le
+    collecteur (`CanGetAbilityTrigger`), et `fire_on_death` reste a False -- une unite morte
+    pendant son propre mouvement (crush, overwatch) ne pousse plus les gaz."""
+    event_id = int(EventTriggerType.UnitPositionChanged_1)     # On(0x24), litteral LU
+    TRIGGERED_ABILITY_ID = FULL_THROTTLE
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        # `get_OwnerIsActor` = `AreEqual(<Sel+0x30 = Owner>, <Sel+0x40 = Actor>)`. Sur ce vecteur le
+        # natif met le MOVER en actor/caster/target (`AbilityEntities(unit, unit, unit, ...)`).
+        if ev.actor_id is None or int(ev.actor_id) != int(self.owner_id):
+            return False
+        # `AmountIsEqualOrGreater(MovementSteps(), Direct(movement))`. `movement_steps is None` = le
+        # `Nullable` VIDE du natif -> `GetValueOrDefault()` rend **0**, et le gate echoue. On ne se
+        # tait donc PAS (pas de tri-etat ici) : rendre False EST la reponse native.
+        steps = 0 if ev.movement_steps is None else int(ev.movement_steps)
+        import gameconfig as GC
+        movement = (GC.ability(FULL_THROTTLE_ID) or {}).get("constants", {}).get("movement")
+        if movement is None:
+            return False        # constante absente -> aucun seuil connu : on ne tue personne
+        return steps >= int(movement)
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        return execute_full_throttle(state, self.owner_id)
+
+
 # Inscription au registre du noeud `TriggerAbility` (import-time, comme les autres modules
-# d'abilities). Le SEUL declencheur porte est `...StormboyzStrike_MissAbility$$CreateBehaviour`.
+# d'abilities). Declencheurs portes : `...StormboyzStrike_MissAbility$$CreateBehaviour` (direct) et
+# `FullThrottlePassiveAbility` ci-dessus (autonome, via `ABILITY_TRIGGERS["FullThrottle"]`).
 TRIGGERED_ABILITY_BEHAVIOURS[FULL_THROTTLE] = execute_full_throttle

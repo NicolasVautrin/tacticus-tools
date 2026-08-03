@@ -87,6 +87,54 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     return int(n) - 1 if n else 0                    # `IsNullOrEmpty(path)` -> 0
 
 
+def _movement_steps(state: State, mover_id: int, from_pos, to_pos) -> int:
+    """Le `movementSteps` que `IdunBattle.Operations.MoveUnitOperation$$Execute` passe a
+    `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` -- l'entree UNIQUE de la
+    formule `IdunBattleLogic.Entities.DSLFormulas$$MovementSteps()`
+    (`AbilityEntities+0x11c`, cf. `TriggerEvent.movement_steps`).
+
+    LE NATIF, lu au site d'appel de fin de mouvement :
+
+        movementSteps = IsLikeFlying ? <IBattleQuery slot 0x6c>(path.First(), path.Last())
+                                     : path.Count
+
+    ⚠ **`path.Count`, PAS le nombre de pas** -- et l'ecart d'UN est structurel, pas une coquille :
+    `path[0]` est la tuile de DEPART (la boucle `IdunBattle.Operations.MoveUnitOperation$$
+    AddMoveEvent` demarre a `i = 1`), et le helper que le jeu utilise ailleurs pour compter les
+    tuiles PARCOURUES est `IdunBattle.Core.Services.BattleQuery$$GetNumTilesMoved(path)` =
+    `path.Count - 1`. Le gate de `FullThrottle` (`>= movement = 3`) mord donc des **2 pas
+    parcourus**, pas des 3. C'est exactement le genre de constante qu'on ne DEDUIT pas du nom :
+    confronte live (cf. `docs/rl/case-448-r1-r1-full-throttle-gate.md`).
+
+    Les DEUX branches sont asymetriques cote natif -- la branche volante rend une DISTANCE, qui n'a
+    pas ce `+1`. Le port les mirrore telles quelles.
+
+    `IdunBattle.Operations.MoveUnitOperation$$IsLikeFlying(unit, options)` =
+    `IdunBattle.Entities.UnitExtensions$$IsLikeFlying(unit) || options.<+0x8> == 3`. Seul le premier
+    bras est porte : le second est un OVERRIDE de type de mouvement porte par la struct `options`
+    d'`Execute`, qu'AUCUN call-site du port ne pose (le port n'a pas d'`options`). RESIDU NOMME.
+
+    RESIDU, herite de `_num_tiles_moved` : le natif tire `movementSteps` de `path` (8e out-param de
+    `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths`) tandis que
+    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` compte `connectedPath` (le 9e) -- DEUX
+    listes distinctes. Le port n'en materialise qu'une (le `WalkPathfinder`) ; elles ont la MEME
+    longueur sur un chemin de marche ordinaire, et divergent la ou
+    `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo` DENSIFIE (teleporteurs/sauts)."""
+    from ...entities.pathfinding.fly_pathfinder import is_like_flying
+    e = state.get_entity(int(mover_id))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+    if is_like_flying(traits or []):
+        from ...entities.effects.aura_selectors import hex_distance
+        d = hex_distance(from_pos, to_pos) if (from_pos is not None and to_pos is not None) else None
+        return int(d) if d is not None else 0
+    n = _num_tiles_moved(state, mover_id, from_pos, to_pos)
+    # `path.Count` : `_num_tiles_moved` rend deja `Count - 1`. Destination injoignable / pas de
+    # board -> il rend 0, et le natif serait sur `IsNullOrEmpty(path)` : on rend 0 aussi (le `+1`
+    # ne s'applique qu'a un chemin REEL, sinon on fabriquerait un pas qui n'existe pas).
+    return n + 1 if n > 0 else 0
+
+
 class OverrideMovementTargetOperation:
     """Mirror `IdunBattle.Operations.OverrideMovementTargetOperation$$Execute` (#448-r1) --
     l'Operation IMPERATIVE qui DEVIE le mouvement en cours vers d'autres tuiles.
@@ -201,12 +249,21 @@ class MoveUnitOperation(Operation):
     `RecordTilesMoved` avec SES gates (`options+0x10` et `!IsEnemy(caster, target)` -- seul un
     deplacement AMICAL compte comme du mouvement). Si `MoveUnitOperation` enregistrait aussi, le
     natif compterait DEUX FOIS : l'octet +0x16 est precisement ce qui l'en empeche."""
-    __slots__ = ("unit_id", "to", "set_moved", "record_tiles", "skip_pre_move_triggers")
+    __slots__ = ("unit_id", "to", "set_moved", "record_tiles", "skip_pre_move_triggers",
+                 "last_movement_steps")
 
     def __init__(self, unit_id: int, to: tuple[int, int], set_moved: bool = True,
                  record_tiles: bool = True, skip_pre_move_triggers: bool = False):
         self.unit_id = unit_id
         self.to = to
+        # Le `movementSteps` que le natif passe a `IdunBattle.Operations.MoveUnitOperation$$
+        # EvaluateAfterMoveTriggers` (cf. `_movement_steps`). Publie ICI parce que sa seule entree,
+        # la position de DEPART, n'existe plus une fois `execute` termine -- et que le vecteur
+        # after-move est joue par l'APPELANT (`MovementHandler`), comme au natif ou les deux sont
+        # dans le meme `Execute`. `None` = aucun mouvement n'a ete joue par cette instance (gate
+        # refuse, entite inconnue, ou destination deviee -> c'est l'operation RELANCEE qui le
+        # porte) ; l'appelant threade alors un `Nullable` VIDE, ce que fait aussi le natif.
+        self.last_movement_steps: int | None = None
         self.set_moved = bool(set_moved)
         self.record_tiles = bool(record_tiles)
         # mirror de l'octet `+0x12` du `MoveUnitOptions` natif -- cf. `execute` (bloc OVERRIDE).
@@ -260,12 +317,21 @@ class MoveUnitOperation(Operation):
             if ovr is None or not uc0.alive:
                 return
             if tuple(ovr) != (int(self.to[0]), int(self.to[1])):
-                MoveUnitOperation(self.unit_id, (int(ovr[0]), int(ovr[1])),
-                                  set_moved=self.set_moved, record_tiles=self.record_tiles,
-                                  skip_pre_move_triggers=True).execute(state, bus)
+                sub = MoveUnitOperation(self.unit_id, (int(ovr[0]), int(ovr[1])),
+                                        set_moved=self.set_moved, record_tiles=self.record_tiles,
+                                        skip_pre_move_triggers=True)
+                sub.execute(state, bus)
+                # Le natif RELANCE `Execute` sur la nouvelle destination et c'est CET appel-la qui
+                # calcule son `movementSteps` et joue le vecteur after-move : on remonte donc la
+                # valeur de la relance, jamais celle du mouvement abandonne.
+                self.last_movement_steps = sub.last_movement_steps
                 return
         pc = e.get_component(PositionComponent)
         old_pos = (pc.col, pc.row) if pc is not None else None
+        # `movementSteps` -- calcule AVANT la mutation de position (`old_pos` est son entree), comme
+        # le natif qui derive `path` de `CalculatePaths(startTile = position.MainTile, ...)` avant
+        # de bouger l'unite.
+        self.last_movement_steps = _movement_steps(state, self.unit_id, old_pos, self.to)
         if pc is None:
             # Unite SANS position : soit un spawn, soit -- depuis #448-r1 -- une unite qui REVIENT
             # sur le plateau (`RemoveUnitFromItsTiles` lui avait pose `feet = []`, cf.
@@ -405,9 +471,13 @@ class MovementHandler:
         self.after_move: list = []          # cascade after-move (overwatch…) du dernier move
 
     def visit_MoveUnitMessage(self, msg) -> None:
-        MoveUnitOperation(msg.unit_id, msg.to).execute(self.state, self.bus)
+        op = MoveUnitOperation(msg.unit_id, msg.to)
+        op.execute(self.state, self.bus)
         # VECTEUR AFTER-MOVE : dispatcher générique (mirror `EvaluateAfterMoveTriggers`). Déclenche les
         # effet-triggers after-move (Overwatch…). No-op si pas de board/rng ou aucun trigger en portée.
+        # `movement_steps` : le 5e argument natif d'`EvaluateAfterMoveTriggers`, que l'operation vient
+        # de calculer (cf. `MoveUnitOperation.last_movement_steps`).
         from .triggers import after_move_triggers
-        self.after_move = after_move_triggers(self.state, msg.unit_id)
+        self.after_move = after_move_triggers(self.state, msg.unit_id,
+                                              movement_steps=op.last_movement_steps)
         refresh_effects_after_move_triggers(self.state)      # 2e `RefreshEffects({7, null})` natif

@@ -110,6 +110,7 @@ from ..loki.chronometron import (ChronometronExtraDamageRemove,                 
 from ..loki.shock_assault import (ShockAssaultBuffRemove,                          # case-366-r1 (1000)
                                   SHOCK_ASSAULT_BUFF)
 from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
+from ..loki.full_throttle import FullThrottlePassiveAbility               # #448-r1-r1 (1134, gate)
 from ..loki.harlequins_panoply import (HarlequinsPanoplyIgnoreHitsRemove,  # case-366-r1 (1227)
                                        HarlequinsPanoplyCustomAbility,     # case-366-r1 move (#406)
                                        HARLEQUINS_PANOPLY_ABILITY,
@@ -231,6 +232,15 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Le marqueur 1175 est ce qui borne l'attaque a UNE fois par ennemi et par tour ; son retrait vit
     # dans `EFFECT_TRIGGERS[1175]` (`On(TurnEnd)`). Cf. loki/hateful_assault.py.
     "HatefulAssault": [HatefulAssaultAttackAbility],
+    # FullThrottle (passif orksNpc6Stormboy, #448-r1-r1) = le jetpack qui lache quand on pousse les
+    # gaz : `On(0x24=UnitPositionChanged_1) & OwnerIsActor & AmountIsEqualOrGreater(MovementSteps(),
+    # movement=3)` -> `If(Maybe(chance=30), Kill(Caster, Caster, ForDirectKill))`.
+    # C'est la face AUTONOME ; la face DIRECTE (declenchee par `...StormboyzStrike_MissAbility` via
+    # le nœud `TriggerAbility`) passe par `TRIGGERED_ABILITY_BEHAVIOURS[1134]` et court-circuite ce
+    # `ShouldTrigger`. Les deux partagent le meme behaviour. Cf. loki/full_throttle.py.
+    # ⚠ `MovementSteps()` = `AbilityEntities+0x11c` = `path.Count`, donc **pas + 1** : le seuil
+    # effectif est 2 PAS parcourus, pas 3 (mesure : case-448-r1-r1).
+    "FullThrottle": [FullThrottlePassiveAbility],
     # HypersensoryAbilities (passif Judh genesKelermorph, G6b) = MoveAndSpawnDecoy : `On(9=Attack)` sur la 1re
     # attaque du tour ennemi -> move + decoy sur la tuile quittee + contre-attaque 3x Projectile. G6a (HP-floor,
     # effet 1380) est un OWNER-EFFECT auto-pose (pas un ability-trigger) ; ici = le volet triggered.
