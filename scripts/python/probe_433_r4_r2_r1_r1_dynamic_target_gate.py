@@ -120,7 +120,11 @@ def _slot_addr(sid, ns, cls, off):
     if not res.get("ok"):
         return None, (res.get("error") or "?")[:80]
     slots = res.get("slots") or []
-    return (slots[0].get("ghidraVA") if slots else None), None
+    # `resolveVtableSlot` rend une chaine VIDE quand la lecture du slot echoue (classe jamais
+    # initialisee -> vtable non materialisee). La traiter comme une adresse la ferait passer pour
+    # une SURCHARGE (elle differe de la base) : c'est un « non resolu », pas un verdict.
+    addr = (slots[0].get("ghidraVA") if slots else None) or None
+    return addr, (None if addr else "slot non materialise (classe non initialisee)")
 
 
 def step_gate(sid):
@@ -174,110 +178,45 @@ def step_gate(sid):
 
 # ------------------------------------------------------------------------------------------------
 # --step sweep : la ZONE, natif contre port
+#
+# Le MONTAGE n'est pas redefini ici : il est DELEGUE a
+# `probe_433_r4_r2_r1_ability_range.step_seam`, qui porte deja le verrou « exactement UN ennemi
+# vivant » (sans lui la partition n'est attribuable a aucun kit) et le sweep `ncEvaluate`. Ce
+# probe-ci ne rajoute que la VENTILATION PAR DISTANCE, seule lecture qui distingue un rayon `r`
+# d'un rayon `r + 1` -- et donc le `+1` de `GetFreeAdjacentTiles`.
 # ------------------------------------------------------------------------------------------------
-def _build(enemy, extra=None):
-    state = ROOT / "logs" / "runners" / ("p433r1r1-%s.json" % uuid.uuid4().hex[:8])
-    state.parent.mkdir(parents=True, exist_ok=True)
-    argv = [sys.executable, "rl_duel.py", "build", "--seed", SEED, "--board", BOARD,
-            "--state-file", str(state), "--p-units", CASTER, "--a-units", enemy,
-            "--hp-target", "90000", "--hp-player", "90000"] + list(extra or [])
-    p = subprocess.run(argv, cwd=str(PYDIR), capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
-    if not state.exists():
-        return None, (p.stderr or p.stdout or "")[-1200:]
-    return json.loads(state.read_text())["runnerId"], None
+def step_sweep(sid, enemy, dist=8, movement=6):
+    from probe_433_r4_r2_r1_ability_range import step_seam
+    from engine.services import ability_range as ar
 
+    res = step_seam(verbose=False, enemy=enemy, want=dist, movement=movement)
+    if "error" in res:
+        print("REFUS (%s) : %s" % (enemy, res["error"]))
+        return 1
+    vid = res["enemy_visual"]
+    Y = tuple(res["Y"])
+    in_range = {tuple(p) for p in res["natif_in_range"]}
+    out_range = {tuple(p) for p in res["natif_out_range"]}
+    sweep = sorted(in_range | out_range)
+    reach = ar.unit_threat_reach(vid)
+    modeled = {P for P in sweep if ar.is_tile_in_range_of_any_ability(Y, P, vid)}
 
-def _dispose(sid, rid):
-    if rid is None:
-        return
-    try:
-        _r(sid, "disposeRunner", {"runnerId": rid}, 60)
-    except Exception:                                             # pragma: no cover - diagnostic
-        pass
-
-
-def _walkable(sid, rid):
-    bg = _r(sid, "boardGraph", {"runnerId": rid}, 60)
-    out = {}
-    for t in (bg.get("tiles") or []):
-        pos = t.get("pos") or {}
-        if t.get("walkable", True):
-            out[(pos.get("col"), pos.get("row"))] = t
-    return out
-
-
-def _place(sid, rid, caster_id, enemy_id, o_pos, e_pos):
-    for uid, p in ((enemy_id, e_pos), (caster_id, o_pos)):
-        _r(sid, "applyAction", {"runnerId": rid, "action": {
-            "kind": "move", "unitId": uid, "to": {"col": p[0], "row": p[1]}}}, 90)
-    for _ in range(4):
-        _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-        mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 90)
-        by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
-        if (by_unit.get(caster_id) or {}).get("tiles"):
-            return True
-    return False
-
-
-def step_sweep(sid, enemy, radius_max=9):
-    from engine.services.ability_range import unit_threat_reach
-
-    rid, err = _build(enemy)
-    if rid is None:
-        print("BUILD FAILED (%s): %s" % (enemy, err))
-        return 2
-    try:
-        dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
-        units = dv.get("units") or []
-        c = next((u for u in units if u.get("visualId") == CASTER), None)
-        e = next((u for u in units if u.get("visualId") == enemy), None)
-        if c is None or e is None:
-            print("MONTAGE: caster/ennemi absent (%s)" % enemy)
-            return 2
-        alive = [u for u in units if not u.get("isDead") and u.get("teamId") == e.get("teamId")]
-        if len(alive) != 1:
-            print("MONTAGE REFUSE (%s): %d ennemis vivants, la partition n'est pas attribuable"
-                  % (enemy, len(alive)))
-            return 2
-        walk = _walkable(sid, rid)
-        e_pos = (e["pos"]["col"], e["pos"]["row"])
-        cand = [p for p in walk
-                if 2 <= hexgeo.distance(p, e_pos) <= radius_max and p != e_pos]
-        cand.sort(key=lambda p: (hexgeo.distance(p, e_pos), p))
-        far = max(cand, key=lambda p: hexgeo.distance(p, e_pos))
-        if not _place(sid, rid, c["unitId"], e["unitId"], far, e_pos):
-            print("MONTAGE: pas de move set frais (%s)" % enemy)
-            return 2
-        got = {}
-        for p in cand:
-            res = _r(sid, "ncEvaluate", {"runnerId": rid, "unitId": c["unitId"],
-                                         "abilityId": ABILITY,
-                                         "tile": {"col": p[0], "row": p[1]}}, 60)
-            u = res.get("utility")
-            if u is None:
-                continue
-            bonus = float(u) + 10.0 * hexgeo.distance(p, e_pos)
-            got[p] = bonus
-        in_native = sorted(p for p, b in got.items() if abs(b) < 1e-6)
-        reach_port = unit_threat_reach(enemy)
-        by_d = {}
-        for p, b in got.items():
-            by_d.setdefault(hexgeo.distance(p, e_pos), []).append(abs(b) < 1e-6)
-        print("kit=%s  positions=%d  port reach=%d" % (enemy, len(got), reach_port))
-        for d in sorted(by_d):
-            v = by_d[d]
-            print("  d=%-2d natif in=%d/%d   port in=%s"
-                  % (d, sum(1 for x in v if x), len(v), d <= reach_port))
-        fn = [p for p in got if (abs(got[p]) < 1e-6)
-              and not (hexgeo.distance(p, e_pos) <= reach_port)]
-        fp = [p for p in got if (abs(got[p]) >= 1e-6)
-              and (hexgeo.distance(p, e_pos) <= reach_port)]
-        print("  faux negatifs=%d  faux positifs=%d  natif in=%d"
-              % (len(fn), len(fp), len(in_native)))
-        return 0
-    finally:
-        _dispose(sid, rid)
+    by_d = {}
+    for P in sweep:
+        by_d.setdefault(hexgeo.distance(P, Y), []).append(P in in_range)
+    print("kit=%-20s sweep=%-3d  port reach=%d" % (vid, len(sweep), reach))
+    for d in sorted(by_d):
+        v = by_d[d]
+        print("  d=%-2d natif in=%2d/%-2d   port in=%s"
+              % (d, sum(1 for x in v if x), len(v), "OUI" if d <= reach else "non"))
+    fp = sorted(modeled - in_range)
+    fn = sorted(in_range - modeled)
+    print("  FP=%d  FN=%d  -> %s" % (len(fp), len(fn), "EXACT" if not fp and not fn else "DIVERGE"))
+    if fp:
+        print("  faux positifs : %r" % (fp[:12],))
+    if fn:
+        print("  faux negatifs : %r" % (fn[:12],))
+    return 0 if not fp and not fn else 1
 
 
 def main():
