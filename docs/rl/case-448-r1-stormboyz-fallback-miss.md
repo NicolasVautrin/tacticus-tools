@@ -3,6 +3,13 @@
 Résidu nommé en §7.2/§7.5 de `docs/rl/case-366-r1-tunneling-horror-pending-summon.md` (PR #448).
 Build `rnca9r7q6c`.
 
+> **PORTÉ + CONFRONTÉ LIVE (2026-08-03).** Les deux abilities sont au registre, l'accord avec le
+> natif est **bit-exact sur le flux PRNG**, sur deux bras. Sur les quatre « pièces natives
+> manquantes » que cette fiche annonçait, **deux n'étaient pas à écrire** (l'une périmée, l'autre
+> inexistante — un ctor dédupliqué mal lu) ; la confrontation en a trouvé **une cinquième, qu'on ne
+> cherchait pas** : un gate manquant de `TriggerAbility`, invisible sur tout observable d'état. Tout
+> le détail : **§6 à §8**.
+
 L'inventaire annonçait trois items indépendants. Le décompilé en fait **un seul mécanisme** : les
 trois classes triggered partagent le même `TriggeredAbilityType`, et `1179` est le lien entre elles.
 
@@ -206,25 +213,193 @@ balaie toutes les entités `EntityType.Effect` sans filtre d'appartenance et pub
 `source = NULL`, `AddEffectBehaviour$$Execute` retombe sur la cible et **`SourceUnitId == OwnerId`** :
 `source` désigne donc directement l'entité-tuile marquée.
 
-## 6. Ce qui N'EST PAS porté — résidus nommés
+## 6. LE PORT — les quatre « pièces manquantes », dont DEUX n'existaient pas
 
-Les deux abilities restent **NON PORTÉES**, et ce n'est pas faute de porteur : la greffe les monte
-(§1). Ce qui manque est **nommé, et c'est du natif à mirrorer**, pas de la spéculation :
+L'inventaire de cette fiche annonçait quatre pièces natives à mirrorer. Le décompilé en invalide
+**deux**, et c'est la partie la plus utile de la tranche :
 
-| pièce native manquante | ce qu'elle fait | conséquence |
+| pièce annoncée | verdict, après lecture |
+|---|---|
+| vecteur `On(0x28 = UnitFinishedTurn)` | **PÉRIMÉ** — il est émis depuis #448-r2 (`dispatch/turn.py::unit_finished_turn_triggers`, appelé par `turnflow.py` sous son gate natif). La fiche datait d'avant. |
+| `PerformAIMovementBehaviour$$Execute` | **N'EXISTE PAS dans ce kit** — cf. §6.1. |
+| `OverrideMovementTargetOperation$$Execute` | **VRAIE pièce**, portée — cf. §6.2. |
+| `TriggeredAbilityType.FullThrottle` (1134) | **VRAIE pièce**, son `CreateBehaviour` est porté ; son `CreateTrigger` reste un résidu NOMMÉ — cf. §6.3. |
+
+### 6.1 Le 3ᵉ terme du Fallback est un `IfBehaviour`, pas un `PerformAIMovementBehaviour`
+
+La classe allouée par `StormboyzStrike_FallbackAbility$$CreateBehaviour` est **celle qu'alloue
+`IdunBattleLogic.Entities.DSLBehaviors$$If`** — identité tranchée par les **XREFS du cache de
+classe** (les quatre lectures du même cache viennent de `DSLBehaviors$$If` ×3 et de ce
+`CreateBehaviour`), jamais à l'œil. Et `IdunBattle.Entities.Behaviours.IfBehaviour$$Execute` lit
+exactement les trois champs que le ctor pose : `+0x50` la condition (via `ShouldTrigger`), `+0x58`
+la branche VRAIE, `+0x60` la branche FAUSSE — résultat VIDE si elle est nulle.
+
+Le `$$.ctor` que les tables nomment `PerformAIMovementBehaviour$$.ctor` est un **corps DÉDUPLIQUÉ**
+(trois champs `+0x50/+0x58/+0x60`), et ses noms de paramètres — `unit, range, overrideUtility` — ne
+collent à AUCUN des arguments passés ici (un trigger, un behaviour, `null`). Le VRAI
+`PerformAIMovementBehaviour$$Execute` lit CINQ champs (`+0x50` sélecteur d'unités, `+0x58` formule,
+`+0x68`, `+0x70` délégué, et **écrit** `+0x60`) : il n'a rien à voir avec ce call-site.
+
+⇒ le nœud est un `If`, déjà porté. **Une des quatre pièces annoncées n'était pas à écrire.**
+
+### 6.2 `OverrideMovementTargetOperation` — et son lecteur, qui est `MoveUnitOperation` lui-même
+
+L'Operation écrit `Nullable<UnitPositionId>` à `+0xa8` du composant qu'elle récupère par la MÊME
+paire de caches que `MoveUnitOperation$$Execute` — c'est un canal in/out d'**une seule** Operation,
+dont voici la boucle complète (lue verbatim) :
+
+    MoveUnitOperation$$Execute :
+        comp.<+0xa8> = Nullable(UnitPositionId(position))     # POSE, avant tout
+        SetReservation(unit, position)
+        if (!options.skipPreMoveTriggers)  {                  # l'octet +0x12
+            publish On(0x1f = PreUnitMove)                    # <- un trigger peut ECRASER le champ
+            if (!TilesAreEmpty(unit, position)) { RemoveReservation ; return }
+        }
+        ovr = comp.<+0xa8> ; comp.<+0xa8> = null              # RELECTURE + CONSOMMATION
+        if (!ovr.HasValue || IsDead(unit)) { RemoveReservation ; return }
+        if (ovr.Value.ToUnitPosition() != position) {
+            RemoveReservation(position) ; options.skipPreMoveTriggers = true
+            return Execute(unit, <la nouvelle position>, trig, options)     # RELANCE
+        }
+        ... suite normale ...
+
+Trois lectures load-bearing : le champ est posé **par l'Operation de mouvement elle-même** (donc
+`HasValue` est vrai même sans override) ; la relance porte `skipPreMoveTriggers = true`, ce qui
+**borne la récursion à un niveau par trigger déviant** ; et le second bras du gate — `IsDead(unit)`
+— n'est pas théorique, puisque le Miss finit par `TriggerAbility(FullThrottle)` → `Kill(Caster)`.
+
+Porté : `UnitComponent.movement_target_override`, `OverrideMovementTargetOperation` (`operations/
+movement.py`), la feuille DSL `OverrideUnitMovementTarget` (`behaviours/movement.py`) et la boucle
+ci-dessus dans `MoveUnitOperation.execute`.
+**NON porté, résidu NOMMÉ** : le gate `TilesAreEmpty` entre (b) et (c) — le port n'a ni réservation
+ni abandon de mouvement. Il mordrait si un trigger `PreUnitMove` faisait OCCUPER la tuile d'arrivée,
+ce qu'aucun consommateur porté ne fait.
+
+### 6.3 `FullThrottle` (1134) — le `CreateBehaviour` porté, le `CreateTrigger` non
+
+    $$CreateTrigger   = On(0x24) & get_OwnerIsActor
+                      & AmountIsEqualOrGreater( MovementSteps(),
+                                                Direct(GetNumberConstant(0x51 = 'movement')) )
+    $$CreateBehaviour = If( Maybe(GetNumberConstant(0x2a = 'chance')),
+                            Kill(Caster, Caster, ForDirectKill), null )
+
+Les deux constantes sortent du gameconfig sans ambiguïté (`FullThrottle.constants =
+{movement: 3, chance: 30}`). Le `CreateBehaviour` est porté comme entrée de
+`TRIGGERED_ABILITY_BEHAVIOURS[1134]`, parce que c'est EXACTEMENT la face que le Miss exerce : son
+dernier terme est `TriggerAbility(Caster, 0x46e)`, et `TriggerTriggeredAbilityOperation$$
+TriggerAbility` va **directement** au slot `Execute` de l'ability déclenchée (`triggerType = 0x20 =
+Custom`) **sans jamais évaluer son `ShouldTrigger`**.
+
+Le `CreateTrigger` (le passif autonome) reste **NON PORTÉ**, avec sa cause exacte :
+`IdunBattleLogic.Entities.DSLFormulas$$MovementSteps()` alloue une classe dont le `.ctor` ne prend
+QU'UN argument (un champ mis à `0`) et dont **aucun nom n'apparaît dans les tables** — ce n'est ni
+`TilesMovedThisTurnFormula` ni `TilesMovedLastTurnFormula` (leurs `DSLFormulas$$TilesMoved*Turn`
+allouent des classes DIFFÉRENTES, avec un ctor à DEUX arguments dont un sélecteur d'unité), et la
+seule xref de son cache de classe est `MovementSteps` elle-même. Il faudrait lire son slot
+`Calculate` au RUNTIME. Supposer « les tuiles parcourues ce tour » serait une invention ; supposer
+le gate toujours vrai tuerait 30 % des Stormboyz à chaque pas.
+⇒ **Rayon de souffle nul** : `unit_map find --ability FullThrottle` rend **1** unité,
+`orksNpc6Stormboy` (npc, voie `passive`) — le même et unique porteur que `StormboyzStrike`.
+
+### 6.4 CE QUE LA MESURE A TROUVÉ — un gate manquant de `TriggerAbility`, invisible autrement
+
+La confrontation du flux PRNG (§8) a rendu **PORT 3 tirages, NATIF 2**, alors que *tous* les
+observables d'état concordaient : même tuile d'atterrissage, même tuile marquée, mêmes PV.
+
+Cause, lue dans `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility` :
+
+    abilityState = ignoreUnitHavingAbility ? new Nullable<AbilityState>(default)
+                                           : UnitExtensions.GetAbilityState(entity);
+    if (abilityState.HasValue) { ... Execute(...) ... }
+
+Le nom du paramètre le dit : **`ignoreUnitHavingAbility`**, et les DEUX call-sites portés le passent
+à `false`. Une cible qui ne PORTE pas l'ability ne voit donc rien s'exécuter — **et ne consomme
+aucun tirage**. Or le porteur greffé n'a que `passiveAbilities = [1141]` (la greffe REMPLACE la
+liste) : il ne porte pas `FullThrottle`, et le port tirait son `Maybe(chance = 30)` pour rien.
+
+Le gate porte sur l'**exécution**, pas sur la résolution du sélecteur : côté natif la liste
+`targets` est déjà résolue par `TriggerAbilityBehaviour$$Execute` avant l'appel de l'Operation. Le
+port publie donc `targets` inchangé et journalise à part les cibles écartées (`notCarrying`).
+**Rayon de souffle mesuré : NUL** — `TRIGGERED_ABILITY_BEHAVIOURS` était VIDE avant cette tranche,
+donc la boucle des autres call-sites (`BattleFatigue`, `SwornProtector_Protect`, …) était déjà un
+no-op ; `test_cosmic_horror_live`, `test_black_legion_1029_1020_live` et
+`test_fear_of_the_unseen_live` rejoués VERTS.
+
+### 6.5 Deux dépendances qu'il a fallu ouvrir
+
+* **`UTILITY_BY_TYPE[6 = UnitMovement]`** n'existait pas (le Fallback est le premier call-site porté
+  à demander `UtilityDefinition(6)`). Sur ce chemin le composite **VAUT `Tile(7)`** : la feuille
+  `MinDistanceToClosestEnemy(17)` y est court-circuitée par son **gate 3**, lu verbatim des deux
+  côtés — la lambda `SortTilesByUtilitySelector.<>c__DisplayClass8_0$$<Select>b__1` construit
+  `new UtilityMovementCase(dc.unit, _tile, closestEnemy: NULL, abilityType: NULL, dc.parent, NULL)`
+  (le 3ᵉ argument est littéralement `0`, et le ctor nommé le range en `case+0x20`), et
+  `MinDistanceToClosestEnemyUtility.<EvaluateMovementInSteps>d__2$$MoveNext` rend `Fix64.FromInt(0)`
+  dès que `case.<+0x20> == null`. Ce n'est donc PAS une approximation.
+* **`UnitContext` levait un `TypeError`** sur `int(oc.player)` : une unité hors plateau sous un
+  `ATeleportingEffect` sort de `decisionView` avec `visualId`, `team` ET `pos` à `null`. La ligne
+  au-dessus décrivait pourtant déjà ce cas (« clé ABSENTE si le propriétaire n'est pas connu ») —
+  la garde manquait.
+
+### 6.6 Le nœud `SortTilesByUtility` devait être un VRAI nœud
+
+Les call-sites portés jusqu'ici collapsaient `First(SortTilesByUtility(...), 1)` en un helper
+impératif (`first_tile_by_utility`) parce que leur résultat n'était consommé qu'une fois. Le
+Fallback ne le peut pas : il passe **le MÊME objet-nœud** à `MoveUnitBehaviour` ET à `AddEffect`, et
+l'`op_BitwiseAnd` les exécute EN SÉQUENCE — d'où le quirk §4 (la tuile marquée n'est pas celle
+d'atterrissage). Un collapse le perdrait, silencieusement. D'où le nœud
+`entities/selectors/tiles.py::SortTilesByUtility`, qui délègue au foyer unique par l'accesseur
+`ctx.sort_tiles_by_utility` (aucun second port du calcul d'utilité).
+
+⚠ **`First(source, Direct(1))` est un COUNT, pas un index.** Le paramètre natif s'appelle `amount` ;
+la surcharge `int` de `DSLSelectors$$First` construit `Direct(amount)` et délègue à la surcharge
+objet, qui alloue un `PickFirstNSelector` (« les `amount` premiers »). `PickAtIndexSelector` est une
+classe DISTINCTE, d'une autre factory. Côté port : `PickFirstN`, pas `First`.
+
+## 7. Confrontation LIVE — accord BIT-EXACT, sur DEUX bras
+
+`tests/engine/runner/test_448_r1_stormboyz_port_live.py` — montage de #425 (greffe sur `orksNob`,
+board `MC1_67`, seed 777, **un allié obligatoire**), un `applyAction {kind:"finish"}` sur le porteur,
+et le MÊME pas rejoué côté port depuis l'état d'AVANT, **PRNG aligné par `dumpRng`**.
+
+| garde | ce qu'elle confronte | mesure |
 |---|---|---|
-| vecteur `On(0x28 = UnitFinishedTurn)` | non émis par le port (`triggers/dispatch/turn.py` n'émet que `On(0x29 UnitFinishedTurnNormally)`, et le dit) | le trigger du Fallback n'a pas d'entrée |
-| `IdunBattle.Entities.Behaviours.PerformAIMovementBehaviour$$Execute` | évalue une condition, sélectionne une cible, puis appelle le vslot `+0x36` du processor par unité | 3ᵉ étage du Fallback |
-| `IdunBattle.Operations.OverrideMovementTargetOperation$$Execute` | écrit `Nullable<UnitPositionId>` dans **`UnitComponent @+0xa8`** (un TROISIÈME slot, distinct des `+0x88`/`+0x98` de #366-r1) + un step de vue `0x25` | le « miss » du Miss |
-| `TriggeredAbilityType.FullThrottle` (1134) | seule l'entrée d'enum existe côté port | le `TriggerAbility` final du Miss serait un no-op |
+| L1 | tuile d'ATTERRISSAGE | port == natif |
+| L2 | tuile MARQUÉE `1179` | port == natif |
+| L3 | quirk §4, **des DEUX côtés** | marquée ≠ atterrissage |
+| L4 | retrait de `1140` | absent des deux côtés |
+| L5 | flux PRNG (`mti` **et** `mt`) | **2 tirages == 2**, MT identique |
+| L6 | gate `GetAbilityState`, ses DEUX bras | sans FullThrottle 2, **avec** 3 — natif comme port |
 
-Porter l'un de ces étages à moitié produirait exactement la dégradation **silencieuse** que la
-doctrine proscrit — un mouvement qui « marche » sans jamais dévier, ou un fallback qui repose
-l'unité sans marquer sa tuile.
+Le pas mesuré fait travailler tout le kit d'un coup : `On(0x28)` → Fallback → `MoveUnit` →
+`On(0x1f)` → Miss → `Maybe(20)` → `OverrideUnitMovementTarget` → relance du mouvement →
+`RemoveEffect(1140)` → `TriggerAbility(FullThrottle)`, puis `AddEffect(1179)` sur le nœud
+ré-évalué. Les deux tirages du bras 1 sont `Maybe(20) = True` (le miss PASSE) puis
+`PickRandomly(0, 4)`.
 
-## 7. Reproduction
+**Contre-épreuves obtenues par MESURE, pas par construction** — trois rouges réels pendant la mise
+au point : sans le gate `GetAbilityState`, L5 rouge (3 vs 2) ; sans `UTILITY_BY_TYPE[6]`, `KeyError`
+sur tout le vecteur ; sans la garde `oc.player is not None`, `TypeError` au chargement d'état.
+Le bras L6 est une **généralisation** (second seed BC, `replace=False`), pas une mutation : il
+exerce le bras « la cible PORTE l'ability », que le bras 1 ne peut pas atteindre.
+
+## 8. Ce qui reste NON COUVERT
+
+* `FullThrottle$$CreateTrigger` — cf. §6.3 (`MovementSteps` non résolue offline). Le passif autonome
+  est INERTE côté port ; seul son déclenchement par le Miss est porté.
+* Le gate `TilesAreEmpty` de `MoveUnitOperation` — cf. §6.2.
+* La branche `Kill` du Fallback (`Count(Tiles(Caster)) == 0`) n'est **pas exercée LIVE** : elle
+  demande un plateau où AUCUNE tuile n'est libre. Elle est gardée offline (O6, les trois gates de
+  `KillUnitBehaviour` + l'idempotence) et sa feuille est le mirror du foyer de mort déjà validé.
+* Le canal de VUE (`Inform{0x79}`, step `0x25`, clés `0x79/0x7a/0x7b`) — le runner n'a pas de flux
+  de vue, comme partout ailleurs dans `operations/`.
+* L'override sur une unité MULTI-PIEDS : `UnitPositionId` en porte jusqu'à trois, le port ne
+  matérialise que la main tile. Aucun call-site du build n'est dans ce cas.
+
+## 9. Reproduction
 
     python scripts/python/probe_448_r1_stormboyz_fallback_miss.py            # volet A (offline)
     python scripts/python/probe_448_r1_stormboyz_fallback_miss.py --live     # A + B (1 runner)
     python -m pytest scripts/python/tests/engine/test_448_r1_already_used_tile_offline.py
+    python -m pytest scripts/python/tests/engine/test_448_r1_stormboyz_port_offline.py
     python -m pytest scripts/python/tests/engine/runner/test_425_tile_effect_channel_live.py
+    python -m pytest scripts/python/tests/engine/runner/test_448_r1_stormboyz_port_live.py
