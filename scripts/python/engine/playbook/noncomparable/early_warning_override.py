@@ -11,9 +11,11 @@ from ._base import NCContext, NonComparablePlaybook, _unit_cfg, _sweep_origin_fi
 
 def _enemy_max_range(visual_id) -> int:
     """Portee d'attaque MAX d'une unite (gameconfig `weapons` : `Range` present -> ranged, absent ->
-    melee=1). Mirror APPROCHE d'`IsTileInRangeOfAnyAbility` (slot 0xc4 = tuiles attaquables depuis la
-    tuile COURANTE de l'ennemi) : la vraie methode enumere les ranges d'ABILITY + LoS ; on approxime par
-    la portee d'ARME max (sans LoS ni mouvement). >=1 toujours."""
+    melee=1). Mirror APPROCHE d'`IsTileInRangeOfAnyAbility` (slot 0xc5) : la vraie methode
+    court-circuite a VRAI sur un caster multi-tuiles puis interroge le slot 0xe du service a
+    `BattleQuery+0x20` avec `{GetMainTile(unit)}`, donc MOUVEMENT et LoS compris. On approxime par la
+    portee d'ARME max (ni mouvement, ni LoS, ni nombre de pieds). >=1 toujours.
+    Residu `#433-r4-r2-r1` -- mesure de l'ecart dans `docs/rl/case-433-r4-r2-consommateurs-hors-foyer.md` §7."""
     ws = _unit_cfg(visual_id).get("weapons") or []
     rs = [int(w["Range"]) if "Range" in w else 1 for w in ws]
     return max(rs) if rs else 1
@@ -112,6 +114,9 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         ne sera plus observable dans le port tant que `#433-r4-r2-r1` n'est pas ferme lui aussi."""
     ABILITY_ID = int(ActiveAbilityType.EarlyWarningOverride)  # 1077
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor = Fix64(1) -> admission Bucket util>=1
+    #                       CONTESTE, residu `#433-r4-r2-r3` : le Bucket de CE playbook est construit
+    #                       par le ctor a DEUX arguments (donc SANS `min`), et `ncEvaluate` rend un
+    #                       `best` a utilite NEGATIVE a chaque position. Non tranche, non touche.
     PRIORITY = 0
     _COVER_BONUS = 50.0   # Fix64.FromInt(0x32) IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable : +50 par ennemi non-couvert / hors-portee
     _DIST_PENALTY = 10.0  # Fix64.FromInt(iVar7*10) IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable : -10 x distance par ennemi

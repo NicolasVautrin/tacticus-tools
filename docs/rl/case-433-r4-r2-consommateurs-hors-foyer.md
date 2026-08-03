@@ -84,6 +84,11 @@ Le triplet (tuile d'origine, voisin haut, voisin plat) est **dérivé du `boardG
 Le voisin haut est **absent de la liste d'adjacence NATIVE** de `O` (le `boardGraph` publie
 `GetAdjacentTiles` → `IterateAdjacentTiles`, qui a déjà traversé la porte) ; le voisin plat y est.
 
+Gisement re-dérivé le 2026-08-03 (entrées versionnées) : **685 boards sur 779** portent au moins une
+paire voisine à `|dElev| >= 2` ; sur `MC1_67`, **18 arêtes dirigées sur 316**. Un montage plat
+rendrait vert pour la mauvaise raison — d'où le verrou de montage du test, qui exige à la fois
+`|dElev| >= 2` **et** l'absence du voisin haut de la liste native. *(Chiffres à re-dériver.)*
+
 | bonus natif (= `util + 10·d`) | d=1 | d=2 | d=3 | **d=4** |
 |---|---|---|---|---|
 | ennemi sur `Y_hi` (`\|dElev\| = 2`) | 0 | 0 | 0 | **0** |
