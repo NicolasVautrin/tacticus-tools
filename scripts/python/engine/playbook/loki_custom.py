@@ -7,12 +7,17 @@ citee). La prediction de degat reste celle du `DefaultActiveAbilityPlaybook` (he
 QUE le terme custom, pas la prediction (deja assuree par `prediction.py`).
 
 PERIMETRE (cf. docs/rl/case-27-custom-utility.md) : seuls les overrides dont l'ensemble compte se
-calcule FIDELEMENT depuis les primitives `ctx` deja portees (adjacence `battle_query.count_adjacent` =
-port du selecteur DSL `AdjacentTiles->Units`, cf. sa docstring ; iteration directe d'unites ; portee
-d'arme depuis la tuile courante ; constante) sont portes ici. Les overrides dependant d'un SOUS-SYSTEME
-non porte (evaluateur DSL de formes TilesInTriangleShape/UnitsWithTrait/chain ;
+calcule FIDELEMENT sont portes ici -- soit depuis les primitives `ctx` (adjacence
+`battle_query.count_adjacent` = port du selecteur DSL `AdjacentTiles->Units`, cf. sa docstring ;
+iteration directe d'unites ; portee d'arme depuis la tuile courante ; constante), soit, quand
+l'artefact natif EST un arbre de selecteurs, en EVALUANT cet arbre sur un `DslContext` monte depuis
+la scene (`resurrection_orb`, `tile_targets`, et ici `MortarionsPlagueWindPlaybook`) -- la doctrine
+DSL/imperatif (#149) impose la seconde voie des que le natif compose des nœuds `DSLSelectors`.
+Les overrides dependant d'un SOUS-SYSTEME non porte (formes TilesInTriangleShape ;
 `GenerateMultiHitAttackPredictions` ; utilite de deplacement
 `UtilityMovementCase`/`GetTargetUtilityDiffOnDisplace`) restent en residu (doc #27).
+⚠ `UnitsWithTrait` et la chaine `AdjacentUnits` a 3 vagues FIGURAIENT dans cette liste de residus :
+elles n'y avaient plus lieu d'etre (toutes deux portees dans `entities/selectors/`) -- cf. #27-r5.
 
 POSITION-DEPENDANCE : le natif somme le custom DANS `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`, donc AVANT
 l'argmax par tuile de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal`. `ai/action_generators._best_attack` compare donc
@@ -32,10 +37,15 @@ from .common import DefaultActiveAbilityPlaybook
 from .base import NO_ACTION, register, tile_utility, tile_utility_for_unit
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
 from .. import battle_query as bq
+from .. import dsl
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.effect_type import EffectType
 from ..entities.traits.unit_trait import (UnitTrait, entity_trait_names, has_any_trait,
                                           has_trait, is_normal_unit)
+# Les vagues de 1093 sont l'arbre DSL de l'ABILITY (`deathguard.py`), pas une geometrie recalculee
+# ici : le natif appelle depuis le playbook les MEMES methodes d'ability que depuis
+# `ExecuteBehaviour`. Meme doctrine que `resurrection_orb` (`runner.abilities.necrons`).
+from ..runner.abilities.deathguard import mortarions_plague_wind_psyker_selector
 from ..services.battle_query import find_melee_weapon, weapon_hits
 from ..utilities.damage import will_be_overkill
 
@@ -1323,6 +1333,94 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
         return float(int(best))
 
 
+def _mortarions_plague_wind_dsl_context(ctx, target):
+    """Le `DslContext` d'evaluation des vagues de 1093, cote DECISION.
+
+    Mirror de l'`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor(this, caster, actor, target,
+    owner, casterTile, ...)` que `...MortarionsPlagueWindPlaybook$$CalculateCustomUtility` construit
+    apres avoir memset ses 0x128 octets a ZERO : il n'ecrit QUE trois arguments non nuls --
+    `caster = caster`, `actor = caster`, `target = target`. TOUT le reste est nul, `owner` et
+    `casterTile` COMPRIS.
+
+    ⚠ CONSEQUENCE PORTEE, et elle differe de 1009/1216 : **aucun `caster_pos`**. Le natif ne
+    transmet PAS `casterPosition` a l'`AbilityEntities` (l'argument existe pourtant dans la signature
+    de `CalculateCustomUtility`, il n'est simplement jamais lu ici), et aucun nœud de la chaine ne
+    lit la tuile du caster -- `Enemies` referme `<DSLSelectors+0x48>` = Caster, dont le selecteur ne
+    consulte que le CAMP. Le terme est donc CONSTANT sur le sweep de tuiles et ne depend que de la
+    CIBLE. Deplacer le caster dans `units` (ce que fait `resurrection_orb._dsl_context`, dont les
+    arbres lisent `CasterTile`) serait ici une invention.
+
+    `has_trait` est l'unique accesseur hors-state exige (le `Psyker` d'`UnitsWithTrait`) ; il lit le
+    `UnitContext` de la `Scene`, le MEME objet que `StatsComponent.ctx` cote runner."""
+    scene = getattr(ctx, "scene", None)
+    if scene is None or getattr(scene, "board", None) is None:
+        return None
+    units = list(ctx.units or [])
+    by_id = {u.get("id"): u for u in units}
+    caster, tgt = by_id.get(ctx.uid), by_id.get(target)
+    if caster is None or tgt is None:
+        return None
+    vis_by_id = {u.get("id"): u.get("visualId") for u in units}
+
+    def _has_trait(u, trait) -> bool:
+        uid = (u or {}).get("id")
+        return has_trait(entity_trait_names(scene.ctx(uid), vis_by_id.get(uid)), trait)
+
+    return dsl.DslContext(units=units, caster=caster, target=tgt, board=scene.board,
+                          elev_by_pos=ctx.elev_by_pos, has_trait=_has_trait)
+
+
+class MortarionsPlagueWindPlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$CalculateCustomUtility` (#27-r5) :
+
+        t1 = <ability>.GetTarget()                 // ghidra: StrikeFromTheShadowsAbility$$GetTarget
+        t2 = <ability>.GetSecondaryTargets(t1)     // ghidra: StormOfWrathAbility$$<ExecuteBehaviour>b__1_0
+        t3 = <ability>.GetTargets3(t1, t2)         // ghidra: PlagueWindAbility$$GetTargets3
+        sel = DSLSelectors.UnitsWithTrait(t1 + t2 + t3, 0x3ea = Psyker, 3);
+        return Fix64.op_Implicit( sel.<vslot 0x18 = Count>( AbilityEntities(caster, caster, target) ) );
+
+    **AUCUN `GetUtilityValue`, aucune constante multiplicative : le COMPTE EST l'utilite.** Le
+    `Count` est le slot virtuel 0x18 de `IdunBattle.DSL.TargetsSelector` (dont l'implementation de
+    base, `IdunBattle.DSL.TargetsSelector$$Count`, vaut `Enumerable.Count(this.<vslot 0x17 =
+    Select>(entities))`), et `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` ne recoit que
+    `caster`/`actor`/`target` -- cf. `_mortarions_plague_wind_dsl_context`.
+
+    Les trois vagues sont le mirror `mortarions_plague_wind_target_selectors()`
+    (`runner/abilities/deathguard.py`), ou vit deja la MEME chaine pour la face COMBAT de son jumeau
+    `PlagueWind` (1035, `deathTyphus`) : un seul artefact natif, un seul port. Ce qui les distingue
+    n'est PAS la geometrie mais le `DSLSelectors$$Cache` que les deux `ExecuteBehaviour` posent et
+    que le playbook n'a pas (cf. le bloc de commentaire de `deathguard.py`).
+
+    LE VERROU ANNONCE N'EN ETAIT PLUS UN. La fiche #27-r5 tenait « l'evaluateur DSL `UnitsWithTrait`
+    + la chaine `AdjacentUnits` a 3 vagues n'est pas portee cote decision ». Re-derive du code : les
+    quatre primitives (`AdjacentUnits`/`adjacent_units`, `Enemies`, `Unique`, `UnitsWithTrait`) et
+    les deux combinateurs (`Union` = `op_Addition`, `Sub` = `op_Subtraction`) sont TOUS portes dans
+    `entities/selectors/`, et la voie « playbook -> `DslContext`  -> arbre de l'ability » a deja deux
+    precedents (`resurrection_orb`, `playbook/tile_targets.py`). Il n'y avait aucune primitive a
+    porter : seulement un contexte a monter.
+
+    ROUTE : `_best_attack` (route d'ATTAQUE standard) -- 1093 a un `constants.damageProfile`
+    (`Psychic`) et son masque EFFECTIF est `0x4002` = `TargetIsEnemy | TargetMatchesDynamicRule`
+    (cf. `TARGETING_OPTIONS_UNPORTED[1093]`), donc des cibles ENNEMIES, pas un self-cast. Rien a voir
+    avec la seconde route Comparable de 1216/1226/1185/1100.
+
+    TERME INDEPENDANT DE LA TUILE D'ATTAQUE (cf. `_mortarions_plague_wind_dsl_context`) : il
+    departage les CIBLES entre elles, jamais deux tuiles pour une meme cible.
+
+    Porteur `deathBossMortarion` [npc] (unique, `unit_map find --ability MortarionsPlagueWind`) ->
+    GREFFE sur une unite du pool (`case-92` §5bis). La greffe est legitime ICI parce que la formule
+    ne lit NI stat NI trait NI arme NI portee du CASTER : le seul trait teste (`Psyker`) est celui
+    des unites SELECTIONNEES, et le caster n'entre que comme referent d'inimitie (= son CAMP)."""
+    ability_id = int(ActiveAbilityType.MortarionsPlagueWind)   # 1093 = 0x445
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        dctx = _mortarions_plague_wind_dsl_context(ctx, target)
+        if dctx is None:
+            return 0.0
+        sel = mortarions_plague_wind_psyker_selector()
+        return float(len(sel.evaluate(dctx)))
+
+
 class MartialExemplarPlaybook(NonAttackComparablePlaybook):
     """`IdunBattle.AI.Playbook.Loki.MartialExemplarPlaybook$$CalculateCustomUtility` (#27-r4) :
 
@@ -1588,7 +1686,8 @@ def _register_all() -> None:
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
                 DoomSirenPlaybook, SavageEchoesPlaybook,
                 HeavyWarpFlamerPlaybook, MassDriverAcceleratorPlaybook,
-                StikkbombPlaybook, PlasmaGrenadePlaybook, MortisRoundPlaybook):
+                StikkbombPlaybook, PlasmaGrenadePlaybook, MortisRoundPlaybook,
+                MortarionsPlagueWindPlaybook):
         register(cls())
     # SECONDE route Comparable (#27-4b/4c/4d) : l'ability est absente de `ctx.plans` -- soit parce
     # qu'elle n'a pas de `damageProfile` (Chronometron, ForwardObservers), soit parce que son masque

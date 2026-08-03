@@ -1084,3 +1084,77 @@ class PlagueWindAbility(ActiveAbility):
                 "secondary": [a for a in atks if a["target"] in sec_ids],
                 "tertiary": [a for a in atks if a["target"] in ter_ids],
                 "dsl": True}
+
+
+# ============== MortarionsPlagueWind (deathBossMortarion, actif 1093) -- vagues ==============
+#
+# Les TROIS methodes de l'ability que `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$
+# CalculateCustomUtility` appelle pour reconstruire ses vagues. Leurs corps sont DEDUPLIQUES par
+# IL2CPP -- ghidra les nomme d'apres UN proprietaire arbitraire, jamais d'apres l'appelant. On les
+# cite donc sous le nom que ghidra rend, et on lit leur STRUCTURE :
+#
+#   t1 = `...StrikeFromTheShadowsAbility$$GetTarget(ability)`
+#        = `return *(*(ability+0x30)+0x90) + 0x60` = le selecteur partage `<DSLSelectors+0x60>`
+#   t2 = `...StormOfWrathAbility$$u003CExecuteBehaviouru003Eb__1_0(ability, t1)`
+#        = `DSLSelectors$$Enemies(of = <DSLSelectors+0x48>, DSLSelectors$$AdjacentUnits(t1, 1, 3), 3)`
+#   t3 = `...PlagueWindAbility$$GetTargets3(ability, t1, t2)`
+#        = `Unique(Enemies(<+0x48>, AdjacentUnits(t2, 1, 3), 3))
+#           op_Subtraction t1 op_Subtraction t2`
+#
+# SLOTS PARTAGES, etablis par plusieurs lectures independantes du depot (cf. `case-418-r1`,
+# `case-411-r3`, `case-459`) : `<DSLSelectors+0x30>` = Owner, `<+0x48>` = Caster, `<+0x60>` = Target.
+#
+# PIEGE #419 -- le 3e argument d'`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(this, origin,
+# unique, selectionType)` est `unique`, PAS `includeCenter` : son corps est
+# `op_Subtraction(Units(AdjacentTiles(origin), unique, selectionType), origin)`, donc le centre est
+# TOUJOURS exclu et le `1` du call-site ne le reintroduit pas. Lire ce `1` comme un `includeCenter`
+# inverserait la semantique de la vague 1 vers la vague 2.
+#
+# MEME CHAINE que la face COMBAT de 1035 ET de 1093 -- mais l'ARTEFACT DIFFERE, et c'est la seule
+# raison pour laquelle cette fonction n'est pas `plague_wind_target_selectors` :
+# `...MortarionsPlagueWindAbility$$ExecuteBehaviour` (comme `...PlagueWindAbility$$ExecuteBehaviour`)
+# enveloppe CHACUNE des trois vagues dans un `DSLSelectors$$Cache` -- la memoisation qui fige un
+# ensemble entre les bandes de degat. Les trois methodes ci-dessus n'en ont AUCUN : le playbook les
+# appelle a froid, sur un etat que rien ne mute (aucune attaque n'est executee pendant l'evaluation
+# d'une utilite). Porter le `Cache` cote decision serait donc un mirror INFIDELE, sans consequence
+# observable ici -- on porte ce que le decompile montre.
+
+
+def mortarions_plague_wind_target_selectors() -> tuple:
+    """Les TROIS vagues de `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$
+    CalculateCustomUtility` (ability 1093) -- cf. le bloc ci-dessus.
+
+      * `t1` = `Target()` -- le selecteur partage `<DSLSelectors+0x60>`, evalue sur le `target` de
+        l'`AbilityEntities` que le playbook construit.
+      * `t2` = `Enemies(AdjacentUnits(t1))` -- les ennemis DU CASTER occupant les hexes adjacents a
+        la cible. `Enemies` referme `<DSLSelectors+0x48>` = Caster : le port lit `ctx.caster`.
+      * `t3` = `Unique(Enemies(AdjacentUnits(t2))) - t1 - t2` -- les ennemis adjacents a AU MOINS UN
+        secondaire, prives de la cible et des secondaires. C'est ce call-site qui exige le helper
+        `adjacent_units` (source = un ENSEMBLE) : l'exclusion native y est l'APPARTENANCE a la
+        source, pas une distance par-centre.
+
+    Nœuds NEUFS a chaque appel (le natif reconstruit les trois selecteurs a chaque
+    `CalculateCustomUtility`), donc aucun etat porte d'une evaluation a la suivante."""
+    t1 = Target()                                                # <DSLSelectors+0x60>
+    t2 = Enemies(adjacent_units(t1))                             # Enemies(<+0x48>, AdjacentUnits(t1, 1, 3), 3)
+    t3 = Sub(Sub(Unique(Enemies(adjacent_units(t2))),            # Unique(Enemies(AdjacentUnits(t2)))
+                 t1),                                            #   op_Subtraction t1
+             t2)                                                 #   op_Subtraction t2
+    return t1, t2, t3
+
+
+def mortarions_plague_wind_psyker_selector() -> "UnitsWithTrait":
+    """`DSLSelectors$$UnitsWithTrait(t1 + t2 + t3, 0x3ea = Psyker, 3)` -- l'ensemble COMPLET dont
+    `IdunBattle.DSL.TargetsSelector$$Count` rend l'utilite de 1093.
+
+    `IdunBattle.Entities.Selectors.UnitsWithTraitSelector$$.ctor(state, entities, trait,
+    shouldHave, selectionType)` recoit `shouldHave = 1` (le `mov r9b, 1` du call-site de
+    `DSLSelectors$$UnitsWithTrait`), et son `$$Select` garde l'unite quand
+    `IdunBattle.Entities.UnitExtensions$$HasTrait(unit, trait) == shouldHave` -> filtre POSITIF.
+
+    L'union est le `IdunBattle.DSL.TargetsSelector$$op_Addition(op_Addition(t1, t2), t3)` du
+    decompile, dans cet ordre. AUCUN `Unique` par-dessus : les trois vagues sont deja disjointes par
+    construction (`t3` retranche `t1` et `t2` ; `t2` exclut `t1` via le `- origin` d'`AdjacentUnits`),
+    et le natif n'en insere pas."""
+    t1, t2, t3 = mortarions_plague_wind_target_selectors()
+    return UnitsWithTrait(Union(Union(t1, t2), t3), int(UnitTrait.Psyker))   # 0x3ea = 1002

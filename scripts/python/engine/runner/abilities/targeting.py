@@ -573,6 +573,22 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # par `CasterIsPossibleTarget` -- passait par la route non-attaque.
     1217: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_FALSE),
+    # 1093 MortarionsPlagueWind (#27-r5) -- face DECISION portee (playbook), face COMBAT NON portee.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MortarionsPlagueWindAbility$$.ctor` n'appelle
+    # AUCUN `TargetingOptions$$.ctor` : il RECOPIE les 0x40 octets du champ statique
+    # `<TargetingOptions statics>+0x180` puis fait `AActiveAbility$$.ctor(this, &opts, 0)`. Le masque
+    # EFFECTIF est donc la constante ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` a
+    # `<preset>+0x28` (= `statics+0x1a8`) : **0x4002** (LU dans le cctor, pas deduit).
+    #     0x4000  TargetIsEnemy            -> gate porte (`units_can_attack_each_other`)
+    #     0x0002  TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`, qu'aucun
+    #             symbole `MortarionsPlagueWindAbility$$GetDynamicInvalidTargetReason` ne surcharge.
+    # Le PRESET est LE MEME (`statics+0x180`) que celui de son jumeau `PlagueWindAbility$$.ctor`
+    # (1035), dont `TARGETING_OPTIONS` porte deja ces valeurs -- les deux ctors sont identiques au
+    # nom pres. `isSelfCasting` = `<preset>+0x180` = 0 ; `forceMeleeTarget` = `<preset>+0x1a0` = 1
+    # = RANGED_BOOL_FALSE (l'enum natif est INVERSE : True=0, False=1) ; `range` = le bloc
+    # `<preset>+0x188..0x19f`, recopie de `TargetingRange statics+0x18` = RANGE_FROM_CONFIG.
+    1093: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetMatchesDynamicRule,
+                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
 }
 
 
