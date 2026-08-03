@@ -359,6 +359,34 @@ def test_O7c_TriggerAbility_n_execute_QUE_sur_une_cible_QUI_PORTE_l_ability():
         assert st.get_entity(1).get_component(UnitComponent).alive is not doit_partir
 
 
+def test_O7d_la_garde_oc_player_ne_touche_QUE_le_cas_qui_CRASHAIT():
+    """O7d -- RAYON DE SOUFFLE de la garde `oc.player is not None` d'`UnitEffectStateView`, mesure
+    au lieu d'etre raisonnee. `is_turn_of_owner` est un foyer PARTAGE (lu par `damage_reduction`,
+    `martial_superiority`, la face DECISION de `Scene`) : la garde doit etre INERTE partout sauf
+    sur le cas qui levait.
+
+    Les TROIS etats, terme a terme :
+      * `player` renseigne -> cle PRESENTE, valeur INCHANGEE (la garde est un ET ajoute) ;
+      * `current_player_id` absent -> cle ABSENTE, comme avant (branche deja gardee) ;
+      * `player is None` -> cle ABSENTE. **Avant la garde ce chemin levait `TypeError`** : il n'y
+        avait donc AUCUN comportement a preserver, et le tri-etat du foyer
+        (`entities/effects/base.py::is_turn_of_owner`, `None` = non mesure) est exactement ce que
+        la ligne de commentaire au-dessus decrivait deja. Regime concerne : toute unite hors
+        plateau sous un `ATeleportingEffect` (1035/1140/1238/1573), que `decisionView` publie avec
+        `visualId`, `team` ET `pos` a `null`."""
+    from engine.runner.components import UnitEffectStateView
+
+    board = _grid()
+    for player, cur, attendu in ((3, 3, True), (4, 3, False), (None, 3, "absente"),
+                                 (3, None, "absente")):
+        st = _state(board, [(1, (0, 0), 1)])
+        st.get_entity(1).get_component(OwnerComponent).player = player
+        st.current_player_id = cur
+        got = UnitEffectStateView(st, 1)._eager.get("is_turn_of_owner", "absente")
+        assert got == attendu, (
+            "player=%r current=%r : is_turn_of_owner=%r, attendu %r" % (player, cur, got, attendu))
+
+
 def test_O8_les_TROIS_classes_de_1141_sont_inscrites():
     """O8 -- le builder natif `AbilitiesDatabase.u003Cu003Ec$$u003CInitializeTriggeredAbilities
     u003Eb__28_134` construit une `List` de TROIS instances pour l'unique entree `0x475` : le

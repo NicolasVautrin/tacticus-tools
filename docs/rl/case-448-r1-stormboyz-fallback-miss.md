@@ -21,6 +21,24 @@ pour `0x475`. Son builder — `AbilitiesDatabase.u003Cu003Ec$$u003CInitializeTri
 identifié par l'offset de son champ de cache `<>9__28_N` — construit une `List` de **TROIS**
 instances, là où le builder voisin de `FullThrottle` (`b__28_137`) n'en construit qu'une.
 
+**Le corps, relu VERBATIM (2026-08-03) :**
+
+    list = new List<T>();
+    list.Add(new <classe A>());          # trois caches de classe DISTINCTS
+    list.Add(new <classe B>());          # trois allocations, trois Add
+    list.Add(new <classe C>());
+    return list;
+
+Et les trois caches sont **exclusifs à ce builder** — une seule paire DATA/READ chacun, toutes deux
+dans `b__28_134` : ce sont bien trois **classes** distinctes, pas trois instances de la même. La
+contre-épreuve est dans la même table (`...u003Eb__28_137` n'alloue qu'UN objet, puis `ToList()`),
+et les trois classes existent nommément (`StormboyzStrike_{Teleport,Fallback,Miss}Ability`, chacune
+avec son `$$CreateTrigger` et son `$$CreateBehaviour`).
+
+⇒ c'est **le natif** qui interdit d'écrire « le registre du passif ne contient qu'une classe ».
+L'assertion d'exclusivité de `test_366_r1_stormboyz_strike_offline.py` a donc été ramenée à une
+assertion de **présence** (la composition complète est gardée séparément, cf. §7).
+
 ⇒ **greffer le passif `StormboyzStrike` monte les trois d'un coup.** La confrontabilité de tout le
 kit est donc celle, déjà acquise, de #366-r1 §7.3 : porteur unique `orksNpc6Stormboy` (**npc**, trait
 `Flying`), aucun summoner ⇒ recours 3 de `case-92` §5bis, `catalog_inject.graft_passive_ability`.
@@ -335,10 +353,18 @@ no-op ; `test_cosmic_horror_live`, `test_black_legion_1029_1020_live` et
   (le 3ᵉ argument est littéralement `0`, et le ctor nommé le range en `case+0x20`), et
   `MinDistanceToClosestEnemyUtility.<EvaluateMovementInSteps>d__2$$MoveNext` rend `Fix64.FromInt(0)`
   dès que `case.<+0x20> == null`. Ce n'est donc PAS une approximation.
-* **`UnitContext` levait un `TypeError`** sur `int(oc.player)` : une unité hors plateau sous un
-  `ATeleportingEffect` sort de `decisionView` avec `visualId`, `team` ET `pos` à `null`. La ligne
+* **`UnitEffectStateView` levait un `TypeError`** sur `int(oc.player)` : une unité hors plateau sous
+  un `ATeleportingEffect` sort de `decisionView` avec `visualId`, `team` ET `pos` à `null`. La ligne
   au-dessus décrivait pourtant déjà ce cas (« clé ABSENTE si le propriétaire n'est pas connu ») —
   la garde manquait.
+  **Rayon de souffle, MESURÉ et non raisonné** (`is_turn_of_owner` est un foyer partagé — lu par
+  `damage_reduction`, `martial_superiority` et la face DÉCISION de `Scene`) : la garde O7d fige les
+  quatre états. `player` renseigné → clé **présente, valeur inchangée** (la garde est un ET ajouté) ;
+  `current_player_id` absent → clé absente, comme avant ; `player is None` → clé absente, et **ce
+  chemin LEVAIT** auparavant — il n'y avait donc aucun comportement à préserver, et l'absence est
+  exactement le tri-état que le foyer `entities/effects/base.py::is_turn_of_owner` documente
+  (`None` = non mesuré → l'effet reste actif, jamais masqué à tort).
+  Contre-épreuve jouée : garde retirée → O7d **rouge** (`TypeError`) ; restaurée → verte.
 
 ### 6.6 Le nœud `SortTilesByUtility` devait être un VRAI nœud
 
