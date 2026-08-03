@@ -40,6 +40,15 @@
     Exclut ces ids (meme regle de prefixe, virgule comprise). A n'utiliser QUE pour un
     diagnostic local.
 
+.PARAMETER Since
+    Transmet `--since <ref>` a `probe_457` : il ne rejoue que les fichiers de test IMPACTES par le
+    diff `<ref>..HEAD`, deduits de son EMPREINTE MESUREE (fichiers reellement ouverts par chaque
+    test) et du graphe d'imports. Tout doute -- ref inconnue, empreinte absente, import dynamique,
+    changement dans une lecture non attribuable -- rejoue TOUT et le DIT.
+    Les autres cliquets ne sont pas filtres : ce sont des balayeurs d'arbre.
+    ⚠ C'est le SEUL mecanisme du depot qui RETIRE des tests. Il ne remplace pas un run complet :
+    le jouer par PR, et garder un run SANS `-Since` avant tout dispatch d'agents.
+
 .PARAMETER ThrottleLimit
     Degre de parallelisme. 0 (defaut) = min(nombre de cliquets, nombre de coeurs). Les cliquets
     sont 100 % OFFLINE (aucun runner, aucun RPC, aucune session Frida) : le plafond de 4 du
@@ -74,6 +83,7 @@ param(
     [switch]   $List,
     [string[]] $Only,
     [string[]] $Skip,
+    [string]   $Since,
     [int]      $ThrottleLimit = 0,
     [switch]   $Serial,
     [int]      $Lines = 14,
@@ -309,6 +319,18 @@ if ($List) {
 # lisait comme un rouge (cf. le code 64 ci-dessous).
 $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Skip = @($Skip | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+
+# SELECTION PAR DIFF : transmise a `probe_457` (59 % du travail), qui restreint son perimetre aux
+# fichiers de test IMPACTES -- empreinte MESUREE + graphe d'imports, tout doute rejouant TOUT.
+# Les autres cliquets ne sont PAS filtres : ce sont des balayeurs d'arbre, leur perimetre est
+# l'arbre entier par construction. Filtrer sur un diff n'y aurait aucun sens.
+if ($Since) {
+    $Ratchets = $Ratchets | ForEach-Object {
+        $e = $_.Clone()
+        if ($e.Argv[0] -like 'probe_457*') { $e.Argv = @($e.Argv) + @('--since', $Since) }
+        $e
+    }
+}
 
 $sel = $Ratchets
 if ($Only) { $sel = $sel | Where-Object { $id = $_.Id; ($Only | Where-Object { $id -eq $_ -or $id.StartsWith($_ + ':') }).Count -gt 0 } }

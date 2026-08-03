@@ -254,6 +254,52 @@ class _TimePerFile:
             self.n[rel] = self.n.get(rel, 0) + 1
 
 
+class _FilesPerTest:
+    """EMPREINTE MESUREE : quels fichiers du depot chaque fichier de test ouvre REELLEMENT.
+
+    C'est la piece qui permet une selection par diff SANS table ecrite a la main. Le graphe
+    d'imports ne voit que les dependances `import` ; un test qui lit `data/...` ou `docs/...` en
+    est invisible, et c'est exactement la ou une selection naive produirait un FAUX VERT.
+
+    Deux seaux, et la distinction est ce qui rend l'empreinte SURE :
+      * `par_test`  -- lectures faites PENDANT un test (on sait a qui les attribuer) ;
+      * `globales`  -- lectures faites hors de tout test (collecte, import de module, conftest).
+        Elles ne sont attribuables a personne, donc tout changement les touchant impacte TOUS les
+        fichiers. Conservateur par construction -- jamais l'inverse.
+    """
+
+    def __init__(self, root) -> None:
+        self.root = str(root).replace("\\", "/").rstrip("/") + "/"
+        self._prefixe = self.root.lower()
+        self._n = len(self.root)
+        self.par_test: dict = {}
+        self.globales: set = set()
+        self.courant = None
+        sys.addaudithook(self._hook)
+
+    def _hook(self, event, args):
+        # Chemin CHAUD : appele a chaque `open` du process. Sortir au plus vite.
+        if event != "open":
+            return
+        p = args[0]
+        if type(p) is not str or len(p) <= self._n:
+            return
+        q = p.replace("\\", "/")
+        if not q.lower().startswith(self._prefixe):
+            return
+        rel = q[self._n:]
+        if self.courant is None:
+            self.globales.add(rel)
+        else:
+            self.par_test.setdefault(self.courant, set()).add(rel)
+
+    def pytest_runtest_logstart(self, nodeid, location):               # noqa: D102
+        self.courant = str(nodeid).split("::")[0].replace("\\", "/")
+
+    def pytest_runtest_logfinish(self, nodeid, location):              # noqa: D102
+        self.courant = None
+
+
 def _measure(files: list) -> int:
     """Rejoue tout le perimetre en chronometrant, et reecrit les poids. ASCII only."""
     import json
@@ -263,8 +309,10 @@ def _measure(files: list) -> int:
         return 1
     horloge = _TimePerFile()
     filet = _DeselectLiveItems()
+    empreinte = _FilesPerTest(repo_root())
     started = time.time()
-    rc = pytest.main(["-q", "-p", "no:cacheprovider", *files], plugins=[horloge, filet])
+    rc = pytest.main(["-q", "-p", "no:cacheprovider", *files],
+                     plugins=[horloge, filet, empreinte])
     elapsed = time.time() - started
 
     poids = {rel: round(horloge.sec.get(rel, 0.0), 3) for rel in files}
@@ -276,6 +324,23 @@ def _measure(files: list) -> int:
     path = _weights_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(poids, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+
+    # Empreinte MESUREE, a cote des poids et sous `logs/` pour la meme raison (#455).
+    emp_path = path.parent / "457-footprints.json"
+    emp = {
+        "_globales": sorted(empreinte.globales),
+        "par_test": {rel: sorted(v) for rel, v in sorted(empreinte.par_test.items())},
+    }
+    emp_path.write_text(json.dumps(emp, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+
+    hors_py = sorted({r for r in empreinte.globales if not r.endswith(".py")})
+    hors_py_test = sorted({r for v in empreinte.par_test.values() for r in v
+                           if not r.endswith(".py")})
+    print("[457] empreinte -> %s : %d fichier(s) de test, %d lecture(s) GLOBALE(s) "
+          "(non attribuables -> impactent TOUT), dont %d hors .py ; %d fichier(s) hors .py lus "
+          "pendant les tests"
+          % (emp_path, len(empreinte.par_test), len(empreinte.globales), len(hors_py),
+             len(hors_py_test)))
 
     total = sum(poids.values())
     print("[457] --measure : %d fichier(s), %.1f s de tests mesures en %.1f s de mur ; poids -> %s"
@@ -293,8 +358,168 @@ def _measure(files: list) -> int:
     return 0
 
 
+#: ---------------------------------------------------------------------------------------------
+#: SELECTION PAR DIFF (`--since`). DEUX mecanismes COMPLEMENTAIRES, et la mesure prouve qu'il en
+#: faut deux : les imports passent par `__pycache__` (521 des 527 lectures hors-test sont des
+#: `.pyc`), donc le hook d'audit ne voit PAS les dependances d'import -- c'est le graphe qui les
+#: couvre ; et le graphe ne voit pas qu'un test lit `data/symbols/...` ou `frida/hooks/*.ts` --
+#: c'est l'empreinte qui les couvre.
+#:
+#: TOUT CE QUI N'EST PAS PROUVE IMPACTE. Un test sans empreinte, un module illisible, un import
+#: dynamique, une empreinte absente : impacte. La selection ne peut que RETIRER des tests dont on
+#: a montre l'independance -- jamais en retirer par defaut. C'est ce qui la separe d'une table
+#: ecrite a la main, qui est le vice recurrent de ce depot (5 occurrences).
+#: ---------------------------------------------------------------------------------------------
+
+def _module_name(rel: str) -> str:
+    nom = rel[len(TESTS_DIR.rsplit("/", 1)[0]) + 1:-3].replace("/", ".")
+    return nom[:-len(".__init__")] if nom.endswith(".__init__") else nom
+
+
+def _import_graph(mods: dict) -> tuple:
+    """(qui-importe-qui inverse, modules a resolution INCERTAINE). Purement statique."""
+    import ast as _ast
+    from collections import defaultdict
+
+    par_nom = defaultdict(set)
+    for rel, m in mods.items():
+        par_nom[m].add(rel)
+
+    inverse = defaultdict(set)
+    incertains = set()
+    racine = repo_root()
+    for rel in mods:
+        try:
+            arbre = _ast.parse((racine / rel).read_bytes())
+        except (OSError, SyntaxError, ValueError):
+            incertains.add(rel)          # illisible : on ne PRETEND pas savoir
+            continue
+        noms, dyn = set(), False
+        for n in _ast.walk(arbre):
+            if isinstance(n, _ast.Import):
+                noms.update(a.name for a in n.names)
+            elif isinstance(n, _ast.ImportFrom):
+                if n.level:
+                    dyn = True           # import relatif : non resolu ici
+                if n.module:
+                    noms.add(n.module)
+                    noms.update(n.module + "." + a.name for a in n.names)
+            elif isinstance(n, _ast.Call):
+                f = n.func
+                if (getattr(f, "attr", None) or getattr(f, "id", None)) in (
+                        "import_module", "__import__", "load_module", "exec_module"):
+                    dyn = True
+        if dyn:
+            incertains.add(rel)
+        for nom in noms:
+            morceaux = nom.split(".")
+            for i in range(len(morceaux), 0, -1):
+                cle = ".".join(morceaux[:i])
+                if cle in par_nom:
+                    for cible in par_nom[cle]:
+                        inverse[cible].add(rel)
+                    break
+    return inverse, incertains
+
+
+def _footprints() -> dict:
+    import json
+    p = _weights_path().parent / "457-footprints.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _changed(ref: str) -> list:
+    import subprocess
+    r = subprocess.run(["git", "-C", str(repo_root()), "diff", "--name-only", ref, "HEAD"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        return None
+    return sorted({l.strip() for l in r.stdout.splitlines() if l.strip()})
+
+
+def impacted_files(perimetre: list, ref: str) -> tuple:
+    """(sous-ensemble du perimetre a rejouer, raison). Retourne le perimetre ENTIER si un doute
+    subsiste -- et la raison le DIT, pour qu'un rejeu total ne se lise jamais comme une mesure."""
+    import subprocess
+
+    changes = _changed(ref)
+    if changes is None:
+        return perimetre, "ref `%s` inconnue de git -- TOUT rejoue" % ref
+    if not changes:
+        return [], "aucun fichier change entre %s et HEAD" % ref
+
+    emp = _footprints()
+    if not emp:
+        return perimetre, "AUCUNE empreinte mesuree (`--measure`) -- TOUT rejoue"
+
+    racine = repo_root()
+    r = subprocess.run(["git", "-C", str(racine), "ls-files", "scripts/python"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    mods = {l.strip(): _module_name(l.strip())
+            for l in r.stdout.splitlines() if l.strip().endswith(".py")}
+
+    inverse, incertains = _import_graph(mods)
+
+    # Cloture arriere du graphe d'imports sur les .py changes.
+    touches, pile = set(), [c for c in changes if c in mods]
+    while pile:
+        x = pile.pop()
+        if x in touches:
+            continue
+        touches.add(x)
+        pile.extend(inverse.get(x, ()))
+
+    # Les GLOBALES ne sont attribuables a personne -> tout changement les touchant impacte TOUT.
+    # `.pyc` exclus : bytecode non versionne, jamais dans un diff (mesure : 521 des 527).
+    globales = {g for g in emp.get("_globales", ()) if not g.endswith(".pyc")}
+    dirs_glob = {g.rsplit("/", 1)[0] for g in globales if "/" in g}
+    hors_py = [c for c in changes if c not in mods]
+    for c in hors_py:
+        d = c.rsplit("/", 1)[0] if "/" in c else ""
+        if c in globales or d in dirs_glob:
+            return perimetre, "changement dans une lecture GLOBALE (%s) -- TOUT rejoue" % c
+
+    # Un fichier hors-.py impacte les tests dont l'empreinte lit son REPERTOIRE (granularite
+    # repertoire : un test qui lit `docs/rl/x.md` doit rejouer si `docs/rl/y.md` change).
+    par_test = emp.get("par_test", {})
+    dirs_par_test = {}
+    for t, lus in par_test.items():
+        dirs_par_test[t] = {x.rsplit("/", 1)[0] for x in lus if "/" in x} | set(lus)
+
+    dirs_changes = {c.rsplit("/", 1)[0] for c in hors_py if "/" in c} | set(hors_py)
+
+    # NORMALISATION : `perimetre` et les cles de `par_test` sont relatifs a `scripts/python`
+    # (nodeid pytest), `changes`/`touches`/`mods` sont relatifs au DEPOT. Comparer les deux formes
+    # sans les ramener l'une a l'autre ne matcherait JAMAIS -- selection vide, donc faux vert.
+    prefixe = "scripts/python/"
+    changes_s = set(changes)
+
+    retenus = []
+    for rel in perimetre:
+        abs_rel = prefixe + rel
+        if abs_rel in changes_s or abs_rel in touches or abs_rel in incertains:
+            retenus.append(rel)
+        elif rel not in par_test:
+            # Aucune empreinte pour ce fichier : il n'a ouvert AUCUN fichier du depot pendant ses
+            # tests. Ses dependances sont donc d'import pur, deja couvertes par le graphe.
+            continue
+        elif dirs_par_test[rel] & dirs_changes:
+            retenus.append(rel)
+    raison = ("%d/%d fichier(s) impactes par %d changement(s) depuis %s"
+              % (len(retenus), len(perimetre), len(changes), ref))
+    return retenus, raison
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--since", default=None,
+                    help="Ne joue que les fichiers IMPACTES par le diff <ref>..HEAD (empreinte "
+                         "mesuree + graphe d'imports). Tout doute rejoue TOUT, et le dit.")
     ap.add_argument("--shard", default="0/1",
                     help="k/N -- ne joue que le shard k parmi N (defaut 0/1 = tout).")
     ap.add_argument("--list", action="store_true",
@@ -318,6 +543,14 @@ def main(argv=None) -> int:
         return 2
 
     every = candidate_files()
+    if args.since:
+        # La selection s'applique AVANT le partitionnement : les shards se repartissent alors les
+        # seuls fichiers impactes, donc N shards restent equilibres sur un perimetre reduit.
+        every, raison = impacted_files(every, args.since)
+        print("[457] --since %s : %s" % (args.since, raison))
+        if not every:
+            print("[457] aucun fichier impacte -- rien a jouer, VERDICT: PASS")
+            return 0
     poids = _weights()
     if poids:
         mine = bins_of(every, n, poids)[k]
@@ -336,6 +569,15 @@ def main(argv=None) -> int:
     if args.list:
         for rel in mine:
             print("   ", rel)
+        return 0
+
+    if not mine and args.since:
+        # SOUS `--since` un shard vide est LEGITIME : la selection a reduit le perimetre en dessous
+        # du nombre de shards (mesure : un diff docs-only retient 4 fichiers pour 8 shards). Le
+        # garde anti-effondrement reste ARME pour le cas normal ci-dessous -- le desarmer pour tout
+        # le monde rouvrirait exactement le trou que la section 3 de la case-doc a ferme.
+        print("[457] shard vide SOUS SELECTION (%d fichier(s) retenus pour %d shards) -- rien a "
+              "jouer ici, ce n'est PAS un effondrement de perimetre" % (len(every), n))
         return 0
 
     if not mine:
