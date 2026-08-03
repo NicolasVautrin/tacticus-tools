@@ -1,11 +1,15 @@
 {
- "_commit": "14fa02727955bab7e221313b5a5170806aa42efb",
+ "_commit": "e08357873e135a3fd2f68aca600353051c61e96d",
  "_globales": [
   "data/seed-bc.json",
   "data/symbols/CURRENT",
+  "scripts/python/engine/entities/effects/loki/damage_reduction.py",
+  "scripts/python/engine/runner/abilities/behaviours/effects.py",
+  "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+  "scripts/python/engine/runner/operations/triggers/loki/neuroparasite.py",
   "scripts/python/pytest.ini",
-  "scripts/python/tests/engine/runner/test_448_r1_r1_r1_flying_movement_steps_offline.py",
-  "scripts/python/tests/engine/test_462_r4b_r1_r1_defender_additive_carriers_offline.py"
+  "scripts/python/tests/engine/runner/test_effect_trigger_channels.py",
+  "scripts/python/tests/engine/test_462_r4b_r1_r1_r1_neuroparasite_pose_offline.py"
  ],
  "par_test": {
   "tests/engine/runner/test_353r1_ramming_speed_charge_tile_offline.py": [
@@ -16,6 +20,7 @@
    "scripts/python/engine/runner/abilities/behaviours"
   ],
   "tests/engine/runner/test_421_effect_active_gate_offline.py": [
+   "scripts/python",
    "scripts/python/engine/runner/operations/triggers",
    "scripts/python/engine/runner/operations/triggers/loki"
   ],
@@ -397,9 +402,6 @@
    "scripts/python/engine/runner/operations/triggers/loki",
    "scripts/python/engine/services",
    "scripts/python/engine/utilities"
-  ],
-  "tests/test_457_r5_perimetre_offline.py": [
-   "scripts/python/tests"
   ],
   "tests/test_457_r6_banque_sans_doublon_offline.py": [
    "scripts"
