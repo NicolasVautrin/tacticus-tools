@@ -29,6 +29,17 @@ class EffectBonus:
     value: int = 0
     owner_is_caster: bool = True
     cap: int | None = None
+    # #462-r4a -- CANAL D'ARRIVEE dans l'accumulateur : `Multiplier@0x30` (True) ou la LISTE @0x18
+    # (False, le defaut). `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersFor
+    # Prediction` traite les MODIFICATIONS DE STAT a part des EFFETS : elles passent par
+    # `GetMultiplierFromDamageBonus(<la LISTE des stat-mods>)` (surcharge liste, produit unique)
+    # suivi de `DamageModifiers$$Add(this, modifier)` -- la surcharge 1-ARGUMENT, qui ecrit
+    # `Multiplier@0x30`. Ce slot est consomme par le DERNIER etage de
+    # `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`
+    # (`CalculateBaseDamageWithModifiers`, slot 0x10), donc APRES un `Fix64.Round` -- alors que la
+    # %-list, elle, se compose SANS arrondi intermediaire (#98). Les deux canaux ne sont donc PAS
+    # interchangeables des que le percage sort fractionnaire. MESURE : case-462-r4a §3.
+    from_stat_mod: bool = False
 
 
 # IdunBattle.Entities.Effects.EffectBonus$$ForPercentIncrease — +value % (multiplicatif 1+value/100)

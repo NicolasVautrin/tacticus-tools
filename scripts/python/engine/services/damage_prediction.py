@@ -407,30 +407,31 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
     if mods is not None:
         if attacker_additive_pre:
             # additif déjà dans la base → %-list SEUL (IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers) + plancher 0
-            d = max(0, apply_capped_modifiers(d, mods))
-            # #446-r2 — `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`
-            # a QUATRE étapes, LUES au décompilé, sur DEUX `Nullable<DamageModifiers>` distincts :
-            #   1. `ApplyCappedModifiers(attackModifiers)`     — liste CAPÉE `@0x18` de l'attaquant
-            #   2. `ApplyCappedModifiers(defenseModifiers)`    — liste CAPÉE `@0x18` du défenseur
+            # #446-r2 / #462-r4a — `IdunBattle.Core.Services.DamagePrediction$$
+            # CalculateBaseDamageWithAllModifiers` a QUATRE étapes, LUES au décompilé, sur DEUX
+            # `Nullable<DamageModifiers>` distincts :
+            #   1. `ApplyCappedModifiers(attackModifiers)`     — liste `@0x18` de l'attaquant
+            #   2. `ApplyCappedModifiers(defenseModifiers)`    — liste `@0x18` du défenseur
             #   3. `CalculateBaseDamageWithModifiers(attackModifiers.Multiplier@0x30)`   -> Round
             #   4. `CalculateBaseDamageWithModifiers(defenseModifiers.Multiplier@0x30)`  -> Round
             # Les étapes 3 et 4 sont INCONDITIONNELLES : elles arrondissent MÊME à multiplicateur
-            # neutre. C'est cet arrondi INTERMÉDIAIRE — entre les deux faces — qui manquait au port
-            # (résidu #446-r2, `+3` sur 3 coups, `docs/rl/case-446-r2-arrondi-inter-faces.md`).
+            # neutre. Les étapes 1 et 2, elles, composent SANS arrondi entre elles (#98).
             #
-            # ⚠ CORRESPONDANCE, à lire avant de comparer les ordres : le port n'a PAS de slot
-            # `Multiplier` séparé — TOUT pourcentage d'une face vit dans la `%-list` de CETTE face
-            # (`pct_list` = attaquant, `pct_list_defender` = défenseur), et `apply_capped_modifiers`
-            # /`apply_pct_entries` termine par le `Round` qui EST celui de l'étape 3/4. La séquence
-            # ci-dessous est donc `(1+3)` puis `(2+4)`, et elle coïncide avec la séquence native
-            # `1,2,3,4` tant que les listes CAPÉES natives sont vides — ce qui est le cas de TOUS
-            # les porteurs actuels (aucun `EffectBonus` du port ne pose de `cap`). Si un jour un
-            # bonus CAPÉ entre, il lui faudra son propre canal, appliqué AVANT les deux `Round` :
-            # c'est le résidu `#446-r2-r1` de la case-doc, pas un raccourci silencieux.
-            d = calculate_base_damage_with_modifiers(d)      # étape 3 (Round face ATTAQUANT)
-            if mods.pct_list_defender:
-                d = max(0, apply_pct_entries(d, mods.pct_list_defender))   # face DÉFENSEUR (2)
-            d = calculate_base_damage_with_modifiers(d)      # étape 4 (Round face DÉFENSEUR)
+            # ⚠ CE QUI ENTRE OÙ, et c'est TOUT l'objet de #462-r4a : #446-r2 avait rangé la face
+            # DÉFENSEUR **entre** les étapes 3 et 4, donc DERRIÈRE l'arrondi de l'étage attaquant.
+            # C'est faux pour les %-list d'EFFETS : elles vivent dans la liste `@0x18` (étape 2),
+            # AVANT les deux `Round`. Seules les MODIFICATIONS DE STAT entrent dans
+            # `Multiplier@0x30` (`from_stat_mod`, cf. `calculate_modifiers_from_stat_modifications`)
+            # et subissent donc l'arrondi intercalé. Les deux régimes sont mesurés :
+            #   * face DÉFENSEUR = EFFET (`Terrifying_ExtraDefense`, x0.70) sur un perçage
+            #     fractionnaire — l'arrondi intercalé COÛTE `-1` par coup (12 bornes, #462-r4a) ;
+            #   * face DÉFENSEUR = STAT-MOD (tuile Thorns, x1.50) — il en FAUT un (#446-r2) ;
+            #   * les DEUX faces non neutres à la fois (élévation x1.50 ATT + Terrifying x0.70 DEF,
+            #     unités DÉPLACÉES) — la chaîne doit être UNIQUE : 761/1141 contre 762/1142.
+            # La séquence ci-dessous est donc `(1+2)` en UNE chaîne, puis `3`, puis `4`.
+            d = max(0, apply_pct_entries(d, list(mods.pct_list) + list(mods.pct_list_defender)))
+            d = calculate_base_damage_with_modifiers(d, mods.multiplicative)          # étape 3
+            d = calculate_base_damage_with_modifiers(d, mods.multiplicative_defender)  # étape 4
         else:
             d = apply_all_modifiers(d, mods)   # %-list PUIS additif (@+0x10) — APRES percage (§17.7)
     return d

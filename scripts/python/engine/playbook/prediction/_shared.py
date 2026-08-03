@@ -498,6 +498,11 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # DEUX entrees de la MEME face -- elle ne vaut pas d'une face a l'autre. Mesure : #446-r2.
     for mult, cap in def_mods.pct_list:
         mods.pct_list_defender.append((mult, cap))
+    # #462-r4a : le `Multiplier@0x30` du DEFENSEUR (= les MODIFICATIONS DE STAT, seules a y entrer)
+    # a son etage PROPRE, le DERNIER de `CalculateBaseDamageWithAllModifiers`, precede d'un `Round`.
+    # Les %-list ci-dessus, elles, se composent AVEC celles de l'attaquant sans arrondi entre.
+    if def_mods.multiplicative != 1.0:
+        mods.multiplicative_defender *= def_mods.multiplicative
     # ADDITIF defenseur (ForAddition, ex. Neuroparasite +extraDmg x niveau) — le %-list SEUL etait fusionne,
     # l'additif defenseur etait DROPPE. PLACEMENT = MEME slot @+0x10 que l'additif ATTAQUANT #75 : ajoute a la
     # base PRE-percage, puis traverse percage et est scale ×%-list UNE fois (le natif ajoute l'additif @+0x10
@@ -560,6 +565,7 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         _tmp = DamageModifiers()
         add_modifier(_tmp, _eb)
         mods.pct_list_defender.extend(_tmp.pct_list)
+        mods.multiplicative_defender *= _tmp.multiplicative     # #462-r4a (canal `Multiplier@0x30`)
         mods.additive += _tmp.additive
         mods.extra_pierce += _tmp.extra_pierce
         mods.armor_penetration += _tmp.armor_penetration

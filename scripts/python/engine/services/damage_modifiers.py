@@ -78,7 +78,18 @@ class DamageModifiers:
     # garde ses deux appels distincts (`apply_pierce_and_modifiers(att_mods)` puis
     # `apply_all_modifiers(def_mods)`) et n'utilise donc PAS ce champ.
     pct_list_defender: list[tuple[float, int | None]] = field(default_factory=list)
+    # `Multiplier@0x30` — le slot que `IdunBattle.Core.Services.DamageModifiers$$Add` (surcharge
+    # 1-ARGUMENT) multiplie, et que le DERNIER etage de `CalculateBaseDamageWithAllModifiers`
+    # consomme via `CalculateBaseDamageWithModifiers` (slot 0x10), donc APRES un `Fix64.Round`.
+    # #462-r4a : le port ne l'alimentait PAS (champ mort) et fusionnait tout dans la `%-list`, ce
+    # qui perdait exactement cet arrondi. Seules les MODIFICATIONS DE STAT y entrent
+    # (`from_stat_mod`) ; les %-list d'effets et les feuilles positionnelles restent dans la liste.
     multiplicative: float = 1.0
+    # Le `Multiplier@0x30` de la face DEFENSEUR, quand elle est fusionnee dans CET accumulateur
+    # (prediction et COMBAT). Deux slots distincts parce que le natif les consomme en DEUX etages
+    # ORDONNES : `CalculateBaseDamageWithModifiers(attackModifiers.Multiplier)` PUIS
+    # `(defenseModifiers.Multiplier)`, chacun avec son propre `Round`.
+    multiplicative_defender: float = 1.0
     details: list[EffectBonus] = field(default_factory=list)
     # axe ARMURE/PERÇAGE (champs du DamageModifiers natif lus par CalculateBaseDamageWithAllModifiers
     # IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers → GetBaseDamageWithFixedPiercedArmor) — distinct du scalaire dégât (additif/%-list) :
@@ -128,7 +139,14 @@ def add_modifier(acc: DamageModifiers, eb: EffectBonus) -> None:
             acc.flat_reductions.append(eb.value)  # DÉFENSEUR : plat PRÉ-perçage (Nightshroud IdunBattle.Entities.Effects.Loki.Nightshroud_DmgReduction_Effect$$CreateDamageDefenseModifier, cf. flat_reductions)
     elif eb.kind in ("PercentIncrease", "PercentDecrease"):
         pct = eb.value if eb.kind == "PercentIncrease" else -eb.value
-        acc.pct_list.append((get_multiplier_from_damage_bonus(pct), eb.cap))
+        if eb.from_stat_mod:
+            # #462-r4a : canal `Multiplier@0x30` (surcharge 1-ARG de `DamageModifiers$$Add`), pas la
+            # LISTE. Le natif y route le PRODUIT des modifications de stat -- ici on multiplie
+            # entree par entree, ce qui est le MEME produit (`GetMultiplierFromDamageBonus`
+            # surcharge LISTE = `x = One ; foreach -> x = Mul(x, m)`).
+            acc.multiplicative *= get_multiplier_from_damage_bonus(pct)
+        else:
+            acc.pct_list.append((get_multiplier_from_damage_bonus(pct), eb.cap))
     elif eb.kind == "Piercing":
         acc.extra_pierce += eb.value            # axe perçage (@0x20) — pas le scalaire dégât
     elif eb.kind == "ArmorPenetration":
@@ -281,6 +299,16 @@ def apply_all_modifiers(value: int, mods: DamageModifiers, round_materialize: bo
     **14/14**, == troncature **10/14**, les 4 écarts tombant exactement sur frac >= .5.
     Détail : `docs/rl/case-r6-materialisation-normal-like-additional-hits.md`."""
     v_raw = apply_capped_modifiers(value, mods).raw
+    # #462-r4a — l'étage MULTIPLICATEUR (`Multiplier@0x30`, slot 0x10). Les %-list se composent
+    # AVANT lui (ci-dessus), les modifications de STAT y entrent (`from_stat_mod`). `1.0` = no-op
+    # strict (aucun `Round` surnuméraire : `calculate_base_damage_with_modifiers` n'est appelé que
+    # si le slot est effectivement alimenté), donc rétro-compat exacte partout où il n'y a pas de
+    # stat-modification — c'est-à-dire dans l'immense majorité des cas.
+    if mods.multiplicative != 1.0:
+        v_raw = calculate_base_damage_with_modifiers(_fx.Fix64(v_raw), mods.multiplicative).raw
+    if mods.multiplicative_defender != 1.0:
+        v_raw = calculate_base_damage_with_modifiers(_fx.Fix64(v_raw),
+                                                     mods.multiplicative_defender).raw
     if mods.additive:
         v_raw = v_raw + _fx.from_number(mods.additive)
     # COMBAT : conversion int finale = TRONCATURE (`op_Explicit`, `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`),
@@ -358,7 +386,12 @@ def calculate_modifiers_from_stat_modifications(stat_component, negate: bool = F
     if stat_component.get_current_value() == stat_component.initial:   # aucune modification -> rien
         return []
     sign = -1 if negate else 1
-    return [EffectBonus("PercentIncrease", sign * int(amount), owner_is_caster=True)
+    # `from_stat_mod=True` (#462-r4a) : ces entrees-la, et ELLES SEULES, atterrissent dans
+    # `Multiplier@0x30` -- le caller natif les folde par `GetMultiplierFromDamageBonus` surcharge
+    # LISTE puis `DamageModifiers$$Add(this, modifier)` surcharge 1-ARG, ce qui les place APRES le
+    # `Round` de l'etage MULTIPLICATEUR, alors que les %-list d'effets se composent avant lui.
+    return [EffectBonus("PercentIncrease", sign * int(amount), owner_is_caster=True,
+                        from_stat_mod=True)
             for amount in stat_component.modification.per_source.values() if amount]
 
 
