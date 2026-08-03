@@ -29,7 +29,7 @@ import hexgeo
 
 from . import prediction
 from .common import DefaultActiveAbilityPlaybook
-from .base import NO_ACTION, register, tile_utility_for_unit
+from .base import NO_ACTION, register, tile_utility, tile_utility_for_unit
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
@@ -1407,7 +1407,7 @@ class MartialExemplarPlaybook(NonAttackComparablePlaybook):
         return float(n) * self.ADJACENT_ENEMY_UTILITY
 
 
-class TheLionsWrathPlaybook(_CustomOnlyPlaybook):
+class TheLionsWrathPlaybook(NonAttackComparablePlaybook):
     """`IdunBattle.AI.Playbook.Loki.TheLionsWrathPlaybook$$CalculateCustomUtility` (#27-r4) :
 
         n = 0; hits = 0;
@@ -1446,19 +1446,34 @@ class TheLionsWrathPlaybook(_CustomOnlyPlaybook):
     ni arme, ni portee du caster. L'arme et le trait `Hero` lus sont ceux de la CIBLE ; les traits
     `Chaos`/`Hero` filtres sont ceux des ADJACENTS (`case-92` §5bis).
 
-    ROUTE D'ATTAQUE (et non la route non-attaque de 1216) : son masque EFFECTIF est `0x4000` =
-    `TargetIsEnemy` SEUL -- `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$
-    .ctor` recopie les 0x40 octets du preset `<TargetingOptions statics>+0x40` et les passe TELS
-    QUELS a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts, abilityAttackType: 0)`
-    -- pas de surcharge PRESET+FLAGS ici, donc pas le piege de 1216. L'ability cible donc des
-    ENNEMIS, elle a un `constants.damageProfile` (`Power`) et elle entre dans `ctx.plans` :
-    `_best_attack` l'evalue, et le custom entre dans `u_action` par la voie normale
-    (`TARGETING_OPTIONS_UNPORTED[1217]` pour le masque, sa face COMBAT n'etant pas portee).
+    LE MASQUE : `0x4000` = `TargetIsEnemy` SEUL. `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    TheLionsWrathAbility$$.ctor` recopie les 0x40 octets du preset `<TargetingOptions statics>+0x40`
+    et les passe TELS QUELS a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts,
+    abilityAttackType)` -- dont le corps recopie la struct sans OU-er le moindre flag (pas le piege
+    PRESET+FLAGS de 1216 ; le 3e argument est l'`AbilityAttackType`, ici le litteral 0). La cible est
+    donc un ENNEMI, jamais le caster : `TARGETING_OPTIONS_UNPORTED[1217]`, sa face COMBAT n'etant pas
+    portee.
+
+    ROUTE NON-ATTAQUE, et pour une raison DIFFERENTE de celle de 1216 (qui y est parce que son masque
+    est SELF-CAST) : ici c'est le motif de **1009 ResurrectionOrb** --
+    `...TheLionsWrathPlaybook$$MakeDamagePredictions` rend une liste VIDE (cf. son override
+    ci-dessous), donc `calculate_action_utility` rend `None` et `_best_attack` **ne peut
+    structurellement pas** la produire (son gate `best[0] > 0` porte sur la seule utilite de DEGAT).
+    Le critere de `nonattack.py` -- « Comparable INVISIBLE de `_best_attack` » -- est donc rempli, et
+    ce alors meme que 1217 a un `constants.damageProfile` (`Power`) ET des `attackPlans` a
+    `rankCount > 0`. C'est le 4e motif d'entree dans cette route.
+
+    ⚠ Ce qui SEPARE les deux routes ici n'est pas cosmetique : `nonattack_candidates` mirroir
+    `CalculateActionUtility` a la lettre -- `u = custom` PUIS `u += Sigma predictions` PUIS
+    `ShouldExecute(u)` -- donc il passe au gate `custom + predictions`, ce que fait le natif. La
+    route d'attaque, elle, gate sur les predictions SEULES et supprimerait l'action. MESURE : sans
+    ce routage le moteur rendait `(None, None)` la ou le natif emet `ActiveAbilityMessage(1217)`.
 
     LE GATE N'EST PAS PORTE, et c'est un FAIT LU, pas un oubli.
     `...TheLionsWrathPlaybook$$ShouldEvaluate(unit, position, possiblePositions)` (surcharge 4-args,
-    slot de vtable 6) relu A L'ASSEMBLEUR -- le decompile Ghidra `(extraout_var >> 7 ^ 1) & bVar1`
-    modelise sur un OCTET un decalage qui porte sur 32 bits :
+    slot de vtable 6, celui qu'expose `NonAttackComparablePlaybook.should_evaluate`) relu A
+    L'ASSEMBLEUR -- le decompile Ghidra `(extraout_var >> 7 ^ 1) & bVar1` modelise sur un OCTET un
+    decalage qui porte sur 32 bits :
 
         call  <slot 0x1b>(unit, 2)      ; HasMinimumRemainingTurns  -> movzx ebp, al
         call  <slot 0x80>(position, unit, false)                    ; GetAdjacentEnemies
@@ -1475,10 +1490,12 @@ class TheLionsWrathPlaybook(_CustomOnlyPlaybook):
     `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` **n'utilise pas** son parametre
     `unit` : `limit = <config>[1]` ; `if (!limit.HasValue) return true` ; sinon
     `turns <= limit - TurnComponent$$GetAmountOfTurnsEndedByPlayer(...)`. Gate GLOBAL au match,
-    neutre au porteur, et VRAI des que la limite de tours est absente. La route d'ATTAQUE n'expose
-    aucun hook `should_evaluate` (il n'existe que sur `playbook/nonattack.py`, pour la route
-    non-attaque) : poser ce hook dans `_best_attack` pour un gate structurellement toujours vrai
-    dans les regimes atteignables serait un port SPECULATIF non falsifiable. RESIDU NOMME `#27-r4-g`.
+    neutre au porteur, et VRAI des que la limite de tours est absente. Le PLAFOND DE TOURS DU MATCH
+    n'a aucun substrat cote port -- meme constat, et meme mot, que le bit `CasterHas2TurnsLeft` de
+    1160 (`runner/abilities/tau.py`), qui appelle le MEME natif. Le gate se reduit donc a `True`,
+    c.-a-d. exactement le defaut de `NonAttackComparablePlaybook.should_evaluate` : l'overrider pour
+    rendre `True` inconditionnellement serait du code mort. RESIDU NOMME `#27-r4-g` -- il ne pourra
+    mordre que dans un match A PLAFOND DE TOURS, regime qu'aucun runner d'arene ne monte.
 
     Porteur `darkaBossLion` [npc] -> GREFFE sur une unite du pool ; la greffe ne couvre pas ses
     stats/traits/armes, ce qui est legitime ICI puisque la formule n'en lit aucun."""
@@ -1486,6 +1503,39 @@ class TheLionsWrathPlaybook(_CustomOnlyPlaybook):
     TARGET_MELEE_HIT_UTILITY = 30.0        # `iVar8 * 0x1e`
     ADJACENT_CHAOS_HERO_UTILITY = 2000.0   # `iVar7 * 2000` (litteral DECIMAL du decompile)
     HERO_TARGET_UTILITY = 150.0            # `-(uint)(HasTrait(target, Hero)) & 0x96`
+
+    def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
+        """`...TheLionsWrathPlaybook$$MakeDamagePredictions` rend une **liste VIDE** -- l'ability ne
+        predit AUCUN degat, et ce n'est pas une degradation du port mais le comportement natif.
+
+        Comment on le sait, alors que le symbole n'apparait pas dans la table (corps DEDUPLIQUE) :
+        `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeDamagePredictions`
+        est ABSTRAITE -- son corps entier est `FUN_1801f4390(<classe>, 0)`, c.-a-d. la levee
+        `NotImplementedException`. Un override EXISTE donc forcement, et TROIS canaux INDEPENDANTS
+        disent qu'il rend une liste vide NON NULLE :
+          1. `aiPlaybookPredict(1217)` -> `retClass = ProbableDamageEvent[]`, `listNull = false`,
+             `count = 0` (l'appel REUSSIT, il ne leve pas) ;
+          2. `pairUtility(1217)` = `...$$CalculateUtilityFromPredictions` NATIF -> `utility = 0`,
+             `utilRaw = "0"`, sur TOUTE cible ;
+          3. COMPORTEMENTAL, et c'est le canal decisif : dans le bras `--hp-ahriman 100` de
+             `probe_27_r4_lions_wrath.py`, les deux cibles ont des `u_full` de preview qui
+             divergent de bien plus que l'ecart de custom (120), et le natif choisit malgre tout la
+             cible d'argmax(CUSTOM). Il n'ajoute donc AUCUNE utilite de degat.
+        Coherent avec le kit : `...TheLionsWrathAbility$$ExecuteBehaviour` differe l'attaque dans
+        `IdunBattle.Entities.Effects.Loki.TheLionsWrath_PendingAttackEffect` (declenche par
+        `On(...)`), il n'y a pas de degat a predire AU MOMENT DU CAST.
+
+        ⚠ Sans cet override, le chemin generique de `DefaultActiveAbilityPlaybook` fabrique une
+        prediction depuis `attackPlans` -- que `projection.ts` remplit avec la PREVIEW de l'attaque
+        normale pour une ability sans prediction de playbook (mesure : `dmgMin/dmgMax` de 1217
+        IDENTIQUES a ceux de 69 sur les deux cibles). C'est cette prediction fantome qui faisait
+        DIVERGER le port du natif sur le bras discriminant.
+
+        Il est REDONDANT avec le corps de `NonAttackComparablePlaybook` -- et il est ecrit quand meme,
+        parce que la RAISON differe : la base y rend `[]` « parce que l'ability n'a pas de
+        `damageProfile` », ce qui est FAUX ici (1217 en a un, `Power`). Effacer cette distinction
+        laisserait croire que le routage de 1217 se deduit de son gameconfig."""
+        return []
 
     @staticmethod
     def _unit(ctx, entity_id):
@@ -1538,8 +1588,7 @@ def _register_all() -> None:
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
                 DoomSirenPlaybook, SavageEchoesPlaybook,
                 HeavyWarpFlamerPlaybook, MassDriverAcceleratorPlaybook,
-                StikkbombPlaybook, PlasmaGrenadePlaybook, MortisRoundPlaybook,
-                TheLionsWrathPlaybook):
+                StikkbombPlaybook, PlasmaGrenadePlaybook, MortisRoundPlaybook):
         register(cls())
     # SECONDE route Comparable (#27-4b/4c/4d) : l'ability est absente de `ctx.plans` -- soit parce
     # qu'elle n'a pas de `damageProfile` (Chronometron, ForwardObservers), soit parce que son masque
@@ -1548,8 +1597,11 @@ def _register_all() -> None:
     # ... soit, 3e cas (#27-r4), parce que son masque est SELF-CAST (`CasterIsPossibleTarget`) : la
     # seule cible que le natif retient est le CASTER, donc les evals de `attackPlans` sur les
     # ENNEMIS rendent tous `rankCount = 0` et `_best_attack` ne peut rien produire.
+    # ... soit, 4e cas (#27-r4), parce que son `MakeDamagePredictions` rend une liste VIDE alors
+    # meme qu'elle a un `damageProfile` et des `attackPlans` a `rankCount > 0` : `_best_attack` gate
+    # sur la seule utilite de DEGAT et ne peut donc rien produire (motif de 1009 ResurrectionOrb).
     for cls in (ChronometronPlaybook, ForwardObserversPlaybook, SorcerousFacadePlaybook,
-                MartialExemplarPlaybook):
+                MartialExemplarPlaybook, TheLionsWrathPlaybook):
         register_nonattack(cls())
 
 
