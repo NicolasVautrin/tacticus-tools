@@ -1087,8 +1087,10 @@ class SpawnUnitOperation:
                 continue
             epos.append((pc2.col, pc2.row))
         if board is not None:
-            elev = {(t["col"], t["row"]): t.get("elevation") for t in board.by_id.values()
-                    if t.get("elevation") is not None}
+            # FOYER UNIQUE du canal d'elevation (#433-r4-r1-r4) -- meme carte, memes clefs
+            # OMISES quand l'elevation n'est pas captee, que celle derivee pour le `DslContext`.
+            from engine.entities.pathfinding.board import elevations_by_pos
+            elev = elevations_by_pos(board) or {}
         def _can_attack_from(tid) -> bool:
             ti = board.by_id.get(tid)
             if ti is None:

@@ -135,8 +135,10 @@ class DslContext:
     # Position VIRTUELLE du caster pour la décision balayée (= la tuile d'attaque post-move,
     # `casterPosition` passé aux selectors par le generator natif). None → position courante.
     caster_pos: tuple | None = None
-    # Élévation par tuile (tileMeta) — consommée par les selectors gated élévation
-    # (`TilesOnSameElevationSelector`). None → filtre dégradé no-op (documenté par nœud).
+    # Élévation par tuile (`tile→[0x20]→[0x18]`) — consommée par les selectors gated élévation
+    # (`TilesOnSameElevationSelector`, `FilterTilesIfCanAttackTargetTileFrom`). NON fourni →
+    # DÉRIVÉ du `board` par `__post_init__` (#433-r4-r1-r4) ; reste None si le board est absent ou
+    # sans canal d'élévation, et le filtre dégrade alors en no-op (documenté par nœud).
     elev_by_pos: dict | None = None
     # Graphe de tuiles (`Board`, entities/pathfinding) — consommé par les SÉLECTEURS DE TUILES
     # (`AdjacentTiles`/`CanAddUnit`, tile_selectors.py) : voisinage natif (`board.neighbours`),
@@ -323,6 +325,35 @@ class DslContext:
     # cascade de ciblage). Defaut None -> le selecteur `ValidNormalAttackTargets` rend [] (contexte
     # hors runner : la cascade n'est pas evaluable sans `State`), degradation documentee par noeud.
     valid_normal_attack_targets: object | None = None
+
+    def __post_init__(self):
+        """`elev_by_pos` se DERIVE du `board` des qu'il n'est pas fourni -- le canal d'elevation
+        n'est pas une option du contexte, c'est une propriete de la TUILE (#433-r4-r1-r4).
+
+        Cote natif il n'existe aucun contexte « qui a des tuiles mais pas leur elevation » : chaque
+        `TileEntity` porte son composant a `+0x20`, et les deux foyers de la porte le deref
+        directement -- `TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`
+        (`d = |elev(source) - elev(voisin)| ; if (d < 2) yield`, INCONDITIONNEL, apres les filtres
+        terrain) et `MovementUtil$$AreTilesAdjacent` (`(|dElev| < 2) & (t1 == t2 || IsNeighbour)`).
+        `TileExtensions$$GetElevationDifference` LEVE si le composant manque : l'ignorance n'est pas
+        un etat natif.
+
+        Cote port, le canal existait mais restait NON BRANCHE sur 4 des 11 constructeurs de
+        `DslContext` -- dont `entities_from_state`, le substrat de TOUT behaviour runner. Les
+        primitives `battle_query.is_adjacent` / `.are_entities_adjacent` degradaient alors en no-op
+        PERMISSIF : ni erreur ni crash, un moteur qui ACCEPTE des adjacences que le natif refuse.
+        Le brancher ICI plutot qu'a chaque call-site est ce qui empeche le prochain constructeur de
+        rouvrir le trou en silence.
+
+        `board` absent (arbre purement NUMERIQUE : `_hits_ctx`, `triggered_ability`) -> `None`, et
+        la porte reste inerte faute de tuiles a gater. `board` sans canal d'elevation (board bati a
+        la main dans un test, `boardGraph` anterieur au capteur) -> `None` AUSSI, jamais une carte
+        vide : `elevations_by_pos` rend un TRI-ETAT, et le repli « les deux elevations connues,
+        sinon on retient » de `is_adjacent` reste la degradation SURE (un faux NEGATIF d'adjacence
+        supprimerait des actions legales -- pire que le trou qu'on ferme)."""
+        if self.elev_by_pos is None and self.board is not None:
+            from ..entities.pathfinding.board import elevations_by_pos   # lazy : anti-circulaire
+            self.elev_by_pos = elevations_by_pos(self.board)
 
 
 class Const(AAmountFormula):

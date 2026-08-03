@@ -248,9 +248,9 @@ def _filter_can_attack_target_tile_from(state: "State", caster_id: int, target_i
                                         tile_id: int):
     """Face RUNNER de `_filter_tiles_if_can_attack_target_tile_from` : contexte DSL depuis le `State`.
 
-    ⚠ `entities_from_state` ne pose PAS `elev_by_pos` -> la porte d'elevation `|dElev| < 2` des DEUX
-    adjacences degrade en no-op PERMISSIF, exactement comme pour tous les autres noeuds d'adjacence
-    du runner (degradation partagee, pas un fork local)."""
+    La porte d'elevation `|dElev| < 2` des DEUX adjacences est ACTIVE depuis #433-r4-r1-r4 :
+    `DslContext.__post_init__` derive `elev_by_pos` du `board` (ici `state.board`, le `boardGraph`
+    capte). Elle ne degrade en no-op que si le board n'expose aucune elevation."""
     return _filter_tiles_if_can_attack_target_tile_from(
         entities_from_state(state, caster_id, target_id), tile_id)
 

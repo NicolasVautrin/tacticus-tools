@@ -227,3 +227,67 @@ class Board:
         maps = (neigh, walk, elev)
         self._walk_maps = maps
         return maps
+
+    # --- substrat PAR POSITION de la PORTE D'ELEVATION (foyer unique du canal) ------------------
+    def elev_by_pos(self) -> dict:
+        """`{(col,row): elevation}` -- le canal que consomme la porte d'elevation native.
+
+        ⚠ CE N'EST PAS le 3e element de `walk_maps_by_pos()`, et les deux ne peuvent pas fusionner :
+        celui-la rend `int(elevation or 0)` (le pathfinder a besoin d'une fonction TOTALE), celui-ci
+        **OMET** toute tuile dont l'elevation n'est pas captee. La difference est decisive parce que
+        les deux consommateurs n'ont pas le meme contrat sur l'INCONNU : coter `0` une elevation non
+        mesuree FABRIQUE une donnee, et la porte deviendrait RESTRICTIVE (un voisin a 2 refuse a tort
+        contre une tuile « 0 » inventee) -- un faux negatif d'adjacence SUPPRIME des actions legales,
+        ce qui est pire que la degradation permissive qu'on ferme ici. Omettre laisse au foyer
+        `battle_query.is_adjacent` son repli documente (« les DEUX elevations connues, sinon on
+        retient »).
+
+        Memoise sur l'instance (le board est STATIQUE pour toute la bataille)."""
+        cached = getattr(self, "_elev_by_pos", None)
+        if cached is None:
+            cached = {(t["col"], t["row"]): int(t["elevation"])
+                      for t in self.by_id.values()
+                      if t.get("elevation") is not None
+                      and t.get("col") is not None and t.get("row") is not None}
+            self._elev_by_pos = cached
+        return cached
+
+
+def elevations_by_pos(board) -> dict | None:
+    """Le canal d'elevation d'un board, en TRI-ETAT -- `None` = **pas de canal** (rien mesure),
+    `{...}` = la carte des tuiles dont l'elevation EST captee.
+
+    C'est la seule porte d'entree du port vers `tile->[0x20]->[0x18]`, l'entier que le natif lit
+    dans les DEUX foyers de la porte d'elevation :
+
+      * `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` -- apres
+        les filtres terrain, `d = |elev(source) - elev(voisin)| ; if (d < 2) yield` (source lue une
+        fois a l'init dans `d__8+0x48`, voisin relu par tuile) ;
+      * `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent(tile1, tile2)` --
+        `return (|dElev| < 2) & (tile1 == tile2 || ConnectivityComponent.IsNeighbour(tile1, tile2))`.
+
+    Le natif n'a PAS d'etat « elevation inconnue » : il deref le composant et LEVE s'il manque
+    (`TileExtensions$$GetElevationDifference`). L'inconnu est donc une notion strictement PORT (un
+    board construit a la main dans un test, un `boardGraph` anterieur au capteur) -- d'ou le
+    tri-etat, et d'ou l'omission plutot qu'un `0` par defaut.
+
+    `board` est DUCK-TYPE dans tout le DSL (`ctx.board` : `id_at`/`neighbours`/`walkable`), donc on
+    accepte les deux formes portees : un `Board` (canal `by_id`) et tout objet exposant `by_coord`.
+    Aucune des deux -> `None`, jamais une carte vide qui se ferait passer pour une mesure."""
+    if board is None:
+        return None
+    if isinstance(board, Board):
+        m = board.elev_by_pos()
+        return m or None
+    by_coord = getattr(board, "by_coord", None)
+    if isinstance(by_coord, dict):
+        m = {k: int(t["elevation"]) for k, t in by_coord.items()
+             if isinstance(t, dict) and t.get("elevation") is not None}
+        return m or None
+    by_id = getattr(board, "by_id", None)
+    if isinstance(by_id, dict):
+        m = {(t["col"], t["row"]): int(t["elevation"]) for t in by_id.values()
+             if isinstance(t, dict) and t.get("elevation") is not None
+             and t.get("col") is not None and t.get("row") is not None}
+        return m or None
+    return None
