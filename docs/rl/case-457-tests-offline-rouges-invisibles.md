@@ -382,23 +382,47 @@ Machine calme, arbre du worktree (3254 fichiers versionnes, 58,7 Mo) :
 
 | operation | mesure (2026-08-03) |
 | --- | --- |
-| lecture en SERIE, process FRAIS | **16,8 s** |
-| lecture en SERIE, 2e passe du MEME process | **0,4 s** |
-| lecture en 16 THREADS, process frais | 3,3 - 7,6 s |
+| lecture en SERIE, fichiers JAMAIS LUS depuis leur ecriture | **12,3 - 16,8 s** |
+| lecture en SERIE, memes fichiers deja lus une fois | **0,3 - 0,9 s** |
+| lecture en 16 THREADS, fichiers jamais lus | 3,3 - 7,6 s |
 | decodage utf-8 + fins de ligne des 58,7 Mo | 0,16 s |
 | `ast.parse` de tout `scripts/python/**` (1603 fichiers) | 7,1 s |
 | un `ast.walk` complet de ces 1603 arbres | 2,9 s |
 
-La ventilation PAR RACINE localise la cause -- sur les memes fichiers, `scripts/` coute **7,36 ms
-par fichier** quand `data/` en coute **0,75** et `docs/` **0,65**. C'est donc un filtre systeme a
-l'OUVERTURE, qui vise les extensions executables. ⚠ Ce n'est PAS Windows Defender :
-`Get-MpComputerStatus` rend `RealTimeProtectionEnabled: False` sur cette machine. La cause exacte
-n'est pas identifiee (`fltmc filters` exige l'elevation) ; le FAIT, lui, est reproductible.
+**Le declencheur est l'EXTENSION, pas le chemin.** La premiere ventilation comparait des RACINES
+(`scripts/` 7,36 ms/fichier contre `data/` 0,75 et `docs/` 0,65) — elle confondait deux variables,
+puisque ces racines different AUSSI par leur contenu. Contre-epreuve 2x2 qui les separe : 400
+fichiers IDENTIQUES, copies en `.py` et en `.txt`, dans le depot et hors depot, un process frais par
+case.
 
-**Le cout se paie une fois PAR PROCESSUS.** C'est ce qui le rendait invisible : deux mesures du
-meme cliquet dans le meme process donnent 16,8 s puis 0,4 s, mais deux PROCESS consecutifs donnent
-16,8 s et 16,8 s. Un profil `cProfile` le montrait deja (`_io.open` = 16,4 s des 41,1 s de
-`probe_431` instrumente, poste NUMERO UN) -- il fallait le croire.
+| | `.py` | `.txt` |
+| --- | --- | --- |
+| dans le depot (`logs/`) | **15,29** ms/fichier | 0,72 |
+| hors depot (`%TEMP%`) | **12,50** ms/fichier | 0,52 |
+
+Facteur ~20 sur l'extension, ~1,2 sur le chemin. Signature d'un **scanner on-first-read a cache**.
+⚠ Ce n'est pas la protection temps reel de Defender (`RealTimeProtectionEnabled: False`), mais ce
+champ NE SUFFIT PAS a conclure : `AMRunningMode` (`Passive Mode` / `EDR Block Mode` = un autre
+produit est primaire) n'a jamais ete lu. Cause exacte NON identifiee, `fltmc filters` exigeant
+l'elevation :
+
+```powershell
+fltmc filters                 # tout nom hors bindflt/FsDepends/WdFilter/storqosflt/wcifs/
+fltmc instances -v C:         #   CldFlt/FileCrypt/luafv/npsvctrig/Wof/FileInfo = le suspect
+Get-MpComputerStatus | Format-List AMRunningMode, RealTimeProtectionEnabled
+Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct
+```
+
+⚠ **REFUTE le 2026-08-03 : le cout n'est PAS par PROCESSUS.** Cette section a d'abord conclu
+« deux PROCESS consecutifs donnent 16,8 s et 16,8 s ». Mesure sur l'arbre reel (1605 `.py`), trois
+process FRAIS consecutifs, rien entre eux : **12,3 s / 0,90 s / 0,29 s**. Le cache du filtre est
+SYSTEME, il sert tous les process. Le cout se paie une fois **par FICHIER**, au premier acces depuis
+son ecriture.
+Consequence directe : **la banque ne le paie ni 35 fois, ni a chaque run.** Elle le paie sur les
+fichiers NEUFS POUR LE FILTRE — apres un `merge`/`checkout`, et INTEGRALEMENT dans chaque
+`git worktree add` d'agent, qui ecrit un arbre entier. C'est ce qui le rendait a la fois mesurable
+et invisible. Le profil `cProfile` (`_io.open` = 16,4 s des 41,1 s de `probe_431` instrumente,
+poste NUMERO UN) mesurait donc un run FROID, pas un regime.
 
 ⚠ **Corollaire de methode : une mesure ISOLEE d'un cliquet est trompeuse dans les DEUX sens.**
 Jouee juste apres un voisin qui a lu le meme arbre, elle est artificiellement basse ; jouee la
@@ -478,8 +502,10 @@ Pour un mur de 60 s a cette efficacite, il faudrait un travail total de **~170 s
 soit un facteur **4**. Et ce facteur bute sur une structure, pas sur du gras :
 
 * **`probe_457` pese 402,6 s a lui seul, soit 59 % du travail** -- 297,2 s de tests (1240 tests,
-  112 fichiers) plus ~105 s d'ouverture de 8 sessions pytest. Son perimetre est DERIVE : le
-  reduire est exactement la faute que #457-r5 repare.
+  112 fichiers) plus ~105 s de DEMARRAGE des 8 sessions pytest (interpreteur, imports `engine` /
+  `pytest` / `gameconfig`, conftest). ⚠ Ce residu etait attribue a l'OUVERTURE des fichiers ; cette
+  attribution NE TIENT PLUS (cf. la refutation ci-dessus) et n'a pas ete re-ventilee. Son perimetre
+  est DERIVE : le reduire est exactement la faute que #457-r5 repare.
 * **Son shard le plus long fait 74,8 s isole** -- donc meme a parallelisme parfait, le mur ne peut
   pas descendre sous 75 s sans re-sharder plus fin. Or sharder plus fin AJOUTE du travail
   (~13 s d'ouverture de session par shard) : a 12 shards le max tomberait vers 55 s mais le travail
@@ -487,11 +513,13 @@ soit un facteur **4**. Et ce facteur bute sur une structure, pas sur du gras :
 
 ### Ce qu'il faudrait pour y arriver -- non fait, chiffre
 
-1. **Supprimer le surcout systeme a l'ouverture.** 16,8 s par process frais pour lire l'arbre,
-   contre 0,4 s quand le process l'a deja lu. Sur ~35 process, c'est le plancher d'E/S de la
-   banque. Les threads le ramenent a ~4 s ; une EXCLUSION du depot dans le filtre responsable le
-   ramenerait a ~0,4 s. C'est une action MACHINE, hors depot -- et elle vaut, seule, plus que tout
-   ce qui precede. (Windows Defender est deja desactive : le filtre est un autre.)
+1. **Supprimer le surcout systeme a l'ouverture.** ⚠ **Sa valeur a d'abord ete SUR-ESTIMEE ICI**,
+   sur le « une fois par process » refute plus haut : ce n'est PAS un plancher d'E/S de
+   `16,8 s x ~35 process`, et en regime etabli la banque ne le paie pas du tout. Ce qu'une
+   EXCLUSION du depot gagnerait reellement : le PREMIER run apres un `merge`/`checkout` (~12 s), et
+   surtout **chaque worktree d'agent**, dont l'arbre est integralement neuf pour le filtre. Reel,
+   mais **sans effet sur les 678 s de travail** — donc ce n'est plus le levier n°1 qu'annoncait
+   la premiere redaction. Action MACHINE, hors depot.
 2. **Fusionner les process.** Les ~13 balayages et les 8 shards paient chacun son demarrage Python,
    ses imports (`engine`, `pytest`, `gameconfig` a 1,5 s), et sa PREMIERE lecture de l'arbre. Un
    cliquet multiplexe qui parse une fois et joue N analyses supprimerait tout cela d'un coup.
