@@ -262,6 +262,46 @@ class RemoveAllForcedAttackTargets(AbilityBehaviour):
         return OperationResult.ok()
 
 
+def _unit_has_triggered_ability(state, unit_id, ability_type: int) -> bool:
+    """Gate `GetAbilityState` d'`IdunBattle.Operations.TriggerTriggeredAbilityOperation$$
+    TriggerAbility` (#448-r1) -- la cible PORTE-t-elle l'ability qu'on lui declenche ?
+
+    Le natif, dans sa boucle par ability du type demande :
+
+        abilityState = ignoreUnitHavingAbility
+                     ? new Nullable<AbilityState>(default)              // le bras « on s'en fiche »
+                     : UnitExtensions.GetAbilityState(entity);          // l'etat SUR CETTE unite
+        if (abilityState.HasValue) { ... Execute(abilityState.Value, entities, 0x20) ... }
+
+    Le nom du parametre le dit : **`ignoreUnitHavingAbility`**. A `false` -- ce que passent les DEUX
+    call-sites portes (`HeraldOfTheApocalypse` et `...StormboyzStrike_MissAbility`) -- une unite qui
+    ne porte PAS l'ability ne voit RIEN s'executer, et **aucun tirage n'est consomme**.
+
+    MESURE qui l'a rendu visible (#448-r1, `MC1_67`/777, greffe `StormboyzStrike` sur `orksNob`) :
+    le `TriggerAbility(Caster, 0x46e = FullThrottle)` du Miss. Le porteur GREFFE n'a que
+    `passiveAbilities = [1141]` -- la greffe REMPLACE la liste, elle n'ajoute pas -- donc il ne porte
+    PAS `FullThrottle`. Natif : **2** `genrand_int32` consommes sur le pas. Port SANS ce gate : **3**
+    (il tirait le `Maybe(chance = 30)` de FullThrottle pour une ability que l'unite ne porte pas).
+    L'ecart etait INVISIBLE sur tout observable d'etat -- ni la position, ni la marque, ni les PV --
+    et n'apparait QUE sur le flux PRNG, qu'il DECALE pour tout le reste de la bataille.
+
+    Le gate porte sur l'EXECUTION, pas sur la resolution du selecteur : cote natif la liste `targets`
+    est deja resolue par `TriggerAbilityBehaviour$$Execute` AVANT l'appel de l'Operation. Le port
+    publie donc `targets` inchange et journalise a part les cibles ecartees (`notCarrying`).
+
+    Substrat : `entity_triggered_ability_ids` (l'`AbilitiesComponent` mesure via `unitAbilityStates`,
+    repli kit gameconfig quand le canal n'a pas parle) -- le MEME que lit la feuille d'utilite
+    `TriggeredAbilities(2)`, jamais un second recensement."""
+    from ....entities.triggered_ability_type import entity_triggered_ability_ids
+    from ...components import StatsComponent
+    if state is None or unit_id is None:
+        return False
+    e = state.get_entity(int(unit_id))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None) if sc is not None else None
+    return int(ability_type) in set(entity_triggered_ability_ids(ctx))
+
+
 class Kill(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLBehaviors$$Kill(subject, units, options)` ->
     `IdunBattle.Entities.Behaviours.KillUnitBehaviour$$Execute` (#448-r1) : TUE chaque unite du
@@ -492,9 +532,13 @@ class TriggerAbility(AbilityBehaviour):
         fn = TRIGGERED_ABILITY_BEHAVIOURS.get(self.ability_type)
         targets = sorted({u["id"] for u in _units_of(self.targets_sel, entities)
                           if isinstance(u, dict) and u.get("id") is not None})
-        results = []
+        results, skipped = [], []
         for uid in targets:                                  # ordre de lecture = id (mirror OrderBy)
+            if not _unit_has_triggered_ability(state, uid, self.ability_type):
+                skipped.append(int(uid))                     # gate `GetAbilityState` -- cf. ci-dessous
+                results.append(None)
+                continue
             results.append(None if fn is None else fn(state, uid))
         ectx.emit("TriggerAbility", ability_type=self.ability_type, targets=targets,
-                  dispatched=fn is not None, results=results)
+                  dispatched=fn is not None, results=results, notCarrying=skipped)
         return OperationResult.ok()

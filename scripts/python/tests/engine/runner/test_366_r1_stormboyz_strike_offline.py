@@ -205,7 +205,18 @@ def test_gate_has_not_moved(state):
 # ------------------------------------------------------------------ 3. LE REGISTRE
 
 def test_the_registry_wires_the_passive_on_the_ability_init_vector():
-    assert ABILITY_TRIGGERS.get("StormboyzStrike") == [StormboyzStrikeTeleportAbility]
+    """La classe de CETTE tranche (`_TeleportAbility`, `On(0x21 = AbilityInit)`) est au registre.
+
+    ⚠ Elle n'y est plus SEULE depuis #448-r1 : les deux autres classes du MEME
+    `TriggeredAbilityType` 1141 (`_FallbackAbility` sur `On(0x28)`, `_MissAbility` sur `On(0x1f)`)
+    y sont entrees, parce que le builder natif
+    `AbilitiesDatabase.u003Cu003Ec$$u003CInitializeTriggeredAbilitiesu003Eb__28_134` construit une
+    `List` de TROIS instances pour l'unique entree `0x475` -- greffer le passif les monte toutes.
+    L'assertion porte donc sur la PRESENCE de celle-ci, pas sur l'exclusivite (que le natif
+    contredit) ; la composition complete est gardee par
+    `tests/engine/test_448_r1_stormboyz_port_offline.py::test_O8_...`."""
+    wired = ABILITY_TRIGGERS.get("StormboyzStrike") or []
+    assert StormboyzStrikeTeleportAbility in wired, [c.__name__ for c in wired]
     assert StormboyzStrikeTeleportAbility.event_id == int(EventTriggerType.AbilityInit) == 0x21
     assert StormboyzStrikeTeleportAbility.TRIGGERED_ABILITY_ID == STORMBOYZ_STRIKE
 

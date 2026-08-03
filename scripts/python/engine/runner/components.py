@@ -1967,8 +1967,14 @@ class UnitEffectStateView(Mapping):
         # (`op_LogicalNot(<DSLTriggers+0x28>)`). EAGER : deux lectures de champ, aucun balayage.
         # Cle ABSENTE si le proprietaire ou le joueur courant n'est pas connu = « non mesure » ->
         # la condition degrade en VRAI (on ne masque pas l'effet a tort).
+        # ⚠ `oc.player` peut etre `None` MEME quand l'`OwnerComponent` existe : c'est le cas de
+        # toute unite HORS PLATEAU sous un `ATeleportingEffect` (1035/1140/1238/1573), que
+        # `decisionView` publie avec `visualId`, `team` ET `pos` a `null` (mesure #425/#448-r1) --
+        # le seed n'a alors PAS de joueur a poser. C'est exactement le « proprietaire non connu »
+        # que la ligne ci-dessus decrit : la cle doit rester ABSENTE, pas lever un `TypeError`
+        # (trouve en portant `StormboyzStrike_FallbackAbility`, dont le porteur EST dans cet etat).
         cur = getattr(state, "current_player_id", None) if state is not None else None
-        if oc is not None and cur is not None:
+        if oc is not None and oc.player is not None and cur is not None:
             eager["is_turn_of_owner"] = (int(oc.player) == int(cur))
         self._eager = eager
         self._has_psy = oc is not None            # `Enemies(Owner, …)` calculable
