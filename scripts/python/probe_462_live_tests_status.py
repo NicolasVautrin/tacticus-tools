@@ -383,6 +383,35 @@ def _merge_ledger(nouveau: dict, commit: str) -> dict:
     return doc
 
 
+def _unmeasured(perimetre: list) -> list:
+    """Les fichiers du perimetre SANS mesure valide a leur blob courant.
+
+    Trois cas y entrent, et ils sont le MEME etat -- NON MESURE :
+      * absent du ledger (jamais joue) ;
+      * present mais mesure sur un AUTRE blob (le fichier a change depuis) ;
+      * present avec le verdict `NON JOUE` (une passe l'a vise mais n'a produit aucun report --
+        worker tue, timeout, fenetre de maintenance ouverte en cours de tranche).
+
+    Le troisieme est le plus traitre : une passe INTERROMPUE laisse des fichiers qu'on croit
+    couverts. Un resultat partiel ne vaut rien, et le compter comme une mesure serait exactement
+    la demi-couverture que ce dossier existe pour rendre visible."""
+    path = ledger_path()
+    fichiers = {}
+    if path.exists():
+        try:
+            fichiers = json.loads(path.read_text(encoding="utf-8")).get("fichiers", {})
+        except (OSError, ValueError):
+            fichiers = {}
+    blobs = _blobs(perimetre)
+    out = []
+    for rel in perimetre:
+        e = fichiers.get(rel)
+        if (e is None or e.get("verdict") == "NON JOUE"
+                or not blobs.get(rel) or e.get("_blob") != blobs.get(rel)):
+            out.append(rel)
+    return out
+
+
 def _do_gate(ref: str) -> int:
     """OFFLINE. Tout fichier live TOUCHE par le diff doit porter une attestation VERTE a SON blob.
 
@@ -539,6 +568,11 @@ def main(argv=None) -> int:
     ap.add_argument("--sample", type=int, default=0,
                     help="nombre de fichiers a jouer, pris dans l'ordre de RISQUE (les plus "
                          "anciennement touches d'abord)")
+    ap.add_argument("--unmeasured", action="store_true",
+                    help="avec --run --sample N : ne prend QUE les fichiers absents du ledger ou "
+                         "dont le blob a change. C'est la reprise correcte d'un balayage borne "
+                         "(ou interrompu) -- un fichier NON MESURE n'est ni rouge ni vert, et le "
+                         "re-jouer est la seule facon de le sortir de cet etat.")
     ap.add_argument("--offset", type=int, default=0,
                     help="decalage dans l'ordre de risque (pour enchainer des tranches)")
     ap.add_argument("--jobs", type=int, default=MAX_JOBS,
@@ -584,8 +618,13 @@ def main(argv=None) -> int:
             print("[462] hors perimetre : %s" % ", ".join(inconnus[:5]))
             return 2
     elif args.sample > 0:
-        ages = _last_touch(perimetre)
-        ordre = sorted(perimetre, key=lambda r: (ages.get(r, 0), r))
+        candidats = perimetre
+        if args.unmeasured:
+            candidats = _unmeasured(perimetre)
+            print("[462] --unmeasured : %d/%d fichier(s) SANS mesure valide (absents du ledger, "
+                  "ou mesures sur un AUTRE blob)" % (len(candidats), len(perimetre)))
+        ages = _last_touch(candidats)
+        ordre = sorted(candidats, key=lambda r: (ages.get(r, 0), r))
         cibles = ordre[args.offset:args.offset + args.sample]
         print("[462] echantillon par RISQUE (dernier commit le plus ANCIEN d'abord) : "
               "%d fichier(s), offset %d ; %d ECARTES de cette passe"
