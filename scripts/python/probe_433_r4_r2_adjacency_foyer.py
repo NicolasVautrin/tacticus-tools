@@ -291,15 +291,23 @@ def _nc_context(sid, rid, dv, uid):
         cast_from_tiles=a.cast_from_tiles, scene=a.scene)
 
 
-def step_couple(verbose=True) -> dict:
-    """Le couple, sur le montage CONFINE : ennemi a un voisin hex a `|dElev| >= 2` du caster, et
-    caster a `Movement = 2` de sorte que tout le sweep reste a `d <= 3` de l'ennemi.
+def _ability_reach(visual_id) -> int:
+    """La zone d'ability de l'ennemi (`AttackQuery$$GetAllTilesInAbilityRange`), pour la sortie."""
+    from engine.services import ability_range as ar
+    return ar.unit_threat_reach(visual_id)
 
-    Pourquoi confiner : la branche A du port approxime `IsTileInRangeOfAnyAbility` par
-    `d > portee_arme_max(E)` et la branche B fixe son `threshold` a 1. Les deux approximations sont
-    EXACTES tant que `d <= portee` (mesure `--step partition` : le natif couvre au moins jusqu'a
-    d=4 ; les deux branches y valent 0). Hors de ce domaine, un desaccord port/natif serait
-    imputable a l'une de ces deux approximations et non au terme corrige."""
+
+def step_couple(verbose=True) -> dict:
+    """Le couple : ennemi a un voisin hex a `|dElev| >= 2` du caster, caster a `Movement = 4`.
+
+    RE-ETALONNE par #433-r4-r2-r1/-r2. L'ancien montage forcait `Movement = 2` pour CONFINER le
+    sweep a `d <= 3` : c'etait le domaine ou les deux approximations de branche d'alors (branche A
+    = portee d'ARME, branche B = `threshold` fige a 1) restaient exactes. Les deux etant desormais
+    portees (zone d'ability 5, `threshold` 3 sur `tauMarksman`), le confinement n'a plus lieu
+    d'etre -- et il RETIRAIT precisement les distances ou les deux branches DIFFERENT. Le sweep
+    doit maintenant ATTEINDRE `d = 4` : c'est la que la branche A ne verse rien (`d <= 5`, en
+    portee) alors que la branche B verse `+50` (`d > 3`), donc c'est la que la mutation du canal
+    d'elevation se lit."""
     sid = _resolve_session()
     if not sid:
         return {"error": "aucune session Frida"}
@@ -324,7 +332,7 @@ def step_couple(verbose=True) -> dict:
     O, Y = pick
 
     sid = _resolve_session()
-    rid, err = _build(["--unit-stat", "%s:Movement=2" % CASTER])
+    rid, err = _build(["--unit-stat", "%s:Movement=4" % CASTER])
     if rid is None:
         return {"error": "build KO (couple) : %s" % err}
     try:
@@ -358,7 +366,11 @@ def step_couple(verbose=True) -> dict:
         out = {
             "O": O, "Y": Y, "elev_O": elev[O], "elev_Y": elev[Y],
             "caster": c["id"], "enemy": e["id"],
-            "enemies": [{"pos": list(pos), "range": rg} for (pos, rg) in enemies],
+            # Les DEUX seuils de branche, desormais DISTINCTS (#433-r4-r2-r1 + -r2 fermes ensemble) :
+            # `reach` = zone d'ability (`IsTileInRangeOfAnyAbility`), `threshold` = portee de l'arme
+            # a distance (`FindRangedWeapon`). Sur `tauMarksman` : 5 et 3.
+            "enemies": [{"pos": list(pos), "visualId": vid, "threshold": thr,
+                         "reach": _ability_reach(vid)} for (pos, vid, thr) in enemies],
             "adj_on": sorted(adj_on), "adj_off": sorted(adj_off),
             "d_max": max(r["d"] for r in rows) if rows else None,
             "n": len(rows),
@@ -381,6 +393,10 @@ def step_couple(verbose=True) -> dict:
                   % (out["adj_on"], out["adj_off"]))
             print("[couple] positions ou port != natif : AVEC canal %d/%d, SANS canal %d/%d"
                   % (len(out["diff_on"]), out["n"], len(out["diff_off"]), out["n"]))
+            for r in out["diff_on"]:
+                print("[couple]   diff_on %r d=%d natif=%r port=%r (LoS/elevation : residu "
+                      "`#433-r4-r2-r1` de la ZONE, cf. case-doc)"
+                      % (r["pos"], r["d"], r["natif"], r["port_on"]))
             print("[couple] action portee -- AVEC canal %r ; SANS canal %r"
                   % (out["cand_on"], out["cand_off"]))
             print("[couple] utilite MAXIMALE du natif sur le sweep : %r" % (out["native_best"],))
