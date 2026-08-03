@@ -12,6 +12,7 @@ from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defend
 # le foyer PARTAGE (#339/#350-r3b), consomme ici par le mold RANGED (#446-r1). Ne PAS substituer
 # `MinMaxDamage$$Avg` ni `AActiveAbility$$MinMaxDamageAverage` : ils arrondissent demi-vers-le-PAIR.
 from engine.dsl.base import calculate_average
+from engine.services.custom_normal_attack import substitutes_normal_attack
 
 
 # ── #57c-C : overrides `<Boss>_NormalAttackAbility.PredictAttack` (attaque normale + follow-up) ──
@@ -55,7 +56,10 @@ from engine.dsl.base import calculate_average
 #    `$$GetAdditionalDamagePrediction` n'existe que pour les DEUX premieres, et ni `Fealty` ni
 #    `TalonOfHorus` ne portent de `$$PredictAttack`. Elles foldent donc en COMBAT et PAS en
 #    DECISION. Les inscrire au registre par analogie serait un fork de port.
-# Cle de dispatch = le PASSIF du kit gameconfig (l'instance native lit SA config = celle du passif).
+# Cle de dispatch = le PASSIF de l'ENTITE (`UnitConfiguration.PassiveAbilities`, lu par
+# `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromPassive` ; l'instance
+# native lit SA config = celle du passif). Le KIT gameconfig n'en est plus que le REPLI quand le
+# canal de mesure est muet — cf. `engine.services.custom_normal_attack` (#419-r1-tr14-r5).
 _RANGED_FOLLOWUP_PASSIVES = ("Boltstorm",)   # #446-r1 : porteur `templAggressor`, confronte live
 _MELEE_FOLLOWUP_PASSIVES = ("RighteousRepugnance",)   # #446-r3 : porteur `adeptMorvenn`, confronte live
 _MELEE_KLAW_PASSIVES = ("ProperKilly",)
@@ -222,24 +226,30 @@ def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_f
     (`RighteousRepugnance`) quand elle L'EST. Un porteur ne peut donc jamais folder par les deux."""
     if not weapon_found:
         return None                       # mirror `FindAttackWeapon != null` (IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$PredictAttack / IdunBattleLogic.Entities.Abilities.Active.Loki.RighteousRepugnance_NormalAttackAbility$$PredictAttack / IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$PredictAttack)
-    try:
-        kit = GC.unit_abilities(scene.vis_by_id.get(att_id)) or {}
-    except Exception:
-        return None
-    names = {(a.get("name") or "") for lst in (kit.get("passive"), kit.get("active"))
-             for a in (lst or [])}
+    # #419-r1-tr14-r5 : `carries` mirrore `IdunBattle.Entities.Factories.UnitFactory$$
+    # GetCustomNormalAttackTypeFromPassive` — la cle de dispatch est `UnitConfiguration.
+    # PassiveAbilities` (fait d'ENTITE, mesure `UnitContext.passive_abilities`), et le KIT n'est
+    # plus qu'un REPLI de canal muet. Un montage qui touche a la liste de passifs (toute greffe
+    # `replace=True`) ramene l'attaque normale a `69` cote natif : le port doit le suivre.
+    _actx = scene.ctx(att_id)
+    _pas = getattr(_actx, "passive_abilities", None)
+    _vis = scene.vis_by_id.get(att_id)
+
+    def carries(nm: str) -> bool:
+        return substitutes_normal_attack(nm, passive_abilities=_pas, visual_id=_vis)
+
     if not is_melee:
         for nm in _RANGED_FOLLOWUP_PASSIVES:
-            if nm in names:
+            if carries(nm):
                 return get_additional_damage_prediction(scene, att_id, tgt_id, nm, mods=mods,
                                                         hits_ctx=hits_ctx)
     else:
         for nm in _MELEE_FOLLOWUP_PASSIVES:
-            if nm in names:
+            if carries(nm):
                 return get_additional_damage_prediction(scene, att_id, tgt_id, nm, mods=mods,
                                                         hits_ctx=hits_ctx)
         for nm in _MELEE_KLAW_PASSIVES:
-            if nm in names:
+            if carries(nm):
                 return get_klaw_attack1_prediction(scene, att_id, tgt_id, nm, mods=mods)
     return None
 
@@ -457,7 +467,10 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # arme) ; DISTANCE -> chemin drone (config du drone, degat StatAmount(caster), widget mods zeroe).
     if is_adjacent is not True:
         from engine.runner.abilities.loki.mv71 import is_mv71_normal_attacker
-        if is_mv71_normal_attacker(scene.vis_by_id.get(att_id)):
+        # #419-r1-tr14-r5 : la cle de dispatch est `UnitConfiguration.PassiveAbilities` (fait
+        # d'ENTITE), pas le kit — cf. `engine.services.custom_normal_attack`.
+        if is_mv71_normal_attacker(scene.vis_by_id.get(att_id),
+                                   passive_abilities=getattr(ctx, "passive_abilities", None)):
             return _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, meta=meta)
     _dist = hexgeo.distance(attack_pos, t_pos) if (attack_pos and t_pos) else None   # porte portee ranged #188
     pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)

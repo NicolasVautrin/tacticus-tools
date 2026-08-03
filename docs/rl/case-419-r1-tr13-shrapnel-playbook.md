@@ -249,11 +249,13 @@ unique état, `Fix64.op_Implicit(0)`, aucun champ de la SM consulté. Elle n'ent
 
 ## 8. Résidus NOMMÉS
 
-* **`#419-r1-tr13-r1` — l'écart constant de la paire.** Le port est **au-dessus** du natif de
-  `+5.458908`, **invariant aux quatre crans** (c'est ce que la garde asserte, à la place d'une
-  égalité en niveau qui rougirait pour une cause étrangère). Il ne varie pas avec le terme : il vient
-  du composite de DÉGÂT sur le couple (`tauMarksman`, `astraBullgryn`), non instruit ici. Même forme
-  que le résidu de #446 et de la tranche 12.
+* **`#419-r1-tr13-r1` — FERMÉ** (`docs/rl/case-419-r1-tr14-r5-dispatch-attaque-normale.md`).
+  Le port était **au-dessus** du natif de `+5.458908`, invariant aux quatre crans. Ce n'était pas le
+  composite de dégât : c'était le DISPATCH de l'attaque normale, résolu depuis le KIT gameconfig là
+  où `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromPassive` lit
+  `UnitConfiguration.PassiveAbilities` — que le `replace=True` du montage venait justement de vider.
+  Re-mesuré après le fix : **0.000000 aux quatre crans**. Même cause que `#419-r1-tr12-r1` et
+  `#419-r1-tr14-r5`, fermés en même temps.
 * **`#419-r1-tr13-r2` — les porteurs RÉELS ne sont pas confrontés.** La greffe ne couvre ni les
   stats, ni les traits, ni l'arme du summon/npc. Elle est légitime pour ce terme (le corps ne lit du
   caster que son identité, sa position et le niveau de son passif), mais le `Mortar` lui-même n'a

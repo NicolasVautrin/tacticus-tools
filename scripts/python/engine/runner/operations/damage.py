@@ -1078,7 +1078,13 @@ class DamageHandler:
         if _uc is not None:
             from ..abilities.loki.mv71 import (is_mv71_normal_attacker,
                                                MV71SniperDroneSquadAttackAbility)
-            if is_mv71_normal_attacker(_uc.visual_id):
+            # #419-r1-tr14-r5 : la cle de dispatch est `UnitConfiguration.PassiveAbilities` (fait
+            # d'ENTITE, mesure `UnitContext.passive_abilities` par `snapshot._load_passive_
+            # abilities`), pas le KIT — MEME predicat et MEME source que la face DECISION, sans quoi
+            # « ce que la prediction annonce » et « ce que le moteur fait » divergeraient.
+            _asc = _ae.get_component(StatsComponent)
+            _apas = getattr(getattr(_asc, "ctx", None), "passive_abilities", None)
+            if is_mv71_normal_attacker(_uc.visual_id, passive_abilities=_apas):
                 res = MV71SniperDroneSquadAttackAbility().execute_behaviour(
                     self.state, msg.attacker_id, msg.target_id) or {}
                 self.last = res.get("attack")
