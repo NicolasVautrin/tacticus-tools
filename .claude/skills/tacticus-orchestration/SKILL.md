@@ -889,8 +889,9 @@ adversariale de son PROPRE fix, livraison **PAR PULL REQUEST**) :
 **Ordre, et il ne se réorganise pas :** rapport → `gh pr view --json headRefName` → fraîcheur
 (`merge-base --is-ancestor`) → `git merge --no-ff --no-commit` → **lire le diff des tests EXISTANTS
 modifiés** + **classer le diff `engine/`** → 3 à 5 groupes ciblés joués **par moi** → régénérer les
-docs générés → **commit LOCAL** → `ratchets-bg` en arrière-plan → lire la PR suivante → **push
-seulement sur VERT** → `git worktree remove` (après scan des points de reparse).
+docs générés **et l'attestation `probe_462`** → **commit LOCAL** → `ratchets-bg` en arrière-plan →
+lire la PR suivante → **push seulement sur VERT** → `git worktree remove` (après scan des points de
+reparse).
 
 ```
 merge --no-ff LOCAL  ->  pwsh -File scripts/ratchets-bg.ps1 -Since <base>   (arriere-plan)
@@ -907,6 +908,26 @@ merge --no-ff LOCAL  ->  pwsh -File scripts/ratchets-bg.ps1 -Since <base>   (arr
   commité lui est invisible, et il le DIT.
 - **Trois issues, à ne pas confondre** : `0` vert · `n` = n cliquets rouges · `64` (usage) et `99`
   (montage) = **aucun verdict sur le dépôt**, jamais à lire comme un rouge (#457-r7).
+
+### Ne pas PAYER DEUX FOIS — reproche « t'es trop lent à merger » (2026-08-03)
+
+La lenteur ne venait pas du nombre de gardes : je **rejouais à la main** le jeu de non-régression que
+l'agent avait déjà joué et rapporté, en dormant par tranches de 2 min.
+
+- ⛔ **Ne pas rejouer les tests live que la PR touche.** Régénérer l'attestation
+  (`probe_462_live_tests_status.py --run --since origin/master`) les **REJOUE** — c'est ça, la mesure
+  indépendante, pas un enregistrement de la parole de l'agent. Les 3 à 5 groupes ciblés de l'ordre
+  ci-dessus portent sur le **diff `engine/` classé**, pas sur le jeu déjà rendu par l'auteur.
+- **Régénérer le ledger AVANT de lancer la banque**, jamais après — une passe a rougi pour cette
+  seule raison de séquence. Puis `git add scripts/ratchets-462-live-attestations.json`.
+- ⚠ **Grouper plusieurs PR sur une seule tête est un REPLI, pas la règle** — ça fait perdre
+  l'ATTRIBUTION, et `ratchets-bg` existe précisément pour ne pas avoir à choisir entre vitesse et
+  attribution (il épingle le commit, l'arbre principal passe à la PR suivante). Ne grouper que si le
+  fond est indisponible.
+- **Lancer, passer à la suite, lire le verdict quand il tombe.** Pas de veille en boucle serrée : le
+  fichier `logs/ratchets-bg/<court>-<horodatage>.txt` attend, lui.
+- **Ce qui reste manuel et non négociable** : la relecture du **diff d'un test EXISTANT que la PR
+  MODIFIE**. Aucune garde ne voit un test adapté pour passer.
 
 **Coût mesuré le 2026-08-03** (à re-dériver, jamais à citer) : complet ~240 s ; avec `-Since` sur
 une PR de documentation **141 s** ; worktree neuf +34 s contre persistant. La sélection dérive d'une
