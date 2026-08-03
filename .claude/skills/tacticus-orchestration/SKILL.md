@@ -926,6 +926,20 @@ l'agent avait déjà joué et rapporté, en dormant par tranches de 2 min.
   fond est indisponible.
 - **Lancer, passer à la suite, lire le verdict quand il tombe.** Pas de veille en boucle serrée : le
   fichier `logs/ratchets-bg/<court>-<horodatage>.txt` attend, lui.
+- ⛔ **`probe_457 --measure` n'a RIEN à faire dans la boucle de merge** — c'est de la maintenance
+  (« à rejouer quand le mur dérive », dit sa propre aide). Mesuré le 2026-08-04 : **12 min bloquantes**
+  (719,7 s / 1462 tests), payées **deux fois** dans la même boucle. Les DEUX artefacts se dégradent
+  **du côté sûr**, et le code le dit (`probe_457_offline_tests_green.py`, commentaires de
+  `_footprints_path` et `_weights_path`) : une **empreinte** périmée « sélectionne TROP — et retombe
+  continûment sur le rejeu total » ; des **poids** périmés « coûtent du MUR, jamais un faux vert,
+  jamais un trou ». Aucun des deux ne peut produire un faux vert, et ce coût tombe **dans la banque,
+  qui tourne en fond** — donc zéro sur le chemin critique. Le lancer, c'est convertir un coût
+  invisible en blocage.
+  Seule chose qui force la main aujourd'hui : la **garde d'ÉQUILIBRAGE**, qui rougit dès qu'un
+  fichier de test offline neuf n'a pas de poids — une garde d'OPTIMISATION calibrée comme un
+  invariant de correction, et qui ne peut PAS rougir chez un agent (worktree frais → repli md5).
+  C'est la tâche **#463** ; tant qu'elle n'est pas corrigée, la sortie est de pousser en connaissant
+  ce rouge-là, pas de payer 12 min.
 - **Ce qui reste manuel et non négociable** : la relecture du **diff d'un test EXISTANT que la PR
   MODIFIE**. Aucune garde ne voit un test adapté pour passer.
 
