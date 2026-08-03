@@ -193,7 +193,7 @@ def port_mod_details(ctx, tgt, tile) -> list:
 
 
 def chain(base: int, pierce: int, armor: int, mults: list, hits: int, hit_mult: int = 1,
-          mults_def: list | None = None) -> dict:
+          mults_def: list | None = None, mult_att: float = 1.0, mult_def: float = 1.0) -> dict:
     """Re-joue la chaine PORT etage par etage, en gardant les Fix64 EXACTS (raw). Rend, PAR BORNE :
       `spread`   -- IdunBattle.Core.Services.DamageCalculations$$CalculateDamageSpread
       `base_mm`  -- IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64
@@ -217,11 +217,16 @@ def chain(base: int, pierce: int, armor: int, mults: list, hits: int, hit_mult: 
         res[f"pierced_{name}"] = raw
         res[f"exact_{name}"] = Fraction(raw, _fx.ONE)
         # LES QUATRE ETAPES de `CalculateBaseDamageWithAllModifiers`, dans l'ordre natif.
-        x = apply_pct_entries(_fx.Fix64(raw), [(m, None) for m in mults])
-        x = calculate_base_damage_with_modifiers(x)                             # Round ATTAQUANT
+        # #462-r4a : les etapes 1 et 2 (les LISTES `@0x18` des deux faces) forment UNE SEULE chaine
+        # -- elles se composent sans arrondi entre elles ; les etapes 3 et 4 sont les deux
+        # `Multiplier@0x30` (`mult_att` / `mult_def`), chacune precedee de son `Fix64.Round`. Lire
+        # ce diagnostic avec les seules %-list rendait une chaine AMPUTEE du multiplicateur d'une
+        # modification de STAT (la cible sur tuile Thorns), donc un faux ecart.
+        x = apply_pct_entries(_fx.Fix64(raw),
+                              [(m, None) for m in list(mults) + list(mults_def or [])])
         res[f"after_att_{name}"] = Fraction(x.raw, _fx.ONE)
-        x = apply_pct_entries(x, [(m, None) for m in (mults_def or [])])
-        x = calculate_base_damage_with_modifiers(x)                             # Round DEFENSEUR
+        x = calculate_base_damage_with_modifiers(x, mult_att)                   # etape 3
+        x = calculate_base_damage_with_modifiers(x, mult_def)                   # etape 4
         res[f"out_{name}"] = _fx.to_int(_fx.round_raw(x.raw, 1))
     return res
 
@@ -445,7 +450,9 @@ def main() -> int:
             n_bad += 1
         ch = chain(int(m.get("base") or 0), int(m.get("pierce") or 0), int(m.get("armor") or 0),
                    list(m.get("mods") or []), int(r["port_hits"] or 1),
-                   mults_def=list(m.get("mods_def") or []))
+                   mults_def=list(m.get("mods_def") or []),
+                   mult_att=float(m.get("mult_att") or 1.0),
+                   mult_def=float(m.get("mult_def") or 1.0))
         e_lo, e_hi = ch["exact_min"], ch["exact_max"]
         print(f"  [{tag}] tile={r['tile']} {r['target']} u{r['uid']} "
               f"nat=({r['nat_min']},{r['nat_max']},{r['nat_hits']}) "
@@ -453,10 +460,11 @@ def main() -> int:
               f"d=({dmin:+d},{dmax:+d},{dh:+d})")
         print(f"        base={m.get('base')} pierce={m.get('pierce')} armor={m.get('armor')} "
               f"hits={m.get('hits')} modsATT={m.get('mods')} modsDEF={m.get('mods_def')} "
+              f"multATT={m.get('mult_att')} multDEF={m.get('mult_def')} "
               f"detail={m.get('mods_detail')} "
               f"baseMM=({ch['base_min']},{ch['base_max']}) spread={ch['spread']}")
         print(f"        percage EXACT min={float(e_lo):.8f} max={float(e_hi):.8f} "
-              f"| apres face ATT min={float(ch['after_att_min']):.4f} "
+              f"| apres chaine %-list min={float(ch['after_att_min']):.4f} "
               f"max={float(ch['after_att_max']):.4f} "
               f"-> port/coup=({ch['out_min']},{ch['out_max']}) "
               f"nat/coup=({r['nat_min'] / max(1, r['nat_hits']):.4f},"

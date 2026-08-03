@@ -983,6 +983,25 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         (appliqué à part par `apply_all_modifiers`) → aucune double-application. Vide → no-op (rétro-compat)."""
         if def_mods.flat_reductions:
             mods.additive -= sum(def_mods.flat_reductions)
+        # #462-r4a — LA FACE DEFENSEUR ENTRE DANS LA MEME CHAINE QUE LA FACE ATTAQUANT.
+        # `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` compose
+        # les listes `@0x18` des DEUX faces (etapes 1 puis 2) AVANT le moindre `Round`, et ne fait
+        # intervenir un arrondi qu'aux etages MULTIPLICATEUR (`Multiplier@0x30`, etapes 3 et 4).
+        # Le port appliquait la face defenseur dans un SECOND appel (`apply_all_modifiers`), donc
+        # derriere l'arrondi de la premiere -- un `Round` surnumeraire des que les deux faces sont
+        # non neutres. MESURE (`probe_462_r4a_terrifying_rounding.py --two-faces`, elevation x1.50
+        # cote ATTAQUANT et `Terrifying_ExtraDefense` x0.70 cote DEFENSEUR, unites DEPLACEES pour
+        # fabriquer le denivele) : natif 761/1141, chaine unique 761/1141, deux chaines 762/1142.
+        # On DEPLACE donc les entrees (et on VIDE la source) : `def_mods` est un accumulateur local
+        # reconstruit a chaque execution, exactement comme pour `flat_reductions` ci-dessus, et
+        # `apply_all_modifiers(def_mods)` en aval devient un no-op sur cet axe -- pas une
+        # double-application.
+        if def_mods.pct_list:
+            mods.pct_list_defender.extend(def_mods.pct_list)
+            def_mods.pct_list = []
+        if def_mods.multiplicative != 1.0:
+            mods.multiplicative_defender *= def_mods.multiplicative
+            def_mods.multiplicative = 1.0
         # #112 : axe PERCAGE porte par un effet de la CIBLE (`<Effect>.CreatePiercingBonusForAttack`
         # avec trigger `OwnerIsTarget`, ex. `IdunBattle.Entities.Effects.Loki.
         # Supercharge_ExtraPiercingEffect$$CreatePiercingBonusForAttack` = `ForPiercing(
