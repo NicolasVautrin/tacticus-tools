@@ -160,6 +160,10 @@ from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (r
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
+from ..loki.neuroparasite import (NeuroparasiteAddBondEffectAbility,     # #462-r4b-r1-r1-r1
+                                  NeuroparasiteIncreaseLevelOnPsychicHit,
+                                  NeuroparasiteIncreaseLevelOnPinned,
+                                  NEUROPARASITE_EFFECT)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -407,6 +411,15 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/cosmic_horror.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnKillAbility$$CreateTrigger /
     # ...$$CreateBehaviour / IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateTrigger).
     "CosmicHorror": [CosmicHorrorOnKillAbility, CosmicHorrorOnMoveAbility],
+    # Neuroparasite (passif `tyranNeurothrope` << Neurothrope >> + 6 npc, #462-r4b-r1-r1-r1) = la POSE
+    # du parasite : `On(9 = Attack) & OwnerIsCaster & !HasEffect(Target, 0x4c2) & IsUnit(Target) &
+    # CurrentAttackDamageProfilesContain(0xd = Psychic) & !(OwnerIsActor & OwnerIsTarget)` ->
+    # `AddBondEffect(0x4c2 = 1218, abilityState, source: Owner, targets: Target, bondedEntity: Owner,
+    # options: <vide> = PERMANENT)`. L'effet 1218 portait deja son additif de degat defenseur
+    # (`entities/effects/loki/damage_reduction.py::NeuroparasiteEffect`, magnitude fermee par #553)
+    # mais AUCUN vecteur offline ne le POSAIT : en self-play 100 % porte le parasite n'apparaissait
+    # jamais. Sa MONTEE EN NIVEAU vit dans `EFFECT_TRIGGERS[1218]`. Cf. loki/neuroparasite.py.
+    "Neuroparasite": [NeuroparasiteAddBondEffectAbility],
     # SpiritualLeader (passif `genesMagus` << Xybia >>) = `On(0x1c=ArrivedAtFinalTile) & OwnerIsActor`
     # (fin d'activation : apres son 1er move, OU cloture de tour si elle n'a pas bouge -- les DEUX
     # emetteurs natifs de 0x1c) -> decoy sur la meilleure tuile adjacente libre, puis si >=2 decoys
@@ -635,6 +648,19 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
                                    TerminatorArmourActivateOnTurnStart,     # On(0x12) -> ActivateEffect
                                    TerminatorArmourDeactivateOnTurnEnd,     # On(0x17) -> DeactivateEffect
                                    TerminatorArmourActivateOnEffectAdded],  # On(0x3e) -> ActivateEffect
+    # 1218 Neuroparasite (#462-r4b-r1-r1-r1) : les DEUX `Triggered()` que
+    # `IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal`
+    # ajoute a l'`ArraySet`, tous deux vers `$$GetIncreaseLevelBehaviour` =
+    # `IncreaseEffectLevel(Effect, Direct(1), max = $$GetMaximumLevel())` avec
+    # `max = buffMaxLevel[lvl du passif du Neurothrope] + (effectLevel=1 si le bonde porte NornCrown)` :
+    #   * `On(9) & OwnerIsTarget & CurrentAttackDamageProfilesContain(0xd)` -- toute attaque PSYCHIQUE
+    #     subie par la victime (AUCUN gate sur l'auteur du coup : c'est le decompile) ;
+    #   * `On(0x3d = PreEffectAdded) & OwnerIsTarget & TriggeringEffectIs(0x429 = 1065 Pinned)`.
+    # Sans eux, tout parasite restait au NIVEAU 1 -- or l'additif de degat est `x EffectLevel`.
+    # Les TROIS triggers de RETRAIT herites d'`ABondEffect` restent un residu NOMME (leurs gates sont
+    # des virtuels a lire au slot de vtable). Cf. loki/neuroparasite.py.
+    NEUROPARASITE_EFFECT: [NeuroparasiteIncreaseLevelOnPsychicHit,   # On(9)    -> +1 niveau
+                           NeuroparasiteIncreaseLevelOnPinned],     # On(0x3d) -> +1 niveau
     HAZE_DAMAGE_TRANSFER: [HazeOfCorruptionDamageTransferTrigger],
     CONTAMINATED_TILE: [ContaminatedTileEffect],  # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
     FIRE_TILE: [FireTileDoT],                     # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant

@@ -94,6 +94,15 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.InspiredToGreatness_OverrideLevelEffect$$CreateRemoveEffectTrigger"),
     "ChronometronExtraDamageRemove":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateRemoveEffectTrigger"),
+    # #462-r4b-r1-r1-r1 -- les DEUX `Triggered()` que
+    # `NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal` ajoute a l'`ArraySet` (montee de
+    # niveau sur frappe PSYCHIQUE `On(9)` et sur pose de `Pinned` `On(0x3d)`). Rail ARRAYSET : le
+    # natif ne les fait PAS passer par `EvaluateEffectTriggerTargets`, donc aucun gate `IsActive` --
+    # et le port ne doit pas en inventer un.
+    "NeuroparasiteIncreaseLevelOnPsychicHit":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "NeuroparasiteIncreaseLevelOnPinned":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal"),
     "EarlyWarningOverrideReactivateOverwatch":
         (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
     "EarlyWarningOverrideHitReductionPurge":

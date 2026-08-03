@@ -75,17 +75,29 @@ class AddBondEffect(AbilityBehaviour):
     l'entite-effet (`+0x10`) — ce que relit `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`.
     Un id NUL laisse le builder ORDINAIRE (aucun bond). D'ou : `bonded_ref=None` ici = pas de bonded
     porte -> `BaseEffect.bonded` reste None (comportement historique, INCHANGE pour les call-sites qui
-    ne le renseignent pas encore)."""
+    ne le renseignent pas encore).
+
+    `scale_from_source` = le **3e argument natif** `abilityState` d'`IdunBattleLogic.Entities.
+    DSLBehaviors$$AddBondEffect`, que la factory transmet tel quel a
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$.ctor` : l'entite-effet BAKE l'etat d'ability
+    du POSEUR, et c'est CET etat que relit `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`
+    quand un `ConfigVar` de l'effet materialise doit s'indexer. Semantique et implementation
+    STRICTEMENT identiques a l'homonyme d'`AddEffect` (meme `_source_scaling`, meme `#382
+    baked_ability_state`) -- ce parametre n'existait pas ici parce qu'aucun call-site porte n'en avait
+    besoin. Defaut False = comportement historique, INCHANGE pour les trois call-sites existants
+    (`MalleusRocketLauncher`, `TunnelingHorror`, `GetEmRuntz`)."""
     __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds", "duration_turns",
-                 "bonded_ref")
+                 "bonded_ref", "scale_from_source")
 
     def __init__(self, effect_type: int, name: str, source_ref: TargetsSelector, target_ref: TargetsSelector,
-                 duration_rounds=1, duration_turns=None, bonded_ref: TargetsSelector = None):
+                 duration_rounds=1, duration_turns=None, bonded_ref: TargetsSelector = None,
+                 scale_from_source: bool = False):
         self.effect_type, self.name = effect_type, name
         self.source_ref, self.target_ref = source_ref, target_ref
         self.duration_rounds = duration_rounds
         self.duration_turns = duration_turns
         self.bonded_ref = bonded_ref
+        self.scale_from_source = bool(scale_from_source)
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
@@ -107,12 +119,17 @@ class AddBondEffect(AbilityBehaviour):
         # (`Self@0x148` de `HazeOfCorruption_TargetFinderAbility`, seul call-site renseigne a ce jour).
         bu = resolve_unit(self.bonded_ref, entities) if self.bonded_ref is not None else None
         bonded = bu.get("id") if bu else None
+        # `abilityState` (3e argument natif) : l'entite-effet bake l'etat d'ability du POSEUR.
+        mult, ab_lvl, act_lvl = (_source_scaling(state, src) if self.scale_from_source
+                                 else (None, None, None))
         for elem in _add_effect_targets(self.target_ref.evaluate(entities)):
             tgt = _add_effect_target_id(elem, state)     # unit dict->id | (col,row)/int -> tile id
             if tgt is None:
                 continue
             AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
-                                       name=self.name, duration_override=dur, bonded=bonded)
+                                       name=self.name, duration_override=dur, bonded=bonded,
+                                       ability_level=ab_lvl, active_ability_level=act_lvl,
+                                       multiplier_pct=mult)
             ectx.emit("AddBondEffect", source=src, target=tgt, effect_type=self.effect_type,
                       bonded=bonded)
         return OperationResult.ok()
