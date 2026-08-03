@@ -979,10 +979,35 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         (`_add_positional_and_defender_mods`, prediction.py:172) : on SOUSTRAIT de `mods.additive`
         (l'accumulateur ATTAQUANT, consommé pré-perçage via `attacker_additive_pre=True`) → la réduction
         est DILUÉE par perçage/armure PUIS scalée ×%-list UNE fois, comme l'additif #75. SANS pré-scale ×M
-        (≠ ForAddition Neuroparasite, qui compense le placement post-%-list). Canal SÉPARÉ de `def_mods.additive`
-        (appliqué à part par `apply_all_modifiers`) → aucune double-application. Vide → no-op (rétro-compat)."""
+        (≠ ForAddition Neuroparasite, qui compense le placement post-%-list). Vide → no-op (rétro-compat)."""
         if def_mods.flat_reductions:
             mods.additive -= sum(def_mods.flat_reductions)
+        # #462-r4b-r1 — L'ADDITIF DEFENSEUR (`Addition@+0x10` de `defenseModifiers`) EST DANS LE
+        # MEME SLOT PRE-PERCAGE QUE CELUI DE L'ATTAQUANT. LU au decompile dans l'appelant
+        # `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` : il resout les DEUX
+        # accumulateurs par les slots d'interface 0xd et 0xe, lit le champ `+0x10` de CHACUN
+        # (`FixMath.NET.Fix64$$op_Explicit` sur `<mods>+0x10`) et passe a
+        # `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` la SOMME
+        # `base + Addition(0xd) + Addition(0xe)` -- aux DEUX call-sites (borne MIN et borne MAX).
+        # `CalculateBaseDamageWithAllModifiers` NE re-consomme PAS `+0x10` : il commence par
+        # `GetBaseDamageWithFixedPiercedArmor`. L'additif defenseur traverse donc percage/armure PUIS
+        # les %-list, EXACTEMENT comme l'additif attaquant (#75) -- ce que la PREDICTION fait deja
+        # (`_add_positional_and_defender_mods` : `mods.additive += def_mods.additive`).
+        # Le COMBAT, lui, le laissait a `apply_all_modifiers(., def_mods)`, qui l'ajoute APRES les
+        # %-list et les deux `Multiplier` : un additif NI dilue par l'armure NI reduit par la face
+        # defenseur. MESURE (`probe_462_r4b_r1_terminator_commanded_attack.py`, chaine
+        # `ExemplarOfHate` sur `blackAbaddon`, trait `TerminatorArmour` x0.25) : port 7730 degats
+        # contre 2596 natif, facteur 2,98 -- le `+997` d'`ExemplarOfHate_Target` echappait a la
+        # reduction ET a l'armure. On DEPLACE donc l'entree (et on VIDE la source), comme pour
+        # `flat_reductions` ci-dessus : `apply_all_modifiers(def_mods)` en aval devient un no-op sur
+        # cet axe -- pas une double-application.
+        # ⚠ Le natif tronque CHAQUE `Addition` separement (`op_Explicit` = `raw >> 32`) avant de
+        # sommer ; le port somme des flottants puis arrondit dans `apply_pierce_and_modifiers`.
+        # Aucun producteur porte ne rend une valeur fractionnaire (les trois passent par `int(...)`),
+        # donc les deux se confondent aujourd'hui.
+        if def_mods.additive:
+            mods.additive += def_mods.additive
+            def_mods.additive = 0.0
         # #462-r4a — LA FACE DEFENSEUR ENTRE DANS LA MEME CHAINE QUE LA FACE ATTAQUANT.
         # `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` compose
         # les listes `@0x18` des DEUX faces (etapes 1 puis 2) AVANT le moindre `Round`, et ne fait
