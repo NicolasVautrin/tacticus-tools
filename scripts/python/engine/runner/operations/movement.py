@@ -87,6 +87,63 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     return int(n) - 1 if n else 0                    # `IsNullOrEmpty(path)` -> 0
 
 
+class OverrideMovementTargetOperation:
+    """Mirror `IdunBattle.Operations.OverrideMovementTargetOperation$$Execute` (#448-r1) --
+    l'Operation IMPERATIVE qui DEVIE le mouvement en cours vers d'autres tuiles.
+
+    Le natif, remis en C# depuis le decompile (les trois arguments arrivent decales d'un cran dans
+    la sortie ghidra -- le 1er registre est le buffer de retour de la struct) :
+
+        Execute(unit, tiles) {
+            if (!EntityExtensions.IsUnit(unit)) return;                 // gate 1
+            comp = unit.GetComponent<...>();                            // MEME paire de caches que
+                                                                        // MoveUnitOperation$$Execute
+            comp.<+0xa8> = new Nullable<UnitPositionId>(new UnitPositionId(tiles));
+            dict = new Dictionary<int, int>();
+            if (tiles.Count > 0) dict.Add(0x79, tiles[0].Id);
+            if (tiles.Count > 1) dict.Add(0x7a, tiles[1].Id);
+            if (tiles.Count > 2) dict.Add(0x7b, tiles[2].Id);
+            processor.<step 0x25>(unit.Id, dict);                       // canal de VUE
+        }
+
+    CE QUE LE PORT FAIT. Il pose le champ (`UnitComponent.movement_target_override`), qui est LU et
+    CONSOMME par `MoveUnitOperation.execute` -- c'est toute la face observable. Les trois clefs
+    `0x79/0x7a/0x7b` et le step `0x25` sont le canal de VUE que
+    `IdunBattle.View.AbilityConfigs.Loki.StormboyzStrikeVisuals$$GetFinalTile` lit ; le runner n'a
+    pas de flux de vue -> non porte, comme partout ailleurs dans `operations/` (le meme `0x79` est
+    deja DROPPE par la feuille `Inform`).
+
+    `UnitPositionId` natif porte JUSQU'A TROIS tuiles (une unite multi-pieds) ; le port ne
+    materialise que la MAIN TILE (`tiles[0]`), exactement comme le reste du moteur collapse
+    l'empreinte (cf. `UnitComponent.feet`). RESIDU NOMME : un override de destination sur une unite
+    a 3 pieds ne deplacerait que sa main tile. Aucun call-site du build n'est dans ce cas -- le seul
+    (`StormboyzStrike_MissAbility`) devie un `orksNpc6Stormboy`, mono-pied.
+
+    Rend `None` quand un gate refuse (entite inconnue, entite sans `UnitComponent` = le
+    `!IsUnit` natif, liste de tuiles VIDE), sinon un dict de trace. La liste VIDE est un cas
+    supplementaire du port : le natif construirait un `UnitPositionId` vide et le champ aurait
+    `HasValue == true` avec une position vide, ce que `ToUnitPosition` puis
+    `UnitPosition$$op_Inequality` traiteraient comme « different de la destination » -> une
+    RECURSION vers du vide. La feuille appelante (`OverrideUnitMovementTarget`) gate deja sur
+    `Count > 0` -- c'est le gate NATIF, lu dans `OverrideUnitMovementTargetBehaviour$$Execute` --
+    donc ce chemin n'est pas atteint ; le refus ici est une ceinture, pas une invention."""
+    __slots__ = ()
+
+    @staticmethod
+    def execute(state: State, unit_id, tiles) -> dict | None:
+        if state is None or unit_id is None:
+            return None
+        e = state.get_entity(int(unit_id))
+        if e is None or e.get_component(UnitComponent) is None:
+            return None                       # gate `EntityExtensions.IsUnit(unit)`
+        pos = list(tiles or [])
+        if not pos:
+            return None                       # cf. docstring : ceinture, le gate natif est amont
+        main = (int(pos[0][0]), int(pos[0][1]))
+        e.get_component(UnitComponent).movement_target_override = main
+        return {"unit": int(unit_id), "target": main, "tiles": [tuple(p) for p in pos]}
+
+
 def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: int) -> list:
     """`MoveUnitOperation$$IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` — étape INLINE du move pipeline (avant
     `EvaluateAfterMoveTriggers`). Quand une unité MOVE sur `dest_tile`, tout occupant `Steppable`
@@ -144,14 +201,18 @@ class MoveUnitOperation(Operation):
     `RecordTilesMoved` avec SES gates (`options+0x10` et `!IsEnemy(caster, target)` -- seul un
     deplacement AMICAL compte comme du mouvement). Si `MoveUnitOperation` enregistrait aussi, le
     natif compterait DEUX FOIS : l'octet +0x16 est precisement ce qui l'en empeche."""
-    __slots__ = ("unit_id", "to", "set_moved", "record_tiles")
+    __slots__ = ("unit_id", "to", "set_moved", "record_tiles", "skip_pre_move_triggers")
 
     def __init__(self, unit_id: int, to: tuple[int, int], set_moved: bool = True,
-                 record_tiles: bool = True):
+                 record_tiles: bool = True, skip_pre_move_triggers: bool = False):
         self.unit_id = unit_id
         self.to = to
         self.set_moved = bool(set_moved)
         self.record_tiles = bool(record_tiles)
+        # mirror de l'octet `+0x12` du `MoveUnitOptions` natif -- cf. `execute` (bloc OVERRIDE).
+        # `False` a TOUS les call-sites du port, comme au natif : le SEUL site qui le pose a `true`
+        # est la RELANCE d'`Execute` par elle-meme apres un override de destination.
+        self.skip_pre_move_triggers = bool(skip_pre_move_triggers)
 
     def execute(self, state: State, bus: EventBus) -> None:
         e = state.get_entity(self.unit_id)
@@ -168,12 +229,54 @@ class MoveUnitOperation(Operation):
         # `self.to` = la DESTINATION, passee au vecteur : le ctor nomme d'`AbilityEntities` la met a
         # la fois en `casterTiles` et en `targetTiles`, et `HatefulAssaultAbility$$CreateTrigger` la
         # compare a la tuile COURANTE de l'acteur (`NOT AreEqual(Tiles(Actor), <@+0x78>)`).
-        from .triggers import pre_move_triggers
-        pre_move_triggers(state, self.unit_id, dest_tile=tuple(self.to))
+        #
+        # OVERRIDE DE DESTINATION (#448-r1) -- mirror des trois etapes que
+        # `IdunBattle.Operations.MoveUnitOperation$$Execute` intercale ICI, autour du vecteur :
+        #   (a) AVANT les triggers, le natif pose lui-meme `comp.<+0xa8> = Nullable(
+        #       UnitPositionId(position))` -- la destination DEMANDEE ;
+        #   (b) le vecteur `On(0x1f)` s'execute, et un trigger PEUT ecraser ce champ via
+        #       `OverrideMovementTargetOperation$$Execute` (seul ecrivain externe) ;
+        #   (c) apres le vecteur, le natif RELIT le champ, le REMET A ZERO, et si la valeur relue
+        #       DIFFERE de la destination demandee il RELANCE `Execute` sur la nouvelle position
+        #       avec `options.skipPreMoveTriggers = true` (l'octet `+0x12`, pose juste avant
+        #       l'appel recursif) -- ce qui borne la recursion a UN niveau par trigger deviant.
+        # Le gate `if (!TilesAreEmpty(unit, position)) { RemoveReservation ; return }` que le natif
+        # place entre (b) et (c) n'est PAS porte : le port n'a ni reservation ni abandon de
+        # mouvement (RESIDU NOMME -- il mordrait si un trigger `PreUnitMove` faisait OCCUPER la
+        # tuile d'arrivee, ce qu'aucun consommateur porte ne fait).
+        uc0 = e.get_component(UnitComponent)
+        if uc0 is not None:
+            uc0.movement_target_override = (int(self.to[0]), int(self.to[1]))      # (a)
+        if not self.skip_pre_move_triggers:
+            from .triggers import pre_move_triggers
+            pre_move_triggers(state, self.unit_id, dest_tile=tuple(self.to))       # (b)
+        if uc0 is not None:                                                        # (c)
+            ovr = uc0.movement_target_override
+            uc0.movement_target_override = None                # CONSOMME (le natif remet a zero)
+            # `if (!ovr.HasValue || UnitExtensions.IsDead(unit)) { RemoveReservation ; return }` --
+            # les DEUX bras du gate natif. Le second n'est pas theorique : un trigger `PreUnitMove`
+            # peut TUER le mover (`...StormboyzStrike_MissAbility` -> `TriggerAbility(FullThrottle)`
+            # -> `If(Maybe(chance), Kill(Caster))`), et le natif annule alors le mouvement.
+            if ovr is None or not uc0.alive:
+                return
+            if tuple(ovr) != (int(self.to[0]), int(self.to[1])):
+                MoveUnitOperation(self.unit_id, (int(ovr[0]), int(ovr[1])),
+                                  set_moved=self.set_moved, record_tiles=self.record_tiles,
+                                  skip_pre_move_triggers=True).execute(state, bus)
+                return
         pc = e.get_component(PositionComponent)
         old_pos = (pc.col, pc.row) if pc is not None else None
         if pc is None:
-            e.add_component(PositionComponent(self.to[0], self.to[1]))
+            # Unite SANS position : soit un spawn, soit -- depuis #448-r1 -- une unite qui REVIENT
+            # sur le plateau (`RemoveUnitFromItsTiles` lui avait pose `feet = []`, cf.
+            # `set_unit_feet`). Passer par l'ECRIVAIN UNIQUE de l'empreinte au lieu d'ajouter la
+            # seule `PositionComponent` : une liste d'UN element repose `feet = None` (= « un pied,
+            # a la PositionComponent ») et recale la position. Sans ca l'unite atterrit avec
+            # `feet == []` et reste INVISIBLE a l'occupation (`CanAddUnit`, `_occupied`), qui lisent
+            # l'empreinte. Strictement equivalent a l'ancien `add_component` quand `feet` etait
+            # deja `None` (le cas du spawn) -- c'est un sur-ensemble, pas un changement de chemin.
+            from ..components import set_unit_feet
+            set_unit_feet(state, self.unit_id, [(int(self.to[0]), int(self.to[1]))])
         else:
             pc.col, pc.row = self.to
         # #198 : materialisation DYNAMIQUE du stat-mod DEFENSE de tuile (Thorns/famille). En quittant/

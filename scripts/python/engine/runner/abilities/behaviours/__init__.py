@@ -67,8 +67,9 @@ from .ability_state import ResetActiveAbility
 from .stats import (Heal, Repair, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical,
                     healable_heal_type_0, repairable_heal_type_1, RefreshDynamicStatModifierValue,
                     AddStatOverrideEffect)
-from .movement import PushUnit, MoveUnit, SwitchPosition, PullUnitOneTile, FlyUnit
-from .lifecycle import (KillDeadUnits, RemoveUnit, RemoveMachine, RemoveUnitFromItsTiles,
+from .movement import (PushUnit, MoveUnit, SwitchPosition, PullUnitOneTile, FlyUnit,
+                       OverrideUnitMovementTarget)
+from .lifecycle import (KillDeadUnits, Kill, RemoveUnit, RemoveMachine, RemoveUnitFromItsTiles,
                         RemoveAllForcedAttackTargets, TriggerAbility,
                         TriggerAbilityDelayed, TRIGGERED_ABILITY_BEHAVIOURS,
                         TRIGGERED_ABILITY_DELAYED_BEHAVIOURS)
@@ -90,7 +91,8 @@ __all__ = [
     "healable_heal_type_0", "repairable_heal_type_1",
     "RefreshDynamicStatModifierValue",
     "PushUnit", "MoveUnit", "SwitchPosition", "PullUnitOneTile", "FlyUnit",
-    "KillDeadUnits", "RemoveUnit", "RemoveMachine", "RemoveUnitFromItsTiles",
+    "OverrideUnitMovementTarget",
+    "KillDeadUnits", "Kill", "RemoveUnit", "RemoveMachine", "RemoveUnitFromItsTiles",
     "RemoveAllForcedAttackTargets", "TriggerAbility", "TriggerAbilityDelayed",
     "TRIGGERED_ABILITY_BEHAVIOURS", "TRIGGERED_ABILITY_DELAYED_BEHAVIOURS",
     "AddTrait", "AddTriggeredAbility", "first_triggered_ability_of",

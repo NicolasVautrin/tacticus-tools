@@ -266,7 +266,8 @@ class UnitComponent(Component):
                  "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase",
                  "charged_unit_ids", "current_turn_start_tile", "revived_by_abilities",
                  "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn",
-                 "blocks_made_this_turn", "blocks_made_this_battle")
+                 "blocks_made_this_turn", "blocks_made_this_battle",
+                 "movement_target_override")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -313,6 +314,40 @@ class UnitComponent(Component):
         # `blocks_made_this_turn` et `blocks_made_this_battle`).
         self.blocks_made_this_turn = 0
         self.blocks_made_this_battle = 0
+        # `Nullable<UnitPositionId>` a `+0xa8` du composant que `IdunBattle.Operations.
+        # MoveUnitOperation$$Execute` ET `IdunBattle.Operations.OverrideMovementTargetOperation$$
+        # Execute` recuperent tous DEUX par la MEME paire de caches (#448-r1) -- la DESTINATION
+        # EFFECTIVE du mouvement en cours. Ce n'est PAS un champ « libre » : c'est un canal
+        # in/out d'UNE SEULE Operation, et sa duree de vie tient dans un `MoveUnitOperation` :
+        #
+        #     MoveUnitOperation$$Execute :
+        #         comp.MovementTargetOverride = Nullable(UnitPositionId(position))   # POSE
+        #         SetReservation(unit, position)
+        #         if (!options.skipPreMoveTriggers) {                                # +0x12
+        #             publish On(0x1f = PreUnitMove)          <- un trigger peut ECRASER le champ
+        #             if (!TilesAreEmpty(unit, position)) { RemoveReservation ; return }
+        #         }
+        #         ovr = comp.MovementTargetOverride ; comp.MovementTargetOverride = null  # CONSOMME
+        #         if (!ovr.HasValue || IsDead(unit)) { RemoveReservation ; return }
+        #         if (ovr.Value.ToUnitPosition() != position) {
+        #             RemoveReservation(position) ; options.skipPreMoveTriggers = true
+        #             return Execute(unit, <la nouvelle position>, trig, options)   # RECURSION
+        #         }
+        #         ... suite normale du mouvement ...
+        #
+        # SEUL ECRIVAIN EXTERNE : `OverrideMovementTargetOperation$$Execute`, elle-meme atteinte
+        # par la SEULE feuille `IdunBattleLogic.Entities.DSLBehaviors$$OverrideUnitMovementTarget`
+        # (`OverrideUnitMovementTargetBehaviour$$Execute`, vslot 0x49 du processor). Son unique
+        # call-site du build est `...StormboyzStrike_MissAbility$$CreateBehaviour`.
+        # `None` = aucun mouvement en cours (l'etat au repos) ; `(col, row)` = la destination.
+        # ⚠ L'identite NOMMEE du composant natif porteur n'est PAS resolue : le `Copy` de
+        # `IdunBattle.Entities.Components.UnitComponent` ne montre pas ce champ (il est value-type,
+        # donc deja couvert par le `MemberwiseClone`), mais son `Nullable<AttackHit>` occupe
+        # exactement `+0x98..+0xa7`, ce qui laisse `+0xa8` libre pour un `Nullable` de 16 octets.
+        # Le port le loge ici comme il loge deja `ActorStatisticsComponent` (meme residu
+        # structurel) ; `pending_revive` ci-dessus cite le MEME offset pour un AUTRE composant --
+        # les deux paires de caches natives sont distinctes, il n'y a pas de collision.
+        self.movement_target_override: Optional[tuple] = None
 
     def add_foot(self, tile: tuple) -> None:
         """`IdunBattle.Entities.Components.UnitComponent$$AddFoot(footId)` = `_feet.Add(footId)`

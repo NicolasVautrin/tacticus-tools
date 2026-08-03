@@ -262,6 +262,89 @@ class RemoveAllForcedAttackTargets(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class Kill(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$Kill(subject, units, options)` ->
+    `IdunBattle.Entities.Behaviours.KillUnitBehaviour$$Execute` (#448-r1) : TUE chaque unite du
+    selecteur `units_sel`, `subject_sel` etant le TUEUR impute.
+
+    A NE PAS CONFONDRE avec `KillDeadUnits` ci-dessus : celui-la est
+    `Kill(subject, DownedUnits(units), ...)` -- il FINALISE des unites deja a 0 PV et le port en fait
+    un no-op structurel (la mort est finalisee inline chez nous). CELUI-CI tue une unite VIVANTE et
+    A PLEINS PV : c'est une vraie mutation, et la taire serait un no-op silencieux.
+
+    `...KillUnitBehaviour$$Execute`, remis en C# depuis le decompile :
+
+        mode = entities.<+0x69> ? (entities.<+0x68> ? 1 : 0) : (entities.<+0x68> ? 3 : 2);
+        foreach (u in this.<+0x60>.Select(entities, mode)) {
+            if (UnitExtensions.HasFlag(u, 9)) continue;      // Fled
+            if (UnitExtensions.HasFlag(u, 6)) continue;      // Dead
+            if (UnitExtensions.HasFlag(u, 0x1a)) continue;   // Removed
+            killer = this.<+0x58>.Select(entities, 8);       // peut etre null
+            processor.<vslot 0x60>(killer, u, <options>);    // = KillUnitOperation$$Execute
+        }
+
+    Les trois gates sont LUS (`HasFlag(9)`, `HasFlag(6)`, `HasFlag(0x1a)`). Cote port, `HasFlag(6)`
+    (`UnitFlag.Dead`) est COLLAPSE en `UnitComponent.alive` -- le moteur ne pose pas ce flag, il
+    marque `alive = False` (meme collapse que `remove_unit.py` pour `0x1a`, qui lui EST porte comme
+    flag). Les deux autres sont testes tels quels.
+
+    `options = KillUnitBehaviourOptions.ForDirectKill()` = **`0x10001`** (constante LUE :
+    `IdunBattle.Entities.Behaviours.KillUnitBehaviourOptions$$ForDirectKill` a pour corps entier
+    `return 0x10001;`). Aucun de ses bits n'est consomme par le pipeline de mort PORTE (qui n'a ni
+    reservation ni blocage de revive parametrable) -> transcrit pour la tracabilite, non lu.
+    RESIDU NOMME.
+
+    FRONTIERE DSL (#149) : la feuille resout ses selecteurs puis DELEGUE, unite par unite, au foyer
+    IMPERATIF `AttackDamageOperation._kill_unit_operation` (mirror
+    `IdunBattle.Operations.KillUnitOperation$$Execute`, `runner/operations/damage.py`) -- le MEME
+    que le pipeline de degat, surtout pas un second port de la meme fonction native. Le natif
+    appelle ici le vslot `KillUnit` du processor **DIRECTEMENT**, pas la file `MatchState.AddDeath` :
+    il n'y a donc ni enqueue ni drain a mimer, la mort s'applique sur place.
+
+    Call-sites portes : `...StormboyzStrike_FallbackAbility$$CreateBehaviour` (le Stormboy qui finit
+    son tour sans avoir pu se poser meurt) et `...FullThrottleAbility$$CreateBehaviour` (le jetpack
+    qui explose). Les DEUX passent `Kill(Caster, Caster, ForDirectKill)` -- tueur == victime.
+
+    Emet 'Kill' (`killed` = les ids REELLEMENT tues). PUR (stop=False)."""
+    __slots__ = ("subject_sel", "units_sel")
+
+    def __init__(self, subject_sel: TargetsSelector, units_sel: TargetsSelector):
+        self.subject_sel = subject_sel
+        self.units_sel = units_sel
+
+    def execute(self, entities, ectx):
+        from ...operations.damage import AttackDamageOperation
+        from ...components import HealthComponent, UnitFlagsComponent
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        killer = resolve_unit(self.subject_sel, entities)          # `Select(entities, 8)`, peut etre None
+        killer_id = killer.get("id") if isinstance(killer, dict) else None
+        killed: list = []
+        out: list = []
+        for u in _units_of(self.units_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            e = state.get_entity(int(uid))
+            uc = e.get_component(UnitComponent) if e is not None else None
+            if uc is None or not uc.alive:                          # `HasFlag(6 = Dead)` (collapse)
+                continue
+            fl = e.get_component(UnitFlagsComponent)
+            if fl is not None and (fl.has(UnitFlagsComponent.FLED)                 # `HasFlag(9)`
+                                   or fl.has(UnitFlagsComponent.REMOVED)):        # `HasFlag(0x1a)`
+                continue
+            hc = e.get_component(HealthComponent)
+            if hc is not None:
+                hc.hp = 0                    # `KillUnitOperation$$Execute+0x505` : `health.hp = 0`
+            uc.alive = False
+            killed.append(int(uid))
+            out = out + (AttackDamageOperation._kill_unit_operation(
+                state, int(uid), None if killer_id is None else int(killer_id), False) or [])
+        ectx.emit("Kill", killer=killer_id, killed=killed, death=out)
+        return OperationResult.ok()
+
+
 # Registre des abilities TRIGGERED declenchables DIRECTEMENT par le noeud `TriggerAbility` :
 # `TriggeredAbilityType (int) -> callable(state, owner_id) -> dict | None`. VIDE par defaut, et c'est un
 # CHOIX documente, pas un oubli : le seul call-site porte (HeraldOfTheApocalypse 1020 -> BattleFatigue
