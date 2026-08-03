@@ -138,13 +138,12 @@ le moins cher.
 
 ## 7. Ce qui n'est PAS couvert
 
-* **Le régime DEUX canaux défenseur simultanés** (`EffectBonus %` **et** modification de stat DEFENSE
-  sur la même cible, en COMBAT) n'a pas été confronté par ce dossier : le mode `--thorns` du probe est
-  écrit mais le montage ne s'installe pas sur `MC1_67` (la cible n'atteint aucune tuile
-  `Thorns_DefenseReduction` marchable en 14 tours). Canal qui l'établirait : transposer
-  `probe_446_r2_base_min_residual.both_faces` (qui sait choisir une tuile Thorns et y conduire une
-  unité) du vecteur RANGED/prédiction vers MÊLÉE/combat. ⚠ #462-r4a a mesuré le régime « deux faces »
-  ATTAQUANT×DÉFENSEUR ; celui-ci est différent — **deux canaux du MÊME côté**.
+* ~~**Le régime DEUX canaux défenseur simultanés**~~ — **FERMÉ par #462-r4d-r3**
+  (`case-462-r4d-r3-deux-canaux-meme-cote.md`) : régime monté, **port bit-exact et SEUL** des cinq
+  compositions à reproduire le natif (4 bases discriminantes + 2 témoins + un cas à trois entrées).
+  ⚠ Le montage `--thorns` ne butait PAS sur la géométrie : `tileMeta.tiles[].effects` est une liste
+  de **dicts**, le prédicat `"Thorns_DefenseReduction" in effects` était donc toujours faux et
+  rendait un `want` vide. Corrigé ; les 4 Swamp de `MC1_67` sont atteintes du premier coup.
 * **Le multiplicateur ATTAQUANT en COMBAT** (élévation, tranchée) : l'attaquant est neutre dans ce
   montage.
 * La **contradiction de RE** du §4 : non tranchée, sans conséquence observable connue.
