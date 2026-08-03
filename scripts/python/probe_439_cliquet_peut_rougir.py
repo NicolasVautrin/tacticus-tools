@@ -11,7 +11,9 @@ place, il s'imprime a l'ecran, et il se lit comme << rien a signaler >>.
     `TARGETING_OPTIONS` le laissait VERT tout en IMPRIMANT le trou.
   * `probe_326` (#435) : meme forme -- son `main` finit par `return 0`, ses seules sorties non
     nulles sont des `raise SystemExit("<message>")` de garde d'ENTREE (table introuvable, ligne
-    malformee). C'est pour cela que `test_337` (et pas lui) a du entrer dans la banque.
+    malformee). C'est pour cela que `test_337` (et pas lui) a du entrer dans la banque -- d'abord
+    en son nom propre (#435), puis, depuis #457-r6, par le perimetre DERIVE de `probe_457`, qui
+    joue tout fichier de test non-`_live.py` : l'entree nommee a la main faisait doublon.
   * L'audit MANUEL de #430 sur les 13 scripts de la banque n'avait trouve que `probe_181` : il a
     donc RATE `probe_326`. Un audit ponctuel ne tient pas ce critere -- c'est le point.
 
@@ -53,7 +55,8 @@ nul >> n'est PAS << rougit sur son gisement >>. `probe_326` le prouve : sa valeu
 bien un `return 0` inconditionnel, mais il porte un `assert sum(tot.values()) == len(rows)` --
 un invariant INTERNE de son propre comptage -- donc il PEUT rendre 1, sans jamais rougir d'un
 verdict. Ce cliquet-ci garde le premier critere ; le second se garde par un TEST du gisement
-(pour `probe_326`, c'est `test_337`, entre dans la banque par #435). La fonction
+(pour `probe_326`, c'est `test_337`, joue par le perimetre DERIVE de `probe_457` depuis
+#457-r6 -- il y etait entre nomme a la main par #435). La fonction
 `limite_du_critere()` re-mesure et IMPRIME ce cas a chaque passage, pour qu'on ne lise jamais ce
 probe comme plus fort qu'il n'est.
 
@@ -902,7 +905,7 @@ def limite_du_critere() -> None:
               "(%s)." % (next((s for s in v.voies if s.non_nulle()), "?")))
         print("      << peut rendre non nul >> n'est donc PAS << rougit sur son gisement >> : "
               "ce cliquet garde le premier. Le second se garde par le TEST du gisement -- ici "
-              "`test_337`, entre dans la banque par #435.")
+              "`test_337`, joue par le perimetre DERIVE de probe_457 (#457-r6).")
     elif fam:
         print("      ATTENTION : il a desormais une sortie non nulle de retour (%s) -- il a "
               "peut-etre ete REPARE. Reevaluer son entree dans la banque." % fam[0])

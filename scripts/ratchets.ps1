@@ -165,35 +165,30 @@ $Ratchets = @(
        Seul = 'un hash de build ecrit en dur qui RESOUT un artefact du jeu (chemin de GameAssembly.dll, table de symboles, defaut de --build) HORS du foyer build_pin : le litteral court-circuite a la fois data/symbols/CURRENT et le binaire installe, donc symbols_sync peut etre VERT pendant que le script lit un autre build. Depuis #458 il voit AUSSI son propre perimetre : toute extension presente dans l arbre et hors des trois seaux le fait rougir. Ce second axe est ce qui le rendait creux -- ses globs passaient par Path.match, qui ne developpe pas ** : 967 fichiers versionnes tombaient dans AUCUN seau (tout scripts/python/engine, tout tests/, et par le HAUT frida/host/router.ts et frida/hooks/main.ts), lus puis jetes en silence sous un denominateur qui se lisait comme une couverture'
        Doc  = 'docs/rl/case-431-litteraux-de-build.md ; docs/rl/case-458-perimetre-derive-du-cliquet-431.md' }
 
-    @{ Id = 'pytest_signatures'
-       Argv = @('-m', 'pytest', 'tests/test_additional_hits_variant_signatures_offline.py', '-q')
-       Seul = 'une implementation de SUBSTITUTION dont la signature derive derriere le port -- le rouge tombe alors ailleurs que sur la cause'
-       Doc  = 'docs/rl/case-393-substitution-signature-drift.md' }
-
-    # `probe_326_dsl_port_matching.py` ne peut PAS tenir ce poste : son `main` finit par un
-    # `return 0` INCONDITIONNEL -- il INVENTORIE les verdicts, il n'en rougit d'aucun. Le seul
-    # artefact executable qui rougit sur ce gisement est ce test-la (#435).
-    @{ Id = 'pytest_attestations'
-       Argv = @('-m', 'pytest', 'tests/test_337_dsl_triggers_attestation_offline.py', '-q')
-       Seul = 'une primitive `DSLTriggers` retombee en CITE_A_QUALIFIER -- l aveu que l outil ne sait pas attribuer, jamais un verdict -- et une ligne de `docs/rl/dsl-port-attestations.tsv` devenue MORTE (symbole disparu du build, porteur/ancre deplace, porteur devenu MUET sur sa primitive) : une attestation non verifiee ment avec l autorite d une mesure'
-       Doc  = 'docs/rl/case-337-dsl-triggers-attestation.md' }
-
-    # Le gisement est SYMETRIQUE, et c est ce qui le rend invisible a l oeil : deux natifs
-    # d adjacence coexistent (`MovementUtil$$AreTilesAdjacent`, qui COMPTE la tuile elle-meme, et
-    # `TileQuery$$IterateAdjacentTiles`, qui ne la rend JAMAIS). Confondre dans un sens fait REFUSER
-    # une adjacence accordee ; dans l autre, compter chaque unite comme sa propre voisine.
-    # S y ajoute le NOEUD DSL `IsAdjacent` (#433-r3), qui a le meme gisement PLUS un troisieme
-    # terme que la primitive n a pas : le QUANTIFICATEUR. Le natif rend FAUX des qu UNE paire ne
-    # l est pas (`forall`) ; sa classe soeur `IsAdjacentTilesTrigger` est un `exists`. Le second
-    # fichier partage l entree -- meme gisement, cout marginal quasi nul (offline pur).
-    # TROISIEME fichier (#433-r3-r1) : le meme foyer sur l axe EMPREINTE. Il est SEUL a voir un
-    # noeud DSL de geometrie qui collapse une entite multi-hex sur sa MAIN TILE, et chacune de ses
-    # assertions porte sa CONTRE-EPREUVE (le collapse d avant, rejoue par monkeypatch, doit
-    # inverser le verdict). Offline pur : cout marginal quasi nul, meme entree.
-    @{ Id = 'pytest_adjacency'
-       Argv = @('-m', 'pytest', 'tests/engine/runner/test_433_r1_identity_shortcircuit_offline.py', 'tests/engine/runner/test_433_r3_isadjacent_node_offline.py', 'tests/engine/runner/test_433_r3_r1_dsl_footprint_offline.py', '-q')
-       Seul = 'un foyer qui pretend mirrorer `MovementUtil$$AreTilesAdjacent` et rate un de ses DEUX termes foldes -- le COURT-CIRCUIT D IDENTITE (`tile1 == tile2` rend VRAI sans consulter la connectivite) ou la porte d ELEVATION (`|dElev| < 2`, qui mord sur 695 des 779 boards du depot) -- la faute SYMETRIQUE, aligner le mirror d `IterateAdjacentTiles` dessus, le QUANTIFICATEUR du noeud DSL `IsAdjacent` (un `any` y declenche des triggers que le natif REFUSE), et le collapse MAIN TILE d un noeud dont le natif lit l EMPREINTE (`GetTiles`/`SelectTiles`) -- plus le sentinel de `BattleQuery$$GetMinDistance` (-1 sur le vide, donc `IsInRange` rend VRAI la ou un `any` rendait FAUX, et celui-la mord meme sans multi-hex). Tous degradent en SILENCE : faux refus d adjacence d un cote, inflation des comptages de voisins de l autre, trigger permissif au troisieme, unite multi-hex ratee au quatrieme'
-       Doc  = 'docs/rl/case-433-r1-identite-adjacence.md' }
+    # --- TROIS ENTREES RETIREES PAR #457-r6, et pourquoi ce n'est PAS un retrecissement.
+    #
+    # `pytest_signatures`, `pytest_attestations` et `pytest_adjacency` invoquaient `pytest` sur
+    # cinq fichiers NOMMES A LA MAIN. C'etaient des ALLOWLISTS -- et c'est exactement ce que
+    # `probe_457` a generalise : son perimetre se DERIVE (`git ls-files scripts/python/tests`,
+    # tout ce qui n'est pas `_live.py`), donc il joue DEJA ces cinq fichiers, depuis #457-r5.
+    # La banque faisait donc DEUX FOIS le meme travail. Mesure du 2026-08-03, durees ISOLEES
+    # (`-Serial`, machine calme) : 29,0 + 7,5 + 3,9 = 40,4 s sur 739,6 s de somme isolee.
+    #
+    # Les gisements qu'elles nommaient ne sont PAS perdus -- ils vivent dans les fichiers de
+    # test eux-memes, que `probe_457` joue :
+    #   * `tests/test_additional_hits_variant_signatures_offline.py`  (#393, derive de signature
+    #     d'une implementation de SUBSTITUTION -- le rouge tombe alors ailleurs que sur la cause) ;
+    #   * `tests/test_337_dsl_triggers_attestation_offline.py`  (#337, une primitive `DSLTriggers`
+    #     retombee en CITE_A_QUALIFIER, et une ligne de `dsl-port-attestations.tsv` devenue MORTE) ;
+    #   * `tests/engine/runner/test_433_r1_identity_shortcircuit_offline.py`,
+    #     `test_433_r3_isadjacent_node_offline.py`, `test_433_r3_r1_dsl_footprint_offline.py`
+    #     (#433, les deux termes foldes de `MovementUtil$$AreTilesAdjacent`, le QUANTIFICATEUR du
+    #     noeud DSL `IsAdjacent`, et le collapse MAIN TILE d'un noeud qui lit l'EMPREINTE).
+    #
+    # La redondance est PROUVEE MECANIQUEMENT, et sa non-reintroduction GARDEE, par
+    # `tests/test_457_r6_banque_sans_doublon_offline.py` : il derive la banque (`probe_439`) et
+    # le perimetre (`probe_457`), et rougit sur toute entree `pytest` qui les recoupe. Il a
+    # mordu des sa premiere passe, avant que ces trois entrees ne soient retirees.
 
     # --- probe_283, en SIX entrees. `--step all` est l UNION STRICTE de ces six (lire `main`),
     #     et chaque etape est independante. Le decoupage ne change RIEN a la couverture ; il rend

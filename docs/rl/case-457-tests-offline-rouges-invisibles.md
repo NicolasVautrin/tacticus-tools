@@ -369,3 +369,130 @@ cliquet entier), `test_391_conftest_dir_identity` **1 seul test en ~78 s**,
 `test_enum_ordinal_ratchet` ~38 s, `test_ability_registry_ratchet` ~31 s.
 
 ⚠ Chiffres a RE-DERIVER (`probe_457 --measure`, puis un relevé isolé), jamais a citer.
+
+## 8. `#457-r6` (suite) -- le poste de cout n'etait PAS l'AST : c'etait l'OUVERTURE des fichiers
+
+Le diagnostic herite designait `ast.parse` (« une dizaine de cliquets re-parsent chacun les memes
+~1900 fichiers »). **Mesure, et il est FAUX** -- ou plutot : il designe le deuxieme poste, pas le
+premier.
+
+### La mesure qui renverse le diagnostic
+
+Machine calme, arbre du worktree (3254 fichiers versionnes, 58,7 Mo) :
+
+| operation | mesure (2026-08-03) |
+| --- | --- |
+| lecture en SERIE, process FRAIS | **16,8 s** |
+| lecture en SERIE, 2e passe du MEME process | **0,4 s** |
+| lecture en 16 THREADS, process frais | 3,3 - 7,6 s |
+| decodage utf-8 + fins de ligne des 58,7 Mo | 0,16 s |
+| `ast.parse` de tout `scripts/python/**` (1603 fichiers) | 7,1 s |
+| un `ast.walk` complet de ces 1603 arbres | 2,9 s |
+
+La ventilation PAR RACINE localise la cause -- sur les memes fichiers, `scripts/` coute **7,36 ms
+par fichier** quand `data/` en coute **0,75** et `docs/` **0,65**. C'est donc un filtre systeme a
+l'OUVERTURE, qui vise les extensions executables. ⚠ Ce n'est PAS Windows Defender :
+`Get-MpComputerStatus` rend `RealTimeProtectionEnabled: False` sur cette machine. La cause exacte
+n'est pas identifiee (`fltmc filters` exige l'elevation) ; le FAIT, lui, est reproductible.
+
+**Le cout se paie une fois PAR PROCESSUS.** C'est ce qui le rendait invisible : deux mesures du
+meme cliquet dans le meme process donnent 16,8 s puis 0,4 s, mais deux PROCESS consecutifs donnent
+16,8 s et 16,8 s. Un profil `cProfile` le montrait deja (`_io.open` = 16,4 s des 41,1 s de
+`probe_431` instrumente, poste NUMERO UN) -- il fallait le croire.
+
+⚠ **Corollaire de methode : une mesure ISOLEE d'un cliquet est trompeuse dans les DEUX sens.**
+Jouee juste apres un voisin qui a lu le meme arbre, elle est artificiellement basse ; jouee la
+premiere, artificiellement haute. Les mesures « avant/apres » d'un cliquet pris seul ci-dessous
+sont donc systematiquement bruitees de +/- 50 % -- **seul le mur de la banque, dos-a-dos, tranche.**
+
+### Ce qui a ete fait
+
+1. **`scripts/python/repo_read.py`** -- lecture PARALLELE (16 threads, l'`open` bloque hors GIL),
+   avec `to_text` qui reproduit exactement `Path.read_text(encoding="utf-8")`, fins de ligne
+   universelles comprises. Ce n'est pas une invention : `probe_273` portait cette recette DEPUIS
+   #409, seul. Le module la generalise.
+   Branches dessus : `probe_431`, `probe_283` (ses 5 etapes lisantes), `probe_274`, `probe_443r1c`,
+   `probe_440`, `probe_313`, `probe_455`.
+2. **`probe_431` : cinq `ast.walk` par fichier ramenes a UN** (`_Index`, meme forme que celui de
+   `probe_440`). 26,4 -> 11,7 s isole.
+3. **Trois entrees retirees de la banque** (`pytest_signatures`, `pytest_attestations`,
+   `pytest_adjacency`) : elles nommaient A LA MAIN cinq fichiers que le perimetre DERIVE de
+   `probe_457` joue deja depuis #457-r5. **40,4 s de travail strictement redondant** (durees
+   isolees). Ce n'est pas un retrecissement -- l'union des tests joues est INCHANGEE, et c'est
+   prouve mecaniquement par `tests/test_457_r6_banque_sans_doublon_offline.py`, qui derive la
+   banque (`probe_439`) et le perimetre (`probe_457`) et rougit sur tout recoupement.
+
+**La FIDELITE est prouvee par diff de sortie, pas par relecture** : les 5 etapes de `probe_283`,
+`probe_274`, `probe_313` et `probe_455` rendent une sortie **IDENTIQUE A LA LIGNE PRES** a celle du
+run de reference ; `probe_431`, `probe_443r1c` et `probe_440` ne different que par leur compteur de
+fichiers lus (+1 : `repo_read.py` lui-meme).
+
+### Ce qui NE marche pas, mesure
+
+- **Une descente d'AST plus rapide** : une reimplementation de `ast.walk` sans ses deux
+  generateurs imbriques rend **x1,34** (2,89 -> 2,16 s), ordre BFS identique verifie sur les 1603
+  arbres. Trop peu pour justifier un mirror d'une fonction de la bibliotheque standard. Ecarte.
+- **Baisser le degre de parallelisme.** Mur mesure, meme fenetre : throttle 4 -> **280,1 s**,
+  6 -> 240,2 s, 8 -> **226,7 s**, 16 -> 234,7 / 242,4 s. Tout est dans le bruit sauf 4, qui est
+  franchement pire. Le defaut (coeurs physiques) reste le bon choix.
+- **La lecture parallele n'aide PAS un process deja chaud.** Dans `probe_457`, les fichiers de test
+  s'enchainent dans une meme session pytest : le premier rechauffe l'arbre pour les suivants. Mesure
+  par `--measure` : `test_431_build_pin` 59,2 -> **41,4 s** (il relance un PROCESS par mutation,
+  donc il en profite), mais `test_enum_ordinal_ratchet` 35,7 -> 45,1 s (il appelle les etapes
+  EN PROCESS, ou le pool de threads ne rachete pas son cout). Total du perimetre : 290,9 -> 297,2 s,
+  a 45 tests pres. **Le gain se joue entre PROCESS, pas a l'interieur d'un.**
+
+### Le releve, dos-a-dos dans la meme fenetre
+
+Machine calme, memes poids d'ordonnancement des deux cotes (`durations.json` et
+`457-durations.json` restaures a l'identique avant CHAQUE run), deux releves par cote :
+
+| etat | somme ISOLEE (`-Serial`) | mur (2 releves) |
+| --- | --- | --- |
+| avant (38 cliquets, `8e4a09f5`) | **739,6 s** | 261,6 / 281,9 s |
+| lecture parallele seule (38 cliquets) | -- | 234,7 / 242,4 s |
+| + les 3 doublons retires (35 cliquets) | **677,9 s** | **199,4 / 206,4 s** |
+
+**Mur : -26 %. Somme isolee : -8,3 %**, dont 40,4 s de deduplication et ~21 s d'optimisation. Le
+mur baisse BEAUCOUP plus que la somme isolee, et c'est le point : le gain se manifeste SOUS
+CONTENTION, quand 16 process font chacun leurs 3254 ouvertures en serie et se bloquent
+mutuellement. Vu par cliquet, sur le meme run parallele, avant -> apres : `probe_431` 157,4 ->
+29,6 s, `probe_283:exec` 194,3 -> 63,2 s, `probe_274` 157,3 -> 53,8 s, `probe_440` 81,3 -> 36,5 s.
+
+### Le verdict sur l'objectif de 60 s : HORS D'ATTEINTE, et voici le chiffre
+
+Le mur ne peut pas descendre sous `travail_total / efficacite`, et les deux termes sont mesures :
+
+* **travail total = 677,9 s** (somme isolee, apres tout ce qui precede) ;
+* **efficacite = 2,7 a 2,9** workers effectifs (677,9 / 203 s de mur moyen). Ce n'est PAS un
+  probleme d'ordonnancement : throttle 4 -> 280,1 s, 6 -> 240,2 s, 8 -> 226,7 s, 16 -> 234,7 s.
+  Entre 6 et 16 tout est dans le bruit. La machine ne soutient pas plus, un point c'est tout.
+
+Pour un mur de 60 s a cette efficacite, il faudrait un travail total de **~170 s**. On est a 678,
+soit un facteur **4**. Et ce facteur bute sur une structure, pas sur du gras :
+
+* **`probe_457` pese 402,6 s a lui seul, soit 59 % du travail** -- 297,2 s de tests (1240 tests,
+  112 fichiers) plus ~105 s d'ouverture de 8 sessions pytest. Son perimetre est DERIVE : le
+  reduire est exactement la faute que #457-r5 repare.
+* **Son shard le plus long fait 74,8 s isole** -- donc meme a parallelisme parfait, le mur ne peut
+  pas descendre sous 75 s sans re-sharder plus fin. Or sharder plus fin AJOUTE du travail
+  (~13 s d'ouverture de session par shard) : a 12 shards le max tomberait vers 55 s mais le travail
+  monterait a ~730 s, et le mur (travail/2,8) resterait a ~260 s. **Sharder n'est plus un levier.**
+
+### Ce qu'il faudrait pour y arriver -- non fait, chiffre
+
+1. **Supprimer le surcout systeme a l'ouverture.** 16,8 s par process frais pour lire l'arbre,
+   contre 0,4 s quand le process l'a deja lu. Sur ~35 process, c'est le plancher d'E/S de la
+   banque. Les threads le ramenent a ~4 s ; une EXCLUSION du depot dans le filtre responsable le
+   ramenerait a ~0,4 s. C'est une action MACHINE, hors depot -- et elle vaut, seule, plus que tout
+   ce qui precede. (Windows Defender est deja desactive : le filtre est un autre.)
+2. **Fusionner les process.** Les ~13 balayages et les 8 shards paient chacun son demarrage Python,
+   ses imports (`engine`, `pytest`, `gameconfig` a 1,5 s), et sa PREMIERE lecture de l'arbre. Un
+   cliquet multiplexe qui parse une fois et joue N analyses supprimerait tout cela d'un coup.
+   Cout : la granularite du rapport ROUGE, et un plancher de mur egal a la duree de ce process
+   unique. C'est le seul levier qui reste dans le depot, et il est STRUCTUREL.
+3. **Un cache d'analyse inter-run** : ECARTE. Un cache perime rend un faux VERT, et le symptome
+   serait silencieux -- exactement ce que toute cette case-doc combat.
+
+⚠ Chiffres a RE-DERIVER (`probe_457 --measure`, `ratchets.ps1 -Serial`, puis un dos-a-dos),
+jamais a citer.
