@@ -26,12 +26,21 @@ walk_pathfinder — TODO si une feuille hazard apparaît).
 """
 from __future__ import annotations
 
+from . import base_pathfinder as _base
 from .board import Board
 from .walk_pathfinder import get_movable_positions as _get_movable_positions
 
 # Traits (enum UnitTrait) rendant une unité « comme volante ». Le port lit les NOMS de
 # trait gameconfig (str), l'enum donne le nom : 4=Flying, 19=Burrow.
 LIKE_FLYING_TRAITS = ("Flying", "Burrow")
+
+#: `FlyPathfinder`'s `WeightCost` (vslot @+0x1f8), RE-DERIVE AU RUNTIME (`resolveVtableSlot`,
+#: build `rnca9r7q6c`) : le slot pointe un corps TRIVIAL `return 10` -- ni celui du
+#: `WalkPathfinder` (`10 - elevation`) ni celui de l'`IgnoreEverything` (`10 + IsFilled`).
+#: Le cout est donc UNIFORME, et le chemin de cout minimal est le chemin de LONGUEUR minimale.
+#: C'est ce qui rend le port du chemin de vol non ambigu (cf. `base_pathfinder`, residu de
+#: departage : sans relief l'ambiguite n'existe pas).
+WEIGHT_COST = 10
 
 
 def is_like_flying(traits) -> bool:
@@ -123,3 +132,139 @@ def get_movable_positions(
     return _get_movable_positions(board, start_id, depth, occupants, moving_team,
                                   edge=is_valid_path_node,
                                   neighbours=board.neighbours_geometric)
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# CHEMIN EXACT (`FlyPathfinder$$FindPath`) — l'OVERRIDE, et il ne rend PAS le chemin (#448-r1-r1-r1-r1)
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+def is_valid_final_tile(board: Board, tile_id: int) -> bool:
+    """Le vslot `IsValidFinalTile` (@+0x1c8) du `FlyPathfinder`, RE-DERIVE AU RUNTIME : il pointe
+    le MEME corps que celui du marcheur (`IdunBattle.Entities.Pathfinding.WalkPathfinder$$
+    IsValidFinalTile`) -- le vol n'a pas le sien. Ce corps, verbatim :
+
+        return !TileExtensions.IsTemporary(tile) && TileExtensions.IsWalkable(tile, true);
+
+    `IsWalkable(tile, checkFog: true)` = `board.walkable`. `IsTemporary` (tuile-hazard ephemere)
+    n'a aucune source offline -> RESIDU, deja nomme dans `walk_pathfinder`."""
+    return board.walkable(int(tile_id))
+
+
+def is_any_adjacent_tile_wall(board: Board, tile_id: int) -> bool:
+    """`IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsAnyAdjacentTileWall(tile)` -- « une tuile
+    de la couronne porte-t-elle `TileComponent+0x41` (`IsWall`) ? ». C'est le SEUL predicat qui
+    fasse retenir un point de virage dans `FindPath` ci-dessous.
+
+    Le natif interroge un slot de la requete de tuiles (`this+0x18`, slot 2, args `(tile, 0, 0, 1)`)
+    et parcourt le resultat en testant `+0x41` sur chacun. Le port lit la GEOMETRIE au rayon 1,
+    meme source que `FlyPathfinder$$AddNeighbours` (slot 1 de la MEME interface, args
+    `(tile, 1, ...)`), qui est celle du vol.
+
+    RESIDU NOMME : le slot 2 n'est pas le slot 1, et le natif ne retire PAS le centre du
+    resultat (contrairement a `AddNeighbours`, dont l'iterateur fait `while (t == startTile)`).
+    Inobservable ici : `FindPath` n'appelle ce predicat que sur des tuiles DEJA traversees, or
+    l'arete `IsValidPathNode` interdit d'entrer sur un mur -- une tuile du chemin n'est jamais
+    elle-meme un mur."""
+    return any(board.is_wall(n) for n in board.neighbours_geometric(int(tile_id)))
+
+
+def direction_to(board: Board, from_id: int, to_id: int):
+    """`IdunBattle.Utils.Hex.AxialCoordinate$$DirectionTo(this, neighbor)` -- la direction hex du
+    pas, rendue comme le vecteur CUBE unitaire `(x, y, z)` (`None` = le `Nullable` vide du natif).
+
+    Le natif calcule le delta CUBE `(dq, -(dq+dr), dr)`, le divise par sa norme euclidienne
+    (Fix64), met a `0` la composante strictement plus petite que les deux autres (avec un
+    tie-break `x *= K + 0.01` quand `|x| == |y|` ou `|x| == |z|`), arrondit chaque composante
+    non nulle VERS L'EXTERIEUR (`Ceiling` si > 0, `Floor` sinon), puis passe le tout a
+    `IdunBattle.Utils.Hex.CubeDirections$$EdgeToNeighbor`.
+
+    SUR UN PAS UNITAIRE -- le SEUL regime ou `FlyPathfinder$$FindPath` l'appelle, puisqu'il ne le
+    fait que sur deux tuiles CONSECUTIVES d'un chemin -- cette machinerie rend exactement le
+    delta cube : le vecteur est une permutation de `(1, -1, 0)`, sa norme vaut `sqrt(2)`, et les
+    trois branches du tri (composante nulle en z / en y / en x) reduisent toutes au meme vecteur.
+    Verifie a la main sur les trois cas.
+
+    RESIDU NOMME : la normalisation GENERALE (deux tuiles NON adjacentes) n'est pas portee --
+    aucun call-site porte ne la sollicite. Le port rend `None` dans ce cas, ce qui se comporte
+    comme le `Nullable` vide que `EdgeToNeighbor` rendrait sur un vecteur hors des six aretes."""
+    import hexgeo
+    fc, fr = board.coord(int(from_id))
+    tc, tr = board.coord(int(to_id))
+    fx, fy, fz = hexgeo.to_cube(fc, fr)
+    tx, ty, tz = hexgeo.to_cube(tc, tr)
+    d = (tx - fx, ty - fy, tz - fz)
+    if sorted(abs(v) for v in d) != [0, 1, 1]:
+        return None                                # pas un pas unitaire -> hors regime porte
+    return d
+
+
+def find_path(board: Board, from_id, to_id) -> "list[int] | None":
+    """`IdunBattle.Entities.Pathfinding.FlyPathfinder$$FindPath(unit, fromTile, toTile,
+    useTeleporter)` -- l'OVERRIDE, et ce qu'il rend N'EST PAS LE CHEMIN : c'est sa reduction en
+    **WAYPOINTS**. Le decompile, remis en C# :
+
+        path = base.FindPath(unit, fromTile, toTile, useTeleporter);
+        if (path == null || path.Count <= 1) return path;
+        out = new List();
+        dir = path[0].GetPosition().DirectionTo(path[1].GetPosition());
+        for (i = 0; i < path.Count; i++) {
+            tile = path[i] as TileEntity;
+            if (i < path.Count - 1 && i != 0) {
+                bool isTele = TileExtensions.IsTeleportationTile(tile, state, ref _);
+                bool turn = false;
+                if (IsAnyAdjacentTileWall(this, tile)) {
+                    var nd = tile.GetPosition().DirectionTo(path[i + 1].GetPosition());
+                    turn = (dir != nd);                       // egalite `Nullable<HexDirection>`
+                    if (turn) dir = nd;
+                }
+                if (isTele || turn) out.Add(tile);
+            } else {
+                out.Add(tile);                                // extremites TOUJOURS gardees
+            }
+        }
+        return out;
+
+    ⇒ un vol DIRECT se reduit a `[from, to]`. Seuls survivent les virages qui ont un MUR dans
+    leur couronne, et les tuiles de teleportation. C'est `MovementQuery$$GetConnectedPathTo` qui
+    RE-DENSIFIE ensuite chaque saut par une beeline (`beeline_pathfinder`), laquelle traverse
+    tout, murs compris.
+
+    ⚠ `dir` n'est mis a jour QUE quand le virage est RETENU : un changement de direction loin de
+    tout mur laisse la direction de reference inchangee, donc le virage SUIVANT est compare a
+    l'ancienne. Le port garde ce comportement tel quel -- c'est ce que le decompile fait.
+
+    RESIDU NOMME : `IdunBattle.Entities.TileExtensions$$IsTeleportationTile` (le `!= 0` du
+    `ConnectivityComponent+0x18`) n'est pas publie par le `boardGraph` -- meme absence de source
+    que le `AddTeleportationTiles` deja nomme dans `walk_pathfinder`. Le port lit donc `False`,
+    donc il ne garde PAS un waypoint que le natif garderait sur un board a teleporteur.
+    Degradation bornee a ces boards ; aucune arete non geometrique n'apparait dans le
+    `boardGraph` de `C1_74`, `MC1_67`, `C2_26`, `C6_25` ni `PVP_desert_04`."""
+    path = _base.find_path(board, from_id, to_id,
+                           edge=is_valid_path_node_no_ctx,
+                           neighbours=board.neighbours_geometric,
+                           weight_cost=lambda tid: WEIGHT_COST,
+                           is_valid_final_tile=lambda tid: is_valid_final_tile(board, tid))
+    if path is None or len(path) <= 1:
+        return path
+    out = []
+    cur_dir = direction_to(board, path[0], path[1])
+    last = len(path) - 1
+    for i, tid in enumerate(path):
+        if 0 < i < last:
+            turn = False
+            if is_any_adjacent_tile_wall(board, tid):
+                nd = direction_to(board, tid, path[i + 1])
+                turn = nd != cur_dir
+                if turn:
+                    cur_dir = nd
+            if turn:                               # `isTele` : pas de source -> False (RESIDU)
+                out.append(tid)
+        else:
+            out.append(tid)                        # `i == 0` et `i == Count-1` : TOUJOURS
+    return out
+
+
+def is_valid_path_node_no_ctx(board: Board, from_id: int, to_id: int) -> bool:
+    """`is_valid_path_node` sans le contexte d'occupation -- le vol n'en lit aucun (cf. la
+    docstring de `is_valid_path_node` : `from_id`/`occupants`/`moving_team` y sont deja
+    inutilises). Signature a trois arguments, celle qu'attend `base_pathfinder`."""
+    return is_valid_path_node(board, from_id, to_id, {}, None)
