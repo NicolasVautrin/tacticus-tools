@@ -275,6 +275,22 @@ harnais : ils accusent le **SCENARIO** -- l'echantillon n'est plus confrontable,
 contre-controle ne discrimine plus. Un rouge de scenario ressemble trait pour trait a un rouge de
 port dans le message du test, et c'est exactement la forme de #533.
 
+> **RESOLU (#462-r6) -- `docs/rl/case-462-r6-le-rouge-de-scenario.md`.** La quatrieme case existe
+> desormais, et elle a un NOM que l'echec porte lui-meme : `counterproof.py` livre
+> `ScenarioRed(AssertionError)` -> `InertCounterproof` (« CONTRE-CONTROLE INERTE ») et
+> `UnconfrontableSample` (« ECHANTILLON NON CONFRONTABLE »), poses au niveau de l'ASSERTION. Le nom
+> du TYPE traverse pytest, le junitxml et **le ledger de ce probe** sans qu'une ligne d'outillage
+> change -- le prochain balayage lira donc sa ventilation dans `ratchets-462-live-attestations.json`
+> au lieu de la refaire. Les trois rouges sont repares a leur cause reelle : `placement_sort_rng`
+> (ancrage disparu -> le noeud natif `First(source, count)` porte un nom), `valkyrie_strike_targeting`
+> (mutation MASQUEE par l'elargissement #253 -> contrefactuel sur le desarmement natif
+> `AllowUnwalkableTargetTile`), `pick_randomly_one_rng` (ecart figE FERME par #221 -> contrat =
+> egalite). Reste `damage_catalog` (echantillon alphabetique), au backlog sous `#462-r4`.
+>
+> Le point le plus reutilisable est la **paire de contre-epreuves A/B** : meme fichier, meme
+> scenario, deux mutations opposees -- l'une accuse le scenario et sort en `InertCounterproof`,
+> l'autre accuse le port et sort en `AssertionError` NU. La separation est mesuree, pas argumentee.
+
 ⚠ **Et un rouge sur trois vient d'un CONTRE-CONTROLE qui rougit parce qu'il a cesse de mordre.**
 C'est le bon signe : ces tests-la sont concus pour rougir plutot que passer a vide. La leçon de
 #457 (le << vert vacueux >>) a ete appliquee, et elle rend ici.
@@ -379,9 +395,10 @@ suffisante serait exactement la faute que ce dossier documente.
   `from X import Y` de premiere partie a l'AST. ⚠ Le perimetre reel etait de **CINQ** sites, pas
   quatre : le grep de `BUILD_HASH` ne pouvait pas voir `GHOST_EFFECT` (`probe_230.case_ghost`,
   renomme par #366-r1) -- partir du symptome borne le perimetre au symptome.
-* **`#462-r6`** -- **Le ROUGE DE SCENARIO n'a pas de nom dans la ventilation.** 3 des 8 rouges
-  n'accusent ni le port ni le harnais : l'echantillon n'est plus confrontable
-  (`damage_catalog` : les 4 premiers candidats alphabetiques sont un summon et trois npc), ou le
-  contre-controle ne discrimine plus (`placement_sort_rng`, `valkyrie_strike_targeting`). Ils se
-  presentent comme des rouges de port. Le cas `damage_catalog` a une correction evidente et bornee :
-  filtrer les candidats par `build --list-pool` avant d'echantillonner.
+* ~~**`#462-r6`**~~ -- **LIVRE (2026-08-03)**, `case-462-r6-le-rouge-de-scenario.md`. La quatrieme
+  case a un nom, porte par le TYPE de l'exception, et les trois rouges sont repares a leur cause
+  (ancrage disparu / mutation masquee / ecart ferme). Le cas `damage_catalog` reste ouvert sous
+  `#462-r4` -- sa correction est bornee : filtrer les candidats par `build --list-pool` avant
+  d'echantillonner, avec `counterproof.assert_sample_confrontable` pour le dire.
+  Deux residus neufs : `#462-r6-r1` (la detection reste au balayage periodique) et `#462-r6-r2`
+  (le marquage du parc est incremental -- 3 fichiers sur 419).
