@@ -370,6 +370,13 @@ def verdict(rows: list) -> int:
     return 0
 
 
+def run_arms(rid: int, hp_lo: int = 100) -> dict:
+    """Les DEUX bras (arrangement nominal + ECHANGE des deux cibles) sur un runner deja bati.
+    Point d'entree du test versionne (`tests/engine/test_lions_wrath_decision_live.py`)."""
+    lbl = "hp(%s)=%s" % (LO_VID, hp_lo)
+    return {"base": measure(rid, lbl, swap=False), "swap": measure(rid, lbl, swap=True)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", action="store_true")
