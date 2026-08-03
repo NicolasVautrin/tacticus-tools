@@ -95,6 +95,13 @@ def fichiers_suivis() -> list:
     return [l.strip().replace("\\", "/") for l in out.stdout.splitlines() if l.strip()]
 
 
+def _rel(p: Path) -> "str | None":
+    try:
+        return p.relative_to(REPO).as_posix()
+    except ValueError:
+        return None
+
+
 def nom_pointe(rel: str) -> "str | None":
     """Nom d'import de `rel`, ou None s'il n'est pas sous la racine d'import.
 
@@ -585,6 +592,22 @@ def main(argv) -> int:
     index_n = sum(1 for r in sources if nom_pointe(r) is not None)
     print("[462r5] etape 1 : %d fichier(s) .py suivi(s), %d analyse(s), %d module(s) a l'index"
           % (lus, len(sources), index_n))
+
+    # ANCRAGE du perimetre. Un balayage qui rend ZERO fichier rend aussi ZERO hit, et se lit
+    # << rien a signaler >> -- c'est le faux vert que #440 a mesure sur la correction naive du
+    # filtre de worktrees (0 fichier, VERDICT: PASS). Le temoin ne se saisit pas : c'est CE
+    # fichier. S'il n'est ni suivi par git, ni sous la racine d'import, ni a l'index, alors ce
+    # que le probe vient de balayer n'est pas ce qu'il croit balayer.
+    moi_rel = _rel(Path(__file__).resolve())
+    moi_nom = nom_pointe(moi_rel) if moi_rel else None
+    perimetre_ko = []
+    if moi_rel is None or moi_rel not in sources:
+        perimetre_ko.append("ce fichier n'est pas dans le balayage (%s)" % moi_rel)
+    elif moi_nom is None or moi_nom not in Index(sources):
+        perimetre_ko.append("ce fichier ne resout pas en module de 1re partie (%s)" % moi_rel)
+    for msg in perimetre_ko:
+        print("   FAIL ancrage du perimetre : %s -- un balayage vide rend 0 hit et se lit"
+              " comme un verdict. Racine d'import attendue : %s/" % (msg, ROOT_REL))
     if illisibles:
         print("   (%d fichier(s) ECARTE(s) -- illisible ou non parsable : %s)"
               % (len(illisibles), ", ".join(illisibles[:3])))
@@ -602,7 +625,7 @@ def main(argv) -> int:
         print("   => soit le nom a ete retire et l'appelant doit suivre (mesure #462 : BUILD_HASH")
         print("      retire par #431, 10 tests morts 2 jours), soit la cible a change de foyer.")
 
-    ko = len(mauvais) + len(hits)
+    ko = len(mauvais) + len(hits) + len(perimetre_ko)
     print("[462r5] VERDICT: %s" % ("PASS" if ko == 0 else "FAIL (%d)" % ko))
     return 0 if ko == 0 else 1
 

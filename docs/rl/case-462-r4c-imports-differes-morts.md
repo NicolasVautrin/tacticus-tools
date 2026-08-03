@@ -112,6 +112,14 @@ pas. Aucune énumération depuis la racine, donc rien à déclarer à `probe_440
 **rc=1 et nomme les 5 sites**. La contre-épreuve n'est pas synthétique, c'est le gisement lui-même.
 `probe_439` le classe `OK` (`sys.exit(main(sys.argv[1:]))`).
 
+**L'ANCRAGE du périmètre — ce qui l'empêche de verdir à vide.** Un balayage qui rend zéro fichier
+rend aussi zéro hit, et se lit « rien à signaler » : c'est le faux vert que #440 a mesuré sur la
+correction naïve du filtre de worktrees (0 fichier, `VERDICT: PASS`). Le témoin ne se saisit pas
+— **c'est le fichier du cliquet lui-même** : s'il n'est ni suivi par git, ni sous la racine
+d'import, ni à l'index, le probe FAIL. Contre-épreuve mesurée (racine d'import mutée à
+`scripts/pythonn`) : **0 module à l'index, `FAIL`, rc=1** — au lieu du `PASS` qu'il aurait rendu
+sans l'ancrage.
+
 **Coût** : **35,5 s** de mur pour 1 638 fichiers, dont ~25 s de lecture+parse (le filtre système
 sur les extensions exécutables, cf. `repo_read`). Deux décisions de conception l'ont amené là
 depuis **~85 s** : index **PARESSEUX** (quelques centaines de modules sont réellement cible d'un
