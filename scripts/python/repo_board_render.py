@@ -258,22 +258,26 @@ def page(data: dict) -> str:
     dir_add = sum(d["direct_add"] for d in days)
     all_commits = tot_commits + dir_commits
     agents_with_pr = len({p["agent_id"] for p in prs if p["agent_id"]})
-    # Ratios GLOBAUX = somme/somme, PAS la moyenne des ratios quotidiens : une journee a 2 commits
+    # Ratios GLOBAUX = somme/somme, PAS la moyenne des ratios quotidiens : une journee a 2 PR
     # peserait autant qu'une journee a 82 et le chiffre ne voudrait plus rien dire.
-    ctx_per_commit = tot_ctx / tot_commits if tot_commits else 0
+    tot_merged = sum(d["merged"] for d in days)
+    ctx_per_pr = tot_ctx / tot_merged if tot_merged else 0
     ctx_per_line = tot_ctx / tot_add if tot_add else 0
 
     mx_ctx = max([d["ctx"] for d in days] + [1])
     mx_eff = max([d["ctx_per_line"] for d in days] + [1])
 
     # --- registre 2 : une ligne reglee par jour -----------------------------------------
+    # L'unite de la ligne est la PR MERGEE. Le compte de commits reste, en sous-valeur grise :
+    # c'est la granularite de la livraison, pas son denominateur.
     ledger = ['<div class="day head"><span>jour</span><span>context</span>'
-              '<span class="r">commits</span><span class="r">+lignes</span>'
-              '<span class="r">ctx / commit</span><span class="r">ctx / ligne</span></div>']
+              '<span class="r">PR mergees</span><span class="r">+lignes</span>'
+              '<span class="r">ctx / PR</span><span class="r">ctx / ligne</span></div>']
     for d in days:
         dt = datetime.strptime(d["day"], "%Y-%m-%d")
         wc = 100.0 * d["ctx"] / mx_ctx
         we = 100.0 * d["ctx_per_line"] / mx_eff
+        sub = f'<i>{d["commits"]} commits</i>' if d["commits"] else ""
         ledger.append(
             '<div class="day">'
             f'<div class="dlabel"><b>{dt.strftime("%d/%m")}</b>'
@@ -283,9 +287,9 @@ def page(data: dict) -> str:
             f'<div class="bar thin b-eff"><i style="width:{we:.1f}%"></i></div>'
             f'<div class="num dim" style="text-align:left">{compact(d["ctx"])}</div>'
             '</div>'
-            f'<div class="num">{d["commits"] or "-"}</div>'
+            f'<div class="num">{d["merged"] or "-"}{sub}</div>'
             f'<div class="num">{("+" + n(d["add"])) if d["add"] else "-"}</div>'
-            f'<div class="num">{compact(d["ctx_per_commit"]) if d["commits"] else "-"}</div>'
+            f'<div class="num">{compact(d["ctx_per_pr"]) if d["merged"] else "-"}</div>'
             f'<div class="num">{compact(d["ctx_per_line"]) if d["add"] else "-"}</div>'
             '</div>')
 
@@ -322,22 +326,22 @@ def page(data: dict) -> str:
 <dl class="summary">
   <div class="cell"><dt>context</dt><dd>{compact(tot_ctx)}<small>tokens lus, sur
     {n(tot_turns)} tours</small></dd></div>
-  <div class="cell"><dt>commits par PR</dt><dd>{n(tot_commits)}<small>sur {n(all_commits)}
-    &mdash; {n(dir_commits)} pousses direct</small></dd></div>
+  <div class="cell"><dt>PR mergees</dt><dd>{n(tot_merged)}<small>sur {len(prs)} ouvertes&nbsp;;
+    {len(closed)} fermees sans merge</small></dd></div>
   <div class="cell"><dt>lignes ajoutees</dt><dd>{compact(tot_add)}<small>par PR&nbsp;;
     +{compact(dir_add)} hors PR</small></dd></div>
-  <div class="cell"><dt>context / commit</dt><dd>{compact(ctx_per_commit)}<small>somme sur somme,
+  <div class="cell"><dt>context / PR</dt><dd>{compact(ctx_per_pr)}<small>somme sur somme,
     pas moyenne de moyennes</small></dd></div>
   <div class="cell"><dt>context / ligne</dt><dd>{compact(ctx_per_line)}<small>plus c'est bas,
     mieux c'est</small></dd></div>
-  <div class="cell"><dt>pull requests</dt><dd>{len(prs)}<small>{len(merged)} mergees,
-    {len(closed)} fermees sans merge</small></dd></div>
+  <div class="cell"><dt>commits</dt><dd>{n(tot_commits)}<small>amenes par ces PR&nbsp;;
+    {n(dir_commits)} pousses direct</small></dd></div>
 </dl>
 
 <h2>Le journal</h2>
-<p class="sub">Une ligne par jour. L'unite est le <strong>merge d'une pull request</strong>&nbsp;:
-les <strong>+lignes</strong> sont le diff net du merge contre master-avant-merge, rattachees au
-jour du merge, et les <strong>commits</strong> sont ceux que ces PR ont fait entrer. La barre
+<p class="sub">Une ligne par jour, comptee en <strong>pull requests mergees</strong> &mdash; une PR
+est une livraison, quel que soit le nombre de commits qu'elle porte (rappele en gris dessous).
+Les <strong>+lignes</strong> sont le diff net du merge contre master-avant-merge. La barre
 pleine est le <strong>context</strong>
 &mdash; les tokens que les modeles ont eu a lire ce jour-la, a l'echelle du jour le plus lourd. Le
 filet gris dessous est le ratio <strong>context&nbsp;/&nbsp;ligne</strong>&nbsp;: c'est une
@@ -360,15 +364,17 @@ d'un cout de livraison qu'on puisse etablir. Les colonnes se trient, les pastill
 
 <div class="note">
   <h3>Rapprochement &mdash; ce que ces chiffres ne disent pas</h3>
-  <p><strong>Le denominateur est le perimetre PR, le numerateur ne l'est pas.</strong> Les lignes
-  sont le diff net de chaque merge contre son premier parent
-  (<code>git diff &lt;merge&gt;^1 &lt;merge&gt;</code>), et les commits ceux que ces merges ont
-  fait entrer &mdash; soit {n(tot_commits)} des {n(all_commits)} commits de la fenetre. Les
-  {n(dir_commits)} autres sont des pushs directs sur master&nbsp;: correctifs a chaud, outillage,
-  documentation. Le <strong>context</strong>, lui,
+  <p><strong>Le denominateur est la PR, le numerateur ne l'est pas.</strong> Une PR est l'unite de
+  livraison&nbsp;: son poids ne depend pas de la facon dont son auteur a decoupe ses commits, et
+  deux agents qui livrent le meme travail en 1 ou en 12 commits comptent pareil. Les lignes sont
+  le diff net de chaque merge contre son premier parent
+  (<code>git diff &lt;merge&gt;^1 &lt;merge&gt;</code>)&nbsp;; les commits restent affiches comme
+  granularite &mdash; {n(tot_commits)} des {n(all_commits)} de la fenetre, les {n(dir_commits)}
+  autres etant des pushs directs sur master (correctifs a chaud, outillage, documentation). Le
+  <strong>context</strong>, lui,
   reste l'activite ENTIERE de la journee, retro-ingenierie et conversation comprises. Le rapport
-  <em>context / commit</em> se lit donc comme «&nbsp;ce que coute le projet par commit livre&nbsp;»,
-  et vaut comme tendance d'une periode a l'autre, jamais comme prix unitaire.</p>
+  <em>context / PR</em> se lit donc comme «&nbsp;ce que coute le projet par PR livree&nbsp;», et
+  vaut comme tendance d'une periode a l'autre, jamais comme prix unitaire.</p>
   <p><strong>Les lignes de commits comptent le churn.</strong> Un module scinde compte N ajouts
   et N suppressions pour zero code neuf. La croissance nette de l'arbre sur la fenetre, elle,
   annule ce bruit&nbsp;: <code>{esc(net)}</code>. C'est ce chiffre-la qui mesure ce qui a

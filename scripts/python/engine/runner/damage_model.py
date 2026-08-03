@@ -575,6 +575,30 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
             att_ctx["team_by_id"] = {int(uid): oc.team
                                      for uid, e in state.entities.items()
                                      for oc in (e.get_component(OwnerComponent),) if oc is not None}
+            # #462-r4b-r1-r1 -- NIVEAU + MULTIPLICATEUR de l'ATTAQUANT, la MAGNITUDE d'un additif
+            # defenseur indexe sur la SOURCE. `IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$
+            # CreateEffectDamageMalusForDefense` = `ForAddition(OwnerIsTarget & AreEqual(BondedEntity,
+            # damageSource) & DamageProfileIs(0xd), Multiply(ConfigVar(8 = extraDmg, GetAbilityState(
+            # effect)), EffectLevel(Effect)))` : le `ConfigVar` s'indexe sur l'`AbilityState` de la
+            # SOURCE, et le gate `AreEqual` FAIT de l'attaquant cette source -- d'ou une magnitude
+            # lue sur l'ATTAQUANT. La PREDICTION posait deja ces deux cles
+            # (`playbook/prediction/_shared.py` : `scene.ablvl_by_id.get(att_id)` / `scene.mult(
+            # att_id)`, eux-memes `int(ctx.passive_ability_level or 0)` / `int(ctx.
+            # ability_variables_multiplier or 100)`) ; le COMBAT ne les posait PAS, donc
+            # `create_effect_damage_malus_for_defense` y retournait None sur `src_lvl is None` --
+            # l'effet etait MATERIALISE et pourtant INERTE. Meme fork prediction/combat que
+            # #462-r4b-r1 vient de fermer sur l'axe PLACEMENT, reste ouvert sur l'axe MAGNITUDE.
+            # MESURE (`probe_462_r4b_r1_r1_defender_additive_carriers.py --neuro`, Neurothrope ->
+            # blackPossession, parasite niveau 1, `RangedSpecialist` M=1.33) : natif 4448, port 2192,
+            # ecart 2256 = `extraDmg[50] x 1.8 = 1696` x 1.33 -- EXACTEMENT le separateur #88 que la
+            # face PREDICTION avait mesure le 2026-07-12. On lit la MEME source que la Scene
+            # (`StatsComponent.ctx`), donc les deux faces s'indexent desormais a l'identique.
+            # Consommateur UNIQUE de ces deux cles dans tout `engine/` : `NeuroparasiteEffect`.
+            _asc = _ae.get_component(StatsComponent) if _ae is not None else None
+            _actx = _asc.ctx if _asc is not None else None
+            if _actx is not None:
+                att_ctx["ability_level"] = int(_actx.passive_ability_level or 0)
+                att_ctx["multiplier"] = int(_actx.ability_variables_multiplier or 100)
     # STAT-MODS DEFENSE de la CIBLE (#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`, portee DANS la fonction PARTAGEE (fin du fork prediction/combat -- cf. son docstring).
     # Source runner = le `StatComponent` DEFENSE (stat 3) de l'ECS live (`ctx.stats`, delta cuit au load

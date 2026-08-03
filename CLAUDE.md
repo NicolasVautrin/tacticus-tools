@@ -14,8 +14,11 @@ Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monor
   `dump-il2cpp-full.js`, qui produit toute la chaîne de symboles).
 - `hooks-legacy/` — hooks et probes **historiques** (versionnés, consultables). Rien
   de vivant ne doit en dépendre. Voir `hooks-legacy/README.md`.
-- `data/` — dumps IL2CPP, gameconfig, boards — gitignored, **à une exception près** :
-  `data/symbols/<HASH>/` (la table de symboles) est VERSIONNÉE.
+- `data/` — **VERSIONNÉ à la racine, aucune règle ne l'ignore** (depuis le 2026-07-26). Règle de
+  partage : **`data/` = ce qu'on LIT, `logs/` = ce qu'on ÉCRIT**. Les `data/` NICHÉS
+  (`frida/data/`, `scripts/python/data/`) sont des sorties runtime, eux ignorés.
+  ⚠ Un fichier laissé non suivi sous `data/` n'est protégé par RIEN : `git clean` et un
+  `worktree remove --force` l'effacent sans trace. L'indexer est ce qui le sauve.
 - `sources_win/` — décompilation Ghidra de `GameAssembly.dll` — gitignored
 - `STATUS.md` — **instantané HISTORIQUE du 2026-05-03** (ère « Tacticus Builder » : pipeline
   d'injection et de build de nœud). **Ce n'est pas l'état du projet** — ne pas s'y fier.
@@ -351,9 +354,10 @@ git add scripts/ratchets-462-live-attestations.json
 - **Hook permanent sur des property getters** appelés par les sérialisations
   Newtonsoft du jeu (ex. `GameConfigData.get_gameConfigDto`) : 27 000 appels/s
   → frame >960 ms → crash.
-- **Commit** : `data/` (SAUF `data/symbols/`, qui est versionnée EXPRÈS),
-  `frida/dist/`, `server/`, `logs/`, `frida/assets/raw/`, `sources_win/`.
-  (`hooks-legacy/` EST versionné — l'ancienne mention ici était fausse.)
+- **Commit** : `frida/dist/`, `server/`, `logs/`, `frida/assets/raw/`, `sources_win/`.
+  (`hooks-legacy/` EST versionné — l'ancienne mention ici était fausse. **`data/` à la racine
+  aussi** : la ligne qui l'interdisait ici datait d'avant le 2026-07-26 et faisait laisser
+  non suivies des entrées que `git clean` détruit — cf. section Structure.)
 
 ## Protocole RE + portage (DÉCISION + COMBAT)
 

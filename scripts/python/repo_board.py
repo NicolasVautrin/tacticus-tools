@@ -79,7 +79,7 @@ import re
 import subprocess
 import webbrowser
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Le corps d'un message de merge cite l'agent auteur sous cette forme -- c'est le NOM DE FICHIER
@@ -94,6 +94,50 @@ OUT = REPO / "logs" / "repo-board.html"
 
 # Artefact genere, versionne expres, mais ce n'est pas du code ecrit -- cf. docstring.
 EXCLUDE = ":(exclude)data/symbols"
+
+# ------------------------------------------------------------------ cache (VERSIONNE)
+# Meme statut que `data/symbols/` : PRODUIT par un outil, versionne EXPRES. Ce que le board
+# relit a chaque run est immuable par nature -- un jour revolu ne recoit plus d'enregistrement,
+# et le diff d'une PR mergee ne bouge plus -- mais coute cher a re-deriver :
+# 2,5 Go de transcripts (874 fichiers) et 2 appels git par PR, soit > 10 min de mur au
+# 2026-08-03. Le cache ramene le run a ce qui a REELLEMENT change depuis la veille.
+CACHE = REPO / "data" / "repo-board-cache.json"
+CACHE_VERSION = 1
+
+
+def empty_cache() -> dict:
+    return dict(version=CACHE_VERSION, through=None, days={}, agents={}, merges={})
+
+
+def load_cache(use: bool = True) -> dict:
+    """Cache disque, ou cache vide si absent/illisible/de version differente.
+
+    Un cache de version differente est JETE, jamais migre : ses agregats ont ete calcules
+    par un autre code, et les melanger produirait des chiffres qu'aucune passe ne peut
+    reproduire. Le recalcul complet est long, pas faux.
+    """
+    if not use:
+        return empty_cache()
+    try:
+        c = json.loads(CACHE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return empty_cache()
+    if c.get("version") != CACHE_VERSION or not isinstance(c.get("days"), dict):
+        return empty_cache()
+    for k in ("days", "agents", "merges"):
+        c.setdefault(k, {})
+    return c
+
+
+def save_cache(c: dict) -> None:
+    CACHE.parent.mkdir(parents=True, exist_ok=True)
+    CACHE.write_text(json.dumps(c, ensure_ascii=False, sort_keys=True, indent=1),
+                     encoding="utf-8")
+
+
+def _day_start(day: str) -> float:
+    """Horodatage POSIX du debut du jour LOCAL `day` -- borne de relecture des fichiers."""
+    return datetime.strptime(day, "%Y-%m-%d").astimezone().timestamp()
 
 
 def sh(args: list[str], cwd: Path = REPO) -> str:
@@ -185,13 +229,60 @@ def _ctx(u) -> int:
             + int(u.get("cache_read_input_tokens") or 0))
 
 
-def load_tokens(pdir: Path) -> tuple[dict, dict]:
-    """Rend (par_jour, par_agent_id). Streaming : on ne parse que les lignes portant `usage`."""
+def load_tokens(pdir: Path, cache: dict) -> tuple[dict, dict]:
+    """Rend (par_jour, par_agent_id). Streaming : on ne parse que les lignes portant `usage`.
+
+    NE RELIT QUE CE QUI A PU CHANGER. Deux proprietes le rendent exact, toutes deux mesurees
+    le 2026-08-03 :
+
+    1. UN JOUR REVOLU EST FIGE. Un enregistrement porte un seul horodatage, donc il appartient
+       a un seul jour ; un transcript est append-only et horodate a l'instant de l'ecriture.
+       Un fichier non modifie depuis le debut du jour J ne peut donc RIEN porter du jour J.
+       D'ou la borne : on ne relit que les fichiers de `mtime >= debut(through + 1 jour)`.
+       `through` = dernier jour COMPLET mis en cache -- jamais le jour courant, dont l'agregat
+       serait partiel et se figerait faux.
+    2. LA DEDUPLICATION PAR `uuid` EST INTRA-JOURNEE. Le meme enregistrement peut figurer dans
+       deux fichiers (reprise de conversation) : 156 cas sur 277 109 uuid, soit 0,031 % du
+       context. Ils portent le MEME horodatage, donc le meme jour -- et comme on recalcule des
+       journees ENTIERES, le set `seen` local les attrape tous. Mesure : ces 156 doublons sont
+       tous entre deux transcripts PRINCIPAUX, aucun n'implique un transcript d'agent.
+
+    Les agregats PAR AGENT ont leur propre validite -- `(taille, mtime)` du fichier -- parce
+    qu'ils ne sont pas decoupes par jour : un agent qui chevauche minuit doit rester entier.
+    """
+    today = datetime.now().astimezone().strftime("%Y-%m-%d")
+    through = cache.get("through")
+    cutoff = _day_start(through) + 86400.0 if through else 0.0
+
     by_day = defaultdict(lambda: defaultdict(int))
+    for day, v in cache["days"].items():
+        if day <= (through or ""):
+            for k in ("ctx", "turns", "agent_ctx"):
+                by_day[day][k] = int(v.get(k) or 0)
+
     by_agent = defaultdict(lambda: defaultdict(int))
+    acache = cache["agents"]
     seen = set()
+    n_read = n_skip = 0
     for fp in sorted(pdir.glob("*.jsonl")) + sorted(pdir.glob("*/subagents/agent-*.jsonl")):
         aid = fp.stem.replace("agent-", "") if "subagents" in fp.parts else None
+        try:
+            st = fp.stat()
+        except OSError:
+            continue
+        token = "%d:%d" % (st.st_size, int(st.st_mtime))
+        hit = acache.get(aid) if aid else None
+        # On relit si le fichier a pu bouger DEPUIS la borne, ou si l'agregat d'agent manque.
+        if st.st_mtime < cutoff and (aid is None or (hit and hit.get("token") == token)):
+            if hit:
+                a = by_agent[aid]
+                a["ctx"] = int(hit["ctx"])
+                a["turns"] = int(hit["turns"])
+                a["first"] = _ts(hit.get("first"))
+                a["last"] = _ts(hit.get("last"))
+            n_skip += 1
+            continue
+        n_read += 1
         try:
             fh = fp.open("r", encoding="utf-8", errors="replace")
         except OSError:
@@ -217,10 +308,15 @@ def load_tokens(pdir: Path) -> tuple[dict, dict]:
                     continue
                 ctx = _ctx(u)
                 day = t.astimezone().strftime("%Y-%m-%d")
-                by_day[day]["ctx"] += ctx
-                by_day[day]["turns"] += 1
+                # Les jours <= `through` sont deja dans `by_day` par le cache : les rajouter
+                # ici les compterait DEUX fois (un fichier relu porte aussi son passe).
+                fresh = through is None or day > through
+                if fresh:
+                    by_day[day]["ctx"] += ctx
+                    by_day[day]["turns"] += 1
                 if aid:
-                    by_day[day]["agent_ctx"] += ctx
+                    if fresh:
+                        by_day[day]["agent_ctx"] += ctx
                     a = by_agent[aid]
                     a["ctx"] += ctx
                     a["turns"] += 1
@@ -228,6 +324,18 @@ def load_tokens(pdir: Path) -> tuple[dict, dict]:
                         a["first"] = t
                     if not a.get("last") or t > a["last"]:
                         a["last"] = t
+        if aid:
+            a = by_agent[aid]
+            acache[aid] = dict(token=token, ctx=a["ctx"], turns=a["turns"],
+                               first=a["first"].isoformat() if a.get("first") else None,
+                               last=a["last"].isoformat() if a.get("last") else None)
+
+    # On ne fige que les jours REVOLUS. Le jour courant reste recalcule a chaque run.
+    new_through = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    cache["days"] = {d: dict(ctx=v["ctx"], turns=v["turns"], agent_ctx=v.get("agent_ctx", 0))
+                     for d, v in by_day.items() if d <= new_through}
+    cache["through"] = new_through
+    cache["stat_tokens"] = dict(lus=n_read, reutilises=n_skip)
     return by_day, by_agent
 
 
@@ -277,7 +385,7 @@ def load_metas(pdir: Path) -> dict:
 
 
 # ---------------------------------------------------------------- 3. git
-def pr_commits(prs: list[dict], strict: bool) -> dict:
+def pr_commits(prs: list[dict], strict: bool, cache: dict) -> dict:
     """SHA -> numero de PR, pour chaque commit AMENE par une PR mergee.
 
     `rev-list <merge>^1..<merge>` = ce que le merge a fait entrer, et rien d'autre : le premier
@@ -296,30 +404,45 @@ def pr_commits(prs: list[dict], strict: bool) -> dict:
     `git patch-id` partage (aucun contenu reapplique sous un autre SHA), et 0 des 31 PR fermees
     sans merge n'a vu sa tache remergee sous un autre numero.
     """
+    mcache = cache["merges"]
     owner = {}
+    n_git = 0
     for p in sorted(prs, key=lambda q: q["merged"] or datetime.max.replace(tzinfo=timezone.utc)):
         if not p["merge_sha"] or (strict and not p.get("agent_id")):
             continue
         sha = p["merge_sha"]
-        # --no-merges : une branche d'agent qui a merge master en cours de route amene ses propres
-        # merges, qui n'apportent aucune ligne. Les compter gonflait le perimetre de 174 sur 993
-        # (mesure du 2026-08-01) pour zero contenu.
-        shas = [s for s in sh_soft(["git", "rev-list", "--no-merges",
-                                    "%s^1..%s" % (sha, sha)]).split() if s]
+        # MEMOISE PAR SHA DE MERGE : `<merge>^1..<merge>` et son diff ne dependent que de l'objet
+        # git, immuable une fois la PR mergee. C'est ce qui evite 2 appels git par PR a chaque run.
+        hit = mcache.get(sha)
+        if hit is None:
+            # --no-merges : une branche d'agent qui a merge master en cours de route amene ses
+            # propres merges, qui n'apportent aucune ligne. Les compter gonflait le perimetre de
+            # 174 sur 993 (mesure du 2026-08-01) pour zero contenu.
+            shas = [s for s in sh_soft(["git", "rev-list", "--no-merges",
+                                        "%s^1..%s" % (sha, sha)]).split() if s]
+            add = dele = 0
+            # LA LIVRAISON : diff NET du merge contre master-avant-merge. C'est cette mesure-la
+            # qui alimente les colonnes, pas la somme des commits (gardee pour le compte seul).
+            for ln in sh_soft(["git", "diff", "--numstat", "%s^1" % sha, sha,
+                               "--", ".", EXCLUDE]).splitlines():
+                f = ln.split("\t")
+                if len(f) == 3 and f[0] != "-":
+                    add += int(f[0])
+                    dele += int(f[1])
+            hit = dict(commits=shas or [sha], add=add, dele=dele)
+            mcache[sha] = hit
+            n_git += 1
+        # La DEDUPLICATION reste calculee a chaque run, jamais memoisee : elle depend de l'ORDRE
+        # de merge de TOUTES les PR, donc une PR mergee ensuite peut la changer.
         n = 0
-        for s in (shas or [sha]):
+        for s in hit["commits"]:
             if s not in owner:
                 owner[s] = p["num"]
                 n += 1
         p["n_commits"] = n
-        # LA LIVRAISON : diff NET du merge contre master-avant-merge. C'est cette mesure-la qui
-        # alimente les colonnes, pas la somme des commits ci-dessus (gardee pour le compte seul).
-        for ln in sh_soft(["git", "diff", "--numstat", "%s^1" % sha, sha,
-                           "--", ".", EXCLUDE]).splitlines():
-            f = ln.split("\t")
-            if len(f) == 3 and f[0] != "-":
-                p["net_add"] += int(f[0])
-                p["net_del"] += int(f[1])
+        p["net_add"] = hit["add"]
+        p["net_del"] = hit["dele"]
+    cache["stat_merges"] = dict(interroges=n_git, reutilises=len(mcache) - n_git)
     return owner
 
 
@@ -366,10 +489,11 @@ def load_git(since: str, keep: set) -> tuple[dict, dict]:
 
 
 # ---------------------------------------------------------------- assemblage
-def build(since: str, strict: bool = False) -> dict:
+def build(since: str, strict: bool = False, use_cache: bool = True) -> dict:
     pdir = project_dir()
+    cache = load_cache(use_cache)
     prs = load_prs()
-    tok_day, tok_agent = load_tokens(pdir)
+    tok_day, tok_agent = load_tokens(pdir, cache)
     metas = load_metas(pdir)
 
     known = agents_on_disk(pdir)
@@ -401,8 +525,12 @@ def build(since: str, strict: bool = False) -> dict:
         via_msg += pr["via"] == "message"
 
     # L'enumeration des commits de PR vient APRES la jointure d'agent : `--strict-agent` en depend.
-    owner = pr_commits(prs, strict)
+    owner = pr_commits(prs, strict, cache)
     git_day, git_net = load_git(since, set(owner))
+    # Le cache est valide dans LES DEUX modes : les tokens ignorent `strict`, et le cache de
+    # merges est de la donnee git BRUTE par sha (`strict` change seulement QUELLES PR on
+    # interroge, pas ce que git repond pour l'une d'elles).
+    save_cache(cache)
 
     days = sorted({d for d in set(tok_day) | set(git_day) | {p["day"] for p in prs if p["day"]}
                    if d >= since})
@@ -430,7 +558,10 @@ def build(since: str, strict: bool = False) -> dict:
             ctx_per_line=(ctx / add) if add else 0))
     return dict(days=rows, prs=prs, joined=joined, net=git_net, since=since, strict=strict,
                 agents=tok_agent, project_dir=str(pdir), n_pr_commits=len(owner),
-                via_msg=via_msg, agree=agree, clash=clash)
+                via_msg=via_msg, agree=agree, clash=clash,
+                cache=dict(through=cache.get("through"),
+                           tokens=cache.get("stat_tokens", {}),
+                           merges=cache.get("stat_merges", {})))
 
 
 # ---------------------------------------------------------------- console
@@ -439,25 +570,28 @@ def n(x) -> str:
 
 
 def console(data: dict) -> None:
-    hdr = "%-12s%9s%16s%10s%14s%12s%7s%7s%9s"
-    print("unite = le MERGE d'une PR%s : lignes au diff net, rattachees au jour du merge."
+    # L'UNITE DE LA LIGNE EST LA PR MERGEE ce jour-la. Le compte de commits reste affiche, mais
+    # en colonne SECONDAIRE : c'est une granularite (combien de commits une PR a fait entrer),
+    # jamais le denominateur. Une PR = une livraison, quel que soit le nombre de commits dedans.
+    hdr = "%-12s%6s%16s%10s%14s%12s%9s%9s%8s"
+    print("unite = la PR MERGEE%s : lignes au diff net de son merge, au jour du merge."
           % (" (agent identifie)" if data["strict"] else ""))
     print("`direct` = commits pousses sur master hors PR.")
-    print(hdr % ("jour", "commits", "context", "+lignes",
-                 "ctx/commit", "ctx/ligne", "PR+", "PR ok", "direct"))
+    print(hdr % ("jour", "PR", "context", "+lignes",
+                 "ctx/PR", "ctx/ligne", "ouvertes", "commits", "direct"))
     tot = defaultdict(int)
     for r in data["days"]:
         for k in ("opened", "merged", "commits", "add", "dele", "ctx",
                   "direct_commits", "direct_add"):
             tot[k] += r[k]
-        print(hdr % (r["day"], r["commits"], n(r["ctx"]), n(r["add"]),
-                     n(r["ctx_per_commit"]) if r["commits"] else "-",
+        print(hdr % (r["day"], r["merged"] or "-", n(r["ctx"]), n(r["add"]),
+                     n(r["ctx_per_pr"]) if r["merged"] else "-",
                      n(r["ctx_per_line"]) if r["add"] else "-",
-                     r["opened"], r["merged"], r["direct_commits"] or "-"))
-    print(hdr % ("TOTAL", tot["commits"], n(tot["ctx"]), n(tot["add"]),
-                 n(tot["ctx"] / tot["commits"]) if tot["commits"] else "-",
+                     r["opened"] or "-", r["commits"] or "-", r["direct_commits"] or "-"))
+    print(hdr % ("TOTAL", tot["merged"], n(tot["ctx"]), n(tot["add"]),
+                 n(tot["ctx"] / tot["merged"]) if tot["merged"] else "-",
                  n(tot["ctx"] / tot["add"]) if tot["add"] else "-",
-                 tot["opened"], tot["merged"], tot["direct_commits"]))
+                 tot["opened"], tot["commits"], tot["direct_commits"]))
     prs = data["prs"]
     merged = [p for p in prs if p["state"] == "MERGED"]
     ttm = sorted(p["ttm"] for p in merged if p["ttm"] is not None)
@@ -479,6 +613,11 @@ def console(data: dict) -> None:
               % (ttm[len(ttm) // 2], ttm[int(len(ttm) * 0.9)]))
     if data["net"].get("shortstat"):
         print("croissance nette de l'arbre depuis %s : %s" % (data["since"], data["net"]["shortstat"]))
+    c = data["cache"]
+    print("cache         : fige jusqu'au %s -- transcripts %d lus / %d reutilises,"
+          " merges %d interroges / %d reutilises"
+          % (c.get("through") or "-", c["tokens"].get("lus", 0), c["tokens"].get("reutilises", 0),
+             c["merges"].get("interroges", 0), c["merges"].get("reutilises", 0)))
 
 
 # ---------------------------------------------------------------- rendu HTML
@@ -500,9 +639,11 @@ def main() -> None:
     ap.add_argument("--json", action="store_true", help="sortie machine")
     ap.add_argument("--strict-agent", action="store_true",
                     help="ne garder que les PR dont l'agent est identifie par sa branche")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="tout recalculer et REECRIRE le cache (long : cf. docstring de CACHE)")
     args = ap.parse_args()
 
-    data = build(args.since, args.strict_agent)
+    data = build(args.since, args.strict_agent, use_cache=not args.no_cache)
     if args.json:
         def enc(o):
             return o.isoformat() if isinstance(o, datetime) else str(o)

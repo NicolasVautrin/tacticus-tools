@@ -126,18 +126,21 @@ Arbre restauré par `git checkout --` du seul fichier, `git diff` vide, offline 
 
 ## 6. Ce qui n'est PAS couvert
 
-* **Les deux autres porteurs d'additif défenseur ne sont pas confrontés en COMBAT.**
-  `Chronometron_ExtraDamage` (1550) et `Neuroparasite` (1183/1218) traversent le même foyer et sont
-  corrigés par construction, mais aucune mesure live ne les exerce sur ce vecteur.
-  **Canal qui les établirait** : `necroChronomancer` est hors pool → injection catalogue
-  (`catalog_inject`, cf. `case-92` §6) puis cast de `Chronometron` sur une cible ADJACENTE à un allié
-  du Chronomancer, cet allié frappant ensuite — avec une armure de cible assez haute pour que la
-  branche PERÇAGE gagne (`rl_duel build --armor-target`), faute de quoi le régime est dégénéré (§4).
+* ~~**Les deux autres porteurs d'additif défenseur ne sont pas confrontés en COMBAT.**~~ **FERMÉ par
+  #462-r4b-r1-r1** (`case-462-r4b-r1-r1-rayon-de-souffle-additif-defenseur.md`). Les deux sont
+  confrontés bit-exact, chacun séparant par un étage DIFFÉRENT de celui de ce cas :
+  `Chronometron_ExtraDamage` par la branche PERÇAGE seule (port 61 == natif, contre-modèle 950) et
+  `Neuroparasite` par la `%-list` ATTAQUANT (port 4448 == natif, contre-modèle 3888). Le second bras
+  a trouvé un **défaut supplémentaire, indépendant du placement** : l'effet était matérialisé et
+  pourtant INERTE en combat (clés `ability_level`/`multiplier` absentes de l'`attacker_ctx`), soit le
+  même fork prédiction/combat sur l'axe MAGNITUDE.
 * **La troncature PAR TERME.** Le natif applique `op_Explicit` (`raw >> 32`) à **chaque** `Addition`
   séparément avant de sommer ; le port somme des flottants puis arrondit dans
   `apply_pierce_and_modifiers`. Aucun producteur porté ne rend de valeur fractionnaire (les trois
   passent par `int(...)`), donc les deux se confondent aujourd'hui. Un producteur fractionnaire futur
-  les séparerait.
+  les séparerait. **Depuis #462-r4b-r1-r1 ce fait est MESURÉ** (garde
+  `test_les_magnitudes_des_producteurs_sont_INTEGRALES`) au lieu d'être supposé, et l'entrée du canal
+  est gardée par un cliquet de registre.
 * **L'identité des slots `0xd` / `0xe`** (lequel est l'attaquant, lequel le défenseur) n'a pas été
   tranchée — elle est **sans effet** ici : la somme est symétrique et les deux `Nullable` sont passés
   aux deux call-sites. Une lecture qui en dépendrait devrait la trancher.
