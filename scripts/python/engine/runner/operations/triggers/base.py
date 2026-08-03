@@ -30,7 +30,7 @@ class TriggerEvent:
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
                  "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles",
                  "triggering_effect", "is_first_hit", "triggering_ability", "dest_tile",
-                 "health_damage", "was_block", "is_normal_attack")
+                 "health_damage", "was_block", "is_normal_attack", "movement_steps")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
@@ -42,7 +42,8 @@ class TriggerEvent:
                  triggering_ability: Optional[int] = None,
                  dest_tile=None,
                  health_damage: Optional[int] = None, was_block: Optional[bool] = None,
-                 is_normal_attack: Optional[bool] = None):
+                 is_normal_attack: Optional[bool] = None,
+                 movement_steps: Optional[int] = None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -55,6 +56,21 @@ class TriggerEvent:
         # se TAIRE plutot que supposer. Consommateur : le target-trigger de
         # `LegendaryCommander_ExtraHits`, dont le predicat porte `!IsNormalAttack`.
         self.is_normal_attack = is_normal_attack
+        # `AbilityEntities+0x11c` = **`movementSteps`** (nom LU verbatim dans la signature du ctor a
+        # 33 parametres d'`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor`, 30e parametre
+        # nomme). C'est le canal UNIQUE de la formule `IdunBattleLogic.Entities.DSLFormulas$$
+        # MovementSteps()`, dont le `Calculate` a pour corps ENTIER :
+        #     `IdunBattle.DSL.MovementStepFormula$$Calculate` = Nullable<int>.GetValueOrDefault(
+        #                                                            entities+0x11c)
+        # `None` cote port = le `Nullable` VIDE du natif -> les lecteurs doivent rendre **0**, pas se
+        # taire : `GetValueOrDefault()` n'a pas de tri-etat, et 0 fait echouer tout gate
+        # `AmountIsEqualOrGreater(MovementSteps(), N>0)`. C'est FIDELE, pas une degradation.
+        # SEUL emetteur qui le renseigne : `IdunBattle.Operations.MoveUnitOperation$$
+        # EvaluateAfterMoveTriggers` (donc `On(0x24)`/`On(4)`/`On(0x1d)` d'un MOUVEMENT). Le
+        # pre-move `On(0x1f)`, `IdunBattle.Operations.DisplaceUnitOperation$$
+        # EventAndAbilitiesAndEffects` (push) et `IdunBattle.Operations.ReviveUnitOperation$$
+        # SetRevivePosition` le laissent NUL -- lu au decompile, argument 30 = 0 aux trois sites.
+        self.movement_steps = movement_steps
         self.killer_id = killer_id
         self.dying_id = dying_id
         self.player_id = player_id          # tour DÉBUTÉ (event turn-start On(0x16)) — owner doit appartenir

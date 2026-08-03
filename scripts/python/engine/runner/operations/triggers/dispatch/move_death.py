@@ -54,7 +54,8 @@ def pre_move_triggers(state: State, mover_id: int, dest_tile=None) -> list[dict]
     return evaluate_trigger_operation(state, ev)
 
 
-def unit_position_changed_1_triggers(state: State, unit_id: int) -> list[dict]:
+def unit_position_changed_1_triggers(state: State, unit_id: int,
+                                     movement_steps: int | None = None) -> list[dict]:
     """Vecteur `On(UnitPositionChanged_1 = 0x24 = 36)` — PREMIER des trois events qu'emet
     `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers`, egalement emis par
     `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects` (push) et par
@@ -67,19 +68,32 @@ def unit_position_changed_1_triggers(state: State, unit_id: int) -> list[dict]:
         ghost disparait (c'est le « the time ghost vanishes if the hex becomes occupied » de l'i2).
     `TargetTiles@0x190` = la tuile d'ARRIVEE : le port la derive de la `PositionComponent` de
     `unit_id`, qui est deja ecrite a ce stade (le natif emet ces events APRES `MoveUnit`).
+
+    `movement_steps` = le 5e argument d'`EvaluateAfterMoveTriggers`, seul emetteur du build a le
+    renseigner ; les DEUX autres emetteurs de cet event le laissent NUL, et c'est LU :
+    `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects` (push) et
+    `IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition` passent 0 au 30e parametre du
+    ctor d'`AbilityEntities`. `None` par defaut = ce `Nullable` vide.
+    Consommateur : `FullThrottleAbility` (cf. `triggers/loki/full_throttle.py`).
     No-op si aucun trigger ne matche."""
     ev = TriggerEvent(EventTriggerType.UnitPositionChanged_1, unit_id, unit_id,
-                      ranged=False, profile=None)
+                      ranged=False, profile=None, movement_steps=movement_steps)
     return evaluate_trigger_operation(state, ev)
 
 
-def unit_position_changed_2_triggers(state: State, unit_id: int) -> list[dict]:
+def unit_position_changed_2_triggers(state: State, unit_id: int,
+                                     movement_steps: int | None = None) -> list[dict]:
     """Vecteur `On(UnitPositionChanged_2 = 0x1d = 29)` — TROISIEME et dernier event
     d'`EvaluateAfterMoveTriggers`, emis aussi par `ReviveUnitOperation$$SetRevivePosition`.
     Consommateur porte : `DecoysAndMisdirection_BuffFriends` (G2). Foyer partage avec
-    `after_move_triggers` (qui l'emettait deja inline)."""
+    `after_move_triggers` (qui l'emettait deja inline).
+
+    `movement_steps` : le natif construit UN SEUL `AbilityEntities` pour les TROIS events
+    d'`EvaluateAfterMoveTriggers` -- ce champ est donc porte par `On(0x1d)` et `On(4)` autant que
+    par `On(0x24)`. Aucun consommateur porte ne le lit sur ces deux-la, mais le threader est le
+    mirror ; ne pas le faire creerait un ecart invisible le jour ou l'un d'eux entre au registre."""
     ev = TriggerEvent(EventTriggerType.UnitPositionChanged_2, unit_id, unit_id,
-                      ranged=False, profile=None)
+                      ranged=False, profile=None, movement_steps=movement_steps)
     return evaluate_trigger_operation(state, ev)
 
 
@@ -99,7 +113,8 @@ def unit_removed_triggers(state: State, unit_id: int) -> list[dict]:
     return evaluate_trigger_operation(state, ev)
 
 
-def after_move_triggers(state: State, mover_id: int) -> list[dict]:
+def after_move_triggers(state: State, mover_id: int,
+                        movement_steps: int | None = None) -> list[dict]:
     """Vecteur after-move (mirror `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers → dispatch).
     Le natif émet, dans l'ordre, `On(0x24=UnitPositionChanged_1)`, `On(4=UnitAfterMove)` (overwatch) PUIS
     `On(0x1d=UnitPositionChanged_2)`. On dispatche les trois : `On(0x24)` déclenche la POSE de couverture
@@ -115,7 +130,13 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
         -> EvaluateAfterMoveTriggers (`On(0x24)` / `On(4)` / `On(0x1d)`)
         -> si le flag 1 venait d'être AJOUTÉ : **`On(0x1c=ArrivedAtFinalTile)`**.
     `post_unit_kill_triggers` est donc émis EN TÊTE (le crush précède) et
-    `arrived_at_final_tile_triggers` EN QUEUE (l'event 0x1c suit les after-move)."""
+    `arrived_at_final_tile_triggers` EN QUEUE (l'event 0x1c suit les after-move).
+
+    `movement_steps` = le 5e argument natif d'`EvaluateAfterMoveTriggers`, propage aux TROIS events
+    (un seul `AbilityEntities` cote natif). Il vient de `MoveUnitOperation.last_movement_steps` ;
+    les appelants qui ne modelisent pas de chemin (`summon_ai`, le relais de `TheBetrayer`) le
+    laissent `None` = le `Nullable` VIDE, ce qui rend 0 a `MovementSteps()` -- FIDELE, puisque le
+    natif n'a lui non plus rien a y mettre hors d'un `MoveUnitOperation$$Execute`."""
     out = post_unit_kill_triggers_for_move(state, mover_id)
     # `On(0x24 = UnitPositionChanged_1)` — PREMIER des trois events d'`EvaluateAfterMoveTriggers`.
     # Consommateur porté : `LightCoverAbility` (tile-ability : la tuile de cover pose l'effet 1013 sur
@@ -126,11 +147,12 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     out += light_cover_on_enter(state, mover_id)
     # ... et le dispatch GENERIQUE du meme `On(0x24)` pour les effet-triggers qui l'ecoutent (#213 :
     # retrait n°3 de `GhostEffect` -- une autre unite arrive sur la tuile du ghost).
-    out += unit_position_changed_1_triggers(state, mover_id)
-    ev = TriggerEvent(EventTriggerType.UnitAfterMove, mover_id, mover_id, ranged=False, profile=None)
+    out += unit_position_changed_1_triggers(state, mover_id, movement_steps=movement_steps)
+    ev = TriggerEvent(EventTriggerType.UnitAfterMove, mover_id, mover_id, ranged=False, profile=None,
+                      movement_steps=movement_steps)
     out += evaluate_trigger_operation(state, ev)
     # G2 : `On(0x1d=UnitPositionChanged_2)` émis APRÈS `On(4)` par le même `EvaluateAfterMoveTriggers` natif.
-    out += unit_position_changed_2_triggers(state, mover_id)
+    out += unit_position_changed_2_triggers(state, mover_id, movement_steps=movement_steps)
     return out + arrived_at_final_tile_triggers(state, mover_id)
 
 
