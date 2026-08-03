@@ -264,6 +264,13 @@ def wave_events(scene, caster_id: int, target_id, ability_id: int, ability_name:
     cf. `plague_wind_wave_selectors`) : les deux vagues sont donc lues sur le MEME etat, et leur
     disjonction (`- t1 - t2`) est structurelle, pas temporelle.
 
+    ⚠ AUCUN filtre sur la cible principale ici, et c'est VOULU. L'exclusion est portee par les
+    SELECTEURS eux-memes -- `AdjacentUnits(origin)` = `Units(AdjacentTiles(origin), ...) - origin`
+    retire la cible de `t2`, et `t3` la retranche explicitement. Ajouter un `if tid == target_id:
+    continue` serait une garde DEFENSIVE : elle ne changerait rien au regime natif (le natif
+    emettrait l'event, lui) et MASQUERAIT un bug de selecteur au lieu de le faire remonter en
+    desaccord avec `aiPlaybookPredict`.
+
     Config ou contexte manquants -> `[]` (degradation fidele, aucun event invente), meme convention
     que `_ramming_speed_self_events` / `_frenzied_firing_inputs`."""
     if cfg is None or ab is None:
@@ -285,7 +292,7 @@ def wave_events(scene, caster_id: int, target_id, ability_id: int, ability_name:
             continue
         for u in sel.evaluate(dctx):
             tid = (u or {}).get("id")
-            if tid is None or tid == target_id:
+            if tid is None:
                 continue
             dp = generate_multi_hit_attack_prediction(
                 scene, caster_id, tid, ability_id, ability_name, attack_pos=attack_pos,

@@ -331,7 +331,7 @@ def _mutate(kind: str):
             for wave, sel in ((1, t2), (2, t3)):
                 for u in sel.evaluate(dctx):
                     tid = (u or {}).get("id")
-                    if tid is None or tid == target_id:
+                    if tid is None:
                         continue
                     hit_ctx = PWM.dsl_context(scene, caster_id, tid)      # <-- LA MUTATION
                     base = PWM._wave_base(int(ability_id), ab, cfg, wave, hit_ctx)
