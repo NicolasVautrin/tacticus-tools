@@ -118,8 +118,7 @@ def test_the_channel_flips_the_partition(couple):
     """La MUTATION mord : avec le canal, l'ennemi n'est PAS en branche B ; sans lui, il y est.
     Un couple dont la mutation ne change rien serait un vert sans contenu."""
     assert couple["adj_on"] == [], "avec le canal, l'ennemi ne doit pas etre declare adjacent"
-    assert couple["adj_off"] == [list(couple["Y"])] or \
-        [tuple(x) for x in couple["adj_off"]] == [tuple(couple["Y"])], \
+    assert [tuple(x) for x in couple["adj_off"]] == [tuple(couple["Y"])], \
         "sans le canal, l'ennemi doit retomber en branche B (obtenu %r)" % (couple["adj_off"],)
 
 
