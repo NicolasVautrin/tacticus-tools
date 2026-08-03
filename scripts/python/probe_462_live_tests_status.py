@@ -371,7 +371,11 @@ def _merge_ledger(nouveau: dict, commit: str) -> dict:
         fichiers[rel] = {"verdict": c.get("verdict"), "passed": c.get("passed", 0),
                          "failed": c.get("failed", 0), "error": c.get("error", 0),
                          "skipped": c.get("skipped", 0), "xfailed": c.get("xfailed", 0),
-                         "sec": round(float(c.get("time", 0.0)), 1),
+                         "sec": round(float(c.get("time", c.get("sec", 0.0)) or 0.0), 1),
+                         # Le SYMPTOME VERBATIM, garde tel quel. C'est la seule chose qu'un lecteur
+                         # du ledger peut VENTILER (#533 : le probe ne classe pas PORT/MONTAGE/
+                         # HARNAIS -- il ne peut pas ; il doit donc rendre ce qu'il a vu).
+                         "messages": list(c.get("messages", []))[:3],
                          "_blob": blobs.get(rel), "_commit": commit, "_at": maintenant}
     doc = {"_ecrit_le": maintenant, "fichiers": fichiers}
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -451,9 +455,12 @@ def _print_inventaire(par_fichier: dict, perimetre: list[str]) -> int:
           % (len(verts), len(rouges), len(vides), len(nonjoues)))
     for rel in rouges:
         c = par_fichier[rel]
+        # `time` est la cle du parse JUnit, `sec` celle du ledger : ce rapport sert les DEUX
+        # sources (une passe qui vient de tourner, et une relecture par `--report`).
         print("  ROUGE  %s  (p=%d f=%d e=%d s=%d xf=%d, %.0f s)"
               % (rel, c.get("passed", 0), c.get("failed", 0), c.get("error", 0),
-                 c.get("skipped", 0), c.get("xfailed", 0), c.get("time", 0.0)))
+                 c.get("skipped", 0), c.get("xfailed", 0),
+                 float(c.get("time", c.get("sec", 0.0)) or 0.0)))
         for m in c.get("messages", [])[:2]:
             print("         | %s" % m)
         if not c.get("failed", 0) and not c.get("error", 0):
