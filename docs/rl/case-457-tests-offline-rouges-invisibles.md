@@ -418,11 +418,31 @@ Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct
 process FRAIS consecutifs, rien entre eux : **12,3 s / 0,90 s / 0,29 s**. Le cache du filtre est
 SYSTEME, il sert tous les process. Le cout se paie une fois **par FICHIER**, au premier acces depuis
 son ecriture.
-Consequence directe : **la banque ne le paie ni 35 fois, ni a chaque run.** Elle le paie sur les
-fichiers NEUFS POUR LE FILTRE — apres un `merge`/`checkout`, et INTEGRALEMENT dans chaque
-`git worktree add` d'agent, qui ecrit un arbre entier. C'est ce qui le rendait a la fois mesurable
-et invisible. Le profil `cProfile` (`_io.open` = 16,4 s des 41,1 s de `probe_431` instrumente,
-poste NUMERO UN) mesurait donc un run FROID, pas un regime.
+Consequence : **la banque ne le paie pas 35 fois.** Le premier lecteur rechauffe l'arbre pour les
+34 autres. Le profil `cProfile` (`_io.open` = 16,4 s des 41,1 s de `probe_431` instrumente, poste
+NUMERO UN) mesurait donc un run FROID, pas un regime.
+
+⚠ **CORRIGE UNE SECONDE FOIS le meme jour, en sens INVERSE — et c'est la mesure qui tranche, deux
+fois contre moi.** La redaction precedente ajoutait « ni a chaque run » : FAUX. **Le cache
+n'est pas DURABLE.** Mesure : `scripts/python` rendu a **0,29 s** le matin, **12,98 s** une heure
+plus tard, sans qu'aucun de ses fichiers n'ait ete reecrit. Il tient donc entre PROCESSUS d'une
+meme fenetre (16,7 -> 0,63 s a l'instant) mais **ne survit pas d'un run de banque au suivant**.
+⚠ **TTL ou EVICTION sous pression : NON ETABLI.** Les runs intercalaires lisent des dizaines de
+milliers de fichiers, donc les deux hypotheses collent. Ne pas trancher a l'oeil.
+
+**Ce que ca coute, mesure sur la banque COMPLETE** (n=1 de chaque cote, a re-derier) :
+
+| etat de l'arbre | mur |
+| --- | --- |
+| arbre principal CHAUD (lu juste avant) | **205,2 s** |
+| worktree NEUF, integralement froid | **293,1 s** |
+
+Soit **~88 s, +43 %** — bien au-dessus de la variance de +/- 15 %, et ~5x le cout froid SERIE
+(16,7 s), ce qui suggere une amplification sous les 16 voies paralleles (16 process frappant
+simultanement des fichiers inconnus du filtre). Suggere, PAS etabli.
+**Consequence pour l'arbitrage : l'exclusion machine vaut PLUS que ce que la premiere correction
+disait** — elle se paie a chaque run de `ratchets-bg` (worktree neuf par construction) et a chaque
+worktree d'agent.
 
 ⚠ **Corollaire de methode : une mesure ISOLEE d'un cliquet est trompeuse dans les DEUX sens.**
 Jouee juste apres un voisin qui a lu le meme arbre, elle est artificiellement basse ; jouee la
