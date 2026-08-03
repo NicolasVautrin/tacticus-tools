@@ -48,7 +48,7 @@ ne dit pas qui déréférence le slot. Les appelants vtable listés ici sont ceu
 | 8 | `IdunBattleLogic.Entities.Abilities.Active.Loki.LivingBatteringRamAbility$$GetPossibleTilesToThrowTo` | **NON** | 2 sites : inatteignable / **ATTEINT + NEUTRALISÉ** |
 | 9 | `IdunBattle.Entities.Selectors.TilesInConeShapeForBossWideSelector.u003Cu003Ec__DisplayClass5_0$$u003CSelectu003Eb__0` | **NON** | NON TRANCHÉ (atteint **si** la tuile cible ∈ les 3 tuiles) |
 | 10 | `IdunBattle.Core.Services.BattleQuery$$IsTargetInAttackRangeForSummon` | **NON** | NON TRANCHÉ |
-| 11 | `IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable` | **HORS FOYER** | inatteignable |
+| 11 | `IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable` | ~~**HORS FOYER**~~ → **PORTÉ (#433-r4-r2)** | inatteignable |
 | 12 | `IdunBattle.AI.Playbook.Loki.AggressiveOnslaughtPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__3$$MoveNext` | conforme | inatteignable |
 | 13 | `IdunBattleLogic.Entities.Abilities.Active.Loki.LivingBatteringRamAbility.u003Cu003Ec__DisplayClass6_0$$u003CGetPossibleTilesToThrowTou003Eb__0` | **NON** | **ATTEINT + NEUTRALISÉ** |
 | 14 | `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` (surcharge `(IList, IList)`) | conforme | inatteignable |
@@ -121,11 +121,16 @@ native ; ça ne l'est pas pour `ECogSupportPlaybookNonOwnerPlaybook` ni
 Non traité ici (hors périmètre d'un inventaire) — c'est un **manque d'utilité de mouvement**, pas
 un écart d'identité.
 
-**#11 — porté HORS FOYER.** `playbook/noncomparable/early_warning_override.py` tranche l'adjacence
-par `hexgeo.distance(origin, ep) == 1`. Le régime d'identité y est inatteignable (caster vs ennemi),
-donc **pas** de divergence sur ce terme ; en revanche la **porte d'élévation**, jointe dans la même
-primitive native, n'est pas portée. Écart de même famille que celui fermé par #433-r1 sur le vslot
-`0x748`, sur un autre consommateur.
+**#11 — ~~porté HORS FOYER~~ → PORTÉ le 2026-08-03 (#433-r4-r2,
+`docs/rl/case-433-r4-r2-consommateurs-hors-foyer.md`).** L'énoncé d'origine est CONFIRMÉ :
+`playbook/noncomparable/early_warning_override.py` tranchait par `hexgeo.distance(origin, ep) == 1`,
+le régime d'identité y est inatteignable, et c'est la **porte d'élévation** qui mordait. Deux
+précisions que l'inventaire n'avait pas :
+la primitive exacte est `TileExtensions$$IsAdjacentTo(GetMainTile(caster), GetTiles(otherUnit))`
+— surcharge `(tile, otherTiles)`, donc un `∃` sur `MovementUtil$$AreTilesAdjacent` ; et ce booléen
+ne produit pas une valeur, il **choisit une branche** d'utilité (d'où une dégradation muette).
+Mesuré live, natif contre lui-même : à tuile d'origine et sweep IDENTIQUES, déplacer l'ennemi d'un
+voisin plat à un voisin à `|dElev| = 2` fait passer son bonus à `d = 4` de **50** à **0**.
 
 ## 3. Niveau 3 — les consommateurs d'`AreEntitiesAdjacent` (liste MINORANTE)
 
@@ -133,7 +138,7 @@ primitive native, n'est pas portée. Écart de même famille que celui fermé pa
 |---|---|---|---|
 | 15 | `IdunBattle.Core.Services.BattleQuery$$GetAttackRangeType` (les **deux** surcharges) | **NON** (aucun mirror nommé) | inatteignable |
 | 16 | `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` (surcharge à `rangeType`) | conforme | inatteignable |
-| 17 | `IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy` | **HORS FOYER** | inatteignable |
+| 17 | `IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy` | ~~**HORS FOYER**~~ → **PORTÉ (#433-r4-r2)**, sans écart observable | inatteignable |
 | 18 | `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` | conforme (en amont) | **NON TRANCHÉ** sur self-cast |
 | 19 | `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack` | conforme (en amont) | **NON TRANCHÉ** sur self-cast |
 | 20 | `IdunBattle.Core.Services.BattleQuery$$IsCharging` | conforme | atteint, sans effet **par composition** (#433-r1 §4) |
@@ -162,12 +167,18 @@ qui passe bien par `services/battle_query.py::are_tiles_adjacent`. **Mais sur le
 le natif compare `GetUnitPosition(caster) × GetTiles(target)`, deux **empreintes**. C'est le résidu
 `#419-r1-tr10-r2`, pas celui-ci — signalé, non traité.
 
-**#17 — porté HORS FOYER, et sur la MAUVAISE primitive.**
-`playbook/noncomparable/master_of_the_tutelaries.py::_nearest_enemy_tile` tranche le terme « en
-mêlée » par `bq.is_adjacent`, qui mirrore `TileQuery$$IterateAdjacentTiles` — la primitive que
-#433-r1 §4 désigne explicitement comme **contre-exemple** à ne pas confondre avec celle-ci. Le
-régime d'identité y étant inatteignable (deux unités distinctes), l'écart ne porte, là encore, que
-sur les empreintes.
+**#17 — ~~porté HORS FOYER~~ → PORTÉ le 2026-08-03 (#433-r4-r2), et l'énoncé était FAUX sur la
+primitive.** `playbook/noncomparable/master_of_the_tutelaries.py::_nearest_enemy_tile` tranchait
+bien par `bq.is_adjacent` (mirror d'`IterateAdjacentTiles`, le **contre-exemple** de #433-r1 §4 —
+qui reste inchangé, seul le call-site est re-pointé). Mais le natif n'appelle **pas**
+`AreUnitsInMelee` comme l'écrivait le port : le décompilé appelle
+`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` **directement** — `$$AreUnitsInMelee`
+existe et n'est qu'un **passe-plat d'une ligne** vers cette même fonction, absent de ce corps.
+**Écart observable : NUL, et par composition** — les deux foyers du port ne diffèrent que par le
+court-circuit d'identité, et `engine.ai.context._enemies` filtre `alive`, donc `ctx.epos` ne peut
+jamais porter la tuile du caster. Le re-pointage est posé par fidélité ; il est **prouvé inerte**
+(balayage exhaustif des paires distinctes d'un voisinage à relief). L'écart restant est celui des
+empreintes.
 
 **#18 / #19 — la seule voie par laquelle le régime pourrait mordre est un SELF-CAST.**
 `IsMeleeAttack(ability, caster, casterPosition, target)` appelle
@@ -217,10 +228,20 @@ inventaire.
   `#433-r4-r1-r2` (bras mort chez `WallOfMirrors` en cible mono-hex),
   `#433-r4-r1-r3` (`UnobscuredTiles` toujours non portée),
   `#433-r4-r1-r4` (porte d'élévation inerte côté runner).
-* **`#433-r4-r2` — deux ports HORS FOYER** (`EarlyWarningOverridePlaybook$$EvaluateNonComparable` en
-  `hexgeo.distance == 1`, `BattleQuery$$GetNearestEnemy` en `battle_query.is_adjacent`). Le régime
-  d'identité n'y mord pas ; la **porte d'élévation** (pour le premier) et les **empreintes** (pour
-  le second) si.
+* ~~**`#433-r4-r2`** — deux ports HORS FOYER~~ — **LIVRÉ (2026-08-03)**,
+  `docs/rl/case-433-r4-r2-consommateurs-hors-foyer.md`. Les deux call-sites rejoignent
+  `battle_query.are_entities_adjacent` (`is_adjacent` reste le contre-exemple, inchangé). La porte
+  d'élévation est **confrontée live**, natif contre lui-même. L'énoncé ci-dessus est confirmé pour
+  le premier et **rectifié** pour le second (la primitive native y est `AreEntitiesAdjacent`, pas
+  `AreUnitsInMelee`). Résidus ouverts par la résolution :
+  `#433-r4-r2-r1` (branche A : `IsTileInRangeOfAnyAbility`, slot `0xc5`, non portée — mesurée
+  fausse dès `d > portée`, dans les deux sens),
+  `#433-r4-r2-r2` (branche B : `threshold` figé à `1` alors que slot `0xb3` est IDENTIFIÉ =
+  `FindRangedWeapon`, dont le `Nullable<int>` à `+0x24` est la portée de l'arme à distance),
+  `#433-r4-r2-r3` (`MIN_UTILITY = 1` sur `EarlyWarningOverridePlaybook` contesté : Bucket construit
+  par le ctor à DEUX arguments, donc sans `min`, et `ncEvaluate` rend un `best` négatif).
+  ⚠ **Tous les slots `IBattleQuery` cités par les deux ports étaient décalés d'un cran** depuis
+  `gqfc5mff6c` — re-dérivés au runtime par `probe_433_r4_r2_adjacency_foyer.py --step slots`.
 * **`#433-r4-r3` — `ECogSupportPlaybookNonOwnerPlaybook` / `PsychicFortressNonOwnerPlaybook` absents
   de `NON_OWNER_MOVE_PLAYBOOKS`**, et l'argument d'absence écrit dans `non_owner.py` ne les couvre
   pas (leur classe native EXISTE).
