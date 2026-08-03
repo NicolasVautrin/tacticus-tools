@@ -218,33 +218,34 @@ puis re-jeu : **6 passed**.
 
 ## 8. Résidus NOMMÉS
 
-* **`#419-r1-tr14-r5-r1` — la table statique n'est portée qu'à QUATRE entrées.** L'enum
-  `ActiveAbilityType` porte **16** noms en `*NormalAttack*` (`TemplarInitiateNormalAttack`,
-  `BlisteringAssault_NormalAttack`, `FeederTendrils_NormalAttack`, `OptimizedGait_NormalAttack`,
-  `RogalDorn_NormalAttack`, `Wraithcannon_NormalAttack`, `FloatingDeath_NormalAttack`,
-  `AncientFury_NormalAttack`, `ElectroShock_NormalAttack`, `TalonOfHorus_NormalAttack`,
-  `Fealty_NormalAttack`, …) ; `CUSTOM_NORMAL_ATTACK_BY_PASSIVE` n'en couvre que les quatre pour
-  lesquelles un mold est porté. Pour les douze autres le port reste sur la branche générique, comme
-  avant — ce n'est pas une régression, c'est la couverture des molds. **Canal qui les trancherait** :
-  lire le `Dictionary` statique de `StaticBattleRules.TriggeredAbility$$GetCustomNormalAttack`
-  (statics `+0xb8` → `+0x50`) à l'exécution, ou balayer `decisionView.abilities[kind=="normal"]` sur
-  tout le pool. **NON CONFRONTÉ.**
+* ~~**`#419-r1-tr14-r5-r1`**~~ — **FERMÉ**, cf. §10. La table est portée à ses **14** entrées,
+  transcrites du `.cctor` et confrontées au natif **une par une**. (Le « 16 noms `*NormalAttack*` »
+  de cette ligne était un compte approché ET un mauvais critère : l'enum en porte **17**, et le
+  nombre de noms n'est pas le nombre d'entrées — cf. §10.2.)
 * **`#419-r1-tr14-r5-r2` — la voie ACTIVE reste au kit.**
   `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromActive` est la SECONDE
   branche du `if`, et son substrat (`UnitConfiguration.ActiveAbilities`) n'a aucun canal de mesure
   dans le port. `substitutes_normal_attack` ne mesure donc que la voie PASSIVE ; le repli lit encore
-  `kit["active"]`. Aucun des quatre molds portés n'emprunte cette voie (les quatre clés sont des
-  `TriggeredAbilityType`), donc l'axe est **inerte aujourd'hui** — mais il porterait le même fork
-  qu'un montage touche à `ActiveAbilities`. Débloqueur : le pendant `ACTIVE_HIERARCHY` du seed.
+  `kit["active"]`. Débloqueur : le pendant `ACTIVE_HIERARCHY` du seed.
+  **Ce que la RE de #419-r1-tr14-r5-r1 y ajoute** (lu, non porté — hors périmètre de cette tranche) :
+  sa table statique est celle de `StaticBattleRules.ActiveAbility$$GetCustomNormalAttack`
+  (statics `+0xb8` → **`+0x28`**, une AUTRE table que la passive), écrite par
+  `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$.cctor`, et
+  elle contient **exactement UNE entrée** : `1124 PoundThemToDust` → `1126 RogalDorn_NormalAttack`.
+  C'est ce qui **ferme la ventilation** des 17 `*NormalAttack*` de l'enum (§10.2) : `1126` est le
+  seul qui ne soit ni générique ni valeur de la table passive. Son porteur est une **MACHINE OF
+  WAR** (Rogal Dorn Battle Tank), absente de `gameconfig.all_unit_ids()` — donc invisible au
+  recensement `lineup`/`npc`/`summons`. À noter pour qui rouvrira `-r2` : `ai/context.py` pose
+  `normal_ids = set()` pour les MoW au motif que leurs `weapons` gameconfig sont vides ; si une MoW
+  porte `PoundThemToDust`, le natif lui pose bel et bien une attaque normale — c'est le même
+  « dérivé du kit » qu'ici, sur l'autre voie. **NON CONFRONTÉ.**
 * **`#419-r1-tr14-r5-r3` — la branche TERTIAIRE (relique) de la fabrique n'est pas portée.**
   `GetCustomNormalAttackTypeFromPassive` consulte AUSSI `config@+0xb0` (le `Nullable`
   `TertiaryAbility`) après avoir épuisé la liste. Le port a le canal (`UnitContext.tertiary_ability`,
   #357) mais ne le verse pas au prédicat : aucune des 32 abilities de relique n'est dans la table
   portée, donc l'axe est inerte — à rouvrir si une relique y entre.
-* **`#419-r1-tr14-r5-r4` — les deux traits qui SUPPRIMENT l'attaque normale ne sont pas portés.**
-  `AddNormalAttackAbility` rend sans rien ajouter si `config.Traits` contient `0x0e` ou `0x15`. Le
-  port ne modélise pas cette absence (une unité qui les porterait se verrait quand même scorer une
-  attaque normale). Non exercé par le montage ; les deux valeurs de `UnitTrait` restent à qualifier.
+* ~~**`#419-r1-tr14-r5-r4`**~~ — **FERMÉ**, cf. §11. `0x0e` = `Erratic`, `0x15` = `Harmless` ; la
+  garde est portée sur la voie OFFLINE et confrontée par montage écrit.
 * **Le coût du seed n'est pas mesuré isolément.** `build_predictor` gagne un RPC `unitAbilityStates`
   (walk complet des entités). Le mur de la passe de cliquets est de 397 s et les fichiers live joués
   n'ont pas changé d'ordre de grandeur, mais aucun chiffre avant/après dédié n'a été pris.
@@ -260,3 +261,200 @@ puis re-jeu : **6 passed**.
 * `scripts/python/probe_419r1tr14r5_normal_attack_stages.py` — décomposition par étage, deux bras,
   contre-épreuve réciproque, volet `--generalize`.
 * `scripts/python/tests/engine/test_419r1tr14r5_normal_attack_dispatch_live.py` — 6 gardes.
+
+---
+
+# `-r1` et `-r4` — la TABLE, et les DEUX TRAITS qui la court-circuitent
+
+Les deux résidus vivent dans la **même fonction**, `UnitFactory$$AddNormalAttackAbility` : `-r4` est
+sa première ligne, `-r1` la table que sa deuxième ligne consulte. D'où une seule tranche.
+
+## 10. `-r1` — la table statique, lue au `.cctor` puis confrontée entrée par entrée
+
+### 10.1 Le canal : le `.cctor`, pas un capteur neuf
+
+Le résidu nommait deux canaux possibles : lire le `Dictionary` statique **à l'exécution**
+(`statics +0xb8` → `+0x50`), ou balayer `decisionView`. Le premier aurait demandé un capteur neuf,
+donc une fenêtre de reinject. **Ni l'un ni l'autre n'était nécessaire** : ce champ statique est
+écrit **une seule fois**, par
+`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.TriggeredAbility$$.cctor`, qui
+construit le `Dictionary` puis empile **14 `Add(key, value)` à littéraux constants** avant de
+l'assigner à `+0x50`. La table est donc **lisible au décompilé, en clair**.
+
+Le second canal, lui, sert de **confrontation** (§10.3) — et il ne demande rien non plus :
+`decisionView.units[].abilities` publie `kind == "normal"` pour **toutes** les unités du board.
+
+### 10.2 Les 14 paires, et trois contrôles de lecture
+
+| # | clé `TriggeredAbilityType` | → valeur `ActiveAbilityType` |
+|---|---|---|
+| 1 | `1083 HeavyBoltPistol` | `1046 TemplarInitiateNormalAttack` |
+| 2 | `1119 MV71SniperDroneSquad` | `1076 MV71SniperDroneSquadAttack` |
+| 3 | `1147 ProperKilly` | `1086 ProperKilly_NormalAttack` |
+| 4 | `1190 BlisteringAssault` | `1114 BlisteringAssault_NormalAttack` |
+| 5 | `1197 FeederTendrils` | `1120 FeederTendrils_NormalAttack` |
+| 6 | `1090 Boltstorm` | `1128 Boltstorm_NormalAttack` |
+| 7 | `1205 OptimizedGait` | `1123 OptimizedGait_NormalAttack` |
+| 8 | `1243 FloatingDeath` | `1146 FloatingDeath_NormalAttack` |
+| 9 | `1256 AncientFury` | `1162 AncientFury_NormalAttack` |
+| 10 | `1220 Wraithcannon` | `1138 Wraithcannon_NormalAttack` |
+| 11 | `1303 ElectroShock` | `1178 ElectroShock_NormalAttack` |
+| 12 | `1107 RighteousRepugnance` | `1182 RighteousRepugnance_NormalAttack` |
+| 13 | `1484 TalonOfHorus` | `1205 TalonOfHorus_NormalAttack` |
+| 14 | `1512 Fealty` | `1220 Fealty_NormalAttack` |
+
+Trois contrôles **indépendants** avant toute mesure live :
+
+1. **Les 4 entrées déjà portées y sont, à l'identique et dans la même orientation** — 4/4. Elles
+   avaient été établies une par une par mesure live (#446-r1, #446-r3, #419-r1-tr14-r5) ; les
+   retrouver dans le `.cctor` valide la **lecture**, pas seulement la table.
+2. **L'orientation clé/valeur est prouvée par un SECOND corps.**
+   `StaticBattleRules.TriggeredAbility$$IsCustomNormalAttackDerivedFromTriggeredAbility` fait
+   `dict.Values.Contains(<ActiveAbilityType>)` sur ce même champ `+0x50` : les valeurs sont donc des
+   `ActiveAbilityType`, les clés des `TriggeredAbilityType`. On ne le déduit pas de l'ordre des
+   arguments d'un `Add` gshared.
+3. **La ventilation des `*NormalAttack*` de l'enum est CLOSE.** `ActiveAbilityType` en porte **17**
+   (pas 16) : `17 NormalAttack` et `69 Loki_NormalAttack` (les génériques), les **14** valeurs
+   ci-dessus, et `1126 RogalDorn_NormalAttack` — seule valeur de la table de la voie **ACTIVE**
+   (§8, `-r2`). **Aucune orpheline.**
+
+⚠ **Deux entrées interdisent de dresser cette table « par les noms »**, et c'est le cœur du résidu :
+`HeavyBoltPistol` rend `TemplarInitiateNormalAttack` (**aucune** parenté lexicale), tandis que
+`RogalDorn_NormalAttack` — qui, lui, *porte* le suffixe — n'est la valeur d'**aucune** clé passive.
+Un inventaire par grep aurait donc raté la première et inventé la seconde.
+
+### 10.3 Confrontation live — 14/14, par DEUX chemins, avec contrôles
+
+Canal : `decisionView.units[].abilities` `kind == "normal"`, c.-à-d.
+`ActiveAbilityComponent.NormalAttackType@0x28`, le champ que la fabrique écrit.
+
+**Chemin A — porteurs naturels, AUCUN montage.** Cinq passifs ont un porteur `lineup` **au pool**
+(`rl_duel build --list-pool`, rank 17) et le seed BC les porte déjà en `BC.Units[].PassiveAbilities` :
+
+| unité | passif d'entité | attaque normale NATIVE |
+|---|---|---|
+| `tauMarksman` | `MV71SniperDroneSquad` | `1076` ✅ |
+| `templAggressor` | `Boltstorm` | `1128` ✅ |
+| `adeptMorvenn` | `RighteousRepugnance` | `1182` ✅ |
+| `tyranDeathleaper` | `FeederTendrils` | **`1120`** ✅ (entrée NEUVE) |
+| `admecRuststalker` | `OptimizedGait` | **`1123`** ✅ (entrée NEUVE) |
+| `astraBullgryn`, `necroWarden` (témoins) | — | `69 Loki_NormalAttack` |
+
+**Chemin B — greffe écrite**, une unité neutre par passif (`BC.Units[].PassiveAbilities = [<id>]`,
+le levier du contrôle apparié de #446-r1 §4), plus un **témoin** à `PassiveAbilities = []` :
+
+| porteuse | passif greffé | attaque normale NATIVE |
+|---|---|---|
+| `astraBullgryn` | `HeavyBoltPistol` | **`1046 TemplarInitiateNormalAttack`** ✅ |
+| `necroWarden` | `ProperKilly` | `1086` ✅ |
+| `orksNob` | `BlisteringAssault` | `1114` ✅ |
+| `spaceHound` | `FloatingDeath` | `1146` ✅ |
+| `eldarRanger` | `AncientFury` | `1162` ✅ |
+| `bloodIntercessor` | `Wraithcannon` | `1138` ✅ |
+| `darkaTerminator` | `ElectroShock` | `1178` ✅ |
+| `tauCrisis` | `TalonOfHorus` | `1205` ✅ |
+| `ultraTitus` | `Fealty` | `1220` ✅ |
+| `worldJakhal` (témoin) | *(aucun)* | `69 Loki_NormalAttack` |
+
+**14 / 14, 3 témoins conformes.** Le chemin B tranche aussi la confrontabilité que le recensement
+laissait ouverte : `BlisteringAssault`, `ProperKilly` et `TalonOfHorus` n'ont **zéro** porteur dans
+le gameconfig, `Wraithcannon` et `Fealty` n'en ont que des **npc** — et les cinq sont pourtant
+confrontées, parce que la fabrique ne lit **que** la liste de passifs de la configuration. Le
+témoin n'est pas décoratif : sans lui, un montage qui n'aurait rien installé rendrait des `69`
+partout et se lirait comme « aucune substitution » au lieu de « montage mort ».
+
+### 10.4 Pourquoi la table DOIT être complète — la boucle, pas la table
+
+Une table partielle ne fait pas « moins de dispatch ». `GetCustomNormalAttackTypeFromPassive` rend
+au **PREMIER** passif substituant de la liste ; quand une entrée manque, la boucle du port la
+**saute** et donne la main à la suivante — ce que le natif ne fait jamais. Le montage l'exerce :
+
+| `BC.Units[].PassiveAbilities` | natif | port, table à 14 | port, table à 4 (avant `-r1`) |
+|---|---|---|---|
+| `templAggressor` = `[HeavyBoltPistol, Boltstorm]` | `1046` | `1046` — pas de fold | `1128` — **folde `Boltstorm` à tort** |
+| `astraBullgryn` = `[Boltstorm, HeavyBoltPistol]` | `1128` | `1128` | `1128` (coïncide) |
+
+Le second bras est la **réciproque** : même paire, ordre inverse, réponse native différente — ce
+qui interdit de lire le premier comme un artefact du montage. Et le bras réciproque est le régime où
+les deux tables **coïncident** : il ne prouve donc rien à lui seul, il **borne** (le fix ne déborde
+pas). C'est le premier bras qui porte la preuve, et la contre-épreuve « table d'avant » y **mord**
+sur la prédiction de dégât (le fold `Boltstorm_NormalAttackAbility$$GetAdditionalDamagePrediction`
+s'ajoute à tort).
+
+## 11. `-r4` — `Erratic` et `Harmless`
+
+### 11.1 Ce que le décompilé dit, verbatim
+
+```csharp
+// UnitFactory$$AddNormalAttackAbility, premières lignes
+if (config.Traits.Contains(0x0e)) return;     // config@+0xd0 = UnitConfiguration.Traits
+if (config.Traits.Contains(0x15)) return;
+```
+
+Deux `List<UnitTrait>.Contains` et un `return` **sec** : ni la voie passive, ni la voie active, ni
+le repli générique ne sont atteints, et `ActiveAbilityComponent$$Add` n'est jamais appelé. L'unité
+n'a **aucune** attaque normale ; `NormalAttackType@0x28` reste à `0`.
+
+`IdunBattle.Entities.Enum.UnitTrait` : **`0x0e` = `Erratic`, `0x15` = `Harmless`**. ⚠ Ce n'est pas
+`NonAttacking` (1033) — un trait voisin par le sens, absent de cette garde. Les valeurs se lisent,
+elles ne s'infèrent pas d'une affinité de nom.
+
+Le substrat est `UnitConfiguration.Traits`, donc `BC.Units[].Traits` : un fait d'**ENTITÉ**, comme
+les passifs. C'est exactement l'axe de #264.
+
+### 11.2 Où le port divergeait — et où il ne divergeait PAS
+
+Le port a **deux** faces, et une seule était touchée :
+
+* **face LIVE** (`ai/context.py`) — `normal_ids` se lit dans `decisionView` (`kind == "normal"`).
+  C'est la **mesure** du champ que la fabrique écrit : conforme par construction, rien à faire.
+* **face OFFLINE** (`ai/state_bridge.py`) — celle qui joue les summons et les unités `ai_controlled`
+  sans RPC. Elle **dérivait** l'existence de l'attaque normale du KIT : `_abilities_of` posait
+  `NormalAttack` dès que `gameconfig[vid].weapons` était non vide, et `_attack_abilities` la posait
+  **inconditionnellement**. Une unité `Erratic`/`Harmless` s'y voyait donc générer, scorer, et
+  potentiellement **choisir** une attaque que le natif ne propose pas — dégradation **permissive**,
+  ni erreur ni crash.
+
+Le fix pose `has_normal_attack(entity_trait_names(ctx, vid))` sur les **trois** sorties de la face
+offline (`abilities`, `ab_name_by_id`, `normal_ids`) **et** sur `_attack_abilities` (les plans) —
+laisser les plans seuls aurait produit un `normal_ids` vide mais des `evals` d'attaque normale,
+c.-à-d. un état incohérent plutôt qu'un fix.
+
+### 11.3 La confrontabilité : ZÉRO porteur ≠ non confrontable
+
+Recensement : **683** kits gameconfig (`lineup` 127, `npc` 491, `summons` 65) et les **175** unités
+du seed BC — **aucune** ne porte `Erratic` ni `Harmless`. La garde est donc, *sur les données de ce
+build*, du code que rien n'atteint.
+
+Ce n'est pas un verdict de non-confrontabilité : `BC.Units[].Traits` est **écrivable**, exactement
+comme `PassiveAbilities` (c'est le levier de #264 et de #446-r1 §4). Le montage écrit ajoute le
+trait à la liste **existante** de l'unité (la remplacer retirerait `Hero`/l'alliance et ferait
+varier autre chose que la seule variable étudiée), sur un **bras apparié** dont l'autre côté ne
+diffère que par ce trait, avec un **témoin sans trait dans chaque bras** :
+
+| bras | `necroWarden` (+`Harmless`) | `orksNob` (+`Erratic`) | témoin `astraBullgryn` |
+|---|---|---|---|
+| `ctrl` | `69` | `69` | `69` |
+| `trait` | **aucune** | **aucune** | `69` |
+
+et côté port, `state_bridge.build_from_state(...).normal_ids` : `[]` sous le trait, non vide sans.
+
+## 12. Ce qui n'est PAS couvert
+
+* **`-r2` et `-r3` ne sont pas portés** (hors périmètre de la tranche). §8 dit ce que cette RE y
+  ajoute : la table de la voie ACTIVE est lue et tient en une entrée.
+* **La face COMBAT de `-r4`.** Le runner exécute l'attaque normale par `AttackUnitMessage`, sans id
+  d'ability : il n'y a pas de point où le port « donne » une attaque normale en combat, seulement le
+  générateur d'action qui la propose — et c'est lui qui est gardé. Aucune mesure n'a été prise du
+  côté `visit_AttackUnitMessage` pour une unité `Harmless`, parce qu'aucun chemin porté ne produit
+  ce message pour elle une fois la face décision gardée. **Non couvert, non nécessaire aujourd'hui.**
+* **Les molds de PRÉDICTION restent quatre.** La table dit quelle attaque normale l'entité porte ;
+  elle ne dit rien du mold. Pour les dix attaques normales concrètes sans mold porté, la prédiction
+  reste sur la branche générique — c'est la couverture des molds, un axe **distinct** du dispatch, et
+  il n'a pas bougé.
+* **Les porteurs SUMMON de la table** (`ultraSmnDreadnought`/`AncientFury`,
+  `tyranSmnSporeMine`/`FloatingDeath`, `templInitiate`/`HeavyBoltPistol`,
+  `admecSmnElectropriest`/`ElectroShock`) n'ont pas été confrontés **par leur summoner** : les quatre
+  entrées le sont par greffe (§10.3, chemin B), ce qui teste la fabrique, pas la chaîne de spawn.
+* **Aucun chiffre de coût** n'a été pris pour le RPC supplémentaire — la gate `-r4` n'en ajoute
+  aucun (elle lit un `UnitContext` déjà chargé).
