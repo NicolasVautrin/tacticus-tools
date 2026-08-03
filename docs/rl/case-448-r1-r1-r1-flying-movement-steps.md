@@ -138,7 +138,24 @@ ne bouge pas d'un point. Et le port muté diverge du natif là où le port livr�
 ⚠ La contre-épreuve porte sur le **volet PORT**, pas sur les bras natifs : ceux-ci ne dépendent
 pas du code Python, donc un mutant qui ne s'appliquerait qu'à eux ne prouverait rien.
 
-## 6. Ce que la RE a rendu visible en chemin — RÉSIDU `#448-r1-r1-r1-r1`, OUVERT
+## 6. Ce que la RE a rendu visible en chemin — RÉSIDU `#448-r1-r1-r1-r1`, ~~OUVERT~~ **FERMÉ**
+
+> **FERMÉ le 2026-08-04** — `docs/rl/case-448-r1-r1-r1-r1-flying-tiles-moved.md`. Le constat
+> ci-dessous était juste ; **le chemin de fermeture qu'il proposait ne l'était pas**, sur ses
+> deux points (a) et (b) :
+>
+> * **(b) est RÉFUTÉ** : le 5ᵉ paramètre de `FindPath` n'est pas un `maxRange`. Sa signature est
+>   `useTeleporter: System.Nullable<IdunBattle.Entities.Pathfinding.UseTeleporter>`, et **ni
+>   `BasePathfinder$$FindPath` ni `FlyPathfinder$$FindPath` ne le LISENT** — argument mort.
+> * **(a) était incomplet** : il ne suffit pas d'un « compteur de nœuds FLY ».
+>   `IdunBattle.Entities.Pathfinding.FlyPathfinder$$FindPath` **OVERRIDE** et ne rend PAS le
+>   chemin — il le réduit à ses WAYPOINTS —, puis `GetConnectedPathTo` le RE-DENSIFIE par un
+>   `PathfinderType.Beeline` qui traverse tout, murs compris.
+>
+> Et deux étages que ce paragraphe ne soupçonnait pas : `GetPathfinderTypeForUnit` teste QUATRE
+> effets **avant** `IsLikeFlying` (3 des 5 volants du pool sortent en type DÉCORÉ, dont
+> `ATeleportPathfinder$$FindPath` rend `[from, to]`), et le champ `neighbours` du `boardGraph`
+> est amputé de 18 arêtes par la porte d'élévation du capteur.
 
 `_num_tiles_moved` (le mirror de `GetNumTilesMoved(connectedPath)`, consommé par
 `record_tiles_moved`) prend le **WalkPathfinder inconditionnellement**. Or
