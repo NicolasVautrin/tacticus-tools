@@ -1,4 +1,5 @@
 {
+ "_doc": "Cache du board de depot (scripts/python/repo_board.py). ENTREE versionnee, meme statut que data/symbols/ : memoise ce qui est IMMUABLE (jour revolu, diff d'une PR mergee) et couteux a re-deriver -- 408 s de recalcul complet contre 54 s. NE PAS SUPPRIMER : ce n'est pas une sortie de run. Le regenerer : repo_board.py --no-cache.",
  "agents": {
   "a00080e5ee70717fe": {
    "ctx": 3679218,
@@ -5285,6 +5286,13 @@
    "token": "1571549:1785309967",
    "turns": 229
   },
+  "adf5bf0d7d47b1be2": {
+   "ctx": 353124,
+   "first": "2026-08-03T21:40:06.121000+00:00",
+   "last": "2026-08-03T21:40:16.363000+00:00",
+   "token": "38877:1785793216",
+   "turns": 5
+  },
   "adfd9d1519596e982": {
    "ctx": 60457164,
    "first": "2026-08-01T03:15:04.061000+00:00",
@@ -5321,11 +5329,11 @@
    "turns": 187
   },
   "ae113e19a1f5ae0cc": {
-   "ctx": 66364858,
+   "ctx": 69759103,
    "first": "2026-08-03T19:49:06.794000+00:00",
-   "last": "2026-08-03T21:27:41.665000+00:00",
-   "token": "1606745:1785792567",
-   "turns": 265
+   "last": "2026-08-03T21:33:05.331000+00:00",
+   "token": "1638765:1785792785",
+   "turns": 274
   },
   "ae13176300ae968a0": {
    "ctx": 1470261,
@@ -8139,6 +8147,14 @@
    ],
    "dele": 32
   },
+  "798444e071c11a7e9bcaee2071fa85b5ddd10663": {
+   "add": 1368,
+   "commits": [
+    "d1a76ac90c98980c4320cac003f45fd49d44a8bc",
+    "7d9f0838d4aedc605d84606f7ccd1f93d46dbe3f"
+   ],
+   "dele": 72
+  },
   "7a67aad2c978c4f516f0fd2cb4b66265c7cabc8c": {
    "add": 1141,
    "commits": [
@@ -9581,6 +9597,15 @@
    ],
    "dele": 1
   },
+  "ccac64f04a6aecfeb4f522e65268d37a9bd8f2e2": {
+   "add": 994,
+   "commits": [
+    "c0dc65bc661bfa4d77d56b952d0350bb95f00df4",
+    "3e40f9db3259d551404a3ee3f2dabaa7437cd7ea",
+    "9b54e71ceb259552d47c7e5f61f4e826f31c214c"
+   ],
+   "dele": 310
+  },
   "ccd3e8eb5be20b4f5c74f153283bb01a65c02a7d": {
    "add": 740,
    "commits": [
@@ -10241,11 +10266,11 @@
   }
  },
  "stat_merges": {
-  "interroges": 0,
+  "interroges": 2,
   "reutilises": 477
  },
  "stat_tokens": {
-  "lus": 33,
+  "lus": 34,
   "reutilises": 841
  },
  "through": "2026-08-02",

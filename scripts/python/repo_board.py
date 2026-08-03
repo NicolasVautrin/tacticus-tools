@@ -129,7 +129,19 @@ def load_cache(use: bool = True) -> dict:
     return c
 
 
+# Le fichier se DECRIT LUI-MEME. Un lecteur qui le decouvre dans `git status` doit pouvoir
+# trancher sans ouvrir ce script : le 2026-08-03, un autre agent travaillant dans le meme arbre
+# l'a commite en le prenant pour « le cache du fleet-board, artefact de run dans data/ » -- soit
+# exactement le motif qui aurait justifie de le SUPPRIMER. Un message de commit ne protege rien ;
+# la provenance portee par le fichier, si.
+_DOC = ("Cache du board de depot (scripts/python/repo_board.py). ENTREE versionnee, meme statut "
+        "que data/symbols/ : memoise ce qui est IMMUABLE (jour revolu, diff d'une PR mergee) et "
+        "couteux a re-deriver -- 408 s de recalcul complet contre 54 s. NE PAS SUPPRIMER : ce "
+        "n'est pas une sortie de run. Le regenerer : repo_board.py --no-cache.")
+
+
 def save_cache(c: dict) -> None:
+    c["_doc"] = _DOC
     CACHE.parent.mkdir(parents=True, exist_ok=True)
     CACHE.write_text(json.dumps(c, ensure_ascii=False, sort_keys=True, indent=1),
                      encoding="utf-8")
