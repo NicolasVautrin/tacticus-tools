@@ -84,6 +84,19 @@ def main() -> int:
     if 1100 not in NONATTACK_PLAYBOOKS:
         fails.append("SorcerousFacade (1100) absente de NONATTACK_PLAYBOOKS : la seule route qui "
                      "lui donne des cibles ALLIEES -> le terme serait INERTE")
+    # TheLionsWrath (1217, #27-r4) : meme registre, 4e motif d'entree -- son
+    # `...TheLionsWrathPlaybook$$MakeDamagePredictions` rend une liste VIDE (le corps de base
+    # `ComparablePlaybook<T>$$MakeDamagePredictions` est ABSTRAIT, l'override existe donc), si bien
+    # que `calculate_action_utility` rend `None` et que `_best_attack` -- dont le gate porte sur la
+    # SEULE utilite de degat -- ne peut structurellement pas la produire. Hors de ce registre,
+    # l'ability n'a AUCUNE route : le natif emet `ActiveAbilityMessage(1217)` la ou le moteur ne
+    # rendrait plus rien (MESURE #27-r4). Detail de la formule : `test_lions_wrath_custom_utility.py`.
+    if type(reg.get(1217)).__name__ != "TheLionsWrathPlaybook":
+        fails.append(f"dispatch 1217: attendu TheLionsWrathPlaybook, obtenu "
+                     f"{type(reg.get(1217)).__name__}")
+    if 1217 not in NONATTACK_PLAYBOOKS:
+        fails.append("TheLionsWrath (1217) absente de NONATTACK_PLAYBOOKS : `_best_attack` ne peut "
+                     "pas la produire (predictions vides) -> aucune route, terme INERTE")
     # CLIQUET DE NON-REGRESSION #217 : le masque 0x402 (TargetIsFriendly|TargetMatchesDynamicRule)
     # doit continuer de VETO-er la route ENNEMIE. Si `_is_attack_ability` redevenait True, 1100
     # reprendrait des cibles ennemies dans `_plans_for_unit` -- l'action FANTOME que #217 a fermee.

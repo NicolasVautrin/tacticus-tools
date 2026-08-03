@@ -556,6 +556,23 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     1216: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved
                                  | TR.CasterMatchesDynamicRule,
                            self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
+    # 1217 TheLionsWrath (#27-r4) -- meme configuration que 1216 : face DECISION portee (playbook
+    # `loki_custom.TheLionsWrathPlaybook`), face COMBAT NON portee -> cette table, pas
+    # `ABILITY_CLASSES`. Ici le masque est le LITTERAL, sans piege PRESET+FLAGS :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$.ctor` recopie les 0x40
+    # octets du preset `<TargetingOptions statics>+0x40` et appelle
+    # `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts, abilityAttackType)` -- dont le
+    # corps recopie la struct TELLE QUELLE dans `this+0x70..0xac` (aucun `|` de flags additionnels ;
+    # le 3e argument est l'`AbilityAttackType`, ici le litteral 0, ecrit a `this+0x68`).
+    # Champs du preset, LUS dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #   +0x40 (`isSelfCasting`)     = 0
+    #   +0x48..+0x5f (`range`)      = recopie de `<TargetingRange statics>+0x30` = RANGE_ADJACENT
+    #   +0x60 (`forceMeleeTarget`)  = 1 = RangedBool.False
+    #   +0x68 (`rules`)             = 0x4000 = TargetIsEnemy, et RIEN d'autre
+    # C'est ce masque qui met 1217 sur la route d'ATTAQUE (cibles ENNEMIES), la ou 1216 -- self-cast
+    # par `CasterIsPossibleTarget` -- passait par la route non-attaque.
+    1217: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+                           force_melee_target=RANGED_BOOL_FALSE),
 }
 
 

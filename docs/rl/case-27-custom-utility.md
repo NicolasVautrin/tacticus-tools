@@ -2928,3 +2928,170 @@ decoratifs. Garde : `tests/engine/test_martial_exemplar_decision_live.py` (9 tes
   « terme mesure NUL (< 0.012) » des tranches precedentes : tout differentiel de module < 1 rend 0.
   Debloqueur : porter `GetTargetUtilityDiffOnDisplace` (evaluateur `UtilityMovementCase`), pas un
   scalaire.
+
+
+## TRANCHE r7 (2026-08-03) — 1217 `TheLionsWrath` : le piege n'etait PAS ou la fiche l'annoncait
+
+La fiche #27-r7 nommait UN piege (le `ShouldEvaluate` mal reconstruit par Ghidra) et il etait reel,
+mais mineur. **Le verrou du port etait ailleurs, et il ne se voit qu'en decomposant par etage** :
+`...TheLionsWrathPlaybook$$MakeDamagePredictions` rend une liste **VIDE**.
+
+### 1. La formule custom, CONFIRMEE au decompile
+
+`IdunBattle.AI.Playbook.Loki.TheLionsWrathPlaybook$$CalculateCustomUtility` :
+
+    n = 0; hits = 0;
+    foreach (e in battleQuery.<slot itf 0x80>(casterPosition, caster, ignoreSteppables: false))
+        if (IsNormalUnit(e) && HasTrait(e, 0x7ea Chaos) && HasTrait(e, 0x10 Hero))  n++;
+    var w = battleQuery.<slot itf 0xb2>(target);            // FindMeleeWeapon(TARGET), surcharge 1-arg
+    if (w != null) hits = w.<+0x20>;                        // Hits
+    return Fix64.op_Implicit(hits * 0x1e + n * 2000 + (HasTrait(target, 0x10) ? 0x96 : 0));
+
+Aucun `GetUtilityValue` : `30`, `2000` et `150` sont EN DUR. Les deux premiers facteurs sont lus sur
+la **CIBLE** — c'est ce qui rend le terme discriminant par cible, et l'ability greffable malgre un
+porteur `darkaBossLion` [npc].
+
+`FindMeleeWeapon(unit)` (slot `0xb2`) = `FindMeleeWeapon(unit, null, null)` : le `target` nul rend la
+branche `SelectBestDamageWeapon` MORTE, c'est toujours `SelectMaxRangeWeapon({w : w.IsMelee})` qui
+tranche. Port : `engine/services/battle_query.py::find_melee_weapon` (symetrique exact de
+`find_ranged_weapon`, deja la) + `weapon_hits` (defaut **0**, pas 1).
+
+### 2. Le gate, relu A L'ASSEMBLEUR — et sa jumelle qui prouve le decodage
+
+Ghidra rend `(extraout_var >> 7 ^ 1) & bVar1`, un decalage de 7 sur un OCTET. Les octets disent
+autre chose :
+
+    call  <slot 0x1b>(unit, 2)   ; HasMinimumRemainingTurns  -> movzx ebp, al
+    call  <slot 0x80>(position, unit, false)                 ; GetAdjacentEnemies
+    call  <Count>                                            ; -> eax
+    c1 e8 1f    shr   eax, 0x1f      ; bit de SIGNE du compte (32 bits, pas 8)
+    34 01       xor   al, 1          ; -> (count >= 0)
+    40 22 c5    and   al, bpl        ; & HasMinimumRemainingTurns
+
+soit `HasMinimumRemainingTurns(unit, 2) && (Count() >= 0)` — le second terme est **TOUJOURS VRAI**.
+
+**La contre-epreuve qui ancre ce decodage** : `...MartialExemplarPlaybook$$ShouldEvaluate` est
+structurellement IDENTIQUE (memes DAT, meme slot 0x80, meme `Count`) et finit par
+`83 f8 01 / 0f 9d c0` = `cmp eax,1 ; setge al` = `Count() > 0`. Les deux fonctions different
+EXACTEMENT a cet endroit. Recopier `> 0` par analogie — la pente naturelle — aurait pose un gate que
+le natif n'a pas.
+
+Le terme restant, `HasMinimumRemainingTurns`, **n'utilise pas son parametre `unit`** :
+`IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` lit `limit = <config dict>[1]`,
+rend `true` si `!limit.HasValue`, sinon `turns <= limit - TurnComponent$$GetAmountOfTurnsEndedByPlayer`.
+Gate GLOBAL au match. Le plafond de tours n'a **aucun substrat cote port** — meme constat, et meme
+mot, que le bit `CasterHas2TurnsLeft` de 1160 (`runner/abilities/tau.py`), qui appelle le MEME natif.
+Le gate se reduit donc a `True`, c.-a-d. au defaut de `NonAttackComparablePlaybook.should_evaluate` :
+l'overrider serait du code mort. **Residu nomme `#27-r4-g`** — il ne peut mordre que dans un match A
+PLAFOND DE TOURS, qu'aucun runner d'arene ne monte.
+
+### 3. LE VERROU : `MakeDamagePredictions` rend `[]`, et c'est la route qui change
+
+`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeDamagePredictions`
+est **ABSTRAITE** — son corps entier est `FUN_1801f4390(<classe>, 0)`, la levee
+`NotImplementedException`. Un override existe donc forcement pour 1217, et il est ABSENT de la table
+de symboles (corps DEDUPLIQUE — exactement le faux negatif que le `CLAUDE.md` decrit).
+
+**TROIS canaux independants** disent qu'il rend une liste vide NON NULLE :
+
+| canal | mesure |
+|---|---|
+| `aiPlaybookPredict(1217)` (= `MakeDamagePredictions` natif) | `retClass = ProbableDamageEvent[]`, `listNull = false`, `count = 0` — l'appel REUSSIT, il ne leve pas |
+| `pairUtility(1217)` (= `CalculateUtilityFromPredictions` natif) | `utility = 0`, `utilRaw = "0"`, sur les DEUX cibles |
+| COMPORTEMENTAL (le decisif) | dans le bras `--hp-ahriman 100`, la PREVIEW d'attaque vaut **238,04** sur `thousAhriman` contre **8,01** sur `blackAbaddon`, et le natif choisit `blackAbaddon` — il n'ajoute donc AUCUNE utilite de degat |
+
+Coherent avec le kit : `...TheLionsWrathAbility$$ExecuteBehaviour` DIFFERE l'attaque dans
+`IdunBattle.Entities.Effects.Loki.TheLionsWrath_PendingAttackEffect` ; il n'y a pas de degat a
+predire au moment du cast.
+
+**Consequence de ROUTE, et c'est tout le fix.** `ComparablePlaybook<T>$$CalculateActionUtility`, relu
+verbatim, enchaine `u = 0 + custom` PUIS `u += CalculateUtilityFromPredictions(...)` PUIS
+`if (!ShouldExecute(caster, tile, target, u)) return Nullable.Empty`. Le gate recoit donc
+`custom + predictions`, jamais les predictions seules. Cote port :
+
+- `base.ComparablePlaybook.calculate_action_utility` rend `None` sur `events == []`, et
+  `ComparableAbilityGenerator.generate` gate sur `best[0] > 0` (l'utilite de DEGAT). **`_best_attack`
+  ne peut donc structurellement pas produire 1217** — c'est le motif de **1009 ResurrectionOrb**.
+- `nonattack_candidates` mirroir `CalculateActionUtility` A LA LETTRE (`u = custom`, `u += preds`,
+  `should_execute(u)`, `full = u + tile`). C'est la bonne route.
+
+⇒ 1217 entre dans `NONATTACK_PLAYBOOKS`, **4e motif** d'entree apres « pas de `damageProfile` »
+(1226, 1185), « masque refusant toute cible ennemie » (1100) et « masque SELF-CAST » (1216) — et ce
+alors meme que 1217 A un `damageProfile` (`Power`) ET des `attackPlans` a `rankCount > 0`.
+
+**MESURE de la divergence, avant/apres** (bras `--hp-ahriman 100`, natif = `(1217, blackAbaddon)`) :
+
+| etat du port | decision moteur |
+|---|---|
+| prediction generique (heritee), route attaque | `(1217, thousAhriman)` — la PREVIEW fantome de `attackPlans` (identique a celle de l'attaque normale) ecrase l'ecart de custom de 120 |
+| `MakeDamagePredictions -> []`, route attaque | `(None, None)` — le gate `best[0] > 0` supprime l'action |
+| `MakeDamagePredictions -> []`, route NON-ATTAQUE | `(1217, blackAbaddon)` = **natif** |
+
+### 4. Le masque, et pourquoi il n'y a PAS de piege PRESET+FLAGS ici
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$.ctor` recopie les 0x40 octets
+du preset `<TargetingOptions statics>+0x40` et les passe TELS QUELS a
+`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts, abilityAttackType)`, dont le corps
+recopie la struct dans `this+0x70..0xac` **sans OU-er le moindre flag** (le 3e argument est
+l'`AbilityAttackType`, ici le litteral `0`, ecrit a `this+0x68`). Champs du preset, lus dans
+`IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+
+    +0x40  isSelfCasting    = 0
+    +0x48  range            = recopie de <TargetingRange statics>+0x30 = RANGE_ADJACENT
+    +0x60  forceMeleeTarget = 1 = RangedBool.False
+    +0x68  rules            = 0x4000 = TargetIsEnemy, et RIEN d'autre
+
+`TARGETING_OPTIONS_UNPORTED[1217]` (face COMBAT non portee ⇒ cette table, pas `ABILITY_CLASSES`).
+
+### 5. Confrontation LIVE — greffe `darkaAsmodai`, board MC1_67, seed 909, rank 17
+
+Caster en `(1, 0)` ; les deux cibles sur deux voisins ; `thousAhriman` a `Health = 100`
+(`--unit-stat`) pour que sa PREVIEW ecrase celle de `blackAbaddon`. Le CASTER n'est jamais deplace.
+
+| | `blackAbaddon` (Hits 5) | `thousAhriman` (Hits 1) |
+|---|---|---|
+| `u_full` NATIF de 1217 (`pairUtility`) | **0** | **0** |
+| `MakeDamagePredictions` natif | **0 event** | **0 event** |
+| custom PORTE | **4300** = 30x5 + 2000x2 + 150 | **4180** = 30x1 + 2000x2 + 150 |
+| PREVIEW (`pairUtility(69)`) | 8,01 | **238,04** |
+
+Les deux argmax DIVERGENT (custom -> `blackAbaddon`, preview -> `thousAhriman`) : le bras est
+discriminant. Natif = `ActiveAbilityMessage(1217, blackAbaddon)`, moteur = idem.
+
+**Bras SWAP** : les deux cibles ECHANGENT leurs tuiles (via une 3e tuile — un `act move` croise est
+REFUSE en silence, et `_assert_placed` le voit). Le natif choisit **toujours** `blackAbaddon` : son
+choix ne vient donc pas de l'ordre d'enumeration des cibles (rang cube croissant, keep-first STRICT).
+
+**Trois contre-epreuves, toutes MORDENT** :
+
+| contre-epreuve | decision moteur | ce qu'elle exclut |
+|---|---|---|
+| `custom` force a 0 | `(69, thousAhriman)` | le terme n'est pas decoratif |
+| registre `NONATTACK_PLAYBOOKS` VIDE | `(69, thousAhriman)` | la route n'est pas inerte |
+| terme `30 x Hits` NIE (`-30`) | `(1217, thousAhriman)` | **ce terme-la** est bien ce qui departage les cibles |
+
+Gardes : `probe_27_r4_lions_wrath.py` (2 bras x 3 contre-epreuves, `VERDICT: PASS`),
+`tests/engine/test_lions_wrath_decision_live.py` (11), `tests/engine/test_lions_wrath_custom_utility.py`
+(11, offline).
+
+### 6. Ce qui n'est PAS couvert, et pourquoi
+
+- **Le terme `2000 x n` n'est pas DISCRIMINE**, seulement porte et verifie offline. Il ne depend que
+  de `casterPosition`, donc il ne departage jamais deux cibles ; et comme 1217 est ADJACENT-only,
+  changer de tuile change AUSSI l'ensemble des cibles legales — un bras « tuile a n=1 contre tuile a
+  n=0 » ne serait pas un comparatif toutes choses egales par ailleurs.
+- **Le terme `150 x [cible Hero]` est CONSTANT dans tout montage de heros** : les **97** unites du
+  pool rank 17 portent TOUTES le trait `Hero` (compte re-derive, pas herite). Le discriminer exige
+  une cible sans `Hero` : un SUMMON adverse (les 65 summons en sont depourvus) — la MoW, elle, est
+  hors d'atteinte, le masque `0x4000` n'ayant pas le bit de domaine `TargetIsActor`, si bien que
+  `TargetIsUnit` la refuse.
+- **Le filtre `IsNormalUnit && Chaos && Hero` sur les adjacents** n'est pas exerce en LIVE (il
+  faudrait un ennemi `Object`/`Steppable` adjacent au caster au spawn) : garde OFFLINE.
+- **La face COMBAT de 1217 n'est pas portee** — `...TheLionsWrathAbility$$ExecuteBehaviour` est un
+  arbre DSL (`AddBondEffect`, `AddEffect`, `IfAlive`, `AttackWithAttackDamage`) dont le degat passe
+  par `TheLionsWrath_PendingAttackEffect`. Hors perimetre de cette tranche (DECISION seule).
+- **Le gate `should_execute` de la BASE** reste le defaut `True` du port. Le corps natif de
+  `ComparablePlaybook<T>$$ShouldExecute` n'est pas nomme (dedupli), et 1217 ne l'override pas ; la
+  MESURE (le natif emet bien l'ability, avec `u = custom = 4300`) est compatible aussi bien avec
+  `true` qu'avec `utility > 0` — le montage ne les separe pas. Sans consequence ici : `custom >= 30`
+  des qu'une cible existe.

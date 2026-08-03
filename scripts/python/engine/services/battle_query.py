@@ -236,6 +236,52 @@ def select_max_range_weapon(weapons: list) -> dict | None:
     return best
 
 
+def find_melee_weapon(visual_id) -> dict | None:
+    """`IdunBattle.Core.Services.BattleQuery$$FindMeleeWeapon(unit)` -- la surcharge a UN SEUL
+    argument (celle que l'interface `IBattleQuery` expose au slot `0xb2`, identifie par son proxy
+    `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass212_0$$u003CFindMeleeWeaponu003Eb__0`).
+    Son corps est UN SEUL appel : `FindMeleeWeapon(unit, unitPosition: null, target: null)`, la
+    surcharge a QUATRE arguments, dont le corps est le SYMETRIQUE EXACT de `find_ranged_weapon` :
+
+        if (!EntityExtensions.IsUnit(unit)) return null;
+        set = new OrderedSet<WeaponProfile>();
+        foreach (w in unit.WeaponsComponent.Weapons)
+            if (w.IsMelee) set.Add(w);                   // le filtre est INVERSE de FindRangedWeapon
+        if (target != null) return SelectBestDamageWeapon(unit, unitPosition, target, set);
+        return SelectMaxRangeWeapon(set);
+
+    `target` etant NUL sur cette surcharge, la branche `SelectBestDamageWeapon` est MORTE ici : c'est
+    toujours `SelectMaxRangeWeapon` qui tranche -- donc, parmi les armes de MELEE, celle de plus
+    longue portee (`Range.GetValueOrDefault(0)`, `<=` -> la DERNIERE a egalite). Une unite dont
+    toutes les armes de melee sont sans `Range` rend donc la DERNIERE de la liste.
+
+    CONSOMMATEUR PORTE : `...TheLionsWrathPlaybook$$CalculateCustomUtility` (#27-r4), qui lit le
+    `Hits` (`WeaponProfile+0x20`) de l'arme rendue pour la CIBLE -- jamais pour le caster.
+
+    SUBSTRAT : identique a `find_ranged_weapon` (kit gameconfig par `visualId`) ; unite inconnue ou
+    sans arme de melee -> `None`, qui mirroir le `null` natif (set vide -> `SelectMaxRangeWeapon`
+    rend `null`)."""
+    weapons = (GC.unit(visual_id or "") or {}).get("weapons") or []
+    return select_max_range_weapon([w for w in weapons if weapon_is_melee(w)])
+
+
+def weapon_hits(weapon: dict | None) -> int:
+    """`WeaponProfile+0x20` = `Hits`, le nombre de coups du profil -- et `null -> 0`, la valeur que
+    le natif garde quand `FindMeleeWeapon` ne rend rien (`iVar8` initialise a 0 et laisse tel quel
+    dans `...TheLionsWrathPlaybook$$CalculateCustomUtility`).
+
+    L'offset est etabli par DEUX lectures concordantes, jamais par le nom :
+    `IdunBattle.Core.Services.BattleQuery$$u003CGetBestWeaponu003Eb__316_0` calcule
+    `GetDamageProfile(w.<+0x10>).<+0x14> * w.<+0x20>` (degat par coup x nombre de coups), et
+    `...$$SelectMaxRangeWeapon` / `IdunShared.Battle.WeaponProfile$$get_IsMelee` lisent tous deux
+    `+0x24` comme le `Nullable<int> Range` -- donc `+0x20` n'est pas la portee.
+
+    ⚠ Le defaut est `0`, PAS `1` : `get_attack_weapon_for_default_normal_attack` retombe sur `1`
+    parce qu'une attaque porte au moins un coup, mais ici l'absence d'arme doit rendre un TERME NUL,
+    et un `1` implicite vaudrait 30 points d'utilite offerts."""
+    return int((weapon or {}).get("hits") or 0)
+
+
 def find_ranged_weapon(visual_id) -> dict | None:
     """`IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon(unit)` -- la surcharge a UN SEUL
     argument (celle que l'interface `IBattleQuery` expose au slot `0xb3`, identifie par son proxy
