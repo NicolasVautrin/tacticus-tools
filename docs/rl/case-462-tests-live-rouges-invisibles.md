@@ -83,10 +83,32 @@ contention (un `--collect` concurrent + 4 autres agents) : le cout par fichier p
 a **32,9 s** selon la charge. C'est la meme lecon que `probe_457` -- un mur se MESURE dans ses
 conditions, il ne se cite pas.
 
+### Pourquoi le balayage s'arrete a 180 : QUATRE etats, pas deux
+
+Ce dossier existe parce que « pas rouge » se lit comme « vert ». Son propre inventaire doit donc
+distinguer ce que le parc distingue :
+
+| etat | ce que ca veut dire | compte |
+|---|---|---|
+| **VERT** | joue, tous ses tests passent, a CE commit | 174 |
+| **ROUGE** | joue, au moins un echec -- ou 0 assertion evaluee (#455 / #455-r3) | 6 |
+| **ECARTE** | le balayage ne l'a pas atteint (borne assumee) | 232 |
+| **NON MESURE -- fenetre DRAIN** | la tranche etait en vol quand la maintenance a ouvert | 5 |
+
+Les tranches 0/60/120 (**180 fichiers**) sont completes. La tranche 180 a ete **INTERROMPUE a son
+demarrage** par une fenetre de maintenance (restart du jeu + reinject) : ses workers ont ete
+arretes et ses runners rendus avant d'avoir produit un seul report.
+
+⚠ **Un fichier non joue a cause du drain n'est ni rouge ni vert : il est NON MESURE.** Le confondre
+avec « vert » reproduirait exactement l'invisibilite que ce dossier ferme. Le probe le tient
+mecaniquement : un fichier sans report est classe `NON JOUE`, il **COMPTE dans le code de sortie**,
+et il n'entre PAS au ledger avec un verdict vert.
+
 ### Ce qui n'est PAS couvert
 
-* Les fichiers ECARTES du balayage (voir le compte ci-dessus) : leur statut est **INCONNU**, pas
-  vert. Le ledger le dit fichier par fichier ; `--report` imprime l'anciennete de chaque mesure.
+* Les 237 fichiers ECARTES + NON MESURES : leur statut est **INCONNU**, pas vert. Le ledger le dit
+  fichier par fichier ; `--report` imprime l'anciennete de chaque mesure et le nombre de
+  **JAMAIS mesures**.
 * Un fichier VERT au balayage l'etait **a ce commit-la**. Rien ne promet qu'il le reste.
 * Le balayage tourne sur une session partagee par 4 autres agents. Un rouge de CONTENTION
   (cap de runners, pump sature) est converti en ECHEC par le conftest (#77) -- c'est voulu, mais il
