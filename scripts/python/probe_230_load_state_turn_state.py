@@ -126,7 +126,11 @@ def case_ghost(rpc):
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
     from engine.runner.operations.triggers import after_move_triggers
-    from engine.runner.operations.triggers.loki.ghost_revive import GHOST_EFFECT
+    # `GHOST_EFFECT` a ete RENOMME `TIME_FLUX_GHOST_EFFECT` par #366-r1 (2742ad35), quand
+    # `EchoesFromTheWarp_Revive` est devenu la 2e instanciation du meme GhostEffect. Cet import
+    # est reste sur l'ancien nom, dans un corps de fonction : `case_ghost` levait donc en
+    # ImportError depuis, sans que rien ne le voie (#462-r4c).
+    from engine.runner.operations.triggers.loki.ghost_revive import TIME_FLUX_GHOST_EFFECT
     from engine.runner.prng import IntBasedMersenneTwister
 
     rid, state = build("31337", "MC1_67",
@@ -172,7 +176,8 @@ def case_ghost(rpc):
         after_move_triggers(st, tid)
         ghosts = sorted(int(t) for t, effs in st.effects.by_unit.items()
                         if int(t) in board.by_id
-                        and any((not e.consumed) and e.effect_type == GHOST_EFFECT for e in effs))
+                        and any((not e.consumed) and e.effect_type == TIME_FLUX_GHOST_EFFECT
+                                for e in effs))
         print("[port] move %s -> %s ; tuiles portant le ghost 1186 = %s (attendu [%s])"
               % (start, dest, ghosts, here))
         print("  VERDICT ghost = %s" % ("BONNE TUILE" if ghosts == [here] else "KO"))

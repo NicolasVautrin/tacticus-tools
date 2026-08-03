@@ -52,9 +52,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hexgeo                                                        # noqa: E402
+from build_pin import BuildPinRefused                                # noqa: E402
 from rl_collect_batch import _resolve_session                        # noqa: E402
 from probe_193c_move_playbook_terms import (_r, _build, _apply_native, _visual_map, _by_tile,  # noqa: E402
-                                            _one, _port_leaves, BUILD_HASH)
+                                            _one, _port_leaves, _exiger_build_des_rva)
 
 ABILITY = 1006                      # TriggeredAbilityType.FabricatorClawArray
 CARRIER = "necroSpyder"             # HERO du pool (rank 17) ; passif = FabricatorClawArray
@@ -384,10 +385,10 @@ def main():
                     help="garder les reliques (par defaut on les retire : cf. _seed_bc_montage)")
     ap.add_argument("--extra", nargs=argparse.REMAINDER, default=[])
     a = ap.parse_args()
-    games = Path("C:/Users/nicolasv/AppData/Local/tacticus/games")
-    hashes = [p.name for p in games.iterdir()] if games.exists() else []
-    if BUILD_HASH not in hashes:
-        print("REFUS : hooks RVA valides pour %s, builds presents = %s" % (BUILD_HASH, hashes))
+    try:
+        _exiger_build_des_rva()            # #431 : le pin des RVA du hook passe par `build_pin`
+    except BuildPinRefused as exc:
+        print(str(exc))
         return 2
     sid = _resolve_session()
     if a.runner is not None:

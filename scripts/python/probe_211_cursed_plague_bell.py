@@ -42,9 +42,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from build_pin import BuildPinRefused                          # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc            # noqa: E402
 from probe_193c_move_playbook_terms import (                   # noqa: E402
-    BUILD_HASH, _apply_native, _build, _by_tile, _one, _port_leaves, _visual_map)
+    _apply_native, _build, _by_tile, _exiger_build_des_rva, _one, _port_leaves, _visual_map)
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
@@ -314,10 +315,10 @@ def main():
     rc0 = step0_substrate()
     if a.offline_only:
         return rc0
-    games = Path("C:/Users/nicolasv/AppData/Local/tacticus/games")
-    hashes = [p.name for p in games.iterdir()] if games.exists() else []
-    if BUILD_HASH not in hashes:
-        print("REFUS : hooks RVA valides pour %s, builds presents = %s" % (BUILD_HASH, hashes))
+    try:
+        _exiger_build_des_rva()            # #431 : le pin des RVA du hook passe par `build_pin`
+    except BuildPinRefused as exc:
+        print(str(exc))
         return 2
     sid = _resolve_session()
     if a.runner is not None:

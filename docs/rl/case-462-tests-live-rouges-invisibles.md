@@ -86,7 +86,7 @@ taux du parc.
 | `test_terrifying_defense_live.py` | p=4 f=1 | `per-hit offline != live : off=[433,402,434,378,350,403] live=[434,403,435,379,351,404]` |
 | `test_nightshroud_combat_live.py` | p=1 f=1 | `per-hit offline != live : off=[180,180,112,158,240,183] live=[250,212,168,122,220,221]` |
 | `test_chain_after_refused_addeffect_live.py` | p=3 f=1 | `PORT: Pinned refuse sur une cible sans TerminatorArmour` |
-| `test_fabricator_claw_cap_live.py` | p=0 **e=10** | `failed on setup with ImportError: cannot import name 'BUILD_HASH' from 'probe_193c_move_playbook_terms'` |
+| `test_fabricator_claw_cap_live.py` (**REPARE #462-r4c** -> p=10) | p=0 **e=10** | `failed on setup with ImportError: cannot import name 'BUILD_HASH' from 'probe_193c_move_playbook_terms'` |
 | `test_damage_catalog_live.py` | p=0 f=4 | `build runner KO (rl_duel) [...] --p-units: hors pool / non spawnables au rank 17: ['adeptSmnGeminaeSuperia']` |
 | `test_placement_sort_rng_live.py` | p=17 f=1 | `le modele d'avant rend 10 genrand pour 10 live -- il devrait SUR-tirer [...] le scenario n'est plus discriminant` |
 | `test_valkyrie_strike_targeting_live.py` | p=0 f=1 | `le masque prive de TargetIsTile devrait faux-accepter les 6 lignes refusees, il n'en faux-accepte que 0` |
@@ -372,11 +372,13 @@ suffisante serait exactement la faute que ce dossier documente.
   meilleur ordre serait << le plus longtemps sans MESURE >>, que le ledger permettra une fois peuple.
 * **`#462-r4`** -- Les 8 rouges inventories sont RAPPORTES, non repares (hors perimetre de cette
   passe). Chacun est un candidat de tache a part entiere.
-* **`#462-r5`** -- **Un import DIFFERE mort n'est garde par rien.** `probe_365` couvre << importe une
-  cible gitignoree ou ABSENTE >> ; ici le module existe et seul le NOM a disparu, et l'import est
-  dans une fonction (donc invisible a la collecte). Mesure : `BUILD_HASH` retire le 2026-08-01,
-  10 tests morts pendant 2 jours. Un cliquet OFFLINE le verrait -- resolution AST des `from X import
-  Y` contre les symboles reellement definis par `X`, imports differes compris.
+* **`#462-r5`** -- **FERME le 2026-08-03 par #462-r4c** (`docs/rl/case-462-r4c-imports-differes-morts.md`).
+  Un import DIFFERE mort n'etait garde par rien : `probe_365` couvre << importe une cible gitignoree
+  ou ABSENTE >>, ici le module existe et seul le NOM a disparu, et l'import est dans une fonction
+  (donc invisible a la collecte). Le cliquet `probe_462r5_dead_imports.py` (banque) resout les
+  `from X import Y` de premiere partie a l'AST. ⚠ Le perimetre reel etait de **CINQ** sites, pas
+  quatre : le grep de `BUILD_HASH` ne pouvait pas voir `GHOST_EFFECT` (`probe_230.case_ghost`,
+  renomme par #366-r1) -- partir du symptome borne le perimetre au symptome.
 * **`#462-r6`** -- **Le ROUGE DE SCENARIO n'a pas de nom dans la ventilation.** 3 des 8 rouges
   n'accusent ni le port ni le harnais : l'echantillon n'est plus confrontable
   (`damage_catalog` : les 4 premiers candidats alphabetiques sont un summon et trois npc), ou le

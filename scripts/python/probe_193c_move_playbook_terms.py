@@ -44,6 +44,12 @@ def _exiger_build_des_rva() -> None:
     et confronte par le foyer (#431). Il valait `gqfc5mff6c` alors que #257 avait deja migre
     les RVA du hook vers `rnca9r7q6c` -- le probe REFUSAIT de tourner sur un build ou tout
     etait bon, et un refus FAUX se lit exactement comme un refus legitime.
+
+    C'est la DECLARATION UNIQUE de ce pin pour toute la famille des probes qui arme les hooks
+    de `scorer-damage-trace` : #211, #212, #241 et #242 l'appellent au lieu d'en porter une
+    copie (#462-r4c). Ils importaient auparavant un `BUILD_HASH` que #431 a retire -- et le
+    seul a avoir un test qui le consomme, #242, a rendu 0 passed / 10 errors pendant deux jours.
+    Quatre copies du meme littéral, c'est quatre endroits a migrer au prochain build.
     """
     require_pinned("rnca9r7q6c",
                    "les RVA en dur de scorer-damage-trace (installRvaHooks)",
