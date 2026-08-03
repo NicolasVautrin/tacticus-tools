@@ -159,6 +159,22 @@ astraBullgryn`, seed du replay 31337 ou 4242, board MC1_67, cible `eldarFarseer`
   l'attestation périmée du fichier touché, régénérée (`--run --since origin/master`, mur 23,7 s,
   `VERDICT: PASS`).
 
+### Re-jeu APRÈS rebase — et ce que le rebase a apporté
+
+Le rebase sur `origin/master` a amené **#462-r4a** (`ecc892cc`, « la face DÉFENSEUR entre dans la
+MÊME chaîne %-list que l'attaquant »), qui touche `engine/runner/operations/damage.py`,
+`engine/services/damage_modifiers.py`, `engine/services/damage_prediction.py`,
+`engine/services/effect_bonus.py` — **exactement le chemin que ce catalogue mesure**. Le re-jeu
+n'était donc pas une formalité :
+
+* **5 passed** (136,6 s) et `DAMAGE_CATALOG_N=0` → **7 passed** (129,7 s) — les 6 profils d'arme
+  restent bit-exacts à travers le changement de chaîne ;
+* banque **VERTE, 36/36**, mur 378,4 s (session chargée — les murs se re-dérivent, ils ne se
+  citent pas) ;
+* conflit sur `scripts/ratchets-462-live-attestations.json` (le point de conflit connu, #462-r2)
+  résolu **par RÉGÉNÉRATION** : un côté repris, puis `--run --since origin/master` rejoué (mur
+  99,7 s, `VERDICT: PASS`). Jamais une fusion à la main.
+
 **Non couvert** : les summons/npc du profil (canal nommé au §1) ; les 2 `lineup` hors seed BC
 (injection catalogue, §2) ; le régime overkill (§5) ; le fichier reste mesuré sur **un** couple
 (board, seed) par défaut — la généralisation ci-dessus est un relevé, pas un garde.

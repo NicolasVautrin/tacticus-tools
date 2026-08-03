@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785779417,
+ "_ecrit_le": 1785782102,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -673,20 +673,16 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_damage_catalog_live.py": {
-   "_at": 1785763651,
-   "_blob": "6cd591b1a21cc3d4f795f38f2f78dc5dd961c8fb",
-   "_commit": "69b328f5ee763868255198227f0a50a613b7a0f4",
+   "_at": 1785782102,
+   "_blob": "006c9daeda4a5073ad9e733b0b64604c615c25ce",
+   "_commit": "f8762a719151955e3e4f2c38811cae7fffe79eff",
    "error": 0,
-   "failed": 4,
-   "messages": [
-    "test_damage_catalog_live.py::test_normal_attack_bit_exact[adeptSmnGeminaeSuperia] -- HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live. Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune assertion n'a ete evaluee (cf. conftest, bloc \u00ab un SKIP harnais \u00bb).  Raison d'origine : Skipped: build runner KO (rl_duel): jacent 0->10'] | retires=[] [seed-bc] bloc Unit",
-    "test_damage_catalog_live.py::test_normal_attack_bit_exact[admecBossBelisarius] -- HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live. Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune assertion n'a ete evaluee (cf. conftest, bloc \u00ab un SKIP harnais \u00bb).  Raison d'origine : Skipped: build runner KO (rl_duel): eAdjacent 0->10'] | retires=[] [seed-bc] bloc U",
-    "test_damage_catalog_live.py::test_normal_attack_bit_exact[admecBossManipulus] -- HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live. Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune assertion n'a ete evaluee (cf. conftest, bloc \u00ab un SKIP harnais \u00bb).  Raison d'origine : Skipped: build runner KO (rl_duel): BeAdjacent 0->10'] | retires=[] [seed-bc] bloc "
-   ],
-   "passed": 0,
-   "sec": 42.9,
+   "failed": 0,
+   "messages": [],
+   "passed": 5,
+   "sec": 88.3,
    "skipped": 0,
-   "verdict": "ROUGE",
+   "verdict": "VERT",
    "xfailed": 0
   },
   "tests/engine/runner/test_damage_crit_live.py": {
