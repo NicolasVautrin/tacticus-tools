@@ -55,7 +55,8 @@ import hexgeo                                                        # noqa: E40
 from build_pin import BuildPinRefused                                # noqa: E402
 from rl_collect_batch import _resolve_session                        # noqa: E402
 from probe_193c_move_playbook_terms import (_r, _build, _apply_native, _visual_map, _by_tile,  # noqa: E402
-                                            _one, _port_leaves, _exiger_build_des_rva)
+                                            _one, _port_leaves, _exiger_build_des_rva, x_port,
+                                            x_excluded)
 
 ABILITY = 1006                      # TriggeredAbilityType.FabricatorClawArray
 CARRIER = "necroSpyder"             # HERO du pool (rank 17) ; passif = FabricatorClawArray
@@ -263,13 +264,13 @@ def _measure(sid, rid, ctx, dv, uid, hp, names, wt, pb):
     for t in tiles:
         vt, ve, vf = _one(tt, t), _one(el, t), _one(te, t, 0.0)
         leaves, leaf_ctx = _port_leaves(ctx, t)
-        p_x = sum(leaves.values()) - leaves.get(8, 0.0) - leaves.get(9, 0.0)
+        p_x = x_port(leaves)                    # foyer UNIQUE du retranchement (#254, cf. `x_port`)
         term = pb.calculate_movement_utility_in_steps(t, leaf_ctx, wt)
         nm, nr = _counts(leaf_ctx, t, hp)
         x = (vt - ve - vf) if None not in (vt, ve, vf) else None
         d = (x - p_x) if x is not None else None
         nz = ", ".join("%s=%g" % (names.get(k, k), v) for k, v in sorted(leaves.items())
-                       if abs(v) > 1e-9 and k not in (8, 9))
+                       if abs(v) > 1e-9 and k not in x_excluded())
         natnz = ", ".join("%s=%g" % (k, v) for k, v in sorted((nat_leaves.get(t) or {}).items())
                           if abs(v) > 1e-9)
         print("  %-10s %-6s %-7.4g %-6s %-9.4g %-5d %-5d %-15s %s"
