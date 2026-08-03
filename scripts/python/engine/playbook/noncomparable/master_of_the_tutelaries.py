@@ -10,21 +10,28 @@ from ._base import NCContext, NonComparablePlaybook
 
 class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
     """`IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$EvaluateNonComparable` (IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$.ctor,
-    IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$.cctor : `MIN_UTILITY = Fix64(1)`). DECOMPILE (slots IBattleQuery resolus via le dump
-    vtable #38b `data/_probe38b_vtable.json` : 0x49=`IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy`,
-    0x52=`IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(target)`, 0x6b=`IdunBattle.Core.Services.BattleQuery$$GetDistance`,
-    0x72=`IdunBattle.Core.Services.BattleQuery$$GetUnitsAtDistance`) :
+    IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$.cctor : `MIN_UTILITY = Fix64(1)`). DECOMPILE.
+
+    ⚠ SLOTS RE-DERIVES AU RUNTIME le 2026-08-03 sur `rnca9r7q6c`
+    (`probe_433_r4_r2_adjacency_foyer.py --step slots`, qui delegue a `probe_27_4g_battlequery_slots`).
+    Les quatre numeros ecrits ici venaient du dump `#38b` du build PRECEDENT et etaient TOUS
+    DECALES D'UN CRAN -- une citation recopiee designait donc la methode VOISINE (0x52 et 0x53 sont
+    DEUX surcharges de `GetFreeAdjacentTiles`, mais 0x72 est `GetAngleBetweenVectors`, pas
+    `GetUnitsAtDistance`) : 0x4a=`IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy`,
+    0x53=`IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(target)`,
+    0x6c=`IdunBattle.Core.Services.BattleQuery$$GetDistance`,
+    0x73=`IdunBattle.Core.Services.BattleQuery$$GetUnitsAtDistance`.
 
         bucket = Bucket(min = Fix64(1))
         targets = GetEligibleTargetsSelectable(unit, MainTile(position))   # tuiles de SPAWN (ring-1 libre)
         for (tgtEntity, tgtPos) in targets:
-            nFree = GetFreeAdjacentTiles(tgtEntity).Count                  # slot 0x52 (ring-1 ∩ CanAddUnit de ST)
-            nE2   = Count(GetUnitsAtDistance(GetMainTile(unit), 2),        # slot 0x72 : ring EXACT dist==2
+            nFree = GetFreeAdjacentTiles(tgtEntity).Count                  # slot 0x53 (ring-1 ∩ CanAddUnit de ST)
+            nE2   = Count(GetUnitsAtDistance(GetMainTile(unit), 2),        # slot 0x73 : ring EXACT dist==2
                           x => IsEnemy(unit, x))                           # lambda DisplayClass6_0 IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook.u003Cu003Ec__DisplayClass6_0$$u003CEvaluateNonComparableu003Eb__0
             if (nFree > 2 && nE2 > 0):
                 u = 1 + max(nE2-1, 0)*10 + max(nFree-3, 0)*10
-                near = GetNearestEnemy(unit)                               # slot 0x49
-                if (GetDistance(GetMainTile(near), tgtPos) == 2): u += 100 # slot 0x6b
+                near = GetNearestEnemy(unit, <Nullable position VIDE>)     # slot 0x4a
+                if (GetDistance(GetMainTile(near), tgtPos) == 2): u += 100 # slot 0x6c
                 bucket.AddAction(GenerateAction(position, tgtPos, u))
 
     Lectures ANCREES (fideles au decompile, a verrouiller a l'oracle `ncEvaluate`) :

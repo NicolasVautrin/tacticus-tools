@@ -134,11 +134,17 @@ décalés d'un cran** — recopier une fiche désigne donc la **méthode voisine
 | slot d'interface | méthode | ce que le port en disait |
 |---|---|---|
 | `0x4a` | `GetNearestEnemy` | `0x49` |
+| `0x53` | `GetFreeAdjacentTiles` (2ᵉ surcharge) | `0x52` (l'autre surcharge) |
 | `0x60` | `AreEntitiesAdjacent` | (confirme #433-r3) |
 | `0x6c` | `GetDistance` | `0x6b` |
+| `0x73` | `GetUnitsAtDistance` | `0x72` — qui vaut aujourd'hui **`GetAngleBetweenVectors`** |
 | `0x89` | `GetAllAliveUnits` | `0x88` |
 | **`0xb3`** | **`FindRangedWeapon`** | **« NON identifié »** |
 | `0xc5` | `IsTileInRangeOfAnyAbility` | `0xc4` |
+
+`0x72` est le cas qui montre pourquoi l'étape existe : la citation périmée ne désigne pas une
+surcharge voisine, elle désigne **une autre question** (un angle entre vecteurs à la place d'un
+anneau d'unités). Rien ne l'aurait signalé.
 
 `0xb3` est celui qui comptait : le `threshold` de la branche B n'est pas une constante, c'est le
 champ `Nullable<int>` à `+0x24` de l'arme rendue par `FindRangedWeapon` — **la portée de l'arme à

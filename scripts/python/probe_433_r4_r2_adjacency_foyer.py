@@ -77,6 +77,11 @@ EXPECTED_SLOTS = {
     0x89: "GetAllAliveUnits",
     0xB3: "FindRangedWeapon",           # branche B : `threshold = weapon.Range ?? 1`
     0xC5: "IsTileInRangeOfAnyAbility",  # branche A
+    # Les deux autres slots que cite `MasterOfTheTutelariesPlaybook` -- ils etaient ecrits 0x52/0x72
+    # (build precedent), et 0x72 designe aujourd'hui `GetAngleBetweenVectors`, pas du tout la meme
+    # question. C'est le mode de panne que cette etape existe pour attraper.
+    0x53: "GetFreeAdjacentTiles",
+    0x73: "GetUnitsAtDistance",
 }
 
 
