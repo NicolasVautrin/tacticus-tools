@@ -408,8 +408,67 @@ def unit_threat_reach(visual_id, ability_ids=None) -> int:
     return reach
 
 
+def _free_adjacent_gate_allows(unit_pos, tile, cfg_range: int, elev_by_pos) -> bool:
+    """Le gate `GATE_FREE_ADJACENT_IN_CONFIG_RANGE`, evalue TUILE PAR TUILE au lieu d'etre rabattu
+    sur son rayon :
+
+        free = <IBattleQuery slot 0x53>(targetTiles)            # GetFreeAdjacentTiles
+        return free.Count > 0 && free.Any(t => <slot 0x6d>(t, casterTiles) <= config.range)
+
+    `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles` = `GetAdjacentTiles(from,
+    onlyEmptyOrSteppable: 1, onlyWalkableTiles: 1)` filtre en place, et son iterateur
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` applique --
+    APRES les gardes de walkability -- une PORTE D'ELEVATION `|srcElev - tile.Elevation| < 2`.
+
+    Le foyer porte est donc `engine.battle_query.is_adjacent`, et surtout PAS
+    `are_entities_adjacent` : les deux natifs sont DISTINCTS (cf. `#433-r1`) et seul le premier
+    mirrore `IterateAdjacentTiles` -- le second porte un court-circuit d'IDENTITE qui compterait ici
+    la cible elle-meme comme sa propre voisine.
+
+    MESURE qui l'a attribuee (`bloodDante`, `bloodIntercessor`, sweep de 40 positions) : a `d = 6`
+    le natif accepte 4 tuiles sur 6. Les DEUX refusees sont a elevation 2 et n'ont, a `d <= 5`, que
+    des voisines a elevation 4 (ecart 2) ; les quatre acceptees ont toutes une voisine proche a
+    ecart `<= 1`. Separation parfaite -- puis CONFIRMEE au decompile, pas seulement ajustee dessus.
+
+    NON MODELISE, et c'est nomme : `onlyEmptyOrSteppable` / `onlyWalkableTiles` -- l'occupation et
+    la walkability des voisines ne sont publiees par aucun canal cote DECISION. Le port ne retire
+    donc pas les voisines occupees, ce qui ne peut qu'ELARGIR."""
+    from .. import battle_query as bq                  # foyer d'`IterateAdjacentTiles` (#124)
+    t = (int(tile[0]), int(tile[1]))
+    for n in hexgeo.neighbors(t[0], t[1]):
+        if not bq.is_adjacent(t, tuple(n), elev_by_pos):
+            continue                                   # porte d'elevation |dElev| < 2
+        if hexgeo.distance(tuple(n), tuple(unit_pos)) <= cfg_range:
+            return True
+    return False
+
+
+def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos) -> bool:
+    """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des deux etages, mais
+    evaluee sur la TUILE : `GetTilesInRange` puis le predicat `GetDynamicInvalidTargetReason`."""
+    base = tiles_in_range_reach(ability_id, visual_id)
+    if base is None:
+        return False
+    if hexgeo.distance(tuple(unit_pos), tuple(tile)) > base:
+        return False
+    gate = dynamic_target_gate_of(ability_id)
+    if gate == GATE_FREE_ADJACENT_IN_CONFIG_RANGE:
+        cfg = _config_range(ability_id)
+        if cfg is None:
+            return False
+        if elev_by_pos:
+            return _free_adjacent_gate_allows(unit_pos, tile, int(cfg), elev_by_pos)
+        # DEGRADATION NOMMEE : sans canal d'elevation, on ne garde du gate que sa consequence de
+        # DISTANCE (`config.range + 1`) -- borne SUPERIEURE exacte, mesuree a 2 faux positifs sur 40.
+        return hexgeo.distance(tuple(unit_pos), tuple(tile)) <= int(cfg) + 1
+    if gate == GATE_NOT_DERIVABLE:
+        # cf. `ability_range_value` : la borne superieure n'est exploitable que si elle est bornee.
+        return base != WHOLE_BOARD_REACH
+    return True                                        # GATE_NONE / GATE_NOT_READ : aucun retrait
+
+
 def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int = 1,
-                                    ability_ids=None) -> bool:
+                                    ability_ids=None, elev_by_pos=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility(unit, tile)` -- mirror :
 
         if (UnitExtensions.GetFeetCount(unit, state) > 1) return true;      // MULTI-TUILES
@@ -438,9 +497,22 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
 
     `unit_pos is None` (`GetMainTile` nul) -> l'`OrderedSet` est VIDE, `GetAllTilesInAbilityRange`
     rend un ensemble vide et `Contains` est faux. MESURE de ce regime : `--step seam` du probe, ou
-    le movable set vide d'une unite hors tour rend `threatTiles = []` sur les 3 variantes."""
+    le movable set vide d'une unite hors tour rend `threatTiles = []` sur les 3 variantes.
+
+    `elev_by_pos` -- le canal d'elevation de l'appelant. Fourni, il permet d'evaluer le gate
+    `GetDynamicInvalidTargetReason` SUR LA TUILE (porte d'elevation de `GetFreeAdjacentTiles`) au
+    lieu de le rabattre sur son rayon ; absent, le port se degrade sur le rayon, ce qui ne peut
+    qu'ELARGIR (mesure : 2 faux positifs sur 40 pour `bloodDante`, 0 avec le canal)."""
     if int(feet_count or 1) > 1:
         return True
     if unit_pos is None or tile is None:
         return False
-    return hexgeo.distance(tuple(unit_pos), tuple(tile)) <= unit_threat_reach(visual_id, ability_ids)
+    if hexgeo.distance(tuple(unit_pos), tuple(tile)) > unit_threat_reach(visual_id, ability_ids):
+        return False                          # hors de la borne SUPERIEURE : aucune ability ne porte
+    # `includeNormalAttack: true` -- l'attaque normale, dont le `TargetingRange` se reduit a
+    # `unit_weapon_range`, n'a PAS de gate dynamique : elle couvre son disque tel quel.
+    weapon = unit_weapon_range(visual_id, None)
+    if weapon is not None and hexgeo.distance(tuple(unit_pos), tuple(tile)) <= int(weapon):
+        return True
+    aids = _active_ability_ids(visual_id) if ability_ids is None else ability_ids
+    return any(_ability_covers_tile(aid, visual_id, unit_pos, tile, elev_by_pos) for aid in aids)

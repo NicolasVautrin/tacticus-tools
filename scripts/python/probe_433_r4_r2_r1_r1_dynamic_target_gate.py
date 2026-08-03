@@ -199,7 +199,9 @@ def step_sweep(sid, enemy, dist=8, movement=6):
     out_range = {tuple(p) for p in res["natif_out_range"]}
     sweep = sorted(in_range | out_range)
     reach = ar.unit_threat_reach(vid)
-    modeled = {P for P in sweep if ar.is_tile_in_range_of_any_ability(Y, P, vid)}
+    elev = res.get("elev") or None
+    modeled = {P for P in sweep
+               if ar.is_tile_in_range_of_any_ability(Y, P, vid, elev_by_pos=elev)}
 
     by_d = {}
     for P in sweep:
@@ -214,9 +216,46 @@ def step_sweep(sid, enemy, dist=8, movement=6):
     print("  FP=%d  FN=%d  -> %s" % (len(fp), len(fn), "EXACT" if not fp and not fn else "DIVERGE"))
     if fp:
         print("  faux positifs : %r" % (fp[:12],))
+        _explain_false_positives(sid, Y, fp, in_range, ar, enemy)
     if fn:
         print("  faux negatifs : %r" % (fn[:12],))
     return 0 if not fp and not fn else 1
+
+
+def _explain_false_positives(sid, Y, fp, in_range, ar, enemy):
+    """ATTRIBUER les faux positifs residuels, au lieu de les supposer.
+
+    Le gate `GATE_FREE_ADJACENT_IN_CONFIG_RANGE` porte sur les tuiles LIBRES adjacentes a la cible
+    (`<IBattleQuery slot 0x53>` = `GetFreeAdjacentTiles`) : le port n'en garde que la consequence de
+    DISTANCE (`config.range + 1`) et ignore le mot « LIBRES ». Si une tuile a `d = range + 1` n'a
+    AUCUNE voisine walkable a `d <= range`, le natif l'exclut et le port la garde. On le VERIFIE en
+    lisant le plateau plutot qu'en l'affirmant."""
+    from probe_433_r4_r2_r1_ability_range import _board_maps, _build as _seam_build
+
+    rid, err = _seam_build()
+    if rid is None:
+        print("  (attribution impossible : build KO -- %s)" % (err,))
+        return
+    try:
+        elev, walk = _board_maps(sid, rid)
+    finally:
+        _r(sid, "disposeRunner", {"runnerId": rid}, 60)
+    reach = ar.unit_threat_reach(enemy)
+    inner = reach - 1                       # `config.range` : ce que `GetDistance(t, casterTiles)` borne
+
+    def _line(P, tag):
+        nbrs = [N for N in hexgeo.neighbors(P[0], P[1]) if tuple(N) in walk]
+        close = [N for N in nbrs if hexgeo.distance(N, Y) <= inner]
+        print("    %-11s %r d=%d elev=%s : voisines walkable=%d dont a d<=%d : %d %r"
+              % (tag, P, hexgeo.distance(P, Y), elev.get(P), len(nbrs), inner,
+                 len(close), [(N, elev.get(tuple(N))) for N in close]))
+
+    print("    tuile de l'ennemi Y=%r elev=%s" % (Y, elev.get(Y)))
+    for P in fp:
+        _line(P, "FAUX POSITIF")
+    # Contre-epreuve : les tuiles de MEME distance que le natif ACCEPTE.
+    for P in sorted(P for P in in_range if hexgeo.distance(P, Y) == reach)[:4]:
+        _line(P, "(natif OK)")
 
 
 def main():

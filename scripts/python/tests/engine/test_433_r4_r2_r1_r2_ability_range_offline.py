@@ -9,8 +9,11 @@ n'aurait rattrape. La garde `test_the_two_branches_are_not_the_same_quantity` ve
 Ce que chaque garde protege :
   * la CASCADE de `IdunBattle.Core.Services.TargetingQuery$$GetRange` (override du ctor > config >
     arme) et son ORDRE -- un clamp applique trop tot serait ecrase ;
-  * les DEUX regimes ou le port ne sait pas decider (`UseWholeBoard`, `CustomRange(GetRange)`) :
-    ils rendent `None` et l'ability ne verse RIEN, borne INFERIEURE assumee ;
+  * les regimes ou le port ne sait pas decider et rend `None`, l'ability ne versant alors RIEN
+    (borne INFERIEURE assumee) : `CustomRange(GetRange)`, et `UseWholeBoard` **quand son gate de
+    ciblage dynamique n'est pas derivable**. ⚠ `UseWholeBoard` ne suffit PLUS a lui seul depuis
+    `#433-r4-r2-r1-r1` : le regime se scinde selon `GetDynamicInvalidTargetReason` (gardes dans
+    `test_433_r4_r2_r1_r1_dynamic_target_gate_offline.py`) ;
   * le court-circuit MULTI-TUILES de `IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility` ;
   * `IdunShared.Battle.WeaponProfile$$get_IsMelee` : une arme de portee 1 est MELEE, donc HORS du
     set de `FindRangedWeapon` -- c'est ce qui fait retomber le `threshold` sur son `?? 1` ;
