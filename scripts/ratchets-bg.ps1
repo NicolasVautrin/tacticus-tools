@@ -59,14 +59,39 @@ New-Item -ItemType Directory -Force -Path $dirVerdict | Out-Null
 $stamp = (Get-Date -Format 'yyyyMMdd-HHmmss')
 $verdict = Join-Path $dirVerdict "$court-$stamp.txt"
 
-# Tmpdir SYSTEME -- surtout pas sous le depot.
-$wt = Join-Path ([System.IO.Path]::GetTempPath()) ("ratchets-bg-" + $court + "-" + $stamp)
+# Tmpdir SYSTEME -- surtout pas sous le depot, ni sous `.claude/worktrees` (un cliquet joue depuis
+# l'arbre principal y lirait le code des autres agents, #434).
+#
+# WORKTREE PERSISTANT, et c'est ce qui rend les 88 s de froid. Un worktree NEUF presente au filtre
+# systeme 1608 fichiers .py inconnus : mesure du 2026-08-03, banque complete a 293,1 s sur arbre
+# neuf contre 205,2 s sur arbre chaud. En REUTILISANT le meme repertoire on ne presente au filtre
+# que les fichiers REELLEMENT changes par le commit -- c'est-a-dire le diff de la PR, une poignee.
+# Repli sur un worktree jetable horodate si le persistant est deja pris (deux runs simultanes) :
+# correct, seulement plus lent.
+$racineTmp = [System.IO.Path]::GetTempPath()
+$wtPersistant = Join-Path $racineTmp 'ratchets-bg-wt'
+$verrou = Join-Path $racineTmp 'ratchets-bg-wt.lock'
+
+$fluxVerrou = $null
+try {
+    $fluxVerrou = [System.IO.File]::Open($verrou, 'OpenOrCreate', 'ReadWrite', 'None')
+} catch {
+    $fluxVerrou = $null
+}
+
+if ($fluxVerrou) {
+    $wt = $wtPersistant
+    $jetable = $false
+} else {
+    $wt = Join-Path $racineTmp ("ratchets-bg-" + $court + "-" + $stamp)
+    $jetable = $true
+}
 
 $lignes = [System.Collections.Generic.List[string]]::new()
 function Note([string] $s) { $lignes.Add($s); Write-Host $s }
 
 Note "[ratchets-bg] commit  $court  $sujet"
-Note "[ratchets-bg] worktree $wt"
+Note ("[ratchets-bg] worktree {0}  ({1})" -f $wt, $(if ($jetable) { 'JETABLE -- le persistant est pris' } else { 'persistant' }))
 
 # Ce script juge un COMMIT, jamais le working tree -- c'est precisement ce qui garde
 # l'attribution a 1 PR quand l'arbre principal est deja passe a la suivante. Corollaire qu'il
@@ -81,8 +106,26 @@ if ($sale.Count -gt 0) {
 $rc = 99
 $t0 = Get-Date
 try {
-    git -C $repo worktree add --detach --quiet $wt $sha
-    if ($LASTEXITCODE -ne 0) { throw "git worktree add a echoue (rc $LASTEXITCODE)" }
+    $sommet = if (Test-Path $wt) { (git -C $wt rev-parse --show-toplevel 2>$null) } else { $null }
+    if ($sommet) { $sommet = $sommet.Trim().Replace('/', '\') }
+    $reutilisable = $sommet -and ($sommet.TrimEnd('\') -ieq $wt.TrimEnd('\'))
+
+    # Garde-fou : on ne fait JAMAIS un checkout forcé ailleurs que dans notre propre worktree.
+    if ($sommet -and -not $reutilisable) {
+        throw "$wt appartient a un autre arbre ($sommet) -- refus d'y toucher"
+    }
+
+    if ($reutilisable) {
+        git -C $wt checkout --detach --force --quiet $sha
+        if ($LASTEXITCODE -ne 0) { throw "checkout dans le worktree persistant a echoue (rc $LASTEXITCODE)" }
+        Note "[ratchets-bg] worktree REUTILISE -- seuls les fichiers du diff sont neufs pour le filtre"
+    } else {
+        if (Test-Path $wt) { Remove-Item -Recurse -Force $wt }
+        git -C $repo worktree prune
+        git -C $repo worktree add --detach --quiet $wt $sha
+        if ($LASTEXITCODE -ne 0) { throw "git worktree add a echoue (rc $LASTEXITCODE)" }
+        Note "[ratchets-bg] worktree CREE -- premier run : l'arbre entier est froid pour le filtre"
+    }
 
     # Les poids d'ordonnancement (LPT + shardage par cout) vivent dans `logs/`, GITIGNORE : un
     # checkout frais retomberait sur le repli md5 -- mur sous-optimal, verdict INCHANGE. On les
@@ -114,7 +157,12 @@ catch {
     Note "[ratchets-bg] comme un verdict sur le commit (cf. 'un echec RENDU se lit comme une mesure')."
 }
 finally {
-    if ($KeepWorktree) {
+    if (-not $jetable -and -not $KeepWorktree) {
+        # Le persistant est GARDE volontairement : c'est lui qui evite de re-presenter 1608
+        # fichiers inconnus au filtre systeme a chaque run. `-KeepWorktree` reste sans effet ici.
+        Note "[ratchets-bg] worktree persistant conserve (c'est ce qui rend les ~88 s de froid)"
+    }
+    elseif ($KeepWorktree) {
         Note "[ratchets-bg] worktree CONSERVE : $wt"
     } elseif (Test-Path $wt) {
         # Garde-fou : une suppression recursive forcee SUIT les points de reparse. On n'en cree
@@ -131,6 +179,7 @@ finally {
             if (Test-Path $wt) { Note "[ratchets-bg] worktree NON retire : $wt" }
         }
     }
+    if ($fluxVerrou) { $fluxVerrou.Close(); $fluxVerrou.Dispose(); $fluxVerrou = $null }
 }
 
 $mur = ((Get-Date) - $t0).TotalSeconds
