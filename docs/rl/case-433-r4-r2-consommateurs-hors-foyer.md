@@ -124,7 +124,7 @@ sans le canal n'est atteinte **nulle part** par le natif sur ce sweep.
 ⚠ « le port n'émet plus » n'est **pas** « le natif n'émet pas » : le Bucket de ce playbook n'a pas
 de `min` (résidu `#433-r4-r2-r3`). L'assertion porte sur l'utilité **émise**, qui se compare.
 
-## 5. Les six slots, RE-DÉRIVÉS au runtime
+## 5. Les huit slots, RE-DÉRIVÉS au runtime
 
 `--step slots` délègue à `probe_27_4g_battlequery_slots.py` (balayage borné de la vtable propre de
 `BattleQuery`, conversion `slot d'interface + 4 = index de vtable` vérifiée sur deux ancres
