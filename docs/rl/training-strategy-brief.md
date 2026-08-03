@@ -9,7 +9,7 @@
 ## 1. Le jeu — résumé technique
 
 **Warhammer 40K Tacticus** (Snowprint Studios). Build PC Windows :
-- Unity 6 (6000.3.8f1) — moteur natif IL2CPP AOT, binaire `GameAssembly.dll` (~60 MB)
+- Unity 6 (6000.3.13f1 au 2026-08-04) — moteur natif IL2CPP AOT, binaire `GameAssembly.dll` (~60 MB)
 - **Jeu tactique tour-par-tour** sur **grille 15×15** type X-COM / Fire Emblem
 - 5 unités joueur vs N ennemis (typique 5v5 à 5v10 selon le mode)
 - Chaque unité dispose : déplacement (range variable), abilities actives/passives, **overwatch** (réaction tir adverse), abilities ultimates

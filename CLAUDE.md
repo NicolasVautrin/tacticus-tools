@@ -38,7 +38,9 @@ Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monor
 ## Cible Windows
 
 - **Exe** : `C:\Users\nicolasv\AppData\Local\tacticus\games\<HASH>\Tacticus.exe`
-- **GameAssembly.dll** : ~60 MB, IL2CPP AOT (Unity 6000.3.8f1)
+- **GameAssembly.dll** : ~60 MB, IL2CPP AOT (Unity **6000.3.13f1** au 2026-08-04 — comme le
+  `<HASH>`, ça bouge à chaque mise à jour : le LIRE dans `meta.unityVersion` de la réponse
+  d'inject, jamais recopier cette ligne. Elle est restée à `6000.3.8f1` plusieurs builds durant.)
 - **Pas d'`adb`, pas de device, pas de `frida-server`** : injection locale via `frida.getLocalDevice()`
 
 ### Hash du build = identité du dump

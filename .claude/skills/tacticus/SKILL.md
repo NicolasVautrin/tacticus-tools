@@ -13,7 +13,8 @@ allowed-tools: Read, Bash, Glob, Grep, Edit, Write, Agent
   `<HASH>` change à chaque mise à jour du jeu ; le lire, jamais le recopier
   (`ls -d /c/Users/nicolasv/AppData/Local/tacticus/games/*/`, et
   `data/symbols/CURRENT` pour le build contre lequel les symboles sont dumpés)
-- Unity 6000.3.8f1, IL2CPP AOT, GameAssembly.dll ~60 MB
+- Unity **6000.3.13f1** au 2026-08-04, IL2CPP AOT, GameAssembly.dll ~60 MB
+  (comme le `<HASH>` : le lire dans `meta.unityVersion` à l'inject, jamais le recopier)
 - Frida injection **locale** via `frida.getLocalDevice()` — pas d'`adb`,
   pas de `frida-server`, pas de device
 
