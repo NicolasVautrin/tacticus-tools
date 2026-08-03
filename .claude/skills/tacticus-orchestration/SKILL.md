@@ -869,6 +869,7 @@ adversariale de son PROPRE fix, livraison **PAR PULL REQUEST**) :
 - **Moi** : je RELIS la PR + RE-VALIDE (checkout branche, tests CIBLÉS de la tranche) + **merge**.
   Le merge sur `master` reste MON geste, **sur ton accord** — jamais l'agent. Après merge :
   je supprime la branche (`git push origin --delete <branche>` + `git worktree prune`).
+  L'ordre exact du merge et la place de la banque : « La boucle de MERGE » ci-dessous.
 - **`docs/rl/solving-playbook.md` = base des techniques de résolution de cas durs, écrite
   EXCLUSIVEMENT par `fable-solver`** (une entrée par cas). Je ne l'édite JAMAIS. Son contenu est
   **`!include` dans ce CLAUDE.md** (section « Documentation détaillée ») → chargé en contexte chaque
@@ -882,6 +883,45 @@ adversariale de son PROPRE fix, livraison **PAR PULL REQUEST**) :
   opus RAPPORTÉ**. Son modèle distinct est aussi un levier de *diversité* : sur un cas où opus a
   tourné en rond, changer de famille de modèle vaut mieux que relancer le même.
 
+
+## La boucle de MERGE — la banque tourne HORS du chemin critique
+
+**Ordre, et il ne se réorganise pas :** rapport → `gh pr view --json headRefName` → fraîcheur
+(`merge-base --is-ancestor`) → `git merge --no-ff --no-commit` → **lire le diff des tests EXISTANTS
+modifiés** + **classer le diff `engine/`** → 3 à 5 groupes ciblés joués **par moi** → régénérer les
+docs générés → **commit LOCAL** → `ratchets-bg` en arrière-plan → lire la PR suivante → **push
+seulement sur VERT** → `git worktree remove` (après scan des points de reparse).
+
+```
+merge --no-ff LOCAL  ->  pwsh -File scripts/ratchets-bg.ps1 -Since <base>   (arriere-plan)
+                                          |
+                      vert  -> push -> merge suivant       rouge -> fix-forward, PUIS push
+```
+
+- **Ne pousser que du VERT.** Les worktrees d'agents partent d'`origin/master` : un rouge poussé
+  démarre cassé tout agent dispatché ensuite. Les merges s'empilent **localement** dans l'ordre ;
+  on pousse dans l'ordre des VERDICTS, pas des merges.
+- **Le verdict se lit avant le prochain dispatch**, jamais après.
+- `ratchets-bg.ps1` épingle un COMMIT dans un **worktree persistant** (`%TEMP%`, verrou exclusif,
+  repli jetable si pris). Il juge donc un commit, **jamais le working tree** — un correctif non
+  commité lui est invisible, et il le DIT.
+- **Trois issues, à ne pas confondre** : `0` vert · `n` = n cliquets rouges · `64` (usage) et `99`
+  (montage) = **aucun verdict sur le dépôt**, jamais à lire comme un rouge (#457-r7).
+
+**Coût mesuré le 2026-08-03** (à re-dériver, jamais à citer) : complet ~240 s ; avec `-Since` sur
+une PR de documentation **141 s** ; worktree neuf +34 s contre persistant. La sélection dérive d'une
+**empreinte MESURÉE** (`scripts/ratchets-457-footprints.json`, versionnée, auto-invalidée par son
+`_commit`) + du graphe d'imports ; tout doute rejoue TOUT et l'écrit.
+
+⚠ **`-Since` ne remplace pas un run complet** : un complet **une fois par session**, et après tout
+`--measure`. Si tu veux t'en passer, le geste juste n'est pas la confiance mais **régénérer
+l'empreinte** — c'est elle qui porte la vérité.
+
+⚠ **La banque n'est PAS le filet principal, et le croire fait relâcher la relecture.** Mesuré sur
+nos merges depuis le 2026-07-25 : 21 « banque VERTE » contre 6 rouges, dont **3 contre-épreuves
+délibérées**, **2 rouges réels mais PRÉ-EXISTANTS** (trouvés en AJOUTANT un cliquet, pas en
+rejouant les existants) et **UN SEUL** causé par le changement en validation. Ce qui attrape, c'est
+la relecture du diff et les groupes ciblés ; la banque couvre le tail risk — d'où sa place en fond.
 
 ## Gabarit de BRIEF — les clauses non négociables
 
