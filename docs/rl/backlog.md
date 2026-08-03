@@ -417,13 +417,22 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   régime que `#462-r4a-r2` vu de l'autre côté : une face attaquant à multiplicateur **non neutre**
   ET une face défenseur portant un `EffectBonus %`, **en COMBAT**, sur un perçage fractionnaire.
   `case-462-r4d-arrondi-inter-faces-combat.md` §4.
-- **`#462-r4d-r3` — le régime « DEUX canaux du MÊME côté » n'est pas confronté** : un `EffectBonus %`
-  **et** une modification de stat DEFENSE sur la **même cible**, en COMBAT (≠ le régime « deux faces »
-  ATTAQUANT×DÉFENSEUR, lui mesuré par #462-r4a). Le mode `--thorns` de
-  `probe_462d_nightshroud_stage_diff.py` est écrit mais le montage ne s'installe pas sur `MC1_67`
-  (la cible n'atteint aucune tuile `Thorns_DefenseReduction` marchable en 14 tours). Canal :
-  transposer `probe_446_r2_base_min_residual.both_faces` du vecteur RANGED/prédiction vers
-  MÊLÉE/combat. | `[opus]` | `case-462-r4d` §7-8 |
+- ~~**`#462-r4d-r3` — le régime « DEUX canaux du MÊME côté » n'est pas confronté**~~
+  **LIVRÉ (2026-08-04)** — `case-462-r4d-r3-deux-canaux-meme-cote.md`. Régime monté en COMBAT
+  (`necroDestroyer` → `custoTrajann` conduit sur une Swamp de `MC1_67` : `MartialKatah` ×0.8 dans la
+  liste `@0x18` **et** `Thorns_DefenseReduction` ×1.5 dans `Multiplier@0x30`). Bornes natives
+  **inversées** à état PRNG connu contre **cinq** compositions écrites : le port est **SEUL** en
+  accord sur 4 bases discriminantes (861/866/876/900) et sur le cas à TROIS entrées (élévation
+  ×1.50 côté attaquant : natif **1175**, les quatre autres modèles 1174 ou 1173) ; **2 témoins**
+  (884/910) où les cinq coïncident sont gardés COMME témoins. **Aucun fichier `engine/` modifié** —
+  le port était déjà juste. ⚠ **Le blocage n'était PAS géométrique** : `tileMeta.tiles[].effects`
+  est une liste de **dicts**, donc `"Thorns_DefenseReduction" in effects` rendait toujours faux et
+  `--thorns` répondait « aucune tuile atteinte ». Corrigé ; les 4 Swamp de `MC1_67` — (1,3) (1,6)
+  (4,6) (5,3) — sont atteintes du premier coup. Second faux négatif, d'ATTESTATION cette fois :
+  interroger `defender_modifiers` **sans** `is_normal_attack=True` vide la `%-list` (gate
+  `IsNormalAttack` de `MartialKatah`). ⚠ Ce régime **ne ferme PAS** `#462-r4a-r3`/`#462-r4d-r1` :
+  après l'étape 2 la valeur est déjà entière, donc l'étape 3 est un no-op qu'elle existe ou non —
+  c'est une BORNE, pas une confirmation.
 
 - **`#439-r1` — « peut rendre un code non nul » n'est pas « rougit sur SON gisement ».** `probe_439`
   garde le premier (banque verte 22/22) ; le second n'est gardé par rien de mécanique. Cas mesuré et
