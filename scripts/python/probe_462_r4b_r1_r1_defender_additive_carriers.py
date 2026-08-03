@@ -400,8 +400,9 @@ def measure_neuroparasite(sid, armor: int = ARMOR_PIERCE) -> dict:
                             if u.get("id") == tgt for e in (u.get("effects") or []))
         parasite_live = NEUROPARASITE_EFFECT in types_post
         if not parasite_live:
-            return {"skip": "parasite 1218 NON pose apres la 1ere attaque (effets=%s)"
-                            % (types_post,), "first_profile": None}
+            return {"skip": "parasite 1218 NON pose apres la 1ere attaque (effets=%s) -- le gate "
+                            "`CurrentAttackDamageProfilesContain(0xd)` ne s'est pas ouvert, donc "
+                            "l'attaque est partie en MELEE `Physical`" % (types_post,)}
 
         # (1bis) TOUR SUIVANT. Une unite n'agit qu'une fois par tour : sans ce passage, la seconde
         # attaque native est refusee en silence (`per_hit = []`, delta PV 0) -- MESURE de la passe
