@@ -1,9 +1,10 @@
 {
- "_commit": "a83ca3e070ac7b1ec571d239b0d4f18fcb36b3b8",
+ "_commit": "a060d9714d9ad3a97cc0dfcde75ce4e9caabba6f",
  "_globales": [
   "data/seed-bc.json",
   "data/symbols/CURRENT",
-  "scripts/python/pytest.ini"
+  "scripts/python/pytest.ini",
+  "scripts/python/tests/engine/test_433r4r1r4_elevation_gate_dsl_offline.py"
  ],
  "par_test": {
   "tests/engine/runner/test_353r1_ramming_speed_charge_tile_offline.py": [
@@ -128,6 +129,9 @@
    "data",
    "data/symbols",
    "data/symbols/rnca9r7q6c/frida"
+  ],
+  "tests/engine/test_433r4r1r4_elevation_gate_dsl_offline.py": [
+   "data/boards/global"
   ],
   "tests/engine/test_436r1_bond_channel_offline.py": [
    "scripts/python/engine/runner"
@@ -366,6 +370,9 @@
    "scripts/python/engine/runner/operations/triggers/loki",
    "scripts/python/engine/services",
    "scripts/python/engine/utilities"
+  ],
+  "tests/test_457_r5_perimetre_offline.py": [
+   "scripts/python/tests"
   ],
   "tests/test_457_r6_banque_sans_doublon_offline.py": [
    "scripts"
