@@ -2991,7 +2991,9 @@ Slots partages etablis par plusieurs lectures independantes du depot (`case-411-
 
 ### Ce qui est porte
 
-- `engine/runner/abilities/deathguard.py` : `mortarions_plague_wind_target_selectors()` (les trois
+- `engine/runner/abilities/deathguard.py` : `plague_wind_wave_selectors()` (RENOMMEE par
+  `#27-r5-r1` : les memes trois corps natifs sont appeles par le `MakeDamagePredictions` de 1035
+  AUTANT que par celui de 1093 — le nom d'une des deux abilities mentait) (les trois
   vagues) et `mortarions_plague_wind_psyker_selector()` (l'union + le filtre `Psyker`). Ecrites **a
   cote** de `plague_wind_target_selectors` et non fusionnees avec elle : l'artefact DIFFERE d'un
   `DSLSelectors$$Cache` par vague, que les deux `ExecuteBehaviour` posent et que le playbook n'a pas
@@ -3064,27 +3066,20 @@ et 6 live (les trois bras, la bascule, la vague 3, l'encadrement de magnitude).
 
 ### Ce qui n'est PAS couvert, et pourquoi
 
-- **L'ACCORD DE DECISION de bout en bout moteur<->natif — et c'est un RESIDU NOMME, exterieur a
-  cette tranche.** `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$MakeDamagePredictions`
-  fait **TROIS** batchs `ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` — un par vague
-  (`t1`/`t2`/`t3` en `param_5`) avec sa propre formule (`GetDamage1`/`2`/`3`) et le MEME
-  `GetHits()` — puis `AddRange` des trois. Le port herite du chemin generique mono-cible et n'en
-  rend qu'**UN**. MESURE (bras A) : `u_full` port **1.1220 / 5.6097** contre natif **13.2764 /
-  13.7118**. Le moteur choisit donc `T2` dans les trois bras. Le custom, lui, est EXACT dans les
-  trois — c'est pourquoi les gardes portent sur le CUSTOM et sur le CHOIX NATIF, jamais sur
-  `engine_decide`. **Le port du custom ne cree pas ce residu et ne l'aggrave pas** : il rapproche le
-  moteur du natif sur le seul axe qu'il touche.
-  RE deja faite pour la tranche qui le fermera : `GetDamage1/2/3` =
-  `If( DSLTriggers$$HasTrait(<DSLSelectors+0x60> = Target, 2 = Summon),
-  Multiply(MinMaxDamage{,2,3}Average, <DSLFormulas+0x28>), MinMaxDamage{,2,3}Average )`, et
-  `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamageAverage` =
-  `Half(Sum(Direct(var 0xc = minDmg), Direct(var 0xd = maxDmg)), 0)`. Restent a resoudre :
-  `<DSLFormulas+0x28>` (l'i2 dit « Summons take double damage » -> `Direct(2)` attendu, **non lu**)
-  et le fait que le `HasTrait` porte sur la CIBLE PRINCIPALE et non sur l'unite frappee (le `Target`
-  de l'`AbilityEntities` d'un batch est `param_4 = target`, cf. `make_secondary_multihit_event`).
-  La brique de port existe deja : `prediction.abilities.generate_multi_hit_attack_prediction`
-  (`base_override` / `hits_override`).
-- **La branche `Summon x2`** des formules de degat appartient au meme residu : ni portee ni exercee.
+- ~~**L'ACCORD DE DECISION de bout en bout moteur<->natif**~~ — **FERME le 2026-08-03 par
+  `#27-r5-r1`** (§TRANCHE r5-r1 ci-dessous). Le residu etait :
+  `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$MakeDamagePredictions` fait **TROIS**
+  batchs `ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` — un par vague (`t1`/`t2`/`t3`
+  en `param_5`) avec sa propre formule (`GetDamage1`/`2`/`3`) et le MEME `GetHits()` — puis
+  `AddRange` des trois ; le port heritait du chemin generique mono-cible et n'en rendait qu'**UN**.
+  MESURE d'alors (bras A) : `u_full` port **1.1220 / 5.6097** contre natif **13.2764 / 13.7118**, et
+  le moteur choisissait `T2` dans les trois bras. Depuis le port des trois batchs, `u_full` port et
+  natif coincident a **1e-8** et `engine_decide` rend la cible du natif dans les TROIS bras — bras A
+  compris, celui ou le natif va CONTRE son propre `u_full`. Les deux gardes correspondantes sont
+  entrees dans `test_mortarions_plague_wind_decision_live.py` (point G), qui portait jusque-la la
+  clause « l'accord de decision ne peut PAS etre garde ».
+- ~~**La branche `Summon x2`**~~ — **PORTEE ET EXERCEE** par la meme tranche (`<DSLFormulas+0x28>` =
+  `Direct(2)`, LU au ctor).
 - **La face COMBAT de 1093** (`...MortarionsPlagueWindAbility$$ExecuteBehaviour`) n'est pas portee.
   Sa structure est integralement RE ci-dessus : c'est le jumeau exact de `plague_wind_tree` (memes
   trois vagues sous `Cache`, memes trois `AttackWithAbilityDamage`, `AtomicGroup(0x5c)`), a la
@@ -3095,6 +3090,148 @@ et 6 live (les trois bras, la bascule, la vague 3, l'encadrement de magnitude).
 - La greffe ne couvre pas les stats, traits et armes de `deathBossMortarion` — legitime ICI puisque
   la formule n'en lit AUCUN (le trait `Psyker` teste est celui des unites SELECTIONNEES, le caster
   n'entrant que comme referent d'inimitie, donc par son CAMP).
+
+## TRANCHE r5-r1 (2026-08-03, #27-r5-r1) — les TROIS batchs de 1035 ET 1093, et le quirk `Summon`
+
+### Ce que le decompile impose, et qui ne se devine pas
+
+`IdunBattle.AI.Playbook.Loki.PlagueWindPlaybook$$MakeDamagePredictions` (1035) et
+`IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$MakeDamagePredictions` (1093) ont le
+MEME squelette :
+
+    t1 = StrikeFromTheShadowsAbility$$GetTarget(ability)              # <DSLSelectors+0x60> = Target
+    t2 = StormOfWrathAbility$$<ExecuteBehaviour>b__1_0(ability, t1)   # Enemies(Caster, AdjacentUnits(t1,1,3), 3)
+    t3 = PlagueWindAbility$$GetTargets3(ability, t1, t2)              # Unique(Enemies(Caster,
+                                                                     #   AdjacentUnits(t2,1,3),3)) - t1 - t2
+    hits = AActiveAbility$$GetHits = GetNumberConstant(0x2f)          # LITTERAL, la MEME pour les trois
+    list = []
+    list.AddRange(GenerateMultiHitAttackPredictions(caster, casterPosition, target, t_i, d_i, hits, prof, null, 0))  # x3
+    return list
+
+**Les trois corps de selecteur sont les MEMES FONCTIONS pour les deux playbooks** — pas des
+homonymes, pas des jumeaux : les deux decompiles appellent litteralement les memes adresses. C'est
+le point que la deduplication IL2CPP masque, et il est PLUS FORT qu'une ressemblance de structure.
+D'ou le RENOMMAGE du port : `mortarions_plague_wind_target_selectors` -> `plague_wind_wave_selectors`
+(`runner/abilities/deathguard.py`). Un nom d'ability sur un artefact partage est un nom qui ment.
+
+**Les deux differences, lues :**
+
+| | 1035 | 1093 |
+|---|---|---|
+| `d1` | `StranglethornCannonAbility$$GetDamageAmountMain` -> `MinMaxDamageAverage` | `MortarionsPlagueWindAbility$$GetDamage1` |
+| `d2` | `StranglethornCannonAbility$$GetDamageAmountAdjacent` -> `MinMaxDamage2Average` | `...$$GetDamage2` |
+| `d3` | `PlagueWindAbility$$GetDamage3` -> `MinMaxDamage3Average` | `...$$GetDamage3` |
+| forme | l'avg NUE | `If( HasTrait(<+0x60> = Target, 2 = Summon), Multiply(<avg>, <DSLFormulas+0x28>), <avg> )` |
+| `param_8` | `AbilityConfiguration$$GetDamageProfile` (Nullable BRUT, via `BaseFleshmetalGunsEffect$$GetDamageProfileType`) | `Nullable(AActiveAbility$$GetDamageProfile)` (= `GetValueOrDefault(-1)`) |
+
+`AActiveAbility$$MinMaxDamage{,2,3}Average` = `Half(Sum(Direct(<min>), Direct(<max>)), 0)` avec
+`(0xc,0xd)`, `(0x36,0x37)`, `(0x38,0x39)` = `(minDmg,maxDmg)`, `(minDmg_2,maxDmg_2)`,
+`(minDmg_3,maxDmg_3)`.
+
+**`<DSLFormulas+0x28>` : LU, pas suppose.** `IdunBattleLogic.Entities.DSLFormulas$$.ctor` alloue
+cinq constantes partagees et les ecrit a `+0x18 = Direct(0)`, `+0x20 = Direct(1)`,
+**`+0x28 = Direct(2)`**, `+0x30 = Direct(100)`, `+0x38 = Direct(-1)` — meme classe allouee et meme
+ctor que `IdunBattleLogic.Entities.DSLFormulas$$Direct(amount)`. L'i2 (« Summons take double
+damage ») ne PROUVAIT rien ; la brief demandait de ne pas coder `2` sur cette attente, et c'est le
+ctor qui tranche. (La meme table est deja citee ailleurs dans le depot : `entities/triggers.
+is_mechanical` lit `+0x20 = Direct(1)`.)
+
+**LE QUIRK, et il est structurel.**
+`ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` construit **UN SEUL** `AbilityEntities`
+AVANT sa boucle (`target = param_4`), puis (a) evalue la FORMULE `param_6` **une fois, hors
+boucle**, (b) evalue le SELECTEUR `param_5` sur le meme objet, (c) boucle en ne changeant QUE la
+cible passee au slot `0x28` (`DamagePredictionQuery$$GetAttackPrediction`) et au
+`ProbableDamageEvent`. Donc le `Target` du `HasTrait` est **la cible principale**, jamais l'unite
+frappee : si la cible est un `Summon`, **les trois vagues entieres** doublent, y compris sur des
+unites qui n'en sont pas ; si elle ne l'est pas, aucune ne double, meme sur un summon frappe.
+
+### Ce qui est porte
+
+- `engine/playbook/prediction/plague_wind.py` (NEUF) : `min_max_damage_average`,
+  `wave_damage_formula` (l'arbre, avec le `If(Summon)` pour 1093 seul), `dsl_context`,
+  `main_batch_inputs` (batch 1) et `wave_events` (batchs 2 et 3).
+- `engine/playbook/prediction/abilities.py` : `_MAKE_DMG_INPUT_OVERRIDES[1035] = [1093] =
+  _plague_wind_inputs` et `_MAKE_DMG_EXTRA_EVENTS[1035] = [1093] = _plague_wind_wave_events`.
+  Decoupage MIRROR : le batch 1 EST le chemin generique (son selecteur est `Target`), il ne lui
+  manque que ses ENTREES ; les batchs 2 et 3 ont chacun SON selecteur et SA base, donc ils ne sont
+  ni l'AoE de l'ability (une seule base) ni la cible.
+- **`hits` LITTERAL** pour le batch principal : le chemin generique passe par
+  `ab.get_special_hits` = `GetDefaultAttackHits(nrOfHits, ExtraHits[, ExtraHitsMelee])`, qui AJOUTE
+  la stat `ExtraHits` du caster — que ce playbook n'ajoute pas. Meme ecart, meme correctif que
+  `_stikkbomb_inputs` / `_mass_driver_accelerator_inputs` / `_ramming_speed_inputs`.
+- **Aucun `profile_override`** : les deux chemins natifs rendent la `damageProfile` de la config
+  (`Psychic` pour les deux abilities). La distinction `Nullable` brut vs `GetValueOrDefault(-1)` est
+  structurellement INOBSERVABLE ici — elle ne le deviendrait que sur une config SANS
+  `damageProfile`, regime qu'aucune des deux n'a.
+
+### Confrontation live — `probe_27_r5_r1_plague_wind_prediction.py`, board MC1_67, seed 909
+
+UN build par bras, **DEUX abilities mesurees dessus** : `deathTyphus` porte 1035 NATIVEMENT (pool),
+`deathBlightlord` porte 1093 par GREFFE (`write_grafted_seed_bc(kind="active")` — 1093 est absente
+des `BC.Abilities.ActiveAbilities` du seed, cf. TRANCHE r5). Mesurer les deux sur le MEME etat fait
+de 1035 le **temoin** de 1093 : si le port appliquait le facteur aux deux, 1035 rougirait.
+
+Grappe a TROIS anneaux, lue au `boardGraph` : `T = (3,1)` (cible), `V = (3,2)` (voisin de T),
+`W = (3,3)` (voisin de V, PAS de T), `F = (0,1)` (temoin, hors de toute vague). Les trois plages de
+degat de la config DIFFERENT (1093 : 1109-1385 / 1662-1939 / 2770-3878), donc un port qui raterait
+une vague ou melangerait deux bases se voit sur les VALEURS, pas seulement sur le compte.
+
+Oracle = `aiPlaybookPredict` (le `MakeDamagePredictions` NATIF), compare **event par event, cible
+par cible, champ par champ** (`appliedHits`, `healthDmgMin/Max`, `rawHealthDmgMin/Max`).
+
+| bras | 1035 (`deathTyphus`) | 1093 (`deathBlightlord`) |
+|---|---|---|
+| **plain** | `[4845,7269]` / `[3651,5475]` / `[1795,2693]` | `[2693,4040]` / `[3890,5834]` / `[4786,7180]` |
+| **summon_T** (T porte `Summon`) | IDENTIQUE au bras plain | `[5385,8079]` / `[7779,11667]` / `[9573,14359]` |
+| **summon_V** (V porte `Summon`, T non) | IDENTIQUE | IDENTIQUE au bras plain |
+
+**MATCH bit-a-bit natif<->port sur les 18 events** (3 bras x 2 abilities x 3 vagues). Le bras
+`summon_T` prouve le quirk dans un sens (V et W ne sont PAS des summons et doublent quand meme) ;
+`summon_V` le prouve dans l'autre (le summon FRAPPE ne double rien, pas meme son propre event).
+
+**Trois mutations adversariales, chacune DEBORDANT ZERO** :
+
+| mutation | plain | summon_T | summon_V |
+|---|---|---|---|
+| `waves` — `_MAKE_DMG_EXTRA_EVENTS` vide (retour a UN event) | ROUGE | ROUGE | ROUGE |
+| `summon` — `wave_damage_formula` rend toujours l'avg nue | vert | **ROUGE** | vert |
+| `quirk` — formule re-evaluee PAR UNITE FRAPPEE | vert | **ROUGE** | **ROUGE** |
+
+⚠ La premiere version de la mutation `quirk` etait **INERTE** et rendait vert la ou elle devait
+rougir : elle changeait l'ARBRE (`HasTrait(Subject())`), or `ctx.subject` est `None` hors `Filter`,
+donc le predicat retombait sur `False`. La lecture naive ne s'exprime PAS dans l'arbre — le sujet du
+`HasTrait` natif EST `Target` — mais dans le **moment de l'evaluation**. Corrigee, elle deplace
+l'evaluation DANS la boucle avec l'unite frappee comme cible du contexte, et elle mord.
+
+### Effet sur la DECISION — le residu de la TRANCHE r5 est ferme
+
+Re-jeu de `probe_27_r5_mortarions_plague_wind.py --all` apres le port :
+
+| bras | `u_full` port AVANT | `u_full` port APRES | `u_full` NATIF | `engine_decide` | natif |
+|---|---|---|---|---|---|
+| A | 1.1220 / 5.6097 | **13.276385 / 13.711814** | 13.276385 / 13.711814 | `(1093, T1)` | `(1093, T1)` |
+| B | idem | **13.276385 / 13.711814** | idem | `(1093, T2)` | `(1093, T2)` |
+| C | — | **28.2331 / 5.6097** | 28.2331 / 5.6097 | `(1093, T1)` | `(1093, T1)` |
+
+Ecart residuel mesure sur `u_full` : **6.3e-09 / -1.0e-08** (`Fix64` cote natif, `double` cote
+port). Le bras A est le plus fort des trois : le natif y va CONTRE son propre `u_full` (`T2` vaut
+0.435 de plus), donc le moteur ne peut le suivre qu'en portant A LA FOIS les trois batchs de degat
+ET le terme custom — et la contre-epreuve tient dans le meme run (`zero`, custom desarme, retombe
+sur `T2`). Les 15 tests de la TRANCHE r5 restent verts ; deux gardes NEUVES les rejoignent.
+
+### Ce qui n'est PAS couvert, et pourquoi
+
+- **Le `hits_override` n'est pas discrimine LIVE.** `ExtraHits` (StatType 17) n'a AUCUN champ dans
+  `BC.Units` — il ne vient que d'un effet, donc `--unit-stat` ne l'atteint pas. L'axe est garde
+  OFFLINE (`test_the_hits_are_the_literal_constant_not_the_default_attack_hits`, qui verifie AUSSI
+  que le chemin generique DIFFERE bien du litteral a `ExtraHits = 2` — sinon la garde ne garderait
+  rien). Le correctif est du meme mold que trois autres deja confrontes live sur leur tranche.
+- **Le `param_8` de 1035 vs 1093** (Nullable brut vs `GetValueOrDefault(-1)`) : inobservable sur ces
+  deux configs, qui portent toutes deux `damageProfile`.
+- **Le masque `3` de `SelectUniqueUnits`** (vivante ET sans le flag `0x11 NotTargetable`) : residu
+  commun a tous les sets AoE portes, aucun substrat sur la face prediction.
+- **La face COMBAT de 1093** (`...MortarionsPlagueWindAbility$$ExecuteBehaviour`) reste non portee
+  — inchange par cette tranche, cf. TRANCHE r5.
 
 ## TRANCHE r6 (2026-08-03) — 1215 `InstrumentsOfVengeance` : le terme se mesure par le CHOIX DE TUILE
 
