@@ -103,9 +103,11 @@ def test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE():
     from engine.entities.selectors import AllTiles, CanAddUnit, Caster, PickFirstN
     from engine.entities.selectors import SortTilesByUtility
     from engine.dsl.base import Const, DslContext
+    from engine.utilities.utility_type import UtilityType
 
     board = _grid(2, 2)
-    sel = PickFirstN(SortTilesByUtility(CanAddUnit(AllTiles()), Caster(), 6), Const(1))
+    sel = PickFirstN(SortTilesByUtility(CanAddUnit(AllTiles()), Caster(),
+                                        int(UtilityType.UnitMovement)), Const(1))
     # `_is_alive` = `alive and hp > 0` -- le `hp` n'est pas decoratif : sans lui l'unite est MORTE
     # pour le DSL et n'occupe donc rien (le contre-test aurait ete vert pour la mauvaise raison).
     caster = {"id": 1, "pos": None, "alive": True, "hp": 100}
