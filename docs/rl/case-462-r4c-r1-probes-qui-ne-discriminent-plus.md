@@ -161,6 +161,11 @@ plus son régime n'accuse ni le port ni le harnais, et le nom du type traverse j
   1304 » **au sein** de `test_leaves_fire_exactly_on_tiles_with_a_friendly_steppable_occupant` — la
   granularité est l'ASSERTION, pas le test (cette fonction mêle échantillon et fond).
 
+Attestation `probe_462 --run --since origin/master` (mur 335,2 s, 2 workers) :
+**2 fichiers, VERT 2 / ROUGE 0** — `test_spiritual_leader_tile_term_live.py` **10 passed**,
+`test_steppable_decoy_tile_leaves_live.py` **14 passed**, 0 skipped des deux côtés (mêmes comptes
+qu'avant le changement de montage : le pilotage n'a **rien retiré** de la couverture).
+
 ---
 
 ## 6. Ce qui n'est PAS couvert

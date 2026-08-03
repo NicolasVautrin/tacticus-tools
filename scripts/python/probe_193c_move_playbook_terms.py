@@ -121,9 +121,10 @@ def x_port(leaves) -> float:
     MEME somme, sinon la difference mesure le retranchement au lieu du port.
 
     DECLARATION UNIQUE de ce retranchement pour toute la famille des probes de terme de tuile
-    (#193c, #212, #241, #242). Les cles sont des MEMBRES `UtilityType`, jamais des litteraux (#254) :
-    la MAJ de build a insere `AttackTile` en 8, decalant `Elevation` 8->9 et `TileEffects` 9->10.
-    Trois probes portaient encore `leaves.get(8) - leaves.get(9)` -- ils retranchaient donc
+    (#193c, #211, #212, #241, #242, #242b). Les cles sont des MEMBRES `UtilityType`, jamais des
+    litteraux (#254) : la MAJ de build a insere `AttackTile` en 8, decalant `Elevation` 8->9 et
+    `TileEffects` 9->10. CINQ sites portaient encore `leaves.get(8) - leaves.get(9)` -- ils
+    retranchaient donc
     `AttackTile` (ABSENTE de `TILE_UTILITY.children`, soit 0.0) et `Elevation`, et **jamais**
     `TileEffects`. Mesure du 2026-08-03 sur `MC1_67`/777 : `probe_241` rendait 3 tuiles en desaccord
     sur 16, de valeur exactement `-TileEffects` (-9, +25, +25), et `probe_212` mesurait -9 sur
@@ -133,7 +134,7 @@ def x_port(leaves) -> float:
 
 def x_excluded() -> tuple:
     """Les `UtilityType` que `x_port` retranche -- pour que l'AFFICHAGE des feuilles non nulles
-    exclue EXACTEMENT ce que le calcul exclut. Les trois probes filtraient sur `(8, 9)` en dur : ils
+    exclue EXACTEMENT ce que le calcul exclut. Les probes filtraient sur `(8, 9)` en dur : ils
     montraient donc `Elevation` comme une feuille du terme (elle est retranchee) et cachaient une
     colonne vide (`AttackTile`, qui n'est pas une feuille du composite Tile)."""
     from engine.utilities.utility_type import UtilityType
