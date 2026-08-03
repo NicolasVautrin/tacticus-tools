@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785782102,
+ "_ecrit_le": 1785783688,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -49,6 +49,19 @@
    "messages": [],
    "passed": 3,
    "sec": 10.8,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_462_r4b_r1_defender_additive_live.py": {
+   "_at": 1785783688,
+   "_blob": "211f11b0a90d9398ffc901cabef87f993a81b2a8",
+   "_commit": "407af8eaba389c1767a07456d4dd70efb800c007",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 6,
+   "sec": 19.6,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
