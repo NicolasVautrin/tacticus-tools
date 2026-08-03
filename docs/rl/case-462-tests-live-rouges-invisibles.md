@@ -54,9 +54,34 @@ affirmation-la, contrairement au reste, porte sur 417/417 fichiers.
 ## 2. L'inventaire
 
 Balayage du 2026-08-03, 4 workers, ordre de visite par RISQUE (dernier commit le plus ANCIEN
-d'abord). Chaque tranche fusionne dans le ledger.
+d'abord), tranches de 60 fusionnees dans le ledger.
 
-<!-- INVENTAIRE -->
+| | fichiers |
+|---|---|
+| perimetre live | **417** |
+| **JOUES** | **180** (43 %) |
+| dont VERT | 174 |
+| dont **ROUGE** | **6** |
+| **ECARTES -- statut INCONNU, pas vert** | **237** |
+
+**Taux de rouge sur l'echantillon : 3,3 %.** Extrapole naivement au parc : **~14 fichiers rouges**.
+⚠ L'echantillon est la cohorte des 180 fichiers au dernier commit le plus ANCIEN. Que ce biais
+tire le taux vers le haut ou vers le bas est **INCONNU** -- c'est exactement le residu `#462-r3`.
+Ne pas presenter 3,3 % comme le taux du parc.
+
+| fichier ROUGE | bilan | symptome (verbatim, tronque) |
+|---|---|---|
+| `test_terrifying_defense_live.py` | p=4 f=1 | `per-hit offline != live : off=[433,402,434,378,350,403] live=[434,403,435,379,351,404]` |
+| `test_nightshroud_combat_live.py` | p=1 f=1 | `per-hit offline != live : off=[180,180,112,158,240,183] live=[250,212,168,122,220,221]` |
+| `test_damage_catalog_live.py` | p=0 f=4 | `build runner KO (rl_duel) [...] --p-units: hors pool / non spawnables au rank 17: ['adeptSmnGeminaeSuperia']` |
+| `test_pick_randomly_one_rng_live.py` | p=14 f=1 | `residu smite {1: 0, 2: 0} != 1 tirage par volet splash (attendu, cf. docstring)` |
+| `test_chain_after_refused_addeffect_live.py` | p=3 f=1 | `PORT: Pinned refuse sur une cible sans TerminatorArmour` |
+| `test_placement_sort_rng_live.py` | p=17 f=1 | `le modele d'avant rend 10 genrand pour 10 live -- il devrait SUR-tirer [...] le scenario n'est plus discriminant` |
+
+**Cout de ce balayage** : 3 tranches, murs **971,9 / 1000,0 / 1975,1 s**. La derniere a paye la
+contention (un `--collect` concurrent + 4 autres agents) : le cout par fichier passe de **16,2 s**
+a **32,9 s** selon la charge. C'est la meme lecon que `probe_457` -- un mur se MESURE dans ses
+conditions, il ne se cite pas.
 
 ### Ce qui n'est PAS couvert
 
@@ -145,10 +170,49 @@ perimee et se met a jour ; soit un etage a cesse de consommer du RNG -- c'est un
 message ne permet pas de choisir, et c'est exactement la forme #533 (vrai sur le fait, muet sur la
 cause).
 
+### `test_chain_after_refused_addeffect_live.py` -- **PORT**
+
+```
+AssertionError: PORT: Pinned refuse sur une cible sans TerminatorArmour
+```
+
+Le test NOMME lui-meme la face fautive. Le port refuse un `AddEffect` que le natif accepte : la
+chaine d'effets s'interrompt la ou elle devrait continuer. Degradation **silencieuse** hors de ce
+test -- un effet qui n'est pas pose n'emet rien (« l'absence d'un EVENEMENT ne prouve rien »).
+
+### `test_placement_sort_rng_live.py` -- **MONTAGE (controle negatif devenu VACUEUX)**
+
+```
+scarabhive : le modele d'avant rend 10 genrand pour 10 live -- il devrait SUR-tirer (1 par tuile
+placee). S'il ne sur-tire plus, le pool du scenario est tombe a 1 (re-crafter la geometrie : le
+scenario n'est plus discriminant).
+```
+
+Ce test est un **CONTRE-CONTROLE** : il verifie que l'ANCIEN modele serait rouge sur ce scenario,
+donc que le scenario DISCRIMINE. Il rougit parce que la geometrie ne separe plus les deux modeles
+(pool tombe a 1 tuile) -- le test ne dit plus rien du port, il dit que sa propre garde est devenue
+creuse. **Meme famille que le << vert vacueux >> de #457**, mais ici l'auteur avait arme le detecteur :
+le test rougit AU LIEU de passer a vide. C'est la bonne conception, et elle a mordu.
+
 <!-- VENTILATION -->
 
-**Repartition provisoire** : 1 PORT, 1 PORT/MONTAGE a trancher, 1 MONTAGE, 1 attente perimee.
-Aucun **HARNAIS/COLLECTE** -- coherent avec le balayage `--collect` exhaustif (0 erreur sur 533).
+### Bilan de la ventilation
+
+| categorie | fichiers |
+|---|---|
+| **PORT** | 2 (`terrifying_defense`, `chain_after_refused_addeffect`) |
+| **PORT ou MONTAGE, a trancher** | 1 (`nightshroud_combat`) |
+| **MONTAGE** | 2 (`damage_catalog` -- echantillon non spawnable ; `placement_sort_rng` -- scenario non discriminant) |
+| **Attente perimee** | 1 (`pick_randomly_one_rng`) |
+| **HARNAIS / COLLECTE** | **0** |
+
+Le zero en HARNAIS/COLLECTE n'est pas une absence de mesure : `--collect` a balaye les **417**
+fichiers (rc=0, 2387 tests, 0 erreur). C'est le seul axe sur lequel ce dossier couvre le parc
+ENTIER.
+
+⚠ **Deux des six rouges (`damage_catalog`, `placement_sort_rng`) n'accusent NI le port NI le
+harnais : ils accusent le SCENARIO.** Ni la ventilation a trois cases du brief, ni le message du
+test, ne les distinguent d'un rouge de port -- c'est precisement la forme de #533.
 
 ---
 

@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785763651,
+ "_ecrit_le": 1785765555,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_fly_pathfinder_live.py": {
    "_at": 1785763651,
@@ -40,6 +40,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_ability_after_hit_maybe_live.py": {
+   "_at": 1785765555,
+   "_blob": "86d27540b4386744de7ef860209ec532f1697f76",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 9,
+   "sec": 215.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_ability_hits_attack_nature_live.py": {
    "_at": 1785763651,
    "_blob": "811be1611cf89529cacc6411b9b20ee0e55a378d",
@@ -49,6 +61,18 @@
    "messages": [],
    "passed": 2,
    "sec": 10.9,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_ability_target_gate_live.py": {
+   "_at": 1785765555,
+   "_blob": "3b61a373b107313b406e9ca8ef3821139fa258c1",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 13,
+   "sec": 27.7,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -118,6 +142,90 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_additional_hits_after_hit_maybe_live.py": {
+   "_at": 1785765555,
+   "_blob": "5f493a42b63af4da2043241192e9cc820db70be6",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 7,
+   "sec": 554.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_additional_hits_amount_bounds_live.py": {
+   "_at": 1785765555,
+   "_blob": "d740b863d4ca73dfd9a6c41a44a93e45257d438c",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 5,
+   "sec": 124.2,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_additional_hits_roll_order_live.py": {
+   "_at": 1785765555,
+   "_blob": "71f9e6832c7e6b40022bc2a76f3135bfc62a932a",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 5,
+   "sec": 111.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_additional_hits_rounding_live.py": {
+   "_at": 1785765555,
+   "_blob": "04e947468e2f360c4fed00f2d0f82c145af0fe41",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 3,
+   "sec": 62.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_additional_hits_scalar_bounds_live.py": {
+   "_at": 1785765555,
+   "_blob": "9157303c4b0aab438c54ee20198bb6cac63bb345",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 6,
+   "sec": 97.8,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_ah_master_annihilator_astartes_banner_live.py": {
+   "_at": 1785765555,
+   "_blob": "4efe4aab7c58677deac3aed313350053328edacc",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 3,
+   "sec": 52.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_alpha_warrior_live.py": {
+   "_at": 1785765555,
+   "_blob": "1b39eade7afd1dea23d87a287025ea4db033bd36",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 4,
+   "sec": 44.4,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_arcaneshield_live.py": {
    "_at": 1785763651,
    "_blob": "052a7036db33a4791fee13b7c098d35e449a9e2d",
@@ -131,6 +239,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_arcaneshield_vector_live.py": {
+   "_at": 1785765555,
+   "_blob": "71016bbd9319c2acd5bf86362db0ae4af75598ba",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 7,
+   "sec": 12.2,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_attack_nature_normal_like_live.py": {
    "_at": 1785763651,
    "_blob": "365fdf57905937e38725d5df9ca5417948691d13",
@@ -140,6 +260,30 @@
    "messages": [],
    "passed": 2,
    "sec": 37.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_barbed_ovipositor_live.py": {
+   "_at": 1785765555,
+   "_blob": "a2bceb42523aba7ce589e8d99b837f8403788575",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 10,
+   "sec": 48.1,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_basilisk_barrage_live.py": {
+   "_at": 1785765555,
+   "_blob": "fca4df4b383df854eb412755f835fc1a000dd78f",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 2,
+   "sec": 23.5,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -170,6 +314,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_black_legion_1029_1020_live.py": {
+   "_at": 1785765555,
+   "_blob": "a6579c20fca8cb045b549e904556c027d94c711e",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 10,
+   "sec": 88.8,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_brazier_of_holy_fire_live.py": {
    "_at": 1785763651,
    "_blob": "9cbeecb166fbf31f5c821e9ed9cb0a0e0d412310",
@@ -183,6 +339,45 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_bringer_of_despair_live.py": {
+   "_at": 1785765555,
+   "_blob": "8dc05e5199e03819208061afc4a72d16a6349077",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 3,
+   "sec": 18.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_case231_charge_forcecrit_live.py": {
+   "_at": 1785765555,
+   "_blob": "755b95ee1796600d7bec50f8a9b1ab7ddf1f48ff",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 6,
+   "sec": 161.2,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_chain_after_refused_addeffect_live.py": {
+   "_at": 1785765555,
+   "_blob": "57ec50f7e5cde92333d487117338af14364138a2",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 1,
+   "messages": [
+    "test_chain_after_refused_addeffect_live.py::test_chain_survives_placed_addeffect -- AssertionError: PORT: Pinned refuse sur une cible sans TerminatorArmour assert False is True"
+   ],
+   "passed": 3,
+   "sec": 16.2,
+   "skipped": 0,
+   "verdict": "ROUGE",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_chain_leftover_hits_live.py": {
    "_at": 1785763651,
    "_blob": "6a38d8907d17a7fb0863571cd80b7f63f4476688",
@@ -192,6 +387,30 @@
    "messages": [],
    "passed": 2,
    "sec": 11.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_condemnor_stake_live.py": {
+   "_at": 1785765555,
+   "_blob": "34ff5787c1fe954ecb510d60ea41466ff92f2e7a",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 3,
+   "sec": 25.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_contagions_of_nurgle_new_unit_live.py": {
+   "_at": 1785765555,
+   "_blob": "45326ff79b7b34f1f308097ed0507b558b43aed6",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 3,
+   "sec": 73.5,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -244,6 +463,18 @@
    "messages": [],
    "passed": 2,
    "sec": 19.4,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_dakka_dakka_dakka_live.py": {
+   "_at": 1785765555,
+   "_blob": "720b4f1f733f5a9a7c72ac34ea034089689db7a2",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 5,
+   "sec": 85.2,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -408,6 +639,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_despoiled_ground_live.py": {
+   "_at": 1785765555,
+   "_blob": "9342c4f68019613c6dca61a08768ea6e059fbe4d",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 5,
+   "sec": 93.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_destroy_the_witch_live.py": {
    "_at": 1785763651,
    "_blob": "728ecb71f56147d05fb3ac66d090fadae0c9b40b",
@@ -430,6 +673,30 @@
    "messages": [],
    "passed": 6,
    "sec": 69.9,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_doom_siren_live.py": {
+   "_at": 1785765555,
+   "_blob": "8feca4c73513c90778e7ad9b1b12f9e3a475951d",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 4,
+   "sec": 86.3,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_doombolt_live.py": {
+   "_at": 1785765555,
+   "_blob": "3d73c462b392704235cf4129b7b511c7ee097f20",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 2,
+   "sec": 33.8,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -469,6 +736,18 @@
    "messages": [],
    "passed": 3,
    "sec": 19.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_fear_of_the_unseen_live.py": {
+   "_at": 1785765555,
+   "_blob": "a948fb933c58ec7a713a1620b6bbc6a0c7b76ec7",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 4,
+   "sec": 88.3,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -525,6 +804,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_frag_bomb_live.py": {
+   "_at": 1785765555,
+   "_blob": "ec1a33c02b5c4d0300a17f5bdc92b09be5b08d91",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 2,
+   "sec": 22.3,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_fragstorm_migration_live.py": {
    "_at": 1785763651,
    "_blob": "8390e1a51231fe3a09026cc46f46d6b0d005c066",
@@ -534,6 +825,18 @@
    "messages": [],
    "passed": 1,
    "sec": 27.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_fuelled_by_fury_live.py": {
+   "_at": 1785765555,
+   "_blob": "636cf09ec6ffac0c59cab6df951baeb42f47b7b9",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 5,
+   "sec": 32.3,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -642,6 +945,42 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_haze_bonded_chain_live.py": {
+   "_at": 1785765555,
+   "_blob": "4b0567e73caa38aab9938d0684bc7c7c6e719e11",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 18,
+   "sec": 265.1,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_haze_of_corruption_transfer_live.py": {
+   "_at": 1785765555,
+   "_blob": "a3538fede73a41fdc47eac142f174f7c85007868",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 9,
+   "sec": 90.1,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_haze_rng_flow_live.py": {
+   "_at": 1785765555,
+   "_blob": "5689cb50b150971ce5d909dd00c03b464395910a",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 10,
+   "sec": 220.9,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_heal_operation_live.py": {
    "_at": 1785763651,
    "_blob": "0fc6ca2eb6e0c74b530df8f846cb6b20ef7e6c1e",
@@ -665,6 +1004,18 @@
    "passed": 1,
    "sec": 23.4,
    "skipped": 1,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_heavy_weapon_moved_gate_live.py": {
+   "_at": 1785765555,
+   "_blob": "6acbf40bef68b82cb8d97e88f9952f7a56f469f5",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 2,
+   "sec": 17.0,
+   "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
   },
@@ -707,6 +1058,54 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_ischarging_extra_damage_live.py": {
+   "_at": 1785765555,
+   "_blob": "79f0c81f40099b10041909e9cdd40d59b945ace2",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 7,
+   "sec": 198.9,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_ischarging_saga_crit_live.py": {
+   "_at": 1785765555,
+   "_blob": "a4909a6ac5791c9330b539837531fa3167182f9b",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 8,
+   "sec": 781.4,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_ischarging_saga_hits_live.py": {
+   "_at": 1785765555,
+   "_blob": "5e0c4a06e1fb1841d3ca121d1618a38e21372c06",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 7,
+   "sec": 792.2,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_ischarging_unstoppable_ferocity_live.py": {
+   "_at": 1785765555,
+   "_blob": "4ae16d927a379cfa058cb128433cabb6b0aec1d1",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 10,
+   "sec": 97.3,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_jakhal_stimms_live.py": {
    "_at": 1785763651,
    "_blob": "3ebc58c3b6c6dfe1cf200e0f3f175a3f9e8c00da",
@@ -716,6 +1115,18 @@
    "messages": [],
    "passed": 3,
    "sec": 18.4,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_let_the_galaxy_burn_live.py": {
+   "_at": 1785765555,
+   "_blob": "14eb893f1b9789d27b12844678ab332f2380fb5c",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 3,
+   "sec": 22.7,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -759,6 +1170,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_load_state_inactive_effects_live.py": {
+   "_at": 1785765555,
+   "_blob": "0468a4f1e06967b7b7f26d728cbf6c73237fe17f",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 10,
+   "sec": 26.4,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_load_state_tile_effects_live.py": {
    "_at": 1785763651,
    "_blob": "bd28ec9fddf6386804dd7a4237a06f26020b630c",
@@ -772,6 +1195,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_load_state_turns_finished_live.py": {
+   "_at": 1785765555,
+   "_blob": "8d41c50a6bd00724056da2cb358a41347ee51895",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 2,
+   "sec": 52.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_lord_of_tempests_ice_live.py": {
    "_at": 1785763651,
    "_blob": "64e72bc396443853d7661d485eed27a0b215648c",
@@ -781,6 +1216,30 @@
    "messages": [],
    "passed": 3,
    "sec": 72.8,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_maybe_trigger_rng_live.py": {
+   "_at": 1785765555,
+   "_blob": "193441b7137b9197e290e9752c062f95b6ec876a",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 28,
+   "sec": 49.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_min_distance_metric_live.py": {
+   "_at": 1785765555,
+   "_blob": "cfdcb96e3ad7dbb9fc5d1f745e4b5a2d5f256a18",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 4,
+   "sec": 103.1,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -811,6 +1270,42 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_mow_caster_load_live.py": {
+   "_at": 1785765555,
+   "_blob": "e4c744f29909b553126fd5c24182864e9f617fd5",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 7,
+   "sec": 43.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_mow_effect_posers_live.py": {
+   "_at": 1785765555,
+   "_blob": "f6139279c6fcd4afb0a780dbd4b9d5ea020bf2cb",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 8,
+   "sec": 128.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_mow_groups_bcd_live.py": {
+   "_at": 1785765555,
+   "_blob": "53ce54e7ff6249333fa0829a18a521d149499d04",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 6,
+   "sec": 142.3,
+   "skipped": 1,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_mow_targeting_predicate_live.py": {
    "_at": 1785763651,
    "_blob": "9d0dd50ce92e1c4d9dccfd55761664e0afa6e5d0",
@@ -820,6 +1315,18 @@
    "messages": [],
    "passed": 7,
    "sec": 44.8,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_murderous_swing_live.py": {
+   "_at": 1785765555,
+   "_blob": "8b95e5867263999dd2701431c7c8898fb392dfde",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 5,
+   "sec": 62.3,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -887,6 +1394,54 @@
    "messages": [],
    "passed": 2,
    "sec": 14.4,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_normal_like_bounds_rounding_live.py": {
+   "_at": 1785765555,
+   "_blob": "f253d91c087b1a602b4188827e7b7f56a21c3117",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 2,
+   "sec": 45.4,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_on_fire_damage_migration_live.py": {
+   "_at": 1785765555,
+   "_blob": "71ae5383e59eacd95f8d51d2885df9686f7cdab9",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 2,
+   "sec": 97.9,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_on_toxic_damage_live.py": {
+   "_at": 1785765555,
+   "_blob": "b67d9ab073d689bbe8bab85fc87505838997c86c",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 7,
+   "sec": 61.9,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_overkill_decision_live.py": {
+   "_at": 1785765555,
+   "_blob": "5ac838137f62028e511bfd4d64d4e76386150cbc",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 6,
+   "sec": 317.8,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -971,6 +1526,45 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_pilein_owner_turns_live.py": {
+   "_at": 1785765555,
+   "_blob": "a85e17663790e42fd15bb6be9e7b65e9b721bdfa",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 8,
+   "sec": 63.1,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_placement_sort_rng_live.py": {
+   "_at": 1785765555,
+   "_blob": "83ced0e895121ceec61c6819c7775a17b68a17dc",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 1,
+   "messages": [
+    "test_placement_sort_rng_live.py::test_previous_model_would_be_red_here[scarabhive] -- AssertionError: scarabhive : le modele d'avant rend 10 genrand pour 10 live -- il devrait SUR-tirer (1 par tuile placee). S'il ne sur-tire plus, le pool du scenario est tombe a 1 (re-crafter la geometrie : le scenario n'est plus discriminant). assert 10 > 10"
+   ],
+   "passed": 17,
+   "sec": 47.3,
+   "skipped": 0,
+   "verdict": "ROUGE",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_plague_wind_live.py": {
+   "_at": 1785765555,
+   "_blob": "342fff8df0225cbffb679722ce57f5b902ca015f",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 2,
+   "sec": 44.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_plasma_cannon_lateral_live.py": {
    "_at": 1785763651,
    "_blob": "e68a39aa0399822371a581d0c4b68fd722dd7397",
@@ -1032,6 +1626,18 @@
    "messages": [],
    "passed": 1,
    "sec": 44.8,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_rad_bombardment_live.py": {
+   "_at": 1785765555,
+   "_blob": "2e9e7b03eee0b15cbb70fa284b566a14f663048c",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 4,
+   "sec": 30.5,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -1166,6 +1772,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_sense_of_stone_live.py": {
+   "_at": 1785765555,
+   "_blob": "3e58d2506b925bbef5c8aea3aae635cd9a78f591",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 2,
+   "sec": 55.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_shield_ability_limits_live.py": {
    "_at": 1785763651,
    "_blob": "63eb29c3c367dbf65b051e03ece83e9d88756a46",
@@ -1175,6 +1793,18 @@
    "messages": [],
    "passed": 2,
    "sec": 17.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_sky_strike_live.py": {
+   "_at": 1785765555,
+   "_blob": "a014463f7e6bd63497a277ae636ef8bbb629e505",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 6,
+   "sec": 71.5,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -1205,6 +1835,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_spore_mine_launcher_live.py": {
+   "_at": 1785765555,
+   "_blob": "1c03a6508f51e01475f463e6862e725cbfc1ba2c",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 3,
+   "sec": 15.9,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_stikkbomb_migration_live.py": {
    "_at": 1785763651,
    "_blob": "134b3116d17d75ebaa0d426ad4b143dd7be04a14",
@@ -1231,6 +1873,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_suppressive_fire_live.py": {
+   "_at": 1785765555,
+   "_blob": "b8bec11309039b3a61442e1ddbb9d185ff80f112",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 4,
+   "sec": 49.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_supreme_commander_live.py": {
    "_at": 1785763651,
    "_blob": "221487d929e52619063a56f3e05737b289db6995",
@@ -1253,6 +1907,18 @@
    "messages": [],
    "passed": 7,
    "sec": 35.1,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_targeting_adjacency_rules_live.py": {
+   "_at": 1785765555,
+   "_blob": "6c514fe94ece57ea7c50f1f3884744d01ed29cc5",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 22,
+   "sec": 461.5,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -1389,6 +2055,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_unit_flags_live.py": {
+   "_at": 1785765555,
+   "_blob": "382074b14d899341d29a1c393f5256b857814cde",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 3,
+   "sec": 26.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_valkyrie_strike_migration_live.py": {
    "_at": 1785763651,
    "_blob": "08e57557c39078e64b85943ac33a5cf603297d96",
@@ -1480,6 +2158,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/test_heal_type_gate_decision_live.py": {
+   "_at": 1785765555,
+   "_blob": "1a0668208c692f97aaf6b14d62cc6f6d6dfd2bb7",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 28,
+   "sec": 15.1,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/test_line_elevation_gate_decision_live.py": {
    "_at": 1785763651,
    "_blob": "214c80a52fa18b2c9e5bdefbc8de78c1611890cf",
@@ -1490,6 +2180,18 @@
    "passed": 2,
    "sec": 49.6,
    "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/test_move_tile_sweep_order_live.py": {
+   "_at": 1785765555,
+   "_blob": "2692179ea7d31ccf4affecefbbf68b3b2f1cfa07",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 4,
+   "sec": 192.5,
+   "skipped": 2,
    "verdict": "VERT",
    "xfailed": 0
   },
@@ -1532,6 +2234,18 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/test_savage_echoes_prediction_live.py": {
+   "_at": 1785765555,
+   "_blob": "7f477d0604762005d96e2323ae51aca2b6946a31",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 1,
+   "sec": 29.8,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/test_stay_in_place_live.py": {
    "_at": 1785763651,
    "_blob": "fec7e20d4a63514ed87a6819c6257cfc0328230c",
@@ -1567,6 +2281,18 @@
    "messages": [],
    "passed": 4,
    "sec": 55.3,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/test_tile_term_unit_gated_playbooks_live.py": {
+   "_at": 1785765555,
+   "_blob": "b93e160a0244b18c916b9ca0199a8c65339b4ebe",
+   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "error": 0,
+   "failed": 0,
+   "passed": 30,
+   "sec": 306.0,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
