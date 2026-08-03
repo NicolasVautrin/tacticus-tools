@@ -483,6 +483,15 @@ la variance du mur sur cette machine partagee est de l'ordre de +/- 15 %, et c'e
 pourquoi seul un dos-a-dos dans la MEME fenetre vaut quelque chose. Le lire comme une regression
 serait la meme erreur que lire 199,4 s comme un acquis.
 
+⚠ **QUATRIEME releve, 2026-08-03, machine calme (flotte vide) : `205,2 s`** — banque VERTE, 35
+cliquets, rc 0. **Il VALIDE les 199,4 / 206,4 s annonces par #526**, que la validation de
+l'orchestrateur n'avait pas reussi a reproduire (279,2 / 263,6 s) et avait inscrits « equivalent,
+pas ameliore ». C'etait la FENETRE de mesure qui etait defavorable, pas le chiffre de l'auteur.
+Structure du mur a ce releve : il EST le bloc des 8 shards de `probe_457` (160,6 -> 205,0 s), tout
+le reste finissant dessous — le shardage par cout les fait atterrir groupes. Ces durees sont SOUS
+CONTENTION 16 voies ; isole, un shard fait ~50 s, et l'ecart est exactement l'efficacite de 2,7-2,9
+workers effectifs.
+
 **Mur : -26 %. Somme isolee : -8,3 %**, dont 40,4 s de deduplication et ~21 s d'optimisation. Le
 mur baisse BEAUCOUP plus que la somme isolee, et c'est le point : le gain se manifeste SOUS
 CONTENTION, quand 16 process font chacun leurs 3254 ouvertures en serie et se bloquent
