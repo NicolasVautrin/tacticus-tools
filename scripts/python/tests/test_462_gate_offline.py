@@ -50,6 +50,26 @@ def test_un_fichier_SANS_AUCUN_TEST_est_VIDE_pas_VERT():
     assert P._verdict({"passed": 0, "skipped": 0, "failed": 0, "error": 0, "xfailed": 0}) == "VIDE"
 
 
+def test_un_fichier_VIDE_COMPTE_dans_le_verdict(capsys):
+    """#455-r3 : le LISTER sans le COMPTER serait la meme invisibilite, deplacee d'un cran. Un
+    fichier dont les tests ont disparu n'emet aucun bilan -- s'il ne pese pas sur le code de sortie,
+    la passe reste verte et personne ne le voit."""
+    vide = {"verdict": "VIDE", "passed": 0, "skipped": 0, "failed": 0, "error": 0, "xfailed": 0}
+    assert P._print_inventaire({"tests/engine/runner/test_v_live.py": vide},
+                               ["tests/engine/runner/test_v_live.py"]) == 1
+    assert "0 test collecte" in capsys.readouterr().out
+
+
+def test_un_fichier_NON_JOUE_COMPTE_aussi(capsys):
+    """Un worker mort avant d'arriver au fichier n'a RIEN mesure. Le compter vert serait un echec
+    RENDU lu comme une mesure."""
+    nj = {"verdict": "NON JOUE", "passed": 0, "skipped": 0, "failed": 0, "error": 0,
+          "xfailed": 0, "raison": "worker 2 timeout"}
+    assert P._print_inventaire({"tests/engine/runner/test_n_live.py": nj},
+                               ["tests/engine/runner/test_n_live.py"]) == 1
+    assert "timeout" in capsys.readouterr().out
+
+
 # --------------------------------------------------------------------------- JUnit
 
 _XML = """<?xml version="1.0" encoding="utf-8"?>

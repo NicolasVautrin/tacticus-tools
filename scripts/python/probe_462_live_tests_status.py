@@ -466,10 +466,13 @@ def _print_inventaire(par_fichier: dict, perimetre: list[str]) -> int:
         if not c.get("failed", 0) and not c.get("error", 0):
             print("         | FICHIER INTEGRALEMENT SKIPPE -- zero assertion evaluee (#455)")
     for rel in vides:
-        print("  VIDE   %s  (aucun test collecte)" % rel)
+        # #455-r3 : un fichier dont les tests ont DISPARU n'emet aucun bilan, donc il se lit comme
+        # un succes. Il COMPTE dans le verdict -- le lister sans le compter serait exactement la
+        # forme d'invisibilite que ce dossier repare.
+        print("  VIDE   %s  (0 test collecte -- zero assertion evaluee, cf. #455-r3)" % rel)
     for rel in nonjoues:
         print("  NONJOUE %s  (%s)" % (rel, par_fichier[rel].get("raison", "?")))
-    return len(rouges) + len(nonjoues)
+    return len(rouges) + len(vides) + len(nonjoues)
 
 
 def _do_report(perimetre: list[str]) -> int:
