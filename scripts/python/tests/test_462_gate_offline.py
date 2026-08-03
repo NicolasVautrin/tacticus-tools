@@ -179,6 +179,52 @@ def test_une_ref_INCONNUE_est_un_REFUS_pas_un_vert(monkeypatch):
     assert P._do_gate("pasunref") == 2
 
 
+# --------------------------------------------------------------------------- non mesures
+
+@pytest.fixture()
+def ledger_de(tmp_path, monkeypatch):
+    """Ledger jetable + blobs simules, pour eprouver `_unmeasured`."""
+    p = tmp_path / "l.json"
+    monkeypatch.setattr(P, "ledger_path", lambda: p)
+    monkeypatch.setattr(P, "_blobs", lambda rels: {r: "COURANT" for r in rels})
+
+    def poser(entree):
+        p.write_text(json.dumps({"fichiers": {_CIBLE: entree} if entree else {}}),
+                     encoding="utf-8")
+    return poser
+
+
+def test_un_fichier_ABSENT_du_ledger_est_NON_MESURE(ledger_de):
+    ledger_de(None)
+    assert P._unmeasured([_CIBLE]) == [_CIBLE]
+
+
+def test_un_fichier_mesure_sur_un_AUTRE_blob_est_NON_MESURE(ledger_de):
+    ledger_de({"verdict": "VERT", "_blob": "DAVANT"})
+    assert P._unmeasured([_CIBLE]) == [_CIBLE]
+
+
+def test_un_fichier_NON_JOUE_est_NON_MESURE_meme_au_bon_blob(ledger_de):
+    """Le cas TRAITRE : une passe INTERROMPUE (worker tue, fenetre de maintenance) a bien VISE le
+    fichier, mais n'a produit aucun report. Le laisser hors de la reprise le figerait dans un etat
+    qu'on relirait ensuite comme une couverture."""
+    ledger_de({"verdict": "NON JOUE", "_blob": "COURANT"})
+    assert P._unmeasured([_CIBLE]) == [_CIBLE]
+
+
+def test_un_fichier_VERT_au_BON_blob_n_est_PAS_repris(ledger_de):
+    """La direction inverse : sans elle, `--unmeasured` rejouerait tout et ne servirait a rien."""
+    ledger_de({"verdict": "VERT", "_blob": "COURANT"})
+    assert P._unmeasured([_CIBLE]) == []
+
+
+def test_un_fichier_ROUGE_au_bon_blob_n_est_PAS_repris(ledger_de):
+    """Un ROUGE est une MESURE, pas une absence de mesure -- il sort de la reprise et reste au
+    rapport. Le confondre avec un non-mesure ferait boucler le balayage sur les memes echecs."""
+    ledger_de({"verdict": "ROUGE", "_blob": "COURANT"})
+    assert P._unmeasured([_CIBLE]) == []
+
+
 # --------------------------------------------------------------------------- perimetre
 
 def test_le_perimetre_est_DERIVE_et_disjoint_de_celui_de_probe_457():
