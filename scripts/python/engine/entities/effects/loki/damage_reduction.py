@@ -465,7 +465,17 @@ class NeuroparasiteEffect(BaseEffect):
     Sémantique : "damage DEALT by the Neurothrope is increased" = dégât ATTAQUANT -> scalé par ses %-mults.
     VALIDÉ port==natif BIT-EXACT (L0 (2136,3205), L1 (4392,5461)). ⚠ ISOLÉ au def additive (Neuroparasite = seul
     consommateur) ; le placement de l'additif ATTAQUANT (SmashaEad) reste après-%list (#70/#75, séparateur att
-    non mesuré). Combat : parasite non matérialisé par le runner -> def additive=0 -> inerte."""
+    non mesuré).
+
+    CYCLE DE VIE (#462-r4b-r1-r1-r1) : le parasite est désormais POSÉ **par le port lui-même** — la
+    ligne qui disait ici « Combat : parasite non matérialisé par le runner -> def additive=0 ->
+    inerte » décrivait une cause DOUBLEMENT fausse (l'inertie venait du fork prédiction/combat sur
+    l'axe MAGNITUDE, fermé par #462-r4b-r1-r1 ; et la POSE existe depuis
+    `runner/operations/triggers/loki/neuroparasite.py`). `NeuroparasiteAbility$$CreateTrigger/
+    $$CreateBehaviour` (`On(9)` + `AddBondEffect(0x4c2)`) et les DEUX `Triggered()` de
+    `NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal` (montée de niveau sur frappe PSYCHIQUE
+    et sur pose de `Pinned`, cap `$$GetMaximumLevel` = `buffMaxLevel[lvl] + NornCrown`) sont portés et
+    confrontés live. `self.level` n'est donc plus figé à ce que le seed a capté."""
 
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
                                                 damage_profile: str | None = None,

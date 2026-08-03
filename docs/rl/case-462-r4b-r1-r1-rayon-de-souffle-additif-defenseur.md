@@ -112,13 +112,11 @@ le sens inverse (un producteur attesté qui disparaîtrait rendrait les gardes l
 
 ## 8. Ce qui n'est PAS couvert
 
-* **La POSE du parasite n'est pas portée côté runner** : le triggered 1183
-  (`On(9) & OwnerIsCaster & !HasEffect(target,0x4c2) & IsUnit(target) &
-  CurrentAttackDamageProfilesContain(0xd) & !(OwnerIsActor & OwnerIsTarget)` → `AddBondEffect(0x4c2)`)
-  n'a pas d'`EFFECT_TRIGGERS` runner. Dans ce cas la pose vient du NATIF et l'état est seedé — mais
-  dans un combat 100 % porté (self-play), le parasite **n'apparaîtrait jamais**. Résidu distinct de
-  celui fermé ici, et distinct du placement. Idem pour `GetIncreaseLevelBehaviour` (montée de niveau
-  à chaque frappe psychique), non portée : tous les bras mesurés le sont à **niveau 1**.
+* ~~La POSE du parasite n'est pas portée côté runner~~ — **FERMÉ par #462-r4b-r1-r1-r1** (le
+  triggered 1183 et les deux `Triggered()` de montée de niveau sont portés et confrontés live ;
+  détail, contre-épreuves et résidus : `docs/rl/case-462-r4b-r1-r1-r1-pose-neuroparasite.md`).
+  Ce qui reste ouvert de ce côté-là est le **RETRAIT** hérité d'`ABondEffect` (trois triggers sous
+  virtuels de vtable non lus).
 * **La branche `IsOverwatchAttack`** d'`ExemplarOfHate_Target` reste non threadée (résidu de #548).
 * **`ability_level == 0`** : le port pose alors `0` (mirror strict de la prédiction), là où le natif
   `Idun.Shared.Level$$ToZeroBasedIndex` **lève** sur `<= 0`. Ce bord est commun aux DEUX faces, donc
