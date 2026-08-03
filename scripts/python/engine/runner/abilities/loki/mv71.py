@@ -38,6 +38,13 @@ COLLAPSES documentés (doctrine FinalJustice, tri d'utilité impératif) :
     tie-break = (dist hex à la cible, id de tuile) — À CONFRONTER live (GT (3,4)/(4,3)/(5,4)).
   - « peut attaquer depuis » = distance <= portée max d'arme du drone ; LoS (`UnobscuredTiles`) NON
     portée (flag — board MC1_67 ouvert).
+  - le REPLI se termine nativement par
+    `IdunBattleLogic.Entities.DSLSelectors$$FilterTilesIfCanAttackTargetTileFrom(Caster@0x48,
+    Target@0x60, <la tuile>)`, PORTÉ depuis `#433-r4-r1` (nœud DSL
+    `entities/selectors/tiles.py::FilterTilesIfCanAttackTargetTileFrom`) : la tuile du drone le plus
+    faible est REFUSÉE si un ennemi du caster lui est adjacent ET qu'elle n'est pas adjacente à la
+    tuile de la cible → `PickTile` rend null → cast NO-OP. C'est le seul étage du repli qui n'était
+    pas porté ; `UnobscuredTiles` reste flaggé.
 """
 from __future__ import annotations
 
@@ -47,11 +54,15 @@ import gameconfig as GC
 import hexgeo
 
 from ..base import ActiveAbility, convert_rounds_to_turns
+from ..behaviours import entities_from_state
 from ..targeting import (RANGE_ADJACENT_IF_MELEE_CASTER, RANGED_BOOL_IF_RANGED_CASTER,
                          TargetingOptions)
 from ..targeting_rule import TargetingRule as TR
 from ...components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                            HealthComponent)
+from ....dsl.base import DslContext
+from ....entities.selectors import (Caster, FilterTilesIfCanAttackTargetTileFrom, FixedTileIds,
+                                    Target)
 from ...operations.damage import AttackDamageOperation
 from ...operations.effects import AddEffectOperation
 from ...operations.spawn import _spawn_config_grot, _occupied_tiles
@@ -214,6 +225,36 @@ def _tile7_utility(pos, elev, elev_minmax, eff_names, adj, caster_team, unit_id:
     return float(tile_composite(pos, meta, ctx, _wt()))
 
 
+def _filter_tiles_if_can_attack_target_tile_from(dctx, tile_id: int):
+    """DERNIER maillon de la chaine de REPLI native de `PickTile`, non porte jusqu'a `#433-r4-r1` :
+
+        sel = SurroundingTiles(Tiles(Target@0x60), includeCenter: 0, radius: <portee du drone>)
+              op_BitwiseAnd Tiles(First(AlreadySpawnedSummonsSortedForRemoval, 1, 0))
+        sel = UnobscuredTiles(Tiles(Target@0x60), sel)                    # LoS -- NON PORTE (flag)
+        sel = FilterTilesIfCanAttackTargetTileFrom(Caster@0x48, Target@0x60, sel)   # <- ICI
+        return sel.SelectTile(entities)
+
+    Les deux premiers etages sont deja collapses imperativement par l'appelant (l'anneau = la garde
+    `1 <= dist(drone, cible) <= portee`, l'intersection = « la tuile DU drone le plus faible ») ;
+    ce dernier etage-la, lui, reste un noeud DSL -- la structure emerge de l'arbre (doctrine #149),
+    le collapse ne fournit que le vehicule `FixedTileIds`. Rend l'id de tuile survivant, ou None
+    (le natif rend alors `null`, donc un cast NO-OP : ni eviction, ni spawn, ni Markerlight)."""
+    kept = FilterTilesIfCanAttackTargetTileFrom(
+        Caster(), Target(), FixedTileIds([int(tile_id)])).select(dctx)
+    return int(kept[0]) if kept else None
+
+
+def _filter_can_attack_target_tile_from(state: "State", caster_id: int, target_id: int,
+                                        tile_id: int):
+    """Face RUNNER de `_filter_tiles_if_can_attack_target_tile_from` : contexte DSL depuis le `State`.
+
+    ⚠ `entities_from_state` ne pose PAS `elev_by_pos` -> la porte d'elevation `|dElev| < 2` des DEUX
+    adjacences degrade en no-op PERMISSIF, exactement comme pour tous les autres noeuds d'adjacence
+    du runner (degradation partagee, pas un fork local)."""
+    return _filter_tiles_if_can_attack_target_tile_from(
+        entities_from_state(state, caster_id, target_id), tile_id)
+
+
 def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
                max_summons: int, first_only: bool = False):
     """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile` : renvoie l'id de TUILE choisie, ou None (aucune tuile -> cast no-op,
@@ -281,7 +322,10 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
     d_t = hexgeo.distance((wp.col, wp.row), tpos)
     if d_t < 1 or d_t > rng:
         return None
-    return board.id_at(wp.col, wp.row)
+    tid = board.id_at(wp.col, wp.row)
+    if tid is None:
+        return None
+    return _filter_can_attack_target_tile_from(state, caster_id, target_id, int(tid))
 
 
 def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: int,
@@ -370,6 +414,18 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
         return None
     d_t = hexgeo.distance(tuple(wpos), tpos)
     if d_t < 1 or d_t > rng:
+        return None
+    tid = board.id_at(wpos[0], wpos[1])
+    if tid is None:
+        return None
+    # MEME dernier maillon que la face runner (`_filter_tiles_if_can_attack_target_tile_from`), la
+    # SEULE difference etant l'hydratation : les unites viennent de `_pos_of` (donc le caster est
+    # VIRTUELLEMENT sur `parent_pos`, #153), pas de l'ECS. Aucun fork de predicat.
+    units = [{"id": u, "team": scene.team(u), "alive": True, "hp": int(scene.hp(u) or 0),
+              "pos": {"col": int(p[0]), "row": int(p[1])}} for u, p in _pos_of.items()]
+    by_id = {d["id"]: d for d in units}
+    dctx = DslContext(units=units, caster=by_id.get(att_id), target=by_id.get(tgt_id), board=board)
+    if _filter_tiles_if_can_attack_target_tile_from(dctx, int(tid)) is None:
         return None
     return tuple(wpos)
 

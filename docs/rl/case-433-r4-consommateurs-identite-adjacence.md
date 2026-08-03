@@ -38,7 +38,7 @@ ne dit pas qui déréférence le slot. Les appelants vtable listés ici sont ceu
 
 | # | consommateur natif | porté ? | régime d'identité |
 |---|---|---|---|
-| 1 | `IdunBattle.Entities.Selectors.FilterTilesIfCanAttackTargetTileFromSelector$$Select` | **NON** | **ATTEINT** |
+| 1 | `IdunBattle.Entities.Selectors.FilterTilesIfCanAttackTargetTileFromSelector$$Select` | **PORTÉ (#433-r4-r1)** | ~~ATTEINT~~ → **INATTEIGNABLE** (rectifié, cf. §2 bis) |
 | 2 | `IdunBattle.Core.Services.DamageCalculations$$CalculateTrenchReduction` | conforme | inatteignable |
 | 3 | `IdunBattle.AI.Utilities.WireweaveNet_FirstAttack.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext` | conforme | **ATTEINT**, dégénéré |
 | 4 | `IdunBattle.AI.Playbook.Loki.KustomForceFieldReworkedNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext` | conforme | inatteignable |
@@ -76,6 +76,28 @@ Côté port, `AttackTilesForTarget` est **explicitement dégradé en identité**
 (`runner/abilities/astramilitarum.py`, commentaire « AttackTilesForTarget -> identite offline`) et
 `PickTile` re-dérive ses candidats par `hexgeo.distance` (`runner/abilities/loki/mv71.py::_pick_tile`) :
 **aucun des deux ne traverse le bras**. Les deux autres nœuds n'ont pas de porteur.
+
+### §2 bis — RECTIFICATIF de #1, mesuré par #433-r4-r1 (`case-433-r4-r1-bras-de-rattrapage.md`)
+
+Trois points du bloc ci-dessus sont **FAUX**, et deux d'entre eux réduisent le gisement :
+
+1. **« corps de 3 nœuds DSL » → UN SEUL.** `DSLSelectors$$AttackTilesForTarget` et
+   `$$CanAddMultiTileUnit` partagent seulement le **corps de `.ctor`** (déduplication IL2CPP :
+   trois `Il2CppClass*` distincts, un seul code de ctor). Chacun a son propre `Select`
+   (`AttackTilesForTargetSelector$$Select`, `CanAddMultiTileUnitTileSelector$$Select`), et **aucun
+   des deux n'appelle `IsAdjacentTo`**. Les consommateurs sont donc **2 abilities**, pas 4 :
+   `MV71SniperDroneSquadAttackAbility$$PickTile` (1076, branche de **REPLI** seulement) et
+   `WallOfMirrorsAbility$$GetPossibleTiles` (1186). Corollaire : le commentaire
+   « `AttackTilesForTarget -> identite offline` » d'`astramilitarum.py` est **hors de ce gisement**.
+2. **`reason` n'est pas une raison, c'est un CARDINAL.** `<slot +0x7a>` est
+   `BattleQuery$$GetAdjacentUnits(from, friendsOf, enemiesOf, ignoreSteppables)` — établi par les
+   trois fermetures du décorateur `RecordedSimulationRequestsBattleQuery` (`DisplayClass149/150/151`
+   → slots `0x7a/0x7b/0x7c`). La ligne exacte est
+   `if (GetAdjacentUnits(tile, null, Caster, false).Count == 0 || IsAdjacentTo(tile, targetTile))`.
+3. **Le régime d'identité est INATTEIGNABLE aux deux call-sites.** `WallOfMirrors` construit un
+   anneau à distance **exactement `range = 2`** (gameconfig) ⇒ `IsAdjacentTo` y est toujours faux ;
+   le repli MV71 compare la tuile d'un drone à celle de la cible (deux entités distinctes). Ce qui
+   mord est le rattrapage par **adjacence**, pas par identité.
 
 **#8 / #13 — le natif NEUTRALISE lui-même, et c'est ce qui rend le port naïf inoffensif ICI.**
 Dans `GetPossibleTilesToThrowTo`, branche caster mono-tuile, le décompilé porte :
@@ -162,9 +184,10 @@ inventaire.
 * Régime d'identité : **5 ATTEINT** (#1, #3, #8-site2 + #13, #22, #23 — #3 dégénéré, #8/#13
   neutralisés par le natif), **11 inatteignables**, **1** atteint sans effet par composition (#20),
   **7 NON TRANCHÉS** (#5, #6, #9, #10, #15 déplacé sur les empreintes, #18, #19).
-* Un seul non-port fait mordre le régime **sans compensation native** : **#1**, et il porte
-  **3 nœuds DSL** et **4 abilities** (1016 `SendInTheNextWave`, `NovaBoost_Attack`, `WallOfMirrors`,
-  1076 `MV71SniperDroneSquadAttack`).
+* ~~Un seul non-port fait mordre le régime sans compensation native : #1, 3 nœuds DSL, 4 abilities.~~
+  **RECTIFIÉ (§2 bis, #433-r4-r1)** : #1 est le corps d'**UN** nœud DSL et de **2** abilities
+  (1076 en repli, 1186 non portée), et le régime d'IDENTITÉ y est **inatteignable** — c'est le
+  rattrapage par ADJACENCE qui mordait. Le compte des « ATTEINT » passe donc de **5 à 4**.
 * *Chiffres à re-dériver, pas à citer : ils bougent dès qu'un de ces 9 est porté.*
 
 ## 5. Ce que cet inventaire ne tranche PAS
@@ -187,10 +210,13 @@ inventaire.
 
 ## 6. Résidus NOMMÉS
 
-* **`#433-r4-r1` — le bras de rattrapage de `FilterTilesIfCanAttackTargetTileFromSelector$$Select`
-  (3 nœuds DSL, 4 abilities).** Le seul gisement où le régime mord sans garde native. Le porter
-  suppose d'abord de porter la chaîne `<slot +0x7a>` (raison d'invalidité depuis une tuile), pas
-  seulement l'adjacence.
+* ~~**`#433-r4-r1`**~~ — **LIVRÉ (2026-08-03)**, `case-433-r4-r1-bras-de-rattrapage.md`. Le nœud DSL
+  est porté et câblé dans le repli de `PickTile` ; le périmètre annoncé ici (3 nœuds / 4 abilities)
+  et la lecture de `<slot +0x7a>` sont **rectifiés au §2 bis**. Résidus ouverts par la résolution :
+  `#433-r4-r1-r1` (1186 non portée — le seul consommateur confrontable live),
+  `#433-r4-r1-r2` (bras mort chez `WallOfMirrors` en cible mono-hex),
+  `#433-r4-r1-r3` (`UnobscuredTiles` toujours non portée),
+  `#433-r4-r1-r4` (porte d'élévation inerte côté runner).
 * **`#433-r4-r2` — deux ports HORS FOYER** (`EarlyWarningOverridePlaybook$$EvaluateNonComparable` en
   `hexgeo.distance == 1`, `BattleQuery$$GetNearestEnemy` en `battle_query.is_adjacent`). Le régime
   d'identité n'y mord pas ; la **porte d'élévation** (pour le premier) et les **empreintes** (pour

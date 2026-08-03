@@ -41,6 +41,7 @@ from .units import (  # noqa: F401
 from .tiles import (  # noqa: F401
     Caster, AllUnits, AllTiles, Children, Parent, LastUnitAttackedBy, AdjacentTiles, TileUnique,
     CanAddUnit, TileIntersect, MovableTilesInRange, tiles_unit_can_move_to_charge_target,
+    FilterTilesIfCanAttackTargetTileFrom,
 )
 
 from .accessors import (  # noqa: F401
@@ -77,6 +78,7 @@ __all__ = [
     "Caster", "AllUnits", "AllTiles", "Children",
     "Parent", "LastUnitAttackedBy", "AdjacentTiles", "TileUnique", "CanAddUnit",
     "TileIntersect", "MovableTilesInRange", "tiles_unit_can_move_to_charge_target",
+    "FilterTilesIfCanAttackTargetTileFrom",
     "CasterTile", "TargetTile", "FixedTile", "FixedTiles", "FixedTileIds", "OwnerTile", "Subject",
     "SelectTile", "Actor",
     "Target", "ActiveTarget", "SurroundingTiles", "_center_pos", "neighbour_at",
