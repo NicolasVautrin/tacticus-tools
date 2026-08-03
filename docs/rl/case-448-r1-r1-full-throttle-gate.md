@@ -172,11 +172,15 @@ réfutée par la mesure. Le seuil affiché par le kit (`movement: 3`) n'est **pa
 
 ## 8. Ce que la tranche ne mirror PAS, nommément
 
-* **La branche VOLANTE elle-même** (`IsLikeFlying` → distance) est portée mais **NON CONFRONTÉE** :
-  les trois bras du §6 sont tous des MARCHEURS. Elle n'a pas le `+1`, donc à gate égal un volant
-  doit franchir **3** hexes là où un marcheur en franchit **2** — l'écart d'un pas que la mesure
-  actuelle ne discrimine pas. Canal qui l'établirait : greffe sur un porteur `Flying`/`Burrow` du
-  pool, mêmes trois bras (`#448-r1-r1-r1`).
+* ~~**La branche VOLANTE elle-même**~~ — **FERMÉ par `#448-r1-r1-r1`**
+  (`docs/rl/case-448-r1-r1-r1-flying-movement-steps.md`). Elle est confrontée par greffe sur 5
+  volants du pool : à `d = 2` le natif ne tue **jamais** un volant (0 / 20) là où il tue un
+  marcheur à la MÊME distance (3 / 8), et il tue le volant à `d = 3` (4 / 13). Un bras
+  supplémentaire (`d = 2`, chemin de vol DÉTOURNÉ par un mur, 0 / 14) exclut la lecture
+  `path.Count - 1`, qui coïncide avec la distance sur tout vol direct. Le slot `0x6c` y est
+  re-dérivé au runtime (index de vtable `0x70` = `GetDistance`).
+  ⚠ L'écart entre les deux branches n'est **pas** constant : il vaut `pas_de_marche + 1 -
+  distance`, donc `1` seulement sur un chemin de marche direct.
 * **Le second bras d'`IsLikeFlying`** (`options.<+0x8> == 3`) : la struct `options` d'`Execute`
   n'est pas modélisée et aucun call-site du port ne la pose.
 * **`path` vs `connectedPath`** : le natif tire `movementSteps` de `path` (8e out-param de
