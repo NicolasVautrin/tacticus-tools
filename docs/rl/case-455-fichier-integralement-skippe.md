@@ -399,3 +399,17 @@ zéro à tenir, et la seule chose qui puisse le rouvrir est notre propre cadence
   (`scripts/python/tests`). Un `test_*.py` versionné **hors** de là serait invisible aux deux
   volets tant que personne ne le joue explicitement — pytest ne le collecterait pas non plus.
   Mesuré : **0** fichier de test versionné hors `testpaths`.
+
+### Relevé de la livraison (2026-08-03)
+
+Banque jouée **deux fois**, avant et après rebase sur `origin/master` (11 commits d'écart) :
+**35 cliquets, VERTE** dans les deux cas — murs 520 s puis 353,8 s. `probe_455` y pèse 191,2 s puis
+154 s, **loin sous le mur** (`probe_457:s7`, 353,6 s) : coût marginal en parallèle nul, ce qui est
+le critère d'admission, jamais le coût absolu. `probe_391` et `probe_440` verts — le volet statique
+ne fait que **lire**.
+
+Non-régression la plus large disponible : les 8 shards de `probe_457` jouent l'ensemble des tests
+offline **avec le nouveau hook actif** dans le conftest de production, et aucun ne rougit.
+
+Le rebase a fait entrer **3 fichiers de test neufs** (530 → 533) : l'étape 3 les a absorbés sans
+qu'aucune liste ne soit touchée — la propriété du périmètre dérivé, vérifiée en passant.
