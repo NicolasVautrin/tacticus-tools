@@ -101,15 +101,8 @@ ni la forme, ni le LoS, ni les gates par ability du natif.
 
 ## 5. Résidus NOMMÉS
 
-* **`#433-r4-r2-r1-r1` — la zone d'une ability `UseWholeBoard` n'est pas dérivable.** `LightOfSanguinius`
-  et `LeadingTheCharge` partagent le **même** preset (`TargetingOptions statics+0x240`, donc le même
-  `TargetingRange` *et* le même masque `Rules = 0x102004032`) et rendent pourtant des zones
-  DIFFÉRENTES (≈5 contre 1) : le discriminant est **en aval** du `TargetingRange` — un des gates
-  d'ability, ou le slot `10`, ou un override de `GetPossibleTargetTiles` (les corps triviaux étant
-  dédoublonnés, son absence des tables ne prouve rien). Le port ne l'élargit pas → **borne
-  INFÉRIEURE**, 0 faux positif mesuré, 18 faux négatifs sur `bloodDante`. Dégradation **permissive**
-  (le port attribue `+50` là où le natif n'en donne pas). *Candidat `fable-solver`* : RE de
-  `GetPossibleTargetsForOptions` + des gates de `GetAllTilesInAbilityRange`.
+* **`#433-r4-r2-r1-r1` — FERMÉ.** Le discriminant est le slot de vtable `klass+0x478`,
+  `GetDynamicInvalidTargetReason`. Détail complet : **§7 ci-dessous**.
 * **`#433-r4-r2-r1-r2` — le LoS/élévation retire des tuiles du disque.** Sur le montage à RELIEF de
   `--step couple` (`O` élévation 2, ennemi élévation 4), le natif exclut de la zone **une** tuile à
   `d = 4` que ses voisines de même distance contiennent. Mesure : **1/34** sur relief, **0/40** sur
@@ -148,7 +141,129 @@ ni la forme, ni le LoS, ni les gates par ability du natif.
   exactes, ce qui retirait justement `3 < d <= 5`, la zone où les deux branches diffèrent.
 * **Non-régression** — `test_356_noncomparable_oracle_live.py` (14 passed),
   `test_nc_priority_tiers_offline.py` (5 passed).
-* **NON COUVERT** — les kits dont la zone dépend d'un `UseWholeBoard` (cf. `-r1-r1`) ; les unités
-  MULTI-HEX (cf. `-r1-r3`) ; les abilities actives des unités HORS pool spawnable (npc, summons),
-  dont le `TargetingRange` n'est pas dans la table : elles retombent sur la portée d'arme, ce qui
-  est le cas natif majoritaire mais pas une garantie.
+* **NON COUVERT** — les unités MULTI-HEX (cf. `-r1-r3`) ; les abilities actives des unités HORS pool
+  spawnable (npc, summons), dont le `TargetingRange` n'est pas dans la table : elles retombent sur la
+  portée d'arme, ce qui est le cas natif majoritaire mais pas une garantie.
+  (`-r1-r1` était listé ici ; il est FERMÉ — §7.)
+
+---
+
+# 7. `#433-r4-r2-r1-r1` — ce qui sépare deux abilities au MÊME preset
+
+**Verdict : FERMÉ.** Le discriminant n'est ni un gate d'ability, ni le slot 10, ni un override de
+`GetPossibleTargetTiles` : c'est le slot de vtable **`klass+0x478` = `GetDynamicInvalidTargetReason`**.
+
+## 7.1 La chaîne, LUE
+
+`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` ne se contente pas de recopier les 0x40 octets
+du preset dans `this.<TargetingOptions @+0x70>` — il **ÉCRASE ensuite deux champs** par des délégués
+liés à des méthodes **virtuelles** de l'instance :
+
+```
+this.TargetingOptions.<+0x30> = new TargetingOptions.DynamicTargetingRule(this,       <klass+0x470>)
+this.TargetingOptions.<+0x38> = new TargetingOptions.DynamicTargetingTargetRule(this, <klass+0x480>)
+```
+
+`klass+0x470` / `klass+0x480` sont les champs `MethodInfo*` (à `+8` du début de slot) des slots
+commençant à `klass+0x468` / `klass+0x478` — la vtable IL2CPP démarrant à `klass+0x138` avec un pas
+de `0x10`, ce sont les index **51** et **52**. **Résolus au RUNTIME** (`resolveVtableSlot`) :
+`GetDynamicInvalidCasterReason` et `GetDynamicInvalidTargetReason`.
+
+Le champ `+0x38` est exactement celui qu'invoque le **troisième prédicat** de
+`IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions` — la lambda
+`TargetingQuery.u003Cu003Ec__DisplayClass34_0$$u003CGetPossibleTargetsForOptionsu003Eb__2`, appliquée
+en `RemoveAll` quand `Rules & 2` (posé dans `0x102004032`) : **la tuile est RETIRÉE quand le délégué
+rend une raison non nulle.** Le gate ne peut donc que RÉTRÉCIR, et le rayon de `GetTilesInRange` en
+est une borne SUPÉRIEURE.
+
+**Preuve runtime, pas déduction d'absence** — le corps de base est trivial donc DÉDUPLIQUÉ par
+IL2CPP, l'absence d'un symbole ne dirait rien :
+
+| classe | slot `0x478` | verdict |
+|---|---|---|
+| `AActiveAbility` | `A` | base, rend `0` — ne retire rien |
+| `LightOfSanguiniusAbility` | `B ≠ A` | **surcharge** |
+| `LeadingTheChargeAbility` | `C ≠ A, C ≠ B` | **surcharge** |
+| `MartialInspirationAbility`, `SeekerMissileFrequencyLockAbility` | `A` | pas de gate |
+
+Balayage complet (`probe_433_r4_r2_r1_r1_dynamic_target_gate.py --step gate`) : **19 des 32**
+abilities `UseWholeBoard` du port surchargent, **13 non** — leur zone est donc le plateau ENTIER.
+
+⚠ **Calibrage des slots d'interface, re-dérivé au runtime** (#542). `IsTileInRangeOfAnyAbility` est
+l'index **201** de la vtable de `BattleQuery` pour le slot `IBattleQuery 0xc5`, et `FindRangedWeapon`
+l'index **183** pour `0xb3` → **ifaceOffset = 4**, accordé sur un 3ᵉ point (`GetAllAliveMachines`,
+slot `0x97` → index 155). D'où : slot `0x53` = **`GetFreeAdjacentTiles`**, slot `0x6d` =
+**`GetDistance`**, slot `0x69` = **`GetAllTiles`**, slot `0xc` = `GetMovableTilesFor`.
+
+## 7.2 Les trois régimes, et leur mesure
+
+`TargetingQuery$$GetRange` court-circuite sur `UseWholeBoard` — il rend
+`{ Range = 1, OnlyAdjacent = false, UseWholeBoard = true }` **sans évaluer** `only_adjacent` ni la
+portée d'arme — puis `GetTilesInRange` branche dessus EN PREMIER et rend `GetAllTiles()`.
+
+| ability | gate | zone | mesure natif (sweep 40, `d = 2..10`) |
+|---|---|---|---|
+| `1177 LightOfSanguinius` | `GetFreeAdjacentTiles(...).Any(t => GetDistance(t, casterTiles) <= config.range)` | `config.range + 1` | 100 % à `d ≤ 5`, **4/6 à `d = 6`**, 0 à `d ≥ 7` |
+| `1153 HammerOfWrath` | **identique**, `config.range = 5` | idem | profil **identique**, mêmes tuiles |
+| `1140 ExemplarOfHate` | AUCUN | tout le plateau | **40/40**, à toute distance |
+| `1204 LeadingTheCharge` | `DSLSelectors$$TilesUnitCanMoveToChargeTarget` = `CanAddUnit(AdjacentTiles(target)) & MovableTilesInRangeSelector` | non dérivable (mouvement) | **0/40** |
+
+Le `+1` vient de ce que le test porte sur les **VOISINES** de la cible, pas sur la cible. Un modèle en
+`config.range` aurait prédit zéro à `d = 6` : **seule la ventilation PAR DISTANCE sépare les deux** —
+une comparaison globale ne l'aurait pas vu.
+
+## 7.3 La porte d'élévation — mesurée, puis tranchée au décompilé
+
+À `d = 6`, le natif accepte **4 tuiles sur 6**. Les deux refusées sont à élévation 2 et n'ont, à
+`d ≤ 5`, que des voisines à élévation **4** ; les quatre acceptées ont toutes une voisine proche à
+écart `≤ 1`. **Séparation parfaite** — et ce n'est PAS un ajustement sur six points :
+`IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles` = `GetAdjacentTiles(from,
+onlyEmptyOrSteppable: 1, onlyWalkableTiles: 1)` filtré en place, dont l'itérateur
+`IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` applique — APRÈS
+les gardes de walkability — un gate inconditionnel **`|srcElev - tile.Elevation| < 2`**.
+
+Le foyer porté existait déjà : **`engine.battle_query.is_adjacent`** (#124). Surtout PAS
+`are_entities_adjacent`, qui mirrore `MovementUtil$$AreTilesAdjacent` et porte un court-circuit
+d'IDENTITÉ (#433-r1) — il compterait la cible comme sa propre voisine.
+
+## 7.4 Ce qui est porté
+
+`ability_range_value` compose désormais **deux étages nommés** :
+`tiles_in_range_reach` (= `GetTilesInRange`, borne supérieure) puis `dynamic_target_gate_reach`
+(= ce que le prédicat laisse subsister). `is_tile_in_range_of_any_ability` accepte `elev_by_pos` et
+décide **par ability, sur la TUILE** ; `early_warning_override` lui passe `ctx.elev_by_pos`, qu'il
+possédait déjà. Sans canal, dégradation NOMMÉE sur `config.range + 1` (borne supérieure : 2 faux
+positifs sur 40 mesurés, 0 avec le canal).
+
+Le régime `GATE_NOT_DERIVABLE` rend `None` **seulement** quand la base est `WHOLE_BOARD_REACH` :
+c'est le seul cas où la borne supérieure est inutilisable (verser le plateau ferait 40 faux positifs
+sur `astraDreir` là où `None` en fait 0). Une base bornée survit au gate non dérivable — sans quoi
+les **15** abilities non-whole-board qui surchargent disparaîtraient d'un coup de la zone.
+
+## 7.5 Résultat, et ce qui reste
+
+**Six kits, EXACTS 40/40 dans les deux sens** (sweep `d = 2..10`, un seul ennemi vivant) :
+
+| kit | avant | après |
+|---|---|---|
+| `bloodDante` (`LightOfSanguinius`) | 18 FN / 0 FP | **0 / 0** |
+| `bloodIntercessor` (`HammerOfWrath`) | 18 FN / 0 FP | **0 / 0** |
+| `darkaAsmodai` (`ExemplarOfHate`) | 40 FN / 0 FP | **0 / 0** |
+| `tauMarksman`, `astraDreir`, `custoBladeChampion` | 0 / 0 | **0 / 0** |
+
+Les trois premiers sont **discriminants** : arme de MÊLÉE seule, donc « zone = portée d'arme »
+y donnerait 1 — l'accord ne peut pas venir d'une coïncidence de modèles.
+
+**Résidus rouverts par cette tranche, nommés :**
+
+* **`-r1-r1-a` — 11 des 19 gates whole-board restent NON LUS** (`GATE_NOT_READ`), plus ~30 gates
+  d'abilities non-whole-board. Le port ne rétrécit pas sur eux : c'est le statu quo, donc une borne
+  SUPÉRIEURE sur cet étage — un gate restrictif non lu produirait des faux positifs. Aucun n'est
+  mesuré à ce jour ; les lire est un travail de volume, pas d'enquête.
+* **`-r1-r1-b` — `onlyEmptyOrSteppable` / `onlyWalkableTiles` ne sont pas modélisés.** Le port ne
+  retire pas les voisines OCCUPÉES ni non walkables, faute de canal côté DÉCISION ; l'écart ne peut
+  qu'ÉLARGIR. **Point d'ancrage** : publier la walkability et l'occupation par tuile dans le canal
+  que `decisionView` fournit déjà pour l'élévation.
+* **`-r1-r1-c` — les gates en AMONT** (`CanCurrentlyBeUsed` slot `0x14`, `IsAbilityBlocked` slot
+  `0x13`, `AttackQuery$$GetInvalidCasterReason`) peuvent retirer une ability ENTIÈRE (cooldown,
+  ammo, caster ayant bougé). Non modélisés — ils n'ont mordu sur aucun des six kits mesurés.
