@@ -78,10 +78,77 @@ sur le FAIT et FAUX sur la CAUSE. Trois categories :
 * **MONTAGE** -- le harnais n'exerce pas le regime voulu (pilotage, board, seed, unite non spawnable) ;
 * **HARNAIS/COLLECTE** -- le test ne s'execute meme pas.
 
-Le probe ne CLASSE pas : il ne peut pas. Il rapporte le symptome VERBATIM ; la ventilation est un
-acte de lecture.
+Le probe ne CLASSE pas : il ne peut pas. Il rapporte le symptome VERBATIM (le ledger le conserve) ;
+la ventilation est un acte de lecture.
+
+### `test_terrifying_defense_live.py` -- **PORT**
+
+```
+off =[433, 402, 434, 378, 350, 403]
+live=[434, 403, 435, 379, 351, 404]
+```
+
+**+1 exactement sur les six coups.** Ce n'est donc pas un facteur (les bases different d'un coup a
+l'autre : 501 a 621) mais un etage d'**ARRONDI**.
+
+⚠ **L'identite `live = b - floor(0,3b)` contre `off = floor(0,7b)` colle 6/6, et elle est meme
+structurelle** -- `frac(0,3b) + frac(0,7b) = 1` des que `0,3b` n'est pas entier, donc l'ecart vaut
+1 TOUJOURS. **Ce n'est pas pour autant le diagnostic**, et le dire serait fitter un scalaire : le
+moteur ne travaille pas en `floor` mais en **Fix64** avec `Round(., AwayFromZero)`
+(`engine/services/damage_modifiers.py`, `apply_pct_entries`). L'identite DECRIT le symptome.
+
+Foyer a instruire en premier : la materialisation INTERMEDIAIRE de
+`IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers`, que
+`IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` appelle **deux
+fois** (face attaquant puis face defenseur) avec un `Round` **inconditionnel** des que le
+`Nullable<DamageModifiers>` correspondant `HasValue` -- y compris a multiplicateur neutre. C'est
+exactement le foyer de **#446-r2**, qui y avait mesure un `-1` par coup, de signe oppose.
+
+### `test_nightshroud_combat_live.py` -- **PORT ou MONTAGE, a TRANCHER**
+
+```
+off =[180, 180, 112, 158, 240, 183]
+live=[250, 212, 168, 122, 220, 221]
+```
+
+Ecarts **non monotones**, et le 4e coup est **INVERSE** (offline > live). Une divergence de formule
+donnerait un signe constant ; ici la signature ressemble a un desalignement (ordre des coups, cible,
+ou flux RNG qui a diverge). **Ne pas conclure sans decomposer par etage.**
+
+Ce fichier est le porteur du **trou B** : valide **bit-exact** par `51a16cba` (2026-07-12), touche
+depuis uniquement par `5fa788b7` et `6c112458` (deux refactors de masse), **ROUGE** au balayage.
+Personne ne l'a casse dans un diff qui le contenait.
+
+### `test_damage_catalog_live.py` -- **MONTAGE**
+
+```
+[error] --p-units: hors pool / non spawnables au rank 17: ['adeptSmnGeminaeSuperia']
+        pool = 97 units (voir `build --list-pool`)
+```
+
+`_catalog_units()` trie les candidats et prend `cands[:4]`. Le tri etant alphabetique, la tete est
+`adeptSmn*` (un **SUMMON** -- il arrive en bataille par son summoner, jamais par `--p-units`) puis
+`admecBoss*` (**npc**). **Aucun filtre de spawnabilite** : les 4 parametres du regime par defaut
+sont tous non spawnables, donc le fichier ne peut que rougir. La gate de confrontabilite du
+`CLAUDE.md` n'est pas appliquee au choix de l'echantillon.
+
+### `test_pick_randomly_one_rng_live.py` -- **ATTENTE PERIMEE**
+
+```
+AssertionError: residu smite {1: 0, 2: 0} != 1 tirage par volet splash (attendu, cf. docstring).
+S'il a bouge, le resolve slot-8 a ete porte (bonne nouvelle) ou un autre etage a change.
+```
+
+Le test fige un **GAP CONNU** (1 tirage residuel) ; le residu est passe a **0**. L'auteur avait
+anticipe les deux lectures. A trancher : soit le resolve slot-8 a ete porte -- l'attente est
+perimee et se met a jour ; soit un etage a cesse de consommer du RNG -- c'est une regression. Le
+message ne permet pas de choisir, et c'est exactement la forme #533 (vrai sur le fait, muet sur la
+cause).
 
 <!-- VENTILATION -->
+
+**Repartition provisoire** : 1 PORT, 1 PORT/MONTAGE a trancher, 1 MONTAGE, 1 attente perimee.
+Aucun **HARNAIS/COLLECTE** -- coherent avec le balayage `--collect` exhaustif (0 erreur sur 533).
 
 ---
 
