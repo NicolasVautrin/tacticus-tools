@@ -172,6 +172,11 @@ réfutée par la mesure. Le seuil affiché par le kit (`movement: 3`) n'est **pa
 
 ## 8. Ce que la tranche ne mirror PAS, nommément
 
+* **La branche VOLANTE elle-même** (`IsLikeFlying` → distance) est portée mais **NON CONFRONTÉE** :
+  les trois bras du §6 sont tous des MARCHEURS. Elle n'a pas le `+1`, donc à gate égal un volant
+  doit franchir **3** hexes là où un marcheur en franchit **2** — l'écart d'un pas que la mesure
+  actuelle ne discrimine pas. Canal qui l'établirait : greffe sur un porteur `Flying`/`Burrow` du
+  pool, mêmes trois bras (`#448-r1-r1-r1`).
 * **Le second bras d'`IsLikeFlying`** (`options.<+0x8> == 3`) : la struct `options` d'`Execute`
   n'est pas modélisée et aucun call-site du port ne la pose.
 * **`path` vs `connectedPath`** : le natif tire `movementSteps` de `path` (8e out-param de
