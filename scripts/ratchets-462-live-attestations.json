@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785782102,
+ "_ecrit_le": 1785784004,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -1818,18 +1818,16 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_pick_randomly_one_rng_live.py": {
-   "_at": 1785763651,
-   "_blob": "36fa64dab655b470e912a6a375e28bcabb12699b",
-   "_commit": "69b328f5ee763868255198227f0a50a613b7a0f4",
+   "_at": 1785784004,
+   "_blob": "808b99ee81839f26e60f8205d2d76c11322681b9",
+   "_commit": "511fc1736ab5ebb655ec2bf91b22814872128477",
    "error": 0,
-   "failed": 1,
-   "messages": [
-    "test_pick_randomly_one_rng_live.py::test_main_attack_alone_is_exact_and_names_the_remaining_gap -- AssertionError: residu smite {1: 0, 2: 0} != 1 tirage par volet splash (attendu, cf. docstring). S'il a bouge, le resolve slot-8 a ete porte (bonne nouvelle) ou un autre etage a change. assert {1: 0, 2: 0} == {1: 1, 2: 1}      Differing items:   {1: 0} != {1: 1}   {2: 0} != {2: 1}   Use -v to get mo"
-   ],
-   "passed": 14,
-   "sec": 44.8,
+   "failed": 0,
+   "messages": [],
+   "passed": 15,
+   "sec": 46.1,
    "skipped": 0,
-   "verdict": "ROUGE",
+   "verdict": "VERT",
    "xfailed": 0
   },
   "tests/engine/runner/test_pick_randomly_rng_live.py": {
@@ -1858,18 +1856,16 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_placement_sort_rng_live.py": {
-   "_at": 1785765555,
-   "_blob": "83ced0e895121ceec61c6819c7775a17b68a17dc",
-   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "_at": 1785784004,
+   "_blob": "5183141d42fc8ad05d28119e5ab49ec3918b86eb",
+   "_commit": "511fc1736ab5ebb655ec2bf91b22814872128477",
    "error": 0,
-   "failed": 1,
-   "messages": [
-    "test_placement_sort_rng_live.py::test_previous_model_would_be_red_here[scarabhive] -- AssertionError: scarabhive : le modele d'avant rend 10 genrand pour 10 live -- il devrait SUR-tirer (1 par tuile placee). S'il ne sur-tire plus, le pool du scenario est tombe a 1 (re-crafter la geometrie : le scenario n'est plus discriminant). assert 10 > 10"
-   ],
-   "passed": 17,
-   "sec": 47.3,
+   "failed": 0,
+   "messages": [],
+   "passed": 22,
+   "sec": 55.8,
    "skipped": 0,
-   "verdict": "ROUGE",
+   "verdict": "VERT",
    "xfailed": 0
   },
   "tests/engine/runner/test_plague_wind_live.py": {
@@ -2634,18 +2630,16 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_valkyrie_strike_targeting_live.py": {
-   "_at": 1785768831,
-   "_blob": "693907042e1601ceabb65a2124216be25fe78277",
-   "_commit": "3b34a6ffe5bbadb4c98bfb66997797d28cdce1fe",
+   "_at": 1785784004,
+   "_blob": "36482ad24c2c59b4962e0f9ad230babda25a1385",
+   "_commit": "511fc1736ab5ebb655ec2bf91b22814872128477",
    "error": 0,
-   "failed": 1,
-   "messages": [
-    "test_valkyrie_strike_targeting_live.py::test_valkyrie_strike_targeting_mask_matches_native -- AssertionError: le masque prive de `TargetIsTile` devrait faux-accepter les 6 lignes refusees, il n'en faux-accepte que 0 assert 0 == 6  +  where 0 = len([])  +  and   6 = len(['nowalk:0,6', 'nowalk:1,7', 'nowalk:2,4', 'nowalk:3,2', 'nowalk:3,8', 'nowalk:4,6'])"
-   ],
-   "passed": 0,
-   "sec": 33.1,
+   "failed": 0,
+   "messages": [],
+   "passed": 1,
+   "sec": 3.4,
    "skipped": 0,
-   "verdict": "ROUGE",
+   "verdict": "VERT",
    "xfailed": 0
   },
   "tests/engine/runner/test_vigilance_eternal_live.py": {
