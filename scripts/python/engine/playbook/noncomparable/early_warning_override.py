@@ -5,6 +5,7 @@ from __future__ import annotations
 import hexgeo
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
+from engine.services import ability_range as ar
 from engine.services import battle_query as bqs
 
 from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
@@ -111,24 +112,37 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
       `GetDistance <= 1`, et 0 est impossible entre deux unites vivantes distinctes).
     - IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.ctor = `NonComparablePlaybook(0x435)` -> 1er arg=ability_id ; PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
 
-    FLAGS VALIDATEUR -- le CONTENU des deux branches reste approxime (leur PARTAGE, lui, est porte) :
-      * **branche A**, residu `#433-r4-r2-r1`. `IsTileInRangeOfAnyAbility` (slot0xc5) est approxime
-        par `dist(P,E) <= portee_arme_max(E)`. Le natif, lu :
-        `if (GetFeetCount(unit) > 1) return true ; return slot0xe(<this+0x20>, unit,
-        OrderedSet{GetMainTile(unit)}, true).Contains(tile)` -- donc MOUVEMENT et LoS compris.
-        MESURE LIVE (`--step partition`, `tauMarksman`, arme de portee 3) : le natif rend « en
-        portee » jusqu'a `d = 5` inclus, et il EXCLUT une tuile a `d = 5` que ses voisines de meme
-        distance incluent (LoS/elevation). L'approximation est donc fausse des `d > portee`, dans
-        les DEUX sens. Elle reste exacte tant que `d <= portee`.
-      * **branche B**, residu `#433-r4-r2-r2`. Le `threshold` est IDENTIFIE : slot0xb3 =
-        `IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon`, dont le champ `Nullable<int>` a
-        `+0x24` est la PORTEE de l'arme a distance (`?? 1` = melee). Le port fixe encore `1`.
-        MESURE LIVE : ennemi PLAT `tauMarksman`, bonus natif `0` a `d <= 3` et `50` a `d = 4` --
-        c'est-a-dire `d > 3`, sa portee, et non `d > 1`.
-        ⚠ Consequence a garder en tete : une fois ce residu ferme, `threshold` vaudra la portee de
-        l'arme a distance, soit la MEME valeur que `portee_arme_max` pour toute unite a une seule
-        arme a distance. Les deux branches du PORT deviendront alors identiques, et le partage A/B
-        ne sera plus observable dans le port tant que `#433-r4-r2-r1` n'est pas ferme lui aussi."""
+    LE CONTENU DES DEUX BRANCHES (#433-r4-r2-r1 et -r2, FERMES ENSEMBLE). Les fermer separement
+    aurait produit un port DEGENERE : `threshold` (branche B) et l'ancienne approximation de la
+    branche A (`portee d'arme max`) sont NUMERIQUEMENT egales sur toute unite a une seule arme a
+    distance -- le partage A/B aurait cesse d'etre observable dans le port. Ils interrogent
+    desormais DEUX fonctions natives distinctes, dont les valeurs DIFFERENT :
+
+      * **branche A** -- `IsTileInRangeOfAnyAbility` (slot 0xc5), foyer
+        `engine.services.ability_range.is_tile_in_range_of_any_ability`. Le slot `0xe` du service
+        `attack` a `BattleQuery+0x20` est LU : c'est
+        `IdunBattle.Core.Services.AttackQuery$$GetAllTilesInAbilityRange(unit,
+        {GetMainTile(unit)}, includeNormalAttack: true)`. **AUCUN mouvement** n'y entre (l'ensemble
+        de positions est le SINGLETON de la tuile courante) -- la fiche heritee de `#433-r4-r2` §7
+        annoncait « MOUVEMENT et LoS compris », ce que la lecture du slot REFUTE. Ce qui porte a
+        `d = 5` sur `tauMarksman` (arme de portee 3) est son ability `SeekerMissileFrequencyLock`,
+        dont le `TargetingRange` est `RANGE_FROM_CONFIG` et le `constants.range` vaut 5.
+        MESURE (`probe_433_r4_r2_r1_ability_range.py --step seam`, sweep de 40 positions,
+        `d = 2..10`) : le natif rend « en portee » EXACTEMENT jusqu'a `d <= 5`, sans exception.
+      * **branche B** -- `threshold(E) = FindRangedWeapon(E).Range ?? 1` (slot 0xb3), foyer
+        `engine.services.battle_query.find_ranged_weapon` (deja porte 1:1). MESURE : ennemi PLAT
+        `tauMarksman`, bonus natif `0` a `d <= 3` et `50` a `d = 4` -- `d > 3`, sa portee d'ARME.
+
+    Sur ce meme `tauMarksman` les deux branches valent donc 5 et 3 : elles sont SEPAREES.
+
+    RESIDUS de la branche A, NOMMES et mesures (cf. `docs/rl/case-433-r4-r2-r1-r2-portees.md`) :
+      * le court-circuit `GetFeetCount(unit) > 1 -> true` n'est pas atteignable cote DECISION (aucun
+        canal ne publie le compte de pieds) -> le port passe `feet_count = 1` ;
+      * `UseWholeBoard` et `CustomRange(GetRange)` rendent la portee non derivable -> l'ability ne
+        verse RIEN (borne INFERIEURE), ce que la mesure `astraDreir` (`LeadingTheCharge`,
+        whole-board) confirme : le natif rend « hors portee » des `d >= 2` ;
+      * la ZONE est modelisee par un DISQUE de rayon `max(portees)` : ni LoS, ni forme, ni les
+        gates par ability du natif (`GetInvalidCasterReason`, `CanCurrentlyBeUsed`)."""
     ABILITY_ID = int(ActiveAbilityType.EarlyWarningOverride)  # 1077
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor = Fix64(1) -> admission Bucket util>=1
     #                       CONTESTE, residu `#433-r4-r2-r3` : le Bucket de CE playbook est construit
@@ -140,9 +154,16 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
     _NEAREST_GATE = 9     # slot0x6c(nearest,self) < 9 (gate GetNearestEnemy IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable)
 
     def enemies_of(self, ctx: NCContext) -> list:
-        """`GetAllAliveUnits(null)` filtre `IsEnemy` -> `[(tuile, portee d'arme max)]`."""
-        out = [(e.get("pos"), _enemy_max_range(e.get("visualId"))) for e in (ctx.enemies or [])]
-        return [((p["col"], p["row"]), rg) for (p, rg) in out
+        """`GetAllAliveUnits(null)` filtre `IsEnemy` -> `[(tuile, visualId, threshold)]`.
+
+        Les DEUX termes de branche sont pre-calcules PAR ENNEMI parce qu'ils sont tous les deux
+        position-INDEPENDANTS (ils ne lisent que le kit de l'ennemi et sa tuile COURANTE), la ou
+        `utility_at` est evalue par POSITION du caster :
+          * `visualId` -> substrat de la branche A (`is_tile_in_range_of_any_ability`, qui derive
+            l'union des portees du kit -- cache par `visual_id` cote `services.ability_range`) ;
+          * `threshold` -> branche B (`FindRangedWeapon(E).Range ?? 1`)."""
+        out = [(e.get("pos"), e.get("visualId")) for e in (ctx.enemies or [])]
+        return [((p["col"], p["row"]), vid, _ranged_weapon_threshold(vid)) for (p, vid) in out
                 if p and p.get("col") is not None]
 
     def adjacent_at_origin(self, ctx: NCContext, enemies: list) -> set:
@@ -157,7 +178,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         jamais une adjacence a l'aveugle)."""
         if ctx.origin is None:
             return set()
-        return {ep for (ep, _) in enemies
+        return {ep for (ep, _vid, _thr) in enemies
                 if bq.are_entities_adjacent(ctx.origin, ep, ctx.elev_by_pos)}
 
     def utility_at(self, P: tuple, enemies: list, adj_origin: set) -> float:
@@ -165,15 +186,21 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
 
         Extrait de `generate_candidates` pour etre CONFRONTABLE POSITION PAR POSITION a l'oracle
         `ncEvaluate` (qui invoque `Evaluate(unit, UnitPosition, tiles)` une fois par tuile et rend
-        l'utilite du Bucket) -- comparer les seuls argmax laisserait passer un desaccord compense."""
+        l'utilite du Bucket) -- comparer les seuls argmax laisserait passer un desaccord compense.
+
+        Les deux branches interrogent desormais DEUX fonctions natives DISTINCTES -- c'est ce qui
+        rend leur partage observable dans le port (cf. l'avertissement de `#433-r4-r2-r2`) :
+        `IsTileInRangeOfAnyAbility` lit l'union des portees du KIT (attaque normale + abilities),
+        `FindRangedWeapon` la seule portee de l'arme A DISTANCE. Sur `tauMarksman` (arme 3, ability
+        `SeekerMissileFrequencyLock` de portee 5) elles valent respectivement 5 et 3."""
         u = 0.0
-        for (ep, rg) in enemies:
+        for (ep, vid, thr) in enemies:
             d = hexgeo.distance(P, ep)
-            if ep not in adj_origin:            # branche A : +50 si P hors de portee de E
-                if d > rg:
+            if ep not in adj_origin:            # branche A : +50 si P hors de la zone d'ability de E
+                if not ar.is_tile_in_range_of_any_ability(ep, P, vid):
                     u += self._COVER_BONUS
-            else:                               # branche B : +50 si d > threshold (defaut 1)
-                if d > 1:
+            else:                               # branche B : +50 si `threshold(E) < d`
+                if thr < d:
                     u += self._COVER_BONUS
             u -= self._DIST_PENALTY * d
         return u
@@ -202,7 +229,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         # GATE : nearest enemy within 9 de l'ORIGINE (slot0x4a=GetNearestEnemy, position-independant).
         origin = ctx.origin
         if origin is not None:
-            nearest = min(hexgeo.distance(origin, ep) for (ep, _) in enemies)
+            nearest = min(hexgeo.distance(origin, ep) for (ep, _vid, _thr) in enemies)
             if nearest >= self._NEAREST_GATE:
                 return []
         # ennemis adjacents a l'ORIGINE (caster tuile courante) -> branche B ; sinon branche A.
