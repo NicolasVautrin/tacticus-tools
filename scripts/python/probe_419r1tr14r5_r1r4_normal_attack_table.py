@@ -210,7 +210,7 @@ def run_table(rpc, build, verbose: bool = True) -> list:
     got = normal_attack_by_unit(rpc, rid_n)
     for vis, passive in NATURAL.items():
         rows.append(_row("natural", vis, passive,
-                         CNA.CUSTOM_NORMAL_ATTACK_BY_PASSIVE[passive], got.get(vis)))
+                         _expected(passive), got.get(vis)))
     for vis in NATURAL_CTRL:
         rows.append(_row("natural-ctrl", vis, None, GENERIC_NORMAL_ATTACK, got.get(vis)))
 
@@ -223,7 +223,7 @@ def run_table(rpc, build, verbose: bool = True) -> list:
     got = normal_attack_by_unit(rpc, rid_g)
     for vis, passive in GRAFT.items():
         rows.append(_row("graft", vis, passive,
-                         CNA.CUSTOM_NORMAL_ATTACK_BY_PASSIVE[passive], got.get(vis)))
+                         _expected(passive), got.get(vis)))
     rows.append(_row("graft-ctrl", GRAFT_CTRL, None, GENERIC_NORMAL_ATTACK, got.get(GRAFT_CTRL)))
 
     if verbose:
@@ -232,6 +232,16 @@ def run_table(rpc, build, verbose: bool = True) -> list:
                   f"natif={str(r['native']):<34} attendu={r['expected']:<34} "
                   f"{'OK' if r['ok'] else 'MISMATCH'}")
     return rows
+
+
+def _expected(passive: str) -> str:
+    """Ce que la table PORTEE annonce pour ce passif -- ou le marqueur `<absent de la table>`.
+
+    ⚠ Volontairement un `.get`, pas un `[]` : une entree RETIREE de la table doit produire un
+    MISMATCH assertionnel dans la garde, pas un `KeyError` qui ferait ERROR la fixture. Un rouge de
+    fixture est un rouge, mais il ne dit pas CE QUI a bouge -- et c'est justement ce que ce fichier
+    doit dire."""
+    return CNA.CUSTOM_NORMAL_ATTACK_BY_PASSIVE.get(passive) or "<absent de la table portee>"
 
 
 def _row(arm, unit, passive, expected, native) -> dict:
@@ -269,8 +279,7 @@ def run_order(sid, rpc, build, verbose: bool = True) -> dict:
                             "--a-units", f"{P5.G_TARGET},{P5.G_FOE1}",
                             "--unit-stat", stats, "--seed-bc", seed_bc])
     got = normal_attack_by_unit(rpc, rid)
-    want_host = CNA.CUSTOM_NORMAL_ATTACK_BY_PASSIVE[ORDER_FIRST]
-    want_recip = CNA.CUSTOM_NORMAL_ATTACK_BY_PASSIVE[ORDER_SECOND]
+    want_host, want_recip = _expected(ORDER_FIRST), _expected(ORDER_SECOND)
     rows = [_row("order-first", ORDER_HOST, f"[{ORDER_FIRST},{ORDER_SECOND}]", want_host,
                  got.get(ORDER_HOST)),
             _row("order-recip", ORDER_RECIPROCAL, f"[{ORDER_SECOND},{ORDER_FIRST}]", want_recip,
@@ -306,18 +315,36 @@ def run_order(sid, rpc, build, verbose: bool = True) -> dict:
 
 # --------------------------------------------------------------------------- volet TRAITS
 
-def _port_normal_ids(rpc, rid: int, uid: int) -> set:
+@contextlib.contextmanager
+def no_trait_gate():
+    """COUPE la garde des traits dans la voie OFFLINE -- `has_normal_attack` rend `True` quoi qu'il
+    arrive, c.-a-d. STRICTEMENT le comportement d'avant #419-r1-tr14-r5-r4. C'est la mutation qui
+    doit MORDRE sur le bras `trait` : sans elle, un vert du volet ne prouverait pas que la garde est
+    ce qui le produit (l'unite pourrait n'avoir aucune arme, ou le montage etre mort)."""
+    from engine.ai import state_bridge as SB
+    saved = SB.has_normal_attack
+    SB.has_normal_attack = lambda traits: True
+    try:
+        yield
+    finally:
+        SB.has_normal_attack = saved
+
+
+def _port_normal_ids(rpc, rid: int, uid: int, gated: bool = True) -> set:
     """`normal_ids` de la voie OFFLINE (`state_bridge.build_from_state`) -- la seule des deux faces
     a DERIVER l'existence de l'attaque normale ; la voie LIVE la lit dans `decisionView`."""
     from engine.ai.state_bridge import build_from_state
     from engine.runner.snapshot import load_state
-    from engine.entities.board import Board
+    from engine.entities.pathfinding.board import Board
     dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 4}, 300)
     ob = rpc("observeBattle", {"runnerId": rid}, 120)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 120)
     bg = rpc("boardGraph", {"runnerId": rid}, 120)
     st = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
-    return set(build_from_state(st, uid).normal_ids or ())
+    if gated:
+        return set(build_from_state(st, uid).normal_ids or ())
+    with no_trait_gate():
+        return set(build_from_state(st, uid).normal_ids or ())
 
 
 def run_traits(rpc, build, verbose: bool = True) -> list:
@@ -341,20 +368,24 @@ def run_traits(rpc, build, verbose: bool = True) -> list:
                 raise MontageError(f"montage NON INSTALLE : {vis} absent du board (bras {arm})")
             uid = id_by_vis.get(vis)
             port = _port_normal_ids(rpc, rid, uid) if uid is not None else None
+            # CONTRE-EPREUVE : garde COUPEE = le port d'avant #419-r1-tr14-r5-r4.
+            ungated = _port_normal_ids(rpc, rid, uid, gated=False) if uid is not None else None
             rows.append({"arm": arm, "unit": vis, "trait": trait,
                          "native": None if got[vis] is None else got[vis][1],
                          "port_normal_ids": sorted(port or ()),
+                         "port_ungated": sorted(ungated or ()),
                          "expect_native": arm == "ctrl"})
         # CONTROLE : une unite du MEME bras SANS le trait garde son attaque normale -- sans lui, un
         # bras `trait` qui aurait casse le montage entier se lirait comme un succes.
         rows.append({"arm": arm, "unit": "astraBullgryn", "trait": None,
                      "native": None if got.get("astraBullgryn") is None
                                else got["astraBullgryn"][1],
-                     "port_normal_ids": None, "expect_native": True})
+                     "port_normal_ids": None, "port_ungated": None, "expect_native": True})
     if verbose:
         for r in rows:
             print(f"  [{r['arm']:<5}] {r['unit']:<16} trait={str(r['trait']):<10} "
-                  f"natif={str(r['native']):<20} port_normal_ids={r['port_normal_ids']} "
+                  f"natif={str(r['native']):<20} port={r['port_normal_ids']} "
+                  f"garde-coupee={r['port_ungated']} "
                   f"(attaque normale attendue : {'OUI' if r['expect_native'] else 'NON'})")
     return rows
 

@@ -180,3 +180,27 @@ def test_le_port_offline_suit_la_garde_des_traits(trait_rows):
             assert r["port_normal_ids"], (
                 f"bras `ctrl`, {r['unit']} sans le trait : normal_ids VIDE -- la garde deborde sur "
                 f"des unites qui ont bel et bien une attaque normale")
+
+
+def test_contre_epreuve_garde_des_traits_mord(trait_rows):
+    """(6bis) Garde COUPEE (`has_normal_attack` -> True), c.-a-d. le port d'AVANT
+    #419-r1-tr14-r5-r4 : sur le bras `trait` il REDONNE une attaque normale. Si la mutation est
+    inerte, le vide de (6) vient d'autre chose que la garde -- unite sans arme, montage mort -- et
+    le fichier serait un vert creux."""
+    trait = [r for r in trait_rows if r["arm"] == "trait" and r["port_ungated"] is not None]
+    assert trait, "aucune mesure du bras `trait` -- le montage n'a rien exerce"
+    for r in trait:
+        assert r["port_ungated"], (
+            f"{r['unit']} porte `{r['trait']}` : garde COUPEE, le port rend toujours "
+            f"normal_ids={r['port_ungated']} (vide) -- la contre-epreuve est INERTE, ce n'est donc "
+            f"pas la garde qui produit le vide mesure par (6)")
+        assert r["port_ungated"] != r["port_normal_ids"], (
+            f"{r['unit']} : garde armee et garde coupee rendent la MEME chose "
+            f"({r['port_normal_ids']}) -- la garde ne mord pas")
+    # RECIPROQUE : sur le bras `ctrl`, couper la garde ne doit RIEN changer (aucun trait
+    # suppresseur). Un fix qui deborderait sur des unites ordinaires le ferait rougir.
+    for r in (x for x in trait_rows if x["arm"] == "ctrl" and x["port_ungated"] is not None):
+        assert r["port_ungated"] == r["port_normal_ids"], (
+            f"bras `ctrl`, {r['unit']} : couper la garde change normal_ids "
+            f"({r['port_normal_ids']} -> {r['port_ungated']}) alors qu'aucun trait suppresseur "
+            f"n'est pose -- la garde mord la ou elle ne devrait pas")
