@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hexgeo
+from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, NonComparablePlaybook, _unit_cfg, _sweep_origin_first
@@ -31,14 +32,39 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
     `GetEligibleTargetsSelectable(MainTile=P)` (= SOI) ; pour la cible eligible :
       GATE : nearest = slot0x49 `GetNearestEnemy(self)` ; si `dist(nearest, self) < 9` (slot0x6b, dist des
              tuiles COURANTES = position-INDEPENDANT) -> evalue, sinon skip (pas d'action).
-      UTIL(P) = 0 ; POUR CHAQUE unite vivante ennemie E (slot0x88 `GetAllAliveUnits` + filtre `IsEnemy`) :
-        d = dist(P, E)                                            (slot0x6b = hexdist, CONFIRME LIVE)
+      UTIL(P) = 0 ; POUR CHAQUE unite vivante ennemie E (slot0x89 `GetAllAliveUnits` + filtre `IsEnemy`) :
+        d = dist(P, E)                                            (slot0x6c = hexdist, CONFIRME LIVE)
         si CASTER (tuile COURANTE=origine) PAS adjacent a E :
-            si NON `IsTileInRangeOfAnyAbility(P, E)` (slot0xc4)   -> util += 50   (P hors de portee de E)
+            si NON `IsTileInRangeOfAnyAbility(P, E)` (slot0xc5)   -> util += 50   (P hors de portee de E)
         sinon (caster deja adjacent a E) :
-            si `threshold(E) < d`  (threshold = slot0xb2(E).Nullable ?? 1)  -> util += 50   [branche B]
+            si `threshold(E) < d`  (threshold = slot0xb3(E).Nullable ?? 1)  -> util += 50   [branche B]
         util -= d * 10
       GenerateAction(P, SOI, Fix64(util)) + Bucket.AddAction (argmax STRICT `>`, keep-first au tie).
+
+    LA PRIMITIVE D'ADJACENCE, LUE (#433-r4-r2). Le test « caster adjacent a E » est, VERBATIM :
+
+        casterTile = EntityExtensions.GetMainTile(caster, state)        # tuile REELLE, pas P
+        otherTiles = EntityExtensions.GetTiles(otherUnit, state)
+        adj        = TileExtensions.IsAdjacentTo(casterTile, otherTiles)
+
+    -- la surcharge `(tile, otherTiles)` d'`IdunBattle.Entities.TileExtensions$$IsAdjacentTo`, qui
+    est un `exists` sur la liste dont chaque paire passe par
+    `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent` (surcharge SCALAIRE) :
+    `(|dElev| < 2) & (t1 == t2 || ConnectivityComponent.IsNeighbour(t1, t2))`. Ce N'EST donc PAS
+    `TileQuery$$IterateAdjacentTiles`, et surtout ce n'est pas une distance hex nue : la PORTE
+    D'ELEVATION en fait partie. Foyer mirror = `battle_query.are_entities_adjacent`.
+
+    Le terme d'identite (`t1 == t2`) y est INATTEIGNABLE (tuile du caster vs tuiles d'un ennemi
+    VIVANT distinct) ; c'est la porte d'elevation qui mord, et elle bascule le consommateur d'une
+    BRANCHE A L'AUTRE -- ce qui n'est PAS monotone cote natif : passer de B a A rend l'utilite plus
+    petite quand `range(E) >= 2` (A exige `d > range` la ou B se contente de `d > 1`), et plus
+    GRANDE quand E porte un `threshold` slot0xb3 superieur a 1 face a un E de melee. Le port ne
+    modelise que `threshold = 1` (defaut `Nullable ?? 1`), donc de SON cote la bascule est
+    restrictive ; le bras permissif reste NATIF-seul tant que slot0xb3 n'est pas identifie.
+
+    RESIDU herite (#419-r1-tr10-r2) : le natif compare la tuile principale du caster aux tuiles
+    de l'EMPREINTE COMPLETE de l'ennemi (`GetTiles`) ; le port collapse l'ennemi sur sa tuile
+    principale. Ecart sur les seules unites MULTI-TUILES, non traite ici.
 
     RECONCILIATION LIVE (ncEvaluate, seed 54321 s9 u77 tauCrisis, board MC1_67) : util(P) colle AU BIT
     a `200 - 10*Sum(dist(P,E))` sur les 4 ennemis vivants team-1 {(3,2),(2,3),(3,3),(2,4)} = 50*4 - 10*Sd
@@ -99,10 +125,13 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
             if nearest >= self._NEAREST_GATE:
                 return []
         # ennemis adjacents a l'ORIGINE (caster tuile courante) -> branche B ; sinon branche A.
+        # `TileExtensions$$IsAdjacentTo(GetMainTile(caster), GetTiles(E))` -> foyer mirror
+        # `are_entities_adjacent` (= `MovementUtil$$AreTilesAdjacent` : identite + porte
+        # d'elevation `|dElev| < 2`). Une distance hex nue ratait la porte (#433-r4-r2).
         adj_origin = set()
         if origin is not None:
             for (ep, _) in enemies:
-                if hexgeo.distance(origin, ep) == 1:
+                if bq.are_entities_adjacent(origin, ep, ctx.elev_by_pos):
                     adj_origin.add(ep)
         best_p, best_u = None, None
         for P in _sweep_origin_first(ctx):        # ORIGINE-FIRST + keep-first (strict >)

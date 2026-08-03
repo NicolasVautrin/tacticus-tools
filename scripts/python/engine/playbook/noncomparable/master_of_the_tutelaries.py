@@ -34,9 +34,10 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
       ne compte PAS (nE2=0 avec un seul ennemi au contact -> PAS de cast).
     - `nFree(ST)` = tuiles libres adjacentes a la TUILE DE SPAWN candidate, occupation = board COURANT
       (le caster reste a l'origine pendant le sweep) — gate STRICT nFree >= 3.
-    - `IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy` : parcourt GetAllAliveUnits, garde si `d < best` OU
-      (`AreUnitsInMelee(pos, x)` ET best pas-en-melee) — la priorite MELEE supplante la distance
-      (un ennemi hex-dist 1 avec |dElev|>=2 n'est PAS en melee). Tie = 1er enumere (ordre natif
+    - `IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy` : parcourt GetAllAliveUnits, filtre
+      `IsEnemy && !IsIrrelevantObject`, garde si `d < best` OU (`AreEntitiesAdjacent(pos, x)` ET
+      best pas-en-melee) — la priorite MELEE supplante la distance (un ennemi hex-dist 1 avec
+      |dElev|>=2 n'est PAS adjacent, donc pas prioritaire). Tie = 1er enumere (ordre natif
       GetAllAliveUnits ≈ ordre d'ids offline, residu documente).
     - Les tuiles de spawn eligibles par position T = abilityTargets kind="tile" filtre
       dist(T, ST)==1 (meme technique que AberrantHypermorphPlaybook — l'RPC rend l'UNION sur
@@ -98,10 +99,40 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
         return tiles
 
     def _nearest_enemy_tile(self, ctx: NCContext) -> "tuple | None":
-        """Mirror `IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy` : parcourt les unites vivantes ; garde si
-        `dist < best` OU (en-MELEE et best pas-en-melee). Melee = hex-adjacent AVEC porte d'elevation
-        (`AreUnitsInMelee` ~ `is_adjacent`). Ordre d'enumeration natif (GetAllAliveUnits) approxime
-        par l'ordre de `ctx.enemies`/`ctx.epos` (tie residu, a verrouiller a l'oracle)."""
+        """Mirror `IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy`, VERBATIM :
+
+            best = null ; bestD = int.MaxValue ; bestAdj = false
+            tiles = position.HasValue ? position.Value : GetUnitPosition(caster)
+            foreach (u in GetAllAliveUnits(null))
+                if (!UnitExtensions.IsEnemy(caster, u, state))       continue
+                if (UnitExtensions.IsIrrelevantObject(u))            continue
+                d   = BattleQuery.GetDistance(tiles, u)
+                adj = BattleQuery.AreEntitiesAdjacent(tiles, u)
+                if (d < bestD || (adj && !bestAdj)) { best = u ; bestAdj = adj ; bestD = d }
+            return best
+
+        LE TERME « EN MELEE » EST `AreEntitiesAdjacent`, PAS `IterateAdjacentTiles` (#433-r4-r2).
+        Le decompile appelle `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent`
+        DIRECTEMENT -- pas `$$AreUnitsInMelee` (qui est de toute facon un passe-plat d'une ligne
+        vers la meme fonction). Or `AreEntitiesAdjacent` delegue a
+        `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent` : `(|dElev| < 2) & (t1 == t2 ||
+        IsNeighbour(t1, t2))`, COURT-CIRCUIT D'IDENTITE compris. Le foyer mirror est donc
+        `battle_query.are_entities_adjacent` et NON `battle_query.is_adjacent`, qui mirrore
+        `TileQuery$$IterateAdjacentTiles` -- une primitive DIFFERENTE, qui ne rend jamais la tuile
+        source (#433-r1 §4 la designe explicitement comme contre-exemple : l'ALIGNER, elle, ferait
+        compter chaque unite comme sa propre voisine).
+
+        ECART OBSERVABLE DU RE-POINTAGE : AUCUN, et par COMPOSITION. Les deux foyers ne different
+        que par le court-circuit d'identite, atteint ssi les deux operandes designent la MEME tuile
+        -- ici la tuile du caster et celle d'un ennemi VIVANT distinct, que l'occupation exclusive
+        du plateau rend disjointes. La porte d'elevation, elle, etait deja portee des deux cotes
+        (`is_adjacent` la porte, et `are_entities_adjacent` la lui delegue). Le re-pointage est
+        pose par FIDELITE, pas parce qu'un regime l'exige.
+
+        RESIDUS NOMMES, non traites ici : le filtre `IsIrrelevantObject` n'est pas porte (ordre
+        `ctx.epos`) ; le natif compare des EMPREINTES (`GetUnitPosition(caster)` x `GetTiles(u)`)
+        la ou le port compare deux tuiles principales (#419-r1-tr10-r2) ; l'ordre d'enumeration
+        natif (`GetAllAliveUnits`) est approxime par l'ordre de `ctx.epos` (tie residu)."""
         if ctx.origin is None:
             return None
         best = None
@@ -110,7 +141,7 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
         for p in (ctx.epos or []):
             pk = (p[0], p[1])
             d = hexgeo.distance(ctx.origin, pk)
-            melee = bq.is_adjacent(ctx.origin, pk, ctx.elev_by_pos)
+            melee = bq.are_entities_adjacent(ctx.origin, pk, ctx.elev_by_pos)
             if best_d is None or d < best_d or (melee and not best_melee):
                 best, best_d, best_melee = pk, d, melee
         return best
