@@ -30,7 +30,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
     Structure native (mirror EvaluateNonComparable) : Bucket ctor 2-arg, min = Fix64(1) (IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor
     pose `**(DAT_1832106c0+0xb8)=Fix64(1)` -> MIN_UTILITY=1). Par position P balayee, enumere
     `GetEligibleTargetsSelectable(MainTile=P)` (= SOI) ; pour la cible eligible :
-      GATE : nearest = slot0x49 `GetNearestEnemy(self)` ; si `dist(nearest, self) < 9` (slot0x6b, dist des
+      GATE : nearest = slot0x4a `GetNearestEnemy(self)` ; si `dist(nearest, self) < 9` (slot0x6c, dist des
              tuiles COURANTES = position-INDEPENDANT) -> evalue, sinon skip (pas d'action).
       UTIL(P) = 0 ; POUR CHAQUE unite vivante ennemie E (slot0x89 `GetAllAliveUnits` + filtre `IsEnemy`) :
         d = dist(P, E)                                            (slot0x6c = hexdist, CONFIRME LIVE)
@@ -40,6 +40,10 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
             si `threshold(E) < d`  (threshold = slot0xb3(E).Nullable ?? 1)  -> util += 50   [branche B]
         util -= d * 10
       GenerateAction(P, SOI, Fix64(util)) + Bucket.AddAction (argmax STRICT `>`, keep-first au tie).
+
+    Les six slots d'interface cites ci-dessus sont RE-DERIVES AU RUNTIME par
+    `probe_433_r4_r2_adjacency_foyer.py --step slots` (qui delegue a `probe_27_4g_battlequery_slots`)
+    -- ils ont bouge d'un cran depuis `gqfc5mff6c`, donc les recopier d'une fiche est un faux ami.
 
     LA PRIMITIVE D'ADJACENCE, LUE (#433-r4-r2). Le test « caster adjacent a E » est, VERBATIM :
 
@@ -55,12 +59,11 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
     D'ELEVATION en fait partie. Foyer mirror = `battle_query.are_entities_adjacent`.
 
     Le terme d'identite (`t1 == t2`) y est INATTEIGNABLE (tuile du caster vs tuiles d'un ennemi
-    VIVANT distinct) ; c'est la porte d'elevation qui mord, et elle bascule le consommateur d'une
-    BRANCHE A L'AUTRE -- ce qui n'est PAS monotone cote natif : passer de B a A rend l'utilite plus
-    petite quand `range(E) >= 2` (A exige `d > range` la ou B se contente de `d > 1`), et plus
-    GRANDE quand E porte un `threshold` slot0xb3 superieur a 1 face a un E de melee. Le port ne
-    modelise que `threshold = 1` (defaut `Nullable ?? 1`), donc de SON cote la bascule est
-    restrictive ; le bras permissif reste NATIF-seul tant que slot0xb3 n'est pas identifie.
+    VIVANT distinct) ; c'est la porte d'elevation qui mord, et elle BASCULE le consommateur d'une
+    BRANCHE A L'AUTRE. MESURE LIVE (`--step partition`, `MC1_67`) : meme caster, MEME tuile, meme
+    sweep, seule la tuile de l'ennemi change d'un voisin PLAT a un voisin a `|dElev| = 2` -- le
+    bonus natif a `d = 4` passe de `50` (branche B) a `0` (branche A). C'est le natif compare a
+    LUI-MEME : la porte gouverne bien le partage.
 
     RESIDU herite (#419-r1-tr10-r2) : le natif compare la tuile principale du caster aux tuiles
     de l'EMPREINTE COMPLETE de l'ennemi (`GetTiles`) ; le port collapse l'ennemi sur sa tuile
@@ -78,22 +81,80 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
     - position = argmax util (sweep ORIGINE-FIRST keep-first : l'origine gagne le tie, un move ne gagne
       que sur util STRICTEMENT superieure -- ordre confirme par les castes en place Grapnel/DarkTalon).
     - MIN_UTILITY=1 (cctor) : positions a util < 1 rejetees ; l'ability ne fire QUE si un P atteint >= 1.
-    - GATE nearest-enemy-within-9 (slot0x49=GetNearestEnemy) : modele par `min_E dist(origine,E) < 9`.
+      ⚠ CONTESTE, residu `#433-r4-r2-r3` : le Bucket de CE playbook est construit par le ctor a DEUX
+      arguments -- donc SANS `min` -- la ou `MasterOfTheTutelariesPlaybook`, lui, LIT le statique
+      `+0xb8` et le passe au ctor a quatre arguments. Et `ncEvaluate` rend bien un `best` a utilite
+      NEGATIVE a chaque position du sweep (mesure `--step couple`). Le statique existe dans les deux
+      cctors ; reste a etablir qui le lit ici (un `get_MinUtility` consomme par le generateur ?).
+    - GATE nearest-enemy-within-9 (slot0x4a=GetNearestEnemy) : modele par `min_E dist(origine,E) < 9`.
+      `min` est EXACT : la priorite melee de `GetNearestEnemy` ne peut departager que des ennemis
+      ADJACENTS, donc a distance 1 -- deja le minimum (`AreEntitiesAdjacent` implique
+      `GetDistance <= 1`, et 0 est impossible entre deux unites vivantes distinctes).
     - IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.ctor = `NonComparablePlaybook(0x435)` -> 1er arg=ability_id ; PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
 
-    FLAGS VALIDATEUR (approximations non exercees a s9) :
-      * `IsTileInRangeOfAnyAbility` (slot0xc4) approxime par `dist(P,E) <= portee_arme_max(E)` : la vraie
-        methode enumere les ranges d'ABILITY + LoS + `GetFeetCount>1 -> toujours in-range`. A s9 les 4
-        ennemis sont melee/courte-portee et loin (d>=3) -> cover=false partout, l'approx est EXACTE.
-        Un ennemi RANGED longue-portee ou GROS (multi-feet) pres du caster n'est PAS fidele.
-      * BRANCHE B (caster adjacent a un ennemi a l'origine) : threshold=slot0xb2 NON identifie ->
-        defaut Nullable??1 (`+50 si d>1`). NON exercee a s9 (tauCrisis loin des ennemis)."""
+    FLAGS VALIDATEUR -- le CONTENU des deux branches reste approxime (leur PARTAGE, lui, est porte) :
+      * **branche A**, residu `#433-r4-r2-r1`. `IsTileInRangeOfAnyAbility` (slot0xc5) est approxime
+        par `dist(P,E) <= portee_arme_max(E)`. Le natif, lu :
+        `if (GetFeetCount(unit) > 1) return true ; return slot0xe(<this+0x20>, unit,
+        OrderedSet{GetMainTile(unit)}, true).Contains(tile)` -- donc MOUVEMENT et LoS compris.
+        MESURE LIVE (`--step partition`, `tauMarksman`, arme de portee 3) : le natif rend « en
+        portee » jusqu'a `d = 5` inclus, et il EXCLUT une tuile a `d = 5` que ses voisines de meme
+        distance incluent (LoS/elevation). L'approximation est donc fausse des `d > portee`, dans
+        les DEUX sens. Elle reste exacte tant que `d <= portee`.
+      * **branche B**, residu `#433-r4-r2-r2`. Le `threshold` est IDENTIFIE : slot0xb3 =
+        `IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon`, dont le champ `Nullable<int>` a
+        `+0x24` est la PORTEE de l'arme a distance (`?? 1` = melee). Le port fixe encore `1`.
+        MESURE LIVE : ennemi PLAT `tauMarksman`, bonus natif `0` a `d <= 3` et `50` a `d = 4` --
+        c'est-a-dire `d > 3`, sa portee, et non `d > 1`.
+        ⚠ Consequence a garder en tete : une fois ce residu ferme, `threshold` vaudra la portee de
+        l'arme a distance, soit la MEME valeur que `portee_arme_max` pour toute unite a une seule
+        arme a distance. Les deux branches du PORT deviendront alors identiques, et le partage A/B
+        ne sera plus observable dans le port tant que `#433-r4-r2-r1` n'est pas ferme lui aussi."""
     ABILITY_ID = int(ActiveAbilityType.EarlyWarningOverride)  # 1077
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor = Fix64(1) -> admission Bucket util>=1
     PRIORITY = 0
     _COVER_BONUS = 50.0   # Fix64.FromInt(0x32) IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable : +50 par ennemi non-couvert / hors-portee
     _DIST_PENALTY = 10.0  # Fix64.FromInt(iVar7*10) IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable : -10 x distance par ennemi
-    _NEAREST_GATE = 9     # slot0x6b(nearest,self) < 9 (gate GetNearestEnemy IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable)
+    _NEAREST_GATE = 9     # slot0x6c(nearest,self) < 9 (gate GetNearestEnemy IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable)
+
+    def enemies_of(self, ctx: NCContext) -> list:
+        """`GetAllAliveUnits(null)` filtre `IsEnemy` -> `[(tuile, portee d'arme max)]`."""
+        out = [(e.get("pos"), _enemy_max_range(e.get("visualId"))) for e in (ctx.enemies or [])]
+        return [((p["col"], p["row"]), rg) for (p, rg) in out
+                if p and p.get("col") is not None]
+
+    def adjacent_at_origin(self, ctx: NCContext, enemies: list) -> set:
+        """Les ennemis que le natif declare adjacents a la TUILE REELLE du caster -> branche B.
+
+        `adj = TileExtensions.IsAdjacentTo(GetMainTile(caster), GetTiles(otherUnit))`, evalue sur
+        `caster` et NON sur la position balayee : le partage A/B est donc CONSTANT sur tout le
+        sweep. Le predicat par paire est `MovementUtil$$AreTilesAdjacent` -> foyer mirror
+        `battle_query.are_entities_adjacent` (identite + porte d'elevation `|dElev| < 2`).
+        Canal d'elevation absent (`ctx.elev_by_pos` None/vide) -> le foyer se degrade en distance
+        hex nue, exactement le comportement d'avant #433-r4-r2 (borne SUPERIEURE : on ne retire
+        jamais une adjacence a l'aveugle)."""
+        if ctx.origin is None:
+            return set()
+        return {ep for (ep, _) in enemies
+                if bq.are_entities_adjacent(ctx.origin, ep, ctx.elev_by_pos)}
+
+    def utility_at(self, P: tuple, enemies: list, adj_origin: set) -> float:
+        """UTIL(P) du corps natif, ennemi par ennemi (mirror de la boucle `GetAllAliveUnits`).
+
+        Extrait de `generate_candidates` pour etre CONFRONTABLE POSITION PAR POSITION a l'oracle
+        `ncEvaluate` (qui invoque `Evaluate(unit, UnitPosition, tiles)` une fois par tuile et rend
+        l'utilite du Bucket) -- comparer les seuls argmax laisserait passer un desaccord compense."""
+        u = 0.0
+        for (ep, rg) in enemies:
+            d = hexgeo.distance(P, ep)
+            if ep not in adj_origin:            # branche A : +50 si P hors de portee de E
+                if d > rg:
+                    u += self._COVER_BONUS
+            else:                               # branche B : +50 si d > threshold (defaut 1)
+                if d > 1:
+                    u += self._COVER_BONUS
+            u -= self._DIST_PENALTY * d
+        return u
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if ctx.ability_targets is None:
@@ -112,39 +173,21 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
                         self_eligible = True
         if not self_eligible:
             return []
-        # ennemis vivants (slot0x88 GetAllAliveUnits + IsEnemy) : {pos, range}.
-        enemies = [(e.get("pos"), _enemy_max_range(e.get("visualId"))) for e in (ctx.enemies or [])]
-        enemies = [((p["col"], p["row"]), rg) for (p, rg) in enemies
-                   if p and p.get("col") is not None]
+        # ennemis vivants (slot0x89 GetAllAliveUnits + IsEnemy) : {pos, range}.
+        enemies = self.enemies_of(ctx)
         if not enemies:
             return []
-        # GATE : nearest enemy within 9 de l'ORIGINE (slot0x49=GetNearestEnemy, position-independant).
+        # GATE : nearest enemy within 9 de l'ORIGINE (slot0x4a=GetNearestEnemy, position-independant).
         origin = ctx.origin
         if origin is not None:
             nearest = min(hexgeo.distance(origin, ep) for (ep, _) in enemies)
             if nearest >= self._NEAREST_GATE:
                 return []
         # ennemis adjacents a l'ORIGINE (caster tuile courante) -> branche B ; sinon branche A.
-        # `TileExtensions$$IsAdjacentTo(GetMainTile(caster), GetTiles(E))` -> foyer mirror
-        # `are_entities_adjacent` (= `MovementUtil$$AreTilesAdjacent` : identite + porte
-        # d'elevation `|dElev| < 2`). Une distance hex nue ratait la porte (#433-r4-r2).
-        adj_origin = set()
-        if origin is not None:
-            for (ep, _) in enemies:
-                if bq.are_entities_adjacent(origin, ep, ctx.elev_by_pos):
-                    adj_origin.add(ep)
+        adj_origin = self.adjacent_at_origin(ctx, enemies)
         best_p, best_u = None, None
         for P in _sweep_origin_first(ctx):        # ORIGINE-FIRST + keep-first (strict >)
-            u = 0.0
-            for (ep, rg) in enemies:
-                d = hexgeo.distance(P, ep)
-                if ep not in adj_origin:            # branche A : +50 si P hors de portee de E
-                    if d > rg:
-                        u += self._COVER_BONUS
-                else:                               # branche B : +50 si d > threshold (defaut 1)
-                    if d > 1:
-                        u += self._COVER_BONUS
-                u -= self._DIST_PENALTY * d
+            u = self.utility_at(P, enemies, adj_origin)
             if u < self.MIN_UTILITY:
                 continue                            # admission Bucket util>=1
             if best_u is None or u > best_u:        # strict > : 1re position du max gagne (keep-first)
