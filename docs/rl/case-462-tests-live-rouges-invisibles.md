@@ -179,7 +179,7 @@ Ce fichier est le porteur du **trou B** : valide **bit-exact** par `51a16cba` (2
 depuis uniquement par `5fa788b7` et `6c112458` (deux refactors de masse), **ROUGE** au balayage.
 Personne ne l'a casse dans un diff qui le contenait.
 
-### `test_damage_catalog_live.py` -- **MONTAGE**
+### `test_damage_catalog_live.py` -- **MONTAGE** (REPARE : `case-462-r4e-echantillon-non-confrontable.md`)
 
 ```
 [error] --p-units: hors pool / non spawnables au rank 17: ['adeptSmnGeminaeSuperia']
