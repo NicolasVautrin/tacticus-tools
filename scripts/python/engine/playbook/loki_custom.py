@@ -1681,6 +1681,134 @@ class TheLionsWrathPlaybook(NonAttackComparablePlaybook):
                 + hero)
 
 
+class InstrumentsOfVengeancePlaybook(NonAttackComparablePlaybook):
+    """`IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$CalculateCustomUtility` (#27-r6) :
+
+        adj = battleQuery.<slot itf 0x80>(casterPosition, caster, ignoreSteppables: false);
+        u   = adj.Any() ? 0 : 100;
+        foreach (e in battleQuery.<slot itf 0x78>(caster, casterPosition, range: 2,
+                                                  includeCenter: false))
+            if (!adj.Contains(e)) u += 20;
+        return Fix64.op_Implicit(u + 20000);
+
+    TROIS constantes EN DUR (`20000`, `100`, `20`) : ce corps n'appelle AUCUN `GetUtilityValue`, donc
+    AUCUN poids de `BC.Utilities` n'y entre -- ne pas chercher de cle a resoudre. La base `20000` est
+    d'un ordre de grandeur sans equivalent dans le reste du registre (l'utilite d'une action ordinaire
+    se compte en dizaines) : des que 1215 est LEGALE, elle est l'action la plus prioritaire du jeu, et
+    les deux autres termes ne departagent que des tuiles de cast entre elles.
+
+    LES DEUX SLOTS, ancres par les decorateurs enregistreurs (jamais recopies d'une fiche) :
+    `...RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass155_0$$u003CGetAdjacentEnemiesu003Eb__0`
+    emet le slot **0x80** = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(from, unit,
+    ignoreSteppables)` (3 arguments), et `...u003Cu003Ec__DisplayClass147_0$$u003CGetSurroundingEnemiesu003Eb__0`
+    emet le slot **0x78** = `IdunBattle.Core.Services.BattleQuery$$GetSurroundingEnemies(actor, from,
+    range, includeCenter)` (4 arguments). Les deux corps ne lisent du caster que son CAMP
+    (`IdunBattle.Entities.Components.OwnerComponent$$get_CurrentPlayerEntityId` pour le premier,
+    `IdunBattle.Entities.UnitExtensions$$IsEnemy` capture dans le predicat de
+    `Idun.Shared.Extensions.ListExtensions$$FilterInPlace` pour le second) -- ni stat, ni trait, ni
+    arme, ni portee. C'est CE fait qui rend l'ability greffable alors que son seul porteur,
+    `darkaBossLion`, est un npc (`case-92` §5bis).
+
+    ⚠ LES DEUX ENSEMBLES N'ONT PAS LA MEME GEOMETRIE, et la difference est OBSERVABLE :
+    `GetAdjacentEnemies` passe par `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`,
+    qui applique la porte d'elevation `|dElev| < 2` ; `GetSurroundingEnemies` passe par
+    `...GetSurroundingUnits` -> `IterateSurroundingTiles`, un disque hex PUREMENT geometrique
+    (`IsTileValidForList(..., checkElevation: 0)`, cf. `battle_query.is_surrounding`). Un ennemi a
+    distance hex 1 dont l'ecart d'elevation vaut >= 2 est donc DANS `surrounding` et HORS `adj` : il
+    compte `+20` **et** laisse le `+100` arme. Ecrire ce terme `20 x |ennemis a distance EXACTEMENT 2|`
+    serait un port faux dans exactement ce regime -- d'ou la composition `is_surrounding AND NOT
+    is_adjacent`, qui reproduit la difference d'ensembles du natif au lieu de la resumer.
+
+    ROUTE NON-ATTAQUE, alors que 1215 A un `damageProfile` (`constants.damageProfile = HeavyRound`,
+    `nrOfHits = 6`) : son masque EFFECTIF est `0x8004 = CasterIsPossibleTarget |
+    CasterMatchesDynamicRule` (STATIC-COPY du preset `<TargetingOptions statics>+0x280` --
+    `...InstrumentsOfVengeanceAbility$$.ctor` n'appelle AUCUN `TargetingOptions$$.ctor` ; cf.
+    `TARGETING_OPTIONS_UNPORTED[1215]`). L'ability est donc SELF-CAST : la seule cible que le natif
+    retient est le CASTER, les `attackPlans.evals` de 1215 sur les ENNEMIS rendent tous
+    `rankCount = 0`, et `_best_attack` ne peut rien produire -- exactement le critere de cette seconde
+    route (meme diagnostic que 1216 MartialExemplar et 1009 ResurrectionOrb).
+
+    DIFFERENCE AVEC 1216, et elle est PORTANTE : 1215 n'a PAS `CasterHasNotMoved(0x10)`. Le cast reste
+    donc legal APRES deplacement, et `is_caster_added` garde son defaut permissif (toutes les tuiles
+    candidates). C'est ce qui rend le terme reellement POSITION-DEPENDANT ici : le natif evalue
+    `CalculateCustomUtility` par tuile candidate dans
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`,
+    et il existe autant d'actions 1215 que de tuiles atteignables -- la ou 1216 n'en avait qu'une.
+
+    GATE NON PORTE, et c'est une MESURE, pas un oubli.
+    `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate(unit)` est la surcharge **2 arguments**
+    (slot de vtable 4, appelee UNE fois AVANT la boucle des tuiles -- a ne pas confondre avec la
+    4-args slot 6 qu'overrident 1216 et 1217, cf. `nonattack.should_evaluate`) :
+
+        return BasePlaybook.ShouldEvaluate(unit) && battleQuery.<slot itf 0x1b>(unit, 2);
+
+    * `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns(unit, 2)` **n'utilise pas son
+      parametre `unit`** : il lit la limite de tours du match (`<config>+0x18`, cle 1) moins
+      `IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEndedByPlayer(joueur courant)`,
+      et **rend `true` des que la limite est ABSENTE** (`Nullable.HasValue == 0` -> `return 1`). C'est
+      un gate GLOBAL, neutre au porteur, et le regime du runner n'a pas de limite -> le defaut
+      permissif de la route est EXACT ici. RESIDU : aucun canal offline n'expose cette limite.
+    * `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate(unit)` = `p = GetUseProbability(unit)` ;
+      `p >= 1 -> true` ; `p <= 0 -> false` ; sinon TIRAGE (`random.<slot 4>(p)`). Et
+      `...InstrumentsOfVengeancePlaybook$$GetUseProbability` rend
+      `Fix64.Zero` si `GetTurnsFinished(unit) == 0`, `Fix64.Half` si `== 1`, `Fix64.One` sinon
+      (`Fix64.<statics>` : `+0x20` One, `+0x28` Zero, `+0x30` Half). Le volet `== 1` est un TIRAGE, de
+      meme statut que `...PlasmaGrenadePlaybook$$GetUseProbability` (1/3) -- non modelisable offline.
+      Le volet `== 0`, lui, est DETERMINISTE et FAUX : le natif ne propose JAMAIS 1215 au tour ou
+      l'unite n'a encore termine aucun tour. Le port ne peut pas le mirrorer parce que
+      `turnsFinished` (`UnitComponent + 0x5c`) **n'est pas dans `decisionView`** -- seul
+      `combatSnapshot` l'expose (`frida/hooks/features/ai-step/rpc-snapshot.ts`), et il n'est PAS
+      derivable de `turnsStarted` (stat 12). ECART MESURE et NOMME (`case-27` §TRANCHE r5) : au tour
+      du build, le natif propose l'attaque normale et le moteur propose 1215. Debloqueur : exposer
+      `GetTurnsFinished` par unite dans `decisionView` (l'accesseur existe deja cote hook,
+      `ai-step/internals.ts`), puis poser le gate ici.
+
+    Porteur `darkaBossLion` [npc] -> GREFFE sur `darkaAsmodai` (Dark Angels comme lui, present dans
+    `rl_duel build --list-pool`), meme voie que 1216. La greffe ne couvre pas les stats/traits/armes du
+    vrai porteur -- legitime ICI puisque la formule n'en lit aucun."""
+    ability_id = int(ActiveAbilityType.InstrumentsOfVengeance)   # 1215 = 0x4bf
+    # CONSTANTES EN DUR du natif -- aucune n'est un `GetUtilityValue` (cf. docstring).
+    BASE_UTILITY = 20000.0                  # `Fix64.op_Implicit(u + 20000)`
+    NO_ADJACENT_ENEMY_UTILITY = 100.0       # `adj.Any() ? 0 : 100`
+    NON_ADJACENT_SURROUNDING_UTILITY = 20.0  # `if (!adj.Contains(e)) u += 20`
+    SURROUNDING_RANGE = 2                   # `GetSurroundingEnemies(..., range: 2, ...)`
+
+    def _adjacent_enemies(self, ctx, caster_tile) -> list:
+        """`battleQuery.<slot itf 0x80>(casterPosition, caster, ignoreSteppables: false)` — les ENNEMIS
+        du caster sur une tuile ADJACENTE a `caster_tile` (porte d'elevation d'`IterateAdjacentTiles`).
+        Le camp est deja resolu par `decisionView` (`ctx.enemies`), comme le
+        `CurrentPlayerEntityId` du natif."""
+        return [u for u in (ctx.enemies or [])
+                if bq.is_adjacent(caster_tile, ((u.get("pos") or {}).get("col"),
+                                                (u.get("pos") or {}).get("row")),
+                                  ctx.elev_by_pos)]
+
+    def _surrounding_enemies(self, ctx, caster_tile) -> list:
+        """`battleQuery.<slot itf 0x78>(caster, casterPosition, range: 2, includeCenter: false)` —
+        `GetSurroundingUnits(casterPosition, 2, includeCenter: false)` filtre par `IsEnemy(u, caster)`.
+        Disque hex PUR de rayon 2, centre EXCLU, SANS porte d'elevation
+        (`battle_query.is_surrounding`)."""
+        out = []
+        for u in (ctx.enemies or []):
+            p = (u or {}).get("pos") or {}
+            if p.get("col") is None or p.get("row") is None:
+                continue                       # hors plateau : sur aucune tuile du disque
+            if bq.is_surrounding(caster_tile, (p["col"], p["row"]),
+                                 self.SURROUNDING_RANGE, include_center_tile=False):
+                out.append(u)
+        return out
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        adj_ids = {u.get("id") for u in self._adjacent_enemies(ctx, caster_tile)}
+        u = self.BASE_UTILITY
+        if not adj_ids:                                     # `adj.Any() ? 0 : 100`
+            u += self.NO_ADJACENT_ENEMY_UTILITY
+        for e in self._surrounding_enemies(ctx, caster_tile):
+            if e.get("id") not in adj_ids:                  # `!adj.Contains(e)`
+                u += self.NON_ADJACENT_SURROUNDING_UTILITY
+        return u
+
+
 def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
@@ -1700,7 +1828,8 @@ def _register_all() -> None:
     # meme qu'elle a un `damageProfile` et des `attackPlans` a `rankCount > 0` : `_best_attack` gate
     # sur la seule utilite de DEGAT et ne peut donc rien produire (motif de 1009 ResurrectionOrb).
     for cls in (ChronometronPlaybook, ForwardObserversPlaybook, SorcerousFacadePlaybook,
-                MartialExemplarPlaybook, TheLionsWrathPlaybook):
+                MartialExemplarPlaybook, TheLionsWrathPlaybook,
+                InstrumentsOfVengeancePlaybook):
         register_nonattack(cls())
 
 

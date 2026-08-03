@@ -1262,7 +1262,7 @@ re-derouler la recon : elle part d'ici.
 | 22 | `IdunBattle.AI.Playbook.Loki.HealingBalms_HealPlaybook$$CalculateCustomUtility` | HealingBalms_Heal (1212) | spaceWolfPriest `Baldr` [lineup, hors catalogue seed BC -> `catalog_inject.py --units spaceWolfPriest`] | hero | **PORTE** (#27-4d) | — (les verrous annonces sont TOMBES : l'ability n'a pas besoin d'entree gameconfig — sa magnitude vient de l'ARME —, elle est GRANTED des le spawn par `HealingBalmsAbility$$CreateBehaviour` (`RemoveActiveAbility(0x12)` + `AddActiveAbility(0x4bc)`), et elle atteignait deja `_heal_candidates`) |
 | 23 | `SavageEchoesPlaybook` @1811586d0 | SavageEchoes (1230) | bloodTerminator | hero hors catalogue seed BC -> **confrontable via `catalog_inject.py`** | **PORTE** (#27-3) | — (verdicts « porteur hors pool » + « evaluateur de CONDITION manquant » des tranches 1-2 **CORRIGES** : le catalogue se complete, et la condition est un simple ratio de PV lu au decompile) |
 | 24 | `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$CalculateCustomUtility` | MortarionsPlagueWind (1093) | deathBossMortarion | npc **-> GREFFABLE** | **residu nomme (#27-r4)** | inventaire #27-r4 : `Count(UnitsWithTrait(t1+t2+t3, Psyker))` — ne lit ni stat ni trait du CASTER, donc greffable ; verrou restant = l'evaluateur DSL `UnitsWithTrait` + la chaine `AdjacentUnits` a 3 vagues |
-| 25 | `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$CalculateCustomUtility` | InstrumentsOfVengeance (1215) | darkaBossLion | npc **-> GREFFABLE** | **residu nomme (#27-r4)** | inventaire #27-r4 : `20000 + 100*[aucun ennemi adjacent] + 20*|ennemis a d=2 non adjacents|` — ne lit ni stat ni trait du CASTER ; reserve = `GetUseProbability` est un TIRAGE (0 / Half / One selon `GetTurnsFinished`) |
+| 25 | `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$CalculateCustomUtility` | InstrumentsOfVengeance (1215) | darkaBossLion | npc **-> GREFFE sur `darkaAsmodai`** | **PORTE (#27-r6)** | — (`20000 + 100*[aucun ennemi adjacent] + 20*|surrounding(2) \ adj|` ; route NON-ATTAQUE, masque STATIC-COPY `0x8004` SANS `CasterHasNotMoved` -> le terme est POSITION-DEPENDANT et ses constantes sont discriminables par le CHOIX DE TUILE. ⚠ `adj` et `surrounding` n'ont PAS la meme geometrie — la fiche r4 disait « ennemis a d=2 », c'est `surrounding \ adj`, et l'ecart est MESURE. Residu : le gate `GetUseProbability` reste non porte, cf. §TRANCHE r6) |
 | 26 | `IdunBattle.AI.Playbook.Loki.MartialExemplarPlaybook$$CalculateCustomUtility` | MartialExemplar (1216) | darkaBossLion | npc **-> GREFFE sur `darkaAsmodai`** | **PORTE (#27-r4)** | — (`1000 x` le compte d'ennemis adjacents `IsNormalUnit` ; ne lit ni stat ni trait du caster. Le natif emet `ActiveAbilityMessage(1216)` sous greffe. Route NON-ATTAQUE malgre un `damageProfile`, parce que le masque effectif `0x8014` est SELF-CAST) |
 | 27 | `IdunBattle.AI.Playbook.Loki.TheLionsWrathPlaybook$$CalculateCustomUtility` | TheLionsWrath (1217) | darkaBossLion | npc **-> GREFFABLE** | **residu nomme (#27-r4)** | inventaire #27-r4 : `30*FindMeleeWeapon(CIBLE).Hits + 2000*|adjacents Chaos+Hero| + 150*[CIBLE est Hero]` — les traits/armes lus sont ceux de la CIBLE, jamais du caster |
 
@@ -1282,9 +1282,11 @@ re-derouler la recon : elle part d'ici.
   relues au decompile sous le seul angle qui compte (« lit-elle une stat ou un trait du CASTER ? ») :
   **aucune ne le fait**, donc les quatre sont **GREFFABLES** (`case-92` §5bis). **1216
   `MartialExemplar` est PORTEE et CONFRONTEE** — le natif emet `ActiveAbilityMessage(1216)` une fois
-  l'ability greffee sur `darkaAsmodai`. Restent 1093 (`deathBossMortarion`), 1215 et 1217
-  (`darkaBossLion`) en **residus nommes**, une par tache (`#27-r5` / `#27-r6` / `#27-r7`).
-  Detail et verdicts : §TRANCHE r4.
+  l'ability greffee sur `darkaAsmodai`. **Les trois autres le sont aussi, par la meme greffe** :
+  1093 `MortarionsPlagueWind` (#27-r5), 1215 `InstrumentsOfVengeance` (#27-r6) et 1217
+  `TheLionsWrath` (#27-r7). **Aucun des quatre n'est plus un residu de PORT** ; ce qui reste ouvert
+  est nomme par tranche (`#27-r5-r1` la prediction AoE de 1093, `#27-r6-r1` le gate de 1215).
+  Detail et verdicts : §TRANCHE r4, r5, r6 et r7.
 - **Residus a debloquer : 0 a porteur HERO/pool.** (1169 et 1148 sont SORTIS : le verrou etait le
   DOMAINE DE CIBLE, leve par la route a cibles TUILE — `docs/rl/case-302-route-cible-tuile.md` §6
   et §8. **1004 est SORTI par #27-r3** : le verrou ecrit — « evaluateur du composite
@@ -2548,9 +2550,9 @@ est PERIME.**
 
 Etat des **26 corps nommes** apres cette tranche : **21 portes ou couverts**, **1 dead-code**
 (`ProperKilly_NormalAttackPlaybook`, aucun porteur), **4 a porteur NPC-seul** (1093, 1215, 1216,
-1217) — **relus depuis, et les 4 sont GREFFABLES ; 1216 est PORTEE et CONFRONTEE (#27-r4)**, les
-trois autres sont des residus nommes (§TRANCHE r4). **Plus aucun override a porteur HERO/pool n'est
-en residu.**
+1217) — **relus depuis, et les 4 sont GREFFABLES ; les 4 sont desormais PORTEES et CONFRONTEES**
+(1216 #27-r4, 1093 #27-r5, 1215 #27-r6, 1217 #27-r7 — §TRANCHE r4 a r7). **Plus aucun override
+a porteur HERO/pool n'est en residu.**
 
 ### Ce que le decompile dit — la chaine, lue bout a bout
 
@@ -2812,7 +2814,7 @@ Meme conclusion pour les GATES, qu'il fallait lire avant de conclure a l'atteign
 | id | symbole | formule lue | lit une stat/trait du CASTER ? | verdict |
 |---|---|---|---|---|
 | **1093** | `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$CalculateCustomUtility` | `Fix64( Count( DSLSelectors.UnitsWithTrait(t1+t2+t3, Psyker(0x3ea), sel 3), AbilityEntities(owner: caster, caster: caster, target: target) ) )` — les trois vagues sont `t1 = <cfg dsl>+0x60` (selecteur de cible principale), `t2 = Enemies(of, AdjacentUnits(t1, includeCenter:1, sel:3), sel:3)`, `t3 = Unique(Enemies(of, AdjacentUnits(t2, includeCenter:1, sel:3), sel:3)) - t1 - t2`. **Aucun `GetUtilityValue`** : le compte EST l'utilite | **NON** — le seul trait lu (`Psyker`) est celui des unites SELECTIONNEES ; le caster n'entre que comme `owner`/`caster` de l'`AbilityEntities` (inimitie = camp) | **GREFFABLE** — residu nomme |
-| **1215** | `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$CalculateCustomUtility` | `adj = GetAdjacentEnemies(casterPosition, caster, false)` ; `u = 20000 + (adj.Any() ? 0 : 100) + 20 x \|{ e in GetSurroundingEnemies(caster, casterPosition, 2, false) : !adj.Contains(e) }\|`. **Aucun `GetUtilityValue`** : les trois constantes sont EN DUR | **NON** — camp seulement | **GREFFABLE** — residu nomme. ⚠ Reserve de MESURE : `...InstrumentsOfVengeancePlaybook$$GetUseProbability` = `Fix64.Zero` si `GetTurnsFinished(unit) == 0`, `Fix64.Half` si `== 1`, `Fix64.One` sinon (`Fix64.<statics>` : +0x20 One, +0x28 Zero, +0x30 Half) -> l'ability est INDISPONIBLE au tour du build et TIREE a 1/2 au suivant ; seule la fenetre `GetTurnsFinished >= 2` est deterministe |
+| **1215** | `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$CalculateCustomUtility` | `adj = GetAdjacentEnemies(casterPosition, caster, false)` ; `u = 20000 + (adj.Any() ? 0 : 100) + 20 x \|{ e in GetSurroundingEnemies(caster, casterPosition, 2, false) : !adj.Contains(e) }\|`. **Aucun `GetUtilityValue`** : les trois constantes sont EN DUR | **NON** — camp seulement | **PORTE + CONFRONTE** (§TRANCHE r6). ⚠ Reserve de MESURE : `...InstrumentsOfVengeancePlaybook$$GetUseProbability` = `Fix64.Zero` si `GetTurnsFinished(unit) == 0`, `Fix64.Half` si `== 1`, `Fix64.One` sinon (`Fix64.<statics>` : +0x20 One, +0x28 Zero, +0x30 Half) -> l'ability est INDISPONIBLE au tour du build et TIREE a 1/2 au suivant ; seule la fenetre `GetTurnsFinished >= 2` est deterministe. ⚠⚠ Et la formule ci-contre se lit `surrounding \ adj`, PAS « ennemis a d=2 » : les deux ensembles n'ont pas la meme geometrie (§TRANCHE r6) |
 | **1216** | `IdunBattle.AI.Playbook.Loki.MartialExemplarPlaybook$$CalculateCustomUtility` | `1000 x \|{ e in GetAdjacentEnemies(casterPosition, caster, false) : UnitExtensions$$IsNormalUnit(e) }\|` ; `IsNormalUnit(e)` = `!HasTrait(e, Object(0xd)) && !HasTrait(e, Steppable(0x1b))`. **Aucun `GetUtilityValue`** : `1000` est EN DUR | **NON** — camp seulement ; le filtre porte sur les ENNEMIS | **PORTE + CONFRONTE** (ci-dessous) |
 | **1217** | `IdunBattle.AI.Playbook.Loki.TheLionsWrathPlaybook$$CalculateCustomUtility` | `30 x FindMeleeWeapon(TARGET).<+0x20 = Hits> + 2000 x \|{ e in GetAdjacentEnemies(casterPosition, caster, false) : IsNormalUnit(e) && HasTrait(e, Chaos(0x7ea)) && HasTrait(e, Hero(0x10)) }\| + 150 x [HasTrait(TARGET, Hero)]`. **Aucun `GetUtilityValue`** | **NON** — l'arme et le trait `Hero` lus sont ceux de la **CIBLE** ; les traits `Chaos`/`Hero` filtres sont ceux des ADJACENTS | **GREFFABLE** — residu nomme |
 
@@ -3093,6 +3095,145 @@ et 6 live (les trois bras, la bascule, la vague 3, l'encadrement de magnitude).
 - La greffe ne couvre pas les stats, traits et armes de `deathBossMortarion` — legitime ICI puisque
   la formule n'en lit AUCUN (le trait `Psyker` teste est celui des unites SELECTIONNEES, le caster
   n'entrant que comme referent d'inimitie, donc par son CAMP).
+
+## TRANCHE r6 (2026-08-03) — 1215 `InstrumentsOfVengeance` : le terme se mesure par le CHOIX DE TUILE
+
+L'un des trois residus de la tranche r4 (les deux autres ont ete livres en parallele : 1093
+§TRANCHE r5, 1217 §TRANCHE r7). Le corps, relu VERBATIM sur `rnca9r7q6c` :
+
+    adj = battleQuery.<slot itf 0x80>(casterPosition, caster, ignoreSteppables: false);
+    u   = adj.Any() ? 0 : 100;
+    foreach (e in battleQuery.<slot itf 0x78>(caster, casterPosition, range: 2,
+                                              includeCenter: false))
+        if (!adj.Contains(e)) u += 20;
+    return Fix64.op_Implicit(u + 20000);
+
+Les deux slots sont ancres par leurs decorateurs enregistreurs — `...DisplayClass155_0$$
+u003CGetAdjacentEnemiesu003Eb__0` emet **0x80** (3 arguments), `...DisplayClass147_0$$
+u003CGetSurroundingEnemiesu003Eb__0` emet **0x78** (4 arguments) — et ni l'un ni l'autre ne lit du
+caster autre chose que son CAMP (`OwnerComponent$$get_CurrentPlayerEntityId` ; `UnitExtensions$$
+IsEnemy` capture dans le predicat de `ListExtensions$$FilterInPlace`). Greffe legitime.
+
+### Ce que la fiche r4 disait, et qui etait INSUFFISANT
+
+Elle resumait le 3e terme par « `20 x |ennemis a d=2 non adjacents|` ». **`adj` et `surrounding`
+n'ont pas la meme geometrie**, et ce resume perd exactement leur difference :
+
+| ensemble | itereur natif | porte d'elevation |
+|---|---|---|
+| `GetAdjacentEnemies` | `TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` | **OUI**, `\|dElev\| < 2` |
+| `GetSurroundingEnemies` -> `GetSurroundingUnits` | `...$$IterateSurroundingTiles` (`TileUtil$$IsTileValidForList(..., checkElevation: 0)`) | **NON** — disque hex pur |
+
+Un ennemi a distance hex **1** dont l'ecart d'elevation vaut `>= 2` est donc HORS `adj` et DANS
+`surrounding` : il compte `+20` **et** laisse le `+100` arme. Le port compose donc
+`is_surrounding(...) AND NOT is_adjacent(...)` au lieu de tester une distance.
+**Ce n'est pas une precaution : le bras F ci-dessous MESURE que le modele resume choisit une autre
+tuile que le natif.**
+
+### Le masque : STATIC-COPY, et c'est ce qui separe 1215 de 1216
+
+`...InstrumentsOfVengeanceAbility$$.ctor` recopie les 0x40 octets de
+`<TargetingOptions statics>+0x280` dans une struct locale et la passe TELLE QUELLE a
+`AActiveAbility$$.ctor` — **aucun appel a `TargetingOptions$$.ctor`**, ni la surcharge « flags
+directs », ni la surcharge PRESET+FLAGS. Le masque effectif est la constante ecrite par
+`...TargetingOptions$$.cctor` en `<preset>+0x28` :
+
+    0x8004 = CasterIsPossibleTarget(0x8000) | CasterMatchesDynamicRule(0x4)
+
+C'est le **meme preset** que 1216 `MartialExemplar`, qui lui ajoute `additionalRules = 0x10`. Les
+deux consequences se separent donc net :
+
+| | 1216 | 1215 |
+|---|---|---|
+| `CasterIsPossibleTarget` | oui -> SELF-CAST | oui -> SELF-CAST |
+| `CasterHasNotMoved` | **oui** -> une SEULE action par tour | **non** -> une action PAR TUILE |
+| magnitude discriminable ? | **non** (r4 le dit) | **oui**, par le CHOIX DE TUILE |
+
+C'est le fait central de cette tranche : ce que r4 ne pouvait pas mesurer sur 1216, le meme montage
+le mesure sur 1215, parce que le sweep de tuiles existe.
+
+### Ce qui est porte
+
+- `engine/playbook/loki_custom.py::InstrumentsOfVengeancePlaybook` (`NonAttackComparablePlaybook`,
+  registre `NONATTACK_PLAYBOOKS`) : `calculate_custom_utility` + les deux ensembles, chacun avec sa
+  geometrie. Constantes nommees (`BASE_UTILITY`, `NO_ADJACENT_ENEMY_UTILITY`,
+  `NON_ADJACENT_SURROUNDING_UTILITY`) — aucune n'est un poids `BC.Utilities`.
+- `engine/runner/abilities/targeting.py::TARGETING_OPTIONS_UNPORTED[1215] = 0x8004` (face COMBAT non
+  portee : `...InstrumentsOfVengeanceAbility$$ExecuteBehaviour` est un arbre DSL substantiel).
+- **Aucune primitive neuve** : `battle_query.is_adjacent` et `battle_query.is_surrounding` existaient
+  deja et portent deja la distinction. C'est leur COMPOSITION qui est le port.
+
+ROUTE NON-ATTAQUE bien que `constants.damageProfile = HeavyRound` : `abilityTargets(1215)` rend UNE
+cible (le caster), et les `attackPlans.evals` de 1215 sur les ENNEMIS rendent tous `rankCount = 0`
+-> `_best_attack` ne peut rien produire. `pairUtility(1215, SELF) = 0` -> `make_damage_predictions`
+rend `[]` (herite), exactement comme le natif.
+
+### Validation live (`probe_27_r6_instruments_of_vengeance.py`, board MC1_67, seed 909, rank 17)
+
+Porteur GREFFE sur **`darkaAsmodai`** (`ActiveAbilities = [1215]` dans une COPIE du seed BC). Le
+caster n'est deplace qu'au dernier bras : c'est le SWEEP DE TUILES qui est le levier, le supprimer
+degenererait tous les autres. La fenetre deterministe `GetTurnsFinished >= 2` est atteinte par
+**quatre `act endturn`** (l'IA ne joue pas -> la geometrie du montage est intacte), et le probe
+VERIFIE `turnsFinished == 2` au `combatSnapshot` avant de mesurer.
+
+| bras | geometrie | natif | moteur | contre-epreuves (custom=0 / route OFF / modele FAUX) |
+|---|---|---|---|---|
+| E | `turnsFinished = 0` | `MoveUnitMessage` **SEUL** | `1215` | — (ECART NOMME, cf. plus bas) |
+| A | tous a d >= 3 | `1215`, **sans move** (custom CONSTANT 20100) | idem, `to=None` | `1215` / **move nu** / `1215` |
+| B | un ennemi en (2,0), ADJACENT a l'origine | move **(0,0)** + `1215` | idem | **`69`** / **`69`** / `1215` (0,0) |
+| C | un ennemi en (5,1), adjacent a AUCUNE tuile | move **(3,0)** + `1215` | idem | **`69`** / **`69`** / `1215` (3,0) |
+| F | (1,3) et (2,3) a elevation **4**, (1,2) a **2** ; (3,2) occupee | move **(1,2)** + `1215` | idem | **`69`** / **`69`** / **`1215` (1,1)** |
+| D | le caster BOUGE | `abilityTargets(1215)` inchange (1 cible), le natif propose toujours `1215` | — | — |
+
+Lectures :
+
+* **A** est le temoin : custom constant -> le natif ne bouge pas. Si ce bras faisait bouger le natif,
+  les trois suivants ne prouveraient plus rien.
+* **B** mesure le `+100` : l'origine passe de 20100 a 20000 parce qu'un ennemi y devient adjacent, et
+  le natif DEPLACE le caster pour caster depuis une tuile qui garde son `+100`.
+* **C** mesure le `+20` seul : aucune tuile n'a d'ennemi adjacent, le `+100` est donc constant, et
+  seule la presence d'un ennemi a distance 2 departage (3,0) (20120) de l'origine (20100).
+* **F** mesure le QUIRK, et c'est la seule mesure qui separe le port de son resume : la tuile
+  gagnante (1,2) tire son avantage d'un ennemi a **distance 1** (en (1,3)) que la porte d'elevation
+  exclut d'`adj`. Le modele `20 x |dist == 2|` monte a la place en **(1,1)** — **DIVERGENCE du natif**.
+* **D** est la contre-epreuve du masque : si `CasterHasNotMoved` y etait, `abilityTargets(1215)`
+  tomberait a 0 apres le move (c'est ce que 1216 fait, mesure en r4). Il ne tombe pas.
+* Le RPC `pairUtility` rend `playbookClass = InstrumentsOfVengeancePlaybook` **sur l'unite greffee** :
+  seconde preuve, independante du choix, que le natif charge le playbook PAR ABILITY.
+
+Garde : `tests/engine/test_instruments_of_vengeance_decision_live.py` (14 tests — 10 live, 4 offline).
+
+### Ce qui n'est PAS couvert, et pourquoi
+
+- **Le gate `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate` (surcharge 2-args, slot 4) n'est PAS
+  porte** — residu **#27-r6-r1**, et l'ecart est MESURE (bras E), pas suppose. Deux volets :
+  * `BasePlaybook$$ShouldEvaluate(unit)` = `p = GetUseProbability(unit)` ; `p >= 1 -> true` ;
+    `p <= 0 -> false` ; sinon TIRAGE. `GetUseProbability` rend `Zero` a `GetTurnsFinished == 0`,
+    `Half` a `== 1`, `One` sinon. Le volet `== 1` est un tirage (statut de 1098) ; le volet `== 0`
+    est DETERMINISTE, et le port l'ignore parce que `turnsFinished` (`UnitComponent + 0x5c`) est
+    **absent de `decisionView`** — seul `combatSnapshot` l'expose, et il n'est pas derivable de
+    `turnsStarted` (stat 12, cf. `runner/snapshot.py` §N11). Consequence : au tour du build, le
+    moteur propose 1215 la ou le natif propose un simple deplacement. **Debloqueur = un CAPTEUR**
+    (exposer `GetTurnsFinished` par unite dans `decisionView` ; l'accesseur existe deja dans
+    `frida/hooks/features/ai-step/internals.ts`), donc une fenetre de reinject.
+  * `BattleQuery$$HasMinimumRemainingTurns(unit, 2)` **n'utilise pas son parametre `unit`** : il lit
+    la limite de tours du match (`<config>+0x18`, cle 1) moins
+    `TurnComponent$$GetAmountOfTurnsEndedByPlayer`, et **rend `true` quand la limite est absente** —
+    le regime du runner. Le defaut permissif de la route y est donc EXACT ; aucun canal offline
+    n'expose cette limite.
+- **La face COMBAT** (`...InstrumentsOfVengeanceAbility$$ExecuteBehaviour` : `If` sur deux paires de
+  `GetEffectBehavior`, `AddBondEffect(0x5ef)`, `If(!HasAdjacentEnemies) ActivateEffect(0x3f1)`, et
+  par direction `TilesBehindInLine` / `EdgeTilesByDirection` / `SortByFormula` /
+  `SetPersistentData` / `AddEffect(0x5ee)`) n'est pas portee — hors perimetre de cette tranche.
+  L'invocation annoncee par la fiche (`constants.unitId = darkaSmnTerminator`, `nrOfSummons`) en
+  fait partie.
+- **La base `20000` n'est pas discriminee**, et elle ne peut pas l'etre par ce montage : elle place
+  1215 au-dessus de toute autre action des qu'elle est legale, donc toute valeur assez grande
+  produirait les memes choix. Ce sont les deux AUTRES constantes que le sweep de tuiles mesure. Le
+  `20000` est LU (constante en dur, aucun `GetUtilityValue`).
+- La greffe ne couvre pas les stats/traits/armes de `darkaBossLion` — legitime ICI puisque la
+  formule n'en lit aucun.
+
 
 ## TRANCHE r7 (2026-08-03) — 1217 `TheLionsWrath` : le piege n'etait PAS ou la fiche l'annoncait
 

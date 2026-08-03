@@ -97,6 +97,20 @@ def main() -> int:
     if 1217 not in NONATTACK_PLAYBOOKS:
         fails.append("TheLionsWrath (1217) absente de NONATTACK_PLAYBOOKS : `_best_attack` ne peut "
                      "pas la produire (predictions vides) -> aucune route, terme INERTE")
+    # InstrumentsOfVengeance (1215, #27-r6) : meme registre, 3e motif d'entree -- son masque EFFECTIF
+    # `0x8004` (STATIC-COPY du preset `<TargetingOptions statics>+0x280`) porte
+    # `CasterIsPossibleTarget`, donc la seule cible que le natif retient est le CASTER et les
+    # `attackPlans.evals` sur les ENNEMIS rendent tous `rankCount = 0`. Motif DISTINCT de celui de
+    # 1217 (predictions vides) et de celui de 1100 (cibles alliees) : les trois coexistent, il n'y a
+    # rien a unifier. Hors de ce registre, le natif emet `ActiveAbilityMessage(1215)` la ou le moteur
+    # ne rendrait plus rien (MESURE #27-r6, bras A/B/C/F). Detail :
+    # `test_instruments_of_vengeance_decision_live.py`.
+    if type(reg.get(1215)).__name__ != "InstrumentsOfVengeancePlaybook":
+        fails.append(f"dispatch 1215: attendu InstrumentsOfVengeancePlaybook, obtenu "
+                     f"{type(reg.get(1215)).__name__}")
+    if 1215 not in NONATTACK_PLAYBOOKS:
+        fails.append("InstrumentsOfVengeance (1215) absente de NONATTACK_PLAYBOOKS : elle est "
+                     "SELF-CAST (rankCount = 0 sur tout ennemi) -> aucune route, terme INERTE")
     # CLIQUET DE NON-REGRESSION #217 : le masque 0x402 (TargetIsFriendly|TargetMatchesDynamicRule)
     # doit continuer de VETO-er la route ENNEMIE. Si `_is_attack_ability` redevenait True, 1100
     # reprendrait des cibles ennemies dans `_plans_for_unit` -- l'action FANTOME que #217 a fermee.
