@@ -2929,6 +2929,170 @@ decoratifs. Garde : `tests/engine/test_martial_exemplar_decision_live.py` (9 tes
   Debloqueur : porter `GetTargetUtilityDiffOnDisplace` (evaluateur `UtilityMovementCase`), pas un
   scalaire.
 
+## TRANCHE r5 (2026-08-03, #27-r5) — `MortarionsPlagueWind` (1093) PORTE : le verrou annonce etait PERIME
+
+La fiche #27-r5 annoncait un verrou « REEL » : « l'evaluateur DSL `UnitsWithTrait` + la chaine
+`AdjacentUnits` a 3 vagues n'est pas portee cote decision ». **Re-derive du code du commit courant,
+il n'existait plus** — et le critere de decision se tranche avant toute edition, en trois greps :
+
+| primitive du decompile | port | ou |
+|---|---|---|
+| `DSLSelectors$$AdjacentUnits` (source = ENSEMBLE) | `adjacent_units` | `entities/selectors/composites.py` |
+| `DSLSelectors$$Enemies` | `Enemies` | `entities/selectors/units.py` |
+| `DSLSelectors$$Unique` | `Unique` | idem |
+| `DSLSelectors$$UnitsWithTrait` | `UnitsWithTrait` | idem |
+| `TargetsSelector$$op_Addition` / `$$op_Subtraction` | `Union` / `Sub` | idem |
+
+Et la VOIE « playbook -> `DslContext` -> arbre de l'ability » avait deja **deux** precedents
+(`playbook/resurrection_orb.py`, `playbook/tile_targets.py`). Il n'y avait donc **aucune primitive
+DSL a porter** : seulement un contexte a monter. Le port tient en une classe + deux fonctions.
+
+**Ce que la fiche ne disait pas, et qui est le vrai fait du dossier** : la chaine des trois vagues
+de 1093 est **le meme artefact natif** que la face COMBAT de son jumeau `PlagueWind` (1035,
+`deathTyphus`), **portee et validee depuis #220** (`runner/abilities/deathguard.py::
+plague_wind_target_selectors`). Les trois corps sont DEDUPLIQUES par IL2CPP — ghidra les nomme
+d'apres un proprietaire arbitraire (`StrikeFromTheShadowsAbility$$GetTarget`,
+`StormOfWrathAbility$$u003CExecuteBehaviouru003Eb__1_0`, `PlagueWindAbility$$GetTargets3`), ce qui
+masque completement la parente si on lit les NOMS.
+
+### La formule, relue VERBATIM
+
+    t1  = <ability>.GetTarget()          = <DSLSelectors+0x60> = Target
+    t2  = <ability>.b__1_0(t1)           = Enemies(<+0x48> = Caster, AdjacentUnits(t1, 1, 3), 3)
+    t3  = <ability>.GetTargets3(t1, t2)  = Unique(Enemies(Caster, AdjacentUnits(t2, 1, 3), 3)) - t1 - t2
+    sel = DSLSelectors$$UnitsWithTrait(t1 + t2 + t3, 0x3ea = Psyker, 3)
+    return Fix64.op_Implicit( sel.<vslot 0x18 = Count>(AbilityEntities(caster, caster, target)) )
+
+**Aucun `GetUtilityValue`, aucune constante multiplicative : le COMPTE DE PSYKERS *EST* l'utilite.**
+Slots partages etablis par plusieurs lectures independantes du depot (`case-411-r3`, `case-418-r1`,
+`case-459`) : `<DSLSelectors+0x30>` = Owner, `<+0x48>` = Caster, `<+0x60>` = Target.
+`0x3ea = 1002 = Psyker` (enum `IdunBattle.Entities.Enum.UnitTrait`).
+
+**Trois points de RE qui ne se devinent pas :**
+
+1. **Le 3e argument d'`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(this, origin, unique,
+   selectionType)` est `unique`, PAS `includeCenter`** — piege #419, deja paye sur #420-r1. Son
+   corps est `op_Subtraction(Units(AdjacentTiles(origin), unique, selectionType), origin)` : le
+   centre est TOUJOURS retire, et le `1` du call-site ne le reintroduit pas. La fiche heritee
+   l'ecrivait « `includeCenter:1` » — lecture FAUSSE, sans consequence ici seulement parce que le
+   port passe par `adjacent_units`, qui mirroir la COMPOSITION native et non l'argument.
+2. **`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor(this, caster, actor, target, owner,
+   casterTile, ...)` n'est appele qu'avec `(caster, caster, target, 0, 0, ...)`**, apres un memset a
+   ZERO de ses 0x128 octets : `owner` ET `casterTile` sont NULS. **Le terme est donc INDEPENDANT de
+   la tuile d'attaque** — il departage les CIBLES, jamais deux tuiles pour une meme cible. C'est ce
+   qui interdit de recopier le `_dsl_context` de 1009 (qui, lui, DEPLACE le caster sur la tuile
+   candidate parce que ses arbres lisent `CasterTile`).
+3. **`Count` est le slot VIRTUEL 0x18**, pas la methode non-virtuelle `TargetsSelector$$Count` — mais
+   celle-ci en est l'implementation de base et vaut `Enumerable.Count(this.<vslot 0x17 = Select>(
+   entities))`. Aucun `Unique` par-dessus l'union : les trois vagues sont deja disjointes par
+   construction (`t3` retranche `t1` et `t2` ; `t2` exclut `t1` via le `- origin` d'`AdjacentUnits`).
+
+### Ce qui est porte
+
+- `engine/runner/abilities/deathguard.py` : `mortarions_plague_wind_target_selectors()` (les trois
+  vagues) et `mortarions_plague_wind_psyker_selector()` (l'union + le filtre `Psyker`). Ecrites **a
+  cote** de `plague_wind_target_selectors` et non fusionnees avec elle : l'artefact DIFFERE d'un
+  `DSLSelectors$$Cache` par vague, que les deux `ExecuteBehaviour` posent et que le playbook n'a pas
+  (memoisation qui fige un ensemble entre deux bandes de degat — sans objet quand rien ne mute).
+- `engine/playbook/loki_custom.py` : `MortarionsPlagueWindPlaybook` (`_CustomOnlyPlaybook`, registre
+  `REGISTRY`) + `_mortarions_plague_wind_dsl_context` (mirror de l'`AbilityEntities` a trois champs).
+- `engine/runner/abilities/targeting.py` : `TARGETING_OPTIONS_UNPORTED[1093] = 0x4002`
+  (`TargetIsEnemy | TargetMatchesDynamicRule`, `range = RANGE_FROM_CONFIG`, `force_melee_target =
+  RANGED_BOOL_FALSE`). LU, pas deduit : `...MortarionsPlagueWindAbility$$.ctor` n'appelle aucun
+  `TargetingOptions$$.ctor`, il recopie les 0x40 octets de `<TargetingOptions statics>+0x180` — **le
+  MEME preset que `PlagueWindAbility$$.ctor`** — et le masque effectif est la constante que
+  `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit en `<preset>+0x28` = `statics+0x1a8`.
+  La face COMBAT n'etant pas portee, 1093 n'entre pas dans `ABILITY_CLASSES`.
+
+**ROUTE : `_best_attack`** (route d'ATTAQUE standard, comme 1051/1098) — 1093 a un
+`constants.damageProfile` (`Psychic`) et un masque a cibles ENNEMIES. Rien a voir avec la seconde
+route Comparable de 1216/1226/1185/1100.
+
+### Validation live — `probe_27_r5_mortarions_plague_wind.py`, board MC1_67, seed 909
+
+Porteur GREFFE sur **`deathBlightlord`** (Death Guard comme `deathBossMortarion`, dans
+`rl_duel build --list-pool`). **La greffe demande DEUX ecritures, et l'oubli de la seconde est
+SILENCIEUX au build** : `MortarionsPlagueWind` est absente des 131 entrees
+`BC.Abilities.ActiveAbilities` du seed, et `refresh_ability_configs` ne RATTRAPE que les configs
+deja presentes. Poser `BC.Units[].ActiveAbilities` seul deploie une unite qui porte l'ability... et
+`abilityTargets` rend `err = "system error"` (meme verrou que #226). `catalog_inject.
+write_grafted_seed_bc(..., kind="active")` fait les deux — c'est la voie.
+
+Montage (les leviers repondent chacun a une mesure, pas a une precaution) :
+
+| levier | pourquoi, et ce qui a ete mesure sans lui |
+|---|---|
+| `--unit-stat deathBlightlord:Movement=0` | une seule tuile de cast -> `tile_utility` IDENTIQUE pour les deux cibles, l'argmax natif ne compare plus que `u_full + custom`. `abilityTargets(1093).fromHere` vaut 2 : les deux cibles restent castables sans bouger |
+| `--unit-stat deathBlightlord:Damage=1` | sans lui le natif prefere l'attaque NORMALE (`aiDryRunAllUnits` rend `ActiveAbilityMessage(69)`) et **aucun bras ne mesure rien**. Le degat de 1093 n'en depend pas (`AttackWithAbilityDamage`, base `minDmg`/`maxDmg` de la config) |
+| `--hp-target 40000` + `--unit-stat orksWarboss:Health=...` | a PV nominaux egaux, `orksWarboss` encaisse **1.5x** le Psychic de `necroWarden` (`aiPlaybookPredict` : 2693-4040 vs 1795-2693) -> ecart de `pairUtility` de **6.9**, soit 7x le terme. Les PV de T1 sont le seul levier qui bouge `u_full` **sans toucher ni la geometrie ni les traits** |
+
+Geometrie SYMETRIQUE, lue au `boardGraph` (porte d'elevation comprise) : `T1 = (3,1)` et
+`T2 = (0,1)` a distance 2 du caster **toutes les deux** (= sa portee), distance 3 l'une de l'autre,
+voisinages DISJOINTS ; `V1 = (3,2)` et `V2 = (0,2)` a distance 3 du caster **tous les deux** (donc
+ni l'un ni l'autre n'est ciblable), et a distance >= 2 l'un de l'autre (aucune vague 3 parasite).
+
+| bras | montage | `u_full` natif (T1 / T2) | choix natif | custom PORT |
+|---|---|---|---|---|
+| **A** | Psyker en `V1` | 13.2764 / 13.7118 (**Δ = −0.4354**) | **`1093` sur T1** | `{T1: 1.0, T2: 0.0}` |
+| **B** | Psyker en `V2` (permutation) | 13.2764 / 13.7118 (**Δ = −0.4354**, IDENTIQUE) | **`1093` sur T2** | `{T1: 0.0, T2: 1.0}` |
+| **C** | Psyker en `W1 = (3,3)` — voisin de `V1`, **pas** de `T1` | 28.2331 / 5.6097 | `1093` sur T1 | `{T1: 1.0, T2: 0.0}` |
+
+**Le bras A est la mesure** : le natif retient `T1` alors que son PROPRE `u_full` favorise `T2` — il
+va CONTRE sa preference de degat, et aucun autre terme ne distingue ces deux actions (meme caster,
+meme tuile, meme ability). **Le bras B est la contre-epreuve**, et elle est propre : `u_full` natif
+est **strictement identique** dans les deux bras (la permutation ne change rien au degat, les deux
+unites echangees ayant les memes PV forces), et pourtant le choix BASCULE. Seul le trait a bouge.
+**Le bras C** exerce la VAGUE 3 : le Psyker n'entre dans le compte que par
+`t3 = Unique(Enemies(AdjacentUnits(t2))) - t1 - t2` ; un port a deux vagues rendrait 0.
+
+**La MAGNITUDE `1` est MESUREE, pas seulement lue.** On fait varier `u_full(T1)` par les PV de T1 et
+on lit ou le natif bascule :
+
+| PV de T1 | Δ `u_full` (T1 − T2) | choix natif |
+|---|---|---|
+| 512 000 | **−0.9000** | T1 — il tient |
+| 736 000 | **−1.1001** | T2 — il lache |
+
+=> le terme natif d'UN Psyker est **encadre dans (0.90, 1.10)**, et le port rend `1.0`. La constante
+cesse d'etre une lecture : c'est un encadrement experimental a 10 %.
+
+Gardes : `tests/engine/test_mortarions_plague_wind_decision_live.py` — **15 tests**, 9 offline
+(structure des trois vagues, filtre `Enemies`, linearite du compte, disjonction, borne de la chaine)
+et 6 live (les trois bras, la bascule, la vague 3, l'encadrement de magnitude).
+
+### Ce qui n'est PAS couvert, et pourquoi
+
+- **L'ACCORD DE DECISION de bout en bout moteur<->natif — et c'est un RESIDU NOMME, exterieur a
+  cette tranche.** `IdunBattle.AI.Playbook.Loki.MortarionsPlagueWindPlaybook$$MakeDamagePredictions`
+  fait **TROIS** batchs `ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` — un par vague
+  (`t1`/`t2`/`t3` en `param_5`) avec sa propre formule (`GetDamage1`/`2`/`3`) et le MEME
+  `GetHits()` — puis `AddRange` des trois. Le port herite du chemin generique mono-cible et n'en
+  rend qu'**UN**. MESURE (bras A) : `u_full` port **1.1220 / 5.6097** contre natif **13.2764 /
+  13.7118**. Le moteur choisit donc `T2` dans les trois bras. Le custom, lui, est EXACT dans les
+  trois — c'est pourquoi les gardes portent sur le CUSTOM et sur le CHOIX NATIF, jamais sur
+  `engine_decide`. **Le port du custom ne cree pas ce residu et ne l'aggrave pas** : il rapproche le
+  moteur du natif sur le seul axe qu'il touche.
+  RE deja faite pour la tranche qui le fermera : `GetDamage1/2/3` =
+  `If( DSLTriggers$$HasTrait(<DSLSelectors+0x60> = Target, 2 = Summon),
+  Multiply(MinMaxDamage{,2,3}Average, <DSLFormulas+0x28>), MinMaxDamage{,2,3}Average )`, et
+  `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamageAverage` =
+  `Half(Sum(Direct(var 0xc = minDmg), Direct(var 0xd = maxDmg)), 0)`. Restent a resoudre :
+  `<DSLFormulas+0x28>` (l'i2 dit « Summons take double damage » -> `Direct(2)` attendu, **non lu**)
+  et le fait que le `HasTrait` porte sur la CIBLE PRINCIPALE et non sur l'unite frappee (le `Target`
+  de l'`AbilityEntities` d'un batch est `param_4 = target`, cf. `make_secondary_multihit_event`).
+  La brique de port existe deja : `prediction.abilities.generate_multi_hit_attack_prediction`
+  (`base_override` / `hits_override`).
+- **La branche `Summon x2`** des formules de degat appartient au meme residu : ni portee ni exercee.
+- **La face COMBAT de 1093** (`...MortarionsPlagueWindAbility$$ExecuteBehaviour`) n'est pas portee.
+  Sa structure est integralement RE ci-dessus : c'est le jumeau exact de `plague_wind_tree` (memes
+  trois vagues sous `Cache`, memes trois `AttackWithAbilityDamage`, `AtomicGroup(0x5c)`), a la
+  formule `If(Summon)` pres. D'ou `TARGETING_OPTIONS_UNPORTED` plutot qu'`ABILITY_CLASSES`.
+- **Le filtre `Enemies` n'est pas exerce en LIVE avec un allie POSITIONNE dans l'anneau** (le caster
+  est seul de son camp) : garde OFFLINE
+  (`test_the_caster_is_never_in_a_wave_even_when_adjacent`).
+- La greffe ne couvre pas les stats, traits et armes de `deathBossMortarion` — legitime ICI puisque
+  la formule n'en lit AUCUN (le trait `Psyker` teste est celui des unites SELECTIONNEES, le caster
+  n'entrant que comme referent d'inimitie, donc par son CAMP).
 
 ## TRANCHE r7 (2026-08-03) — 1217 `TheLionsWrath` : le piege n'etait PAS ou la fiche l'annoncait
 
