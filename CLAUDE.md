@@ -262,6 +262,31 @@ case-doc, ni dans un runner de scratchpad. Un cliquet neuf s'ajoute **dans le fi
 ligne « ce qu'il est SEUL à voir ». Une case-doc **atteste** ce qu'elle a joué (un relevé daté) ;
 elle ne **définit** pas la banque.
 
+### Tu touches un `*_live.py` ⇒ tu l'ATTESTES, sinon la banque rougit (#462)
+
+Depuis #462, `probe_462` exige une **attestation VERTE** pour tout fichier `*_live.py` que ta PR
+**ajoute OU modifie**. Avant d'ouvrir la PR :
+
+```powershell
+python scripts/python/probe_462_live_tests_status.py --run --since origin/master
+git add scripts/ratchets-462-live-attestations.json
+```
+
+- **La clé est le BLOB du fichier de test, pas son nom** — donc une **modification** invalide
+  l'attestation existante aussi sûrement qu'une création. C'est le cas le plus fréquent : faire
+  *passer* un test live rouge le modifie (ou modifie ce qu'il mesure) et te réclame une attestation
+  neuve. « Il était déjà attesté » ne vaut rien : il l'était à un AUTRE blob.
+- **Pourquoi** : `probe_457` exclut le live PAR CHOIX (la suite sature la session Frida partagée) et
+  la boucle de merge ne rejoue que la tranche — donc **rien** ne regardait les 419 fichiers live.
+  Mesuré : 240 balayés, **8 rouges**, dont un introduit rouge par le commit qui modifiait 398 lignes
+  de son propre fichier et resté rouge 8 jours.
+- **Le coût est nul par conception** : le cliquet ne garde QUE ce que la PR touche (médiane **0**
+  fichier live par commit, q3 **1**, sur 1706 commits). Il ne garde PAS le rot sous un tiers —
+  trou B, ouvert et chiffré (`#462-r1`).
+- ⚠ `scripts/ratchets-462-live-attestations.json` est **versionné** : deux PR qui touchent du live
+  y écrivent, donc c'est un point de conflit connu (`#462-r2`). Il se **régénère**, il ne se
+  fusionne pas — même arbitrage que les audits générés.
+
 - **Pourquoi il existe (#430)** : la liste n'existait comme objet nulle part — prose du `CLAUDE.md`,
   `runpar.ps1` **non versionné** d'un scratchpad, et des case-docs aux compositions **incompatibles**.
   Aucun fichier du dépôt ne les contenait ensemble. C'est la cause d'EXÉCUTION derrière trois
