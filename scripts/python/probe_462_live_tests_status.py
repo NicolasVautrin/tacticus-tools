@@ -86,8 +86,54 @@ def repo_root() -> Path:
 
 
 def ledger_path() -> Path:
-    """Dernier statut CONNU par fichier. Sous `logs/`, JAMAIS sous `scripts/python/` (#455)."""
-    return repo_root() / "logs" / "ratchets" / "462-live-status.json"
+    """Dernier statut CONNU par fichier, avec le BLOB du fichier au moment de la mesure.
+
+    VERSIONNE, et l'asymetrie avec les poids de `probe_457` est le point. Des poids perimes ne
+    coutent que du mur ; un statut qu'on ne voit pas est exactement le vice qu'on repare. Sous
+    `logs/` (gitignore), le ledger MOURRAIT avec le worktree : chaque agent repartirait de
+    << aucune mesure >>, et l'anciennete -- la seule chose que ce dispositif rend visible --
+    serait invisible.
+
+    Sous `scripts/`, PAS `scripts/python/` : la banque enumere cet arbre en parallele (#455), et
+    `probe_440` R3 rougit sur toute ecriture qui y apparait. C'est le meme emplacement que
+    `ratchets-457-footprints.json`, pour la meme raison."""
+    return repo_root() / "scripts" / "ratchets-462-live-attestations.json"
+
+
+def _blobs(rels: list[str]) -> dict:
+    """{rel -> hash git du CONTENU de l'arbre de travail}. UN SEUL `git hash-object`.
+
+    Le blob, pas le commit : c'est ce qui rend une attestation INVALIDE des que le fichier de test
+    change, et VALIDE quand il ne change pas -- meme si le HEAD a avance. Keyer sur le commit
+    invaliderait TOUT a chaque commit, donc rendrait la gate inapplicable."""
+    if not rels:
+        return {}
+    racine = repo_root()
+    r = subprocess.run(["git", "-C", str(racine), "hash-object", "--stdin-paths"],
+                       input="\n".join("scripts/python/" + rel for rel in rels) + "\n",
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    lignes = [l.strip() for l in (r.stdout or "").splitlines() if l.strip()]
+    if len(lignes) != len(rels):
+        return {}                     # desaccord de cardinalite : on ne PRETEND pas savoir
+    return dict(zip(rels, lignes))
+
+
+def _live_in_diff(ref: str) -> tuple:
+    """(fichiers live touches par `ref..HEAD` + arbre de travail, raison).
+
+    `diff <ref> HEAD` PUIS `diff <ref>` (arbre de travail inclus) : un agent qui n'a pas encore
+    commite doit voir sa propre modification, sinon la gate serait verte jusqu'au commit -- soit
+    exactement au moment ou elle ne sert plus a rien."""
+    racine = repo_root()
+    r = subprocess.run(["git", "-C", str(racine), "diff", "--name-only", ref],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        return None, "ref `%s` inconnue de git" % ref
+    prefix = "scripts/python/"
+    live = set(live_files())
+    vus = {l.strip()[len(prefix):] for l in (r.stdout or "").splitlines()
+           if l.strip().startswith(prefix)}
+    return sorted(vus & live), "%d fichier(s) live touche(s) depuis %s" % (len(vus & live), ref)
 
 
 def _is_test_file(name: str) -> bool:
@@ -121,13 +167,31 @@ def _last_touch(rels: list[str]) -> dict:
 
     Un fichier dont la tranche n'a pas bouge depuis longtemps n'a pas ete rejoue depuis longtemps :
     c'est exactement le gisement ou un rouge peut dormir. Ce n'est PAS une preuve de rot -- juste un
-    ordre de visite qui met les candidats les plus probables en tete d'un balayage BORNE."""
-    ages = {}
+    ordre de visite qui met les candidats les plus probables en tete d'un balayage BORNE.
+
+    UN SEUL `git log`, pas un par fichier. Mesure du 2026-08-03 : la forme naive (417 sous-processus
+    `git log -1`) coutait 350 s -- soit DEUX FOIS le mur du balayage qu'elle sert a ordonner."""
+    prefix = "scripts/python/"
+    voulus = set(rels)
+    ages: dict = {}
+    r = subprocess.run(["git", "-C", str(repo_root()), "log", "--format=@%ct", "--name-only",
+                        "--", TESTS_DIR],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    horodatage = 0
+    for line in (r.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("@"):
+            horodatage = int(line[1:]) if line[1:].isdigit() else 0
+            continue
+        # `git log` descend du plus RECENT au plus ancien -> la premiere occurrence est la bonne.
+        if line.startswith(prefix):
+            rel = line[len(prefix):]
+            if rel in voulus and rel not in ages:
+                ages[rel] = horodatage
     for rel in rels:
-        r = subprocess.run(["git", "-C", str(repo_root()), "log", "-1", "--format=%ct", "--",
-                            "scripts/python/" + rel], capture_output=True, text=True)
-        txt = (r.stdout or "").strip()
-        ages[rel] = int(txt) if txt.isdigit() else 0
+        ages.setdefault(rel, 0)          # jamais vu dans l'historique du repertoire
     return ages
 
 
@@ -135,12 +199,26 @@ def _last_touch(rels: list[str]) -> dict:
 # Execution bornee
 # --------------------------------------------------------------------------------------------
 
-def _parse_junit(xml_path: Path) -> dict:
-    """{chemin relatif -> {passed, failed, error, skipped, time, messages}} depuis un JUnit XML.
+def _classname_index(rels: list[str]) -> dict:
+    """{classname pointe -> chemin relatif}. Le JUnit de pytest N'EMET PAS d'attribut `file`.
 
-    On lit l'attribut `file` du `testcase` (pytest le pose), pas `classname` : sous
-    `--import-mode=importlib` le classname est un chemin pointe dont la retro-conversion est
-    ambigue des qu'un repertoire contient un point."""
+    Mesure du 2026-08-03 sur `junit_family=xunit2` (le defaut) : un `testcase` ne porte que
+    `classname` et `name`. `classname` est le module pointe (`tests.engine.runner.test_x`), donc on
+    reconstruit la correspondance DEPUIS le perimetre connu -- jamais l'inverse (rabattre un
+    classname sur un chemin serait ambigu des qu'un repertoire contient un point)."""
+    idx = {}
+    for rel in rels:
+        idx[rel[:-3].replace("/", ".")] = rel
+    return idx
+
+
+def _parse_junit(xml_path: Path, index: dict) -> dict:
+    """{chemin relatif -> {passed, failed, error, skipped, xfailed, xpassed, time, messages}}.
+
+    `xfail` compte comme JOUE, pas comme skip -- c'est la semantique de `green_skip_guard` (#455 :
+    << l'assertion a bien ete evaluee, son echec etait attendu >>). Dans le XML un xfail sort en
+    `<skipped type="pytest.xfail">` : sans cette distinction, un fichier entierement xfail serait
+    rapporte ROUGE a tort."""
     res: dict = {}
     if not xml_path.exists():
         return res
@@ -149,30 +227,38 @@ def _parse_junit(xml_path: Path) -> dict:
     except ET.ParseError:
         return res
     for case in tree.getroot().iter("testcase"):
-        rel = (case.get("file") or "").replace("\\", "/")
+        rel = index.get(case.get("classname") or "")
         if not rel:
             continue
         e = res.setdefault(rel, {"passed": 0, "failed": 0, "error": 0, "skipped": 0,
-                                 "time": 0.0, "messages": []})
+                                 "xfailed": 0, "xpassed": 0, "time": 0.0, "messages": []})
         e["time"] += float(case.get("time") or 0.0)
         kind = None
         for child in case:
-            if child.tag in ("failure", "error", "skipped"):
-                kind = {"failure": "failed", "error": "error", "skipped": "skipped"}[child.tag]
-                if kind in ("failed", "error") and len(e["messages"]) < 3:
-                    msg = (child.get("message") or "").strip().replace("\n", " ")
-                    e["messages"].append("%s::%s -- %s" % (rel.rsplit("/", 1)[-1],
-                                                           case.get("name") or "?", msg[:300]))
-                break
+            if child.tag == "skipped":
+                kind = "xfailed" if (child.get("type") or "") == "pytest.xfail" else "skipped"
+            elif child.tag in ("failure", "error"):
+                kind = "failed" if child.tag == "failure" else "error"
+            else:
+                continue
+            if kind in ("failed", "error") and len(e["messages"]) < 3:
+                msg = (child.get("message") or "").strip().replace("\n", " ")
+                e["messages"].append("%s::%s -- %s" % (rel.rsplit("/", 1)[-1],
+                                                       case.get("name") or "?", msg[:300]))
+            break
         e[kind or "passed"] += 1
     return res
 
 
 def _verdict(counts: dict) -> str:
-    """ROUGE / VERT / VIDE. `passed == 0 and skipped > 0` est ROUGE (#455)."""
+    """ROUGE / VERT / VIDE, aligne sur `green_skip_guard.fichiers_inertes` (#455).
+
+    ROUGE si un echec, ou si `passed == 0 and skipped > 0` SANS aucun xfail/xpass (zero assertion
+    evaluee). VIDE = aucun test du tout : ce n'est pas un succes, c'est un perimetre qui s'effondre."""
     if counts.get("failed", 0) or counts.get("error", 0):
         return "ROUGE"
-    if counts.get("passed", 0) == 0:
+    joues = counts.get("passed", 0) + counts.get("xfailed", 0) + counts.get("xpassed", 0)
+    if joues == 0:
         return "ROUGE" if counts.get("skipped", 0) else "VIDE"
     return "VERT"
 
@@ -215,6 +301,7 @@ def _do_run(files: list[str], jobs: int, timeout_s: float, out_dir: Path) -> dic
     from concurrent.futures import ThreadPoolExecutor
 
     batches = _batches(files, jobs)
+    index = _classname_index(files)
     print("[462] %d fichier(s) a jouer, %d worker(s), timeout %.0f s/worker"
           % (len(files), len(batches), timeout_s))
     started = time.time()
@@ -226,16 +313,15 @@ def _do_run(files: list[str], jobs: int, timeout_s: float, out_dir: Path) -> dic
 
     par_fichier: dict = {}
     for r in results:
-        vus = _parse_junit(r["xml"])
+        vus = _parse_junit(r["xml"], index)
         for rel in r["files"]:
-            # Le nodeid pytest est relatif au rootdir (`scripts/python`), et l'attribut `file`
-            # du JUnit XML l'est aussi -- meme forme que `rel`.
             c = vus.get(rel)
             if c is None:
                 # Pas de report : le worker est mort avant d'y arriver (timeout, crash). NE PAS
                 # le compter vert -- c'est exactement le mode de defaillance silencieux a eviter.
                 par_fichier[rel] = {"verdict": "NON JOUE", "passed": 0, "failed": 0, "error": 0,
-                                    "skipped": 0, "time": 0.0, "messages": [],
+                                    "skipped": 0, "xfailed": 0, "xpassed": 0, "time": 0.0,
+                                    "messages": [],
                                     "raison": ("worker %d timeout" % r["idx"]) if r["timed_out"]
                                               else ("worker %d rc=%d, aucun report"
                                                     % (r["idx"], r["rc"]))}
@@ -249,7 +335,11 @@ def _do_run(files: list[str], jobs: int, timeout_s: float, out_dir: Path) -> dic
 
 
 def _merge_ledger(nouveau: dict, commit: str) -> dict:
-    """Fusionne dans le ledger : chaque entree porte le commit et l'horodatage de SA mesure."""
+    """Fusionne dans le ledger : chaque entree porte le BLOB, le commit et l'horodatage de SA mesure.
+
+    FUSION, jamais ecrasement : une passe ne mesure qu'une tranche, et ecraser perdrait le statut
+    des fichiers non joues -- donc rendrait le ledger MUET sur eux, ce qui se lirait comme
+    << jamais mesure >> alors qu'ils l'ont ete."""
     path = ledger_path()
     old = {}
     if path.exists():
@@ -258,13 +348,76 @@ def _merge_ledger(nouveau: dict, commit: str) -> dict:
         except (OSError, ValueError):
             old = {}
     fichiers = dict(old.get("fichiers", {}))
+    blobs = _blobs(sorted(nouveau))
     maintenant = int(time.time())
     for rel, c in nouveau.items():
-        fichiers[rel] = dict(c, _commit=commit, _at=maintenant)
+        fichiers[rel] = {"verdict": c.get("verdict"), "passed": c.get("passed", 0),
+                         "failed": c.get("failed", 0), "error": c.get("error", 0),
+                         "skipped": c.get("skipped", 0), "xfailed": c.get("xfailed", 0),
+                         "sec": round(float(c.get("time", 0.0)), 1),
+                         "_blob": blobs.get(rel), "_commit": commit, "_at": maintenant}
     doc = {"_ecrit_le": maintenant, "fichiers": fichiers}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return doc
+
+
+def _do_gate(ref: str) -> int:
+    """OFFLINE. Tout fichier live TOUCHE par le diff doit porter une attestation VERTE a SON blob.
+
+    CE QUE CETTE GATE FERME, ET CE QU'ELLE NE FERME PAS -- la distinction est tout l'interet.
+
+      * Elle FERME le trou mesure de #533 : `test_env_fire_tile_migration_live.py` a ete introduit
+        ROUGE par `ad5692e7` et l'est reste 8 jours. Le fichier etait DANS LE DIFF de son propre
+        commit (398 lignes modifiees). Une gate sur les fichiers live du diff l'aurait vu par
+        CONSTRUCTION -- et son cout est nul : mesure du 2026-08-03 sur 1706 commits non-merge,
+        1158 (68 %) ne touchent AUCUN fichier live, la mediane est 0 et le q3 est 1.
+
+      * Elle NE FERME PAS le rot d'un fichier que PERSONNE ne touche (le cas
+        `test_nightshroud_combat_live.py` : valide bit-exact le 2026-07-12, jamais retouche
+        substantiellement depuis, ROUGE au balayage du 2026-08-03). Fermer celui-la demanderait la
+        CLOTURE du graphe d'imports, dont le cout mesure est prohibitif sur sa queue : mediane 2
+        fichiers, mais q3 64 et 320/1706 commits (19 %) au-dela de 100 fichiers, soit plus d'une
+        demi-heure de live PAR PR. C'est le balayage periodique qui couvre ce cas, pas une gate.
+
+    Le blob, pas le commit : l'attestation reste valide tant que le FICHIER DE TEST ne change pas.
+    C'est ce qui la rend applicable -- et c'est aussi, exactement, sa limite ci-dessus."""
+    cibles, raison = _live_in_diff(ref)
+    if cibles is None:
+        print("[462] gate : %s -- RIEN verifie, ce n'est pas un verdict" % raison)
+        return 2
+    print("[462] gate --since %s : %s" % (ref, raison))
+    if not cibles:
+        print("[462] VERDICT: PASS -- aucun fichier live touche, rien a attester")
+        return 0
+    path = ledger_path()
+    fichiers = {}
+    if path.exists():
+        try:
+            fichiers = json.loads(path.read_text(encoding="utf-8")).get("fichiers", {})
+        except (OSError, ValueError):
+            fichiers = {}
+    blobs = _blobs(cibles)
+    manquants = []
+    for rel in cibles:
+        e = fichiers.get(rel)
+        blob = blobs.get(rel)
+        if e is None:
+            manquants.append((rel, "AUCUNE attestation"))
+        elif not blob or e.get("_blob") != blob:
+            manquants.append((rel, "attestation PERIMEE (le fichier a change depuis la mesure)"))
+        elif e.get("verdict") != "VERT":
+            manquants.append((rel, "attestation ROUGE (verdict %s)" % e.get("verdict")))
+    for rel, pourquoi in manquants:
+        print("  MANQUANT %s -- %s" % (rel, pourquoi))
+    if manquants:
+        print("[462] VERDICT: FAIL -- %d/%d fichier(s) live du diff sans attestation VERTE."
+              % (len(manquants), len(cibles)))
+        print("[462] Pour attester : python probe_462_live_tests_status.py --run --since %s" % ref)
+        return 1
+    print("[462] VERDICT: PASS -- les %d fichier(s) live du diff portent une attestation VERTE "
+          "a leur blob courant" % len(cibles))
+    return 0
 
 
 def _print_inventaire(par_fichier: dict, perimetre: list[str]) -> int:
@@ -281,12 +434,12 @@ def _print_inventaire(par_fichier: dict, perimetre: list[str]) -> int:
           % (len(verts), len(rouges), len(vides), len(nonjoues)))
     for rel in rouges:
         c = par_fichier[rel]
-        print("  ROUGE  %s  (p=%d f=%d e=%d s=%d, %.0f s)"
+        print("  ROUGE  %s  (p=%d f=%d e=%d s=%d xf=%d, %.0f s)"
               % (rel, c.get("passed", 0), c.get("failed", 0), c.get("error", 0),
-                 c.get("skipped", 0), c.get("time", 0.0)))
+                 c.get("skipped", 0), c.get("xfailed", 0), c.get("time", 0.0)))
         for m in c.get("messages", [])[:2]:
             print("         | %s" % m)
-        if c.get("passed", 0) == 0 and c.get("skipped", 0) and not c.get("failed", 0):
+        if not c.get("failed", 0) and not c.get("error", 0):
             print("         | FICHIER INTEGRALEMENT SKIPPE -- zero assertion evaluee (#455)")
     for rel in vides:
         print("  VIDE   %s  (aucun test collecte)" % rel)
@@ -348,6 +501,12 @@ def main(argv=None) -> int:
                     help="collecte SEULE sur tout le perimetre (aucun runner monte)")
     ap.add_argument("--run", action="store_true", help="joue un sous-ensemble BORNE")
     ap.add_argument("--report", action="store_true", help="relit le ledger, ne joue rien")
+    ap.add_argument("--gate", metavar="REF", default=None,
+                    help="OFFLINE : tout fichier live touche par le diff REF..arbre de travail "
+                         "doit porter une attestation VERTE a son blob courant")
+    ap.add_argument("--since", metavar="REF", default=None,
+                    help="avec --run : joue les fichiers live TOUCHES par le diff REF..arbre "
+                         "de travail (c'est le perimetre que --gate exige d'attester)")
     ap.add_argument("--files", nargs="*", default=None,
                     help="chemins relatifs a scripts/python a jouer (sinon --sample)")
     ap.add_argument("--sample", type=int, default=0,
@@ -368,6 +527,8 @@ def main(argv=None) -> int:
         for rel in perimetre:
             print("   ", rel)
         return 0
+    if args.gate:
+        return _do_gate(args.gate)
     if args.report:
         return _do_report(perimetre)
     if args.collect:
@@ -380,7 +541,16 @@ def main(argv=None) -> int:
     if args.jobs > MAX_JOBS:
         print("[462] --jobs %d REFUSE : le plafond est %d (pump partage)" % (args.jobs, MAX_JOBS))
         return 2
-    if args.files:
+    if args.since:
+        cibles, raison = _live_in_diff(args.since)
+        if cibles is None:
+            print("[462] --since : %s -- RIEN joue" % raison)
+            return 2
+        print("[462] --since %s : %s" % (args.since, raison))
+        if not cibles:
+            print("[462] aucun fichier live touche -- rien a jouer, VERDICT: PASS")
+            return 0
+    elif args.files:
         cibles = [f.replace("\\", "/") for f in args.files]
         inconnus = [f for f in cibles if f not in perimetre]
         if inconnus:
@@ -394,8 +564,8 @@ def main(argv=None) -> int:
               "%d fichier(s), offset %d ; %d ECARTES de cette passe"
               % (len(cibles), args.offset, len(perimetre) - len(cibles)))
     else:
-        print("[462] --run exige --files ou --sample N (un balayage COMPLET du parc live se "
-              "compte en heures et sature la session partagee)")
+        print("[462] --run exige --since REF, --files ou --sample N (un balayage COMPLET du parc "
+              "live se compte en heures et sature la session partagee)")
         return 2
 
     with tempfile.TemporaryDirectory() as td:      # tmpdir SYSTEME, jamais scripts/python (#455)
