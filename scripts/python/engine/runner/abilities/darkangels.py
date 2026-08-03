@@ -177,9 +177,11 @@ def plasma_cannon_tree():
     Ordre = main PUIS splash (cibles triees par id = OrderBy natif) -> meme `state.rng`. RANGED (range 3) ->
     `is_melee=False`.
 
-    GAP (flagge) : (a) `UnitsDirectlyBehind` runner degrade le GATE d'ELEVATION en no-op (`entities_from_state`
-    ne peuple pas `ctx.elev_by_pos`) -> sur board plat = exact (meme elevation partout) ; board a relief =
-    raffinement. (b) RESIDU #215 restant, >2 candidats derriere la cible : l'ordre d'enumeration natif du pool
+    GAP (flagge) : (a) FERME par #433-r4-r1-r4 -- le GATE d'ELEVATION de `UnitsDirectlyBehind`
+    (`TilesOnSameElevationSelector`, maxDiff=1) etait no-op cote runner faute de `ctx.elev_by_pos` ;
+    `DslContext.__post_init__` le derive desormais du `board`, donc un candidat derriere la cible a
+    `|dElev| >= 2` de la MAIN TILE de celle-ci sort du pool de splash, comme dans le natif.
+    (b) RESIDU #215 restant, >2 candidats derriere la cible : l'ordre d'enumeration natif du pool
     (non id-trie) decide QUELLES 2 unites sont piquees -> le SET peut diverger (la CONSO, elle, est exacte
     dans tous les cas depuis #130). A <=2 derriere : BIT-EXACT, confronte live (ratio live/offline == 1.0 sur
     la main ET le splash, regimes pool=1 et pool=2, `probe_215_pick_randomly_rng.py`)."""

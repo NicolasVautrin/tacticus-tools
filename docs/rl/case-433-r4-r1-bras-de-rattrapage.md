@@ -168,7 +168,11 @@ le changement est confiné à la branche de repli, qu'aucun d'eux n'atteint.
   des pieds, `targetTile` = la main tile) le rouvrirait : **non instruit**.
 * **`#433-r4-r1-r3` — `UnobscuredTiles` (LoS) toujours non portée** dans le repli de `PickTile` : mon
   étage est le SUIVANT, pas celui-là. Le flag existait déjà dans la docstring de `mv71.py`.
-* **`#433-r4-r1-r4` — porte d'élévation inerte côté runner** : `entities_from_state` ne pose pas
-  `elev_by_pos`, donc `|dElev| < 2` dégrade en no-op PERMISSIF pour les deux bras. Dégradation
-  PARTAGÉE avec tous les autres nœuds d'adjacence du runner (pas un fork local) — mais elle vaut
-  d'être fermée en un seul geste, pour tout le substrat.
+* **`#433-r4-r1-r4` — porte d'élévation inerte côté runner : FERMÉ**, cf.
+  `case-433r4r1r4-porte-elevation-substrat-dsl.md`. `DslContext.elev_by_pos` se dérive désormais du
+  `board` (`__post_init__` → `entities/pathfinding/board.py::elevations_by_pos`), donc `|dElev| < 2`
+  mord aux DEUX bras. Deux énoncés de ce résidu sont rectifiés à la mesure : ce n'était pas
+  « un seul geste » (**4 constructeurs de `DslContext` sur 11** portaient un `board` sans le canal),
+  et pas non plus « tous les nœuds d'adjacence du substrat » (**2 lecteurs** — celui-ci et
+  `UnitsDirectlyBehind` ; `IsAdjacent`/`IsCharging` passent par `services/battle_query`, déjà gatés
+  par le board).
