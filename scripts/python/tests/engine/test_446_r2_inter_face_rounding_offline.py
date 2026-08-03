@@ -42,9 +42,19 @@ ARMOR = 3513           # `astraBullgryn` -- branche PERCAGE gagnante sur les deu
 
 
 def _mods(att=(), deff=()):
+    """#462-r4a -- LE CANAL DU MONTAGE A CHANGE, PAS LES VALEURS NATIVES ATTENDUES.
+
+    Le `x1.5` de ce cas est une MODIFICATION DE STAT (defense -50 de la tuile Thorns, negee), et
+    c'est ce qui le place dans `Multiplier@0x30` (`DamageModifiers$$Add` surcharge 1-ARG), donc
+    DERRIERE le `Round` de l'etage MULTIPLICATEUR. Les %-list d'EFFETS, elles, vivent dans la liste
+    `@0x18` et se composent SANS arrondi entre les faces -- mesure #462-r4a, 12 bornes de balayage
+    d'armure plus le seul cas jamais monte avec les DEUX faces non neutres. Le montage pose donc
+    desormais la face DEFENSEUR dans `multiplicative_defender` ; les bornes attendues (434 / 650 /
+    433) sont INCHANGEES, ce sont toujours les valeurs natives de #446-r2."""
     m = DamageModifiers()
     m.pct_list.extend((v, None) for v in att)
-    m.pct_list_defender.extend((v, None) for v in deff)
+    for v in deff:
+        m.multiplicative_defender *= v
     return m
 
 
@@ -79,10 +89,43 @@ def test_face_attaquant_seule_pas_d_arrondi_intermediaire():
     assert fx.to_int(fx.from_number(hi)) == 650, f"MAX attendu 650 (natif), obtenu {float(hi)}"
 
 
-def test_les_deux_faces_ne_sont_pas_commutables():
-    """La preuve que la SEPARATION des faces est ce qui compte : le MEME produit `1.5`, place d'un
-    cote ou de l'autre, rend 434 ou 433. Une regression qui refusionnerait les listes rendrait la
-    MEME valeur des deux cotes."""
+def test_effet_defenseur_reste_dans_la_meme_chaine():
+    """#462-r4a -- LE PENDANT du cas ci-dessus, et il est INDISPENSABLE : une face DEFENSEUR issue
+    d'un EFFET (et non d'une modification de stat) reste dans la LISTE `@0x18`, donc dans la MEME
+    chaine que la face attaquant, SANS `Round` entre les deux.
+
+    Le regime est celui de `Terrifying_ExtraDefense` (`x0.70`) : sur le percage `fix(0.60) x 725`
+    du montage #462-r4a, `Round(435.000000068 x 0.70)` = **305** (natif), tandis qu'un arrondi
+    intercale rendrait `Round(Round(435.000000068) x 0.70)` = 304. Mesure : 12 bornes sur un
+    balayage d'armure (`probe_462_r4a_terrifying_rounding.py --sweep`)."""
+    m = DamageModifiers()
+    m.pct_list_defender.append((0.7, None))
+    lo = apply_pierce_and_modifiers(725, 60, 2208, m, attacker_additive_pre=True)
+    assert fx.to_int(fx.from_number(lo)) == 305, (
+        f"MIN attendu 305 (natif), obtenu {float(lo)} -- un `Round` s'est glisse entre le percage "
+        f"et la face DEFENSEUR, alors que celle-ci vient d'un EFFET (liste @0x18)")
+
+
+def test_chaine_unique_quand_les_deux_faces_sont_non_neutres():
+    """#462-r4a -- LE CAS QUE #446-r2 N'AVAIT PAS PU MONTER : elevation `x1.50` cote ATTAQUANT ET
+    `Terrifying_ExtraDefense` `x0.70` cote DEFENSEUR, sur le MEME coup. Les deux vivent dans la
+    liste `@0x18`, donc dans UNE SEULE chaine : `Round(725 x 1.50 x 0.70)` = **761** (natif), contre
+    762 si un `Round` s'intercalait. Mesure live : `--two-faces` (unites DEPLACEES pour fabriquer le
+    denivele), natif 761/1141."""
+    m = DamageModifiers()
+    m.pct_list.append((1.5, None))
+    m.pct_list_defender.append((0.7, None))
+    lo = apply_pierce_and_modifiers(725, 100, 0, m, attacker_additive_pre=True)
+    hi = apply_pierce_and_modifiers(1087, 100, 0, m, attacker_additive_pre=True)
+    assert fx.to_int(fx.from_number(lo)) == 761, f"MIN attendu 761 (natif), obtenu {float(lo)}"
+    assert fx.to_int(fx.from_number(hi)) == 1141, f"MAX attendu 1141 (natif), obtenu {float(hi)}"
+
+
+def test_les_deux_canaux_ne_sont_pas_commutables():
+    """La preuve que la SEPARATION des CANAUX est ce qui compte : le MEME produit `1.5`, pose comme
+    modification de STAT du defenseur (`Multiplier@0x30`, arrondi intercale) ou comme %-list de
+    l'attaquant (liste `@0x18`, pas d'arrondi), rend 434 ou 433. Une regression qui remettrait les
+    modifications de stat dans la %-list rendrait la MEME valeur des deux cotes."""
     d = _mods(att=(), deff=(1.5,))
     a = _mods(att=(1.5,), deff=())
     lo_d = apply_pierce_and_modifiers(BASE_MIN, PIERCE, ARMOR, d, attacker_additive_pre=True)

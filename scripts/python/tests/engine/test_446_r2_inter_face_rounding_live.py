@@ -80,12 +80,16 @@ def test_regime_installe(r2_rows):
     assert not a["defense_mod"], (
         f"la cible A porte une modification DEFENSE (total={a['defense_mod']}) : les deux cibles "
         "ne sont plus discriminantes")
-    assert (t["meta"]["mods"], t["meta"]["mods_def"]) == (None, [1.5]), (
-        f"T : faces attendues (ATT=None, DEF=[1.5]), obtenues "
-        f"({t['meta']['mods']}, {t['meta']['mods_def']})")
-    assert (a["meta"]["mods"], a["meta"]["mods_def"]) == ([1.5], None), (
-        f"A : faces attendues (ATT=[1.5], DEF=None), obtenues "
-        f"({a['meta']['mods']}, {a['meta']['mods_def']})")
+    # #462-r4a : le `x1.5` de T est une MODIFICATION DE STAT -> canal `Multiplier@0x30`
+    # (`meta["mult_def"]`), pas la %-list. Celui de A est un bonus d'ELEVATION -> %-list attaquant
+    # (`meta["mods"]`). C'est cette DIFFERENCE DE CANAL qui produit l'asymetrie 434/433 mesuree ici,
+    # et la lire au bon endroit est ce qui empeche la garde de rendre un faux "regime non exerce".
+    assert (t["meta"]["mods"], t["meta"]["mult_def"]) == (None, 1.5), (
+        f"T : faces attendues (ATT=None, DEF Multiplier=1.5), obtenues "
+        f"({t['meta']['mods']}, {t['meta'].get('mult_def')})")
+    assert (a["meta"]["mods"], a["meta"].get("mult_def")) == ([1.5], None), (
+        f"A : faces attendues (ATT=[1.5], DEF Multiplier=neutre), obtenues "
+        f"({a['meta']['mods']}, {a['meta'].get('mult_def')})")
     for k in ("base", "pierce", "armor", "hits"):
         assert t["meta"][k] == a["meta"][k], (
             f"entree d'etage `{k}` differente entre T et A ({t['meta'][k]} vs {a['meta'][k]}) : "
@@ -133,9 +137,11 @@ def test_generalisation_les_deux_faces_a_la_fois(r2_both):
     `Round(288.99999993 x 2.25)` = `Round(650.2499)` = 650). Il garde donc que la SEPARATION des
     faces ne casse rien la ou elle ne devait rien changer -- et il rougirait si un arrondi
     surnumeraire s'y glissait."""
-    assert r2_both["meta"].get("mods") and r2_both["meta"].get("mods_def"), (
+    # #462-r4a : la face DEFENSEUR de ce cran est une MODIFICATION DE STAT (tuile Thorns) -> canal
+    # `Multiplier@0x30` (`mult_def`), tandis que la face ATTAQUANT est l'ELEVATION -> %-list.
+    assert r2_both["meta"].get("mods") and r2_both["meta"].get("mult_def"), (
         f"regime NON exerce : faces ATT={r2_both['meta'].get('mods')} "
-        f"DEF={r2_both['meta'].get('mods_def')} -- une des deux est vide")
+        f"DEF Multiplier={r2_both['meta'].get('mult_def')} -- une des deux est neutre")
     assert r2_both["defense_mod"], (
         f"la cible n'a pas pris la modification DEFENSE de la tuile Thorns "
         f"{r2_both['thorns']} (total={r2_both['defense_mod']})")

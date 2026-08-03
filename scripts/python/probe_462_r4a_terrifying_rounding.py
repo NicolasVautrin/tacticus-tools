@@ -647,6 +647,100 @@ def _order_models(p_raw: int, att, deff) -> dict:
             "fusionne_1_round": chain([list(att) + list(deff)])}
 
 
+# --------------------------------------------------------------------------- contre-epreuves
+
+# Les QUATRE regimes NATIFS mesures, avec leurs entrees d'etage exactes. Chacun est un point ou le
+# port DOIT tomber juste ; une mutation qui ne DEPLACE aucun d'eux ne garde rien.
+#   (nom, base, pierce, armure, %-list ATT, %-list DEF, Multiplier ATT, Multiplier DEF, attendu)
+REGIMES = [
+    # #462-r4a -- `Terrifying_ExtraDefense` (EFFET, x0.70), percage FRACTIONNAIRE. `--sweep`.
+    ("terrifying MIN", 725, 60, 2208, [], [(0.7, None)], 1.0, 1.0, 305),
+    ("terrifying MAX", 1087, 60, 2208, [], [(0.7, None)], 1.0, 1.0, 457),
+    # #462-r4a -- les DEUX faces non neutres (elevation x1.50 + Terrifying x0.70). `--two-faces`.
+    ("deux faces MIN", 725, 100, 0, [(1.5, None)], [(0.7, None)], 1.0, 1.0, 761),
+    ("deux faces MAX", 1087, 100, 0, [(1.5, None)], [(0.7, None)], 1.0, 1.0, 1141),
+    # #446-r2 -- MODIFICATION DE STAT cote defenseur (tuile Thorns, x1.50) : canal `Multiplier@0x30`.
+    ("446r2 T MIN (stat-mod DEF)", 1445, 20, 3513, [], [], 1.0, 1.5, 434),
+    # #446-r2 -- ELEVATION cote attaquant sur le MEME percage : %-list, donc PAS d'arrondi.
+    ("446r2 A MIN (elevation ATT)", 1445, 20, 1507, [(1.5, None)], [], 1.0, 1.0, 433),
+]
+
+
+def _eval_regime(reg) -> int:
+    from engine.services.damage_modifiers import DamageModifiers
+    from engine.services.damage_prediction import apply_pierce_and_modifiers
+    _n, base, pierce, armor, att, deff, m_att, m_def, _exp = reg
+    m = DamageModifiers()
+    m.pct_list.extend(att)
+    m.pct_list_defender.extend(deff)
+    m.multiplicative = m_att
+    m.multiplicative_defender = m_def
+    return _fx.to_int(_fx.from_number(
+        apply_pierce_and_modifiers(base, pierce, armor, m, attacker_additive_pre=True)))
+
+
+def _eval_mutant(reg, model: str) -> int:
+    """Rejoue un regime sous un MODELE ALTERNATIF, ecrit explicitement (pas de monkeypatch : la
+    mutation doit etre LISIBLE, et l'arbre reel n'est jamais touche).
+
+      `round_inter`   -- la sequence de `master` avant #462-r4a : %-list ATTAQUANT, `Round`, puis
+                         %-list DEFENSEUR, `Round`. C'est le `Round` surnumeraire.
+      `statmod_pct`   -- les MODIFICATIONS DE STAT remises dans la %-list (canal d'avant #462-r4a),
+                         donc AVANT le `Round` au lieu d'apres."""
+    from engine.services.damage_modifiers import (apply_pct_entries,
+                                                  calculate_base_damage_with_modifiers)
+    from engine.services.static_battle_rules import get_damage_with_piercing
+    _n, base, pierce, armor, att, deff, m_att, m_def, _exp = reg
+    d = get_damage_with_piercing(base, pierce, armor)
+    if model == "round_inter":
+        d = apply_pct_entries(d, list(att))
+        d = calculate_base_damage_with_modifiers(d, m_att)
+        d = apply_pct_entries(d, list(deff))
+        d = calculate_base_damage_with_modifiers(d, m_def)
+    elif model == "statmod_pct":
+        chain = list(att) + list(deff)
+        if m_att != 1.0:
+            chain.append((m_att, None))
+        if m_def != 1.0:
+            chain.append((m_def, None))
+        d = apply_pct_entries(d, chain)
+        d = calculate_base_damage_with_modifiers(d, 1.0)
+    else:
+        raise ValueError(model)
+    return _fx.to_int(_fx.from_number(d))
+
+
+def mutants(verbose=True) -> int:
+    """CONTRE-EPREUVES. Chaque modele alternatif doit DEPLACER au moins un regime natif -- sinon la
+    garde ne garde rien. OFFLINE et instantane : les entrees d'etage sont celles MESUREES, plus
+    besoin du live pour prouver qu'une mutation mord. L'arbre reel n'est jamais mute (les modeles
+    sont ecrits a part), donc rien a restaurer -- ce qui est verifie quand meme, en fin de course."""
+    attendu = {r[0]: r[8] for r in REGIMES}
+    base = {r[0]: _eval_regime(r) for r in REGIMES}
+    bad = [n for n, v in base.items() if v != attendu[n]]
+    if bad:
+        print(f"ARBRE NON MUTE DEJA FAUX sur {bad} : {base} != {attendu} "
+              f"-- contre-epreuve inexploitable")
+        return 2
+    rc = 0
+    for model, label in (("round_inter", "round_inter (la sequence de master)"),
+                         ("statmod_pct", "statmod_pct (stat-mods remis dans la %-list)")):
+        got = {r[0]: _eval_mutant(r, model) for r in REGIMES}
+        moved = [n for n in attendu if got[n] != attendu[n]]
+        if verbose:
+            print(f"  mutant {label:44s} deplace {len(moved)}/{len(REGIMES)} : "
+                  + ", ".join(f"{n} {attendu[n]}->{got[n]}" for n in moved))
+        if not moved:
+            rc = 1
+    after = {r[0]: _eval_regime(r) for r in REGIMES}
+    if after != base:
+        print(f"ARBRE NON RESTAURE : {after} != {base}")
+        return 2
+    if verbose:
+        print(f"  arbre bit-exact : {after}")
+    return rc
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state-file")
@@ -657,10 +751,17 @@ def main() -> int:
     ap.add_argument("--seed", default=SEED)
     ap.add_argument("--range", type=int, default=1)
     ap.add_argument("--sweep", help="liste d'armures separees par des virgules -> balayage")
+    ap.add_argument("--mutants", action="store_true",
+                    help="CONTRE-EPREUVES offline : chaque mutation doit DEPLACER un regime natif")
     ap.add_argument("--two-faces", action="store_true",
                     help="scenario de GENERALISATION : faces ATTAQUANT et DEFENSEUR non neutres "
                          "sur le meme coup (les unites sont DEPLACEES)")
     a = ap.parse_args()
+    if a.mutants:
+        rc = mutants()
+        print("\nVERDICT:", "TOUTES LES MUTATIONS MORDENT" if rc == 0
+              else "UNE MUTATION NE MORD PAS")
+        return rc
     if a.two_faces:
         try:
             row = two_faces(attacker=a.attacker, target=a.target, board_id=a.board,

@@ -687,6 +687,14 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
               # deux x1.5) sont indiscernables -- et elles n'atterrissent PAS dans le meme champ natif.
               "mods_detail": [(e.kind, e.value, bool(e.owner_is_caster)) for e in mods.details] or None,
               "mods_def": [round(m, 3) for m, _c in mods.pct_list_defender] or None,
+              # #462-r4a : le canal `Multiplier@0x30` des DEUX faces. Il est DISTINCT des %-list
+              # ci-dessus (elles se composent sans arrondi entre elles, lui est precede d'un
+              # `Fix64.Round`), et seules les MODIFICATIONS DE STAT y entrent. Sans ces deux cles,
+              # un diagnostic qui ne lit que `mods`/`mods_def` rend une chaine AMPUTEE du x1.5 d'une
+              # tuile Thorns -- exactement le faux signal que le rejeu de #446-r2 a exhibe.
+              "mult_att": round(mods.multiplicative, 6) if mods.multiplicative != 1.0 else None,
+              "mult_def": (round(mods.multiplicative_defender, 6)
+                           if mods.multiplicative_defender != 1.0 else None),
               "effects": [e.name for e in att_effects] or None}
         if _fw is not None:
             # `hits` = le retour de la facade `GetAttackHits` pour le fold (#419-r1-tr9-r4) : sans
