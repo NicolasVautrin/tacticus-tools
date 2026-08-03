@@ -386,3 +386,16 @@ suffit à déclarer le fichier non vide. Un fichier « déclaré mais non collec
 **État du gisement, re-dérivé le 2026-08-03** : **530** fichiers de test versionnés, **0** sans
 test — mesuré deux fois, par AST et par collecte réelle. C'est donc un **cliquet**, pas une dette :
 zéro à tenir, et la seule chose qui puisse le rouvrir est notre propre cadence.
+
+### Ce que cette fermeture NE couvre pas
+
+* **#455-r3-r1** — le volet statique est **conservateur** : une `def test*` trouvée n'importe où
+  suffit. Un fichier dont les `def test*` existent mais ne sont plus **collectables** (classe hors
+  `python_classes`, `__test__ = False`, tests définis dans une fonction) lui échappe donc, et seul
+  le volet runtime le voit — c'est-à-dire **seulement s'il est joué**. Gisement mesuré : **0**
+  (`__test__` absent du dépôt, aucun `unittest`). Le durcir demanderait de rejouer la collecte,
+  qui coûte 248,6 s.
+* **#455-r3-r2** — le balayage ne couvre que les `testpaths` de `pytest.ini`
+  (`scripts/python/tests`). Un `test_*.py` versionné **hors** de là serait invisible aux deux
+  volets tant que personne ne le joue explicitement — pytest ne le collecterait pas non plus.
+  Mesuré : **0** fichier de test versionné hors `testpaths`.

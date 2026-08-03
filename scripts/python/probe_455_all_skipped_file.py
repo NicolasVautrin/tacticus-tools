@@ -607,7 +607,10 @@ def _regles_de_collecte() -> tuple:
     ce qui est le cas aujourd'hui (`pytest.ini` ne fixe que `pythonpath`, `testpaths`, `addopts`).
     `python_classes` n'y entre pas : le critere cherche les `def test*` N'IMPORTE OU dans l'arbre,
     donc il ne depend pas de la regle qui decide quelles CLASSES sont visitees."""
-    cfg = configparser.ConfigParser()
+    # RAW : `ConfigParser` interpole `%(...)s` et LEVE sur un `%` isole. `pytest.ini` n'en contient
+    # pas aujourd'hui, mais un `addopts` en contenant ferait retomber ce lecteur sur ses defauts --
+    # donc mentir sur le perimetre au lieu de le lire.
+    cfg = configparser.RawConfigParser()
     try:
         cfg.read(PYDIR / "pytest.ini", encoding="utf-8")
         section = cfg["pytest"]
@@ -621,7 +624,10 @@ def _testpaths() -> list:
     """Repertoires de test, LUS dans `pytest.ini`, en chemins relatifs au DEPOT.
 
     Meme raison que ci-dessus : un `testpaths` deplace doit deplacer le perimetre, pas le vider."""
-    cfg = configparser.ConfigParser()
+    # RAW : `ConfigParser` interpole `%(...)s` et LEVE sur un `%` isole. `pytest.ini` n'en contient
+    # pas aujourd'hui, mais un `addopts` en contenant ferait retomber ce lecteur sur ses defauts --
+    # donc mentir sur le perimetre au lieu de le lire.
+    cfg = configparser.RawConfigParser()
     try:
         cfg.read(PYDIR / "pytest.ini", encoding="utf-8")
         brut = str(cfg["pytest"].get("testpaths", "tests")).split()
