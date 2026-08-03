@@ -40,20 +40,39 @@ FOES = ["tauCrisis"]
 
 
 @pytest.fixture(scope="module")
-def live():
-    """Un runner greffe, partage par le module (un seul build)."""
-    rid, _sf = P._build(BOARD, SEED, "test_r1r1", FOES)
-    sid, rpc = P._rpc_factory()
-    try:
-        bg = rpc(sid, "boardGraph", {"runnerId": rid}, 90)
-        brd = Board(bg["tiles"], adjacency="native_sym")
-        state, dv, _ob = P._port_state(sid, rpc, rid, brd)
-        yield {"rid": rid, "sid": sid, "rpc": rpc, "board": brd, "state": state, "dv": dv}
-    finally:
-        try:
-            rpc(sid, "disposeRunner", {"runnerId": rid}, 60)
-        except Exception:
-            pass
+def live(rpc, build_runner):
+    """Un runner GREFFE, partage par le module (un seul build).
+
+    On passe par les fixtures `rpc` / `build_runner` du harnais plutot que par un montage maison :
+    elles isolent le state-file par PID et LIBERENT le runner au teardown. Un montage maison avait
+    ici casse la collecte pytest (`assert not self._finalizers`) -- et un runner non libere fait
+    trainer le cap `MAX_RUNNERS` pour tous les autres agents.
+
+    ⚠ Montage KO => ECHEC, jamais skip : un skip vert dirait « rien a valider »."""
+    import json
+    import uuid
+    import catalog_inject as CI
+    P.LOGSDIR.mkdir(parents=True, exist_ok=True)
+    bcp = P.LOGSDIR / ("seedbc-test-r1r1-%s.json" % uuid.uuid4().hex[:8])
+    bc = json.loads((P.ROOT / "data" / "seed-bc.json").read_text(encoding="utf-8"))
+    for uid in P.GRAFTS:
+        CI.graft_passive_ability(bc, uid, P.ABILITY)
+    bcp.write_text(json.dumps(bc), encoding="utf-8")
+
+    built = build_runner(seed=str(SEED), board=BOARD,
+                         extra=["--rank", "17", "--no-ai", "--seed-bc", str(bcp),
+                                "--p-units", ",".join(P.GRAFTS),
+                                "--a-units", ",".join(FOES)])
+    rid = int(built["rid"])
+
+    def _rpc(sid, method, args, timeout=120):
+        return rpc(method, args, timeout)
+
+    sid = None
+    bg = rpc("boardGraph", {"runnerId": rid}, 90)
+    brd = Board(bg["tiles"], adjacency="native_sym")
+    state, dv, _ob = P._port_state(sid, _rpc, rid, brd)
+    yield {"rid": rid, "sid": sid, "rpc": _rpc, "board": brd, "state": state, "dv": dv}
 
 
 def test_la_greffe_est_vue_par_le_collecteur(live):

@@ -48,6 +48,9 @@ import sys
 
 PYDIR = pathlib.Path(__file__).resolve().parent
 ROOT = PYDIR.parent.parent
+# Repertoire de SORTIE unique (sous `logs/`, gitignore -- #349). UN seul calcul de racine, partage
+# avec le test : une racine recalculee ailleurs a deja pointe une marche trop bas.
+LOGSDIR = ROOT / "logs"
 sys.path.insert(0, str(PYDIR))
 
 ABILITY = "FullThrottle"
@@ -128,7 +131,7 @@ def _rpc_factory():
 
 def _build(board: str, seed: int, tag: str, foes: list) -> tuple[int, pathlib.Path]:
     import catalog_inject as CI
-    logs = ROOT / "logs"
+    logs = LOGSDIR
     logs.mkdir(parents=True, exist_ok=True)
     state_file = logs / ("p448r1r1_state_%s.json" % tag)
     bc_path = logs / ("p448r1r1_bc_%s.json" % tag)
@@ -164,12 +167,18 @@ def _port_state(sid, rpc, rid, board):
     dv = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 150)
     ob = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
     snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 90)
-    # ⚠ `ability_states=` est OBLIGATOIRE POUR UNE GREFFE. `snapshot._load_passive_abilities`
-    # seede `UnitContext.passive_abilities` depuis CE canal ; sans lui il reste `None`, et
-    # `collect_triggered_abilities` retombe sur la derivation gameconfig par `visualId` -- ou
-    # `orksNob` porte `SmashaEad`, jamais `FullThrottle`. Le passif greffe serait alors INERTE
-    # cote port, SANS ERREUR : mesure du premier jet de ce probe, `collect -> 0 instance` et
-    # 0 mort sur 200 essais la ou le natif en tue 30 %.
+    # ⚠ `ability_states=` est OBLIGATOIRE POUR UNE GREFFE **DEPUIS UN PROBE**.
+    # `snapshot._load_passive_abilities` seede `UnitContext.passive_abilities` depuis CE canal ;
+    # sans lui il reste `None`, et `collect_triggered_abilities` retombe sur la derivation
+    # gameconfig par `visualId` -- ou `orksNob` porte `SmashaEad`, jamais `FullThrottle`. Le passif
+    # greffe est alors INERTE, SANS ERREUR : mesure du premier jet de ce probe,
+    # `collect -> 0 instance` et 0 mort sur 200 essais la ou le natif en tue 30 %.
+    #
+    # ⚠⚠ CE N'EST PAS UN TROU DU MOTEUR, et il ne faut pas le lire ainsi : la SUITE LIVE, elle,
+    # lie le transport comme AMBIANT (`snapshot.bind_live_rpc`, fixture `rpc` du conftest, #363),
+    # donc `load_state` va chercher `unitAbilityStates` d'elle-meme et le rail fonctionne sans que
+    # l'appelant le demande. Le trou est PROPRE AUX APPELANTS QUI N'ONT PAS CE BINDING -- un probe
+    # autonome comme celui-ci. D'ou l'appel explicite.
     ast = rpc(sid, "unitAbilityStates", {"runnerId": rid}, 90)
     return load_state(dv, ob, snap, board=board, ability_states=ast), dv, ob
 
