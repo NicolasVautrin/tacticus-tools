@@ -332,6 +332,25 @@ def _first(tiles: list):
     return tiles[0] if tiles else None
 
 
+def _first_n(tiles: list, count: int) -> list:
+    """`IdunBattleLogic.Entities.DSLFactory$$First(entities, count, ignoreForcedTargets=false)` —
+    le frère à COUNT de `_first`, rendu **min(count, len(source))** éléments en TÊTE. **ZÉRO
+    tirage**, exactement pour la même raison (prise-en-tête, pas un `PickRandomAmountSelector`).
+
+    Le nœud du spawn ScarabHive porte ce `count` (`Cache(First(Get(SelectTiles(SortByDistance(
+    SortByDistance(CanAddUnit(AdjacentTiles(target@0x178)), caster@0x160), caster@0x160))),
+    count), 1)`) et c'est le SEUL endroit où le nombre de summons est décidé, cf.
+    `SpawnUnitOperation.execute`.
+
+    ⚠ POURQUOI IL EST NOMMÉ plutôt qu'écrit `[:count]` en ligne (#462-r6). Le site l'écrivait en
+    slice anonyme depuis que le tile-sélecteur s'évalue UNE fois (`54c04b59`) : le nœud natif
+    n'avait donc plus de nom, et le contre-contrôle de `test_placement_sort_rng_live.py` — qui
+    substitue le modèle de placement d'AVANT — s'ancrait sur `_first`, que ce site n'appelait
+    plus. Il a cessé de mordre EN SILENCE, et son échec accusait le port. Un mirror nommé est un
+    point d'ancrage stable ; une forme d'écriture n'en est pas un. STRICTEMENT NO-OP."""
+    return list(tiles[:max(0, int(count))])
+
+
 def _sort_by_distance(state: State, tiles: list, origin_id: int) -> list:
     """`IdunBattleLogic.Entities.DSLFactory$$SortByDistance(entities, origin)` →
     `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select`, remis en C# :
@@ -779,8 +798,8 @@ class SpawnUnitOperation:
         # voisines LIBRES sont moins nombreuses que `count` en rend MOINS -- c'est le seul endroit
         # ou le nombre de summons est decide.
         free = _free_tiles_adjacent(state, target_id, set(), native_order=True)
-        picked = _sort_by_distance(state, _sort_by_distance(state, free, caster_id),
-                                   caster_id)[:max(0, int(count))]
+        picked = _first_n(_sort_by_distance(state, _sort_by_distance(state, free, caster_id),
+                                            caster_id), count)
         tiles = [(t, board.by_id[t]) for t in picked] if board is not None else []
         # === 2. UNE ENTITE PAR TUILE ITEREE (case-spawn-requires-tile) ===
         # `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute`, branche `SpawnUnitOptions+0x60

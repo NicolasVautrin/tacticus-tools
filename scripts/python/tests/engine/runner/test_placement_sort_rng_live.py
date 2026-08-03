@@ -23,8 +23,18 @@ CE QUE CES TESTS PROUVENT, et pourquoi ils ROUGIRAIENT si la reponse etait l'aut
         `admecMarshall`/ControlEdict -> teste `SortTilesByUtilityForSummon`, sur une geometrie
         CRAFTEE (`--discriminate`) pour que le tri et l'ORDRE SOURCE rendent des tuiles
         DIFFERENTES -- sans quoi le scenario ne prouverait rien du tri.
-  (3) ANTI-TAUTOLOGIE : le modele d'AVANT (1 tirage des que pool > 1) est verifie INCAPABLE de rendre
+  (3) CONTRE-CONTROLE : le modele d'AVANT (1 tirage des que pool > 1) est verifie INCAPABLE de rendre
       le compte live. S'il y arrivait, le scenario ne distinguerait plus les deux reponses.
+
+QUI ACCUSE QUI (#462-r6). Les assertions dont le sujet est le PORT REEL (comptage live/M1, tuiles)
+accusent le moteur. Celles dont le sujet est une MUTATION fabriquee ici (le modele M0) ou le REGIME
+que le montage doit realiser passent par `counterproof.assert_counterproof` /
+`assert_sample_confrontable` et echouent sous les types `InertCounterproof` / `UnconfrontableSample`.
+CE FICHIER EST LE CAS D'ECOLE : son M0 s'ancrait sur `_first`, que le site ScarabHive n'appelait plus
+depuis `54c04b59` (le tile-selecteur s'evalue UNE fois, `[:count]` en slice ANONYME). M0 et M1
+rendaient donc le MEME compte, et le contre-controle rougissait en accusant le port. Le noeud natif
+`First(source, count)` porte desormais un nom (`_first_n`) : un simulacre s'ancre sur un MIRROR
+NATIF, jamais sur une forme d'ecriture.
 
 POURQUOI COMPTER ET PAS SEULEMENT COMPARER LA TUILE : deux flux RNG decales peuvent placer la MEME
 unite (mesure : ControlEdict sur MC1_67/777 non-craftee, ou M0 tire et tombe quand meme sur la bonne
@@ -39,7 +49,8 @@ from __future__ import annotations
 import pytest
 
 import probe_130_placement_sort_rng as P
-from engine.runner.operations.spawn import (_first, _sort_by_distance, _randomize,
+from counterproof import assert_counterproof, assert_sample_confrontable
+from engine.runner.operations.spawn import (_first, _first_n, _sort_by_distance, _randomize,
                                             _sort_by_formula_pilein,
                                             _sort_tiles_by_utility_for_summon)
 
@@ -119,6 +130,15 @@ def test_first_is_take_head_not_a_pick():
     assert _first([]) is None
 
 
+@pytest.mark.parametrize("count,want", [(0, []), (1, [9]), (2, [9, 8]), (5, [9, 8, 7])])
+def test_first_n_is_take_head_min_count_len(count, want):
+    """`DSLFactory$$First(., count)` = les `min(count, len)` PREMIERS, 0 tirage (#462-r6 : ce noeud
+    est desormais NOMME dans le port -- il s'ecrivait `[:count]` en slice anonyme, et c'est ce qui
+    avait fait perdre son point d'ancrage au contre-controle ci-dessous)."""
+    assert _first_n([9, 8, 7], count) == want
+    assert _first_n([], count) == []
+
+
 # --------------------------------------------------------------- live : comptage + tuile choisie
 
 @pytest.fixture(scope="module")
@@ -153,12 +173,19 @@ def measured(live_session, rpc):
     if len(out) < 2:
         pytest.skip(f"scenario live indisponible (cas obtenus: {sorted(out)})")
     for case, r in out.items():
-        assert r["live_n"] is not None, (
-            f"{case} : etat RNG apres l'action non atteint en re-simulation -- quelque chose a "
-            f"consomme un volume anormal (mesure invalide, pas un verdict)")
-        assert r["live_tiles"], (
-            f"{case} : aucun spawn live observe -- la geometrie craftee ne realise pas le scenario "
-            f"(setup a re-crafter, pas un verdict)")
+        assert_sample_confrontable(
+            r["live_n"] is not None,
+            mutation=f"{case} : comptage live par re-simulation du MT (dumpRng avant/apres)",
+            doit_casser="l'etat RNG d'apres doit etre atteint en moins de `cap` pas",
+            observe="non atteint -- quelque chose a consomme un volume anormal",
+            remede="mesure INVALIDE, aucun verdict sur le port : isoler le consommateur (un autre "
+                   "agent sur la meme session ?) et rejouer")
+        assert_sample_confrontable(
+            bool(r["live_tiles"]),
+            mutation=f"{case} : geometrie craftee (cible collee, >= 2 voisins libres)",
+            doit_casser="au moins un spawn live doit apparaitre",
+            observe="aucun spawn live observe",
+            remede="re-crafter la geometrie (le noeud de placement n'a pas fire) -- pas un verdict")
     return out
 
 
@@ -184,24 +211,38 @@ def test_placement_picks_the_same_tiles_as_live(measured, case):
 
 @pytest.mark.parametrize("case", ["scarabhive", "controledict"])
 def test_previous_model_would_be_red_here(measured, case):
-    """(3) ANTI-TAUTOLOGIE : le modele d'AVANT (1 tirage des que le pool depasse 1) NE reproduit PAS
+    """(3) CONTRE-CONTROLE : le modele d'AVANT (1 tirage des que le pool depasse 1) NE reproduit PAS
     le compte live sur ce meme etat. S'il y arrivait, ce scenario ne distinguerait plus les deux
-    reponses et la garde ne garderait rien -- le test le DIT au lieu de passer."""
+    reponses et la garde ne garderait rien -- le test le DIT au lieu de passer, et il le dit SOUS
+    SON NOM (`InertCounterproof`), parce que son echec n'accuse NI le port NI le harnais (#462-r6)."""
     r = measured[case]
-    assert r["m0_n"] > r["live_n"], (
-        f"{case} : le modele d'avant rend {r['m0_n']} genrand pour {r['live_n']} live -- il devrait "
-        f"SUR-tirer (1 par tuile placee). S'il ne sur-tire plus, le pool du scenario est tombe a 1 "
-        f"(re-crafter la geometrie : le scenario n'est plus discriminant).")
+    assert_counterproof(
+        r["m0_n"] > r["live_n"],
+        mutation=f"{case} : modele M0 = le port d'AVANT (`_first`/`_first_n` -> 1 tirage des que "
+                 f"le pool depasse 1, tris natifs remplaces par l'identite)",
+        doit_casser=f"le compte de tirages : M0 doit SUR-tirer (1 par tuile placee) vs live "
+                    f"{r['live_n']}",
+        observe=f"M0 rend {r['m0_n']} genrand pour {r['live_n']} live (M1 = {r['m1_n']})",
+        remede="si l'assertion de FOND (`test_placement_consumes_no_rng_live`) passe, le port est "
+               "sain : soit le pool du scenario est tombe a 1 (re-crafter la geometrie), soit le "
+               "simulacre M0 ne s'ancre plus sur le noeud reellement appele (verifier que "
+               "`_LegacyPlacement` patche TOUS les mirrors `First(...)` du chemin). Si elle tombe "
+               "aussi, ce n'est PAS un rouge de scenario : reclasser en rouge de PORT.")
 
 
 def test_utility_sort_scenario_really_discriminates(measured):
     """Le vecteur ControlEdict est joue en mode DISCRIMINANT : il DOIT etre un cas ou le port d'avant
     place ailleurs que le live. Sinon le tri par utilite n'est pas teste, seulement le comptage."""
     r = measured["controledict"]
-    assert r["m0_tiles"] != r["live_tiles"], (
-        f"tuiles M0 {r['m0_tiles']} == live {r['live_tiles']} : la geometrie craftee ne fait PAS "
-        f"desaccorder le tri et l'ordre source -- le tri `SortTilesByUtilityForSummon` n'est pas "
-        f"confronte (re-crafter, pas un verdict).")
+    assert_counterproof(
+        r["m0_tiles"] != r["live_tiles"],
+        mutation="controledict : modele M0, tri `SortTilesByUtilityForSummon` remplace par l'ordre "
+                 "source (identite triee)",
+        doit_casser="la TUILE choisie : sans le tri, M0 doit placer ailleurs que le live",
+        observe=f"tuiles M0 {r['m0_tiles']} == live {r['live_tiles']}",
+        remede="la geometrie craftee (`--discriminate`) ne fait plus desaccorder le tri et l'ordre "
+               "source sur ce board : re-crafter. Le tri n'est PAS confronte -- ce n'est pas un "
+               "verdict sur le port.")
 
 
 # ------------------------------------------ case-205 : QUEL SUJET dans le `UtilityMovementCase` ?
@@ -279,10 +320,13 @@ def summon_subject(live_session, rpc):
                 sf.unlink()
             except Exception:
                 pass
-    assert len(out) >= 2, (
-        f"case-205 : {len(out)} montage(s) discriminant(s) obtenu(s) sur {len(CASE205_BOARDS)} boards. "
-        f"Il en faut au moins DEUX ou le terme de tuile VARIE (elevation / DryBush / Swamp) : sur "
-        f"plateau plat le composite est constant et n'importe quel sujet donne la meme tuile.")
+    assert_sample_confrontable(
+        len(out) >= 2,
+        mutation="case-205 : deux boards ou le terme de TUILE varie (elevation / DryBush / Swamp)",
+        doit_casser="chaque board doit rendre un montage ou deux lectures du sujet DIVERGENT",
+        observe=f"{len(out)} montage(s) discriminant(s) sur {len(CASE205_BOARDS)} boards",
+        remede="sur plateau plat le composite est constant et n'importe quel sujet donne la meme "
+               "tuile : rien n'est confronte. Elargir CASE205_BOARDS ou re-crafter le scan.")
     return out
 
 
@@ -298,10 +342,15 @@ def test_summon_case_unit_is_null_not_a_stand_in(summon_subject):
 
 
 def test_summon_subject_scenario_refutes_a_stand_in(summon_subject):
-    """ANTI-TAUTOLOGIE : sur CHAQUE montage, l'hypothese « le sujet est une unite tiree de
+    """CONTRE-CONTROLE : sur CHAQUE montage, l'hypothese « le sujet est une unite tiree de
     l'ensemble » designe une AUTRE tuile que le natif. Sans ca le montage ne distinguerait pas les
     deux lectures et la garde ne garderait rien -- le test le DIT au lieu de passer."""
     for r in summon_subject:
-        assert r["h_first"] != r["native"], (
-            f"board {r['board']} : H_FIRST=t{r['h_first']} == natif : la geometrie ne fait PAS "
-            f"diverger les deux lectures du sujet (re-crafter, pas un verdict).")
+        assert_counterproof(
+            r["h_first"] != r["native"],
+            mutation=f"board {r['board']} : H_FIRST = `case.unit` remplace par une unite de repli "
+                     f"tiree de l'ensemble (`templAncient`, porteur d'AstartesBanner 1106)",
+            doit_casser="la TUILE designee : H_FIRST doit tomber ailleurs que le natif",
+            observe=f"H_FIRST=t{r['h_first']} == natif=t{r['native']} (H_NULL=t{r['h_null']})",
+            remede="la geometrie ne fait plus diverger les deux lectures du sujet : re-crafter le "
+                   "scan (`P205.scan(..., strict=True)`). Rien n'est refute -- pas un verdict.")

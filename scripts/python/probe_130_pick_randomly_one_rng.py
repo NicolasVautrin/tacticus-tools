@@ -34,9 +34,14 @@ vrais etats PRNG distincts) :
 
 `live(k=1) == live(k=2)` -> le natif tire autant avec un pool de 1 qu'avec un pool de 2 : le
 court-circuit est REFUTE. Le port corrige reproduit ce contraste, pas le court-circuite.
-A k=0 le port est EXACT -> l'ecart constant de 1 tirage des que le splash fire est etranger au pick :
-c'est le resolve slot-8 (`DamagePrediction$$RandomlyResolveMinMaxDamage`, `Next(v, v+1)` sans gate
-largeur-1) que `HitDamage.get_damage` court-circuite a `min == max`. Residu nomme, au backlog.
+A k=0 le port est EXACT -> l'ecart constant de 1 tirage des que le splash fire etait etranger au
+pick : c'etait le resolve slot-8 (`DamagePrediction$$RandomlyResolveMinMaxDamage`, `Next(v, v+1)`
+sans gate largeur-1) que `HitDamage.get_damage` court-circuite a `min == max`.
+
+⚠ CE RESIDU EST FERME depuis `70dc9769` (#221, 2026-07-29), qui a porte le resolve sur la branche
+reduce-then-roll de `_run_hits`, gate par la FAMILLE (`is_attack_damage_op` -- le smite est de la
+famille ATTACK). MESURE du 2026-08-03, meme vecteur : delta live-port = **0** aux trois regimes.
+Le contrat du test est donc l'EGALITE, plus un ecart fige (#462-r6).
 
 Usage :  python probe_130_pick_randomly_one_rng.py [--seed 777] [--board MC1_67]
 Depuis scripts/python. ASCII only. Dispose SES runners (jamais ceux des autres).
