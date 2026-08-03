@@ -42,6 +42,25 @@ qu'AUCUN attaquant DarkAngels n'etait a portee -- sans attaquant elu, les trois 
 le `Pinned` sont vides de toute facon, et « chaine tombee » etait indiscernable de « personne pour
 attaquer ». Ici le caster est AU CONTACT (d=1), donc candidat garanti.
 
+TROIS AXES, ET CHACUN SE LIT SUR SON PROPRE CANAL -- HOMOLOGUE DES DEUX COTES (#462-r4b) :
+
+    axe        cote LIVE                                cote PORT
+    ---------- ---------------------------------------- --------------------------------------
+    `pinned`   groupe d'evenement emis PAR LE CAST       payload `active` de la feuille
+               (`applyAction.events[kind=group].source`) `AddEffect` (`_placed_effect_is_active`)
+    `final`    `decisionView.effects` POST-cast          `EffectsState.active_effects`
+    `dead`     `observeBattle.units[].isDead`            `UnitComponent.alive`
+
+Les DEUX PREMIERS ne coincident QUE SI LA CIBLE SURVIT, et c'est ce qui avait fait rendre un ROUGE
+N'ACCUSANT AUCUN GATE : le cas nominal (`blackPossession`, Uncommon) MEURT de l'attaque libre de la
+chaine -- live 8034 -> 0 `isDead`, port 8034 -> 0 `alive=False` (mesure
+`probe_462r4b_pinned_active_after_chain.py`). La sequence de mort
+(`IdunBattle.Operations.KillUnitOperation$$RemoveEffects` ->
+`IdunBattle.Operations.RemoveEffectsOperation$$Execute` : deux boucles, collecte des `effectId` du
+porteur puis retrait par le slot 0x11) retire TOUS les effets du mort -- live `decisionView.effects`
+post-cast = `[]`, port `consumed = True`. Le port POSAIT bien un `Pinned` ACTIF (etages A/B du
+probe) : lire l'EVENEMENT d'un cote et l'ETAT FINAL de l'autre comparait deux choses differentes.
+
 ASCII only. Dispose SES runners.
 """
 from __future__ import annotations
@@ -58,7 +77,7 @@ from engine.entities.selectors import Target
 from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.abilities.behaviours.effects import AddEffect
 from engine.runner.abilities.darkangels import ExemplarOfHateAbility
-from engine.runner.components import HealthComponent, unit_state_for_effects
+from engine.runner.components import HealthComponent, UnitComponent, unit_state_for_effects
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.snapshot import load_state
 
@@ -111,6 +130,21 @@ def _port_active(state, uid) -> set:
             for e in state.effects.active_effects(int(uid), unit_state_for_effects(state, int(uid)))}
 
 
+def _port_dead(state, uid) -> bool:
+    """La cible est-elle MORTE cote port ? (`UnitComponent.alive`, ecrit par la sequence de mort.)
+    Le pendant du `observeBattle.units[].isDead` live -- cf. l'axe `dead` de `_run`."""
+    e = state.get_entity(int(uid))
+    uc = e.get_component(UnitComponent) if e is not None else None
+    return uc is not None and not uc.alive
+
+
+def _live_final_effects(dv, uid) -> set:
+    """EffectTypes que `decisionView` publie POST-cast sur `uid` -- le canal par defaut ne publie que
+    les effets dont `EffectComponent.IsActive @+0x5c` est vrai (`readEffectsByUnit`,
+    `frida/hooks/game/effects.ts`), donc l'exact pendant live de `_port_active`."""
+    return {int(e[0]) for e in PR.eff_names(dv, uid)}
+
+
 def _group_sources(action) -> list:
     return [e.get("source") for e in (action.get("events") or []) if e.get("kind") == "group"]
 
@@ -145,6 +179,7 @@ def _run(sid, layout, victim_visual):
         php0 = _port_hp(st, tgt)
         port = ExemplarOfHateAbility().execute_behaviour(st, caster, tgt)
         php1 = _port_hp(st, tgt)
+        pdead = _port_dead(st, tgt)
         hp0 = PR.hp_of(sid, rid)
         res = PR.cast(sid, rid, caster, tgt, EXEMPLAR)
         assert res.get("ok"), "cast live KO: %s" % str(res)[:200]
@@ -153,16 +188,36 @@ def _run(sid, layout, victim_visual):
         live = {"pinned": "Pinned" in srcs,
                 "override": "TemporaryStatOverride" in srcs,
                 "attack": any(s and "NormalAttack" in s for s in srcs),
-                "damaged": (hp0.get(tgt) or (0,))[0] != (hp1.get(tgt) or (0,))[0]}
+                "damaged": (hp0.get(tgt) or (0,))[0] != (hp1.get(tgt) or (0,))[0],
+                "dead": bool((hp1.get(tgt) or (0, False))[1]),
+                "final": PINNED in _live_final_effects(
+                    PR.rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 60), tgt)}
         # AXE `pinned` = « l'effet CONTRIBUE-t-il ? », pas « a-t-il ete pose ? ». Cote LIVE c'est
-        # l'emission d'un groupe `Pinned` (un effet INACTIF n'applique rien, donc n'emet rien) ; le
-        # pendant EXACT cote port est `active_effects`, PAS la liste des poses (#208 : sur une cible
-        # `TerminatorArmour` le natif POSE l'effet et le laisse inerte -- mesure probe_208).
-        port_v = {"pinned": PINNED in _port_active(st, tgt),
+        # l'emission d'un groupe `Pinned` PENDANT LE CAST (un effet INACTIF n'applique rien, donc
+        # n'emet rien) ; le pendant EXACT cote port est le payload `active` de la feuille `AddEffect`
+        # (`_placed_effect_is_active`), remonte ici par `effects_active` -- PAS la liste des poses
+        # (#208 : sur une cible `TerminatorArmour` le natif POSE l'effet et le laisse inerte, mesure
+        # probe_208).
+        #
+        # ⚠ #462-r4b -- CE N'EST PAS `active_effects` SUR L'ETAT FINAL, et l'avoir lu la avait
+        # produit un ROUGE QUI N'ACCUSAIT AUCUN GATE : les deux observables ne coincident que si la
+        # cible SURVIT a la chaine. Sur `blackPossession` elle MEURT des DEUX cotes (mesure
+        # `probe_462r4b_pinned_active_after_chain.py` : live 8034 -> 0 `isDead`, port 8034 -> 0
+        # `alive=False`), et la sequence de mort
+        # (`IdunBattle.Operations.KillUnitOperation$$RemoveEffects` ->
+        # `IdunBattle.Operations.RemoveEffectsOperation$$Execute`) retire TOUS les effets du mort --
+        # live `decisionView.effects` post-cast = `[]`, port `consumed = True`. Le port POSAIT bien
+        # un `Pinned` ACTIF (etages A et B du probe) : c'etait la LECTURE qui comparait un evenement
+        # transitoire a un etat final.
+        port_v = {"pinned": PINNED in (port.get("effects_active") or []),
                   "placed": PINNED in (port.get("effects") or []),
                   "override": port.get("attack_override") is not None,
                   "attack": port.get("attack") is not None,
-                  "damaged": php0 != php1}
+                  "damaged": php0 != php1,
+                  "dead": pdead,
+                  # Etat FINAL (le canal que lit `decisionView` par defaut) -- confronte a
+                  # `live["final"]`, pas a `live["pinned"]`. C'est CE couple qui est homologue.
+                  "final": PINNED in _port_active(st, tgt)}
         print("\n[%s] live=%s port=%s" % (victim_visual, live, port_v))
         return live, port_v
     finally:
@@ -194,18 +249,44 @@ def test_chain_survives_inert_addeffect(live_session, enemy_layout):
     assert port["pinned"] is False, "PORT: Pinned ACTIF sur une cible TerminatorArmour"
     assert port["attack"] and port["override"], \
         "PORT: la chaine est TOMBEE derriere l'AddEffect inerte (%s)" % port
+    # Les DEUX autres couples HOMOLOGUES (#462-r4b) : la cible SURVIT ici, donc l'etat final est
+    # lisible des deux cotes et doit concorder.
+    assert live["dead"] == port["dead"], \
+        "MORT: desaccord live=%s port=%s -- l'axe effet n'est plus comparable" % (live["dead"], port["dead"])
+    assert live["final"] == port["final"], \
+        "ETAT FINAL: Pinned live=%s port=%s (canal decisionView vs active_effects)" % (
+            live["final"], port["final"])
 
 
 # ------------------------------------------------------- (2) cas NOMINAL (AddEffect qui aboutit)
 
 def test_chain_survives_placed_addeffect(live_session, enemy_layout):
-    """CONTRE-CAS : meme ability, cible Chaos SANS le trait -> `Pinned` EST pose et la chaine continue.
-    Garde du cas nominal : prouve que le verrou n'a pas casse le chemin ou l'effet aboutit."""
+    """CONTRE-CAS : meme ability, cible Chaos SANS le trait -> `Pinned` EST pose ET CONTRIBUE, et la
+    chaine continue. Garde du cas nominal : prouve que le verrou n'a pas casse le chemin ou l'effet
+    aboutit.
+
+    ⚠ #462-r4b -- L'AXE `pinned` SE LIT A LA POSE, DES DEUX COTES. Sur ce montage la chaine TUE la
+    cible (`blackPossession`, Uncommon, sous un override d'Attack) : live 8034 -> 0 `isDead`, port
+    8034 -> 0 `alive=False`. La sequence de mort retire TOUS les effets du mort
+    (`IdunBattle.Operations.KillUnitOperation$$RemoveEffects` ->
+    `IdunBattle.Operations.RemoveEffectsOperation$$Execute` -- live `decisionView.effects` post-cast
+    = `[]`), donc l'etat FINAL ne porte plus le `Pinned` NI d'un cote NI de l'autre. Ce test lisait
+    l'evenement cote live et l'etat final cote port : un ROUGE qui n'accusait AUCUN gate. Les deux
+    couples homologues sont desormais assertes SEPAREMENT (`pinned` = a la pose, `final` = a la
+    fin), plus l'accord sur la MORT elle-meme -- c'est ce dernier qui rendrait visible une
+    divergence de degat assez grande pour tuer d'un seul cote."""
     live, port = _run(live_session, enemy_layout, CONTROL_VICTIM)
     assert live["pinned"] is True, "LIVE: Pinned refuse sur une cible sans TerminatorArmour"
     assert live["attack"] and live["damaged"], "LIVE: chaine interrompue sur le cas nominal (%s)" % live
     assert port["pinned"] is True, "PORT: Pinned refuse sur une cible sans TerminatorArmour"
+    assert port["placed"] is True, "PORT: aucune pose de Pinned (gate de refus fantome)"
     assert port["attack"] and port["override"], "PORT: chaine interrompue sur le cas nominal (%s)" % port
+    assert live["dead"] == port["dead"], \
+        "MORT: desaccord live=%s port=%s -- degat divergent au point de tuer d'un seul cote" % (
+            live["dead"], port["dead"])
+    assert live["final"] == port["final"], \
+        "ETAT FINAL: Pinned live=%s port=%s (canal decisionView vs active_effects)" % (
+            live["final"], port["final"])
 
 
 # ------------------------------------------------------- (2bis) GENERALISATION : l'attaquant n'est pas le caster
