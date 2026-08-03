@@ -137,9 +137,14 @@ def _pick_far(elev, walk, want):
     return None, None
 
 
-def _nc_partition(sid, rid, uid, Y):
-    """`({P : bonus == 0}, {P : bonus == 50}, positions)` -- le bonus etant `util + 10*d` (un seul
-    ennemi). Sur le montage NON-adjacent, `bonus == 0` <=> `IsTileInRangeOfAnyAbility(E, P)` VRAI."""
+def _nc_partition(sid, rid, uid, enemy_pos: list):
+    """`({P : bonus == 0}, {P : bonus == 50}, positions)` -- le bonus etant `util + 10*Sum_E d(P,E)`.
+
+    VERROU DE MONTAGE : la partition n'est ATTRIBUABLE que s'il y a EXACTEMENT UN ennemi vivant.
+    Le terme `-10*d` est somme sur TOUS les ennemis (`GetAllAliveUnits` + `IsEnemy`) et chacun verse
+    son propre `+50/0` : a deux ennemis, un `bonus` de 50 ne dit plus LEQUEL est hors portee. Le
+    probe REFUSE plutot que de lire un melange (un bonus de 0 y serait aussi un `+50 - 50` fortuit).
+    """
     nat = _r(sid, "ncEvaluate", {"runnerId": rid, "unitId": uid, "abilityType": ABILITY,
                                  "sweep": True}, 180)
     in_range, out_range, allp = set(), set(), []
@@ -148,7 +153,7 @@ def _nc_partition(sid, rid, uid, Y):
             continue
         P = tuple(p["pos"])
         allp.append(P)
-        b = round(p["util"] + 10 * hexgeo.distance(P, Y), 6)
+        b = round(p["util"] + 10 * sum(hexgeo.distance(P, e) for e in enemy_pos), 6)
         (in_range if b == 0 else out_range).add(P)
     return in_range, out_range, allp, nat
 
@@ -200,7 +205,14 @@ def step_seam(verbose=True, enemy=None, want=8, movement=6) -> dict:
                 for u in (dv.get("units") or []) if u.get("pos")}
         if posn.get(c["id"]) != O or posn.get(e["id"]) != Y:
             return {"error": "positions non atteintes : %r" % posn}
-        in_range, out_range, allp, _nat = _nc_partition(sid, rid, c["id"], Y)
+        # VERROU DE MONTAGE (cf. `_nc_partition`) : la partition n'est attribuable qu'a UN ennemi.
+        foes = [(u.get("visualId"), (u["pos"]["col"], u["pos"]["row"]))
+                for u in (dv.get("units") or [])
+                if u.get("pos") and u.get("alive") and not u.get("ctrl")]
+        if len(foes) != 1:
+            return {"error": "montage IMPUR : %d ennemis vivants %r (la partition n'est pas "
+                             "attribuable a un seul kit)" % (len(foes), foes)}
+        in_range, out_range, allp, _nat = _nc_partition(sid, rid, c["id"], [Y])
         sweep = set(allp)
         variants = {
             "range0": {"overrideRange": 0},
@@ -252,29 +264,28 @@ def step_seam(verbose=True, enemy=None, want=8, movement=6) -> dict:
 # etape KIT -- le modele OFFLINE (union des portees) contre la meme partition
 # ------------------------------------------------------------------------------------------------
 def step_kit(verbose=True, enemy=None, want=8, movement=6) -> dict:
-    """Chiffre ce que rate le modele purement gameconfig : `d <= max(portees du kit)`.
-
-    C'est le contre-controle du mirror offline (`_kit_reach` d'`early_warning_override`) : la
-    partition du natif est la MEME que celle de `--step seam`, seul le predicat compare change."""
-    res = step_seam(verbose=False, enemy=enemy, want=want, movement=movement)
+    """Le MIRROR PORTE (`engine.services.ability_range.is_tile_in_range_of_any_ability`) confronte
+    tuile par tuile a la partition du natif -- meme montage que `--step seam`, seul le predicat
+    compare change. C'est ce qui chiffre le residu de la branche A plutot que de l'affirmer."""
+    res = step_seam(verbose=verbose, enemy=enemy, want=want, movement=movement)
     if "error" in res:
         return res
-    from engine.playbook.noncomparable.early_warning_override import _kit_reach
-    reach = _kit_reach(res["enemy_visual"])
+    from engine.services import ability_range as ar
+    vid = res["enemy_visual"]
+    reach = ar.unit_threat_reach(vid)
     Y = tuple(res["Y"])
     in_range = {tuple(p) for p in res["natif_in_range"]}
     out_range = {tuple(p) for p in res["natif_out_range"]}
     sweep = in_range | out_range
-    modeled = {P for P in sweep if hexgeo.distance(P, Y) <= reach}
-    out = {"reach": reach, "n_sweep": len(sweep),
+    modeled = {P for P in sweep if ar.is_tile_in_range_of_any_ability(Y, P, vid)}
+    out = {"enemy_visual": vid, "reach": reach, "n_sweep": len(sweep),
            "faux_positifs": sorted(modeled - in_range),
            "faux_negatifs": sorted(in_range - modeled),
            "exact": modeled == in_range}
     if verbose:
-        print("[kit] portee modelisee du kit %s : %d" % (res["enemy_visual"], reach))
-        print("[kit] sweep n=%d ; FP=%d FN=%d -> %s"
-              % (out["n_sweep"], len(out["faux_positifs"]), len(out["faux_negatifs"]),
-                 "EXACT" if out["exact"] else "APPROCHE"))
+        print("[kit] %s : reach modelise = %d ; sweep n=%d ; FP=%d FN=%d -> %s"
+              % (vid, reach, out["n_sweep"], len(out["faux_positifs"]),
+                 len(out["faux_negatifs"]), "EXACT" if out["exact"] else "DIVERGE"))
         if out["faux_positifs"]:
             print("[kit] faux positifs (modele dit en portee, natif non) : %r"
                   % (out["faux_positifs"],))
@@ -292,15 +303,19 @@ def main() -> int:
     ap.add_argument("--movement", type=int, default=6, help="Movement force du caster")
     a = ap.parse_args()
     rc = 0
-    if a.step in ("seam", "all"):
+    if a.step == "seam":
         res = step_seam(enemy=a.enemy, want=a.dist, movement=a.movement)
         if "error" in res:
             print("[seam] REFUS : %s" % res["error"])
             rc |= 1
     if a.step in ("kit", "all"):
-        res = step_kit(enemy=a.enemy, want=a.dist, movement=a.movement)
+        # `--step all` = `kit` SEUL : `kit` rejoue deja `seam` (meme montage), donc les enchainer
+        # monterait DEUX fois le meme runner pour la meme mesure.
+        res = step_kit(enemy=a.enemy, want=a.dist, movement=a.movement, verbose=True)
         if "error" in res:
             print("[kit] REFUS : %s" % res["error"])
+            rc |= 1
+        elif not res.get("exact"):
             rc |= 1
     return rc
 

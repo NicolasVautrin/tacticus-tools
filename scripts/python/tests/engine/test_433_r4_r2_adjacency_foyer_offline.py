@@ -32,7 +32,9 @@ import pytest
 import hexgeo
 from engine import battle_query as bq
 from engine.playbook.noncomparable import NCContext
-from engine.playbook.noncomparable.early_warning_override import EarlyWarningOverridePlaybook
+from engine.playbook.noncomparable.early_warning_override import (EarlyWarningOverridePlaybook,
+                                                                  _ranged_weapon_threshold)
+from engine.services import ability_range
 from engine.playbook.noncomparable.master_of_the_tutelaries import MasterOfTheTutelariesPlaybook
 
 ABILITY = 1077
@@ -107,18 +109,35 @@ def test_early_warning_non_neighbour_is_never_in_branch_B():
 
 
 def test_early_warning_two_branches_are_the_native_predicates():
-    """`utility_at` mirror : branche A `+50 si d > portee(E)`, branche B `+50 si d > 1`, puis
-    `-10 * d` dans les deux cas. Les DEUX branches, sur le MEME ennemi."""
+    """`utility_at` mirror : branche A `+50 si NON IsTileInRangeOfAnyAbility(E, P)`, branche B
+    `+50 si threshold(E) < d`, puis `-10 * d` dans les deux cas. Les DEUX branches, MEME ennemi.
+
+    Sur `tauMarksman` les deux seuils DIFFERENT (#433-r4-r2-r1 + -r2, fermes ensemble) : la zone
+    d'ability porte a 5 (`SeekerMissileFrequencyLock`, `constants.range = 5`), l'arme a distance
+    a 3. C'est ce qui rend le partage A/B observable dans le PORT."""
     pb = EarlyWarningOverridePlaybook()
-    enemies = [((0, 0), 3)]
-    for d, P in ((1, (1, 0)), (2, (2, 0)), (4, (4, 0))):
-        assert hexgeo.distance(P, (0, 0)) == d, "geometrie du test cassee"
-        assert pb.utility_at(P, enemies, set()) == (50.0 if d > 3 else 0.0) - 10.0 * d
-        assert pb.utility_at(P, enemies, {(0, 0)}) == (50.0 if d > 1 else 0.0) - 10.0 * d
+    E = (0, 0)
+    enemies = [(E, RANGED, _ranged_weapon_threshold(RANGED))]
+    reach = ability_range.unit_threat_reach(RANGED)
+    assert (reach, enemies[0][2]) == (5, 3), \
+        "les deux seuils doivent DIFFERER, sinon le partage A/B est indiscernable dans le port"
+    for d, P in ((1, (1, 0)), (2, (2, 0)), (4, (4, 0)), (6, (6, 0))):
+        assert hexgeo.distance(P, E) == d, "geometrie du test cassee"
+        assert pb.utility_at(P, enemies, set()) == (50.0 if d > reach else 0.0) - 10.0 * d
+        assert pb.utility_at(P, enemies, {E}) == (50.0 if d > 3 else 0.0) - 10.0 * d
 
 
 def test_early_warning_emitted_action_changes_with_the_gate():
-    """Bout en bout : la porte change l'action EMISE, pas seulement un booleen interne."""
+    """Bout en bout : la porte change l'action EMISE, pas seulement un booleen interne.
+
+    RE-ETALONNE par #433-r4-r2-r1/-r2 (les DEUX seuils ont change, donc les deux verdicts) :
+      * SANS canal -> tous adjacents -> branche B, `threshold = FindRangedWeapon.Range = 3` :
+        la 1re position qui verse `+50` est `d = 4`, d'ou `50 - 40 = 10` (et non plus `d = 2`,
+        `30`, qui supposait le `threshold` fige a 1) ;
+      * AVEC canal -> `|dElev| = 2` -> branche A, zone d'ability de portee 5 : AUCUNE position du
+        sweep (`d <= 4`) n'est hors portee, donc aucun `+50`, l'utilite reste NEGATIVE et
+        `MIN_UTILITY` la rejette -> AUCUNE action (et non plus `10`, qui supposait la zone
+        limitee a la portee d'ARME 3)."""
     pb = EarlyWarningOverridePlaybook()
     nb = _neighbours(O)
     high = nb[1]
@@ -134,10 +153,10 @@ def test_early_warning_emitted_action_changes_with_the_gate():
     on = pb.generate_candidates(ctx)
     off = pb.generate_candidates(ctx_off)
     assert on != off, "la porte n'a aucun effet sur l'action emise -- montage a re-etalonner"
-    assert off and off[0]["pred"] == 30.0, \
-        "branche B attendue SANS canal (50 - 10*2 = 30), obtenu %r" % (off,)
-    assert on and on[0]["pred"] == 10.0, \
-        "branche A attendue AVEC canal (50 - 10*4 = 10), obtenu %r" % (on,)
+    assert off and off[0]["pred"] == 10.0, \
+        "branche B attendue SANS canal (threshold 3 -> 50 - 10*4 = 10), obtenu %r" % (off,)
+    assert on == [], \
+        "branche A attendue AVEC canal (zone de portee 5 : aucun +50 sur d <= 4), obtenu %r" % (on,)
 
 
 # --------------------------------------------------------------------------- 2. Tutelaries
