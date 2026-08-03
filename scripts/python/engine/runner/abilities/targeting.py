@@ -589,6 +589,29 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # `<preset>+0x188..0x19f`, recopie de `TargetingRange statics+0x18` = RANGE_FROM_CONFIG.
     1093: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetMatchesDynamicRule,
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
+    # 1215 InstrumentsOfVengeance (#27-r6) -- meme statut que 1216 : face DECISION portee (playbook),
+    # face COMBAT NON portee (`...InstrumentsOfVengeanceAbility$$ExecuteBehaviour` est un arbre DSL
+    # substantiel : `If(HasTarget)` sur deux paires de `GetEffectBehavior`, `AddBondEffect(0x5ef)`,
+    # `If(!HasAdjacentEnemies) ActivateEffect(0x3f1)`, et chaque `GetEffectBehavior` empile
+    # `TilesBehindInLine`/`EdgeTilesByDirection`/`SortByFormula`/`SetPersistentData`/`AddEffect(0x5ee)`).
+    #
+    # Le masque est une STATIC-COPY, pas un litteral de ctor et pas un PRESET+FLAGS :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.InstrumentsOfVengeanceAbility$$.ctor` recopie les
+    # 0x40 octets de `<TargetingOptions statics>+0x280` dans une struct locale et la passe TELLE QUELLE
+    # a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` -- il n'appelle AUCUNE surcharge de
+    # `TargetingOptions$$.ctor`. Le masque effectif est donc la constante ecrite par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` en `<preset>+0x28` :
+    #     0x8004 = CasterIsPossibleTarget(0x8000) | CasterMatchesDynamicRule(0x4)
+    # C'est le MEME preset que 1216, SANS le `additionalRules = 0x10` : 1215 n'a donc PAS
+    # `CasterHasNotMoved` -- elle reste castable apres deplacement, la ou 1216 ne l'est pas.
+    # `isSelfCasting` = `<preset>+0x00` = 1 ; `forceMeleeTarget` = `<preset>+0x20` = 1 = RangedBool.False.
+    # `range` = `None` DELIBERE (meme raison que 1216 : le bloc `<preset>+0x08..0x1f` vient d'un champ
+    # statique de `TargetingRange` non resolu -> aucun gate de portee invente).
+    # MESURE (probe_27_r6_instruments_of_vengeance.py) : `abilityTargets(1215)` rend UNE cible, le
+    # caster lui-meme (CasterIsPossibleTarget), et elle SURVIT au deplacement du caster (absence de
+    # CasterHasNotMoved) -- c'est la contre-epreuve qui separe ce masque de celui de 1216.
+    1215: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterMatchesDynamicRule,
+                           self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
 }
 
 
