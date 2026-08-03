@@ -21,6 +21,12 @@
 .PARAMETER KeepWorktree
     Conserve le worktree apres le run (diagnostic d'un rouge). Sinon il est retire.
 
+.PARAMETER Since
+    Transmis a `ratchets.ps1` : `probe_457` ne rejoue que les fichiers de test IMPACTES par le diff
+    `<ref>..HEAD` (empreinte MESUREE + graphe d'imports, tout doute rejouant TOUT). C'est la forme
+    normale de la boucle de merge -- passer la BASE de la PR fusionnee.
+    ⚠ Ne remplace pas un run complet : garder un run SANS `-Since` une fois par session.
+
 .PARAMETER Only
     Transmis tel quel a `ratchets.ps1` (accepte le prefixe : `-Only probe_283` prend ses 6 etapes).
     Utile pour bisecter un cliquet fautif : `git bisect run pwsh -File scripts/ratchets-bg.ps1 -Only probe_313`.
@@ -39,7 +45,8 @@
 param(
     [string]   $Commit = 'HEAD',
     [switch]   $KeepWorktree,
-    [string[]] $Only
+    [string[]] $Only,
+    [string]   $Since
 )
 
 $ErrorActionPreference = 'Stop'
@@ -141,7 +148,8 @@ try {
     }
 
     $argv = @('-File', (Join-Path $wt 'scripts\ratchets.ps1'))
-    if ($Only) { $argv += @('-Only', ($Only -join ',')) }
+    if ($Only)  { $argv += @('-Only', ($Only -join ',')) }
+    if ($Since) { $argv += @('-Since', $Since) }
 
     Push-Location $wt
     try { $sortie = & pwsh @argv 2>&1; $rc = $LASTEXITCODE }
