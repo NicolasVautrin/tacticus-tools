@@ -738,9 +738,12 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
     `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner(ability.Type)` (null ⇒ skip), puis
     `<slot 4> || IsFriend(case.unit ?? case.parent, ability.Owner)` ⇒ yield `(playbook, owner)`.
 
-    ⚠ Le pré-gate `<slot 4>` n'est PAS porté (corps trivial fondu par l'ICF, sans symbole) : il est
-    TRANSPARENT pour le seul playbook enregistré, qui re-teste `IsFriend` lui-même. Détail et
-    résidu nommé : docstring de tête de `engine/playbook/non_owner.py`.
+    ⚠ Le pré-gate `<slot 4>` est PORTÉ depuis #433-r4-r3 : son corps trivial (fondu par l'ICF, donc
+    sans symbole propre) a été LU dans le bloc `methodPointers` du PE et vaut **`false`** — aucune
+    des classes concrètes ne le surcharge, elles n'ont que `.ctor` + `CalculateMovementUtilityInSteps`.
+    Le gate se réduit donc à `IsFriend`, et il est appliqué ICI, là où le natif le met (dans
+    `IterateAbilities`), pas dans les corps de playbook. Chaîne de lecture complète et les deux
+    autres sources qui la recoupent : docstring de tête de `engine/playbook/non_owner.py`.
 
     ⚠ RÉGIME SPAWN (`case.unit == null`, `case.parent != null` — call-site
     `SortTilesByUtilityForSummon`, case-205) : le natif ITÈRE quand même, avec le PARENT comme
@@ -757,11 +760,16 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
         from ..playbook.non_owner import load_playbook_non_owner
         total = 0.0
         # `friend_units`/`enemy_units` sont déjà SELF-EXCLUS : c'est exactement le
-        # `if (case.unit == ability.Owner) continue` du natif. Les deux listes sont parcourues (le
-        # natif itère TOUTES les TriggeredAbility de la bataille, pas seulement celles des amis) ;
-        # `is_friend` est l'argument que chaque playbook consomme.
+        # `if (case.unit == ability.Owner) continue` du natif. Les DEUX listes sont parcourues (le
+        # natif itère TOUTES les TriggeredAbility de la bataille, pas seulement celles des amis),
+        # puis le PRÉ-GATE `<slot 4 = false> || IsFriend(sujet, owner)` écarte les porteurs non
+        # amis — c'est la seule chose que fait le `||` une fois le slot lu (#433-r4-r3).
+        # `is_friend` reste passé aux playbooks : `KustomForceFieldReworkedNonOwnerPlaybook` le
+        # RE-TESTE dans son propre corps natif, et le port mirrore ce corps.
         for units, is_friend in ((ctx.get("friend_units") or (), True),
                                  (ctx.get("enemy_units") or (), False)):
+            if not is_friend:                 # `!<slot 4> && !IsFriend` = IsInvalidEntityForPlaybook
+                continue
             for u in units:
                 for ab in (u.get("triggered") or ()):
                     pb = load_playbook_non_owner(ab)

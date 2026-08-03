@@ -1,0 +1,169 @@
+# case-433-r4-r3 — les deux `*NonOwnerPlaybook` absents du registre, et le pré-gate `<slot 4>`
+
+**Verdict : les deux sont PORTÉS. `PsychicFortress` (1000) est CONFRONTÉ LIVE et l'écart est un
+CHANGEMENT DE TUILE** — le natif joue la tuile que le port ne retenait pas. `EcogSupport` (1487) est
+porté et son atteignabilité est **mesurée** (le summon apparaît réellement), mais l'argmax natif
+reste **NON CONFRONTÉ**, pour une raison structurelle nommée au §5.
+
+L'argument d'absence qui couvrait le registre — « `LoadPlaybookNonOwner` rend null == MÊME
+dégradation que le natif » — était **faux ici** : il ne vaut que pour un type d'ability **sans**
+classe native. Les deux classes existent, et leur `CalculateMovementUtilityInSteps` yielde un poids
+non nul.
+
+## 1. Ce que les deux corps font, au décompilé
+
+`IdunBattle.AI.Playbook.Loki.PsychicFortressNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`
+— le corps le plus court de la famille, **aucun gate** hors l'adjacence :
+
+    ITile ownerTile = EntityExtensions.GetMainTile(owner, State);
+    if (ownerTile == null) yield break;
+    if (!TileExtensions.IsAdjacentTo(case.MovementTile, ownerTile)) yield break;
+    yield return GetUtilityValue("PSYCHICFORTRESS_AdjacentFriendly");        // 20
+
+`IdunBattle.AI.Playbook.Loki.ECogSupportPlaybookNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`
+— **trois** gates, et le premier porte sur le MOVER :
+
+    if (case.unit == null)     { yield return Fix64.Zero; yield break; }
+    ITile ownerTile = EntityExtensions.GetMainTile(owner, State);
+    if (ownerTile == null)     { yield return Fix64.Zero; yield break; }
+    if (!UnitExtensions.HasTrait(case.unit, 2)) yield break;                 // UnitTrait.Summon
+    if (UnitExtensions.GetParent(case.unit, State, false) != owner) yield break;
+    if (!TileExtensions.IsAdjacentTo(case.MovementTile, ownerTile)) yield break;
+    yield return GetUtilityValue("EcogSupport_EcogAdjacentToParent");        // 10
+
+Quatre lectures qui ne se devinent pas :
+
+* **La disposition des champs de la SM DIFFÈRE entre les deux classes** et se lit dans la
+  méthode-usine, jamais par transposition : `ECogSupport…$$CalculateMovementUtilityInSteps` écrit
+  `case @+0x20, owner @+0x28, playbook @+0x30` ; `PsychicFortress…` écrit
+  `owner @+0x20, playbook @+0x28, case @+0x30`.
+* **`2` est `UnitTrait`.Summon** (enum qualifié). Le terme d'`EcogSupport` ne peut donc mordre que
+  pendant le sweep d'un SUMMON du porteur — jamais pour un allié ordinaire.
+* **`GetParent` passe `root = false`** (littéral `0`) : parent DIRECT, pas la racine de chaîne.
+* **`IsAdjacentTo` = `MovementUtil$$AreTilesAdjacent`** (vérifié : `TileExtensions$$IsAdjacentTo`
+  n'a pas d'autre corps), donc le foyer `battle_query.are_entities_adjacent` — celui qui porte le
+  court-circuit d'identité `t1 == t2` de #433-r1, **pas** `is_adjacent`.
+
+Clés BC résolues au littéral (`probe_212_bc_key_literals.py`, slot → token → `global-metadata.dat`),
+jamais devinées par préfixe. **Pas de piège #271** : `20` et `10` dans la capture `data/seed-bc.json`
+**comme** au gameconfig vivant — le terme mordait donc déjà côté natif pendant que le port rendait 0.
+
+## 2. Le pré-gate `<slot 4>` : LU, et il vaut `false`
+
+C'est le verrou que le module `playbook/non_owner.py` s'était nommé à lui-même (« le jour où un
+playbook NonOwner sans auto-gate entre au registre, il faudra lire ce slot »). Les deux entrants
+sont exactement ce cas : ni l'un ni l'autre ne re-teste `IsFriend`, alors que
+`KustomForceFieldReworkedNonOwnerPlaybook` le faisait — c'est ce qui rendait le gate transparent
+jusqu'ici. Trois sources indépendantes le tranchent :
+
+1. **Le slot 4 est bien celui du prédicat, et les slots 0/1/2 sont les trois `Calculate*`.**
+   `FUN_180002590(slot, <Il2CppClass*>, obj)` indexe `klass->interfaceOffsets` (+0xb0, compte
+   +0x12e) puis la vtable (+0x138, entrées de 0x10) ; le `DAT_` passé porte un token de
+   metadata-usage `kind == 1` (`kIl2CppMetadataUsageTypeInfo`) — c'est le TYPE de l'interface.
+   `<EvaluateMovementInSteps>d__0$$MoveNext` invoque le slot **0** avec `(case, owner)`,
+   `<EvaluateAttackInSteps>d__1` le **1**, `<EvaluateRepairInSteps>d__2` le **2** ;
+   `IsInvalidEntityForPlaybook` et `<IterateAbilities>d__3` le **4**.
+2. **Aucune classe concrète ne le surcharge.** Le bloc `methodPointers` du PE
+   (`probe_8889_methodptr_vtable.py`) donne pour les trois classes concernées **exactement deux
+   entrées** — `.ctor` puis `CalculateMovementUtilityInSteps` — suivies des six corps de leur SM
+   `d__2`. C'est la lecture qui remplace « absent des tables donc pas d'override », que le
+   `CLAUDE.md` interdit à bon droit.
+3. **Dans le bloc de la base, un seul corps rend un booléen.** `TriggeredAbilityNonOwnerPlaybook<T>`
+   compte **21** entrées ; **19** portent un symbole propre et rendent toutes un objet, `Fix64` ou
+   `void`. Des deux corps fondus restants, l'un lit un champ objet (8 octets), l'autre est
+   `return 0` sur **UN** octet — la seule signature possible.
+
+⇒ le gate se réduit à `IsFriend(case.unit ?? case.parent, owner)`, et il est mirroré **là où le
+natif le met** : dans le dispatcher (`utilities/tile.py::TriggeredAbilitiesNonOwnerUtility.evaluate`,
+mirror d'`IterateAbilities`), pas dans les corps. `KustomForceFieldReworked` garde son propre test —
+son corps natif le porte vraiment.
+
+**Ce que ce gate évitait, mesuré offline** : sans lui, `PsychicFortress` verse **+20** sur les tuiles
+adjacentes à un Tigurius **ADVERSE**. Aucune assertion antérieure ne voyait ce régime.
+
+## 3. Confront live — `PsychicFortress`, un CHANGEMENT DE TUILE
+
+Montage (`probe_433_r4_r3_non_owner_playbooks.py::run_psychic_fortress`) : on classe les tuiles
+candidates d'un allié SANS le terme, puis on DÉPLACE le porteur sur une tuile voisine **native** de
+la deuxième (et pas de la première). Le couple n'est retenu que si l'écart sans terme est **inférieur
+au poids** — sinon le terme ne pourrait rien renverser et la mesure ne prouverait rien.
+
+| board  | seed  | mover           | argmax SANS | argmax AVEC | NATIF   |
+|--------|-------|-----------------|-------------|-------------|---------|
+| MC1_67 | 777   | `astraBullgryn` | (0, 4)      | (1, 4)      | (1, 4)  |
+| MC1_67 | 31337 | `astraBullgryn` | (0, 4)      | (1, 4)      | (1, 4)  |
+| MC1_67 | 4321  | `astraBullgryn` | (0, 4)      | (1, 4)      | (1, 4)  |
+| C4_09  | 777   | `astraBullgryn` | (3, 5)      | (4, 4)      | (4, 4)  |
+| C1_25  | 777   | `necroWarden`   | (1, 3)      | (2, 2)      | (2, 2)  |
+
+**5 montages, 3 boards, 2 movers, 5/5 le natif suit le terme.** Le kit du porteur porte `1000` sur
+les DEUX substrats (le `triggered` du voisin côté port, l'`AbilitiesComponent` côté
+`unitAbilityStates`). La proposition native est vérifiée MOVE PUR (aucun `ActiveAbilityMessage`),
+sans quoi la tuile viendrait du sweep d'ATTAQUE, hors du modèle `UnitMovement(6)`.
+
+## 4. `EcogSupport` — atteignabilité MESURÉE
+
+Le porteur `votanIronmaster` (Vynn) est HERO **hors pool** → injection catalogue
+(`catalog_inject.write_augmented_seed_bc`, `case-92` §6). Le summon n'apparaît **pas** au début de
+bataille : `ECogSupport_InitAbility$$CreateTrigger` = `OnOwnerSpecificAbilityInit(0x5cf)` ne fait
+qu'un `AddFlag(0x18)`. Le vrai déclencheur est
+`ECogSupportAbility$$CreateTrigger` = **`On(0x30) & OwnerIsCaster`**, et `0x30` = `48` =
+`IdunBattle.DSL.EventTriggerType.UnitRepaired` — c'est la **réparation** par le porteur (ability
+dérivée du trait `Mechanic`) qui invoque l'E-Cog :
+
+    If( AmountIsGreater(ConfigConst(maxSummons = 3), Count(AlreadySummonedUnits)),
+        Spawn(Owner, PickRandomly(CanAddUnit(AdjacentTiles(Caster)), 1), "votanSmnEcog", opts),
+        PerformAIAbility(<un E-Cog déjà invoqué, ami adjacent, avec cible de repair valide>) )
+
+Mesuré (`run_ecog_support`, `MC1_67`/777) : Vynn répare `admecRuststalker` blessé →
+**`squadId 112` apparaît en (2, 0)**, sous le `visualId` **`votanNpc1Ecog`** (piège de nommage
+`case-92` §5). Sur le `ctx` LIVE de ce summon, les deux gates non triviaux passent :
+`unit_traits` porte `UnitTrait.Summon`, `unit_parent_id` = **81** = le porteur. Le terme du port
+vaut le poids **exactement** sur les tuiles que `AreTilesAdjacent` déclare adjacentes au porteur et
+0 partout ailleurs — balayé sur les **63** tuiles du plateau, **0 divergence**.
+
+## 5. NON CONFRONTÉ — l'argmax natif du summon, et pourquoi c'est structurel
+
+Un summon n'entre **jamais** dans `decisionView.toActivate` (#291) : `aiMovableTiles` lui rend zéro
+tuile et `aiDryRunAllUnits` un `FinishUnitTurnMessage`. Son mouvement est joué par
+`PlayAutomaticUnits` au **turn-start suivant** de sa team ⇒ l'oracle est **destructif** (un point de
+mesure par bataille, pas de dry-run) et la géométrie du spawn est **tirée au sort** par le natif
+(`PickRandomly(CanAddUnit(AdjacentTiles(Caster)), 1)`), donc non pilotable pour fabriquer la fenêtre
+où le terme renverse l'argmax. Le montage exact à jouer si on le rouvre : capturer l'état à la fin du
+tour adverse, calculer l'argmax du port avec/sans terme pour le summon, puis lire sa position au
+tout début du tour suivant (recette E4 de `probe_291_summon_activation.py`).
+
+## 6. Validation
+
+* **12 tests** (`tests/engine/test_433_r4_r3_non_owner_playbooks_live.py`) : 8 offline + 2 live
+  `PsychicFortress` + 2 live `EcogSupport`.
+* **4 mutations, 4 rouges**, arbre restauré bit-exact à chaque fois :
+  retrait de `1000` du registre → 7 rouges dont le confront live ; retrait du pré-gate `IsFriend`
+  de la feuille → `test_the_pre_gate_excludes_an_ENEMY_carrier` (20.0 versés sur un porteur adverse) ;
+  neutralisation du gate `Summon` d'`EcogSupport` → gardes offline ; neutralisation de son gate
+  d'adjacence → **59 tuiles divergentes sur 63** au live.
+* **Tests de garde re-joués verts** (foyer partagé `non_owner.py` + feuille 4) :
+  `test_kustom_force_field_reworked_live.py` (9), `test_419_playbook_wiring_ratchet_offline.py` (3),
+  `test_443r1a_triggered_move_anchor_offline.py` (26),
+  `test_tile_term_triggered_playbooks_live.py` (12),
+  `test_tile_term_unit_gated_playbooks_live.py` (30), `test_playbook_live.py` (3).
+
+## 7. Résidus
+
+* **`#433-r4-r3-r1` — 19 faces MOVE `*NonOwnerPlaybook` restent non portées.** Compte re-dérivé :
+  **25** concrets (**15** dérivés directs de `TriggeredAbilityNonOwnerPlaybook<T>`, **10** via
+  `AdjacentToOwnerNonOwnerPlaybook<T>`), dont **22** ont une face MOVE et **3** une face ATTACK ;
+  **3** sont au registre après ce cas. L'argument d'absence de `non_owner.py` ne les couvre pas non
+  plus — leurs classes existent. Les 10 de `AdjacentToOwnerNonOwnerPlaybook<T>` partagent UN corps
+  (`…AdjacentToOwnerNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2u003C…u003E$$MoveNext`),
+  donc le porter fermerait 10 entrées d'un coup.
+* **`#433-r4-r3-r2` — les faces OWNER de 1000 et 1487 ne sont pas portées non plus** :
+  `PsychicFortressPlaybook$$GetAdjacentFriendUtility` et
+  `ECogSupportPlaybook$$CalculateMovementUtilityInStepsInternal`. Elles ne pèsent que le sweep du
+  PORTEUR lui-même, donc hors du montage de ce cas — mais elles sont vivantes.
+* **`#433-r4-r3-r3` — `scene_tile_leaf_ctx` ne produit pas `unit_parent_id`.** Le terme
+  `EcogSupport` (et le bonus PARENT de `SaviorProtocolsPlaybook`, même dégradation nommée là-bas)
+  rend donc 0 sur la face PRÉDICTION. Le canal existe des deux côtés depuis #378 (`Scene.parent`) :
+  fermable en une ligne, non fait ici (hors périmètre, et rayon de souffle non mesuré).
+* **Le régime SPAWN de la feuille 4** (`case.unit == null`, `case.parent != null`) reste muet — le
+  `ctx` de spawn ne porte aucune clé de sujet. Résidu préexistant, inchangé.
