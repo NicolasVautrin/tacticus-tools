@@ -779,6 +779,29 @@ def _ramming_speed_self_events(scene, caster_id, target_id, ability_id, ability_
                                      attack_pos)
 
 
+def _plague_wind_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
+    """Entrees du batch 1 de `PlagueWindPlaybook$$MakeDamagePredictions` (1035) et de
+    `MortarionsPlagueWindPlaybook$$MakeDamagePredictions` (1093) -- `hits` LITTERAL pour les deux,
+    et pour 1093 la base sous le `If(HasTrait(<Target>, Summon), x Direct(2), .)`.
+
+    Le corps vit dans `prediction/plague_wind.py`, avec les vagues 2 et 3 : les trois batchs sont
+    UN SEUL `MakeDamagePredictions`, et leurs formules ne different que par la paire de variables.
+    Ce wrapper n'existe que pour le registre (import PARESSEUX -- `plague_wind` consomme
+    `generate_multi_hit_attack_prediction`, defini ici : meme protocole que `ramming_speed`)."""
+    from .plague_wind import main_batch_inputs
+    return main_batch_inputs(scene, caster_id, target_id, ab, cfg)
+
+
+def _plague_wind_wave_events(scene, caster_id, target_id, ability_id, ability_name,
+                             attack_pos, ab, cfg) -> list:
+    """Batchs 2 et 3 de 1035/1093 : `Enemies(Caster, AdjacentUnits(<Target>))` puis
+    `Unique(Enemies(Caster, AdjacentUnits(<vague 2>))) - <Target> - <vague 2>`, chacun avec sa
+    propre base (`MinMaxDamage2Average` / `MinMaxDamage3Average`, sous le meme `If(Summon)` pour
+    1093). Corps + RE dans `prediction/plague_wind.py`."""
+    from .plague_wind import wave_events
+    return wave_events(scene, caster_id, target_id, ability_id, ability_name, attack_pos, ab, cfg)
+
+
 # `EffectType.Fire` (5) — `scene.tile_effects_by_pos` est indexee par NOM d'effet (`tileMeta`
 # `effects[].name`, cf. `ai/context.py`), jamais par id : on compare donc au nom de l'enum.
 _EFFECT_FIRE_NAME = _EffectType.Fire.name
@@ -909,13 +932,18 @@ _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_
                              1098: _plasma_grenade_inputs,
                              1048: _fragstorm_grenade_launcher_inputs,
                              1222: _mass_driver_accelerator_inputs,
-                             1059: _ramming_speed_inputs}
+                             1059: _ramming_speed_inputs,
+                             1035: _plague_wind_inputs,
+                             1093: _plague_wind_inputs}
 
 # Batchs SUPPLEMENTAIRES per-ability (cf. `_ramming_speed_self_events`) : le playbook emet des events
 # sur un selecteur AUTRE que la cible principale et l'AoE de l'ability. Pour 1059 le handler rend les
 # TROIS batchs restants -- le CASTER, puis (sous la gate `WillBeKill`) les deux batchs EXPLOSION --
-# parce qu'ils sortent du MEME `MakeDamagePredictions` et que leur ordre y est significatif.
-_MAKE_DMG_EXTRA_EVENTS = {1059: _ramming_speed_self_events}
+# parce qu'ils sortent du MEME `MakeDamagePredictions` et que leur ordre y est significatif. Pour
+# 1035/1093 il rend les vagues 2 et 3, chacune avec SON selecteur et SA base.
+_MAKE_DMG_EXTRA_EVENTS = {1059: _ramming_speed_self_events,
+                          1035: _plague_wind_wave_events,
+                          1093: _plague_wind_wave_events}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`

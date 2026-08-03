@@ -55,7 +55,7 @@ import probe_27_r5_mortarions_plague_wind as AB             # noqa: E402
 from engine import dsl                                      # noqa: E402
 from engine.entities.traits.unit_trait import UnitTrait      # noqa: E402
 from engine.runner.abilities.deathguard import (             # noqa: E402
-    mortarions_plague_wind_psyker_selector, mortarions_plague_wind_target_selectors)
+    mortarions_plague_wind_psyker_selector, plague_wind_wave_selectors)
 
 MPW = AB.MPW
 
@@ -104,7 +104,7 @@ def test_the_three_waves_are_exactly_t1_t2_t3():
     """F -- structure : chaque vague contient ce que le decompile dit, et rien d'autre."""
     caster, t, s, x, y = _chain()
     ctx = _ctx([caster, t, s, x, y], caster, t)
-    n1, n2, n3 = mortarions_plague_wind_target_selectors()
+    n1, n2, n3 = plague_wind_wave_selectors()
     # `_units_of` = le normaliseur du DSL (`Target()` rend l'ENTITE, pas une liste ; c'est lui que
     # `Union`/`Sub` appliquent aux operandes). L'utiliser ici, c'est lire les vagues comme le port
     # les consomme -- iterer `evaluate()` a nu rendrait les CLES du dict.
@@ -122,7 +122,7 @@ def test_the_caster_is_never_in_a_wave_even_when_adjacent():
     caster, t, s, x, y = _chain()
     friend = _unit(15, 2, team=1)                     # allie, adjacent au secondaire ET a la cible
     ctx = _ctx([caster, friend, t, s, x, y], caster, t)
-    _n1, n2, n3 = mortarions_plague_wind_target_selectors()
+    _n1, n2, n3 = plague_wind_wave_selectors()
     got = {u["id"] for u in n2.evaluate(ctx)} | {u["id"] for u in n3.evaluate(ctx)}
     assert 10 not in got and 15 not in got, (
         "un allie est entre dans une vague -> le filtre `Enemies` n'est pas applique : %r" % (got,))
