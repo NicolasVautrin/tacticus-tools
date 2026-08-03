@@ -41,7 +41,7 @@ from .units import (  # noqa: F401
 from .tiles import (  # noqa: F401
     Caster, AllUnits, AllTiles, Children, Parent, LastUnitAttackedBy, AdjacentTiles, TileUnique,
     CanAddUnit, TileIntersect, MovableTilesInRange, tiles_unit_can_move_to_charge_target,
-    FilterTilesIfCanAttackTargetTileFrom,
+    FilterTilesIfCanAttackTargetTileFrom, SortTilesByUtility,
 )
 
 from .accessors import (  # noqa: F401

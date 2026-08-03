@@ -205,7 +205,32 @@ def test_gate_has_not_moved(state):
 # ------------------------------------------------------------------ 3. LE REGISTRE
 
 def test_the_registry_wires_the_passive_on_the_ability_init_vector():
-    assert ABILITY_TRIGGERS.get("StormboyzStrike") == [StormboyzStrikeTeleportAbility]
+    """La classe de CETTE tranche (`_TeleportAbility`, `On(0x21 = AbilityInit)`) est au registre.
+
+    ⚠ Elle n'y est plus SEULE depuis #448-r1, et c'est le NATIF qui l'impose. Le symbole qui
+    l'etablit est **`IdunBattle.Core.Services.AbilitiesDatabase.u003Cu003Ec$$
+    u003CInitializeTriggeredAbilitiesu003Eb__28_134`** -- le builder de l'UNIQUE entree `0x475` de
+    `IdunBattle.Core.Services.AbilitiesDatabase$$InitializeTriggeredAbilities`. Son corps, relu
+    VERBATIM (2026-08-03) :
+
+        list = new List<T>();
+        list.Add(new <classe A>());        # 3 caches de classe DISTINCTS, 3 allocations, 3 Add
+        list.Add(new <classe B>());
+        list.Add(new <classe C>());
+        return list;
+
+    Les TROIS caches sont **exclusifs a ce builder** (une seule paire DATA/READ chacun, toutes deux
+    dans `b__28_134`) : ce sont donc bien trois CLASSES distinctes, pas trois instances de la meme.
+    Contre-epreuve dans la meme table : le builder voisin de `FullThrottle`
+    (`...u003Eb__28_137`) n'alloue **qu'UN** objet, puis `ToList()`. Et les trois classes existent
+    nommement dans les tables (`StormboyzStrike_{Teleport,Fallback,Miss}Ability`, chacune avec son
+    `$$CreateTrigger` et son `$$CreateBehaviour`).
+
+    ⇒ greffer le passif monte les TROIS. L'assertion porte donc sur la PRESENCE de celle-ci, pas
+    sur l'exclusivite ; la composition complete est gardee par
+    `tests/engine/test_448_r1_stormboyz_port_offline.py::test_O8_...`."""
+    wired = ABILITY_TRIGGERS.get("StormboyzStrike") or []
+    assert StormboyzStrikeTeleportAbility in wired, [c.__name__ for c in wired]
     assert StormboyzStrikeTeleportAbility.event_id == int(EventTriggerType.AbilityInit) == 0x21
     assert StormboyzStrikeTeleportAbility.TRIGGERED_ABILITY_ID == STORMBOYZ_STRIKE
 

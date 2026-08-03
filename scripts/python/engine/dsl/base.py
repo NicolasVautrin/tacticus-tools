@@ -280,6 +280,15 @@ class DslContext:
     # `runner/abilities/loki/splash.py::_pick_randomly_n`). None = contexte sans PRNG -> le noeud
     # retombe sur les `amount` premiers elements, ZERO tirage (degradation nommee par le noeud).
     pick_randomly: object | None = None
+    # Tri `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` :
+    # `sort_tiles_by_utility(tiles, unit_id, utility_type) -> list` (ids de tuile, DECROISSANT).
+    # Le noeud `SortTilesByUtility` DELEGUE ici parce que le calcul d'utilite a besoin du `State`
+    # (feuilles gatees sur l'unite, effets de tuile, elevation...) que le `DslContext` ne porte pas
+    # -- foyer UNIQUE `engine/utilities/tile.py::sort_tiles_by_utility`, partage avec les call-sites
+    # deja portes qui COLLAPSENT `First(SortTilesByUtility(...))` en un helper.
+    # None = contexte sans `State` -> le noeud rend l'ordre SOURCE inchange, ZERO calcul
+    # (degradation nommee par le noeud). Fourni par `entities_from_state`.
+    sort_tiles_by_utility: object | None = None
     # `AbilityEntities.IsFirstHit` (`IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit`,
     # champ +0x110 = le `DamageAppliedResult` du coup courant) -> `Nullable<bool>` valant
     # `DamageAppliedResult.get_IsFirstHit` = `hitIndex == 0`. Lu par le SEUL predicat

@@ -464,6 +464,20 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return _pick_randomly_n(state, list(items), int(amount),
                                 allow_repeat=bool(allow_repeat), max_repeats=int(max_repeats))
 
+    # `ctx.sort_tiles_by_utility` (`IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select`)
+    # : le noeud DSL `SortTilesByUtility` n'a pas acces au `State` (les feuilles d'utilite lisent
+    # l'ECS entier) -> il passe par cet accesseur, qui delegue au foyer UNIQUE
+    # `engine/utilities/tile.py::sort_tiles_by_utility` -- le MEME que consomment les call-sites qui
+    # collapsent `First(SortTilesByUtility(...), 1)` (`first_tile_by_utility`). ZERO tirage.
+    # `leaf_ctx` = `runner_tile_leaf_ctx(state, unit_id, parent_id)`, le port de `dc.units`/`dc.owner`
+    # que le natif met dans le `UtilityMovementCase` de chaque feuille (#165).
+    def _sort_tiles_by_utility(tiles, unit_id, utility_type, parent_id=None):
+        from ....utilities.tile import sort_tiles_by_utility as _stbu, runner_tile_leaf_ctx
+        uid = None if unit_id is None else int(unit_id)
+        pid = None if parent_id is None else int(parent_id)
+        return _stbu(state, list(tiles), None, uid, int(utility_type), pid, None,
+                     runner_tile_leaf_ctx(state, uid, pid))
+
     # `ctx.charged_units` (`UnitComponent + 0x190`, cf. `update_charging`) : ids que l'unite a CHARGES
     # pendant son activation courante. Moitie runtime du predicat
     # `IdunBattle.Core.Services.BattleQuery$$IsCharging` (l'autre moitie = l'adjacence). Vide si le
@@ -514,6 +528,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       can_have_active_ability_reset=_can_have_active_ability_reset,
                       entity_can_be_repaired=_entity_can_be_repaired,
                       pick_randomly=_pick_randomly,
+                      sort_tiles_by_utility=_sort_tiles_by_utility,
                       # `has_effect_of_type` reste NON BRANCHE : la CATEGORIE d'un effet
                       # (`EffectsDatabase` def+0x58) n'est pas dans le canal de seed. Cf. le noeud
                       # `UnitsWithEffectsOfType` -- residu NOMME, pas un oubli.

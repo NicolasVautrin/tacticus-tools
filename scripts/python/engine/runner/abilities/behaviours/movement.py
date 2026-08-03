@@ -282,3 +282,73 @@ class MoveUnit(AbilityBehaviour):
             return OperationResult.ok()
         ectx.emit("MoveUnit", subject=sid, moved=False)  # garde local_308==0 : aucune tuile libre -> pas de move
         return OperationResult.ok()
+
+
+class OverrideUnitMovementTarget(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$OverrideUnitMovementTarget(unit, newTile)` ->
+    `IdunBattle.Entities.Behaviours.OverrideUnitMovementTargetBehaviour$$Execute` (#448-r1) : DEVIE
+    le mouvement EN COURS de `unit` vers `new_tile_sel`.
+
+    `DSLBehaviors$$OverrideUnitMovementTarget` alloue un `CombinedBehaviour..ctor(unit, newTile)`
+    (nom de ctor DEDUPLIQUE -- la classe est celle qu'alloue CETTE factory, et son `Execute` est
+    `OverrideUnitMovementTargetBehaviour$$Execute`), donc `+0x50 = unit`, `+0x58 = newTile`.
+
+    `...$$Execute`, remis en C# depuis le decompile :
+
+        u = this.<+0x50>.Select(entities, mode 7);      // UNE entite (slot singulier)
+        if (u == null) return <resultat vide>;
+        tiles = this.<+0x58>.SelectTiles(entities);     // slot 10 = liste de TUILES
+        if (tiles == null) return <resultat vide>;
+        if (tiles.Count > 0)                            // <- LE gate, lu, pas suppose
+            processor.<vslot 0x49>(u, tiles);           // = OverrideMovementTargetOperation$$Execute
+
+    FRONTIERE DSL (#149) : cette feuille resout ses DEUX selecteurs (declaratif) puis DELEGUE a
+    l'Operation IMPERATIVE `OverrideMovementTargetOperation` (`runner/operations/movement.py`), qui
+    pose le canal `UnitComponent.movement_target_override` -- lu, consomme et arbitre par
+    `MoveUnitOperation.execute`. Rien de la logique de deviation n'est recable ici.
+
+    Unique call-site du build : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    StormboyzStrike_MissAbility$$CreateBehaviour` -- `OverrideUnitMovementTarget(Owner,
+    PickRandomly(CanAddUnit(AdjacentTiles(<TargetTiles>)), 1, null, 0x7fffffff, false))`.
+
+    Emet 'OverrideUnitMovementTarget' (`applied` = l'Operation a-t-elle mordu). PUR (stop=False)."""
+    __slots__ = ("unit_sel", "new_tile_sel")
+
+    def __init__(self, unit_sel: TargetsSelector, new_tile_sel: TargetsSelector):
+        self.unit_sel = unit_sel
+        self.new_tile_sel = new_tile_sel
+
+    def execute(self, entities, ectx):
+        from ...operations.movement import OverrideMovementTargetOperation
+        state = ectx.state
+        unit = resolve_unit(self.unit_sel, entities)          # `Select(entities, 7)` = 1 entite
+        if state is None or unit is None:
+            ectx.emit("OverrideUnitMovementTarget", applied=False, reason="no-unit")
+            return OperationResult.ok()
+        raw = self.new_tile_sel.evaluate(entities)
+        cands = [raw] if (isinstance(raw, tuple) and len(raw) == 2) else list(raw or [])
+        board = getattr(state, "board", None)
+        # DOMAINE MIXTE du selecteur de tuiles (meme normalisation que `MoveUnit` juste au-dessus) :
+        # `AdjacentTiles`/`CanAddUnit`/`PickRandomly` rendent des IDS d'entite-tuile, `TargetTile`/
+        # `Tiles` rendent des POSITIONS. Le natif ne connait qu'une seule forme (l'entite-tuile).
+        tiles: list = []
+        for c in cands:
+            if isinstance(c, tuple) and len(c) == 2:
+                tiles.append((int(c[0]), int(c[1])))
+                continue
+            if board is None:
+                continue
+            try:
+                xy = board.coord(int(c))
+            except Exception:
+                continue
+            if xy is not None:
+                tiles.append((int(xy[0]), int(xy[1])))
+        if not tiles:                       # `if (tiles.Count > 0)` -- le gate NATIF
+            ectx.emit("OverrideUnitMovementTarget", applied=False, reason="no-tile")
+            return OperationResult.ok()
+        r = OverrideMovementTargetOperation.execute(state, unit.get("id"), tiles)
+        ectx.emit("OverrideUnitMovementTarget", applied=r is not None,
+                  unit=unit.get("id"), target=(r or {}).get("target"))
+        return OperationResult.ok()
+

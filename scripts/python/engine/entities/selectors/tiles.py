@@ -186,6 +186,49 @@ class TileUnique(TargetsSelector):
         return out
 
 
+class SortTilesByUtility(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility(tiles, unit, definition, parent)`
+    -> `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` : les tuiles de `source`,
+    triees par utilite DECROISSANTE (tri STABLE -> l'ordre de `source` tranche les egalites).
+
+    Le NOEUD ; le CALCUL vit dans le foyer UNIQUE `engine/utilities/tile.py::sort_tiles_by_utility`
+    (mirror du `UtilityDecider.CalculateUtility` + composition de bucket, deja valide) -- on delegue
+    par l'accesseur `ctx.sort_tiles_by_utility` au lieu de le reecrire. **ZERO tirage** : le tri ne
+    touche pas le PRNG.
+
+    POURQUOI UN NOEUD, et pas un collapse (#448-r1). Les call-sites portes jusqu'ici collapsaient
+    `First(SortTilesByUtility(...), 1)` en un helper imperatif (`first_tile_by_utility`), parce que
+    leur resultat n'etait consomme QU'UNE FOIS. `...StormboyzStrike_FallbackAbility$$CreateBehaviour`
+    ne le peut pas : il passe **le MEME objet-noeud** a `MoveUnitBehaviour` ET a `AddEffect`, et
+    l'`op_BitwiseAnd` les execute EN SEQUENCE -- donc le noeud est RE-EVALUE apres le move, quand le
+    caster occupe deja la meilleure tuile et que `CanAddUnit` l'exclut. C'est exactement le quirk
+    mesure par #425 (la tuile MARQUEE n'est pas la tuile d'ATTERRISSAGE). Un collapse le perdrait,
+    silencieusement.
+
+    `unit_sel` = le `dc.unit` natif (`Select` SINGULIER, null si rien) ; `utility_type` = le litteral
+    du call-site (`UtilityDefinition(6 = UnitMovement)` pour le Fallback, tranche par XREF ENTRANTE
+    sur la surcharge `UtilityDefinition..ctor(utilityType)`). `parent_sel` = `dc.parent`, nul a ce
+    call-site.
+
+    DOMAINE : rend des IDS d'entite-tuile (comme `CanAddUnit`/`AdjacentTiles`, sa source naturelle).
+    `ctx.sort_tiles_by_utility` absent -> ordre SOURCE inchange (aucune utilite calculee)."""
+    def __init__(self, source: TargetsSelector, unit_sel: TargetsSelector = None,
+                 utility_type: int = 7, parent_sel: TargetsSelector = None):
+        self.source = source
+        self.unit_sel = unit_sel
+        self.utility_type = int(utility_type)
+        self.parent_sel = parent_sel
+
+    def select(self, ctx):
+        tiles = list(self.source.evaluate(ctx) or [])
+        f = getattr(ctx, "sort_tiles_by_utility", None)
+        if f is None or not tiles:
+            return tiles                      # cf. docstring : degradation NOMMEE, ordre source
+        u = resolve_unit(self.unit_sel, ctx) if self.unit_sel is not None else None
+        p = resolve_unit(self.parent_sel, ctx) if self.parent_sel is not None else None
+        return list(f(tiles, (u or {}).get("id"), self.utility_type, (p or {}).get("id")))
+
+
 class CanAddUnit(TargetsSelector):
     """`DSLFactory.CanAddUnit(tiles)` : garde les tuiles ou une unite PEUT etre ajoutee = `walkable`
     ET LIBRE (aucun occupant VIVANT). Occupation = tuiles des `ctx.units` vivants (mirror du

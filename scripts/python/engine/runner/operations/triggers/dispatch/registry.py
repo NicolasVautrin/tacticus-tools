@@ -93,7 +93,13 @@ from ..loki.haze_of_corruption import (HazeOfCorruptionTargetFinderAbility,   # 
                                       HazeOfCorruptionDamageTransferTrigger,  # case-209 (effet 1077)
                                       HAZE_DAMAGE_TRANSFER)
 from ..loki.listen_up_maggots import ListenUpMaggotsAddEffectAbility  # #95-RESTE2 (passif astraSmnKell)
-from ..loki.stormboyz_strike import StormboyzStrikeTeleportAbility    # #366-r1 3/3 (passif orksNpc6Stormboy)
+from ..loki.stormboyz_strike import (StormboyzStrikeTeleportAbility,   # #366-r1 3/3 (passif orksNpc6Stormboy)
+                                     StormboyzStrikeFallbackAbility,   # #448-r1 -- On(0x28)
+                                     StormboyzStrikeMissAbility)       # #448-r1 -- On(0x1f)
+# Import pour EFFET DE BORD : `loki/full_throttle.py` inscrit `TRIGGERED_ABILITY_BEHAVIOURS[1134]`
+# a l'import (#448-r1). Sans lui, le `TriggerAbility(Caster, 0x46e)` du Miss rendrait
+# `dispatched: False` -- un gap VISIBLE, mais un gap.
+from ..loki import full_throttle as _full_throttle    # noqa: F401
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
@@ -361,10 +367,24 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `NOT HasFlag(Owner, Moved)`) : a l'init, l'unite QUITTE le plateau
     # (`RemoveUnitFromItsTiles(Owner, true)`) et prend 1140 `StormboyzStrike_TeleportingIn` pour
     # 2 TOURS -- l'etat qui detourne son pathfinder vers `StormboyzStrikePathfinder` (pool
-    # BOARD-WIDE). Les deux autres classes du kit (`_MissAbility`, `_FallbackAbility`, cette
-    # derniere seule poseuse de 1179 `StormboyzStrike_AlreadyUsedTile`) sont des tranches a part.
-    # Cf. loki/stormboyz_strike.py -- tranche 3/3 de `#366-r1-tunnel-family`.
-    "StormboyzStrike": [StormboyzStrikeTeleportAbility],
+    # BOARD-WIDE). Cf. loki/stormboyz_strike.py -- tranche 3/3 de `#366-r1-tunnel-family`.
+    # #448-r1 : les DEUX AUTRES classes du meme `TriggeredAbilityType` 1141 entrent ici. Le builder
+    # `AbilitiesDatabase.u003Cu003Ec$$u003CInitializeTriggeredAbilitiesu003Eb__28_134` en construit
+    # TROIS (contre UNE pour `FullThrottle`/`b__28_137`) -> le passif les monte TOUTES :
+    #   * `_FallbackAbility` -- `On(0x28 = UnitFinishedTurn) & OwnerIsActor & HasEffect(Owner, 0x474,
+    #     onlyActive: false, 6)` -> `(MoveUnit(Caster, <sel>) & AddEffect(0x49b = 1179, <sel>,
+    #     turns: 1)) & If(Count(Tiles(Caster)) == 0, RemoveEffect(Owner, 0x474) & Kill(Caster))`,
+    #     `<sel> = PickFirstN(SortTilesByUtility(CanAddUnit(AllTiles), Caster, 6 = UnitMovement), 1)`
+    #     -- le MEME objet-noeud pour le move ET la marque, d'ou le quirk #425 (la tuile marquee
+    #     n'est PAS celle d'atterrissage). SEULE poseuse de 1179.
+    #   * `_MissAbility` -- `On(0x1f = PreUnitMove) & OwnerIsActor & HasEffect(...)` ->
+    #     `Inform{0x79} & If(Maybe(chance = 20), OverrideUnitMovementTarget(Owner, PickRandomly(
+    #     CanAddUnit(AdjacentTiles(<TargetTiles>)), 1))) & RemoveEffect(Caster, 0x474) &
+    #     TriggerAbility(Caster, 0x46e = 1134 FullThrottle)`.
+    # ⚠ Le 3e terme du Fallback est un `IfBehaviour`, PAS un `PerformAIMovementBehaviour` : le ctor
+    # nomme ainsi dans les tables est un corps DEDUPLIQUE (cf. l'en-tete de loki/stormboyz_strike.py).
+    "StormboyzStrike": [StormboyzStrikeTeleportAbility, StormboyzStrikeFallbackAbility,
+                        StormboyzStrikeMissAbility],
     # --- Genestealer Cults : les 2 passifs HERO restants du parc GS ------------------------------
     # CosmicHorror (passif `genesPatriarch` << The Patermine >>) = DEUX abilities natives distinctes :
     #   * `On(0x36=UnitDefeated) & OwnerIsActor & AreEnemies & NOT HasTrait(Steppable)` -> decoy sur la

@@ -66,7 +66,7 @@ import hexgeo
 from ..entities.stats import StatType
 from ..entities.traits.unit_trait import UnitTrait, has_trait
 from .base import BaseUtility, ComposedUtility
-from .tile import TILE_UTILITY
+from .tile import TILE_UTILITY, UTILITY_BY_TYPE
 from .utility_type import UtilityType
 
 
@@ -171,6 +171,38 @@ class MinDistanceToClosestEnemyUtility(BaseUtility):
             return None
         return min(hexgeo.distance(pos, ep) for ep in enemy_positions)
 
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        """CANAL TUILE -- la signature qu'emploie `sort_tiles_by_utility` (le foyer du selecteur
+        `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector`), et qui est celle de tous les
+        enfants du composite `Tile(7)`.
+
+        Elle rend **0.0 INCONDITIONNELLEMENT**, et ce n'est pas une degradation : c'est le GATE 3 du
+        natif, lu VERBATIM (#448-r1). La lambda `IdunBattle.Entities.Selectors.
+        SortTilesByUtilitySelector.u003Cu003Ec__DisplayClass8_0$$u003CSelectu003Eb__1` construit
+
+            new UtilityMovementCase(dc.unit, _tile, closestEnemy: NULL, abilityType: NULL,
+                                    dc.parent, target: NULL)
+
+        (le 3e argument est litteralement `0` dans le decompile, et le ctor nomme range ce parametre
+        en `case+0x20`), et `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility.
+        u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` fait, avant tout calcul :
+
+            if (case.<+0x10> == null)                                   yield Fix64.FromInt(0);
+            if (UnitExtensions.IsNonAttacking(case.<+0x10>))            yield Fix64.FromInt(0);
+            if (case.<+0x20> == null || !UnitCanBeDamaged(...))         yield Fix64.FromInt(0);
+
+        `case.<+0x20>` EST le `ClosestEnemy`. Par CE chemin il est donc toujours nul et la feuille est
+        MUETTE -- pas redhibitoire (`NO_PATH_UTILITY`), juste zero.
+
+        ⇒ **Le composite `UnitMovement(6)` se reduit EXACTEMENT a `Tile(7)` quand il est evalue par
+        `SortTilesByUtility`.** Le terme de distance n'existe que sur le canal MOUVEMENT, ou le
+        generateur `MovementActionGenerator` fournit un vrai `ClosestEnemy` (methode
+        `evaluate_movement` ci-dessous, signature differente et appelants differents).
+
+        Consommateur : `...StormboyzStrike_FallbackAbility$$CreateBehaviour`, seul call-site porte
+        qui demande `UtilityDefinition(6)`."""
+        return 0.0
+
     def evaluate_movement(self, pos, enemy_positions, wt, pathdist_by_pos=None,
                           case: "UtilityMovementCase | None" = None) -> float:
         """`MinDistanceToClosestEnemyUtility.<EvaluateMovementInSteps>d__.MoveNext` (stub IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$EvaluateMovementInSteps) :
@@ -216,3 +248,13 @@ assert MIN_DIST_UTILITY.UTILITY_TYPE == UtilityType.MinDistanceToClosestEnemy
 # LUE runtime (doc §13.8/13.11). Evalue sur le CANAL MOUVEMENT par le generateur, PAS via .evaluate (les
 # deux enfants ont des canaux differents) ; sert de RECORD de membership + de cle UtilitiesDatabase.
 UNIT_MOVEMENT = ComposedUtility([TILE_UTILITY, MIN_DIST_UTILITY], utility_type=UtilityType.UnitMovement)
+
+# Inscription au mirror de `IdunBattle.Core.Services.UtilitiesDatabase$$GetUtility` (#448-r1).
+# Elle vit ICI et non dans `tile.py` parce que `UNIT_MOVEMENT` a besoin de `TILE_UTILITY` : c'est
+# `move` qui depend de `tile`, jamais l'inverse. `engine/utilities/__init__.py` importe les deux dans
+# cet ordre, donc la cle est posee des que le package est charge -- et le chemin qui la consomme
+# (`sort_tiles_by_utility`) passe forcement par ce package.
+# Demandeur : `...StormboyzStrike_FallbackAbility$$CreateBehaviour` -> `UtilityDefinition(6)`.
+# Sur ce chemin le composite VAUT `Tile(7)` : la feuille MinDist y est court-circuitee par son gate
+# `ClosestEnemy == null` (cf. `MinDistanceToClosestEnemyUtility.evaluate`).
+UTILITY_BY_TYPE[int(UtilityType.UnitMovement)] = UNIT_MOVEMENT
