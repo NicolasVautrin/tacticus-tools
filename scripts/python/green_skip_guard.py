@@ -1,4 +1,13 @@
-"""Garde-fou #455 -- un FICHIER de test dont le bilan est `passed == 0 and skipped > 0`.
+"""Garde-fou #455 -- un FICHIER de test qui n'a RIEN confronte, sous ses deux formes.
+
+DEUX CRITERES, UN SEUL VICE
+---------------------------
+  * `passed == 0 and skipped > 0`  -- le fichier INTEGRALEMENT SKIPPE (#455) ;
+  * 0 TEST COLLECTE                -- le fichier dont les tests ont DISPARU (#455-r3).
+
+Le second n'est pas une variante du premier : il lui est structurellement INVISIBLE. Le critere
+de bilan lit des REPORTS D'EXECUTION, et un fichier sans test n'en emet AUCUN -- il ne figure meme
+pas dans `stats`. Detail et mesures : la section « #455-r3 » plus bas.
 
 LE GISEMENT
 -----------
@@ -39,13 +48,13 @@ verdict n'apprendrait rien).
 
 OU IL EST BRANCHE
 -----------------
-`tests/conftest.py` importe ses trois hooks (un conftest non-racine ne peut pas declarer
+`tests/conftest.py` importe ses hooks (un conftest non-racine ne peut pas declarer
 `pytest_plugins`). Le garde vit ICI, et pas dans le conftest, pour etre chargeable par `-p
 green_skip_guard` sur un repertoire arbitraire -- c'est ce qui rend le cliquet `probe_455` capable
 de le mettre a l'epreuve sur des fichiers de test SYNTHETIQUES, hors de la suite reelle.
 
 Cliquet : `probe_455_all_skipped_file.py` (banque `scripts/ratchets.ps1`). Il prouve les DEUX sens
-(rouge sur un fichier 100 % skippe, vert sans) ET le CABLAGE (un fichier synthetique depose sous
+(rouge sur un fichier inerte, vert sans) ET le CABLAGE (un fichier synthetique depose sous
 `scripts/python/tests/` rougit sans aucun `-p`, donc via le conftest de production).
 
 ASCII only (console Windows cp1252).
@@ -125,9 +134,94 @@ def _interrompu(session) -> bool:
     return bool(getattr(session, "shouldstop", False) or getattr(session, "shouldfail", False))
 
 
+# ==============================================================================================
+#  #455-r3 -- LE FICHIER A 0 TEST COLLECTE. Meme vice, autre porte : l'INVISIBILITE.
+# ==============================================================================================
+#
+# Le critere de bilan ci-dessus lit `terminalreporter.stats`, donc des REPORTS D'EXECUTION. Un
+# fichier dont TOUS les tests ont disparu n'en emet AUCUN : il n'apparait pas dans `stats`, donc
+# `bilan_par_fichier` ne le connait pas, donc `fichiers_inertes` ne peut pas le retenir. Ce n'est
+# pas un reglage a elargir -- il n'y a rien a lire.
+#
+# MESURE DU 2026-08-03. Un `test_x.py` sans test, joue A COTE d'un fichier sain : `rc=0`, aucun
+# rapport de garde. Joue SEUL, il rend `rc=5` (`EXIT_NOTESTSCOLLECTED`) -- et c'est exactement ce
+# qui masque le trou, puisque personne ne joue un fichier seul.
+#
+# LE SIGNAL EST LA COLLECTE, PAS LA SELECTION. C'est lui qui separe les quatre causes d'un fichier
+# a 0 test SANS aucune allowlist -- un perimetre saisi a la main est le vice recurrent de ce depot.
+# Les quatre, et leur discriminant MESURE :
+#
+#   * tests SUPPRIMES        le `CollectReport` du Module est `passed` et aucun ITEM terminal
+#                            n'apparait sous ce fichier.  <- C'EST LE GISEMENT.
+#   * fichier FILTRE a 100 % `-k` / `-m` / `--deselect` filtrent APRES la collecte : `report.result`
+#                            est INCHANGE. Mesure : `test_deux.py` garde ses deux `Function` sous
+#                            `-k test_a`. Immunise STRUCTURELLEMENT, rien a declarer.
+#   * nodeid EXPLICITE       pytest court-circuite le Module, qui n'emet AUCUN report de collecte
+#                            (mesure : la session rend directement `[Function]`). Immunise de meme.
+#   * fichier de SUPPORT     il ne matche pas `python_files`, donc pytest ne le collecte pas. Le
+#                            depot tient deja cette convention -- ses 24 helpers sous `tests/` sont
+#                            prefixes `_`, et 0 des 530 `test_*.py` est sans test.
+#   * collecte EN ECHEC      `report.failed` (import KO) : pytest rend deja `rc=2`. On ne le double
+#                            pas -- ce garde ne voit que ce que rien d'autre ne voit.
+#
+# CE VOLET NE LIT PAS `terminalreporter.stats`. Son etat vient des hooks de collecte, donc il
+# survit a `-p no:terminal` -- le residu #455-r2 ne le concerne pas (il reste ouvert pour l'autre
+# critere). Il n'a pas non plus de garde « session interrompue » : un module non atteint n'emet
+# aucun report de collecte, donc il n'entre jamais dans le calcul.
+
+#: Fichiers dont un collecteur a REUSSI, et fichiers sous lesquels au moins un ITEM terminal est
+#: apparu. C'est leur DIFFERENCE qui porte le critere.
+_COLLECTES: set = set()
+_AVEC_ITEM: set = set()
+
+
+def _est_item(noeud) -> bool:
+    """Un ITEM terminal (`Function`) plutot qu'un COLLECTEUR (`Module`, `Class`).
+
+    `isinstance(noeud, pytest.Item)` serait l'ecriture directe. Elle est ecartee pour deux
+    raisons : elle imposerait a ce module d'importer `pytest` pour etre seulement LU, et surtout
+    elle le rendrait INTESTABLE hors d'une vraie session -- on ne fabrique pas un `pytest.Item`
+    sans son machinery, donc l'auto-test du cliquet ne pourrait pas exercer ce chemin.
+    Le discriminant retenu est celui que pytest expose dans ses deux classes de base : un `Item`
+    porte `runtest`, un `Collector` porte `collect`. L'etape 1 du cliquet le confronte a de VRAIS
+    noeuds pytest (classe vide, `__test__ = False`), ou une equivalence supposee se verrait."""
+    return hasattr(noeud, "runtest")
+
+
+def pytest_collectreport(report):
+    """Alimente les deux ensembles depuis la COLLECTE (cf. le bloc ci-dessus).
+
+    Un `Class` vide compte : son propre report porte le meme fichier et un `result` vide, donc le
+    fichier reste hors de `_AVEC_ITEM` -- mesure du 2026-08-03 sur `class TestVide: pass`, que le
+    seul report du Module (`result=[Class]`) aurait laisse passer."""
+    if not getattr(report, "passed", False):
+        return                                   # collecte EN ECHEC : pytest rend deja rc=2
+    fichier = _fichier(getattr(report, "nodeid", "") or "")
+    if not fichier.endswith(".py"):
+        return                                   # Session, Dir, Package : pas un fichier de test
+    _COLLECTES.add(fichier)
+    for noeud in getattr(report, "result", ()) or ():
+        if _est_item(noeud):
+            _AVEC_ITEM.add(fichier)
+            break
+
+
+def fichiers_sans_test() -> list:
+    """Les fichiers COLLECTES sans qu'un seul test en sorte. Vide sous l'echappatoire consciente."""
+    if os.environ.get(ENV_ALLOW) == "1":
+        return []
+    return sorted(_COLLECTES - _AVEC_ITEM)
+
+
 def pytest_sessionstart(session):
     """Rend la session lisible depuis `pytest_terminal_summary`, dont l'ordre d'appel par rapport
-    a notre `pytest_sessionfinish` n'est pas garanti."""
+    a notre `pytest_sessionfinish` n'est pas garanti.
+
+    Remet aussi a zero l'etat de collecte : `pytest.main` peut etre appele PLUSIEURS FOIS dans un
+    meme process (c'est ce que font `probe_457` et ses mutants), et un plugin n'est pas re-importe
+    entre deux sessions -- sans ce clear, la seconde heriterait des fichiers de la premiere."""
+    _COLLECTES.clear()
+    _AVEC_ITEM.clear()
     session.config._green_skip_session = session
 
 
@@ -152,20 +246,49 @@ def _lignes(inertes: dict) -> list:
     return out
 
 
+def _lignes_sans_test(fichiers: list) -> list:
+    """Le rapport du volet #455-r3, en ASCII strict."""
+    out = ["%d fichier(s) de test COLLECTE(S) SANS AUCUN TEST -- rien n'a ete confronte, et la "
+           "suite les compte comme un succes." % len(fichiers)]
+    out += ["  %s : 0 test collecte" % f for f in fichiers]
+    out += [
+        "",
+        "Ce n'est PAS une selection partielle : `-k`, `-m` et `--deselect` filtrent APRES la",
+        "collecte, et un nodeid explicite n'emet aucun report de collecte. Ventiler :",
+        "  * tests SUPPRIMES par erreur -> les restaurer ;",
+        "  * fichier devenu SANS OBJET  -> le retirer du depot ;",
+        "  * helper mal NOMME           -> le renommer hors de `python_files` (`_x.py`).",
+        "Inspection sans jeu lance : %s=1 (geste conscient, jamais un defaut)." % ENV_ALLOW,
+    ]
+    return out
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """Section de resume -- le seul endroit ou le gisement se LIT."""
     inertes = fichiers_inertes(getattr(terminalreporter, "stats", {}) or {},
                                args=getattr(config, "args", ()) or (),
                                interrompu=_interrompu(getattr(config, "_green_skip_session", None)))
-    if not inertes:
-        return
-    terminalreporter.write_sep("=", "FICHIERS 100 POURCENT SKIPPES (#455)", red=True, bold=True)
-    for ln in _lignes(inertes):
-        terminalreporter.write_line(ln)
+    if inertes:
+        terminalreporter.write_sep("=", "FICHIERS 100 POURCENT SKIPPES (#455)", red=True, bold=True)
+        for ln in _lignes(inertes):
+            terminalreporter.write_line(ln)
+
+    vides = fichiers_sans_test()
+    if vides:
+        terminalreporter.write_sep("=", "FICHIERS SANS AUCUN TEST (#455-r3)", red=True, bold=True)
+        for ln in _lignes_sans_test(vides):
+            terminalreporter.write_line(ln)
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Le verdict : un fichier inerte rend la passe ROUGE (sans lui, rien ne le signalerait)."""
+    """Le verdict : un fichier qui n'a rien confronte rend la passe ROUGE.
+
+    Le volet #455-r3 est evalue MEME SANS terminalreporter : son etat vient de la collecte, pas
+    de `stats`. Le sortir de la garde `tr is None` est ce qui le rend insensible au residu
+    #455-r2 (`-p no:terminal` fait taire l'autre critere, sans le dire)."""
+    if fichiers_sans_test() and session.exitstatus == 0:
+        session.exitstatus = 1
+
     tr = session.config.pluginmanager.get_plugin("terminalreporter")
     if tr is None:                                    # `-p no:terminal` : pas de stats agregees
         return

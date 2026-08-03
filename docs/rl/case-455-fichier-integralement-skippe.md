@@ -69,15 +69,15 @@ n'apprendrait rien.
 Le garde runtime est ce qui **voit** le gisement, à chaque passe ciblée que joue n'importe quel
 agent. Le cliquet garde que ce garde **mord** et **est branché**.
 
-Trois étapes, **26 cas**, **10,8 s** machine calme (62,6 s dans la banque en parallèle, mur 102,9 s)
-— très en dessous du mur, donc coût marginal quasi nul.
+**Quatre** étapes, **48 cas** depuis #455-r3 (§9) — les chiffres de coût sont à re-dériver, pas à
+citer.
 
-0. **Auto-test du critère** sur des rapports synthétiques (14 cas). Chaque cas positif a son jumeau
-   NÉGATIF : c'est lui qui interdit de faire mordre le garde en élargissant son critère.
-1. **Bout en bout** dans un répertoire isolé, plugin chargé par `-p green_skip_guard` (8 cas). Le
+0. **Auto-test des deux critères** sur des rapports synthétiques (22 cas). Chaque cas positif a son
+   jumeau NÉGATIF : c'est lui qui interdit de faire mordre le garde en élargissant son critère.
+1. **Bout en bout** dans un répertoire isolé, plugin chargé par `-p green_skip_guard` (20 cas). Le
    cas « le MÊME fichier **sans** le plugin → vert » rend le rouge **attribuable** : sans lui, on
    ne saurait pas si c'est le garde qui rougit ou le fichier synthétique.
-2. **CÂBLAGE** (#421 — prouver sa couverture dans le MÊME processus que sa conformité), 4 cas. Un
+2. **CÂBLAGE** (#421 — prouver sa couverture dans le MÊME processus que sa conformité), 5 cas. Un
    garde qui mord dans un tmpdir mais n'est pas chargé par la suite réelle ne garde **rien**. On
    **copie** donc le `tests/conftest.py` DE PRODUCTION dans une arborescence MIROIR en tmpdir
    système, et on exige un rouge **sans aucun `-p`** : le seul chemin de chargement possible est ce
@@ -91,17 +91,30 @@ Trois étapes, **26 cas**, **10,8 s** machine calme (62,6 s dans la banque en pa
    `confcutdir`, donc jusqu'où pytest REMONTE chercher les conftest. Sans lui : `3 skipped`, aucun
    rapport de garde, un **faux négatif du cliquet**.
 
-**Preuve dans les deux sens** (2026-08-02, mutations jouées puis restaurées) :
+3. **GISEMENT** de #455-r3, balayé statiquement sur tout le dépôt (1 cas). Les étapes 0-2 gardent
+   l'OUTIL ; celle-ci garde l'ARBRE. Détail et justification : §9.
 
-| mutation | étape 0 | étape 1 | étape 2 | verdict |
-|---|---|---|---|---|
-| aucune | 0/14 | 0/8 | 0/4 | **PASS** |
-| critère neutralisé (`fichiers_inertes` rend toujours vide) | 5 KO | 2 KO | 1 KO | **FAIL (8)** |
-| import retiré de `tests/conftest.py` | 0 | 0 | **2 KO** | **FAIL (2)** |
+**Preuve dans les deux sens** (mutations jouées puis restaurées, restauration vérifiée par
+`sha256` ; 2026-08-02 pour les deux premières, 2026-08-03 pour les cinq suivantes) :
 
-La seconde mutation est la plus instructive : le garde reste parfaitement fonctionnel (étapes 0 et
-1 vertes) et ne garde plus rien. Seule l'étape 2 le voit — et elle le voit **toujours** depuis
-qu'elle travaille sur une copie (§8).
+| mutation | étape 0 | étape 1 | étape 2 | étape 3 | verdict |
+|---|---|---|---|---|---|
+| aucune | 0/22 | 0/20 | 0/5 | 0/1 | **PASS** |
+| critère #455 neutralisé (`fichiers_inertes` rend toujours vide) | 5 KO | 2 KO | 1 KO | 0 | **FAIL (8)** |
+| import retiré de `tests/conftest.py` | 0 | 0 | **2 KO** | 0 | **FAIL (2)** |
+| volet r3 neutralisé (le hook de collecte ne voit plus rien) | 3 KO | 5 KO | 1 KO | 0 | **FAIL (9)** |
+| critère r3 ÉLARGI (tout fichier collecté est retenu) | 3 KO | 12 KO | 1 KO | 0 | **FAIL (16)** |
+| discriminant item/collecteur FAUX (`_est_item` rend toujours vrai) | 1 KO | 2 KO | 0 | 0 | **FAIL (3)** |
+| `pytest_collectreport` retiré de `tests/conftest.py` | 0 | 0 | **2 KO** | 0 | **FAIL (2)** |
+| un `test_*.py` versionné SANS aucun test | 0 | 0 | 0 | **1 KO** | **FAIL (1)** |
+| *(contre-épreuve)* le même contenu vide, nommé `_*.py` | 0 | 0 | 0 | 0 | **PASS** |
+
+Les deux mutations qui portent sur le conftest sont les plus instructives : le garde reste
+parfaitement fonctionnel (étapes 0 et 1 vertes) et ne garde plus rien. Seule l'étape 2 le voit —
+et elle le voit **toujours** depuis qu'elle travaille sur une copie (§8).
+
+La dernière ligne est ce qui dispense d'une allowlist : **même contenu, même versionnement, seul le
+NOM change**, et il suffit à séparer un fichier de support d'un fichier de test vidé.
 
 `probe_439` classe l'entrée CAPABLE de rougir (`sys.exit(main(...))`).
 
@@ -241,9 +254,9 @@ reste se révélera au fil de l'eau — c'est le résidu **#455-r1**.
   ce qui rouvrirait un angle mort différent. Même remarque pour `pytest-xdist` : **non installé**
   ici (les agents lancent N processus pytest séparés, où le garde fonctionne pleinement) ; sous
   xdist, `pytest_deselected` est appelé côté worker et le master pourrait ne pas le voir.
-* **#455-r3** — le critère ne voit pas un fichier dont **tous les tests ont disparu** (0 collecté) :
-  aucun report, donc aucun bilan. Un fichier vidé de ses tests est un vert qui ment d'une autre
-  forme, que ce cliquet ne couvre pas.
+* ~~**#455-r3**~~ — **FERMÉ le 2026-08-03**, et gardé sur deux fronts (§9) : un hook de collecte
+  dans `green_skip_guard`, et un balayage statique du dépôt à l'étape 3 du cliquet. Le résidu
+  disait vrai — un fichier vidé de ses tests n'émet aucun report, donc aucun bilan.
 * **#455-r4** — FERMÉ (`docs/rl/case-455-r4-fenetre-cap-resilient.md`). Le rouge accusait bien le
   MONTAGE, mais pas pour la raison écrite dans le `pytest.fail` : le pas de descente (~110 000)
   dépassait la fenêtre entière (50 000), **et** l'attaque terminait l'activation de la seule p-unit,
@@ -308,3 +321,104 @@ Deux pièges du miroir, tous deux **mesurés, pas anticipés** :
 répertoire sous `scripts/python/`, périmètre dérivé de `ratchets.ps1`. Auto-test **23/23**
 (4 cas négatifs, dont « `write_text` en place », qui protège les modes `--fix`), étape 3 = **0** sur
 les 29 entrées, et **FAIL (2)** quand la faute d'origine est remise.
+
+---
+
+## 9. #455-r3 — le fichier à 0 TEST COLLECTÉ (fermé le 2026-08-03)
+
+**Le résidu disait vrai, et il fallait le mesurer avant d'y croire.** Le critère de §2 lit
+`terminalreporter.stats`, donc des **reports d'exécution**. Un fichier dont tous les tests ont
+disparu n'en émet **aucun** : il n'apparaît pas dans `stats`, `bilan_par_fichier` ne le connaît
+pas, `fichiers_inertes` ne peut pas le retenir. Ce n'est pas un réglage à élargir — il n'y a rien
+à lire.
+
+**Mesure de l'invisibilité** (2026-08-03, tmpdir, `-p green_skip_guard`) :
+
+| montage | rc | rapport du garde |
+|---|---|---|
+| `test_vide.py` (0 test) **seul** | **5** (`EXIT_NOTESTSCOLLECTED`) | aucun |
+| `test_vide.py` **+ un fichier sain** | **0** | **aucun** |
+| `test_vide.py` + sain, avec `-k test_ok` | **0** | aucun |
+| fichier 100 % skippé + sain *(gisement #455)* | 1 | présent |
+| import KO + sain | 2 | aucun *(déjà rouge)* |
+
+La deuxième ligne **est** le trou, et la première explique pourquoi il ne se voit jamais : joué
+seul, pytest le signale déjà ; **personne ne joue un fichier seul**.
+
+### Le signal qui sépare les quatre causes — et il n'y a pas d'allowlist
+
+Un garde qui rougirait sur les quatre serait désarmé dans la semaine. Le discriminant est la
+**COLLECTE**, jamais la sélection, et chaque ligne est mesurée :
+
+| cause d'un fichier à 0 test | signal | mesure |
+|---|---|---|
+| tests **supprimés** | `CollectReport` du Module `passed`, aucun `Item` terminal en dessous | **c'est le gisement** |
+| fichier **filtré à 100 %** (`-k`, `-m`, `--deselect`) | le filtrage est **postérieur** à la collecte : `result` inchangé | `test_deux.py` garde ses 2 `Function` sous `-k test_a` |
+| **nodeid explicite** (`f.py::test_x`) | pytest court-circuite le Module, qui n'émet **aucun** report de collecte | la session rend directement `[Function]` |
+| fichier de **support** | il ne matche pas `python_files` — pytest ne le collecte pas | 24 helpers sous `tests/`, **tous** préfixés `_` |
+| collecte **en échec** (import KO) | `report.failed` → pytest rend déjà `rc=2` | on ne double pas un rouge existant |
+
+Les deux premières sont immunisées **structurellement** : aucune déclaration, aucun cas particulier.
+La contre-épreuve du §3 le prouve dans l'autre sens — même contenu vide, même versionnement, seul
+le NOM change (`test_*.py` → rouge, `_*.py` → vert).
+
+### Deux volets, et ils ne se recouvrent pas
+
+* **RUNTIME** — `pytest_collectreport` dans `green_skip_guard`. Voit la vérité de la collecte, donc
+  les cas qu'aucune lecture du source ne peut trancher : une classe `Test*` **vide**, un
+  `__test__ = False` — deux sources **pleins** de `def test_*` qui ne collectent rien. Coût nul,
+  actif à chaque passe. Il ne lit pas `stats` : il survit donc à `-p no:terminal`, contrairement à
+  l'autre critère (le résidu **#455-r2 reste ouvert pour celui-là**).
+* **STATIQUE** — étape 3 du cliquet, périmètre **dérivé** (`git ls-files` des `testpaths` de
+  `pytest.ini`, motifs lus dans `python_files`/`python_functions`). Le volet runtime ne voit que
+  les fichiers qu'une passe **joue** ; **417 des 533** fichiers de test sont `_live.py` et personne
+  ne les rejoue en entier, donc un fichier vidé peut n'être **plus jamais** collecté.
+
+**Pourquoi statique et pas une collecte réelle** : `pytest --collect-only` sur les 530 fichiers coûte
+**248,6 s** — ce cliquet deviendrait à lui seul le mur de la banque, pour une réponse que l'AST rend
+en une fraction de seconde. La collecte réelle a servi à **étalonner** le balayage (530 modules
+collectés OK, **0** à zéro item — même verdict que l'AST), pas à le remplacer.
+
+**Le critère statique est conservateur par construction** : une `def test*` trouvée n'importe où
+suffit à déclarer le fichier non vide. Un fichier « déclaré mais non collectable » lui échappe donc
+— et c'est exactement ce que le volet runtime attrape. Chacun voit ce que l'autre ne peut pas voir.
+
+**État du gisement, re-dérivé le 2026-08-03** : **533** fichiers de test versionnés, **0** sans
+test — mesuré deux fois, par AST et par collecte réelle. C'est donc un **cliquet**, pas une dette :
+zéro à tenir, et la seule chose qui puisse le rouvrir est notre propre cadence.
+
+### Ce que cette fermeture NE couvre pas
+
+* **#455-r3-r1** — le volet statique est **conservateur** : une `def test*` trouvée n'importe où
+  suffit. Un fichier dont les `def test*` existent mais ne sont plus **collectables** (classe hors
+  `python_classes`, `__test__ = False`, tests définis dans une fonction) lui échappe donc, et seul
+  le volet runtime le voit — c'est-à-dire **seulement s'il est joué**. Gisement mesuré : **0**
+  (`__test__` absent du dépôt, aucun `unittest`). Le durcir demanderait de rejouer la collecte,
+  qui coûte 248,6 s.
+* **#455-r3-r2** — le balayage ne couvre que les `testpaths` de `pytest.ini`
+  (`scripts/python/tests`). Un `test_*.py` versionné **hors** de là serait invisible aux deux
+  volets tant que personne ne le joue explicitement — pytest ne le collecterait pas non plus.
+  Mesuré : **0** fichier de test versionné hors `testpaths`.
+
+### Relevé de la livraison (2026-08-03)
+
+Banque jouée **trois fois** — avant rebase, puis après chacun des deux rebases sur `origin/master`
+(11 puis 2 commits d'écart, le second amenant #455-r4, qui touche ce fichier et le backlog :
+conflits résolus à la main) : **35 cliquets, VERTE** les trois fois.
+
+| relevé | mur | `probe_455` | cliquet le plus long |
+|---|---|---|---|
+| avant rebase | 520 s | 191,2 s | `probe_457:s4`, 400,2 s |
+| après rebase 1 | 353,8 s | 154 s | `probe_457:s7`, 353,6 s |
+| après rebase 2 | 522,1 s | 383,2 s | `probe_457:s7`, 491,3 s |
+
+Le mur reste tenu par `probe_457` dans les trois cas — c'est le **coût marginal en parallèle** qui
+est le critère d'admission, jamais le coût absolu. L'écart entre les trois relevés est de la
+**contention** (plusieurs agents actifs), pas du travail : chiffres à re-dériver, pas à citer.
+`probe_391` et `probe_440` verts partout — le volet statique ne fait que **lire**.
+
+Non-régression la plus large disponible : les 8 shards de `probe_457` jouent l'ensemble des tests
+offline **avec le nouveau hook actif** dans le conftest de production, et aucun ne rougit.
+
+Les rebases ont fait entrer **3 fichiers de test neufs** (530 → 533) : l'étape 3 les a absorbés sans
+qu'aucune liste ne soit touchée — la propriété du périmètre dérivé, vérifiée en passant.

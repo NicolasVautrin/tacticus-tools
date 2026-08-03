@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-# --- #455 : un FICHIER 100 % skippe est un vert qui ment ----------------------
+# --- #455 : un FICHIER qui n'a RIEN confronte est un vert qui ment ------------
 #
 # Les hooks vivent dans `green_skip_guard` (module a part, PAS ici) pour deux raisons :
 # un conftest non-racine ne peut pas declarer `pytest_plugins` (interdit depuis pytest 7),
@@ -36,12 +36,19 @@ import pytest
 # `-p green_skip_guard` sur des fichiers de test SYNTHETIQUES, hors de cette suite.
 # Cet import EST le cablage : sans lui, le garde existe et ne garde rien -- le cliquet le
 # verifie en deposant un fichier inerte sous `tests/` et en exigeant un rouge SANS `-p`.
+# Il DERIVE la liste ci-dessous de `dir(green_skip_guard)` : un hook ajoute au garde et
+# oublie ici fait rougir son etape 2.
+#
+# DEUX criteres, un seul vice. Le fichier 100 % SKIPPE (#455) se lit sur un BILAN ; le
+# fichier a 0 TEST COLLECTE (#455-r3) n'emet aucun report et ne se lit que sur la COLLECTE
+# -- d'ou `pytest_collectreport`.
 #
 # DISTINCT du bloc « un SKIP harnais indisponible est un ECHEC » plus bas (#77) : celui-la
 # lit la RAISON d'un skip, test par test ; celui-ci lit un BILAN, fichier par fichier. Un
 # skip de MONTAGE ne porte aucun marqueur de harnais et passe donc intact le premier.
 from green_skip_guard import (                        # noqa: F401,E402  (hooks pytest)
-    pytest_deselected, pytest_sessionstart, pytest_sessionfinish, pytest_terminal_summary)
+    pytest_collectreport, pytest_deselected, pytest_sessionstart, pytest_sessionfinish,
+    pytest_terminal_summary)
 
 PYDIR = Path(__file__).resolve().parents[1]          # scripts/python
 ROOT = Path(__file__).resolve().parents[3]           # racine repo
