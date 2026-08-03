@@ -8,6 +8,7 @@ lui en substitue une CONCRETE quand un passif de sa CONFIGURATION le prescrit. L
 
 ```csharp
 // AddNormalAttackAbility(this, entity, config, activeAbilityState, triggeredAbilityState)
+// config.Traits = `UnitConfiguration.Traits` (config@+0xd0) ; 0x0e = Erratic, 0x15 = Harmless.
 if (config.Traits.Contains(0x0e) || config.Traits.Contains(0x15)) return;   // aucune attaque normale
 var fromPassive = GetCustomNormalAttackTypeFromPassive(this, config);
 if (fromPassive.HasValue) { type = fromPassive.Value; state = triggeredAbilityState; }
@@ -65,21 +66,94 @@ from __future__ import annotations
 
 import gameconfig as GC
 
-# Les entrees PORTEES du dictionnaire statique de
-# `StaticBattleRules.TriggeredAbility$$GetCustomNormalAttack` : {passif -> attaque normale custom}.
-# Ce sont EXACTEMENT les quatre pour lesquelles le port a un mold ; la table native en contient
-# d'autres (l'enum `ActiveAbilityType` porte 16 noms en `*NormalAttack*`), non portees -- cf. le
-# residu `#419-r1-tr14-r5-r1`. Chaque entree est ATTESTEE, aucune n'est deduite d'un nom :
-#   `MV71SniperDroneSquad`  -> mesure directe (bras `kit` = 1076, bras `strip` = 69) ;
-#   `Boltstorm`             -> #446-r1 §2 et son controle apparie `PassiveAbilities=[]` -> 69 ;
-#   `RighteousRepugnance`   -> #446-r3 (`adeptMorvenn`, attaque normale concrete 1182) ;
-#   `ProperKilly`           -> registre INERTE (zero porteur dans ce build, cf. normal_attack.py).
+# Le dictionnaire statique de `StaticBattleRules.TriggeredAbility$$GetCustomNormalAttack`,
+# {`TriggeredAbilityType` -> `ActiveAbilityType`} -- QUATORZE entrees, transcrites du `.cctor`.
+#
+# ## D'ou vient cette table (#419-r1-tr14-r5-r1)
+#
+# `GetCustomNormalAttack` est un `ContainsKey` + `get_Item` sur le champ STATIQUE `+0x50` de
+# `StaticBattleRules.TriggeredAbility` ; ce champ est ecrit UNE fois par
+# `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.TriggeredAbility$$.cctor`,
+# qui construit le `Dictionary` puis empile 14 `Add(key, value)` a litteraux CONSTANTS avant de
+# l'assigner. Les 14 paires sont donc LUES, pas deduites.
+#
+# TROIS controles independants les valident :
+#  1. les QUATRE entrees deja portees avant #419-r1-tr14-r5-r1 (mesurees live, une par une) sont
+#     retrouvees a l'identique dans le `.cctor` -- 4/4, dans la meme orientation cle/valeur ;
+#  2. `StaticBattleRules.TriggeredAbility$$IsCustomNormalAttackDerivedFromTriggeredAbility` fait
+#     `dict.Values.Contains(<ActiveAbilityType>)` : les VALEURS sont bien des `ActiveAbilityType`
+#     et les CLES des `TriggeredAbilityType` -- l'orientation est prouvee par un second corps ;
+#  3. les 14 valeurs sont exactement les `ActiveAbilityType` en `*NormalAttack*` du build, moins
+#     les deux generiques (`17 NormalAttack`, `69 Loki_NormalAttack`) et moins
+#     `1126 RogalDorn_NormalAttack`, qui n'est dans AUCUNE des deux tables passives.
+#
+# ⚠ AUCUNE entree ne se devine par son nom, et deux d'entre elles le prouvent : la cle
+# `HeavyBoltPistol` rend `TemplarInitiateNormalAttack` (zero parente lexicale), et
+# `RogalDorn_NormalAttack` -- qui PORTE le suffixe -- n'est la valeur d'aucune cle passive.
+# Une table dressee « par les noms en *NormalAttack* » aurait donc rate la premiere et invente
+# la seconde.
+#
+# ## Pourquoi la table doit etre COMPLETE, et pas seulement « celle des molds portes »
+#
+# `custom_normal_attack_from_passives` mirrore la boucle « le PREMIER passif gagnant s'impose ».
+# Une table PARTIELLE ne fait pas « moins de dispatch » : elle fait un dispatch FAUX des qu'une
+# unite porte, AVANT un passif porte, un passif substituant absent de la table -- l'entree
+# manquante est sautee et la main passe a la suivante, ce que le natif ne fait jamais.
+# Exemple mesurable : `PassiveAbilities = [HeavyBoltPistol, Boltstorm]` -> natif
+# `TemplarInitiateNormalAttack`, port a table partielle `Boltstorm_NormalAttack` (donc le fold
+# `GetAdditionalDamagePrediction` de #446-r1, que le natif ne joue pas).
+#
+# La table dit QUELLE attaque normale l'entite porte ; elle ne dit rien du mold de PREDICTION.
+# Les molds portes restent les quatre de `prediction/normal_attack.py` (`Boltstorm`,
+# `RighteousRepugnance`, `ProperKilly`) et du chemin drone (`MV71SniperDroneSquad`) : pour les dix
+# autres attaques normales concretes, le port reste sur la branche generique -- c'est la
+# couverture des molds, pas le dispatch, et ce sont deux axes distincts.
 CUSTOM_NORMAL_ATTACK_BY_PASSIVE: dict[str, str] = {
-    "MV71SniperDroneSquad": "MV71SniperDroneSquadAttack",   # 1119 -> 1076
-    "Boltstorm": "Boltstorm_NormalAttack",                  # 1090 -> 1128
+    "HeavyBoltPistol": "TemplarInitiateNormalAttack",            # 1083 -> 1046
+    "MV71SniperDroneSquad": "MV71SniperDroneSquadAttack",        # 1119 -> 1076
+    "ProperKilly": "ProperKilly_NormalAttack",                   # 1147 -> 1086
+    "BlisteringAssault": "BlisteringAssault_NormalAttack",       # 1190 -> 1114
+    "FeederTendrils": "FeederTendrils_NormalAttack",             # 1197 -> 1120
+    "Boltstorm": "Boltstorm_NormalAttack",                       # 1090 -> 1128
+    "OptimizedGait": "OptimizedGait_NormalAttack",               # 1205 -> 1123
+    "FloatingDeath": "FloatingDeath_NormalAttack",               # 1243 -> 1146
+    "AncientFury": "AncientFury_NormalAttack",                   # 1256 -> 1162
+    "Wraithcannon": "Wraithcannon_NormalAttack",                 # 1220 -> 1138
+    "ElectroShock": "ElectroShock_NormalAttack",                 # 1303 -> 1178
     "RighteousRepugnance": "RighteousRepugnance_NormalAttack",   # 1107 -> 1182
-    "ProperKilly": "ProperKilly_NormalAttack",              # 1147 -> 1086
+    "TalonOfHorus": "TalonOfHorus_NormalAttack",                 # 1484 -> 1205
+    "Fealty": "Fealty_NormalAttack",                             # 1512 -> 1220
 }
+
+#: Les DEUX traits qui SUPPRIMENT purement l'attaque normale (#419-r1-tr14-r5-r4). Premiere ligne
+#: de `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`, lue verbatim :
+#:
+#:     if (config.Traits.Contains(0x0e) || config.Traits.Contains(0x15)) return;
+#:
+#: -- deux `List<UnitTrait>.Contains` sur `UnitConfiguration.Traits` (`config@+0xd0`), et un
+#: `return` SEC : ni `GetCustomNormalAttackTypeFromPassive`, ni la voie active, ni le repli
+#: generique ne sont atteints, et `ActiveAbilityComponent$$Add` n'est jamais appele. L'unite
+#: n'a donc AUCUNE attaque normale -- `ActiveAbilityComponent.NormalAttackType@0x28` reste a 0.
+#:
+#: `0x0e` = `Erratic`, `0x15` = `Harmless` (enum `IdunBattle.Entities.Enum.UnitTrait`). ⚠ Ce n'est
+#: PAS `NonAttacking` (1033), qui est un AUTRE trait et n'entre pas dans cette garde : les valeurs
+#: se lisent au decompile, jamais par affinite de nom.
+#:
+#: SUBSTRAT : `UnitConfiguration.Traits`, donc `BC.Units[].Traits` -- un fait d'ENTITE, comme les
+#: passifs ci-dessus (#264 : le natif monte la config, jamais le kit gameconfig).
+NORMAL_ATTACK_SUPPRESSING_TRAITS: frozenset = frozenset({"Erratic", "Harmless"})
+
+
+def has_normal_attack(traits) -> bool:
+    """« Cette unite recoit-elle une attaque normale a la fabrique ? » -- mirror de la garde
+    d'entree de `UnitFactory$$AddNormalAttackAbility` (cf. `NORMAL_ATTACK_SUPPRESSING_TRAITS`).
+
+    `traits` = les noms de `UnitTrait` de l'entite. `None` = canal muet -> `True`, c'est-a-dire
+    STRICTEMENT le comportement d'avant : on ne devine pas une absence qu'on n'a pas mesuree.
+    """
+    if traits is None:
+        return True
+    return not (NORMAL_ATTACK_SUPPRESSING_TRAITS & set(traits))
 
 
 def custom_normal_attack_from_passives(passive_abilities) -> str | None:
@@ -121,9 +195,17 @@ def _kit_ability_names(visual_id) -> set:
 def substitutes_normal_attack(passive_name: str, passive_abilities=None, visual_id=None) -> bool:
     """« L'attaque normale de CETTE entite est-elle celle que substitue `passive_name` ? »
 
-    C'est le prédicat de dispatch de tous les molds `<X>_NormalAttackAbility$$PredictAttack` et de
-    `visit_AttackUnitMessage`. Tri-etat sur `passive_abilities` (cf. en-tete du module)."""
+    C'est le predicat de dispatch de tous les molds `<X>_NormalAttackAbility$$PredictAttack` et de
+    `visit_AttackUnitMessage`. Tri-etat sur `passive_abilities` (cf. en-tete du module).
+
+    ⚠ Le `substitutes is None` n'est pas defensif, il ferme un `None == None` : un `passive_name`
+    absent de la table rendait `None`, la boucle rend `None` quand aucun passif ne substitue, et le
+    predicat repondait alors VRAI pour n'importe quel passif non substituant sur n'importe quelle
+    unite. Inerte tant que les seuls appelants passent des cles de la table -- mais c'est une
+    invariance de POSTE D'APPEL, pas du foyer, et le foyer est ce qui doit tenir."""
     if passive_abilities is not None:
-        return custom_normal_attack_from_passives(passive_abilities) == \
-            CUSTOM_NORMAL_ATTACK_BY_PASSIVE.get(passive_name)
+        substitutes = CUSTOM_NORMAL_ATTACK_BY_PASSIVE.get(passive_name)
+        if substitutes is None:
+            return False       # ce passif ne substitue AUCUNE attaque normale (absent du dict natif)
+        return custom_normal_attack_from_passives(passive_abilities) == substitutes
     return passive_name in _kit_ability_names(visual_id)
