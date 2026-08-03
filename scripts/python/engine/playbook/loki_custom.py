@@ -35,7 +35,8 @@ from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.effect_type import EffectType
 from ..entities.traits.unit_trait import (UnitTrait, entity_trait_names, has_any_trait,
-                                          is_normal_unit)
+                                          has_trait, is_normal_unit)
+from ..services.battle_query import find_melee_weapon, weapon_hits
 from ..utilities.damage import will_be_overkill
 
 # `_PROFILE_NONE` VIVAIT ICI (le `param_8` VIDE du call-site `GenerateMultiHitAttackPredictions` de
@@ -1406,12 +1407,139 @@ class MartialExemplarPlaybook(NonAttackComparablePlaybook):
         return float(n) * self.ADJACENT_ENEMY_UTILITY
 
 
+class TheLionsWrathPlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.TheLionsWrathPlaybook$$CalculateCustomUtility` (#27-r4) :
+
+        n = 0; hits = 0;
+        foreach (e in battleQuery.<slot itf 0x80>(casterPosition, caster, ignoreSteppables: false))
+            if (UnitExtensions.IsNormalUnit(e)
+                && UnitExtensions.HasTrait(e, 0x7ea)      // Chaos
+                && UnitExtensions.HasTrait(e, 0x10))      // Hero
+                n++;
+        var w = battleQuery.<slot itf 0xb2>(target);      // FindMeleeWeapon(TARGET)
+        if (w != null) hits = w.<+0x20>;                  // Hits
+        return Fix64.op_Implicit(hits * 0x1e + n * 2000
+                                 + (UnitExtensions.HasTrait(target, 0x10) ? 0x96 : 0));
+
+    AUCUN `GetUtilityValue` : les trois magnitudes (`0x1e` = 30, `2000`, `0x96` = 150) sont EN DUR
+    dans le corps natif -- il n'existe aucune cle de poids BC a resoudre pour cette ability.
+
+    CE QUI REND CE TERME DISCRIMINABLE, et c'est ce qui le distingue des trois autres customs
+    « npc-only » de la meme tranche : ses DEUX premiers facteurs sont lus sur la **CIBLE**
+    (`FindMeleeWeapon(target).Hits`, `HasTrait(target, Hero)`), donc il DEPARTAGE deux cibles d'une
+    MEME ability -- ce qu'un terme purement caster-dependant (1215, 1216) ne peut jamais faire. Le
+    3e facteur (`n`) depend de `casterPosition` et pas de la cible : il est constant sur la boucle
+    MINEURE et n'arbitre que la TUILE, exactement comme le terme de 1216.
+
+    ANCRAGE DES DEUX SLOTS D'INTERFACE (par le decorateur enregistreur, jamais par recopie de fiche) :
+    `...RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass155_0$$u003CGetAdjacentEnemiesu003Eb__0`
+    emet le slot **0x80** = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(from, unit,
+    ignoreSteppables)`, et `...u003Cu003Ec__DisplayClass212_0$$u003CFindMeleeWeaponu003Eb__0` emet le
+    slot **0xb2** = `IdunBattle.Core.Services.BattleQuery$$FindMeleeWeapon(unit)`, la surcharge a UN
+    argument (cf. `services/battle_query.py::find_melee_weapon`). ⚠ Le numero de DisplayClass n'est
+    PAS un index de slot -- chacun est lu dans le corps de SON display class.
+
+    POURQUOI L'ABILITY EST GREFFABLE malgre un porteur `darkaBossLion` [npc] : le natif charge le
+    playbook PAR ABILITY (`PlaybookDatabase.LoadPlaybook(abilityType)`), jamais par unite, et de son
+    CASTER cette formule ne lit que le CAMP -- `...$$GetAdjacentEnemies` n'interroge du `unit` que
+    `IdunBattle.Entities.Components.OwnerComponent$$get_CurrentPlayerEntityId`. Ni stat, ni trait,
+    ni arme, ni portee du caster. L'arme et le trait `Hero` lus sont ceux de la CIBLE ; les traits
+    `Chaos`/`Hero` filtres sont ceux des ADJACENTS (`case-92` §5bis).
+
+    ROUTE D'ATTAQUE (et non la route non-attaque de 1216) : son masque EFFECTIF est `0x4000` =
+    `TargetIsEnemy` SEUL -- `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$
+    .ctor` recopie les 0x40 octets du preset `<TargetingOptions statics>+0x40` et les passe TELS
+    QUELS a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts, abilityAttackType: 0)`
+    -- pas de surcharge PRESET+FLAGS ici, donc pas le piege de 1216. L'ability cible donc des
+    ENNEMIS, elle a un `constants.damageProfile` (`Power`) et elle entre dans `ctx.plans` :
+    `_best_attack` l'evalue, et le custom entre dans `u_action` par la voie normale
+    (`TARGETING_OPTIONS_UNPORTED[1217]` pour le masque, sa face COMBAT n'etant pas portee).
+
+    LE GATE N'EST PAS PORTE, et c'est un FAIT LU, pas un oubli.
+    `...TheLionsWrathPlaybook$$ShouldEvaluate(unit, position, possiblePositions)` (surcharge 4-args,
+    slot de vtable 6) relu A L'ASSEMBLEUR -- le decompile Ghidra `(extraout_var >> 7 ^ 1) & bVar1`
+    modelise sur un OCTET un decalage qui porte sur 32 bits :
+
+        call  <slot 0x1b>(unit, 2)      ; HasMinimumRemainingTurns  -> movzx ebp, al
+        call  <slot 0x80>(position, unit, false)                    ; GetAdjacentEnemies
+        call  <Count>                                               ; -> eax
+        shr   eax, 0x1f                 ; bit de SIGNE du compte
+        xor   al, 1                     ; -> (count >= 0)
+        and   al, bpl                   ; & HasMinimumRemainingTurns
+
+    Le second terme est donc `Count() >= 0`, **TOUJOURS VRAI** pour un compte -- et ce n'est PAS ce
+    que fait sa jumelle : `...MartialExemplarPlaybook$$ShouldEvaluate`, structurellement identique,
+    finit par `cmp eax,1 ; setge al` = `Count() > 0`. Les deux fonctions different EXACTEMENT la, ce
+    qui est la contre-epreuve du decodage. Recopier `> 0` par analogie aurait pose un gate que le
+    natif n'a pas. Reste `HasMinimumRemainingTurns(unit, 2)`, dont
+    `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` **n'utilise pas** son parametre
+    `unit` : `limit = <config>[1]` ; `if (!limit.HasValue) return true` ; sinon
+    `turns <= limit - TurnComponent$$GetAmountOfTurnsEndedByPlayer(...)`. Gate GLOBAL au match,
+    neutre au porteur, et VRAI des que la limite de tours est absente. La route d'ATTAQUE n'expose
+    aucun hook `should_evaluate` (il n'existe que sur `playbook/nonattack.py`, pour la route
+    non-attaque) : poser ce hook dans `_best_attack` pour un gate structurellement toujours vrai
+    dans les regimes atteignables serait un port SPECULATIF non falsifiable. RESIDU NOMME `#27-r4-g`.
+
+    Porteur `darkaBossLion` [npc] -> GREFFE sur une unite du pool ; la greffe ne couvre pas ses
+    stats/traits/armes, ce qui est legitime ICI puisque la formule n'en lit aucun."""
+    ability_id = int(ActiveAbilityType.TheLionsWrath)   # 1217 = 0x4c1
+    TARGET_MELEE_HIT_UTILITY = 30.0        # `iVar8 * 0x1e`
+    ADJACENT_CHAOS_HERO_UTILITY = 2000.0   # `iVar7 * 2000` (litteral DECIMAL du decompile)
+    HERO_TARGET_UTILITY = 150.0            # `-(uint)(HasTrait(target, Hero)) & 0x96`
+
+    @staticmethod
+    def _unit(ctx, entity_id):
+        for u in (ctx.units or []):
+            if u.get("id") == entity_id:
+                return u
+        return None
+
+    @staticmethod
+    def _traits(ctx, unit) -> frozenset:
+        """Le substrat COMPLET de `BaseUnitComponent$$HasTrait` cote decision : kit gameconfig +
+        traits accordes en bataille + pseudo-trait de GRANDE-ALLIANCE. Ce dernier est INDISPENSABLE
+        ici -- `Chaos` (0x7ea) n'est dans AUCUN `traits` de gameconfig, c'est le BattleConfiguration
+        qui le pose (`UnitFactory$$InitBaseComponent`). Lire `unit["traits"]` nu, comme le fait
+        `MartialExemplarPlaybook` (dont le predicat n'a pas besoin de l'alliance), rendrait ici un
+        compte SYSTEMATIQUEMENT NUL, sans erreur ni crash."""
+        scene = getattr(ctx, "scene", None)
+        uctx = scene.ctx(unit.get("id")) if scene is not None else None
+        return entity_trait_names(uctx, unit.get("visualId"))
+
+    def _counts_as_chaos_hero(self, ctx, unit) -> bool:
+        """`IsNormalUnit(e) && HasTrait(e, Chaos) && HasTrait(e, Hero)` -- les trois gardes du natif,
+        dans leur ordre, sur un ADJACENT. `IsNormalUnit` = `!Object(0xd) && !Steppable(0x1b)`."""
+        names = self._traits(ctx, unit)
+        return (is_normal_unit(names)
+                and has_trait(names, UnitTrait.Chaos)
+                and has_trait(names, UnitTrait.Hero))
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        # 1er terme du natif (boucle sur `GetAdjacentEnemies(casterPosition, caster, false)`) :
+        # meme `is_adjacent` que `count_adjacent`, donc la meme porte d'elevation
+        # d'`IterateAdjacentTiles`. Aucun fork d'adjacence.
+        n = bq.count_adjacent_matching(caster_tile, ctx.enemies,
+                                       lambda u: self._counts_as_chaos_hero(ctx, u),
+                                       ctx.elev_by_pos)
+        tu = self._unit(ctx, target)
+        # `FindMeleeWeapon(target)` puis `w.<+0x20>` ; arme absente -> `iVar8` reste 0. Cible non
+        # resolue -> le natif appellerait `IsUnit(null)` (faux) puis `HasTrait(null, ...)` (faux),
+        # donc les deux termes de CIBLE tombent a 0 : c'est ce que rend cette branche.
+        hits = weapon_hits(find_melee_weapon(tu.get("visualId"))) if tu is not None else 0
+        hero = (self.HERO_TARGET_UTILITY
+                if tu is not None and has_trait(self._traits(ctx, tu), UnitTrait.Hero) else 0.0)
+        return (float(hits) * self.TARGET_MELEE_HIT_UTILITY
+                + float(n) * self.ADJACENT_CHAOS_HERO_UTILITY
+                + hero)
+
+
 def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
                 DoomSirenPlaybook, SavageEchoesPlaybook,
                 HeavyWarpFlamerPlaybook, MassDriverAcceleratorPlaybook,
-                StikkbombPlaybook, PlasmaGrenadePlaybook, MortisRoundPlaybook):
+                StikkbombPlaybook, PlasmaGrenadePlaybook, MortisRoundPlaybook,
+                TheLionsWrathPlaybook):
         register(cls())
     # SECONDE route Comparable (#27-4b/4c/4d) : l'ability est absente de `ctx.plans` -- soit parce
     # qu'elle n'a pas de `damageProfile` (Chronometron, ForwardObservers), soit parce que son masque
