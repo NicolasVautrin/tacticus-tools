@@ -65,6 +65,9 @@ from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
 REPO = PYDIR.parents[1]
+if str(PYDIR) not in sys.path:
+    sys.path.insert(0, str(PYDIR))
+import repo_read  # noqa: E402
 
 # LE chemin canonique des checkouts imbriques. Tout le reste en DERIVE -- rien n'est saisi.
 WORKTREES = ".claude/worktrees"
@@ -651,13 +654,17 @@ def balayer(verbose: bool, prefiltre: bool = True) -> tuple:
     except Exception as exc:                              # noqa: BLE001
         banque = set()
         r3s.append(("<banque illisible>", 0, str(exc)))
-    for p in sorted((REPO / "scripts" / "python").rglob("*.py")):
+    # Lecture PARALLELE (#457-r6) : sous `scripts/`, l'OUVERTURE d'un fichier pese ~7 ms
+    # (filtre systeme sur les extensions executables) -- plus que le parse. Ordre inchange.
+    a_lire = [p for p in sorted((REPO / "scripts" / "python").rglob("*.py"))
+              if _rel(p) is not None]
+    for p, data in zip(a_lire, repo_read.read_bytes_many(a_lire)):
         rel = _rel(p)
-        if rel is None:
+        if data is None:
             continue
         try:
-            src = io.open(p, encoding="utf-8").read()
-        except (UnicodeDecodeError, OSError):
+            src = repo_read.to_text(data)
+        except UnicodeDecodeError:
             continue
         lus += 1
         dans_banque = rel in banque

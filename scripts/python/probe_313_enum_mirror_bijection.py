@@ -63,6 +63,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts"/"python"))
 
+import repo_read  # noqa: E402
 from symbols_layout import build_dir, current_build  # noqa: E402
 
 PY = REPO / "scripts"/"python"
@@ -243,11 +244,12 @@ def intenums_du_moteur() -> dict[str, str]:
     token litteral -- ce que le filtre laisse passer est donc exactement ce que le parse peut
     voir."""
     out: dict[str, str] = {}
-    for p in sorted(ENGINE.rglob("*.py")):
+    # Lecture PARALLELE (#457-r6) : l'OUVERTURE pese ~7 ms par fichier sous `scripts/`
+    # (filtre systeme sur les extensions executables), devant le parse. Ordre inchange.
+    fichiers = sorted(ENGINE.rglob("*.py"))
+    for p, texte in zip(fichiers, repo_read.read_texts(fichiers)):
         rel = p.relative_to(PY).as_posix()
-        try:
-            texte = p.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+        if texte is None:
             continue
         if "Enum" not in texte and "Flag" not in texte:
             continue
@@ -309,13 +311,10 @@ def references_qualifiees() -> list[tuple[str, int, str, str]]:
     Le gain est donc MODESTE : le poste de cout de cette etape n'est pas le nombre de fichiers
     parses, c'est le parse lui-meme sur la moitie du depot qui cite un enum."""
     out = []
-    for rel in fichiers_python_suivis():
-        p = REPO / rel
-        if not p.is_file():
-            continue
-        try:
-            texte = p.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+    # Lecture PARALLELE (#457-r6), meme ordre : `read_texts` rend une liste ALIGNEE.
+    rels = [r for r in fichiers_python_suivis() if (REPO / r).is_file()]
+    for rel, texte in zip(rels, repo_read.read_texts([REPO / r for r in rels])):
+        if texte is None:
             continue
         if not any(cls in texte for cls in PAR_CLS):
             continue

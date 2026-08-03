@@ -83,6 +83,7 @@ sys.path.insert(0, str(PYDIR))
 # Source UNIQUE des helpers de balayage (perimetre, prose token-aware, lecture d'`enums.tsv`).
 # Les redupliquer ferait diverger deux definitions du meme perimetre -- exactement la cause de
 # #430. `probe_283` n'execute rien a l'import.
+import repo_read  # noqa: E402
 from probe_283_enum_ordinal_sweep import (  # noqa: E402
     _ignore, _prose_par_ligne, all_enums, current_build, previous_build)
 
@@ -270,11 +271,15 @@ def main(argv=None) -> int:
     fichiers = [p for p in sorted((REPO / "scripts" / "python").rglob("*.py"))
                 if _ignore(p) is not None]
     rouges, lus, retenus, indices = [], 0, 0, 0
-    for p in fichiers:
+    # Lecture PARALLELE (#457-r6) : l'ouverture pese ~7 ms par fichier sous `scripts/`
+    # (filtre systeme sur les extensions executables), soit plus que tout l'AST de ce probe.
+    for p, data in zip(fichiers, repo_read.read_bytes_many(fichiers)):
         rel = _ignore(p)
+        if data is None:
+            continue
         try:
-            src = io.open(p, encoding="utf-8").read()
-        except (OSError, UnicodeDecodeError):
+            src = repo_read.to_text(data)
+        except UnicodeDecodeError:
             continue
         lus += 1
         if risque is not None and not risque.search(src):

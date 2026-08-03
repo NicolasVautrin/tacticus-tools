@@ -59,6 +59,7 @@ TESTS = PYDIR / "tests"
 
 sys.path.insert(0, str(PYDIR))
 import green_skip_guard as G                                        # noqa: E402
+import repo_read                                                    # noqa: E402
 
 #: Les hooks que `tests/conftest.py` DOIT re-exporter. Derives du module, pas saisis : ajouter un
 #: hook au garde sans le brancher fait rougir l'etape 2.
@@ -424,10 +425,15 @@ def _marque_skip(fn) -> bool:
 def candidats(verbose: bool) -> list:
     """[(fichier, nb tests)] dont TOUS les tests peuvent atteindre un skip."""
     out = []
-    for p in sorted(TESTS.rglob("test_*.py")):
+    # Lecture PARALLELE (#457-r6) : l'OUVERTURE d'un fichier sous `scripts/` pese ~7 ms
+    # (filtre systeme sur les extensions executables), devant le parse. Ordre inchange.
+    fichiers = sorted(TESTS.rglob("test_*.py"))
+    for p, texte in zip(fichiers, repo_read.read_texts(fichiers)):
+        if texte is None:
+            continue
         try:
-            tree = ast.parse(p.read_text(encoding="utf-8"), filename=p.name)
-        except (SyntaxError, ValueError, OSError):
+            tree = ast.parse(texte, filename=p.name)
+        except (SyntaxError, ValueError):
             continue
         fns = {n.name: n for n in ast.walk(tree)
                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
