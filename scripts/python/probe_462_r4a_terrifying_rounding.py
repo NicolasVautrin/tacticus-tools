@@ -79,7 +79,7 @@ def _build(state: Path, board: str, seed: str, p_units: str, a_units: str,
            cap_wait_s: int = 900, poll_s: int = 20, armor_target: int | None = None,
            hp: int | None = None):
     """Build avec ATTENTE du cap MAX_RUNNERS (session partagee entre agents : un refus de cap
-    n'est pas un echec du scenario -- cf. runner.md §3).
+    n'est pas un echec du scenario -- cf. runner.md, discipline runner).
 
     `hp` : PV forces des deux camps. INDISPENSABLE des qu'on DEPLACE les unites sur plusieurs
     tours -- sinon la cible arrive entamee et la prediction native est ECRETEE par la sante
@@ -407,7 +407,7 @@ def _models(p_raw: int, mults) -> dict:
       D `sub_trunc`    P - floor(P x (1-m)) -- la reduction ecrite en SOUSTRACTION tronquee
 
     `mults` = la %-list DEFENSEUR (liste de (mult, cap)); un cap la rend inapplicable ici (aucun
-    porteur n'en pose, cf. `#446-r2-r1`). Chaque modele rend l'ENTIER final (matérialisation
+    porteur n'en pose, cf. `#446-r2-r1`). Chaque modele rend l'ENTIER final (materialisation
     incluse), pour etre compare tel quel a l'oracle natif."""
     ms = [_fx.mult_raw_from_float(m) for m, _cap in mults]
 
@@ -571,11 +571,7 @@ def two_faces(attacker=ATTACKER, target=TARGET, board_id=BOARD, seed=SEED,
       ordre DEF-puis-ATT  : Round(Round(P x 0.7) x 1.5)
 
     Sur le percage fractionnaire du montage (P = 435.000000068) ces deux ordres donnent 457 et 458."""
-    import probe_124_line_elevation_decision as P124
-    from engine.runner.snapshot import load_state
-    from engine.runner.runner import Runner
-    from engine.runner.messages import AttackUnitMessage
-    from engine.runner.prng import IntBasedMersenneTwister
+    import probe_124_line_elevation_decision as P124   # geometrie DRIVEE (les DEUX camps)
     sid = _resolve_session()
     state = Path(state_file) if state_file else \
         ROOT / "logs" / "runners" / f"probe462r4a-2f-{uuid.uuid4().hex[:8]}.json"
