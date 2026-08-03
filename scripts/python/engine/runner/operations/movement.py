@@ -60,6 +60,14 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     court que le chemin de vol reellement suivi. Avant #448-r1-r1-r1-r1 le port comptait des pas
     de MARCHE pour un volant -- mesure MC1_67 : `(1,1) -> (1,3)` vaut 3 pas de marche et 2 de vol.
 
+    ⚠ ET CE N'EST PAS QUE LE VOL. `GetPathfinderTypeForUnit` teste QUATRE effets AVANT
+    `IsLikeFlying` et rend alors un type DECORE (6..13), dont
+    `IdunBattle.Entities.Pathfinding.ATeleportPathfinder$$FindPath` rend litteralement
+    **`[from, to]`** -- aucun pathfinding. Le compte d'un porteur `TeleportStrike` vaut donc la
+    DISTANCE quelle que soit la geometrie. Ce n'est pas un cas de bord : sur les 5 volants du pool
+    retenus pour la mesure, **3** sont dans ce regime (`bloodDante`, `bloodIntercessor`,
+    `eldarAutarch`). Le dispatch complet est donc porte, pas seulement le bras `IsLikeFlying`.
+
     RESIDUS, tous nommes (identiques a ceux de la face DECISION) :
       * `MovementQuery$$GetConnectedPathTo` DENSIFIE le chemin du pathfinder (re-insertion des
         tuiles intermediaires entre deux noeuds distants de plus de 1 -- teleporteurs/sauts). Sur
@@ -84,18 +92,22 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     board = getattr(state, "board", None)
     if board is None:
         return 0
-    from ...entities.pathfinding.fly_pathfinder import is_like_flying
+    from ...entities.pathfinding import pathfinders as _pf
+    from ...services.movement_query import (get_connected_path_to, get_num_tiles_moved,
+                                            get_pathfinder_type_for_unit, unit_has_effect_fn)
     me0 = state.get_entity(int(mover_id))
     sc0 = me0.get_component(StatsComponent) if me0 is not None else None
     traits0 = getattr(sc0.ctx, "traits", None) if sc0 is not None else None
-    if is_like_flying(traits0 or []):
-        from ...entities.pathfinding import fly_pathfinder as _fly
-        from ...services.movement_query import get_connected_path_to, get_num_tiles_moved
+    ptype = get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits0 or [])
+    # TOUT sauf `Walk` passe par le foyer CHEMIN : le vol (3), les huit types DECORES (6..13,
+    # dont 6/8/10/12 qui ont pourtant une base MARCHE -- c'est `ATeleportPathfinder$$FindPath`
+    # qui les detourne, pas leur base), et le `Beeline` (2), qu'aucun call-site ne produit ici.
+    if ptype != int(_pf.PathfinderType.Walk):
         src = board.id_at(int(from_pos[0]), int(from_pos[1]))
         dst = board.id_at(int(to_pos[0]), int(to_pos[1]))
         if src is None or dst is None:
             return 0                              # hors board : aucune tuile a compter
-        path = _fly.find_path(board, src, dst)
+        path = _pf.find_path(board, ptype, src, dst)
         return get_num_tiles_moved(get_connected_path_to(board, src, dst, path))
     from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
     neigh, walk, elev = board.walk_maps_by_pos()

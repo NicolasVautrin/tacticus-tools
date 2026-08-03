@@ -190,6 +190,43 @@ def _turn_counter(ast: dict, uid: int):
     return None
 
 
+def measure_move(sid, rpc, rid: int, uid: int, state, src, dest):
+    """Joue le move et rend `(natif, port, reset)` -- le foyer de mesure, partage avec la garde
+    live (`tests/engine/runner/test_448_r1_r1_r1_r1_flying_tiles_moved_live.py`).
+
+    `natif` = delta de `tilesMovedThisTurn` (`ActorStatisticsComponent+0xf0`) encadrant le move ;
+    `port` = ce que `_num_tiles_moved` calcule sur l'etat d'AVANT.
+
+    `reset = True` = **NON MESURE**, et ce n'est pas de la defense de principe : le move de la
+    DERNIERE unite activable fait basculer le tour, donc
+    `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetThisTurn`
+    (`if (wasOwnTurn) comp[0xf4] = comp[0xf0]; comp[0xf0] = 0;`) remet `+0xf0` a ZERO pour TOUTES
+    les unites -- y compris celle qu'on vient de bouger. La lecture `after` vaut alors 0 et se lit
+    comme « le natif n'a rien enregistre », ce qui est FAUX. On le detecte a ce qu'une AUTRE unite
+    a vu son compteur DIMINUER : aucune ecriture native ne le peut, `RecordTilesMoved` ne fait que
+    `+=` (et sort sur `if (tiles < 1) return`). Le report `+0xf4` n'est pas une echappatoire : ce
+    champ est illisible sur le bundle courant (cf. `engine/runner/snapshot.py`)."""
+    from engine.runner.operations.movement import _num_tiles_moved
+    port_n = _num_tiles_moved(state, int(uid), src, dest)
+    before_all = _actor_stats(sid, rpc, rid)
+    before = _turn_counter(before_all, uid)
+    rpc(sid, "applyAction", {"runnerId": rid, "action": {
+        "kind": "move", "unitId": int(uid),
+        "to": {"col": int(dest[0]), "row": int(dest[1])}}}, 120)
+    after_all = _actor_stats(sid, rpc, rid)
+    after = _turn_counter(after_all, uid)
+    b_all = {int(u["entityId"]): u.get("tilesMovedThisTurn")
+             for u in ((before_all or {}).get("units") or []) if u.get("entityId") is not None}
+    a_all = {int(u["entityId"]): u.get("tilesMovedThisTurn")
+             for u in ((after_all or {}).get("units") or []) if u.get("entityId") is not None}
+    reset = [k for k in b_all
+             if k != int(uid) and a_all.get(k) is not None and b_all.get(k) is not None
+             and a_all[k] < b_all[k]]
+    if before is None or after is None:
+        return None, port_n, bool(reset)
+    return after - before, port_n, bool(reset)
+
+
 def bras(name: str, board_id: str, seed: int, units: list, foes: list,
          mode: str, want: int, max_turns: int) -> dict:
     """Un bras : chaque porteur joue le trajet demande ; on lit `tilesMovedThisTurn` AVANT et
@@ -210,7 +247,7 @@ def bras(name: str, board_id: str, seed: int, units: list, foes: list,
         nwall = sum(1 for t in bg["tiles"] if t.get("isWall"))
         print("     [board] %d mur(s) ; %d depart(s) offrant un trajet DETOURNE a d=%d"
               % (nwall, len(dsrcs), want))
-    rows, accord, desaccord, skips = [], 0, 0, 0
+    rows, accord, desaccord, skips, resets = [], 0, 0, 0, 0
     try:
         for turn in range(max_turns):
             state, dv, _ob = P._port_state(sid, rpc, rid, brd)
@@ -242,18 +279,17 @@ def bras(name: str, board_id: str, seed: int, units: list, foes: list,
                     continue
                 dest, info = got
                 src = info["src"]
-                port_n = _num_tiles_moved(state, int(uid), src, dest)
-                before = _turn_counter(_actor_stats(sid, rpc, rid), uid)
-                rpc(sid, "applyAction", {"runnerId": rid, "action": {
-                    "kind": "move", "unitId": int(uid),
-                    "to": {"col": int(dest[0]), "row": int(dest[1])}}}, 120)
-                after = _turn_counter(_actor_stats(sid, rpc, rid), uid)
-                if before is None or after is None:
+                nat, port_n, reset = measure_move(sid, rpc, rid, uid, state, src, dest)
+                if reset:
+                    resets += 1
+                    print("     t%d u%s %s -> %s : FIN DE TOUR pendant la mesure "
+                          "(ResetThisTurn) -- NON MESURE" % (turn, uid, src, dest))
+                    continue
+                if nat is None:
                     print("     t%d u%s : capteur MUET (tilesMovedThisTurn absent) -- NON MESURE"
                           % (turn, uid))
                     skips += 1
                     continue
-                nat = after - before
                 ok = nat == port_n
                 accord += 1 if ok else 0
                 desaccord += 0 if ok else 1
@@ -269,15 +305,128 @@ def bras(name: str, board_id: str, seed: int, units: list, foes: list,
             rpc(sid, "disposeRunner", {"runnerId": rid}, 60)
         except Exception:
             pass
-    print("   -> BRAS %s : %d accord(s) / %d mesure(s)  (%d skip)"
-          % (name, accord, accord + desaccord, skips))
+    print("   -> BRAS %s : %d accord(s) / %d mesure(s)  (%d skip, %d fin-de-tour non mesuree)"
+          % (name, accord, accord + desaccord, skips, resets))
     return {"name": name, "mode": mode, "want": want, "accord": accord,
-            "desaccord": desaccord, "skips": skips, "rows": rows,
+            "desaccord": desaccord, "skips": skips, "resets": resets, "rows": rows,
             "board": board_id, "seed": seed}
+
+
+def diag(board_id: str, seed: int, units: list, foes: list, pairs: list) -> dict:
+    """DIAGNOSTIC, sans jouer : (a) les TROIS numerotations d'unite que ce probe croise, et
+    (b) la decomposition PAR ETAGE du compte porte sur des couples donnes.
+
+    (a) existe parce qu'un desaccord `NATIF=0` peut avoir DEUX causes incompatibles -- « le natif
+    n'a rien enregistre » ou « on a lu le compteur d'une AUTRE unite ». `decisionView.units[].id`
+    est la cle de `toActivate` et d'`applyAction` ; `actorStats.units[].entityId` est celle du
+    capteur. Les confondre ne se voit pas : le compteur lu existe, il est juste faux.
+
+    (b) imprime waypoints / chemin recousu / beeline pour chaque couple, ce qui localise un
+    desaccord a l'ETAGE au lieu de le laisser au scalaire."""
+    from engine.entities.pathfinding.board import Board
+    from engine.entities.pathfinding import beeline_pathfinder as BL
+    from engine.entities.pathfinding import fly_pathfinder as F
+    from engine.services.movement_query import get_connected_path_to, get_num_tiles_moved
+    rid, _sf, units = _build(board_id, seed, "diag_%s_%d" % (board_id, seed), units, foes)
+    sid, rpc = P._rpc_factory()
+    print("== DIAG board=%s seed=%d runner=%s" % (board_id, seed, rid))
+    out = {}
+    try:
+        dv = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 150)
+        ob = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
+        ast = _actor_stats(sid, rpc, rid)
+        bg = rpc(sid, "boardGraph", {"runnerId": rid}, 90)
+        print("   -- decisionView.units[].id / visualId / pos")
+        for u in (dv.get("units") or []):
+            print("      id=%-5s %-24s %s" % (u.get("id"), u.get("visualId"),
+                                              (u.get("col"), u.get("row"))))
+        print("   -- observeBattle.units[] (cles disponibles)")
+        ous = ob.get("units") or []
+        print("      keys=%s" % (sorted((ous[0] or {}).keys()) if ous else "vide"))
+        for u in ous[:14]:
+            print("      entityId=%-5s id=%-5s %s" % (u.get("entityId"), u.get("id"),
+                                                      u.get("visualId")))
+        print("   -- actorStats.units[]")
+        for u in ((ast or {}).get("units") or [])[:16]:
+            print("      entityId=%-5s turn=%-5s battle=%-5s last=%s"
+                  % (u.get("entityId"), u.get("tilesMovedThisTurn"),
+                     u.get("tilesMovedThisBattle"), u.get("tilesMovedLastTurn")))
+        snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 90)
+        print("   -- combatSnapshot.units[] : empreinte (feet) et traits")
+        for u in ((snap or {}).get("units") or [])[:14]:
+            ft = u.get("feet")
+            print("      id=%-5s %-24s feet=%s traits=%s"
+                  % (u.get("entityId", u.get("id")), u.get("visualId"),
+                     (len(ft) if isinstance(ft, list) else ft),
+                     (u.get("traits") or [])[:8]))
+        # `MovementQuery$$GetPathfinderTypeForUnit` teste QUATRE effets AVANT `IsLikeFlying` :
+        # un porteur les prend, et son pathfinder devient un DECORATEUR (types 6..13).
+        from engine.entities.pathfinding.board import Board as _B
+        from engine.services.movement_query import (get_pathfinder_type_for_unit,
+                                                    unit_has_effect_fn)
+        st0, _dv0, _ob0 = P._port_state(sid, rpc, rid, _B(bg["tiles"], adjacency="native_sym"))
+        from engine.runner.components import StatsComponent as _SC
+        print("   -- pathfinder resolu par unite (`GetPathfinderTypeForUnit`)")
+        for u in (dv.get("units") or []):
+            uid = u.get("id")
+            if uid is None:
+                continue
+            e = st0.get_entity(int(uid))
+            sc = e.get_component(_SC) if e is not None else None
+            tr = getattr(sc.ctx, "traits", None) if sc is not None else None
+            print("      id=%-5s %-24s type=%s traits=%s"
+                  % (uid, u.get("visualId"),
+                     get_pathfinder_type_for_unit(unit_has_effect_fn(st0, int(uid)), tr or []),
+                     sorted(tr or [])[:8]))
+        brd = Board(bg["tiles"], adjacency="native_sym")
+        nwall = sum(1 for t in bg["tiles"] if t.get("isWall"))
+        print("   -- boardGraph : %d tuiles, %d mur(s)" % (len(bg["tiles"]), nwall))
+        print("   -- aretes GEOMETRIQUES absentes du champ `neighbours` du boardGraph "
+              "(le trou de capteur de #381-r3, porte |delta elev| < 2)")
+        miss = 0
+        for t in bg["tiles"]:
+            tid = t["id"]
+            nat = set(brd.neighbours_native(tid))
+            for g in brd.neighbours_geometric(tid):
+                if g not in nat:
+                    miss += 1
+                    if miss <= 12:
+                        print("      %s -> %s  (elev %s -> %s)"
+                              % (brd.coord(tid), brd.coord(g), brd.elevation(tid),
+                                 brd.elevation(g)))
+        print("      total = %d arete(s) dirigee(s)" % miss)
+        import hexgeo
+        for src, dst in pairs:
+            s, t = brd.id_at(*src), brd.id_at(*dst)
+            if s is None or t is None:
+                continue
+            wp = F.find_path(brd, s, t)
+            conn = get_connected_path_to(brd, s, t, wp)
+            bl = BL.find_path(brd, s, t)
+            print("      %s -> %s  d=%d  waypoints=%s" % (src, dst, hexgeo.distance(src, dst),
+                                                          [brd.coord(x) for x in (wp or [])]))
+            print("         connecte=%s  n=%d" % ([brd.coord(x) for x in conn],
+                                                  get_num_tiles_moved(conn)))
+            print("         beeline =%s (%d arete(s))" % ([brd.coord(x) for x in (bl or [])],
+                                                          len(bl or []) - 1))
+            print("         voisins NATIFS de %s   = %s"
+                  % (src, sorted(brd.coord(n) for n in brd.neighbours_native(s))))
+            print("         voisins GEOMETRIQUES   = %s"
+                  % sorted(brd.coord(n) for n in brd.neighbours_geometric(s)))
+            out["%s->%s" % (src, dst)] = {"n": get_num_tiles_moved(conn),
+                                          "beeline": len(bl or []) - 1}
+    finally:
+        try:
+            rpc(sid, "disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+    return out
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--diag", default="",
+                    help="DIAGNOSTIC : couples `c,r>c,r;...` a decomposer par etage")
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--detour-board", default="C6_25",
@@ -290,15 +439,55 @@ def main() -> int:
     ap.add_argument("--want", type=int, default=2)
     ap.add_argument("--only", default="", help="sous-ensemble des bras (FD,FD3,W,FX)")
     ap.add_argument("--mutate-walk", action="store_true",
-                    help="CONTRE-EPREUVE : le volant repasse par le WalkPathfinder (le port "
-                         "d'AVANT #448-r1-r1-r1-r1). Le bras FX doit DIVERGER du natif.")
+                    help="CONTRE-EPREUVE 1 : le volant repasse par le WalkPathfinder (le port "
+                         "d'AVANT #448-r1-r1-r1-r1). Doit DIVERGER du natif.")
+    ap.add_argument("--mutate-beeline-native", action="store_true",
+                    help="CONTRE-EPREUVE 2 : la beeline reprend le champ `neighbours` du "
+                         "boardGraph au lieu de la geometrie. Isole le trou de CAPTEUR (porte "
+                         "|delta elev| < 2) -- doit DIVERGER la ou une marche d'elevation coupe "
+                         "le chemin direct.")
+    ap.add_argument("--mutate-teleport", action="store_true",
+                    help="CONTRE-EPREUVE 3 : les huit types DECORES retombent sur leur base au "
+                         "lieu d'`ATeleportPathfinder$$FindPath`. Isole le seul dispatch "
+                         "teleport -- doit DIVERGER sur un porteur TeleportStrike detourne.")
     ap.add_argument("--json", default="")
     a = ap.parse_args()
 
     if a.mutate_walk:
-        from engine.entities.pathfinding import fly_pathfinder as FP
-        FP.is_like_flying = lambda traits: False      # le vol redevient de la marche
-        print("!! CONTRE-EPREUVE --mutate-walk : branche volante NIEE (WalkPathfinder partout)")
+        # Le port d'AVANT #448-r1-r1-r1-r1 : `WalkPathfinder` INCONDITIONNEL. On force donc le
+        # TYPE a `Walk`, pas seulement `IsLikeFlying` a faux -- sinon un porteur d'effet special
+        # partirait sur un type DECORE (6/8/10/12), qui n'est pas le port d'avant.
+        from engine.services import movement_query as MQ
+        MQ.get_pathfinder_type_for_unit = lambda *a_, **k_: 0
+        print("!! CONTRE-EPREUVE --mutate-walk : WalkPathfinder INCONDITIONNEL (port d'AVANT)")
+    if a.mutate_beeline_native:
+        from engine.entities.pathfinding import base_pathfinder as _BP
+        from engine.entities.pathfinding import beeline_pathfinder as BLP
+
+        def _native(board, from_id, to_id, occupants=None):
+            occ = occupants or {}
+            return _BP.find_path(board, from_id, to_id,
+                                 edge=BLP.is_valid_path_node,
+                                 neighbours=board.neighbours_native,     # le champ CAPTE
+                                 weight_cost=lambda tid: BLP.weight_cost(tid in occ),
+                                 is_valid_final_tile=lambda tid: True)
+        BLP.find_path = _native
+        print("!! CONTRE-EPREUVE --mutate-beeline-native : beeline sur le champ `neighbours`")
+    if a.mutate_teleport:
+        from engine.entities.pathfinding import fly_pathfinder as FPX
+        from engine.entities.pathfinding import pathfinders as PF
+        _orig_fp = PF.find_path
+
+        def _no_decorator(board, ptype, from_id, to_id, occupants=None):
+            # On NIE `ATeleportPathfinder$$FindPath` : le type decore retombe sur sa BASE. Rendre
+            # `None` ne prouverait rien -- la branche degeneree de `GetConnectedPathTo` recoud
+            # `[from, to]` par la beeline, donc la MEME valeur que le teleport.
+            t = int(ptype)
+            if PF.is_teleport_type(t) and PF.base_type_of(t) == int(PF.PathfinderType.Fly):
+                return FPX.find_path(board, from_id, to_id)
+            return _orig_fp(board, ptype, from_id, to_id, occupants)
+        PF.find_path = _no_decorator
+        print("!! CONTRE-EPREUVE --mutate-teleport : les types decores retombent sur leur base")
 
     bad = etape0()
     print("   etape 0 : %d anomalie(s)" % bad)
@@ -306,6 +495,16 @@ def main() -> int:
         return 1 if bad else 0
 
     foes = [s for s in a.foes.split(",") if s]
+    if a.diag:
+        pairs = []
+        for tok in a.diag.split(";"):
+            if ">" not in tok:
+                continue
+            s, d = tok.split(">")
+            pairs.append((tuple(int(x) for x in s.split(",")),
+                          tuple(int(x) for x in d.split(","))))
+        diag(a.board, a.seed, FLY_UNITS, foes, pairs)
+        return 1 if bad else 0
     want = {k: True for k in (a.only.split(",") if a.only else ["FD", "W", "FX"])}
     out = {}
     if want.get("FD"):

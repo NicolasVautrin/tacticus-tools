@@ -21,10 +21,24 @@ que la re-densification d'un chemin de vol COUPE a travers les obstacles au lieu
 entre deux waypoints, la longueur du sous-chemin est la distance dans le graphe d'adjacence, pas
 la longueur du detour.
 
-⚠ SON VOISINAGE EST LA LISTE **STOCKEE** (`BasePathfinder$$AddNeighbours` = le
-`ConnectivityComponent`), pas la geometrie -- contrairement au `FlyPathfinder` qui, lui, OVERRIDE
-ce slot. Les deux vues divergent (mesure `C1_74` de `#381-r3` : 74 aretes dirigees), donc un
-sous-chemin de beeline peut etre plus long que la distance hexagonale.
+SON VOISINAGE EST, AU NATIF, LA LISTE **STOCKEE** (`BasePathfinder$$AddNeighbours` = le
+`ConnectivityComponent`) -- contrairement au `FlyPathfinder` qui, lui, OVERRIDE ce slot.
+
+⚠ **LE PORT LIT POURTANT LA GEOMETRIE, ET C'EST LA MESURE QUI L'IMPOSE.** Le champ `neighbours`
+du `boardGraph` n'est PAS le `ConnectivityComponent` : le capteur passe par
+`IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`, dont la porte `|delta elev| < 2` est
+INCONDITIONNELLE -- il publie donc une version AMPUTEE des marches d'elevation. Mesure sur
+`MC1_67` (`probe_448_r1_r1_r1_r1_flying_tiles_moved.py --diag`) : **18 aretes dirigees**
+geometriques absentes du champ, TOUTES des marches `2 <-> 4`.
+
+Le natif prouve que ces aretes existent chez lui : sur le mouvement `(1,1) -> (1,3)` d'un volant
+(`d = 2`), il enregistre **2** tuiles -- ce qui exige un chemin de deux aretes, donc l'arete
+`(1,2)-(1,3)` que le champ `neighbours` ne porte pas. Avec le champ, le port rendait **3**.
+La geometrie est donc le proxy MESURE du `ConnectivityComponent` reel, et le champ capte en est
+une sous-approximation. RESIDU NOMME dans l'autre sens : le `ConnectivityComponent` peut
+legitimement NE PAS relier deux tuiles geometriquement voisines (mesure `#381-r3` : les deux
+`Bridge` de `C1_74`, 4 aretes sur 74) -- la beeline du port y couperait ou le natif ferait le
+tour. Aucun board mesure ici n'est dans ce cas.
 
 `IdunBattle.Entities.Pathfinding.IgnoreEverythingPathfinder$$WeightCost`, verbatim :
 
@@ -64,11 +78,14 @@ def find_path(board: Board, from_id, to_id, occupants=None) -> "list[int] | None
     chemin, extremites INCLUSES, ou `None` si une extremite est hors board.
 
     `occupants` = `{tile_id -> team}` (le substrat de `IsFilled`) ; `None` -> aucune tuile
-    occupee, ce qui ne change QUE le departage a longueur egale."""
+    occupee, ce qui ne change QUE le departage a longueur egale.
+
+    Le voisinage est la GEOMETRIE et non le champ `neighbours` capte -- cf. l'en-tete du module
+    (le champ est une version amputee du `ConnectivityComponent`, et la mesure native tranche)."""
     occ = occupants or {}
     return _base.find_path(
         board, from_id, to_id,
         edge=is_valid_path_node,
-        neighbours=board.neighbours_native,
+        neighbours=board.neighbours_geometric,
         weight_cost=lambda tid: weight_cost(tid in occ),
         is_valid_final_tile=lambda tid: is_valid_final_tile(board, tid))

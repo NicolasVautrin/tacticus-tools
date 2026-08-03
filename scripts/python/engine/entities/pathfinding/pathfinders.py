@@ -189,6 +189,37 @@ def find_reachable_tiles(board, pathfinder_type: int, start_id: int, depth: int,
     return _tp.iterate_reachable_tiles(visited, stop, tele)
 
 
+def find_path(board, pathfinder_type: int, from_id, to_id,
+              occupants: Optional[dict] = None) -> "list[int] | None":
+    """`IdunBattle.Entities.Pathfinding.Pathfinders$$GetPath(type, unit, from, to, useTeleporter)`
+    = `dict[type].FindPath(...)` -- le pendant CHEMIN de `find_reachable_tiles` ci-dessus, et le
+    MEME dispatch : le type SUFFIT a designer le pathfinder.
+
+    Les trois routes que ce foyer sert, et elles ne rendent PAS la meme forme :
+
+      * types DECORES 6..13 -> `ATeleportPathfinder$$FindPath` = **`[from, to]`**, sans aucun
+        pathfinding (RE-DERIVE AU RUNTIME sur `TeleportStrikePathfinder` idx 0x07) ;
+      * `Fly` (3)           -> `FlyPathfinder$$FindPath` = le chemin A* REDUIT A SES WAYPOINTS ;
+      * `Beeline` (2)       -> `BasePathfinder$$FindPath` avec les predicats triviaux.
+
+    `Walk` (0) rend `None` -- **pas parce que le natif le ferait**, mais parce que le port
+    materialise la marche par un AUTRE moteur, en domaine POSITION
+    (`walk_pathfinder.get_path_node_counts_by_pos`), FOYER PARTAGE avec la face DECISION (#304).
+    Les appelants du port ne demandent donc jamais le chemin de marche a ce foyer-ci ; celui qui
+    le ferait doit lire cette ligne plutot que d'interpreter le `None` comme la branche degeneree
+    du natif. Les types 1/4/5 ne sont atteignables par aucun `GetPathfinderTypeForUnit`."""
+    from . import beeline_pathfinder as _bl
+    from . import fly_pathfinder as _fly
+    t = int(pathfinder_type)
+    if is_teleport_type(t):
+        return _tp.find_path(board, from_id, to_id)
+    if t == int(PathfinderType.Beeline):
+        return _bl.find_path(board, from_id, to_id, occupants)
+    if t == int(PathfinderType.Fly):
+        return _fly.find_path(board, from_id, to_id)
+    return None
+
+
 def movable_positions_for_unit(board, start_id: int, depth: int, occupants: dict, moving_team,
                                traits, has_effect, can_continue=None,
                                ignore_special_movement: bool = False,

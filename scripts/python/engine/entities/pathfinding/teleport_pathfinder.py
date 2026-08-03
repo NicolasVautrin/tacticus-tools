@@ -235,3 +235,32 @@ def iterate_reachable_tiles(base_visited: Iterable[int], base_stop: Iterable[int
     visited = set(base_visited) | set(teleport_tiles)
     stop = set(base_stop) | set(teleport_tiles)
     return visited, stop
+
+
+def find_path(board, from_id, to_id) -> "list[int] | None":
+    """`IdunBattle.Entities.Pathfinding.ATeleportPathfinder$$FindPath(unit, fromTile, toTile,
+    useTeleporter)` -- l'OVERRIDE le plus radical du registre. Le decompile, en entier :
+
+        var set = new OrderedSet<TileEntity>();
+        set.Add(fromTile);
+        set.Add(toTile);
+        return set.ToList();
+
+    Il **n'y a pas de pathfinding** : les HUIT types decores (6..13) rendent litteralement les
+    deux extremites, sans jamais consulter le board. Confirme AU RUNTIME (`resolveVtableSlot`,
+    build `rnca9r7q6c`) : `TeleportStrikePathfinder` idx 0x07 (`@+0x1a8`, le slot `FindPath`)
+    pointe bien ce corps, et non `BasePathfinder$$FindPath`.
+
+    CONSEQUENCE, mesuree (#448-r1-r1-r1-r1) : pour un porteur `TeleportStrike` -- et **3 des 5
+    volants du pool en sont** (`bloodDante`, `bloodIntercessor`, `eldarAutarch`) --
+    `MovementQuery$$GetConnectedPathTo` recoit `[from, to]` et recoud le saut par une BEELINE.
+    Le compte de tuiles parcourues d'un tel porteur vaut donc la DISTANCE, quelle que soit la
+    geometrie : ni les pas de marche, ni la longueur du detour de vol.
+
+    L'`OrderedSet` DEDUPLIQUE : `from == to` rend une liste d'UN element (`Count - 1 == 0`)."""
+    if from_id is None or to_id is None:
+        return None
+    src, dst = int(from_id), int(to_id)
+    if board is not None and (src not in board.by_id or dst not in board.by_id):
+        return None
+    return [src] if src == dst else [src, dst]     # `OrderedSet` : pas de doublon
