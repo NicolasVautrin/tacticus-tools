@@ -33,17 +33,49 @@ Le pre-gate `<slot 4> || IsFriend` est le complement de
 `IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility$$IsInvalidEntityForPlaybook`
 (= `!slot4 && !IsFriend`). `slot 4` est un predicat SANS argument de l'interface
 `ITriggeredAbilityNonOwnerPlaybook`, dont le corps est TRIVIAL (fondu par l'ICF, donc sans symbole
-propre) : on ne le lit pas ici, et on ne l'INVENTE pas. Ce port ne le porte pas parce qu'il est
-TRANSPARENT pour le seul playbook enregistre : `KustomForceFieldReworkedNonOwnerPlaybook` RE-TESTE
-`IsFriend` dans son propre corps, donc un porteur non-ami rend 0 que le pre-gate l'ait ecarte ou
-non. RESIDU NOMME : le jour ou un playbook NonOwner sans auto-gate entre au registre, il faudra
-lire ce slot (bloc `methodPointers` du PE, cf. `probe_8889_methodptr_vtable.py`) avant de le porter.
+propre).
+
+**IL EST DESORMAIS LU (#433-r4-r3), et il vaut `false`** -- le residu que cette docstring nommait
+est FERME, parce que deux playbooks SANS auto-gate entrent au registre ci-dessous. Chaine de
+lecture, en trois sources qui se recoupent :
+
+  1. **Le slot est bien 4 dans l'interface, et les slots 0/1/2 sont les trois `Calculate*`.**
+     `FUN_180002590(slot, <Il2CppClass* de l'interface>, obj)` indexe
+     `klass->interfaceOffsets` (+0xb0, compte +0x12e) puis la vtable (+0x138, entrees de 0x10).
+     Le `DAT_` passe en 2e argument porte un token de metadata-usage de `kind == 1`
+     (`kIl2CppMetadataUsageTypeInfo`), donc c'est bien le TYPE de l'interface, pas un MethodInfo.
+     Les trois consommateurs nommes fixent le mapping : `<EvaluateMovementInSteps>d__0$$MoveNext`
+     invoque le slot **0** avec `(case, owner)`, `<EvaluateAttackInSteps>d__1$$MoveNext` le slot
+     **1**, `<EvaluateRepairInSteps>d__2$$MoveNext` le slot **2** -- et `IsInvalidEntityForPlaybook`
+     / `<IterateAbilities>d__3$$MoveNext` le slot **4**.
+  2. **Aucune classe concrete ne le surcharge.** Le bloc `methodPointers` du PE
+     (`probe_8889_methodptr_vtable.py`) donne, pour `KustomForceFieldReworkedNonOwnerPlaybook`,
+     `ECogSupportPlaybookNonOwnerPlaybook` et `PsychicFortressNonOwnerPlaybook`, EXACTEMENT deux
+     entrees chacune -- `.ctor` puis `CalculateMovementUtilityInSteps` -- immediatement suivies des
+     six corps de leur state machine `d__2`. Les trois heritent donc directement de
+     `TriggeredAbilityNonOwnerPlaybook<T>` (`data/symbols/<build>/frida/classes.tsv` le confirme
+     comme parent). C'est la lecture qui remplace « absent des tables donc pas d'override », que le
+     `CLAUDE.md` interdit a bon droit.
+  3. **Dans le bloc de la BASE, un seul corps rend un booleen, et il rend `false`.** Le bloc de
+     `TriggeredAbilityNonOwnerPlaybook<T>` compte 21 entrees ; 19 portent un symbole propre
+     (`.ctor`, les trois `Calculate*`, `GetUtilityValue`, `Init`, `get_LogSpamFilter`, `get_Logger`,
+     `get_Query`, `get_State`, `get_UtilitiesDatabase`, les huit `set_*`) et TOUTES rendent un objet,
+     `Fix64` ou `void`. Les deux restantes sont des corps fondus : l'un lit un champ objet (8 octets),
+     l'autre est `return 0` sur **UN** octet -- la seule signature possible pour ce predicat.
+
+Consequence portee : le pre-gate se reduit exactement a `IsFriend(case.unit ?? case.parent, owner)`,
+et il est mirrore LA OU LE NATIF LE MET -- dans le dispatcher (`utilities/tile.py::
+TriggeredAbilitiesNonOwnerUtility.evaluate`, mirror d'`IterateAbilities`), pas dans les corps de
+playbook. `KustomForceFieldReworkedNonOwnerPlaybook` garde son propre test `IsFriend` : son corps
+natif le porte VRAIMENT (redondant avec le pre-gate, mais present au decompile), et le port mirrore
+le corps, pas l'economie qu'on pourrait en faire.
 
 ASCII only dans les sorties ; les accents restent dans les docstrings non imprimees.
 """
 from __future__ import annotations
 
 from .. import battle_query as bq
+from ..entities.traits.unit_trait import UnitTrait
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.unit_faction import UnitFaction
 
@@ -123,15 +155,126 @@ class KustomForceFieldReworkedNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook)
         return v
 
 
+class ECogSupportPlaybookNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`ECogSupportPlaybookNonOwnerPlaybook`
+    (`IdunBattle.AI.Playbook.Loki.ECogSupportPlaybookNonOwnerPlaybook$$.ctor` : litteral `0x5cf` =
+    1487 `EcogSupport`, passif de `votanIronmaster` / Vynn -- HERO, HORS du pool par defaut).
+
+    `IdunBattle.AI.Playbook.Loki.ECogSupportPlaybookNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`,
+    remis en C# depuis le decompile (champs de la SM LUS DANS LA METHODE-USINE
+    `$$CalculateMovementUtilityInSteps` : case @+0x20, owner @+0x28, playbook @+0x30 -- l'ordre
+    n'est PAS celui de `PsychicFortressNonOwnerPlaybook`, qui met owner @+0x20 et case @+0x30) :
+
+        if (case.unit == null) { yield return Fix64.Zero; yield break; }
+        ITile ownerTile = EntityExtensions.GetMainTile(owner, State);
+        if (ownerTile == null) { yield return Fix64.Zero; yield break; }
+        if (!UnitExtensions.HasTrait(case.unit, 2)) yield break;                 // UnitTrait.Summon
+        if (UnitExtensions.GetParent(case.unit, State, false) != owner) yield break;
+        if (!TileExtensions.IsAdjacentTo(case.MovementTile, ownerTile)) yield break;
+        yield return GetUtilityValue("EcogSupport_EcogAdjacentToParent");        // 10
+
+    Quatre points que le decompile TRANCHE :
+
+    * **`2` est `UnitTrait`.Summon** -- enum QUALIFIE. Homonymes a ecarter : `UnitFaction` 2,
+      `EffectType` 2, `AbilityAttackType` 2 n'ont rien a voir. Le mover doit etre un SUMMON.
+    * **`GetParent` porte le 3e argument `root = false`** (litteral `0` au call-site) : c'est le
+      parent DIRECT (`ChildComponent.ParentId`), pas la racine de la chaine. Le pendant porte est
+      `ctx["unit_parent_id"]` (`utilities/tile.py`), le meme canal que la face MOVE de
+      `SaviorProtocolsPlaybook`.
+    * **Les deux sorties precoces ne sont PAS des `yield break`** : `case.unit == null` et
+      `ownerTile == null` yieldent `Fix64.Zero` (etats 1 et 2 de la SM) puis s'arretent. Sur la
+      SOMME du dispatcher c'est indistinguable d'un break -- on le note parce que la structure de la
+      SM le dit, pas parce que ca change le resultat.
+    * **Le predicat de trait porte sur `case.unit` (le MOVER), pas sur `owner`.** Le terme dit « ce
+      E-Cog aime rester colle a Vynn » : il ne se declenche donc QUE pendant le sweep de tuiles d'un
+      summon du porteur, et il vaut 0 pour toute autre unite de son equipe.
+
+    ⚠ AUCUN test `IsFriend` dans le corps -- contrairement a `KustomForceFieldReworkedNonOwnerPlaybook`.
+    C'est le pre-gate `<slot 4> || IsFriend` d'`IterateAbilities` qui l'apporte (cf. en-tete du
+    module). Ici il est de toute facon TRANSPARENT : `GetParent(case.unit) == owner` implique deja
+    que le mover est le summon du porteur, donc de son equipe."""
+
+    ABILITY_ID = int(TriggeredAbilityType.EcogSupport)                  # 0x5cf = 1487
+    KEY = "EcogSupport_EcogAdjacentToParent"                            # gameconfig vivant = 10
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        opos = (owner or {}).get("pos")
+        if not opos:                                          # GetMainTile(owner, State) == null
+            return 0.0
+        # `HasTrait(case.unit, 2)` -- `ctx["unit_traits"]` porte les IDS `UnitTrait` du MOVER
+        # (`entity_trait_ids` : kit gameconfig + traits accordes EN BATAILLE par le leaf `AddTrait`).
+        if int(UnitTrait.Summon) not in {int(t) for t in (ctx.get("unit_traits") or ())}:
+            return 0.0
+        # `GetParent(case.unit, State, root: false) != owner` -> yield break.
+        parent_uid, owner_uid = ctx.get("unit_parent_id"), (owner or {}).get("id")
+        if parent_uid is None or owner_uid is None or int(parent_uid) != int(owner_uid):
+            return 0.0
+        if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
+                                        ctx.get("elev_by_pos")):     # TileExtensions.IsAdjacentTo
+            return 0.0
+        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+
+
+class PsychicFortressNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`PsychicFortressNonOwnerPlaybook`
+    (`IdunBattle.AI.Playbook.Loki.PsychicFortressNonOwnerPlaybook$$.ctor` : litteral `1000`
+    `PsychicFortress`, passif d'`ultraTigurius` -- HERO du pool spawnable).
+
+    `IdunBattle.AI.Playbook.Loki.PsychicFortressNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`,
+    remis en C# (champs de la SM : owner @+0x20, playbook @+0x28, case @+0x30 -- lus dans la
+    methode-usine, PAS transposes de la classe voisine) :
+
+        ITile ownerTile = EntityExtensions.GetMainTile(owner, State);
+        if (ownerTile == null) yield break;
+        if (!TileExtensions.IsAdjacentTo(case.MovementTile, ownerTile)) yield break;
+        yield return GetUtilityValue("PSYCHICFORTRESS_AdjacentFriendly");        // 20
+
+    C'est le corps le plus court de la famille : **aucun** gate sur le mover -- ni `IsFriend`, ni
+    trait, ni faction, ni parent, ni `case.unit == null`. Le terme vaut donc 20 pour TOUTE tuile
+    candidate adjacente au porteur, quelle que soit l'unite qui bouge.
+
+    ⚠ Le « Friendly » du nom de la cle N'EST PAS porte par ce corps : il vient ENTIEREMENT du
+    pre-gate `<slot 4> || IsFriend` d'`IterateAbilities` (slot 4 = `false`, cf. en-tete). Le porter
+    dans le corps serait un doublon inoffensif ; ne pas le porter DU TOUT rendrait le terme actif
+    pour les ennemis du porteur -- c'est exactement pourquoi ce residu exigeait de lire le slot
+    avant d'enregistrer la classe."""
+
+    ABILITY_ID = int(TriggeredAbilityType.PsychicFortress)              # 1000
+    KEY = "PSYCHICFORTRESS_AdjacentFriendly"                            # gameconfig vivant = 20
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        opos = (owner or {}).get("pos")
+        if not opos:                                          # GetMainTile(owner, State) == null
+            return 0.0
+        if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
+                                        (ctx or {}).get("elev_by_pos")):
+            return 0.0
+        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+
+
 # `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner` : singleton par TYPE d'ability, cache
 # dict@0xa0 + factories dict@0x98. Le binaire declare 25 concrets `*NonOwnerPlaybook` ; seuls ceux
 # qu'un case a montres decisifs sont portes ici. Absence du registre == `LoadPlaybookNonOwner`
 # rend null == la paire n'est jamais yieldee : MEME degradation que le natif, pas un trou.
+# ⚠ Cet argument ne vaut QUE pour un type d'ability SANS classe native `*NonOwnerPlaybook`. Pour
+# une classe qui EXISTE, l'absence du registre est un ecart -- c'etait le residu #433-r4-r3, ferme
+# ici pour `EcogSupport` et `PsychicFortress`. Les 22 autres concrets restent non portes, et leur
+# statut est un RESIDU (nomme dans `docs/rl/case-433-r4-r3-non-owner-playbooks.md`), pas une
+# equivalence.
 NON_OWNER_MOVE_PLAYBOOKS: dict = {
     # #271 — DEMASQUE par le refresh `catalog_inject.refresh_ai_utilities` : la cle valait 0 dans la
     # table de la CAPTURE, elle vaut 10 au gameconfig VIVANT. Avant le refresh, natif et moteur
     # etaient d'accord ET faux tous les deux.
     int(TriggeredAbilityType.KustomForceFieldReworked): KustomForceFieldReworkedNonOwnerPlaybook(),
+    # #433-r4-r3 — les deux classes natives dont `CalculateMovementUtilityInSteps` appelle la
+    # primitive d'adjacence sans etre au registre. Les deux cles valent PAREIL dans la capture
+    # (`data/seed-bc.json`) et au gameconfig vivant (10 / 20), donc pas de piege #271 ici : le terme
+    # mordait deja cote NATIF pendant que le port rendait 0.
+    int(TriggeredAbilityType.EcogSupport): ECogSupportPlaybookNonOwnerPlaybook(),        # 1487
+    int(TriggeredAbilityType.PsychicFortress): PsychicFortressNonOwnerPlaybook(),        # 1000
 }
 
 
