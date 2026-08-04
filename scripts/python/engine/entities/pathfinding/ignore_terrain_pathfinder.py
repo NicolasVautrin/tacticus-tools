@@ -92,8 +92,16 @@ def get_path_node_counts(board: Board, target_id: int, occupants: dict) -> dict:
 
     VOISINAGE = la liste STOCKEE (`#381-r3`). `IgnoreTerrainPathfinder` derive de `BasePathfinder`
     (`data/symbols/<build>/frida/classes.tsv`) et n'OVERRIDE PAS `AddNeighbours` : il herite donc du
-    corps qui enumere le `ConnectivityComponent` de la tuile -- `board.neighbours_native`, et non
+    corps qui enumere le `ConnectivityComponent` de la tuile -- `board.base_add_neighbours`, et non
     `board.neighbours()`, qui depend du `adjacency=` choisi par l'appelant.
+
+    ⚠ Le canal BRUT depuis `#448-r1-r1-r1-r1-r2-r1` (avant : le champ herite `neighbours`, ampute
+    par la porte `|dElev| < 2` du capteur). Sur CETTE route le changement est un NO-OP **prouve**,
+    pas constate : les aretes que le canal ajoute sont exactement celles de `|dElev| >= 2`, et
+    `IgnoreTerrainPathfinder$$IsValidPathNode` exige `|dElev| <= 1` -- il les refuse toutes. Le
+    rebranchement ne deplace donc AUCUNE distance ; il enleve la dependance a une porte qui
+    appartient au CAPTEUR et non au natif mirrore. Repli sur le champ herite si le canal n'est pas
+    capte : meme graphe effectif, par le meme argument.
 
     MESURE (`C1_74`/3811, oracle `pathDistToEnemies`, qui appelle litteralement
     `IPathfinders.GetPath(1, unit, from, to, null)`) : sur 180 distances confrontees, la GEOMETRIE
@@ -112,7 +120,7 @@ def get_path_node_counts(board: Board, target_id: int, occupants: dict) -> dict:
         cost, nodes, cur = heapq.heappop(heap)
         if (cost, nodes) > best.get(cur, (cost, nodes)):
             continue                                  # entree perimee de la file
-        for n in board.neighbours_native(cur):     # `BasePathfinder$$AddNeighbours` (non override)
+        for n in board.base_add_neighbours(cur):   # `BasePathfinder$$AddNeighbours` (non override)
             if not is_valid_path_node(board, cur, n):
                 continue
             cand = (cost + weight_cost(n, occupants), nodes + 1)

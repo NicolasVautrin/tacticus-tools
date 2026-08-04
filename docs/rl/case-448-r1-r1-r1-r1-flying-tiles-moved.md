@@ -262,12 +262,10 @@ verts dans la passe de 101.
   mesure (§13.5)** : la géométrie est bien un sur-ensemble strict du `ConnectivityComponent`, et
   les deux divergent sur les `Bridge` — **16** arêtes dirigées sur `C1_74`, pas 4. Deux résidus
   NAISSENT de là :
-  * **`#448-r1-r1-r1-r1-r2-r1`** — le **rebranchement** de `beeline_pathfinder` /
-    `ignore_terrain_pathfinder` / `walk_maps_by_pos` sur `neighbours_connectivity` n'est **pas
-    fait**. Il est désormais *nécessaire* (sur `C1_74` la beeline géométrique coupe par un
-    `Bridge` là où le natif fait le tour) et c'est un changement de SUBSTRAT : il doit être joué
-    avec `probe_448_r1_r1_r1_r1_flying_tiles_moved.py --only FD --turns 3`, qui doit rendre
-    **0 désaccord** comme aujourd'hui sur ce corpus.
+  * **`#448-r1-r1-r1-r1-r2-r1`** — le **rebranchement** des pathfinders sur
+    `neighbours_connectivity`. **FAIT et CONFRONTÉ le 2026-08-04 : cf. §14.** Le natif tranche
+    pour le canal (5 mesures discriminantes / 5), et l'ancien substrat était un **bug de port
+    réel** — 4 tuiles parcourues au lieu de 6.
   * **`#448-r1-r1-r1-r1-r2-r2`** — `ConnectivityComponent+0x18` (la jumelle de téléport) reste
     **NON CONFRONTÉ EN VALEUR** : le champ est localisé par deux sources indépendantes, mais
     **aucun des 779 boards du pool** ne porte de tuile de téléport (critère natif : l'ability
@@ -435,7 +433,7 @@ substrat, il exige son propre re-jeu de `probe_448_r1_r1_r1_r1 --only FD`.
 parfait **sans rien prouver**. C'est la raison d'être du cran « au moins un board rend un écart
 non nul » dans le probe.
 
-**Cran 7 — pourquoi il ne pouvait pas être joué.** `InitializeConnectivityOperation$$Execute`
+**Cran 7 — pourquoi il ne pouvait pas être joué (suite en §14 pour le rebranchement).** `InitializeConnectivityOperation$$Execute`
 n'ajoute une tuile à sa liste de téléport que si
 `TriggeredAbilityComponent$$TryGetAbility(tileComp, 0x3c)` répond vrai — critère confirmé par
 `idun.Game.Board.TileView$$IsTeleportTile`, qui teste `Contains(0x3c)` sur la même liste. Une
@@ -446,3 +444,175 @@ tuile de téléport n'est donc **pas** un `TileId` de terrain : le balayage des 
 sources indépendantes** (nom déclaré au runtime, écriture directe au décompilé) ; ce qui reste
 non mesuré est une **valeur non nulle**, faute de porteur dans le pool. À rouvrir si un board à
 téléporteur entre au pool.
+
+## 14. `#448-r1-r1-r1-r1-r2-r1` — LE REBRANCHEMENT, fait et confronté (2026-08-04, session 4)
+
+Le canal transportait (§13.5). Ça ne disait **rien** de ce qu'un rebranchement change : un
+substrat plus juste est INERTE si le prédicat d'arête re-filtre déjà ce qui diffère. La question
+est donc **par route**, jamais globale.
+
+### 14.1 L'identité qui décide de tout, LUE et non supposée
+
+`TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` itère la **même liste stockée** que
+`BasePathfinder.u003CAddNeighboursu003Ed__19$$MoveNext`, puis applique `IsTemporary` /
+`IsWalkable` / `IsEmptyOrSteppable` — les trois OFF pour le capteur, qui appelle
+`GetAdjacentTiles(tile, false, false, true)` — et **une porte `|Δelev| < 2` inconditionnelle**.
+D'où, au décompilé et pas par régression :
+
+    neighbours == connectivity INTERSECTE {arêtes de |Δelev| < 2}          ⇒  N ⊆ C ⊆ G
+
+`BasePathfinder$$AddNeighbours`, lui, ne filtre **rien** : ses seuls tests sont `CheckNeighbour`
+(`voisin != tile`, `excluded`, vslot `IsValidPathNode`). Tout gate appartient au PRÉDICAT.
+
+### 14.2 La ventilation — 3 routes rebranchées, 3 non concernées, 1 site hors pathfinding
+
+| site | natif mirroré | substrat AVANT | APRÈS | ce que ça déplace |
+|---|---|---|---|---|
+| `walk_pathfinder.get_reachable_levels` | `BasePathfinder$$AddNeighbours` | `neighbours` (N) | **canal (C)** | **0** — no-op PROUVÉ |
+| `board.walk_maps_by_pos` (face DÉCISION + `_num_tiles_moved`) | idem | N | **C** | **0** — même preuve |
+| `ignore_terrain_pathfinder.get_path_node_counts` | idem | N | **C** | **0** — même preuve |
+| **`beeline_pathfinder.find_path`** | idem | **géométrie (G)** | **C** | **126 couples / 3906 sur `C1_74`** |
+| `fly_pathfinder` | `FlyPathfinder$$AddNeighbours` (OVERRIDE → `GetSurroundingTiles` r=1) | G | G | non concerné |
+| `teleport_pathfinder` (`_has_adjacent_enemy`, `_titanhammer`) | `GetAdjacentEnemies`/`GetAdjacentTiles` → `IterateAdjacentTiles` | N | N | non concerné — leur natif PORTE la porte |
+| `battle_query.are_tiles_adjacent` | `MovementUtil$$AreTilesAdjacent` → `ConnectivityComponent$$IsNeighbour` | `board.neighbours()` **(mode-dépendant)** | **C** | **0** en `native_sym`, **4** en `evenq` |
+
+**Le no-op des trois premières est PROUVÉ, pas constaté** : le canal n'y ajoute que des arêtes de
+`|Δelev| >= 2` (14.1), et leur `IsValidPathNode` exige `|Δelev| <= 1` — il les refuse toutes.
+Mesuré quand même, sur les trois boards : `0/189` couples (start, depth) pour la marche,
+`0/3663..3907` distances pour `IgnoreTerrain`.
+
+**Le 7e site n'est pas un pathfinder**, et c'est pour ça qu'il avait été manqué :
+`AreTilesAdjacent` vaut `(|Δelev| < 2) & (a == b || IsNeighbour(a, b))`, où la porte est un terme
+**séparé** (`iVar7 < 2 & bVar3`) et `IsNeighbour` = `this[+0x10].Contains(id)` = le canal brut.
+Le port lisait `board.neighbours()` — donc le `adjacency=` du MONTAGE de l'appelant, le vice exact
+que `#381-r3` avait fermé pour les pathfinders.
+
+### 14.3 Ce que ça déplace, par board
+
+| board | `C \ N` | `G \ C` | marche | `IgnoreTerrain` | **beeline** |
+|---|---|---|---|---|---|
+| `C1_74` (2 `Bridge`) | 58 | **16** | 0 / 189 | 0 / 3663 | **126 / 3906** (+1 sur 124, +2 sur 2) |
+| `MC1_67` | 18 | 0 | 0 / 189 | 0 / 3907 | 0 / 3906 |
+| `C6_25` (témoin dégénéré) | 0 | 0 | 0 / 189 | 0 / 2445 | 0 / 3906 |
+
+**Les boards ne sont pas interchangeables, et le probe le fait rougir** : joué sans `C1_74`, il
+rend `run DEGENERE : aucun board joué n'a G \ C != 0 — rien ne POUVAIT bouger`. C'est une cause
+différente de « ça ne bouge pas alors que ça devrait », et les confondre est le piège de ce sujet.
+
+**Combien de décisions d'IA basculent : ZÉRO**, et pour une raison structurelle nommée. Les deux
+seules routes que la face DÉCISION emprunte sont `ignore_terrain` (l'utilité
+`MinDistanceToClosestEnemyUtility`) et `walk_maps_by_pos` (`prediction/_shared`,
+`modified_exoarmour`) — toutes deux no-op. Le changement est **confiné à la face COMBAT**, où il
+atteint `tiles_moved_this_turn`, donc les quatre consommateurs natifs de
+`DSLFormulas$$TilesMovedThisTurn` (`ModifiedExoarmour_ExtraDmg`, `EmpyricAmbushEffect`,
+`MastersOfManoeuvre`, `SmashaEad`).
+
+### 14.4 LE NATIF TRANCHE — et l'ancien substrat était un BUG, pas une approximation
+
+`ATeleportPathfinder$$FindPath` rend `[from, to]`, donc pour un porteur `TeleportStrike`
+`GetConnectedPathTo` recoud **tout** le trajet par une beeline et `tilesMovedThisTurn` **EST** sa
+longueur en arêtes. Oracle direct du substrat. `bloodIntercessor` sur `C1_74`, seed 777 :
+
+| couple | NATIF | beeline(G) | beeline(C) | verdict |
+|---|---|---|---|---|
+| `(1,5) -> (5,5)` | **6** | 4 | 6 | CANAL |
+| `(5,5) -> (1,5)` | **6** | 4 | 6 | CANAL |
+| `(1,5) -> (6,7)` | **6** | 5 | 6 | CANAL |
+| `(6,5) -> (4,4)` | **3** | 2 | 3 | CANAL |
+| `(1,6) -> (5,5)` | **5** | 4 | 5 | CANAL |
+
+**5 discriminantes / 5 CANAL, 0 GEOMETRIE**, plus **3 témoins** (`G == C`) tous justes. Le port
+d'avant rendait donc **4 là où le natif enregistre 6** : une erreur de 50 % sur un compteur qui
+alimente du dégât, sur un board du pool.
+
+**Le pool concerné n'est pas anecdotique** : le refus de `HasEdge` est porté par le terrain
+`Bridge` (dérivé des 3 boardGraph — les 16 arêtes de `C1_74` se ventilent en 8 sortantes des deux
+`Bridge` + 8 entrantes chez leurs voisins, et aucun autre `tileDefId` n'a de masque partiel).
+**287 des 779 boards dumpés en portent au moins un** (795 `Bridge` au total ; 241 `global`,
+32 `pvp`, 14 `syncPvp`). ⚠ C'est un ESTIMATEUR : le porteur est dérivé de trois boards mesurés, et
+un `Bridge` isolé peut ne raccourcir aucun trajet utile.
+
+### 14.5 Les contre-épreuves — chacune mord sur SON gisement, et PAS ailleurs
+
+| mutant | board | mesures discriminantes | désaccords |
+|---|---|---|---|
+| `--mutate-geometric` (le port d'AVANT) | `C1_74` (`G \ C` = 16) | 3 | **3** |
+| `--mutate-geometric` | `MC1_67` (`G \ C` = 0) | 3 | **0** — hors gisement |
+| `--mutate-native` (le champ amputé) | `MC1_67` (`C \ N` = 18) | 3 | **3** |
+| `--mutate-native` | `C1_74` | 2 | **0** — hors gisement |
+
+⚠ **Le premier `--mutate-native` a été joué sur `C1_74` et est revenu VERT.** Sur une
+contre-épreuve, vert est le résultat SUSPECT — ici il ne l'était pas : sur ces couples `N` et `C`
+donnent la même longueur. La leçon est que le critère de discrimination doit se dériver du
+MUTANT : le probe le calcule désormais sur les **trois** vues (`len({lg, lc, ln}) > 1`), sans quoi
+le bras `native` était structurellement incapable de mordre sur son propre gisement.
+
+Côté OFFLINE, les trois gardes mordent aussi : la beeline sous « géométrie partout », la marche et
+`IgnoreTerrain` sous « porte d'élévation retirée » — c'est-à-dire dans le monde où le no-op serait
+faux. ⚠ La mutation « géométrie partout » laisse la marche VERTE : le test compare deux BOARDS
+(avec/sans canal), donc une mutation qui frappe les deux côtés lui est structurellement invisible.
+
+### 14.6 Deux gardes de montage payées à la mesure
+
+* **`ResetThisTurn` avec le porteur SEUL côté joueur** : son move est celui de la dernière unité
+  activable, donc le tour bascule et `+0xf0` retombe à zéro — **7 pseudo-désaccords d'affilée**,
+  tous lus `NATIF=0`. §6 le documentait déjà, mais son discriminant (« une AUTRE unité a vu son
+  compteur diminuer ») est aveugle quand personne d'autre n'a bougé. Deux figurants le ferment, et
+  un delta NUL sur un move réel est désormais rendu **NON MESURÉ**.
+* **`GetConnectedPathTo` ne recoud QUE `if (GetDistance(last, next) > 1)`.** À distance 1 la
+  beeline n'est jamais appelée : le couple ne discrimine RIEN. Sans ce filtre, `(6,5) -> (5,5)`
+  s'étiquetait « GEOMETRIE » et accusait à tort le canal — alors que le port y était juste.
+
+### 14.7 Reproduction
+
+    python probe_448r1r1r1r1r2r1_pathfinder_rebranch_live.py                      # STRUCT, 3 boards
+    python probe_448r1r1r1r1r2r1_pathfinder_rebranch_live.py --only NATIVE --turns 22
+    python probe_448r1r1r1r1r2r1_pathfinder_rebranch_live.py --only NATIVE --turns 8 --mutate-geometric
+    python probe_448r1r1r1r1r2r1_pathfinder_rebranch_live.py --only NATIVE --board MC1_67 --turns 10 --mutate-native
+    python -m pytest tests/engine/entities/pathfinding/test_448r1r1r1r1r2_connectivity_channel_offline.py
+
+### 14.8 Ce qui reste OUVERT
+
+* **`#448-r1-r1-r1-r1-r2-r2`** (téléport) — INCHANGÉ : `connectivityTeleportTiles = 0` sur les
+  trois boards, aucun des 779 dumps ne porte de tuile de téléport. Le champ est localisé, sa
+  VALEUR non nulle reste non confrontée.
+* **`#448-r1-r1-r1-r1-r1`** (départage à coût égal de `GenerateBreadthFirstTree`) — INCHANGÉ, et
+  toujours inerte : la beeline a un coût quasi uniforme (`10 + IsFilled`).
+* **NON CONFRONTÉ, nommé** : le rebranchement n'a été confronté au natif que par la route
+  `TeleportStrike` (celle où le compteur EST la longueur beeline). La route `Fly` pure passe par
+  `FlyPathfinder$$FindPath`, dont les waypoints réduisent la part de beeline — elle est couverte
+  par la non-régression (bras FD, 12/12) mais **aucune mesure `Fly` sur un board à `Bridge`** n'a
+  été jouée.
+* **NON MESURÉ** : l'effet aval sur le DÉGÂT des quatre consommateurs de `TilesMovedThisTurn`
+  (§14.3). Le compteur est corrigé ; que le dégât suive n'a pas été confronté.
+* Les **287 boards à `Bridge`** sont un estimateur du gisement, pas une mesure : seul `C1_74` a
+  été confronté au natif.
+
+### 14.9 Ce qui resservira — changer un SUBSTRAT partagé
+
+Quatre points de méthode, tous payés par une mesure de cette tranche :
+
+1. **Le no-op se DÉDUIT du prédicat, il ne se constate pas.** Chaque consommateur d'un substrat
+   applique son propre filtre APRÈS lui. Si ce filtre refuse exactement ce que le nouveau substrat
+   ajoute, le rebranchement est inerte *sur tout board* — pas seulement sur ceux qu'on mesure.
+   Classer les consommateurs par la FORCE de leur prédicat avant de mesurer quoi que ce soit :
+   ici, celui qui MORD est le seul dont le prédicat est le corps trivial `return true`.
+2. **Chercher les consommateurs par le NOM NATIF, jamais par le nom du module.** Le 7e site
+   (`are_tiles_adjacent`) n'est pas un pathfinder ; il lit le même substrat par
+   `ConnectivityComponent$$IsNeighbour`. Un grep sur `neighbours` l'aurait manqué — il appelait
+   `board.neighbours()`, l'accesseur mode-dépendant.
+3. **Le critère de discrimination se dérive du MUTANT, et son ORDRE compte.** Deux mutants d'un
+   substrat à N vues ont des gisements DISJOINTS (`G \ C` vit sur `C1_74`, `C \ N` sur `MC1_67`) :
+   discriminer sur `len({v1..vN}) > 1`, pas sur le couple qui intéresse la thèse. Et trier les
+   candidats par le seul écart maximal noie le cas utile dès qu'un autre écart est plus gros —
+   mesuré, 22 tours sur `C1_74` sans un seul verdict tranchant.
+4. **Chercher le porteur dont la chaîne native DÉGÉNÈRE.** `ATeleportPathfinder$$FindPath` rend
+   `[from, to]`, donc pour lui `tilesMovedThisTurn` **EST** la longueur beeline : le substrat
+   devient lisible tel quel, sans étage intermédiaire. C'est ce porteur-là le cas discriminant,
+   pas le porteur « normal ».
+
+Et une garde : **une garde de PÉRIMÈTRE (« X n'est pas encore fait ») meurt avec la tâche, et
+souvent elle ne gardait déjà rien** — celle de `-r2` observait la MARCHE, sur qui le rebranchement
+est un no-op, donc elle serait restée verte après. La remplacer par une garde des DEUX faces, et
+vérifier que chaque cran mord sous SON mutant. ⚠ Un test qui compare deux MONTAGES est
+structurellement aveugle à une mutation qui frappe les deux côtés.
