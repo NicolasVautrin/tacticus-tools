@@ -384,10 +384,22 @@ def custom_range_func() -> TargetingRange:
 @dataclass(frozen=True)
 class Range:
     """`IdunBattle.Core.Services.TargetingQuery.Range` — la valeur de retour de
-    `TargetingQuery$$GetRange`, 8 octets : `{ int Value @+0x00 ; bool OnlyAdjacent @+0x04 }`.
-    (Le filtre statique lit le champ `@+0x04` pour choisir entre `AreEntitiesAdjacent` et la
-    comparaison de distance — c'est ce qui fixe l'ordre des deux champs. LU aux octets :
-    `GetInvalidTargetReason` teste `range._4_1_` puis, dans l'autre branche seulement, `(int)range`.)
+    `TargetingQuery$$GetRange`, 8 octets :
+
+        +0x00  int  Value
+        +0x04  bool OnlyAdjacent
+        +0x05  bool UseWholeBoard          <- NON modelise ici, cf. plus bas
+
+    Le filtre statique lit le champ `@+0x04` pour choisir entre `AreEntitiesAdjacent` et la
+    comparaison de distance — c'est ce qui fixe l'ordre des deux premiers. LU aux octets :
+    `GetInvalidTargetReason` teste `range._4_1_` puis, dans l'autre branche seulement, `(int)range`.
+
+    Le TROISIEME champ est etabli par `TargetingQuery$$GetTilesInRange`, qui teste les trois
+    separement (`(int)range < 0`, `range._5_1_`, `range._4_1_`), et recoupe par le litteral
+    `0x10000000001` que `GetRange` rend sous `UseWholeBoard` (= `{1, false, true}`). Le port ne le
+    modelise PAS : `get_range` court-circuite `use_whole_board` en amont, et le seul consommateur
+    porte (`GetInvalidTargetReason`) gate sur `options.Range.UseWholeBoard`, pas sur ce champ.
+    Residu `#419-r1-tr14-r5-r2-r1-r2-r1-r1-r1`.
 
     **`value = None` = la portee NUMERIQUE n'est pas observable, `only_adjacent` l'est quand meme**
     (#419-r1-tr14-r5-r2-r1-r2-r1-r1). Les deux champs sont INDEPENDANTS dans le natif : `onlyAdjacent`
