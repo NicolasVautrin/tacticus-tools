@@ -181,22 +181,29 @@ function getConnectivityLayout(): ConnectivityLayout | null {
  *  résolue) — à ne PAS confondre avec `[]`, qui est une liste réellement vide. Les confondre est
  *  exactement la faute que `#381-r3` a déjà payée sur le champ `neighbours`. */
 function readConnectivity(entityPtr: NativePointer):
-{ neighbours: number[]; teleportTwinTileId: number } | null {
+{ neighbours: number[]; teleportTwinTileId: number; rawSize: number } | null {
     const lay = getConnectivityLayout();
     if (!lay || !connectivityComponentClass) return null;
-    let out: { neighbours: number[]; teleportTwinTileId: number } | null = null;
+    let out: { neighbours: number[]; teleportTwinTileId: number; rawSize: number } | null = null;
     forEachComponent(entityPtr, (comp, klass) => {
         if (out !== null) return;
         if (!klass.equals(connectivityComponentClass)) return;
         const neighbours: number[] = [];
         let teleportTwinTileId = 0;
+        // `rawSize` = le `_size` NATIF, publié même quand on refuse de le déréférencer. Sans lui,
+        // une taille aberrante (offset faux, mémoire recyclée) rendrait `[]` — c'est-à-dire
+        // « composant présent, aucune arête », qui se lit comme une MESURE. Le compteur
+        // `connectivityOversize` la fait remonter au niveau réponse.
+        let rawSize = -1;
         try {
             const list = comp.add(lay.listOffset).readPointer();
             if (!list.isNull()) {
                 const items = list.add(LIST_ITEMS).readPointer();
-                const size = list.add(LIST_SIZE).readS32();
-                if (!items.isNull() && size > 0 && size <= 64) {
-                    for (let i = 0; i < size; i++) {
+                rawSize = list.add(LIST_SIZE).readS32();
+                // Borne : une tuile hex a 6 voisins ; 64 laisse toute la marge d'un board
+                // exotique tout en refusant une taille manifestement fausse.
+                if (!items.isNull() && rawSize > 0 && rawSize <= 64) {
+                    for (let i = 0; i < rawSize; i++) {
                         neighbours.push(items.add(ARRAY_FIRST + i * 4).readS32());
                     }
                 }
@@ -204,7 +211,7 @@ function readConnectivity(entityPtr: NativePointer):
         } catch { /* liste illisible -> [] ; le composant EXISTE, on ne rend pas null */ }
         try { teleportTwinTileId = comp.add(lay.teleportOffset).readS32(); }
         catch { /* laisse 0 */ }
-        out = { neighbours, teleportTwinTileId };
+        out = { neighbours, teleportTwinTileId, rawSize };
     });
     return out;
 }
@@ -594,6 +601,7 @@ export function registerViewBoard(ctx: Ctx): void {
         // #448-r1-r1-r1-r1-r2 — compteurs du canal BRUT, pour que son absence se DISE au lieu de
         // se lire comme « le natif n'a aucune arête » : `connMissing` = tuiles sans composant.
         let connFound = 0; let connMissing = 0; let connEdges = 0; let connTeleports = 0;
+        let connOversize = 0;
         const tiles = projTiles.map((t) => {
             const e = ptrById.get(t.id);
             const neighbours: number[] = [];
@@ -610,6 +618,9 @@ export function registerViewBoard(ctx: Ctx): void {
                     connFound++;
                     connEdges += conn.neighbours.length;
                     if (conn.teleportTwinTileId !== 0) connTeleports++;
+                    // `_size` natif hors bornes = liste NON déréférencée : `connectivity` vaut
+                    // `[]` sans être une mesure. On le COMPTE plutôt que de le taire.
+                    if (conn.rawSize > 64 || conn.rawSize < 0) connOversize++;
                 } else { connMissing++; }
             }
             if (e && !e.isNull()) {
@@ -718,6 +729,9 @@ export function registerViewBoard(ctx: Ctx): void {
             connectivityLayout: getConnectivityLayout(),
             connectivityTiles: connFound, connectivityMissing: connMissing,
             connectivityEdges: connEdges, connectivityTeleportTiles: connTeleports,
+            // > 0 ⇒ des `_size` hors bornes : les `connectivity: []` de ces tuiles ne sont PAS
+            // des mesures. Non nul ⇒ relire `connectivityLayout` avant toute exploitation.
+            connectivityOversize: connOversize,
             neighbourEdges: tiles.reduce((n, t) => n + t.neighbours.length, 0),
         };
     });

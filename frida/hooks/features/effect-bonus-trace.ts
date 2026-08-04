@@ -348,12 +348,22 @@ function installFaceHooks(): boolean {
             if (!mi || mi.ptr.isNull()) continue;
             Interceptor.attach(mi.ptr, {
                 onEnter() {
+                    // ⚠ Le depilage se conditionne a CE QU'ON A EMPILE, jamais a `trace.on`.
+                    // `trace.on` peut basculer ENTRE l'entree et la sortie (budget epuise) : un
+                    // `onLeave` gate sur lui sauterait le depilage, la pile fuirait, et
+                    // `curFace` resterait colle — les evenements du `On` SUIVANT porteraient une
+                    // face FAUSSE. Une face fausse est pire qu'une face absente : elle se lit
+                    // comme une mesure.
+                    const self = this as { _pushed?: boolean };
+                    self._pushed = false;
                     if (!trace.on) return;
                     faceStack.push(face);
                     curFace = face;
+                    self._pushed = true;
                 },
                 onLeave() {
-                    if (!trace.on) return;
+                    const self = this as { _pushed?: boolean };
+                    if (!self._pushed) return;
                     // Depile SA face — pas la derniere : sur un chemin imbrique, un `onLeave`
                     // qui viderait la pile effacerait la face de l'appel englobant.
                     const i = faceStack.lastIndexOf(face);
@@ -449,14 +459,31 @@ function installAddHooks(): boolean {
                         flatMinus: (b && !b.isNull()) ? readNullableInt(b.add(DB_FLAT_MINUS)) : null,
                         pct: (b && !b.isNull()) ? readNullableInt(b.add(DB_PCT)) : null,
                         cap: (b && !b.isNull()) ? readNullableInt(b.add(DB_CAP)) : null,
-                        // La surcharge 1-argument recoit un `Fix64` NU (pas un Nullable) : le
-                        // meme champ le porte, et `modifierHasValue` n'a alors aucun sens — on
-                        // le publie quand meme brut plutot que de fabriquer un `true`.
-                        modifierHex: (m && !m.isNull()) ? readHex(m, 16) : null,
-                        modifierValue: (m && !m.isNull()) ? readFix64(m) : NaN,
+                        // ⚠ LES DEUX SURCHARGES NE PASSENT PAS LE MODIFIER DE LA MEME FACON, et
+                        // les confondre lirait de la memoire arbitraire :
+                        //   * surcharge 2 : `Nullable<Fix64>` = 16 octets > 8, donc passe PAR
+                        //     REFERENCE — le decompile le confirme (`get_HasValue(modifier)`
+                        //     deref l'argument). `m` est un POINTEUR.
+                        //   * surcharge 1 : `Fix64` = 8 octets, passe PAR VALEUR en registre
+                        //     (`op_Multiply(this[0x30], modifier)`). `m` EST la valeur brute ;
+                        //     la deferencer serait une lecture a une adresse fabriquee.
+                        // `modifierHasValue` n'a de sens que pour la surcharge 2 ; pour la 1 on
+                        // rend -1 (« sans objet »), jamais un `true` fabrique.
+                        modifierHex: (n === 2 && m && !m.isNull()) ? readHex(m, 16) : null,
+                        modifierValue: (() => {
+                            try {
+                                if (!m) return NaN;
+                                if (n === 2) return m.isNull() ? NaN : readFix64(m);
+                                let raw = BigInt(m.toString());       // valeur Fix64 NUE
+                                if (raw >= (1n << 63n)) raw -= (1n << 64n);
+                                return Number(raw) / 4294967296;
+                            } catch { return NaN; }
+                        })(),
                         modifierHasValue: (() => {
-                            try { return (m && !m.isNull()) ? m.add(8).readU8() : -1; }
-                            catch { return -1; }
+                            try {
+                                if (n !== 2) return -1;               // sans objet (Fix64 nu)
+                                return (m && !m.isNull()) ? m.add(8).readU8() : -1;
+                            } catch { return -1; }
                         })(),
                         addBefore: before.add, addAfter: after.add,
                         multBefore: before.mult, multAfter: after.mult,
@@ -500,6 +527,11 @@ export function register(ctx: Ctx): void {
         trace.budget = (typeof body?.budget === "number" && body.budget > 0)
             ? (body.budget | 0) : DEFAULT_BUDGET;
         trace.spent = 0;
+        // Repart d'une pile de faces VIDE. Un `Off` (ou une extinction par budget) survenu au
+        // milieu d'une fenetre native laisse au pire une entree orpheline ; l'heriter ferait
+        // porter a la capture suivante une face qui n'est pas la sienne.
+        faceStack.length = 0;
+        curFace = null;
         trace.on = true;
         return { ok: true, armed, hooks: r, budget: trace.budget };
     };
