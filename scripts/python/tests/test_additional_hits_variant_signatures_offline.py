@@ -141,7 +141,10 @@ class _Rng:
 
 
 class _Thc:
+    """`HealthComponent` minimal. `minimal_health` (le `Nullable<int>` @`FillUpStatComponent+0x1c`)
+    en fait partie : `execute_additional_hits` le threade en `hp_floor` depuis #462-r4e-o."""
     hp = 1000
+    minimal_health = None
 
 
 def _run_one(impl, hit_interceptor, failed_block0=None):
