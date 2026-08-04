@@ -51,12 +51,17 @@ Le rebranchement ne touche que la beeline, et la beeline n'est appelée que par
 `GetConnectedPathTo`. Un chemin de `BasePathfinder$$FindPath` a tous ses nœuds adjacents : pour un
 MARCHEUR la densification est un no-op et le substrat n'entre jamais en jeu.
 
-| régime (`GetPathfinderTypeForUnit`) | couples dont `n` change, `C1_74` | seuil qui bascule |
-|---|---|---|
-| `Walk` (0) | **0 / 3906** | aucun |
-| `Fly` (3) | **106 / 3906** (`+1` : 104, `+2` : 2) | `EmpyricAmbush` (K=4) : 22 |
-| `TeleportStrike(Walk)` (6) | 110 / 3906 | `EmpyricAmbush` : 24 |
-| `TeleportStrike(+Fly)` (7) | 110 / 3906 | `EmpyricAmbush` : 24 |
+| régime (`GetPathfinderTypeForUnit`) | `C1_74` (2 `Bridge`) | `C3_14` (15 `Bridge`) | seuil qui bascule |
+|---|---|---|---|
+| `Walk` (0) | **0 / 3906** | **0 / 3906** | aucun |
+| `Fly` (3) | **106 / 3906** (`+1` : 104, `+2` : 2) | **943 / 3906** (`+1` : 423 … `+6` : 1) | `EmpyricAmbush` (K=4) : 22 / 262 |
+| `TeleportStrike(Walk)` (6) | 110 / 3906 | 1992 / 3906 | `EmpyricAmbush` : 24 / 498 |
+| `TeleportStrike(+Fly)` (7) | 110 / 3906 | 1992 / 3906 | `EmpyricAmbush` : 24 / 498 |
+
+**Le second board n'est pas une redite : il change l'ORDRE DE GRANDEUR sans changer aucune des
+trois conclusions.** `C3_14` porte 15 ponts contre 2, et l'écart `n_C - n_G` y monte jusqu'à `+6`.
+Le `Walk` y reste à **0**, et seul `EmpyricAmbush` y bascule — donc l'inertie de la marche et la
+saturation des seuils `<= 2` ne tiennent pas à la maigreur du gisement de `C1_74`.
 
 ## 4. Verdict par consommateur
 
@@ -146,6 +151,19 @@ d'ailleurs à `[from, to]` (§3 de `case-448-r1-r1-r1-r1`) — exactement le ré
 ⇒ le rebranchement était **nécessaire pour la route `Fly` aussi**, et le port livré est juste. Avant
 #589 un volant pur enregistrait 4 là où le natif en compte 6 : le **même écart de 50 %**.
 
+**GÉNÉRALISÉ sur un SECOND board à `Bridge`** — `C3_14`, même porteur, 8 mesures, **accord CANAL
+8/8, accord GÉOMÉTRIE 5/8** :
+
+| trajet | NATIF | port `G` | port `C` |
+|---|---|---|---|
+| `(1,2) -> (5,3)` | **6** | 4 | 6 |
+| `(5,3) -> (3,3)` | **4** | 2 | 4 |
+| `(2,2) -> (4,2)` | **6** | **2** | 6 |
+
+Le dernier couple porte un écart de **4 tuiles** — un facteur **3**, pas 1,5. La géométrie y coupe
+par trois ponts d'affilée. C'est le rappel que « 287 boards à `Bridge` » ne dit rien de
+l'AMPLITUDE : `C1_74` en est le cas le plus PAUVRE, pas le cas typique.
+
 ⚠ **C'est le montage qui a failli faire conclure l'inverse.** Un premier run a rendu « 5 mesures,
 0 désaccord, accord CANAL == accord GÉOMÉTRIE » : le critère de discrimination était
 `len({n_G, n_C, n_N}) > 1`, or sur `C1_74` les couples où seul `N` diffère sont bien plus nombreux
@@ -187,7 +205,10 @@ substrats partagent. L'ancre utile est un voisin **géométrique et non connexe*
 
     python probe_589r1_tiles_moved_consumers_live.py --only INV
     python probe_589r1_tiles_moved_consumers_live.py --only SCAN --board C1_74
+    python probe_589r1_tiles_moved_consumers_live.py --only SCAN --board C3_14
     python probe_589r1_tiles_moved_consumers_live.py --only TILES --unit blackHaarken --turns 24
+    python probe_589r1_tiles_moved_consumers_live.py --only TILES --unit blackHaarken \
+        --board C3_14 --turns 20
     python probe_589r1_tiles_moved_consumers_live.py --only TILES --unit votanChampion --inject \
         --fillers necroWarden --turns 16
     python probe_589r1_tiles_moved_consumers_live.py --only EXO --turns 34
@@ -207,8 +228,11 @@ substrats partagent. L'ancre utile est un voisin **géométrique et non connexe*
 * **L'aval est mesuré sur le PREVIEW** (`aiPredict` → `GetAllPredictions`), pas sur le dégât
   INFLIGÉ. Le pont preview ↔ combat est porté et gardé ailleurs (#322 magnitude, #335 face combat) ;
   il n'a **pas** été rejoué ici.
-* **Le gisement « 287 boards à `Bridge` » reste un ESTIMATEUR** (hérité de #589) : seul `C1_74` a
-  été confronté au natif, ici comme là-bas.
+* **Le gisement « 287 boards à `Bridge` » reste un ESTIMATEUR** (hérité de #589), mais il n'est
+  plus adossé à un seul board : `C1_74` et `C3_14` ont été confrontés au natif (17 mesures, 8
+  discriminantes, **17/17 CANAL**). Les 285 autres restent non confrontés, et le contraste entre
+  les deux mesurés (106 vs 943 couples en `Fly`) dit que l'amplitude, elle, n'est pas estimable
+  depuis un board.
 * **La greffe ne transporte pas** les stats, traits et armes de `votanChampion` : les pentes
   chiffrées valent pour `blackHaarken` greffé.
 * **`ModifiedExoarmour_ExtraDmgEffect$$GetExtraDamageMultiplier`** (call-site 2) : sa forme est lue
