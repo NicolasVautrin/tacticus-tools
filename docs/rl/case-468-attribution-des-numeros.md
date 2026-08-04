@@ -342,6 +342,24 @@ hors de portée par construction (#434).
 identifiants, dont la racine **476** — précisément ce que `docs/rl` seul donnait pour libre.
 C'était la lecture à accélérer, pas la source à retirer.
 
+### 9.1 Pourquoi PAS un fichier de registre
+
+L'autre forme possible était un fichier d'allocation versionné. **Écartée**, et pas sur une
+préférence :
+
+* **Il se paierait à chaque merge.** `scripts/ratchets-462-live-attestations.json` est le
+  précédent mesuré — point de conflit connu et documenté (`#462-r2`). Un registre que *toute* PR
+  ouvrant un résidu devrait toucher serait pire : la fréquence est plus haute.
+* **Il serait redondant.** L'information existe déjà, complète, dans l'arbre — c'est ce que §8
+  établit : **0 orphelin**, tout numéro employé est trouvable. Un registre n'ajouterait aucune
+  donnée, seulement une **seconde source à tenir synchronisée**, donc une occasion de divergence.
+* **Il ne peut pas être plus frais que l'arbre.** Un fichier ne connaît que ce qu'on y a écrit ;
+  `--suggere` voit aussi ce que personne n'a déclaré — les mentions en prose et les messages de
+  commit, d'où viennent 13 racines qui n'existent nulle part ailleurs.
+
+⇒ **Le registre est DÉRIVÉ, pas tenu.** Ce qui reste hors de sa portée est nommé : un numéro pris
+par une PR **en vol** (non fusionnée) — d'où la monotonie, qui ne recycle jamais un trou.
+
 ⚠ **Sous flotte chargée, `git grep` passe de 0,6 s à 20-40 s** (3 mesures dans chaque régime, à
 10 worktrees actifs) : de la **contention git** pure — `.git/` est partagé — et non un effet de
 `--untracked`, sans lequel c'est même plus lent. `--suggere` n'est pas dans la banque et le chemin
