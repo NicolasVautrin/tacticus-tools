@@ -10,9 +10,19 @@ flags de `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles` (tuiles LI
 (bug #148 : graphe amputé). Le board est capté une seule fois par bataille (statique).
 
 Trois modes d'adjacence, pour les consommateurs qui n'ont qu'UNE vue (`neighbours()`) :
-  - 'native'     : voisins natifs dirigés tels quels (peuvent être asymétriques —
-                   ~18 arêtes one-way observées, quirks de capture aux bords).
-  - 'native_sym' : union des deux sens (corrige l'asymétrie). DÉFAUT.
+  - 'native'     : voisins natifs dirigés tels quels.
+                   ⚠ « ~18 arêtes one-way, quirks de capture aux bords » : REFUTE, mesuré le
+                   2026-08-04 sur 4 boards (`C1_74`, `C3_14`, `MC1_67`, `C6_25`) —
+                   **0 arête one-way** dans les trois vues (`neighbours`, `connectivity`,
+                   géométrie). Le critère natif est symétrique par CONSTRUCTION :
+                   `IdunBattle.Operations.InitializeConnectivityOperation$$Execute` exige
+                   `TileComponent$$HasEdge(e)` chez la tuile ET `HasEdge((e+3) % 6)` chez le
+                   voisin, et `AddTileOperation$$RotateTileEdges` fixe le modulo à 6 (donc
+                   `opp` est involutive) ; la porte `|dElev| < 2` du capteur est symétrique
+                   aussi. L'observation datait des flags `(true,true,true)` d'AVANT #148, dont
+                   `onlyEmptyOrSteppable` teste la tuile VOISINE seule — celui-là, oui, était
+                   asymétrique. Détail : `docs/rl/case-433r4r1r4r2-substrat-is-adjacent.md`.
+  - 'native_sym' : union des deux sens. DÉFAUT (no-op sur un graphe déjà symétrique).
   - 'evenq'      : géométrie hex even-q (parité par COLONNE) recalculée depuis
                    (col,row). Convention VÉRIFIÉE sur les tuiles natives à 6
                    voisins (gqfc5mff6c) :

@@ -125,6 +125,10 @@ $Ratchets = @(
        Seul = 'une classe d effet dont le port range la contribution de degat dans l ACCUMULATEUR (attackModifiers / defenseModifiers) que le natif ne lui donne pas -- la face est le SLOT VIRTUEL de sortie, jamais le porteur, et elle vaut +/-1 par borne des que les deux faces sont non neutres'
        Doc  = 'docs/rl/case-437-r1-r1-r1-face-native-des-effets.md' }
 
+    @{ Id = 'probe_433r4r1r4r2'; Argv = @('probe_433r4r1r4r2_neigh_channel_wired.py')
+       Seul = 'un call-site d adjacence branche A MOITIE : il passe la PORTE d elevation (elev_by_pos) mais pas l ENUMERATION (neigh_by_pos), alors que TileQuery$$IterateAdjacentTiles porte les DEUX etages. Meme signature de degradation que TARGETING_OPTIONS -- ni erreur ni crash, juste un predicat PLUS PERMISSIF que le natif (mesure : 4 aretes dirigees sur C1_74, 38 sur C3_14, 0 restrictive), donc exploitable par un entrainement. probe_181 garde le REGISTRE des abilities, celui-ci garde les APPELS d une primitive ; aucun autre ne lit l arite d un call-site de battle_query'
+       Doc  = 'docs/rl/case-433r4r1r4r2-substrat-is-adjacent.md' }
+
     @{ Id = 'probe_120'; Argv = @('probe_120_pre_unit_ability_fork.py')
        Seul = 'etape 0 : une ability au registre SANS son litteral ABILITY_ATTACK_TYPE ; puis le de-fork du vecteur On(PreUnitAbility) sur la voie CAST'
        Doc  = 'CLAUDE.md -- Meme regle pour ABILITY_ATTACK_TYPE' }
