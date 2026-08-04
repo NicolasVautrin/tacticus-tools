@@ -310,9 +310,9 @@ $Ratchets = @(
     # panne, il se TAIT -- et un slot d'agent vide qu'on ne signale plus se lit exactement comme
     # un depot au repos. 100 % offline : la facade `Sources` est SUBSTITUEE (aucun git, aucun gh,
     # aucun host), sans quoi garder le tri-etat exigerait d'eteindre le host.
-    @{ Id = 'probe_465'; Argv = @('probe_465_loop_status_fidelity.py')
+    @{ Id = 'probe_467'; Argv = @('probe_467_loop_status_fidelity.py')
        Seul = 'la degradation SILENCIEUSE de l etat de boucle, sur ses trois axes. (a) UN ZERO A LA PLACE D UN << PAS MESURE >> -- host eteint ou gh hors ligne, si liveRunners retombe a 0 au lieu de rester null, l orchestrateur lance 4 tests sur un budget partage inconnu (faute deja commise : 2 fichiers rendus en timed out) ; meme forme pour << 0 PR ouverte >> quand gh n a pas repondu. (b) LE RACCOURCI DE FLOTTE QUI DERIVE -- le decompte des agents en vol passe par le pre-filtre only_alive de fleet_board (54,8 s -> 0,2 s sur 870 transcripts, 1,23 Go) : s il cesse d etre EXACT, le compteur de slots ment, et c est le chiffre pour lequel l outil existe. (c) LE DECLENCHEUR QUI SE TAIT OU QUI HURLE -- un hook Stop muet est un garde-fou mort, un hook qui parle a chaque tour d un depot au repos se fait desarmer en une journee ; les deux directions sont gardees. Il voit aussi le verdict de banque ILLISIBLE rabattu sur un vert -- gisement MESURE le 2026-08-04 : les 3 verdicts presents dans logs/ratchets-bg n avaient AUCUNE ligne rc (precedence PowerShell dans ratchets-bg.ps1), et tout lecteur automatique rendait donc << rc inconnu >> sur un fichier d apparence normale. Contre-epreuve : 6 mutations injectees en memoire, 6 rouges'
-       Doc  = 'docs/rl/case-465-etat-de-boucle.md' }
+       Doc  = 'docs/rl/case-467-etat-de-boucle.md' }
 
     # Le cliquet de la BANQUE elle-meme. Il est dans la banque, donc soumis a son propre critere.
     @{ Id = 'probe_439'; Argv = @('probe_439_cliquet_peut_rougir.py')

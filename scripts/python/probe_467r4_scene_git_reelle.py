@@ -1,11 +1,11 @@
-"""Probe #465-r4 -- `loop_status` contre du git REEL, sur la scene du 2026-08-04.
+"""Probe #467-r4 -- `loop_status` contre du git REEL, sur la scene du 2026-08-04.
 
 POURQUOI IL EXISTE, ET POURQUOI IL N'EST PAS DANS LA BANQUE
 -----------------------------------------------------------
-`probe_465` (celui de la banque) SUBSTITUE la facade `Sources` : il garde le COMPORTEMENT de
+`probe_467` (celui de la banque) SUBSTITUE la facade `Sources` : il garde le COMPORTEMENT de
 `loop_status` -- le tri-etat, le silence, les signaux -- mais pas le CONTRAT des commandes qu'il
 lit. Si `git status --porcelain=v2` changeait de format, ou `worktree list --porcelain` de
-disposition, il resterait VERT. C'est le residu `#465-r4`, et ce script est ce qui le couvre.
+disposition, il resterait VERT. C'est le residu `#467-r4`, et ce script est ce qui le couvre.
 
 Il n'entre pas dans la banque parce qu'il CONSTRUIT un depot git (clone, branches, worktrees,
 merges) : quelques dizaines de secondes, et un cout qui depend de la machine. La banque est un
@@ -65,8 +65,8 @@ def monter(tmp: Path) -> Path:
     distant, local = tmp / "distant.git", tmp / "local"
     git(tmp, "init", "--bare", "-q", str(distant))
     git(tmp, "clone", "-q", str(distant), str(local))
-    git(local, "config", "user.email", "probe@465")
-    git(local, "config", "user.name", "probe465")
+    git(local, "config", "user.email", "probe@467")
+    git(local, "config", "user.name", "probe467")
     (local / "a.txt").write_text("1\n", encoding="utf-8")
     # Comme le vrai depot : worktrees d'agents et `logs/` GITIGNORES. Sans ca, `git add -A`
     # enregistre chaque worktree lie comme un GITLINK, qui reapparait en « suivi modifie » des
@@ -108,8 +108,8 @@ def monter(tmp: Path) -> Path:
 
 
 def main() -> int:
-    print("probe_465-r4 -- loop_status contre du git REEL (hors banque : monte un depot)")
-    tmp = Path(tempfile.mkdtemp(prefix="probe465r4-"))   # tmpdir SYSTEME (#455)
+    print("probe_467-r4 -- loop_status contre du git REEL (hors banque : monte un depot)")
+    tmp = Path(tempfile.mkdtemp(prefix="probe467r4-"))   # tmpdir SYSTEME (#455)
     try:
         local = monter(tmp)
         src = SourcesSansFlotte(repo=local, avec_gh=False, avec_host=False, ttl_cache=0)

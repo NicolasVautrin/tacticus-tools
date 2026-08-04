@@ -348,7 +348,7 @@ git add scripts/ratchets-462-live-attestations.json
 - Détail des arbitrages, contre-épreuves et résidus : `docs/rl/case-430-banque-de-cliquets.md`,
   `docs/rl/case-439-cliquet-peut-rougir.md`.
 
-### L'état de la BOUCLE — `loop_status.py`, déclenché tout seul (#465)
+### L'état de la BOUCLE — `loop_status.py`, déclenché tout seul (#467)
 
 ```powershell
 python scripts/python/loop_status.py          # flotte / livraison / harnais / banque
@@ -369,8 +369,8 @@ verdict `ratchets-bg` non lu.
   jamais rendu comme un zéro (même règle que `host_inputs.py`). Un `liveRunners` rabattu sur 0
   fait lancer 4 tests sur un budget inconnu — faute déjà commise.
 - ⚠ **Le chiffre du plafond (5) est le SEUL qui ne soit pas une mesure** : c'est un paramètre
-  d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#465-r1`.
-- Le cliquet qui garde SA fidélité est dans la banque. Détail : `docs/rl/case-465-etat-de-boucle.md`.
+  d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#467-r1`.
+- Le cliquet qui garde SA fidélité est dans la banque. Détail : `docs/rl/case-467-etat-de-boucle.md`.
 
 ## Ne jamais
 

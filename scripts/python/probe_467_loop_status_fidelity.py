@@ -1,4 +1,4 @@
-"""Probe #465 -- la FIDELITE de `loop_status`. Un etat de boucle dont le verdict derive ne vaut rien.
+"""Probe #467 -- la FIDELITE de `loop_status`. Un etat de boucle dont le verdict derive ne vaut rien.
 
 LE GISEMENT
 -----------
@@ -204,7 +204,7 @@ def etape_1_tri_etat() -> None:
 # =====================================================================================
 def etape_2_raccourci_flotte() -> None:
     print("\n[2] fleet_board.collect(only_alive) == les << vif >> du balayage COMPLET")
-    tmp = Path(tempfile.mkdtemp(prefix="probe465-"))          # tmpdir SYSTEME (#455)
+    tmp = Path(tempfile.mkdtemp(prefix="probe467-"))          # tmpdir SYSTEME (#455)
     try:
         racine = tmp / "projets"
         sub = racine / "sessionA" / "subagents"
@@ -273,7 +273,7 @@ def etape_2_raccourci_flotte() -> None:
 # =====================================================================================
 def etape_3_silence() -> None:
     print("\n[3] SILENCE : depot au repos, chaine deja relancee, autre projet")
-    tmp = Path(tempfile.mkdtemp(prefix="probe465-"))
+    tmp = Path(tempfile.mkdtemp(prefix="probe467-"))
     try:
         _verdict(tmp, "aaaaaaaa-1.txt", sha="a" * 40, rc=0, etat="VERTE")
         repos = FauxSources(
@@ -330,7 +330,7 @@ def etape_3_silence() -> None:
 # =====================================================================================
 def etape_4_parole() -> None:
     print("\n[4] PAROLE : chaque gisement produit SON signal")
-    tmp = Path(tempfile.mkdtemp(prefix="probe465-"))
+    tmp = Path(tempfile.mkdtemp(prefix="probe467-"))
     try:
         base_http = {"/api/admin/status": {"session": {"id": 1, "status": "running", "pid": 9},
                                            "tacticus": {"running": True}},
@@ -390,7 +390,7 @@ def etape_4_parole() -> None:
 # =====================================================================================
 def etape_5_verdict() -> None:
     print("\n[5] VERDICT de banque : en-tete normal ET en-tete cassee (gisement mesure)")
-    tmp = Path(tempfile.mkdtemp(prefix="probe465-"))
+    tmp = Path(tempfile.mkdtemp(prefix="probe467-"))
     try:
         p = _verdict(tmp, "cccccccc-1.txt", sha="c" * 40, rc=0, etat="VERTE")
         sha, rc, etiq = LS._lire_verdict(p)
@@ -402,6 +402,13 @@ def etape_5_verdict() -> None:
         sha2, rc2, etiq2 = LS._lire_verdict(p2)
         verifie(rc2 == 0 and sha2 == "d" * 40,
                 "en-tete CASSEE (sans ligne rc) : le rc se retrouve dans le corps (rc=%s)" % rc2)
+
+        # L'etiquette d'un ROUGE porte ses PROPRES parentheses -- un `rstrip(')')` gourmand les
+        # mangeait toutes et rendait `rc=2 [ROUGE (2]`, desequilibre sur le seul regime qui compte.
+        p2b = _verdict(tmp, "dd2-1.txt", sha="2" * 40, rc=2, etat="ROUGE (2)")
+        _, rc2b, etiq2b = LS._lire_verdict(p2b)
+        verifie((rc2b, etiq2b) == (2, "ROUGE (2)"),
+                "etiquette d'un ROUGE lue ENTIERE, parentheses imbriquees comprises (%r)" % etiq2b)
 
         # Un verdict dont le rc reste introuvable est un CAPTEUR MUET, pas un vert.
         p3 = tmp / "eeeeeeee-1.txt"
@@ -435,7 +442,7 @@ def etape_5_verdict() -> None:
         # L'ARBRE JUGE d'abord. `host_inputs.resolve` part de SA racine, pas de celle qu'on
         # demande : pris dans cet ordre, un `--repo` explicite lisait les verdicts d'un AUTRE
         # arbre -- et rapportait donc un vert etranger sur un depot qui portait un rouge.
-        faux_repo = Path(tempfile.mkdtemp(prefix="probe465-repo-"))
+        faux_repo = Path(tempfile.mkdtemp(prefix="probe467-repo-"))
         try:
             (faux_repo / "logs" / "ratchets-bg").mkdir(parents=True)
             reel = LS.Sources(repo=faux_repo, avec_gh=False, avec_host=False)
@@ -473,7 +480,7 @@ def etape_6_plafond() -> None:
 
 
 def main() -> int:
-    print("probe_465 -- fidelite de loop_status (100 % offline, sources substituees)")
+    print("probe_467 -- fidelite de loop_status (100 % offline, sources substituees)")
     for etape in (etape_1_tri_etat, etape_2_raccourci_flotte, etape_3_silence,
                   etape_4_parole, etape_5_verdict, etape_6_plafond):
         etape()

@@ -4,7 +4,7 @@
     python scripts/python/loop_status.py --json     # meme etat, machine
     python scripts/python/loop_status.py --hook     # lit le JSON du hook Stop sur stdin
 
-POURQUOI CE FICHIER EXISTE (#465). Le depot porte 37 cliquets qui gardent le CODE et AUCUN qui
+POURQUOI CE FICHIER EXISTE (#467). Le depot porte 37 cliquets qui gardent le CODE et AUCUN qui
 garde la BOUCLE. L'angle mort est structurel : une erreur de code produit un ROUGE, une erreur de
 boucle ne produit RIEN -- un slot d'agent vide n'echoue pas, il COUTE. Mesure du 2026-08-04 : un
 tour termine a 1 agent sur un plafond de 5 apres que quatre solveurs avaient rendu, avec 30 commits
@@ -100,7 +100,7 @@ def _ko(source: str, erreur: str) -> Mesure:
 class Sources:
     """Toutes les entrees, derriere une facade INJECTABLE.
 
-    Le cliquet de fidelite (`probe_465`) substitue cette classe pour jouer des etats que la
+    Le cliquet de fidelite (`probe_467`) substitue cette classe pour jouer des etats que la
     machine ne presente pas a la demande -- host eteint, `gh` absent, verdict rouge. Sans cette
     couture, garder le tri-etat exigerait d'eteindre le host, ce qu'aucun cliquet ne peut faire.
     """
@@ -451,7 +451,12 @@ def _lire_verdict(p: Path) -> tuple[str, int | None, str]:
             except (ValueError, IndexError):
                 rc = None
             if "(" in reste:
-                etiq = reste.split("(", 1)[1].rstrip(") ")
+                # UN SEUL `)` retire, pas `rstrip(")")` : l'etiquette d'un ROUGE porte ses
+                # PROPRES parentheses (`rc      : 2  (ROUGE (2))`), et un rstrip gourmand les
+                # mangeait toutes -- la ligne rendue etait `rc=2 [ROUGE (2]`, desequilibree
+                # exactement sur le seul regime ou elle compte.
+                etiq = reste.split("(", 1)[1].strip()
+                etiq = etiq[:-1] if etiq.endswith(")") else etiq
     if rc is None:
         for ln in reversed(lignes):
             if ln.startswith("[ratchets-bg] ") and " -- commit " in ln:

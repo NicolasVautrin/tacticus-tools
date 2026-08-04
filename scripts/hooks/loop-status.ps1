@@ -1,4 +1,4 @@
-# Hook Stop -- l'ETAT DE LA BOUCLE, a chaque fin de tour, sans avoir a y penser (#465).
+# Hook Stop -- l'ETAT DE LA BOUCLE, a chaque fin de tour, sans avoir a y penser (#467).
 #
 # POURQUOI UN HOOK, et pas une checklist : une checklist qu'il faut PENSER a lancer est
 # elle-meme oubliable. Mesure du 2026-08-04 -- un tour termine a 1 agent sur un plafond de 5
@@ -20,7 +20,7 @@
 $ErrorActionPreference = 'SilentlyContinue'
 
 # Le JSON du hook (cwd, stop_hook_active, session_id) est RETRANSMIS tel quel : c'est
-# `loop_status --hook` qui decide de se taire, et c'est cette decision-la que garde probe_465.
+# `loop_status --hook` qui decide de se taire, et c'est cette decision-la que garde probe_467.
 $evt = [Console]::In.ReadToEnd()
 
 # SANS CETTE LIGNE, PowerShell 5.1 prefixe d'un BOM UTF-8 tout ce qu'il pipe vers un

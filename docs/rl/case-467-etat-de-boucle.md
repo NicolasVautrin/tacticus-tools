@@ -1,4 +1,4 @@
-# #465 — L'état de la BOUCLE, dérivé et déclenché tout seul
+# #467 — L'état de la BOUCLE, dérivé et déclenché tout seul
 
 **Critère binaire.** À la fin de chaque tour, l'orchestrateur voit-il, **sans avoir à y penser**,
 qu'il lui reste des slots d'agent vides, des commits non poussés, des worktrees à nettoyer ou un
@@ -22,7 +22,7 @@ cliquets existent, appliquée à l'étage au-dessus.
 | `scripts/python/loop_status.py` | l'état, **dérivé** : flotte / livraison / harnais / banque |
 | `scripts/hooks/loop-status.ps1` | le déclencheur (wrapper du hook `Stop`) |
 | `.claude/settings.json` | le câblage — hook **du projet**, donc versionné |
-| `scripts/python/probe_465_loop_status_fidelity.py` | le cliquet de fidélité (banque) |
+| `scripts/python/probe_467_loop_status_fidelity.py` | le cliquet de fidélité (banque) |
 | `scripts/python/fleet_board.py` | `collect(only_alive=True)` + `transcripts()` |
 
 **Rien n'est saisi.** Chaque chiffre vient d'une source nommée, et la source est imprimée à côté
@@ -100,7 +100,7 @@ se rabat désormais sur le **silence** (défaut sûr), plus sur « pas de garde 
 **`dossier_verdicts()` lisait les verdicts d'un AUTRE arbre.** Il passait par
 `host_inputs.resolve`, qui part de **sa** racine (`parents[2]` de son propre fichier) et non de
 l'arbre qu'on demande de juger. Un `--repo` explicite lisait donc ailleurs. Trouvé par
-`probe_465r4` (§5) dès sa première exécution : le dépôt jetable portait un verdict **ROUGE**,
+`probe_467r4` (§5) dès sa première exécution : le dépôt jetable portait un verdict **ROUGE**,
 l'outil rapportait le **VERT** du worktree de l'agent. **Aucune substitution de sources n'aurait
 pu le montrer** — le bug est dans la résolution d'un chemin réel. Ordre corrigé : l'arbre jugé
 d'abord, `host_inputs` en repli (qui garde son sens : depuis un worktree, `logs/` est vide par
@@ -108,7 +108,7 @@ construction et il faut remonter à l'arbre principal).
 
 ## 5. Les deux cliquets
 
-### `probe_465` — dans la banque
+### `probe_467` — dans la banque
 
 100 % **offline** : la façade `Sources` est **substituée**. Sans cette couture, garder le tri-état
 exigerait d'éteindre le host — et un cliquet qui dépend de l'état de la machine n'est pas un
@@ -127,7 +127,7 @@ cliquet. **37 épreuves, 0,9 s**, aucun appel à git / `gh` / host, tmpdir **sys
 
 Sans mutation : `rc=0`.
 
-### `probe_465r4` — HORS banque, et c'est ce qui le rend utile
+### `probe_467r4` — HORS banque, et c'est ce qui le rend utile
 
 Il monte un **vrai dépôt git** (clone, branches, worktrees, merges) et y rejoue la scène du
 2026-08-04 : 3 commits non poussés, 1 fichier suivi modifié, 2 non suivis dont un inconnu,
@@ -135,7 +135,7 @@ Il monte un **vrai dépôt git** (clone, branches, worktrees, merges) et y rejou
 contre-épreuve** (« tout réglé → silence total », sans laquelle un outil qui signalerait *tout,
 toujours* passerait les 13 autres). **40 s.**
 
-Il couvre exactement ce que `probe_465` ne peut pas : le **contrat** des commandes
+Il couvre exactement ce que `probe_467` ne peut pas : le **contrat** des commandes
 (`--porcelain=v2`, `worktree list --porcelain`, `for-each-ref --merged`) et la résolution de
 chemins **réels** — c'est lui qui a trouvé le bug de `dossier_verdicts`. Il n'entre pas dans la
 banque parce qu'il construit un dépôt : coût dépendant de la machine, là où la banque exige du
@@ -167,20 +167,20 @@ Le hook global qui joue un son n'est **pas touché** : les deux fusionnent.
 
 ## 7. Résidus
 
-- **`#465-r1` — le plafond de 5 est ASSUMÉ.** Rien dans le dépôt ne le dérive : c'est une décision
+- **`#467-r1` — le plafond de 5 est ASSUMÉ.** Rien dans le dépôt ne le dérive : c'est une décision
   d'orchestration. S'il change, la valeur se périme en silence. Elle porte sa source en commentaire
   et deux surcharges, mais ce n'est pas une mesure.
-- **`#465-r2` — les squash-merges anciens.** `git for-each-ref --merged` ne voit qu'un tip
+- **`#467-r2` — les squash-merges anciens.** `git for-each-ref --merged` ne voit qu'un tip
   **ancêtre** ; un squash est rattrapé par `gh pr list --state merged --limit 120`. Au-delà de 120
   PR, un worktree squash-mergé ne sera **pas** proposé au nettoyage. C'est le côté sûr (on ne
   propose jamais de supprimer une branche non livrée), mais c'est un trou.
-- **`#465-r3` — un seul rappel par chaîne.** `stop_hook_active` interdit de re-bloquer, sinon le
+- **`#467-r3` — un seul rappel par chaîne.** `stop_hook_active` interdit de re-bloquer, sinon le
   hook boucle. Si l'orchestrateur ne traite pas tout au premier tour, le rappel ne revient qu'au
   tour utilisateur suivant.
-- **`#465-r4` — le contrat des outils est couvert par `probe_465r4`, mais HORS banque.** Il faut
+- **`#467-r4` — le contrat des outils est couvert par `probe_467r4`, mais HORS banque.** Il faut
   donc *penser* à le jouer, ce qui est exactement le vice que ce cas combat, d'un cran plus haut.
   Il reste par ailleurs un angle mort : `/api/admin/drain` et `/api/admin/status` sont substitués
   **partout** — aucun des deux probes ne verrait un champ disparu côté host.
-- **`#465-r5` — le journal d'acquittement est un ÉTAT.** `logs/ratchets-bg/../loop-status-seen.json`
+- **`#467-r5` — le journal d'acquittement est un ÉTAT.** `logs/ratchets-bg/../loop-status-seen.json`
   est local et gitignoré ; le supprimer re-signale une fois le dernier verdict vert. Bénin, mais
   c'est le seul endroit où l'outil se souvient de quelque chose.
