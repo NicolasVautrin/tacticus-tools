@@ -55,8 +55,11 @@ ASCII only. rc 0 = les deux sources s'accordent avec le tableau ci-dessus.
 """
 from __future__ import annotations
 
+import argparse
+import contextlib
 import json
 import os
+import subprocess
 import sys
 import urllib.request
 
@@ -83,6 +86,72 @@ FAMILY = (
     ("IdunBattle.AI.Playbook.Loki", "StaffOfStarsPlaybook",               1073, False, 0.0),
     ("IdunBattle.AI.Playbook.Loki", "SuperchargePlaybook",                1103, False, 0.0),
 )
+
+# ============================================================================ volet LIVE
+#
+# LE DISCRIMINANT, ENONCE AVANT LA MESURE
+# ---------------------------------------
+# Le gate recoit `attackHealUtility = CalculateCustomUtility + CalculateUtilityFromPredictions`.
+# Sur une cible a PV PLEINS et sans bouclier, l'utilite de degat vaut, au decompile porte
+# (`engine/utilities/damage.py::DamageUtility.evaluate`, poids `W_DAMAGE = 80` + `W_REMAINING = 20`) :
+#
+#     u = 80 * (dmg / (maxHP + 2)) + 20 * (1 - (maxHP + 2 - dmg) / (maxHP + 2))
+#       = 100 * dmg / (maxHP + 2)                                     [aucun kill : PV >> degat]
+#
+# `u` est donc PILOTABLE par les PV de la cible, a degat constant : `u x (maxHP + 2) = 100 x dmg`
+# est INVARIANT. Deux bras, un seul axe (les PV) :
+#
+#   * bras `lo` : PV enormes -> `0 < u < 1`. Le seuil 1 REFUSE, le seuil 0 ACCEPTE.
+#   * bras `hi` : PV CALIBRES depuis `u` mesure en `lo` pour viser `u ~ 2`. Les DEUX acceptent.
+#
+# Ce n'est donc pas un regime degenere : les deux modeles (`> 0` et `> 1`) rendent des verdicts
+# OPPOSES dans le bras `lo`, et le meme dans `hi`. L'encadrement obtenu borne le seuil dans
+# `(u_lo, u_hi)`, ce qui est bien plus fort que « le seuil est grand ».
+#
+# NEUTRALISER L'ATTAQUE NORMALE -- sans quoi le bras `lo` aurait DEUX causes indistinguables
+# ------------------------------------------------------------------------------------------
+# `aiDryRunAllUnits` rend l'action GAGNANTE. Or dans le bras `lo` toutes les utilites tendent vers
+# 0 tandis que l'attaque normale garde son `CalculateCustomUtility = Fix64(1)` : elle raflerait
+# l'argmax que le gate morde ou non. Le montage la prive donc de tout plan, par la GEOMETRIE :
+#
+#     distance(caster, cible)  >  Movement + portee de l'arme la plus longue
+#     distance(caster, cible) <=  range de l'ability
+#
+# `Movement` est ramene a 1 par `--unit-stat` (il faut pouvoir approcher), et l'approche s'arrete a
+# la distance VOULUE, pas « a portee ». Les deux casters :
+#
+#   | caster           | ability                       | seuil | armes      | range | distance |
+#   |------------------|-------------------------------|-------|------------|-------|----------|
+#   | darkaTerminator  | 1150 PlasmaCannon             |   1   | melee (1)  |   3   |    3     |
+#   | tauMarksman      | 1069 SeekerMissileFrequencyLock|   0  | melee/R3   |   5   |    5     |
+#
+# `tauMarksman` est le TEMOIN : meme bras, meme cible, memes PV, seuil 0 -> il doit rester propose
+# dans les DEUX bras. Sans lui, « plus rien n'est propose en `lo` » se lirait aussi bien comme un
+# effet d'argmax que comme un gate qui mord.
+
+FOE = "adeptRetributor"
+BOARD = "MC1_67"
+SEED = "4242"
+MOVEMENT = 1
+
+#: `(visualId, ability, seuil LU, distance cible a la cible)`
+LIVE_CASTERS = (
+    ("darkaTerminator", 1150, 1.0, 3),
+    ("tauMarksman",     1069, 0.0, 5),
+)
+
+#: PV du bras `lo`. Choisi tres au-dessus de `100 x degat` pour garantir `u < 1` quel que soit le
+#: rang de normalisation ; la valeur EXACTE de `u` est ensuite MESUREE, pas supposee.
+HP_LO = 4_000_000
+
+#: Cible d'utilite du bras `hi`, atteinte par calibrage depuis `u` mesure en `lo`.
+U_HI_TARGET = 2.0
+
+MAX_APPROACH_TURNS = 16
+
+
+class MontageError(RuntimeError):
+    """Le montage n'est pas installe -- un bras qui ne mesure pas ce qu'il annonce."""
 
 
 # --------------------------------------------------------------------------- transport
@@ -210,16 +279,299 @@ def etape3_port_matches() -> dict:
     return {"bad": bad}
 
 
+# --------------------------------------------------------------------------- etape 4 : LIVE
+
+def _duel(*args) -> tuple:
+    p = subprocess.run([sys.executable, "rl_duel.py", *args], cwd=_HERE, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+
+def _build(state_file: str, argv_tail: list) -> int:
+    argv = [sys.executable, "rl_duel.py", "build", "--state-file", state_file, *argv_tail]
+    p = subprocess.run(argv, cwd=_HERE, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if p.returncode != 0:
+        raise MontageError("rl_duel build a echoue (rc=%s) : %s"
+                           % (p.returncode, (p.stderr or p.stdout or "")[-800:]))
+    with open(state_file, encoding="utf-8") as fh:
+        return int(json.load(fh)["runnerId"])
+
+
+def _dispose(rid) -> None:
+    try:
+        rpc("disposeRunner", {"runnerId": rid}, 60)
+    except Exception:
+        pass
+
+
+def _pos(u):
+    p = u.get("pos") or {}
+    return None if p.get("col") is None else (p["col"], p["row"])
+
+
+def _approach(sf: str, rid: int, casters: dict, foe_id: int) -> dict:
+    """Amene chaque caster a SA distance cible de l'unique cible, un hex par tour (`Movement = 1`).
+
+    On vise une DISTANCE, pas « a portee » : c'est elle qui prive l'attaque normale de tout plan
+    tout en laissant l'ability porter. `--no-ai` : l'adversaire ne bouge jamais, la geometrie est
+    PILOTEE, pas subie. Un TOUR BLANC clot l'approche, sinon les unites qui viennent de bouger
+    n'ont plus d'action et `aiDryRunAllUnits` rend `FinishUnitTurnMessage`."""
+    import hexgeo
+    want = {vis: d for vis, _ab, _t, d in LIVE_CASTERS}
+    for _turn in range(MAX_APPROACH_TURNS):
+        dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 300)
+        by_id = {u.get("id"): u for u in (dv.get("units") or ())}
+        fp = _pos(by_id.get(foe_id) or {})
+        cur = {vis: hexgeo.distance(_pos(by_id[uid]), fp) for vis, uid in casters.items()}
+        if all(cur[v] == want[v] for v in casters):
+            break
+        mov = rpc("aiMovableTiles", {"runnerId": rid}, 90)
+        mbu = {m.get("unitId"): m for m in (mov.get("units") or ())}
+        moved = False
+        for vis, uid in casters.items():
+            if cur[vis] == want[vis]:
+                continue
+            tiles = [(t.get("col"), t.get("row")) for t in ((mbu.get(uid) or {}).get("tiles") or ())]
+            tiles = [t for t in tiles if t[0] is not None]
+            if not tiles:
+                continue
+            best = min(tiles, key=lambda t: abs(hexgeo.distance(t, fp) - want[vis]))
+            if abs(hexgeo.distance(best, fp) - want[vis]) >= abs(cur[vis] - want[vis]):
+                continue                      # aucun progres depuis cette tuile -- ne pas gacher le tour
+            rc, _o = _duel("act", "move", "--state-file", sf, "--unit", str(uid),
+                           "--to", "%d,%d" % best)
+            moved = moved or rc == 0
+        if not moved:
+            break
+        for _ in range(4):
+            if rpc("battleStatus", {"runnerId": rid}, 40).get("currentPlayer") == 3:
+                break
+            _duel("act", "endturn", "--state-file", sf, "--no-ai")
+    _duel("act", "endturn", "--state-file", sf, "--no-ai")       # TOUR BLANC
+    for _ in range(4):
+        if rpc("battleStatus", {"runnerId": rid}, 40).get("currentPlayer") == 3:
+            break
+        _duel("act", "endturn", "--state-file", sf, "--no-ai")
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 300)
+    by_id = {u.get("id"): u for u in (dv.get("units") or ())}
+    fp = _pos(by_id.get(foe_id) or {})
+    return {vis: hexgeo.distance(_pos(by_id[uid]), fp) for vis, uid in casters.items()}
+
+
+def _normal_has_plan(dv, uid: int) -> bool:
+    """L'attaque normale de `uid` a-t-elle UN plan (n'importe quelle tuile) ? Doit etre FAUX dans
+    le montage : c'est la condition qui empeche l'argmax de masquer le gate."""
+    nids = set()
+    for u in (dv.get("units") or ()):
+        if u.get("id") == uid:
+            nids = {a["id"] for a in (u.get("abilities") or ())
+                    if a.get("kind") == "normal" and a.get("id") is not None}
+    for pl in (dv.get("attackPlans") or ()):
+        if pl.get("unitId") != uid:
+            continue
+        for ev in (pl.get("evals") or ()):
+            if ev.get("abilityId") in nids and ev.get("rankCount"):
+                return True
+    return False
+
+
+def _stage(logs: str, tag: str, hp: int) -> dict:
+    sf = os.path.join(logs, "tr14r5r2r1r1r1r2_%s.json" % tag)
+    extra = ["--seed", SEED, "--board", BOARD, "--no-ai",
+             "--p-units", ",".join(v for v, _a, _t, _d in LIVE_CASTERS),
+             "--a-units", FOE,
+             "--unit-stat", ";".join("%s:Movement=%d" % (v, MOVEMENT)
+                                     for v, _a, _t, _d in LIVE_CASTERS),
+             "--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (FOE, hp, hp)]
+    rid = _build(sf, extra)
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 300)
+    ids, foe_id = {}, None
+    for u in (dv.get("units") or ()):
+        if u.get("visualId") == FOE:
+            foe_id = u.get("id")
+        else:
+            ids[u.get("visualId")] = u.get("id")
+    missing = [v for v, _a, _t, _d in LIVE_CASTERS if ids.get(v) is None]
+    if missing or foe_id is None:
+        _dispose(rid)
+        raise MontageError("montage NON INSTALLE (%s) : casters absents=%s, cible=%s"
+                           % (tag, missing, foe_id))
+    dist = _approach(sf, rid, ids, foe_id)
+    return {"tag": tag, "rid": rid, "sf": sf, "hp": hp, "ids": ids, "foe": foe_id, "dist": dist}
+
+
+def _ctx(case: dict, uid: int):
+    from engine import weights as W
+    from engine.ai import context as _ai_ctx
+    from engine.playbook import scene as _scene
+    dv = rpc("decisionView", {"runnerId": case["rid"], "allAbilities": True, "maxRank": 32}, 300)
+    mov = rpc("aiMovableTiles", {"runnerId": case["rid"]}, 90)
+    mbu = {u.get("unitId"): u for u in (mov.get("units") or [])}
+    return dv, _ai_ctx.build(rpc, case["rid"], dv, mbu, uid, W.load(),
+                             _scene.build_predictor(rpc, case["rid"]))
+
+
+def _port_u(ctx, ability: int, target: int):
+    """`(u_pred, action_existe)` -- `u_pred` est l'ARGUMENT EXACT du gate natif
+    (`CalculateCustomUtility + CalculateUtilityFromPredictions`), lu AVANT lui ; `action_existe`
+    est ce que `calculate_action_utility` rend apres lui (`None` = le `Nullable` VIDE natif)."""
+    from engine.playbook import get_playbook_or_default
+    pb = get_playbook_or_default(ability)
+    evs = pb.make_damage_predictions(ctx, ctx.origin, target, ability)
+    if not evs:
+        return None, False
+    u, _bk = pb.calculate_utility_from_predictions(ctx, ctx.origin, target, ability, evs)
+    u += pb.calculate_custom_utility(ctx, ctx.origin, target, ability)
+    return u, pb.calculate_action_utility(ctx, ctx.origin, target, ability) is not None
+
+
+def _native_proposes(case: dict) -> dict:
+    dry = rpc("aiDryRunAllUnits", {"runnerId": case["rid"]}, 300)
+    by_uid = {}
+    for u in (dry.get("units") or ()):
+        by_uid[u.get("unitId")] = [(m.get("cls"), m.get("abilityType")) for m in (u.get("proposed") or ())]
+    out = {}
+    for vis, ab, _t, _d in LIVE_CASTERS:
+        msgs = by_uid.get(case["ids"][vis]) or []
+        out[vis] = (any(c == "ActiveAbilityMessage" and a == ab for c, a in msgs), msgs)
+    return out
+
+
+@contextlib.contextmanager
+def gate_cut():
+    """COUPE le gate porte -- `should_execute` rend `True` quoi qu'il arrive, c.-a-d. STRICTEMENT
+    le port d'avant cette tranche. On mute la METHODE, jamais le code livre."""
+    from engine.playbook.base import ComparablePlaybook
+    from engine.playbook import static_threshold_gate as G
+    saved = G.StaticUtilityThresholdPlaybook.should_execute
+    G.StaticUtilityThresholdPlaybook.should_execute = ComparablePlaybook.should_execute
+    try:
+        yield
+    finally:
+        G.StaticUtilityThresholdPlaybook.should_execute = saved
+
+
+def _measure(case: dict) -> list:
+    nat = _native_proposes(case)
+    rows = []
+    for vis, ab, thr, want_d in LIVE_CASTERS:
+        dv, ctx = _ctx(case, case["ids"][vis])
+        u, port = _port_u(ctx, ab, case["foe"])
+        with gate_cut():
+            _u2, cut = _port_u(ctx, ab, case["foe"])
+        rows.append({
+            "arm": case["tag"], "caster": vis, "ability": ab, "threshold": thr,
+            "hp": case["hp"], "dist": case["dist"].get(vis), "want_dist": want_d,
+            "normal_plan": _normal_has_plan(dv, case["ids"][vis]),
+            "u": u, "native": nat[vis][0], "port": port, "port_gate_cut": cut,
+            "msgs": nat[vis][1],
+        })
+    return rows
+
+
+def etape4_live(logs: str, verbose: bool = True) -> dict:
+    """Les deux bras, le calibrage du second depuis le premier, et les trois criteres."""
+    bad, rows = 0, []
+    case = _stage(logs, "lo", HP_LO)
+    try:
+        rows += _measure(case)
+    finally:
+        _dispose(case["rid"])
+    # CALIBRAGE : `u x (maxHP + 2)` est invariant a degat constant. On vise `U_HI_TARGET` sur le
+    # caster GATE-E (seuil 1) ; le temoin (seuil 0) n'a besoin que de `u > 0`, vrai des deux cotes.
+    ref = next((r for r in rows if r["threshold"] == 1.0), None)
+    if not ref or not ref["u"] or ref["u"] <= 0:
+        print("[etape 4] CALIBRAGE IMPOSSIBLE : u=%s dans le bras lo" % (ref or {}).get("u"))
+        return {"bad": 1, "rows": rows}
+    hp_hi = max(1, int(round((HP_LO + 2) * ref["u"] / U_HI_TARGET)) - 2)
+    case = _stage(logs, "hi", hp_hi)
+    try:
+        rows += _measure(case)
+    finally:
+        _dispose(case["rid"])
+
+    if verbose:
+        print("[etape 4] live -- board %s seed %s, Movement=%d, cible %s" % (BOARD, SEED, MOVEMENT, FOE))
+        for r in rows:
+            print("  [%-2s] %-16s ab=%-5d seuil=%.1f hp=%-9d dist=%-2s(vis %s) normalPlan=%-5s "
+                  "u=%-10s natif=%-5s port=%-5s"
+                  % (r["arm"], r["caster"], r["ability"], r["threshold"], r["hp"], r["dist"],
+                     r["want_dist"], r["normal_plan"],
+                     "None" if r["u"] is None else round(r["u"], 4), r["native"], r["port"]))
+        print("  -- contre-epreuve gate-coupe (= le port d'avant cette tranche) --")
+        for r in rows:
+            print("     [%-2s] %-16s -> port=%-5s %s"
+                  % (r["arm"], r["caster"], r["port_gate_cut"],
+                     "MORD" if r["port_gate_cut"] != r["port"] else "inerte"))
+
+    for r in rows:
+        # MONTAGE : sans ces deux-la, la ligne ne mesure pas ce qu'elle annonce.
+        if r["dist"] != r["want_dist"] or r["normal_plan"]:
+            print("  BAD MONTAGE [%s] %s : dist=%s (voulu %s) normalPlan=%s"
+                  % (r["arm"], r["caster"], r["dist"], r["want_dist"], r["normal_plan"]))
+            bad += 1
+            continue
+        # CRITERE A (necessite, symetrique) : le port ne refuse JAMAIS ce que le natif CHOISIT.
+        if r["native"] and not r["port"]:
+            print("  VIOLE A [%s] %s : natif PROPOSE, port REFUSE" % (r["arm"], r["caster"]))
+            bad += 1
+        # CRITERE B : dans le bras `lo`, le seuil 1 doit etre REFUSE par le natif et le seuil 0
+        # ACCEPTE -- c'est le discriminant qui separe les deux seuils.
+        if r["arm"] == "lo":
+            if r["u"] is None or not (0.0 < r["u"] < 1.0):
+                print("  BAD REGIME [lo] %s : u=%s hors (0,1)" % (r["caster"], r["u"]))
+                bad += 1
+            elif r["native"] == (r["threshold"] == 1.0):
+                print("  VIOLE B [lo] %s : natif=%s pour seuil %.1f"
+                      % (r["caster"], r["native"], r["threshold"]))
+                bad += 1
+        # CRITERE C : dans le bras `hi`, les DEUX seuils acceptent -- le temoin temporel du MEME
+        # caster, qui exclut « cette ability n'est jamais proposee ».
+        if r["arm"] == "hi":
+            if r["u"] is None or r["u"] <= 1.0:
+                print("  BAD REGIME [hi] %s : u=%s <= 1" % (r["caster"], r["u"]))
+                bad += 1
+            elif not r["native"]:
+                print("  VIOLE C [hi] %s : natif REFUSE alors que u=%.4f > 1"
+                      % (r["caster"], r["u"]))
+                bad += 1
+        # CRITERE D : la contre-epreuve doit MORDRE exactement la ou le gate refuse, et seulement la.
+        if (r["port_gate_cut"] != r["port"]) != (not r["port"]):
+            print("  VIOLE D [%s] %s : gate_cut=%s port=%s" % (r["arm"], r["caster"],
+                                                               r["port_gate_cut"], r["port"]))
+            bad += 1
+    return {"bad": bad, "rows": rows}
+
+
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--live", action="store_true", help="joue aussi l'etape 4 (monte deux runners)")
+    ap.add_argument("--state-file", default=None, help="prefixe ABSOLU des state-files (avec --live)")
+    ap.add_argument("--json-out", default=None)
+    args = ap.parse_args()
+
     r1 = etape1_methods_tsv()
     print("")
     r2 = etape2_resolve_method_ptr()
     print("")
     r3 = etape3_port_matches()
-    total = r1["bad"] + r2["bad"] + r3["bad"]
+    r4 = {"bad": 0, "rows": []}
+    if args.live:
+        if not args.state_file:
+            print("--live exige --state-file (chemin ABSOLU)")
+            return 2
+        logs = os.path.dirname(os.path.abspath(args.state_file))
+        os.makedirs(logs, exist_ok=True)
+        print("")
+        r4 = etape4_live(logs)
+    total = r1["bad"] + r2["bad"] + r3["bad"] + r4["bad"]
     print("")
-    print("VERDICT: %s (etape1=%d BAD, etape2=%d BAD, etape3=%d BAD)"
-          % ("PASS" if total == 0 else "FAIL", r1["bad"], r2["bad"], r3["bad"]))
+    print("VERDICT: %s (etape1=%d BAD, etape2=%d BAD, etape3=%d BAD, etape4=%d BAD)"
+          % ("PASS" if total == 0 else "FAIL", r1["bad"], r2["bad"], r3["bad"], r4["bad"]))
+    if args.json_out:
+        with open(args.json_out, "w", encoding="utf-8") as fh:
+            json.dump({"etape1": r1, "etape2": r2, "etape3": r3, "etape4": r4}, fh, indent=1)
     return 0 if total == 0 else 1
 
 
