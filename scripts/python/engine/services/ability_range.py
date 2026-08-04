@@ -612,15 +612,34 @@ def _obscured(board, unit_pos, tile, rules, visual_id,
                                  target_is_friend_or_has_friendly_unit=has_friendly)
 
 
+def _unwalkable(rules, tile, walkable_by_pos, is_in_fog_by_pos) -> bool:
+    """L'etage AMONT de `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange` : la tuile est-elle
+    RETIREE de la zone parce qu'elle n'est pas MARCHABLE (#433-r4-r2-r1-r2-r2-r1) ?
+
+    Foyer UNIQUE : `targeting_query.tile_removed_by_walkability`, qui porte la lecture (le bit 43
+    `AllowUnwalkableTargetTile`, la lambda `TargetingQuery.<>c$$<GetTilesInRange>b__36_0` et les
+    DEUX volets de `TileExtensions$$IsWalkable`). Les deux cartes absentes -> aucun retrait, statu
+    quo d'avant la tranche."""
+    from . import targeting_query as TQ
+    t = (int(tile[0]), int(tile[1]))
+    return TQ.tile_removed_by_walkability(
+        rules,
+        None if walkable_by_pos is None else walkable_by_pos.get(t),
+        None if is_in_fog_by_pos is None else is_in_fog_by_pos.get(t))
+
+
 def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, board=None,
-                         caster_team=None, team_by_pos=None) -> bool:
-    """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des QUATRE etages,
+                         caster_team=None, team_by_pos=None,
+                         walkable_by_pos=None, is_in_fog_by_pos=None) -> bool:
+    """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des CINQ etages,
     evaluee sur la TUILE : le court-circuit `rules` de `GetPossibleTargetTiles`, puis
-    `GetTilesInRange`, puis le predicat de LIGNE DE VUE (`b__1`, #-r1-r2), puis le predicat
+    `GetTilesInRange` (son RAYON, puis son retrait des NON MARCHABLES, #-r1-r2-r2-r1), puis le
+    predicat de LIGNE DE VUE (`b__1`, #-r1-r2), puis le predicat
     `GetDynamicInvalidTargetReason` (`b__2`, #-r1-r1).
 
-    L'ORDRE natif est `b__0`, `b__1`, `b__2` : les deux derniers sont des `RemoveAll`, donc
-    COMMUTATIFS -- l'ordre du port n'est pas observable, seule leur conjonction l'est."""
+    L'ORDRE natif est `GetTilesInRange` (rayon PUIS walkability), `b__0`, `b__1`, `b__2` : les
+    derniers sont des `RemoveAll`, donc COMMUTATIFS -- l'ordre du port n'est pas observable, seule
+    leur conjonction l'est. Le retrait des non marchables est le seul a etre EN AMONT."""
     if target_tiles_zone_is_empty(ability_id):
         return False                               # zone VIDE avant meme `GetRange`
     base = tiles_in_range_reach(ability_id, visual_id)
@@ -630,6 +649,8 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
         return False
     from ..runner.abilities.targeting import targeting_options_for
     opts = targeting_options_for(ability_id)
+    if _unwalkable(getattr(opts, "rules", None), tile, walkable_by_pos, is_in_fog_by_pos):
+        return False                               # `GetTilesInRange` -- NON MARCHABLE
     if _obscured(board, unit_pos, tile, getattr(opts, "rules", None), visual_id,
                  caster_team=caster_team, team_by_pos=team_by_pos):
         return False                               # b__1 -- LIGNE DE VUE
@@ -654,7 +675,8 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
                                     ability_ids=None, elev_by_pos=None,
                                     ability_state=None, normal_attack_id=None,
                                     is_wall_by_pos=None, caster_team=None,
-                                    team_by_pos=None) -> bool:
+                                    team_by_pos=None, walkable_by_pos=None,
+                                    is_in_fog_by_pos=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility(unit, tile)` -- mirror :
 
         if (UnitExtensions.GetFeetCount(unit, state) > 1) return true;      // MULTI-TUILES
@@ -695,6 +717,14 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     lignes. `is_wall_by_pos` (`boardGraph.isWall` = `TileComponent+0x41`) en est le second volet ;
     ABSENT, le port ne voit AUCUN mur, ce qui ne peut qu'ELARGIR.
 
+    `walkable_by_pos` / `is_in_fog_by_pos` -- l'etage AMONT `GetTilesInRange`
+    (#433-r4-r2-r1-r2-r2-r1), `{(col,row): bool}` du `boardGraph` (`walkable` =
+    `BattleQuery$$IsWalkableTile` ; `isInFog` = `TileComponent+0x40`). Sans eux, le port ATTRIBUE
+    des tuiles que le natif RETIRE -- ecart PERMISSIF, le seul type qu'un entrainement puisse
+    exploiter. Les DEUX sont necessaires : `IsWalkable(t, checkFog: true)` agrege les deux volets
+    et `IsWalkableTile` n'en rend que le premier (mesure : 31 tuiles `walkable && isInFog` sur
+    `C6_02`). Canal muet -> volet inerte, statu quo.
+
     `caster_team` / `team_by_pos` -- les DEUX gardes « ami » du meme predicat
     (#433-r4-r2-r1-r2-r2), `{(col,row): TeamId}` de l'OCCUPANT VIVANT de chaque tuile. Elles sont
     les seules de la cascade dont l'ecart soit RESTRICTIF : sans elles, le port RETIRE des tuiles
@@ -729,10 +759,18 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     if normal_attack_id is None or not _gated_out(normal_attack_id, ability_state):
         weapon = unit_weapon_range(visual_id, None)
         if weapon is not None and d <= int(weapon):
-            if not _obscured(board, unit_pos, tile, NORMAL_ATTACK_TARGETING_OPTIONS.rules,
-                             visual_id, caster_team=caster_team, team_by_pos=team_by_pos):
+            # `NORMAL_ATTACK_TARGETING_OPTIONS.rules` (0x4002) ne porte PAS `AllowUnwalkableTargetTile` :
+            # le terme de l'attaque normale est donc TOUJOURS gate par la walkability, quel que soit
+            # le kit -- contrairement aux abilities dont le masque n'est pas RE-lu.
+            if (not _unwalkable(NORMAL_ATTACK_TARGETING_OPTIONS.rules, tile,
+                                walkable_by_pos, is_in_fog_by_pos)
+                    and not _obscured(board, unit_pos, tile,
+                                      NORMAL_ATTACK_TARGETING_OPTIONS.rules, visual_id,
+                                      caster_team=caster_team, team_by_pos=team_by_pos)):
                 return True
     aids = _active_ability_ids(visual_id) if ability_ids is None else ability_ids
     return any(_ability_covers_tile(aid, visual_id, unit_pos, tile, elev_by_pos, board,
-                                    caster_team=caster_team, team_by_pos=team_by_pos)
+                                    caster_team=caster_team, team_by_pos=team_by_pos,
+                                    walkable_by_pos=walkable_by_pos,
+                                    is_in_fog_by_pos=is_in_fog_by_pos)
                for aid in aids if not _gated_out(aid, ability_state))
