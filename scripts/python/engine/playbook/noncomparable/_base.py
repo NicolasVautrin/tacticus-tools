@@ -337,6 +337,38 @@ def _turns_started_gate(ctx: "NCContext") -> bool:
     return ts > 1
 
 
+def occupant_team_by_pos(ctx: "NCContext") -> dict:
+    """`{(col, row): TeamId}` de l'occupant VIVANT de chaque tuile -- le substrat des gardes
+    « ami » de la ligne de vue (`#433-r4-r2-r1-r2-r2`, foyer
+    `engine.services.targeting_query.friend_gates_for_tile_target`).
+
+    Source : `ctx.obs_units` (`observeBattle.units`), qui porte deja `teamId` (= le
+    `PlayerComponent+0x24` que `EntityExtensions$$GetCurrentPlayer` va chercher), `col`, `row` et
+    `isDead`. AUCUN capteur neuf : le canal etait publie et jete, exactement comme `isWall` avant
+    `#433-r4-r2-r1-r2`.
+
+    `isDead` est FILTRE parce que le natif passe par
+    `IdunBattle.Entities.UnitExtensions$$GetUnit(tile, state)`, dont le premier gate est
+    `TileContentComponent$$IsFilled` : une depouille ne remplit plus sa tuile. `decisionView`, lui,
+    GARDE les morts (cf. `project_decisionview_keeps_dead`) -- d'ou le choix d'`obs_units`.
+
+    DEUX ECARTS NOMMES : les MACHINES OF WAR sont hors de ce canal (`observeBattle` les publie
+    dans `.mows`, et le bridge offline les exclut explicitement) ; et le bridge OFFLINE
+    (`state_bridge._obs_units`) rend UNE ligne par unite, donc la tuile PRINCIPALE seulement, la
+    ou le live projette un pied par ligne et couvre l'empreinte complete. Les deux font
+    sous-declarer l'occupation, donc RETIRER plus que le natif -- le sens de l'ecart qui
+    preexistait."""
+    out: dict = {}
+    for u in (ctx.obs_units or []):
+        if u.get("isDead") or u.get("teamId") is None:
+            continue
+        c, r = u.get("col"), u.get("row")
+        if c is None or r is None:
+            continue
+        out[(c, r)] = int(u["teamId"])
+    return out
+
+
 def _sweep_origin_first(ctx: "NCContext") -> list:
     """Ordre de balayage des positions candidates : ORIGINE D'ABORD, puis les tuiles de move.
 

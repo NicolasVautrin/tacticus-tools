@@ -24,6 +24,16 @@ ne décident pas *si* il tourne, mais *ce qu'il regarde* — ils sont consommés
 TwinSmartMissileSystem` n'a pas le bit `TargetMatchesDynamicRule` (donc le 3ᵉ prédicat n'est même
 pas construit) et montrait pourtant les mêmes 5 refus.
 
+> ⚠ **RÉFUTATION (#433-r4-r2-r1-r2-r2).** Ce dossier a d'abord écrit que
+> `EntityExtensions$$GetCurrentPlayer` « sur une tuile résout l'unité qui l'OCCUPE (branche
+> `UnitExtensions$$GetUnit` du décompilé) ». **C'est faux** : cette branche est celle de
+> `FootEntity` (xrefs `Blueprints$$UnitFoot` / `FootEntity$$Copy`), et la `TileEntity`
+> (`Blueprints$$Tile` / `TileEntity$$Copy`) n'y est **pas testée** — elle retombe sur un
+> `TryGetComponent<OwnerComponent>` qu'elle ne porte pas. Conséquence : la garde `IsFriend` de
+> `b__1` ne résout **pas** l'occupant d'une tuile et vaut `TeamId(caster) == Environment(0)` ;
+> seule `IsFriendOrHasFriendlyUnitOnIt` le résout, par `UnitExtensions$$GetUnit`. Détail et
+> mesure : `case-433-r4-r2-r1-r2-r2-gardes-ami.md` §1.
+
 ```
 TargetingQuery.u003Cu003Ec__DisplayClass34_0$$u003CGetPossibleTargetsForOptionsu003Eb__1(target)
     if (UnitExtensions.IsFriend(target, ctx.caster, ctx.query.state)) return false;      # GARDE
@@ -214,12 +224,11 @@ exactement la tuile occupée par le caster.
   `GATE_NOT_READ`. **Ce qu'il faudrait** : lire le `rules` des 32 entrées, ability par ability —
   ~15 seulement portent au-delà de `d = 1` et sont donc concernées (à `d = 1` le prédicat est
   structurellement muet).
-* **`#433-r4-r2-r1-r2-r2` — les gardes « ami » ne sont pas alimentées.** `IsFriend(target, caster)`
-  et `IsFriendOrHasFriendlyUnitOnIt` sont des PARAMÈTRES du mirror, et l'appelant
-  `is_tile_in_range_of_any_ability` passe les défauts « tuile libre » — le régime réel de son
-  consommateur (des tuiles CANDIDATES de déplacement). Sur une tuile portant un allié du caster, le
-  natif ne retire pas et le port retire : écart **restrictif**, le seul de ce cas. Même canal
-  manquant que `-r1-r1-a-r1`.
+* ~~**`#433-r4-r2-r1-r2-r2` — les gardes « ami » ne sont pas alimentées.**~~ **FERMÉ** —
+  `case-433-r4-r2-r1-r2-r2-gardes-ami.md`. Deux corrections à ce qui est écrit plus haut :
+  la donnée **n'était pas manquante** (`observeBattle.units[].teamId` + `col`/`row` la publie déjà,
+  exactement comme `isWall`), et les deux gardes **ne lisent pas la même chose** — voir la
+  réfutation ci-dessous.
 * **`#433-r4-r2-r1-r2-r3` — `EnableObscuringTerrain` n'est pas lu du runner.** Le port prend `True`
   par défaut, valeur du seed courant (`data/seed-bc.json` → `Targeting.EnableObscuringTerrain`).
   Aucun RPC ne publie la section `Targeting` de la BC d'un runner. Une BC qui le poserait à `False`
