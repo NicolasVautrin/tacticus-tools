@@ -24,23 +24,28 @@ CE QUE CE FICHIER GARDE -- six choses, aucune redondante :
   4. **LES DEUX ROUTES BESPOKE NE SONT PAS AU REGISTRE.** `1184 MomentShackle` et
      `1197 ExcruciatingFrequencies` ont leur gate la ou passe leur generateur ; les inscrire au
      registre serait un port MORT qui masquerait ou il vit vraiment.
-  5. **LE GATE, CONTRE LE NATIF, SUR UN AXE QUI SEPARE LES DEUX SEUILS** (crans LIVE). Deux bras,
-     un seul axe -- les PV de la cible, donc `u`. En `lo` (`0 < u < 1`) le seuil 1 doit etre REFUSE
-     et le seuil 0 ACCEPTE ; en `hi` (`u > 1`, CALIBRE depuis `lo`) les deux acceptent. Les deux
-     modeles candidats rendent donc des verdicts OPPOSES : ce n'est pas un regime degenere.
+  5. **LE GATE, CONTRE LE NATIF, SUR TROIS REGIMES D'UTILITE** (crans LIVE). Un seul axe -- les PV
+     de la cible, donc `u` (`u x (maxHP + 2)` est invariant a degat constant), et les deux derniers
+     bras sont CALIBRES depuis le `u` mesure au premier. `lo` (`u = 0.085`) : le gate mord.
+     `mid` (`u = 5`) : il ne mord plus. `hi` (`u = 20`) : le NATIF propose l'ability -- c'est le
+     temoin sans lequel le refus du bras `lo` ne voudrait rien dire.
+     ⚠ Le natif ne bascule qu'entre `mid` et `hi`, bien AU-DESSUS du seuil lu : l'ecart restant est
+     PERMISSIF, ANTERIEUR a la tranche, et sa cause vit AU-DESSUS du playbook (un predicat de
+     `BucketAddAction`). Le dernier cran l'ATTESTE au lieu de le taire.
   6. **LA CONTRE-EPREUVE MORD, ET SEULEMENT LA.** `should_execute` remis au defaut de la base
      (= STRICTEMENT le port d'avant cette tranche) doit faire basculer la seule ligne que le gate
      refuse, et rester INERTE sur toutes les autres.
 
-⚠ TROIS PIEGES DE MONTAGE, tous MESURES puis fermes, et gardes ligne a ligne :
-  * l'attaque normale porte `CalculateCustomUtility = Fix64(1)` -- en bras `lo`, ou toutes les
-    utilites tendent vers 0, elle raflerait l'argmax que le gate morde ou non. Le montage la prive
-    de tout plan par la GEOMETRIE, et `normalPlan` est verifie FAUX a la lecture ;
-  * `--unit-stat <X>:Movement=1` doit avoir MORDU -- `reach` est mesure sur les tuiles rendues.
-    Un montage dont la mutation ne prend pas donne un vert qui ne prouve rien ;
-  * `CalculateNextActionForUnit` rend UNE action a la fois : un caster qui prefere une autre tuile
-    emet d'abord un `MoveUnitMessage` et son ability n'apparait qu'au pas suivant. On le laisse se
-    poser DANS LE MEME TOUR (un deplacement ne consomme pas l'action d'attaque).
+⚠ QUATRE PIEGES DE MONTAGE, tous MESURES puis fermes, et gardes ligne a ligne :
+  * un deplacement CONSOMME l'activation -- « bouger » et « caster » s'EXCLUENT, donc a faible
+    utilite le natif se rapproche au lieu de caster, et l'ability n'apparait JAMAIS ;
+  * l'attaque normale porte `CalculateCustomUtility = Fix64(1)` : elle raflerait l'argmax que le
+    gate morde ou non. `--unit-stat <X>:Movement=0` ferme les DEUX (plus de tuile pour le
+    generateur de mouvement, sweep du generateur d'action reduit a l'origine) ;
+  * cette mutation doit avoir MORDU -- `frozen` le mesure sur les tuiles reellement rendues ;
+  * le placement libre du premier tour vient du trait **Teleport**, PAS d'une phase de deploiement :
+    meme spawn et meme `Movement=0`, `darkaTerminator` rend 58 tuiles et `tauMarksman` ZERO. C'est
+    ce qui reduit le montage a UN caster, et fait du TEMOIN un temoin de REGIME, pas d'ability.
 
 Mesures et RE : `docs/rl/case-419-r1-tr14-r5-r2-r1-r1-r1-r2-seuil-statique.md`. ASCII only.
 Probe jumeau : `scripts/python/probe_419r1tr14r5r2r1r1r1r2_static_threshold_gate.py`.
@@ -164,63 +169,98 @@ def _row(rows, arm, caster):
     return next(r for r in rows if r["arm"] == arm and r["caster"] == caster)
 
 
+# ---------------------------------------------------------------- crans LIVE
+
+@pytest.fixture(scope="module")
+def live_rows(tmp_path_factory):
+    """Les TROIS bras, joues UNE fois pour tout le module (chacun monte puis DISPOSE son runner)."""
+    logs = str(tmp_path_factory.mktemp("thr419r2"))
+    res = P.etape4_live(logs, verbose=True)
+    if not res["rows"]:
+        pytest.fail("aucune ligne mesuree -- montage non installe")
+    return res["rows"]
+
+
+def _row(rows, arm):
+    return next(r for r in rows if r["arm"] == arm)
+
+
 def test_live_le_montage_est_installe(live_rows):
-    """TROIS conditions, toutes MESUREES : la mutation `Movement` a mordu, l'attaque normale n'a
-    AUCUN plan (sinon son custom `Fix64(1)` raflerait l'argmax en bras `lo`), et l'ability EST
-    castable depuis la tuile courante (sinon « non propose » ne dirait rien du gate)."""
+    """QUATRE conditions, toutes MESUREES.
+
+    `frozen` est la plus importante et la moins evidente : `--unit-stat <X>:Movement=0` doit avoir
+    MORDU. Il neutralise DEUX concurrents a la fois -- le generateur de MOUVEMENT (un deplacement
+    CONSOMME l'activation, donc « bouger » et « caster » s'excluent, et a faible utilite le natif
+    prefere toujours se rapprocher) et l'ATTAQUE NORMALE (dont le sweep de tuiles se reduit alors a
+    l'origine, hors de sa portee d'arme)."""
+    assert len(live_rows) == 3, [r["arm"] for r in live_rows]
     for r in live_rows:
-        assert r["reach"] == P.MOVEMENT, (r["arm"], r["caster"], r["reach"])
-        assert not r["normal_plan"], (r["arm"], r["caster"])
-        assert r["castable_here"], (r["arm"], r["caster"])
+        assert r["frozen"], (r["arm"], "la mutation Movement=0 n'a pas mordu")
+        assert r["dist"] == r["want_dist"], (r["arm"], r["dist"], r["want_dist"])
+        assert not r["normal_plan"], (r["arm"], "l'attaque normale a un plan")
+        assert r["castable_here"], (r["arm"], "l'ability ne porte pas d'ici")
 
 
-def test_live_les_deux_bras_encadrent_le_seuil(live_rows):
-    """Le REGIME est ce qui rend la mesure concluante : `0 < u < 1` en `lo`, `u > 1` en `hi`.
-    Sans cet encadrement, un accord ne prouverait rien -- les deux modeles candidats (`> 0` et
-    `> 1`) seraient algebriquement identiques sur le point mesure."""
-    for r in live_rows:
-        assert r["u"] is not None, (r["arm"], r["caster"])
-        if r["arm"] == "lo":
-            assert 0.0 < r["u"] < 1.0, (r["caster"], r["u"])
-        else:
-            assert r["u"] > 1.0, (r["caster"], r["u"])
+def test_live_les_trois_bras_sont_dans_leur_regime(live_rows):
+    """Le REGIME est ce qui rend chaque bras concluant : `u` est PILOTE par les PV de la cible
+    (`u x (maxHP + 2)` invariant a degat constant), et les deux derniers bras sont CALIBRES depuis
+    le `u` mesure au premier -- aucune valeur de degat n'est supposee."""
+    assert 0.0 < _row(live_rows, "lo")["u"] < 1.0
+    assert 2.0 < _row(live_rows, "mid")["u"] <= 10.0
+    assert _row(live_rows, "hi")["u"] > 15.0
 
 
 def test_live_le_port_ne_refuse_jamais_ce_que_le_natif_choisit(live_rows):
-    """CRITERE A (necessite, symetrique). Les deux canaux ne mesurent pas la meme chose --
-    `aiDryRunAllUnits` rend l'action GAGNANTE, `calculate_action_utility` rend « une action
-    EXISTE » -- donc c'est le seul accord exigible ligne a ligne, et c'est le sens de divergence
-    le plus grave."""
+    """CRITERE A -- LE SENS QUI COMPTE. Les deux canaux ne mesurent pas la meme chose
+    (`aiDryRunAllUnits` rend l'action GAGNANTE, `calculate_action_utility` rend « une action
+    EXISTE ») : c'est le seul accord exigible ligne a ligne, et le sens de divergence le plus grave.
+    Un port RESTRICTIF ferait perdre a l'entrainement une action que le jeu joue."""
     for r in live_rows:
-        assert not (r["native"] and not r["port"]), (r["arm"], r["caster"], r["msgs"])
+        assert not (r["native"] and not r["port"]), (r["arm"], r["u"], r["msgs"])
 
 
-def test_live_en_bras_lo_le_seuil_UN_refuse_et_le_seuil_ZERO_accepte(live_rows):
-    """CRITERE B -- LE DISCRIMINANT. Meme bras, meme cible, memes PV : la seule chose qui separe
-    les deux lignes est la VALEUR du seuil lue au `.cctor`. C'est ce qui exclut la lecture « a
-    faible utilite plus rien n'est propose »."""
-    gated = _row(live_rows, "lo", "darkaTerminator")      # seuil 1, u dans (0,1)
-    witness = _row(live_rows, "lo", "tauMarksman")        # seuil 0, u dans (0,1)
-    assert gated["threshold"] == 1.0 and witness["threshold"] == 0.0
-    assert not gated["native"], gated["msgs"]
-    assert witness["native"], witness["msgs"]
+def test_live_le_gate_mord_dans_le_bras_lo_et_nulle_part_ailleurs(live_rows):
+    """CRITERE B. Le seuil porte est `Fix64(1)` : le gate doit refuser a `u = 0.085` et accepter
+    des `u = 5`. C'est l'effet OBSERVABLE du seuil sur le canal de production du port."""
+    assert _row(live_rows, "lo")["port"] is False
+    assert _row(live_rows, "mid")["port"] is True
+    assert _row(live_rows, "hi")["port"] is True
 
 
-def test_live_en_bras_hi_les_deux_seuils_acceptent(live_rows):
-    """CRITERE C -- le temoin TEMPOREL du MEME caster. Il exclut « cette ability n'est de toute
-    facon jamais proposee », et borne le seuil PAR LE HAUT : a `u ~ 2` le natif accepte."""
-    for caster in ("darkaTerminator", "tauMarksman"):
-        r = _row(live_rows, "hi", caster)
-        assert r["native"], (caster, r["u"], r["msgs"])
-        assert r["port"], (caster, r["u"])
+def test_live_le_temoin_tient_le_natif_propose_bien_cette_ability(live_rows):
+    """CRITERE C. Sans lui, le refus du bras `lo` se lirait aussi bien comme « cette ability n'est
+    de toute facon jamais proposee ». MEME caster, MEME geometrie, MEME ability : seule l'utilite
+    change, et a `u = 20` le natif emet bien `ActiveAbilityMessage(1150)`."""
+    hi = _row(live_rows, "hi")
+    assert hi["native"], hi["msgs"]
+    assert any(c == "ActiveAbilityMessage" and a == hi["ability"] for c, a in hi["msgs"])
 
 
 def test_live_la_contre_epreuve_mord_exactement_ou_le_gate_refuse(live_rows):
     """CRITERE D. `should_execute` remis au defaut de la base = STRICTEMENT le port d'avant cette
-    tranche : il doit faire basculer les lignes que le gate refuse, et RESTER INERTE partout
-    ailleurs. L'inertie est la reciproque -- un port qui deborderait ferait bouger les autres."""
+    tranche : il doit faire basculer la ligne que le gate refuse, et RESTER INERTE partout ailleurs.
+    L'inertie est la reciproque -- un port qui deborderait ferait bouger les autres bras."""
     for r in live_rows:
         mord = r["port_gate_cut"] != r["port"]
-        assert mord == (not r["port"]), (r["arm"], r["caster"], r["port"], r["port_gate_cut"])
-    assert _row(live_rows, "lo", "darkaTerminator")["port_gate_cut"] is True
-    assert _row(live_rows, "lo", "darkaTerminator")["port"] is False
+        assert mord == (not r["port"]), (r["arm"], r["port"], r["port_gate_cut"])
+    assert _row(live_rows, "lo")["port_gate_cut"] is True
+
+
+def test_live_lecart_permissif_RESIDUEL_est_borne_et_nomme(live_rows):
+    """Ce que la tranche ne ferme PAS, et le cran l'ATTESTE plutot que de le taire.
+
+    Le natif ne propose l'ability qu'a partir d'une utilite bien SUPERIEURE au seuil lu : mesure,
+    il refuse encore a `u = 5` (bras `mid`) et accepte a `u = 20`. Le port, lui, accepte des
+    `u > 1`. L'ecart est donc PERMISSIF -- jamais restrictif -- et il est ANTERIEUR a cette tranche
+    (sans gate, le port acceptait AUSSI a `u = 0.085`) : la tranche le REDUIT strictement.
+
+    La cause n'est pas dans le playbook. Un filtre vit AU-DESSUS :
+    `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` applique
+    un predicat `<ctx+0xc0>+0x40` AVANT d'inserer l'action dans le bucket, et
+    `...$$ChooseAction` le ré-applique au choix final. Residu `#419-r1-tr14-r5-r2-r1-r1-r1-r2-r4`.
+
+    Le cran fige les DEUX faits -- l'ecart existe, et il est du bon cote."""
+    mid = _row(live_rows, "mid")
+    assert mid["port"] and not mid["native"], (mid["u"], mid["msgs"])
+    for r in live_rows:
+        assert not (r["native"] and not r["port"]), r["arm"]

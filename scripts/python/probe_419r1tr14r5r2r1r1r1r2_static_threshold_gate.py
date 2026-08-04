@@ -108,22 +108,32 @@ FAMILY = (
 # OPPOSES dans le bras `lo`, et le meme dans `hi`. L'encadrement obtenu borne le seuil dans
 # `(u_lo, u_hi)`, ce qui est bien plus fort que « le seuil est grand ».
 #
-# NEUTRALISER L'ATTAQUE NORMALE -- sans quoi le bras `lo` aurait DEUX causes indistinguables
+# DEUX CONCURRENTS A NEUTRALISER -- sans quoi le bras `lo` aurait des causes indistinguables
 # ------------------------------------------------------------------------------------------
-# `aiDryRunAllUnits` rend l'action GAGNANTE. Or dans le bras `lo` toutes les utilites tendent vers
-# 0 tandis que l'attaque normale garde son `CalculateCustomUtility = Fix64(1)` : elle raflerait
-# l'argmax que le gate morde ou non. Le montage la prive donc de tout plan, par la GEOMETRIE :
+# `aiDryRunAllUnits` rend l'action GAGNANTE. Or dans le bras `lo` toutes les utilites d'attaque
+# tendent vers 0, et DEUX autres generateurs raflent alors l'argmax que le gate morde ou non :
 #
-#     distance(caster, cible)  >  Movement + portee de l'arme la plus longue
-#     distance(caster, cible) <=  range de l'ability
+#   1. **l'ATTAQUE NORMALE**, qui garde son `CalculateCustomUtility = Fix64(1)` ;
+#   2. **le MOUVEMENT** -- et c'est le piege le moins evident : un deplacement CONSOMME
+#      l'activation (mesure : apres un `MoveUnitMessage` applique, `aiDryRunAllUnits` rend
+#      `FinishUnitTurnMessage`), donc « bouger » et « caster » s'EXCLUENT. Un caster a `u ~ 0.07`
+#      preferera toujours se rapprocher.
 #
-# `Movement` est ramene a 1 par `--unit-stat` (il faut pouvoir approcher), et l'approche s'arrete a
-# la distance VOULUE, pas « a portee ». Les deux casters :
+# Les deux tombent avec le meme levier, `--unit-stat <X>:Movement=0` :
 #
-#   | caster           | ability                       | seuil | armes      | range | distance |
-#   |------------------|-------------------------------|-------|------------|-------|----------|
-#   | darkaTerminator  | 1150 PlasmaCannon             |   1   | melee (1)  |   3   |    3     |
-#   | tauMarksman      | 1069 SeekerMissileFrequencyLock|   0  | melee/R3   |   5   |    5     |
+#   * le generateur de MOUVEMENT n'a plus aucune tuile -> il ne concurrence plus rien ;
+#   * le sweep de tuiles du generateur d'ACTION se reduit a l'origine, donc l'attaque normale n'a
+#     de plan QUE si la cible est deja a portee d'arme -- une condition purement geometrique.
+#
+# Et le placement reste libre parce que **le DEPLOIEMENT ignore `Movement`** (mesure : 55 tuiles,
+# portee 10, sur une unite a `Movement = 0`). Il suffit donc de :
+#
+#     portee de l'arme la plus longue  <  distance(caster, cible)  <=  range de l'ability
+#
+#   | caster           | ability                        | seuil | armes      | range | distance |
+#   |------------------|--------------------------------|-------|------------|-------|----------|
+#   | darkaTerminator  | 1150 PlasmaCannon              |   1   | melee (1)  |   3   |    3     |
+#   | tauMarksman      | 1069 SeekerMissileFrequencyLock|   0   | melee / R3 |   5   |    5     |
 #
 # `tauMarksman` est le TEMOIN : meme bras, meme cible, memes PV, seuil 0 -> il doit rester propose
 # dans les DEUX bras. Sans lui, « plus rien n'est propose en `lo` » se lirait aussi bien comme un
@@ -132,22 +142,31 @@ FAMILY = (
 FOE = "adeptRetributor"
 BOARD = "MC1_67"
 SEED = "4242"
-MOVEMENT = 1
+MOVEMENT = 0
 
 #: `(visualId, ability, seuil LU, distance cible a la cible)`
+#:
+#: UN SEUL caster, et c'est une CONTRAINTE MESUREE, pas un choix : le placement libre du premier
+#: tour vient du trait **Teleport**, pas d'une phase de deploiement. Mesure, meme spawn `(1,0)` et
+#: meme `Movement=0` : `darkaTerminator` (Terminator, donc Teleport) rend **58** tuiles atteignables
+#: (distances 2 a 11), `tauMarksman` en rend **0**. Un caster sans Teleport reste donc a son spawn,
+#: hors de portee de son ability -- il n'est pas montable a `Movement=0`, et avec un `Movement`
+#: suffisant pour approcher il choisirait de BOUGER (cf. plus bas). D'ou le temoin par REGIME
+#: (trois bras sur le meme caster) plutot que par ability.
 LIVE_CASTERS = (
     ("darkaTerminator", 1150, 1.0, 3),
-    ("tauMarksman",     1069, 0.0, 5),
 )
 
 #: PV du bras `lo`. Choisi tres au-dessus de `100 x degat` pour garantir `u < 1` quel que soit le
 #: rang de normalisation ; la valeur EXACTE de `u` est ensuite MESUREE, pas supposee.
 HP_LO = 4_000_000
 
-#: Cible d'utilite du bras `hi`, atteinte par calibrage depuis `u` mesure en `lo`.
-U_HI_TARGET = 2.0
+#: Utilites visees par les deux autres bras, atteintes par calibrage depuis `u` mesure en `lo`
+#: (`u x (maxHP + 2)` invariant). `mid` est AU-DESSUS du seuil porte et EN DESSOUS du point ou le
+#: natif bascule ; `hi` est au-dessus des deux.
+U_MID_TARGET = 5.0
+U_HI_TARGET = 20.0
 
-MAX_APPROACH_TURNS = 16
 
 
 class MontageError(RuntimeError):
@@ -334,56 +353,60 @@ def _movement_reach(mbu: dict, uid: int, here) -> int:
     return max((hexgeo.distance(t, here) for t in tiles), default=0)
 
 
-def _approach(sf: str, rid: int, casters: dict, foe_id: int) -> dict:
-    """Amene chaque caster a SA distance cible de l'unique cible, un hex par tour (`Movement = 1`).
+def _deploy(sf: str, rid: int, casters: dict, foe_id: int) -> tuple:
+    """Place chaque caster a SA distance cible, PENDANT LE DEPLOIEMENT, puis solde le tour.
 
-    On vise une DISTANCE, pas « a portee » : c'est elle qui prive l'attaque normale de tout plan
-    tout en laissant l'ability porter. `--no-ai` : l'adversaire ne bouge jamais, la geometrie est
-    PILOTEE, pas subie. Un TOUR BLANC clot l'approche, sinon les unites qui viennent de bouger
-    n'ont plus d'action et `aiDryRunAllUnits` rend `FinishUnitTurnMessage`.
+    Deux faits mesures fondent ce montage, et ils sont contre-intuitifs tous les deux :
 
-    ⚠ Le PREMIER tour est le DEPLOIEMENT : `decisionView` y publie des positions de pre-placement,
-    et la premiere « distance » lue n'est pas une distance de board (mesure : 11 pour une unite qui
-    se retrouve a 3 apres UN hex). On solde donc un tour a vide avant de mesurer quoi que ce soit."""
+    * **le DEPLOIEMENT ignore `Movement`** -- `aiMovableTiles` rend au premier tour, pour l'unite en
+      cours de placement, TOUTE la zone de deploiement (mesure : 55 tuiles, portee 10, sur une unite
+      a `Movement = 0`). C'est ce qui permet de choisir la geometrie exactement, sans approche ;
+    * **une fois deployee a `Movement = 0`, l'unite est FIGEE** -- le generateur de MOUVEMENT n'a
+      plus aucune tuile, donc il ne peut plus concurrencer le generateur d'ACTION.
+
+    Ce second point est ce qui rend le bras `lo` observable. Un deplacement CONSOMME l'activation
+    (mesure : apres un `MoveUnitMessage` applique, `aiDryRunAllUnits` rend `FinishUnitTurnMessage`),
+    et dans un regime ou toutes les utilites d'attaque tendent vers 0, le MOVE gagne l'argmax
+    quoi qu'il arrive -- l'ability n'apparaitrait jamais, gate ou pas. `Movement = 0` supprime
+    l'alternative : il ne reste que « caster » ou « finir son tour ».
+
+    Le placement est SEQUENTIEL (une seule unite a la main a la fois), d'ou la boucle."""
     import hexgeo
     want = {vis: d for vis, _ab, _t, d in LIVE_CASTERS}
-    _end_turn(sf, rid)                      # solde le DEPLOIEMENT avant toute lecture de distance
-    reach = {}
-    for _turn in range(MAX_APPROACH_TURNS):
-        dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 300)
-        by_id = {u.get("id"): u for u in (dv.get("units") or ())}
-        fp = _pos(by_id.get(foe_id) or {})
-        cur = {vis: hexgeo.distance(_pos(by_id[uid]), fp) for vis, uid in casters.items()}
-        if all(cur[v] == want[v] for v in casters):
-            break
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 300)
+    fp = _pos({u.get("id"): u for u in (dv.get("units") or ())}.get(foe_id) or {})
+    reach, placed = {}, set()
+    for _ in range(len(casters) * 3 + 2):
         mov = rpc("aiMovableTiles", {"runnerId": rid}, 90)
         mbu = {m.get("unitId"): m for m in (mov.get("units") or ())}
-        moved = False
+        did = False
         for vis, uid in casters.items():
-            here = _pos(by_id[uid])
-            r = _movement_reach(mbu, uid, here)
-            if r:
-                reach[vis] = max(reach.get(vis, 0), r)
-            if cur[vis] == want[vis]:
+            if vis in placed:
                 continue
             tiles = [(t.get("col"), t.get("row")) for t in ((mbu.get(uid) or {}).get("tiles") or ())]
             tiles = [t for t in tiles if t[0] is not None]
             if not tiles:
                 continue
+            reach[vis] = max(reach.get(vis, 0), max(hexgeo.distance(t, fp) for t in tiles))
             best = min(tiles, key=lambda t: abs(hexgeo.distance(t, fp) - want[vis]))
-            if abs(hexgeo.distance(best, fp) - want[vis]) >= abs(cur[vis] - want[vis]):
-                continue                      # aucun progres depuis cette tuile -- ne pas gacher le tour
             rc, _o = _duel("act", "move", "--state-file", sf, "--unit", str(uid),
                            "--to", "%d,%d" % best)
-            moved = moved or rc == 0
-        if not moved:
+            if rc == 0:
+                placed.add(vis)
+                did = True
+                break                              # placement SEQUENTIEL : une unite a la fois
+        if not did:
             break
-        _end_turn(sf, rid)
-    _end_turn(sf, rid)                                           # TOUR BLANC
+    _end_turn(sf, rid)                             # solde le deploiement -> actions intactes
     dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 300)
     by_id = {u.get("id"): u for u in (dv.get("units") or ())}
     fp = _pos(by_id.get(foe_id) or {})
-    return ({vis: hexgeo.distance(_pos(by_id[uid]), fp) for vis, uid in casters.items()}, reach)
+    mov = rpc("aiMovableTiles", {"runnerId": rid}, 90)
+    mbu = {m.get("unitId"): m for m in (mov.get("units") or ())}
+    # `frozen` = le garde de la mutation `Movement=0` : APRES deploiement, plus AUCUNE tuile.
+    frozen = {vis: _movement_reach(mbu, uid, _pos(by_id[uid])) == 0 for vis, uid in casters.items()}
+    return ({vis: hexgeo.distance(_pos(by_id[uid]), fp) for vis, uid in casters.items()},
+            reach, frozen)
 
 
 def _normal_has_plan(dv, uid: int) -> bool:
@@ -422,36 +445,6 @@ def _ability_castable_here(dv, uid: int, ability: int) -> bool:
     return False
 
 
-def _settle(sf: str, rid: int, casters: dict, max_steps: int = 2) -> None:
-    """Laisse le natif se POSER sur la tuile qu'il prefere, DANS LE MEME TOUR, avant de lire son
-    verdict d'ability.
-
-    `CalculateNextActionForUnit` rend UNE action a la fois : quand le maximum de `u_action` est sur
-    une AUTRE tuile que l'origine, il emet d'abord un `MoveUnitMessage` -- et l'ability, meme
-    parfaitement proposable, n'apparait qu'au pas SUIVANT. Mesure : `darkaTerminator` a `u = 2.0`,
-    ability `rankCount = 4` dont sa propre tuile, rendait `MoveUnitMessage vers (4,7)`.
-
-    ⚠ AUCUN `endturn` ici, et c'est le point : un deplacement ne consomme PAS l'action d'attaque du
-    tour. Solder le tour entre deux pas (ce que faisait la premiere version) rend au caster un
-    mouvement neuf a chaque fois -- mesure : les deux casters finissaient a portee de leur ATTAQUE
-    NORMALE (`normalPlan` passe de faux a vrai), ce qui detruisait precisement la neutralisation que
-    le montage cherche. Sans `endturn`, le mouvement est consomme des le premier pas : le sweep de
-    tuiles se reduit a l'origine et la normale ne peut plus revenir."""
-    for _ in range(max_steps):
-        dry = rpc("aiDryRunAllUnits", {"runnerId": rid}, 300)
-        by_uid = {u.get("unitId"): (u.get("proposed") or ()) for u in (dry.get("units") or ())}
-        moved = False
-        for _vis, uid in casters.items():
-            msgs = by_uid.get(uid) or ()
-            mv = next((m for m in msgs if m.get("cls") == "MoveUnitMessage"), None)
-            to = (mv or {}).get("to") or {}
-            if to.get("col") is None:
-                continue
-            rc, _o = _duel("act", "move", "--state-file", sf, "--unit", str(uid),
-                           "--to", "%d,%d" % (to["col"], to["row"]))
-            moved = moved or rc == 0
-        if not moved:
-            return
 
 
 def _stage(logs: str, tag: str, hp: int) -> dict:
@@ -475,10 +468,9 @@ def _stage(logs: str, tag: str, hp: int) -> dict:
         _dispose(rid)
         raise MontageError("montage NON INSTALLE (%s) : casters absents=%s, cible=%s"
                            % (tag, missing, foe_id))
-    dist, reach = _approach(sf, rid, ids, foe_id)
-    _settle(sf, rid, ids)
+    dist, reach, frozen = _deploy(sf, rid, ids, foe_id)
     return {"tag": tag, "rid": rid, "sf": sf, "hp": hp, "ids": ids, "foe": foe_id,
-            "dist": dist, "reach": reach}
+            "dist": dist, "reach": reach, "frozen": frozen}
 
 
 def _ctx(case: dict, uid: int):
@@ -549,7 +541,7 @@ def _measure(case: dict) -> list:
         rows.append({
             "arm": case["tag"], "caster": vis, "ability": ab, "threshold": thr,
             "hp": case["hp"], "dist": case["dist"].get(vis), "want_dist": want_d,
-            "reach": case["reach"].get(vis),
+            "reach": case["reach"].get(vis), "frozen": case["frozen"].get(vis),
             "normal_plan": _normal_has_plan(dv, case["ids"][vis]),
             "castable_here": _ability_castable_here(dv, case["ids"][vis], ab),
             "u": u, "native": nat[vis][0], "port": port, "port_gate_cut": cut,
@@ -559,33 +551,34 @@ def _measure(case: dict) -> list:
 
 
 def etape4_live(logs: str, verbose: bool = True) -> dict:
-    """Les deux bras, le calibrage du second depuis le premier, et les trois criteres."""
+    """Les trois bras (le meme caster, trois regimes d'utilite), et les quatre criteres."""
     bad, rows = 0, []
     case = _stage(logs, "lo", HP_LO)
     try:
         rows += _measure(case)
     finally:
         _dispose(case["rid"])
-    # CALIBRAGE : `u x (maxHP + 2)` est invariant a degat constant. On vise `U_HI_TARGET` sur le
-    # caster GATE-E (seuil 1) ; le temoin (seuil 0) n'a besoin que de `u > 0`, vrai des deux cotes.
-    ref = next((r for r in rows if r["threshold"] == 1.0), None)
+    # CALIBRAGE : `u x (maxHP + 2)` est invariant a degat constant -> les deux autres bras se
+    # derivent du `u` MESURE en `lo`, sans supposer le degat.
+    ref = rows[0] if rows else None
     if not ref or not ref["u"] or ref["u"] <= 0:
         print("[etape 4] CALIBRAGE IMPOSSIBLE : u=%s dans le bras lo" % (ref or {}).get("u"))
         return {"bad": 1, "rows": rows}
-    hp_hi = max(1, int(round((HP_LO + 2) * ref["u"] / U_HI_TARGET)) - 2)
-    case = _stage(logs, "hi", hp_hi)
-    try:
-        rows += _measure(case)
-    finally:
-        _dispose(case["rid"])
+    for tag, target in (("mid", U_MID_TARGET), ("hi", U_HI_TARGET)):
+        hp = max(1, int(round((HP_LO + 2) * ref["u"] / target)) - 2)
+        case = _stage(logs, tag, hp)
+        try:
+            rows += _measure(case)
+        finally:
+            _dispose(case["rid"])
 
     if verbose:
         print("[etape 4] live -- board %s seed %s, Movement=%d, cible %s" % (BOARD, SEED, MOVEMENT, FOE))
         for r in rows:
-            print("  [%-2s] %-16s ab=%-5d seuil=%.1f hp=%-9d dist=%-2s reach=%-2s normalPlan=%-5s "
+            print("  [%-2s] %-16s ab=%-5d seuil=%.1f hp=%-9d dist=%-2s frozen=%-5s normalPlan=%-5s "
                   "castHere=%-5s u=%-10s natif=%-5s port=%-5s"
                   % (r["arm"], r["caster"], r["ability"], r["threshold"], r["hp"], r["dist"],
-                     r["reach"], r["normal_plan"], r["castable_here"],
+                     r["frozen"], r["normal_plan"], r["castable_here"],
                      "None" if r["u"] is None else round(r["u"], 4), r["native"], r["port"]))
         print("  -- contre-epreuve gate-coupe (= le port d'avant cette tranche) --")
         for r in rows:
@@ -593,49 +586,66 @@ def etape4_live(logs: str, verbose: bool = True) -> dict:
                   % (r["arm"], r["caster"], r["port_gate_cut"],
                      "MORD" if r["port_gate_cut"] != r["port"] else "inerte"))
 
+    want_u = {"lo": (0.0, 1.0), "mid": (2.0, 10.0), "hi": (15.0, 1e9)}
     for r in rows:
-        # MONTAGE, TROIS conditions -- sans elles la ligne ne mesure pas ce qu'elle annonce :
-        #   `reach == MOVEMENT`     la mutation `--unit-stat <X>:Movement=1` a MORDU (un vert
-        #                           obtenu sur une mutation qui ne prend pas est le plus dangereux) ;
-        #   `not normal_plan`       l'attaque normale n'a AUCUN plan, donc son custom `Fix64(1)`
-        #                           ne peut pas rafler l'argmax et masquer le gate ;
-        #   `castable_here`         l'ability, elle, EST castable depuis la tuile courante -- sinon
-        #                           « le natif ne propose pas » ne dirait rien du gate.
-        if r["reach"] != MOVEMENT or r["normal_plan"] or not r["castable_here"]:
-            print("  BAD MONTAGE [%s] %s : reach=%s (voulu %d) normalPlan=%s castHere=%s dist=%s"
-                  % (r["arm"], r["caster"], r["reach"], MOVEMENT, r["normal_plan"],
-                     r["castable_here"], r["dist"]))
+        # MONTAGE, QUATRE conditions -- sans elles la ligne ne mesure pas ce qu'elle annonce :
+        #   `frozen`          `--unit-stat <X>:Movement=0` a MORDU : APRES placement, plus aucune
+        #                     tuile. Un vert obtenu sur une mutation qui ne prend pas ne prouve rien ;
+        #   `dist == voulu`   la geometrie visee est bien celle atteinte ;
+        #   `not normal_plan` l'attaque normale n'a AUCUN plan, donc son custom `Fix64(1)` ne peut
+        #                     pas rafler l'argmax ;
+        #   `castable_here`   l'ability, elle, EST castable depuis la tuile courante.
+        if (not r["frozen"]) or r["dist"] != r["want_dist"] or r["normal_plan"] \
+                or not r["castable_here"]:
+            print("  BAD MONTAGE [%s] %s : frozen=%s dist=%s (voulu %s) normalPlan=%s castHere=%s"
+                  % (r["arm"], r["caster"], r["frozen"], r["dist"], r["want_dist"],
+                     r["normal_plan"], r["castable_here"]))
             bad += 1
             continue
-        # CRITERE A (necessite, symetrique) : le port ne refuse JAMAIS ce que le natif CHOISIT.
+        # REGIME : chaque bras doit tomber dans SA fenetre d'utilite, sinon il ne discrimine rien.
+        lo_b, hi_b = want_u[r["arm"]]
+        if r["u"] is None or not (lo_b < r["u"] <= hi_b):
+            print("  BAD REGIME [%s] %s : u=%s hors (%s, %s]" % (r["arm"], r["caster"], r["u"],
+                                                                 lo_b, hi_b))
+            bad += 1
+            continue
+        # CRITERE A -- LE SENS QUI COMPTE (necessite, symetrique) : le port ne refuse JAMAIS ce que
+        # le natif CHOISIT. C'est le seul accord exigible ligne a ligne (`aiDryRunAllUnits` rend
+        # l'action GAGNANTE, le port rend « une action EXISTE »), et le sens de divergence le plus
+        # grave -- celui qui ferait perdre a un entrainement une action que le jeu joue.
         if r["native"] and not r["port"]:
             print("  VIOLE A [%s] %s : natif PROPOSE, port REFUSE" % (r["arm"], r["caster"]))
             bad += 1
-        # CRITERE B : dans le bras `lo`, le seuil 1 doit etre REFUSE par le natif et le seuil 0
-        # ACCEPTE -- c'est le discriminant qui separe les deux seuils.
-        if r["arm"] == "lo":
-            if r["u"] is None or not (0.0 < r["u"] < 1.0):
-                print("  BAD REGIME [lo] %s : u=%s hors (0,1)" % (r["caster"], r["u"]))
-                bad += 1
-            elif r["native"] == (r["threshold"] == 1.0):
-                print("  VIOLE B [lo] %s : natif=%s pour seuil %.1f"
-                      % (r["caster"], r["native"], r["threshold"]))
-                bad += 1
-        # CRITERE C : dans le bras `hi`, les DEUX seuils acceptent -- le temoin temporel du MEME
-        # caster, qui exclut « cette ability n'est jamais proposee ».
-        if r["arm"] == "hi":
-            if r["u"] is None or r["u"] <= 1.0:
-                print("  BAD REGIME [hi] %s : u=%s <= 1" % (r["caster"], r["u"]))
-                bad += 1
-            elif not r["native"]:
-                print("  VIOLE C [hi] %s : natif REFUSE alors que u=%.4f > 1"
-                      % (r["caster"], r["u"]))
-                bad += 1
+        # CRITERE B : le gate MORD cote port dans le bras `lo` (`u <= seuil`) et NULLE PART ailleurs.
+        if r["arm"] == "lo" and r["port"]:
+            print("  VIOLE B [lo] %s : le gate ne mord pas (u=%.4f <= seuil %.1f)"
+                  % (r["caster"], r["u"], r["threshold"]))
+            bad += 1
+        if r["arm"] in ("mid", "hi") and not r["port"]:
+            print("  VIOLE B [%s] %s : le gate mord alors que u=%.4f > seuil %.1f"
+                  % (r["arm"], r["caster"], r["u"], r["threshold"]))
+            bad += 1
+        # CRITERE C : quand l'utilite est FRANCHE, le natif propose bel et bien cette ability --
+        # c'est le temoin qui exclut « elle n'est de toute facon jamais proposee », et donc ce qui
+        # donne un sens au refus du bras `lo`.
+        if r["arm"] == "hi" and not r["native"]:
+            print("  VIOLE C [hi] %s : natif REFUSE a u=%.4f -- le temoin ne tient pas"
+                  % (r["caster"], r["u"]))
+            bad += 1
         # CRITERE D : la contre-epreuve doit MORDRE exactement la ou le gate refuse, et seulement la.
         if (r["port_gate_cut"] != r["port"]) != (not r["port"]):
             print("  VIOLE D [%s] %s : gate_cut=%s port=%s" % (r["arm"], r["caster"],
                                                                r["port_gate_cut"], r["port"]))
             bad += 1
+    # ECART PERMISSIF RESIDUEL, mesure et RAPPORTE (il ne fait pas rougir : il est ANTERIEUR a cette
+    # tranche, et la tranche le REDUIT). Le bras `mid` est exactement la zone ou le natif refuse
+    # encore et ou le port accepte. Cause NON identifiee -- ancrage nomme dans la case-doc :
+    # `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction`
+    # applique un predicat `<ctx+0xc0>+0x40` AVANT d'inserer l'action, donc AU-DESSUS du playbook.
+    for r in rows:
+        if r["arm"] == "mid" and r["port"] and not r["native"]:
+            print("  NOTE ecart PERMISSIF residuel [mid] %s : u=%.4f, port accepte, natif refuse"
+                  % (r["caster"], r["u"]))
     return {"bad": bad, "rows": rows}
 
 

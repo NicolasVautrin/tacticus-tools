@@ -135,7 +135,7 @@ Canal natif `aiDryRunAllUnits` (= `CalculateNextActionForUnit`, sans commit) ; c
 `calculate_action_utility` depuis la tuile COURANTE (`None` = le `Nullable` vide natif), et
 `u` = l'argument EXACT du gate, lu AVANT lui.
 
-### 4.1 L'axe, énoncé AVANT — et il SÉPARE les deux seuils
+### 4.1 L'axe, énoncé AVANT
 
 Sur une cible à PV pleins et sans bouclier, l'utilité de dégât vaut, au décompilé porté
 (`engine/utilities/damage.py::DamageUtility.evaluate`, `W_DAMAGE = 80`, `W_REMAINING = 20`) :
@@ -145,61 +145,120 @@ u = 80 * dmg/(maxHP+2) + 20 * (1 - (maxHP+2-dmg)/(maxHP+2)) = 100 * dmg / (maxHP
 ```
 
 Donc **`u × (maxHP + 2)` est INVARIANT** à dégât constant : `u` est pilotable par les PV de la cible.
-Deux bras, un seul axe :
+Trois bras sur le MÊME caster, un seul axe, les deux derniers **calibrés depuis le `u` mesuré au
+premier** (aucune valeur de dégât n'est supposée).
 
-* **bras `lo`** — PV énormes ⇒ `0 < u < 1`. Le seuil `1` doit REFUSER, le seuil `0` ACCEPTER.
-* **bras `hi`** — PV **calibrés** depuis le `u` mesuré en `lo` pour viser `u ≈ 2`. Les deux acceptent.
+### 4.2 Le montage — `Movement = 0`, et pourquoi il ferme DEUX concurrents à la fois
 
-Ce n'est donc pas un régime dégénéré : les deux modèles candidats (`> 0` et `> 1`) rendent des
-verdicts **opposés** dans le bras `lo`, et le même dans `hi`. Le seuil s'en trouve **encadré**,
-pas seulement « grand ».
+`aiDryRunAllUnits` rend l'action **gagnante**. Dans un régime où l'utilité d'attaque est faible,
+deux autres générateurs la raflent **que le gate morde ou non** :
 
-### 4.2 Les quatre critères
+1. **l'ATTAQUE NORMALE**, qui garde son `CalculateCustomUtility = Fix64(1)` ;
+2. **le MOUVEMENT** — et c'est le piège le moins évident : **un déplacement CONSOMME l'activation**
+   (mesuré : après un `MoveUnitMessage` appliqué, `aiDryRunAllUnits` rend `FinishUnitTurnMessage`),
+   donc « bouger » et « caster » s'EXCLUENT. À `u ≈ 0.07`, le natif se rapproche, toujours.
 
-* **A (nécessité, symétrique)** : le port ne refuse JAMAIS une ability que le natif CHOISIT. Les
-  deux canaux ne mesurent pas la même chose (`aiDryRunAllUnits` rend l'action GAGNANTE, le port rend
-  « une action EXISTE ») : c'est le seul accord exigible ligne à ligne, et le sens de divergence le
-  plus grave.
-* **B (le discriminant)** : en bras `lo`, le seuil `1` est refusé par le natif, le seuil `0` accepté.
-  Même bras, même cible, mêmes PV — la seule chose qui sépare les deux lignes est la VALEUR lue.
-* **C (témoin temporel)** : en bras `hi`, les deux sont acceptées. Exclut « cette ability n'est de
-  toute façon jamais proposée » et borne le seuil PAR LE HAUT.
-* **D (contre-épreuve)** : `should_execute` remis au défaut de la base — STRICTEMENT le port d'avant
-  cette tranche — doit MORDRE là où le gate refuse et rester INERTE partout ailleurs.
+`--unit-stat <X>:Movement=0` ferme les deux : le générateur de mouvement n'a plus aucune tuile, et
+le sweep de tuiles du générateur d'action se réduit à l'origine — l'attaque normale n'a donc de plan
+que si la cible est **déjà** à portée d'arme, condition purement géométrique. Il suffit alors de :
 
-### 4.3 Le montage, et les TROIS pièges qu'il a fallu fermer
+```
+portée de l'arme la plus longue  <  distance(caster, cible)  <=  range de l'ability
+```
 
-L'attaque normale porte `CalculateCustomUtility = Fix64(1)`. En bras `lo`, où toutes les utilités
-tendent vers 0, elle raflerait l'argmax **que le gate morde ou non** : le bras aurait deux causes
-indistinguables. Le montage la prive donc de tout plan par la GÉOMÉTRIE —
-`distance > Movement + portée de l'arme la plus longue` — avec `Movement` ramené à 1 par
-`--unit-stat` et une approche qui vise une DISTANCE, pas « à portée ».
+⚠ **Et le placement libre du premier tour vient du trait `Teleport`, PAS d'une phase de
+déploiement.** Mesuré, même spawn `(1,0)` et même `Movement=0` : `darkaTerminator` (Terminator, donc
+Teleport) rend **58** tuiles atteignables (distances 2 à 11), `tauMarksman` en rend **0**. C'est ce
+qui **réduit le montage à UN caster** — un porteur sans Teleport reste à son spawn, hors de portée
+de son ability, et avec un `Movement` suffisant pour approcher il choisirait de bouger. Le témoin
+est donc un témoin de **RÉGIME** (le même caster à trois utilités), pas d'ability.
 
 | caster | ability | seuil | armes | range | distance |
 |---|---|---|---|---|---|
-| `darkaTerminator` | 1150 PlasmaCannon | 1 | melee (1) | 3 | 3 |
-| `tauMarksman` | 1069 SeekerMissileFrequencyLock | 0 | melee / R3 | 5 | 5 |
+| `darkaTerminator` | 1150 PlasmaCannon | 1 | melee (1) | 3 | **3** |
 
-Trois pièges, tous **mesurés** puis fermés, et tous gardés ligne à ligne :
+Deux autres pièges, mesurés puis fermés, gardés ligne à ligne :
 
-1. **`endturn` testé AVANT d'être joué.** Le patron repris de #581 attend que le tour REVIENNE
-   (`currentPlayer == 3`) ; utilisé pour TERMINER le tour, il sort immédiatement — c'est déjà notre
-   tour — et le tour n'est jamais soldé. Symptôme trompeur au deuxième pas d'approche :
-   « AUCUNE tuile movable ».
-2. **Le premier tour est le DÉPLOIEMENT.** `decisionView` y publie des positions de pré-placement :
-   mesuré, une distance de **11** pour une unité qui se retrouve à **3** après UN hex. On solde un
-   tour à vide avant toute lecture de distance.
-3. **Un déplacement ne consomme PAS l'action d'attaque.** `CalculateNextActionForUnit` rend UNE
-   action à la fois : un caster qui préfère une autre tuile émet d'abord un `MoveUnitMessage`
-   (mesuré : `darkaTerminator` à `u = 2.0`, ability `rankCount = 4` dont sa propre tuile, rendait
-   `MoveUnitMessage vers (4,7)`). On le laisse se poser — mais **dans le même tour**. La première
-   version soldait le tour entre deux pas, rendant un mouvement neuf à chaque fois : les deux
-   casters finissaient à portée de leur attaque normale (`normalPlan` faux → vrai), détruisant la
-   neutralisation même que le montage cherche.
+* **`endturn` testé AVANT d'être joué.** Le patron repris de #581 attend que le tour REVIENNE
+  (`currentPlayer == 3`) ; utilisé pour TERMINER le tour il sort immédiatement — c'est déjà notre
+  tour — et le tour n'est jamais soldé. Symptôme trompeur : « AUCUNE tuile movable » au deuxième pas.
+* **La mutation doit avoir MORDU.** `frozen` mesure, APRÈS placement, qu'il ne reste aucune tuile.
+  Un montage dont la mutation ne prend pas donne un vert qui ne prouve rien.
 
-Et un garde qui n'est pas un piège mais une discipline : **`--unit-stat <X>:Movement=1` doit avoir
-MORDU**. `reach` est mesuré sur les tuiles réellement rendues. Un montage dont la mutation ne prend
-pas donne un vert qui ne prouve rien — c'est le vert le plus dangereux.
+### 4.3 Les trois bras — mesure
+
+| bras | PV cible | `u` (port) | montage | natif | port | contre-épreuve |
+|---|---|---|---|---|---|---|
+| `lo` | 4 000 000 | **0,0851** | frozen, dist 3, pas de plan normal, castable | refuse | **refuse** | **MORD** |
+| `mid` | 68 078 | **5,0** | idem | refuse | accepte | inerte |
+| `hi` | 17 018 | **20,0** | idem | **`ActiveAbilityMessage(1150)`** | accepte | inerte |
+
+* **A (le sens qui compte)** : le port ne refuse JAMAIS ce que le natif choisit — **3/3**. Les deux
+  canaux ne mesurent pas la même chose (`aiDryRunAllUnits` rend l'action GAGNANTE, le port rend
+  « une action EXISTE ») : c'est le seul accord exigible ligne à ligne, et le sens de divergence le
+  plus grave — un port RESTRICTIF ferait perdre à l'entraînement une action que le jeu joue.
+* **B** : le gate mord en `lo` et **nulle part ailleurs**.
+* **C (le témoin)** : à `u = 20` le natif émet bel et bien `ActiveAbilityMessage(1150)`. Sans lui, le
+  refus du bras `lo` se lirait aussi bien comme « cette ability n'est de toute façon jamais
+  proposée ».
+* **D (contre-épreuve)** : `should_execute` remis au défaut de la base — STRICTEMENT le port d'avant
+  cette tranche — MORD sur `lo` et reste INERTE sur `mid` et `hi`. L'inertie est la réciproque : un
+  port qui déborderait ferait bouger les autres bras.
+
+### 4.4 Ce que la mesure NE conclut PAS — l'écart permissif résiduel
+
+**Le natif ne bascule qu'entre `u = 5` et `u = 20`**, donc bien AU-DESSUS du seuil `Fix64(1)` lu au
+`.cctor`. Dichotomie, même montage : refus à `u_port` = 0,085 / 0,5 / 2,0 / 5,0 / 7,5 / 10,0 ;
+acceptation à 15,0 et 20,0. La prédiction du port est stable sur tout le balayage
+(`healthDmgMin = 2724`, `healthDmgMax = 4083`, ni `kill` ni `killSure`), donc le point de bascule
+n'est pas un artefact de prédiction variable.
+
+Trois lectures possibles, et **la mesure ne les sépare pas** :
+
+1. le port SURESTIME `u` d'un facteur ~12 (divergence de PRÉDICTION, hors gate) ;
+2. un filtre vit AU-DESSUS du playbook ;
+3. le seuil effectif n'est pas celui du `.cctor` — la moins probable, il est lu deux fois.
+
+La lecture (2) a un **ancrage nommé**, trouvé au décompilé :
+`IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` applique un
+prédicat sur l'action **AVANT** de l'insérer dans le bucket (l'appel indirect sur `<ctx+0xc0>+0x40`,
+avant même la comparaison `Fix64$$op_GreaterThan` des utilités), et
+`…Bucket…$$ChooseAction` le **ré-applique** au choix final. Un gate d'action au-dessus du playbook
+expliquerait exactement le décalage.
+
+**Ce que l'on peut affirmer, et c'est ce qui compte pour la livraison** : l'écart restant est
+**PERMISSIF, jamais restrictif**, et il est **ANTÉRIEUR** à cette tranche — sans gate, le port
+acceptait AUSSI à `u = 0,085`. La tranche **réduit strictement** l'écart. Résidu `-r2-r4`.
+
+---
+
+### 4.5 Le voisinage rejoué
+
+| fichier | verdict |
+|---|---|
+| `test_419r1tr14r5r2r1r1r1r2_static_threshold_gate_live.py` (neuf) | **15 passed** |
+| `test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py` (#581, même foyer) | 10 passed |
+| `test_plague_wind_prediction_live.py` (1035, l'un des dix ids) | 22 passed |
+| `test_tile_term_unit_gated_playbooks_live.py` (bespoke MomentShackle) | 30 passed |
+| `test_prediction_trait_gates_live.py` (bespoke) | 6 passed |
+
+---
+
+## 5. Ce qui n'est PAS couvert
+
+* **Une seule des douze identités est confrontée live** (`1150 PlasmaCannon`). Les onze autres
+  partagent le MÊME corps natif et le MÊME objet Python : ce qui est confronté est le **corps**,
+  pas chaque identité. Leur seule spécificité est l'`ability_id` et la valeur du static, tous deux
+  lus au décompilé et gardés par un cran offline.
+* **Le seuil `Fix64(1)` n'est pas séparé de `Fix64(0)` par la mesure live.** Le témoin par ability
+  (une seuil-0 dans le même bras) exigeait un second caster montable, et il n'y en a pas : sans
+  `Teleport`, aucun porteur seuil-0 n'atteint la fenêtre de distance requise (§4.2). La valeur du
+  seuil repose donc sur les **deux lectures indépendantes du `.cctor`**, pas sur le live.
+* **La comparaison STRICTE (`utility == seuil` refusé) n'est pas confrontée live** : elle ne mord
+  qu'à l'égalité flottante exacte. Cran de source uniquement.
+* **Un seul board, un seul seed, une seule cible.** Ni le gate ni le seuil ne lisent le terrain ou
+  le RNG, mais le point de bascule NATIF (§4.4) n'a été localisé que dans cette configuration.
+* **`1073 StaffOfStars` et `1074 ScytheOfDust` : aucun porteur recensé** — cf. résidu `-r2-r3`.
 
 ---
 
@@ -223,3 +282,30 @@ pas donne un vert qui ne prouve rien — c'est le vert le plus dangereux.
   `1074 ScytheOfDust` rendent **0 unité** sur les cinq voies dérivables du gameconfig. Le zéro ne
   prouve pas la mort (quatre voies non couvertes : trait, live-event, summon, tuile) et le port du
   gate est le MÊME objet que pour les dix autres — mais ces deux identités sont **NON CONFRONTÉES**.
+* **`-r2-r4` — le point de bascule NATIF est ~12× au-dessus du seuil lu (§4.4), cause non
+  tranchée.** Ancrage à lire :
+  `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` et
+  `…Bucket…$$ChooseAction`, qui appliquent tous deux un prédicat sur l'action (appel indirect via
+  `<ctx+0xc0>+0x40`) avant respectivement l'insertion et le choix. Ce qui le trancherait sans
+  nouveau capteur : lire ce prédicat au décompilé, et confronter la prédiction de dégât native de
+  `1150` à celle du port (`healthDmgMin = 2724` / `healthDmgMax = 4083`) — le facteur ~12 est du
+  même ordre que ce qu'une prédiction fausse produirait. **L'écart est PERMISSIF** : il ne peut pas
+  faire perdre une action, seulement en proposer une de trop.
+
+---
+
+## 7. La technique, réutilisable
+
+**Piloter l'utilité d'action par les PV de la cible.** `u = 100 × dmg/(maxHP + 2)` sur une cible à
+PV pleins sans bouclier ⇒ `u × (maxHP + 2)` est INVARIANT à dégât constant. Un premier bras à PV
+énormes donne la constante ; tous les autres régimes s'en **calibrent** sans jamais supposer le
+dégât. C'est ce qui permet de traverser un seuil d'utilité à volonté, dans les deux sens.
+
+**Isoler une ability de ses concurrents par `Movement = 0`.** Un seul `--unit-stat` ferme le
+générateur de MOUVEMENT (plus aucune tuile) *et* l'ATTAQUE NORMALE (sweep réduit à l'origine, donc
+hors portée d'arme dès que la géométrie le veut). Sans lui, aucun régime de faible utilité n'est
+observable : le natif bouge, et bouger CONSOMME l'activation.
+
+**Se méfier du placement du premier tour.** Il vient du trait `Teleport`, pas d'une phase de
+déploiement — donc il n'est disponible que pour certaines unités, et c'est ce qui décide quels
+porteurs sont montables à `Movement = 0`.
