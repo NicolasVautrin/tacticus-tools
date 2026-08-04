@@ -107,6 +107,64 @@ def test_temoin_non_discriminant_coincide():
     assert (_bound(raw[0], False), _bound(raw[1], False)) == native
 
 
+def test_les_vecteurs_combat_posent_le_drapeau():
+    """LE CABLAGE, garde a part -- et c'est necessaire : les crans ci-dessus appellent
+    `apply_pierce_and_modifiers` avec le drapeau EXPLICITE, donc ils restent VERTS si un vecteur
+    COMBAT cesse de le poser. Mesure de la contre-epreuve : drapeau retire de `damage_ops/normal.py`
+    -> le probe rend 1553 contre 1245 natif, et ce fichier restait 10 passed.
+
+    Les quatre vecteurs retombent sur le MEME `IdunBattle.Operations.AttackDamageOperation$$
+    ExecuteHit`, donc sur les MEMES deux appels `ApplyCappedModifiers`. La PREDICTION, elle, ne doit
+    PAS le poser (cf. residu `#437-r1-r1`) : c'est verifie en negatif.
+    ⚠ La lecture est **TOKEN-AWARE** (`ast`), jamais un `in` sur le texte : la premiere version
+    cherchait la sous-chaine `separate_face_lists=True` dans le source, et le COMMENTAIRE qui
+    documente le drapeau la contenait -- la mutation ne mordait pas et le cran restait vert."""
+    import ast
+    import inspect
+    import engine.runner.operations.additional_hits as ah
+    from engine.runner.operations.damage_ops import ability, normal, normal_like
+    from engine.services import damage_prediction as dp
+
+    def _flags(mod):
+        """Valeur du mot-cle `separate_face_lists` de chaque appel a `apply_pierce_and_modifiers`
+        du module (None = mot-cle absent).
+
+        ⚠ Les appels qui passent `mods=None` sont EXCLUS, et ce n'est pas un assouplissement : ce
+        sont ceux du degat DIRECT (`normal_like.execute_direct`, mirror
+        `IdunBattle.Core.Services.DamagePrediction$$CalculateDirectDamage`), un chemin natif qui ne
+        passe PAS par `AttackDamageOperation$$ExecuteHit`. Avec `mods=None`, tout le bloc des
+        `%-list` est saute : le drapeau y serait un NO-OP demontrable, pas un oubli. C'est ce cran
+        qui a trouve cet appel -- il etait invisible a la lecture."""
+        out = []
+        for node in ast.walk(ast.parse(inspect.getsource(mod))):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", None)
+            if name != "apply_pierce_and_modifiers":
+                continue
+            mods_kw = next((k for k in node.keywords if k.arg == "mods"), None)
+            if mods_kw is not None and getattr(mods_kw.value, "value", "?") is None:
+                continue                       # degat DIRECT : pas d'`ExecuteHit`, drapeau no-op
+            kw = next((k for k in node.keywords if k.arg == "separate_face_lists"), None)
+            out.append(None if kw is None else getattr(kw.value, "value", "?"))
+        return out
+
+    for mod in (normal, ability, normal_like, ah):
+        got = _flags(mod)
+        assert got and all(v is True for v in got), (
+            "%s : les appels a `apply_pierce_and_modifiers` rendent %s -- un vecteur COMBAT ne pose "
+            "plus `separate_face_lists=True` et retombe sur la CHAINE UNIQUE, donc sur l'arrondi "
+            "manquant de #437-r1 (mesure de la contre-epreuve : 1553 au lieu de 1245 natif)"
+            % (mod.__name__, got))
+
+    assert not any(v is True for v in _flags(dp)), (
+        "la PREDICTION pose desormais le drapeau : elle deplacerait le cran DEUX FACES de #462-r4a "
+        "(elevation x1.50 ATT + Terrifying x0.70 DEF -> natif 761/1141), qui mesure une CHAINE "
+        "UNIQUE. C'est le residu #437-r1-r1 -- s'il a ete tranche, mettre CE cran a jour AVEC la "
+        "mesure qui l'a tranche, jamais l'inverse.")
+
+
 def test_no_op_quand_une_face_est_vide():
     """Le drapeau est STRICTEMENT NO-OP des qu'une des deux `%-list` est vide -- c'est ce qui
     conserve tous les regimes a UNE face deja mesures (#446-r2 `T` et `A`, le balayage d'armure de
