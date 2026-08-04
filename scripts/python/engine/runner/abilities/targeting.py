@@ -375,8 +375,10 @@ def custom_range_func() -> TargetingRange:
         param_1[1] = 0       # Nullable<int> overrideRange VIDE
         param_1[2] = param_2 # overrideRangeFunc = le delegue
 
-    Le delegue n'est pas resolu (cf. `TargetingRange.override_range_func`) -> `get_range` rend None,
-    aucun gate de portee. On enregistre le FAIT que le ctor le pose, pas une valeur devinee."""
+    Le delegue n'est pas resolu (cf. `TargetingRange.override_range_func`) -> `get_range` rend un
+    `Range` a `value = None`, donc aucun gate de DISTANCE ; le gate d'ADJACENCE tient (le delegue
+    n'ecrit pas `onlyAdjacent`, cf. `Range` et #419-r1-tr14-r5-r2-r1-r2-r1-r1). On enregistre le
+    FAIT que le ctor le pose, pas une valeur devinee."""
     return TargetingRange(only_adjacent=RANGED_BOOL_FALSE, override_range=None,
                           override_range_func=True)
 
@@ -754,7 +756,8 @@ NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE: "dict[int, TargetingOptions]" = {
     #   * `onlyAdjacent` est vrai INCONDITIONNELLEMENT -- un caster RANGED est ramene a l'adjacence,
     #     la ou `IfNotRangedCaster` le laissait sur le test de DISTANCE ;
     #   * `overrideRange = 1` COURT-CIRCUITE `unit_weapon_range` -- avec le preset generique, une
-    #     portee d'arme non observable fait rendre `None` a `get_range`, donc AUCUN gate de portee.
+    #     portee d'arme non observable fait rendre `value = None` a `get_range`, donc aucun gate de
+    #     DISTANCE (le gate d'adjacence, lui, tient -- #419-r1-tr14-r5-r2-r1-r2-r1-r1).
     1146: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_IF_RANGED_CASTER),
 }
