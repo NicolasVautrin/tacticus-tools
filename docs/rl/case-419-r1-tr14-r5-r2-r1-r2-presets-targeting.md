@@ -277,16 +277,17 @@ Le port a ete restaure et re-verifie identique a HEAD.
 
 ## 8. Residus nommes
 
-* **`#419-r1-tr14-r5-r2-r1-r2-r1` — la regle dynamique de l'attaque normale n'est pas portee.**
-  `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason` =
-  `FindAttackWeapon(caster, casterTiles, targetTiles) != null ? 0 : TargetMatchesDynamicRule`, dont
-  l'implementation est `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack`
-  (resolution `GetAbilityAttackRangeType` puis `FindMeleeWeapon` / `FindRangedWeapon`). Degradation
-  PERMISSIVE sur les **13** types a `0x4002` ; les 5 types a `0x4000` sont deja exacts. Le porter
-  ajoute un REFUS sur le chemin de l'attaque normale — rayon de souffle large
-  (`valid_normal_attack_targets` alimente `ValidNormalAttackTargets`, `SorcerousFacade`, `admec`,
-  `repair`, `rapid_fire`) : a porter avec sa propre confrontation, et **le faire sans la table par
-  type armerait la regle sur cinq types que le natif desarme**.
+* ~~**`#419-r1-tr14-r5-r2-r1-r2-r1` — la regle dynamique de l'attaque normale n'est pas portee.**~~
+  **FERME** : `docs/rl/case-419-r1-tr14-r5-r2-r1-r2-r1-regle-dynamique-attaque-normale.md`.
+  ⚠ **La chaine annoncee ici etait FAUSSE sur un point** : l'implementation n'est PAS la surcharge a
+  `GetAbilityAttackRangeType` (c'est le slot `0xaf`, qu'aucun chemin porte n'emprunte) mais le slot
+  **`0xb0`**, `GetAttackWeaponForDefaultNormalAttack(attacker, attackerTiles, targetTiles)`, dont
+  tout le corps est `AreTilesAdjacent ? FindMeleeWeapon : FindRangedWeapon`. La confusion venait de
+  « `FindAttackWeapon` » au singulier : `ALoki_NormalAttackAbility` en a DEUX surcharges, sur deux
+  slots distincts, et `GetDynamicInvalidTargetReason` appelle l'autre.
+  L'ecart PERMISSIF est confirme et ferme (6/6 sur le verdict contre 3/6, 3 lignes gagnees,
+  0 perdue). Le refus ne mord que sur un caster **sans AUCUNE arme** — les deux autres regimes
+  envisageables sont soit deja couverts par le volet portee, soit VIDES au catalogue.
 * **`#419-r1-tr14-r5-r2-r1-r2-r2` — les masques recalcules HORS `.ctor` ne sont pas recenses.**
   `IdunBattle.Entities.Abilities.AActiveAbility$$GetTargetingOptionsForContinue` (et sa surcharge
   `GreatFrostAxeAbility`) produisent le SECOND jeu d'options, loge a `this+0xb0`, qu'un recensement
