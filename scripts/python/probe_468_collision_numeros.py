@@ -503,16 +503,63 @@ def _artefacts_de_code() -> tuple:
 RACINE_PURE = re.compile(r"^\d+$")
 
 
-def _scanner_fichiers(fichiers) -> dict:
-    """{cle: {ou}} pour tout `#<n>` du CONTENU et tout `<n>` en tete d'un NOM de fichier."""
+#: Les DEUX arbres ou un numero s'emploie. Bornes en PATHSPEC, donc `git grep` ne remonte
+#: jamais a la racine : `.claude/worktrees/` est hors de portee par construction (#434), et
+#: depuis un worktree la commande ne voit QUE ce worktree.
+PATHSPECS = ("docs/rl", "scripts/python")
+
+#: Motif d'ATTRIBUTION, volontairement plus large que `RE_OCCURRENCE` : tout ce qui suit un
+#: `#` et pourrait etre lu comme un identifiant. Un sur-ensemble est le cote SUR ici -- il fait
+#: SAUTER un numero, jamais le reprendre. (Verifie : ce que `RE_OCCURRENCE` voit, il le voit.)
+RE_TOKEN_LARGE = r"#[0-9a-zA-Z][0-9a-zA-Z_-]*"
+
+
+def _git(args, quoi):
+    """Lance git ou LEVE. Une panne d'outil n'est jamais un ensemble vide -- ce serait
+    exactement la mesure amputee qui fabrique une collision."""
+    import subprocess
+    try:
+        res = subprocess.run(["git", "-C", str(REPO)] + args, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise Indisponible("%s injouable (%s) -- aucun numero ne peut etre suggere sur un "
+                           "corpus ampute" % (quoi, exc)) from exc
+    # `git grep` rend 1 quand il ne trouve RIEN : c'est une reponse valide, pas une panne.
+    if res.returncode not in (0, 1):
+        raise Indisponible("%s rc=%d -- aucun numero ne peut etre suggere sur un corpus "
+                           "ampute" % (quoi, res.returncode))
+    return res.stdout
+
+
+def _identifiants_du_contenu() -> dict:
+    """{cle: {'contenu'}} -- tout `#<n>` de `docs/rl` et `scripts/python`, par `git grep`.
+
+    COUT, mesure le 2026-08-04 sur 535 `.md` + 1749 `.py` : `git grep` 0,6 s contre 16,7 s
+    (jusqu'a 37 s sous charge) pour `rglob` + `read_text`, pour un resultat STRICTEMENT
+    equivalent. La regex n'y etait pour rien -- elle coute 0,1 s sur le corpus deja en
+    memoire ; c'est la LECTURE de 2 300 fichiers qui dominait. Un outil d'attribution qu'on
+    attend deux minutes ne sera pas utilise, donc ne supprimera aucun geste fautif.
+
+    `--untracked` couvre le travail NON COMMITE du worktree courant : c'est precisement la
+    ou vit le numero que l'agent est en train de prendre.
+    """
     out = {}
+    txt = _git(["grep", "-h", "-o", "-I", "--untracked", "-E", RE_TOKEN_LARGE, "--"]
+               + list(PATHSPECS), "`git grep`")
+    for ligne in txt.splitlines():
+        if len(ligne) > 1:
+            out.setdefault(normaliser(ligne[1:]), set()).add("contenu")
+    return out
+
+
+def _identifiants_des_noms() -> dict:
+    """{cle: {nom}} -- `case-<n>-*.md`, `probe_<n>_*.py`, `test_<n>_*.py`.
+
+    Le nom porte l'identifiant meme quand le contenu ne le cite pas -- et le glob voit les
+    fichiers non commites, comme `--untracked` ci-dessus."""
+    out = {}
+    fichiers = list(DOCS_RL.rglob("*.md")) + list((REPO / "scripts" / "python").rglob("*.py"))
     for p in fichiers:
-        try:
-            txt = p.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        for m in RE_OCCURRENCE.finditer(txt):
-            out.setdefault(normaliser(m.group(1)), set()).add(p.name)
         ident, _slug = couper_nom(re.sub(r"^(?:probe|test)_", "", p.stem).replace("_", "-"))
         if ident:
             out.setdefault(normaliser(ident), set()).add(p.name)
@@ -529,28 +576,17 @@ def _identifiants_des_commits() -> dict:
     Toute panne de `git` leve `Indisponible` -- jamais un ensemble VIDE, qui ferait suggerer un
     numero deja pris. C'est la meme frontiere que `host_inputs.py` : `null` n'est pas `0`.
     """
-    import subprocess
-    try:
-        res = subprocess.run(["git", "-C", str(REPO), "log", "--format=%s%n%b", "--no-merges"],
-                             capture_output=True, text=True, encoding="utf-8",
-                             errors="replace", timeout=60)
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise Indisponible("`git log` injouable (%s) -- aucun numero ne peut etre suggere sur "
-                           "un corpus ampute" % exc) from exc
-    if res.returncode != 0:
-        raise Indisponible("`git log` rc=%d -- aucun numero ne peut etre suggere sur un corpus "
-                           "ampute" % res.returncode)
     out = {}
-    for m in RE_OCCURRENCE.finditer(res.stdout):
-        out.setdefault(normaliser(m.group(1)), set()).add("git log")
+    for m in re.finditer(RE_TOKEN_LARGE, _git(["log", "--format=%s%n%b", "--no-merges"],
+                                              "`git log`")):
+        out.setdefault(normaliser(m.group(0)[1:]), set()).add("git log")
     return out
 
 
 def employes() -> dict:
     """{cle normalisee: {sources}} -- l'UNION, toutes positions confondues."""
     union = {}
-    for part in (_scanner_fichiers(sorted(DOCS_RL.rglob("*.md"))),
-                 _scanner_fichiers(sorted((REPO / "scripts" / "python").rglob("*.py"))),
+    for part in (_identifiants_du_contenu(), _identifiants_des_noms(),
                  _identifiants_des_commits()):
         for k, v in part.items():
             union.setdefault(k, set()).update(v)
