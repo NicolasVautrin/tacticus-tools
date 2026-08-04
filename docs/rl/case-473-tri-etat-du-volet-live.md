@@ -152,20 +152,41 @@ passerait la face volatile.
 
 | épreuve | résultat |
 |---|---|
-| `probe_467r4` seul, host allumé | `VERDICT: PASS`, rc 0 — 12 épreuves du volet [B], 11 de [B'] |
-| contre-épreuve bout en bout, 5 scénarios | rc **0 / 99 / 0 / 2 / 2**, conformes |
+| `probe_467r4` seul, host allumé | `VERDICT: PASS`, rc 0 — 12 épreuves du volet [B], 12 de [B'] |
+| contre-épreuve bout en bout, **6** scénarios | rc **0 / 99 / 0 / 2 / 2 / 5**, conformes |
 | `probe_471` | `VERDICT: PASS` — inventaire : `probe_467r4` passe de « gisement par module importé » à **« PORTENT le tri-état »** (8 → 9), trace mécanique que le tri-état est branché |
 | `probe_439` | `VERDICT: PASS` — l'entrée reste capable de rougir |
 | `probe_440` | `VERDICT: PASS` — périmètre et écritures inchangés |
+| `probe_462 --report --since origin/master` | périmètre **0** — aucun `*_live.py` touché, aucune attestation requise |
 | banque complète | cf. §7 |
 
-## 7. Relevé de banque
+## 7. Relevé de banque — le mécanisme a mordu EN PRODUCTION, sans provocation
 
-Joué après rebase sur `origin/master`. La composition de la banque est **définie** par
-`scripts/ratchets.ps1` ; cette case-doc **atteste** ce qui a été joué, elle ne définit rien.
+**Première passe, après rebase** — et c'est la mesure la plus utile de cette tranche :
 
 ```
-[ratchets] BANQUE VERTE -- 41 cliquet(s), mur 693,2 s.
+INDISPONIBLE  probe_467r4   (rc=99, 12,1 s)
+  RIEN N A ETE MESURE ici : ce cliquet accuse le HARNAIS, pas le code.
+[ratchets] BANQUE INDISPONIBLE -- 1/42 cliquet(s) n'ont RIEN MESURE : probe_467r4. Mur 1230,3 s.
+[ratchets] Aucun rouge par ailleurs. Ce n'est PAS un verdict favorable sur le depot :
+[ratchets] c'est l'absence de verdict sur ces entrees-la.
 ```
 
-`probe_467r4` : **12,8 s**, rc 0. ⚠ Chiffres à re-dériver, pas à citer.
+Cause imprimée : `relecture du host : /api/admin/status : timed out`. Les **11** autres épreuves du
+volet [B] sont restées **jugées et vertes**. Sur `origin/master`, le même événement aurait donné
+`ROUGE loop_status.mesurer_harnais MESURE sur la reponse reelle` → `BANQUE ROUGE` : le flake de la
+PR #588 reproduit à l'identique, **spontanément**, sous la banque à parallélisme 16.
+
+Conduite tenue, celle que le verdict imprime : **cette entrée rejouée seule** → `VERDICT: PASS`,
+rc 0. Cause transitoire, et je le dis au lieu de le taire.
+
+**Seconde passe, après rebase et après les corrections du §3** :
+
+```
+[ratchets] BANQUE VERTE -- 42 cliquet(s), mur 466,4 s.
+```
+
+`probe_467r4` : **13,8 s**, rc 0 — coût marginal en parallèle nul (le mur est ailleurs), qui est le
+critère d'admission écrit dans `ratchets.ps1`, jamais le coût absolu. ⚠ Chiffres à re-dériver, pas
+à citer. La composition de la banque est **définie** par `scripts/ratchets.ps1` ; cette case-doc
+**atteste** ce qui a été joué, elle ne définit rien.
