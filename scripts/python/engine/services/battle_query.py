@@ -19,6 +19,7 @@ from __future__ import annotations
 import gameconfig as GC
 import hexgeo
 
+from ..entities.pathfinding.board import connectivity_neighbours
 from .static_battle_rules import get_piercing_ratio
 
 
@@ -29,8 +30,9 @@ def are_tiles_adjacent(a_pos, t_pos, board=None):
     PORTE d'élévation (deux tuiles voisines séparées de ≥2 crans d'élévation ne sont PAS adjacentes ;
     élévation = `tileMeta.elevation`, lue via `FUN_180007ae0(...)→[+0x18]`). Le port réplique les deux.
 
-    `board` fourni (runner `state.board`, ou `Scene.board`) → voisins NATIFS (`board.neighbours`,
-    ground-truth capturé) + élévation par tuile (`by_id[tid]["elevation"]`, capteur boardGraph) ; sinon
+    `board` fourni (runner `state.board`, ou `Scene.board`) → le `ConnectivityComponent` BRUT
+    (`connectivity_neighbours`, ce que lit littéralement `IsNeighbour`) + élévation par tuile
+    (`by_id[tid]["elevation"]`, capteur boardGraph) ; sinon
     géométrie **evenq** (= le mode d'adjacence combat du runner, cf. `damage.py`), via `hexgeo.distance==1`
     (parité evenq validée vs boardGraph) SANS porte d'élévation (aucune info dispo → dégradation sûre =
     adjacence hex pure, comme le playbook `is_adjacent` sans `elev_by_pos`). Sur un board PLAT
@@ -50,7 +52,18 @@ def are_tiles_adjacent(a_pos, t_pos, board=None):
         a_tile = board.id_at(a_pos[0], a_pos[1])
         t_tile = board.id_at(t_pos[0], t_pos[1])
         if a_tile is not None and t_tile is not None:
-            neighbour = (a_tile == t_tile) or (t_tile in board.neighbours(a_tile))  # A==B || IsNeighbour
+            # `IsNeighbour` lit le `ConnectivityComponent` (`return this[+0x10].Contains(id)`),
+            # canal BRUT -- et surtout PAS `board.neighbours()`, qui depend du `adjacency=` de
+            # l'instance donc du MONTAGE de l'appelant (#448-r1-r1-r1-r1-r2-r1 ; c'est le meme
+            # vice que `#381-r3` a ferme pour les pathfinders). Repli sur `board.neighbours()`
+            # quand le canal n'est pas capte : le comportement anterieur, jamais un graphe vide.
+            # MESURE (3 boards, 11718 paires) : en `native_sym` -- le mode de la PRODUCTION
+            # (`playbook/scene.py`, le runner) -- le rebranchement change **0** verdict ; en
+            # `evenq` il en corrige **4**, les aretes des deux `Bridge` de `C1_74` que
+            # `TileComponent$$HasEdge` refuse et que la couronne hex inventait.
+            conn = connectivity_neighbours(board, a_tile)
+            ring = board.neighbours(a_tile) if conn is None else conn
+            neighbour = (a_tile == t_tile) or (t_tile in ring)   # A==B || IsNeighbour
             if not neighbour:
                 return False
             # IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent : porte d'élévation |Δelev| < 2, foldée dans la primitive.

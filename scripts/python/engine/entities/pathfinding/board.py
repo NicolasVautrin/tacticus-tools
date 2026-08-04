@@ -392,6 +392,27 @@ class Board:
         return cached
 
 
+def connectivity_neighbours(board, tile_id) -> "list[int] | None":
+    """Le `ConnectivityComponent` de `tile_id` pour un board DUCK-TYPE, en TRI-ETAT --
+    `None` = **pas de canal** (rien mesure), une liste = la liste STOCKEE.
+
+    Meme role, et meme raison d'exister, que `elevations_by_pos` juste dessous : `board` est
+    duck-type dans tout le DSL et dans `services/`, donc un lecteur hors `Board` a besoin d'une
+    porte d'entree unique qui DISE « non mesure » au lieu de rendre un graphe vide.
+
+    Le lecteur vise est `IdunBattle.Entities.Components.ConnectivityComponent$$IsNeighbour`
+    (`return this[+0x10].Contains(<entity id de tile>)`), qu'appelle
+    `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent` -- **pas** `IterateAdjacentTiles`,
+    donc pas le champ herite `neighbours` : la porte `|dElev| < 2` y est un terme SEPARE
+    (`iVar7 < 2 & bVar3`), lisible dans le decompile, et non un filtre du voisinage."""
+    if board is None or tile_id is None:
+        return None
+    getter = getattr(board, "neighbours_connectivity", None)
+    if getter is None:
+        return None
+    return getter(int(tile_id))
+
+
 def elevations_by_pos(board) -> dict | None:
     """Le canal d'elevation d'un board, en TRI-ETAT -- `None` = **pas de canal** (rien mesure),
     `{...}` = la carte des tuiles dont l'elevation EST captee.
