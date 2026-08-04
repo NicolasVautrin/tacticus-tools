@@ -20,7 +20,8 @@ pont**, donc dégénéré pour le compteur. Aucune mesure ne jouait les deux à 
 | `C3_14` | `Fly` | `(3,2) -> (4,3)` | 2 | 5 | **5** | `[2367, 3355, 3247, 2841]` | == | `[1802, 1940, 2066, 1694]` |
 
 ⇒ **le rebranchement change la DÉCISION, pas seulement un nombre.** Sans lui, le port aurait lu
-`n_G = 3` (ou 2), refusé le gate, et rendu ~46 % de dégât en moins sur la salve de `C1_74`.
+`n_G = 3` (ou 2), refusé le gate, et rendu sur la salve **10475 → 6880 (−34 %)** sur `C1_74`,
+**8338 → 6836 (−18 %)** en `TeleportStrike`, **11810 → 7502 (−36 %)** sur `C3_14`.
 
 **Recoupement croisé, non cherché** : la ligne `C3_14` rend **exactement** les deux vecteurs du
 tableau de `case-589-r1-r1` mesurés sur `MC1_67` — `[2367,3355,3247,2841]` avec buff,
@@ -33,7 +34,8 @@ seuil ne dépend pas du board, c'est bien le COMPTEUR qui en dépend.
 2. **port CANAL** (état livré) — doit égaler le live. *Il l'égale, et son compteur égale le natif.*
 3. **port GÉOMÉTRIE** — `Board.base_add_neighbours` → `neighbours_geometric`, l'état d'**AVANT**
    #589. Doit diverger, **et son compteur doit valoir `n_G`** : c'est ce second point qui prouve
-   que la MUTATION A MORDU (mesuré : 3 / 3, 2 / 2, 5 / 2) ;
+   que la MUTATION A MORDU (compteurs mesurés **3, 3, 2** — exactement les `n_G` du tableau —
+   contre **4, 4, 5** pour le bras livré) ;
 4. **port NOCHANNEL** — l'effet retiré d'`EFFECT_CLASSES` (retombe sur `BaseEffect`, deux canaux
    `None`). Doit égaler le bras 3. *Il l'égale, aux trois trajets*, ce qui **identifie la cause** :
    c'est le buff qui manque en géométrie, pas un effet de bord du changement de substrat.
