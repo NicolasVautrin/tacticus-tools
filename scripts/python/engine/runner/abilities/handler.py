@@ -51,7 +51,7 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    MV71SniperDroneSquadAttackAbility, MasterOfTheTutelariesAbility,
                    StormcallerAbility, TheQuickeningAbility, BlackRageAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility,
-                   SorcerousFacadeAbility)
+                   SorcerousFacadeAbility, WallOfMirrorsAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility)
@@ -108,6 +108,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     HeroicFusilladeAbility.ABILITY_TYPE: HeroicFusilladeAbility,       # 1180 (Judh : move + 6x Projectile splash cible+voisins + crit-per-free-hex)
     DoctrinaImperativesAbility.ABILITY_TYPE: DoctrinaImperativesAbility,  # 1118 (Tan Gi'da : toggle Protector<->Conqueror ; Protector +FixedArmor self)
     MV71SniperDroneSquadAttackAbility.ABILITY_TYPE: MV71SniperDroneSquadAttackAbility,  # 1076 (Sho'syl : summon drone + attaque commandee + Markerlight, #61bis)
+    WallOfMirrorsAbility.ABILITY_TYPE: WallOfMirrorsAbility,           # 1186 (Stealth Battlesuit T'au : vol sur l'anneau dist==2 d'une cible Markerlight + attaque normale a +extraPierce, #433-r4-r1-r1)
     MasterOfTheTutelariesAbility.ABILITY_TYPE: MasterOfTheTutelariesAbility,  # 1096 (Abraxas : effet 1197 + summon Pink Horror tile-target + Screamer sur Psychic, #202-C)
     StormcallerAbility.ABILITY_TYPE: StormcallerAbility,               # 1113 (Njal : glace zone cible+ring1 + 3x Psychic ennemis-sur-glace + stun Flying, #217)
     TheQuickeningAbility.ABILITY_TYPE: TheQuickeningAbility,  # 1151 (Mephiston : teleport-echange tile-target + free melee attack faction-BloodAngels, #217)

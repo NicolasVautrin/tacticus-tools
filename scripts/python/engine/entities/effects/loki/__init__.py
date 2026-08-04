@@ -147,6 +147,7 @@ from .ability_modifications import ListenUpMaggotsEffect
 from .votann import (AugmentedAssaultReduceArmorEffect, AncestralFortuneExtraCritChanceEffect,
                      AncestralFortuneExtraBlockChanceEffect, GravitonRifleExtraPierceEffect,
                      PurgeResponseEffect)              # 1538, canal BlockHitsReduction (case-366-r1)
+from .wall_of_mirrors import WallOfMirrorsEffect    # 1398, canal PERCAGE (#433-r4-r1-r1)
 from .custodes import (MomentShackleExtraBlockChanceEffect, MomentShackleExtraBlockDamageEffect)
 from .darkangels import HailstrikeExtraPierceEffect
 from .dark_angels_passives import (LionHelmExtraDmgEffect, LionHelmExtraBlockDamageEffect,
@@ -269,6 +270,7 @@ __all__ = [
     # votann (#113)
     "AugmentedAssaultReduceArmorEffect", "AncestralFortuneExtraCritChanceEffect",
     "AncestralFortuneExtraBlockChanceEffect", "GravitonRifleExtraPierceEffect",
+    "WallOfMirrorsEffect",
     "PurgeResponseEffect",
     # custodes (case-231) — les 2 `DynamicStatModifierEffect` generiques de MomentShackle (1184)
     "MomentShackleExtraBlockChanceEffect", "MomentShackleExtraBlockDamageEffect",
