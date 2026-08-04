@@ -179,6 +179,25 @@ GATE_FREE_ADJACENT_IN_CONFIG_RANGE = "free_adjacent_in_config_range"
 #: forme de spawn). Le port ne le modelise pas.
 GATE_NOT_DERIVABLE = "not_derivable"
 
+#: Gate LU, et LU COMME NE RETIRANT RIEN dans le regime que pose la question -- une tuile SANS
+#: unite (#-r1-r1-a). Ce n'est PAS `GATE_NONE` : le gate existe et mord, mais sur des tuiles
+#: OCCUPEES, pas sur la geometrie.
+#:
+#: CE QUI LE REND DECIDABLE, et c'est la lecture qui l'a donne : le troisieme predicat ne passe pas
+#: au delegue l'element de la liste, mais l'entite qu'il en RESOUT --
+#: `TargetingQuery.u003Cu003Ec__DisplayClass34_0$$u003CGetPossibleTargetsForOptionsu003Eb__2` fait
+#: `entity = (rules & TargetIsTile) ? EntityExtensions.GetMainTile(elem) : UnitExtensions.GetUnit(elem)`,
+#: puis `delegate.Invoke(caster, casterTiles, entity, GetTiles(entity) ?? GetTiles(elem))`. Or
+#: `GetPossibleTargetTiles` force `onlyTiles: 1`, donc les elements SONT des tuiles : sur une tuile
+#: vide, une ability sans `TargetIsTile` recoit `entity == null`, et une ability avec le recoit la
+#: TUILE. Les cinq gates de ce regime commencent tous par un test qui, dans ce cas, rend `0`.
+#:
+#: ECART NOMME (il ne peut qu'ELARGIR) : sur une tuile OCCUPEE le gate retire, et le port ne le
+#: modelise pas -- l'occupation n'est publiee par aucun canal cote DECISION (meme trou que
+#: `#433-r4-r2-r1-r1-b`). Le consommateur `IsTileInRangeOfAnyAbility` interroge des tuiles
+#: CANDIDATES de deplacement, donc libres, ce qui est le regime couvert.
+GATE_VALID_ON_EMPTY_TILE = "valid_on_empty_tile"
+
 #: L'ability SURCHARGE (fait runtime), mais son corps n'a pas ete lu par cette tranche.
 GATE_NOT_READ = "not_read"
 
@@ -204,33 +223,97 @@ DYNAMIC_TARGET_GATE_BY_ABILITY: dict[int, str] = {
     1180: GATE_NOT_DERIVABLE,   # HeroicFusilladeAbility -- GetSurroundingTiles + GetMinDistance
     1202: GATE_NOT_DERIVABLE,   # VigilanceEternalAbility -- AreEntitiesAdjacent, sinon mouvement
     1204: GATE_NOT_DERIVABLE,   # LeadingTheChargeAbility -- DSLSelectors$$TilesUnitCanMoveToChargeTarget
+    # --- LU (#-r1-r1-a) : le gate ne mord QUE sur une tuile OCCUPEE --------------------------
+    # Les sept gates `UseWholeBoard` restants ont ete lus ; AUCUN ne borne une distance. Chacun
+    # commence par un test qui, sur l'`entity` que `b__2` resout depuis une tuile VIDE (`null` sans
+    # `TargetIsTile`, la tuile elle-meme avec), rend `0` -- donc ne retire pas la tuile.
+    1011: GATE_VALID_ON_EMPTY_TILE,  # TunnelingHorrorAbility$$GetDynamicInvalidTargetReason :
+    #     `DSLTriggers$$HasEffect(DSLSelectors$$Get(sel, target), 0x459)` -> `2` ; sinon parcourt
+    #     `casterTiles` et rend `2` a la PREMIERE `TileExtensions$$IsTemporary`, `0` si aucune.
+    1025: GATE_VALID_ON_EMPTY_TILE,  # SkyStrikeAbility$$GetDynamicInvalidTargetReason :
+    #     `moved = UnitExtensions$$DidMove(caster) || GetMainTile(caster) != casterTiles[0]` ;
+    #     `moved && !<slot 0x62>(casterTiles, targetTiles)` -> `0x10` ; sinon valide si ce meme slot
+    #     ou si `<slot 0x51>(targetTiles, 1, 1, 0).Count > 0` (les VOISINES libres et walkables).
+    #     Le consommateur passe `casterTiles = {GetMainTile(unit)}` et interroge une unite qui n'a
+    #     pas encore joue -> `moved` est faux. ECART NOMME : une tuile sans aucune voisine libre.
+    1145: GATE_VALID_ON_EMPTY_TILE,  # SporeMineLauncherAbility -- `TileExtensions$$HasSteppableUnit`
+    #     (= `GetUnit(tile) != null && HasTrait(0x1b)`) puis `UnitExtensions$$IsEnemy` -> `2`.
+    1168: GATE_VALID_ON_EMPTY_TILE,  # EntropyCannonsAbility -- `EntityExtensions$$IsUnit(entity)`
+    #     d'abord (`null` -> `0`, LU : la fonction teste `entity == 0` avant tout) ; le reste teste
+    #     `DSLTriggers$$IsInTeamContagionsOfNurgleAura` / `HasNegativeModifier` sur la CIBLE.
+    1200: GATE_VALID_ON_EMPTY_TILE,  # SquigLaunchasAbility -- meme premiere ligne `IsUnit(entity)`
+    #     (`0` = valide) ; le reste compte les Orks/allies ADJACENTS AU CASTER.
+    1201: GATE_VALID_ON_EMPTY_TILE,  # SquigMineAbility -- `HasEffect(tile, 0x5a1) ||
+    #     TileExtensions$$HasSteppableUnit(tile)` -> `2`, sinon `0`.
+    1213: GATE_VALID_ON_EMPTY_TILE,  # DeathOnTheWindAbility -- `UnitExtensions$$GetUnit(tile)`
+    #     nul -> `0` ; sinon exige `GetNumAttacksReceivedThisTurn(unit) != 0`.
     # --- SURCHARGE etablie au runtime, corps NON LU par cette tranche -------------------------
+    # Toutes NON-`UseWholeBoard` : leur borne superieure reste BORNEE, donc ne pas retrecir dessus
+    # coute au plus le disque de leur portee (cf. `dynamic_target_gate_reach`).
     28:   GATE_NOT_READ,        # RepairAbility
     1005: GATE_NOT_READ,        # AdaptiveStrategyAbility
-    1011: GATE_NOT_READ,        # TunnelingHorrorAbility
     1016: GATE_NOT_READ,        # SendInTheNextWaveAbility
-    1025: GATE_NOT_READ,        # SkyStrikeAbility
     1038: GATE_NOT_READ,        # FoulInfusionAbility
     1059: GATE_NOT_READ,        # RammingSpeedAbility
     1081: GATE_NOT_READ,        # FightingRetreatAbility
     1082: GATE_NOT_READ,        # InspiredToGreatnessAbility
-    1100: GATE_NOT_READ,        # SorcerousFacadeAbility
     1101: GATE_NOT_READ,        # AttemptedPossessionAbility
     1116: GATE_NOT_READ,        # RadBombardmentAbility
     1117: GATE_NOT_READ,        # DefendTheDivineWorkAbility
     1119: GATE_NOT_READ,        # Repair_GalvanicFieldAbility
-    1143: GATE_NOT_READ,        # ForwardSpotterAbility
-    1145: GATE_NOT_READ,        # SporeMineLauncherAbility
     1151: GATE_NOT_READ,        # TheQuickeningAbility
     1164: GATE_NOT_READ,        # MindControlAbility
-    1168: GATE_NOT_READ,        # EntropyCannonsAbility
     1175: GATE_NOT_READ,        # BloodChaliceAbility
     1179: GATE_NOT_READ,        # CultDemagogueAbility
     1197: GATE_NOT_READ,        # ExcruciatingFrequenciesAbility
-    1200: GATE_NOT_READ,        # SquigLaunchasAbility
-    1201: GATE_NOT_READ,        # SquigMineAbility
-    1213: GATE_NOT_READ,        # DeathOnTheWindAbility
+    # `1100 SorcerousFacade` et `1143 ForwardSpotter` NE FIGURENT PLUS ICI : elles surchargent bien
+    # le slot, mais leur gate n'est JAMAIS atteint -- `GetPossibleTargetTiles` court-circuite en
+    # amont sur leur masque `rules` (cf. `target_tiles_zone_is_empty`).
 }
+
+
+# ------------------------------------------------------------------------------------------------
+# L'etage AMONT : le court-circuit de `GetPossibleTargetTiles` (#-r1-r1-a)
+#
+# `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetTiles` teste le masque `rules` AVANT
+# d'appeler `GetRange` :
+#
+#     if ((options.Rules >> 0xa & 1) != 0            // TargetIsFriendly
+#         && (options.Rules >> 0xe & 1) == 0)        // et PAS TargetIsEnemy
+#         return new OrderedSet<Tile>();             // VIDE -- ni portee, ni gate
+#
+# Une ability qui ne cible QUE des allies ne contribue donc AUCUNE tuile a
+# `AttackQuery$$GetAllTilesInAbilityRange`, quelle que soit sa portee. C'est ce qui separe
+# `1100 SorcerousFacade` et `1143 ForwardSpotter` des autres `UseWholeBoard` : elles surchargent
+# bien `GetDynamicInvalidTargetReason` (fait runtime), mais ce gate n'est JAMAIS atteint.
+#
+# Le test est PUREMENT STATIQUE (le masque est celui du ctor), donc EXACT -- pas une borne.
+# ------------------------------------------------------------------------------------------------
+
+#: `TargetingRule.TargetIsFriendly` / `TargetIsEnemy` -- les deux seuls bits que lit le
+#: court-circuit. Nommes ici plutot qu'importes : `engine.runner.abilities.targeting` ne les expose
+#: que dans sa table de commentaires, et ce module ne doit pas dependre de son enumeration interne.
+_TARGET_IS_FRIENDLY = 1 << 0xA
+_TARGET_IS_ENEMY = 1 << 0xE
+
+
+def target_tiles_zone_is_empty(ability_id) -> bool:
+    """Le court-circuit `TargetIsFriendly && !TargetIsEnemy` de `GetPossibleTargetTiles`.
+
+    `False` aussi quand le masque n'est PAS LU (ability hors `ABILITY_CLASSES`) : le port ne
+    retire alors rien -- meme arbitrage que `GATE_NOT_READ`, l'ecart ne peut qu'ELARGIR.
+    `TARGETING_RANGE_BY_ABILITY` ne porte QUE le volet portee, pas le masque."""
+    try:
+        aid = int(ability_id)
+    except (TypeError, ValueError):
+        return False
+    from ..runner.abilities.handler import ABILITY_CLASSES     # lazy : cycle services <-> runner
+    cls = ABILITY_CLASSES.get(aid)
+    opts = getattr(cls, "TARGETING_OPTIONS", None) if cls is not None else None
+    rules = getattr(opts, "rules", None) if opts is not None else None
+    if rules is None:
+        return False
+    return bool(int(rules) & _TARGET_IS_FRIENDLY) and not bool(int(rules) & _TARGET_IS_ENEMY)
 
 
 def dynamic_target_gate_of(ability_id) -> str:
@@ -250,15 +333,18 @@ def dynamic_target_gate_reach(ability_id) -> int | None:
     `None` quand le port ne sait pas decider.
 
     `GATE_NOT_READ` ne retire rien NON PLUS : ne pas retrecir sur un corps non lu preserve le
-    comportement de la tranche precedente pour les 15 abilities non-whole-board concernees, plutot
-    que de leur substituer un `None` qui les retirerait toutes de la zone d'un coup."""
+    comportement de la tranche precedente pour les 16 abilities non-whole-board concernees, plutot
+    que de leur substituer un `None` qui les retirerait toutes de la zone d'un coup.
+
+    `GATE_VALID_ON_EMPTY_TILE` ne retire rien non plus, mais pour une raison LUE et non par defaut :
+    le gate rend `0` sur une tuile sans unite."""
     gate = dynamic_target_gate_of(ability_id)
     if gate == GATE_FREE_ADJACENT_IN_CONFIG_RANGE:
         cfg = _config_range(ability_id)
         return None if cfg is None else int(cfg) + 1
     if gate == GATE_NOT_DERIVABLE:
         return None
-    return WHOLE_BOARD_REACH                       # GATE_NONE et GATE_NOT_READ : aucun retrait
+    return WHOLE_BOARD_REACH   # GATE_NONE, GATE_NOT_READ, GATE_VALID_ON_EMPTY_TILE : aucun retrait
 
 
 def _config_range(ability_id) -> int | None:
@@ -338,7 +424,14 @@ def ability_range_value(ability_id, visual_id) -> int | None:
       * gate LU mais NON derivable -- `None`, comme avant. C'est le SEUL regime ou la borne
         superieure est inutilisable : la verser reviendrait a declarer tout le plateau menace.
         MESURE (`astraDreir`, `LeadingTheCharge`) : le natif rend « hors portee » des `d >= 2`,
-        donc verser le plateau ferait 40 faux POSITIFS la ou `None` en fait 0."""
+        donc verser le plateau ferait 40 faux POSITIFS la ou `None` en fait 0.
+
+    Le court-circuit AMONT (`target_tiles_zone_is_empty`) precede les deux etages : il rend `None`
+    -- ici « l'ability ne contribue AUCUNE tuile », un fait EXACT, et non « le port ne sait pas ».
+    Les deux se confondent pour l'appelant (il ne pose aucun terme), et c'est voulu : verser un
+    rayon nul demanderait au consommateur de distinguer « rayon 0 » de « pas de zone »."""
+    if target_tiles_zone_is_empty(ability_id):
+        return None
     base = tiles_in_range_reach(ability_id, visual_id)
     if base is None:
         return None
@@ -444,8 +537,11 @@ def _free_adjacent_gate_allows(unit_pos, tile, cfg_range: int, elev_by_pos) -> b
 
 
 def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos) -> bool:
-    """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des deux etages, mais
-    evaluee sur la TUILE : `GetTilesInRange` puis le predicat `GetDynamicInvalidTargetReason`."""
+    """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des TROIS etages,
+    evaluee sur la TUILE : le court-circuit `rules` de `GetPossibleTargetTiles`, puis
+    `GetTilesInRange`, puis le predicat `GetDynamicInvalidTargetReason`."""
+    if target_tiles_zone_is_empty(ability_id):
+        return False                               # zone VIDE avant meme `GetRange`
     base = tiles_in_range_reach(ability_id, visual_id)
     if base is None:
         return False
@@ -464,7 +560,8 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos) -> 
     if gate == GATE_NOT_DERIVABLE:
         # cf. `ability_range_value` : la borne superieure n'est exploitable que si elle est bornee.
         return base != WHOLE_BOARD_REACH
-    return True                                        # GATE_NONE / GATE_NOT_READ : aucun retrait
+    # GATE_NONE / GATE_NOT_READ / GATE_VALID_ON_EMPTY_TILE : aucun retrait sur une tuile LIBRE.
+    return True
 
 
 def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int = 1,

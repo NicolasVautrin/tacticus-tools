@@ -196,7 +196,7 @@ def test_a_bounded_base_survives_an_underivable_gate():
 
 def test_every_gate_regime_in_the_table_is_a_known_constant():
     known = {ar.GATE_NONE, ar.GATE_FREE_ADJACENT_IN_CONFIG_RANGE,
-             ar.GATE_NOT_DERIVABLE, ar.GATE_NOT_READ}
+             ar.GATE_NOT_DERIVABLE, ar.GATE_VALID_ON_EMPTY_TILE, ar.GATE_NOT_READ}
     bad = {aid: g for aid, g in ar.DYNAMIC_TARGET_GATE_BY_ABILITY.items() if g not in known}
     assert bad == {}, "regimes inconnus : %r" % (bad,)
     assert ar.GATE_NONE not in ar.DYNAMIC_TARGET_GATE_BY_ABILITY.values(), \
