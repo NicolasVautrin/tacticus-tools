@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785811011,
+ "_ecrit_le": 1785812493,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -2793,6 +2793,20 @@
    "messages": [],
    "passed": 9,
    "sec": 80.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/test_419r1tr14r5r2_active_normal_attack_live.py": {
+   "_at": 1785812493,
+   "_blob": "9fd611b8a146201e1d9f5f278c83ef66f6e7393c",
+   "_commit": "eb4d5ed78780528673341dca506b2b66d6b5f2e7",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a2e5e29857d625b0c",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 6,
+   "sec": 10.1,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0

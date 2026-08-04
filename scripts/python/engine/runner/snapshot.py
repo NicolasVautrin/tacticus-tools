@@ -373,12 +373,16 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # MEME payload, MEME composant, TOUTES hierarchies : l'`AbilitiesComponent` entier, ce que le
         # dispatcher d'utilite itere (#456-r1). Cf. `_load_triggered_abilities`.
         seeded_kit = _load_triggered_abilities(state, payload)
+        # MEME payload, AUTRE composant (`ActiveAbilityComponent`) : la SECONDE voie de la cascade
+        # d'attaque normale (#419-r1-tr14-r5-r2). Cf. `_load_active_abilities`.
+        seeded_act = _load_active_abilities(state, payload)
         state.ability_states_seed = {"source": source, "seeded": seeded,
                                      "seededPassives": seeded_pas,
-                                     "seededTriggeredKits": seeded_kit}
+                                     "seededTriggeredKits": seeded_kit,
+                                     "seededActives": seeded_act}
     else:
         state.ability_states_seed = {"source": source, "seeded": None, "seededPassives": None,
-                                     "seededTriggeredKits": None}
+                                     "seededTriggeredKits": None, "seededActives": None}
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
     # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
     # niveau/multiplicateur d'un effet de tuile se lit sur son unité SOURCE, cf. `_load_tile_effects`).
@@ -1144,6 +1148,68 @@ def passive_ability_names_by_unit(ability_states: dict) -> dict:
                 names.append(name)
         out[uid] = names
     return out
+
+
+def active_ability_names_by_unit(ability_states: dict) -> dict:
+    """`{entityId: [noms d'ActiveAbilityType montes]}` depuis le payload du RPC `unitAbilityStates`.
+
+    FOYER UNIQUE du parsing, exactement comme `passive_ability_names_by_unit` sur l'autre voie :
+    `_load_active_abilities` (face COMBAT) et `engine.playbook.scene._seed_measured_actives` (face
+    DECISION) l'appellent toutes les deux, pour que le dispatch d'attaque normale
+    (`engine.services.custom_normal_attack`) lise LA MEME liste des deux cotes.
+
+    ⚠ SUR-ENSEMBLE ASSUME. Le natif dispatche sur `UnitConfiguration.ActiveAbilities`
+    (`config@+0xa0`) ; ce qu'on lit est l'`ActiveAbilityComponent`, qui porte EN PLUS l'attaque
+    normale que la fabrique vient d'y ecrire et les abilities de `UnitFactory$$AddDerivedAbilities`.
+    C'est le seul canal disponible sans capteur neuf, et il est SUR pour la table portee : cf. le
+    controle mesure documente sur `UnitContext.active_abilities`.
+
+    L'ORDRE est celui du composant, et il compte (la boucle native rend au PREMIER actif gagnant).
+    Une unite PRESENTE dans le payload mais sans aucune active recoit `[]` -- une MESURE, a
+    distinguer d'un canal muet, qui lui n'a aucune cle."""
+    from ..entities.active_ability_type import ActiveAbilityType
+    out: dict = {}
+    for su in ((ability_states or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None:
+            continue
+        names: list[str] = []
+        for a in (su.get("actives") or []):
+            raw = a.get("type")
+            if raw is None:
+                continue
+            try:
+                name = ActiveAbilityType(int(raw)).name
+            except ValueError:
+                continue                      # id hors enum du build -> non ingerable, non devinable
+            if name not in names:
+                names.append(name)
+        out[uid] = names
+    return out
+
+
+def _load_active_abilities(state: State, ability_states: dict) -> int:
+    """Seede `UnitContext.active_abilities` depuis le RPC `unitAbilityStates`
+    (#419-r1-tr14-r5-r2). Rend le nombre d'unites seedees.
+
+    MEME payload, MEME instance et MEME nature que `_load_passive_abilities` : seul le champ lu
+    change (`actives` au lieu de `triggered`). C'est la SECONDE voie de la cascade de
+    `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`, celle que
+    `UnitFactory$$GetCustomNormalAttackTypeFromActive` consulte quand la voie passive rend `null`.
+
+    TRI-ETAT, meme discipline que les seeds voisins : sans canal, rien n'est pose et la voie active
+    du predicat retombe sur le kit gameconfig, STRICTEMENT comme avant.
+
+    Le PARSING vit dans `active_ability_names_by_unit` (foyer partage avec la face DECISION)."""
+    seeded = 0
+    for uid, names in active_ability_names_by_unit(ability_states).items():
+        ent = state.get_entity(uid)
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        if sc is None or getattr(sc, "ctx", None) is None:
+            continue
+        sc.ctx.active_abilities = names
+        seeded += 1
+    return seeded
 
 
 def _load_passive_abilities(state: State, ability_states: dict) -> int:

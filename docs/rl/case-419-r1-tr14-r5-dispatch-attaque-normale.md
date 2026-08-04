@@ -222,23 +222,25 @@ puis re-jeu : **6 passed**.
   transcrites du `.cctor` et confrontées au natif **une par une**. (Le « 16 noms `*NormalAttack*` »
   de cette ligne était un compte approché ET un mauvais critère : l'enum en porte **17**, et le
   nombre de noms n'est pas le nombre d'entrées — cf. §10.2.)
-* **`#419-r1-tr14-r5-r2` — la voie ACTIVE reste au kit.**
-  `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromActive` est la SECONDE
-  branche du `if`, et son substrat (`UnitConfiguration.ActiveAbilities`) n'a aucun canal de mesure
-  dans le port. `substitutes_normal_attack` ne mesure donc que la voie PASSIVE ; le repli lit encore
-  `kit["active"]`. Débloqueur : le pendant `ACTIVE_HIERARCHY` du seed.
-  **Ce que la RE de #419-r1-tr14-r5-r1 y ajoute** (lu, non porté — hors périmètre de cette tranche) :
-  sa table statique est celle de `StaticBattleRules.ActiveAbility$$GetCustomNormalAttack`
-  (statics `+0xb8` → **`+0x28`**, une AUTRE table que la passive), écrite par
-  `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$.cctor`, et
-  elle contient **exactement UNE entrée** : `1124 PoundThemToDust` → `1126 RogalDorn_NormalAttack`.
-  C'est ce qui **ferme la ventilation** des 17 `*NormalAttack*` de l'enum (§10.2) : `1126` est le
-  seul qui ne soit ni générique ni valeur de la table passive. Son porteur est une **MACHINE OF
-  WAR** (Rogal Dorn Battle Tank), absente de `gameconfig.all_unit_ids()` — donc invisible au
-  recensement `lineup`/`npc`/`summons`. À noter pour qui rouvrira `-r2` : `ai/context.py` pose
-  `normal_ids = set()` pour les MoW au motif que leurs `weapons` gameconfig sont vides ; si une MoW
-  porte `PoundThemToDust`, le natif lui pose bel et bien une attaque normale — c'est le même
-  « dérivé du kit » qu'ici, sur l'autre voie. **NON CONFRONTÉ.**
+* ~~**`#419-r1-tr14-r5-r2`**~~ — **FERMÉ** : `docs/rl/case-419-r1-tr14-r5-r2-voie-active.md`.
+  La table de la voie ACTIVE (`StaticBattleRules.ActiveAbility` statics `+0xb8` → **`+0x28`**, une
+  AUTRE table que la passive) est portée à son **unique** entrée `1124 PoundThemToDust` →
+  `1126 RogalDorn_NormalAttack`, **confrontée live** par montage écrit
+  (`BC.Units[].ActiveAbilities`), avec sa CASCADE (la voie passive garde la priorité) et son canal
+  (`unitAbilityStates.actives`, aucun RPC supplémentaire). Le repli ne fusionne plus
+  `kit["passive"]` et `kit["active"]`.
+  **Deux lectures de cette ligne étaient FAUSSES**, et la tranche les corrige :
+  (a) « son porteur est une MACHINE OF WAR » — le contexte natif dit *guild boss*
+  (`GuildBossRunAwayWalkRogalDornVisuals`), et surtout
+  `IdunBattle.Entities.Factories.MachineFactory$$Build` n'appelle **jamais**
+  `AddNormalAttackAbility` (xref unique : `UnitFactory$$Build`), donc si le porteur était une MoW la
+  voie serait structurellement morte ;
+  (b) « si une MoW porte `PoundThemToDust`, le natif lui pose bel et bien une attaque normale » —
+  **réfuté par mesure** : la clé ÉCRITE sur une MoW ne lui donne toujours aucune ability
+  `kind == "normal"`. Le `normal_ids = set()` d'`ai/context.py` est donc JUSTE ; seule sa
+  justification (« `weapons` gameconfig vides ») était le mauvais critère, et elle est réécrite.
+  ⚠ La ventilation des 17 `*NormalAttack*` de l'enum (§10.2) reste close, et pour la même raison :
+  `1126` est bien la seule valeur de la table ACTIVE.
 * **`#419-r1-tr14-r5-r3` — la branche TERTIAIRE (relique) de la fabrique n'est pas portée.**
   `GetCustomNormalAttackTypeFromPassive` consulte AUSSI `config@+0xb0` (le `Nullable`
   `TertiaryAbility`) après avoir épuisé la liste. Le port a le canal (`UnitContext.tertiary_ability`,

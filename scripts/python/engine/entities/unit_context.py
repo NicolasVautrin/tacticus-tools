@@ -72,6 +72,26 @@ class UnitContext:
     # une LISTE (fut-elle vide) = mesure, et elle FAIT AUTORITE. Les NOMS sont portes, comme
     # `tertiary_ability`, parce que les registres de dispatch sont indexes par nom.
     passive_abilities: list[str] | None = None
+    # --- activeAbilities REELLEMENT MONTEES (#419-r1-tr14-r5-r2) -------------------------------------
+    # Le PENDANT de `passive_abilities` sur l'autre voie de la cascade d'attaque normale. Le natif
+    # lit `config@+0xa0` = `UnitConfiguration.ActiveAbilities` (prouve par un SECOND corps :
+    # `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` lit `+0xa8` -> TryAdd
+    # hierarchie 2, `+0xb0` -> TryAdd hierarchie 3, et `+0xa0` -> `UnitFactory$$AddActiveAbility`).
+    #
+    # ⚠ CE QU'ON MESURE EST UN SUR-ENSEMBLE, et il faut le savoir pour s'en servir. Le canal est
+    # `unitAbilityStates.actives[].type`, c.-a-d. l'`ActiveAbilityComponent` -- qui contient AUSSI
+    # l'attaque normale que la fabrique vient de poser et les abilities de `AddDerivedAbilities`.
+    # Mesure du montage (probe_419r1tr14r5r2) : une unite a qui l'on ecrit
+    # `ActiveAbilities = [PoundThemToDust]` rend `[1124, 1126]`, une autre `[1005, 69]`. Le
+    # sur-ensemble est SUR pour la seule cle de la table ACTIVE (`1124`) parce qu'elle n'y apparait
+    # QUE la ou on l'a ecrite -- controle mesure sur les quatre bras, temoins compris. Un ajout a
+    # cette table demandera de refaire ce controle-la.
+    #
+    # TRI-ETAT, meme discipline que `passive_abilities` : `None` = canal non mesure -> repli kit
+    # gameconfig (comportement strictement d'avant) ; une LISTE (fut-elle vide) = mesure.
+    # Seede par `snapshot._load_active_abilities` (COMBAT) et `playbook.scene._seed_measured_actives`
+    # (DECISION), tous deux sur le parsing PARTAGE `snapshot.active_ability_names_by_unit`.
+    active_abilities: list[str] | None = None
     # --- l'`AbilitiesComponent` ENTIER (#456-r1) -----------------------------------------------------
     # `passive_abilities` ci-dessus ne porte que la HIERARCHIE 2. Le dispatcher d'utilite, lui, itere
     # la collection COMPLETE : `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.

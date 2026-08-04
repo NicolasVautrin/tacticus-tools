@@ -231,12 +231,19 @@ def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_f
     # PassiveAbilities` (fait d'ENTITE, mesure `UnitContext.passive_abilities`), et le KIT n'est
     # plus qu'un REPLI de canal muet. Un montage qui touche a la liste de passifs (toute greffe
     # `replace=True`) ramene l'attaque normale a `69` cote natif : le port doit le suivre.
+    # #419-r1-tr14-r5-r2 : la cascade a DEUX voies (`GetCustomNormalAttackTypeFromPassive` puis,
+    # si elle rend `null`, `GetCustomNormalAttackTypeFromActive` sur `UnitConfiguration.
+    # ActiveAbilities`). Les deux listes sont threadees pour que le predicat decide de la cascade
+    # ENTIERE -- meme si, sur ce build, l'unique entree de la table ACTIVE ne peut rendre que
+    # `RogalDorn_NormalAttack`, qui n'est le mold d'aucun de ces trois passifs.
     _actx = scene.ctx(att_id)
     _pas = getattr(_actx, "passive_abilities", None)
+    _act = getattr(_actx, "active_abilities", None)
     _vis = scene.vis_by_id.get(att_id)
 
     def carries(nm: str) -> bool:
-        return substitutes_normal_attack(nm, passive_abilities=_pas, visual_id=_vis)
+        return substitutes_normal_attack(nm, passive_abilities=_pas, visual_id=_vis,
+                                         active_abilities=_act)
 
     if not is_melee:
         for nm in _RANGED_FOLLOWUP_PASSIVES:
@@ -470,7 +477,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         # #419-r1-tr14-r5 : la cle de dispatch est `UnitConfiguration.PassiveAbilities` (fait
         # d'ENTITE), pas le kit — cf. `engine.services.custom_normal_attack`.
         if is_mv71_normal_attacker(scene.vis_by_id.get(att_id),
-                                   passive_abilities=getattr(ctx, "passive_abilities", None)):
+                                   passive_abilities=getattr(ctx, "passive_abilities", None),
+                                   active_abilities=getattr(ctx, "active_abilities", None)):
             return _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, meta=meta)
     _dist = hexgeo.distance(attack_pos, t_pos) if (attack_pos and t_pos) else None   # porte portee ranged #188
     pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)

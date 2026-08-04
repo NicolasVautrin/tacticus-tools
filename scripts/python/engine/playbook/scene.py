@@ -740,6 +740,38 @@ def _seed_measured_passives(ctx_by_id, ability_states) -> int:
     return seeded
 
 
+def _seed_measured_actives(ctx_by_id, ability_states) -> int:
+    """Seede `UnitContext.active_abilities` des tables de PREDICTION depuis le RPC
+    `unitAbilityStates` (#419-r1-tr14-r5-r2) — le PENDANT EXACT, sur ce seam-ci, de
+    `snapshot._load_active_abilities` cote COMBAT. Rend le nombre d'unites seedees.
+
+    MEME raison d'etre que `_seed_measured_passives` juste au-dessus, sur la SECONDE voie de la
+    cascade : le dispatch d'attaque normale est fait UNE fois par
+    `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`, qui consulte
+    `GetCustomNormalAttackTypeFromPassive` PUIS, si elle rend `null`,
+    `GetCustomNormalAttackTypeFromActive`. Les DEUX faces du port doivent lire les DEUX listes —
+    d'ou le parsing PARTAGE (`snapshot.active_ability_names_by_unit`) et le predicat PARTAGE
+    (`engine.services.custom_normal_attack.substitutes_normal_attack`).
+
+    RANG : identique aux passifs — les actives de CONFIGURATION sont figees au spawn, donc le COLD
+    suffit et `refresh_shields` ne les re-seede que pour les ARRIVANTS.
+
+    COUT : NUL. Le payload est celui que `_seed_measured_passives` vient de consommer, aucun RPC
+    supplementaire n'est emis.
+
+    TRI-ETAT : canal muet -> rien n'est pose, `active_abilities` reste `None`, la voie active du
+    predicat retombe sur le kit, STRICTEMENT comme avant."""
+    from ..runner.snapshot import active_ability_names_by_unit   # lazy : playbook <- runner
+    seeded = 0
+    for uid, names in active_ability_names_by_unit(ability_states).items():
+        c = ctx_by_id.get(uid)
+        if c is None:
+            continue
+        c.active_abilities = names
+        seeded += 1
+    return seeded
+
+
 def _seed_measured_traits(ctx_by_id, snap) -> int:
     """Seede `UnitContext.traits` des tables de PRÉDICTION depuis `combatSnapshot.units[].traits`
     (#267) — le PENDANT EXACT, sur ce seam-ci, de `snapshot._load_unit_traits` (#264) côté COMBAT.
@@ -821,6 +853,9 @@ def build_predictor(rpc, rid):
     except Exception:
         _abst = None
     _seed_measured_passives(ctx_by_id, _abst)
+    # #419-r1-tr14-r5-r2 : la SECONDE voie de la meme cascade (`UnitConfiguration.ActiveAbilities`),
+    # sur le MEME payload -- aucun RPC de plus.
+    _seed_measured_actives(ctx_by_id, _abst)
     # TotalAttacksMade PER-UNITE (#106) — capteur actorStats (ActorStatisticsComponent +0x20). Capture
     # au BUILD (point-in-time = count au pas 0). DYNAMIQUE (incremente a chaque attaque) -> RE-CAPTUREE
     # PAR-PAS par `refresh_shields` (#33 : sans ce refresh, une prediction mid-bataille indexee par ce
@@ -1098,6 +1133,8 @@ def refresh_shields(predictor, rpc, rid):
         except Exception:
             _abst = None
         _seed_measured_passives(predictor["ctx_by_id"], _abst)
+        # #419-r1-tr14-r5-r2 : les ACTIVES des ARRIVANTS, meme rang et meme payload que les passifs.
+        _seed_measured_actives(predictor["ctx_by_id"], _abst)
     # #267 : re-seed des TRAITS mesurés, APRÈS l'hydratation des arrivants (sinon un summon frais
     # garderait la reconstruction du kit). Les traits sont DYNAMIQUES : `AddTraitOperation$$Execute`
     # écrit `BaseUnitComponent+0x40`/`+0x48` en cours de bataille (ex. `Stationary` posé à

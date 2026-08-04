@@ -1082,9 +1082,13 @@ class DamageHandler:
             # d'ENTITE, mesure `UnitContext.passive_abilities` par `snapshot._load_passive_
             # abilities`), pas le KIT — MEME predicat et MEME source que la face DECISION, sans quoi
             # « ce que la prediction annonce » et « ce que le moteur fait » divergeraient.
+            # #419-r1-tr14-r5-r2 : la SECONDE voie de la cascade, threadee ici aussi -- les deux
+            # faces doivent decider de la MEME cascade, pas chacune d'une moitie.
             _asc = _ae.get_component(StatsComponent)
             _apas = getattr(getattr(_asc, "ctx", None), "passive_abilities", None)
-            if is_mv71_normal_attacker(_uc.visual_id, passive_abilities=_apas):
+            _aact = getattr(getattr(_asc, "ctx", None), "active_abilities", None)
+            if is_mv71_normal_attacker(_uc.visual_id, passive_abilities=_apas,
+                                       active_abilities=_aact):
                 res = MV71SniperDroneSquadAttackAbility().execute_behaviour(
                     self.state, msg.attacker_id, msg.target_id) or {}
                 self.last = res.get("attack")

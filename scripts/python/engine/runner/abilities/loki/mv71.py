@@ -89,7 +89,7 @@ def _drone_attack_range(unit_id: str) -> int:
     return mx if mx > 0 else 1
 
 
-def is_mv71_normal_attacker(visual_id, passive_abilities=None) -> bool:
+def is_mv71_normal_attacker(visual_id, passive_abilities=None, active_abilities=None) -> bool:
     """L'attaque NORMALE de cette unité est-elle `MV71SniperDroneSquadAttack` (1076) ? Mirror du
     dispatch natif par `ActiveAbilityComponent.NormalAttackType@0x28`, écrit UNE fois par
     `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` depuis
@@ -100,9 +100,15 @@ def is_mv71_normal_attacker(visual_id, passive_abilities=None) -> bool:
     autorité quand elle existe ; `None` = canal muet -> repli KIT, le comportement d'avant.
     Résoudre par le kit SEUL était le fork mesuré par #419-r1-tr14-r5 : sur un bras
     `write_grafted_seed_bc(..., replace=True)` le natif ramène l'attaque normale à `69` et le port
-    continuait de prendre le chemin drone. RE et mesure : `engine.services.custom_normal_attack`."""
+    continuait de prendre le chemin drone. RE et mesure : `engine.services.custom_normal_attack`.
+
+    `active_abilities` (#419-r1-tr14-r5-r2) = la SECONDE voie de la meme cascade. Elle n'est
+    consultee par le natif que lorsque la voie passive rend `null`, et elle ne peut rendre que
+    `RogalDorn_NormalAttack` -- jamais `MV71SniperDroneSquadAttack`. La passer ne change donc pas
+    la reponse de CE predicat ; elle est threadee pour que le foyer decide de la MEME cascade
+    partout, plutot que d'avoir un poste d'appel qui en connaisse une moitie."""
     return substitutes_normal_attack(CONFIG, passive_abilities=passive_abilities,
-                                     visual_id=visual_id)
+                                     visual_id=visual_id, active_abilities=active_abilities)
 
 
 def _friendly_drones(state: "State", team, unit_id: str) -> list:
