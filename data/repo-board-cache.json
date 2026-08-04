@@ -703,6 +703,12 @@
    "last": "2026-07-16T07:27:15.945000+00:00",
    "turns": 354
   },
+  "a1ba4c57669ac498b": {
+   "ctx": 27467916,
+   "first": "2026-08-04T13:31:16.908000+00:00",
+   "last": "2026-08-04T14:12:00.669000+00:00",
+   "turns": 129
+  },
   "a1bb9cb8c8a6b3b03": {
    "ctx": 78003081,
    "first": "2026-08-01T01:17:07.399000+00:00",
@@ -1159,6 +1165,12 @@
    "last": "2026-07-02T21:03:01.354000+00:00",
    "turns": 188
   },
+  "a3006c81322e44a9b": {
+   "ctx": 76686079,
+   "first": "2026-08-04T13:20:50.551000+00:00",
+   "last": "2026-08-04T14:18:52.362000+00:00",
+   "turns": 244
+  },
   "a30247ac5ce66d622": {
    "ctx": 147547562,
    "first": "2026-07-28T14:16:16.960000+00:00",
@@ -1440,6 +1452,12 @@
    "first": "2026-07-29T23:40:47.672000+00:00",
    "last": "2026-07-30T02:01:33.934000+00:00",
    "turns": 401
+  },
+  "a3bb24b6d195eeeb6": {
+   "ctx": 1669006,
+   "first": "2026-08-04T14:17:04.957000+00:00",
+   "last": "2026-08-04T14:19:41.542000+00:00",
+   "turns": 16
   },
   "a3c12fdb336bc55fd": {
    "ctx": 1728110,
@@ -1862,10 +1880,10 @@
    "turns": 202
   },
   "a4ff026aa26851621": {
-   "ctx": 25974962,
+   "ctx": 84669690,
    "first": "2026-08-04T11:09:42.540000+00:00",
-   "last": "2026-08-04T11:49:11.895000+00:00",
-   "turns": 141
+   "last": "2026-08-04T13:11:46.027000+00:00",
+   "turns": 303
   },
   "a503082bfc6e7c38c": {
    "ctx": 71006790,
@@ -1962,6 +1980,12 @@
    "first": "2026-07-27T21:00:02.058000+00:00",
    "last": "2026-07-27T22:00:55.561000+00:00",
    "turns": 302
+  },
+  "a5495c47488dffaca": {
+   "ctx": 21653487,
+   "first": "2026-08-04T13:48:21.972000+00:00",
+   "last": "2026-08-04T14:16:00.416000+00:00",
+   "turns": 95
   },
   "a554ab5a157663bf0": {
    "ctx": 1762567,
@@ -2408,10 +2432,10 @@
    "turns": 75
   },
   "a6ae552ef936491a4": {
-   "ctx": 47693940,
+   "ctx": 78396272,
    "first": "2026-08-04T10:49:29.424000+00:00",
-   "last": "2026-08-04T11:49:15.888000+00:00",
-   "turns": 206
+   "last": "2026-08-04T12:07:38.168000+00:00",
+   "turns": 294
   },
   "a6b27f7cf8a679d1f": {
    "ctx": 29716037,
@@ -3002,10 +3026,10 @@
    "turns": 67
   },
   "a865a68d3d4e43dda": {
-   "ctx": 3585382,
+   "ctx": 8942939,
    "first": "2026-08-04T11:44:56.243000+00:00",
-   "last": "2026-08-04T11:49:29.849000+00:00",
-   "turns": 58
+   "last": "2026-08-04T12:02:07.506000+00:00",
+   "turns": 126
   },
   "a865dfb2cb3eccfb1": {
    "ctx": 45255846,
@@ -3114,6 +3138,12 @@
    "first": "2026-07-29T07:22:27.489000+00:00",
    "last": "2026-07-29T07:43:42.266000+00:00",
    "turns": 152
+  },
+  "a8d2eece500e055e2": {
+   "ctx": 62305263,
+   "first": "2026-08-04T12:57:55.321000+00:00",
+   "last": "2026-08-04T14:19:16.284000+00:00",
+   "turns": 218
   },
   "a8d9c8bcc3bee1cf2": {
    "ctx": 155323906,
@@ -3314,10 +3344,10 @@
    "turns": 375
   },
   "a9900482c6641d6f0": {
-   "ctx": 44380478,
+   "ctx": 84810527,
    "first": "2026-08-04T11:03:27.619000+00:00",
-   "last": "2026-08-04T11:48:10.440000+00:00",
-   "turns": 169
+   "last": "2026-08-04T12:50:02.548000+00:00",
+   "turns": 272
   },
   "a9988ca3b1b445ff4": {
    "ctx": 133976716,
@@ -4627,6 +4657,12 @@
    "last": "2026-07-18T05:58:36.639000+00:00",
    "turns": 68
   },
+  "adaa396bfe7585509": {
+   "ctx": 67065316,
+   "first": "2026-08-04T12:19:22.263000+00:00",
+   "last": "2026-08-04T13:58:49.413000+00:00",
+   "turns": 234
+  },
   "adb084ee309f7c2fd": {
    "ctx": 27452387,
    "first": "2026-07-29T06:05:59.453000+00:00",
@@ -4836,6 +4872,12 @@
    "first": "2026-07-12T06:58:08.117000+00:00",
    "last": "2026-07-12T07:07:29.775000+00:00",
    "turns": 41
+  },
+  "ae325daf2b7bfcc63": {
+   "ctx": 50145461,
+   "first": "2026-08-04T12:06:14.189000+00:00",
+   "last": "2026-08-04T13:21:15.951000+00:00",
+   "turns": 179
   },
   "ae363eb7ec2850955": {
    "ctx": 70113091,
@@ -5264,10 +5306,10 @@
    "turns": 164
   },
   "af797e37f63c5f36a": {
-   "ctx": 42173130,
+   "ctx": 99473560,
    "first": "2026-08-04T10:50:49.539000+00:00",
-   "last": "2026-08-04T11:46:55.243000+00:00",
-   "turns": 188
+   "last": "2026-08-04T13:43:40.211000+00:00",
+   "turns": 316
   },
   "af799de6982baa290": {
    "ctx": 47617479,
@@ -5626,9 +5668,9 @@
    "turns": 11653
   },
   "2026-08-04": {
-   "agent_ctx": 3125813270,
-   "ctx": 3589545736,
-   "turns": 11873
+   "agent_ctx": 3625290894,
+   "ctx": 4162578191,
+   "turns": 13821
   }
  },
  "files": {
@@ -5646,7 +5688,7 @@
   },
   "770b6b08-a8e1-4df4-99e5-9ea0bcf65487.jsonl": {
    "first": "",
-   "offset": 8467564
+   "offset": 8619209
   },
   "85ce3eaa-558f-4617-a07c-53d13aa4a1bc.jsonl": {
    "first": "",
@@ -6124,6 +6166,10 @@
    "first": "5874a9dc-1a84-48e7-8c29-d6d4a98220ef",
    "offset": 1795303
   },
+  "agent-a1ba4c57669ac498b.jsonl": {
+   "first": "a33e681d-9bf3-43d8-ac44-75d912acfaaf",
+   "offset": 985957
+  },
   "agent-a1bb9cb8c8a6b3b03.jsonl": {
    "first": "7899c20c-6c0d-4beb-abad-d7ac275cddd8",
    "offset": 2059983
@@ -6428,6 +6474,10 @@
    "first": "f359e0b9-f06d-409d-aba4-e565e174c849",
    "offset": 1520646
   },
+  "agent-a3006c81322e44a9b.jsonl": {
+   "first": "d6d89922-0179-41ef-b287-d6370e240f29",
+   "offset": 2041802
+  },
   "agent-a30247ac5ce66d622.jsonl": {
    "first": "82b160e1-f2ac-4dad-a06f-6805638ff4c8",
    "offset": 2842334
@@ -6615,6 +6665,10 @@
   "agent-a3b4da57533b7c4b7.jsonl": {
    "first": "202197d6-250d-49f1-9be5-3d625e223aab",
    "offset": 2902494
+  },
+  "agent-a3bb24b6d195eeeb6.jsonl": {
+   "first": "d73f0aaa-b9e5-4d15-8e07-5917ef258fd9",
+   "offset": 317419
   },
   "agent-a3c12fdb336bc55fd.jsonl": {
    "first": "083e1fa6-3ddd-4c8c-bef4-70883c48f7d4",
@@ -6898,7 +6952,7 @@
   },
   "agent-a4ff026aa26851621.jsonl": {
    "first": "eae1ac68-5827-4572-a413-b6a47bc2f6ce",
-   "offset": 1068708
+   "offset": 1832719
   },
   "agent-a503082bfc6e7c38c.jsonl": {
    "first": "6579bbc2-d16f-4fab-b9f3-316f179118f7",
@@ -6963,6 +7017,10 @@
   "agent-a5412c2e8b1cef0aa.jsonl": {
    "first": "51a33b93-e2ba-4751-b635-4357cf6926e6",
    "offset": 1478713
+  },
+  "agent-a5495c47488dffaca.jsonl": {
+   "first": "0d8cd620-64f0-43b6-9d2c-9f91f65194a9",
+   "offset": 1202297
   },
   "agent-a554ab5a157663bf0.jsonl": {
    "first": "93c3e779-b164-4426-9cc1-40ea4b1ab19b",
@@ -7262,7 +7320,7 @@
   },
   "agent-a6ae552ef936491a4.jsonl": {
    "first": "490ed724-fd8d-4e77-9aa5-2cc05367e77c",
-   "offset": 1289950
+   "offset": 1597369
   },
   "agent-a6b27f7cf8a679d1f.jsonl": {
    "first": "1a1ff296-6eda-4f0e-8496-cb9af26fbcf8",
@@ -7658,7 +7716,7 @@
   },
   "agent-a865a68d3d4e43dda.jsonl": {
    "first": "b700ef61-2ade-4752-9a38-ddfd888ae314",
-   "offset": 195221
+   "offset": 388077
   },
   "agent-a865dfb2cb3eccfb1.jsonl": {
    "first": "5faf3501-e93d-48ed-b425-771df9346cd3",
@@ -7731,6 +7789,10 @@
   "agent-a8c9c09f9644414a0.jsonl": {
    "first": "4263961c-856e-4f0d-a54c-de3fa423efaf",
    "offset": 940395
+  },
+  "agent-a8d2eece500e055e2.jsonl": {
+   "first": "a2fd268c-4fc4-4209-8b4b-3d61bee1126b",
+   "offset": 1619840
   },
   "agent-a8d9c8bcc3bee1cf2.jsonl": {
    "first": "1b4069a6-392e-4e15-b504-62d09a42cb02",
@@ -7866,7 +7928,7 @@
   },
   "agent-a9900482c6641d6f0.jsonl": {
    "first": "88d8c33e-0ca6-4782-8398-82bcf72b3d4c",
-   "offset": 1408750
+   "offset": 1791912
   },
   "agent-a9988ca3b1b445ff4.jsonl": {
    "first": "a5803f25-55d8-4da9-9a13-5e48b9cc0879",
@@ -8740,6 +8802,10 @@
    "first": "93213c40-77b1-4c19-8cee-d87601302664",
    "offset": 494688
   },
+  "agent-adaa396bfe7585509.jsonl": {
+   "first": "ec5e8454-4528-4662-b1aa-04c848b30cbc",
+   "offset": 1621419
+  },
   "agent-adb084ee309f7c2fd.jsonl": {
    "first": "e1fb1ef5-ae15-4318-a75a-0e0bcfa2b36e",
    "offset": 1053023
@@ -8879,6 +8945,10 @@
   "agent-ae2dc9e07118b30d8.jsonl": {
    "first": "05f8ceba-864b-434c-b150-8cbad8b0dd38",
    "offset": 583012
+  },
+  "agent-ae325daf2b7bfcc63.jsonl": {
+   "first": "8400d14e-5553-4d12-9f8d-b1127b7ead8c",
+   "offset": 1418115
   },
   "agent-ae363eb7ec2850955.jsonl": {
    "first": "7e12efd6-7a12-4c77-8a1c-487dfd23db3d",
@@ -9166,7 +9236,7 @@
   },
   "agent-af797e37f63c5f36a.jsonl": {
    "first": "8ad1f755-1cd0-4115-bfaf-f961f7134eee",
-   "offset": 1381085
+   "offset": 2145490
   },
   "agent-af799de6982baa290.jsonl": {
    "first": "8d3eca05-28e3-4115-82f2-22d0a88c2eda",
@@ -9266,7 +9336,7 @@
   },
   "b2170732-95be-4660-9594-e3e86a19af08.jsonl": {
    "first": "",
-   "offset": 573475246
+   "offset": 576225444
   },
   "b3ddc32a-7528-4057-9d59-bf4ca0066ab3.jsonl": {
    "first": "",
@@ -11221,6 +11291,20 @@
    ],
    "dele": 20
   },
+  "6f2e05488e52f5fd6d26e49f7616d0dae877933d": {
+   "add": 1046,
+   "commits": [
+    "37eebada54afa4478066b0b9a28e0f73c74364c6",
+    "e18142ae5d28125bc4e3e9dcd5ceb3f8ea468d5a",
+    "3fcfe154d54c417067cc4c65fad835eedb0791e1",
+    "ab5b96fd07548798c16b093c1134de7e42084fe1",
+    "d5b205e71543d8c057d56af6f72d3a3c627ea1fe",
+    "b891c91f29544e5ff858c124a4844d9b1b84bec2",
+    "cf4820d6fef2ae8cc3e7eb7b37e3861c03d0763d",
+    "3ceb9da65717fc6a5519e18cde83297d510b87b5"
+   ],
+   "dele": 51
+  },
   "6fb6accc823c13896e498ef6467fd52b9791959f": {
    "add": 1205,
    "commits": [
@@ -11353,6 +11437,14 @@
     "92ed147513a95f85e28251f8bda080632cfe85ca"
    ],
    "dele": 0
+  },
+  "78d1ebe7d5efee38fcd2915caefd9f47c3a47ef3": {
+   "add": 1252,
+   "commits": [
+    "2d0b6ae966d6e9490bda36c35890214e880e3cd8",
+    "624a7a29da1605fc798e1490dc3af432a79ec157"
+   ],
+   "dele": 37
   },
   "78e92ff780020dbd084a56d2c74cadc0ff452aa8": {
    "add": 824,
@@ -12238,6 +12330,18 @@
     "38f1b48172ad904c72b1a1bb31982a0b53f67375"
    ],
    "dele": 136
+  },
+  "a5bf7e0faa3c925f5b994070c17cb6eaea2b9217": {
+   "add": 1427,
+   "commits": [
+    "54db3751e20a1ff603a2ff7989019c2227b4bcc1",
+    "130043a59bb3726d01dd903d50e10c3f341799cd",
+    "3847fde7ee564c0ebc2ea0c26291bda86e8976a3",
+    "885acc3ff4ff3b794e70cd6b38d0a5b3b5f35256",
+    "43fd487636959430d908456b882c072f5865d6fa",
+    "a19df8033b236fb0c223a0d743fe776e969f333a"
+   ],
+   "dele": 2
   },
   "a6dd6b9452b8a0cbca8a61fb92ffa9df2d0d818a": {
    "add": 1059,
@@ -13183,6 +13287,19 @@
    ],
    "dele": 61
   },
+  "da9f97e3f22d9ac83e461d69e36b5a679268ee06": {
+   "add": 682,
+   "commits": [
+    "df229e1473d14419c1bdf031cce4f5b551926ad9",
+    "b8e8a585e8797fc63dd0af14ed9ed349c2765a46",
+    "72b15c7a36af24b329881fdcbb4e84fcfec884d3",
+    "1ac2c11811c49e39cc84e8fb1531147aa7cf7f00",
+    "af6945948223a3f049615450aa7102d3174fd30d",
+    "b4aa408ec9afddd439f333cf4ebc6b40b0a694c6",
+    "497e91374fb898cc5533a976cdcf29da1cf4f066"
+   ],
+   "dele": 48
+  },
   "dac7c2a6781b7b9d80e3d63e23e1ebea41f6fd70": {
    "add": 2082,
    "commits": [
@@ -13502,6 +13619,20 @@
    ],
    "dele": 1
   },
+  "f5edd529963436713a5e3bcebc60686c3435c203": {
+   "add": 1274,
+   "commits": [
+    "848a1c2390cfe35c56a09277dd21cf630addf5a4",
+    "7253150509a246bca915c3d22a6305969e4030be",
+    "0171c0c4edb98c7b65f5205a123ed312a960e0c9",
+    "bad0af247c6641b7eee6b26c86ef64b1f71e2dd1",
+    "1d8542079a6b79a9ac08102e9f92c3e2da3f7269",
+    "6be004f75853d1878bc6bbe30084a6752e3d0c08",
+    "e2a0a6c593fa14f3c96a6ab7b92c15b8502e5d97",
+    "6939686aead9a1db500f0a8eed975d046da85de1"
+   ],
+   "dele": 26
+  },
   "f613824c4ca8bf558b18cd51dd30cc7145b56b0d": {
    "add": 1376,
    "commits": [
@@ -13605,6 +13736,16 @@
    ],
    "dele": 103
   },
+  "fc51ceab92562420e24d782bf64d574029d73e16": {
+   "add": 1280,
+   "commits": [
+    "c44e7826e8f536f17488d7e1338d622fcbc49046",
+    "c48569db798b956ef0089b571235df9aa7bd429e",
+    "03271b8b16b5ebac9878bd8b79ec0ebebdb34289",
+    "374f713db41d5a1a7c1ea58b016064bba9e0f345"
+   ],
+   "dele": 0
+  },
   "fc5c6ee88f70472a3ba064394deac9f3b81a8021": {
    "add": 917,
    "commits": [
@@ -13668,15 +13809,4571 @@
    "dele": 21
   }
  },
+ "metas": {
+  "a00080e5ee70717fe": {
+   "branch": "",
+   "name": "Locate playbook vtable slots",
+   "type": "Explore"
+  },
+  "a007854ee6bbb6f57": {
+   "branch": "",
+   "name": "RE #162 RangedSpecialist multi-hit + overwatch",
+   "type": "re-expert"
+  },
+  "a00bb5e08222aa6e2": {
+   "branch": "",
+   "name": "RE ordre inter-tier NonComparable",
+   "type": "re-expert"
+  },
+  "a00c58b69b242b9a3": {
+   "branch": "",
+   "name": "RE raycast IsTargetTileObscured",
+   "type": "re-expert"
+  },
+  "a00feb252c3348aae": {
+   "branch": "worktree-agent-a00feb252c3348aae",
+   "name": "Consommateurs PerformAIAction",
+   "type": "opus-solver"
+  },
+  "a011d963dd7d1cf6a": {
+   "branch": "",
+   "name": "Sweep callers RPCs de build runner",
+   "type": "Explore"
+  },
+  "a017117cd94685468": {
+   "branch": "",
+   "name": "RE CultDemagogue behaviour tree",
+   "type": "re-expert"
+  },
+  "a017b3c6446dc8dff": {
+   "branch": "worktree-agent-a017b3c6446dc8dff",
+   "name": "opus-solver #68 push distance",
+   "type": "opus-solver"
+  },
+  "a01f415e642e7ddbb": {
+   "branch": "",
+   "name": "Classifier P2 AdeptusAstartes",
+   "type": "re-expert"
+  },
+  "a021d4fc2eeb1015f": {
+   "branch": "",
+   "name": "Audit bespoke playbook param_8 profiles",
+   "type": "re-expert"
+  },
+  "a0220713ebc56f07f": {
+   "branch": "worktree-agent-a0220713ebc56f07f",
+   "name": "Port a slice of the 43 ShouldExecute",
+   "type": "opus-solver"
+  },
+  "a025d214e08a172b3": {
+   "branch": "worktree-agent-a025d214e08a172b3",
+   "name": "Waaagh 1058 inerte en runner",
+   "type": "opus-solver"
+  },
+  "a0280a3cf13e83ef6": {
+   "branch": "",
+   "name": "Chercher le patron fallback-si-zero",
+   "type": "Explore"
+  },
+  "a02a4ae69ab106f7d": {
+   "branch": "worktree-agent-a02a4ae69ab106f7d",
+   "name": "Close the overwatch armour off-by-one",
+   "type": "opus-solver"
+  },
+  "a0327e7bd7803213a": {
+   "branch": "worktree-agent-a0327e7bd7803213a",
+   "name": "Valider commit 578dbd0 (#49+#45d)",
+   "type": "validator"
+  },
+  "a03427a7eed85a5b0": {
+   "branch": "worktree-agent-a03427a7eed85a5b0",
+   "name": "RE ecrivains AbilityEntities+0x98",
+   "type": "re-expert"
+  },
+  "a03a67868f93cc713": {
+   "branch": "worktree-agent-a03a67868f93cc713",
+   "name": "RE + repro RangedSpecialist prediction #160",
+   "type": "re-expert"
+  },
+  "a03c274634a1b68d5": {
+   "branch": "",
+   "name": "Validation adversariale fix summon step-14",
+   "type": "validator"
+  },
+  "a03c2c84be25abba2": {
+   "branch": "worktree-agent-a03c2c84be25abba2",
+   "name": "222 masque strike suivante",
+   "type": "opus-solver"
+  },
+  "a03d4785e7cc961c9": {
+   "branch": "worktree-agent-a03d4785e7cc961c9",
+   "name": "237 verrou niveau relique",
+   "type": "opus-solver"
+  },
+  "a03e9fb38c32d6ab7": {
+   "branch": "worktree-agent-a03e9fb38c32d6ab7",
+   "name": "Haze RNG flow 8 vs 6",
+   "type": "opus-solver"
+  },
+  "a0406a285b342da8e": {
+   "branch": "worktree-agent-a0406a285b342da8e",
+   "name": "350-r2b 1059 Explodes",
+   "type": "opus-solver"
+  },
+  "a04155f262d827796": {
+   "branch": "",
+   "name": "Classifier P2 BlackTemplars",
+   "type": "re-expert"
+  },
+  "a0438617ad29ea053": {
+   "branch": "",
+   "name": "RE Contaminated armor magnitude source",
+   "type": "re-expert"
+  },
+  "a04a02390f37badf4": {
+   "branch": "worktree-agent-a04a02390f37badf4",
+   "name": "Porter 1109 ReinforcedHiveNode ExtraBlock",
+   "type": "opus-solver"
+  },
+  "a04cef23df52940a2": {
+   "branch": "worktree-agent-a04cef23df52940a2",
+   "name": "RE recette port Hammer of Wrath",
+   "type": "re-expert"
+  },
+  "a04d8f225466160d6": {
+   "branch": "",
+   "name": "RE elevation source-set + TileEffects loop2",
+   "type": "re-expert"
+  },
+  "a0506daa55d945b4b": {
+   "branch": "",
+   "name": "Audit services + root",
+   "type": "general-purpose"
+  },
+  "a050770e057151754": {
+   "branch": "worktree-agent-a050770e057151754",
+   "name": "Ordre On(TurnEnd) vs RefreshEffects",
+   "type": "opus-solver"
+  },
+  "a052e8172ad2a59b3": {
+   "branch": "worktree-agent-a052e8172ad2a59b3",
+   "name": "Port RemoveUnitFromTilesOperation for TunnelingHorror",
+   "type": "opus-solver"
+  },
+  "a05f66b74c7f71b15": {
+   "branch": "worktree-agent-a05f66b74c7f71b15",
+   "name": "RE #237 relique niveau heros",
+   "type": "re-expert"
+  },
+  "a06379b623a980e5b": {
+   "branch": "worktree-agent-a06379b623a980e5b",
+   "name": "Port opus-solver RevitalizingMalignancy 1037",
+   "type": "opus-solver"
+  },
+  "a0646e950b6671d76": {
+   "branch": "worktree-agent-a0646e950b6671d76",
+   "name": "441 Neuroparasite 1183",
+   "type": "opus-solver"
+  },
+  "a06de242bccf23040": {
+   "branch": "worktree-agent-a06de242bccf23040",
+   "name": "Port opus-solver CordClaw 1122",
+   "type": "opus-solver"
+  },
+  "a06ede6773dbefa9c": {
+   "branch": "worktree-agent-a06ede6773dbefa9c",
+   "name": "Tranche 3 DaemonicOrdnance route tuile",
+   "type": "opus-solver"
+  },
+  "a0705efedd73aac1e": {
+   "branch": "worktree-agent-a0705efedd73aac1e",
+   "name": "Localise votanChampion prediction gap",
+   "type": "opus-solver"
+  },
+  "a0789132ccccc42cf": {
+   "branch": "worktree-agent-a0789132ccccc42cf",
+   "name": "Porter 1284 EchoesFromTheWarp revive",
+   "type": "opus-solver"
+  },
+  "a07d7ea6d8c1eb97f": {
+   "branch": "worktree-agent-a07d7ea6d8c1eb97f",
+   "name": "Evasion-then-block order",
+   "type": "opus-solver"
+  },
+  "a0815151e62d712ec": {
+   "branch": "worktree-agent-a0815151e62d712ec",
+   "name": "LetTheGalaxyBurn canal 179",
+   "type": "opus-solver"
+  },
+  "a082c7e93f4431081": {
+   "branch": "",
+   "name": "RE closure PredictAttackRaw residuals",
+   "type": "re-expert"
+  },
+  "a0854cc8b170a11dc": {
+   "branch": "worktree-agent-a0854cc8b170a11dc",
+   "name": "blackObliterator HP divergence",
+   "type": "opus-solver"
+  },
+  "a095edc3b69564c3a": {
+   "branch": "worktree-agent-a095edc3b69564c3a",
+   "name": "Verify Psyker Smite chain live",
+   "type": "re-expert"
+  },
+  "a099fcbd0a2e42922": {
+   "branch": "worktree-agent-a099fcbd0a2e42922",
+   "name": "N14 face CRIT sans contexte",
+   "type": "opus-solver"
+  },
+  "a09a3676ad7582808": {
+   "branch": "worktree-agent-a09a3676ad7582808",
+   "name": "Port #56 tranche 3a (3 oracles 54321)",
+   "type": "re-expert"
+  },
+  "a09b0898704b7fd3b": {
+   "branch": "worktree-agent-a09b0898704b7fd3b",
+   "name": "Port IsTileInRangeOfAnyAbility and the ranged threshold",
+   "type": "opus-solver"
+  },
+  "a09c6c874215ba818": {
+   "branch": "worktree-agent-a09c6c874215ba818",
+   "name": "Valider rites-repair (worktree branche)",
+   "type": "validator"
+  },
+  "a0ab4c5a80062bf56": {
+   "branch": "worktree-agent-a0ab4c5a80062bf56",
+   "name": "Durees effets + tests lot POSE",
+   "type": "opus-solver"
+  },
+  "a0adc5bc41d12c050": {
+   "branch": "worktree-agent-a0adc5bc41d12c050",
+   "name": "Read the 11 unread whole-board gates",
+   "type": "opus-solver"
+  },
+  "a0b0e33ce6c37a578": {
+   "branch": "",
+   "name": "RE GetEmRuntz behaviour tree + walker",
+   "type": "re-expert"
+  },
+  "a0b54008e4268d97f": {
+   "branch": "worktree-agent-a0b54008e4268d97f",
+   "name": "Elevation gate red on master",
+   "type": "opus-solver"
+  },
+  "a0b64b8b758565261": {
+   "branch": "",
+   "name": "RE LetTheGalaxyBurn",
+   "type": "re-expert"
+  },
+  "a0b6949a2750a6ab5": {
+   "branch": "worktree-agent-a0b6949a2750a6ab5",
+   "name": "Port famille death-nova",
+   "type": "opus-solver"
+  },
+  "a0c3f8647fc055676": {
+   "branch": "worktree-agent-a0c3f8647fc055676",
+   "name": "Fix _pick_randomly n=1 RNG short-circuit",
+   "type": "opus-solver"
+  },
+  "a0c4c05c9903dce6f": {
+   "branch": "worktree-agent-a0c4c05c9903dce6f",
+   "name": "Moyennes couche TRIGGERED",
+   "type": "opus-solver"
+  },
+  "a0c86bee0b90f2dde": {
+   "branch": "worktree-agent-a0c86bee0b90f2dde",
+   "name": "RE #173 HellfireShells base+hits",
+   "type": "re-expert"
+  },
+  "a0cb06c655a982391": {
+   "branch": "worktree-agent-a0cb06c655a982391",
+   "name": "Port HarvesterOfSouls (Aeldari)",
+   "type": "opus-solver"
+  },
+  "a0d63dfd74895ded5": {
+   "branch": "worktree-agent-a0d63dfd74895ded5",
+   "name": "Fix FlailSwing damage gap",
+   "type": "opus-solver"
+  },
+  "a0d990034b84d5f70": {
+   "branch": "",
+   "name": "RE SpiritLeech special-damage + effect-util",
+   "type": "re-expert"
+  },
+  "a0db98973bea09bf4": {
+   "branch": "",
+   "name": "Port tranche 3b : 3 oracles NC",
+   "type": "re-expert"
+  },
+  "a0dba486f05001d7e": {
+   "branch": "worktree-agent-a0dba486f05001d7e",
+   "name": "Port CalculateCustomUtility overrides",
+   "type": "opus-solver"
+  },
+  "a0e174d9c7cdd77ff": {
+   "branch": "worktree-agent-a0e174d9c7cdd77ff",
+   "name": "439 garde morsure des cliquets",
+   "type": "opus-solver"
+  },
+  "a0ec81a6c4bdf6d2e": {
+   "branch": "worktree-agent-a0ec81a6c4bdf6d2e",
+   "name": "N9 retrofit IsCharging",
+   "type": "opus-solver"
+  },
+  "a0ee50ba629467e24": {
+   "branch": "worktree-agent-a0ee50ba629467e24",
+   "name": "opus-solver BlackRage 1163",
+   "type": "opus-solver"
+  },
+  "a0f372c7f3e436567": {
+   "branch": "worktree-agent-a0f372c7f3e436567",
+   "name": "FuelledByFury face degat",
+   "type": "opus-solver"
+  },
+  "a0f745daa0fd4dcec": {
+   "branch": "worktree-agent-a0f745daa0fd4dcec",
+   "name": "Discriminate HealingBalms custom coefficient",
+   "type": "opus-solver"
+  },
+  "a0fc04afd17f2fb1e": {
+   "branch": "worktree-agent-a0fc04afd17f2fb1e",
+   "name": "Port DoomSiren + FearOfTheUnseen",
+   "type": "opus-solver"
+  },
+  "a0fd3d304dcced559": {
+   "branch": "worktree-agent-a0fd3d304dcced559",
+   "name": "Join DSL coverage with reachability",
+   "type": "opus-solver"
+  },
+  "a108119324c37abd2": {
+   "branch": "worktree-agent-a108119324c37abd2",
+   "name": "Eligibilite par position 1202",
+   "type": "opus-solver"
+  },
+  "a1082eaf583d4c67c": {
+   "branch": "",
+   "name": "Cartographier port triggered abilities",
+   "type": "Explore"
+  },
+  "a10aaaf5b4fb1af3d": {
+   "branch": "worktree-agent-a10aaaf5b4fb1af3d",
+   "name": "354-r1 MyWillBeDoneOverlord combat",
+   "type": "opus-solver"
+  },
+  "a10b08e07daa42514": {
+   "branch": "worktree-agent-a10b08e07daa42514",
+   "name": "Build computed loop status",
+   "type": "opus-solver"
+  },
+  "a10d5280fbbf14382": {
+   "branch": "",
+   "name": "Classifier P2 Tau",
+   "type": "re-expert"
+  },
+  "a10ef6ce07e21254c": {
+   "branch": "worktree-agent-a10ef6ce07e21254c",
+   "name": "Valider live les 4 bites du cluster",
+   "type": "validator"
+  },
+  "a10fbca2e990634e3": {
+   "branch": "worktree-agent-a10fbca2e990634e3",
+   "name": "Capteur 369 muet capturedCount 0",
+   "type": "opus-solver"
+  },
+  "a110092b34078c63c": {
+   "branch": "worktree-agent-a110092b34078c63c",
+   "name": "1224 SagaOfTheWarriorBorn",
+   "type": "opus-solver"
+  },
+  "a1120fceb26910957": {
+   "branch": "worktree-agent-a1120fceb26910957",
+   "name": "354-r1 reprise MyWillBeDoneOverlord",
+   "type": "opus-solver"
+  },
+  "a11b309c904341c97": {
+   "branch": "worktree-agent-a11b309c904341c97",
+   "name": "Porter batchs 3/4 de 1059",
+   "type": "opus-solver"
+  },
+  "a11fd6e8ec6a94202": {
+   "branch": "worktree-agent-a11fd6e8ec6a94202",
+   "name": "Confront the two unmeasured defender-additive producers",
+   "type": "opus-solver"
+  },
+  "a120cdcc41b44b9ae": {
+   "branch": "worktree-agent-a120cdcc41b44b9ae",
+   "name": "RE #58 AggressiveOnslaught delegate",
+   "type": "re-expert"
+  },
+  "a1242b2098ffc5cdd": {
+   "branch": "worktree-agent-a1242b2098ffc5cdd",
+   "name": "Port opus SanctorumMissile Sisterhood",
+   "type": "opus-solver"
+  },
+  "a125bc87049ad3b7f": {
+   "branch": "worktree-agent-a125bc87049ad3b7f",
+   "name": "Port GrapnelLauncher combat face",
+   "type": "opus-solver"
+  },
+  "a12c49c53368dcb65": {
+   "branch": "worktree-agent-a12c49c53368dcb65",
+   "name": "Trait Summon désarme CanStillBeUsed",
+   "type": "opus-solver"
+  },
+  "a12d6ef8b756473d9": {
+   "branch": "",
+   "name": "Disambiguate tile-effect event ids",
+   "type": "re-expert"
+  },
+  "a12dd485c41f16fc8": {
+   "branch": "worktree-agent-a12dd485c41f16fc8",
+   "name": "Resolve the two-face rounding contradiction",
+   "type": "fable-solver"
+  },
+  "a13daa9afe6e7dbf3": {
+   "branch": "worktree-agent-a13daa9afe6e7dbf3",
+   "name": "opus-solver TheQuickening 1151",
+   "type": "opus-solver"
+  },
+  "a13e3e048685ba372": {
+   "branch": "worktree-agent-a13e3e048685ba372",
+   "name": "Port SorcerousFacade combat face",
+   "type": "opus-solver"
+  },
+  "a1411a50ff513b016": {
+   "branch": "",
+   "name": "Refresh hooks.md et rpc-api.md",
+   "type": "standby-executor"
+  },
+  "a143221cc8a5d2222": {
+   "branch": "worktree-agent-a143221cc8a5d2222",
+   "name": "Port FrenziedFiring AoE batch",
+   "type": "opus-solver"
+  },
+  "a143b810b752ef04b": {
+   "branch": "worktree-agent-a143b810b752ef04b",
+   "name": "Port remaining MoW abilities",
+   "type": "opus-solver"
+  },
+  "a144ab45b136e4512": {
+   "branch": "",
+   "name": "RE ice/freeze dynamic-tile family",
+   "type": "re-expert"
+  },
+  "a148d2c3afd928fd4": {
+   "branch": "",
+   "name": "RE DoctrinaImperatives 1118 gate slots",
+   "type": "re-expert"
+  },
+  "a14bc88f36dd55761": {
+   "branch": "worktree-agent-a14bc88f36dd55761",
+   "name": "Port StormboyzStrike fallback and miss",
+   "type": "opus-solver"
+  },
+  "a1557aebdcf4302eb": {
+   "branch": "worktree-agent-a1557aebdcf4302eb",
+   "name": "HazeOfCorruption damage transfer",
+   "type": "opus-solver"
+  },
+  "a158a27e4f12847ca": {
+   "branch": "worktree-agent-a158a27e4f12847ca",
+   "name": "Empreintes multi-hex dans le DSL",
+   "type": "opus-solver"
+  },
+  "a15b5a46d883efbd1": {
+   "branch": "",
+   "name": "Find Fire tile DoT ability",
+   "type": "re-expert"
+  },
+  "a15ce337e0825bc0d": {
+   "branch": "",
+   "name": "RE after-move overwatch TheBetrayer",
+   "type": "re-expert"
+  },
+  "a16280e6c79c46ca9": {
+   "branch": "worktree-agent-a16280e6c79c46ca9",
+   "name": "O3 dynamique des effets de tuile",
+   "type": "opus-solver"
+  },
+  "a1678f0172fb3fb56": {
+   "branch": "worktree-agent-a1678f0172fb3fb56",
+   "name": "Porter 1181 ExemplarOfTheKauyon",
+   "type": "opus-solver"
+  },
+  "a16bfa9ae85448fc0": {
+   "branch": "",
+   "name": "Inventaire derive-vs-saisi lot B",
+   "type": "Explore"
+  },
+  "a16e9f8ad1d17b8e2": {
+   "branch": "worktree-agent-a16e9f8ad1d17b8e2",
+   "name": "RNG desync wasted hits",
+   "type": "opus-solver"
+  },
+  "a1759a2b80713d352": {
+   "branch": "",
+   "name": "RE deep-read 6 param_8=null playbooks",
+   "type": "re-expert"
+  },
+  "a17618d7844a7b70d": {
+   "branch": "",
+   "name": "RE DefaultActiveAbilityPlaybook",
+   "type": "general-purpose"
+  },
+  "a177f81099a8d2d4a": {
+   "branch": "worktree-agent-a177f81099a8d2d4a",
+   "name": "Estamper state-file du sessionId",
+   "type": "opus-solver"
+  },
+  "a18151c89663f0fb1": {
+   "branch": "worktree-agent-a18151c89663f0fb1",
+   "name": "RE #128 tile/step-trigger vector",
+   "type": "re-expert"
+  },
+  "a185b9182de52bc57": {
+   "branch": "worktree-agent-a185b9182de52bc57",
+   "name": "Port PlagueWind + Doombolt",
+   "type": "opus-solver"
+  },
+  "a1914fa15a0de1acf": {
+   "branch": "worktree-agent-a1914fa15a0de1acf",
+   "name": "load_state charge and start tile",
+   "type": "opus-solver"
+  },
+  "a191dd8aac5fedc61": {
+   "branch": "",
+   "name": "RE Repair_GalvanicField utility+magnitude",
+   "type": "re-expert"
+  },
+  "a1941e07e6d1ec340": {
+   "branch": "worktree-agent-a1941e07e6d1ec340",
+   "name": "Canal OnToxicDamage 1203",
+   "type": "opus-solver"
+  },
+  "a1953da8e39e5ed8b": {
+   "branch": "worktree-agent-a1953da8e39e5ed8b",
+   "name": "Port BigTarget into 1191 prediction",
+   "type": "opus-solver"
+  },
+  "a198017a94b7be370": {
+   "branch": "",
+   "name": "RE résidu ×1.5 normal-attack",
+   "type": "re-expert"
+  },
+  "a19ba8c8c281782dd": {
+   "branch": "",
+   "name": "Classifier P2 DeathGuard",
+   "type": "re-expert"
+  },
+  "a1abf48b77a165532": {
+   "branch": "worktree-agent-a1abf48b77a165532",
+   "name": "Test worktree sale survit pause",
+   "type": "general-purpose"
+  },
+  "a1ae46efe31103488": {
+   "branch": "worktree-agent-a1ae46efe31103488",
+   "name": "437 vecteur On(9) overwatch",
+   "type": "opus-solver"
+  },
+  "a1b32101eae971094": {
+   "branch": "worktree-agent-a1b32101eae971094",
+   "name": "REVIVE A2 GhostRevive TimeFlux",
+   "type": "opus-solver"
+  },
+  "a1b364484f48084b6": {
+   "branch": "worktree-agent-a1b364484f48084b6",
+   "name": "Close two off-foyer adjacency consumers",
+   "type": "opus-solver"
+  },
+  "a1b6009045e3d530b": {
+   "branch": "worktree-agent-a1b6009045e3d530b",
+   "name": "Port opus SkyStrike Sisterhood",
+   "type": "opus-solver"
+  },
+  "a1b8b9912e8615c8c": {
+   "branch": "worktree-agent-a1b8b9912e8615c8c",
+   "name": "Audit turn-flow non-turn-ending actives",
+   "type": "fable-solver"
+  },
+  "a1ba4c57669ac498b": {
+   "branch": "worktree-agent-a1ba4c57669ac498b",
+   "name": "Tri-etat sur probe_467r4 volet B",
+   "type": "opus-solver"
+  },
+  "a1bb9cb8c8a6b3b03": {
+   "branch": "worktree-agent-a1bb9cb8c8a6b3b03",
+   "name": "Porter 1117 InescapableAccuracy overrideHits",
+   "type": "opus-solver"
+  },
+  "a1be06be9a79f5339": {
+   "branch": "worktree-agent-a1be06be9a79f5339",
+   "name": "Unlock multi-hit prediction subset",
+   "type": "opus-solver"
+  },
+  "a1bfe4cc4465b0bf1": {
+   "branch": "worktree-agent-a1bfe4cc4465b0bf1",
+   "name": "424 TitanhammerSquad TeleportingIn",
+   "type": "opus-solver"
+  },
+  "a1c14dd9fd5b62558": {
+   "branch": "worktree-agent-a1c14dd9fd5b62558",
+   "name": "opus-solver #48 UnitsDirectlyBehind",
+   "type": "opus-solver"
+  },
+  "a1cce32e46e94d065": {
+   "branch": "worktree-agent-a1cce32e46e94d065",
+   "name": "Thread tiles moved into combat",
+   "type": "opus-solver"
+  },
+  "a1ceedf6715c7acbf": {
+   "branch": "",
+   "name": "Cartographier chemin attaque normale",
+   "type": "Explore"
+  },
+  "a1cfa69d02f040484": {
+   "branch": "worktree-agent-a1cfa69d02f040484",
+   "name": "231 gate e.active effet 1502",
+   "type": "opus-solver"
+  },
+  "a1d0c085218183455": {
+   "branch": "worktree-agent-a1d0c085218183455",
+   "name": "RammingSpeed GetDamage gate",
+   "type": "opus-solver"
+  },
+  "a1d14fb6a51434ed1": {
+   "branch": "worktree-agent-a1d14fb6a51434ed1",
+   "name": "Confront the two new frida sensors",
+   "type": "opus-solver"
+  },
+  "a1d227b15b972a42c": {
+   "branch": "",
+   "name": "RE SetsEndTurnFlags config source",
+   "type": "re-expert"
+  },
+  "a1d2f4a0e680fb23c": {
+   "branch": "worktree-agent-a1d2f4a0e680fb23c",
+   "name": "322 ModifiedExoarmour magnitude",
+   "type": "opus-solver"
+  },
+  "a1d3f157fc6e34c00": {
+   "branch": "",
+   "name": "RE #178 DestroyTheWitch over-pred",
+   "type": "re-expert"
+  },
+  "a1da77b8d420913d8": {
+   "branch": "",
+   "name": "RE RitesOfBattle aura spec",
+   "type": "re-expert"
+  },
+  "a1da8d087db1dbb86": {
+   "branch": "worktree-agent-a1da8d087db1dbb86",
+   "name": "Inventaire playbooks de mouvement",
+   "type": "opus-solver"
+  },
+  "a1da986d98b15b9e5": {
+   "branch": "",
+   "name": "RE CapturePoint + PowerUp leaves",
+   "type": "general-purpose"
+  },
+  "a1e70e8fad61d05f4": {
+   "branch": "worktree-agent-a1e70e8fad61d05f4",
+   "name": "Port #266 Moved flag prediction face",
+   "type": "opus-solver"
+  },
+  "a1e7e265cde1d6267": {
+   "branch": "worktree-agent-a1e7e265cde1d6267",
+   "name": "446-r3 troisieme mold non dispatche",
+   "type": "opus-solver"
+  },
+  "a1edbc348b62884c9": {
+   "branch": "worktree-agent-a1edbc348b62884c9",
+   "name": "Port ExecuteForReplacedTarget",
+   "type": "opus-solver"
+  },
+  "a1ef995464a440eb8": {
+   "branch": "worktree-agent-a1ef995464a440eb8",
+   "name": "Sweep docs for stale stamps and VAs",
+   "type": "opus-solver"
+  },
+  "a1f316e537c9b29c0": {
+   "branch": "worktree-agent-a1f316e537c9b29c0",
+   "name": "Repair red live test env fire tile cap",
+   "type": "opus-solver"
+  },
+  "a1f5ee10e210fd1d9": {
+   "branch": "",
+   "name": "RE Fury face ATTACK (#51)",
+   "type": "re-expert"
+  },
+  "a1f5fa6ee8b63f656": {
+   "branch": "",
+   "name": "Valider port RitesOfRestoration (worktree)",
+   "type": "validator"
+  },
+  "a200f3664c8126b40": {
+   "branch": "worktree-agent-a200f3664c8126b40",
+   "name": "Lire les 60 formes restantes",
+   "type": "opus-solver"
+  },
+  "a204711a66d976b64": {
+   "branch": "worktree-agent-a204711a66d976b64",
+   "name": "Decodeurs par nom damage-prediction",
+   "type": "opus-solver"
+  },
+  "a204d4ec71942f73b": {
+   "branch": "worktree-agent-a204d4ec71942f73b",
+   "name": "Passifs ThousandSons: RealityUnbound + TimeFlux",
+   "type": "opus-solver"
+  },
+  "a20a9e8e35f5243e1": {
+   "branch": "worktree-agent-a20a9e8e35f5243e1",
+   "name": "Port bankers rounding in damage",
+   "type": "opus-solver"
+  },
+  "a20e205bbaca3c007": {
+   "branch": "",
+   "name": "RE DoorOpening leaves",
+   "type": "general-purpose"
+  },
+  "a20f070a622c192e5": {
+   "branch": "",
+   "name": "Cartographier triggers effet et RemoveEffect",
+   "type": "Explore"
+  },
+  "a2149cf991f18efd6": {
+   "branch": "",
+   "name": "Resolve playbook base slots and ctor",
+   "type": "re-expert"
+  },
+  "a21d32ae875d6d02a": {
+   "branch": "worktree-agent-a21d32ae875d6d02a",
+   "name": "Profile and speed up probe_273",
+   "type": "opus-solver"
+  },
+  "a22d996862a55b864": {
+   "branch": "worktree-agent-a22d996862a55b864",
+   "name": "218 AmuletOfTheVoidwyrm override",
+   "type": "opus-solver"
+  },
+  "a2440cdc4ac84aaff": {
+   "branch": "",
+   "name": "Classifier P0-DAMAGE (7 abilities)",
+   "type": "re-expert"
+  },
+  "a24478d7487d342f1": {
+   "branch": "worktree-agent-a24478d7487d342f1",
+   "name": "Lot MoW predicat de ciblage",
+   "type": "opus-solver"
+  },
+  "a2496bd4dbde821bf": {
+   "branch": "worktree-agent-a2496bd4dbde821bf",
+   "name": "Unlock CalculateCustomUtility port",
+   "type": "opus-solver"
+  },
+  "a24b58045bd4e6d98": {
+   "branch": "worktree-agent-a24b58045bd4e6d98",
+   "name": "Port DarkAngels lot 1",
+   "type": "opus-solver"
+  },
+  "a24c1a7e8873315e5": {
+   "branch": "worktree-agent-a24c1a7e8873315e5",
+   "name": "Fix probe_457 measure tax and write-on-failure",
+   "type": "opus-solver"
+  },
+  "a24e98d2a80b176bd": {
+   "branch": "worktree-agent-a24e98d2a80b176bd",
+   "name": "FrenziedFiring AoE combat face",
+   "type": "opus-solver"
+  },
+  "a24f0ff93ac954535": {
+   "branch": "worktree-agent-a24f0ff93ac954535",
+   "name": "Make fully-skipped test files visible",
+   "type": "opus-solver"
+  },
+  "a24f908fe3b640aa5": {
+   "branch": "worktree-agent-a24f908fe3b640aa5",
+   "name": "RE oracles ScarabHive + CordClaw (#56)",
+   "type": "re-expert"
+  },
+  "a2529967807e895de": {
+   "branch": "worktree-agent-a2529967807e895de",
+   "name": "Resolve IsMeleeAttack port fork",
+   "type": "opus-solver"
+  },
+  "a25b95703563d5baf": {
+   "branch": "worktree-agent-a25b95703563d5baf",
+   "name": "Chiffrer les gardes a perimetre saisi",
+   "type": "general-purpose"
+  },
+  "a25c9f51d4d219ad6": {
+   "branch": "worktree-agent-a25c9f51d4d219ad6",
+   "name": "Residu 38 off-by-one armure",
+   "type": "opus-solver"
+  },
+  "a25f123da7c606d28": {
+   "branch": "worktree-agent-a25f123da7c606d28",
+   "name": "MinDist offline node vs edge",
+   "type": "opus-solver"
+  },
+  "a27af2e3d313514b3": {
+   "branch": "",
+   "name": "RE map MV71 sniper drone attack",
+   "type": "re-expert"
+  },
+  "a27dd6132f37e6906": {
+   "branch": "worktree-agent-a27dd6132f37e6906",
+   "name": "Porter 1000 ShockAssault Buff",
+   "type": "opus-solver"
+  },
+  "a27e7d70ea7129ebf": {
+   "branch": "worktree-agent-a27e7d70ea7129ebf",
+   "name": "opus-solver #66 REVIVE subsystem",
+   "type": "opus-solver"
+  },
+  "a27fc83deb585d88d": {
+   "branch": "worktree-agent-a27fc83deb585d88d",
+   "name": "Elevation gate decision faces",
+   "type": "opus-solver"
+  },
+  "a286883a8aa041102": {
+   "branch": "worktree-agent-a286883a8aa041102",
+   "name": "436 porter TargetIsAllowedForCaster",
+   "type": "opus-solver"
+  },
+  "a287cfd8d237b226b": {
+   "branch": "worktree-agent-a287cfd8d237b226b",
+   "name": "EchoesFromTheWarp revive branch",
+   "type": "opus-solver"
+  },
+  "a28b467963ee53746": {
+   "branch": "worktree-agent-a28b467963ee53746",
+   "name": "R28 PickRandomly trois sous-items",
+   "type": "opus-solver"
+  },
+  "a28c8dff9488ba550": {
+   "branch": "worktree-agent-a28c8dff9488ba550",
+   "name": "Gisement -D : une ability de plus",
+   "type": "opus-solver"
+  },
+  "a29e46924daa2a154": {
+   "branch": "worktree-agent-a29e46924daa2a154",
+   "name": "Second canal TriggeringAbility",
+   "type": "opus-solver"
+  },
+  "a2a141f538f0b9a80": {
+   "branch": "",
+   "name": "Trouver consommateur ProbableDamageEvent",
+   "type": "re-expert"
+  },
+  "a2a287eec988ba707": {
+   "branch": "worktree-agent-a2a287eec988ba707",
+   "name": "Port the upstream caster gates",
+   "type": "opus-solver"
+  },
+  "a2a29ebf31c1e4476": {
+   "branch": "worktree-agent-a2a29ebf31c1e4476",
+   "name": "Port MartialApotheosis (Necrons)",
+   "type": "opus-solver"
+  },
+  "a2a603bf5317c3425": {
+   "branch": "worktree-agent-a2a603bf5317c3425",
+   "name": "Gates unit_traits morts tile.py",
+   "type": "opus-solver"
+  },
+  "a2b0ad1edc4cbe53a": {
+   "branch": "worktree-agent-a2b0ad1edc4cbe53a",
+   "name": "Confront window sensors value path",
+   "type": "opus-solver"
+  },
+  "a2ba078d8153e4ad8": {
+   "branch": "worktree-agent-a2ba078d8153e4ad8",
+   "name": "RE removal of RammingSpeed ExtraExplode effect",
+   "type": "opus-solver"
+  },
+  "a2c156368beeefb02": {
+   "branch": "worktree-agent-a2c156368beeefb02",
+   "name": "448-r2b StormboyzStrike greffe",
+   "type": "opus-solver"
+  },
+  "a2c1738e992365767": {
+   "branch": "",
+   "name": "RE min-side floor #67",
+   "type": "re-expert"
+  },
+  "a2c85555736604d35": {
+   "branch": "worktree-agent-a2c85555736604d35",
+   "name": "162 rouges MoW face execution",
+   "type": "opus-solver"
+  },
+  "a2d0a7051af937224": {
+   "branch": "",
+   "name": "RE IsOverkill gate config (prediction path)",
+   "type": "re-expert"
+  },
+  "a2d359161bf3072a0": {
+   "branch": "worktree-agent-a2d359161bf3072a0",
+   "name": "Port 2 call-sites MovementSuggestion",
+   "type": "opus-solver"
+  },
+  "a2d50a808e5f93775": {
+   "branch": "worktree-agent-a2d50a808e5f93775",
+   "name": "Debloquer le levier bouclier",
+   "type": "opus-solver"
+  },
+  "a2d6ddcb127a315a1": {
+   "branch": "worktree-agent-a2d6ddcb127a315a1",
+   "name": "opus-solver #65 block-RNG divergence",
+   "type": "opus-solver"
+  },
+  "a2db58e4f96a04a53": {
+   "branch": "",
+   "name": "RE KFF/Defender/Savior leaves",
+   "type": "general-purpose"
+  },
+  "a2df77931b12f9fe3": {
+   "branch": "worktree-agent-a2df77931b12f9fe3",
+   "name": "Face execution reparation",
+   "type": "opus-solver"
+  },
+  "a2e5e29857d625b0c": {
+   "branch": "worktree-agent-a2e5e29857d625b0c",
+   "name": "Port active-path normal attack table",
+   "type": "opus-solver"
+  },
+  "a2e918b1ebce048f8": {
+   "branch": "worktree-agent-a2e918b1ebce048f8",
+   "name": "regression pre unit ability fork",
+   "type": "opus-solver"
+  },
+  "a2ecbaee04f7a7b3a": {
+   "branch": "",
+   "name": "RE fidèle playbooks NC genestealer",
+   "type": "re-expert"
+  },
+  "a2f02d8a9d4f09fd2": {
+   "branch": "",
+   "name": "RE offline ability-targeting for SLICE 2",
+   "type": "re-expert"
+  },
+  "a2f2f9a9151c65a5c": {
+   "branch": "",
+   "name": "Validate #112 MartialKatah combat",
+   "type": "validator"
+  },
+  "a2f5ee472f033b0ee": {
+   "branch": "",
+   "name": "Port #56 tranche 2 (3 oracles NC)",
+   "type": "re-expert"
+  },
+  "a2f70f7a755c1c351": {
+   "branch": "worktree-agent-a2f70f7a755c1c351",
+   "name": "Port #266 Moved flag prediction face",
+   "type": "opus-solver"
+  },
+  "a2f8dc509dca87508": {
+   "branch": "worktree-agent-a2f8dc509dca87508",
+   "name": "Residu N18-2 canal TriggeringAbility mort",
+   "type": "opus-solver"
+  },
+  "a2ffbdaa9f4efb5a6": {
+   "branch": "",
+   "name": "RE des 2 positioning ~1hex",
+   "type": "re-expert"
+  },
+  "a3006c81322e44a9b": {
+   "branch": "worktree-agent-a3006c81322e44a9b",
+   "name": "Attribution de face des EffectBonus",
+   "type": "opus-solver"
+  },
+  "a30247ac5ce66d622": {
+   "branch": "worktree-agent-a30247ac5ce66d622",
+   "name": "Residu 85 DespoiledGround",
+   "type": "opus-solver"
+  },
+  "a30833e2e48811afc": {
+   "branch": "worktree-agent-a30833e2e48811afc",
+   "name": "Abilities qui decident sans executer",
+   "type": "opus-solver"
+  },
+  "a313328214ee3aef0": {
+   "branch": "worktree-agent-a313328214ee3aef0",
+   "name": "Masque ciblage 1104 SpiritLeech",
+   "type": "opus-solver"
+  },
+  "a31bc6d411cdb40dd": {
+   "branch": "worktree-agent-a31bc6d411cdb40dd",
+   "name": "R16 stat-mods EAGER non revertables",
+   "type": "opus-solver"
+  },
+  "a3225e770ace8e106": {
+   "branch": "worktree-agent-a3225e770ace8e106",
+   "name": "Add CWD guards to sibling scripts",
+   "type": "opus-solver"
+  },
+  "a3235e8b918741222": {
+   "branch": "",
+   "name": "RE le locus /2 additif combat #68",
+   "type": "re-expert"
+  },
+  "a328bb6950b027f9d": {
+   "branch": "",
+   "name": "RE decoy foundation (Genestealer)",
+   "type": "re-expert"
+  },
+  "a32f82d4117e7476e": {
+   "branch": "worktree-agent-a32f82d4117e7476e",
+   "name": "Port opus AvalancheOfMuscle AstraMilitarum",
+   "type": "opus-solver"
+  },
+  "a331c00d13f853dc4": {
+   "branch": "worktree-agent-a331c00d13f853dc4",
+   "name": "Discriminate TriggeringAbility field",
+   "type": "opus-solver"
+  },
+  "a337592c1cb67d387": {
+   "branch": "worktree-agent-a337592c1cb67d387",
+   "name": "Port second arm of IsLikeFlying",
+   "type": "opus-solver"
+  },
+  "a33c24c0452b8a0c5": {
+   "branch": "worktree-agent-a33c24c0452b8a0c5",
+   "name": "Port delayed-ability queue",
+   "type": "opus-solver"
+  },
+  "a3426319ba1f24e00": {
+   "branch": "worktree-agent-a3426319ba1f24e00",
+   "name": "Sweep TargetIsTile bit exhaustively",
+   "type": "opus-solver"
+  },
+  "a342d32a2c151d649": {
+   "branch": "worktree-agent-a342d32a2c151d649",
+   "name": "Decide nightshroud red: port or montage",
+   "type": "opus-solver"
+  },
+  "a35009e8e16dcf0ae": {
+   "branch": "",
+   "name": "RE G2 DecoysAndMisdirection tree",
+   "type": "re-expert"
+  },
+  "a3504673e44464129": {
+   "branch": "worktree-agent-a3504673e44464129",
+   "name": "Port trait Terrifying",
+   "type": "opus-solver"
+  },
+  "a35064df35f76a9ee": {
+   "branch": "worktree-agent-a35064df35f76a9ee",
+   "name": "Complete the normal-attack dispatch table",
+   "type": "opus-solver"
+  },
+  "a3533d51857dce141": {
+   "branch": "",
+   "name": "RE HealPlaybook",
+   "type": "general-purpose"
+  },
+  "a353bba4221b3e42e": {
+   "branch": "worktree-agent-a353bba4221b3e42e",
+   "name": "Ecrire les 2 capteurs dus a la fenetre",
+   "type": "opus-solver"
+  },
+  "a35987fc4aa31c369": {
+   "branch": "worktree-agent-a35987fc4aa31c369",
+   "name": "RE porte native TheQuickening 1151",
+   "type": "re-expert"
+  },
+  "a35d06061a935b8a7": {
+   "branch": "worktree-agent-a35d06061a935b8a7",
+   "name": "Fable-solver bug RNG cc=0 ability",
+   "type": "fable-solver"
+  },
+  "a35d8528382064de6": {
+   "branch": "worktree-agent-a35d8528382064de6",
+   "name": "Face prediction du compteur de tuiles",
+   "type": "opus-solver"
+  },
+  "a35ebe96415274466": {
+   "branch": "worktree-agent-a35ebe96415274466",
+   "name": "Stamp RL database builds",
+   "type": "opus-solver"
+  },
+  "a3659ea4551ea3530": {
+   "branch": "worktree-agent-a3659ea4551ea3530",
+   "name": "Close the zero-collected blind spot",
+   "type": "opus-solver"
+  },
+  "a36a1fadc2cf79c2a": {
+   "branch": "worktree-agent-a36a1fadc2cf79c2a",
+   "name": "447 voie bit 51 Steppable",
+   "type": "opus-solver"
+  },
+  "a36b990bea180ad5d": {
+   "branch": "worktree-agent-a36b990bea180ad5d",
+   "name": "Test hygiene lot B oracle nrOfHits",
+   "type": "opus-solver"
+  },
+  "a36bc45ae3dcc9932": {
+   "branch": "worktree-agent-a36bc45ae3dcc9932",
+   "name": "Comparateur strict used>1",
+   "type": "opus-solver"
+  },
+  "a36f88103e5ef8d6f": {
+   "branch": "worktree-agent-a36f88103e5ef8d6f",
+   "name": "Fix hardcoded step ordinals",
+   "type": "opus-solver"
+  },
+  "a370b704c5635d14a": {
+   "branch": "worktree-agent-a370b704c5635d14a",
+   "name": "BlackRage targeting mask",
+   "type": "opus-solver"
+  },
+  "a3748ef5e8a8f2c8b": {
+   "branch": "",
+   "name": "Validate per-hit prediction refactor",
+   "type": "validator"
+  },
+  "a37501fd4cac4dce3": {
+   "branch": "",
+   "name": "RE resolve SorcerousFacade base vars",
+   "type": "re-expert"
+  },
+  "a375824e5a49f6b76": {
+   "branch": "",
+   "name": "RE FeederTendrils extra damage",
+   "type": "re-expert"
+  },
+  "a37c010f59fc31665": {
+   "branch": "worktree-agent-a37c010f59fc31665",
+   "name": "Port CursedPlagueBell combat face",
+   "type": "opus-solver"
+  },
+  "a37fe6a520f7a306d": {
+   "branch": "",
+   "name": "Valider fix #177 gate Trench",
+   "type": "validator"
+  },
+  "a3881398de4c82531": {
+   "branch": "worktree-agent-a3881398de4c82531",
+   "name": "Port SorcerousFacade ally route",
+   "type": "opus-solver"
+  },
+  "a388fd7e726af0c52": {
+   "branch": "worktree-agent-a388fd7e726af0c52",
+   "name": "Port JakhalStimms (WorldEaters)",
+   "type": "opus-solver"
+  },
+  "a398e65a2caa23e99": {
+   "branch": "worktree-agent-a398e65a2caa23e99",
+   "name": "Porter 1110 FireAndReposition",
+   "type": "opus-solver"
+  },
+  "a39a477e36421305f": {
+   "branch": "worktree-agent-a39a477e36421305f",
+   "name": "Port canal ABILITY hits formula",
+   "type": "opus-solver"
+  },
+  "a39ac4438d4817894": {
+   "branch": "",
+   "name": "RE death-nova Explodes/PutridExplosion",
+   "type": "re-expert"
+  },
+  "a3a05f1e94b998051": {
+   "branch": "",
+   "name": "RE ReviveUnitOperation.Execute flags",
+   "type": "re-expert"
+  },
+  "a3a179daf07957188": {
+   "branch": "worktree-agent-a3a179daf07957188",
+   "name": "Fix num_tiles_moved for flying units",
+   "type": "opus-solver"
+  },
+  "a3a58480810fb3cf2": {
+   "branch": "",
+   "name": "RE 3 effets RepairBonus Necron",
+   "type": "re-expert"
+  },
+  "a3a6f2cdaf94d1fe8": {
+   "branch": "worktree-agent-a3a6f2cdaf94d1fe8",
+   "name": "Fermer les 2 rouges de master (#393)",
+   "type": "opus-solver"
+  },
+  "a3a8c927087f6ff08": {
+   "branch": "",
+   "name": "Audit ai + utilities subsystems",
+   "type": "general-purpose"
+  },
+  "a3aa397743b931baa": {
+   "branch": "worktree-agent-a3aa397743b931baa",
+   "name": "Port DarkAngels lot 1",
+   "type": "opus-solver"
+  },
+  "a3b2266bbbb0c83e3": {
+   "branch": "worktree-agent-a3b2266bbbb0c83e3",
+   "name": "Port MortarionsPlagueWind AoE predictions",
+   "type": "opus-solver"
+  },
+  "a3b315eb83424d962": {
+   "branch": "worktree-agent-a3b315eb83424d962",
+   "name": "Guaranteed block writer hunt",
+   "type": "opus-solver"
+  },
+  "a3b4da57533b7c4b7": {
+   "branch": "worktree-agent-a3b4da57533b7c4b7",
+   "name": "Port KustomForceField utility",
+   "type": "opus-solver"
+  },
+  "a3bb24b6d195eeeb6": {
+   "branch": "worktree-agent-a3bb24b6d195eeeb6",
+   "name": "Verdict de banque perime dans loop_status",
+   "type": "opus-solver"
+  },
+  "a3c12fdb336bc55fd": {
+   "branch": "worktree-agent-a3c12fdb336bc55fd",
+   "name": "Residu 350-r1 SorcerousFacade",
+   "type": "opus-solver"
+  },
+  "a3c320016463f0567": {
+   "branch": "",
+   "name": "RE TilePendingBlockableSummon leaf",
+   "type": "general-purpose"
+  },
+  "a3c56dc97fd662d48": {
+   "branch": "",
+   "name": "Patrons probe attaque live-vs-port",
+   "type": "Explore"
+  },
+  "a3c847bf0be4856af": {
+   "branch": "worktree-agent-a3c847bf0be4856af",
+   "name": "Port opus BringerOfDespair BlackLegion",
+   "type": "opus-solver"
+  },
+  "a3ca8ad29029a91f4": {
+   "branch": "worktree-agent-a3ca8ad29029a91f4",
+   "name": "TARGETING_OPTIONS DarkAngels+Aeldari+WorldEaters",
+   "type": "opus-solver"
+  },
+  "a3cbd63a0e289bc8f": {
+   "branch": "worktree-agent-a3cbd63a0e289bc8f",
+   "name": "Inventory unported AreTilesAdjacent consumers",
+   "type": "re-expert"
+  },
+  "a3d7022b9e69b7886": {
+   "branch": "worktree-agent-a3d7022b9e69b7886",
+   "name": "Localise crit RNG flux divergence at 3rd hit",
+   "type": "opus-solver"
+  },
+  "a3d7f500e965d1155": {
+   "branch": "worktree-agent-a3d7f500e965d1155",
+   "name": "Feuilles 19/64 inertes decoys",
+   "type": "opus-solver"
+  },
+  "a3dbbcc48460b7433": {
+   "branch": "worktree-agent-a3dbbcc48460b7433",
+   "name": "Feuilles 19 et 64 inertes",
+   "type": "opus-solver"
+  },
+  "a3dda825a416dd839": {
+   "branch": "worktree-agent-a3dda825a416dd839",
+   "name": "Residu 155 placement Swamp",
+   "type": "opus-solver"
+  },
+  "a3ddfad38401d9b04": {
+   "branch": "",
+   "name": "Classifier P2 ThousandSons",
+   "type": "re-expert"
+  },
+  "a3deaad17559ae35f": {
+   "branch": "worktree-agent-a3deaad17559ae35f",
+   "name": "Regenerate stale enum_maps",
+   "type": "opus-solver"
+  },
+  "a3e95c95776807eb3": {
+   "branch": "worktree-agent-a3e95c95776807eb3",
+   "name": "Port HealingBalms heal branch",
+   "type": "opus-solver"
+  },
+  "a3ebd091c6d2e552b": {
+   "branch": "",
+   "name": "Map DSL port for Primarch nodes",
+   "type": "Explore"
+  },
+  "a3f4e93fff5a20914": {
+   "branch": "worktree-agent-a3f4e93fff5a20914",
+   "name": "Port 1148 DaemonicOrdnance tile route",
+   "type": "opus-solver"
+  },
+  "a3fe089e64fd22665": {
+   "branch": "worktree-agent-a3fe089e64fd22665",
+   "name": "Localise aura predicate off-by-one",
+   "type": "opus-solver"
+  },
+  "a400bbbfe5c94ca55": {
+   "branch": "worktree-agent-a400bbbfe5c94ca55",
+   "name": "Fix gitignored input paths",
+   "type": "opus-solver"
+  },
+  "a4020ea02efb24b45": {
+   "branch": "worktree-agent-a4020ea02efb24b45",
+   "name": "Write the two queued frida sensors",
+   "type": "opus-solver"
+  },
+  "a40c1d91ea6985eea": {
+   "branch": "worktree-agent-a40c1d91ea6985eea",
+   "name": "Porter 1227 HarlequinsPanoply IgnoreHits",
+   "type": "opus-solver"
+  },
+  "a40c6605abe88a51f": {
+   "branch": "worktree-agent-a40c6605abe88a51f",
+   "name": "448-r2c FearOfTheUnseen",
+   "type": "opus-solver"
+  },
+  "a40e1b5c983a8f5dc": {
+   "branch": "",
+   "name": "Vérifier compaction des subagents",
+   "type": "claude-code-guide"
+  },
+  "a41390775f700dd29": {
+   "branch": "worktree-agent-a41390775f700dd29",
+   "name": "Cliquet aveugle au defaut de signature",
+   "type": "opus-solver"
+  },
+  "a4182a41fa8d3c869": {
+   "branch": "worktree-agent-a4182a41fa8d3c869",
+   "name": "419 gisement playbooks triggered",
+   "type": "opus-solver"
+  },
+  "a418753d5c2b66813": {
+   "branch": "worktree-agent-a418753d5c2b66813",
+   "name": "Migrate EnvFireTile DoT route",
+   "type": "opus-solver"
+  },
+  "a41887e3732eb4f4b": {
+   "branch": "",
+   "name": "Audit runner core + abilities",
+   "type": "general-purpose"
+  },
+  "a41c870e8c62a65b4": {
+   "branch": "worktree-agent-a41c870e8c62a65b4",
+   "name": "Fermer les deux // 2 restants",
+   "type": "opus-solver"
+  },
+  "a420bb25004e349a7": {
+   "branch": "worktree-agent-a420bb25004e349a7",
+   "name": "Port KillUnitOperation RemoveEffects",
+   "type": "opus-solver"
+  },
+  "a4210f9313e7de7fd": {
+   "branch": "",
+   "name": "RE RadSaturationPlaybook move-utility consumer",
+   "type": "re-expert"
+  },
+  "a42a71290a2609cea": {
+   "branch": "worktree-agent-a42a71290a2609cea",
+   "name": "Port #264 traits load_state",
+   "type": "opus-solver"
+  },
+  "a435bb91825b771b2": {
+   "branch": "",
+   "name": "RE verdict G6 HypersensoryAbilities",
+   "type": "re-expert"
+  },
+  "a4377d524885d4a1d": {
+   "branch": "worktree-agent-a4377d524885d4a1d",
+   "name": "Port DefendTheDivineWork combat face",
+   "type": "opus-solver"
+  },
+  "a4388523d655bd398": {
+   "branch": "worktree-agent-a4388523d655bd398",
+   "name": "Port the normal-attack dynamic rule",
+   "type": "opus-solver"
+  },
+  "a442441e7461fafb2": {
+   "branch": "worktree-agent-a442441e7461fafb2",
+   "name": "Fork PreUnitAbility voie ability",
+   "type": "opus-solver"
+  },
+  "a4455cd29143b4ea1": {
+   "branch": "worktree-agent-a4455cd29143b4ea1",
+   "name": "Expliquer le delta kit-coverage",
+   "type": "opus-solver"
+  },
+  "a44ce7eab5ef8dfad": {
+   "branch": "worktree-agent-a44ce7eab5ef8dfad",
+   "name": "Solver #204 TerrifyingCrescendo",
+   "type": "opus-solver"
+  },
+  "a4599820f39f6802f": {
+   "branch": "worktree-agent-a4599820f39f6802f",
+   "name": "322 ModifiedExoarmour magnitude",
+   "type": "opus-solver"
+  },
+  "a45df3681758717f5": {
+   "branch": "",
+   "name": "RE #30 CAS A raw vs trait-limit",
+   "type": "re-expert"
+  },
+  "a4669a23d22e74291": {
+   "branch": "",
+   "name": "Validation offline waves 1+2 DSL",
+   "type": "validator"
+  },
+  "a46b4ae33fba63569": {
+   "branch": "worktree-agent-a46b4ae33fba63569",
+   "name": "Port remaining NonOwner MOVE faces",
+   "type": "opus-solver"
+  },
+  "a46d63cea5ff37c5e": {
+   "branch": "worktree-agent-a46d63cea5ff37c5e",
+   "name": "R1 tuile d'origine candidats",
+   "type": "opus-solver"
+  },
+  "a474c243ae34070d3": {
+   "branch": "",
+   "name": "Pin GetStuckIn combat RNG position",
+   "type": "re-expert"
+  },
+  "a47a7a6cc262ac8db": {
+   "branch": "worktree-agent-a47a7a6cc262ac8db",
+   "name": "445 AvalancheOfMuscle 1028",
+   "type": "opus-solver"
+  },
+  "a47c3d4776c7c4928": {
+   "branch": "worktree-agent-a47c3d4776c7c4928",
+   "name": "Vecteur ABILITY du canal after-hit",
+   "type": "opus-solver"
+  },
+  "a48558c938f97ca18": {
+   "branch": "worktree-agent-a48558c938f97ca18",
+   "name": "Port RighteousRepugnancePlaybook 1107",
+   "type": "opus-solver"
+  },
+  "a48ab2ec012d22812": {
+   "branch": "worktree-agent-a48ab2ec012d22812",
+   "name": "Residu N18-3 asymetrie ADD REMOVE effet",
+   "type": "opus-solver"
+  },
+  "a48bb09479aa891e1": {
+   "branch": "worktree-agent-a48bb09479aa891e1",
+   "name": "#27-r4 inventaire greffe npc",
+   "type": "opus-solver"
+  },
+  "a48cbf807033079d2": {
+   "branch": "",
+   "name": "RE #153 armored-regime over-prediction",
+   "type": "re-expert"
+  },
+  "a48f3491137d6ea6b": {
+   "branch": "worktree-agent-a48f3491137d6ea6b",
+   "name": "Extract DSL node to ability map",
+   "type": "opus-solver"
+  },
+  "a4a47990550b72027": {
+   "branch": "worktree-agent-a4a47990550b72027",
+   "name": "227 emetteur On UnitRemoved",
+   "type": "opus-solver"
+  },
+  "a4a88389a10eecdf7": {
+   "branch": "",
+   "name": "RE ConvertRoundsToTurns semantics",
+   "type": "re-expert"
+  },
+  "a4aca033d4f4ca802": {
+   "branch": "worktree-agent-a4aca033d4f4ca802",
+   "name": "Port TransferHit",
+   "type": "opus-solver"
+  },
+  "a4b11145593dd5e3d": {
+   "branch": "worktree-agent-a4b11145593dd5e3d",
+   "name": "Classer 19 selecteurs DSL empreinte/maintile",
+   "type": "re-expert"
+  },
+  "a4b8533043ddd5c93": {
+   "branch": "worktree-agent-a4b8533043ddd5c93",
+   "name": "opus-solver #69 prediction NoBlocking",
+   "type": "opus-solver"
+  },
+  "a4bdab88b10574b0d": {
+   "branch": "worktree-agent-a4bdab88b10574b0d",
+   "name": "O4a MaybeTrigger non porte",
+   "type": "opus-solver"
+  },
+  "a4bdc49a25cce9df6": {
+   "branch": "worktree-agent-a4bdc49a25cce9df6",
+   "name": "SupremeCommander face DECISION",
+   "type": "opus-solver"
+  },
+  "a4c8590b32897d852": {
+   "branch": "",
+   "name": "RE #177 source du facteur 0.67",
+   "type": "re-expert"
+  },
+  "a4c8869f44eda49a1": {
+   "branch": "worktree-agent-a4c8869f44eda49a1",
+   "name": "Inventory ActiveAbilityType drift",
+   "type": "opus-solver"
+  },
+  "a4c8e8b4f60780adf": {
+   "branch": "worktree-agent-a4c8e8b4f60780adf",
+   "name": "Port opus PlasmaCannon DarkAngels",
+   "type": "opus-solver"
+  },
+  "a4c9ab318b73e05ec": {
+   "branch": "worktree-agent-a4c9ab318b73e05ec",
+   "name": "Feed the friendly-target guards",
+   "type": "opus-solver"
+  },
+  "a4d469330ed7334d9": {
+   "branch": "worktree-agent-a4d469330ed7334d9",
+   "name": "Port DestroyerHive (DeathGuard)",
+   "type": "opus-solver"
+  },
+  "a4d810c8962c6972b": {
+   "branch": "worktree-agent-a4d810c8962c6972b",
+   "name": "Capteur ParentComponent summoner",
+   "type": "opus-solver"
+  },
+  "a4d8485a4e7eeb0fc": {
+   "branch": "worktree-agent-a4d8485a4e7eeb0fc",
+   "name": "172 rouge state.rng non cale",
+   "type": "opus-solver"
+  },
+  "a4dd47177231503c9": {
+   "branch": "",
+   "name": "Cartographier moteur AI Python",
+   "type": "Explore"
+  },
+  "a4dfa555423530054": {
+   "branch": "worktree-agent-a4dfa555423530054",
+   "name": "Ratchet on invisible BC variable patches",
+   "type": "opus-solver"
+  },
+  "a4e1da7858d2c0139": {
+   "branch": "worktree-agent-a4e1da7858d2c0139",
+   "name": "Port SpecialIssueCombiMeltaPlaybook 1545",
+   "type": "opus-solver"
+  },
+  "a4e56658952d455c8": {
+   "branch": "worktree-agent-a4e56658952d455c8",
+   "name": "Fix pathfinding overreach",
+   "type": "opus-solver"
+  },
+  "a4e82874416985d08": {
+   "branch": "worktree-agent-a4e82874416985d08",
+   "name": "Port ModifiedExoarmour ExtraDmg",
+   "type": "opus-solver"
+  },
+  "a4ec786375f25ce78": {
+   "branch": "worktree-agent-a4ec786375f25ce78",
+   "name": "N13 terme de tuile short",
+   "type": "opus-solver"
+  },
+  "a4ecca2aea59d3bb8": {
+   "branch": "worktree-agent-a4ecca2aea59d3bb8",
+   "name": "Port ResurrectionOrb custom utility",
+   "type": "opus-solver"
+  },
+  "a4f2ca0a7bc9d042c": {
+   "branch": "worktree-agent-a4f2ca0a7bc9d042c",
+   "name": "212 cle BC SpiritualLeader 1275",
+   "type": "opus-solver"
+  },
+  "a4ff026aa26851621": {
+   "branch": "worktree-agent-a4ff026aa26851621",
+   "name": "Instruct the aiPredict damage divergence",
+   "type": "opus-solver"
+  },
+  "a503082bfc6e7c38c": {
+   "branch": "worktree-agent-a503082bfc6e7c38c",
+   "name": "Derive prediction struct offsets",
+   "type": "re-expert"
+  },
+  "a50389b5a1654200b": {
+   "branch": "worktree-agent-a50389b5a1654200b",
+   "name": "440 perimetre probe_274 et son garde",
+   "type": "opus-solver"
+  },
+  "a50713a0b3d8edf8b": {
+   "branch": "worktree-agent-a50713a0b3d8edf8b",
+   "name": "Debloqueur PerformAIAction",
+   "type": "opus-solver"
+  },
+  "a518ac1a15bf377a1": {
+   "branch": "",
+   "name": "RE native MoW ability prediction path",
+   "type": "re-expert"
+  },
+  "a51948caba36549f9": {
+   "branch": "worktree-agent-a51948caba36549f9",
+   "name": "Fable-solver #45 crit-on-Ice subsystem",
+   "type": "fable-solver"
+  },
+  "a51d1ea0c71922ecf": {
+   "branch": "worktree-agent-a51d1ea0c71922ecf",
+   "name": "Fix damage_catalog montage red",
+   "type": "opus-solver"
+  },
+  "a5211500d5f620145": {
+   "branch": "",
+   "name": "Analyse CalculateAttackerModifiersForPrediction",
+   "type": "general-purpose"
+  },
+  "a52c61f2f71b51cc9": {
+   "branch": "worktree-agent-a52c61f2f71b51cc9",
+   "name": "Camouflage hits ability vector",
+   "type": "opus-solver"
+  },
+  "a53103b4b5d220e79": {
+   "branch": "worktree-agent-a53103b4b5d220e79",
+   "name": "Port opus HarbingerOfDestruction Necrons",
+   "type": "opus-solver"
+  },
+  "a5344e1a92c377c26": {
+   "branch": "worktree-agent-a5344e1a92c377c26",
+   "name": "Regles dynamiques tau 1081 1082",
+   "type": "opus-solver"
+  },
+  "a534f75f83d5bb2da": {
+   "branch": "worktree-agent-a534f75f83d5bb2da",
+   "name": "TARGETING_OPTIONS Necrons+Orks+Votann+Genestealer",
+   "type": "opus-solver"
+  },
+  "a5387d64a44b0af50": {
+   "branch": "",
+   "name": "Confronter résidus décision/playbook",
+   "type": "Explore"
+  },
+  "a539dc3e631eefc60": {
+   "branch": "",
+   "name": "How to share a Claude Code session with mobile",
+   "type": "claude-code-guide"
+  },
+  "a53b8ebf827332ab6": {
+   "branch": "worktree-agent-a53b8ebf827332ab6",
+   "name": "429 inventaires ciblage incompatibles",
+   "type": "opus-solver"
+  },
+  "a53c91a1cb3480b8e": {
+   "branch": "worktree-agent-a53c91a1cb3480b8e",
+   "name": "Porter 1111 WireweaveNet",
+   "type": "opus-solver"
+  },
+  "a5412c2e8b1cef0aa": {
+   "branch": "worktree-agent-a5412c2e8b1cef0aa",
+   "name": "169 scission dispatch et damage_ops",
+   "type": "opus-solver"
+  },
+  "a5495c47488dffaca": {
+   "branch": "worktree-agent-a5495c47488dffaca",
+   "name": "Le natif bascule bien au-dessus du seuil",
+   "type": "opus-solver"
+  },
+  "a554ab5a157663bf0": {
+   "branch": "",
+   "name": "Dummy inventaire engine read-only",
+   "type": "general-purpose"
+  },
+  "a56261db9057a53c6": {
+   "branch": "worktree-agent-a56261db9057a53c6",
+   "name": "Trancher CITE_A_QUALIFIER DSLTriggers",
+   "type": "opus-solver"
+  },
+  "a562a0e95d50f8239": {
+   "branch": "worktree-agent-a562a0e95d50f8239",
+   "name": "Confronter les deux cibles nulles",
+   "type": "opus-solver"
+  },
+  "a5683a029f027b5f7": {
+   "branch": "",
+   "name": "Confronter résidus damage/combat",
+   "type": "Explore"
+  },
+  "a56b79210ceb5a761": {
+   "branch": "",
+   "name": "Write scoring.md",
+   "type": "general-purpose"
+  },
+  "a56dcc6ebea1232d5": {
+   "branch": "worktree-agent-a56dcc6ebea1232d5",
+   "name": "Confront two channels on the same side",
+   "type": "opus-solver"
+  },
+  "a5724b183c7f9c990": {
+   "branch": "worktree-agent-a5724b183c7f9c990",
+   "name": "Fermer blockhits PurgeResponse",
+   "type": "opus-solver"
+  },
+  "a572d280c73bd85a1": {
+   "branch": "worktree-agent-a572d280c73bd85a1",
+   "name": "Passifs Genestealers: CosmicHorror + SpiritualLeader",
+   "type": "opus-solver"
+  },
+  "a575050492430b550": {
+   "branch": "",
+   "name": "RE FuryOfTheAncients move-face",
+   "type": "re-expert"
+  },
+  "a575505b611704916": {
+   "branch": "worktree-agent-a575505b611704916",
+   "name": "LegendaryCommander ExtraHits",
+   "type": "opus-solver"
+  },
+  "a57840dbe780a61a9": {
+   "branch": "worktree-agent-a57840dbe780a61a9",
+   "name": "Port ListenUpMaggots + SwornProtector chain",
+   "type": "opus-solver"
+  },
+  "a578b7a345efcc3f2": {
+   "branch": "worktree-agent-a578b7a345efcc3f2",
+   "name": "Stat-mods effets seedes",
+   "type": "opus-solver"
+  },
+  "a57d40a0f847a4f96": {
+   "branch": "worktree-agent-a57d40a0f847a4f96",
+   "name": "435 test_337 dans la banque",
+   "type": "opus-solver"
+  },
+  "a57ee9aecc2867f61": {
+   "branch": "worktree-agent-a57ee9aecc2867f61",
+   "name": "RE AdjacentUnitPreference playbook weights",
+   "type": "re-expert"
+  },
+  "a581deb0fe0042464": {
+   "branch": "worktree-agent-a581deb0fe0042464",
+   "name": "Fix renumbered EffectType members",
+   "type": "opus-solver"
+  },
+  "a588de97ef661c97a": {
+   "branch": "worktree-agent-a588de97ef661c97a",
+   "name": "Port the second targeting predicate",
+   "type": "opus-solver"
+  },
+  "a5897909c4b55b90f": {
+   "branch": "worktree-agent-a5897909c4b55b90f",
+   "name": "Re-dispatch DefenderOfTheGreaterGood (Tau)",
+   "type": "opus-solver"
+  },
+  "a598545988cd71b9f": {
+   "branch": "worktree-agent-a598545988cd71b9f",
+   "name": "Port ContagionsOfNurgle lifecycle",
+   "type": "opus-solver"
+  },
+  "a5a2201d3bd968f0f": {
+   "branch": "worktree-agent-a5a2201d3bd968f0f",
+   "name": "359 volet AoE de 1147",
+   "type": "opus-solver"
+  },
+  "a5a635b1651934781": {
+   "branch": "",
+   "name": "RE PowerTrip_IgnoreArmor prédiction",
+   "type": "re-expert"
+  },
+  "a5a63eef4a5177e2b": {
+   "branch": "worktree-agent-a5a63eef4a5177e2b",
+   "name": "opus-solver sur #63 desync armure",
+   "type": "opus-solver"
+  },
+  "a5a8344249f7a4ce6": {
+   "branch": "worktree-agent-a5a8344249f7a4ce6",
+   "name": "Port trait branch of normal attack cascade",
+   "type": "opus-solver"
+  },
+  "a5a94b60b227aa064": {
+   "branch": "worktree-agent-a5a94b60b227aa064",
+   "name": "Gate TargetIsNotAdjacent non porte",
+   "type": "opus-solver"
+  },
+  "a5aab84c282a83d87": {
+   "branch": "",
+   "name": "RE decoy dynamic-tile family",
+   "type": "re-expert"
+  },
+  "a5ac4a5642e7fdd47": {
+   "branch": "worktree-agent-a5ac4a5642e7fdd47",
+   "name": "De-fork On(0x10) OnFire OnToxic",
+   "type": "opus-solver"
+  },
+  "a5aca7861b0a84654": {
+   "branch": "",
+   "name": "RE SpiritLeechPlaybook fully",
+   "type": "re-expert"
+  },
+  "a5ae0f29dcc667441": {
+   "branch": "worktree-agent-a5ae0f29dcc667441",
+   "name": "Les autres consommateurs d'IsCharging",
+   "type": "opus-solver"
+  },
+  "a5b1f617007da11d0": {
+   "branch": "worktree-agent-a5b1f617007da11d0",
+   "name": "420 enums On perimes",
+   "type": "opus-solver"
+  },
+  "a5b4753e0f5f78c7e": {
+   "branch": "",
+   "name": "RE ControlEdict AdMech S4b",
+   "type": "re-expert"
+  },
+  "a5b6865aab6a81aa6": {
+   "branch": "",
+   "name": "Inventaire infra DSL Python",
+   "type": "Explore"
+  },
+  "a5bb57856e4d228f7": {
+   "branch": "worktree-agent-a5bb57856e4d228f7",
+   "name": "Solver opus sur #27",
+   "type": "fable-solver"
+  },
+  "a5bba9b13cd56a021": {
+   "branch": "worktree-agent-a5bba9b13cd56a021",
+   "name": "Rewire living_metal onto Repair",
+   "type": "opus-solver"
+  },
+  "a5bbf1953f1d50b24": {
+   "branch": "worktree-agent-a5bbf1953f1d50b24",
+   "name": "433 attestation HasTile IsAdjacentTiles",
+   "type": "opus-solver"
+  },
+  "a5bfa4b289090493f": {
+   "branch": "",
+   "name": "RE slice-20 ActOfFaith accumulate",
+   "type": "re-expert"
+  },
+  "a5c3ba0da0ccb87c2": {
+   "branch": "",
+   "name": "RE movement DSL factories + push",
+   "type": "re-expert"
+  },
+  "a5c50e2cd9ca6152c": {
+   "branch": "worktree-agent-a5c50e2cd9ca6152c",
+   "name": "Deriver AccurateShieldDamage",
+   "type": "opus-solver"
+  },
+  "a5cd473bfd0a23d4c": {
+   "branch": "",
+   "name": "RE source effet 0x423 no-élévation",
+   "type": "re-expert"
+  },
+  "a5cd9f1f1d598fef3": {
+   "branch": "worktree-agent-a5cd9f1f1d598fef3",
+   "name": "Localise last movable-tile gap",
+   "type": "opus-solver"
+  },
+  "a5cf3a466cb91a74f": {
+   "branch": "worktree-agent-a5cf3a466cb91a74f",
+   "name": "AbilityState de la SOURCE",
+   "type": "opus-solver"
+  },
+  "a5d5256eca8d8acd7": {
+   "branch": "worktree-agent-a5d5256eca8d8acd7",
+   "name": "361-r3 maillon aval pool tuiles",
+   "type": "opus-solver"
+  },
+  "a5d53ad9ab28f69e4": {
+   "branch": "worktree-agent-a5d53ad9ab28f69e4",
+   "name": "Fix capture point gate",
+   "type": "opus-solver"
+  },
+  "a5d86df8c86f1124a": {
+   "branch": "worktree-agent-a5d86df8c86f1124a",
+   "name": "Fixtures a patch ecrase",
+   "type": "opus-solver"
+  },
+  "a5ef6e68827ce446b": {
+   "branch": "worktree-agent-a5ef6e68827ce446b",
+   "name": "R9 attacker_ctx et Chronometron 1550",
+   "type": "opus-solver"
+  },
+  "a5f142aae8518ec21": {
+   "branch": "worktree-agent-a5f142aae8518ec21",
+   "name": "419-r1 tranche 6 CosmicHorror 1277",
+   "type": "opus-solver"
+  },
+  "a5f158148a272e870": {
+   "branch": "",
+   "name": "Classifier P2 Necrons",
+   "type": "re-expert"
+  },
+  "a5f17035710ec1bdb": {
+   "branch": "worktree-agent-a5f17035710ec1bdb",
+   "name": "Port opus 1002 CombatRestoratives",
+   "type": "opus-solver"
+  },
+  "a5f1b6f97fe22613c": {
+   "branch": "",
+   "name": "Resolve On(0x10) tile-effect placement emitter",
+   "type": "re-expert"
+  },
+  "a5f4b2cd390b5c50e": {
+   "branch": "",
+   "name": "RE generic DoT effect tick 1244",
+   "type": "re-expert"
+  },
+  "a5fbd68c67f827492": {
+   "branch": "",
+   "name": "Survey ported comparator nodes",
+   "type": "Explore"
+  },
+  "a5fd09c12680a1552": {
+   "branch": "",
+   "name": "Audit playbook param_8 lot 1",
+   "type": "re-expert"
+  },
+  "a60515a8bf7fb6b72": {
+   "branch": "worktree-agent-a60515a8bf7fb6b72",
+   "name": "Porter 1215 PsychicStalk",
+   "type": "opus-solver"
+  },
+  "a6058ee50a554cd0f": {
+   "branch": "",
+   "name": "Classifier P2 Votann",
+   "type": "re-expert"
+  },
+  "a60f889454266c2e6": {
+   "branch": "worktree-agent-a60f889454266c2e6",
+   "name": "WillBeKill capteur deux residus",
+   "type": "opus-solver"
+  },
+  "a6166472d8d44b1ad": {
+   "branch": "",
+   "name": "Catalogue exhaustif du vocabulaire DSL",
+   "type": "re-expert"
+  },
+  "a6168c6a15266f0b0": {
+   "branch": "",
+   "name": "Map playbook decision bridge requirements",
+   "type": "general-purpose"
+  },
+  "a619090b0217031c1": {
+   "branch": "",
+   "name": "Étape 0 RE: PredictAttackRaw aggregate identity",
+   "type": "re-expert"
+  },
+  "a61a8e7be8048417b": {
+   "branch": "worktree-agent-a61a8e7be8048417b",
+   "name": "363 canal relique un seul producteur",
+   "type": "opus-solver"
+  },
+  "a624d791b9df9471e": {
+   "branch": "worktree-agent-a624d791b9df9471e",
+   "name": "Resolve #153 aura-position contradiction",
+   "type": "fable-solver"
+  },
+  "a6466bdfd502123b2": {
+   "branch": "",
+   "name": "RE representative playbook",
+   "type": "general-purpose"
+  },
+  "a65d39470ffda8578": {
+   "branch": "",
+   "name": "RE MoveTowardsUnit leaf",
+   "type": "general-purpose"
+  },
+  "a662e27f56c2b4b06": {
+   "branch": "worktree-agent-a662e27f56c2b4b06",
+   "name": "Contradiction spread slot prediction",
+   "type": "opus-solver"
+  },
+  "a669b24c4e125910b": {
+   "branch": "worktree-agent-a669b24c4e125910b",
+   "name": "Port StormboyzStrike teleport",
+   "type": "opus-solver"
+  },
+  "a66e1203d2e7ef1eb": {
+   "branch": "worktree-agent-a66e1203d2e7ef1eb",
+   "name": "360 MoW caster oracle",
+   "type": "opus-solver"
+  },
+  "a66e1788871f2cf1b": {
+   "branch": "worktree-agent-a66e1788871f2cf1b",
+   "name": "Read the unread TargetingOptions presets",
+   "type": "opus-solver"
+  },
+  "a66f706769bd344f7": {
+   "branch": "worktree-agent-a66f706769bd344f7",
+   "name": "Port TacticalPrecision + MomentShackle",
+   "type": "opus-solver"
+  },
+  "a66fbed383bdb2d1f": {
+   "branch": "worktree-agent-a66fbed383bdb2d1f",
+   "name": "N5 chaine apres AddEffect refuse",
+   "type": "opus-solver"
+  },
+  "a68cd4cafb39f19d5": {
+   "branch": "worktree-agent-a68cd4cafb39f19d5",
+   "name": "ThriceBlessed decision face",
+   "type": "opus-solver"
+  },
+  "a68e55925705da807": {
+   "branch": "",
+   "name": "Resolve TraitType 1003 name",
+   "type": "Explore"
+  },
+  "a69b5c5168876ecd6": {
+   "branch": "",
+   "name": "Classifier P2 DarkAngels",
+   "type": "re-expert"
+  },
+  "a69d900a477a41dfd": {
+   "branch": "worktree-agent-a69d900a477a41dfd",
+   "name": "Port FilterTilesIfCanAttackTargetTileFrom fallback arm",
+   "type": "opus-solver"
+  },
+  "a6a136c3ff0d4aad2": {
+   "branch": "worktree-agent-a6a136c3ff0d4aad2",
+   "name": "Port CondemnorStake (Sisterhood)",
+   "type": "opus-solver"
+  },
+  "a6a42da47e2fdcc0a": {
+   "branch": "",
+   "name": "RE damage/heal formula leaves",
+   "type": "general-purpose"
+  },
+  "a6a80fb64f037855f": {
+   "branch": "worktree-agent-a6a80fb64f037855f",
+   "name": "Fix footprint pycache dependency",
+   "type": "opus-solver"
+  },
+  "a6ad7acbdff29d97c": {
+   "branch": "",
+   "name": "RE règle élévation prédiction",
+   "type": "re-expert"
+  },
+  "a6ae552ef936491a4": {
+   "branch": "worktree-agent-a6ae552ef936491a4",
+   "name": "Close the get_range only_adjacent gap",
+   "type": "opus-solver"
+  },
+  "a6b27f7cf8a679d1f": {
+   "branch": "worktree-agent-a6b27f7cf8a679d1f",
+   "name": "Fix probe_462 ledger stale reds",
+   "type": "opus-solver"
+  },
+  "a6b7360016e210682": {
+   "branch": "worktree-agent-a6b7360016e210682",
+   "name": "Port #224-2 ExtraMoveEffect",
+   "type": "opus-solver"
+  },
+  "a6bf5d493ede247d8": {
+   "branch": "",
+   "name": "Trace ExecuteHit per-hit /2 for SmashaEad",
+   "type": "re-expert"
+  },
+  "a6c29af4bd3621a96": {
+   "branch": "worktree-agent-a6c29af4bd3621a96",
+   "name": "Test hygiene lot A oracle nrOfHits",
+   "type": "opus-solver"
+  },
+  "a6c3656237ad6d290": {
+   "branch": "worktree-agent-a6c3656237ad6d290",
+   "name": "Fix hardcoded EventTriggerType ordinals",
+   "type": "opus-solver"
+  },
+  "a6c3f63ce41e7a46f": {
+   "branch": "worktree-agent-a6c3f63ce41e7a46f",
+   "name": "Port HeavyGravCannon 1291",
+   "type": "opus-solver"
+  },
+  "a6ccced709d86e0ba": {
+   "branch": "worktree-agent-a6ccced709d86e0ba",
+   "name": "Port AreTilesAdjacent identity short-circuit",
+   "type": "opus-solver"
+  },
+  "a6d403cdb4cd5326b": {
+   "branch": "worktree-agent-a6d403cdb4cd5326b",
+   "name": "RE chemin ability AbilityEntities",
+   "type": "re-expert"
+  },
+  "a6d54cba6b2551972": {
+   "branch": "worktree-agent-a6d54cba6b2551972",
+   "name": "Masques ciblage astramilitarum",
+   "type": "opus-solver"
+  },
+  "a6d5e56a7a718914b": {
+   "branch": "",
+   "name": "Tracer x1.875 dans DamageBonus attaquant",
+   "type": "re-expert"
+  },
+  "a6d8761be80bcb85a": {
+   "branch": "worktree-agent-a6d8761be80bcb85a",
+   "name": "Accesseurs de tuile et empreinte",
+   "type": "opus-solver"
+  },
+  "a6e07a325940c1d5c": {
+   "branch": "worktree-agent-a6e07a325940c1d5c",
+   "name": "443-r1c indices de feuilles probe_193c",
+   "type": "opus-solver"
+  },
+  "a6e320a8168d5b37b": {
+   "branch": "worktree-agent-a6e320a8168d5b37b",
+   "name": "opus-solver #64 load_state board",
+   "type": "opus-solver"
+  },
+  "a6e669960dd1a7ee6": {
+   "branch": "worktree-agent-a6e669960dd1a7ee6",
+   "name": "Port opus-solver AberrantHypermorph 1166",
+   "type": "opus-solver"
+  },
+  "a6ea6d75a6a7e230d": {
+   "branch": "worktree-agent-a6ea6d75a6a7e230d",
+   "name": "fable-solver sur #38b",
+   "type": "fable-solver"
+  },
+  "a6eb0dd5c9faf1462": {
+   "branch": "worktree-agent-a6eb0dd5c9faf1462",
+   "name": "Port SentinelDirectives (AdMec)",
+   "type": "opus-solver"
+  },
+  "a6ec9ad2308518100": {
+   "branch": "",
+   "name": "RE Etape-0 refactor prediction PredictAttackRaw",
+   "type": "re-expert"
+  },
+  "a6f36a21f87ebba0c": {
+   "branch": "",
+   "name": "RE NormalAttackPlaybook",
+   "type": "general-purpose"
+  },
+  "a6f401ce772eac5e6": {
+   "branch": "worktree-agent-a6f401ce772eac5e6",
+   "name": "344-r2 trois predictions pas une",
+   "type": "opus-solver"
+  },
+  "a6f744ff017b3c4a3": {
+   "branch": "worktree-agent-a6f744ff017b3c4a3",
+   "name": "Masques ciblage module summon",
+   "type": "opus-solver"
+  },
+  "a6f9a6df827806b32": {
+   "branch": "worktree-agent-a6f9a6df827806b32",
+   "name": "EFFECT_TRIGGERS active inventory",
+   "type": "opus-solver"
+  },
+  "a6fb0887d7fec9ddb": {
+   "branch": "worktree-agent-a6fb0887d7fec9ddb",
+   "name": "421 probe_229 RAIL 19 classes",
+   "type": "opus-solver"
+  },
+  "a6fce841991c942e7": {
+   "branch": "worktree-agent-a6fce841991c942e7",
+   "name": "Seed BC ability configs",
+   "type": "opus-solver"
+  },
+  "a6fff6211404fa5e3": {
+   "branch": "worktree-agent-a6fff6211404fa5e3",
+   "name": "Fix probes writing into main data",
+   "type": "opus-solver"
+  },
+  "a70b034d9a9233e16": {
+   "branch": "worktree-agent-a70b034d9a9233e16",
+   "name": "Mapper EffectType 1284 vers sa classe",
+   "type": "re-expert"
+  },
+  "a7134831f5bfcf5cd": {
+   "branch": "",
+   "name": "RE G6b MoveAndSpawnDecoy",
+   "type": "re-expert"
+  },
+  "a7139dde0565fc51e": {
+   "branch": "worktree-agent-a7139dde0565fc51e",
+   "name": "Port TwoManTeam + Diminutive",
+   "type": "opus-solver"
+  },
+  "a71874c8a9f24403a": {
+   "branch": "",
+   "name": "Extract publish literals from natives",
+   "type": "general-purpose"
+  },
+  "a71d0eb36d6edd44e": {
+   "branch": "worktree-agent-a71d0eb36d6edd44e",
+   "name": "Effet 1582 non enregistre",
+   "type": "opus-solver"
+  },
+  "a71d55efa761a037f": {
+   "branch": "worktree-agent-a71d55efa761a037f",
+   "name": "1148 route de decision",
+   "type": "opus-solver"
+  },
+  "a723442b3d9c6a156": {
+   "branch": "worktree-agent-a723442b3d9c6a156",
+   "name": "Guard the +1 of NormalAttackPlaybook",
+   "type": "opus-solver"
+  },
+  "a735d796c2f2c2785": {
+   "branch": "",
+   "name": "RE HammerOfWrath +5 CanAddUnit selector",
+   "type": "re-expert"
+  },
+  "a736b3a0a291f8254": {
+   "branch": "worktree-agent-a736b3a0a291f8254",
+   "name": "Etage block Daemon_ExtraBlock",
+   "type": "opus-solver"
+  },
+  "a739ab301f5af5322": {
+   "branch": "",
+   "name": "RE cluster runner↔prédiction divergences",
+   "type": "re-expert"
+  },
+  "a73de85bd2e976781": {
+   "branch": "worktree-agent-a73de85bd2e976781",
+   "name": "Playbook gates static traits",
+   "type": "opus-solver"
+  },
+  "a74b5ef1c5d936413": {
+   "branch": "",
+   "name": "RE Blast per-target base reduction #49",
+   "type": "re-expert"
+  },
+  "a74dd2b1f6f3bb611": {
+   "branch": "",
+   "name": "RE does-not-end-turn mechanism",
+   "type": "re-expert"
+  },
+  "a751195cd35adbbf0": {
+   "branch": "",
+   "name": "Inventaire port CursedPlagueBellAttack",
+   "type": "Explore"
+  },
+  "a758492282d40cde9": {
+   "branch": "worktree-agent-a758492282d40cde9",
+   "name": "Close the +5.458908 damage composite gap",
+   "type": "opus-solver"
+  },
+  "a7607dfc31abf36a5": {
+   "branch": "",
+   "name": "RE verdict G3 Ambush trait",
+   "type": "re-expert"
+  },
+  "a766ed4799bb22249": {
+   "branch": "worktree-agent-a766ed4799bb22249",
+   "name": "opus-solver #71 LasCannon pierce",
+   "type": "opus-solver"
+  },
+  "a76b08f5afecaf046": {
+   "branch": "worktree-agent-a76b08f5afecaf046",
+   "name": "Validate #178 MkXGravis fix",
+   "type": "validator"
+  },
+  "a7707f50083bf7540": {
+   "branch": "",
+   "name": "Audit playbook param_8 lot 3",
+   "type": "re-expert"
+  },
+  "a77c51f1fb5c76dc3": {
+   "branch": "",
+   "name": "Localiser gate caster-alive natif",
+   "type": "general-purpose"
+  },
+  "a77d4d049bdfc28ac": {
+   "branch": "",
+   "name": "RE #49 base-resolution mechanism",
+   "type": "re-expert"
+  },
+  "a7816ba389136e1bc": {
+   "branch": "worktree-agent-a7816ba389136e1bc",
+   "name": "Cap FabricatorClawArray 1006",
+   "type": "opus-solver"
+  },
+  "a784afe170b93faa8": {
+   "branch": "worktree-agent-a784afe170b93faa8",
+   "name": "Close inert elevation gate on runner",
+   "type": "opus-solver"
+  },
+  "a784b26b60debd52a": {
+   "branch": "worktree-agent-a784b26b60debd52a",
+   "name": "Porter 1108 ReinforcedHiveNode ExtraArmor",
+   "type": "opus-solver"
+  },
+  "a7851c01bc5db8031": {
+   "branch": "worktree-agent-a7851c01bc5db8031",
+   "name": "opus-solver #72 OnMelta port",
+   "type": "opus-solver"
+  },
+  "a7913a1aa4a4a6d75": {
+   "branch": "worktree-agent-a7913a1aa4a4a6d75",
+   "name": "Masques ciblage module deathguard",
+   "type": "opus-solver"
+  },
+  "a792e47d34667d7dd": {
+   "branch": "worktree-agent-a792e47d34667d7dd",
+   "name": "1345 1346 VisionsOfHeresy percage",
+   "type": "opus-solver"
+  },
+  "a79e06bdecd441f66": {
+   "branch": "",
+   "name": "RE death event order",
+   "type": "general-purpose"
+  },
+  "a7a087a20d73f22e7": {
+   "branch": "worktree-agent-a7a087a20d73f22e7",
+   "name": "Port ThrillSeekers trait chain",
+   "type": "opus-solver"
+  },
+  "a7a0cab05ca7e3f7f": {
+   "branch": "worktree-agent-a7a0cab05ca7e3f7f",
+   "name": "load_state inactive effects",
+   "type": "opus-solver"
+  },
+  "a7a6734984b92c5cd": {
+   "branch": "worktree-agent-a7a6734984b92c5cd",
+   "name": "1502 validation live seed augmente",
+   "type": "opus-solver"
+  },
+  "a7a70236f4b7d4e84": {
+   "branch": "worktree-agent-a7a70236f4b7d4e84",
+   "name": "350-r2a 1098 et 1048 borne unique",
+   "type": "opus-solver"
+  },
+  "a7a9c5cceb8bb8e34": {
+   "branch": "worktree-agent-a7a9c5cceb8bb8e34",
+   "name": "350-r1 SorcerousFacade 2 events",
+   "type": "opus-solver"
+  },
+  "a7ad54e78680680b7": {
+   "branch": "worktree-agent-a7ad54e78680680b7",
+   "name": "Cause aval readEffectsByTile",
+   "type": "opus-solver"
+  },
+  "a7af2bc1b237ee32f": {
+   "branch": "worktree-agent-a7af2bc1b237ee32f",
+   "name": "Porter 1435 PsychicStalk Chaos",
+   "type": "opus-solver"
+  },
+  "a7afa585b5ecc0218": {
+   "branch": "",
+   "name": "Question UI transcript sous-agents",
+   "type": "claude-code-guide"
+  },
+  "a7b85fb4f3cac5ad6": {
+   "branch": "",
+   "name": "Trouver vtable + 6 slots concrets",
+   "type": "Explore"
+  },
+  "a7c7142eeccfbbc4b": {
+   "branch": "worktree-agent-a7c7142eeccfbbc4b",
+   "name": "1183 DefenderGreaterGood hits",
+   "type": "opus-solver"
+  },
+  "a7c9bf8386adf8ad1": {
+   "branch": "worktree-agent-a7c9bf8386adf8ad1",
+   "name": "RE poison dynamic-tile family",
+   "type": "re-expert"
+  },
+  "a7ce4ee627d5496a9": {
+   "branch": "worktree-agent-a7ce4ee627d5496a9",
+   "name": "431 chemins DLL build perime",
+   "type": "opus-solver"
+  },
+  "a7cf78c635ca9935f": {
+   "branch": "worktree-agent-a7cf78c635ca9935f",
+   "name": "Port du gate de ciblage",
+   "type": "opus-solver"
+  },
+  "a7d06b0a98e0e2a34": {
+   "branch": "worktree-agent-a7d06b0a98e0e2a34",
+   "name": "Résoudre arc Gauntlets (case dur)",
+   "type": "fable-solver"
+  },
+  "a7d07ea193c0882db": {
+   "branch": "worktree-agent-a7d07ea193c0882db",
+   "name": "Fix three imperative MovableTilesInRange collapses",
+   "type": "opus-solver"
+  },
+  "a7d982e6ed3224823": {
+   "branch": "",
+   "name": "Classifier P2 EmperorsChildren",
+   "type": "re-expert"
+  },
+  "a7dfd603cb62fa433": {
+   "branch": "worktree-agent-a7dfd603cb62fa433",
+   "name": "Corriger collision conftest",
+   "type": "opus-solver"
+  },
+  "a7e49cfa60c959b49": {
+   "branch": "",
+   "name": "RE MightCrit writer in PredictAttackRaw",
+   "type": "general-purpose"
+  },
+  "a7e54876438d7d83a": {
+   "branch": "worktree-agent-a7e54876438d7d83a",
+   "name": "Port opus SavageEchoes BloodAngels",
+   "type": "opus-solver"
+  },
+  "a7e7c2acdeea5109c": {
+   "branch": "",
+   "name": "Lire la conclusion mecanisme de #421",
+   "type": "Explore"
+  },
+  "a7e8ba308a8ee011c": {
+   "branch": "",
+   "name": "Perimetre aveugle de probe_431",
+   "type": "opus-solver"
+  },
+  "a7e933401ae6f8573": {
+   "branch": "worktree-agent-a7e933401ae6f8573",
+   "name": "CalculateCustomUtility tranche 2",
+   "type": "opus-solver"
+  },
+  "a7ea228cbe20ade73": {
+   "branch": "worktree-agent-a7ea228cbe20ade73",
+   "name": "RammingSpeed selecteurs vides",
+   "type": "opus-solver"
+  },
+  "a7ebf5807249bfce9": {
+   "branch": "",
+   "name": "RE MartialInspiration slot0x10 base formula",
+   "type": "re-expert"
+  },
+  "a7f513acaad94763a": {
+   "branch": "worktree-agent-a7f513acaad94763a",
+   "name": "Confront MinDist gates now live",
+   "type": "opus-solver"
+  },
+  "a7f9a699e6492f154": {
+   "branch": "",
+   "name": "RE #30 raw-bounds divergence",
+   "type": "re-expert"
+  },
+  "a7fa55db04c6851e6": {
+   "branch": "worktree-agent-a7fa55db04c6851e6",
+   "name": "Port OnToxicDamageAbility 1203",
+   "type": "opus-solver"
+  },
+  "a7feaadc28383b941": {
+   "branch": "",
+   "name": "Valider refactor utilities move/heal/repair/effect",
+   "type": "validator"
+  },
+  "a8028a2b06d1d4c99": {
+   "branch": "",
+   "name": "Classifier P2 Tyranids",
+   "type": "re-expert"
+  },
+  "a80394a9c3723e85a": {
+   "branch": "",
+   "name": "Trouver cle dispatch RadSaturationPlaybook",
+   "type": "Explore"
+  },
+  "a8054243604127726": {
+   "branch": "",
+   "name": "RE résidu ×1.5 normal-attack (relance)",
+   "type": "re-expert"
+  },
+  "a80d1633c49292493": {
+   "branch": "worktree-agent-a80d1633c49292493",
+   "name": "Fix load_playbook None for 1133 and 1145",
+   "type": "opus-solver"
+  },
+  "a80ffd5838308fd70": {
+   "branch": "worktree-agent-a80ffd5838308fd70",
+   "name": "Sweep red live tests on master",
+   "type": "opus-solver"
+  },
+  "a817340ec043a3354": {
+   "branch": "worktree-agent-a817340ec043a3354",
+   "name": "N16 un consommateur de charge",
+   "type": "opus-solver"
+  },
+  "a81b0b741d2cd91f7": {
+   "branch": "worktree-agent-a81b0b741d2cd91f7",
+   "name": "Fix Pinned refusal port divergence",
+   "type": "opus-solver"
+  },
+  "a829b6c92a85b5beb": {
+   "branch": "worktree-agent-a829b6c92a85b5beb",
+   "name": "Port HeavyBoltPistol 1083 playbook",
+   "type": "opus-solver"
+  },
+  "a82c5c37296c712a8": {
+   "branch": "worktree-agent-a82c5c37296c712a8",
+   "name": "StormboyzStrike siblings",
+   "type": "opus-solver"
+  },
+  "a82ff028f23ec0463": {
+   "branch": "worktree-agent-a82ff028f23ec0463",
+   "name": "Cap amis FabricatorClawArray",
+   "type": "opus-solver"
+  },
+  "a8309372e35feddbe": {
+   "branch": "",
+   "name": "RE Playbook registry catalog",
+   "type": "general-purpose"
+  },
+  "a830ff1afcae27021": {
+   "branch": "",
+   "name": "Recover warm Frida session",
+   "type": "live-ops"
+  },
+  "a8375514e5fd58c64": {
+   "branch": "",
+   "name": "RE combat dispatch42 additive halving",
+   "type": "re-expert"
+  },
+  "a83ff260b85a9863c": {
+   "branch": "worktree-agent-a83ff260b85a9863c",
+   "name": "Port trait LivingMetal (#203)",
+   "type": "opus-solver"
+  },
+  "a841b1e06703d4220": {
+   "branch": "",
+   "name": "Find playbook builder lambda + ctor args",
+   "type": "Explore"
+  },
+  "a842cacbf018cc202": {
+   "branch": "worktree-agent-a842cacbf018cc202",
+   "name": "Validate #105 MartialKatah port",
+   "type": "validator"
+  },
+  "a8493073f071a320d": {
+   "branch": "",
+   "name": "Enumerer specials heritant ALoki PredictAttack",
+   "type": "re-expert"
+  },
+  "a85e851ceab11c4f2": {
+   "branch": "",
+   "name": "RE the native DSL operation pump",
+   "type": "re-expert"
+  },
+  "a865a68d3d4e43dda": {
+   "branch": "worktree-agent-a865a68d3d4e43dda",
+   "name": "Verify the five hook fixes are live",
+   "type": "live-ops"
+  },
+  "a865dfb2cb3eccfb1": {
+   "branch": "worktree-agent-a865dfb2cb3eccfb1",
+   "name": "Test rouge master + masques splash",
+   "type": "opus-solver"
+  },
+  "a871a604b5606857b": {
+   "branch": "worktree-agent-a871a604b5606857b",
+   "name": "Resolve the two-face rounding contradiction",
+   "type": "opus-solver"
+  },
+  "a873145373bd04277": {
+   "branch": "worktree-agent-a873145373bd04277",
+   "name": "419-r1 tranche 7 FireOfAbsolution 1017",
+   "type": "opus-solver"
+  },
+  "a874266fbeee61fb8": {
+   "branch": "worktree-agent-a874266fbeee61fb8",
+   "name": "Porter 1216 PsychicStalk Visual",
+   "type": "opus-solver"
+  },
+  "a87bf46723b0eab93": {
+   "branch": "",
+   "name": "Write prediction.md",
+   "type": "general-purpose"
+  },
+  "a88030f96d19e9e33": {
+   "branch": "worktree-agent-a88030f96d19e9e33",
+   "name": "RE block channel closing gate",
+   "type": "opus-solver"
+  },
+  "a883105da1350aa63": {
+   "branch": "",
+   "name": "Inventaire derive-vs-saisi lot D",
+   "type": "Explore"
+  },
+  "a885d626209a274f6": {
+   "branch": "worktree-agent-a885d626209a274f6",
+   "name": "Fermer 418-r1 IsEffectTarget",
+   "type": "opus-solver"
+  },
+  "a887438429a260608": {
+   "branch": "worktree-agent-a887438429a260608",
+   "name": "Mesurer overrides CalculateCustomUtility",
+   "type": "opus-solver"
+  },
+  "a887f002049ca89b4": {
+   "branch": "worktree-agent-a887f002049ca89b4",
+   "name": "Port movement scoring stage",
+   "type": "opus-solver"
+  },
+  "a893c6f3e227a6dc4": {
+   "branch": "worktree-agent-a893c6f3e227a6dc4",
+   "name": "opus-solver #70 cible untargetable",
+   "type": "opus-solver"
+  },
+  "a896f060f4aed0f83": {
+   "branch": "worktree-agent-a896f060f4aed0f83",
+   "name": "Beam direction DarkTalonStrike",
+   "type": "opus-solver"
+  },
+  "a89edcfeababc56aa": {
+   "branch": "worktree-agent-a89edcfeababc56aa",
+   "name": "R30 substrat multi-hex",
+   "type": "opus-solver"
+  },
+  "a89fdbad247e69fa7": {
+   "branch": "worktree-agent-a89fdbad247e69fa7",
+   "name": "Port opus FlailSwing DeathGuard",
+   "type": "opus-solver"
+  },
+  "a8ac81f27d117c7d6": {
+   "branch": "worktree-agent-a8ac81f27d117c7d6",
+   "name": "Fermeture tranche REVIVE",
+   "type": "opus-solver"
+  },
+  "a8b18198499db5259": {
+   "branch": "",
+   "name": "RE #102 playbook invocation recipe",
+   "type": "re-expert"
+  },
+  "a8c0430ded1a975b8": {
+   "branch": "worktree-agent-a8c0430ded1a975b8",
+   "name": "Overwatch ActiveCondition gate",
+   "type": "opus-solver"
+  },
+  "a8c9c09f9644414a0": {
+   "branch": "worktree-agent-a8c9c09f9644414a0",
+   "name": "235 fiches perimees UnitFlags",
+   "type": "opus-solver"
+  },
+  "a8d2eece500e055e2": {
+   "branch": "worktree-agent-a8d2eece500e055e2",
+   "name": "Clamps de melee et tiles_in_range_reach",
+   "type": "opus-solver"
+  },
+  "a8d9c8bcc3bee1cf2": {
+   "branch": "worktree-agent-a8d9c8bcc3bee1cf2",
+   "name": "Porter face COMBAT de 1059",
+   "type": "opus-solver"
+  },
+  "a8ec19c826ba6447d": {
+   "branch": "",
+   "name": "Classifier P2 Sisterhood",
+   "type": "re-expert"
+  },
+  "a8f1875bf17f2cfda": {
+   "branch": "",
+   "name": "Gates natifs BlackRage/MartialInspiration",
+   "type": "re-expert"
+  },
+  "a900b92ee778a6cd7": {
+   "branch": "",
+   "name": "Localiser la liste des 9 cliquets",
+   "type": "Explore"
+  },
+  "a904a5777bb113fb6": {
+   "branch": "",
+   "name": "Map playbook AI decision flow",
+   "type": "Explore"
+  },
+  "a90a2fc91ab3e6ece": {
+   "branch": "worktree-agent-a90a2fc91ab3e6ece",
+   "name": "Fix overkill montage regime",
+   "type": "opus-solver"
+  },
+  "a911652eddcf3484e": {
+   "branch": "",
+   "name": "RE PlaybookDatabase core + interface",
+   "type": "general-purpose"
+  },
+  "a912249c365d3e0b0": {
+   "branch": "",
+   "name": "Audit entities subsystem",
+   "type": "general-purpose"
+  },
+  "a9170a12e30614bde": {
+   "branch": "worktree-agent-a9170a12e30614bde",
+   "name": "Re-valider fd99ae0 (R1+R2 fix)",
+   "type": "validator"
+  },
+  "a91b6d0eec2f49865": {
+   "branch": "worktree-agent-a91b6d0eec2f49865",
+   "name": "Rouge pre-existant catalog_inject",
+   "type": "opus-solver"
+  },
+  "a91ce416350bfc85c": {
+   "branch": "",
+   "name": "RE closure: PredictAttackRaw aggregate",
+   "type": "re-expert"
+  },
+  "a9244a94b5b913f0a": {
+   "branch": "worktree-agent-a9244a94b5b913f0a",
+   "name": "Port ForwardObservers utility",
+   "type": "opus-solver"
+  },
+  "a926daa8b0c9c7d8d": {
+   "branch": "worktree-agent-a926daa8b0c9c7d8d",
+   "name": "Phantom action 1100 routing",
+   "type": "opus-solver"
+  },
+  "a930cb67410a6470a": {
+   "branch": "worktree-agent-a930cb67410a6470a",
+   "name": "turnsFinished load_state",
+   "type": "opus-solver"
+  },
+  "a9333892f4f4ba1a6": {
+   "branch": "",
+   "name": "Close Q1 special predefinedRange RE",
+   "type": "re-expert"
+  },
+  "a9337ea3154a408c0": {
+   "branch": "",
+   "name": "Audit playbook param_8 lot 5",
+   "type": "re-expert"
+  },
+  "a93b56d7731f047e1": {
+   "branch": "worktree-agent-a93b56d7731f047e1",
+   "name": "Bonded entity plus 2-relay chain",
+   "type": "opus-solver"
+  },
+  "a947fb7a21bec97de": {
+   "branch": "worktree-agent-a947fb7a21bec97de",
+   "name": "SortTilesByUtility call-site SUMMON",
+   "type": "opus-solver"
+  },
+  "a94f21de55b19896a": {
+   "branch": "worktree-agent-a94f21de55b19896a",
+   "name": "Porter 1113 TunnelingHorror PendingSummon",
+   "type": "opus-solver"
+  },
+  "a956331dac85fbee1": {
+   "branch": "worktree-agent-a956331dac85fbee1",
+   "name": "Playbooks mouvement face porteur",
+   "type": "opus-solver"
+  },
+  "a95c40e4b4032baff": {
+   "branch": "",
+   "name": "Localiser pairUtility natif et port",
+   "type": "Explore"
+  },
+  "a9656835deb0d0281": {
+   "branch": "worktree-agent-a9656835deb0d0281",
+   "name": "ATeleportingEffect inventory",
+   "type": "opus-solver"
+  },
+  "a9672771d2b49fd8a": {
+   "branch": "worktree-agent-a9672771d2b49fd8a",
+   "name": "Sweep pre-migration enum literals",
+   "type": "opus-solver"
+  },
+  "a96b612eab1d165ca": {
+   "branch": "worktree-agent-a96b612eab1d165ca",
+   "name": "442 TargetIsNotSteppable",
+   "type": "opus-solver"
+  },
+  "a96df7a357732c240": {
+   "branch": "",
+   "name": "Classifier P2 Ultramarines",
+   "type": "re-expert"
+  },
+  "a96f0716d6f4e8e38": {
+   "branch": "worktree-agent-a96f0716d6f4e8e38",
+   "name": "opus-solver #67 bonus-hit combat",
+   "type": "opus-solver"
+  },
+  "a97410d869c9bf5aa": {
+   "branch": "worktree-agent-a97410d869c9bf5aa",
+   "name": "Solver #205 trait Unstoppable",
+   "type": "opus-solver"
+  },
+  "a974111cc8b5415ad": {
+   "branch": "worktree-agent-a974111cc8b5415ad",
+   "name": "Port FragBomb + BasiliskBarrage",
+   "type": "opus-solver"
+  },
+  "a9741a2440f45ace7": {
+   "branch": "worktree-agent-a9741a2440f45ace7",
+   "name": "Port TheLionsWrath custom utility",
+   "type": "opus-solver"
+  },
+  "a9788175d961e4665": {
+   "branch": "",
+   "name": "Classifier P2 Orks",
+   "type": "re-expert"
+  },
+  "a978b88812f2e7132": {
+   "branch": "",
+   "name": "Inventaire derive-vs-saisi lot A",
+   "type": "Explore"
+  },
+  "a9876ee93a2ff4c50": {
+   "branch": "worktree-agent-a9876ee93a2ff4c50",
+   "name": "fable-solver #39 porte per-player 1180",
+   "type": "fable-solver"
+  },
+  "a98dc1099771ca1c2": {
+   "branch": "worktree-agent-a98dc1099771ca1c2",
+   "name": "Solve #184 normal-attack positional",
+   "type": "fable-solver"
+  },
+  "a9900482c6641d6f0": {
+   "branch": "worktree-agent-a9900482c6641d6f0",
+   "name": "Rebranch pathfinders on ConnectivityComponent",
+   "type": "opus-solver"
+  },
+  "a9988ca3b1b445ff4": {
+   "branch": "worktree-agent-a9988ca3b1b445ff4",
+   "name": "Re-drive two probes that no longer discriminate",
+   "type": "opus-solver"
+  },
+  "a9a0333f31b7a3852": {
+   "branch": "worktree-agent-a9a0333f31b7a3852",
+   "name": "Convergence RULE_ vers enum genere",
+   "type": "opus-solver"
+  },
+  "a9a53a5f17387c8c2": {
+   "branch": "worktree-agent-a9a53a5f17387c8c2",
+   "name": "Port Votann lot 1",
+   "type": "opus-solver"
+  },
+  "a9a934bdce61475a7": {
+   "branch": "worktree-agent-a9a934bdce61475a7",
+   "name": "Port Drachnyen + HeraldOfTheApocalypse",
+   "type": "opus-solver"
+  },
+  "a9adc833cecd7e831": {
+   "branch": "",
+   "name": "Inventaire derive-vs-saisi lot C",
+   "type": "Explore"
+  },
+  "a9b43f0865b557754": {
+   "branch": "worktree-agent-a9b43f0865b557754",
+   "name": "Port MortarionsPlagueWind custom utility",
+   "type": "opus-solver"
+  },
+  "a9b4f962b74314956": {
+   "branch": "",
+   "name": "RE DoctrinaImperatives Tan Gi'da",
+   "type": "re-expert"
+  },
+  "a9b741dbac391295c": {
+   "branch": "worktree-agent-a9b741dbac391295c",
+   "name": "429-r2 tranche 4 regle de ciblage",
+   "type": "opus-solver"
+  },
+  "a9b9cb63655c6da6f": {
+   "branch": "worktree-agent-a9b9cb63655c6da6f",
+   "name": "Port IsAdjacent universal quantifier",
+   "type": "opus-solver"
+  },
+  "a9b9fc8c4c5d631df": {
+   "branch": "worktree-agent-a9b9fc8c4c5d631df",
+   "name": "Summon fantome sans PositionComponent",
+   "type": "opus-solver"
+  },
+  "a9c06f9c0bdde3f1b": {
+   "branch": "worktree-agent-a9c06f9c0bdde3f1b",
+   "name": "Port AnvilShield residues",
+   "type": "opus-solver"
+  },
+  "a9c5005028938e3ae": {
+   "branch": "worktree-agent-a9c5005028938e3ae",
+   "name": "IsAffectedByHealType decision gate",
+   "type": "opus-solver"
+  },
+  "a9cf31bd3c5715d0b": {
+   "branch": "worktree-agent-a9cf31bd3c5715d0b",
+   "name": "R1-b ordre des tuiles de move",
+   "type": "opus-solver"
+  },
+  "a9d4479f33031895f": {
+   "branch": "worktree-agent-a9d4479f33031895f",
+   "name": "Fix symbols coverage guard reds",
+   "type": "opus-solver"
+  },
+  "a9d827e4de4edaf10": {
+   "branch": "worktree-agent-a9d827e4de4edaf10",
+   "name": "R20 SpawnReplica fork PerformAIAttack",
+   "type": "opus-solver"
+  },
+  "a9da994aa7fcb7a55": {
+   "branch": "",
+   "name": "RE verify #90 gate premise (#92)",
+   "type": "re-expert"
+  },
+  "a9f243149c643b464": {
+   "branch": "worktree-agent-a9f243149c643b464",
+   "name": "Gate de portee TargetIsInRange",
+   "type": "opus-solver"
+  },
+  "a9f90c23bcd0ba183": {
+   "branch": "worktree-agent-a9f90c23bcd0ba183",
+   "name": "Residus restants de #17 s18 et move RNG",
+   "type": "opus-solver"
+  },
+  "a9f9abeac536f5d04": {
+   "branch": "worktree-agent-a9f9abeac536f5d04",
+   "name": "438 BarbedOvipositor 1204",
+   "type": "opus-solver"
+  },
+  "a9fd7f6b6291d0183": {
+   "branch": "worktree-agent-a9fd7f6b6291d0183",
+   "name": "446 Boltstorm 1090",
+   "type": "opus-solver"
+  },
+  "a9fed1ad130e33c2a": {
+   "branch": "worktree-agent-a9fed1ad130e33c2a",
+   "name": "Mutualiser les balayages AST",
+   "type": "opus-solver"
+  },
+  "aa065aa47e88b64df": {
+   "branch": "worktree-agent-aa065aa47e88b64df",
+   "name": "419-r1 tranche 5 LightImUp 1103",
+   "type": "opus-solver"
+  },
+  "aa06aeb4d9eaef0a0": {
+   "branch": "worktree-agent-aa06aeb4d9eaef0a0",
+   "name": "get_Priority surcharge 3 playbooks",
+   "type": "opus-solver"
+  },
+  "aa0b4f15360540973": {
+   "branch": "worktree-agent-aa0b4f15360540973",
+   "name": "Cabler le choix de cible IA",
+   "type": "opus-solver"
+  },
+  "aa149c036f0074289": {
+   "branch": "",
+   "name": "RE feuilles NC #114",
+   "type": "re-expert"
+  },
+  "aa19c2dd769c3d745": {
+   "branch": "",
+   "name": "Read UtilitiesDatabase composition",
+   "type": "general-purpose"
+  },
+  "aa2029cf7643bf036": {
+   "branch": "",
+   "name": "RE CalculateBaseDamageWithAllModifiers rounding",
+   "type": "general-purpose"
+  },
+  "aa2a3b397c916d7b8": {
+   "branch": "worktree-agent-aa2a3b397c916d7b8",
+   "name": "Fix #235 stale UnitFlags claims",
+   "type": "opus-solver"
+  },
+  "aa2b8e02003301f75": {
+   "branch": "worktree-agent-aa2b8e02003301f75",
+   "name": "Rouge multihex_substrate et sa cause",
+   "type": "opus-solver"
+  },
+  "aa2c2a0a0a85278cb": {
+   "branch": "worktree-agent-aa2c2a0a0a85278cb",
+   "name": "De-fork MasterAnnihilator + AstartesBanner",
+   "type": "opus-solver"
+  },
+  "aa2d2117bd36241e1": {
+   "branch": "worktree-agent-aa2d2117bd36241e1",
+   "name": "270-d astarLysander deploiement",
+   "type": "opus-solver"
+  },
+  "aa2d7dbaba309a131": {
+   "branch": "worktree-agent-aa2d7dbaba309a131",
+   "name": "Retrofit REVIVE 5 consommateurs",
+   "type": "opus-solver"
+  },
+  "aa3286bb157f608ec": {
+   "branch": "worktree-agent-aa3286bb157f608ec",
+   "name": "Fix unit_map relic blindness",
+   "type": "opus-solver"
+  },
+  "aa33b7f963144c2e9": {
+   "branch": "worktree-agent-aa33b7f963144c2e9",
+   "name": "RE feuille MinDist#76 s5 move",
+   "type": "re-expert"
+  },
+  "aa3bcb19e10fda431": {
+   "branch": "worktree-agent-aa3bcb19e10fda431",
+   "name": "Re-derive 381-r3 neighbourhood residual",
+   "type": "opus-solver"
+  },
+  "aa3c492d86a1d9df1": {
+   "branch": "worktree-agent-aa3c492d86a1d9df1",
+   "name": "Wire repair utility live",
+   "type": "opus-solver"
+  },
+  "aa433abe43e9b8083": {
+   "branch": "worktree-agent-aa433abe43e9b8083",
+   "name": "Débloquer gardes live #254",
+   "type": "opus-solver"
+  },
+  "aa4496f29586052a4": {
+   "branch": "worktree-agent-aa4496f29586052a4",
+   "name": "356 montage discriminant NonComparable",
+   "type": "opus-solver"
+  },
+  "aa4610ac5c4a48f9e": {
+   "branch": "worktree-agent-aa4610ac5c4a48f9e",
+   "name": "Les 14 selecteurs et l'occupant de tuile",
+   "type": "opus-solver"
+  },
+  "aa4e172d7a36dfbe2": {
+   "branch": "",
+   "name": "Classifier P2 SpaceWolves",
+   "type": "re-expert"
+  },
+  "aa4fb2fc9aee1785b": {
+   "branch": "",
+   "name": "Find enemy-unit driving patterns in tests",
+   "type": "Explore"
+  },
+  "aa5bcc13016378b91": {
+   "branch": "worktree-agent-aa5bcc13016378b91",
+   "name": "430 materialiser liste cliquets",
+   "type": "opus-solver"
+  },
+  "aa6037a495018fd29": {
+   "branch": "",
+   "name": "Analyser ApplyDamageOperation Execute",
+   "type": "Explore"
+  },
+  "aa64943d91a16d71e": {
+   "branch": "worktree-agent-aa64943d91a16d71e",
+   "name": "418 Primarch 1511 RNG",
+   "type": "opus-solver"
+  },
+  "aa653e87246e81fc3": {
+   "branch": "worktree-agent-aa653e87246e81fc3",
+   "name": "Masque ciblage 1000 GauntletsOfUltramar",
+   "type": "opus-solver"
+  },
+  "aa678a7b2b28c9a9f": {
+   "branch": "worktree-agent-aa678a7b2b28c9a9f",
+   "name": "Port RapidFire 1135 attack playbook",
+   "type": "opus-solver"
+  },
+  "aa67fbc5ca74dbe9e": {
+   "branch": "",
+   "name": "Synthèse transcript re-expert stoppé",
+   "type": "general-purpose"
+  },
+  "aa680eb092f0bcde7": {
+   "branch": "worktree-agent-aa680eb092f0bcde7",
+   "name": "239 jauge munitions MoW runner",
+   "type": "opus-solver"
+  },
+  "aa7c3cd8d47a697f6": {
+   "branch": "worktree-agent-aa7c3cd8d47a697f6",
+   "name": "Wire entity traits in prediction",
+   "type": "opus-solver"
+  },
+  "aa82b16cc0d10bf03": {
+   "branch": "",
+   "name": "RE sous-système prédiction natif",
+   "type": "re-expert"
+  },
+  "aa84392210032d28d": {
+   "branch": "",
+   "name": "Classifier P2 Genestealers",
+   "type": "re-expert"
+  },
+  "aa8a2f97d170e1645": {
+   "branch": "worktree-agent-aa8a2f97d170e1645",
+   "name": "opus-solver #60 split damage.py",
+   "type": "opus-solver"
+  },
+  "aa9eb2fefac8bc458": {
+   "branch": "worktree-agent-aa9eb2fefac8bc458",
+   "name": "Port ShouldExecute of normal attack playbooks",
+   "type": "opus-solver"
+  },
+  "aaad0fb2e39364dc8": {
+   "branch": "worktree-agent-aaad0fb2e39364dc8",
+   "name": "231 gate e.active effet 1201",
+   "type": "opus-solver"
+  },
+  "aab07e1226dc0a8dc": {
+   "branch": "worktree-agent-aab07e1226dc0a8dc",
+   "name": "Validate #111 core-pipeline change",
+   "type": "validator"
+  },
+  "aab134c985ce50241": {
+   "branch": "",
+   "name": "Classifier P2 AdMec",
+   "type": "re-expert"
+  },
+  "aab1538dea6d8161c": {
+   "branch": "worktree-agent-aab1538dea6d8161c",
+   "name": "Death drain vs enqueue",
+   "type": "opus-solver"
+  },
+  "aab85cdfe6d44313e": {
+   "branch": "worktree-agent-aab85cdfe6d44313e",
+   "name": "231 gate e.active effet 1547",
+   "type": "opus-solver"
+  },
+  "aab982323bca3d8c7": {
+   "branch": "",
+   "name": "Lire CalculateAttackerModifiersForPrediction",
+   "type": "general-purpose"
+  },
+  "aabe5d241d169ab74": {
+   "branch": "worktree-agent-aabe5d241d169ab74",
+   "name": "Port teleporting-in pathfinder dispatch",
+   "type": "opus-solver"
+  },
+  "aac093aa2724a1951": {
+   "branch": "",
+   "name": "Trouver instanciation + valeur 30",
+   "type": "Explore"
+  },
+  "aac307e70392a16a4": {
+   "branch": "",
+   "name": "Audit dsl subsystem",
+   "type": "general-purpose"
+  },
+  "aae27c9bf5bd5ab89": {
+   "branch": "",
+   "name": "RE RadSaturationPlaybook utility",
+   "type": "re-expert"
+  },
+  "aae3e9a9c886e60f3": {
+   "branch": "worktree-agent-aae3e9a9c886e60f3",
+   "name": "GAP 215 PickRandomly RNG",
+   "type": "opus-solver"
+  },
+  "aae41979afe4fbd88": {
+   "branch": "worktree-agent-aae41979afe4fbd88",
+   "name": "Move MinDist residual s5",
+   "type": "opus-solver"
+  },
+  "aaeca8b7fc98a7ad0": {
+   "branch": "worktree-agent-aaeca8b7fc98a7ad0",
+   "name": "R5 rouge skitarii pass IA",
+   "type": "opus-solver"
+  },
+  "aaf6fed5fdd5d1503": {
+   "branch": "worktree-agent-aaf6fed5fdd5d1503",
+   "name": "432 TerminatorArmour par attaque",
+   "type": "opus-solver"
+  },
+  "aafee628a44cd0a0a": {
+   "branch": "",
+   "name": "RE SmashaEad baked multiplier offsets",
+   "type": "re-expert"
+  },
+  "ab000e3928394a10c": {
+   "branch": "",
+   "name": "RE DSL formula framework",
+   "type": "general-purpose"
+  },
+  "ab00a8910ce1e9a2b": {
+   "branch": "worktree-agent-ab00a8910ce1e9a2b",
+   "name": "Porter MassDriverAccelerator 1222",
+   "type": "opus-solver"
+  },
+  "ab016791d88f2b79a": {
+   "branch": "",
+   "name": "Classifier P2 BlackLegion",
+   "type": "re-expert"
+  },
+  "ab0629538e8c906f3": {
+   "branch": "",
+   "name": "Classifier P2 Custodes",
+   "type": "re-expert"
+  },
+  "ab081ea0a75acb4b8": {
+   "branch": "worktree-agent-ab081ea0a75acb4b8",
+   "name": "Trois rouges de montage tau",
+   "type": "opus-solver"
+  },
+  "ab0bc027b4339e6a1": {
+   "branch": "worktree-agent-ab0bc027b4339e6a1",
+   "name": "Face DECISION de l'overkill",
+   "type": "opus-solver"
+  },
+  "ab11b7b5b11e3e7e5": {
+   "branch": "worktree-agent-ab11b7b5b11e3e7e5",
+   "name": "deathBlightlord 2 extra genrand",
+   "type": "opus-solver"
+  },
+  "ab1332f40beb056bc": {
+   "branch": "worktree-agent-ab1332f40beb056bc",
+   "name": "Valider #114 Gauntlets + Hammer",
+   "type": "validator"
+  },
+  "ab145a95673c68833": {
+   "branch": "",
+   "name": "Port HeavyGravCannon 1291",
+   "type": "opus-solver"
+  },
+  "ab173fd186b9379a3": {
+   "branch": "worktree-agent-ab173fd186b9379a3",
+   "name": "Unblock missing seed BC carriers",
+   "type": "opus-solver"
+  },
+  "ab17943b9182a4d27": {
+   "branch": "worktree-agent-ab17943b9182a4d27",
+   "name": "RE crit-in-prediction wiring #62b",
+   "type": "re-expert"
+  },
+  "ab1bc108a4b5f05c7": {
+   "branch": "worktree-agent-ab1bc108a4b5f05c7",
+   "name": "Find the UseWholeBoard zone discriminant",
+   "type": "fable-solver"
+  },
+  "ab2dabcebb519b516": {
+   "branch": "",
+   "name": "Port feuille TriggeredAbilitiesNonOwner(4)",
+   "type": "re-expert"
+  },
+  "ab2f262219ec25ab7": {
+   "branch": "worktree-agent-ab2f262219ec25ab7",
+   "name": "Fermer 366-r1-camo-seed trou de SEED",
+   "type": "opus-solver"
+  },
+  "ab31c0ff18985c90b": {
+   "branch": "worktree-agent-ab31c0ff18985c90b",
+   "name": "Port opus-solver Gauntlets 1000",
+   "type": "opus-solver"
+  },
+  "ab3df4bbf07ce8bd7": {
+   "branch": "",
+   "name": "Classifier P2 Aeldari",
+   "type": "re-expert"
+  },
+  "ab3e3725353e9e4fc": {
+   "branch": "worktree-agent-ab3e3725353e9e4fc",
+   "name": "Re-dispatch fable #45 crit-on-Ice",
+   "type": "fable-solver"
+  },
+  "ab42290517fdfd77c": {
+   "branch": "worktree-agent-ab42290517fdfd77c",
+   "name": "Oracle ncPlaybookPredict",
+   "type": "opus-solver"
+  },
+  "ab428cfe654cd761c": {
+   "branch": "worktree-agent-ab428cfe654cd761c",
+   "name": "ArmoriumCherub targeting mask",
+   "type": "opus-solver"
+  },
+  "ab4474d15d2dae230": {
+   "branch": "",
+   "name": "Etat du port pour 1009",
+   "type": "Explore"
+  },
+  "ab5613c20aaa51b8d": {
+   "branch": "worktree-agent-ab5613c20aaa51b8d",
+   "name": "Port #224-4 Contagions predicate",
+   "type": "opus-solver"
+  },
+  "ab59abd841799693f": {
+   "branch": "worktree-agent-ab59abd841799693f",
+   "name": "Valider fix #48 ItItches",
+   "type": "validator"
+  },
+  "ab6a8843db291105c": {
+   "branch": "worktree-agent-ab6a8843db291105c",
+   "name": "Port opus-solver VigilanceEternal 1202",
+   "type": "opus-solver"
+  },
+  "ab72449bf195c21da": {
+   "branch": "",
+   "name": "RE walker DSL behaviour-trees #150",
+   "type": "re-expert"
+  },
+  "ab792ea8646a15321": {
+   "branch": "worktree-agent-ab792ea8646a15321",
+   "name": "Moyennes couche TRIGGERED",
+   "type": "opus-solver"
+  },
+  "ab7969fce0a9438f8": {
+   "branch": "worktree-agent-ab7969fce0a9438f8",
+   "name": "Wire repair utility live",
+   "type": "opus-solver"
+  },
+  "ab7e01f946d13422f": {
+   "branch": "",
+   "name": "Valider fidélité port A",
+   "type": "validator"
+  },
+  "ab7e721d8dd5394d4": {
+   "branch": "worktree-agent-ab7e721d8dd5394d4",
+   "name": "Rail de decision reparation",
+   "type": "opus-solver"
+  },
+  "ab82b9002a00fd3cd": {
+   "branch": "",
+   "name": "R14 face DECISION des MoW",
+   "type": "opus-solver"
+  },
+  "ab87c855cea039819": {
+   "branch": "worktree-agent-ab87c855cea039819",
+   "name": "Audit passive ability coverage",
+   "type": "opus-solver"
+  },
+  "ab92b3d957e56f8e9": {
+   "branch": "worktree-agent-ab92b3d957e56f8e9",
+   "name": "Port Necrons lot 1",
+   "type": "opus-solver"
+  },
+  "ab948eb963b589cab": {
+   "branch": "worktree-agent-ab948eb963b589cab",
+   "name": "Port PlagueburstMortar prediction term",
+   "type": "opus-solver"
+  },
+  "ab95ef0638aa43645": {
+   "branch": "worktree-agent-ab95ef0638aa43645",
+   "name": "448 face MOVE SaviorProtocols",
+   "type": "opus-solver"
+  },
+  "ab961705f8e1d4657": {
+   "branch": "worktree-agent-ab961705f8e1d4657",
+   "name": "Localize the pre-fold 3-damage residual",
+   "type": "opus-solver"
+  },
+  "ab98d7ae5cbf92495": {
+   "branch": "worktree-agent-ab98d7ae5cbf92495",
+   "name": "Discriminate onlyActive on HasEffect",
+   "type": "opus-solver"
+  },
+  "aba0dd32b984efa75": {
+   "branch": "worktree-agent-aba0dd32b984efa75",
+   "name": "Fix dead BUILD_HASH import chain",
+   "type": "opus-solver"
+  },
+  "aba3e4b518466cf17": {
+   "branch": "worktree-agent-aba3e4b518466cf17",
+   "name": "27 tranche 4 deux items",
+   "type": "opus-solver"
+  },
+  "aba83464b8734de76": {
+   "branch": "worktree-agent-aba83464b8734de76",
+   "name": "Residu transverse move_amount null",
+   "type": "opus-solver"
+  },
+  "aba9bd42155410cca": {
+   "branch": "worktree-agent-aba9bd42155410cca",
+   "name": "PileIn seeding + per-unit gate",
+   "type": "opus-solver"
+  },
+  "abb843f8be4577695": {
+   "branch": "",
+   "name": "RE mécanisme bucket intra-tier",
+   "type": "re-expert"
+  },
+  "abb968f31094f3ad6": {
+   "branch": "worktree-agent-abb968f31094f3ad6",
+   "name": "De-fork is_overkill",
+   "type": "opus-solver"
+  },
+  "abbced9d37ae86c56": {
+   "branch": "worktree-agent-abbced9d37ae86c56",
+   "name": "Seed tile effects in load_state",
+   "type": "opus-solver"
+  },
+  "abbd0d16f39324860": {
+   "branch": "worktree-agent-abbd0d16f39324860",
+   "name": "Port DestroyTheWitch + MartialSuperiority",
+   "type": "opus-solver"
+  },
+  "abc6bc2e4b6b36bda": {
+   "branch": "worktree-agent-abc6bc2e4b6b36bda",
+   "name": "Fable-solver #47 is_ranged threading",
+   "type": "fable-solver"
+  },
+  "abc907284f64073cf": {
+   "branch": "worktree-agent-abc907284f64073cf",
+   "name": "Route frida/assets through host_inputs",
+   "type": "opus-solver"
+  },
+  "abda9a94bcb34f37d": {
+   "branch": "worktree-agent-abda9a94bcb34f37d",
+   "name": "R6-b ordre roll-then-reduce",
+   "type": "opus-solver"
+  },
+  "abe323ddcde46e5ac": {
+   "branch": "worktree-agent-abe323ddcde46e5ac",
+   "name": "Port ElectroShockPlaybook 1303",
+   "type": "opus-solver"
+  },
+  "abefb8bf0343fadf3": {
+   "branch": "worktree-agent-abefb8bf0343fadf3",
+   "name": "Port PsychicFortress (Ultramarines)",
+   "type": "opus-solver"
+  },
+  "abf0b90ee0342a841": {
+   "branch": "worktree-agent-abf0b90ee0342a841",
+   "name": "RE fine degat coups SquigHound",
+   "type": "re-expert"
+  },
+  "abf4d3f23b5bd0e64": {
+   "branch": "worktree-agent-abf4d3f23b5bd0e64",
+   "name": "Passifs SpaceWolves: SavageKiller + SagaOfTheWarriorBorn",
+   "type": "opus-solver"
+  },
+  "abf846c5a1500c607": {
+   "branch": "",
+   "name": "Write playbooks.md",
+   "type": "general-purpose"
+  },
+  "ac01a0b7affe0d422": {
+   "branch": "worktree-agent-ac01a0b7affe0d422",
+   "name": "Inventory dispatchable port residuals",
+   "type": "opus-solver"
+  },
+  "ac02ebdee3671bac3": {
+   "branch": "",
+   "name": "Validate Hammer +5 CanAddUnit term",
+   "type": "validator"
+  },
+  "ac03145f600a69c22": {
+   "branch": "",
+   "name": "RE TriggeredAbilities framework",
+   "type": "general-purpose"
+  },
+  "ac07b68acdd743e5f": {
+   "branch": "worktree-agent-ac07b68acdd743e5f",
+   "name": "Residu N20 FabricatorClawArray seconde reparation",
+   "type": "opus-solver"
+  },
+  "ac0f881850745c294": {
+   "branch": "worktree-agent-ac0f881850745c294",
+   "name": "Lire collecteur natif hits",
+   "type": "re-expert"
+  },
+  "ac12be4e1dedf63f4": {
+   "branch": "worktree-agent-ac12be4e1dedf63f4",
+   "name": "Port two NonOwner movement playbooks",
+   "type": "opus-solver"
+  },
+  "ac172a3bcdb55289b": {
+   "branch": "worktree-agent-ac172a3bcdb55289b",
+   "name": "Port RelentlessMarch repair behaviour",
+   "type": "opus-solver"
+  },
+  "ac182ab5de85b432d": {
+   "branch": "worktree-agent-ac182ab5de85b432d",
+   "name": "Re-confrontation inventaire residus",
+   "type": "opus-solver"
+  },
+  "ac2482051b18f2938": {
+   "branch": "worktree-agent-ac2482051b18f2938",
+   "name": "Residu 192 SereneUnifier aura",
+   "type": "opus-solver"
+  },
+  "ac2e6fe85fe0cd831": {
+   "branch": "",
+   "name": "Clôture RE agrégat PredictAttackRaw",
+   "type": "re-expert"
+  },
+  "ac39a546913dcd16b": {
+   "branch": "worktree-agent-ac39a546913dcd16b",
+   "name": "DutyEternal exige quoi vraiment",
+   "type": "opus-solver"
+  },
+  "ac3cd24f3a575329e": {
+   "branch": "worktree-agent-ac3cd24f3a575329e",
+   "name": "Test hygiene lot D oracle",
+   "type": "opus-solver"
+  },
+  "ac3cf23ba79b492c1": {
+   "branch": "",
+   "name": "Close PredictAttackRaw aggregate RE",
+   "type": "re-expert"
+  },
+  "ac580fae1bb7cd873": {
+   "branch": "worktree-agent-ac580fae1bb7cd873",
+   "name": "174 filtre entityType snapshot",
+   "type": "opus-solver"
+  },
+  "ac61f6088f01ed8c3": {
+   "branch": "worktree-agent-ac61f6088f01ed8c3",
+   "name": "Masques 4 modules ability unique",
+   "type": "opus-solver"
+  },
+  "ac6f9350e4672eea2": {
+   "branch": "worktree-agent-ac6f9350e4672eea2",
+   "name": "Canal DamageData au chokepoint de mort",
+   "type": "opus-solver"
+  },
+  "ac765b87269455253": {
+   "branch": "worktree-agent-ac765b87269455253",
+   "name": "TargetTileHasEnemyUnit + porteurs faux",
+   "type": "opus-solver"
+  },
+  "ac7e2c00701cb39dd": {
+   "branch": "worktree-agent-ac7e2c00701cb39dd",
+   "name": "Verif instruction agent-alive",
+   "type": "standby-executor"
+  },
+  "ac844c29cc5afa6e1": {
+   "branch": "worktree-agent-ac844c29cc5afa6e1",
+   "name": "444 TargetIsUnobscured ligne de vue",
+   "type": "opus-solver"
+  },
+  "ac8453032abaff2af": {
+   "branch": "worktree-agent-ac8453032abaff2af",
+   "name": "446-r1 ecart residuel Boltstorm",
+   "type": "opus-solver"
+  },
+  "ac8a17845881f5ed2": {
+   "branch": "worktree-agent-ac8a17845881f5ed2",
+   "name": "runnerId reattribuable danger",
+   "type": "opus-solver"
+  },
+  "ac8b78198bcddc789": {
+   "branch": "worktree-agent-ac8b78198bcddc789",
+   "name": "RE: quand attackModifiers est null",
+   "type": "re-expert"
+  },
+  "ac8b8aada99669cae": {
+   "branch": "",
+   "name": "Localiser le port du terme MOVE triggered",
+   "type": "Explore"
+  },
+  "ac8bd18854c465678": {
+   "branch": "worktree-agent-ac8bd18854c465678",
+   "name": "411-r2 ecart echelle temoin",
+   "type": "opus-solver"
+  },
+  "ac92b8e2313abd69b": {
+   "branch": "worktree-agent-ac92b8e2313abd69b",
+   "name": "Fermer les deux troncatures averees",
+   "type": "opus-solver"
+  },
+  "ac95347871ed1b6e6": {
+   "branch": "worktree-agent-ac95347871ed1b6e6",
+   "name": "Confront the two window-4 sensors",
+   "type": "opus-solver"
+  },
+  "ac9a622da2d8ffa9f": {
+   "branch": "worktree-agent-ac9a622da2d8ffa9f",
+   "name": "Confronter valeurs PredictRepair",
+   "type": "opus-solver"
+  },
+  "ac9e1bc85251b52ed": {
+   "branch": "worktree-agent-ac9e1bc85251b52ed",
+   "name": "Shrapnel 1116 tranche 13",
+   "type": "opus-solver"
+  },
+  "aca3ce9d9a19ff4f9": {
+   "branch": "worktree-agent-aca3ce9d9a19ff4f9",
+   "name": "Port Tau lot 1 face COMBAT",
+   "type": "opus-solver"
+  },
+  "aca8ffe0a69d605b1": {
+   "branch": "worktree-agent-aca8ffe0a69d605b1",
+   "name": "TARGETING_OPTIONS tranche B",
+   "type": "opus-solver"
+  },
+  "acae54a1ee0c83765": {
+   "branch": "",
+   "name": "RE ability-path owner-effect (BigTarget)",
+   "type": "re-expert"
+  },
+  "acb1bad71efb2175e": {
+   "branch": "",
+   "name": "Classifier P2 WorldEaters",
+   "type": "re-expert"
+  },
+  "acb29fa5b98c7fadc": {
+   "branch": "worktree-agent-acb29fa5b98c7fadc",
+   "name": "R6-b prime Maybe sur coups de groupe",
+   "type": "opus-solver"
+  },
+  "acb2f6b772e5708e2": {
+   "branch": "worktree-agent-acb2f6b772e5708e2",
+   "name": "Proxy cheby vs MinDistance natif",
+   "type": "opus-solver"
+  },
+  "acb7b90c0a820a491": {
+   "branch": "worktree-agent-acb7b90c0a820a491",
+   "name": "Port Burrowers twin of TunnelingHorror",
+   "type": "opus-solver"
+  },
+  "acb83261f1fb1ffc6": {
+   "branch": "worktree-agent-acb83261f1fb1ffc6",
+   "name": "Write the two pending Frida sensors",
+   "type": "opus-solver"
+  },
+  "acbfaef4b203b4e3b": {
+   "branch": "worktree-agent-acbfaef4b203b4e3b",
+   "name": "Masques ciblage module tau",
+   "type": "opus-solver"
+  },
+  "acc11c578ee72b5f0": {
+   "branch": "worktree-agent-acc11c578ee72b5f0",
+   "name": "Porter TargetIsHealable (bit 8)",
+   "type": "opus-solver"
+  },
+  "acc2dac58f5dd9342": {
+   "branch": "worktree-agent-acc2dac58f5dd9342",
+   "name": "Trait PrioritisedEfficiency",
+   "type": "opus-solver"
+  },
+  "acc54d9a37d826cd9": {
+   "branch": "worktree-agent-acc54d9a37d826cd9",
+   "name": "231 gate e.active effet 1197",
+   "type": "opus-solver"
+  },
+  "acc6050192b260e44": {
+   "branch": "worktree-agent-acc6050192b260e44",
+   "name": "Face COMBAT spread_pct=0",
+   "type": "opus-solver"
+  },
+  "acc929501a961482c": {
+   "branch": "worktree-agent-acc929501a961482c",
+   "name": "426 garde vacueux transfer-hit",
+   "type": "opus-solver"
+  },
+  "acc9c308bf9b466e8": {
+   "branch": "worktree-agent-acc9c308bf9b466e8",
+   "name": "Fix decision face blind to inert effects",
+   "type": "opus-solver"
+  },
+  "accb64ca5f478e44e": {
+   "branch": "worktree-agent-accb64ca5f478e44e",
+   "name": "Port BrazierOfHolyFire + RadBombardment",
+   "type": "opus-solver"
+  },
+  "accbc0f54ee914979": {
+   "branch": "worktree-agent-accbc0f54ee914979",
+   "name": "443 SaviorProtocols 1120",
+   "type": "opus-solver"
+  },
+  "acd205114c8bb2314": {
+   "branch": "worktree-agent-acd205114c8bb2314",
+   "name": "Port overwatch one-shot per activation",
+   "type": "opus-solver"
+  },
+  "acd264de1c6fc2383": {
+   "branch": "worktree-agent-acd264de1c6fc2383",
+   "name": "SkyStrike per-hit not flat",
+   "type": "opus-solver"
+  },
+  "acdc64b5e1fb963cd": {
+   "branch": "worktree-agent-acdc64b5e1fb963cd",
+   "name": "1107 PathOfCommand crit",
+   "type": "opus-solver"
+  },
+  "ace480a692a89e9fd": {
+   "branch": "",
+   "name": "Classifier P0-HEAL/REPAIR (5 abilities)",
+   "type": "re-expert"
+  },
+  "ace59421156581d2d": {
+   "branch": "worktree-agent-ace59421156581d2d",
+   "name": "Passifs DarkAngels: LionHelm + FearedInterrogator",
+   "type": "opus-solver"
+  },
+  "acf1a6241d0720821": {
+   "branch": "",
+   "name": "RE #67 aura per-candidate DISPLAY",
+   "type": "re-expert"
+  },
+  "ad0568a023589ca47": {
+   "branch": "worktree-agent-ad0568a023589ca47",
+   "name": "Tile elevation utility term",
+   "type": "opus-solver"
+  },
+  "ad06321b1ae27e256": {
+   "branch": "worktree-agent-ad06321b1ae27e256",
+   "name": "Port MassDriverAccelerator predictions",
+   "type": "opus-solver"
+  },
+  "ad09de5b1374ece98": {
+   "branch": "worktree-agent-ad09de5b1374ece98",
+   "name": "fable-solver Stormcaller 1113",
+   "type": "fable-solver"
+  },
+  "ad12299b0b1be9235": {
+   "branch": "worktree-agent-ad12299b0b1be9235",
+   "name": "Find the UseWholeBoard zone discriminant",
+   "type": "opus-solver"
+  },
+  "ad1348efcb5f17751": {
+   "branch": "worktree-agent-ad1348efcb5f17751",
+   "name": "Play the after-move vector in DSL leaves",
+   "type": "opus-solver"
+  },
+  "ad16fece5bdb13811": {
+   "branch": "worktree-agent-ad16fece5bdb13811",
+   "name": "Wire live traits in predictor",
+   "type": "opus-solver"
+  },
+  "ad1942151569e13a8": {
+   "branch": "worktree-agent-ad1942151569e13a8",
+   "name": "Valider commit 62d0442 (relance)",
+   "type": "validator"
+  },
+  "ad1c7c119dc37f6e3": {
+   "branch": "worktree-agent-ad1c7c119dc37f6e3",
+   "name": "1222 WarHowl ExtraDamage",
+   "type": "opus-solver"
+  },
+  "ad1ccfb9ec1f0ccea": {
+   "branch": "",
+   "name": "Procédure RE methodes difficiles (Fable)",
+   "type": "re-expert"
+  },
+  "ad2b425cb622616cb": {
+   "branch": "worktree-agent-ad2b425cb622616cb",
+   "name": "Port DeathFromAbove (Ultramarines)",
+   "type": "opus-solver"
+  },
+  "ad2bc9803cb223096": {
+   "branch": "",
+   "name": "RE min-1-per-hit damage floor",
+   "type": "re-expert"
+  },
+  "ad2bcefa445ed4304": {
+   "branch": "",
+   "name": "Classifier P2 AstraMilitarum",
+   "type": "re-expert"
+  },
+  "ad2cb84f85144c88b": {
+   "branch": "worktree-agent-ad2cb84f85144c88b",
+   "name": "Fermer deux rouges pre-existants",
+   "type": "opus-solver"
+  },
+  "ad2ce89b7d4b6faaf": {
+   "branch": "",
+   "name": "Extraire le reste-a-porter RE'd",
+   "type": "Explore"
+  },
+  "ad2ec6c90cf1a527c": {
+   "branch": "worktree-agent-ad2ec6c90cf1a527c",
+   "name": "Debloqueur harnais cast MoW",
+   "type": "opus-solver"
+  },
+  "ad38805a936557182": {
+   "branch": "",
+   "name": "RE RepairPlaybook",
+   "type": "general-purpose"
+  },
+  "ad4428ec49f6f6ed8": {
+   "branch": "",
+   "name": "RE SmashaEad extraDmg combat magnitude",
+   "type": "re-expert"
+  },
+  "ad482f0eaa8371c49": {
+   "branch": "",
+   "name": "RE offline ability-targeting for SLICE 2",
+   "type": "re-expert"
+  },
+  "ad4e4af804b66ec10": {
+   "branch": "worktree-agent-ad4e4af804b66ec10",
+   "name": "Porter 1115 InescapableAccuracy crit",
+   "type": "opus-solver"
+  },
+  "ad510a5b8555fbdae": {
+   "branch": "worktree-agent-ad510a5b8555fbdae",
+   "name": "Residu 165 collapse tuile proche",
+   "type": "opus-solver"
+  },
+  "ad53d111a3ff1fedc": {
+   "branch": "",
+   "name": "RE Executioner RoundsStarted source",
+   "type": "re-expert"
+  },
+  "ad543159185a80ec9": {
+   "branch": "worktree-agent-ad543159185a80ec9",
+   "name": "Shield vs damage limits ordering",
+   "type": "opus-solver"
+  },
+  "ad588cfeb8c89d482": {
+   "branch": "",
+   "name": "Classifier P2 BloodAngels",
+   "type": "re-expert"
+  },
+  "ad5bfa7e9f1bc1a3e": {
+   "branch": "worktree-agent-ad5bfa7e9f1bc1a3e",
+   "name": "357 rail relique cote port",
+   "type": "opus-solver"
+  },
+  "ad6106a45197ef992": {
+   "branch": "worktree-agent-ad6106a45197ef992",
+   "name": "Faire approcher l acteur de free-attack",
+   "type": "opus-solver"
+  },
+  "ad61dece08162e70c": {
+   "branch": "worktree-agent-ad61dece08162e70c",
+   "name": "Triage execute_behaviour shortcuts",
+   "type": "opus-solver"
+  },
+  "ad63608ffaf1c1f96": {
+   "branch": "worktree-agent-ad63608ffaf1c1f96",
+   "name": "Slice the remaining CalculateCustomUtility overrides",
+   "type": "opus-solver"
+  },
+  "ad69e9cc06a0f7927": {
+   "branch": "",
+   "name": "Confronter résidus outillage/tests",
+   "type": "Explore"
+  },
+  "ad6b8e52934902cfd": {
+   "branch": "worktree-agent-ad6b8e52934902cfd",
+   "name": "Cellule arme deathPutrifier melee",
+   "type": "opus-solver"
+  },
+  "ad72268b1a2eb566d": {
+   "branch": "",
+   "name": "Garde de sync build/dump/ghidra",
+   "type": "opus-solver"
+  },
+  "ad7287540eac412b0": {
+   "branch": "worktree-agent-ad7287540eac412b0",
+   "name": "ArcaneShield vecteur On 0x1c",
+   "type": "opus-solver"
+  },
+  "ad767a55b3755a3ae": {
+   "branch": "worktree-agent-ad767a55b3755a3ae",
+   "name": "Valider adversarialement Diminutive",
+   "type": "validator"
+  },
+  "ad7726101edc1311f": {
+   "branch": "",
+   "name": "Mettre standby-executor en attente",
+   "type": "standby-executor"
+  },
+  "ad78ea14c74356023": {
+   "branch": "",
+   "name": "Specs wave 2 sélecteurs/accesseurs C/D",
+   "type": "re-expert"
+  },
+  "ad800ccc5dbd7b5c9": {
+   "branch": "",
+   "name": "Specs wave 3 prédicats B + accesseurs D",
+   "type": "re-expert"
+  },
+  "ad8272a728c82db85": {
+   "branch": "worktree-agent-ad8272a728c82db85",
+   "name": "Hailstrike phase 2",
+   "type": "opus-solver"
+  },
+  "ad832929ccec2659d": {
+   "branch": "worktree-agent-ad832929ccec2659d",
+   "name": "Port Waaagh contributions",
+   "type": "opus-solver"
+  },
+  "ad858b64231460c28": {
+   "branch": "",
+   "name": "RE closure PredictAttackRaw aggregate",
+   "type": "re-expert"
+  },
+  "ad866b2a759d38131": {
+   "branch": "worktree-agent-ad866b2a759d38131",
+   "name": "R6-c bornes COMBAT amount",
+   "type": "opus-solver"
+  },
+  "ad87a9cf2019638dc": {
+   "branch": "worktree-agent-ad87a9cf2019638dc",
+   "name": "Port the four placement sorts",
+   "type": "opus-solver"
+  },
+  "ad8858d3d4a82b22c": {
+   "branch": "worktree-agent-ad8858d3d4a82b22c",
+   "name": "Effet 1582 non enregistre",
+   "type": "opus-solver"
+  },
+  "ad89b06becffcb051": {
+   "branch": "worktree-agent-ad89b06becffcb051",
+   "name": "Corriger 381-r1 pool pathfinding",
+   "type": "opus-solver"
+  },
+  "ad91526d956c02d99": {
+   "branch": "worktree-agent-ad91526d956c02d99",
+   "name": "Harden loop status fidelity",
+   "type": "opus-solver"
+  },
+  "ad9a2395724b2be78": {
+   "branch": "worktree-agent-ad9a2395724b2be78",
+   "name": "Port the FilterNewList fallback guard",
+   "type": "opus-solver"
+  },
+  "ada13e2337490596d": {
+   "branch": "",
+   "name": "Write architecture.md",
+   "type": "general-purpose"
+  },
+  "ada44e32beb3e8432": {
+   "branch": "worktree-agent-ada44e32beb3e8432",
+   "name": "CursedPlagueBell playbook",
+   "type": "opus-solver"
+  },
+  "ada4cf16096ba70d1": {
+   "branch": "worktree-agent-ada4cf16096ba70d1",
+   "name": "Fix Diminutive test hygiene",
+   "type": "opus-solver"
+  },
+  "ada65e9ee6e4dc4b0": {
+   "branch": "",
+   "name": "Resolve service class + slot 0x10 method",
+   "type": "re-expert"
+  },
+  "adaa24372cd163710": {
+   "branch": "",
+   "name": "RE G5 HeroicFusillade tree",
+   "type": "re-expert"
+  },
+  "adaa396bfe7585509": {
+   "branch": "worktree-agent-adaa396bfe7585509",
+   "name": "Registre des numeros de residus",
+   "type": "opus-solver"
+  },
+  "adb084ee309f7c2fd": {
+   "branch": "worktree-agent-adb084ee309f7c2fd",
+   "name": "231 gate e.active effet 1077",
+   "type": "opus-solver"
+  },
+  "adb1a0cd4460b1042": {
+   "branch": "",
+   "name": "Audit playbook param_8 lot 2",
+   "type": "re-expert"
+  },
+  "adb9bd758981a0c72": {
+   "branch": "worktree-agent-adb9bd758981a0c72",
+   "name": "427 rouge enum_mirror ratchet",
+   "type": "opus-solver"
+  },
+  "adc42087ad22146b2": {
+   "branch": "worktree-agent-adc42087ad22146b2",
+   "name": "Diagnose summon activation lock",
+   "type": "opus-solver"
+  },
+  "adca4ab103c938f92": {
+   "branch": "worktree-agent-adca4ab103c938f92",
+   "name": "Fix terrifying_defense rounding stage",
+   "type": "opus-solver"
+  },
+  "adcb4def01fd2b563": {
+   "branch": "worktree-agent-adcb4def01fd2b563",
+   "name": "LetTheGalaxyBurn volet 1",
+   "type": "opus-solver"
+  },
+  "add0340dfc57e9fca": {
+   "branch": "worktree-agent-add0340dfc57e9fca",
+   "name": "361 batchs 3/4 RammingSpeed",
+   "type": "opus-solver"
+  },
+  "add1c0546d3c9bb8e": {
+   "branch": "",
+   "name": "RE all summon active abilities",
+   "type": "re-expert"
+  },
+  "add57692ea211dcfc": {
+   "branch": "worktree-agent-add57692ea211dcfc",
+   "name": "362 KillMaimBurn playbook NC",
+   "type": "opus-solver"
+  },
+  "addadb0cd180a5690": {
+   "branch": "",
+   "name": "Extraire extraDmgPct RapidAssault du gameconfig",
+   "type": "general-purpose"
+  },
+  "addcc30dee57844b8": {
+   "branch": "",
+   "name": "Validation adversariale fix step-17",
+   "type": "validator"
+  },
+  "addeb63a3b2c2e6b2": {
+   "branch": "worktree-agent-addeb63a3b2c2e6b2",
+   "name": "Port IsTurnOf all-vs-any",
+   "type": "opus-solver"
+  },
+  "ade20e6ced198e355": {
+   "branch": "worktree-agent-ade20e6ced198e355",
+   "name": "Complete TriggeredAbilityType + ratchet",
+   "type": "opus-solver"
+  },
+  "ade2ed8dc91d39134": {
+   "branch": "worktree-agent-ade2ed8dc91d39134",
+   "name": "Lot POSE: effets portes non poses",
+   "type": "opus-solver"
+  },
+  "ade49566a5c9167a3": {
+   "branch": "worktree-agent-ade49566a5c9167a3",
+   "name": "1148 DaemonicOrdnance AoE",
+   "type": "opus-solver"
+  },
+  "ade4cc57653222514": {
+   "branch": "worktree-agent-ade4cc57653222514",
+   "name": "1183 DefenderGreaterGood extra hits",
+   "type": "opus-solver"
+  },
+  "ade800caa1a38b0bb": {
+   "branch": "",
+   "name": "Scope EnvEndBombardment clock fix",
+   "type": "Explore"
+  },
+  "adef4df1b2f4f3383": {
+   "branch": "worktree-agent-adef4df1b2f4f3383",
+   "name": "Porter 1175 HatefulAssault marker",
+   "type": "opus-solver"
+  },
+  "adf37388ce2df3199": {
+   "branch": "",
+   "name": "Synthèse transcript fable #45",
+   "type": "general-purpose"
+  },
+  "adf58dbbcfadfb2f6": {
+   "branch": "worktree-agent-adf58dbbcfadfb2f6",
+   "name": "222 masque strike une ability",
+   "type": "opus-solver"
+  },
+  "adf5bf0d7d47b1be2": {
+   "branch": "worktree-agent-adf5bf0d7d47b1be2",
+   "name": "Port the Neuroparasite placement runner-side",
+   "type": "opus-solver"
+  },
+  "adfd9d1519596e982": {
+   "branch": "worktree-agent-adfd9d1519596e982",
+   "name": "Fermer #366-r1-statmod magnitude captee",
+   "type": "opus-solver"
+  },
+  "ae025c5c2f6aef271": {
+   "branch": "",
+   "name": "Port Camouflage HitReduction #59",
+   "type": "re-expert"
+  },
+  "ae08d6304e7238821": {
+   "branch": "worktree-agent-ae08d6304e7238821",
+   "name": "Re-dispatch SentinelDirectives (AdMec)",
+   "type": "opus-solver"
+  },
+  "ae0f1f376bfd3d3d6": {
+   "branch": "worktree-agent-ae0f1f376bfd3d3d6",
+   "name": "Unify PerformAIAttackFromCurrentPosition fork",
+   "type": "opus-solver"
+  },
+  "ae0fea77cb59e041f": {
+   "branch": "worktree-agent-ae0fea77cb59e041f",
+   "name": "Fix worktree KeyError StepType",
+   "type": "opus-solver"
+  },
+  "ae113e19a1f5ae0cc": {
+   "branch": "worktree-agent-ae113e19a1f5ae0cc",
+   "name": "Confront the flying branch of movement steps",
+   "type": "opus-solver"
+  },
+  "ae13176300ae968a0": {
+   "branch": "",
+   "name": "RE UnitEffects radius leaves",
+   "type": "general-purpose"
+  },
+  "ae15358e9edfeaccf": {
+   "branch": "",
+   "name": "Classifier traits communs §5.1",
+   "type": "re-expert"
+  },
+  "ae1555826e3d80a49": {
+   "branch": "",
+   "name": "Write pathfinding.md",
+   "type": "general-purpose"
+  },
+  "ae18183e618c1119a": {
+   "branch": "worktree-agent-ae18183e618c1119a",
+   "name": "Localize factor-2 Boltstorm prediction gap",
+   "type": "opus-solver"
+  },
+  "ae19d94fe1a856af8": {
+   "branch": "worktree-agent-ae19d94fe1a856af8",
+   "name": "Porter 1014 CamoCloak",
+   "type": "opus-solver"
+  },
+  "ae1bb9c47e8eac704": {
+   "branch": "worktree-agent-ae1bb9c47e8eac704",
+   "name": "Regression avalanche of muscle",
+   "type": "opus-solver"
+  },
+  "ae2b1f753667b6405": {
+   "branch": "worktree-agent-ae2b1f753667b6405",
+   "name": "Fix 3 failing live tests",
+   "type": "opus-solver"
+  },
+  "ae2dc9e07118b30d8": {
+   "branch": "",
+   "name": "Audit runner/operations subsystem",
+   "type": "general-purpose"
+  },
+  "ae325daf2b7bfcc63": {
+   "branch": "worktree-agent-ae325daf2b7bfcc63",
+   "name": "Tri-etat de verdict pour probe_457",
+   "type": "opus-solver"
+  },
+  "ae363eb7ec2850955": {
+   "branch": "worktree-agent-ae363eb7ec2850955",
+   "name": "Test hygiene lot C oracle nrOfHits",
+   "type": "opus-solver"
+  },
+  "ae38addac96cd1326": {
+   "branch": "worktree-agent-ae38addac96cd1326",
+   "name": "Cadence movementSteps MoveUnitOperation",
+   "type": "re-expert"
+  },
+  "ae4079319f7802998": {
+   "branch": "worktree-agent-ae4079319f7802998",
+   "name": "Route de decision a cibles TUILE",
+   "type": "opus-solver"
+  },
+  "ae44ab2cea6ffb7de": {
+   "branch": "",
+   "name": "Specs de port wave 1 (Filter + prédicats + arith)",
+   "type": "re-expert"
+  },
+  "ae45f6af674caefcd": {
+   "branch": "",
+   "name": "RE base tile-dependent PredictAttackRaw",
+   "type": "re-expert"
+  },
+  "ae49da6ddfea796f3": {
+   "branch": "",
+   "name": "RE #71 SmashaEad DISPLAY additive",
+   "type": "re-expert"
+  },
+  "ae5cb7a80503420e8": {
+   "branch": "",
+   "name": "RE prev-threading in PredictAttackRaw",
+   "type": "re-expert"
+  },
+  "ae5ceb558423bd57c": {
+   "branch": "",
+   "name": "Classifier P0-EFFECT + P0-WALK restants",
+   "type": "re-expert"
+  },
+  "ae606b38d52574a03": {
+   "branch": "worktree-agent-ae606b38d52574a03",
+   "name": "96 EffectTypes retrouves",
+   "type": "opus-solver"
+  },
+  "ae61533f4d349b90a": {
+   "branch": "",
+   "name": "RE dynamic StatModifier magnitudes",
+   "type": "re-expert"
+  },
+  "ae62323508fb0889d": {
+   "branch": "worktree-agent-ae62323508fb0889d",
+   "name": "Porter 1255 MartialSuperiority Visual",
+   "type": "opus-solver"
+  },
+  "ae6a95fe513b7d423": {
+   "branch": "worktree-agent-ae6a95fe513b7d423",
+   "name": "Porter les 2 call-sites manquants",
+   "type": "opus-solver"
+  },
+  "ae7101d657c77f26b": {
+   "branch": "worktree-agent-ae7101d657c77f26b",
+   "name": "Port #224-1 CursedPlagueBell movement",
+   "type": "opus-solver"
+  },
+  "ae7446d7ce8420822": {
+   "branch": "worktree-agent-ae7446d7ce8420822",
+   "name": "Port opus GreatFrostAxe SpaceWolves",
+   "type": "opus-solver"
+  },
+  "ae75be98ae772bc3e": {
+   "branch": "worktree-agent-ae75be98ae772bc3e",
+   "name": "SavageEchoes prediction gap",
+   "type": "opus-solver"
+  },
+  "ae7729e20c16394af": {
+   "branch": "worktree-agent-ae7729e20c16394af",
+   "name": "Port trait SuppressiveFire",
+   "type": "opus-solver"
+  },
+  "ae8024f700b2a6cfb": {
+   "branch": "worktree-agent-ae8024f700b2a6cfb",
+   "name": "Fix TerminatorArmour damage reduction gap",
+   "type": "opus-solver"
+  },
+  "ae8548317aefddb83": {
+   "branch": "",
+   "name": "RE avoid/attract trait leaves",
+   "type": "general-purpose"
+  },
+  "ae880d95a91b05bd8": {
+   "branch": "worktree-agent-ae880d95a91b05bd8",
+   "name": "415-r1 WireweaveNet trancher",
+   "type": "opus-solver"
+  },
+  "ae8ad68aec09d586b": {
+   "branch": "worktree-agent-ae8ad68aec09d586b",
+   "name": "Playbook trait gates inventory",
+   "type": "opus-solver"
+  },
+  "ae960b7bd712c538f": {
+   "branch": "worktree-agent-ae960b7bd712c538f",
+   "name": "350-r3a oracle NonComparable",
+   "type": "opus-solver"
+  },
+  "aea021c1588a63baa": {
+   "branch": "worktree-agent-aea021c1588a63baa",
+   "name": "G1 StaticStatModifier expiration",
+   "type": "opus-solver"
+  },
+  "aea21a93eccbcb496": {
+   "branch": "",
+   "name": "Audit CWD des 6 generateurs versionnes",
+   "type": "fork"
+  },
+  "aea882cc202617189": {
+   "branch": "worktree-agent-aea882cc202617189",
+   "name": "Classer les ctors par preset TargetingOptions",
+   "type": "general-purpose"
+  },
+  "aeadec5e26c972b2a": {
+   "branch": "worktree-agent-aeadec5e26c972b2a",
+   "name": "Perimetre aveugle de probe_431",
+   "type": "opus-solver"
+  },
+  "aeb0914f7e7a1d2a0": {
+   "branch": "worktree-agent-aeb0914f7e7a1d2a0",
+   "name": "Lot MoW classification + port",
+   "type": "opus-solver"
+  },
+  "aeb40753d70190673": {
+   "branch": "worktree-agent-aeb40753d70190673",
+   "name": "Fold context AbilityOrEffect du passif",
+   "type": "opus-solver"
+  },
+  "aeb4f44a1ec0da607": {
+   "branch": "worktree-agent-aeb4f44a1ec0da607",
+   "name": "Decodeur OrderedSet capteur 370",
+   "type": "opus-solver"
+  },
+  "aeb757635470999a6": {
+   "branch": "worktree-agent-aeb757635470999a6",
+   "name": "Passifs Tyranids: BarbedOvipositor + SynapticLinchpin",
+   "type": "opus-solver"
+  },
+  "aebb103f0bc74f50b": {
+   "branch": "",
+   "name": "Audit playbook subsystem",
+   "type": "general-purpose"
+  },
+  "aec471c124709365b": {
+   "branch": "worktree-agent-aec471c124709365b",
+   "name": "Port TerminatorArmour per-attack trigger",
+   "type": "opus-solver"
+  },
+  "aec8bcc93521e6e26": {
+   "branch": "worktree-agent-aec8bcc93521e6e26",
+   "name": "350-r3 murs b et c",
+   "type": "opus-solver"
+  },
+  "aecbc03df5662af2f": {
+   "branch": "worktree-agent-aecbc03df5662af2f",
+   "name": "Name and close the scenario-red category",
+   "type": "opus-solver"
+  },
+  "aed0af0400a4654d5": {
+   "branch": "",
+   "name": "Audit playbook param_8 lot 4",
+   "type": "re-expert"
+  },
+  "aed23c891be14a891": {
+   "branch": "worktree-agent-aed23c891be14a891",
+   "name": "RE #265 traits +0x50 writer",
+   "type": "re-expert"
+  },
+  "aed2fa689d779021a": {
+   "branch": "",
+   "name": "Validate #108 MurderousSwing",
+   "type": "validator"
+  },
+  "aed67f18efc7e0e22": {
+   "branch": "worktree-agent-aed67f18efc7e0e22",
+   "name": "Test fichier non suivi suffit",
+   "type": "general-purpose"
+  },
+  "aed905138d65218a2": {
+   "branch": "worktree-agent-aed905138d65218a2",
+   "name": "Confront the value of window-4 sensors",
+   "type": "opus-solver"
+  },
+  "aed9f1b675fcca879": {
+   "branch": "worktree-agent-aed9f1b675fcca879",
+   "name": "Porter 1174 StructuralAnalyser",
+   "type": "opus-solver"
+  },
+  "aeda90efd18cd97b9": {
+   "branch": "worktree-agent-aeda90efd18cd97b9",
+   "name": "Port MortisRound (Ultramarines)",
+   "type": "opus-solver"
+  },
+  "aedd08c194934ff1a": {
+   "branch": "worktree-agent-aedd08c194934ff1a",
+   "name": "Residu 159 RNG canal 179",
+   "type": "opus-solver"
+  },
+  "aedd770b53977dfa4": {
+   "branch": "",
+   "name": "RE all summon active abilities",
+   "type": "re-expert"
+  },
+  "aee43d17936f62c60": {
+   "branch": "worktree-agent-aee43d17936f62c60",
+   "name": "ShroudPsalm et les 3 gates IsNormalAttack",
+   "type": "opus-solver"
+  },
+  "aee4976757c34c032": {
+   "branch": "worktree-agent-aee4976757c34c032",
+   "name": "reduce-then-roll divergence",
+   "type": "opus-solver"
+  },
+  "aef069645c1c065c7": {
+   "branch": "worktree-agent-aef069645c1c065c7",
+   "name": "1148 pose face COMBAT 2 tuiles",
+   "type": "opus-solver"
+  },
+  "aef5111fa46518448": {
+   "branch": "worktree-agent-aef5111fa46518448",
+   "name": "Inventaire des residus de portage",
+   "type": "opus-solver"
+  },
+  "aef9fae90f68262a3": {
+   "branch": "worktree-agent-aef9fae90f68262a3",
+   "name": "1148 DaemonicOrdnance AoE",
+   "type": "opus-solver"
+  },
+  "aefe1b63ad403a45c": {
+   "branch": "",
+   "name": "Validation adversariale dette 2b",
+   "type": "validator"
+  },
+  "af030f1e9c80840f5": {
+   "branch": "",
+   "name": "RE #177 RapidAssault base over-pred",
+   "type": "re-expert"
+  },
+  "af065a4e82b4a3286": {
+   "branch": "worktree-agent-af065a4e82b4a3286",
+   "name": "Capteur MovableTilesInRange",
+   "type": "opus-solver"
+  },
+  "af06a00bbf0f93124": {
+   "branch": "worktree-agent-af06a00bbf0f93124",
+   "name": "Inventory unported Repair callers",
+   "type": "opus-solver"
+  },
+  "af0f5936cb4461e21": {
+   "branch": "",
+   "name": "RE Contaminated + MoltenForm leaves",
+   "type": "general-purpose"
+  },
+  "af17e250f4759115f": {
+   "branch": "",
+   "name": "RE closure: PredictAttackRaw per-hit aggregation",
+   "type": "re-expert"
+  },
+  "af1b269a9900562bb": {
+   "branch": "worktree-agent-af1b269a9900562bb",
+   "name": "Masques ciblage module blacklegion",
+   "type": "opus-solver"
+  },
+  "af1f8ccded3e3c6cd": {
+   "branch": "worktree-agent-af1f8ccded3e3c6cd",
+   "name": "Port HammerOfWrath + Foehammer",
+   "type": "opus-solver"
+  },
+  "af2545d01975722cf": {
+   "branch": "",
+   "name": "RE Flame attack AoE fire footprint",
+   "type": "re-expert"
+  },
+  "af2abbfdcaae3af5c": {
+   "branch": "worktree-agent-af2abbfdcaae3af5c",
+   "name": "Port InstrumentsOfVengeance custom utility",
+   "type": "opus-solver"
+  },
+  "af2c3482670180e50": {
+   "branch": "worktree-agent-af2c3482670180e50",
+   "name": "Fermer #420-r1 axe DEGAT DotGG",
+   "type": "opus-solver"
+  },
+  "af3805771839f5ae7": {
+   "branch": "worktree-agent-af3805771839f5ae7",
+   "name": "434 perimetre probe_283 worktrees",
+   "type": "opus-solver"
+  },
+  "af4022718beece8dd": {
+   "branch": "worktree-agent-af4022718beece8dd",
+   "name": "Terme manquant Tile(7) au bord",
+   "type": "opus-solver"
+  },
+  "af43e67f7485f0b68": {
+   "branch": "worktree-agent-af43e67f7485f0b68",
+   "name": "Valider commit 62d0442 (#45bis)",
+   "type": "validator"
+  },
+  "af47919a632118224": {
+   "branch": "worktree-agent-af47919a632118224",
+   "name": "Fix gitignored input paths",
+   "type": "opus-solver"
+  },
+  "af4a6bd56cb78ade1": {
+   "branch": "worktree-agent-af4a6bd56cb78ade1",
+   "name": "REVIVE residus A1/A2",
+   "type": "opus-solver"
+  },
+  "af4e10ea29cc3cf81": {
+   "branch": "worktree-agent-af4e10ea29cc3cf81",
+   "name": "Port opus Executioner Aeldari",
+   "type": "opus-solver"
+  },
+  "af57b17bd4d1f63e2": {
+   "branch": "worktree-agent-af57b17bd4d1f63e2",
+   "name": "Residu N14 ModifiedExoarmour utilite mouvement",
+   "type": "opus-solver"
+  },
+  "af583dde4934d570b": {
+   "branch": "worktree-agent-af583dde4934d570b",
+   "name": "MinDist entry gates",
+   "type": "opus-solver"
+  },
+  "af5da07470614062e": {
+   "branch": "",
+   "name": "RE HeroicFusillade 1180 eligibility gate",
+   "type": "re-expert"
+  },
+  "af6175aef1d281594": {
+   "branch": "worktree-agent-af6175aef1d281594",
+   "name": "VigilanceEternal TileDistanceUtility",
+   "type": "opus-solver"
+  },
+  "af73ce2a3934750b2": {
+   "branch": "worktree-agent-af73ce2a3934750b2",
+   "name": "R6 round materialize normal_like",
+   "type": "opus-solver"
+  },
+  "af769fa75466dc863": {
+   "branch": "worktree-agent-af769fa75466dc863",
+   "name": "Sortir les ecritures de data",
+   "type": "opus-solver"
+  },
+  "af775c077672e7294": {
+   "branch": "worktree-agent-af775c077672e7294",
+   "name": "Investigate runner registry discrepancy",
+   "type": "opus-solver"
+  },
+  "af797e37f63c5f36a": {
+   "branch": "worktree-agent-af797e37f63c5f36a",
+   "name": "Port the static-threshold ShouldExecute family",
+   "type": "opus-solver"
+  },
+  "af799de6982baa290": {
+   "branch": "worktree-agent-af799de6982baa290",
+   "name": "Port DefenderOfTheGreaterGood (Tau)",
+   "type": "opus-solver"
+  },
+  "af7c9b76bba4acc73": {
+   "branch": "worktree-agent-af7c9b76bba4acc73",
+   "name": "Eligibilite par position 1202",
+   "type": "opus-solver"
+  },
+  "af7da23449ac47261": {
+   "branch": "worktree-agent-af7da23449ac47261",
+   "name": "Port effect immunity gate",
+   "type": "opus-solver"
+  },
+  "af8038457eaef0e41": {
+   "branch": "worktree-agent-af8038457eaef0e41",
+   "name": "353-r1a bucket utilite 54",
+   "type": "opus-solver"
+  },
+  "af811e56af105ca4c": {
+   "branch": "worktree-agent-af811e56af105ca4c",
+   "name": "Port LordOfTempests AddIce runner",
+   "type": "opus-solver"
+  },
+  "af83a6c03bdcf79bd": {
+   "branch": "worktree-agent-af83a6c03bdcf79bd",
+   "name": "Port ReachedSummonCap link",
+   "type": "opus-solver"
+  },
+  "af868ebe1fc31c1b6": {
+   "branch": "worktree-agent-af868ebe1fc31c1b6",
+   "name": "Port DarkAngels lot 2",
+   "type": "opus-solver"
+  },
+  "af8fd4ff48fa03e81": {
+   "branch": "worktree-agent-af8fd4ff48fa03e81",
+   "name": "Fable-solver #45 crit-on-Ice (opus)",
+   "type": "fable-solver"
+  },
+  "af9c9499961ce9958": {
+   "branch": "worktree-agent-af9c9499961ce9958",
+   "name": "Port AlphaWarrior (Tyranids)",
+   "type": "opus-solver"
+  },
+  "af9f673e6b2cceaf8": {
+   "branch": "worktree-agent-af9f673e6b2cceaf8",
+   "name": "Porter 1116 InescapableAccuracy",
+   "type": "opus-solver"
+  },
+  "afa1f5a890b354783": {
+   "branch": "worktree-agent-afa1f5a890b354783",
+   "name": "Port opus IronkinSteeljack Votann",
+   "type": "opus-solver"
+  },
+  "afa2ffeccd83853fc": {
+   "branch": "worktree-agent-afa2ffeccd83853fc",
+   "name": "4015 generiques perdus",
+   "type": "opus-solver"
+  },
+  "afa51c6e43305c403": {
+   "branch": "worktree-agent-afa51c6e43305c403",
+   "name": "Summon fantôme sans PositionComponent",
+   "type": "opus-solver"
+  },
+  "afa5a1204b1f7b5d3": {
+   "branch": "worktree-agent-afa5a1204b1f7b5d3",
+   "name": "opus-solver #61 knockback pct",
+   "type": "opus-solver"
+  },
+  "afa8602ae92c07436": {
+   "branch": "worktree-agent-afa8602ae92c07436",
+   "name": "Port SporeMineLauncher (Tyranids)",
+   "type": "opus-solver"
+  },
+  "afb40d50e7be34bb5": {
+   "branch": "",
+   "name": "Énumère la famille native du gate slot 0x13",
+   "type": "re-expert"
+  },
+  "afc69ab075836f77f": {
+   "branch": "worktree-agent-afc69ab075836f77f",
+   "name": "Tau residuals 1180 removal + EWO phase 2",
+   "type": "opus-solver"
+  },
+  "afc6be22e4ab3f77a": {
+   "branch": "worktree-agent-afc6be22e4ab3f77a",
+   "name": "Residu s8 Hammer event t93",
+   "type": "opus-solver"
+  },
+  "afc75cd5aeeae6fbe": {
+   "branch": "worktree-agent-afc75cd5aeeae6fbe",
+   "name": "Port #27 tranche 4 one item",
+   "type": "opus-solver"
+  },
+  "afd34bf8d6435ba38": {
+   "branch": "worktree-agent-afd34bf8d6435ba38",
+   "name": "Recuperer WIP FragBomb + BasiliskBarrage",
+   "type": "opus-solver"
+  },
+  "afd9c039101c1d9fc": {
+   "branch": "",
+   "name": "Classifier P0-SUMMON (6 abilities)",
+   "type": "re-expert"
+  },
+  "afe0757ef004c7738": {
+   "branch": "worktree-agent-afe0757ef004c7738",
+   "name": "Defaire le collapse Pinned",
+   "type": "opus-solver"
+  },
+  "afe0c4c4939872db0": {
+   "branch": "worktree-agent-afe0c4c4939872db0",
+   "name": "Port ABondEffect removal triggers",
+   "type": "opus-solver"
+  },
+  "affdc4fa411b5c0c5": {
+   "branch": "worktree-agent-affdc4fa411b5c0c5",
+   "name": "358 magnitude effet 1581",
+   "type": "opus-solver"
+  }
+ },
  "stat_merges": {
-  "interroges": 8,
-  "reutilises": 499
+  "interroges": 0,
+  "reutilises": 513
+ },
+ "stat_metas": {
+  "lus": 1,
+  "reutilises": 909
  },
  "stat_tokens": {
-  "fichiers": 16,
+  "fichiers": 6,
   "fork": "",
-  "mo": 18.4,
-  "total": 916
+  "mo": 0.5,
+  "total": 923
  },
  "version": 2
 }

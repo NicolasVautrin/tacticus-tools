@@ -300,11 +300,16 @@ def page(data: dict) -> str:
         f'<th data-key="{k}"{" aria-sort=\'descending\'" if k == "num" else ""}>'
         f'<button type="button">{esc(lbl)}</button></th>' for k, lbl in cols)
 
+    # LA TABLE NE PORTE QUE LES PR RECENTES. L'historique complet pesait 151 Ko sur une page de
+    # 178 (85 %), et il croit d'environ 30 PR par jour -- pour un tableau que personne ne fait
+    # defiler au-dela de la semaine. Les AGREGATS, eux, restent calcules sur TOUTES les PR : le
+    # bandeau et le journal ne perdent rien, seule la vue detaillee est bornee.
+    recent = sorted(prs, key=lambda p: p["num"], reverse=True)[:data.get("pr_rows", 120)]
     js_rows = [dict(num=p["num"], title=esc(p["title"]), state=p["state"],
                     agent=esc(p["agent"]), agent_ctx=p["agent_ctx"],
                     agent_mins=round(p["agent_mins"]) or None, add=p["add"], dele=p["dele"],
                     files=p["files"], ttm=round(p["ttm"]) if p["ttm"] is not None else None,
-                    day=p["day"]) for p in prs]
+                    day=p["day"]) for p in recent]
 
     stamp = datetime.now().astimezone()
     net = data["net"].get("shortstat", "")
@@ -349,9 +354,11 @@ efficacite, donc une barre courte est un bon jour.</p>
 <div class="ledger">{"".join(ledger)}</div>
 
 <h2>Le registre des PR</h2>
-<p class="sub">Chaque PR jointe a l'agent qui l'a produite, via sa branche de worktree. Le cout
-affiche est celui de <em>cet agent</em>, transcript compris&nbsp;: c'est la mesure la plus proche
-d'un cout de livraison qu'on puisse etablir. Les colonnes se trient, les pastilles filtrent.</p>
+<p class="sub">Les <strong>{len(recent)} dernieres</strong> des {len(prs)} pull requests &mdash;
+au-dela, l'historique alourdit la page sans qu'on l'y consulte, et les agregats ci-dessus, eux,
+portent sur la totalite. Chaque PR est jointe a l'agent qui l'a produite via sa branche de
+worktree&nbsp;; le cout affiche est celui de <em>cet agent</em>, transcript compris. Les colonnes
+se trient, les pastilles filtrent.</p>
 <div class="controls">
   <button type="button" class="chip" data-filter="all" aria-pressed="true">toutes</button>
   <button type="button" class="chip" data-filter="MERGED" aria-pressed="false">mergees</button>

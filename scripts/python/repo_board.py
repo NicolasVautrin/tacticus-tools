@@ -436,24 +436,38 @@ def merge_msg_agents(known: set) -> dict:
     return out
 
 
-def load_metas(pdir: Path) -> dict:
+def load_metas(pdir: Path, cache: dict) -> dict:
     """branche -> {id, name}. Double indexation : le meta, et l'id lu DANS le nom de branche.
 
     Certaines PR portent une branche `worktree-agent-<id>` dont le meta est absent (transcript
     dans un autre repertoire de projet, ou meta jamais ecrit). Reconstruire l'id depuis le nom
     rattrape ces cas sans inventer de correspondance : l'id EST dans la chaine.
+
+    MEMOISE PAR FICHIER : un meta est ecrit au lancement de l'agent et n'est plus jamais touche
+    -- il n'a ni suite ni revision. Les relire tous coutait 7,0 s par run pour 894 fichiers
+    (mesure du 2026-08-04), soit le deuxieme poste du board une fois les transcripts rendus
+    incrementaux. On ne lit donc que les meta INCONNUS du cache.
     """
-    by_branch = {}
+    known = cache.setdefault("metas", {})
+    n_new = 0
     for p in pdir.glob("*/subagents/agent-*.meta.json"):
+        aid = p.name.replace("agent-", "").replace(".meta.json", "")
+        if aid in known:
+            continue
         try:
             m = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue
-        aid = p.name.replace("agent-", "").replace(".meta.json", "")
-        br = (m.get("worktreeBranch") or "").strip()
-        rec = dict(id=aid, name=m.get("description") or aid, type=m.get("agentType") or "")
-        if br:
-            by_branch[br] = rec
+        known[aid] = dict(branch=(m.get("worktreeBranch") or "").strip(),
+                          name=m.get("description") or aid, type=m.get("agentType") or "")
+        n_new += 1
+    cache["stat_metas"] = dict(lus=n_new, reutilises=len(known) - n_new)
+
+    by_branch = {}
+    for aid, m in known.items():
+        rec = dict(id=aid, name=m["name"], type=m.get("type") or "")
+        if m.get("branch"):
+            by_branch[m["branch"]] = rec
         by_branch.setdefault("worktree-agent-%s" % aid, rec)
     return by_branch
 
@@ -563,12 +577,13 @@ def load_git(since: str, keep: set) -> tuple[dict, dict]:
 
 
 # ---------------------------------------------------------------- assemblage
-def build(since: str, strict: bool = False, use_cache: bool = True) -> dict:
+def build(since: str, strict: bool = False, use_cache: bool = True,
+          pr_rows: int = 120) -> dict:
     pdir = project_dir()
     cache = load_cache(use_cache)
     prs = load_prs()
     tok_day, tok_agent = load_tokens(pdir, cache)
-    metas = load_metas(pdir)
+    metas = load_metas(pdir, cache)
 
     known = agents_on_disk(pdir)
     by_msg = merge_msg_agents(known)
@@ -633,8 +648,10 @@ def build(since: str, strict: bool = False, use_cache: bool = True) -> dict:
     return dict(days=rows, prs=prs, joined=joined, net=git_net, since=since, strict=strict,
                 agents=tok_agent, project_dir=str(pdir), n_pr_commits=len(owner),
                 via_msg=via_msg, agree=agree, clash=clash,
+                pr_rows=pr_rows,
                 cache=dict(tokens=cache.get("stat_tokens", {}),
-                           merges=cache.get("stat_merges", {})))
+                           merges=cache.get("stat_merges", {}),
+                           metas=cache.get("stat_metas", {})))
 
 
 # ---------------------------------------------------------------- console
@@ -687,10 +704,13 @@ def console(data: dict) -> None:
     if data["net"].get("shortstat"):
         print("croissance nette de l'arbre depuis %s : %s" % (data["since"], data["net"]["shortstat"]))
     c, tk = data["cache"], data["cache"]["tokens"]
-    print("cache         : %.1f Mo lus (queue de %d fichiers sur %d), merges %d interroges"
-          " / %d reutilises%s"
+    print("cache         : %.1f Mo lus (queue de %d fichiers sur %d), merges %d/%d,"
+          " metas %d/%d neufs%s"
           % (tk.get("mo", 0), tk.get("fichiers", 0), tk.get("total", 0),
-             c["merges"].get("interroges", 0), c["merges"].get("reutilises", 0),
+             c["merges"].get("interroges", 0),
+             c["merges"].get("interroges", 0) + c["merges"].get("reutilises", 0),
+             c["metas"].get("lus", 0),
+             c["metas"].get("lus", 0) + c["metas"].get("reutilises", 0),
              "  [FORK %s -> reconstruction]" % tk["fork"] if tk.get("fork") else ""))
 
 
@@ -715,9 +735,13 @@ def main() -> None:
                     help="ne garder que les PR dont l'agent est identifie par sa branche")
     ap.add_argument("--no-cache", action="store_true",
                     help="tout recalculer et REECRIRE le cache (long : cf. docstring de CACHE)")
+    ap.add_argument("--pr-rows", type=int, default=120,
+                    help="PR les plus recentes listees dans la page (defaut 120 ; les agregats,"
+                         " eux, portent toujours sur la totalite)")
     args = ap.parse_args()
 
-    data = build(args.since, args.strict_agent, use_cache=not args.no_cache)
+    data = build(args.since, args.strict_agent, use_cache=not args.no_cache,
+                 pr_rows=args.pr_rows)
     if args.json:
         def enc(o):
             return o.isoformat() if isinstance(o, datetime) else str(o)
