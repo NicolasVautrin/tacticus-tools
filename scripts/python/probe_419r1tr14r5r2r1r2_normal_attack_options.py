@@ -208,33 +208,21 @@ def _run_arm(sid, seed, board, arm, passives, want_type, tmpdir):
                        cwd=str(PYDIR), capture_output=True, text=True)
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--seed", default="4192")
-    ap.add_argument("--board", default="MC1_67")
-    a = ap.parse_args(argv)
+class MontageError(RuntimeError):
+    """Le montage n'a pas MORDU (bras non montable, caster mort, type non substitue). C'est un
+    ECHEC DE MONTAGE, pas un verdict sur le port -- il doit ROUGIR, jamais partir en skip vert."""
 
-    print("=== #419-r1-tr14-r5-r2-r1-r2 -- options d'attaque normale PAR TYPE ===")
-    print("\n=== ETAGE 0 -- la table du port, relue depuis le module")
-    print("  %-6s %-10s %-14s %-14s %s" % ("type", "rules", "onlyAdjacent", "overrideRange",
-                                           "forceMeleeTarget"))
-    for t in sorted(OPTS):
-        o = OPTS[t]
-        print("  %-6d %-10s %-14s %-14s %s"
-              % (t, hex(int(o.rules)), o.range.only_adjacent, o.range.override_range,
-                 o.force_melee_target))
-    distinct = {(int(o.rules), o.range, o.force_melee_target) for o in OPTS.values()}
-    print("  %d types portes, %d jeux d'options DISTINCTS" % (len(OPTS), len(distinct)))
 
+def run(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
+    """La MESURE, sans verdict : les deux bras + l'inertie du bit. Leve `MontageError` si un bras
+    n'a pas mordu -- le test jumeau en fait un ECHEC, pas un skip."""
     import tempfile
-    sid = _resolve_session()
     tmpdir = tempfile.mkdtemp()
     res = {}
     for arm, passives, want in ARMS:
-        got = _run_arm(sid, a.seed, a.board, arm, passives, want, tmpdir)
+        got = _run_arm(sid, seed, board, arm, passives, want, tmpdir)
         if got is None:
-            print("\n[FAIL] bras `%s` non montable -> rien n'est mesure" % arm)
-            return 2
+            raise MontageError("bras `%s` non montable -> rien n'est mesure" % arm)
         res[arm] = got
 
     # ------------------------------------------------------------------- ETAGE 2 : le bit, INERTE
@@ -245,41 +233,80 @@ def main(argv=None) -> int:
     st = res["ctrl"]["state"]
     cid = res["ctrl"]["caster"]
     p69, p1030 = _NormalAttackTargeting(OPTS[69]), _NormalAttackTargeting(OPTS[1030])
-    diff_bit = sum(1 for r in res["ctrl"]["rows"]
-                   if get_invalid_target_reason(st, cid, r["tid"], p69)
-                   != get_invalid_target_reason(st, cid, r["tid"], p1030))
+    res["bit_diff"] = sum(1 for r in res["ctrl"]["rows"]
+                          if get_invalid_target_reason(st, cid, r["tid"], p69)
+                          != get_invalid_target_reason(st, cid, r["tid"], p1030))
     print("\n=== ETAGE 2 -- le bit `TargetMatchesDynamicRule` (69 contre 1030), offline")
-    print("  lignes ou le port DIFFERE entre 69 et 1030 : %d / %d" % (diff_bit,
-                                                                      len(res["ctrl"]["rows"])))
+    print("  lignes ou le port DIFFERE entre 69 et 1030 : %d / %d"
+          % (res["bit_diff"], len(res["ctrl"]["rows"])))
     print("  -> %s" % ("INERTE, conforme a la RE (la regle dynamique n'est pas portee, residu "
-                       "#419-r1-tr14-r5-r2-r1-r2-r1)" if diff_bit == 0
+                       "#419-r1-tr14-r5-r2-r1-r2-r1)" if res["bit_diff"] == 0
                        else "NON INERTE -- la RE dit le contraire, a re-examiner"))
+    return res
 
-    print("\n=== BILAN")
-    tot = agree_new = agree_old = gain = perte = 0
+
+def tally(res: dict) -> dict:
+    """Le BILAN chiffre des deux bras : accord par-type, accord baseline, lignes gagnees/perdues."""
+    out = {"tot": 0, "new": 0, "old": 0, "gain": 0, "perte": 0}
     for arm, _p, _t in ARMS:
         rows = [r for r in res[arm]["rows"] if r["nat"] is not None]
-        an = sum(1 for r in rows if r["new"] == r["nat"])
-        ao = sum(1 for r in rows if r["old"] == r["nat"])
-        gain += sum(1 for r in rows if r["new"] == r["nat"] and r["old"] != r["nat"])
-        perte += sum(1 for r in rows if r["new"] != r["nat"] and r["old"] == r["nat"])
-        tot += len(rows)
-        agree_new += an
-        agree_old += ao
-        print("  bras %-6s : %d lignes, %d accord PAR TYPE, %d accord BASELINE" % (arm, len(rows),
-                                                                                   an, ao))
-    print("  TOTAL       : %d lignes, %d accord PAR TYPE, %d accord BASELINE" % (tot, agree_new,
-                                                                                 agree_old))
-    print("  lignes GAGNEES (baseline fausse, par-type juste) : %d" % gain)
-    print("  lignes PERDUES (baseline juste, par-type fausse) : %d" % perte)
-    if tot == 0 or agree_new != tot or perte:
+        out["tot"] += len(rows)
+        out["new"] += sum(1 for r in rows if r["new"] == r["nat"])
+        out["old"] += sum(1 for r in rows if r["old"] == r["nat"])
+        out["gain"] += sum(1 for r in rows if r["new"] == r["nat"] and r["old"] != r["nat"])
+        out["perte"] += sum(1 for r in rows if r["new"] != r["nat"] and r["old"] == r["nat"])
+    return out
+
+
+def print_table() -> int:
+    """ETAGE 0 -- la table du port, relue depuis le module. Rend le nombre de jeux DISTINCTS."""
+    print("\n=== ETAGE 0 -- la table du port, relue depuis le module")
+    print("  %-6s %-10s %-14s %-14s %s" % ("type", "rules", "onlyAdjacent", "overrideRange",
+                                           "forceMeleeTarget"))
+    for t in sorted(OPTS):
+        o = OPTS[t]
+        print("  %-6d %-10s %-14s %-14s %s"
+              % (t, hex(int(o.rules)), o.range.only_adjacent, o.range.override_range,
+                 o.force_melee_target))
+    distinct = {(int(o.rules), o.range, o.force_melee_target) for o in OPTS.values()}
+    print("  %d types portes, %d jeux d'options DISTINCTS" % (len(OPTS), len(distinct)))
+    return len(distinct)
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--seed", default="4192")
+    ap.add_argument("--board", default="MC1_67")
+    a = ap.parse_args(argv)
+
+    print("=== #419-r1-tr14-r5-r2-r1-r2 -- options d'attaque normale PAR TYPE ===")
+    print_table()
+    try:
+        res = run(_resolve_session(), a.seed, a.board)
+    except MontageError as e:
+        print("\n[FAIL] %s" % e)
+        return 2
+    t = tally(res)
+
+    print("\n=== BILAN")
+    for arm, _p, _t in ARMS:
+        rows = [r for r in res[arm]["rows"] if r["nat"] is not None]
+        print("  bras %-6s : %d lignes, %d accord PAR TYPE, %d accord BASELINE"
+              % (arm, len(rows), sum(1 for r in rows if r["new"] == r["nat"]),
+                 sum(1 for r in rows if r["old"] == r["nat"])))
+    print("  TOTAL       : %d lignes, %d accord PAR TYPE, %d accord BASELINE"
+          % (t["tot"], t["new"], t["old"]))
+    print("  lignes GAGNEES (baseline fausse, par-type juste) : %d" % t["gain"])
+    print("  lignes PERDUES (baseline juste, par-type fausse) : %d" % t["perte"])
+    if t["tot"] == 0 or t["new"] != t["tot"] or t["perte"]:
         print("\n[FAIL] le port PAR TYPE n'est pas en accord total avec le natif")
         return 1
-    if gain == 0:
+    if t["gain"] == 0:
         print("\n[FAIL] REGIME DEGENERE -- la baseline est d'accord partout. Le vert ne prouverait")
         print("       rien : il faut une cible a d>1 DANS la portee d'arme et AUCUN ennemi adjacent.")
         return 1
-    print("\n[PASS] accord total avec le natif, et %d ligne(s) que la constante unique ratait" % gain)
+    print("\n[PASS] accord total avec le natif, et %d ligne(s) que la constante unique ratait"
+          % t["gain"])
     return 0
 
 
