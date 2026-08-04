@@ -523,6 +523,222 @@ def port_bounds(blob: dict) -> dict:
     return seen
 
 
+# ------------------------------------------------------ PREDICTION dans le regime DEUX FACES
+
+
+def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want_dist=3,
+                      max_turns=30) -> dict:
+    """LE discriminant : le **MEME couple de faces** que la mesure COMBAT de #437-r1
+    (`HeavyWeapon_ExtraDmg` x1.25 cote ATTAQUANT, `TerminatorArmour_ReduceDmg` x0.25 cote
+    DEFENSEUR), lu par la voie **PREDICTION** (`aiPredict` / `aiPlaybookPredict`).
+
+    Ce que ce montage seul peut trancher : la lecture VECTEUR (le COMBAT ferait deux appels
+    `ApplyCappedModifiers`, la PREDICTION une chaine unique) predit ici (1129, 1694) ; toute
+    lecture non-vectorielle predit les MEMES bornes que le combat, (1130, 1695).
+
+    ⚠ Pourquoi `--bounds` ne peut PAS servir a ca (piege MESURE le 2026-08-04) : il fait
+    MARCHER l'overwatcher pour l'amener a portee, ce qui arme le flag `Moved`. Or
+    `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` porte
+    le gate `!HasFlag(Moved)` -- l'EFFET reste pose (la garde `HeavyWeapon_ExtraDmg in effects`
+    passe) mais son bonus ne mord plus. Mesure : bornes natives ET port = (904, 1356), c.-a-d.
+    `Round(P x 0.25)` -- face attaquant NEUTRE, regime a UNE face. La garde par presence de
+    l'effet est donc INSUFFISANTE ; celle qui vaut est la valeur du bonus construit.
+
+    Le montage ici ne fait donc JAMAIS bouger l'attaquant. C'est le SPECTATEUR qui purge le tir
+    d'overwatch (il encaisse a la place du porteur, dont l'armure Terminator reste ARMEE), puis
+    le PORTEUR avance d'un cran. Repete jusqu'a ce que la prediction native devienne lisible
+    (`pred` non nul = la cible est dans le dictionnaire de `GetAllPredictions`).
+    """
+    import uuid as _uuid
+    import subprocess as _sp
+    from engine.entities.pathfinding.board import Board
+
+    sf = ROOT / "logs" / "runners" / ("p437r1p2f-%s.json" % _uuid.uuid4().hex[:8])
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
+           "--board", board, "--rank", str(rank),
+           "--p-units", "%s,%s" % (P.CARRIER, P.SPECTATOR), "--a-units", P.OVERWATCHER,
+           "--hp-player", "400000", "--crit", "0,0", "--crit-target", "0,0",
+           "--block-target", "0,0", "--block-player", "0,0", "--no-ai"]
+    if dmg_target is not None:
+        cmd += ["--dmg-target", str(dmg_target)]
+    proc = _sp.run(cmd, cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
+                   errors="replace")
+    if not sf.exists():
+        return {"error": "build KO : %s" % (proc.stderr or proc.stdout or "")[-600:]}
+    rid = int(json.loads(sf.read_text())["runnerId"])
+    rpc = _mkrpc()
+    trace = []
+    try:
+        bg = rpc("boardGraph", {"runnerId": rid}, 60)
+        brd = Board(bg["tiles"], adjacency="native_sym")
+        dv = P._view(rpc, rid, inactive=True)
+        ids = {v: int(P._by_vis(dv, v)["id"]) for v in [P.CARRIER, P.SPECTATOR, P.OVERWATCHER]}
+        pr = None
+        for _t in range(max_turns):
+            dv = P._view(rpc, rid, inactive=True)
+            ow_effs = [e.get("name") for e in ((P._unit(dv, ids[P.OVERWATCHER]) or {}).get("effects")
+                                               or [])]
+            pres, act = P._armour_state(dv, ids[P.CARRIER])
+            ow_u = P._unit(dv, ids[P.OVERWATCHER])
+            src = brd.id_at(int(ow_u["pos"]["col"]), int(ow_u["pos"]["row"]))
+            d_from_ow = P._bfs(brd, src)
+            car_u = P._unit(dv, ids[P.CARRIER])
+            car_t = brd.id_at(int(car_u["pos"]["col"]), int(car_u["pos"]["row"]))
+            d_car = d_from_ow.get(car_t)
+            trace.append({"t": _t, "d_car": d_car, "ow_effs": ow_effs,
+                          "armour": [pres, act]})
+            if ("HeavyWeapon_ExtraDmg" in ow_effs) and pres and act is True:
+                pr = rpc("aiPredict", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
+                                       "targetId": ids[P.CARRIER], "fresh": True}, 90)
+                if (pr or {}).get("pred"):
+                    break
+                pr = None
+            cur = dv.get("currentPlayer")
+            acted = False
+            # 1) l'overwatch est ARME -> le SPECTATEUR va le declencher a la place du porteur.
+            if P.OVERWATCH_EFFECT in [e.get("effectType") for e in
+                                      ((P._unit(dv, ids[P.OVERWATCHER]) or {}).get("effects") or [])]:
+                reach = P._mover_reach(dv, ids[P.SPECTATOR])
+                to_tile, _d = P._pick_move_tile(brd, dv, ids[P.SPECTATOR], ids[P.OVERWATCHER], reach)
+                if to_tile is not None:
+                    col, row = brd.coord(to_tile)
+                    try:
+                        rpc("applyAction", {"runnerId": rid, "action": {
+                            "kind": "move", "unitId": ids[P.SPECTATOR],
+                            "to": {"col": int(col), "row": int(row)}}}, 120)
+                        acted = True
+                    except Exception:
+                        acted = False
+            # 2) puis le PORTEUR se rapproche d'un cran (l'overwatch vient d'etre consomme).
+            dv2 = P._view(rpc, rid, inactive=True)
+            still_armed = P.OVERWATCH_EFFECT in [
+                e.get("effectType") for e in
+                ((P._unit(dv2, ids[P.OVERWATCHER]) or {}).get("effects") or [])]
+            if not still_armed:
+                reach = P._mover_reach(dv2, ids[P.CARRIER])
+                to_tile = _pick_tile_at_distance(brd, dv2, ids[P.CARRIER], ids[P.OVERWATCHER],
+                                                 reach, want_dist)
+                if to_tile is not None:
+                    col, row = brd.coord(to_tile)
+                    try:
+                        rpc("applyAction", {"runnerId": rid, "action": {
+                            "kind": "move", "unitId": ids[P.CARRIER],
+                            "to": {"col": int(col), "row": int(row)}}}, 120)
+                        acted = True
+                    except Exception:
+                        acted = False
+            if not acted:
+                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                if P._view(rpc, rid).get("currentPlayer") == cur:
+                    rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+            else:
+                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                if P._view(rpc, rid).get("currentPlayer") == cur:
+                    rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+        if pr is None:
+            return {"error": "prediction non lisible dans le regime DEUX FACES en %d tours"
+                             % max_turns, "trace": trace}
+        pb = None
+        try:
+            pb = rpc("aiPlaybookPredict", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
+                                           "targetId": ids[P.CARRIER], "abilityType": 69}, 90)
+        except Exception as exc:
+            pb = {"error": "%s" % exc}
+        cap = {"dec": P._view(rpc, rid), "ob": rpc("observeBattle", {"runnerId": rid}, 60),
+               "snap": rpc("combatSnapshot", {"runnerId": rid}, 120),
+               "rng": rpc("dumpRng", {"runnerId": rid}, 30)}
+        return {"ids": ids, "tiles": bg["tiles"], "cap": cap, "aiPredict": pr,
+                "aiPlaybookPredict": pb, "dmg_target": dmg_target, "seed": str(seed),
+                "board_id": board, "trace": trace}
+    finally:
+        try:
+            rpc("disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+
+
+def stage_inputs(blob: dict) -> dict:
+    """Les ENTREES d'etage que le port construit pour ce coup (bornes brutes, %-listes par face,
+    percage, armure), lues PAR INSTRUMENTATION du foyer reel -- jamais recalculees a la main."""
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.snapshot import load_state
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.operations.damage import AttackDamageOperation
+    import engine.runner.operations.damage_ops.normal as _nm
+
+    brd = Board(blob["tiles"], adjacency="native_sym")
+    cap = blob["cap"]
+    st = load_state(cap["dec"], cap["ob"], cap["snap"], board=brd)
+    rng = IntBasedMersenneTwister()
+    rng.mt = list(cap["rng"]["mt"])
+    rng.mti = cap["rng"]["mti"]
+    st.rng = rng
+    got = {}
+    g_base, g_pierce = _nm.get_base_damage_fix64, _nm.apply_pierce_and_modifiers
+    orig = AttackDamageOperation._run_hits
+
+    class _Stop(Exception):
+        pass
+
+    def w_base(*a, **k):
+        r = g_base(*a, **k)
+        got.setdefault("base", [int(r.min), int(r.max)])
+        return r
+
+    def w_pierce(value, pierce_pct=100, armor=0, mods=None, **k):
+        got.setdefault("pierce", int(pierce_pct))
+        got.setdefault("armor", int(armor))
+        got.setdefault("pct_att", [list(x) for x in (mods.pct_list if mods else [])])
+        got.setdefault("pct_def", [list(x) for x in (mods.pct_list_defender if mods else [])])
+        got.setdefault("mult_att", float(mods.multiplicative) if mods else 1.0)
+        got.setdefault("mult_def", float(mods.multiplicative_defender) if mods else 1.0)
+        got.setdefault("kw", {kk: str(vv) for kk, vv in k.items()})
+        return g_pierce(value, pierce_pct, armor, mods, **k)
+
+    def _spy(rng_, hit_nc, hit_cr, cc, ce, hits, block_sources, **k):
+        got["port_bounds"] = [int(hit_nc.min), int(hit_nc.max)]
+        raise _Stop()
+
+    _nm.get_base_damage_fix64, _nm.apply_pierce_and_modifiers = w_base, w_pierce
+    AttackDamageOperation._run_hits = staticmethod(_spy)
+    try:
+        AttackDamageOperation.execute(st, int(blob["ids"][P.OVERWATCHER]),
+                                      int(blob["ids"][P.CARRIER]))
+    except _Stop:
+        pass
+    finally:
+        AttackDamageOperation._run_hits = staticmethod(orig)
+        _nm.get_base_damage_fix64, _nm.apply_pierce_and_modifiers = g_base, g_pierce
+    return got
+
+
+def face_models(stage: dict) -> dict:
+    """Les DEUX modeles en presence, evalues sur les entrees d'etage MESUREES.
+    `chaine_unique` = un seul `Fix64.Round` pour les deux faces ; `deux_appels` = un `Round` par
+    face (ce que rend `ApplyCappedModifiers` appele deux fois)."""
+    from engine.services import fix64 as _fx
+    from engine.services.damage_prediction import get_damage_with_piercing
+
+    def chain(v0, groups):
+        v = _fx.from_number(v0)
+        for g in groups:
+            for m, _c in g:
+                v = _fx.mul(v, _fx.mult_raw_from_float(m))
+            v = _fx.round_raw(v, 1)
+        return _fx.to_int(v)
+
+    att = [tuple(x) for x in stage.get("pct_att") or []]
+    deff = [tuple(x) for x in stage.get("pct_def") or []]
+    out = {}
+    for name, b in (("min", 0), ("max", 1)):
+        p = get_damage_with_piercing(int((stage["base"])[b]), int(stage["pierce"]),
+                                     int(stage["armor"]))
+        out["chaine_unique_" + name] = chain(p, [att + deff])
+        out["deux_appels_" + name] = chain(p, [att, deff])
+    return out
+
+
 # --------------------------------------------------------------------------- elevation en COMBAT
 
 
