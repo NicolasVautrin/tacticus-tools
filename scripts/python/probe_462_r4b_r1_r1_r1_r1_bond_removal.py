@@ -473,6 +473,43 @@ def step_gatelive(sid, seed="777", board="MC1_67"):
 # donc une mort qui n'est pas celle du bonde ne doit RIEN retirer. Sans ce controle, un retrait
 # observe pourrait n'etre qu'un nettoyage generique declenche par n'importe quelle mort.
 # ------------------------------------------------------------------------------------------------
+def _kill_via(sid, rid, attacker_id, victim_id, tag):
+    """Frappe `victim_id` avec `attacker_id` (la VICTIME parasitee) jusqu'a sa mort. `applyAction`
+    ne verifie pas la propriete du `unitId` (runner.md §4), donc on pilote l'unite adverse.
+    Rend `(mort ?, parasite encore present sur `attacker_id` ?)`.
+
+    EXPOSE au niveau module -- le test live `test_462_r4b_r1_r1_r1_r1_bond_removal_live.py` le
+    rejoue tel quel : la boucle de mise a mort n'est PAS ce qu'on mesure, la dupliquer ferait deux
+    montages a maintenir pour une seule mecanique."""
+    import probe_112_darkangels as PR
+    import probe_462_r4b_r1_r1_defender_additive_carriers as P0
+    import probe_462_r4b_r1_r1_r1_neuroparasite_pose as P1
+
+    for _ in range(10):
+        d = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        v = next((u for u in (d.get("units") or []) if int(u["id"]) == int(victim_id)), None)
+        if v is None or not v.get("alive"):
+            break
+        aid = P0._normal_attack_id(d, attacker_id)
+        p = PR.positions(d)
+        if int(victim_id) not in PR.legal_from_here(sid, rid, attacker_id, aid):
+            if int(victim_id) in p:
+                P0._move_within(sid, rid, d, attacker_id, p[int(victim_id)], 1, min_dist=1)
+            if int(victim_id) not in PR.legal_from_here(sid, rid, attacker_id, aid):
+                PR.act(sid, rid, {"kind": "endturn"})
+                continue
+        PR.act(sid, rid, {"kind": "ability", "casterId": attacker_id, "targetId": int(victim_id),
+                          "abilityType": aid})
+        PR.act(sid, rid, {"kind": "endturn"})
+    d = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    v = next((u for u in (d.get("units") or []) if int(u["id"]) == int(victim_id)), None)
+    dead = (v is None) or (not v.get("alive"))
+    pres, lvl = P1._live_parasite(d, attacker_id)
+    print("  [%-22s] u%s mort=%s   parasite sur u%s = %s (level %s)"
+          % (tag, victim_id, dead, attacker_id, pres, lvl))
+    return dead, pres
+
+
 def step_killlive(sid):
     import probe_112_darkangels as PR
     import probe_462_r4b_r1_r1_defender_additive_carriers as P0
@@ -522,32 +559,7 @@ def step_killlive(sid):
             return 2
 
         def _kill(victim_id, tag):
-            """Frappe `victim_id` avec la VICTIME parasitee jusqu'a sa mort (`applyAction` ne
-            verifie pas la propriete du `unitId`, cf. runner.md §4). Rend (mort?, parasite?)."""
-            for _ in range(10):
-                d = PR.rpc(sid, "decisionView",
-                           {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-                v = next((u for u in (d.get("units") or []) if int(u["id"]) == victim_id), None)
-                if v is None or not v.get("alive"):
-                    break
-                aid = P0._normal_attack_id(d, tgt)
-                p = PR.positions(d)
-                if victim_id not in PR.legal_from_here(sid, rid, tgt, aid):
-                    P0._move_within(sid, rid, d, tgt, p[victim_id], 1, min_dist=1)
-                    if victim_id not in PR.legal_from_here(sid, rid, tgt, aid):
-                        PR.act(sid, rid, {"kind": "endturn"})
-                        continue
-                PR.act(sid, rid, {"kind": "ability", "casterId": tgt, "targetId": victim_id,
-                                  "abilityType": aid})
-                PR.act(sid, rid, {"kind": "endturn"})
-            d = PR.rpc(sid, "decisionView",
-                       {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-            v = next((u for u in (d.get("units") or []) if int(u["id"]) == victim_id), None)
-            dead = (v is None) or (not v.get("alive"))
-            pres, lvl = P1._live_parasite(d, tgt)
-            print("  [%-22s] u%d mort=%s   parasite sur u%d = %s (level %s)"
-                  % (tag, victim_id, dead, tgt, pres, lvl))
-            return dead, pres
+            return _kill_via(sid, rid, tgt, victim_id, tag)
 
         if third is None:
             print("  [CTRL mort TIERCE] %s absent du roster -- controle NON JOUE" % THIRD_UNIT)
