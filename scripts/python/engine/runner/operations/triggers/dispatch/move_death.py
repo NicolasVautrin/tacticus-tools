@@ -114,7 +114,9 @@ def unit_removed_triggers(state: State, unit_id: int) -> list[dict]:
 
 
 def after_move_triggers(state: State, mover_id: int,
-                        movement_steps: int | None = None) -> list[dict]:
+                        movement_steps: int | None = None, *,
+                        is_interim_step: bool = False,
+                        arrive_at_final_tile: bool = True) -> list[dict]:
     """Vecteur after-move (mirror `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers → dispatch).
     Le natif émet, dans l'ordre, `On(0x24=UnitPositionChanged_1)`, `On(4=UnitAfterMove)` (overwatch) PUIS
     `On(0x1d=UnitPositionChanged_2)`. On dispatche les trois : `On(0x24)` déclenche la POSE de couverture
@@ -134,9 +136,33 @@ def after_move_triggers(state: State, mover_id: int,
 
     `movement_steps` = le 5e argument natif d'`EvaluateAfterMoveTriggers`, propage aux TROIS events
     (un seul `AbilityEntities` cote natif). Il vient de `MoveUnitOperation.last_movement_steps` ;
-    les appelants qui ne modelisent pas de chemin (`summon_ai`, le relais de `TheBetrayer`) le
-    laissent `None` = le `Nullable` VIDE, ce qui rend 0 a `MovementSteps()` -- FIDELE, puisque le
-    natif n'a lui non plus rien a y mettre hors d'un `MoveUnitOperation$$Execute`."""
+    un appelant qui ne modelise pas de chemin le laisse `None` = le `Nullable` VIDE, ce qui rend 0 a
+    `MovementSteps()` -- FIDELE, puisque le natif n'a lui non plus rien a y mettre hors d'un
+    `MoveUnitOperation$$Execute`.
+
+    `is_interim_step` = le **6e argument natif** d'`EvaluateAfterMoveTriggers` (nom LU dans la
+    signature IL2CPP, pas devine), qui vaut l'octet `MoveUnitOptions+0x14` aux DEUX call-sites de
+    `MoveUnitOperation$$Execute`. Le corps natif est, lu au decompile (#448-r1-r1-r2-r1) :
+
+        publish On(0x24 = UnitPositionChanged_1)
+        if (isInterimStep) return;                 <- LA COUPURE
+        publish On(4  = UnitAfterMove)             <- overwatch
+        publish On(0x1d = UnitPositionChanged_2)
+
+    ⇒ un pas INTERMEDIAIRE ne declenche NI l'overwatch NI `On(0x1d)`. C'est la face INVERSE du
+    vecteur, et elle est PORTEE ici (brancher indistinctement serait l'erreur symetrique, du cote
+    permissif). Corroboration independante : la case-doc de `TheBetrayer` avait deja identifie
+    « behaviour `+0x80` = flag SUPPRESS de `On(4)`, defaut 0 = overwatch ACTIF » -- et
+    `MoveUnitBehaviour+0x80` est exactement le selecteur que `MoveUnitBehaviour$$Execute` empaquette
+    dans `MoveUnitOptions+0x14`.
+
+    `arrive_at_final_tile` = mirror de l'octet `MoveUnitOptions+0x10`, gate NEGATIF du natif
+    (`if (options+0x10 == 0) { newlyAdded = UnitFlagsComponent.Add(1) }`, puis `On(0x1c)` publie SSI
+    `newlyAdded`). Il est **INVERSE** par `MoveUnitBehaviour$$Execute` (`CONCAT11(...) ^ 0x101`) a
+    partir du selecteur `MoveUnitBehaviourOptions+0x18` dont le defaut est FAUX ⇒ pour une feuille
+    DSL a options nulles l'octet vaut **1** ⇒ ni le flag `ArrivedAtFinalTile`, ni `On(0x1c)`. Le
+    mouvement JOUEUR, lui, passe des options entierement nulles ⇒ octet 0 ⇒ flag pose et `On(0x1c)`
+    emis (comportement historique, live-valide, INCHANGE)."""
     out = post_unit_kill_triggers_for_move(state, mover_id)
     # `On(0x24 = UnitPositionChanged_1)` — PREMIER des trois events d'`EvaluateAfterMoveTriggers`.
     # Consommateur porté : `LightCoverAbility` (tile-ability : la tuile de cover pose l'effet 1013 sur
@@ -148,11 +174,15 @@ def after_move_triggers(state: State, mover_id: int,
     # ... et le dispatch GENERIQUE du meme `On(0x24)` pour les effet-triggers qui l'ecoutent (#213 :
     # retrait n°3 de `GhostEffect` -- une autre unite arrive sur la tuile du ghost).
     out += unit_position_changed_1_triggers(state, mover_id, movement_steps=movement_steps)
+    if is_interim_step:
+        return out                     # `if (isInterimStep) return;` -- NI `On(4)` NI `On(0x1d)`
     ev = TriggerEvent(EventTriggerType.UnitAfterMove, mover_id, mover_id, ranged=False, profile=None,
                       movement_steps=movement_steps)
     out += evaluate_trigger_operation(state, ev)
     # G2 : `On(0x1d=UnitPositionChanged_2)` émis APRÈS `On(4)` par le même `EvaluateAfterMoveTriggers` natif.
     out += unit_position_changed_2_triggers(state, mover_id, movement_steps=movement_steps)
+    if not arrive_at_final_tile:
+        return out                     # `options+0x10 != 0` : ni le flag, ni `On(0x1c)`
     return out + arrived_at_final_tile_triggers(state, mover_id)
 
 

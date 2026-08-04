@@ -57,7 +57,12 @@ class FleeOperation:
         if to is not None:
             from .movement import MoveUnitOperation
             from ..events import EventBus
-            MoveUnitOperation(unit_id, to).execute(state, EventBus())
+            # `emit_after_move=False` : `IdunBattle.Operations.FleeOperation$$Execute` n'appelle NI
+            # le slot `MoveUnit` NI `SetUnitPosition` -- son deplacement n'est PAS porte (la
+            # destination ci-dessus est une approximation best-effort, cf. docstring). Jouer le
+            # vecteur after-move ici FABRIQUERAIT un overwatch sur un mouvement inexistant cote
+            # natif (#448-r1-r1-r2-r1, face inverse).
+            MoveUnitOperation(unit_id, to, emit_after_move=False).execute(state, EventBus())
         return {"fled": unit_id, "to": to, "flag": UnitFlagsComponent.FLED}
 
     @staticmethod

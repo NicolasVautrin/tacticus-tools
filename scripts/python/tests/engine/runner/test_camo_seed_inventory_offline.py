@@ -60,21 +60,35 @@ def test_camo_cloak_owner_effect_is_seeded():
         "entrer Certus en couvert (entrees vues : %s)" % (names,))
 
 
-def test_move_handler_calls_the_second_refresh():
-    """CLIQUET 3 -- filet STRUCTUREL sur l'ordre `after_move_triggers` PUIS refresh. Le corps du
-    handler doit citer `refresh_effects_after_move_triggers` APRES `after_move_triggers` : c'est
-    l'ordre natif (`RefreshEffects({7,null})` ENCADRE `EvaluateAfterMoveTriggers`), et l'inverser
-    rendrait le second refresh strictement redondant avec le premier."""
-    from engine.runner.operations.movement import MovementHandler
-    src = inspect.getsource(MovementHandler.visit_MoveUnitMessage)
+def test_move_operation_calls_the_second_refresh():
+    """CLIQUET 3 -- filet STRUCTUREL sur l'ordre `after_move_triggers` PUIS refresh. Le corps qui
+    joue le mouvement doit citer `refresh_effects_after_move_triggers` APRES `after_move_triggers` :
+    c'est l'ordre natif (`RefreshEffects({7,null})` ENCADRE `EvaluateAfterMoveTriggers`), et
+    l'inverser rendrait le second refresh strictement redondant avec le premier.
+
+    ⚠ LE FOYER A DEMENAGE (#448-r1-r1-r2-r1) : ce cliquet lisait
+    `MovementHandler.visit_MoveUnitMessage`. Le vecteur est desormais joue par
+    `MoveUnitOperation.execute` -- c'est le RANG NATIF (`EvaluateAfterMoveTriggers` n'a que DEUX
+    xrefs, toutes deux dans `IdunBattle.Operations.MoveUnitOperation$$Execute`), et c'est ce qui le
+    fait EMERGER pour les feuilles DSL de mouvement. Le cliquet garde la MEME loi, sur le bon corps :
+    le deplacer etait la reparation, le retirer aurait ete la faute."""
+    from engine.runner.operations.movement import MoveUnitOperation
+    src = inspect.getsource(MoveUnitOperation.execute)
     assert "after_move_triggers(" in src, (
-        "`visit_MoveUnitMessage` n'appelle plus `after_move_triggers` -- le vecteur after-move "
+        "`MoveUnitOperation.execute` n'appelle plus `after_move_triggers` -- le vecteur after-move "
         "(overwatch, LightCover a l'arrivee) est mort")
     assert "refresh_effects_after_move_triggers(" in src, (
-        "`visit_MoveUnitMessage` n'appelle plus `refresh_effects_after_move_triggers` : le SECOND "
-        "`RefreshEffects({7, null})` d'`IdunBattle.Operations.MoveUnitOperation$$Execute` n'est "
-        "plus porte. Un effet dont la `CreateActiveCondition` lit un effet pose PAR le vecteur "
-        "after-move ne se rallumera plus (mesure : 1014 CamoCloak, live 31907 contre port 32655)")
-    assert src.index("after_move_triggers(") < src.index("refresh_effects_after_move_triggers("), (
+        "`MoveUnitOperation.execute` n'appelle plus `refresh_effects_after_move_triggers` : le "
+        "SECOND `RefreshEffects({7, null})` d'`IdunBattle.Operations.MoveUnitOperation$$Execute` "
+        "n'est plus porte. Un effet dont la `CreateActiveCondition` lit un effet pose PAR le "
+        "vecteur after-move ne se rallumera plus (mesure : 1014 CamoCloak, live 31907 / port 32655)")
+    i_vect = src.index("after_move_triggers(\n") if "after_move_triggers(\n" in src else -1
+    i_refr = src.index("refresh_effects_after_move_triggers(state)")
+    assert i_vect != -1 and i_vect < i_refr, (
         "le second refresh est appele AVANT `after_move_triggers` : il est alors strictement "
-        "redondant avec celui de `MoveUnitOperation.execute`, et le trou reste ouvert")
+        "redondant avec le premier (celui qui precede le vecteur), et le trou reste ouvert")
+    # ... et le handler de message ne le rejoue PAS : deux appels = deux overwatchs par pas.
+    from engine.runner.operations.movement import MovementHandler
+    hsrc = inspect.getsource(MovementHandler.visit_MoveUnitMessage)
+    assert "after_move_triggers(" not in hsrc, (
+        "`visit_MoveUnitMessage` rejoue le vecteur que l'Operation joue deja -- DOUBLE emission")
