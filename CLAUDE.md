@@ -403,6 +403,30 @@ dossiers) que le cliquet a trouvée à son premier passage.
   (`#468-r7`) ; et `#<n>` désigne à la fois une tâche et une PR (`#468-r8`), ce qui rend
   `git log --grep` structurellement ambigu.
 
+### Le MUR de la banque : c'est la PRIORITÉ qui se règle, jamais le parallélisme (#469)
+
+`ratchets-bg` ne « cache » le mur que pour **celui qui l'attend** ; il le **facture** à chaque
+agent pendant toute sa durée. Le chiffre qui décide est `mur + surcoût × nb agents`, jamais le mur.
+
+- **`-ThrottleLimit` est une FAUSSE piste, mesurée** : le baisser de 16 à 6 dégrade les **deux**
+  chiffres (mur 497 → 564 s, témoin d'agent 24,94 → 26,32 s). Retirer des créneaux à la banque
+  n'en rend à personne — le travail total ne change pas.
+- **La priorité de process, elle, marche** : `BELOW_NORMAL` sur `ratchets-bg` (héritée par ses 44
+  cliquets) → surcoût par agent **1 499 → 891 s (−41 %)**, mur inchangé. Elle ne retire aucun
+  créneau, elle change **qui passe devant**. C'est en place depuis #469, avec `-PrioriteNormale`
+  pour le diagnostic.
+- **Le mur a un plancher qui n'est pas le CPU** : le cliquet le plus long est **insécable**
+  (404 s sur 3 287 s de travail total). En fin de banque il tourne **seul**, machine à 11,7/22
+  cœurs — aucun réglage de parallélisme n'agit là. Seul levier : alléger le cliquet (**#457-r6**).
+- **La contention du `.git/` partagé est RÉFUTÉE** : mêmes commandes, même instant, dépôt partagé
+  vs clone privé → ratio ~1 (`git grep` 26,21 vs 26,99 s). `git grep` est lent parce qu'il balaie
+  3 498 fichiers, pas parce que le `.git/` est partagé.
+- ⚠ **Rien n'empêche N banques de tourner ensemble** — 3 observées le 2026-08-04 (l'orchestrateur
+  lance `ratchets-bg`, des agents jouent `ratchets.ps1` avant leur PR). Deux banques doublent le
+  mur (497 → 1 171 s). Et **le compteur de cœurs occupés ne le voit pas** (13,96 vs 13,70/22) :
+  il sature. La file d'attente se lit dans une charge de travail témoin, pas dans un pourcentage.
+- Détail, bras et contre-épreuves : `docs/rl/case-469-mur-de-la-banque.md`.
+
 ### L'état de la BOUCLE — `loop_status.py`, déclenché tout seul (#467)
 
 ```powershell
