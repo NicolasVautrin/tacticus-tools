@@ -2,7 +2,7 @@ import {
     class_get_fields, class_get_name,
     field_get_name, field_get_type,
     findClass, findClassAnywhere, findCtorByParamCount,
-    findMethod, findMethodByParamCount, getFieldOffset, methodParamClassName, s,
+    findMethod, findMethodByParamCount, getFieldInfo, getFieldOffset, methodParamClassName, s,
     type_get_class_or_element_class,
 } from "../../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../../il2cpp/invoke.js";
@@ -131,9 +131,13 @@ export const abilityNameOff = componentsActiveAbilityClass
 // ÉTAT RUNTIME par actif (components.ActiveAbility) — l'info LIVE absente de
 // gameconfig (qui n'a que noms+stats statiques) : savoir ce qui est castable CE
 // tour (cooldown/munitions/disabled). Offsets résolus PAR NOM (robuste au build).
-// Nullable<int> en IL2CPP = { int value; bool hasValue } → value @off, hasValue
-// @off+4 (cf. dump kqkbjqfb6c : CanStillBeUsed@0x28, RemainingCooldownTurns@0x2C,
-// IsDisabled@0x35, AmmoCost@0x38, HasEnoughAmmo@0x40).
+// (CanStillBeUsed@0x28, RemainingCooldownTurns@0x2C, IsDisabled@0x35,
+// AmmoCost@0x38, HasEnoughAmmo@0x40.)
+//
+// ⚠ La disposition INTERNE d'un `Nullable<T>` ne se suppose pas — elle est résolue par
+// réflexion (`nullableIntLayout` plus bas). Ce commentaire annonçait `{ int value @+0 ;
+// bool hasValue @+4 }` ; c'est FAUX, et ça a été MESURÉ (#579-r1, cf. la docstring de
+// `nullableIntLayout`).
 export const abCanUseOff = componentsActiveAbilityClass
     ? getFieldOffset(componentsActiveAbilityClass, "CanStillBeUsed") : -1;
 export const abCooldownOff = componentsActiveAbilityClass
@@ -185,22 +189,81 @@ export const abLastTurnUsedOff = componentsActiveAbilityClass
 export const abUnresetedLastTurnUsedOff = componentsActiveAbilityClass
     ? getFieldOffset(componentsActiveAbilityClass, "UnresetedLastTurnUsed") : -1;
 
-/** `Nullable<int>` d'IL2CPP lu en TRI-ÉTAT : `{ value, hasValue }` où `hasValue === null`
- *  signifie **PAS MESURÉ** (offset non résolu ou lecture en faute) — distinct de
- *  `hasValue === false`, qui est une MESURE (le Nullable est vide).
+/** La disposition INTERNE du `Nullable<T>` d'un champ, RÉSOLUE PAR RÉFLEXION — jamais
+ *  supposée : `champ -> type -> classe Nullable`1 -> offsets de ses champs `hasValue`/`value``.
+ *  C'est déjà le patron de `game/match-state.ts` pour `UnitComponent.DeathReason`.
  *
- *  Disposition `{ int value @+0 ; bool hasValue @+4 }` — LUE, pas supposée : sur
- *  `IdunBattle.Entities.Components.ActiveAbility` les champs voisins l'encadrent
- *  (`RemainingCooldownTurns` @0x2c suivi de `IsInitialCooldown` @0x34 = 8 octets pour le
- *  Nullable), et `AttackQuery$$IsAlreadyUsedThisTurn` copie les 8 octets de `+0x20` d'un bloc
- *  puis compare la moitié BASSE au compteur de tours. */
-function readNullableInt(base: NativePointer, off: number): {
+ *  ⚠ `il2cpp_field_get_offset` sur un VALUE TYPE rend l'offset BOXÉ (header 0x10 inclus) →
+ *  on soustrait `0x10` pour l'offset INLINE dans la struct.
+ *
+ *  `null` = disposition non résolue → l'appelant répond « PAS MESURÉ », jamais une lecture
+ *  à une convention devinée. */
+function nullableLayoutOf(klass: NativePointer | null, fieldName: string): {
+    hasValueOff: number; valueOff: number;
+} | null {
+    if (!klass) return null;
+    const f = getFieldInfo(klass, fieldName);
+    if (!f) return null;
+    try {
+        const k = type_get_class_or_element_class(
+            field_get_type(f) as NativePointer) as NativePointer;
+        if (k.isNull()) return null;
+        const hv = (getFieldOffset(k, "hasValue") as number) - 0x10;
+        const v = (getFieldOffset(k, "value") as number) - 0x10;
+        if (hv < 0 || v < 0) return null;
+        return { hasValueOff: hv, valueOff: v };
+    } catch { return null; }
+}
+
+// Les quatre `Nullable<int>` de `IdunBattle.Entities.Components.ActiveAbility` partagent la
+// MÊME instanciation, donc la même disposition ; on la résout par champ quand même, pour
+// qu'un champ dont le type changerait ne soit pas lu à la disposition d'un voisin.
+const nlLastTurnUsed = nullableLayoutOf(componentsActiveAbilityClass, "LastTurnUsed");
+const nlUnresetedLastTurnUsed = nullableLayoutOf(
+    componentsActiveAbilityClass, "UnresetedLastTurnUsed");
+const nlCooldown = nullableLayoutOf(componentsActiveAbilityClass, "RemainingCooldownTurns");
+const nlAmmoCost = nullableLayoutOf(componentsActiveAbilityClass, "AmmoCost");
+const nlOverrideState = nullableLayoutOf(componentsActiveAbilityClass, "OverrideAbilityState");
+
+/** `Nullable<int>` d'IL2CPP lu en TRI-ÉTAT : `{ value, hasValue }` où `hasValue === null`
+ *  signifie **PAS MESURÉ** (offset du champ non résolu, disposition du Nullable non résolue,
+ *  ou lecture en faute) — distinct de `hasValue === false`, qui est une MESURE (Nullable vide).
+ *
+ *  ## La disposition n'est PAS `{ value, hasValue }` — c'est MESURÉ (#579-r1)
+ *
+ *  Ce foyer lisait `hasValue` à `+4` et `value` à `+0`. **Faux** : `System.Nullable`1` déclare
+ *  `hasValue` PUIS `value`, donc `{ bool hasValue @+0 (+3 de bourrage) ; T value @+4 }`.
+ *  Trois lectures concordantes :
+ *
+ *  1. **LIVE, discriminante** — deux casts dans la MÊME bataille, à `GetAmountOfTurnsEnded`
+ *     = **6** puis **19** : le capteur publiait `unresetedLastTurnUsed = 1` **aux deux**.
+ *     Or `IdunBattle.Operations.SetActiveAbilityUsedOperation$$Execute` et
+ *     `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` écrivent tous deux
+ *     `Nullable(TurnComponent.GetAmountOfTurnsEnded(GetMatchTurn(state), 0))` dans
+ *     `LastTurnUsed@+0x18` ET `UnresetedLastTurnUsed@+0x20`, et
+ *     `IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEnded` =
+ *     `Sum(dict@+0x40.Values) + turnsToAdd` est monotone : les deux valeurs stockées NE
+ *     PEUVENT PAS être toutes deux `1`. Le `1` publié était le bit `hasValue`.
+ *  2. **Métadonnées IL2CPP** — `classFields("System", "Nullable`1")` rend l'ordre de
+ *     déclaration `hasValue` puis `value`.
+ *  3. **Décompilé** — `IdunBattle.Core.Services.AttackQuery$$IsAlreadyUsedThisTurn` prend
+ *     l'octet lu comme `HasValue` sur `fields[0]` et l'int comparé au compteur sur
+ *     `fields[0] + 0x20` (= `fields[1]`, `sizeof(FieldInfo)`) ; idem
+ *     `IdunBattle.Entities.Components.ActiveAbility$$get_IsInCooldown`, dont l'octet
+ *     `HasValue` sort de `fields[0]`.
+ *
+ *  Le reste du dépôt documentait déjà `hasValue @+0` (`game/match-state.ts`,
+ *  `features/battle-config.ts`, `features/mow-builder.ts`, `features/normalize-bc/formula.ts`,
+ *  `features/ai-step/rpc-snapshot.ts`) ; ce foyer-ci était le seul à l'inverse, et
+ *  `features/effect-bonus-trace.ts` NOMMAIT la contradiction sans la trancher. */
+function readNullableInt(base: NativePointer, off: number,
+                         layout: { hasValueOff: number; valueOff: number } | null): {
     value: number | null; hasValue: boolean | null;
 } {
-    if (off < 0) return { value: null, hasValue: null };
+    if (off < 0 || !layout) return { value: null, hasValue: null };
     try {
-        const has = base.add(off + 4).readU8() !== 0;
-        return { value: has ? base.add(off).readS32() : null, hasValue: has };
+        const has = base.add(off + layout.hasValueOff).readU8() !== 0;
+        return { value: has ? base.add(off + layout.valueOff).readS32() : null, hasValue: has };
     } catch { return { value: null, hasValue: null }; }
 }
 
@@ -231,28 +294,37 @@ export function readAbilityState(ab: NativePointer): {
     // pré-calculé : la comparaison au compteur (`turnsEnded`, au niveau réponse) appartient au
     // moteur, qui doit pouvoir la refaire à l'identique du natif — marche `IsRegularAbilityType`
     // comprise, et elle n'est pas dans ce champ.
-    const lastTurn = readNullableInt(ab, abLastTurnUsedOff);
+    const lastTurn = readNullableInt(ab, abLastTurnUsedOff, nlLastTurnUsed);
     st.lastTurnUsed = lastTurn.value;
     st.lastTurnUsedHasValue = lastTurn.hasValue;
-    const unreseted = readNullableInt(ab, abUnresetedLastTurnUsedOff);
+    const unreseted = readNullableInt(ab, abUnresetedLastTurnUsedOff, nlUnresetedLastTurnUsed);
     st.unresetedLastTurnUsed = unreseted.value;
     st.unresetedLastTurnUsedHasValue = unreseted.hasValue;
     try {
         if (abCanUseOff >= 0) st.usable = ab.add(abCanUseOff).readU8() !== 0;
-        if (abCooldownOff >= 0) {
-            const has = ab.add(abCooldownOff + 4).readU8() !== 0;
-            st.cooldown = has ? ab.add(abCooldownOff).readS32() : null;
-        }
+        // ⚠ MÊME disposition que ci-dessus, et c'est le point du correctif #579-r1 : ces deux
+        // Nullable étaient lus à l'envers depuis toujours. Conséquence MESURABLE côté port —
+        // `cooldown` valait `1` pour TOUT cooldown non nul (c'est le bit `hasValue` qui
+        // sortait), donc `engine/runner/operations/ability_reset.py` (`remaining_cooldown > 1`,
+        // mirror d'`EntityCanHaveActiveAbilityReset`) ne pouvait JAMAIS être vrai.
+        // Les prédicats de PRÉSENCE, eux, coïncidaient par accident : `value & 0xff != 0`
+        // équivaut à `HasValue && Value > 0` (= `ActiveAbility$$get_IsInCooldown`) tant que la
+        // valeur tient sur un octet non nul.
+        const cd = readNullableInt(ab, abCooldownOff, nlCooldown);
+        if (cd.hasValue !== null) st.cooldown = cd.value;
         if (abDisabledOff >= 0) st.disabled = ab.add(abDisabledOff).readU8() !== 0;
-        if (abAmmoCostOff >= 0) {
-            const has = ab.add(abAmmoCostOff + 4).readU8() !== 0;
-            st.ammoCost = has ? ab.add(abAmmoCostOff).readS32() : null;
-        }
+        const ammo = readNullableInt(ab, abAmmoCostOff, nlAmmoCost);
+        if (ammo.hasValue !== null) st.ammoCost = ammo.value;
         if (abHasAmmoOff >= 0) st.hasAmmo = ab.add(abHasAmmoOff).readU8() !== 0;
         // niveau/mult PER-ABILITY (#100) — mirror get_AbilityState @180f8fc40 (Override prime).
+        // Le `HasValue` du `Nullable<AbilityState>` est lui aussi résolu par réflexion : le
+        // `+0xc` codé ici supposait la disposition `{ AbilityState value @+0 ; bool hasValue
+        // @+0xc }`, symétrique de celle qu'on vient de réfuter. Disposition non résolue =>
+        // on ne teste pas l'override (repli sur `_abilityState`, comportement d'avant #100).
         let stOff = -1;
-        if (abOverrideStateOff >= 0 && ab.add(abOverrideStateOff + 0xc).readU8() !== 0) {
-            stOff = abOverrideStateOff;
+        if (abOverrideStateOff >= 0 && nlOverrideState
+            && ab.add(abOverrideStateOff + nlOverrideState.hasValueOff).readU8() !== 0) {
+            stOff = abOverrideStateOff + nlOverrideState.valueOff;
         } else if (abStateOff >= 0) stOff = abStateOff;
         if (stOff >= 0) {
             st.level = ab.add(stOff).readS32();          // AbilityState.Level @+0 (Idun.Shared.Level = int)
@@ -283,6 +355,16 @@ export function abilityStateLayout(): Record<string, unknown> {
         unresetedLastTurnUsed: abUnresetedLastTurnUsedOff,
         decompiledUnresetedLastTurnUsed: 0x20,   // lu dans `AttackQuery$$IsAlreadyUsedThisTurn`
         decompiledLastTurnUsed: 0x18,            // voisin, disposition mesurée `rnca9r7q6c`
+        // #579-r1 — la disposition INTERNE des Nullable, RÉSOLUE (jamais supposée). `null` =
+        // non résolue => les champs correspondants sortent en « PAS MESURÉ ». Publiée parce
+        // que c'est exactement ce qu'un lecteur ne peut pas deviner, et parce que l'ancienne
+        // convention (inverse) a produit un capteur vert qui publiait le bit `hasValue` à la
+        // place du tour.
+        nullableLayout: {
+            lastTurnUsed: nlLastTurnUsed, unresetedLastTurnUsed: nlUnresetedLastTurnUsed,
+            remainingCooldownTurns: nlCooldown, ammoCost: nlAmmoCost,
+            overrideAbilityState: nlOverrideState,
+        },
     };
 }
 
