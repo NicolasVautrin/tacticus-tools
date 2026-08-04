@@ -262,5 +262,109 @@ verts dans la passe de 101.
   sur-ensemble du `ConnectivityComponent`, et les deux divergent sur les `Bridge`. Fermer
   demande que le capteur publie le `ConnectivityComponent` BRUT, sans la porte d'élévation —
   c'est-à-dire une modification de `frida/hooks/*`, donc une fenêtre de réinjection.
-  **Fiché côté orchestrateur avec `#462-r4a-r1`** : les deux capteurs seront écrits puis
-  embarqués dans **une seule** fenêtre. Rien à faire ici.
+  **Le capteur est ÉCRIT (#466, §13 ci-dessous) ; la fenêtre reste à prendre.**
+
+## 13. Le capteur du canal BRUT — écrit (#466), NON CONFRONTÉ
+
+Le résidu `-r2` était bloqué sur un capteur, pas sur une question ouverte. Il est écrit.
+**Aucune ligne de cette section n'est une mesure** : rien n'a tiré, faute de fenêtre.
+
+### 13.1 Ce que le décompilé ajoute à §9 — la preuve par la CONSTRUCTION
+
+§9 établissait l'absence de porte par la CONSÉQUENCE (2 tuiles parcourues sur un vol qui exige
+une arête de Δélévation 2). `IdunBattle.Operations.InitializeConnectivityOperation$$Execute`,
+relu le 2026-08-04, l'établit par la construction — la liste se bâtit ainsi, une tuile à la fois :
+
+```csharp
+foreach (edge in Enum.GetValues(typeof(TileEdge))) {
+    if (!TileComponent.HasEdge(srcComp, edge))                        continue;
+    (r, c) = (PositionComponent.RowAt(pos, edge), ColumnAt(pos, edge));
+    if (!BoardComponent.IsPositionInside(board, c, r))                continue;
+    nid = board.Grid[c, r];   if (nid == 0)                           continue;
+    if (!TileComponent.HasEdge(tileCompOf(nid), (n/2 + i) % n))       continue;   // arête OPPOSÉE
+    list.Add(nid);
+}
+GetComponent<ConnectivityComponent>(tile).<liste> = list;
+```
+
+Critère purement **topologique** : arête des deux côtés, voisin sur le plateau. **Aucune
+élévation n'y entre.** Les deux chemins concordent, et c'est la première fois que le point est
+lu à sa source plutôt que déduit.
+
+`ConnectivityComponent` (0x20 boxé) porte **deux** champs, confirmés par trois lectures
+indépendantes — `BasePathfinder.u003CAddNeighboursu003Ed__19$$MoveNext` (itère),
+`ConnectivityComponent$$IsNeighbour` (`List.Contains`), `ConnectivityComponent$$Copy`
+(reconstruit) :
+
+| offset | contenu | qui le lit |
+|---|---|---|
+| `+0x10` | `List<int>` d'entity ids de tuiles | `AddNeighbours`, `IsNeighbour` |
+| `+0x18` | `int` — entity id de la tuile de TÉLÉPORT jumelle, `0` = aucune | les **quatre** surcharges de `IdunBattle.Entities.TileExtensions$$IsTeleportationTile` ; écrit par `InitializeConnectivityOperation$$ConnectTeleportTiles` |
+
+Publier `+0x18` **ferme la source manquante de deux résidus** qui citaient la même absence :
+`AddTeleportationTiles` (`base_pathfinder.py`) et `IsTeleportationTile` (§10, le second critère
+de rétention d'un waypoint de `FlyPathfinder$$FindPath`).
+
+### 13.2 Rayon de souffle — pourquoi un canal EN PLUS, jamais une correction
+
+L'avertissement du mandat (« ne supprime pas la porte du champ existant sans mesurer qui le
+consomme ») a été instruit. Le champ `neighbours` a **deux familles** de lecteurs, et la porte
+est **juste pour l'une** :
+
+| famille | natif mirroré | porte `|Δelev| < 2` | verdict |
+|---|---|---|---|
+| sélecteurs `AdjacentTiles` du DSL (`neighbours_native`) — `dsl/base.py`, `selectors/tiles.py`, `abilities/{bloodangels,sisterhood,astramilitarum,orks}`, `movement_query.adjacent_tile_ids` | `TileQuery$$IterateAdjacentTiles` | **la porte** | champ INCHANGÉ |
+| pathfinding — `walk_maps_by_pos`, `ignore_terrain_pathfinder`, `beeline` | `BasePathfinder$$AddNeighbours` | ne la porte pas | lit un graphe amputé |
+| `engine/services/ability_range.py` (#558) | `TileQuery$$IterateAdjacentTiles` | l'applique **lui-même** | **ne lit jamais** `board.neighbours_*` — structurellement insensible |
+
+⇒ corriger le champ existant **casserait la première famille pour réparer la seconde**. Le
+capteur AJOUTE `connectivity` (+ `teleportTwinTileId`) ; `neighbours` reste bit-pour-bit ce
+qu'il était. Les deux coexistent **par fidélité**, chacun mirroir du natif de SON consommateur.
+
+### 13.3 Ce qui est livré
+
+* `frida/hooks/features/ai-step/rpc-board.ts` — `boardGraph` publie par tuile `connectivity`
+  (tri-état) et `teleportTwinTileId`, plus, au niveau réponse, `connectivityClassResolved`,
+  `connectivityLayout`, `connectivityTiles`, `connectivityMissing`, `connectivityEdges`,
+  `connectivityTeleportTiles`, `neighbourEdges`. Offsets **résolus par nom de champ au runtime**
+  (`class_get_fields`, choix par TYPE : l'unique `List`, l'unique `Int32`), repli sur les
+  littéraux du décompilé, **et le layout observé est publié** — un capteur ne fait pas passer une
+  lecture d'offset supposé pour une mesure.
+* `engine/entities/pathfinding/board.py` — `neighbours_connectivity()` et `teleport_twin()`, en
+  **tri-état** (`None` = canal absent, `[]` = liste vide). **Aucun pathfinder n'est rebranché** :
+  changer le substrat change des résultats observables, donc c'est un port spéculatif tant que
+  la mesure n'a pas eu lieu.
+* `tests/engine/entities/pathfinding/test_448r1r1r1r1r2_connectivity_channel_offline.py` —
+  6 crans, **13 passed** avec `test_381r3_neighbour_source_offline.py` (non-régression). Ils
+  verrouillent ce qui peut casser SANS capteur : le tri-état, le filtrage hors-board, et une
+  **garde de périmètre** qui rougit si un pathfinder est rebranché sans passer par la mesure.
+
+### 13.4 PLAN DE MESURE — ce que la fenêtre doit jouer, et ce que chaque résultat tranche
+
+Prérequis : reinject + `warmupGameSingletons({force:true})`. Puis, depuis `scripts/python` :
+
+```
+python rl_duel.py build --seed 777 --board MC1_67 --state-file <ABSOLU unique>
+# puis RPC boardGraph { runnerId } ; idem sur C1_74 (les deux `Bridge`) et C6_25 (murs).
+```
+
+| # | mesure | résultat attendu | ce qu'un ÉCART trancherait |
+|---|---|---|---|
+| 1 | `connectivityClassResolved` | `true` | `false` ⇒ la classe n'est pas indexée par `image_get_class` — capteur inopérant, **rien d'autre n'est interprétable** ; c'est le premier à lire |
+| 2 | `connectivityLayout.resolved` + `.fields` | `true`, un `List` @`0x10` et un `Int32` @`0x18` | `false`, ou des offsets autres ⇒ le repli littéral a servi : **confronter `fields`** et corriger les constantes. Un layout divergent invalide les mesures 3-6 |
+| 3 | `connectivityMissing` | `0` | `> 0` ⇒ des entités `Tile` sans `ConnectivityComponent` : à nommer, pas à moyenner |
+| 4 | **`connectivityEdges - neighbourEdges` sur `MC1_67`** | **`+18`** | c'est LE cran. `+18` reproduit, par un troisième chemin indépendant, l'amputation mesurée en §9. `0` ⇒ le canal capte la même chose que le champ hérité, donc le capteur ne mord pas (ancrage à revoir). Un écart ≠ 18 ⇒ la porte n'est pas la seule différence : **ventiler arête par arête avant toute conclusion** |
+| 5 | les 18 arêtes en écart | **toutes** des marches `2 ↔ 4` | une arête en écart dont le Δélévation vaut `< 2` ⇒ une SECONDE cause coexiste avec la porte, et §9 est incomplet |
+| 6 | `C1_74` : arêtes du canal brut absentes de `neighbours_geometric` | les **4** arêtes `Bridge` (`(1,5)-(2,4)`, `(4,4)-(5,5)`) sont dans la géométrie et **PAS** dans le canal brut | c'est le résidu « dans l'autre sens » de §9, jamais mesuré directement. S'il est confirmé, la beeline sur géométrie coupe où le natif fait le tour ⇒ le rebranchement de `beeline_pathfinder` devient **nécessaire**, et pas seulement propre |
+| 7 | `connectivityTeleportTiles` sur un board à téléporteur | `2` (les deux tuiles se pointent mutuellement, `teleport_twin(a) == b` et `teleport_twin(b) == a`) | `0` partout ⇒ soit aucun board du pool n'en porte (le dire, ne pas conclure), soit `+0x18` n'est pas le champ. `1` ⇒ asymétrie : `ConnectTeleportTiles` n'a écrit qu'un côté, contredit son décompilé |
+
+**Après la fenêtre, et seulement après** : rejouer
+`probe_448_r1_r1_r1_r1_flying_tiles_moved.py --only FD --turns 3` avec la beeline rebranchée sur
+`neighbours_connectivity`. Le port doit rendre **0 désaccord** comme aujourd'hui — la beeline
+géométrique et le canal brut ne divergent sur AUCUN board mesuré ici, donc **le rebranchement
+doit être un no-op sur ce corpus**. S'il déplace un compte, c'est le canal qui est mal lu, pas le
+pathfinder : ne pas « corriger » le pathfinder pour rattraper.
+
+⚠ **Ce qui reste NON COUVERT même après la fenêtre** : `AddShadewalkerTiles` (effet `0x3a`, aucune
+source publiée), le fog dans l'arête de vol, et le départage à coût égal de
+`GenerateBreadthFirstTree` (`#448-r1-r1-r1-r1-r1`, inerte sur la branche vol).
