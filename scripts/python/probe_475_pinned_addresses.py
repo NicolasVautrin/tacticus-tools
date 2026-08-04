@@ -20,16 +20,18 @@ ADRESSE DANS l'artefact, qui ne contient aucun hash et qu'aucun de ses criteres 
 DEUX REGLES, ET LA SECONDE EST CELLE QUI ATTRAPE UNE TRANSCRIPTION FAUSSE
 ------------------------------------------------------------------------
 R1 -- ARITHMETIQUE D'ADRESSE HORS FOYER. Dans le TypeScript de `frida/hooks/**`, hors du foyer
-     `frida/hooks/il2cpp/build-pin.ts`, sont interdits : `il2cppBase.add(`, `.base.add(`,
-     `Module.findBaseAddress(`, et tout litteral hexa dans ]base, base+0x10000000[ -- SAUF
-     quand ce litteral est le champ `va:` d'un pin DECLARE (voir R2).
+     `frida/hooks/il2cpp/build-pin.ts`, sont interdits : `il2cppBase.add(`,
+     `Module.findBaseAddress(`, tout litteral hexa dans ]base, base+0x10000000[ -- SAUF quand ce
+     litteral est le champ `va:` d'un pin DECLARE (voir R2) -- et tout `.add(<litteral
+     >= 0x100000>)`, qui est le second deguisement : ecrire la RVA au lieu de la VA.
 
      Ce qui NE rougit PAS, et c'est le critere central : les masques de bits (`0x1000000` =
      `TargetIsUnobscured`), la base ghidra `0x180000000` employee pour AFFICHER une VA a partir
      d'une RVA runtime, les codes d'exception (`0xE06D7363`, `0xC0000005`), `POISON_OFFSET`
-     (`0x40000000`), les constantes d'arithmetique 64 bits (`4294967296`), et le sens INVERSE
-     (`p.sub(il2cppBase)`), qui est de l'affichage, pas de l'ancrage. Aucun de ces litteraux
-     n'est superieur a la base d'image, et aucun ne passe par `il2cppBase.add`.
+     (`0x40000000`), les constantes d'arithmetique 64 bits (`4294967296`), le sens INVERSE
+     (`p.sub(il2cppBase)`) qui est de l'affichage, les offsets de struct et de vtable
+     (`d8.add(0x20)`, `klass.add(0x4d8)`), et une VA ecrite en COMMENTAIRE ou en CHAINE.
+     `.base.add(` a ete essaye et REJETE sur mesure -- cf. `APPELS_INTERDITS`.
 
 R2 -- LE PIN EST CONFRONTE A LA TABLE VERSIONNEE. Un pin declare `va` + `build` + `symbol`
      (+ `kind: "data"` pour un `DAT_*`). Le cliquet resout `va` dans
@@ -266,14 +268,23 @@ def _champ_chaine(bloc: str, nom: str) -> "str | None":
     return "".join(morceaux)
 
 
-def sites_r1(rel: str, code: str, src: str, pins: list) -> list:
-    """Sites d'arithmetique d'adresse hors foyer. `pins` fournit les litteraux EXEMPTES."""
+def sites_r1(rel: str, code: str, src: str, pins: list, nocom: "str | None" = None) -> list:
+    """Sites d'arithmetique d'adresse hors foyer. `pins` fournit les litteraux EXEMPTES.
+
+    Les APPELS sont cherches dans `nocom` (commentaires blanchis, chaines INTACTES) et non dans
+    `code` : `blanchir` blanchit aussi l'INTERIEUR d'un litteral gabarit, donc un ancrage ecrit
+    dans un `${...}` y disparaitrait. Mesure du 2026-08-04 : ZERO occurrence de ces appels dans
+    une chaine sur les 193 fichiers, donc ce durcissement ne coute aucun faux positif.
+    Les LITTERAUX, eux, restent cherches dans `code` -- une VA dans un message de log est
+    legitime (c'est de l'affichage), et c'est precisement ce qu'on ne veut pas faire rougir.
+    """
     exemptes = {p.span for p in pins}
+    ou_appels = code if nocom is None else nocom
     out = []
     for appel in APPELS_INTERDITS:
         start = 0
         while True:
-            k = code.find(appel, start)
+            k = ou_appels.find(appel, start)
             if k < 0:
                 break
             out.append((rel, ligne_de(src, k), appel.rstrip("("),
@@ -414,7 +425,7 @@ def self_test(verbose: bool) -> list:
     for nom, src in FAUTIFS:
         code, nocom = blanchir(src)
         pins, incomplets = extraire_pins("<synth>", src, nocom)
-        vu = sites_r1("<synth>", code, src, pins) or incomplets
+        vu = sites_r1("<synth>", code, src, pins, nocom) or incomplets
         if verbose:
             print("    fautif   %-32s -> %s" % (nom, "ROUGE" if vu else "VERT (!!)"))
         if not vu:
@@ -422,7 +433,7 @@ def self_test(verbose: bool) -> list:
     for nom, src in LEGITIMES:
         code, nocom = blanchir(src)
         pins, incomplets = extraire_pins("<synth>", src, nocom)
-        vu = sites_r1("<synth>", code, src, pins) or incomplets
+        vu = sites_r1("<synth>", code, src, pins, nocom) or incomplets
         if verbose:
             print("    legitime %-32s -> %s" % (nom, "ROUGE (!!)" if vu else "VERT"))
         if vu:
@@ -496,7 +507,7 @@ def main(argv) -> int:
         tous_pins.extend(pins)
         incomplets.extend(inc)
         if rel != FOYER:
-            r1.extend(sites_r1(rel, code, src, pins))
+            r1.extend(sites_r1(rel, code, src, pins, nocom))
 
     print("=== (2) R1 -- ARITHMETIQUE D'ADRESSE HORS FOYER ===")
     print("sites : %d" % len(r1))
