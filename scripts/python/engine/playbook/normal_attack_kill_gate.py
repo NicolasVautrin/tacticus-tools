@@ -47,6 +47,51 @@ from .common import DefaultActiveAbilityPlaybook
 from ..entities.active_ability_type import ActiveAbilityType
 
 
+def normal_attack_reaches(ctx, target, caster_tile) -> bool:
+    """L'ATTAQUE NORMALE du caster est-elle legale sur `target` DEPUIS `caster_tile` ?
+
+    BORNE DE PORT, et elle est MESUREE, pas supposee. Le natif obtient `WillBeKill == false` quand
+    la cible n'est pas atteignable a l'attaque normale depuis la tuile de cast -- constate live :
+    `astraOrdnance` en `(1,0)` bombarde (`BasiliskBarrage`) deux `adeptRetributor` a **1 PV** en
+    `(6,7)`/`(6,8)`, et le natif PROPOSE le cast. Le port, lui, rendait `killSure = True` avec
+    `healthDmgMin = 1` -- le PLANCHER de degat -- parce que
+    `engine.playbook.prediction.make_normal_attack_predictions` calcule une prediction HYPOTHETIQUE
+    sans regarder la portee. Sans cette borne le gate mordait donc a tort, et refusait une action
+    que le natif CHOISIT (le sens de divergence le plus grave : le port perd une action legale).
+
+    Ce n'est PAS le mirror d'une clause native -- `IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill`
+    n'en a pas -- mais du chemin par lequel le natif retombe sur `false` :
+    `IdunBattle.Core.Services.BattleQuery$$GetNormalAttackPrediction` delegue a un slot de service
+    qui n'a rien a rendre pour une paire hors portee. On le pose DANS le gate plutot que dans la
+    primitive partagee : `noncomparable/_base.py::_will_normal_attack_kill` sert des playbooks
+    valides live dont aucun n'exerce ce regime, et elargir leur comportement sortirait du perimetre.
+
+    SUBSTRAT : `ctx.plans` (les `attackPlans` natifs) -- un eval d'attaque NORMALE du caster sur
+    `target` dont les tuiles `ranked` contiennent `caster_tile`. Les tuiles rankees d'une paire
+    (ability, cible) sont exactement les positions d'ou le cast est legal (meme lecture que
+    `loki_custom.SorcerousFacadePlaybook._get_target`).
+
+    TRI-ETAT : plans ABSENTS pour ce caster (bridge offline, qui ne peuple que l'unite ACTIVE) ->
+    `True`, c.-a-d. la borne ne s'applique pas et le gate se comporte comme sans elle. Un `False`
+    par defaut desarmerait le gate partout ou le substrat est muet."""
+    plan = (getattr(ctx, "plans", None) or {}).get(ctx.uid)
+    if not plan:
+        return True
+    nids = getattr(ctx, "normal_ids", None) or set()
+    if not nids:
+        return True
+    seen_any = False
+    for ev in (plan.get("evals") or ()):
+        if ev.get("abilityId") not in nids:
+            continue
+        seen_any = True
+        if ev.get("targetId") != target or not ev.get("rankCount"):
+            continue
+        if any((rk.get("col"), rk.get("row")) == caster_tile for rk in (ev.get("ranked") or ())):
+            return True
+    return not seen_any
+
+
 class SpiritLeechPlaybook(DefaultActiveAbilityPlaybook):
     """`IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$ShouldExecute`, lu verbatim :
 
@@ -69,6 +114,8 @@ class SpiritLeechPlaybook(DefaultActiveAbilityPlaybook):
         self.ability_id = int(ability_id)
 
     def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
+        if not normal_attack_reaches(ctx, target, caster_tile):
+            return True                      # borne de port : rien a predire -> pas de kill
         return not self.will_normal_attack_kill(ctx, target, caster_tile)
 
 
@@ -116,6 +163,8 @@ class MultiThreatEliminatorPlaybook(DefaultActiveAbilityPlaybook):
     def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
         if not utility > 0.0:
             return False
+        if not normal_attack_reaches(ctx, target, caster_tile):
+            return True                      # borne de port (cf. `normal_attack_reaches`)
         return not self.will_normal_attack_kill(ctx, target, caster_tile)
 
 

@@ -1271,7 +1271,11 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
             return !BasePlaybook.WillNormalAttackKill(caster, target, casterTile);
 
         Cette classe est la SEULE des quatorze deja au registre (pour son `CalculateCustomUtility`)
-        -- d'ou la delegation ici plutot qu'une seconde inscription."""
+        -- d'ou la delegation ici plutot qu'une seconde inscription. Meme borne de port
+        (`normal_attack_reaches`) que les treize autres."""
+        from .normal_attack_kill_gate import normal_attack_reaches
+        if not normal_attack_reaches(ctx, target, caster_tile):
+            return True
         return not self.will_normal_attack_kill(ctx, target, caster_tile)
 
     # `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` : les trois traits qui REFUSENT le
