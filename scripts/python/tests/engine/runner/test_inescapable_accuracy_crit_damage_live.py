@@ -166,7 +166,11 @@ def test_gates_are_tristate_offline():
     assert e.create_effect_crit_damage_bonus_for_attack(None) is None            # ctx absent
     assert e.create_effect_crit_damage_bonus_for_attack({"is_ranged": None}) is None
     assert e.create_effect_crit_damage_bonus_for_attack({"is_ranged": False}) is None  # melee
-    ok = {"is_ranged": True, "has_moved": False}
+    # #589-r1-r1 : `get_OwnerIsCaster` a MIGRE du canal vers la classe (le balayage crit est
+    # desormais BOARD-WIDE, `board_effect_carriers`). L'identite du porteur fait donc partie du
+    # contexte du canal, et un `att_ctx` sans elle ferme le PREMIER noeud -- ce n'est pas un
+    # assouplissement du test, c'est le noeud lu a sa nouvelle place native.
+    ok = {"is_ranged": True, "has_moved": False, "owner_id": 1, "att_id": 1}
     assert e.create_effect_crit_damage_bonus_for_attack(ok) == _SCALED_180
     assert e.create_effect_crit_damage_bonus_for_attack({**ok, "has_moved": True}) is None, \
         "ActiveCondition NOT HasFlag(Owner, Moved) : une unite qui a bouge ne recoit RIEN"
@@ -191,7 +195,9 @@ def test_rarity_scaling_asymmetry_offline():
     import gameconfig as GC
     assert (GC.ability("InescapableAccuracy") or {}).get("variablesAffectedByRarityBonus") \
         == ["extraCritDmg"]
-    ranged = {"is_ranged": True, "has_moved": False}
+    # #589-r1-r1 : l'identite du porteur fait partie du contexte du canal depuis que
+    # `get_OwnerIsCaster` a MIGRE vers la classe (balayage crit BOARD-WIDE).
+    ranged = {"is_ranged": True, "has_moved": False, "owner_id": 1, "att_id": 1}
     for mult, want in ((100, _BASE_L50), (180, _SCALED_180)):
         dmg = InescapableAccuracyExtraCritDamageEffect(
             name=EFFECT_NAME, effect_type=EFFECT_TYPE, level=1, ability_level=50,

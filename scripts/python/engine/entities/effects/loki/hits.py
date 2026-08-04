@@ -14,7 +14,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
                                        for_percent_subtraction_capped)
 from ....services.damage_combat import BlockSource
 from ....services.static_battle_rules import TILE_STATUS_EFFECT_NAMES
-from ..base import BaseEffect, is_charging_attack
+from ..base import BaseEffect, is_charging_attack, owner_is_caster
 from ..magnitude import ability_var, global_value, trait_var
 
 
@@ -1474,7 +1474,17 @@ class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
 
         Le retour est un ENTIER (pas un `EffectBonus`) : le canal natif somme des scalaires
         (`GetCritDamageBonusFromEffects` accumule `addition - subtraction` de chaque `EffectBonus`
-        evalue), et son consommateur est `max(0, GetStat(10) + somme)`."""
+        evalue), et son consommateur est `max(0, GetStat(10) + somme)`.
+
+        ⚠ `get_OwnerIsCaster` etait rendu par le CANAL jusqu'a #589-r1-r1 : le balayage ne voyait
+        que les effets de l'ATTAQUANT. Il a MIGRE ICI, a sa place native, quand le balayage s'est
+        aligne sur l'univers natif (`board_effect_carriers`) pour `EmpyricAmbush` (1578), porte par
+        la CIBLE. Sans lui, un Ragnar SPECTATEUR EN CHARGE bufferait le crit d'un tiers.
+        NB : la face COUPS (`create_effect_hits_bonus_for_attack`) n'a PAS besoin de ce geste --
+        son agregateur (`hits_bonus_from_effects`) balaie toujours les seuls effets de
+        l'attaquant."""
+        if not owner_is_caster(att_ctx):                    # get_OwnerIsCaster
+            return None
         if not is_charging_attack(att_ctx):
             return None
         lvl = self.ability_level if self.ability_level is not None else self.level

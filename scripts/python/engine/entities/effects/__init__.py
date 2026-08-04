@@ -624,28 +624,44 @@ def aura_defense_damage_malus_from_units(carriers, ctx) -> list:
     return out
 
 
-def crit_chance_bonus_from_effects(effects, att_ctx=None) -> int:
-    """Σ des bonus de CHANCE de crit des effets ACTIFS de l'attaquant
+def crit_chance_bonus_from_effects(carriers, att_ctx=None) -> int:
+    """Σ des bonus de CHANCE de crit des effets ACTIFS du BOARD
     (`IdunBattle.Core.Services.DamagePrediction$$GetCritChanceBonusFromEffects) — couche calc-time ajoutée à
     `GetStat(9)` dans RollCritical (PAS dans GetStat ⇒ pas dans le combatSnapshot ⇒ à sommer ici).
 
     `att_ctx` = contexte du coup, threadé en UN SEUL point (`runner/operations/damage.py::
     AttackDamageOperation._crit_params`, la façade CRIT partagée par les 3 vecteurs d'attaque) —
     chaque effet évalue SES gates (`create_effect_crit_chance_bonus_for_attack(att_ctx)`). Le natif
-    construit son `AbilityEntities` (caster=owner=attaquant, target=cible) DANS le canal, à partir
-    des deux entités que son appelant lui passe : le contexte existe côté natif, il manquait
-    seulement côté port — symétrique exact du résidu `N14` du canal crit-DÉGÂT.
+    construit son `AbilityEntities` (caster = owner = attaquant, target = défenseur) DANS le canal,
+    à partir des deux entités que son appelant lui passe : le contexte existe côté natif, il
+    manquait seulement côté port — symétrique exact du résidu `N14` du canal crit-DÉGÂT.
 
-    ⚠ PORTÉE : cette boucle ne balaie que les effets de l'ATTAQUANT, alors que le natif énumère les
-    entités porteuses d'effets de tout l'état (même forme que `crit_damage_bonus_from_effects`).
-    Sans conséquence pour les porteurs actuels, dont le trigger commence par `get_OwnerIsCaster`.
+    ⚠ ÉLARGISSEMENT #589-r1-r1 — même geste, même cause que `block_hits_reduction_from_effects`
+    (`case-366-r1-blockhits-purgeresponse`), sur l'autre axe. Jusqu'à cette tranche la boucle ne
+    balayait que les effets de l'ATTAQUANT, ce qui RENDAIT le nœud `get_OwnerIsCaster` des seuls
+    implémenteurs alors portés (`WarHowl_ExtraDamage_Unstoppable` 1222,
+    `InescapableAccuracy_extraCritChance` 1115). RELU dans le décompilé : le canal natif construit
+    son `AbilityEntities` en `(attacker, attacker, defender)` puis, dans la boucle sur les effets,
+    **ÉCRASE `AbilityEntities+0x18` (`Owner`) par le porteur de l'effet courant** — la même boucle
+    `effets × cibles` que `DamagePrediction$$GetAttackHits`. Le porteur peut donc être n'importe
+    qui sur le board, et `EmpyricAmbush` (1578) est justement porté par la **CIBLE**
+    (`get_OwnerIsTarget`). Le balayage est aligné sur l'univers natif (`board_effect_carriers`), et
+    `get_OwnerIsCaster` a MIGRÉ dans les classes qui le portent — une seule sémantique, déplacée à
+    sa place native, pas ajoutée. Sans ce second geste l'élargissement rendrait 1222/1115
+    PERMISSIFS (un porteur spectateur bufferait un tiers).
+
+    `carriers` = `[(owner_id, effets)]`, et l'agrégateur pose `owner_id` dans le contexte de chaque
+    appel : c'est le mirror de l'écriture `AbilityEntities+0x18`.
 
     No-op (0) tant qu'aucun effet n'override `create_effect_crit_chance_bonus_for_attack`."""
+    base = dict(att_ctx or {})
     total = 0
-    for e in _as_effects(effects):
-        b = e.create_effect_crit_chance_bonus_for_attack(att_ctx)
-        if b is not None:
-            total += b
+    for owner_id, effs in (carriers or []):
+        octx = {**base, "owner_id": owner_id}
+        for e in _as_effects(effs):
+            b = e.create_effect_crit_chance_bonus_for_attack(octx)
+            if b is not None:
+                total += b
     return total
 
 
@@ -666,28 +682,41 @@ def piercing_bonus_from_effects(effects, ctx=None) -> int:
     return total
 
 
-def crit_damage_bonus_from_effects(effects, att_ctx=None) -> int:
-    """Σ des bonus de DÉGÂT de crit des effets ACTIFS de l'attaquant — mirror de la boucle
+def crit_damage_bonus_from_effects(carriers, att_ctx=None) -> int:
+    """Σ des bonus de DÉGÂT de crit des effets ACTIFS du BOARD — mirror de la boucle
     `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects`, couche calc-time
     ajoutée à `GetStat(10)` dans `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage`.
 
     `att_ctx` = contexte du coup, threadé en UN SEUL point (`runner/operations/damage.py::
     AttackDamageOperation._crit_params`, la façade CRIT partagée par les 3 vecteurs d'attaque) —
     chaque effet évalue SES gates (`create_effect_crit_damage_bonus_for_attack(att_ctx)`). Le natif
-    construit son `AbilityEntities` (caster=owner=attaquant, target=cible) DANS le canal, à partir
-    des deux entités que `CalculateCriticalDamage` lui passe : le contexte existe côté natif, il
-    manquait seulement côté port (résidu `N14`).
+    construit son `AbilityEntities` (caster = owner = attaquant, target = cible) DANS le canal, à
+    partir des deux entités que `CalculateCriticalDamage` lui passe : le contexte existe côté
+    natif, il manquait seulement côté port (résidu `N14`).
 
-    ⚠ PORTÉE : cette boucle ne balaie que les effets de l'ATTAQUANT. Le natif énumère aussi les effets
-    d'AUTRES entités — `IdunBattle.Entities.Effects.Loki.AmuletOfTheVoidwyrm_CritDamageReductionEffect$$CreateCritDamageBonus`
-    = `ForSubtraction(get_OwnerIsTarget, GetCritDmgReductionAmount())` vit sur la CIBLE. Aucune
-    réduction crit défenseur n'est portée à ce jour (toutes rendent None) -> no-op, mais l'axe
-    DÉFENSEUR de ce canal reste un gisement séparé."""
+    ⚠ ÉLARGISSEMENT #589-r1-r1 — ce canal avait le MÊME résidu de portée que son frère crit-CHANCE,
+    et il était déjà NOMMÉ ici : `AmuletOfTheVoidwyrm_CritDamageReductionEffect$$
+    CreateCritDamageBonus` = `ForSubtraction(get_OwnerIsTarget, …)` vit sur la CIBLE. RELU dans le
+    décompilé : la boucle native ÉCRASE `AbilityEntities+0x18` (`Owner`) par le porteur de l'effet
+    courant à chaque itération, donc `get_OwnerIsTarget` y est parfaitement évaluable. Le balayage
+    est aligné sur l'univers natif (`board_effect_carriers`) pour `EmpyricAmbush` (1578), qui est
+    porté par la cible ; `get_OwnerIsCaster` a MIGRÉ dans les classes qui le portent (1116, 1222,
+    `SmashaEad`), sans quoi l'élargissement les rendrait PERMISSIFS.
+
+    `carriers` = `[(owner_id, effets)]`, et l'agrégateur pose `owner_id` dans le contexte de chaque
+    appel : c'est le mirror de l'écriture `AbilityEntities+0x18`.
+
+    ⚠ TOUJOURS NON COUVERT : `AmuletOfTheVoidwyrm_CritDamageReduction` n'est pas porté (il rend
+    `None`) — l'axe RÉDUCTION défenseur de ce canal reste un gisement séparé. L'élargissement le
+    rend désormais ATTEIGNABLE, il ne le porte pas."""
+    base = dict(att_ctx or {})
     total = 0
-    for e in _as_effects(effects):
-        b = e.create_effect_crit_damage_bonus_for_attack(att_ctx)
-        if b is not None:
-            total += b
+    for owner_id, effs in (carriers or []):
+        octx = {**base, "owner_id": owner_id}
+        for e in _as_effects(effs):
+            b = e.create_effect_crit_damage_bonus_for_attack(octx)
+            if b is not None:
+                total += b
     return total
 
 

@@ -151,7 +151,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ..base import BaseEffect, is_ranged_attack
+from ..base import BaseEffect, is_ranged_attack, owner_is_caster
 from ..magnitude import ability_var
 
 _ABILITY_ID = "InescapableAccuracy"   # TriggeredAbilityType 0x45b = 1115 (passif, eldarMauganRa)
@@ -207,10 +207,15 @@ class InescapableAccuracyExtraCritChanceEffect(_InescapableAccuracyEffect):
             le mouvement est PROUVE ; la cle absente laisse passer, exactement comme
             `CrushingStrikeEffect` (#98), qui porte le MEME predicat natif par le MEME idiome.
 
-        `get_OwnerIsCaster` est rendu par le CANAL (`crit_chance_bonus_from_effects` n'itere que les
-        effets de l'ATTAQUANT). AUCUN gate `IsNormalAttack` cote natif -> le bonus vaut aussi pour
-        les attaques d'ABILITY a distance ; ne pas en ajouter un par analogie avec 1222."""
+        ⚠ `get_OwnerIsCaster` etait rendu par le CANAL jusqu'a #589-r1-r1 : le balayage ne voyait
+        que les effets de l'ATTAQUANT. Il a MIGRE ICI, a sa place native, quand le balayage s'est
+        aligne sur l'univers natif (`board_effect_carriers`) pour `EmpyricAmbush` (1578), qui est
+        porte par la CIBLE. Sans ce noeud, un Maugan Ra SPECTATEUR bufferait le crit d'un tiers.
+        AUCUN gate `IsNormalAttack` cote natif -> le bonus vaut aussi pour les attaques d'ABILITY a
+        distance ; ne pas en ajouter un par analogie avec 1222."""
         c = att_ctx or {}
+        if not owner_is_caster(c):                          # get_OwnerIsCaster
+            return None
         if not is_ranged_attack(c.get("is_ranged")):        # IsRangedAttack
             return None
         if c.get("has_moved"):                              # ActiveCondition NOT HasFlag(Moved)
@@ -249,13 +254,16 @@ class InescapableAccuracyExtraCritDamageEffect(_InescapableAccuracyEffect):
             avec `is_active` et VOULUE telle (l'agregateur `crit_damage_bonus_from_effects` ne
             filtre PAS sur `is_active` : le gate du canal est la garde effective).
 
-        `get_OwnerIsCaster` est rendu par le CANAL (`crit_damage_bonus_from_effects` n'itere que les
-        effets de l'ATTAQUANT). AUCUN gate `IsNormalAttack` cote natif -> le bonus vaut aussi pour
-        les attaques d'ABILITY a distance ; ne pas en ajouter un par analogie avec 1222.
+        ⚠ `get_OwnerIsCaster` etait rendu par le CANAL jusqu'a #589-r1-r1, exactement comme chez son
+        frere 1115 : il a MIGRE ICI quand le balayage s'est aligne sur l'univers natif
+        (`board_effect_carriers`). AUCUN gate `IsNormalAttack` cote natif -> le bonus vaut aussi
+        pour les attaques d'ABILITY a distance ; ne pas en ajouter un par analogie avec 1222.
 
         ⚠ `extraCritDmg` EST dans `variablesAffectedByRarityBonus` (contrairement a
         `extraCritChance`) : `ability_var` applique le multiplicateur de rarete du porteur."""
         c = att_ctx or {}
+        if not owner_is_caster(c):                          # get_OwnerIsCaster
+            return None
         if not is_ranged_attack(c.get("is_ranged")):        # IsRangedAttack
             return None
         if c.get("has_moved"):                              # ActiveCondition NOT HasFlag(Moved)

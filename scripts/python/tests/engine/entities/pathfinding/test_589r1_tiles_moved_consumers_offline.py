@@ -216,12 +216,16 @@ def test_le_consommateur_PORTE_est_LINEAIRE_donc_4_vers_6_le_change():
 
 
 def test_aucun_trigger_a_SEUIL_n_est_porte_sinon_l_aval_est_a_RECONFRONTER():
-    """Les trois autres porteurs natifs (`EmpyricAmbush`, `MastersOfManoeuvre`, `SmashaEad`)
-    n'ont AUCUN trigger porte -- leur seuil n'est donc exerce nulle part dans le moteur. C'est
-    ce qui rend le verdict « aval sature » suffisant AUJOURD'HUI.
+    """Les DEUX porteurs a seuil encore non exerces (`MastersOfManoeuvre`, `SmashaEad`) n'ont
+    AUCUN trigger porte -- leur seuil n'est donc exerce nulle part dans le moteur, et c'est ce qui
+    rend le verdict « aval sature » suffisant pour eux. Tous deux ont un seuil de **2**, donc SOUS
+    la borne : meme exerces, ils ne pourraient pas basculer.
 
-    Le jour ou l'un d'eux entre au registre des triggers, ce cran rougit : `EmpyricAmbush` a un
-    seuil de **4**, au-dessus de la borne, et **22 a 24 couples de `C1_74` le font basculer**."""
+    ⚠ `EmpyricAmbush` est SORTI de cette liste en #589-r1-r1, et ce n'est pas un contournement :
+    son seuil est desormais EXERCE (l'effet 1578 est porte, cf. `EmpyricAmbushEffect`) et il a ete
+    CONFRONTE au natif -- c'est exactement ce que ce cran reclamait. Le garde qui le remplace est
+    `test_le_seuil_porte_d_EmpyricAmbush_bascule_a_movement` ci-dessous, plus le cliquet live
+    `tests/engine/runner/test_empyric_ambush_threshold_live.py`."""
     import pathlib
     import re
 
@@ -229,7 +233,57 @@ def test_aucun_trigger_a_SEUIL_n_est_porte_sinon_l_aval_est_a_RECONFRONTER():
         / "triggers"
     assert trig.is_dir(), trig
     src = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in trig.rglob("*.py"))
-    for ab in ("EmpyricAmbush", "MastersOfManoeuvre", "SmashaEad"):
+    for ab in ("MastersOfManoeuvre", "SmashaEad"):
         assert not re.search(r"(?<![\w])%s(?![\w])" % ab, src), (
             "`%s` a maintenant un trigger porte : son seuil est desormais exerce, l'aval de #589 "
             "doit etre RECONFRONTE pour ce consommateur" % ab)
+
+
+def test_le_seuil_porte_d_EmpyricAmbush_bascule_a_movement():
+    """LE GARDE qui remplace l'inscription d'`EmpyricAmbush` a la liste ci-dessus (#589-r1-r1).
+
+    Le seuil natif est `AmountIsEqualOrGreater(TilesMovedThisTurn(Caster@DSLSelectors+0x48),
+    Direct(GetNumberConstant(0x51 = movement)))`. Il est RELU du gameconfig, jamais code en dur :
+    si la config bougeait, ce cran suivrait -- et si le port cessait de basculer AU seuil, il
+    rougirait. Confronte live (natif == port sur n = 2, 3, 4, 5, deux regimes) :
+    `probe_589r1r1_empyric_ambush_live.py`.
+
+    Le SUJET est le CASTER DE L'ATTAQUE, pas le porteur : le contexte porte donc `att_*`, et
+    `owner_id`/`tgt_id` ne servent qu'au `get_OwnerIsTarget` du canal."""
+    import gameconfig as GC
+    from engine.entities.effects.loki.empyric_ambush import EmpyricAmbushEffect
+
+    k = int(((GC.ability("EmpyricAmbush") or {}).get("constants") or {}).get("movement"))
+    assert k > 2, "EmpyricAmbush est passe sous la borne -- il redevient sature, a re-mesurer"
+
+    e = EmpyricAmbushEffect(name="EmpyricAmbush", effect_type=1578, active_ability_level=50,
+                            ability_variables_multiplier=180, source=7)
+    # ATTAQUANT : Hero, NON-Aeldari (sinon le `op_BitwiseOr` sature), ennemi de la cible, ami de la
+    # source (7) et distinct d'elle ; PORTEUR de l'effet == la cible du coup (`get_OwnerIsTarget`).
+    ctx = {"att_id": 1, "tgt_id": 9, "owner_id": 9, "att_team": 0, "tgt_team": 1,
+           "team_by_id": {1: 0, 7: 0, 9: 1}, "att_faction": "Ultramarines", "att_traits": ("Hero",)}
+
+    for n in range(0, k):
+        assert e.create_effect_crit_chance_bonus_for_attack({**ctx, "tiles_moved_this_turn": n}) is None
+        assert e.create_effect_crit_damage_bonus_for_attack({**ctx, "tiles_moved_this_turn": n}) is None
+    for n in (k, k + 1):
+        cc = e.create_effect_crit_chance_bonus_for_attack({**ctx, "tiles_moved_this_turn": n})
+        cd = e.create_effect_crit_damage_bonus_for_attack({**ctx, "tiles_moved_this_turn": n})
+        assert isinstance(cc, int) and cc > 0, "n=%d >= %d doit ouvrir extraCritChance" % (n, k)
+        assert isinstance(cd, int) and cd > 0, "n=%d >= %d doit ouvrir extraCritDmg" % (n, k)
+
+    # TRI-ETAT : compteur NON MESURE != compteur a zero (« present != applique »).
+    assert e.create_effect_crit_chance_bonus_for_attack(ctx) is None
+
+    # Le OR : un attaquant AELDARI passe SANS avoir bouge -- c'est ce qui rend le regime de mesure
+    # degenere si on choisit mal l'attaquant, et c'est pourquoi le probe le REFUSE.
+    aeldari = {**ctx, "att_faction": "Aeldari", "tiles_moved_this_turn": 0}
+    assert e.create_effect_crit_chance_bonus_for_attack(aeldari), "HasFaction(Aeldari) doit ouvrir"
+
+    # Le SUJET est le CASTER : le compteur du PORTEUR ne doit RIEN ouvrir (confronte live).
+    assert e.create_effect_crit_chance_bonus_for_attack(
+        {**ctx, "tiles_moved_this_turn": 0, "owner_tiles_moved_this_turn": k + 5}) is None
+
+    # `get_OwnerIsTarget` : un porteur qui n'est PAS le defenseur ne contribue pas.
+    assert e.create_effect_crit_chance_bonus_for_attack(
+        {**ctx, "owner_id": 5, "tiles_moved_this_turn": k}) is None

@@ -902,18 +902,107 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             `CreateActiveCondition` de `InescapableAccuracy_extraCritChance` (1115). Pose des que
             l'ATTAQUANT est identifie ; lu du store UNIQUE `UnitFlagsComponent` (`unit_has_moved`),
             le MEME que le gate deja porte de `CrushingStrike`/`HeavyWeapon_ExtraDmg` sur l'axe
-            DEGAT -- les deux axes ne peuvent donc pas diverger."""
+            DEGAT -- les deux axes ne peuvent donc pas diverger.
+
+        BALAYAGE BOARD-WIDE (#589-r1-r1). Les deux canaux natifs construisent leur `AbilityEntities`
+        en `(attacker, attacker, defender)` puis, dans leur boucle sur les effets, **ECRASENT
+        `AbilityEntities+0x18` (`Owner`) par le porteur de l'effet courant** -- exactement la boucle
+        `effets x cibles` que `case-366-r1-blockhits-purgeresponse` a relue sur
+        `DamagePrediction$$GetAttackHits`. Le porteur n'est donc PAS forcement l'attaquant, et
+        `EmpyricAmbush` (1578) est justement porte par la CIBLE (`get_OwnerIsTarget`). L'univers du
+        balayage est aligne sur `EffectsQuery$$GetActiveEffectsWithBonuses` via
+        `board_effect_carriers`, et `get_OwnerIsCaster` a MIGRE dans les classes qui le portent
+        (1115, 1116, 1222, `SagaOfTheWarriorBorn_Owner`).
+
+        Les cles du trigger de 1578 sont posees ICI, au meme foyer, chacune UN noeud DSL :
+          * `att_id` / `tgt_id`      -> `get_OwnerIsTarget` (via `owner_id`) et
+            `NOT AreEqual(Caster, EffectSource)` ;
+          * `att_team` / `tgt_team`  -> `AreEnemies(Caster, Target, 0 = ByCurrentTeam)` ;
+          * `team_by_id`             -> `AreFriends(Caster, EffectSource)` -- la SOURCE de l'effet
+            est un id quelconque du board, seul un mapping peut rendre son equipe (meme substrat que
+            `build_hits_board`, qui pose deja `team_by_id` sur l'axe COUPS) ;
+          * `att_faction`            -> `HasFaction(Caster, 8 = Aeldari)`. MEME source
+            (`FactionId` du gameconfig) que les canaux DEGAT et COUPS ;
+          * `att_traits`             -> `HasTrait(Caster, 0x10 = Hero)`. Substrat d'ENTITE
+            (`entity_trait_names`), pas le kit gameconfig -- #264 ;
+          * `tiles_moved_this_turn`  -> `TilesMovedThisTurn(Caster)`, lu du compteur REEL de l'ECS
+            (`unit_tiles_moved_this_turn`), le MEME store que l'axe DEGAT (`attacker_modifiers`)."""
         att_ctx = {"is_ranged": is_ranged, "is_normal_attack": is_normal_attack,
-                   "caster_crit_chance": int(ctx.stat(StatType.CRIT_CHANCE) or 0)}
+                   "caster_crit_chance": int(ctx.stat(StatType.CRIT_CHANCE) or 0),
+                   "att_id": att_id, "tgt_id": tgt_id}
+        carriers = [(att_id, attacker_effects)]
         if state is not None and att_id is not None:
-            from ..components import unit_has_moved
+            from ..components import unit_has_moved, unit_tiles_moved_this_turn
             att_ctx["has_moved"] = unit_has_moved(state, int(att_id))
+            att_ctx["tiles_moved_this_turn"] = unit_tiles_moved_this_turn(state, int(att_id))
         if state is not None and att_id is not None and tgt_id is not None:
             from ..damage_model import battle_query_is_charging
             att_ctx["is_charging"] = battle_query_is_charging(state, int(att_id), int(tgt_id))
-        cc = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(attacker_effects, att_ctx)
-        cd = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(attacker_effects, att_ctx)
+        if state is not None:
+            att_ctx.update(AttackDamageOperation._crit_board(state, att_id, tgt_id))
+            carriers = AttackDamageOperation._crit_carriers(state, att_id, attacker_effects, tgt_id)
+        cc = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(carriers, att_ctx)
+        cd = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(carriers, att_ctx)
         return cc, cd, could_crit(cc, cd)
+
+    @staticmethod
+    def _crit_board(state: State, att_id, tgt_id) -> dict:
+        """Substrat d'ETAT du canal CRIT : les cles que le trigger d'un `EffectBonus` peut lire sur
+        les DEUX entites du coup. Mirror des slots `Caster@DSLSelectors+0x48` /
+        `Target@+0x60` de l'`AbilityEntities` que les canaux natifs batissent.
+
+        Meme sources que les canaux DEGAT et COUPS, jamais re-derivees : `OwnerComponent.team`,
+        `FactionId` du gameconfig, `entity_trait_names` (substrat d'ENTITE -- #264 : les traits en
+        bataille != le kit)."""
+        from ...entities.traits.unit_trait import entity_trait_names
+        from ..components import OwnerComponent, StatsComponent, UnitComponent
+        from ..damage_model import _unit_gameconfig
+        team_by_id: dict = {}
+        for uid, e in state.entities.items():
+            oc = e.get_component(OwnerComponent)
+            if oc is not None:
+                team_by_id[uid] = oc.team
+        att_traits = None
+        if att_id is not None:
+            ae = state.entities.get(int(att_id))
+            auc = ae.get_component(UnitComponent) if ae is not None else None
+            asc = ae.get_component(StatsComponent) if ae is not None else None
+            if auc is not None:
+                att_traits = entity_trait_names(asc.ctx if asc is not None else None, auc.visual_id)
+        return {"team_by_id": team_by_id,
+                "att_team": team_by_id.get(att_id), "tgt_team": team_by_id.get(tgt_id),
+                "att_faction": (_unit_gameconfig(state, att_id) or {}).get("FactionId"),
+                "att_traits": att_traits}
+
+    @staticmethod
+    def _crit_carriers(state: State, att_id, attacker_effects, tgt_id) -> list:
+        """Univers du balayage des deux canaux CRIT -- mirror de
+        `IdunBattle.Core.Services.EffectsQuery$$GetActiveEffectsWithBonuses`, qui ne prend AUCUN
+        argument de portee : elle enumere les entites-effet du monde, filtre sur
+        `EffectComponent+0x5c` (`IsActive`) et rend `(effet, cibles)`.
+
+        Meme construction que celle de l'axe COUPS (`build_hits_board` + `board_effect_carriers`) :
+        VIVANTS seulement (#57m -- un mort n'est plus sur le board), cible conservee (vivante par
+        construction d'une attaque), attaquant et cible en TETE, dedup par `owner_id`.
+
+        ⚠ NON COUVERT, comme sur l'axe COUPS : les effets portes par une TUILE."""
+        from ..components import UnitComponent, unit_state_for_effects
+        from ...entities.effects import board_effect_carriers
+        others: list = []
+        target_effects: list = []
+        for uid, e in state.entities.items():
+            if uid == att_id:
+                continue
+            uc = e.get_component(UnitComponent)
+            if uid != tgt_id and uc is not None and not uc.alive:
+                continue
+            effs = (state.effects.active_effects(uid, unit_state_for_effects(state, uid))
+                    if state.effects is not None else [])
+            if uid == tgt_id:
+                target_effects = effs
+            else:
+                others.append((uid, effs))
+        return board_effect_carriers(att_id, attacker_effects, tgt_id, target_effects, others)
 
     @staticmethod
     def _target_limits(tgt, thc, damage_profile: Optional[str] = None,

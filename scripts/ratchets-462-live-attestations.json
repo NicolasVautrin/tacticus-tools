@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785866139,
+ "_ecrit_le": 1785869040,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -1036,6 +1036,20 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_empyric_ambush_threshold_live.py": {
+   "_at": 1785869040,
+   "_blob": "d6563fb38b1fe72c81692d1ae1ead7a7853f9250",
+   "_commit": "93e340822a241e951443d77145c0400d241f1ffe",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-ad1809737adcfacb2",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 5,
+   "sec": 69.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_executioner_live.py": {
    "_at": 1785763651,
    "_blob": "ebeaa83593c24072c24300f3a8be8e9a334d27db",
@@ -1380,6 +1394,34 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_inescapable_accuracy_crit_chance_live.py": {
+   "_at": 1785869040,
+   "_blob": "38d66b67189e59fe29cb189634656c5dadf2cda9",
+   "_commit": "93e340822a241e951443d77145c0400d241f1ffe",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-ad1809737adcfacb2",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 7,
+   "sec": 59.2,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_inescapable_accuracy_crit_damage_live.py": {
+   "_at": 1785869040,
+   "_blob": "574a57dd3b367aab008925d4067d4633f12d9ff7",
+   "_commit": "93e340822a241e951443d77145c0400d241f1ffe",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-ad1809737adcfacb2",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 11,
+   "sec": 70.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_ironkin_steeljack_live.py": {
    "_at": 1785763651,
    "_blob": "c6d6071b7a335d6389d919ad5415280ffe42d35d",
@@ -1406,13 +1448,15 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_ischarging_saga_crit_live.py": {
-   "_at": 1785765555,
-   "_blob": "a4909a6ac5791c9330b539837531fa3167182f9b",
-   "_commit": "be1daa7795c4f3ccaafdf64a1b4c9c6a942ff521",
+   "_at": 1785869040,
+   "_blob": "673baf86bc904372d6f7c86f62fff824462852a2",
+   "_commit": "93e340822a241e951443d77145c0400d241f1ffe",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-ad1809737adcfacb2",
    "error": 0,
    "failed": 0,
+   "messages": [],
    "passed": 8,
-   "sec": 781.4,
+   "sec": 214.0,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -2783,6 +2827,20 @@
    "messages": [],
    "passed": 6,
    "sec": 17.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_war_howl_extra_damage_live.py": {
+   "_at": 1785869040,
+   "_blob": "ad0a80b878dba029f4a61ff99d0a51a561473483",
+   "_commit": "93e340822a241e951443d77145c0400d241f1ffe",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-ad1809737adcfacb2",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 7,
+   "sec": 190.4,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0

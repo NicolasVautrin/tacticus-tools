@@ -86,7 +86,7 @@
 |---|---|---|---|---|
 | astraDreir | 2 | LeadingTheCharge(1204) [--] NO-OP DAMAGE(Power) | ToughToKill | - |
 | astraOrdnance | 1 | BasiliskBarrage(1026) [C-] OK | - | IndirectFire(x9) |
-| astraPrimarisPsy | 1 | PsychicMaelstrom(1027) [--] NO-OP DAMAGE(Psychic) | - | - |
+| astraPrimarisPsy | 1 | PsychicMaelstrom(1027) [-D] NO-OP DAMAGE(Psychic) | - | - |
 | astraYarrick | 1 | SendInTheNextWave(1016) [CD] OK | SummaryExecution | - |
 
 ### BlackLegion — 3 kits, 3 items
@@ -101,7 +101,7 @@
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| templAggressor | 2 | FragstormGrenadeLauncher(1048) [--] NO-OP DAMAGE(Blast) | Boltstorm | - |
+| templAggressor | 2 | FragstormGrenadeLauncher(1048) [-D] NO-OP DAMAGE(Blast) | Boltstorm | - |
 | templAncient | 1 | UnbreakableDuty(1061) [--] NO-OP EFFECT/BUFF | - | - |
 | templChampion | 1 | HolyDuel(1050) [-D] NO-OP EFFECT/BUFF | - | - |
 | templHelbrecht | 1 | CrusadeOfWrath(1049) [--] NO-OP EFFECT/BUFF | - | - |
@@ -131,7 +131,7 @@
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | darkaCompanion | 1 | CalibaniteGreatsword(1189) [C-] OK | EnmityForTheUnworthy | - |
-| darkaHellblaster | 1 | Supercharge(1103) [C-] OK | GrimRetribution | - |
+| darkaHellblaster | 1 | Supercharge(1103) [CD] OK | GrimRetribution | - |
 | darkaSternguard | 2 | SternguardFocus(1228) [--] NO-OP EFFECT/BUFF | SpecialIssueCombiMelta | - |
 | darkaTerminator | 1 | PlasmaCannon(1150) [CD] OK | Deathwing | - |
 
@@ -167,7 +167,7 @@
 | votanChampion | 1 | MassDriverAccelerator(1222) [-D] NO-OP DAMAGE(DirectDamage) | - | - |
 | votanIronmaster | 1 | GravitonRifle(1206) [C-] OK | EcogSupport | - |
 | votanMemnyr | 1 | IronkinSteeljack(1219) [C-] OK | PredictiveGuidance | - |
-| votanUthar | 1 | AncestralFortune(1207) [C-] OK | GrimEfficiency | - |
+| votanUthar | 1 | AncestralFortune(1207) [CD] OK | GrimEfficiency | - |
 
 ### Necrons — 5 kits, 6 items
 
@@ -175,7 +175,7 @@
 |---|---|---|---|---|
 | necroChronomancer | 1 | Chronometron(1226) [CD] OK | TimesplinterMantle | - |
 | necroDestroyer | 1 | MultiThreatEliminator(1006) [CD] OK | InescapableDeath | - |
-| necroPlasmancer | 1 | HarbingerOfDestruction(1008) [C-] OK | LivingLightning | - |
+| necroPlasmancer | 1 | HarbingerOfDestruction(1008) [CD] OK | LivingLightning | - |
 | necroReanimator | 2 | ReanimationBeam(1223) [--] NO-OP REPAIR<br>NanoscarabRepairProtocols(1224) [--] NO-OP REPAIR | - | - |
 | necroWarden | 1 | AdaptiveStrategy(1005) [--] NO-OP EFFECT/BUFF | - | - |
 
@@ -191,9 +191,9 @@
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| adeptCelestine | 1 | SkyStrike(1025) [C-] OK | GeminaeSuperia | - |
+| adeptCelestine | 1 | SkyStrike(1025) [CD] OK | GeminaeSuperia | - |
 | adeptHospitaller | 2 | RitesOfRestoration(1039) [-D] NO-OP HEAL | MedicusMinistorum | - |
-| adeptMorvenn | 1 | SanctorumMissile(1062) [C-] OK | RighteousRepugnance | - |
+| adeptMorvenn | 1 | SanctorumMissile(1062) [CD] OK | RighteousRepugnance | - |
 | adeptRetributor | 1 | ArmoriumCherub(1014) [CD] OK | FireOfAbsolution | - |
 
 ### SpaceWolves — 4 kits, 5 items
@@ -203,7 +203,7 @@
 | spaceBlackmane | 1 | WarHowl(1106) [--] NO-OP EFFECT/BUFF | - | - |
 | spaceHound | 1 | GrapnelLauncher(1090) [CD] OK | HuntersBeyondDeath | - |
 | spaceWolfPriest | 2 | RitesOfMorkai(1211) [--] NO-OP EFFECT/BUFF | HealingBalms | - |
-| spaceWulfen | 1 | GreatFrostAxe(1089) [C-] OK | SavageKiller | - |
+| spaceWulfen | 1 | GreatFrostAxe(1089) [CD] OK | SavageKiller | - |
 
 ### Tau — 4 kits, 5 items
 
@@ -211,7 +211,7 @@
 |---|---|---|---|---|
 | tauAunShi | 1 | InspiredToGreatness(1082) [CD] OK | SereneUnifier | - |
 | tauFarsight | 2 | ExemplarOfTheMontka(1210) [--] NO-OP EFFECT/BUFF | WayOfTheShortBlade | - |
-| tauMarksman | 1 | SeekerMissileFrequencyLock(1069) [--] NO-OP DAMAGE(HeavyRound) | - | - |
+| tauMarksman | 1 | SeekerMissileFrequencyLock(1069) [-D] NO-OP DAMAGE(HeavyRound) | - | - |
 | tauShadowsun | 1 | ExemplarOfTheKauyon(1087) [--] NO-OP DAMAGE(Blast) | - | - |
 
 ### ThousandSons — 4 kits, 6 items
