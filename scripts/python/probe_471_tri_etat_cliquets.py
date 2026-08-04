@@ -230,27 +230,34 @@ def test_rouge_par_construction():
 '''
 
 
-def _faux_depot(base: Path, avec_rouge: bool) -> Path:
-    """Un depot git JETABLE qui contient `probe_457` et un ou deux tests. Rend sa racine.
+def _git_du_faux(base: Path, *argv) -> None:
+    r = subprocess.run(["git", "-C", str(base), *argv], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        raise RuntimeError("montage du faux depot : `git %s` rc=%d %s"
+                           % (argv[0], r.returncode, (r.stderr or "")[:200]))
+
+
+def _faux_depot(base: Path) -> Path:
+    """Un depot git JETABLE qui contient `probe_457` et UN test qui passe. Rend sa racine.
 
     Le probe derive sa racine de son PROPRE fichier (`_PYDIR.parents[1]`) et son perimetre de
     `git ls-files` : recopier le probe dans une arborescence `scripts/python/` suffit donc a le
     faire travailler sur ce depot-la, sans toucher au vrai. C'est ce qui rend la contre-epreuve
     REELLE (le vrai binaire, le vrai pytest, le vrai git) et non simulee.
+
+    UN SEUL depot pour les trois scenarios, qui le font EVOLUER (ajout du test rouge, puis retrait
+    de `.git`). Ce n'est pas qu'une economie de mur : le scenario << montage casse >> herite ainsi
+    du test ROUGE, donc son `99` ne peut pas venir d'une absence de gisement -- il y avait bien de
+    quoi rougir, et le probe a quand meme dit << je n'ai pas pu mesurer >>.
     """
     py = base / "scripts" / "python"
     (py / "tests").mkdir(parents=True)
     shutil.copy2(PROBE_457, py / PROBE_457.name)
     shutil.copy2(PY_DIR / "pytest.ini", py / "pytest.ini")
     (py / "tests" / "test_vert_offline.py").write_text(_TEST_VERT, encoding="utf-8")
-    if avec_rouge:
-        (py / "tests" / "test_rouge_offline.py").write_text(_TEST_ROUGE, encoding="utf-8")
-    for argv in (["init", "-q"], ["add", "-A"]):
-        r = subprocess.run(["git", "-C", str(base), *argv], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace")
-        if r.returncode != 0:
-            raise RuntimeError("montage du faux depot : `git %s` rc=%d %s"
-                               % (argv[0], r.returncode, (r.stderr or "")[:200]))
+    _git_du_faux(base, "init", "-q")
+    _git_du_faux(base, "add", "-A")
     return base
 
 
@@ -300,26 +307,30 @@ def etape_contre_epreuve(verbeux: bool) -> int:
     # que la banque enumere en parallele -- c'est la course mesuree entre probe_455 et probe_391.
     tmp = Path(tempfile.mkdtemp(prefix="probe471-"))
     try:
+        depot = _faux_depot(tmp / "depot")
+
         # -- a) le TEMOIN VERT. Sans lui, un probe qui rendrait 1 ou 99 EN TOUTES CIRCONSTANCES
         #       passerait les deux scenarios suivants : le vert est ce qui les rend discriminants.
-        vert = _faux_depot(tmp / "vert", avec_rouge=False)
-        rc, out = _jouer_457(vert)
+        rc, out = _jouer_457(depot)
         ko += _verifier("VERT", rc, out, 0,
                         ["VERDICT: PASS", "1 test(s) joue(s)"], ["Traceback"], verbeux)
 
         # -- b) un vrai test ROUGE -> rc=1. `1 failed` prouve que le test a bien ETE JOUE : sans
         #       cette exigence, un montage casse par accident rendrait 1 et passerait pour un rouge.
-        rouge = _faux_depot(tmp / "rouge", avec_rouge=True)
-        rc, out = _jouer_457(rouge)
+        (depot / "scripts" / "python" / "tests" / "test_rouge_offline.py").write_text(
+            _TEST_ROUGE, encoding="utf-8")
+        _git_du_faux(depot, "add", "-A")
+        rc, out = _jouer_457(depot)
         ko += _verifier("ROUGE", rc, out, 1,
                         ["VERDICT: FAIL", "1 failed"], [], verbeux)
 
         # -- c) le MONTAGE CASSE -> rc=99. On reproduit le gisement EXACT du 2026-08-04 : `git
         #       ls-files` en echec. En retirant `.git`, git rend 128 << not a git repository >>,
         #       c'est-a-dire le rc mesure -- pas un sabotage artificiel du binaire.
-        casse = _faux_depot(tmp / "casse", avec_rouge=False)
-        (casse / ".git").rename(casse / "git-neutralise")
-        rc, out = _jouer_457(casse)
+        #       Le test ROUGE est TOUJOURS LA : le 99 ne peut donc pas venir d'une absence de
+        #       gisement. Il y avait de quoi rougir, et le probe a dit << je n'ai pas pu mesurer >>.
+        (depot / ".git").rename(depot / "git-neutralise")
+        rc, out = _jouer_457(depot)
         ko += _verifier("MONTAGE CASSE", rc, out, 99,
                         ["MONTAGE EN ECHEC", "RIEN n'a ete mesure",
                          "ls-files"],
@@ -424,6 +435,24 @@ def _imports_du_domaine(arbre: ast.AST) -> set:
     return {m for m in noms if (PY_DIR / (m + ".py")).is_file()}
 
 
+#: MEMOISE : plusieurs entrees importent le meme module (`probe_319` et `probe_273`, les deux
+#: probes #467 et `loop_status`), et sans cache il etait re-parse a chaque fois.
+_CACHE_MODULE_EXTERNE: dict = {}
+
+
+def _module_a_un_gisement(nom: str) -> bool:
+    if nom not in _CACHE_MODULE_EXTERNE:
+        chemin = PY_DIR / (nom + ".py")
+        try:
+            arbre = ast.parse(chemin.read_text(encoding="utf-8", errors="replace"))
+            _CACHE_MODULE_EXTERNE[nom] = bool(_sites_externes(arbre))
+        except (OSError, SyntaxError):
+            # Illisible : on ne PRETEND pas savoir. Compte comme un gisement -- le sens SUR pour
+            # un inventaire dont la sous-estimation serait le mode de defaillance couteux.
+            _CACHE_MODULE_EXTERNE[nom] = True
+    return _CACHE_MODULE_EXTERNE[nom]
+
+
 def etape_inventaire(verbeux: bool) -> tuple:
     """Rend `(bloquants, lignes)`. Le COMPTE est non bloquant ; la CONSTANTE MORTE l'est."""
     banque = banque_par_texte()
@@ -449,9 +478,7 @@ def etape_inventaire(verbeux: bool) -> tuple:
                 "sentinelles": sentinelles,
                 "rend": _rend_la_sentinelle(arbre, set(sentinelles)),
                 "importe": sorted(m for m in _imports_du_domaine(arbre)
-                                  if _sites_externes(ast.parse(
-                                      (PY_DIR / (m + ".py")).read_text(encoding="utf-8",
-                                                                       errors="replace")))),
+                                  if _module_a_un_gisement(m)),
             }
         a = analyses[argv[0]]
         if a["rend"]:

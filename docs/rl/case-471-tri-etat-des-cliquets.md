@@ -143,14 +143,21 @@ porte de sortie finit toujours par être empruntée par un appelant pressé.
 
 `probe_457` dérive sa racine de son **propre fichier** (`_PYDIR.parents[1]`) et son périmètre de
 `git ls-files`. Le recopier dans une arborescence `scripts/python/` jetable suffit donc à le faire
-travailler sur *ce* dépôt-là — avec le vrai binaire, le vrai `pytest`, le vrai `git`. Trois
-scénarios, dans un **tmpdir système** (`mkdtemp()` sans `dir=`, #455) :
+travailler sur *ce* dépôt-là — avec le vrai binaire, le vrai `pytest`, le vrai `git`. **Un seul**
+dépôt, dans un **tmpdir système** (`mkdtemp()` sans `dir=`, #455), que les trois scénarios font
+**évoluer** :
 
 | scénario | montage | rc attendu | ce qui prouve que la mutation a MORDU |
 |---|---|---|---|
 | **VERT** | `git init` + 1 test qui passe | `0` | `VERDICT: PASS` + `1 test(s) joue(s)` |
-| **ROUGE** | idem + 1 test qui échoue | `1` | `VERDICT: FAIL` + **`1 failed`** |
+| **ROUGE** | + 1 test qui échoue, `git add` | `1` | `VERDICT: FAIL` + **`1 failed`** |
 | **MONTAGE CASSÉ** | `.git` renommé ⇒ `git ls-files` rend **128** | `99` | `MONTAGE EN ECHEC` + `RIEN n'a ete mesure` + **aucun `Traceback`** |
+
+Le dépôt unique n'est pas qu'une économie de mur (80,9 s → **20,1 s** isolé, dont contre-épreuve
+55,5 → 10,5 s ; une part de l'écart vient aussi du cache disque chaud). Il **renforce** la
+contre-épreuve : le scénario cassé hérite du **test rouge**, donc son `99` ne peut pas venir d'une
+absence de gisement — il y avait bien de quoi rougir, et le probe a quand même dit « je n'ai pas pu
+mesurer ».
 
 Le témoin **VERT** n'est pas décoratif : sans lui, un probe qui rendrait `1` ou `99` *en toutes
 circonstances* passerait les deux autres scénarios. Le scénario cassé **reproduit le gisement** au
@@ -235,11 +242,20 @@ la profondeur 1 n'est pas mesuré. Ne pas lire cet inventaire comme exhaustif.
 |---|---|
 | `probe_471` (5 étapes) | `VERDICT: PASS` |
 | 7 mutations injectées (§4.3) | 7 rouges, contrôle non muté vert |
-| montage cassé, `probe_457` **AVANT** | `rc=1` + `CalledProcessError … 128` (gisement reproduit) |
+| les 3 mutations d'étape 3, **rejouées après la mutualisation** du dépôt | 3 rouges, contrôle vert |
+| montage cassé, `probe_457` **AVANT** (`origin/master`) | `rc=1` + `CalledProcessError … 128` (gisement reproduit) |
 | montage cassé, `probe_457` **APRÈS** | `rc=99`, `MONTAGE EN ECHEC`, aucun traceback |
 | `probe_439` sur la banque enrichie | `VERDICT: PASS` — `probe_471` classé capable de rougir |
 | `Get-EtatCliquet` / `Get-CodeSortieBanque` | 7 codes + 6 régimes conformes |
-| banque complète `pwsh -File scripts/ratchets.ps1` | cf. §8 |
+| **bout en bout**, un cliquet indisponible dans la banque réelle | `INDISP` + bloc de détail + `BANQUE INDISPONIBLE` + **rc=99** |
+| **bout en bout**, 1 rouge **et** 1 indisponible | **rc=1** (le rouge prime) et l'indisponible reste **nommé** au bilan |
+| `probe_471` isolé | **20,1 s** (`-Only probe_471 -Serial`) |
+| banque complète, après rebase | cf. §9 |
+
+Les deux épreuves « bout en bout » comblent le seul chemin que les étapes 1–3 ne couvraient pas :
+l'**affichage** et le **code de sortie** de la banque réelle sur un indisponible. Elles ont été
+jouées par mutation temporaire d'un cliquet (rendu `99`, et `probe_439` rendu `1`), puis restaurées
+par `git checkout --`.
 
 ## 8. La technique, pour le prochain cas du même genre
 
@@ -290,5 +306,20 @@ Deux pièges d'outillage rencontrés, notés pour ne pas les repayer :
 
 ## 9. Relevé de banque
 
-Voir le corps de la PR : la composition de la banque est **définie** par `scripts/ratchets.ps1` et
-ne se recopie nulle part ; cette case-doc **atteste** ce qui a été joué, elle ne définit rien.
+Joué **après** rebase sur `origin/master` (12 commits rattrapés, dont **aucun** ne touche les
+fichiers de cette tranche — vérifié par `git log --name-only`) :
+
+```
+[ratchets] BANQUE VERTE -- 41 cliquet(s), mur 623,5 s.
+```
+
+Les 41 verts, `probe_471` compris (115,9 s **sous charge**, 20,1 s isolé, pour un mur dominé par
+`probe_457:s1` à 504,9 s) — donc **coût marginal en parallèle nul**, qui est le critère d'admission
+écrit dans `ratchets.ps1`, jamais le coût absolu.
+
+⚠ Le mur de 623,5 s est celui d'un **worktree froid** : `logs/ratchets/457-durations.json` est
+gitignoré, donc `probe_457` retombe sur le repli md5 (mur sous-optimal, **verdict inchangé** — c'est
+l'arbitrage déjà documenté dans `_weights_path`). Chiffre à re-dériver, pas à citer.
+
+La composition de la banque est **définie** par `scripts/ratchets.ps1` et ne se recopie nulle part ;
+cette case-doc **atteste** ce qui a été joué, elle ne définit rien.
