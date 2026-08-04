@@ -153,9 +153,12 @@ pathfinding, playbooks touchés). Un seul rouge, **de MONTAGE** : le spy de
 * **`#433-r4-r1-r4-r2-r3` — le gisement n'est chiffré que sur 4 boards.** `Bridge` apparaît sur
   **287** des 779 boards ; les 283 autres ne sont pas mesurés, et le contraste 4 vs 38 dit que
   l'amplitude n'est **pas** estimable depuis un board.
-* **`#433-r4-r1-r4-r2-r4` — l'aval n'est pas mesuré.** On a montré que la primitive change de
-  verdict et que le natif est d'accord ; on n'a **pas** mesuré de quel montant une utilité de
-  playbook bouge quand un ennemi cesse d'être compté adjacent.
+* ~~**`#433-r4-r1-r4-r2-r4` — l'aval n'est pas mesuré.**~~ **MESURÉ (2026-08-05)**,
+  `case-433r4r1r4r2r4-aval-du-basculement.md` : sur **725** situations et **260** bascules
+  traversées, **8 actions changées (1,1 %)** — toutes sur `1166 AberrantHypermorph`, dont l'utilité
+  *est* un comptage d'adjacents — et **0** changement de classement sans changement d'action.
+  Écart de fidélité **avec** impact, mais rare et concentré : la voie la plus traversée
+  (`UnitEffectsAdjacentUtility`, 164/260) est presque toujours inerte.
 
 ## 6. Reproduction
 
