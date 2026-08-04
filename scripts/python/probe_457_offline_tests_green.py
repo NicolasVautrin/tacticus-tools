@@ -596,8 +596,10 @@ def _prechauffer_bytecode() -> tuple:
     interdisait de simplement retirer les `.py` de `par_test` : ces lectures-la ne sont couvertes
     par AUCUN import, donc par aucune preuve.
 
-    Best-effort assume : un echec de compilation ne fait pas echouer la mesure -- le filtre
-    `_couverte_par_le_graphe` reste le filet PROUVE sur `_globales`.
+    Best-effort assume : un echec de compilation n'interrompt pas la mesure -- c'est le GARDE DE
+    REGIME de `_ecrire_mesure` qui la sanctionne, en refusant d'ecrire une empreinte qui decrirait
+    le `__pycache__` plutot que le depot. Ce partage est deliberatif : ici on AGIT, la-bas on
+    VERIFIE le resultat, jamais l'inverse.
     """
     import compileall
 
