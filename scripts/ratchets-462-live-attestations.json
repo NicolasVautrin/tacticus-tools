@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785820016,
+ "_ecrit_le": 1785822903,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -2852,15 +2852,15 @@
    "xfailed": 0
   },
   "tests/engine/test_433_r4_r2_r1_r1_a_whole_board_gates_live.py": {
-   "_at": 1785816286,
-   "_blob": "7a94d1b4a7742a28659965fc70321b1157c3ea57",
-   "_commit": "2bda9bf71c0bb893b053a44b47270ead3a147ffb",
-   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a0adc5bc41d12c050",
+   "_at": 1785822903,
+   "_blob": "c77bdb6704515e0e8feacb29aa7e475516c2d4d4",
+   "_commit": "44ab9e93e742eb1f0372f70cdd3e11b2366b8d62",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a588de97ef661c97a",
    "error": 0,
    "failed": 0,
    "messages": [],
    "passed": 3,
-   "sec": 19.8,
+   "sec": 46.4,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -2875,6 +2875,20 @@
    "messages": [],
    "passed": 13,
    "sec": 9.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/test_433_r4_r2_r1_r2_line_of_sight_live.py": {
+   "_at": 1785822903,
+   "_blob": "093284a55668d608e185512ba26ca80cb569d906",
+   "_commit": "44ab9e93e742eb1f0372f70cdd3e11b2366b8d62",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a588de97ef661c97a",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 7,
+   "sec": 80.1,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
