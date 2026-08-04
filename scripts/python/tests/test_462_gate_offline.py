@@ -25,9 +25,13 @@ def test_un_fichier_qui_passe_est_VERT():
     assert P._verdict({"passed": 3, "skipped": 0, "failed": 0, "error": 0, "xfailed": 0}) == "VERT"
 
 
-def test_un_echec_est_ROUGE():
+def test_un_echec_est_NON_VERT():
+    """#465 a VENTILE ce verdict : `failure` (assertion) -> ROUGE, `error` seul (collecte/fixture)
+    -> SETUP. Ce que ce test garde est la promesse INCHANGEE -- aucun des deux n'est vert, donc
+    aucun des deux ne passe la gate. La ventilation elle-meme, et sa non-permissivite, sont
+    prouvees dans `test_465_ledger_validite_offline.py`."""
     assert P._verdict({"passed": 3, "failed": 1, "error": 0, "skipped": 0, "xfailed": 0}) == "ROUGE"
-    assert P._verdict({"passed": 3, "failed": 0, "error": 1, "skipped": 0, "xfailed": 0}) == "ROUGE"
+    assert P._verdict({"passed": 3, "failed": 0, "error": 1, "skipped": 0, "xfailed": 0}) != "VERT"
 
 
 def test_un_fichier_INTEGRALEMENT_SKIPPE_est_ROUGE():

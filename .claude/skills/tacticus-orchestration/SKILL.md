@@ -920,6 +920,15 @@ l'agent avait déjà joué et rapporté, en dormant par tranches de 2 min.
   ci-dessus portent sur le **diff `engine/` classé**, pas sur le jeu déjà rendu par l'auteur.
 - **Régénérer le ledger AVANT de lancer la banque**, jamais après — une passe a rougi pour cette
   seule raison de séquence. Puis `git add scripts/ratchets-462-live-attestations.json`.
+- ⛔ **Un ROUGE du ledger n'est PAS un motif de renvoi tant qu'il n'est pas reproduit ICI (#465).**
+  Mesuré le 2026-08-04 : `--report` rendait 3 rouges sur la tête de fusion de #555/#556/#557 ; les
+  **trois** étaient périmés (2 passed, 5 passed, cause fermée par #462-r4c), et **3 PR ont failli
+  être renvoyées à leurs auteurs**. Cause : la clé est le blob du TEST, pas l'arbre — et **237 des
+  254 attestations portent le sha d'une branche d'agent morte au rebase**. Depuis #465 ces entrées
+  s'affichent **`A RECONFRONTER`** (toujours bloquantes, mais elles accusent le LEDGER). Réflexe :
+  `probe_462_live_tests_status.py --run --stale` — 3 fichiers, 47,7 s, et le ledger redevient net.
+  ⚠ `--report --since <ref>` était **avalé en silence** avant #465 : il rendait TOUT le ledger, ce
+  qui a fait lire des rouges anciens comme « les rouges de la soirée ». Il borne désormais au diff.
 - ⚠ **Grouper plusieurs PR sur une seule tête est un REPLI, pas la règle** — ça fait perdre
   l'ATTRIBUTION, et `ratchets-bg` existe précisément pour ne pas avoir à choisir entre vitesse et
   attribution (il épingle le commit, l'arbre principal passe à la PR suivante). Ne grouper que si le

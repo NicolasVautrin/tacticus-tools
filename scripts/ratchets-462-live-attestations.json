@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785802792,
+ "_ecrit_le": 1785804369,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -1742,18 +1742,17 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_nightshroud_combat_live.py": {
-   "_at": 1785763651,
+   "_at": 1785804369,
    "_blob": "eaca7cb8cf414550c49db76f276b06a27059098f",
-   "_commit": "69b328f5ee763868255198227f0a50a613b7a0f4",
+   "_commit": "058fa85eee1b1398802ee4c5b9271ef9dbb5baea",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a6b27f7cf8a679d1f",
    "error": 0,
-   "failed": 1,
-   "messages": [
-    "test_nightshroud_combat_live.py::test_nightshroud_combat_replay -- AssertionError: per-hit offline != live : off=[180, 180, 112, 158, 240, 183] live=[250, 212, 168, 122, 220, 221] (reduction Nightshroud non appliquee identiquement ?) assert [180, 180, 112, 158, 240, 183] == [250, 212, 168, 122, 220, 221]      At index 0 diff: 180 != 250   Use -v to get more diff"
-   ],
-   "passed": 1,
-   "sec": 45.7,
+   "failed": 0,
+   "messages": [],
+   "passed": 2,
+   "sec": 12.6,
    "skipped": 0,
-   "verdict": "ROUGE",
+   "verdict": "VERT",
    "xfailed": 0
   },
   "tests/engine/runner/test_noblocking_bypass_live.py": {
@@ -2538,18 +2537,17 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_terrifying_defense_live.py": {
-   "_at": 1785763651,
+   "_at": 1785804369,
    "_blob": "62695c35ae7e8ed1e9728d5bf90d2ef3428cda36",
-   "_commit": "69b328f5ee763868255198227f0a50a613b7a0f4",
+   "_commit": "058fa85eee1b1398802ee4c5b9271ef9dbb5baea",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a6b27f7cf8a679d1f",
    "error": 0,
-   "failed": 1,
-   "messages": [
-    "test_terrifying_defense_live.py::test_terrifying_melee_replay_bitexact -- AssertionError: per-hit offline != live : off=[433, 402, 434, 378, 350, 403] live=[434, 403, 435, 379, 351, 404] (reduction Terrifying non appliquee identiquement ?) assert [433, 402, 434, 378, 350, 403] == [434, 403, 435, 379, 351, 404]      At index 0 diff: 433 != 434   Use -v to get more diff"
-   ],
-   "passed": 4,
-   "sec": 58.0,
+   "failed": 0,
+   "messages": [],
+   "passed": 5,
+   "sec": 24.0,
    "skipped": 0,
-   "verdict": "ROUGE",
+   "verdict": "VERT",
    "xfailed": 0
   },
   "tests/engine/runner/test_the_quickening_live.py": {
@@ -2903,20 +2901,17 @@
    "xfailed": 0
   },
   "tests/engine/test_fabricator_claw_cap_live.py": {
-   "_at": 1785768831,
+   "_at": 1785804369,
    "_blob": "8e6f5cbe76cdc471ca2de64a2a335d564296c008",
-   "_commit": "3b34a6ffe5bbadb4c98bfb66997797d28cdce1fe",
-   "error": 10,
+   "_commit": "058fa85eee1b1398802ee4c5b9271ef9dbb5baea",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a6b27f7cf8a679d1f",
+   "error": 0,
    "failed": 0,
-   "messages": [
-    "test_fabricator_claw_cap_live.py::test_case_still_activates_the_carrier[MC1_67-777] -- failed on setup with \"ImportError: cannot import name 'BUILD_HASH' from 'probe_193c_move_playbook_terms' (C:\\Users\\nicolasv\\tacticus-tools\\.claude\\worktrees\\agent-a80ffd5838308fd70\\scripts\\python\\probe_193c_move_playbook_terms.py)\"",
-    "test_fabricator_claw_cap_live.py::test_kit_source_carries_the_triggered_ability[MC1_67-777] -- failed on setup with \"ImportError: cannot import name 'BUILD_HASH' from 'probe_193c_move_playbook_terms' (C:\\Users\\nicolasv\\tacticus-tools\\.claude\\worktrees\\agent-a80ffd5838308fd70\\scripts\\python\\probe_193c_move_playbook_terms.py)\"",
-    "test_fabricator_claw_cap_live.py::test_bc_key_is_non_zero[MC1_67-777] -- failed on setup with \"ImportError: cannot import name 'BUILD_HASH' from 'probe_193c_move_playbook_terms' (C:\\Users\\nicolasv\\tacticus-tools\\.claude\\worktrees\\agent-a80ffd5838308fd70\\scripts\\python\\probe_193c_move_playbook_terms.py)\""
-   ],
-   "passed": 0,
-   "sec": 0.2,
+   "messages": [],
+   "passed": 10,
+   "sec": 25.2,
    "skipped": 0,
-   "verdict": "ROUGE",
+   "verdict": "VERT",
    "xfailed": 0
   },
   "tests/engine/test_forward_observers_decision_live.py": {
