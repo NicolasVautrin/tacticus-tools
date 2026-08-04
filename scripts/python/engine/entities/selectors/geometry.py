@@ -348,6 +348,33 @@ class PickRandomly(TargetsSelector):
         return f(pool, n, self.allow_duplicates, self.max_duplicates)
 
 
+class Randomize(PickRandomly):
+    """`IdunBattleLogic.Entities.DSLSelectors$$Randomize(source)` -- MIRROR du decompile, qui alloue
+    le MEME `IdunBattle.Entities.Selectors.PickRandomAmountSelector` que `PickRandomly` avec des
+    arguments FIXES, lus au call-site :
+
+        PickRandomAmountSelector..ctor(this, state, source, 0x7fffffff, random,
+                                       allowRepeat = 0, maxRepeats = 0x7fffffff, skipForced = 0)
+
+    (mapping des champs relu dans `PickRandomAmountSelector$$.ctor`, cf.
+    `runner/abilities/loki/splash.py::_pick_randomly_n`.) `amount = 0x7fffffff` sans repetition ->
+    la boucle native pioche jusqu'a EPUISEMENT du pool : c'est une **PERMUTATION ALEATOIRE COMPLETE**
+    de `source`, pas un echantillon. Consommation PRNG = **`len(pool)` tirages**, bornes decroissantes
+    `len(pool)`, `len(pool)-1`, ... 1 -- le dernier tirage (`range == 1`) consomme quand meme un
+    `genrand_int32` (loi #130/#215). Court-circuiter desaligne tout le flux RNG en aval.
+
+    A quoi il sert, chez son consommateur porte
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.EmpyricAmbushAbility$$ExecuteBehaviour`) : il est
+    enveloppe par `SortTilesByUtility` puis `First`, et
+    `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` finit par
+    `Enumerable.OrderBy(tiles, utilite)` -- un tri **STABLE**. L'ordre aleatoire ne survit donc que
+    sur les EX AEQUO d'utilite : c'est exactement ce qui rend le choix de tuile d'atterrissage
+    non deterministe quand plusieurs tuiles adjacentes se valent."""
+    def __init__(self, source: TargetsSelector):
+        super().__init__(source, amount=0x7FFFFFFF, allow_duplicates=False,
+                         max_duplicates=0x7FFFFFFF, ignore_forced_targets=False)
+
+
 class Otherwise(TargetsSelector):
     """`IdunBattle.DSL.TargetsSelector$$Otherwise(primary, fallback)` : le natif alloue un selecteur a DEUX
     branches (ctor : `+0x18 = primary`, `+0x20 = fallback`) qui rend `primary` s'il produit quelque chose,

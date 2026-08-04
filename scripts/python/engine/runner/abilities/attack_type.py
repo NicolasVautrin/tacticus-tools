@@ -132,6 +132,10 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1065: AbilityAttackType.DirectTargetAttack,   # ScythingTalonsAbility
     1066: AbilityAttackType.DirectTargetAttack,   # ExecutionerAbility
     1067: AbilityAttackType.DirectTargetAttack,   # HarvesterOfSoulsAbility
+    # EmpyricAmbush (1232) : `EmpyricAmbushAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0)`.
+    # Le litteral est `0` bien que le behaviour commence par un `FlyUnit` : on transcrit le 3e argument
+    # du ctor, jamais la forme de l'arbre. (#589-r1-r1-r1)
+    1232: AbilityAttackType.DirectTargetAttack,   # EmpyricAmbushAbility
     1078: AbilityAttackType.DirectTargetAttack,   # FragstormAbility
     1089: AbilityAttackType.DirectTargetAttack,   # GreatFrostAxeAbility
     1092: AbilityAttackType.DirectTargetAttack,   # DarkTalonStrikeAbility
