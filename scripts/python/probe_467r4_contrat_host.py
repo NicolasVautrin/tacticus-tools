@@ -37,10 +37,14 @@ produit ce meme echec ? >> OUI -> INDISPONIBLE (rc 99, BLOQUANT) | NON -> ROUGE.
 
 VOLATIL -- bouge parce que la PLATEFORME bouge, n'accuse jamais le depot :
   * la JOIGNABILITE du host, appel par appel. Chaque `http_json` est un tirage INDEPENDANT : la
-    capture peut reussir et une lecture ulterieure lacher. Cause MESUREE (PR #588, 2026-08-04) --
-    `router.get("/api/admin/drain")` attend `rpcCall(sid, "listRunners", [], 5000)` sur le pump
-    Frida ; un build de runner concurrent occupe ce pump, donc le host peut mettre jusqu'a 5 s
-    pour un budget client de 3 s (`Sources.http_json` : `min(timeout, 5.0)`).
+    capture peut reussir et une lecture ulterieure lacher, pour un budget client de 3 s
+    (`Sources.http_json` : `min(timeout, 5.0)`). DEUX causes MESUREES, et la seconde interdit de
+    reduire le defaut au pump : (a) `router.get("/api/admin/drain")` attend
+    `rpcCall(sid, "listRunners", [], 5000)` sur le pump Frida, qu'un build de runner concurrent
+    occupe -- c'est le cas rapporte par la PR #588 ; (b) le host lui-meme sature -- premiere passe
+    de banque du 2026-08-04 apres ce correctif, a parallelisme 16, `/api/admin/status` a rendu
+    `timed out` alors que ce handler ne touche PAS le pump (`findTacticusCandidates` +
+    `activeMetaVersion`). Le volet a rendu 99, les 11 epreuves contractuelles restant VERTES.
   * les VALEURS rendues : `session` (objet ou null), `tacticus.running`, `drain.enabled`,
     `liveRunners` (entier OU null) et sa raison. Le volet juge la FORME, jamais la valeur.
 
@@ -456,6 +460,16 @@ def etape_b(contrat: dict[str, list[str]]) -> None:
         print("  ---   host injoignable : le contrat LIVE n'est pas juge (et ce n'est PAS un vert)")
         return
 
+    # Le volet juge NOMMEMENT deux routes, alors que le contrat, lui, est DERIVE. Si la derivation
+    # en ratait une, le deballage ci-dessous levait un `KeyError` -- un traceback en rc=1, donc un
+    # ROUGE ANONYME, la forme meme que #471 combat. Le verdict reste ROUGE (une derivation qui perd
+    # une route est un fait sur le depot, pas un etat de plateforme), mais il porte son NOM.
+    # Trouve par contre-epreuve adversariale de #473, pas par un incident.
+    manquantes = [r for r in ("/api/admin/status", "/api/admin/drain") if r not in reponses]
+    if manquantes:
+        verifie(False, "le contrat DERIVE porte les routes que le volet B juge (manque %s)"
+                       % ", ".join(manquantes))
+        return
     st, dr = reponses["/api/admin/status"], reponses["/api/admin/drain"]
     lr = dr.get("liveRunners")
     for cond, quoi in juger_forme(st, dr):
@@ -499,7 +513,7 @@ def etape_b(contrat: dict[str, list[str]]) -> None:
 # =====================================================================================
 #: Reponses FABRIQUEES. Fabriquer est legitime ICI (on eprouve le JUGE, comme [A'] mute une COPIE
 #: du host) et proscrit dans le volet B, qui ne juge que ce que le host a reellement rendu. Ces
-#: littéraux n'ont pas a rester fideles au host : c'est [A'] qui garde le host, et la forme
+#: litteraux n'ont pas a rester fideles au host : c'est [A'] qui garde le host, et la forme
 #: exigee ici est celle de `juger_forme`, dont ils sont l'entree.
 _CONFORME = {
     "/api/admin/status": {"tacticus": {"running": False, "launcherOnly": False},
@@ -575,6 +589,14 @@ def etape_auto_epreuve_b(contrat: dict[str, list[str]]) -> None:
     verifie(any((not c) and "MESURE sur la reponse reelle" in q for c, q in epr),
             "reponse OBTENUE mais inexploitable -> ROUGE (la borne #471 ne glisse pas)")
 
+    # -- L'EPREUVE DES ROUTES doit MORDRE, sinon elle est DECORATIVE (#439). Son gisement : une
+    #    route INTERROGEE par `mesurer_harnais` mais ABSENTE du contrat derive -- le volet A serait
+    #    alors aveugle dessus. On ampute le CONTRAT, pas le lecteur : muter `mesurer_harnais`
+    #    casserait `contrat_lu` en amont (il en lit le SOURCE), donc n'isolerait rien.
+    _, epr = juger_relecture({"/api/admin/status": []}, _SourceFixe(_CONFORME))
+    verifie(any((not c) and "routes du contrat derive" in q for c, q in epr),
+            "une route INTERROGEE hors du contrat derive -> ROUGE")
+
 
 def main() -> int:
     print("probe_467-r4 -- contrat host <-> loop_status, source NON substituee")
@@ -601,8 +623,10 @@ def main() -> int:
         for x in INDISPONIBLE:
             print("  - %s" % x)
         print("  Le depot n'est PAS accuse : un depot PARFAIT aurait subi le meme echec a cet")
-        print("  instant (l'etat de la plateforme a bouge sous la lecture -- typiquement un build")
-        print("  de runner qui occupe le pump Frida, cf. `rpcCall listRunners` du handler drain).")
+        print("  instant -- l'etat de la plateforme a bouge sous la lecture. Deux causes MESUREES :")
+        print("  le host sature (banque a parallelisme 16 : `/api/admin/status` a depasse 3 s alors")
+        print("  qu'il ne touche pas le pump), et le pump Frida occupe par un build de runner")
+        print("  concurrent (`rpcCall listRunners`, 5 s, du handler `/api/admin/drain`).")
         print("  Conduite : rejouer CETTE entree seule ; si elle passe, le DIRE dans la PR, jamais")
         print("  la taire. Aucun rejeu automatique ici -- un rejeu qui passe ne prouve rien.")
         return EX_INDISPONIBLE

@@ -20,10 +20,18 @@ capture). Le volet [B] lit une source **vivante** — c'est son objet — donc i
 
 **Le chemin exact, tranché par le code et non supposé.** La boucle de capture retourne proprement
 dès qu'une route manque (`PASS PARTIEL`) : le seul chemin restant vers un ROUGE était la
-**relecture** `LS.mesurer_harnais(src)`, qui refait deux appels HTTP après la capture. Côté host,
-`router.get("/api/admin/drain")` attend `rpcCall(sid, "listRunners", [], 5000)` **sur le pump
-Frida** — qu'un build de runner concurrent occupe. Le host peut donc mettre jusqu'à 5 s, pour un
+**relecture** `LS.mesurer_harnais(src)`, qui refait deux appels HTTP après la capture, pour un
 budget client de **3 s** (`Sources.http_json` : `min(timeout, 5.0)`).
+
+**Deux causes, mesurées, et la seconde interdit de réduire le défaut au pump** :
+
+- **(a)** `router.get("/api/admin/drain")` attend `rpcCall(sid, "listRunners", [], 5000)` **sur le
+  pump Frida**, qu'un build de runner concurrent occupe : le host peut mettre jusqu'à 5 s. C'est
+  le cas rapporté par la PR #588 ;
+- **(b)** le host lui-même **sature**. La première passe de banque jouée *après* ce correctif, à
+  parallélisme 16, a rendu `relecture du host : /api/admin/status : timed out` — or ce handler ne
+  touche **pas** le pump (`findTacticusCandidates` + `activeMetaVersion`). Élargir le budget pour
+  absorber les 5 s du `rpcCall` n'aurait donc rien fermé.
 
 **La parade rapportée — « ne pas monter de runner pendant la banque » — n'est pas codée.** Elle est
 inapplicable par construction : la campagne fait tourner jusqu'à 5 agents libres de builder, et
@@ -75,8 +83,13 @@ host lent suffirait à ce que le cliquet cesse de garder quoi que ce soit.
   contrat **dérivé**. Les routes sont vues *avant* que le transport ne lâche, et les deux appels
   sont dans des `try` indépendants. C'est ce que la relecture live est désormais seule à voir, et
   ce qui justifie de la garder malgré son exposition.
-- **La relecture live passe EN DERNIER** : ce qui reste jugé quand elle lâche est maximal (11
-  épreuves sur 12, mesuré).
+- **La relecture live passe EN DERNIER** : ce qui reste jugé quand elle lâche est maximal — **11
+  épreuves sur 12**, mesuré sur l'incident réel du §7.
+- **Une garde nommée à la place d'un `KeyError`** : `etape_b` juge nommément deux routes alors que
+  le contrat est **dérivé**. Si la dérivation en perdait une, le déballage levait un traceback en
+  `rc=1`, donc un **ROUGE anonyme** — la forme même que #471 combat. Le verdict reste ROUGE (une
+  dérivation qui perd une route est un fait sur le dépôt), mais il porte désormais son nom.
+  **Trouvé par la contre-épreuve adversariale, pas par un incident.**
 
 ## 4. La contre-épreuve — les deux faces, en bout en bout
 
@@ -93,6 +106,12 @@ interrogé) — fabriquer une réponse est légitime ici (on éprouve le **juge*
 | VOLATIL | transport qui lâche après 1 appel | INDISPONIBLE, et l'épreuve de MESURE **n'est pas jugée** |
 | témoin de cette face | transport sain | l'épreuve de MESURE est jugée, et VERTE |
 | **la borne** | réponse OBTENUE mais inexploitable (`[]`) | **ROUGE**, aucune indisponibilité |
+| l'épreuve des routes n'est pas décorative | contrat **amputé**, lecteur intact | ROUGE « une route INTERROGÉE hors du contrat dérivé » |
+
+La dernière ligne ampute le **contrat**, pas le lecteur, et c'est structurel : muter
+`mesurer_harnais` casse `contrat_lu` en amont (il en lit le **source**), donc n'isole rien —
+mesuré, la mutation naïve fait rougir 7 épreuves du volet [A] et n'atteint jamais celle qu'elle
+prétendait éprouver.
 
 **Bout en bout**, le rc **réel du process**, un process par scénario (les seaux sont des globales),
 host allumé, `liveRunners = 0` :
@@ -104,9 +123,10 @@ host allumé, `liveRunners = 0` :
 | `eteint` | transport muet **dès** le 1er appel | **0** | `PASS PARTIEL` — le volet ne s'ouvre pas (régime inchangé) |
 | `ampute` | `.session` → `.sessions` sur une réponse qui **arrive** | **2** | 2 `ROUGE` sur le piège nommé, **et la relecture reste verte** |
 | `les_deux` | amputé **et** muet ensuite | **2** | le ROUGE prime, **et** l'indisponible reste nommé au verdict |
+| `route_non_derivee` | la dérivation du contrat perd `/api/admin/drain` | **5** | `ROUGE le contrat DERIVE porte les routes que le volet B juge (manque /api/admin/drain)` — **et aucun `Traceback`** (avant : `KeyError`, rc 1) |
 
-Les deux dernières lignes sont celles qui prouvent que la borne ne glisse pas : une violation de
-contrat rend toujours ROUGE, y compris quand une indisponibilité coexiste.
+`ampute` et `les_deux` prouvent que la borne ne glisse pas : une violation de contrat rend toujours
+ROUGE, **y compris quand une indisponibilité coexiste**.
 
 Le témoin `sain` n'est pas décoratif : sans lui, un probe qui rendrait 99 en toutes circonstances
 passerait la face volatile.
