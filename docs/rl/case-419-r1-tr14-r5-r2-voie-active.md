@@ -235,6 +235,13 @@ paramètre. Trois mesures sur les **683** kits, avant correction :
 Le faux positif était donc **latent** : la correction est structurelle, pas déclenchée par un
 symptôme. Dit ici avec son chiffre pour que personne ne cherche l'incident qui l'aurait révélée.
 
+⚠ Le repli a AUSSI changé de FORME : il répondait « ce passif est-il dans le kit ? » (appartenance),
+il répond maintenant « le premier passif substituant du kit est-il celui-là ? » (la boucle native).
+C'est plus fidèle, mais c'est un changement de comportement, donc il est **mesuré** :
+les **14** clés de la table × les **683** kits = **9 562** couples évalués en mode repli,
+**0 divergence** avec l'ancien prédicat — et **38** réponses VRAIES, donc le contrôle n'est pas
+trivialement vide.
+
 ### 5.2 Le canal, et son coût
 
 `snapshot.active_ability_names_by_unit` est le **foyer unique de parsing**, pendant exact de
