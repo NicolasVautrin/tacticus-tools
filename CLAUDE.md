@@ -97,7 +97,7 @@ corps d'itérateur), l'exigence n'est pas « pas d'adresse » — c'est **détec
 REFUSER de s'attacher**. Foyer unique : `pinnedAddress` de `frida/hooks/il2cpp/build-pin.ts`
 (pendant live de `build_pin.require_pinned`, #431). Le porteur DÉCLARE son build, le foyer le
 confronte à celui qui est chargé, et rend `null` en le disant. **C'est le SEUL module où
-`il2cppBase.add(<constante>)` a le droit d'exister** ; le cliquet qui le tient est dans la banque.
+`il2cppBase.add(<constante>)` a le droit d'exister**.
 ⚠ La phrase « reste en VA, et c'est voulu » (§ suivant) est écrite pour la **CITATION**, jamais
 pour l'**ATTACHEMENT** : mesuré le 2026-08-04, les six adresses en dur des hooks étaient **6/6
 périmées**, et la seule encore armée attachait `Interceptor` **au milieu d'une autre fonction**.
@@ -246,8 +246,7 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   reconstruit le runner du module). **Pas plus de 4** : le rendement tombe à 23 % dès 6 workers,
   et le pump est partagé avec les autres agents.
 - **Le plafond de 4 borne ce qui MONTE UN RUNNER, pas la parallélisation.** C'est le critère :
-  runner/RPC → 4 max (pump partagé) ; **purement offline → autant que le CPU**. La banque de
-  cliquets (§ suivant) est dans le second cas et se parallélise d'elle-même.
+  runner/RPC → 4 max (pump partagé) ; **purement offline → autant que le CPU**.
   ⚠ Deux probes lancés ENSEMBLE qui portent le même littéral de state-file se marchent dessus —
   **4 groupes, 16 probes sur 526** (`_49gnt`, `_32ct`, `state.json`, `_57h`). Non bloquant : les
   108 porteurs de littéral acceptent tous `--state-file`, donc un chemin explicite dissout la
@@ -269,120 +268,7 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   hors `python_files`). Deux volets : hook `pytest_collectreport` à chaque passe, et un balayage
   statique à périmètre dérivé dans le cliquet (le runtime ne voit que ce qu'une passe joue).
 
-## La banque de cliquets — `scripts/ratchets.ps1`, à faire passer AVANT toute PR
-
-```powershell
-pwsh -File scripts/ratchets.ps1          # 0 = verte ; N = N rouges ; 99 = INDISPONIBLE ; -List
-```
-
-**Ce fichier est la source UNIQUE.** Ne recopie sa composition NULLE PART — ni ici, ni dans une
-case-doc, ni dans un runner de scratchpad. Un cliquet neuf s'ajoute **dans le fichier**, avec sa
-ligne « ce qu'il est SEUL à voir ». Une case-doc **atteste** ce qu'elle a joué (un relevé daté) ;
-elle ne **définit** pas la banque.
-
-### TROIS verdicts, jamais deux — `INDISPONIBLE` n'est pas `ROUGE` (#471)
-
-**Le critère**, en une question : « un dépôt **PARFAIT**, à cet instant, sur cette machine,
-aurait-il produit ce même échec ? » **OUI** → `INDISPONIBLE` · **NON** → `ROUGE`. Le montage est ce
-dont le cliquet dépend et qui **n'est pas le dépôt** (CWD imposé, `git`/`pwsh`/`pytest` comme
-programmes, système de fichiers) ; la mesure vient du **contenu** du dépôt.
-
-⚠ **La frontière à ne pas laisser glisser** : `git ls-files` qui rend **rc=0 et une liste vide** est
-une réponse *valide*, donc un fait sur le dépôt → **ROUGE**. Sans cette borne, « je n'ai rien
-trouvé » deviendrait « je n'ai pas pu regarder », et tout finirait `INDISPONIBLE`.
-
-**Ce n'est pas une échappatoire** : `INDISPONIBLE` est **BLOQUANT** (rc = 99) et s'imprime avec sa
-cause. Il change l'**ACCUSÉ** — le harnais, pas le code fusionné — pas le blocage. Conduite :
-rejouer **cette entrée seule** ; si elle passe, **le DIRE dans la PR**, jamais la taire. Pas de
-rejeu automatique — « un rejeu qui passe ne prouve rien ».
-
-⚠ **14 entrées confondent encore** (inventaire dérivé, imprimé par `probe_471`, non bloquant) : le
-tri-état se pose entrée par entrée **quand son gisement mord**, jamais en bloc — un garde-fou qui
-rougit partout se fait désactiver. Détail, et cause du `128` NON tranchée :
-`docs/rl/case-471-tri-etat-des-cliquets.md`.
-
-### Tu touches un `*_live.py` ⇒ tu l'ATTESTES, sinon la banque rougit (#462)
-
-Depuis #462, `probe_462` exige une **attestation VERTE** pour tout fichier `*_live.py` que ta PR
-**ajoute OU modifie**. Avant d'ouvrir la PR :
-
-```powershell
-python scripts/python/probe_462_live_tests_status.py --run --since origin/master
-git add scripts/ratchets-462-live-attestations.json
-```
-
-- **La clé est le BLOB du fichier de test, pas son nom** — donc une **modification** invalide
-  l'attestation existante aussi sûrement qu'une création. C'est le cas le plus fréquent : faire
-  *passer* un test live rouge le modifie (ou modifie ce qu'il mesure) et te réclame une attestation
-  neuve. « Il était déjà attesté » ne vaut rien : il l'était à un AUTRE blob.
-- **Pourquoi** : `probe_457` exclut le live PAR CHOIX (la suite sature la session Frida partagée) et
-  la boucle de merge ne rejoue que la tranche — donc **rien** ne regardait les 419 fichiers live.
-  Mesuré : 240 balayés, **8 rouges**, dont un introduit rouge par le commit qui modifiait 398 lignes
-  de son propre fichier et resté rouge 8 jours.
-- **Le coût est nul par conception** : le cliquet ne garde QUE ce que la PR touche (médiane **0**
-  fichier live par commit, q3 **1**, sur 1706 commits). Il ne garde PAS le rot sous un tiers —
-  trou B, ouvert et chiffré (`#462-r1`).
-- ⚠ `scripts/ratchets-462-live-attestations.json` est **versionné** : deux PR qui touchent du live
-  y écrivent, donc c'est un point de conflit connu (`#462-r2`). Il se **régénère**, il ne se
-  fusionne pas — même arbitrage que les audits générés.
-- ⚠ **Un ROUGE du ledger n'accuse le dépôt que s'il a été mesuré sur CET arbre (#465).** La clé est
-  le blob du TEST, or un verdict dépend du dépôt ENTIER : un rouge posé sur la branche d'un agent
-  (sha mort au rebase — **237 des 254 entrées**, mesuré) était gelé à vie, puisque `--run --since`
-  ne rejoue que le diff. Depuis #465, un non-vert mesuré ailleurs s'affiche **`A RECONFRONTER`** —
-  toujours **bloquant**, mais il accuse le LEDGER, pas le code. **Ne renvoie pas une PR sur un tel
-  verdict : tranche-le** par `probe_462_live_tests_status.py --run --stale`. Mesuré le 2026-08-04 :
-  les 3 rouges lus comme « les régressions de la soirée » étaient **tous périmés**.
-  ⚠ `--report --since` était **avalé en silence** avant #465 (rapport global lu comme borné au diff).
-
-- **Pourquoi il existe (#430)** : la liste n'existait comme objet nulle part — prose du `CLAUDE.md`,
-  `runpar.ps1` **non versionné** d'un scratchpad, et des case-docs aux compositions **incompatibles**.
-  Aucun fichier du dépôt ne les contenait ensemble. C'est la cause d'EXÉCUTION derrière trois
-  dérives mesurées le 2026-08-01 (#420, #421, #427).
-- **La leçon de #427, par mesure** : prouver sa couverture est **nécessaire et non suffisant**.
-  `probe_313` avait déjà cette forme — sa preuve de couverture EST un test offline — et a laissé
-  passer deux dérives, parce qu'ici **« être un test » et « être joué » sont INDÉPENDANTS** (la
-  suite complète est proscrite, et un agent ne cible que les tests de SA tranche). Un cliquet doit
-  être dans une **liste qu'on lance**.
-- **Ce que son premier passage a trouvé, aussitôt** : `probe_313` **rouge sur `origin/master`**
-  (deux mirrors natifs entrés dans `engine/` sans entrer à son registre — #427 l'a fermé en
-  parallèle, confirmation indépendante), et `probe_181` **incapable de rougir** — il rendait `0`
-  inconditionnellement alors que ce `CLAUDE.md` prescrivait de « le faire passer ». Corrigé par #430.
-- **Coût, mesuré le 2026-08-01** (mur = le plus long, pas la somme) : **19 cliquets, 172 s** sous
-  charge — **108,8 s** machine calme — contre 112,8 s pour les 9 d'avant, mesurés dans les mêmes
-  conditions. `probe_283` y entre **éclaté en ses 6 étapes** (`--step all` en est l'union stricte) :
-  joué d'un bloc il DOUBLAIT le mur (145 → 299 s), éclaté il disparaît sous lui.
-  Le critère d'admission n'est jamais le coût absolu, mais le **coût marginal en parallèle** et **ce
-  que le cliquet est seul à voir**. ⚠ Chiffres à re-dériver, pas à citer.
-- **Un cliquet ne balaie QUE son propre checkout** (#434). `probe_283` remontait à la racine sans
-  exclure `.claude/worktrees/` : lancé depuis l'arbre principal il lisait — et **rapportait** — le
-  code en cours des autres agents (89 % des lignes de `mirror` et de `tables`, mesuré le
-  2026-08-01 à 8 worktrees), donc un rouge d'agent attribué à l'arbre principal. Mur 428,5 → ~157 s.
-  Le filtre porte sur le chemin **relatif** au dépôt : c'est ce qui l'empêche de s'auto-exclure
-  quand il tourne DANS un worktree. La correction **naïve** — ajouter `worktrees` au filtre par
-  segment sur `p.parts` (absolu) — est **pire que le trou** : mesurée le 2026-08-01, elle rend
-  1 521 fichiers depuis l'arbre principal et **0 depuis un worktree**, avec `VERDICT: PASS`.
-  Un cliquet garde ce périmètre pour tout `scripts/python/**` (`probe_440`, dans la banque) ;
-  il n'a **pas d'allowlist** — ses deux critères se dérivent du chemin canonique.
-  Détail : `docs/rl/case-434-perimetre-des-cliquets.md` (§10 pour #440).
-- **Un cliquet n'ÉCRIT JAMAIS dans `scripts/python/` (#455)** — la banque tourne **en parallèle par
-  conception**, donc un cliquet qui y dépose un répertoire le fait apparaître puis **disparaître**
-  pendant qu'un voisin énumère ce même arbre. Mesuré : `probe_455` seul = vert, `probe_391` seul =
-  vert, **les deux en parallèle** = `probe_391` rouge sur `FileNotFoundError`. C'est #434 dans
-  l'autre sens (là-bas on LISAIT hors périmètre, ici on y ÉCRIVAIT). Travailler dans un **tmpdir
-  système** (`mkdtemp()` **sans** `dir=`). ⚠ Le symptôme est une COURSE : un rejeu qui passe ne
-  prouve rien — la garantie doit être structurelle, et c'est `probe_440` R3 qui la tient (périmètre
-  dérivé de `ratchets.ps1` ; une réécriture EN PLACE, ce que font les modes `--fix`, reste permise).
-- **Un cliquet qui ne peut pas ROUGIR est gardé mécaniquement (#439)** : `probe_439` vérifie que
-  chaque entrée a un chemin de sortie **non nul**. Trois occurrences du vice, **toutes trouvées à
-  l'œil** — et l'audit manuel de #430 en avait raté une. La liste se **dérive** de `ratchets.ps1`
-  (deux fois, accord prouvé dans les deux sens) et la granularité est l'**entrée**, pas le fichier :
-  `--step diff` n'est pas `--step mirror`. Les deux compteurs assumés portent `Rougit = 'compteur'`
-  dans la banque — poser ce champ pour faire taire un cliquet cassé le fait rougir autrement.
-  ⚠ Il garde « peut rendre un code non nul », **pas** « rougit sur son gisement » (résidu `#439-r1`).
-- Détail des arbitrages, contre-épreuves et résidus : `docs/rl/case-430-banque-de-cliquets.md`,
-  `docs/rl/case-439-cliquet-peut-rougir.md`.
-
-### Tu OUVRES un résidu ⇒ tu DEMANDES son numéro, tu ne le choisis pas (#468)
+## Tu OUVRES un résidu ⇒ tu DEMANDES son numéro, tu ne le choisis pas (#468)
 
 ```powershell
 python scripts/python/probe_468_collision_numeros.py --suggere [parent]
@@ -403,40 +289,15 @@ dossiers) que le cliquet a trouvée à son premier passage.
   (`#468-r7`) ; et `#<n>` désigne à la fois une tâche et une PR (`#468-r8`), ce qui rend
   `git log --grep` structurellement ambigu.
 
-### Le MUR de la banque : c'est la PRIORITÉ qui se règle, jamais le parallélisme (#469)
-
-`ratchets-bg` ne « cache » le mur que pour **celui qui l'attend** ; il le **facture** à chaque
-agent pendant toute sa durée. Le chiffre qui décide est `mur + surcoût × nb agents`, jamais le mur.
-
-- **`-ThrottleLimit` est une FAUSSE piste, mesurée** : le baisser de 16 à 6 dégrade les **deux**
-  chiffres (mur 497 → 564 s, témoin d'agent 24,94 → 26,32 s). Retirer des créneaux à la banque
-  n'en rend à personne — le travail total ne change pas.
-- **La priorité de process, elle, marche** : `BELOW_NORMAL` sur `ratchets-bg` (héritée par ses 44
-  cliquets) → surcoût par agent **1 499 → 891 s (−41 %)**, mur inchangé. Elle ne retire aucun
-  créneau, elle change **qui passe devant**. C'est en place depuis #469, avec `-PrioriteNormale`
-  pour le diagnostic.
-- **Le mur a un plancher qui n'est pas le CPU** : le cliquet le plus long est **insécable**
-  (404 s sur 3 287 s de travail total). En fin de banque il tourne **seul**, machine à 11,7/22
-  cœurs — aucun réglage de parallélisme n'agit là. Seul levier : alléger le cliquet (**#457-r6**).
-- **La contention du `.git/` partagé est RÉFUTÉE** : mêmes commandes, même instant, dépôt partagé
-  vs clone privé → ratio ~1 (`git grep` 26,21 vs 26,99 s). `git grep` est lent parce qu'il balaie
-  3 498 fichiers, pas parce que le `.git/` est partagé.
-- ⚠ **Rien n'empêche N banques de tourner ensemble** — 3 observées le 2026-08-04 (l'orchestrateur
-  lance `ratchets-bg`, des agents jouent `ratchets.ps1` avant leur PR). Deux banques doublent le
-  mur (497 → 1 171 s). Et **le compteur de cœurs occupés ne le voit pas** (13,96 vs 13,70/22) :
-  il sature. La file d'attente se lit dans une charge de travail témoin, pas dans un pourcentage.
-- Détail, bras et contre-épreuves : `docs/rl/case-469-mur-de-la-banque.md`.
-
-### L'état de la BOUCLE — `loop_status.py`, déclenché tout seul (#467)
+## L'état de la BOUCLE — `loop_status.py`, déclenché tout seul (#467)
 
 ```powershell
-python scripts/python/loop_status.py          # flotte / livraison / harnais / banque
+python scripts/python/loop_status.py          # flotte / livraison / harnais
 ```
 
-Ces 37 cliquets gardent le **CODE**. Celui-ci garde la **BOUCLE** : agents en vol vs plafond,
-commits non poussés, worktrees d'agents nettoyables, PR ouvertes, session Frida, drain,
-**`liveRunners`** (le budget partagé des 4-en-parallèle, que personne ne peut deviner), et le
-verdict `ratchets-bg` non lu.
+Il garde la **BOUCLE** : agents en vol vs plafond, commits non poussés, worktrees d'agents
+nettoyables, PR ouvertes, session Frida, drain, et **`liveRunners`** (le budget partagé des
+4-en-parallèle, que personne ne peut deviner).
 
 - **Il se déclenche seul** : hook `Stop` du projet (`.claude/settings.json` →
   `scripts/hooks/loop-status.ps1`). Une checklist qu'il faut PENSER à lancer est oubliable —
@@ -447,19 +308,11 @@ verdict `ratchets-bg` non lu.
 - **Tri-état obligatoire** sur tout ce qui vient du host ou de `gh` : `null` = **PAS mesuré**,
   jamais rendu comme un zéro (même règle que `host_inputs.py`). Un `liveRunners` rabattu sur 0
   fait lancer 4 tests sur un budget inconnu — faute déjà commise.
-- **Le verdict de banque dit À QUOI il s'applique — trois états, jamais deux (#472).** `JUGEE`
-  (un verdict porte **sur la pointe** : rendu tel quel, vert ou rouge) · `EN COURS` (aucun verdict
-  pour la pointe, mais un run **vivant** la juge) · `NON JUGEE`. **Mesuré** : le hook a répété
-  `verdict de banque afb3e209 rc=1 [ROUGE (1)]` **trois tours de suite** pour une cause déjà
-  corrigée, `HEAD` valant entre-temps `4b62a914` puis `c94efb11` ; re-mesuré à froid, **48 commits**
-  entre le dernier verdict et la pointe. Un verdict **PÉRIMÉ** reste **AFFICHÉ** avec les deux
-  commits — il change d'**accusé** (contexte, pas signal), pas d'existence, et n'est rabattu **ni
-  sur un vert ni sur un rouge**. Seule exception : un `rc` **illisible** reste signalé quelle que
-  soit la fraîcheur — il accuse l'outil d'écriture, pas le commit jugé.
-  ⚠ `EN COURS` vs `NON JUGEE` se tranche sur un **FAIT** : le **handle** du verrou de run
-  (`logs/ratchets-bg/runs/`), que `ratchets-bg.ps1` tient ouvert en partage lecture seule et que
-  l'OS libère **toujours** à la mort du processus — donc un run tué laisse un **résidu** ouvrable,
-  jamais un `EN COURS` perpétuel. Ni un PID (recyclable) ni un âge ne donneraient ça.
+- **Un verdict doit dire À QUOI il s'applique — jamais rendre pour l'état COURANT ce qui juge un
+  ANCÊTRE (#472).** Mesuré : le hook a répété trois tours de suite un verdict pour une cause déjà
+  corrigée, `HEAD` ayant changé deux fois entre-temps ; re-mesuré à froid, **48 commits** d'écart.
+  Un verdict **PÉRIMÉ** reste **AFFICHÉ** avec les deux commits — il change d'**accusé** (contexte,
+  pas signal), pas d'existence, et n'est rabattu **ni sur un vert ni sur un rouge**.
 - ⚠ **Le chiffre du plafond (5) est le SEUL qui ne soit pas une mesure** : c'est un paramètre
   d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#467-r1`.
 - ⚠ **Une panne de capteur doit porter son NOM (#467-r6).** `gh` rendait `rc=127` pour ses trois
@@ -475,7 +328,7 @@ verdict `ratchets-bg` non lu.
 - ⚠ **Un repli sur cache peut SIGNALER, jamais RASSURER.** Servi quand `gh` est muet, il n'est
   retenu que s'il porte une PR **ouverte** : un cache disant « 0 PR » ne prouve rien, et le rabattre
   en mesure ferait taire l'outil sur une PR ouverte depuis. Aucun chemin ne fabrique un zéro.
-- **Deux cliquets** gardent SA fidélité, et le second existe parce que le premier ne pouvait pas
+- **Deux probes** gardent SA fidélité, et le second existe parce que le premier ne pouvait pas
   voir son gisement : les deux probes #467 **substituent** `http_json`, donc un champ disparu côté
   host les laissait verts tous les deux. `probe_467r4` confronte le contrat au **code source** du
   host, liste des champs **dérivée** de `mesurer_harnais`. Détail :
@@ -629,7 +482,7 @@ ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (se
   ⚠ **Zéro n'est pas un acquis, c'est un CLIQUET** : ce gisement est le seul que notre propre
   cadence de portage alimente — chaque ability entrée sans son masque le rouvre. La règle
   ci-dessus (masque posé DANS LE MÊME COMMIT) est donc désormais ce qui MAINTIENT le zéro,
-  pas ce qui le vise. Le cliquet qui le tient est dans la banque (`scripts/ratchets.ps1`).
+  pas ce qui le vise. `probe_181_targeting_gaps.py` le mesure, à la demande.
   ⚠ Il ne le tenait PAS avant #430 : `probe_181` rendait `0` inconditionnellement — un inventaire
   déguisé en garde-fou, que cette ligne prescrivait pourtant de « faire passer ».
   ⚠ Ces chiffres se périment vite : les re-dériver plutôt que citer cette ligne.
@@ -660,7 +513,7 @@ DANS LE MÊME COMMIT.** C'est le pendant exact de la règle ci-dessus, sur l'axe
 - **Même signature de dégradation** que `TARGETING_OPTIONS` : ni erreur ni crash, et **le seul
   gisement que notre propre cadence de portage aggrave** — chaque nouveau port l'alimente.
 - **Comment** : relire le littéral au décompilé (jamais le déduire du nom de l'ability ni du profil
-  de dégât). Le cliquet est dans la banque (`scripts/ratchets.ps1`).
+  de dégât). `probe_120_pre_unit_ability_fork.py` étape 0 le mesure, à la demande.
 
 !include .claude/skills/tacticus-re-port/SKILL.md
 
@@ -694,9 +547,8 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    ni des sorties du run ; ils vivent dans l'arbre principal, et c'est correct. L'invariant ne
    promet pas qu'un worktree les voie. Ce qu'il exige, c'est qu'un lecteur **DISE qu'il ne les
    voit pas au lieu de rendre un zéro** : toute lecture d'une entrée gitignorée passe par
-   `scripts/python/host_inputs.py` (tri-état `null` = pas mesuré / `[]` = mesuré et vide), et le
-   cliquet qui le tient est dans la banque (`scripts/ratchets.ps1`), avec celui qui garde SA
-   fidélité — un garde-fou dont le verdict dérive ne vaut rien. Symptôme si on l'oublie : un
+   `scripts/python/host_inputs.py` (tri-état `null` = pas mesuré / `[]` = mesuré et vide).
+   Symptôme si on l'oublie : un
    balayage rend `0 fichier` et se lit comme « rien à signaler » — mesuré, `rl_ingest --all`
    ingérait **zéro** batch depuis un worktree, sans erreur.
 

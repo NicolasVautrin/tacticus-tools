@@ -873,7 +873,7 @@ livraison **PAR PULL REQUEST**) :
 - **Moi** : je RELIS la PR + RE-VALIDE (checkout branche, tests CIBLÉS de la tranche) + **merge**.
   Le merge sur `master` reste MON geste, **sur ton accord** — jamais l'agent. Après merge :
   je supprime la branche (`git push origin --delete <branche>` + `git worktree prune`).
-  L'ordre exact du merge et la place de la banque : « La boucle de MERGE » ci-dessous.
+  L'ordre exact du merge : « La boucle de MERGE » ci-dessous.
 - **Une technique de résolution qui resservira va dans la case-doc du cas** (`docs/rl/case-<n>-*.md`)
   et dans le rapport de l'agent. Un fichier par cas : ça ne collisionne pas au merge, et ça se lit
   à la demande au lieu d'être injecté à chaque session.
@@ -883,88 +883,32 @@ livraison **PAR PULL REQUEST**) :
   re-découper.
 
 
-## La boucle de MERGE — la banque tourne HORS du chemin critique
+## La boucle de MERGE
 
-**Ordre, et il ne se réorganise pas :** rapport → `gh pr view --json headRefName` → fraîcheur
-(`merge-base --is-ancestor`) → `git merge --no-ff --no-commit` → **lire le diff des tests EXISTANTS
-modifiés** + **classer le diff `engine/`** → 3 à 5 groupes ciblés joués **par moi** → régénérer les
-docs générés **et l'attestation `probe_462`** → **commit LOCAL** → `ratchets-bg` en arrière-plan →
-lire la PR suivante → **push seulement sur VERT** → `git worktree remove` (après scan des points de
-reparse).
+**Ordre, et il ne se reorganise pas :** rapport -> `gh pr view --json headRefName` -> fraicheur
+(`merge-base --is-ancestor`) -> `git merge --no-ff --no-commit` -> **lire le diff des tests EXISTANTS
+modifies** + **classer le diff `engine/`** -> 3 a 5 groupes cibles joues **par moi** -> regenerer les
+docs generes -> **commit LOCAL** -> **push seulement sur VERT** -> `git worktree remove` (apres scan
+des points de reparse).
 
-```
-merge --no-ff LOCAL  ->  pwsh -File scripts/ratchets-bg.ps1 -Since <base>   (arriere-plan)
-                                          |
-                      vert  -> push -> merge suivant       rouge -> fix-forward, PUIS push
-```
-
-- **Ne pousser que du VERT.** Les worktrees d'agents partent d'`origin/master` : un rouge poussé
-  démarre cassé tout agent dispatché ensuite. Les merges s'empilent **localement** dans l'ordre ;
+- **Ne pousser que du VERT.** Les worktrees d'agents partent d'`origin/master` : un rouge pousse
+  demarre casse tout agent dispatche ensuite. Les merges s'empilent **localement** dans l'ordre ;
   on pousse dans l'ordre des VERDICTS, pas des merges.
-- **Le verdict se lit avant le prochain dispatch**, jamais après.
-- `ratchets-bg.ps1` épingle un COMMIT dans un **worktree persistant** (`%TEMP%`, verrou exclusif,
-  repli jetable si pris). Il juge donc un commit, **jamais le working tree** — un correctif non
-  commité lui est invisible, et il le DIT.
-- **Trois issues, à ne pas confondre** : `0` vert · `n` = n cliquets rouges · `64` (usage) et `99`
-  (montage) = **aucun verdict sur le dépôt**, jamais à lire comme un rouge (#457-r7).
+- **Le verdict se lit avant le prochain dispatch**, jamais apres.
 
-### Ne pas PAYER DEUX FOIS — reproche « t'es trop lent à merger » (2026-08-03)
+### Ne pas PAYER DEUX FOIS -- reproche « t'es trop lent a merger » (2026-08-03)
 
-La lenteur ne venait pas du nombre de gardes : je **rejouais à la main** le jeu de non-régression que
-l'agent avait déjà joué et rapporté, en dormant par tranches de 2 min.
+La lenteur ne venait pas du nombre de gardes : je **rejouais a la main** le jeu de non-regression que
+l'agent avait deja joue et rapporte, en dormant par tranches de 2 min.
 
-- ⛔ **Ne pas rejouer les tests live que la PR touche.** Régénérer l'attestation
-  (`probe_462_live_tests_status.py --run --since origin/master`) les **REJOUE** — c'est ça, la mesure
-  indépendante, pas un enregistrement de la parole de l'agent. Les 3 à 5 groupes ciblés de l'ordre
-  ci-dessus portent sur le **diff `engine/` classé**, pas sur le jeu déjà rendu par l'auteur.
-- **Régénérer le ledger AVANT de lancer la banque**, jamais après — une passe a rougi pour cette
-  seule raison de séquence. Puis `git add scripts/ratchets-462-live-attestations.json`.
-- ⛔ **Un ROUGE du ledger n'est PAS un motif de renvoi tant qu'il n'est pas reproduit ICI (#465).**
-  Mesuré le 2026-08-04 : `--report` rendait 3 rouges sur la tête de fusion de #555/#556/#557 ; les
-  **trois** étaient périmés (2 passed, 5 passed, cause fermée par #462-r4c), et **3 PR ont failli
-  être renvoyées à leurs auteurs**. Cause : la clé est le blob du TEST, pas l'arbre — et **237 des
-  254 attestations portent le sha d'une branche d'agent morte au rebase**. Depuis #465 ces entrées
-  s'affichent **`A RECONFRONTER`** (toujours bloquantes, mais elles accusent le LEDGER). Réflexe :
-  `probe_462_live_tests_status.py --run --stale` — 3 fichiers, 47,7 s, et le ledger redevient net.
-  ⚠ `--report --since <ref>` était **avalé en silence** avant #465 : il rendait TOUT le ledger, ce
-  qui a fait lire des rouges anciens comme « les rouges de la soirée ». Il borne désormais au diff.
-- ⚠ **Grouper plusieurs PR sur une seule tête est un REPLI, pas la règle** — ça fait perdre
-  l'ATTRIBUTION, et `ratchets-bg` existe précisément pour ne pas avoir à choisir entre vitesse et
-  attribution (il épingle le commit, l'arbre principal passe à la PR suivante). Ne grouper que si le
-  fond est indisponible.
-- **Lancer, passer à la suite, lire le verdict quand il tombe.** Pas de veille en boucle serrée : le
-  fichier `logs/ratchets-bg/<court>-<horodatage>.txt` attend, lui.
-- ⛔ **`probe_457 --measure` n'a RIEN à faire dans la boucle de merge** — c'est de la maintenance
-  (« à rejouer quand le mur dérive », dit sa propre aide). Mesuré le 2026-08-04 : **12 min bloquantes**
-  (719,7 s / 1462 tests), payées **deux fois** dans la même boucle. Les DEUX artefacts se dégradent
-  **du côté sûr**, et le code le dit (`probe_457_offline_tests_green.py`, commentaires de
-  `_footprints_path` et `_weights_path`) : une **empreinte** périmée « sélectionne TROP — et retombe
-  continûment sur le rejeu total » ; des **poids** périmés « coûtent du MUR, jamais un faux vert,
-  jamais un trou ». Aucun des deux ne peut produire un faux vert, et ce coût tombe **dans la banque,
-  qui tourne en fond** — donc zéro sur le chemin critique. Le lancer, c'est convertir un coût
-  invisible en blocage.
-  Seule chose qui force la main aujourd'hui : la **garde d'ÉQUILIBRAGE**, qui rougit dès qu'un
-  fichier de test offline neuf n'a pas de poids — une garde d'OPTIMISATION calibrée comme un
-  invariant de correction, et qui ne peut PAS rougir chez un agent (worktree frais → repli md5).
-  C'est la tâche **#463** ; tant qu'elle n'est pas corrigée, la sortie est de pousser en connaissant
-  ce rouge-là, pas de payer 12 min.
-- **Ce qui reste manuel et non négociable** : la relecture du **diff d'un test EXISTANT que la PR
-  MODIFIE**. Aucune garde ne voit un test adapté pour passer.
-
-**Coût mesuré le 2026-08-03** (à re-dériver, jamais à citer) : complet ~240 s ; avec `-Since` sur
-une PR de documentation **141 s** ; worktree neuf +34 s contre persistant. La sélection dérive d'une
-**empreinte MESURÉE** (`scripts/ratchets-457-footprints.json`, versionnée, auto-invalidée par son
-`_commit`) + du graphe d'imports ; tout doute rejoue TOUT et l'écrit.
-
-⚠ **`-Since` ne remplace pas un run complet** : un complet **une fois par session**, et après tout
-`--measure`. Si tu veux t'en passer, le geste juste n'est pas la confiance mais **régénérer
-l'empreinte** — c'est elle qui porte la vérité.
-
-⚠ **La banque n'est PAS le filet principal, et le croire fait relâcher la relecture.** Mesuré sur
-nos merges depuis le 2026-07-25 : 21 « banque VERTE » contre 6 rouges, dont **3 contre-épreuves
-délibérées**, **2 rouges réels mais PRÉ-EXISTANTS** (trouvés en AJOUTANT un cliquet, pas en
-rejouant les existants) et **UN SEUL** causé par le changement en validation. Ce qui attrape, c'est
-la relecture du diff et les groupes ciblés ; la banque couvre le tail risk — d'où sa place en fond.
+- **Ne pas rejouer ce que l'agent a deja joue et rapporte.** Les 3 a 5 groupes cibles portent sur le
+  **diff `engine/` classe**, pas sur le jeu deja rendu par l'auteur.
+- **Lancer, passer a la suite, lire le verdict quand il tombe.** Pas de veille en boucle serree.
+- **Ce qui reste manuel et non negociable** : la relecture du **diff d'un test EXISTANT que la PR
+  MODIFIE**. Aucune garde ne voit un test adapte pour passer.
+- **Ce qui attrape, mesure sur nos merges depuis le 2026-07-25** : la relecture du diff et les
+  groupes cibles. Un filet automatique large couvre le tail risk -- il ne remplace ni l'un ni l'autre,
+  et le croire fait relacher la relecture.
 
 ## Gabarit de BRIEF — les clauses non négociables
 
