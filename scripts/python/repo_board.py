@@ -79,7 +79,7 @@ import re
 import subprocess
 import webbrowser
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Le corps d'un message de merge cite l'agent auteur sous cette forme -- c'est le NOM DE FICHIER
@@ -102,11 +102,51 @@ EXCLUDE = ":(exclude)data/symbols"
 # 2,5 Go de transcripts (874 fichiers) et 2 appels git par PR, soit > 10 min de mur au
 # 2026-08-03. Le cache ramene le run a ce qui a REELLEMENT change depuis la veille.
 CACHE = REPO / "data" / "repo-board-cache.json"
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 def empty_cache() -> dict:
-    return dict(version=CACHE_VERSION, through=None, days={}, agents={}, merges={})
+    return dict(version=CACHE_VERSION, days={}, agents={}, merges={}, files={})
+
+
+def _first_uuid(fp: Path) -> str:
+    """`uuid` de la PREMIERE ligne -- signature de conversation, lue en un seul read.
+
+    Sert a reperer un FORK : une reprise de conversation RECOPIE le debut du parent dans un
+    fichier neuf, donc les deux partagent leur premiere ligne. C'est le seul mecanisme qui
+    produise des `uuid` en double entre fichiers (mesure du 2026-08-03 : 156 sur 277 109,
+    tous entre transcripts PRINCIPAUX).
+    """
+    try:
+        with fp.open("rb") as fh:
+            ln = fh.readline(65536)
+    except OSError:
+        return ""
+    try:
+        return json.loads(ln.decode("utf-8", "replace")).get("uuid") or ""
+    except Exception:
+        return ""
+
+
+def _read_tail(fp: Path, offset: int) -> tuple[list, int]:
+    """Rend (lignes COMPLETES depuis `offset`, nouvel offset).
+
+    Un transcript est APPEND-ONLY : un octet deja consomme ne changera plus, donc reprendre a
+    l'offset est exact et evite de relire le fichier entier. On s'arrete au dernier saut de
+    ligne -- une ligne partielle (ecriture en cours) est laissee pour le prochain run, sinon
+    on parserait du JSON tronque et on perdrait l'enregistrement.
+    """
+    try:
+        with fp.open("rb") as fh:
+            fh.seek(offset)
+            buf = fh.read()
+    except OSError:
+        return [], offset
+    cut = buf.rfind(b"\n")
+    if cut < 0:
+        return [], offset
+    usable = buf[:cut + 1]
+    return usable.decode("utf-8", "replace").splitlines(), offset + len(usable)
 
 
 def load_cache(use: bool = True) -> dict:
@@ -124,7 +164,7 @@ def load_cache(use: bool = True) -> dict:
         return empty_cache()
     if c.get("version") != CACHE_VERSION or not isinstance(c.get("days"), dict):
         return empty_cache()
-    for k in ("days", "agents", "merges"):
+    for k in ("days", "agents", "merges", "files"):
         c.setdefault(k, {})
     return c
 
@@ -147,9 +187,6 @@ def save_cache(c: dict) -> None:
                      encoding="utf-8")
 
 
-def _day_start(day: str) -> float:
-    """Horodatage POSIX du debut du jour LOCAL `day` -- borne de relecture des fichiers."""
-    return datetime.strptime(day, "%Y-%m-%d").astimezone().timestamp()
 
 
 def sh(args: list[str], cwd: Path = REPO) -> str:
@@ -244,110 +281,123 @@ def _ctx(u) -> int:
 def load_tokens(pdir: Path, cache: dict) -> tuple[dict, dict]:
     """Rend (par_jour, par_agent_id). Streaming : on ne parse que les lignes portant `usage`.
 
-    NE RELIT QUE CE QUI A PU CHANGER. Deux proprietes le rendent exact, toutes deux mesurees
-    le 2026-08-03 :
+    NE LIT QUE LES OCTETS NEUFS. Un transcript est APPEND-ONLY : on retient l'offset consomme
+    par fichier et on reprend a la queue. Chaque octet n'entre donc qu'une fois dans les
+    agregats, qui s'ACCUMULENT -- pas de recalcul, donc pas de risque de double compte.
 
-    1. UN JOUR REVOLU EST FIGE. Un enregistrement porte un seul horodatage, donc il appartient
-       a un seul jour ; un transcript est append-only et horodate a l'instant de l'ecriture.
-       Un fichier non modifie depuis le debut du jour J ne peut donc RIEN porter du jour J.
-       D'ou la borne : on ne relit que les fichiers de `mtime >= debut(through + 1 jour)`.
-       `through` = dernier jour COMPLET mis en cache -- jamais le jour courant, dont l'agregat
-       serait partiel et se figerait faux.
-    2. LA DEDUPLICATION PAR `uuid` EST INTRA-JOURNEE. Le meme enregistrement peut figurer dans
-       deux fichiers (reprise de conversation) : 156 cas sur 277 109 uuid, soit 0,031 % du
-       context. Ils portent le MEME horodatage, donc le meme jour -- et comme on recalcule des
-       journees ENTIERES, le set `seen` local les attrape tous. Mesure : ces 156 doublons sont
-       tous entre deux transcripts PRINCIPAUX, aucun n'implique un transcript d'agent.
+    CE QUE LA VERSION PRECEDENTE FAISAIT, ET POURQUOI C'ETAIT INSUFFISANT. La v1 bornait la
+    relecture par `mtime` : un fichier non modifie depuis le debut du jour J ne peut rien
+    porter de J (append-only, horodate a l'ecriture). Exact, mais elle relisait ENTIEREMENT
+    les fichiers touches. Mesure du 2026-08-04 : 654 Mo relus pour deux jours a recalculer,
+    dont 542 Mo pour LE SEUL transcript de l'orchestrateur -- 83 % du volume, alors que sa
+    part neuve tenait en quelques Mo. D'ou 298 s de mur.
 
-    Les agregats PAR AGENT ont leur propre validite -- `(taille, mtime)` du fichier -- parce
-    qu'ils ne sont pas decoupes par jour : un agent qui chevauche minuit doit rester entier.
+    LE SEUL DANGER DE L'ACCUMULATION EST LE FORK. Un meme enregistrement peut figurer dans
+    deux fichiers quand une conversation est REPRISE : le fichier neuf recopie le passe du
+    parent. Mesure du 2026-08-03 : 156 uuid sur 277 109 (0,031 % du context), tous entre
+    transcripts PRINCIPAUX, aucun n'impliquant un agent. La v1 les attrapait par un set
+    `seen` global ; l'incremental ne le peut plus -- il ne relit pas le passe.
+    Parade, sur le mecanisme et non sur le symptome : un fork PARTAGE SA PREMIERE LIGNE avec
+    son parent. Un transcript principal inconnu dont le premier `uuid` est deja connu declenche
+    donc une RECONSTRUCTION complete. Rare : 14 principaux en 25 jours.
+
+    RESIDU ASSUME : un fork qui demarrerait au MILIEU du parent (premiere ligne differente)
+    passerait la garde, et sa portion recopiee serait comptee deux fois. Jamais observe --
+    les 156 doublons mesures viennent tous d'un fork depuis l'origine. `--no-cache` recalcule
+    tout et repare, quoi qu'il arrive.
     """
-    today = datetime.now().astimezone().strftime("%Y-%m-%d")
-    through = cache.get("through")
-    cutoff = _day_start(through) + 86400.0 if through else 0.0
+    mains = sorted(pdir.glob("*.jsonl"))
+    agents = sorted(pdir.glob("*/subagents/agent-*.jsonl"))
+    fcache = cache["files"]
+
+    # --- FORK ? ------------------------------------------------------------------------
+    # Un transcript principal INCONNU qui partage sa premiere ligne avec un connu est une
+    # REPRISE : il recopie le passe du parent, donc l'accumulation le compterait deux fois.
+    # Seul remede exact : tout reconstruire. Rare (14 principaux en 25 jours, un seul fork).
+    known_first = {v.get("first") for v in fcache.values() if v.get("first")}
+    forked = next((fp.name for fp in mains
+                   if fp.name not in fcache and _first_uuid(fp) in known_first), None)
+    if forked:
+        cache.update(days={}, agents={}, files={})
+        fcache = cache["files"]
 
     by_day = defaultdict(lambda: defaultdict(int))
     for day, v in cache["days"].items():
-        if day <= (through or ""):
-            for k in ("ctx", "turns", "agent_ctx"):
-                by_day[day][k] = int(v.get(k) or 0)
+        for k in ("ctx", "turns", "agent_ctx"):
+            by_day[day][k] = int(v.get(k) or 0)
 
     by_agent = defaultdict(lambda: defaultdict(int))
-    acache = cache["agents"]
-    seen = set()
-    n_read = n_skip = 0
-    for fp in sorted(pdir.glob("*.jsonl")) + sorted(pdir.glob("*/subagents/agent-*.jsonl")):
-        aid = fp.stem.replace("agent-", "") if "subagents" in fp.parts else None
-        try:
-            st = fp.stat()
-        except OSError:
-            continue
-        token = "%d:%d" % (st.st_size, int(st.st_mtime))
-        hit = acache.get(aid) if aid else None
-        # On relit si le fichier a pu bouger DEPUIS la borne, ou si l'agregat d'agent manque.
-        if st.st_mtime < cutoff and (aid is None or (hit and hit.get("token") == token)):
-            if hit:
-                a = by_agent[aid]
-                a["ctx"] = int(hit["ctx"])
-                a["turns"] = int(hit["turns"])
-                a["first"] = _ts(hit.get("first"))
-                a["last"] = _ts(hit.get("last"))
-            n_skip += 1
-            continue
-        n_read += 1
-        try:
-            fh = fp.open("r", encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        with fh:
-            for ln in fh:
-                if '"usage"' not in ln:
-                    continue
-                try:
-                    rec = json.loads(ln)
-                except Exception:
-                    continue
-                uid = rec.get("uuid")
-                if uid:
-                    if uid in seen:
-                        continue
-                    seen.add(uid)
-                u = (rec.get("message") or {}).get("usage") or {}
-                if not u:
-                    continue
-                t = _ts(rec.get("timestamp"))
-                if not t:
-                    continue
-                ctx = _ctx(u)
-                day = t.astimezone().strftime("%Y-%m-%d")
-                # Les jours <= `through` sont deja dans `by_day` par le cache : les rajouter
-                # ici les compterait DEUX fois (un fichier relu porte aussi son passe).
-                fresh = through is None or day > through
-                if fresh:
-                    by_day[day]["ctx"] += ctx
-                    by_day[day]["turns"] += 1
-                if aid:
-                    if fresh:
-                        by_day[day]["agent_ctx"] += ctx
-                    a = by_agent[aid]
-                    a["ctx"] += ctx
-                    a["turns"] += 1
-                    if not a.get("first") or t < a["first"]:
-                        a["first"] = t
-                    if not a.get("last") or t > a["last"]:
-                        a["last"] = t
-        if aid:
-            a = by_agent[aid]
-            acache[aid] = dict(token=token, ctx=a["ctx"], turns=a["turns"],
-                               first=a["first"].isoformat() if a.get("first") else None,
-                               last=a["last"].isoformat() if a.get("last") else None)
+    for aid, v in cache["agents"].items():
+        a = by_agent[aid]
+        a["ctx"] = int(v.get("ctx") or 0)
+        a["turns"] = int(v.get("turns") or 0)
+        a["first"] = _ts(v.get("first"))
+        a["last"] = _ts(v.get("last"))
 
-    # On ne fige que les jours REVOLUS. Le jour courant reste recalcule a chaque run.
-    new_through = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    seen = set()
+    n_bytes = n_files = 0
+    for fp in mains + agents:
+        aid = fp.stem.replace("agent-", "") if "subagents" in fp.parts else None
+        key = fp.name
+        ent = fcache.get(key) or dict(offset=0, first=_first_uuid(fp))
+        try:
+            size = fp.stat().st_size
+        except OSError:
+            continue
+        # Un fichier PLUS COURT que ce qu'on a consomme n'est plus le meme : il a ete
+        # tronque ou remplace. On ne peut rien deduire de son offset -> on le relit entier,
+        # et l'agregat qu'il portait est perdu (cas jamais observe ; `--no-cache` le repare).
+        if size < ent["offset"]:
+            ent["offset"] = 0
+        if size == ent["offset"]:
+            fcache[key] = ent
+            continue
+        lines, ent["offset"] = _read_tail(fp, ent["offset"])
+        fcache[key] = ent
+        n_files += 1
+        for ln in lines:
+            n_bytes += len(ln)
+            if '"usage"' not in ln:
+                continue
+            try:
+                rec = json.loads(ln)
+            except Exception:
+                continue
+            uid = rec.get("uuid")
+            if uid:
+                if uid in seen:
+                    continue
+                seen.add(uid)
+            u = (rec.get("message") or {}).get("usage") or {}
+            if not u:
+                continue
+            t = _ts(rec.get("timestamp"))
+            if not t:
+                continue
+            ctx = _ctx(u)
+            day = t.astimezone().strftime("%Y-%m-%d")
+            # Accumulation PURE : chaque octet n'est consomme qu'une fois, donc plus besoin
+            # de la borne `through` de la v1 -- aucun enregistrement ne peut etre recompte.
+            by_day[day]["ctx"] += ctx
+            by_day[day]["turns"] += 1
+            if aid:
+                by_day[day]["agent_ctx"] += ctx
+                a = by_agent[aid]
+                a["ctx"] += ctx
+                a["turns"] += 1
+                if not a.get("first") or t < a["first"]:
+                    a["first"] = t
+                if not a.get("last") or t > a["last"]:
+                    a["last"] = t
+
     cache["days"] = {d: dict(ctx=v["ctx"], turns=v["turns"], agent_ctx=v.get("agent_ctx", 0))
-                     for d, v in by_day.items() if d <= new_through}
-    cache["through"] = new_through
-    cache["stat_tokens"] = dict(lus=n_read, reutilises=n_skip)
+                     for d, v in by_day.items()}
+    cache["agents"] = {aid: dict(ctx=a["ctx"], turns=a["turns"],
+                                 first=a["first"].isoformat() if a.get("first") else None,
+                                 last=a["last"].isoformat() if a.get("last") else None)
+                       for aid, a in by_agent.items()}
+    cache["stat_tokens"] = dict(fichiers=n_files, total=len(mains) + len(agents),
+                                mo=round(n_bytes / 1048576.0, 1), fork=forked or "")
     return by_day, by_agent
 
 
@@ -571,8 +621,7 @@ def build(since: str, strict: bool = False, use_cache: bool = True) -> dict:
     return dict(days=rows, prs=prs, joined=joined, net=git_net, since=since, strict=strict,
                 agents=tok_agent, project_dir=str(pdir), n_pr_commits=len(owner),
                 via_msg=via_msg, agree=agree, clash=clash,
-                cache=dict(through=cache.get("through"),
-                           tokens=cache.get("stat_tokens", {}),
+                cache=dict(tokens=cache.get("stat_tokens", {}),
                            merges=cache.get("stat_merges", {})))
 
 
@@ -625,11 +674,12 @@ def console(data: dict) -> None:
               % (ttm[len(ttm) // 2], ttm[int(len(ttm) * 0.9)]))
     if data["net"].get("shortstat"):
         print("croissance nette de l'arbre depuis %s : %s" % (data["since"], data["net"]["shortstat"]))
-    c = data["cache"]
-    print("cache         : fige jusqu'au %s -- transcripts %d lus / %d reutilises,"
-          " merges %d interroges / %d reutilises"
-          % (c.get("through") or "-", c["tokens"].get("lus", 0), c["tokens"].get("reutilises", 0),
-             c["merges"].get("interroges", 0), c["merges"].get("reutilises", 0)))
+    c, tk = data["cache"], data["cache"]["tokens"]
+    print("cache         : %.1f Mo lus (queue de %d fichiers sur %d), merges %d interroges"
+          " / %d reutilises%s"
+          % (tk.get("mo", 0), tk.get("fichiers", 0), tk.get("total", 0),
+             c["merges"].get("interroges", 0), c["merges"].get("reutilises", 0),
+             "  [FORK %s -> reconstruction]" % tk["fork"] if tk.get("fork") else ""))
 
 
 # ---------------------------------------------------------------- rendu HTML
