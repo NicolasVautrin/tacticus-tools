@@ -279,33 +279,56 @@ def impossibilite_du_bras_forced_in_melee(verbose: bool = True) -> dict:
 
 # ------------------------------------------------------------------------------- montage LIVE
 
-def _seed_bc_avec_trait() -> tuple[Path, dict]:
-    """Le seed BC du montage : `genesSmnDecoy` recoit le trait `Ranged`."""
+#: BRAS 2 -- l'ACTIVE dont la cascade `UnitFactory$$AddNormalAttackAbility` derive l'attaque normale
+#: `1126 RogalDorn_NormalAttack`, dont le ctor pose `forceMeleeTarget = 1 = RangedBool.False`
+#: (litteral LU) et le masque `0x4000` (SANS `TargetMatchesDynamicRule`). Ces deux proprietes en font
+#: la SONDE de `GetStat(Range)` : le clamp ne s'arme JAMAIS, et rien ne rattrape le volet portee en
+#: aval -- le verdict natif a `d = 1` lit donc directement la valeur.
+GRAFT_ACTIVE = P587.GRAFT_ACTIVE          # `PoundThemToDust`
+GRAFT_TYPE = P587.GRAFT_TYPE              # 1126
+
+
+def _seed_bc_avec_trait(greffe: bool = False) -> tuple[Path, dict]:
+    """Le seed BC du montage : `genesSmnDecoy` recoit le trait `Ranged` -- et, pour le bras 2,
+    l'active `PoundThemToDust` (qui substitue l'attaque normale `1126`)."""
     import catalog_inject
-    out = Path(tempfile.mkdtemp()) / "seed-trait-ranged.json"
-    p, reports = catalog_inject.write_trait_seed_bc(out, ["%s:%s" % (CASTER_VIS, TRAIT)])
-    return p, reports[0]
+    bc = catalog_inject._load_seed(None)
+    rep = catalog_inject.add_unit_trait(bc, CASTER_VIS, TRAIT)
+    if greffe:
+        rep = dict(rep, **catalog_inject.graft_active_ability(bc, CASTER_VIS, GRAFT_ACTIVE,
+                                                              replace=True))
+    out = Path(tempfile.mkdtemp()) / ("seed-trait%s.json" % ("-graft" if greffe else ""))
+    out.write_text(json.dumps(bc), encoding="utf-8")
+    return out, rep
 
 
-def _traits_natifs(snap, uid: int) -> list:
-    """Les traits que le NATIF publie pour cette entite (`combatSnapshot.units[].traits`, lus par
-    `readUnitTraits` sur l'entite). C'est la preuve que l'injection a mordu COTE NATIF."""
+def _traits_natifs(snap, uid: int):
+    """Les traits que le NATIF publie pour cette entite -- `combatSnapshot.units[].traits`, que
+    `readUnitTraits` obtient en invoquant `IdunBattle.Entities.UnitExtensions$$HasTrait` une fois
+    par valeur d'enum. C'est la preuve que l'injection a mordu COTE NATIF, et pas une relecture de
+    ce qu'on a ecrit.
+
+    TRI-ETAT, comme le capteur : `None` = PAS MESURE (ligne absente, ou champ `null`), `[]` = mesure
+    « aucun trait ». Les confondre ferait passer un capteur muet pour une unite sans trait.
+    ⚠ La cle est `entityId` (PAS `id`), et les valeurs sont des IDS d'enum -- on les nomme."""
+    from engine.entities.traits.unit_trait import trait_names_from_ids
     for u in (snap.get("units") or []):
-        if int(u.get("id", -1)) == int(uid):
-            return list(u.get("traits") or [])
-    return []
+        if u.get("entityId") is not None and int(u["entityId"]) == int(uid):
+            t = u.get("traits")
+            return None if not isinstance(t, list) else sorted(trait_names_from_ids(t))
+    return None
 
 
-def _rows(sid, rid, st, dv, caster_u) -> list:
+def _rows(sid, rid, st, dv, caster_u, aid: int = GENERIC_TYPE) -> list:
     """Une ligne par cible ENNEMIE vivante : natif, port, B1, B2."""
     cid = int(caster_u["id"])
-    ab = _NormalAttackTargeting(OPTS[GENERIC_TYPE])
+    ab = _NormalAttackTargeting(OPTS[aid])
     out = []
     for u in (dv.get("units") or []):
         if not u.get("alive") or int(u["id"]) == cid or u.get("owner") == caster_u.get("owner"):
             continue
         tid = int(u["id"])
-        tr = (P247._nat(sid, rid, cid, GENERIC_TYPE, tid) or {}).get("targetReason") or {}
+        tr = (P247._nat(sid, rid, cid, aid, tid) or {}).get("targetReason") or {}
         port = int(get_invalid_target_reason(st, cid, tid, ab))
         with _Substitue(_b1):
             b1 = int(get_invalid_target_reason(st, cid, tid, ab))
@@ -356,10 +379,18 @@ def run(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
         # (1) LE TRAIT A-T-IL MORDU COTE NATIF ? -- `combatSnapshot` lit l'entite native.
         for u in vivants:
             tn = _traits_natifs(snap, int(u["id"]))
+            tp = T._unit_traits(st, int(u["id"]))
             print("  u%-4s %-18s traits NATIFS = %s" % (u["id"], u.get("visualId"), tn))
+            print("        traits vus par le PORT = %s" % (list(tp),))
+            if tn is None:
+                raise MontageError("traits NON MESURES sur u%s -- capteur muet, pas une mesure"
+                                   % u["id"])
             if TRAIT not in tn:
                 raise MontageError("le trait `%s` n'est PAS publie par le natif sur u%s -- "
                                    "l'injection n'a pas mordu" % (TRAIT, u["id"]))
+            if TRAIT not in tp:
+                raise MontageError("le trait `%s` n'atteint pas le PORT sur u%s -- les deux "
+                                   "modeles ne liraient pas le meme caster" % (TRAIT, u["id"]))
             got = P583._normal_attack_id(u)
             if got != GENERIC_TYPE:
                 raise MontageError("u%s ne porte pas l'attaque normale generique (%s)"
@@ -387,16 +418,78 @@ def run(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
                        cwd=str(PYDIR), capture_output=True, text=True)
 
 
+def run_sonde(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
+    """BRAS 2 -- LA SONDE DE `GetStat(caster, StatType.Range = 2)`, et pourquoi elle est necessaire.
+
+    Le bras 1 ne donne qu'une BORNE : ses temoins n'ont, par construction, aucune cible a `d = 1`
+    (c'est ce qui les rend temoins), donc le plus petit refus observe vaut 2 et n'etablit que
+    `Value <= 1`. Or `D2` n'est probant que si `Value == 0` : avec `Value == 1`,
+    `min(1, Value) == Value` et « gate d'adjacence » et « branche distance » rendent le MEME verdict
+    partout -- un accord DEGENERE, qui ne prouverait rien.
+
+    On leve l'ambiguite avec une ability dont le clamp ne peut PAS s'armer : `1126`
+    (`forceMeleeTarget = RangedBool.False`, litteral lu au ctor) et masque `0x4000`, donc sans
+    `TargetMatchesDynamicRule` pour masquer le volet portee. Sur un caster ADJACENT :
+
+        natif `TargetIsInRange` a `d = 1`  <=>  `Value == 0`     (`d > 0`)
+        natif `0x0`            a `d = 1`  <=>  `Value >= 1`
+
+    ⚠ Le PORT diverge ici, et c'est ATTENDU : `value = None` -> aucun refus de DISTANCE. C'est le
+    prix CONNU du tri-etat (#419-r1-tr14-r5-r2-r1-r2-r1-r1) ; sur ce masque il devient un ecart de
+    VERDICT, la ou le bras 1 ne le laissait voir que sur le CODE. On le CHIFFRE, on ne le tait pas.
+    Ce regime n'existe que parce qu'on a POSE le trait : sans lui, `only_adjacent` est vrai par la
+    base et le gate d'adjacence couvre. Ce n'est donc pas un gisement reel."""
+    seed_bc, rep = _seed_bc_avec_trait(greffe=True)
+    print("\n=== BRAS 2 (sonde `GetStat(Range)`) : %s.Traits=%s ActiveAbilities=[%s]"
+          % (CASTER_VIS, rep["traitsAfter"], GRAFT_ACTIVE))
+    rid, state = P587._build_bc(sid, seed, board, str(seed_bc))
+    try:
+        for _ in range(P247.WARMUP_ENDTURNS):
+            P247._act(sid, rid, {"kind": "endturn"}, 60)
+        P583._drive_and_summon(sid, rid)
+        dv, payloads = P436._capture(sid, rid)
+        st = P436._mk_state(payloads)
+        u = P583._pick_adjacent(dv, CASTER_VIS)
+        if u is None:
+            raise MontageError("bras 2 : aucun `%s` vivant ADJACENT -> sonde non posee"
+                               % CASTER_VIS)
+        got = P583._normal_attack_id(u)
+        print("  u%-4s attaque normale NATIVE = %s (attendu %d) -> %s"
+              % (u["id"], got, GRAFT_TYPE, "MORD" if got == GRAFT_TYPE else "N'A PAS MORDU"))
+        if got != GRAFT_TYPE:
+            raise MontageError("la greffe n'a pas substitue l'attaque normale (%s != %d)"
+                               % (got, GRAFT_TYPE))
+        rows = _rows(sid, rid, st, dv, u, aid=GRAFT_TYPE)
+        _print_rows("SONDE  u%s (type %d, masque 0x4000, forceMeleeTarget=False)"
+                    % (u["id"], GRAFT_TYPE), rows)
+        return {"sonde": rows}
+    finally:
+        subprocess.run([sys.executable, "rl_duel.py", "dispose", "--state-file", str(state)],
+                       cwd=str(PYDIR), capture_output=True, text=True)
+
+
 def get_stat_range_mesure(res: dict):
-    """`GetStat(caster, StatType.Range = 2)` DEDUIT du temoin non clampe : le natif y prend la
-    branche DISTANCE (`d > Value` -> `TargetIsInRange`), donc le plus petit `d` refuse pour cette
-    raison vaut `Value + 1`. `None` = pas de temoin, ou aucune ligne concluante."""
-    seuils = []
+    """`GetStat(caster, StatType.Range = 2)` -- `(valeur, borne_sup, source)`, tri-etat.
+
+    Deux lectures, et seule la seconde donne la VALEUR :
+      * les TEMOINS du bras 1 (clamp non arme, masque `0x4002`) -> le plus petit `d` refuse en
+        `TargetIsInRange` vaut `Value + 1` : une BORNE SUPERIEURE ;
+      * la SONDE du bras 2 (`d = 1`, masque `0x4000`) -> `TargetIsInRange` <=> `Value == 0`.
+    `(None, ..., ...)` = NON MESURE (jamais rabattu sur 0)."""
+    borne = None
     for t in res.get("temoins") or []:
         refus = [r["d"] for r in t["rows"] if r["nat"] == int(TR.TargetIsInRange)]
         if refus:
-            seuils.append(min(refus) - 1)
-    return min(seuils) if seuils else None
+            b = min(refus) - 1
+            borne = b if borne is None else min(borne, b)
+    valeur, source = None, "non mesure"
+    a1 = [r for r in (res.get("sonde") or []) if r["d"] == 1 and r["nat"] is not None]
+    if a1:
+        valeur = 0 if all(r["nat"] == int(TR.TargetIsInRange) for r in a1) else None
+        source = "sonde bras 2 (d=1, type %d)" % GRAFT_TYPE
+        if valeur is None and all(r["nat"] == 0 for r in a1):
+            valeur, source = ">= 1", source
+    return valeur, borne, source
 
 
 def tally(res: dict) -> dict:
@@ -420,11 +513,46 @@ def tally(res: dict) -> dict:
     return out
 
 
+def verdict_sature(res: dict) -> bool:
+    """L'axe VERDICT est-il SATURE sur le caster clampe ? -- fait MESURE, pas excuse.
+
+    Le seul jeu d'options qui combine « clamp armable » et « portee non observable » est le preset
+    `statics+0x00` (type `69` et ses freres), dont le masque `0x4002` porte
+    `TargetMatchesDynamicRule`. Or `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason` refuse
+    TOUTE cible d'un caster sans arme (`GetAttackWeaponForDefaultNormalAttack` rend null des deux
+    cotes de son `AreTilesAdjacent`). Le natif refuse donc partout : aucune baseline ne peut etre
+    departagee sur « refuse / accepte », et seul le CODE (la CAUSE) discrimine."""
+    rows = [r for c in (res.get("clampes") or []) for r in c["rows"] if r["nat"] is not None]
+    return bool(rows) and all(r["nat"] != 0 for r in rows)
+
+
+def d2_probant(res: dict, valeur) -> tuple:
+    """D2 -- « la valeur clampee est-elle CONSOMMEE ? ». Rend `(probant, ok, detail)`.
+
+    Probant SEULEMENT si `GetStat(Range) == 0` : alors `min(1, 0) = 0`, et la branche DISTANCE
+    refuserait TOUTE cible (`d >= 1 > 0`). Observer le natif ACCEPTER le volet portee a `d = 1` sur
+    le caster CLAMPE prouve donc que c'est la branche `OnlyAdjacent` qui a repondu, et que la valeur
+    clampee n'a pas ete lue. Avec `Value >= 1`, les deux branches coincident -> DEGENERE, et on le
+    DIT au lieu de compter l'accord."""
+    a1 = [r for c in (res.get("clampes") or []) for r in c["rows"]
+          if r["d"] == 1 and r["nat"] is not None]
+    if valeur != 0:
+        return False, None, ("GetStat(Range) = %s -> min(1, Value) = Value : gate d'adjacence et "
+                             "branche distance coincident, D2 DEGENERE" % valeur)
+    if not a1:
+        return False, None, "aucune ligne a d = 1 sur le caster clampe"
+    ok = all(r["nat"] != int(TR.TargetIsInRange) for r in a1)
+    return True, ok, ("le natif %s le volet portee a d = 1 alors que min(1, 0) = 0"
+                      % ("ACCEPTE" if ok else "REFUSE"))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", default="4192")
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--offline", action="store_true", help="crans hors ligne seuls (pas de runner)")
+    ap.add_argument("--no-sonde", action="store_true",
+                    help="ne joue que le bras 1 (economise un runner ; PERD le discriminant D2)")
     a = ap.parse_args(argv)
 
     rc = 0
@@ -448,24 +576,33 @@ def main(argv=None) -> int:
     sid = _resolve_session()
     try:
         res = run(sid, a.seed, a.board)
+        if not a.no_sonde:
+            res.update(run_sonde(sid, a.seed, a.board))
     except MontageError as e:
         print("\n[FAIL] MONTAGE : %s" % e)
         return 2
 
-    gs = get_stat_range_mesure(res)
-    print("\n=== `GetStat(caster, StatType.Range = 2)` mesure sur le temoin : %s"
-          % ("NON MESURE (pas de temoin concluant)" if gs is None else gs))
+    valeur, borne, source = get_stat_range_mesure(res)
+    print("\n=== `GetStat(caster, StatType.Range = 2)` : valeur = %s (%s) ; borne sup du bras 1 = %s"
+          % (valeur, source, borne))
     t = tally(res)
     print("=== BILAN sur %d lignes du/des caster(s) CLAMPE(s)" % t["tot"])
     print("  CODE    : port %d | B1 %d | B2 %d | gagnees/B2 %d | PERDUES/B2 %d"
           % (t["port"], t["b1"], t["b2"], t["gain_b2"], t["perte_b2"]))
     print("  VERDICT : port %d | B2 %d | gagnees/B2 %d | PERDUES %d"
           % (t["v_port"], t["v_b2"], t["v_gain_b2"], t["v_perte"]))
+    sat = verdict_sature(res)
+    print("  axe VERDICT %s sur le caster clampe (masque 0x4002 + regle dynamique)"
+          % ("SATURE -- seul le CODE discrimine" if sat else "NON sature"))
+    probant, ok, detail = d2_probant(res, valeur)
+    print("  D2 (valeur clampee consommee ?) : %s -- %s"
+          % ("PROBANT" if probant else "NON PROBANT", detail))
+
     if t["tot"] == 0:
         print("[FAIL] aucune ligne mesuree")
         rc = 1
     if t["v_port"] != t["tot"]:
-        print("[FAIL] %d ligne(s) ou le port et le natif divergent SUR LE VERDICT (D1/D2)"
+        print("[FAIL] %d ligne(s) ou le port et le natif divergent SUR LE VERDICT (D1)"
               % (t["tot"] - t["v_port"]))
         rc = 1
     if t["port"] != t["tot"]:
@@ -479,6 +616,14 @@ def main(argv=None) -> int:
     if t["perte_b2"]:
         print("[FAIL] %d ligne(s) PERDUE(S) contre B2" % t["perte_b2"])
         rc = 1
+    if not a.no_sonde:
+        if not probant:
+            print("[FAIL] D2 NON PROBANT : la sonde n'a pas etabli `GetStat(Range) == 0`, donc "
+                  "l'accord a d = 1 ne separe PAS « gate d'adjacence » de « branche distance »")
+            rc = 1
+        elif not ok:
+            print("[FAIL] D2 REFUTE : le natif a lu la valeur CLAMPEE -- propager `None` est FAUX")
+            rc = 1
     print("VERDICT: %s" % ("PASS" if rc == 0 else "FAIL"))
     return rc
 
