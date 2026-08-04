@@ -479,10 +479,203 @@ def etape_6_plafond() -> None:
             "flotte vide -> 0 en vol, 5 libres")
 
 
+# =====================================================================================
+#  7. `gh` MUET -- le repli peut SIGNALER, jamais RASSURER (#467-r6)
+# =====================================================================================
+def _pose_cache(repo: Path, prs: list, age_s: float) -> None:
+    p = repo / "logs" / "loop-status-gh.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"quand": time.time() - age_s, "prs": prs}), encoding="utf-8")
+
+
+class GhMuet(LS.Sources):
+    """Tout est REEL sauf `gh`, qui echoue -- le gisement mesure de #467-r6."""
+
+    def __init__(self, repo: Path, cause: str) -> None:
+        super().__init__(repo=repo, avec_host=False, ttl_cache=0.0)
+        self._cause = cause
+
+    def gh(self, *args: str) -> tuple[int, str]:
+        raise RuntimeError(self._cause)
+
+    def git(self, *args: str) -> tuple[int, str]:
+        if args[:1] == ("status",):
+            return 0, _statut_v2()
+        if args[:2] == ("worktree", "list"):
+            return 0, ""
+        return 0, ""
+
+    def flotte(self) -> list[dict]:
+        return []
+
+    def dossier_verdicts(self) -> Path | None:
+        return None
+
+
+def etape_7_gh_muet() -> None:
+    print("\n[7] `gh` MUET : le repli SIGNALE, il ne RASSURE jamais (#467-r6)")
+    tmp = Path(tempfile.mkdtemp(prefix="probe467-gh-"))          # tmpdir SYSTEME (#455)
+    try:
+        ouverte = [{"number": 999, "title": "t", "headRefName": "b", "state": "OPEN"}]
+
+        # -- (a) AUCUN cache : PAS MESURE. C'est l'exigence dure -- jamais un zero.
+        s = GhMuet(tmp, "gh: delai depasse (10 s)")
+        lv = LS.mesurer_livraison(s)
+        verifie(not lv["pr_ouvertes"].mesuree, "gh muet sans cache -> PAS MESURE")
+        txt = LS.rendu_complet(LS.etat(s, 5, {}), *LS.signaux(LS.etat(s, 5, {})))
+        verifie("PR ouvertes : 0" not in txt, "gh muet sans cache -> jamais `PR ouvertes : 0`")
+        verifie("delai depasse" in txt,
+                "la CAUSE est nommee dans le rendu, pas reduite a un `rc=127`")
+
+        # -- (b) cache RECENT portant une PR ouverte : servi, AVEC son age et la panne.
+        _pose_cache(tmp, ouverte, 480.0)
+        lv = LS.mesurer_livraison(GhMuet(tmp, "gh: delai depasse (10 s)"))
+        verifie(lv["pr_ouvertes"].mesuree and len(lv["pr_ouvertes"].valeur) == 1,
+                "cache recent portant 1 PR ouverte -> servi en repli")
+        verifie(lv.get("gh_repli") and "8 min" in _age_gh_de(lv),
+                "l'age du repli est RENDU (%s)" % _age_gh_de(lv))
+        verifie("gh muet" in _age_gh_de(lv),
+                "la panne de `gh` est RENDUE a cote du chiffre servi (%s)" % _age_gh_de(lv))
+        verifie(not lv["nettoyables"].mesuree or lv["nettoyables"].valeur == [],
+                "sous repli, AUCUN nettoyage de worktree n'est propose (instantane perime)")
+
+        # -- (c) L'ASYMETRIE, le coeur du correctif : un cache qui dit << 0 PR >> ne prouve
+        #    RIEN quand `gh` est muet. Le rabattre en mesure ferait taire l'outil sur une PR
+        #    ouverte depuis, exactement l'oubli que le hook existe pour attraper.
+        _pose_cache(tmp, [{"number": 1, "headRefName": "x", "state": "MERGED"}], 60.0)
+        lv = LS.mesurer_livraison(GhMuet(tmp, "gh introuvable (PATH + emplacements connus)"))
+        verifie(not lv["pr_ouvertes"].mesuree,
+                "cache SANS PR ouverte + gh muet -> PAS MESURE (jamais un zero rassurant)")
+
+        # -- (d) cache TROP VIEUX : hors borne, on retombe sur PAS MESURE.
+        _pose_cache(tmp, ouverte, LS.Sources.AGE_MAX_REPLI + 60.0)
+        lv = LS.mesurer_livraison(GhMuet(tmp, "gh: delai depasse (10 s)"))
+        verifie(not lv["pr_ouvertes"].mesuree,
+                "cache plus vieux que AGE_MAX_REPLI -> PAS MESURE")
+
+        # -- (e) CONTRE-EPREUVE du repli lui-meme : `gh` qui REPOND doit rendre une mesure
+        #    FRAICHE, sans mention de panne. Sans elle, (b) passerait aussi sur un outil qui
+        #    servirait TOUJOURS le cache.
+        _pose_cache(tmp, ouverte, 480.0)
+        s_ok = GhMuet(tmp, "x")
+        s_ok.gh = lambda *a: (0, json.dumps(ouverte))            # type: ignore[assignment]
+        lv_ok = LS.mesurer_livraison(s_ok)
+        verifie(lv_ok["pr_ouvertes"].mesuree and not lv_ok.get("gh_repli"),
+                "gh qui REPOND -> mesure fraiche, aucune mention de repli")
+        verifie("gh muet" not in _age_gh_de(lv_ok),
+                "aucune panne annoncee quand il n'y en a pas (%r)" % _age_gh_de(lv_ok))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # -- LES CAUSES, exercees sur le VRAI `Sources.gh` (et non sur une substitution).
+    #    CE BLOC EXISTE PARCE QUE LA CONTRE-EPREUVE A TROUVE UN GARDE AVEUGLE : l'epreuve
+    #    << la cause est nommee >> ci-dessus lit le rendu d'un `GhMuet` qui leve SA PROPRE
+    #    cause -- elle reste donc verte meme si `Sources.gh` refond tout en `rc=127`. Un
+    #    garde qui substitue precisement le code qu'il pretend juger ne juge rien : c'est le
+    #    meme vice que #467-r4 (deux lecteurs, une entree morte), a l'echelle d'une methode.
+    #    On substitue donc `subprocess.run`, d'un cran EN DESSOUS, pour que le corps de `gh`
+    #    soit reellement traverse.
+    vrai_run = LS.subprocess.run
+    vrai_exe = os.environ.get("TACTICUS_GH_EXE")
+    os.environ["TACTICUS_GH_EXE"] = sys.executable          # un exe qui EXISTE : la garde passe
+
+    def _leve(ex):
+        def _f(*a, **k):
+            raise ex
+        return _f
+
+    class _Fini:
+        def __init__(self, rc):
+            self.returncode, self.stdout = rc, ""
+
+    try:
+        src_reel = LS.Sources(repo=LS.REPO, timeout_gh=7.0)
+        cas_gh = [
+            (_leve(LS.subprocess.TimeoutExpired("gh", 7.0)), "delai depasse",
+             "un DEPASSEMENT DE DELAI se nomme (c'etait la cause reelle de #467-r6)"),
+            # `OSError(2, ...)` s'instancie en `FileNotFoundError` (Python mappe l'errno) :
+            # on leve un OSError NU pour que l'epreuve porte sur le type RENDU, pas sur la
+            # table errno de l'interpreteur.
+            (_leve(OSError("panne")), "OSError",
+             "une panne systeme porte son type, pas un code muet"),
+        ]
+        for faux_run, attendu, quoi in cas_gh:
+            LS.subprocess.run = faux_run                     # type: ignore[assignment]
+            try:
+                src_reel.gh("pr", "list")
+                msg = "(aucune levee)"
+            except RuntimeError as e:
+                msg = str(e)
+            verifie(attendu in msg and "rc=127" not in msg, "%s (%r)" % (quoi, msg))
+
+        # Un rc NON NUL de `gh` (non authentifie, depot inconnu) doit remonter SON code.
+        # Le repo est un tmpdir VIERGE, et ce n'est pas un detail : sur un vrai checkout,
+        # `logs/loop-status-gh.json` existe, le repli s'enclenche et l'epreuve devient verte
+        # sans rien avoir juge -- constate en jouant la contre-epreuve.
+        vierge = Path(tempfile.mkdtemp(prefix="probe467-rc-"))
+        try:
+            LS.subprocess.run = lambda *a, **k: _Fini(4)      # type: ignore[assignment]
+            m, _, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
+            verifie(not m.mesuree and "rc=4" in (m.erreur or ""),
+                    "un rc non nul de `gh` remonte SON code, pas la sentinelle 127 (%r)"
+                    % m.erreur)
+        finally:
+            shutil.rmtree(vierge, ignore_errors=True)
+    finally:
+        LS.subprocess.run = vrai_run                          # type: ignore[assignment]
+        if vrai_exe is None:
+            os.environ.pop("TACTICUS_GH_EXE", None)
+        else:
+            os.environ["TACTICUS_GH_EXE"] = vrai_exe
+
+    # -- LE BUDGET, cause MESUREE de #467-r6. Sous `--hook`, `gh` doit disposer d'un budget
+    #    STRICTEMENT plus large que le budget general : a 3 s (l'ancien reglage, partage avec
+    #    les sous-process git), `gh` seul mettait deja 2,90 s et 5 tours sur 8 rendaient la
+    #    ligne PR aveugle. Sans cette epreuve, un retour au budget commun passerait inapercu --
+    #    il ne casse rien, il rend juste l'outil muet sur ce poste.
+    vus: dict = {}
+    vrai_sources = LS.Sources
+
+    class Espion(LS.Sources):
+        def __init__(self, **kw):
+            vus.update(kw)
+            super().__init__(**kw)
+
+    LS.Sources = Espion                                          # type: ignore[misc]
+    vrai_stdin = sys.stdin
+    sys.stdin = io.StringIO("")
+    try:
+        LS.main(["--hook", "--repo", str(LS.REPO), "--no-gh", "--no-host"])
+    finally:
+        sys.stdin = vrai_stdin
+        LS.Sources = vrai_sources                                # type: ignore[misc]
+    verifie(vus.get("timeout_gh", 0.0) > vus.get("timeout", 1e9),
+            "sous --hook, le budget de `gh` (%s s) depasse le budget general (%s s)"
+            % (vus.get("timeout_gh"), vus.get("timeout")))
+
+    # La resolution de `gh` par chemin absolu : `TACTICUS_GH_EXE` est EXCLUSIF -- pose sur un
+    # chemin inexistant, il ne doit pas retomber en silence sur le PATH (meme discipline que
+    # `TACTICUS_HOST_DATA_ROOT`, #273), sinon l'echappatoire mentirait sur ce qu'elle lance.
+    vrai = os.environ.get("TACTICUS_GH_EXE")
+    try:
+        os.environ["TACTICUS_GH_EXE"] = str(Path(tempfile.gettempdir()) / "gh-qui-nexiste-pas.exe")
+        verifie(LS.Sources(repo=LS.REPO).exe_gh() is None,
+                "TACTICUS_GH_EXE inexistant -> gh introuvable (pas de repli muet sur le PATH)")
+    finally:
+        if vrai is None:
+            os.environ.pop("TACTICUS_GH_EXE", None)
+        else:
+            os.environ["TACTICUS_GH_EXE"] = vrai
+
+
+def _age_gh_de(lv: dict) -> str:
+    return LS._age_gh(lv)
+
+
 def main() -> int:
     print("probe_467 -- fidelite de loop_status (100 % offline, sources substituees)")
     for etape in (etape_1_tri_etat, etape_2_raccourci_flotte, etape_3_silence,
-                  etape_4_parole, etape_5_verdict, etape_6_plafond):
+                  etape_4_parole, etape_5_verdict, etape_6_plafond, etape_7_gh_muet):
         etape()
     print("")
     if ECHECS:
