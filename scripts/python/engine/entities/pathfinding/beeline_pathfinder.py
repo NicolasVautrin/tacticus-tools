@@ -24,21 +24,29 @@ la longueur du detour.
 SON VOISINAGE EST, AU NATIF, LA LISTE **STOCKEE** (`BasePathfinder$$AddNeighbours` = le
 `ConnectivityComponent`) -- contrairement au `FlyPathfinder` qui, lui, OVERRIDE ce slot.
 
-⚠ **LE PORT LIT POURTANT LA GEOMETRIE, ET C'EST LA MESURE QUI L'IMPOSE.** Le champ `neighbours`
-du `boardGraph` n'est PAS le `ConnectivityComponent` : le capteur passe par
-`IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`, dont la porte `|delta elev| < 2` est
-INCONDITIONNELLE -- il publie donc une version AMPUTEE des marches d'elevation. Mesure sur
-`MC1_67` (`probe_448_r1_r1_r1_r1_flying_tiles_moved.py --diag`) : **18 aretes dirigees**
-geometriques absentes du champ, TOUTES des marches `2 <-> 4`.
+SON SUBSTRAT EST LE CANAL BRUT DEPUIS `#448-r1-r1-r1-r1-r2-r1` -- et c'est LE site du port ou
+ce rebranchement MORD, parce que son predicat d'arete est le corps trivial `return true` : il ne
+re-filtre RIEN, donc toute arete de trop dans le voisinage devient un raccourci reel.
 
-Le natif prouve que ces aretes existent chez lui : sur le mouvement `(1,1) -> (1,3)` d'un volant
-(`d = 2`), il enregistre **2** tuiles -- ce qui exige un chemin de deux aretes, donc l'arete
-`(1,2)-(1,3)` que le champ `neighbours` ne porte pas. Avec le champ, le port rendait **3**.
-La geometrie est donc le proxy MESURE du `ConnectivityComponent` reel, et le champ capte en est
-une sous-approximation. RESIDU NOMME dans l'autre sens : le `ConnectivityComponent` peut
-legitimement NE PAS relier deux tuiles geometriquement voisines (mesure `#381-r3` : les deux
-`Bridge` de `C1_74`, 4 aretes sur 74) -- la beeline du port y couperait ou le natif ferait le
-tour. Aucun board mesure ici n'est dans ce cas.
+L'HISTORIQUE, en deux temps, parce qu'il explique les deux replis :
+
+  1. Le port lisait le champ herite `neighbours`. Il est AMPUTE : le capteur passe par
+     `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`, dont la porte `|delta elev| < 2`
+     est INCONDITIONNELLE -- **18 aretes dirigees** de `MC1_67`, toutes des marches `2 <-> 4`.
+     Le natif prouve qu'elles existent chez lui : sur `(1,1) -> (1,3)` d'un volant (`d = 2`) il
+     enregistre **2** tuiles, ce qui exige l'arete `(1,2)-(1,3)`. Avec le champ, le port rendait
+     **3**.
+  2. Le port est passe a la GEOMETRIE, proxy MESURE du `ConnectivityComponent`. Elle en est un
+     SUR-ensemble strict : le `ConnectivityComponent` ne relie pas deux tuiles geometriquement
+     voisines quand `TileComponent$$HasEdge` refuse d'un cote -- les deux `Bridge` de `C1_74`,
+     **16 aretes dirigees** (chaque `Bridge` a 6 voisins geometriques pour 2 aretes de
+     connectivite : ses deux voisins dans l'axe du pont). La beeline geometrique y COUPE par le
+     pont la ou le natif fait le tour. C'etait le residu nomme `#448-r1-r1-r1-r1-r2`.
+
+⇒ le canal brut est le seul substrat juste des DEUX cotes, et l'ordre d'inclusion mesure sur trois
+boards est `neighbours <= connectivity <= geometrie`. Le repli quand le canal n'est pas capte
+reste la GEOMETRIE (le comportement du temps 2), jamais le champ herite : ce serait revenir au
+temps 1, c'est-a-dire deguiser en correctif le bug que la mesure de SS9 avait ferme.
 
 `IdunBattle.Entities.Pathfinding.IgnoreEverythingPathfinder$$WeightCost`, verbatim :
 
@@ -80,12 +88,13 @@ def find_path(board: Board, from_id, to_id, occupants=None) -> "list[int] | None
     `occupants` = `{tile_id -> team}` (le substrat de `IsFilled`) ; `None` -> aucune tuile
     occupee, ce qui ne change QUE le departage a longueur egale.
 
-    Le voisinage est la GEOMETRIE et non le champ `neighbours` capte -- cf. l'en-tete du module
-    (le champ est une version amputee du `ConnectivityComponent`, et la mesure native tranche)."""
+    Le voisinage est le `ConnectivityComponent` BRUT (`Board.base_add_neighbours`), avec repli sur
+    la GEOMETRIE quand le canal n'est pas capte -- cf. l'en-tete du module pour les deux mesures
+    qui imposent ce couple."""
     occ = occupants or {}
     return _base.find_path(
         board, from_id, to_id,
         edge=is_valid_path_node,
-        neighbours=board.neighbours_geometric,
+        neighbours=lambda tid: board.base_add_neighbours(tid, board.neighbours_geometric),
         weight_cost=lambda tid: weight_cost(tid in occ),
         is_valid_final_tile=lambda tid: is_valid_final_tile(board, tid))

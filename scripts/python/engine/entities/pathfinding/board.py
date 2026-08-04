@@ -35,7 +35,14 @@ SANS la porte `|Δelev| < 2` que `TileQuery$$IterateAdjacentTiles` applique au c
 `neighbours` (18 arêtes dirigées amputées sur `MC1_67`). Les deux coexistent par fidélité :
 `neighbours_native` reste juste pour les sélecteurs `AdjacentTiles` (leur natif porte la
 porte), `neighbours_connectivity` l'est pour `BasePathfinder$$AddNeighbours` (le sien
-ne la porte pas). Aucun pathfinder ne l'a encore rebranché — cf. sa docstring.
+ne la porte pas).
+
+⚠ **LES PATHFINDERS LE LISENT DEPUIS `#448-r1-r1-r1-r1-r2-r1`, mais par `base_add_neighbours()`,
+jamais en direct** — c'est cette méthode qui porte le REPLI (canal non capté), et il n'est pas le
+même selon la route. Les trois routes qui HÉRITENT `BasePathfinder$$AddNeighbours` y passent
+(marche, `IgnoreTerrain`, `Beeline`) ; `FlyPathfinder` l'OVERRIDE (géométrie) et les
+`ATeleportPathfinder` n'énumèrent pas de voisinage de chemin. Les trois relations d'inclusion,
+MESURÉES sur trois boards : `neighbours ⊆ connectivity ⊆ géométrie`.
 
 ⚠ Les MURS sont une PROPRIÉTÉ de tuile (walkable=False), PAS une arête manquante
 (cf. IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidPathNode qui filtre via IsWalkable). Le
@@ -153,15 +160,76 @@ class Board:
         selecteurs `AdjacentTiles` du DSL (leur natif PORTE la porte), `neighbours_connectivity`
         est juste pour le pathfinding (le sien ne la porte pas).
 
-        ⚠ AUCUN pathfinder ne lit encore cette methode. Le rebranchement de
-        `beeline_pathfinder` / `ignore_terrain_pathfinder` / `walk_maps_by_pos` sur ce canal est
-        un changement de SUBSTRAT : il change des resultats observables et doit etre mesure live
-        (cf. le plan de mesure de `docs/rl/case-448-r1-r1-r1-r1-flying-tiles-moved.md` §13). Le
-        livrer avant la fenetre de reinjection serait un port speculatif."""
+        Les pathfinders ne lisent PAS cette methode directement : ils passent par
+        `base_add_neighbours` ci-dessous, qui porte le repli. Le rebranchement a ete fait et
+        MESURE (`#448-r1-r1-r1-r1-r2-r1`, cf. la case-doc SS14)."""
         raw = (self.by_id.get(tid) or {}).get("connectivity")
         if raw is None:                       # canal ABSENT != liste VIDE (cf. docstring)
             return None
         return [t for t in raw if t in self.by_id]
+
+    def has_connectivity_channel(self) -> bool:
+        """Le `boardGraph` porte-t-il le canal `connectivity` ? (une seule tuile suffit a
+        trancher : le capteur publie le champ pour TOUTES les tuiles ou pour aucune).
+
+        Sert aux tests et aux probes a DIRE « canal non capte » au lieu de rendre un chiffre qui
+        se lirait comme une mesure."""
+        cached = getattr(self, "_has_conn", None)
+        if cached is None:
+            cached = any(t.get("connectivity") is not None for t in self.by_id.values())
+            self._has_conn = cached
+        return cached
+
+    def base_add_neighbours(self, tid: int, fallback=None) -> list[int]:
+        """`IdunBattle.Entities.Pathfinding.BasePathfinder$$AddNeighbours` -- LE voisinage du
+        PATHFINDING, foyer unique des trois routes qui heritent ce slot (marche, `IgnoreTerrain`,
+        `Beeline`). `FlyPathfinder` l'OVERRIDE et n'a rien a faire ici.
+
+        LE DECOMPILE (`BasePathfinder.u003CAddNeighboursu003Ed__19$$MoveNext`) : l'iterateur prend
+        `List` a `<composant>+0x10` -- le `ConnectivityComponent` -- et ne fait ENSUITE que
+        `CheckNeighbour` (`voisin != tile`, `excluded`, vslot `IsValidPathNode` @+0x1e8). **Aucun
+        filtre de terrain, aucune porte d'elevation dans l'ENUMERATION** : tout gate appartient au
+        predicat d'arete du pathfinder, jamais au voisinage.
+
+        POURQUOI CE N'EST PAS `neighbours_native`. Le champ herite `neighbours` passe par
+        `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`, qui
+        itere la MEME liste stockee puis applique, dans cet ordre : `IsTemporary` (si
+        `allowTemporary` faux), `IsWalkable` (si `onlyWalkableTiles`), `IsEmptyOrSteppable` (si
+        `onlyEmptyOrSteppable`), et **une porte `|dElev| < 2` INCONDITIONNELLE**. Le capteur
+        appelle `BattleQuery$$GetAdjacentTiles(tile, false, false, true)`, donc les trois premiers
+        filtres sont OFF et il ne reste QUE la porte. D'ou l'identite, LUE et non supposee :
+
+            neighbours == connectivity INTERSECTE {aretes de |dElev| < 2}
+
+        Mesuree le 2026-08-04 (`probe_448r1r1r1r1r2_connectivity_channel_live.py`) : `C \\ N` = 18
+        aretes dirigees sur `MC1_67`, 58 sur `C1_74`, 0 sur `C6_25`, et `N \\ C` = **0** partout.
+
+        LE REPLI EST UN CHOIX PAR ROUTE, jamais un defaut universel -- `fallback(tid)` sert
+        uniquement quand le `boardGraph` est ANTERIEUR au capteur (`connectivity` absent) :
+
+          * `None` -> `neighbours_native` : le champ ampute, donc une degradation RESTRICTIVE.
+            C'est le statu quo des routes a porte d'elevation (marche, `IgnoreTerrain`), pour qui
+            l'amputation est de toute facon INERTE -- leur `IsValidPathNode` exige `|dElev| <= 1`
+            et refuse donc exactement les aretes que le champ omet ;
+          * `self.neighbours_geometric` pour la `Beeline`, dont le `IsValidPathNode` est le corps
+            trivial `return true` : sur elle l'amputation MORD, et la geometrie est le proxy que
+            la mesure de #448-r1-r1-r1-r1 SS9 avait impose (le natif enregistre 2 la ou le champ
+            ampute faisait rendre 3). Retomber sur `neighbours_native` y rejouerait le bug.
+
+        Memoise sur l'instance (le board est STATIQUE pour toute la bataille)."""
+        cache = getattr(self, "_conn_adj", None)
+        if cache is None:
+            cache = {}
+            if self.has_connectivity_channel():
+                for t in self.by_id.values():
+                    raw = t.get("connectivity")
+                    if raw is not None:
+                        cache[t["id"]] = [n for n in raw if n in self.by_id]
+            self._conn_adj = cache
+        got = cache.get(int(tid))
+        if got is not None:
+            return got
+        return (fallback or self.neighbours_native)(int(tid))
 
     def teleport_twin(self, tid: int) -> "int | None":
         """La tuile de TELEPORT jumelle de `tid` (`ConnectivityComponent+0x18`), ou `None`.
@@ -274,16 +342,24 @@ class Board:
         graphe, sinon `TilesMovedThisTurn` diverge d'une face a l'autre alors que le natif n'a
         qu'un seul `IPathfinders`.
 
-        ⚠ `neigh_by_pos` est bati sur le champ BRUT `neighbours` du `boardGraph` (ni trie ni
-        symetrise), PAS sur `self.neighbours()` : c'est la liste d'adjacence STOCKEE sur la tuile,
-        celle qu'itere `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`. Memoise sur
+        ⚠ `neigh_by_pos` est le voisinage du PATHFINDING (`base_add_neighbours` : le
+        `ConnectivityComponent`, repli sur le champ herite `neighbours` quand le canal n'est pas
+        capte), ni trie ni symetrise -- PAS `self.neighbours()`, qui depend du `adjacency=` de
+        l'instance donc du montage de l'appelant.
+
+        Le rebranchement sur le canal (`#448-r1-r1-r1-r1-r2-r1`) est un NO-OP **prouve** sur cette
+        route, et c'est pour ca qu'il est sur : les aretes que le canal ajoute au champ herite sont
+        exactement celles de `|dElev| >= 2` (cf. `base_add_neighbours`), or l'arete de marche
+        (`WalkPathfinder$$IsValidPathNode` -> `$$IsReachableElevationDifference`) exige
+        `|dElev| <= 1` et les refuse toutes. Il ne change donc RIEN aujourd'hui ; il rend la route
+        independante d'une porte qui appartient au CAPTEUR et non au natif mirrore. Memoise sur
         l'instance (le board est STATIQUE pour toute la bataille)."""
         cached = getattr(self, "_walk_maps", None)
         if cached is not None:
             return cached
         by_id = self.by_id
         pos_of = {tid: (t["col"], t["row"]) for tid, t in by_id.items()}
-        neigh = {pos_of[tid]: [pos_of[n] for n in (t.get("neighbours") or []) if n in pos_of]
+        neigh = {pos_of[tid]: [pos_of[n] for n in self.base_add_neighbours(tid) if n in pos_of]
                  for tid, t in by_id.items()}
         walk = {pos_of[tid]: bool(t.get("walkable")) for tid, t in by_id.items()}
         elev = {pos_of[tid]: int(t.get("elevation") or 0) for tid, t in by_id.items()}

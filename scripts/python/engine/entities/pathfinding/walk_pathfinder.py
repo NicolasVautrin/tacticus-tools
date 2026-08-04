@@ -101,7 +101,11 @@ def get_reachable_levels(
       * `IdunBattle.Entities.Pathfinding.BasePathfinder$$AddNeighbours`
         (`u003CAddNeighboursu003Ed__19$$MoveNext`) énumère la `List` du `ConnectivityComponent`
         de la tuile (`connectivity+0x10`) et résout chaque id sur l'état — la liste d'adjacence
-        **STOCKÉE** ⇒ `board.neighbours_native`, le DÉFAUT ici ;
+        **STOCKÉE** ⇒ `board.base_add_neighbours`, le DÉFAUT ici. C'est le canal BRUT depuis
+        `#448-r1-r1-r1-r1-r2-r1` (avant : le champ hérité `neighbours`, amputé par la porte
+        `|Δelev| < 2` du capteur). NO-OP **prouvé** sur cette route : les arêtes que le canal
+        ajoute sont exactement celles de `|Δelev| >= 2`, que `IsReachableElevationDifference`
+        (point 2 du prédicat ci-dessus) refuse toutes ;
       * `IdunBattle.Entities.Pathfinding.FlyPathfinder$$AddNeighbours` OVERRIDE et interroge la
         requête de tuiles au rayon 1 — la **GÉOMÉTRIE** ⇒ `board.neighbours_geometric`, que
         `fly_pathfinder` passe explicitement.
@@ -133,7 +137,7 @@ def get_reachable_levels(
     saute le test `|Δelev| <= 1` quand les DEUX tuiles sont des téléporteurs, alors que la porte
     `|Δelev| < 2` de `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` (par laquelle passe
     le capteur) est INCONDITIONNELLE."""
-    nb = neighbours if neighbours is not None else board.neighbours_native
+    nb = neighbours if neighbours is not None else board.base_add_neighbours
     level = {start_id: 0}
     frontier = [start_id]
     depth = 0
@@ -187,7 +191,7 @@ def get_movable_positions(
     branche MARCHE (`pathfinders.continue_gate_for`).
 
     `neighbours` = le voisinage, second slot virtuel (cf. `get_reachable_levels`) ; défaut =
-    `board.neighbours_native` (la liste STOCKÉE que lit `BasePathfinder$$AddNeighbours`)."""
+    `board.base_add_neighbours` (la liste STOCKÉE que lit `BasePathfinder$$AddNeighbours`)."""
     level = get_reachable_levels(board, start_id, occupants, moving_team, max_depth=depth,
                                  edge=edge, can_continue=can_continue, neighbours=neighbours)
     visited = set()
