@@ -164,7 +164,7 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
     from ..events import EventBus
     from .movement import MoveUnitOperation
     from .damage import AttackDamageOperation
-    from .triggers import after_move_triggers, after_hit_normal_attack
+    from .triggers import after_hit_normal_attack
 
     e = state.get_entity(uid)
     pc = e.get_component(PositionComponent) if e is not None else None
@@ -175,13 +175,15 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
                  "moved": None, "attack": None}
     # 1. composante MOVE
     if to is not None and tuple(to) != origin:
-        MoveUnitOperation(uid, tuple(to)).execute(state, EventBus())
+        # Le vecteur after-move (et le 2e `RefreshEffects({7, null})` qui l'encadre) est joue PAR
+        # L'OPERATION depuis #448-r1-r1-r2-r1 -- au rang natif, dans `MoveUnitOperation$$Execute`.
+        # Le summon bouge par le MEME chemin que le mouvement joueur (`MoveUnitMessage`), donc
+        # options nulles = tous les defauts du ctor. GAIN de fidelite au passage : `movement_steps`
+        # est desormais RENSEIGNE (il etait `None` quand cet appelant jouait le vecteur lui-meme).
+        op = MoveUnitOperation(uid, tuple(to))
+        op.execute(state, EventBus())
         res["moved"] = tuple(to)
-        res["after_move"] = after_move_triggers(state, uid)
-        # 2e `RefreshEffects({7, null})` natif -- MEME encadrement du vecteur after-move que dans
-        # `MovementHandler.visit_MoveUnitMessage` (cf. `refresh_effects_after_move_triggers`).
-        from .movement import refresh_effects_after_move_triggers
-        refresh_effects_after_move_triggers(state)
+        res["after_move"] = op.last_after_move
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None or not uc.alive:                     # tue par l'overwatch pendant le move
         return res

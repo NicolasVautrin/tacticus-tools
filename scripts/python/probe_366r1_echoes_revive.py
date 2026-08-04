@@ -320,7 +320,6 @@ def run_port(sid, rid, effect_type):
     from engine.runner.operations.movement import MoveUnitOperation
     from engine.runner.operations.damage import AttackDamageOperation
     from engine.runner.operations.turnflow import StartTurnOperation
-    from engine.runner.operations.triggers import after_move_triggers
     from engine.runner.events import EventBus
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.components import OwnerComponent
@@ -365,8 +364,9 @@ def run_port(sid, rid, effect_type):
             break
     if B is None:
         return {"error": "aucune tuile voisine libre"}
+    # Le vecteur after-move est joue PAR l'Operation depuis #448-r1-r1-r2-r1 (rang natif) : un
+    # second appel ici le doublerait.
     MoveUnitOperation(uid, B).execute(st, EventBus())
-    after_move_triggers(st, uid)
     ghosts_after = sorted(int(t) for t, effs in st.effects.by_unit.items()
                           if int(t) in board.by_id
                           and any((not e.consumed) and e.effect_type == int(effect_type)

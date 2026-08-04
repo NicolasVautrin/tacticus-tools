@@ -279,9 +279,20 @@ class TheQuickeningAbility(ActiveAbility):
         # case-347-tiles-moved-call-sites.md` SS5). On n'enregistre donc RIEN plutot que de
         # facturer une valeur devinee. RESIDU NOMME `#347-r1` (sous-comptage, jamais
         # sur-comptage).
-        MoveUnitOperation(caster_id, target_pos, record_tiles=False).execute(state, ectx.bus)
+        # VECTEUR AFTER-MOVE (#448-r1-r1-r2-r1) : `TheQuickeningAbility$$GetMoveInBehaviour` et
+        # `$$GetMoveOutBehaviour` sont deux des 30 call-sites de `DSLBehaviors$$MoveUnit` (xrefs
+        # exhaustives), donc les deux moities natives passent par `MoveUnitOperation$$Execute` et
+        # JOUENT le vecteur. Le port fait l'echange DIRECT (une Operation par unite au lieu de
+        # lift-off + move-in), il joue donc UN vecteur par unite la ou le natif en joue deux (celui
+        # du lift-off part avec `movementSteps = 0` par la branche « position VIDE »). SOUS-COMPTAGE
+        # assume, jamais sur-comptage -- meme sens que le residu `#347-r1` ci-dessus.
+        # `arrive_at_final_tile=False` : defaut de feuille DSL (octet `MoveUnitOptions+0x10` = 1 des
+        # que le selecteur `MoveUnitBehaviourOptions+0x18` est nul).
+        MoveUnitOperation(caster_id, target_pos, record_tiles=False,
+                          arrive_at_final_tile=False).execute(state, ectx.bus)
         if swap_id is not None:
-            MoveUnitOperation(swap_id, origin, record_tiles=False).execute(state, ectx.bus)
+            MoveUnitOperation(swap_id, origin, record_tiles=False,
+                              arrive_at_final_tile=False).execute(state, ectx.bus)
         # --- phases 4/6 : free melee attack faction-BloodAngels (caster PUIS unite-echangee) ----------
         # config (maxDmg/dmgPct/level/mult) = celle de l'ability de MEPH (le caster) ; Attack = per-unit.
         csc = caster.get_component(StatsComponent)

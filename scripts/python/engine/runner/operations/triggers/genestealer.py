@@ -567,7 +567,13 @@ class HypersensoryMoveAndSpawnDecoyAbility(TriggeredAbility):
         dest = _hypersensory_move_dest(state, judh, attacker, cfg_range)
         moved = False
         if dest is not None:                                     # gate AmountIsGreaterThanZero(dest) & CanMove
-            MoveUnitOperation(judh, dest).execute(state, EventBus())   # options NULL : position + KillSteppable, PAS after-move
+            # `...MoveAndSpawnDecoy$$CreateBehaviour` est l'un des 30 call-sites de
+            # `IdunBattleLogic.Entities.DSLBehaviors$$MoveUnit` (xrefs exhaustives) : ce move passe
+            # donc par `MoveUnitOperation$$Execute`, qui JOUE le vecteur after-move -- la mention
+            # « PAS after-move » portee ici est REFUTEE (#448-r1-r1-r2-r1). `arrive_at_final_tile`
+            # suit le defaut de feuille DSL (octet `MoveUnitOptions+0x10` = 1 sur selecteur nul).
+            MoveUnitOperation(judh, dest,
+                              arrive_at_final_tile=False).execute(state, EventBus())
             moved = True
         # (2) DECOY sur PreviousTile (la tuile quittee, desormais libre) : Spawn(genesSmnDecoy, ForSteppable).
         decoy = None

@@ -8,6 +8,31 @@ from __future__ import annotations
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
 
+# `MoveUnitOptions+0x10` d'une feuille DSL de mouvement A OPTIONS NULLES (#448-r1-r1-r2-r1).
+# LU au decompile d'`IdunBattle.Entities.Behaviours.MoveUnitBehaviour$$Execute` : il empaquette les
+# SIX selecteurs de `MoveUnitBehaviourOptions` (`+0x10..+0x38`, ranges par le ctor aux champs
+# `MoveUnitBehaviour+0x70..+0x98`) dans les octets `MoveUnitOptions+0x10..+0x16`, et les DEUX
+# premiers sont INVERSES ensemble (`CONCAT11(sel@+0x18, sel@+0x10) ^ 0x101`) :
+#
+#     octet +0x10  <-  selecteur `MoveUnitBehaviourOptions+0x18`, defaut FAUX  -> octet = 1
+#     octet +0x11  <-  selecteur `MoveUnitBehaviourOptions+0x10`, defaut VRAI  -> octet = 0
+#
+# Or `MoveUnitOperation$$Execute` fait `if (options+0x10 == 0) { newlyAdded = UnitFlagsComponent.Add(
+# UnitFlag.ArrivedAtFinalTile = 1); }` puis publie `On(0x1c)` SSI `newlyAdded`, et
+# `if (options+0x11 == 0) SetMovedFlag(unit);`.
+# ⇒ un move DSL a options nulles POSE `Moved` mais **NE POSE PAS** `ArrivedAtFinalTile` et n'emet
+# donc PAS `On(0x1c)`. Le mouvement JOUEUR, lui, passe des options integralement nulles (octet +0x10
+# = 0) et le pose. La justesse du couple est ce qui rend la lecture non-devinable : les deux
+# defauts different (0 et 1) et le meme XOR les traverse.
+# `DSLBehaviors$$FlyUnit` n'ecrit QUE `MoveUnitBehaviourOptions+0x08` (le `Nullable(Fly)`) : ses six
+# selecteurs sont NULS, relu dans CETTE tranche. Cote `DSLBehaviors$$MoveUnit`, les options sont
+# PAR CALL-SITE ; celles de `ThunderousAssaultAbility$$ExecuteBehaviour` et de
+# `TheBetrayer_TakeTurnAbility$$CreateBehaviour` ont ete relues nulles par les tranches qui les ont
+# portees (cf. docstrings de `MoveUnit` et de `triggers/loki/betrayer.py`). RESIDU NOMME : les
+# options du 3e call-site porte, `HarlequinsPanoplyAbility$$CreateBehaviour`, ne sont PAS re-lues
+# ici -- la constante ci-dessous lui est appliquee par defaut de feuille, pas par mesure.
+_DSL_ARRIVE_AT_FINAL_TILE = False
+
 
 class PushUnit(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$PushUnit` -> `DisplaceUnitBehaviour(type=1).IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour$$Execute` : pousse CHAQUE
@@ -172,10 +197,12 @@ class FlyUnit(AbilityBehaviour):
             # `options[+0x08] = Nullable<PathfinderType>(3 = Fly)` -- le SEUL champ que
             # `DSLBehaviors$$FlyUnit` pose, et ce qui separe cette feuille de `MoveUnit`.
             from ....entities.pathfinding import pathfinders as _pf
-            MoveUnitOperation(sid, pos,
-                              pathfinder_type_override=int(_pf.PathfinderType.Fly)
-                              ).execute(state, ectx.bus)
-            ectx.emit("FlyUnit", subject=sid, moved=True, to=pos)
+            op = MoveUnitOperation(sid, pos,
+                                   pathfinder_type_override=int(_pf.PathfinderType.Fly),
+                                   arrive_at_final_tile=_DSL_ARRIVE_AT_FINAL_TILE)
+            op.execute(state, ectx.bus)
+            ectx.emit("FlyUnit", subject=sid, moved=True, to=pos,
+                      after_move=op.last_after_move)
             return OperationResult.ok()
         ectx.emit("FlyUnit", subject=sid, moved=False)
         return OperationResult.ok()
@@ -297,8 +324,11 @@ class MoveUnit(AbilityBehaviour):
             tid = board.id_at(pos[0], pos[1])
             if tid is None or not board.walkable(tid) or pos in occ:   # walkable ET libre (post-push)
                 continue
-            MoveUnitOperation(sid, pos).execute(state, ectx.bus)       # 1re tuile libre -> le caster charge
-            ectx.emit("MoveUnit", subject=sid, moved=True, to=pos)
+            op = MoveUnitOperation(sid, pos,                            # 1re tuile libre -> le caster charge
+                                   arrive_at_final_tile=_DSL_ARRIVE_AT_FINAL_TILE)
+            op.execute(state, ectx.bus)
+            ectx.emit("MoveUnit", subject=sid, moved=True, to=pos,
+                      after_move=op.last_after_move)
             return OperationResult.ok()
         ectx.emit("MoveUnit", subject=sid, moved=False)  # garde local_308==0 : aucune tuile libre -> pas de move
         return OperationResult.ok()

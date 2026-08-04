@@ -402,17 +402,58 @@ class MoveUnitOperation(Operation):
     d'`IdunBattle.Operations.MoveUnitOperation$$IsLikeFlying` (cf. `_is_like_flying`), donc il
     change `movementSteps` et RIEN d'autre -- surtout pas `record_tiles`/`_num_tiles_moved`, dont la
     liste (`connectedPath`) est produite par un appel a TROIS arguments qui ne voit pas les options.
+
+    LE VECTEUR AFTER-MOVE EST JOUE ICI (#448-r1-r1-r2-r1), plus par l'appelant. Le natif l'appelle
+    DANS `Execute` -- `EvaluateAfterMoveTriggers` n'a QUE DEUX xrefs dans tout le binaire, toutes
+    deux dans `IdunBattle.Operations.MoveUnitOperation$$Execute` (la branche « position VIDE +
+    `allowNullTargetPosition` », qui le joue avec `movementSteps = 0`, et la branche REELLE). Le
+    replier dans l'Operation est donc le mirror, et c'est ce qui fait EMERGER le vecteur pour toute
+    feuille DSL de mouvement au lieu de l'enumerer a la main (frontiere #149 : le vecteur est joue
+    par l'Operation, en-dessous du `.Execute` de la feuille).
+
+    `is_interim_step` = mirror de `MoveUnitOptions+0x14` -- le 6e argument d'`EvaluateAfterMoveTriggers`.
+    `arrive_at_final_tile` = mirror INVERSE de `MoveUnitOptions+0x10`. Semantique des deux :
+    cf. `triggers/dispatch/move_death.py::after_move_triggers`.
+
+    `emit_after_move` N'EST PAS un octet d'options : c'est le fait, PORT-LEVEL, que le call-site
+    mirroite `IdunBattle.Operations.SetUnitPositionOperation$$Execute` (le slot `SetUnitPosition` de
+    l'`IOperationProcessor`) et NON `MoveUnitOperation$$Execute`. Les deux slots sont DISTINCTS et
+    c'est LU : `MoveUnitBehaviour$$Execute` et la lambda de `Visit(CheatMoveUnitMessage)` prennent le
+    slot `MoveUnit` (4 arguments : unit, position, triggeringAbilityOrEffect, options), tandis que
+    `IdunBattle.Operations.DisplaceUnitOperation$$Execute`, `$$SwitchPosition` et
+    `IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition` prennent le slot `SetUnitPosition`
+    (3 arguments : unit, position, un OCTET qui gate `ResetPreviousTile`). `SetUnitPositionOperation`
+    ecrit les tuiles et la « position precedente du tour », et **n'emet AUCUN event** : ni pre-move,
+    ni `KillSteppableUnits`, ni `SetMovedFlag`, ni vecteur after-move. Le port utilise
+    `MoveUnitOperation` comme STAND-IN a ces trois sites -- ecart PREEXISTANT et non touche par cette
+    tranche ; `emit_after_move=False` empeche seulement d'y AJOUTER un vecteur que le natif n'y joue
+    pas (push/pull/switch emettent le leur via `DisplaceUnitOperation$$EventAndAbilitiesAndEffects`,
+    porte par `displace_triggers`).
+    ⚠ Ceci CORRIGE une justification fausse portee jusqu'ici : `record_tiles=False` au push et
+    `set_moved=False` au switch etaient attribues aux octets `+0x16`/`+0x11` d'un `MoveUnitOptions`
+    que ces call-sites NE PASSENT PAS. Les valeurs restent JUSTES (le natif n'y fait ni l'un ni
+    l'autre), la raison etait mal nommee.
     """
     __slots__ = ("unit_id", "to", "set_moved", "record_tiles", "skip_pre_move_triggers",
-                 "last_movement_steps", "pathfinder_type_override")
+                 "last_movement_steps", "pathfinder_type_override", "is_interim_step",
+                 "arrive_at_final_tile", "emit_after_move", "last_after_move")
 
     def __init__(self, unit_id: int, to: tuple[int, int], set_moved: bool = True,
                  record_tiles: bool = True, skip_pre_move_triggers: bool = False,
-                 pathfinder_type_override: int | None = None):
+                 pathfinder_type_override: int | None = None,
+                 is_interim_step: bool = False, arrive_at_final_tile: bool = True,
+                 emit_after_move: bool = True):
         self.unit_id = unit_id
         self.to = to
         self.pathfinder_type_override = (None if pathfinder_type_override is None
                                          else int(pathfinder_type_override))
+        self.is_interim_step = bool(is_interim_step)
+        self.arrive_at_final_tile = bool(arrive_at_final_tile)
+        self.emit_after_move = bool(emit_after_move)
+        # Resultat du vecteur after-move de CE mouvement (vide si aucun trigger ne matche, si le
+        # mouvement n'a pas eu lieu, ou si `emit_after_move` est faux). Publie pour les appelants qui
+        # le remontent dans leur payload de trace (`MovementHandler.after_move`, feuilles DSL).
+        self.last_after_move: list = []
         # Le `movementSteps` que le natif passe a `IdunBattle.Operations.MoveUnitOperation$$
         # EvaluateAfterMoveTriggers` (cf. `_movement_steps`). Publie ICI parce que sa seule entree,
         # la position de DEPART, n'existe plus une fois `execute` termine -- et que le vecteur
@@ -480,12 +521,16 @@ class MoveUnitOperation(Operation):
                 sub = MoveUnitOperation(self.unit_id, (int(ovr[0]), int(ovr[1])),
                                         set_moved=self.set_moved, record_tiles=self.record_tiles,
                                         skip_pre_move_triggers=True,
-                                        pathfinder_type_override=self.pathfinder_type_override)
+                                        pathfinder_type_override=self.pathfinder_type_override,
+                                        is_interim_step=self.is_interim_step,
+                                        arrive_at_final_tile=self.arrive_at_final_tile,
+                                        emit_after_move=self.emit_after_move)
                 sub.execute(state, bus)
                 # Le natif RELANCE `Execute` sur la nouvelle destination et c'est CET appel-la qui
                 # calcule son `movementSteps` et joue le vecteur after-move : on remonte donc la
                 # valeur de la relance, jamais celle du mouvement abandonne.
                 self.last_movement_steps = sub.last_movement_steps
+                self.last_after_move = sub.last_after_move
                 return
         pc = e.get_component(PositionComponent)
         old_pos = (pc.col, pc.row) if pc is not None else None
@@ -577,7 +622,23 @@ class MoveUnitOperation(Operation):
         # ailleurs (`Modify` = replace par-source, cf. `refresh_effects.py`).
         from .refresh_effects import refresh_stat_modifier_effects
         refresh_stat_modifier_effects(state)
-        # INCRÉMENT 1b : AddMoveEvent (bus) + EvaluateAfterMoveTriggers (overwatch) ici.
+        # `EvaluateAfterMoveTriggers(unit, position, previousPosition, movementSteps, isInterimStep,
+        # triggeringAbilityOrEffect)` -- RANG NATIF EXACT, lu au decompile d'`IdunBattle.Operations.
+        # MoveUnitOperation$$Execute` : il tombe ENTRE les deux `RefreshEffects({7, null})`, apres
+        # `RecordTilesMoved` et `Add(UnitFlag.ArrivedAtFinalTile)`. Ses DEUX seuls call-sites du
+        # binaire sont dans cet `Execute` -> replier le vecteur ICI est le mirror, et c'est ce qui
+        # le fait EMERGER pour toute feuille DSL de mouvement (`FlyUnit`, `MoveUnit`) au lieu de
+        # l'enumerer a la main chez chaque appelant (#448-r1-r1-r2-r1).
+        # `On(0x1c = ArrivedAtFinalTile)` est en QUEUE du vecteur porte (le natif le publie apres
+        # `EvaluateAfterMoveTriggers`, gate par le `bool` qu'a rendu `UnitFlagsComponent.Add(1)`).
+        if self.emit_after_move:
+            from .triggers import after_move_triggers
+            self.last_after_move = after_move_triggers(
+                state, self.unit_id, movement_steps=self.last_movement_steps,
+                is_interim_step=self.is_interim_step,
+                arrive_at_final_tile=self.arrive_at_final_tile)
+            refresh_effects_after_move_triggers(state)   # 2e `RefreshEffects({7, null})` natif
+        # INCRÉMENT 1b (residu) : `AddMoveEvent` par pas (bus de vue) reste non porte.
 
 
 def refresh_effects_after_move_triggers(state: State) -> list:
@@ -633,13 +694,12 @@ class MovementHandler:
         self.after_move: list = []          # cascade after-move (overwatch…) du dernier move
 
     def visit_MoveUnitMessage(self, msg) -> None:
+        # Le mouvement JOUEUR passe des `MoveUnitOptions` entierement NULLES (lu : la lambda de
+        # `Visit(CheatMoveUnitMessage)` n'y pose que le `Nullable<PathfinderType>` de `+0x08`, et le
+        # bras MARCHEUR de #448-r1-r1-r1-r1 corrobore que le move ordinaire n'a AUCUN override)
+        # -> tous les defauts du ctor. Le vecteur after-move est desormais joue PAR L'OPERATION, au
+        # rang natif (#448-r1-r1-r2-r1) ; ce handler ne fait plus que republier son resultat, que
+        # lisent les probes (`probe_lionhelm_overwatch`, `probe_366_r1_blockhits_purgeresponse`).
         op = MoveUnitOperation(msg.unit_id, msg.to)
         op.execute(self.state, self.bus)
-        # VECTEUR AFTER-MOVE : dispatcher générique (mirror `EvaluateAfterMoveTriggers`). Déclenche les
-        # effet-triggers after-move (Overwatch…). No-op si pas de board/rng ou aucun trigger en portée.
-        # `movement_steps` : le 5e argument natif d'`EvaluateAfterMoveTriggers`, que l'operation vient
-        # de calculer (cf. `MoveUnitOperation.last_movement_steps`).
-        from .triggers import after_move_triggers
-        self.after_move = after_move_triggers(self.state, msg.unit_id,
-                                              movement_steps=op.last_movement_steps)
-        refresh_effects_after_move_triggers(self.state)      # 2e `RefreshEffects({7, null})` natif
+        self.after_move = op.last_after_move

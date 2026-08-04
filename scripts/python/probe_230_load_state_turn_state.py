@@ -125,7 +125,6 @@ def case_ghost(rpc):
     from engine.runner.components import UnitComponent, PositionComponent
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
-    from engine.runner.operations.triggers import after_move_triggers
     # `GHOST_EFFECT` a ete RENOMME `TIME_FLUX_GHOST_EFFECT` par #366-r1 (2742ad35), quand
     # `EchoesFromTheWarp_Revive` est devenu la 2e instanciation du meme GhostEffect. Cet import
     # est reste sur l'ancien nom, dans un corps de fonction : `case_ghost` levait donc en
@@ -172,8 +171,10 @@ def case_ghost(rpc):
                 break
         if dest is None:
             raise SystemExit("aucune tuile voisine libre")
+        # `MoveUnitOperation.execute` joue LUI-MEME le vecteur after-move depuis #448-r1-r1-r2-r1
+        # (rang natif : `EvaluateAfterMoveTriggers` est appele DANS `MoveUnitOperation$$Execute`).
+        # Un second appel ici le doublerait.
         MoveUnitOperation(tid, dest).execute(st, EventBus())
-        after_move_triggers(st, tid)
         ghosts = sorted(int(t) for t, effs in st.effects.by_unit.items()
                         if int(t) in board.by_id
                         and any((not e.consumed) and e.effect_type == TIME_FLUX_GHOST_EFFECT
