@@ -658,8 +658,9 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     #     subie par la victime (AUCUN gate sur l'auteur du coup : c'est le decompile) ;
     #   * `On(0x3d = PreEffectAdded) & OwnerIsTarget & TriggeringEffectIs(0x429 = 1065 Pinned)`.
     # Sans eux, tout parasite restait au NIVEAU 1 -- or l'additif de degat est `x EffectLevel`.
-    # Les TROIS triggers de RETRAIT herites d'`ABondEffect` restent un residu NOMME (leurs gates sont
-    # des virtuels a lire au slot de vtable). Cf. loki/neuroparasite.py.
+    # Le trigger de RETRAIT (a) herite d'`ABondEffect` s'AJOUTE a ces deux-la, par la derivation en
+    # bas de fichier (`get_RemoveOnBondedEntityDeath` VRAI pour `NeuroparasiteEffect`) ; (b) et (c)
+    # restent NON CONFRONTES. Cf. loki/neuroparasite.py et bond_removal.py.
     NEUROPARASITE_EFFECT: [NeuroparasiteIncreaseLevelOnPsychicHit,   # On(9)    -> +1 niveau
                            NeuroparasiteIncreaseLevelOnPinned],     # On(0x3d) -> +1 niveau
     HAZE_DAMAGE_TRANSFER: [HazeOfCorruptionDamageTransferTrigger],

@@ -41,9 +41,11 @@ PYDIR = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PYDIR))
 
 from engine.entities.effect_type import EffectType                              # noqa: E402
-from engine.runner.operations.triggers.bond_removal import BOND_REMOVAL_GATES   # noqa: E402
+from engine.runner.operations.triggers.bond_removal import (                    # noqa: E402
+    BOND_REMOVAL_GATES, BondRemoveOnBondedEntityDeath)
 from engine.runner.operations.triggers.dispatch import (                        # noqa: E402
     pre_unit_death_2_triggers, unit_removed_triggers)
+from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS  # noqa: E402
 
 NEUROPARASITE = int(EffectType.Neuroparasite)                 # 1218 = 0x4c2
 PENDING_SUMMON = int(EffectType.TunnelingHorror_PendingSummon)  # 1113 = 0x459
@@ -207,16 +209,24 @@ def test_b_le_marqueur_survit_au_retrait_de_son_bonde():
         assert after, ("NATIF : le marqueur 1113 a disparu -- le cast retire son propre "
                        "`bondedEntity`, donc le trigger (a) l'aurait detruit a la pose")
 
-        # PORT : le meme vecteur, sur l'etat que le natif vient de produire. `offline_state` est
-        # celui du probe #366-r1 -- il sait lire `tileMeta`, SEUL canal des effets de TUILE
-        # (`decisionView` y est aveugle, case-92), et 1113 vit precisement sur une tuile.
+        # PORT. ⚠ CE QUI MORD ICI EST LE CABLAGE, PAS UN REJEU D'EVENEMENT -- et c'est mesure :
+        # la contre-epreuve << cabler TOUS les bonds >> laisse le rejeu de `unit_removed_triggers`
+        # au VERT, parce que 1113 vit sur une TUILE et que `collect_effect_triggers` itere
+        # `effects.by_unit`. Un compteur d'instances avant/apres serait donc vacuously vrai : il
+        # se lirait comme une mesure et n'en serait pas une. On assertionne l'ABSENCE au registre,
+        # qui elle rougit sur la mutation.
+        assert BondRemoveOnBondedEntityDeath not in EFFECT_TRIGGERS.get(PENDING_SUMMON, []), (
+            "PORT : `BondRemoveOnBondedEntityDeath` est inscrit pour 1113 alors que le virtuel "
+            "`get_RemoveOnBondedEntityDeath` est FAUX -- le cablage ignore le gate")
+        # Le rejeu reste joue : il ne prouve rien a lui seul (cf. ci-dessus) mais il garde la
+        # non-regression le jour ou 1113 passerait par `by_unit`.
         st, _board = P366.offline_state(P366.capture(rid))
         before = sum(len(_instances(st, u, PENDING_SUMMON))
                      for u in list(getattr(st.effects, "by_unit", {}) or {}))
         unit_removed_triggers(st, int(caster))
         now = sum(len(_instances(st, u, PENDING_SUMMON))
                   for u in list(getattr(st.effects, "by_unit", {}) or {}))
-        assert now == before, ("PORT : `On(UnitRemoved)` sur le bonde a retire %d marqueur(s) 1113 "
-                               "-- le virtuel FAUX n'est pas respecte" % (before - now))
+        assert now == before, ("PORT : `On(UnitRemoved)` sur le bonde a retire %d marqueur(s) 1113"
+                               % (before - now))
     finally:
         P366.rpc("disposeRunner", {"runnerId": rid}, 60)
