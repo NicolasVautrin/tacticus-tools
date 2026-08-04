@@ -14,11 +14,19 @@ CE QUE CE PROBE MESURE -- les sept crans du plan (case-doc SS7.4), en DEUX volet
     `actives \\ configActives` doit valoir exactement l'attaque normale que la fabrique vient
     d'ecrire, et `configActives \\ actives` doit etre VIDE. Si les deux listes etaient EGALES,
     le capteur lirait le composant et non la configuration, et la garde resterait tautologique.
-  * `--volet summon` (cran 7) : une unite INVOQUEE n'a AUCUNE `UnitConfiguration` dans la BC
-    (elle nait d'une operation de spawn, pas de `BC.Units`). Elle doit sortir en
-    `configActives: null` -- PAS MESURE -- et JAMAIS en `[]`, qui est la mesure « configuration
-    sans actif » (50 des 175 entrees du seed). Confondre les deux ferait appliquer le repli
-    generique a une unite dont on n'a rien lu.
+  * `--volet summon` : ce que devient une unite INVOQUEE. ⚠ Le plan (SS7.4 cran 7) attendait
+    `configActives: null` au motif qu'« elle nait d'une operation de spawn, pas de `BC.Units` ».
+    **REFUTE par la mesure** : `orksGrot` EST dans `BC.Units` (verifie offline : son entree porte
+    `ActiveAbilities: []`), la jointure reussit, et le capteur rend `[]` -- une VRAIE mesure, celle
+    de 50 des 175 entrees du seed. `unmatchedEntities` reste `0`. Ce volet garde donc la verite
+    MESUREE : l'invoque est JOINT, et son `[]` s'accorde au fichier.
+    ⇒ la branche `null` du tri-etat n'est exercee par AUCUN montage constructible sur ce seed
+    (residu `#419-r1-tr14-r5-r2-r2-r1-r1`), et il faut le DIRE au lieu de la croire gardee.
+  * `--volet mow` : le CONTROLE que le cran 7 ne donnait pas. Une MACHINE rend PRE == POST
+    EXACTEMENT, parce que `IdunBattle.Entities.Factories.MachineFactory$$Build` n'appelle JAMAIS
+    `UnitFactory$$AddNormalAttackAbility`. C'est le seul cas ou la difference PRE/POST doit etre
+    VIDE -- il prouve que la difference observee sur les six unites du volet `index` est bien
+    l'ecriture de la fabrique, et non un artefact de lecture.
 
 MESURE DU 2026-08-04 (session 3, build `rnca9r7q6c`), volet `index` :
 
@@ -49,7 +57,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -84,6 +91,10 @@ EXPECTED_ADDED = {
 
 SUMMONER = "orksRuntherd"
 GET_EM_RUNTZ = 1045
+#: L'unite INVOQUEE par `GetEmRuntz`. Elle EST dans `BC.Units` -- c'est ce qui refute le cran 7.
+SUMMONED = "orksGrot"
+#: Une MoW du pool (`rl_duel build --list-pool`, rank 17), pour le volet CONTROLE.
+MOW = "ultraDreadnought"
 
 
 def _names(config_actives):
@@ -163,8 +174,40 @@ def run_index(rpc, build, verbose: bool = True) -> dict:
 
 # --------------------------------------------------------------------------- volet SUMMON
 
+def run_mow(rpc, build, verbose: bool = True) -> dict:
+    """CONTROLE : une MACHINE rend PRE == POST exactement.
+
+    `IdunBattle.Entities.Factories.MachineFactory$$Build` n'appelle jamais
+    `UnitFactory$$AddNormalAttackAbility` (xrefs : cette fonction a UN SEUL appelant de code,
+    `UnitFactory$$Build`). La difference PRE/POST doit donc etre VIDE -- c'est le bras qui separe
+    « le capteur lit la CONFIGURATION » de « le capteur relit le COMPOSANT sous un autre nom »."""
+    rid = build(SEED_INDEX, ["--board", BOARD, "--p-units", "tauMarksman,necroWarden",
+                             "--a-units", "templAggressor,eldarRanger", "--p-mow", MOW])
+    st = _states(rpc, rid)
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 2}, 300)
+    mow_ids = {m.get("casterId") for m in (dv.get("mows") or ())}
+    rows = []
+    for su in (st.get("units") or ()):
+        eid = su.get("entityId")
+        if eid not in mow_ids:
+            continue
+        post = sorted(int(a.get("type")) for a in (su.get("actives") or ())
+                      if a.get("type") is not None)
+        raw = su.get("configActives")
+        pre = None if raw is None else sorted(int(c.get("type")) for c in raw)
+        rows.append({"entityId": eid, "configId": su.get("configId"), "pre": pre, "post": post,
+                     "identical": pre is not None and pre == post})
+    out = {"rid": rid, "rows": rows}
+    if verbose:
+        for r in rows:
+            print("   MOW eid=%s configId=%s PRE=%s POST=%s -> %s"
+                  % (r["entityId"], r["configId"], r["pre"], r["post"],
+                     "IDENTIQUES" if r["identical"] else "DIFFERENTS"))
+    return out
+
+
 def run_summon(rpc, build, verbose: bool = True) -> dict:
-    """Cran 7 : une unite INVOQUEE n'a pas de configuration -> `configActives: null`, jamais `[]`."""
+    """L'unite INVOQUEE : elle EST jointe, et son `configActives` vaut `[]` (mesure)."""
     rid = build(SEED_SUMMON, ["--board", BOARD,
                               "--p-units", "%s,tauMarksman" % SUMMONER,
                               "--a-units", "templAggressor,eldarRanger"])
@@ -236,13 +279,22 @@ def run_summon(rpc, build, verbose: bool = True) -> dict:
         newborn.append({"entityId": eid, "configId": su.get("configId"),
                         "configActives": su.get("configActives"),
                         "actives": [a.get("type") for a in (su.get("actives") or ())]})
+    # CONTROLE OFFLINE : ce que le seed BC porte pour cette configuration. Sans lui, un `[]` live
+    # ne se distingue pas d'un `[]` fabrique par une lecture ratee.
+    import catalog_inject
+    bc = catalog_inject._load_seed(None)
+    seed_entry = next((u for u in (bc.get("Units") or ()) if u.get("Id") == SUMMONED), None)
     out = {"rid": rid, "newborn": newborn,
            "unmatched_before": unmatched_before,
            "unmatched_after": layout.get("unmatchedEntities"),
+           "seed_in_bc": seed_entry is not None,
+           "seed_actives": None if seed_entry is None else seed_entry.get("ActiveAbilities"),
            "layout": layout}
     if verbose:
         print("   unmatchedEntities : avant=%s apres=%s" % (unmatched_before,
                                                             layout.get("unmatchedEntities")))
+        print("   seed BC : %s present=%s ActiveAbilities=%s"
+              % (SUMMONED, out["seed_in_bc"], out["seed_actives"]))
         for n in newborn:
             print("   INVOQUE eid=%s configId=%s configActives=%s actives=%s"
                   % (n["entityId"], n["configId"],
@@ -256,7 +308,7 @@ def run_summon(rpc, build, verbose: bool = True) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state-file", required=True, help="chemin ABSOLU (prefixe des state-files)")
-    ap.add_argument("--volet", default="all", choices=("all", "index", "summon"))
+    ap.add_argument("--volet", default="all", choices=("all", "index", "mow", "summon"))
     args = ap.parse_args()
 
     from rl_collect_batch import _resolve_session, _rpc
@@ -296,8 +348,17 @@ def main() -> int:
             print("   -> foyer : PRE=None et POST!=None attendu partout ; ecarts : %s"
                   % (taut or "aucun"))
             rc |= 1 if taut else 0
+        if args.volet in ("all", "mow"):
+            print("== volet MOW (controle : PRE == POST, la fabrique n'ajoute rien) ==")
+            out = run_mow(rpc, build)
+            if not out["rows"]:
+                print("   MONTAGE : aucune Machine sur le board")
+                return rc | 2
+            bad = [r["entityId"] for r in out["rows"] if not r["identical"]]
+            print("   -> machines a PRE != POST : %s" % (bad or "aucune"))
+            rc |= 1 if bad else 0
         if args.volet in ("all", "summon"):
-            print("== volet SUMMON (cran 7) ==")
+            print("== volet SUMMON (l'invoque est JOINT, son `[]` est une MESURE) ==")
             try:
                 out = run_summon(rpc, build)
             except MontageError as e:
@@ -306,12 +367,22 @@ def main() -> int:
             if not out["newborn"]:
                 print("   MONTAGE : aucun invoque apparu")
                 return rc | 2
-            wrong = [n["entityId"] for n in out["newborn"] if n["configActives"] is not None]
-            print("   -> invoques a `configActives` non nul : %s" % (wrong or "aucun"))
+            if not out["seed_in_bc"]:
+                print("   -> %s ABSENT du seed BC : le cran 7 d'origine redeviendrait valable, "
+                      "et ce volet est a re-ecrire" % SUMMONED)
+                rc |= 1
+            wrong = [n["entityId"] for n in out["newborn"]
+                     if n["configId"] != SUMMONED or n["configActives"] != []]
+            print("   -> invoques dont (configId, configActives) != (%r, []) : %s"
+                  % (SUMMONED, wrong or "aucun"))
             rc |= 1 if wrong else 0
-            if not (out["unmatched_after"] or 0) > (out["unmatched_before"] or 0):
-                print("   -> unmatchedEntities n'a PAS augmente : la jointure ne signale pas "
-                      "les invoques")
+            if out["seed_actives"] != []:
+                print("   -> le seed BC porte ActiveAbilities=%s pour %s : le `[]` live ne "
+                      "s'accorde plus au fichier" % (out["seed_actives"], SUMMONED))
+                rc |= 1
+            if (out["unmatched_after"] or 0) != 0:
+                print("   -> unmatchedEntities=%s : une entite n'est pas jointe, la NOMMER"
+                      % out["unmatched_after"])
                 rc |= 1
     finally:
         for rid in rids:
