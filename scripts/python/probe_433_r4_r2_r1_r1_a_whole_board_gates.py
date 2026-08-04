@@ -141,10 +141,15 @@ _BOARD_CACHE: dict = {}
 
 
 def _board_maps(sid, enemy):
-    """`(elev, walk)` du board -- lus UNE fois et memoises : le board est le meme pour tout le lot,
-    et chaque lecture coute un runner du budget partage."""
+    """`(elev, walk, wall)` du board -- lus UNE fois et memoises : le board est le meme pour tout le
+    lot, et chaque lecture coute un runner du budget partage.
+
+    `wall` (`boardGraph.isWall` = `TileComponent+0x41`) est le second volet du predicat de LIGNE DE
+    VUE (#433-r4-r2-r1-r2) et NE se deduit PAS de `walk` : `TileExtensions.IsWalkable` agrege le mur
+    ET le terrain infranchissable, la ou
+    `MovementQuery$$u003CGetTilesObscuringTerrainu003Eg__DetermineBlockingWalls` lit le seul drapeau."""
     if _BOARD_CACHE:
-        return _BOARD_CACHE["elev"], _BOARD_CACHE["walk"]
+        return _BOARD_CACHE["elev"], _BOARD_CACHE["walk"], _BOARD_CACHE["wall"]
     rid, err = _build(enemy)
     if rid is None:
         raise RuntimeError("build KO (board) : %s" % err)
@@ -156,7 +161,8 @@ def _board_maps(sid, enemy):
     pos_of = {t["id"]: (t["col"], t["row"]) for t in tiles}
     _BOARD_CACHE["elev"] = {pos_of[t["id"]]: t.get("elevation") for t in tiles}
     _BOARD_CACHE["walk"] = {pos_of[t["id"]]: bool(t.get("walkable")) for t in tiles}
-    return _BOARD_CACHE["elev"], _BOARD_CACHE["walk"]
+    _BOARD_CACHE["wall"] = {pos_of[t["id"]]: bool(t.get("isWall")) for t in tiles}
+    return _BOARD_CACHE["elev"], _BOARD_CACHE["walk"], _BOARD_CACHE["wall"]
 
 
 def _pick_far(elev, walk, want):
@@ -267,7 +273,7 @@ def sweep(sid, enemy, seed_bc=None, ability_ids=None):
                              "« zone = portee d'arme » rendrait le meme resultat par coincidence"
                              % (enemy, wr)}
 
-    elev, walk = _board_maps(sid, enemy)
+    elev, walk, wall = _board_maps(sid, enemy)
     O, Y = _pick_far(elev, walk, DIST)
     if O is None:
         return {"error": "aucune paire walkable a distance %d sur %s" % (DIST, BOARD)}
@@ -309,7 +315,7 @@ def sweep(sid, enemy, seed_bc=None, ability_ids=None):
         allp = sorted(in_range | out_range)
         modeled = {P for P in allp
                    if ar.is_tile_in_range_of_any_ability(Y, P, enemy, ability_ids=ability_ids,
-                                                         elev_by_pos=elev)}
+                                                         elev_by_pos=elev, is_wall_by_pos=wall)}
         by_d: dict = {}
         for P in allp:
             by_d.setdefault(hexgeo.distance(P, Y), []).append(P in in_range)
