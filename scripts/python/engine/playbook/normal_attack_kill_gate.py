@@ -1,7 +1,7 @@
 """Les playbooks Comparable dont `ShouldExecute` refuse le cast quand l'ATTAQUE NORMALE tuerait deja
 la cible (`#419-r1-tr14-r5-r2-r1-r1-r1`).
 
-Trois corps natifs, DIX-SEPT classes, une seule primitive : `BasePlaybook$$WillNormalAttackKill`
+Trois corps natifs LUS, QUINZE classes portees, une seule primitive : `BasePlaybook$$WillNormalAttackKill`
 (portee sur `BasePlaybook.will_normal_attack_kill`, `base.py`). Le sens tactique est le meme partout
 -- ne pas gaspiller une ability speciale sur une cible que la frappe de base acheve deja.
 

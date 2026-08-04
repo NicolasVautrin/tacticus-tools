@@ -1111,7 +1111,7 @@ class SorcerousFacadePlaybook(NonAttackComparablePlaybook):
 
     def _will_normal_attack_kill(self, ctx, target, caster_tile) -> bool:
         """`IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill(caster, target, casterTile)` —
-        FOYER `BasePlaybook.will_normal_attack_kill` (`base.py`), partagé avec les dix-sept playbooks
+        FOYER `BasePlaybook.will_normal_attack_kill` (`base.py`), partagé avec les quinze playbooks
         de `normal_attack_kill_gate` et la route NonComparable. La cible est ici l'ALLIÉ visé — le
         natif ne teste PAS le camp."""
         return self.will_normal_attack_kill(ctx, target, caster_tile)

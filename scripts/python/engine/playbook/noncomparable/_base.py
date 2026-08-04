@@ -219,7 +219,7 @@ def _will_normal_attack_kill(ctx: "NCContext", target_id, position: tuple | None
     hammer_of_wrath) qui teste s'il EXISTE un ennemi sure-kill ; ici c'est CETTE cible-la.
 
     FOYER : `engine.playbook.base.will_normal_attack_kill` -- le meme corps natif sert la route
-    Comparable (les 17 playbooks de `normal_attack_kill_gate`), donc un seul port."""
+    Comparable (les 15 playbooks de `normal_attack_kill_gate`), donc un seul port."""
     from engine.playbook.base import will_normal_attack_kill
     return will_normal_attack_kill(ctx, target_id, position)
 

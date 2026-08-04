@@ -1,7 +1,7 @@
 """#419-r1-tr14-r5-r2-r1-r1-r1 -- le gate `ShouldExecute` qui refuse l'ability quand l'ATTAQUE
 NORMALE tuerait deja la cible.
 
-Trois corps natifs, DIX-SEPT classes de playbook Comparable (recensement niveau par niveau,
+Trois corps natifs LUS, QUINZE classes de playbook Comparable portees (recensement niveau par niveau,
 `resolveMethodPtr` -- cf. `engine/playbook/normal_attack_kill_gate.py`) :
 
     // IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$ShouldExecute            -- 14 classes
