@@ -539,6 +539,52 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
     return 0
 
 
+def _pycache_prefix():
+    """Ou le bytecode de la MESURE est ecrit -- surtout PAS `scripts/python/**/__pycache__`.
+
+    `sys.pycache_prefix` (CPython >= 3.8) redirige tout le bytecode vers une arborescence miroir.
+    Deux raisons, dans cet ordre :
+
+      1. #455 -- un cliquet n'ECRIT JAMAIS dans `scripts/python` : la banque tourne en parallele et
+         plusieurs cliquets ENUMERENT cet arbre. Faire apparaitre des dizaines de `__pycache__`
+         pendant qu'un voisin le parcourt est exactement la course mesuree entre `probe_455` et
+         `probe_391`.
+      2. #464-r2 -- le prechauffage doit etre REPRODUCTIBLE. Sous `logs/` (gitignore, deja le foyer
+         des poids), il survit d'une mesure a l'autre sans jamais entrer dans un diff.
+    """
+    return repo_root() / "logs" / "ratchets" / "457-pycache"
+
+
+def _prechauffer_bytecode() -> tuple:
+    """Compile `scripts/python/**` AVANT de poser le hook. `(compiles, secondes)`.
+
+    LA CAUSE de #464-r2, traitee a sa racine. Sans bytecode a jour, `import` ouvre la SOURCE `.py`
+    -- et le hook d'audit `open` compte cette ouverture comme une lecture du depot. Mesure du
+    2026-08-04, MEME arbre MEME probe : `_globales` = 552 a froid contre 3 a chaud, et `par_test`
+    = 52 entrees contre 47. L'empreinte decrivait donc l'etat du `__pycache__` de la machine.
+
+    Le prechauffage RETIRE la cause au lieu de filtrer le symptome -- il ne fait disparaitre AUCUNE
+    information : une lecture applicative de `.py` (un test-BALAYAGE qui ouvre le code source pour
+    l'analyser -- ils sont nombreux ici) reste un `open` bien reel, vu et attribue. C'est ce qui
+    interdisait de simplement retirer les `.py` de `par_test` : ces lectures-la ne sont couvertes
+    par AUCUN import, donc par aucune preuve.
+
+    Best-effort assume : un echec de compilation ne fait pas echouer la mesure -- le filtre
+    `_couverte_par_le_graphe` reste le filet PROUVE sur `_globales`.
+    """
+    import compileall
+
+    sys.pycache_prefix = str(_pycache_prefix())
+    cible = _PYDIR
+    started = time.time()
+    try:
+        compileall.compile_dir(str(cible), quiet=2, workers=0, force=False)
+    except Exception as exc:                                   # pragma: no cover - best effort
+        print("[457] prechauffage bytecode INCOMPLET (%s) -- le filtre de couverture reste le "
+              "filet" % type(exc).__name__)
+    return str(_pycache_prefix()), time.time() - started
+
+
 def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
     """Chronometre le perimetre (ou ses seuls fichiers SANS poids) et reecrit les poids. ASCII only."""
     if not perimetre:
@@ -562,6 +608,12 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
 
     horloge = _TimePerFile()
     filet = _DeselectLiveItems()
+    # AVANT le hook : le bytecode a jour, sinon `import` ouvre les SOURCES et l'empreinte mesure le
+    # `__pycache__` de la machine (#464-r2). Inutile en incremental -- il n'ecrit pas d'empreinte.
+    if not seulement_manquants:
+        ou, secs = _prechauffer_bytecode()
+        print("[457] bytecode prechauffe en %.1f s -> %s (hors scripts/python, cf. #455)"
+              % (secs, ou))
     # L'empreinte pose un audit hook GLOBAL et IRREVERSIBLE sur `open` : on ne l'installe que
     # lorsqu'on va reellement la reecrire, c'est-a-dire en mesure COMPLETE.
     empreinte = None if seulement_manquants else _FilesPerTest(repo_root())
