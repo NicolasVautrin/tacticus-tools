@@ -1,8 +1,25 @@
 # Solving playbook — cas durs (une entree par cas resolu)
 
-Format : **symptome-type -> methode qui l'a craque -> outil/heuristique reutilisable**. Objectif :
-que l'orchestrateur resolve SEUL le prochain cas du meme genre. GREP ce fichier AVANT d'attaquer
-un cas qui ressemble a une entree existante.
+> ## ⛔ ARCHIVE GELEE depuis le 2026-08-04 — NE PLUS Y ECRIRE, NE PAS LA RECABLER
+>
+> Ce fichier etait le canal par lequel les agents **`fable`** transmettaient aux **`opus`** les
+> techniques qui avaient craque un cas dur. **`fable` a ete supprime du depot** : le canal n'a plus
+> ni source ni destinataire. Les entrees ci-dessous restent VRAIES et lisibles — chacune double la
+> case-doc de son cas — mais elles ne sont plus maintenues, et le fichier n'est plus `!include`
+> dans le skill `tacticus-orchestration`.
+>
+> **Recabler l'ecriture sur `opus-solver` a ete essaye et retire le meme jour.** Deux defauts,
+> mesures : (a) l'ajout se fait en append pur en fin d'un fichier UNIQUE, donc c'est un point de
+> conflit sur CHAQUE PR de solveur — et ici un conflit trivial coute cher, il force le rebase donc
+> le RE-JEU de la validation par l'auteur ; (b) le fichier etait `!include` dans le skill, donc
+> 675 lignes de contexte a chaque chargement, croissant sans borne avec 5 agents qui appendent.
+> Frequence : **11 commits** sur l'ere fable (13 -> 28 juillet), dormant une semaine, puis **1 des
+> le premier jour** sous la regle recablee.
+>
+> **Ou va desormais une technique reutilisable** : dans la **case-doc du cas** (`docs/rl/case-<n>-*.md`)
+> et dans le rapport de l'agent. Un fichier par cas — ca ne collisionne pas, et ca se lit a la demande.
+
+Format historique : **symptome-type -> methode qui l'a craque -> outil/heuristique reutilisable**.
 
 ---
 
