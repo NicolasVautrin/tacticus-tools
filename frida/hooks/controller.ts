@@ -49,6 +49,12 @@ import * as aiStep from "./features/ai-step/index.js";
 import * as modifierObserve from "./features/modifier-observe.js";
 import * as abilityPrefs from "./features/ability-prefs.js";
 import * as scorerDamageTrace from "./features/scorer-damage-trace.js";
+// effect-bonus-trace = #462-r4a-r1 : quel CANAL de `DamageModifiers` reçoit le bonus d'un effet
+// (additif / liste capée / multiplicateur), et sur QUELLE FACE (attaquant vs défenseur). Même
+// discipline que hitTrace/modifierObserve : `DamageModifiers$$Add` est sur le chemin de dégât,
+// donc le register N'ARME RIEN — armement on-demand par `effectBonusTraceOn`, sous budget
+// d'événements qui éteint la capture toute seule.
+import * as effectBonusTrace from "./features/effect-bonus-trace.js";
 // triggered-move-trace = le terme MOVE d'une triggered ability, ATTRIBUÉ à son unité ET à sa
 // tuile (#443-r1a). Même discipline que hitTrace : le register n'arme RIEN (ce `MoveNext` fire
 // une fois par tuile candidate ET par step du sweep de mouvement) — armement on-demand par
@@ -396,7 +402,7 @@ export function wireRpc(ctx: Ctx): void {
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
      messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
-     scorerDamageTrace, triggeredMoveTrace, triggerTrace, dslTrace, dslCtorTrace,
+     scorerDamageTrace, effectBonusTrace, triggeredMoveTrace, triggerTrace, dslTrace, dslCtorTrace,
      // effectImmunityObserve = diag on-demand (#151) : le register n'arme RIEN,
      // et sa sonde `traitProbe` touche un chemin CHAUD (`UnitExtensions$$HasTrait`).
      effectImmunityObserve,
