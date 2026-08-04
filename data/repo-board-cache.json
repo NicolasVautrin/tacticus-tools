@@ -704,10 +704,10 @@
    "turns": 354
   },
   "a1ba4c57669ac498b": {
-   "ctx": 27467916,
+   "ctx": 41394134,
    "first": "2026-08-04T13:31:16.908000+00:00",
-   "last": "2026-08-04T14:12:00.669000+00:00",
-   "turns": 129
+   "last": "2026-08-04T14:42:03.077000+00:00",
+   "turns": 178
   },
   "a1bb9cb8c8a6b3b03": {
    "ctx": 78003081,
@@ -1166,10 +1166,10 @@
    "turns": 188
   },
   "a3006c81322e44a9b": {
-   "ctx": 76686079,
+   "ctx": 126265449,
    "first": "2026-08-04T13:20:50.551000+00:00",
-   "last": "2026-08-04T14:18:52.362000+00:00",
-   "turns": 244
+   "last": "2026-08-04T15:14:56.544000+00:00",
+   "turns": 342
   },
   "a30247ac5ce66d622": {
    "ctx": 147547562,
@@ -1454,10 +1454,10 @@
    "turns": 401
   },
   "a3bb24b6d195eeeb6": {
-   "ctx": 1669006,
+   "ctx": 30714831,
    "first": "2026-08-04T14:17:04.957000+00:00",
-   "last": "2026-08-04T14:19:41.542000+00:00",
-   "turns": 16
+   "last": "2026-08-04T15:19:39.551000+00:00",
+   "turns": 140
   },
   "a3c12fdb336bc55fd": {
    "ctx": 1728110,
@@ -1560,6 +1560,12 @@
    "first": "2026-07-30T05:03:09.980000+00:00",
    "last": "2026-07-30T06:02:38.937000+00:00",
    "turns": 232
+  },
+  "a40118857e3d2cde0": {
+   "ctx": 14913670,
+   "first": "2026-08-04T15:29:32.510000+00:00",
+   "last": "2026-08-04T15:42:15.701000+00:00",
+   "turns": 97
   },
   "a4020ea02efb24b45": {
    "ctx": 68845988,
@@ -1982,10 +1988,10 @@
    "turns": 302
   },
   "a5495c47488dffaca": {
-   "ctx": 21653487,
+   "ctx": 87284727,
    "first": "2026-08-04T13:48:21.972000+00:00",
-   "last": "2026-08-04T14:16:00.416000+00:00",
-   "turns": 95
+   "last": "2026-08-04T15:42:15.688000+00:00",
+   "turns": 235
   },
   "a554ab5a157663bf0": {
    "ctx": 1762567,
@@ -2424,6 +2430,12 @@
    "first": "2026-08-04T01:09:10.408000+00:00",
    "last": "2026-08-04T04:49:58.187000+00:00",
    "turns": 923
+  },
+  "a6a996e977cf18b3f": {
+   "ctx": 16360906,
+   "first": "2026-08-04T15:01:51.773000+00:00",
+   "last": "2026-08-04T15:41:32.712000+00:00",
+   "turns": 118
   },
   "a6ad7acbdff29d97c": {
    "ctx": 8000265,
@@ -3140,10 +3152,10 @@
    "turns": 152
   },
   "a8d2eece500e055e2": {
-   "ctx": 62305263,
+   "ctx": 94905738,
    "first": "2026-08-04T12:57:55.321000+00:00",
-   "last": "2026-08-04T14:19:16.284000+00:00",
-   "turns": 218
+   "last": "2026-08-04T14:49:28.509000+00:00",
+   "turns": 293
   },
   "a8d9c8bcc3bee1cf2": {
    "ctx": 155323906,
@@ -3660,6 +3672,12 @@
    "first": "2026-07-24T15:47:52.356000+00:00",
    "last": "2026-07-24T16:53:53.340000+00:00",
    "turns": 195
+  },
+  "aa8f8c71c3655cbd1": {
+   "ctx": 8620038,
+   "first": "2026-08-04T15:29:06.178000+00:00",
+   "last": "2026-08-04T15:42:16.012000+00:00",
+   "turns": 69
   },
   "aa9eb2fefac8bc458": {
    "ctx": 134264284,
@@ -4915,6 +4933,12 @@
    "last": "2026-07-08T21:10:22.263000+00:00",
    "turns": 103
   },
+  "ae574116ce433e375": {
+   "ctx": 41787090,
+   "first": "2026-08-04T14:46:57.931000+00:00",
+   "last": "2026-08-04T15:42:20.850000+00:00",
+   "turns": 178
+  },
   "ae5cb7a80503420e8": {
    "ctx": 5744027,
    "first": "2026-07-04T15:38:40.178000+00:00",
@@ -5668,9 +5692,9 @@
    "turns": 11653
   },
   "2026-08-04": {
-   "agent_ctx": 3625290894,
-   "ctx": 4162578191,
-   "turns": 13821
+   "agent_ctx": 3897755726,
+   "ctx": 4470678527,
+   "turns": 14931
   }
  },
  "files": {
@@ -5688,7 +5712,7 @@
   },
   "770b6b08-a8e1-4df4-99e5-9ea0bcf65487.jsonl": {
    "first": "",
-   "offset": 8619209
+   "offset": 8829755
   },
   "85ce3eaa-558f-4617-a07c-53d13aa4a1bc.jsonl": {
    "first": "",
@@ -6168,7 +6192,7 @@
   },
   "agent-a1ba4c57669ac498b.jsonl": {
    "first": "a33e681d-9bf3-43d8-ac44-75d912acfaaf",
-   "offset": 985957
+   "offset": 1171958
   },
   "agent-a1bb9cb8c8a6b3b03.jsonl": {
    "first": "7899c20c-6c0d-4beb-abad-d7ac275cddd8",
@@ -6476,7 +6500,7 @@
   },
   "agent-a3006c81322e44a9b.jsonl": {
    "first": "d6d89922-0179-41ef-b287-d6370e240f29",
-   "offset": 2041802
+   "offset": 2538225
   },
   "agent-a30247ac5ce66d622.jsonl": {
    "first": "82b160e1-f2ac-4dad-a06f-6805638ff4c8",
@@ -6668,7 +6692,7 @@
   },
   "agent-a3bb24b6d195eeeb6.jsonl": {
    "first": "d73f0aaa-b9e5-4d15-8e07-5917ef258fd9",
-   "offset": 317419
+   "offset": 1102227
   },
   "agent-a3c12fdb336bc55fd.jsonl": {
    "first": "083e1fa6-3ddd-4c8c-bef4-70883c48f7d4",
@@ -6737,6 +6761,10 @@
   "agent-a400bbbfe5c94ca55.jsonl": {
    "first": "762e7cc3-31ae-4e16-a7ea-307153d267de",
    "offset": 1519726
+  },
+  "agent-a40118857e3d2cde0.jsonl": {
+   "first": "5ebd8422-e4b9-46ce-bb82-fcdae065a45a",
+   "offset": 699364
   },
   "agent-a4020ea02efb24b45.jsonl": {
    "first": "0c353646-e570-431e-889b-d95da6b8fa21",
@@ -7020,7 +7048,7 @@
   },
   "agent-a5495c47488dffaca.jsonl": {
    "first": "0d8cd620-64f0-43b6-9d2c-9f91f65194a9",
-   "offset": 1202297
+   "offset": 2229300
   },
   "agent-a554ab5a157663bf0.jsonl": {
    "first": "93c3e779-b164-4426-9cc1-40ea4b1ab19b",
@@ -7313,6 +7341,10 @@
   "agent-a6a80fb64f037855f.jsonl": {
    "first": "87f5b02f-52e7-4dfa-8321-13f0bdbba445",
    "offset": 3487462
+  },
+  "agent-a6a996e977cf18b3f.jsonl": {
+   "first": "9878875b-5dc5-4a39-9fcb-3701c9a80f77",
+   "offset": 709935
   },
   "agent-a6ad7acbdff29d97c.jsonl": {
    "first": "e8c8dd08-f420-4ff7-b184-bffa7acf2408",
@@ -7792,7 +7824,7 @@
   },
   "agent-a8d2eece500e055e2.jsonl": {
    "first": "a2fd268c-4fc4-4209-8b4b-3d61bee1126b",
-   "offset": 1619840
+   "offset": 1951868
   },
   "agent-a8d9c8bcc3bee1cf2.jsonl": {
    "first": "1b4069a6-392e-4e15-b504-62d09a42cb02",
@@ -8137,6 +8169,10 @@
   "agent-aa8a2f97d170e1645.jsonl": {
    "first": "36a8531a-20ac-4ca5-abe6-2e2902884c1c",
    "offset": 1200967
+  },
+  "agent-aa8f8c71c3655cbd1.jsonl": {
+   "first": "c7fc06df-176c-4143-9556-0a9e6ebca838",
+   "offset": 495076
   },
   "agent-aa9eb2fefac8bc458.jsonl": {
    "first": "60c28f6e-f131-42ba-828d-4afb79a7d026",
@@ -8974,6 +9010,10 @@
    "first": "55e7de0c-6e3a-4b4c-a51e-17aab89c010c",
    "offset": 867663
   },
+  "agent-ae574116ce433e375.jsonl": {
+   "first": "02884f24-0240-49a8-8ae7-7e8cfb57ea98",
+   "offset": 1348630
+  },
   "agent-ae5cb7a80503420e8.jsonl": {
    "first": "5cd949d1-a467-4f4e-b435-7d2fa51b4301",
    "offset": 516355
@@ -9336,7 +9376,7 @@
   },
   "b2170732-95be-4660-9594-e3e86a19af08.jsonl": {
    "first": "",
-   "offset": 576225444
+   "offset": 577787260
   },
   "b3ddc32a-7528-4057-9d59-bf4ca0066ab3.jsonl": {
    "first": "",
@@ -9739,6 +9779,15 @@
     "e519fcd4f6c7f9686f5e38a49ce674bdf946af03"
    ],
    "dele": 17
+  },
+  "13e2289479b0c067b08a9080577608887976e764": {
+   "add": 695,
+   "commits": [
+    "39eb006a4326fb014b56c70e4c5547ee6bf48a89",
+    "6eaf37a7db70ef95b1b882ffc916364c2717c73f",
+    "c9cdfde4b0f53596c028ea79a484945397fe9971"
+   ],
+   "dele": 48
   },
   "144342c7ecce6bd9903cdeeca497f72d2e6fa3db": {
    "add": 523,
@@ -12224,6 +12273,16 @@
    ],
    "dele": 41
   },
+  "9f5be0ae8b08fa3f555be0aa2e4acf2867edb06c": {
+   "add": 1410,
+   "commits": [
+    "2ebaf659802fd21daf3a4fbee24ba33a89baaf65",
+    "112e84c2492a536e233a35e8bb518c7787bd3a07",
+    "f3669f2e98d6f357ebf9f6453a99d451e7bbdb60",
+    "01cc05aa18fed4af73624dde235364388bea052b"
+   ],
+   "dele": 12
+  },
   "a060d9714d9ad3a97cc0dfcde75ce4e9caabba6f": {
    "add": 1161,
    "commits": [
@@ -13367,6 +13426,16 @@
    ],
    "dele": 46
   },
+  "e0020fa118ff19522eaa8f4ff45e20156cd314f5": {
+   "add": 1028,
+   "commits": [
+    "a797e7f6be33a52655c5cf7931675ef505a6851b",
+    "d1704aa415da4c1cacb68bd5fca4015bf8d432ed",
+    "290b4a15af9af938f0de5d202eb6b85f0763e130",
+    "17a16ab58a557464a2bcdcb6b62b6cc86da1aa75"
+   ],
+   "dele": 186
+  },
   "e00a79daa392f72ab60069e0be6ee3b025cbf63f": {
    "add": 815,
    "commits": [
@@ -13660,6 +13729,16 @@
     "728f2caeca6d4ed12a99274f81cec38192d612bd"
    ],
    "dele": 6
+  },
+  "f6e21af9f8860268cc61e507c092199ae01ccdac": {
+   "add": 485,
+   "commits": [
+    "a01fa8e3f4f9a6f1ca5f00a9b81dfd95e4e8d219",
+    "03a8a821f13b46fc7e5bc6bc7640c3033e014cad",
+    "4a89165d17bda3cb993356272542af06d341317a",
+    "d368fa707d2c53c85286b5c7a2a6b11390e698d6"
+   ],
+   "dele": 23
   },
   "f7922b0d60f709706a5288c6791422d2f906189a": {
    "add": 935,
@@ -15110,6 +15189,11 @@
    "name": "Fix gitignored input paths",
    "type": "opus-solver"
   },
+  "a40118857e3d2cde0": {
+   "branch": "worktree-agent-a40118857e3d2cde0",
+   "name": "Regime OVERKILL Amount borne aux PV",
+   "type": "opus-solver"
+  },
   "a4020ea02efb24b45": {
    "branch": "worktree-agent-a4020ea02efb24b45",
    "name": "Write the two queued frida sensors",
@@ -15828,6 +15912,11 @@
   "a6a80fb64f037855f": {
    "branch": "worktree-agent-a6a80fb64f037855f",
    "name": "Fix footprint pycache dependency",
+   "type": "opus-solver"
+  },
+  "a6a996e977cf18b3f": {
+   "branch": "worktree-agent-a6a996e977cf18b3f",
+   "name": "index.lock perime + rc=128 git",
    "type": "opus-solver"
   },
   "a6ad7acbdff29d97c": {
@@ -16858,6 +16947,11 @@
   "aa8a2f97d170e1645": {
    "branch": "worktree-agent-aa8a2f97d170e1645",
    "name": "opus-solver #60 split damage.py",
+   "type": "opus-solver"
+  },
+  "aa8f8c71c3655cbd1": {
+   "branch": "worktree-agent-aa8f8c71c3655cbd1",
+   "name": "Registre des numeros de residus",
    "type": "opus-solver"
   },
   "aa9eb2fefac8bc458": {
@@ -17910,6 +18004,11 @@
    "name": "RE #71 SmashaEad DISPLAY additive",
    "type": "re-expert"
   },
+  "ae574116ce433e375": {
+   "branch": "worktree-agent-ae574116ce433e375",
+   "name": "Aval de TilesMovedThisTurn sur le degat",
+   "type": "opus-solver"
+  },
   "ae5cb7a80503420e8": {
    "branch": "",
    "name": "RE prev-threading in PredictAttackRaw",
@@ -18362,18 +18461,18 @@
   }
  },
  "stat_merges": {
-  "interroges": 0,
+  "interroges": 4,
   "reutilises": 513
  },
  "stat_metas": {
-  "lus": 1,
-  "reutilises": 909
+  "lus": 4,
+  "reutilises": 910
  },
  "stat_tokens": {
-  "fichiers": 6,
+  "fichiers": 11,
   "fork": "",
-  "mo": 0.5,
-  "total": 923
+  "mo": 7.5,
+  "total": 927
  },
  "version": 2
 }
