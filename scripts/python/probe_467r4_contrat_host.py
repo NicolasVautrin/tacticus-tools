@@ -277,6 +277,22 @@ def etape_auto_epreuve(contrat: dict[str, list[str]]) -> None:
 # =====================================================================================
 #  VOLET B -- la FORME REELLE, quand le host repond
 # =====================================================================================
+class _Rejeu:
+    """Source qui REJOUE des reponses deja capturees, pour juger la PROPAGATION sans course.
+
+    N'expose que `http_json` : c'est tout ce que `loop_status.mesurer_harnais` consomme d'une
+    `Sources` (verifie au code, pas suppose). Une route absente leve, comme le ferait un host
+    injoignable -- on ne fabrique jamais de reponse que le host n'a pas rendue."""
+
+    def __init__(self, reponses: dict[str, dict]) -> None:
+        self._r = dict(reponses)
+
+    def http_json(self, route: str) -> dict:
+        if route not in self._r:
+            raise KeyError("route non capturee : %s" % route)
+        return self._r[route]
+
+
 def etape_b(contrat: dict[str, list[str]]) -> None:
     print("\n[B] FORME REELLE de la reponse du host (NON MESURE si injoignable)")
     hote = os.environ.get("TACTICUS_HOST_URL", LS.HOST_DEFAUT)
@@ -312,13 +328,29 @@ def etape_b(contrat: dict[str, list[str]]) -> None:
     ha = LS.mesurer_harnais(src)
     verifie(ha["session"].mesuree and ha["drain"].mesuree,
             "loop_status.mesurer_harnais MESURE sur la reponse reelle")
-    verifie(ha["live_runners"].mesuree == isinstance(lr, int),
-            "le tri-etat de `live_runners` SUIT la forme reelle (host lr=%r, mesuree=%s)"
-            % (lr, ha["live_runners"].mesuree))
+
+    # ⚠ LA PROPAGATION SE JUGE SUR LA REPONSE DEJA CAPTUREE, PAS SUR UNE SECONDE LECTURE.
+    # `liveRunners` est VOLATIL par nature : les agents en vol creent et disposent des runners
+    # en permanence. Confronter `mesurer_harnais(src)` -- qui RE-INTERROGE le host -- au `lr`
+    # lu quelques millisecondes plus tot compare deux instants differents, pas deux modeles.
+    # MESURE du 2026-08-04 : ce cliquet a rendu ROUGE `la valeur propagee est celle du host
+    # (3 vs 4)` sur la banque de `afb3e209`, avec CINQ agents en vol -- un runner dispose entre
+    # les deux appels. Aucun code juge n'avait bouge : ni `frida/host/*`, ni `loop_status.py`.
+    # Un cliquet qui rougit au hasard des qu'on travaille n'accuse plus rien.
+    #
+    # Le REJEU rend l'epreuve deterministe ET STRICTEMENT PLUS FORTE : au lieu de constater une
+    # coincidence entre deux lectures, il prouve que `mesurer_harnais` propage EXACTEMENT la
+    # charge utile qu'on lui donne. Le volet LIVE ci-dessus garde, lui, ce qu'il est seul a
+    # pouvoir garder : que le host repond et que `loop_status` MESURE dessus.
+    rejeu = _Rejeu(reponses)
+    hb = LS.mesurer_harnais(rejeu)
+    verifie(hb["live_runners"].mesuree == isinstance(lr, int),
+            "le tri-etat de `live_runners` SUIT la forme capturee (lr=%r, mesuree=%s)"
+            % (lr, hb["live_runners"].mesuree))
     if isinstance(lr, int):
-        verifie(ha["live_runners"].valeur == lr,
-                "la valeur propagee est celle du host (%s vs %s)"
-                % (ha["live_runners"].valeur, lr))
+        verifie(hb["live_runners"].valeur == lr,
+                "la valeur propagee est celle de la reponse capturee (%s vs %s)"
+                % (hb["live_runners"].valeur, lr))
 
 
 def main() -> int:
