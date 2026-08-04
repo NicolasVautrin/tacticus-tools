@@ -150,11 +150,19 @@ def _read_tail(fp: Path, offset: int) -> tuple[list, int]:
 
 
 def load_cache(use: bool = True) -> dict:
-    """Cache disque, ou cache vide si absent/illisible/de version differente.
+    """Cache disque, MIGRE vers la version courante -- jamais jete.
 
-    Un cache de version differente est JETE, jamais migre : ses agregats ont ete calcules
-    par un autre code, et les melanger produirait des chiffres qu'aucune passe ne peut
-    reproduire. Le recalcul complet est long, pas faux.
+    ⛔ UN CHANGEMENT DE FORMAT NE DOIT JAMAIS PROVOQUER DE RELECTURE COMPLETE. Jeter le cache
+    coute 2 616 Mo et 1 300 s (mesure du 2026-08-04), et cette relecture n'apporte RIEN : les
+    agregats deja calcules portent sur des octets immuables. La v1 jetait, et l'a fait payer
+    deux fois dans la meme heure.
+
+    ⇒ TOUTE EVOLUTION DU FORMAT DOIT ETRE ADDITIVE : on ajoute des cles, on ne change pas le
+    sens de `files[].offset` ni des agregats. C'est ce qui rend la migration triviale --
+    on adopte l'existant et on estampille. Si un jour un champ devait changer de SENS, il
+    faudrait le RECALCULER a partir du cache, pas des transcripts.
+
+    Un cache illisible (absent, JSON casse) repart a vide : la, il n'y a rien a preserver.
     """
     if not use:
         return empty_cache()
@@ -162,10 +170,14 @@ def load_cache(use: bool = True) -> dict:
         c = json.loads(CACHE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return empty_cache()
-    if c.get("version") != CACHE_VERSION or not isinstance(c.get("days"), dict):
+    if not isinstance(c.get("days"), dict):
         return empty_cache()
     for k in ("days", "agents", "merges", "files"):
         c.setdefault(k, {})
+    if c.get("version") != CACHE_VERSION:
+        # Migration ADDITIVE : on garde jours/agents/merges/offsets tels quels. Les cles
+        # devenues inutiles (`through`, `token` par agent) sont inertes -- personne ne les lit.
+        c["version"] = CACHE_VERSION
     return c
 
 
