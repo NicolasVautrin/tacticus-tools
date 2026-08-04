@@ -90,6 +90,12 @@ valeur) : min **1,0**, max **30,0** — des entiers, ce que la nature des feuill
 comptage d'unités, ou une valeur d'utilité d'effet lue dans les poids BC). Ventilé par campagne :
 seed 777 aléatoire `min 1 / med 10 / max 10` (n=6) et `1 / 1 / 1` (n=3) ; roster crafté `30` (n=1).
 
+**Classabilité** (campagne seed 777, 302 situations) : le générateur RETENU est le fallback
+**Movement 171** fois, **Comparable 93**, un tier **NonComparable 38** ; et seules **73 situations
+sur 302 (24 %)** exposent **≥ 2 candidats** à ordonner (médiane : **1**). Beaucoup d'unités listées
+par `aiMovableTiles` ont déjà agi et n'ont plus qu'une tuile candidate — leur situation est comptée
+dans `N` mais n'offre aucun choix. C'est le dénominateur manquant du taux de classement (§8).
+
 **Les 8 changements d'action portent TOUS sur `1166 AberrantHypermorph`** (tier NonComparable 0),
 dont l'utilité *est* `GetAdjacentEnemies(tuile de spawn).Count`. Ce qui change est la **tuile de
 spawn du summon** et la destination du caster — p. ex. `C4_33` : `tgt=30, to=(2,1)` (NAT) contre
@@ -108,6 +114,9 @@ spawn du summon** et la destination du caster — p. ex. `C4_33` : `tgt=30, to=(
 3. **Régime non dégénéré** : le probe compte les bascules d'adjacence *traversées par la décision* et
    **rougit si elles valent zéro**. Un « 0 décision changée » sans bascule ne conclurait rien ; ici il
    y en a 260.
+4. **Reproductibilité** : la campagne seed 777 a été jouée deux fois, une fois **scindée en deux
+   processus** (3 + 3 boards) et une fois **d'un bloc** (6 boards). Tous les compteurs coïncident
+   (302 / 56 / 3 / 0 / 9), voies comprises.
 
 ## 6. Lecture
 
@@ -135,17 +144,21 @@ politique — plutôt le même profil, quelques décisions par millier.
 * **Les situations ne sont pas indépendantes** : une même unité dans un état inchangé est comptée à
   chaque pas — les 8 décisions valent **4 configurations distinctes**.
 * **6 boards sur 287 porteurs de `Bridge`** (résidu `-r3`, déjà ouvert et chiffré).
-* **Le CLASSEMENT à 0 est partiellement structurel** : le générateur retenu dans les cas qui
-  changent est un tier NonComparable dont le playbook rend **déjà son propre argmax** (un seul
-  candidat) — il n'y a alors aucun ordre à renverser. Le taux « classement changé sans action
-  changée » ne mord donc que sur les générateurs Comparable et Movement (résidu `#433-r4-r1-r4-r2-r4-r1`).
+* **Le CLASSEMENT à 0 est en partie STRUCTUREL** : seules **73 situations sur 302 (24 %)** exposent
+  ≥ 2 candidats au générateur retenu, et le générateur retenu dans les 8 cas qui changent est un
+  tier NonComparable dont le playbook rend **déjà son propre argmax** — le renversement a lieu
+  *dans* le playbook, invisible à un classement mesuré au grain du `Bucket`. Le taux « classement
+  changé sans action changée » ne mord donc que sur Comparable et Movement (résidu
+  `#433-r4-r1-r4-r2-r4-r1`).
 
 ## 8. Résidu NOMMÉ
 
-* **`#433-r4-r1-r4-r2-r4-r1` — le taux de CLASSEMENT n'a pas de dénominateur.** `0/725` est mesuré,
-  mais on ne sait pas sur combien de situations le générateur retenu avait ≥ 2 candidats à ordonner :
-  un playbook NonComparable qui rend son propre argmax n'expose qu'un candidat. Le compteur de
-  classabilité existe dans le probe ; il reste à le publier sur une campagne complète.
+* **`#433-r4-r1-r4-r2-r4-r1` — le classement est mesuré au grain du `Bucket`, pas des options
+  RÉELLES.** `0/725` est mesuré, et le dénominateur est publié pour la campagne seed 777 (**73/302**
+  situations à ≥ 2 candidats), mais un playbook NonComparable qui rend son propre argmax n'expose
+  qu'**un** candidat : ses options internes — les 6 tuiles de spawn d'`AberrantHypermorph`, par
+  exemple — ne sont jamais soumises au classement. Mesurer le renversement *à l'intérieur* d'un
+  playbook demanderait d'instrumenter chaque `generate_candidates`, pas le `Bucket`.
 
 ## 9. Reproduction
 
