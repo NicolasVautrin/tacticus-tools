@@ -216,14 +216,12 @@ def _will_normal_attack_kill(ctx: "NCContext", target_id, position: tuple | None
     `param_3 == 0` du natif). Predicteur (`ctx.scene`) absent -> false (borne inf, pas de gate a l'aveugle).
 
     A NE PAS confondre avec `EnemyCouldBeKilledWithNormalAttack` (`_enemy_killed_by_normal_attack`,
-    hammer_of_wrath) qui teste s'il EXISTE un ennemi sure-kill ; ici c'est CETTE cible-la."""
-    if target_id is None or position is None or ctx.scene is None:
-        return False
-    from engine.playbook.prediction import make_normal_attack_predictions
-    ev = make_normal_attack_predictions(ctx.scene, ctx.uid, target_id, position)
-    if ev is None:
-        return False
-    return bool(ev.composite_fields().get("killSure"))
+    hammer_of_wrath) qui teste s'il EXISTE un ennemi sure-kill ; ici c'est CETTE cible-la.
+
+    FOYER : `engine.playbook.base.will_normal_attack_kill` -- le meme corps natif sert la route
+    Comparable (les 17 playbooks de `normal_attack_kill_gate`), donc un seul port."""
+    from engine.playbook.base import will_normal_attack_kill
+    return will_normal_attack_kill(ctx, target_id, position)
 
 
 def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tuple | None) -> int:

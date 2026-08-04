@@ -1110,16 +1110,11 @@ class SorcerousFacadePlaybook(NonAttackComparablePlaybook):
         return best if best is not None else legal[0]
 
     def _will_normal_attack_kill(self, ctx, target, caster_tile) -> bool:
-        """`IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill(caster, target, casterTile)` :
-        `target == null -> false` ; sinon `ProbableDamageEvent(target, PredictNormalAttack(caster,
-        target, casterTile)).Prediction.WillBeKill` (= le champ `killSure` du port). La cible est
-        l'ALLIE vise — le natif ne teste PAS le camp."""
-        if target is None or ctx.scene is None:
-            return False
-        ev = prediction.make_normal_attack_predictions(ctx.scene, ctx.uid, target, caster_tile)
-        if ev is None:
-            return False
-        return bool((ev.composite_fields() or {}).get("killSure"))
+        """`IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill(caster, target, casterTile)` —
+        FOYER `BasePlaybook.will_normal_attack_kill` (`base.py`), partagé avec les dix-sept playbooks
+        de `normal_attack_kill_gate` et la route NonComparable. La cible est ici l'ALLIÉ visé — le
+        natif ne teste PAS le camp."""
+        return self.will_normal_attack_kill(ctx, target, caster_tile)
 
     # -- les trois overrides -----------------------------------------------------------------
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
@@ -1266,6 +1261,18 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
     retiree a tort). Les quatre autres refus (mort, `Hulking`=3, `Immovable`=17, `BigTarget`=1017)
     sont portes."""
     ability_id = int(ActiveAbilityType.MortisRound)  # 1004
+
+    def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
+        """1004 declare AUSSI son propre `ShouldExecute` (slot +0x328) -- et son corps est celui que
+        la table des symboles attribue a
+        `IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$ShouldExecute`, partage par QUATORZE
+        classes (dedup IL2CPP ; recensement niveau par niveau, cf. `normal_attack_kill_gate`) :
+
+            return !BasePlaybook.WillNormalAttackKill(caster, target, casterTile);
+
+        Cette classe est la SEULE des quatorze deja au registre (pour son `CalculateCustomUtility`)
+        -- d'ou la delegation ici plutot qu'une seconde inscription."""
+        return not self.will_normal_attack_kill(ctx, target, caster_tile)
 
     # `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` : les trois traits qui REFUSENT le
     # deplacement, lus au decompile (`BaseUnitComponent$$HasTrait` avec 0x11, 0x3, 0x3f9).

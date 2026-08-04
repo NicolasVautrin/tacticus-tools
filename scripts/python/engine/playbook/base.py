@@ -73,6 +73,50 @@ class BasePlaybook:
     ability_id: int = -1
     priority: int = 0                     # tier de préférence (0 = AbilityPriority.Normal)
 
+    def will_normal_attack_kill(self, ctx, target, caster_tile) -> bool:
+        """`IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill` — **surcharge à 4 arguments**
+        `(this, caster, target, casterTile)`, lue verbatim :
+
+            if (target == null) return false;
+            pred = battleQuery.<slot d'interface 0x21>(caster, target, casterTile);   // this@+0x28
+            return new ProbableDamageEvent(target, pred, default, default)
+                       .<DamagePredictionResult @+0x8>.get_WillBeKill();
+
+        `this@+0x28` EST le `IBattleQuery` : `IdunBattle.AI.Playbook.BasePlaybook$$Init` pose
+        `this+0x20 = state`, `this+0x28 = query`, `this+0x18 = dsl`, `this+0x40 = utilitiesDatabase`
+        (lu, pas déduit). Le slot `0x21` est la prédiction de l'attaque NORMALE — le même que celui
+        que `MakeDamagePredictions` de l'attaque normale emprunte, `0x22` étant celui de l'ability.
+
+        `get_WillBeKill` = le SURE-kill (borne MIN des dégâts >= PV courants), donc `killSure` du
+        composite du port, PAS `killChance`.
+
+        La seconde surcharge, `BasePlaybook$$WillNormalAttackKill(this, entities)`, n'est qu'un
+        relais qui déplie `entities` (`+0x8` = caster, `+0x10` = target, `+0x40` = casterTile) sur
+        celle-ci ; c'est elle que les playbooks NonComparable appellent.
+
+        FOYER UNIQUE du port : `noncomparable/_base.py::_will_normal_attack_kill` et
+        `loki_custom.SorcerousFacadePlaybook` y délèguent — trois corps auraient été un fork.
+        BORNES DE PORT (les deux au-delà du `target == null` natif, toutes deux vers `False` = « le
+        gate ne mord pas ») : prédicteur absent (`ctx.scene is None`) et tuile de cast absente. Le
+        natif ne teste ni l'un ni l'autre parce qu'il ne peut pas les recevoir nuls."""
+        return will_normal_attack_kill(ctx, target, caster_tile)
+
+
+def will_normal_attack_kill(ctx, target, caster_tile) -> bool:
+    """Corps du foyer ci-dessus, en fonction libre — la route NonComparable l'appelle sans instance
+    (`noncomparable/_base.py::_will_normal_attack_kill`, mirror de la surcharge `(this, entities)`
+    qui relaie vers celle-ci)."""
+    if target is None or caster_tile is None:
+        return False
+    scene = getattr(ctx, "scene", None)
+    if scene is None:
+        return False
+    from . import prediction
+    ev = prediction.make_normal_attack_predictions(scene, ctx.uid, target, caster_tile)
+    if ev is None:
+        return False
+    return bool((ev.composite_fields() or {}).get("killSure"))
+
 
 # ── Terme de tuile Tile(7) partagé (`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromTilePrediction`) ────────────────
 def tile_utility(ctx, pos) -> float:
