@@ -319,7 +319,18 @@ et le 2ᵉ est bien `comp+0x10` — `ResetActiveAbilityOperation$$Execute` écri
 de cette interface : `ActiveAbility$$get_CanCurrentlyBeUsed` est une **propriété du composant**, lue
 plus bas (marche d) ; `UnitExtensions$$IsAbilityBlocked` est une **autre fonction** (elle lit
 `ActiveAbilityComponent.NormalAttackIsBlocked` / `ActiveAbilitiesAreBlocked` /
-`MachinePrimaryAbilityIsBlocked`) qui n'apparaît **nulle part** dans cette chaîne.
+`MachinePrimaryAbilityIsBlocked`).
+
+⚠ Et ce n'est **pas** une déduction d'absence : ses **six** appelants sont ÉNUMÉRÉS
+(`list_xrefs`) — `ActiveAbilityOperation$$ExecuteInternal`,
+`UpdateActiveAbilityBlockerOperation$$SendUpdateAction`,
+`AttackQuery$$CanAttackAnyUnitFromAnyTileWithAnyAbility`,
+`AttackQuery$$MachineCanAttackAnyUnitWithAnyAbility`,
+`AActionGenerator$$CanAbilityBeUsed` et
+`RandomAbilityActionGenerator.u003CGenerateActionsu003Ed__5$$MoveNext`. Ni
+`GetAllTilesInAbilityRange` ni `AttackQuery$$GetInvalidCasterReason` n'y figurent. C'est un gate
+FRÈRE (celui des générateurs d'action de l'IA), pas celui-ci — et le foyer qui le porte existe
+déjà : `engine.battle_query.can_use_ability`.
 
 ## 8.2 L'ORDRE, et le rang de ce qui était déjà porté
 
