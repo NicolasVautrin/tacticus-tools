@@ -653,17 +653,40 @@ def _order_models(p_raw: int, att, deff) -> dict:
 # Les QUATRE regimes NATIFS mesures, avec leurs entrees d'etage exactes. Chacun est un point ou le
 # port DOIT tomber juste ; une mutation qui ne DEPLACE aucun d'eux ne garde rien.
 #   (nom, base, pierce, armure, %-list ATT, %-list DEF, Multiplier ATT, Multiplier DEF, attendu)
+#
+# ⚠ FACES MISES A JOUR (#437-r1-r1-r1) -- LES VALEURS NATIVES SONT INCHANGEES.
+# `Terrifying_ExtraDefense_Effect` derive de `DamageModifierAbilityEffect` et n'implemente que
+# `CreateDamageModifier` : sa contribution sort par le forwarder
+# `IdunBattle.Entities.Effects.DamageModifierAbilityEffect$$CreateEffectDamageBonusForAttack`,
+# donc le natif la verse dans `attackModifiers` -- ce que le capteur `effect-bonus-trace` avait
+# deja MESURE sur le montage `--two-faces` (UN SEUL accumulateur, `1 -> 0.69999... -> 1.04999...`,
+# les DEUX bonus etiquetes `face=attacker`). Les entrees ci-dessous portaient l'attribution du
+# PORT ; elles portent desormais celle du NATIF.
 REGIMES = [
     # #462-r4a -- `Terrifying_ExtraDefense` (EFFET, x0.70), percage FRACTIONNAIRE. `--sweep`.
-    ("terrifying MIN", 725, 60, 2208, [], [(0.7, None)], 1.0, 1.0, 305),
-    ("terrifying MAX", 1087, 60, 2208, [], [(0.7, None)], 1.0, 1.0, 457),
-    # #462-r4a -- les DEUX faces non neutres (elevation x1.50 + Terrifying x0.70). `--two-faces`.
-    ("deux faces MIN", 725, 100, 0, [(1.5, None)], [(0.7, None)], 1.0, 1.0, 761),
-    ("deux faces MAX", 1087, 100, 0, [(1.5, None)], [(0.7, None)], 1.0, 1.0, 1141),
+    # ⚠ REGIME A UNE SEULE FACE : la valeur ne discrimine PAS l'attribution (une face vide est un
+    # no-op strict). Ces deux lignes gardent l'ETAGE, pas la face.
+    ("terrifying MIN", 725, 60, 2208, [(0.7, None)], [], 1.0, 1.0, 305),
+    ("terrifying MAX", 1087, 60, 2208, [(0.7, None)], [], 1.0, 1.0, 457),
+    # #462-r4a -- les DEUX bonus non neutres (elevation x1.50 + Terrifying x0.70). `--two-faces`.
+    # Le natif les met dans le MEME accumulateur, d'ou UN SEUL `Round` : 761/1141. Les repartir
+    # une par face rendrait 762/1142 -- c'est la contre-epreuve de `--two-faces`.
+    ("deux faces MIN", 725, 100, 0, [(1.5, None), (0.7, None)], [], 1.0, 1.0, 761),
+    ("deux faces MAX", 1087, 100, 0, [(1.5, None), (0.7, None)], [], 1.0, 1.0, 1141),
     # #446-r2 -- MODIFICATION DE STAT cote defenseur (tuile Thorns, x1.50) : canal `Multiplier@0x30`.
     ("446r2 T MIN (stat-mod DEF)", 1445, 20, 3513, [], [], 1.0, 1.5, 434),
     # #446-r2 -- ELEVATION cote attaquant sur le MEME percage : %-list, donc PAS d'arrondi.
     ("446r2 A MIN (elevation ATT)", 1445, 20, 1507, [(1.5, None)], [], 1.0, 1.0, 433),
+    # #437-r1 -- LE SEUL REGIME DU CORPUS A DEUX %-FACES REELLES apres la correction d'attribution :
+    # `HeavyWeapon_ExtraDmg` (slot ATTAQUE) x1.25 contre `TerminatorArmour_ReduceDmg` (slot DEFENSE)
+    # x0.25. Bornes NATIVES obtenues par INVERSION de l'alea brut du tirage (jamais par recollement),
+    # tir d'overwatch `eldarRanger` -> `spaceStormcaller`, board `MC1_67`/seed 4321.
+    # ⚠ SANS CES TROIS LIGNES la contre-epreuve `fusionne_faces` ne mord plus : une fois
+    # `Terrifying_ExtraDefense` rendu a la face ATTAQUANTE, plus AUCUN autre regime de cette table
+    # n'a ses deux %-listes non vides -- fusionner ou separer y devient indistinguable.
+    ("437r1 4518 MIN (2 %-faces)", 3614, 30, 0, [(1.25, None)], [(0.25, None)], 1.0, 1.0, 1130),
+    ("437r1 4538 MIN (2 %-faces)", 3630, 30, 0, [(1.25, None)], [(0.25, None)], 1.0, 1.0, 1135),
+    ("437r1 4518 MAX (2 %-faces)", 5422, 30, 0, [(1.25, None)], [(0.25, None)], 1.0, 1.0, 1695),
 ]
 
 
@@ -684,8 +707,14 @@ def _eval_mutant(reg, model: str) -> int:
     """Rejoue un regime sous un MODELE ALTERNATIF, ecrit explicitement (pas de monkeypatch : la
     mutation doit etre LISIBLE, et l'arbre reel n'est jamais touche).
 
-      `round_inter`   -- la sequence de `master` avant #462-r4a : %-list ATTAQUANT, `Round`, puis
-                         %-list DEFENSEUR, `Round`. C'est le `Round` surnumeraire.
+      `fusionne_faces` -- les DEUX %-listes dans UNE SEULE chaine, donc UN SEUL `Round` pour les
+                         deux faces. C'est la sequence d'`origin/master` AVANT #437-r1, et c'est
+                         aussi ce que le drapeau `separate_face_lists=False` faisait en PREDICTION
+                         jusqu'a #437-r1-r1-r1.
+                         ⚠ Il a REMPLACE le mutant `round_inter` (« %-list ATT, Round, %-list DEF,
+                         Round »), devenu IDENTIQUE au port depuis que la separation est la loi :
+                         un mutant qui reproduit le port ne peut plus rien refuter. Meme axe,
+                         cote oppose.
       `statmod_pct`   -- les MODIFICATIONS DE STAT remises dans la %-list (canal d'avant #462-r4a),
                          donc AVANT le `Round` au lieu d'apres."""
     from engine.services.damage_modifiers import (apply_pct_entries,
@@ -693,10 +722,9 @@ def _eval_mutant(reg, model: str) -> int:
     from engine.services.static_battle_rules import get_damage_with_piercing
     _n, base, pierce, armor, att, deff, m_att, m_def, _exp = reg
     d = get_damage_with_piercing(base, pierce, armor)
-    if model == "round_inter":
-        d = apply_pct_entries(d, list(att))
+    if model == "fusionne_faces":
+        d = apply_pct_entries(d, list(att) + list(deff))
         d = calculate_base_damage_with_modifiers(d, m_att)
-        d = apply_pct_entries(d, list(deff))
         d = calculate_base_damage_with_modifiers(d, m_def)
     elif model == "statmod_pct":
         chain = list(att) + list(deff)
@@ -724,7 +752,7 @@ def mutants(verbose=True) -> int:
               f"-- contre-epreuve inexploitable")
         return 2
     rc = 0
-    for model, label in (("round_inter", "round_inter (la sequence de master)"),
+    for model, label in (("fusionne_faces", "fusionne_faces (les deux %-faces en UNE chaine)"),
                          ("statmod_pct", "statmod_pct (stat-mods remis dans la %-list)")):
         got = {r[0]: _eval_mutant(r, model) for r in REGIMES}
         moved = [n for n in attendu if got[n] != attendu[n]]
