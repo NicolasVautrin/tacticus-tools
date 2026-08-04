@@ -66,6 +66,46 @@ New-Item -ItemType Directory -Force -Path $dirVerdict | Out-Null
 $stamp = (Get-Date -Format 'yyyyMMdd-HHmmss')
 $verdict = Join-Path $dirVerdict "$court-$stamp.txt"
 
+# --- VERROU DE RUN (#472) ---------------------------------------------------------------------
+# Ce qui permet a un lecteur (`loop_status`) de distinguer « la pointe n'est PAS ENCORE jugee » de
+# « la banque la juge EN CE MOMENT ». Sans ce fait, les deux se ressemblent : aucun verdict.
+#
+# LE FAIT EST LE HANDLE, pas le fichier. Ouvert en partage LECTURE SEULE et garde pendant tout le
+# run, il ne peut etre ouvert en ECRITURE par personne d'autre tant que ce processus vit ; et l'OS
+# le libere TOUJOURS a sa mort, donc un run tue (kill, reboot, fenetre fermee) laisse un fichier
+# OUVRABLE -- un RESIDU, jamais un « EN COURS » perpetuel. Ni un PID (recyclable) ni un age (une
+# banque lente est un run lent, pas un run mort) ne donneraient cette propriete.
+#
+# Il vit a cote des VERDICTS, pas dans le tmpdir systeme ou vit le worktree : Python et .NET ne
+# resolvent pas `TEMP`/`TMP` dans le meme ordre, et un desaccord y serait SILENCIEUX.
+$dirRuns = Join-Path $dirVerdict 'runs'
+New-Item -ItemType Directory -Force -Path $dirRuns | Out-Null
+
+# Nettoyage OPPORTUNISTE des residus -- meme fait, meme test : ouvrable en ecriture == plus
+# personne ne le tient. Sans lui, chaque run tue laisserait un fichier a vie.
+foreach ($vieux in @(Get-ChildItem -LiteralPath $dirRuns -Filter '*.lock' -ErrorAction SilentlyContinue)) {
+    try {
+        $f = [System.IO.File]::Open($vieux.FullName, 'Open', 'Write', 'None')
+        $f.Close(); $f.Dispose()
+        Remove-Item -LiteralPath $vieux.FullName -Force -ErrorAction SilentlyContinue
+    } catch { }        # tenu par un run VIVANT : on n'y touche pas
+}
+
+$verrouRun = Join-Path $dirRuns "$court-$stamp.lock"
+$fluxRun = $null
+try {
+    $fluxRun = [System.IO.File]::Open($verrouRun, 'Create', 'Write', 'Read')
+    $octetsRun = [System.Text.Encoding]::UTF8.GetBytes(
+        "commit : $sha`npid    : $PID`ndebut  : $stamp`nrepo   : $repo`n")
+    $fluxRun.Write($octetsRun, 0, $octetsRun.Length)
+    $fluxRun.Flush()
+} catch {
+    # Degradation SUE et DITE : le lecteur lira « NON JUGEE » au lieu de « EN COURS ». C'est le
+    # bon sens de la degradation -- « la pointe n'est pas jugee » reste VRAI dans les deux cas.
+    $fluxRun = $null
+    Write-Host "[ratchets-bg] verrou de run NON POSE ($($_.Exception.Message)) -- un lecteur dira NON JUGEE"
+}
+
 # Tmpdir SYSTEME -- surtout pas sous le depot, ni sous `.claude/worktrees` (un cliquet joue depuis
 # l'arbre principal y lirait le code des autres agents, #434).
 #
@@ -219,5 +259,10 @@ $entete = @(
 )
 Set-Content -LiteralPath $verdict -Value ($entete + $lignes) -Encoding utf8
 Write-Host "[ratchets-bg] verdict -> $verdict"
+
+# Le verrou tombe APRES l'ecriture du verdict, et c'est l'ordre qui compte : entre les deux, un
+# lecteur doit voir « EN COURS », jamais « NON JUGEE » alors que le verdict arrive.
+if ($fluxRun) { $fluxRun.Close(); $fluxRun.Dispose(); $fluxRun = $null }
+Remove-Item -LiteralPath $verrouRun -Force -ErrorAction SilentlyContinue
 
 exit $rc
