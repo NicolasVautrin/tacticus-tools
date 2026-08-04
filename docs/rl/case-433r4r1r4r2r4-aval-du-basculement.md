@@ -97,6 +97,11 @@ valeur) : min **1,0**, max **30,0** — des entiers, ce que la nature des feuill
 comptage d'unités, ou une valeur d'utilité d'effet lue dans les poids BC). Ventilé par campagne :
 seed 777 aléatoire `min 1 / med 10 / max 10` (n=6) et `1 / 1 / 1` (n=3) ; roster crafté `30` (n=1).
 
+**La MARGE (écart 1er–2e du classement retenu) n'a jamais pu être calculée** sur les situations où
+l'utilité bouge : le probe la mesure, mais elle exige ≥ 2 candidats, et le générateur retenu dans
+ces situations n'en expose qu'un. La question « de combien fallait-il bouger pour renverser ? »
+reste donc **ouverte au grain du playbook** (§8), même si elle est répondue au grain du `Bucket`.
+
 **Classabilité** (campagne seed 777, 302 situations) : le générateur RETENU est le fallback
 **Movement 171** fois, **Comparable 93**, un tier **NonComparable 38** ; et seules **73 situations
 sur 302 (24 %)** exposent **≥ 2 candidats** à ordonner (médiane : **1**). Beaucoup d'unités listées
