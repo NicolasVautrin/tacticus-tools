@@ -374,6 +374,41 @@ def live(sid, board=None) -> dict:
         p_foe = u1[f_id][0]
         vides = sorted(t for t in dark1 if t not in occupied1)
 
+        # 4) LA CONTRE-EPREUVE : la MEME tuile, l'occupant ECHANGE. On sort l'allie de `p_ami`
+        #    vers une tuile NON obscurcie, on y amene l'ennemi, et on relit la zone. Si le verdict
+        #    natif bascule ACCEPTE -> REFUSE sans qu'aucune geometrie n'ait change, alors c'est
+        #    bien l'AMITIE qui exempte, et rien d'autre. C'est le natif compare a LUI-MEME.
+        swap = {"done": False}
+        clair = [t for t in sweep
+                 if t not in dark1 and t not in occupied1 and walk.get(t) and not wall.get(t)]
+        if clair and p_ami in dark1:
+            park = min(clair, key=lambda t: hexgeo.distance(t, p_ami))
+            u2 = _place(sid, rid, {a_id: park})
+            if u2.get(a_id, ((), None, None))[0] == park:
+                u3 = _place(sid, rid, {f_id: p_ami})
+                if u3.get(f_id, ((), None, None))[0] == p_ami:
+                    th2, mt2, zone2 = {}, [], set()
+                    for _ in range(6):
+                        th2 = _threat(sid, rid, MEASURE_RANGE)
+                        mt2 = (th2.get(e_id) or ([], set()))[0]
+                        zone2 = (th2.get(e_id) or ([], set()))[1] & set(sweep)
+                        if mt2:
+                            break
+                        _r(sid, "applyAction",
+                           {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+                        u3 = _obs(sid, rid)
+                    tbp2 = {p: t for (p, t, _v) in u3.values() if t is not None}
+                    dk = _obscured_set(board_obj, mt2, rules, sweep,
+                                       team_by_pos=tbp2, caster_team=e_team)
+                    swap = {"done": bool(mt2), "tile": p_ami,
+                            "caster_pos": u3.get(e_id, ((), None, None))[0],
+                            "occupant_team": tbp2.get(p_ami),
+                            "n_move_tiles": len(mt2),
+                            "natif_accepte": p_ami in zone2,
+                            "port_accepte": p_ami not in dk,
+                            "obscurcie_geometriquement": p_ami in _obscured_set(
+                                board_obj, mt2, rules, [p_ami])}
+
         def _why(ts):
             """Chaque ecart NOMME par ce que le plateau en dit -- un `(col,row)` nu ne se
             diagnostique pas."""
@@ -404,6 +439,7 @@ def live(sid, board=None) -> dict:
             "apres_fn": _why(sorted(zone - modeled_after)[:8]),
             "n_avant_fp": len(modeled_before - zone), "n_avant_fn": len(zone - modeled_before),
             "n_apres_fp": len(modeled_after - zone), "n_apres_fn": len(zone - modeled_after),
+            "swap": swap,
         }
     finally:
         _dispose(sid, rid)
@@ -440,7 +476,19 @@ def step_live(sid, board) -> int:
         print("    faux NEGATIFS apres : %r" % (res["apres_fn"],))
     if res["apres_fp"]:
         print("    faux POSITIFS apres : %r" % (res["apres_fp"],))
-    return 0 if (res["n_apres_fp"] == 0 and res["n_apres_fn"] == 0) else 1
+    sw = res.get("swap") or {}
+    if not sw.get("done"):
+        print("  CONTRE-EPREUVE (occupant echange) : NON JOUEE")
+    else:
+        print("  CONTRE-EPREUVE : tuile %r, occupant team=%s (etait %s), caster=%r moveTiles=%d"
+              % (sw["tile"], sw["occupant_team"], res["caster_team"], sw["caster_pos"],
+                 sw["n_move_tiles"]))
+        print("    obscurcie geometriquement=%s -> NATIF accepte ? %s | PORT accepte ? %s"
+              % (sw["obscurcie_geometriquement"], sw["natif_accepte"], sw["port_accepte"]))
+    ok = res["n_apres_fp"] == 0 and res["n_apres_fn"] == 0
+    if sw.get("done"):
+        ok = ok and (sw["natif_accepte"] == sw["port_accepte"])
+    return 0 if ok else 1
 
 
 def main() -> int:
