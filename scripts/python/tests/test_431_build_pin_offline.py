@@ -345,20 +345,39 @@ class _Mutations:
         return False
 
 
-def test_le_nettoyage_des_residus_est_IDEMPOTENT_et_chirurgical():
+def test_aucun_residu_ne_traine_dans_l_arbre_de_PRODUCTION():
+    """Garde en LECTURE SEULE : plus rien ne doit ecrire de marqueur dans l'arbre partage.
+
+    Elle remplace le nettoyage que faisait l'ancienne version de ce fichier, qui ECRIVAIT dans
+    l'arbre pour s'en assurer. Si elle rougit, un run tue AVANT #468-r6 a laisse un residu :
+    le retirer a la main (`git diff` sur les 4 cibles), pas en re-armant une ecriture ici.
+    """
+    sales = [c.name for c in CIBLES
+             if c.exists() and any(m.encode("ascii") in c.read_bytes() for m in _MARQUEURS)]
+    assert sales == [], "residu(s) de mutation dans l'arbre partage : %s" % sales
+
+
+def test_le_nettoyage_des_residus_est_IDEMPOTENT_et_chirurgical(arbre_isole):
     """Le `finally` ne survit pas a un kill -- ce nettoyage, si.
 
     Il doit retirer EXACTEMENT la ligne marquee et rendre le fichier bit-pour-bit identique :
     un nettoyage approximatif laisserait une diff permanente dans l'arbre de chaque agent.
+
+    #468-r6 : joue sur le WORKTREE JETABLE, comme ses trois voisins depuis #457-r6 -- il etait
+    le DERNIER a muter l'arbre de production. La banque tourne EN PARALLELE par conception, et
+    ce test est joue INDIRECTEMENT par `probe_457` : sous Windows, ouvrir un fichier pendant
+    qu'un autre shard l'ecrit rend `OSError [Errno 22]`, mesure a **1 run sur 2** sur
+    `probe_457:s2`. Les assertions sont INCHANGEES ; seule la racine l'est.
     """
-    assert _oter_residus() == [], "residu deja present avant le test"
-    cible = CIBLES[0]
+    cibles = _cibles(arbre_isole)
+    assert _oter_residus(arbre_isole) == [], "residu deja present avant le test"
+    cible = cibles[0]
     intact = cible.read_bytes()
     cible.write_bytes(intact + b'\n_MUTANT_431 = "residu simule"\n')
     try:
-        assert _oter_residus() == [cible.name]
+        assert _oter_residus(arbre_isole) == [cible.name]
         assert cible.read_bytes() == intact, "le nettoyage n'est pas bit-pour-bit"
-        assert _oter_residus() == [], "second passage : rien a faire"
+        assert _oter_residus(arbre_isole) == [], "second passage : rien a faire"
     finally:
         cible.write_bytes(intact)
 
