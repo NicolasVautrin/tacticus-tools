@@ -197,6 +197,15 @@ def _confront(tag, Y, inr, outr, vid, state_map, na_id, elev, expect_max):
     print("   FP=%d FN=%d -> %s" % (len(fp), len(fn), "EXACT" if not fp and not fn else "DIVERGE"))
     if fp:
         print("   faux positifs : %r" % (fp[:12],))
+        # ATTRIBUER plutot que supposer : on imprime l'elevation des tuiles REFUSEES et celle des
+        # ACCEPTEES a la MEME distance. C'est le discriminant du residu `#433-r4-r2-r1-r2` (le
+        # 2e predicat de `GetPossibleTargetsForOptions`, `b__1`, retire les tuiles obscurcies).
+        print("   Y=%r elev=%s" % (Y, elev.get(Y)))
+        for P in fp[:8]:
+            d = hexgeo.distance(P, Y)
+            same = sorted(q for q in inr if hexgeo.distance(q, Y) == d)
+            print("      FP %r d=%d elev=%s | acceptees a d=%d : %r"
+                  % (P, d, elev.get(P), d, [(q, elev.get(q)) for q in same[:6]]))
     if fn:
         print("   faux negatifs : %r" % (fn[:12],))
     return fp, fn, reach
@@ -257,7 +266,8 @@ def step_arms(verbose=True) -> dict:
             print("[arms] etat 1150 BLOQUE = %r"
                   % ({k: blocked.get(k) for k in ("usable", "cooldown", "disabled")},))
         fp, fn, reach = _confront("BLOQUE", Y, inr, outr, ENEMY, st, na, elev_ok, 1)
-        out["arms"]["bloque"] = {"fp": fp, "fn": fn, "reach": reach,
+        out["arms"]["bloque"] = {"fp": fp, "fn": fn, "reach": reach, "state": st, "na": na,
+                                 "in_range": sorted(inr), "sweep": sorted(inr | outr),
                                  "natif_dmax": max((hexgeo.distance(P, Y) for P in inr),
                                                    default=None)}
 
@@ -281,9 +291,11 @@ def step_arms(verbose=True) -> dict:
                   % ({k: (st2.get(GATED_ABILITY) or {}).get(k)
                       for k in ("usable", "cooldown", "disabled")},))
         fp2, fn2, reach2 = _confront("TEMOIN", Y, inr2, outr2, ENEMY, st2, na2, elev_ok, 3)
-        out["arms"]["temoin"] = {"fp": fp2, "fn": fn2, "reach": reach2,
+        out["arms"]["temoin"] = {"fp": fp2, "fn": fn2, "reach": reach2, "state": st2, "na": na2,
+                                 "in_range": sorted(inr2), "sweep": sorted(inr2 | outr2),
                                  "natif_dmax": max((hexgeo.distance(P, Y) for P in inr2),
                                                    default=None)}
+        out["elev"] = elev_ok
         return out
     finally:
         _r(sid, "disposeRunner", {"runnerId": rid}, 60)
