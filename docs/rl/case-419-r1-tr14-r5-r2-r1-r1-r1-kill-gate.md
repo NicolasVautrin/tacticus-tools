@@ -1,9 +1,9 @@
 # `#419-r1-tr14-r5-r2-r1-r1-r1` — le gate `ShouldExecute` « l'attaque normale tue déjà »
 
 **Critère binaire** : le moteur émet-il des actions que le natif refuse, parce que leur playbook a un
-`ShouldExecute` propre que le port ignore ? **Non, pour 17 des 43 classes**, depuis cette tranche.
-Trois corps natifs portés, confrontés live sur un carré apparié plus un volet de portée, avec deux
-contre-épreuves mordantes.
+`ShouldExecute` propre que le port ignore ? **Non, pour 15 des 43 classes**, depuis cette tranche.
+Deux corps natifs portés, confrontés live sur un carré apparié, avec sa contre-épreuve mordante.
+Un troisième corps (2 classes) a été **lu, porté, puis RETIRÉ sur mesure** — §2.1.
 
 ---
 
@@ -56,7 +56,8 @@ Les dix-sept `ability_id` sont lus **dans le `.ctor` de leur classe**
 
 **Critère de tranche, énoncé avant de lire** : *le plus grand nombre de classes fermées par corps
 mirroré, à primitive déjà disponible dans le port*. Ces trois corps ferment **17 des 43** (40 %) avec
-UNE primitive, `BasePlaybook$$WillNormalAttackKill`, déjà portée côté NonComparable.
+UNE primitive, `BasePlaybook$$WillNormalAttackKill`, déjà portée côté NonComparable. **Livré : 15** —
+le corps `FragBomb` (2 classes) est ressorti du port sur mesure (§2.1).
 
 ### La primitive, et les champs de `BasePlaybook`
 
@@ -93,8 +94,8 @@ sinon `null`.
 (`noncomparable/_base.py::_will_normal_attack_kill`, `loki_custom.SorcerousFacadePlaybook`) y
 délèguent désormais. Trois corps auraient été un fork.
 
-`engine/playbook/normal_attack_kill_gate.py` — les trois classes, **héritant de
-`DefaultActiveAbilityPlaybook`** : les 17 ids retombaient sur elle jusqu'ici, donc
+`engine/playbook/normal_attack_kill_gate.py` — deux classes, **héritant de
+`DefaultActiveAbilityPlaybook`** : les ids retombaient sur elle jusqu'ici, donc
 `make_damage_predictions`, `calculate_custom_utility` et `make_effect_predictions` restent
 EXACTEMENT ce qu'ils étaient. Le seul delta est `should_execute`. Une instance par identité
 (`ability_id` d'instance) — c'est le mirror des quatorze classes natives, toutes concrètes.
@@ -102,28 +103,44 @@ EXACTEMENT ce qu'ils étaient. Le seul delta est `should_execute`. Une instance 
 `1004 MortisRound` était **déjà au registre** (`loki_custom.MortisRoundPlaybook`, pour son
 `CalculateCustomUtility`) : elle délègue au même corps plutôt que d'être réinscrite.
 
-### 2.1 La BORNE de portée — mesurée, pas supposée
+### 2.1 Une BORNE de portée essayée, puis RÉFUTÉE par la mesure
 
-`normal_attack_kill_gate.normal_attack_reaches(ctx, target, caster_tile)` désarme le gate quand
-l'attaque normale du caster n'est pas légale sur `target` depuis `caster_tile`.
+Le premier jet du port a produit une divergence, dans le sens le plus grave — *le port REFUSE une
+action que le natif CHOISIT*. Mesuré : `astraOrdnance` en `(1,0)` bombarde (`1026 BasiliskBarrage`)
+deux `adeptRetributor` à **1 PV** en `(6,7)`/`(6,8)`, et le natif propose le cast. Le port rendait
+`killSure = True` avec `healthDmgMin = 1` — le **plancher** de dégât — parce que
+`engine.playbook.prediction.make_normal_attack_predictions` calcule une prédiction HYPOTHÉTIQUE sans
+regarder la portée ; le canal natif du preview, interrogé sur la même paire depuis la même tuile,
+rend `dictCount: 0` / `pred: null`.
 
-**Pourquoi elle existe** : le premier jet du port a produit une divergence, dans le sens le plus
-grave — *le port REFUSE une action que le natif CHOISIT*. Mesuré : `astraOrdnance` en `(1,0)`
-bombarde (`1026 BasiliskBarrage`) deux `adeptRetributor` à **1 PV** en `(6,7)`/`(6,8)`, et le natif
-propose le cast. Le port, lui, rendait `killSure = True` avec `healthDmgMin = 1` — le **plancher** de
-dégât — parce que `engine.playbook.prediction.make_normal_attack_predictions` calcule une prédiction
-HYPOTHÉTIQUE sans regarder la portée. Le canal natif du preview, interrogé sur la même paire depuis
-la même tuile, rend `dictCount: 0` / `pred: null` : il n'a **rien** pour elle.
+**L'hypothèse « le natif désarme le gate hors portée » a été codée, puis RÉFUTÉE.** Une borne
+`normal_attack_reaches` (substrat `ctx.plans` : un eval d'attaque normale sur CETTE cible dont les
+`ranked` contiennent la tuile de cast) a été posée dans le gate, puis le carré rejoué. Résultat :
 
-Ce n'est PAS le mirror d'une clause native — `WillNormalAttackKill` n'en a pas — mais du chemin par
-lequel le natif retombe sur `false` : `IdunBattle.Core.Services.BattleQuery$$GetNormalAttackPrediction`
-délègue à un slot de service qui n'a rien à rendre hors portée. La borne est posée **dans le gate**,
-pas dans la primitive partagée : `noncomparable/_base.py` sert des playbooks validés live dont aucun
-n'exerce ce régime, et élargir leur comportement sortirait du périmètre.
+| bras `kill` | avant borne | **après borne** | natif |
+|---|---|---|---|
+| `orksKillaKan` 1171 | port refuse | **port accepte** | **refuse** |
+| `astraPrimarisPsy` 1027 | port refuse | **port accepte** | **refuse** |
+| `necroDestroyer` 1006 | port refuse | port refuse | refuse |
+| `ultraEliminatorSgt` 1004 | port refuse | **port accepte** | **refuse** |
 
-Substrat : `ctx.plans` (les `attackPlans` natifs) — un eval d'attaque NORMALE du caster sur `target`
-dont les tuiles `ranked` contiennent `caster_tile`. **Tri-état** : plans absents pour ce caster
-(bridge offline, qui ne peuple que l'unité ACTIVE) ⇒ `True`, la borne ne s'applique pas.
+La borne **désarme le gate là où le natif le maintient** : elle est fausse, et retirée. Le natif
+prédit donc l'attaque normale HORS PORTÉE, exactement comme le port. C'est aussi ce qui **disqualifie
+`ctx.plans` comme proxy de « la prédiction existe »** : les tuiles `ranked` encodent la LÉGALITÉ du
+cast, pas l'existence d'une prédiction hypothétique.
+
+### 2.2 Ce qui restait à expliquer — et pourquoi `1017`/`1026` sortent du port
+
+La borne écartée, la divergence `astraOrdnance` demande une autre cause. Elle est **lue, pas
+supposée** : le RPC `abilityTargets` rend pour `1017`/`1026` des cibles `kind: "tile"` (mesuré —
+`astraOrdnance`/1026 : deux TUILES, `(6,7)` et `(6,8)`, celles qu'occupent les cibles), et le natif
+propose bien `ActiveAbilityMessage(1026, <entité tuile>)`. C'est exactement pour cela que le corps
+natif commence par `GetUnit(target, state)` : **sa cible n'est pas une unité**. Le générateur
+Comparable du port, lui, énumère des unités — domaine de ciblage différent.
+
+Porter ce gate sur `target` = unité est donc une approximation, et la seule confrontation disponible
+montre qu'elle **retire une action que le natif choisit**. Les deux ids sortent du port : résidu
+`#419-r1-tr14-r5-r2-r1-r1-r1-r1`, pas de port spéculatif.
 
 ---
 
@@ -167,20 +184,19 @@ c'est justement là que les gate-ées disparaissent.
 ⚠ Le témoin est ce qui rend le bras `kill` concluant. Sans lui, « plus aucune ability proposée à
 1 PV » se lirait aussi bien comme « le gate mord » que comme un effet d'argmax.
 
-### 3.3 Le volet PORTÉE
+### 3.3 Le volet RÉSIDU
 
-Cibles à 1 PV, casters qui bombardent **depuis leur spawn**, d'où leur attaque normale n'atteint pas
-la cible — le régime qui a produit la divergence du §2.1. `astraOrdnance` (1026), `astraBullgryn`
-(1017), plus le témoin.
+Cibles à 1 PV, `astraOrdnance` (1026) et `astraBullgryn` (1017) qui bombardent **depuis leur spawn**,
+plus le témoin. Il ATTESTE que le résidu du §2.2 est bien un résidu : ces ids n'étant pas au
+registre, le port ne peut pas retirer l'action que le natif propose (critère A), et la contre-épreuve
+`gate_cut` y est **inerte** — si elle mordait, c'est qu'ils seraient gate-és par une autre voie.
 
-### 3.4 Les contre-épreuves
+### 3.4 La contre-épreuve
 
-| contre-épreuve | ce qu'elle coupe | où elle doit MORDRE |
-|---|---|---|
-| `gate_cut` | `should_execute` remis au défaut de la base = **le port d'avant** | les gate-ées du bras `kill`, et là seulement |
-| `range_bound_cut` | la borne `normal_attack_reaches` | les gate-ées du volet PORTÉE, et là seulement |
-
-L'inertie des autres lignes est la réciproque : un port qui déborderait les ferait bouger.
+`gate_cut` remet `should_execute` au défaut de la base — **strictement le port d'avant cette
+tranche**. Elle doit MORDRE sur les gate-ées du bras `kill`, et **là seulement** : l'inertie des
+autres lignes (les deux bras `nokill`, le témoin, tout le volet résidu) est la réciproque — un port
+qui déborderait les ferait bouger. On mute la MÉTHODE, jamais le code livré.
 
 Probe : `scripts/python/probe_419r1tr14r5r2r1r1r1_normal_attack_kill_gate.py`.
 
@@ -245,17 +261,22 @@ les corps de §5.2 demandent chacun le leur.
 
 ### 5.4 Résidus de CETTE tranche
 
-* **`-r1-r1` — le domaine de ciblage de `1017`/`1026` diverge.** `abilityTargets` rend pour elles
-  `kind: "tile"` (mesuré : `astraOrdnance`/1026 ⇒ deux TUILES, celles qu'occupent les cibles), et le
-  natif propose `ActiveAbilityMessage(1026, <entité tuile>)`. Le générateur Comparable du port, lui,
-  énumère des **unités** — d'où le `GetUnit` du corps natif, qui est l'identité sur ce que le port
-  passe. La confrontation disponible est conforme depuis la borne du §2.1, mais le gate de ces deux
-  abilities n'a **jamais** été exercé sur une tuile VIDE, où `GetUnit` rend `null` et où le natif
-  passe le gate inconditionnellement. Ce que le port ferait n'y est pas défini.
-* **`-r1-r2` — la borne `normal_attack_reaches` est un mirror de l'EFFET, pas de la lettre.** Le
-  chemin exact par lequel le natif obtient `WillBeKill == false` hors portée n'a pas été lu jusqu'au
-  bout (le slot 9 du service derrière `GetNormalAttackPrediction`). Ce qui le trancherait : lire ce
-  slot, ou hooker `WillNormalAttackKill` — capteur à écrire, donc fenêtre de reinject.
+* **`-r1-r1` — `FragBombPlaybook$$ShouldExecute` (1017, 1026) : cible native = TUILE.** Lu et
+  compris (§2.2), délibérément NON porté. Ce qui le rendrait portable : que la route Comparable du
+  port énumère pour ces abilities le même domaine que le natif (des tuiles — la route
+  `nonattack.py` en a déjà un, ex. 1169/1148), ou qu'on établisse la correspondance
+  tuile ↔ occupant au rang du gate. Il faudrait aussi un montage sur tuile **VIDE**, où `GetUnit`
+  rend `null` et où le natif passe le gate inconditionnellement — régime jamais exercé.
+* **`-r1-r2` — la divergence `astraOrdnance` n'est pas expliquée jusqu'au bout.** Le §2.2 en donne
+  la cause structurelle (domaine de ciblage), mais on n'a pas vérifié que `GetUnit(<entité 74>)`
+  rend bien l'unité qu'on croit : `dumpEntityComponents` refuse une entité non-unité
+  (`"pass entityId"`), donc l'identité exacte de `74` n'a pas été lue. Ce qui le trancherait : un
+  hook sur `WillNormalAttackKill` — capteur à écrire, donc **fenêtre de reinject**.
+* **`-r1-r3` — le port prédit un dégât PLANCHER hors portée.** Mesuré : `healthDmgMin = 1` et
+  `killSure = True` pour `astraOrdnance` sur une cible à 5-6 tuiles, là où le canal natif du preview
+  rend `dictCount: 0`. Le natif gate quand même dans ce régime (§2.1), donc **cela ne se voit pas
+  sur le gate** ; mais c'est le même plancher qui alimente toutes les prédictions d'attaque normale
+  du port, et il n'a pas été confronté hors portée ailleurs.
 
 ---
 
