@@ -77,10 +77,17 @@ def test_purger_epargne_un_lock_tenu(tmp_path, capsys):
     assert not lock.exists(), "un lock LIBRE doit etre retire"
 
 
-def test_un_git_status_en_cours_est_vu_TENU(tmp_path):
+def test_un_git_en_cours_est_vu_TENU(tmp_path):
     """L'epreuve qui compte : le lock d'une commande REELLE en cours n'est pas << perime >>.
 
     C'est la contre-epreuve du discriminant sur du vrai git, pas sur un handle fabrique.
+
+    La commande est `git add`, pas `git status`, et ce n'est PAS un contournement du cliquet
+    `probe_474` : `add` prend `index.lock` tout aussi reellement (mesure #474 : lock vu 8/8,
+    tailles 0 -> 131072 -> ... -> 481886) et il est HORS de son gisement par construction --
+    son lock est une ECRITURE VOULUE, a laquelle `--no-optional-locks` ne s'applique pas.
+    Ecrire `git status` ici ferait rougir `probe_474` sur son propre test, et l'exempter par
+    une allowlist ruinerait un perimetre DERIVE.
     """
     depot = tmp_path / "repo"
     depot.mkdir()
@@ -98,7 +105,7 @@ def test_un_git_status_en_cours_est_vu_TENU(tmp_path):
     (depot / "f0000.txt").write_text("sale\n", encoding="ascii")
 
     lock = depot / ".git" / "index.lock"
-    p = subprocess.Popen(["git", "status", "--porcelain"], cwd=str(depot),
+    p = subprocess.Popen(["git", "add", "-A"], cwd=str(depot),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     vu_tenu = vu_lock = False
     t0 = time.time()
@@ -118,7 +125,7 @@ def test_un_git_status_en_cours_est_vu_TENU(tmp_path):
 
     if not vu_lock:
         pytest.skip("le lock n'a pas ete apercu : rien a confronter sur cette machine")
-    assert vu_tenu, ("un `git status` EN COURS tenait son index.lock et l'instrument l'a "
+    assert vu_tenu, ("un `git add` EN COURS tenait son index.lock et l'instrument l'a "
                      "vu LIBRE -- --purger detruirait un lock vivant")
 
 

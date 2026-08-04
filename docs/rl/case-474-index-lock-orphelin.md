@@ -116,6 +116,11 @@ stderr** : la prochaine occurrence portera son diagnostic. **Cause du 128 : touj
   chaque suppression re-testée par ouverture exclusive juste avant.
 * `tests/test_474_optional_locks_offline.py` (29) et `tests/test_474_forensics_offline.py` (4).
 
+Le cliquet a **rougi sur son propre test** au re-jeu d'après rebase : la contre-épreuve
+« un lock tenu est vu tenu » lançait un vrai `git status`. Corrigé en `git add -A` — qui prend
+`index.lock` tout aussi réellement (8/8) et qui est **hors gisement par construction** (écriture
+voulue). Aucune allowlist : exempter un fichier ruinerait un périmètre dérivé.
+
 **L'instrument n'est branché nulle part** — c'est délibéré : le câbler dans un chemin critique
 (hook, wrapper git) sans mesure préalable rejouerait le vice. Le point de branchement naturel
 est le hook `Stop` / `loop_status`, qui lit déjà l'état du dépôt à chaque fin de tour et ne lève
