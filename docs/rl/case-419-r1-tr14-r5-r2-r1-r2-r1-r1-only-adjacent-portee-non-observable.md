@@ -308,6 +308,27 @@ SONDE  u160 (type 1126, masque 0x4000, forceMeleeTarget = False)
 `test_d1_le_clamp_arme_only_adjacent_sur_une_valeur_inconnue` rougit (2 lignes de CODE). Port
 restaure, 0 diff.
 
+### 9.3bis GENERALISATION — trois configurations, meme conclusion
+
+| board / seed | verdict | `GetStat(Range)` | gagnees/B2 sur le CODE |
+|---|---|---|---|
+| `MC1_67` / 4192 | PASS | 0 | 2 sur 3 lignes |
+| `MC1_67` / 777  | PASS | 0 | 2 sur 3 lignes |
+| `C2_01` / 4192  | PASS | 0 | 1 sur 4 lignes |
+| `C4_09` / 31337 | **MONTAGE NON POSE** | — | — |
+
+Le 4e cas n'est PAS un desaccord : les summons y apparaissent loin de tout ennemi et le seul
+rapprochement possible passerait par des `endturn` — or les `genesSmnDecoy` sont EPHEMERES et n'y
+survivent pas (MESURE : apres 3 rapprochements via `_step_toward`, plus AUCUN decoy vivant).
+`forcer_contact` PILOTE donc la geometrie sans jamais consommer de tour (il ne bouge que ce qui est
+deja activable) et s'ARRETE en nommant la cause, plutot que de defaire le montage en silence.
+
+**D3 est couvert par le bras 2**, et non par un cran separe : la ventilation `clampe / non clampe`
+est calculee par le PORT, mais la sonde donne un caster ADJACENT que le port classe non clampe
+(`forceMeleeTarget = False`) — et le natif l'y refuse a `d = 1`, tandis qu'il ACCEPTE le caster
+clampe a la meme distance. Les deux modeles s'accordent donc sur le DECLENCHEMENT, sur deux casters
+que seule cette condition separe.
+
 ### 9.4 Le bras `ForcedInMelee` — NON CONFRONTE, impossibilite chiffree
 
 Poseur LU : `TheQuickeningAbility$$GetTriggerAttackBehaviour` =
