@@ -314,7 +314,7 @@ data/symbols/<HASH>/
 | famille | produit par | consommé par | son diff dit |
 |---|---|---|---|
 | `frida/methods.tsv` | `preprocess` (depuis le dump Frida) | **Ghidra** (nommage) | signatures — mais la RVA est en colonne 1, donc **toutes** les lignes changent : diff bruité |
-| `frida/classes.tsv` | idem | **Ghidra** (structs) | **taille, parent, offsets de champs** — aucune adresse, **diff propre** |
+| `frida/classes.tsv` | idem | **Ghidra** (structs) | **taille et parent** — aucune adresse, **diff propre**. ⚠ **PAS les offsets de champs** : mesuré le 2026-08-04 sur `rnca9r7q6c`, 31 357 lignes, **0** porte une colonne de champs. Un nom de champ se lit **au runtime** (RPC `dumpEntityComponents`, `withFields: true`) — pas ici. |
 | `frida/enums.tsv` | idem | lecture humaine | **valeurs d'enum** — aucune adresse, **diff propre** |
 | `ghidra/functions.tsv` | `ghidra_symbols.py dump` | **nos outils offline** (`whereis`, migrateur, probes) | apparitions / disparitions / renommages |
 
