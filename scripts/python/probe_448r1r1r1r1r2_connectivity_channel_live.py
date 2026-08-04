@@ -14,11 +14,23 @@ capteur ne mordrait pas), et non une confirmation.
 CE QUE CHAQUE CRAN TRANCHE : cf. `docs/rl/case-448-r1-r1-r1-r1-flying-tiles-moved.md` §13.4.
 Les sept crans y sont ecrits AVANT la mesure ; ce probe ne fait que les jouer.
 
-VENTILATION DANS LES DEUX SENS -- le point que le plan sous-entend sans l'ecrire : un delta
-scalaire de `+18` est compatible avec `+20 / -2`. Le probe compte donc SEPAREMENT
-`connectivity \\ neighbours` (la porte d'elevation amputait) et `neighbours \\ connectivity`
-(la geometrie sur-genere -- les `Bridge` de `C1_74`), et n'accepte le cran 4 que si le second
-est nul sur `MC1_67`.
+VENTILATION A TROIS VUES -- deux points que le plan sous-entend sans les ecrire :
+
+  * un delta SCALAIRE de `+18` est compatible avec `+20 / -2`. On compte donc SEPAREMENT chaque
+    sens, jamais la seule difference des cardinaux ;
+  * le cran 6 (« les 4 aretes `Bridge` sont dans la geometrie et PAS dans le canal brut ») ne se
+    mesure PAS contre le champ `neighbours` : celui-ci porte deja la porte d'elevation. Il se
+    mesure contre `Board.neighbours_geometric` -- la couronne hex recalculee, substrat de
+    `IdunBattle.Entities.Pathfinding.FlyPathfinder$$AddNeighbours`. Les TROIS vues sont donc
+    confrontees deux a deux :
+
+      G = `neighbours_geometric`  (couronne hex, aucune porte)
+      N = `neighbours`            (`BattleQuery$$GetAdjacentTiles` -> porte `|delev| < 2`)
+      C = `connectivity`          (`ConnectivityComponent`, critere `TileComponent$$HasEdge`)
+
+    `C \\ N` mesure ce que la porte amputait ; `G \\ C` mesure ce que `HasEdge` refuse et que la
+    geometrie invente. Sans la troisieme vue, les deux causes sont INDISCERNABLES -- c'est
+    exactement ce qui faisait sous-compter le residu a 4 aretes.
 
 Usage (session warmee) :
     python probe_448r1r1r1r1r2_connectivity_channel_live.py                # les 3 boards
@@ -53,40 +65,66 @@ def _rpc_factory():
 
 
 def _build(board: str, seed: int) -> tuple[int, pathlib.Path]:
+    """Le nombre de SPAWNS JOUEUR varie par board (les `C6_*` en ont 3 a 5) et le build refuse
+    `N spawns joueur < M units`. On DEGRADE le roster plutot que d'echouer : le graphe de tuiles
+    est STATIQUE, donc le compte d'unites n'influe sur AUCUNE des trois vues mesurees ici."""
     LOGSDIR.mkdir(parents=True, exist_ok=True)
     state_file = LOGSDIR / ("p448r1r1r1r1r2_state_%s.json" % board)
-    state_file.unlink(missing_ok=True)
-    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--rank", "17",
-           "--board", board, "--no-ai", "--state-file", str(state_file)]
-    p = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
-    if not state_file.exists():
-        sys.stdout.write((p.stdout or "")[-1200:])
-        sys.stdout.write((p.stderr or "")[-1200:])
-        raise SystemExit("build KO (%s)" % board)
-    return int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"]), state_file
+    p = None
+    for roster in (5, 4, 3, 2, 1):
+        state_file.unlink(missing_ok=True)
+        cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--rank", "17",
+               "--board", board, "--no-ai", "--roster", str(roster),
+               "--state-file", str(state_file)]
+        p = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        if state_file.exists():
+            if roster != 5:
+                print("     [build] %s : roster degrade a %d (spawns joueur)" % (board, roster))
+            return int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"]), state_file
+        if "spawns joueur <" not in ((p.stdout or "") + (p.stderr or "")):
+            break
+    sys.stdout.write(((p.stdout if p else "") or "")[-1200:])
+    sys.stdout.write(((p.stderr if p else "") or "")[-1200:])
+    raise SystemExit("build KO (%s)" % board)
 
 
 def _ventiler(res: dict) -> dict:
-    """Ecart ARETE PAR ARETE, dans les DEUX sens, avec l'elevation des deux bouts.
+    """Ecart ARETE PAR ARETE entre les TROIS vues (cf. l'en-tete du module).
 
-    Tri-etat respecte : une tuile dont `connectivity` est `None` (composant absent) n'entre
-    dans AUCUN des deux comptes -- elle est comptee a part (`sans_composant`)."""
+    Tri-etat respecte : une tuile dont `connectivity` est `None` (composant absent) n'entre dans
+    AUCUN compte -- elle est comptee a part (`sans_composant`). La confondre avec `[]` est la
+    faute exacte de `#381-r3`."""
+    from engine.entities.pathfinding.board import Board
+
     tiles = res.get("tiles") or []
     by_id = {t["id"]: t for t in tiles}
-    manquantes, conn_only, geom_only = [], [], []
+    bd = Board(tiles)
+    manquantes = []
+    ecarts = {"C_moins_N": [], "N_moins_C": [], "G_moins_C": [], "C_moins_G": [],
+              "G_moins_N": [], "N_moins_G": []}
     for t in tiles:
         conn = t.get("connectivity")
+        neigh = set(t.get("neighbours") or [])
+        geo = set(bd.neighbours_geometric(t["id"]))
+        for nid in sorted(geo - neigh):
+            ecarts["G_moins_N"].append((t, by_id.get(nid)))
+        for nid in sorted(neigh - geo):
+            ecarts["N_moins_G"].append((t, by_id.get(nid)))
         if conn is None:
             manquantes.append(t["id"])
             continue
-        neigh = set(t.get("neighbours") or [])
         cset = set(conn)
         for nid in sorted(cset - neigh):
-            conn_only.append((t, by_id.get(nid)))
+            ecarts["C_moins_N"].append((t, by_id.get(nid)))
         for nid in sorted(neigh - cset):
-            geom_only.append((t, by_id.get(nid)))
-    return {"conn_only": conn_only, "geom_only": geom_only, "sans_composant": manquantes}
+            ecarts["N_moins_C"].append((t, by_id.get(nid)))
+        for nid in sorted(geo - cset):
+            ecarts["G_moins_C"].append((t, by_id.get(nid)))
+        for nid in sorted(cset - geo):
+            ecarts["C_moins_G"].append((t, by_id.get(nid)))
+    ecarts["sans_composant"] = manquantes
+    return ecarts
 
 
 def _fmt(a: dict | None, b: dict | None) -> str:
@@ -157,33 +195,45 @@ def run_board(sid, rpc, board: str, seed: int, verbose: bool) -> tuple[int, dict
         bad += 0 if miss == 0 else 1
         bad += 0 if over == 0 else 1
 
-        # --- cran 4/5/6 : la VENTILATION, dans les deux sens.
+        # --- cran 4/5/6 : la VENTILATION a trois vues.
         ce, ne = res.get("connectivityEdges"), res.get("neighbourEdges")
         delta = None if (ce is None or ne is None) else ce - ne
         v = _ventiler(res)
+        n_cn, n_nc = len(v["C_moins_N"]), len(v["N_moins_C"])
+        n_gc, n_cg = len(v["G_moins_C"]), len(v["C_moins_G"])
+        n_gn, n_ng = len(v["G_moins_N"]), len(v["N_moins_G"])
         print("  [4] connectivityEdges=%s neighbourEdges=%s  DELTA=%s" % (ce, ne, delta))
-        print("      ventilation : conn_only=%d  geom_only=%d  (delta net = %d)"
-              % (len(v["conn_only"]), len(v["geom_only"]),
-                 len(v["conn_only"]) - len(v["geom_only"])))
-        if delta is not None and delta != len(v["conn_only"]) - len(v["geom_only"]):
+        print("      C\\N=%d  N\\C=%d  |  G\\C=%d  C\\G=%d  |  G\\N=%d  N\\G=%d"
+              % (n_cn, n_nc, n_gc, n_cg, n_gn, n_ng))
+        if delta is not None and delta != n_cn - n_nc:
             print("      ECART: le delta scalaire ne se ventile pas -- compteurs incoherents")
+            bad += 1
+        # Identite structurelle : `N` etant `G` PRIVE de la porte, et `C` etant `G` PRIVE de
+        # `HasEdge`, les aretes que `G` a en trop sur `N` se partagent EXACTEMENT entre les deux
+        # causes. Elle rougit si une TROISIEME cause s'est glissee dans une des vues.
+        if n_gn != n_cn + n_gc:
+            print("      ECART: G\\N (%d) != C\\N (%d) + G\\C (%d) -- une 3e cause coexiste"
+                  % (n_gn, n_cn, n_gc))
             bad += 1
 
         # cran 5 : les aretes que la porte d'elevation AMPUTAIT. Toutes doivent avoir
         # |delev| >= 2 (c'est exactement ce que `TileQuery$$IterateAdjacentTiles` filtre).
-        mauvaises = [(a, b) for (a, b) in v["conn_only"]
+        mauvaises = [(a, b) for (a, b) in v["C_moins_N"]
                      if a is not None and b is not None
                      and abs(int(a.get("elevation") or 0) - int(b.get("elevation") or 0)) < 2]
-        print("  [5] aretes conn_only avec |delev| < 2 : %d (attendu 0)" % len(mauvaises))
+        print("  [5] aretes C\\N avec |delev| < 2 : %d (attendu 0)" % len(mauvaises))
         bad += 0 if not mauvaises else 1
         if verbose or mauvaises:
-            for (a, b) in (mauvaises or v["conn_only"])[:24]:
+            for (a, b) in (mauvaises or v["C_moins_N"])[:24]:
                 print("        %s" % _fmt(a, b))
 
-        # cran 6 : le sens INVERSE -- la geometrie sur-genere. Les `Bridge` en sont la cause
-        # attendue sur `C1_74` ; sur `MC1_67` ce compte doit etre NUL.
-        print("  [6] aretes geom_only (geometrie sans le canal brut) : %d" % len(v["geom_only"]))
-        for (a, b) in v["geom_only"][:24]:
+        # cran 6 : `G \ C` -- ce que `HasEdge` refuse et que la couronne hex invente. C'est le
+        # residu « dans l'autre sens » : la beeline sur geometrie couperait la ou le natif fait
+        # le tour. `C \ G` doit etre NUL (le canal ne peut pas inventer un voisin hors couronne).
+        print("  [6] aretes G\\C (geometrie sans le canal brut) : %d ; C\\G : %d (attendu 0)"
+              % (n_gc, n_cg))
+        bad += 0 if n_cg == 0 else 1
+        for (a, b) in v["G_moins_C"][:24]:
             ta = None if a is None else a.get("tileDefId")
             tb = None if b is None else b.get("tileDefId")
             print("        %s  terrain %s -> %s" % (_fmt(a, b), ta, tb))
@@ -196,8 +246,8 @@ def run_board(sid, rpc, board: str, seed: int, verbose: bool) -> tuple[int, dict
               % (tel, len(paires)))
         for (a, b) in paires[:8]:
             print("        tile %d <-> %d" % (a, b))
-        return bad, {"delta": delta, "conn_only": len(v["conn_only"]),
-                     "geom_only": len(v["geom_only"]), "teleport": tel}
+        return bad, {"delta": delta, "C_moins_N": n_cn, "G_moins_C": n_gc,
+                     "C_moins_G": n_cg, "teleport": tel}
     finally:
         try:
             rpc(sid, "disposeRunner", {"runnerId": rid}, 60)
@@ -225,11 +275,14 @@ def main() -> int:
         resume[b] = r
     print("\n== RESUME")
     for b, r in resume.items():
-        print("   %-8s delta=%s conn_only=%s geom_only=%s teleport=%s"
-              % (b, r.get("delta"), r.get("conn_only"), r.get("geom_only"), r.get("teleport")))
-    # Le canal ne PROUVE qu'il transporte que si au moins un board rend un ecart NON NUL.
-    non_degenere = any((r.get("conn_only") or 0) > 0 for r in resume.values())
-    print("   regime non degenere (au moins un ecart conn_only > 0) : %s"
+        print("   %-8s delta=%s C\\N=%s G\\C=%s C\\G=%s teleport=%s"
+              % (b, r.get("delta"), r.get("C_moins_N"), r.get("G_moins_C"),
+                 r.get("C_moins_G"), r.get("teleport")))
+    # Le canal ne PROUVE qu'il transporte que si au moins un board rend un ecart NON NUL. Un
+    # `C\N == 0` partout serait un accord DEGENERE : le canal lirait la meme chose que le champ
+    # herite, donc il ne mordrait pas -- et le lire comme une confirmation serait la faute.
+    non_degenere = any((r.get("C_moins_N") or 0) > 0 for r in resume.values())
+    print("   regime non degenere (au moins un ecart C\\N > 0) : %s"
           % ("OUI" if non_degenere else "NON -- accord DEGENERE, le canal ne mord pas"))
     if not non_degenere:
         bad += 1
