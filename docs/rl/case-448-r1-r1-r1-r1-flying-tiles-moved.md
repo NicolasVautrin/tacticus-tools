@@ -188,6 +188,37 @@ tuiles géométriquement voisines (`#381-r3` : les deux `Bridge` de `C1_74`, 4 a
 beeline du port y couperait où le natif ferait le tour. Aucun board mesuré ici n'est dans ce cas.
 Le test live garde les deux faces (que le trou existe encore, et qu'il change un compte).
 
+### 9 bis. Interaction avec `#433-r4-r2-r1-r1` (PR #558) — vérifiée, CONVERGENTE
+
+`#558` a livré `engine/services/ability_range.py` et attribué ses derniers faux positifs à **la
+même porte d'élévation**, `|srcElev - Elevation| < 2` de
+`IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`. Deux tranches
+touchant au même étage géométrique par deux chemins : vérifié après rebase sur `e814745d`.
+
+**Les deux ports lisent la même géométrie de base et divergent sur la porte — chacun là où SON
+natif la porte.** Ce n'est pas un accroc, c'est la fidélité :
+
+| | natif mirroré | géométrie lue | porte `|Δelev| < 2` |
+|---|---|---|---|
+| `ability_range` (#558) | `TileQuery$$IterateAdjacentTiles` | `hexgeo.distance == 1`, **recalculée** | **appliquée** (`battle_query.is_adjacent`, depuis `elev_by_pos`) |
+| beeline (cette tranche) | `BasePathfinder$$AddNeighbours` / `ConnectivityComponent` | `board.neighbours_geometric` | **non appliquée** |
+
+`ability_range` ne touche **jamais** `board.neighbours_*` : il passe par
+`bq.is_adjacent(t, n, elev_by_pos)` et applique la porte lui-même. Il est donc **structurellement
+insensible** à l'amputation du champ `neighbours` qui, elle, m'a mordu.
+
+**Et la mesure de cette tranche CORROBORE l'attribution de #558, par un chemin indépendant.** Le
+natif enregistre **2** sur `(1,1) -> (1,3)` d'un volant, ce qui exige l'arête `(1,2)-(1,3)` dont
+le Δélévation vaut **2** — donc le `ConnectivityComponent` **contient** cette arête. ⇒ la porte
+`|Δelev| < 2` appartient bien à `IterateAdjacentTiles` et **pas** au graphe de connectivité. Le
+capteur du `boardGraph`, qui passe par `IterateAdjacentTiles` pour produire le champ `neighbours`,
+l'applique donc à un champ qui, côté natif, ne l'a pas — c'est exactement le mécanisme du résidu
+`-r2` ci-dessous.
+
+Contrôle joué après rebase : `test_433_r4_r2_r1_ability_range_live.py` **6 passed**,
+`test_433_r4_r2_r1_r2_ability_range_offline.py` + `test_433_r4_r2_r1_r1_dynamic_target_gate_offline.py`
+verts dans la passe de 101.
+
 ## 10. Ce que la tranche ne porte PAS, nommément
 
 * **`IsTeleportationTile`** (`ConnectivityComponent+0x18`), le second critère de rétention d'un
@@ -231,3 +262,5 @@ Le test live garde les deux faces (que le trou existe encore, et qu'il change un
   sur-ensemble du `ConnectivityComponent`, et les deux divergent sur les `Bridge`. Fermer
   demande que le capteur publie le `ConnectivityComponent` BRUT, sans la porte d'élévation —
   c'est-à-dire une modification de `frida/hooks/*`, donc une fenêtre de réinjection.
+  **Fiché côté orchestrateur avec `#462-r4a-r1`** : les deux capteurs seront écrits puis
+  embarqués dans **une seule** fenêtre. Rien à faire ici.
