@@ -370,7 +370,24 @@ verdict `ratchets-bg` non lu.
   fait lancer 4 tests sur un budget inconnu — faute déjà commise.
 - ⚠ **Le chiffre du plafond (5) est le SEUL qui ne soit pas une mesure** : c'est un paramètre
   d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#467-r1`.
-- Le cliquet qui garde SA fidélité est dans la banque. Détail : `docs/rl/case-467-etat-de-boucle.md`.
+- ⚠ **Une panne de capteur doit porter son NOM (#467-r6).** `gh` rendait `rc=127` pour ses trois
+  pannes — binaire absent, délai dépassé, `OSError` — parce que toutes retombaient sur la même
+  sentinelle. Résultat **mesuré** : l'incident a été diagnostiqué « `gh` absent du PATH » alors que
+  `gh` était sur le PATH (identique sous `pwsh` et sous le `powershell.exe -NoProfile` du hook) et
+  que la vraie cause était le **budget** — 2,90 s pour 3,00 s en solo, **5 tours sur 8** aveugles
+  dans le tour complet, **0/8** après correctif. Un capteur qui ne sait pas nommer sa panne fait
+  corriger la mauvaise cause. La piste « remplacer `gh` par du git pur » est **réfutée** :
+  `--no-merged origin/master` sur les remotes rend **79** branches pour **1** PR ouverte (elles
+  survivent au squash-merge), et le filtre de fraîcheur qui la sauverait rate les PR *anciennes*,
+  les plus oubliables.
+- ⚠ **Un repli sur cache peut SIGNALER, jamais RASSURER.** Servi quand `gh` est muet, il n'est
+  retenu que s'il porte une PR **ouverte** : un cache disant « 0 PR » ne prouve rien, et le rabattre
+  en mesure ferait taire l'outil sur une PR ouverte depuis. Aucun chemin ne fabrique un zéro.
+- **Deux cliquets** gardent SA fidélité, et le second existe parce que le premier ne pouvait pas
+  voir son gisement : les deux probes #467 **substituent** `http_json`, donc un champ disparu côté
+  host les laissait verts tous les deux. `probe_467r4` confronte le contrat au **code source** du
+  host, liste des champs **dérivée** de `mesurer_harnais`. Détail :
+  `docs/rl/case-467-etat-de-boucle.md`.
 
 ## Ne jamais
 
