@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785835017,
+ "_ecrit_le": 1785834554,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -2853,6 +2853,20 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py": {
+   "_at": 1785834554,
+   "_blob": "a96464598b564a39f4797771ddd758c0f6fa0efa",
+   "_commit": "0c6d8c2cc5231bb9a2400fff9f39bea50f46e224",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a0220713ebc56f07f",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 10,
+   "sec": 233.7,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/test_419r1tr14r5r2r1r2_normal_attack_options_live.py": {
    "_at": 1785828509,
    "_blob": "faf1b1e3c2250bb23a67b3b98cde953a8e02a876",
@@ -2949,20 +2963,6 @@
    "verdict": "VERT",
    "xfailed": 0
   },
-  "tests/engine/test_433_r4_r2_r1_r2_r2_friend_gates_live.py": {
-   "_at": 1785832135,
-   "_blob": "18e4b9c4bef4b5a718a436a0af7684c4d868c6fb",
-   "_commit": "c85710457ee87ece473496afcaed7830a6259bef",
-   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a4c9ab318b73e05ec",
-   "error": 0,
-   "failed": 0,
-   "messages": [],
-   "passed": 8,
-   "sec": 9.5,
-   "skipped": 0,
-   "verdict": "VERT",
-   "xfailed": 0
-  },
   "tests/engine/test_433_r4_r3_r1_adjacent_to_owner_live.py": {
    "_at": 1785773946,
    "_blob": "fbb5f55490bc5a508ce2fad096466580c958e81c",
@@ -2972,20 +2972,6 @@
    "messages": [],
    "passed": 38,
    "sec": 73.3,
-   "skipped": 0,
-   "verdict": "VERT",
-   "xfailed": 0
-  },
-  "tests/engine/test_437_overwatch_consumes_armour_live.py": {
-   "_at": 1785835017,
-   "_blob": "93bc604b9ab658afe7e3a1836635b4d5c07daeb7",
-   "_commit": "58800d602a8d9f4c7783c6d464b5f6884f595765",
-   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a02a4ae69ab106f7d",
-   "error": 0,
-   "failed": 0,
-   "messages": [],
-   "passed": 4,
-   "sec": 52.6,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
