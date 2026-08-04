@@ -174,6 +174,8 @@ déclare le corps TRIVIAL `return true` (`FrenziedFiringPlaybook`, l'un des 35).
 | **`blackObliterator`** | **1036** | **trivial (TÉMOIN)** | non / oui | **OUI** / oui |
 
 **A : 10/10. B : conforme** (les trois gate-ées à portée refusées par le natif ; le témoin proposé).
+La contre-épreuve `gate_cut` **MORD sur les quatre lignes gate-ées du bras `kill`** et reste
+**inerte sur les six autres** — y compris le témoin, qui partage pourtant le bras.
 
 La ligne qui porte la preuve est `astraPrimarisPsy` : **même caster, même géométrie, seule la PV
 change**, et `1027` passe de proposée à non proposée — pendant que le TÉMOIN fait le mouvement
@@ -198,7 +200,29 @@ tranche**. Elle doit MORDRE sur les gate-ées du bras `kill`, et **là seulement
 autres lignes (les deux bras `nokill`, le témoin, tout le volet résidu) est la réciproque — un port
 qui déborderait les ferait bouger. On mute la MÉTHODE, jamais le code livré.
 
-Probe : `scripts/python/probe_419r1tr14r5r2r1r1r1_normal_attack_kill_gate.py`.
+Probe : `scripts/python/probe_419r1tr14r5r2r1r1r1_normal_attack_kill_gate.py` (rc **0**).
+Cran : `scripts/python/tests/engine/test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py`
+(4 crans OFFLINE — dont un qui garde que `1017`/`1026` NE sont PAS au registre — et 6 live).
+
+### 3.5 Ce que le voisinage a rendu, et le rouge qu'il a produit
+
+| fichier rejoué | verdict |
+|---|---|
+| `test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py` (neuf) | 9 passed |
+| `test_339_spiritleech_lifesteal_live.py` (1104, décision) | 8 passed |
+| `test_sorcerous_facade_decision_live.py` (le foyer partagé) | 8 passed |
+| `test_mortis_round_decision_live.py` (1004, décision) | **1 failed** puis corrigé — ci-dessous |
+
+**`test_each_mutation_is_visible[no_displaceable]` a rougi, et c'est le cran de mutation qui a
+fait son travail.** Il n'accuse aucune divergence natif↔port : il constate que le montage de #27-r3
+a perdu un DISCRIMINANT. Dans son bras `bigtarget`, le contrôle `tauCrisis` porte `BigTarget`, donc
+`IsDisplaceable` est faux et le custom vaut 0 ⇒ le natif retombe sur `69` ; la mutation qui force
+`_is_displaceable = True` devait faire basculer le port sur `1004`. Or à `HP_TARGET = 1800`
+l'attaque normale du caster tue `tauCrisis` à coup sûr : **le gate porté ici refuse `1004` sur elle
+même sous la mutation**, donc le bras retombe sur `69` par DEUX causes indistinguables.
+
+Correctif : relever les PV du seul CONTRÔLE (`--unit-stat`, `HP_IMMOVABLE`), ce qui désarme le gate
+sans toucher à l'axe étudié (le trait `BigTarget`) ni au calibrage de `TARGET_VIS`.
 
 ---
 
