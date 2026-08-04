@@ -81,6 +81,12 @@ ALLOW_OBSCURED_TARGET_BY_WALLS = 1 << 26
 #: Un caster qui le porte est EXEMPTE du volet ELEVATION -- exactement comme le bit 25 du masque.
 INDIRECT_FIRE_TRAIT = 1005
 
+#: `IdunBattle.Core.TeamId` -- `0=Environment, 1=Team1_Default, 2=Team2_DefaultEnemy, 3=Team3`
+#: (enum LU dans `data/symbols/<build>/frida/enums.tsv`). Le `0` n'est PAS « pas d'equipe » : c'est
+#: l'equipe ENVIRONNEMENT, et c'est aussi la valeur que rendent les deux gardes ci-dessous quand
+#: `EntityExtensions$$GetCurrentPlayer` ne resout AUCUN joueur -- d'ou leur asymetrie.
+TEAM_ENVIRONMENT = 0
+
 
 def obscuring_type_for(rules: Optional[int], caster_has_indirect_fire: bool = False) -> int:
     """Le `ObscuringType` que `TargetingQuery$$GetTilesObscuringTerrain` compose, VERBATIM :
@@ -110,6 +116,52 @@ def obscuring_type_for(rules: Optional[int], caster_has_indirect_fire: bool = Fa
     return flags | OBSCURING_TYPE_WALL
 
 
+def friend_gates_for_tile_target(caster_team: Optional[int],
+                                 occupant_team: Optional[int]) -> Tuple[bool, bool]:
+    """Les DEUX gardes « ami » du predicat, evaluees pour une cible qui est une **TUILE** --
+    le regime que `TargetingQuery$$GetPossibleTargetTiles` impose (`onlyTiles: 1`).
+
+    Rend `(target_is_friend, target_is_friend_or_has_friendly_unit)`, les deux parametres du
+    mirror ci-dessous. `caster_team` / `occupant_team` sont des `IdunBattle.Core.TeamId`
+    (`observeBattle.units[].teamId` = `PlayerComponent+0x24`) ; `occupant_team is None` = tuile
+    SANS unite. Un `caster_team is None` (canal muet) rend `(False, False)` -- le statu quo, qui
+    ne peut que RETIRER davantage, et c'est la degradation NOMMEE.
+
+    LES DEUX GARDES NE LISENT PAS LA MEME CHOSE, et c'est le coeur de `#433-r4-r2-r1-r2-r2` :
+
+    * **`IdunBattle.Entities.UnitExtensions$$IsFriend(target, caster, state)`** (la garde de la
+      lambda `TargetingQuery.u003Cu003Ec__DisplayClass34_0$$u003CGetPossibleTargetsForOptionsu003Eb__1`)
+      compare `GetCurrentPlayer(target)` a `GetCurrentPlayer(caster)`, chacun rabattu sur `0`
+      quand il ne resout rien. Or `IdunBattle.Entities.EntityExtensions$$GetCurrentPlayer` ne
+      teste que TROIS classes -- `PlayerEntity` (rend `this`), `FootEntity` (`GetUnit` puis
+      recursion) et `UnitEntity` (`OwnerComponent+0x20`) -- et retombe sinon sur un
+      `TryGetComponent<OwnerComponent>` que la **`TileEntity` NE PORTE PAS**.
+      => sur une TUILE, `GetCurrentPlayer` rend `null`, donc `0`, et **l'occupant n'est jamais
+      resolu**. La garde se reduit alors a `TeamId(caster) == Environment(0)` : une CONSTANTE du
+      caster, pas une propriete de la tuile.
+      ⚠ La fiche precedente lisait « `GetCurrentPlayer` sur une tuile resout l'unite qui
+      l'OCCUPE (branche `UnitExtensions$$GetUnit` du decompile) ». C'est REFUTE : cette branche
+      est celle de `FootEntity` (identifiee par ses xrefs `Blueprints$$UnitFoot` /
+      `FootEntity$$Copy`), pas celle de la tuile (`Blueprints$$Tile` / `TileEntity$$Copy`).
+      Le port passait `False`, ce qui reste JUSTE dans nos runners -- mais par accident.
+
+    * **`IdunBattle.Entities.UnitExtensions$$IsFriendOrHasFriendlyUnitOnIt(target, caster,
+      state)`** (la garde de `TargetingQuery$$GetTilesObscuringTerrain`), elle, passe par
+      `IdunBattle.Entities.UnitExtensions$$GetUnit(target, state)`, qui TESTE bien `TileEntity`
+      (`TileContentComponent+0x38`, `IsFilled` -> resolution de l'occupant). Elle vaut donc
+      « la tuile porte une unite de la MEME equipe que le caster », et c'est elle qui mord.
+      Son premier gate est `EntityExtensions$$IsUnit(caster)`, inline dans le decompile
+      (`FUN_180002590(1, <Entity>, caster) == 1`, meme corps que `EntityExtensions$$IsUnit`) :
+      un caster qui n'est pas une unite rend `false`. Le port n'appelle ce foyer que pour des
+      unites, donc ce terme est constant a `True` ici."""
+    if caster_team is None:
+        return False, False
+    ct = int(caster_team)
+    is_friend = (ct == TEAM_ENVIRONMENT)
+    has_friendly = (occupant_team is not None and int(occupant_team) == ct)
+    return is_friend, has_friendly
+
+
 def get_tiles_obscuring_terrain(board, caster_tiles: Optional[Sequence[Pos]],
                                 target_tile: Optional[Pos], rules: Optional[int],
                                 caster_has_indirect_fire: bool = False,
@@ -123,10 +175,11 @@ def get_tiles_obscuring_terrain(board, caster_tiles: Optional[Sequence[Pos]],
     doit pas presumer d'une BC. Le defaut `True` est celui du seed courant.
 
     `target_is_friend_or_has_friendly_unit` mirrore
-    `IdunBattle.Entities.UnitExtensions$$IsFriendOrHasFriendlyUnitOnIt(target, caster, state)` --
-    l'OCCUPATION n'etant pas publiee cote DECISION, l'appelant le passe explicitement plutot que
-    le port ne le devine. Sur une tuile VIDE le natif rend `false` (`GetUnit(tile) == null`), ce
-    qui est le regime du consommateur `IsTileInRangeOfAnyAbility` -- d'ou le defaut."""
+    `IdunBattle.Entities.UnitExtensions$$IsFriendOrHasFriendlyUnitOnIt(target, caster, state)` :
+    « la cible EST une unite amie, OU porte une unite amie ». Sur une tuile VIDE le natif rend
+    `false` (`GetUnit(tile) == null`) -- d'ou le defaut. L'appelant qui connait l'occupation le
+    calcule par `friend_gates_for_tile_target` (#433-r4-r2-r1-r2-r2) : le canal existe
+    (`observeBattle.units[].teamId` + `col`/`row`), il n'etait pas LU."""
     if not enable_obscuring_terrain or target_is_friend_or_has_friendly_unit:
         return set()
     ot = obscuring_type_for(rules, caster_has_indirect_fire)
@@ -148,10 +201,12 @@ def target_is_obscured(board, caster_tiles: Optional[Sequence[Pos]],
                        && GetTilesObscuringTerrain(caster, casterTiles, target, options).Count > 0
 
     La GARDE `IsFriend` porte sur l'entite que `RemoveAll` itere. Quand `GetPossibleTargetTiles`
-    force `onlyTiles: 1`, ce sont des TUILES, et `IdunBattle.Entities.EntityExtensions$$GetCurrentPlayer`
-    sur une tuile resout l'unite qui l'OCCUPE (branche `UnitExtensions$$GetUnit` du decompile) :
-    une tuile VIDE n'a donc pas de joueur, et la garde ne mord pas. L'appelant qui connait
-    l'occupation le dit ; le defaut `False` est le regime de la tuile libre.
+    force `onlyTiles: 1`, ce sont des TUILES -- et `IdunBattle.Entities.EntityExtensions$$GetCurrentPlayer`
+    **ne resout PAS** l'occupant d'une tuile (elle ne branche que sur `PlayerEntity`, `FootEntity`
+    et `UnitEntity`, puis retombe sur un `TryGetComponent<OwnerComponent>` absent de la
+    `TileEntity`). La garde vaut donc `TeamId(caster) == Environment(0)` : voir
+    `friend_gates_for_tile_target`, qui la calcule pour l'appelant. Le defaut `False` reste le
+    statu quo quand le canal d'equipe est muet.
 
     `board is None` (aucun canal d'elevation) -> `False` : le port ne retire rien, degradation
     NOMMEE et permissive."""

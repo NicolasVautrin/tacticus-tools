@@ -569,20 +569,30 @@ def _has_indirect_fire(visual_id) -> bool:
     return has_trait((GC.unit(visual_id or "") or {}).get("traits"), UnitTrait.IndirectFire)
 
 
-def _obscured(board, unit_pos, tile, rules, visual_id) -> bool:
+def _obscured(board, unit_pos, tile, rules, visual_id,
+              caster_team=None, team_by_pos=None) -> bool:
     """Le SECOND predicat de `GetPossibleTargetsForOptions`, pose sur la paire (caster, tuile).
 
     `casterTiles` est le SINGLETON `{GetMainTile(unit)}` -- c'est ce que
     `BattleQuery$$IsTileInRangeOfAnyAbility` construit et transmet jusqu'ici, donc la surcharge
     LISTE de `MovementQuery$$GetTilesObscuringTerrain` court-circuite sur sa branche `Count == 1`
-    et aucune intersection multi-pieds n'est exercee (cf. son mirror)."""
+    et aucune intersection multi-pieds n'est exercee (cf. son mirror).
+
+    `caster_team` / `team_by_pos` alimentent les DEUX gardes « ami » (#433-r4-r2-r1-r2-r2) --
+    foyer unique `targeting_query.friend_gates_for_tile_target`, qui porte la lecture. Les deux
+    absents, on retombe sur `(False, False)`, le statu quo d'avant la tranche."""
     from . import targeting_query as TQ
-    return TQ.target_is_obscured(board, [(int(unit_pos[0]), int(unit_pos[1]))],
-                                 (int(tile[0]), int(tile[1])), rules,
-                                 caster_has_indirect_fire=_has_indirect_fire(visual_id))
+    t = (int(tile[0]), int(tile[1]))
+    occupant = (team_by_pos or {}).get(t)
+    is_friend, has_friendly = TQ.friend_gates_for_tile_target(caster_team, occupant)
+    return TQ.target_is_obscured(board, [(int(unit_pos[0]), int(unit_pos[1]))], t, rules,
+                                 caster_has_indirect_fire=_has_indirect_fire(visual_id),
+                                 target_is_friend=is_friend,
+                                 target_is_friend_or_has_friendly_unit=has_friendly)
 
 
-def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, board=None) -> bool:
+def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, board=None,
+                         caster_team=None, team_by_pos=None) -> bool:
     """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des QUATRE etages,
     evaluee sur la TUILE : le court-circuit `rules` de `GetPossibleTargetTiles`, puis
     `GetTilesInRange`, puis le predicat de LIGNE DE VUE (`b__1`, #-r1-r2), puis le predicat
@@ -599,7 +609,8 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
         return False
     from ..runner.abilities.targeting import targeting_options_for
     opts = targeting_options_for(ability_id)
-    if _obscured(board, unit_pos, tile, getattr(opts, "rules", None), visual_id):
+    if _obscured(board, unit_pos, tile, getattr(opts, "rules", None), visual_id,
+                 caster_team=caster_team, team_by_pos=team_by_pos):
         return False                               # b__1 -- LIGNE DE VUE
     gate = dynamic_target_gate_of(ability_id)
     if gate == GATE_FREE_ADJACENT_IN_CONFIG_RANGE:
@@ -621,7 +632,8 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
 def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int = 1,
                                     ability_ids=None, elev_by_pos=None,
                                     ability_state=None, normal_attack_id=None,
-                                    is_wall_by_pos=None) -> bool:
+                                    is_wall_by_pos=None, caster_team=None,
+                                    team_by_pos=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility(unit, tile)` -- mirror :
 
         if (UnitExtensions.GetFeetCount(unit, state) > 1) return true;      // MULTI-TUILES
@@ -662,6 +674,14 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     lignes. `is_wall_by_pos` (`boardGraph.isWall` = `TileComponent+0x41`) en est le second volet ;
     ABSENT, le port ne voit AUCUN mur, ce qui ne peut qu'ELARGIR.
 
+    `caster_team` / `team_by_pos` -- les DEUX gardes « ami » du meme predicat
+    (#433-r4-r2-r1-r2-r2), `{(col,row): TeamId}` de l'OCCUPANT VIVANT de chaque tuile. Elles sont
+    les seules de la cascade dont l'ecart soit RESTRICTIF : sans elles, le port RETIRE des tuiles
+    que le natif GARDE (une tuile portant un allie du caster n'est JAMAIS obscurcie). Canal muet
+    -> statu quo, et l'ecart subsiste. Le foyer de leur lecture est
+    `targeting_query.friend_gates_for_tile_target` ; il n'est PAS symetrique (`IsFriend` ne
+    resout pas l'occupant d'une tuile, `IsFriendOrHasFriendlyUnitOnIt` si).
+
     `ability_state` / `normal_attack_id` -- le canal d'ETAT par ability
     (`decisionView.units[].abilities[]`, `allAbilities: true`), consomme par les TROIS gates
     CASTER que `GetAllTilesInAbilityRange` evalue AVANT les slots 9/10 (#433-r4-r2-r1-r1-c). Une
@@ -689,8 +709,9 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
         weapon = unit_weapon_range(visual_id, None)
         if weapon is not None and d <= int(weapon):
             if not _obscured(board, unit_pos, tile, NORMAL_ATTACK_TARGETING_OPTIONS.rules,
-                             visual_id):
+                             visual_id, caster_team=caster_team, team_by_pos=team_by_pos):
                 return True
     aids = _active_ability_ids(visual_id) if ability_ids is None else ability_ids
-    return any(_ability_covers_tile(aid, visual_id, unit_pos, tile, elev_by_pos, board)
+    return any(_ability_covers_tile(aid, visual_id, unit_pos, tile, elev_by_pos, board,
+                                    caster_team=caster_team, team_by_pos=team_by_pos)
                for aid in aids if not _gated_out(aid, ability_state))
