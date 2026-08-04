@@ -559,3 +559,178 @@ soit un facteur **4**. Et ce facteur bute sur une structure, pas sur du gras :
 
 ⚠ Chiffres a RE-DERIVER (`probe_457 --measure`, `ratchets.ps1 -Serial`, puis un dos-a-dos),
 jamais a citer.
+
+## 9. `#464` — `--measure` ÉCRIVAIT sur un échec de MONTAGE, et vidait un fichier VERSIONNÉ
+
+**Ferme `#457-r7`**, qui n'en décrivait que la moitié visible.
+
+### La mesure
+
+Lancé depuis la **racine du dépôt** au lieu de `scripts/python/` — les chemins passés à
+`pytest.main` sont relatifs au rootdir que fixe `scripts/python/pytest.ini` :
+
+```
+ERROR: file or directory not found: tests/engine/entities/pathfinding/test_381r3_...py
+no tests ran in 0.00s
+[457] empreinte -> scripts/ratchets-457-footprints.json : 0 fichier(s) de test, ...
+[457] --measure : 129 fichier(s), 0.0 s de tests mesures en 2.0 s de mur
+[457] --measure : pytest rc=4 -- poids ecrits, mais l'arbre est ROUGE      RC=1
+-> git diff --stat : 3 insertions(+), 632 deletions(-)
+```
+
+Trois fautes **cumulées**, et c'est le cumul qui fait le dégât :
+
+1. un `pytest rc=4` (erreur d'**usage** — rien n'a tourné) rendu comme `rc=1`, c'est-à-dire un
+   verdict de **gisement** (« l'arbre est ROUGE ») ;
+2. l'écriture faite **avant** la décision, donc annoncée au passé (« poids écrits, mais… ») ;
+3. la cible de l'écriture est **versionnée** — l'échec ne se contente pas de se lire comme une
+   mesure, il **persiste**.
+
+### Le dégât n'est PAS celui que le fichier annonçait
+
+`_footprints_path` documentait le risque d'une empreinte périmée : « elle sélectionne **TROP** et
+retombe continûment sur le rejeu total ». Une empreinte **vidée** fait l'**inverse**.
+`impacted_files` lit `rel not in par_test` comme « ce test n'ouvre **aucun** fichier du dépôt, ses
+dépendances sont d'import pur → **le graphe d'imports le couvre** » et le **saute**. Un `par_test`
+vide fait donc sauter tout test dont la seule dépendance est une **donnée** (`data/symbols/…`,
+`docs/…`, `frida/hooks/*.ts`) — un **FAUX VERT partagé et versionné**, exactement ce que
+l'asymétrie poids/empreinte du fichier était censée interdire.
+
+### La correction — deux verrous, dans cet ordre
+
+1. **`_exiger_cwd()`** refuse **avant de jouer quoi que ce soit**, pour tout mode qui invoque
+   pytest (mesure **et** shard). `--list` n'invoque rien (l'énumération passe par
+   `git -C <racine>`) et reste jouable de partout.
+2. **`_ecrire_mesure()` est le FOYER UNIQUE d'écriture**, et **décide avant d'écrire** : refus si
+   pytest rend 2/3/4/5, ou si **aucun** fichier joué n'a produit de report. Ce second verrou couvre
+   ce que le CWD ne cause pas (un fichier disparu entre `git ls-files` et l'exécution, un `-x`
+   interrompu). Le critère est le **nombre de reports**, jamais la durée — un fichier offline pur
+   passe ses 4 tests en moins de 5 ms.
+
+Le code de sortie est **99**, la convention déjà tenue par `scripts/ratchets-bg.ps1` : « aucun
+verdict sur le dépôt », à ne lire ni comme un rouge **ni comme un vert**. Le mode shard rend
+désormais 99 lui aussi sur un rc 2/3/4 — c'est `#457-r7` fermé. `rc=5` y **reste rouge** : un shard
+qui a des fichiers et n'en collecte aucun est anormal (gisement de `probe_455` r3).
+
+### L'arbitrage : REFUSER, pas `chdir` — alors que le dépôt a le précédent inverse
+
+Trois scripts corrigent le CWD au lieu de le vérifier (`probe_391` L176, `probe_433_r1` L507,
+`probe_433_r3` L543 : `os.chdir(HERE)`). Ce n'est **pas** ce qui est fait ici, et la raison est
+propre à ce probe :
+
+- un `chdir` aurait fait **tourner** la mesure — 976,9 s **et une écriture** — depuis un montage
+  que personne n'a voulu ; « ça marche quand même » n'est pas neutre quand la sortie est
+  versionnée ;
+- le mode shard est un **cliquet** : son verdict doit être attribuable à un montage explicite, et
+  le contrat `rc=99` (« non mesuré ») n'existe pas sous `chdir` ;
+- un `chdir` rend l'exigence **invisible** : le prochain script naîtra fragile sans qu'on
+  l'apprenne, alors que le message de refus nomme le répertoire exact.
+
+### Le recensement demandé — combien d'autres scripts sont fragiles
+
+Balayage AST de `scripts/python/**` (hors `tests/`), critère « passe un chemin **relatif** à une API
+qui résout depuis le CWD, **sans** neutraliser le CWD (`cwd=` explicite, `os.chdir`, vérification) » :
+
+| axe | fragiles | neutralisés |
+| --- | --- | --- |
+| invocation de **pytest** (relatif au rootdir) | **0** (après ce correctif) | 6 — `probe_418`, `probe_426`, `probe_431_build_pin_mutants`, `probe_455`, `probe_462` par `cwd=` explicite ; `probe_391` par `os.chdir` |
+| invocation d'un **script frère** (`subprocess.run([py, "rl_duel.py", …])`) | **13 fichiers** | 183 par `cwd=` explicite |
+
+`probe_457` était donc **le seul** fragile sur l'axe qui a mordu. Les 13 de l'autre axe sont d'une
+classe différente — l'échec y est **bruyant** (Python : *can't open file*) et **sans persistance** ;
+ils ne sont **pas** corrigés ici (hors périmètre), et sont nommés en résidu `#464-r1`.
+
+### Contre-épreuves
+
+| épreuve | avant | après |
+| --- | --- | --- |
+| `--measure` depuis la racine | `rc=1`, **632 lignes** retirées d'un fichier versionné | `rc=99`, **`git status` propre** |
+| `--shard 0/8` depuis la racine | `VERDICT: FAIL` (faux rouge) | `rc=99`, rien joué |
+| `--shard 0/8 --list` depuis la racine | OK | OK (inchangé — le garde ne le bloque pas) |
+
+**Par mutation** (`tests/test_457_r9_refus_d_ecrire_offline.py`, 17 tests) — chaque mutation a été
+vérifiée APPLIQUÉE avant d'être jouée, un patch qui ne matche pas rendant un vert qui ne prouve
+rien :
+
+| mutation | verdict |
+| --- | --- |
+| garde CWD retiré de `main()` | **4 rouges** / 13 verts |
+| refus d'écrire retiré de `_ecrire_mesure` | **5 rouges** / 12 verts |
+| empreinte réécrite en mode incrémental | **1 rouge** |
+| une écriture posée hors du foyer unique | **1 rouge** |
+| *(témoin, sans mutation)* | 17 verts |
+
+Le garde de **foyer unique** est structurel : il dérive par AST les fonctions du probe qui écrivent
+un fichier et exige que l'ensemble soit exactement `{_ecrire_mesure}`. C'est lui qui rend le refus
+non contournable — le vice initial était précisément que la décision s'imprimait **après** les deux
+`write_text`.
+
+## 10. `#463` — une garde d'ÉQUILIBRAGE imposait 12 min bloquantes par PR
+
+### La mesure, et la nuance qu'elle corrige
+
+Tout fichier de test offline **neuf** n'a pas de poids ; `bins_of` lui donne le poids **maximum**
+connu (choix sûr), il déplace donc les vrais lourds et fait monter la charge maximale — sans
+qu'aucun poids ne soit faux, et **sans le moindre risque de faux vert** (`bins_of` partitionne
+l'ensemble quels que soient les poids). La seule sortie était `--measure`, **976,9 s / 1471 tests**.
+
+⚠ **L'énoncé « tout fichier neuf fait rougir » est une simplification — mesuré, le déclenchement est
+en `nb_neufs % 8`.** Profil figé sur la queue lourde réelle (268 / 258 / 234 / 201 / 169 s sur
+110 fichiers), ratio `max(charges) / max(plancher, moyenne)` pour 0 à 8 fichiers sans poids :
+
+| neufs | 0 | 1 | 2 | 3 | **4** | **5** | **6** | **7** | 8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ratio | 1,000 | 1,000 | 1,000 | 1,104 | **1,381** | **1,623** | **1,836** | **1,963** | 1,000 |
+
+Seuil = 1,35. **Rouge de 4 à 7, vert de 0 à 3 et à 8** — et le ratio est **indépendant du poids des
+fichiers légers** (identique à 2,0 s et 5,0 s) : il est porté par la structure, pas par les données.
+Un seul fichier neuf ne bloquait donc **pas** ; c'est une tranche qui en ajoute 4 ou plus.
+
+### L'asymétrie qui trahissait le mauvais calibrage
+
+`logs/` est gitignoré ⇒ un agent en worktree frais **n'a aucun poids**, la garde y **SKIPPE**, et
+elle ne tirait donc que dans l'arbre de l'orchestrateur — sur le chemin critique de livraison. Une
+garde dont le gisement n'existe que chez celui qui livre n'est pas une garde, c'est un péage.
+
+### Les DEUX remèdes, cumulés — et pourquoi les deux
+
+1. **Mesure incrémentale** (`--measure-missing`) : ne chronomètre que les fichiers **sans poids**,
+   **fusionne** dans le JSON existant, et **purge** les clés hors périmètre (un test supprimé ne
+   doit pas gonfler le `defaut` de `bins_of`). Elle **n'écrit PAS l'empreinte** : `_commit` horodate
+   l'empreinte **entière**, la rafraîchir après avoir joué 2 fichiers prétendrait une fraîcheur
+   qu'elle n'a pas et transformerait `impacted_files` en faux vert. C'est l'asymétrie que le fichier
+   documentait déjà, appliquée. Corollaire d'implémentation : l'audit hook global de `_FilesPerTest`
+   n'est **plus installé** en mode incrémental.
+2. **Dégradation de la garde** : le critère porte désormais sur les **seuls fichiers pesés**
+   (`equilibre_des_bins`), et les fichiers sans poids sont **rapportés**, pas opposés. Le nom du
+   test l'annonçait déjà — « quand les poids existent ».
+
+**Un seul des deux ne suffit pas.** Le remède 1 seul laisse la garde bloquante pour quiconque ne
+lance pas la mesure (et un agent en worktree frais ne peut pas la lancer utilement : ses poids
+meurent avec son worktree). Le remède 2 seul laisse le mur se dégrader **en silence** — d'où
+l'impression, à chaque shard, du compte de fichiers sans poids et de la commande qui les mesure.
+
+### Contre-épreuves
+
+- **La garde MORD toujours** (`test_le_critere_d_equilibre_REJETTE_une_partition_desequilibree`),
+  sur deux montages indépendants : (a) la partition **md5** du repli, sur un jeu où LPT équilibre —
+  c'est le gisement historique (4 lourds concentrés dans `s7`, 106 s contre 4,8 s) ; (b) un
+  déséquilibre **insécable mais réel à poids complets** — 9 fichiers égaux pour 8 bins, ratio 1,78.
+- **La dégradation tient quel que soit `nb_neufs`** (paramétré 0/3/4/7/8), et les cas 4 et 7
+  vérifient que l'**ancien** critère rougissait bien : sans cela l'assertion serait un vert vacueux.
+- **Mutation** : ancien critère restauré ⇒ **1 rouge** (`test_des_fichiers_SANS_poids_…`).
+
+### Résidus
+
+- **`#464-r1`** — **13 fichiers de `scripts/python/**` invoquent un script frère par chemin relatif
+  sans `cwd=`** (`_probe_overwatch`, `predict_samples`, `predict_sweep`, `probe_106_*`,
+  `probe_111_*`, …). Fragilité réelle au CWD, mais l'échec y est **bruyant** et **sans
+  persistance** — aucune écriture versionnée en jeu. Non corrigé (hors périmètre). Le patron sûr
+  est déjà majoritaire dans le dépôt : **183** appels passent `cwd=` explicite.
+- **`#463-r1`** — **rien ne mesure les poids d'un fichier neuf automatiquement.** Un shard ne peut
+  pas le faire : les 8 shards tournent **en parallèle** et écriraient le même JSON (c'est #455 dans
+  l'autre sens). `--measure-missing` reste donc un geste **explicite**, et son oubli coûte du mur,
+  jamais un verdict.
+- **`#463-r2`** — **la marge de 1,35 n'a pas été re-dérivée.** Elle est héritée de #457-r6 et
+  n'était contrainte par aucune mesure ici ; le test la porte désormais en constante nommée
+  (`MARGE_EQUILIBRE`), ce qui la rend au moins visible et mutable.

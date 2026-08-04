@@ -72,6 +72,43 @@ PERIMETRE (#434) : la liste vient de `git ls-files` lance dans CE checkout, donc
 lire l'arbre d'un autre agent. ECRITURE (#455) : aucune -- `-p no:cacheprovider` empeche pytest de
 deposer `.pytest_cache` sous `scripts/python/`, que la banque enumere en parallele.
 
+CE PROBE EXIGE SON CWD, ET LE VERIFIE (#464)
+--------------------------------------------
+Les chemins passes a `pytest.main` sont relatifs au ROOTDIR (`scripts/python/pytest.ini`). Lance
+d'ailleurs, pytest ne trouve aucun de ses arguments et rend `rc=4` -- une erreur d'USAGE, pas un
+verdict. Mesure du 2026-08-04, depuis la racine du depot : `--measure` chronometrait 127 fichiers a
+**0,0 s**, ecrivait une empreinte a **0 fichier de test**, soit **632 lignes supprimees** du fichier
+VERSIONNE `scripts/ratchets-457-footprints.json` -- et annoncait << poids ecrits, mais l'arbre est
+ROUGE >>, c'est-a-dire un rc de gisement pour un echec de MONTAGE. C'est le patron << un echec RENDU
+se lit comme une mesure >>, en pire : il PERSISTE, et une empreinte videe ne selectionne pas TROP
+(ce que la peremption normale fait, cf. `_footprints_path`) mais TROP PEU -- `impacted_files`
+interprete << absent de `par_test` >> comme << aucune dependance hors-.py >>, donc un FAUX VERT.
+
+Deux verrous, dans cet ordre :
+  1. `_exiger_cwd()` REFUSE avant de jouer quoi que ce soit (rc `EX_NON_MESURE`) ;
+  2. `_ecrire_mesure()` est le FOYER UNIQUE d'ecriture et refuse encore si pytest a rendu un rc
+     d'usage/interruption, ou si AUCUN fichier n'a produit de report -- le filet couvre ce que le
+     CWD ne cause pas (un fichier disparu entre `git ls-files` et l'execution, un `-x` interrompu).
+
+`EX_NON_MESURE = 99` est la convention deja tenue par `scripts/ratchets-bg.ps1` : << aucun verdict
+sur le depot >>, a ne JAMAIS lire comme un rouge de gisement (ni comme un vert).
+
+MESURE INCREMENTALE (#463)
+--------------------------
+`--measure` rejoue TOUT le perimetre : mesure du 2026-08-04, **976,9 s pour 1471 tests**. Un fichier
+de test offline NEUF n'a pas de poids, prend le poids MAXIMUM connu dans `bins_of`, et desequilibre
+la partition -- ce qui faisait de cette passe complete le seul remede a une garde d'equilibrage,
+soit ~12 min BLOQUANTES par PR pour une OPTIMISATION de mur.
+
+`--measure-missing` ne chronometre que les fichiers SANS poids et FUSIONNE dans le JSON existant.
+C'est le cas nominal (mediane 0-1 fichier offline neuf par PR) : quelques secondes au lieu de 12 min.
+
+Il n'ecrit PAS l'empreinte, et c'est structurel : `_commit` horodate l'empreinte ENTIERE, donc le
+rafraichir apres n'avoir joue que 2 fichiers pretendrait une fraicheur qu'elle n'a pas et
+transformerait `impacted_files` en faux vert. L'asymetrie est celle que `_weights_path` et
+`_footprints_path` documentent deja : des POIDS perimes coutent du MUR, une EMPREINTE perimee
+ferait sauter des tests. Rafraichir l'empreinte reste le travail de `--measure` complet.
+
 ASCII only (cp1252).
 """
 from __future__ import annotations
@@ -113,11 +150,42 @@ def _is_test_file(name: str) -> bool:
 
 _PYDIR = Path(__file__).resolve().parent
 
+#: rc << RIEN N'A ETE MESURE >>. Convention deja tenue par `scripts/ratchets-bg.ps1` (`rc=99` =
+#: MONTAGE EN ECHEC, aucun verdict sur le depot). Un appelant DOIT le traiter comme
+#: << non mesure >>, jamais comme un rouge de gisement -- ni comme un vert.
+EX_NON_MESURE = 99
+
+#: Codes pytest sous lesquels la mesure n'est PAS exploitable : 2 interrompu, 3 erreur interne,
+#: 4 erreur d'USAGE, 5 aucun test collecte. `0` et `1` le sont -- des tests ROUGES n'invalident ni
+#: les durees ni l'empreinte, les fichiers ont bien ete joues.
+RC_PYTEST_SANS_MESURE = (2, 3, 4, 5)
+
 
 def repo_root() -> Path:
     """Racine du checkout COURANT. Depuis un worktree, c'est le worktree -- jamais l'arbre
     principal (#434 : un cliquet ne balaie QUE son propre checkout)."""
     return _PYDIR.parents[1]
+
+
+def _exiger_cwd() -> str:
+    """`""` si le CWD permet de jouer, sinon le message de REFUS (#464).
+
+    Les chemins passes a `pytest.main` sont relatifs au ROOTDIR, que `pytest.ini` fixe a
+    `scripts/python`. Lance d'ailleurs, pytest rend `rc=4` (usage) et le probe ecrivait quand meme
+    -- 632 lignes retirees d'un fichier VERSIONNE. On VERIFIE et on REFUSE plutot que de produire
+    du garbage : c'est le geste que l'echec de montage exige, pas un repli silencieux.
+
+    Pourquoi refuser au lieu de `chdir` : un `chdir` implicite masquerait un appelant mal cable
+    (`ratchets.ps1` fait `Set-Location scripts\\python`, c'est SA responsabilite) et rendrait le
+    diagnostic invisible la prochaine fois. `--list` n'invoque pas pytest et n'est donc pas garde.
+    """
+    ici = Path.cwd().resolve()
+    if ici == _PYDIR:
+        return ""
+    return ("[457] REFUS : ce probe doit etre lance depuis `%s` (les chemins passes a pytest sont\n"
+            "[457] relatifs au rootdir de `pytest.ini`). CWD courant : `%s`.\n"
+            "[457] rc=%d -- RIEN n'a ete joue, RIEN n'a ete ecrit. Ce n'est PAS un verdict sur le "
+            "depot." % (_PYDIR, ici, EX_NON_MESURE))
 
 
 def candidate_files() -> list[str]:
@@ -210,6 +278,33 @@ def bins_of(files: list, total: int, weights: dict) -> list:
     return [sorted(p) for p in paquets]
 
 
+def equilibre_des_bins(files: list, total: int, weights: dict) -> dict:
+    """Diagnostic de l'equilibre de la partition, SUR LES SEULS FICHIERS PESES (#463).
+
+    Un fichier SANS poids prend le maximum connu dans `bins_of` (choix sur), donc il DEPLACE les
+    vrais lourds et fait monter la charge maximale -- sans qu'aucun poids ne soit faux. Mesurer
+    l'equilibre sur l'ensemble complet melangeait donc deux choses : la qualite de l'heuristique
+    (ce qu'on veut garder) et l'absence de donnees (ce qu'on veut seulement RAPPORTER).
+
+    `ratio = max(charges) / max(plancher, moyenne)` : le plancher est le fichier le PLUS LOURD,
+    insecable -- on ne peut pas exiger mieux que lui.
+    """
+    peses = [rel for rel in files if rel in weights]
+    inconnus = [rel for rel in files if rel not in weights]
+    charges = [sum(weights[r] for r in b) for b in bins_of(peses, total, weights)] if peses else []
+    plancher = max((weights[r] for r in peses), default=0.0)
+    moyenne = (sum(charges) / len(charges)) if charges else 0.0
+    reference = max(plancher, moyenne)
+    return {
+        "peses": peses,
+        "inconnus": inconnus,
+        "charges": charges,
+        "plancher": plancher,
+        "moyenne": moyenne,
+        "ratio": (max(charges) / reference) if charges and reference > 0 else 0.0,
+    }
+
+
 class _DeselectLiveItems:
     """Retire les items dont la cloture de fixtures touche le monde live, et les RAPPORTE."""
 
@@ -300,81 +395,140 @@ class _FilesPerTest:
         self.courant = None
 
 
-def _measure(files: list) -> int:
-    """Rejoue tout le perimetre en chronometrant, et reecrit les poids. ASCII only."""
+def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
+                   elapsed: float, poids_connus: dict) -> int:
+    """FOYER UNIQUE d'ecriture de ce probe (#464). DECIDE d'abord, ecrit ensuite -- jamais l'inverse.
+
+    Le vice repare : `--measure` ecrivait, PUIS annoncait << poids ecrits, mais l'arbre est ROUGE >>
+    sur un `pytest rc=4` qui n'est pas un rouge du tout mais une erreur d'USAGE. Un echec de montage
+    RENDU se lit comme une mesure ; ici il se PERSISTAIT, dans un fichier versionne.
+
+    Le critere du refus est le NOMBRE DE REPORTS, jamais la duree : un fichier offline pur peut
+    passer ses 4 tests en moins de 5 ms (mesure du 2026-08-02 -- l'arrondi a 2 decimales rendait 13
+    puis 15 fichiers << sans mesure >>, signature d'un seuil, pas d'un fichier muet). Ce qui ne peut
+    PAS arriver en regime normal, c'est que le perimetre ENTIER soit muet.
+
+    `empreinte is None` = mesure incrementale : on ne touche pas au fichier versionne, cf. `main`.
+    """
     import json
 
-    if not files:
-        print("[457] --measure : perimetre VIDE, rien a mesurer")
-        return 1
-    horloge = _TimePerFile()
-    filet = _DeselectLiveItems()
-    empreinte = _FilesPerTest(repo_root())
-    started = time.time()
-    rc = pytest.main(["-q", "-p", "no:cacheprovider", *files],
-                     plugins=[horloge, filet, empreinte])
-    elapsed = time.time() - started
+    mesures = [rel for rel in joues if horloge.n.get(rel, 0) > 0]
+    if rc in RC_PYTEST_SANS_MESURE or not mesures:
+        cause = ("pytest rc=%d (%s)" % (rc, {2: "interrompu", 3: "erreur interne",
+                                             4: "erreur d'USAGE -- rien n'a ete joue",
+                                             5: "aucun test collecte"}.get(rc, "non exploitable"))
+                 if rc in RC_PYTEST_SANS_MESURE
+                 else "aucun des %d fichier(s) joue(s) n'a produit le moindre report" % len(joues))
+        print("[457] REFUS D'ECRIRE : %s." % cause)
+        print("[457] Les poids ET l'empreinte sont INCHANGES -- une mesure vide ecrite serait pire")
+        print("[457] que pas de mesure : une empreinte a zero fichier fait SAUTER des tests sous")
+        print("[457] `--since` (absent de `par_test` = << aucune dependance hors-.py >>).")
+        print("[457] Cause la plus frequente : lancement hors `%s`." % _PYDIR)
+        print("[457] rc=%d -- aucun verdict sur le depot." % EX_NON_MESURE)
+        return EX_NON_MESURE
 
-    poids = {rel: round(horloge.sec.get(rel, 0.0), 3) for rel in files}
-    # Le critere est le NOMBRE DE REPORTS, jamais la duree : un fichier offline pur peut passer
-    # ses 4 tests en moins de 5 ms. Mesure du 2026-08-02 -- l'arrondi a 2 decimales les rendait
-    # << sans mesure >>, et le compte VARIAIT d'un run a l'autre (13 puis 15), ce qui est la
-    # signature d'un seuil, pas d'un fichier muet.
-    manquants = [rel for rel in files if horloge.n.get(rel, 0) == 0]
+    # FUSION (mode incremental) puis RESTRICTION au perimetre : un fichier de test supprime ne
+    # doit pas laisser son poids derriere lui -- il gonflerait le `defaut` de `bins_of` pour rien.
+    poids = {rel: poids_connus[rel] for rel in perimetre if rel in poids_connus}
+    poids.update({rel: round(horloge.sec.get(rel, 0.0), 3) for rel in joues})
+    manquants = [rel for rel in joues if horloge.n.get(rel, 0) == 0]
+
     path = _weights_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(poids, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
-    # Empreinte MESUREE -- VERSIONNEE, avec le commit qui l'horodate (cf. `_footprints_path`).
-    # Sans `_commit`, la selection ne peut pas mesurer son age et refuse de s'appliquer.
-    import subprocess as _sp
-    tete = _sp.run(["git", "-C", str(repo_root()), "rev-parse", "HEAD"],
-                   capture_output=True, text=True)
-    def _versionnable(r: str) -> bool:
-        # Bruit MACHINE, jamais dans un diff : bytecode et sorties de run. Les garder gonflerait
-        # un fichier versionne de 521 lignes illisibles (mesure) sans rien apporter -- ils sont
-        # deja ignores a la lecture.
-        return not (r.endswith(".pyc") or "__pycache__" in r or r.startswith("logs/"))
+    if empreinte is not None:
+        # Empreinte MESUREE -- VERSIONNEE, avec le commit qui l'horodate (cf. `_footprints_path`).
+        # Sans `_commit`, la selection ne peut pas mesurer son age et refuse de s'appliquer.
+        import subprocess as _sp
+        tete = _sp.run(["git", "-C", str(repo_root()), "rev-parse", "HEAD"],
+                       capture_output=True, text=True)
 
-    def _dossiers(chemins) -> list:
-        # On stocke les REPERTOIRES, pas les fichiers -- c'est exactement la granularite a laquelle
-        # `impacted_files` compare (un test qui lit `docs/rl/x.md` doit rejouer si `docs/rl/y.md`
-        # change, sinon un fichier NEUF passerait entre les mailles). Stocker chaque fichier ne
-        # rendrait donc AUCUNE precision, et pesait 961 Ko versionnes, regeneres periodiquement.
-        return sorted({c.rsplit("/", 1)[0] for c in chemins if _versionnable(c) and "/" in c})
+        def _versionnable(r: str) -> bool:
+            # Bruit MACHINE, jamais dans un diff : bytecode et sorties de run. Les garder gonflerait
+            # un fichier versionne de 521 lignes illisibles (mesure) sans rien apporter -- ils sont
+            # deja ignores a la lecture.
+            return not (r.endswith(".pyc") or "__pycache__" in r or r.startswith("logs/"))
 
-    emp_path = _footprints_path()
-    emp = {
-        "_commit": (tete.stdout or "").strip() or None,
-        "_globales": sorted(g for g in empreinte.globales if _versionnable(g)),
-        "par_test": {rel: d for rel, d in
-                     ((r, _dossiers(v)) for r, v in sorted(empreinte.par_test.items())) if d},
-    }
-    emp_path.write_text(json.dumps(emp, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        def _dossiers(chemins) -> list:
+            # On stocke les REPERTOIRES, pas les fichiers -- c'est exactement la granularite a
+            # laquelle `impacted_files` compare (un test qui lit `docs/rl/x.md` doit rejouer si
+            # `docs/rl/y.md` change, sinon un fichier NEUF passerait entre les mailles). Stocker
+            # chaque fichier ne rendrait AUCUNE precision, et pesait 961 Ko versionnes.
+            return sorted({c.rsplit("/", 1)[0] for c in chemins if _versionnable(c) and "/" in c})
 
-    hors_py = sorted({r for r in empreinte.globales if not r.endswith(".py")})
-    hors_py_test = sorted({r for v in empreinte.par_test.values() for r in v
-                           if not r.endswith(".py")})
-    print("[457] empreinte -> %s : %d fichier(s) de test, %d lecture(s) GLOBALE(s) "
-          "(non attribuables -> impactent TOUT), dont %d hors .py ; %d fichier(s) hors .py lus "
-          "pendant les tests"
-          % (emp_path, len(empreinte.par_test), len(empreinte.globales), len(hors_py),
-             len(hors_py_test)))
+        emp_path = _footprints_path()
+        emp = {
+            "_commit": (tete.stdout or "").strip() or None,
+            "_globales": sorted(g for g in empreinte.globales if _versionnable(g)),
+            "par_test": {rel: d for rel, d in
+                         ((r, _dossiers(v)) for r, v in sorted(empreinte.par_test.items())) if d},
+        }
+        emp_path.write_text(json.dumps(emp, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
-    total = sum(poids.values())
-    print("[457] --measure : %d fichier(s), %.1f s de tests mesures en %.1f s de mur ; poids -> %s"
-          % (len(poids), total, elapsed, path))
-    for rel, v in sorted(poids.items(), key=lambda kv: -kv[1])[:5]:
-        print("    %7.1f s  %s" % (v, rel))
+        hors_py = sorted({r for r in empreinte.globales if not r.endswith(".py")})
+        hors_py_test = sorted({r for v in empreinte.par_test.values() for r in v
+                               if not r.endswith(".py")})
+        print("[457] empreinte -> %s : %d fichier(s) de test, %d lecture(s) GLOBALE(s) "
+              "(non attribuables -> impactent TOUT), dont %d hors .py ; %d fichier(s) hors .py lus "
+              "pendant les tests"
+              % (emp_path, len(empreinte.par_test), len(empreinte.globales), len(hors_py),
+                 len(hors_py_test)))
+    else:
+        print("[457] empreinte NON REECRITE (mesure incrementale) : `_commit` horodate l'empreinte")
+        print("[457] ENTIERE -- la rafraichir apres n'avoir joue que %d fichier(s) pretendrait une"
+              % len(joues))
+        print("[457] fraicheur qu'elle n'a pas. `--measure` complet reste la voie pour l'empreinte.")
+
+    joue = sum(round(horloge.sec.get(rel, 0.0), 3) for rel in joues)
+    print("[457] %d fichier(s) joue(s), %.1f s de tests mesures en %.1f s de mur ; %d poids -> %s"
+          % (len(joues), joue, elapsed, len(poids), path))
+    for rel in sorted(joues, key=lambda r: -horloge.sec.get(r, 0.0))[:5]:
+        print("    %7.1f s  %s" % (horloge.sec.get(rel, 0.0), rel))
     if manquants:
         # Un fichier a 0 s n'est pas anodin : il n'a produit AUCUN report (collecte vide, items
-        # tous deselectionnes). Le dire -- il prendra le poids MAXIMUM au partitionnement.
+        # tous deselectionnes). Le dire -- il garde un poids nul, jamais le maximum.
         print("[457] %d fichier(s) sans mesure (0 report) : %s"
               % (len(manquants), ", ".join(manquants[:5])))
-    if int(rc) != 0:
-        print("[457] --measure : pytest rc=%d -- poids ecrits, mais l'arbre est ROUGE" % int(rc))
+    if rc != 0:
+        print("[457] pytest rc=%d -- poids ecrits (les fichiers ONT ete joues), mais l'arbre est "
+              "ROUGE" % rc)
         return 1
     return 0
+
+
+def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
+    """Chronometre le perimetre (ou ses seuls fichiers SANS poids) et reecrit les poids. ASCII only."""
+    if not perimetre:
+        # Un perimetre vide n'est pas une mesure a zero : c'est un effondrement de perimetre
+        # (`git ls-files` muet, checkout partiel). Le DIRE, et n'ecrire RIEN.
+        print("[457] --measure : perimetre VIDE, rien a mesurer")
+        print("[457] rc=%d -- aucun verdict sur le depot." % EX_NON_MESURE)
+        return EX_NON_MESURE
+
+    poids_connus = _weights() if seulement_manquants else {}
+    if seulement_manquants:
+        joues = [rel for rel in perimetre if rel not in poids_connus]
+        if not joues:
+            print("[457] --measure-missing : les %d fichier(s) du perimetre ont deja un poids, "
+                  "rien a mesurer" % len(perimetre))
+            return 0
+        print("[457] --measure-missing : %d fichier(s) SANS poids sur %d ; les %d autres gardent "
+              "leur mesure" % (len(joues), len(perimetre), len(perimetre) - len(joues)))
+    else:
+        joues = list(perimetre)
+
+    horloge = _TimePerFile()
+    filet = _DeselectLiveItems()
+    # L'empreinte pose un audit hook GLOBAL et IRREVERSIBLE sur `open` : on ne l'installe que
+    # lorsqu'on va reellement la reecrire, c'est-a-dire en mesure COMPLETE.
+    empreinte = None if seulement_manquants else _FilesPerTest(repo_root())
+    plugins = [horloge, filet] + ([empreinte] if empreinte is not None else [])
+    started = time.time()
+    rc = pytest.main(["-q", "-p", "no:cacheprovider", *joues], plugins=plugins)
+    elapsed = time.time() - started
+
+    return _ecrire_mesure(perimetre, joues, horloge, empreinte, int(rc), elapsed, poids_connus)
 
 
 #: ---------------------------------------------------------------------------------------------
@@ -574,11 +728,33 @@ def main(argv=None) -> int:
                     help="Imprime les fichiers du shard et sort, sans rien jouer.")
     ap.add_argument("--measure", action="store_true",
                     help="Joue TOUT le perimetre d'un bloc en chronometrant chaque fichier, puis "
-                         "reecrit `probe_457_durations.json`. A rejouer quand le mur derive.")
+                         "reecrit les poids ET l'empreinte versionnee. Rejeu COMPLET (mesure du "
+                         "2026-08-04 : 976,9 s / 1471 tests) -- de la maintenance, pas une etape "
+                         "de PR. A rejouer quand le mur derive ou que l'empreinte vieillit.")
+    ap.add_argument("--measure-missing", action="store_true", dest="measure_missing",
+                    help="Ne chronometre que les fichiers SANS poids et FUSIONNE dans les poids "
+                         "existants (cas nominal : mediane 0-1 fichier offline neuf par PR). "
+                         "N'ecrit PAS l'empreinte -- son `_commit` horodate l'empreinte ENTIERE.")
     args = ap.parse_args(argv)
 
-    if args.measure:
-        return _measure(candidate_files())
+    if args.measure and args.measure_missing:
+        print("[457] --measure et --measure-missing s'excluent : le premier rejoue TOUT, le "
+              "second complete.")
+        return 2
+
+    # GARDE DE CWD (#464), en tete : il couvre TOUT mode qui invoque pytest -- la mesure comme le
+    # shard. `--list` n'invoque rien (l'enumeration passe par `git -C <racine>`, donc elle est
+    # CWD-independante) et reste jouable de partout.
+    # Sans lui, le shard lance hors `scripts/python` rendait `VERDICT: FAIL` sur un `rc=4` d'usage
+    # (residu #457-r7), et `--measure` ecrivait du garbage PERSISTANT (#464).
+    if not args.list:
+        refus = _exiger_cwd()
+        if refus:
+            print(refus)
+            return EX_NON_MESURE
+
+    if args.measure or args.measure_missing:
+        return _measure(candidate_files(), seulement_manquants=args.measure_missing)
 
     try:
         k_txt, n_txt = args.shard.split("/", 1)
@@ -604,6 +780,17 @@ def main(argv=None) -> int:
         mine = bins_of(every, n, poids)[k]
         mode = "cout mesure"
         charge = sum(poids.get(rel, 0.0) for rel in mine)
+        # Un fichier de test offline NEUF n'a pas de poids : `bins_of` lui donne le MAXIMUM connu
+        # (choix sur), donc il deplace les vrais lourds et degrade le mur -- sans qu'aucun poids ne
+        # soit faux et sans le moindre risque de faux vert. Le DIRE ici, et nommer le remede a
+        # quelques secondes ; c'est ce rapport qui remplace la passe complete de 976,9 s que la
+        # garde d'equilibrage exigeait (#463).
+        sans = [rel for rel in every if rel not in poids]
+        if sans:
+            print("[457] %d fichier(s) SANS poids (mur sous-optimal, verdict INCHANGE) : %s"
+                  % (len(sans), ", ".join(sans[:3])))
+            print("[457] les mesurer : cd scripts/python ; python %s --measure-missing"
+                  % Path(__file__).name)
     else:
         # Repli : aucun poids disponible (checkout partiel, fichier supprime). Le cliquet reste
         # CORRECT -- il est seulement moins bien equilibre. Le dire, plutot que le taire.
@@ -654,6 +841,18 @@ def main(argv=None) -> int:
             print("    ", shown.replace("\\", "/"))
         print("[457] (rapporte, non bloquant : ce cliquet garde le VERT des offline, pas le nommage)")
 
+    # #457-r7 : un rc d'USAGE / d'interruption ne dit RIEN sur le depot. Le traduire en
+    # `VERDICT: FAIL` faisait lire << un test offline est rouge >> la ou RIEN n'avait tourne. Le
+    # garde de CWD ci-dessus en couvre la cause de loin la plus frequente ; ceci est le filet
+    # (fichier disparu entre `git ls-files` et l'execution, `-x` interrompu, erreur interne).
+    # `rc=5` (aucun test collecte) reste un ROUGE : le shard a des fichiers, n'en collecter aucun
+    # est anormal -- c'est le gisement de `probe_455` r3.
+    if int(rc) in (2, 3, 4):
+        print("[457] pytest rc=%d -- erreur d'USAGE ou interruption, AUCUN verdict sur le depot."
+              % int(rc))
+        print("[457] rc=%d : ne PAS le lire comme un rouge de gisement (ni comme un vert)."
+              % EX_NON_MESURE)
+        return EX_NON_MESURE
     if int(rc) != 0:
         print("[457] VERDICT: FAIL -- au moins un test offline est ROUGE (pytest rc=%d)" % int(rc))
         return 1
