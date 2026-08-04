@@ -48,7 +48,9 @@ import gameconfig as GC
 import hexgeo
 
 from . import ability_caster_gates as acg
-from ..runner.abilities.targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER,
+from . import movement_query as MQ
+from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS, RANGE_ADJACENT,
+                                          RANGE_ADJACENT_IF_MELEE_CASTER,
                                           RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
                                           RANGED_BOOL_FALSE, RANGED_BOOL_IF_NOT_RANGED_CASTER,
                                           RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE,
@@ -559,10 +561,35 @@ def _free_adjacent_gate_allows(unit_pos, tile, cfg_range: int, elev_by_pos) -> b
     return False
 
 
-def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos) -> bool:
-    """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des TROIS etages,
+def _has_indirect_fire(visual_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$HasTrait(caster, 0x3ed)`, substrat gameconfig -- le
+    litteral que `IdunBattle.Core.Services.TargetingQuery$$GetTilesObscuringTerrain` teste avant de
+    poser le volet ELEVATION du `ObscuringType`."""
+    from ..entities.traits.unit_trait import UnitTrait, has_trait
+    return has_trait((GC.unit(visual_id or "") or {}).get("traits"), UnitTrait.IndirectFire)
+
+
+def _obscured(board, unit_pos, tile, rules, visual_id) -> bool:
+    """Le SECOND predicat de `GetPossibleTargetsForOptions`, pose sur la paire (caster, tuile).
+
+    `casterTiles` est le SINGLETON `{GetMainTile(unit)}` -- c'est ce que
+    `BattleQuery$$IsTileInRangeOfAnyAbility` construit et transmet jusqu'ici, donc la surcharge
+    LISTE de `MovementQuery$$GetTilesObscuringTerrain` court-circuite sur sa branche `Count == 1`
+    et aucune intersection multi-pieds n'est exercee (cf. son mirror)."""
+    from . import targeting_query as TQ
+    return TQ.target_is_obscured(board, [(int(unit_pos[0]), int(unit_pos[1]))],
+                                 (int(tile[0]), int(tile[1])), rules,
+                                 caster_has_indirect_fire=_has_indirect_fire(visual_id))
+
+
+def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, board=None) -> bool:
+    """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des QUATRE etages,
     evaluee sur la TUILE : le court-circuit `rules` de `GetPossibleTargetTiles`, puis
-    `GetTilesInRange`, puis le predicat `GetDynamicInvalidTargetReason`."""
+    `GetTilesInRange`, puis le predicat de LIGNE DE VUE (`b__1`, #-r1-r2), puis le predicat
+    `GetDynamicInvalidTargetReason` (`b__2`, #-r1-r1).
+
+    L'ORDRE natif est `b__0`, `b__1`, `b__2` : les deux derniers sont des `RemoveAll`, donc
+    COMMUTATIFS -- l'ordre du port n'est pas observable, seule leur conjonction l'est."""
     if target_tiles_zone_is_empty(ability_id):
         return False                               # zone VIDE avant meme `GetRange`
     base = tiles_in_range_reach(ability_id, visual_id)
@@ -570,6 +597,10 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos) -> 
         return False
     if hexgeo.distance(tuple(unit_pos), tuple(tile)) > base:
         return False
+    from ..runner.abilities.targeting import targeting_options_for
+    opts = targeting_options_for(ability_id)
+    if _obscured(board, unit_pos, tile, getattr(opts, "rules", None), visual_id):
+        return False                               # b__1 -- LIGNE DE VUE
     gate = dynamic_target_gate_of(ability_id)
     if gate == GATE_FREE_ADJACENT_IN_CONFIG_RANGE:
         cfg = _config_range(ability_id)
@@ -589,7 +620,8 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos) -> 
 
 def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int = 1,
                                     ability_ids=None, elev_by_pos=None,
-                                    ability_state=None, normal_attack_id=None) -> bool:
+                                    ability_state=None, normal_attack_id=None,
+                                    is_wall_by_pos=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility(unit, tile)` -- mirror :
 
         if (UnitExtensions.GetFeetCount(unit, state) > 1) return true;      // MULTI-TUILES
@@ -625,6 +657,11 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     lieu de le rabattre sur son rayon ; absent, le port se degrade sur le rayon, ce qui ne peut
     qu'ELARGIR (mesure : 2 faux positifs sur 40 pour `bloodDante`, 0 avec le canal).
 
+    `elev_by_pos` porte AUSSI le SECOND predicat (`b__1`, la LIGNE DE VUE, #-r1-r2) : c'est de lui
+    que sort le `PositionBoard` sur lequel `MovementQuery$$GetTilesObscuringTerrain` trace ses deux
+    lignes. `is_wall_by_pos` (`boardGraph.isWall` = `TileComponent+0x41`) en est le second volet ;
+    ABSENT, le port ne voit AUCUN mur, ce qui ne peut qu'ELARGIR.
+
     `ability_state` / `normal_attack_id` -- le canal d'ETAT par ability
     (`decisionView.units[].abilities[]`, `allAbilities: true`), consomme par les TROIS gates
     CASTER que `GetAllTilesInAbilityRange` evalue AVANT les slots 9/10 (#433-r4-r2-r1-r1-c). Une
@@ -641,13 +678,19 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     d = hexgeo.distance(tuple(unit_pos), tuple(tile))
     if d > unit_threat_reach(visual_id, ability_ids, ability_state, normal_attack_id):
         return False                          # hors de la borne SUPERIEURE : aucune ability ne porte
+    board = (MQ.PositionBoard(elev_by_pos, is_wall_by_pos)
+             if elev_by_pos else None)        # canal absent -> aucun retrait (degradation NOMMEE)
     # `includeNormalAttack: true` -- l'attaque normale, dont le `TargetingRange` se reduit a
-    # `unit_weapon_range`, n'a PAS de gate dynamique : elle couvre son disque tel quel. Elle passe
-    # en revanche par les MEMES trois gates CASTER (son entree est dans l'`ActiveAbilityComponent`).
+    # `unit_weapon_range` et qui n'a PAS de gate dynamique porte. Elle passe en revanche par les
+    # MEMES trois gates CASTER (son entree est dans l'`ActiveAbilityComponent`, #-r1-r1-c) ET par
+    # le MEME `GetPossibleTargetsForOptions` : le predicat de LIGNE DE VUE s'y applique, avec le
+    # masque `NORMAL_ATTACK_TARGETING_OPTIONS` (0x4002), qui ne porte AUCUN `AllowObscuredTarget*`.
     if normal_attack_id is None or not _gated_out(normal_attack_id, ability_state):
         weapon = unit_weapon_range(visual_id, None)
         if weapon is not None and d <= int(weapon):
-            return True
+            if not _obscured(board, unit_pos, tile, NORMAL_ATTACK_TARGETING_OPTIONS.rules,
+                             visual_id):
+                return True
     aids = _active_ability_ids(visual_id) if ability_ids is None else ability_ids
-    return any(_ability_covers_tile(aid, visual_id, unit_pos, tile, elev_by_pos) for aid in aids
-               if not _gated_out(aid, ability_state))
+    return any(_ability_covers_tile(aid, visual_id, unit_pos, tile, elev_by_pos, board)
+               for aid in aids if not _gated_out(aid, ability_state))

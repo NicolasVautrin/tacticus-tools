@@ -195,6 +195,7 @@ class NonComparableGenerator(ActiveAbilityActionGenerator):
             walkable_by_pos=ctx.walkable_by_pos,   # gate statique placement CanAddUnit (HammerOfWrath #116)
             plan=ctx.plans.get(ctx.uid) or {}, plans=ctx.plans, hp_cur_by_id=ctx.hp_cur_by_id,
             elev_by_pos=ctx.elev_by_pos, ability_targets=ctx.ability_targets,
+            is_wall_by_pos=getattr(ctx, "is_wall_by_pos", None) or {},   # volet MURS de la ligne de vue (#433-r4-r2-r1-r2)
             wt=ctx.wt, is_temporary_by_pos=ctx.is_temporary_by_pos,
             effects_by_pos=ctx.effects_by_pos, obs_units=ctx.obs_units,
             tile_id_by_pos=ctx.tile_id_by_pos, active_levels=ctx.active_ability_levels,
