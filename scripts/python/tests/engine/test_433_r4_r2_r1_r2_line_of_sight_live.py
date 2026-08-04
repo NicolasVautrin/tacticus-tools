@@ -18,7 +18,12 @@ Le second est la NON-REGRESSION du premier : un port qui obscurcirait sans lire 
 retirerait des tuiles ici aussi, et un port qui ne lirait pas la geometrie rendrait 40/40 partout.
 Les deux ensemble ne peuvent etre satisfaits que par le modele LU.
 
-COUT : trois runners (plus un, memoise, pour le board). ASCII only.
+DEUX SCENARIOS DE GENERALISATION s'y ajoutent, sur des kits NATIFS (aucune greffe) et a une AUTRE
+distance : l'ATTAQUE NORMALE (`necroWarden`, arme 3 obscurcie + ability de portee 1 exemptee) et le
+trait `IndirectFire` (`astraOrdnance`). Chacun porte son CONTREFACTUEL -- ce que le port rendrait
+sans le volet teste -- parce qu'un accord dont le contrefactuel ne differe pas est DEGENERE.
+
+COUT : sept runners (plus deux, memoises, pour les cartes de board). ASCII only.
 """
 from __future__ import annotations
 
@@ -108,3 +113,78 @@ def test_the_two_witnesses_disagree_natively_on_the_same_board(sid):
         len(na), len(nb))
     assert len(nb) - len(na) >= 5, \
         "ecart attendu >= 5 tuiles (mesure #568), lu %d" % (len(nb) - len(na),)
+
+
+# ------------------------------------------------------------------------------------------------
+# GENERALISATION -- l'ATTAQUE NORMALE et le trait, sur des kits NATIFS (aucune greffe)
+#
+# Les deux temoins ci-dessus sont des abilities `UseWholeBoard` GREFFEES : ils ne disent rien de
+# l'autre terme de l'union de `AttackQuery$$GetAllTilesInAbilityRange`, l'attaque NORMALE, qui
+# concerne TOUTE unite a distance du jeu. Ces deux montages l'exercent, a une distance et sur une
+# region du plateau differentes, et chacun porte son CONTREFACTUEL -- ce que le port rendrait sans
+# le volet teste. Un accord dont le contrefactuel ne differe pas est un accord DEGENERE.
+# ------------------------------------------------------------------------------------------------
+def test_normal_attack_is_subject_to_the_line_of_sight(sid):
+    """`necroWarden`, kit NATIF : arme de portee 3 (masque `0x4002`, donc OBSCURCIE) et
+    `1005 AdaptiveStrategy` de portee 1 dont le masque porte les deux bits `AllowObscured*`.
+
+    Tout ce qui depasse `d = 1` vient donc de l'ARME, et le predicat neuf y est SEUL responsable
+    de la forme de la zone. Le montage est FORCE vers la paire qui maximise les obstructions : le
+    natif refuse alors une part SUBSTANTIELLE du disque de rayon 3, ce que le modele concurrent
+    (« zone = disque ») accepterait en bloc."""
+    res = _ok(L.sweep_normal_attack(sid, "necroWarden"))
+    assert len(res["refus_dans_le_disque"]) >= 5, \
+        "regime trop faible (%d refus) : « zone = disque » serait presque indiscernable" \
+        % (len(res["refus_dans_le_disque"]),)
+    assert set(map(tuple, res["delta_sans_los"])) == set(map(tuple, res["refus_dans_le_disque"])), \
+        "le predicat doit retirer EXACTEMENT ce que le natif refuse : %r vs %r" \
+        % (res["delta_sans_los"], res["refus_dans_le_disque"])
+    assert res["exact"], "FP=%r FN=%r" % (res["faux_positifs"], res["faux_negatifs"])
+
+
+def test_indirect_fire_exempts_the_caster_from_the_elevation_volet(sid):
+    """`astraOrdnance`, kit NATIF : le seul porteur du pool a la fois `IndirectFire` et
+    `UseWholeBoard` sans gate (`1026 BasiliskBarrage`).
+
+    `TargetingQuery$$GetTilesObscuringTerrain` teste `HasTrait(caster, 0x3ed)` AVANT le bit 25 :
+    le volet ELEVATION tombe, et le natif lui laisse tout le plateau. L'accord serait DEGENERE
+    (les deux cotes disent « tout ») si l'on ne montrait pas que le trait est ce qui le produit --
+    d'ou le contrefactuel : un port qui l'aurait OUBLIE retrecirait la zone."""
+    res = _ok(L.sweep_normal_attack(sid, "astraOrdnance"))
+    for d, (n, tot) in res["par_distance"].items():
+        assert n == tot, "d = %d : le plateau ENTIER est attendu, lu %d/%d" % (d, n, tot)
+    assert res["delta_sans_trait"], \
+        "contrefactuel VIDE : oublier `IndirectFire` ne changerait rien ici -- le trait n'est pas " \
+        "exerce par ce montage, le relire"
+    assert res["exact"], "FP=%r FN=%r" % (res["faux_positifs"], res["faux_negatifs"])
+
+
+def test_walls_block_the_line_and_the_isWall_channel_is_what_makes_it_exact(sid):
+    """Le volet MURS, ISOLE -- et c'est le trait qui l'isole.
+
+    `C6_17` porte SIX tuiles `HulkWall` (`TileComponent+0x41`). `astraOrdnance` y a `IndirectFire`,
+    donc `ObscuringType == 4` : le volet ELEVATION tombe et **seul un MUR peut encore bloquer**.
+    Tout refus mesure ici est donc attribuable au mur, sans partage.
+
+    ⚠ LE MONTAGE EST FORCE, pas subi : avec la premiere paire walkable venue `(0,0)/(0,3)`, aucun
+    mur ne se trouve sur une ligne et le natif rend 36/36 -- un accord DEGENERE. Le probe DEPLACE
+    donc les unites vers la paire qui maximise les obstructions.
+
+    Le contrefactuel `delta_sans_murs` chiffre ce que le canal `boardGraph.isWall` apporte : sans
+    lui, le port sur-attribuerait exactement les tuiles que le natif refuse."""
+    L.set_board("C6_17")
+    try:
+        res = _ok(L.sweep_normal_attack(sid, "astraOrdnance"))
+    finally:
+        L.set_board("MC1_67")
+    assert res["indirect_fire"] is True, "le montage repose sur `IndirectFire` du porteur"
+    assert res["n_walls_board"] > 0, "C6_17 doit publier des murs, sinon le canal est casse"
+    assert res["refus_dans_le_disque"], \
+        "regime DEGENERE : le natif accepte tout -- aucun mur ne coupe une ligne, le montage " \
+        "n'isole rien"
+    assert res["delta_sans_murs"], \
+        "contrefactuel VIDE : la carte des murs ne change rien ici, le volet n'est pas exerce"
+    assert set(map(tuple, res["delta_sans_murs"])) == set(map(tuple, res["refus_dans_le_disque"])), \
+        "les tuiles que le natif refuse doivent etre EXACTEMENT celles que la carte des murs " \
+        "retire : %r vs %r" % (res["delta_sans_murs"], res["refus_dans_le_disque"])
+    assert res["exact"], "FP=%r FN=%r" % (res["faux_positifs"], res["faux_negatifs"])
