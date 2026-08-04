@@ -188,13 +188,374 @@ def run_inv() -> int:
     return bad
 
 
+# --------------------------------------------------------------------------- infra live
+def _rpc_factory():
+    from rl_collect_batch import _resolve_session, _rpc
+
+    def rpc(sid, m, args, t=180):
+        r = _rpc(sid, m, [args], timeout=t)
+        return (r.get("result") if isinstance(r, dict) and "result" in r else r) or {}
+    return _resolve_session(), rpc
+
+
+def _build(board: str, seed: int, tag: str, units, foes, seed_bc=None):
+    import subprocess
+    LOGSDIR.mkdir(parents=True, exist_ok=True)
+    state_file = LOGSDIR / ("p589r1_state_%s.json" % tag)
+    state_file.unlink(missing_ok=True)
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--rank", "17",
+           "--board", board, "--p-units", ",".join(units), "--a-units", ",".join(foes or []),
+           "--no-ai", "--state-file", str(state_file)]
+    if seed_bc:
+        cmd += ["--seed-bc", str(seed_bc)]
+    p = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if state_file.exists():
+        return int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"]), state_file
+    sys.stdout.write(((p.stdout or "") + (p.stderr or ""))[-2000:])
+    raise SystemExit("build KO (%s)" % tag)
+
+
+def _turn_counter(ast: dict, uid: int):
+    """`tilesMovedThisTurn`, ou `None` = NON MESURE (jamais 0 par defaut)."""
+    for u in ((ast or {}).get("units") or []):
+        if u.get("entityId") is not None and int(u["entityId"]) == int(uid):
+            v = u.get("tilesMovedThisTurn")
+            return None if v is None else int(v)
+    return None
+
+
+def _counters(ast: dict) -> dict:
+    return {int(u["entityId"]): u.get("tilesMovedThisTurn")
+            for u in ((ast or {}).get("units") or []) if u.get("entityId") is not None}
+
+
+def _predire(Board, state, uid, src, dst, substrat):
+    """`_num_tiles_moved` du port, sous un substrat de voisinage IMPOSE.
+
+    `substrat` in {"C" (canal, l'etat livre), "G" (geometrie, l'etat d'AVANT #589), "N" (le champ
+    ampute)}. C'est `Board.base_add_neighbours` que la beeline consomme -- `fly_pathfinder`, lui,
+    lit `neighbours_geometric` EN DUR (override natif `FlyPathfinder$$AddNeighbours`), donc il
+    n'est PAS pilote par ce levier, et c'est fidele."""
+    from engine.runner.operations.movement import _num_tiles_moved
+    orig = Board.base_add_neighbours
+    try:
+        if substrat == "G":
+            Board.base_add_neighbours = (
+                lambda self, tid, fallback=None: self.neighbours_geometric(tid))
+        elif substrat == "N":
+            Board.base_add_neighbours = (
+                lambda self, tid, fallback=None: self.neighbours_native(tid))
+        return _num_tiles_moved(state, int(uid), src, dst)
+    finally:
+        Board.base_add_neighbours = orig
+
+
+# --------------------------------------------------------------------------- cran SCAN
+def _bg_path(board_id: str) -> pathlib.Path:
+    return LOGSDIR / ("p589r1_bg_%s.json" % board_id)
+
+
+def _get_board_graph(sid, rpc, board_id: str, seed: int, reuse: bool):
+    """Le `boardGraph` du board, capte UNE fois puis relu. Le cache vit dans `logs/` (sortie du
+    run, jamais `data/`) et n'est PAS une entree : il porte le board ET le build."""
+    p = _bg_path(board_id)
+    if reuse and p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+    rid, state_file = _build(board_id, seed, "scan_%s" % board_id,
+                             ["blackHaarken", "bloodIntercessor", "necroWarden"], ["necroWarden"])
+    try:
+        bg = rpc(sid, "boardGraph", {"runnerId": rid}, 180)
+        p.write_text(json.dumps(bg), encoding="utf-8")
+        return bg
+    finally:
+        try:
+            rpc(sid, "disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+        state_file.unlink(missing_ok=True)
+
+
+def _beeline_len(bd, neighbours, a, b):
+    from engine.entities.pathfinding import base_pathfinder as BP
+    from engine.entities.pathfinding import beeline_pathfinder as BL
+    p = BP.find_path(bd, a, b, edge=BL.is_valid_path_node, neighbours=neighbours,
+                     weight_cost=lambda tid: BL.WEIGHT_BASE,
+                     is_valid_final_tile=lambda tid: True)
+    return None if p is None else len(p) - 1
+
+
+def _connected_len(bd, Board, ptype: int, a: int, b: int, substrat: str):
+    """`GetNumTilesMoved(GetConnectedPathTo(...))` pour un `ptype` donne, substrat impose.
+
+    C'est l'etage COMPLET -- `pathfinders.find_path` PUIS la re-densification. Le mesurer sur la
+    beeline nue suffirait pour `TeleportStrike` (son `FindPath` rend `[from, to]`), PAS pour le
+    vol pur, dont `FlyPathfinder$$FindPath` rend des WAYPOINTS."""
+    from engine.entities.pathfinding import pathfinders as _pf
+    from engine.services.movement_query import get_connected_path_to, get_num_tiles_moved
+    orig = Board.base_add_neighbours
+    try:
+        if substrat == "G":
+            Board.base_add_neighbours = (
+                lambda self, tid, fallback=None: self.neighbours_geometric(tid))
+        elif substrat == "N":
+            Board.base_add_neighbours = (
+                lambda self, tid, fallback=None: self.neighbours_native(tid))
+        path = _pf.find_path(bd, ptype, a, b)
+        return get_num_tiles_moved(get_connected_path_to(bd, a, b, path))
+    finally:
+        Board.base_add_neighbours = orig
+
+
+def run_scan(sid, rpc, board_id: str, seed: int, reuse: bool, verbose: bool) -> int:
+    """LE GISEMENT, chiffre AVANT tout montage -- et la BORNE des seuils, MESUREE.
+
+    Trois questions, dans cet ordre :
+      S1  la BORNE `n >= 2 des que la beeline mord` tient-elle sur ce board ?
+      S2  pour quels REGIMES (`Fly` = 3, `TeleportStrike` = 7, `Walk` = 0) le passage
+          GEOMETRIE -> CANAL change-t-il `GetNumTilesMoved` ? et sur combien de couples ?
+      S3  un seuil `K` peut-il BASCULER, c'est-a-dire existe-t-il un couple `n_G < K <= n_C` ?
+    """
+    from engine.entities.pathfinding.board import Board
+    bg = _get_board_graph(sid, rpc, board_id, seed, reuse)
+    bd = Board(bg["tiles"], adjacency="native_sym")
+    if not bd.has_connectivity_channel():
+        print("   CANAL ABSENT du boardGraph -- NON MESURE")
+        return 1
+    ids = sorted(bd.by_id)
+    print("== SCAN  board=%s  %d tuiles" % (board_id, len(ids)))
+    bad = 0
+
+    # --- S1 : la BORNE. Sur tout couple ou la beeline est APPELEE (d_hex > 1), la longueur du
+    #     chemin recousu vaut au moins 2 dans les DEUX substrats. C'est ce qui sature les seuils.
+    import hexgeo
+    mini_g = mini_c = None
+    viol = []
+    for a in ids:
+        for b in ids:
+            if a == b or hexgeo.distance(bd.coord(a), bd.coord(b)) <= 1:
+                continue
+            lg = _beeline_len(bd, bd.neighbours_geometric, a, b)
+            lc = _beeline_len(bd, lambda t: bd.neighbours_connectivity(t) or [], a, b)
+            if lg is None or lc is None:
+                continue
+            mini_g = lg if mini_g is None else min(mini_g, lg)
+            mini_c = lc if mini_c is None else min(mini_c, lc)
+            if lg < 2 or lc < 2:
+                viol.append((bd.coord(a), bd.coord(b), lg, lc))
+    print("  [S1] BORNE : min(beeline) sur les couples a d_hex > 1 : G=%s  C=%s  (attendu >= 2)"
+          % (mini_g, mini_c))
+    if viol:
+        print("       ECART: %d couple(s) sous la borne -- la saturation des seuils <= 2 TOMBE"
+              % len(viol))
+        for v in viol[:6]:
+            print("         %s -> %s  G=%d C=%d" % v)
+        bad += 1
+
+    # --- S2 / S3 : une seule passe par regime, deux lectures. S2 = ce qui BOUGE ; S3 = ce qui
+    #     BASCULE un seuil. Les deux sont differents : un ecart de +2 sur `n = 4 -> 6` bouge la
+    #     magnitude LINEAIRE et ne bascule AUCUN seuil <= 4.
+    regimes = {0: "Walk", 3: "Fly", 6: "TeleportStrike(Walk)", 7: "TeleportStrike(+Fly)"}
+    seuils = _seuils_du_gameconfig()
+    bascule_total = 0
+    for pt, nom in sorted(regimes.items()):
+        chg, tot, ecarts = 0, 0, {}
+        exemples = []
+        bascule = {a: 0 for a in seuils}
+        for a in ids:
+            for b in ids:
+                if a == b:
+                    continue
+                ng = _connected_len(bd, Board, pt, a, b, "G")
+                nc = _connected_len(bd, Board, pt, a, b, "C")
+                tot += 1
+                if ng != nc:
+                    chg += 1
+                    ecarts[nc - ng] = ecarts.get(nc - ng, 0) + 1
+                    if len(exemples) < 8:
+                        exemples.append((bd.coord(a), bd.coord(b), ng, nc))
+                for ab, K in seuils.items():
+                    if K is not None and ng < K <= nc:
+                        bascule[ab] += 1
+        print("  [S2] ptype=%-2d %-22s : %d couple(s) sur %d changent  ecarts %s"
+              % (pt, nom, chg, tot, ", ".join("%+d:%d" % kv for kv in sorted(ecarts.items()))
+                 or "-"))
+        for ex in (exemples if verbose else exemples[:3]):
+            print("         %s -> %s : G=%s C=%s" % ex)
+        bas = {a: n for a, n in bascule.items() if n}
+        bascule_total += sum(bas.values())
+        print("  [S3] ptype=%-2d seuils qui BASCULENT (n_G < K <= n_C) : %s"
+              % (pt, ", ".join("%s(K=%s):%d" % (a, seuils[a], n) for a, n in sorted(bas.items()))
+                 or "AUCUN"))
+    if bascule_total == 0:
+        print("  [S3] AUCUN seuil ne bascule sur %s, aucun regime -- les consommateurs a SEUIL "
+              "sont SATURES par la borne S1, pas par chance" % board_id)
+    return bad
+
+
+# --------------------------------------------------------------------------- cran TILES
+def run_tiles(sid, rpc, unit: str, fillers, foes, board_id: str, seed: int, max_turns: int,
+              verbose: bool) -> int:
+    """Le compteur natif, confronte au port sous les TROIS substrats, pour UN porteur donne.
+
+    Le porteur est le parametre : c'est ce qui rend le cran utilisable pour les trois REGIMES de
+    `MovementQuery$$GetPathfinderTypeForUnit` -- `Walk` (0), `Fly` (3) et un type DECORE
+    (`TeleportStrike` -> 7). Le regime n'est PAS suppose : il est RE-DERIVE de l'etat porte et
+    imprime, parce que c'est lui qui decide si la beeline est seulement APPELEE."""
+    import hexgeo
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.components import PositionComponent
+    from engine.services.movement_query import get_pathfinder_type_for_unit, unit_has_effect_fn
+    from engine.runner.components import StatsComponent
+    import probe_448_r1_r1_r1_flying_movement_steps as P
+
+    rid, state_file = _build(board_id, seed, "tiles_%s" % unit, [unit] + list(fillers), foes)
+    print("== TILES  unit=%s board=%s seed=%d runner=%s" % (unit, board_id, seed, rid))
+    accord_c = accord_g = joues = disc_tot = 0
+    vus: set = set()
+    regimes: set = set()
+    try:
+        bg = rpc(sid, "boardGraph", {"runnerId": rid}, 120)
+        bd = Board(bg["tiles"], adjacency="native_sym")
+        if not bd.has_connectivity_channel():
+            print("   CANAL ABSENT du boardGraph -- NON MESURE (rien n'est interpretable)")
+            return 1
+        for turn in range(max_turns):
+            state, dv, _ob = P._port_state(sid, rpc, rid, bd)
+            to_act = [int(u) for u in (dv.get("toActivate") or [])]
+            carriers = P._carriers(dv, [unit])
+            cand = [u for u in to_act if u in carriers]
+            if not cand:
+                if not to_act:
+                    print("   t%d : toActivate vide -> fin" % turn)
+                    break
+                rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                continue
+            uid = cand[0]
+            e = state.get_entity(int(uid))
+            pc = e.get_component(PositionComponent)
+            src = (pc.col, pc.row)
+            sc = e.get_component(StatsComponent)
+            traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+            ptype = get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(uid)), traits or [])
+            regimes.add(ptype)
+            legal = P._legal_moves(sid, rpc, rid, uid)
+            disc, plats = [], []
+            for d in legal:
+                dst = (int(d[0]), int(d[1]))
+                if dst == src:
+                    continue
+                # `GetConnectedPathTo` ne recoud QUE `if (GetDistance(last, next) > 1)`. Un couple
+                # a distance 1 n'appelle JAMAIS la beeline : il ne discrimine RIEN du substrat.
+                if hexgeo.distance(src, dst) <= 1:
+                    continue
+                nc = _predire(Board, state, uid, src, dst, "C")
+                ng = _predire(Board, state, uid, src, dst, "G")
+                nn = _predire(Board, state, uid, src, dst, "N")
+                if (src, dst) in vus:
+                    continue
+                # ⚠ LE DISCRIMINANT EST `nc != ng`, PAS `len({nc,ng,nn}) > 1`. Le gisement de ce
+                # cran est le REBRANCHEMENT (G -> C) ; un couple ou seul `N` differe ne tranche
+                # que le vieux champ ampute, deja ferme par #584. Mesure vecue : sur `C1_74` les
+                # couples `N != C` sont bien plus nombreux (58 aretes contre 16), donc un tri qui
+                # les melange NOIE le cas utile -- 5 mesures, 0 couple `G != C`, et une conclusion
+                # « route Fly inerte » qui aurait ete FAUSSE (le SCAN en compte 106 sur 3906).
+                (disc if nc != ng else plats).append(
+                    ((abs(nc - ng), abs(nc - nn)), dst, ng, nc, nn))
+            disc.sort(reverse=True)
+            plats = [x for x in plats if x[3] >= 2]
+            plats.sort(reverse=True)
+            disc_tot += len(disc)
+            print("   t%d u%s src=%s ptype=%d : %d legale(s), %d DISCRIMINANTE(s) (G!=C) inedite(s)"
+                  % (turn, uid, src, ptype, len(legal), len(disc)))
+            # Un TEMOIN une mesure sur deux : sans lui on ne mesure que le regime qui CHANGE, et
+            # un port casse hors de ce regime passerait inapercu.
+            if disc and plats and joues and joues % 2 == 0:
+                disc, temoin = plats, True
+            else:
+                temoin = False
+            if not disc:
+                br = [t["id"] for t in bg["tiles"] if t.get("tileDefId") == "Bridge"]
+                if br and legal:
+                    tgt = bd.coord(br[0])
+                    step = min(legal, key=lambda d: hexgeo.distance((d[0], d[1]), tgt))
+                    rpc(sid, "applyAction", {"runnerId": rid, "action": {
+                        "kind": "move", "unitId": int(uid),
+                        "to": {"col": int(step[0]), "row": int(step[1])}}}, 120)
+                    print("      APPROCHE -> %s (Bridge en %s)" % (step, tgt))
+                rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                continue
+            _gap, dst, ng, nc, nn = disc[0]
+            vus.add((src, dst))
+            b_all = _counters(rpc(sid, "actorStats", {"runnerId": rid}, 60))
+            rpc(sid, "applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": int(uid),
+                "to": {"col": dst[0], "row": dst[1]}}}, 120)
+            a_all = _counters(rpc(sid, "actorStats", {"runnerId": rid}, 60))
+            before, after = b_all.get(int(uid)), a_all.get(int(uid))
+            reset = any(k != int(uid) and a_all.get(k) is not None and b_all.get(k) is not None
+                        and a_all[k] < b_all[k] for k in b_all)
+            nat = None if (before is None or after is None) else after - before
+            if nat == 0 and dst != src:
+                reset = True                       # `ResetThisTurn` sous nos pieds, pas une mesure
+            if reset or nat is None:
+                print("      %s -> %s : NON MESURE (ResetThisTurn=%s, capteur=%s/%s)"
+                      % (src, dst, reset, before, after))
+                rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                continue
+            joues += 1
+            accord_c += 1 if nat == nc else 0
+            accord_g += 1 if nat == ng else 0
+            colle = [n for n, v in (("G", ng), ("C", nc), ("N", nn)) if nat == v]
+            verdict = ("TEMOIN (G==C==N)" if len({ng, nc, nn}) == 1 else
+                       "NI L'UNE NI L'AUTRE" if not colle else
+                       {"G": "GEOMETRIE", "C": "CANAL", "N": "CHAMP AMPUTE"}[colle[0]]
+                       if len(colle) == 1 else "AMBIGU (%s)" % "+".join(colle))
+            print("      %s -> %s : NATIF=%d  port G=%d C=%d N=%d  -> %s%s"
+                  % (src, dst, nat, ng, nc, nn, verdict, "  [temoin]" if temoin else ""))
+            rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+    finally:
+        try:
+            rpc(sid, "disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+        state_file.unlink(missing_ok=True)
+    print("   -> TILES %s : %d mesure(s) ; accord CANAL %d, accord GEOMETRIE %d ; "
+          "regimes ptype vus %s" % (unit, joues, accord_c, accord_g, sorted(regimes)))
+    if joues == 0:
+        print("   AUCUNE mesure -- NON CONFRONTE")
+        return 1
+    if disc_tot == 0:
+        print("   REGIME DEGENERE : aucun couple ou les substrats divergent. Ca NE DIT PAS que "
+              "le port est juste -- ca dit que ce porteur ne peut pas discriminer ici.")
+    return 0 if accord_c == joues else (joues - accord_c)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", choices=("INV",), default="INV")
+    ap.add_argument("--only", choices=("INV", "SCAN", "TILES"), default="INV")
+    ap.add_argument("--reuse-bg", action="store_true",
+                    help="relit le boardGraph deja capte dans logs/ (aucun runner monte)")
+    ap.add_argument("--unit", default="blackHaarken")
+    ap.add_argument("--fillers", default="bloodIntercessor,necroWarden")
+    ap.add_argument("--foes", default="necroWarden")
+    ap.add_argument("--board", default=BOARD_BRIDGE)
+    ap.add_argument("--seed", type=int, default=777)
+    ap.add_argument("--turns", type=int, default=10)
+    ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args()
     if a.only == "INV":
         return 0 if run_inv() == 0 else 1
-    return 1
+    sid, rpc = _rpc_factory()
+    print("== #589-r1 -- l'AVAL de tilesMovedThisTurn   session=%s" % sid)
+    if a.only == "SCAN":
+        n = run_scan(sid, rpc, a.board, a.seed, a.reuse_bg, a.verbose)
+        print("VERDICT: %s (%d ecart(s))" % ("PASS" if n == 0 else "FAIL", n))
+        return 0 if n == 0 else 1
+    n = run_tiles(sid, rpc, a.unit, [x for x in a.fillers.split(",") if x],
+                  [x for x in a.foes.split(",") if x], a.board, a.seed, a.turns, a.verbose)
+    print("VERDICT: %s (%d ecart(s))" % ("PASS" if n == 0 else "FAIL", n))
+    return 0 if n == 0 else 1
 
 
 if __name__ == "__main__":
