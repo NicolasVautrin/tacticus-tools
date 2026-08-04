@@ -127,8 +127,11 @@ qu'élargir, même arbitrage que `GATE_NOT_READ`.
 * **`-a-r1` — la tuile OCCUPÉE**, mesurée à 1/40. Trois des sept gates la retirent ; le port ne
   modélise pas l'occupation. Même canal manquant que **`-r1-r1-b`**, à qui il se rattache.
   *Point d'ancrage* : publier l'occupation par tuile dans le canal qui porte déjà l'élévation.
-* **`#433-r4-r2-r1-r2` (obscurcissement)** — inchangé quant au port, mais désormais **prédictible**
-  par `AllowObscuredTargetByElevation|Walls`, et chiffré à **5/40** sur ce montage.
+* **`#433-r4-r2-r1-r2` (obscurcissement) — FERMÉ (2026-08-04).** L'attribution par le masque était
+  juste, et elle a suffi à porter l'étage : `docs/rl/case-433-r4-r2-r1-r2-ligne-de-vue.md`.
+  Le `ObscuringType` prédit les **douze** mesures de ce dossier sans une réfutation, et les cinq
+  écarts de `1161`/`1011` tombent à **0**. Les 6 FP de `1168`/`1200`/`1213` deviennent **1** — la
+  seule tuile OCCUPÉE, soit le résidu `-a-r1` ci-dessus, seul survivant.
 * **`GATE_NOT_READ` subsiste sur 16 abilities**, toutes **non-`UseWholeBoard`** : leur borne
   supérieure reste bornée, donc ne pas rétrécir y coûte au plus le disque de leur portée. Un test
   offline le verrouille — un `GATE_NOT_READ` sur une zone whole-board rougirait.
