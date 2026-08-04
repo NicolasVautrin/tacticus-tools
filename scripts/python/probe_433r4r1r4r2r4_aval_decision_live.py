@@ -480,7 +480,8 @@ def balayer(sid, rpc, board: str, seed: int, steps: int, verbose: bool,
                    "situations_avec_bascule": 0, "amplitude_max": 0.0, "voies": {},
                    "instables": 0, "calls_canal": 0, "utilites": 0, "ensembles": 0,
                    "amplitudes": [], "marges": [], "serrees": 0, "gisement": None,
-                   "voies_vues": {}, "non_mesure": True}
+                   "voies_vues": {}, "classables": 0, "n_cands": [], "gen_retenu": {},
+                   "non_mesure": True}
     rid, state_file = monte
     wt = weights.load()
     sonde = None
@@ -488,7 +489,7 @@ def balayer(sid, rpc, board: str, seed: int, steps: int, verbose: bool,
               "situations_avec_bascule": 0, "amplitude_max": 0.0, "voies": {},
               "instables": 0, "calls_canal": 0, "utilites": 0, "ensembles": 0,
               "amplitudes": [], "marges": [], "serrees": 0, "gisement": None,
-              "voies_vues": {}}
+              "voies_vues": {}, "classables": 0, "n_cands": [], "gen_retenu": {}}
     bad = 0
     try:
         r = _rpc_cache(rpc, sid)
@@ -523,6 +524,13 @@ def balayer(sid, rpc, board: str, seed: int, steps: int, verbose: bool,
                 resume["classements"] += int(m["classement_change"] and not m["decision_change"])
                 resume["utilites"] += int(m["utilite_change"])
                 resume["ensembles"] += int(m["cands_ensemble_change"])
+                # CLASSABLE = le generateur retenu a au moins DEUX candidats. Sans ce compteur,
+                # un "0 classement change" serait creux : un generateur a candidat UNIQUE (ex.
+                # `AberrantHypermorph`, dont le playbook rend deja son propre argmax) n'a aucun
+                # ordre a changer.
+                resume["classables"] += int(m["n_cands"] >= 2)
+                resume["n_cands"].append(m["n_cands"])
+                resume["gen_retenu"][m["gen_nat"]] = resume["gen_retenu"].get(m["gen_nat"], 0) + 1
                 resume["amplitude_max"] = max(resume["amplitude_max"], m["amplitude"])
                 if m["utilite_change"]:
                     resume["amplitudes"].append(m["amplitude"])
@@ -666,6 +674,17 @@ def main() -> int:
                                               marges[len(marges) // 2], marges[-1]))
         print("   situations SERREES (amplitude >= marge, un renversement etait possible) : %d"
               % serrees)
+    classables = sum(r["classables"] for r in tout.values())
+    ncs = sorted(x for r in tout.values() for x in r["n_cands"])
+    gens = {}
+    for r in tout.values():
+        for g, v in r["gen_retenu"].items():
+            gens[g] = gens.get(g, 0) + v
+    if ncs:
+        print("   CLASSABILITE : %d situation(s) sur %d ont >= 2 candidats dans le generateur "
+              "retenu (med=%d cands)" % (classables, tot_sit, ncs[len(ncs) // 2]))
+        print("   generateur RETENU (0-4 = tiers NonComparable, 5 = Comparable, 6 = Movement) : %s"
+              % ", ".join("%s:%d" % (g, v) for g, v in sorted(gens.items())))
     print("   TOTAL  N=%d  bascules=%d  DECISIONS CHANGEES=%d  CLASSEMENTS CHANGES=%d  "
           "utilites bougees=%d  ensembles changes=%d"
           % (tot_sit, tot_bas, tot_dec, tot_cla, tot_uti, tot_ens))
