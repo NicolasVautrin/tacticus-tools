@@ -45,6 +45,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import repo_read                                            # noqa: E402
+
 #: Ancre sur `__file__`, jamais sur le CWD -- ce cliquet garde precisement ce vice, il
 #: serait absurde qu'il le porte.
 _PYDIR = Path(__file__).resolve().parent
@@ -140,12 +144,15 @@ def main() -> int:
               "serait rendu contre un perimetre vide, donc faux dans les deux sens.")
         return 1
 
+    # Lecture PARALLELE (#457-r6) : l'`open()` domine le cout de ce balayage -- filtre
+    # systeme a l'ouverture sur `scripts/`, ~7 ms par fichier. Mesure sur ce cliquet :
+    # 87 s en serie -> 25 s. Le traitement d'erreur est celui que `read_texts` suppose --
+    # illisible ET non-UTF-8 etaient deja ecartes de la meme facon.
     mauvais: list[tuple[str, int, list[str]]] = []
     lus = 0
-    for rel in cibles:
-        try:
-            src = (racine / rel).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+    textes = repo_read.read_texts([racine / rel for rel in cibles])
+    for rel, src in zip(cibles, textes):
+        if src is None:
             continue
         lus += 1
         try:
