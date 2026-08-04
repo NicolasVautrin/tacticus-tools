@@ -132,6 +132,39 @@ def _vues(res: dict):
     return by_id, elev, G, N, C, G_gated, sans_composant
 
 
+def _confronter_port(res: dict, N: set) -> tuple[int, int]:
+    """Joue le CODE LIVRE sur toutes les paires de tuiles et compte ses desaccords avec `N`.
+
+    Le canal ne lui est PAS passe a la main : il est derive comme en production, par la `Scene`
+    (`Scene.neigh_by_pos` -> `adjacent_neigh_by_pos`) puis lu par `battle_query.neigh_map`. C'est
+    donc le CABLAGE qui est confronte, pas seulement la primitive.
+
+    Rend `(desaccords avec canal, desaccords sans canal)` -- le second est le CONTRE-BRAS."""
+    from engine import battle_query as bq
+    from engine.entities.pathfinding.board import Board
+    from engine.playbook.scene import Scene
+
+    tiles = res.get("tiles") or []
+    bd = Board(tiles)
+    sc = Scene(ctx_by_id={}, armor_by_id={}, shield_by_id={}, mult_by_id={}, ablvl_by_id={},
+               vis_by_id={}, units=[], hp_by_id={}, pos_by_id={}, team_by_id={}, eff_state=None,
+               elev_by_pos=bd.elev_by_pos(), board=bd)
+    canal = bq.neigh_map(sc)
+    pos_of = {t["id"]: (t["col"], t["row"]) for t in tiles}
+    vrai = {(pos_of[a], pos_of[b]) for (a, b) in N}
+    avec = sans = 0
+    for a in pos_of.values():
+        for b in pos_of.values():
+            if a == b:
+                continue
+            attendu = (a, b) in vrai
+            if bq.is_adjacent(a, b, sc.elev_by_pos, canal) != attendu:
+                avec += 1
+            if bq.is_adjacent(a, b, sc.elev_by_pos, None) != attendu:
+                sans += 1
+    return avec, sans
+
+
 def _asym(edges: set) -> list:
     """Les aretes DIRIGEES sans reciproque -- la question Q1, mesuree et non supposee."""
     return sorted(e for e in edges if (e[1], e[0]) not in edges)
@@ -206,7 +239,21 @@ def run_board(sid, rpc, board: str, seed: int, verbose: bool) -> tuple[int, dict
             bad += 1
             for (a, b) in perm_asym[:12]:
                 print("        %s" % _fmt(by_id, elev, a, b))
+
+        # --- Q3 : le CODE LIVRE, pas seulement les ensembles. On joue `battle_query.is_adjacent`
+        #     sur toutes les paires, a travers le CABLAGE reel (`Scene` -> `neigh_map` -> foyer),
+        #     et on le confronte a la verite native `N`. Le contre-bras (canal neutralise) est
+        #     OBLIGATOIRE : sans lui, un accord ne prouverait pas que le canal MORD.
+        n_avec, n_sans = _confronter_port(res, N)
+        print("  [Q3] port AVEC canal : %d desaccord(s) vs natif (attendu 0)" % n_avec)
+        print("       port SANS canal : %d desaccord(s) vs natif (= le gisement ferme)" % n_sans)
+        if n_avec:
+            bad += 1
+        if n_sans != len(perm):
+            print("      ECART: le contre-bras (%d) != le gisement mesure (%d)" % (n_sans, len(perm)))
+            bad += 1
         return bad, {"tiles": len(by_id), "perm": len(perm), "restr": len(restr),
+                     "port_avec": n_avec, "port_sans": n_sans,
                      "asymN": len(aN), "asymC": len(aC), "asymG": len(aG),
                      "GmoinsC": len(G - C) if not sans else None}
     finally:
@@ -235,9 +282,10 @@ def main() -> int:
         resume[b] = r
     print("\n== RESUME")
     for b, r in resume.items():
-        print("   %-8s tuiles=%s  PERMISSIF=%s RESTRICTIF=%s  one-way N/C/G=%s/%s/%s  G\\C=%s"
+        print("   %-8s tuiles=%s  PERMISSIF=%s RESTRICTIF=%s  one-way N/C/G=%s/%s/%s  "
+              "port avec/sans canal=%s/%s"
               % (b, r.get("tiles"), r.get("perm"), r.get("restr"), r.get("asymN"),
-                 r.get("asymC"), r.get("asymG"), r.get("GmoinsC")))
+                 r.get("asymC"), r.get("asymG"), r.get("port_avec"), r.get("port_sans")))
     # Le gisement doit etre NON NUL quelque part : sinon la mesure est DEGENERE (les deux
     # substrats coincident sur ces boards) et ne dit rien du basculement.
     non_degenere = any((r.get("perm") or 0) > 0 for r in resume.values())
