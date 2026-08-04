@@ -780,3 +780,59 @@ modele/code + cran anti-symetrie) et `probe_419r1tr14r5r2r1r2r1r1_only_adjacent_
 dont un GREFFE pour demasquer le gate aval). Baseline exacte a moindre frais : substituer l'attribut
 de MODULE (`T.get_range`) par un wrapper qui reproduit l'ancien contrat -- en capturant la vraie
 fonction A L'IMPORT, sans quoi le wrapper s'appelle lui-meme.
+
+---
+
+## #448-r1-r1-r1-r1-r2-r1 (2026-08-04) — Changer un SUBSTRAT partage (un graphe, une table, un canal) : ventiler par ROUTE, et PROUVER le no-op au predicat
+
+**Symptome-type** : une mesure etablit qu'une source de donnees du port est FAUSSE (ici : le
+voisinage de pathfinding lisait deux vues, chacune fausse d'un cote), et la tache devient
+« rebrancher ». Le piege est de traiter ca comme UN changement : les N consommateurs du substrat
+n'ont PAS le meme aval, et un rebranchement global se valide alors sur le seul consommateur qui
+bouge — ou pire, sur aucun, en rendant un accord parfait qui ne prouve rien.
+
+**Methode qui l'a craque** :
+
+1. **Le no-op se DEDUIT du predicat, il ne se constate pas.** Chaque consommateur applique son
+   propre filtre APRES le substrat. Si ce filtre refuse exactement ce que le nouveau substrat
+   ajoute, le rebranchement est INERTE *sur tout board*, pas seulement sur ceux qu'on mesure. Ici
+   l'identite `neighbours == connectivity INTER {|dElev| < 2}` se LIT dans
+   `TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` (meme liste stockee + porte
+   inconditionnelle), et les routes a porte d'elevation (`Walk`, `IgnoreTerrain`) refusent
+   precisement les aretes ajoutees. **3 routes inertes, 1 qui mord** — et celle qui mord est celle
+   dont le predicat est le corps trivial `return true`. Reflexe : **classer les consommateurs par
+   la FORCE de leur predicat** avant de mesurer quoi que ce soit.
+2. **Chercher les consommateurs par le NATIF, pas par le nom du module.** Le 7e site trouve
+   (`battle_query.are_tiles_adjacent`) n'est pas un pathfinder : son natif
+   `MovementUtil$$AreTilesAdjacent` appelle `ConnectivityComponent$$IsNeighbour`, donc il lit le
+   MEME substrat par une autre porte. Un grep sur `neighbours` l'aurait manque (il lisait
+   `board.neighbours()`, l'accesseur MODE-DEPENDANT). Grep le nom du CHAMP natif et de son
+   accesseur (`IsNeighbour`, `AddNeighbours`, `IterateAdjacentTiles`), jamais le nom du port.
+3. **Le critere de discrimination doit se deriver du MUTANT, pas de la these.** La contre-epreuve
+   `--mutate-native` est revenue VERTE : elle avait ete jouee sur le board qui discrimine l'AUTRE
+   mutant. Deux mutants d'un meme substrat a N vues ont des GISEMENTS DISJOINTS
+   (`G \ C` vit sur un board, `C \ N` sur un autre). Discriminer sur `len({v1, v2, ..., vN}) > 1`
+   — toutes les vues — et non sur le seul couple qui interesse la these.
+4. **Trouver l'observable ou le substrat n'est filtre par RIEN.** `ATeleportPathfinder$$FindPath`
+   rend `[from, to]`, donc pour un porteur `TeleportStrike` le compteur natif
+   `tilesMovedThisTurn` **EST** la longueur du chemin beeline : oracle direct, sans etage
+   intermediaire. Reflexe : chercher le porteur dont la chaine native DEGENERE au point de rendre
+   le substrat lisible tel quel — c'est lui le cas discriminant, pas le porteur « normal ».
+
+**Outils/heuristiques reutilisables** :
+- **Gabarit `probe_..._pathfinder_rebranch_live.py`** : un volet STRUCT qui chiffre le
+  deplacement ROUTE PAR ROUTE offline (a partir d'UN `boardGraph`, zero runner supplementaire) et
+  un volet NATIVE qui confronte. Le STRUCT coute un build ; il rend `126/3906 couples` la ou un
+  smoke aurait rendu « ca marche ».
+- **Faire ROUGIR le run degenere, avec sa CAUSE** : distinguer « aucun board joue ne portait le
+  gisement » (le run ne pouvait rien montrer) de « le gisement est la et rien ne bouge » (le
+  rebranchement serait cosmetique). Les deux rendent le meme zero et n'accusent pas la meme chose.
+- **Une garde de PERIMETRE (« X n'est pas encore fait ») meurt avec la tache, et souvent elle ne
+  gardait deja rien** : celle de #448-r1-r1-r1-r1-r2 observait la MARCHE, sur qui le
+  rebranchement est un no-op — elle serait restee VERTE apres. La remplacer par une garde des DEUX
+  faces (le no-op la ou il est prouve, le changement la ou il doit avoir lieu), et verifier que
+  chaque cran mord sous SON mutant.
+- **Un test qui compare deux MONTAGES est aveugle a une mutation qui frappe les deux** (ici
+  `Board(avec canal)` vs `Board(sans canal)` sous « geometrie partout »). Le mutant qui le fait
+  rougir est celui qui casse l'INVARIANT enonce — retirer la porte d'elevation, pas changer le
+  substrat.
