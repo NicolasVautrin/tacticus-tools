@@ -313,6 +313,20 @@ l'imbrication des `seq` (l'appel interne sort avant l'englobant).
 sur **138/138** événements de la surcharge 1. Une valeur lue au mauvais offset ne satisferait pas
 cette identité.
 
+**Reproductibilité — trois passes, dont une APRÈS rebase sur `origin/master`** (21 commits
+absorbés). Le VOLUME varie avec le placement (693, 693, **282** `Add` ; 138, 138, **36** de la
+surcharge 1) ; les **valeurs** ne varient pas : `0.7` puis `1.5`, `1 -> 0.6999999999534339 ->
+1.0499999998137355`, cohérence multiplicative **100 %** à chaque passe, liste capée à `0` sur
+tous les événements des trois passes, `factory = 0`. Le volume n'est pas la mesure — les
+transitions le sont.
+
+⚠ **Le rebase a fait tomber le montage, et c'était un vrai signal.** `#437-r1` a ajouté le
+paramètre `separate_face_lists` à `apply_pierce_and_modifiers` ; l'enveloppe d'observation
+`_instrument()` du probe hôte figeait la signature de sa cible et levait un `TypeError` — alors
+que le signal observé n'avait pas bougé d'un chiffre. Corrigé : les deux enveloppes prennent
+`**kw` et le **repassent** tel quel. Une enveloppe d'observation ne doit jamais figer la
+signature de ce qu'elle observe.
+
 **Preuve que le régime n'est PAS dégénéré** : **4 accumulateurs distincts** portent **deux**
 multiplicateurs de valeurs différentes (`0.7` et `1.5`) composés l'un après l'autre. Le produit
 (`1.05`) diffère de chacun des facteurs, donc la mesure sépare « un seul terme » de « deux termes
