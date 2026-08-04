@@ -953,10 +953,26 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
 
         Meme sources que les canaux DEGAT et COUPS, jamais re-derivees : `OwnerComponent.team`,
         `FactionId` du gameconfig, `entity_trait_names` (substrat d'ENTITE -- #264 : les traits en
-        bataille != le kit)."""
+        bataille != le kit).
+
+        DEUX CALLABLES PAR-PORTEUR (#589-r1-r1-r2-r1), et ce sont des CALLABLES parce que la boucle
+        native ECRASE `AbilityEntities+0x18` (`Owner`) a chaque iteration : la grandeur depend de
+        l'INSTANCE d'effet qui interroge, pas seulement des deux entites du coup. Meme forme que
+        `contagions_of_nurgle_amount` dans `UnitEffectStateView` (paresseux par construction : rien
+        n'est calcule tant qu'aucune instance ne les appelle) :
+          * `adjacent_friendly_summons_and_decoys_of(owner_id)` -> `...AmuletOfTheVoidwyrm_
+            CritDamageReductionEffect$$GetAdjacentFriendlySummonsAndDecoysCount` (le MEME foyer que
+            la cle du `unit_state`, donc la CONDITION et la MAGNITUDE ne peuvent pas diverger) ;
+          * `tertiary_ability_state_of(owner_id, ability)` -> `GetAbilityState(effect)`, delegue au
+            foyer UNIQUE `operations/triggers/base.py::triggered_ability_state` (#357) : etat
+            TERTIAIRE pour une relique EQUIPEE, etat PASSIF pour un kit npc. Sans lui, une relique
+            de niveau 3 lirait le niveau des PASSIFS du porteur (50 en runner normalise), donc le
+            dernier palier -- un ecart SILENCIEUX de magnitude."""
         from ...entities.traits.unit_trait import entity_trait_names
-        from ..components import OwnerComponent, StatsComponent, UnitComponent
+        from ..components import (OwnerComponent, StatsComponent, UnitComponent,
+                                  adjacent_friendly_summons_and_decoys_count)
         from ..damage_model import _unit_gameconfig
+        from .triggers.base import triggered_ability_state
         team_by_id: dict = {}
         for uid, e in state.entities.items():
             oc = e.get_component(OwnerComponent)
@@ -972,7 +988,11 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         return {"team_by_id": team_by_id,
                 "att_team": team_by_id.get(att_id), "tgt_team": team_by_id.get(tgt_id),
                 "att_faction": (_unit_gameconfig(state, att_id) or {}).get("FactionId"),
-                "att_traits": att_traits}
+                "att_traits": att_traits,
+                "adjacent_friendly_summons_and_decoys_of":
+                    lambda oid: adjacent_friendly_summons_and_decoys_count(state, int(oid)),
+                "tertiary_ability_state_of":
+                    lambda oid, ability: triggered_ability_state(state, int(oid), ability)}
 
     @staticmethod
     def _crit_carriers(state: State, att_id, attacker_effects, tgt_id) -> list:
