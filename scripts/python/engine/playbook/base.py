@@ -191,13 +191,21 @@ class ComparablePlaybook(BasePlaybook):
         avec `(caster, casterPosition.MainTile, target, attackHealUtility)`. `False` ⇒ le natif rend
         un `Nullable` VIDE : **aucune action** n'est poussée dans le `Bucket` pour ce (tuile, cible).
 
-        DÉFAUT = `return true`, et c'est une MESURE, pas une déduction : le slot +0x328 de
-        `DrachnyenPlaybook` (comme de `ChronometronPlaybook`, `DoomSirenPlaybook`,
-        `ForwardObserversPlaybook`) pointe sur un corps de trois octets `b0 01 c3`
-        (`mov al,1 ; ret`), dont l'unique propriétaire NOMMÉ dans les tables est
-        `UnityEngine.U2D.IK.Solver2D$$DoValidate` — dédup IL2CPP d'un corps trivial. Le `MethodInfo`
-        du niveau `ComparablePlaybook`1`, lui, porte un `methodPointer` NUL (définition
-        générique non inflatée) : c'est le slot qu'il faut lire, pas lui.
+        DÉFAUT = `return true`, et c'est une MESURE, pas une déduction — mais la forme native est
+        plus subtile que « la base rend true », alors disons-la exactement. Le `MethodInfo` du
+        niveau `ComparablePlaybook`1` porte un `methodPointer` **NUL** (la définition générique n'a
+        pas de corps compilé) ; ce sont les classes CONCRÈTES qui déclarent chacune leur propre
+        `MethodInfo`, et celles qui ne spécialisent rien pointent toutes sur le MÊME corps de trois
+        octets `b0 01 c3` (`mov al,1 ; ret`) — mesuré sur six classes indépendantes
+        (`Drachnyen`, `Chronometron`, `DoomSiren`, `ForwardObservers`, `PlasmaGrenade`,
+        `MartialInspiration`). L'unique propriétaire NOMMÉ de ce corps dans les tables est
+        `UnityEngine.U2D.IK.Solver2D$$DoValidate` : dédup IL2CPP d'un corps trivial. Le comportement
+        par défaut EFFECTIF est donc bien « accepter », et c'est ce que cette base porte.
+
+        ⚠ Corollaire de méthode : « `<Classe>$$ShouldExecute` n'est pas dans la table » ne prouve
+        RIEN. `MortisRoundPlaybook` déclare le sien à `depth 0` sur le corps que la table attribue à
+        `IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$ShouldExecute` — même corps, un seul
+        propriétaire nommé.
 
         `utility` = `CalculateCustomUtility + CalculateUtilityFromPredictions`, donc AVANT les trois
         termes positionnels (`CalculateCasterPositionUtility` slot +0x348, la clé `0x37`
