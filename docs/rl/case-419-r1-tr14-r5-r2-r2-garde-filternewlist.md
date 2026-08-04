@@ -197,9 +197,12 @@ transforment en mesure, sur `rnca9r7q6c` :
 Les deux voisins cités par la case-doc de la tranche concordent aussi (`PassiveAbilities` @`0xa8`,
 `Traits` @`0xd0`), ce qui interdit un décalage global d'un champ.
 
-⚠ La fiche du résidu nommait `UnitFactory$$AddConfiguredAbilities` comme lecteur de ce champ ;
-le lecteur qui compte pour CETTE tranche est `GetCustomNormalAttackTypeFromActive`, et c'est lui
-qui a été relu.
+**TROISIÈME lecture, concordante** : `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`
+— le lecteur que nommait la fiche du résidu — termine par
+`while (i < List.get_Count(config.<+0xa0>)) AddActiveAbility(List.get_Item(config.<+0xa0>, i), …)`.
+Le même champ, par un troisième chemin. (Le corps corrobore au passage `PASSIVE_HIERARCHY = 2` :
+il énumère `config.<+0xa8>` vers `TriggeredAbilityComponent$$TryAdd(…, 2)`, et la branche
+tertiaire `config.<+0xb0>` vers `TryAdd(…, 3)`.)
 
 **La JOINTURE entité → configuration est LUE, pas supposée.**
 `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent(entity, config)` écrit, dans l'ordre :
@@ -284,7 +287,7 @@ python rl_duel.py build --seed 777 --board MC1_67 \
 |---|---|---|---|
 | 1 | `configLayout.bcResolved` et les cinq `*Resolved` | tous `true` | un `false` ⇒ classe ou méthode non indexée : le capteur est INOPÉRANT et **rien d'autre n'est interprétable**. C'est le premier à lire |
 | 2 | `configLayout.activeAbilitiesOff` / `idOff` / `baseUnitComponentIdOff` | `0xa0` / `0x10` / `0x10`, égaux aux `decompiled*` publiés à côté | un écart ⇒ la disposition a bougé depuis `rnca9r7q6c` : **confronter avant de lire les crans 3-7**, et corriger la case-doc, pas le code (les offsets sont déjà résolus par nom) |
-| 3 | `configLayout.bcUnits` / `bcUnitsWithActives` / `elemClass` / `elemStride` | `175` / `125` / `ActiveAbilityType` / `4` | `bcUnits` très différent ⇒ ce n'est pas la BC attendue (runner construit d'une autre seed). `elemStride ≠ 4` ⇒ le capteur a refusé de lire : **c'est le comportement voulu**, et `elemClass` dit pourquoi |
+| 3 | `configLayout.bcUnits` / `bcUnitsWithActives` / `elemClass` / `elemStride` / `unreadableActiveLists` | `175` / `125` / `ActiveAbilityType` / `4` / **`0`** | `bcUnits` très différent ⇒ ce n'est pas la BC attendue (runner construit d'une autre seed). `elemStride ≠ 4` ⇒ le capteur a refusé de lire : **c'est le comportement voulu**, et `elemClass` dit pourquoi. `unreadableActiveLists > 0` ⇒ des configurations dont le `List` n'a pas été décodé (`_items` nul sur une liste vide, typiquement) : elles sortent en `configActives: null`, donc **les compter avant de lire le cran 4**, jamais les prendre pour des `[]` |
 | 4 | **`configActives` des 6 unités** | exactement les colonnes PRE de §7.2 : `[1048]`, `[1063]`, `[1152]`, `[1069]`, `[1005]`, `[1017]` | c'est LE cran. Il reproduit, par la lecture LIVE de `UnitConfiguration`, ce que §7.2 a lu du fichier envoyé. Un écart ⇒ soit le runner n'a pas reçu ce BC, soit `+0xa0` n'est pas ce champ : **ventiler unité par unité**, jamais moyenner |
 | 5 | **`configActives` vs `actives` sur les mêmes 6 lignes** | `actives ∖ configActives` = exactement `{1128, 69, 69, 1076, 69, 69}`, et `configActives ∖ actives` = ∅ | c'est ce qui rend la garde NON tautologique. Si les deux listes sont ÉGALES, le capteur lit le composant et non la configuration ⇒ **ancrage à revoir, et surtout ne pas brancher la garde** |
 | 6 | `normal_attack_already_present(configActives)` sur les 6 | `None` **6 fois** (aucune entrée régulière) ; le même appel sur `actives` rend non-`None` 6 fois | l'un ou l'autre qui dévie ⇒ `REGULAR_ATTACK_ABILITY_TYPES` a changé de contenu : re-dériver la table du `.cctor` avant toute conclusion |

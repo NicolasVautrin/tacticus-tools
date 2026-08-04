@@ -222,6 +222,21 @@ export function readAbilityState(ab: NativePointer): {
         unresetedLastTurnUsed?: number | null;
         unresetedLastTurnUsedHasValue?: boolean | null;
     } = {};
+    // #433-r4-r2-r1-r1-c-r1 — les DEUX `Nullable<int>` de tour, en tri-état, lus AVANT le `try`
+    // qui suit. Ce n'est pas un détail de placement : `readNullableInt` ne lève jamais (il porte
+    // sa propre garde), donc les quatre clés existent TOUJOURS dans la réponse — alors qu'une
+    // faute sur une lecture ANTÉRIEURE, à l'intérieur du `try`, les ferait disparaître. Une clé
+    // ABSENTE et une clé à `null` se lisent pareil de loin, mais la première ne dit pas si le
+    // capteur a seulement essayé. On publie la valeur BRUTE et son `hasValue`, jamais un booléen
+    // pré-calculé : la comparaison au compteur (`turnsEnded`, au niveau réponse) appartient au
+    // moteur, qui doit pouvoir la refaire à l'identique du natif — marche `IsRegularAbilityType`
+    // comprise, et elle n'est pas dans ce champ.
+    const lastTurn = readNullableInt(ab, abLastTurnUsedOff);
+    st.lastTurnUsed = lastTurn.value;
+    st.lastTurnUsedHasValue = lastTurn.hasValue;
+    const unreseted = readNullableInt(ab, abUnresetedLastTurnUsedOff);
+    st.unresetedLastTurnUsed = unreseted.value;
+    st.unresetedLastTurnUsedHasValue = unreseted.hasValue;
     try {
         if (abCanUseOff >= 0) st.usable = ab.add(abCanUseOff).readU8() !== 0;
         if (abCooldownOff >= 0) {
@@ -234,16 +249,6 @@ export function readAbilityState(ab: NativePointer): {
             st.ammoCost = has ? ab.add(abAmmoCostOff).readS32() : null;
         }
         if (abHasAmmoOff >= 0) st.hasAmmo = ab.add(abHasAmmoOff).readU8() !== 0;
-        // #433-r4-r2-r1-r1-c-r1 — les DEUX `Nullable<int>` de tour, en tri-état. On publie la
-        // valeur BRUTE et son `hasValue`, jamais un booléen pré-calculé : la comparaison au
-        // compteur de tours (`turnsEnded`, publié au niveau réponse) appartient au moteur, qui
-        // doit pouvoir la refaire à l'identique du natif.
-        const lastTurn = readNullableInt(ab, abLastTurnUsedOff);
-        st.lastTurnUsed = lastTurn.value;
-        st.lastTurnUsedHasValue = lastTurn.hasValue;
-        const unreseted = readNullableInt(ab, abUnresetedLastTurnUsedOff);
-        st.unresetedLastTurnUsed = unreseted.value;
-        st.unresetedLastTurnUsedHasValue = unreseted.hasValue;
         // niveau/mult PER-ABILITY (#100) — mirror get_AbilityState @180f8fc40 (Override prime).
         let stOff = -1;
         if (abOverrideStateOff >= 0 && ab.add(abOverrideStateOff + 0xc).readU8() !== 0) {
