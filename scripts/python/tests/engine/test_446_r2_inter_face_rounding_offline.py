@@ -107,18 +107,38 @@ def test_effet_defenseur_reste_dans_la_meme_chaine():
 
 
 def test_chaine_unique_quand_les_deux_faces_sont_non_neutres():
-    """#462-r4a -- LE CAS QUE #446-r2 N'AVAIT PAS PU MONTER : elevation `x1.50` cote ATTAQUANT ET
-    `Terrifying_ExtraDefense` `x0.70` cote DEFENSEUR, sur le MEME coup. Les deux vivent dans la
-    liste `@0x18`, donc dans UNE SEULE chaine : `Round(725 x 1.50 x 0.70)` = **761** (natif), contre
-    762 si un `Round` s'intercalait. Mesure live : `--two-faces` (unites DEPLACEES pour fabriquer le
-    denivele), natif 761/1141."""
+    """#462-r4a -- LE CAS QUE #446-r2 N'AVAIT PAS PU MONTER : elevation `x1.50` ET
+    `Terrifying_ExtraDefense` `x0.70` sur le MEME coup. Mesure live `--two-faces` (unites DEPLACEES
+    pour fabriquer le denivele) : natif **761/1141**, soit UN SEUL `Round`.
+
+    ⚠ MONTAGE CORRIGE (#437-r1-r1-r1) -- LES VALEURS NATIVES N'ONT PAS BOUGE, LA FACE SI. Ce cran
+    posait `x0.70` dans `pct_list_defender`, ce qui etait l'attribution du PORT et non celle du
+    natif. Le capteur `effect-bonus-trace` lit sur CE montage UN SEUL accumulateur qui COMPOSE
+    (`1 -> 0.6999999999534339 -> 1.0499999998137355`), les DEUX bonus etiquetes `face=attacker` :
+    `Terrifying_ExtraDefense_Effect` derive de `DamageModifierAbilityEffect` et n'implemente que
+    `CreateDamageModifier`, donc sa contribution sort par le forwarder
+    `CreateEffectDamageBonusForAttack` -- le slot que seul `CalculateAttackerModifiersForPrediction`
+    invoque. Les deux bonus vivent donc dans le MEME `Multiplier@0x30`, d'ou UN seul `Round` --
+    et non parce qu'un drapeau fusionnait deux faces distinctes."""
     m = DamageModifiers()
-    m.pct_list.append((1.5, None))
-    m.pct_list_defender.append((0.7, None))
+    m.pct_list.extend([(1.5, None), (0.7, None)])          # les DEUX en face ATTAQUANTE (mesure)
     lo = apply_pierce_and_modifiers(725, 100, 0, m, attacker_additive_pre=True)
     hi = apply_pierce_and_modifiers(1087, 100, 0, m, attacker_additive_pre=True)
     assert fx.to_int(fx.from_number(lo)) == 761, f"MIN attendu 761 (natif), obtenu {float(lo)}"
     assert fx.to_int(fx.from_number(hi)) == 1141, f"MAX attendu 1141 (natif), obtenu {float(hi)}"
+
+    # CONTRE-EPREUVE : sous l'attribution ABANDONNEE (une face chacun), la separation -- desormais
+    # INCONDITIONNELLE -- rend 762/1142. C'est le `+1` que le drapeau `separate_face_lists=False`
+    # masquait, et c'est ce qui prouve que ce cran discrimine encore quelque chose.
+    m2 = DamageModifiers()
+    m2.pct_list.append((1.5, None))
+    m2.pct_list_defender.append((0.7, None))
+    got = tuple(fx.to_int(fx.from_number(
+        apply_pierce_and_modifiers(b, 100, 0, m2, attacker_additive_pre=True)))
+        for b in (725, 1087))
+    assert got == (762, 1142), (
+        "l'attribution ABANDONNEE devait rendre 762/1142 (un `Round` de trop), obtenu %s -- si elle "
+        "rend 761/1141, les deux faces sont refusionnees et ce cran ne mesure plus rien" % (got,))
 
 
 def test_les_deux_canaux_ne_sont_pas_commutables():

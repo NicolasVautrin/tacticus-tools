@@ -372,18 +372,21 @@ class _Normal:
             # valide bit-exact live) est INCHANGE — seule la citation du symbole etait fausse.
             _extra_max = int(ctx.stat(StatType.EXTRA_MAX_DAMAGE) or 0) if _ranged else 0
             mm = get_base_damage_fix64(eff_attack, extra_max=_extra_max, spread_pct=spread_pct)
-            # `separate_face_lists=True` (#437-r1) : les DEUX `ApplyCappedModifiers` du natif
-            # (`attackModifiers` puis `defenseModifiers`) sont des appels DISTINCTS, donc la face
+            # UN `Round` PAR FACE (#437-r1) : `CalculateBaseDamageWithAllModifiers` appelle
+            # `CalculateBaseDamageWithModifiers` UNE FOIS PAR ACCUMULATEUR non nul, donc la face
             # défenseur part d'une valeur DÉJÀ matérialisée. Mesuré sur le tir d'overwatch
             # `HeavyWeapon_ExtraDmg` x1.25 / `TerminatorArmour_ReduceDmg` x0.25 : bornes natives
             # INVERSÉES depuis l'aléa brut = (1130, 1695), la chaîne unique rendait (1129, 1694).
+            # Depuis #437-r1-r1-r1 la séparation est INCONDITIONNELLE dans
+            # `apply_pierce_and_modifiers` (le drapeau `separate_face_lists` a été retiré) : ce
+            # qu'il compensait était une ATTRIBUTION DE FACE, désormais lue par effet.
             lo = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.min + flat_add, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True,
-                separate_face_lists=True),
+                mm.min + flat_add, pierce, armor, mods, hit_mult=hit_mult,
+                attacker_additive_pre=True),
                 def_mods, round_materialize=True)
             hi = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.max + flat_add, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True,
-                separate_face_lists=True),
+                mm.max + flat_add, pierce, armor, mods, hit_mult=hit_mult,
+                attacker_additive_pre=True),
                 def_mods, round_materialize=True)
             return HitDamage(lo, hi)
 

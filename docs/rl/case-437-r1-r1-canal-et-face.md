@@ -85,6 +85,14 @@ Capteur #466 (`effectBonusTrace*`), session 3, build `rnca9r7q6c`, 2026-08-04.
 
 ## 3. Ce que devient `separate_face_lists`
 
+> **MISE À JOUR #437-r1-r1-r1 (2026-08-04)** : le drapeau est **RETIRÉ**, la séparation est
+> inconditionnelle, et l'attribution de face est corrigée sur **9** classes (5 avec conséquence).
+> Ce que cette section décrit reste exact — c'est l'état *avant* le correctif.
+> ⚠ Ce qu'elle ne dit pas et qui a été mesuré depuis : #437-r1 avait armé la séparation en COMBAT
+> **sans** corriger l'attribution, si bien que le vecteur COMBAT rendait `762/1142` contre
+> `761/1141` natif sur le montage `--two-faces`. Le tableau ci-dessous ne montre que la face
+> PRÉDICTION du problème.
+
 La loi étant « **un `Round` par face** », `separate_face_lists=True` **EST** le mirror ; `False` est
 la dérogation. Ce que `False` compense n'est pas le vecteur mais une **ATTRIBUTION DE FACE**
 divergente : le port range `Terrifying_ExtraDefense` en face DÉFENSEUR (`pct_list_defender`) là où
@@ -109,9 +117,14 @@ donc **conservé en valeur** et sa justification **remplacée par la loi mesuré
 
 ## 4. Résidus NOMMÉS
 
-* **`#437-r1-r1-r1`** — l'attribution de face du port. Balayage à faire au capteur : armer
-  `effectBonusTraceOn`, monter un montage par effet %-défenseur, lire `face`. Quand la table est
-  complète : attribuer, puis rendre la séparation **inconditionnelle** et retirer le paramètre.
+* ~~**`#437-r1-r1-r1`** — l'attribution de face du port.~~ **RÉSOLU le 2026-08-04**, et le balayage
+  par montage n'a PAS été la voie : la face est **structurelle**, c'est le SLOT VIRTUEL par lequel la
+  contribution sort (`CreateEffectDamageBonusForAttack` / `CreateDamageModifier` → attaquant ;
+  `CreateEffectDamageMalusForDefense` / `CreateDamageDefenseModifier` → défenseur), les deux builders
+  natifs énumérant le **même** dictionnaire d'effets. Elle se lit donc pour les **59** classes d'un
+  coup au lieu de 59 montages. **9 divergences**, dont **5** à conséquence arithmétique. Séparation
+  rendue inconditionnelle, drapeau retiré.
+  Détail : **`docs/rl/case-437-r1-r1-r1-face-native-des-effets.md`**.
 * **`#437-r1-r1-r2`** — une face portant **à la fois** un %-effet et une modification de stat. Le
   port y ferait **deux** `Round` (`apply_pct_entries` puis `calculate_base_damage_with_modifiers`),
   le natif **un seul** (même `Multiplier@0x30`). **NON CONFRONTÉ** : aucun montage du corpus ne

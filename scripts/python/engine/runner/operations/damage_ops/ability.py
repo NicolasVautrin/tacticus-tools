@@ -292,13 +292,12 @@ class _AbilityAttack:
         def _reduce(value: int) -> int:
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT (idem
             # attaque normale — même pipeline natif CalculateAbilityDamage/CBDWAM par coup).
-            # `separate_face_lists=True` (#437-r1) : MEME `ExecuteHit` natif, donc MEMES deux appels
-            # `ApplyCappedModifiers` (attaquant puis defenseur). NO-OP tant qu'une des deux faces
-            # n'a pas d'entree de `%-list`.
+            # UN `Round` PAR FACE (#437-r1) : MEME `ExecuteHit` natif, donc MEMES deux etages
+            # `CalculateBaseDamageWithModifiers` (attaquant puis defenseur). Depuis #437-r1-r1-r1 la
+            # separation est INCONDITIONNELLE dans `apply_pierce_and_modifiers` (plus de drapeau).
             return apply_all_modifiers(
                 apply_pierce_and_modifiers(value, profile_pierce, armor, mods,
-                                           hit_mult=_tgt_hit_mult, attacker_additive_pre=True,
-                                           separate_face_lists=True),
+                                           hit_mult=_tgt_hit_mult, attacker_additive_pre=True),
                 def_mods, round_materialize=_round_mat)
 
         # ABILITY = roll-then-reduce : on tire dans les bornes BRUTES config (RandomAmount(min,max)) PUIS

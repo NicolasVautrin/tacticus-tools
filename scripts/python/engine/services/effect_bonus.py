@@ -40,6 +40,25 @@ class EffectBonus:
     # %-list, elle, se compose SANS arrondi intermediaire (#98). Les deux canaux ne sont donc PAS
     # interchangeables des que le percage sort fractionnaire. MESURE : case-462-r4a §3.
     from_stat_mod: bool = False
+    # #437-r1-r1-r1 -- L'ACCUMULATEUR NATIF ou cette contribution atterrit : `attackModifiers`
+    # ("attacker") ou `defenseModifiers` ("defender"). C'est ce qui decide COMBIEN de `Fix64.Round`
+    # `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` applique (un
+    # par accumulateur non nul, cf. #437-r1-r1) -- donc une valeur observable, pas un detail.
+    #
+    # ⚠ CE N'EST PAS « qui PORTE l'effet », et les confondre a coute un `-1` (#586) :
+    # `Terrifying_ExtraDefense` vit sur la CIBLE et le natif le verse cote ATTAQUANT. La face est
+    # le SLOT VIRTUEL par lequel la contribution sort -- `CreateEffectDamageBonusForAttack`
+    # (0x16, invoque par `CalculateAttackerModifiersForPrediction`) contre
+    # `CreateEffectDamageMalusForDefense` (0x1a, invoque par son homologue defenseur). Les DEUX
+    # builders enumerent le MEME dictionnaire d'effets de l'etat ; le trigger (`OwnerIsTarget` /
+    # `OwnerIsActor`) choisit QUELLE unite declenche, jamais l'accumulateur.
+    #
+    # La valeur est POSEE PAR LE BUILDER (c'est lui qui sait quel slot il mirroire), depuis un
+    # attribut de la classe d'effet ; le defaut ci-dessous sert les `EffectBonus` construits hors
+    # boucle d'effets -- les feuilles POSITIONNELLES (elevation / ranged-in-melee / trench), que le
+    # natif calcule DANS `CalculateAttackerModifiersForPrediction` lui-meme.
+    # Table complete + garde : `scripts/python/probe_437r1r1r1_effect_face_table.py`.
+    native_face: str = "attacker"
 
 
 # IdunBattle.Entities.Effects.EffectBonus$$ForPercentIncrease — +value % (multiplicatif 1+value/100)

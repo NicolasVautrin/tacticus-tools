@@ -36,12 +36,21 @@ class MarkerlightEffect(BaseEffect):
                                                 attacker_ctx: Mapping | None = None) -> EffectBonus | None:
         if is_melee is not False:                              # gated IsRangedAttack (None = inconnu)
             return None
+        # #437-r1-r1-r1 -- FACE : cf. `DEFENSE_MALUS_NATIVE_FACE` ci-dessous.
         if not (attacker_ctx and attacker_ctx.get("faction") == "Tau"):   # HasFaction(actor, 9=T'au)
             return None
         pct = bc_effect_config("MarkerlightDmgBonusPct", 15)   # règle globale (unitEffectVariables)
         if not pct:
             return None
         return for_percent_increase(False, int(pct))           # owner=défenseur (dégât REÇU +15 %)
+
+    # #437-r1-r1-r1 : `MarkerlightEffect` derive de `DamageModifierAbilityEffect` (classes.tsv) et
+    # n'implemente QUE `CreateDamageModifier` (methods.tsv) -> sa contribution sort par le forwarder
+    # `IdunBattle.Entities.Effects.DamageModifierAbilityEffect$$CreateEffectDamageBonusForAttack`,
+    # que seul `CalculateAttackerModifiersForPrediction` invoque : le natif la verse donc dans
+    # `attackModifiers`, MALGRE le trigger `OwnerIsTarget`. CONSEQUENCE ARITHMETIQUE REELLE (canal
+    # POURCENT) : le `+15 %` prend le `Round` de la face ATTAQUANTE.
+    DEFENSE_MALUS_NATIVE_FACE = "attacker"
 
 
 class ExemplarOfHateTargetEffect(BaseEffect):
@@ -83,6 +92,16 @@ class ExemplarOfHateTargetEffect(BaseEffect):
         v = ability_var("ExemplarOfHate", "extraDmg", lvl,
                         multiplier_pct=self.ability_variables_multiplier)
         return for_addition(False, int(v)) if v else None      # owner=cible -> additif au degat RECU
+
+    # #437-r1-r1-r1 : le natif implemente `CreateEffectDamageBonusForAttack` (methods.tsv) -> face
+    # ATTAQUANT, malgre le trigger `OwnerIsTarget` (le nom natif le disait deja, la docstring
+    # ci-dessus l'avait lu, mais le port en tirait la face du BUILDER et non du SLOT).
+    # ⚠ REGIME DEGENERE, et c'est pourquoi rien ne bouge : le canal est ADDITIF (`Addition@+0x10`),
+    # et `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` SOMME le `+0x10` des DEUX
+    # accumulateurs avant `CalculateBaseDamageWithAllModifiers` (RE #462-r4b-r1). Les deux
+    # attributions predisent donc EXACTEMENT le meme nombre. On pose la face parce qu'elle est LUE,
+    # pas parce qu'elle changerait un resultat.
+    DEFENSE_MALUS_NATIVE_FACE = "attacker"
 
 
 class ChronometronExtraDamageEffect(BaseEffect):
@@ -159,6 +178,12 @@ class ChronometronExtraDamageEffect(BaseEffect):
             return None
         return for_addition(False, int(v) * n)                 # owner=cible -> additif au degat RECU
 
+    # #437-r1-r1-r1 : natif = `CreateEffectDamageBonusForAttack` (methods.tsv) -> face ATTAQUANT,
+    # malgre le trigger `OwnerIsTarget`. REGIME DEGENERE (canal ADDITIF `Addition@+0x10`, somme sur
+    # les DEUX accumulateurs par `PredictAttackRaw`, RE #462-r4b-r1) : les deux attributions
+    # predisent le meme nombre. Posee parce qu'elle est LUE.
+    DEFENSE_MALUS_NATIVE_FACE = "attacker"
+
 
 class SuperchargeExtraPiercingEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.Supercharge_ExtraPiercingEffect` (effet **1208=0x4b8**) — pose sur
@@ -229,6 +254,18 @@ class TerrifyingExtraDefenseEffect(BaseEffect):
             return None
         return for_percent_decrease(False, abs(int(red)))   # owner_is_caster=False (effet sur le défenseur) -> x0.70
 
+    # #437-r1-r1-r1 -- LE CAS QUI A NOMME LE RESIDU. `Terrifying_ExtraDefense_Effect` derive de
+    # `DamageModifierAbilityEffect` (classes.tsv) et n'implemente QUE `CreateDamageModifier`
+    # (methods.tsv) : sa contribution sort par le forwarder
+    # `IdunBattle.Entities.Effects.DamageModifierAbilityEffect$$CreateEffectDamageBonusForAttack`,
+    # invoque par le SEUL `CalculateAttackerModifiersForPrediction` -> le natif la verse dans
+    # `attackModifiers`, bien que l'effet vive sur la CIBLE (`OwnerIsTarget`).
+    # CONFIRME A LA MESURE (capteur `effect-bonus-trace`, #466) : sur le montage `--two-faces` de
+    # #462-r4a, UN SEUL accumulateur compose `1 -> 0.6999999999534339 -> 1.0499999998137355`, les
+    # DEUX bonus etant etiquetes `face=attacker`. Consequence : `Round(725 x 1.50 x 0.70)` = 761
+    # natif, contre 762 si le `x0.70` prenait un `Round` a lui.
+    DEFENSE_MALUS_NATIVE_FACE = "attacker"
+
 
 class MartialKatahDmgReductionEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.MartialKatah_DmgReductionEffect$$CreateDamageModifier` (trait MartialKatah, Custodes
@@ -253,6 +290,14 @@ class MartialKatahDmgReductionEffect(BaseEffect):
         if not red:
             return None
         return for_percent_decrease(False, abs(int(red)))   # owner=défenseur (l'effet est sur la cible)
+
+    # #437-r1-r1-r1 : `MartialKatah_DmgReductionEffect` derive de `DamageModifierAbilityEffect`
+    # (classes.tsv) et n'implemente QUE `CreateDamageModifier` (methods.tsv) -> face ATTAQUANT,
+    # malgre le trigger `OwnerIsTarget`. CONSEQUENCE ARITHMETIQUE REELLE (canal POURCENT) : le
+    # `x0.80` prend le `Round` de la face attaquante. ⚠ Son JUMEAU `MartialKatah_DmgBonus` est,
+    # lui, un `CreateEffectDamageBonusForAttack` direct -- les DEUX volets du MEME trait sont donc
+    # sur la MEME face, ce qui n'etait pas le cas avant ce correctif.
+    DEFENSE_MALUS_NATIVE_FACE = "attacker"
 
 
 class PrioritisedEfficiencyDmgReductionEffect(BaseEffect):
@@ -804,7 +849,13 @@ class PsychicFortressDmgReductionEffect(BaseEffect):
     i2 : « ... Also reduces incoming Psychic Damage by 873. » Placement PRÉ-perçage (`for_subtraction(False)`
     -> `flat_reductions`) présumé par la famille Nightshroud (jumeau structurel, validé #120) : additif défenseur
     plat soustrait de la BASE pré-perçage, dilué par perçage/armure PUIS scalé ×%-list. Gate Psychic-only
-    (l'aura protège les amis du porteur contre les attaques PSYCHIQUES des psykers ennemis)."""
+    (l'aura protège les amis du porteur contre les attaques PSYCHIQUES des psykers ennemis).
+
+    ⚠ RECTIFICATION #437-r1-r1-r1 : la ligne « base `ADamageDefenseModifierAbilityEffect` » ci-dessus
+    est FAUSSE. `data/symbols/<build>/frida/classes.tsv` donne le parent
+    `IdunBattle.Entities.Effects.DamageModifierAbilityEffect`, et `methods.tsv` ne lui connait que
+    `CreateDamageModifier` — cohérent avec le symbole cité plus haut. La face NATIVE est donc
+    ATTAQUANT (cf. `AURA_DEFENSE_MALUS_NATIVE_FACE` ci-dessous)."""
 
     def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
         c = ctx or {}
@@ -826,6 +877,11 @@ class PsychicFortressDmgReductionEffect(BaseEffect):
         if not amt:
             return None
         return for_subtraction(False, abs(int(amt)))          # owner=défenseur -> flat_reductions pré-perçage (famille Nightshroud)
+
+    # #437-r1-r1-r1 : parent `DamageModifierAbilityEffect`, seul slot `CreateDamageModifier`
+    # -> face ATTAQUANT. REGIME DEGENERE (canal ADDITIF `Addition@+0x10`, somme sur les DEUX
+    # accumulateurs par `PredictAttackRaw`, RE #462-r4b-r1) : aucune valeur ne bouge.
+    AURA_DEFENSE_MALUS_NATIVE_FACE = "attacker"
 
 
 def camo_cloak_cover(unit_state: "Mapping | None") -> bool:
@@ -942,3 +998,10 @@ class CamoCloakDmgReductionEffect(BaseEffect):
         if not red:
             return None
         return for_subtraction(False, abs(int(red)))  # x Direct(-1) -> flat_reductions pre-percage
+
+    # #437-r1-r1-r1 : derive de `DamageModifierAbilityEffect` (classes.tsv), n'implemente que
+    # `CreateDamageModifier` (methods.tsv) -> face ATTAQUANT. REGIME DEGENERE : le canal est
+    # ADDITIF (`Addition@+0x10`, valeur negative), et `PredictAttackRaw` SOMME le `+0x10` des DEUX
+    # accumulateurs avant `CalculateBaseDamageWithAllModifiers` (RE #462-r4b-r1) -> les deux
+    # attributions predisent le meme nombre. Posee parce qu'elle est LUE.
+    DEFENSE_MALUS_NATIVE_FACE = "attacker"

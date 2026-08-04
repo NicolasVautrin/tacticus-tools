@@ -121,6 +121,10 @@ $Ratchets = @(
        Seul = 'une ability entree dans ABILITY_CLASSES SANS son masque TARGETING_OPTIONS (degradation PERMISSIVE, ni erreur ni crash)'
        Doc  = 'CLAUDE.md -- Entrer au registre SANS son masque de ciblage' }
 
+    @{ Id = 'probe_437r1r1r1'; Argv = @('probe_437r1r1r1_effect_face_table.py')
+       Seul = 'une classe d effet dont le port range la contribution de degat dans l ACCUMULATEUR (attackModifiers / defenseModifiers) que le natif ne lui donne pas -- la face est le SLOT VIRTUEL de sortie, jamais le porteur, et elle vaut +/-1 par borne des que les deux faces sont non neutres'
+       Doc  = 'docs/rl/case-437-r1-r1-r1-face-native-des-effets.md' }
+
     @{ Id = 'probe_120'; Argv = @('probe_120_pre_unit_ability_fork.py')
        Seul = 'etape 0 : une ability au registre SANS son litteral ABILITY_ATTACK_TYPE ; puis le de-fork du vecteur On(PreUnitAbility) sur la voie CAST'
        Doc  = 'CLAUDE.md -- Meme regle pour ABILITY_ATTACK_TYPE' }

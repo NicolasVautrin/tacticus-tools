@@ -85,9 +85,12 @@ def _attacker_effect_bonuses(effects, is_ranged: bool | None, is_normal_attack: 
                                                      target_armor_reduced=target_armor_reduced,
                                                      att_ctx=att_ctx)
         if db is not None:
+            db.native_face = e.ATTACK_BONUS_NATIVE_FACE     # #437-r1-r1-r1 (cf. BaseEffect)
             bonuses.append(db)
         pen = e.get_armor_penetration(is_normal_attack)
         if pen is not None:
+            # Axe ARMURE : le natif SOMME `@0x28` des DEUX accumulateurs avant
+            # `GetBaseDamageWithFixedPiercedArmor` -> face sans consequence arithmetique.
             bonuses.append(for_armor_penetration(True, pen))
     return bonuses
 
@@ -140,7 +143,8 @@ def calculate_attacker_modifiers_for_prediction(
                                        att_ctx=att_ctx)
     if apply_stat_mod_debuff and attack_stat is not None:
         # negate=False : mirror de l'appel natif IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction+0x71c (3e arg = 0, face attaquant NON négée).
-        bonuses += calculate_modifiers_from_stat_modifications(attack_stat, negate=False)
+        bonuses += calculate_modifiers_from_stat_modifications(attack_stat, negate=False,
+                                                               native_face="attacker")
     return build_attacker_modifiers(bonuses)
 
 
@@ -178,6 +182,13 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
     for e in _as_effects(effects):
         mb = e.create_effect_damage_malus_for_defense(is_melee, damage_profile, attacker_ctx)
         if mb is not None:
+            # #437-r1-r1-r1 : cette boucle mirroire le slot 0x1a, donc l'accumulateur DEFENSEUR --
+            # SAUF pour les classes dont le natif n'implemente PAS ce slot mais
+            # `CreateDamageModifier` (famille `DamageModifierAbilityEffect`, forwarder ATTAQUANT).
+            # Le port les evalue ici parce que leur trigger est `OwnerIsTarget` (donc leur porteur
+            # est la CIBLE, la seule liste que cette boucle balaie), mais le natif verse leur
+            # contribution dans `attackModifiers`. Cf. `BaseEffect.DEFENSE_MALUS_NATIVE_FACE`.
+            mb.native_face = e.DEFENSE_MALUS_NATIVE_FACE
             maluses.append(mb)
         # #112 : axe PERCAGE porte par la CIBLE (`<Effect>.CreatePiercingBonusForAttack`, trigger
         # `OwnerIsTarget` -- ex. `Supercharge_ExtraPiercingEffect`). Slot d'interface DISTINCT ;
@@ -190,7 +201,11 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
     # Moitié DEFENSE (1re du natif) : chaque modification du DefenseComponent → entrée %-list `1±v/100`
     # via `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications` (negate=1). GROUND TRUTH #194/#197 (C2_19,
     # tuile Thorns −50 → ×1.5 en prédiction ET en combat réel, mesuré live). No-op si defense_stat None/no-mod.
-    for eb in calculate_modifiers_from_stat_modifications(defense_stat, negate=True):
+    # `native_face="defender"` (#437-r1-r1-r1) : ce fold est celui de `CalculateDefenderModifiers
+    # ForPrediction` lui-meme, donc `defenseModifiers.Multiplier@0x30` -- c'est deja ce que faisait
+    # le site de fusion en aval ; la face est simplement DITE a l'entree au lieu d'etre deduite.
+    for eb in calculate_modifiers_from_stat_modifications(defense_stat, negate=True,
+                                                          native_face="defender"):
         add_modifier(acc, eb)
     return acc
 
@@ -537,6 +552,7 @@ def aura_attack_damage_malus_from_enemies(carriers, ctx) -> list:
         for e in _as_effects(c[-1]):
             eb = e.create_aura_attack_damage_malus_for_enemy(octx)
             if eb is not None:
+                eb.native_face = e.AURA_ATTACK_MALUS_NATIVE_FACE     # #437-r1-r1-r1
                 out.append(eb)
     return out
 
@@ -574,6 +590,7 @@ def aura_attack_damage_bonus_from_allies(carriers, ctx) -> list:
         for e in _as_effects(c[-1]):
             eb = e.create_aura_attack_damage_bonus_for_ally(octx)
             if eb is not None:
+                eb.native_face = e.AURA_ATTACK_BONUS_NATIVE_FACE     # #437-r1-r1-r1
                 out.append(eb)
     return out
 
@@ -599,6 +616,10 @@ def aura_defense_damage_malus_from_units(carriers, ctx) -> list:
         for e in _as_effects(c[-1]):
             eb = e.create_aura_defense_damage_malus_for_ally(octx)
             if eb is not None:
+                # #437-r1-r1-r1 : cette boucle mirroire la moitie `EffectWithTarget` du builder
+                # DEFENSEUR, mais elle sert AUSSI des effets dont le natif implemente le slot
+                # ATTAQUANT (`DaughterOfTheAbyss_ExtraDamagePct`) -- la face vient de la classe.
+                eb.native_face = e.AURA_DEFENSE_MALUS_NATIVE_FACE
                 out.append(eb)
     return out
 
