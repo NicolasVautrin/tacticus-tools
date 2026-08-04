@@ -136,7 +136,29 @@ def _slots(sid, full):
     return got
 
 
-def step_vtable(sid):
+def step_vtable(sid, with_runner=True, extra=()):
+    """⚠ CE PAS EXIGE UN RUNNER VIVANT (mesure du 2026-08-04). Une vtable IL2CPP n'est materialisee
+    qu'apres `il2cpp_runtime_class_init`, et c'est
+    `IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects` qui INSTANCIE toutes les classes
+    d'effet -- au demarrage d'une bataille. Lance sans runner, le pas rend 3 classes materialisees
+    sur 36 (les residus d'une session anterieure) et la BASE abstraite pointe sur le stub de
+    remplissage paresseux `Unity.Burst.Unsafe$$AsRef` (qui ne retourne pas). Avec un runner vivant,
+    tout se resout."""
+    rid = None
+    if with_runner:
+        import probe_112_darkangels as PR
+        import probe_462_r4b_r1_r1_defender_additive_carriers as P0
+        rid = P0._build(sid, [P0.NEURO_CARRIER], [P0.NEURO_VICTIM])
+        print("[runner] %d monte pour MATERIALISER les vtables (InitializeEffects)" % rid)
+    try:
+        return _step_vtable_inner(sid, extra)
+    finally:
+        if rid is not None:
+            import probe_112_darkangels as PR
+            PR.dispose(sid, rid)
+
+
+def _step_vtable_inner(sid, extra=()):
     base = _slots(sid, BOND_BASE)
     print("BASE %s" % BOND_BASE)
     for off in SLOTS:
@@ -171,6 +193,14 @@ def step_vtable(sid):
         print("NON RESOLUES (aucun des 3 slots lisible) : %d" % len(unresolved))
         for full, err in unresolved:
             print("    %-72s %s" % (full, err))
+    for full in extra:
+        ns, cls = _split(full)
+        res = _r(sid, "resolveVtableSlot", {"ns": ns, "cls": cls, "start": 0x750, "end": 0x790}, 30)
+        print("")
+        print("SLOTS 0x750..0x790 de %s (les virtuels d'`APendingAttackEffect`)" % full)
+        for sl in (res.get("slots") or []):
+            print("    %-8s %-14s %s" % (sl.get("off"), sl.get("ghidraVA") or "(vide)",
+                                         sl.get("method")))
     return 0
 
 
@@ -554,7 +584,8 @@ def main():
     sid = _resolve_session()
     rc = 0
     if a.step in ("vtable", "all"):
-        rc |= step_vtable(sid)
+        rc |= step_vtable(sid, extra=("IdunBattle.Entities.Effects.Loki.ValkyrieStrikeEffect",
+                                      "IdunBattle.Entities.Effects.OwnerPendingAttackEffect"))
         print("")
     if a.step in ("declared", "all"):
         rc |= step_declared(sid)
