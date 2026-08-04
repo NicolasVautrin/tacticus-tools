@@ -53,26 +53,33 @@ Le `Il2CppClass*` lu est bien celui de la classe elle-même : le **même slot** 
 
 ---
 
-## 2. Le seuil — LU au `.cctor` de CHAQUE classe, et il n'est PAS uniforme
+## 2. Le seuil — le champ a DEUX écrivains, et le dernier vaut `Fix64(10)`
 
-| classe (`IdunBattle.AI.Playbook[.Loki]`) | `ability_id` (lu au `.ctor`) | `.cctor` | seuil |
+| classe (`IdunBattle.AI.Playbook[.Loki]`) | `ability_id` (lu au `.ctor`) | `.cctor` dérivé | seuil EFFECTIF |
 |---|---|---|---|
-| `BlightGrenadesPlaybook` | `0x498` = **1176** | oui | `Fix64(1)` |
-| `Loki.FlailSwingPlaybook` | `0x412` = **1042** | oui | `Fix64(1)` |
-| `Loki.MomentShacklePlaybook` | `0x4a0` = **1184** | oui | `Fix64(1)` |
-| `Loki.PlasmaCannonPlaybook` | `0x47e` = **1150** | oui | `Fix64(1)` |
-| `Loki.PlagueWindPlaybook` | `0x40b` = **1035** | non | `Fix64(0)` |
-| `Loki.ScythingTalonsPlaybook` | `0x429` = **1065** | non | `Fix64(0)` |
-| `Loki.SeekerMissileFrequencyLockPlaybook` | `0x42d` = **1069** | non | `Fix64(0)` |
-| `Loki.StaffOfStarsPlaybook` | `0x431` = **1073** | non | `Fix64(0)` |
-| `Loki.ScytheOfDustPlaybook` | `0x432` = **1074** | non | `Fix64(0)` |
-| `Loki.SuperchargePlaybook` | `0x44f` = **1103** | non | `Fix64(0)` |
-| `Loki.ExcruciatingFrequenciesPlaybook` | `0x4ad` = **1197** | non | `Fix64(0)` |
-| `Loki.AncestralFortunePlaybook` | `0x4b7` = **1207** | non | `Fix64(0)` |
+| `BlightGrenadesPlaybook` | `0x498` = **1176** | oui (`Fix64(1)`) | `Fix64(10)` |
+| `Loki.FlailSwingPlaybook` | `0x412` = **1042** | oui (`Fix64(1)`) | `Fix64(10)` |
+| `Loki.MomentShacklePlaybook` | `0x4a0` = **1184** | oui (`Fix64(1)`) | `Fix64(10)` |
+| `Loki.PlasmaCannonPlaybook` | `0x47e` = **1150** | oui (`Fix64(1)`) | `Fix64(10)` |
+| `Loki.PlagueWindPlaybook` | `0x40b` = **1035** | non | `Fix64(10)` |
+| `Loki.ScythingTalonsPlaybook` | `0x429` = **1065** | non | `Fix64(10)` |
+| `Loki.SeekerMissileFrequencyLockPlaybook` | `0x42d` = **1069** | non | `Fix64(10)` |
+| `Loki.StaffOfStarsPlaybook` | `0x431` = **1073** | non | `Fix64(10)` |
+| `Loki.ScytheOfDustPlaybook` | `0x432` = **1074** | non | `Fix64(10)` |
+| `Loki.SuperchargePlaybook` | `0x44f` = **1103** | non | `Fix64(10)` |
+| `Loki.ExcruciatingFrequenciesPlaybook` | `0x4ad` = **1197** | non | `Fix64(10)` |
+| `Loki.AncestralFortunePlaybook` | `0x4b7` = **1207** | non | `Fix64(10)` |
 
-Les **quatre** `.cctor` ont été décompilés **un par un** — aucun n'a été déduit du premier. Ils ont
-la même forme : `FixMath.NET.Fix64$$op_Implicit(1)` stocké à `**(klass + 0xb8)`, donc à l'offset 0
-des statics, exactement là où `ShouldExecute` lit.
+Les **quatre** `.cctor` dérivés ont été décompilés **un par un** — aucun n'a été déduit du premier.
+Ils ont la même forme : `FixMath.NET.Fix64$$op_Implicit(1)` stocké à `**(klass + 0xb8)`.
+
+⚠ **Ce n'est PAS le seuil.** Le même slot est écrit une seconde fois par
+`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$.cctor`
+(`op_Implicit(0xa)` = `Fix64(10)`), et cette écriture-là arrive en DERNIER. **Mesuré** sur deux
+identités aux `.cctor` OPPOSÉS : `1150` (qui déclare `Fix64(1)`) bascule dans
+`(9,9997062 ; 10,0002938]`, `1069` (qui n'en déclare aucun, donc `Fix64(0)`) dans
+`(9,9998703 ; 10,0001297]`. Détail, mécanisme et contre-épreuves :
+**`case-419-r1-tr14-r5-r2-r1-r1-r1-r2-r4-seuil-effectif.md`**.
 
 ### L'absence de `.cctor` est une MESURE, pas un grep négatif
 
@@ -190,45 +197,37 @@ Deux autres pièges, mesurés puis fermés, gardés ligne à ligne :
 | bras | PV cible | `u` (port) | montage | natif | port | contre-épreuve |
 |---|---|---|---|---|---|---|
 | `lo` | 4 000 000 | **0,0851** | frozen, dist 3, pas de plan normal, castable | refuse | **refuse** | **MORD** |
-| `mid` | 68 078 | **5,0** | idem | refuse | accepte | inerte |
+| `mid` | 68 078 | **5,0** | idem | refuse | **refuse** | **MORD** |
 | `hi` | 17 018 | **20,0** | idem | **`ActiveAbilityMessage(1150)`** | accepte | inerte |
 
-* **A (le sens qui compte)** : le port ne refuse JAMAIS ce que le natif choisit — **3/3**. Les deux
-  canaux ne mesurent pas la même chose (`aiDryRunAllUnits` rend l'action GAGNANTE, le port rend
-  « une action EXISTE ») : c'est le seul accord exigible ligne à ligne, et le sens de divergence le
-  plus grave — un port RESTRICTIF ferait perdre à l'entraînement une action que le jeu joue.
-* **B** : le gate mord en `lo` et **nulle part ailleurs**.
+* **A (accord PLEIN)** : natif et port s'accordent DANS LES DEUX SENS, 3/3. C'est ce que la
+  correction de seuil (`-r4`) a acheté : avec le seuil `Fix64(1)` initialement porté, le bras `mid`
+  était PERMISSIF (le port acceptait, le natif refusait) et seul le sens « le port ne refuse jamais
+  ce que le natif choisit » était exigible.
+* **B** : le gate mord partout SOUS le seuil (`lo`, `mid`) et nulle part au-dessus.
 * **C (le témoin)** : à `u = 20` le natif émet bel et bien `ActiveAbilityMessage(1150)`. Sans lui, le
-  refus du bras `lo` se lirait aussi bien comme « cette ability n'est de toute façon jamais
+  refus des bras `lo`/`mid` se lirait aussi bien comme « cette ability n'est de toute façon jamais
   proposée ».
 * **D (contre-épreuve)** : `should_execute` remis au défaut de la base — STRICTEMENT le port d'avant
-  cette tranche — MORD sur `lo` et reste INERTE sur `mid` et `hi`. L'inertie est la réciproque : un
-  port qui déborderait ferait bouger les autres bras.
+  cette tranche — MORD sur `lo` et `mid`, et reste INERTE sur `hi`. L'inertie est la réciproque : un
+  port qui déborderait ferait bouger le bras `hi`.
 
-### 4.4 Ce que la mesure NE conclut PAS — l'écart permissif résiduel
+### 4.4 Le point de bascule NATIF — tranché par `-r4`
 
-**Le natif ne bascule qu'entre `u = 5` et `u = 20`**, donc bien AU-DESSUS du seuil `Fix64(1)` lu au
-`.cctor`. Dichotomie, même montage : refus à `u_port` = 0,085 / 0,5 / 2,0 / 5,0 / 7,5 / 10,0 ;
-acceptation à 15,0 et 20,0. La prédiction du port est stable sur tout le balayage
-(`healthDmgMin = 2724`, `healthDmgMax = 4083`, ni `kill` ni `killSure`), donc le point de bascule
-n'est pas un artefact de prédiction variable.
+Le natif ne bascule qu'entre `u = 5` et `u = 20`, très au-dessus du `Fix64(1)` lu au `.cctor`
+dérivé. Trois lectures étaient possibles, et cette tranche-ci ne les séparait pas :
 
-Trois lectures possibles, et **la mesure ne les sépare pas** :
+1. le port SURESTIME `u` (divergence de PRÉDICTION, hors gate) — **RÉFUTÉE** : `pairUtility` (le
+   `CalculateUtilityFromPredictions` NATIF) rend `0,08509995` / `5,000000005` / `19,999999995` et
+   `aiPlaybookPredict` rend la MÊME liste d'events que le port ;
+2. un filtre vit AU-DESSUS du playbook — **RÉFUTÉE** : le prédicat de `Bucket$$AddAction` /
+   `$$ChooseAction` est `Bucket$$IsValidAction`, et les DEUX buckets du chemin
+   `ActiveAbilityActionGenerator` ont un seuil inerte ;
+3. le seuil effectif n'est pas celui du `.cctor` dérivé — **CONFIRMÉE**. Le slot a un SECOND
+   écrivain, `ComparablePlaybook<T>$$.cctor`, qui y met `Fix64(10)` en DERNIER.
 
-1. le port SURESTIME `u` d'un facteur ~12 (divergence de PRÉDICTION, hors gate) ;
-2. un filtre vit AU-DESSUS du playbook ;
-3. le seuil effectif n'est pas celui du `.cctor` — la moins probable, il est lu deux fois.
-
-La lecture (2) a un **ancrage nommé**, trouvé au décompilé :
-`IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` applique un
-prédicat sur l'action **AVANT** de l'insérer dans le bucket (l'appel indirect sur `<ctx+0xc0>+0x40`,
-avant même la comparaison `Fix64$$op_GreaterThan` des utilités), et
-`…Bucket…$$ChooseAction` le **ré-applique** au choix final. Un gate d'action au-dessus du playbook
-expliquerait exactement le décalage.
-
-**Ce que l'on peut affirmer, et c'est ce qui compte pour la livraison** : l'écart restant est
-**PERMISSIF, jamais restrictif**, et il est **ANTÉRIEUR** à cette tranche — sans gate, le port
-acceptait AUSSI à `u = 0,085`. La tranche **réduit strictement** l'écart. Résidu `-r2-r4`.
+Le seuil effectif est donc **10**, encadré à 3·10⁻⁵ sur deux identités aux `.cctor` opposés.
+Détail : **`case-419-r1-tr14-r5-r2-r1-r1-r1-r2-r4-seuil-effectif.md`**.
 
 ---
 
@@ -246,16 +245,13 @@ acceptait AUSSI à `u = 0,085`. La tranche **réduit strictement** l'écart. Ré
 
 ## 5. Ce qui n'est PAS couvert
 
-* **Une seule des douze identités est confrontée live** (`1150 PlasmaCannon`). Les onze autres
-  partagent le MÊME corps natif et le MÊME objet Python : ce qui est confronté est le **corps**,
-  pas chaque identité. Leur seule spécificité est l'`ability_id` et la valeur du static, tous deux
-  lus au décompilé et gardés par un cran offline.
-* **Le seuil `Fix64(1)` n'est pas séparé de `Fix64(0)` par la mesure live.** Le témoin par ability
-  (une seuil-0 dans le même bras) exigeait un second caster montable, et il n'y en a pas : sans
-  `Teleport`, aucun porteur seuil-0 n'atteint la fenêtre de distance requise (§4.2). La valeur du
-  seuil repose donc sur les **deux lectures indépendantes du `.cctor`**, pas sur le live.
-* **La comparaison STRICTE (`utility == seuil` refusé) n'est pas confrontée live** : elle ne mord
-  qu'à l'égalité flottante exacte. Cran de source uniquement.
+* **Deux des douze identités sont confrontées live** (`1150 PlasmaCannon` ici, `1069
+  SeekerMissileFrequencyLock` greffée dans `-r4`). Les dix autres partagent le MÊME corps natif et
+  le MÊME objet Python : ce qui est confronté est le **corps**, pas chaque identité. Leur seule
+  spécificité est l'`ability_id`, lu au décompilé et gardé par un cran offline.
+* **La comparaison STRICTE (`utility == seuil` refusé) n'est pas confrontée live** : à l'égalité
+  exacte, le natif (Fix64 Q32.32) et le port (flottant) ne calculent pas le même `u` à 10⁻⁹ près —
+  régime mesuré et nommé dans la fiche `-r4` §5.1. Cran de source uniquement.
 * **Un seul board, un seul seed, une seule cible.** Ni le gate ni le seuil ne lisent le terrain ou
   le RNG, mais le point de bascule NATIF (§4.4) n'a été localisé que dans cette configuration.
 * **`1073 StaffOfStars` et `1074 ScytheOfDust` : aucun porteur recensé** — cf. résidu `-r2-r3`.
@@ -282,15 +278,10 @@ acceptait AUSSI à `u = 0,085`. La tranche **réduit strictement** l'écart. Ré
   `1074 ScytheOfDust` rendent **0 unité** sur les cinq voies dérivables du gameconfig. Le zéro ne
   prouve pas la mort (quatre voies non couvertes : trait, live-event, summon, tuile) et le port du
   gate est le MÊME objet que pour les dix autres — mais ces deux identités sont **NON CONFRONTÉES**.
-* **`-r2-r4` — le point de bascule NATIF est ~12× au-dessus du seuil lu (§4.4), cause non
-  tranchée.** Ancrage à lire :
-  `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` et
-  `…Bucket…$$ChooseAction`, qui appliquent tous deux un prédicat sur l'action (appel indirect via
-  `<ctx+0xc0>+0x40`) avant respectivement l'insertion et le choix. Ce qui le trancherait sans
-  nouveau capteur : lire ce prédicat au décompilé, et confronter la prédiction de dégât native de
-  `1150` à celle du port (`healthDmgMin = 2724` / `healthDmgMax = 4083`) — le facteur ~12 est du
-  même ordre que ce qu'une prédiction fausse produirait. **L'écart est PERMISSIF** : il ne peut pas
-  faire perdre une action, seulement en proposer une de trop.
+* **`-r2-r4` — FERMÉ.** Le point de bascule natif est celui de `ShouldExecute` : son seuil vaut
+  `Fix64(10)`, pas `Fix64(1)`. Les deux causes concurrentes sont réfutées (§4.4). Les résidus
+  qu'ouvre cette résolution — `BloodChalice`/`CultDemagogue`, le chemin NON-comparable du prédicat
+  de bucket — sont nommés dans `case-419-r1-tr14-r5-r2-r1-r1-r1-r2-r4-seuil-effectif.md` §8.
 
 ---
 
