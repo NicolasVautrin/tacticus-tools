@@ -23,6 +23,14 @@ TRI-ETAT, partout ou la mesure peut ne pas avoir lieu (lecon de `host_inputs.py`
 etats differents, et les confondre est exactement ce qui fait qu'un capteur mort se lit comme
 « rien a signaler ».
 
+ET UNE PANNE PORTE SON NOM (#467-r6). Un capteur qui ne sait pas nommer sa panne fait corriger la
+MAUVAISE cause : l'incident du 2026-08-04 a ete diagnostique « `gh` absent du PATH » alors que le
+PATH etait identique sous `pwsh` et sous le `powershell.exe -NoProfile` du hook, et que la cause
+etait le BUDGET. Toutes les pannes retombaient sur la meme sentinelle `rc=127`. Elles sont
+desormais distinctes A LA LECTURE, des deux cotes : `gh` (introuvable / delai depasse / erreur
+systeme / non authentifie -- cf. `_cause_gh`) et git (`cause_git`). Et la sentinelle `RC_MUET`
+subsiste comme SIGNAL comparable, jamais comme cause.
+
 MEME REGLE SUR L'AXE DU TEMPS -- A QUOI un verdict de banque s'applique (#472). Un chiffre juste
 sur un commit qui n'est plus la pointe est un chiffre FAUX sur la pointe. MESURE le 2026-08-04,
 trois tours consecutifs : le hook a repete `verdict de banque afb3e209 rc=1 [ROUGE (1)]` alors que
@@ -142,21 +150,61 @@ class Sources:
         # avait ete retire : c'est un parametre distinct, donc un reglage explicite a la
         # baisse reste honore. La politique de defaut vit dans `main`.
         self.timeout_gh = timeout if timeout_gh is None else timeout_gh
+        # La CAUSE de la derniere panne de sous-process, par sous-commande. Ecrit depuis les
+        # threads de `etat()`, mais chaque sous-commande n'est lancee qu'UNE fois par run et
+        # ecrit donc SA propre cle : pas de course, et une affectation de dict est atomique.
+        self._pannes: dict[str, str] = {}
 
     # -- processus
-    #    RC_MUET : le process n'a pas repondu (timeout, binaire absent). Ce n'est PAS un
-    #    verdict -- chaque appelant le traite comme « pas mesure », jamais comme un zero.
+    #    RC_MUET : le process n'a pas repondu du tout. Ce n'est PAS un verdict -- chaque
+    #    appelant le traite comme « pas mesure », jamais comme un zero. Mais ce n'est pas non
+    #    plus une CAUSE : il en couvre plusieurs, et c'est exactement le vice de #467-r6 (trois
+    #    pannes de `gh` derriere un `rc=127`). Le rc reste donc le SIGNAL (comparable), et la
+    #    cause part en PARALLELE dans `_pannes`, d'ou `cause_git` la ressort pour l'humain.
     RC_MUET = 127
 
-    def _run(self, argv: list[str], timeout: float | None = None) -> tuple[int, str]:
+    def _run(self, argv: list[str], timeout: float | None = None,
+             cle: str | None = None) -> tuple[int, str]:
         """Ne LEVE jamais. Un outil de fin de tour qui plante casse le tour."""
+        budget = timeout or self.timeout
         try:
             p = subprocess.run(argv, cwd=str(self.repo), capture_output=True, text=True,
-                               timeout=timeout or self.timeout, encoding="utf-8",
-                               errors="replace")
-        except (OSError, subprocess.SubprocessError):
+                               timeout=budget, encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            # `%g` et non `%.0f` : un budget sous la seconde s'affichait << 0 s >>, ce qui se
+            # lit comme un bug de l'outil plutot que comme le reglage qu'il est.
+            self._note(cle, "delai depasse (%g s)" % budget)
+            return self.RC_MUET, ""
+        except (OSError, subprocess.SubprocessError) as ex:
+            self._note(cle, "%s: %s" % (type(ex).__name__, str(ex)[:60]))
             return self.RC_MUET, ""
         return p.returncode, (p.stdout or "")
+
+    def _note(self, cle: str | None, cause: str) -> None:
+        if cle:
+            self._pannes[cle] = cause
+
+    def cause_git(self, rc: int, sous_commande: str) -> str:
+        """Le NOM de la panne du dernier `git <sous_commande>`, jamais une sentinelle nue.
+
+        Une cause ENREGISTREE veut dire que le process n'a produit AUCUN rc : elle est donc
+        toute la verite, et elle prime. Sinon git a repondu, et `rc=<n>` est toute la verite.
+        Aucun des deux chemins ne rend un code qui a l'air d'un verdict sans en etre un.
+
+        La cle est la SOUS-COMMANDE, et c'est suffisant ICI : les trois seuls rc RENDUS a
+        l'humain viennent de `status`, `rev-list` et `worktree`, tous distincts. `merge-base`
+        est bien appele deux fois, mais son rc n'est jamais rendu -- il n'est lu que comme
+        comparaison (`== 0`, `== 1`, `== RC_MUET`).
+        """
+        panne = self._pannes.get(sous_commande)
+        if panne is not None:
+            return panne
+        # Reste le cas ou le rc VAUT la sentinelle sans qu'aucune cause n'ait ete enregistree :
+        # une source SUBSTITUEE (les cliquets), ou -- theoriquement -- un vrai `git` sortant en
+        # 127. On ne rend alors surtout pas `rc=127` tout nu, qui se lirait comme un verdict de
+        # git : on dit l'absence de reponse ET l'absence de cause.
+        return ("n'a pas repondu (rc=%d, cause non enregistree)" % rc
+                if rc == self.RC_MUET else "rc=%d" % rc)
 
     def git(self, *args: str) -> tuple[int, str]:
         """`--no-optional-locks` est pose au FOYER, jamais au site d'appel (#474).
@@ -176,7 +224,8 @@ class Sources:
         ne prennent pas de lock optionnel (mesure : seuls `status` et `describe --dirty`
         en prennent un ; `diff`, `ls-files`, `rev-parse`, `worktree list` n'en prennent pas).
         """
-        return self._run(["git", "-C", str(self.repo), "--no-optional-locks", *args])
+        return self._run(["git", "-C", str(self.repo), "--no-optional-locks", *args],
+                         cle=args[0] if args else None)
 
     # Emplacements d'installation connus de `gh` sous Windows, essayes APRES le PATH.
     _GH_CONNUS = (
@@ -210,8 +259,22 @@ class Sources:
                 return p
         return None
 
-    def gh(self, *args: str) -> tuple[int, str]:
+    def gh(self, *args: str) -> tuple[int, str, str]:
         """Le SEUL poste RESEAU. Sa panne est NOMMEE, jamais reduite a un `rc=127`.
+
+        Rend `(rc, stdout, STDERR)`. Le stderr n'est pas un supplement : c'est LE seul texte
+        qui nomme la panne, et ce lecteur le JETAIT (`return p.returncode, p.stdout`). Mesure
+        du 2026-08-05 sur l'exe installe (gh 2.88.1), qui tranche le sujet -- `rc=1` couvre a
+        lui seul le token invalide, le depot inconnu et l'erreur d'usage :
+
+            non authentifie   rc=4  << To get started with GitHub CLI, please run: gh auth login >>
+            token invalide    rc=1  << HTTP 401: Bad credentials (https://api.github.com/graphql) >>
+            depot inconnu     rc=1  << GraphQL: Could not resolve to a Repository ... >>
+            commande inconnue rc=1
+
+        LE RC NE SUFFIT DONC PAS A NOMMER LA PANNE. Une table rc -> libelle, ecrite de tete,
+        aurait rendu << erreur >> pour ces trois-la : c'est le meme aveuglement qu'un `rc=127`
+        partage, une couche plus haut. Cf. `_cause_gh`.
 
         Son budget est le SIEN (`timeout_gh`), pas le budget general : le plancher
         `max(self.timeout, 12.0)` reste proscrit (il ANNULAIT tout reglage a la baisse),
@@ -234,16 +297,22 @@ class Sources:
             raise RuntimeError("gh desactive")
         exe = self.exe_gh()
         if exe is None:
-            raise RuntimeError("gh introuvable (PATH + emplacements connus)")
+            # DEUX absences distinctes, et les confondre nomme la mauvaise cause : une
+            # echappatoire posee sur un chemin mort n'a JAMAIS regarde le PATH, donc dire
+            # « PATH + emplacements connus » serait faux -- exactement la faute de #467-r6.
+            force = os.environ.get("TACTICUS_GH_EXE")
+            raise RuntimeError("gh introuvable : TACTICUS_GH_EXE=%s n'existe pas" % force
+                               if force else
+                               "gh introuvable (PATH + emplacements connus)")
         try:
             p = subprocess.run([exe, *args], cwd=str(self.repo), capture_output=True,
                                text=True, timeout=self.timeout_gh, encoding="utf-8",
                                errors="replace")
         except subprocess.TimeoutExpired:
-            raise RuntimeError("gh: delai depasse (%.0f s)" % self.timeout_gh) from None
+            raise RuntimeError("gh: delai depasse (%g s)" % self.timeout_gh) from None
         except (OSError, subprocess.SubprocessError) as ex:
-            raise RuntimeError("gh: %s" % type(ex).__name__) from None
-        return p.returncode, (p.stdout or "")
+            raise RuntimeError("gh: %s: %s" % (type(ex).__name__, str(ex)[:60])) from None
+        return p.returncode, (p.stdout or ""), (p.stderr or "")
 
     # -- http
     def http_json(self, chemin: str) -> dict:
@@ -383,6 +452,57 @@ def _porcelain_worktrees(sortie: str) -> list[dict]:
     return out
 
 
+# Les codes de sortie de `gh` que l'on sait NOMMER. Table courte DELIBEREMENT : elle ne porte
+# que ce qui a ete MESURE sur l'exe installe (gh 2.88.1, 2026-08-05), et la mesure dit surtout
+# que `1` n'est PAS nommable -- il couvre le token invalide (HTTP 401), le depot inconnu
+# (GraphQL) et l'erreur d'usage. Y ecrire « 1: erreur » donnerait un mot a la place d'une cause,
+# ce qui est pire que rien : c'est ce genre d'etiquette qui a fait diagnostiquer #467-r6 a
+# l'envers. Pour tous les autres codes, le NOM vient du stderr de `gh`, qui, lui, sait.
+_GH_RC_NOMME = {2: "annule", 4: "non authentifie (gh auth login)"}
+
+
+def _tete(texte: str) -> str:
+    """La premiere ligne NON VIDE, bornee. C'est la que `gh` met son diagnostic."""
+    return next((l.strip() for l in (texte or "").splitlines() if l.strip()), "")[:90]
+
+
+def _cause_gh(rc: int, err: str) -> str:
+    """Le NOM d'un echec de `gh`, jamais un code nu.
+
+    Deux apports INDEPENDANTS, et il faut les deux : l'etiquette du rc quand elle existe
+    (`4` = non authentifie -- mesure, pas doc recopiee), et la premiere ligne du stderr, qui
+    est le seul discriminant des trois causes qui partagent `rc=1`.
+    """
+    nom = _GH_RC_NOMME.get(rc)
+    base = "gh: %s [rc=%d]" % (nom, rc) if nom else "gh: rc=%d" % rc
+    tete = _tete(err)
+    return "%s -- %s" % (base, tete) if tete else base
+
+
+def _prs_du_json(out: str, err: str) -> list:
+    """La liste de PR, ou une LEVEE NOMMEE. `rc=0` ne suffit pas a conclure « zero PR ».
+
+    `json.loads(out or "[]")` fabriquait un zero : sortie vide + `rc=0` devenait une liste
+    vide, donc `PR ouvertes : 0` RENDU COMME UNE MESURE. C'est le zero interdit -- il n'a
+    meme pas besoin d'une panne pour apparaitre, une reponse tronquee suffit.
+    """
+    brut = (out or "").strip()
+    if not brut:
+        return _leve_gh("gh: sortie VIDE malgre rc=0", err)
+    try:
+        prs = json.loads(brut)
+    except ValueError:
+        return _leve_gh("gh: sortie ILLISIBLE malgre rc=0 (%d octets)" % len(brut), err)
+    if not isinstance(prs, list):
+        return _leve_gh("gh: sortie INATTENDUE (%s, pas une liste)" % type(prs).__name__, err)
+    return prs
+
+
+def _leve_gh(quoi: str, err: str) -> list:
+    tete = _tete(err)
+    raise RuntimeError("%s -- %s" % (quoi, tete) if tete else quoi)
+
+
 def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None, str | None]:
     """(PR ouvertes, refs des PR mergees, mergees_mesuree, age du cache en s, cause du repli).
 
@@ -393,7 +513,9 @@ def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None, str | N
     Tri-etat sur les OUVERTES : `gh` absent ou hors ligne => PAS MESURE, jamais « 0 PR » --
     c'est la difference entre « plus rien a relire » et « je n'ai pas pu demander ». Le REPLI
     (#467-r6) n'entame pas cette regle : il ne peut que remplacer une IGNORANCE par une mesure
-    horodatee PORTANT une PR ouverte. Aucun chemin de cette fonction ne fabrique un zero.
+    horodatee PORTANT une PR ouverte. Aucun chemin de cette fonction ne fabrique un zero --
+    y compris le chemin SANS PANNE : un `rc=0` a sortie vide ou tronquee ne devient pas une
+    liste vide, il part en PAS MESURE avec sa cause (cf. `_prs_du_json`).
     """
     cache = src.lire_cache_gh()
     repli: str | None = None
@@ -401,14 +523,17 @@ def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None, str | N
         prs, age = cache
     else:
         try:
-            rc, out = src.gh("pr", "list", "--state", "all", "--limit", "120",
-                             "--json", "number,title,headRefName,isDraft,state")
+            rc, out, err = src.gh("pr", "list", "--state", "all", "--limit", "120",
+                                  "--json", "number,title,headRefName,isDraft,state")
             if rc != 0:
-                raise RuntimeError("gh: rc=%d" % rc)
-            prs, age = json.loads(out or "[]"), 0.0
+                raise RuntimeError(_cause_gh(rc, err))
+            prs, age = _prs_du_json(out, err), 0.0
             src.ecrire_cache_gh(prs)
         except Exception as e:                               # noqa: BLE001
-            cause = str(e)[:80]
+            # 140, pas 80 : la cause NOMMEE vaut au plus 42 (etiquette + rc) + 4 + 90 (tete du
+            # stderr). Trancher a 80 amputait precisement le texte de `gh` qui nomme la panne,
+            # c'est-a-dire ce que ce correctif ajoute.
+            cause = str(e)[:140]
             try:
                 vieux = src.lire_cache_gh_repli()
             except Exception:                                # noqa: BLE001
@@ -474,8 +599,11 @@ def mesurer_livraison(src: Sources) -> dict:
     d["gh_repli"] = gh_repli
 
     if rc != 0:
+        # `cause_git` et non `rc=%d` : sous `--hook`, ce poste dispose de 3 s et il a deja ete
+        # mesure a 4,29 s sous charge (#467). Le lecteur doit pouvoir distinguer « budget
+        # depasse » de « git absent » -- c'est la lecon de #467-r6, sur l'autre capteur.
         for k in ("branche", "avance", "suivis_sales", "non_suivis", "non_suivis_inconnus"):
-            d[k] = _ko("git status --porcelain=v2", "rc=%d" % rc)
+            d[k] = _ko("git status --porcelain=v2", src.cause_git(rc, "status"))
     else:
         entetes, suivis, inconnus, connus = {}, [], [], 0
         for ln in out.splitlines():
@@ -512,12 +640,13 @@ def mesurer_livraison(src: Sources) -> dict:
         else:
             rc2, out2 = src.git("rev-list", "--count", "origin/master..HEAD")
             d["avance"] = (_ok(int(out2.strip() or 0), "git rev-list origin/master..HEAD")
-                           if rc2 == 0 else _ko("git rev-list", "rc=%d" % rc2))
+                           if rc2 == 0
+                           else _ko("git rev-list", src.cause_git(rc2, "rev-list")))
 
     # -- worktrees d'agents, et lesquels sont NETTOYABLES
     if rc_wt != 0:
-        d["worktrees"] = _ko("git worktree list", "rc=%d" % rc_wt)
-        d["nettoyables"] = _ko("git worktree list", "rc=%d" % rc_wt)
+        d["worktrees"] = _ko("git worktree list", src.cause_git(rc_wt, "worktree"))
+        d["nettoyables"] = _ko("git worktree list", src.cause_git(rc_wt, "worktree"))
         branches_agents: dict[str, str] = {}
     else:
         wts = [w for w in _porcelain_worktrees(out_wt)
@@ -751,7 +880,7 @@ def mesurer_banque(src: Sources, journal: dict) -> dict:
     pointe = out_p.strip().splitlines()[0].strip() if (rc_p == 0 and out_p.strip()) else ""
     m_pointe = (_ok(pointe, "git rev-parse HEAD") if pointe
                 else _ko("git rev-parse HEAD",
-                         "rc=%d" % rc_p if rc_p != 0 else "sortie vide"))
+                         src.cause_git(rc_p, "rev-parse") if rc_p != 0 else "sortie vide"))
 
     dossier = src.dossier_verdicts()
     d_runs = src.dossier_runs()
@@ -897,6 +1026,23 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
                           % (fl["libres"].valeur, en_vol, fl["plafond"])))
     if not fl["en_vol"].mesuree:
         sig.append(Signal("flotte-inconnue", "flotte NON MESUREE (%s)" % fl["en_vol"].erreur))
+
+    # UN CAPTEUR MORT NE DOIT PAS SE LIRE << rien a signaler >>. La flotte avait ce garde
+    # (juste au-dessus), la LIVRAISON ne l'avait pas : un `git status` qui depasse les 3 s du
+    # hook rendait `push`, `sale` et `nettoyage` muets D'UN BLOC, sans un mot. C'est #467-r6
+    # sur l'autre capteur -- la panne existait, elle est meme NOMMEE depuis, mais personne ne
+    # la lisait.
+    #
+    # POURQUOI ICI ET PAS POUR `gh` : le critere n'est pas le capteur, c'est CE QU'IL PORTE.
+    # L'axe git porte trois SIGNAUX (des gestes a poser) ; `gh` ne porte que du CONTEXTE (la
+    # ligne PR), dont l'ignorance s'affiche deja a cote des chiffres et n'appelle aucun geste.
+    # Alarmer sur une panne reseau a chaque tour ferait desarmer le hook -- exactement ce que
+    # ce fichier evite depuis le debut.
+    morts = [(c, lv[c].erreur) for c in ("avance", "suivis_sales", "worktrees")
+             if not lv[c].mesuree]
+    if morts:
+        sig.append(Signal("livraison-inconnue", "livraison NON MESUREE : %s"
+                          % ", ".join("%s (%s)" % (c, e) for c, e in morts)))
 
     if avance:
         sig.append(Signal("push", "%d commit(s) non pousse(s) sur origin/master (branche %s)"
@@ -1113,6 +1259,28 @@ def _sortie_ascii(s: str) -> str:
     return s.encode("ascii", "replace").decode("ascii")
 
 
+def _budget(arg: float | None, env: str, defaut: float) -> float:
+    """Un budget est un PARAMETRE : drapeau, puis variable d'environnement, puis defaut mesure.
+
+    L'ENV n'est pas du confort. Le seul chemin qui compte est le hook, et son wrapper
+    (`scripts/hooks/loop-status.ps1`) ne passe QUE `--hook` : sans variable, un budget ne se
+    regle qu'en EDITANT ce fichier. C'est le meme patron que `TACTICUS_DISPATCH_CAP`, pour la
+    meme raison -- la valeur reste visible et surchargeable au lieu de vivre en dur.
+
+    Une surcharge ILLISIBLE retombe sur le defaut : ce module est un garde-fou de fin de tour,
+    il ne casse pas un tour pour une faute de frappe dans une variable.
+    """
+    if arg is not None:
+        return arg
+    brut = os.environ.get(env)
+    if brut:
+        try:
+            return float(brut)
+        except ValueError:
+            pass
+    return defaut
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--hook", action="store_true",
@@ -1125,9 +1293,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-host", action="store_true", help="ne pas interroger le host Frida")
     # Defauts RESOLUS plus bas : sous `--hook` on serre le timeout et on allonge le cache --
     # un hook synchrone ne doit jamais immobiliser un tour pour une reponse GitHub lente.
-    ap.add_argument("--timeout", type=float, default=None)
+    ap.add_argument("--timeout", type=float, default=None,
+                    help="budget des sous-process locaux (env TACTICUS_LOOP_TIMEOUT)")
     ap.add_argument("--timeout-gh", type=float, default=None,
-                    help="budget PROPRE de `gh`, en secondes (defaut : 10 sous --hook, 12 sinon)")
+                    help="budget PROPRE de `gh`, en secondes (defaut : 10 sous --hook, 12 "
+                         "sinon ; env TACTICUS_LOOP_GH_TIMEOUT)")
     ap.add_argument("--ttl-cache", type=float, default=None,
                     help="duree de vie du cache GitHub, en secondes (0 = pas de cache)")
     ap.add_argument("--ack", action="store_true",
@@ -1165,7 +1335,7 @@ def main(argv: list[str] | None = None) -> int:
 
     plafond = (a.max_agents if a.max_agents is not None
                else int(os.environ.get("TACTICUS_DISPATCH_CAP", PLAFOND_DISPATCH)))
-    timeout = a.timeout if a.timeout is not None else (3.0 if a.hook else 8.0)
+    timeout = _budget(a.timeout, "TACTICUS_LOOP_TIMEOUT", 3.0 if a.hook else 8.0)
     ttl = a.ttl_cache if a.ttl_cache is not None else (300.0 if a.hook else 90.0)
     # `gh` a son propre budget, et il est LARGE la ou le budget general est SERRE. Les deux
     # repondent a des risques opposes : le budget general borne des sous-process LOCAUX (git,
@@ -1175,7 +1345,7 @@ def main(argv: list[str] | None = None) -> int:
     # Le mur reste tenu de deux cotes : le hook `Stop` dispose de 20 s cote Claude Code
     # (`.claude/settings.json`), et le cache de 300 s fait que `gh` n'est appele qu'une fois
     # par tranche de 5 minutes.
-    timeout_gh = a.timeout_gh if a.timeout_gh is not None else (10.0 if a.hook else 12.0)
+    timeout_gh = _budget(a.timeout_gh, "TACTICUS_LOOP_GH_TIMEOUT", 10.0 if a.hook else 12.0)
     src = Sources(repo=Path(a.repo), host=a.host, timeout=timeout,
                   avec_gh=not a.no_gh, avec_host=not a.no_host, ttl_cache=ttl,
                   timeout_gh=timeout_gh)

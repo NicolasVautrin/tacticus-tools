@@ -325,6 +325,12 @@ nettoyables, PR ouvertes, session Frida, drain, et **`liveRunners`** (le budget 
   `--no-merged origin/master` sur les remotes rend **79** branches pour **1** PR ouverte (elles
   survivent au squash-merge), et le filtre de fraîcheur qui la sauverait rate les PR *anciennes*,
   les plus oubliables.
+  ⚠ **Et un `rc` ne NOMME rien** — mesuré sur `gh 2.88.1` : `rc=1` couvre à lui seul le token
+  invalide (HTTP 401), le dépôt inconnu (GraphQL) et l'erreur d'usage ; `4` = non authentifié. Seul
+  le **stderr** les sépare, et le lecteur le **jetait**. Une table `rc -> libellé` aurait rendu un
+  *mot* à la place d'une *cause*. Même vice côté **git**, où `RC_MUET` couvrait délai dépassé et
+  erreur système sur le capteur qui court sous les 3 s du hook. Et nommer ne suffit pas s'il n'y a
+  personne pour lire : un `git status` en échec rendait `push`/`sale`/`nettoyage` muets d'un bloc.
 - ⚠ **Un repli sur cache peut SIGNALER, jamais RASSURER.** Servi quand `gh` est muet, il n'est
   retenu que s'il porte une PR **ouverte** : un cache disant « 0 PR » ne prouve rien, et le rabattre
   en mesure ferait taire l'outil sur une PR ouverte depuis. Aucun chemin ne fabrique un zéro.
