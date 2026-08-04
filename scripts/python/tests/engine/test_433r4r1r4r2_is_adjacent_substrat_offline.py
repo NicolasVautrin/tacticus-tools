@@ -123,6 +123,22 @@ def test_tuile_hors_canal_retombe_sur_la_geometrie_pour_ELLE_SEULE():
     assert bq.is_adjacent(B, A, bd.elev_by_pos(), partiel) is False    # B, lui, reste gate
 
 
+def test_une_CARTE_vide_ne_restreint_RIEN():
+    """LE chemin par lequel une regression RESTRICTIVE pourrait passer, et il est reel :
+    `ai/state_bridge.py::_board_topology_maps` rend `{}` (et non `None`) quand le board est
+    absent, et l'`AiDecisionContext` transporte ce `{}` tel quel. Si le foyer decidait sur la
+    VERITE du dict plutot que sur la presence de la CLE, toutes les tuiles deviendraient isolees
+    d'un coup -- un faux negatif d'adjacence massif, qui SUPPRIME des actions legales.
+
+    Le tri-etat par CLE est ce qui l'empeche : `{}` n'a aucune cle, donc chaque tuile retombe sur
+    son repli geometrique, c'est-a-dire sur le comportement d'AVANT."""
+    bd = _board(coupe=[(A, B)])
+    for carte_vide in ({}, dict()):
+        assert bq.is_adjacent(A, B, bd.elev_by_pos(), carte_vide) is True
+        assert bq.is_adjacent(A, AUTRE, bd.elev_by_pos(), carte_vide) is True
+    assert bq.count_adjacent(A, [B, AUTRE], bd.elev_by_pos(), {}) == 2
+
+
 def test_liste_stockee_VIDE_isole_la_tuile():
     """`foreach` sur une liste vide ne yield rien : une tuile dont le champ `neighbours` est
     present et VIDE n'a aucun voisin. C'est un etat REEL (mesure `C1_74` : deux `Water` dont tous
