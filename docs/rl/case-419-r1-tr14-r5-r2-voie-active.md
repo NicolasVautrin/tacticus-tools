@@ -319,7 +319,11 @@ exécution » est ce qui a évité de lire ce vert comme une mesure.
   une source de rang supérieur. Elle a ouvert deux résidus, dont **`-r2-r1-r1`** : le gate
   `ShouldExecute` (`!HasTriggeredAbility(target, 0x48 Explosive)`) est le SEUL différentiel de
   décision entre `69` et `1030`, et il n'est porté d'aucun côté.
-* **`#419-r1-tr14-r5-r2-r2` — la garde `FilterNewList` du repli générique n'est pas portée.**
+* **`#419-r1-tr14-r5-r2-r2` — TRAITÉ (2026-08-04),
+  cf. `case-419-r1-tr14-r5-r2-r2-garde-filternewlist.md`.** Le prédicat est
+  `a => IsRegularAttack(a@+0x44)` ; la garde est confirmée live (4/4) et son foyer porté, mais
+  **non branché** faute d'un canal PRE-fabrique — le brancher rendrait INERTE la contre-épreuve de
+  CETTE tranche (mesuré). Reste ouvert en `#419-r1-tr14-r5-r2-r2-r1`. Énoncé d'origine :
   Toujours le même `else` : avant de poser l'attaque normale générique, la fabrique filtre la
   collection de l'`ActiveAbilityComponent` (`comp@+0x20`) par un `Func` statique mis en cache et
   **rend sans rien ajouter** si le résultat est non vide (`if (0 < list.Count) return;`). Le port ne
