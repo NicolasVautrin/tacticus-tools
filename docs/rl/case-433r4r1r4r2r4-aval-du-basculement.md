@@ -56,6 +56,13 @@ liste des effets d'un voisin ; si aucun de ces effets ne porte de valeur d'utili
 la feuille rend `0` des deux côtés. C'est la raison mesurée pour laquelle 260 bascules ne produisent
 que 8 changements d'action.
 
+⚠ **La surface EXERCÉE est bien plus étroite que la surface branchée.** Un relevé exhaustif des
+appels (`--voies`, `C3_14`, 4 pas, 17 situations) ne trouve que **2 call-sites empruntés** —
+`aberrant_hypermorph.generate_candidates` (297 appels) et `tile.py:apply_tile_attributes` (189) —
+sur les **65** branchés. Ce sont les rosters en jeu qui décident quelles voies existent, pas le
+board : les six voies observées sur l'ensemble des campagnes ne sont pas les mêmes d'un seed à
+l'autre.
+
 ## 4. Les trois taux
 
 Trois campagnes, `--steps 12`, session live warmée, rank 17.
@@ -136,6 +143,10 @@ politique — plutôt le même profil, quelques décisions par millier.
 
 * **Les 15 call-sites sans canal** (§2) : ils dégradent identiquement dans les deux substrats, donc
   cette mesure ne dit **rien** de ce qu'ils coûtent. C'est le périmètre de `-r1`/`-r2`.
+* **63 des 65 call-sites branchés ne sont pas exercés** par le relevé exhaustif (§3). Les taux
+  ci-dessus valent pour les voies que ces rosters mettent en jeu, pas pour la couche d'adjacence
+  entière — un roster qui porterait `CordClaw`, `FoulInfusion`, `SereneUnifier` ou les playbooks
+  `loki_custom` de comptage explorerait des voies non visitées ici.
 * **Les MACHINES OF WAR** : le balayage saute les casters `machine_row` (tactic `DefaultMachineTactic`
   dédié, position nulle, aucune tuile candidate).
 * **`spawn_groups`** n'est pas passé au contexte : tout arbre dont la géométrie dépend du côté du
@@ -144,6 +155,10 @@ politique — plutôt le même profil, quelques décisions par millier.
 * **Les situations ne sont pas indépendantes** : une même unité dans un état inchangé est comptée à
   chaque pas — les 8 décisions valent **4 configurations distinctes**.
 * **6 boards sur 287 porteurs de `Bridge`** (résidu `-r3`, déjà ouvert et chiffré).
+* **L'amplitude ne porte que sur les candidats APPARIÉS** (même identité des deux côtés). Quand la
+  bascule change l'identité même d'un candidat — les **8** situations comptées en « ensembles
+  changés » — aucune amplitude ne lui est attribuée : c'est un changement plus fort qu'un écart de
+  valeur, pas un écart nul.
 * **Le CLASSEMENT à 0 est en partie STRUCTUREL** : seules **73 situations sur 302 (24 %)** exposent
   ≥ 2 candidats au générateur retenu, et le générateur retenu dans les 8 cas qui changent est un
   tier NonComparable dont le playbook rend **déjà son propre argmax** — le renversement a lieu
