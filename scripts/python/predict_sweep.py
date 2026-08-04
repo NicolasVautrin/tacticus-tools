@@ -35,6 +35,7 @@ from engine.playbook.scene import Scene
 from engine.playbook import prediction
 from engine.runner import snapshot as _snapshot   # porte du canal de seed `includeInactive` (#443-r2-b1)
 import predict_samples as PS   # reutilise _drive_into_range (meme drive que l'agrement normal)
+from sibling_script import sibling_script
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE_REL = "data/_predict_sweep.json"          # state-file DEDIE (coexistence : proprietaire = ce fichier)
@@ -336,7 +337,7 @@ def report(rows):
 
 def sweep_build(sid, seed, a):
     """Build un runner ISOLE (seede + roster), balaye, dispose. Renvoie les rows taggees seed."""
-    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", STATE_REL]
+    cmd = [sys.executable, sibling_script("rl_duel.py"), "build", "--seed", str(seed), "--state-file", STATE_REL]
     for flag, val in (("--p-units", a.p_units), ("--a-units", a.a_units),
                       ("--board", a.board), ("--board-pool", a.board_pool)):
         if val:
@@ -357,7 +358,7 @@ def sweep_build(sid, seed, a):
         print("[sweep] seed %s -> %d rows" % (seed, len(rows or [])))
         return rows or []
     finally:
-        subprocess.run([sys.executable, "rl_duel.py", "dispose", "--state-file", STATE_REL],
+        subprocess.run([sys.executable, sibling_script("rl_duel.py"), "dispose", "--state-file", STATE_REL],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 

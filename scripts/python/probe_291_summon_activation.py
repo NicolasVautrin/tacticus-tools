@@ -42,6 +42,7 @@ import sys
 from pathlib import Path
 
 import requests
+from sibling_script import sibling_script
 
 HOST = "http://127.0.0.1:8765"
 CASTER = "orksWarboss"
@@ -111,7 +112,7 @@ def main() -> int:
     a = ap.parse_args()
 
     if not a.reuse:
-        out = subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", a.seed,
+        out = subprocess.run([sys.executable, sibling_script("rl_duel.py"), "build", "--seed", a.seed,
                               "--board", a.board, "--state-file", a.state_file,
                               "--p-units", f"{CASTER},{ALLY}", "--a-units", ENEMIES],
                              capture_output=True, text=True)
@@ -266,7 +267,7 @@ def main() -> int:
     finally:
         if not a.keep:
             try:
-                subprocess.run([sys.executable, "rl_duel.py", "dispose",
+                subprocess.run([sys.executable, sibling_script("rl_duel.py"), "dispose",
                                 "--state-file", a.state_file], capture_output=True, text=True)
             except Exception:
                 pass

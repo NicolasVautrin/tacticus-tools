@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 import requests
+from sibling_script import sibling_script
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "tests", "engine", "runner"))
@@ -67,7 +68,7 @@ def main() -> int:
     from engine.ai.state_bridge import build_from_state
     from engine.ai.tactic import DefaultAiUnitTactic
 
-    out = subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", a.seed,
+    out = subprocess.run([sys.executable, sibling_script("rl_duel.py"), "build", "--seed", a.seed,
                           "--board", a.board, "--state-file", a.state_file,
                           "--p-units", M.WAAAGH_CASTER,
                           "--a-units", f"{M.WAAAGH_ENEMY},{M.WAAAGH_FOIL}"],
@@ -183,7 +184,7 @@ def main() -> int:
     finally:
         if not a.keep:
             try:
-                subprocess.run([sys.executable, "rl_duel.py", "dispose",
+                subprocess.run([sys.executable, sibling_script("rl_duel.py"), "dispose",
                                 "--state-file", a.state_file], capture_output=True, text=True)
             except Exception:
                 pass

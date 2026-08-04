@@ -122,6 +122,10 @@ $Ratchets = @(
        Seul = 'un fichier VERSIONNE qui importe statiquement une cible GITIGNOREE ou absente -- le depot cesse d etre auto-constructible, et c est ce qui pousse les agents a fabriquer des junctions destructrices'
        Doc  = 'CLAUDE.md invariant 3 (JAMAIS DE JUNCTION)' }
 
+    @{ Id = 'probe_464'; Argv = @('probe_464_sibling_script_cwd.py')
+       Seul = 'un script FRERE invoque par chemin RELATIF dans un argv de subprocess, sans cwd= : `[sys.executable, "rl_duel.py", ...]` melange un chemin absolu et un chemin resolu depuis le CWD, donc hors de scripts/python le frere n est JAMAIS lance (rc 2 `can t open file`) -- et 8 des 15 appelants trouves ne lisaient meme pas ce rc. Aucun autre cliquet ne lit l argv d un subprocess : 273/0c garde la DESTINATION d une sortie data/, 440 le PERIMETRE d un balayage, 365 les IMPORTS. Gisement de COPIER-COLLER (22 sites, un seul litteral, 15 fichiers) donc alimente par notre propre cadence, comme TARGETING_OPTIONS'
+       Doc  = 'docs/rl/case-464-cwd-des-scripts.md' }
+
     @{ Id = 'probe_391'; Argv = @('probe_391_conftest_dir_identity.py')
        Seul = 'un repertoire collecte DEUX fois par pytest dans une meme session : les fixtures de son conftest disparaissent pour le 3e argument, et le nodeid est IDENTIQUE (invisible a toute inspection par chaine)'
        Doc  = 'docs/rl/case-391-conftest-dir-identity.md' }

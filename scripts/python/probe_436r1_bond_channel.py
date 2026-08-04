@@ -53,6 +53,8 @@ import argparse
 import copy
 import sys
 
+from sibling_script import sibling_script
+
 CRUSHING = 1105                      # `CrushingClaws`, porteur `tyranTyrantGuard` (HERO, au pool)
 TAUNTED = 27                         # `Taunted_OnlySpecificTargets`
 NORMAL_ATTACK = 69                   # `Loki_NormalAttack` -- l'id CONCRET, jamais l'abstrait 17
@@ -325,7 +327,7 @@ def main(argv=None) -> int:
     finally:
         try:
             import subprocess
-            subprocess.run([sys.executable, "rl_duel.py", "dispose",
+            subprocess.run([sys.executable, sibling_script("rl_duel.py"), "dispose",
                             "--state-file", str(state_file)], capture_output=True, text=True)
         except Exception:
             pass
