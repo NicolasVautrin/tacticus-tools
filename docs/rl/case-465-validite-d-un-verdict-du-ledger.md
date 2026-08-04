@@ -103,6 +103,11 @@ de `_unmeasured` : l'un dit « on n'a AUCUNE mesure », l'autre « on en a une, 
 est encore vraie ICI ». Joué le 2026-08-04 : **3 fichiers, 3 VERTS, mur 47,7 s**, ledger à 254 VERT
 et `--report` à rc 0.
 
+**Confirmation INDÉPENDANTE du gel, obtenue au rebase.** Après le merge de #559, les trois rouges
+étaient **toujours** dans `origin/master` — inchangés, avec les mêmes `_commit` morts. Rien ne les
+rejouait, puisque `--run --since` ne voit que le diff : le gel n'est pas un accident de la soirée,
+c'est le régime permanent. Rejoués sur l'arbre rebasé : **3 VERTS, mur 31,4 s**.
+
 ## 6. Contre-épreuves
 
 `scripts/python/tests/test_465_ledger_validite_offline.py` (25 tests, offline, ~40 s). Le test
@@ -148,6 +153,19 @@ JSON versionné, `indent=1`, `sort_keys=True`, résolution invariable **`--ours`
 nombre d'entrées en conflit ne bouge pas — c'est toujours « deux PR qui touchent le même fichier
 live » qui collisionnent. L'aggravation est **marginale et textuelle** : ~13 lignes par entrée au
 lieu de ~12, donc un hunk un peu plus large, jamais un hunk de plus.
+
+**Éprouvé pour de vrai pendant cette PR** : `origin/master` a avancé de 5 commits (#559) en cours de
+travail, et le rebase a **conflicté sur ce fichier**, comme annoncé. Résolution : prendre le côté
+`origin/master` — en rebase c'est `--ours`, l'inversion habituelle — puis **RÉGÉNÉRER par la
+mesure**, jamais par un arbitrage textuel. Le commit devient vide et git le droppe, ce qui est
+correct. **`--run --stale` reprend alors les entrées redevenues non-VERTES tout seul** : la voie de
+sortie de #465 résout son propre conflit, sans qu'on ait à savoir lesquelles étaient les siennes.
+
+⚠ **Deux consignes en désaccord dans le dépôt, non tranchées ici** : `CLAUDE.md` dit « il se
+**régénère**, il ne se fusionne pas », le backlog `#462-r2` dit « un conflit s'y résout **par
+UNION** — jamais en gardant un seul côté ». C'est #462-r2, hors périmètre. Ce run confirme que la
+régénération suffit **quand on dispose de la mesure** ; elle ne dit rien du cas où deux PR
+attesteraient des fichiers **différents** et où l'union serait la seule voie sans re-jouer.
 
 **Piste non prise** (hors périmètre, à instruire séparément) : sérialiser chaque entrée sur **UNE
 ligne** ferait tomber la résolution au niveau de la ligne et supprimerait l'essentiel des conflits.
