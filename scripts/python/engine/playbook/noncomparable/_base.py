@@ -380,6 +380,13 @@ class NCContext:
     #                                SOURCE DES MORTS pour RitesOfRestoration (decisionView garde les
     #                                depouilles -> observeBattle.isDead, cf. project_decisionview_keeps_dead)
     elev_by_pos: dict = None       # {(col,row): elevation} (tileMeta) — porte d'adjacence |Δelev|<2
+    #                                ET substrat de la LIGNE DE VUE (#433-r4-r2-r1-r2 : le 2e prédicat
+    #                                de `TargetingQuery$$GetPossibleTargetsForOptions` compare
+    #                                `elev(mid) - elev(ref) >= 2` sur les deux tuiles de bout de ligne)
+    is_wall_by_pos: dict = field(default_factory=dict)  # {(col,row): bool} (boardGraph `isWall` =
+    #                                `TileComponent+0x41`) — le second volet de la LIGNE DE VUE
+    #                                (`DetermineBlockingWalls`). VIDE = canal muet -> aucun mur vu,
+    #                                dégradation PERMISSIVE (la zone ne peut qu'ÉLARGIR)
     wt: object = None              # Weights BC (NovaShield : terme Tile(7) = tile_utility)
     is_temporary_by_pos: dict = field(default_factory=dict)  # Tile(7) (feuille is_temporary)
     effects_by_pos: dict = field(default_factory=dict)       # Tile(7) (feuille TileEffects)

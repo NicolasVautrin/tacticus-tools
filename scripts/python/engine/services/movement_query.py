@@ -773,6 +773,44 @@ def get_tiles_obscuring_terrain(board, from_tile: Optional[Pos], to_tile: Option
     return out
 
 
+class PositionBoard:
+    """Le substrat que `get_tiles_obscuring_terrain` attend, construit depuis les CARTES PAR
+    POSITION de la face DECISION (`ctx.elev_by_pos`, `ctx.is_wall_by_pos`) au lieu du `Board` de
+    pathfinding, qui n'existe que cote COMBAT.
+
+    Les trois seuls accesseurs que la cascade de ligne de vue consomme sont `by_coord` (le
+    rectangle englobant de `BoardComponent$$IsPositionInside`), `id_at` et `elevation` /
+    `is_wall`. L'IDENTITE de tuile y est la POSITION elle-meme : le natif compare des entites
+    (`tA == tB` dans `DetermineBlockingTiles`), et deux coordonnees egales designent la meme
+    entite-tuile -- la substitution est donc exacte.
+
+    ⚠ `is_wall_by_pos` ABSENT n'est PAS « aucun mur » : c'est « le canal ne le dit pas ». Le port
+    rend alors `False` partout, ce qui ne peut qu'ELARGIR la zone (un mur non vu n'obscurcit pas),
+    jamais la retrecir. L'appelant qui veut distinguer les deux doit le faire avant."""
+
+    def __init__(self, elev_by_pos, is_wall_by_pos=None):
+        self._elev = {(int(p[0]), int(p[1])): v for p, v in (elev_by_pos or {}).items()
+                      if p is not None and p[0] is not None and p[1] is not None}
+        self._wall = {(int(p[0]), int(p[1])): bool(v)
+                      for p, v in (is_wall_by_pos or {}).items()
+                      if p is not None and p[0] is not None and p[1] is not None}
+        self.by_coord = self._elev
+
+    def id_at(self, col, row):
+        """`IdunBattle.Entities.StateExtensions$$GetTileAt(state, column, row)` -- `None` quand
+        aucune tuile n'existe a cette coordonnee, ce que le natif traite comme NON bloquant."""
+        p = (int(col), int(row))
+        return p if p in self._elev else None
+
+    def elevation(self, tid):
+        """`IdunBattle.Entities.TileExtensions$$GetTileElevation` (`TileComponent+0x18`)."""
+        return self._elev.get(tid)
+
+    def is_wall(self, tid) -> bool:
+        """`TileComponent+0x41` (`IsWall`), publie par le `boardGraph` sous la cle `isWall`."""
+        return bool(self._wall.get(tid, False))
+
+
 def get_tiles_obscuring_terrain_from_tiles(board, from_tiles: Optional[Sequence[Pos]],
                                            to_tile: Optional[Pos], obscuring_type: int,
                                            blocking_elevation_difference: int) -> set:

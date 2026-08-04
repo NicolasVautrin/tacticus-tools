@@ -78,7 +78,7 @@ class AggressiveOnslaughtPlaybook:
         if board is None or target_pos is None:
             return 0
         from ..ai.state_bridge import _board_topology_maps   # lazy : evite tout cycle d'import
-        _tid, neigh_by_pos, walkable_by_pos, _terr = _board_topology_maps(board)
+        _tid, neigh_by_pos, walkable_by_pos, _terr, _wall = _board_topology_maps(board)
         # occupied = positions de TOUTES les unites VIVANTES (CanAddUnit = tuile vide sur l'ECS live).
         occupied = {(u["pos"]["col"], u["pos"]["row"]) for u in (scene.units or [])
                     if u.get("alive") and u.get("pos") and u["pos"].get("col") is not None}

@@ -85,6 +85,10 @@ class AiDecisionContext:
     #                                   lit via epos/fpos/origine (frais), PAS le occupantUnitId caché (#116)
     terrain_by_pos: dict              # {(col,row): tileDefId} (boardGraph, statique) — covers HÉBERGÉS par
     #                                   le terrain sommés par TileEffects(10) Loop2 (DryBush->LightCover, case-37)
+    is_wall_by_pos: dict = field(default_factory=dict)
+    #     {(col,row): bool} <- boardGraph.isWall = `TileComponent+0x41`, le drapeau que lit
+    #     `MovementQuery$$u003CGetTilesObscuringTerrainu003Eg__DetermineBlockingWalls` — le volet MURS
+    #     de la LIGNE DE VUE (#433-r4-r2-r1-r2). VIDE = canal muet -> aucun mur vu (PERMISSIF).
     # Deux attributs de TUILE que `tileMeta` remonte DÉJÀ et que le port jetait (#175) : sans eux les
     # feuilles Tile(7) qui les gatent restent muettes même quand `ctx.unit_traits` est peuplé.
     is_territory_by_pos: dict = field(default_factory=dict)
@@ -278,6 +282,7 @@ _BOARD_TILE_IDS_CACHE: dict = {}   # {rid: {(col,row): tileEntityId}} — board 
 _BOARD_NEIGH_CACHE: dict = {}      # {rid: {(col,row): [voisins ordre natif]}} — dérivé
 _BOARD_WALKABLE_CACHE: dict = {}   # {rid: {(col,row): walkable}} — board statique, dérivé (#116)
 _BOARD_TERRAIN_CACHE: dict = {}    # {rid: {(col,row): tileDefId}} — terrain statique, dérivé (case-37)
+_BOARD_IS_WALL_CACHE: dict = {}    # {rid: {(col,row): isWall}} — TileComponent+0x41, dérivé (#433-r4-r2-r1-r2)
 _ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: {active,passive,multiplier}}} — combatSnapshot, 1 fetch/rid
 _TRIGGERED_KIT_CACHE: dict = {}    # {(rid, unitId): [TriggeredAbilityType]} — unitAbilityStates, 1 fetch/unite
 #                                    (kit DECLENCHE reel : passifs + trait-granted + RELIQUES, cf. N13)
@@ -345,6 +350,23 @@ def _board_walkable(rpc: Callable[..., dict], rid: int) -> dict:
         m = {(t.get("col"), t.get("row")): bool(t.get("walkable"))
              for t in _board_graph_tiles(rpc, rid)}
         _BOARD_WALKABLE_CACHE[rid] = m
+    return m
+
+
+def _board_is_wall(rpc: Callable[..., dict], rid: int) -> dict:
+    """{(col,row): bool isWall} depuis `boardGraph` (`TileComponent+0x41`, cf. `match-state.ts`) —
+    board STATIQUE, caché par rid. C'est le second volet de la LIGNE DE VUE
+    (`IdunBattle.Core.Services.MovementQuery$$u003CGetTilesObscuringTerrainu003Eg__DetermineBlockingWalls`,
+    #433-r4-r2-r1-r2) ; l'élévation (`tileMeta`) en est le premier.
+
+    DISTINCT de `walkable` : `TileExtensions.IsWalkable` agrège le mur ET le terrain infranchissable,
+    là où le prédicat de ligne de vue lit le SEUL drapeau `IsWall`. Les rabattre l'un sur l'autre
+    ferait bloquer la vue par de l'eau ou un fossé, que le natif traverse."""
+    m = _BOARD_IS_WALL_CACHE.get(rid)
+    if m is None:
+        m = {(t.get("col"), t.get("row")): bool(t.get("isWall"))
+             for t in _board_graph_tiles(rpc, rid)}
+        _BOARD_IS_WALL_CACHE[rid] = m
     return m
 
 
@@ -551,6 +573,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     neigh_by_pos = _board_neighbours(rpc, rid)   # voisins ordre natif -> cible exacte Gauntlets (#117)
     walkable_by_pos = _board_walkable(rpc, rid)  # gate statique de placement CanAddUnit (#116)
     terrain_by_pos = _board_terrain(rpc, rid)    # terrain statique -> covers TileEffects (DryBush->LightCover, case-37)
+    is_wall_by_pos = _board_is_wall(rpc, rid)    # TileComponent+0x41 -> volet MURS de la ligne de vue (#433-r4-r2-r1-r2)
 
     origin = (me["pos"]["col"], me["pos"]["row"]) if me and me.get("pos") else None
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
@@ -599,6 +622,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         mindist_case=mindist_case,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
+        is_wall_by_pos=is_wall_by_pos,
         is_territory_by_pos=is_territory_by_pos,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
         mow_slot_by_player=mow_slot_by_player, current_player_team=current_player_team,
@@ -776,6 +800,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
     neigh_by_pos = _board_neighbours(rpc, rid)
     walkable_by_pos = _board_walkable(rpc, rid)
     terrain_by_pos = _board_terrain(rpc, rid)
+    is_wall_by_pos = _board_is_wall(rpc, rid)
 
     fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
@@ -798,6 +823,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
         effects_by_pos=effects_by_pos, pathdist_by_pos={},
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
+        is_wall_by_pos=is_wall_by_pos,
         is_territory_by_pos=is_territory_by_pos,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
         mow_slot_by_player=mow_slot_by_player,

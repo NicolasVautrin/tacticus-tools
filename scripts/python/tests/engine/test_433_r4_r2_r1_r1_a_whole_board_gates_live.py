@@ -78,16 +78,20 @@ def test_the_residual_gap_belongs_to_the_obscuring_stage_not_to_the_gate(sid):
     `1161 TwinSmartMissileSystem` n'a AUCUN gate -- `GetPossibleTargetsForOptions` ne construit le
     troisieme predicat que `if ((rules & 2) != 0)`, et son masque ne porte pas ce bit. Elle n'a pas
     non plus `AllowObscuredTargetByElevation` / `AllowObscuredTargetByWalls`. L'ecart qu'elle
-    montre est donc integralement celui du DEUXIEME predicat -- le residu `#433-r4-r2-r1-r2`.
+    montrait etait donc integralement celui du DEUXIEME predicat.
 
-    On verrouille deux choses : que cet ecart existe (sinon ce test dormirait), et qu'il soit un
-    SOUS-ENSEMBLE de celui de `1168 EntropyCannons`, dont le gate ajoute exactement la tuile
-    OCCUPEE par le caster."""
+    ⚠ RE-ETALONNE par `#433-r4-r2-r1-r2`, qui a PORTE ce deuxieme predicat. Ce test assertait
+    `faux_positifs` NON VIDE sur `1161` -- il avait raison a l'epoque, et sa propre docstring
+    prescrivait de le relire le jour ou l'etage cesserait de mordre. C'est fait : `1161` est
+    desormais EXACT. Ce qui reste vrai, et ce que ce test verrouille toujours, c'est
+    l'ATTRIBUTION -- l'ecart de `1168 EntropyCannons` moins celui de `1161` vaut EXACTEMENT la
+    tuile OCCUPEE par le caster, seul ecart que son gate ajoute (residu `-r1-r1-a-r1`)."""
     witness = _ok(P.sweep(sid, P.GRAFT_HOST, *_graft(1161)))
     assert witness["entity_abilities"] == [1161]
     assert witness["faux_negatifs"] == [], "le port ne doit jamais RETRECIR : %r" % (witness,)
-    assert witness["faux_positifs"], \
-        "l'etage d'obscurcissement ne mord plus : ce test ne prouve plus rien, le relire"
+    assert witness["faux_positifs"] == [], \
+        "l'etage d'obscurcissement (#-r1-r2) est PORTE : une ability sans gate doit etre EXACTE, " \
+        "lu %r" % (witness["faux_positifs"],)
 
     gated = _ok(P.sweep(sid, P.GRAFT_HOST, *_graft(1168)))
     assert gated["entity_abilities"] == [1168]

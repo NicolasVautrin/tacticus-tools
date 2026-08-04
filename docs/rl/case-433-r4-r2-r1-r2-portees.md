@@ -103,11 +103,13 @@ ni la forme, ni le LoS, ni les gates par ability du natif.
 
 * **`#433-r4-r2-r1-r1` — FERMÉ.** Le discriminant est le slot de vtable `klass+0x478`,
   `GetDynamicInvalidTargetReason`. Détail complet : **§7 ci-dessous**.
-* **`#433-r4-r2-r1-r2` — le LoS/élévation retire des tuiles du disque.** Sur le montage à RELIEF de
-  `--step couple` (`O` élévation 2, ennemi élévation 4), le natif exclut de la zone **une** tuile à
-  `d = 4` que ses voisines de même distance contiennent. Mesure : **1/34** sur relief, **0/40** sur
-  le montage plat du même kit → l'écart est porté par le relief, pas par la portée. Le port
-  SOUS-estime alors l'utilité de 50. Borné par un test.
+* **`#433-r4-r2-r1-r2` — FERMÉ (2026-08-04).** Le LoS/élévation retirait des tuiles du disque : le
+  natif excluait **une** tuile à `d = 4` que ses voisines de même distance contenaient (1/34 sur
+  relief, 0/40 sur le montage plat du même kit). L'étage est le **2ᵉ prédicat** de
+  `GetPossibleTargetsForOptions`, et il n'est gaté par AUCUN bit — les `AllowObscuredTargetBy*`
+  décident de ce qu'il REGARDE, pas s'il tourne. Détail, géométrie (ni `ConnectivityComponent` ni
+  `boardGraph.neighbours` : des lignes de COORDONNÉES) et mesures :
+  **`docs/rl/case-433-r4-r2-r1-r2-ligne-de-vue.md`**.
 * **`#433-r4-r2-r1-r3` — le court-circuit `GetFeetCount(unit) > 1 → true` est inatteignable côté
   DÉCISION.** Aucun canal ne publie le compte de pieds (aucun champ gameconfig ne porte la taille
   d'une unité). Le port passe `feet_count = 1` ; pour une unité MULTI-HEX il rend `False` là où le
