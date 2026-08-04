@@ -24,12 +24,14 @@ import { abilityName } from "../../data/ability-names.js";
 import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
 import { Ctx } from "../../controller.js";
 import {
+    abilityStateLayout,
     ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
     attackQueryOff, battleInServicesOff, dpqInServicesOff, entityServicesClass,
     extractTiles, extractTilePtrs,
     entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile,
     invokeBool, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
-    mowAbilityTypes, readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
+    mowAbilityTypes, readTileCoord, readTurnsEnded, resolveDpq, servicesOff, summarize,
+    turnsEndedLayout, unitAbilityTypes,
     unitExtClass,
 } from "./internals.js";
 import { applyAiMsgMi } from "../../game/ai-control.js";
@@ -121,6 +123,16 @@ export function registerViewDecision(ctx: Ctx): void {
             ok: true, runner: label,
             stage: status.stage, stageName: status.stageName,
             turn: proj.turn, currentPlayer: playerId,
+            // #433-r4-r2-r1-r1-c-r1 — `TurnComponent.GetAmountOfTurnsEnded(0)`, l'autre moitié
+            // de `AttackQuery$$IsAlreadyUsedThisTurn`. À NE PAS confondre avec `turn` ci-dessus,
+            // qui est `GetAmountOfTurnsStartedByCurrentPlayer` : ce sont deux compteurs
+            // différents, et seul celui-ci est comparé à `ActiveAbility.UnresetedLastTurnUsed`.
+            // `null` = PAS MESURÉ (jamais rabattu sur 0, qui est un tour légitime).
+            turnsEnded: readTurnsEnded(statePtr),
+            // Ce que les capteurs ont RÉSOLU — un lecteur ne doit pas avoir à deviner si un
+            // champ nul vaut « vide » ou « pas trouvé ».
+            abilityStateLayout: abilityStateLayout(),
+            turnsEndedLayout: turnsEndedLayout(),
             mutated: before.sig !== after.sig, ms: Date.now() - t0,
             unitCount: units.length,
             units: units.map((u) => ({

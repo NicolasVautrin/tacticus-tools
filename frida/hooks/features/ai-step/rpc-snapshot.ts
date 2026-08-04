@@ -3,8 +3,10 @@
  *  Scinde de rpc-view.ts (2026-07-11, >2300 l. — seuil ~1000 l.) ; l'API RPC est
  *  INCHANGEE (memes noms ctx.rpc.*), agregee par registerView (rpc-view.ts). */
 import {
-    class_get_name, class_get_namespace, findClass, findClassAnywhere, findMethod,
-    fieldOffsetOr, findMethodByParamClasses, findMethodByParamCount, readIl2cppString, s,
+    class_get_element_class, class_get_name, class_get_namespace, class_instance_size,
+    class_is_valuetype, findClass, findClassAnywhere, findMethod,
+    fieldOffsetOr, findMethodByParamClasses, findMethodByParamCount, getFieldOffset,
+    readIl2cppString, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { dumpEnum } from "../../il2cpp/enum-dump.js";
@@ -32,7 +34,8 @@ import {
     entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getTurnsFinishedMi,
     getUnitMainTile,
     invokeBool, invokeInt, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
-    mowAbilityTypes, readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
+    mowAbilityTypes, readTileCoord, readTurnsEnded, resolveDpq, servicesOff, summarize,
+    turnsEndedLayout, unitAbilityTypes,
     unitExtClass,
 } from "./internals.js";
 import { applyAiMsgMi } from "../../game/ai-control.js";
@@ -136,6 +139,184 @@ function unitFlagTypes(): Record<string, number> {
     }
     unitFlagTypesCache = out;
     return out;
+}
+
+// --- #419-r1-tr14-r5-r2-r2-r1 — l'état PRÉ-FABRIQUE des actives -------------------------------
+//
+// POURQUOI CE CANAL EXISTE. La garde du repli générique de
+// `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` teste la collection
+// **AVANT** que la générique n'y soit ajoutée. Or le seul canal du port
+// (`UnitContext.active_abilities`, alimenté par `unitAbilityStates.units[].actives`) lit
+// l'`ActiveAbilityComponent` **APRÈS** la fabrique : il contient donc déjà la réponse, ce qui rend
+// la garde tautologique et court-circuite les trois voies amont. `normal_attack_already_present`
+// (`engine/services/custom_normal_attack.py`) est porté mais délibérément NON branché pour cette
+// seule raison.
+//
+// LE SUBSTRAT EXACT, LU. `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromActive`
+// énumère `config.<+0xa0>` ; la disposition mesurée au runtime (RPC `classFields`, build
+// `rnca9r7q6c`) nomme ce champ `IdunBattle.Configuration.UnitConfiguration.ActiveAbilities`, un
+// `List<ActiveAbilityType>` — accord exact entre le décompilé et les métadonnées, sur les deux
+// voisins aussi (`PassiveAbilities` @+0xa8 et `Traits` @+0xd0, cités par la case-doc de la tranche).
+//
+// LA JOINTURE entité → configuration est LUE, pas supposée :
+// `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent(entity, config)` écrit
+// `baseUnitComponent.<Id @+0x10> = config.<Id @+0x10>` (et `VisualId` depuis `config+0x18`).
+// La clé est donc `BaseUnitComponent.Id`, obtenu par la fonction NOMMÉE
+// `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent` — celle-là même que la fabrique
+// appelle. Plusieurs entités peuvent partager une configuration (deux camps, même unité) : c'est
+// une jointure N→1, et `configIdCollisions` publie le cas contraire s'il se présente.
+const battleConfigurationClass = findClassAnywhere(
+    "IdunBattle.Configuration", "BattleConfiguration");
+const unitConfigurationClass = findClassAnywhere(
+    "IdunBattle.Configuration", "UnitConfiguration");
+const baseUnitComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "BaseUnitComponent");
+const getBaseUnitComponentMi = unitExtClass
+    ? findMethodByParamCount(unitExtClass, "GetBaseUnitComponent", 1) : null;
+// Offsets résolus PAR NOM, sans repli littéral : un nom absent doit rendre « pas mesuré »
+// (`configActives: null`), jamais la lecture d'un offset devenu celui d'un autre champ. Les
+// littéraux du décompilé ne servent qu'au diagnostic `configLayout`, pour qu'un désaccord se voie.
+const BC_UNITS_OFF = battleConfigurationClass
+    ? getFieldOffset(battleConfigurationClass, "Units") : -1;
+const UC_ID_OFF = unitConfigurationClass
+    ? getFieldOffset(unitConfigurationClass, "Id") : -1;
+const UC_VISUALID_OFF = unitConfigurationClass
+    ? getFieldOffset(unitConfigurationClass, "VisualId") : -1;
+const UC_ACTIVES_OFF = unitConfigurationClass
+    ? getFieldOffset(unitConfigurationClass, "ActiveAbilities") : -1;
+const BUC_ID_OFF = baseUnitComponentClass
+    ? getFieldOffset(baseUnitComponentClass, "Id") : -1;
+
+/** Le STRIDE d'un `T[]` managé, DÉRIVÉ du tableau lui-même (`class_get_element_class` +
+ *  `class_is_valuetype` + `class_instance_size`) plutôt que supposé. `null` = indéterminable :
+ *  l'appelant doit alors répondre « je ne sais pas lire », jamais rendre des nombres plausibles
+ *  (cf. la docstring de `class_get_element_class`). */
+function arrayElementInfo(items: NativePointer): {
+    stride: number | null; elemClass: string | null;
+} {
+    if (!class_get_element_class || !class_is_valuetype || !class_instance_size) {
+        return { stride: null, elemClass: null };
+    }
+    try {
+        const ek = class_get_element_class(items.readPointer()) as NativePointer;
+        if (ek.isNull()) return { stride: null, elemClass: null };
+        let elemClass: string | null = null;
+        try { elemClass = s(class_get_name(ek) as NativePointer); } catch { /* */ }
+        const stride = (class_is_valuetype(ek) as number) !== 0
+            ? (class_instance_size(ek) as number) - 0x10
+            : Process.pointerSize;
+        return { stride, elemClass };
+    } catch { return { stride: null, elemClass: null }; }
+}
+
+/** `List<T>` d'IL2CPP : `_items` (T[]) @0x10, `_size` @0x18, éléments dès `items+0x20`.
+ *  Rend les pointeurs bruts des éléments RÉFÉRENCE, ou `null` (= pas lisible). */
+function readRefList(list: NativePointer, cap: number): NativePointer[] | null {
+    if (list.isNull()) return null;
+    try {
+        const items = list.add(0x10).readPointer();
+        const size = list.add(0x18).readS32();
+        if (items.isNull() || size < 0 || size > cap) return null;
+        const out: NativePointer[] = [];
+        for (let i = 0; i < size; i++) {
+            out.push(items.add(0x20 + i * Process.pointerSize).readPointer());
+        }
+        return out;
+    } catch { return null; }
+}
+
+/** Le `List<ActiveAbilityType>` d'une `UnitConfiguration`, en TRI-ÉTAT : `values === null`
+ *  signifie **PAS MESURÉ** (liste nulle, taille aberrante, ou stride non dérivable / ≠ 4) —
+ *  distinct d'un `[]`, qui est la mesure « cette configuration ne porte aucun actif », et qui
+ *  est justement le cas MAJORITAIRE du seed (50 des 175 entrées). Confondre les deux ferait
+ *  répondre « le repli générique s'applique » à une unité dont on n'a rien lu. */
+function readEnumIntList(list: NativePointer): {
+    values: number[] | null; stride: number | null; elemClass: string | null;
+} {
+    if (list.isNull()) return { values: null, stride: null, elemClass: null };
+    try {
+        const items = list.add(0x10).readPointer();
+        const size = list.add(0x18).readS32();
+        if (items.isNull() || size < 0 || size > 256) {
+            return { values: null, stride: null, elemClass: null };
+        }
+        const { stride, elemClass } = arrayElementInfo(items);
+        if (stride !== 4) return { values: null, stride, elemClass };
+        const values: number[] = [];
+        for (let i = 0; i < size; i++) values.push(items.add(0x20 + i * 4).readS32());
+        return { values, stride, elemClass };
+    } catch { return { values: null, stride: null, elemClass: null }; }
+}
+
+/** Index `UnitConfiguration.Id` → actives de CONFIGURATION, lu sur la `BattleConfiguration` que
+ *  le runner conserve (`IdunRunner.<Configuration>k__BackingField`, la même que consomment
+ *  `simGetBattleConfig` / `buildMirrorFromSource`).
+ *
+ *  Rend AUSSI le layout observé : un canal qui ne dit pas ce qu'il a résolu laisse un `null` de
+ *  panne indiscernable d'un `null` de mesure. */
+function readConfigActives(runner: NativePointer): {
+    byId: Record<string, number[]>; layout: Record<string, unknown>;
+} {
+    const byId: Record<string, number[]> = {};
+    const layout: Record<string, unknown> = {
+        battleConfigurationClassResolved: !!battleConfigurationClass,
+        unitConfigurationClassResolved: !!unitConfigurationClass,
+        baseUnitComponentClassResolved: !!baseUnitComponentClass,
+        getBaseUnitComponentResolved: !!getBaseUnitComponentMi,
+        unitsOff: BC_UNITS_OFF, idOff: UC_ID_OFF, visualIdOff: UC_VISUALID_OFF,
+        activeAbilitiesOff: UC_ACTIVES_OFF, baseUnitComponentIdOff: BUC_ID_OFF,
+        // Littéraux LUS (décompilé `GetCustomNormalAttackTypeFromActive` / `InitBaseComponent`,
+        // disposition `rnca9r7q6c`) — diagnostic seul, jamais utilisés pour lire.
+        decompiledActiveAbilitiesOff: 0xa0, decompiledUnitConfigurationIdOff: 0x10,
+        bcResolved: false, bcUnits: null as number | null,
+        bcUnitsWithActives: null as number | null,
+        configIdCollisions: [] as string[],
+        elemClass: null as string | null, elemStride: null as number | null,
+        unreadableActiveLists: 0,
+    };
+    if (BC_UNITS_OFF < 0 || UC_ID_OFF < 0 || UC_ACTIVES_OFF < 0) return { byId, layout };
+    let bc: NativePointer;
+    try { bc = runner.add(runnerOff.config).readPointer(); } catch { return { byId, layout }; }
+    if (bc.isNull()) return { byId, layout };
+    let unitList: NativePointer;
+    try { unitList = bc.add(BC_UNITS_OFF).readPointer(); } catch { return { byId, layout }; }
+    const configs = readRefList(unitList, 4096);
+    if (configs === null) return { byId, layout };
+    layout.bcResolved = true;
+    layout.bcUnits = configs.length;
+    let withActives = 0;
+    let unreadable = 0;
+    for (const cfg of configs) {
+        if (cfg.isNull()) continue;
+        let id: string | null = null;
+        try { id = readIl2cppString(cfg.add(UC_ID_OFF).readPointer()); } catch { /* */ }
+        if (!id) continue;
+        let actives: NativePointer;
+        try { actives = cfg.add(UC_ACTIVES_OFF).readPointer(); } catch { continue; }
+        const got = readEnumIntList(actives);
+        if (got.elemClass !== null) layout.elemClass = got.elemClass;
+        if (got.stride !== null) layout.elemStride = got.stride;
+        if (got.values === null) { unreadable++; continue; }
+        if (Object.prototype.hasOwnProperty.call(byId, id)) {
+            (layout.configIdCollisions as string[]).push(id);
+        }
+        byId[id] = got.values;
+        if (got.values.length > 0) withActives++;
+    }
+    layout.bcUnitsWithActives = withActives;
+    layout.unreadableActiveLists = unreadable;
+    return { byId, layout };
+}
+
+/** `BaseUnitComponent.Id` d'une entité — la CLÉ de jointure vers `UnitConfiguration.Id`,
+ *  obtenue par la fonction nommée qu'appelle la fabrique elle-même. `null` = pas mesuré. */
+function readEntityConfigId(entity: NativePointer): string | null {
+    if (!getBaseUnitComponentMi || BUC_ID_OFF < 0) return null;
+    try {
+        const comp = invokeMethod(getBaseUnitComponentMi.info, null, [entity]);
+        if (comp.isNull()) return null;
+        return readIl2cppString(comp.add(BUC_ID_OFF).readPointer());
+    } catch { return null; }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -739,7 +920,11 @@ export function registerViewSnapshot(ctx: Ctx): void {
             } catch { /* walk partiel */ }
             return out;
         };
+        // #419-r1-tr14-r5-r2-r2-r1 — l'index PRÉ-fabrique, lu UNE fois par appel (la
+        // `BattleConfiguration` ne bouge pas pendant la bataille).
+        const cfg = readConfigActives(runner);
         const units: Array<Record<string, unknown>> = [];
+        let cfgUnmatched = 0;
         forEachEntity(statePtr, (e, id, ty) => {
             if (ty !== EntityType.Unit && ty !== EntityType.Machine) return;
             if (body?.unitId !== undefined && id !== body.unitId) return;
@@ -788,10 +973,37 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 }
             });
             if (actives.length || triggered.length) {
-                units.push({ entityId: id, actives, triggered });
+                // TRI-ÉTAT STRICT. `configId === null` = la clé de jointure n'a pas pu être lue ;
+                // `configId` lu mais absent de l'index = entité SANS configuration dans la BC
+                // (une unité INVOQUÉE, typiquement — elle naît d'une opération de spawn, pas de
+                // `BC.Units`). Les deux rendent `configActives: null`, c'est-à-dire PAS MESURÉ.
+                // Un `[]` signifie « la configuration existe et ne porte aucun actif », ce qui
+                // est le cas de 50 des 175 entrées du seed : rabattre l'un sur l'autre ferait
+                // exactement l'inverse de ce que ce canal existe pour permettre.
+                const configId = readEntityConfigId(e);
+                const raw = (configId !== null
+                    && Object.prototype.hasOwnProperty.call(cfg.byId, configId))
+                    ? cfg.byId[configId] : null;
+                if (raw === null) cfgUnmatched++;
+                units.push({
+                    entityId: id, actives, triggered,
+                    configId,
+                    configActives: raw === null ? null : raw.map((t) => ({
+                        type: t, name: abilityName(t) ?? "id:" + t,
+                    })),
+                });
             }
         });
-        return { ok: true, runner: label, units };
+        return {
+            ok: true, runner: label, units,
+            // #433-r4-r2-r1-r1-c-r1 — même compteur que `decisionView.turnsEnded` : le canal qui
+            // porte l'état d'ability doit porter l'échelle à laquelle il se compare.
+            turnsEnded: readTurnsEnded(statePtr),
+            turnsEndedLayout: turnsEndedLayout(),
+            // #419-r1-tr14-r5-r2-r2-r1 — ce que le capteur a RÉSOLU, et combien d'entités
+            // n'ont pas de configuration jointe (attendu > 0 dès qu'il y a des invoqués).
+            configLayout: { ...cfg.layout, unmatchedEntities: cfgUnmatched },
+        };
     });
 
     /** PROBE de la config d'ability RÉELLEMENT enregistrée côté battle (#68/#75) —

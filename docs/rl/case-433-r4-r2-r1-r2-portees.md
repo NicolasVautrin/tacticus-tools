@@ -444,3 +444,121 @@ Non-régression rejouée après rebase : `test_433_r4_r2_r1_r2_ability_range_off
   (égalité du pointeur de slot avec `AActiveAbility`, lue au runtime) — c'est `-r1-r1-r2`
   (2ᵉ prédicat de `GetPossibleTargetsForOptions`, tuiles obscurcies). Le test garde qu'ils ne
   s'aggravent pas **et** que le bras bloqué n'en crée aucun nouveau.
+
+## 9. `#433-r4-r2-r1-r1-c-r1` — le capteur `IsAlreadyUsedThisTurn`, écrit (#466), NON CONFRONTÉ
+
+Le résidu était bloqué sur un **capteur**, pas sur une question ouverte. Il est écrit.
+**Aucune ligne de §9.3 n'est une mesure du capteur** : rien n'a tiré, faute de fenêtre de reinject.
+§9.1 et §9.2 sont, elles, des lectures — décompilé et métadonnées IL2CPP du build vivant.
+
+### 9.1 Le corps natif, relu — et la marche dont le SENS était donné à l'envers
+
+`IdunBattle.Core.Services.AttackQuery$$IsAlreadyUsedThisTurn(this, activeAbilityType, activeAbility)`,
+lu verbatim sur `rnca9r7q6c` :
+
+```csharp
+if (this.<+0x10> != 0)                                              return false;   // court-circuit
+if (StaticBattleRules.ActiveAbility.IsRegularAbilityType(activeAbilityType)) return false;
+if (activeAbility == null)                                          throw;
+if (!activeAbility.<Nullable<int> @+0x20>.HasValue)                 return false;
+turnsEnded = TurnComponent.GetAmountOfTurnsEnded(
+                 StateExtensions.GetMatchTurn(this.<+0x20>), 0);
+return hasValue && (value == turnsEnded);
+```
+
+⚠ **Le sens de la 2ᵉ marche** : le corps est gardé par `if ((char)IsRegularAbilityType(...) == '\0')`,
+donc le natif rend `false` **quand le type EST une attaque régulière** — une attaque normale n'est
+jamais « déjà utilisée ce tour ». La fiche héritée l'énonçait dans l'autre sens ; c'est lu, pas
+déduit du nom, et ça compte pour le consommateur (le gate ne doit jamais retirer l'attaque normale).
+
+### 9.2 Le NOM du champ `@+0x20` — mesuré, parce qu'il n'était pas dérivable
+
+Aucun symbole ne l'expose (`$$ToString` ne le touche pas, `$$Copy` est un `MemberwiseClone`), et
+`data/symbols/<build>/frida/classes.tsv` ne porte **aucun** offset de champ. Il a donc été lu au
+RUNTIME, par le RPC `classFields("IdunBattle.Entities.Components", "ActiveAbility")` :
+
+| offset | nom | type |
+|---|---|---|
+| `0x10` | `AmountOfTimesUsed` | `Int32` |
+| `0x14` | `TotalUsageCount` | `Int32` |
+| `0x18` | **`LastTurnUsed`** | `Nullable<int>` |
+| `0x20` | **`UnresetedLastTurnUsed`** | `Nullable<int>` |
+| `0x28` | `CanStillBeUsed` | `Boolean` |
+| `0x2c` | `RemainingCooldownTurns` | `Nullable<int>` |
+
+⇒ le champ que lit la marche (f) est **`UnresetedLastTurnUsed`**. ⚠ Son voisin `LastTurnUsed`
+@`0x18` est un AUTRE `Nullable<int>` du même composant : choisir entre les deux « au nom » aurait
+été un coup de dé. **Les deux sont donc publiés**, pour que la fenêtre CONFRONTE lequel bouge quand
+une ability est castée, au lieu de me croire sur parole.
+
+La disposition `{ int value @+0 ; bool hasValue @+4 }` est LUE deux fois : les champs voisins
+l'encadrent (`RemainingCooldownTurns` @`0x2c` suivi d'`IsInitialCooldown` @`0x34` = 8 octets), et le
+décompilé copie les 8 octets de `+0x20` d'un bloc puis compare la moitié BASSE au compteur.
+
+**Et le compteur n'était pas publiable non plus.** `decisionView.turn` est
+`TurnComponent$$GetAmountOfTurnsStartedByCurrentPlayer` — relu : `dict<+0x38>[currentPlayerId]`.
+`GetAmountOfTurnsEnded` lit `Sum(dict<+0x40>.Values)`. **Deux dictionnaires, deux agrégations** :
+`turn` ne peut donc pas servir de substitut, et publier le champ sans le compteur aurait laissé la
+question indécidable côté moteur. C'est une lecture, pas une précaution de style.
+
+### 9.3 Ce qui est livré
+
+* `frida/hooks/features/ai-step/internals.ts` — `readAbilityState` publie
+  `unresetedLastTurnUsed` / `unresetedLastTurnUsedHasValue` **et** `lastTurnUsed` /
+  `lastTurnUsedHasValue`, en **TRI-ÉTAT** : `…HasValue === null` = **PAS MESURÉ** (offset non
+  résolu ou lecture en faute), `false` = mesuré et vide, `true` = mesuré avec valeur. La valeur est
+  **BRUTE** (le tour), jamais un booléen pré-calculé : la comparaison au compteur appartient au
+  moteur, qui doit pouvoir la refaire à l'identique du natif — y compris la marche
+  `IsRegularAbilityType`, qui n'est pas dans ce champ.
+* Même fichier — `readTurnsEnded(state)` : trouve le `TurnComponent` comme le fait
+  `StateExtensions$$GetMatchTurn` (premier porteur du composant, sans présupposer l'entité `Match`)
+  puis **invoque la méthode nommée** `TurnComponent$$GetAmountOfTurnsEnded`. `null` = pas mesuré,
+  jamais `0` (qui est un tour légitime, et le confondre ferait répondre « utilisée ce tour » à
+  toute ability dont le Nullable vaut `0`).
+* `decisionView` — `turnsEnded`, plus `abilityStateLayout` / `turnsEndedLayout` (ce que le capteur a
+  RÉSOLU, avec les littéraux du décompilé à côté pour diagnostic). `unitAbilityStates` porte les
+  mêmes `turnsEnded` / `turnsEndedLayout` : le canal qui porte l'état d'ability doit porter
+  l'échelle à laquelle il se compare.
+* **Résolution par NOM sans repli littéral** (contraste voulu avec `fieldOffsetOr`) : un nom absent
+  au prochain build rend « pas mesuré », jamais la lecture d'un offset devenu celui d'un autre champ.
+* **Aucun gate n'est branché.** `ability_caster_gates` reste à trois marches ; ajouter la marche (f)
+  change un résultat observable (elle est RESTRICTIVE : elle retire une ability), donc c'est
+  spéculatif tant que la mesure n'a pas eu lieu.
+
+### 9.4 PLAN DE MESURE — ce que la fenêtre doit jouer, et ce que chaque résultat tranche
+
+Prérequis : reinject + `warmupGameSingletons({force:true})`. Montage = celui de §8.4, bras
+`tauMarksman`, **le seul qui casse une ability par un CAST** (et non par un cooldown initial) :
+
+```
+python rl_duel.py build --seed 777 --board MC1_67 \
+  --p-units "tauMarksman,necroWarden" --a-units "templAggressor,eldarRanger" \
+  --state-file <ABSOLU unique>
+# T0 : decisionView { runnerId, allAbilities: true }
+# puis act ability --caster <tauMarksman> --target <ennemi> --ability 1069
+# T1 : decisionView (MEME tour) ; act endturn x2 ; T2 : decisionView (tour suivant)
+```
+
+| # | mesure | résultat attendu | ce qu'un ÉCART trancherait |
+|---|---|---|---|
+| 1 | `abilityStateLayout.classResolved` + `unresetedLastTurnUsed` / `lastTurnUsed` | `true`, `0x20` et `0x18` — égaux aux `decompiled*` publiés à côté | un `-1` ⇒ le nom n'existe plus : le capteur rend « pas mesuré » (c'est voulu), et il faut re-lire la disposition avant tout. Un offset ≠ ⇒ la disposition a bougé : **rien des crans 3-7 n'est interprétable** |
+| 2 | `turnsEndedLayout` + `decisionView.turnsEnded` à T0 | `methodResolved: true`, `turnsEnded` **entier**, et `paramClass` publié tel quel | `turnsEnded: null` ⇒ méthode non résolue ou aucun porteur du composant : capteur inopérant sur cette moitié, et le résidu reste ENTIER. Si `paramClass` n'est pas un `Int32`, le noter — l'argument est passé sur 8 octets à zéro, ce qui couvre aussi un `Nullable<int>` |
+| 3 | `turnsEnded` vs `turn` sur la même réponse | **différents** au moins une fois dans la partie | toujours égaux ⇒ le montage ne les sépare pas (partie trop courte) : allonger, ne pas conclure que les deux compteurs coïncident — le décompilé dit le contraire (§9.2) |
+| 4 | à **T0**, l'ability `1069` : `unresetedLastTurnUsedHasValue` | `false` (jamais utilisée) | `null` ⇒ cf. cran 1. `true` avec une valeur ⇒ l'état est hérité d'un montage précédent : repartir d'un runner neuf |
+| 5 | **à T1 (même tour, après le cast)** : `unresetedLastTurnUsedHasValue == true` **et** `unresetedLastTurnUsed == turnsEnded` | **oui / oui** | c'est LE cran : il prouve que le champ porte bien « le tour où l'ability a été utilisée » et que l'échelle est celle de `turnsEnded`. Si `hasValue` reste `false`, le cast n'écrit pas ce champ ⇒ **c'est `LastTurnUsed` qu'il faut lire**, et le cran 6 le dit. Si `hasValue` est vrai mais la valeur ≠ `turnsEnded`, les deux ne sont pas dans la même échelle ⇒ ne PAS brancher le gate, re-ventiler |
+| 6 | à T1, `lastTurnUsed*` — le voisin | bouge **aussi** (les deux sont écrits au cast) | seul `lastTurnUsed` bouge ⇒ le décompilé et la disposition se contredisent sur `+0x20` : **relire `IsAlreadyUsedThisTurn`** avant de porter quoi que ce soit. C'est exactement pourquoi les deux sont publiés |
+| 7 | à **T2** (tour suivant) : `unresetedLastTurnUsed` inchangé pendant que `turnsEnded` a augmenté ⇒ `value != turnsEnded` | oui — l'ability redevient utilisable | si `unresetedLastTurnUsed` est REMIS à vide au changement de tour, le nom « Unreseted » est démenti : c'est alors `LastTurnUsed` qui est le champ non réinitialisé, et le rôle des deux est inversé. Trancher ici, pas après |
+
+**Après la fenêtre, et seulement après** : ajouter la marche (f) à
+`engine/services/ability_caster_gates.py` — **dans l'ordre natif** (après `CanCurrentlyBeUsed`,
+avant la délégation à `TargetingQuery`), avec la garde `IsRegularAbilityType` et le tri-état
+(`unresetedLastTurnUsedHasValue is None` ou `turnsEnded is None` ⇒ **ne pas gater**, borne
+supérieure d'aujourd'hui). Puis rejouer
+`test_433_r4_r2_r1_r1_c_caster_gates_live.py` et `test_433_r4_r2_r1_ability_range_live.py` : la
+zone d'une ability castée CE tour doit rétrécir, et **aucune** zone d'attaque normale ne doit
+bouger (c'est la contre-épreuve de la marche `IsRegularAbilityType`).
+
+⚠ **Ce qui restera NON COUVERT même après la fenêtre** : le court-circuit `this.<+0x10>` de
+`AttackQuery` (un champ du SERVICE, pas de l'ability — aucun canal ne le publie, et le port le
+suppose faux), et `-r1-r1-c-r2` (le canal d'état n'existe que sous `allAbilities: true`), qui reste
+entier et rend ce gate-ci silencieusement muet chez tout consommateur qui ne demande pas le drapeau.
