@@ -121,7 +121,7 @@ def _pred_bounds(pr):
 
 
 def sweep(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, max_turns=40,
-          shot=False, state_file=None) -> dict:
+          shot=False, state_file=None, attacker_moves=False) -> dict:
     from engine.entities.pathfinding.board import Board
 
     rid, err = _build(seed, board, rank, dmg_target, state_file)
@@ -211,6 +211,8 @@ def sweep(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, max_turns=40,
                "board_id": board, "dmg_target": dmg_target, "myplayer": myplayer,
                "owplayer": owplayer}
         out.update(hit)
+        if attacker_moves:
+            out["attacker_moves"] = _attacker_moves(rpc, rid, brd, ids, out)
         if shot:
             out["shot"] = _fire(rpc, rid, brd, ids, out)
         return out
@@ -219,6 +221,46 @@ def sweep(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, max_turns=40,
             rpc("disposeRunner", {"runnerId": rid}, 60)
         except Exception:
             pass
+
+
+def _attacker_moves(rpc, rid, brd, ids, blob) -> dict:
+    """CONTRE-EPREUVE du gate `!HasFlag(Moved)`, isole du fallback hors portee.
+
+    Depuis l'etat EN PORTEE deja mesure, on fait faire UN PAS a l'ATTAQUANT en le maintenant
+    a la meme distance de la cible -- donc toujours `inRange`, donc toujours la voie
+    `GetPredictionForTargetsReachableFromSelectionTile`. La SEULE variable qui change est le
+    flag `Moved` de l'attaquant. On relit `fromHere`, la presence de `HeavyWeapon_ExtraDmg`
+    et les bornes."""
+    dv = P._view(rpc, rid, inactive=True)
+    ow_u, car_u = P._unit(dv, ids[P.OVERWATCHER]), P._unit(dv, ids[P.CARRIER])
+    car_t = brd.id_at(int(car_u["pos"]["col"]), int(car_u["pos"]["row"]))
+    d_ref = P._bfs(brd, car_t)
+    d0 = d_ref.get(brd.id_at(int(ow_u["pos"]["col"]), int(ow_u["pos"]["row"])))
+    reach = P._mover_reach(dv, ids[P.OVERWATCHER])
+    to_tile = R1._pick_tile_at_distance(brd, dv, ids[P.OVERWATCHER], ids[P.CARRIER],
+                                        reach, int(d0 or 3))
+    if to_tile is None:
+        return {"error": "aucune tuile conservant la distance pour l'attaquant"}
+    col, row = brd.coord(to_tile)
+    try:
+        rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "move", "unitId": ids[P.OVERWATCHER],
+            "to": {"col": int(col), "row": int(row)}}}, 120)
+    except Exception as exc:
+        return {"error": "move attaquant refuse : %s" % exc}
+    dv2 = P._view(rpc, rid, inactive=True)
+    ow2 = P._unit(dv2, ids[P.OVERWATCHER]) or {}
+    d1 = d_ref.get(brd.id_at(int(ow2["pos"]["col"]), int(ow2["pos"]["row"])))
+    at = rpc("abilityTargets", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
+                                "abilityType": NORMAL_ATTACK, "allAbilities": False}, 120)
+    fh = _from_here_ids(at, ids[P.OVERWATCHER], NORMAL_ATTACK)
+    pr = rpc("aiPredict", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
+                           "targetId": ids[P.CARRIER], "fresh": True}, 90)
+    pres, act = P._armour_state(dv2, ids[P.CARRIER])
+    return {"d_before": d0, "d_after": d1, "moved_to": [int(col), int(row)],
+            "inRange": ids[P.CARRIER] in fh, "pred": _pred_bounds(pr),
+            "ow_effs": [e.get("name") for e in (ow2.get("effects") or [])],
+            "armour": [pres, act]}
 
 
 def _fire(rpc, rid, brd, ids, blob) -> dict:
@@ -342,13 +384,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--shot", action="store_true",
                     help="laisse partir le tir d'overwatch depuis l'etat EN PORTEE et inverse")
+    ap.add_argument("--attacker-moves", action="store_true",
+                    help="contre-epreuve du gate Moved : l'attaquant fait UN pas EN PORTEE")
     ap.add_argument("--dmg-target", default=None)
     ap.add_argument("--max-turns", type=int, default=40)
     ap.add_argument("--state-file", default=None)
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
     b = sweep(dmg_target=a.dmg_target, max_turns=a.max_turns, shot=a.shot,
-              state_file=a.state_file)
+              state_file=a.state_file, attacker_moves=a.attacker_moves)
     out = Path(a.out) if a.out else (ROOT / "logs" / ("probe_437r1r3_%s.json"
                                                       % (a.dmg_target or "base")))
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -365,6 +409,9 @@ def main() -> int:
           % (b["d_car"], _pred_bounds(b["aiPredict"])))
     st = R1.stage_inputs({"tiles": b["tiles"], "cap": b["cap"], "ids": b["ids"]})
     print("[437r1r3] entrees d'etage PORT : %s" % json.dumps(st))
+    if a.attacker_moves:
+        print("[437r1r3] CONTRE-EPREUVE attaquant BOUGE : %s"
+              % json.dumps(b.get("attacker_moves")))
     if a.shot:
         print("[437r1r3] TIR : %s" % json.dumps(b.get("shot")))
         print("[437r1r3] INVERSION : %s" % json.dumps(invert(b)))
