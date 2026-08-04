@@ -23,30 +23,32 @@ corps triviaux, bases generiques absentes du dump Frida) :
     TEMOIN de cette etape est `ShouldExecute` : il DOIT apparaitre a `depth 0` sur les douze, sinon
     l'absence de `.cctor` ne mesure que la panne du RPC.
 
-Un `.cctor` absent des DEUX sources ==> le champ statique n'est jamais ecrit ==> il vaut ce que
-`Class::Init` y a laisse, c.-a-d. **zero** (`static_fields` est alloue zero-initialise). Le seuil est
-alors `Fix64(0)`, et le gate se lit `utility > 0`.
-
 ## Le tableau attendu, ENONCE AVANT LA MESURE
 
-| classe (`IdunBattle.AI.Playbook[.Loki]`)   | ability            | `.cctor` | seuil     |
-|--------------------------------------------|--------------------|----------|-----------|
-| `BlightGrenadesPlaybook`                    | 1176 BlightGrenades| OUI      | `Fix64(1)`|
-| `Loki.FlailSwingPlaybook`                   | 1042 FlailSwing    | OUI      | `Fix64(1)`|
-| `Loki.MomentShacklePlaybook`                | 1184 MomentShackle | OUI      | `Fix64(1)`|
-| `Loki.PlasmaCannonPlaybook`                 | 1150 PlasmaCannon  | OUI      | `Fix64(1)`|
-| `Loki.AncestralFortunePlaybook`             | 1207               | non      | `Fix64(0)`|
-| `Loki.ExcruciatingFrequenciesPlaybook`      | 1197               | non      | `Fix64(0)`|
-| `Loki.PlagueWindPlaybook`                   | 1035               | non      | `Fix64(0)`|
-| `Loki.ScytheOfDustPlaybook`                 | 1074               | non      | `Fix64(0)`|
-| `Loki.ScythingTalonsPlaybook`               | 1065               | non      | `Fix64(0)`|
-| `Loki.SeekerMissileFrequencyLockPlaybook`   | 1069               | non      | `Fix64(0)`|
-| `Loki.StaffOfStarsPlaybook`                 | 1073               | non      | `Fix64(0)`|
-| `Loki.SuperchargePlaybook`                  | 1103               | non      | `Fix64(0)`|
+Ce que le recensement des `.cctor` mesure, c'est la PRESENCE d'un second ecrivain, PAS le seuil : le
+champ a un ecrivain de PLUS, `ComparablePlaybook<T>$$.cctor`, qui y met `Fix64(10)` et qui ecrit en
+DERNIER (cf. `engine/playbook/static_threshold_gate.py` et le probe `..._r4_ecart_permissif`). Le
+seuil effectif vaut donc **10 pour les douze** -- mesure sur `1150` (avec `.cctor` derive) et sur
+`1069` (sans). Les `.cctor` derives restent gardes ici parce que leur presence est le fait qui
+explique la lecture erronee « 1 vs 0 » de la tranche precedente.
 
-Les quatre `.cctor` ecrivent tous `Fix64.op_Implicit(1)` a l'offset 0 des statics -- lu un par un,
-JAMAIS generalise depuis le premier (`BlightGrenadesPlaybook$$.cctor`). Les douze `ability_id` sont
-lus dans le `.ctor` de leur classe (`ComparablePlaybook<T>..ctor(this, <id>, klass)`).
+| classe (`IdunBattle.AI.Playbook[.Loki]`)   | ability            | `.cctor` derive | seuil effectif |
+|--------------------------------------------|--------------------|-----------------|----------------|
+| `BlightGrenadesPlaybook`                    | 1176 BlightGrenades| OUI (`Fix64(1)`)| `Fix64(10)`    |
+| `Loki.FlailSwingPlaybook`                   | 1042 FlailSwing    | OUI (`Fix64(1)`)| `Fix64(10)`    |
+| `Loki.MomentShacklePlaybook`                | 1184 MomentShackle | OUI (`Fix64(1)`)| `Fix64(10)`    |
+| `Loki.PlasmaCannonPlaybook`                 | 1150 PlasmaCannon  | OUI (`Fix64(1)`)| `Fix64(10)`    |
+| `Loki.AncestralFortunePlaybook`             | 1207               | non             | `Fix64(10)`    |
+| `Loki.ExcruciatingFrequenciesPlaybook`      | 1197               | non             | `Fix64(10)`    |
+| `Loki.PlagueWindPlaybook`                   | 1035               | non             | `Fix64(10)`    |
+| `Loki.ScytheOfDustPlaybook`                 | 1074               | non             | `Fix64(10)`    |
+| `Loki.ScythingTalonsPlaybook`               | 1065               | non             | `Fix64(10)`    |
+| `Loki.SeekerMissileFrequencyLockPlaybook`   | 1069               | non             | `Fix64(10)`    |
+| `Loki.StaffOfStarsPlaybook`                 | 1073               | non             | `Fix64(10)`    |
+| `Loki.SuperchargePlaybook`                  | 1103               | non             | `Fix64(10)`    |
+
+Les douze `ability_id` sont lus dans le `.ctor` de leur classe
+(`ComparablePlaybook<T>..ctor(this, <id>, klass)`).
 
 Usage :
     python scripts/python/probe_419r1tr14r5r2r1r1r1r2_static_threshold_gate.py
@@ -73,18 +75,18 @@ _ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 #: `(namespace, classe, ability_id, .cctor attendu, seuil attendu)` -- le namespace est celui que
 #: `findClassAnywhere` attend cote Frida (`IdunBattle.AI.Playbook` ou `IdunBattle.AI.Playbook.Loki`).
 FAMILY = (
-    ("IdunBattle.AI.Playbook",      "BlightGrenadesPlaybook",             1176, True,  1.0),
-    ("IdunBattle.AI.Playbook.Loki", "FlailSwingPlaybook",                 1042, True,  1.0),
-    ("IdunBattle.AI.Playbook.Loki", "MomentShacklePlaybook",              1184, True,  1.0),
-    ("IdunBattle.AI.Playbook.Loki", "PlasmaCannonPlaybook",               1150, True,  1.0),
-    ("IdunBattle.AI.Playbook.Loki", "AncestralFortunePlaybook",           1207, False, 0.0),
-    ("IdunBattle.AI.Playbook.Loki", "ExcruciatingFrequenciesPlaybook",    1197, False, 0.0),
-    ("IdunBattle.AI.Playbook.Loki", "PlagueWindPlaybook",                 1035, False, 0.0),
-    ("IdunBattle.AI.Playbook.Loki", "ScytheOfDustPlaybook",               1074, False, 0.0),
-    ("IdunBattle.AI.Playbook.Loki", "ScythingTalonsPlaybook",             1065, False, 0.0),
-    ("IdunBattle.AI.Playbook.Loki", "SeekerMissileFrequencyLockPlaybook", 1069, False, 0.0),
-    ("IdunBattle.AI.Playbook.Loki", "StaffOfStarsPlaybook",               1073, False, 0.0),
-    ("IdunBattle.AI.Playbook.Loki", "SuperchargePlaybook",                1103, False, 0.0),
+    ("IdunBattle.AI.Playbook",      "BlightGrenadesPlaybook",             1176, True,  10.0),
+    ("IdunBattle.AI.Playbook.Loki", "FlailSwingPlaybook",                 1042, True,  10.0),
+    ("IdunBattle.AI.Playbook.Loki", "MomentShacklePlaybook",              1184, True,  10.0),
+    ("IdunBattle.AI.Playbook.Loki", "PlasmaCannonPlaybook",               1150, True,  10.0),
+    ("IdunBattle.AI.Playbook.Loki", "AncestralFortunePlaybook",           1207, False, 10.0),
+    ("IdunBattle.AI.Playbook.Loki", "ExcruciatingFrequenciesPlaybook",    1197, False, 10.0),
+    ("IdunBattle.AI.Playbook.Loki", "PlagueWindPlaybook",                 1035, False, 10.0),
+    ("IdunBattle.AI.Playbook.Loki", "ScytheOfDustPlaybook",               1074, False, 10.0),
+    ("IdunBattle.AI.Playbook.Loki", "ScythingTalonsPlaybook",             1065, False, 10.0),
+    ("IdunBattle.AI.Playbook.Loki", "SeekerMissileFrequencyLockPlaybook", 1069, False, 10.0),
+    ("IdunBattle.AI.Playbook.Loki", "StaffOfStarsPlaybook",               1073, False, 10.0),
+    ("IdunBattle.AI.Playbook.Loki", "SuperchargePlaybook",                1103, False, 10.0),
 )
 
 # ============================================================================ volet LIVE
@@ -99,14 +101,16 @@ FAMILY = (
 #       = 100 * dmg / (maxHP + 2)                                     [aucun kill : PV >> degat]
 #
 # `u` est donc PILOTABLE par les PV de la cible, a degat constant : `u x (maxHP + 2) = 100 x dmg`
-# est INVARIANT. Deux bras, un seul axe (les PV) :
+# est INVARIANT. Trois bras, un seul axe (les PV), les deux derniers CALIBRES depuis le `u` mesure
+# au premier :
 #
-#   * bras `lo` : PV enormes -> `0 < u < 1`. Le seuil 1 REFUSE, le seuil 0 ACCEPTE.
-#   * bras `hi` : PV CALIBRES depuis `u` mesure en `lo` pour viser `u ~ 2`. Les DEUX acceptent.
+#   * bras `lo`  : PV enormes -> `0 < u < 1`   -> SOUS le seuil (10) : natif ET port refusent ;
+#   * bras `mid` : `u ~ 5`                     -> SOUS le seuil      : natif ET port refusent ;
+#   * bras `hi`  : `u ~ 20`                    -> AU-DESSUS          : natif ET port acceptent.
 #
-# Ce n'est donc pas un regime degenere : les deux modeles (`> 0` et `> 1`) rendent des verdicts
-# OPPOSES dans le bras `lo`, et le meme dans `hi`. L'encadrement obtenu borne le seuil dans
-# `(u_lo, u_hi)`, ce qui est bien plus fort que « le seuil est grand ».
+# Le bras `mid` est celui qui a NOMME l'erreur de seuil : avec le seuil `Fix64(1)` de la tranche
+# precedente, le port y acceptait quand le natif refusait. L'ENCADREMENT SERRE du seuil (a 3e-5) et
+# le TEMOIN a seuil declare OPPOSE vivent dans le probe `..._r4_ecart_permissif`.
 #
 # DEUX CONCURRENTS A NEUTRALISER -- sans quoi le bras `lo` aurait des causes indistinguables
 # ------------------------------------------------------------------------------------------
@@ -130,14 +134,9 @@ FAMILY = (
 #
 #     portee de l'arme la plus longue  <  distance(caster, cible)  <=  range de l'ability
 #
-#   | caster           | ability                        | seuil | armes      | range | distance |
-#   |------------------|--------------------------------|-------|------------|-------|----------|
-#   | darkaTerminator  | 1150 PlasmaCannon              |   1   | melee (1)  |   3   |    3     |
-#   | tauMarksman      | 1069 SeekerMissileFrequencyLock|   0   | melee / R3 |   5   |    5     |
-#
-# `tauMarksman` est le TEMOIN : meme bras, meme cible, memes PV, seuil 0 -> il doit rester propose
-# dans les DEUX bras. Sans lui, « plus rien n'est propose en `lo` » se lirait aussi bien comme un
-# effet d'argmax que comme un gate qui mord.
+#   | caster           | ability            | seuil effectif | armes     | range | distance |
+#   |------------------|--------------------|----------------|-----------|-------|----------|
+#   | darkaTerminator  | 1150 PlasmaCannon  |       10       | melee (1) |   3   |    3     |
 
 FOE = "adeptRetributor"
 BOARD = "MC1_67"
@@ -154,7 +153,7 @@ MOVEMENT = 0
 #: suffisant pour approcher il choisirait de BOUGER (cf. plus bas). D'ou le temoin par REGIME
 #: (trois bras sur le meme caster) plutot que par ability.
 LIVE_CASTERS = (
-    ("darkaTerminator", 1150, 1.0, 3),
+    ("darkaTerminator", 1150, 10.0, 3),
 )
 
 #: PV du bras `lo`. Choisi tres au-dessus de `100 x degat` pour garantir `u < 1` quel que soit le
@@ -609,21 +608,19 @@ def etape4_live(logs: str, verbose: bool = True) -> dict:
                                                                  lo_b, hi_b))
             bad += 1
             continue
-        # CRITERE A -- LE SENS QUI COMPTE (necessite, symetrique) : le port ne refuse JAMAIS ce que
-        # le natif CHOISIT. C'est le seul accord exigible ligne a ligne (`aiDryRunAllUnits` rend
-        # l'action GAGNANTE, le port rend « une action EXISTE »), et le sens de divergence le plus
-        # grave -- celui qui ferait perdre a un entrainement une action que le jeu joue.
-        if r["native"] and not r["port"]:
-            print("  VIOLE A [%s] %s : natif PROPOSE, port REFUSE" % (r["arm"], r["caster"]))
+        # CRITERE A -- ACCORD PLEIN. Depuis que le seuil porte est le seuil EFFECTIF (`Fix64(10)`,
+        # cf. `-r4`), les deux canaux doivent s'accorder DANS LES DEUX SENS sur les trois bras.
+        # Avant, seul le sens « le port ne refuse jamais ce que le natif choisit » etait exigible :
+        # le port acceptait a `u = 5` la ou le natif refusait, et cet ecart PERMISSIF etait la
+        # signature du seuil faux.
+        if r["native"] != r["port"]:
+            print("  VIOLE A [%s] %s : natif=%s port=%s a u=%.4f"
+                  % (r["arm"], r["caster"], r["native"], r["port"], r["u"]))
             bad += 1
-        # CRITERE B : le gate MORD cote port dans le bras `lo` (`u <= seuil`) et NULLE PART ailleurs.
-        if r["arm"] == "lo" and r["port"]:
-            print("  VIOLE B [lo] %s : le gate ne mord pas (u=%.4f <= seuil %.1f)"
-                  % (r["caster"], r["u"], r["threshold"]))
-            bad += 1
-        if r["arm"] in ("mid", "hi") and not r["port"]:
-            print("  VIOLE B [%s] %s : le gate mord alors que u=%.4f > seuil %.1f"
-                  % (r["arm"], r["caster"], r["u"], r["threshold"]))
+        # CRITERE B : le gate MORD cote port partout SOUS le seuil, et nulle part au-dessus.
+        if (r["u"] > r["threshold"]) != bool(r["port"]):
+            print("  VIOLE B [%s] %s : u=%.4f vs seuil %.1f -> port=%s"
+                  % (r["arm"], r["caster"], r["u"], r["threshold"], r["port"]))
             bad += 1
         # CRITERE C : quand l'utilite est FRANCHE, le natif propose bel et bien cette ability --
         # c'est le temoin qui exclut « elle n'est de toute facon jamais proposee », et donc ce qui
@@ -637,15 +634,6 @@ def etape4_live(logs: str, verbose: bool = True) -> dict:
             print("  VIOLE D [%s] %s : gate_cut=%s port=%s" % (r["arm"], r["caster"],
                                                                r["port_gate_cut"], r["port"]))
             bad += 1
-    # ECART PERMISSIF RESIDUEL, mesure et RAPPORTE (il ne fait pas rougir : il est ANTERIEUR a cette
-    # tranche, et la tranche le REDUIT). Le bras `mid` est exactement la zone ou le natif refuse
-    # encore et ou le port accepte. Cause NON identifiee -- ancrage nomme dans la case-doc :
-    # `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction`
-    # applique un predicat `<ctx+0xc0>+0x40` AVANT d'inserer l'action, donc AU-DESSUS du playbook.
-    for r in rows:
-        if r["arm"] == "mid" and r["port"] and not r["native"]:
-            print("  NOTE ecart PERMISSIF residuel [mid] %s : u=%.4f, port accepte, natif refuse"
-                  % (r["caster"], r["u"]))
     return {"bad": bad, "rows": rows}
 
 

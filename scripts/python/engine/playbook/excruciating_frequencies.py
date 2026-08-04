@@ -113,8 +113,13 @@ def _score(ctx, P: tuple, line_enemies: list):
         if trig:
             ua += (-1.0 if ev.friendly else 1.0) * ev.probability * trig
         u += ua
-    if u <= 0:
-        return None                                  # ShouldExecute : util > 0
+    # `IdunBattle.AI.Playbook.Loki.ExcruciatingFrequenciesPlaybook$$ShouldExecute` :
+    # `Fix64.op_GreaterThan(attackHealUtility, <premier static de la classe>)`. Ce static vaut
+    # `Fix64(10)` -- `ComparablePlaybook<T>$$.cctor` l'y ecrit, et 1197 ne declare aucun `.cctor`
+    # propre (#419-r1-tr14-r5-r2-r1-r1-r1-r2-r4). Le port lisait `util > 0`.
+    from engine.playbook.static_threshold_gate import STATIC_UTILITY_THRESHOLD
+    if not u > STATIC_UTILITY_THRESHOLD:
+        return None
     return u, u + tile_utility(ctx, P)
 
 

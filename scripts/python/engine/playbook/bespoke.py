@@ -21,6 +21,7 @@ from engine import battle_query as bq
 from engine.predict import heal_amount_config, predict_heal_effective, heal_utility
 from engine.entities.effects.magnitude import ability_var  # #15 : GetVariableForLevel (CultDemagogue nrOfSummons)
 from engine.entities.active_ability_type import ActiveAbilityType  # #158 : ABILITY_ID -> enum (abilities ACTIVES, cat W_KEY=ActiveAbilities)
+from engine.playbook.static_threshold_gate import STATIC_UTILITY_THRESHOLD  # #419-r1-...-r2-r4
 
 _TRAITS_CACHE: dict = {}
 
@@ -108,11 +109,15 @@ class MomentShacklePlaybook:
       (`min(healAmount, missing_self)`, #79) -> `HealUtility` = `effective/(maxHP+1)×100`. POSITION-INDÉP.
     - Position : `IdunBattle.AI.Playbook.Loki.MomentShacklePlaybook$$CalculateCasterPositionUtility` = `count(ennemis ADJACENTS au caster@T) × W`.
       W = `Utilities.Default.ActiveAbilities.MomentShackle_AdjacentEnemy` = 25.
-    - MIN_UTILITY = `Fix64.FromInt(1)` = 1 (IdunBattle.AI.Playbook.Loki.MomentShacklePlaybook$$.cctor). Position-swept, origine-préférée (#76)."""
+    - MIN_UTILITY = le PREMIER static de la classe, `Fix64(10)` : `...MomentShacklePlaybook$$.cctor`
+      y ecrit bien `Fix64(1)`, mais `ComparablePlaybook<T>$$.cctor` y ecrit `Fix64(10)` APRES lui
+      (cf. `playbook/static_threshold_gate.py`, seuil MESURE sur deux identites de la famille).
+      Position-swept, origine-préférée (#76)."""
 
     ABILITY_ID = int(ActiveAbilityType.MomentShackle)  # 1184
     W_KEY = "MomentShackle_AdjacentEnemy"   # cat ActiveAbilities
-    MIN_UTILITY = 1.0
+    #: Foyer UNIQUE du seuil de la famille -- jamais un litteral recopie ici.
+    MIN_UTILITY = STATIC_UTILITY_THRESHOLD
 
     def generate_candidates(self, ctx) -> list:
         me = ctx.me
@@ -133,10 +138,10 @@ class MomentShacklePlaybook:
             util = self_heal_u + adj_enemies * w
             # `IdunBattle.AI.Playbook.Loki.MomentShacklePlaybook$$ShouldExecute`, lu verbatim :
             #     return Fix64.op_GreaterThan(attackHealUtility, <premier static de la classe>);
-            # Comparaison STRICTE, donc une utilite EGALE au seuil est REFUSEE. Le port ecrivait
-            # `util < MIN_UTILITY: continue`, c.-a-d. `util >= 1` accepte -- une borne INCLUSIVE la
-            # ou le natif est exclusif (#419-r1-tr14-r5-r2-r1-r1-r1-r2). Le seuil lui-meme est
-            # inchange : `Fix64(1)`, ecrit par `...MomentShacklePlaybook$$.cctor`.
+            # Comparaison STRICTE, donc une utilite EGALE au seuil est REFUSEE (le port ecrivait
+            # `util < MIN_UTILITY`, borne INCLUSIVE, #419-r1-tr14-r5-r2-r1-r1-r1-r2). Le SEUIL, lui,
+            # vaut `Fix64(10)` et non `Fix64(1)` : le `.cctor` de la base generique ecrase celui de
+            # la classe derivee (#419-r1-tr14-r5-r2-r1-r1-r1-r2-r4, mesure sur 1150 et 1069).
             if not util > self.MIN_UTILITY:
                 continue
             if best is None or util > best[1]:   # strict >
