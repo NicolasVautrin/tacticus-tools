@@ -824,21 +824,33 @@ que le bytecode n'était pas à jour (`PYTHONDONTWRITEBYTECODE`, FS en lecture s
 mesurée dans un régime non maîtrisé décrit la machine ; la versionner propagerait le défaut. C'est
 la doctrine de `_ecrire_mesure`, appliquée à une deuxième cause.
 
-### Le garde a mordu sur le préchauffage LUI-MÊME — et c'est la meilleure contre-épreuve
+### Le garde a mordu DEUX FOIS sur le préchauffage lui-même — c'est la meilleure contre-épreuve
 
-Première mesure complète avec le préchauffage : **`rc=99`, REFUS sur 548 modules**. Cause,
-mesurée : `compileall.compile_dir(..., workers=0)` compile dans des **SOUS-PROCESS**, et une
-affectation à `sys.pycache_prefix` ne vit que dans l'interpréteur courant — **elle ne traverse pas
-le fork**. Résultat : **1691** `.pyc` déposés dans `scripts/python/**/__pycache__` (violation #455,
-exactement ce que le préfixe devait empêcher) contre 1030 dans le préfixe, et les imports de pytest
-retombant sur les sources.
+Il n'est pas décoratif : il a trouvé **deux** défauts de son propre remède, chacun invisible à
+l'échantillon et révélé par le passage à l'échelle.
 
-L'échantillon de 5 fichiers n'avait rien vu : ses quelques modules étaient couverts par le préfixe.
-**C'est le passage à l'échelle qui a révélé le défaut, et c'est le garde qui l'a nommé** — pas une
-relecture. Correctif : `PYTHONPYCACHEPREFIX` posée **en plus** (elle, héritée par les workers), et
-un témoin DIRECT qui compte les `.pyc` apparus sous `scripts/python` pour nommer la cause tout de
-suite au lieu de la laisser lire 20 min plus tard. Après : **1751** `.pyc` dans le préfixe, **0**
-dans l'arbre.
+**Morsure 1 — `rc=99`, REFUS sur 548 modules.** `compileall.compile_dir(..., workers=0)` compile
+dans des **SOUS-PROCESS**, et une affectation à `sys.pycache_prefix` ne vit que dans l'interpréteur
+courant : **elle ne traverse pas le fork**. Résultat : **1691** `.pyc` déposés dans
+`scripts/python/**/__pycache__` (violation #455, exactement ce que le préfixe devait empêcher)
+contre 1030 dans le préfixe. Correctif : `PYTHONPYCACHEPREFIX` posée **en plus** (elle, héritée par
+les workers), et un témoin DIRECT qui compte les `.pyc` apparus sous `scripts/python`. Après :
+**1751** dans le préfixe, **0** dans l'arbre.
+
+**Morsure 2 — `rc=99`, REFUS sur 136 modules**, et le compte *nomme* la cause : **132** fichiers du
+périmètre + les **3** `conftest.py` + 1. **Pytest RÉÉCRIT les assertions**, et son chargeur REJETTE
+un `.pyc` qui ne porte pas sa marque — il relit donc la SOURCE. `compileall` ne peut structurellement
+pas fabriquer ce bytecode-là. Ces lectures dépendent de la présence du cache **PYTEST**, donc de
+l'état de la machine : c'est #464-r2 déplacé d'un cran, pas un bruit inévitable.
+
+Second étage : une passe `--collect-only` **dans un SOUS-PROCESS**. Le sous-process est le point —
+collecter dans le process courant laisserait les modules de test dans `sys.modules`, si bien que le
+vrai run **ne ré-exécuterait pas leur code de niveau module** et PERDRAIT les lectures globales
+légitimes d'un test-BALAYAGE qui ouvre `data/symbols/**` à l'import. Le cache se partage par le
+disque ; l'état du process, non.
+
+Après les deux étages, sur l'échantillon, **froid et chaud** : `modules_globaux` = **0**, lectures
+brutes = **2**, et `par_test` identique mot pour mot — `data` et `frida/hooks/data` conservés.
 
 ### Le trou du graphe qu'il a fallu fermer — et qui était un faux vert ACTUEL
 
