@@ -234,18 +234,20 @@ L'inertie des trois autres lignes est la réciproque : un port qui déborderait 
 
 | fichier | verdict |
 |---|---|
-| `test_419r1tr14r5r2r1r1_normal_attack_should_execute_live.py` (neuf) | **6 passed** |
+| `test_419r1tr14r5r2r1r1_normal_attack_should_execute_live.py` (neuf) | **7 passed** |
 | `test_419r1tr14r5r2r1_trait_normal_attack_live.py` | 6 passed |
 | `test_419r1tr14r5_normal_attack_dispatch_live.py` | 6 passed |
 | `test_419r1tr14r5_r1r4_normal_attack_table_live.py` | 9 passed |
 | `test_419r1tr14r5r2_active_normal_attack_live.py` | 6 passed |
 | `test_normal_attack_bonus_decision_live.py` | 8 passed |
 | `test_419r1tr9_r4_r1_r2_normal_attack_gate_live.py` | 6 passed |
-| `test_419r1tr14_heavy_bolt_pistol_live.py` | 8 passed |
-| `test_443_savior_protocols_pair_term_live.py` | 7 passed |
-| `test_tile_term_triggered_playbooks_live.py` | 6 passed |
+| `test_419r1tr14_heavy_bolt_pistol_live.py` | 6 passed |
+| `test_443_savior_protocols_pair_term_live.py` | (cf. relevé de la PR) |
+| `test_443r1_savior_protocols_move_term_live.py` | (cf. relevé de la PR) |
+| `test_443r2_only_active_overwatch_live.py` | (cf. relevé de la PR) |
+| `test_tile_term_triggered_playbooks_live.py` | (cf. relevé de la PR) |
 
-Les six derniers ne sont pas de la tranche : ce sont les consommateurs du terme de PAIRE et de la
+Les sept derniers ne sont pas de la tranche : ce sont les consommateurs du terme de PAIRE et de la
 feuille `TriggeredAbilities(2)`, c'est-à-dire exactement ce que le seed de `triggered_abilities`
 côté décision (§3.3) pouvait déplacer.
 

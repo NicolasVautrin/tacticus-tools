@@ -152,7 +152,7 @@ def test_les_temoins_attestent_le_montage(gate_rows):
         t = _row(gate_rows, arm)
         assert t["native"] is True, (
             f"[{arm}] TEMOIN : cible SANS `Explosive`, le natif doit attaquer, il a propose "
-            f"{t['msgs']}. Sans ce cran, « aucune attaque » partout (caster hors de portee, montage "
+            f"{t['msgs']}. Sans ce cran, 'aucune attaque' partout (caster hors de portee, montage "
             f"mort) se lirait comme un gate qui mord.")
         assert t["port"] is True, (
             f"[{arm}] TEMOIN : le port doit produire une action -- il rend `None`, donc il gate ce "
@@ -182,10 +182,10 @@ def test_les_deux_contre_epreuves_mordent_sur_expl_gen_et_seulement_la(gate_rows
     ):
         p = _row(gate_rows, "expl_gen")
         assert p[key] != p["port"], (
-            f"contre-epreuve « {label} » INERTE sur `expl_gen` (port={p['port']}, "
+            f"contre-epreuve '{label}' INERTE sur `expl_gen` (port={p['port']}, "
             f"mute={p[key]}) : {why}.")
         debords = [r["arm"] for r in gate_rows if r[key] != r["port"] and r["arm"] != "expl_gen"]
         assert not debords, (
-            f"contre-epreuve « {label} » MORD aussi sur {debords}, qui ne passent pas par le gate "
+            f"contre-epreuve '{label}' MORD aussi sur {debords}, qui ne passent pas par le gate "
             f"`Explosive` : le port DEBORDE (il gate une cible sans le passif, ou il applique au "
             f"boss une clause que `Loki_NormalBossAttackPlaybook$$ShouldExecute` n'a pas).")
