@@ -12,6 +12,7 @@ from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defend
 # le foyer PARTAGE (#339/#350-r3b), consomme ici par le mold RANGED (#446-r1). Ne PAS substituer
 # `MinMaxDamage$$Avg` ni `AActiveAbility$$MinMaxDamageAverage` : ils arrondissent demi-vers-le-PAIR.
 from engine.dsl.base import calculate_average
+from engine.entities.traits.unit_trait import entity_trait_names
 from engine.services.custom_normal_attack import substitutes_normal_attack
 
 
@@ -236,14 +237,18 @@ def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_f
     # ActiveAbilities`). Les deux listes sont threadees pour que le predicat decide de la cascade
     # ENTIERE -- meme si, sur ce build, l'unique entree de la table ACTIVE ne peut rendre que
     # `RogalDorn_NormalAttack`, qui n'est le mold d'aucun de ces trois passifs.
+    # #419-r1-tr14-r5-r2-r1 : la TROISIEME branche (`Traits.Contains(0x7e7 Boss)` -> `1030
+    # Loki_NormalBossAttack`). Meme substrat d'ENTITE que la garde `Erratic`/`Harmless` -- lu par
+    # `entity_trait_names`, qui retombe sur le kit quand l'entite n'a pas de `UnitContext`.
     _actx = scene.ctx(att_id)
     _pas = getattr(_actx, "passive_abilities", None)
     _act = getattr(_actx, "active_abilities", None)
     _vis = scene.vis_by_id.get(att_id)
+    _tra = entity_trait_names(_actx, _vis)
 
     def carries(nm: str) -> bool:
         return substitutes_normal_attack(nm, passive_abilities=_pas, visual_id=_vis,
-                                         active_abilities=_act)
+                                         active_abilities=_act, traits=_tra)
 
     if not is_melee:
         for nm in _RANGED_FOLLOWUP_PASSIVES:

@@ -15,7 +15,7 @@ if (fromPassive.HasValue) { type = fromPassive.Value; state = triggeredAbilitySt
 else {
     var fromActive = GetCustomNormalAttackTypeFromActive(this, config);
     if (fromActive.HasValue) { type = fromActive.Value; state = activeAbilityState; }
-    else if (config.Traits.Contains(0x7e7)) { type = 0x406; state = activeAbilityState; }
+    else if (config.Traits.Contains(0x7e7)) { type = 0x406; state = activeAbilityState; }   // #419-r1-tr14-r5-r2-r1
     else { ... repli generique ... }
 }
 ActiveAbilityComponent.Add(comp, type, state, null);
@@ -192,6 +192,51 @@ CUSTOM_NORMAL_ATTACK_BY_ACTIVE: dict[str, str] = {
     "PoundThemToDust": "RogalDorn_NormalAttack",                 # 1124 -> 1126
 }
 
+#: La TROISIEME branche de la cascade (#419-r1-tr14-r5-r2-r1) -- et ce n'est PAS une table : le natif
+#: n'appelle ici aucun `GetCustomNormalAttack`, il teste UN littéral et pose UN littéral.
+#: `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`, lu verbatim dans le MEME
+#: `if/else` que les deux voies precedentes :
+#:
+#:     else if (config.Traits.Contains(0x7e7)) { type = 0x406; state = activeAbilityState; }
+#:
+#: -- un `List<UnitTrait>.Contains` sur `UnitConfiguration.Traits` (`config@+0xd0`), le MEME champ et
+#: la MEME instanciation gshared (`Contains(..., <RGCTX List<UnitTrait>>)`) que la garde d'entree
+#: `Erratic`/`Harmless` ci-dessous. Le port modelise donc les deux avec le MEME substrat.
+#:
+#: ## Les deux littéraux, QUALIFIES sur le build courant (jamais infores d'un nom)
+#:
+#: * `0x7e7` = 2023 = `Boss` dans `IdunBattle.Entities.Enum.UnitTrait`.
+#:   ⚠ Ce n'est ni `1045 Guild_Boss_01`, ni `1040 BossAdjutant_Old`, ni `1049 MachineOfWar` -- trois
+#:   noms voisins du meme enum, tous a des valeurs DIFFERENTES. La valeur se lit, elle ne se devine
+#:   pas : c'est exactement la faute qui a fait ecrire « porteur = MACHINE OF WAR » sur ce gisement.
+#: * `0x406` = 1030 = `Loki_NormalBossAttack` dans `IdunBattle.Entities.Enum.ActiveAbilityType`.
+#:   ⚠ 1030 est AUSSI la valeur de `BeastSnagga` dans `UnitTrait` -- deux enums, meme entier : le
+#:   qualifier par son enum n'est pas une precaution de style.
+#:
+#: ## Le RANG dans la cascade -- ce qui n'est pas negociable
+#:
+#: TROISIEME, et le natif l'ecrit dans sa structure de blocs : ce `else if` est le `else` du test
+#: `fromActive.HasValue`, lui-meme dans le `else` du test `fromPassive.HasValue`. Une unite qui porte
+#: `Boss` ET un passif de la table des 14 recoit donc l'attaque normale du PASSIF, jamais `1030` ;
+#: idem si sa voie ACTIVE gagne. Porter cette branche au mauvais rang donnerait un resultat juste sur
+#: les cas isoles (le trait seul) et faux des que deux sources coexistent -- c'est la forme exacte de
+#: l'erreur qui valait +102 % sur la voie passive (#557).
+#:
+#: ## Ce que la substitution CHANGE, et ce qu'elle ne change pas -- lu, pas suppose
+#:
+#: `IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalBossAttackAbility$$.ctor` et
+#: `IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalAttackAbility$$.ctor` sont structurellement
+#: IDENTIQUES (meme classe de statics, meme `IdunBattle.Entities.Abilities.ADeprecatedActiveAbility$$.ctor`,
+#: meme forme d'appel) -- a UNE lecture pres : le preset de `TargetingOptions` recopie depuis les statics
+#: (`+0x00` pour la generique, `+0x80` pour la boss). Cote PLAYBOOK,
+#: `IdunBattle.AI.Playbook.Loki.Loki_NormalBossAttackPlaybook$$CalculateCustomUtility` et
+#: `IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility`
+#: rendent tous deux `Fix64.FromInt(1)`, et leurs `MakeDamagePredictions` ont la MEME forme (slot 0x22
+#: du service, un unique `ProbableDamageEvent`). Le SEUL differentiel de decision est `ShouldExecute` --
+#: residu nomme `#419-r1-tr14-r5-r2-r1-r1`, cf. la case-doc.
+NORMAL_BOSS_ATTACK_TRAIT: str = "Boss"                          # `UnitTrait` 0x7e7 = 2023
+NORMAL_BOSS_ATTACK: str = "Loki_NormalBossAttack"               # `ActiveAbilityType` 0x406 = 1030
+
 #: Les DEUX traits qui SUPPRIMENT purement l'attaque normale (#419-r1-tr14-r5-r4). Premiere ligne
 #: de `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`, lue verbatim :
 #:
@@ -254,29 +299,53 @@ def custom_normal_attack_from_actives(active_abilities) -> str | None:
     return None
 
 
-def custom_normal_attack(passive_abilities=None, active_abilities=None, visual_id=None) -> str | None:
+def custom_normal_attack_from_trait(traits) -> str | None:
+    """Mirror de la TROISIEME branche de `UnitFactory$$AddNormalAttackAbility` :
+    `else if (config.Traits.Contains(0x7e7)) type = 0x406;` (cf. `NORMAL_BOSS_ATTACK_TRAIT`).
+
+    `traits` = les noms de `UnitTrait` de l'entite. Pas de boucle ni de table ici : le natif teste UN
+    trait et pose UN type -- l'appartenance suffit, et l'ORDRE de la liste n'a aucun role (contraste
+    voulu avec les deux voies precedentes, ou « le PREMIER gagnant s'impose » EST la semantique).
+    """
+    if traits is None:
+        return None
+    return NORMAL_BOSS_ATTACK if NORMAL_BOSS_ATTACK_TRAIT in traits else None
+
+
+def custom_normal_attack(passive_abilities=None, active_abilities=None, visual_id=None,
+                         traits=None) -> str | None:
     """« QUELLE attaque normale la fabrique pose-t-elle sur cette entite ? » -- mirror de la CASCADE
     de `UnitFactory$$AddNormalAttackAbility`. `None` = aucune substitution (l'attaque normale reste
     l'ability generique de l'unite).
 
-    L'ORDRE n'est pas un detail : la voie PASSIVE est consultee la PREMIERE, et la voie ACTIVE n'est
-    atteinte que si elle rend `null`. C'est mesure, pas suppose -- une unite portant a la fois
+    L'ORDRE n'est pas un detail : la voie PASSIVE est consultee la PREMIERE, la voie ACTIVE n'est
+    atteinte que si elle rend `null`, et la branche TRAIT (#419-r1-tr14-r5-r2-r1) seulement si les
+    DEUX ont rendu `null`. C'est mesure, pas suppose -- une unite portant a la fois
     `PassiveAbilities = [Boltstorm]` et `ActiveAbilities = [PoundThemToDust]` recoit
     `Boltstorm_NormalAttack` cote natif, alors meme que la cle active EST montee dans son
-    `ActiveAbilityComponent`.
+    `ActiveAbilityComponent` ; et une unite portant `Boss` EN PLUS de l'un des deux recoit toujours
+    l'attaque de la voie gagnante, jamais `Loki_NormalBossAttack`.
 
     TRI-ETAT PAR VOIE, et c'est volontaire : chaque liste a son propre canal de mesure, donc son
     propre repli. `None` = canal muet -> la voie retombe sur le KIT gameconfig ; une LISTE (fut-elle
-    vide) = mesure, et elle fait autorite pour CETTE voie seulement.
+    vide) = mesure, et elle fait autorite pour CETTE voie seulement. Pour les TRAITS, le repli kit est
+    `unit_trait_names(visual_id)` -- le meme substrat statique que `entity_trait_names` prend quand
+    l'entite n'a pas de `UnitContext`, et la MEME borne : `BC.Units[].Traits` n'est pas le `traits` du
+    gameconfig (#264 -- 5 unites du seed en ont MOINS, 48 en ont PLUS).
     """
     from_passive = (custom_normal_attack_from_passives(passive_abilities)
                     if passive_abilities is not None
                     else custom_normal_attack_from_passives(_kit_ability_names(visual_id, "passive")))
     if from_passive is not None:
         return from_passive
-    if active_abilities is not None:
-        return custom_normal_attack_from_actives(active_abilities)
-    return custom_normal_attack_from_actives(_kit_ability_names(visual_id, "active"))
+    from_active = (custom_normal_attack_from_actives(active_abilities)
+                   if active_abilities is not None
+                   else custom_normal_attack_from_actives(_kit_ability_names(visual_id, "active")))
+    if from_active is not None:
+        return from_active
+    if traits is not None:
+        return custom_normal_attack_from_trait(traits)
+    return custom_normal_attack_from_trait(_kit_trait_names(visual_id))
 
 
 def _kit_ability_names(visual_id, key: str) -> list:
@@ -304,14 +373,39 @@ def _kit_ability_names(visual_id, key: str) -> list:
     return out
 
 
+def _kit_trait_names(visual_id) -> list:
+    """REPLI (canal muet) de la branche TRAIT : les noms de `UnitTrait` du kit gameconfig, augmentes
+    du pseudo-trait de GRANDE-ALLIANCE que le BC pose et que le kit ignore.
+
+    Delegue a `engine.entities.traits.unit_trait.unit_trait_names`, LA source unique du projet pour
+    ce substrat statique -- en re-deriver une seconde ici serait un fork de port. Import LOCAL :
+    `unit_trait` charge `gameconfig` paresseusement, et ce module-ci est importe par le runner comme
+    par la face decision.
+    """
+    if not visual_id:
+        return []
+    try:
+        from engine.entities.traits.unit_trait import unit_trait_names
+    except Exception:
+        return []
+    return list(unit_trait_names(visual_id))
+
+
 def substitutes_normal_attack(passive_name: str, passive_abilities=None, visual_id=None,
-                              active_abilities=None) -> bool:
+                              active_abilities=None, traits=None) -> bool:
     """« L'attaque normale de CETTE entite est-elle celle que substitue `passive_name` ? »
 
     C'est le predicat de dispatch de tous les molds `<X>_NormalAttackAbility$$PredictAttack` et de
     `visit_AttackUnitMessage`. Il compare la valeur que `passive_name` substituerait au resultat de
     la CASCADE COMPLETE -- pas de la seule voie passive : une entite dont la voie ACTIVE a gagne ne
     porte l'attaque normale d'AUCUN passif, et le predicat doit dire NON.
+
+    ⚠ La branche TRAIT (`traits`) ne peut, a elle seule, JAMAIS changer la reponse de ce predicat :
+    `Loki_NormalBossAttack` n'est la valeur d'aucune entree de `CUSTOM_NORMAL_ATTACK_BY_PASSIVE`, donc
+    la comparaison finale rend `False` dans les deux cas. Elle est threadee quand meme, pour la meme
+    raison que `active_abilities` l'a ete : le predicat doit interroger la cascade ENTIERE, et non une
+    version tronquee qui redeviendrait fausse le jour ou la table passive gagnerait une entree
+    `Loki_NormalBossAttack` -- une invariance de TABLE, pas de FOYER.
 
     ⚠ Le `substitutes is None` n'est pas defensif, il ferme un `None == None` : un `passive_name`
     absent de la table rendait `None`, la cascade rend `None` quand rien ne substitue, et le
@@ -323,4 +417,4 @@ def substitutes_normal_attack(passive_name: str, passive_abilities=None, visual_
         return False           # ce passif ne substitue AUCUNE attaque normale (absent du dict natif)
     return custom_normal_attack(passive_abilities=passive_abilities,
                                 active_abilities=active_abilities,
-                                visual_id=visual_id) == substitutes
+                                visual_id=visual_id, traits=traits) == substitutes
