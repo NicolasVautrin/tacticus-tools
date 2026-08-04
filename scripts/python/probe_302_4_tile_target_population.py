@@ -881,12 +881,11 @@ def _crosscheck(rows: list, mask: int) -> dict:
     detail : il signale soit une erreur d'extraction ici, soit un masque FAUX au registre.
     """
     from engine.runner.abilities.handler import ABILITY_CLASSES
-    from engine.runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS,
+    from engine.runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE,
                                                    TARGETING_OPTIONS_UNPORTED)
-    from engine.entities.active_ability_type import ActiveAbilityType
 
-    # Les TROIS sources de masque du port (les deux du registre + le preset de l'attaque normale,
-    # qui n'appartient a aucune classe d'`ABILITY_CLASSES`).
+    # Les TROIS sources de masque du port (les deux du registre + les masques des ATTAQUES NORMALES,
+    # qui n'appartiennent a aucune classe d'`ABILITY_CLASSES`).
     port_masks = {}
     for aid, cls in ABILITY_CLASSES.items():
         opts = getattr(cls, "TARGETING_OPTIONS", None)
@@ -894,7 +893,11 @@ def _crosscheck(rows: list, mask: int) -> dict:
             port_masks[int(aid)] = opts
     for aid, opts in TARGETING_OPTIONS_UNPORTED.items():
         port_masks.setdefault(int(aid), opts)
-    port_masks.setdefault(int(ActiveAbilityType.Loki_NormalAttack), NORMAL_ATTACK_TARGETING_OPTIONS)
+    # #419-r1-tr14-r5-r2-r1-r2 : la 3e source est une TABLE PAR TYPE, pas une constante. Elle en
+    # apporte 18 au controle la ou la ligne d'avant n'en soumettait qu'UNE (`Loki_NormalAttack`) --
+    # les 17 autres n'etaient comptees `not_in_registry` par personne.
+    for aid, opts in NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE.items():
+        port_masks.setdefault(int(aid), opts)
 
     agree, disagree, unported, unreadable = [], [], [], []
     for r in rows:
