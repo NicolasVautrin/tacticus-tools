@@ -239,6 +239,10 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `2`, relu au decompile (et NON deduit du fait que l'ability ne fait pas de degat direct -- le
     # coup gratuit de GalvanicField, lui, en fait).
     1117: AbilityAttackType.Others,   # DefendTheDivineWorkAbility (admecManipulus)
+    # WallOfMirrorsAbility$$.ctor -> `AActiveAbility..ctor(this, &opts, 2)` (#433-r4-r1-r1). Le
+    # litteral est `2` MEME si l'arbre attaque : il dispatche l'attaque NORMALE par `UseNormalAttack`
+    # (meme lecture que Drachnyen, transcrite en sens inverse) -- on transcrit le 3e argument du ctor.
+    1186: AbilityAttackType.Others,   # WallOfMirrorsAbility
     1000: AbilityAttackType.Others,   # GauntletsOfUltramarAbility
     1002: AbilityAttackType.Others,   # CombatRestorativesAbility
     1009: AbilityAttackType.Others,   # ResurrectionOrbAbility

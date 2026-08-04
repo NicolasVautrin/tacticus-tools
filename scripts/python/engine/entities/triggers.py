@@ -883,6 +883,64 @@ class OwnerIsAlive(AbilityTrigger):
         return _is_alive(u)
 
 
+class IsObscured(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsObscured(from, target)` ->
+    `IdunBattle.Entities.Triggers.IsObscuredAbilityTrigger$$ShouldTrigger` -- MIRROR du decompile :
+
+        foreach (f in this.<+0x20>.Select(entities))            # le selecteur `from`
+            fromTile = EntityExtensions.GetMainTile(f, state);
+            foreach (t in this.<+0x28>.Select(entities))        # le selecteur `target`
+                if (!this.<+0x18>.<slot 7>(f, fromTile, t, &opts))   # IsTargetUnitObscured
+                    return false;                              # UNE paire degagee -> FAUX
+        return true;                                           # TOUTES les paires obscurcies
+
+    C'est un ET sur le PRODUIT des deux selecteurs, et il est VACUEMENT VRAI : un `from` vide OU un
+    `target` vide rend **true** (donc `Not(IsObscured)` rend false et le `Filter` au-dessus EXCLUT
+    l'element). Le port reproduit cette vacuite telle quelle -- c'est ce que le natif fait, pas une
+    degradation.
+
+    LE FOYER DE VISIBILITE EST CELUI DE `Unobscured` (`selectors/units.py`) :
+    `battle_query.is_target_tile_obscured`, mirror de
+    `IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` ->
+    `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain` (TERRAIN seul : elevation,
+    aucun blocage par unite). On herite donc de SES bornes v1, nommees ici parce qu'elles bornent
+    aussi ce noeud : distance 1 -> jamais obscurcie ; distance EXACTEMENT 2 -> porte d'elevation ;
+    distance >= 3 et murs -> NON modelises, donc passe-tout. Sans `ctx.board` (aucune elevation
+    lisible) -> passe-tout, ce qui rend `IsObscured` FAUX partout : la degradation est PERMISSIVE
+    (aucune tuile retiree), le sens sur pour un filtre.
+
+    `from_sel` est resolu en EMPREINTE (`_feet`) pour un dict d'unite ; le natif, lui, prend
+    `GetMainTile(f)` -- identique pour toute entite mono-hex, et pour une entite-TUILE (le cas du
+    seul consommateur porte, `WallOfMirrorsAbility$$GetPossibleTiles`, ou `from` est l'element lie
+    par le `FromTrigger`) la main tile EST la tuile. `target_sel` est lu en empreinte COMPLETE, comme
+    `IsTargetUnitObscured` (`IterateTiles(target)`, cf. `Unobscured`)."""
+    def __init__(self, from_sel: TargetsSelector, target_sel: TargetsSelector):
+        self.from_sel, self.target_sel = from_sel, target_sel
+
+    def should_trigger(self, ctx):
+        from ..battle_query import is_target_tile_obscured
+        from .selectors._shared import _entity_pos
+        board = getattr(ctx, "board", None)
+        bc = getattr(board, "by_coord", None) if board is not None else None
+        elev = ({k: t.get("elevation", 0) for k, t in bc.items()} if bc else None)
+        froms = [p for p in (_entity_pos(f, board)                 # GetMainTile(f)
+                             for f in _units_of(self.from_sel, ctx)) if p is not None]
+        targets = []
+        for t in _units_of(self.target_sel, ctx):                  # IterateTiles(target)
+            if isinstance(t, dict):
+                targets.extend(_feet(t))
+            else:
+                p = _entity_pos(t, board)
+                if p is not None:
+                    targets.append(p)
+        for f in froms:
+            for t in targets:
+                if not (hexgeo.distance(f, t) == 2 and elev is not None
+                        and is_target_tile_obscured(f, t, elev)):
+                    return False                    # une paire DEGAGEE -> le natif rend false
+        return True
+
+
 class IsDead(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$IsDead(unit)` = `NOT(IsAlive)`."""
     def __init__(self, unit: AbilityTrigger):

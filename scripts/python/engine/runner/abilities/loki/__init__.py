@@ -42,6 +42,8 @@ from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeec
                      _black_rage_move_range, cord_claw_tree)
 from .imperative import DoctrinaImperativesAbility
 from .mv71 import MV71SniperDroneSquadAttackAbility
+from .wall_of_mirrors import (WallOfMirrorsAbility, wall_of_mirrors_possible_tiles,
+                              wall_of_mirrors_range, wall_of_mirrors_tree)
 from .stormcaller import (StormcallerAbility, stormcaller_tree, stormcaller_get_add_ice_tiles)
 from .quickening import TheQuickeningAbility
 from .facade import (SorcerousFacadeAbility, sorcerous_facade_tree,
@@ -74,6 +76,9 @@ __all__ = [
     "DoctrinaImperativesAbility",
     # mv71
     "MV71SniperDroneSquadAttackAbility",
+    # wall_of_mirrors (WallOfMirrors 1186, #433-r4-r1-r1)
+    "WallOfMirrorsAbility", "wall_of_mirrors_possible_tiles", "wall_of_mirrors_range",
+    "wall_of_mirrors_tree",
     # stormcaller
     "StormcallerAbility", "stormcaller_tree", "stormcaller_get_add_ice_tiles",
     # quickening

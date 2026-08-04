@@ -142,6 +142,7 @@ from .loki import (
     MomentShackleExtraBlockChanceEffect,
     MomentShackleExtraBlockDamageEffect,
     GravitonRifleExtraPierceEffect,
+    WallOfMirrorsEffect,
     PurgeResponseEffect,
     HailstrikeExtraPierceEffect,
     VisionsOfHeresyExtraPierceMeleeEffect,
@@ -836,6 +837,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `CreatePiercingBonusForAttack` = ForAddition((OwnerIsCaster & CurrentAbilityIs(1206)) &
     # (HasTrait(target,1039)|HasTrait(target,1013)|HasTrait(target,5)), ConfigVar(0x3f=63 extraPierceRatio)).
     "GravitonRifle_ExtraPierce": GravitonRifleExtraPierceEffect,
+    # 0x576=1398 WallOfMirrors (#433-r4-r1-r1) : effet pose par le cast de 1186 sur SON PROPRE caster
+    # juste avant le `UseNormalAttack`, et retire juste apres -- canal PERCAGE, UN SEUL gate.
+    # `IdunBattle.Entities.Effects.Loki.WallOfMirrorsEffect$$CreatePiercingBonusForAttack` =
+    # ForAddition(get_OwnerIsCaster, ConfigConst(0x40 = extraPierce)).
+    "WallOfMirrors": WallOfMirrorsEffect,
     # 0x602=1538 PurgeResponse (case-366-r1-blockhits-purgeresponse) : owner-effect du passif
     # `PurgeResponse` (TriggeredAbilityType 0x5f6 = 1526) de l'Ironkin Steeljack
     # (`votanSmnSteeljack`, summon de `votanMemnyr` via `IronkinSteeljack` 1219 ; jumeau npc

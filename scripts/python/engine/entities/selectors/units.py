@@ -185,7 +185,13 @@ class Filter(TargetsSelector):
     def select(self, ctx):
         out = []
         for item in self.source.evaluate(ctx):
-            if self.predicate.evaluate(replace(ctx, subject=item)):
+            # LE SLOT LIE EST `ability+0x180` = **ActiveTarget** (`FromTriggerSelector$$Select` ecrase
+            # ce slot a chaque item). Le port le vehiculait par `ctx.subject` SEUL -- suffisant pour
+            # les predicats ecrits avec `Subject()`, mais un arbre qui CITE le slot natif sous son nom
+            # (`IsObscured(ActiveTarget@+0x68, Target@+0x60)` de `WallOfMirrorsAbility$$GetPossible
+            # Tiles`) lisait alors `ctx.active_target`, resté au liant ENGLOBANT. On pose donc les DEUX
+            # noms du MEME slot : aucun predicat existant ne lit `active_target` sous un `Filter`.
+            if self.predicate.evaluate(replace(ctx, subject=item, active_target=item)):
                 out.append(item)
         return out
 
