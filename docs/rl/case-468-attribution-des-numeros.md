@@ -3,7 +3,11 @@
 **Critère binaire** : un numéro peut-il être attribué deux fois sans que rien ne le dise ?
 **Oui, et ça arrive** — deux occurrences indépendantes le 2026-08-04, à quelques heures d'écart.
 Un cliquet le voit désormais, et il a trouvé **une troisième collision, quadruple, jamais vue à
-l'œil**.
+l'œil** — depuis **résolue** (§4).
+
+Le cliquet **rattrapait** le geste fautif ; `--suggere` le **supprime** en donnant un numéro libre
+(§9), sur un critère qui est l'exact opposé du sien. Et le soupçon de dette qui avait lancé la
+tranche — « 85 identifiants cités sans définition » — est **réfuté** : **0 orphelin** (§8).
 
 ---
 
@@ -133,22 +137,30 @@ côté d'une ligne ouverte du **même** sujet — une ré-ouverture, pas deux do
 
 ---
 
-## 4. Ce que le cliquet a trouvé : `#420-r1` porte QUATRE dossiers
+## 4. Ce que le cliquet a trouvé : `#420-r1` portait QUATRE dossiers — **RÉSOLU**
 
-Trouvé au premier passage, jamais vu à l'œil, **encore ouvert** :
+Trouvé au premier passage, jamais vu à l'œil :
 
-| dossier | où | sujet |
-|---|---|---|
-| A | ligne **barrée** `backlog.md:294` + `case-420-r1-dotgg-extra-dmg-gate.md` | axe DÉGÂT de `DefenderOfTheGreaterGood` (1182 / drone 1306) — **LIVRÉ** |
-| B | ligne **ouverte** `backlog.md:342` | les 16 quotes verbatim `FUN_<addr>(0x4d\|0x50, …)` indécidables |
-| C | puce **ouverte** `backlog.md:547` | « pré-perçage » FAUX dans quatre docstrings d'aura-dégât |
-| D | puce **ouverte** `backlog.md:555` | filtre CARRIER `UnitsWithRangedWeaponsExcludingDamageProfile` non porté |
+| dossier | où | sujet | devenu |
+|---|---|---|---|
+| A | ligne **barrée** + `case-420-r1-dotgg-extra-dmg-gate.md` | axe DÉGÂT de `DefenderOfTheGreaterGood` (1182 / drone 1306) — **LIVRÉ** | garde `#420-r1` |
+| B | ligne **ouverte** | les 16 quotes verbatim `FUN_<addr>(0x4d\|0x50, …)` indécidables | **`#420-r5`** |
+| C | puce **ouverte** | « pré-perçage » FAUX dans quatre docstrings d'aura-dégât | **`#420-r1-r1`** |
+| D | puce **ouverte** | filtre CARRIER `UnitsWithRangedWeaponsExcludingDamageProfile` non porté | **`#420-r1-r2`** |
 
-**Rien n'est renuméroté ici.** Le dossier A est **livré** : le renommer réécrirait l'historique,
-et c'est précisément le coût que cette tâche existe pour éviter de payer par surprise. L'arbitrage
-revient à l'orchestrateur. La collision est donc **figée** au ledger avec le statut
-`COLLISION-OUVERTE` et **ré-imprimée à chaque run** — un ledger n'est pas un silencieux, c'est une
-ligne de base.
+A est **livré** : le renommer réécrirait l'historique — fichiers, références, messages de commit —
+c'est-à-dire le coût même que cette tâche existe pour ne plus payer par surprise. B, C et D
+n'avaient aucun artefact : les renuméroter ne coûtait qu'un choix de nom.
+
+**Le rattachement se LIT, il ne s'invente pas**, et les trois ne vont pas au même endroit. B pointe
+`case-420` §9 et siège entre `#420-r2` et `#420-r4` : c'est un résidu de la **tâche #420**, mal
+numéroté en `-r1` → `#420-r5`. C et D pointent `case-420-r1-dotgg-extra-dmg-gate.md`, la case-doc
+de **A** : ce sont de vrais résidus **de A** → `#420-r1-r1` et `#420-r1-r2`, la filiation que le
+dépôt écrit déjà (`#433-r3-r1a-r1`, `#419-r1-tr14-r5-r2-r1-r1-r1`). Les trois identifiants sortent
+de `--suggere` (§9).
+
+Mesure de la résolution : étape 1 **1 → 0**, étape 2 **11 → 10**, et le ledger ne porte plus
+**aucune** `COLLISION-OUVERTE`.
 
 ---
 
@@ -259,7 +271,87 @@ quatre du §3.2 sont dans la case-doc pour que personne ne les re-essaie.
 
 ---
 
-## 8. Résidus
+## 8. Le tri des « cités sans définition » : **0 orphelin**, et un axe qui s'inverse
+
+Le soupçon de départ : 85 identifiants cités dans les case-docs n'ont aucune définition en
+colonne 1 du backlog — une dette possible. **Réfuté par la ventilation.**
+
+Périmètre restreint aux **résidus** (`-r<k>`, `-tr<k>`…), les seuls non ambigus : un `#472` nu peut
+être une PR GitHub ou un ordinal (`« du Triggered #1 »`), un `#472-r1` ne peut être que d'ici.
+
+| | n | verdict |
+|---|---|---|
+| résidus cités dans les case-docs | 333 | |
+| — définis au backlog | 242 | |
+| — **sans définition au backlog** | **91** | à trier |
+| … case-doc à leur nom (position (c)) | 12 | **définis** ailleurs |
+| … `probe_<n>` / `test_<n>` à leur nom | 6 | employés |
+| … mentionnés au backlog sans y être définis | 39 | employés |
+| … descendants d'un identifiant défini | 30 | employés |
+| … **aucune trace ailleurs** | **4** | à ouvrir |
+
+Et les 4 derniers sont **employés aussi** : `#336-r1` est le résidu-mère que `case-343` traite
+(son H1 le dit), `#472-r1/-r2/-r3` sont définis en **puces d'une case-doc** (`case-467` §Résidus),
+position que le critère ne lit que dans `backlog.md`.
+
+⇒ **0 orphelin, 0 collision.** Les 91 ne sont pas une dette : `backlog.md` ne liste **que les
+tâches ouvertes**, par conception — son propre en-tête le dit. « Cité sans définition au backlog »
+mesure donc le travail **fini**, pas un trou.
+
+**Ce que le tri a réellement produit, c'est l'inversion du critère.** Le découpage
+citation/définition est le bon axe pour **détecter** (§2) et le mauvais pour **attribuer** : les
+4 « orphelins » sont introuvables par les positions de définition, et pourtant tous pris. D'où §9.
+
+---
+
+## 9. `--suggere` — ATTRIBUER n'est pas DÉTECTER (`#468-r4`, fermé)
+
+Les étapes 1 et 2 **rattrapent** le geste fautif. `--suggere` le **supprime** : elle donne un
+identifiant libre — une racine, ou le plus petit `r<k>` sous un parent.
+
+**Son critère est l'exact opposé.** Détecter exige de séparer définition et mention (87 % des
+occurrences sont des renvois légitimes ; un critère par présence serait désarmé le jour même).
+Attribuer exige l'**union** : un numéro seulement **mentionné** est déjà pris — c'est
+littéralement l'occurrence `#448-r1-r1-r2`, où le rapport employait le numéro avant tout artefact.
+C'est aussi ce qui rend `--suggere` insensible aux trous connus du détecteur (`#468-r1/-r2/-r3`,
+et la puce de case-doc) : elle n'a pas besoin de savoir ce qu'est une définition.
+
+**Trois mesures ont dicté la forme :**
+
+* **L'historique compte.** 13 racines pures < 500 — dont `#28`, `#269`, `#297`, `#300`, `#307` —
+  n'existent **que** dans les messages de commit. Le corpus documentaire les donne pour des trous
+  libres ; `git log --grep` prouve le contraire. ⇒ **une mesure incomplète ne rend jamais de
+  numéro** : git muet → `INDISPONIBLE` (99), rien de suggéré. Suggérer sur un corpus amputé
+  fabrique exactement la collision qu'on prétend éviter.
+* **La borne se dérive, et doit être filtrée.** C'est la plus grande racine **définie** que
+  `backlog.md` connaît. Sans le filtre « connue du backlog », elle saute à **1547** : les noms
+  `case-1014-*`, `case-1203-*`, `case-1547-*` portent des id d'ability, pas des tâches. Elle n'a
+  pas besoin d'être exacte, seulement **≤ la vraie frontière** — le balayage avance jusqu'au
+  premier libre.
+* **On ne recycle pas un trou**, même libre : il peut être réservé par une PR **en vol**, que
+  l'arbre ne voit pas. La suggestion est **monotone** ; les 31 trous sont listés, jamais proposés.
+
+**Le coût était un défaut fonctionnel, pas un confort** — 111 s pour rendre un numéro, et un outil
+qu'on attend deux minutes ne sera pas utilisé, donc ne supprimera aucun geste. Le suspect évident
+était **faux** : la regex coûte 0,1 s sur le corpus déjà en mémoire ; c'est la **lecture** de
+2 284 fichiers qui dominait. `git grep` la remplace — **0,6 s**, résultat strictement équivalent
+(0 manquant, 0 en trop, vérifié dans les deux sens), pathspecs bornés donc `.claude/worktrees/`
+hors de portée par construction (#434).
+
+⚠ **Le périmètre n'était pas réductible** : l'apport marginal du contenu des `.py` est de 34
+identifiants, dont la racine **476** — précisément ce que `docs/rl` seul donnait pour libre.
+C'était la lecture à accélérer, pas la source à retirer.
+
+⚠ **Sous flotte chargée, `git grep` passe de 0,6 s à 20-40 s** (3 mesures dans chaque régime, à
+10 worktrees actifs) : de la **contention git** pure — `.git/` est partagé — et non un effet de
+`--untracked`, sans lequel c'est même plus lent. `--suggere` n'est pas dans la banque et le chemin
+bloquant ne l'appelle pas : ce coût ne touche pas le mur des cliquets. Constat utile à `#471-r2`,
+dont l'hypothèse de contention n'était pas établie — il la rend **observable et chiffrée**, sans
+trancher la cause du `128`.
+
+---
+
+## 10. Résidus
 
 * **`#468-r1` — les tokens purement NUMÉRIQUES ne prolongent pas l'identifiant.**
   `case-302-2-prediction-tile-target.md` est lu `302`, alors que son identifiant réel est `302-2` ;
@@ -277,6 +369,19 @@ quatre du §3.2 sont dans la case-doc pour que personne ne les re-essaie.
   (73 et 36 identifiants à ≥ 2 fichiers, §3.1) : ils sont inventoriés, jamais gardés. Une
   collision qui ne se manifesterait QUE par deux probes de sujets différents passerait — non
   mesurée, et probablement vide (un probe naît avec sa case-doc).
-* **`#468-r4` — l'attribution reste manuelle.** Ce cliquet dit qu'un numéro est pris ; il n'en
-  **donne** pas un libre. Un `--suggere` (le plus petit entier non défini, toutes positions
-  confondues) supprimerait le geste fautif au lieu de le rattraper.
+* ~~**`#468-r4`**~~ — **FERMÉ** par `--suggere` (§9).
+* **`#468-r7` — la puce de résidu d'une case-doc n'est PAS une position de définition.**
+  `case-467` §Résidus ouvre `#472-r1`, `-r2`, `-r3` en puces de premier niveau, et le critère ne
+  lit les puces que dans `backlog.md` : ces trois-là sont invisibles à l'étape 1 tant qu'ils ne
+  sont pas recopiés au backlog. C'est la **quatrième** position de définition de fait, et §8 la
+  mesure — les 4 seuls « orphelins » du dépôt en viennent (3 sur 4). Élargir n'est pas gratuit :
+  la section « Résidus » d'une case-doc **cite** aussi des voisins, donc il faudrait un critère de
+  section, pas un critère de puce. `--suggere` couvre déjà le risque **d'attribution** (§9) ; ce
+  qui reste ouvert est la **détection** d'une collision qui ne se manifesterait que là.
+* **`#468-r8` — `#<n>` désigne à la fois une TÂCHE et une PULL REQUEST, sans rien pour les
+  distinguer.** Mesuré : `case-434` écrit « 3 PR intégrées entre-temps : #472, #473, #474 » quand
+  `case-467` §10 ouvre la **tâche** `#472`. Les deux espaces se remplissent en parallèle — tâches
+  à ~474, PR à ~595 — et 39 racines de la plage 501-588 sont déjà citées comme PR. Rien ne casse
+  aujourd'hui (`--suggere` traite l'union, donc côté sûr : il saute les numéros de PR cités), mais
+  `git log --grep "#<n>"` est **structurellement ambigu**, et c'est la voie que le §1 nomme comme
+  dépendante. Trancher demanderait une convention d'écriture (préfixer les PR), pas un détecteur.
