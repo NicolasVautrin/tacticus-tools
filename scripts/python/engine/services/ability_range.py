@@ -380,11 +380,30 @@ def tiles_in_range_reach(ability_id, visual_id) -> int | None:
     consommateur (`TargetingQuery$$GetInvalidTargetReason`, volet portee) bascule alors sur
     `AreEntitiesAdjacent` au lieu de la comparaison de distance.
 
+    ⚠ **L'ORDRE des deux derniers tests est celui du NATIF, et il n'est PAS celui de `get_range`**
+    (#419-r1-tr14-r5-r2-r1-r2-r1-r1-r3). La cascade de `GetTilesInRange`, relue a l'octet :
+
+        if      ((int)range < 0)      -> OrderedSet VIDE
+        else if (range.UseWholeBoard) -> <IBattleQuery slot 0x69>()  = GetAllTiles()
+        else if ((int)range == 0)     -> casterTiles  (ou VIDE si le bit 15 de `rules` est absent)
+        else if (range.OnlyAdjacent)  -> tuiles ADJACENTES
+        else                          -> GetTilesInRadius(casterTiles, (int)range, ...)
+
+    Une portee NULLE l'emporte donc sur `OnlyAdjacent` : la zone est alors `casterTiles` (rayon 0),
+    pas les adjacentes (rayon 1). C'est l'inverse de `GetInvalidTargetReason`, qui teste
+    `OnlyAdjacent` EN PREMIER et ne lit `(int)range` que dans l'autre branche -- deux consommateurs
+    du MEME `Range`, deux ordres. Les aligner « par symetrie » serait un faux dans un sens ou dans
+    l'autre.
+
     Rend `None` -- « le port ne sait pas decider » -- dans TROIS cas, tous natifs :
       * `TargetingRange` non RE-lu (ability absente des deux sources) ;
       * `OverrideRangeFunc` : le delegue ECRASE la valeur et n'est pas resolu (meme arbitrage que
         `engine.runner.abilities.targeting.get_range`) ;
-      * `UseRangeFromConfig` sans `constants.range` dans le kit."""
+      * `UseRangeFromConfig` sans `constants.range` dans le kit.
+
+    ⚠ Ce `None` sur portee NON OBSERVABLE est CORRECT ici et ne doit PAS etre aligne sur le tri-etat
+    de `get_range` : la valeur est lue AVANT `OnlyAdjacent`, donc sans elle on ne sait pas quelle
+    branche prendre. Un cran de test l'interdit (#419-r1-tr14-r5-r2-r1-r2-r1-r1 §3)."""
     rng = targeting_range_of(ability_id)
     if rng is None or rng.override_range_func:
         return None
@@ -399,6 +418,8 @@ def tiles_in_range_reach(ability_id, visual_id) -> int | None:
         ov = unit_weapon_range(visual_id, None)       # `stats` absent -> ExtraRange = 0 (cf. mirror)
         if ov is None:
             return None                               # `!HasAnyWeapon` -> `GetStat(Range)`, non observable
+    if int(ov) == 0:
+        return 0                                      # `(int)range == 0` -> `casterTiles`, AVANT `OnlyAdjacent`
     return 1 if _ranged_bool_is_true(rng.only_adjacent, visual_id) else int(ov)
 
 

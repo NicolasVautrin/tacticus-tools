@@ -230,12 +230,159 @@ motive son ecriture). Port restaure et re-verifie identique a HEAD (0 diff).
   Le natif rend `Range(0, false, UseWholeBoard)` (donc un gate de DISTANCE a `d > 0`) ; le port rend
   `None`. Sans consequence : `get_range_broken_rule` sort deja sur `src_feet` vide. Non confronte
   (aucun montage n'a de caster sans tuile).
-* **`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r3` — `tiles_in_range_reach` rend `1` sur `only_adjacent` meme
-  quand `ov == 0`.** Le natif teste `(int)range == 0` AVANT `OnlyAdjacent` et rend alors
-  `casterTiles`, pas les adjacentes. Aucune combinaison reelle (`RANGE_SELF` a `only_adjacent` faux),
-  donc inerte — mais c'est un ecart de structure, releve en lisant `GetTilesInRange` pour §3.
-* **NON CONFRONTE, nomme** : les deux **clamps de melee** sur une valeur `None`. Le raisonnement qui
-  les rend inoffensifs est une LECTURE (les `Math.Min` cohabitent avec `onlyAdjacent = 1`), pas une
-  mesure : aucun montage du lot n'a de caster sans arme sous `ForcedInMelee` ni sous
-  `ForceMeleeTarget` vrai (les 57 porteurs reels ont tous `forceMeleeTarget = IfRangedCaster`, faux
-  faute d'arme a `Range`).
+* **`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r3` — FERME, mirror structurel.** Voir §10.
+* **`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4` — les deux clamps de melee sur une valeur `None` : FERME,
+  CONFRONTE sur le bras `ForceMeleeTarget`.** Voir §9. Le bras `ForcedInMelee` reste NON CONFRONTE,
+  avec preuve d'impossibilite chiffree (§9.4).
+
+---
+
+## 9. `-r4` — les CLAMPS DE MELEE sur une valeur `None`, CONFRONTES
+
+**Critere binaire** : quand la portee numerique n'est pas observable, un clamp arme-t-il quand meme
+`onlyAdjacent` — et la valeur qu'il clampe est-elle consommee ?
+
+**Verdict** : il l'ARME (D1 mesure), et la valeur clampee n'est **PAS** consommee (D2 mesure, pas
+lu). Le port est confirme tel quel.
+
+### 9.1 Pourquoi le regime n'avait jamais ete atteint, et comment on l'ouvre
+
+`value is None` exige un caster SANS ARME. Or le clamp `(c)` de l'attaque normale generique teste
+`ForceMeleeTarget = IfRangedCaster`, c.-a-d.
+`IdunBattle.Entities.UnitExtensions$$IsRanged` = `HasTrait(0xb Ranged) || HasRangedWeapon`. Sans
+arme le 2e terme est faux — et le 1er l'est **pour toute la population** (le trait `Ranged` n'est
+porte par aucune des 683 unites, constat #161). Les deux conditions s'excluaient par la seule
+structure du catalogue.
+
+On les DISSOCIE en **posant le trait** : `catalog_inject.add_unit_trait` /
+`write_trait_seed_bc` (#-r4) ecrivent `BC.Units[].Traits`, que `buildNormalizedBC` LIT (detection
+MoW) mais n'ECRIT jamais. Le natif le lit par `HasTrait`, le port par
+`combatSnapshot.units[].traits` — lu sur cette MEME entite native : **substrat UNIQUE**, donc pas de
+divergence de substrat a la `-r2`.
+
+**Effet de bord VOULU** : `RANGE_ADJACENT_IF_MELEE_CASTER` (`onlyAdjacent = IfNotRangedCaster`)
+devient FAUX avec le trait. Le gate d'adjacence n'est donc plus arme par la BASE — **seul le clamp
+peut l'armer**. C'est la sortie du regime degenere de la tranche precedente.
+
+### 9.2 La mesure (`probe_419r1tr14r5r2r1r2r1r1r4_melee_clamp_live.py`, seed 4192, MC1_67)
+
+Montage de §6 reutilise, + trait `Ranged` sur `genesSmnDecoy`. Traits publies par le NATIF sur les
+4 decoys : `['Decoy', 'Ranged', 'Steppable', 'Xenos']` — et identiques cote port.
+
+```
+CASTER CLAMPE  u160 (type 69, masque 0x4002)   [un ennemi a d=1 -> ShouldApplyRangedInMelee vrai]
+  u81 necroSpyder  d=1   natif 0x2         port 0x2         B1 0x2   B2 0x2
+  u77 tauCrisis    d=2   natif 0x8000000   port 0x8000000   B1 0x2   B2 0x2   <- D1
+  u79 tauMarksman  d=2   natif 0x8000000   port 0x8000000   B1 0x2   B2 0x2   <- D1
+TEMOINS NON CLAMPES  u124/u137/u155 (d = 2..10)  natif 0x8000000 partout, port 0x2
+SONDE  u160 (type 1126, masque 0x4000, forceMeleeTarget = False)
+  u81 d=1  natif 0x8000000   port 0x0        <- `GetStat(Range) = 0`
+```
+
+**CODE : port 3/3, B1 1/3, B2 1/3 (2 gagnees, 0 perdue). VERDICT : port 3/3.**
+
+### 9.3 Ce que chaque etage prouve
+
+* **D1 — le clamp ARME `onlyAdjacent` sur une valeur inconnue.** A `d = 2` le natif rompt
+  `TargetIsInRange` ; B2 (« le clamp abandonne sur `None` ») n'arme aucun gate. Le regime n'est
+  donc pas degenere, et l'accord du port est probant.
+* **D2 — la valeur clampee n'est PAS consommee, MESURE.** La SONDE etablit
+  `GetStat(caster, StatType.Range = 2) = 0` : sur `1126` (`forceMeleeTarget = RangedBool.False`,
+  masque `0x4000` sans regle dynamique pour rattraper), le natif rompt `TargetIsInRange` des `d = 1`.
+  Le clamp poserait donc `min(1, 0) = 0`, avec quoi la branche DISTANCE refuserait TOUTE cible
+  (`d >= 1 > 0`). Or sur le caster CLAMPE le natif ACCEPTE le volet portee a `d = 1`. C'est la
+  branche `OnlyAdjacent` qui a repondu.
+  ⚠ Le bras 1 SEUL ne pouvait pas conclure : ses temoins n'ont, par construction, aucune cible a
+  `d = 1`, donc il ne rendait que la BORNE `Value <= 1` — et avec `Value == 1` les deux branches
+  coincident (accord DEGENERE). La sonde est ce qui leve l'ambiguite.
+* **B3 (« le clamp pose `value = 1` ») est INDISTINGUABLE, et c'est mesure** : 0 ecart sur 384
+  couples sous `only_adjacent`, sur un balayage qui rend 2 codes distincts et 172 ecarts HORS
+  `only_adjacent` (la, la valeur EST lue). Mais `None` reste le seul choix qui ne MENTE pas : la
+  valeur native est `0`, pas `1`.
+* **L'axe VERDICT est SATURE** sur ce jeu d'options, et c'est structurel : le masque `0x4002` porte
+  `TargetMatchesDynamicRule`, et `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason` refuse
+  toute cible d'un caster sans arme. Seul le CODE discrimine — le probe le DIT plutot que de compter
+  un accord.
+
+**CONTRE-EPREUVE JOUEE** : les deux clamps remplaces par B2 (mutation verifiee au `git diff`) —
+`test_d1_le_clamp_arme_only_adjacent_sur_une_valeur_inconnue` rougit (2 lignes de CODE). Port
+restaure, 0 diff.
+
+### 9.3bis GENERALISATION — trois configurations, meme conclusion
+
+| board / seed | verdict | `GetStat(Range)` | gagnees/B2 sur le CODE |
+|---|---|---|---|
+| `MC1_67` / 4192 | PASS | 0 | 2 sur 3 lignes |
+| `MC1_67` / 777  | PASS | 0 | 2 sur 3 lignes |
+| `C2_01` / 4192  | PASS | 0 | 1 sur 4 lignes |
+| `C4_09` / 31337 | **MONTAGE NON POSE** | — | — |
+
+Le 4e cas n'est PAS un desaccord : les summons y apparaissent loin de tout ennemi et le seul
+rapprochement possible passerait par des `endturn` — or les `genesSmnDecoy` sont EPHEMERES et n'y
+survivent pas (MESURE : apres 3 rapprochements via `_step_toward`, plus AUCUN decoy vivant).
+`forcer_contact` PILOTE donc la geometrie sans jamais consommer de tour (il ne bouge que ce qui est
+deja activable) et s'ARRETE en nommant la cause, plutot que de defaire le montage en silence.
+
+**D3 est couvert par le bras 2**, et non par un cran separe : la ventilation `clampe / non clampe`
+est calculee par le PORT, mais la sonde donne un caster ADJACENT que le port classe non clampe
+(`forceMeleeTarget = False`) — et le natif l'y refuse a `d = 1`, tandis qu'il ACCEPTE le caster
+clampe a la meme distance. Les deux modeles s'accordent donc sur le DECLENCHEMENT, sur deux casters
+que seule cette condition separe.
+
+### 9.4 Le bras `ForcedInMelee` — NON CONFRONTE, impossibilite chiffree
+
+Poseur LU : `TheQuickeningAbility$$GetTriggerAttackBehaviour` =
+`If(HasFaction(unit, 0xe BloodAngels), AddEffect(0x529, AbilityStateReference, unit, Nullable(1))
+& ... & RemoveEffect(unit, 0x529))`. Trois verrous independants :
+
+1. **gate de faction** — **0** des **81** unites sans arme est `BloodAngels` : le regime « effet pose
+   ET portee non observable » est VIDE dans la population ;
+2. **gate `Attackable`** du swap (`UnitsWithoutTrait(0x1b Steppable)`) — **27** des 81 portent
+   `Steppable`, dont `genesSmnDecoy`, le seul porteur amenable du montage ;
+3. **fenetre atomique** — `AddEffect` et `RemoveEffect` vivent dans la MEME chaine `op_BitwiseAnd` :
+   aucun oracle synchrone (`abilityReason`) ne peut observer l'effet entre les deux.
+
+⚠ **Reserve** : l'UNICITE du poseur n'est PAS etablie. L'index de recherche litterale de ghidra est
+demontre incomplet ici — interroge sur `0x529` il rend `GetRange` (le LECTEUR) et RATE
+`GetTriggerAttackBehaviour`, pourtant decompile. L'argument porte sur le poseur LU.
+
+Les deux clamps sont **structurellement identiques** (meme `Math.Min(1, v)`, meme `onlyAdjacent = 1`,
+meme bloc), donc confronter `(c)` confronte la lecture partagee — mais cela ne vaut pas mesure de
+`(b)`, et on ne l'ecrit pas comme telle.
+
+### 9.5 Residu ouvert par cette tranche
+
+* **`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1` — `GetStat(StatType.Range = 2) = 0`, MESURE.** Le port
+  declare cette valeur « non observable » (`unit_weapon_range` rend `None` sur `!HasAnyWeapon`) ;
+  la sonde la MESURE a `0` sur `genesSmnDecoy`. Consequence : quand `only_adjacent` est FAUX et la
+  portee non observable, le natif refuse TOUT et le port ACCEPTE tout — ecart PERMISSIF, chiffre par
+  la sonde (3 lignes sur 3).
+  **Ce n'est PAS un gisement** : ce regime exige `only_adjacent` faux sur un caster sans arme, ce
+  qu'aucune combinaison reelle ne produit (les 57 porteurs reels sont tous sur `69`, dont
+  `IfNotRangedCaster` est VRAI faute d'arme — cf. §5). Il n'est atteint qu'en POSANT le trait.
+  A instruire si l'on veut generaliser `GetStat(Range) = 0` aux 81 unites : une mesure sur UNE unite
+  ne le prouve pas, meme si `UnitConfiguration.Range = 0` sur les 175 entrees capturees
+  (`catalog_inject._CONST_FIELDS`).
+
+## 10. `-r3` — l'ORDRE des deux tests de `GetTilesInRange`
+
+`GetTilesInRange` teste `(int)range == 0` **AVANT** `OnlyAdjacent` (cascade relue a l'octet en §3) et
+rend alors `casterTiles` (rayon 0), pas les adjacentes (rayon 1). `tiles_in_range_reach` testait dans
+l'autre ordre — corrige.
+
+**MIRROR STRUCTUREL, non confronte live** (`probe_419r1tr14r5r2r1r2r1r1r3_tiles_in_range_order.py`) :
+**134** abilities a `TargetingRange` RE-lu x **683** unites = **67 895** couples resolus, dont
+**8 196** a portee NULLE — et **0** couple deplace. Le gisement est vide parce qu'aucun des cinq
+`TargetingRange` statiques ne combine les deux : `RANGE_SELF` (`ov = 0`) et `RANGE_FROM_CONFIG`
+portent `onlyAdjacent = False`, et les deux qui l'arment (`RANGE_ADJACENT` `ov = 1`,
+`RANGE_ADJACENT_IF_MELEE_CASTER` `ov = <arme> >= 1`) ont une portee non nulle.
+
+Le cran qui peut ROUGIR est donc un `TargetingRange` **SYNTHETIQUE** : un balayage seul, sur un
+gisement vide, serait un inventaire deguise en garde-fou. **CONTRE-EPREUVE JOUEE** : test d'ordre
+retire (mutation verifiee au `git diff`) -> `test_portee_nulle_lemporte_sur_only_adjacent` rougit
+(`le port rend 1`). Port restaure, 0 diff.
+
+**NON traite, et nomme** : le natif teste aussi `(int)range < 0` (-> set VIDE) **avant**
+`UseWholeBoard`, et la branche `== 0` a un sous-gate (bit 15 de `rules` : `casterTiles` ou VIDE).
+Le port ne modelise ni l'un ni l'autre — hors mandat de cette tranche, et sans porteur connu
+(`ov < 0` exigerait un `override_range`/`config.range` negatif).

@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785850378,
+ "_ecrit_le": 1785853956,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -2891,6 +2891,20 @@
    "messages": [],
    "passed": 12,
    "sec": 31.1,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/test_419r1tr14r5r2r1r2r1r1r4_melee_clamps_live.py": {
+   "_at": 1785853956,
+   "_blob": "347bac18a87b8ede7e3ee88537cf0546caa120d2",
+   "_commit": "2ae92095eceecdc4f7fabd9082b5eb9313bd04bf",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a8d2eece500e055e2",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 8,
+   "sec": 179.4,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
