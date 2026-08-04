@@ -131,8 +131,13 @@ copier-coller d'un de ces 15.
 `probe_464_sibling_script_cwd.py` (dans la banque). Périmètre **dérivé**
 (`git ls-files scripts/python`), `tests/` **compris** — un test qui invoque un frère a le
 même défaut, et pytest fixe le *rootdir*, pas le CWD. Ancré sur `__file__` : un cliquet qui
-garde le vice du CWD ne peut pas le porter (vérifié — **1 682** fichiers balayés depuis la
-racine **comme** depuis `scripts/python`).
+garde le vice du CWD ne peut pas le porter — vérifié, **même dénominateur** depuis la racine
+**comme** depuis `scripts/python` (1 693 fichiers après rebase ; c'est l'**égalité** qui est le
+résultat, le nombre bouge à chaque PR).
+
+**Coût** : 87 s en série → **25,2 s** via `repo_read.read_texts` (recette #457-r6 — sur cet
+arbre, l'`open()` domine l'`ast.parse`). Il n'est pas le mur de la banque (161 s sous charge,
+contre 438 s pour `probe_457:s7`), donc son coût marginal en parallèle est nul.
 
 Contre-épreuves #439, mutation vérifiée **appliquée** avant de conclure :
 
