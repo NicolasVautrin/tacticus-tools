@@ -615,36 +615,191 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
 }
 
 
-# --- Les `TargetingOptions` de l'ATTAQUE NORMALE ------------------------------------------------
+# --- Les `TargetingOptions` de l'ATTAQUE NORMALE -- UNE PAR TYPE (#419-r1-tr14-r5-r2-r1-r2) ------
 # Elles ne sont PAS celles d'une entree d'`ABILITY_CLASSES` (aucune classe d'attaque normale n'est au
-# registre) : c'est le PRESET STATIQUE que `IdunBattleLogic.Entities.Abilities.Active.Loki.
-# Loki_NormalAttackAbility$$.ctor` recopie et passe a `ADeprecatedActiveAbility$$.ctor`. RELU :
-#   `Loki_NormalAttackAbility$$.ctor` copie les 0x40 octets de `<TargetingOptions statics>+0x00`,
-#   ecrits par `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
-#       +0x00 isSelfCasting    = 0
-#       +0x08 range           <- `TargetingRange statics+0x00` = RANGE_ADJACENT_IF_MELEE_CASTER
-#       +0x20 forceMeleeTarget = 2 = RangedBool.IfRangedCaster
-#       +0x28 rules            = 0x4002 = TargetIsEnemy | TargetMatchesDynamicRule
-# C'est le masque que `IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select`
-# obtient du slot d'interface `IBattleQuery` 0x3e (`GetTargetingOptions(normalAttackType)`) avant
-# d'appeler `TargetingQuery.GetValidTargets(unit, tiles, options)` -- cf. le selecteur DSL
-# `engine/entities/selectors/units.py::ValidNormalAttackTargets`.
-# La regle dynamique (bit `TargetMatchesDynamicRule`) de l'attaque normale n'est PAS portee (aucune
-# classe ne la porte) -> degradation PERMISSIVE, la meme que partout dans ce module.
-NORMAL_ATTACK_TARGETING_OPTIONS = TargetingOptions(
+# registre) : ce sont les options que chaque `<X>NormalAttackAbility$$.ctor` passe a
+# `IdunBattle.Entities.Abilities.ADeprecatedActiveAbility$$.ctor`, et le natif les recupere PAR TYPE
+# -- `IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select` fait
+#     opts = battleQuery.<slot 0x3e>(GetNormalAttackType(unit))
+# avant `TargetingQuery.GetValidTargets(unit, tiles, options)`. Il n'y a donc PAS « un masque de
+# l'attaque normale » : il y en a un PAR `ActiveAbilityType` d'attaque normale, et ils DIFFERENT.
+#
+# ⚠ LE PORT N'EN AVAIT QU'UN, celui de `69 Loki_NormalAttack`, applique a toutes les unites. Sur les
+# 18 types d'attaque normale du registre natif, SIX ne portent pas ces valeurs -- deux d'entre eux
+# sur le champ `range`, qui GATE (le bit, lui, est aujourd'hui inerte cote port, cf. plus bas).
+#
+# LES DEUX PRESETS STATIQUES, lus dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` (bloc de
+# statiques de la classe, 16 presets de 0x40 octets ; le masque est a `<preset>+0x28`) :
+#
+#   `<TargetingOptions statics>+0x00`            `<TargetingOptions statics>+0x80`
+#     +0x00 isSelfCasting    = 0                   +0x80 isSelfCasting    = 0
+#     +0x08 range  <- `TargetingRange statics+0x00`  +0x88 range  <- `TargetingRange statics+0x00`
+#     +0x20 forceMeleeTarget = 2 IfRangedCaster    +0xa0 forceMeleeTarget = 2 IfRangedCaster
+#     +0x28 rules            = 0x4002              +0xa8 rules            = 0x4000
+#
+# Les deux presets sont IDENTIQUES champ pour champ SAUF UN BIT : `TargetMatchesDynamicRule` (0x2).
+# Meme motif que le piege mesure en PR #126 (`0x4002` contre `0x4000` sur un meme lot), sur une AUTRE
+# paire de presets.
+#
+# CE QUE LE BIT 0x2 CABLE, ET POURQUOI SON ABSENCE COMPTE :
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$
+# GetDynamicInvalidTargetReason` est un VRAI corps, pas un stub --
+#     return FindAttackWeapon(caster, casterTiles, targetTiles) != null ? 0 : 2;
+# (mirror exact : le meme `IdunBattle.Core.Services.IBattleQuery` slot que
+# `ALoki_NormalAttackAbility$$FindAttackWeapon`, dont l'implementation est
+# `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack`). Un type a `0x4002`
+# consulte donc cette regle ; un type a `0x4000` ne la consulte JAMAIS.
+# Cette regle N'EST PAS PORTEE -> degradation PERMISSIVE sur les types a `0x4002`, et RIEN a porter
+# sur ceux a `0x4000`. Poser le bit partout, comme le faisait le port, arme donc une regle que le
+# natif desarme -- inerte aujourd'hui, FAUSSE le jour ou la regle sera portee. Residu nomme :
+# `#419-r1-tr14-r5-r2-r1-r2-r1`.
+
+_NORMAL_ATTACK_OPTIONS_PRESET_00 = TargetingOptions(
     rules=TR.TargetIsEnemy | TR.TargetMatchesDynamicRule,
     self_cast=False, range=RANGE_ADJACENT_IF_MELEE_CASTER,
     force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
+"""Recopie de `<TargetingOptions statics>+0x00` (`rules = 0x4002`)."""
+
+_NORMAL_ATTACK_OPTIONS_PRESET_80 = replace(_NORMAL_ATTACK_OPTIONS_PRESET_00, rules=TR.TargetIsEnemy)
+"""Recopie de `<TargetingOptions statics>+0x80` (`rules = 0x4000`). Le `replace` EXPRIME la lecture :
+les deux presets ne different que par `<preset>+0x28`, tout le reste est le meme octet a octet."""
+
+NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE: "dict[int, TargetingOptions]" = {
+    # --- recopie du preset `statics+0x80` -> `rules = 0x4000`, PAS de regle dynamique -------------
+    #   17 `IdunBattleLogic.Entities.Abilities.Active.NormalAttackAbility$$.ctor` (lu : `lVar1+0x80`)
+    # 1030 `...Active.Loki.Loki_NormalBossAttackAbility$$.ctor`   (lu : `lVar1+0x80`)
+    # 1114 `...Active.Loki.BlisteringAssault_NormalAttackAbility$$.ctor` -- son corps ENTIER est
+    #      `return Loki_NormalBossAttackAbility$$.ctor(this);`, donc le MEME preset par construction.
+    17: _NORMAL_ATTACK_OPTIONS_PRESET_80,
+    1030: _NORMAL_ATTACK_OPTIONS_PRESET_80,
+    1114: _NORMAL_ATTACK_OPTIONS_PRESET_80,
+    # --- recopie du preset `statics+0x00` -> `rules = 0x4002` -------------------------------------
+    #   69 `...Active.Loki.Loki_NormalAttackAbility$$.ctor`        (lu : `*puVar1`, offset 0)
+    # 1046 `...Active.Loki.TemplarInitiateNormalAttackAbility$$.ctor`   (lu)
+    # 1086 `...Active.Loki.ProperKilly_NormalAttackAbility$$.ctor`
+    # 1123 `...Active.Loki.OptimizedGait_NormalAttackAbility$$.ctor`    (lu)
+    # 1138 `...Active.Loki.Wraithcannon_NormalAttackAbility$$.ctor`     (lu)
+    # 1162 `...Active.Loki.AncientFury_NormalAttackAbility$$.ctor`
+    # 1178 `...Active.Loki.ElectroShock_NormalAttackAbility$$.ctor`
+    # 1120 / 1128 / 1182 / 1205 / 1220 -- leurs `.ctor` sont DEDUPLIQUES par IL2CPP sur
+    #      `...Active.Loki.TalonOfHorus_NormalAttackAbility$$.ctor`, dont le corps entier est
+    #      `return Loki_NormalAttackAbility$$.ctor(this);` (lu). Leur symbole propre n'existe PAS
+    #      dans les tables -- l'absence ne prouve rien, la chaine de ctor si.
+    69: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1046: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1086: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1120: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1123: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1128: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1138: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1162: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1178: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1182: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1205: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    1220: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    # --- 1076 MV71SniperDroneSquadAttack -- FACTORY NOMMEE, pas une recopie nue -------------------
+    # `...Triggered.Loki.MV71SniperDroneSquadAttackAbility$$.ctor` appelle
+    # `IdunBattle.Core.Services.TargetingOptions$$CustomLokiNormalAttackOptions(&opts, extraRules)`,
+    # dont le corps recopie le preset `statics+0x00` champ par champ PUIS fait
+    # `opts.rules = preset.rules | extraRules`. Le `extraRules` n'est pas rendu par le decompile
+    # (registre RDX perdu) -> LU AUX OCTETS au call-site : `ba 02 00 00 00` = `mov edx, 2`.
+    #     0x4002 | 2 = 0x4002  -- l'argument etait deja dans le preset, le calcul le DIT.
+    1076: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    # --- 1126 RogalDorn_NormalAttack -- LITTERAL, et son `forceMeleeTarget` DIFFERE ---------------
+    # `...Active.Loki.RogalDorn_NormalAttackAbility$$.ctor` n'utilise AUCUN preset de
+    # `TargetingOptions` : il recopie `<TargetingRange statics>+0x00` puis appelle la surcharge
+    # « flags directs »
+    #     TargetingOptions$$.ctor(&opts, 0, &range, 1, 0x4000, 0, 0)
+    #                                    ^        ^  ^
+    #                        isSelfCasting        |  forceMeleeTarget = 1 = RangedBool.False
+    #                                    TargetingRange statics+0x00
+    # `forceMeleeTarget = 1` (et non 2) : le CLAMP de melee de `get_range`
+    # (`RangedBoolExtensions.IsTrue(options.ForceMeleeTarget, caster) && ShouldApplyRangedInMelee`)
+    # ne s'applique JAMAIS pour ce type -- la ou le preset `+0x00` l'applique a tout caster distant
+    # engage au corps a corps.
+    1126: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                           range=RANGE_ADJACENT_IF_MELEE_CASTER,
+                           force_melee_target=RANGED_BOOL_FALSE),
+    # --- 1146 FloatingDeath_NormalAttack -- LITTERAL, et son `TargetingRange` DIFFERE -------------
+    # `...Active.Loki.FloatingDeath_NormalAttackAbility$$.ctor`, meme forme que 1126 mais il recopie
+    # `<TargetingRange statics>+0x30` (`lVar1+0x30/0x38/0x40`) :
+    #     TargetingOptions$$.ctor(&opts, 0, &range, 2, 0x4000, 0, 0)
+    # `TargetingRange statics+0x30` = RANGE_ADJACENT (`onlyAdjacent = RangedBool.True`,
+    # `overrideRange = 1`), PAS RANGE_ADJACENT_IF_MELEE_CASTER. Deux consequences DISTINCTES, et
+    # toutes deux mordent dans `get_range` :
+    #   * `onlyAdjacent` est vrai INCONDITIONNELLEMENT -- un caster RANGED est ramene a l'adjacence,
+    #     la ou `IfNotRangedCaster` le laissait sur le test de DISTANCE ;
+    #   * `overrideRange = 1` COURT-CIRCUITE `unit_weapon_range` -- avec le preset generique, une
+    #     portee d'arme non observable fait rendre `None` a `get_range`, donc AUCUN gate de portee.
+    1146: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+                           force_melee_target=RANGED_BOOL_IF_RANGED_CASTER),
+}
+
+NORMAL_ATTACK_TARGETING_OPTIONS = NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE[69]
+"""Les options de `69 Loki_NormalAttack`, l'attaque normale GENERIQUE -- celle que la fabrique pose
+quand aucune des trois voies de substitution ne mord (`UnitFactory$$AddNormalAttackAbility`, repli
+`type = this@+0x20`). C'est le DEFAUT du port quand le type n'est pas resoluble, et c'est ce que ce
+module appliquait a TOUTES les unites avant #419-r1-tr14-r5-r2-r1-r2."""
+
+
+def normal_attack_type_for(state: "State", caster_id: int) -> Optional[int]:
+    """`IdunBattle.Entities.UnitExtensions$$GetNormalAttackType(unit)` cote port -- l'`ActiveAbilityType`
+    CONCRET de l'attaque normale de l'entite (jamais l'abstrait 17).
+
+    Delegue au FOYER UNIQUE du dispatch, `engine.services.custom_normal_attack.custom_normal_attack`
+    (mirror de la cascade de `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` :
+    voie PASSIVE, puis voie ACTIVE, puis branche TRAIT `Boss`), sur les canaux de PRODUCTION du
+    `UnitContext`. `None` rendu par le foyer = aucune substitution = le repli generique de la
+    fabrique, `69 Loki_NormalAttack`.
+
+    Rend `None` si le nom rendu n'a pas d'entree dans `ActiveAbilityType` -- l'appelant retombe alors
+    sur les options generiques, jamais sur un masque devine."""
+    from ...entities.active_ability_type import ActiveAbilityType
+    from ...services.custom_normal_attack import custom_normal_attack
+    from ..components import StatsComponent
+    e = state.get_entity(int(caster_id)) if caster_id is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    vis = _visual_id(state, caster_id)
+    name = custom_normal_attack(passive_abilities=getattr(ctx, "passive_abilities", None),
+                                active_abilities=getattr(ctx, "active_abilities", None),
+                                visual_id=vis,
+                                traits=_unit_traits(state, int(caster_id)))
+    if name is None:
+        return int(ActiveAbilityType.Loki_NormalAttack)
+    got = getattr(ActiveAbilityType, str(name), None)
+    return int(got) if got is not None else None
+
+
+def normal_attack_targeting_options(state: "State", caster_id: int) -> "TargetingOptions":
+    """`battleQuery.<slot 0x3e>(GetNormalAttackType(unit))` -- les `TargetingOptions` de l'attaque
+    normale DE CETTE UNITE, pas celles d'une constante de module.
+
+    Type non resoluble, ou type absent de la table (attaque normale dont le ctor n'a pas ete LU) ->
+    les options du GENERIQUE `69`. C'est le meme arbitrage que partout ici : on ne renseigne que ce
+    qu'on a lu, et le defaut est celui qui etait deja applique."""
+    aid = normal_attack_type_for(state, caster_id)
+    if aid is None:
+        return NORMAL_ATTACK_TARGETING_OPTIONS
+    return NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE.get(int(aid), NORMAL_ATTACK_TARGETING_OPTIONS)
 
 
 class _NormalAttackTargeting:
     """Porteur MINIMAL des `TargetingOptions` de l'attaque normale, pour reutiliser TELLE QUELLE la
     cascade `get_invalid_target_reason` (qui lit `TARGETING_OPTIONS` sur son argument `ability`).
     Ce n'est PAS une entree d'`ABILITY_CLASSES` -- il n'a ni behaviour ni `ABILITY_TYPE`, il ne
-    transporte que le masque ci-dessus. `ABILITY_ID = None` -> `SetConfigValuesInTargetingOptions`
-    est inerte (le preset ne pose pas `UseRangeFromConfig`)."""
+    transporte que le masque. `ABILITY_ID = None` -> `SetConfigValuesInTargetingOptions` est inerte
+    (aucun des `TargetingRange` d'attaque normale ne pose `UseRangeFromConfig`).
+
+    `options=None` garde l'attribut de CLASSE -- c'est ce qui laisse les sous-classes de probe
+    (`probe_436` / `probe_442` / `probe_444`, qui surchargent `TARGETING_OPTIONS` pour desarmer une
+    regle) fonctionner sans changement."""
     TARGETING_OPTIONS = NORMAL_ATTACK_TARGETING_OPTIONS
     ABILITY_ID = None
+
+    def __init__(self, options: Optional["TargetingOptions"] = None):
+        if options is not None:
+            self.TARGETING_OPTIONS = options
 
     def get_dynamic_invalid_target_reason(self, state, caster_id, target_id) -> int:
         """La regle-delegue de l'attaque normale (`options+0x38`, bit `TargetMatchesDynamicRule` du
@@ -684,8 +839,12 @@ def valid_normal_attack_targets(state: "State", caster_id: int) -> list:
 
     ORDRE D'ENUMERATION = celui de `state.entities` (ordre d'insertion). RESIDU NOMME : le natif
     enumere `GetPossibleTargetsForOptions` -> `GetUnitsInRange`, dont l'ordre n'est pas porte ; il
-    ne tranche QU'A DISTANCE EGALE sous le `SortByDistance` + `First(1)` du seul consommateur."""
-    probe = _NormalAttackTargeting()
+    ne tranche QU'A DISTANCE EGALE sous le `SortByDistance` + `First(1)` du seul consommateur.
+
+    #419-r1-tr14-r5-r2-r1-r2 : les options sont celles du TYPE d'attaque normale DE CE CASTER
+    (`normal_attack_targeting_options`), mirror du `battleQuery.<slot 0x3e>(GetNormalAttackType(unit))`
+    que le selecteur natif fait a cette place exacte -- et non plus une constante de module."""
+    probe = _NormalAttackTargeting(normal_attack_targeting_options(state, int(caster_id)))
     out = []
     for uid in list(state.entities.keys()):
         if int(uid) == int(caster_id):
