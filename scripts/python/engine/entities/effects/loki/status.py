@@ -524,6 +524,15 @@ class StunnedDamageModifierEffect(BaseEffect):
             return None
         return for_percent_decrease(True, abs(int(pct)))
 
+    # #437-r1-r1-r1 -- LA DIVERGENCE DANS L'AUTRE SENS, et c'est elle qui interdit toute regle
+    # « effet du defenseur -> face defenseur ». Le natif implemente ici le slot DEFENSE
+    # (`CreateEffectDamageMalusForDefense`, methods.tsv) : sa contribution part donc dans
+    # `defenseModifiers`, MEME si l'effet est porte par l'ATTAQUANT (trigger `OwnerIsActor`, comme
+    # la docstring ci-dessus le lisait deja). Le port l'evalue par la boucle ATTAQUANT parce que
+    # c'est la seule qui balaie les effets de l'attaquant -- l'evaluation reste juste, seule
+    # l'ATTRIBUTION D'ACCUMULATEUR change. CONSEQUENCE ARITHMETIQUE REELLE (canal POURCENT).
+    ATTACK_BONUS_NATIVE_FACE = "defender"
+
 
 class ActOfFaithBuffEffect(BaseEffect):
     """`ActOfFaithBuffEffect` (effet 0x3f9=1017, namespace `Effects.Loki`) — buff de crit empilable du

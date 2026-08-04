@@ -64,6 +64,15 @@ class DamageModifiers:
     detail@+0x38). `pct_list` = liste de `(mult, cap)` (mult=1±pct/100 ; cap=None si non plafonné)."""
     additive: float = 0.0
     pct_list: list[tuple[float, int | None]] = field(default_factory=list)
+    # #437-r1-r1-r1 — CONVENTION UNIFORME : dans TOUT `DamageModifiers`, `pct_list` est
+    # l'accumulateur ATTAQUANT et `pct_list_defender` l'accumulateur DEFENSEUR — quel que soit le
+    # BUILDER qui l'a rempli. Le routage se fait a l'entree (`add_modifier`, sur
+    # `EffectBonus.native_face`), plus au site de fusion. C'est ce qui permet a un effet porte par
+    # la CIBLE d'atterrir cote ATTAQUANT quand le natif le veut (`Terrifying_ExtraDefense`, qui sort
+    # par `CreateDamageModifier` -> forwarder `CreateEffectDamageBonusForAttack`), et
+    # symetriquement a `Stunned_DamageModifier`, porte par l'ATTAQUANT, d'atterrir cote DEFENSEUR
+    # (il sort par `CreateEffectDamageMalusForDefense`, trigger `OwnerIsActor`).
+    #
     # #446-r2 — LES ENTREES DU DEFENSEUR, FUSIONNEES DANS L'ACCUMULATEUR DE L'ATTAQUANT, VIVENT A
     # PART. Le natif tient DEUX `Nullable<DamageModifiers>` (`attackModifiers`, `defenseModifiers`)
     # et `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` les
@@ -139,14 +148,28 @@ def add_modifier(acc: DamageModifiers, eb: EffectBonus) -> None:
             acc.flat_reductions.append(eb.value)  # DÉFENSEUR : plat PRÉ-perçage (Nightshroud IdunBattle.Entities.Effects.Loki.Nightshroud_DmgReduction_Effect$$CreateDamageDefenseModifier, cf. flat_reductions)
     elif eb.kind in ("PercentIncrease", "PercentDecrease"):
         pct = eb.value if eb.kind == "PercentIncrease" else -eb.value
+        mult = get_multiplier_from_damage_bonus(pct)
+        # #437-r1-r1-r1 -- ROUTAGE PAR FACE. `pct_list`/`multiplicative` = l'accumulateur
+        # ATTAQUANT (`attackModifiers`), `pct_list_defender`/`multiplicative_defender` =
+        # l'accumulateur DEFENSEUR. Cette convention vaut DESORMAIS dans TOUT `DamageModifiers`,
+        # y compris celui que rend le builder defenseur -- avant, ce dernier entassait tout dans
+        # `pct_list` et le site de fusion DEPLACAIT en bloc, ce qui rendait la face structurellement
+        # indicible et forcait a la deduire du builder. Le natif, lui, ne la deduit pas : il verse
+        # dans l'accumulateur du builder dont le SLOT a ete invoque (cf. `EffectBonus.native_face`).
+        to_def = (eb.native_face == "defender")
         if eb.from_stat_mod:
             # #462-r4a : canal `Multiplier@0x30` (surcharge 1-ARG de `DamageModifiers$$Add`), pas la
             # LISTE. Le natif y route le PRODUIT des modifications de stat -- ici on multiplie
             # entree par entree, ce qui est le MEME produit (`GetMultiplierFromDamageBonus`
             # surcharge LISTE = `x = One ; foreach -> x = Mul(x, m)`).
-            acc.multiplicative *= get_multiplier_from_damage_bonus(pct)
+            if to_def:
+                acc.multiplicative_defender *= mult
+            else:
+                acc.multiplicative *= mult
+        elif to_def:
+            acc.pct_list_defender.append((mult, eb.cap))
         else:
-            acc.pct_list.append((get_multiplier_from_damage_bonus(pct), eb.cap))
+            acc.pct_list.append((mult, eb.cap))
     elif eb.kind == "Piercing":
         acc.extra_pierce += eb.value            # axe perçage (@0x20) — pas le scalaire dégât
     elif eb.kind == "ArmorPenetration":
@@ -308,6 +331,14 @@ def apply_all_modifiers(value: int, mods: DamageModifiers, round_materialize: bo
     **14/14**, == troncature **10/14**, les 4 écarts tombant exactement sur frac >= .5.
     Détail : `docs/rl/case-r6-materialisation-normal-like-additional-hits.md`."""
     v_raw = apply_capped_modifiers(value, mods).raw
+    # #437-r1-r1-r1 — la face DEFENSEUR de CET accumulateur, s'il en porte une. STRICTEMENT no-op
+    # tant que la liste est vide (`apply_pct_entries([])` rend la valeur INCHANGEE, sans `Round`),
+    # ce qui est le cas sur tous les call-sites COMBAT : `_apply_defender_flat_reductions` a deja
+    # DEPLACE les deux faces de `def_mods` vers l'accumulateur du coup. La ligne existe pour que le
+    # cas contraire soit CALCULE au lieu d'etre SILENCIEUSEMENT PERDU -- une face defenseur non
+    # vide arrivant ici etait purement et simplement droppee avant.
+    if mods.pct_list_defender:
+        v_raw = apply_pct_entries(_fx.Fix64(v_raw), mods.pct_list_defender).raw
     # #462-r4a — l'étage MULTIPLICATEUR (`Multiplier@0x30`, slot 0x10). Les %-list se composent
     # AVANT lui (ci-dessus), les modifications de STAT y entrent (`from_stat_mod`). `1.0` = no-op
     # strict (aucun `Round` surnuméraire : `calculate_base_damage_with_modifiers` n'est appelé que
@@ -364,7 +395,8 @@ def build_attacker_modifiers(effect_bonuses: list[EffectBonus | None]) -> Damage
     return acc
 
 
-def calculate_modifiers_from_stat_modifications(stat_component, negate: bool = False) -> list[EffectBonus]:
+def calculate_modifiers_from_stat_modifications(stat_component, negate: bool = False,
+                                                native_face: str = "attacker") -> list[EffectBonus]:
     """`IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications` — convertit les
     **modifications per-source** d'un `StatComponent` (le dict `ValueModification`, cf. entities/stats.py)
     en entrées **POURCENT** de la %-list. RE complète #194 (corrige la lecture FLAT initiale de #49,
@@ -399,8 +431,11 @@ def calculate_modifiers_from_stat_modifications(stat_component, negate: bool = F
     # `Multiplier@0x30` -- le caller natif les folde par `GetMultiplierFromDamageBonus` surcharge
     # LISTE puis `DamageModifiers$$Add(this, modifier)` surcharge 1-ARG, ce qui les place APRES le
     # `Round` de l'etage MULTIPLICATEUR, alors que les %-list d'effets se composent avant lui.
+    # `native_face` (#437-r1-r1-r1) : le fold DEFENSE est fait PAR `CalculateDefenderModifiers
+    # ForPrediction` (donc `defenseModifiers.Multiplier@0x30`), le fold ATTACK par son homologue.
+    # Ce n'est pas une option -- c'est le builder appelant qui le sait, et l'appelant DOIT le dire.
     return [EffectBonus("PercentIncrease", sign * int(amount), owner_is_caster=True,
-                        from_stat_mod=True)
+                        from_stat_mod=True, native_face=native_face)
             for amount in stat_component.modification.per_source.values() if amount]
 
 

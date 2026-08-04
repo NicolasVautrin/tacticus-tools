@@ -180,6 +180,33 @@ class SubEffectSpec:
 @dataclass
 class BaseEffect:
     """Effet matérialisé : identité (seedée depuis la capture one-shot) + état de cycle de vie mutable."""
+    # ── #437-r1-r1-r1 : ACCUMULATEUR NATIF de chaque canal de dégât ─────────────────────────────
+    # `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` applique UN
+    # `Fix64.Round` par accumulateur non nul (`attackModifiers`, `defenseModifiers`) : la face d'une
+    # contribution est donc OBSERVABLE, et elle vaut ±1 sur la borne.
+    #
+    # Elle est fixée par le SLOT VIRTUEL par lequel la contribution sort, jamais par le porteur :
+    #   * `CreateEffectDamageBonusForAttack` (slot 0x16), ou `CreateDamageModifier` derrière le
+    #     forwarder `IdunBattle.Entities.Effects.DamageModifierAbilityEffect$$
+    #     CreateEffectDamageBonusForAttack` (lu : recopie nue du `Nullable<EffectBonus>` du slot
+    #     virtuel de la sous-classe)                                   -> "attacker" ;
+    #   * `CreateEffectDamageMalusForDefense` (slot 0x1a), ou `CreateDamageDefenseModifier` derrière
+    #     le forwarder de `ADamageDefenseModifierAbilityEffect`         -> "defender".
+    # Les DEUX builders natifs énumèrent le MÊME dictionnaire d'effets de l'état ; le trigger
+    # (`OwnerIsTarget` / `OwnerIsActor`) choisit QUELLE unité déclenche, jamais l'accumulateur.
+    #
+    # Ces cinq attributs disent, POUR CHAQUE CANAL DU PORT, l'accumulateur d'arrivée. Le défaut est
+    # celui du canal ; une classe le SURCHARGE quand le natif l'a rangée dans l'autre famille — et
+    # cela arrive dans les DEUX SENS (`Terrifying_ExtraDefense` porté par la cible mais versé côté
+    # attaquant ; `Stunned_DamageModifier` porté par l'attaquant mais versé côté défenseur).
+    # La table complète (59 classes, dérivée des tables de symboles, deux sources concordantes) et
+    # sa garde : `scripts/python/probe_437r1r1r1_effect_face_table.py`.
+    ATTACK_BONUS_NATIVE_FACE = "attacker"
+    DEFENSE_MALUS_NATIVE_FACE = "defender"
+    AURA_ATTACK_BONUS_NATIVE_FACE = "attacker"
+    AURA_ATTACK_MALUS_NATIVE_FACE = "attacker"
+    AURA_DEFENSE_MALUS_NATIVE_FACE = "defender"
+
     name: str
     effect_type: int | None = None
     level: int | None = None                 # niveau de STACK capté (decisionView.effects[].level) — pour

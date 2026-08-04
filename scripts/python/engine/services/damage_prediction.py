@@ -373,8 +373,7 @@ def _materialize(v) -> int:
 
 def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0,
                                mods: DamageModifiers | None = None, hit_mult: int = 1,
-                               attacker_additive_pre: bool = False,
-                               separate_face_lists: bool = False):
+                               attacker_additive_pre: bool = False):
     """BASE COMMUNE prédiction↔combat — réduction d'UNE valeur de dégât (= étape 3+3b de
     `predict_attack_raw`, cf. `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers) :
         pierce_eff = clamp(0,100, pierce + mods.extra_pierce)
@@ -437,8 +436,8 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
             #     unités DÉPLACÉES) — la chaîne doit être UNIQUE : 761/1141 contre 762/1142.
             # La séquence ci-dessous est donc `(1+2)` en UNE chaîne, puis `3`, puis `4`.
             #
-            # ⚠ #437-r1-r1 — CE QUE `separate_face_lists` MODÉLISE VRAIMENT, et ce que la
-            # justification précédente disait de FAUX. Elle invoquait deux appels distincts à
+            # ⚠ #437-r1-r1 — CE QUE LA SÉPARATION DES DEUX FACES MODÉLISE VRAIMENT, et ce qu'une
+            # justification antérieure disait de FAUX. Elle invoquait deux appels distincts à
             # `ApplyCappedModifiers` (« la face défenseur part d'une valeur déjà matérialisée »).
             # Cette lecture est RÉFUTÉE, deux fois :
             #   * au DÉCOMPILÉ — `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers`
@@ -456,8 +455,8 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
             # le NOMBRE D'ACCUMULATEURS `Multiplier@0x30` NON NULS — les étapes 3 et 4 ci-dessus,
             # chacune inconditionnelle dès que son `Nullable<DamageModifiers>` a une valeur. Ce
             # que le port appelle `pct_list` / `pct_list_defender` EST ce `Multiplier@0x30`, une
-            # face chacun ; `separate_face_lists=True` restitue donc « UN `Round` par face », qui
-            # est la loi. C'est la valeur `False` qui est la dérogation.
+            # face chacun ; la séquence ci-dessous restitue donc « UN `Round` par face », qui est
+            # la loi — et elle est désormais INCONDITIONNELLE (cf. le bloc #437-r1-r1-r1 plus bas).
             #
             # MESURE (#437-r1, tir d'overwatch `eldarRanger` -> `spaceStormcaller`, face ATT =
             # `HeavyWeapon_ExtraDmg` x1.25, face DEF = `TerminatorArmour_ReduceDmg` x0.25, board
@@ -474,30 +473,30 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
             # `x1.25`, `face=defender` -> `x0.25`. AUCUN des 41 `Add` ne compose (`multBefore == 1`
             # sur 41/41). D'où deux `Round`.
             #
-            # ⚠ POURQUOI `False` EN PRÉDICTION : ce n'est PAS le vecteur. Le cran DEUX FACES de
-            # #462-r4a (élévation x1.50 ATT + `Terrifying_ExtraDefense` x0.70 DEF) rend 761/1141,
-            # soit UN seul `Round` — et le même capteur y lit UN SEUL accumulateur qui COMPOSE
+            # ⚠ #437-r1-r1-r1 — LA SÉPARATION EST DEVENUE INCONDITIONNELLE, ET CE QUI L'INTERDISAIT
+            # N'ÉTAIT PAS LE VECTEUR. Un drapeau `separate_face_lists` a existé ici, à `False` en
+            # PRÉDICTION : il compensait une ATTRIBUTION DE FACE divergente du port, pas un étage
+            # d'arrondi. Le cran DEUX FACES de #462-r4a (élévation x1.50 ATT +
+            # `Terrifying_ExtraDefense` x0.70 DÉF) rend 761/1141, soit UN seul `Round` — parce que
+            # le capteur `effect-bonus-trace` y lit UN SEUL accumulateur qui COMPOSE
             # (`1 -> 0.6999999999534339 -> 1.0499999998137355`), les DEUX bonus étant étiquetés
-            # `face=attacker` par le natif. La fenêtre `defender` n'est pas en cause : elle est
-            # bien instrumentée et tire (20 événements sur le montage #437-r1, même bundle).
-            # Autrement dit le natif verse `Terrifying_ExtraDefense` dans l'accumulateur
-            # ATTAQUANT, là où le port le range en face DÉFENSEUR. `separate_face_lists=False`
-            # compense cette ATTRIBUTION DE FACE divergente ; le vecteur n'y est pour rien (les
-            # deux mesures sont prises sur le vecteur COMBAT — `aiPlaybookPredict` ne traverse pas
-            # `DamageModifiers$$Add`, cf. case-462-r4a §8.5).
-            # ⇒ FIX FIDÈLE, et son prérequis : rendre la séparation INCONDITIONNELLE **et**
-            # attribuer chaque `EffectBonus` à la face que le natif lui donne. Cela demande de
-            # MESURER la face de chaque effet %-défenseur au capteur, pas de la déduire du porteur.
-            # Résidu `#437-r1-r1-r1` (`docs/rl/case-437-r1-r1-canal-et-face.md`).
+            # `face=attacker` par le natif. Le port, lui, rangeait `Terrifying_ExtraDefense` en face
+            # DÉFENSEUR — d'où 762/1142, et d'où le drapeau.
+            #
+            # La face se LIT, exhaustivement : c'est le SLOT VIRTUEL par lequel la contribution sort
+            # (`CreateEffectDamageBonusForAttack`, directement ou via le forwarder de
+            # `DamageModifierAbilityEffect`, contre `CreateEffectDamageMalusForDefense`). Elle est
+            # désormais portée par `EffectBonus.native_face`, posée par les builders depuis la
+            # classe d'effet, et gardée sur les 59 classes du port par
+            # `scripts/python/probe_437r1r1r1_effect_face_table.py` (deux sources de symboles
+            # concordantes, 0 divergence). Le drapeau n'a donc plus d'objet et a été RETIRÉ : le
+            # laisser aurait maintenu une dérogation dont la justification venait de tomber.
             #
             # NO-OP quand l'une des deux listes est VIDE (`apply_pct_entries([])` rend la valeur
             # INCHANGÉE, sans `Round`) : tous les régimes à UNE face mesurés (#446-r2 `T` et `A`,
             # #462-r4a balayage d'armure, #462-r4d nightshroud, #98) sont donc strictement conservés.
-            if separate_face_lists:
-                d = max(0, apply_pct_entries(d, list(mods.pct_list)))
-                d = max(0, apply_pct_entries(d, list(mods.pct_list_defender)))
-            else:
-                d = max(0, apply_pct_entries(d, list(mods.pct_list) + list(mods.pct_list_defender)))
+            d = max(0, apply_pct_entries(d, list(mods.pct_list)))
+            d = max(0, apply_pct_entries(d, list(mods.pct_list_defender)))
             d = calculate_base_damage_with_modifiers(d, mods.multiplicative)          # étape 3
             d = calculate_base_damage_with_modifiers(d, mods.multiplicative_defender)  # étape 4
         else:

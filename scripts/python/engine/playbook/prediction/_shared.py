@@ -496,13 +496,21 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # elles (`CalculateBaseDamageWithModifiers`, slot 0x10, appele une fois par face). La phrase
     # « composition %-list commutative sans arrondi intermediaire (#98) » ci-dessus valait pour
     # DEUX entrees de la MEME face -- elle ne vaut pas d'une face a l'autre. Mesure : #446-r2.
+    # #437-r1-r1-r1 : `def_mods` porte SES DEUX faces separement (routage `add_modifier` sur
+    # `EffectBonus.native_face`). Ce site les RECOPIE chacune dans la sienne au lieu de tout
+    # verser cote defenseur -- cf. le commentaire jumeau dans
+    # `AttackDamageOperation._apply_defender_flat_reductions`.
     for mult, cap in def_mods.pct_list:
+        mods.pct_list.append((mult, cap))
+    for mult, cap in def_mods.pct_list_defender:
         mods.pct_list_defender.append((mult, cap))
     # #462-r4a : le `Multiplier@0x30` du DEFENSEUR (= les MODIFICATIONS DE STAT, seules a y entrer)
     # a son etage PROPRE, le DERNIER de `CalculateBaseDamageWithAllModifiers`, precede d'un `Round`.
     # Les %-list ci-dessus, elles, se composent AVEC celles de l'attaquant sans arrondi entre.
     if def_mods.multiplicative != 1.0:
-        mods.multiplicative_defender *= def_mods.multiplicative
+        mods.multiplicative *= def_mods.multiplicative
+    if def_mods.multiplicative_defender != 1.0:
+        mods.multiplicative_defender *= def_mods.multiplicative_defender
     # ADDITIF defenseur (ForAddition, ex. Neuroparasite +extraDmg x niveau) — le %-list SEUL etait fusionne,
     # l'additif defenseur etait DROPPE. PLACEMENT = MEME slot @+0x10 que l'additif ATTAQUANT #75 : ajoute a la
     # base PRE-percage, puis traverse percage et est scale ×%-list UNE fois (le natif ajoute l'additif @+0x10
@@ -564,8 +572,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         # accumulateur JETABLE puis transfert : le routage reste dans `add_modifier`, pas duplique.
         _tmp = DamageModifiers()
         add_modifier(_tmp, _eb)
-        mods.pct_list_defender.extend(_tmp.pct_list)
-        mods.multiplicative_defender *= _tmp.multiplicative     # #462-r4a (canal `Multiplier@0x30`)
+        # #437-r1-r1-r1 : `add_modifier` a deja route sur la face NATIVE de l'effet -- on recopie
+        # chaque face dans la sienne. `DaughterOfTheAbyss_ExtraDamagePct` sort de cette boucle
+        # AURA-defense mais son natif implemente `CreateEffectDamageBonusForAttack`, donc il
+        # atterrit dans `_tmp.pct_list` et doit rester cote ATTAQUANT.
+        mods.pct_list.extend(_tmp.pct_list)
+        mods.pct_list_defender.extend(_tmp.pct_list_defender)
+        mods.multiplicative *= _tmp.multiplicative              # #462-r4a (canal `Multiplier@0x30`)
+        mods.multiplicative_defender *= _tmp.multiplicative_defender
         mods.additive += _tmp.additive
         mods.extra_pierce += _tmp.extra_pierce
         mods.armor_penetration += _tmp.armor_penetration

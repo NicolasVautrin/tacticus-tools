@@ -97,13 +97,27 @@ def _models(pierced, pct_att: float | None = None) -> dict:
 
 
 def _faces(pct_att: float | None = None):
-    """Les DEUX `DamageModifiers` bruts du coup, AVANT le pont entre faces."""
+    """Les DEUX `DamageModifiers` bruts du coup, AVANT le pont entre faces.
+
+    ⚠ MONTAGE MIS A JOUR (#437-r1-r1-r1), et c'est ce cran qui CONFIRME la mise a jour. Le
+    `DamageModifiers` que rend le builder DEFENSEUR porte desormais SES DEUX faces separement :
+      * `MartialKatah_DmgReductionEffect` derive de `DamageModifierAbilityEffect` et n'implemente
+        que `CreateDamageModifier` -> sa contribution sort par le forwarder
+        `CreateEffectDamageBonusForAttack`, donc dans l'accumulateur **ATTAQUANT** (`pct_list`),
+        bien que l'effet vive sur la CIBLE ;
+      * le stat-mod `Thorns` est folde par `CalculateDefenderModifiersForPrediction` lui-meme ->
+        `defenseModifiers.Multiplier@0x30` (`multiplicative_defender`).
+    C'est la ligne `NATIVE_AVEC_ELEVATION` qui TRANCHE : avec `MartialKatah` range cote defenseur,
+    la chaine rend 1173 sur la borne haute ; le natif vaut **1175**, qui exige `x1.5` (elevation)
+    et `x0.8` (MartialKatah) dans le MEME `Multiplier@0x30` -- exactement ce que dit le decompile.
+    C'est un TROISIEME canal de confirmation de l'attribution de face, independant du capteur et du
+    decompile : l'inversion PRNG d'un tir natif reel."""
     att = DamageModifiers()
     if pct_att:
-        att.pct_list.append((pct_att, None))
+        att.pct_list.append((pct_att, None))       # ELEVATION : feuille du builder ATTAQUANT
     deff = DamageModifiers()
-    deff.pct_list.append((PCT_DEF, None))          # canal LISTE @0x18
-    deff.multiplicative *= MULT_DEF                # canal Multiplier@0x30
+    deff.pct_list.append((PCT_DEF, None))          # MartialKatah -> face ATTAQUANT (slot natif)
+    deff.multiplicative_defender *= MULT_DEF       # Thorns (stat-mod) -> face DEFENSEUR
     return att, deff
 
 
@@ -130,21 +144,28 @@ def test_le_regime_porte_bien_DEUX_canaux():
     de mauvaises raisons : c'est la co-presence des deux entrees qui fait l'objet du cran."""
     _att, deff = _faces()
     assert deff.pct_list, "canal LISTE @0x18 vide -- le regime n'est plus DEUX canaux"
-    assert deff.multiplicative != 1.0, "canal Multiplier@0x30 neutre -- le regime n'est plus DEUX canaux"
+    assert deff.multiplicative_defender != 1.0, (
+        "canal Multiplier@0x30 neutre -- le regime n'est plus DEUX canaux")
 
 
 def test_le_pont_deplace_les_deux_canaux_et_vide_la_source():
     """`_apply_defender_flat_reductions` doit DEPLACER (pas copier) : une source non videe ferait
-    appliquer la face defenseur DEUX fois par l'`apply_all_modifiers` aval."""
+    appliquer la face defenseur DEUX fois par l'`apply_all_modifiers` aval.
+
+    ⚠ Depuis #437-r1-r1-r1 le pont PRESERVE la face au lieu de la decider : `pct_list` (face
+    ATTAQUANT du builder defenseur -- MartialKatah) va dans `att.pct_list`, et le
+    `multiplicative_defender` (le stat-mod Thorns) dans `att.multiplicative_defender`."""
     from engine.runner.operations.damage import AttackDamageOperation
     att, deff = _faces()
     AttackDamageOperation._apply_defender_flat_reductions(att, deff)
-    assert att.pct_list_defender == [(PCT_DEF, None)], (
-        f"la %-list defenseur n'a pas atterri dans pct_list_defender ({att.pct_list_defender})")
+    assert att.pct_list == [(PCT_DEF, None)], (
+        f"MartialKatah (face NATIVE attaquante) n'a pas atterri dans pct_list ({att.pct_list})")
+    assert att.pct_list_defender == [], (
+        f"une entree a atterri cote defenseur alors qu'aucune n'y a sa face ({att.pct_list_defender})")
     assert att.multiplicative_defender == MULT_DEF, (
         f"le Multiplier defenseur n'a pas atterri dans multiplicative_defender "
         f"({att.multiplicative_defender})")
-    assert deff.pct_list == [] and deff.multiplicative == 1.0, (
+    assert deff.pct_list == [] and deff.multiplicative_defender == 1.0, (
         "la SOURCE n'a pas ete videe -- la face defenseur serait appliquee deux fois")
 
 

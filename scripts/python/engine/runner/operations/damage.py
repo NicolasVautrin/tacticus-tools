@@ -1021,12 +1021,27 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # reconstruit a chaque execution, exactement comme pour `flat_reductions` ci-dessus, et
         # `apply_all_modifiers(def_mods)` en aval devient un no-op sur cet axe -- pas une
         # double-application.
+        # #437-r1-r1-r1 — LA FUSION NE DECIDE PLUS DE LA FACE, ELLE LA PRESERVE. `def_mods` porte
+        # desormais SES DEUX faces separement (`add_modifier` route sur `EffectBonus.native_face`,
+        # pose par le builder depuis la classe d'effet) : un effet que le natif verse dans
+        # `attackModifiers` bien qu'il soit porte par la CIBLE -- `Terrifying_ExtraDefense`,
+        # `MartialKatah_DmgReduction`, `Markerlight`, `DaughterOfTheAbyss_ExtraDamagePct` -- sort
+        # d'ici dans `mods.pct_list`, pas dans `mods.pct_list_defender`. Le deplacement EN BLOC
+        # d'avant les rangeait tous cote defenseur, ce qui coutait un `Round` de trop des que la
+        # face attaquante etait elle aussi non neutre (mesure #462-r4a `--two-faces` : natif
+        # 761/1141, deux chaines 762/1142).
         if def_mods.pct_list:
-            mods.pct_list_defender.extend(def_mods.pct_list)
+            mods.pct_list.extend(def_mods.pct_list)
             def_mods.pct_list = []
+        if def_mods.pct_list_defender:
+            mods.pct_list_defender.extend(def_mods.pct_list_defender)
+            def_mods.pct_list_defender = []
         if def_mods.multiplicative != 1.0:
-            mods.multiplicative_defender *= def_mods.multiplicative
+            mods.multiplicative *= def_mods.multiplicative
             def_mods.multiplicative = 1.0
+        if def_mods.multiplicative_defender != 1.0:
+            mods.multiplicative_defender *= def_mods.multiplicative_defender
+            def_mods.multiplicative_defender = 1.0
         # #112 : axe PERCAGE porte par un effet de la CIBLE (`<Effect>.CreatePiercingBonusForAttack`
         # avec trigger `OwnerIsTarget`, ex. `IdunBattle.Entities.Effects.Loki.
         # Supercharge_ExtraPiercingEffect$$CreatePiercingBonusForAttack` = `ForPiercing(

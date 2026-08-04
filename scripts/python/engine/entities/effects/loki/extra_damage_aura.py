@@ -148,6 +148,17 @@ class DaughterOfTheAbyssExtraDamagePctEffect(BaseEffect):
             return None
         return for_percent_increase(True, abs(int(pct)))
 
+    # #437-r1-r1-r1 : `DaughterOfTheAbyss_ExtraDamagePctEffect` implemente
+    # `CreateEffectDamageBonusForAttack` (methods.tsv), pas le slot DEFENSE -- le natif verse donc
+    # sa contribution dans `attackModifiers`, alors que le port l'evalue par le canal AURA-DEFENSE
+    # (le seul qui balaie les porteurs TIERS). Le nom natif le disait deja ; c'est la face qui en
+    # etait deduite a tort. CONSEQUENCE ARITHMETIQUE REELLE : canal POURCENT.
+    # ⚠ Son JUMEAU `DaughterOfTheAbyss_FriendlyDmgReductionPct` implemente bien
+    # `CreateEffectDamageMalusForDefense` -> il reste, LUI, cote defenseur. Les deux volets de la
+    # MEME ability ne sont PAS sur la meme face : c'est exactement ce qu'une regle « deduite du
+    # porteur » ne peut pas exprimer (meme porteur, faces opposees).
+    AURA_DEFENSE_MALUS_NATIVE_FACE = "attacker"
+
 
 class BeaconOfRageFriendlyExtraDamageEffect(BaseEffect):
     """`BeaconOfRage_FriendlyExtraDamageEffect` (EffectType 0x513=1299, nom capté

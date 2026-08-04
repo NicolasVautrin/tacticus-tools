@@ -80,9 +80,18 @@ FORWARDER_FACE = {
     "IdunBattle.Entities.Effects.ADamageDefenseModifierAbilityEffect": "defender",
 }
 
-#: Methodes du PORT qui mirroirent chacun des deux slots.
-PORT_ATT_METHOD = "create_effect_damage_bonus_for_attack"
-PORT_DEF_METHOD = "create_effect_damage_malus_for_defense"
+#: CANAUX DU PORT qui produisent un `EffectBonus` de DEGAT, et l'accumulateur ou leur agregateur
+#: le verse AUJOURD'HUI. Il y en a CINQ, pas deux -- les trois canaux AURA mirroirent la boucle
+#: state-wide `EffectWithTarget` des MEMES deux builders natifs, et un effet-aura a donc une face
+#: exactement comme les autres. Les omettre laisserait un tiers du gisement hors table.
+#:   `<methode du port>`: (`face par defaut de son agregateur`, `attribut de derogation`)
+PORT_CHANNELS = {
+    "create_effect_damage_bonus_for_attack": ("attacker", "ATTACK_BONUS_NATIVE_FACE"),
+    "create_effect_damage_malus_for_defense": ("defender", "DEFENSE_MALUS_NATIVE_FACE"),
+    "create_aura_attack_damage_bonus_for_ally": ("attacker", "AURA_ATTACK_BONUS_NATIVE_FACE"),
+    "create_aura_attack_damage_malus_for_enemy": ("attacker", "AURA_ATTACK_MALUS_NATIVE_FACE"),
+    "create_aura_defense_damage_malus_for_ally": ("defender", "AURA_DEFENSE_MALUS_NATIVE_FACE"),
+}
 
 #: Citation d'un symbole natif d'effet dans le source du port.
 #: ⚠ Les `\s*` ne sont pas de la tolerance decorative : le depot ECRIT ses symboles sur plusieurs
@@ -161,15 +170,19 @@ def resolve_native_class(port_cls, parent) -> tuple[str | None, str]:
     qui n'y existe pas n'est pas retenue).
     """
     short_names = {c.rsplit(".", 1)[-1] for c in parent}
-    try:
-        src = inspect.getsource(port_cls)
-    except (OSError, TypeError):
-        src = ""
-    cited = [m for m in _SYM.findall(src) if m in short_names]
-    if cited:
-        # La classe CITEE le plus souvent dans son propre corps ; egalite -> la premiere.
-        best = max(set(cited), key=lambda n: (cited.count(n), -cited.index(n)))
-        return best, "symbole cite"
+    # ⚠ On remonte la MRO du port : une sous-classe de PORT (`...DroneEffect(...Effect)`) mirroire la
+    # MEME classe NATIVE que son parent -- `isDrone` est un champ d'instance, pas une autre classe --
+    # et ne re-cite pas le symbole. Sans cette remontee elle sort « NATIF NON RESOLU » a tort.
+    for cls in port_cls.__mro__:
+        try:
+            src = inspect.getsource(cls)
+        except (OSError, TypeError):
+            continue
+        cited = [m for m in _SYM.findall(src) if m in short_names]
+        if cited:
+            # La classe CITEE le plus souvent dans ce corps ; egalite -> la premiere.
+            best = max(set(cited), key=lambda n: (cited.count(n), -cited.index(n)))
+            return best, ("symbole cite" if cls is port_cls else "symbole cite (parent port)")
     return None, "-"
 
 
@@ -182,12 +195,12 @@ def resolve_by_name(effect_name: str, parent) -> str | None:
 
 
 def port_faces(cls, base):
-    """Faces que le PORT donne aux contributions de cette classe, telles qu'elles atterrissent."""
+    """Faces que le PORT donne aux contributions de cette classe, telles qu'elles ATTERRISSENT
+    (defaut du canal, ou derogation posee sur la classe)."""
     out = set()
-    if getattr(cls, PORT_ATT_METHOD) is not getattr(base, PORT_ATT_METHOD):
-        out.add(getattr(cls, "ATTACK_BONUS_NATIVE_FACE", "attacker"))
-    if getattr(cls, PORT_DEF_METHOD) is not getattr(base, PORT_DEF_METHOD):
-        out.add(getattr(cls, "DEFENSE_MALUS_NATIVE_FACE", "defender"))
+    for meth, (default, attr) in PORT_CHANNELS.items():
+        if getattr(cls, meth) is not getattr(base, meth):
+            out.add(getattr(cls, attr, default))
     return out
 
 

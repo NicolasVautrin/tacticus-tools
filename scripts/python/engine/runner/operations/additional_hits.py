@@ -58,12 +58,13 @@ def reduce_group_damage(value, g_pierce: int, armor: int, mods, def_mods, hit_mu
     L'etage AMONT (l'ORDRE tirage/reduction) est desormais porte lui aussi -- cf. le bloc R6-b de
     `execute_additional_hits`. Les deux etages restent DISTINCTS : celui-ci decide COMMENT un
     tirage se materialise, l'autre decide QUEL tirage sort."""
-    # `separate_face_lists=True` (#437-r1) : ces sous-operations retombent sur le MEME
-    # `AttackDamageOperation$$ExecuteHit` que la phase d'arme, donc sur les MEMES deux appels
-    # `ApplyCappedModifiers`. NO-OP tant qu'une des deux faces n'a pas d'entree de `%-list`.
+    # UN `Round` PAR FACE (#437-r1) : ces sous-operations retombent sur le MEME
+    # `AttackDamageOperation$$ExecuteHit` que la phase d'arme, donc sur les MEMES deux etages
+    # `CalculateBaseDamageWithModifiers`. Depuis #437-r1-r1-r1 la separation est INCONDITIONNELLE
+    # dans `apply_pierce_and_modifiers` (plus de drapeau) : rien a poser ici.
     return apply_all_modifiers(
         apply_pierce_and_modifiers(value, g_pierce, armor, mods, hit_mult=hit_mult,
-                                   attacker_additive_pre=True, separate_face_lists=True),
+                                   attacker_additive_pre=True),
         def_mods, round_materialize=True)
 
 
