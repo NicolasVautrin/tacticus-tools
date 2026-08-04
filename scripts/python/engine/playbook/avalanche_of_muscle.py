@@ -244,8 +244,9 @@ class AvalancheOfMusclePlaybook:
         sont `MovementUtil$$AreTilesAdjacent`, d'ou le foyer `battle_query.is_adjacent` (porte
         d'elevation `|delta| < 2` incluse)."""
         elev = getattr(scene, "elev_by_pos", None)
-        after = bq.is_adjacent(attack_tile, tgt_pos, elev)
-        before = bq.is_adjacent(caster_pos, tgt_pos, elev)
+        neigh = bq.neigh_map(scene)
+        after = bq.is_adjacent(attack_tile, tgt_pos, elev, neigh)
+        before = bq.is_adjacent(caster_pos, tgt_pos, elev, neigh)
         return bool(after and not before)
 
     # ---- mirror `<CalculateAttackUtilityInStepsInternal>d__2$$MoveNext` -----------------------
@@ -272,12 +273,13 @@ class AvalancheOfMusclePlaybook:
         if tuple(attack_tile) == tuple(cur):
             return 0.0
         elev = getattr(sc, "elev_by_pos", None)
+        neigh = bq.neigh_map(sc)
         # etat 4 -- `<slot 0x60>(casterTile, case.Target)` = `AreEntitiesAdjacent(Tile, IEntity)`.
         # Foyer `are_entities_adjacent`, PAS `is_adjacent` : la primitive de portee porte le
         # court-circuit d'identite (#433-r1) que le mirror d'`IterateAdjacentTiles` n'a pas.
         # REGIME INATTEIGNABLE ICI (`attack_tile` est une tuile ou le caster PEUT aller, donc pas la
         # position d'une cible vivante) -- pose par FIDELITE.
-        if not bq.are_entities_adjacent(attack_tile, tpos, elev):
+        if not bq.are_entities_adjacent(attack_tile, tpos, elev, neigh):
             return 0.0
         # etat 5 -- `GetAttackWeaponForDefaultNormalAttack(caster, [casterTile], target) == null`.
         # `select_weapon_pierce` rend `profile_name is None` exactement dans ce cas (`w is None`).

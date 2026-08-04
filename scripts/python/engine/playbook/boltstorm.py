@@ -133,6 +133,7 @@ def count_all_targets(scene, caster_uid: int, target_uid: int, weapon_range: int
     if cpos is None or tpos is None or cteam is None:
         return n
     elev = getattr(scene, "elev_by_pos", None)
+    neigh = bq.neigh_map(scene)
     # `Enemies(Caster@0x48, ..., 3)` : equipe != celle du caster, vivantes (occupants de tuile).
     foes = []
     for u in (scene.units or ()):
@@ -153,7 +154,7 @@ def count_all_targets(scene, caster_uid: int, target_uid: int, weapon_range: int
             continue
         # `AdjacentUnits(Target@0x60, unique: 1, sel: 3)` = `Units(AdjacentTiles(target))` : ring-1
         # hex AVEC la porte d'elevation `|delta| < 2` d'`IterateAdjacentTiles`.
-        if not bq.is_adjacent(tpos, pk, elev):
+        if not bq.is_adjacent(tpos, pk, elev, neigh):
             continue
         # `Unobscured(Owner@0x30, ...)` depuis `GetMainTile(caster)`.
         if bq.is_target_tile_obscured(cpos, pk, elev):

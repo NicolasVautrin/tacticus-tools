@@ -17,10 +17,10 @@ class FightingRetreatPlaybook(NonComparablePlaybook):
     def evaluate_non_comparable(self, tile, ctx):
         # A = GetAdjacentEnemies(tile) [slot 124] ; B = GetAdjacentFriends(tile)-self [slot 128]
         # (self deja exclu de ctx.fpos ; le natif fait B.Remove(self)). u = |A| + (|A|>0 ? |B| : 0).
-        a = bq.count_adjacent(tile, ctx.epos, ctx.elev_by_pos)
+        a = bq.count_adjacent(tile, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx))
         if a == 0:
             return 0.0
-        return float(a + bq.count_adjacent(tile, ctx.fpos, ctx.elev_by_pos))
+        return float(a + bq.count_adjacent(tile, ctx.fpos, ctx.elev_by_pos, bq.neigh_map(ctx)))
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         best_t, best_u = None, None

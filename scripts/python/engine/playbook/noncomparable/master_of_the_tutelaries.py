@@ -148,7 +148,7 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
         for p in (ctx.epos or []):
             pk = (p[0], p[1])
             d = hexgeo.distance(ctx.origin, pk)
-            melee = bq.are_entities_adjacent(ctx.origin, pk, ctx.elev_by_pos)
+            melee = bq.are_entities_adjacent(ctx.origin, pk, ctx.elev_by_pos, bq.neigh_map(ctx))
             if best_d is None or d < best_d or (melee and not best_melee):
                 best, best_d, best_melee = pk, d, melee
         return best

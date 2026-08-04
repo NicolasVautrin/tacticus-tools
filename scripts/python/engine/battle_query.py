@@ -102,32 +102,87 @@ def get_tiles_in_triangle_shape(anchor: tuple, direction: int) -> list:
     return [(col, row), (col + d1c, row + d1r), (col + d2c, row + d2r)]
 
 
-def is_adjacent(tile: tuple, pos: tuple, elev_by_pos: dict | None = None) -> bool:
+def neigh_map(ctx) -> dict | None:
+    """Le canal de VOISINAGE NATIF porté par un contexte de décision, en TRI-ETAT — `None` = le
+    porteur ne le publie pas (jamais `{}`, qui se lirait comme « aucune tuile n'a de voisin »).
+
+    FOYER UNIQUE d'accès au canal, et c'est ce qui le rend brancheable partout : les contextes du
+    port sont de trois formes (`AiDecisionContext` et `Scene` = objets, `tile_leaf_ctx` = dict), et
+    un accès écrit à la main à chaque call-site retomberait sur `AttributeError` chez l'une ou
+    l'autre. Substrat : `boardGraph.neighbours` (`ai/context.py::_board_neighbours`,
+    `ai/state_bridge.py::_board_topology_maps`, `utilities/tile.py`), c'est-à-dire la liste STOCKEE
+    du `ConnectivityComponent` telle que `BattleQuery$$GetAdjacentTiles(t, 0, 0, 1)` la rend.
+
+    Consommé par `is_adjacent` et ses trois dérivées (#433-r4-r1-r4-r2)."""
+    if ctx is None:
+        return None
+    if isinstance(ctx, dict):
+        return ctx.get("neigh_by_pos")
+    return getattr(ctx, "neigh_by_pos", None)
+
+
+def is_adjacent(tile: tuple, pos: tuple, elev_by_pos: dict | None = None,
+                neigh_by_pos: dict | None = None) -> bool:
     """`pos` est-il sur une tuile ADJACENTE à `tile` selon l'adjacence NATIVE ?
 
     Primitive d'adjacence COMMUNE à tous les usages du playbook : les comptages `GetAdjacent*`
     (slots 124/126/128) ET `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` (= `AdjacentTiles` puis `Units`,
     ciblage des heals `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$HealTargets`). Les deux passent par `IterateAdjacentTiles`, donc
-    la MÊME porte d'élévation doit s'appliquer.
+    le MÊME substrat et la MÊME porte d'élévation doivent s'appliquer.
 
-    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` applique, APRÈS les filtres terrain optionnels
-    (temporary/walkable/emptyOrSteppable), un gate INCONDITIONNEL :
-    `iVar4 = abs(elev(tile) - elev(voisin)) ; if (iVar4 < 2) yield`. Pour un usage sur unités
-    (comptage OU somme de poids), les filtres terrain ne retirent jamais une tuile occupée (une unité
-    y stationne) → seule l'élévation discrimine ; le gate est symétrique (abs). elev = champ
-    `tile→[0x20]→[0x18]` (= tileMeta.elevation). `elev_by_pos = {(col,row): elev}` : fourni ET les 2
-    élévations connues -> gate `|Δ| < 2` ; sinon on retient (fallback hexgeo pur = dégradation sûre)."""
-    if hexgeo.distance((tile[0], tile[1]), (pos[0], pos[1])) != 1:
-        return False
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`, structure LUE
+    -- une ENUMERATION puis une PORTE, dans cet ordre :
+
+        elev0 = tile.TileComponent.Elevation;                       // d__8+0x48, lu une fois
+        foreach (nid in tile.ConnectivityComponent.Neighbours) {     // la liste STOCKEE
+            t = state.GetTileEntity(nid);  if (t == null) continue;
+            <filtres terrain optionnels : IsTemporary / IsWalkable / IsEmptyOrSteppable>
+            if (Math.Abs(elev0 - t.Elevation) < 2) yield return t;   // porte INCONDITIONNELLE
+        }
+
+    Le port porte les DEUX étages, et `neigh_by_pos` est le premier (#433-r4-r1-r4-r2) :
+
+      * **`neigh_by_pos` fourni ET la tuile y figure** -> l'énumération est la liste STOCKEE, mirror
+        exact. Substrat : `boardGraph.neighbours` (`{(col,row): [(col,row), ...]}`, cf.
+        `ai/context.py::_board_neighbours` et `ai/state_bridge.py::_board_topology_maps`), capté par
+        `BattleQuery$$GetAdjacentTiles(t, 0, 0, 1)` -- donc par CE MEME itérateur.
+      * **canal absent** (carte non fournie, ou tuile hors capture) -> repli GEOMETRIQUE nommé :
+        la couronne hex `hexgeo.distance == 1`. Dégradation PERMISSIVE et documentée, jamais un
+        voisinage vide -- un `{}` lu comme « aucun voisin » rendrait le prédicat FAUX partout
+        (dégradation restrictive massive, le vice exact de `#381-r3`). D'où le tri-état : c'est la
+        présence de LA CLE qui décide, pas la vérité du dict.
+
+    La porte, elle, s'applique dans les DEUX voies : elle est le second étage du natif, pas une
+    propriété du substrat. Sur le canal capté elle est idempotente (`neighbours` la porte déjà) --
+    la rejouer est le mirror, pas une défense ajoutée.
+
+    POURQUOI LE SUBSTRAT COMPTE, mesuré (`probe_433r4r1r4r2_is_adjacent_substrat_live.py`) : la
+    couronne hex sur-atteint la liste stockée de **4** arêtes dirigées sur `C1_74` et de **38** sur
+    `C3_14` -- les tuiles `Bridge`, que `IdunBattle.Operations.InitializeConnectivityOperation$$Execute`
+    ne relie pas à leur voisin de niveau (`TileComponent$$HasEdge` exigé des DEUX côtés). Ecart
+    strictement PERMISSIF : **0** arête restrictive sur les quatre boards mesurés.
+
+    elev = champ `tile→[0x20]→[0x18]` (= tileMeta.elevation). `elev_by_pos = {(col,row): elev}` :
+    fourni ET les 2 élévations connues -> gate `|Δ| < 2` ; sinon on retient."""
+    t = (tile[0], tile[1])
+    p = (pos[0], pos[1])
+    neigh = None if neigh_by_pos is None else neigh_by_pos.get(t)
+    if neigh is None:
+        # Canal absent POUR CETTE TUILE -> repli geometrique (cf. docstring : jamais un vide).
+        if hexgeo.distance(t, p) != 1:
+            return False
+    elif p not in {(q[0], q[1]) for q in neigh}:
+        return False       # `foreach (nid in Neighbours)` : la tuile n'y est pas -> jamais yieldee
     if elev_by_pos is not None:
-        te = elev_by_pos.get((tile[0], tile[1]))
-        pe = elev_by_pos.get((pos[0], pos[1]))
+        te = elev_by_pos.get(t)
+        pe = elev_by_pos.get(p)
         if te is not None and pe is not None and abs(te - pe) >= 2:
             return False   # voisin hors portée d'élévation (|Δelev| >= 2) — natif l'exclut
     return True
 
 
-def are_entities_adjacent(a: tuple, b: tuple, elev_by_pos: dict | None = None) -> bool:
+def are_entities_adjacent(a: tuple, b: tuple, elev_by_pos: dict | None = None,
+                          neigh_by_pos: dict | None = None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` -> `IdunBattle.Core.Services.
     MovementUtil$$AreTilesAdjacent`, et ce N'EST PAS `is_adjacent` ci-dessus.
 
@@ -143,21 +198,25 @@ def are_entities_adjacent(a: tuple, b: tuple, elev_by_pos: dict | None = None) -
     pas le contredire. Confondre les deux fait REFUSER une adjacence que le natif accorde — sans
     erreur ni crash (#433-r1, `docs/rl/case-433-r1-identite-adjacence.md`).
 
-    La porte d'élévation est commune aux deux et reste déléguée à `is_adjacent`."""
+    La porte d'élévation ET le substrat de voisinage sont communs aux deux, et restent délégués à
+    `is_adjacent` (`neigh_by_pos` : cf. sa docstring)."""
     if a is None or b is None:
         return False
     if (a[0], a[1]) == (b[0], b[1]):
         return True                    # `tile1 == tile2` -> `b = 1`, et `|dElev| = 0 < 2`
-    return is_adjacent(a, b, elev_by_pos)
+    return is_adjacent(a, b, elev_by_pos, neigh_by_pos)
 
 
-def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None) -> int:
+def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None,
+                   neigh_by_pos: dict | None = None) -> int:
     """`GetAdjacentEnemies/Friends(tile).Count` — nombre d'unités de `positions` sur une tuile
-    ADJACENTE à `tile`, filtrées par la porte d'élévation native (cf. `is_adjacent`)."""
-    return sum(1 for p in (positions or []) if is_adjacent(tile, p, elev_by_pos))
+    ADJACENTE à `tile`, au sens de `is_adjacent` (liste STOCKEE puis porte d'élévation)."""
+    return sum(1 for p in (positions or [])
+               if is_adjacent(tile, p, elev_by_pos, neigh_by_pos))
 
 
-def count_adjacent_matching(tile: tuple, units: list, pred, elev_by_pos: dict | None = None) -> int:
+def count_adjacent_matching(tile: tuple, units: list, pred, elev_by_pos: dict | None = None,
+                            neigh_by_pos: dict | None = None) -> int:
     """`Enumerable.Count(GetAdjacentEnemies(tile, unit, ignoreSteppables: false), pred)` — le
     comptage d'`is_adjacent` (donc la MÊME porte d'élévation d'`IterateAdjacentTiles`), mais sur des
     UNITÉS et non des positions nues, avec un prédicat par unité.
@@ -175,7 +234,7 @@ def count_adjacent_matching(tile: tuple, units: list, pred, elev_by_pos: dict | 
         p = (u or {}).get("pos") or {}
         if p.get("col") is None or p.get("row") is None:
             continue
-        if is_adjacent(tile, (p["col"], p["row"]), elev_by_pos) and pred(u):
+        if is_adjacent(tile, (p["col"], p["row"]), elev_by_pos, neigh_by_pos) and pred(u):
             n += 1
     return n
 

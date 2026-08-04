@@ -117,7 +117,7 @@ def are_entities_adjacent(feet_a, feet_b, board=None) -> bool:
 
 
 def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=None,
-                    force_ranged_attack: bool = False) -> bool:
+                    force_ranged_attack: bool = False, neigh_by_pos=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack(ability, caster, casterPosition,
     target)` -- le slot **2** d'`IBattleQuery`, mirror 1:1 du decompile :
 
@@ -166,8 +166,12 @@ def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=
     if force_ranged_attack:                 # `HasFlag(caster, 0x15)` -> pas de melee
         return False
     from .. import battle_query as _bq      # lazy : anti-cycle (le module playbook importe celui-ci)
+    # `neigh_by_pos` = la liste STOCKEE (#433-r4-r1-r4-r2). Le substrat de `MovementUtil$$AreTilesAdjacent`
+    # est le `ConnectivityComponent` BRUT (`IsNeighbour`) et non le champ `neighbours` gate ; lire
+    # le second est NEANMOINS exact ici, parce que la porte est un terme SEPARE du meme predicat :
+    # `(|dElev| < 2) & IsNeighbour` == `(|dElev| < 2) & (arete de C ^ gate)` == `C ^ gate`.
     return bool(_bq.are_entities_adjacent(tuple(caster_position), tuple(target_position),
-                                          elev_by_pos))
+                                          elev_by_pos, neigh_by_pos))
 
 
 def _find_by_hits(cands: list, prefer_hits) -> dict:

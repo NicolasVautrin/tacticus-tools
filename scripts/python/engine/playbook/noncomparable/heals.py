@@ -125,7 +125,7 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
             if not gate:
                 continue
             heal_count = (1 if self_healable else 0) + sum(
-                1 for p in ally_healable_pos if bq.is_adjacent(T, p, ctx.elev_by_pos))  # AdjacentUnits gate (#45/#76)
+                1 for p in ally_healable_pos if bq.is_adjacent(T, p, ctx.elev_by_pos, bq.neigh_map(ctx)))  # AdjacentUnits gate (#45/#76)
             util = 1.0 + heal_count
             if best is None or util > best[1]:   # strict > : 1er max garde (ordre reach_nc)
                 best = (T, util)
@@ -184,7 +184,7 @@ class CombatRestorativesPlaybook(NonComparablePlaybook):
             # IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(caster@T, r=1) = AdjacentTiles + porte d'elevation |dElev|<2
             # d'IterateAdjacentTiles (#45/#76). bq.is_adjacent = MEME adjacence que les comptages
             # GetAdjacent* -> plus de fork raw-hexgeo qui sur-comptait des voisins hors-elevation.
-            util = self_wound + sum(w for c, r, w in allies if bq.is_adjacent(T, (c, r), ctx.elev_by_pos))
+            util = self_wound + sum(w for c, r, w in allies if bq.is_adjacent(T, (c, r), ctx.elev_by_pos, bq.neigh_map(ctx)))
             if best is None or util > best[1]:         # strict > : 1er max garde (ordre reach_nc)
                 best = (T, util)
         if ctx.debug:
@@ -246,7 +246,7 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
         best = None  # (T, util)
         for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
             adj = [(w, rep, rd) for c, r, w, rep, rd in allies
-                   if bq.is_adjacent(T, (c, r), ctx.elev_by_pos)]   # AdjacentUnits gate (#45/#76)
+                   if bq.is_adjacent(T, (c, r), ctx.elev_by_pos, bq.neigh_map(ctx))]   # AdjacentUnits gate (#45/#76)
             # GATE GetEligibleTargetsEntities : >=1 cible REPARABLE (self ou adjacent) sinon ability non evaluee.
             if not (self_repairable or any(rep for _, rep, _ in adj)):
                 continue
@@ -307,7 +307,7 @@ class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
         best = None  # (T, util)
         for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
             util = self_wound + sum(w for c, r, w in allies
-                                    if bq.is_adjacent(T, (c, r), ctx.elev_by_pos))  # AdjacentUnits gate (#45/#76)
+                                    if bq.is_adjacent(T, (c, r), ctx.elev_by_pos, bq.neigh_map(ctx)))  # AdjacentUnits gate (#45/#76)
             if best is None or util > best[1]:
                 best = (T, util)
         if best is None or best[1] < self.MIN_UTILITY:

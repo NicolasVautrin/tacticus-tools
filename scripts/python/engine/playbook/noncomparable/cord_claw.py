@@ -50,7 +50,7 @@ class CordClawPlaybook(NonComparablePlaybook):
         # POSITION : util(P) = #ennemis adjacents a P (GetAdjacentEnemies) ; 1re position du max (movable order).
         best_p, best_u = None, None
         for P in (ctx.reach_nc or []):
-            u = float(bq.count_adjacent(P, ctx.epos, ctx.elev_by_pos))   # slot 0x7e = GetAdjacentEnemies
+            u = float(bq.count_adjacent(P, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx)))   # slot 0x7e = GetAdjacentEnemies
             if u < self.MIN_UTILITY:
                 continue                     # admission Bucket count>=1
             if best_u is None or u > best_u:  # strict > : 1re position du max gagne (keep-first)
@@ -83,7 +83,7 @@ class CordClawPlaybook(NonComparablePlaybook):
         if neigh is None:
             neigh = list(hexgeo.neighbors(P[0], P[1]))   # fallback (ordre non natif)
         for n in neigh:
-            if not bq.is_adjacent(P, n, ctx.elev_by_pos):   # porte |dElev|<2 (comme count_adjacent)
+            if not bq.is_adjacent(P, n, ctx.elev_by_pos, bq.neigh_map(ctx)):   # porte |dElev|<2 (comme count_adjacent)
                 continue
             tid = eid_by_pos.get(n)
             if tid is None:

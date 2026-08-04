@@ -213,6 +213,7 @@ def count_adjacent_by_camp(scene, caster_uid: int, target_uid: int) -> tuple:
     if tpos is None or cteam is None:
         return (0, 0)
     elev = getattr(scene, "elev_by_pos", None)
+    neigh = bq.neigh_map(scene)
     n_friend = 0
     n_enemy = 0
     for u in (scene.units or ()):
@@ -222,7 +223,7 @@ def count_adjacent_by_camp(scene, caster_uid: int, target_uid: int) -> tuple:
         if uid is None or not u.get("alive"):
             continue
         p = scene.pos(uid)
-        if p is None or not bq.is_adjacent(tpos, p, elev):
+        if p is None or not bq.is_adjacent(tpos, p, elev, neigh):
             continue
         if u.get("team") == cteam:
             n_friend += 1                 # `IsFriend(unit, playerOf(caster))`

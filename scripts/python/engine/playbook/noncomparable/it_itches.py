@@ -111,7 +111,7 @@ class ItItchesPlaybook(NonComparablePlaybook):
             # (mesure 909 s14 : voisins de (4,5) = [.., 63=(5,6), 62=(5,5), ..] -> natif garde 63).
             neigh = (ctx.neigh_by_pos or {}).get(P)
             ordered = ([T for T in neigh if T in eligible] if neigh else
-                       [T for T in tiles if bq.is_adjacent(P, T, ctx.elev_by_pos)])
+                       [T for T in tiles if bq.is_adjacent(P, T, ctx.elev_by_pos, bq.neigh_map(ctx))])
             for T in ordered:
                 tu = unit_by_pos.get(T)             # `GetUnit(element)` : l'occupant de la tuile
                 if not self._is_displaceable(ctx, tu):
@@ -121,8 +121,8 @@ class ItItchesPlaybook(NonComparablePlaybook):
                 # GetTargetUnits : la cible + les ennemis adjacents A LA FOIS a la cible et au caster.
                 util = 1.0 + sum(1.0 for e in (ctx.epos or [])
                                  if e != T
-                                 and bq.is_adjacent(T, e, ctx.elev_by_pos)
-                                 and bq.is_adjacent(P, e, ctx.elev_by_pos))
+                                 and bq.is_adjacent(T, e, ctx.elev_by_pos, bq.neigh_map(ctx))
+                                 and bq.is_adjacent(P, e, ctx.elev_by_pos, bq.neigh_map(ctx)))
                 if best is None or util > best[0]:  # Bucket.AddAction : remplacement STRICT `>`
                     best = (util, P, T)
         if best is None or best[0] < self.MIN_UTILITY:

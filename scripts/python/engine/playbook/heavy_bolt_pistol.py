@@ -238,7 +238,7 @@ class HeavyBoltPistolPlaybook:
         tpos = scene.pos(target_uid)
         if cpos is None or tpos is None:
             return False
-        return bool(bq.are_entities_adjacent(cpos, tpos, getattr(scene, "elev_by_pos", None)))
+        return bool(bq.are_entities_adjacent(cpos, tpos, getattr(scene, "elev_by_pos", None), bq.neigh_map(scene)))
 
     # ---- mirror slot 0x24 : prediction d'un MONTANT predefini vs `case.Target` ------------------
     def _predict_vs_target(self, scene, att_id: int, tgt_id: int, amount: int, attack_tile,
@@ -340,7 +340,8 @@ class HeavyBoltPistolPlaybook:
         # `case.AbilityType`, seul canal de `GetAbilityAttackRangeType`.
         tpos = sc.pos(case_tgt_id)
         ab_name = (getattr(ctx, "ab_name_by_id", None) or {}).get(int(ability_id))
-        melee = is_melee_attack(ab_name, attack_tile, tpos, getattr(sc, "elev_by_pos", None))
+        melee = is_melee_attack(ab_name, attack_tile, tpos, getattr(sc, "elev_by_pos", None),
+                                neigh_by_pos=bq.neigh_map(sc))
         pred = self._predict_vs_target(sc, attacker_uid, case_tgt_id, int(amount), attack_tile,
                                        profile_name, melee)
         if pred is None:

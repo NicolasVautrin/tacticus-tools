@@ -451,3 +451,43 @@ def elevations_by_pos(board) -> dict | None:
              and t.get("col") is not None and t.get("row") is not None}
         return m or None
     return None
+
+
+def adjacent_neigh_by_pos(board) -> dict | None:
+    """Le canal de VOISINAGE d'`IterateAdjacentTiles`, PAR POSITION, en TRI-ETAT -- `None` = **pas
+    de canal** (rien mesure), jamais `{}`. Pendant exact d'`elevations_by_pos` ci-dessus, pour le
+    PREMIER etage de la primitive (l'enumeration) la ou celui-la porte le SECOND (la porte).
+
+    C'est le champ BRUT `neighbours` du `boardGraph` (`Board.neighbours_native`), resolu en
+    positions : la liste STOCKEE du `ConnectivityComponent` telle que
+    `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(t, 0, 0, 1)` la rend -- donc a travers
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`, exactement
+    l'iterateur que `battle_query.is_adjacent` mirroir.
+
+    ⚠ TROIS voisinages coexistent sur un `Board`, et ils ne sont PAS interchangeables (#381-r3) :
+      * celui-ci (`neighbours_native`) -- la liste stockee AVEC la porte d'elevation du capteur.
+        C'est le substrat des selecteurs `AdjacentTiles` et des comptages `GetAdjacent*` ;
+      * `base_add_neighbours` (le `ConnectivityComponent` BRUT, SANS porte) -- celui du PATHFINDING,
+        expose par `walk_maps_by_pos()[0]`. Le confondre avec celui-ci rendrait la primitive
+        d'adjacence PERMISSIVE sur les aretes a `|dElev| >= 2` ;
+      * `neighbours_geometric` (la couronne hex) -- celui du VOL, et l'ancien substrat de
+        `is_adjacent`, qui sur-atteint la liste stockee de 4 aretes sur `C1_74` et 38 sur `C3_14`.
+
+    `board` est DUCK-TYPE dans tout le DSL, d'ou les deux formes acceptees (un `Board`, ou tout
+    objet exposant `by_id`). Une tuile dont le champ `neighbours` est ABSENT est OMISE de la carte
+    -- `is_adjacent` retombe alors sur sa couronne hex POUR CETTE TUILE, ce qui est la degradation
+    d'avant ; l'y coter `[]` la rendrait au contraire isolee, un faux negatif d'adjacence (le vice
+    de `#381-r3`)."""
+    if board is None:
+        return None
+    by_id = getattr(board, "by_id", None)
+    if not isinstance(by_id, dict) or not by_id:
+        return None
+    pos_of = {tid: (t["col"], t["row"]) for tid, t in by_id.items()
+              if isinstance(t, dict) and t.get("col") is not None and t.get("row") is not None}
+    out = {}
+    for tid, t in by_id.items():
+        if tid not in pos_of or not isinstance(t, dict) or t.get("neighbours") is None:
+            continue          # champ ABSENT != champ VIDE -- on OMET, on ne cote pas `[]`
+        out[pos_of[tid]] = [pos_of[n] for n in t["neighbours"] if n in pos_of]
+    return out or None

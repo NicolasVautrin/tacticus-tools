@@ -82,7 +82,7 @@ class BloodChalicePlaybook:
         best = None   # (T, util)
         for T in ctx.reach_nc:   # origine d'abord -> keep-first au tie (Bucket.AddAction #76)
             count = sum(1 for pos, pct in allies
-                        if pct < thr and bq.is_adjacent(T, pos, ctx.elev_by_pos))  # AdjacentUnits (#45)
+                        if pct < thr and bq.is_adjacent(T, pos, ctx.elev_by_pos, bq.neigh_map(ctx)))  # AdjacentUnits (#45)
             util = count * w
             if util < self.MIN_UTILITY:
                 continue
@@ -134,7 +134,7 @@ class MomentShacklePlaybook:
         self_heal_u = heal_utility(eff, smax, is_friend=True, is_boss=False)   # POSITION-INDÉPENDANT
         best = None   # (T, util)
         for T in ctx.reach_nc:   # origine d'abord -> keep-first au tie (#76)
-            adj_enemies = sum(1 for e in ctx.epos if bq.is_adjacent(T, e, ctx.elev_by_pos))
+            adj_enemies = sum(1 for e in ctx.epos if bq.is_adjacent(T, e, ctx.elev_by_pos, bq.neigh_map(ctx)))
             util = self_heal_u + adj_enemies * w
             # `IdunBattle.AI.Playbook.Loki.MomentShacklePlaybook$$ShouldExecute`, lu verbatim :
             #     return Fix64.op_GreaterThan(attackHealUtility, <premier static de la classe>);

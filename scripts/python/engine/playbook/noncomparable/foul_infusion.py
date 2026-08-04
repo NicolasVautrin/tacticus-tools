@@ -65,11 +65,11 @@ class FoulInfusionPlaybook(NonComparablePlaybook):
                       for p in [pos_by_id.get(fid)] if p and p.get("col") is not None]
         best = None  # (T, util)
         for T in _sweep_origin_first(ctx):
-            count = sum(1 for fp in friend_pos if bq.is_adjacent(T, fp, ctx.elev_by_pos))  # range 1
+            count = sum(1 for fp in friend_pos if bq.is_adjacent(T, fp, ctx.elev_by_pos, bq.neigh_map(ctx)))  # range 1
             if count < 2:
                 continue                                  # MIN_UTILITY=2 : gate #amis-adjacents >= 2
             util = float(count)
-            if bq.count_adjacent(T, ctx.epos, ctx.elev_by_pos) > 0:   # slot 0x7e GetAdjacentEnemies
+            if bq.count_adjacent(T, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx)) > 0:   # slot 0x7e GetAdjacentEnemies
                 util += 1.0                               # +1 (count>=2 deja garanti)
             if best is None or util > best[1]:            # strict > : origine gagne le tie (keep-first)
                 best = (T, util)

@@ -51,7 +51,7 @@ class StormcallerPlaybook(_PlanTargetPlaybook):
             if not q or q.get("col") is None:
                 continue
             upos = (q["col"], q["row"])
-            if upos == tpos or bq.is_adjacent(tpos, upos, ctx.elev_by_pos):
+            if upos == tpos or bq.is_adjacent(tpos, upos, ctx.elev_by_pos, bq.neigh_map(ctx)):
                 n += 1
         if ctx.debug:
             import sys

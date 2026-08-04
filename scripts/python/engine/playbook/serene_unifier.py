@@ -114,5 +114,5 @@ class SereneUnifierPlaybook:
         retenus = [u for u in candidats
                    if not (u["id"] is not None and mover_uid is not None
                            and int(u["id"]) == int(mover_uid))]
-        n = bq.count_adjacent(tile, [u["pos"] for u in retenus], ctx.get("elev_by_pos"))
+        n = bq.count_adjacent(tile, [u["pos"] for u in retenus], ctx.get("elev_by_pos"), bq.neigh_map(ctx))
         return float(SERENE_UNIFIER_PER_ADJACENT_FRIEND * n)

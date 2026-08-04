@@ -469,7 +469,7 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
             if _faction(u.get("visualId")) != _SPIRITLEECH_HEAL_FACTION:
                 continue
             p = u.get("pos")
-            if p and p.get("col") is not None and bq.is_adjacent(tile_T, (p["col"], p["row"]), ctx.elev_by_pos):
+            if p and p.get("col") is not None and bq.is_adjacent(tile_T, (p["col"], p["row"]), ctx.elev_by_pos, bq.neigh_map(ctx)):
                 heal_ids.add(u.get("id"))
         obs_by_sq = {u.get("squadId"): u for u in ctx.obs_units}
         total = 0.0
