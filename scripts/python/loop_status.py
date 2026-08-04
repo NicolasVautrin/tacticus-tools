@@ -191,13 +191,22 @@ class Sources:
 
     # -- verdicts de banque
     def dossier_verdicts(self) -> Path | None:
-        """`logs/ratchets-bg`, resolu par `host_inputs` -- None = PAS MESURE.
+        """`logs/ratchets-bg` -- l'arbre JUGE d'abord, `host_inputs` en repli. None = PAS MESURE.
 
-        Ce repertoire est GITIGNORE : depuis un worktree d'agent il est vide par construction,
-        et un `glob` y rendrait zero sans lever. `host_inputs` remonte a l'arbre principal, et
-        rend None quand aucun candidat n'existe -- ce qui se lit « je n'ai pas regarde », pas
-        « aucune banque n'a tourne ».
+        L'ordre compte, et il a ete pris a l'envers : `host_inputs.resolve` part de SA propre
+        racine (`parents[2]` de son fichier), pas de l'arbre qu'on nous a demande de juger. Un
+        `--repo` explicite lisait donc les verdicts d'un AUTRE arbre -- trouve en rejouant la
+        scene sur un depot jetable, ou l'outil rapportait un verdict VERT etranger alors que le
+        depot juge en portait un ROUGE.
+
+        Le repli garde son sens : ce repertoire est GITIGNORE, donc vide par construction dans
+        un worktree d'agent, et un `glob` y rendrait zero sans lever. `host_inputs` remonte a
+        l'arbre principal (ou le `ratchets-bg` tourne) et rend None quand aucun candidat
+        n'existe -- ce qui se lit « je n'ai pas regarde », pas « aucune banque n'a tourne ».
         """
+        local = self.repo / "logs" / "ratchets-bg"
+        if local.is_dir():
+            return local
         return host_inputs.resolve(_VERDICTS_REL).path
 
     def maintenant(self) -> float:
@@ -571,7 +580,9 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
                               "verdict de banque %s ILLISIBLE (pas de rc) -- %s"
                               % (v["commit"] or "?", Path(v["fichier"]).name)))
         elif v["rc"] != 0:
-            sig.append(Signal("banque", "verdict de banque %s rc=%s (%s), il y a %.0f min"
+            # `%s` entre crochets : l'etiquette de `ratchets-bg` porte deja ses propres
+            # parentheses (`ROUGE (2)`), et l'imbriquer rendait une ligne desequilibree.
+            sig.append(Signal("banque", "verdict de banque %s rc=%s [%s], il y a %.0f min"
                                         % (v["commit"], v["rc"], v["etat"], v["age_min"])))
         elif v["livre"] is False and not v["deja_signale"]:
             sig.append(Signal("banque", "verdict de banque %s VERTE (il y a %.0f min) -- son "

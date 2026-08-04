@@ -431,6 +431,22 @@ def etape_5_verdict() -> None:
                                     ancetre=False, http=src._http, rows=[], dossier=tmp)
         verifie("banque" in {x.cle for x in LS.signaux(LS.etat(src_non_livre, 5, {}))[0]},
                 "verdict VERT dont le commit n'est PAS dans origin/master -> signale une fois")
+
+        # L'ARBRE JUGE d'abord. `host_inputs.resolve` part de SA racine, pas de celle qu'on
+        # demande : pris dans cet ordre, un `--repo` explicite lisait les verdicts d'un AUTRE
+        # arbre -- et rapportait donc un vert etranger sur un depot qui portait un rouge.
+        faux_repo = Path(tempfile.mkdtemp(prefix="probe465-repo-"))
+        try:
+            (faux_repo / "logs" / "ratchets-bg").mkdir(parents=True)
+            reel = LS.Sources(repo=faux_repo, avec_gh=False, avec_host=False)
+            verifie(reel.dossier_verdicts() == faux_repo / "logs" / "ratchets-bg",
+                    "dossier_verdicts respecte `--repo` quand l'arbre juge a bien le repertoire")
+            vide = LS.Sources(repo=faux_repo / "sans-logs", avec_gh=False, avec_host=False)
+            d = vide.dossier_verdicts()
+            verifie(d is None or d != faux_repo / "logs" / "ratchets-bg",
+                    "sans repertoire local, le repli host_inputs prend le relais (ou None)")
+        finally:
+            shutil.rmtree(faux_repo, ignore_errors=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
