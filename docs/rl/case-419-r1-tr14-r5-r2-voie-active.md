@@ -311,14 +311,14 @@ exécution » est ce qui a évité de lire ce vert comme une mesure.
 
 ## 9. Résidus NOMMÉS
 
-* **`#419-r1-tr14-r5-r2-r1` — la branche TRAIT `0x7e7` de la cascade n'est pas portée.**
-  Lue dans le même `if/else` : `else if (config.Traits.Contains(0x7e7)) { type = 0x406; state =
-  activeAbilityState; }`, c'est-à-dire une **troisième** substitution, vers
-  `1030 Loki_NormalBossAttack`. Le substrat est `UnitConfiguration.Traits` — le **même** que la garde
-  `-r4`, donc le canal (`entity_trait_names`) et le levier de montage (`BC.Units[].Traits`, écrit)
-  existent déjà. Confrontable sans rien construire de neuf ; simplement hors du périmètre nommé par
-  ce cas. ⚠ Qualifier `0x7e7` (= 2023) dans `IdunBattle.Entities.Enum.UnitTrait` avant de porter :
-  la valeur se lit, elle ne s'infère pas d'un nom.
+* **`#419-r1-tr14-r5-r2-r1` — la branche TRAIT `0x7e7` — FERMÉ (2026-08-04),
+  `case-419-r1-tr14-r5-r2-r1-branche-trait.md`.** Troisième substitution de la même cascade,
+  `else if (config.Traits.Contains(0x7e7)) { type = 0x406; state = activeAbilityState; }` — soit
+  `2023 Boss` → `1030 Loki_NormalBossAttack`, littéraux qualifiés enum par enum. Portée à son RANG et
+  confrontée 8/8 par montage écrit sur `BC.Units[].Traits`, dont deux bras où le trait COEXISTE avec
+  une source de rang supérieur. Elle a ouvert deux résidus, dont **`-r2-r1-r1`** : le gate
+  `ShouldExecute` (`!HasTriggeredAbility(target, 0x48 Explosive)`) est le SEUL différentiel de
+  décision entre `69` et `1030`, et il n'est porté d'aucun côté.
 * **`#419-r1-tr14-r5-r2-r2` — la garde `FilterNewList` du repli générique n'est pas portée.**
   Toujours le même `else` : avant de poser l'attaque normale générique, la fabrique filtre la
   collection de l'`ActiveAbilityComponent` (`comp@+0x20`) par un `Func` statique mis en cache et
