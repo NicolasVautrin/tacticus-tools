@@ -89,13 +89,142 @@ def test_teleport_twin_tri_etat():
     assert absent.teleport_twin(1) is None
 
 
-def test_aucun_pathfinder_n_est_rebranche_sur_le_canal():
-    """Garde de PERIMETRE. Rebrancher un pathfinder sur ce canal change des resultats
-    observables et doit etre MESURE live -- le faire avant la fenetre serait speculatif. Ce cran
-    rougit si quelqu'un le fait sans passer par la mesure : il verifie que la marche voit
-    toujours le champ herite, arete 2->3 comprise (absente)."""
+# ---------------------------------------------------------------------------------------------
+# #448-r1-r1-r1-r1-r2-r1 -- LE REBRANCHEMENT. Ces crans REMPLACENT la garde de perimetre
+# (« aucun pathfinder n'est rebranche »), qui a fait son office : le rebranchement est fait,
+# mesure live et confronte au natif (case-doc SS14). Elle ne pouvait de toute facon pas garder ce
+# qu'elle croyait -- elle observait la MARCHE, sur qui le changement est un NO-OP prouve, donc
+# elle serait restee VERTE apres le rebranchement. Ce qui la remplace garde les DEUX faces : le
+# no-op la ou il est prouve, et le changement la ou il doit avoir lieu.
+#
+# Grille 3x3 even-q, ids 1..9 par (col,row) : (0,0)=1 (0,1)=2 (0,2)=3 / (1,0)=4 (1,1)=5 (1,2)=6 /
+# (2,0)=7 (2,1)=8 (2,2)=9. La tuile 5 est un `Bridge` : `TileComponent$$HasEdge` ne lui laisse
+# que l'axe de son pont (4 et 6), donc les 8 aretes dirigees qui la relient a 1,2,7,8 sont dans
+# la GEOMETRIE et pas dans le canal -- la forme exacte mesuree sur `C1_74`. La tuile 9 est a
+# elevation 2 : ses aretes sont dans le canal et PAS dans le champ herite, que la porte
+# `|dElev| < 2` de `TileQuery$$IterateAdjacentTiles` ampute.
+_GEO = {1: [2, 4, 5], 2: [1, 3, 5, 6], 3: [2, 6], 4: [1, 5, 7], 5: [1, 2, 4, 6, 7, 8],
+        6: [2, 3, 5, 8, 9], 7: [4, 5, 8], 8: [5, 6, 7, 9], 9: [6, 8]}
+_CONN = {1: [2, 4], 2: [1, 3, 6], 3: [2, 6], 4: [1, 5, 7], 5: [4, 6],
+         6: [2, 3, 5, 8, 9], 7: [4, 8], 8: [6, 7, 9], 9: [6, 8]}
+#: `neighbours` == `connectivity` INTERSECTE `{|dElev| < 2}` -- l'identite LUE au decompile, pas
+#: recopiee : seules les aretes touchant la tuile 9 (elevation 2) disparaissent.
+_NEIGH = {1: [2, 4], 2: [1, 3, 6], 3: [2, 6], 4: [1, 5, 7], 5: [4, 6],
+          6: [2, 3, 5, 8], 7: [4, 8], 8: [6, 7], 9: []}
+_ELEV = {i: (2 if i == 9 else 0) for i in range(1, 10)}
+_POS = {1: (0, 0), 2: (0, 1), 3: (0, 2), 4: (1, 0), 5: (1, 1), 6: (1, 2),
+        7: (2, 0), 8: (2, 1), 9: (2, 2)}
+
+
+def _grid(canal: bool = True):
+    out = []
+    for i in range(1, 10):
+        t = {"id": i, "col": _POS[i][0], "row": _POS[i][1], "elevation": _ELEV[i],
+             "walkable": True, "isWall": False, "neighbours": list(_NEIGH[i]),
+             "tileDefId": "Bridge" if i == 5 else "Grass"}
+        if canal:
+            t["connectivity"] = list(_CONN[i])
+            t["teleportTwinTileId"] = 0
+        out.append(t)
+    return out
+
+
+def test_la_grille_de_garde_reproduit_les_DEUX_ecarts_mesures():
+    """Sans ce cran, les suivants pourraient etre verts sur un board DEGENERE -- le piege paye
+    deux fois sur ce sujet (`C6_25` rend `316/316/316`). On verifie donc d'abord que la grille
+    porte bien les deux ecarts, dans les deux sens, et l'identite qui les separe."""
+    b = Board(_grid(), adjacency="evenq")
+    g = {i: set(b.neighbours_geometric(i)) for i in range(1, 10)}
+    c = {i: set(b.neighbours_connectivity(i)) for i in range(1, 10)}
+    n = {i: set(b.neighbours_native(i)) for i in range(1, 10)}
+    assert g == {i: set(v) for i, v in _GEO.items()}       # la couronne even-q, recalculee
+    assert sum(len(n[i] - c[i]) for i in c) == 0           # N inclus dans C
+    assert sum(len(c[i] - g[i]) for i in c) == 0           # C inclus dans G
+    assert sum(len(c[i] - n[i]) for i in c) == 4           # la porte d'elevation (tuile 9)
+    assert sum(len(g[i] - c[i]) for i in c) == 8           # le refus de `HasEdge` (le Bridge)
+    # `G\\N == C\\N + G\\C` : l'identite qui SEPARE les deux causes. A deux vues elles sont
+    # indiscernables -- c'est ce qui avait fait sous-compter le residu.
+    assert sum(len(g[i] - n[i]) for i in g) == 4 + 8
+    # Toute arete que le canal ajoute au champ herite a `|dElev| >= 2` : c'est ce fait, et lui
+    # seul, qui rend le rebranchement INERTE sur les routes a porte d'elevation.
+    assert all(abs(_ELEV[a] - _ELEV[x]) >= 2 for a in c for x in c[a] - n[a])
+
+
+def test_la_MARCHE_est_INCHANGEE_par_le_rebranchement():
+    """NO-OP, et il est PROUVE, pas constate : `WalkPathfinder$$IsValidPathNode` exige
+    `|dElev| <= 1` (`$$IsReachableElevationDifference`) et refuse donc exactement les aretes que
+    le canal ajoute. Mesure live confirmant : 0 couple (start,depth) sur 189 change, sur les
+    TROIS boards."""
     from engine.entities.pathfinding.walk_pathfinder import get_movable_positions
 
-    b = Board(_rows(), adjacency="evenq")
-    _vis, stop = get_movable_positions(b, 1, 5, {}, 1)
-    assert stop == {2}, stop
+    avec = Board(_grid(canal=True), adjacency="evenq")
+    sans = Board(_grid(canal=False), adjacency="evenq")
+    for start in range(1, 10):
+        for depth in (1, 2, 5):
+            a = get_movable_positions(avec, start, depth, {}, 1)[1]
+            s = get_movable_positions(sans, start, depth, {}, 1)[1]
+            assert a == s, (start, depth, a, s)
+    # ... et la tuile 9 reste inatteignable des DEUX cotes : le canal la relie, la porte du
+    # PREDICAT la refuse. C'est la difference entre « le port ne voit pas l'arete » et « le port
+    # la voit et la refuse » -- indiscernable au resultat, decisive a la lecture.
+    assert 9 not in get_movable_positions(avec, 1, 9, {}, 1)[1]
+
+
+def test_IGNORE_TERRAIN_est_INCHANGE_par_le_rebranchement():
+    """Meme argument, meme porte (`|dElev| <= 1`). Ce site alimente l'utilite IA
+    `MinDistanceToClosestEnemyUtility` : un changement ici ferait basculer des decisions."""
+    from engine.entities.pathfinding.ignore_terrain_pathfinder import get_path_node_counts
+
+    avec = Board(_grid(canal=True), adjacency="evenq")
+    sans = Board(_grid(canal=False), adjacency="evenq")
+    for target in range(1, 10):
+        assert get_path_node_counts(avec, target, {}) == get_path_node_counts(sans, target, {})
+
+
+def test_la_BEELINE_suit_le_canal_et_CONTOURNE_le_pont():
+    """LE site qui MORD, parce que `IgnoreEverythingPathfinder$$IsValidPathNode` est le corps
+    trivial `return true` : il ne re-filtre RIEN, donc une arete de trop dans le voisinage EST un
+    raccourci. `1 -> 8` traverse le pont en 2 aretes sur la geometrie, en fait le tour en 3 sur
+    le canal. Le NATIF a departage (`tilesMovedThisTurn` d'un porteur `TeleportStrike` sur
+    `C1_74`) : il suit le CANAL, 4/4 mesures discriminantes."""
+    from engine.entities.pathfinding.beeline_pathfinder import find_path
+
+    avec = Board(_grid(canal=True), adjacency="evenq")
+    p = find_path(avec, 1, 8)
+    assert p is not None and len(p) - 1 == 3, p
+    assert 5 not in p, p                                   # le pont n'est PAS traverse
+    assert find_path(avec, 2, 7) is not None and len(find_path(avec, 2, 7)) - 1 == 3
+
+
+def test_le_repli_de_la_BEELINE_est_la_GEOMETRIE_jamais_le_champ_ampute():
+    """Canal non capte (boardGraph d'un bundle anterieur). Retomber sur `neighbours_native`
+    rejouerait le bug que la mesure de #448-r1-r1-r1-r1 SS9 avait ferme (le port rendait 3 la ou
+    le natif enregistre 2) : le correctif deguiserait le bug. Le repli est donc la GEOMETRIE."""
+    from engine.entities.pathfinding.beeline_pathfinder import find_path
+
+    sans = Board(_grid(canal=False), adjacency="evenq")
+    p = find_path(sans, 1, 8)
+    assert p is not None and len(p) - 1 == 2, p            # la geometrie, pas le champ ampute
+    assert 5 in p, p
+    # Le champ herite aurait donne 3 ici AUSSI (il n'ampute que les aretes de la tuile 9), donc
+    # ce cran ne suffirait pas seul. Le discriminant est la tuile 9 : depuis 6, le champ ampute
+    # ne l'atteint pas du tout, la geometrie si.
+    assert find_path(sans, 6, 9) is not None and len(find_path(sans, 6, 9)) - 1 == 1
+    assert sans.neighbours_native(9) == []                 # le champ, lui, la laisse isolee
+
+
+def test_base_add_neighbours_respecte_le_TRI_ETAT_du_canal():
+    """Le foyer ne doit jamais confondre « canal absent » et « liste vide ». Une tuile dont le
+    `ConnectivityComponent` ne relie rien rend `[]` -- et surtout PAS le repli, qui inventerait
+    des voisins la ou le natif n'en a aucun (la faute exacte de `#381-r3`)."""
+    tiles = _grid()
+    tiles[0]["connectivity"] = []                          # tuile 1 : composant present, vide
+    b = Board(tiles, adjacency="evenq")
+    assert b.base_add_neighbours(1) == []
+    assert b.base_add_neighbours(1, b.neighbours_geometric) == []
+    assert b.has_connectivity_channel() is True
+
+    sans = Board(_grid(canal=False), adjacency="evenq")
+    assert sans.has_connectivity_channel() is False
+    assert sans.base_add_neighbours(1) == sans.neighbours_native(1)
+    assert sans.base_add_neighbours(1, sans.neighbours_geometric) == sans.neighbours_geometric(1)
