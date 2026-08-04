@@ -90,14 +90,15 @@ CASTERS = (
     ("blackObliterator",   1036, False),   # TEMOIN -- corps trivial, aucun gate
 )
 
-#: Volet PORTEE : deux casters dont l'ability porte BIEN PLUS LOIN que leur attaque normale, donc
-#: qui castent depuis une tuile d'ou l'attaque normale n'atteint pas la cible -- exactement le
-#: regime ou le port gatait A TORT (il predisait un `killSure` avec le degat PLANCHER). Les cibles
-#: y sont a 1 PV : sans la borne `normal_attack_reaches`, le gate mord et le port REFUSE une action
-#: que le natif CHOISIT. Aucune approche : ils tirent depuis leur spawn.
+#: Volet RESIDU : les deux porteurs du corps `FragBombPlaybook$$ShouldExecute`, DELIBEREMENT NON
+#: PORTE (leur cible native est une TUILE, cf. `normal_attack_kill_gate`). Cibles a 1 PV, aucune
+#: approche -- ils bombardent depuis leur spawn. Ce volet ATTESTE le residu : le port ne gate pas
+#: ces deux-la, donc il ne retire pas l'action que le natif propose, et la contre-epreuve
+#: `gate_cut` y est INERTE (rien a couper). Un port qui les enregistrerait ferait rougir la ligne
+#: `astraOrdnance` sur le critere A -- c'est la mesure qui a fait renoncer.
 RANGE_CASTERS = (
-    ("astraOrdnance",   1026, True),       # FragBombPlaybook$$ShouldExecute (2 classes)
-    ("astraBullgryn",   1017, True),       # idem
+    ("astraOrdnance",   1026, False),      # FragBombPlaybook$$ShouldExecute (2 classes) -- residu
+    ("astraBullgryn",   1017, False),      # idem
     ("blackObliterator", 1036, False),     # TEMOIN
 )
 
@@ -129,24 +130,12 @@ def _build(state_file: str, argv_tail: list) -> int:
     return int(json.load(open(state_file, encoding="utf-8"))["runnerId"])
 
 
-@contextlib.contextmanager
-def range_bound_cut():
-    """COUPE la BORNE DE PORT `normal_attack_reaches` -- le gate redevient « on predit l'attaque
-    normale quelle que soit la portee ». C'est la contre-epreuve de la borne : elle doit MORDRE
-    exactement sur les gate-ees du volet PORTEE (le port refuserait alors ce que le natif choisit)
-    et rester inerte sur le carre, ou les casters sont a portee."""
-    from engine.playbook import normal_attack_kill_gate as G
-    saved = G.normal_attack_reaches
-    G.normal_attack_reaches = lambda ctx, target, caster_tile: True
-    try:
-        yield
-    finally:
-        G.normal_attack_reaches = saved
-
-
 def run_range(rpc, logs: str, verbose: bool = True) -> list:
-    """Volet PORTEE : cibles a 1 PV, casters qui bombardent depuis une tuile d'ou leur ATTAQUE
-    NORMALE ne porte pas. Sans la borne, le port REFUSE ce que le natif CHOISIT."""
+    """Volet RESIDU : cibles a 1 PV, casters qui bombardent depuis leur spawn (aucune approche).
+
+    Ce que le volet ATTESTE : `1017`/`1026` ne sont PAS au registre, donc le port ne peut pas
+    retirer l'action que le natif propose. La contre-epreuve `gate_cut` y est INERTE -- si elle
+    mordait, c'est que ces ids seraient gate-es par une autre voie."""
     rows = []
     case = stage(rpc, logs, "range", 1, casters=RANGE_CASTERS, approach=False)
     try:
@@ -154,21 +143,21 @@ def run_range(rpc, logs: str, verbose: bool = True) -> list:
         for vis, ab, gated in RANGE_CASTERS:
             ctx = _ctx(rpc, case, case["ids"][vis])
             port = port_proposes(ctx, ab, case["foes"])
-            with range_bound_cut():
+            with gate_cut():
                 cut = port_proposes(ctx, ab, case["foes"])
             rows.append({"arm": "range", "caster": vis, "ability": ab, "gated": gated,
                          "reached": bool(case["reached"].get(vis)),
-                         "native": nat[vis][0], "port": port, "port_range_cut": cut,
+                         "native": nat[vis][0], "port": port, "port_gate_cut": cut,
                          "msgs": nat[vis][1], "ok": not (nat[vis][0] and not port)})
     finally:
         _dispose(rpc, case["rid"])
     if verbose:
         for r in rows:
             print("  [range ] %-19s ab=%-5d gate=%-5s portee=%-5s natif=%-5s port=%-5s A=%s "
-                  "(borne coupee -> port=%s %s)"
+                  "(gate coupe -> port=%s %s)"
                   % (r["caster"], r["ability"], r["gated"], r["reached"], r["native"], r["port"],
-                     "OK" if r["ok"] else "VIOLE", r["port_range_cut"],
-                     "MORD" if r["port_range_cut"] != r["port"] else "inerte"))
+                     "OK" if r["ok"] else "VIOLE", r["port_gate_cut"],
+                     "MORD" if r["port_gate_cut"] != r["port"] else "inerte"))
     return rows
 
 
@@ -432,16 +421,15 @@ def main() -> int:
           % ("conforme" if not wrong else "INATTENDUE sur " + str(wrong)))
     rc |= 1 if wrong else 0
 
-    print("== volet PORTEE (l'ability porte plus loin que l'attaque normale, cibles a 1 PV) ==")
+    print("== volet RESIDU (1017/1026 NON portes : cible native = TUILE), cibles a 1 PV ==")
     rrows = run_range(rpc, logs)
     rows += rrows
     rbad = [r for r in rrows if not r["ok"]]
     print("   -> critere A : %d/%d" % (len(rrows) - len(rbad), len(rrows)))
     rc |= 1 if rbad else 0
-    rwrong = [r["caster"] for r in rrows
-              if (r["port_range_cut"] != r["port"]) != bool(r["gated"] and r["native"])]
-    print("   -> contre-epreuve borne-coupee : %s"
-          % ("conforme" if not rwrong else "INATTENDUE sur " + str(rwrong)))
+    rwrong = [r["caster"] for r in rrows if r["port_gate_cut"] != r["port"]]
+    print("   -> gate_cut INERTE sur tout le volet (aucun de ces ids n'est au registre) : %s"
+          % ("conforme" if not rwrong else "MORD sur " + str(rwrong)))
     rc |= 1 if rwrong else 0
 
     if args.json_out:

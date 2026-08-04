@@ -47,51 +47,6 @@ from .common import DefaultActiveAbilityPlaybook
 from ..entities.active_ability_type import ActiveAbilityType
 
 
-def normal_attack_reaches(ctx, target, caster_tile) -> bool:
-    """L'ATTAQUE NORMALE du caster est-elle legale sur `target` DEPUIS `caster_tile` ?
-
-    BORNE DE PORT, et elle est MESUREE, pas supposee. Le natif obtient `WillBeKill == false` quand
-    la cible n'est pas atteignable a l'attaque normale depuis la tuile de cast -- constate live :
-    `astraOrdnance` en `(1,0)` bombarde (`BasiliskBarrage`) deux `adeptRetributor` a **1 PV** en
-    `(6,7)`/`(6,8)`, et le natif PROPOSE le cast. Le port, lui, rendait `killSure = True` avec
-    `healthDmgMin = 1` -- le PLANCHER de degat -- parce que
-    `engine.playbook.prediction.make_normal_attack_predictions` calcule une prediction HYPOTHETIQUE
-    sans regarder la portee. Sans cette borne le gate mordait donc a tort, et refusait une action
-    que le natif CHOISIT (le sens de divergence le plus grave : le port perd une action legale).
-
-    Ce n'est PAS le mirror d'une clause native -- `IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill`
-    n'en a pas -- mais du chemin par lequel le natif retombe sur `false` :
-    `IdunBattle.Core.Services.BattleQuery$$GetNormalAttackPrediction` delegue a un slot de service
-    qui n'a rien a rendre pour une paire hors portee. On le pose DANS le gate plutot que dans la
-    primitive partagee : `noncomparable/_base.py::_will_normal_attack_kill` sert des playbooks
-    valides live dont aucun n'exerce ce regime, et elargir leur comportement sortirait du perimetre.
-
-    SUBSTRAT : `ctx.plans` (les `attackPlans` natifs) -- un eval d'attaque NORMALE du caster sur
-    `target` dont les tuiles `ranked` contiennent `caster_tile`. Les tuiles rankees d'une paire
-    (ability, cible) sont exactement les positions d'ou le cast est legal (meme lecture que
-    `loki_custom.SorcerousFacadePlaybook._get_target`).
-
-    TRI-ETAT : plans ABSENTS pour ce caster (bridge offline, qui ne peuple que l'unite ACTIVE) ->
-    `True`, c.-a-d. la borne ne s'applique pas et le gate se comporte comme sans elle. Un `False`
-    par defaut desarmerait le gate partout ou le substrat est muet."""
-    plan = (getattr(ctx, "plans", None) or {}).get(ctx.uid)
-    if not plan:
-        return True
-    nids = getattr(ctx, "normal_ids", None) or set()
-    if not nids:
-        return True
-    seen_any = False
-    for ev in (plan.get("evals") or ()):
-        if ev.get("abilityId") not in nids:
-            continue
-        seen_any = True
-        if ev.get("targetId") != target or not ev.get("rankCount"):
-            continue
-        if any((rk.get("col"), rk.get("row")) == caster_tile for rk in (ev.get("ranked") or ())):
-            return True
-    return not seen_any
-
-
 class SpiritLeechPlaybook(DefaultActiveAbilityPlaybook):
     """`IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$ShouldExecute`, lu verbatim :
 
@@ -114,34 +69,7 @@ class SpiritLeechPlaybook(DefaultActiveAbilityPlaybook):
         self.ability_id = int(ability_id)
 
     def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
-        if not normal_attack_reaches(ctx, target, caster_tile):
-            return True                      # borne de port : rien a predire -> pas de kill
         return not self.will_normal_attack_kill(ctx, target, caster_tile)
-
-
-class FragBombPlaybook(SpiritLeechPlaybook):
-    """`IdunBattle.AI.Playbook.Loki.FragBombPlaybook$$ShouldExecute`, lu verbatim :
-
-        target = UnitExtensions.GetUnit(target, this.<+0x20 = state>);
-        return !BasePlaybook.WillNormalAttackKill(caster, target, casterTile);
-
-    UN SEUL delta avec le corps ci-dessus : la RESOLUTION de la cible. `this@+0x20` est le `state`
-    (`IdunBattle.AI.Playbook.BasePlaybook$$Init`, lu). La surcharge appelee est celle qui prend
-    `(entity, state)` et fait un aiguillage PAR TYPE -- tranchee par les xrefs entrantes, pas a
-    l'oeil, les trois surcharges de `UnitExtensions$$GetUnit` ayant la meme signature :
-
-        si l'entite EST deja une unite            -> la rendre telle quelle
-        si c'est une TUILE (TileContentComponent) -> rendre l'unite qui l'occupe (recursif)
-        si c'est un PIED d'unite                  -> remonter a l'unite
-        sinon                                     -> null
-
-    Cote port, `target` est TOUJOURS un identifiant d'UNITE (le generateur d'action Comparable
-    enumere des unites, jamais des tuiles), donc cette resolution est l'IDENTITE et le corps se
-    reduit au precedent. On garde la classe distincte quand meme : elle est le mirror d'un corps
-    natif DIFFERENT, et elle documente le point ou un port qui enumererait des tuiles (route
-    `nonattack.py` a domaine TUILE, ex. 1169/1148) devrait resoudre l'occupant. Herite de
-    `SpiritLeechPlaybook` cote port alors qu'en natif les deux sont SOEURS -- meme arbitrage que
-    `NormalBossAttackPlaybook` : on n'herite que ce qui est identique par mesure."""
 
 
 class MultiThreatEliminatorPlaybook(DefaultActiveAbilityPlaybook):
@@ -163,8 +91,6 @@ class MultiThreatEliminatorPlaybook(DefaultActiveAbilityPlaybook):
     def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
         if not utility > 0.0:
             return False
-        if not normal_attack_reaches(ctx, target, caster_tile):
-            return True                      # borne de port (cf. `normal_attack_reaches`)
         return not self.will_normal_attack_kill(ctx, target, caster_tile)
 
 
@@ -187,18 +113,22 @@ SPIRIT_LEECH_BODY_IDS: tuple[int, ...] = (
     int(ActiveAbilityType.DakkaDakkaDakka),             # 1171 = 0x493
 )
 
-# `FragBombPlaybook$$ShouldExecute` : les 2 identites.
-FRAG_BOMB_BODY_IDS: tuple[int, ...] = (
-    int(ActiveAbilityType.FragBomb),                    # 1017 = 0x3f9
-    int(ActiveAbilityType.BasiliskBarrage),             # 1026 = 0x402
-)
+# NON PORTE, et c'est une MESURE : `IdunBattle.AI.Playbook.Loki.FragBombPlaybook$$ShouldExecute`
+# (1017 FragBomb, 1026 BasiliskBarrage). Son corps est celui de `SpiritLeechPlaybook` PRECEDE d'un
+# `target = UnitExtensions.GetUnit(target, this.<+0x20 = state>)` -- l'aiguillage PAR TYPE (une
+# unite est rendue telle quelle, une TUILE rend son occupant, un PIED remonte a l'unite, sinon
+# `null`), surcharge tranchee par ses XREFS ENTRANTES, les trois ayant la meme signature.
+# Ce `GetUnit` n'est pas decoratif : le RPC `abilityTargets` rend pour ces deux abilities des cibles
+# `kind: "tile"`, et le natif propose bien `ActiveAbilityMessage(1026, <entite tuile>)`. Le
+# generateur Comparable du port, lui, enumere des UNITES -- domaine de ciblage different. La seule
+# confrontation disponible (`astraOrdnance` bombardant deux cibles a 1 PV depuis son spawn) donne
+# natif = PROPOSE / port gate-e = REFUSE : porter le gate sur ces deux-la retire une action que le
+# natif choisit. Residu `#419-r1-tr14-r5-r2-r1-r1-r1-r1`.
 
 
 def _register_all() -> None:
     for aid in SPIRIT_LEECH_BODY_IDS:
         register(SpiritLeechPlaybook(aid))
-    for aid in FRAG_BOMB_BODY_IDS:
-        register(FragBombPlaybook(aid))
     register(MultiThreatEliminatorPlaybook())
 
 
