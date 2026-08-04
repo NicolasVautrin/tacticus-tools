@@ -578,13 +578,20 @@ faux. ⚠ La mutation « géométrie partout » laisse la marche VERTE : le test
   VALEUR non nulle reste non confrontée.
 * **`#448-r1-r1-r1-r1-r1`** (départage à coût égal de `GenerateBreadthFirstTree`) — INCHANGÉ, et
   toujours inerte : la beeline a un coût quasi uniforme (`10 + IsFilled`).
-* **NON CONFRONTÉ, nommé** : le rebranchement n'a été confronté au natif que par la route
-  `TeleportStrike` (celle où le compteur EST la longueur beeline). La route `Fly` pure passe par
-  `FlyPathfinder$$FindPath`, dont les waypoints réduisent la part de beeline — elle est couverte
-  par la non-régression (bras FD, 12/12) mais **aucune mesure `Fly` sur un board à `Bridge`** n'a
-  été jouée.
-* **NON MESURÉ** : l'effet aval sur le DÉGÂT des quatre consommateurs de `TilesMovedThisTurn`
-  (§14.3). Le compteur est corrigé ; que le dégât suive n'a pas été confronté.
+* ~~**NON CONFRONTÉ** : la route `Fly` pure sur un board à `Bridge`.~~ **FERMÉ le 2026-08-04
+  (`#589-r1`, `docs/rl/case-589-r1-aval-tiles-moved.md` §5), et la réponse n'est PAS l'inertie** :
+  `blackHaarken` (`ptype = 3`) sur `C1_74` rend **accord CANAL 9/9, accord GÉOMÉTRIE 4/9** — sur
+  `(1,5) -> (5,5)` le natif enregistre **6** là où la géométrie donne **4**. La route `Fly` portait
+  le même écart de 50 % que `TeleportStrike` ; le rebranchement la corrige aussi.
+* ~~**NON MESURÉ** : l'effet aval sur le DÉGÂT des quatre consommateurs.~~ **FERMÉ le 2026-08-04
+  (`#589-r1` §4)** : les six call-sites sont ventilés, et le régime décide avant le consommateur.
+  Le seul LINÉAIRE (`ModifiedExoarmour_ExtraDmgEffect$$GetCurrentDamageBonus`) a pour sujet le
+  porteur, et `votanChampion` est un MARCHEUR (`ptype = 0`, **0 couple sur 3906**) : l'aval y est
+  inerte **par le régime**. Les trois consommateurs à SEUIL (`<= 2`) sont saturés par la borne
+  « `n >= 2` dès que la beeline mord », mesurée. Seul `EmpyricAmbush` (`K = movement = 4`) peut
+  basculer — 22 à 24 couples sur `C1_74` — et il n'est pas porté. La chaîne, elle, EST sensible :
+  greffé sur un volant, le dégât suit `n` à **+1596 / +1600 par tuile** (contre-bras sans greffe :
+  pente **0.0**).
 * Les **287 boards à `Bridge`** sont un estimateur du gisement, pas une mesure : seul `C1_74` a
   été confronté au natif.
 

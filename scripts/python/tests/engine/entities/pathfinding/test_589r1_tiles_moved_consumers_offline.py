@@ -1,0 +1,235 @@
+"""#589-r1 OFFLINE -- l'AVAL de `tilesMovedThisTurn`, et ce qui decide qu'il bouge ou non.
+
+#589 a rebranche `beeline_pathfinder` sur le `ConnectivityComponent` : le compteur passe de `n_G`
+(substrat GEOMETRIE) a `n_C` (substrat CANAL), et le port rendait **4** la ou le natif enregistre
+**6**. Ces crans verrouillent les DEUX conclusions de l'aval, celle qui dit « ca bouge » comme
+celle qui dit « ca ne bouge pas » -- une garde qui ne garderait que l'inertie resterait verte le
+jour ou l'inertie disparait.
+
+CE QUI DECIDE, en deux etages independants
+------------------------------------------
+1. **LE REGIME** -- `MovementQuery$$GetPathfinderTypeForUnit`. La beeline n'est appelee QUE par
+   `MovementQuery$$GetConnectedPathTo`, et seulement `if (GetDistance(last, next) > 1)`. Un
+   chemin de `BasePathfinder$$FindPath` a tous ses nuds adjacents -> pour un MARCHEUR la
+   densification est un no-op et le substrat n'entre jamais en jeu. Pour un VOLANT
+   (`FlyPathfinder$$FindPath` rend des WAYPOINTS) et pour un porteur `TeleportStrike`
+   (`ATeleportPathfinder$$FindPath` rend `[from, to]`), il entre.
+2. **LE CONSOMMATEUR** -- LINEAIRE ou a SEUIL. Les six call-sites natifs de
+   `IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn` se ventilent ainsi :
+     * `ModifiedExoarmour_ExtraDmgEffect$$GetCurrentDamageBonus` / `$$GetExtraDamageMultiplier`
+       -> `Multiply(ConfigVar(extraDmg), n)`, LINEAIRE ;
+     * `$$CreateActiveCondition` -> `AmountIsGreaterThanZero(n)`, seuil **0** ;
+     * `SmashaEadAbility$$CreateTrigger` -> `AmountIsEqualOrGreater(n, Direct(2))`, seuil **2** ;
+     * `MastersOfManoeuvreAbility$$CreateTrigger` -> seuil `GetNumberConstant(0x88 =
+       tilesTraversed)` ;
+     * `EmpyricAmbushEffect$$IsValidAttackForBuff` -> seuil `GetNumberConstant(0x51 = movement)`.
+
+LA BORNE QUI SATURE LES SEUILS <= 2, et elle se DERIVE
+------------------------------------------------------
+Des que la beeline est appelee, le sous-chemin recousu compte au moins `d >= 2` aretes -- dans
+LES DEUX substrats. Donc `min(n_G, n_C) >= 2`, et un seuil `K <= 2` est **deja franchi avant le
+rebranchement** : il ne peut pas basculer. Mesure live (`C1_74`, 3906 couples x 4 regimes) :
+**aucun** seuil `<= 2` ne bascule, et seul `EmpyricAmbush` (`K = 4`) le fait -- 22 couples en
+regime `Fly`, 24 en `TeleportStrike`.
+
+ASCII only (cp1252).
+"""
+from __future__ import annotations
+
+from engine.entities.pathfinding.board import Board
+from engine.entities.pathfinding import pathfinders as PF
+from engine.services.movement_query import get_connected_path_to, get_num_tiles_moved
+
+# Grille 3x3 even-q, ids 1..9 par (col,row) : (0,0)=1 (0,1)=2 (0,2)=3 / (1,0)=4 (1,1)=5 (1,2)=6 /
+# (2,0)=7 (2,1)=8 (2,2)=9. La tuile 5 est un `Bridge` : `TileComponent$$HasEdge` ne lui laisse que
+# l'axe de son pont (4 et 6) -- la forme exacte mesuree sur `C1_74`, ou les 16 aretes dirigees de
+# `G \ C` sont TOUTES incidentes aux deux ponts.
+_CONN = {1: [2, 4], 2: [1, 3, 6], 3: [2, 6], 4: [1, 5, 7], 5: [4, 6],
+         6: [2, 3, 5, 8, 9], 7: [4, 8], 8: [6, 7, 9], 9: [6, 8]}
+_NEIGH = {1: [2, 4], 2: [1, 3, 6], 3: [2, 6], 4: [1, 5, 7], 5: [4, 6],
+          6: [2, 3, 5, 8], 7: [4, 8], 8: [6, 7], 9: []}
+_ELEV = {i: (2 if i == 9 else 0) for i in range(1, 10)}
+_POS = {1: (0, 0), 2: (0, 1), 3: (0, 2), 4: (1, 0), 5: (1, 1), 6: (1, 2),
+        7: (2, 0), 8: (2, 1), 9: (2, 2)}
+
+
+def _grid(canal: bool = True):
+    out = []
+    for i in range(1, 10):
+        t = {"id": i, "col": _POS[i][0], "row": _POS[i][1], "elevation": _ELEV[i],
+             "walkable": True, "isWall": False, "neighbours": list(_NEIGH[i]),
+             "tileDefId": "Bridge" if i == 5 else "Grass"}
+        if canal:
+            t["connectivity"] = list(_CONN[i])
+            t["teleportTwinTileId"] = 0
+        out.append(t)
+    return out
+
+
+def _n_tiles(board, ptype: int, a: int, b: int) -> int:
+    """`GetNumTilesMoved(GetConnectedPathTo(...))` -- l'etage COMPLET, pathfinder PUIS
+    re-densification. C'est ce que `MoveUnitOperation$$Execute` passe a `RecordTilesMoved`."""
+    path = PF.find_path(board, ptype, a, b)
+    return get_num_tiles_moved(get_connected_path_to(board, a, b, path))
+
+
+# --------------------------------------------------------------------- etage 1 : LE REGIME
+def test_la_MARCHE_ne_voit_PAS_le_rebranchement():
+    """Le porteur du seul consommateur LINEAIRE (`votanChampion`, `ModifiedExoarmour`) est un
+    MARCHEUR : ni `Flying`, ni aucun des quatre effets `*_TeleportingIn` de
+    `GetPathfinderTypeForUnit`. Son `n` est donc le MEME avant et apres #589 -- l'aval y est
+    inerte par le REGIME, pas par une propriete du consommateur.
+
+    Mesure live correspondante : `C1_74`, `ptype = 0`, **0 couple sur 3906** change ; et le natif
+    suit le port sur 6 mesures, y compris depuis le pont lui-meme.
+
+    ATTENTION -- ce n'est PAS `pathfinders.find_path(Walk)` qu'il faut interroger : il rend `None`
+    par conception (le port materialise la marche par un AUTRE moteur, en domaine POSITION, foyer
+    partage avec la face DECISION -- #304), et `get_connected_path_to(.., None)` prend alors la
+    branche degeneree `[from, to]`, donc `n = 1` quel que soit le substrat. Un cran ecrit ainsi
+    serait VIDE. Mesure vecue : il l'etait, et c'est la contre-epreuve qui l'a dit."""
+    from engine.entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
+
+    def marche(board, a, b):
+        neigh, walk, elev = board.walk_maps_by_pos()
+        c = get_path_node_counts_by_pos(_POS[a], neigh_by_pos=neigh, walkable_by_pos=walk,
+                                        elev_by_pos=elev, blocking_positions=set())
+        n = c.get(_POS[b])
+        return int(n) - 1 if n else 0
+
+    avec, sans = Board(_grid(True), adjacency="evenq"), Board(_grid(False), adjacency="evenq")
+    for a in range(1, 10):
+        for b in range(1, 10):
+            if a == b:
+                continue
+            assert marche(avec, a, b) == marche(sans, a, b), (a, b)
+    # ⚠ LA COMPARAISON CI-DESSUS NE SUFFIT PAS, et c'est mesure : une mutation qui bascule la
+    # MARCHE sur la geometrie frappe les DEUX montages et la laisse VERTE. Le cran qui mord est
+    # une valeur ABSOLUE -- la marche `1 -> 8` doit faire le TOUR du pont (3 aretes), jamais le
+    # traverser (2).
+    assert marche(avec, 1, 8) == 3
+    assert marche(sans, 1, 8) == 3
+
+
+def test_le_VOL_PUR_voit_le_rebranchement_c_est_l_item_2_de_589():
+    """`fly_pathfinder` garde la GEOMETRIE (override natif `FlyPathfinder$$AddNeighbours` ->
+    `GetSurroundingTiles`), et c'est fidele -- mais `GetConnectedPathTo` recoud SES waypoints par
+    la beeline, qui, elle, est rebranchee. La route `Fly` PURE n'est donc PAS inerte.
+
+    Mesure live (`blackHaarken`, `ptype = 3`, `C1_74`) : 9 mesures, accord CANAL **9/9**, accord
+    GEOMETRIE **4/9** -- sur `(1,5) -> (5,5)` le natif enregistre **6** la ou la geometrie donne
+    **4**. Le meme ecart de 50 % que sur la route `TeleportStrike`."""
+    avec, sans = Board(_grid(True), adjacency="evenq"), Board(_grid(False), adjacency="evenq")
+    bouge = [(a, b) for a in range(1, 10) for b in range(1, 10) if a != b
+             and _n_tiles(avec, PF.PathfinderType.Fly, a, b)
+             != _n_tiles(sans, PF.PathfinderType.Fly, a, b)]
+    assert bouge, "regime DEGENERE : la grille ne fait pas mordre le vol, elle ne garde rien"
+    # Et il MORD dans le bon sens : le canal ne peut qu'ALLONGER (`C` est inclus dans `G`).
+    for (a, b) in bouge:
+        assert _n_tiles(avec, PF.PathfinderType.Fly, a, b) > \
+               _n_tiles(sans, PF.PathfinderType.Fly, a, b), (a, b)
+    # Valeur ABSOLUE, pour la meme raison que ci-dessus : un test qui ne compare que deux
+    # montages est aveugle a une mutation qui frappe les deux.
+    assert _n_tiles(avec, PF.PathfinderType.Fly, 1, 8) == 3
+    assert _n_tiles(sans, PF.PathfinderType.Fly, 1, 8) == 2
+
+
+def test_TELEPORT_STRIKE_voit_le_rebranchement():
+    """`ATeleportPathfinder$$FindPath` rend `[from, to]` : TOUT le trajet est recousu par la
+    beeline, donc `tilesMovedThisTurn` EST sa longueur. C'est l'oracle direct de #589."""
+    avec, sans = Board(_grid(True), adjacency="evenq"), Board(_grid(False), adjacency="evenq")
+    ts = PF.PathfinderType.TeleportStrikeFly if hasattr(PF.PathfinderType, "TeleportStrikeFly") \
+        else 7
+    bouge = [(a, b) for a in range(1, 10) for b in range(1, 10) if a != b
+             and _n_tiles(avec, ts, a, b) != _n_tiles(sans, ts, a, b)]
+    assert bouge, "regime DEGENERE sur la route TeleportStrike"
+
+
+# --------------------------------------------------------------------- la BORNE des seuils
+def test_la_BORNE_des_seuils_n_est_JAMAIS_sous_2_quand_la_beeline_mord():
+    """Ce cran est ce qui SATURE les trois consommateurs a seuil `<= 2`
+    (`ModifiedExoarmour$$CreateActiveCondition` K=0, `SmashaEadAbility` K=2,
+    `MastersOfManoeuvreAbility` K=`tilesTraversed`). Il se DERIVE de
+    `GetConnectedPathTo` (`if (GetDistance(last, next) > 1)`) et il est mesure ici, pas suppose.
+
+    Le point qui compte : la borne vaut dans LES DEUX substrats. Un seuil deja franchi AVANT le
+    rebranchement ne peut pas basculer APRES -- l'ecart `n_C - n_G` est positif."""
+    avec, sans = Board(_grid(True), adjacency="evenq"), Board(_grid(False), adjacency="evenq")
+    vus = 0
+    for a in range(1, 10):
+        for b in range(1, 10):
+            if a == b:
+                continue
+            ng = _n_tiles(sans, PF.PathfinderType.Fly, a, b)
+            nc = _n_tiles(avec, PF.PathfinderType.Fly, a, b)
+            if ng == nc:
+                continue
+            vus += 1
+            assert min(ng, nc) >= 2, (a, b, ng, nc)   # LA BORNE
+            assert nc > ng, (a, b, ng, nc)            # le canal ne peut qu'allonger
+    assert vus, "aucun couple ou les substrats divergent -- la borne n'est pas exercee"
+
+
+def test_les_seuils_se_RELISENT_du_gameconfig_et_se_ventilent():
+    """Les seuils ne sont PAS recopies du decompile : `0x51` et `0x88` sont resolus par
+    `IdunBattle.Configuration.AbilityConstantType` (`81 = movement`, `136 = tilesTraversed`) et
+    leur VALEUR vient du gameconfig courant. Si le jeu la change, ce cran le dit."""
+    import gameconfig as GC
+    emp = ((GC.ability("EmpyricAmbush") or {}).get("constants") or {}).get("movement")
+    mom = ((GC.ability("MastersOfManoeuvre") or {}).get("constants") or {}).get("tilesTraversed")
+    assert emp is not None and mom is not None, (emp, mom)
+    # La ventilation qui decide de l'aval, et la borne qui la produit.
+    assert int(mom) <= 2, "MastersOfManoeuvre n'est plus sature par la borne -- l'aval est ROUVERT"
+    assert int(emp) > 2, "EmpyricAmbush est passe sous la borne -- il devient sature, a re-mesurer"
+
+
+# --------------------------------------------------------------------- etage 2 : LE CONSOMMATEUR
+def test_le_consommateur_PORTE_est_LINEAIRE_donc_4_vers_6_le_change():
+    """`ModifiedExoarmour_ExtraDmgEffect$$GetCurrentDamageBonus` = `Multiply(ConfigVar(extraDmg),
+    TilesMovedThisTurn(Owner))`. L'additif est `V x n` : le passage `4 -> 6` le change de `2V`.
+
+    Mesure live correspondante (greffe sur `blackHaarken`, `C1_74`, `aiPredict` a tuile CONSTANTE)
+    -- trois couples discriminants, les deux valeurs de `n` lues sur la MEME tuile :
+      `(2,4)->(0,5)` n=2 -> 6024, n=3 -> 7624 ; `(3,4)->(0,5)` n=3 -> 7624, n=4 -> 9220 ;
+      `(4,3)->(0,5)` n=4 -> 9220, n=5 -> 10816. Pente **+1596 a +1600 par tuile**, et **0.0** sans
+    la greffe (contre-bras)."""
+    from engine.entities.effects.loki.extra_damage import ModifiedExoarmourExtraDmgEffect
+
+    e = ModifiedExoarmourExtraDmgEffect(name="ModifiedExoarmour_ExtraDmg", effect_type=1544,
+                                        ability_level=50, ability_variables_multiplier=180)
+
+    def add(n):
+        b = e.create_effect_damage_bonus_for_attack(is_ranged=False,
+                                                    att_ctx={"tiles_moved_this_turn": n})
+        return None if b is None else b.value
+
+    a4, a6 = add(4), add(6)
+    assert a4 is not None and a6 is not None
+    assert a6 != a4, "le consommateur ne serait plus sensible a n -- l'aval de #589 change"
+    # LINEAIRE, pas seulement monotone : `V x n` exactement.
+    v = add(1)
+    assert a4 == 4 * v and a6 == 6 * v, (v, a4, a6)
+    assert add(0) is None                      # `n = 0` -> additif nul -> aucune contribution
+    # ... et sa CONDITION D'ACTIVITE, elle, est SATUREE : seuil `> 0`, franchi des `n = 1`.
+    assert e.is_active({"tiles_moved_this_turn": 4}) is True
+    assert e.is_active({"tiles_moved_this_turn": 6}) is True
+
+
+def test_aucun_trigger_a_SEUIL_n_est_porte_sinon_l_aval_est_a_RECONFRONTER():
+    """Les trois autres porteurs natifs (`EmpyricAmbush`, `MastersOfManoeuvre`, `SmashaEad`)
+    n'ont AUCUN trigger porte -- leur seuil n'est donc exerce nulle part dans le moteur. C'est
+    ce qui rend le verdict « aval sature » suffisant AUJOURD'HUI.
+
+    Le jour ou l'un d'eux entre au registre des triggers, ce cran rougit : `EmpyricAmbush` a un
+    seuil de **4**, au-dessus de la borne, et **22 a 24 couples de `C1_74` le font basculer**."""
+    import pathlib
+    import re
+
+    trig = pathlib.Path(__file__).resolve().parents[4] / "engine" / "runner" / "operations" \
+        / "triggers"
+    assert trig.is_dir(), trig
+    src = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in trig.rglob("*.py"))
+    for ab in ("EmpyricAmbush", "MastersOfManoeuvre", "SmashaEad"):
+        assert not re.search(r"(?<![\w])%s(?![\w])" % ab, src), (
+            "`%s` a maintenant un trigger porte : son seuil est desormais exerce, l'aval de #589 "
+            "doit etre RECONFRONTE pour ce consommateur" % ab)

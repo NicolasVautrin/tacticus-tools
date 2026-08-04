@@ -395,7 +395,7 @@ def run_scan(sid, rpc, board_id: str, seed: int, reuse: bool, verbose: bool) -> 
 
 # --------------------------------------------------------------------------- cran TILES
 def run_tiles(sid, rpc, unit: str, fillers, foes, board_id: str, seed: int, max_turns: int,
-              verbose: bool) -> int:
+              verbose: bool, inject: bool = False) -> int:
     """Le compteur natif, confronte au port sous les TROIS substrats, pour UN porteur donne.
 
     Le porteur est le parametre : c'est ce qui rend le cran utilisable pour les trois REGIMES de
@@ -409,7 +409,14 @@ def run_tiles(sid, rpc, unit: str, fillers, foes, board_id: str, seed: int, max_
     from engine.runner.components import StatsComponent
     import probe_448_r1_r1_r1_flying_movement_steps as P
 
-    rid, state_file = _build(board_id, seed, "tiles_%s" % unit, [unit] + list(fillers), foes)
+    bcp = None
+    if inject:
+        import catalog_inject as CI
+        bcp = CI.write_augmented_seed_bc(LOGSDIR / ("bc_589r1_%s.json" % unit), [unit])
+        bcp = bcp[0] if isinstance(bcp, tuple) else bcp
+        print("   catalogue augmente : %s" % bcp)
+    rid, state_file = _build(board_id, seed, "tiles_%s" % unit, [unit] + list(fillers), foes,
+                             seed_bc=bcp)
     print("== TILES  unit=%s board=%s seed=%d runner=%s" % (unit, board_id, seed, rid))
     accord_c = accord_g = joues = disc_tot = approches = 0
     vus: set = set()
@@ -830,6 +837,8 @@ def _predict_bounds(pr):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", choices=("INV", "SCAN", "TILES", "EXO"), default="INV")
+    ap.add_argument("--inject", action="store_true",
+                    help="TILES : injecte le porteur au catalogue (`write_augmented_seed_bc`)")
     ap.add_argument("--no-graft", action="store_true",
                     help="EXO : CONTRE-BRAS sans le passif greffe (le degat ne doit PAS suivre n)")
     ap.add_argument("--reuse-bg", action="store_true",
@@ -855,7 +864,8 @@ def main() -> int:
         print("VERDICT: %s (%d ecart(s))" % ("PASS" if n == 0 else "FAIL", n))
         return 0 if n == 0 else 1
     n = run_tiles(sid, rpc, a.unit, [x for x in a.fillers.split(",") if x],
-                  [x for x in a.foes.split(",") if x], a.board, a.seed, a.turns, a.verbose)
+                  [x for x in a.foes.split(",") if x], a.board, a.seed, a.turns, a.verbose,
+                  a.inject)
     print("VERDICT: %s (%d ecart(s))" % ("PASS" if n == 0 else "FAIL", n))
     return 0 if n == 0 else 1
 
