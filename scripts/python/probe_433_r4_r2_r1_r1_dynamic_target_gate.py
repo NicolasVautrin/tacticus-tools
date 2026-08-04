@@ -128,7 +128,9 @@ def _slot_addr(sid, ns, cls, off):
 
 
 def step_gate(sid):
-    from engine.services.ability_range import TARGETING_RANGE_BY_ABILITY
+    # 2e source du volet PORTEE depuis `#433-r4-r2-r1-r2-r2-r1-r1` : le `range` vit avec les trois
+    # autres champs du meme ctor, `ability_range.TARGETING_RANGE_BY_ABILITY` ayant ete supprimee.
+    from engine.runner.abilities.targeting import TARGETING_OPTIONS_UNPORTED
     from engine.runner.abilities.handler import ABILITY_CLASSES
 
     whole = set()
@@ -137,8 +139,8 @@ def step_gate(sid):
         rng = getattr(opts, "range", None) if opts is not None else None
         if rng is not None and getattr(rng, "use_whole_board", False):
             whole.add(getattr(cls, "__name__", ""))
-    for aid, rng in TARGETING_RANGE_BY_ABILITY.items():
-        if getattr(rng, "use_whole_board", False):
+    for aid, opts in TARGETING_OPTIONS_UNPORTED.items():
+        if getattr(opts.range, "use_whole_board", False):
             from engine.entities.active_ability_type import ActiveAbilityType
             try:
                 whole.add(ActiveAbilityType(aid).name + "Ability")

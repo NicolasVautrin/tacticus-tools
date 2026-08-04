@@ -132,11 +132,18 @@ lectures du même bit, cohérentes.
 * **Les 10 abilities actives HORS pool** que le seed BC expose et qui n'ont toujours pas de masque
   (`1010`, `1015`, `1044`, `1053`, `1080`, `1091`, `1108`, `1144`, `1185`, `1186`) — hors périmètre
   de ce lot, inventaire dans le rapport. `1186 WallOfMirrors` est le sujet d'une autre tranche.
-* **Le rayon de souffle sur la face DÉCISION est mesuré, pas confronté** : `_ability_kind` /
-  `_refuses_all_enemy_targets` (`state_bridge`) sont **inchangés** sur les 32 (les chemins
-  gameconfig donnaient déjà le bon `kind`) ; `nonattack.targets_tiles` passe à `True` pour **5**
-  (`1057`, `1087`, `1121`, `1152`, `1197`), ce qui est la lecture native (`rules >> 6 & 1`) mais
-  n'est pas confronté par un agreement dans cette tranche.
+* **Le rayon de souffle sur la face DÉCISION, mesuré** : `_ability_kind` /
+  `_refuses_all_enemy_targets` (`state_bridge`) sont **inchangés** sur les 32 — les chemins
+  gameconfig donnaient déjà le bon `kind`, y compris pour les 6 friendly-only.
+  `nonattack.targets_tiles` passe à `True` pour **5** (`1057`, `1087`, `1121`, `1152`, `1197`), ce
+  qui est la lecture native (`rules >> 6 & 1`), mais reste **INERTE** : aucune des **9**
+  sous-classes de `NonAttackComparablePlaybook` ne route ces cinq ids. Le jour où l'une d'elles y
+  entrera, ce sera le comportement natif — pas une régression, mais pas non plus une mesure
+  acquise ici.
+* **`unit_threat_reach` ne bouge que sur UNE unité du pool sur 97** (`templAncient`, 2 → 1) : les
+  cinq autres abilities court-circuitées ont une portée dominée par l'arme de leur porteur. Le
+  choix de ce montage n'est donc pas cosmétique — c'est le seul qui SÉPARE les deux modèles sur
+  `unit_threat_reach`.
 
 ## 9. Validation
 
