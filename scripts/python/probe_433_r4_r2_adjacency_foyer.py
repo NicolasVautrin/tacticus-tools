@@ -369,8 +369,10 @@ def step_couple(verbose=True) -> dict:
             # Les DEUX seuils de branche, desormais DISTINCTS (#433-r4-r2-r1 + -r2 fermes ensemble) :
             # `reach` = zone d'ability (`IsTileInRangeOfAnyAbility`), `threshold` = portee de l'arme
             # a distance (`FindRangedWeapon`). Sur `tauMarksman` : 5 et 3.
-            "enemies": [{"pos": list(pos), "visualId": vid, "threshold": thr,
-                         "reach": _ability_reach(vid)} for (pos, vid, thr) in enemies],
+            # `enemies_of` rend 5 termes depuis #433-r4-r2-r1-r1-c : les deux derniers sont l'etat
+            # d'abilities de l'ennemi et l'id de son attaque normale (les gates CASTER).
+            "enemies": [{"pos": list(e[0]), "visualId": e[1], "threshold": e[2],
+                         "reach": _ability_reach(e[1])} for e in enemies],
             "adj_on": sorted(adj_on), "adj_off": sorted(adj_off),
             "d_max": max(r["d"] for r in rows) if rows else None,
             "n": len(rows),
