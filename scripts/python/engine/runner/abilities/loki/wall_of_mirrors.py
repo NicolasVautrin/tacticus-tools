@@ -100,6 +100,7 @@ from ....entities.selectors import (ActiveTarget, CanAddUnit, Caster, Filter,
                                     FilterTilesIfCanAttackTargetTileFrom, First, Owner,
                                     SortTilesByUtility, Sub, SurroundingTiles, Target)
 from ....entities.triggers import HasEffect, IsObscured, Not, OwnerIsAlive
+from ....utilities.utility_type import UtilityType
 
 if TYPE_CHECKING:
     from ...state import State
@@ -108,7 +109,7 @@ CONFIG = "WallOfMirrors"                                    # la cle gameconfig 
 UNTARGETABLE = int(EffectType.Untargetable)                 # 0x414 = 1044
 WALL_OF_MIRRORS = int(EffectType.WallOfMirrors)             # 0x576 = 1398
 MARKERLIGHT = int(EffectType.Markerlight)                   # 0x462 = 1122
-UTILITY_TYPE_TILE = 7                                       # `UtilityType.Tile`, litteral du call-site
+UTILITY_TYPE_TILE = int(UtilityType.Tile)                   # le litteral du call-site, PAR MEMBRE
 
 
 def wall_of_mirrors_range() -> int:
