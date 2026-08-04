@@ -63,7 +63,7 @@ sys.path.insert(0, str(PYDIR))
 sys.path.insert(0, str(PYDIR / "tests" / "engine" / "runner"))
 
 CARRIER = "eldarLhykhis"          # porteur de l'ability active 1232 (HORS CATALOGUE -> --seed-bc)
-ATTACKER = "blackHaarken"         # Hero + NON-Aeldari + Flying + melee : le sujet du seuil
+ATTACKER_DEFAULT = "blackHaarken"         # Hero + NON-Aeldari + Flying + melee : le sujet du seuil
 EFFECT_NAME = "EmpyricAmbush"     # cle EFFECT_CLASSES == decisionView.units[].effects[].name
 EFFECT_TYPE = 1578                # EffectType 0x62a
 ABILITY_TYPE = 1232               # ActiveAbilityType 0x4d0
@@ -81,6 +81,30 @@ def seuil_du_gameconfig() -> int:
     if v is None:
         raise SystemExit("EmpyricAmbush.constants.movement absent du gameconfig")
     return int(v)
+
+
+def _garde_attaquant(uid: str) -> None:
+    """GARDE DE REGIME, jouee AVANT tout montage : un attaquant AELDARI sature le `op_BitwiseOr`
+    (`HasFaction(Caster, 8) | TilesMovedThisTurn(Caster) >= movement`), donc le seuil devient
+    INOBSERVABLE et la passe rendrait un vert qui ne mesure rien. Un attaquant sans `Hero` ferme
+    tout, ce qui rendrait un vert tout aussi vide. Le REGIME de pathfinding est imprime, pas
+    suppose -- c'est lui qui dit si le rebranchement de #589 peut mordre."""
+    import gameconfig as GC
+    d = GC.unit(uid) or {}
+    traits = [t if isinstance(t, str) else (t.get("TraitId") or t.get("id") or str(t))
+              for t in (d.get("traits") or [])]
+    if d.get("FactionId") == "Aeldari":
+        raise SystemExit("attaquant AELDARI (%s) : HasFaction sature le OR, seuil INOBSERVABLE" % uid)
+    if "Hero" not in traits:
+        raise SystemExit("attaquant sans trait Hero (%s) : HasTrait ferme tout" % uid)
+    if "TeleportStrike" in traits:
+        regime = "TeleportStrike(+Fly)" if "Flying" in traits else "TeleportStrike(Walk)"
+    elif "Flying" in traits:
+        regime = "Fly"
+    else:
+        regime = "Walk (INERTE pour #589 : 0 basculement mesure sur 3906 couples x 2 boards)"
+    print("   attaquant %-18s faction=%-12s traits=%s" % (uid, d.get("FactionId"), traits))
+    print("   REGIME de pathfinding derive : %s" % regime)
 
 
 def seed_bc_avec_lhykhis() -> str:
@@ -115,7 +139,7 @@ def build(a, tag, seed_bc):
     argv = [sys.executable, "rl_duel.py", "build",
             "--seed", str(a.seed), "--state-file", sf, "--board", a.board,
             "--seed-bc", seed_bc,
-            "--p-units", "%s,%s" % (CARRIER, ATTACKER),
+            "--p-units", "%s,%s" % (CARRIER, ATTACKER_DEFAULT),
             "--a-units", "%s,%s" % (a.target_unit, a.other_unit),
             "--hp-target", "400000", "--hp-player", "400000",
             "--no-ai", "--crit", a.crit, "--block-target", "0,0"]
@@ -127,7 +151,7 @@ def build(a, tag, seed_bc):
     return json.loads(Path(sf).read_text())["runnerId"], sf
 
 
-def stage(h, dist, verbose=False):
+def stage(h, dist, verbose=False, sujet_porteur=False):
     """Monte le regime et rend `(rec, raison)` -- `raison is None` == regime ATTEINT.
 
     ORDRE NON NEGOCIABLE (chaque inversion a deja coute une mesure fausse) :
@@ -142,7 +166,7 @@ def stage(h, dist, verbose=False):
     import hexgeo
     dv = h.dview()
     me = h.by_visual(CARRIER, dv)
-    att = h.by_visual(ATTACKER, dv)
+    att = h.by_visual(ATTACKER_DEFAULT, dv)
     if me is None or att is None:
         return None, "porteur ou attaquant absent du deploiement"
     h.my_player = me.get("owner")
@@ -151,40 +175,60 @@ def stage(h, dist, verbose=False):
         return None, "aucun ennemi"
     tgt = ens[0]
 
-    # (1) placer : la cible sur une ancre a 6 voisins, l'attaquant a `dist`, les autres au loin.
-    for anchor in [h.board.coord(t) for t in sorted(h.board.by_id) if h.board.walkable(t)]:
-        starts = h.free_tiles(anchor, dist + 2, exclude=(me["id"], tgt["id"], att["id"]))
-        cands = [s for s in starts if hexgeo.distance(s, anchor) == dist]
-        if not cands:
+    # (1) placer. La CIBLE va sur une ancre ; l'attaquant doit PARCOURIR `dist` tuiles pour arriver
+    # au CONTACT (melee). Donc `step_to` est adjacent a l'ancre, et `start` est a `dist` de
+    # `step_to` -- c'est le PAS qui doit valoir `dist`, pas la position de depart.
+    # ⚠ `h.free_tiles(c, r)` rend la distance EXACTEMENT `r`, et refait un `decisionView` a chaque
+    # appel -- on lit donc l'occupation UNE fois et on balaie le board nous-memes.
+    # `pos` est un DICT `{col, row}` cote decisionView (pas un tuple) -- le confondre rend
+    # l'occupation VIDE et fait viser des cases prises. Toutes les unites vivantes comptent :
+    # les trois pilotees liberent leur case en bougeant, et les destinations sont distinctes.
+    occupe = set()
+    for u in h.alive(dv):
+        p = u.get("pos") or {}
+        if p.get("col") is not None:
+            occupe.add((p["col"], p["row"]))
+    marchables = [h.board.coord(t) for t in sorted(h.board.by_id) if h.board.walkable(t)]
+    libres = [c for c in marchables if c not in occupe]
+    # ⚠ L'ANCRE doit etre BIEN ENTOUREE. Prendre la premiere tuile libre venue donne un COIN (ici
+    # `(0,1)`), donc 2-3 voisins : le `FlyUnit` de Lhykhis en prend un, et il ne reste plus de
+    # tuile de contact a la bonne distance. C'est le piege que `runner.md` documente (« exige
+    # explicitement une tuile a 6 voisins, ne l'espere pas »).
+    def _n_voisins(c):
+        return sum(1 for s in marchables if hexgeo.distance(s, c) == 1)
+    plan = None
+    for anchor in sorted(libres, key=lambda c: (-_n_voisins(c), c)):
+        if _n_voisins(anchor) < 5:
+            break                       # trie decroissant : plus rien de mieux ensuite
+        contacts = [s for s in libres if hexgeo.distance(s, anchor) == 1]
+        far = [s for s in libres if hexgeo.distance(s, anchor) >= 3]
+        if len(contacts) < 3 or not far:
             continue
-        far = [s for s in starts if hexgeo.distance(s, anchor) >= dist + 2]
-        if not far:
-            continue
-        for other in ens[1:]:
-            h.place(other["id"], far[0])
-        if not h.place(tgt["id"], anchor):
-            continue
-        # l'attaquant part d'une tuile ADJACENTE a son point de depart vise : c'est SON pas
-        # (etape 5) qui doit compter `dist` tuiles, donc on le pose LOIN et il ira sur `cands[0]`...
-        # non : on le pose sur `cands[0]` et il ira A L'ANCRE (contact melee) en `dist` tuiles.
-        if not h.place(att["id"], cands[0]):
-            continue
-        start, step_to = cands[0], None
-        # tuile de CONTACT : adjacente a l'ancre, libre, d'ou l'attaque melee est legale
-        contacts = [s for s in h.free_tiles(anchor, 1, exclude=(me["id"], tgt["id"], att["id"]))
-                    if hexgeo.distance(s, anchor) == 1]
-        if not contacts:
-            continue
-        step_to = contacts[0]
-        break
-    else:
+        # `start` doit etre a `dist` d'AU MOINS DEUX contacts : le vol de Lhykhis en consommera un.
+        for s in libres:
+            if hexgeo.distance(s, anchor) < 2:
+                continue
+            atteignables = [c for c in contacts if hexgeo.distance(s, c) == dist]
+            if len(atteignables) >= 2:
+                plan = (anchor, atteignables[0], s, far)
+                break
+        if plan:
+            break
+    if plan is None:
         return None, "geometrie non realisable (dist=%d)" % dist
+    anchor, step_to, start, far = plan
+    for other in ens[1:]:
+        h.place(other["id"], far[-1])
+    if not h.place(tgt["id"], anchor):
+        return None, "placement de la cible refuse"
+    if not h.place(att["id"], start):
+        return None, "placement de l'attaquant refuse"
 
     # (2) mon tour, compteurs purges
     if h.reach_my_turn(force_cycle=True) is None:
         return None, "mon tour non atteint"
     dv = h.dview()
-    me, att, tgt = (h.by_visual(CARRIER, dv), h.by_visual(ATTACKER, dv),
+    me, att, tgt = (h.by_visual(CARRIER, dv), h.by_visual(ATTACKER_DEFAULT, dv),
                     next((u for u in h.enemies_of(h.my_player, dv) if u["id"] == tgt["id"]), None))
     if me is None or att is None or tgt is None:
         return None, "une unite a disparu apres le cycle de tour"
@@ -201,11 +245,63 @@ def stage(h, dist, verbose=False):
     names = [e.get("name") for e in ((tu or {}).get("effects") or [])]
     if EFFECT_NAME not in names:
         return None, "la marque %s n'est PAS sur la cible (effets: %s)" % (EFFECT_NAME, names)
+    att = h.by_visual(ATTACKER_DEFAULT, dv)
+    _ap0 = att.get("pos") or {}
+    apos_att0 = (_ap0.get("col"), _ap0.get("row"))
+
+    # (3ter) BRAS « SUJET » -- c'est le point ou cette famille trompe. Le sujet des sept noeuds est
+    # `Caster@DSLSelectors+0x48` (le caster de l'ATTAQUE), PAS l'`Owner` du porteur : trois autres
+    # call-sites de `TilesMovedThisTurn` ont pour sujet `<+0x30>` = Owner, et generaliser d'un
+    # selecteur a l'autre est exactement l'erreur que `case-589-r1` §4.4 signale.
+    # Le montage discriminant : c'est le PORTEUR (l'ennemi marque) qui parcourt `dist >= movement`
+    # tuiles, et l'ATTAQUANT qui n'en parcourt AUCUNE. Si le sujet etait le porteur, le buff
+    # s'appliquerait ; s'il est bien le caster de l'attaque, il ne s'applique PAS.
+    if sujet_porteur:
+        cible_dest = [s for s in libres
+                      if hexgeo.distance(s, apos_att0) == 1 and hexgeo.distance(s, anchor) == dist]
+        if not cible_dest:
+            return None, "pas de destination a %d tuiles amenant la cible au contact" % dist
+        if not h.place(tgt["id"], cible_dest[0]):
+            return None, "deplacement de la CIBLE refuse"
+        dv = h.dview()
+        att = h.by_visual(ATTACKER_DEFAULT, dv)
+        ast = h.rpc("actorStats", {"runnerId": h.rid}, 60)
+        cnt = {int(u["entityId"]): u.get("tilesMovedThisTurn")
+               for u in ((ast or {}).get("units") or []) if u.get("entityId") is not None}
+        n_porteur, n_att = cnt.get(int(tgt["id"])), cnt.get(int(att["id"]))
+        atk_type = h.normal_attack_type(att["id"], dv)
+        rec = {"caster": att["id"], "target": tgt["id"], "lhykhis": me["id"],
+               "start": apos_att0, "step_to": None, "anchor": cible_dest[0],
+               "ability_type": int(atk_type), "dist": dist,
+               "n_natif": int(n_att or 0), "n_porteur": n_porteur, "sujet": True}
+        rec["snapshot"] = h.snapshot()
+        rec["rng_after_step"] = h.rpc("dumpRng", {"runnerId": h.rid}, 30)
+        if verbose:
+            print("    SUJET : porteur a bouge de %s tuiles, attaquant de %s" % (n_porteur, n_att))
+        return rec, None
+
+    # (3bis) Le `FlyUnit` du `ExecuteBehaviour` a TELEPORTE Lhykhis sur une tuile adjacente a la
+    # cible -- potentiellement CELLE qu'on visait. La tuile de contact se re-choisit donc APRES le
+    # cast, parmi les adjacentes ENCORE libres et a `dist` de la position courante de l'attaquant.
+    occ2 = set()
+    for u in h.alive(dv):
+        p = u.get("pos") or {}
+        if p.get("col") is not None and u.get("id") != att["id"]:
+            occ2.add((p["col"], p["row"]))
+    ap = att.get("pos") or {}
+    apos = (ap.get("col"), ap.get("row"))
+    contacts2 = [s for s in libres
+                 if hexgeo.distance(s, anchor) == 1 and s not in occ2
+                 and hexgeo.distance(s, apos) == dist]
+    if not contacts2:
+        return None, ("aucune tuile de contact libre a distance %d apres le vol de Lhykhis "
+                      "(attaquant en %s, ancre %s)" % (dist, apos, anchor))
+    step_to = contacts2[0]
 
     # (4) snapshot AVANT le pas de l'attaquant
     atk_type = h.normal_attack_type(att["id"], dv)
     rec = {"caster": att["id"], "target": tgt["id"], "lhykhis": me["id"],
-           "start": start, "step_to": step_to, "anchor": anchor,
+           "start": apos, "step_to": step_to, "anchor": anchor,
            "ability_type": int(atk_type), "dist": dist}
     rec["snapshot"] = h.snapshot()
 
@@ -267,12 +363,23 @@ def run_case(a, rpc, Board, Harness, dist, seuil, seed_bc) -> int:
     try:
         bg = rpc("boardGraph", {"runnerId": rid}, 60)
         h = Harness(rpc, rid, Board(bg["tiles"], adjacency="native_sym"))
-        rec, why = stage(h, dist, a.verbose)
+        rec, why = stage(h, dist, a.verbose, sujet_porteur=a.sujet)
         if rec is None:
             print("[dist=%d] REFUS : %s" % (dist, why))
             return 2
         n = rec["n_natif"]
         attendu = n >= seuil                       # AmountIsEqualOrGreater(n, movement)
+        if rec.get("sujet"):
+            # Le PORTEUR a bouge `>= movement`, l'ATTAQUANT non. Le buff ne doit PAS s'appliquer :
+            # c'est ce qui prouve que le sujet est `Caster@+0x48` et non l'`Owner@+0x30`.
+            if rec.get("n_porteur") is None or int(rec["n_porteur"]) < seuil:
+                print("[SUJET] REFUS : le porteur n'a parcouru que %s tuiles (< %d) -- le bras ne "
+                      "discrimine RIEN" % (rec.get("n_porteur"), seuil))
+                return 2
+            if n >= seuil:
+                print("[SUJET] REFUS : l'attaquant a bouge de %d -- regime non discriminant" % n)
+                return 2
+            attendu = False
 
         live, why = strike(h, rec)
         if live is None:
@@ -301,6 +408,7 @@ def run_case(a, rpc, Board, Harness, dist, seuil, seed_bc) -> int:
 
 
 def main() -> int:
+    global ATTACKER_DEFAULT
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default="MC1_67")
@@ -310,9 +418,20 @@ def main() -> int:
     ap.add_argument("--target-unit", default="necroWarden")
     ap.add_argument("--other-unit", default="necroOverlord")
     ap.add_argument("--dist", default="2,4", help="distances a jouer (un runner par distance)")
+    ap.add_argument("--sujet", action="store_true",
+                    help="BRAS SUJET : c'est le PORTEUR qui parcourt >= movement tuiles et "
+                         "l'ATTAQUANT qui n'en parcourt aucune. Le buff ne doit PAS s'appliquer -- "
+                         "c'est ce qui prouve que le sujet est Caster@+0x48 et non Owner@+0x30.")
+    ap.add_argument("--attacker", default=ATTACKER_DEFAULT,
+                    help="l'unite qui ATTAQUE la cible marquee (= le sujet du seuil). Doit porter "
+                         "Hero et NE PAS etre Aeldari, sinon le op_BitwiseOr sature et le seuil "
+                         "devient inobservable. `blackHaarken` -> regime Fly ; `bloodIntercessor` "
+                         "-> regime TeleportStrike(+Fly).")
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args()
 
+    ATTACKER_DEFAULT = a.attacker
+    _garde_attaquant(a.attacker)
     seuil = seuil_du_gameconfig()
     print("== #589-r1-r1 EmpyricAmbush -- seuil movement (gameconfig) = %d" % seuil)
 
