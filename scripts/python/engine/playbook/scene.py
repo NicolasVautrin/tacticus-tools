@@ -772,6 +772,36 @@ def _seed_measured_actives(ctx_by_id, ability_states) -> int:
     return seeded
 
 
+def _seed_measured_config_actives(ctx_by_id, ability_states) -> int:
+    """Seede `UnitContext.config_active_abilities` des tables de PREDICTION depuis le RPC
+    `unitAbilityStates` (#419-r1-tr14-r5-r2-r2-r1) — le PENDANT EXACT, sur ce seam-ci, de
+    `snapshot._load_config_active_abilities` cote COMBAT. Rend le nombre d'unites seedees.
+
+    POURQUOI CE CANAL EN PLUS DE `_seed_measured_actives`. Celui-la lit l'`ActiveAbilityComponent`
+    (etat APRES la fabrique) ; celui-ci lit `UnitConfiguration.ActiveAbilities` (etat AVANT), et
+    c'est ce que teste la garde `FilterNewList` de
+    `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`. Les deux ne sont PAS
+    interchangeables : sur le canal POST la garde repond juste meme les trois voies amont coupees,
+    donc elle ne peut rien falsifier.
+
+    RANG : identique aux seeds voisins — la CONFIGURATION est figee (elle vient de la BC), donc le
+    COLD suffit et `refresh_shields` ne la re-seede que pour les ARRIVANTS.
+
+    COUT : NUL. Meme payload que `_seed_measured_passives`, aucun RPC supplementaire.
+
+    TRI-ETAT : cle absente = canal muet -> rien n'est pose et la garde ne gate pas ; valeur `None`
+    = mesure « pas joint » ; liste (fut-elle vide) = mesure."""
+    from ..runner.snapshot import config_active_ability_names_by_unit   # lazy : playbook <- runner
+    seeded = 0
+    for uid, names in config_active_ability_names_by_unit(ability_states).items():
+        c = ctx_by_id.get(uid)
+        if c is None:
+            continue
+        c.config_active_abilities = names
+        seeded += 1
+    return seeded
+
+
 def _seed_measured_triggered(ctx_by_id, ability_states) -> int:
     """Seede `UnitContext.triggered_abilities` des tables de PREDICTION depuis le RPC
     `unitAbilityStates` (#419-r1-tr14-r5-r2-r1-r1) — le PENDANT EXACT, sur ce seam-ci, de
@@ -892,6 +922,9 @@ def build_predictor(rpc, rid):
     # #419-r1-tr14-r5-r2 : la SECONDE voie de la meme cascade (`UnitConfiguration.ActiveAbilities`),
     # sur le MEME payload -- aucun RPC de plus.
     _seed_measured_actives(ctx_by_id, _abst)
+    # #419-r1-tr14-r5-r2-r2-r1 : l'etat PRE-FABRIQUE de la MEME liste (capteur #466), toujours sur
+    # le meme payload. C'est le substrat de la garde du repli generique.
+    _seed_measured_config_actives(ctx_by_id, _abst)
     # #419-r1-tr14-r5-r2-r1-r1 : le `TriggeredAbilityComponent` ENTIER, sur le MEME payload encore.
     # C'est ce que lit `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility`, donc le substrat du
     # gate `ShouldExecute` de l'attaque normale (sur la CIBLE) et du dispatcher d'utilite
@@ -1177,6 +1210,10 @@ def refresh_shields(predictor, rpc, rid):
         _seed_measured_passives(predictor["ctx_by_id"], _abst)
         # #419-r1-tr14-r5-r2 : les ACTIVES des ARRIVANTS, meme rang et meme payload que les passifs.
         _seed_measured_actives(predictor["ctx_by_id"], _abst)
+        # #419-r1-tr14-r5-r2-r2-r1 : l'etat PRE-FABRIQUE des ARRIVANTS. MESURE : un invoque
+        # (`orksGrot`) a bien une `UnitConfiguration` dans `BC.Units` et rend `[]` -- une MESURE,
+        # pas un « pas joint ». Sans ce re-seed, sa garde retomberait sur « canal muet ».
+        _seed_measured_config_actives(predictor["ctx_by_id"], _abst)
         # #419-r1-tr14-r5-r2-r1-r1 : le `TriggeredAbilityComponent` des ARRIVANTS, meme rang et meme
         # payload. Sans lui, le gate `ShouldExecute` de l'attaque normale lirait le KIT pour tout
         # summon apparu en cours de bataille.

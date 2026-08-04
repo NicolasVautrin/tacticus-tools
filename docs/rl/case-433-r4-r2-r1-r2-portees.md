@@ -562,3 +562,85 @@ bouger (c'est la contre-épreuve de la marche `IsRegularAbilityType`).
 `AttackQuery` (un champ du SERVICE, pas de l'ability — aucun canal ne le publie, et le port le
 suppose faux), et `-r1-r1-c-r2` (le canal d'état n'existe que sous `allAbilities: true`), qui reste
 entier et rend ce gate-ci silencieusement muet chez tout consommateur qui ne demande pas le drapeau.
+
+### 9.5 LA FENÊTRE A TIRÉ (2026-08-04) — le capteur est MAL POSÉ, et le plan ne pouvait pas le voir
+
+Le capteur a été confronté sur la session 3 (build `rnca9r7q6c`). **Crans 1 à 4 : conformes.
+Cran 5 : ÉCART, et il accuse le capteur.**
+
+| # | attendu | obtenu | verdict |
+|---|---|---|---|
+| 1 | `classResolved: true`, `unresetedLastTurnUsed = 0x20`, `lastTurnUsed = 0x18`, égaux aux `decompiled*` | **exactement ça** (`32` / `24`) | OK — et c'est le point : les offsets de CHAMP sont justes, le cran 1 est donc **structurellement aveugle** au défaut |
+| 2 | `methodResolved: true`, `turnsEnded` entier, `paramClass` publié | `true`, `0`, **`Int32`** | OK |
+| 3 | `turnsEnded` ≠ `turn` au moins une fois | `turn` = 3/4/3 pendant que `turnsEnded` = 0/3/4/6/… | OK, **et le motif n'est pas celui annoncé** : `turn` suit `currentPlayer`. `projectMatch` pose `turn: status.currentTurnPlayer` (= `TurnComponent._currentPlayerId`), pas `GetAmountOfTurnsStartedByCurrentPlayer` — §9.2 se trompait de fonction. La conclusion (« `turn` ne peut pas servir de substitut ») tient *a fortiori*. |
+| 4 | à T0, `unresetedLastTurnUsedHasValue = false` | `false` (et `lastTurnUsed` idem) | OK |
+| 5 | à T1, `hasValue = true` **et** `value == turnsEnded` | `hasValue = true`, `value = 1`, **`turnsEnded = 6`** | **ÉCART** |
+| 6 | `lastTurnUsed` bouge aussi | il bouge, à la MÊME valeur (`1`) | conforme — et le décompilé dit pourquoi (cf. ci-dessous) |
+| 7 | à T2, `unresetedLastTurnUsed` inchangé pendant que `turnsEnded` monte | inchangé (`1`) à `turnsEnded` 7 puis 9 | conforme en FORME, sans valeur puisque le cran 5 est faux |
+
+**Le discriminant, énoncé avant la mesure** : un seul cast ne peut pas trancher, parce que sous la
+disposition fausse ce qui sort en `value` est le bit `hasValue`, c'est-à-dire toujours `1` — et `1`
+est un tour parfaitement plausible. Il faut **DEUX casts à deux compteurs distincts**, dans la même
+bataille :
+
+| cast | unité | ability | `turnsEnded` au cast | `unresetedLastTurnUsed` publié |
+|---|---|---|---|---|
+| 1 | `tauMarksman` | `1069` | **6** | **1** |
+| 2 | `templAggressor` | `1048` | **19** | **1** |
+
+Les deux écrivains sont lus verbatim et écrivent la MÊME expression dans les DEUX champs :
+`IdunBattle.Operations.SetActiveAbilityUsedOperation$$Execute` et
+`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` posent
+`Nullable(TurnComponent.GetAmountOfTurnsEnded(StateExtensions.GetMatchTurn(state), 0))` dans
+`LastTurnUsed@+0x18` **et** `UnresetedLastTurnUsed@+0x20` (ce qui explique le cran 6 : ils bougent
+ensemble, à la même valeur, par construction). Et
+`IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEnded` =
+`Sum(this.<Dictionary @+0x40>.Values) + turnsToAdd` est **monotone**. Deux casts séparés par des
+tours terminés ne peuvent donc PAS avoir stocké la même valeur. ⇒ le champ publié n'est pas le tour.
+
+**Cause : la disposition interne du `Nullable<T>`.** `readAbilityState` lisait
+`{ int value @+0 ; bool hasValue @+4 }`. `System.Nullable`1` déclare `hasValue` PUIS `value`
+(`classFields("System", "Nullable`1")`), et le décompilé le confirme deux fois :
+`IdunBattle.Core.Services.AttackQuery$$IsAlreadyUsedThisTurn` prend l'octet `HasValue` sur
+`fields[0]` et l'int comparé au compteur sur `fields[0] + 0x20` (= `fields[1]`), et
+`IdunBattle.Entities.Components.ActiveAbility$$get_IsInCooldown` prend le sien sur `fields[0]`
+aussi. Neuf autres sites du dépôt documentaient déjà `hasValue @+0` ; ce foyer-ci était **le seul à
+l'inverse**, et `frida/hooks/features/effect-bonus-trace.ts` **nommait la contradiction sans la
+trancher**.
+
+**Rayon de souffle, dans le MÊME foyer** — `cooldown` (`RemainingCooldownTurns`) et `ammoCost` y
+étaient lus à la même convention inverse, depuis toujours :
+
+* le NOMBRE était faux — `cooldown` valait `1` pour tout cooldown non nul (c'est le bit `hasValue`
+  qui sortait), donc `engine/runner/operations/ability_reset.py` (`remaining_cooldown > 1`, mirror
+  d'`EntityCanHaveActiveAbilityReset`) ne pouvait **jamais** être vrai ;
+* la PRÉSENCE, elle, coïncidait par accident : `value & 0xff != 0` équivaut à
+  `HasValue && Value > 0` (= `get_IsInCooldown`) tant que la valeur tient sur un octet non nul.
+  C'est ce qui explique qu'aucun test ne l'ait vu — et pourquoi le témoin de §8.4
+  (`initialCooldownTurns = 1`) est **dégénéré** sur cet axe : `1` est justement la valeur où les
+  deux dispositions coïncident.
+
+Le `HasValue` du `Nullable<AbilityState>` (`OverrideAbilityState`, `+0xc` codé en dur) relevait de
+la même supposition, symétrique.
+
+**Livré** : `readNullableInt` résout désormais la disposition **par réflexion** (champ → type →
+classe `Nullable`1` → offsets `hasValue`/`value`, moins le `0x10` de l'offset boxé) — le patron que
+`frida/hooks/game/match-state.ts` applique déjà à `UnitComponent.DeathReason`. Non résolue ⇒
+« PAS MESURÉ », jamais une lecture à une convention devinée. La disposition résolue est publiée
+dans `abilityStateLayout.nullableLayout`. Cliquet offline :
+`scripts/python/tests/test_579r1_nullable_layout_offline.py` (4 crans ; **rougit 4/4** sur la
+version d'avant, contre-épreuve jouée). Probe de confrontation :
+`scripts/python/probe_579_nullable_layout.py` (rc `0` fidèle / `1` infidèle / `2` non tranché,
+avec refus explicite des deux régimes dégénérés : même compteur aux deux casts, ou compteur nul).
+
+⚠ **Le correctif vit dans `frida/hooks`, donc il exige une NOUVELLE fenêtre de reinject.** Ce qui
+est prouvé aujourd'hui : le bundle recompile (`frida-compile`, rc=0) et le cliquet offline tient.
+Rien de plus. **La marche (f) n'est donc TOUJOURS PAS branchée** — son entrée n'est pas fiable, et
+la brancher sur une valeur fausse serait pire que l'absence (elle est RESTRICTIVE).
+
+**Ce que la fenêtre suivante doit jouer** : `probe_579_nullable_layout.py`, et exiger `rc=0`
+(`value == turnsEnded` aux DEUX casts, à deux compteurs distincts et non nuls). Alors seulement
+ajouter la marche (f) selon §9.4. À rejouer **aussi**, parce que le correctif les change :
+`test_433_r4_r2_r1_r1_c_caster_gates_live.py` (le gate `cooldown` lit désormais la vraie valeur —
+un `Nullable(0)` sort en `0` là où il sortait `null`, ce que `can_currently_be_used` traite
+correctement via `cd >= 1`) et les tests de reset d'ability.

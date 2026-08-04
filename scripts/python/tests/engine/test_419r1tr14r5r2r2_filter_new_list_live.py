@@ -31,23 +31,28 @@ CE QUE CE FICHIER GARDE -- cinq choses, aucune redondante :
      a la main : il lit `UnitContext.active_abilities` / `.passive_abilities` / `.traits` tels que
      `scene.build_predictor` les seede. Le cran confronte donc la CHAINE ENTIERE au champ que la
      fabrique ecrit.
-  5. **LE FOYER PORTE EST JUSTE, ET L'ECART RESIDUEL EST BORNE.** `normal_attack_already_present`
-     s'accorde au natif sur les quatre bras -- donc ce qui reste ouvert est un probleme de CANAL,
-     pas de RE. Et l'ecart de port subsistant est fige a la seule ligne `preuve` : le cliquet
-     rougit s'il s'elargit comme s'il se ferme.
+  5. **LE FOYER PORTE EST JUSTE, ET LE PORT LE SUIT.** `normal_attack_already_present` s'accorde au
+     natif sur les quatre bras, ET la cascade l'appelle desormais : plus aucun ecart de port. Le
+     cliquet rougit si un ecart REAPPARAIT (regression du branchement) comme si le foyer diverge.
 
-⚠ **La garde est PORTEE mais NON BRANCHEE dans `custom_normal_attack`, et c'est un arbitrage
-MESURE** : elle exige `config.ActiveAbilities` (l'etat AVANT la fabrique), le canal ne donne que
-l'etat APRES. Branchee dessus, elle repondrait juste meme voie amont coupee -- elle rend alors
-INERTE la contre-epreuve de la voie ACTIVE (#565), mesure -- et elle n'apporterait rien en
-production (**0 des 175 unites du seed** n'a d'attaque reguliere dans `BC.Units[].ActiveAbilities`).
-Residu `#419-r1-tr14-r5-r2-r2-r1`.
+**LA GARDE EST BRANCHEE depuis le capteur #466** (`#419-r1-tr14-r5-r2-r2-r1`, residu FERME), et
+SUR LE BON CANAL -- c'est la moitie du sujet. Deux canaux existent :
 
-⚠ **Le canal est un SUR-ENSEMBLE, et c'est MESURE ici** (`test_le_canal_est_un_sur_ensemble`) :
-`UnitContext.active_abilities` lit l'`ActiveAbilityComponent` APRES la fabrique, donc il porte
-AUSSI l'attaque normale qu'elle vient d'y ecrire. C'est ce qui rend la lecture « DERNIERE
-reguliere » correcte des deux cotes de la garde -- et ce cran est ce qui empeche de la croire
-equivalente a `BC.Units[].ActiveAbilities`.
+  * `UnitContext.active_abilities` (POST) lit l'`ActiveAbilityComponent`, donc APRES la fabrique :
+    il contient DEJA la reponse. Branchee dessus, la garde repondait juste meme voie amont coupee
+    et rendait INERTE la contre-epreuve de la voie ACTIVE (#565) -- mesure.
+  * `UnitContext.config_active_abilities` (PRE, capteur #466) est `UnitConfiguration.
+    ActiveAbilities` lui-meme, ce que le natif teste. C'est celui qui est branche, et la
+    contre-epreuve de #565 reste MORDANTE avec (rejouee, cf. la case-doc).
+
+⚠ Le gisement de PRODUCTION est VIDE (**0 des 175 unites du seed** n'a d'attaque reguliere dans
+`BC.Units[].ActiveAbilities`) : le branchement ne ferme aucun ecart observable en jeu, il rend la
+garde FALSIFIABLE. C'est ce montage ECRIT qui l'exerce.
+
+⚠ **Le canal POST est un SUR-ENSEMBLE, et c'est MESURE ici** (`test_le_canal_actives_est_un_sur_ensemble`) :
+il porte AUSSI l'attaque normale que la fabrique vient d'ecrire. Ce cran est ce qui empeche de le
+croire equivalent a `BC.Units[].ActiveAbilities` -- et donc ce qui justifie qu'un SECOND canal ait
+du etre pose.
 
 ⚠ Aucune des 18 attaques regulieres n'a de config d'ability derivable (0/18 au gameconfig, 0/131
 dans `BC.Abilities.ActiveAbilities` du seed) : le montage ECRIT l'id directement, et
@@ -165,12 +170,11 @@ def test_le_canal_actives_est_un_sur_ensemble(guard_rows):
 
 
 def test_le_foyer_porte_s_accorde_au_natif_sur_les_quatre_bras(guard_rows):
-    """(5) Le foyer EST juste -- mesure, alors meme qu'il n'est pas branche.
+    """(5) Le foyer EST juste -- mesure, sur le canal POST.
 
-    `normal_attack_already_present` est un mirror de la garde, mais `custom_normal_attack` ne
-    l'appelle pas (cf. sa docstring : le substrat exact, `config.ActiveAbilities`, n'est pas
-    disponible). Ce cran etablit qu'il rend la BONNE valeur sur les quatre bras -- c'est ce qui
-    rend le residu `-r2-r2-r1` purement un probleme de CANAL, pas de RE."""
+    `normal_attack_already_present` est un mirror de la garde. Ce cran etablit qu'il rend la BONNE
+    valeur sur les quatre bras, independamment du canal sur lequel la cascade l'appelle : un ecart
+    ici accuse la RE de la garde elle-meme."""
     bad = [(r["role"], r["foyer"], r["native"]) for r in guard_rows if r["foyer"] != r["native"]]
     assert not bad, (
         f"le foyer de la garde diverge du `NormalAttackType` natif sur {bad} -- format (role, "
@@ -178,20 +182,49 @@ def test_le_foyer_porte_s_accorde_au_natif_sur_les_quatre_bras(guard_rows):
         f"elle-meme, pas le canal.")
 
 
-def test_l_ecart_de_port_residuel_est_celui_documente(guard_rows):
-    """(6) CLIQUET DE RESIDU (`#419-r1-tr14-r5-r2-r2-r1`).
+def test_la_garde_branchee_ferme_l_ecart_de_port(guard_rows):
+    """(6) CLIQUET (`#419-r1-tr14-r5-r2-r2-r1`, residu FERME par le capteur #466).
 
-    La garde n'etant pas branchee, le port repond encore `Loki_NormalAttack` sur `preuve` -- et
-    SEULEMENT la. Ce cran fige cet ecart CONNU : il rougit s'il s'AGGRAVE (une autre ligne se met
-    a diverger) comme s'il se FERME (la garde a ete branchee, et alors c'est cette case-doc et ce
-    fichier qu'il faut mettre a jour, pas le test qu'il faut faire taire)."""
+    La garde est branchee sur `UnitContext.config_active_abilities` (l'etat PRE-fabrique) : le port
+    doit donc repondre, sur `preuve`, l'attaque REGULIERE deja montee -- et non plus le generique.
+    Ce cran rougit si l'ecart REVIENT (branchement perdu, ou canal PRE redevenu muet) comme s'il
+    s'ELARGIT a une ligne que la garde ne concerne pas."""
     gaps = sorted(r["role"] for r in guard_rows if r["port_gap"])
-    assert gaps == ["preuve"], (
-        f"l'ecart de port residuel porte sur {gaps}, attendu exactement ['preuve']. S'il s'est "
-        f"FERME, la garde a ete branchee : mettre a jour "
-        f"`docs/rl/case-419-r1-tr14-r5-r2-r2-garde-filternewlist.md` et ce cran. S'il s'est "
-        f"ELARGI, le port a regresse sur une ligne que la garde ne concerne pas.")
+    assert gaps == [], (
+        f"l'ecart de port porte sur {gaps}, attendu AUCUN depuis que la garde est branchee sur le "
+        f"canal PRE-fabrique. S'il ne contient que ['preuve'], le branchement a ete perdu (ou "
+        f"`config_active_abilities` est muet : le capteur #466 n'est pas dans le bundle charge).")
     p = _row(guard_rows, "preuve")
-    assert p["port"] == P.GENERIC, (
-        f"sur `preuve`, le port repond {p['port']!r} ; l'ecart documente est qu'il repond "
-        f"{P.GENERIC!r} (le repli generique s'applique faute de garde branchee).")
+    assert p["port"] == P.REGULAR_GRAFT, (
+        f"sur `preuve`, le port repond {p['port']!r} ; la garde branchee doit rendre "
+        f"{P.REGULAR_GRAFT!r} -- l'attaque reguliere ECRITE dans `BC.Units[].ActiveAbilities`, que "
+        f"la fabrique laisse en place sans superposer la generique.")
+
+
+def test_le_canal_PRE_est_bien_l_etat_AVANT_la_fabrique(guard_rows):
+    """(7) Ce qui rend la garde NON TAUTOLOGIQUE -- et il faut le MESURER, pas le supposer.
+
+    Le canal PRE (`UnitContext.config_active_abilities`, capteur #466) doit porter EXACTEMENT ce
+    que le montage a ecrit dans `BC.Units[].ActiveAbilities`, donc SANS l'attaque normale que la
+    fabrique ajoute ensuite. Si les deux canaux etaient egaux, le capteur lirait le composant et
+    non la configuration, et la garde redeviendrait tautologique -- c'est exactement l'etat dont
+    #565 avait montre qu'il rendait sa contre-epreuve inerte."""
+    for r in guard_rows:
+        assert r["canal_config_actives"] is not None, (
+            f"[{r['role']}] {r['unit']} : le canal PRE est `None` (PAS MESURE). Le capteur #466 "
+            f"n'est pas dans le bundle charge, ou la jointure `BaseUnitComponent.Id` -> "
+            f"`UnitConfiguration.Id` a echoue. La garde ne gate alors rien, silencieusement.")
+        assert P.GENERIC not in r["canal_config_actives"], (
+            f"[{r['role']}] {r['unit']} : le canal PRE porte {P.GENERIC!r} "
+            f"({r['canal_config_actives']}), donc il contient l'attaque normale que la FABRIQUE "
+            f"ajoute -- ce n'est pas l'etat PRE, et la garde branchee dessus serait tautologique.")
+    p = _row(guard_rows, "preuve")
+    assert p["foyer_pre"] == P.REGULAR_GRAFT, (
+        f"bras `preuve` : le foyer sur le canal PRE rend {p['foyer_pre']!r}, attendu "
+        f"{P.REGULAR_GRAFT!r} -- c'est la seule ligne ou la garde doit MORDRE.")
+    for role in ("temoin-nonreg", "temoin-origine"):
+        t = _row(guard_rows, role)
+        assert t["foyer_pre"] is None, (
+            f"[{role}] le foyer sur le canal PRE rend {t['foyer_pre']!r} : aucune attaque "
+            f"REGULIERE n'est ecrite dans la configuration de cette unite, la garde ne doit pas "
+            f"mordre.")

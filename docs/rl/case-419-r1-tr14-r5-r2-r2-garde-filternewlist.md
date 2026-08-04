@@ -303,3 +303,94 @@ s'est fait sur le mauvais canal.
 ⚠ **Ce qui restera NON COUVERT même après la fenêtre** : le second-ordre `AddDerivedAbilities`
 (§6) — le capteur lit la configuration, pas ce que la fabrique dérive ensuite —, et le paramètre
 `this.<+0x20>` du ctor du factory, toujours supposé constant.
+
+## 7.5 LA FENÊTRE A TIRÉ (2026-08-04) — capteur CONFIRMÉ, garde BRANCHÉE, résidu FERMÉ
+
+Confronté sur la session 3, build `rnca9r7q6c`, montage §7.4 (`--seed 777 --board MC1_67`, six
+unités). **Crans 1 à 6 : conformes, à l'unité près. Cran 7 : RÉFUTÉ — sa prémisse était fausse.**
+
+| # | attendu | obtenu |
+|---|---|---|
+| 1 | les cinq `*Resolved` à `true` | tous `true` |
+| 2 | `activeAbilitiesOff`/`idOff`/`baseUnitComponentIdOff` = `0xa0`/`0x10`/`0x10`, égaux aux `decompiled*` | **exactement** (`160`/`16`/`16`) |
+| 3 | `bcUnits` 175, `bcUnitsWithActives` 125, `elemClass` `ActiveAbilityType`, `elemStride` 4, `unreadableActiveLists` 0 | **exactement**, plus `configIdCollisions: []` |
+| 4 | `configActives` = les colonnes PRE du §7.2 | `[1048]`, `[1063]`, `[1152]`, `[1069]`, `[1005]`, `[1017]` — **6/6 exact** |
+| 5 | `actives ∖ configActives` = `{1128, 69, 69, 1076, 69, 69}` et `configActives ∖ actives` = ∅ | **exactement**, unité par unité |
+| 6 | `normal_attack_already_present` : `None` 6× sur PRE, non-`None` 6× sur POST | **6/6 et 6/6** |
+| 7 | un INVOQUÉ sort en `configActives: null`, `unmatchedEntities > 0` | **RÉFUTÉ** — voir ci-dessous |
+
+**Cran 7, réfuté par la mesure.** La prémisse — « une unité invoquée naît d'une opération de spawn,
+pas de `BC.Units` » — est **fausse pour ce build**. `orksRuntherd` caste `GetEmRuntz` (1045), deux
+`orksGrot` apparaissent, et le capteur rend pour chacun `configId: "orksGrot"`,
+`configActives: []`, `unmatchedEntities` toujours `0`. Contrôle offline : le seed BC porte bien une
+entrée `orksGrot` avec `ActiveAbilities: []`. Le canal est donc **juste**, et ce `[]` est une VRAIE
+mesure — exactement le cas que §7.3 disait devoir distinguer d'un `null` (50 des 175 entrées).
+
+⇒ **la branche `null` du tri-état n'est exercée par AUCUN montage constructible sur ce seed** :
+toute entité vient d'une `UnitConfiguration` de `BC.Units` (vérifié aussi pour `orksOrkBoys`, le
+summon du Waaagh). C'est un résidu nommé, pas un vert.
+
+**Le contrôle qui manquait, trouvé en cherchant : la MACHINE.** `ultraDreadnought` rend
+`configActives = [1158, 1159]` et `actives = [1158, 1159]` — **PRE == POST exactement**, parce que
+`IdunBattle.Entities.Factories.MachineFactory$$Build` n'appelle **jamais**
+`UnitFactory$$AddNormalAttackAbility`. C'est le seul cas où la différence PRE/POST doit être VIDE,
+et c'est ce qui prouve que la différence observée sur les six autres est bien l'écriture de la
+fabrique — et non un artefact de lecture. Il remplace avantageusement le cran 7.
+
+### 7.6 CE QUI EST BRANCHÉ, et la contre-épreuve qui le valide
+
+La garde est branchée sur le canal PRE, sur le patron exact des trois voies voisines :
+
+* parsing PARTAGÉ `engine.runner.snapshot.config_active_ability_names_by_unit` (foyer unique) ;
+* seed des DEUX faces — `snapshot._load_config_active_abilities` (COMBAT),
+  `playbook.scene._seed_measured_config_actives` (DÉCISION) + le re-seed des ARRIVANTS ;
+* porté par `UnitContext.config_active_abilities`, en TRI-ÉTAT ;
+* threadé aux trois postes d'appel de la cascade (`playbook/prediction/normal_attack.py`,
+  `runner/abilities/targeting.py`, `runner/operations/damage.py`) ;
+* **aucun RPC supplémentaire** : même payload que les trois seeds voisins.
+
+`custom_normal_attack` appelle désormais `normal_attack_already_present(config_active_abilities)`
+en QUATRIÈME position, après la branche TRAIT — le `else` du `else` du `else`, comme le natif.
+**Pas de repli KIT** sur cette voie, et c'est délibéré : aucune des 18 attaques régulières n'est une
+ability de catalogue, un repli n'aurait rien à lire.
+
+**LA CONTRE-ÉPREUVE #565, VERBATIM.** C'est le test qui dit si le trou est fermé ou seulement
+déplacé — branchée sur le canal POST, la garde le faisait tomber (`1 failed / 5 passed`) :
+
+```
+$ python -m pytest tests/engine/test_419r1tr14r5r2r2_filter_new_list_live.py \
+                   tests/engine/test_419r1tr14r5r2_active_normal_attack_live.py -p no:randomly -q
+..............                                                           [100%]
+14 passed in 93.80s (0:01:33)
+```
+
+`test_la_contre_epreuve_mord_sur_la_preuve_et_seulement_la` est VERT **avec la garde branchée** :
+voie active coupée, `astraBullgryn` porte `config.ActiveAbilities = [PoundThemToDust]`, or `1124`
+n'est PAS une attaque régulière — la garde ne mord pas, le repli générique s'applique, et le bras
+`preuve` retombe bien sur `Loki_NormalAttack`. La contre-épreuve garde donc son pouvoir de
+falsification. Sur le canal POST elle l'avait perdu : `[1124, 1126]` contient `1126`, qui EST
+régulière, donc la garde répondait juste **par le résultat qu'elle était censée prédire**.
+
+**Non-régression rejouée après le branchement** : `test_419r1tr14r5_normal_attack_dispatch_live`
+(6), `test_419r1tr14r5r2r1_trait_normal_attack_live` (6),
+`test_419r1tr14r5_r1r4_normal_attack_table_live` (9), `test_419r1tr14_heavy_bolt_pistol_live` (6),
+`test_419r1tr14r5r2r1r1_normal_attack_should_execute_live` (7) — **34 passed**, plus les 14
+ci-dessus.
+
+### 7.7 L'ENJEU, dit par un chiffre — ce que le branchement NE ferme pas
+
+Le gisement de PRODUCTION reste **VIDE** : 0 des 175 unités du seed n'a d'attaque régulière dans
+`BC.Units[].ActiveAbilities`, et aucune des 18 n'est attribuée par les 5 voies du gameconfig. Le
+branchement **ne ferme donc aucun écart observable en jeu** — il rend la garde FALSIFIABLE, et
+c'est le montage ÉCRIT (`probe_419r1tr14r5r2r2_filter_new_list`) qui l'exerce. C'est exactement
+l'arbitrage de l'auteur de #575, et il avait raison de ne pas le brancher sur le canal POST : ce
+qui a changé n'est pas le calcul du coût, c'est la disponibilité du bon substrat.
+
+**Résidus après cette tranche** :
+
+* **`-r2-r2-r1-r1`** — la branche `null` du tri-état de `configActives` n'est exercée par aucun
+  montage : toutes les entités du seed ont leur `UnitConfiguration`. Elle reste une borne
+  défensive non confrontée. Un porteur la produirait s'il existait une entité dont le
+  `BaseUnitComponent.Id` n'est pas dans `BC.Units` — non trouvé sur ce build.
+* **`-r2-r2-r2`** — `AddDerivedAbilities` (§6) et le paramètre `this.<+0x20>` du ctor du factory
+  restent hors mesure, inchangés.

@@ -92,6 +92,28 @@ class UnitContext:
     # Seede par `snapshot._load_active_abilities` (COMBAT) et `playbook.scene._seed_measured_actives`
     # (DECISION), tous deux sur le parsing PARTAGE `snapshot.active_ability_names_by_unit`.
     active_abilities: list[str] | None = None
+    # --- `UnitConfiguration.ActiveAbilities` : l'etat PRE-FABRIQUE (#419-r1-tr14-r5-r2-r2-r1) --------
+    # Le champ CI-DESSUS est l'`ActiveAbilityComponent`, donc l'etat APRES la fabrique. Celui-ci est
+    # `config@+0xa0` LUI-MEME, c'est-a-dire `BC.Units[].ActiveAbilities` : ce que
+    # `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` voit AVANT d'ecrire quoi
+    # que ce soit. C'est le seul substrat sur lequel la garde `FilterNewList` du repli generique
+    # (`normal_attack_already_present`) puisse etre autre chose qu'une tautologie -- branchee sur le
+    # canal POST, elle repondait juste MEME les trois voies amont coupees.
+    #
+    # Canal : `unitAbilityStates.units[].configActives` (capteur #466), joint a l'entite par
+    # `BaseUnitComponent.Id` == `UnitConfiguration.Id` (jointure LUE dans
+    # `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent`).
+    #
+    # TRI-ETAT, meme discipline que les deux voisins : `None` = canal non mesure (capteur absent,
+    # cle de jointure illisible, ou entite sans configuration dans la BC) -> la garde ne gate PAS,
+    # comportement strictement d'avant ; une LISTE (fut-elle vide) = mesure. Le `[]` n'est PAS un
+    # `None` deguise : il vaut « cette configuration ne porte aucun actif », le cas de 50 des 175
+    # entrees du seed -- et il est CONFRONTE (une unite invoquee `orksGrot` rend `[]` live, et son
+    # entree du seed BC porte bien `ActiveAbilities: []`).
+    # Seede par `snapshot._load_config_active_abilities` (COMBAT) et
+    # `playbook.scene._seed_measured_config_actives` (DECISION), tous deux sur le parsing PARTAGE
+    # `snapshot.config_active_ability_names_by_unit`.
+    config_active_abilities: list[str] | None = None
     # --- l'`AbilitiesComponent` ENTIER (#456-r1) -----------------------------------------------------
     # `passive_abilities` ci-dessus ne porte que la HIERARCHIE 2. Le dispatcher d'utilite, lui, itere
     # la collection COMPLETE : `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.

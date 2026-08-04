@@ -1093,9 +1093,14 @@ class DamageHandler:
             _actx = getattr(_asc, "ctx", None)
             _apas = getattr(_actx, "passive_abilities", None)
             _aact = getattr(_actx, "active_abilities", None)
+            # #419-r1-tr14-r5-r2-r2-r1 : la QUATRIEME (la garde du repli generique) lit
+            # `UnitConfiguration.ActiveAbilities`, l'etat AVANT la fabrique -- pas `_aact`, qui est
+            # l'etat APRES. Meme motif que ci-dessus : les deux faces decident de la MEME cascade.
+            _acfg = getattr(_actx, "config_active_abilities", None)
             _atra = entity_trait_names(_actx, _uc.visual_id)
             if is_mv71_normal_attacker(_uc.visual_id, passive_abilities=_apas,
-                                       active_abilities=_aact, traits=_atra):
+                                       active_abilities=_aact, traits=_atra,
+                                       config_active_abilities=_acfg):
                 res = MV71SniperDroneSquadAttackAbility().execute_behaviour(
                     self.state, msg.attacker_id, msg.target_id) or {}
                 self.last = res.get("attack")

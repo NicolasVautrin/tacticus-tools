@@ -58,22 +58,27 @@ AUCUNE des 18 n'a d'entree `units.abilities` au gameconfig (mesure : 0/18) ni da
 une ability de catalogue, le natif la resout PAR TYPE. On ecrit donc l'id directement dans
 `BC.Units[].ActiveAbilities`, ce qui est exactement ce que la fabrique consomme.
 
-## CE QUE LE CANAL TRANCHE -- et pourquoi la garde reste NON BRANCHEE
+## LES DEUX CANAUX -- et pourquoi UN SEUL peut porter la garde
 
-`UnitContext.active_abilities` est documente comme un SUR-ENSEMBLE ASSUME (cf.
+`UnitContext.active_abilities` (canal POST) est un SUR-ENSEMBLE ASSUME (cf.
 `snapshot.active_ability_names_by_unit`) : il lit l'`ActiveAbilityComponent` APRES la fabrique,
-donc il porterait AUSSI l'attaque normale qu'elle vient d'y ecrire. MESURE ici, et CONFIRME (bras
+donc il porte AUSSI l'attaque normale qu'elle vient d'y ecrire. MESURE ici, et CONFIRME (bras
 temoin -> `['FireAndReposition', 'Loki_NormalAttack']`).
 
-Consequence, mesuree elle aussi : brancher la garde sur ce canal la ferait repondre juste MEME
-voie passive/active/trait coupee -- le canal contient deja le resultat. Elle rend alors INERTE la
-contre-epreuve de la voie ACTIVE (#565). Et elle n'apporterait rien en production : **0 des 175
-unites du seed** n'a d'attaque reguliere dans `BC.Units[].ActiveAbilities`, seul un montage ECRIT
-l'exerce. Le foyer est donc porte et MESURE ici (colonne `foyer`, qui doit s'accorder au natif sur
-les 4 bras), mais pas appele par la cascade -- residu `#419-r1-tr14-r5-r2-r2-r1`.
+Brancher la garde dessus la ferait repondre juste MEME voie passive/active/trait coupee -- le
+canal contient deja le resultat. Mesure : elle rendait INERTE la contre-epreuve de la voie ACTIVE
+(#565). C'est pourquoi la garde est restee DEBRANCHEE jusqu'au capteur #466.
 
-L'ECART DE PORT qui subsiste est CHIFFRE par ce probe (colonne `port` contre `attendu`) : c'est la
-ligne `preuve`, et elle seule.
+`UnitContext.config_active_abilities` (canal PRE, capteur #466) est `UnitConfiguration.
+ActiveAbilities` lui-meme : l'etat AVANT la fabrique, c'est-a-dire EXACTEMENT ce que le natif
+teste. C'est le canal sur lequel la garde est branchee (#419-r1-tr14-r5-r2-r2-r1, residu FERME).
+Le probe imprime les DEUX colonnes (`foyer(POST)` / `foyer(PRE)`) : la premiere montre la
+tautologie, la seconde ce qui decide reellement.
+
+⚠ Le gisement de PRODUCTION reste VIDE : **0 des 175 unites du seed** n'a d'attaque reguliere dans
+`BC.Units[].ActiveAbilities`, et aucune des 18 n'est attribuee par les 5 voies du gameconfig. Le
+branchement ne ferme donc aucun ecart observable en jeu -- il rend la garde FALSIFIABLE, et c'est
+ce montage ECRIT qui l'exerce (ligne `preuve`).
 
 Usage :
     python scripts/python/probe_419r1tr14r5r2r2_filter_new_list.py --state-file <ABSOLU>.json
@@ -163,8 +168,20 @@ def _port_normal_attack(predictor, uid):
     vis = (predictor.get("vis_by_id") or {}).get(uid)
     return custom_normal_attack(passive_abilities=getattr(c, "passive_abilities", None),
                                 active_abilities=getattr(c, "active_abilities", None),
+                                # #419-r1-tr14-r5-r2-r2-r1 : le canal PRE-fabrique (capteur #466),
+                                # substrat de la garde -- surtout pas `active_abilities`.
+                                config_active_abilities=getattr(
+                                    c, "config_active_abilities", None),
                                 visual_id=vis,
                                 traits=entity_trait_names(c, vis))
+
+
+def _measured_config_actives(predictor, uid):
+    """`UnitContext.config_active_abilities` -- l'etat PRE-fabrique tel que le canal le MESURE.
+    `None` = pas mesure (capteur absent ou entite non jointe), a NE PAS confondre avec `[]`."""
+    c = _ctx(predictor, uid)
+    got = getattr(c, "config_active_abilities", None)
+    return None if got is None else list(got)
 
 
 def _measured_actives(predictor, uid) -> list:
@@ -197,17 +214,22 @@ def run(rpc, build, verbose: bool = True) -> list:
         seen = _measured_actives(predictor, uid) if uid is not None else []
         seen_reg = [n for n in seen
                     if int(ActiveAbilityType[n]) in REGULAR_ATTACK_ABILITY_TYPES]
-        # Ce que le FOYER de la garde repond sur le canal -- il n'est PAS branche dans la cascade
-        # (cf. sa docstring), on le mesure pour etablir qu'il est JUSTE et pret a l'etre.
+        cfg = _measured_config_actives(predictor, uid) if uid is not None else None
+        # Le FOYER de la garde sur le canal POST -- il s'accorde au natif, MAIS pour la mauvaise
+        # raison : le canal contient deja la reponse. C'est la colonne qui montre la TAUTOLOGIE.
         foyer = normal_attack_already_present(seen) if uid is not None else None
+        # Le MEME foyer sur le canal PRE (capteur #466) -- celui qui est BRANCHE. Il ne rend une
+        # valeur que si une attaque REGULIERE est ECRITE dans `BC.Units[].ActiveAbilities`.
+        foyer_pre = normal_attack_already_present(cfg) if uid is not None else None
         # `None` cote port == `Loki_NormalAttack` cote natif (aucune substitution).
         port_as_native = port or GENERIC
         rows.append({"unit": vis, "role": role, "actives": act, "passives": pas,
                      "expected": expected,
                      "native": None if nat is None else nat[1],
                      "native_id": None if nat is None else nat[0],
-                     "port": port_as_native, "foyer": foyer,
+                     "port": port_as_native, "foyer": foyer, "foyer_pre": foyer_pre,
                      "canal_actives": seen, "canal_regulars": seen_reg,
+                     "canal_config_actives": cfg,
                      "ok": nat is not None and nat[1] == expected,
                      "port_gap": port_as_native != expected})
     if verbose:
@@ -216,14 +238,15 @@ def run(rpc, build, verbose: bool = True) -> list:
                   f"attendu={r['expected']:<30} port={r['port']:<30} "
                   f"{'OK' if r['ok'] else 'MISMATCH'}"
                   f"{'   <-- ECART DE PORT (residu -r2-r2-r1)' if r['port_gap'] else ''}")
-        print("  -- foyer `normal_attack_already_present` (porte, NON branche) --")
+        print("  -- foyer `normal_attack_already_present` : POST (tautologique) vs PRE (branche) --")
         for r in rows:
-            print(f"     [{r['role']:<14}] foyer={str(r['foyer']):<30} natif={str(r['native']):<30}"
+            print(f"     [{r['role']:<14}] foyer(POST)={str(r['foyer']):<28} "
+                  f"foyer(PRE)={str(r['foyer_pre']):<28} natif={str(r['native']):<28}"
                   f" {'accord' if r['foyer'] == r['native'] else 'DESACCORD'}")
-        print("  -- canal `UnitContext.active_abilities` (sur-ensemble ?) --")
+        print("  -- canaux : POST = `UnitContext.active_abilities` / PRE = `.config_active_abilities` --")
         for r in rows:
-            print(f"     [{r['role']:<14}] {r['unit']:<16} actives={r['canal_actives']} "
-                  f"dont REGULIERES={r['canal_regulars']}")
+            print(f"     [{r['role']:<14}] {r['unit']:<16} POST={r['canal_actives']} "
+                  f"dont REGULIERES={r['canal_regulars']} | PRE={r['canal_config_actives']}")
     return rows
 
 
@@ -261,11 +284,13 @@ def main() -> int:
         print(f"   -> NATIF : {len(rows) - len(bad)}/{len(rows)} conformes a l'attendu")
         rc |= 1 if bad else 0
         des = [r["role"] for r in rows if r["foyer"] != r["native"]]
-        print(f"   -> FOYER (non branche) : "
+        print(f"   -> FOYER sur le canal POST : "
               f"{'accord sur les ' + str(len(rows)) if not des else 'DESACCORD sur ' + str(des)}")
         rc |= 1 if des else 0
         gaps = [r["role"] for r in rows if r["port_gap"]]
-        print(f"   -> ECART DE PORT (residu -r2-r2-r1) sur : {gaps or 'aucun'}")
+        print(f"   -> ECART DE PORT (residu -r2-r2-r1, FERME depuis le capteur #466) : "
+              f"{gaps or 'aucun'}")
+        rc |= 1 if gaps else 0
     finally:
         for rid in rids:
             try:

@@ -764,10 +764,13 @@ def normal_attack_type_for(state: "State", caster_id: int) -> Optional[int]:
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None
     vis = _visual_id(state, caster_id)
-    name = custom_normal_attack(passive_abilities=getattr(ctx, "passive_abilities", None),
-                                active_abilities=getattr(ctx, "active_abilities", None),
-                                visual_id=vis,
-                                traits=_unit_traits(state, int(caster_id)))
+    name = custom_normal_attack(
+        passive_abilities=getattr(ctx, "passive_abilities", None),
+        active_abilities=getattr(ctx, "active_abilities", None),
+        # #419-r1-tr14-r5-r2-r2-r1 : l'etat PRE-fabrique, substrat de la garde du repli generique.
+        config_active_abilities=getattr(ctx, "config_active_abilities", None),
+        visual_id=vis,
+        traits=_unit_traits(state, int(caster_id)))
     if name is None:
         return int(ActiveAbilityType.Loki_NormalAttack)
     got = getattr(ActiveAbilityType, str(name), None)
