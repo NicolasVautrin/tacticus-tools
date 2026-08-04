@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785875858,
+ "_ecrit_le": 1785876855,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -1051,15 +1051,15 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_empyric_ambush_threshold_live.py": {
-   "_at": 1785869040,
-   "_blob": "d6563fb38b1fe72c81692d1ae1ead7a7853f9250",
-   "_commit": "93e340822a241e951443d77145c0400d241f1ffe",
-   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-ad1809737adcfacb2",
+   "_at": 1785876855,
+   "_blob": "7acbcdeb691b86c148da814f233a09e3e38e1254",
+   "_commit": "92b9fdc46aea1b3d2003f57c87389c70e8c66cfd",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a71aadfd408cb0b3b",
    "error": 0,
    "failed": 0,
    "messages": [],
-   "passed": 5,
-   "sec": 69.7,
+   "passed": 9,
+   "sec": 71.9,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
