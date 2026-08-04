@@ -90,12 +90,38 @@ gisement, `99` INDISPONIBLE quand le MONTAGE a echoue -- `docs/rl` introuvable, 
 backlog ou le ledger. Un `backlog.md` vide, un ledger au JSON invalide ou un corpus indigent sont
 des FAITS SUR LE DEPOT, donc des ROUGES : c'est la frontiere a ne pas laisser glisser.
 
+ATTRIBUER N'EST PAS DETECTER -- et le critere s'INVERSE (`--suggere`, #468-r4)
+-----------------------------------------------------------------------------
+Les etapes ci-dessus RATTRAPENT le geste fautif. `--suggere` le supprime : elle DONNE un
+numero libre. Et son critere est l'exact oppose du leur.
+
+  * DETECTER exige de separer definition et mention -- 87 % des occurrences sont des renvois
+    legitimes, un critere par presence rougirait partout et serait desarme le jour meme.
+  * ATTRIBUER n'en a pas besoin, et ne doit surtout pas s'en servir : un numero seulement
+    MENTIONNE est deja PRIS. Le critere est l'UNION de toutes les positions.
+
+C'est ce qui rend `--suggere` robuste aux trous CONNUS du detecteur (#468-r1/r2/r3, et la
+puce de residu d'une case-doc, qui n'est pas une position de definition) : elle n'a pas
+besoin de savoir ce qu'est une definition pour eviter un numero deja employe.
+
+MESURE qui l'impose (2026-08-04) : 13 racines pures < 500 -- dont `#28`, `#269`, `#297`,
+`#300`, `#307` -- n'existent QUE dans les messages de commit. Le corpus documentaire les
+donne pour des trous LIBRES ; `git log --grep` prouve le contraire. Un balayage qui omet
+l'historique fabrique donc exactement la collision qu'il pretend eviter, d'ou :
+
+  UNE MESURE INCOMPLETE NE REND JAMAIS DE NUMERO. Si `git log` est muet, `--suggere` sort en
+  INDISPONIBLE (99) et ne suggere RIEN -- suggerer sur un corpus ampute serait pire que se
+  taire. Meme frontiere que le tri-etat ci-dessous : ce n'est pas une echappatoire, c'est un
+  changement d'ACCUSE.
+
 ASCII only (console Windows cp1252).
 Usage:
     python probe_468_collision_numeros.py [-v]
     python probe_468_collision_numeros.py --report
     python probe_468_collision_numeros.py --self-test
     python probe_468_collision_numeros.py --attester "<ident>|<fichier>=<raison>"
+    python probe_468_collision_numeros.py --suggere            # une RACINE libre
+    python probe_468_collision_numeros.py --suggere 420        # un RESIDU libre sous #420
 """
 from __future__ import annotations
 
@@ -465,6 +491,128 @@ def _artefacts_de_code() -> tuple:
     return probes, tests
 
 
+# ------------------------------------------------------------------------------------------
+# `--suggere` -- DONNER un numero libre (residu #468-r4)
+# ------------------------------------------------------------------------------------------
+#
+# Critere INVERSE de celui des etapes 1 et 2 : ici on prend l'UNION de toutes les positions,
+# mentions comprises. Un numero seulement CITE est deja pris -- c'est litteralement l'occurrence
+# `#448-r1-r1-r2`, ou le rapport employait le numero AVANT tout artefact.
+
+#: Une racine SANS suffixe de residu (`465`), par opposition a `465r1` ou `r6`.
+RACINE_PURE = re.compile(r"^\d+$")
+
+
+def _scanner_fichiers(fichiers) -> dict:
+    """{cle: {ou}} pour tout `#<n>` du CONTENU et tout `<n>` en tete d'un NOM de fichier."""
+    out = {}
+    for p in fichiers:
+        try:
+            txt = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for m in RE_OCCURRENCE.finditer(txt):
+            out.setdefault(normaliser(m.group(1)), set()).add(p.name)
+        ident, _slug = couper_nom(re.sub(r"^(?:probe|test)_", "", p.stem).replace("_", "-"))
+        if ident:
+            out.setdefault(normaliser(ident), set()).add(p.name)
+    return out
+
+
+def _identifiants_des_commits() -> dict:
+    """{cle: {'git log'}} -- l'historique fait partie de l'espace de noms.
+
+    `git log --grep "#<n>"` est une voie de tracabilite de plein droit : un numero cite dans un
+    message de commit est PRIS, meme si aucun fichier ne le porte plus (case-doc renommee,
+    tranche abandonnee). MESURE : 13 racines pures < 500 ne vivent QUE la.
+
+    Toute panne de `git` leve `Indisponible` -- jamais un ensemble VIDE, qui ferait suggerer un
+    numero deja pris. C'est la meme frontiere que `host_inputs.py` : `null` n'est pas `0`.
+    """
+    import subprocess
+    try:
+        res = subprocess.run(["git", "-C", str(REPO), "log", "--format=%s%n%b", "--no-merges"],
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise Indisponible("`git log` injouable (%s) -- aucun numero ne peut etre suggere sur "
+                           "un corpus ampute" % exc) from exc
+    if res.returncode != 0:
+        raise Indisponible("`git log` rc=%d -- aucun numero ne peut etre suggere sur un corpus "
+                           "ampute" % res.returncode)
+    out = {}
+    for m in RE_OCCURRENCE.finditer(res.stdout):
+        out.setdefault(normaliser(m.group(1)), set()).add("git log")
+    return out
+
+
+def employes() -> dict:
+    """{cle normalisee: {sources}} -- l'UNION, toutes positions confondues."""
+    union = {}
+    for part in (_scanner_fichiers(sorted(DOCS_RL.rglob("*.md"))),
+                 _scanner_fichiers(sorted((REPO / "scripts" / "python").rglob("*.py"))),
+                 _identifiants_des_commits()):
+        for k, v in part.items():
+            union.setdefault(k, set()).update(v)
+    return union
+
+
+def borne_des_taches() -> int:
+    """La plus grande racine DEFINIE que `backlog.md` connait -- le sommet de l'espace des taches.
+
+    Le filtre << connue du backlog >> est ce qui ecarte les identifiants de case-doc qui ne sont
+    PAS des numeros de tache : `case-1014-*`, `case-1203-*`, `case-1547-*` portent des id
+    d'ability ou d'effet. Sans lui, la borne saute a 1547 et la suggestion devient absurde.
+
+    La borne n'a pas besoin d'etre exacte, seulement d'etre <= la vraie frontiere : le balayage
+    qui suit avance jusqu'au premier libre. C'est ce qui la rend robuste.
+    """
+    try:
+        txt = BACKLOG.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        txt = ""
+    connues = {normaliser(m.group(1)) for m in RE_OCCURRENCE.finditer(txt)}
+    defs = definitions_du_backlog(_lignes_backlog()) + definitions_des_case_docs(
+        _fichiers_case_docs())
+    racines = [int(d.cle) for d in defs if RACINE_PURE.match(d.cle) and d.cle in connues]
+    return max(racines) if racines else 0
+
+
+def suggerer(parent: str) -> int:
+    """Imprime un identifiant LIBRE. `parent` vide -> une racine ; sinon un `r<k>` sous `parent`.
+
+    On ne recycle JAMAIS un trou sous la borne, meme libre : un trou peut etre un numero pris
+    par un agent EN VOL dont la PR n'est pas encore fusionnee -- l'arbre ne peut pas le voir.
+    La suggestion est donc MONOTONE, et les trous sont seulement LISTES.
+    """
+    pris = employes()
+    if parent:
+        base = normaliser(parent.lstrip("#"))
+        k = 1
+        while "%sr%d" % (base, k) in pris:
+            k += 1
+        print("[468] LIBRE : #%s-r%d" % (parent.lstrip("#"), k))
+        occupes = [i for i in range(1, k) if "%sr%d" % (base, i) in pris]
+        print("   pris sous #%s : %s" % (parent.lstrip("#"),
+                                         ", ".join("r%d" % i for i in occupes) or "(aucun)"))
+        return 0
+
+    borne = borne_des_taches()
+    n = borne + 1
+    while str(n) in pris:
+        n += 1
+    print("[468] LIBRE : #%d" % n)
+    print("   borne des taches = %d (plus grande racine DEFINIE que backlog.md connait) ; "
+          "%d..%d etaient pris" % (borne, borne + 1, n - 1) if n > borne + 1 else
+          "   borne des taches = %d (plus grande racine DEFINIE que backlog.md connait)" % borne)
+    trous = [i for i in range(1, borne) if str(i) not in pris]
+    print("   %d trou(s) libre(s) SOUS la borne, NON proposes (un trou peut etre reserve par une "
+          "PR en vol) : %s" % (len(trous), ", ".join(str(i) for i in trous[:12]) or "(aucun)"))
+    print("   corpus : docs/rl + scripts/python + messages de commit -- l'UNION, mentions "
+          "comprises (%d identifiants)" % len(pris))
+    return 0
+
+
 def rapport() -> None:
     defs_b = definitions_du_backlog(_lignes_backlog())
     defs_c = definitions_des_case_docs(_fichiers_case_docs())
@@ -501,6 +649,9 @@ def main(argv) -> int:
                     help="inventaire complet, y compris les formes REFUTEES comme criteres")
     ap.add_argument("--attester", metavar="ENTREE",
                     help="ajoute au ledger : \"<ident>|<fichier>=<raison>\" (raison OBLIGATOIRE)")
+    ap.add_argument("--suggere", metavar="PARENT", nargs="?", const="",
+                    help="DONNE un identifiant libre : sans argument une racine, avec un parent "
+                         "(ex. 420) le plus petit `r<k>` libre sous lui")
     ap.add_argument("--racine", metavar="CHEMIN",
                     help="vise un AUTRE arbre (contre-epreuve bout-en-bout sur depot jetable)")
     args = ap.parse_args(argv)
@@ -522,6 +673,9 @@ def main(argv) -> int:
         ecrire_ledger(att)
         print("[468] atteste : %s -> %s" % (cle.strip(), raison.strip()))
         return 0
+
+    if args.suggere is not None:
+        return suggerer(args.suggere)
 
     if args.report:
         rapport()
