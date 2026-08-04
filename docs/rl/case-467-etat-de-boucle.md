@@ -72,6 +72,9 @@ Le contexte (PR, session, `liveRunners`) accompagne les signaux et **ne parle ja
 signaler ». `rc == 0` → signalé **une fois**, et seulement si son commit n'est **pas encore** dans
 `origin/master` (c'est la lecture exacte de « plus récent que le dernier push »).
 
+⚠ Ces trois régimes ne valent que pour un verdict qui porte **sur la pointe** — condition qui
+manquait, et qui a fait répéter trois tours de suite un rouge déjà corrigé. Voir **§10**.
+
 ### 3.5 Le hook ne doit jamais immobiliser un tour
 
 `gh` est le seul poste réseau. Son timeout portait `max(self.timeout, 12.0)`, ce qui **annulait**
@@ -270,3 +273,141 @@ Même leçon un cran plus bas : l'épreuve « la cause de `gh` est nommée » pa
 substitution de `gh()` — donc n'exerçait **jamais** le code qu'elle prétendait juger, et restait
 verte sous mutation. Les causes sont désormais exercées en substituant `subprocess.run`, **un cran
 en dessous**. Sans la contre-épreuve par mutation, ces deux gardes seraient entrés aveugles.
+
+## 10. `#472` — un verdict qui ne dit pas À QUOI il s'applique
+
+### Le défaut, mesuré
+
+Le 2026-08-04, **trois tours consécutifs**, le hook a répété :
+
+```
+verdict de banque afb3e209 rc=1 [ROUGE (1)], il y a 15 min
+```
+
+alors que `HEAD` valait successivement `4b62a914` puis `c94efb11`. **Aucun verdict n'existait pour
+ces commits-là** : la banque tournait dessus. Le verdict remonté était celui d'un **ancêtre**, et
+`afb3e209` était rouge pour une cause **déjà corrigée** par un commit plus récent que lui (la course
+de `probe_467r4` sur `liveRunners`, fermée en `fd761e5b`).
+
+Re-mesuré à la reprise du dossier, sans rien monter : dernier verdict `6979f712`, pointe `5efc6a69`,
+**48 commits** et 176 min d'écart — rendus comme l'état courant.
+
+**Ce qui est faux n'est pas le chiffre, c'est ce qu'il prétend décrire.** La ligne se lit « l'état
+courant du dépôt est ROUGE ». Et le jour où la pointe sera vraiment rouge, elle aura **exactement la
+même apparence**. C'est le vice de `host_inputs` (#273) et de `#467-r6` **sur l'axe du temps** : un
+signal qui ne dit pas à quoi il s'applique. L'outil savait déjà faire la distinction « pas encore
+jugé » — il ne l'appliquait simplement pas au cas « verdict présent, mais pour un AUTRE commit ».
+
+### Deux axes ORTHOGONAUX, pas un état combinatoire
+
+| axe | valeurs | ce qu'il répond |
+|---|---|---|
+| **état de la pointe** | `JUGEE` · `EN COURS` · `NON JUGEE` · *pas mesuré* | la banque a-t-elle jugé **CE** commit ? |
+| **fraîcheur du verdict** | `pointe` · `ancetre` · `hors-lignee` · `inconnue` | à quoi le verdict retenu s'applique-t-il ? |
+
+`etat == JUGEE` ⟺ `fraicheur == pointe`, par construction (`_etat_pointe`, table en un seul
+endroit). Les croiser en un état unique aurait produit six libellés pour deux questions.
+
+`inconnue` couvre **deux ignorances qu'on ne fabrique pas** : `git rev-parse HEAD` muet, et un
+`merge-base` qui ne répond pas ou qui ne connaît pas le commit (`rc=128` — verdict d'un arbre
+étranger). Aucune ne se rabat sur `pointe` : ce serait exactement le glissement qu'on ferme.
+
+### La borne anti-glissement
+
+Un verdict PÉRIMÉ **reste AFFICHÉ**, avec sa valeur et **les deux commits** :
+
+```
+banque : pointe 5efc6a69 NON JUGEE ; dernier verdict rc=0 [VERTE]
+         PERIME (juge 6979f712, la pointe est 5efc6a69), il y a 176 min
+```
+
+Il ne change pas d'**existence**, il change d'**accusé** : il quitte les *signaux* (« l'état courant
+est rouge ») pour le *contexte* (« la banque a jugé, mais pas ceci »). Le contexte ne parle jamais
+seul, donc le silence d'un dépôt au repos est préservé. Il n'est rabattu **ni sur un vert ni sur un
+rouge** — les deux glissements sont gardés par mutation (tableau plus bas).
+
+**Une exception, et elle est motivée** : `rc` **illisible** reste un SIGNAL quelle que soit la
+fraîcheur. Il accuse l'**outil d'écriture** du verdict, pas le commit jugé ; le rendre silencieux
+sur un périmé rouvrirait le trou d'en-tête de §4 dès que la pointe avance, c'est-à-dire toujours.
+
+### Le verdict retenu est celui de la POINTE, pas le dernier écrit
+
+`mesurer_banque` balaie du plus récent au plus ancien et s'arrête au premier verdict qui porte la
+pointe ; à défaut, le plus récent, **marqué périmé**. Sans ça, un run sur un ancien commit (bisect,
+`-Commit <ancien>`, PR d'un agent) **masquerait** le verdict de la pointe. Le balayage lit les
+**512 premiers octets** (`_sha_entete`) au lieu du fichier entier : 72 verdicts × 3 Ko sur cet
+arbre, le coût du cas dégradé reste sous le bruit.
+
+### `EN COURS` vs `NON JUGEE` se tranche sur un FAIT
+
+Le fait est le **handle**, pas le fichier. `ratchets-bg.ps1` ouvre son verrou de run en partage
+**lecture seule** (`FileShare.Read`) et garde le handle pendant tout le run : tant que le processus
+vit, personne ne peut ouvrir le fichier en **écriture**. `loop_status._verrou_tenu` teste
+exactement ça.
+
+Ce qui rend le mécanisme honnête est le **pendant** : un run tué (kill, reboot, fenêtre fermée)
+laisse son fichier, mais l'OS libère **toujours** le handle — le verrou devient ouvrable, donc un
+**RÉSIDU**, et il ne peut plus fabriquer un `EN COURS` perpétuel. Un simple fichier-témoin aurait
+introduit ce mensonge permanent ; un **PID** est recyclable ; un **âge** ne distingue pas une banque
+lente d'un run mort. Aucune de ces trois pistes n'est un fait.
+
+**Vérifié en conditions réelles** (pas seulement en probe) : `pwsh` tenant le verrou →
+`_verrou_tenu` = `True` ; `Stop-Process -Force` sur ce même `pwsh` → fichier toujours présent,
+`_verrou_tenu` = `False`.
+
+Le verrou vit **à côté des verdicts** (`logs/ratchets-bg/runs/`), pas dans le tmpdir système où vit
+le worktree de `ratchets-bg` : Python et .NET ne résolvent pas `TEMP`/`TMP` dans le même ordre, et
+un désaccord y serait **silencieux**. Ici la localisation est déjà résolue, par le même chemin que
+les verdicts et le même repli `host_inputs`. `ratchets-bg.ps1` purge au démarrage les verrous
+**non tenus** — même fait, même test — pour que les résidus ne s'accumulent pas.
+
+**Ce qui n'a PAS été fait, et pourquoi.** Le brief envisageait que ce verrou serve *aussi* à
+empêcher deux passes concurrentes. Il en existe déjà un pour ça (`ratchets-bg-wt.lock`, #1b017746) :
+la seconde passe bascule sur un worktree **jetable**, elle n'écrase rien. Et la concurrence est
+**rare** — mesuré sur les **72** verdicts présents : **1 chevauchement sur 71 transitions**. Changer
+la politique (refuser la seconde passe) serait un arbitrage d'orchestration sans gisement mesuré ;
+les deux rôles restent séparés — verrou de **ressource** (qui prend le worktree persistant) et
+verrou de **run** (quel commit est jugé, et par un processus vivant).
+
+### Contre-épreuve : les trois états, chacun atteint pour SA raison
+
+`probe_467` gagne une **étape 8**. Le verrou y est **réel** : `ctypes CreateFileW` avec
+`FILE_SHARE_READ`, parce que la stdlib n'expose pas le mode de partage Windows — substituer
+`_verrou_tenu` reviendrait à substituer le code qu'on prétend juger, le vice fermé en §9.
+
+**8 mutations injectées dans `loop_status.py`, 8 rouges** :
+
+| mutation | rc de `probe_467` |
+|---|---|
+| `_fraicheur` rend toujours `pointe` | 8 |
+| verrou **toujours** tenu (un résidu lu comme un run vivant) | 2 |
+| verrou **jamais** tenu (`EN COURS` inatteignable) | 2 |
+| pointe non mesurée rabattue sur `JUGEE` | 1 |
+| le périmé **alarme** de nouveau (retour au code d'avant) | 1 |
+| le périmé devient **silencieux** (glissement inverse) | 2 |
+| le verdict retenu redevient le **dernier écrit** | 1 |
+| le rendu complet perd la **pointe** | 1 |
+
+Les deux glissements symétriques sont gardés : ni « ça alarme encore », ni « ça se tait ».
+
+**End-to-end**, `ratchets-bg.ps1` → `loop_status`, sur un run réel (`-Only probe_439`) :
+
+```
+AVANT   : etat='NON JUGEE'  runs=[]            pointe=c0e78ad4  verdict=6979f712
+PENDANT : etat='EN COURS'   runs=['c0e78ad4']  pointe=c0e78ad4  verdict=None
+APRES   : etat='JUGEE'      runs=[]            pointe=c0e78ad4  verdict=c0e78ad4
+```
+
+### Résidus
+
+- **`#472-r1` — la détection du verrou est WINDOWS.** Elle repose sur le partage de fichiers
+  Windows ; ailleurs, un verrou pourtant tenu est lu comme un résidu et `EN COURS` se dégrade en
+  `NON JUGEE`. La dégradation est du **bon côté** — « la pointe n'est pas jugée » reste vrai — et
+  `ratchets-bg.ps1` étant du PowerShell, il n'y a de toute façon pas de verrou à lire hors Windows.
+  L'épreuve correspondante de `probe_467` s'annonce alors *non exercée*, elle ne se tait pas.
+- **`#472-r2` — fenêtre de transition.** Un `ratchets-bg.ps1` antérieur à ce commit tourne sans
+  poser de verrou : `loop_status` lira `NON JUGEE` au lieu de `EN COURS`. Les deux fichiers étant
+  livrés ensemble, la fenêtre se referme au merge — et les deux états sont non alarmants.
+- **`#472-r3` — un run lancé depuis le worktree d'un AGENT** écrit son verrou dans le `logs/` de
+  **son** worktree, invisible du lecteur qui juge l'arbre principal. Le cas est marginal (la banque
+  de fond est lancée depuis l'arbre principal) et la dégradation est la même que `r2`.

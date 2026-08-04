@@ -389,6 +389,19 @@ verdict `ratchets-bg` non lu.
 - **Tri-état obligatoire** sur tout ce qui vient du host ou de `gh` : `null` = **PAS mesuré**,
   jamais rendu comme un zéro (même règle que `host_inputs.py`). Un `liveRunners` rabattu sur 0
   fait lancer 4 tests sur un budget inconnu — faute déjà commise.
+- **Le verdict de banque dit À QUOI il s'applique — trois états, jamais deux (#472).** `JUGEE`
+  (un verdict porte **sur la pointe** : rendu tel quel, vert ou rouge) · `EN COURS` (aucun verdict
+  pour la pointe, mais un run **vivant** la juge) · `NON JUGEE`. **Mesuré** : le hook a répété
+  `verdict de banque afb3e209 rc=1 [ROUGE (1)]` **trois tours de suite** pour une cause déjà
+  corrigée, `HEAD` valant entre-temps `4b62a914` puis `c94efb11` ; re-mesuré à froid, **48 commits**
+  entre le dernier verdict et la pointe. Un verdict **PÉRIMÉ** reste **AFFICHÉ** avec les deux
+  commits — il change d'**accusé** (contexte, pas signal), pas d'existence, et n'est rabattu **ni
+  sur un vert ni sur un rouge**. Seule exception : un `rc` **illisible** reste signalé quelle que
+  soit la fraîcheur — il accuse l'outil d'écriture, pas le commit jugé.
+  ⚠ `EN COURS` vs `NON JUGEE` se tranche sur un **FAIT** : le **handle** du verrou de run
+  (`logs/ratchets-bg/runs/`), que `ratchets-bg.ps1` tient ouvert en partage lecture seule et que
+  l'OS libère **toujours** à la mort du processus — donc un run tué laisse un **résidu** ouvrable,
+  jamais un `EN COURS` perpétuel. Ni un PID (recyclable) ni un âge ne donneraient ça.
 - ⚠ **Le chiffre du plafond (5) est le SEUL qui ne soit pas une mesure** : c'est un paramètre
   d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#467-r1`.
 - ⚠ **Une panne de capteur doit porter son NOM (#467-r6).** `gh` rendait `rc=127` pour ses trois
