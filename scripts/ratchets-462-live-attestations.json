@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785837574,
+ "_ecrit_le": 1785840350,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -2853,30 +2853,44 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py": {
+   "_at": 1785840350,
+   "_blob": "a96464598b564a39f4797771ddd758c0f6fa0efa",
+   "_commit": "4b62a914b09ae066099ba1c1d534c0bf6c8a7341",
+   "_root": "C:/Users/nicolasv/tacticus-tools",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 10,
+   "sec": 404.0,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/test_419r1tr14r5r2r1r2_normal_attack_options_live.py": {
-   "_at": 1785837574,
+   "_at": 1785840350,
    "_blob": "a0fd495d7a85fb3de27bc1c567b446fdb38a8dc5",
-   "_commit": "a0a1954038aaf3fdf446d8005bd0cbac5429f5ea",
-   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a4388523d655bd398",
+   "_commit": "4b62a914b09ae066099ba1c1d534c0bf6c8a7341",
+   "_root": "C:/Users/nicolasv/tacticus-tools",
    "error": 0,
    "failed": 0,
    "messages": [],
    "passed": 8,
-   "sec": 84.3,
+   "sec": 50.0,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
   },
   "tests/engine/test_419r1tr14r5r2r1r2r1_normal_attack_dynamic_rule_live.py": {
-   "_at": 1785837574,
+   "_at": 1785840350,
    "_blob": "922bbd1a7d3c093c163f5f0c50310870b44e2cda",
-   "_commit": "a0a1954038aaf3fdf446d8005bd0cbac5429f5ea",
-   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a4388523d655bd398",
+   "_commit": "4b62a914b09ae066099ba1c1d534c0bf6c8a7341",
+   "_root": "C:/Users/nicolasv/tacticus-tools",
    "error": 0,
    "failed": 0,
    "messages": [],
    "passed": 9,
-   "sec": 35.7,
+   "sec": 24.3,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
