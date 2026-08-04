@@ -187,7 +187,12 @@ IL2CPP, l'absence d'un symbole ne dirait rien :
 | `MartialInspirationAbility`, `SeekerMissileFrequencyLockAbility` | `A` | pas de gate |
 
 Balayage complet (`probe_433_r4_r2_r1_r1_dynamic_target_gate.py --step gate`) : **19 des 32**
-abilities `UseWholeBoard` du port surchargent, **13 non** — leur zone est donc le plateau ENTIER.
+abilities `UseWholeBoard` du port surchargent, **13 non**.
+
+⚠ « Ne surcharge pas » n'implique pas « zone = plateau entier » : deux étages **en amont** peuvent
+la vider ou la trouer, et `-r1-r1-a` les a lus — le court-circuit `TargetIsFriendly` de
+`GetPossibleTargetTiles` (qui vide la zone de `1187` et `1214`, pourtant sans gate) et
+l'obscurcissement du 2ᵉ prédicat.
 
 ⚠ **Calibrage des slots d'interface, re-dérivé au runtime** (#542). `IsTileInRangeOfAnyAbility` est
 l'index **201** de la vtable de `BattleQuery` pour le slot `IBattleQuery 0xc5`, et `FindRangedWeapon`
@@ -256,10 +261,12 @@ y donnerait 1 — l'accord ne peut pas venir d'une coïncidence de modèles.
 
 **Résidus rouverts par cette tranche, nommés :**
 
-* **`-r1-r1-a` — 11 des 19 gates whole-board restent NON LUS** (`GATE_NOT_READ`), plus ~30 gates
-  d'abilities non-whole-board. Le port ne rétrécit pas sur eux : c'est le statu quo, donc une borne
-  SUPÉRIEURE sur cet étage — un gate restrictif non lu produirait des faux positifs. Aucun n'est
-  mesuré à ce jour ; les lire est un travail de volume, pas d'enquête.
+* **`-r1-r1-a` — FERMÉ (2026-08-04).** Le compte était **9**, pas 11 : les deux gates dérivables
+  ci-dessus étaient comptés deux fois. **Aucun des neuf n'est un rayon**, et leur lecture a fait
+  apparaître deux autres étages — le court-circuit `TargetIsFriendly` sans `TargetIsEnemy` de
+  `GetPossibleTargetTiles` (zone VIDE, exacte) et le régime « valide sur tuile libre ».
+  Détail, mesures et résidus : **`docs/rl/case-433-r4-r2-r1-r1-a-gates-whole-board.md`**.
+  `GATE_NOT_READ` ne subsiste que sur des abilities **non-whole-board**, dont la borne reste bornée.
 * **`-r1-r1-b` — `onlyEmptyOrSteppable` / `onlyWalkableTiles` ne sont pas modélisés.** Le port ne
   retire pas les voisines OCCUPÉES ni non walkables, faute de canal côté DÉCISION ; l'écart ne peut
   qu'ÉLARGIR. **Point d'ancrage** : publier la walkability et l'occupation par tuile dans le canal
