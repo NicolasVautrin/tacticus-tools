@@ -49,7 +49,48 @@ DEUX ETAPES, et la seconde existe parce que la premiere ne peut pas voir son gis
   (on le localise en cherchant ou `adjacent_neigh_by_pos` est `def`-ini) : la source du canal ne
   peut pas le recevoir en entree.
 
+* **ETAPE 3 -- la DERIVATION LAISSEE MORTE** (#433-r4-r1-r4-r2-r1-r1). Les etapes 1 et 2 cotent la
+  PRESENCE du canal : un nom passe au call-site, un nom cite dans le corps. Aucune ne cote sa
+  CONSOMMATION. Une fonction qui derive le canal puis n'en fait rien -- `neigh = neigh_map(ctx)`
+  jamais relu, ou `is_adjacent(...)` appele en statement nu -- a exactement l'ALLURE d'un mirror
+  branche et exactement le COMPORTEMENT d'avant le branchement. C'est la mutation qui restait VERTE
+  a la contre-epreuve de #611.
+
+  Deux formes, toutes deux des no-op DEMONTRABLES, sans allowlist : (a) un nom TEINTE par la valeur
+  du canal, assigne et jamais relu dans la fonction (le teint se propage par point fixe : ce qui
+  derive d'une valeur du canal EST une valeur du canal) ; (b) un appel a une fonction PURE du foyer
+  (les CIBLES + `neigh_map`, qui rendent un bool / un compte / un set) dont la valeur est jetee.
+  La forme (b) exige la meme RESOLUTION D'IMPORT que l'etape 1 -- un `update_charging(...)` en
+  statement nu est LEGITIME (c'est un mutateur ECS), donc seules les fonctions PURES du foyer
+  comptent. Seule cible exclue : le nom `_` exactement, qui DIT qu'on jette.
+
+* **ETAPE 4 -- la GEOMETRIE qui decide MALGRE le canal.** Complement exact de l'etape 2 sur le meme
+  gisement : la ou l'etape 2 garde le mirror declare SANS canal, celle-ci garde le mirror declare
+  AVEC canal. Ensemble elles disent la meme regle -- dans un mirror declare, une geometrie nue ne
+  peut etre qu'un REPLI, donc elle doit etre atteinte sur un chemin ou le canal a ete etabli
+  INDISPONIBLE.
+
+  Le critere est un critere de FLOT, pas de presence : on propage le long des branches un booleen
+  « le canal est etabli indisponible ici », initialise a FAUX, retourne par un test qui parle du
+  canal (`X is None` -> vrai dans le body, `X is not None` -> vrai dans le orelse), et FUSIONNE en ET
+  a la sortie d'un `if` (l'etat n'est garanti que si TOUS les chemins entrants le garantissent) --
+  une branche qui TERMINE (return/raise) ne participe pas a la fusion. Ce sont ces deux regles qui
+  separent les replis LEGITIMES du vice : `battle_query.is_adjacent` met sa geometrie sous
+  `if neigh is None`, et `services.battle_query.are_tiles_adjacent` la met APRES un bloc canal dont
+  toutes les feuilles retournent -- alors qu'une garde inerte (`if neigh_by_pos is None: pass`) ou
+  un canal consulte puis ignore laissent la geometrie decider sur un chemin ou le canal repondait.
+
+  Le groupe de noms qui « parle du canal » se DERIVE lui aussi : valeurs du canal, PORTEURS (les
+  arguments d'une derivation -- `board` dans `connectivity_neighbours(board, t)`, `ctx` dans
+  `neigh_map(ctx)`) et ce qui derive d'un porteur. Il est volontairement LARGE : il ne sert qu'a
+  RECONNAITRE un test de disponibilite, donc l'elargir ne peut que retenir le cliquet, jamais le
+  faire hurler. Approximations NOMMEES : les boucles et les `try` ne propagent pas leur etat de
+  sortie (l'etat courant y entre, l'etat apres est celui d'avant), et un test qui parle du canal
+  sous une forme non reconnue vaut credit (les deux branches sont dites « hors canal »).
+
 VERDICT : 0 = vert. Non nul = des mirrors non branches (listes). 99 = INDISPONIBLE (#471).
+`--inventaire` imprime, SANS peser sur le verdict, les fonctions qui melangent une geometrie nue et
+un acces au canal HORS mirror declare : le gisement que le critere « docstring » ne couvre pas.
 ASCII only.
 """
 from __future__ import annotations
@@ -123,22 +164,40 @@ def _module_importe(p: pathlib.Path, node: ast.ImportFrom) -> str:
     return ".".join(parts + ([node.module] if node.module else []))
 
 
-def _noms_du_foyer(p: pathlib.Path, tree) -> dict:
+def _noms_du_foyer(p: pathlib.Path, tree, noms=None) -> dict:
     """{nom tel qu'il apparait dans CE fichier: nom reel dans `engine.battle_query`}.
 
     Deux sources, et deux seulement : les imports qui RESOLVENT vers le foyer (alias compris), et
     -- si le fichier EST le foyer -- les definitions locales."""
+    noms = CIBLES if noms is None else noms
     out = {}
     if _paquet(p) + "." + p.stem == FOYER:
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name in CIBLES:
+            if isinstance(node, ast.FunctionDef) and node.name in noms:
                 out[node.name] = node.name
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and _module_importe(p, node) == FOYER:
             for a in node.names:
-                if a.name in CIBLES:
+                if a.name in noms:
                     out[a.asname or a.name] = a.name
     return out
+
+
+def _resout(f, locaux: dict, noms) -> str | None:
+    """Le nom REEL dans `engine.battle_query` que designe la fonction appelee `f`, ou `None`.
+
+    C'est le coeur de la detection : elle RESOUT l'import au lieu de comparer des noms
+    (#433-r4-r1-r4-r2-r1). Partage par les etapes 1 et 3, pour qu'un homonyme de `services/`
+    n'entre au gisement d'aucune des deux."""
+    if isinstance(f, ast.Attribute):
+        # `bq.is_adjacent(...)` : porteur de module connu, sinon un homonyme de methode
+        # (`self.is_adjacent`) entrerait au gisement a tort.
+        if f.attr in noms and getattr(f.value, "id", None) in MODULES:
+            return f.attr
+        return None
+    if isinstance(f, ast.Name):
+        return locaux.get(f.id)              # nom NU / alias, RESOLU vers le foyer
+    return None
 
 
 def etape1(arbres) -> tuple[list, int]:
@@ -149,18 +208,8 @@ def etape1(arbres) -> tuple[list, int]:
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            f = node.func
-            if isinstance(f, ast.Attribute):
-                # `bq.is_adjacent(...)` : porteur de module connu, sinon un homonyme de methode
-                # (`self.is_adjacent`) entrerait au gisement a tort.
-                if f.attr not in CIBLES or getattr(f.value, "id", None) not in MODULES:
-                    continue
-                reel = f.attr
-            elif isinstance(f, ast.Name):
-                reel = locaux.get(f.id)      # nom NU / alias, RESOLU vers le foyer
-                if reel is None:
-                    continue
-            else:
+            reel = _resout(node.func, locaux, CIBLES)
+            if reel is None:
                 continue
             idx = CIBLES[reel]
             kw = {k.arg for k in node.keywords if k.arg}
@@ -174,26 +223,31 @@ def etape1(arbres) -> tuple[list, int]:
     return manquants, total
 
 
-def _compare_distance_a_un(fn) -> bool:
-    """Le corps compare-t-il une distance hexagonale a 1 ? (`distance(...) == 1`, `!= 1`, `<= 1`)
+def _est_compare_geo(node) -> bool:
+    """CE noeud est-il la comparaison d'une distance hexagonale a 1 ?
+    (`distance(...) == 1`, `!= 1`, `<= 1`)
 
     C'est la forme EXACTE de la geometrie nue : une adjacence decidee sur la couronne hex au lieu
     de la liste stockee. `<= 2` (un disque) et `== 2` (un ring-2) n'en sont pas -- ils mirrorent
     `IterateSurroundingTiles`, qui EST geometrique."""
-    for node in ast.walk(fn):
-        if not isinstance(node, ast.Compare):
-            continue
-        gauche = node.left
-        appel = (isinstance(gauche, ast.Call)
-                 and (getattr(gauche.func, "attr", None) == "distance"
-                      or getattr(gauche.func, "id", "").endswith("distance")))
-        if not appel:
-            continue
-        for op, cmp in zip(node.ops, node.comparators):
-            if isinstance(op, (ast.Eq, ast.NotEq, ast.LtE)) and \
-                    isinstance(cmp, ast.Constant) and cmp.value == 1:
-                return True
+    if not isinstance(node, ast.Compare):
+        return False
+    gauche = node.left
+    appel = (isinstance(gauche, ast.Call)
+             and (getattr(gauche.func, "attr", None) == "distance"
+                  or getattr(gauche.func, "id", "").endswith("distance")))
+    if not appel:
+        return False
+    for op, cmp in zip(node.ops, node.comparators):
+        if isinstance(op, (ast.Eq, ast.NotEq, ast.LtE)) and \
+                isinstance(cmp, ast.Constant) and cmp.value == 1:
+            return True
     return False
+
+
+def _compare_distance_a_un(fn) -> bool:
+    """Le corps compare-t-il une distance hexagonale a 1 quelque part ?"""
+    return any(_est_compare_geo(n) for n in ast.walk(fn))
 
 
 def etape2(arbres) -> tuple[list, int]:
@@ -230,6 +284,356 @@ def etape2(arbres) -> tuple[list, int]:
     return manquants, total
 
 
+# --------------------------------------------------------------------------------------------
+# ETAPES 3 et 4 -- la CONSOMMATION du canal, pas sa presence (#433-r4-r1-r4-r2-r1-r1)
+# --------------------------------------------------------------------------------------------
+
+_CACHE_NOMS: dict = {}
+
+
+def _noms_du_corps(node) -> set:
+    """Les noms (variables ET attributs) qui apparaissent dans le sous-arbre.
+
+    Memoise par identite de noeud : le point fixe de `_teinte` et le flot de l'etape 4 reinterrogent
+    les memes sous-arbres des dizaines de fois, et un `ast.walk` par interrogation faisait le
+    cliquet a lui seul plus cher que les deux etapes historiques reunies."""
+    # Cle = le NOEUD, jamais son `id()` : un arbre temporaire libere ferait recycler l'adresse et
+    # empoisonnerait le cache (les arbres SYNTHETIQUES des tests sont exactement ce cas).
+    hit = _CACHE_NOMS.get(node)
+    if hit is None:
+        hit = set()
+        for n in ast.walk(node):
+            if isinstance(n, ast.Name):
+                hit.add(n.id)
+            elif isinstance(n, ast.Attribute):
+                hit.add(n.attr)
+        _CACHE_NOMS[node] = hit
+    return hit
+
+
+_CACHE_DECLARES: dict = {}
+
+
+def _noms_declares(node) -> set:
+    """Les noms du sous-arbre, PARAMETRES COMPRIS.
+
+    Un parametre inerte n'apparait comme `ast.Name` NULLE PART -- c'est meme sa definition. Le
+    filtre « cette fonction touche-t-elle le canal ? » de l'etape 3 doit donc le voir, sans quoi sa
+    forme (c) serait structurellement inatteignable. L'etape 2 et son complement, eux, gardent le
+    filtre par USAGE : la, un parametre non lu ne branche rien, et c'est tout l'objet du critere."""
+    hit = _CACHE_DECLARES.get(node)
+    if hit is None:
+        hit = set(_noms_du_corps(node))
+        hit |= {a.arg for a in ast.walk(node) if isinstance(a, ast.arg)}
+        _CACHE_DECLARES[node] = hit
+    return hit
+
+
+def _fonctions_racine(tree) -> list:
+    """Les fonctions qui ne sont IMBRIQUEES dans aucune autre.
+
+    C'est la bonne unite pour les etapes 3 et 4 : une derivation faite dans la fonction englobante
+    et consommee dans une closure (`update_charging` -> `_adjacent_ids`) ne doit pas passer pour
+    morte, et le flot qui gouverne une geometrie ecrite dans une closure est celui du point de
+    DEFINITION de cette closure."""
+    out, pile = [], list(ast.iter_child_nodes(tree))
+    while pile:
+        n = pile.pop()
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out.append(n)                        # on NE descend PAS : ses filles sont imbriquees
+        else:
+            pile.extend(ast.iter_child_nodes(n))
+    return out
+
+
+def _cibles_assignees(st) -> list:
+    """Les `ast.Name` ECRITS par un statement d'AFFECTATION, avec la ligne.
+
+    Les liaisons de PARCOURS (`for`, `with`) en sont exclues a dessein : ce ne sont pas des
+    derivations du canal mais des noms de balayage, et une cible de boucle inutilisee est un
+    idiome, pas un no-op de branchement."""
+    out = []
+    if isinstance(st, ast.Assign):
+        for t in st.targets:
+            out += [(n.id, st.lineno) for n in ast.walk(t) if isinstance(n, ast.Name)]
+    elif isinstance(st, ast.AnnAssign) and st.value is not None:
+        out += [(n.id, st.lineno) for n in ast.walk(st.target) if isinstance(n, ast.Name)]
+    elif isinstance(st, ast.NamedExpr):
+        out += [(n.id, st.lineno) for n in ast.walk(st.target) if isinstance(n, ast.Name)]
+    return out
+
+
+def _teinte(fn, porteurs: bool) -> set:
+    """Les noms qui portent une VALEUR du canal dans `fn`, par point fixe.
+
+    `porteurs=True` ajoute les ARGUMENTS d'une derivation (`board` dans
+    `connectivity_neighbours(board, t)`, `ctx` dans `neigh_map(ctx)`) et tout ce qui en derive.
+    C'est ce groupe ELARGI que l'etape 4 emploie pour RECONNAITRE un test de disponibilite --
+    l'elargir ne peut donc que retenir le cliquet. L'etape 3, elle, cote une valeur MORTE : elle
+    prend le groupe STRICT, sinon le moindre code mort derive d'un `board` deviendrait un vice."""
+    g = set(ACCES_CANAL)
+    for a in list(fn.args.args) + list(fn.args.kwonlyargs) + list(fn.args.posonlyargs):
+        if a.arg in ACCES_CANAL:
+            g.add(a.arg)
+    if porteurs:
+        for n in ast.walk(fn):
+            if not isinstance(n, ast.Call):
+                continue
+            f = n.func
+            nom = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+            if nom not in ACCES_CANAL:
+                continue
+            if isinstance(f, ast.Attribute):
+                g |= {x.id for x in ast.walk(f.value) if isinstance(x, ast.Name)}
+            for arg in list(n.args) + [k.value for k in n.keywords]:
+                g |= {x.id for x in ast.walk(arg) if isinstance(x, ast.Name)}
+    change = True
+    while change:
+        change = False
+        for st in ast.walk(fn):
+            val = getattr(st, "value", None)
+            if val is None or not isinstance(st, (ast.Assign, ast.AnnAssign, ast.AugAssign,
+                                                  ast.NamedExpr)):
+                continue
+            if not (_noms_du_corps(val) & g):
+                continue
+            cibles = ([st.target] if hasattr(st, "target") else list(st.targets))
+            for t in cibles:
+                for n in ast.walk(t):
+                    if isinstance(n, ast.Name) and n.id not in g:
+                        g.add(n.id)
+                        change = True
+        if porteurs:
+            for st in ast.walk(fn):
+                if isinstance(st, (ast.For, ast.AsyncFor)) and (_noms_du_corps(st.iter) & g):
+                    for n in ast.walk(st.target):
+                        if isinstance(n, ast.Name) and n.id not in g:
+                            g.add(n.id)
+                            change = True
+    return g
+
+
+def etape3(arbres) -> tuple[list, int]:
+    """Rend `(derivations du canal laissees MORTES, total des fonctions qui touchent le canal)`.
+
+    Trois formes, toutes des no-op DEMONTRABLES -- aucune n'a besoin d'une allowlist :
+      (a) un nom TEINTE assigne et jamais relu dans la fonction ;
+      (b) un appel a une fonction PURE du foyer (les CIBLES + `neigh_map`) dont la valeur est jetee
+          -- resolution d'import comprise, pour qu'un mutateur homonyme n'y entre pas ;
+      (c) un PARAMETRE du canal jamais lu : « un parametre accepte mais non lu se refait passer un
+          jour pour un canal actif » (case-433r4r1r4r2r1 §1).
+
+    DEUX limites NOMMEES, toutes deux choisies du cote qui ne hurle pas : le critere porte sur le
+    NOM (« jamais relu dans la fonction »), donc une reaffectation qui tue un store precis lui
+    echappe ; et un store d'ATTRIBUT (`self._neigh = ...`) n'est pas cote du tout -- sa lecture peut
+    vivre hors du perimetre balaye, et un faux positif la-dessus ferait desarmer le cliquet."""
+    manquants, total = [], 0
+    for p, tree in arbres.items():
+        if not (_noms_declares(tree) & set(ACCES_CANAL)):
+            continue                             # pre-filtre par FICHIER : un walk au lieu de N
+        rel = p.relative_to(ROOT).as_posix()
+        purs = _noms_du_foyer(p, tree, dict(CIBLES, neigh_map=0))
+        for fn in _fonctions_racine(tree):
+            if not (_noms_declares(fn) & set(ACCES_CANAL)):
+                continue                         # la fonction ne touche pas le canal
+            total += 1
+            g = _teinte(fn, porteurs=False)
+            lus = {n.id for n in ast.walk(fn)
+                   if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+            vus = set()
+            for st in ast.walk(fn):              # (a) store teinte jamais relu
+                for (nom, ligne) in _cibles_assignees(st):
+                    if nom in g and nom != "_" and nom not in lus and (nom, ligne) not in vus:
+                        vus.add((nom, ligne))
+                        manquants.append((rel, ligne, fn.name, "derivation `%s` jamais relue" % nom))
+            for st in ast.walk(fn):              # (b) appel PUR du foyer, valeur jetee
+                if not isinstance(st, ast.Expr) or not isinstance(st.value, ast.Call):
+                    continue
+                reel = _resout(st.value.func, purs, dict(CIBLES, neigh_map=0))
+                if reel is not None:
+                    manquants.append((rel, st.lineno, fn.name,
+                                      "appel `%s` dont la valeur est jetee" % reel))
+            for a in (list(fn.args.args) + list(fn.args.kwonlyargs)     # (c) parametre inerte
+                      + list(fn.args.posonlyargs)):
+                if a.arg in ACCES_CANAL and a.arg not in lus:
+                    manquants.append((rel, fn.lineno, fn.name,
+                                      "parametre `%s` jamais lu" % a.arg))
+    return manquants, total
+
+
+class _Flot:
+    """Propage « le canal est etabli INDISPONIBLE ici » et marque chaque geometrie nue avec l'etat
+    qui la gouverne.
+
+    L'etat part de FAUX (rien n'a encore ete etabli), un test qui parle du canal le retourne selon
+    sa polarite, et la sortie d'un `if` FUSIONNE EN ET les branches qui ne terminent pas -- une
+    garantie ne vaut que si TOUS les chemins entrants la portent. C'est cette fusion qui separe le
+    repli legitime (`if neigh is None: <geo>`, ou un bloc canal dont toutes les feuilles retournent)
+    du vice (une garde inerte, ou un canal consulte puis ignore)."""
+
+    def __init__(self, groupe: set):
+        self.groupe = groupe
+        self.geos = []                           # (lineno, hors_canal)
+
+    def _parle_du_canal(self, node) -> bool:
+        return bool(_noms_du_corps(node) & self.groupe)
+
+    def _dit(self, t):
+        """VRAI = le test affirme la DISPONIBILITE du canal ; FAUX = son INDISPONIBILITE ;
+        `None` = forme non reconnue."""
+        if isinstance(t, ast.BoolOp):
+            v = [self._dit(x) for x in t.values if self._parle_du_canal(x)]
+            if False in v:
+                return False
+            return True if True in v else None
+        if isinstance(t, ast.UnaryOp) and isinstance(t.op, ast.Not):
+            d = self._dit(t.operand)
+            if d is None:
+                return False if self._parle_du_canal(t.operand) else None
+            return not d
+        if isinstance(t, ast.Compare) and len(t.ops) == 1:
+            op, droite = t.ops[0], t.comparators[0]
+            nul = isinstance(droite, ast.Constant) and droite.value is None
+            if self._parle_du_canal(t.left) and nul:
+                return isinstance(op, (ast.IsNot, ast.NotEq))
+            if isinstance(op, (ast.In, ast.NotIn)) and \
+                    (self._parle_du_canal(t.left) or self._parle_du_canal(droite)):
+                return True                      # on CONSULTE le canal
+            return None
+        if isinstance(t, (ast.Name, ast.Attribute, ast.Call)) and self._parle_du_canal(t):
+            return True
+        return None
+
+    def _branches(self, test, hors: bool) -> tuple[bool, bool]:
+        """(etat du `body`, etat du `orelse`) pour ce test."""
+        if not self._parle_du_canal(test):
+            return hors, hors
+        d = self._dit(test)
+        if d is True:
+            return False, True
+        if d is False:
+            return True, False
+        return True, True                        # credit : le code TESTE le canal, forme inconnue
+
+    def expr(self, node, hors: bool) -> None:
+        """Marque les geometries d'une EXPRESSION (ou d'un statement simple)."""
+        if node is None:
+            return
+        if isinstance(node, ast.IfExp):
+            self.expr(node.test, hors)
+            hb, he = self._branches(node.test, hors)
+            self.expr(node.body, hb)
+            self.expr(node.orelse, he)
+            return
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            self.bloc(node.body, hors)           # closure : l'etat de son point de DEFINITION
+            return
+        if _est_compare_geo(node):
+            self.geos.append((node.lineno, hors))
+        for enfant in ast.iter_child_nodes(node):
+            self.expr(enfant, hors)
+
+    def bloc(self, stmts, hors: bool) -> tuple[bool, bool]:
+        """(etat sortant, ce bloc termine-t-il TOUJOURS ?)"""
+        for st in stmts or ():
+            if isinstance(st, ast.If):
+                self.expr(st.test, hors)
+                hb, he = self._branches(st.test, hors)
+                fb, tb = self.bloc(st.body, hb)
+                fe, te = self.bloc(st.orelse, he) if st.orelse else (he, False)
+                if tb and te:
+                    return hors, True            # les deux branches sortent : la suite est morte
+                hors = fe if tb else (fb if te else (fb and fe))
+            elif isinstance(st, (ast.Return, ast.Raise)):
+                self.expr(st, hors)
+                return hors, True
+            elif isinstance(st, (ast.For, ast.AsyncFor, ast.While)):
+                # APPROXIMATION NOMMEE : le corps est visite avec l'etat courant, et l'etat APRES
+                # la boucle reste celui d'avant (aucun raffinement par iteration).
+                self.expr(getattr(st, "test", None) or st.iter, hors)
+                if isinstance(st, (ast.For, ast.AsyncFor)):
+                    self.expr(st.target, hors)
+                self.bloc(st.body, hors)
+                self.bloc(st.orelse, hors)
+            elif isinstance(st, (ast.With, ast.AsyncWith)):
+                for item in st.items:
+                    self.expr(item.context_expr, hors)
+                self.bloc(st.body, hors)
+            elif isinstance(st, ast.Try) or type(st).__name__ == "TryStar":
+                self.bloc(st.body, hors)         # APPROXIMATION NOMMEE : idem, etat non propage
+                for h in st.handlers:
+                    self.bloc(h.body, hors)
+                self.bloc(st.orelse, hors)
+                self.bloc(st.finalbody, hors)
+            elif isinstance(st, (ast.Break, ast.Continue, ast.Pass, ast.Import,
+                                 ast.ImportFrom, ast.Global, ast.Nonlocal)):
+                continue
+            else:
+                self.expr(st, hors)
+        return hors, False
+
+
+def _mirrors_avec_canal(arbres):
+    """Les mirrors DECLARES du substrat stocke qui font de la geometrie ET touchent le canal.
+
+    C'est le complement exact du gisement de l'etape 2 (meme critere, `corps & ACCES_CANAL`
+    inverse), et le module qui DEFINIT le foyer du canal en est exclu par la meme derivation."""
+    exclus = {p for p, tree in arbres.items()
+              if any(isinstance(n, ast.FunctionDef) and n.name == FOYER_CANAL
+                     for n in ast.walk(tree))}
+    for p, tree in arbres.items():
+        if p in exclus or not (_noms_declares(tree) & set(ACCES_CANAL)):
+            continue                             # pre-filtre par FICHIER (cf. `etape3`)
+        for fn in _fonctions_racine(tree):
+            doc = ast.get_docstring(fn) or ""
+            if not any(nat in doc for nat in NATIFS_LISTE_STOCKEE):
+                continue
+            if not _compare_distance_a_un(fn):
+                continue
+            if not (_noms_du_corps(fn) & set(ACCES_CANAL)):
+                continue                         # aucun acces : c'est l'ETAPE 2 qui parle
+            yield p, fn
+
+
+def etape4(arbres) -> tuple[list, int]:
+    """Rend `(geometries qui decident MALGRE un canal disponible, total des mirrors examines)`."""
+    manquants, total = [], 0
+    for p, fn in _mirrors_avec_canal(arbres):
+        total += 1
+        flot = _Flot(_teinte(fn, porteurs=True))
+        flot.bloc(fn.body, False)
+        for (ligne, hors) in flot.geos:
+            if not hors:
+                manquants.append((p.relative_to(ROOT).as_posix(), ligne, fn.name))
+    return manquants, total
+
+
+def inventaire(arbres) -> list:
+    """HORS VERDICT -- les fonctions qui melangent une geometrie nue et un acces au canal SANS
+    declarer de natif a liste stockee.
+
+    Le critere « docstring » des etapes 2 et 4 ne les voit pas, par construction. Elles ne sont ni
+    vertes ni rouges : elles demandent une LECTURE du natif qu'elles mirrorent (#433-r4-r1-r4-r2-r2
+    est deja ouvert sur cette forme). Les lister, c'est nommer ce que le cliquet ne couvre pas."""
+    out = []
+    for p, tree in arbres.items():
+        if not (_noms_du_corps(tree) & set(ACCES_CANAL)):
+            continue                             # pre-filtre par FICHIER (cf. `etape3`)
+        for fn in _fonctions_racine(tree):
+            noms = _noms_du_corps(fn)
+            if not (noms & set(ACCES_CANAL)) or not _compare_distance_a_un(fn):
+                continue
+            doc = ast.get_docstring(fn) or ""
+            if any(nat in doc for nat in NATIFS_LISTE_STOCKEE):
+                continue                         # deja couvert par l'etape 4
+            flot = _Flot(_teinte(fn, porteurs=True))
+            flot.bloc(fn.body, False)
+            nues = [ln for (ln, hors) in flot.geos if not hors]
+            if nues:
+                out.append((p.relative_to(ROOT).as_posix(), fn.lineno, fn.name, nues))
+    return out
+
+
 def main() -> int:
     fichiers = _fichiers("scripts/python/engine")
     if fichiers is None:
@@ -243,6 +647,8 @@ def main() -> int:
             continue
     m1, t1 = etape1(arbres)
     m2, t2 = etape2(arbres)
+    m3, t3 = etape3(arbres)
+    m4, t4 = etape4(arbres)
     print("== #433-r4-r1-r4-r2 -- substrat de voisinage natif")
     print("-- etape 1 : invariant de COUPLE sur les call-sites (imports RESOLUS)")
     print("   call-sites gates par l'elevation : %d" % t1)
@@ -254,11 +660,30 @@ def main() -> int:
     print("   dont SANS acces au canal                        : %d (attendu 0)" % len(m2))
     for (rel, ln, name) in m2:
         print("      %s:%d  %s -- mirror declare, geometrie NUE, canal INACCESSIBLE" % (rel, ln, name))
-    if t1 == 0:
+    print("-- etape 3 : la DERIVATION du canal est-elle CONSOMMEE ? (#433-r4-r1-r4-r2-r1-r1)")
+    print("   fonctions qui touchent le canal : %d" % t3)
+    print("   dont une derivation laissee MORTE : %d (attendu 0)" % len(m3))
+    for (rel, ln, name, quoi) in m3:
+        print("      %s:%d  %s -- %s" % (rel, ln, name, quoi))
+    print("-- etape 4 : geometrie qui DECIDE malgre un canal disponible")
+    print("   mirrors declares AVEC canal et geometrie : %d" % t4)
+    print("   dont une geometrie NON GARDEE            : %d (attendu 0)" % len(m4))
+    for (rel, ln, name) in m4:
+        print("      %s:%d  %s -- canal disponible sur ce chemin, geometrie decide quand meme"
+              % (rel, ln, name))
+    if "--inventaire" in sys.argv:
+        inv = inventaire(arbres)
+        print("-- inventaire HORS VERDICT : geometrie nue + canal, natif NON declare")
+        print("   fonctions concernees : %d" % len(inv))
+        for (rel, ln, name, nues) in inv:
+            print("      %s:%d  %s -- geometrie(s) non gardee(s) ligne(s) %s"
+                  % (rel, ln, name, ",".join(str(x) for x in nues)))
+    if t1 == 0 or t3 == 0:
         # Un zero de TOTAL n'est pas un vert : le balayage n'a rien vu, donc il ne garde rien.
-        print("ECART: etape 1 a un perimetre VIDE -- le cliquet ne garde rien (perimetre casse ?)")
+        print("ECART: un perimetre est VIDE (etape 1 : %d, etape 3 : %d)"
+              " -- le cliquet ne garde rien (perimetre casse ?)" % (t1, t3))
         return 1
-    n = len(m1) + len(m2)
+    n = len(m1) + len(m2) + len(m3) + len(m4)
     print("VERDICT: %s" % ("PASS" if not n else "FAIL (%d)" % n))
     return 0 if not n else 1
 
