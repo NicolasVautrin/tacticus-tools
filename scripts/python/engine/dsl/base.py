@@ -140,6 +140,11 @@ class DslContext:
     # DÉRIVÉ du `board` par `__post_init__` (#433-r4-r1-r4) ; reste None si le board est absent ou
     # sans canal d'élévation, et le filtre dégrade alors en no-op (documenté par nœud).
     elev_by_pos: dict | None = None
+    # `{(col,row): [(col,row), …]}` — le VOISINAGE natif (`boardGraph.neighbours`, la liste STOCKÉE
+    # du `ConnectivityComponent` que rend `TileQuery$$IterateAdjacentTiles`). C'est le PREMIER étage
+    # de `battle_query.is_adjacent`, dont `elev_by_pos` ci-dessus est le second (#433-r4-r1-r4-r2).
+    # NON fourni → DÉRIVÉ du `board` par `__post_init__`, même règle et même tri-état.
+    neigh_by_pos: dict | None = None
     # Graphe de tuiles (`Board`, entities/pathfinding) — consommé par les SÉLECTEURS DE TUILES
     # (`AdjacentTiles`/`CanAddUnit`, tile_selectors.py) : voisinage natif (`board.neighbours`),
     # walkable, id_at. None → domaine tile dégradé no-op (documenté par nœud).
@@ -350,10 +355,21 @@ class DslContext:
         la main dans un test, `boardGraph` anterieur au capteur) -> `None` AUSSI, jamais une carte
         vide : `elevations_by_pos` rend un TRI-ETAT, et le repli « les deux elevations connues,
         sinon on retient » de `is_adjacent` reste la degradation SURE (un faux NEGATIF d'adjacence
-        supprimerait des actions legales -- pire que le trou qu'on ferme)."""
+        supprimerait des actions legales -- pire que le trou qu'on ferme).
+
+        `neigh_by_pos` suit EXACTEMENT la meme regle, et pour la meme raison (#433-r4-r1-r4-r2) :
+        c'est le PREMIER etage de la primitive (l'enumeration de la liste STOCKEE) la ou
+        `elev_by_pos` en est le second (la porte). Le natif n'a pas davantage de contexte « qui a
+        des tuiles mais pas leur voisinage » -- `IterateAdjacentTiles` deref le
+        `ConnectivityComponent` directement. La couronne hex qui lui servait de repli SUR-ATTEINT la
+        liste stockee (mesure : 4 aretes dirigees sur `C1_74`, 38 sur `C3_14`, 0 restrictive), donc
+        le laisser non branche etait la MEME degradation permissive."""
         if self.elev_by_pos is None and self.board is not None:
             from ..entities.pathfinding.board import elevations_by_pos   # lazy : anti-circulaire
             self.elev_by_pos = elevations_by_pos(self.board)
+        if self.neigh_by_pos is None and self.board is not None:
+            from ..entities.pathfinding.board import adjacent_neigh_by_pos   # lazy : anti-circulaire
+            self.neigh_by_pos = adjacent_neigh_by_pos(self.board)
 
 
 class Const(AAmountFormula):

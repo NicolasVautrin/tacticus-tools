@@ -99,7 +99,7 @@ class AggressiveOnslaughtPlaybook:
         # passe-plat vers `MovementUtil$$AreTilesAdjacent` : board + porte elevation + court-circuit
         # d'identite, #433-r1). Regime d'identite INATTEIGNABLE ici (`attack_tile` est une tuile
         # atteignable, pas la position d'une cible vivante) -- pose par FIDELITE.
-        if not bq.are_entities_adjacent(attack_tile, tpos, getattr(sc, "elev_by_pos", None)):
+        if not bq.are_entities_adjacent(attack_tile, tpos, getattr(sc, "elev_by_pos", None), bq.neigh_map(sc)):
             return 0.0
         # GATE 2 : IsTargetInAttackRangeForSummon (partiel : cible vivante/targetable ; portee summon
         # melee adjacente triviale sur board plat -> non modelisee au-dela du "vivant").

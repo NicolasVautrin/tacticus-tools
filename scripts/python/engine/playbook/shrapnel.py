@@ -212,6 +212,7 @@ def splash_targets(scene, caster_uid: int, target_uid: int) -> list:
     if tpos is None:
         return []
     elev = getattr(scene, "elev_by_pos", None)
+    neigh = bq.neigh_map(scene)
     from .prediction._shared import _entity_traits
     out = []
     for u in (scene.units or ()):
@@ -219,7 +220,7 @@ def splash_targets(scene, caster_uid: int, target_uid: int) -> list:
         if uid is None or uid == target_uid or not u.get("alive"):
             continue
         p = scene.pos(uid)
-        if p is None or not bq.is_adjacent(tpos, (p[0], p[1]), elev):
+        if p is None or not bq.is_adjacent(tpos, (p[0], p[1]), elev, neigh):
             continue
         if _INVINCIBLE in _entity_traits(scene, uid):     # `UnitsWithoutTrait(0x40e)`
             continue

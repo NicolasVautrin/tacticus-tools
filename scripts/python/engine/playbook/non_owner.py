@@ -171,7 +171,8 @@ class KustomForceFieldReworkedNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook)
             return 0.0
         tile, opos = (tile[0], tile[1]), (opos[0], opos[1])
         elev = (ctx or {}).get("elev_by_pos")
-        if not bq.are_entities_adjacent(tile, opos, elev):             # TileExtensions.IsAdjacentTo
+        neigh = bq.neigh_map(ctx)
+        if not bq.are_entities_adjacent(tile, opos, elev, neigh):             # TileExtensions.IsAdjacentTo
             return 0.0
         v = float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
         if (ctx or {}).get("unit_faction") == int(UnitFaction.Orks):   # HasFaction(case.unit, 5)
@@ -236,7 +237,7 @@ class ECogSupportPlaybookNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
         if parent_uid is None or owner_uid is None or int(parent_uid) != int(owner_uid):
             return 0.0
         if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
-                                        ctx.get("elev_by_pos")):     # TileExtensions.IsAdjacentTo
+                                        ctx.get("elev_by_pos"), bq.neigh_map(ctx)):     # TileExtensions.IsAdjacentTo
             return 0.0
         return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
 
@@ -274,7 +275,7 @@ class PsychicFortressNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
         if not opos:                                          # GetMainTile(owner, State) == null
             return 0.0
         if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
-                                        (ctx or {}).get("elev_by_pos")):
+                                        (ctx or {}).get("elev_by_pos"), bq.neigh_map(ctx)):
             return 0.0
         return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
 
@@ -351,7 +352,7 @@ class AdjacentToOwnerNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
         if not opos:
             return 0.0
         if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
-                                        ctx.get("elev_by_pos")):
+                                        ctx.get("elev_by_pos"), bq.neigh_map(ctx)):
             return 0.0
         return float(self.get_adjacency_utility(ctx, wt))
 

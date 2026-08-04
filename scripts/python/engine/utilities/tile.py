@@ -1588,13 +1588,14 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
         from .. import battle_query as _bq            # lazy : utilities <- battle_query
         import hexgeo as _hex
         elev = lc.get("elev_by_pos")
+        neigh = _bq.neigh_map(lc)
         adj, sur1, rng2 = [], [], []
         for u in friends:
             p, effs = u.get("pos"), (u.get("effects") or ())
             if not (p and effs):
                 continue
             d = _hex.distance((pos[0], pos[1]), (p[0], p[1]))
-            if _bq.is_adjacent(pos, p, elev):
+            if _bq.is_adjacent(pos, p, elev, neigh):
                 adj.extend(effs)
             if d <= 1:
                 sur1.extend(effs)

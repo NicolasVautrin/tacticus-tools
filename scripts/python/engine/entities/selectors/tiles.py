@@ -350,6 +350,7 @@ class FilterTilesIfCanAttackTargetTileFrom(TargetsSelector):
         if attacker is None or target_tile is None:
             return []                                    # `new List<Tile>()` -- selection vide
         elev = getattr(ctx, "elev_by_pos", None)
+        neigh = battle_query.neigh_map(ctx)      # liste STOCKEE (#433-r4-r1-r4-r2), tri-etat
         team = attacker.get("team")
         # `GetUnitsOnTiles(..., enemiesOf: enemyOf, ...)` : occupation PAR PIED (TileContentComponent),
         # vivants seulement (un mort n'occupe plus sa tuile), filtre `IsEnemy` vs le referent.
@@ -369,11 +370,12 @@ class FilterTilesIfCanAttackTargetTileFrom(TargetsSelector):
             if pos is None:
                 continue
             # `GetAdjacentUnits(tile, null, enemyOf, false).Count == 0`
-            no_adjacent_enemy = not any(battle_query.is_adjacent(pos, p, elev)
+            no_adjacent_enemy = not any(battle_query.is_adjacent(pos, p, elev, neigh)
                                         for p in enemy_tiles)
             # `|| TileExtensions.IsAdjacentTo(tile, targetTile)` -- LE BRAS DE RATTRAPAGE, sur la
             # primitive a court-circuit d'identite (surtout PAS `hexgeo.distance == 1`).
-            if no_adjacent_enemy or battle_query.are_entities_adjacent(pos, target_tile, elev):
+            if no_adjacent_enemy or battle_query.are_entities_adjacent(pos, target_tile, elev,
+                                                                       neigh):
                 out.append(item)
         return out
 

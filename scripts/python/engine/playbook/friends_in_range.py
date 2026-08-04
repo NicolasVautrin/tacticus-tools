@@ -116,5 +116,5 @@ class KardiocoreGalvanusPlaybook:
             return 0.0
         ctx = ctx or {}
         n = bq.count_adjacent(tile, _friend_positions_including_self(ctx),
-                              ctx.get("elev_by_pos"))
+                              ctx.get("elev_by_pos"), bq.neigh_map(ctx))
         return float(w * n)

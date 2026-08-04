@@ -84,7 +84,7 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
             if bq.eligible_targets_count(T, ctx.epos, ctx.elev_by_pos) == 0:
                 continue
             ring1 = {(p[0], p[1]) for p in (ctx.epos or [])
-                     if bq.is_adjacent(T, p, ctx.elev_by_pos)}
+                     if bq.is_adjacent(T, p, ctx.elev_by_pos, bq.neigh_map(ctx))}
             u_ = float(len(ring1 | surround_real))            # SelectUniqueUnits : union dédupliquée
             if best_u is None or u_ > best_u:    # strict > : origine gagne le tie (elle est en tete)
                 best_t, best_u = T, u_

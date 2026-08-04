@@ -171,13 +171,16 @@ def test_tutelaries_nearest_enemy_uses_the_are_entities_adjacent_foyer(monkeypat
     calls = {"are": 0, "is": 0}
     real_are, real_is = bq.are_entities_adjacent, bq.is_adjacent
 
-    def spy_are(a, b, e=None):
+    # Signature TRANSPARENTE (`*a`) : ce cran compte des APPELS, il ne fige pas l'arite du foyer.
+    # Une signature recopiee a la main faisait rougir ce test des que le foyer gagnait un canal
+    # (#433-r4-r1-r4-r2 : `neigh_by_pos`) -- un faux rouge qui accuse le MONTAGE, pas le port.
+    def spy_are(*a, **kw):
         calls["are"] += 1
-        return real_are(a, b, e)
+        return real_are(*a, **kw)
 
-    def spy_is(a, b, e=None):
+    def spy_is(*a, **kw):
         calls["is"] += 1
-        return real_is(a, b, e)
+        return real_is(*a, **kw)
 
     monkeypatch.setattr(bq, "are_entities_adjacent", spy_are)
     monkeypatch.setattr(bq, "is_adjacent", spy_is)

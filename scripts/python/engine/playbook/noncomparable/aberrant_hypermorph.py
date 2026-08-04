@@ -50,7 +50,7 @@ class AberrantHypermorphPlaybook(NonComparablePlaybook):
                 if hexgeo.distance(T, ST) != 1:
                     continue     # spawn = hex libre ADJACENT a la position T
                 # IdunBattle.AI.Playbook.Loki.AberrantHypermorphPlaybook$$GetUtility -> `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(ST, caster).Count`.
-                u_ = float(bq.count_adjacent(ST, ctx.epos, ctx.elev_by_pos))
+                u_ = float(bq.count_adjacent(ST, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx)))
                 if best is None or u_ > best[2]:   # strict > : 1re paire (T, ST) du max garde
                     best = (T, ST, u_)
         if best is None or best[2] < self.MIN_UTILITY:

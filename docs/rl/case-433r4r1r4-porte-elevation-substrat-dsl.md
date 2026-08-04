@@ -200,13 +200,13 @@ lecture est dans le test — sans elle, l'accord live/port ne prouverait pas que
   toutes les tuiles portent leur élévation ; sur un board partiellement capté, il **fabrique** un
   niveau `0` là où le foyer omettrait. Non convergé ici : `is_target_tile_obscured` a son propre
   contrat sur les clés absentes, à relire avant de toucher.
-* **`#433-r4-r1-r4-r2` — `is_adjacent` reste géométrique + porte, là où le natif itère la liste
-  STOCKÉE.** `TileQuery$$IterateAdjacentTiles` parcourt le `ConnectivityComponent`, pas la couronne
-  hex : mesuré sur `C1_74` (case-433-r3), les deux vues divergent sur **74 arêtes dirigées**, dont
-  **70** que la porte explique désormais — et **4** que non (les deux `Bridge` que le
-  `ConnectivityComponent` ne relie pas à leur voisin de niveau). Ces 4 restent un écart PERMISSIF du
-  port. Le fermer voudrait dire lire `board.neighbours_native` dans `is_adjacent`, ce qui expose les
-  ~18 arêtes one-way de la capture : à instruire, pas à improviser.
+* **`#433-r4-r1-r4-r2` — FERMÉ** (`docs/rl/case-433r4r1r4r2-substrat-is-adjacent.md`).
+  `is_adjacent` énumère désormais la liste STOCKÉE (`neigh_by_pos`) avant d'appliquer la porte,
+  comme `TileQuery$$IterateAdjacentTiles`. Les 4 arêtes `Bridge` de `C1_74` sont fermées — et
+  **38** sur `C3_14`, qui en porte 15. **0 arête restrictive** ouverte en échange. Le risque
+  annoncé (« exposer les ~18 arêtes one-way ») était **FAUX** : mesuré sur 4 boards, **0** arête
+  one-way dans les trois vues, et `InitializeConnectivityOperation$$Execute` dit pourquoi (critère
+  `HasEdge` exigé des DEUX côtés, `opp(e) = (e+3) % 6` involutive).
 * **`#433-r4-r1-r4-r3` — la face DÉCISION n'a pas été re-mesurée.** `AiDecisionContext.elev_by_pos`
   est peuplé depuis `tileMeta` et les playbooks passent déjà `ctx.elev_by_pos` ; le balayage n'a
   trouvé aucun lecteur DSL inerte de ce côté. Aucune anomalie constatée, aucun test décision rejoué.

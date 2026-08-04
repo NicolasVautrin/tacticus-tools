@@ -200,7 +200,7 @@ class DrachnyenPlaybook(_CustomOnlyPlaybook):
     W_KEY = "Drachnyen_MultipleAdjacentUnits"
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
-        n = bq.count_adjacent(caster_tile, ctx.epos, ctx.elev_by_pos)
+        n = bq.count_adjacent(caster_tile, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx))
         if n < 2:
             return 0.0
         return ctx.wt.sub("ActiveAbilities", self.W_KEY)       # 10
@@ -256,7 +256,7 @@ class DoomSirenPlaybook(_CustomOnlyPlaybook):
             if will_be_overkill(ev.composite_fields()):
                 u += w_ok
         tpos = _main_tile_of(ctx, target)
-        if tpos is not None and bq.count_adjacent(tpos, ctx.epos, ctx.elev_by_pos) > 0:
+        if tpos is not None and bq.count_adjacent(tpos, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx)) > 0:
             u += ctx.wt.sub("ActiveAbilities", self.W_ADJACENT)        # 50
         return u
 
@@ -307,7 +307,7 @@ class HeavyWarpFlamerPlaybook(_CustomOnlyPlaybook):
         tpos = _main_tile_of(ctx, target)
         if tpos is None:
             return 0.0
-        n = bq.count_adjacent(tpos, ctx.epos, ctx.elev_by_pos)
+        n = bq.count_adjacent(tpos, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx))
         return float(n) * ctx.wt.sub("ActiveAbilities", self.W_KEY)   # 10
 
 
@@ -508,7 +508,7 @@ class StikkbombPlaybook(_CustomOnlyPlaybook):
         tpos = _main_tile_of(ctx, target)
         if tpos is None:
             return 0
-        return bq.count_adjacent(tpos, self._adjacent_positions(ctx, friends), ctx.elev_by_pos)
+        return bq.count_adjacent(tpos, self._adjacent_positions(ctx, friends), ctx.elev_by_pos, bq.neigh_map(ctx))
 
     def _splash_event(self, ctx, caster_tile, target, ability_id):
         """L'event de degat SPLASH natif (invariant, cf. point 2 de la docstring de classe)."""
@@ -638,7 +638,7 @@ class PlasmaGrenadePlaybook(_CustomOnlyPlaybook):
         tpos = _main_tile_of(ctx, target)
         if tpos is None:
             return 0
-        return bq.count_adjacent(tpos, ctx.epos, ctx.elev_by_pos)
+        return bq.count_adjacent(tpos, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx))
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id):
         n = self._adjacent_enemy_count(ctx, target)
@@ -1489,12 +1489,12 @@ class MartialExemplarPlaybook(NonAttackComparablePlaybook):
         return [u for u in (ctx.enemies or [])
                 if bq.is_adjacent(caster_tile, ((u.get("pos") or {}).get("col"),
                                                 (u.get("pos") or {}).get("row")),
-                                  ctx.elev_by_pos)]
+                                  ctx.elev_by_pos, bq.neigh_map(ctx))]
 
     def should_evaluate(self, ctx, caster_tile, ability_id) -> bool:
         """`...MartialExemplarPlaybook$$ShouldEvaluate` = `GetAdjacentEnemies(position, unit,
         false).Count > 0` — SANS filtre `IsNormalUnit` (cf. la docstring de classe)."""
-        return bq.count_adjacent(caster_tile, ctx.epos, ctx.elev_by_pos) > 0
+        return bq.count_adjacent(caster_tile, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx)) > 0
 
     def is_caster_added(self, ctx, caster_tile) -> bool:
         """Mirror du bit `CasterHasNotMoved` (0x10) du masque effectif `0x8014` :
@@ -1508,7 +1508,7 @@ class MartialExemplarPlaybook(NonAttackComparablePlaybook):
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
         n = bq.count_adjacent_matching(
             caster_tile, ctx.enemies,
-            lambda u: is_normal_unit(u.get("traits")), ctx.elev_by_pos)
+            lambda u: is_normal_unit(u.get("traits")), ctx.elev_by_pos, bq.neigh_map(ctx))
         return float(n) * self.ADJACENT_ENEMY_UTILITY
 
 
@@ -1675,7 +1675,7 @@ class TheLionsWrathPlaybook(NonAttackComparablePlaybook):
         # d'`IterateAdjacentTiles`. Aucun fork d'adjacence.
         n = bq.count_adjacent_matching(caster_tile, ctx.enemies,
                                        lambda u: self._counts_as_chaos_hero(ctx, u),
-                                       ctx.elev_by_pos)
+                                       ctx.elev_by_pos, bq.neigh_map(ctx))
         tu = self._unit(ctx, target)
         # `FindMeleeWeapon(target)` puis `w.<+0x20>` ; arme absente -> `iVar8` reste 0. Cible non
         # resolue -> le natif appellerait `IsUnit(null)` (faux) puis `HasTrait(null, ...)` (faux),
@@ -1788,7 +1788,7 @@ class InstrumentsOfVengeancePlaybook(NonAttackComparablePlaybook):
         return [u for u in (ctx.enemies or [])
                 if bq.is_adjacent(caster_tile, ((u.get("pos") or {}).get("col"),
                                                 (u.get("pos") or {}).get("row")),
-                                  ctx.elev_by_pos)]
+                                  ctx.elev_by_pos, bq.neigh_map(ctx))]
 
     def _surrounding_enemies(self, ctx, caster_tile) -> list:
         """`battleQuery.<slot itf 0x78>(caster, casterPosition, range: 2, includeCenter: false)` —

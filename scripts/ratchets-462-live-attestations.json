@@ -40,6 +40,20 @@
    "verdict": "VERT",
    "xfailed": 0
   },
+  "tests/engine/runner/test_433r4r1r4r2_adjacent_tiles_bridge_live.py": {
+   "_at": 1785875187,
+   "_blob": "4de8bd60966a41559a3969ee659b0b5c702a23e0",
+   "_commit": "a20656a33672ad2d9687e16b5afcf21eca5577f9",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a783961ccc1cf367d",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 4,
+   "sec": 29.8,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
   "tests/engine/runner/test_448_r1_r1_full_throttle_live.py": {
    "_at": 1785772105,
    "_blob": "dd42a3e8322ae70cf449bab11058568147fefef4",
@@ -2950,20 +2964,6 @@
    "messages": [],
    "passed": 6,
    "sec": 149.1,
-   "skipped": 0,
-   "verdict": "VERT",
-   "xfailed": 0
-  },
-  "tests/engine/test_419r1tr14r5r2r1r2_normal_attack_options_live.py": {
-   "_at": 1785828509,
-   "_blob": "faf1b1e3c2250bb23a67b3b98cde953a8e02a876",
-   "_commit": "13d29938644c6a15e94a4559d727ee42616d73ae",
-   "_root": "C:/Users/nicolasv/tacticus-tools",
-   "error": 0,
-   "failed": 0,
-   "messages": [],
-   "passed": 8,
-   "sec": 57.3,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0

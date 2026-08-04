@@ -136,12 +136,13 @@ class AdjacentUnitPreferenceTriggeredAbilityPlaybook:
         # marche d'elevation >= 2 — et c'est exactement ce qui a d'abord fait rendre a l'A/B de
         # #271 un faux « le natif n'applique pas le terme », y compris sur `GuardianOrganism`.
         elev = ctx.get("elev_by_pos")
+        neigh = bq.neigh_map(ctx)
         friends = [u for u in (ctx.get("friend_units") or ())
-                   if bq.is_adjacent(tile, u["pos"], elev) and self.filter_adjacent_friend(u, ctx)]
+                   if bq.is_adjacent(tile, u["pos"], elev, neigh) and self.filter_adjacent_friend(u, ctx)]
         for u in self._capped(friends, self.MAX_ADJACENT_FRIENDS):
             val += self.get_adjacent_friend_utility(u, wt)
         enemies = [u for u in (ctx.get("enemy_units") or ())
-                   if bq.is_adjacent(tile, u["pos"], elev) and self.filter_adjacent_enemy(u, ctx)]
+                   if bq.is_adjacent(tile, u["pos"], elev, neigh) and self.filter_adjacent_enemy(u, ctx)]
         for u in self._capped(enemies, self.MAX_ADJACENT_ENEMIES):
             val += self.get_adjacent_enemy_utility(u, wt)
         return val

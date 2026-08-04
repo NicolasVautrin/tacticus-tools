@@ -10,9 +10,19 @@ flags de `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles` (tuiles LI
 (bug #148 : graphe amputé). Le board est capté une seule fois par bataille (statique).
 
 Trois modes d'adjacence, pour les consommateurs qui n'ont qu'UNE vue (`neighbours()`) :
-  - 'native'     : voisins natifs dirigés tels quels (peuvent être asymétriques —
-                   ~18 arêtes one-way observées, quirks de capture aux bords).
-  - 'native_sym' : union des deux sens (corrige l'asymétrie). DÉFAUT.
+  - 'native'     : voisins natifs dirigés tels quels.
+                   ⚠ « ~18 arêtes one-way, quirks de capture aux bords » : REFUTE, mesuré le
+                   2026-08-04 sur 4 boards (`C1_74`, `C3_14`, `MC1_67`, `C6_25`) —
+                   **0 arête one-way** dans les trois vues (`neighbours`, `connectivity`,
+                   géométrie). Le critère natif est symétrique par CONSTRUCTION :
+                   `IdunBattle.Operations.InitializeConnectivityOperation$$Execute` exige
+                   `TileComponent$$HasEdge(e)` chez la tuile ET `HasEdge((e+3) % 6)` chez le
+                   voisin, et `AddTileOperation$$RotateTileEdges` fixe le modulo à 6 (donc
+                   `opp` est involutive) ; la porte `|dElev| < 2` du capteur est symétrique
+                   aussi. L'observation datait des flags `(true,true,true)` d'AVANT #148, dont
+                   `onlyEmptyOrSteppable` teste la tuile VOISINE seule — celui-là, oui, était
+                   asymétrique. Détail : `docs/rl/case-433r4r1r4r2-substrat-is-adjacent.md`.
+  - 'native_sym' : union des deux sens. DÉFAUT (no-op sur un graphe déjà symétrique).
   - 'evenq'      : géométrie hex even-q (parité par COLONNE) recalculée depuis
                    (col,row). Convention VÉRIFIÉE sur les tuiles natives à 6
                    voisins (gqfc5mff6c) :
@@ -451,3 +461,43 @@ def elevations_by_pos(board) -> dict | None:
              and t.get("col") is not None and t.get("row") is not None}
         return m or None
     return None
+
+
+def adjacent_neigh_by_pos(board) -> dict | None:
+    """Le canal de VOISINAGE d'`IterateAdjacentTiles`, PAR POSITION, en TRI-ETAT -- `None` = **pas
+    de canal** (rien mesure), jamais `{}`. Pendant exact d'`elevations_by_pos` ci-dessus, pour le
+    PREMIER etage de la primitive (l'enumeration) la ou celui-la porte le SECOND (la porte).
+
+    C'est le champ BRUT `neighbours` du `boardGraph` (`Board.neighbours_native`), resolu en
+    positions : la liste STOCKEE du `ConnectivityComponent` telle que
+    `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(t, 0, 0, 1)` la rend -- donc a travers
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`, exactement
+    l'iterateur que `battle_query.is_adjacent` mirroir.
+
+    ⚠ TROIS voisinages coexistent sur un `Board`, et ils ne sont PAS interchangeables (#381-r3) :
+      * celui-ci (`neighbours_native`) -- la liste stockee AVEC la porte d'elevation du capteur.
+        C'est le substrat des selecteurs `AdjacentTiles` et des comptages `GetAdjacent*` ;
+      * `base_add_neighbours` (le `ConnectivityComponent` BRUT, SANS porte) -- celui du PATHFINDING,
+        expose par `walk_maps_by_pos()[0]`. Le confondre avec celui-ci rendrait la primitive
+        d'adjacence PERMISSIVE sur les aretes a `|dElev| >= 2` ;
+      * `neighbours_geometric` (la couronne hex) -- celui du VOL, et l'ancien substrat de
+        `is_adjacent`, qui sur-atteint la liste stockee de 4 aretes sur `C1_74` et 38 sur `C3_14`.
+
+    `board` est DUCK-TYPE dans tout le DSL, d'ou les deux formes acceptees (un `Board`, ou tout
+    objet exposant `by_id`). Une tuile dont le champ `neighbours` est ABSENT est OMISE de la carte
+    -- `is_adjacent` retombe alors sur sa couronne hex POUR CETTE TUILE, ce qui est la degradation
+    d'avant ; l'y coter `[]` la rendrait au contraire isolee, un faux negatif d'adjacence (le vice
+    de `#381-r3`)."""
+    if board is None:
+        return None
+    by_id = getattr(board, "by_id", None)
+    if not isinstance(by_id, dict) or not by_id:
+        return None
+    pos_of = {tid: (t["col"], t["row"]) for tid, t in by_id.items()
+              if isinstance(t, dict) and t.get("col") is not None and t.get("row") is not None}
+    out = {}
+    for tid, t in by_id.items():
+        if tid not in pos_of or not isinstance(t, dict) or t.get("neighbours") is None:
+            continue          # champ ABSENT != champ VIDE -- on OMET, on ne cote pas `[]`
+        out[pos_of[tid]] = [pos_of[n] for n in t["neighbours"] if n in pos_of]
+    return out or None

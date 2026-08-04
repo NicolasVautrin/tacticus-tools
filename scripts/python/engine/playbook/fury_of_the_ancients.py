@@ -183,7 +183,7 @@ class FuryOfTheAncientsPlaybook:
             if uid_ == e_id:
                 continue
             p = epos_by_id.get(uid_)
-            if p is not None and bq.is_adjacent(tuple(e_pos), p, elev_by_pos):
+            if p is not None and bq.is_adjacent(tuple(e_pos), p, elev_by_pos, neigh_by_pos):
                 return uid_
         return None
 
@@ -202,7 +202,7 @@ class FuryOfTheAncientsPlaybook:
             p = u.get("pos") or {}
             if p.get("col") is None:
                 continue
-            if bq.is_adjacent(tuple(tile), (p["col"], p["row"]), elev):
+            if bq.is_adjacent(tuple(tile), (p["col"], p["row"]), elev, neigh):
                 adj.append((u.get("id"), (p["col"], p["row"])))
         if not adj:
             return 0.0                                           # collection vide -> yield Fix64(0)

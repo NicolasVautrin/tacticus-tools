@@ -333,7 +333,8 @@ class LightImUpPlaybook:
             return False
         name = (getattr(ctx, "ab_name_by_id", None) or {}).get(int(ability_id))
         return _is_melee_attack(name, attack_tile, tgt_pos,
-                                getattr(scene, "elev_by_pos", None))
+                                getattr(scene, "elev_by_pos", None),
+                                neigh_by_pos=bq.neigh_map(scene))
 
     # ---- mirror du slot 0x28 : `GetMultiHitAttackPrediction` ---------------------------------
     def _predict_extra_vs_target(self, scene, att_id: int, tgt_id: int, amount: int, hits: int,

@@ -17,5 +17,5 @@ class BloodyFuryPlaybook(_PlanTargetPlaybook):
     def evaluate_non_comparable(self, tile, target, ctx):
         if tile is None:
             return None
-        adj = bq.count_adjacent(tile, ctx.epos, ctx.elev_by_pos)   # IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies
+        adj = bq.count_adjacent(tile, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx))   # IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies
         return 1.0 + adj * self._ADJACENT_ENEMIES_UTILITY

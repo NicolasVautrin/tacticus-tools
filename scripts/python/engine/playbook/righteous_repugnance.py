@@ -156,6 +156,7 @@ def count_additional_targets(scene, caster_uid: int, target_uid: int) -> int:
     if cpos is None or tpos is None or cteam is None:
         return 0
     elev = getattr(scene, "elev_by_pos", None)
+    neigh = bq.neigh_map(scene)
     n = 0
     for u in (scene.units or ()):
         uid = u.get("id")
@@ -170,11 +171,11 @@ def count_additional_targets(scene, caster_uid: int, target_uid: int) -> int:
             continue
         # `AdjacentEnemies(Caster@0x48)` -> `Units(AdjacentTiles(caster))` : ring-1 hex AVEC la porte
         # d'elevation `|delta| < 2`.
-        if not bq.is_adjacent(cpos, p, elev):
+        if not bq.is_adjacent(cpos, p, elev, neigh):
             continue
         # `AdjacentUnits(Target@0x60, unique: 1, sel: 3)` = `Units(AdjacentTiles(target)) - target` :
         # meme ring-1, meme porte. `is_adjacent` etant STRICT, la cible s'auto-exclut.
-        if not bq.is_adjacent(tpos, p, elev):
+        if not bq.is_adjacent(tpos, p, elev, neigh):
             continue
         n += 1
     return n

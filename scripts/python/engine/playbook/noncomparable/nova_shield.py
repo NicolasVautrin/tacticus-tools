@@ -83,7 +83,7 @@ class NovaShieldPlaybook(NonComparablePlaybook):
                 # (la MEME primitive que `GetAdjacent*`, cf. `battle_query.is_adjacent`).
                 marked = [center] + [n for n in hexgeo.neighbors(*center)
                                      if ((not board) or (n in board))
-                                     and bq.is_adjacent(center, n, ctx.elev_by_pos)]
+                                     and bq.is_adjacent(center, n, ctx.elev_by_pos, bq.neigh_map(ctx))]
                 n_enemy = sum(1 for t in marked if t in epos)               # IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CountEnemiesOnTiles
                 u = 100.0 * n_enemy + len(marked) + move_term              # 100*enemies + get_Count(marked)
                 if best is None or u > best[2]:   # strict > : 1re paire (pos, centre) du max garde

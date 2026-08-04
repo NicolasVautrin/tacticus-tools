@@ -547,7 +547,8 @@ def unit_threat_reach(visual_id, ability_ids=None, ability_state=None,
     return reach
 
 
-def _free_adjacent_gate_allows(unit_pos, tile, cfg_range: int, elev_by_pos) -> bool:
+def _free_adjacent_gate_allows(unit_pos, tile, cfg_range: int, elev_by_pos,
+                               neigh_by_pos=None) -> bool:
     """Le gate `GATE_FREE_ADJACENT_IN_CONFIG_RANGE`, evalue TUILE PAR TUILE au lieu d'etre rabattu
     sur son rayon :
 
@@ -574,8 +575,12 @@ def _free_adjacent_gate_allows(unit_pos, tile, cfg_range: int, elev_by_pos) -> b
     donc pas les voisines occupees, ce qui ne peut qu'ELARGIR."""
     from .. import battle_query as bq                  # foyer d'`IterateAdjacentTiles` (#124)
     t = (int(tile[0]), int(tile[1]))
+    # Le pool reste la couronne hex, mais `is_adjacent` le REDUIT a la liste STOCKEE des que le
+    # canal est la (#433-r4-r1-r4-r2) : `pool ^ N[t] == N[t]` puisque `N subset G`. Le natif, lui,
+    # itere directement `GetAdjacentTiles(from, 1, 1)` -- meme ensemble, ordre non observable ici
+    # (le predicat est un `Any`).
     for n in hexgeo.neighbors(t[0], t[1]):
-        if not bq.is_adjacent(t, tuple(n), elev_by_pos):
+        if not bq.is_adjacent(t, tuple(n), elev_by_pos, neigh_by_pos):
             continue                                   # porte d'elevation |dElev| < 2
         if hexgeo.distance(tuple(n), tuple(unit_pos)) <= cfg_range:
             return True
@@ -660,7 +665,9 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
         if cfg is None:
             return False
         if elev_by_pos:
-            return _free_adjacent_gate_allows(unit_pos, tile, int(cfg), elev_by_pos)
+            from ..entities.pathfinding.board import adjacent_neigh_by_pos
+            return _free_adjacent_gate_allows(unit_pos, tile, int(cfg), elev_by_pos,
+                                              adjacent_neigh_by_pos(board))
         # DEGRADATION NOMMEE : sans canal d'elevation, on ne garde du gate que sa consequence de
         # DISTANCE (`config.range + 1`) -- borne SUPERIEURE exacte, mesuree a 2 faux positifs sur 40.
         return hexgeo.distance(tuple(unit_pos), tuple(tile)) <= int(cfg) + 1

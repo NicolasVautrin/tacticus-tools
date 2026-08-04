@@ -273,6 +273,7 @@ class SaviorProtocolsPlaybook:
         des deux cotes depuis #378 (`Scene.parent` / `components.parent_of`)."""
         ctx = ctx or {}
         elev = ctx.get("elev_by_pos")
+        neigh = bq.neigh_map(ctx)
         mover_uid = ctx.get("uid")
         parent_uid = ctx.get("unit_parent_id")               # `UnitExtensions$$GetParent(case.Unit, state)`
         w_friend = float(wt.sub("TriggeredAbilities", _WEIGHT_ADJACENT_TAU_FRIEND))
@@ -284,7 +285,7 @@ class SaviorProtocolsPlaybook:
         for units, is_friend in ((ctx.get("friend_units") or (), True),
                                  (ctx.get("enemy_units") or (), False)):
             for u in units:
-                if not bq.is_adjacent(tile, u["pos"], elev):
+                if not bq.is_adjacent(tile, u["pos"], elev, neigh):
                     continue
                 if not _target_is_valid_trigger(u, is_friend, mover_uid):
                     continue

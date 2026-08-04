@@ -197,7 +197,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         if ctx.origin is None:
             return set()
         return {e[0] for e in enemies
-                if bq.are_entities_adjacent(ctx.origin, e[0], ctx.elev_by_pos)}
+                if bq.are_entities_adjacent(ctx.origin, e[0], ctx.elev_by_pos, bq.neigh_map(ctx))}
 
     def utility_at(self, P: tuple, enemies: list, adj_origin: set, elev_by_pos=None,
                    is_wall_by_pos=None, team_by_pos=None, walkable_by_pos=None,

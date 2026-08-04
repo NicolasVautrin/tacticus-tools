@@ -97,6 +97,6 @@ class SuppressiveFirePlaybook:
         if tpos is None:
             return 0.0
         # `if (!AreEntitiesAdjacent(tile, target))` — le predicat est NIE : le bonus est celui du TIR.
-        if bq.is_adjacent(attack_tile, tpos, getattr(sc, "elev_by_pos", None)):
+        if bq.is_adjacent(attack_tile, tpos, getattr(sc, "elev_by_pos", None), bq.neigh_map(sc)):
             return 0.0
         return float(ctx.wt.triggered(_WEIGHT_KEY))

@@ -92,7 +92,7 @@ class GeminaeSuperiaPlaybook:
         sp = (ctx or {}).get("self_pos")
         if not sp:
             return False
-        return bq.is_adjacent(tuple(tile), tuple(sp), (ctx or {}).get("elev_by_pos"))
+        return bq.is_adjacent(tuple(tile), tuple(sp), (ctx or {}).get("elev_by_pos"), bq.neigh_map(ctx))
 
     def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:
         ctx = ctx or {}
@@ -110,8 +110,9 @@ class GeminaeSuperiaPlaybook:
             ids = self.summon_unit_ids()
             if ids:
                 elev = ctx.get("elev_by_pos")
+                neigh = bq.neigh_map(ctx)
                 n_gem = sum(1 for u in (ctx.get("friend_units") or ())
                             if u.get("vis") in ids and u.get("pos")
-                            and bq.is_adjacent(tile, tuple(u["pos"]), elev))
+                            and bq.is_adjacent(tile, tuple(u["pos"]), elev, neigh))
                 val += float(w_gem) * n_gem
         return val

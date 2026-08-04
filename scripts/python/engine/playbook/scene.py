@@ -159,6 +159,27 @@ class Scene:
     # Scene (elle est reconstruite a chaque pas de decision). Table de travail, pas une entree.
     _psykers_by_team: dict = field(default_factory=dict)
 
+    @property
+    def neigh_by_pos(self) -> dict | None:
+        """`{(col,row): [(col,row), ...]}` — le voisinage NATIF (`boardGraph.neighbours`, la liste
+        STOCKEE que rend `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`), DERIVE du
+        board plutot que stocke (#433-r4-r1-r4-r2).
+
+        La `Scene` porte deja `board` ; poser un champ de plus obligerait chacun de ses DEUX
+        constructeurs (`from_state`, `from_predictor_sctx`) et chaque montage de test a le remplir,
+        et le premier qui l'oublierait rouvrirait le trou EN SILENCE — c'est la meme dette que
+        `TARGETING_OPTIONS`, et la meme parade que `DslContext.__post_init__` (#433-r4-r1-r4).
+
+        TRI-ETAT (`None` = pas de canal) : le foyer `entities.pathfinding.board.adjacent_neigh_by_pos`
+        ne rend jamais `{}`, donc `battle_query.is_adjacent` garde son repli geometrique NOMME au
+        lieu de conclure « aucun voisin ». Memoise : le board est STATIQUE pour toute la bataille."""
+        cached = getattr(self, "_neigh_by_pos_cache", "?")
+        if cached == "?":
+            from ..entities.pathfinding.board import adjacent_neigh_by_pos
+            cached = adjacent_neigh_by_pos(self.board)
+            object.__setattr__(self, "_neigh_by_pos_cache", cached)
+        return cached
+
     def charged(self, uid) -> set:
         """Ids que `uid` a CHARGES ce tour (vide si non capte)."""
         return self.charged_by_id.get(uid) or set()
