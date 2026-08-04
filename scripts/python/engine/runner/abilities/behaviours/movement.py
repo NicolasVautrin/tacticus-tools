@@ -111,15 +111,30 @@ class FlyUnit(AbilityBehaviour):
     des options. Le port DELEGUE donc a la MEME `MoveUnitOperation` que `MoveUnit`, et la garde
     « destination LIBRE » est identique (`CanAddUnitFromAbility` sur le contenu de tuile LIVE).
 
-    ⚠ RESIDU NOMME : la SEMANTIQUE de ce `Nullable(3)` n'est PAS resolue (le champ `+0x08` de
-    `MoveUnitBehaviourOptions` n'a aucun lecteur lu au decompile a ce stade) -- c'est vraisemblablement
-    ce qui distingue un VOL d'une marche (le natif s'en sert pour l'ability `1090 GrapnelLauncher`,
-    dont l'i2 dit que Tjark « moves to occupy the hex »). Le port ne l'invente pas : il rend le MEME
-    deplacement que `MoveUnit`, sans traversee d'obstacle particuliere (le pas est de toute facon
-    d'AU PLUS 1 hex ici -- la destination est la tuile d'origine de la cible ou une de ses voisines).
+    LA SEMANTIQUE DU `Nullable(3)` EST RESOLUE (#448-r1-r1-r2) -- l'ancien residu la disait
+    introuvable (« le champ `+0x08` de `MoveUnitBehaviourOptions` n'a aucun lecteur lu au
+    decompile »). C'est faux : le champ est TRANSPORTE par `MoveUnitBehaviour$$Execute` dans le
+    `MoveUnitOptions+0x08` qu'il passe au slot `MoveUnit` de l'`IOperationProcessor`, et il y a
+    exactement DEUX lecteurs, tous deux dans `IdunBattle.Operations.MoveUnitOperation` :
 
-    Call-sites portes : les DEUX branches du `If` final de `IdunBattleLogic.Entities.Abilities.Active.
-    Loki.GrapnelLauncherAbility$$ExecuteBehaviour`. Emet 'FlyUnit'. PUR (stop=False)."""
+      * `$$IsLikeFlying(unit, options)` -- son SECOND BRAS, `options.<+0x8> == PathfinderType.Fly`.
+        C'est le seul effet d'ETAT : `movementSteps` devient la DISTANCE `startTile -> endTile` au
+        lieu de `path.Count` (cf. `runner/operations/movement.py::_is_like_flying`) ;
+      * `$$CalculatePaths` -- il ECRASE avec cette valeur le type resolu par
+        `MovementQuery$$GetPathfinderTypeForUnit`, donc le chemin `path` est calcule par le
+        `FlyPathfinder` : il traverse murs et denivele. Le port ne materialise pas `path` dans
+        `MoveUnitOperation` -> RESIDU NOMME (la garde native `path vide -> mouvement ABANDONNE` et
+        les `AddMoveEvent` par pas restent non portes).
+
+    ⚠ `connectedPath` -- donc `tilesMovedThisTurn` -- NE VOIT PAS l'override : il vient de
+    `BattleQuery$$GetConnectedPathTo(entity, from, to)`, un appel a TROIS arguments sans options.
+    Le port ne doit donc PAS propager l'override a `record_tiles`/`_num_tiles_moved`.
+
+    Call-sites NATIFS de `FlyUnit` (XREFS exhaustives) : `WallOfMirrorsAbility`,
+    `PhantasmCreateAbility`, `LightOfSanguiniusAbility`, `EmpyricAmbushAbility`,
+    `EreWeGo_AttackAbility`, `GrapnelLauncherAbility` (x2), `KissOfDeathAbility`.
+    Call-sites PORTES : les DEUX branches du `If` final de `IdunBattleLogic.Entities.Abilities.
+    Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour`. Emet 'FlyUnit'. PUR (stop=False)."""
     __slots__ = ("subject_sel", "dest_tile_sel")
 
     def __init__(self, subject_sel: TargetsSelector, dest_tile_sel: TargetsSelector):
@@ -154,7 +169,12 @@ class FlyUnit(AbilityBehaviour):
             tid = board.id_at(pos[0], pos[1])
             if tid is None or not board.walkable(tid) or pos in occ:
                 continue
-            MoveUnitOperation(sid, pos).execute(state, ectx.bus)
+            # `options[+0x08] = Nullable<PathfinderType>(3 = Fly)` -- le SEUL champ que
+            # `DSLBehaviors$$FlyUnit` pose, et ce qui separe cette feuille de `MoveUnit`.
+            from ....entities.pathfinding import pathfinders as _pf
+            MoveUnitOperation(sid, pos,
+                              pathfinder_type_override=int(_pf.PathfinderType.Fly)
+                              ).execute(state, ectx.bus)
             ectx.emit("FlyUnit", subject=sid, moved=True, to=pos)
             return OperationResult.ok()
         ectx.emit("FlyUnit", subject=sid, moved=False)

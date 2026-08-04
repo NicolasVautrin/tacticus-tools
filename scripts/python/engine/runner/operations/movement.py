@@ -140,7 +140,58 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     return int(n) - 1 if n else 0                    # `IsNullOrEmpty(path)` -> 0
 
 
-def _movement_steps(state: State, mover_id: int, from_pos, to_pos) -> int:
+def _is_like_flying(traits, pathfinder_type_override) -> bool:
+    """`IdunBattle.Operations.MoveUnitOperation$$IsLikeFlying(unit, options)` -- MIRROR 1:1, LES
+    DEUX BRAS (#448-r1-r1-r2). A ne pas confondre avec son homonyme
+    `IdunBattle.Entities.UnitExtensions$$IsLikeFlying(unit)`, qui n'est QUE le premier bras.
+
+        bool IsLikeFlying(IEntity unit, MoveUnitOptions options) {
+            if (UnitExtensions.IsLikeFlying(unit)) return true;          // BRAS 1 -- les TRAITS
+            var ov = options.<+0x8>;                                     // Nullable<PathfinderType>
+            if (!ov.HasValue) return false;
+            return ov.Value == PathfinderType.Fly;                       // BRAS 2 -- l'OVERRIDE
+        }
+
+    Le champ `MoveUnitOptions+0x8` est un `Nullable<PathfinderType>`, et ce n'est pas une deduction :
+    `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` le relit deux lignes plus loin par
+    `Nullable.get_HasValue` / `get_Value` pour ECRASER le type de pathfinder resolu par
+    `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit`. `PathfinderType.Fly` vaut
+    `3` (dump d'enums du build : 0=Walk 1=IgnoreTerrain 2=Beeline **3=Fly** 4=IgnoreDoor
+    5=WaveValidator 6..13 = les types decores).
+
+    QUI POSE L'OVERRIDE -- les QUATRE producteurs du `Nullable<PathfinderType>` du binaire, obtenus
+    par les XREFS du `MethodInfo*` de son `.ctor` (donc EXHAUSTIF, pas un echantillon) :
+
+      1. `IdunBattleLogic.Entities.DSLBehaviors$$FlyUnit(unit, tiles)` -- il alloue un
+         `MoveUnitBehaviourOptions` (0x40 octets ZERO) et n'y pose QUE `+0x08 = Nullable(3)`, puis
+         `new MoveUnitBehaviour(unit, tiles, options)`. C'est LE chainon qui manquait : le residu
+         de `behaviours/movement.py::FlyUnit` disait « le champ +0x08 n'a aucun lecteur lu au
+         decompile » -- le lecteur, c'est CETTE fonction, et l'override de `CalculatePaths`.
+      2. `IdunBattleLogic.Entities.Abilities.Active.Loki.TreasonOfTzeentchAbility$$ExecuteBehaviour`
+         (via `DSLBehaviors$$MoveUnit` avec `options[+0x08] = Nullable(3)`).
+      3. `IdunBattleLogic.Entities.Abilities.Triggered.Loki.NovaBoost_AttackAbility$$CreateBehaviour`
+         (le SECOND `MoveUnit` -- l'atterrissage ; le premier a des options nulles a `+0x08`).
+      4. `IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass40_0$$u003CVisitu003Eb__0`
+         -- la lambda de `Visit(CheatMoveUnitMessage)`. Identifiee par les champs CAPTURES, pas par
+         le nom : elle lit `+0x10` (le processeur), `+0x18` (l'unite), `+0x20` (la liste de tuiles),
+         soit exactement les TROIS champs que pose `Visit(CheatMoveUnitMessage)`, tandis que
+         `Visit(MoveUnitMessage)` en pose QUATRE (`+0x20 = message`, `+0x28 = List<TileEntity>`).
+         ⇒ **le mouvement joueur ordinaire ne pose PAS d'override** -- ce qui est corrobore, par un
+         chemin independant, par la non-regression MARCHEUR de `#448-r1-r1-r1-r1`.
+
+    `traits` = ceux du mover (bras 1) ; `pathfinder_type_override` = `None` quand le `Nullable` est
+    VIDE (le cas de tous les call-sites a options nulles)."""
+    from ...entities.pathfinding.fly_pathfinder import is_like_flying
+    from ...entities.pathfinding import pathfinders as _pf
+    if is_like_flying(traits or []):                       # BRAS 1 : Flying (0x4) / Burrow (0x13)
+        return True
+    if pathfinder_type_override is None:                   # `!ov.HasValue`
+        return False
+    return int(pathfinder_type_override) == int(_pf.PathfinderType.Fly)      # BRAS 2 : `== 3`
+
+
+def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
+                    pathfinder_type_override=None) -> int:
     """Le `movementSteps` que `IdunBattle.Operations.MoveUnitOperation$$Execute` passe a
     `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` -- l'entree UNIQUE de la
     formule `IdunBattleLogic.Entities.DSLFormulas$$MovementSteps()`
@@ -185,12 +236,30 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos) -> int:
     VOL fait 3 ou 4 pas (murs de C6_25), 0 mort -- exclut la lecture `path.Count - 1`, qui
     coincide avec la distance sur tout vol direct.
 
-    `IdunBattle.Operations.MoveUnitOperation$$IsLikeFlying(unit, options)` =
-    `IdunBattle.Entities.UnitExtensions$$IsLikeFlying(unit) || options.<+0x8> == 3`, et le premier
-    bras est `HasTrait(0x4 = Flying) || HasTrait(0x13 = Burrow)`. Seul ce premier bras est porte :
-    `options+0x8` est le `Nullable<PathfinderType>` d'override que `CalculatePaths` relit pour
-    choisir son pathfinder (il force lui-meme la valeur `3` quand `previousPosition.IsEmpty()`), et
-    qu'AUCUN call-site du port ne pose (le port n'a pas d'`options`). RESIDU NOMME.
+    LES DEUX BRAS D'`IdunBattle.Operations.MoveUnitOperation$$IsLikeFlying(unit, options)` sont
+    desormais portes (#448-r1-r1-r2, cf. `_is_like_flying` juste au-dessus) : le premier lit les
+    TRAITS (`HasTrait(0x4 = Flying) || HasTrait(0x13 = Burrow)`), le second l'OVERRIDE
+    `options.<+0x8> == PathfinderType.Fly`, que pose la feuille DSL `FlyUnit`.
+
+    ⚠ C'EST LE SEUL LECTEUR D'ETAT DU SECOND BRAS, et c'est ce qui rend `_num_tiles_moved`
+    (`tilesMovedThisTurn`) STRUCTURELLEMENT AVEUGLE a l'override -- point de fidelite
+    contre-intuitif, LU et non deduit. `MoveUnitOperation$$Execute` produit DEUX listes par
+    `CalculatePaths` : `path` (8e out-param), calcule par
+    `Pathfinders$$GetPath(pathfinderType, unit, from, to, useTeleporter)` ou `pathfinderType` PORTE
+    l'override ; et `connectedPath` (9e out-param), qui vient de
+    `IdunBattle.Core.Services.BattleQuery$$GetConnectedPathTo(entity, from, to)` -- **TROIS
+    arguments, ni options ni pathfinderType**, donc il re-resout `GetPathfinderTypeForUnit(unit)`
+    tout seul. Or `RecordTilesMoved` compte `connectedPath`, et `movementSteps` derive de `path`.
+    ⇒ un port qui propagerait l'override jusqu'a `_num_tiles_moved` serait INFIDELE.
+
+    L'override a par ailleurs un second effet, sur `path` lui-meme (il change le pathfinder, donc la
+    trajectoire, donc la garde `path vide -> mouvement ABANDONNE` et les `AddMoveEvent`). Le port ne
+    materialise pas `path` dans `MoveUnitOperation` -> RESIDU NOMME, inchange. Il ne se compose pas
+    avec le bras 2 sur `movementSteps` : des que l'override vaut `Fly`, `IsLikeFlying` est vrai,
+    donc c'est la DISTANCE qui est prise et `path.Count` n'est plus lu.
+    Meme statut pour le troisieme forceur de `Fly` de `CalculatePaths`
+    (`if (previousPosition.IsEmpty()) pathfinderType = 3`) : il n'entre PAS dans `IsLikeFlying`, il
+    ne touche que `path`.
 
     RESIDU, herite de `_num_tiles_moved` : le natif tire `movementSteps` de `path` (8e out-param de
     `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths`) tandis que
@@ -198,11 +267,10 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos) -> int:
     listes distinctes. Le port n'en materialise qu'une (le `WalkPathfinder`) ; elles ont la MEME
     longueur sur un chemin de marche ordinaire, et divergent la ou
     `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo` DENSIFIE (teleporteurs/sauts)."""
-    from ...entities.pathfinding.fly_pathfinder import is_like_flying
     e = state.get_entity(int(mover_id))
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-    if is_like_flying(traits or []):
+    if _is_like_flying(traits, pathfinder_type_override):
         from ...entities.effects.aura_selectors import hex_distance
         d = hex_distance(from_pos, to_pos) if (from_pos is not None and to_pos is not None) else None
         return int(d) if d is not None else 0
@@ -326,14 +394,25 @@ class MoveUnitOperation(Operation):
     `IdunBattle.Operations.DisplaceUnitOperation$$AddTilesMoved`, qui refait lui-meme le
     `RecordTilesMoved` avec SES gates (`options+0x10` et `!IsEnemy(caster, target)` -- seul un
     deplacement AMICAL compte comme du mouvement). Si `MoveUnitOperation` enregistrait aussi, le
-    natif compterait DEUX FOIS : l'octet +0x16 est precisement ce qui l'en empeche."""
+    natif compterait DEUX FOIS : l'octet +0x16 est precisement ce qui l'en empeche.
+
+    `pathfinder_type_override` = mirror du `Nullable<PathfinderType>` `MoveUnitOptions+0x8`
+    (#448-r1-r1-r2). `None` = le `Nullable` VIDE, ce que passent TOUS les call-sites du port sauf
+    la feuille DSL `FlyUnit`, qui pose `PathfinderType.Fly`. Il n'a qu'UN lecteur, le SECOND BRAS
+    d'`IdunBattle.Operations.MoveUnitOperation$$IsLikeFlying` (cf. `_is_like_flying`), donc il
+    change `movementSteps` et RIEN d'autre -- surtout pas `record_tiles`/`_num_tiles_moved`, dont la
+    liste (`connectedPath`) est produite par un appel a TROIS arguments qui ne voit pas les options.
+    """
     __slots__ = ("unit_id", "to", "set_moved", "record_tiles", "skip_pre_move_triggers",
-                 "last_movement_steps")
+                 "last_movement_steps", "pathfinder_type_override")
 
     def __init__(self, unit_id: int, to: tuple[int, int], set_moved: bool = True,
-                 record_tiles: bool = True, skip_pre_move_triggers: bool = False):
+                 record_tiles: bool = True, skip_pre_move_triggers: bool = False,
+                 pathfinder_type_override: int | None = None):
         self.unit_id = unit_id
         self.to = to
+        self.pathfinder_type_override = (None if pathfinder_type_override is None
+                                         else int(pathfinder_type_override))
         # Le `movementSteps` que le natif passe a `IdunBattle.Operations.MoveUnitOperation$$
         # EvaluateAfterMoveTriggers` (cf. `_movement_steps`). Publie ICI parce que sa seule entree,
         # la position de DEPART, n'existe plus une fois `execute` termine -- et que le vecteur
@@ -395,9 +474,13 @@ class MoveUnitOperation(Operation):
             if ovr is None or not uc0.alive:
                 return
             if tuple(ovr) != (int(self.to[0]), int(self.to[1])):
+                # Le natif RECOPIE la struct `options` telle quelle dans l'appel recursif (il n'y
+                # touche que pour poser `+0x12 = 1`), donc l'override de pathfinder SURVIT a la
+                # deviation -- comme `set_moved` et `record_tiles`.
                 sub = MoveUnitOperation(self.unit_id, (int(ovr[0]), int(ovr[1])),
                                         set_moved=self.set_moved, record_tiles=self.record_tiles,
-                                        skip_pre_move_triggers=True)
+                                        skip_pre_move_triggers=True,
+                                        pathfinder_type_override=self.pathfinder_type_override)
                 sub.execute(state, bus)
                 # Le natif RELANCE `Execute` sur la nouvelle destination et c'est CET appel-la qui
                 # calcule son `movementSteps` et joue le vecteur after-move : on remonte donc la
@@ -409,7 +492,8 @@ class MoveUnitOperation(Operation):
         # `movementSteps` -- calcule AVANT la mutation de position (`old_pos` est son entree), comme
         # le natif qui derive `path` de `CalculatePaths(startTile = position.MainTile, ...)` avant
         # de bouger l'unite.
-        self.last_movement_steps = _movement_steps(state, self.unit_id, old_pos, self.to)
+        self.last_movement_steps = _movement_steps(state, self.unit_id, old_pos, self.to,
+                                                   self.pathfinder_type_override)
         if pc is None:
             # Unite SANS position : soit un spawn, soit -- depuis #448-r1 -- une unite qui REVIENT
             # sur le plateau (`RemoveUnitFromItsTiles` lui avait pose `feet = []`, cf.
