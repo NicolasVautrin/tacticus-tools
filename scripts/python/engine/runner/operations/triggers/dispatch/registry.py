@@ -17,6 +17,7 @@ from ..loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOf
                    ArcaneShieldAbility, ControlEdictAbility, RadSaturationAbility,
                    LordOfTempestsAddIceAbility, FireTileDoT, FIRE_TILE,
                    OnFireDamageAbility, OnToxicDamageAbility)
+from ..bond_removal import bond_removal_registry_entries
 from ..effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
                               RangedAutoAttackActivateOnTurnStart,
                               RangedAutoAttackDeactivateOnTurnStart,
@@ -657,8 +658,9 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     #     subie par la victime (AUCUN gate sur l'auteur du coup : c'est le decompile) ;
     #   * `On(0x3d = PreEffectAdded) & OwnerIsTarget & TriggeringEffectIs(0x429 = 1065 Pinned)`.
     # Sans eux, tout parasite restait au NIVEAU 1 -- or l'additif de degat est `x EffectLevel`.
-    # Les TROIS triggers de RETRAIT herites d'`ABondEffect` restent un residu NOMME (leurs gates sont
-    # des virtuels a lire au slot de vtable). Cf. loki/neuroparasite.py.
+    # Le trigger de RETRAIT (a) herite d'`ABondEffect` s'AJOUTE a ces deux-la, par la derivation en
+    # bas de fichier (`get_RemoveOnBondedEntityDeath` VRAI pour `NeuroparasiteEffect`) ; (b) et (c)
+    # restent NON CONFRONTES. Cf. loki/neuroparasite.py et bond_removal.py.
     NEUROPARASITE_EFFECT: [NeuroparasiteIncreaseLevelOnPsychicHit,   # On(9)    -> +1 niveau
                            NeuroparasiteIncreaseLevelOnPinned],     # On(0x3d) -> +1 niveau
     HAZE_DAMAGE_TRANSFER: [HazeOfCorruptionDamageTransferTrigger],
@@ -864,3 +866,25 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
                           EchoesGhostRemoveOnSourceDeathInactive,  # On(0)
                           EchoesGhostRemoveOnSourceRemoved],       # On(0x25)
 }
+
+# ------------------------------------------------------------------------------------------------
+# Le RETRAIT herite d'`IdunBattle.Entities.Effects.ABondEffect` (#462-r4b-r1-r1-r1-r1).
+#
+# Ces entrees ne sont PAS ecrites a la main : elles se DERIVENT de `BOND_REMOVAL_GATES`, la table
+# des trois virtuels de la classe d'effet NATIVE, mesuree au runtime
+# (`probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step declared`). C'est le mirror du natif, ou le
+# `Triggered()` est construit par la BASE `ABondEffect$$CreateHandleTriggerAbilitiesInternal` pour
+# TOUTES ses derivees -- une seule classe de trigger, N effect_type -- et n'entre dans l'`ArraySet`
+# que si `<klass+0x748> get_RemoveOnBondedEntityDeath` est VRAI.
+#
+# Un `setdefault(...).append(...)` plutot qu'une entree litterale : `EFFECT_TRIGGERS` est MUTE
+# in-place et non rebinde (cf. l'en-tete du module), et un effet de bond peut deja porter ses
+# propres triggers -- `NEUROPARASITE_EFFECT` en a deux (la montee en niveau de #556), auxquels
+# celui-ci s'AJOUTE, exactement comme le natif AJOUTE les siens a l'`ArraySet` herite.
+#
+# Les triggers (b) `<+0x728> get_Range` et (c) `<+0x738> get_Adjacent` ne sont PAS portes : aucun
+# porteur du port ne les arme de facon confrontable (la famille `Taunted`, seule concernee, est
+# posee avec `TurnsFromRounds(1)` et sa duree epuise le montage avant le terme de portee -- MESURE).
+# Detail, table et residus : `bond_removal.py` §3 et §4.
+for _bond_et, _bond_cls in bond_removal_registry_entries():
+    EFFECT_TRIGGERS.setdefault(_bond_et, []).append(_bond_cls)

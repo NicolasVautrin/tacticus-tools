@@ -117,10 +117,20 @@ chacun garde par un VIRTUEL de la classe d'effet (slots `+0x748`, `+0x728`, `+0x
 
 Aucun de ces trois virtuels n'apparait sous le nom `NeuroparasiteEffect$$*` dans les tables -- ce qui
 ne prouve RIEN (corps triviaux DEDUPLIQUES par IL2CPP : un `xor eax,eax ; ret` pour un bool faux, un
-`Nullable` vide). Trancher exigerait de LIRE LES SLOTS DE VTABLE sur l'instance ; ce n'est pas fait,
-donc le cycle de RETRAIT herite n'est pas porte et c'est un residu EXPLICITE, distinct de la POSE.
-Consequence offline : un parasite pose n'est jamais retire (le natif le retirerait au moins a la
-mort du Neurothrope si (a) est vrai). Sur les montages courts confrontes, aucun des trois ne mord.
+`Nullable` vide).
+
+RESOLU par #462-r4b-r1-r1-r1-r1, en enumerant `class_get_methods` NIVEAU PAR NIVEAU de la chaine de
+parents (le patron << comparer le POINTEUR de slot >> ne s'applique PAS ici : la base `ABondEffect`
+est abstraite, sa vtable n'est jamais materialisee). Les trois virtuels sont NOMMES -- `+0x728
+get_Range`, `+0x738 get_Adjacent`, `+0x748 get_RemoveOnBondedEntityDeath` -- et pour
+`NeuroparasiteEffect` ils valent respectivement `Nullable` VIDE, `false`, **`true`**.
+
+Donc, sur CE porteur, SEUL le trigger (a) est construit, et il EST porte :
+`engine/runner/operations/triggers/bond_removal.py` (`BondRemoveOnBondedEntityDeath`, inscrit dans
+`EFFECT_TRIGGERS[1218]` par derivation de `BOND_REMOVAL_GATES`). Confronte live : la mort du
+Neurothrope retire le parasite, celle d'une unite TIERCE ne le touche pas -- des deux cotes.
+(b) et (c) restent NON CONFRONTES et non portes ; residus nommes dans
+`docs/rl/case-462-r4b-r1-r1-r1-r1-retrait-bond.md` §6.
 """
 from __future__ import annotations
 

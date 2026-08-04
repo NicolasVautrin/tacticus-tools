@@ -103,6 +103,14 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal"),
     "NeuroparasiteIncreaseLevelOnPinned":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #462-r4b-r1-r1-r1-r1 -- le RETRAIT (a) herite d'`ABondEffect`, PARTAGE par toutes ses
+    # derivees (une seule classe portee, N effectTypes inscrits : 1218 `Neuroparasite`, 1077
+    # `HazeOfCorruption_DamageTransfer`). Rail ARRAYSET : c'est la BASE qui l'ajoute a l'`ArraySet`,
+    # il ne passe donc PAS par `EvaluateEffectTriggerTargets` et n'a AUCUN gate `IsActive`. Le gate
+    # qui decide de sa CONSTRUCTION est ailleurs -- le virtuel `<klass+0x748>
+    # get_RemoveOnBondedEntityDeath`, porte par la table `BOND_REMOVAL_GATES`.
+    "BondRemoveOnBondedEntityDeath":
+        (ARRAYSET, "IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal"),
     "EarlyWarningOverrideReactivateOverwatch":
         (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
     "EarlyWarningOverrideHitReductionPurge":
