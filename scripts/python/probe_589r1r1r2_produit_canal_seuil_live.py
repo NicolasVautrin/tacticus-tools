@@ -76,8 +76,10 @@ import probe_589r1r1_empyric_ambush_live as P2          # noqa: E402  (seuil : g
 #: exister que la ou `G \ C != 0` -- un board sans pont est DEGENERE pour cette question.
 BOARDS_BRIDGE = ("C1_74", "C3_14")
 
-#: Regimes de `MovementQuery$$GetPathfinderTypeForUnit` ou la beeline est seulement APPELEE.
-#: `Walk` (0) en est absent PAR MESURE (0 basculement sur 3906 couples x 2 boards, `case-589-r1`).
+#: Les regimes de `MovementQuery$$GetPathfinderTypeForUnit` que CE probe joue -- et ce n'est PAS
+#: la liste de ceux ou la beeline mord. `Walk` (0) est INERTE par mesure (0 basculement sur
+#: 3906 couples x 2 boards, `case-589-r1` §3) ; `TeleportStrike(Walk)` (6), lui, MORD
+#: (110/3906 sur `C1_74`) mais n'est pas confronte ici -- non couvert, pas inerte.
 REGIMES = {3: "Fly", 7: "TeleportStrike(+Fly)"}
 
 
@@ -268,8 +270,9 @@ def stage(h, bd, seuil, attaquant, temoin=False, verbose=False):
 
     ptype = _ptype_de(h, int(att["id"]), bd)
     if ptype not in REGIMES:
-        return None, ("regime ptype=%s hors des deux ou la beeline mord (`Walk` est mesure INERTE)"
-                      % ptype)
+        return None, ("regime ptype=%s hors des deux JOUES ici (%s). `Walk` (0) est mesure INERTE ;"
+                      " `TeleportStrike(Walk)` (6) MORD mais n'est pas confronte -- non couvert"
+                      % (ptype, ", ".join(sorted(REGIMES.values()))))
     plans, _tot = _plans_basculants(bd, ptype, seuil)
     if temoin:
         # BRAS TEMOIN : un trajet NON discriminant (`n_G == n_C >= seuil`). Le buff s'y applique des

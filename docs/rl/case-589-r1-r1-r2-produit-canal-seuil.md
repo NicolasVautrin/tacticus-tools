@@ -110,8 +110,9 @@ canal (il trouve ses 20 couples même sur un arbre régressé) et le REJEU confr
 
 * **Deux boards à `Bridge` sur les ~287 estimés.** Les 285 autres ne sont pas balayés — et le
   contraste 0,56 % / 7,8 % dit que la densité n'est **pas** estimable depuis un board.
-* **`TeleportStrike(Walk)` (ptype 6) n'est pas joué en DUEL.** Le SCAN le donne identique au
-  ptype 7 sur les deux boards, mais aucune salve n'a été mesurée dans ce régime.
+* **`TeleportStrike(Walk)` (ptype 6) n'est ni balayé ni joué ici.** Il n'est pas inerte —
+  `case-589-r1` §3 y mesure 110 couples sur `C1_74` — il est **non couvert**, et le probe le dit
+  au lieu de le confondre avec `Walk`.
 * **`extraCritChance` reste saturé** par `--crit 100,700` : seul `extraCritDmg` est discriminé.
   C'est le régime le plus fort (déterministe), pas le plus complet — le canal CHANCE de 1578 n'est
   confronté par aucune mesure de cette famille.
