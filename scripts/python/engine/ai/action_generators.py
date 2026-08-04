@@ -48,7 +48,7 @@ from engine import battle_query as bq          # is_adjacent (élévation-gaté)
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.base import NO_ACTION   # sentinelle `BaseUtility` -> Nullable VIDE (#27-4g)
-from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK, HEAL_PLAYBOOKS
+from engine.playbook.common import HEAL_PLAYBOOK, HEAL_PLAYBOOKS, normal_attack_playbook
 from engine.playbook.bespoke import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.playbook.nonattack import nonattack_candidates  # #27-4b : route Comparable SANS prédiction
 from engine.playbook.excruciating_frequencies import excruciating_frequencies_candidates  # #56-t3b : 1197 ligne-AoE tuile
@@ -364,8 +364,10 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
             by_ab[ab].append(ev)
         dbg = []
         for ab in ab_order:
-            # LoadPlaybook : attaque normale -> NormalAttackPlaybook ; sinon fallback/spéciale.
-            pb = NORMAL_ATTACK_PLAYBOOK if ab in ctx.normal_ids else get_playbook_or_default(ab)
+            # LoadPlaybook : attaque normale -> le playbook de SON identité (générique ou boss, cf.
+            # `common.normal_attack_playbook` — les deux ne diffèrent que par `ShouldExecute`) ;
+            # sinon fallback/spéciale.
+            pb = normal_attack_playbook(ab) if ab in ctx.normal_ids else get_playbook_or_default(ab)
             evs = sorted(
                 by_ab[ab],
                 key=lambda ev: (0, bq.iterate_surrounding_tiles_order_key(tgt_pos_by_id[ev["targetId"]]))
