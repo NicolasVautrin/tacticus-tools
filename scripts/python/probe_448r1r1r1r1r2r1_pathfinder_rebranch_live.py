@@ -413,8 +413,14 @@ def run_native(sid, rpc, board_id: str, seed: int, mutate: str, max_turns: int):
                 # (G, C) rendrait le bras `--mutate-native` incapable de mordre sur `MC1_67`, ou
                 # `G == C` mais `N != C` : chaque mutant a SON gisement, et un mutant qui ne mord
                 # pas parce qu'on l'a joue sur le mauvais board ne prouve RIEN.
+                # ORDRE DE PREFERENCE, et il n'est pas cosmetique : un couple ou `G != C`
+                # departage les deux vues que LE REBRANCHEMENT oppose ; un couple ou seul `N`
+                # differe ne tranche que le vieux champ ampute. Trier sur le seul ecart MAXIMAL
+                # noie le premier cas sous le second des que `C \ N` > `G \ C` -- ce qui est le
+                # regime de `C1_74` (58 contre 16) : mesure vecue, un run de 22 tours n'y a rendu
+                # que des `AMBIGU (G+C)`. La cle met donc `lg != lc` en tete.
                 (disc if len({lg, lc, ln}) > 1 else plats).append(
-                    (max(abs(lc - lg), abs(lc - ln)), d, lg, lc, ln))
+                    ((1 if lg != lc else 0, max(abs(lc - lg), abs(lc - ln))), d, lg, lc, ln))
             # Couples DEJA mesures ecartes, et ecart decroissant a egalite -- on veut des cas
             # DIFFERENTS, pas le meme aller-retour N fois.
             disc = [x for x in disc if (src, (int(x[1][0]), int(x[1][1]))) not in vus]
