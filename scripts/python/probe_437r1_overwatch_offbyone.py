@@ -523,9 +523,182 @@ def port_bounds(blob: dict) -> dict:
     return seen
 
 
+# --------------------------------------------------------------------------- elevation en COMBAT
+
+
+def elev_combat(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17) -> dict:
+    """LE discriminant qui reste : face ATTAQUANT = **ELEVATION** (feuille positionnelle) et face
+    DEFENSEUR = **EFFET** (`TerminatorArmour`), mesures AU COMBAT (degat reel + inversion des
+    bornes), pas en prediction.
+
+    Pourquoi il faut celui-la : #462-r4a a mesure ce meme couple de faces EN PREDICTION
+    (`aiPlaybookPredict`) et obtenu `Round(P x 1.5 x 0.7)` -- une CHAINE UNIQUE. Le present cas
+    #437-r1 mesure, EN COMBAT, `Round(Round(P x 1.25) x 0.25)` -- DEUX arrondis. Deux lectures
+    restent alors possibles, et elles ne different QUE sur ce montage :
+      (a) la loi tient a la NATURE de la source ATTAQUANT (effet -> arrondi, positionnel -> non) ;
+      (b) la loi tient au VECTEUR (combat -> deux appels, prediction -> chaine).
+    Ici la source attaquante est POSITIONNELLE et le vecteur est le COMBAT : (a) predit la chaine,
+    (b) predit deux arrondis.
+
+    Le ranger MARCHE (donc il perd `HeavyWeapon_ExtraDmg`, ce qui est ce qu'on veut : la face
+    attaquant ne doit porter QUE l'elevation) vers une tuile STRICTEMENT plus haute que celle du
+    porteur, puis ATTAQUE."""
+    import uuid as _uuid
+    import subprocess as _sp
+    from engine.entities.pathfinding.board import Board
+
+    sf = ROOT / "logs" / "runners" / ("p437r1e-%s.json" % _uuid.uuid4().hex[:8])
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
+           "--board", board, "--rank", str(rank),
+           "--p-units", "%s,%s" % (P.CARRIER, P.SPECTATOR), "--a-units", P.OVERWATCHER,
+           "--hp-player", "400000", "--crit", "0,0", "--crit-target", "0,0",
+           "--block-target", "0,0", "--block-player", "0,0", "--no-ai"]
+    if dmg_target is not None:
+        cmd += ["--dmg-target", str(dmg_target)]
+    proc = _sp.run(cmd, cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
+                   errors="replace")
+    if not sf.exists():
+        return {"error": "build KO : %s" % (proc.stderr or proc.stdout or "")[-600:]}
+    rid = int(json.loads(sf.read_text())["runnerId"])
+    rpc = _mkrpc()
+    try:
+        bg = rpc("boardGraph", {"runnerId": rid}, 60)
+        brd = Board(bg["tiles"], adjacency="native_sym")
+        elev = {}
+        for t in bg["tiles"]:
+            tid = t.get("id", t.get("tileId"))
+            if tid is not None:
+                elev[int(tid)] = t.get("elevation")
+        dv = P._view(rpc, rid, inactive=True)
+        ids = {v: int(P._by_vis(dv, v)["id"]) for v in [P.CARRIER, P.SPECTATOR, P.OVERWATCHER]}
+        tgt_tile = brd.id_at(int(P._unit(dv, ids[P.CARRIER])["pos"]["col"]),
+                             int(P._unit(dv, ids[P.CARRIER])["pos"]["row"]))
+        e_tgt = elev.get(tgt_tile)
+        for _t in range(30):
+            dv = P._view(rpc, rid, inactive=True)
+            ow_u = P._unit(dv, ids[P.OVERWATCHER])
+            src = brd.id_at(int(ow_u["pos"]["col"]), int(ow_u["pos"]["row"]))
+            d = P._bfs(brd, src).get(tgt_tile)
+            if (d is not None and 2 <= d <= 3 and e_tgt is not None
+                    and (elev.get(src) or 0) > e_tgt):
+                break
+            reach = P._mover_reach(dv, ids[P.OVERWATCHER])
+            occupied = {brd.id_at(int(u["pos"]["col"]), int(u["pos"]["row"]))
+                        for u in (dv.get("units") or []) if u.get("pos") and u.get("alive")}
+            d_src, d_tgt = P._bfs(brd, src), P._bfs(brd, tgt_tile)
+            cands = [t for t, dd in d_src.items()
+                     if 0 < dd <= int(reach) and t not in occupied and brd.walkable(t)
+                     and 2 <= d_tgt.get(t, 10 ** 6) <= 3
+                     and e_tgt is not None and (elev.get(t) or 0) > e_tgt]
+            cur = dv.get("currentPlayer")
+            if cands:
+                col, row = brd.coord(min(cands, key=lambda t: d_src[t]))
+                rpc("applyAction", {"runnerId": rid, "action": {
+                    "kind": "move", "unitId": ids[P.OVERWATCHER],
+                    "to": {"col": int(col), "row": int(row)}}}, 120)
+                continue
+            # pas de tuile surplombante a portee -> on se rapproche puis on retente
+            to_tile = _pick_tile_at_distance(brd, dv, ids[P.OVERWATCHER], ids[P.CARRIER], reach, 2)
+            moved = False
+            if to_tile is not None:
+                col, row = brd.coord(to_tile)
+                try:
+                    rpc("applyAction", {"runnerId": rid, "action": {
+                        "kind": "move", "unitId": ids[P.OVERWATCHER],
+                        "to": {"col": int(col), "row": int(row)}}}, 120)
+                    moved = True
+                except Exception:
+                    moved = False
+            if not moved:
+                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                if P._view(rpc, rid).get("currentPlayer") == cur:
+                    rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+        else:
+            return {"error": "aucune tuile SURPLOMBANTE a portee en 30 tours"}
+        dv = P._view(rpc, rid, inactive=True)
+        pres, act = P._armour_state(dv, ids[P.CARRIER])
+        if not (pres and act is True):
+            return {"error": "armure Terminator non ARMEE (present=%s active=%s)" % (pres, act)}
+        ow_effs = [e.get("name") for e in ((P._unit(dv, ids[P.OVERWATCHER]) or {}).get("effects")
+                                           or [])]
+        if "HeavyWeapon_ExtraDmg" in ow_effs:
+            return {"error": "HeavyWeapon_ExtraDmg ENCORE actif (%s) : la face attaquant porterait "
+                             "DEUX sources et le montage ne discriminerait plus" % ow_effs}
+        cap = {"dec": P._view(rpc, rid), "ob": rpc("observeBattle", {"runnerId": rid}, 60),
+               "snap": rpc("combatSnapshot", {"runnerId": rid}, 120),
+               "rng": rpc("dumpRng", {"runnerId": rid}, 30)}
+        hp0 = P._hp(dv, ids[P.CARRIER])
+        rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": ids[P.OVERWATCHER], "targetId": ids[P.CARRIER],
+            "abilityType": 69}}, 120)
+        dv2 = P._view(rpc, rid, inactive=True)
+        hp1 = P._hp(dv2, ids[P.CARRIER])
+        return {"ids": ids, "tiles": bg["tiles"], "cap": cap,
+                "native": {"hp_before": hp0, "hp_after": hp1, "hp_delta": (hp0 - hp1)},
+                "attack": {"caster": ids[P.OVERWATCHER], "target": ids[P.CARRIER]},
+                "dmg_target": dmg_target, "board_id": board, "seed": str(seed)}
+    finally:
+        try:
+            rpc("disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+
+
+def replay_attack(blob: dict) -> dict:
+    """Rejeu OFFLINE de l'ATTAQUE capturee (pas d'un move) : bornes du port + alea BRUT du tirage."""
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.snapshot import load_state
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.operations.damage import AttackDamageOperation
+
+    brd = Board(blob["tiles"], adjacency="native_sym")
+    cap = blob["cap"]
+    st = load_state(cap["dec"], cap["ob"], cap["snap"], board=brd)
+    rng = IntBasedMersenneTwister()
+    rng.mt = list(cap["rng"]["mt"])
+    rng.mti = cap["rng"]["mti"]
+    st.rng = rng
+    seen, raws, draws = {}, [], []
+    _g_gr, _g_ni = type(rng).genrand_int32, type(rng).next_internal
+    orig = AttackDamageOperation._run_hits
+
+    def _spy_gr(self):
+        g = _g_gr(self)
+        raws.append(int(g))
+        return g
+
+    def _spy_ni(self, lo, hi):
+        n0 = len(raws)
+        out = _g_ni(self, lo, hi)
+        draws.append({"lo": int(lo), "hi": int(hi), "out": int(out),
+                      "raws": [x >> 1 for x in raws[n0:]]})
+        return out
+
+    def _spy(rng_, hit_nc, hit_cr, cc, ce, hits, block_sources, **kw):
+        seen.setdefault("bounds", (int(hit_nc.min), int(hit_nc.max)))
+        seen.setdefault("hits", int(hits))
+        return orig(rng_, hit_nc, hit_cr, cc, ce, hits, block_sources, **kw)
+
+    type(rng).genrand_int32, type(rng).next_internal = _spy_gr, _spy_ni
+    AttackDamageOperation._run_hits = staticmethod(_spy)
+    try:
+        res = AttackDamageOperation.execute(st, int(blob["attack"]["caster"]),
+                                            int(blob["attack"]["target"]))
+    finally:
+        AttackDamageOperation._run_hits = staticmethod(orig)
+        type(rng).genrand_int32, type(rng).next_internal = _g_gr, _g_ni
+    big = [d for d in draws if d["hi"] - d["lo"] > 100]
+    return {"bounds": seen.get("bounds"), "hits": seen.get("hits"),
+            "total": (res or {}).get("total"),
+            "r": (big[0]["raws"][-1] if big and big[0]["raws"] else None)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--capture", action="store_true")
+    ap.add_argument("--elev-combat", action="store_true",
+                    help="regime ELEVATION (att, positionnel) + EFFET (def), mesure AU COMBAT")
     ap.add_argument("--bounds", action="store_true",
                     help="oracle des BORNES natives (l'overwatcher marche vers le porteur)")
     ap.add_argument("--dmg-target", default=None,
@@ -536,6 +709,23 @@ def main() -> int:
     ap.add_argument("--capture-file", default=str(CAPTURE))
     a = ap.parse_args()
     cf = Path(a.capture_file)
+    if a.elev_combat:
+        b = elev_combat(dmg_target=a.dmg_target)
+        if "error" in b:
+            print("[437r1] ERREUR elev-combat : %s" % b["error"])
+            return 2
+        out = ROOT / "logs" / ("probe_437r1_elev_%s.json" % (a.dmg_target or "base"))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(b), encoding="utf-8")
+        pr = replay_attack(b)
+        print("[437r1] ELEV-COMBAT natif=%s port=%s bornes_port=%s r=%s"
+              % (b["native"]["hp_delta"], pr["total"], pr["bounds"], pr["r"]))
+        nat, r, (lo0, hi0) = int(b["native"]["hp_delta"]), pr["r"], pr["bounds"]
+        sols = [(lo, hi) for lo in range(lo0 - 4, lo0 + 5) for hi in range(hi0 - 4, hi0 + 5)
+                if hi > lo and lo + (r % (hi - lo + 1)) == nat]
+        print("[437r1] INVERSION : bornes natives possibles = %s" % sols)
+        print("[437r1] ecrit : %s" % out)
+        return 0
     if a.bounds:
         b = bounds(dmg_target=a.dmg_target)
         if "error" in b:
