@@ -379,8 +379,19 @@ def battle_query_is_charging(state: State, caster_id: int, target_id: int) -> bo
     Ne fait QUE lire l'ECS et deleguer : positions (`PositionComponent`) + la liste
     `UnitComponent.ChargedUnitIds@+0x190` via `components.charged_unit_ids`. Aucune re-implementation
     du predicat ici — la face PREDICTION appelle le MEME foyer avec la liste qu'un pas CANDIDAT
-    produirait (`battle_query.newly_adjacent_ids`)."""
+    produirait (`battle_query.newly_adjacent_ids`).
+
+    ⚠ #433-r4-r1-r4-r2-r1 : ce pont ne passait NI l'elevation NI le voisinage, alors que le terme
+    `AreEntitiesAdjacent` du natif porte les deux --
+    `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent(t1, t2)` vaut
+    `(|dElev| < 2) & (t1 == t2 || ConnectivityComponent(t1).IsNeighbour(t2))`, et
+    `IdunBattle.Entities.Components.ConnectivityComponent$$IsNeighbour` lit la liste STOCKEE
+    (`this[+0x10].Contains(id)`). Les deux canaux se DERIVENT du board (tri-etat), jamais ne se
+    posent au call-site : `state.board` absent -> repli geometrique nomme d'`is_adjacent`, le
+    comportement d'avant. La face PREDICTION (`_shared._prediction_is_charging`) derive les MEMES
+    canaux de sa `Scene` -- une seule des deux branchee ferait diverger un natif unique."""
     from ..battle_query import is_charging as _bq_is_charging
+    from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
     from .components import charged_unit_ids
 
     def _pos(uid):
@@ -388,8 +399,10 @@ def battle_query_is_charging(state: State, caster_id: int, target_id: int) -> bo
         pc = e.get_component(PositionComponent) if e is not None else None
         return (pc.col, pc.row) if pc is not None else None
 
+    board = getattr(state, "board", None)
     return _bq_is_charging(_pos(caster_id), _pos(target_id), target_id,
-                           charged_unit_ids(state, int(caster_id)))
+                           charged_unit_ids(state, int(caster_id)),
+                           elevations_by_pos(board), adjacent_neigh_by_pos(board))
 
 
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,

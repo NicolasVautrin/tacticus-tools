@@ -196,10 +196,16 @@ def _prediction_is_charging(scene, att_id, attack_pos, tgt_id) -> bool:
     cur = scene.pos(att_id)
     pos = attack_pos or cur
     charged = set(scene.charged(att_id))                     # terme REEL (charges deja acquises)
+    # #433-r4-r1-r4-r2-r1 : les DEUX termes lisent le substrat NATIF (liste stockee du
+    # `ConnectivityComponent` + porte `|dElev| < 2`), pas la couronne hex -- `UpdateCharging` passe
+    # par `GetAdjacentUnits` -> `IterateAdjacentTiles`, et `IsCharging` par
+    # `MovementUtil$$AreTilesAdjacent` -> `ConnectivityComponent$$IsNeighbour`, qui lit la MEME liste.
     if pos != cur:
         others = {uid: p for uid, p in (scene.pos_by_id or {}).items() if uid != att_id}
-        charged |= newly_adjacent_ids(cur, pos, others)      # terme CANDIDAT (le pas hypothetique)
-    return bq_is_charging(pos, scene.pos(tgt_id), tgt_id, charged, scene.elev_by_pos)
+        charged |= newly_adjacent_ids(cur, pos, others,      # terme CANDIDAT (le pas hypothetique)
+                                      scene.elev_by_pos, scene.neigh_by_pos)
+    return bq_is_charging(pos, scene.pos(tgt_id), tgt_id, charged,
+                          scene.elev_by_pos, scene.neigh_by_pos)
 
 
 def prediction_has_moved(scene, att_id, attack_pos) -> bool | None:

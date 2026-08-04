@@ -1469,16 +1469,32 @@ def update_charging(state, unit_id: int, old_pos, new_pos) -> list:
     `old_pos`/`new_pos` = (col,row) ; `old_pos=None` (unite sans position avant le move, ex. spawn)
     -> `before` vide, mirror du `MainTile == null` natif. Renvoie les ids AJOUTES (diag).
 
+    ⚠ « ADJACENT » Y EST `IterateAdjacentTiles`, PAS `hexgeo.distance == 1` (#433-r4-r1-r4-r2-r1).
+    `IdunBattle.Core.Services.BattleQuery$$GetAdjacentUnits(from, ...)` est LU comme
+    `IterateAdjacentTiles(from, ...)` puis `GetUnitsOnTiles(...)`, et
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` enumere la
+    liste STOCKEE du `ConnectivityComponent` (`+0x10`) avant d'appliquer la porte `|dElev| < 2`.
+    D'ou la delegation a `battle_query.is_adjacent`, foyer des DEUX etages : ce mirror ECS et son
+    jumeau PREDICTION (`battle_query.newly_adjacent_ids`) portent le MEME natif et doivent voir le
+    MEME graphe, sinon `IsCharging` diverge d'une face a l'autre alors que le natif n'a qu'un seul
+    `IBattleQuery` -- meme exigence que `Board.walk_maps_by_pos` sur `TilesMovedThisTurn`.
+    Canaux derives du board (tri-etat) : `state.board` absent -> repli GEOMETRIQUE nomme
+    d'`is_adjacent`, c'est-a-dire exactement le comportement d'avant.
+
     La liste est videe par `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` (cf.
     `FinishUnitTurnOperation.execute`) -> sa duree de vie est L'ACTIVATION de l'unite, ce qui donne au
     predicat `IsCharging` sa semantique « a charge cette cible CE TOUR ». Aucun autre site natif
     n'ecrit ce champ (xrefs de `UpdateCharging` : les 2 call-sites de `Execute` ; le seul autre
     lecteur est `BattleQuery$$IsCharging`)."""
-    import hexgeo
+    from ..battle_query import is_adjacent
+    from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
     e = state.get_entity(unit_id)
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None or new_pos is None:
         return []
+    board = getattr(state, "board", None)
+    elev_by_pos = elevations_by_pos(board)
+    neigh_by_pos = adjacent_neigh_by_pos(board)
 
     def _adjacent_ids(pos):
         if pos is None:
@@ -1490,7 +1506,7 @@ def update_charging(state, unit_id: int, old_pos, new_pos) -> list:
             opc = other.get_component(PositionComponent)
             if opc is None:
                 continue
-            if hexgeo.distance(tuple(pos), (opc.col, opc.row)) == 1:
+            if is_adjacent(tuple(pos), (opc.col, opc.row), elev_by_pos, neigh_by_pos):
                 out.add(int(oid))
         return out
 

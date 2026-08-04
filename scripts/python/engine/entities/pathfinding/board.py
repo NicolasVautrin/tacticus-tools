@@ -487,9 +487,22 @@ def adjacent_neigh_by_pos(board) -> dict | None:
     objet exposant `by_id`). Une tuile dont le champ `neighbours` est ABSENT est OMISE de la carte
     -- `is_adjacent` retombe alors sur sa couronne hex POUR CETTE TUILE, ce qui est la degradation
     d'avant ; l'y coter `[]` la rendrait au contraire isolee, un faux negatif d'adjacence (le vice
-    de `#381-r3`)."""
+    de `#381-r3`).
+
+    MEMOISE sur l'instance de board (#433-r4-r1-r4-r2-r1), comme `Board.elev_by_pos` et
+    `walk_maps_by_pos` : le graphe est STATIQUE pour toute la bataille -- c'est LU (les seuls
+    ecrivains de `ConnectivityComponent` sont `InitializeConnectivityOperation$$Execute` pour
+    `+0x10` et `$$ConnectTeleportTiles` pour `+0x18`, tous deux en passe unique) -- alors que les
+    appelants COMBAT (`runner.components.update_charging`, un appel par pas de deplacement ;
+    `runner.damage_model.battle_query_is_charging`, un appel par coup) sont sur des chemins chauds
+    ou une reconstruction en O(tuiles) serait payee des milliers de fois. Le cache est pose par
+    `setattr` protege : un board duck-type peut le refuser (`__slots__`, mapping fige), auquel cas
+    on recalcule -- jamais on n'echoue."""
     if board is None:
         return None
+    cached = getattr(board, "_adjacent_neigh_by_pos", "?")
+    if cached != "?":
+        return cached
     by_id = getattr(board, "by_id", None)
     if not isinstance(by_id, dict) or not by_id:
         return None
@@ -500,4 +513,9 @@ def adjacent_neigh_by_pos(board) -> dict | None:
         if tid not in pos_of or not isinstance(t, dict) or t.get("neighbours") is None:
             continue          # champ ABSENT != champ VIDE -- on OMET, on ne cote pas `[]`
         out[pos_of[tid]] = [pos_of[n] for n in t["neighbours"] if n in pos_of]
-    return out or None
+    res = out or None
+    try:
+        setattr(board, "_adjacent_neigh_by_pos", res)
+    except (AttributeError, TypeError):
+        pass                  # board fige -> on recalcule ; le resultat est le meme
+    return res
