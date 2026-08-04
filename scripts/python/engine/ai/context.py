@@ -89,6 +89,12 @@ class AiDecisionContext:
     #     {(col,row): bool} <- boardGraph.isWall = `TileComponent+0x41`, le drapeau que lit
     #     `MovementQuery$$u003CGetTilesObscuringTerrainu003Eg__DetermineBlockingWalls` — le volet MURS
     #     de la LIGNE DE VUE (#433-r4-r2-r1-r2). VIDE = canal muet -> aucun mur vu (PERMISSIF).
+    is_in_fog_by_pos: dict = field(default_factory=dict)
+    #     {(col,row): bool} <- boardGraph.isInFog = `TileComponent+0x40`, le SECOND volet de
+    #     `TileExtensions$$IsWalkable(t, checkFog: true)` — celui que `walkable_by_pos`
+    #     (= `BattleQuery$$IsWalkableTile`) ne porte PAS. Consommé avec lui par l'étage AMONT
+    #     `TargetingQuery$$GetTilesInRange` (#433-r4-r2-r1-r2-r2-r1). VIDE = canal muet -> volet
+    #     inerte (PERMISSIF). Mesuré : 31 tuiles `walkable && isInFog` sur `C6_02`.
     # Deux attributs de TUILE que `tileMeta` remonte DÉJÀ et que le port jetait (#175) : sans eux les
     # feuilles Tile(7) qui les gatent restent muettes même quand `ctx.unit_traits` est peuplé.
     is_territory_by_pos: dict = field(default_factory=dict)
@@ -283,6 +289,7 @@ _BOARD_NEIGH_CACHE: dict = {}      # {rid: {(col,row): [voisins ordre natif]}} �
 _BOARD_WALKABLE_CACHE: dict = {}   # {rid: {(col,row): walkable}} — board statique, dérivé (#116)
 _BOARD_TERRAIN_CACHE: dict = {}    # {rid: {(col,row): tileDefId}} — terrain statique, dérivé (case-37)
 _BOARD_IS_WALL_CACHE: dict = {}    # {rid: {(col,row): isWall}} — TileComponent+0x41, dérivé (#433-r4-r2-r1-r2)
+_BOARD_IS_IN_FOG_CACHE: dict = {}  # {rid: {(col,row): isInFog}} — TileComponent+0x40, dérivé (#433-r4-r2-r1-r2-r2-r1)
 _ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: {active,passive,multiplier}}} — combatSnapshot, 1 fetch/rid
 _TRIGGERED_KIT_CACHE: dict = {}    # {(rid, unitId): [TriggeredAbilityType]} — unitAbilityStates, 1 fetch/unite
 #                                    (kit DECLENCHE reel : passifs + trait-granted + RELIQUES, cf. N13)
@@ -367,6 +374,27 @@ def _board_is_wall(rpc: Callable[..., dict], rid: int) -> dict:
         m = {(t.get("col"), t.get("row")): bool(t.get("isWall"))
              for t in _board_graph_tiles(rpc, rid)}
         _BOARD_IS_WALL_CACHE[rid] = m
+    return m
+
+
+def _board_is_in_fog(rpc: Callable[..., dict], rid: int) -> dict:
+    """{(col,row): bool isInFog} depuis `boardGraph` (`TileComponent+0x40`, publié par #403) —
+    caché par rid. C'est le SECOND volet de `IdunBattle.Entities.TileExtensions$$IsWalkable(t,
+    checkFog: true)`, la lambda que `TargetingQuery$$GetTilesInRange` applique en `RemoveAll`
+    (#433-r4-r2-r1-r2-r2-r1).
+
+    DISTINCT de `walkable` : celui-ci est `BattleQuery$$IsWalkableTile`, qui n'a PAS de paramètre
+    `checkFog` et ne rend donc que le premier volet. MESURÉ (2026-08-04) : sur `C6_02`, 31 tuiles
+    sur 63 sont `walkable == True` ET `isInFog == True` — les rabattre l'un sur l'autre laisserait
+    31 tuiles attribuées à tort.
+
+    CACHÉ comme `walkable`/`isWall` : mesuré STABLE sur ce montage (`C6_02`, 32 tuiles en fog
+    inchangées après deux `endturn`). ÉCART NOMMÉ si un mode révélait le fog en cours de bataille."""
+    m = _BOARD_IS_IN_FOG_CACHE.get(rid)
+    if m is None:
+        m = {(t.get("col"), t.get("row")): bool(t.get("isInFog"))
+             for t in _board_graph_tiles(rpc, rid)}
+        _BOARD_IS_IN_FOG_CACHE[rid] = m
     return m
 
 
@@ -574,6 +602,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     walkable_by_pos = _board_walkable(rpc, rid)  # gate statique de placement CanAddUnit (#116)
     terrain_by_pos = _board_terrain(rpc, rid)    # terrain statique -> covers TileEffects (DryBush->LightCover, case-37)
     is_wall_by_pos = _board_is_wall(rpc, rid)    # TileComponent+0x41 -> volet MURS de la ligne de vue (#433-r4-r2-r1-r2)
+    is_in_fog_by_pos = _board_is_in_fog(rpc, rid)  # TileComponent+0x40 -> 2e volet d'IsWalkable (#433-r4-r2-r1-r2-r2-r1)
 
     origin = (me["pos"]["col"], me["pos"]["row"]) if me and me.get("pos") else None
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
@@ -622,7 +651,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         mindist_case=mindist_case,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
-        is_wall_by_pos=is_wall_by_pos,
+        is_wall_by_pos=is_wall_by_pos, is_in_fog_by_pos=is_in_fog_by_pos,
         is_territory_by_pos=is_territory_by_pos,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
         mow_slot_by_player=mow_slot_by_player, current_player_team=current_player_team,
@@ -801,6 +830,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
     walkable_by_pos = _board_walkable(rpc, rid)
     terrain_by_pos = _board_terrain(rpc, rid)
     is_wall_by_pos = _board_is_wall(rpc, rid)
+    is_in_fog_by_pos = _board_is_in_fog(rpc, rid)
 
     fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
@@ -823,7 +853,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
         effects_by_pos=effects_by_pos, pathdist_by_pos={},
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
-        is_wall_by_pos=is_wall_by_pos,
+        is_wall_by_pos=is_wall_by_pos, is_in_fog_by_pos=is_in_fog_by_pos,
         is_territory_by_pos=is_territory_by_pos,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
         mow_slot_by_player=mow_slot_by_player,

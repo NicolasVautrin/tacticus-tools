@@ -417,6 +417,11 @@ class NCContext:
     #                                `TileComponent+0x41`) — le second volet de la LIGNE DE VUE
     #                                (`DetermineBlockingWalls`). VIDE = canal muet -> aucun mur vu,
     #                                dégradation PERMISSIVE (la zone ne peut qu'ÉLARGIR)
+    is_in_fog_by_pos: dict = field(default_factory=dict)  # {(col,row): bool} (boardGraph `isInFog` =
+    #                                `TileComponent+0x40`) — avec `walkable_by_pos`, l'étage AMONT
+    #                                `TargetingQuery$$GetTilesInRange` (#433-r4-r2-r1-r2-r2-r1) : le
+    #                                natif RETIRE de la zone toute tuile non marchable. VIDE = canal
+    #                                muet -> volet inerte (dégradation PERMISSIVE)
     wt: object = None              # Weights BC (NovaShield : terme Tile(7) = tile_utility)
     is_temporary_by_pos: dict = field(default_factory=dict)  # Tile(7) (feuille is_temporary)
     effects_by_pos: dict = field(default_factory=dict)       # Tile(7) (feuille TileEffects)

@@ -4,9 +4,14 @@ interrogee, et avec quel masque d'obscurcissement.
 CE QUE CE MODULE FERME (#433-r4-r2-r1-r2). `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions`
 retire des candidats par TROIS predicats successifs, et seul le troisieme etait porte (#558) :
 
+    zone = GetTilesInRange(...)           # <-- CE MODULE AUSSI : le retrait des NON MARCHABLES
     RemoveAll(b__0)                       # ami/ennemi, portee, regles statiques
     RemoveAll(b__1)                       # <-- CE MODULE : la LIGNE DE VUE
     if (rules & TargetMatchesDynamicRule) RemoveAll(b__2)   # GetDynamicInvalidTargetReason (#558)
+
+⚠ La premiere ligne n'est PAS un quatrieme predicat : le retrait des tuiles non marchables vit
+DANS la fonction qui CONSTRUIT la zone, donc en AMONT des trois `RemoveAll` -- c'est la reponse a
+`#433-r4-r2-r1-r2-r2-r1`, portee par `tile_removed_by_walkability`.
 
 ⚠ **`b__1` n'est gate par AUCUN bit** : il tourne TOUJOURS. Les deux bits `AllowObscuredTargetBy*`
 ne decident pas SI le predicat tourne, mais ce qu'il REGARDE -- ils sont consommes a l'interieur
@@ -76,6 +81,12 @@ BLOCKING_ELEVATION_DIFFERENCE = 2
 ALLOW_OBSCURED_TARGET_BY_ELEVATION = 1 << 25
 ALLOW_OBSCURED_TARGET_BY_WALLS = 1 << 26
 
+#: `IdunBattle.Core.Services.TargetingRule.AllowUnwalkableTargetTile` (bit 43) -- le SEUL bit que
+#: lit l'etage AMONT `GetTilesInRange` (cf. `tile_removed_by_walkability`). Nomme ici plutot
+#: qu'importe de `engine.runner.abilities.targeting_rule` : ce module ne depend pas du registre
+#: COMBAT, et le litteral est celui du decompile.
+ALLOW_UNWALKABLE_TARGET_TILE = 1 << 43
+
 #: `IdunBattle.Entities.Enum.UnitTrait.IndirectFire` = 1005 = `0x3ed`, le litteral passe a
 #: `IdunBattle.Entities.UnitExtensions$$HasTrait` par `TargetingQuery$$GetTilesObscuringTerrain`.
 #: Un caster qui le porte est EXEMPTE du volet ELEVATION -- exactement comme le bit 25 du masque.
@@ -114,6 +125,56 @@ def obscuring_type_for(rules: Optional[int], caster_has_indirect_fire: bool = Fa
     if r & ALLOW_OBSCURED_TARGET_BY_WALLS:
         return flags
     return flags | OBSCURING_TYPE_WALL
+
+
+def tile_removed_by_walkability(rules: Optional[int], walkable: Optional[bool],
+                                is_in_fog: Optional[bool] = None) -> bool:
+    """L'etage AMONT : `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange` retire de la zone
+    toute tuile NON MARCHABLE. `True` = la tuile est RETIREE.
+
+    C'EST UN ETAGE DISTINCT, ET IL EST EN AMONT DE LA LIGNE DE VUE (#433-r4-r2-r1-r2-r2-r1). Le
+    retrait n'est PAS l'un des trois predicats de `GetPossibleTargetsForOptions` (`b__0` ami/portee,
+    `b__1` ligne de vue, `b__2` gate dynamique) : il vit DANS la fonction qui CONSTRUIT la zone,
+    donc avant que ces predicats ne la voient. Fin de `GetTilesInRange`, VERBATIM :
+
+        if ((options.Rules & AllowUnwalkableTargetTile) == 0)      // bit 43
+            <cache statique>.RemoveAll(zone, TargetingQuery.<>c.<GetTilesInRange>b__36_0);
+
+    et la lambda, `IdunBattle.Core.Services.TargetingQuery.u003Cu003Ec$$u003CGetTilesInRangeu003Eb__36_0` :
+
+        b__36_0(t) = !IdunBattle.Entities.TileExtensions$$IsWalkable(t, checkFog: true)
+
+    Le MEME bit 43 est en outre passe en `onlyWalkableTiles` aux deux slots `IBattleQuery` qui
+    construisent la zone (`0x67` GetTilesInRadius, `0x51` GetAdjacentTiles) : le `RemoveAll` final
+    est donc IDEMPOTENT pour ces branches, et n'est indispensable que pour celles qui ne filtrent
+    pas (`UseWholeBoard` -> slot `0x69` GetAllTiles, et la branche `casterTiles` de portee nulle).
+
+    LES DEUX VOLETS DE `IsWalkable`, et pourquoi il en faut DEUX canaux :
+
+        IsWalkable(tile, checkFog) :
+            if (tile == null)                            return false;
+            m = tile.<MovementComponent @+0x40>;
+            if (m.<+0x10> != 0)                          return false;   # terrain infranchissable
+            if (!checkFog)                               return true;
+            return tile.<TileComponent @+0x20>.<IsInFogOfWar @+0x40> == 0;
+
+    * le PREMIER volet est EXACTEMENT ce que rend `IdunBattle.Core.Services.BattleQuery$$IsWalkableTile`
+      (`IsTile(tile) && comp.<+0x10> == 0`), donc le champ `walkable` du `boardGraph` ;
+    * le SECOND volet n'y est PAS -- `IsWalkableTile` n'a pas de parametre `checkFog`. Il se lit sur
+      le champ `isInFog` du meme `boardGraph` (`TileComponent+0x40`, publie depuis #403).
+      MESURE (2026-08-04, board `C6_02`) : **31 tuiles sur 63** sont `walkable == True` ET
+      `isInFog == True`. Rabattre l'un sur l'autre laisserait donc 31 tuiles attribuees a tort.
+
+    `rules is None` (masque non RE-lu) -> `False` : meme convention permissive que le reste de la
+    cascade. C'est un ECART NOMME -- le natif, lui, RETIRE par defaut (sur les 106 masques lus du
+    port, un SEUL porte le bit 43 : `1116 RadBombardment`).
+    `walkable is None` / `is_in_fog is None` -> le volet correspondant ne retire rien : canal muet
+    n'est pas canal a `False`."""
+    if rules is None or (int(rules) & ALLOW_UNWALKABLE_TARGET_TILE):
+        return False
+    if walkable is not None and not bool(walkable):
+        return True                       # `m.<+0x10> != 0` -- terrain infranchissable
+    return bool(is_in_fog) if is_in_fog is not None else False
 
 
 def friend_gates_for_tile_target(caster_team: Optional[int],

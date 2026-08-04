@@ -191,6 +191,29 @@ def _board_topology_maps(board) -> tuple[dict, dict, dict, dict, dict]:
     return tile_id_by_pos, neigh_by_pos, walkable_by_pos, terrain_by_pos, is_wall_by_pos
 
 
+def _board_fog_map(board) -> dict:
+    """`{(col,row): isInFog}` -- mirror OFFLINE de `context._board_is_in_fog` (boardGraph `isInFog`
+    = `TileComponent+0x40`). Avec `walkable_by_pos`, c'est le substrat de l'etage AMONT
+    `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange` (#433-r4-r2-r1-r2-r2-r1) :
+    `TileExtensions$$IsWalkable(t, checkFog: true)` agrege les DEUX volets, et `IsWalkableTile`
+    (donc `walkable`) n'en rend que le premier.
+
+    FONCTION SEPAREE, et non un 6e element de `_board_topology_maps` : ce tuple positionnel est
+    deballe par deux appelants, et l'allonger casserait celui qui n'en a pas besoin.
+
+    TRI-ETAT STRICT, et c'est ce qui la distingue de ses voisines : un board dont AUCUNE tuile ne
+    PORTE la cle rend `{}` (canal muet), jamais un dict de `False` -- ce dernier se lirait
+    << mesure : aucune tuile en fog >>, alors que c'est << non mesure >>. L'erreur serait du bon
+    cote (permissif), mais elle MENTIRAIT, et c'est ce qui la rend inacceptable.
+    Board absent -> `{}` aussi."""
+    if board is None:
+        return {}
+    tiles = list(board.by_id.values())
+    if not any("isInFog" in t for t in tiles):
+        return {}
+    return {(t["col"], t["row"]): bool(t.get("isInFog")) for t in tiles}
+
+
 def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -> list:
     """Tuiles d'ARRET atteignables de `uid` (mirror `aiMovableTiles`) = `WalkPathfinder.get_movable_positions`
     a portee `Movement`. [] si pas de board / origine / Movement=0. Forme `[{col,row}]` (comme le RPC)."""
@@ -718,6 +741,7 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     # anterieur a l'ajout de ces champs requis) revele par la confrontation du tour du Skitarii (#24).
     (tile_id_by_pos, neigh_by_pos, walkable_by_pos, terrain_by_pos,
      is_wall_by_pos) = _board_topology_maps(state.board)
+    is_in_fog_by_pos = _board_fog_map(state.board)
     # Plans d'ATTAQUE : ne cibler que les ennemis CIBLABLES (exclut les deep-strike teleporting-in, non-ciblables
     # jusqu'a l'atterrissage). `enemies` reste complet pour le positionnement (ils occupent le board).
     tgt_enemies = [e for e in enemies if not _is_untargetable(state, e.get("id"))]
@@ -740,4 +764,5 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
         elev_by_pos=elev_by_pos, is_temporary_by_pos={}, effects_by_pos={},
         pathdist_by_pos=pathdist_by_pos, mindist_case=mindist_case,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos, walkable_by_pos=walkable_by_pos,
-        terrain_by_pos=terrain_by_pos, is_wall_by_pos=is_wall_by_pos, debug=debug)
+        terrain_by_pos=terrain_by_pos, is_wall_by_pos=is_wall_by_pos,
+        is_in_fog_by_pos=is_in_fog_by_pos, debug=debug)
