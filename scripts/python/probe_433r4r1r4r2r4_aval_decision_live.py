@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -80,26 +81,37 @@ def _rpc_factory():
     return _resolve_session(), rpc
 
 
-def _build(board: str, seed: int, tag: str) -> tuple[int, pathlib.Path]:
+def _build(board: str, seed: int, tag: str, units: str | None = None):
     """Meme degradation de roster que `probe_433r4r1r4r2_is_adjacent_substrat_live` : un board
-    pauvre en spawns joueur ne doit pas faire echouer la mesure, seulement la reduire."""
+    pauvre en spawns joueur ne doit pas faire echouer la mesure, seulement la reduire.
+
+    Rend `(rid, state_file)` ou `None` si le montage echoue -- un board qui ne se monte pas est
+    un board NON MESURE (il est signale comme tel), jamais un board a zero changement : rabattre
+    l'un sur l'autre fabriquerait un zero qui n'a pas ete mesure."""
     LOGSDIR.mkdir(parents=True, exist_ok=True)
-    state_file = LOGSDIR / ("p433r4r1r4r2r4_%s_%s.json" % (tag, board))
+    # PID dans le nom : deux invocations LANCEES ENSEMBLE (un `mut` et une mesure, p.ex.) qui
+    # portent le meme LITTERAL se disposent mutuellement leur runner -- mesure du 2026-08-05,
+    # `runner ... not found` au step 0 sur le board partage.
+    state_file = LOGSDIR / ("p433r4r1r4r2r4_%s_%s_%d.json" % (tag, board, os.getpid()))
     p = None
     for roster in (5, 4, 3, 2):
         state_file.unlink(missing_ok=True)
         cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--rank", "17",
-               "--board", board, "--no-ai", "--roster", str(roster),
-               "--state-file", str(state_file)]
+               "--board", board, "--no-ai", "--state-file", str(state_file)]
+        if units:
+            cmd += ["--p-units", units, "--a-units", units]
+        else:
+            cmd += ["--roster", str(roster)]
         p = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                            encoding="utf-8", errors="replace")
         if state_file.exists():
             return int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"]), state_file
-        if "spawns joueur <" not in ((p.stdout or "") + (p.stderr or "")):
+        if units or "spawns joueur <" not in ((p.stdout or "") + (p.stderr or "")):
             break
-    sys.stdout.write(((p.stdout if p else "") or "")[-1200:])
-    sys.stdout.write(((p.stderr if p else "") or "")[-1200:])
-    raise SystemExit("build KO (%s)" % board)
+    sortie = (((p.stdout if p else "") or "") + ((p.stderr if p else "") or ""))
+    print("  MONTAGE KO (%s) -- board NON MESURE. Fin de sortie du build :" % board)
+    print("    %s" % sortie.strip().splitlines()[-1][:220] if sortie.strip() else "    (vide)")
+    return None
 
 
 # --------------------------------------------------------------------------- la sonde
@@ -146,6 +158,7 @@ class Sonde:
         from engine.ai import bucket as bk
         self._bq, self._mv, self._bk = bq, mv, bk
         self.substrat = substrat   # "geo" = l'etat d'AVANT #606 ; "mut" = contre-epreuve (cf. _alt)
+        self.carte_voies = False   # `--voies` : compter AUSSI les voies EMPRUNTEES (couteux)
         self._orig_isadj = bq.is_adjacent
         self._orig_add = bk.Bucket.add_action
         self._orig_bmf = mv.best_move_faithful
@@ -161,6 +174,7 @@ class Sonde:
         self.n_calls_canal = 0     # appels ou le canal est FOURNI (voie non muette)
         self.n_bascules = 0        # appels dont le verdict DIFFERE entre les deux substrats
         self.voies = {}            # {"fichier:fonction": n_bascules}
+        self.voies_vues = {}       # {"fichier:fonction": n_appels} -- `--voies` seulement
         self.cands = []            # [(gen_idx, source, key, ident)]
         self.gen_cur = -1
         self.gens_joues = []
@@ -187,8 +201,12 @@ class Sonde:
 
         def is_adjacent(tile, pos, elev_by_pos=None, neigh_by_pos=None):
             v_nat = orig(tile, pos, elev_by_pos, neigh_by_pos)
-            if neigh_by_pos is None and sonde.substrat != "mut":
-                return v_nat                      # aucun canal -> les deux substrats coincident
+            if neigh_by_pos is None:
+                # Aucun canal -> les deux substrats coincident, ET la contre-epreuve `mut` doit
+                # s'arreter au MEME endroit : sans ce court-circuit elle ferait bouger des voies
+                # que `geo` ne touche pas (`is_charging`, `in_arc` -- residu #433-r4-r1-r4-r2-r1),
+                # et prouverait la detection sur une surface PLUS LARGE que celle mesuree.
+                return v_nat
             v_alt = sonde._alt(tile, pos, elev_by_pos)
             if not sonde.freeze:
                 sonde.n_calls += 1
@@ -197,6 +215,12 @@ class Sonde:
                     sonde.n_bascules += 1
                     k = _appelant()
                     sonde.voies[k] = sonde.voies.get(k, 0) + 1
+                if sonde.carte_voies:
+                    # Voies EMPRUNTEES (et pas seulement celles qui basculent) : c'est ce qui
+                    # distingue "cette voie n'existe pas ici" de "cette voie est passee sans
+                    # basculer". Couteux (une remontee de frames PAR APPEL) -> `--voies` seulement.
+                    k2 = _appelant()
+                    sonde.voies_vues[k2] = sonde.voies_vues.get(k2, 0) + 1
             return v_nat if sonde.mode == "nat" else v_alt
 
         self._bq.is_adjacent = is_adjacent
@@ -376,7 +400,7 @@ def mesurer_situation(sonde: Sonde, ctx, tac_cls) -> dict:
     sonde.mode = "nat"
     a_nat, s_nat, u_nat, g_nat = _decider(sonde, ctx, tac_cls)
     bascules_nat, calls, canal = sonde.n_bascules, sonde.n_calls, sonde.n_calls_canal
-    voies = dict(sonde.voies)
+    voies, voies_vues = dict(sonde.voies), dict(sonde.voies_vues)
     sonde.mode = "alt"
     a_alt, s_alt, u_alt, g_alt = _decider(sonde, ctx, tac_cls)
     sonde.mode = "nat"
@@ -392,6 +416,7 @@ def mesurer_situation(sonde: Sonde, ctx, tac_cls) -> dict:
         "amplitude": ampl,
         "marge": _marge(s_nat, u_nat, g_nat),
         "bascules": bascules_nat, "calls": calls, "calls_canal": canal, "voies": voies,
+        "voies_vues": voies_vues,
         "gen_nat": g_nat, "gen_alt": g_alt, "n_cands": len(s_nat), "n_scores": len(u_nat),
     }
 
@@ -441,20 +466,29 @@ def _rpc_cache(rpc, sid):
 
 
 def balayer(sid, rpc, board: str, seed: int, steps: int, verbose: bool,
-            substrat: str = "geo") -> tuple[int, dict]:
+            substrat: str = "geo", carte_voies: bool = False,
+            units: str | None = None) -> tuple[int, dict]:
     from engine import weights
     from engine.ai import context as ai_ctx
     from engine.ai.tactic import DefaultAiUnitTactic
     from engine.playbook import scene as pb_scene
     from engine.runner import snapshot as snap
 
-    rid, state_file = _build(board, seed, "walk")
+    monte = _build(board, seed, "walk", units)
+    if monte is None:
+        return 0, {"situations": 0, "decisions": 0, "classements": 0, "bascules": 0,
+                   "situations_avec_bascule": 0, "amplitude_max": 0.0, "voies": {},
+                   "instables": 0, "calls_canal": 0, "utilites": 0, "ensembles": 0,
+                   "amplitudes": [], "marges": [], "serrees": 0, "gisement": None,
+                   "voies_vues": {}, "non_mesure": True}
+    rid, state_file = monte
     wt = weights.load()
     sonde = None
     resume = {"situations": 0, "decisions": 0, "classements": 0, "bascules": 0,
               "situations_avec_bascule": 0, "amplitude_max": 0.0, "voies": {},
               "instables": 0, "calls_canal": 0, "utilites": 0, "ensembles": 0,
-              "amplitudes": [], "marges": [], "serrees": 0, "gisement": None}
+              "amplitudes": [], "marges": [], "serrees": 0, "gisement": None,
+              "voies_vues": {}}
     bad = 0
     try:
         r = _rpc_cache(rpc, sid)
@@ -467,6 +501,7 @@ def balayer(sid, rpc, board: str, seed: int, steps: int, verbose: bool,
         if predictor is None:
             print("  combatSnapshot KO -- prediction indisponible (scoring attaque desactive)")
         sonde = Sonde(substrat)
+        sonde.carte_voies = carte_voies
         for step in range(steps):
             r.vider()
             dv = rpc(sid, "decisionView",
@@ -499,6 +534,8 @@ def balayer(sid, rpc, board: str, seed: int, steps: int, verbose: bool,
                         resume["serrees"] += int(m["amplitude"] >= m["marge"])
                 for k, v in m["voies"].items():
                     resume["voies"][k] = resume["voies"].get(k, 0) + v
+                for k, v in m["voies_vues"].items():
+                    resume["voies_vues"][k] = resume["voies_vues"].get(k, 0) + v
                 if not m["stable"]:
                     resume["instables"] += 1
                     bad += 1
@@ -555,6 +592,13 @@ def main() -> int:
     ap.add_argument("--substrat", choices=("geo", "mut"), default="geo",
                     help="geo = l'etat d'AVANT #606 (la mesure) ; mut = contre-epreuve de "
                          "DETECTION du harnais (substrat volontairement faux, r<=2)")
+    ap.add_argument("--voies", action="store_true",
+                    help="compte AUSSI les voies EMPRUNTEES (pas seulement celles qui basculent) "
+                         "-- couteux, a jouer sur peu de steps")
+    ap.add_argument("--units", default=None,
+                    help="roster EXPLICITE (les deux camps) -- scenario CRAFTE : c'est ce qui "
+                         "permet d'amener en bataille le porteur d'un playbook dont l'utilite EST "
+                         "un comptage d'adjacents (ex. genesBiophagus / 1166 AberrantHypermorph)")
     a = ap.parse_args()
     boards = a.board or list(BOARDS)
     sid, rpc = _rpc_factory()
@@ -564,9 +608,12 @@ def main() -> int:
     bad, tout = 0, {}
     for b in boards:
         print("\n-- board %s" % b)
-        n, res = balayer(sid, rpc, b, a.seed, a.steps, a.verbose, a.substrat)
+        n, res = balayer(sid, rpc, b, a.seed, a.steps, a.verbose, a.substrat, a.voies, a.units)
         bad += n
         tout[b] = res
+        if res.get("non_mesure"):
+            print("   board NON MESURE (montage KO) -- ni un zero ni un ecart")
+            continue
         print("   situations=%d  bascules=%d (sur %d situations)  decisions=%d  classements=%d  "
               "utilites=%d  ampl_max=%.4f" % (res["situations"], res["bascules"],
                                               res["situations_avec_bascule"], res["decisions"],
@@ -582,6 +629,9 @@ def main() -> int:
     print("   board    gisem N     bascules  sit_bascule  DECISION  CLASSEMENT  utilite  ensemble"
           "  ampl_max")
     for b, r in tout.items():
+        if r.get("non_mesure"):
+            print("   %-8s NON MESURE (montage KO)" % b)
+            continue
         print("   %-8s %-5s %-5d %-9d %-12d %-9d %-11d %-8d %-9d %.4f"
               % (b, r["gisement"] if r["gisement"] is not None else "?", r["situations"],
                  r["bascules"], r["situations_avec_bascule"], r["decisions"], r["classements"],
@@ -595,6 +645,15 @@ def main() -> int:
         print("      %-52s %d" % (k, v))
     if not voies:
         print("      (aucune)")
+    if a.voies:
+        vues = {}
+        for r in tout.values():
+            for k, v in r["voies_vues"].items():
+                vues[k] = vues.get(k, 0) + v
+        print("   VOIES EMPRUNTEES (appels d'`is_adjacent` par call-site metier) : %d call-site(s)"
+              % len(vues))
+        for k, v in sorted(vues.items(), key=lambda kv: -kv[1]):
+            print("      %-52s %-8d bascules=%d" % (k, v, voies.get(k, 0)))
     amps = sorted(x for r in tout.values() for x in r["amplitudes"])
     marges = sorted(x for r in tout.values() for x in r["marges"])
     serrees = sum(r["serrees"] for r in tout.values())
