@@ -81,9 +81,11 @@ une fois là où elle était en trop.
 qui vient du `boardGraph` capté live — un balayage offline des 779 exigerait de porter
 `InitializeConnectivityOperation$$Execute` depuis `TileId`/`Rotation`.
 
-## 4. La garde étendue, et pourquoi une seconde étape
+## 4. La garde étendue, et pourquoi chaque étape neuve
 
-`probe_433r4r1r4r2_neigh_channel_wired.py` (dans la banque) passe à **deux étapes**.
+`probe_433r4r1r4r2_neigh_channel_wired.py` (dans la banque) porte **quatre étapes**. Les deux
+premières cotent la **présence** du canal, les deux dernières sa **consommation** — parce qu'un
+canal présent et non consommé a l'allure d'un mirror branché et le comportement d'avant.
 
 **Étape 1** — l'invariant de couple, mais la détection **RÉSOUT l'import** au lieu de comparer des
 noms. Un `bq.is_adjacent(...)` était vu ; ni le nom nu, ni l'alias — or la face prédiction n'importe
@@ -105,8 +107,48 @@ imposé : coter la **signature** laissait passer la mutation qui remettait `newl
 géométrie nue (ses paramètres restaient déclarés). Un paramètre non lu ne branche rien.
 
 **Contre-épreuve (9 mutations, patch vérifié mordant, arbre restauré bit-exact) : 8 rougissent.**
-La seule verte est artificielle — géométrie nue **avec la dérivation laissée morte** au-dessus ;
-la mutation complète, elle, rougit. Résidu **#433-r4-r1-r4-r2-r1-r1** ci-dessous.
+La seule verte est artificielle — géométrie nue **avec la dérivation laissée morte** au-dessus.
+C'est elle qu'ont fermée les deux étapes suivantes (**#433-r4-r1-r4-r2-r1-r1**).
+
+**Étape 3 — la DÉRIVATION LAISSÉE MORTE.** Trois formes, toutes des no-op **démontrables**, aucune
+allowlist : (a) un nom **teinté** par la valeur du canal — le teint se propage par point fixe —
+assigné et jamais relu ; (b) un appel à une fonction **PURE** du foyer (les CIBLES + `neigh_map`)
+dont la valeur est jetée — même **résolution d'import** qu'à l'étape 1, sans quoi un
+`update_charging(...)` en statement nu, qui est un **mutateur ECS légitime**, y entrerait ;
+(c) un **paramètre** du canal jamais lu. Le filtre d'entrée de cette étape est le seul à compter les
+**paramètres** : un paramètre inerte n'apparaît comme `ast.Name` nulle part — c'est sa définition —
+donc le filtre par usage des étapes 2 et 4 la rendrait structurellement inatteignable.
+
+**Étape 4 — la GÉOMÉTRIE qui décide MALGRÉ le canal**, complément exact de l'étape 2 sur le même
+gisement (mirror déclaré **avec** canal, là où l'étape 2 garde le mirror **sans**). Le critère est un
+critère de **FLOT** : on propage « le canal est établi indisponible ici », un test qui parle du canal
+le retourne selon sa polarité, et la sortie d'un `if` **fusionne en ET** les branches qui ne
+terminent pas. Ces deux règles — fusion en ET, une branche qui **termine** ne participant pas —
+sont exactement ce qui sépare les deux replis légitimes du vice : `is_adjacent` met sa géométrie sous
+`if neigh is None` ; `services.battle_query.are_tiles_adjacent` la met **après** un bloc canal dont
+toutes les feuilles retournent. Une garde inerte (`if neigh_by_pos is None: pass`) ou un canal
+consulté puis ignoré, eux, laissent la géométrie décider sur un chemin où le canal répondait.
+
+Le groupe de noms qui « parle du canal » se dérive aussi : valeurs du canal, **porteurs** (les
+arguments d'une dérivation) et ce qui en dérive. Il est **volontairement large** — il ne sert qu'à
+RECONNAÎTRE un test, donc l'élargir ne peut que retenir le cliquet. L'étape 3, elle, prend le groupe
+**strict** : sinon le moindre code mort dérivé d'un `board` deviendrait un vice.
+
+**Le gisement, mesuré le 2026-08-05** (`--inventaire`) : **99** fonctions d'`engine/` touchent le
+canal, **0** dérivation morte ; **2** mirrors déclarés portent canal + géométrie
+(`is_adjacent`, `services.battle_query.are_tiles_adjacent`), **0** géométrie non gardée. Ce zéro est
+un **cliquet**, pas un acquis. **Contre-épreuve : 25 tests, 12 mutations** — 6 synthétiques isolant
+chaque forme, 6 sur le **vrai** code (`battle_query.py`, `runner/components.py`,
+`services/battle_query.py`), chacune vérifiée **mordante** — et **8 anti-faux-positifs**, qui sont
+ici le vrai risque. Coût : **+2,5 s** (e3 1,7 + e4 0,8) sur ~8 s.
+
+**Ce que la mesure NE couvre PAS**, nommé : un store d'**attribut** (`self._neigh = …`) n'est pas
+coté (sa lecture peut vivre hors périmètre) ; le critère porte sur le **nom**, donc une réassignation
+masque un store mort ; `elev_by_pos` n'est pas un canal de l'étape 3 (la porte d'élévation est
+l'objet de l'étape 1) ; boucles et `try` ne propagent pas leur état de sortie ; un test de forme non
+reconnue vaut **crédit** ; et l'étape 4 tient **toute** `distance ∼ 1` d'un mirror déclaré pour une
+décision d'adjacence — vrai des deux fonctions du gisement, à re-questionner si une troisième y
+entre pour un autre usage. Et surtout la liste `NATIFS_LISTE_STOCKEE` est **littérale** — §6.
 
 ## 5. Validation
 
@@ -145,13 +187,41 @@ bouge (résidu #433-r4-r1-r4-r2-r4, mesuré en parallèle) ; (d) les 775 boards 
 
 ## 6. Résidus NOMMÉS
 
-* **`#433-r4-r1-r4-r2-r1-r1` — la garde ne voit pas la « dérivation laissée morte ».** Une fonction
-  qui dérive le canal puis ne s'en sert pas (variable calculée, jamais lue) passe l'étape 2 : le
-  critère lit les noms **utilisés** dans le corps, pas le lien syntaxique entre le canal et la
-  décision d'adjacence. La forme complète du vice, elle, rougit. Fermer ce trou demande un critère
-  de flot (la comparaison de distance doit être **gardée** par une condition sur le canal), qui
-  produirait des faux positifs sur les deux replis légitimes (`is_adjacent`,
-  `services.battle_query.are_tiles_adjacent`) — arbitrage non tranché.
+* ~~**`#433-r4-r1-r4-r2-r1-r1`**~~ **FERMÉ** par les étapes 3 et 4 (§4). Le critère de flot redouté
+  ne produit **pas** de faux positif sur les deux replis légitimes : ce n'était pas la garde par une
+  condition sur le canal qui manquait, mais la **fusion en ET** à la sortie d'un `if` et l'exclusion
+  des branches qui **terminent** — `are_tiles_adjacent` ne garde rien syntaxiquement, son bloc canal
+  ne **tombe** simplement jamais dans la géométrie. Prouvé dans les deux sens par
+  `test_e4_bloc_canal_qui_ne_termine_plus`, où le `return` retiré est la seule différence.
+
+* **`#433-r4-r1-r4-r2-r1-r1-r1` — le critère « docstring » a un gisement qu'il ne voit pas, et il y
+  a un VICE dedans.** Les étapes 2 et 4 n'entrent que sur `NATIFS_LISTE_STOCKEE`, une liste
+  **littérale de 8 noms**. `AreEntitiesAdjacent` n'y est pas, alors que la chaîne est LUE
+  (`BattleQuery$$AreEntitiesAdjacent` → `MovementUtil$$AreTilesAdjacent` →
+  `ConnectivityComponent$$IsNeighbour` = `this[+0x10].Contains`, §1) — pas plus qu'`AreUnitsInMelee`,
+  `GetFreeAdjacentTiles` ou les nœuds DSL `AdjacentTiles`/`AdjacentUnits`. `--inventaire` rend
+  **3** fonctions hors verdict (mesure du 2026-08-05), dont **une tranchée à la RE** :
+
+  * **VICE RÉEL** — `engine/runner/abilities/orks.py:509`, dans `get_dynamic_invalid_target_reason`
+    (mirror de `IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$GetDynamicInvalidTargetReason`).
+    Le natif décide `isAdjacent` par le **slot 0x61** d'`IBattleQuery` (= `AreEntitiesAdjacent`,
+    décompile relu le 2026-08-05 : `cVar6 = FUN_1800051d0(0x61, …, casterTiles, target)`) ; le port
+    écrit `hexgeo.distance(cp, tp) == 1`. **Trois** écarts, tous permissifs : ni liste stockée, ni
+    porte d'élévation, et le natif compare les **empreintes** (`casterTiles` est une `IList`) là où
+    le port compare deux tuiles principales. Le canal est pourtant dans la **même fonction**
+    (`board.neighbours_native(ttile)`, l. 519) et le foyer branché existe
+    (`services.battle_query.are_entities_adjacent`, `runner.abilities.targeting`). NON CORRIGÉ ici,
+    par mandat.
+  * **NON TRANCHÉS** — `playbook/noncomparable/aberrant_hypermorph.py:50` et
+    `master_of_the_tutelaries.py:73`, tous deux `hexgeo.distance(T, ST) != 1` pour « spawn adjacent à
+    la position T », le canal branché deux lignes plus bas. `AberrantHypermorphPlaybook$$EvaluateNonComparable`
+    (relu) ne filtre **pas** par distance : il énumère `GetEligibleTargetsSelectable`, donc la
+    contrainte d'adjacence vient du **sélecteur DSL** de l'ability. Trancher demande de lire ce
+    sélecteur — s'il passe par `AdjacentTiles`, c'est le même vice.
+
+  Élargir `NATIFS_LISTE_STOCKEE` **armerait le cliquet sur ce rouge**, donc l'ordre est : corriger
+  d'abord, élargir ensuite. C'est aussi le voisin de `#433-r4-r1-r4-r2-r2`, resté ouvert pour la même
+  raison de fond — le gisement se définit par une **liste de noms natifs**, pas par une dérivation.
 * **`#433-r4-r1-r4-r2-r2`** (ouvert ailleurs) reste ouvert : `playbook/noncomparable/
   heroic_fusillade.py` appelle `count_adjacent` **sans** élévation ni voisinage, donc hors gisement
   de l'étape 1 (qui garde le COUPLE) et de l'étape 2 (il ne cite pas de natif à liste stockée dans
@@ -160,6 +230,7 @@ bouge (résidu #433-r4-r1-r4-r2-r4, mesuré en parallèle) ; (d) les 775 boards 
 ## 7. Reproduction
 
     python -m pytest tests/engine/test_433r4r1r4r2r1_foyers_voisins_offline.py
+    python -m pytest tests/engine/test_433r4r1r4r2r1r1_derivation_morte_offline.py
     python -m pytest tests/engine/runner/test_433r4r1r4r2r1_update_charging_bridge_live.py
     python probe_433r4r1r4r2r1_solde_par_foyer.py [--board C3_14]
-    python probe_433r4r1r4r2_neigh_channel_wired.py
+    python probe_433r4r1r4r2_neigh_channel_wired.py [--inventaire]
