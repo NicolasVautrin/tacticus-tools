@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785822844,
+ "_ecrit_le": 1785823779,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -2826,15 +2826,15 @@
    "xfailed": 0
   },
   "tests/engine/test_419r1tr14r5r2r1r1_normal_attack_should_execute_live.py": {
-   "_at": 1785822844,
+   "_at": 1785823779,
    "_blob": "09a998bd4e785518db08b0a6c8bb3155285bcbb1",
-   "_commit": "c3e74284d256a034f2b808368433e19e738a272c",
-   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-aa9eb2fefac8bc458",
+   "_commit": "d7c58fcbf4c8a9db640ae6bde1554dc0f1f003d0",
+   "_root": "C:/Users/nicolasv/tacticus-tools",
    "error": 0,
    "failed": 0,
    "messages": [],
    "passed": 7,
-   "sec": 121.3,
+   "sec": 250.3,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -2866,15 +2866,15 @@
    "xfailed": 0
   },
   "tests/engine/test_433_r4_r2_r1_r1_a_whole_board_gates_live.py": {
-   "_at": 1785816286,
-   "_blob": "7a94d1b4a7742a28659965fc70321b1157c3ea57",
-   "_commit": "2bda9bf71c0bb893b053a44b47270ead3a147ffb",
-   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a0adc5bc41d12c050",
+   "_at": 1785823779,
+   "_blob": "c77bdb6704515e0e8feacb29aa7e475516c2d4d4",
+   "_commit": "d7c58fcbf4c8a9db640ae6bde1554dc0f1f003d0",
+   "_root": "C:/Users/nicolasv/tacticus-tools",
    "error": 0,
    "failed": 0,
    "messages": [],
    "passed": 3,
-   "sec": 19.8,
+   "sec": 117.1,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -2889,6 +2889,20 @@
    "messages": [],
    "passed": 13,
    "sec": 9.6,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/test_433_r4_r2_r1_r2_line_of_sight_live.py": {
+   "_at": 1785823779,
+   "_blob": "093284a55668d608e185512ba26ca80cb569d906",
+   "_commit": "d7c58fcbf4c8a9db640ae6bde1554dc0f1f003d0",
+   "_root": "C:/Users/nicolasv/tacticus-tools",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 7,
+   "sec": 180.2,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
