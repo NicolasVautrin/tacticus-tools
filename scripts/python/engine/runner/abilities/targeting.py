@@ -649,10 +649,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
 # `ALoki_NormalAttackAbility$$FindAttackWeapon`, dont l'implementation est
 # `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack`). Un type a `0x4002`
 # consulte donc cette regle ; un type a `0x4000` ne la consulte JAMAIS.
-# Cette regle N'EST PAS PORTEE -> degradation PERMISSIVE sur les types a `0x4002`, et RIEN a porter
-# sur ceux a `0x4000`. Poser le bit partout, comme le faisait le port, arme donc une regle que le
-# natif desarme -- inerte aujourd'hui, FAUSSE le jour ou la regle sera portee. Residu nomme :
-# `#419-r1-tr14-r5-r2-r1-r2-r1`.
+# Cette regle EST PORTEE depuis #419-r1-tr14-r5-r2-r1 (`normal_attack_dynamic_invalid_target_reason`),
+# et c'est exactement ce qui rend la table ci-dessous LOAD-BEARING : poser le bit partout, comme le
+# faisait le port avant #419-r1-tr14-r5-r2-r1-r2, armerait desormais un REFUS sur les 5 types que le
+# natif desarme. Les deux tranches se tiennent -- la table sans la regle etait inerte, la regle sans
+# la table serait FAUSSE.
+# ⚠ Le slot est `0xb0`, PAS la surcharge a `GetAbilityAttackRangeType` (slot `0xaf`) : preuve de
+# l'appariement dans `services.battle_query.get_attack_weapon_for_default_normal_attack_from_tiles`.
 
 _NORMAL_ATTACK_OPTIONS_PRESET_00 = TargetingOptions(
     rules=TR.TargetIsEnemy | TR.TargetMatchesDynamicRule,
@@ -784,6 +787,71 @@ def normal_attack_targeting_options(state: "State", caster_id: int) -> "Targetin
     return NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE.get(int(aid), NORMAL_ATTACK_TARGETING_OPTIONS)
 
 
+def normal_attack_dynamic_invalid_target_reason(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason`
+    -- la regle-delegue que `AActiveAbility$$.ctor` pose a `options+0x38` pour TOUTE attaque normale.
+    Corps natif, LU (5 parametres : `caster, casterTile, target, targetTiles`) :
+
+        w = <IBattleQuery slot 0xb0>(caster, casterTile, targetTiles)
+        return (w != null) ? 0 : 2 /* TargetMatchesDynamicRule */
+
+    Le slot `0xb0` est
+    `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack(attacker,
+    attackerTiles, targetTiles)` -- l'appariement slot<->surcharge, et le fait que ce ne soit PAS la
+    surcharge a `GetAbilityAttackRangeType` (slot `0xaf`), sont etablis dans
+    `services.battle_query.get_attack_weapon_for_default_normal_attack_from_tiles`.
+
+    CE QUI MORD, ET C'EST LE SEUL REGIME : `SelectMaxRangeWeapon` rend `null` sur un ENSEMBLE VIDE,
+    donc le refus tombe exactement quand le caster n'a AUCUNE arme du type que l'adjacence reclame.
+    Ventile sur le catalogue (683 unites, re-derive) :
+
+      * cible NON adjacente + caster sans arme a distance (271 unites `melee_only`) -> le natif
+        refuse ici AUSSI, mais le volet PORTEE l'a deja refuse EN AMONT de la cascade
+        (`onlyAdjacent = IfNotRangedCaster` vrai pour un caster non-ranged -> `TargetIsInRange`).
+        Aucun verdict deplace : meme refus, autre raison.
+      * cible ADJACENTE + caster sans arme de melee -> **0 unite du catalogue** : aucune n'a une arme
+        a distance sans arme de melee. Regime VIDE, dit plutot que compte comme une victoire.
+      * caster sans AUCUNE arme -> les DEUX branches rendent `null` : le natif refuse TOUTE cible.
+        C'est le seul regime ou ce port DEPLACE un verdict, et il vaut pour 81 unites du catalogue --
+        dont 79 portent le bit (le type generique `69`). Les 2 autres sont les Spore Mines
+        (`tyranNpc6SporeMine`, `tyranSmnSporeMine`), dont le type `1146 FloatingDeath_NormalAttack`
+        NE POSE PAS le bit : le natif DESARME lui-meme la regle sur elles.
+
+    ⚠ Les 11 MACHINES OF WAR de ce lot n'ont AUCUNE attaque normale, et c'est STRUCTUREL --
+    `IdunBattle.Entities.Factories.MachineFactory$$Build` n'appelle jamais
+    `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` (unique xref de code :
+    `UnitFactory$$Build`). Ce port ne peut donc pas leur fabriquer un refus d'attaque normale : elles
+    n'en ont pas. Cf. `ai/context.py` (`normal_ids = set()` pour une Machine).
+
+    SUBSTRAT ET SON TRI-ETAT. Le natif itere le `WeaponsComponent` de l'ECS (peuple depuis
+    `BC.Units[].Weapons`) ; la face DECISION n'a que le kit gameconfig -- meme borne, et meme
+    citation, que `find_melee_weapon` / `find_ranged_weapon`, dont ce port se contente de composer
+    les deux branches. D'ou :
+
+      * `GC.unit(visualId)` ABSENT (unite inconnue du catalogue, `visual_id` non resolu) = substrat
+        NON MESURE -> `0`, aucun refus. C'est la convention permissive du module : on n'invente pas
+        un refus faute de mesure. A NE PAS confondre avec `weapons == []`, qui est une mesure et
+        REFUSE.
+      * tuiles non resolues (`entity_tiles` vide, board absent) -> `0`, meme raison.
+
+    RESIDU NOMME : les deux substrats peuvent DIVERGER (`BC.Units[].Weapons` patche a la main ne
+    change pas le gameconfig). En bataille standard ils concordent, `buildNormalizedBC` derivant du
+    catalogue -- mais un montage qui vide `Weapons` dans le BC seul ferait diverger natif et port."""
+    from ...services import battle_query as _bq
+    import gameconfig as GC
+    vid = _visual_id(state, caster_id)
+    if GC.unit(vid or "") is None:                 # substrat NON MESURE -> aucun refus invente
+        return 0
+    board = state.board
+    caster_tiles = entity_tiles(state, caster_id)
+    target_tiles = entity_tiles(state, target_id)
+    if board is None or not caster_tiles or not target_tiles:
+        return 0                                   # tuiles non resolues -> permissif
+    adjacent = are_entities_adjacent(board, caster_tiles, target_tiles)
+    weapon = _bq.get_attack_weapon_for_default_normal_attack_from_tiles(vid, adjacent)
+    return 0 if weapon is not None else int(TR.TargetMatchesDynamicRule)
+
+
 class _NormalAttackTargeting:
     """Porteur MINIMAL des `TargetingOptions` de l'attaque normale, pour reutiliser TELLE QUELLE la
     cascade `get_invalid_target_reason` (qui lit `TARGETING_OPTIONS` sur son argument `ability`).
@@ -802,10 +870,15 @@ class _NormalAttackTargeting:
             self.TARGETING_OPTIONS = options
 
     def get_dynamic_invalid_target_reason(self, state, caster_id, target_id) -> int:
-        """La regle-delegue de l'attaque normale (`options+0x38`, bit `TargetMatchesDynamicRule` du
-        preset) n'est PAS RE-lue -> 0 = aucun refus dynamique. MEME convention permissive que le
-        defaut d'`ActiveAbility` : on ne peut pas inventer un refus qu'on ne sait pas decider."""
-        return 0
+        """La regle-delegue de l'attaque normale (`options+0x38`, bit `TargetMatchesDynamicRule`) --
+        PORTEE depuis #419-r1-tr14-r5-r2-r1. Detail et bornes :
+        `normal_attack_dynamic_invalid_target_reason`.
+
+        Elle n'est CONSULTEE que si le masque du TYPE porte le bit : la cascade
+        (`get_invalid_target_reason`) teste `options.has(TR.TargetMatchesDynamicRule)` avant
+        d'appeler cette methode. Les 5 types a `0x4000` ne l'atteignent donc jamais -- c'est la table
+        par type (#419-r1-tr14-r5-r2-r1-r2) qui DESARME, pas cette methode."""
+        return normal_attack_dynamic_invalid_target_reason(state, caster_id, target_id)
 
     def get_dynamic_invalid_caster_reason(self, state, caster_id) -> int:
         """Pendant CASTER (`options+0x30`) : le preset de l'attaque normale ne pose PAS
