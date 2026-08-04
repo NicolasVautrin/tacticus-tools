@@ -22,6 +22,13 @@ un replay-diff qui aurait fait caster Lhykhis **par le port** divergeait. C'est 
 `NOPORT` = 1232 retirée d'`ABILITY_CLASSES` (la vue d'AVANT ce port) : ni vol, ni dégât, ni marque.
 Sans ce témoin, « ça concorde » ne vaudrait rien.
 
+**La DURÉE est un quatrième observable, et elle a failli passer.** Le natif pose
+`turns = <DSLFormulas+0x20> = Direct(1)` — un nombre de TOURS déjà résolu. `Direct(1)` et
+`TurnsFromRounds(1)` posent **tous deux** la marque : seule la durée les sépare. Mesuré sur
+`EffectComponent.RemainingTurns` (`decisionView`, `frida/hooks/game/effects.ts`) —
+natif **1**, port **1**, et le témoin `ROUNDS` (la même pose en `TurnsFromRounds(1)`) rend **2**.
+Le cran discrimine donc, et le choix `duration_turns=1` est validé par mesure, pas par lecture seule.
+
 ## 2. L'arbre natif — et le `If` ne couvre PAS le vol
 
     tiles = First( SortTilesByUtility( Randomize( CanAddUnit(AdjacentTiles(Target@+0x60))
@@ -98,7 +105,7 @@ déjà occupée, `TileExtensions$$CanAddUnit` lit le `TileContentComponent`). Il
     python probe_589r1r1r1_empyric_ambush_pose_live.py --verbose
     python probe_589r1r1r1_empyric_ambush_pose_live.py --board C1_74 --seed 31337
     python probe_589r1r1r1_empyric_ambush_pose_live.py --encercle --verbose
-    python -m pytest tests/engine/runner/test_589r1r1r1_empyric_ambush_pose_live.py   # 6 passed
+    python -m pytest tests/engine/runner/test_589r1r1r1_empyric_ambush_pose_live.py   # 7 passed
 
 ## 7. Ce qui n'est PAS couvert
 

@@ -90,6 +90,28 @@ def test_la_pose_reproduit_le_natif_sur_les_trois_observables(charge_regime, boa
         "(landing=%s hits=%s marked=%s)" % (mut["landing"], mut["hits"], mut["marked"]))
 
 
+def test_la_marque_dure_UN_tour_et_ce_n_est_pas_TurnsFromRounds(charge_regime):
+    """LA DUREE, pas seulement la presence. Le natif passe `turns = <DSLFormulas+0x20> = Direct(1)`
+    -- un nombre de TOURS deja resolu, PAS un `TurnsFromRounds`. Les deux formes posent la marque :
+    seule la duree les separe, et rien d'autre dans ce fichier ne la regarderait.
+
+    Le temoin `ROUNDS` est ce qui rend ce cran honnete : il rejoue la MEME pose en
+    `TurnsFromRounds(1)` et doit donner une AUTRE valeur -- sinon le cran ne discriminerait rien."""
+    h, rec = _monte(charge_regime, "MC1_67", "777")
+    live, why = cast_live(h, rec)
+    assert live is not None, "cast live non joue : %s" % why
+    off = replay(h, rec)
+    rnd = replay(h, rec, mutate="ROUNDS")
+    assert live["remaining"] is not None and off["remaining"] is not None, (
+        "duree NON MESUREE (live=%s port=%s) -- ce n'est PAS un accord"
+        % (live["remaining"], off["remaining"]))
+    assert off["remaining"] == live["remaining"], (
+        "duree de la marque : port %s != natif %s" % (off["remaining"], live["remaining"]))
+    assert rnd["remaining"] != off["remaining"], (
+        "TurnsFromRounds(1) rend la MEME duree (%s) : ce cran ne discrimine rien"
+        % rnd["remaining"])
+
+
 def test_l_etage_de_tirage_mord_et_le_port_tombe_sur_la_tuile_native(charge_regime):
     """L'ETAGE PRNG, isole. `Randomize` est un `PickRandomAmountSelector` a `amount = 0x7fffffff`
     sans repetition = une PERMUTATION COMPLETE du pool (`len(pool)` tirages), et il est enveloppe par

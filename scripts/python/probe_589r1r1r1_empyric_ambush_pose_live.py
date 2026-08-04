@@ -67,6 +67,7 @@ CARRIER = "eldarLhykhis"          # porteur de l'ability active 1232 (HORS CATAL
 ALLY = "blackHaarken"             # 2e unite de mon camp : elle NE caste pas, elle occupe le roster
 ABILITY_TYPE = 1232               # ActiveAbilityType 0x4d0
 EFFECT_NAME = "EmpyricAmbush"     # cle EFFECT_CLASSES == decisionView.units[].effects[].name
+EFFECT_ID = 1578                  # EffectType 0x62a, la MARQUE posee sur la cible
 TR_TARGET_HAS_FREE_ADJACENT_TILE = 1 << 5   # `TargetingRule.TargetHasFreeAdjacentTile` = 0x20
 
 
@@ -283,9 +284,16 @@ def cast_live(h, rec):
     dv = h.dview()
     me = next((u for u in (dv.get("units") or []) if u.get("id") == rec["caster"]), None)
     tu = next((u for u in (dv.get("units") or []) if u.get("id") == rec["target"]), None)
-    marks = [e.get("name") for e in ((tu or {}).get("effects") or [])]
+    effets = (tu or {}).get("effects") or []
+    marks = [e.get("name") for e in effets]
+    # DUREE de la marque : `EffectComponent.RemainingTurns @+0x64`, expose par effet dans le
+    # `decisionView` (`frida/hooks/game/effects.ts`). C'est l'oracle NATIF du
+    # `turns = <DSLFormulas+0x20> = Direct(1)` -- sans lui, `duration_turns=1` et
+    # `duration_rounds=1` posent TOUS DEUX la marque et la seule presence ne les distingue pas.
+    remaining = next((e.get("remaining") for e in effets
+                      if e.get("effectType") == EFFECT_ID), None)
     return {"landing": _pos_of(me), "hits": hits, "marked": EFFECT_NAME in marks,
-            "effects": marks}, None
+            "effects": marks, "remaining": remaining}, None
 
 
 def replay(h, rec, mutate=None):
@@ -302,6 +310,9 @@ def replay(h, rec, mutate=None):
         tirage (regime degenere : utilites toutes distinctes, ou pool de 1). Le natif tire
         `len(pool)` fois DANS `FlyUnit`, donc la mutation decale aussi le flux des degats -- ce
         qu'on lit ici est le LANDING.
+      * `ROUNDS` -- la duree posee en `TurnsFromRounds(1)` au lieu de `Direct(1)`. Elle garde le
+        cran de DUREE honnete : les deux formes posent la marque, et si elles rendaient le MEME
+        `RemainingTurns` la confrontation de duree ne discriminerait rien.
 
     Restaurees en `finally`."""
     from engine.runner.abilities import aeldari as _aeldari
@@ -310,12 +321,18 @@ def replay(h, rec, mutate=None):
     from engine.runner.messages import ActiveAbilityMessage
     from engine.runner.runner import Runner
     saved = ABILITY_CLASSES.get(ABILITY_TYPE)
-    saved_rand = _aeldari.Randomize
+    saved_rand, saved_add = _aeldari.Randomize, _aeldari.AddEffect
     try:
         if mutate == "NOPORT":
             ABILITY_CLASSES.pop(ABILITY_TYPE, None)
         elif mutate == "NORANDOM":
             _aeldari.Randomize = lambda src: src            # l'etage de tirage COURT-CIRCUITE
+        elif mutate == "ROUNDS":
+            def _add_rounds(*args, **kw):                   # `TurnsFromRounds(1)` au lieu de Direct(1)
+                kw.pop("duration_turns", None)
+                kw["duration_rounds"] = 1
+                return saved_add(*args, **kw)
+            _aeldari.AddEffect = _add_rounds
         st = h.offline_state(rec)
         runner = Runner(st).install_default_handlers(20)
         runner.apply(ActiveAbilityMessage(caster_id=rec["caster"], target_id=rec["target"],
@@ -326,14 +343,17 @@ def replay(h, rec, mutate=None):
         landing = (pc.col, pc.row) if pc is not None else None
         atk = last.get("attack") or {}
         hits = [int(x) for x in (atk.get("per_hit") or [])]
-        marked = any(int(getattr(ef, "effect_type", -1)) == 1578
-                     for ef in (st.effects.by_unit.get(rec["target"]) or []))
-        return {"landing": landing, "hits": hits, "marked": marked,
-                "ported": last.get("ported")}
+        poses = [ef for ef in (st.effects.by_unit.get(rec["target"]) or [])
+                 if int(getattr(ef, "effect_type", -1)) == EFFECT_ID
+                 and not getattr(ef, "consumed", False)]
+        remaining = (int(poses[0].remaining_turns)
+                     if poses and poses[0].remaining_turns is not None else None)
+        return {"landing": landing, "hits": hits, "marked": bool(poses),
+                "remaining": remaining, "ported": last.get("ported")}
     finally:
         if saved is not None:
             ABILITY_CLASSES[ABILITY_TYPE] = saved
-        _aeldari.Randomize = saved_rand
+        _aeldari.Randomize, _aeldari.AddEffect = saved_rand, saved_add
 
 
 def face_decision(h, rec):
@@ -434,32 +454,51 @@ def run(a, rpc, Board, Harness, seed_bc) -> int:
         off = replay(h, rec)
         mut = replay(h, rec, mutate="NOPORT")
         nrd = replay(h, rec, mutate="NORANDOM")
+        rnd = replay(h, rec, mutate="ROUNDS")
 
         k = len(live["hits"])
         accord_landing = live["landing"] == off["landing"]
         accord_hits = live["hits"] == off["hits"][:k] and len(off["hits"]) == k
         accord_mark = bool(live["marked"]) == bool(off["marked"])
+        # La DUREE, pas seulement la presence : `Direct(1)` et `TurnsFromRounds(1)` posent tous
+        # DEUX la marque. `None` d'un cote = NON MESURE -> on le DIT, on ne le rabat pas sur un accord.
+        accord_duree = (None if (live["remaining"] is None or off["remaining"] is None)
+                        else live["remaining"] == off["remaining"])
         # La MUTATION doit mordre sur les TROIS observables : sans elle l'accord ne prouve rien.
         mord = (mut["landing"] != off["landing"] and not mut["hits"] and not mut["marked"])
         # Et l'etage de TIRAGE doit mordre a son tour, sinon le landing ne prouve rien de lui.
         mord_rng = (nrd["landing"] != off["landing"] or nrd["hits"] != off["hits"])
+        # Idem pour la DUREE : si `TurnsFromRounds(1)` rendait le meme `RemainingTurns` que
+        # `Direct(1)`, le cran de duree ci-dessous ne discriminerait rien.
+        mord_duree = (rnd["remaining"] != off["remaining"])
 
-        print("[EXECUTER] LIVE     landing=%s marked=%s hits=%s"
-              % (live["landing"], live["marked"], live["hits"]))
-        print("           OFFLINE  landing=%s marked=%s hits=%s (ported=%s)"
-              % (off["landing"], off["marked"], off["hits"], off["ported"]))
+        print("[EXECUTER] LIVE     landing=%s marked=%s (turns=%s) hits=%s"
+              % (live["landing"], live["marked"], live["remaining"], live["hits"]))
+        print("           OFFLINE  landing=%s marked=%s (turns=%s) hits=%s (ported=%s)"
+              % (off["landing"], off["marked"], off["remaining"], off["hits"], off["ported"]))
         print("           NOPORT   landing=%s marked=%s hits=%s -> mord=%s"
               % (mut["landing"], mut["marked"], mut["hits"], mord))
         print("           NORANDOM landing=%s hits=%s -> mord=%s"
               % (nrd["landing"], nrd["hits"], mord_rng))
-        print("           accord : landing=%s hits=%s mark=%s"
-              % (accord_landing, accord_hits, accord_mark))
+        print("           ROUNDS   turns=%s -> mord=%s (Direct(1) vs TurnsFromRounds(1))"
+              % (rnd["remaining"], mord_duree))
+        print("           accord : landing=%s hits=%s mark=%s duree=%s"
+              % (accord_landing, accord_hits, accord_mark, accord_duree))
         if not (accord_landing and accord_hits and accord_mark):
             rc |= 1
+        if accord_duree is False:
+            rc |= 1
+        elif accord_duree is None:
+            print("           DUREE NON MESUREE (live=%s port=%s) -- ce n'est PAS un accord"
+                  % (live["remaining"], off["remaining"]))
+            rc |= 2
         if not mord:
             rc |= 1
         if not mord_rng:
             print("           /!\\ NORANDOM n'a rien change : cet etage n'est PAS exerce ici")
+            rc |= 1
+        if not mord_duree:
+            print("           /!\\ ROUNDS n'a rien change : le cran de DUREE ne discrimine rien")
             rc |= 1
         return rc
     finally:
