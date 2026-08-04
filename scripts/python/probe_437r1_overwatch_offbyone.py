@@ -523,6 +523,284 @@ def port_bounds(blob: dict) -> dict:
     return seen
 
 
+# ------------------------------------------------------ PREDICTION dans le regime DEUX FACES
+
+
+def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want_dist=3,
+                      max_turns=30) -> dict:
+    """LE discriminant : le **MEME couple de faces** que la mesure COMBAT de #437-r1
+    (`HeavyWeapon_ExtraDmg` x1.25 cote ATTAQUANT, `TerminatorArmour_ReduceDmg` x0.25 cote
+    DEFENSEUR), lu par la voie **PREDICTION** (`aiPredict` / `aiPlaybookPredict`).
+
+    Ce que ce montage seul peut trancher : la lecture VECTEUR (le COMBAT ferait deux appels
+    `ApplyCappedModifiers`, la PREDICTION une chaine unique) predit ici (1129, 1694) ; toute
+    lecture non-vectorielle predit les MEMES bornes que le combat, (1130, 1695).
+
+    ⚠ Pourquoi `--bounds` ne peut PAS servir a ca (piege MESURE le 2026-08-04) : il fait
+    MARCHER l'overwatcher pour l'amener a portee, ce qui arme le flag `Moved`. Or
+    `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` porte
+    le gate `!HasFlag(Moved)` -- l'EFFET reste pose (la garde `HeavyWeapon_ExtraDmg in effects`
+    passe) mais son bonus ne mord plus. Mesure : bornes natives ET port = (904, 1356), c.-a-d.
+    `Round(P x 0.25)` -- face attaquant NEUTRE, regime a UNE face. La garde par presence de
+    l'effet est donc INSUFFISANTE ; celle qui vaut est la valeur du bonus construit.
+
+    Le montage ici ne fait donc JAMAIS bouger l'attaquant. C'est le SPECTATEUR qui purge le tir
+    d'overwatch (il encaisse a la place du porteur, dont l'armure Terminator reste ARMEE), puis
+    le PORTEUR avance d'un cran. Repete jusqu'a ce que la prediction native devienne lisible
+    (`pred` non nul = la cible est dans le dictionnaire de `GetAllPredictions`).
+    """
+    import uuid as _uuid
+    import subprocess as _sp
+    from engine.entities.pathfinding.board import Board
+
+    sf = ROOT / "logs" / "runners" / ("p437r1p2f-%s.json" % _uuid.uuid4().hex[:8])
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
+           "--board", board, "--rank", str(rank),
+           "--p-units", "%s,%s" % (P.CARRIER, P.SPECTATOR), "--a-units", P.OVERWATCHER,
+           "--hp-player", "400000", "--crit", "0,0", "--crit-target", "0,0",
+           "--block-target", "0,0", "--block-player", "0,0", "--no-ai"]
+    if dmg_target is not None:
+        cmd += ["--dmg-target", str(dmg_target)]
+    proc = _sp.run(cmd, cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
+                   errors="replace")
+    if not sf.exists():
+        return {"error": "build KO : %s" % (proc.stderr or proc.stdout or "")[-600:]}
+    rid = int(json.loads(sf.read_text())["runnerId"])
+    rpc = _mkrpc()
+    trace = []
+    try:
+        bg = rpc("boardGraph", {"runnerId": rid}, 60)
+        brd = Board(bg["tiles"], adjacency="native_sym")
+        dv = P._view(rpc, rid, inactive=True)
+        ids = {v: int(P._by_vis(dv, v)["id"]) for v in [P.CARRIER, P.SPECTATOR, P.OVERWATCHER]}
+        myplayer = (P._by_vis(dv, P.CARRIER) or {}).get("owner")
+        pr = None
+        for _t in range(max_turns):
+            dv = P._view(rpc, rid, inactive=True)
+            ow_effs = [e.get("name") for e in ((P._unit(dv, ids[P.OVERWATCHER]) or {}).get("effects")
+                                               or [])]
+            pres, act = P._armour_state(dv, ids[P.CARRIER])
+            ow_u, car_u = P._unit(dv, ids[P.OVERWATCHER]), P._unit(dv, ids[P.CARRIER])
+            d_car = None
+            if (ow_u or {}).get("pos") and (car_u or {}).get("pos"):
+                src = brd.id_at(int(ow_u["pos"]["col"]), int(ow_u["pos"]["row"]))
+                car_t = brd.id_at(int(car_u["pos"]["col"]), int(car_u["pos"]["row"]))
+                d_car = P._bfs(brd, src).get(car_t)
+            trace.append({"t": _t, "d_car": d_car, "ow_effs": ow_effs,
+                          "armour": [pres, act], "cur": dv.get("currentPlayer"),
+                          "ow_pos": (ow_u or {}).get("pos"),
+                          "car_pos": (car_u or {}).get("pos"),
+                          "car_alive": (car_u or {}).get("alive"),
+                          "ow_alive": (ow_u or {}).get("alive")})
+            if d_car is None:                    # une des deux unites n'a plus de tuile
+                return {"error": "unite sans position (morte ou retiree) au tour %d" % _t,
+                        "trace": trace}
+            if ("HeavyWeapon_ExtraDmg" in ow_effs) and pres and act is True:
+                pr = rpc("aiPredict", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
+                                       "targetId": ids[P.CARRIER], "fresh": True}, 90)
+                if (pr or {}).get("pred"):
+                    break
+                pr = None
+            cur = dv.get("currentPlayer")
+            if myplayer is not None and cur != myplayer:
+                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                continue
+            # 1) l'overwatch est ARME -> le SPECTATEUR va le declencher a la place du porteur.
+            def _armed(view):
+                return P.OVERWATCH_EFFECT in [
+                    e.get("effectType") for e in
+                    ((P._unit(view, ids[P.OVERWATCHER]) or {}).get("effects") or [])]
+
+            if _armed(dv):
+                reach = P._mover_reach(dv, ids[P.SPECTATOR])
+                to_tile, _d = P._pick_move_tile(brd, dv, ids[P.SPECTATOR], ids[P.OVERWATCHER], reach)
+                if to_tile is not None:
+                    col, row = brd.coord(to_tile)
+                    try:
+                        rpc("applyAction", {"runnerId": rid, "action": {
+                            "kind": "move", "unitId": ids[P.SPECTATOR],
+                            "to": {"col": int(col), "row": int(row)}}}, 120)
+                    except Exception:
+                        pass
+            # 2) puis le PORTEUR se rapproche (l'overwatch vient d'etre consomme, ou hors de portee).
+            dv2 = P._view(rpc, rid, inactive=True)
+            if not _armed(dv2) or (d_car or 0) > want_dist + 3:
+                reach = P._mover_reach(dv2, ids[P.CARRIER])
+                to_tile = _pick_tile_at_distance(brd, dv2, ids[P.CARRIER], ids[P.OVERWATCHER],
+                                                 reach, want_dist)
+                if to_tile is not None:
+                    col, row = brd.coord(to_tile)
+                    try:
+                        rpc("applyAction", {"runnerId": rid, "action": {
+                            "kind": "move", "unitId": ids[P.CARRIER],
+                            "to": {"col": int(col), "row": int(row)}}}, 120)
+                    except Exception:
+                        pass
+            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+        if pr is None:
+            return {"error": "prediction non lisible dans le regime DEUX FACES en %d tours"
+                             % max_turns, "trace": trace}
+        pb = None
+        try:
+            pb = rpc("aiPlaybookPredict", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
+                                           "targetId": ids[P.CARRIER], "abilityType": 69}, 90)
+        except Exception as exc:
+            pb = {"error": "%s" % exc}
+        cap = {"dec": P._view(rpc, rid), "ob": rpc("observeBattle", {"runnerId": rid}, 60),
+               "snap": rpc("combatSnapshot", {"runnerId": rid}, 120),
+               "rng": rpc("dumpRng", {"runnerId": rid}, 30)}
+        return {"ids": ids, "tiles": bg["tiles"], "cap": cap, "aiPredict": pr,
+                "aiPlaybookPredict": pb, "dmg_target": dmg_target, "seed": str(seed),
+                "board_id": board, "trace": trace}
+    finally:
+        try:
+            rpc("disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+
+
+def stage_inputs(blob: dict) -> dict:
+    """Les ENTREES d'etage que le port construit pour ce coup (bornes brutes, %-listes par face,
+    percage, armure), lues PAR INSTRUMENTATION du foyer reel -- jamais recalculees a la main."""
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.snapshot import load_state
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.operations.damage import AttackDamageOperation
+    import engine.runner.operations.damage_ops.normal as _nm
+
+    brd = Board(blob["tiles"], adjacency="native_sym")
+    cap = blob["cap"]
+    st = load_state(cap["dec"], cap["ob"], cap["snap"], board=brd)
+    rng = IntBasedMersenneTwister()
+    rng.mt = list(cap["rng"]["mt"])
+    rng.mti = cap["rng"]["mti"]
+    st.rng = rng
+    got = {}
+    g_base, g_pierce = _nm.get_base_damage_fix64, _nm.apply_pierce_and_modifiers
+    orig = AttackDamageOperation._run_hits
+
+    class _Stop(Exception):
+        pass
+
+    def w_base(*a, **k):
+        r = g_base(*a, **k)
+        got.setdefault("base", [int(r.min), int(r.max)])
+        return r
+
+    def w_pierce(value, pierce_pct=100, armor=0, mods=None, **k):
+        got.setdefault("pierce", int(pierce_pct))
+        got.setdefault("armor", int(armor))
+        got.setdefault("pct_att", [list(x) for x in (mods.pct_list if mods else [])])
+        got.setdefault("pct_def", [list(x) for x in (mods.pct_list_defender if mods else [])])
+        got.setdefault("mult_att", float(mods.multiplicative) if mods else 1.0)
+        got.setdefault("mult_def", float(mods.multiplicative_defender) if mods else 1.0)
+        got.setdefault("kw", {kk: str(vv) for kk, vv in k.items()})
+        return g_pierce(value, pierce_pct, armor, mods, **k)
+
+    def _spy(rng_, hit_nc, hit_cr, cc, ce, hits, block_sources, **k):
+        got["port_bounds"] = [int(hit_nc.min), int(hit_nc.max)]
+        raise _Stop()
+
+    _nm.get_base_damage_fix64, _nm.apply_pierce_and_modifiers = w_base, w_pierce
+    AttackDamageOperation._run_hits = staticmethod(_spy)
+    try:
+        AttackDamageOperation.execute(st, int(blob["ids"][P.OVERWATCHER]),
+                                      int(blob["ids"][P.CARRIER]))
+    except _Stop:
+        pass
+    finally:
+        AttackDamageOperation._run_hits = staticmethod(orig)
+        _nm.get_base_damage_fix64, _nm.apply_pierce_and_modifiers = g_base, g_pierce
+    return got
+
+
+def face_models(stage: dict) -> dict:
+    """Les DEUX modeles en presence, evalues sur les entrees d'etage MESUREES.
+    `chaine_unique` = un seul `Fix64.Round` pour les deux faces ; `deux_appels` = un `Round` par
+    face (ce que rend `ApplyCappedModifiers` appele deux fois)."""
+    from engine.services import fix64 as _fx
+    from engine.services.damage_prediction import get_damage_with_piercing
+
+    def chain(v0, groups):
+        v = _fx.from_number(v0)
+        for g in groups:
+            for m, _c in g:
+                v = _fx.mul(v, _fx.mult_raw_from_float(m))
+            v = _fx.round_raw(v, 1)
+        return _fx.to_int(v)
+
+    att = [tuple(x) for x in stage.get("pct_att") or []]
+    deff = [tuple(x) for x in stage.get("pct_def") or []]
+    out = {}
+    for name, b in (("min", 0), ("max", 1)):
+        p = get_damage_with_piercing(int((stage["base"])[b]), int(stage["pierce"]),
+                                     int(stage["armor"]))
+        out["chaine_unique_" + name] = chain(p, [att + deff])
+        out["deux_appels_" + name] = chain(p, [att, deff])
+    return out
+
+
+# ------------------------------------------------- CANAL des deux faces (#437-r1-r1)
+
+
+def channel(seed=P.SEED, board=P.BOARD, dmg_target=None, budget=4000) -> dict:
+    """Arme le capteur `effect-bonus-trace` (#466) SUR LE MONTAGE DE #437-r1 et rend, pour chaque
+    `IdunBattle.Core.Services.DamageModifiers$$Add`, la FACE et le CANAL d'atterrissage.
+
+    C'est la mesure qui DISSOUT la « contradiction » entre #437-r1 et le cran DEUX FACES de
+    #462-r4a : les deux regimes passent par le MEME canal (`Multiplier@0x30`), et ce qui les
+    separe est le nombre d'accumulateurs -- donc le nombre de `CalculateBaseDamageWithModifiers`,
+    donc le nombre de `Fix64.Round`.
+
+    Le capteur doit etre present dans le bundle injecte (RPC `effectBonusTrace*`). Absent ->
+    l'erreur est RENDUE, jamais silencieuse.
+    """
+    from collections import defaultdict
+    cap: dict = {}
+    orig_mk = _mkrpc
+    base = orig_mk()
+
+    def wrapper(method, body, timeout=60):
+        if method == "disposeRunner" and not cap.get("done"):
+            cap["dump"] = base("effectBonusTraceDump",
+                               {"runnerId": (body or {}).get("runnerId")}, 180)
+            base("effectBonusTraceOff", {}, 60)
+            cap["done"] = True
+        return base(method, body, timeout)
+
+    g = globals()
+    cap["on"] = base("effectBonusTraceOn", {"budget": int(budget)}, 60)
+    if not (cap["on"] or {}).get("ok"):
+        return {"error": "capteur effect-bonus-trace absent ou non arme : %s"
+                         % json.dumps(cap["on"])[:300]}
+    base("effectBonusTraceClear", {}, 60)
+    g["_mkrpc"] = lambda: wrapper
+    try:
+        blob = capture(seed=seed, board=board, dmg_target=dmg_target,
+                       out=ROOT / "logs" / "probe_437r1_capture_chan.json")
+    finally:
+        g["_mkrpc"] = orig_mk
+        if not cap.get("done"):
+            base("effectBonusTraceOff", {}, 60)
+    if "error" in blob:
+        return {"error": "montage KO : %s" % blob["error"]}
+    adds = ((cap.get("dump") or {}).get("adds")) or []
+    o1 = [e for e in adds if e.get("overload") == 1]
+    compose = [e for e in o1 if abs(float(e.get("multBefore") or 0) - 1.0) > 1e-12]
+    faces = defaultdict(set)
+    for e in o1:
+        faces[e.get("face")].add(round(float(e.get("multAfter") or 0), 6))
+    return {"native_delta": blob["native"]["hp_delta"], "adds": len(adds), "add_overload1": len(o1),
+            "capped_grew": sum(1 for e in adds
+                               if (e.get("cappedAfter") or 0) > (e.get("cappedBefore") or 0)),
+            "composent": len(compose),
+            "coherent": sum(1 for e in o1
+                            if abs(float(e["multBefore"]) * float(e["modifierValue"])
+                                   - float(e["multAfter"])) < 1e-9),
+            "faces": {k: sorted(v) for k, v in faces.items()}}
+
+
 # --------------------------------------------------------------------------- elevation en COMBAT
 
 
@@ -701,6 +979,10 @@ def main() -> int:
                     help="regime ELEVATION (att, positionnel) + EFFET (def), mesure AU COMBAT")
     ap.add_argument("--bounds", action="store_true",
                     help="oracle des BORNES natives (l'overwatcher marche vers le porteur)")
+    ap.add_argument("--predict-2faces", action="store_true",
+                    help="PREDICTION native dans le regime DEUX FACES (attaquant IMMOBILE)")
+    ap.add_argument("--channel", action="store_true",
+                    help="capteur effect-bonus-trace arme sur le montage #437-r1 : face + canal")
     ap.add_argument("--dmg-target", default=None,
                     help="force le stat Damage de l'overwatcher (deplace la fraction)")
     ap.add_argument("--replay", action="store_true")
@@ -724,6 +1006,36 @@ def main() -> int:
         sols = [(lo, hi) for lo in range(lo0 - 4, lo0 + 5) for hi in range(hi0 - 4, hi0 + 5)
                 if hi > lo and lo + (r % (hi - lo + 1)) == nat]
         print("[437r1] INVERSION : bornes natives possibles = %s" % sols)
+        print("[437r1] ecrit : %s" % out)
+        return 0
+    if a.channel:
+        r = channel(dmg_target=a.dmg_target)
+        if "error" in r:
+            print("[437r1] ERREUR channel : %s" % r["error"])
+            return 2
+        print("[437r1] CANAL natif=%s adds=%d overload1=%d"
+              % (r["native_delta"], r["adds"], r["add_overload1"]))
+        print("[437r1]   liste CAPEE @0x18 grossit sur : %d" % r["capped_grew"])
+        print("[437r1]   Add qui COMPOSENT (multBefore != 1) : %d / %d"
+              % (r["composent"], r["add_overload1"]))
+        print("[437r1]   coherence multAfter == multBefore x modifierValue : %d / %d"
+              % (r["coherent"], r["add_overload1"]))
+        print("[437r1]   faces -> multiplicateurs : %s" % json.dumps(r["faces"]))
+        return 0
+    if a.predict_2faces:
+        b = predict_two_faces(dmg_target=a.dmg_target)
+        if "error" in b:
+            print("[437r1] ERREUR predict-2faces : %s" % b["error"])
+            return 2
+        out = ROOT / "logs" / ("probe_437r1_pred2f_%s.json" % (a.dmg_target or "base"))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(b), encoding="utf-8")
+        pr = (b["aiPredict"] or {}).get("pred") or {}
+        st = stage_inputs(b)
+        print("[437r1] NATIF PREDICTION healthDmg %s / %s (hits=%s)"
+              % (pr.get("healthDmgMin"), pr.get("healthDmgMax"), pr.get("appliedHits")))
+        print("[437r1] entrees d'etage : %s" % json.dumps(st))
+        print("[437r1] modeles         : %s" % json.dumps(face_models(st)))
         print("[437r1] ecrit : %s" % out)
         return 0
     if a.bounds:

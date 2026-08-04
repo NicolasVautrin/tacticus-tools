@@ -420,10 +420,16 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
             #
             # ⚠ CE QUI ENTRE OÙ, et c'est TOUT l'objet de #462-r4a : #446-r2 avait rangé la face
             # DÉFENSEUR **entre** les étapes 3 et 4, donc DERRIÈRE l'arrondi de l'étage attaquant.
-            # C'est faux pour les %-list d'EFFETS : elles vivent dans la liste `@0x18` (étape 2),
-            # AVANT les deux `Round`. Seules les MODIFICATIONS DE STAT entrent dans
-            # `Multiplier@0x30` (`from_stat_mod`, cf. `calculate_modifiers_from_stat_modifications`)
-            # et subissent donc l'arrondi intercalé. Les deux régimes sont mesurés :
+            # Le port sépare donc `pct_list*` (composés SANS arrondi entre eux) de
+            # `multiplicative*` (un `Round` chacun). ⚠ CÔTÉ NATIF LES DEUX SONT LE MÊME CHAMP —
+            # `Multiplier@0x30`, accumulé multiplicativement par la surcharge 1-ARG de
+            # `IdunBattle.Core.Services.DamageModifiers$$Add` — et la liste `@0x18` n'est alimentée
+            # que par `damageBonus@0x48/@0x50` (pourcentage AVEC cap), qu'AUCUN chemin porté ne
+            # pose (mesuré : 0 sur 199 et 0 sur 693, deux montages, #437-r1-r1 et #462-r4a-r1).
+            # Le découpage du port reste EXACT tant qu'une seule des deux voies est non neutre
+            # PAR FACE ; il divergerait sur une face portant à la fois un %-effet et un stat-mod
+            # (le port y ferait deux `Round`, le natif un seul) — NON CONFRONTÉ, `#437-r1-r1-r2`.
+            # Les deux régimes sont mesurés :
             #   * face DÉFENSEUR = EFFET (`Terrifying_ExtraDefense`, x0.70) sur un perçage
             #     fractionnaire — l'arrondi intercalé COÛTE `-1` par coup (12 bornes, #462-r4a) ;
             #   * face DÉFENSEUR = STAT-MOD (tuile Thorns, x1.50) — il en FAUT un (#446-r2) ;
@@ -431,13 +437,27 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
             #     unités DÉPLACÉES) — la chaîne doit être UNIQUE : 761/1141 contre 762/1142.
             # La séquence ci-dessous est donc `(1+2)` en UNE chaîne, puis `3`, puis `4`.
             #
-            # ⚠ #437-r1 — `separate_face_lists` REND AUX ÉTAPES 1 ET 2 LEURS DEUX APPELS. Le
-            # décompilé de `CalculateBaseDamageWithAllModifiers` les montre DISTINCTS (deux
-            # `slot 0x11` successifs, l'un sur `attackModifiers`, l'autre sur `defenseModifiers`),
-            # et `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers` porte un
-            # `FixMath.NET.Fix64$$Round(., AwayFromZero)` PAR ENTRÉE — donc la face défenseur part
-            # d'une valeur DÉJÀ matérialisée. `apply_pct_entries` matérialise en fin d'appel : deux
-            # appels = deux arrondis, un appel = un seul.
+            # ⚠ #437-r1-r1 — CE QUE `separate_face_lists` MODÉLISE VRAIMENT, et ce que la
+            # justification précédente disait de FAUX. Elle invoquait deux appels distincts à
+            # `ApplyCappedModifiers` (« la face défenseur part d'une valeur déjà matérialisée »).
+            # Cette lecture est RÉFUTÉE, deux fois :
+            #   * au DÉCOMPILÉ — `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers`
+            #     arrondit PAR ENTRÉE et INCONDITIONNELLEMENT
+            #     (`d = Clamp(Round(Mul(d, mult), 1), -cap, cap)` pour chaque entrée de `@0x18`).
+            #     Découper la liste en deux appels y est donc ARITHMÉTIQUEMENT NEUTRE : le natif
+            #     ne peut pas distinguer `ApplyCapped(L1)∘ApplyCapped(L2)` de `ApplyCapped(L1+L2)` ;
+            #   * à la MESURE — la liste `@0x18` n'est alimentée par AUCUN chemin porté. Capteur
+            #     `effect-bonus-trace` (#466) armé sur CE montage : 0 événement sur 199 fait
+            #     grossir la liste capée ; les 41 `DamageModifiers$$Add` passent tous par la
+            #     surcharge 1-ARG, donc par `Multiplier@0x30` (cohérence
+            #     `multAfter == multBefore x modifierValue` : 41/41).
+            #
+            # LA LOI NATIVE, telle qu'elle se lit ET se mesure : le nombre de `Fix64.Round` est
+            # le NOMBRE D'ACCUMULATEURS `Multiplier@0x30` NON NULS — les étapes 3 et 4 ci-dessus,
+            # chacune inconditionnelle dès que son `Nullable<DamageModifiers>` a une valeur. Ce
+            # que le port appelle `pct_list` / `pct_list_defender` EST ce `Multiplier@0x30`, une
+            # face chacun ; `separate_face_lists=True` restitue donc « UN `Round` par face », qui
+            # est la loi. C'est la valeur `False` qui est la dérogation.
             #
             # MESURE (#437-r1, tir d'overwatch `eldarRanger` -> `spaceStormcaller`, face ATT =
             # `HeavyWeapon_ExtraDmg` x1.25, face DEF = `TerminatorArmour_ReduceDmg` x0.25, board
@@ -445,19 +465,30 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
             # depuis l'aléa brut du tirage (`NextInternal` = `lo + ((genrand>>1) % width)`), donc
             # sans aucune soustraction ni inférence :
             #
-            #   base d'attaque | bornes NATIVES | chaîne unique | deux appels
+            #   base d'attaque | bornes NATIVES | un Round | un Round PAR FACE
             #   4518 (3614)    | (1130, 1695)   | (1129, 1694) X | (1130, 1695) OK
             #   4526 (3621)    | (1132, 1697)   | (1132, 1697) OK| (1132, 1697) OK  (non discriminant)
             #   4538 (3630)    | (1135, 1702)   | (1134, 1702) X | (1135, 1702) OK  (solution UNIQUE)
             #
-            # Le drapeau est posé par les vecteurs COMBAT seulement. La PRÉDICTION garde la chaîne
-            # unique : c'est ce que mesure le cran DEUX FACES de #462-r4a (élévation x1.50 ATT +
-            # `Terrifying_ExtraDefense` x0.70 DEF, oracle `aiPlaybookPredict`), qui rend 761/1141 =
-            # `Round(P x 1.5 x 0.7)` et qu'un arrondi intercalé porterait à 762/1142. Les deux
-            # appelants natifs du foyer NE traversent pas les mêmes étapes (résidu déjà nommé par
-            # #462-r4a §6 : `CalculateAbilityDamage` passe `attackModifiers` NULL, `PredictAttackRaw`
-            # construit ses DEUX `Nullable`) — c'est cette asymétrie que le drapeau porte.
-            # ⚠ Ce que ce drapeau NE tranche PAS : `#437-r1-r1`, cf. la case-doc.
+            # Le capteur y lit DEUX accumulateurs, chacun repartant de `1` : `face=attacker` ->
+            # `x1.25`, `face=defender` -> `x0.25`. AUCUN des 41 `Add` ne compose (`multBefore == 1`
+            # sur 41/41). D'où deux `Round`.
+            #
+            # ⚠ POURQUOI `False` EN PRÉDICTION : ce n'est PAS le vecteur. Le cran DEUX FACES de
+            # #462-r4a (élévation x1.50 ATT + `Terrifying_ExtraDefense` x0.70 DEF) rend 761/1141,
+            # soit UN seul `Round` — et le même capteur y lit UN SEUL accumulateur qui COMPOSE
+            # (`1 -> 0.6999999999534339 -> 1.0499999998137355`), les DEUX bonus étant étiquetés
+            # `face=attacker` par le natif. La fenêtre `defender` n'est pas en cause : elle est
+            # bien instrumentée et tire (20 événements sur le montage #437-r1, même bundle).
+            # Autrement dit le natif verse `Terrifying_ExtraDefense` dans l'accumulateur
+            # ATTAQUANT, là où le port le range en face DÉFENSEUR. `separate_face_lists=False`
+            # compense cette ATTRIBUTION DE FACE divergente ; le vecteur n'y est pour rien (les
+            # deux mesures sont prises sur le vecteur COMBAT — `aiPlaybookPredict` ne traverse pas
+            # `DamageModifiers$$Add`, cf. case-462-r4a §8.5).
+            # ⇒ FIX FIDÈLE, et son prérequis : rendre la séparation INCONDITIONNELLE **et**
+            # attribuer chaque `EffectBonus` à la face que le natif lui donne. Cela demande de
+            # MESURER la face de chaque effet %-défenseur au capteur, pas de la déduire du porteur.
+            # Résidu `#437-r1-r1-r1` (`docs/rl/case-437-r1-r1-canal-et-face.md`).
             #
             # NO-OP quand l'une des deux listes est VIDE (`apply_pct_entries([])` rend la valeur
             # INCHANGÉE, sans `Round`) : tous les régimes à UNE face mesurés (#446-r2 `T` et `A`,
