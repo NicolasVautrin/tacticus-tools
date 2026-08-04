@@ -116,15 +116,15 @@ quatre tests LIVE de Saga **passent** — c'était donc bien cette tranche, pas 
   --list-pool` la dément et `catalog_inject --missing` la liste parmi les 21 unités `lineup` hors
   catalogue. Elle s'**injecte** (`write_augmented_seed_bc`), donc elle reste confrontable : c'est
   une correction de la fiche, pas une limite.
-* **`EmpyricAmbushAbility` (1232) n'est pas portée.** Ce sont l'EFFET et son gate qui le sont. La
-  POSE côté port n'existe donc pas : en confrontation, l'effet arrive dans l'état du port par la
-  capture live (`EffectsState.seed` → `EffectFactory`). Un replay-diff qui ferait caster Lhykhis
-  **par le port** divergerait — l'ability est toujours un no-op combat.
-* **`EmpyricAmbush_AnyMove` (1580) et `EmpyricAmbush_Reset` (1555) ne sont pas portés.** Lus :
-  `AnyMoveAbility` = `On(PreUnitMove) & OwnerIsActor` → `AddEffect(1580, targets = Owner, turns
-  = 0)`, retiré par `On(UnitAfterMove) & OwnerIsActor` ; `ResetAbility` = `On(UnitDefeated) &
-  OwnerIsActor & AreEnemies(Owner, Target) & IsNormalAttack & IsMeleeAttack`. Aucun des deux ne
-  lit `TilesMovedThisTurn` — hors périmètre de cette tranche, mais non portés.
+* ~~**`EmpyricAmbushAbility` (1232) n'est pas portée.**~~ **FERMÉ par `#589-r1-r1-r1`**
+  (`case-589-r1-r1-r1-pose-empyric-ambush.md`) : la POSE est portée en arbre DSL et confrontée sur
+  ses DEUX faces, 3 boards. L'effet n'arrive donc plus dans l'état du port par la seule capture
+  live, et le replay-diff qui divergeait ne diverge plus.
+* **`EmpyricAmbush_AnyMove` (1580) et `EmpyricAmbush_Reset` (1555) ne sont pas portés** — résidu
+  **`#589-r1-r1-r1-r1`**. Lus : `AnyMoveAbility` = `On(PreUnitMove) & OwnerIsActor` →
+  `AddEffect(1580, targets = Owner, turns = 0)`, retiré par `On(UnitAfterMove) & OwnerIsActor` ;
+  `ResetAbility` = `On(UnitDefeated) & OwnerIsActor & AreEnemies(Owner, Target) & IsNormalAttack &
+  IsMeleeAttack`. Aucun des deux ne lit `TilesMovedThisTurn` — c'est un autre mécanisme.
 * **Le régime `Walk` n'est pas joué**, et c'est délibéré : mesuré INERTE pour #589 (0 basculement
   sur 3906 couples × 2 boards), il ne discrimine rien sur l'axe qui nous occupe.
 * ~~**Un seul board (`MC1_67`) et un seul seed (777)** pour la confrontation du seuil.~~ **FERMÉ

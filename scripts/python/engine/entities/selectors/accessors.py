@@ -55,12 +55,30 @@ class CasterTile(TargetsSelector):
     ⚠ RESIDU `#459-r1` : le port ne stocke de la position candidate que sa MAIN TILE (`ctx.caster_pos`
     est un `(col,row)`), la ou le natif porte la `UnitPosition` ENTIERE. Sur la face DECISION d'une
     unite multi-hex, cette branche rend donc une liste d'UN element au lieu de l'empreinte candidate.
-    Inerte cote runner (`ctx.caster_pos` None -> `_feet`) et pour toute unite mono-hex."""
+    Inerte cote runner (`ctx.caster_pos` None -> `_feet`) et pour toute unite mono-hex.
+
+    `as_ids` -- le natif rend des ENTITES-tuile ; le port materialise historiquement la tuile par sa
+    POSITION `(col,row)`. `as_ids=True` (board requis) rend l'**ID d'entite-tuile**, ce qu'exige toute
+    composition avec un noeud tile-domain ID (`AdjacentTiles`/`CanAddUnit`, qui rendent des ids) --
+    sans quoi un `op_Subtraction` compare des positions a des ids et ne soustrait RIEN,
+    SILENCIEUSEMENT. Meme parametre, meme raison et meme defaut que `Tiles(units, as_ids=...)`.
+    Call-site : `IdunBattleLogic.Entities.Abilities.Active.Loki.EmpyricAmbushAbility$$ExecuteBehaviour`
+    = `CanAddUnit(AdjacentTiles(Target@+0x60)) op_Subtraction <DSLSelectors+0x50 = CasterTile>`."""
+    def __init__(self, as_ids: bool = False):
+        self.as_ids = bool(as_ids)
+
     def select(self, ctx):
         cp = getattr(ctx, "caster_pos", None)
         if cp:
-            return [(int(cp[0]), int(cp[1]))]          # UnitPosition candidate (#459-r1 : main tile)
-        return _feet(ctx.caster)                       # EntityExtensions.GetTiles(Caster, state)
+            pos = [(int(cp[0]), int(cp[1]))]           # UnitPosition candidate (#459-r1 : main tile)
+        else:
+            pos = _feet(ctx.caster)                    # EntityExtensions.GetTiles(Caster, state)
+        if not self.as_ids:
+            return pos
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        return [t for t in (board.id_at(p[0], p[1]) for p in pos) if t is not None]
 
 
 class TargetTile(TargetsSelector):
