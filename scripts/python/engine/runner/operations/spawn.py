@@ -1095,6 +1095,7 @@ class SpawnUnitOperation:
         # >=1 ennemi VIVANT hex-adjacent (porte d'elevation |dElev|<2, `is_adjacent` maison).
         from engine.battle_query import is_adjacent
         elev = {}
+        neigh = None      # tri-etat : `None` = pas de canal -> repli geometrique NOMME d'`is_adjacent`
         epos = []
         for eid2, e2 in state.entities.items():
             oc2 = e2.get_component(OwnerComponent)
@@ -1108,13 +1109,18 @@ class SpawnUnitOperation:
         if board is not None:
             # FOYER UNIQUE du canal d'elevation (#433-r4-r1-r4) -- meme carte, memes clefs
             # OMISES quand l'elevation n'est pas captee, que celle derivee pour le `DslContext`.
-            from engine.entities.pathfinding.board import elevations_by_pos
+            # #433-r4-r1-r4-r2-r1 : le voisinage NATIF (liste STOCKEE) est le PREMIER etage
+            # d'`IterateAdjacentTiles`, l'elevation le second -- n'en deriver qu'un laisse le
+            # predicat plus PERMISSIF que le natif sur toute arete que la connectivite refuse.
+            from engine.entities.pathfinding.board import (adjacent_neigh_by_pos,
+                                                           elevations_by_pos)
             elev = elevations_by_pos(board) or {}
+            neigh = adjacent_neigh_by_pos(board)
         def _can_attack_from(tid) -> bool:
             ti = board.by_id.get(tid)
             if ti is None:
                 return False
-            return any(is_adjacent((ti["col"], ti["row"]), p, elev) for p in epos)
+            return any(is_adjacent((ti["col"], ti["row"]), p, elev, neigh) for p in epos)
         preferred = [t for t in possible if _can_attack_from(t)]
         sel = preferred if preferred else possible        # .Otherwise(possible)
         tile = _pick_randomly_one(state, sel)             # PickRandomly(sel, 1) : 1 tirage MEME a pool=1

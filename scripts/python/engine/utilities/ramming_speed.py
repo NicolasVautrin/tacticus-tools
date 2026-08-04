@@ -73,9 +73,12 @@ class RammingSpeed_MostAdjacentEnemies(BaseUtility):
         enemies = c.get("enemy_units") or ()
         if not enemies:
             return 0.0
-        from ..battle_query import count_adjacent    # lazy : utilities <- battle_query <- hexgeo
+        # lazy : utilities <- battle_query <- hexgeo. #433-r4-r1-r4-r2-r1 : le voisinage NATIF
+        # accompagne l'elevation (les DEUX etages d'`IterateAdjacentTiles`) ; `neigh_map` lit le
+        # canal quelle que soit la forme du contexte (ici un dict).
+        from ..battle_query import count_adjacent, neigh_map
         positions = [e["pos"] for e in enemies if isinstance(e, dict) and e.get("pos")]
-        n = count_adjacent((tile[0], tile[1]), positions, c.get("elev_by_pos"))
+        n = count_adjacent((tile[0], tile[1]), positions, c.get("elev_by_pos"), neigh_map(c))
         return n * wt.sub("RammingSpeed_MostAdjacentEnemies", "RAMMINGSPEED_AdjacentEnemy")
 
 

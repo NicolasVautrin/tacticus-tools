@@ -364,7 +364,8 @@ def is_in_team_aura_range(effect_type, team, target, units, has_trait, get_turns
 
 
 def is_charging(caster_pos: tuple | None, target_pos: tuple | None, target_id,
-                charged_unit_ids, elev_by_pos: dict | None = None) -> bool:
+                charged_unit_ids, elev_by_pos: dict | None = None,
+                neigh_by_pos: dict | None = None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` — MIRROR du decompile,
     DEUX termes joints par `&` :
 
@@ -386,9 +387,21 @@ def is_charging(caster_pos: tuple | None, target_pos: tuple | None, target_id,
     l'overload scalaire vaut `abs(elev(b) - elev(a)) < 2 && (a == b || ConnectivityComponent(a).
     IsNeighbour(b))` -> `are_entities_adjacent` ci-dessus, et NON `is_adjacent` : ce dernier mirrore
     `IterateAdjacentTiles`, qui ne rend jamais la tuile source, alors que la primitive de PORTEE
-    porte le COURT-CIRCUIT D'IDENTITE (#433-r1). `elev_by_pos=None` degrade en hex pur, MEME niveau
-    d'approximation que le socle (`components.update_charging` et le noeud DSL
-    `entities.triggers.IsCharging` comparent en hex pur).
+    porte le COURT-CIRCUIT D'IDENTITE (#433-r1).
+
+    ⚠ LE SUBSTRAT DE VOISINAGE EST LA LISTE STOCKEE, pas la couronne hex (#433-r4-r1-r4-r2-r1) --
+    `IdunBattle.Entities.Components.ConnectivityComponent$$IsNeighbour` est LU comme
+    `this[+0x10].Contains(<id de tile2>)`, c'est-a-dire exactement la `List<int>` que
+    `IdunBattle.Operations.InitializeConnectivityOperation$$Execute` construit, celle-la meme
+    qu'enumere `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`.
+    Les DEUX natifs partagent donc le meme substrat ; ils ne different que par le court-circuit
+    d'identite. D'ou `neigh_by_pos`, propage tel quel a `are_entities_adjacent` -> `is_adjacent`.
+    Rejouer la porte d'elevation sur le canal capte reste idempotent (cf. `is_adjacent`) : dans
+    `MovementUtil$$AreTilesAdjacent` elle est un terme SEPARE (`iVar7 < 2 & bVar3`), et le canal la
+    porte deja.
+
+    Canal absent (`neigh_by_pos=None`) -> repli GEOMETRIQUE nomme dans `is_adjacent` ;
+    `elev_by_pos=None` degrade en hex pur.
 
     ⚠ Le court-circuit est ici SANS EFFET OBSERVABLE, et par COMPOSITION -- pas par chance : le 2e
     terme (`ChargedUnitIds.Contains`) est ecrit par `MoveUnitOperation$$UpdateCharging`, qui n'ajoute
@@ -401,44 +414,86 @@ def is_charging(caster_pos: tuple | None, target_pos: tuple | None, target_id,
     degradation fidele est « pas de charge »)."""
     if caster_pos is None or target_pos is None or target_id is None:
         return False
-    if not are_entities_adjacent(caster_pos, target_pos, elev_by_pos):   # AreEntitiesAdjacent
+    if not are_entities_adjacent(caster_pos, target_pos, elev_by_pos,
+                                 neigh_by_pos):                          # AreEntitiesAdjacent
         return False
     return int(target_id) in {int(i) for i in (charged_unit_ids or ())}   # ChargedUnitIds.Contains
 
 
-def newly_adjacent_ids(old_pos, new_pos, positions_by_id: dict) -> set:
-    """`IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` — volet PUREMENT GEOMETRIQUE : les ids
-    ADJACENTS a la position d'ARRIVEE qui ne l'etaient PAS a la position de DEPART.
+def newly_adjacent_ids(old_pos, new_pos, positions_by_id: dict,
+                       elev_by_pos: dict | None = None,
+                       neigh_by_pos: dict | None = None) -> set:
+    """`IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` — volet SPATIAL : les ids ADJACENTS
+    a la position d'ARRIVEE qui ne l'etaient PAS a la position de DEPART.
 
         before = GetAdjacentUnits(oldPosition, unit) ; after = GetAdjacentUnits(newPosition, unit)
         foreach u in after: if (!before.Contains(u)) ChargedUnitIds.Add(u.Id)
 
+    ⚠ « ADJACENT » Y EST `IterateAdjacentTiles`, PAS `hexgeo.distance == 1` (#433-r4-r1-r4-r2-r1).
+    La chaine est LUE : `IdunBattle.Core.Services.BattleQuery$$GetAdjacentUnits(from, ...)` =
+    `IterateAdjacentTiles(from, ...)` puis `GetUnitsOnTiles(...)`, et
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` enumere la
+    liste STOCKEE du `ConnectivityComponent` (`+0x10`) puis applique la porte `|dElev| < 2`. Le port
+    ne portait NI l'un NI l'autre : DEUX etages manquants, tous deux PERMISSIFS (la couronne hex
+    sur-atteint la liste stockee de 4 aretes dirigees sur `C1_74` et 38 sur `C3_14`, cf. #433-r4-r1-r4-r2).
+    D'ou la delegation a `is_adjacent`, qui est le mirror des DEUX etages -- et non un second port.
+
     `positions_by_id` = {id: (col,row)} des AUTRES unites (l'unite qui bouge en est exclue par le
     natif via son parametre `unit`). `old_pos=None` (unite sans MainTile avant le pas, ex. spawn) ->
-    `before` vide, mirror du `MainTile == null` natif.
+    `before` vide, mirror du `MainTile == null` natif. Canaux absents -> repli GEOMETRIQUE nomme
+    d'`is_adjacent` (le comportement d'avant), jamais un voisinage vide.
 
-    Le pendant ECS de cette geometrie vit dans `runner.components.update_charging` (il MUTE le
-    `UnitComponent`) ; ici on ne rend que l'ensemble, ce dont la face PREDICTION a besoin pour savoir
-    ce qu'un pas CANDIDAT chargerait sans muter quoi que ce soit."""
+    Le pendant ECS vit dans `runner.components.update_charging` (il MUTE le `UnitComponent`) et doit
+    voir le MEME substrat, sinon les faces PREDICTION et COMBAT divergent sur un natif unique ; ici
+    on ne rend que l'ensemble, ce dont la face PREDICTION a besoin pour savoir ce qu'un pas CANDIDAT
+    chargerait sans muter quoi que ce soit."""
     def _adj(p):
         if p is None:
             return set()
         return {int(i) for i, q in (positions_by_id or {}).items()
-                if q is not None and hexgeo.distance(tuple(p), tuple(q)) == 1}
+                if q is not None and is_adjacent(tuple(p), tuple(q), elev_by_pos, neigh_by_pos)}
     return _adj(new_pos) - _adj(old_pos)
 
 
-def in_arc(tile: tuple, pos: tuple, elev_by_pos: dict | None = None) -> bool:
-    """`pos` est-il dans l'ARC de `tile` (ring-1 UNION ring-2) ? ring-1 = `is_adjacent` (dist hex 1,
-    porte d'élévation `|Δelev| < 2`) ; ring-2 = dist hex EXACTEMENT 2 (`Unobscured` PASSE-TOUT v1
-    pour ce prédicat d'ÉLIGIBILITÉ, non exercé par les seeds). Prédicat PARTAGÉ par
-    `count_enemies_in_arc` (gate d'éligibilité par-position) et `enemies_in_arc` (cible émise)."""
-    if is_adjacent(tile, pos, elev_by_pos):                              # ring-1 (dist 1, élévation-gaté)
-        return True
-    return hexgeo.distance((tile[0], tile[1]), (pos[0], pos[1])) == 2    # ring-2 (dist 2, Unobscured passe-tout)
+def in_arc(tile: tuple, pos: tuple) -> bool:
+    """`pos` est-il dans l'ARC de `tile` (ring-1 UNION ring-2) ? = dist hex <= 2, **GEOMETRIQUE PUR**.
+
+    ⚠ CE PREDICAT NE PASSE PAS PAR `IterateAdjacentTiles` — donc ni liste stockee, ni porte
+    d'elevation (#433-r4-r1-r4-r2-r1). La chaine native de l'ELIGIBILITE est LUE de bout en bout :
+
+        BasePlaybook$$GetEligibleTargetsSelectable  ->  IBattleQuery slot 0x42
+          -> AttackQuery$$GetValidTargetsWithCache -> TargetingQuery$$GetValidTargets
+          -> TargetingQuery$$GetUnitsInRange -> BattleQuery$$GetUnitsAtDistance
+          -> BattleQuery$$GetTilesAtDistance -> BattleQuery$$GetSurroundingTiles
+          -> TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext
+
+    `IdunBattle.Core.Services.BattleQuery$$GetTilesAtDistance` filtre le disque de
+    `IdunBattle.Core.Services.BattleQuery$$GetSurroundingTiles` par
+    `IdunBattle.Entities.Components.PositionComponent$$Distance(t, centre) == distance` — une
+    distance hexagonale, sur un disque cube PUREMENT geometrique. **Aucun `ConnectivityComponent`,
+    aucun `|dElev| < 2` sur ce chemin** ; brancher `neigh_by_pos` ici FABRIQUERAIT une divergence.
+
+    C'est aussi ce que la mesure live disait deja : `eligible_targets_count` ci-dessous porte
+    « ennemis a dist <= 2, SANS porte d'elevation au ring-1 » avec son datapoint (probe_49x phase B,
+    `C1_25` : T=(0,2) elev 4, ennemi (1,3) elev 2 adjacent -> `|dElev| = 2` l'exclurait via
+    `IterateAdjacentTiles`, or le natif GENERE une action). Les deux fonctions mirroraient le MEME
+    natif en se contredisant sur le ring-1 : `in_arc` gatait, `eligible_targets_count` non. Le fork
+    est ferme du cote LU — la porte est retiree, le parametre `elev_by_pos` avec elle (un parametre
+    accepte mais non lu se refait passer un jour pour un canal actif).
+
+    ring-2 : `Unobscured` PASSE-TOUT v1 pour ce predicat d'ELIGIBILITE (non exerce par les seeds ;
+    cf. `is_target_tile_obscured` si un cas le falsifie). Predicat PARTAGE par
+    `count_enemies_in_arc` (gate d'eligibilite par-position) et `enemies_in_arc` (cible emise).
+
+    dist 0 : hors regime, et le natif n'y repond PAS par la distance --
+    `IdunBattle.Core.Services.TargetingQuery$$GetUnitsInRange` traite `range == 0` a part et rend
+    `{caster}` ou l'ensemble VIDE selon le bit 15 des `options`, jamais le disque. Les appelants ne
+    passent que des positions d'ENNEMIS, jamais celle du caster, donc `<= 2` et `1 <= d <= 2` sont
+    indiscernables ici ; `<= 2` est retenu pour etre litteralement `eligible_targets_count`."""
+    return hexgeo.distance((tile[0], tile[1]), (pos[0], pos[1])) <= 2
 
 
-def count_enemies_in_arc(tile: tuple, positions: list, elev_by_pos: dict | None = None) -> int:
+def count_enemies_in_arc(tile: tuple, positions: list) -> int:
     """`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable(unit, MainTile(T))` (compte) — nombre
     d'unités de `positions` (ennemis) dans l'ARC de `tile` = ring-1 UNION ring-2 (`in_arc`), l'ensemble
     des CIBLES ÉLIGIBLES depuis la position T. C'est le set ancré à T que le natif énumère pour
@@ -447,8 +502,12 @@ def count_enemies_in_arc(tile: tuple, positions: list, elev_by_pos: dict | None 
     23/23 positions, les 6 vides = exactement celles sans ennemi à dist <= 2 de T).
     ⚠ CASE-49x (2026-07-21) : ce compte n'est PAS l'utilité Gauntlets. L'utilité =
     `|ring1(T) ∪ surrounding_enemies(TUILE RÉELLE)|` (cf. `surrounding_enemies` + le playbook) —
-    la conclusion antérieure « ring-2 mort » (case-49 §2bis) confondait les deux ancrages."""
-    return sum(1 for p in (positions or []) if in_arc(tile, p, elev_by_pos))
+    la conclusion antérieure « ring-2 mort » (case-49 §2bis) confondait les deux ancrages.
+    ⚠ #433-r4-r1-r4-r2-r1 : `in_arc` est GEOMETRIQUE PUR (ni liste stockee ni porte d'elevation) —
+    la chaine native de l'eligibilite passe par `GetTilesAtDistance`, pas par `IterateAdjacentTiles`
+    (lecture complete dans `in_arc`). Ce compte devient donc l'exact jumeau d'`eligible_targets_count`.
+    AUCUN appelant dans le depot (mesure du 2026-08-04, balayage AST de `git ls-files *.py`)."""
+    return sum(1 for p in (positions or []) if in_arc(tile, p))
 
 
 def eligible_targets_count(tile: tuple, positions: list,
@@ -1016,13 +1075,17 @@ def iterate_surrounding_tiles_order_key(pos: tuple) -> tuple:
     return (x, y)
 
 
-def enemies_in_arc(tile: tuple, enemies: list, elev_by_pos: dict | None = None) -> list:
+def enemies_in_arc(tile: tuple, enemies: list) -> list:
     """Ennemis (unités decisionView `{id, pos:{col,row}}`) dans l'ARC de `tile` = ring-1 UNION ring-2
-    (`in_arc`), DANS L'ORDRE d'énumération de `enemies`. Fallback de `gauntlets_target` sans neighbours."""
+    (`in_arc`), DANS L'ORDRE d'énumération de `enemies`. Fallback de `gauntlets_target` sans neighbours.
+
+    ⚠ #433-r4-r1-r4-r2-r1 : plus de porte d'élévation ici — l'ARC est géométrique pur (lecture native
+    complète dans `in_arc`). Ce fallback n'est atteint que si `neigh_by_pos` manque à
+    `gauntlets_target` ; sa branche NATIVE, elle, énumère bien la liste stockée (ordre observable)."""
     out = []
     for e in (enemies or []):
         p = e.get("pos") if isinstance(e, dict) else None
-        if p and p.get("col") is not None and in_arc(tile, (p["col"], p["row"]), elev_by_pos):
+        if p and p.get("col") is not None and in_arc(tile, (p["col"], p["row"])):
             out.append(e)
     return out
 
@@ -1201,13 +1264,20 @@ def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
     `can_add_unit` flag c) ; requireWalkable + requireEmptyOrSteppable subsumés par `can_add_unit` (walkable +
     empty ; empty ⊂ emptyOrSteppable -> l'intersection GetAdjacent ∩ CanAddUnit = {walkable, empty} = ce que le
     port compte -> agree). Sans `neigh_by_pos` (offline
-    pur) : fallback `hexgeo.neighbors` (dist-1, même porte d'élévation via `is_adjacent`)."""
+    pur) : fallback `hexgeo.neighbors` (dist-1, même porte d'élévation via `is_adjacent`).
+
+    ⚠ #433-r4-r1-r4-r2-r1 : le canal est désormais propagé au `is_adjacent` du filtre. C'est un
+    NO-OP **démontrable** dans les deux branches, et c'est pourquoi il est sûr : branche NATIVE,
+    `p ∈ neigh_by_pos[tile]` par construction, donc l'énumération le retrouve ; branche FALLBACK,
+    `neigh` est déjà la couronne hex, sur laquelle le repli géométrique rend le même verdict. Il est
+    posé pour que le call-site cesse d'être à moitié branché — un demi-branchement est exactement
+    ce que le cliquet garde, et le laisser ici invite le prochain à le recopier."""
     tkey = (tile[0], tile[1])
     neigh = (neigh_by_pos or {}).get(tkey)
     if neigh is None:
         neigh = list(hexgeo.neighbors(tile[0], tile[1]))   # fallback (ordre non natif, mais compte identique)
     return sum(1 for p in neigh
-               if is_adjacent(tile, p, elev_by_pos)          # porte |Δelev|<2 (IterateAdjacentTiles, #45)
+               if is_adjacent(tile, p, elev_by_pos, neigh_by_pos)   # 2 étages (IterateAdjacentTiles, #45)
                and can_add_unit(p, walkable_by_pos, occupied))
 
 
@@ -1246,5 +1316,5 @@ def gauntlets_target(tile: tuple, enemies: list, neigh_by_pos: dict | None = Non
         # aucun ennemi ring-1 -> ring-2 (dist hex 2) ; dernier (miroir inversion), ordre exact non validé.
         ring2 = [e for (pp, e) in pos2e.items() if hexgeo.distance((tile[0], tile[1]), pp) == 2]
         return ring2[-1].get("id") if ring2 else None
-    arc = enemies_in_arc(tile, enemies, elev_by_pos)  # fallback offline (ordre natif indisponible)
+    arc = enemies_in_arc(tile, enemies)  # fallback offline (ordre natif indisponible)
     return arc[0].get("id") if arc else None
