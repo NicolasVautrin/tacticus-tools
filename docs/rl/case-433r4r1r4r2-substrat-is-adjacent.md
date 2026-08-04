@@ -38,6 +38,16 @@ existent — l'itération ne parcourt que des tuiles du plateau. `ConnectTelepor
 `ConnectivityComponent+0x18` (le jumeau de téléport), **jamais** la liste `+0x10`, et il l'écrit
 **dans les deux sens**.
 
+**Le graphe est STATIQUE pour toute la bataille** — donc mémoïser le canal est sûr, et un canal
+capté une fois ne peut pas se périmer. C'est LU, pas supposé : `IdunBattle.Entities.Components.TileComponent`
+n'expose que `HasEdge` / `.ctor` / `.cctor` / `Copy` / `GetComponentId` / `ToString` — **aucun
+mutateur d'élévation** (`+0x18` est posé au ctor) ; `ConnectivityComponent` de même — ses seuls
+écrivains sont `InitializeConnectivityOperation$$Execute` (`+0x10`, une fois, via
+`Core.Services.OperationProcessor$$InitializeConnectivity`) et `$$ConnectTeleportTiles` (`+0x18`).
+⚠ Corollaire : une tuile **TEMPORAIRE** apparue APRÈS cette passe n'a pas de connectivité. Le port
+la fait retomber sur sa couronne hex (repli par clé) — plus permissif que le natif, donc dans le
+sens de dégradation déjà connu, jamais une restriction inventée.
+
 ⇒ `Neighbours` est symétrique. La porte du capteur (`|dElev| < 2`) l'est aussi (valeur absolue).
 **Le champ `boardGraph.neighbours` ne peut donc pas porter d'arête à sens unique** — la mention
 « ~18 arêtes one-way, quirks de capture aux bords » du docstring de `board.py` datait des flags
