@@ -874,19 +874,9 @@ livraison **PAR PULL REQUEST**) :
   Le merge sur `master` reste MON geste, **sur ton accord** — jamais l'agent. Après merge :
   je supprime la branche (`git push origin --delete <branche>` + `git worktree prune`).
   L'ordre exact du merge et la place de la banque : « La boucle de MERGE » ci-dessous.
-- **`docs/rl/solving-playbook.md` = ARCHIVE GELÉE depuis le 2026-08-04.** Sa raison d'être était
-  d'être le canal par lequel les agents `fable` transmettaient leurs techniques aux `opus` ; **fable
-  supprimé, le canal n'a plus d'objet.** Les 12 entrées restent au dépôt — elles sont vraies, et
-  chacune double une case-doc — mais **plus personne n'y écrit**, et elle n'est plus `!include`.
-  ⚠ Je l'avais recâblée sur `opus-solver` en supprimant fable : mauvaise décision, sur deux axes
-  que la mesure confirme. **(a)** Écriture en append pur en fin d'un fichier unique → un point de
-  conflit sur CHAQUE PR de solveur, et chez nous un conflit trivial coûte cher (il force le rebase,
-  donc le RE-JEU de la validation par l'auteur). **(b)** Le fichier était `!include` ici → 675
-  lignes dans mon contexte à chaque chargement du skill, croissant sans borne avec 5 agents qui
-  appendent. Fréquence mesurée : 11 commits sur l'ère fable (13→28 juillet), dormant une semaine,
-  puis **1 dès le premier jour** sous la règle recâblée.
-  ⇒ **Une technique qui resservira va dans la case-doc du cas et dans le rapport de l'agent.** Ce
-  sont des fichiers par cas : ils ne collisionnent pas, et ils sont lus à la demande.
+- **Une technique de résolution qui resservira va dans la case-doc du cas** (`docs/rl/case-<n>-*.md`)
+  et dans le rapport de l'agent. Un fichier par cas : ça ne collisionne pas au merge, et ça se lit
+  à la demande au lieu d'être injecté à chaque session.
 - **`opus-solver`** (`.claude/agents/opus-solver.md`, modèle `opus[1m]`) — **le seul dispatch**, quel
   que soit le tag : artefact identifié, volume mécanique, port 1:1, câblage, et aussi les cas durs.
   Un item qui résiste est **reporté comme tel**, pas résolu à l'usure — et c'est à moi de le
@@ -1024,8 +1014,3 @@ encodait l'ancien comportement était dans une autre tranche.)
 
 <!-- Conventions des hooks : ne sert QUE si on edite frida/hooks/* — pas au portage Python. -->
 !include .claude/skills/tacticus/references/hooks.md
-
-<!-- `docs/rl/solving-playbook.md` N'EST PLUS INCLUS (2026-08-04). C'etait le canal fable -> opus ;
-     fable supprime, le canal n'a plus d'objet. L'`!include` chargeait 675 lignes a chaque
-     ouverture du skill, pour un fichier que plus personne n'ecrit. Il reste au depot comme
-     archive, lisible a la demande. Cf. « ARCHIVE GELEE » plus haut. -->

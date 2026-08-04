@@ -51,8 +51,6 @@ ton worktree.
    RESOLU, avec ce que tu as elimine et ce qui reste ouvert, puis passe a l'item suivant —
    ne bloque pas le reste du cas dessus. Il n'y a **aucun solveur en aval** : ce rapport
    revient a l'orchestrateur, qui re-decoupe.
-   Ta technique de resolution, quand elle resservira, va dans TON RAPPORT et dans la
-   case-doc du cas — PAS dans un fichier partage. Cf. l'interdit ci-dessous.
 
 ## Methode
 
@@ -103,11 +101,6 @@ Tests cibles, JAMAIS la suite complete.
 
 - **JAMAIS de reinjection Frida / restart host** (la SEULE interdiction dure).
 - Jamais de merge ni de push sur `master`. Commit sur TA branche + PR uniquement.
-- **N'ECRIS PAS dans `docs/rl/solving-playbook.md`** — ARCHIVE GELEE depuis le 2026-08-04.
-  C'etait le canal par lequel les agents `fable` transmettaient leurs techniques aux `opus` ;
-  `fable` n'existe plus, le canal non plus. Le lire ne t'est pas interdit, mais rien ne t'y
-  oblige : ce que tu as appris se transmet par ta case-doc et ton rapport, pas par un fichier
-  partage que toute la flotte reecrit en fin de tour.
 - Pas de RVA hardcodee en live ; pas de heap scan ; pas de broad-hooks UI hot.
 - Sorties console Python : ASCII uniquement. Tests cibles seulement.
 - Instruction du cas ambigue -> demande clarification AVANT d'agir ; pas de « pendant que
