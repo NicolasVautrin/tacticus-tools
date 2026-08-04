@@ -293,31 +293,29 @@ def normal_attack_already_present(active_abilities) -> str | None:
     et l'ordre est celui des ajouts. MESURE (bras `ordre-pas`) : canal
     `[TemplarInitiateNormalAttack, Boltstorm_NormalAttack]` -> natif `Boltstorm_NormalAttack`.
 
-    ## ⚠ PORTE, VERIFIE, et DELIBEREMENT NON BRANCHE dans `custom_normal_attack`
+    ## LE SUBSTRAT : `UnitConfiguration.ActiveAbilities`, et RIEN D'AUTRE
 
-    Ce foyer est un mirror exact de la garde, et le natif qu'il decrit est CONFIRME live (4/4,
-    `probe_419r1tr14r5r2r2_filter_new_list`). Il n'est pourtant PAS appele par la cascade, et c'est
-    un ARBITRAGE MESURE, pas un oubli :
+    Le natif teste la collection AVANT que la generique n'y soit ajoutee. Deux canaux existent, et
+    UN SEUL convient -- ce n'est pas un detail d'implementation, c'est ce qui separe une garde
+    falsifiable d'une tautologie :
 
-    * **Le substrat exact n'est pas disponible.** Le natif teste la collection AVANT que la
-      generique n'y soit ajoutee, c.-a-d. `config.ActiveAbilities` (= `BC.Units[].ActiveAbilities`).
-      Le seul canal du port, `UnitContext.active_abilities`, lit l'`ActiveAbilityComponent` APRES
-      la fabrique : il porte donc AUSSI l'attaque normale qu'elle vient d'ecrire. MESURE du
-      2026-08-04, bras temoin -> `['FireAndReposition', 'Loki_NormalAttack']`.
-    * **Le brancher sur ce canal COURT-CIRCUITE les trois voies amont.** Puisque le canal contient
-      deja le resultat, la « derniere reguliere » y est toujours `NormalAttackType` -- donc la
-      garde repondrait juste MEME voie passive/active/trait coupee. Mesure : branche, il rend
-      INERTE la contre-epreuve de la voie ACTIVE (#565), qui cesse alors de pouvoir falsifier quoi
-      que ce soit. C'est un accord en regime degenere, pas une fidelite gagnee.
-    * **Et il n'apporterait RIEN en production.** La garde ne mord que si une attaque REGULIERE
-      figure dans `BC.Units[].ActiveAbilities` : mesure **0 sur les 175 unites du seed**, et aucune
-      des 18 n'est attribuee par les 5 voies du gameconfig (ce ne sont pas des abilities de
-      catalogue). Le seul regime qui l'exerce est un montage ECRIT.
+    * `UnitContext.active_abilities` (canal POST, `ActiveAbilityComponent`) porte DEJA l'attaque
+      normale que la fabrique vient d'ecrire. MESURE : bras temoin ->
+      `['FireAndReposition', 'Loki_NormalAttack']`. Branchee dessus, la garde repond juste MEME les
+      trois voies amont coupees, et elle rend INERTE la contre-epreuve de la voie ACTIVE (#565) --
+      un accord en regime degenere, pas une fidelite gagnee. C'est pourquoi elle est restee
+      DEBRANCHEE jusqu'au capteur #466.
+    * `UnitContext.config_active_abilities` (canal PRE, capteur #466) est `config@+0xa0` lui-meme.
+      MESURE du 2026-08-04 sur six unites : `normal_attack_already_present` rend `None` **6/6** sur
+      PRE et non-`None` **6/6** sur POST. C'est le canal branche.
 
-    Echange refuse, donc : fermer un ecart INATTEIGNABLE en production au prix d'affaiblir la
-    garde d'un ecart ATTEIGNABLE. Ce qu'il faut pour le brancher est un canal qui expose
-    `UnitConfiguration.ActiveAbilities` (l'etat PRE-fabrique) -- residu `#419-r1-tr14-r5-r2-r2-r1`,
-    avec son montage et son ecart chiffres dans la case-doc.
+    ## CE QUE LE BRANCHEMENT FERME, ET CE QU'IL NE FERME PAS -- dit par un chiffre
+
+    Le gisement de PRODUCTION est VIDE : **0 des 175 unites du seed** n'a d'attaque reguliere dans
+    `BC.Units[].ActiveAbilities`, et aucune des 18 n'est attribuee par les 5 voies du gameconfig
+    (ce ne sont pas des abilities de catalogue). Brancher la garde ne ferme donc AUCUN ecart
+    observable en jeu -- ca rend la garde FALSIFIABLE, et c'est le montage ECRIT
+    (`probe_419r1tr14r5r2r2_filter_new_list`) qui l'exerce.
 
     `None` en entree = canal muet -> `None` (aucune deduction).
     """
@@ -393,7 +391,7 @@ def custom_normal_attack_from_trait(traits) -> str | None:
 
 
 def custom_normal_attack(passive_abilities=None, active_abilities=None, visual_id=None,
-                         traits=None) -> str | None:
+                         traits=None, config_active_abilities=None) -> str | None:
     """« QUELLE attaque normale la fabrique pose-t-elle sur cette entite ? » -- mirror de la CASCADE
     de `UnitFactory$$AddNormalAttackAbility`. `None` = aucune substitution (l'attaque normale reste
     l'ability generique de l'unite).
@@ -424,13 +422,26 @@ def custom_normal_attack(passive_abilities=None, active_abilities=None, visual_i
                    else custom_normal_attack_from_actives(_kit_ability_names(visual_id, "active")))
     if from_active is not None:
         return from_active
-    # REPLI GENERIQUE. Sa GARDE (`normal_attack_already_present`, #419-r1-tr14-r5-r2-r2) est PORTEE
-    # mais DELIBEREMENT NON BRANCHEE ICI : elle exige `config.ActiveAbilities` (l'etat AVANT la
-    # fabrique), et le seul canal disponible porte l'etat APRES. Le detail de l'arbitrage, mesure,
-    # est dans la docstring de `normal_attack_already_present` et dans la case-doc.
-    if traits is not None:
-        return custom_normal_attack_from_trait(traits)
-    return custom_normal_attack_from_trait(_kit_trait_names(visual_id))
+    from_trait = (custom_normal_attack_from_trait(traits) if traits is not None
+                  else custom_normal_attack_from_trait(_kit_trait_names(visual_id)))
+    if from_trait is not None:
+        return from_trait
+    # REPLI GENERIQUE et sa GARDE (`normal_attack_already_present`, #419-r1-tr14-r5-r2-r2), qui est
+    # le QUATRIEME et dernier etage : le `else` du `else` du `else`. Elle ne decide donc JAMAIS
+    # quand une voie amont a gagne -- c'est ce que garde le bras `ordre-pas`.
+    #
+    # Le substrat est `config_active_abilities` (`UnitConfiguration.ActiveAbilities`, capteur #466),
+    # l'etat AVANT la fabrique. Surtout PAS `active_abilities`, qui est l'etat APRES et rendrait la
+    # garde tautologique (cf. la docstring de `normal_attack_already_present`). Il n'y a donc PAS de
+    # repli KIT ici, et c'est deliberé : le kit gameconfig ne porte AUCUNE des 18 attaques
+    # regulieres (ce ne sont pas des abilities de catalogue), donc un repli n'aurait rien a lire.
+    #
+    # Un retour NON nul signifie « la fabrique n'ajoute RIEN, l'entite garde l'attaque reguliere
+    # deja montee » : c'est bien la valeur de son `ActiveAbilityComponent.NormalAttackType@0x28`,
+    # que `ActiveAbilityComponent$$Add` reecrit a chaque reguliere ajoutee.
+    #
+    # `None` (canal muet) -> `None` : le repli generique s'applique, comportement d'avant.
+    return normal_attack_already_present(config_active_abilities)
 
 
 def _kit_ability_names(visual_id, key: str) -> list:
@@ -477,7 +488,8 @@ def _kit_trait_names(visual_id) -> list:
 
 
 def substitutes_normal_attack(passive_name: str, passive_abilities=None, visual_id=None,
-                              active_abilities=None, traits=None) -> bool:
+                              active_abilities=None, traits=None,
+                              config_active_abilities=None) -> bool:
     """« L'attaque normale de CETTE entite est-elle celle que substitue `passive_name` ? »
 
     C'est le predicat de dispatch de tous les molds `<X>_NormalAttackAbility$$PredictAttack` et de
@@ -502,4 +514,5 @@ def substitutes_normal_attack(passive_name: str, passive_abilities=None, visual_
         return False           # ce passif ne substitue AUCUNE attaque normale (absent du dict natif)
     return custom_normal_attack(passive_abilities=passive_abilities,
                                 active_abilities=active_abilities,
-                                visual_id=visual_id, traits=traits) == substitutes
+                                visual_id=visual_id, traits=traits,
+                                config_active_abilities=config_active_abilities) == substitutes

@@ -240,15 +240,20 @@ def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_f
     # #419-r1-tr14-r5-r2-r1 : la TROISIEME branche (`Traits.Contains(0x7e7 Boss)` -> `1030
     # Loki_NormalBossAttack`). Meme substrat d'ENTITE que la garde `Erratic`/`Harmless` -- lu par
     # `entity_trait_names`, qui retombe sur le kit quand l'entite n'a pas de `UnitContext`.
+    # #419-r1-tr14-r5-r2-r2-r1 : le QUATRIEME etage (la garde `FilterNewList` du repli generique)
+    # lit `UnitConfiguration.ActiveAbilities`, l'etat AVANT la fabrique -- PAS `active_abilities`,
+    # qui est l'etat APRES et rendrait la garde tautologique.
     _actx = scene.ctx(att_id)
     _pas = getattr(_actx, "passive_abilities", None)
     _act = getattr(_actx, "active_abilities", None)
+    _cfg = getattr(_actx, "config_active_abilities", None)
     _vis = scene.vis_by_id.get(att_id)
     _tra = entity_trait_names(_actx, _vis)
 
     def carries(nm: str) -> bool:
         return substitutes_normal_attack(nm, passive_abilities=_pas, visual_id=_vis,
-                                         active_abilities=_act, traits=_tra)
+                                         active_abilities=_act, traits=_tra,
+                                         config_active_abilities=_cfg)
 
     if not is_melee:
         for nm in _RANGED_FOLLOWUP_PASSIVES:
@@ -481,9 +486,12 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         from engine.runner.abilities.loki.mv71 import is_mv71_normal_attacker
         # #419-r1-tr14-r5 : la cle de dispatch est `UnitConfiguration.PassiveAbilities` (fait
         # d'ENTITE), pas le kit — cf. `engine.services.custom_normal_attack`.
-        if is_mv71_normal_attacker(scene.vis_by_id.get(att_id),
-                                   passive_abilities=getattr(ctx, "passive_abilities", None),
-                                   active_abilities=getattr(ctx, "active_abilities", None)):
+        if is_mv71_normal_attacker(
+                scene.vis_by_id.get(att_id),
+                passive_abilities=getattr(ctx, "passive_abilities", None),
+                active_abilities=getattr(ctx, "active_abilities", None),
+                # #419-r1-tr14-r5-r2-r2-r1 : la garde du repli generique lit l'etat PRE-fabrique.
+                config_active_abilities=getattr(ctx, "config_active_abilities", None)):
             return _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, meta=meta)
     _dist = hexgeo.distance(attack_pos, t_pos) if (attack_pos and t_pos) else None   # porte portee ranged #188
     pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)

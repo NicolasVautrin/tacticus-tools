@@ -90,7 +90,7 @@ def _drone_attack_range(unit_id: str) -> int:
 
 
 def is_mv71_normal_attacker(visual_id, passive_abilities=None, active_abilities=None,
-                            traits=None) -> bool:
+                            traits=None, config_active_abilities=None) -> bool:
     """L'attaque NORMALE de cette unité est-elle `MV71SniperDroneSquadAttack` (1076) ? Mirror du
     dispatch natif par `ActiveAbilityComponent.NormalAttackType@0x28`, écrit UNE fois par
     `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` depuis
@@ -114,7 +114,8 @@ def is_mv71_normal_attacker(visual_id, passive_abilities=None, active_abilities=
     `MV71SniperDroneSquadAttack`. `None` = canal muet -> repli kit."""
     return substitutes_normal_attack(CONFIG, passive_abilities=passive_abilities,
                                      visual_id=visual_id, active_abilities=active_abilities,
-                                     traits=traits)
+                                     traits=traits,
+                                     config_active_abilities=config_active_abilities)
 
 
 def _friendly_drones(state: "State", team, unit_id: str) -> list:

@@ -376,10 +376,15 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # MEME payload, AUTRE composant (`ActiveAbilityComponent`) : la SECONDE voie de la cascade
         # d'attaque normale (#419-r1-tr14-r5-r2). Cf. `_load_active_abilities`.
         seeded_act = _load_active_abilities(state, payload)
+        # MEME payload encore, mais l'etat PRE-FABRIQUE (`UnitConfiguration.ActiveAbilities`,
+        # capteur #466) : le seul substrat sur lequel la garde `FilterNewList` du repli generique
+        # ne soit pas tautologique. Cf. `_load_config_active_abilities`.
+        seeded_cfg = _load_config_active_abilities(state, payload)
         state.ability_states_seed = {"source": source, "seeded": seeded,
                                      "seededPassives": seeded_pas,
                                      "seededTriggeredKits": seeded_kit,
-                                     "seededActives": seeded_act}
+                                     "seededActives": seeded_act,
+                                     "seededConfigActives": seeded_cfg}
     else:
         state.ability_states_seed = {"source": source, "seeded": None, "seededPassives": None,
                                      "seededTriggeredKits": None, "seededActives": None}
@@ -1186,6 +1191,72 @@ def active_ability_names_by_unit(ability_states: dict) -> dict:
                 names.append(name)
         out[uid] = names
     return out
+
+
+def config_active_ability_names_by_unit(ability_states: dict) -> dict:
+    """`{entityId: [noms d'ActiveAbilityType de la CONFIGURATION] | None}` depuis le payload du RPC
+    `unitAbilityStates` (capteur #466, champ `configActives`).
+
+    FOYER UNIQUE du parsing, comme ses trois voisins : `_load_config_active_abilities` (face
+    COMBAT) et `engine.playbook.scene._seed_measured_config_actives` (face DECISION) l'appellent
+    toutes les deux.
+
+    ⚠ CE N'EST PAS `active_ability_names_by_unit`, et c'est tout l'interet. Celui-la lit
+    l'`ActiveAbilityComponent` (etat APRES la fabrique, donc un SUR-ENSEMBLE qui porte deja
+    l'attaque normale) ; celui-ci lit `UnitConfiguration.ActiveAbilities` (`config@+0xa0`), l'etat
+    AVANT -- exactement ce que teste la garde `FilterNewList` de
+    `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`.
+
+    MESURE (2026-08-04, `rnca9r7q6c`, 6 unites) : POST = PRE + l'attaque normale que la fabrique
+    vient d'ecrire, 6/6, rien de manquant -- et sur une MACHINE (`ultraDreadnought`) PRE == POST
+    exactement, parce que `MachineFactory$$Build` n'appelle jamais `AddNormalAttackAbility`.
+
+    TRI-ETAT STRICT, et il porte du sens : la VALEUR `None` (distincte d'une cle absente) signifie
+    « le capteur a regarde et n'a pas pu joindre » -- pas « la configuration est vide ». Une cle
+    ABSENTE signifie « canal muet » (capteur anterieur a #466, ou unite hors payload)."""
+    from ..entities.active_ability_type import ActiveAbilityType
+    out: dict = {}
+    for su in ((ability_states or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None or "configActives" not in su:
+            continue                      # cle absente = capteur anterieur -> canal MUET
+        raw = su.get("configActives")
+        if raw is None:
+            out[uid] = None               # mesure : « pas joint » (jamais rabattu sur `[]`)
+            continue
+        names: list[str] = []
+        for c in raw:
+            t = c.get("type") if isinstance(c, dict) else c
+            if t is None:
+                continue
+            try:
+                name = ActiveAbilityType(int(t)).name
+            except ValueError:
+                continue                  # id hors enum du build -> non ingerable, non devinable
+            if name not in names:
+                names.append(name)
+        out[uid] = names
+    return out
+
+
+def _load_config_active_abilities(state: State, ability_states: dict) -> int:
+    """Seede `UnitContext.config_active_abilities` depuis le RPC `unitAbilityStates`
+    (#419-r1-tr14-r5-r2-r2-r1). Rend le nombre d'unites seedees.
+
+    MEME payload et MEME instance que `_load_active_abilities` juste en dessous : seul le champ lu
+    change (`configActives` au lieu de `actives`), et c'est la difference PRE/POST fabrique.
+
+    Le PARSING vit dans `config_active_ability_names_by_unit` (foyer partage avec la face
+    DECISION)."""
+    seeded = 0
+    for uid, names in config_active_ability_names_by_unit(ability_states).items():
+        ent = state.get_entity(uid)
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        if sc is None or getattr(sc, "ctx", None) is None:
+            continue
+        sc.ctx.config_active_abilities = names
+        seeded += 1
+    return seeded
 
 
 def _load_active_abilities(state: State, ability_states: dict) -> int:
