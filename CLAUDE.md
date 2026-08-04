@@ -269,36 +269,24 @@ elle ne **définit** pas la banque.
 
 ### TROIS verdicts, jamais deux — `INDISPONIBLE` n'est pas `ROUGE` (#471)
 
-La banque rabattait **tout** rc non nul sur `ROUGE`. Un cliquet qui n'avait **RIEN PU MESURER**
-était donc indistinguable d'un cliquet qui avait mesuré et trouvé un trou. **Mesuré le 2026-08-04** :
-`BANQUE ROUGE -- 1/40 : probe_457:s3`, alors que ce shard avait crashé en 4,5 s dans son propre
-montage (`git ls-files` → 128) **sans jouer un seul test**, les 7 autres étant verts — un rouge de
-gisement pour une panne d'outil, sur un dépôt sain.
+**Le critère**, en une question : « un dépôt **PARFAIT**, à cet instant, sur cette machine,
+aurait-il produit ce même échec ? » **OUI** → `INDISPONIBLE` · **NON** → `ROUGE`. Le montage est ce
+dont le cliquet dépend et qui **n'est pas le dépôt** (CWD imposé, `git`/`pwsh`/`pytest` comme
+programmes, système de fichiers) ; la mesure vient du **contenu** du dépôt.
 
-- **Le critère**, énoncé en une question : « un dépôt **PARFAIT**, à cet instant, sur cette machine,
-  aurait-il produit ce même échec ? » **OUI** → `INDISPONIBLE` · **NON** → `ROUGE`. Le montage est
-  ce dont le cliquet dépend et qui **n'est pas le dépôt** (CWD imposé, `git`/`pwsh`/`pytest` comme
-  programmes, système de fichiers) ; la mesure est ce qui vient du **contenu** du dépôt.
-  ⚠ **La frontière à ne pas laisser glisser** : un `git ls-files` qui répond **rc=0 et une liste
-  vide** est une réponse *valide*, donc un fait sur le dépôt (périmètre effondré) → **ROUGE**. Sans
-  cette borne, « je n'ai rien trouvé » deviendrait « je n'ai pas pu regarder ».
-- **Ce n'est pas une échappatoire** : `INDISPONIBLE` est **BLOQUANT** (rc ≠ 0) et s'imprime avec son
-  extrait de cause. Il change l'**ACCUSÉ** — le harnais, pas le code fusionné — pas le blocage.
-  Conduite : rejouer **cette entrée seule** ; si elle passe, la cause était transitoire → **le DIRE
-  dans la PR**, jamais la taire. Pas de rejeu automatique : « un rejeu qui passe ne prouve rien ».
-- **La table est UNIQUE** : `scripts/ratchets-verdict.ps1` (`Get-EtatCliquet`,
-  `Get-CodeSortieBanque`), dot-sourcée — fichier séparé parce que dot-sourcer `ratchets.ps1`
-  *jouerait la banque*, donc aucun garde ne pourrait l'interroger sans la réimplémenter.
-- **Un cliquet la garde** (`probe_471`, dans la banque), avec sa contre-épreuve en montage **RÉEL** :
-  `probe_457` joué trois fois sur un dépôt jetable — test vert → 0, test rouge → 1, `git` hors
-  service → 99. Un chemin qui ne peut pas rendre les deux ne vaut rien (c'est #439).
-- ⚠ **14 entrées confondent ENCORE** (11 gisement direct, 3 par un module importé) — inventaire
-  **dérivé** imprimé par `probe_471`, non bloquant : les convertir en bloc ferait rougir la banque
-  sur une douzaine d'entrées à la fois, et un garde-fou qui rougit partout se fait désactiver. Le
-  tri-état se pose entrée par entrée, **quand son gisement mord**. Résidu `#471-r1`.
-- ⚠ La **cause** du `128` n'est pas tranchée (`#471-r2`) : « contention git » est plausible et NON
-  établie. Le défaut fermé est le tri-état, qui vaut quelle que soit la cause.
-  Détail : `docs/rl/case-471-tri-etat-des-cliquets.md`.
+⚠ **La frontière à ne pas laisser glisser** : `git ls-files` qui rend **rc=0 et une liste vide** est
+une réponse *valide*, donc un fait sur le dépôt → **ROUGE**. Sans cette borne, « je n'ai rien
+trouvé » deviendrait « je n'ai pas pu regarder », et tout finirait `INDISPONIBLE`.
+
+**Ce n'est pas une échappatoire** : `INDISPONIBLE` est **BLOQUANT** (rc = 99) et s'imprime avec sa
+cause. Il change l'**ACCUSÉ** — le harnais, pas le code fusionné — pas le blocage. Conduite :
+rejouer **cette entrée seule** ; si elle passe, **le DIRE dans la PR**, jamais la taire. Pas de
+rejeu automatique — « un rejeu qui passe ne prouve rien ».
+
+⚠ **14 entrées confondent encore** (inventaire dérivé, imprimé par `probe_471`, non bloquant) : le
+tri-état se pose entrée par entrée **quand son gisement mord**, jamais en bloc — un garde-fou qui
+rougit partout se fait désactiver. Détail, et cause du `128` NON tranchée :
+`docs/rl/case-471-tri-etat-des-cliquets.md`.
 
 ### Tu touches un `*_live.py` ⇒ tu l'ATTESTES, sinon la banque rougit (#462)
 
