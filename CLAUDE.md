@@ -291,6 +291,14 @@ git add scripts/ratchets-462-live-attestations.json
 - ⚠ `scripts/ratchets-462-live-attestations.json` est **versionné** : deux PR qui touchent du live
   y écrivent, donc c'est un point de conflit connu (`#462-r2`). Il se **régénère**, il ne se
   fusionne pas — même arbitrage que les audits générés.
+- ⚠ **Un ROUGE du ledger n'accuse le dépôt que s'il a été mesuré sur CET arbre (#465).** La clé est
+  le blob du TEST, or un verdict dépend du dépôt ENTIER : un rouge posé sur la branche d'un agent
+  (sha mort au rebase — **237 des 254 entrées**, mesuré) était gelé à vie, puisque `--run --since`
+  ne rejoue que le diff. Depuis #465, un non-vert mesuré ailleurs s'affiche **`A RECONFRONTER`** —
+  toujours **bloquant**, mais il accuse le LEDGER, pas le code. **Ne renvoie pas une PR sur un tel
+  verdict : tranche-le** par `probe_462_live_tests_status.py --run --stale`. Mesuré le 2026-08-04 :
+  les 3 rouges lus comme « les régressions de la soirée » étaient **tous périmés**.
+  ⚠ `--report --since` était **avalé en silence** avant #465 (rapport global lu comme borné au diff).
 
 - **Pourquoi il existe (#430)** : la liste n'existait comme objet nulle part — prose du `CLAUDE.md`,
   `runpar.ps1` **non versionné** d'un scratchpad, et des case-docs aux compositions **incompatibles**.
