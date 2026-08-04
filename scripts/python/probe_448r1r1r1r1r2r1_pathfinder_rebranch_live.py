@@ -406,9 +406,15 @@ def run_native(sid, rpc, board_id: str, seed: int, mutate: str, max_turns: int):
                     continue
                 lg = blen(bd.neighbours_geometric, stid, tid)
                 lc = blen(lambda t: bd.neighbours_connectivity(t) or [], stid, tid)
-                if lg is None or lc is None:
+                ln = blen(bd.neighbours_native, stid, tid)
+                if lg is None or lc is None or ln is None:
                     continue
-                (disc if lg != lc else plats).append((abs(lc - lg), d, lg, lc))
+                # DISCRIMINANT = les TROIS vues ne s'accordent pas. Discriminer sur le seul couple
+                # (G, C) rendrait le bras `--mutate-native` incapable de mordre sur `MC1_67`, ou
+                # `G == C` mais `N != C` : chaque mutant a SON gisement, et un mutant qui ne mord
+                # pas parce qu'on l'a joue sur le mauvais board ne prouve RIEN.
+                (disc if len({lg, lc, ln}) > 1 else plats).append(
+                    (max(abs(lc - lg), abs(lc - ln)), d, lg, lc, ln))
             # Couples DEJA mesures ecartes, et ecart decroissant a egalite -- on veut des cas
             # DIFFERENTS, pas le meme aller-retour N fois.
             disc = [x for x in disc if (src, (int(x[1][0]), int(x[1][1]))) not in vus]
@@ -437,7 +443,7 @@ def run_native(sid, rpc, board_id: str, seed: int, mutate: str, max_turns: int):
                     print("      APPROCHE -> %s (Bridge en %s)" % (step, tgt))
                 rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
                 continue
-            _gap, dest, lg, lc = disc[0]
+            _gap, dest, lg, lc, ln = disc[0]
             vus.add((src, (int(dest[0]), int(dest[1]))))
             port_n = _num_tiles_moved(state, int(uid), src, (int(dest[0]), int(dest[1])))
             before_all = _actor_stats(sid, rpc, rid)
@@ -469,14 +475,18 @@ def run_native(sid, rpc, board_id: str, seed: int, mutate: str, max_turns: int):
                 rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
                 continue
             joues += 1
-            verdict = ("TEMOIN (G==C)" if lg == lc else
-                       "GEOMETRIE" if nat == lg else
-                       "CANAL" if nat == lc else "NI L'UN NI L'AUTRE")
+            # Le verdict nomme la vue que le NATIF suit. `CANAL` seul quand elle est la seule a
+            # coller ; si plusieurs coincident, on le DIT plutot que d'attribuer au hasard.
+            colle = [nom for nom, v in (("G", lg), ("C", lc), ("N", ln)) if nat == v]
+            verdict = ("TEMOIN (G==C==N)" if len({lg, lc, ln}) == 1 else
+                       "NI L'UNE NI L'AUTRE" if not colle else
+                       {"G": "GEOMETRIE", "C": "CANAL", "N": "CHAMP AMPUTE"}[colle[0]]
+                       if len(colle) == 1 else "AMBIGU (%s)" % "+".join(colle))
             ok = (nat == port_n)
             accord += 1 if ok else 0
             desaccord += 0 if ok else 1
-            print("      %s -> %s : NATIF=%d  beeline(G)=%d  beeline(C)=%d  PORT=%d  -> %s  %s"
-                  % (src, dest, nat, lg, lc, port_n, verdict, "OK" if ok else "DESACCORD"))
+            print("      %s -> %s : NATIF=%d  beeline G=%d C=%d N=%d  PORT=%d  -> %s  %s"
+                  % (src, dest, nat, lg, lc, ln, port_n, verdict, "OK" if ok else "DESACCORD"))
             rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
     finally:
         try:
