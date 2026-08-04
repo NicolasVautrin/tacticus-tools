@@ -116,14 +116,39 @@ amount = ConditionalAmount(TriggeringAbilityIs(self), base x2, base)
   n'a pas été RE ni mesuré. Il ne change rien au verdict (le régime en portée ne l'emprunte pas),
   mais tout futur usage d'`aiPredict` hors portée en dépend.
 
-## 6. Livré
+## 6. La technique, réutilisable telle quelle
+
+1. **Quand un canal d'OBSERVATION a un mode DÉGRADÉ silencieux, la garde doit porter sur la
+   condition d'entrée dans le mode NOMINAL, jamais sur un symptôme.** Ici la garde
+   « `HeavyWeapon_ExtraDmg` est dans les effets » passait dans les **deux** modes dégradés ; la
+   garde qui vaut est `abilityTargets(unit, ability).fromHere` contient la cible. Le piège était
+   documenté dans la docstring même du RPC (`rpc-predict.ts`, piège 3) et avait été lu sans être
+   appliqué — lire la docstring d'un canal AVANT de s'en servir d'oracle.
+2. **Deux « pièges de montage » d'apparence distincte peuvent n'avoir qu'UNE cause.** `Moved` réel
+   et `Moved` simulé passent par le même `SetMovedFlag`. Les chercher comme un seul mécanisme évite
+   d'en corriger un et de retomber dans l'autre.
+3. **Balayer la variable suspecte DANS LE MÊME RUN plutôt que comparer deux runs.** `d=5 → (904,
+   1356)`, `d=3 → (1130, 1695)`, même attaquant, même tuile, même armure : un seul paramètre bouge,
+   donc aucune attribution n'est à débattre. Coût : un runner.
+4. **Réparer un montage rend souvent un second témoin gratuit.** Une fois la lecture prise dans le
+   régime nominal, `aiPredict` reproduit les trois cellules de #437-r1 — la loi « un `Round` par
+   face », jusque-là portée par la seule inversion PRNG, gagne un canal indépendant. Le chercher
+   avant de conclure.
+5. **Montage overwatch en deux phases** (la voie « un spectateur purge le tir d'abord » NE CONVERGE
+   PAS : le spectateur ne peut pas purger tant qu'il est hors de la zone de menace, et le montage
+   cale hors portée) : faire ENTRER le porteur en portée et lui faire ENCAISSER le tir (PV élevés),
+   puis ne plus rien bouger et céder la main jusqu'au RE-ARMEMENT des trois conditions.
+6. **Ne jamais lire une prédiction à distance 1** : le natif y prend l'arme de MÊLÉE et tout bonus
+   gaté `IsRangedAttack` disparaît — troisième voie vers le même faux négatif.
+
+## 7. Livré
 
 * `scripts/python/probe_437r1r3_prediction_attacker_face.py` — sweep par distance avec la garde
   `fromHere`, contre-épreuve `--attacker-moves`, tir réel `--shot` + inversion.
 * `scripts/python/probe_437r1_overwatch_offbyone.py` — `--predict-2faces` **réparé** : garde EN
   PORTÉE obligatoire + approche en deux phases. Il rend désormais `1130 / 1695`.
 
-## 7. Note de session
+## 8. Note de session
 
 Mesures rejouées après la fenêtre de reinject #6 (session Frida 4, correctif `readAbilityState`
 sur la lecture des `Nullable<T>`) : **aucun chiffre n'a bougé** sur cet axe. `(904, 1356)` hors
