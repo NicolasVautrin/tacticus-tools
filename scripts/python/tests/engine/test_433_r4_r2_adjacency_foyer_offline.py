@@ -117,7 +117,10 @@ def test_early_warning_two_branches_are_the_native_predicates():
     a 3. C'est ce qui rend le partage A/B observable dans le PORT."""
     pb = EarlyWarningOverridePlaybook()
     E = (0, 0)
-    enemies = [(E, RANGED, _ranged_weapon_threshold(RANGED))]
+    # Les deux derniers termes sont l'etat d'abilities de l'ennemi et l'id de son attaque normale
+    # (#433-r4-r2-r1-r1-c) : vides ici, donc AUCUN gate CASTER ne mord et les seuils sont ceux que
+    # ce test etalonnait deja. `enemies_of` les remplit depuis `decisionView`.
+    enemies = [(E, RANGED, _ranged_weapon_threshold(RANGED), {}, None)]
     reach = ability_range.unit_threat_reach(RANGED)
     assert (reach, enemies[0][2]) == (5, 3), \
         "les deux seuils doivent DIFFERER, sinon le partage A/B est indiscernable dans le port"

@@ -271,6 +271,174 @@ y donnerait 1 — l'accord ne peut pas venir d'une coïncidence de modèles.
   retire pas les voisines OCCUPÉES ni non walkables, faute de canal côté DÉCISION ; l'écart ne peut
   qu'ÉLARGIR. **Point d'ancrage** : publier la walkability et l'occupation par tuile dans le canal
   que `decisionView` fournit déjà pour l'élévation.
-* **`-r1-r1-c` — les gates en AMONT** (`CanCurrentlyBeUsed` slot `0x14`, `IsAbilityBlocked` slot
-  `0x13`, `AttackQuery$$GetInvalidCasterReason`) peuvent retirer une ability ENTIÈRE (cooldown,
-  ammo, caster ayant bougé). Non modélisés — ils n'ont mordu sur aucun des six kits mesurés.
+* **`-r1-r1-c` — les gates en AMONT. FERMÉ (2026-08-04), §8 ci-dessous.** Les deux slots y étaient
+  **mal nommés** : ce sont `AActiveAbility$$CanStillBeUsed` (0x14) et `AActiveAbility$$IsDisabled`
+  (0x13). Ils n'avaient mordu sur aucun des six kits parce qu'aucun montage ne les armait — un
+  montage qui les arme fait tomber la zone de `darkaTerminator` de **3 à 1** et celle de
+  `tauMarksman` de **5 à 3**.
+
+---
+
+# 8. `#433-r4-r2-r1-r1-c` — les TROIS gates CASTER, en amont de la zone
+
+**Verdict : FERMÉ.** Les trois gates sont portés. Deux résidus nommés en sortent (§8.5).
+
+## 8.1 La chaîne, LUE — et les deux noms que la fiche donnait FAUX
+
+`IdunBattle.Core.Services.AttackQuery$$GetAllTilesInAbilityRange`, surcharge à **quatre** arguments
+`(unit, position, ability)` — l'étage PAR ABILITY, sous lequel passe chaque entrée de
+l'`ActiveAbilityComponent` :
+
+```
+impl = <this.abilities @+0x18>.<slot 0>(ability.<AbilityName @+0x44>)
+if (!impl.<IActiveAbility slot 0x14>(unit, ability.<AmountOfTimesAlreadyUsed @+0x10>)) -> VIDE
+if ( impl.<IActiveAbility slot 0x13>(unit))                                            -> VIDE
+if (AttackQuery.GetInvalidCasterReason(unit, position, ability.AbilityName).IsInvalid()) -> VIDE
+tiles = impl.<slot 9>(unit, position.MainTile) U impl.<slot 10>(unit, position.MainTile, tiles9)
+```
+
+L'appelant est `AttackQuery.u003Cu003Ec__DisplayClass39_1$$u003CGetAllTilesInAbilityRangeu003Eb__0`,
+qui **énumère l'`ActiveAbilityComponent` ENTIER** ; `includeNormalAttack` ne fait que LEVER le
+filtre `!IsRegularAttack`. **L'attaque normale n'est donc pas un cas à part : elle passe par les
+mêmes trois gates.**
+
+**Les deux slots, re-dérivés.** `IdunBattle.Operations.AddMachineOperation$$InitializeAbilitiesStatus`
+s'en sert pour INITIALISER deux champs de `IdunBattle.Entities.Components.ActiveAbility`, et ces
+champs portent leur nom dans les métadonnées IL2CPP (résolus PAR NOM par
+`frida/hooks/features/ai-step/internals.ts`) :
+
+```
+comp.<CanStillBeUsed @+0x28> = impl.<slot 0x14>(unit, comp.<AmountOfTimesAlreadyUsed @+0x10>)
+comp.<IsDisabled    @+0x35> = impl.<slot 0x13>(unit)
+```
+
+⇒ slot `0x14` = **`AActiveAbility$$CanStillBeUsed(caster, amountOfTimesAlreadyUsed)`** (2 paramètres,
+et le 2ᵉ est bien `comp+0x10` — `ResetActiveAbilityOperation$$Execute` écrit d'ailleurs
+`comp+0x10 = 0` et `comp+0x28 = 1` ENSEMBLE) ; slot `0x13` = **`AActiveAbility$$IsDisabled(caster)`**
+(1 paramètre). Les deux noms de la fiche héritée existent mais ne sont **ni l'un ni l'autre** un slot
+de cette interface : `ActiveAbility$$get_CanCurrentlyBeUsed` est une **propriété du composant**, lue
+plus bas (marche d) ; `UnitExtensions$$IsAbilityBlocked` est une **autre fonction** (elle lit
+`ActiveAbilityComponent.NormalAttackIsBlocked` / `ActiveAbilitiesAreBlocked` /
+`MachinePrimaryAbilityIsBlocked`).
+
+⚠ Et ce n'est **pas** une déduction d'absence : ses **six** appelants sont ÉNUMÉRÉS
+(`list_xrefs`) — `ActiveAbilityOperation$$ExecuteInternal`,
+`UpdateActiveAbilityBlockerOperation$$SendUpdateAction`,
+`AttackQuery$$CanAttackAnyUnitFromAnyTileWithAnyAbility`,
+`AttackQuery$$MachineCanAttackAnyUnitWithAnyAbility`,
+`AActionGenerator$$CanAbilityBeUsed` et
+`RandomAbilityActionGenerator.u003CGenerateActionsu003Ed__5$$MoveNext`. Ni
+`GetAllTilesInAbilityRange` ni `AttackQuery$$GetInvalidCasterReason` n'y figurent. C'est un gate
+FRÈRE (celui des générateurs d'action de l'IA), pas celui-ci — et le foyer qui le porte existe
+déjà : `engine.battle_query.can_use_ability`.
+
+## 8.2 L'ORDRE, et le rang de ce qui était déjà porté
+
+`AttackQuery$$GetInvalidCasterReason(unit, attackerPosition, activeAbilityType)` est lui-même une
+cascade ordonnée :
+
+| # | condition | raison |
+|---|---|---|
+| a | `unit == null` | `broken(1)` |
+| b | `IsMultiTileUnit(unit, state) && !HasTrait(unit, 0x418 Stationary)` | `broken(1)` |
+| c | `ActiveAbilityComponent` absent, ou `GetOrNull(type) == null` | `broken(1)` |
+| d | `!aa.CanCurrentlyBeUsed` | `broken(1)` |
+| e | `aa.AbilityName == 0` | `broken(1)` |
+| f | `IsAlreadyUsedThisTurn(type, aa)` | `broken(1 << 54)` |
+| g | sinon → `AActiveAbility$$GetInvalidCasterReason` → **`TargetingQuery$$GetInvalidCasterReason`** | |
+
+**La marche (g) est ce qui était DÉJÀ porté** (`engine.runner.abilities.targeting.
+get_invalid_caster_reason`, face RUNNER) : tout ce cas est donc **en amont** de lui.
+`ActiveAbilityOperation$$IsInvalidTarget` (porté, face COMBAT) est un **autre pipeline** — celui de
+l'exécution d'un cast, pas celui de la zone.
+`IBrokenTargetingRuleExtensions$$IsInvalid(rule)` = `rule.<slot 0>() != 0` : « invalide » vaut
+exactement « raison non nulle ».
+
+## 8.3 Ventilation — dérivable, non dérivable, inatteignable
+
+Le canal `decisionView.units[].abilities[]` (`allAbilities: true`) publie, **pour toute unité des
+deux camps**, les cinq champs que `readAbilityState` lit PAR NOM : `usable` ← `CanStillBeUsed@0x28`,
+`disabled` ← `IsDisabled@0x35`, `cooldown` ← `RemainingCooldownTurns@0x2c`, `ammoCost` ←
+`AmmoCost@0x38`, `hasAmmo` ← `HasEnoughAmmo@0x40`.
+
+| gate | verdict |
+|---|---|
+| 1 — slot `0x14` | **PORTÉ** par le champ `usable` (la valeur que la méthode a écrite) |
+| 2 — slot `0x13` | **PORTÉ SANS AUCUN CANAL** : `StaticBattleRules.ActiveAbility$$IsDisabled` = `IsRegularAttack(type) ? false : (nrOfTargets < 1, sinon nrOfHits < 1)` — du kit gameconfig pur |
+| 3d | **PORTÉ**, par délégation au foyer déjà posé `engine.battle_query.can_currently_be_used` |
+| 3b | **INATTEIGNABLE par cette voie** : `IsTileInRangeOfAnyAbility` court-circuite sur `GetFeetCount > 1`, qui est le prédicat d'`IsMultiTileUnit` — une unité multi-tuiles n'atteint jamais ce gate |
+| 3c | hors périmètre : c'est la LISTE des abilities, substrat inchangé |
+| 3f `IsAlreadyUsedThisTurn` | **NON DÉRIVABLE, borne EXPLICITE, sens PERMISSIF.** Il lit `ActiveAbility.<Nullable<int> @+0x20>` contre `TurnComponent.GetAmountOfTurnsEnded(null)` ; aucun canal ne publie ce champ. **Point d'ancrage** : l'ajouter à `readAbilityState`, à côté des cinq déjà lus (exige une fenêtre de reinject) |
+| 3g | face RUNNER seulement (consomme un `State`) |
+
+**Le gate 2 est porté et son gisement est VIDE**, et c'est une mesure : sur les **175** abilities
+actives distinctes du gameconfig, **0** sont disabled (3 portent `nrOfTargets`, 110 `nrOfHits`,
+toutes `>= 1`). Chiffres re-dérivables : `probe_433_r4_r2_r1_r1_c_caster_gates.py --step inventaire`.
+
+**Non mesuré ≠ faux.** Canal absent → les gates 1 et 3 rendent `None` et l'appelant ne gate pas :
+statu quo, borne SUPÉRIEURE. Le gate 2, lui, répond toujours.
+
+**Anti-fork.** `get_CanCurrentlyBeUsed` avait DÉJÀ un mirror côté DÉCISION
+(`engine.battle_query.can_currently_be_used`, posé par le lot MoW-ammo). Le module de gates le
+**délègue** et n'y ajoute que le tri-état ; un test garde la délégation (pas l'égalité des valeurs —
+deux corps identiques aujourd'hui divergeraient demain).
+
+## 8.4 La mesure — DEUX bras, DEUX kits, DEUX gates différents
+
+Le discriminant est énoncé **avant** : il faut un bras où l'ability est réellement bloquée **et** un
+témoin où elle ne l'est pas — sans le second, un port qui refuse tout passerait aussi.
+
+| kit | arme | ability | gate armé par | natif bloqué → témoin | port |
+|---|---|---|---|---|---|
+| `darkaTerminator` | mêlée 1 | `PlasmaCannon` (1150), zone 3 | `constants.initialCooldownTurns = 1` → marche **d** (`RemainingCooldownTurns`) | **1 → 3** | 1 → 3 |
+| `tauMarksman` | distance 3 | `SeekerMissileFrequencyLock` (1069), zone 5 | un CAST → **slot 0x14** (`cooldown` reste `null`) | **5 → 3** | 5 → 3 |
+
+Même runner, même tuile ennemie, même sweep (38 positions) ; seul l'état de l'ability change.
+Les trois ports imaginables se séparent sur **chaque** kit : correct `1→3` / `5→3` ; « ne gate
+jamais » `3→3` / `5→5` ; « gate tout » `1→1` / `3→3`. Et le régime n'est **pas dégénéré** — « zone =
+portée d'arme » est faux sur les deux témoins (3 ≠ 1 et 5 ≠ 3).
+
+Sur `darkaTerminator`, le bras bloqué passe de **12 faux positifs sur 38 à 0 / 0, EXACT**.
+Le second kit est ce qui interdit d'attribuer l'accord à un seul mécanisme : le premier est gaté par
+le **cooldown** (`usable` reste `true`), le second par **`CanStillBeUsed`** (`cooldown` reste `null`).
+
+**CONTRE-ÉPREUVE, jouée dans le test sur la mesure déjà prise** : on rejoue le bras bloqué avec le
+port PRIVÉ de son canal — le port d'AVANT cette tranche — et on exige qu'il sur-couvre. Sans elle,
+« mon gate marche » ne se distingue pas de « le montage ne gate rien ».
+
+## 8.5 Ce qui est porté, et ce qui reste
+
+**Porté** : `engine/services/ability_caster_gates.py` (les trois gates, dans l'ordre natif, chacun
+nommé par son symbole) ; `engine/services/ability_range.py` les consomme dans `unit_threat_reach` et
+`is_tile_in_range_of_any_ability` (paramètres `ability_state` / `normal_attack_id`, cache
+court-circuité dès qu'un état est fourni) ; `EarlyWarningOverridePlaybook.enemies_of` alimente le
+canal depuis la ligne `decisionView` de chaque ennemi.
+
+**Validation** — offline `tests/engine/test_433_r4_r2_r1_r1_c_caster_gates_offline.py` : **27
+passed** (ordre des trois gates, ordre des deux constantes d'`IsDisabled`, tri-état, anti-fork,
+non-contamination du cache, attaque normale, gisement vide). Live
+`test_433_r4_r2_r1_r1_c_caster_gates_live.py` : **13 passed** (les 2 bras × 2 kits, la propriété
+« un gate ne peut que RETIRER », l'anti-dégénérescence et la contre-épreuve).
+Non-régression rejouée après rebase : `test_433_r4_r2_r1_r2_ability_range_offline`,
+`test_433_r4_r2_r1_r1_dynamic_target_gate_offline`, `test_433_r4_r2_adjacency_foyer_offline`,
+`test_nc_priority_tiers_offline` (**79 offline** au total), et **40 live**
+(`test_433_r4_r2_r1_ability_range_live` 6, `test_433_r4_r2_adjacency_foyer_live` 7,
+`test_356_noncomparable_oracle_live` 14, + les 13 de la tranche).
+
+**Résidus NOMMÉS :**
+
+* **`-r1-r1-c-r1` — `IsAlreadyUsedThisTurn` non dérivable.** Marche (f) de
+  `AttackQuery$$GetInvalidCasterReason`, sens PERMISSIF (le port garde une ability que le natif
+  retirerait le tour de son usage). **Point d'ancrage** : publier
+  `components.ActiveAbility.<Nullable<int> @+0x20>` dans `readAbilityState` — capteur à écrire,
+  fenêtre de reinject requise.
+* **`-r1-r1-c-r2` — le canal n'est peuplé que si l'appelant demande `allAbilities: true`.** Sans
+  lui, `unitAbilityTypes` n'émet que l'attaque NORMALE (sans état) : les gates 1 et 3 deviennent
+  « non mesurés » et la zone repasse à la borne supérieure — silencieusement. Les consommateurs de
+  production qui le demandent déjà : `engine_validate.py`, `probe_433_*`. À recenser et à rendre
+  uniforme.
+* **Les faux positifs RÉSIDUELS des deux témoins** (≤ 2 par bras) ne sont **pas** de ce cas : ni
+  `PlasmaCannonAbility` ni `SeekerMissileFrequencyLockAbility` ne surchargent `klass+0x478`
+  (égalité du pointeur de slot avec `AActiveAbility`, lue au runtime) — c'est `-r1-r1-r2`
+  (2ᵉ prédicat de `GetPossibleTargetsForOptions`, tuiles obscurcies). Le test garde qu'ils ne
+  s'aggravent pas **et** que le bras bloqué n'en crée aucun nouveau.
