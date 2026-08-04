@@ -177,3 +177,126 @@ Le foyer `normal_attack_already_present` (mirror 1:1) est livré et **s'accorde 
   produit ; ce n'est pas une preuve générale.
 * **Hors périmètre, nommé** : `this.<+0x20>` (le générique) est un paramètre du ctor du factory.
   Le port le suppose constant (`Loki_NormalAttack`) ; l'appelant du ctor n'a pas été lu.
+
+## 7. `#419-r1-tr14-r5-r2-r2-r1` — le capteur du canal PRÉ-FABRIQUE, écrit (#466), NON CONFRONTÉ
+
+Le résidu était bloqué sur un **canal**, pas sur une question ouverte (§5). Le canal est écrit.
+**Aucune ligne de §7.3 n'est une mesure du capteur** : rien n'a tiré, faute de fenêtre de reinject.
+§7.1 et §7.2, elles, sont des mesures — prises sur le bundle DÉPLOYÉ, qui ne porte pas le capteur.
+
+### 7.1 L'offset `+0xa0` : la piste de la PR #575 est CONFIRMÉE, et par deux chemins
+
+La fiche du résidu donnait `UnitConfiguration@+0xa0` comme piste. Deux lectures indépendantes la
+transforment en mesure, sur `rnca9r7q6c` :
+
+| chemin | ce qu'il rend |
+|---|---|
+| décompilé — `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromActive` | énumère `config.<+0xa0>` (`List.GetEnumerator` gshared, éléments lus en `uint32`) puis appelle `StaticBattleRules.ActiveAbility$$GetCustomNormalAttack` sur chacun |
+| métadonnées IL2CPP live — RPC `classFields("IdunBattle.Configuration", "UnitConfiguration")` | `ActiveAbilities` @**`0xa0`**, type `List\`1` |
+
+Les deux voisins cités par la case-doc de la tranche concordent aussi (`PassiveAbilities` @`0xa8`,
+`Traits` @`0xd0`), ce qui interdit un décalage global d'un champ.
+
+⚠ La fiche du résidu nommait `UnitFactory$$AddConfiguredAbilities` comme lecteur de ce champ ;
+le lecteur qui compte pour CETTE tranche est `GetCustomNormalAttackTypeFromActive`, et c'est lui
+qui a été relu.
+
+**La JOINTURE entité → configuration est LUE, pas supposée.**
+`IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent(entity, config)` écrit, dans l'ordre :
+
+```
+baseUnitComponent.<Id @+0x10>        = config.<Id @+0x10>
+baseUnitComponent.<QuestUnitId @+0x18> = config.<QuestUnitId @+0x20>
+baseUnitComponent.<VisualId @+0x20>  = config.<VisualId @+0x18>
+```
+
+⇒ la clé est `BaseUnitComponent.Id`, obtenue par la fonction NOMMÉE
+`IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent` — celle que la fabrique appelle
+elle-même. Jointure **N→1** assumée (deux camps peuvent porter la même unité) ; le cas contraire
+(deux configurations de même `Id`) est publié par `configLayout.configIdCollisions`.
+
+### 7.2 Ce que la PRÉMISSE vaut, MESURÉ sur le bundle déployé
+
+Le §5 affirmait « le canal POST-fabrique contient déjà la réponse » sur **un** bras témoin. Mesure
+refaite le 2026-08-04 sur un runner neuf (`--seed 777 --board MC1_67`, six unités), en confrontant
+`unitAbilityStates.units[].actives` (POST) au `BC.Units[].ActiveAbilities` **effectivement envoyé
+au runner** (relu du `--state-file`, donc après `buildNormalizedBC` — qui ne réécrit **pas** ce
+champ : `normalize-bc/json-build.ts` ne touche qu'à `ActiveAbilityLevel`, et le dit) :
+
+| entité | PRE (`BC.Units[].ActiveAbilities`) | POST (`actives`) | l'entrée EN PLUS |
+|---|---|---|---|
+| `templAggressor` | `[1048]` | `[1048, 1128]` | `1128 Boltstorm_NormalAttack` |
+| `eldarRanger` | `[1063]` | `[1063, 69]` | `69 Loki_NormalAttack` |
+| `orksNob` | `[1152]` | `[1152, 69]` | `69` |
+| `tauMarksman` | `[1069]` | `[1069, 1076]` | `1076 MV71SniperDroneSquadAttack` |
+| `necroWarden` | `[1005]` | `[1005, 69]` | `69` |
+| `astraBullgryn` | `[1017]` | `[1017, 69]` | `69` |
+
+**6/6** : POST = PRE ∪ {l'attaque normale que la fabrique vient d'écrire}, **rien de manquant**.
+Et les six entrées ajoutées sont **toutes régulières** (`REGULAR_ATTACK_ABILITY_TYPES`, 18 valeurs,
+re-dérivées) — c'est-à-dire que `normal_attack_already_present`, branchée sur ce canal, rendrait
+non-`None` pour **6 unités sur 6**, quelle que soit la voie amont. La tautologie de §5 n'est donc
+plus un raisonnement, c'est un compte.
+
+Symétriquement, **aucune** des entrées PRE n'est régulière : **0 sur les 175 unités du seed**
+(1048/1063/1152/1069/1005/1017 pour ces six-là). Sur le canal PRÉ-fabrique la garde rendrait
+`None` partout — le repli générique s'applique, ce qui est la réponse du natif. Le gisement de
+production reste donc VIDE : le capteur ne ferme pas un écart, il rend la garde **falsifiable**,
+ce que le régime monté (`catalog_inject.graft_active_ability`) exerce.
+
+### 7.3 Ce qui est livré — `frida/hooks/features/ai-step/rpc-snapshot.ts`
+
+`unitAbilityStates` publie, **par unité** : `configId` (la clé de jointure lue) et `configActives`
+(`[{type, name}]`), plus, au niveau réponse, `configLayout`.
+
+* **TRI-ÉTAT STRICT** : `configActives === null` = **PAS MESURÉ** — clé illisible, entité sans
+  configuration dans la BC (une unité **INVOQUÉE**, qui naît d'une opération de spawn et non de
+  `BC.Units`), ou liste non décodable. `[]` = **mesuré, configuration sans actif** : c'est le cas
+  de **50 des 175** entrées du seed, donc le confondre avec « pas mesuré » détruirait précisément
+  ce que ce canal existe pour permettre.
+* **Offsets résolus PAR NOM, sans repli littéral.** Un nom absent au prochain build doit rendre
+  « pas mesuré », jamais la lecture d'un offset devenu celui d'un autre champ (le piège que
+  `fieldOffsetOr` documente : `-1` est *truthy*). Les littéraux du décompilé sont publiés dans
+  `configLayout.decompiled*` **pour le diagnostic seul** — ils ne servent jamais à lire.
+* **Le STRIDE de `List<ActiveAbilityType>` est DÉRIVÉ du tableau** (`class_get_element_class` +
+  `class_is_valuetype` + `class_instance_size`), pas supposé ; un stride ≠ 4 rend `null` et publie
+  ce qu'il a vu, au lieu de nombres plausibles.
+* **Le port n'est PAS branché.** `normal_attack_already_present` reste hors de `custom_normal_attack` :
+  brancher change un résultat observable, donc c'est spéculatif tant que la mesure n'a pas eu lieu.
+  Le cliquet `test_419r1tr14r5r2r2_filter_new_list_live.py` est inchangé.
+* **Condition d'émission des lignes INCHANGÉE** (`actives.length || triggered.length`) : l'élargir
+  ferait passer des unités du repli KIT à une mesure `[]` côté `_load_active_abilities`, un
+  changement de comportement qu'aucune mesure ne couvre. Les 6 unités du montage ci-dessus
+  apparaissent toutes, donc la condition ne coûte rien ici.
+
+### 7.4 PLAN DE MESURE — ce que la fenêtre doit jouer, et ce que chaque résultat tranche
+
+Prérequis : reinject + `warmupGameSingletons({force:true})`. Puis, depuis `scripts/python` :
+
+```
+python rl_duel.py build --seed 777 --board MC1_67 \
+  --p-units "tauMarksman,necroWarden,astraBullgryn" \
+  --a-units "templAggressor,eldarRanger,orksNob" --state-file <ABSOLU unique>
+# puis RPC unitAbilityStates { runnerId }
+```
+
+| # | mesure | résultat attendu | ce qu'un ÉCART trancherait |
+|---|---|---|---|
+| 1 | `configLayout.bcResolved` et les cinq `*Resolved` | tous `true` | un `false` ⇒ classe ou méthode non indexée : le capteur est INOPÉRANT et **rien d'autre n'est interprétable**. C'est le premier à lire |
+| 2 | `configLayout.activeAbilitiesOff` / `idOff` / `baseUnitComponentIdOff` | `0xa0` / `0x10` / `0x10`, égaux aux `decompiled*` publiés à côté | un écart ⇒ la disposition a bougé depuis `rnca9r7q6c` : **confronter avant de lire les crans 3-7**, et corriger la case-doc, pas le code (les offsets sont déjà résolus par nom) |
+| 3 | `configLayout.bcUnits` / `bcUnitsWithActives` / `elemClass` / `elemStride` | `175` / `125` / `ActiveAbilityType` / `4` | `bcUnits` très différent ⇒ ce n'est pas la BC attendue (runner construit d'une autre seed). `elemStride ≠ 4` ⇒ le capteur a refusé de lire : **c'est le comportement voulu**, et `elemClass` dit pourquoi |
+| 4 | **`configActives` des 6 unités** | exactement les colonnes PRE de §7.2 : `[1048]`, `[1063]`, `[1152]`, `[1069]`, `[1005]`, `[1017]` | c'est LE cran. Il reproduit, par la lecture LIVE de `UnitConfiguration`, ce que §7.2 a lu du fichier envoyé. Un écart ⇒ soit le runner n'a pas reçu ce BC, soit `+0xa0` n'est pas ce champ : **ventiler unité par unité**, jamais moyenner |
+| 5 | **`configActives` vs `actives` sur les mêmes 6 lignes** | `actives ∖ configActives` = exactement `{1128, 69, 69, 1076, 69, 69}`, et `configActives ∖ actives` = ∅ | c'est ce qui rend la garde NON tautologique. Si les deux listes sont ÉGALES, le capteur lit le composant et non la configuration ⇒ **ancrage à revoir, et surtout ne pas brancher la garde** |
+| 6 | `normal_attack_already_present(configActives)` sur les 6 | `None` **6 fois** (aucune entrée régulière) ; le même appel sur `actives` rend non-`None` 6 fois | l'un ou l'autre qui dévie ⇒ `REGULAR_ATTACK_ABILITY_TYPES` a changé de contenu : re-dériver la table du `.cctor` avant toute conclusion |
+| 7 | `configLayout.unmatchedEntities` + `configActives === null` sur un montage à INVOQUÉ (ajouter `orksRuntherd` côté joueur, jouer `GetEmRuntz`, relire) | `0` avant le cast ; **> 0** après, et les lignes des invoqués portent `configActives: null` (jamais `[]`) | `[]` sur un invoqué ⇒ le tri-état est cassé et le canal MENT : un invoqué serait lu « configuration sans actif », ce qui ferait appliquer le repli générique à une unité dont on n'a rien lu. `unmatchedEntities > 0` **sans** invoqué ⇒ la jointure par `Id` rate un cas à nommer |
+
+**Après la fenêtre, et seulement après** : brancher `normal_attack_already_present` dans
+`custom_normal_attack` sur le canal `configActives` (tri-état : `None` ⇒ voie non gardée,
+comportement d'aujourd'hui), puis rejouer `test_419r1tr14r5r2r2_filter_new_list_live.py` **et** la
+contre-épreuve de la voie ACTIVE (#565) — celle-là même que le branchement sur le canal POST
+rendait inerte. Les deux doivent être VERTES ensemble ; si #565 redevient inerte, le branchement
+s'est fait sur le mauvais canal.
+
+⚠ **Ce qui restera NON COUVERT même après la fenêtre** : le second-ordre `AddDerivedAbilities`
+(§6) — le capteur lit la configuration, pas ce que la fabrique dérive ensuite —, et le paramètre
+`this.<+0x20>` du ctor du factory, toujours supposé constant.
