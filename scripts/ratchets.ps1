@@ -314,6 +314,18 @@ $Ratchets = @(
        Seul = 'la degradation SILENCIEUSE de l etat de boucle, sur ses trois axes. (a) UN ZERO A LA PLACE D UN << PAS MESURE >> -- host eteint ou gh hors ligne, si liveRunners retombe a 0 au lieu de rester null, l orchestrateur lance 4 tests sur un budget partage inconnu (faute deja commise : 2 fichiers rendus en timed out) ; meme forme pour << 0 PR ouverte >> quand gh n a pas repondu. (b) LE RACCOURCI DE FLOTTE QUI DERIVE -- le decompte des agents en vol passe par le pre-filtre only_alive de fleet_board (54,8 s -> 0,2 s sur 870 transcripts, 1,23 Go) : s il cesse d etre EXACT, le compteur de slots ment, et c est le chiffre pour lequel l outil existe. (c) LE DECLENCHEUR QUI SE TAIT OU QUI HURLE -- un hook Stop muet est un garde-fou mort, un hook qui parle a chaque tour d un depot au repos se fait desarmer en une journee ; les deux directions sont gardees. Il voit aussi le verdict de banque ILLISIBLE rabattu sur un vert -- gisement MESURE le 2026-08-04 : les 3 verdicts presents dans logs/ratchets-bg n avaient AUCUNE ligne rc (precedence PowerShell dans ratchets-bg.ps1), et tout lecteur automatique rendait donc << rc inconnu >> sur un fichier d apparence normale. Contre-epreuve : 6 mutations injectees en memoire, 6 rouges'
        Doc  = 'docs/rl/case-467-etat-de-boucle.md' }
 
+    # Le PENDANT de probe_467, et il existe parce que probe_467 ne pouvait PAS voir ceci : les
+    # DEUX probes #467 substituent la facade `Sources`, donc tous deux remplacent `http_json`.
+    # Un champ disparu cote host (`.session` renomme, `liveRunners` retire) les laissait VERTS
+    # tous les deux -- deux lecteurs partageant la meme entree morte s accordent parfaitement et
+    # ont tort ensemble. Celui-ci confronte le contrat au CODE SOURCE du host (`frida/host/*.ts`),
+    # avec la liste des champs DERIVEE de `loop_status.mesurer_harnais` et non recopiee. Il porte
+    # son auto-epreuve : 3 mutations du host doivent le faire basculer, sinon il rougit lui-meme.
+    # Le volet LIVE est opportuniste -- host eteint => NON MESURE dit, jamais un vert muet.
+    @{ Id = 'probe_467r4'; Argv = @('probe_467r4_contrat_host.py')
+       Seul = 'un champ du contrat host DISPARU (.session renomme, liveRunners retire de /api/admin/drain) -- les deux probes #467 substituent http_json et resteraient verts ; la degradation est muette (dr.get("liveRunners") rend None => tri-etat PAS MESURE a vie sur le seul chiffre que personne ne peut deviner)'
+       Doc  = 'docs/rl/case-467-etat-de-boucle.md' }
+
     # Le cliquet de la BANQUE elle-meme. Il est dans la banque, donc soumis a son propre critere.
     @{ Id = 'probe_439'; Argv = @('probe_439_cliquet_peut_rougir.py')
        Seul = 'un cliquet de CETTE banque incapable de rendre un code non nul -- il occupe la place d un garde-fou et s imprime comme << rien a signaler >> (3 occurrences, TOUTES trouvees a l oeil : probe_181 #430, probe_326 #435, et l audit manuel de #430 qui a rate la seconde)'

@@ -177,10 +177,96 @@ Le hook global qui joue un son n'est **pas touché** : les deux fusionnent.
 - **`#467-r3` — un seul rappel par chaîne.** `stop_hook_active` interdit de re-bloquer, sinon le
   hook boucle. Si l'orchestrateur ne traite pas tout au premier tour, le rappel ne revient qu'au
   tour utilisateur suivant.
-- **`#467-r4` — le contrat des outils est couvert par `probe_467r4`, mais HORS banque.** Il faut
-  donc *penser* à le jouer, ce qui est exactement le vice que ce cas combat, d'un cran plus haut.
-  Il reste par ailleurs un angle mort : `/api/admin/drain` et `/api/admin/status` sont substitués
-  **partout** — aucun des deux probes ne verrait un champ disparu côté host.
 - **`#467-r5` — le journal d'acquittement est un ÉTAT.** `logs/ratchets-bg/../loop-status-seen.json`
   est local et gitignoré ; le supprimer re-signale une fois le dernier verdict vert. Bénin, mais
   c'est le seul endroit où l'outil se souvient de quelque chose.
+- **`#467-r6-a` — la borne de 30 min du repli est ASSUMÉE**, comme le plafond de `r1`. Rien ne la
+  dérive : c'est un arbitrage entre « servir une PR déjà relue » et « ne rien dire ». Elle est
+  gardée par `probe_467` (un cache plus vieux retombe en PAS MESURE), donc elle ne peut pas
+  disparaître en silence — mais sa *valeur* reste un choix.
+- **`#467-r4-a` — le volet LIVE ne juge que ce que le host EXPOSE.** `probe_467r4_contrat_host`
+  confronte la forme réelle quand le host répond, mais un champ présent et **faux** (un
+  `liveRunners` qui compterait le registre host au lieu du registre hooks) passerait : le cliquet
+  garde la FORME, pas la justesse de la valeur. Cette justesse-là n'a pas de second témoin.
+
+## 8. `#467-r6` — la ligne PR aveugle : le diagnostic annoncé était FAUX
+
+**Ce qui était supposé** : « `gh` n'est pas sur le PATH que voit le processus du hook ».
+**Ce que la mesure dit** (2026-08-04, poste de l'utilisateur) :
+
+| mesure | résultat |
+|---|---|
+| `gh` sur le PATH sous `pwsh` **et** sous le `powershell.exe -NoProfile` qui exécute le hook | **oui, identique** — 39 entrées, `GitHub CLI` présent des deux côtés |
+| `gh pr list`, 20 tirages au repos | médiane **1,60 s**, max **1,99 s**, **0** au-dessus de 3 s |
+| `gh pr list` seul, sous l'hôte du hook | **2,90 s** pour un budget de **3,00 s** |
+| tour **complet** en mode hook (gh concurrent de `git status`, flotte, banque) | **5 tours sur 8** en `rc=127` |
+
+La cause est donc le **BUDGET**, pas le PATH — et elle est **intermittente hors hook aussi**, ce
+qu'une observation indépendante a confirmé le même jour (deux invocations directes à une heure
+d'écart, une réussie, une en `rc=127`). Un correctif « chemin absolu » aurait donné l'illusion
+d'avoir réparé.
+
+**Pourquoi le diagnostic était impossible à faire** : les trois pannes de `gh` — binaire absent,
+délai dépassé, `OSError` — rendaient **toutes** le même `rc=127`, la sentinelle `RC_MUET`. Le
+message ne portait aucune information. C'est ce qui a fait lire « absent du PATH » un dépassement
+de délai, et c'est le vrai défaut de fidélité : *un capteur qui ne sait pas nommer sa panne fait
+diagnostiquer la mauvaise cause*.
+
+**Ce qui a été fait**, du plus à la cause au plus périphérique :
+
+1. **`timeout_gh`, budget propre de `gh`** (10 s sous `--hook`, 12 s sinon). Ce n'est **pas** le
+   plancher `max(self.timeout, 12.0)` retiré auparavant : un paramètre distinct se règle dans les
+   deux sens. Le mur reste tenu par les **20 s** du hook côté Claude Code et par le cache de 300 s.
+   Mesuré après : **0/8** tours aveugles, même gisement, même hôte.
+2. **Chaque panne porte son nom** (`gh: delai depasse (10 s)`, `gh introuvable`, `gh: rc=4`).
+3. **Repli sur le cache périmé**, borné à 30 min et **ASYMÉTRIQUE** : retenu *seulement* s'il porte
+   une PR ouverte. Un cache disant « 0 PR » ne prouve rien quand `gh` est muet — une PR ouverte
+   depuis y serait absente, et l'outil se tairait en ayant l'air d'avoir mesuré. **Le repli peut
+   SIGNALER, jamais RASSURER** ; aucun chemin ne fabrique un zéro. Les PR *mergées* sont écartées
+   sous repli : proposer un nettoyage de worktree sur un instantané périmé, c'est proposer de
+   supprimer le travail d'un agent.
+4. **Résolution de `gh` par chemin absolu** (`TACTICUS_GH_EXE`, PATH, emplacements connus). Cause
+   **éliminable à coût nul**, mais ce n'était pas la cause constatée — et c'est dit.
+
+### La piste « git pur » est RÉFUTÉE par la mesure
+
+L'idée proposée — « les branches `worktree-agent-*` présentes sur `origin` et non fusionnées dans
+`master` donnent la même information en git pur » — ne tient pas :
+
+    for-each-ref --no-merged origin/master refs/remotes/origin/   ->  79 branches
+    gh pr list --state open                                       ->   1 PR
+
+Les branches d'agents **survivent sur `origin` après leur merge**, et un squash-merge ne les rend
+jamais ancêtres de `master` : `--no-merged` les compte donc toutes, indéfiniment. Un filtre de
+fraîcheur *semble* sauver la piste (moins de 48 h → exactement la bonne, 1 pour 1), mais il produit
+des faux **négatifs** sur les PR **anciennes** — précisément les plus oubliables, c'est-à-dire le
+mauvais sens d'erreur pour un rappel. La voie git pure est donc écartée comme substitut de `gh`.
+
+## 9. `#467-r4` — le contrat host n'était vérifié par rien
+
+`probe_467_loop_status_fidelity` **et** `probe_467r4_scene_git_reelle` substituent tous deux la
+façade `Sources`, donc tous deux remplacent `http_json`. Un champ disparu côté host les laissait
+**verts tous les deux** : deux lecteurs qui partagent la même entrée morte s'accordent parfaitement
+et ont tort ensemble. La dégradation serait du pire genre — `dr.get("liveRunners")` sur une réponse
+qui ne porte plus la clé rend `None`, donc `live_runners` bascule en PAS MESURE **à vie**, sur le
+seul chiffre que personne ne peut deviner.
+
+`probe_467r4_contrat_host.py` (dans la banque) le ferme en **deux volets** :
+
+- **A — le contrat contre le CODE SOURCE du host** (`frida/host/*.ts`), 100 % offline. La liste des
+  champs exigés est **dérivée de `loop_status.mesurer_harnais`** par lecture de son propre source :
+  un champ ajouté au lecteur devient automatiquement exigé du producteur. *Un cliquet dont la liste
+  se recopie dérive* — c'est le vice qu'on corrige, on ne le réintroduit pas. La recherche porte sur
+  l'argument de `res.json(...)` et suit les spreads (`...getDrainState()` → types de `drain.ts`).
+- **B — la FORME réelle**, quand le host répond. Il ne conditionne pas le vert (le host est éteint
+  la moitié du temps) et ne dépend pas d'une session **vivante** : il juge la forme, pas la valeur
+  — `liveRunners: null` accompagné de `liveRunnersError` est une réponse conforme. Injoignable →
+  **`NON MESURE`** dit franchement, verdict `PASS PARTIEL`, jamais un vert muet.
+
+**L'auto-épreuve intégrée (#439) a payé au premier passage.** Le volet A validait `liveRunners` sur
+la **déclaration locale** `let liveRunners: number | null = null` du handler, et restait donc vert
+alors que le champ avait été retiré de `res.json`. Resserré sur le littéral réellement rendu.
+Même leçon un cran plus bas : l'épreuve « la cause de `gh` est nommée » passait par une
+substitution de `gh()` — donc n'exerçait **jamais** le code qu'elle prétendait juger, et restait
+verte sous mutation. Les causes sont désormais exercées en substituant `subprocess.run`, **un cran
+en dessous**. Sans la contre-épreuve par mutation, ces deux gardes seraient entrés aveugles.

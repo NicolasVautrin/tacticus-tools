@@ -105,15 +105,23 @@ class Sources:
     couture, garder le tri-etat exigerait d'eteindre le host, ce qu'aucun cliquet ne peut faire.
     """
 
+    # Le REPLI ne sert la derniere mesure que si elle est plus jeune que ceci. Au-dela,
+    # PAS MESURE : une PR relue et mergee il y a une heure n'a plus rien a dire.
+    AGE_MAX_REPLI = 1800.0
+
     def __init__(self, repo: Path = REPO, host: str = HOST_DEFAUT,
                  timeout: float = 8.0, avec_gh: bool = True, avec_host: bool = True,
-                 ttl_cache: float = 90.0) -> None:
+                 ttl_cache: float = 90.0, timeout_gh: float | None = None) -> None:
         self.repo = repo
         self.host = host
         self.timeout = timeout
         self.avec_gh = avec_gh
         self.avec_host = avec_host
         self.ttl_cache = ttl_cache
+        # Budget PROPRE de `gh`. Ce n'est PAS le plancher `max(self.timeout, 12.0)` qui
+        # avait ete retire : c'est un parametre distinct, donc un reglage explicite a la
+        # baisse reste honore. La politique de defaut vit dans `main`.
+        self.timeout_gh = timeout if timeout_gh is None else timeout_gh
 
     # -- processus
     #    RC_MUET : le process n'a pas repondu (timeout, binaire absent). Ce n'est PAS un
@@ -133,20 +141,72 @@ class Sources:
     def git(self, *args: str) -> tuple[int, str]:
         return self._run(["git", "-C", str(self.repo), *args])
 
-    def gh(self, *args: str) -> tuple[int, str]:
-        """Le SEUL poste RESEAU. Son timeout est celui qu'on lui donne -- pas un plancher.
+    # Emplacements d'installation connus de `gh` sous Windows, essayes APRES le PATH.
+    _GH_CONNUS = (
+        r"%ProgramFiles%\GitHub CLI\gh.exe",
+        r"%ProgramFiles(x86)%\GitHub CLI\gh.exe",
+        r"%LOCALAPPDATA%\Programs\GitHub CLI\gh.exe",
+        r"%LOCALAPPDATA%\Microsoft\WinGet\Links\gh.exe",
+    )
 
-        Il portait `max(self.timeout, 12.0)`, ce qui ANNULAIT tout reglage a la baisse : un
-        hook synchrone pouvait donc immobiliser un tour 12 s parce que GitHub repondait mal.
-        Sous `--hook`, `main` descend le timeout a quelques secondes ; le depassement rend
-        l'etat PAS MESURE, ce qui se lit -- au contraire d'un tour fige.
+    def exe_gh(self) -> str | None:
+        """`gh` par CHEMIN ABSOLU -- comme `loop-status.ps1` resout `$repo` et son script.
+
+        `TACTICUS_GH_EXE` d'abord (echappatoire explicite, meme patron que
+        `TACTICUS_HOST_DATA_ROOT`), puis le PATH, puis les emplacements connus.
+
+        Le PATH n'etait PAS la cause de #467-r6 -- MESURE le 2026-08-04, il est IDENTIQUE
+        (39 entrees, `GitHub CLI` present) sous `pwsh` et sous le `powershell.exe
+        -NoProfile` qui execute reellement le hook. C'est une cause ELIMINABLE a cout nul,
+        pas la cause constatee ; celle-la etait le BUDGET (cf. `gh`).
         """
         import shutil
+        force = os.environ.get("TACTICUS_GH_EXE")
+        if force:
+            return force if Path(force).exists() else None
+        trouve = shutil.which("gh")
+        if trouve:
+            return trouve
+        for motif in self._GH_CONNUS:
+            p = os.path.expandvars(motif)
+            if "%" not in p and Path(p).exists():        # `%VAR%` non resolu => on passe
+                return p
+        return None
+
+    def gh(self, *args: str) -> tuple[int, str]:
+        """Le SEUL poste RESEAU. Sa panne est NOMMEE, jamais reduite a un `rc=127`.
+
+        Son budget est le SIEN (`timeout_gh`), pas le budget general : le plancher
+        `max(self.timeout, 12.0)` reste proscrit (il ANNULAIT tout reglage a la baisse),
+        mais un parametre distinct, lui, se regle dans les deux sens.
+
+        POURQUOI (#467-r6), et c'est MESURE le 2026-08-04, pas suppose. Sous le
+        `powershell.exe -NoProfile` qui execute le hook, `gh pr list` seul met **2,90 s**
+        pour un budget de **3,00 s** ; dans le tour COMPLET, ou il court avec `git status`,
+        la flotte et la banque, **5 tours sur 8** depassaient -- exactement la ligne PR
+        aveugle rapportee. Au repos, 20 tirages : mediane 1,60 s, max 1,99 s, **0** au-dessus
+        de 3 s. C'est donc bien la CONCURRENCE qui fait franchir la borne, et un budget
+        propre est le correctif de la cause.
+
+        LES TROIS PANNES RENDAIENT LE MEME `rc=127` (la sentinelle `RC_MUET`) : binaire
+        absent, delai depasse, `OSError`. Un incident devenait indiagnosticable -- c'est ce
+        qui a fait lire << gh absent du PATH >> un DEPASSEMENT DE DELAI. Chaque cause porte
+        desormais son nom, sinon le prochain incident se rediagnostiquera aussi mal.
+        """
         if not self.avec_gh:
             raise RuntimeError("gh desactive")
-        if shutil.which("gh") is None:
-            raise RuntimeError("gh absent du PATH")
-        return self._run(["gh", *args])
+        exe = self.exe_gh()
+        if exe is None:
+            raise RuntimeError("gh introuvable (PATH + emplacements connus)")
+        try:
+            p = subprocess.run([exe, *args], cwd=str(self.repo), capture_output=True,
+                               text=True, timeout=self.timeout_gh, encoding="utf-8",
+                               errors="replace")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("gh: delai depasse (%.0f s)" % self.timeout_gh) from None
+        except (OSError, subprocess.SubprocessError) as ex:
+            raise RuntimeError("gh: %s" % type(ex).__name__) from None
+        return p.returncode, (p.stdout or "")
 
     # -- http
     def http_json(self, chemin: str) -> dict:
@@ -164,16 +224,36 @@ class Sources:
     def _cache_gh(self) -> Path:
         return self.repo / "logs" / "loop-status-gh.json"
 
-    def lire_cache_gh(self) -> tuple[list, float] | None:
-        if self.ttl_cache <= 0:
-            return None
+    def _lire_cache_brut(self) -> tuple[list, float] | None:
+        """(prs, age en s) du dernier `gh` REUSSI, sans borne d'age. None = pas de cache."""
         p = self._cache_gh()
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
             age = self.maintenant() - float(d["quand"])
         except (OSError, ValueError, KeyError, TypeError):
             return None
-        return (d["prs"], age) if 0 <= age < self.ttl_cache else None
+        return (d["prs"], age) if age >= 0 else None
+
+    def lire_cache_gh(self) -> tuple[list, float] | None:
+        brut = self._lire_cache_brut() if self.ttl_cache > 0 else None
+        return brut if brut is not None and brut[1] < self.ttl_cache else None
+
+    def lire_cache_gh_repli(self) -> tuple[list, float] | None:
+        """Le cache PERIME, servi UNIQUEMENT quand `gh` vient d'echouer.
+
+        Il ne remplace pas le tri-etat, il l'ALIMENTE : servi, l'etat reste une MESURE --
+        horodatee, et son age est RENDU a cote du chiffre. Non servi, on retombe sur
+        PAS MESURE. Ce qui n'arrive jamais, c'est un zero fabrique.
+
+        L'ASYMETRIE est la propriete qui compte, et elle est deliberee : l'appelant ne
+        retient ce repli QUE s'il porte au moins une PR ouverte. Un cache disant << 0 PR >>
+        ne peut RIEN prouver quand `gh` est muet -- une PR ouverte il y a deux minutes y
+        serait absente, et l'outil se tairait en ayant l'air d'avoir mesure. Le repli peut
+        donc SIGNALER, jamais RASSURER : son faux positif (une PR mergee entre-temps) coute
+        un rappel de trop, son faux negatif couterait l'oubli que ce hook existe pour eviter.
+        """
+        brut = self._lire_cache_brut()
+        return brut if brut is not None and brut[1] < self.AGE_MAX_REPLI else None
 
     def ecrire_cache_gh(self, prs: list) -> None:
         p = self._cache_gh()
@@ -253,17 +333,20 @@ def _porcelain_worktrees(sortie: str) -> list[dict]:
     return out
 
 
-def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None]:
-    """(PR ouvertes, refs des PR mergees, mergees_mesuree, age du cache en s).
+def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None, str | None]:
+    """(PR ouvertes, refs des PR mergees, mergees_mesuree, age du cache en s, cause du repli).
 
     UN SEUL appel `gh`, et c'est mesure : deux appels (`--state open` puis `--state merged`)
     coutaient 2,71 s a eux seuls -- plus que tout le reste de l'outil reuni. `--state all` rend
     les deux en une requete, le tri se fait ici.
 
     Tri-etat sur les OUVERTES : `gh` absent ou hors ligne => PAS MESURE, jamais « 0 PR » --
-    c'est la difference entre « plus rien a relire » et « je n'ai pas pu demander ».
+    c'est la difference entre « plus rien a relire » et « je n'ai pas pu demander ». Le REPLI
+    (#467-r6) n'entame pas cette regle : il ne peut que remplacer une IGNORANCE par une mesure
+    horodatee PORTANT une PR ouverte. Aucun chemin de cette fonction ne fabrique un zero.
     """
     cache = src.lire_cache_gh()
+    repli: str | None = None
     if cache is not None:
         prs, age = cache
     else:
@@ -271,15 +354,30 @@ def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None]:
             rc, out = src.gh("pr", "list", "--state", "all", "--limit", "120",
                              "--json", "number,title,headRefName,isDraft,state")
             if rc != 0:
-                raise RuntimeError("rc=%d" % rc)
+                raise RuntimeError("gh: rc=%d" % rc)
             prs, age = json.loads(out or "[]"), 0.0
             src.ecrire_cache_gh(prs)
         except Exception as e:                               # noqa: BLE001
-            return _ko("gh pr list", str(e)[:80]), set(), False, None
+            cause = str(e)[:80]
+            try:
+                vieux = src.lire_cache_gh_repli()
+            except Exception:                                # noqa: BLE001
+                vieux = None
+            # Le repli n'est retenu QUE s'il porte une PR ouverte : cf. `lire_cache_gh_repli`.
+            if vieux is None or not [p for p in vieux[0]
+                                     if (p.get("state") or "").upper() == "OPEN"]:
+                return _ko("gh pr list", cause), set(), False, None, None
+            prs, age, repli = vieux[0], vieux[1], cause
     ouvertes = [p for p in prs if (p.get("state") or "").upper() == "OPEN"]
     mergees = {p.get("headRefName", "") for p in prs
                if (p.get("state") or "").upper() == "MERGED"}
-    return _ok(ouvertes, "gh pr list --state all"), mergees, True, age
+    source = "gh pr list --state all" + (" [cache, gh muet]" if repli else "")
+    # Sous repli, les PR MERGEES sont ECARTEES (set vide + `mergees_mesuree` faux) : le repli
+    # sert a SIGNALER, jamais a autoriser un geste destructeur. Proposer le NETTOYAGE d'un
+    # worktree sur un instantane perime, c'est proposer de supprimer le travail d'un agent
+    # dont la PR n'est peut-etre plus mergee. Seule la voie ANCETRE (`--merged origin/master`,
+    # git local, verifiable) continue alors d'alimenter les nettoyables.
+    return _ok(ouvertes, source), (set() if repli else mergees), repli is None, age, repli
 
 
 def _worktrees_et_livrees(src: Sources) -> tuple[tuple[int, str], tuple[int, str]]:
@@ -321,8 +419,9 @@ def mesurer_livraison(src: Sources) -> dict:
         f_gh = ex.submit(_gh_prs, src)
         rc, out = f_status.result()
         (rc_wt, out_wt), (rc_mg, out_mg) = f_wt_mg.result()
-        pr_ouvertes, pr_mergees_refs, pr_mergees_ok, age_gh = f_gh.result()
+        pr_ouvertes, pr_mergees_refs, pr_mergees_ok, age_gh, gh_repli = f_gh.result()
     d["gh_age_s"] = age_gh
+    d["gh_repli"] = gh_repli
 
     if rc != 0:
         for k in ("branche", "avance", "suivis_sales", "non_suivis", "non_suivis_inconnus"):
@@ -644,10 +743,21 @@ def ecrire_journal(src: Sources, e: dict) -> None:
 
 
 # ------------------------------------------------------------------ rendu
+def _duree(s: float) -> str:
+    return "%.0f s" % s if s < 120.0 else "%.0f min" % (s / 60.0)
+
+
 def _age_gh(lv: dict) -> str:
-    """L'age du cache GitHub, RENDU a cote de tout chiffre qui en derive."""
+    """L'age du cache GitHub, RENDU a cote de tout chiffre qui en derive.
+
+    Sous REPLI (#467-r6), la panne de `gh` est NOMMEE dans la meme ligne : sans cela le
+    chiffre servi se lirait comme une mesure fraiche, et la panne serait masquee par le
+    correctif meme qui la contourne.
+    """
     a = lv.get("gh_age_s")
-    return "" if not a or a < 1.0 else " [cache %.0f s]" % a
+    if lv.get("gh_repli"):
+        return " [cache %s, gh muet: %s]" % (_duree(a or 0.0), lv["gh_repli"])
+    return "" if not a or a < 1.0 else " [cache %s]" % _duree(a)
 
 
 def rendu_complet(e: dict, sig: list[Signal], ctx: list[str]) -> str:
@@ -746,6 +856,8 @@ def main(argv: list[str] | None = None) -> int:
     # Defauts RESOLUS plus bas : sous `--hook` on serre le timeout et on allonge le cache --
     # un hook synchrone ne doit jamais immobiliser un tour pour une reponse GitHub lente.
     ap.add_argument("--timeout", type=float, default=None)
+    ap.add_argument("--timeout-gh", type=float, default=None,
+                    help="budget PROPRE de `gh`, en secondes (defaut : 10 sous --hook, 12 sinon)")
     ap.add_argument("--ttl-cache", type=float, default=None,
                     help="duree de vie du cache GitHub, en secondes (0 = pas de cache)")
     ap.add_argument("--ack", action="store_true",
@@ -785,8 +897,18 @@ def main(argv: list[str] | None = None) -> int:
                else int(os.environ.get("TACTICUS_DISPATCH_CAP", PLAFOND_DISPATCH)))
     timeout = a.timeout if a.timeout is not None else (3.0 if a.hook else 8.0)
     ttl = a.ttl_cache if a.ttl_cache is not None else (300.0 if a.hook else 90.0)
+    # `gh` a son propre budget, et il est LARGE la ou le budget general est SERRE. Les deux
+    # repondent a des risques opposes : le budget general borne des sous-process LOCAUX (git,
+    # dont une lenteur signale un probleme), `timeout_gh` borne un aller-retour RESEAU dont la
+    # duree normale est deja de l'ordre de la seconde. Sous `--hook`, 3 s pour `gh` etaient
+    # SOUS son cout mesure en concurrence -- 5 tours sur 8 aveugles (#467-r6).
+    # Le mur reste tenu de deux cotes : le hook `Stop` dispose de 20 s cote Claude Code
+    # (`.claude/settings.json`), et le cache de 300 s fait que `gh` n'est appele qu'une fois
+    # par tranche de 5 minutes.
+    timeout_gh = a.timeout_gh if a.timeout_gh is not None else (10.0 if a.hook else 12.0)
     src = Sources(repo=Path(a.repo), host=a.host, timeout=timeout,
-                  avec_gh=not a.no_gh, avec_host=not a.no_host, ttl_cache=ttl)
+                  avec_gh=not a.no_gh, avec_host=not a.no_host, ttl_cache=ttl,
+                  timeout_gh=timeout_gh)
     if a.hook:
         # Un hook de fin de tour ne casse JAMAIS le tour. Toute panne imprevue se rabat sur le
         # silence : c'est un garde-fou, pas un maillon du chemin critique.
