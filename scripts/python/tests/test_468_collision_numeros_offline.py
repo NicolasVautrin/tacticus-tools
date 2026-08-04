@@ -255,18 +255,6 @@ def test_bout_en_bout_une_attestation_eteint_la_cohabitation_pas_la_double_ouver
         shutil.rmtree(r, ignore_errors=True)
 
 
-def test_bout_en_bout_ledger_illisible_est_BLOQUANT_jamais_un_vert():
-    """Un ledger corrompu ne doit pas se lire comme << rien a attester >>."""
-    r = _depot_jetable(BASE_SAINE, ["case-900-r1-un-autre-sujet.md"])
-    (r / "scripts" / "ratchets-468-numeros-attestes.json").write_text("{ pas du json",
-                                                                     encoding="utf-8")
-    try:
-        rc, txt = _jouer(r)
-        assert rc != 0 and "ledger illisible" in txt, txt
-    finally:
-        shutil.rmtree(r, ignore_errors=True)
-
-
 def test_une_attestation_sans_raison_est_REFUSEE():
     """Une attestation vide serait un blanc-seing : le mode d'ecriture la refuse (rc 2)."""
     r = _depot_jetable(BASE_SAINE, [])
@@ -278,6 +266,50 @@ def test_une_attestation_sans_raison_est_REFUSEE():
         assert out.returncode == 2 and "REFUS" in out.stdout
     finally:
         shutil.rmtree(r, ignore_errors=True)
+
+
+# ==========================================================================================
+#  LE TRI-ETAT (#471) : un chemin qui ne peut pas rendre les TROIS ne vaut rien
+# ==========================================================================================
+
+def test_tri_etat_montage_absent_rend_99_et_non_un_rouge():
+    """`docs/rl` introuvable = MONTAGE en echec : un dépôt PARFAIT le subirait aussi.
+
+    Rendre `1` ici accuserait le dépôt d'une panne de harnais -- le vice exact que #471 a mesuré
+    sur `probe_457:s3` (rouge de gisement pour un `git ls-files` en 128)."""
+    racine = Path(tempfile.mkdtemp(prefix="p468_vide_"))   # SANS docs/rl
+    try:
+        rc, txt = _jouer(racine)
+        assert rc == p468.EX_INDISPONIBLE, "attendu 99 (INDISPONIBLE), vu %d :\n%s" % (rc, txt)
+        assert "INDISPONIBLE" in txt and "docs/rl introuvable" in txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_tri_etat_un_backlog_VIDE_est_un_ROUGE_pas_un_indisponible():
+    """La frontière à ne pas laisser glisser : `docs/rl` existe, le registre a disparu.
+
+    C'est un fait sur le CONTENU du dépôt, comme « `git ls-files` rc=0 et liste vide »."""
+    racine = _depot_jetable([], [])
+    try:
+        rc, txt = _jouer(racine)
+        assert rc == 1, "attendu 1 (ROUGE), vu %d :\n%s" % (rc, txt)
+        assert "absent ou vide" in txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_tri_etat_un_ledger_au_json_invalide_est_un_ROUGE():
+    """Le ledger est DANS le dépôt : son contenu invalide accuse le dépôt, pas la machine."""
+    racine = _depot_jetable(BASE_SAINE, ["case-900-r1-un-autre-sujet.md"])
+    (racine / "scripts" / "ratchets-468-numeros-attestes.json").write_text("{ pas du json",
+                                                                          encoding="utf-8")
+    try:
+        rc, txt = _jouer(racine)
+        assert rc == 1, "attendu 1 (ROUGE), vu %d :\n%s" % (rc, txt)
+        assert "JSON invalide" in txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
 
 
 def test_le_ledger_du_depot_est_lisible_et_chaque_entree_porte_une_raison():

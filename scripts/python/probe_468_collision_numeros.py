@@ -40,8 +40,8 @@ pas sur sa presence :
   une colonne << Point d'entree >>, dans une ligne de continuation de puce, dans une case-doc qui
   renvoie a une autre, dans un message de commit.
 
-MESURE DE SEPARATION (etape 0b, rejouee a chaque run) : sur `docs/rl/**`, 6546 occurrences `#<n>`
-pour 831 DEFINITIONS -- 12,7 %. Un critere par simple presence rougirait sur la quasi-totalite du
+MESURE DE SEPARATION (etape 0b, rejouee a chaque run) : sur `docs/rl/**`, 6580 occurrences `#<n>`
+pour 836 DEFINITIONS -- 12,7 %. Un critere par simple presence rougirait sur la quasi-totalite du
 depot. (Chiffres a RE-DERIVER via `--report`, jamais a citer : ils bougent a chaque tranche.)
 
 CE QUE LA CONFRONTATION AU DEPOT A CHANGE (mesures du 2026-08-04)
@@ -55,9 +55,10 @@ Trois formes avaient ete relevees A L'OEIL. La mesure en REFUTE deux comme crite
     et des sujets sans rapport. RENDU EN INVENTAIRE (`--report`), jamais bloquant.
   * meme reponse pour les artefacts de CODE : **73** ids portent >= 2 `probe_<n>_*.py` et **36**
     portent >= 2 `test_<n>_*.py` (le couple `_live` / `_offline` a lui seul).
-  * << un `<n>` a la fois dans une ligne OUVERTE et dans une case-doc >> -> **7** cohabitations,
-    dont **6 legitimes** (tache-parapluie qui livre ses items, ou dossier RE-OUVERT sur le meme
-    sujet). Quatre criteres derives ont ete essayes pour separer les 6 du vrai positif -- << la
+  * << un `<n>` a la fois dans une ligne OUVERTE et dans une case-doc >> -> **8** identifiants en
+    cohabitation (11 paires), dont **7 legitimes** (tache-parapluie qui livre ses items, dossier
+    RE-OUVERT sur le meme sujet, ou dossier CLOS dont la ligne n'a pas ete barree).
+    Quatre criteres derives ont ete essayes pour separer les legitimes du vrai positif -- << la
     ligne cite le fichier >>, << la ligne cite un prefixe `case-<n>` >>, << la colonne Modele
     porte un tag >>, << le titre H1 de la case-doc >> -- et les QUATRE echouent, la plupart en
     RATANT la vraie collision (`#420-r1` cite `case-420`, prefixe de sa propre case-doc).
@@ -84,6 +85,11 @@ sont RE-IMPRIMEES a chaque run (jamais silencieuses) sans faire rougir. Un cliqu
 de base et interdit de la depasser -- il ne renumerote pas le passe, ce qui serait une reecriture
 d'historique et un arbitrage d'orchestrateur.
 
+TRI-ETAT (contrat de banque, `scripts/ratchets-verdict.ps1`, #471) : `0` vert, `N` = N rouges de
+gisement, `99` INDISPONIBLE quand le MONTAGE a echoue -- `docs/rl` introuvable, `OSError` sur le
+backlog ou le ledger. Un `backlog.md` vide, un ledger au JSON invalide ou un corpus indigent sont
+des FAITS SUR LE DEPOT, donc des ROUGES : c'est la frontiere a ne pas laisser glisser.
+
 ASCII only (console Windows cp1252).
 Usage:
     python probe_468_collision_numeros.py [-v]
@@ -104,6 +110,24 @@ REPO = PYDIR.parents[1]
 DOCS_RL = REPO / "docs" / "rl"
 BACKLOG = DOCS_RL / "backlog.md"
 LEDGER = REPO / "scripts" / "ratchets-468-numeros-attestes.json"
+
+#: << RIEN N'A ETE MESURE >> -- contrat de banque, `scripts/ratchets-verdict.ps1` (#471).
+#: BLOQUANT comme un rouge, mais il change l'ACCUSE : le harnais, pas le contenu du depot.
+EX_INDISPONIBLE = 99
+
+
+class Indisponible(Exception):
+    """Le MONTAGE a echoue : un depot PARFAIT aurait subi le meme echec sur cette machine.
+
+    C'est le test operationnel de `ratchets-verdict.ps1`, et la frontiere est etroite :
+      * `docs/rl` introuvable (CWD faux impose par l'appelant, `--racine` errone) -> INDISPONIBLE ;
+      * une `OSError` en lisant `backlog.md` ou le ledger (verrou, droits)         -> INDISPONIBLE ;
+      * `backlog.md` ABSENT ou VIDE alors que `docs/rl` existe                     -> ROUGE ;
+      * un ledger au JSON INVALIDE                                                 -> ROUGE ;
+      * un corpus indigent                                                         -> ROUGE.
+    Les trois derniers sont des FAITS SUR LE CONTENU du depot -- meme frontiere que
+    << `git ls-files` rc=0 et liste VIDE -> ROUGE >>. Sans elle, << je n'ai rien trouve >>
+    deviendrait << je n'ai pas pu regarder >>, et tout finirait INDISPONIBLE."""
 
 
 def viser(racine: Path) -> None:
@@ -246,9 +270,13 @@ def lire_ledger() -> dict:
     if not LEDGER.exists():
         return {}
     try:
-        data = json.loads(LEDGER.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        print("   ATTENTION ledger illisible (%s) -- traite comme VIDE, donc BLOQUANT" % exc)
+        brut = LEDGER.read_text(encoding="utf-8")
+    except OSError as exc:                                # verrou, droits : pas le depot
+        raise Indisponible("ledger illisible sur disque : %s" % exc) from exc
+    try:
+        data = json.loads(brut)
+    except ValueError as exc:                             # JSON invalide : fait sur le CONTENU
+        print("   ROUGE ledger au JSON invalide (%s) -- traite comme VIDE, donc BLOQUANT" % exc)
         return {}
     return {k: v for k, v in data.get("attestations", {}).items() if isinstance(v, str) and v.strip()}
 
@@ -380,10 +408,16 @@ def ventiler_occurrences() -> tuple:
 
 
 def _lignes_backlog() -> list:
+    if not DOCS_RL.is_dir():
+        raise Indisponible("docs/rl introuvable sous %s -- CWD ou --racine faux" % REPO)
+    if not BACKLOG.is_file():
+        return []                                          # fait sur le depot -> ROUGE
     try:
         return BACKLOG.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return []
+    except OSError as exc:
+        raise Indisponible("backlog.md illisible sur disque : %s" % exc) from exc
+    except UnicodeDecodeError:
+        return []                                          # fait sur le CONTENU -> ROUGE
 
 
 # ------------------------------------------------------------------------------------------
@@ -504,8 +538,14 @@ def main(argv) -> int:
         return 0 if not mauvais else 1
 
     lignes = _lignes_backlog()
-    if not lignes:
-        print("   FAIL backlog.md illisible ou vide -- le cliquet ne peut RIEN mesurer")
+    # `not lignes` NE SUFFIT PAS : `"\n".splitlines()` rend `['']`, qui est VRAI. Un backlog
+    # reduit a du blanc passait donc pour mesure -- trou trouve par la contre-epreuve, pas a
+    # la relecture.
+    if not any(l.strip() for l in lignes):
+        # `docs/rl` EXISTE (sinon `Indisponible`) mais le backlog est absent ou vide : c'est un
+        # fait sur le CONTENU du depot, donc un ROUGE -- pas une panne de montage.
+        print("   FAIL backlog.md absent ou vide alors que docs/rl existe -- le registre des "
+              "numeros a disparu")
         print("[468] VERDICT: FAIL (1)")
         return 1
     defs_b = definitions_du_backlog(lignes)
@@ -584,5 +624,20 @@ def main(argv) -> int:
     return 0 if ko == 0 else 1
 
 
+def _main_tri_etat(argv) -> int:
+    """`main`, plus la traduction du MONTAGE en `99` (contrat de banque, #471).
+
+    `INDISPONIBLE` est BLOQUANT : il ne fait rien taire, il change l'ACCUSE. Sans ce chemin, une
+    panne de montage sortait en `rc=1` -- exactement le rouge de gisement pour panne d'outil que
+    `#471` a mesure sur `probe_457:s3`."""
+    try:
+        return main(argv)
+    except Indisponible as exc:
+        print("[468] INDISPONIBLE -- %s" % exc)
+        print("[468] rc=%d : RIEN n'a ete mesure. Ce n'est PAS un verdict sur le depot."
+              % EX_INDISPONIBLE)
+        return EX_INDISPONIBLE
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(_main_tri_etat(sys.argv[1:]))

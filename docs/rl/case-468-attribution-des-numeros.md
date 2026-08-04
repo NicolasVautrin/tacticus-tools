@@ -47,8 +47,8 @@ seulement :
 
 **MENTION** — tout le reste, et le cliquet ne la lit **jamais**.
 
-**Mesure de séparation**, rejouée à chaque run (étape 0b) : sur `docs/rl` (530 fichiers),
-**6 546** occurrences `#<n>` pour **831** définitions — **12,7 %**. L'échantillon négatif est donc
+**Mesure de séparation**, rejouée à chaque run (étape 0b) : sur `docs/rl` (532 fichiers),
+**6 580** occurrences `#<n>` pour **836** définitions — **12,7 %**. L'échantillon négatif est donc
 le dépôt lui-même, et il pèse sept fois plus que le positif. (Chiffres à **re-dériver**
 — `--report` —, pas à citer : ils bougent à chaque tranche livrée.)
 
@@ -89,7 +89,7 @@ redeviendrait peut-être gardable — et il faudrait alors réfuter ce test avan
 
 ### 3.2 « Un `<n>` à la fois dans une ligne OUVERTE et dans une case-doc » — INDÉCIDABLE, gardée par LEDGER
 
-**7 cohabitations** mesurées, **6 légitimes** :
+**8 identifiants** en cohabitation (11 paires, `#217` en portant 4), **7 légitimes** :
 
 | identifiant | pourquoi c'est légitime |
 |---|---|
@@ -99,8 +99,9 @@ redeviendrait peut-être gardable — et il faudrait alors réfuter ce test avan
 | `#419-r1` | la case-doc se déclare « sixième résidu ATTACK de #419-r1 fermé », et la ligne cite cette livraison |
 | `#419-r1-tr14-r5-r2-r1-r1-r1` | la case-doc ferme 15 des 43 `ShouldExecute`, la ligne garde les autres |
 | `#437-r1` | **dossier ré-ouvert** : même écart de 1 point sur le même test overwatch |
+| `#437-r1-r1-r3` | **dossier CLOS dont la ligne n'a pas été barrée** — entré par un merge pendant cette tranche ; la case-doc **réfute** le résidu que sa ligne décrit |
 
-**Quatre critères dérivés ont été essayés pour séparer les 6 du vrai positif — les quatre
+**Quatre critères dérivés ont été essayés pour séparer les légitimes du vrai positif — les quatre
 échouent**, et la plupart en *ratant* la vraie collision :
 
 | critère essayé | verdict |
@@ -115,8 +116,9 @@ chaque cohabitation connue porte sa **raison**, obligatoire et non vide. Toute c
 **nouvelle** rougit — c'est-à-dire exactement le geste de l'occurrence `#448-r1-r1-r2` : livrer
 une case-doc sous un numéro qu'une ligne de backlog ouvrait déjà pour autre chose.
 
-Le coût est faible **par mesure** : 7 cohabitations sur **448** case-docs, soit un ordre de
-grandeur d'une par mois.
+Le coût est faible **par mesure** : 11 paires sur **451** case-docs. Et le flux est réel sans être
+lourd — **une cohabitation neuve est entrée par un merge pendant cette tranche même**
+(`#437-r1-r1-r3`), tranchée sur pièces en une lecture d'en-tête.
 
 ### 3.3 « Deux définitions de `#<n>-r<k>` à des lignes différentes du backlog » — RETENUE, restreinte
 
@@ -160,6 +162,22 @@ ligne de base.
 | 0b | **contre-épreuve sur pièces** : ventilation définitions / mentions du dépôt réel, plus le garde d'**indigence du corpus** (un balayage qui rend zéro se lit « rien à signaler ») | oui |
 | 1 | **double ouverture** : ≥ 2 définitions non barrées du même identifiant | oui |
 | 2 | **cohabitation** ouvert-au-backlog × case-doc, non attestée au ledger | oui |
+
+**Tri-état** (contrat de banque `scripts/ratchets-verdict.ps1`, #471) : `0` vert · `N` rouges de
+gisement · **`99` INDISPONIBLE** quand le *montage* a échoué. La frontière est appliquée telle que
+le contrat la pose — « un dépôt PARFAIT aurait-il subi ce même échec ? » :
+
+| situation | état | pourquoi |
+|---|---|---|
+| `docs/rl` introuvable (CWD faux, `--racine` erroné) | **99** | le dépôt n'est pas en cause |
+| `OSError` sur `backlog.md` ou le ledger (verrou, droits) | **99** | idem |
+| `backlog.md` absent ou réduit à du **blanc** | **ROUGE** | fait sur le **contenu** — le registre a disparu |
+| ledger au **JSON invalide** | **ROUGE** | le ledger est *dans* le dépôt |
+| corpus indigent | **ROUGE** | même frontière que « `git ls-files` rc=0, liste vide » |
+
+Le troisième cas a été **trouvé par la contre-épreuve, pas à la relecture** : `not lignes` ne suffit
+pas, `"\n".splitlines()` rend `['']`, qui est **vrai**. Un backlog réduit à du blanc passait donc
+pour mesuré.
 
 Deux points de conception, chacun payé par un test :
 
