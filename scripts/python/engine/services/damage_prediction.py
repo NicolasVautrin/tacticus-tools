@@ -373,7 +373,8 @@ def _materialize(v) -> int:
 
 def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0,
                                mods: DamageModifiers | None = None, hit_mult: int = 1,
-                               attacker_additive_pre: bool = False):
+                               attacker_additive_pre: bool = False,
+                               separate_face_lists: bool = False):
     """BASE COMMUNE prédiction↔combat — réduction d'UNE valeur de dégât (= étape 3+3b de
     `predict_attack_raw`, cf. `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers) :
         pierce_eff = clamp(0,100, pierce + mods.extra_pierce)
@@ -429,7 +430,43 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
             #   * les DEUX faces non neutres à la fois (élévation x1.50 ATT + Terrifying x0.70 DEF,
             #     unités DÉPLACÉES) — la chaîne doit être UNIQUE : 761/1141 contre 762/1142.
             # La séquence ci-dessous est donc `(1+2)` en UNE chaîne, puis `3`, puis `4`.
-            d = max(0, apply_pct_entries(d, list(mods.pct_list) + list(mods.pct_list_defender)))
+            #
+            # ⚠ #437-r1 — `separate_face_lists` REND AUX ÉTAPES 1 ET 2 LEURS DEUX APPELS. Le
+            # décompilé de `CalculateBaseDamageWithAllModifiers` les montre DISTINCTS (deux
+            # `slot 0x11` successifs, l'un sur `attackModifiers`, l'autre sur `defenseModifiers`),
+            # et `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers` porte un
+            # `FixMath.NET.Fix64$$Round(., AwayFromZero)` PAR ENTRÉE — donc la face défenseur part
+            # d'une valeur DÉJÀ matérialisée. `apply_pct_entries` matérialise en fin d'appel : deux
+            # appels = deux arrondis, un appel = un seul.
+            #
+            # MESURE (#437-r1, tir d'overwatch `eldarRanger` -> `spaceStormcaller`, face ATT =
+            # `HeavyWeapon_ExtraDmg` x1.25, face DEF = `TerminatorArmour_ReduceDmg` x0.25, board
+            # `MC1_67`/seed 4321). Les bornes natives ne sont pas devinées : elles sont INVERSÉES
+            # depuis l'aléa brut du tirage (`NextInternal` = `lo + ((genrand>>1) % width)`), donc
+            # sans aucune soustraction ni inférence :
+            #
+            #   base d'attaque | bornes NATIVES | chaîne unique | deux appels
+            #   4518 (3614)    | (1130, 1695)   | (1129, 1694) X | (1130, 1695) OK
+            #   4526 (3621)    | (1132, 1697)   | (1132, 1697) OK| (1132, 1697) OK  (non discriminant)
+            #   4538 (3630)    | (1135, 1702)   | (1134, 1702) X | (1135, 1702) OK  (solution UNIQUE)
+            #
+            # Le drapeau est posé par les vecteurs COMBAT seulement. La PRÉDICTION garde la chaîne
+            # unique : c'est ce que mesure le cran DEUX FACES de #462-r4a (élévation x1.50 ATT +
+            # `Terrifying_ExtraDefense` x0.70 DEF, oracle `aiPlaybookPredict`), qui rend 761/1141 =
+            # `Round(P x 1.5 x 0.7)` et qu'un arrondi intercalé porterait à 762/1142. Les deux
+            # appelants natifs du foyer NE traversent pas les mêmes étapes (résidu déjà nommé par
+            # #462-r4a §6 : `CalculateAbilityDamage` passe `attackModifiers` NULL, `PredictAttackRaw`
+            # construit ses DEUX `Nullable`) — c'est cette asymétrie que le drapeau porte.
+            # ⚠ Ce que ce drapeau NE tranche PAS : `#437-r1-r1`, cf. la case-doc.
+            #
+            # NO-OP quand l'une des deux listes est VIDE (`apply_pct_entries([])` rend la valeur
+            # INCHANGÉE, sans `Round`) : tous les régimes à UNE face mesurés (#446-r2 `T` et `A`,
+            # #462-r4a balayage d'armure, #462-r4d nightshroud, #98) sont donc strictement conservés.
+            if separate_face_lists:
+                d = max(0, apply_pct_entries(d, list(mods.pct_list)))
+                d = max(0, apply_pct_entries(d, list(mods.pct_list_defender)))
+            else:
+                d = max(0, apply_pct_entries(d, list(mods.pct_list) + list(mods.pct_list_defender)))
             d = calculate_base_damage_with_modifiers(d, mods.multiplicative)          # étape 3
             d = calculate_base_damage_with_modifiers(d, mods.multiplicative_defender)  # étape 4
         else:
