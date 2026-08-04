@@ -412,10 +412,23 @@ def main() -> int:
     if a.attacker_moves:
         print("[437r1r3] CONTRE-EPREUVE attaquant BOUGE : %s"
               % json.dumps(b.get("attacker_moves")))
+    if a.attacker_moves:
+        am = b.get("attacker_moves") or {}
+        if am.get("inRange") and am.get("d_after") == am.get("d_before"):
+            print("[437r1r3] CONTRE-EPREUVE : distance CONSERVEE et cible toujours EN PORTEE -- "
+                  "seul le flag Moved a change ; effet toujours pose ? %s"
+                  % ("HeavyWeapon_ExtraDmg" in (am.get("ow_effs") or [])))
     if a.shot:
         print("[437r1r3] TIR : %s" % json.dumps(b.get("shot")))
         print("[437r1r3] INVERSION : %s" % json.dumps(invert(b)))
-    return 0
+    # VERDICT : la voie PREDICTION et la voie COMBAT doivent rendre les MEMES bornes des lors que
+    # la lecture est prise EN PORTEE avec un attaquant qui n'a jamais bouge. Un desaccord ici est
+    # une VRAIE divergence de modele -- c'est exactement ce que #437-r1-r1-r3 a refute.
+    nat, port = _pred_bounds(b["aiPredict"]), st.get("port_bounds")
+    ok = (nat is not None and port is not None and list(nat) == list(port))
+    print("[437r1r3] VERDICT : aiPredict EN PORTEE=%s port=%s -> %s"
+          % (nat, port, "ACCORD" if ok else "DESACCORD"))
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
