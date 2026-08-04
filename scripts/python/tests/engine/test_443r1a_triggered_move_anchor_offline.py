@@ -22,7 +22,8 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from probe_443r1a_triggered_move_anchor import (      # noqa: E402
-    check_attribution, check_channel, check_decomposition, check_savior, check_value,
+    check_attribution, check_channel, check_decomposition, check_presence, check_savior,
+    check_value,
 )
 
 
@@ -112,13 +113,55 @@ def test_capteur_charge_mais_AUCUN_hook_pose_n_est_PAS_un_vert():
 
 
 def test_les_REPLIS_d_offset_sont_DITS_pas_tus():
-    """Un champ retombe sur son offset de repli reste LU, mais le capteur n'est plus
-    auto-verifiant : il faut le SAVOIR avant d'exploiter la mesure."""
+    """Un champ retombe sur son offset de repli reste LU (le repli est un offset du decompile,
+    pas une invention), mais le capteur n'est plus AUTO-VERIFIANT.
+
+    ⚠ DURCI par #456-r2 : ce n'est plus un vert. C'est exactement dans cet angle mort que #456
+    SS3.4 a trouve un faux silencieux (`innerEnum` resolu sur l'enumerateur EXTERNE, au meme
+    offset qu'`outerEnum`, et HORS `fallbacks`). E3 n'attrape que les replis `acc`/`innerEnum`
+    (via `contribs: null`) : un repli sur `caseArg`, `state`, `current` ou sur les offsets du
+    `UtilityMovementCase` passerait sinon totalement inapercu, en publiant des chiffres que plus
+    rien ne verifie."""
     v = check_channel({"installed": {"TriggeredAbilitiesUtility": "ok"},
                        "resolved": {"TriggeredAbilitiesUtility": {"fallbacks": ["acc"]}}})
-    assert v["status"] == "measured"
+    assert v["status"] == "degraded"
     assert "REPLI" in v["message"] and "acc" in v["message"]
     assert v["fallbacks"] == ["TriggeredAbilitiesUtility.acc"]
+
+
+def test_AUCUN_repli_est_le_seul_vert_du_canal():
+    """Le pendant du precedent : sans repli, la mesure est auto-verifiante et E0b est vert.
+    `measured` -- et non `ok` -- est le statut vert de cet etage."""
+    v = check_channel({"installed": {"TriggeredAbilitiesUtility": "ok",
+                                     "TriggeredAbilitiesNonOwnerUtility": "ok"},
+                       "resolved": {"TriggeredAbilitiesUtility": {"fallbacks": []},
+                                    "TriggeredAbilitiesNonOwnerUtility": {"fallbacks": []}}})
+    assert v["status"] == "measured", v["message"]
+    assert v["fallbacks"] == []
+
+
+# ---------------------------------------------------- E0(a) la PRESENCE, avant tout armement
+
+def test_presence_capteur_ABSENT():
+    v = check_presence(None)
+    assert v["status"] == "not_reinjected"
+    assert "NON CONFRONTE" in v["message"]
+
+
+def test_presence_NE_CONCLUT_RIEN_des_hooks_non_encore_poses():
+    """LE defaut que #456-r2 ferme. Avant `triggeredMoveTraceOn`, `install()` n'a pas tourne :
+    `installed` et `resolved` sont VIDES **par construction**. Poser ici la question de E0(b)
+    rendait donc invariablement `not-installed`, avec un message accusant a tort la resolution
+    runtime -- et sans jamais lire les `fallbacks`, qui sont pourtant tout l'interet du canal.
+    Mesure du 2026-08-04 : le probe imprimait ce faux rouge puis concluait `VERDICT: OK`."""
+    v = check_presence({"on": False, "installDone": False, "installed": {}, "resolved": {}})
+    assert v["status"] == "present", v["message"]
+    # et surtout : il ne prononce AUCUN verdict sur les hooks
+    assert "E0b" in v["message"]
+
+
+def test_presence_forme_INATTENDUE_ne_conclut_RIEN():
+    assert check_presence("boom")["status"] == "malformed"
 
 
 # ------------------------------------------------------- E2 l'ATTRIBUTION (critere d'acceptation)
@@ -219,8 +262,44 @@ def test_zero_event_ne_conclut_RIEN():
 
 # ------------------------------------------------------------- E3 la decomposition (auto-verif)
 
+def _deux(total=323.0, a=20.0):
+    """Un event dont DEUX playbooks distincts se partagent le total -- le regime dans lequel la
+    decomposition sert a quelque chose. Valeurs prises sur la mesure du 2026-08-04 (u83, tuile
+    (0,0) : 323 = SaviorProtocols 20 + SereneUnifier 303)."""
+    return _ev(total=total, contribs=[
+        {"playbook": "SaviorProtocolsPlaybook.<CalculateMovementUtilityInStepsInternal>d__4",
+         "value": a},
+        {"playbook": "SereneUnifierPlaybook.<CalculateMovementUtilityInStepsInternal>d__1",
+         "value": total - a}])
+
+
 def test_decomposition_nominale():
-    assert check_decomposition([_ev(total=50.0)])["status"] == "ok"
+    v = check_decomposition([_deux()])
+    assert v["status"] == "ok", v["message"]
+    assert "NON degenere" in v["message"]
+
+
+def test_une_SEULE_ability_contributrice_est_un_regime_DEGENERE():
+    """LE vice que #456-r2 ferme, et c'est celui de tout ce cas transpose sur l'axe DECOMPOSITION.
+
+    A un seul terme, `sum(contribs) == total` n'est que `contrib == total` : on verifie le
+    decodage de l'accumulateur, mais on ne verifie JAMAIS que le canal SEPARE deux abilities --
+    la seule chose qu'il apporte sur `ai-trace` L3, qui donne deja le total. Mesure du 2026-08-04
+    sur le montage de reference d'alors (1120 sur `tauCrisis`, `replace=True`) : 102 events,
+    distribution {1 contribution: 9, 0: 93}, **ZERO** a deux -- et E3 rendait `ok`."""
+    v = check_decomposition([_ev(total=50.0), _ev(total=20.0, col=4)])
+    assert v["status"] == "degenerate", v["message"]
+    assert "DEUX playbooks distincts" in v["message"]
+
+
+def test_deux_contributions_du_MEME_playbook_ne_LEVENT_pas_la_degenerescence():
+    """Le critere porte sur des etiquettes DISTINCTES, pas sur un COMPTE. Deux deltas etiquetes du
+    meme playbook ne prouvent pas que le canal sait separer deux abilities -- ils prouveraient
+    plutot que l'accumulateur a ete lu deux fois."""
+    lbl = "SaviorProtocolsPlaybook.<CalculateMovementUtilityInStepsInternal>d__4"
+    v = check_decomposition([_ev(total=40.0, contribs=[{"playbook": lbl, "value": 20.0},
+                                                       {"playbook": lbl, "value": 20.0}])])
+    assert v["status"] == "degenerate", v["message"]
 
 
 def test_somme_des_contributions_DIFFERENTE_du_total_est_refusee():

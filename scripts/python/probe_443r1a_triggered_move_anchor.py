@@ -20,8 +20,19 @@ DECOMPOSITION par playbook.
 
 CE QUE CE PROBE MESURE, par etages :
 
-  E0 canal  -- le RPC `triggeredMoveTraceStatus` repond-il ? Sinon le capteur n'est pas charge ->
-               NON CONFRONTE, et AUCUN etage suivant ne conclut quoi que ce soit.
+  E0 canal  -- DEUX temps, et les confondre rendait cet etage STRUCTURELLEMENT VIDE (#456-r2).
+               (a) AVANT tout montage : le RPC `triggeredMoveTraceStatus` repond-il ? Sinon le
+                   capteur n'est pas charge -> NON CONFRONTE, et AUCUN etage suivant ne conclut
+                   quoi que ce soit. C'est la seule question qu'on peut poser a ce moment.
+               (b) APRES `triggeredMoveTraceOn` : les hooks sont-ils POSES, et surtout quels champs
+                   sont retombes sur leur REPLI ? `installed` et `resolved` sont VIDES tant que
+                   l'armement n'a pas eu lieu (`install()` n'est appele que par le `On`) -- donc
+                   interroger le status avant, comme ce probe le faisait, rendait toujours
+                   `not-installed` avec un message accusant a tort la resolution runtime, et ne
+                   lisait JAMAIS les `fallbacks`. Or les `fallbacks` sont exactement le canal
+                   d'auto-verification que #456 SS3.4 a mis en place apres y avoir trouve un faux
+                   silencieux. Un canal de diagnostic dont le verdict est vide se lit comme un
+                   succes : c'est le vice de ce cas, deplace d'un cran.
   E1 tir    -- quel declencheur fait firer le hook ? On en essaie plusieurs et on RAPPORTE lequel a
                produit des events (le case-443-r1 avait mesure qu'`aiStepDryRun` ne faisait firer
                AUCUN hook RVA). MESURE le 2026-08-02, session 10, capteur CHARGE : `decisionView`
@@ -40,8 +51,16 @@ CE QUE CE PROBE MESURE, par etages :
                  (d) les events se repartissent-ils sur PLUSIEURS unites ? Une attribution
                      CONSTANTE passerait (a)-(c) sans rien attribuer du tout.
   E3 decomp -- `sum(contribs) == total` (auto-verification du decodage de l'accumulateur : si la
-               lecture du champ Fix64 etait fausse, l'egalite tomberait), et les etiquettes ont-elles
-               la forme `<Playbook>.<CalculateMovementUtilityInSteps...>d__N` ?
+               lecture du champ Fix64 etait fausse, l'egalite tomberait), les etiquettes ont-elles
+               la forme `<Playbook>.<CalculateMovementUtilityInSteps...>d__N` -- et le regime
+               est-il NON DEGENERE (#456-r2) : au moins un event ou DEUX playbooks DISTINCTS
+               contribuent. Sans cette derniere garde, `sum(contribs) == total` se reduit a
+               `contrib == total` sur un seul terme : le canal `contribs` n'a alors jamais SEPARE
+               quoi que ce soit, alors que separer est la seule raison pour laquelle il existe
+               (`ai-trace` L3 donne deja le total). MESURE le 2026-08-04 sur le montage de
+               reference d'alors (1120 sur `tauCrisis`, `replace=True`) : 102 events,
+               distribution {1 contribution: 9, 0: 93}, **ZERO** event a deux contributions --
+               E3 rendait donc `ok` sur un regime ou la decomposition ne decomposait rien.
   E4 savior -- (montage GREFFE) la contribution etiquetee `SaviorProtocolsPlaybook` apparait-elle
                sur le porteur de 1120 ? C'est l'ouverture de la confrontation de #443-r1a.
   E5 valeur -- LA VALEUR, et elle ne demande PAS la decomposition (#456) : le TOTAL natif est
@@ -83,6 +102,39 @@ FALLBACK_P_UNITS = ["tauCrisis", "tauAunShi", "tauDarkstrider", "ultraTitus"]
 FALLBACK_A_UNITS = ["tauShadowsun", "astraCreed"]
 SAVIOR_PLAYBOOK = "SaviorProtocolsPlaybook"
 
+# ═══ DEUX MONTAGES, ET POURQUOI DEUX (#456-r2) ═══════════════════════════════════════════════
+# Un seul montage ne peut pas porter les deux criteres, parce qu'ils exigent des regimes qui
+# s'excluent -- et le decouvrir a demande une mesure, pas un raisonnement.
+#
+# MONO -- 1120 greffee sur `tauCrisis` SEUL, `replace=True`. Le montage de #443-r1a, inchange.
+#   `tauCrisis` porte une arme RANGED, donc
+#   `IdunBattle.AI.Playbook.Loki.SaviorProtocolsPlaybook$$FilterMovementTiles` court-circuite sur
+#   son `if (UnitExtensions.HasRangedWeapon(unit)) return;` : AUCUNE tuile candidate n'est
+#   retiree, et l'identite d'ensemble de E2 est donc EXACTE. Mesure : 4/4 unites, 0 manquante,
+#   0 en trop.
+#
+# DOUBLE -- 1120 greffee EN PLUS sur `tauAunShi`, `replace=False` pour qu'il GARDE
+#   `1145 SereneUnifier`. C'est le seul regime ou DEUX playbooks contribuent a la MEME evaluation,
+#   donc le seul ou `sum(contribs) == total` est une contrainte a deux termes (E3).
+#   ⚠ `replace=False` est LOAD-BEARING : avec `replace=True`, `tauAunShi` perdrait `1145` et l'on
+#   retomberait a une contribution par event. Mesure du 2026-08-04 : `replace=True` ->
+#   distribution {1 contribution: 9, 0: 93}, ZERO event a deux ; `replace=False` -> 4 events a
+#   DEUX contributions (u83 (0,0) total 323 = SaviorProtocols 20 + SereneUnifier 303).
+#
+# ⚠ POURQUOI L'IDENTITE DE E2 N'EST PAS EXIGEE SUR LE MONTAGE DOUBLE, et ce n'est PAS un
+# assouplissement de confort : `tauAunShi` est un heros de MELEE, donc le court-circuit
+# `HasRangedWeapon` ne mord pas et `FilterMovementTiles` RESTREINT reellement les tuiles
+# candidates. Mesure du 2026-08-04, REPRODUCTIBLE a l'identique sur deux passes : u83 perd
+# EXACTEMENT une tuile, (0,3), sur les DEUX utilities (owner ET non-owner) -- 11 -> 10 tuiles,
+# 102 -> 100 events -- pendant que u81 (ranged, MEME greffe) garde ses 12/12. Le filtre est le
+# SEUL hook par lequel une ability retire des tuiles candidates (slot 1 d'`IPlaybook`, qui ne peut
+# que restreindre), et la seule difference entre les deux montages est cette greffe.
+# C'est donc une observation du residu `#443-r1b` -- que `case-443-r1` SS5 declarait INERTE faute
+# de porteur sans arme a distance -- et non un defaut du capteur. Exiger l'identite ici ferait
+# rougir un capteur JUSTE sur un comportement natif CORRECT.
+MONO_SPECS = ["tauCrisis:SaviorProtocols"]
+DOUBLE_SPECS = ["tauCrisis:SaviorProtocols", "tauAunShi:SaviorProtocols"]
+
 HOOK_NOT_REINJECTED = (
     "NON CONFRONTE -- le capteur #443-r1a n'est PAS charge : le RPC `triggeredMoveTraceStatus` "
     "est inconnu de la session. Le capteur vit dans `frida/hooks/features/triggered-move-trace.ts` "
@@ -92,8 +144,29 @@ HOOK_NOT_REINJECTED = (
 
 # ------------------------------------------------------------------ verdicts (fonctions PURES)
 
+def check_presence(status) -> dict:
+    """E0(a) -- LA SEULE question posable AVANT l'armement : le RPC existe-t-il ?
+
+    `install()` n'est appele que par `triggeredMoveTraceOn` ; avant lui, `installed` et `resolved`
+    sont VIDES par construction. Poser ici la question de E0(b) -- « les hooks sont-ils poses ? » --
+    rend donc invariablement `not-installed`, avec un message qui accuse a tort la resolution
+    runtime, ET sans jamais lire les `fallbacks` (le canal d'auto-verification de #456 SS3.4).
+    C'est le defaut que #456-r2 ferme : un etage de diagnostic dont le verdict etait
+    structurellement vide, et que le probe rendait pourtant AVANT de conclure `VERDICT: OK`."""
+    if status is None:
+        return {"status": "not_reinjected", "message": HOOK_NOT_REINJECTED}
+    if not isinstance(status, dict) or "installed" not in status:
+        return {"status": "malformed",
+                "message": "triggeredMoveTraceStatus a repondu %r -- forme inattendue, rien "
+                           "n'est conclu" % (status,)}
+    return {"status": "present",
+            "message": ("RPC `triggeredMoveTraceStatus` present -- le capteur est CHARGE. "
+                        "Les hooks ne sont pas encore poses (`install()` n'a lieu qu'au "
+                        "`triggeredMoveTraceOn`) : leur verdict est celui de E0b.")}
+
+
 def check_channel(status) -> dict:
-    """Le capteur est-il charge ? On discrimine sur la REPONSE du RPC, pas sur le nombre d'events :
+    """E0(b) -- APRES l'armement. On discrimine sur la REPONSE du RPC, pas sur le nombre d'events :
     zero event est ambigu (capteur absent / rien n'a score / le declencheur ne mord pas), la reponse
     du RPC ne l'est pas."""
     if status is None:
@@ -114,12 +187,27 @@ def check_channel(status) -> dict:
     for key, info in (status.get("resolved") or {}).items():
         for f in ((info or {}).get("fallbacks") or []):
             fb.append("%s.%s" % (key, f))
+    if fb:
+        # NON VERT, et c'est un durcissement de #456-r2. Un champ retombe sur son repli reste LU --
+        # le repli est un offset du decompile, pas une invention -- mais le capteur n'est plus
+        # AUTO-VERIFIANT, et c'est precisement dans cet angle mort que #456 SS3.4 avait trouve un
+        # faux silencieux (`innerEnum` resolu sur l'enumerateur EXTERNE, hors `fallbacks`). Laisser
+        # passer un repli en vert ferait publier des chiffres dont on ne sait plus s'ils mesurent
+        # ce qu'ils disent. E3 n'attrape que les replis `acc`/`innerEnum` (via `contribs: null`) :
+        # `caseArg`, `state`, `current` ou les offsets du `UtilityMovementCase` passeraient sinon
+        # inapercus.
+        return {"status": "degraded",
+                "message": ("capteur charge, %d/%d hooks poses (%s), MAIS des champs sont retombes "
+                            "sur leur REPLI : %s -- la mesure n'est plus auto-verifiante. Publier "
+                            "des chiffres dans cet etat, c'est publier ce qu'on ne peut plus "
+                            "verifier. Lire les `fields` de `triggeredMoveTraceStatus` : ils "
+                            "donnent la disposition REELLE de la state machine sur ce build."
+                            % (len(ok), len(inst), ", ".join(sorted(ok)), ", ".join(sorted(fb)))),
+                "fallbacks": fb}
     return {"status": "measured",
-            "message": ("capteur charge, %d/%d hooks poses (%s)%s"
-                        % (len(ok), len(inst), ", ".join(sorted(ok)),
-                           ("" if not fb else
-                            " ; ATTENTION champs retombes sur leur REPLI : %s -- la mesure reste "
-                            "valide mais n'est plus auto-verifiante" % ", ".join(sorted(fb))))),
+            "message": ("capteur charge, %d/%d hooks poses (%s) ; AUCUN repli -- tous les champs "
+                        "resolus par nom ou par STRUCTURE, la mesure est auto-verifiante"
+                        % (len(ok), len(inst), ", ".join(sorted(ok)))),
             "fallbacks": fb}
 
 
@@ -219,12 +307,15 @@ def check_decomposition(entries, eps: float = 1e-6) -> dict:
                             "l'accumulateur ou l'enumerateur interne n'a pas ete resolu. Voir les "
                             "`fallbacks` de E0. Ce n'est PAS « aucune ability n'a contribue ».")}
     mauvais, etiquettes = [], set()
+    multi = []
     for e in mesurees:
         somme = sum(float(c.get("value") or 0) for c in e["contribs"])
         if abs(somme - float(e.get("total") or 0)) > eps:
             mauvais.append((e.get("unitId"), e.get("tile"), somme, e.get("total")))
-        for c in e["contribs"]:
-            etiquettes.add(str(c.get("playbook")))
+        noms = {str(c.get("playbook")) for c in e["contribs"]}
+        if len(noms) >= 2:
+            multi.append(e)
+        etiquettes |= noms
     inconnues = sorted(x for x in etiquettes if "Playbook" not in x)
     probs = []
     if mauvais:
@@ -236,9 +327,33 @@ def check_decomposition(entries, eps: float = 1e-6) -> dict:
                      % inconnues[:6])
     if probs:
         return {"status": "wrong", "message": " | ".join(probs)}
+    # LA GARDE ANTI-DEGENERESCENCE (#456-r2) -- le pendant exact de la condition (3) de
+    # `check_value`. Tant qu'aucun event ne porte DEUX playbooks distincts, `sum(contribs) == total`
+    # se reduit a `contrib == total` : on verifie que l'accumulateur final egale `<>2__current`,
+    # mais on ne verifie JAMAIS que le canal SEPARE deux abilities -- la seule chose qu'il apporte
+    # sur `ai-trace` L3 (qui donne deja le total). Un montage a un seul contributeur rendait donc
+    # E3 vert sans avoir rien decompose : mesure du 2026-08-04, 102 events, 9 a une contribution,
+    # 93 a zero, aucun a deux.
+    if not multi:
+        return {"status": "degenerate",
+                "message": ("%d/%d event(s) decomposes et sum(contribs) == total partout, MAIS "
+                            "AUCUN event ne porte DEUX playbooks distincts (max observe : %d "
+                            "contribution(s) sur un meme event). La decomposition n'a donc jamais "
+                            "SEPARE quoi que ce soit : a un seul terme, `sum(contribs) == total` "
+                            "n'est que `contrib == total`. Monter un mover portant DEUX triggered "
+                            "abilities a playbook MOVE porte (cf. `GRAFT_SPECS`). Playbooks vus : "
+                            "%s" % (len(mesurees), len(entries),
+                                    max((len({str(c.get('playbook')) for c in e['contribs']})
+                                         for e in mesurees), default=0),
+                                    sorted(etiquettes)[:10]))}
+    exemple = [(e.get("unitId"), e.get("tile"), e.get("total"),
+                [(str(c["playbook"]).split(".")[0], c["value"]) for c in e["contribs"]])
+               for e in multi[:2]]
     return {"status": "ok",
-            "message": ("%d/%d event(s) decomposes, sum(contribs) == total partout ; playbooks vus "
-                        ": %s" % (len(mesurees), len(entries), sorted(etiquettes)[:10]))}
+            "message": ("%d/%d event(s) decomposes, sum(contribs) == total partout ; %d event(s) a "
+                        "DEUX playbooks distincts ou plus (regime NON degenere), ex. %s ; playbooks "
+                        "vus : %s" % (len(mesurees), len(entries), len(multi), exemple,
+                                      sorted(etiquettes)[:10]))}
 
 
 def check_value(rows, eps: float = 1e-6) -> dict:
@@ -454,73 +569,44 @@ def _port_rows(s: int, rid: int, entries, bind: bool = True) -> list:
     return rows
 
 
-def _graft_seed_bc(tag: str):
-    """Greffe 1120 sur `tauCrisis` -- MEME voie que `probe_443r1_savior_protocols_move_term`
+def _graft_seed_bc(tag: str, specs, replace: bool):
+    """Greffe `specs` -- MEME voie que `probe_443r1_savior_protocols_move_term`
     (`catalog_inject.write_grafted_seed_bc`). Sortie dans `logs/`, JAMAIS dans `data/`."""
     import catalog_inject as CI
     out = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "logs",
                        "seedbc-443r1a-%s.json" % tag)
-    return CI.write_grafted_seed_bc(out, ["tauCrisis:SaviorProtocols"], replace=True)
+    return CI.write_grafted_seed_bc(out, specs, replace=replace)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--seed", default=SEED)
-    ap.add_argument("--board", default=BOARD)
-    ap.add_argument("--state-file", required=True)
-    ap.add_argument("--no-graft", action="store_true",
-                    help="ne greffe PAS 1120 (E2/E3 restent pleinement discriminants ; E4 est skip)")
-    ap.add_argument("--reuse", action="store_true")
-    ap.add_argument("--keep", action="store_true")
-    a = ap.parse_args()
+def _build(a, state_file: str, seed_bc) -> int:
+    """Monte le runner et rend son `runnerId`. Leve si le build echoue -- jamais un id devine."""
+    argv = [sys.executable, "rl_duel.py", "build", "--seed", str(a.seed),
+            "--board", a.board, "--state-file", state_file,
+            "--p-units", ",".join(FALLBACK_P_UNITS),
+            "--a-units", ",".join(FALLBACK_A_UNITS)]
+    if seed_bc:
+        argv += ["--seed-bc", str(seed_bc)]
+    out = subprocess.run(argv, cwd=_HERE, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace")
+    if out.returncode != 0:
+        raise RuntimeError("BUILD FAILED rc=%d\n%s\n%s"
+                           % (out.returncode, (out.stdout or "")[-800:],
+                              (out.stderr or "")[-800:]))
+    return json.loads(Path(state_file).read_text(encoding="utf-8"))["runnerId"]
 
-    s = sid()
 
-    # ---- E0 : LE CANAL, AVANT TOUT MONTAGE ------------------------------------------------- #
-    # On interroge le RPC en premier : inutile de monter un runner si le capteur n'est pas la.
-    st = rpc(s, "triggeredMoveTraceStatus", {}, 30, tolerate_unknown=True)
-    v0 = check_channel(st)
-    print("E0 canal   [%s] %s" % (v0["status"], v0["message"]))
-    if v0["status"] == "not_reinjected":
-        print("\nVERDICT: %s" % HOOK_NOT_REINJECTED)
-        print("Le MONTAGE, lui, est PRET : ce probe monte le scenario greffe de #443-r1 "
-              "(1120 sur tauCrisis, board %s, seed %s) et ses quatre etages sont cables. "
-              "Il ne manque que la fenetre." % (a.board, a.seed))
-        return 7
+def _collect(s: int, rid: int, essais: bool = False) -> dict:
+    """Arme le trace, declenche le sweep, et rend tout ce que les etages consomment.
 
-    seed_bc = None
-    if not a.no_graft:
-        try:
-            seed_bc, _ = _graft_seed_bc(str(os.getpid()))
-        except Exception as e:
-            print("   greffe 1120 INDISPONIBLE (%s) -- on continue sans, E4 sera skip" % e)
-
-    if not a.reuse:
-        argv = [sys.executable, "rl_duel.py", "build", "--seed", str(a.seed),
-                "--board", a.board, "--state-file", a.state_file,
-                "--p-units", ",".join(FALLBACK_P_UNITS),
-                "--a-units", ",".join(FALLBACK_A_UNITS)]
-        if seed_bc:
-            argv += ["--seed-bc", str(seed_bc)]
-        out = subprocess.run(argv, cwd=_HERE, capture_output=True, text=True,
-                             encoding="utf-8", errors="replace")
-        if out.returncode != 0:
-            print("BUILD FAILED rc=%d" % out.returncode)
-            print((out.stdout or "")[-1000:])
-            print((out.stderr or "")[-1000:])
-            return 1
-    rid = json.loads(Path(a.state_file).read_text(encoding="utf-8"))["runnerId"]
-    print("runnerId=%s board=%s seed=%s session=%s greffe=%s"
-          % (rid, a.board, a.seed, s, bool(seed_bc)))
-
-    verdicts: list = []
-    try:
-        # ---- E1 : QUEL DECLENCHEUR FAIT FIRER LE HOOK ? ------------------------------------ #
-        # On ARME avant tout scoring : le case-443-r1 a mesure qu'un etat DEJA score n'est pas
-        # RE-score, donc un trace arme trop tard capte le vide.
-        rpc(s, "triggeredMoveTraceClear", {}, 30)
-        rpc(s, "triggeredMoveTraceOn", {}, 60)
-        essais = [
+    `essais=True` essaie PLUSIEURS declencheurs et rapporte lequel fait firer le hook (E1) : c'est
+    l'information dont #443-r1 manquait. Sinon on ne joue que le declencheur qui MORD, mesure
+    (`aiDryRunAllUnits`) -- le sweep de mouvement n'est parcouru que par un tour d'IA."""
+    rpc(s, "triggeredMoveTraceClear", {}, 30)
+    rpc(s, "triggeredMoveTraceOn", {}, 60)
+    firing = []
+    if essais:
+        avant = 0
+        for nom, fn in (
             ("decisionView(allAbilities,maxRank=32)",
              lambda: rpc(s, "decisionView",
                          {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 120)),
@@ -528,13 +614,10 @@ def main() -> int:
              lambda: rpc(s, "aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 90)),
             ("aiDryRunAllUnits",
              lambda: rpc(s, "aiDryRunAllUnits", {"runnerId": rid}, 180, tolerate_unknown=True)),
-        ]
-        avant = 0
-        firing = []
-        for nom, fn in essais:
+        ):
             try:
                 fn()
-            except Exception as e:
+            except Exception as e:                                     # noqa: BLE001
                 print("   declencheur %-38s ERREUR %s" % (nom, str(e)[:120]))
                 continue
             d = rpc(s, "triggeredMoveTraceDump", {"runnerId": rid, "max": 4000}, 60) or {}
@@ -543,67 +626,160 @@ def main() -> int:
             if n > avant:
                 firing.append((nom, n - avant))
             avant = n
-        print("E1 tir     [%s] %s"
-              % ("ok" if firing else "aucun",
-                 ("declencheurs qui font firer le hook : %s" % firing) if firing else
+    else:
+        rpc(s, "aiDryRunAllUnits", {"runnerId": rid}, 180, tolerate_unknown=True)
+    dump = rpc(s, "triggeredMoveTraceDump", {"runnerId": rid, "max": 4000}, 60) or {}
+    entries = dump.get("entries") or []
+    # Les positions COURANTES entrent dans la reference de E2(c) : le sweep evalue aussi le fait de
+    # RESTER SUR PLACE (`UtilityMovementCase$$StaysOnTile`), et `aiMovableTiles` ne rend jamais la
+    # tuile courante (mesure #456 : 0 unite sur 6).
+    carrier, positions = None, {}
+    try:
+        dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1}, 90) or {}
+        carrier = next((u["id"] for u in (dv.get("units") or [])
+                        if u.get("visualId") == "tauCrisis"), None)
+        for u in (dv.get("units") or []):
+            p = u.get("pos") or {}
+            if p.get("col") is not None and u.get("id") is not None:
+                positions[int(u["id"])] = (int(p["col"]), int(p["row"]))
+    except Exception:                                                  # noqa: BLE001
+        pass
+    return {"rid": rid, "entries": entries, "firing": firing, "carrier": carrier,
+            "positions": positions, "movable": _movable_by_unit(s, rid)}
+
+
+def _dispose(state_file: str) -> None:
+    try:
+        subprocess.run([sys.executable, "rl_duel.py", "dispose", "--state-file", state_file],
+                       cwd=_HERE, capture_output=True, text=True)
+    except Exception:                                                  # noqa: BLE001
+        pass
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--seed", default=SEED)
+    ap.add_argument("--board", default=BOARD)
+    ap.add_argument("--state-file", required=True)
+    ap.add_argument("--no-graft", action="store_true",
+                    help="ne greffe PAS 1120 : le montage MONO est joue sans greffe (E1/E2/E5 "
+                         "restent discriminants), le montage DOUBLE n'est pas joue (E3/E4 skip)")
+    ap.add_argument("--keep", action="store_true")
+    a = ap.parse_args()
+
+    s = sid()
+
+    # ---- E0(a) : LA PRESENCE, AVANT TOUT MONTAGE -------------------------------------------- #
+    # On interroge le RPC en premier : inutile de monter un runner si le capteur n'est pas la.
+    # ⚠ La SEULE question posable ici est « le RPC existe-t-il » : `installed`/`resolved` restent
+    # vides tant que `triggeredMoveTraceOn` n'a pas appele `install()`. Le verdict sur les hooks et
+    # sur les REPLIS est celui de E0(b), plus bas, apres l'armement (#456-r2).
+    st = rpc(s, "triggeredMoveTraceStatus", {}, 30, tolerate_unknown=True)
+    v0 = check_presence(st)
+    print("E0a presence [%s] %s" % (v0["status"], v0["message"]))
+    if v0["status"] == "not_reinjected":
+        print("\nVERDICT: %s" % HOOK_NOT_REINJECTED)
+        print("Le MONTAGE, lui, est PRET : ce probe monte le scenario greffe de #443-r1 "
+              "(1120 sur tauCrisis, board %s, seed %s) et ses quatre etages sont cables. "
+              "Il ne manque que la fenetre." % (a.board, a.seed))
+        return 7
+
+    mono_bc = None
+    if not a.no_graft:
+        try:
+            mono_bc, _ = _graft_seed_bc("mono-%s" % os.getpid(), MONO_SPECS, True)
+        except Exception as e:                                         # noqa: BLE001
+            print("   greffe 1120 INDISPONIBLE (%s) -- on continue sans, E4 sera skip" % e)
+
+    verdicts: list = []
+    state2 = "%s.double.json" % a.state_file
+    try:
+        # ═══ MONTAGE MONO -- E1 (declencheur), E2 (attribution), E5 (valeur) ═══════════════════
+        # `FilterMovementTiles` y est INERTE (`tauCrisis` est ranged), donc l'identite d'ensemble
+        # de E2 est exacte. Cf. le bloc `MONO_SPECS` / `DOUBLE_SPECS`.
+        rid = _build(a, a.state_file, mono_bc)
+        print("[MONO]   runnerId=%s board=%s seed=%s session=%s greffe=%s"
+              % (rid, a.board, a.seed, s, bool(mono_bc)))
+        # On ARME avant tout scoring : le case-443-r1 a mesure qu'un etat DEJA score n'est pas
+        # RE-score, donc un trace arme trop tard capte le vide.
+        m = _collect(s, rid, essais=True)
+
+        # ---- E0(b) : LE CANAL, UNE FOIS ARME ------------------------------------------------ #
+        # C'est ICI que `installed` et `resolved` existent, donc ICI que les REPLIS sont lisibles.
+        # Ce verdict entre dans `verdicts` : avant #456-r2, E0 etait imprime mais n'entrait dans
+        # AUCUN critere de sortie (seul `not_reinjected` sortait, en rc 7) -- un capteur pose sur
+        # des offsets de repli aurait donc rendu `VERDICT: OK`.
+        v0b = check_channel(rpc(s, "triggeredMoveTraceStatus", {}, 30, tolerate_unknown=True))
+        print("E0b canal    [%s] %s" % (v0b["status"], v0b["message"]))
+        verdicts.append(v0b)
+
+        print("E1 tir       [%s] %s"
+              % ("ok" if m["firing"] else "aucun",
+                 ("declencheurs qui font firer le hook : %s" % m["firing"]) if m["firing"] else
                  "AUCUN des declencheurs essayes n'a produit d'event -- a rapporter tel quel"))
 
-        dump = rpc(s, "triggeredMoveTraceDump", {"runnerId": rid, "max": 4000}, 60) or {}
-        entries = dump.get("entries") or []
-        movable = _movable_by_unit(s, rid)
-
-        # ---- E2/E3/E4 ----------------------------------------------------------------------- #
-        # Les positions COURANTES entrent dans la reference de (c) : le sweep evalue aussi le fait
-        # de RESTER SUR PLACE (`UtilityMovementCase$$StaysOnTile`), et `aiMovableTiles` ne rend
-        # jamais la tuile courante (mesure #456 : 0 unite sur 6).
-        carrier, positions = None, {}
         try:
-            dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1}, 90) or {}
-            carrier = next((u["id"] for u in (dv.get("units") or [])
-                            if u.get("visualId") == "tauCrisis"), None)
-            for u in (dv.get("units") or []):
-                p = u.get("pos") or {}
-                if p.get("col") is not None and u.get("id") is not None:
-                    positions[int(u["id"])] = (int(p["col"]), int(p["row"]))
-        except Exception:
-            pass
-        if a.no_graft or not seed_bc:
-            carrier = None
-
-        try:
-            prows = _port_rows(s, rid, entries)
-        except Exception as e:                                        # noqa: BLE001
+            prows = _port_rows(s, rid, m["entries"])
+        except Exception as e:                                         # noqa: BLE001
             print("   E5 : etat du port INDISPONIBLE (%s)" % str(e)[:160])
             prows = []
 
-        for tag, v in (("E2 attrib ", check_attribution(entries, movable, positions)),
-                       ("E3 decomp ", check_decomposition(entries)),
-                       ("E4 savior ", check_savior(entries, carrier)),
-                       ("E5 valeur ", check_value(prows))):
+        for tag, v in (("E2 attrib  ", check_attribution(m["entries"], m["movable"],
+                                                         m["positions"])),
+                       ("E5 valeur  ", check_value(prows))):
             print("%s [%s] %s" % (tag, v["status"], v["message"]))
             verdicts.append(v)
+        _dispose(a.state_file)                    # on libere AVANT de monter le second runner
 
-        bad = [v for v in verdicts if v["status"] not in ("ok", "skipped")]
+        # ═══ MONTAGE DOUBLE -- E3 (decomposition NON degeneree), E4 (SaviorProtocols) ══════════
+        if a.no_graft:
+            for tag in ("E3 decomp  ", "E4 savior  "):
+                v = {"status": "skipped",
+                     "message": "montage DOUBLE non joue (--no-graft) : la decomposition exige un "
+                                "mover portant DEUX triggered abilities a playbook MOVE porte"}
+                print("%s [%s] %s" % (tag, v["status"], v["message"]))
+                verdicts.append(v)
+        else:
+            double_bc, _ = _graft_seed_bc("double-%s" % os.getpid(), DOUBLE_SPECS, False)
+            rid2 = _build(a, state2, double_bc)
+            print("[DOUBLE] runnerId=%s -- 1120 greffee AUSSI sur tauAunShi (replace=False, il "
+                  "GARDE 1145)" % rid2)
+            d = _collect(s, rid2)
+            # L'attribution est RE-MESUREE ici, mais en INFORMATION : sur ce montage
+            # `FilterMovementTiles` mord (tauAunShi est en melee) et retire des tuiles candidates,
+            # donc l'identite d'ensemble ne peut pas etre exigee -- ce serait faire rougir un
+            # capteur JUSTE sur un comportement natif CORRECT (#443-r1b). On l'imprime pour que
+            # l'ecart reste VISIBLE et chiffre, jamais tu.
+            va = check_attribution(d["entries"], d["movable"], d["positions"])
+            print("   (info) attribution sur le montage DOUBLE [%s] %s" % (va["status"],
+                                                                          va["message"]))
+            for tag, v in (("E3 decomp  ", check_decomposition(d["entries"])),
+                           ("E4 savior  ", check_savior(d["entries"], d["carrier"]))):
+                print("%s [%s] %s" % (tag, v["status"], v["message"]))
+                verdicts.append(v)
+            _dispose(state2)
+
+        # `measured` est le vert de E0b (`check_channel`), `ok` celui des autres etages.
+        bad = [v for v in verdicts if v["status"] not in ("ok", "skipped", "measured")]
         if bad:
             print("\nVERDICT: %d etage(s) NON VERTS -- %s"
                   % (len(bad), " | ".join(v["message"] for v in bad)))
             return 8
         print("\nVERDICT: OK -- le terme MOVE d'une triggered ability est ATTRIBUE (unite + tuile "
-              "atteignable par elle) et DECOMPOSE par playbook. La confrontation de #443-r1a est "
-              "ouverte.")
+              "atteignable par elle) et DECOMPOSE par playbook, dans un regime ou DEUX playbooks "
+              "contribuent a la meme evaluation. La confrontation de #443-r1a est ouverte.")
         return 0
+    except RuntimeError as e:                                          # build casse
+        print(str(e))
+        return 1
     finally:
         try:
             rpc(s, "triggeredMoveTraceOff", {}, 30, tolerate_unknown=True)
-        except Exception:
+        except Exception:                                              # noqa: BLE001
             pass
         if not a.keep:
-            try:
-                subprocess.run([sys.executable, "rl_duel.py", "dispose",
-                                "--state-file", a.state_file], cwd=_HERE,
-                               capture_output=True, text=True)
-            except Exception:
-                pass
+            _dispose(a.state_file)
+            _dispose(state2)
 
 
 if __name__ == "__main__":
