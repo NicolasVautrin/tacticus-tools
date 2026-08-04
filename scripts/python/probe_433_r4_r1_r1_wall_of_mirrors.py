@@ -53,18 +53,19 @@ WALL_OF_MIRRORS = int(ActiveAbilityType.WallOfMirrors)      # 1186
 MARKERLIGHT = int(EffectType.Markerlight)                   # 0x462 = 1122
 
 GRAFT_ON = "tauCrisis"                 # porteur GREFFE de 1186
-P_UNITS = "tauCrisis,tauDarkstrider"
+P_UNITS = "tauCrisis,tauMarksman"
 A_UNITS = "orksWarboss,necroWarden"
 
 CASTER_VID = "tauCrisis"               # porte 1186 apres greffe
-MARKER_VID = "tauDarkstrider"          # StructuralAnalyser -> pose Markerlight en tirant
+MARKER_VID = "tauMarksman"             # son attaque NORMALE (1076) pose Markerlight sur SA cible
 TGT_MARK_VID = "orksWarboss"           # sera MARQUE
 TGT_PLAIN_VID = "necroWarden"          # restera NON marque
 
 CASTER_TILE = "2,6"
-MARKER_TILE = "5,2"                    # d=2 de TGT_MARK -> tir RANGED (arme Pulse portee 2)
-TGT_MARK_TILE = "5,4"
+MARKER_TILE = "5,2"                    # portee du drone MV71 = 4 -> atteint TGT_MARK
+TGT_MARK_TILE = "2,4"
 TGT_PLAIN_TILE = "2,8"
+NORMAL_ATTACK = 1076                   # `MV71SniperDroneSquadAttack` = l'attaque NORMALE de Sho'syl
 
 
 def _run(args) -> None:
@@ -123,11 +124,18 @@ def _assert_placed(rid: int, want) -> None:
                          % ["u%s voulu=%s obtenu=%s" % (u, to, got) for u, to, got in bad])
 
 
-def build() -> int:
+def build(hp_target: int = 0, armor_target: int = 0) -> int:
+    """`hp_target > 0` gonfle les PV des cibles : indispensable pour SORTIR du regime degenere ou
+    les deux moteurs tuent la cible et ou l'accord `hp == 0` ne discrimine RIEN sur le montant.
+    `armor_target > 0` donne de l'ARMURE a la cible -- sans elle, le canal PERCAGE de l'effet 0x576
+    est INERTE (mesure : delta identique avec et sans le bonus), donc l'accord ne le testerait pas."""
     write_graft_seed_bc()
+    extra = ["--hp-target", str(hp_target)] if hp_target else []
+    if armor_target:
+        extra += ["--armor-target", str(armor_target)]
     _run(["build", "--seed", str(SEED), "--board", BOARD, "--rank", "17",
           "--seed-bc", str(SEED_BC), "--p-units", P_UNITS, "--a-units", A_UNITS,
-          "--state-file", str(STATE)])
+          "--state-file", str(STATE)] + extra)
     rid = _runner_id()
     ids = {v: i for v, (i, _p, _h, _e) in _units(rid).items()}
     want = ((ids[CASTER_VID], CASTER_TILE), (ids[MARKER_VID], MARKER_TILE),
@@ -138,32 +146,46 @@ def build() -> int:
     return rid
 
 
+def ensure_my_turn(rid: int) -> None:
+    """Le seed peut ouvrir sur le tour ADVERSE : `aiturn` le joue jusqu'a ce que le controle
+    revienne. Sans ca, l'`act ability` du marqueur part sur la mauvaise equipe et rend un no-op."""
+    for _ in range(3):
+        dv = _dv(rid)
+        act = dv.get("toActivate") or []
+        mine = {u.get("id") for u in (dv.get("units") or []) if u.get("ctrl")}
+        if act and set(act) & mine and {v[0] for k, v in _units(rid).items()
+                                        if k in (CASTER_VID, MARKER_VID)} & mine:
+            return
+        _run(["aiturn", "--state-file", str(STATE), "--runner", str(rid)])
+
+
 def mark(rid: int) -> list:
-    """`tauDarkstrider` tire sur `TGT_MARK` -> `StructuralAnalyser` pose 0x462. Rend la liste des
-    (id, visualId) qui portent Markerlight APRES le tir."""
+    """`tauMarksman` lance son attaque NORMALE (1076) sur `TGT_MARK` : le bloc (e) de
+    `MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour` pose `Markerlight` (0x462) sur la CIBLE.
+    Rend la liste des (id, visualId) qui portent Markerlight APRES le tir."""
     ids = {v: i for v, (i, _p, _h, _e) in _units(rid).items()}
-    _run(["act", "attack", "--unit", str(ids[MARKER_VID]), "--target", str(ids[TGT_MARK_VID]),
-          "--state-file", str(STATE), "--runner", str(rid)])
+    _run(["act", "ability", "--caster", str(ids[MARKER_VID]), "--ability", str(NORMAL_ATTACK),
+          "--target", str(ids[TGT_MARK_VID]), "--state-file", str(STATE), "--runner", str(rid)])
     return [(i, v) for v, (i, _p, _h, effs) in _units(rid).items() if MARKERLIGHT in effs]
 
 
-def native_targets(rid: int, caster_id: int) -> set:
-    """`abilityTargets` filtre sur 1186 -> l'ensemble des cibles que le NATIF juge legales."""
-    res = L._rpc("abilityTargets", [{"runnerId": rid, "unitId": caster_id,
-                                     "abilityType": WALL_OF_MIRRORS, "allAbilities": True}])
-    out = set()
-    for row in (res.get("abilities") or res.get("results") or []):
-        if int(row.get("abilityType") or -1) != WALL_OF_MIRRORS:
-            continue
-        for key in ("fromHere", "targets"):
-            for t in (row.get(key) or []):
-                out.add(int(t if not isinstance(t, dict) else t.get("id")))
-    return out
+def native_reason(rid: int, caster_id: int, target_id: int) -> int:
+    """ORACLE 1 BIT — `abilityReason` traverse la cascade de ciblage NATIVE pour (caster, 1186,
+    cible) et rend le masque `TargetingRule` ROMPU. Le `targetReason` vaut donc `0x0` quand la cible
+    est legale, et `0x2 TargetMatchesDynamicRule` quand seul le predicat DYNAMIQUE la refuse.
+
+    ⚠ `abilityTargets` ne convient PAS ici : il n'enumere que les unites ACTIVABLES du tour courant
+    (mesure : `unitCount = 0` pour un caster hors `toActivate`), donc son zero serait un zero de
+    HARNAIS, pas une mesure du gate."""
+    r = L._rpc("abilityReason", [{"runnerId": rid, "casterId": caster_id,
+                                 "abilityType": WALL_OF_MIRRORS, "targetId": target_id}])
+    return int((r.get("targetReason") or {}).get("hex") or "0x0", 16)
 
 
 def main() -> int:
     if "--build" in sys.argv:
         rid = build()
+        ensure_my_turn(rid)
         holders = mark(rid)
         print("[markerlight] porteurs apres le tir : %s" % holders)
     else:
@@ -172,12 +194,10 @@ def main() -> int:
     caster_id = units[CASTER_VID][0]
     marked = {v for v, (_i, _p, _h, effs) in units.items() if MARKERLIGHT in effs}
     print("[etat] runner=%d caster=%s marquees=%s" % (rid, caster_id, sorted(marked)))
-    nat = native_targets(rid, caster_id)
-    print("[natif] abilityTargets(1186) = %s" % sorted(nat))
     for vid in (TGT_MARK_VID, TGT_PLAIN_VID):
         tid = units[vid][0]
-        print("  %-16s id=%-4s markerlight=%-5s natif_valide=%s"
-              % (vid, tid, vid in marked, tid in nat))
+        print("  %-16s id=%-4s markerlight=%-5s natif_targetReason=0x%x"
+              % (vid, tid, vid in marked, native_reason(rid, caster_id, tid)))
     return 0
 
 
