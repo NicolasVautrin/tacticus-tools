@@ -184,9 +184,11 @@ survit.
   **principale** seulement — là où le live projette **un pied par ligne** et couvre l'empreinte
   complète. Écart sur les seules unités multi-hex.
 * **La walkability** : le natif retire les tuiles non marchables à un étage **AMONT** de la ligne
-  de vue (mesuré : **0** non-marchable dans la zone native, sur 1). Le sweep du probe s'y restreint
-  — sinon il compterait comme écart de cette tranche un écart qui n'est pas le sien. Étage non
-  porté, **résidu nommé `#433-r4-r2-r1-r2-r2-r1`**.
+  de vue (mesuré ici : **0** non-marchable dans la zone native, sur 1). Le sweep du probe s'y
+  restreint — sinon il compterait comme écart de cette tranche un écart qui n'est pas le sien.
+  **FERMÉ depuis** : l'étage est `TargetingQuery$$GetTilesInRange` (`RemoveAll` interne, gaté par
+  `AllowUnwalkableTargetTile`), porté et confronté sur quatre boards —
+  `docs/rl/case-433-r4-r2-r1-r2-r2-r1-walkability.md`.
 * **La généralisation par BOARD est bloquée, et c'est chiffré** : sur `C6_17` et `C1_04`, la
   meilleure position de caster rend **0** tuile obscurcie une fois l'intersection appliquée sur le
   movable set. La contre-épreuve « occupant échangé » remplace ce contrôle, et le remplace
