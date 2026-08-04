@@ -64,13 +64,28 @@
     Ou deposer les logs complets. Defaut `<racine>/logs/ratchets` (gitignore).
 
 .OUTPUTS
-    Code de sortie = NOMBRE de cliquets rouges (0 = banque verte). Sortie ASCII stricte (cp1252).
+    TROIS etats, jamais deux (#471). Sortie ASCII stricte (cp1252).
 
-    ⚠ EXCEPTION, et c'est un CONTRAT : une erreur d'USAGE (aucun cliquet selectionne, repertoire
-    introuvable, `python` absent du PATH) rend **64**, jamais 1. Elle rendait 1, donc elle etait
-    INDISTINGUABLE d'« un cliquet a rougi » -- un appelant lisait « 1 rouge » la ou RIEN n'avait
-    ete joue. C'est la faute que `#457-r7` nomme sur `probe_457` (un `pytest rc=4` d'usage lu comme
-    un rouge de gisement), et de la meme famille que « un echec RENDU se lit comme une mesure ».
+      * `0`   BANQUE VERTE  -- tout a ete mesure, rien ne rougit ;
+      * `N`   BANQUE ROUGE  -- N cliquets ont MESURE et trouve un trou (contrat historique) ;
+      * `99`  BANQUE INDISPONIBLE -- aucun rouge, mais au moins un cliquet n'a RIEN PU MESURER.
+
+    Le tri-etat et son CRITERE (ce qui separe un echec de MONTAGE d'un verdict de MESURE) vivent
+    dans `scripts/ratchets-verdict.ps1`, dot-source ci-dessous -- table UNIQUE, pas recopiee.
+    En resume : un cliquet rend `99` (ou `64`) quand un depot PARFAIT aurait subi le meme echec
+    sur cette machine a cet instant -- `git` en echec, CWD faux impose par l'appelant, `pytest`
+    rc d'usage. `INDISPONIBLE` est BLOQUANT (le rc n'est jamais 0) : il change l'ACCUSE -- le
+    harnais et non le code fusionne -- il ne fait rien taire.
+
+    MESURE qui l'a impose (2026-08-04) : `BANQUE ROUGE -- 1/40 : probe_457:s3`, alors que cette
+    tranche avait crashe en 4,5 s dans son propre montage (`git ls-files` -> 128) sans jouer un
+    seul test. Un rouge de gisement pour une panne d'outil.
+
+    ⚠ L'erreur d'USAGE de la banque ELLE-MEME (aucun cliquet selectionne, repertoire introuvable,
+    `python` absent du PATH) rend **64**, jamais 1. Elle rendait 1, donc elle etait INDISTINGUABLE
+    d'« un cliquet a rougi » -- un appelant lisait « 1 rouge » la ou RIEN n'avait ete joue. C'est
+    la faute que `#457-r7` nomme sur `probe_457` (un `pytest rc=4` d'usage lu comme un rouge de
+    gisement), et de la meme famille que « un echec RENDU se lit comme une mesure ».
     Un appelant DOIT traiter 64 comme « non mesure », jamais comme un verdict sur le depot.
 
 .EXAMPLE
@@ -330,6 +345,15 @@ $Ratchets = @(
        Seul = 'un champ du contrat host DISPARU (.session renomme, liveRunners retire de /api/admin/drain) -- les deux probes #467 substituent http_json et resteraient verts ; la degradation est muette (dr.get("liveRunners") rend None => tri-etat PAS MESURE a vie sur le seul chiffre que personne ne peut deviner)'
        Doc  = 'docs/rl/case-467-etat-de-boucle.md' }
 
+    # Le SECOND cliquet de la banque sur la banque, et le symetrique EXACT de `probe_439` :
+    # la-bas un cliquet qui ne POUVAIT PAS rougir, ici un cliquet qui rougit SANS AVOIR RIEN VU.
+    # Il garde la CHAINE (table -> banque -> code de sortie), pas la conversion des 14 entrees
+    # qui confondent encore -- son etape 4 les INVENTORIE sans rougir (residu #471-r1) : un
+    # garde-fou qui rougirait sur une douzaine d'entrees a la fois se fait desactiver.
+    @{ Id = 'probe_471'; Argv = @('probe_471_tri_etat_cliquets.py')
+       Seul = 'un cliquet qui rougit SANS AVOIR RIEN MESURE -- une panne d OUTIL EXTERNE (git, pwsh, pytest en usage) sort en rc=1 comme Python le fait de toute exception, et la banque rabattait TOUT rc non nul sur ROUGE. MESURE 2026-08-04 : << BANQUE ROUGE -- 1/40 : probe_457:s3 >> alors que ce shard avait crashe en 4,5 s dans son propre montage (`git ls-files` -> 128, CalledProcessError) sans jouer un seul test, les 7 autres etant VERTS -- un rouge de gisement pour une panne d outil, sur un depot sain. C est le tri-etat de host_inputs (null != 0) et la lecon #467-r6 (une panne de capteur doit porter son NOM) a l etage du CLIQUET. Aucun autre cliquet ne regarde le code de SORTIE de la banque : 439 garde qu une entree PEUT rendre non nul, jamais ce que ce non-nul SIGNIFIE. Il porte sa contre-epreuve en montage REEL (depot jetable, probe_457 joue 3 fois : test vert -> 0, test rouge -> 1, git hors service -> 99) -- un chemin qui ne peut pas rendre les deux ne vaut rien, et sur une contre-epreuve le VERT est le resultat suspect, donc chaque scenario exige que sa mutation ait MORDU'
+       Doc  = 'docs/rl/case-471-tri-etat-des-cliquets.md' }
+
     # Le cliquet de la BANQUE elle-meme. Il est dans la banque, donc soumis a son propre critere.
     @{ Id = 'probe_439'; Argv = @('probe_439_cliquet_peut_rougir.py')
        Seul = 'un cliquet de CETTE banque incapable de rendre un code non nul -- il occupe la place d un garde-fou et s imprime comme << rien a signaler >> (3 occurrences, TOUTES trouvees a l oeil : probe_181 #430, probe_326 #435, et l audit manuel de #430 qui a rate la seconde)'
@@ -342,6 +366,11 @@ $Ratchets = @(
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 $WorkDir = Join-Path $Root 'scripts\python'
+
+# LE TRI-ETAT (#471). Table UNIQUE, dot-sourcee -- `Get-EtatCliquet` et `Get-CodeSortieBanque`.
+# Elle vit dans son propre fichier pour etre CONFRONTABLE sans etre reimplementee : dot-sourcer
+# `ratchets.ps1` lui-meme JOUERAIT la banque, donc aucun garde ne pourrait l'interroger.
+. (Join-Path $PSScriptRoot 'ratchets-verdict.ps1')
 
 function Convert-ToAscii([string] $s) {
     if ($null -eq $s) { return '' }
@@ -382,7 +411,8 @@ $sel = @($sel)
 
 # 64 = erreur d'USAGE, jamais un verdict. Rendre 1 ici la rendait indistinguable d'un cliquet
 # rouge : l'appelant lisait « 1 rouge » alors que RIEN n'avait tourne. Contrat documente en .OUTPUTS.
-$EX_USAGE = 64
+# La CONSTANTE vient de `ratchets-verdict.ps1` (dot-source plus haut) : la redefinir ici ferait
+# exister deux sources pour un meme contrat -- c'est ce que #430 combat sur la banque elle-meme.
 
 if ($sel.Count -eq 0) {
     Write-Output "[ratchets] USAGE : aucun cliquet selectionne. `-List` pour voir la banque."
@@ -471,12 +501,18 @@ $wall.Stop()
 foreach ($r in $results) { $dur[$r.Id] = $r.Sec }
 try { $dur | ConvertTo-Json -Compress | Set-Content -Path $durPath -Encoding utf8 } catch { }
 
+# TRI-ETAT (#471) : trois seaux, pas deux. `Get-EtatCliquet` est la table UNIQUE.
 $results = @($results | Sort-Object -Property @{ Expression = { $_.Rc -eq 0 } }, @{ Expression = 'Sec'; Descending = $true })
-$rouges = @($results | Where-Object { $_.Rc -ne 0 })
+$rouges   = @($results | Where-Object { (Get-EtatCliquet $_.Rc) -eq 'ROUGE' })
+$indispos = @($results | Where-Object { (Get-EtatCliquet $_.Rc) -eq 'INDISPO' })
 
 foreach ($r in $results) {
-    $etat = if ($r.Rc -eq 0) { 'OK   ' } else { 'ROUGE' }
-    Write-Output ("  {0}  {1,-22} {2,7} s   rc={3}" -f $etat, $r.Id, $r.Sec, $r.Rc)
+    $etat = switch (Get-EtatCliquet $r.Rc) {
+        'OK'      { 'OK    ' }
+        'INDISPO' { 'INDISP' }
+        default   { 'ROUGE ' }
+    }
+    Write-Output ("  {0} {1,-22} {2,7} s   rc={3}" -f $etat, $r.Id, $r.Sec, $r.Rc)
 }
 Write-Output ""
 
@@ -485,15 +521,23 @@ Write-Output ""
 # non ancre matchait les `MANQUANTS=0` de probe_313 et repoussait la seule ligne utile hors cadre.
 $rxFail = 'AssertionError|Traceback|\bBLOQUANT|VERDICT:\s*FAIL|\]\s*ROUGE|[A-Za-z]Error:' +
           '|^\s*(E\s|FAILED\b|ROUGE\b|FAIL\b|MANQUANT\b|MORT\b|MORTE\b|INTROUVABLE\b|ORPHELINE\b|RENUMEROTE\b)'
-foreach ($r in $rouges) {
+# Motif de la cause d'une INDISPONIBILITE (#471). Distinct : un cliquet qui n'a rien mesure DIT
+# pourquoi (`REFUS`, `rc=99`, `aucun verdict`), et ces lignes-la ne matchent aucun motif de faute.
+# Sans motif propre, l'extrait retomberait sur la queue du log et noierait la cause reelle.
+$rxIndispo = 'REFUS|NON MESURE|non mesure|aucun verdict|MONTAGE|rc=99|rc=64|USAGE|' +
+             'CalledProcessError|Traceback|[A-Za-z]Error:'
+
+function Show-Detail {
+    param($R, [string] $Bandeau, [string] $Regex, [string] $Note)
     Write-Output ("=" * 88)
-    Write-Output ("ROUGE  {0}   (rc={1}, {2} s)" -f $r.Id, $r.Rc, $r.Sec)
-    Write-Output ("  commande      : cd scripts/python ; {0}" -f $r.Cmd)
-    Write-Output ("  seul a voir   : {0}" -f (Convert-ToAscii $r.Seul))
-    Write-Output ("  doc           : {0}" -f $r.Doc)
-    Write-Output ("  log complet   : {0}" -f $r.Log)
-    $nonVides = @($r.Out | Where-Object { $_.Trim() -ne '' })
-    $lignes = @($nonVides | Where-Object { $_ -match $rxFail })
+    Write-Output ("{0}  {1}   (rc={2}, {3} s)" -f $Bandeau, $R.Id, $R.Rc, $R.Sec)
+    if ($Note) { Write-Output ("  {0}" -f $Note) }
+    Write-Output ("  commande      : cd scripts/python ; {0}" -f $R.Cmd)
+    Write-Output ("  seul a voir   : {0}" -f (Convert-ToAscii $R.Seul))
+    Write-Output ("  doc           : {0}" -f $R.Doc)
+    Write-Output ("  log complet   : {0}" -f $R.Log)
+    $nonVides = @($R.Out | Where-Object { $_.Trim() -ne '' })
+    $lignes = @($nonVides | Where-Object { $_ -match $Regex })
     # Repli : aucun motif reconnu (un cliquet neuf, un crash inattendu) -> la QUEUE du log.
     $depuisLaQueue = $lignes.Count -eq 0
     if ($depuisLaQueue) { $lignes = $nonVides }
@@ -512,13 +556,33 @@ foreach ($r in $rouges) {
         Write-Output ("  derniere ligne: " + (Convert-ToAscii $nonVides[-1]))
     }
 }
-if ($rouges.Count -gt 0) { Write-Output ("=" * 88) }
+
+foreach ($r in $rouges) { Show-Detail $r 'ROUGE' $rxFail '' }
+# Les INDISPONIBLES sont affiches avec le MEME niveau de detail : ils ne se taisent pas. Ce qui
+# change, c'est l'ACCUSE -- le harnais, pas le code fusionne -- donc la conduite a tenir.
+foreach ($r in $indispos) {
+    Show-Detail $r 'INDISPONIBLE' $rxIndispo `
+        'RIEN N A ETE MESURE ici : ce cliquet accuse le HARNAIS, pas le code. Rejouer CETTE entree seule ; si elle passe, la cause etait transitoire -- le DIRE dans la PR, ne pas la taire.'
+}
+if ($rouges.Count -gt 0 -or $indispos.Count -gt 0) { Write-Output ("=" * 88) }
 
 $mur = [Math]::Round($wall.Elapsed.TotalSeconds, 1)
-if ($rouges.Count -eq 0) {
+$ids = { param($x) ($x | ForEach-Object { $_.Id }) -join ', ' }
+if ($rouges.Count -eq 0 -and $indispos.Count -eq 0) {
     Write-Output ("[ratchets] BANQUE VERTE -- {0} cliquet(s), mur {1} s." -f $sel.Count, $mur)
+} elseif ($rouges.Count -eq 0) {
+    Write-Output ("[ratchets] BANQUE INDISPONIBLE -- {0}/{1} cliquet(s) n'ont RIEN MESURE : {2}. Mur {3} s." `
+        -f $indispos.Count, $sel.Count, (& $ids $indispos), $mur)
+    Write-Output "[ratchets] Aucun rouge par ailleurs. Ce n'est PAS un verdict favorable sur le depot :"
+    Write-Output "[ratchets] c'est l'absence de verdict sur ces entrees-la."
 } else {
     Write-Output ("[ratchets] BANQUE ROUGE -- {0}/{1} cliquet(s) : {2}. Mur {3} s." `
-        -f $rouges.Count, $sel.Count, (($rouges | ForEach-Object { $_.Id }) -join ', '), $mur)
+        -f $rouges.Count, $sel.Count, (& $ids $rouges), $mur)
+    if ($indispos.Count -gt 0) {
+        # Le rouge prime dans le CODE de sortie ; l'indisponible doit rester LISIBLE quand meme,
+        # sinon corriger le rouge rendrait la banque verte sur une entree jamais mesuree.
+        Write-Output ("[ratchets] + {0} cliquet(s) INDISPONIBLE(S) (rien mesure) : {1}." `
+            -f $indispos.Count, (& $ids $indispos))
+    }
 }
-exit $rouges.Count
+exit (Get-CodeSortieBanque -Rouges $rouges.Count -Indispos $indispos.Count)

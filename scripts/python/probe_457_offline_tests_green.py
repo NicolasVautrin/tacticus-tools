@@ -93,6 +93,25 @@ Deux verrous, dans cet ordre :
 `EX_NON_MESURE = 99` est la convention deja tenue par `scripts/ratchets-bg.ps1` : << aucun verdict
 sur le depot >>, a ne JAMAIS lire comme un rouge de gisement (ni comme un vert).
 
+LE TRI-ETAT S'ARRETAIT AU SEUIL DU MONTAGE (#471)
+--------------------------------------------------
+Ces deux verrous couvraient le CWD et l'ecriture -- pas la panne de l'OUTIL. `candidate_files`
+portait un `check=True` nu : `git ls-files` en echec levait `CalledProcessError`, donc rc=1, donc
+un ROUGE de gisement pour une panne d'outil. Mesure du 2026-08-04 sur `d2ede23d` :
+`BANQUE ROUGE -- 1/40 : probe_457:s3` alors que ce shard avait crashe en 4,5 s SANS JOUER UN SEUL
+TEST (rc 128), les 7 autres etant VERTS et la commande rejouee a la main rendant rc=0.
+
+Trois consequences, toutes portees par `MontageImpossible` et son foyer `_git` :
+  * la panne d'outil rend desormais `EX_NON_MESURE`, et `ratchets.ps1` la classe `INDISPONIBLE` ;
+  * `_modules_du_graphe` ne rend plus `{}` EN SILENCE sur un git en echec -- ce repli-la etait pire
+    qu'un crash : `mods` vide vide la cloture du graphe, donc `impacted_files` SOUS-selectionne,
+    c'est-a-dire un FAUX VERT ;
+  * l'attrape est ETROITE (type dedie, sites nommes) : un `except Exception` avalerait un bug du
+    probe lui-meme et le ferait passer pour une indisponibilite.
+
+Le CRITERE qui separe montage et mesure -- et sa borne, un `git ls-files` a rc=0 et liste VIDE qui
+reste un ROUGE -- vit dans `scripts/ratchets-verdict.ps1`. Contre-epreuve : `probe_471`.
+
 L'EMPREINTE NE DOIT RIEN AU `__pycache__` DE LA MACHINE (#464-r2)
 -----------------------------------------------------------------
 Le hook d'audit compte comme lecture GLOBALE tout `open` fait hors d'un test. Or, SANS bytecode,
@@ -200,10 +219,75 @@ EX_NON_MESURE = 99
 RC_PYTEST_SANS_MESURE = (2, 3, 4, 5)
 
 
+class MontageImpossible(RuntimeError):
+    """Le probe n'a pas pu CONSTITUER l'objet de sa mesure. Rend `EX_NON_MESURE`, JAMAIS 1 (#471).
+
+    LE CRITERE, ET POURQUOI IL EST ETROIT
+    -------------------------------------
+    Cette exception ne se leve que sur une panne de ce dont le probe DEPEND et qui n'est PAS le
+    depot : le CWD que l'appelant lui donne, les outils externes qu'il invoque (`git`, `pytest` en
+    tant que programme), le systeme de fichiers. Le test operationnel tient en une question --
+    << un depot PARFAIT, a cet instant, sur cette machine, aurait-il produit ce meme echec ? >>.
+
+    Ce qu'elle NE couvre PAS, et qui reste un ROUGE : un `git ls-files` qui repond rc=0 avec une
+    liste VIDE (reponse VALIDE de l'outil = fait sur le depot -> perimetre effondre), un test
+    offline qui echoue, un shard vide hors selection. C'est la frontiere a ne pas laisser glisser :
+    sans elle, << je n'ai rien trouve >> deviendrait << je n'ai pas pu regarder >>.
+
+    LE GISEMENT MESURE (2026-08-04, banque sur `d2ede23d`)
+    ------------------------------------------------------
+    `[ratchets] BANQUE ROUGE -- 1/40 cliquet(s) : probe_457:s3`. Or cette tranche n'a joue AUCUN
+    test : elle a crashe en 4,5 s dans son propre montage, sur
+    `subprocess.CalledProcessError: Command '['git', 'ls-files', 'scripts/python/tests']' returned
+    non-zero exit status 128` (`candidate_files`, appele depuis `main`). Les 7 autres shards
+    etaient VERTS (s5 : 412,7 s, rc=0) et la commande rejouee a la main dans le meme worktree
+    rendait rc=0 immediatement -- donc TRANSITOIRE, pas un etat casse.
+
+    Une exception non rattrapee rend `1` en Python : le crash sortait donc EXACTEMENT comme
+    << un test offline est rouge >>. Le tri-etat de `probe_457` existait deja (garde de CWD,
+    refus d'ecrire, rc pytest d'usage) mais s'ARRETAIT AU SEUIL DU MONTAGE.
+
+    ⚠ AUCUNE PARADE N'EST CODEE SUR LA CAUSE de ce 128. L'hypothese << contention git >> (les
+    worktrees partagent `.git/`, la banque tournait pendant un `git merge --no-ff` dans l'arbre
+    principal) est PLAUSIBLE et NON ETABLIE -- la trancher demanderait de rejouer une passe AVEC
+    et SANS operation git concurrente. Le defaut ferme ici est le TRI-ETAT, qui vaut quelle que
+    soit la cause. Aucun rejeu automatique non plus : << un rejeu qui passe ne prouve rien >>.
+    """
+
+
 def repo_root() -> Path:
     """Racine du checkout COURANT. Depuis un worktree, c'est le worktree -- jamais l'arbre
     principal (#434 : un cliquet ne balaie QUE son propre checkout)."""
     return _PYDIR.parents[1]
+
+
+def _git(args: list, quoi: str, tolere_rc: bool = False, racine=None):
+    """FOYER UNIQUE des appels a `git` (#471). Rend le `CompletedProcess`.
+
+    `tolere_rc=True` : le rc non nul est une INFORMATION que l'appelant sait interpreter (une ref
+    inconnue de `git diff` fait rejouer TOUT, et c'est le comportement voulu). Sinon, un rc non nul
+    est une panne d'outil -> `MontageImpossible`.
+
+    Une `OSError` (git absent du PATH, process non lancable) leve TOUJOURS : aucun appelant ne peut
+    en tirer une information sur le depot.
+
+    Pourquoi un foyer : le crash mesure venait d'un `check=True` isole. Disperser la traduction
+    << panne d'outil -> non mesure >> sur chaque site rouvrirait le trou au premier appel ajoute --
+    c'est la meme raison qui fait de `_ecrire_mesure` le foyer unique des ECRITURES.
+    """
+    cmd = ["git", "-C", str(racine or repo_root()), *args]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise MontageImpossible(
+            "`git %s` n'a pas pu etre lance (%s: %s) -- %s"
+            % (" ".join(args), type(exc).__name__, exc, quoi)) from exc
+    if proc.returncode != 0 and not tolere_rc:
+        raise MontageImpossible(
+            "`git %s` a rendu rc=%d -- %s. stderr: %s"
+            % (" ".join(args), proc.returncode, quoi, (proc.stderr or "").strip()[:300]))
+    return proc
 
 
 def _exiger_cwd() -> str:
@@ -235,9 +319,15 @@ def candidate_files() -> list[str]:
 
     Le REPERTOIRE est passe a git (qui descend seul), et la selection des fichiers se fait ICI, en
     Python : c'est ce qui rend le perimetre relisable et testable, au lieu de dependre de la
-    semantique d'un glob (#457-r5)."""
-    out = subprocess.run(["git", "ls-files", TESTS_DIR], capture_output=True, text=True,
-                         cwd=str(repo_root()), check=True)
+    semantique d'un glob (#457-r5).
+
+    #471 : un `git ls-files` en echec leve `MontageImpossible` (-> rc 99) au lieu du
+    `CalledProcessError` du `check=True` d'origine, qui sortait en rc=1 -- indistinguable d'un test
+    offline rouge. C'est le crash EXACT mesure le 2026-08-04 sur `probe_457:s3` (rc 128).
+    Une liste VIDE, elle, n'est PAS une panne : c'est une reponse valide, donc un fait sur le
+    depot, et le garde anti-effondrement de `main` la traite en ROUGE."""
+    out = _git(["ls-files", TESTS_DIR],
+               "impossible d'enumerer le perimetre des tests -- RIEN n'a ete mesure")
     prefix = "scripts/python/"
     rels = []
     for line in out.stdout.splitlines():
@@ -480,9 +570,9 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
     if empreinte is not None:
         # Empreinte MESUREE -- VERSIONNEE, avec le commit qui l'horodate (cf. `_footprints_path`).
         # Sans `_commit`, la selection ne peut pas mesurer son age et refuse de s'appliquer.
-        import subprocess as _sp
-        tete = _sp.run(["git", "-C", str(repo_root()), "rev-parse", "HEAD"],
-                       capture_output=True, text=True)
+        # `tolere_rc` : un rc non nul laisse `_commit` a None, et `impacted_files` REFUSE alors de
+        # s'appliquer (TOUT rejoue) -- degradation SURE, deja ecrite ; pas de quoi lever.
+        tete = _git(["rev-parse", "HEAD"], "horodatage de l'empreinte", tolere_rc=True)
 
         def _versionnable(r: str) -> bool:
             # Bruit MACHINE, jamais dans un diff : bytecode et sorties de run. Les garder gonflerait
@@ -759,11 +849,14 @@ def _modules_du_graphe(racine=None) -> dict:
     decider qu'une lecture globale est deja couverte. Les deriver separement -- une fois a
     l'ecriture de l'empreinte, une fois a sa lecture -- ouvrirait un ecart SILENCIEUX : une
     lecture retiree d'un cote sans etre couverte de l'autre est exactement le faux vert de #464.
+
+    #471 : `git` en echec levait un `{}` SILENCIEUX. C'etait pire qu'un crash -- avec `mods` vide,
+    la cloture du graphe d'imports est vide, donc `impacted_files` SOUS-selectionne : un faux VERT,
+    exactement le mode de defaillance que `_footprints_path` decrit pour une empreinte videe.
+    Desormais la panne d'outil leve, et le probe rend << non mesure >>.
     """
-    import subprocess
-    racine = racine or repo_root()
-    r = subprocess.run(["git", "-C", str(racine), "ls-files", "scripts/python"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = _git(["ls-files", "scripts/python"],
+             "impossible de deriver le domaine du graphe d'imports", racine=racine)
     return {l.strip(): _module_name(l.strip())
             for l in r.stdout.splitlines() if l.strip().endswith(".py")}
 
@@ -891,9 +984,13 @@ def _footprints() -> dict:
 
 
 def _changed(ref: str) -> list:
-    import subprocess
-    r = subprocess.run(["git", "-C", str(repo_root()), "diff", "--name-only", ref, "HEAD"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    """Les fichiers changes entre `ref` et HEAD, ou `None` si la ref est inconnue de git.
+
+    `tolere_rc=True` a dessein : un rc non nul dit ici << cette ref n'existe pas >>, ce que
+    `impacted_files` traduit deja en << TOUT rejoue >>. C'est une INFORMATION exploitable, pas une
+    panne d'outil -- la seule panne (git non lancable) leve depuis `_git` (#471)."""
+    r = _git(["diff", "--name-only", ref, "HEAD"],
+             "diff de selection `--since`", tolere_rc=True)
     if r.returncode != 0:
         return None
     return sorted({l.strip() for l in r.stdout.splitlines() if l.strip()})
@@ -990,6 +1087,23 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
 
 
 def main(argv=None) -> int:
+    """Point d'entree. TROIS issues, jamais deux (#471) : 0 = mesure VERTE, 1 = mesure ROUGE,
+    `EX_NON_MESURE` = RIEN n'a pu etre mesure (montage). Le tri est porte par `_run`, ce corps-ci
+    n'est que la TRADUCTION d'un echec de montage en code de sortie."""
+    try:
+        return _run(argv)
+    except MontageImpossible as exc:
+        # ATTRAPE ETROITE, et c'est le point : seuls les sites de MONTAGE levent ce type (cf.
+        # `_git`). Un `except Exception` ici avalerait un bug du probe lui-meme et le ferait
+        # passer pour une indisponibilite -- l'echappatoire exacte que ce tri-etat doit eviter.
+        print("[457] MONTAGE EN ECHEC : %s" % exc)
+        print("[457] RIEN n'a ete mesure, RIEN n'a ete ecrit. Ce n'est PAS un verdict sur le")
+        print("[457] depot -- ni un rouge de gisement, ni un vert.")
+        print("[457] rc=%d" % EX_NON_MESURE)
+        return EX_NON_MESURE
+
+
+def _run(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--since", default=None,
                     help="Ne joue que les fichiers IMPACTES par le diff <ref>..HEAD (empreinte "
