@@ -234,15 +234,60 @@ interface AddEvent {
 const factoryTrace = new OriginBuffers<FactoryEvent>(CAP, "dropNew");
 const addTrace = new OriginBuffers<AddEvent>(CAP, "dropNew");
 
+// ── Ce que les hooks de FACE ont pose, et ce qu'ils ont TRAVERSE ──────────────────────────────
+//
+// ⚠ CE BLOC EXISTE PARCE QU'UNE MESURE EST RESTEE INDECIDABLE SANS LUI (2026-08-04). La capture
+// a rendu 693 `Add`, TOUS etiquetes `attacker`, ZERO `defender`. Deux lectures incompatibles
+// expliquaient ce meme chiffre, et rien de ce que le capteur publiait ne les separait :
+//   (a) la fenetre DEFENSEUR n'est pas traversee sur ce chemin — un resultat ;
+//   (b) le hook DEFENSEUR n'a pas ete pose (surcharge non resolue) — une panne de capteur.
+// Un capteur doit pouvoir dire laquelle. `facesPosed` repond a (b) — quelles surcharges,
+// avec quelle arite, ont recu un `Interceptor.attach` — et `faceEnters` repond a (a) :
+// combien de fois CHAQUE fenetre a ete franchie, INDEPENDAMMENT de tout `Add`. Une fenetre
+// traversee 0 fois avec un hook pose est une mesure ; sans le compteur, c'est une ambiguite.
+const facesPosed: Array<{ name: string; params: number; face: string; ptr: string }> = [];
+const faceEnters: { attacker: number; defender: number } = { attacker: 0, defender: 0 };
+
 // ── Layout runtime (l'ARBITRE de toute interpretation) ────────────────────────────────────────
 
-interface LayoutEntry { cls: string; size: number; fields: Array<{ name: string; offset: number; type: string }>; }
+interface LayoutEntry {
+    cls: string; size: number;
+    fields: Array<{ name: string; offset: number; type: string }>;
+    /** Les MEMES champs, ramenes a l'origine de la struct NUE (`offset - 0x10` sur un ValueType).
+     *  ⚠ CE CHAMP EXISTE PARCE QUE SON ABSENCE A DEJA INDUIT EN ERREUR (mesure du 2026-08-04).
+     *  `field_get_offset` publie l'offset dans la representation BOXEE — en-tete d'objet de
+     *  0x10 compris — alors que les constantes de ce module (`DM_*`, `DB_*`) sont les offsets
+     *  de la struct NUE, celle que les `Add` recoivent par pointeur. Lus cote a cote, les deux
+     *  series semblent toutes decalees et se lisent comme « tous les offsets du capteur sont
+     *  faux » ; elles concordent EXACTEMENT une fois l'en-tete retire. Un capteur qui publie
+     *  deux referentiels sans les nommer fabrique un faux ecart. */
+    nakedFields?: Array<{ name: string; offset: number; type: string }>;
+    isValueType?: boolean;
+    note?: string;
+}
+/** Bit `IL2CPP_CLASS_VALUE_TYPE` du `Il2CppClass` (byte de flags @+0x127 sur ce build). Lu en
+ *  best-effort : `undefined` = pas mesure, jamais un `false` fabrique. */
+function isValueType(k: NativePointer): boolean | undefined {
+    try { return (k.add(0x127).readU8() & 0x01) !== 0; } catch { return undefined; }
+}
+
 function dumpLayout(ns: string, cls: string): LayoutEntry | { cls: string; error: string } {
     const k = findClassAnywhere(ns, cls);
     if (!k) return { cls: ns + "." + cls, error: "classe non resolue" };
     let size = -1;
     try { size = k.add(0x18).readS32(); } catch { /* laisse -1 */ }
-    return { cls: ns + "." + cls, size, fields: classFieldsDump(k) };
+    const fields = classFieldsDump(k);
+    const vt = isValueType(k);
+    return {
+        cls: ns + "." + cls, size, fields,
+        isValueType: vt,
+        nakedFields: fields.map((f) => ({ ...f, offset: f.offset - 0x10 })),
+        note: "`fields` = offsets BOXES (en-tete d'objet 0x10 compris, tels que rendus par"
+            + " field_get_offset). `nakedFields` = les memes moins 0x10 : c'est CE referentiel"
+            + " que les constantes DM_*/DB_* de ce module emploient, parce qu'un ValueType"
+            + " passe aux `Add` par pointeur n'a pas d'en-tete. Comparer aux constantes SANS"
+            + " cette conversion fabrique un ecart de 0x10 qui n'existe pas.",
+    };
 }
 
 // ── Ancrage 1 : la FABRIQUE ───────────────────────────────────────────────────────────────────
@@ -357,6 +402,7 @@ function installFaceHooks(): boolean {
                     const self = this as { _pushed?: boolean };
                     self._pushed = false;
                     if (!trace.on) return;
+                    faceEnters[face]++;
                     faceStack.push(face);
                     curFace = face;
                     self._pushed = true;
@@ -372,6 +418,7 @@ function installFaceHooks(): boolean {
                 },
             });
             posed++;
+            facesPosed.push({ name, params: n, face, ptr: mi.ptr.toString() });
             log("[effect-bonus-trace] hooke " + name + "(" + n + ") -> face=" + face
                 + " @ " + mi.ptr);
         }
@@ -479,10 +526,21 @@ function installAddHooks(): boolean {
                                 return Number(raw) / 4294967296;
                             } catch { return NaN; }
                         })(),
+                        // ⚠ MESURE 2026-08-04 : sur 30 evenements de la surcharge 2, cet octet
+                        // valait `51` — pas un booleen. L'octet @+8 du `Nullable<Fix64>` n'est
+                        // donc PAS son `has_value` sur ce build (padding, ou layout
+                        // value-first inverse). Un capteur ne publie pas un octet arbitraire
+                        // sous un nom qui promet un booleen : hors {0,1} on rend `-1`
+                        // (« pas mesure »), et l'octet brut reste lisible dans `modifierHex`.
+                        // La question se tranche de toute facon SANS lui : quand `modifier` a
+                        // une valeur, la surcharge 2 DELEGUE a la surcharge 1, dont l'evenement
+                        // porte le multiplicateur reellement applique.
                         modifierHasValue: (() => {
                             try {
                                 if (n !== 2) return -1;               // sans objet (Fix64 nu)
-                                return (m && !m.isNull()) ? m.add(8).readU8() : -1;
+                                if (!m || m.isNull()) return -1;
+                                const b = m.add(8).readU8();
+                                return (b === 0 || b === 1) ? b : -1;
                             } catch { return -1; }
                         })(),
                         addBefore: before.add, addAfter: after.add,
@@ -532,6 +590,8 @@ export function register(ctx: Ctx): void {
         // porter a la capture suivante une face qui n'est pas la sienne.
         faceStack.length = 0;
         curFace = null;
+        faceEnters.attacker = 0;
+        faceEnters.defender = 0;
         trace.on = true;
         return { ok: true, armed, hooks: r, budget: trace.budget };
     };
@@ -555,6 +615,10 @@ export function register(ctx: Ctx): void {
         return {
             ok: true,
             on: trace.on, armed, spent: trace.spent, budget: trace.budget,
+            // Ce que les hooks de face ONT POSE, et combien de fois chaque fenetre a ete
+            // FRANCHIE — sans ces deux-la, un `0 defender` dans `adds` ne separe pas
+            // « fenetre non traversee » de « hook non pose ». Cf. le bloc de declaration.
+            facesPosed, faceEnters: { ...faceEnters },
             factory: factoryTrace.entries(rid),
             adds: addTrace.entries(rid),
         };
