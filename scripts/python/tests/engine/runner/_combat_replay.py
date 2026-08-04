@@ -165,6 +165,9 @@ def _do_replay(rpc, rid, board, champ, tgt, move_to):
     exact = (rr.get("per_hit") == live_ph and off_after == live_after)
     return {"ok": True, "reason": None, "exact": exact, "hits": rr.get("hits"),
             "live_ph": live_ph, "off_ph": rr.get("per_hit"),
+            # PV de la cible AVANT la salve — ce qui permet a un appelant de dire si le regime
+            # mesure est OVERKILL (`sum(per_hit) == hp_before`) ou non, au lieu de le supposer.
+            "hp_before": hp_before,
             "live_after": live_after, "off_after": off_after,
             "armor": rr.get("armor"), "pierce": rr.get("pierce"),
             "did_crit": dc, "did_block": db, "did_evade": de, "effects": att_eff}

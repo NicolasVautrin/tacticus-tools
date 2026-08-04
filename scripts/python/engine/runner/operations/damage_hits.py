@@ -77,6 +77,46 @@ def crit_gate_open(crit_allowed: bool, is_attack_damage_op: bool) -> bool:
     return (not is_attack_damage_op) or crit_allowed
 
 
+def damage_amount_applied(health: int, shield: int, hp_left: int,
+                          hp_floor: Optional[int] = None) -> tuple:
+    """Le tag `Amount` (TagKey 225) de l'event `UnitDamaged` d'UN coup, et les PV restants APRES.
+
+    `IdunBattle.Core.Services.StreamHelper$$GetDamageTags` ecrit ce tag depuis le champ @+0 de la
+    valeur de retour d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` : un accumulateur
+    memset a 0 en tete d'`Execute` et alimente par EXACTEMENT DEUX termes, tous deux des retraits
+    REELLEMENT appliques -- jamais le degat demande :
+
+        amount  = FillUpStatComponent.Reduce(healthComponent, dar.healthDamage, ignoreMinimum:false)
+        amount += ApplyDamageOperation.ReduceShield(unit, dar.shieldDamage)
+
+    et `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` est L'ETAGE QUI BORNE :
+
+        applied = Math.Min(Math.Max(0, damage), Current)                  # @+0x18 = PV courants
+        if (!ignoreMinimum && Minimum.HasValue)                           # @+0x1c = Nullable<int>
+            applied = Math.Min(Current - Math.Min(Current, Minimum.Value), applied)
+        Current -= applied ; <compteur @+0x24> += Math.Max(0, damage - applied) ; return applied
+
+    -- le SURPLUS part dans le compteur @+0x24, PAS dans la valeur de retour. C'est le meme
+    accumulateur que le natif grave ensuite dans `ActorStatisticsComponent+0x68`/`+0x6c`
+    (`last_hit_damage_taken`, cf. `components.py`), ce qui recoupe la lecture.
+
+    La part ARMURE-POOL n'y entre PAS : `IdunBattle.Core.Services.DamageAppliedResult$$.ctor` recoit
+    bien un `armorDamage` mais ne le STOCKE dans aucun champ, et
+    `IdunBattle.Core.Services.DamageAppliedResult$$get_Damage` rend `@+0x8 + @+0x4` = bouclier +
+    sante. Sans effet mesurable ici : aucun call-site de `_run_hits` ne passe `armor_pool`, donc
+    `Damage.armor` vaut 0 sur tous les chemins cables.
+
+    Fonction de MODULE, et pas une expression inline, pour la meme raison que `crit_gate_open` et
+    `block_runs_after_evasion` : c'est le point de MUTATION des contre-epreuves. La faire rendre
+    `(health + shield, hp_left)` restaure exactement le port d'AVANT #462-r4e-o (le degat BRUT
+    rapporte), qui DOIT diverger du live des que la cible meurt pendant la salve."""
+    applied = min(max(0, int(health)), hp_left)                # Min(Max(0, damage), Current)
+    if hp_floor is not None:
+        floor = min(hp_left, int(hp_floor))                    # Min(Current, Minimum.Value)
+        applied = min(hp_left - floor, applied)
+    return applied + int(shield), hp_left - applied            # + ReduceShield (deja borne)
+
+
 class _DamageHitsMixin:
     """Mixin PAR COUP de `AttackDamageOperation` : la boucle `_run_hits` (attaque normale ET
     ability). Sans etat (staticmethod) ; herite tel quel -> `AttackDamageOperation._run_hits`."""
@@ -292,34 +332,12 @@ class _DamageHitsMixin:
         _hp_left = [None if hp_current is None else max(0, int(hp_current))]
 
         def _amount_applied(dmg: Damage) -> int:
-            """Le tag `Amount` (TagKey 225) de l'event `UnitDamaged` de CE coup.
-
-            `IdunBattle.Core.Services.StreamHelper$$GetDamageTags` l'ecrit depuis le champ @+0 de la
-            valeur de retour d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`, un accumulateur
-            memset a 0 en tete d'`Execute` et alimente par EXACTEMENT DEUX termes, tous deux des
-            retraits REELLEMENT appliques -- jamais le degat demande :
-
-                amount  = FillUpStatComponent.Reduce(healthComp, dar.healthDamage, ignoreMinimum:false)
-                amount += ApplyDamageOperation.ReduceShield(unit, dar.shieldDamage)
-
-            et `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` BORNE :
-            `Min(Max(0, damage), Current)`, puis, si le `Nullable<int>` `Minimum` @+0x1c a une valeur,
-            `Min(Current - Min(Current, Minimum.Value), .)` (le HP-floor Hypersensory) ; le surplus
-            part dans le compteur @+0x24, PAS dans le retour. C'est le meme accumulateur que le natif
-            grave ensuite dans `ActorStatisticsComponent+0x68`/`+0x6c` (`last_hit_damage_taken`).
-
-            La part ARMURE-POOL n'y entre PAS : `DamageAppliedResult$$.ctor` recoit `armorDamage` et
-            ne le STOCKE PAS (aucun champ), et `DamageAppliedResult$$get_Damage` rend `+0x8 + +0x4`
-            = bouclier + sante. Sans PV captes (`hp_current is None`) on garde `GetTotal()`, faute de
-            quoi une borne serait inventee sur une cible dont on ne connait pas les PV."""
+            """Le tag `Amount` de CE coup + deplacement des PV restants (cf. `damage_amount_applied`)."""
             if _hp_left[0] is None:
                 return dmg.get_total()
-            applied = min(max(0, int(dmg.health)), _hp_left[0])      # Min(Max(0, dmg), Current)
-            if hp_floor is not None:
-                floor = min(_hp_left[0], int(hp_floor))              # Min(Current, Minimum.Value)
-                applied = min(_hp_left[0] - floor, applied)
-            _hp_left[0] -= applied                                   # Current -= applied
-            return applied + int(dmg.shield)                         # + ReduceShield (deja borne)
+            amount, _hp_left[0] = damage_amount_applied(
+                dmg.health, dmg.shield, _hp_left[0], hp_floor)
+            return amount
 
         def _roll_crit(idx: int) -> bool:
             """Le crit d'UN coup, gate compris -- foyer UNIQUE des deux branches de `_one_hit`.

@@ -124,7 +124,11 @@ Fidélité vérifiée sur **4 ranks** (1, 10, 17, 20) : pool 97, `reel` 6, `deri
 
 ---
 
-## 5. Résidu `#462-r4e-o` — le régime OVERKILL, trouvé en généralisant
+## 5. ~~Résidu~~ `#462-r4e-o` — le régime OVERKILL, trouvé en généralisant
+
+> **FERMÉ le 2026-08-04** — la borne est portée : `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce`.
+> RE, confrontation et résidu `#462-r4e-o-r1` : **`case-462-r4e-o-amount-borne-aux-pv.md`**.
+> Ce qui suit est le constat d'origine, conservé pour la trace de la mesure.
 
 Le replay tourne sur UN couple (board, seed). En balayant 3 boards × 3 seeds, `astraBullgryn` vs
 `eldarFarseer` diverge **sur le seul coup létal** :
