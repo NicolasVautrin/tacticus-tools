@@ -310,15 +310,45 @@ def _pos(u):
     return None if p.get("col") is None else (p["col"], p["row"])
 
 
+def _end_turn(sf: str, rid: int) -> None:
+    """Termine NOTRE tour, puis attend qu'il nous revienne.
+
+    ⚠ L'ordre est ce qui compte, et l'avoir inverse a coute une mesure : tester
+    `currentPlayer == 3` AVANT de finir le tour fait sortir immediatement (c'est deja notre tour),
+    donc le tour n'est JAMAIS termine -- les unites qui ont bouge restent sans action et l'approche
+    se bloque au deuxieme pas, avec le symptome trompeur « AUCUNE tuile movable »."""
+    _duel("act", "endturn", "--state-file", sf, "--no-ai")
+    for _ in range(4):
+        if rpc("battleStatus", {"runnerId": rid}, 40).get("currentPlayer") == 3:
+            return
+        _duel("act", "endturn", "--state-file", sf, "--no-ai")
+
+
+def _movement_reach(mbu: dict, uid: int, here) -> int:
+    """Portee de deplacement EFFECTIVE, mesuree sur les tuiles rendues -- le garde qui verifie que
+    la mutation `--unit-stat <X>:Movement=1` a MORDU. Une mutation qui ne prend pas laisse le
+    montage passer par chance de geometrie, et c'est le vert le plus dangereux."""
+    import hexgeo
+    tiles = [(t.get("col"), t.get("row")) for t in ((mbu.get(uid) or {}).get("tiles") or ())]
+    tiles = [t for t in tiles if t[0] is not None]
+    return max((hexgeo.distance(t, here) for t in tiles), default=0)
+
+
 def _approach(sf: str, rid: int, casters: dict, foe_id: int) -> dict:
     """Amene chaque caster a SA distance cible de l'unique cible, un hex par tour (`Movement = 1`).
 
     On vise une DISTANCE, pas « a portee » : c'est elle qui prive l'attaque normale de tout plan
     tout en laissant l'ability porter. `--no-ai` : l'adversaire ne bouge jamais, la geometrie est
     PILOTEE, pas subie. Un TOUR BLANC clot l'approche, sinon les unites qui viennent de bouger
-    n'ont plus d'action et `aiDryRunAllUnits` rend `FinishUnitTurnMessage`."""
+    n'ont plus d'action et `aiDryRunAllUnits` rend `FinishUnitTurnMessage`.
+
+    ⚠ Le PREMIER tour est le DEPLOIEMENT : `decisionView` y publie des positions de pre-placement,
+    et la premiere « distance » lue n'est pas une distance de board (mesure : 11 pour une unite qui
+    se retrouve a 3 apres UN hex). On solde donc un tour a vide avant de mesurer quoi que ce soit."""
     import hexgeo
     want = {vis: d for vis, _ab, _t, d in LIVE_CASTERS}
+    _end_turn(sf, rid)                      # solde le DEPLOIEMENT avant toute lecture de distance
+    reach = {}
     for _turn in range(MAX_APPROACH_TURNS):
         dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 300)
         by_id = {u.get("id"): u for u in (dv.get("units") or ())}
@@ -330,6 +360,10 @@ def _approach(sf: str, rid: int, casters: dict, foe_id: int) -> dict:
         mbu = {m.get("unitId"): m for m in (mov.get("units") or ())}
         moved = False
         for vis, uid in casters.items():
+            here = _pos(by_id[uid])
+            r = _movement_reach(mbu, uid, here)
+            if r:
+                reach[vis] = max(reach.get(vis, 0), r)
             if cur[vis] == want[vis]:
                 continue
             tiles = [(t.get("col"), t.get("row")) for t in ((mbu.get(uid) or {}).get("tiles") or ())]
@@ -344,19 +378,12 @@ def _approach(sf: str, rid: int, casters: dict, foe_id: int) -> dict:
             moved = moved or rc == 0
         if not moved:
             break
-        for _ in range(4):
-            if rpc("battleStatus", {"runnerId": rid}, 40).get("currentPlayer") == 3:
-                break
-            _duel("act", "endturn", "--state-file", sf, "--no-ai")
-    _duel("act", "endturn", "--state-file", sf, "--no-ai")       # TOUR BLANC
-    for _ in range(4):
-        if rpc("battleStatus", {"runnerId": rid}, 40).get("currentPlayer") == 3:
-            break
-        _duel("act", "endturn", "--state-file", sf, "--no-ai")
+        _end_turn(sf, rid)
+    _end_turn(sf, rid)                                           # TOUR BLANC
     dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 300)
     by_id = {u.get("id"): u for u in (dv.get("units") or ())}
     fp = _pos(by_id.get(foe_id) or {})
-    return {vis: hexgeo.distance(_pos(by_id[uid]), fp) for vis, uid in casters.items()}
+    return ({vis: hexgeo.distance(_pos(by_id[uid]), fp) for vis, uid in casters.items()}, reach)
 
 
 def _normal_has_plan(dv, uid: int) -> bool:
@@ -374,6 +401,57 @@ def _normal_has_plan(dv, uid: int) -> bool:
             if ev.get("abilityId") in nids and ev.get("rankCount"):
                 return True
     return False
+
+
+def _ability_castable_here(dv, uid: int, ability: int) -> bool:
+    """L'ability est-elle castable DEPUIS la tuile courante ? (sa tuile figure dans les `ranked` de
+    son eval). C'est le second garde de montage : sans lui, « le natif ne propose pas » se lirait
+    aussi bien comme « le gate mord » que comme « l'ability ne porte pas d'ici »."""
+    here = None
+    for u in (dv.get("units") or ()):
+        if u.get("id") == uid:
+            here = _pos(u)
+    for pl in (dv.get("attackPlans") or ()):
+        if pl.get("unitId") != uid:
+            continue
+        for ev in (pl.get("evals") or ()):
+            if ev.get("abilityId") != ability:
+                continue
+            if any((rk.get("col"), rk.get("row")) == here for rk in (ev.get("ranked") or ())):
+                return True
+    return False
+
+
+def _settle(sf: str, rid: int, casters: dict, max_steps: int = 2) -> None:
+    """Laisse le natif se POSER sur la tuile qu'il prefere, DANS LE MEME TOUR, avant de lire son
+    verdict d'ability.
+
+    `CalculateNextActionForUnit` rend UNE action a la fois : quand le maximum de `u_action` est sur
+    une AUTRE tuile que l'origine, il emet d'abord un `MoveUnitMessage` -- et l'ability, meme
+    parfaitement proposable, n'apparait qu'au pas SUIVANT. Mesure : `darkaTerminator` a `u = 2.0`,
+    ability `rankCount = 4` dont sa propre tuile, rendait `MoveUnitMessage vers (4,7)`.
+
+    ⚠ AUCUN `endturn` ici, et c'est le point : un deplacement ne consomme PAS l'action d'attaque du
+    tour. Solder le tour entre deux pas (ce que faisait la premiere version) rend au caster un
+    mouvement neuf a chaque fois -- mesure : les deux casters finissaient a portee de leur ATTAQUE
+    NORMALE (`normalPlan` passe de faux a vrai), ce qui detruisait precisement la neutralisation que
+    le montage cherche. Sans `endturn`, le mouvement est consomme des le premier pas : le sweep de
+    tuiles se reduit a l'origine et la normale ne peut plus revenir."""
+    for _ in range(max_steps):
+        dry = rpc("aiDryRunAllUnits", {"runnerId": rid}, 300)
+        by_uid = {u.get("unitId"): (u.get("proposed") or ()) for u in (dry.get("units") or ())}
+        moved = False
+        for _vis, uid in casters.items():
+            msgs = by_uid.get(uid) or ()
+            mv = next((m for m in msgs if m.get("cls") == "MoveUnitMessage"), None)
+            to = (mv or {}).get("to") or {}
+            if to.get("col") is None:
+                continue
+            rc, _o = _duel("act", "move", "--state-file", sf, "--unit", str(uid),
+                           "--to", "%d,%d" % (to["col"], to["row"]))
+            moved = moved or rc == 0
+        if not moved:
+            return
 
 
 def _stage(logs: str, tag: str, hp: int) -> dict:
@@ -397,8 +475,10 @@ def _stage(logs: str, tag: str, hp: int) -> dict:
         _dispose(rid)
         raise MontageError("montage NON INSTALLE (%s) : casters absents=%s, cible=%s"
                            % (tag, missing, foe_id))
-    dist = _approach(sf, rid, ids, foe_id)
-    return {"tag": tag, "rid": rid, "sf": sf, "hp": hp, "ids": ids, "foe": foe_id, "dist": dist}
+    dist, reach = _approach(sf, rid, ids, foe_id)
+    _settle(sf, rid, ids)
+    return {"tag": tag, "rid": rid, "sf": sf, "hp": hp, "ids": ids, "foe": foe_id,
+            "dist": dist, "reach": reach}
 
 
 def _ctx(case: dict, uid: int):
@@ -453,17 +533,25 @@ def gate_cut():
 
 
 def _measure(case: dict) -> list:
+    import hexgeo
     nat = _native_proposes(case)
     rows = []
     for vis, ab, thr, want_d in LIVE_CASTERS:
         dv, ctx = _ctx(case, case["ids"][vis])
+        by_id = {u.get("id"): u for u in (dv.get("units") or ())}
+        # DISTANCE re-mesuree ICI, pas celle de la fin de l'approche : `_settle` a pu deplacer le
+        # caster d'un hex de plus, et c'est la geometrie AU MOMENT DE LA LECTURE qui compte.
+        case["dist"][vis] = hexgeo.distance(_pos(by_id[case["ids"][vis]]),
+                                            _pos(by_id.get(case["foe"]) or {}))
         u, port = _port_u(ctx, ab, case["foe"])
         with gate_cut():
             _u2, cut = _port_u(ctx, ab, case["foe"])
         rows.append({
             "arm": case["tag"], "caster": vis, "ability": ab, "threshold": thr,
             "hp": case["hp"], "dist": case["dist"].get(vis), "want_dist": want_d,
+            "reach": case["reach"].get(vis),
             "normal_plan": _normal_has_plan(dv, case["ids"][vis]),
+            "castable_here": _ability_castable_here(dv, case["ids"][vis], ab),
             "u": u, "native": nat[vis][0], "port": port, "port_gate_cut": cut,
             "msgs": nat[vis][1],
         })
@@ -494,10 +582,10 @@ def etape4_live(logs: str, verbose: bool = True) -> dict:
     if verbose:
         print("[etape 4] live -- board %s seed %s, Movement=%d, cible %s" % (BOARD, SEED, MOVEMENT, FOE))
         for r in rows:
-            print("  [%-2s] %-16s ab=%-5d seuil=%.1f hp=%-9d dist=%-2s(vis %s) normalPlan=%-5s "
-                  "u=%-10s natif=%-5s port=%-5s"
+            print("  [%-2s] %-16s ab=%-5d seuil=%.1f hp=%-9d dist=%-2s reach=%-2s normalPlan=%-5s "
+                  "castHere=%-5s u=%-10s natif=%-5s port=%-5s"
                   % (r["arm"], r["caster"], r["ability"], r["threshold"], r["hp"], r["dist"],
-                     r["want_dist"], r["normal_plan"],
+                     r["reach"], r["normal_plan"], r["castable_here"],
                      "None" if r["u"] is None else round(r["u"], 4), r["native"], r["port"]))
         print("  -- contre-epreuve gate-coupe (= le port d'avant cette tranche) --")
         for r in rows:
@@ -506,10 +594,17 @@ def etape4_live(logs: str, verbose: bool = True) -> dict:
                      "MORD" if r["port_gate_cut"] != r["port"] else "inerte"))
 
     for r in rows:
-        # MONTAGE : sans ces deux-la, la ligne ne mesure pas ce qu'elle annonce.
-        if r["dist"] != r["want_dist"] or r["normal_plan"]:
-            print("  BAD MONTAGE [%s] %s : dist=%s (voulu %s) normalPlan=%s"
-                  % (r["arm"], r["caster"], r["dist"], r["want_dist"], r["normal_plan"]))
+        # MONTAGE, TROIS conditions -- sans elles la ligne ne mesure pas ce qu'elle annonce :
+        #   `reach == MOVEMENT`     la mutation `--unit-stat <X>:Movement=1` a MORDU (un vert
+        #                           obtenu sur une mutation qui ne prend pas est le plus dangereux) ;
+        #   `not normal_plan`       l'attaque normale n'a AUCUN plan, donc son custom `Fix64(1)`
+        #                           ne peut pas rafler l'argmax et masquer le gate ;
+        #   `castable_here`         l'ability, elle, EST castable depuis la tuile courante -- sinon
+        #                           « le natif ne propose pas » ne dirait rien du gate.
+        if r["reach"] != MOVEMENT or r["normal_plan"] or not r["castable_here"]:
+            print("  BAD MONTAGE [%s] %s : reach=%s (voulu %d) normalPlan=%s castHere=%s dist=%s"
+                  % (r["arm"], r["caster"], r["reach"], MOVEMENT, r["normal_plan"],
+                     r["castable_here"], r["dist"]))
             bad += 1
             continue
         # CRITERE A (necessite, symetrique) : le port ne refuse JAMAIS ce que le natif CHOISIT.
