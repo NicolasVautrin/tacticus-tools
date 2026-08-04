@@ -99,20 +99,21 @@ Le hook d'audit compte comme lecture GLOBALE tout `open` fait hors d'un test. Or
 l'import ouvre la SOURCE `.py` -- et la mesure devenait donc une fonction de l'etat du cache de la
 machine. Mesure du 2026-08-04, MEME arbre, MEME probe :
 
-| regime | `_globales` ecrites | dont `.py` | dont NON-`.py` |
-| --- | --- | --- | --- |
-| worktree FROID (0 `__pycache__`) | **552** | 549 | 3 |
-| arbre CHAUD | **9** | 6 | 3 |
+| regime | `_globales` ecrites | dont `.py` | dont NON-`.py` | `par_test` |
+| --- | --- | --- | --- | --- |
+| worktree FROID (0 `__pycache__`) | **552** | 549 | 3 | 52 |
+| arbre CHAUD | **3** | 0 | 3 | 47 |
 
 Les 3 NON-`.py` sont les MEMES des deux cotes (`data/seed-bc.json`, `data/symbols/CURRENT`,
 `scripts/python/pytest.ini`) : le noyau utile etait stable, tout le reste etait du bytecode.
 
-ATTENTION -- L'effet REEL de ce bruit n'est PAS celui qu'on croit, et la mesure le tranche : un `.py` du
-domaine place dans `_globales` **n'a AUCUN effet quand LUI-MEME change** -- `impacted_files`
-construit `hors_py = [c for c in changes if c not in mods]`, donc un module de `scripts/python`
-n'est JAMAIS confronte a `_globales`. Son seul effet residuel passait par `dirs_glob` : un fichier
-NON-`.py` du meme REPERTOIRE forcait le rejeu total. Un diff purement Python ne declenchait donc
-jamais << TOUT rejoue >> par cette voie.
+ATTENTION -- l'effet REEL de ce bruit n'est PAS celui qu'on croit, et la mesure le tranche : un
+`.py` du domaine place dans `_globales` **n'a AUCUN effet quand LUI-MEME change** --
+`impacted_files` construit `hors_py = [c for c in changes if c not in mods]`, donc un module de
+`scripts/python` n'est JAMAIS confronte a `_globales`. Son seul effet residuel passait par
+`dirs_glob` : un fichier NON-`.py` du meme REPERTOIRE forcait le rejeu total. Un diff purement
+Python ne declenchait donc jamais << TOUT rejoue >> par cette voie -- mesure sur 40 commits reels :
+**0** TOUT-rejeu dans les DEUX regimes.
 
 **RIEN N'EST FILTRE** -- la CAUSE est traitee. `--measure` PRECHAUFFE le bytecode
 (`_prechauffer_bytecode`) avant d'installer le hook, et un GARDE DE REGIME refuse d'ecrire
@@ -120,9 +121,10 @@ l'empreinte si un module du domaine est quand meme lu en global (signe que le pr
 pris). Mesure sur echantillon : **355** lectures brutes sans prechauffage, **2** avec, et
 froid == chaud.
 
-ATTENTION -- **La piste << filtrer les `.py` des globales >> a ete essayee, puis ECARTEE par mesure.** Elle
-ferme `_globales` mais pas `par_test`, ou un import LAZY execute pendant un test attribue au test
-une source `.py` (45 entrees a chaud contre 52 a froid). Et la, le filtre ne PEUT pas etre etendu :
+ATTENTION -- **la piste << filtrer les `.py` des globales >> a ete essayee, puis ECARTEE par
+mesure.** Elle ferme `_globales` mais pas `par_test`, ou un import LAZY execute pendant un test
+attribue au test une source `.py` (47 entrees a chaud contre 52 a froid). Et la, le filtre ne PEUT
+pas etre etendu :
 `par_test` porte **420** couples (test, repertoire-de-code) meme a chaud, parce que ce depot est
 plein de tests-BALAYAGE qui OUVRENT le code source pour l'analyser. Ces lectures ne sont couvertes
 par aucun import, donc par aucune preuve -- les retirer serait le faux vert de #464.
@@ -560,8 +562,8 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
         # Le GISEMENT est vert, mais le LIVRABLE << empreinte >> n'a pas ete produit. Ne pas rendre
         # 0 : un `--measure` qui n'ecrit pas l'empreinte et se tait passerait pour une maintenance
         # faite. `EX_NON_MESURE` est deja la convention << ce run n'a pas produit sa mesure >>.
-        print("[457] rc=%d -- l'arbre est VERT, mais l'EMPREINTE n'a pas ete produite (cf. ci-dessus)"
-              % EX_NON_MESURE)
+        print("[457] rc=%d -- l'arbre est VERT, mais l'EMPREINTE n'a pas ete produite "
+              "(cf. ci-dessus)" % EX_NON_MESURE)
         return EX_NON_MESURE
     return 0
 
@@ -583,7 +585,7 @@ def _pycache_prefix():
 
 
 def _prechauffer_bytecode() -> tuple:
-    """Compile `scripts/python/**` AVANT de poser le hook. `(compiles, secondes)`.
+    """Compile `scripts/python/**` AVANT de poser le hook. Rend `(prefixe, secondes)`.
 
     LA CAUSE de #464-r2, traitee a sa racine. Sans bytecode a jour, `import` ouvre la SOURCE `.py`
     -- et le hook d'audit `open` compte cette ouverture comme une lecture du depot. Mesure du
@@ -625,7 +627,7 @@ def _prechauffer_bytecode() -> tuple:
     if fuite > 0:
         # Le DIRE tout de suite : sans cela, la cause ne se lit qu'a la fin, apres ~20 min.
         print("[457] ATTENTION -- %d fichier(s) .pyc ecrit(s) DANS scripts/python malgre le "
-              "prefixe : le redirection n'a pas pris (#455 + #464-r2)" % fuite)
+              "prefixe : la redirection n'a pas pris (#455 + #464-r2)" % fuite)
     return prefixe, time.time() - started
 
 
@@ -904,12 +906,12 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
     # Les GLOBALES ne sont attribuables a personne -> tout changement les touchant impacte TOUT.
     # `.pyc` exclus : bytecode non versionne, jamais dans un diff.
     #
-    # ATTENTION -- AUCUN autre retrait ici (#464-r2). Filtrer les modules du domaine a la LECTURE a ete
-    # essaye puis ECARTE : rien ne distingue, dans une empreinte deja ecrite, la lecture d'IMPORT
-    # (couverte par le graphe) de la lecture APPLICATIVE d'un `.py` par un conftest-balayage (qui
-    # n'est couverte par rien). Le regime est garanti a l'ECRITURE, ou l'information existe encore.
-    # Une empreinte ANCIENNE, mesuree avant ce correctif, garde donc ses `.py` : elle SUR-selectionne
-    # -- le sens sur, et elle se regenere.
+    # ATTENTION -- AUCUN autre retrait ici (#464-r2). Filtrer les modules du domaine a la LECTURE
+    # a ete essaye puis ECARTE : rien ne distingue, dans une empreinte deja ecrite, la lecture
+    # d'IMPORT (couverte par le graphe) de la lecture APPLICATIVE d'un `.py` par un
+    # conftest-balayage (qui n'est couverte par rien). Le regime est garanti a l'ECRITURE, ou
+    # l'information existe encore. Une empreinte ANCIENNE, mesuree avant ce correctif, garde donc
+    # ses `.py` : elle SUR-selectionne -- le sens sur, et elle se regenere.
     globales = {g for g in emp.get("_globales", ()) if not g.endswith(".pyc")}
     dirs_glob = {g.rsplit("/", 1)[0] for g in globales if "/" in g}
     hors_py = [c for c in changes if c not in mods]
