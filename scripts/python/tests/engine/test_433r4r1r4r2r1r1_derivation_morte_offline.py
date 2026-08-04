@@ -39,6 +39,7 @@ ROOT = G.ROOT
 BQ = "scripts/python/engine/battle_query.py"
 COMPOSANTS = "scripts/python/engine/runner/components.py"
 SERVICES_BQ = "scripts/python/engine/services/battle_query.py"
+DEGATS = "scripts/python/engine/runner/damage_model.py"
 
 
 # ------------------------------------------------------------------ montage
@@ -118,6 +119,17 @@ def test_indisponible_porte_son_nom(monkeypatch):
         raise OSError("git absent")
     monkeypatch.setattr(subprocess, "run", _explose)
     assert G.main() == 99
+
+
+@pytest.mark.parametrize("etape", ["etape3", "etape4"])
+def test_chaque_etape_neuve_est_CABLEE_au_verdict(monkeypatch, etape):
+    """Un rouge d'etape doit sortir par `main()`.
+
+    Le critere le plus juste ne vaut rien s'il n'est pas COMPTE : `probe_181` a rendu `0`
+    inconditionnellement pendant que le `CLAUDE.md` prescrivait de « le faire passer » (#430)."""
+    monkeypatch.setattr(G, etape, lambda arbres: ([("f.py", 1, "f", "x")], 1)
+                        if etape == "etape3" else ([("f.py", 1, "f")], 1))
+    assert G.main() == 1
 
 
 # ------------------------------------------------------------------ etape 3, formes isolees
@@ -478,6 +490,25 @@ def test_mutation_is_charging_parametre_inerte():
          "    if not are_entities_adjacent(caster_pos, target_pos, elev_by_pos):"))
     m3 = G.etape3(arbres)[0]
     assert ("is_charging", "parametre `neigh_by_pos` jamais lu") in {(m[2], m[3]) for m in m3}
+
+
+def test_mutation_pont_ecs_derivation_sortie_puis_oubliee():
+    """Un QUATRIEME fichier, hors `battle_query.py` : le pont COMBAT d'`IsCharging`.
+
+    La derivation est extraite dans une variable -- et l'appel ne la prend plus. C'est la forme la
+    plus discrete du vice : le `adjacent_neigh_by_pos(board)` est toujours la, bien visible."""
+    arbres = _mute(
+        DEGATS,
+        ("    return _bq_is_charging(_pos(caster_id), _pos(target_id), target_id,\n"
+         "                           charged_unit_ids(state, int(caster_id)),\n"
+         "                           elevations_by_pos(board), adjacent_neigh_by_pos(board))",
+         "    neigh_by_pos = adjacent_neigh_by_pos(board)\n"
+         "    return _bq_is_charging(_pos(caster_id), _pos(target_id), target_id,\n"
+         "                           charged_unit_ids(state, int(caster_id)),\n"
+         "                           elevations_by_pos(board))"))
+    m3 = G.etape3(arbres)[0]
+    assert ("battle_query_is_charging", "derivation `neigh_by_pos` jamais relue") in \
+        {(m[2], m[3]) for m in m3}
 
 
 def test_mutation_count_adjacent_appel_jete():
