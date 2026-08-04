@@ -104,6 +104,11 @@ EXCLUDE = ":(exclude)data/symbols"
 CACHE = REPO / "data" / "repo-board-cache.json"
 CACHE_VERSION = 2
 
+# Plafond de la liste des PR. Large A DESSEIN, et sature = erreur dure (cf. `load_prs`) :
+# c'est le seul moyen d'apprendre qu'on a depasse la fenetre autrement qu'en voyant un jour
+# revolu maigrir. 608 PR au 2026-08-04.
+PR_LIMIT = 3000
+
 
 def empty_cache() -> dict:
     return dict(version=CACHE_VERSION, days={}, agents={}, merges={}, files={})
@@ -251,14 +256,28 @@ def _ts(s):
 
 
 # ---------------------------------------------------------------- 1. pull requests
-def load_prs() -> list[dict]:
-    raw = sh(["gh", "pr", "list", "--state", "all", "--limit", "500", "--json",
+def load_prs(limit: int = PR_LIMIT) -> list[dict]:
+    """Toutes les PR du depot. Un plafond SATURE est une ERREUR, jamais une troncature muette.
+
+    `gh pr list --limit N` rend les N PLUS RECENTES. Quand le depot en compte plus, la
+    fenetre GLISSE : les plus anciennes tombent de la liste, et les journees revolues qui
+    les portaient RETRECISSENT d'un run a l'autre -- alors qu'un jour revolu est cense etre
+    immuable. Mesure du 2026-08-04 : plafond a 500 pour 608 PR reelles ; le 2026-07-26 est
+    passe de 28 PR a 16 pendant que le 2026-08-04 en gagnait exactement 12, total fige a
+    500. Un rapport qui retrecit en silence est pire qu'un rapport absent.
+    """
+    raw = sh(["gh", "pr", "list", "--state", "all", "--limit", str(limit), "--json",
               "number,title,state,createdAt,mergedAt,closedAt,additions,deletions,"
               "changedFiles,headRefName,mergeCommit"])
     if not raw.strip():
         raise SystemExit("gh n'a rien rendu -- `gh auth status` ?")
+    data = json.loads(raw)
+    if len(data) >= limit:
+        raise SystemExit(
+            "plafond de PR SATURE (%d rendues pour une limite de %d) : la fenetre glisse et "
+            "les jours anciens rétrécissent. Relever PR_LIMIT." % (len(data), limit))
     out = []
-    for p in json.loads(raw):
+    for p in data:
         created, merged = _ts(p["createdAt"]), _ts(p.get("mergedAt"))
         out.append(dict(
             num=p["number"], title=p["title"], state=p["state"], branch=p["headRefName"],
