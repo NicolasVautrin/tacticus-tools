@@ -107,7 +107,7 @@ machine. Mesure du 2026-08-04, MEME arbre, MEME probe :
 Les 3 NON-`.py` sont les MEMES des deux cotes (`data/seed-bc.json`, `data/symbols/CURRENT`,
 `scripts/python/pytest.ini`) : le noyau utile etait stable, tout le reste etait du bytecode.
 
-⚠ L'effet REEL de ce bruit n'est PAS celui qu'on croit, et la mesure le tranche : un `.py` du
+ATTENTION -- L'effet REEL de ce bruit n'est PAS celui qu'on croit, et la mesure le tranche : un `.py` du
 domaine place dans `_globales` **n'a AUCUN effet quand LUI-MEME change** -- `impacted_files`
 construit `hors_py = [c for c in changes if c not in mods]`, donc un module de `scripts/python`
 n'est JAMAIS confronte a `_globales`. Son seul effet residuel passait par `dirs_glob` : un fichier
@@ -120,7 +120,7 @@ l'empreinte si un module du domaine est quand meme lu en global (signe que le pr
 pris). Mesure sur echantillon : **355** lectures brutes sans prechauffage, **2** avec, et
 froid == chaud.
 
-⚠ **La piste << filtrer les `.py` des globales >> a ete essayee, puis ECARTEE par mesure.** Elle
+ATTENTION -- **La piste << filtrer les `.py` des globales >> a ete essayee, puis ECARTEE par mesure.** Elle
 ferme `_globales` mais pas `par_test`, ou un import LAZY execute pendant un test attribue au test
 une source `.py` (45 entrees a chaud contre 52 a froid). Et la, le filtre ne PEUT pas etre etendu :
 `par_test` porte **420** couples (test, repertoire-de-code) meme a chaud, parce que ce depot est
@@ -602,16 +602,36 @@ def _prechauffer_bytecode() -> tuple:
     VERIFIE le resultat, jamais l'inverse.
     """
     import compileall
+    import os
 
-    sys.pycache_prefix = str(_pycache_prefix())
-    cible = _PYDIR
+    prefixe = str(_pycache_prefix())
+    sys.pycache_prefix = prefixe
+    # `PYTHONPYCACHEPREFIX` EN PLUS, et c'est INDISPENSABLE : `workers != 1` fait compiler
+    # `compile_dir` dans des SOUS-PROCESS, qui n'heritent PAS d'une affectation a
+    # `sys.pycache_prefix` -- elle ne vit que dans l'interpreteur courant. Mesure du 2026-08-04 avec
+    # `workers=0` seul : **1691** `.pyc` deposes dans `scripts/python/**/__pycache__` (violation
+    # #455) contre 1030 dans le prefixe, et le GARDE DE REGIME a refuse l'empreinte sur **548**
+    # modules lus en source. La variable d'environnement, elle, traverse le fork.
+    os.environ["PYTHONPYCACHEPREFIX"] = prefixe
+
+    avant = _pyc_dans_l_arbre()
     started = time.time()
     try:
-        compileall.compile_dir(str(cible), quiet=2, workers=0, force=False)
+        compileall.compile_dir(str(_PYDIR), quiet=2, workers=0, force=False)
     except Exception as exc:                                   # pragma: no cover - best effort
-        print("[457] prechauffage bytecode INCOMPLET (%s) -- le filtre de couverture reste le "
-              "filet" % type(exc).__name__)
-    return str(_pycache_prefix()), time.time() - started
+        print("[457] prechauffage bytecode INTERROMPU (%s) -- le garde de regime tranchera"
+              % type(exc).__name__)
+    fuite = _pyc_dans_l_arbre() - avant
+    if fuite > 0:
+        # Le DIRE tout de suite : sans cela, la cause ne se lit qu'a la fin, apres ~20 min.
+        print("[457] ATTENTION -- %d fichier(s) .pyc ecrit(s) DANS scripts/python malgre le "
+              "prefixe : le redirection n'a pas pris (#455 + #464-r2)" % fuite)
+    return prefixe, time.time() - started
+
+
+def _pyc_dans_l_arbre() -> int:
+    """Combien de `.pyc` vivent sous `scripts/python` -- le temoin DIRECT que le prefixe a pris."""
+    return sum(1 for _ in _PYDIR.rglob("*.pyc"))
 
 
 def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
@@ -884,7 +904,7 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
     # Les GLOBALES ne sont attribuables a personne -> tout changement les touchant impacte TOUT.
     # `.pyc` exclus : bytecode non versionne, jamais dans un diff.
     #
-    # ⚠ AUCUN autre retrait ici (#464-r2). Filtrer les modules du domaine a la LECTURE a ete
+    # ATTENTION -- AUCUN autre retrait ici (#464-r2). Filtrer les modules du domaine a la LECTURE a ete
     # essaye puis ECARTE : rien ne distingue, dans une empreinte deja ecrite, la lecture d'IMPORT
     # (couverte par le graphe) de la lecture APPLICATIVE d'un `.py` par un conftest-balayage (qui
     # n'est couverte par rien). Le regime est garanti a l'ECRITURE, ou l'information existe encore.
