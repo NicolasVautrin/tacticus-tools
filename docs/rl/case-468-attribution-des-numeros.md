@@ -196,6 +196,26 @@ inconditionnellement (#430).
 Périmètre : le balayage est **confiné** à `docs/rl` et `scripts/python` (jamais la racine), donc
 `probe_440` R1 et R3 le laissent passer — vérifié, vert.
 
+### 6.1 Un rouge de banque trouvé **au rejeu après rebase**, et qui n'est pas de cette tranche
+
+Le rebase sur `origin/master` a fait rougir `probe_457:s2` :
+`tests/test_431_build_pin_offline.py::test_le_nettoyage_des_residus_est_IDEMPOTENT_et_chirurgical`,
+sur `OSError [Errno 22] Invalid argument` en ouvrant `scripts/python/probe_88_on3_emitter.py` en
+écriture. **Ce n'est pas cette tranche** : `master` n'a touché aucun des fichiers en cause, le test
+passe **37/37 en isolé**, et le test de #468 tombe dans un **autre shard** (6, pas 2).
+
+C'est une **course**, et elle est structurelle : `test_431` fait `write_bytes` **en place dans
+`scripts/python/`** pendant que les 40 autres cliquets énumèrent et lisent ce même arbre. Sous
+Windows, une écriture en place ne déplace aucune entrée de répertoire — mais elle fait échouer
+l'**ouverture** concurrente du fichier. `probe_440` R3 ne le voit pas, deux fois : son périmètre
+est l'ensemble des **entrées** de `ratchets.ps1` (ce test est joué *indirectement*, par
+`probe_457`), et il exclut la réécriture en place **par choix explicite**. Ouvert en `#468-r6` ;
+non corrigé ici — l'arbitrage entre « élargir R3 » et « faire travailler `test_431` sur une copie »
+appartient au propriétaire de ce cliquet.
+
+⚠ Un rejeu vert ne referme pas ce constat : le symptôme est une course, exactement la leçon de
+#455. Mesuré : **1 run sur 2**.
+
 ---
 
 ## 7. La technique, réutilisable
