@@ -10,7 +10,7 @@ pont**, donc dégénéré pour le compteur. Aucune mesure ne jouait les deux à 
 > « Existe-t-il un trajet où le compteur rebranché fait FRANCHIR le seuil d'`EmpyricAmbush`, et le
 > port s'accorde-t-il au natif sur ce trajet ? »
 
-**OUI, et il s'accorde — 3 trajets, 2 boards, 2 régimes, 3 accords.** Sur chacun, la GÉOMÉTRIE dit
+**OUI, et il s'accorde — 4 trajets, 2 boards, 2 régimes, 4 accords.** Sur chacun, la GÉOMÉTRIE dit
 « sous le seuil » et le substrat STOCKÉ dit « au-dessus » :
 
 | board | régime | trajet | `n_G` | `n_C` | **NATIF** | LIVE | port CANAL | port GÉOMÉTRIE (avant #589) |
@@ -18,15 +18,21 @@ pont**, donc dégénéré pour le compteur. Aucune mesure ne jouait les deux à 
 | `C1_74` | `Fly` (`blackHaarken`) | `(1,5) -> (4,4)` | 3 | 4 | **4** | `[3087, 2591, 2338, 2459]` | == | `[1590, 1707, 2129, 1454]` |
 | `C1_74` | `TeleportStrike(+Fly)` (`bloodIntercessor`) | `(1,5) -> (4,4)` | 3 | 4 | **4** | `[8338]` | == | `[6836]` |
 | `C3_14` | `Fly` | `(3,2) -> (4,3)` | 2 | 5 | **5** | `[2367, 3355, 3247, 2841]` | == | `[1802, 1940, 2066, 1694]` |
+| `C3_14` | `TeleportStrike(+Fly)` | `(3,2) -> (4,3)` | 2 | 5 | **5** | `[7886]` | == | `[5621]` |
+
+Les trois premiers sont dans les crans ; le quatrième est une mesure du probe (les crans montent
+un runner chacun — le 4ᵉ paramétrage n'ajoute aucune configuration nouvelle).
 
 ⇒ **le rebranchement change la DÉCISION, pas seulement un nombre.** Sans lui, le port aurait lu
 `n_G = 3` (ou 2), refusé le gate, et rendu sur la salve **10475 → 6880 (−34 %)** sur `C1_74`,
 **8338 → 6836 (−18 %)** en `TeleportStrike`, **11810 → 7502 (−36 %)** sur `C3_14`.
 
-**Recoupement croisé, non cherché** : la ligne `C3_14` rend **exactement** les deux vecteurs du
-tableau de `case-589-r1-r1` mesurés sur `MC1_67` — `[2367,3355,3247,2841]` avec buff,
-`[1802,1940,2066,1694]` sans. Le buff produit le même delta sur deux boards et deux géométries : le
-seuil ne dépend pas du board, c'est bien le COMPTEUR qui en dépend.
+**Recoupement croisé, non cherché — et il vaut pour les DEUX régimes** : les lignes `C3_14`
+rendent **exactement** les quatre vecteurs du tableau de `case-589-r1-r1`, mesurés sur `MC1_67` —
+`[2367,3355,3247,2841]` / `[1802,1940,2066,1694]` en `Fly`, `[7886]` / `[5621]` en
+`TeleportStrike`. Le buff produit le même delta sur deux boards, deux géométries et deux valeurs de
+`n` (4 et 5) : le seuil ne dépend NI du board NI de l'ampleur du dépassement — c'est bien le
+COMPTEUR qui dépend du board, et c'est **un seuil, pas une pente**.
 
 ## 2. Les quatre bras — et trois sont des contre-épreuves
 
@@ -103,6 +109,7 @@ canal (il trouve ses 20 couples même sur un arbre régressé) et le REJEU confr
     python probe_589r1r1r2_produit_canal_seuil_live.py --only DUEL --board C1_74
     python probe_589r1r1r2_produit_canal_seuil_live.py --only DUEL --board C1_74 --attacker bloodIntercessor
     python probe_589r1r1r2_produit_canal_seuil_live.py --only DUEL --board C3_14
+    python probe_589r1r1r2_produit_canal_seuil_live.py --only DUEL --board C3_14 --attacker bloodIntercessor
     python probe_589r1r1r2_produit_canal_seuil_live.py --only DUEL --board C1_74 --temoin
     python -m pytest tests/engine/runner/test_empyric_ambush_threshold_live.py
 
