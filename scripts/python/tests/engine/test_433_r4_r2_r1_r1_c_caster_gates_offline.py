@@ -117,6 +117,26 @@ def test_can_currently_be_used_truth_table(state, expected):
     assert acg.can_currently_be_used(state) is expected
 
 
+def test_gate_3d_delegates_to_the_existing_foyer_instead_of_forking_it(monkeypatch):
+    """ANTI-FORK. `get_CanCurrentlyBeUsed` avait DEJA un mirror cote DECISION
+    (`engine.battle_query.can_currently_be_used`, consomme par `engine.ai.context` pour filtrer
+    les abilities du caster). En RE-ecrire un second aurait cree deux corps pour la meme propriete,
+    qui derivent en silence -- exactement la divergence STRUCTURELLE que le protocole interdit.
+
+    Ce test garde la DELEGATION, pas l'egalite des resultats : deux corps identiques aujourd'hui
+    passeraient une comparaison de valeurs et divergeraient demain."""
+    from engine import battle_query as bq
+    seen: list = []
+
+    def _spy(ability):
+        seen.append(ability)
+        return False
+
+    monkeypatch.setattr(bq, "can_currently_be_used", _spy)
+    assert acg.can_currently_be_used(_st()) is False
+    assert seen == [_st()], "gate 3d n'est PAS passe par le foyer : %r" % (seen,)
+
+
 def test_absent_channel_is_not_measured_not_false():
     """TRI-ETAT. Aucun canal -> `None` (« pas mesure »), et l'appelant ne gate PAS. Fabriquer un
     `False` ici retirerait TOUTES les abilities de toutes les zones ; fabriquer un `True`
@@ -227,6 +247,19 @@ def test_the_normal_attack_passes_the_same_gates():
     # meme etat, mais l'id de l'attaque normale non publie -> le terme d'arme SURVIT (borne sup.)
     assert ar.is_tile_in_range_of_any_ability((0, 0), (1, 0), TERMINATOR,
                                               ability_state=st) is True
+
+
+def test_the_normal_attack_is_ungated_when_the_channel_says_nothing_about_it():
+    """LE REGIME REEL, mesure : `unitAbilityTypes` pousse l'attaque normale depuis
+    `NormalAttackType @0x28` SANS objet `ActiveAbility`, donc `usable`/`cooldown`/`disabled` y sont
+    tous `null` (releve live sur `darkaTerminator` : `{"id": 69, "kind": "normal", "usable": null,
+    ...}`). Le tri-etat en fait un « pas mesure », donc AUCUN gate -- et c'est ce qui rend
+    `normal_attack_id` inoffensif dans le cas commun. Le cas du test precedent (`usable: false`)
+    n'existe que si l'id reapparait dans `GetActives`, ou `readAbilityState` le FUSIONNE."""
+    st = {69: {"id": 69, "kind": "normal", "usable": None, "cooldown": None, "disabled": None},
+          PLASMA: _st(cooldown=1)}
+    assert acg.caster_gate_reason(69, st[69]) is None
+    assert ar.unit_threat_reach(TERMINATOR, None, st, 69) == 1
 
 
 @pytest.mark.parametrize("cooldown, expected", [(1, [True, False, False]),

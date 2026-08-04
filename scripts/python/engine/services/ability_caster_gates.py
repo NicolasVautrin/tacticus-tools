@@ -78,7 +78,9 @@ les cinq champs de `components.ActiveAbility` que `readAbilityState` lit PAR NOM
   * gate 1 -> `usable` ;
   * gate 2 -> DEUX sources concordantes : le champ `disabled`, et surtout le MIRROR OFFLINE
     ci-dessous, qui ne depend d'AUCUN canal ;
-  * gate 3d -> `can_currently_be_used`, mirror EXACT de la propriete (les quatre champs) ;
+  * gate 3d -> `can_currently_be_used`, qui DELEGUE au foyer deja pose
+    `engine.battle_query.can_currently_be_used` (les quatre champs) et n'y ajoute que le
+    tri-etat ;
   * gate 3b -> INATTEIGNABLE depuis `IsTileInRangeOfAnyAbility` : son PREMIER geste est
     `if (GetFeetCount(unit) > 1) return true`, et `IsMultiTileUnit` = `unit.Type == Unit &&
     GetUnitFeetIds(unit).Count > 1` -- le meme predicat. Une unite multi-tuiles n'atteint donc
@@ -219,36 +221,27 @@ def can_still_be_used(state) -> bool | None:
 
 
 def can_currently_be_used(state) -> bool | None:
-    """GATE 3d -- `IdunBattle.Entities.Components.ActiveAbility$$get_CanCurrentlyBeUsed`, mirror
-    1:1 des QUATRE champs que la propriete lit :
+    """GATE 3d -- `IdunBattle.Entities.Components.ActiveAbility$$get_CanCurrentlyBeUsed`.
 
-        if (!CanStillBeUsed || IsDisabled) return false;
-        a = !RemainingCooldownTurns.HasValue || RemainingCooldownTurns.Value < 1;
-        b =  !AmmoCost.HasValue ? true : HasEnoughAmmo;
-        return a && b;
+    ⚠ **CE N'EST PAS UN NOUVEAU MIRROR.** Le foyer existe deja et il est UNIQUE cote DECISION :
+    `engine.battle_query.can_currently_be_used` (pose par le lot MoW-ammo, consomme par
+    `engine.ai.context` pour filtrer les abilities du caster). Le RE-ecrire ici aurait cree un
+    FORK de port -- deux corps pour la meme propriete, qui derivent silencieusement.
 
-    Les quatre sont publies par `decisionView` (`usable`, `disabled`, `cooldown`, `ammoCost` /
-    `hasAmmo`). Tri-etat : `None` des que le canal ne dit rien du couple `usable`/`disabled` --
-    on ne fabrique pas un `True`. Un champ de detail absent (`cooldown` / `ammoCost` non emis)
-    vaut « Nullable vide », ce qui est EXACTEMENT ce que `readAbilityState` ecrit quand le
-    `hasValue` du natif est faux."""
-    still = can_still_be_used(state)
-    disabled = _flag(state, "disabled")
-    if still is None and disabled is None:
+    Ce que cette fonction AJOUTE, et c'est tout, c'est le TRI-ETAT que le foyer ne peut pas
+    exprimer (il rend un `bool`) : `None` = le canal ne dit RIEN de cette ability. La distinction
+    est indispensable ici, parce que l'appelant n'est pas « le caster choisit une ability » (ou
+    un `True` par defaut est le bon repli) mais « quelle zone menace cet ENNEMI » -- ou un `True`
+    par defaut et un `True` mesure doivent rester distinguables pour que la borne soit nommee.
+
+    Le critere de « pas mesure » est le couple `usable`/`disabled` : ce sont les deux champs que
+    `readAbilityState` ecrit INCONDITIONNELLEMENT des qu'un objet `ActiveAbility` existe. Leur
+    absence conjointe signifie qu'il n'y en a pas -- c'est le cas de l'attaque NORMALE, poussee
+    depuis `NormalAttackType @0x28` sans entree de composant, que le foyer traite deja a part."""
+    if _flag(state, "usable") is None and _flag(state, "disabled") is None:
         return None
-    if still is False or disabled is True:
-        return False
-    cd = (state or {}).get("cooldown")
-    if cd is not None:
-        try:
-            if int(cd) >= 1:
-                return False
-        except (TypeError, ValueError):
-            pass
-    cost = (state or {}).get("ammoCost")
-    if cost is not None:
-        return bool(_flag(state, "hasAmmo"))
-    return True
+    from .. import battle_query as bq        # foyer UNIQUE de la propriete (import tardif : cycle)
+    return bool(bq.can_currently_be_used(state))
 
 
 # ------------------------------------------------------------------------------------------------
