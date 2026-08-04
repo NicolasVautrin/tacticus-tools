@@ -369,6 +369,27 @@ git add scripts/ratchets-462-live-attestations.json
 - Détail des arbitrages, contre-épreuves et résidus : `docs/rl/case-430-banque-de-cliquets.md`,
   `docs/rl/case-439-cliquet-peut-rougir.md`.
 
+### Tu OUVRES un résidu ⇒ tu DEMANDES son numéro, tu ne le choisis pas (#468)
+
+```powershell
+python scripts/python/probe_468_collision_numeros.py --suggere [parent]
+```
+
+Rien n'allouait les numéros : ils étaient pris au vol, et une collision ne se voyait **qu'à l'œil au
+merge**. Deux le 2026-08-04 à quelques heures d'écart, plus une **quadruple** (`#420-r1`, quatre
+dossiers) que le cliquet a trouvée à son premier passage.
+
+- **Les deux modes ont des critères INVERSES, et c'est voulu.** Détecter porte sur la **position**
+  (1ʳᵉ cellule, tête de puce, préfixe de case-doc) — sur `docs/rl`, 6 580 occurrences `#<n>` pour
+  836 définitions, donc un critère par présence rougirait sur presque tous les renvois. Attribuer
+  porte sur l'**UNION** (mentions et messages de commit compris) : **un numéro seulement cité est
+  déjà pris**. Mesuré : 13 racines `< 500` n'existent QUE dans `git log`.
+- **Une mesure incomplète ne rend JAMAIS de numéro** (git muet → 99, rien suggéré), et on ne
+  recycle pas un trou — une PR peut être en vol.
+- ⚠ La **puce** de résidu d'une case-doc est une 4ᵉ position de définition **de fait**, non gardée
+  (`#468-r7`) ; et `#<n>` désigne à la fois une tâche et une PR (`#468-r8`), ce qui rend
+  `git log --grep` structurellement ambigu.
+
 ### L'état de la BOUCLE — `loop_status.py`, déclenché tout seul (#467)
 
 ```powershell
