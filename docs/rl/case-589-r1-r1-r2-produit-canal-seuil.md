@@ -75,7 +75,7 @@ d'écart au lieu d'une. `Walk` est absent des deux colonnes **par mesure** (0 ba
 * **`--crit 100,700`** : tous les coups critent des deux côtés, donc ce qui bouge est
   `extraCritDmg` — écart déterministe, aucun tirage.
 
-## 5. Les gardes
+## 5. Les gardes, et la contre-épreuve qui les qualifie
 
 * `tests/engine/runner/test_empyric_ambush_threshold_live.py` — **9 passed** (5 de #589-r1-r1 + 4).
   `test_le_compteur_rebranche_fait_franchir_le_seuil` est **paramétré sur les 3 trajets** ;
@@ -84,6 +84,16 @@ d'écart au lieu d'une. `Walk` est absent des deux colonnes **par mesure** (0 ba
 * `scripts/python/probe_589r1r1r2_produit_canal_seuil_live.py` — deux crans : `SCAN` (le gisement
   chiffré, aucun montage) et `DUEL` (le carré à quatre bras, avec ses gardes de régime — un trajet
   non discriminant est REFUSÉ, jamais rendu vert).
+
+**CONTRE-ÉPREUVE JOUÉE** : sous un mutant qui REGRESSE #589 (`Board.base_add_neighbours` →
+`neighbours_geometric` par défaut), le cran rougit — `compteur du port (CANAL) 3 != natif 4`.
+
+⚠ **Et c'est ce qui a imposé de distinguer `None` de `"C"` dans le sélecteur de substrat.** Écrit
+d'abord, le bras « CANAL » FORÇAIT le canal : sous le mutant, le calcul du trajet ne trouvait plus
+aucun couple discriminant (`n_G == n_C`) et le cran rougissait sur **« montage NON ATTEINT »** — un
+rouge qui accuse le harnais là où le coupable est le port. Désormais le CALCUL du trajet force le
+canal (il trouve ses 20 couples même sur un arbre régressé) et le REJEU confronté au natif n'impose
+**rien** : c'est l'état livré. Le mutant est alors accusé pour ce qu'il est.
 
 ## 6. Reproduction
 

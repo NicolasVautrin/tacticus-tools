@@ -137,9 +137,9 @@ def _produit(charge_regime, board, attacker, temoin=False):
     live, why = strike(h, rec)
     assert live is not None, "attaque non jouee : %s" % why
     k = len(live)
-    canal, n_canal = R2.rejeu(h, rec, "C")
+    canal, n_canal = R2.rejeu(h, rec)                    # ETAT LIVRE : aucun patch de substrat
     geom, n_geom = R2.rejeu(h, rec, "G")
-    nochan, _ = R2.rejeu(h, rec, "C", sans_effet=True)
+    nochan, _ = R2.rejeu(h, rec, sans_effet=True)
     return rec, live, canal[:k], n_canal, geom[:k], n_geom, nochan[:k]
 
 

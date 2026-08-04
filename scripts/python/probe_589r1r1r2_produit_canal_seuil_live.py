@@ -89,12 +89,22 @@ def _unwrap(r):
 class substrat:
     """Impose le substrat de voisinage que la beeline consomme, le temps d'un bloc.
 
-    `"C"` = le `ConnectivityComponent` (l'etat LIVRE par #589) ; `"G"` = la GEOMETRIE (l'etat
-    d'AVANT #589) ; `"N"` = le champ ampute (ferme par #584). C'est `Board.base_add_neighbours` que
-    `beeline_pathfinder` lit -- `fly_pathfinder`, lui, garde la geometrie EN DUR (override natif
-    `FlyPathfinder$$AddNeighbours`), donc ce levier ne le touche pas, et c'est fidele."""
+    QUATRE valeurs, et la distinction `None` / `"C"` est ce qui fait accuser le BON coupable :
 
-    def __init__(self, quel: str):
+      * `None` -- AUCUN patch : c'est l'ETAT LIVRE, celui qu'on confronte au natif. Si #589
+        regressait, ce bras rendrait `n_G` et le cran rougirait sur « le port ne reproduit pas le
+        natif », pas sur « montage non atteint » ;
+      * `"C"`  -- le `ConnectivityComponent` FORCE. Sert a CALCULER le trajet discriminant, donc a
+        le trouver meme sur un arbre regresse (sans quoi la contre-epreuve n'aurait plus de trajet
+        a jouer et accuserait le montage) ;
+      * `"G"`  -- la GEOMETRIE, l'etat d'AVANT #589 ;
+      * `"N"`  -- le champ ampute (ferme par #584).
+
+    C'est `Board.base_add_neighbours` que `beeline_pathfinder` lit -- `fly_pathfinder`, lui, garde
+    la geometrie EN DUR (override natif `FlyPathfinder$$AddNeighbours`), donc ce levier ne le
+    touche pas, et c'est fidele."""
+
+    def __init__(self, quel):
         self.quel = quel
         self.orig = None
 
@@ -102,7 +112,10 @@ class substrat:
         from engine.entities.pathfinding.board import Board
         self.Board = Board
         self.orig = Board.base_add_neighbours
-        if self.quel == "G":
+        if self.quel == "C":
+            Board.base_add_neighbours = (
+                lambda self, tid, fallback=None: self.neighbours_connectivity(tid) or [])
+        elif self.quel == "G":
             Board.base_add_neighbours = (
                 lambda self, tid, fallback=None: self.neighbours_geometric(tid))
         elif self.quel == "N":
@@ -115,11 +128,15 @@ class substrat:
         return False
 
 
-def _n_prevu(bd, ptype: int, a: int, b: int, quel: str):
+def _n_prevu(bd, ptype: int, a: int, b: int, quel):
     """`GetNumTilesMoved(GetConnectedPathTo(...))` du PORT sous un substrat impose -- l'etage
-    COMPLET (`pathfinders.find_path` PUIS la re-densification), pas la beeline nue."""
+    COMPLET (`pathfinders.find_path` PUIS la re-densification), pas la beeline nue.
+
+    Le `"C"` passe a `P1._connected_len` signifie « ne defais RIEN » : c'est notre propre
+    `substrat` qui gouverne, y compris pour forcer le canal."""
     from engine.entities.pathfinding.board import Board
-    return P1._connected_len(bd, Board, ptype, a, b, quel)
+    with substrat(quel):
+        return P1._connected_len(bd, Board, ptype, a, b, "C")
 
 
 # --------------------------------------------------------------------------- cran SCAN
@@ -404,8 +421,11 @@ def stage(h, bd, seuil, attaquant, temoin=False, verbose=False):
     return rec, None
 
 
-def rejeu(h, rec, quel_substrat: str, sans_effet: bool = False):
+def rejeu(h, rec, quel_substrat=None, sans_effet: bool = False):
     """Rejeu OFFLINE du MEME pas + de la MEME attaque sous un substrat impose.
+
+    `quel_substrat=None` (defaut) = L'ETAT LIVRE, aucun patch -- c'est le bras qu'on confronte au
+    natif, et le seul qui puisse ROUGIR si #589 regressait.
 
     Rend `(per_hit, compteur_du_port)`. Le COMPTEUR est rendu parce qu'un bras de contre-epreuve
     doit prouver que la MUTATION A MORDU : un rejeu qui rendrait le meme compteur que le bras livre
@@ -464,9 +484,9 @@ def run_duel(a, rpc, Board, Harness, seuil, seed_bc) -> int:
             return 2
         k = len(live)
 
-        canal, n_canal = rejeu(h, rec, "C")
+        canal, n_canal = rejeu(h, rec)                       # ETAT LIVRE (aucun patch)
         geom, n_geom = rejeu(h, rec, "G")
-        nochan, _ = rejeu(h, rec, "C", sans_effet=True)
+        nochan, _ = rejeu(h, rec, sans_effet=True)
 
         accord = canal[:k] == live
         mutation_mord = (n_geom == ng and n_geom != n_canal) if not rec["temoin"] else (n_geom == n_canal)
