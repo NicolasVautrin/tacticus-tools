@@ -118,17 +118,19 @@ spawn du summon** et la destination du caster — p. ex. `C4_33` : `tgt=30, to=(
 1. **Contre-épreuve de DÉTECTION** (`--substrat mut`) : le substrat alternatif est remplacé par un
    substrat volontairement faux (disque hex `r <= 2`), **borné au même court-circuit que `geo`**
    (appels avec canal seulement — sans cette borne il aurait prouvé la détection sur une surface
-   plus large que celle mesurée). Résultat : **2 décisions changées** sur `C4_33`. Le harnais
-   rapporte donc bien un changement d'action quand il y en a un, sur exactement la surface mesurée.
+   plus large que celle mesurée). Résultat : **5 décisions changées sur 74 situations** (`C4_33` 2,
+   `C3_14` 3). Le harnais rapporte donc bien un changement d'action quand il y en a un, sur
+   exactement la surface mesurée — et il le fait aussi sur `C3_14`, le board qui rend 0 en `geo`.
 2. **Cran anti-contamination** : chaque situation rejoue NAT une 2ᵉ fois APRÈS l'alternatif, et
    compare action + classement. **0 instabilité** sur 725 situations — le triple appel du tactic sur
    le même `ctx` ne se contamine pas.
 3. **Régime non dégénéré** : le probe compte les bascules d'adjacence *traversées par la décision* et
    **rougit si elles valent zéro**. Un « 0 décision changée » sans bascule ne conclurait rien ; ici il
    y en a 260.
-4. **Reproductibilité** : la campagne seed 777 a été jouée deux fois, une fois **scindée en deux
-   processus** (3 + 3 boards) et une fois **d'un bloc** (6 boards). Tous les compteurs coïncident
-   (302 / 56 / 3 / 0 / 9), voies comprises.
+4. **Reproductibilité** : la campagne seed 777 a été jouée **trois** fois — **scindée en deux
+   processus** (3 + 3 boards), **d'un bloc** (6 boards), puis **après rebase sur 11 commits
+   `master`**. Tous les compteurs coïncident (302 / 56 / 3 / 0 / 9), voies comprises. Le rebase
+   ne déplace donc rien de cette mesure.
 
 ## 6. Lecture
 
@@ -188,4 +190,11 @@ politique — plutôt le même profil, quelques décisions par millier.
         --board C1_74 --seed 1357 --steps 12
     python probe_433r4r1r4r2r4_aval_decision_live.py --board C3_14 --board C4_40 --board C4_33 \
         --board C1_74 --seed 777 --steps 12 --units "genesBiophagus,genesPatriarch,genesMagus,genesPrimus"
-    python probe_433r4r1r4r2r4_aval_decision_live.py --board C3_14 --board C4_33 --steps 10 --substrat mut
+    python probe_433r4r1r4r2r4_aval_decision_live.py --board C4_33 --board C3_14 --steps 10 --substrat mut
+    python probe_433r4r1r4r2r4_aval_decision_live.py --board C3_14 --steps 4 --voies
+
+Relevé (2026-08-05, session 4, build `rnca9r7q6c`) : banque de cliquets **45/46 verte**, dont
+`probe_433r4r1r4r2` (le cliquet de #606). Le 46ᵉ, `probe_457:s7`, rougissait sur un
+`TimeoutExpired` de `git add -A` (120 s) dans `test_474_optional_locks_offline.py` — **rejoué seul,
+29 passed en 40 s** : c'est le montage (banque à parallélisme 16 sous charge), pas le dépôt.
+`probe_467r4` remontait `INDISPONIBLE` (host injoignable) — **rejoué seul, rc 0**.
