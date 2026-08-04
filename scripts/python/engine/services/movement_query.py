@@ -806,3 +806,73 @@ def get_tiles_obscuring_terrain_from_tiles(board, from_tiles: Optional[Sequence[
     for r in results[1:]:
         out &= r
     return out
+
+
+# ═══ CHEMIN CONNECTE — `GetConnectedPathTo` / `GetNumTilesMoved` (#448-r1-r1-r1-r1) ═══════════
+
+def get_connected_path_to(board, from_id, to_id, path) -> List[int]:
+    """`IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo(unit, from, to)`, ETAGE 2 :
+    la DENSIFICATION du chemin que le pathfinder de l'unite vient de rendre.
+
+    Le decompile, remis en C# (l'etage 1 -- le choix du pathfinder -- est l'argument `path`) :
+
+        maxRange = new Nullable<UseTeleporter>(UnitExtensions.GetStat(unit, 1));
+        var path = pathfinders.GetPath(unit, from, to, maxRange);     // slot itf 3
+        if (path == null) return new List { from, to };               // branche DEGENEREE
+        var q = new Queue(path);  var res = new List();
+        var cur = q.Dequeue();
+        while (true) {
+            res.Add(cur);
+            if (q.Count < 1) return res;
+            var last = res.Last();  var next = q.Dequeue();
+            if (last != null && next != null
+                && GetDistance(GetTiles(last), GetTiles(next)) > 1) {
+                var sub = pathfinders.GetPath(PathfinderType.Beeline, unit, last, next, null);
+                for (int i = 1; i < sub.Count - 1; i++) res.Add(sub[i]);   // extremites EXCLUES
+            }
+            cur = next;
+        }
+
+    ⚠ CE N'EST PAS UN NO-OP. Pour un MARCHEUR ca en est un (deux noeuds consecutifs d'un chemin
+    de `BasePathfinder$$FindPath` sont adjacents, donc `GetDistance <= 1` partout) -- mais le
+    `FlyPathfinder` OVERRIDE `FindPath` et rend des **WAYPOINTS**, pas le chemin
+    (`fly_pathfinder.find_path`). C'est ici que les sauts sont recousus, et le pathfinder qui les
+    recoud est le `Beeline`, qui **traverse tout, murs compris** (`beeline_pathfinder`).
+
+    ⚠ `maxRange` N'EN EST PAS UN : sa signature est `Nullable<UseTeleporter>` et ni
+    `BasePathfinder$$FindPath` ni `FlyPathfinder$$FindPath` ne le LISENT. Argument mort sur les
+    deux routes -- cf. `base_pathfinder`.
+
+    `path` = la sortie du pathfinder (liste de tile-ids, extremites incluses) ou `None` : le port
+    rend alors `[from_id, to_id]`, la branche degeneree du natif."""
+    src, dst = int(from_id), int(to_id)
+    if path is None:
+        return [src, dst]
+    from ..entities.pathfinding import beeline_pathfinder as _beeline
+    q = list(int(t) for t in path)
+    if not q:
+        return []
+    out: List[int] = []
+    cur = q.pop(0)
+    while True:
+        out.append(cur)
+        if not q:
+            return out
+        last = out[-1]
+        nxt = q.pop(0)
+        if get_distance([board.coord(last)], [board.coord(nxt)]) > 1:
+            sub = _beeline.find_path(board, last, nxt)
+            for mid in (sub or [])[1:-1]:
+                out.append(int(mid))
+        cur = nxt
+
+
+def get_num_tiles_moved(path) -> int:
+    """`IdunBattle.Core.Services.BattleQuery$$GetNumTilesMoved(path)` -- verbatim :
+
+        return CollectionExtensions.IsNullOrEmpty(path) ? 0 : path.Count - 1;
+
+    `Count` = NOEUDS, extremites incluses -> le nombre d'ARETES."""
+    if not path:
+        return 0
+    return len(path) - 1

@@ -41,17 +41,32 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     face DECISION (`prediction/_shared.py::_walk_path_counts_from`) et avec la face MOUVEMENT du
     meme passif (#304). `Count` = NOEUDS, extremites incluses -> `- 1`.
 
-    ⚠ RESIDU `#448-r1-r1-r1-r1`, OUVERT et MESURE : ce port prend le **WalkPathfinder
-    INCONDITIONNELLEMENT**, alors que `GetConnectedPathTo` resout
+    LA BRANCHE VOLANTE (`#448-r1-r1-r1-r1`, FERME) ne passe PAS par le WalkPathfinder.
+    `MovementQuery$$GetConnectedPathTo` resout
     `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit(unit)` =
-    `IsLikeFlying(unit) ? 3 : 0` -- donc le **FlyPathfinder** pour un volant. Pour une unite
-    volante, `record_tiles_moved` enregistre ainsi des pas de MARCHE. Mesure sur MC1_67 :
-    `(1,1) -> (1,3)` vaut 3 pas de marche et 2 de vol. Consommateurs impactes : tout lecteur de
-    `TilesMovedThisTurn` / `TilesMovedLastTurn`. Hors du perimetre de #448-r1-r1-r1 (qui ne porte
-    que `_movement_steps`, lequel n'appelle PAS cette fonction sur la branche volante) : le fermer
-    demande un compteur de noeuds FLY et le `maxRange = GetStat(unit, Movement)` que
-    `GetConnectedPathTo` passe -- et il deplace `TilesMovedThisTurn`, donc sa propre validation.
-    Detail : `docs/rl/case-448-r1-r1-r1-flying-movement-steps.md` §6.
+    `IsLikeFlying(unit) ? 3 : 0`, et la route du vol est TROIS etages, pas un :
+
+      1. `IdunBattle.Entities.Pathfinding.FlyPathfinder$$FindPath` = `BasePathfinder$$FindPath`
+         (A* a cout UNIFORME -- son `WeightCost` est un corps trivial `return 10`, RE-DERIVE AU
+         RUNTIME) **puis une SIMPLIFICATION EN WAYPOINTS** : seuls survivent les extremites, les
+         tuiles de teleportation, et les virages ayant un MUR dans leur couronne ;
+      2. `GetConnectedPathTo` RE-DENSIFIE chaque saut restant par une beeline
+         (`PathfinderType.Beeline` = `IgnoreEverythingPathfinder`), qui **traverse tout, murs
+         compris** (ses trois predicats sont des corps triviaux `return true`) ;
+      3. `GetNumTilesMoved` = `Count - 1` sur ce chemin recousu.
+
+    ⇒ pour un vol DIRECT le compte est la DISTANCE hex (et non les pas de marche) ; pour un vol
+    DETOURNE, il vaut la somme des distances entre waypoints, donc il peut etre STRICTEMENT plus
+    court que le chemin de vol reellement suivi. Avant #448-r1-r1-r1-r1 le port comptait des pas
+    de MARCHE pour un volant -- mesure MC1_67 : `(1,1) -> (1,3)` vaut 3 pas de marche et 2 de vol.
+
+    ⚠ ET CE N'EST PAS QUE LE VOL. `GetPathfinderTypeForUnit` teste QUATRE effets AVANT
+    `IsLikeFlying` et rend alors un type DECORE (6..13), dont
+    `IdunBattle.Entities.Pathfinding.ATeleportPathfinder$$FindPath` rend litteralement
+    **`[from, to]`** -- aucun pathfinding. Le compte d'un porteur `TeleportStrike` vaut donc la
+    DISTANCE quelle que soit la geometrie. Ce n'est pas un cas de bord : sur les 5 volants du pool
+    retenus pour la mesure, **3** sont dans ce regime (`bloodDante`, `bloodIntercessor`,
+    `eldarAutarch`). Le dispatch complet est donc porte, pas seulement le bras `IsLikeFlying`.
 
     RESIDUS, tous nommes (identiques a ceux de la face DECISION) :
       * `MovementQuery$$GetConnectedPathTo` DENSIFIE le chemin du pathfinder (re-insertion des
@@ -62,12 +77,38 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
         que celui du natif. Degradation PERMISSIVE, meme residu que #304.
       * `IsTemporary(to)` : aucune source offline.
     `from_pos`/`to_pos` egaux, absents, ou destination injoignable -> 0 (le natif rend 0 sur
-    `IsNullOrEmpty(path)`)."""
+    `IsNullOrEmpty(path)`).
+
+    ⚠ CE QUE LA BRANCHE MARCHE NE CHANGE PAS. Elle garde son moteur en domaine POSITION
+    (`get_path_node_counts_by_pos`), qui est un FOYER PARTAGE avec la face DECISION
+    (`prediction/_shared.py::_walk_path_counts_from`, #304) -- le rebrancher sur
+    `base_pathfinder.find_path` creerait deux implementations du meme natif, et la densification
+    de `GetConnectedPathTo` y est de toute facon un NO-OP (deux noeuds consecutifs d'un chemin de
+    `BasePathfinder$$FindPath` sont adjacents). RESIDU MARCHE, prealable et inchange : sur une
+    destination injoignable le port rend `0` la ou le natif prend sa branche degeneree
+    (`path == null` -> `[from, to]` -> `1`)."""
     if from_pos is None or to_pos is None or tuple(from_pos) == tuple(to_pos):
         return 0
     board = getattr(state, "board", None)
     if board is None:
         return 0
+    from ...entities.pathfinding import pathfinders as _pf
+    from ...services.movement_query import (get_connected_path_to, get_num_tiles_moved,
+                                            get_pathfinder_type_for_unit, unit_has_effect_fn)
+    me0 = state.get_entity(int(mover_id))
+    sc0 = me0.get_component(StatsComponent) if me0 is not None else None
+    traits0 = getattr(sc0.ctx, "traits", None) if sc0 is not None else None
+    ptype = get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits0 or [])
+    # TOUT sauf `Walk` passe par le foyer CHEMIN : le vol (3), les huit types DECORES (6..13,
+    # dont 6/8/10/12 qui ont pourtant une base MARCHE -- c'est `ATeleportPathfinder$$FindPath`
+    # qui les detourne, pas leur base), et le `Beeline` (2), qu'aucun call-site ne produit ici.
+    if ptype != int(_pf.PathfinderType.Walk):
+        src = board.id_at(int(from_pos[0]), int(from_pos[1]))
+        dst = board.id_at(int(to_pos[0]), int(to_pos[1]))
+        if src is None or dst is None:
+            return 0                              # hors board : aucune tuile a compter
+        path = _pf.find_path(board, ptype, src, dst)
+        return get_num_tiles_moved(get_connected_path_to(board, src, dst, path))
     from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
     neigh, walk, elev = board.walk_maps_by_pos()
     # `WalkPathfinder$$UnitIsBlockedByEnemyUnit` : occupant ENNEMI VIVANT non `Steppable` (un ami ne
