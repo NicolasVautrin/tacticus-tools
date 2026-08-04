@@ -787,11 +787,17 @@ défaut est réel (une empreinte VERSIONNÉE ne doit rien à la machine qui la m
 était d'un ordre de grandeur en dessous de l'annonce. ⚠ L'empreinte de `origin/master` portait **9**
 globales au moment de l'analyse, pas 561 : le régime armé était le CHAUD.
 
+⚠ **Piège de simulation, à ne pas reproduire** : rejouer ces diffs contre un arbre ANTÉRIEUR aux
+commits produit **22 TOUT-rejeu sur 40** — un artefact, pas une mesure. Les `.py` de ces commits
+n'existent pas encore dans le checkout, donc ils manquent à `mods`, tombent dans `hors_py` et
+percutent `dirs_glob` (`scripts/python`, présent à cause de `pytest.ini`). Simuler une sélection
+par diff exige des commits que l'arbre CONTIENT.
+
 ### Le premier remède, essayé puis ÉCARTÉ
 
 Filtrer les `.py` du domaine hors de `_globales` (motif : « déjà couverts par le graphe d'imports »)
 **ferme `_globales` mais pas la reproductibilité** : la même cause frappe `par_test`, où un import
-**lazy** exécuté pendant un test attribue au test une source `.py`. Mesuré : 45 entrées à chaud
+**lazy** exécuté pendant un test attribue au test une source `.py`. Mesuré : 47 entrées à chaud
 contre 52 à froid, et les 7 écarts portent tous des répertoires de CODE
 (`scripts/python/engine/runner/operations`, …).
 
@@ -866,9 +872,19 @@ dépendance de tout fichier de test de son **sous-arbre**.
 ⚠ Ce trou est **indépendant** du régime chaud/froid — un `conftest.py` est dans `mods`, donc il n'a
 jamais été confronté à `_globales`. Il était ouvert dans les deux régimes.
 
-**Son coût, assumé et chiffré** : sur les mêmes 40 commits, le total passe de 197 à **534** fichiers
-joués. C'est le prix de la sûreté retrouvée — les commits qui touchent un `conftest` ou un module
-qu'il importe rejouent désormais ~57-63 fichiers au lieu de 2-15.
+**Son coût, assumé et chiffré.** Bilan sur 40 commits RÉELS que l'arbre contient, périmètre 132
+fichiers — AVANT = empreinte d'`origin/master` + graphe sans arêtes conftest, APRÈS = empreinte
+régénérée + arêtes :
+
+| | fichiers-tests joués | médiane du périmètre | commits en TOUT-rejeu |
+| --- | --- | --- | --- |
+| AVANT | 197 | 4 % | **0** |
+| APRÈS | **555** | 11 % | **0** |
+
+×2,8, entièrement imputable aux arêtes conftest : les commits qui touchent un `conftest` ou un
+module qu'il importe rejouent désormais ~57-63 fichiers au lieu de 2-15. La sélection reste très
+loin du rejeu total (médiane 11 % du périmètre), et l'empreinte propre — 3 globales au lieu de 9
+dont 6 `.py` — en compense une partie.
 
 ### Contre-épreuves
 
