@@ -92,6 +92,19 @@ Cette règle s'applique aux dumps offline pareil : tout `data/dumps/<hash>/*.tsv
 ou `*.json` n'a de valeur que pour la **lecture humaine** (consulter du code
 décompilé, comprendre l'archi). Aucun hook live ne doit en dépendre.
 
+**Quand il n'y a RIEN à résoudre** (placeholder `FUN_*` sans `MethodInfo`, point interne, `DAT_*`,
+corps d'itérateur), l'exigence n'est pas « pas d'adresse » — c'est **détecter la péremption et
+REFUSER de s'attacher**. Foyer unique : `pinnedAddress` de `frida/hooks/il2cpp/build-pin.ts`
+(pendant live de `build_pin.require_pinned`, #431). Le porteur DÉCLARE son build, le foyer le
+confronte à celui qui est chargé, et rend `null` en le disant. **C'est le SEUL module où
+`il2cppBase.add(<constante>)` a le droit d'exister** ; le cliquet qui le tient est dans la banque.
+⚠ La phrase « reste en VA, et c'est voulu » (§ suivant) est écrite pour la **CITATION**, jamais
+pour l'**ATTACHEMENT** : mesuré le 2026-08-04, les six adresses en dur des hooks étaient **6/6
+périmées**, et la seule encore armée attachait `Interceptor` **au milieu d'une autre fonction**.
+⚠ Et « résolu au runtime » ne suffit pas non plus : sur une **définition générique**, `findMethod`
+rend le **thunk d'invocation**, pas le corps gshared — `bucket-audit` se déclarait `enabled` avec
+**0 fire**. Passer par l'**instance inflatée** (#259-b). Détail : `docs/rl/case-475-adresses-epinglees.md`.
+
 ### Règle d'écriture : on cite un SYMBOLE, jamais une adresse
 
 **Toute référence à du code natif — commentaire, docstring, message de test, doc —

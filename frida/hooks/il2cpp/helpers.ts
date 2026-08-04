@@ -66,6 +66,21 @@ const class_get_type = new NativeFunction(
 const type_get_object = new NativeFunction(
     exp("il2cpp_type_get_object"), "pointer", ["pointer"]);
 
+/** `il2cpp_method_get_return_type(MethodInfo*)` → `Il2CppType*` du RETOUR.
+ *
+ *  C'est la voie qui donne une INSTANCE INFLATÉE d'un générique sans en connaître de
+ *  sous-classe : `image_get_class` n'énumère que les DÉFINITIONS ouvertes (`Bucket\`1`),
+ *  dont le `methodPointer` est un thunk d'invocation — pas le corps partagé (#259 §3).
+ *  Combiné à `type_get_class_or_element_class`, il rend l'`Il2CppClass*` de l'instance
+ *  fermée (`Bucket<UnitAction>`), qui porte bien le corps gshared (#259-b).
+ *
+ *  Résolu de façon TOLÉRANTE (null si l'export manque) : il ne sert qu'à des résolutions
+ *  de hook, et un export absent ne doit pas empêcher le script de se charger. */
+export const method_get_return_type = (() => {
+    const p = il2cpp!.findExportByName("il2cpp_method_get_return_type");
+    return p ? new NativeFunction(p, "pointer", ["pointer"]) : null;
+})();
+
 /** `il2cpp_class_instance_size(Il2CppClass*)` — taille BOXÉE de la classe, en octets
  *  (pour un `System.ValueType` : header IL2CPP 0x10 + taille des champs). C'est la
  *  colonne `size` de `data/symbols/<build>/frida/classes.tsv`, donc la MÊME grandeur
