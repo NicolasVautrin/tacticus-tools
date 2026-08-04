@@ -230,7 +230,33 @@ L'inertie des trois autres lignes est la réciproque : un port qui déborderait 
 
 ---
 
-## 5. Tests rejoués
+## 5. La NON-RÉGRESSION, mesurée sur des trajectoires entières
+
+Le carré 2×2 prouve que le port gate LÀ OÙ le natif refuse. Le bras réciproque — « il ne gate nulle
+part ailleurs » — n'est pas assuré par trois témoins : il se mesure sur des décisions en volume.
+
+`engine_validate.run_agreement` marche la trajectoire de l'IA NATIVE (`aiStepDryRun` → `applyAction`)
+et compare la décision du moteur à chaque chunk. Joué **deux fois par couple (seed, board)**, sur
+deux runners IDENTIQUES, le second avec `should_execute` des deux playbooks remis au défaut de la
+base (= le port d'avant cette tranche) :
+
+| seed / board | position | ability | stay | livré ≡ gate-coupé |
+|---|---|---|---|---|
+| `777` / `MC1_67` | 19/20 | 20/20 | 4/4 | **oui** |
+| `31337` / `MC1_67` | 22/22 | 17/17 | 1/1 | **oui** |
+| `2468` / `C1_74` | 15/16 | 21/22 | 8/8 | **oui** |
+
+**56/58 position, 58/59 ability, 13/13 stay — et les six colonnes sont IDENTIQUES entre les deux
+runs.** Le gate ne retire donc AUCUNE décision que le natif prend, sur 130 chunks de trois batailles
+et deux boards. C'est le sens exact de ce chiffre : ni « le gate est bon » (aucune de ces batailles
+ne porte `Explosive`), ni « il est inerte en général » — seulement « il ne DÉBORDE pas ».
+
+⚠ Cette même mesure est ce qui borne la clause `utility > 0` : elle n'a mordu sur aucun des 59
+chunks d'ability, donc son régime discriminant reste NON CONFRONTÉ (cf. §8).
+
+---
+
+## 6. Tests rejoués
 
 | fichier | verdict |
 |---|---|
@@ -242,18 +268,24 @@ L'inertie des trois autres lignes est la réciproque : un port qui déborderait 
 | `test_normal_attack_bonus_decision_live.py` | 8 passed |
 | `test_419r1tr9_r4_r1_r2_normal_attack_gate_live.py` | 6 passed |
 | `test_419r1tr14_heavy_bolt_pistol_live.py` | 6 passed |
-| `test_443_savior_protocols_pair_term_live.py` | (cf. relevé de la PR) |
-| `test_443r1_savior_protocols_move_term_live.py` | (cf. relevé de la PR) |
-| `test_443r2_only_active_overwatch_live.py` | (cf. relevé de la PR) |
-| `test_tile_term_triggered_playbooks_live.py` | (cf. relevé de la PR) |
+| `test_443_savior_protocols_pair_term_live.py` | 5 passed |
+| `test_443r1_savior_protocols_move_term_live.py` | 5 passed |
+| `test_443r2_only_active_overwatch_live.py` | 7 passed |
+| `test_tile_term_triggered_playbooks_live.py` | 12 passed |
 
-Les sept derniers ne sont pas de la tranche : ce sont les consommateurs du terme de PAIRE et de la
-feuille `TriggeredAbilities(2)`, c'est-à-dire exactement ce que le seed de `triggered_abilities`
-côté décision (§3.3) pouvait déplacer.
+**12 fichiers, 83 verts, 0 rouge.** Les sept derniers ne sont pas de la tranche : ce sont les
+consommateurs du terme de PAIRE et de la feuille `TriggeredAbilities(2)`, c'est-à-dire exactement ce
+que le seed de `triggered_abilities` côté décision (§3.3) pouvait déplacer.
+
+Banque de cliquets (`-Since origin/master`) : **38/40 verts**. `probe_462` a rougi sur l'attestation
+manquante du fichier live neuf — régénérée et commitée. `probe_467r4` a rougi sur
+« la valeur propagée est celle du host (8 vs 9) » : il lit `liveRunners` à deux instants pendant que
+les runners de cette tranche montaient et descendaient — **VERT au re-jeu seul**, et le diff ne
+touche ni `loop_status.py` ni `frida/host/*`.
 
 ---
 
-## 6. Résidus NOMMÉS
+## 7. Résidus NOMMÉS
 
 * **`#419-r1-tr14-r5-r2-r1-r1-r1` — les 43 autres `ShouldExecute` ne sont pas portés.** Le balayage
   du §2 les compte : **43** classes déclarent un corps propre (29 corps distincts), et cette tranche
@@ -280,14 +312,21 @@ côté décision (§3.3) pouvait déplacer.
 
 ---
 
-## 7. Ce qui n'est PAS couvert
+## 8. Ce qui n'est PAS couvert
 
-* **Un seul board (`MC1_67`) et un seul seed.** Ni le gate ni le dispatch ne lisent le terrain ou le
-  RNG ; la généralisation par board n'a pas été jouée.
+* **Le carré 2×2 tient sur un seul board (`MC1_67`) et un seul seed.** Ni le gate ni le dispatch ne
+  lisent le terrain ou le RNG. La généralisation est portée par l'autre mesure (§5, trois couples et
+  deux boards), mais elle y est de NON-RÉGRESSION : aucune de ces trois batailles ne porte de cible
+  `Explosive`, donc le bras « le gate mord » reste sur un seul board.
 * **La clause `utility > 0` n'a pas de bras dédié.** Elle est portée et lue au décompilé, mais aucun
-  montage ne la rend discriminante : sur les quatre bras, `1 + Σ prédictions` est largement positif.
-  Un bras qui la testerait demanderait une attaque normale d'utilité négative (cible AMIE, ou
-  prédiction nulle) — non construit.
+  montage ne la rend discriminante : sur les quatre bras, `1 + Σ prédictions` est largement positif,
+  et le §5 confirme qu'elle n'a mordu sur aucun des 59 chunks d'ability. Un bras qui la testerait
+  demanderait une attaque normale d'utilité négative (cible AMIE, ou prédiction nulle) — non
+  construit.
+* **Le custom est RELU pour l'argument du gate**, donc `calculate_custom_utility` est évalué deux
+  fois par candidat sur la route d'attaque (une fois dans `_action_utility`, une fois dans
+  `calculate_action_utility`). Sans effet observable (fonctions pures) ; le coût n'a pas été mesuré
+  sur les playbooks dont le custom fait lui-même une prédiction (`HealingBalms`, `Drachnyen`).
 * **Le `TriggeredAbilityComponent` mesuré est celui du pas 0.** `Explosive` accordé EN BATAILLE
   (par un `AddTrait` dérivé, ou une greffe dynamique) n'a pas été cherché ; le seed est re-joué pour
   les ARRIVANTS mais pas par pas, exactement comme les passifs et les actives (les trois sont figés
