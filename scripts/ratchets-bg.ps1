@@ -203,11 +203,17 @@ $etat = switch ($rc) {
 }
 Note ("[ratchets-bg] {0} -- commit {1}, {2:N1} s" -f $etat, $court, $mur)
 
+# ⚠ LES PARENTHESES AUTOUR DU `-f` SONT LOAD-BEARING. La virgule lie PLUS FORT que l'operateur de
+# format : sans elles, PowerShell parse `@("commit..","sujet..","quand..","mur {0:N1} s") -f ($mur,
+# "rc      : $rc  ($etat)", '')`, joint le tableau de gauche par des espaces et l'applique comme UN
+# SEUL format -- l'en-tete devenait une ligne unique et **la ligne `rc` disparaissait purement et
+# simplement**. Mesure du 2026-08-04 : les 3 verdicts presents sur disque n'en portaient AUCUNE, et
+# tout lecteur automatique du verdict rendait donc « rc inconnu » sur un fichier d'apparence normale.
 $entete = @(
     "commit  : $sha",
     "sujet   : $sujet",
     "quand   : $stamp",
-    "mur     : {0:N1} s" -f $mur,
+    ("mur     : {0:N1} s" -f $mur),
     "rc      : $rc  ($etat)",
     ''
 )
