@@ -411,7 +411,7 @@ def run_tiles(sid, rpc, unit: str, fillers, foes, board_id: str, seed: int, max_
 
     rid, state_file = _build(board_id, seed, "tiles_%s" % unit, [unit] + list(fillers), foes)
     print("== TILES  unit=%s board=%s seed=%d runner=%s" % (unit, board_id, seed, rid))
-    accord_c = accord_g = joues = disc_tot = 0
+    accord_c = accord_g = joues = disc_tot = approches = 0
     vus: set = set()
     regimes: set = set()
     try:
@@ -474,7 +474,14 @@ def run_tiles(sid, rpc, unit: str, fillers, foes, board_id: str, seed: int, max_
                 disc, temoin = plats, True
             else:
                 temoin = False
+            # Un porteur en regime `Walk` n'a JAMAIS de couple `G != C` (mesure SCAN : 0/3906) --
+            # sans cette porte, le cran rendrait `joues == 0` et se lirait « NON CONFRONTE » alors
+            # que l'inertie est justement ce qu'il doit ETABLIR. Apres deux approches steriles, on
+            # joue un TEMOIN : le natif doit y coller aux trois substrats.
+            if not disc and plats and approches >= 2:
+                disc, temoin = plats, True
             if not disc:
+                approches += 1
                 br = [t["id"] for t in bg["tiles"] if t.get("tileDefId") == "Bridge"]
                 if br and legal:
                     tgt = bd.coord(br[0])
@@ -531,9 +538,300 @@ def run_tiles(sid, rpc, unit: str, fillers, foes, board_id: str, seed: int, max_
     return 0 if accord_c == joues else (joues - accord_c)
 
 
+# --------------------------------------------------------------------------- cran EXO
+def run_exo(sid, rpc, board_id: str, seed: int, max_turns: int, graft: bool, verbose: bool) -> int:
+    """L'AVAL, MESURE : le degat natif depend-il de `tilesMovedThisTurn`, et de combien ?
+
+    Le seul consommateur LINEAIRE (`ModifiedExoarmour_ExtraDmgEffect$$GetCurrentDamageBonus` =
+    `Multiply(ConfigVar(extraDmg), TilesMovedThisTurn(Owner))`) a pour sujet le PORTEUR, et son
+    unique porteur `votanChampion` est un MARCHEUR : son compteur ne bouge donc jamais avec #589
+    (cran SCAN : `Walk` = 0 couple sur 3906). Pour MESURER l'aval au lieu de le supposer, on
+    GREFFE le passif sur un porteur qui, lui, EST dans le regime -- `blackHaarken` (trait
+    `Flying`, arme MELEE portee 0, 4 coups), recette `case-92` SS5bis.
+
+    ⚠ CE QUE LA GREFFE NE COUVRE PAS : les stats/traits/armes du VRAI porteur. Elle est legitime
+    ICI parce que le natif est l'ORACLE et voit exactement la meme unite que le port -- on ne
+    transpose aucun chiffre vers `votanChampion`, on etablit la SENSIBILITE de la chaine.
+
+    Le contre-bras `--no-graft` est OBLIGATOIRE : sans lui, une variation de degat imputable a
+    autre chose (charge, %-list de tuile, trait) s'attribuerait au compteur."""
+    import hexgeo
+    import catalog_inject as CI
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.components import PositionComponent, StatsComponent
+    from engine.services.movement_query import get_pathfinder_type_for_unit, unit_has_effect_fn
+    import probe_448_r1_r1_r1_flying_movement_steps as P
+
+    unit, foe = "blackHaarken", "necroWarden"
+    LOGSDIR.mkdir(parents=True, exist_ok=True)
+    bcp = None
+    if graft:
+        bcp, reports = CI.write_grafted_seed_bc(
+            LOGSDIR / "bc_589r1_exo.json", ["%s:ModifiedExoarmour" % unit], kind="passive")
+        print("   greffe : %s" % json.dumps(reports))
+    rid, state_file = _build(board_id, seed, "exo_%s" % ("g" if graft else "n"),
+                             [unit, foe], [foe], seed_bc=bcp)
+    print("== EXO  unit=%s greffe=%s board=%s seed=%d runner=%s"
+          % (unit, graft, board_id, seed, rid))
+    par_n = {}            # n natif -> (min, max) de `aiPredict` APRES le move
+    disc_vus = []
+    vues_dist: set = set()
+    try:
+        bg = rpc(sid, "boardGraph", {"runnerId": rid}, 120)
+        bd = Board(bg["tiles"], adjacency="native_sym")
+        if not bd.has_connectivity_channel():
+            print("   CANAL ABSENT -- NON MESURE")
+            return 1
+        approches = 0
+        # L'ANCRE : un voisin d'un `Bridge`. C'est la seule zone du board ou `G \ C != 0` (mesure
+        # #584 : les 16 aretes dirigees de `C1_74` sont TOUTES incidentes aux deux ponts), donc la
+        # seule ou le rebranchement peut deplacer `n` -- et donc le degat.
+        # L'ancre est un voisin GEOMETRIQUE du pont qui n'est PAS un voisin de CONNECTIVITE :
+        # c'est de l'autre cote du raccourci. Poser la cible SUR le pont ne sert a rien -- ses
+        # seuls voisins de connectivite sont ses deux voisins d'axe, donc tout strike y arrive
+        # par le chemin que les deux substrats partagent (mesure vecue : 4 valeurs de `n`, zero
+        # couple discriminant).
+        ponts = [t["id"] for t in bg["tiles"] if t.get("tileDefId") == "Bridge"]
+        ancre = None
+        for p_id in ponts:
+            conn = set(bd.neighbours_connectivity(p_id) or [])
+            derriere = [v for v in bd.neighbours_geometric(p_id) if v not in conn]
+            if derriere:
+                ancre = bd.coord(derriere[0])
+                break
+        place_fait = False
+        for turn in range(max_turns):
+            state, dv, ob = P._port_state(sid, rpc, rid, bd)
+            to_act = [int(u) for u in (dv.get("toActivate") or [])]
+            carriers = P._carriers(dv, [unit])
+            cand = [u for u in to_act if u in carriers]
+            if not cand:
+                if not to_act:
+                    print("   t%d : toActivate vide -> fin" % turn)
+                    break
+                # TOUR ADVERSE (`--no-ai` : il ne se joue pas tout seul). On s'en sert pour
+                # AMENER LA CIBLE au bord du pont : sans ca le porteur ne peut jamais finir
+                # ADJACENT sur un couple discriminant, et on mesurerait la pente sans jamais
+                # mesurer l'ECART qu'elle chiffre. DEPLACER pour construire la configuration,
+                # jamais « bloque par la geometrie de spawn ».
+                if not place_fait and ancre is not None:
+                    mv = P._legal_moves(sid, rpc, rid, to_act[0])
+                    if mv:
+                        step = min(mv, key=lambda d: hexgeo.distance((d[0], d[1]), ancre))
+                        rpc(sid, "applyAction", {"runnerId": rid, "action": {
+                            "kind": "move", "unitId": int(to_act[0]),
+                            "to": {"col": int(step[0]), "row": int(step[1])}}}, 120)
+                        print("   t%d : CIBLE u%s -> %s (ancre %s)" % (turn, to_act[0], step,
+                                                                       ancre))
+                        if tuple(step) == tuple(ancre):
+                            place_fait = True
+                rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                continue
+            uid = cand[0]
+            # La CIBLE : un ennemi VIVANT, fixe d'un tour a l'autre (sinon la comparaison des
+            # degats melangerait deux armures).
+            foes = [int(u["id"]) for u in (dv.get("units") or [])
+                    if u.get("id") is not None and u.get("team") != dv.get("team")
+                    and u.get("alive")]
+            if not foes:
+                print("   t%d : aucune cible vivante -> fin" % turn)
+                break
+            tgt = min(foes)
+            e = state.get_entity(int(uid))
+            pc = e.get_component(PositionComponent)
+            src = (pc.col, pc.row)
+            sc = e.get_component(StatsComponent)
+            traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+            ptype = get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(uid)), traits or [])
+            te = state.get_entity(int(tgt))
+            tpc = te.get_component(PositionComponent) if te is not None else None
+            tpos = (tpc.col, tpc.row) if tpc is not None else None
+            legal = P._legal_moves(sid, rpc, rid, uid)
+            tid_cible = bd.id_at(*tpos) if tpos else None
+            vois_cible = ([bd.coord(v) for v in bd.neighbours_native(tid_cible)]
+                          if tid_cible is not None else [])
+            # DEUX PHASES, alternees, et c'est le montage qui les impose :
+            #  * STRIKE  -- finir ADJACENT a la cible, sinon `aiPredict` rend `pred: null`
+            #               (`dictCount = 0` : le natif ne prevoit rien hors de portee). C'est LA
+            #               phase qui mesure.
+            #  * REPOSER -- s'eloigner, pour que le STRIKE suivant parte d'une distance DIFFERENTE
+            #               et rende une valeur de `n` INEDITE. Sans elle le porteur fait un
+            #               aller-retour entre deux tuiles et rend N fois le meme `n` : mesure
+            #               vecue, 6 tours, une seule valeur (n = 4) et aucune pente.
+            strike = []
+            repos = []
+            for d in legal:
+                dst = (int(d[0]), int(d[1]))
+                if dst == src or hexgeo.distance(src, dst) <= 1:
+                    continue
+                nc = _predire(Board, state, uid, src, dst, "C")
+                ng = _predire(Board, state, uid, src, dst, "G")
+                # ⚠ L'ADJACENCE DE JEU N'EST PAS `hexgeo.distance <= 1`. `MovementUtil$$AreTilesAdjacent`
+                # vaut `(|dElev| < 2) & IsNeighbour(a, b)`, c'est-a-dire exactement le champ
+                # `neighbours_native` (connectivite INTERSECTE la porte d'elevation, #589 SS14.2).
+                # Mesure vecue : depuis `(2,4)`, `hexgeo` donne `d = 1` vers `(1,5)` et le natif
+                # rend `pred: null` -- la tuile n'est PAS adjacente pour lui.
+                tid_t = bd.id_at(*tpos) if tpos else None
+                tid_d = bd.id_at(*dst)
+                adj = (tid_t is not None and tid_d is not None
+                       and tid_d in set(bd.neighbours_native(tid_t)))
+                if adj:
+                    # PRIORITE, et elle decoule du PIEGE documente plus bas (le %-list de tuile) :
+                    #   3  le couple DISCRIMINANT (`n_G != n_C`) dont l'AUTRE valeur est deja
+                    #      mesuree SUR CETTE TUILE -> l'ecart d'aval devient une difference de
+                    #      DEUX MESURES, sans aucun modele ;
+                    #   2  un `n` inedit sur une tuile deja mesuree (isole la pente du %-list) ;
+                    #   1  un `n` inedit ;
+                    #   0  redondant.
+                    connue = any(t == dst for (t, _n) in par_n)
+                    inedit = (dst, nc) not in par_n
+                    if nc != ng and (dst, ng) in par_n:
+                        prio = 3
+                    elif connue and inedit:
+                        prio = 2
+                    elif inedit:
+                        prio = 1
+                    else:
+                        prio = 0
+                    strike.append(((prio, 1 if nc != ng else 0, nc), dst, ng, nc))
+                else:
+                    # ON DEPLACE POUR CONSTRUIRE LA CONFIGURATION, jamais « bloque par la
+                    # geometrie de spawn » : une position de repli vaut par le STRIKE qu'elle
+                    # rend possible ensuite. Priorite 1 -- de la, il existe un strike ou les deux
+                    # substrats DIVERGENT (c'est le seul montage qui chiffre l'aval sans modele).
+                    prep = 0
+                    for v in (vois_cible or []):
+                        vg = _predire(Board, state, uid, dst, v, "G")
+                        vc = _predire(Board, state, uid, dst, v, "C")
+                        if vg != vc:
+                            prep = 1
+                            break
+                    dd = hexgeo.distance(dst, tpos) if tpos else 0
+                    repos.append(((prep, 1 if dd not in vues_dist else 0, dd), dst, ng, nc))
+            strike.sort(reverse=True)
+            repos.sort(reverse=True)
+            # STRIKE seulement s'il APPORTE quelque chose ; sinon on s'ecarte pour le preparer.
+            if strike and strike[0][0][0] >= 1:
+                cands = strike
+            elif repos:
+                cands = repos
+            else:
+                cands = strike
+            if not cands:
+                approches += 1
+                rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                continue
+            _k, dst, ng, nc = cands[0]
+            if tpos is not None:
+                vues_dist.add(hexgeo.distance(dst, tpos))
+            b_all = _counters(rpc(sid, "actorStats", {"runnerId": rid}, 60))
+            rpc(sid, "applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": int(uid), "to": {"col": dst[0], "row": dst[1]}}}, 120)
+            a_all = _counters(rpc(sid, "actorStats", {"runnerId": rid}, 60))
+            before, after = b_all.get(int(uid)), a_all.get(int(uid))
+            reset = any(k != int(uid) and a_all.get(k) is not None and b_all.get(k) is not None
+                        and a_all[k] < b_all[k] for k in b_all)
+            nat = None if (before is None or after is None) else after - before
+            if nat == 0 and dst != src:
+                reset = True
+            if reset or nat is None:
+                print("      %s -> %s : NON MESURE (ResetThisTurn=%s)" % (src, dst, reset))
+                rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                continue
+            pr = rpc(sid, "aiPredict", {"runnerId": rid, "unitId": int(uid),
+                                        "targetId": int(tgt), "col": dst[0], "row": dst[1],
+                                        "fresh": True}, 90)
+            lo, hi = _predict_bounds(pr)
+            print("   t%d u%s ptype=%d %s -> %s : NATIF n=%d (port G=%d C=%d)  cible=u%s@%s d=%s  "
+                  "aiPredict=%s/%s"
+                  % (turn, uid, ptype, src, dst, nat, ng, nc, tgt, tpos,
+                     hexgeo.distance(dst, tpos) if tpos else "?", lo, hi))
+            if verbose:
+                print("        aiPredict brut: %s" % json.dumps(pr)[:400])
+            if lo is None:
+                print("        aiPredict SANS borne -- NON MESURE pour ce tour")
+            else:
+                # ⚠ INDEXE PAR (TUILE, n), ET C'EST UNE MESURE QUI L'IMPOSE. Le degat depend AUSSI
+                # du %-list de la tuile d'attaque (surplomb) : la MEME valeur `n = 2` rend
+                # 6024 depuis `(1,4)` et 9040 depuis `(0,3)`. Une pente calculee sur des tuiles
+                # differentes melange les deux effets et n'attribue plus rien.
+                par_n.setdefault((dst, nat), (lo, hi))
+                if ng != nc:
+                    disc_vus.append((src, dst, ng, nc, nat, lo, hi))
+            rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+    finally:
+        try:
+            rpc(sid, "disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+        state_file.unlink(missing_ok=True)
+
+    print("\n   -> EXO (greffe=%s) : `aiPredict` APRES le move, par (tuile d'attaque, n)" % graft)
+    for (t, n) in sorted(par_n, key=lambda k: (k[0], k[1])):
+        print("        tuile %-8s n=%-3d  willKill=%-8s mightKill=%-8s"
+              % (str(t), n, par_n[(t, n)][0], par_n[(t, n)][1]))
+    # LA PENTE, calculee A TUILE CONSTANTE -- seule facon d'attribuer l'ecart au compteur.
+    par_tuile = {}
+    for (t, n) in par_n:
+        par_tuile.setdefault(t, {})[n] = par_n[(t, n)]
+    pentes = []
+    for t, m in sorted(par_tuile.items()):
+        ns = sorted(m)
+        for a, b in zip(ns, ns[1:]):
+            pentes.append((t, a, b, (m[b][0] - m[a][0]) / (b - a), (m[b][1] - m[a][1]) / (b - a)))
+    if not pentes:
+        print("      AUCUNE tuile avec DEUX valeurs de n -- la SENSIBILITE n'est pas mesuree "
+              "a %-list constant (NON CONCLU)")
+        return 1
+    for (t, a, b, plo, phi) in pentes:
+        print("      pente a tuile CONSTANTE %-8s n=%d->%d : willKill %+.1f/tuile   "
+              "mightKill %+.1f/tuile" % (str(t), a, b, plo, phi))
+    non_nulles = [p for p in pentes if p[3] != 0]
+    if graft and not non_nulles:
+        print("      ECART: le passif est GREFFE et le degat NE DEPEND PAS de n a tuile "
+              "constante -- la greffe est inerte, ou la chaine ne remonte pas jusqu'au degat")
+        return 1
+    if (not graft) and non_nulles:
+        print("      ECART: SANS greffe le degat depend deja de n -- une autre mecanique varie "
+              "avec le deplacement, l'attribution a ModifiedExoarmour serait FAUSSE")
+        return 1
+    # L'ECART D'AVAL, ENTIEREMENT MESURE quand les DEUX valeurs `n_G` et `n_C` ont ete lues sur
+    # LA MEME tuile : `D(n_C) - D(n_G)` est alors une difference de deux mesures, sans modele.
+    for (s, d, ng, nc, nat, lo, hi) in disc_vus:
+        m = par_tuile.get(d) or {}
+        if ng in m and nat in m:
+            print("      AVAL MESURE  %s -> %s : port AVANT #589 aurait lu n=%d (degat %s/%s), "
+                  "le natif enregistre n=%d (degat %s/%s) -> ecart %+d/%+d"
+                  % (s, d, ng, m[ng][0], m[ng][1], nat, m[nat][0], m[nat][1],
+                     m[nat][0] - m[ng][0], m[nat][1] - m[ng][1]))
+        else:
+            print("      DISCRIMINANT %s -> %s : natif n=%d, geometrie n=%d -- l'autre valeur "
+                  "n'a PAS ete mesuree sur cette tuile (ecart NON chiffre directement)"
+                  % (s, d, nat, ng))
+    return 0
+
+
+def _predict_bounds(pr):
+    """Les bornes de degat de `aiPredict` = `pred.willKillDmg` / `pred.mightKillDmg`.
+
+    Ce sont les DEUX bornes du preview natif `GetAllPredictions` (`ProbableDamageEvent`), celles
+    que #312/#322 nomment « natif min/max ». `None` = NON MESURE -- jamais un 0 par defaut, qui se
+    lirait comme « aucun degat »."""
+    pred = (pr or {}).get("pred")
+    if not isinstance(pred, dict):
+        return (None, None)
+    lo = pred.get("willKillDmg", pred.get("healthDamageMin"))
+    hi = pred.get("mightKillDmg", pred.get("healthDamageMax"))
+    if lo is None or hi is None:
+        return (None, None)
+    return int(lo), int(hi)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", choices=("INV", "SCAN", "TILES"), default="INV")
+    ap.add_argument("--only", choices=("INV", "SCAN", "TILES", "EXO"), default="INV")
+    ap.add_argument("--no-graft", action="store_true",
+                    help="EXO : CONTRE-BRAS sans le passif greffe (le degat ne doit PAS suivre n)")
     ap.add_argument("--reuse-bg", action="store_true",
                     help="relit le boardGraph deja capte dans logs/ (aucun runner monte)")
     ap.add_argument("--unit", default="blackHaarken")
@@ -550,6 +848,10 @@ def main() -> int:
     print("== #589-r1 -- l'AVAL de tilesMovedThisTurn   session=%s" % sid)
     if a.only == "SCAN":
         n = run_scan(sid, rpc, a.board, a.seed, a.reuse_bg, a.verbose)
+        print("VERDICT: %s (%d ecart(s))" % ("PASS" if n == 0 else "FAIL", n))
+        return 0 if n == 0 else 1
+    if a.only == "EXO":
+        n = run_exo(sid, rpc, a.board, a.seed, a.turns, not a.no_graft, a.verbose)
         print("VERDICT: %s (%d ecart(s))" % ("PASS" if n == 0 else "FAIL", n))
         return 0 if n == 0 else 1
     n = run_tiles(sid, rpc, a.unit, [x for x in a.fillers.split(",") if x],
