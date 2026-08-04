@@ -42,6 +42,7 @@ import { Ctx } from "../controller.js";
 import {
     class_get_name, findClassAnywhere, findMethod, findMethodByParamCount, il2cppBase, s,
 } from "../il2cpp/helpers.js";
+import { pinnedAddress } from "../il2cpp/build-pin.js";
 import { captureStack } from "../ai-toolkit/stack-capture.js";
 import { log } from "../runtime/diag.js";
 import { queueOnMainThread } from "../runtime/queue.js";
@@ -336,10 +337,24 @@ interface CalcDmgDump { incoming: number; outgoing: number; ts: number; }
 // Hooker `CritDamageInfo..ctor @180fff850` + backtrace -> le frame appelant = ce leaf. On lit aussi le
 // damage arg (arg1) pour voir si le +300/1540 y transite. Dedup par topRva.
 interface CritCtorDump { damage: number; topRva: number; frames: string[]; ts: number; }
-const CRIT_CTOR_RVA = 0x180fff850 - 0x180000000;   // IdunBattle.Core.Services.CritDamageInfo$$.ctor
-// FUN_1800267c0 @ ghidra 0x1800267c0 -> RVA (VA - image base). Helper NON nomme (pas de MethodInfo) ->
-// resolution par RVA (exception diag documentee : feedback_rva_transcription_from_va). TEMP.
-const DISPATCH_HELPER_RVA = 0x1800267c0 - 0x180000000;
+// #475 : la constante `CRIT_CTOR_RVA` qui vivait ici est SUPPRIMEE. Elle etait MORTE (declaree,
+// plus aucun attachement depuis le retrait ci-dessous) ET PERIMEE -- mesure du 2026-08-04 : sa VA
+// vaut, sur `rnca9r7q6c`, `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal+0x130`,
+// au milieu d'une fonction sans rapport. `CritDamageInfo$$.ctor` n'est present dans AUCUNE des
+// deux tables du build courant (ni ghidra ni frida) : corps de ctor de ValueType, DEDUPLIQUE --
+// donc NON RESOLUBLE par symbole, et rien a re-epingler tant que ce hook reste retire.
+// Les `critCtorDumps` ci-dessous restent donc STRUCTURELLEMENT VIDES.
+//
+// #68 TEMP : `FUN_1800267c0` -- helper NON nomme (aucun `MethodInfo`), donc NON RESOLUBLE par
+// symbole : c'est le cas ou une VA en dur reste le seul ancrage. Elle passe desormais par le
+// FOYER `build-pin`, qui REFUSE d'attacher des que le build a bouge (elle a ete mesuree sur
+// `gqfc5mff6c` et l'est deja : sur `rnca9r7q6c` cette VA tombe a `FUN_180026780+0x40`).
+const DISPATCH_HELPER_PIN = {
+    va: 0x1800267c0, build: "gqfc5mff6c", symbol: "FUN_1800267c0",
+    what: "invocateur d'interface -- resout la methode concrete du slot 0x42 (degat combat final)",
+    how: "ghidra sur le build courant : partir du call site dans ExecuteHit, relire l'invocateur"
+        + " (il a fusionne : la VA d'origine tombe desormais a FUN_180026780+0x40)",
+};
 const DISPATCH_SLOT_FILTER = 0x42;
 
 function installOnce(): {
@@ -497,8 +512,15 @@ function installOnce(): {
     }
 
     // #68 TEMP : resolve the opaque final-damage interface method (slot 0x42) dispatched from ExecuteHit.
-    try {
-        const helper = il2cppBase.add(DISPATCH_HELPER_RVA);
+    // L'adresse passe par le FOYER `build-pin` : `null` = build different (ou non mesurable), donc
+    // AUCUN attachement. Le foyer a deja imprime la cause ; on la remonte dans `missing` pour qu'un
+    // lecteur de `modifierObserveStatus` voie ce capteur ABSENT plutot que silencieux.
+    const dispatchHelper = pinnedAddress(DISPATCH_HELPER_PIN);
+    if (dispatchHelper === null) {
+        missing.push("FUN_1800267c0 (dispatch-42 : adresse EPINGLEE REFUSEE -- le build a bouge"
+            + " ou n'est pas mesurable ; cf. log [build-pin] REFUS)");
+    } else try {
+        const helper = dispatchHelper;
         state.fires["dispatch42"] = 0;
         state.listeners.push(Interceptor.attach(helper, {
             // FUN_1800267c0(out, slot, iface, obj, p5, p6, entities) : args[1]=slot, args[2]=iface, args[3]=obj.

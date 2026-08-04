@@ -9,14 +9,16 @@
 // magnitude.
 //
 // This module hooks:
-//   - Bucket<T>.AddAction(action)               (RVA 0x1478820)
-//   - Bucket<T>.AddActionToBucket(weight, ...)  (RVA 0x14786B0)
-//   - Bucket<T>.IsValidAction(action) → bool    (RVA 0x1479290)
-//   - Bucket<T>.ChooseAction() → action         (RVA 0x1478CC0)
+//   - Bucket<T>.AddAction(action)
+//   - Bucket<T>.AddActionToBucket(weight, ...)
+//   - Bucket<T>.IsValidAction(action) → bool
+//   - Bucket<T>.ChooseAction() → action
 //
 // All four are IL2CPP gshared method bodies (single compiled body shared by
 // every closed Bucket<T> instantiation — IL2CPP's "fully shared generic"
-// optimization). Hooking the RVA directly instrument all instantiations.
+// optimization), so instrumenting one body covers every instantiation.
+// Resolution is RUNTIME and goes through the INFLATED instance — see
+// `findBucketMethod` for why the open definition is NOT usable here.
 //
 // BucketAction<T> layout (gshared, T = ref type):
 //   - Header @ 0x0  (Il2CppClass*)
@@ -32,23 +34,16 @@
 
 import { Ctx } from "../controller.js";
 import {
-    class_get_methods, cstr, findClassAnywhere,
-    il2cppBase, method_get_name, methodEntry,
+    class_get_name, cstr, findClassAnywhere, findMethod, il2cppBase,
+    method_get_return_type, type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
 
-// --- RVAs (offsets relative to GameAssembly.dll base) ---
-
-// ⚠ RVA build-spécifiques (gshared -> non résolus par findMethod). Rafraîchis pour le build
-// gqfc5mff6c depuis ghidra (VA - 0x180000000) : Bucket<__Il2CppFullySharedGenericType>.
-//   AddAction @1813fbcc0 · AddActionToBucket @1813fbb60 · ChooseAction @1813fc0d0 · IsValidAction @1813fc660
-// À REFAIRE à chaque changement de hash (cf. CLAUDE.md — RVA hardcodée = diagnostic-only).
-const RVA = {
-    addAction: 0x13fbcc0,
-    addActionToBucket: 0x13fbb60,
-    isValidAction: 0x13fc660,
-    chooseAction: 0x13fc0d0,
-};
+// #475 : les quatre constantes `RVA` qui vivaient ici sont SUPPRIMÉES. Elles n'étaient plus
+// utilisées pour attacher (`void RVA;`) et elles étaient 4/4 PÉRIMÉES — mesuré le 2026-08-04,
+// sur `rnca9r7q6c` elles tombent en plein corps de `PlayerEventService$$SendPlayerEvent` et de
+// `PointerEventsHelper$$SendEnterLeave`. Elles se présentaient comme de la documentation ; elles
+// documentaient un autre build. Les corps se résolvent au RUNTIME (cf. `findBucketMethod`).
 
 // --- BucketAction layout ---
 const BA = {
@@ -165,37 +160,94 @@ function captureBacktraceOnce(ctx: CpuContext, tag: string): void {
 
 // --- Hook installation ---
 
-/** Find Bucket<T>'s methods via IL2CPP class lookup. The class name is
- * `Bucket\`1` for the open generic. We resolve via findClassAnywhere and
- * iterate its methods. The returned method entry is the gshared body — same
- * as the dump RVA but resolved through the runtime's actual MethodInfo so
- * we don't depend on RVA accuracy. */
-function findBucketMethod(name: string): NativePointer | null {
-    const klass = findClassAnywhere(
-        "IdunBattle.AI.BucketSystem", "Bucket`1");
-    if (!klass) return null;
-    const it = Memory.alloc(Process.pointerSize);
-    it.writePointer(ptr(0));
-    let m: NativePointer;
-    while (!(m = class_get_methods(klass, it) as NativePointer).isNull()) {
-        if (cstr(method_get_name(m) as NativePointer) !== name) continue;
-        return methodEntry(m);
+// LA DÉFINITION OUVERTE NE DONNE PAS LE CORPS — c'est ce qui rendait ce capteur MUET (#475).
+//
+// `findClassAnywhere("IdunBattle.AI.BucketSystem", "Bucket`1")` RÉUSSIT (mesuré live le
+// 2026-08-04), et `findMethod` dessus rend bien un pointeur — mais c'est le THUNK d'invocation
+// de la DÉFINITION générique, pas le corps pleinement partagé (#259 §3). Confronté à
+// `data/symbols/rnca9r7q6c/ghidra/functions.tsv`, ce que l'ancienne résolution attachait était :
+//   AddAction → `Unity.Services.Core.Device.IUserIdentifierProvider$$set_UserId`
+//   IsValidAction → `UnityEngine.Purchasing.ITransactionLog$$HasRecordOf`
+//   ChooseAction → `IActivationFactory$$ActivateInstance`
+//   AddActionToBucket → `MinimumBinaryHeap\`1$$u003CMinHeapifyu003Eg__UpdateSmallestIfCandidateIsSmaller|21_1`
+// — des corps triviaux DÉDUPLIQUÉS, sans rapport. Symptôme : `bucketAuditStatus` rendait
+// `enabled: true, listeners: 5` et **0 fire** sur les cinq compteurs. C'est le coût mesuré : #597
+// a dû lire `IsValidAction` au décompilé faute de capteur.
+//
+// LA VOIE QUI DONNE LE CORPS, et c'est la recette MESURÉE de #259-b : le `MethodInfo` d'une
+// instance INFLATÉE porte le corps partagé. On atteint `Bucket<UnitAction>` par le TYPE DE RETOUR
+// d'un playbook CONCRET (`EvaluateNonComparable` / `EvaluateInternal` rendent
+// `IdunBattle.AI.BucketSystem.Bucket<IdunBattle.AI.ActionGenerators.UnitAction>`), puis
+// `findMethod` sur cette classe-là.
+//
+// Plusieurs graines, délibérément : si l'une disparaît d'un build, les autres couvrent. Aucune
+// n'est « meilleure » — la première qui résout gagne.
+const BUCKET_SEEDS: Array<[string, string, string]> = [
+    ["IdunBattle.AI.Playbook.Loki", "AberrantHypermorphPlaybook", "EvaluateNonComparable"],
+    ["IdunBattle.AI.Playbook.Loki", "AetherStridePlaybook", "EvaluateNonComparable"],
+    ["IdunBattle.AI.Playbook", "SolarAtomizerPlaybook", "EvaluateNonComparable"],
+    ["IdunBattle.AI.Playbook", "BloodChalicePlaybook", "EvaluateInternal"],
+];
+
+/** `Il2CppClass*` de l'instance INFLATÉE `Bucket<UnitAction>`, ou null. Résolu une fois. */
+let inflatedBucket: NativePointer | null | undefined;
+
+function resolveInflatedBucket(): NativePointer | null {
+    if (inflatedBucket !== undefined) return inflatedBucket;
+    inflatedBucket = null;
+    if (method_get_return_type === null || type_get_class_or_element_class === null) {
+        return inflatedBucket;
     }
-    return null;
+    for (const [ns, cls, method] of BUCKET_SEEDS) {
+        try {
+            const k = findClassAnywhere(ns, cls);
+            if (!k) continue;
+            const mi = findMethod(k, method);
+            if (!mi) continue;
+            const t = method_get_return_type(mi.info) as NativePointer;
+            if (t.isNull()) continue;
+            const bk = type_get_class_or_element_class(t) as NativePointer;
+            if (bk.isNull()) continue;
+            if (cstr(class_get_name(bk) as NativePointer) !== "Bucket`1") continue;
+            inflatedBucket = bk;
+            return inflatedBucket;
+        } catch { /* graine suivante */ }
+    }
+    return inflatedBucket;
+}
+
+/** Entrée du corps gshared d'une méthode de `Bucket<T>`, ou null — jamais le thunk.
+ *
+ * Le GARDE est structurel : on résout AUSSI sur la définition ouverte, et si les deux rendent la
+ * MÊME adresse, c'est qu'on est retombé sur le thunk → on REFUSE. Sans ce test, une régression
+ * silencieuse redeviendrait indiscernable d'un capteur qui marche. */
+function findBucketMethod(name: string): NativePointer | null {
+    const inflated = resolveInflatedBucket();
+    if (inflated === null) return null;
+    const m = findMethod(inflated, name);
+    if (!m || m.ptr.isNull()) return null;
+    const open = findClassAnywhere("IdunBattle.AI.BucketSystem", "Bucket`1");
+    if (open) {
+        const def = findMethod(open, name);
+        if (def && !def.ptr.isNull() && def.ptr.equals(m.ptr)) {
+            send({
+                t: "diag",
+                msg: "[bucket-audit] REFUS " + name + " : l'instance inflatée rend la MÊME"
+                    + " adresse que la définition ouverte (" + m.ptr + ") — c'est le thunk"
+                    + " d'invocation, pas le corps gshared. Aucun attachement.",
+            });
+            return null;
+        }
+    }
+    return m.ptr;
 }
 
 function installHooks(): boolean {
     if (audit.listeners.length > 0) return true;
 
-    // Resolve via the live IL2CPP class table only. The hardcoded RVAs
-    // below are kept as documentation of where these methods USED to live
-    // in the `nb3o9lmt6c` build, but are NOT used as a fallback anymore —
-    // when the game binary updates (new hash under `tacticus/games/<HASH>`)
-    // those RVAs point at random code, and Interceptor.attach silently
-    // succeeds while hooking the wrong instructions. Symptoms: hooks fire
-    // 0 times even when the AI is active, or worse, fire on hot paths and
-    // crash. See CLAUDE.md "Hash du build = identité du dump" for context.
-    void RVA;
+    // Résolution 100 % RUNTIME, via l'instance INFLATÉE (cf. `findBucketMethod`). Aucune adresse
+    // en dur : `Interceptor.attach` réussit SILENCIEUSEMENT sur du code arbitraire, donc une RVA
+    // périmée ne se voit ni à l'erreur ni au crash — seulement à un capteur muet.
     const addActionPtr = findBucketMethod("AddAction");
     const addActionToBucketPtr = findBucketMethod("AddActionToBucket");
     const isValidActionPtr = findBucketMethod("IsValidAction");
@@ -205,10 +257,9 @@ function installHooks(): boolean {
         || !isValidActionPtr || !chooseActionPtr) {
         send({
             t: "diag",
-            msg: "[bucket-audit] DISABLED: at least one Bucket<T> method "
-                + "couldn't be resolved via findClassAnywhere. The previous "
-                + "RVA fallback was removed because it would post-hash-change "
-                + "hook random code. Skipping installation."
+            msg: "[bucket-audit] DISABLED: au moins une méthode de Bucket<T> n'a pas pu être"
+                + " résolue sur l'instance INFLATÉE. On n'attache PAS : ni sur le thunk de la"
+                + " définition ouverte (0 fire, mesuré #475), ni sur une adresse en dur."
                 + " AddAction=" + addActionPtr
                 + " AddActionToBucket=" + addActionToBucketPtr
                 + " IsValidAction=" + isValidActionPtr
@@ -217,13 +268,19 @@ function installHooks(): boolean {
         return false;
     }
 
+    // La VA ghidra est imprimée pour être CONFRONTÉE à `data/symbols/<build>/ghidra/functions.tsv`
+    // (attendu sur `rnca9r7q6c` : AddAction @1814eff60, AddActionToBucket @1814efe00,
+    // IsValidAction @1814f0900, ChooseAction @1814f0370). C'est le contrôle qu'un lecteur peut
+    // faire sans rien instrumenter.
+    const ghidra = (p: NativePointer | null): string =>
+        p === null ? "<null>" : "0x" + (0x180000000 + p.sub(il2cppBase).toInt32()).toString(16);
     send({
         t: "diag",
-        msg: "[bucket-audit] entry pts: AddAction=" + addActionPtr
-            + " AddActionToBucket=" + addActionToBucketPtr
-            + " IsValidAction=" + isValidActionPtr
-            + " ChooseAction=" + chooseActionPtr
-            + " ctor=" + (ctorPtr ?? "<not found>"),
+        msg: "[bucket-audit] entry pts (ghidra VA): AddAction=" + ghidra(addActionPtr)
+            + " AddActionToBucket=" + ghidra(addActionToBucketPtr)
+            + " IsValidAction=" + ghidra(isValidActionPtr)
+            + " ChooseAction=" + ghidra(chooseActionPtr)
+            + " ctor=" + ghidra(ctorPtr),
     });
 
     // Hook 0: .ctor — confirms the class is instantiated at all during AI eval

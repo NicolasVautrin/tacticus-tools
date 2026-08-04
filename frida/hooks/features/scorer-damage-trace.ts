@@ -60,6 +60,7 @@ import { Ctx } from "../controller.js";
 import {
     findClassAnywhere, findMethod, il2cppBase, class_get_name, s, class_get_parent,
 } from "../il2cpp/helpers.js";
+import { pinnedAddress, PinnedAddress } from "../il2cpp/build-pin.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
@@ -94,14 +95,26 @@ const CAP = 4000;
 //   * pour situer un SITE D'APPEL, interroger les xrefs du **CALLEE**, jamais des données qu'il
 //     consomme — partir du DAT rendait 7 sites ambigus ET masquait un second appel.
 // Détail complet, cible par cible : tâche #257.
-const IL2CPP_VA_BASE = 0x180000000;
-const rva = (va: number): number => va - IL2CPP_VA_BASE;
+// #475 : ces cibles passent TOUTES par le FOYER `il2cpp/build-pin.ts` (`pinnedAddress`), qui
+// refuse d'attacher dès que le build chargé n'est plus celui sur lequel la VA a été mesurée.
+// Le commentaire ci-dessus disait déjà « au prochain build, ces RVA pointent du code aléatoire » —
+// il ne l'EMPÊCHAIT pas. Maintenant si. Chaque pin porte son symbole ghidra VERBATIM, que le
+// cliquet `probe_475_pinned_addresses.py` confronte OFFLINE à la table versionnée du build
+// DÉCLARÉ : c'est ce qui attrape une transcription fausse À L'INTÉRIEUR du bon build — exactement
+// la faute `RVA_VALUE_MOD_MODIFY` décrite plus bas. Le hash est réécrit dans CHAQUE pin, sans
+// constante partagée : un pin doit se lire seul (deux pins peuvent légitimement déclarer des
+// builds différents — c'est le cas dans `modifier-observe.ts`).
 
 // ComposedUtility.<EvaluateMovementInSteps>d__8.MoveNext. Le composite Tile(7) est un ComposedUtility
 // qui SOMME ses enfants (liste List<IUtility> @ this+0x18, this = d__8+0x20). On énumère les noms de
 // classe des enfants (une fois par instance `this`) pour IDENTIFIER de façon déterministe la feuille
 // -25 (plutôt que hooker feuille par feuille).
-const RVA_COMPOSED_UTILITY = rva(0x181212640);
+const PIN_COMPOSED_UTILITY: PinnedAddress = {
+    va: 0x181212640, build: "rnca9r7q6c",
+    symbol: "IdunBattle.AI.Utilities.ComposedUtility.u003CEvaluateMovementInStepsu003Ed__8$$MoveNext",
+    what: "itérateur du composite Tile(7) — énumère ses enfants",
+    how: "search_symbols_by_name sur ComposedUtility.<EvaluateMovementInSteps>d__8.MoveNext",
+};
 
 // DamageCalculations.GetMultiplierFromDamageBonus @181005210 (RVA 0x1005210) — convertit un bonus %
 // (Nullable<int> @ param_3+0x20) en multiplicateur (>0: 1+b/100 ; <0: 1-|b|/100). Signature :
@@ -117,7 +130,13 @@ const RVA_COMPOSED_UTILITY = rva(0x181212640);
 //   @18110bfc0 prend `damageBonuses` (PLURIEL), énumère une List<> et RAPPELLE la single en interne.
 // Hooker la LIST lisait un `args[2]` parasite (bonus=1) ; et comme elle délègue, la single capte DÉJÀ
 // chaque bonus.
-const RVA_GET_MULT_DMG_BONUS: number[] = [rva(0x18110bed0)];
+const PIN_GET_MULT_DMG_BONUS: PinnedAddress[] = [{
+    va: 0x18110bed0, build: "rnca9r7q6c",
+    symbol: "IdunBattle.Core.Services.DamageCalculations$$GetMultiplierFromDamageBonus",
+    what: "convertit UNE contribution en multiplicateur — variante SINGLE (pas la LIST)",
+    how: "search_symbols_by_name GetMultiplierFromDamageBonus, puis départager les DEUX"
+        + " surcharges par leur SIGNATURE au décompilé (singulier vs pluriel)",
+}];
 
 // #49 — RÉSOLVEUR DE L'OVERRIDE DE BASE (profileMethod). Deux délégués de GetAttackHitPrediction portent
 // l'override base :
@@ -129,19 +148,42 @@ const RVA_GET_MULT_DMG_BONUS: number[] = [rva(0x18110bed0)];
 // Ces slots sont résolus au RUNTIME → non mappables offline. Ce résolveur lit, pendant une prédiction
 // live, la VA CONCRÈTE que chaque délégué invoque → on la décompile ensuite. Ciblage pur, aucune
 // formule devinée.
-const RVA_PROFILE_B0 = rva(0x1812edc90);
-const RVA_PROFILE_B1 = rva(0x1812eddd0);
+const PIN_PROFILE_B0: PinnedAddress = {
+    va: 0x1812edc90, build: "rnca9r7q6c",
+    symbol: "IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility"
+        + ".u003Cu003Ec__DisplayClass9_0$$u003CGetAttackHitPredictionu003Eb__0",
+    what: "délégué b__0 de GetAttackHitPrediction — porte l'override de base (vtable+0x4d8)",
+};
+const PIN_PROFILE_B1: PinnedAddress = {
+    va: 0x1812eddd0, build: "rnca9r7q6c",
+    symbol: "IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility"
+        + ".u003Cu003Ec__DisplayClass9_0$$u003CGetAttackHitPredictionu003Eb__1",
+    what: "délégué b__1 de GetAttackHitPrediction — override de base via interface idx 0xb5",
+};
 // ⚠ L'INDEX A BOUGÉ AVEC LE BUILD : 0xb4 → 0xb5. Relevé DEUX fois dans `b__1` — dans le scan de
 // l'itable `(off + 0xb5) * 0x10 + 0x138 + klass`, et dans le repli `FUN_1801e7040(svc, DAT, 0xb5)`.
 // Transposer la seule adresse en gardant 0xb4 aurait résolu LE MAUVAIS SLOT, en rendant un pointeur
 // de fonction parfaitement valide — donc sans la moindre erreur visible.
-const RVA_ATTACK_IFACE = rva(0x1833407b0);   // DAT_1833407b0 (Il2CppClass* de l'interface ability)
+// DONNÉE, pas code : `kind: "data"` le DIT, et c'est ce qui dispense le cliquet de chercher un
+// symbole de fonction (il vérifie au lieu que la VA tombe hors de la zone des fonctions).
+const PIN_ATTACK_IFACE: PinnedAddress = {
+    va: 0x1833407b0, build: "rnca9r7q6c", kind: "data", symbol: "DAT_1833407b0",
+    what: "Il2CppClass* de l'interface ability (scan de l'itable de b__1)",
+};
 const ATTACK_IFACE_IDX = 0xb5;
 // Le VRAI override de base : `PredictAttackRaw` fait `FUN_180031990(recv, idx=0xd, DAT_18334a0c8)`
 // → Nullable<Fix64> ; si HasValue, remplace la base. On résout le receiver (R9=args[3]) sur CE site
 // (filtre returnAddress) → classe concrète + VA de la méthode idx 0xd → à décompiler pour LIRE la formule.
-const RVA_IFACE_DMG = rva(0x18334a0c8);      // DAT_18334a0c8 (interface de l'override base)
-const RVA_FUN_INVOKE = rva(0x180031990);     // FUN_180031990 (invocateur d'interface générique — CHAUD)
+const PIN_IFACE_DMG: PinnedAddress = {
+    va: 0x18334a0c8, build: "rnca9r7q6c", kind: "data", symbol: "DAT_18334a0c8",
+    what: "Il2CppClass* de l'interface portant l'override de base (idx 0xd)",
+};
+const PIN_FUN_INVOKE: PinnedAddress = {
+    va: 0x180031990, build: "rnca9r7q6c", symbol: "FUN_180031990",
+    what: "invocateur d'interface générique (CHAUD) — hook filtré par returnAddress",
+    how: "placeholder FUN_* : aucun MethodInfo, donc NON résoluble par symbole ;"
+        + " re-lire le call site dans PredictAttackRaw et suivre le callee",
+};
 // return-addr du call idx-0xd (isole CE site, évite le hot broad-hook).
 // ⚠ DÉSASSEMBLÉ, PAS TRANSPOSÉ. `list_xrefs` sur le CALLEE donne deux appels dans `PredictAttackRaw`
 // (181115e06 et 181116368) ; le premier est précédé d'un `mov edx, 0xd` explicite @181115dc6. Le call
@@ -149,7 +191,13 @@ const RVA_FUN_INVOKE = rva(0x180031990);     // FUN_180031990 (invocateur d'inte
 // 243 octets à côté, en plein milieu d'une instruction.
 // RÉSIDU NOMMÉ : l'index du SECOND appel (181116368) n'est pas établi. S'il vaut aussi 0xd, ce filtre
 // sélectionne un site parmi deux équivalents — à vérifier avant de conclure qu'on capte le bon.
-const RVA_OVERRIDE_RETADDR = rva(0x181115e0b);
+const PIN_OVERRIDE_RETADDR: PinnedAddress = {
+    va: 0x181115e0b, build: "rnca9r7q6c",
+    symbol: "IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x17fb",
+    what: "return-address du call idx-0xd — isole CE site du hot invocateur",
+    how: "DÉSASSEMBLER, ne pas transposer : list_xrefs sur le CALLEE, repérer le `mov edx,0xd`,"
+        + " le call fait 5 octets. Un offset transposé était déjà tombé 243 octets à côté.",
+};
 const baseOverrideResolved = new Set<string>();
 let overrideIdxdResolved = false;      // resolve-once (reset au clear global)
 
@@ -202,7 +250,11 @@ function resolveSharedPlaybookBody(method: string): NativePointer | null {
 // valeur d'élévation NATIVE de la tuile candidate (util+0x6c), max (util+0x60) / min (util+0x64) du
 // DOMAINE PERTINENT, et la sortie de feuille yieldée (d__8+0x18, Fix64). d__8+0x20 = l'ElevationUtility ;
 // d__8+0x28 = la position candidate (MainTile via +0x18). À REFAIRE au changement de hash.
-const RVA_ELEVATION_LEAF = rva(0x181212b60);
+const PIN_ELEVATION_LEAF: PinnedAddress = {
+    va: 0x181212b60, build: "rnca9r7q6c",
+    symbol: "IdunBattle.AI.Utilities.ElevationUtility.u003CEvaluateMovementInStepsu003Ed__8$$MoveNext",
+    what: "feuille Elevation (itérateur MoveNext) — valeur d'élévation native + sortie de feuille",
+};
 
 // (CalculateUtilityFromTilePrediction se résout par `resolveSharedPlaybookBody` — cf. plus haut.
 //  Retour Fix64 dans RAX ; appelée DANS CalculateActionUtility, donc `curCaster` est déjà posé
@@ -286,12 +338,16 @@ const bonusTrace: { buf: OriginBuffers<BonusEvent>; stacksLeft: number } =
 // session) NI hooker des feuilles CHAUDES (distances MinDist/MaxDist/TileDistance : PAS enfants du
 // composite Tile de toute façon). La position candidate est décodée par essai d'offsets (0x28/0x20).
 // (`IL2CPP_VA_BASE` et `rva()` sont déclarés en tête, avec le bloc des cibles par adresse.)
-const LEAF_HOOKS_VA: Array<[number, string]> = [
-    [0x18120cd60, "TileEffects"],       // la feuille -25 (Thorns_DefenseReduction)
-    [0x181210fd0, "CapturePointTile"],  // contrôle : connue-firing (sanity du mécanisme de hook)
+const LEAF_HOOKS: Array<[PinnedAddress, string]> = [
+    [{ va: 0x18120cd60, build: "rnca9r7q6c",
+       symbol: "IdunBattle.AI.Utilities.TileEffectsUtility"
+           + ".u003CEvaluateMovementInStepsu003Ed__1$$MoveNext",
+       what: "feuille -25 (Thorns_DefenseReduction)" }, "TileEffects"],
+    [{ va: 0x181210fd0, build: "rnca9r7q6c",
+       symbol: "IdunBattle.AI.Utilities.CapturePointTileUtility"
+           + ".u003CEvaluateMovementInStepsu003Ed__3$$MoveNext",
+       what: "contrôle : feuille connue-firing (sanity du mécanisme de hook)" }, "CapturePointTile"],
 ];
-const LEAF_HOOKS: Array<[number, string]> =
-    LEAF_HOOKS_VA.map(([va, label]) => [va - IL2CPP_VA_BASE, label]);
 const LEAF_POS_OFFSETS = [0x28, 0x20];
 
 interface DmgEvent {
@@ -474,7 +530,11 @@ function installStatModsHook(): boolean {
 // son propre commentaire (`@180fadfc0`) a pour RVA `0xfadfc0`. Elle pointait donc en plein corps de
 // `CodeStage.AdvancedFPSCounter...FPSCounterData$$set_Average` — latente uniquement parce que c'est un
 // FALLBACK derrière un `findMethod` qui réussit. C'est la faute exacte que la forme `rva(<VA>)` supprime.
-const RVA_VALUE_MOD_MODIFY = rva(0x1810b8600);   // IdunBattle.Entities.Components.ValueModification$$Modify
+const PIN_VALUE_MOD_MODIFY: PinnedAddress = {
+    va: 0x1810b8600, build: "rnca9r7q6c",
+    symbol: "IdunBattle.Entities.Components.ValueModification$$Modify",
+    what: "repli quand findMethod échoue — capture les Modify de gros montant",
+};
 interface ModifyEvent {
     seq: number;
     originRunnerId: number | null;
@@ -492,9 +552,9 @@ function installModifyHook(): boolean {
     const klass = findClassAnywhere("IdunBattle.Entities.Components", "ValueModification");
     if (klass) { const mi = findMethod(klass, "Modify"); if (mi && !mi.ptr.isNull()) ptr = mi.ptr; }
     if (!ptr) {
-        if (il2cppBase.isNull()) { log("[scorer-trace] ValueModification.Modify unresolved + base null"); return false; }
-        ptr = il2cppBase.add(RVA_VALUE_MOD_MODIFY);
-        log("[scorer-trace] ValueModification.Modify via RVA fallback @ " + ptr);
+        ptr = pinnedAddress(PIN_VALUE_MOD_MODIFY);
+        if (!ptr) return false;   // le foyer a imprimé la cause — on n'attache PAS en aveugle
+        log("[scorer-trace] ValueModification.Modify via adresse ÉPINGLÉE @ " + ptr);
     }
     Interceptor.attach(ptr, {
         onEnter(args) {
@@ -534,7 +594,11 @@ function installModifyHook(): boolean {
 // = args[2] (context). Si args[2]+0x58 = 3011 aux tuiles réduites / 4309 aux pleines → le 3011 est DÉJÀ dans
 // le base à l'entrée de PredictAttackRaw (posé en amont), PAS un modifier interne. On lit plusieurs offsets
 // candidats (le layout Nullable peut décaler). PredictAttackRaw = gshared → findMethod peut échouer → RVA fallback.
-const RVA_PREDICT_ATTACK_RAW = rva(0x181114610);   // IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw
+const PIN_PREDICT_ATTACK_RAW: PinnedAddress = {
+    va: 0x181114610, build: "rnca9r7q6c",
+    symbol: "IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw",
+    what: "repli quand findMethod échoue (gshared) — base pré-spread au contexte+0x58",
+};
 interface PredBaseEvent {
     seq: number;
     originRunnerId: number | null;
@@ -561,9 +625,9 @@ function installPredictBaseHook(): boolean {
         if (mi && !mi.ptr.isNull()) ptr = mi.ptr;
     }
     if (!ptr) {
-        if (il2cppBase.isNull()) { log("[scorer-trace] PredictAttackRaw unresolved + il2cppBase null"); return false; }
-        ptr = il2cppBase.add(RVA_PREDICT_ATTACK_RAW);   // fallback RVA build-spécifique
-        log("[scorer-trace] PredictAttackRaw via RVA fallback (build rnca9r7q6c) @ " + ptr);
+        ptr = pinnedAddress(PIN_PREDICT_ATTACK_RAW);
+        if (!ptr) return false;   // le foyer a imprimé la cause — on n'attache PAS en aveugle
+        log("[scorer-trace] PredictAttackRaw via adresse ÉPINGLÉE @ " + ptr);
     }
     const f64 = (p: NativePointer): number => {
         try { let r = BigInt(p.readS64().toString()); if (r >= (1n << 63n)) r -= (1n << 64n); return Number(r) / 4294967296; }
@@ -787,8 +851,8 @@ function installRvaHooks(): boolean {
 let elevInstalled = false;
 function installElevHook(): boolean {
     if (elevInstalled) return true;
-    if (il2cppBase.isNull()) { log("[scorer-trace] il2cppBase null — elev hook skipped"); return false; }
-    const ptrFn = il2cppBase.add(RVA_ELEVATION_LEAF);
+    const ptrFn = pinnedAddress(PIN_ELEVATION_LEAF);
+    if (ptrFn === null) return false;
     Interceptor.attach(ptrFn, {
         onEnter(args) {
             const self = this as { _d8?: NativePointer; _stk?: string[] };
@@ -879,9 +943,9 @@ function installTileTermHook(): boolean {
 let leafInstalled = false;
 function installLeafHooks(): boolean {
     if (leafInstalled) return true;
-    if (il2cppBase.isNull()) { log("[scorer-trace] il2cppBase null — leaf hooks skipped"); return false; }
-    for (const [rva, label] of LEAF_HOOKS) {
-        const ptrFn = il2cppBase.add(rva);
+    for (const [pin, label] of LEAF_HOOKS) {
+        const ptrFn = pinnedAddress(pin);
+        if (ptrFn === null) continue;
         Interceptor.attach(ptrFn, {
             onEnter(args) {
                 (this as { _d?: NativePointer })._d = args[0];
@@ -921,8 +985,8 @@ function installLeafHooks(): boolean {
 let composedInstalled = false;
 function installComposedHook(): boolean {
     if (composedInstalled) return true;
-    if (il2cppBase.isNull()) { log("[scorer-trace] il2cppBase null — composed hook skipped"); return false; }
-    const ptrFn = il2cppBase.add(RVA_COMPOSED_UTILITY);
+    const ptrFn = pinnedAddress(PIN_COMPOSED_UTILITY);
+    if (ptrFn === null) return false;
     Interceptor.attach(ptrFn, {
         onEnter(args) {
             if (!trace.on) return;
@@ -960,9 +1024,9 @@ function installComposedHook(): boolean {
 let bonusInstalled = false;
 function installBonusHook(): boolean {
     if (bonusInstalled) return true;
-    if (il2cppBase.isNull()) { log("[scorer-trace] il2cppBase null — bonus hook skipped"); return false; }
-    for (const rva of RVA_GET_MULT_DMG_BONUS) {
-    const ptrFn = il2cppBase.add(rva);
+    for (const pin of PIN_GET_MULT_DMG_BONUS) {
+    const ptrFn = pinnedAddress(pin);
+    if (ptrFn === null) continue;
     Interceptor.attach(ptrFn, {
         onEnter(args) {
             if (!trace.on) return;
@@ -1019,9 +1083,22 @@ function installBonusHook(): boolean {
 let baseOverrideInstalled = false;
 function installBaseOverrideResolver(): boolean {
     if (baseOverrideInstalled) return true;
-    if (il2cppBase.isNull()) { log("[scorer-trace] il2cppBase null — base-override resolver skipped"); return false; }
+    // Les CINQ adresses de ce résolveur sont épinglées ensemble : si l'une est refusée, aucune
+    // n'a de sens (b__1 et l'override lisent un `DAT_` du même build). On refuse en BLOC.
+    const pb0 = pinnedAddress(PIN_PROFILE_B0);
+    const pb1 = pinnedAddress(PIN_PROFILE_B1);
+    const pIface = pinnedAddress(PIN_ATTACK_IFACE);
+    const pInvoke = pinnedAddress(PIN_FUN_INVOKE);
+    const pRetAddr = pinnedAddress(PIN_OVERRIDE_RETADDR);
+    const pIfaceDmg = pinnedAddress(PIN_IFACE_DMG);
+    if (pb0 === null || pb1 === null || pIface === null
+        || pInvoke === null || pRetAddr === null || pIfaceDmg === null) {
+        log("[scorer-trace] base-override resolver NON POSÉ — adresses épinglées refusées"
+            + " (cf. log [build-pin] REFUS). On n'attache pas en aveugle.");
+        return false;
+    }
     // b__0 : méthode VIRTUELLE `*(klass + 0x4d8)` de l'instance (param_1+0x10) — slot 58.
-    Interceptor.attach(il2cppBase.add(RVA_PROFILE_B0), {
+    Interceptor.attach(pb0, {
         onEnter(args) {
             if (!trace.on) return;
             try {
@@ -1036,7 +1113,7 @@ function installBaseOverrideResolver(): boolean {
         },
     });
     // b__1 : interface `DAT_1833407b0` idx 0xb5 sur svc = *((param_1+0x10)+0x20) — signature (target, position).
-    Interceptor.attach(il2cppBase.add(RVA_PROFILE_B1), {
+    Interceptor.attach(pb1, {
         onEnter(args) {
             if (!trace.on) return;
             try {
@@ -1046,7 +1123,7 @@ function installBaseOverrideResolver(): boolean {
                 if (svc.isNull()) return;
                 const klass = svc.readPointer();
                 if (klass.isNull()) return;
-                const ifaceVal = il2cppBase.add(RVA_ATTACK_IFACE).readPointer();
+                const ifaceVal = pIface.readPointer();
                 const count = klass.add(0x12e).readU16();
                 const itable = klass.add(0xb0).readPointer();
                 if (itable.isNull()) return;
@@ -1066,11 +1143,11 @@ function installBaseOverrideResolver(): boolean {
     // VRAI override : FUN_180031950(recv, idx 0xd, DAT_183287db8) @181034898. Hook gaté trace.on + filtré
     // returnAddress (isole CE site du hot invocateur) + resolve-once → non-intrusif. Lit le receiver (R9=args[3]),
     // résout la méthode concrète idx 0xd + son nom de classe, ET capture la valeur override en sortie.
-    Interceptor.attach(il2cppBase.add(RVA_FUN_INVOKE), {
+    Interceptor.attach(pInvoke, {
         onEnter(args) {
             if (!trace.on || overrideIdxdResolved) return;
             try {
-                if (!this.returnAddress.equals(il2cppBase.add(RVA_OVERRIDE_RETADDR))) return;
+                if (!this.returnAddress.equals(pRetAddr)) return;
                 const idx = args[1].toInt32() & 0xffff;
                 const recv = args[3];   // param_4 = R9 = receiver de l'interface
                 if (recv.isNull()) return;
@@ -1078,7 +1155,7 @@ function installBaseOverrideResolver(): boolean {
                 if (klass.isNull()) return;
                 let recvName = "?";
                 try { recvName = s(class_get_name(klass) as NativePointer); } catch { /* */ }
-                const ifaceVal = il2cppBase.add(RVA_IFACE_DMG).readPointer();
+                const ifaceVal = pIfaceDmg.readPointer();
                 const count = klass.add(0x12e).readU16();
                 const itable = klass.add(0xb0).readPointer();
                 let off = -1;
