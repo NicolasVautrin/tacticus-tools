@@ -97,6 +97,29 @@ def is_charging_attack(att_ctx) -> bool:
     return (att_ctx or {}).get("is_charging") is True
 
 
+def owner_is_caster(att_ctx) -> bool:
+    """Noeud DSL `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsCaster` = `AreEqual(
+    Owner@DSLSelectors+0x30, Caster@DSLSelectors+0x48)` -- foyer UNIQUE du couple de cles
+    `att_ctx["owner_id"]` / `att_ctx["att_id"]` sur les canaux CRIT (#589-r1-r1).
+
+    « Le PORTEUR de cet effet est-il l'attaquant du coup ? ». `owner_id` est pose PAR PORTEUR par
+    les agregateurs (`crit_chance_bonus_from_effects` / `crit_damage_bonus_from_effects`), mirror
+    de l'ecriture `AbilityEntities+0x18 (Owner) <- le porteur de l'effet` que les deux canaux
+    natifs font a chaque iteration de leur boucle sur les effets du board.
+
+    Ce noeud etait RENDU par le canal tant que le balayage se limitait aux effets de l'attaquant ;
+    il a MIGRE dans les classes qui le portent quand le balayage s'est aligne sur l'univers natif
+    (meme geste et meme cause que `1117` lors de `case-366-r1-blockhits-purgeresponse`, sur l'axe
+    COUPS). Sans lui, un porteur SPECTATEUR bufferait un tiers.
+
+    Identite NON PROUVEE (l'une des deux cles absente) => FAUX, jamais permissif -- meme idiome que
+    `GravitonRifle_ExtraPierceEffect.create_effect_piercing_bonus_for_attack` et que
+    `InescapableAccuracyOverrideHitsEffect.block_hits_reduction`."""
+    c = att_ctx or {}
+    oid, aid = c.get("owner_id"), c.get("att_id")
+    return oid is not None and aid is not None and oid == aid
+
+
 def tiles_moved_this_turn(att_ctx) -> "int | None":
     """Nœud DSL `IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn(Self)` — foyer UNIQUE du
     canal `att_ctx["tiles_moved_this_turn"]` (case-322).

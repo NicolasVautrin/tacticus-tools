@@ -150,6 +150,7 @@ from .loki import (
     InescapableAccuracyExtraCritChanceEffect,
     InescapableAccuracyExtraCritDamageEffect,
     InescapableAccuracyOverrideHitsEffect,
+    EmpyricAmbushEffect,
     UntilOfEndTurnEffect,
     StructuralAnalyserVisualEffect,
     MartialSuperiorityVisualEffect,
@@ -932,6 +933,26 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "InescapableAccuracy_extraCritChance": InescapableAccuracyExtraCritChanceEffect,
     "InescapableAccuracy_extraCritDmg": InescapableAccuracyExtraCritDamageEffect,
     "InescapableAccuracy_overrideHits": InescapableAccuracyOverrideHitsEffect,
+    # 1578 EmpyricAmbush (#589-r1-r1) : la MARQUE que `EmpyricAmbushAbility$$ExecuteBehaviour` pose
+    # sur la CIBLE de l'ability active d'`eldarLhykhis` -- `AddEffect(0x62a, <abilityStateRef>,
+    # source = Owner@DSLSelectors+0x30, targets = Target@+0x60, turns = <DSLFormulas+0x20> =
+    # Direct(1))`, donc UN tour. La classe porte DEUX canaux, meme trigger a la variable pres :
+    #   `EmpyricAmbushEffect$$CreateCritChanceBonus`
+    #       = ForAddition(get_OwnerIsTarget & IsValidAttackForBuff(), ConfigVar(0x41 = extraCritChance))
+    #   `EmpyricAmbushEffect$$CreateCritDamageBonus`
+    #       = ForAddition(get_OwnerIsTarget & IsValidAttackForBuff(), ConfigVar(0x42 = extraCritDmg))
+    # `get_OwnerIsTarget` = le PORTEUR est le DEFENSEUR -- c'est le premier implementeur des canaux
+    # CRIT qui ne vive pas sur l'attaquant, et c'est ce qui a impose l'elargissement du balayage a
+    # `board_effect_carriers` (cf. `entities/effects/__init__.py`).
+    # `IsValidAttackForBuff` porte SEPT noeuds dont le sujet est `Caster@DSLSelectors+0x48` (le
+    # caster de l'ATTAQUE, pas le porteur) : AreEnemies(Caster, Target) & (HasFaction(Caster,
+    # Aeldari) | TilesMovedThisTurn(Caster) >= GetNumberConstant(0x51 = movement)) &
+    # (AreFriends(Caster, EffectSource) & NOT AreEqual(Caster, EffectSource) & HasTrait(Caster, Hero)).
+    # Le seuil `movement` = 4 est RELU du gameconfig, jamais code en dur -- c'est le seul des six
+    # consommateurs de `DSLFormulas$$TilesMovedThisTurn` qui echappe a la borne saturante de #589.
+    # ⚠ Config lue = l'ability ACTIVE 1232 (`mov edx, 0x4d0` + surcharge `set_ActiveAbility` de
+    # `AbilityOrEffect$$op_Implicit`, relue byte a byte), PAS l'EffectType 1578.
+    "EmpyricAmbush": EmpyricAmbushEffect,
     # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
     # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
     # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce

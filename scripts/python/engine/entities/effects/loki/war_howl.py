@@ -111,7 +111,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ....services.effect_bonus import EffectBonus, for_addition
-from ..base import BaseEffect, is_melee_attack
+from ..base import BaseEffect, is_melee_attack, owner_is_caster
 from ..magnitude import ability_var
 
 _ABILITY_ID = "WarHowl"            # ActiveAbilityType 0x452 = 1106 (active, spaceBlackmane)
@@ -202,9 +202,16 @@ class WarHowlExtraDamageUnstoppableEffect(BaseEffect):
             et APRES l'event `On(PreAttackHit=6)` — donc apres un eventuel stat-mod de crit pose par
             `ThrillSeekers`, exactement comme le natif qui evalue le trigger dans `RollCritical`).
 
+        ⚠ `get_OwnerIsCaster` (le QUATRIEME noeud) etait rendu par le CANAL jusqu'a #589-r1-r1 : le
+        balayage ne voyait que les effets de l'ATTAQUANT. Il a MIGRE ICI, a sa place native, quand
+        le balayage s'est aligne sur l'univers natif (`board_effect_carriers`) pour `EmpyricAmbush`
+        (1578), qui est porte par la CIBLE. Sans lui, un porteur SPECTATEUR bufferait un tiers.
+
         `extraCritChance` n'est PAS dans `variablesAffectedByRarityBonus` de `WarHowl` (qui ne
         contient que `extraDmg` et `maxDmg`) -> le multiplicateur est passe mais inerte."""
         c = att_ctx or {}
+        if not owner_is_caster(c):                          # get_OwnerIsCaster
+            return None
         if not is_melee_attack(c.get("is_ranged")):         # IsMeleeAttack
             return None
         if c.get("is_normal_attack") is not True:           # IsNormalAttack

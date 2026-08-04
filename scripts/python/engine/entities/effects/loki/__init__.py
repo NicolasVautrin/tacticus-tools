@@ -159,6 +159,7 @@ from .war_howl import WarHowlExtraDamageUnstoppableEffect
 from .inescapable_accuracy import (InescapableAccuracyExtraCritChanceEffect,
                                    InescapableAccuracyExtraCritDamageEffect,
                                    InescapableAccuracyOverrideHitsEffect)
+from .empyric_ambush import EmpyricAmbushEffect
 from .until_of_end_turn import UntilOfEndTurnEffect
 from .structural_analyser import StructuralAnalyserVisualEffect
 from .martial_superiority import MartialSuperiorityVisualEffect
@@ -284,6 +285,11 @@ __all__ = [
     # + le TROISIEME volet (1117) : `BlockHitsReduction` = INTERRUPTEUR des reductions de coups,
     # pas un terme de somme (aucune variable de config lue).
     "InescapableAccuracyOverrideHitsEffect",
+    # empyric_ambush (#589-r1-r1) -- la MARQUE d'`eldarLhykhis` sur sa cible : +extraCritChance et
+    # +extraCritDmg pour les HEROS allies qui la frappent, s'ils sont Aeldari OU ont parcouru
+    # `movement` (= 4) tuiles ce tour. PREMIER implementeur des canaux CRIT porte par la CIBLE
+    # (`get_OwnerIsTarget`), d'ou l'elargissement du balayage a `board_effect_carriers`.
+    "EmpyricAmbushEffect",
     # until_of_end_turn (case-366-r1) -- LA classe de MARQUEUR a duree : zero contribution, sa seule
     # semantique est son `CreateRemoveEffectTrigger` = `On(TurnEnd)`. Porteur : 1175.
     "UntilOfEndTurnEffect",
