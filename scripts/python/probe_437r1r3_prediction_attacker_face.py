@@ -58,6 +58,25 @@ import probe_437r1_overwatch_offbyone as R1                # noqa: E402
 from probe_r6_round_materialize import _mkrpc              # noqa: E402
 
 NORMAL_ATTACK = 69          # `Loki_NormalAttack` -- l'ability concrete de l'attaque normale
+STOP_AT = 2                 # distance visee : jamais 1 (a 1 le natif prend l'arme de MELEE, et le
+                            # bonus RANGED `HeavyWeapon_ExtraDmg` ne mord plus -- mesure #437-r1-r1)
+
+
+def _approach(rpc, rid, brd, ids, view, want):
+    """Rapproche le PORTEUR de l'attaquant jusqu'a la distance BFS `want` (jamais en dessous)."""
+    reach = P._mover_reach(view, ids[P.CARRIER])
+    to_tile = R1._pick_tile_at_distance(brd, view, ids[P.CARRIER], ids[P.OVERWATCHER],
+                                        reach, int(want))
+    if to_tile is None:
+        return False
+    col, row = brd.coord(to_tile)
+    try:
+        rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "move", "unitId": ids[P.CARRIER],
+            "to": {"col": int(col), "row": int(row)}}}, 120)
+        return True
+    except Exception:
+        return False
 
 
 def _build(seed, board, rank, dmg_target, state_file=None):
@@ -173,35 +192,17 @@ def sweep(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, max_turns=40,
                 rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
                 continue
             steps.append(row)
-            # tour de MON camp : purge du tir d'overwatch par le SPECTATEUR, puis le PORTEUR
-            # avance d'un cran. L'ATTAQUANT ne bouge JAMAIS.
-            if _armed(dv):
-                reach = P._mover_reach(dv, ids[P.SPECTATOR])
-                to_tile, _d = P._pick_move_tile(brd, dv, ids[P.SPECTATOR],
-                                                ids[P.OVERWATCHER], reach)
-                if to_tile is not None:
-                    col, r0 = brd.coord(to_tile)
-                    try:
-                        rpc("applyAction", {"runnerId": rid, "action": {
-                            "kind": "move", "unitId": ids[P.SPECTATOR],
-                            "to": {"col": int(col), "row": int(r0)}}}, 120)
-                    except Exception:
-                        pass
-            dv2 = P._view(rpc, rid, inactive=True)
-            if not _armed(dv2):
-                d2 = _dist(dv2) or d_car
-                want = max(2, int(d2) - 2)          # jamais 1 : a distance 1 le natif prend
-                reach = P._mover_reach(dv2, ids[P.CARRIER])   # l'arme de MELEE (bonus RANGED mort)
-                to_tile = R1._pick_tile_at_distance(brd, dv2, ids[P.CARRIER],
-                                                    ids[P.OVERWATCHER], reach, want)
-                if to_tile is not None:
-                    col, r0 = brd.coord(to_tile)
-                    try:
-                        rpc("applyAction", {"runnerId": rid, "action": {
-                            "kind": "move", "unitId": ids[P.CARRIER],
-                            "to": {"col": int(col), "row": int(r0)}}}, 120)
-                    except Exception:
-                        pass
+            # tour de MON camp. L'ATTAQUANT ne bouge JAMAIS.
+            #  * PHASE 1 (`d_car > STOP_AT`) : le PORTEUR avance jusqu'a `STOP_AT`. Il ENCAISSE
+            #    le tir d'overwatch au passage -- c'est assume (PV 400000) : ce tir CONSOMME son
+            #    armure Terminator et le tir d'overwatch de l'attaquant.
+            #  * PHASE 2 (`d_car <= STOP_AT`) : plus AUCUN mouvement. On cede la main en boucle
+            #    jusqu'a ce que les trois conditions soient RE-ARMEES au tour de l'attaquant
+            #    (`HeavyWeapon_ExtraDmg` repose, armure Terminator active, overwatch arme).
+            #    C'est le seul etat ou la prediction porte le regime DEUX FACES *sans* que
+            #    personne n'ait bouge.
+            if d_car > STOP_AT:
+                _approach(rpc, rid, brd, ids, dv, max(STOP_AT, int(d_car) - 3))
             rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
         if hit is None:
             return {"error": "aucun etat EN PORTEE (fromHere) atteint en %d tours" % max_turns,
