@@ -883,6 +883,21 @@ class OwnerIsAlive(AbilityTrigger):
         return _is_alive(u)
 
 
+def _items(node, ctx) -> list:
+    """Normalise l'evaluation d'un selecteur du domaine MIXTE en LISTE d'elements -- variante de
+    `dsl.base._units_of` qui accepte AUSSI un scalaire du domaine TUILE (`id` int, position
+    `(col,row)`). `_units_of` fait `list(v)` sur tout ce qui n'est ni None ni dict, ce qui LEVE sur un
+    id de tuile nu : or c'est exactement ce que rend `ActiveTarget()` sous un `Filter` de tuiles."""
+    v = node.evaluate(ctx)
+    if v is None:
+        return []
+    if isinstance(v, dict) or isinstance(v, int) and not isinstance(v, bool):
+        return [v]
+    if isinstance(v, tuple) and len(v) == 2 and all(isinstance(x, int) for x in v):
+        return [v]
+    return list(v)
+
+
 class IsObscured(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLTriggers$$IsObscured(from, target)` ->
     `IdunBattle.Entities.Triggers.IsObscuredAbilityTrigger$$ShouldTrigger` -- MIRROR du decompile :
@@ -924,9 +939,9 @@ class IsObscured(AbilityTrigger):
         bc = getattr(board, "by_coord", None) if board is not None else None
         elev = ({k: t.get("elevation", 0) for k, t in bc.items()} if bc else None)
         froms = [p for p in (_entity_pos(f, board)                 # GetMainTile(f)
-                             for f in _units_of(self.from_sel, ctx)) if p is not None]
+                             for f in _items(self.from_sel, ctx)) if p is not None]
         targets = []
-        for t in _units_of(self.target_sel, ctx):                  # IterateTiles(target)
+        for t in _items(self.target_sel, ctx):                     # IterateTiles(target)
             if isinstance(t, dict):
                 targets.extend(_feet(t))
             else:
