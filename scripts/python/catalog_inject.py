@@ -737,6 +737,82 @@ def graft_active_ability(bc: dict, unit_id: str, ability_name: str,
             "activeAbilitiesAfter": list(hits[0].get("ActiveAbilities") or [])}
 
 
+# ---------------------------------- #419-r1-tr14-r5-r2-r1-r2-r1-r1-r4 : GREFFER un TRAIT
+#
+# POURQUOI. Certains regimes natifs ne sont gouvernes NI par une ability NI par une stat, mais par
+# un TRAIT du caster -- et le gameconfig peut n'en avoir AUCUN porteur. Cas fondateur : le trait
+# `Ranged` (0xb), que `IdunBattle.Entities.UnitExtensions$$IsRanged` lit en PREMIER
+# (`HasTrait(unit, 0xb) || WeaponsComponent.HasRangedWeapon(unit)`) et qu'AUCUNE des 683 unites du
+# gameconfig ne porte (constat #161). Sans porteur, `IsRanged` se reduit a « possede une arme a
+# `Range` » -- et les deux termes deviennent INSEPARABLES, alors que le natif les distingue.
+#
+# C'est exactement ce qui verrouillait `#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4` : le CLAMP DE MELEE de
+# `IdunBattle.Core.Services.TargetingQuery$$GetRange` s'arme sur
+# `RangedBoolExtensions.IsTrue(options.ForceMeleeTarget, caster)`, qui vaut `IfRangedCaster` pour
+# l'attaque normale generique -- donc FAUX pour toute unite sans arme, c.-a-d. exactement celles
+# dont la portee n'est pas observable. Poser le trait DISSOCIE les deux : sans arme (portee non
+# observable) ET `IsRanged` vrai (clamp arme).
+#
+# UNE SEULE ECRITURE, ET LES DEUX MODELES LA VOIENT. `UnitConfiguration.Traits` est une
+# `List<IdunBattle.Entities.Enum.UnitTrait>` (cf. `_traits`) que `buildNormalizedBC` LIT (detection
+# MoW) mais n'ECRIT jamais -- l'injection survit donc a la normalisation. Le NATIF la lit par
+# `HasTrait` sur l'entite ; le PORT la lit par `entity_trait_names(ctx, vid)`, dont le canal
+# `ctx.traits` vient de `combatSnapshot.units[].traits`, lui-meme lu sur l'entite NATIVE. Substrat
+# UNIQUE, donc aucune divergence de substrat a la `#419-r1-tr14-r5-r2-r1-r2-r1-r2`.
+#
+# L'ORDRE de la liste n'est pas signifiant (`HasTrait` est un `Contains`) : on ajoute a la fin,
+# la ou `_traits_raw` place l'alliance en tete.
+
+def add_unit_trait(bc: dict, unit_id: str, trait_name: str, *, replace: bool = False) -> dict:
+    """AJOUTE le trait `trait_name` a `unit_id` DANS `bc` (mute en place). Rend un rapport.
+
+    `trait_name` est confronte au vocabulaire de `UnitTrait` du build COURANT : un nom hors enum
+    est INEXPRIMABLE dans ce champ et ferait lever `initAndStart` au deserialize (meme verrou que
+    `_traits`, cf. sa docstring) -- on refuse donc TOT plutot que d'echouer en « system error ».
+    `replace=True` REMPLACE la liste (utile pour RETIRER un trait) ; par defaut on AJOUTE.
+    """
+    members = unit_trait_members()
+    if trait_name not in members:
+        raise KeyError(f"{trait_name!r} n'est pas un membre de `UnitTrait` sur ce build "
+                       f"-- inexprimable dans `UnitConfiguration.Traits`")
+    hits = [u for u in (bc.get("Units") or []) if u.get("Id") == unit_id]
+    if not hits:
+        raise KeyError(f"{unit_id!r} absent de BC.Units -- injecter d'abord le porteur "
+                       f"(write_augmented_seed_bc)")
+    before = []
+    for u in hits:
+        before = list(u.get("Traits") or [])
+        u["Traits"] = [trait_name] if replace else (
+            before if trait_name in before else before + [trait_name])
+    return {"unitId": unit_id, "trait": trait_name, "unitsPatched": len(hits),
+            "traitsBefore": before, "traitsAfter": list(hits[0].get("Traits") or []),
+            "alreadyPresent": trait_name in before}
+
+
+def parse_trait_spec(spec: str) -> tuple[str, str]:
+    """`'unitId:TraitName'` -> `(unitId, trait)`."""
+    parts = [p.strip() for p in spec.split(":")]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError(f"spec de trait invalide {spec!r} -- attendu 'unitId:TraitName'")
+    return parts[0], parts[1]
+
+
+def write_trait_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
+                        rank: int = 17, ability_level: int = 50, replace: bool = False):
+    """FIXTURE : ecrit un seed BC ou chaque `spec` (`'unitId:TraitName'`) pose son trait.
+
+    Rend `(Path, rapports)`. Le porteur est injecte au catalogue s'il en manque (`augment`), comme
+    pour les greffes d'ability."""
+    parsed = [parse_trait_spec(s) if isinstance(s, str) else tuple(s) for s in specs]
+    seed = seed_bc if seed_bc is not None else _load_seed(None)
+    bc, _added, _added_ab, _unres = augment(seed, [u for u, _t in parsed], rank, ability_level)
+    reports = [add_unit_trait(bc, uid, trait, replace=replace) for uid, trait in parsed]
+    p = host_inputs.reject_data_output(out_path, "write_trait_seed_bc(out_path=...)")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(bc), encoding="utf-8")
+    return p, reports
+
+
 def parse_graft_spec(spec: str) -> tuple[str, str]:
     """`'unitId:AbilityName'` -> `(unitId, ability)`."""
     parts = [p.strip() for p in spec.split(":")]
