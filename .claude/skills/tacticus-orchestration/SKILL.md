@@ -667,10 +667,9 @@ bloqué — alors que sa réponse ne changeait rien à la décision.)*
   dans leur frontmatter — Opus 5 **avec fenêtre 1M**. Or l'ordre de résolution du modèle est
   *env `CLAUDE_CODE_SUBAGENT_MODEL` > paramètre d'invocation > frontmatter > modèle de session* :
   passer `model: "opus"` à l'appel **écrase** le frontmatter et **retombe sur la fenêtre 200 K**
-  (l'enum du paramètre d'invocation ne connaît que les alias nus `sonnet|opus|haiku|fable` — il
-  **ne sait pas exprimer** le suffixe `[1m]`). Omettre le champ = les agents gardent leur 1M.
-  `fable-solver` reste sur **`fable`** (levier de diversité de modèle pour les cas durs) et
-  `live-ops` sur **`haiku`** (procédures mécaniques).
+  (l'enum du paramètre d'invocation ne connaît que des alias **nus** — il **ne sait pas exprimer**
+  le suffixe `[1m]`). Omettre le champ = les agents gardent leur 1M.
+  `live-ops` reste sur **`haiku`** (procédures mécaniques).
 
 - **Pourquoi** : sans `isolation`, l'agent partage MON working directory et peut
   éditer les mêmes fichiers que moi. Un agent qui monkeypatche le code (même
@@ -843,25 +842,30 @@ annoncer une dette de taille sur un `wc -l`. Ne pas pré-scinder : un module de 
   de prose inconnue. `router.ts` (1833) et `sim-engine.ts` (1594) sont PLAUSIBLES, pas établis, et ils
   sont sous fenêtre (hooks = rebuild+reinject, host = restart).
 
-## Solveurs autonomes : `opus-solver` par DÉFAUT, `fable-solver` en dernier recours
+## Solveur autonome : `opus-solver`, et lui seul
 
-**RÈGLE : on dispatche EXCLUSIVEMENT sur `opus-solver`.** `fable-solver` n'est **jamais** un premier
-choix — il est réservé aux cas qu'**opus a réellement tenté et n'a pas résolus**. Un tag `[fable]`
-posé au moment de proposer une tâche est une *estimation de difficulté*, **pas** une affectation :
-même `[fable]`, la tâche part d'abord en `opus-solver`, avec l'échappatoire explicite dans son prompt
-(« si ça résiste — divergence non localisée, verdicts contradictoires, aller-retours — ne t'acharne
-pas, signale-le comme candidat à délégation »).
+**RÈGLE : on dispatche EXCLUSIVEMENT sur `opus-solver`. Il n'y a pas de second solveur.**
+`fable-solver` a été **supprimé du dépôt le 2026-08-04**, sur décision de l'utilisateur — définition
+d'agent, route d'escalade et mentions dans le harnais.
 
-- **Pourquoi** : sur les vagues récentes, l'écrasante majorité des cas tagués `[fable]` ont été
-  résolus par opus — plusieurs en retournant carrément leur prémisse (le débloqueur REVIVE #66,
-  résolu opus-first sans fable, en est l'exemple). Réserver fable à ce qui a *effectivement* résisté
-  évite de payer le modèle le plus lourd pour du travail qu'opus fait, et garde le
-  `solving-playbook` centré sur les vrais cas durs.
-- **Escalade** : un cas ne devient `fable` que sur un **rapport d'échec d'opus** (le solveur dit
-  lui-même qu'il bloque), jamais sur une intuition a priori de difficulté.
+- **Ce que la mesure disait déjà** : sur les vagues précédentes, l'écrasante majorité des cas tagués
+  `[fable]` ont été résolus par opus — plusieurs en retournant carrément leur prémisse (le débloqueur
+  REVIVE #66, résolu opus-first, en est l'exemple).
+- **Ce qui a emporté la décision** : la règle « fable seulement sur échec opus RAPPORTÉ » était
+  **structurellement mal lisible**, et je l'ai forcée. Le 2026-08-04 j'ai dispatché fable sur
+  `#437-r1-r1` parce qu'un opus-solver avait *nommé* ce résidu comme « candidat fable » dans son
+  rapport. Or il ne l'avait **pas tenté** — il l'avait mis hors périmètre et signalé, exactement le
+  comportement attendu d'un agent bien cadré. Une porte qu'on ouvre par erreur en la lisant de
+  travers ne se répare pas en la re-documentant : elle se ferme.
 
-Le workflow de livraison est **identique pour les deux** (worktree isolé, édition libre, validation
-adversariale de son PROPRE fix, livraison **PAR PULL REQUEST**) :
+**Un résidu nommé par un agent est un résidu NEUF**, et il repart en `opus-solver`. Le prompt garde
+l'échappatoire — « si tu bloques vraiment, dis-le explicitement plutôt que de rendre une conclusion
+molle » — mais ce rapport d'échec ne route plus vers un autre modèle : **il revient à MOI**, et ma
+réponse est de re-découper (tranche plus étroite, capteur à poser, fenêtre à planifier, prémisse à
+réfuter), pas de changer de solveur.
+
+Workflow de livraison (worktree isolé, édition libre, validation adversariale de son PROPRE fix,
+livraison **PAR PULL REQUEST**) :
 
 - Il commit son fix + son entrée `docs/rl/solving-playbook.md` sur sa branche worktree, `git push
   origin HEAD` + `gh pr create`, et reporte l'URL. **Filet** : si le push/gh échoue (creds/env), il
@@ -870,18 +874,15 @@ adversariale de son PROPRE fix, livraison **PAR PULL REQUEST**) :
   Le merge sur `master` reste MON geste, **sur ton accord** — jamais l'agent. Après merge :
   je supprime la branche (`git push origin --delete <branche>` + `git worktree prune`).
   L'ordre exact du merge et la place de la banque : « La boucle de MERGE » ci-dessous.
-- **`docs/rl/solving-playbook.md` = base des techniques de résolution de cas durs, écrite
-  EXCLUSIVEMENT par `fable-solver`** (une entrée par cas). Je ne l'édite JAMAIS. Son contenu est
+- **`docs/rl/solving-playbook.md` = base des techniques de résolution de cas durs** (une entrée par
+  cas). Écrite par `opus-solver` depuis la suppression de fable — les 727 lignes déjà là sont
+  CONSERVÉES, elles restent vraies quel que soit le modèle qui les a produites. Son contenu est
   **`!include` dans ce CLAUDE.md** (section « Documentation détaillée ») → chargé en contexte chaque
-  session : je tente de résoudre un cas dur SEUL avec ces techniques AVANT de déléguer. But : à terme,
-  de moins en moins besoin de l'agent.
-- **`opus-solver`** (`.claude/agents/opus-solver.md`, modèle `opus[1m]`) — **le dispatch par défaut,
-  quel que soit le tag** : artefact identifié, volume mécanique, port 1:1, câblage… et aussi les cas
-  `[fable]` en PREMIÈRE tentative. Il n'écrit **jamais** `solving-playbook.md` (fable-solver only) ;
-  un item qui se révèle DUR est reporté comme **candidat fable-solver**, pas résolu à l'usure.
-- **`fable-solver`** (`.claude/agents/fable-solver.md`, modèle `fable`) — **uniquement après un échec
-  opus RAPPORTÉ**. Son modèle distinct est aussi un levier de *diversité* : sur un cas où opus a
-  tourné en rond, changer de famille de modèle vaut mieux que relancer le même.
+  session : je tente de résoudre un cas dur SEUL avec ces techniques AVANT de dispatcher.
+- **`opus-solver`** (`.claude/agents/opus-solver.md`, modèle `opus[1m]`) — **le seul dispatch**, quel
+  que soit le tag : artefact identifié, volume mécanique, port 1:1, câblage, et aussi les cas durs.
+  Un item qui résiste est **reporté comme tel**, pas résolu à l'usure — et c'est à moi de le
+  re-découper.
 
 
 ## La boucle de MERGE — la banque tourne HORS du chemin critique
@@ -1016,7 +1017,7 @@ encodait l'ancien comportement était dans une autre tranche.)
 <!-- Conventions des hooks : ne sert QUE si on edite frida/hooks/* — pas au portage Python. -->
 !include .claude/skills/tacticus/references/hooks.md
 
-<!-- Techniques de resolution de cas durs, ecrites EXCLUSIVEMENT par fable-solver.
-     Leur raison d'etre est que l'ORCHESTRATEUR tente de resoudre seul avant de deleguer :
+<!-- Techniques de resolution de cas durs, ecrites par opus-solver.
+     Leur raison d'etre est que l'ORCHESTRATEUR tente de resoudre seul avant de dispatcher :
      c'est donc ici qu'elles vivent, pas dans le contexte de chaque agent. -->
 !include docs/rl/solving-playbook.md

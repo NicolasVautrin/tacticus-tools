@@ -24,8 +24,8 @@ export const meta = {
 //                          //   l'ordonnanceur a priorite repartit ce budget dynamiquement (synthese > combat).
 //   seedBase?: number      // base des seeds derives quand on utilise `count` (defaut 70000)
 //   randomizeAi?: boolean   // applique a TOUTES les specs derivees de `count` (defaut false)
-//   model?:    string      // override GLOBAL: force ce modele pour TOUS les etages: "sonnet"|"opus"|"haiku"|"fable"
-//                          //   (alias -> version courante: opus=Opus 4.8, sonnet=Sonnet 4.6, haiku=Haiku 4.5, fable=Fable 5)
+//   model?:    string      // override GLOBAL: force ce modele pour TOUS les etages: "sonnet"|"opus"|"haiku"
+//                          //   (alias -> version courante: opus=Opus 4.8, sonnet=Sonnet 4.6, haiku=Haiku 4.5)
 //                          //   defaut (si omis): combat + synthese heritent du model de session (opus).
 //   focus?:    string      // consigne de vague (ex: "tester AnvilShield <35%")
 //   ts?:       string      // timestamp de la vague (Date.now() throw dans le sandbox)
@@ -187,7 +187,7 @@ const focus = A.focus || 'explore: decouvrir des failure modes'
 // (opus). Le combat (jeu tactique + AUTO-verif) et la synthese (jugement/promotion/ecriture
 // multi-fichiers) tournent tous deux en opus par defaut.
 const GLOBAL_MODEL = A.model || null
-if (GLOBAL_MODEL !== null) need(typeof GLOBAL_MODEL === 'string' && GLOBAL_MODEL.length > 0, 'args.model doit etre une string (ex: "sonnet", "opus", "haiku", "fable")')
+if (GLOBAL_MODEL !== null) need(typeof GLOBAL_MODEL === 'string' && GLOBAL_MODEL.length > 0, 'args.model doit etre une string (ex: "sonnet", "opus", "haiku")')
 const combatModel = GLOBAL_MODEL || undefined                 // undefined => herite du model de session (opus)
 const synthModel = GLOBAL_MODEL || undefined                  // undefined => herite du model de session (opus)
 

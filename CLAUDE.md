@@ -666,7 +666,7 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    NB : dans `git worktree list`, `locked` = agent EN COURS d'exécution, **pas** « worktree
    conservé » — un agent arrêté mais sale apparaît `unlocked` et bien présent.
 
-Le reste de la conduite de campagne (pipeline de dispatch, routage opus/fable, workflow de
+Le reste de la conduite de campagne (pipeline de dispatch — `opus-solver` et lui seul, workflow de
 livraison par PR, reprise d'un agent par `SendMessage`, exploitation de la plateforme,
 migration au changement de build) vit dans le skill **`tacticus-orchestration`**, chargé à la
 demande — il ne sert qu'à l'orchestrateur et n'a pas à peser sur le contexte de chaque agent.

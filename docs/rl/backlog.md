@@ -11,14 +11,18 @@
 > avec les comptes re-dérivés, les verdicts de confrontabilité et la liste des entrées PÉRIMÉES —
 > vit dans **`docs/rl/port-residuals-inventory.md`**.
 
-## Convention de tag modèle
+## Convention de tag DIFFICULTÉ
 
-Chaque tâche porte le modèle avec lequel la mener :
+> ⚠ **Ces tags ne désignent plus aucun agent.** `fable-solver` a été supprimé du dépôt le
+> 2026-08-04 : **tout part en `opus-solver`**, quel que soit le tag. Ce qui reste est une
+> **estimation de difficulté**, utile pour dimensionner la tranche et écrire le brief — pas un
+> routage. Les `[fable]` encore présents plus bas et dans `docs/rl/case-*.md` sont conservés
+> **tels quels** : ce sont des classements horodatés, et les réécrire falsifierait le dossier.
 
 - **`[fable]`** — le cas a **déjà résisté** (divergence non localisée, verdicts contradictoires,
   flip-flop), le décompilé est **ambigu** (wrappers virtual-only, structure à trancher), ou il faut
-  **concevoir des datapoints live discriminants**. En pratique : délégation à `fable-solver`
-  (worktree isolé, livraison par PR).
+  **concevoir des datapoints live discriminants**. Se lit : *tranche étroite, brief qui nomme ce qui
+  a déjà été éliminé, et autorisation explicite de rendre NON RÉSOLU plutôt qu'une conclusion molle.*
 - **`[opus]`** — l'artefact natif est **identifié** et la mécanique comprise (port 1:1, slice DSL,
   câblage d'un canal), **volume mécanique** (N overrides du même patron), ou orchestration /
   validation live / régression / doc / commit.

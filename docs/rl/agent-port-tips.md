@@ -1,6 +1,6 @@
 # Tips agents de port — NE PAS perdre de temps en validation
 
-> À LIRE avant de valider un port (opus-solver / fable-solver). Compile les gains de temps
+> À LIRE avant de valider un port (`opus-solver`). Compile les gains de temps
 > récurrents. Les prompts de dispatch pointent ici. Ajouter un tip dès qu'un agent reperd du
 > temps sur un piège déjà vu.
 
