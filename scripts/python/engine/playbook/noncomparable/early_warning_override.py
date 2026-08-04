@@ -5,6 +5,7 @@ from __future__ import annotations
 import hexgeo
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
+from engine.services import ability_caster_gates as acg
 from engine.services import ability_range as ar
 from engine.services import battle_query as bqs
 
@@ -141,8 +142,14 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
       * `UseWholeBoard` et `CustomRange(GetRange)` rendent la portee non derivable -> l'ability ne
         verse RIEN (borne INFERIEURE), ce que la mesure `astraDreir` (`LeadingTheCharge`,
         whole-board) confirme : le natif rend « hors portee » des `d >= 2` ;
-      * la ZONE est modelisee par un DISQUE de rayon `max(portees)` : ni LoS, ni forme, ni les
-        gates par ability du natif (`GetInvalidCasterReason`, `CanCurrentlyBeUsed`)."""
+      * la ZONE est modelisee par un DISQUE de rayon `max(portees)` : ni LoS ni forme. Les TROIS
+        gates CASTER en amont (`AActiveAbility$$CanStillBeUsed` slot 0x14,
+        `AActiveAbility$$IsDisabled` slot 0x13, `AttackQuery$$GetInvalidCasterReason`) sont
+        MODELISES depuis `#433-r4-r2-r1-r1-c` : `enemies_of` passe l'etat d'abilities de chaque
+        ennemi, donc une ability en cooldown / desarmee ne verse plus sa portee. MESURE
+        (`darkaTerminator`, arme de MELEE + `PlasmaCannon` de zone 3) : le natif rend « en portee »
+        jusqu'a `d = 3` quand l'ability est prete et `d <= 1` tant que son `initialCooldownTurns`
+        brule -- le port rendait 3 dans les DEUX cas."""
     ABILITY_ID = int(ActiveAbilityType.EarlyWarningOverride)  # 1077
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor = Fix64(1) -> admission Bucket util>=1
     #                       CONTESTE, residu `#433-r4-r2-r3` : le Bucket de CE playbook est construit
@@ -154,17 +161,27 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
     _NEAREST_GATE = 9     # slot0x6c(nearest,self) < 9 (gate GetNearestEnemy IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable)
 
     def enemies_of(self, ctx: NCContext) -> list:
-        """`GetAllAliveUnits(null)` filtre `IsEnemy` -> `[(tuile, visualId, threshold)]`.
+        """`GetAllAliveUnits(null)` filtre `IsEnemy` -> `[(tuile, visualId, threshold, etat, na)]`.
 
-        Les DEUX termes de branche sont pre-calcules PAR ENNEMI parce qu'ils sont tous les deux
-        position-INDEPENDANTS (ils ne lisent que le kit de l'ennemi et sa tuile COURANTE), la ou
+        Les termes par ENNEMI sont pre-calcules ici parce qu'ils sont tous position-INDEPENDANTS
+        (ils ne lisent que le kit de l'ennemi, son etat d'abilities et sa tuile COURANTE), la ou
         `utility_at` est evalue par POSITION du caster :
           * `visualId` -> substrat de la branche A (`is_tile_in_range_of_any_ability`, qui derive
             l'union des portees du kit -- cache par `visual_id` cote `services.ability_range`) ;
-          * `threshold` -> branche B (`FindRangedWeapon(E).Range ?? 1`)."""
-        out = [(e.get("pos"), e.get("visualId")) for e in (ctx.enemies or [])]
-        return [((p["col"], p["row"]), vid, _ranged_weapon_threshold(vid)) for (p, vid) in out
-                if p and p.get("col") is not None]
+          * `threshold` -> branche B (`FindRangedWeapon(E).Range ?? 1`) ;
+          * `etat` / `na` -> les TROIS gates CASTER de `AttackQuery$$GetAllTilesInAbilityRange`
+            (#433-r4-r2-r1-r1-c), lus sur la ligne `decisionView` de l'ennemi
+            (`abilities[].usable/disabled/cooldown/ammoCost/hasAmmo`). Le canal n'est peuple que
+            si l'appelant a demande `allAbilities: true` ; sinon les tables sont vides et seul
+            `IsDisabled` (derivable du kit) peut mordre -- borne SUPERIEURE, statu quo."""
+        out = []
+        for e in (ctx.enemies or []):
+            p, vid = e.get("pos"), e.get("visualId")
+            if not p or p.get("col") is None:
+                continue
+            out.append(((p["col"], p["row"]), vid, _ranged_weapon_threshold(vid),
+                        acg.ability_state_map(e), acg.normal_attack_id(e)))
+        return out
 
     def adjacent_at_origin(self, ctx: NCContext, enemies: list) -> set:
         """Les ennemis que le natif declare adjacents a la TUILE REELLE du caster -> branche B.
@@ -178,8 +195,8 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         jamais une adjacence a l'aveugle)."""
         if ctx.origin is None:
             return set()
-        return {ep for (ep, _vid, _thr) in enemies
-                if bq.are_entities_adjacent(ctx.origin, ep, ctx.elev_by_pos)}
+        return {e[0] for e in enemies
+                if bq.are_entities_adjacent(ctx.origin, e[0], ctx.elev_by_pos)}
 
     def utility_at(self, P: tuple, enemies: list, adj_origin: set, elev_by_pos=None) -> float:
         """UTIL(P) du corps natif, ennemi par ennemi (mirror de la boucle `GetAllAliveUnits`).
@@ -194,10 +211,11 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         `FindRangedWeapon` la seule portee de l'arme A DISTANCE. Sur `tauMarksman` (arme 3, ability
         `SeekerMissileFrequencyLock` de portee 5) elles valent respectivement 5 et 3."""
         u = 0.0
-        for (ep, vid, thr) in enemies:
+        for (ep, vid, thr, st, na) in enemies:
             d = hexgeo.distance(P, ep)
             if ep not in adj_origin:            # branche A : +50 si P hors de la zone d'ability de E
-                if not ar.is_tile_in_range_of_any_ability(ep, P, vid, elev_by_pos=elev_by_pos):
+                if not ar.is_tile_in_range_of_any_ability(ep, P, vid, elev_by_pos=elev_by_pos,
+                                                          ability_state=st, normal_attack_id=na):
                     u += self._COVER_BONUS
             else:                               # branche B : +50 si `threshold(E) < d`
                 if thr < d:
@@ -229,7 +247,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         # GATE : nearest enemy within 9 de l'ORIGINE (slot0x4a=GetNearestEnemy, position-independant).
         origin = ctx.origin
         if origin is not None:
-            nearest = min(hexgeo.distance(origin, ep) for (ep, _vid, _thr) in enemies)
+            nearest = min(hexgeo.distance(origin, e[0]) for e in enemies)
             if nearest >= self._NEAREST_GATE:
                 return []
         # ennemis adjacents a l'ORIGINE (caster tuile courante) -> branche B ; sinon branche A.
