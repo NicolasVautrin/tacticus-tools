@@ -254,91 +254,99 @@ def step_read():
 # ------------------------------------------------------------------------------------------------
 # --step graft / --step native : la ZONE mesuree, natif contre port
 # ------------------------------------------------------------------------------------------------
-def _sweep(sid, enemy, seed_bc, ability_ids, tag):
+def sweep(sid, enemy, seed_bc=None, ability_ids=None):
+    """La MESURE, rendue en donnees -- `{"error": ...}` sur refus. `--step` l'imprime, le test
+    live l'assertionne : la mesure n'existe qu'a UN endroit."""
     from engine.services import ability_range as ar
     from engine.runner.abilities.targeting import unit_weapon_range
 
     if seed_bc is not None:
         wr = unit_weapon_range(enemy, None)
         if wr is None or int(wr) > 1:
-            print("  REFUS anti-degenerescence : le greffon %s a une arme de portee %s -- "
-                  "« zone = portee d'arme » rendrait le meme resultat par coincidence" % (enemy, wr))
-            return 1
+            return {"error": "anti-degenerescence : le greffon %s a une arme de portee %s -- "
+                             "« zone = portee d'arme » rendrait le meme resultat par coincidence"
+                             % (enemy, wr)}
 
     elev, walk = _board_maps(sid, enemy)
     O, Y = _pick_far(elev, walk, DIST)
     if O is None:
-        print("  REFUS : aucune paire walkable a distance %d sur %s" % (DIST, BOARD))
-        return 1
+        return {"error": "aucune paire walkable a distance %d sur %s" % (DIST, BOARD)}
     rid, err = _build(enemy, seed_bc)
     if rid is None:
-        print("  REFUS : build KO -- %s" % err)
-        return 1
+        return {"error": "build KO -- %s" % err}
     try:
         _dv, c, e = _units(sid, rid, enemy)
         if c is None or e is None:
-            print("  REFUS : caster ou ennemi absent du decisionView")
-            return 1
+            return {"error": "caster ou ennemi absent du decisionView"}
         if not _place(sid, rid, c["id"], e["id"], O, Y):
-            print("  REFUS : montage non installe (pas de tuile candidate)")
-            return 1
+            return {"error": "montage non installe (pas de tuile candidate)"}
         dv, c, e = _units(sid, rid, enemy)
         posn = {u["id"]: (u["pos"]["col"], u["pos"]["row"])
                 for u in (dv.get("units") or []) if u.get("pos")}
         if posn.get(c["id"]) != O or posn.get(e["id"]) != Y:
-            print("  REFUS : positions non atteintes %r" % (posn,))
-            return 1
+            return {"error": "positions non atteintes %r" % (posn,)}
         foes = [(u.get("visualId"), (u["pos"]["col"], u["pos"]["row"]))
                 for u in (dv.get("units") or [])
                 if u.get("pos") and u.get("alive") and not u.get("ctrl")]
         if len(foes) != 1:
-            print("  REFUS : montage IMPUR, %d ennemis vivants %r" % (len(foes), foes))
-            return 1
+            return {"error": "montage IMPUR, %d ennemis vivants %r" % (len(foes), foes)}
         # Ce que le NATIF a REELLEMENT monte sur l'entite -- la greffe se verifie, elle ne se
         # suppose pas (`KIT gameconfig != ENTITE`). On lit l'entite, pas le kit.
         got = _entity_actives(e)
+        note = None
         if seed_bc is not None:
             want = sorted(ability_ids or [])
             if not set(want) <= set(got):
-                print("  REFUS : la greffe n'a PAS mordu -- entite.abilities=%r, %r absente "
-                      "(cles de l'unite : %r)" % (got, want, sorted(e)))
-                return 1
+                return {"error": "la greffe n'a PAS mordu -- entite.abilities=%r, %r absente "
+                                 "(cles de l'unite : %r)" % (got, want, sorted(e))}
             if set(got) != set(want):
                 # `KIT gameconfig != ENTITE` : le natif monte parfois une ability COMPAGNE
                 # (ex. `1011 TunnelingHorror` amene `1060 TunnelingHorror_Appear`). On mesure alors
                 # ce que le natif a REELLEMENT monte, on ne le masque pas.
-                print("  NOTE : le natif a monte %r au lieu de %r -- le port lit la MEME liste"
-                      % (got, want))
+                note = "le natif a monte %r au lieu de %r -- le port lit la MEME liste" % (got, want)
                 ability_ids = got
         in_range, out_range = _nc_partition(sid, rid, c["id"], [Y])
-        sweep = sorted(in_range | out_range)
-        modeled = {P for P in sweep
+        allp = sorted(in_range | out_range)
+        modeled = {P for P in allp
                    if ar.is_tile_in_range_of_any_ability(Y, P, enemy, ability_ids=ability_ids,
                                                          elev_by_pos=elev)}
         by_d: dict = {}
-        for P in sweep:
+        for P in allp:
             by_d.setdefault(hexgeo.distance(P, Y), []).append(P in in_range)
-        print("  %-34s entite.abilities=%r  sweep=%d" % (tag, got, len(sweep)))
-        # La SEULE tuile OCCUPEE du sweep est celle du caster : c'est le seul point ou un gate
-        # `GATE_VALID_ON_EMPTY_TILE` peut mordre, et le seul moyen de le VOIR sur ce montage.
-        print("  O(caster)=%r  Y(ennemi)=%r  -- O est la seule tuile du sweep portant une unite"
-              % (O, Y))
-        line = "  natif en portee par distance :"
-        for d in sorted(by_d):
-            v = by_d[d]
-            line += "  d%d=%d/%d" % (d, sum(1 for x in v if x), len(v))
-        print(line)
-        fp = sorted(modeled - in_range)
-        fn = sorted(in_range - modeled)
-        print("  port : FP=%d FN=%d -> %s"
-              % (len(fp), len(fn), "EXACT" if not fp and not fn else "DIVERGE"))
-        if fp:
-            print("  faux positifs : %r" % (fp[:10],))
-        if fn:
-            print("  faux negatifs : %r" % (fn[:10],))
-        return 0 if not fp and not fn else 1
+        return {"enemy": enemy, "entity_abilities": got, "note": note, "O": O, "Y": Y,
+                "n_sweep": len(allp), "natif_in_range": sorted(in_range),
+                "par_distance": {d: (sum(1 for x in v if x), len(v)) for d, v in sorted(by_d.items())},
+                "faux_positifs": sorted(modeled - in_range),
+                "faux_negatifs": sorted(in_range - modeled),
+                "exact": modeled == in_range}
     finally:
         _dispose(sid, rid)
+
+
+def _print(res, tag):
+    if "error" in res:
+        print("  REFUS : %s" % res["error"])
+        return 1
+    if res.get("note"):
+        print("  NOTE : %s" % res["note"])
+    print("  %-34s entite.abilities=%r  sweep=%d"
+          % (tag, res["entity_abilities"], res["n_sweep"]))
+    # La SEULE tuile OCCUPEE du sweep est celle du caster : c'est le seul point ou un gate
+    # `GATE_VALID_ON_EMPTY_TILE` peut mordre, et le seul moyen de le VOIR sur ce montage.
+    print("  O(caster)=%r  Y(ennemi)=%r  -- O est la seule tuile du sweep portant une unite"
+          % (res["O"], res["Y"]))
+    line = "  natif en portee par distance :"
+    for d, (n, tot) in sorted(res["par_distance"].items()):
+        line += "  d%d=%d/%d" % (d, n, tot)
+    print(line)
+    print("  port : FP=%d FN=%d -> %s"
+          % (len(res["faux_positifs"]), len(res["faux_negatifs"]),
+             "EXACT" if res["exact"] else "DIVERGE"))
+    if res["faux_positifs"]:
+        print("  faux positifs : %r" % (res["faux_positifs"][:10],))
+    if res["faux_negatifs"]:
+        print("  faux negatifs : %r" % (res["faux_negatifs"][:10],))
+    return 0 if res["exact"] else 1
 
 
 def step_graft(sid, abilities):
@@ -353,7 +361,7 @@ def step_graft(sid, abilities):
         print("=== %d %s  greffee sur %s ===" % (int(aid), nm, GRAFT_HOST))
         seed, reports = _grafted_seed(aid)
         print("  seed BC greffe : %s" % (reports,))
-        rc |= _sweep(sid, GRAFT_HOST, seed, [int(aid)], "graft %d" % int(aid))
+        rc |= _print(sweep(sid, GRAFT_HOST, seed, [int(aid)]), "graft %d" % int(aid))
     return rc
 
 
@@ -362,7 +370,7 @@ def step_native(sid, enemies):
     for enemy in enemies:
         print("")
         print("=== porteur NATIF %s ===" % enemy)
-        rc |= _sweep(sid, enemy, None, None, "natif %s" % enemy)
+        rc |= _print(sweep(sid, enemy), "natif %s" % enemy)
     return rc
 
 
