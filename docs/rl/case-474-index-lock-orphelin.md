@@ -134,6 +134,10 @@ jamais ; à décider séparément.
   dépend de la fenêtre de l'arbre réel (1,2 s) et de la latence du tueur du harnais. La parade
   ne dépend pas de ce chiffre (elle supprime la fenêtre), mais il resterait à établir pour
   savoir si d'autres porteurs, hors dépôt, subsistent.
+* **`#474-r3`** — le périmètre du cliquet s'arrête à `scripts/**`. C'est une **mesure** (sur les
+  286 fichiers exécutables versionnés hors `scripts/`, **zéro** porte un `git status`), pas une
+  convention ; mais un `git status` apparaissant demain dans `frida/host/*.ts` y échapperait.
+  L'élargir demanderait un parseur par langage, pour un gisement aujourd'hui vide.
 * Deux locks orphelins de **16 h** étaient encore présents à l'instruction
   (`objects/maintenance.lock`, `refs/heads/worktree-agent-ad12299b0b1be9235.lock`, 0 octet,
   libres) avec `gc.pid` pointant un **PID mort** — même signature, familles différentes :

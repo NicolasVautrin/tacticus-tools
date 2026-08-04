@@ -30,6 +30,13 @@ le vice que #474 combat (une parade posee sur un correlat non separe).
 `git add`/`git commit` ne sont PAS vises : leur lock est une ECRITURE VOULUE, et
 `--no-optional-locks` ne s'y applique pas.
 
+Le perimetre s'arrete a `scripts/**`, et c'est une MESURE, pas une convention : sur les 286
+fichiers executables versionnes HORS `scripts/` (`.py`, `.ps1`, `.ts`, `.js`, `.cjs`), **zero**
+porte une invocation `git status`. Les outils qui pilotent la boucle -- et donc les seuls a
+viser le `.git` PARTAGE depuis un contexte tuable -- vivent tous la. Un `git status` qui
+apparaitrait demain dans `frida/host/*.ts` serait hors de portee de ce cliquet (residu
+`#474-r3`) : l'elargir demanderait un parseur par langage, pour un gisement aujourd'hui vide.
+
 DEUX ETAGES, PARCE QUE LE TEXTE NE SUFFIT PAS
 ----------------------------------------------
 1. STATIQUE, sur le texte des fichiers versionnes de `scripts/**`. Python par AST (jamais par
