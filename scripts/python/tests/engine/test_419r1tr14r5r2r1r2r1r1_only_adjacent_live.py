@@ -86,6 +86,17 @@ def test_le_rayon_de_souffle_est_chiffre_et_ne_perd_rien():
     assert res["bouges_obs"] == [], "un couple a portee OBSERVABLE a bouge -- le correctif deborde"
 
 
+def test_le_chiffrage_decrit_bien_le_code():
+    """(1)+(2) LE CRAN QUI FAIT ROUGIR LE CHIFFRAGE. Les deux crans qui l'encadrent raisonnent sur un
+    MODELE de `get_range` ; sans cette confrontation au CODE REEL ils resteraient VERTS si le port
+    repartait en arriere -- exactement le vice d'un inventaire deguise en garde-fou."""
+    ac = PR.accord_modele_code(verbose=False)
+    assert ac["verifies"] > 1000, "echantillon trop maigre pour garder quoi que ce soit"
+    assert ac["ecarts"] == [], (
+        f"{len(ac['ecarts'])} ecart(s) entre le modele du chiffrage et `get_range` : "
+        f"{ac['ecarts'][:3]}")
+
+
 def test_le_rayon_reel_a_des_porteurs():
     """(1) Le produit cartesien est un MAJORANT ; ce cran exige des porteurs REELS (l'unite porte
     vraiment le jeu d'options), sans quoi le correctif serait theorique."""

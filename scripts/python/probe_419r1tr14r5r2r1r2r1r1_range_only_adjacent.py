@@ -265,6 +265,57 @@ def couples_reels(verbose: bool = True) -> dict:
     return {"reels": reels, "mow": mow}
 
 
+def accord_modele_code(verbose: bool = True) -> dict:
+    """LE CRAN QUI FAIT ROUGIR CE PROBE. Les etapes 1 et 2 raisonnent sur un MODELE de `get_range` ;
+    un modele seul est un inventaire deguise en garde-fou -- il resterait VERT si le code repartait
+    en arriere. Ici on APPELLE `get_range` sur un `State` synthetique et on confronte, couple par
+    couple, `only_adjacent` et le tri-etat de `value`.
+
+    L'etat synthetique porte une seule unite (visualId + tuile + owner) : c'est tout ce que
+    `get_range` lit hors clamps, et les clamps sont inertes dessus (`state.effects` vide,
+    `state.board` absent -> `should_apply_ranged_in_melee` rend False, tel qu'il est ecrit)."""
+    from engine.runner.abilities.targeting import get_range
+    from engine.runner.components import OwnerComponent, PositionComponent, UnitComponent
+    from engine.runner.state import State
+    ecarts, verifies = [], 0
+    # Le gisement suffit : ce sont les couples ou modele et code peuvent diverger. On y ajoute un
+    # temoin a portee OBSERVABLE par jeu d'options, pour garder aussi le sens inverse.
+    cat = _catalogue()
+    sans_arme = [v for v in cat if not ((GC.unit(v) or {}).get("weapons") or [])]
+    avec_arme = [v for v in cat if ((GC.unit(v) or {}).get("weapons") or [])]
+    echantillon = sans_arme + avec_arme[:40]
+    for origin, aid, opts in _options_sources():
+        for vis in echantillon:
+            attendu = _gate_state(opts, vis)
+            st = State()
+            ent = st.add_entity()
+            ent.add_component(UnitComponent(visual_id=vis, alive=True))
+            ent.add_component(PositionComponent(col=3, row=3))
+            ent.add_component(OwnerComponent(team=0))
+            cid = next(k for k, v in st.entities.items() if v is ent)
+            rr = get_range(st, int(cid), opts)
+            verifies += 1
+            if not attendu["decidable"]:
+                if rr is not None:
+                    ecarts.append((origin, aid, vis, "attendu None (non decidable)", rr))
+                continue
+            if rr is None:
+                ecarts.append((origin, aid, vis, "get_range a rendu None", attendu))
+                continue
+            if bool(rr.only_adjacent) != bool(attendu["only_adjacent"]):
+                ecarts.append((origin, aid, vis, "only_adjacent", (rr.only_adjacent,
+                                                                   attendu["only_adjacent"])))
+            if (rr.value is not None) != bool(attendu["value_known"]):
+                ecarts.append((origin, aid, vis, "tri-etat de value", (rr.value,
+                                                                      attendu["value_known"])))
+    if verbose:
+        print("\n=== ACCORD MODELE <-> CODE : %d couples appeles, %d ecart(s)"
+              % (verifies, len(ecarts)))
+        for e in ecarts[:8]:
+            print("      %s" % (e,))
+    return {"verifies": verifies, "ecarts": ecarts}
+
+
 def jumeau_toujours_none() -> bool:
     """Etage JUMEAU, celui qu'il ne faut PAS aligner. `TargetingQuery$$GetTilesInRange` teste
     `(int)range < 0` puis `(int)range == 0` AVANT `range._4_1_ OnlyAdjacent` : la valeur y EST lue
@@ -300,6 +351,11 @@ def main(argv=None) -> int:
     rr = couples_reels(verbose=not a.quiet)
     if not rr["reels"]:
         print("[FAIL] RAYON REEL VIDE : aucun porteur reel touche -- le correctif serait theorique")
+        rc = 1
+    ac = accord_modele_code(verbose=not a.quiet)
+    if ac["ecarts"]:
+        print("[FAIL] %d ecart(s) MODELE <-> CODE : le chiffrage ci-dessus ne decrit plus `get_range`"
+              % len(ac["ecarts"]))
         rc = 1
     ok = jumeau_toujours_none()
     print("  etage jumeau `tiles_in_range_reach` sur portee non observable -> %s"
