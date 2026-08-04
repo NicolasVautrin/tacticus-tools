@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 
 import rl_collect_batch as R
+from sibling_script import sibling_script
 
 BOARD = "MC1_67"
 EARLY_WARNING_OVERRIDE = 1077
@@ -47,7 +48,7 @@ def main():
     print("warmup:", str(w)[:120])
     import subprocess
     sf = sys.argv[1] if len(sys.argv) > 1 else "logs/probe114b.json"
-    cmd = [sys.executable, "rl_duel.py", "build", "--seed", "114900",
+    cmd = [sys.executable, sibling_script("rl_duel.py"), "build", "--seed", "114900",
            "--p-units", "tauCrisis,tauMarksman", "--a-units", "orksNob,orksNob",
            "--hp-target", "1", "--board", BOARD, "--state-file", sf]
     out = subprocess.run(cmd, capture_output=True, text=True)

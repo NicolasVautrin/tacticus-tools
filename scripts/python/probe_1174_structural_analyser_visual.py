@@ -43,6 +43,7 @@ import sys
 from pathlib import Path
 
 import requests
+from sibling_script import sibling_script
 
 HOST = "http://127.0.0.1:8765"
 
@@ -138,7 +139,7 @@ def best_dmg(sn: dict, uid: int, target: int, frm) -> tuple:
 
 
 def build(state_file: str, board: str, seed: str, p_units: str, a_units: str) -> int:
-    argv = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
+    argv = [sys.executable, sibling_script("rl_duel.py"), "build", "--seed", seed, "--board", board,
             "--state-file", state_file, "--p-units", p_units, "--a-units", a_units,
             "--no-ai", "--crit", "0,0", "--block-target", "0,0", "--hp-target", "300000"]
     out = subprocess.run(argv, capture_output=True, text=True)

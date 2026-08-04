@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 import rl_collect_batch as R
+from sibling_script import sibling_script
 
 ROOT = Path(__file__).resolve().parents[2]
 # State-file dedie (pas le duel_state.json partage) : depuis le replace scope
@@ -60,7 +61,7 @@ def main(argv):
     ap.add_argument("--seed", type=int, default=777)
     a = ap.parse_args(argv)
     sid = R._resolve_session()
-    subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", str(a.seed),
+    subprocess.run([sys.executable, sibling_script("rl_duel.py"), "build", "--seed", str(a.seed),
                     "--state-file", str(STATE)],
                    capture_output=True, text=True, encoding="utf-8", errors="replace")
     rid = json.loads(STATE.read_text())["runnerId"]

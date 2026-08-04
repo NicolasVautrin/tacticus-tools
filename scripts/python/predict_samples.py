@@ -32,6 +32,7 @@ from engine.playbook import scene as SC
 from engine.playbook.scene import Scene
 from engine.playbook import prediction
 from engine.runner import snapshot as _snapshot   # porte du canal de seed `includeInactive` (#443-r2-b1)
+from sibling_script import sibling_script
 
 ROOT = Path(__file__).resolve().parents[2]
 # state-file DEDIE au harnais CLI : jamais data/duel_state.json (reserve au runner de travail
@@ -156,7 +157,7 @@ def main(argv):
     a = ap.parse_args(argv)
     sid = R._resolve_session()
     print(f"[validate] session {sid} — build seed {a.seed}")
-    subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", str(a.seed),
+    subprocess.run([sys.executable, sibling_script("rl_duel.py"), "build", "--seed", str(a.seed),
                     "--state-file", STATE_REL],
                    capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
@@ -176,7 +177,7 @@ def main(argv):
         return 0
     finally:
         # dispose du runner du harnais (jamais orphelin, jamais le runner utilisateur)
-        subprocess.run([sys.executable, "rl_duel.py", "dispose", "--state-file", STATE_REL],
+        subprocess.run([sys.executable, sibling_script("rl_duel.py"), "dispose", "--state-file", STATE_REL],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 

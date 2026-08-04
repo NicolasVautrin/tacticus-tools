@@ -21,6 +21,7 @@ from collections import deque
 from pathlib import Path
 
 import requests
+from sibling_script import sibling_script
 
 HOST = "http://127.0.0.1:8765"
 CASTER = "tyranNeurothrope"
@@ -64,7 +65,7 @@ def main() -> int:
     ap.add_argument("--turns", type=int, default=40)
     a = ap.parse_args()
 
-    out = subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", a.seed,
+    out = subprocess.run([sys.executable, sibling_script("rl_duel.py"), "build", "--seed", a.seed,
                           "--board", a.board, "--state-file", a.state_file,
                           "--roster", "1", "--p-units", CASTER, "--a-units", ENEMIES],
                          capture_output=True, text=True)

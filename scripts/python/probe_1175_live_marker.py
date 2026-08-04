@@ -39,6 +39,7 @@ import sys
 from pathlib import Path
 
 import requests
+from sibling_script import sibling_script
 
 HOST = "http://127.0.0.1:8765"
 CARRIER = "blackTerminator"                 # Angrax -- HERO, dans `rl_duel build --list-pool`
@@ -111,7 +112,7 @@ def hexdist(a, b) -> int:
 
 
 def build(state_file: str, board: str, seed: str, p_units: str, a_units: str) -> int:
-    argv = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
+    argv = [sys.executable, sibling_script("rl_duel.py"), "build", "--seed", seed, "--board", board,
             "--state-file", state_file, "--p-units", p_units, "--a-units", a_units,
             "--hp-player", "400000"]
     out = subprocess.run(argv, capture_output=True, text=True)
