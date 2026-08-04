@@ -19,8 +19,9 @@ from .probable_damage_event import (
     ProbableEffectEvent, calculate_utility_from_effect_event,
 )
 from .common import (
-    NormalAttackPlaybook, HealPlaybook, RepairPlaybook,
+    NormalAttackPlaybook, NormalBossAttackPlaybook, HealPlaybook, RepairPlaybook,
     DefaultActiveAbilityPlaybook, DEFAULT_PLAYBOOK, NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK,
+    NORMAL_BOSS_ATTACK_PLAYBOOK, normal_attack_playbook,
 )
 from .savior_protocols import SaviorProtocolsPlaybook
 from . import loki_custom  # noqa: F401  (#27) enregistre les overrides CalculateCustomUtility par-ability
@@ -46,8 +47,10 @@ __all__ = [
     "get_playbook_or_default", "tile_utility",
     "ProbableDamageEvent", "calculate_utility_from_damage_event", "calculate_utility_from_predictions",
     "ProbableEffectEvent", "calculate_utility_from_effect_event",
-    "NormalAttackPlaybook", "HealPlaybook", "RepairPlaybook", "DefaultActiveAbilityPlaybook",
-    "DEFAULT_PLAYBOOK", "NORMAL_ATTACK_PLAYBOOK", "HEAL_PLAYBOOK", "SaviorProtocolsPlaybook",
+    "NormalAttackPlaybook", "NormalBossAttackPlaybook", "HealPlaybook", "RepairPlaybook",
+    "DefaultActiveAbilityPlaybook", "normal_attack_playbook",
+    "DEFAULT_PLAYBOOK", "NORMAL_ATTACK_PLAYBOOK", "NORMAL_BOSS_ATTACK_PLAYBOOK",
+    "HEAL_PLAYBOOK", "SaviorProtocolsPlaybook",
     "NonComparablePlaybook", "NCContext", "nc_choose_action", "is_noncomp", "is_summon",
     "nc_playbook_for", "BloodyFuryPlaybook", "VexillaMagnificaPlaybook",
     "FightingRetreatPlaybook", "AberrantHypermorphPlaybook",

@@ -1250,6 +1250,40 @@ def _load_passive_abilities(state: State, ability_states: dict) -> int:
     return seeded
 
 
+def triggered_ability_ids_by_unit(ability_states: dict) -> dict:
+    """`{entityId: [ids du TriggeredAbilityComponent, TOUTES hierarchies]}` depuis le payload du RPC
+    `unitAbilityStates`.
+
+    FOYER UNIQUE du parsing, exactement comme `passive_ability_names_by_unit` (hierarchie 2) et
+    `active_ability_names_by_unit` (l'`ActiveAbilityComponent`) : `_load_triggered_abilities` (face
+    COMBAT) et `engine.playbook.scene._seed_measured_triggered` (face DECISION) l'appellent toutes
+    les deux. C'est ce que lit `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility`
+    (-> `IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryGetAbility`), donc le substrat
+    du gate `ShouldExecute` de l'attaque normale (#419-r1-tr14-r5-r2-r1-r1) comme du dispatcher
+    d'utilite `TriggeredAbilitiesUtility(2)`.
+
+    `raw[0]` = `TriggeredAbility.AbilityName`. AUCUN filtre de hierarchie : le natif n'en fait pas.
+    Un id hors de l'enum du mirror est garde TEL QUEL (le natif le presente a
+    `PlaybookDatabase$$LoadPlaybook`, qui rend `null` et le skippe) -- choix INVERSE de
+    `passive_ability_names_by_unit`, qui porte des NOMS et doit ignorer l'inconnu.
+
+    Une unite PRESENTE dans le payload mais sans aucune entree declenchee recoit `[]` -- une MESURE,
+    a distinguer d'un canal muet, qui lui n'a aucune cle."""
+    out: dict = {}
+    for su in ((ability_states or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None:
+            continue
+        ids: list[int] = []
+        for t in (su.get("triggered") or []):
+            raw = (t or {}).get("raw") or []
+            v = raw[0] if raw else None
+            if isinstance(v, int) and v > 0 and v not in ids:   # `TryAdd` : une entree par id
+                ids.append(v)
+        out[uid] = ids
+    return out
+
+
 def _load_triggered_abilities(state: State, ability_states: dict) -> int:
     """Seede `UnitContext.triggered_abilities` depuis le RPC `unitAbilityStates` (#456-r1).
     Rend le nombre d'unites seedees.
@@ -1282,22 +1316,15 @@ def _load_triggered_abilities(state: State, ability_states: dict) -> int:
     TRI-ETAT, meme discipline que les seeds voisins : sans canal, rien n'est pose et les foyers
     retombent sur le kit gameconfig. Une unite PRESENTE dans le payload mais sans aucune entree
     declenchee recoit `[]` -- une MESURE (« cette unite n'a aucun passif monte »), qui doit se
-    distinguer d'un canal muet."""
+    distinguer d'un canal muet.
+
+    Le PARSING vit dans `triggered_ability_ids_by_unit` (foyer partage avec la face DECISION)."""
     seeded = 0
-    for su in ((ability_states or {}).get("units") or []):
-        uid = su.get("entityId")
-        if uid is None:
-            continue
+    for uid, ids in triggered_ability_ids_by_unit(ability_states).items():
         ent = state.get_entity(uid)
         sc = ent.get_component(StatsComponent) if ent is not None else None
         if sc is None or getattr(sc, "ctx", None) is None:
             continue
-        ids: list[int] = []
-        for t in (su.get("triggered") or []):
-            raw = (t or {}).get("raw") or []
-            v = raw[0] if raw else None
-            if isinstance(v, int) and v > 0 and v not in ids:   # `TryAdd` : une entree par id
-                ids.append(v)
         sc.ctx.triggered_abilities = ids
         seeded += 1
     return seeded

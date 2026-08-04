@@ -185,6 +185,27 @@ class ComparablePlaybook(BasePlaybook):
         Drachnyen IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility count>=2, HeraldOfTheApocalypse IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$CalculateCustomUtility, ProperKilly IdunBattle.AI.Playbook.Loki.ProperKilly_NormalAttackPlaybook$$CalculateCustomUtility...)."""
         return 0.0
 
+    def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
+        """`ComparablePlaybook<T>.ShouldExecute` — **slot de vtable +0x328**, appelé par
+        `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`
+        avec `(caster, casterPosition.MainTile, target, attackHealUtility)`. `False` ⇒ le natif rend
+        un `Nullable` VIDE : **aucune action** n'est poussée dans le `Bucket` pour ce (tuile, cible).
+
+        DÉFAUT = `return true`, et c'est une MESURE, pas une déduction : le slot +0x328 de
+        `DrachnyenPlaybook` (comme de `ChronometronPlaybook`, `DoomSirenPlaybook`,
+        `ForwardObserversPlaybook`) pointe sur un corps de trois octets `b0 01 c3`
+        (`mov al,1 ; ret`), dont l'unique propriétaire NOMMÉ dans les tables est
+        `UnityEngine.U2D.IK.Solver2D$$DoValidate` — dédup IL2CPP d'un corps trivial. Le `MethodInfo`
+        du niveau `ComparablePlaybook`1`, lui, porte un `methodPointer` NUL (définition
+        générique non inflatée) : c'est le slot qu'il faut lire, pas lui.
+
+        `utility` = `CalculateCustomUtility + CalculateUtilityFromPredictions`, donc AVANT les trois
+        termes positionnels (`CalculateCasterPositionUtility` slot +0x348, la clé `0x37`
+        `WireweaveNet_FirstAttack`, `CalculateUtilityFromTilePrediction`). Un playbook qui override
+        (`ALoki_NormalAttackPlaybook<T>`, `Loki_NormalBossAttackPlaybook`, `HealPlaybook`, …)
+        redéfinit cette méthode."""
+        return True
+
     def calculate_utility_from_predictions(self, ctx, caster_tile, target, ability_id,
                                            events) -> tuple:
         """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions`
@@ -222,9 +243,11 @@ class ComparablePlaybook(BasePlaybook):
 
     def calculate_action_utility(self, ctx, caster_tile, target, ability_id) -> dict | None:
         """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` pour (caster@caster_tile, target) : Σ des events (dégât)
-        + Σ effet + `key-0x36(UtilityAttackCase)` + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction
-        d'attaque -> None (pas d'action). Renvoie `{u, u_full, wwn, pred, aoe, bk}` (u = dégât+effet ;
-        u_full = u + key-0x36 + tile ; pred = event principal).
+        + Σ effet + `key-0x36(UtilityAttackCase)` + Tile(7)@tuile. Renvoie `{u, u_full, wwn, pred, aoe,
+        bk}` (u = dégât+effet ; u_full = u + key-0x36 + tile ; pred = event principal), ou `None` —
+        le `Nullable` VIDE natif, c.-à-d. AUCUNE action pour ce (tuile, cible). DEUX portes le
+        rendent : la garde de PORT `not events` (le natif, lui, sommerait 0 — cf. `nonattack.py`) et
+        le **gate `ShouldExecute`** (slot de vtable +0x328), porté ici à son RANG natif.
 
         `key-0x36` = `UtilityType.WireweaveNet_FirstAttack` (**55** sur ce build ; 54 sur `gqfc5mff6c`,
         d'où l'écriture `key-0x36` des docs). Terme PAR (tuile, cible), au même rang que `Tile(7)` — il ne
@@ -237,6 +260,17 @@ class ComparablePlaybook(BasePlaybook):
         if not events:
             return None
         u, bk = self.calculate_utility_from_predictions(ctx, caster_tile, target, ability_id, events)
+        # GATE `ShouldExecute` (slot de vtable +0x328), au RANG NATIF : `CalculateActionUtility` fait
+        # `u = CalculateCustomUtility` PUIS `u += CalculateUtilityFromPredictions` et passe CETTE
+        # somme à `ShouldExecute` — donc AVANT les trois termes positionnels ci-dessous. Le custom
+        # n'est pas sommé ici (il l'est par `ComparableAbilityGenerator._action_utility`, où il forme
+        # `u_action`) : on le RELIT pour l'argument du gate, ce qui est sans effet de bord — tous les
+        # `calculate_custom_utility` du port sont purs. `False` ⇒ `Nullable` vide ⇒ aucune action.
+        custom = self.calculate_custom_utility(ctx, caster_tile, target, ability_id)
+        if custom is NO_ACTION:
+            return None                      # deux des trois sentinelles `BaseUtility` (cf. NO_ACTION)
+        if not self.should_execute(ctx, caster_tile, target, ability_id, custom + u):
+            return None
         main = events[0]
         wwn = wireweave_net_first_attack_utility(ctx, caster_tile, target)
         return {"u": u, "u_full": u + wwn + tile_utility(ctx, caster_tile), "wwn": wwn,

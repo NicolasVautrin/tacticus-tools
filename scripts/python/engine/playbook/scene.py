@@ -772,6 +772,42 @@ def _seed_measured_actives(ctx_by_id, ability_states) -> int:
     return seeded
 
 
+def _seed_measured_triggered(ctx_by_id, ability_states) -> int:
+    """Seede `UnitContext.triggered_abilities` des tables de PREDICTION depuis le RPC
+    `unitAbilityStates` (#419-r1-tr14-r5-r2-r1-r1) — le PENDANT EXACT, sur ce seam-ci, de
+    `snapshot._load_triggered_abilities` (#456-r1) cote COMBAT. Rend le nombre d'unites seedees.
+
+    POURQUOI ICI, et pourquoi c'etait un TROU. `scene_tile_leaf_ctx` lit deja ce champ par le foyer
+    `entities.triggered_ability_type.entity_triggered_ability_ids` — mais il n'etait seede QUE par
+    la face COMBAT (`Scene.from_state`). Sur le chemin LIVE de la decision
+    (`Scene.from_predictor_sctx` / `build_predictor`) il restait `None`, donc le foyer retombait
+    silencieusement sur le KIT gameconfig par `visualId`, c'est-a-dire exactement la reconstruction
+    que #456-r1 a mesuree FAUSSE DANS LES DEUX SENS cote combat (`tauDarkstrider` natif
+    `[1143, 1051, 1044]` contre kit `[1143]` ; `tauCrisis` greffe natif `[1120, 1030]` contre kit
+    `[1133]`). Le gate `ShouldExecute` de l'attaque normale lit ce meme substrat sur la CIBLE
+    (`IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(target, 0x48)`) : sans ce seed, un
+    passif GREFFE sur la cible est monte LIVE et INVISIBLE cote port.
+
+    RANG : identique aux deux seeds voisins — le `TriggeredAbilityComponent` de CONFIGURATION est
+    fige au spawn (la fabrique ne tourne qu'une fois par entite), donc le COLD suffit et
+    `refresh_shields` ne le re-seede que pour les ARRIVANTS.
+
+    COUT : NUL. Le payload est celui que `_seed_measured_passives` vient de consommer, aucun RPC
+    supplementaire n'est emis.
+
+    TRI-ETAT : canal muet -> rien n'est pose, `triggered_abilities` reste `None` et les foyers
+    retombent sur le kit, STRICTEMENT comme avant."""
+    from ..runner.snapshot import triggered_ability_ids_by_unit   # lazy : playbook <- runner
+    seeded = 0
+    for uid, ids in triggered_ability_ids_by_unit(ability_states).items():
+        c = ctx_by_id.get(uid)
+        if c is None:
+            continue
+        c.triggered_abilities = ids
+        seeded += 1
+    return seeded
+
+
 def _seed_measured_traits(ctx_by_id, snap) -> int:
     """Seede `UnitContext.traits` des tables de PRÉDICTION depuis `combatSnapshot.units[].traits`
     (#267) — le PENDANT EXACT, sur ce seam-ci, de `snapshot._load_unit_traits` (#264) côté COMBAT.
@@ -856,6 +892,12 @@ def build_predictor(rpc, rid):
     # #419-r1-tr14-r5-r2 : la SECONDE voie de la meme cascade (`UnitConfiguration.ActiveAbilities`),
     # sur le MEME payload -- aucun RPC de plus.
     _seed_measured_actives(ctx_by_id, _abst)
+    # #419-r1-tr14-r5-r2-r1-r1 : le `TriggeredAbilityComponent` ENTIER, sur le MEME payload encore.
+    # C'est ce que lit `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility`, donc le substrat du
+    # gate `ShouldExecute` de l'attaque normale (sur la CIBLE) et du dispatcher d'utilite
+    # `TriggeredAbilitiesUtility(2)` -- que `scene_tile_leaf_ctx` interrogeait deja sans que rien ne
+    # le seede sur ce chemin.
+    _seed_measured_triggered(ctx_by_id, _abst)
     # TotalAttacksMade PER-UNITE (#106) — capteur actorStats (ActorStatisticsComponent +0x20). Capture
     # au BUILD (point-in-time = count au pas 0). DYNAMIQUE (incremente a chaque attaque) -> RE-CAPTUREE
     # PAR-PAS par `refresh_shields` (#33 : sans ce refresh, une prediction mid-bataille indexee par ce
@@ -1135,6 +1177,10 @@ def refresh_shields(predictor, rpc, rid):
         _seed_measured_passives(predictor["ctx_by_id"], _abst)
         # #419-r1-tr14-r5-r2 : les ACTIVES des ARRIVANTS, meme rang et meme payload que les passifs.
         _seed_measured_actives(predictor["ctx_by_id"], _abst)
+        # #419-r1-tr14-r5-r2-r1-r1 : le `TriggeredAbilityComponent` des ARRIVANTS, meme rang et meme
+        # payload. Sans lui, le gate `ShouldExecute` de l'attaque normale lirait le KIT pour tout
+        # summon apparu en cours de bataille.
+        _seed_measured_triggered(predictor["ctx_by_id"], _abst)
     # #267 : re-seed des TRAITS mesurés, APRÈS l'hydratation des arrivants (sinon un summon frais
     # garderait la reconstruction du kit). Les traits sont DYNAMIQUES : `AddTraitOperation$$Execute`
     # écrit `BaseUnitComponent+0x40`/`+0x48` en cours de bataille (ex. `Stationary` posé à

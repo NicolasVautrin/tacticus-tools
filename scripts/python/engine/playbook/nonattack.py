@@ -100,11 +100,9 @@ class NonAttackComparablePlaybook(ComparablePlaybook):
         de base rend une liste VIDE quand le profil est absent)."""
         return []
 
-    def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
-        """`ComparablePlaybook<T>.ShouldExecute` — slot de vtable **+0x328**. Corps par DEFAUT =
-        `return true` (corps trivial dedupliqué, cf. l'en-tete du module). Un playbook qui override
-        (`...HealingBalms_HealPlaybook$$ShouldExecute` = `utility > 0`) redefinit cette methode."""
-        return True
+    # `should_execute` (slot de vtable +0x328) vit desormais sur `ComparablePlaybook` (base.py) : les
+    # DEUX routes Comparable le consultent, et un corps duplique ici en serait un fork. Le defaut
+    # reste `return true` -- la MEME mesure de vtable, cf. l'en-tete du module.
 
     def should_evaluate(self, ctx, caster_tile, ability_id) -> bool:
         """`IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate(unit, position, possiblePositions)` —
