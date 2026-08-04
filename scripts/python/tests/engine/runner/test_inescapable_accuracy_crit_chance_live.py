@@ -148,7 +148,11 @@ def test_gates_are_tristate_offline():
     assert e.create_effect_crit_chance_bonus_for_attack(None) is None            # ctx absent
     assert e.create_effect_crit_chance_bonus_for_attack({"is_ranged": None}) is None
     assert e.create_effect_crit_chance_bonus_for_attack({"is_ranged": False}) is None  # melee
-    ok = {"is_ranged": True, "has_moved": False}
+    # #589-r1-r1 : `get_OwnerIsCaster` a MIGRE du canal vers la classe (le balayage crit est
+    # desormais BOARD-WIDE, `board_effect_carriers`). L'identite du porteur fait donc partie du
+    # contexte du canal, et un `att_ctx` sans elle ferme le PREMIER noeud -- ce n'est pas un
+    # assouplissement du test, c'est le noeud lu a sa nouvelle place native.
+    ok = {"is_ranged": True, "has_moved": False, "owner_id": 1, "att_id": 1}
     assert (e.create_effect_crit_chance_bonus_for_attack(ok) or 0) == 15, \
         "extraCritChance[50] = 15 (gameconfig `InescapableAccuracy`), hors rarity-bonus"
     assert e.create_effect_crit_chance_bonus_for_attack({**ok, "has_moved": True}) is None, \

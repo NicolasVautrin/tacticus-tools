@@ -68,13 +68,27 @@ def _crit_face(mode: str):
         def patched(self, att_ctx=None):
             return None
     else:
+        # ⚠ #589-r1-r1 : le mutant force `is_charging` et PRESERVE le reste du contexte. Fabriquer
+        # un dict MINIMAL (`{"is_charging": True}`) le rendrait inoperant depuis que
+        # `get_OwnerIsCaster` a MIGRE du canal vers la classe (le balayage crit est desormais
+        # BOARD-WIDE) : sans `owner_id`/`att_id`, le premier noeud ferme et la mutation ne mord
+        # plus. Le test l'a correctement signale -- une contre-epreuve dont VERT est le resultat
+        # suspect.
         def patched(self, att_ctx=None):
-            return orig(self, {"is_charging": True})
+            return orig(self, {**(att_ctx or {}), "is_charging": True})
     cls.create_effect_crit_damage_bonus_for_attack = patched
     try:
         yield
     finally:
         cls.create_effect_crit_damage_bonus_for_attack = orig
+
+
+# #589-r1-r1 : `get_OwnerIsCaster` a MIGRE du canal vers la classe (le balayage crit est desormais
+# BOARD-WIDE, `board_effect_carriers`). L'identite du porteur fait donc partie du contexte du canal :
+# un `att_ctx` sans elle ferme le PREMIER noeud. Ce n'est pas un assouplissement des tests, c'est le
+# noeud lu a sa nouvelle place native -- et c'est le mutant `always` qui l'a signale le premier, en
+# cessant de mordre.
+_OK_CTX = {"is_charging": True, "owner_id": 1, "att_id": 1}
 
 
 @contextmanager
@@ -153,8 +167,8 @@ def test_registry_carries_the_crit_face():
                                         ability_level=50)
     assert e.create_effect_crit_damage_bonus_for_attack(None) is None, \
         "contexte ABSENT -> aucune contribution (le natif commence par AreEntitiesAdjacent)"
-    assert e.create_effect_crit_damage_bonus_for_attack({"is_charging": False}) is None
-    got = e.create_effect_crit_damage_bonus_for_attack({"is_charging": True})
+    assert e.create_effect_crit_damage_bonus_for_attack({**_OK_CTX, "is_charging": False}) is None
+    got = e.create_effect_crit_damage_bonus_for_attack(_OK_CTX)
     assert isinstance(got, int) and got > 0, \
         "charge PROUVEE -> +extraCritDmg[level] ; obtenu %r" % (got,)
 
@@ -167,8 +181,8 @@ def test_crit_magnitude_is_rarity_scaled():
                                            ability_level=50)
     scaled = SagaOfTheWarriorBornOwnerEffect(name=_EFFECT_NAME, effect_type=1223, level=1,
                                              ability_level=50, ability_variables_multiplier=180)
-    b = base.create_effect_crit_damage_bonus_for_attack({"is_charging": True})
-    s = scaled.create_effect_crit_damage_bonus_for_attack({"is_charging": True})
+    b = base.create_effect_crit_damage_bonus_for_attack(_OK_CTX)
+    s = scaled.create_effect_crit_damage_bonus_for_attack(_OK_CTX)
     assert s > b, "extraCritDmg doit etre scalee par le multiplier (mult 180 -> %r vs %r)" % (s, b)
     # La face COUPS, elle, NE l'est PAS (extraHits hors `variablesAffectedByRarityBonus`).
     hb = base.create_effect_hits_bonus_for_attack(True, {"is_charging": True})

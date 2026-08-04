@@ -140,7 +140,12 @@ def test_gates_are_tristate_offline():
     assert got is not None and got.kind == "Addition" and got.value > 0, \
         "melee + normale PROUVEES -> ForAddition(extraDmg) ; obtenu %r" % (got,)
     # -- face CHANCE DE CRIT
-    ok = {"is_ranged": False, "is_normal_attack": True, "caster_crit_chance": 40}
+    # #589-r1-r1 : `get_OwnerIsCaster` (le QUATRIEME noeud) a MIGRE du canal vers la classe (le
+    # balayage crit est desormais BOARD-WIDE, `board_effect_carriers`). L'identite du porteur fait
+    # donc partie du contexte, et un `att_ctx` sans elle ferme ce noeud -- ce n'est pas un
+    # assouplissement du test, c'est le noeud lu a sa nouvelle place native.
+    ok = {"is_ranged": False, "is_normal_attack": True, "caster_crit_chance": 40,
+          "owner_id": 1, "att_id": 1}
     assert e.create_effect_crit_chance_bonus_for_attack(None) is None           # ctx absent
     assert e.create_effect_crit_chance_bonus_for_attack({**ok, "is_ranged": True}) is None
     assert e.create_effect_crit_chance_bonus_for_attack({**ok, "is_normal_attack": False}) is None
