@@ -50,11 +50,33 @@ CAPTURE = ROOT / "logs" / "probe_437r1_capture.json"
 # --------------------------------------------------------------------------- capture live
 
 
-def capture(seed=P.SEED, board=P.BOARD, overwatchers=None, out=CAPTURE) -> dict:
+def _build_dmg(seed, board, ows, dmg_target, rank=17):
+    """`P._build` + `--dmg-target` : DEPLACE la base d'attaque de l'overwatcher, donc la partie
+    fractionnaire a chaque etage. C'est le levier qui fabrique les cas DISCRIMINANTS (sans lui, la
+    base 4518 fait coincider deux modeles sur trois)."""
+    import uuid as _uuid
+    import subprocess as _sp
+    sf = ROOT / "logs" / "runners" / ("p437r1c-%s.json" % _uuid.uuid4().hex[:8])
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
+           "--board", board, "--rank", str(rank),
+           "--p-units", "%s,%s" % (P.CARRIER, P.SPECTATOR), "--a-units", ",".join(ows),
+           "--hp-player", "400000", "--crit", "0,0", "--crit-target", "0,0",
+           "--block-target", "0,0", "--block-player", "0,0", "--no-ai"]
+    if dmg_target is not None:
+        cmd += ["--dmg-target", str(dmg_target)]
+    proc = _sp.run(cmd, cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
+                   errors="replace")
+    if not sf.exists():
+        return None, None, (proc.stderr or proc.stdout or "")[-800:]
+    return int(json.loads(sf.read_text())["runnerId"]), sf, None
+
+
+def capture(seed=P.SEED, board=P.BOARD, overwatchers=None, out=CAPTURE, dmg_target=None) -> dict:
     from engine.entities.pathfinding.board import Board
 
     ows = list(overwatchers or [P.OVERWATCHER])
-    rid, sf, err = P._build(seed, board, overwatchers=ows)
+    rid, sf, err = _build_dmg(seed, board, ows, dmg_target)
     if rid is None:
         return {"error": "build KO : %s" % err}
     rpc = _mkrpc()
@@ -220,6 +242,30 @@ def replay(blob: dict, mutate=False) -> dict:
     _nm.apply_trench_reduction = _spy_trench
     _nm.defender_modifiers = _spy_defmods
 
+    # L'ALEA BRUT du tirage de degat. `IntBasedMersenneTwister$$NextInternal` rend
+    # `lo + ((genrand >> 1) % (hi - lo))` : connaissant `r = genrand >> 1`, les bornes NATIVES
+    # s'INVERSENT sans rien inferer (meme methode que `solve_bounds` de #462-r4d) -- une valeur
+    # tiree seule ne separe pas deux modeles, un `r` connu le fait.
+    draws = []
+    raws = []
+    _g_ni = type(rng).next_internal
+    _g_gr = type(rng).genrand_int32
+
+    def _spy_gr(self):
+        g = _g_gr(self)
+        raws.append(int(g))
+        return g
+
+    def _spy_ni(self, lo, hi):
+        n0 = len(raws)
+        out = _g_ni(self, lo, hi)
+        draws.append({"lo": int(lo), "hi": int(hi), "out": int(out),
+                      "raws": [x >> 1 for x in raws[n0:]]})
+        return out
+
+    type(rng).genrand_int32 = _spy_gr
+    type(rng).next_internal = _spy_ni
+
     stages = []
     orig = AttackDamageOperation._run_hits
 
@@ -253,6 +299,7 @@ def replay(blob: dict, mutate=False) -> dict:
             MoveUnitMessage(mover_id, (int(blob["move_to"][0]), int(blob["move_to"][1]))))
     finally:
         AttackDamageOperation._run_hits = staticmethod(orig)
+        type(rng).next_internal, type(rng).genrand_int32 = _g_ni, _g_gr
         _nm.get_base_damage_fix64, _nm.apply_pierce_and_modifiers, _nm.apply_all_modifiers = (
             _g_base, _g_pierce, _g_all)
         _nm.attacker_modifiers, _nm.apply_elevation_bonus = _g_attmods, _g_elev
@@ -261,7 +308,7 @@ def replay(blob: dict, mutate=False) -> dict:
             from engine.runner.operations.triggers import dispatch as _disp2
             _disp2.finish_attack_triggers = saved_disp
     return {"hp_before": hp_before, "hp_after": int(hc.hp), "hp_delta": hp_before - int(hc.hp),
-            "stages": stages, "sub": sub}
+            "stages": stages, "sub": sub, "draws": draws}
 
 
 def _report(blob, out):
@@ -282,12 +329,49 @@ def _report(blob, out):
               % (s["limits"], s["limits_hp"], s["prevent_overkill"], s["capped_reductions"]))
     for kind, d in (out.get("sub") or []):
         print("[437r1] sous-etage %-8s %s" % (kind, json.dumps(d)[:600]))
+    for d in (out.get("draws") or []):
+        print("[437r1] tirage lo=%d hi=%d out=%d r=%s" % (d["lo"], d["hi"], d["out"], d["raws"]))
+    _solve(blob, out)
+
+
+def _solve(blob, out):
+    """INVERSION des bornes NATIVES : a `r` connu, `natif = lo + (r % width)`. On enumere les
+    (lo, hi) plausibles autour des bornes du port et on garde ceux qui rendent EXACTEMENT le degat
+    natif. Aucune inference : c'est une equation, pas une soustraction."""
+    nat = int(blob["native"]["hp_delta"])
+    ds = [d for d in (out.get("draws") or []) if d["hi"] - d["lo"] > 100]
+    if not ds or not ds[0]["raws"]:
+        print("[437r1] pas de tirage exploitable pour inverser les bornes")
+        return
+    r = ds[0]["raws"][-1]
+    lo0, hi0 = ds[0]["lo"], ds[0]["hi"] - 1
+    sols = [(lo, hi) for lo in range(lo0 - 4, lo0 + 5) for hi in range(hi0 - 4, hi0 + 5)
+            if hi > lo and lo + (r % (hi - lo + 1)) == nat]
+    print("[437r1] INVERSION : natif=%d r=%d ; port=(%d,%d) ; bornes natives possibles = %s"
+          % (nat, r, lo0, hi0, sols))
 
 
 # --------------------------------------------------------------------------- oracle BORNES
 
 
-def bounds(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17) -> dict:
+def _pick_tile_at_distance(board, dv, mover_id, ref_id, reach, want):
+    """Tuile LIBRE atteignable en <= `reach` pas, dont la distance BFS a `ref_id` est la plus
+    proche de `want` PAR LE HAUT (on ne descend jamais sous `want`)."""
+    mv, rf = P._unit(dv, mover_id), P._unit(dv, ref_id)
+    src = board.id_at(int(mv["pos"]["col"]), int(mv["pos"]["row"]))
+    rft = board.id_at(int(rf["pos"]["col"]), int(rf["pos"]["row"]))
+    occupied = {board.id_at(int(u["pos"]["col"]), int(u["pos"]["row"]))
+                for u in (dv.get("units") or []) if u.get("pos") and u.get("alive")}
+    d_src, d_ref = P._bfs(board, src), P._bfs(board, rft)
+    cands = [t for t, d in d_src.items()
+             if 0 < d <= int(reach) and t not in occupied and board.walkable(t)
+             and d_ref.get(t, 10 ** 6) >= want]
+    if not cands:
+        return None
+    return min(cands, key=lambda t: (d_ref.get(t, 10 ** 6), d_src[t]))
+
+
+def bounds(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want_dist=3) -> dict:
     """ORACLE DES BORNES, sans passer par le tirage. C'est L'INVERSE du montage #437 : ici c'est
     l'OVERWATCHER qui MARCHE vers le porteur -- donc aucun tir ne part, l'armure Terminator reste
     ARMEE, et la prediction native (`aiPredict` = `GetAllPredictions` -> `PredictAttack` ->
@@ -330,11 +414,16 @@ def bounds(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17) -> dict:
             src = brd.id_at(int(ow_u["pos"]["col"]), int(ow_u["pos"]["row"]))
             dst = brd.id_at(int(mv_u["pos"]["col"]), int(mv_u["pos"]["row"]))
             d = P._bfs(brd, src).get(dst)
-            if d is not None and d <= 3:
+            if d is not None and d == want_dist:
                 break
             # tour de l'overwatcher ? on tente son move ; sinon on clot le tour courant.
+            # ⚠ On vise la distance `want_dist` EXACTEMENT, pas « le plus pres possible » : a
+            # distance 1 le natif selectionne l'arme de MELEE et `HeavyWeapon_ExtraDmg` (bonus
+            # RANGED) ne mord plus -- le regime a deux faces disparait sans erreur (mesure : bornes
+            # [904, 1356], face attaquant neutre, natif ET port d'accord pour rien).
             reach = P._mover_reach(dv, ids[P.OVERWATCHER])
-            to_tile, _d = P._pick_move_tile(brd, dv, ids[P.OVERWATCHER], ids[P.CARRIER], reach)
+            to_tile = _pick_tile_at_distance(brd, dv, ids[P.OVERWATCHER], ids[P.CARRIER],
+                                             reach, want_dist)
             moved = False
             if to_tile is not None:
                 col, row = brd.coord(to_tile)
@@ -352,7 +441,26 @@ def bounds(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17) -> dict:
                     rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
         else:
             return {"error": "l'overwatcher n'a pas atteint la portee en 24 tours"}
+        # REPOS : `HeavyWeapon_ExtraDmg` (+25%, la face ATTAQUANT du regime a deux faces) est
+        # RETIRE des que le porteur a bouge, et re-pose au debut de son tour suivant. On cede donc
+        # la main jusqu'a le revoir : sans lui, la face attaquant est neutre et le regime
+        # discriminant n'existe pas (c'est ce que rendait la 1re version, bornes [904, 1356]).
+        for _r in range(6):
+            dv = P._view(rpc, rid, inactive=True)
+            effs = [e.get("name") for e in ((P._unit(dv, ids[P.OVERWATCHER]) or {}).get("effects")
+                                            or [])]
+            if "HeavyWeapon_ExtraDmg" in effs:
+                break
+            cur = dv.get("currentPlayer")
+            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+            if P._view(rpc, rid).get("currentPlayer") == cur:
+                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
         dv = P._view(rpc, rid, inactive=True)
+        ow_effs = [e.get("name") for e in ((P._unit(dv, ids[P.OVERWATCHER]) or {}).get("effects")
+                                           or [])]
+        if "HeavyWeapon_ExtraDmg" not in ow_effs:
+            return {"error": "face ATTAQUANT neutre (HeavyWeapon_ExtraDmg absent : %s) -- le "
+                             "regime a DEUX faces n'est pas realise" % ow_effs}
         pres, act = P._armour_state(dv, ids[P.CARRIER])
         if not (pres and act is True):
             return {"error": "armure Terminator non ARMEE au moment de la lecture (present=%s "
@@ -445,7 +553,7 @@ def main() -> int:
         return 0
     if a.capture:
         ows = [x.strip() for x in a.overwatchers.split(",") if x.strip()]
-        blob = capture(overwatchers=ows, out=cf)
+        blob = capture(overwatchers=ows, out=cf, dmg_target=a.dmg_target)
         if "error" in blob:
             print("[437r1] ERREUR capture : %s" % blob["error"])
             return 2
