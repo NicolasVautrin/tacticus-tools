@@ -200,10 +200,18 @@ def _board_fog_map(board) -> dict:
 
     FONCTION SEPAREE, et non un 6e element de `_board_topology_maps` : ce tuple positionnel est
     deballe par deux appelants, et l'allonger casserait celui qui n'en a pas besoin.
-    Board absent -> `{}` (canal muet -> volet inerte)."""
+
+    TRI-ETAT STRICT, et c'est ce qui la distingue de ses voisines : un board dont AUCUNE tuile ne
+    PORTE la cle rend `{}` (canal muet), jamais un dict de `False` -- ce dernier se lirait
+    << mesure : aucune tuile en fog >>, alors que c'est << non mesure >>. L'erreur serait du bon
+    cote (permissif), mais elle MENTIRAIT, et c'est ce qui la rend inacceptable.
+    Board absent -> `{}` aussi."""
     if board is None:
         return {}
-    return {(t["col"], t["row"]): bool(t.get("isInFog")) for t in board.by_id.values()}
+    tiles = list(board.by_id.values())
+    if not any("isInFog" in t for t in tiles):
+        return {}
+    return {(t["col"], t["row"]): bool(t.get("isInFog")) for t in tiles}
 
 
 def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -> list:

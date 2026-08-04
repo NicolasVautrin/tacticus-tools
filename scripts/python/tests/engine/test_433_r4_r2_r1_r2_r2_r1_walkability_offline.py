@@ -114,6 +114,33 @@ def test_an_ability_term_is_gated_too_and_1116_is_exempt():
     assert AR._unwalkable(o1116.rules, (1, 0), walk, None) is False
 
 
+def test_the_ability_term_wiring_is_guarded_beyond_its_foyer():
+    """Le test ci-dessus interroge le FOYER ; celui-ci garde son CABLAGE dans le terme PAR ABILITY
+    -- deux choses independantes, et c'est une contre-epreuve de MUTATION qui l'a montre (couper
+    l'appel dans `_ability_covers_tile` laissait le fichier VERT).
+
+    La tuile est a `d = 3` : hors de la portee de l'arme de MELEE du porteur, donc le terme de
+    l'attaque NORMALE ne peut pas la couvrir. Seule `1161 TwinSmartMissileSystem` (`UseWholeBoard`)
+    l'atteint -- et son masque ne porte PAS le bit 43."""
+    far = (3, 0)
+    assert AR.is_tile_in_range_of_any_ability((0, 0), far, MELEE, ability_ids=[1161]) is True
+    assert AR.is_tile_in_range_of_any_ability(
+        (0, 0), far, MELEE, ability_ids=[1161], walkable_by_pos={far: False}) is False
+    assert AR.is_tile_in_range_of_any_ability(
+        (0, 0), far, MELEE, ability_ids=[1161],
+        walkable_by_pos={far: True}, is_in_fog_by_pos={far: True}) is False
+    # `1116 RadBombardment` porte le bit 43 : sa zone GARDE la tuile non marchable -- le
+    # discriminant du foyer, exerce ici a travers tout le cablage. Sa portee est
+    # `TargetingRange.CustomRange(1)`, donc la tuile temoin est a `d = 1` : le terme de l'attaque
+    # NORMALE l'atteint aussi, mais il la REFUSE (masque 0x4002), et c'est bien le terme d'ability
+    # qui fait basculer l'union.
+    near = (1, 0)
+    assert AR.is_tile_in_range_of_any_ability(
+        (0, 0), near, MELEE, ability_ids=[], walkable_by_pos={near: False}) is False
+    assert AR.is_tile_in_range_of_any_ability(
+        (0, 0), near, MELEE, ability_ids=[1116], walkable_by_pos={near: False}) is True
+
+
 def test_the_stage_is_upstream_of_line_of_sight():
     """L'ORDRE, rendu OBSERVABLE : une tuile non marchable est retiree meme quand AUCUN canal de
     ligne de vue n'est fourni (`elev_by_pos` absent -> `board is None` -> `target_is_obscured` rend
@@ -144,10 +171,20 @@ def test_the_generator_forwards_both_maps_to_the_playbook():
 
 
 def test_the_offline_bridge_exposes_the_fog_map():
-    """Le bridge OFFLINE publie la meme carte que le contexte LIVE. `None` -> `{}` (pas de board =
-    canal muet), jamais un dict de `False` qui se lirait comme << mesure : aucune tuile en fog >>."""
+    """Le bridge OFFLINE publie la meme carte que le contexte LIVE, en TRI-ETAT STRICT : un board
+    dont aucune tuile ne PORTE la cle rend `{}` (canal muet), jamais un dict de `False` qui se
+    lirait << mesure : aucune tuile en fog >>. L'erreur serait du bon cote, mais elle mentirait."""
     from engine.ai.state_bridge import _board_fog_map
+
+    class _B:
+        def __init__(self, tiles):
+            self.by_id = {i: t for i, t in enumerate(tiles)}
+
     assert _board_fog_map(None) == {}
+    assert _board_fog_map(_B([{"col": 0, "row": 0}, {"col": 1, "row": 0}])) == {}
+    got = _board_fog_map(_B([{"col": 0, "row": 0, "isInFog": True},
+                             {"col": 1, "row": 0, "isInFog": False}]))
+    assert got == {(0, 0): True, (1, 0): False}
 
 
 def test_the_consumer_passes_the_maps_down():

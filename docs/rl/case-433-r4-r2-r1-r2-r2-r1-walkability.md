@@ -114,10 +114,15 @@ sont tous des `C6_*`, où l'équipe 2 n'est **pas déployée** (mesuré : 0 unit
 
 ## 6. Validation
 
-* **OFFLINE** — `tests/engine/test_433_r4_r2_r1_r2_r2_r1_walkability_offline.py` : **14 passed**
+* **OFFLINE** — `tests/engine/test_433_r4_r2_r1_r2_r2_r1_walkability_offline.py` : **15 passed**
   (table de vérité du foyer, bit 43 confronté à l'enum du registre, les deux volets, tri-état,
   câblage attaque normale + par ability, `1116` exempte, l'étage mord sans canal de ligne de vue,
   les quatre seams du canal `isInFog`).
+* **CONTRE-ÉPREUVE DE MUTATION** — 5 mutations du port, **5 rouges**. Elle a servi à quelque chose :
+  la 5ᵉ (couper l'appel dans le terme **par ability**) laissait d'abord le fichier **VERT**, parce
+  que le garde interrogeait le FOYER et non son CÂBLAGE — deux choses indépendantes. D'où
+  `test_the_ability_term_wiring_is_guarded_beyond_its_foyer`, qui exerce le chemin complet sur une
+  tuile à `d = 3` (hors portée de l'arme, donc le terme normal ne peut pas la couvrir).
 * **LIVE** — `tests/engine/test_433_r4_r2_r1_r2_r2_r1_walkability_live.py` : **8 passed**
   (deux régimes, garde anti-dégénérescence sur chacun, contre-épreuve 1 volet, ventilation).
 * **NON-RÉGRESSION** — offline : **135 passed** sur les 7 fichiers de la lignée `#433-r4-r2` ;
