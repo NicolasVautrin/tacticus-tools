@@ -116,13 +116,28 @@ donc **conservé en valeur** et sa justification **remplacée par la loi mesuré
   port y ferait **deux** `Round` (`apply_pct_entries` puis `calculate_base_damage_with_modifiers`),
   le natif **un seul** (même `Multiplier@0x30`). **NON CONFRONTÉ** : aucun montage du corpus ne
   réunit les deux sur la même face.
-* **`#437-r1-r1-r3`** — la voie `aiPredict` ne peut pas porter le régime deux faces de #437-r1.
-  Mesuré : attaquant IMMOBILE (jamais déplacé), `HeavyWeapon_ExtraDmg` présent, armure Terminator
-  armée — la prédiction native rend **904 / 1356** = `Round(P x 0.25)`, face attaquant **absente**,
-  alors que le combat rend 1130 / 1695 sur les mêmes entrées d'étage (base 3614/5422, perçage 30,
-  armure 0). Pourquoi le `x1.25` n'entre pas dans la prédiction native n'est **pas instruit ici**.
+* ~~**`#437-r1-r1-r3`** — la voie `aiPredict` ne peut pas porter le régime deux faces de
+  #437-r1.~~ **FERMÉ le 2026-08-04, et le constat était FAUX** : la voie `aiPredict` porte le
+  régime deux faces et rend **exactement** `1130 / 1695`, `1132 / 1697`, `1135 / 1702` sur les
+  trois bases — dont la cellule DISCRIMINANTE 4538. Le `904 / 1356` venait du montage : il lisait
+  la prédiction **HORS PORTÉE**, où
+  `IdunBattle.Core.Services.DamagePredictionQuery$$GetPredictionForTargetsUnreachableFromSelectionTile`
+  prédit à une tuile du movable set, ce qui pose `SetMovedFlag` et ferme le gate `!HasFlag(Moved)`.
+  Détail, contre-épreuve et généralisation : **`docs/rl/case-437-r1-r1-r3-face-attaquant-prediction.md`**.
 
-## 5. Le piège de montage, mesuré (à ne pas re-payer)
+## 5. Le piège de montage — CONFIRMÉ par mesure directe, et il a un JUMEAU
+
+> **Mise à jour #437-r1-r1-r3 (2026-08-04)** : le fait énoncé ci-dessous est désormais **mesuré
+> directement** — après un pas de l'attaquant qui CONSERVE la distance, `HeavyWeapon_ExtraDmg` est
+> toujours dans la liste d'effets, la cible toujours en portée, l'armure toujours armée, et la
+> prédiction passe de `(1130, 1695)` à `(904, 1356)`.
+> **Mais le mode `--predict-2faces` livré ici tombait dans un SECOND piège, de même cause** : il
+> acceptait la première prédiction non nulle, ce qui arrive AUSSI hors portée — et hors portée le
+> natif prédit à une tuile du movable set, où `SimulateEffectsOperation$$DoActionInSimulatedTile`
+> pose le MÊME `SetMovedFlag`. Il est réparé (garde `abilityTargets(...).fromHere`) et rend
+> maintenant `1130 / 1695`.
+
+
 
 `probe_437r1_overwatch_offbyone.py --bounds` **ne peut pas** porter la face ATTAQUANT : il fait
 MARCHER l'overwatcher pour l'amener à portée, ce qui arme le flag `Moved`. Or

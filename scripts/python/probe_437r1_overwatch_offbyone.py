@@ -536,18 +536,33 @@ def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want
     `ApplyCappedModifiers`, la PREDICTION une chaine unique) predit ici (1129, 1694) ; toute
     lecture non-vectorielle predit les MEMES bornes que le combat, (1130, 1695).
 
-    ⚠ Pourquoi `--bounds` ne peut PAS servir a ca (piege MESURE le 2026-08-04) : il fait
-    MARCHER l'overwatcher pour l'amener a portee, ce qui arme le flag `Moved`. Or
-    `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` porte
-    le gate `!HasFlag(Moved)` -- l'EFFET reste pose (la garde `HeavyWeapon_ExtraDmg in effects`
-    passe) mais son bonus ne mord plus. Mesure : bornes natives ET port = (904, 1356), c.-a-d.
-    `Round(P x 0.25)` -- face attaquant NEUTRE, regime a UNE face. La garde par presence de
-    l'effet est donc INSUFFISANTE ; celle qui vaut est la valeur du bonus construit.
+    ⚠ DEUX pieges MESURES le 2026-08-04, qui rendent tous deux `(904, 1356)` = `Round(P x 0.25)`
+    (face attaquant NEUTRE) et n'ont qu'UNE SEULE cause commune, `UnitExtensions$$SetMovedFlag` :
 
-    Le montage ici ne fait donc JAMAIS bouger l'attaquant. C'est le SPECTATEUR qui purge le tir
-    d'overwatch (il encaisse a la place du porteur, dont l'armure Terminator reste ARMEE), puis
-    le PORTEUR avance d'un cran. Repete jusqu'a ce que la prediction native devienne lisible
-    (`pred` non nul = la cible est dans le dictionnaire de `GetAllPredictions`).
+      A. l'ATTAQUANT A MARCHE (c'est ce que fait `--bounds` pour l'amener a portee) -> flag
+         `Moved` REEL -> le gate `!HasFlag(Moved)` de
+         `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier`
+         tombe. **L'EFFET RESTE POSE** -- mesure directe #437-r1-r1-r3 : apres un pas qui
+         CONSERVE la distance, `HeavyWeapon_ExtraDmg` est toujours dans la liste d'effets,
+         `inRange` est toujours vrai, l'armure toujours armee, et la prediction passe de
+         (1130, 1695) a (904, 1356).
+      B. la LECTURE EST HORS PORTEE. `DamagePredictionQuery$$GetAllPredictions` ne predit a la
+         tuile de selection que les cibles valides DEPUIS elle
+         (`GetPredictionForTargetsReachableFromSelectionTile`, qui les RETIRE ensuite) ; les
+         autres passent par `GetPredictionForTargetsUnreachableFromSelectionTile`, qui boucle
+         sur le MOVABLE SET et predit a une AUTRE tuile -- et
+         `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` y pose
+         `SetMovedFlag` (cf. `playbook.prediction._shared.prediction_has_moved`, #266).
+
+    ⇒ La garde par PRESENCE de l'effet ne vaut RIEN. Les deux gardes qui valent sont :
+    l'attaquant n'a JAMAIS bouge (garanti par construction ici), ET la cible est castable SANS
+    bouger (`abilityTargets(...).fromHere`, verifie dans la boucle). Sans la seconde, la version
+    d'avant s'arretait a la 1re prediction non nulle -- d=5, hors portee -- et rendait (904, 1356)
+    la ou l'etat en portee (d=3) rend (1130, 1695), MEME attaquant, MEME tuile, MEME run.
+
+    Le montage ne fait donc JAMAIS bouger l'attaquant, et n'accepte la prediction que dans un
+    etat EN PORTEE. Sonde plus complete (sweep par distance, contre-epreuve du gate `Moved`,
+    tir reel depuis l'etat en portee) : `probe_437r1r3_prediction_attacker_face.py`.
     """
     import uuid as _uuid
     import subprocess as _sp
@@ -575,6 +590,7 @@ def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want
         dv = P._view(rpc, rid, inactive=True)
         ids = {v: int(P._by_vis(dv, v)["id"]) for v in [P.CARRIER, P.SPECTATOR, P.OVERWATCHER]}
         myplayer = (P._by_vis(dv, P.CARRIER) or {}).get("owner")
+        owplayer = (P._by_vis(dv, P.OVERWATCHER) or {}).get("owner")
         pr = None
         for _t in range(max_turns):
             dv = P._view(rpc, rid, inactive=True)
@@ -596,39 +612,50 @@ def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want
             if d_car is None:                    # une des deux unites n'a plus de tuile
                 return {"error": "unite sans position (morte ou retiree) au tour %d" % _t,
                         "trace": trace}
-            if ("HeavyWeapon_ExtraDmg" in ow_effs) and pres and act is True:
-                pr = rpc("aiPredict", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
-                                       "targetId": ids[P.CARRIER], "fresh": True}, 90)
-                if (pr or {}).get("pred"):
-                    break
-                pr = None
+            # ⚠ GARDE OBLIGATOIRE (#437-r1-r1-r3, mesuree) : `aiPredict` n'est l'oracle du coup
+            # DEPUIS LA TUILE COURANTE que si la cible est castable SANS bouger. Sinon
+            # `IdunBattle.Core.Services.DamagePredictionQuery$$GetAllPredictions` sert
+            # `GetPredictionForTargetsUnreachableFromSelectionTile`, qui calcule la prediction a
+            # une tuile du MOVABLE SET -- et `SimulateEffectsOperation$$DoActionInSimulatedTile`
+            # y pose `UnitExtensions$$SetMovedFlag`, ce qui ferme le gate `!HasFlag(Moved)` de
+            # `HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier`. Sans cette garde la boucle
+            # s'arretait sur la 1re prediction non nulle -- HORS PORTEE -- et rendait (904, 1356)
+            # au lieu de (1130, 1695). Mesure : d=5 hors portee -> 904/1356 ; d=3 en portee ->
+            # 1130/1695, MEME attaquant, MEME tuile, dans le MEME run.
             cur = dv.get("currentPlayer")
+            in_range = None
+            if ("HeavyWeapon_ExtraDmg" in ow_effs) and pres and act is True and cur == owplayer:
+                at = rpc("abilityTargets", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
+                                            "abilityType": 69, "allAbilities": False}, 120)
+                fh = [int(t["targetId"])
+                      for u in ((at or {}).get("units") or [])
+                      if int(u.get("unitId", -1)) == ids[P.OVERWATCHER]
+                      for ab in (u.get("abilities") or []) if int(ab.get("abilityId", -1)) == 69
+                      for t in (ab.get("fromHere") or []) if t.get("targetId") is not None]
+                in_range = ids[P.CARRIER] in fh
+                trace[-1]["inRange"] = in_range
+                if in_range:
+                    pr = rpc("aiPredict", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
+                                           "targetId": ids[P.CARRIER], "fresh": True}, 90)
+                    if (pr or {}).get("pred"):
+                        break
+                    pr = None
             if myplayer is not None and cur != myplayer:
                 rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
                 continue
-            # 1) l'overwatch est ARME -> le SPECTATEUR va le declencher a la place du porteur.
-            def _armed(view):
-                return P.OVERWATCH_EFFECT in [
-                    e.get("effectType") for e in
-                    ((P._unit(view, ids[P.OVERWATCHER]) or {}).get("effects") or [])]
-
-            if _armed(dv):
-                reach = P._mover_reach(dv, ids[P.SPECTATOR])
-                to_tile, _d = P._pick_move_tile(brd, dv, ids[P.SPECTATOR], ids[P.OVERWATCHER], reach)
-                if to_tile is not None:
-                    col, row = brd.coord(to_tile)
-                    try:
-                        rpc("applyAction", {"runnerId": rid, "action": {
-                            "kind": "move", "unitId": ids[P.SPECTATOR],
-                            "to": {"col": int(col), "row": int(row)}}}, 120)
-                    except Exception:
-                        pass
-            # 2) puis le PORTEUR se rapproche (l'overwatch vient d'etre consomme, ou hors de portee).
-            dv2 = P._view(rpc, rid, inactive=True)
-            if not _armed(dv2) or (d_car or 0) > want_dist + 3:
-                reach = P._mover_reach(dv2, ids[P.CARRIER])
-                to_tile = _pick_tile_at_distance(brd, dv2, ids[P.CARRIER], ids[P.OVERWATCHER],
-                                                 reach, want_dist)
+            # APPROCHE (corrigee #437-r1-r1-r3). Le SPECTATEUR ne peut pas purger le tir tant
+            # qu'il est hors de la zone de menace : la version d'avant calait a d=5, hors portee,
+            # et lisait la prediction la. On procede donc en deux phases, l'ATTAQUANT ne bougeant
+            # JAMAIS :
+            #   1. le PORTEUR avance jusqu'a `want_dist` et ENCAISSE le tir au passage (PV 400000) --
+            #      ce tir consomme son armure Terminator ET l'overwatch de l'attaquant ;
+            #   2. plus aucun mouvement : on cede la main jusqu'a ce que les deux se RE-ARMENT.
+            # `want_dist` n'est jamais 1 : a distance 1 le natif prend l'arme de MELEE et le bonus
+            # RANGED `HeavyWeapon_ExtraDmg` ne mord plus.
+            if (d_car or 0) > want_dist:
+                reach = P._mover_reach(dv, ids[P.CARRIER])
+                to_tile = _pick_tile_at_distance(brd, dv, ids[P.CARRIER], ids[P.OVERWATCHER],
+                                                 reach, max(want_dist, int(d_car) - 3))
                 if to_tile is not None:
                     col, row = brd.coord(to_tile)
                     try:
@@ -639,7 +666,8 @@ def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want
                         pass
             rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
         if pr is None:
-            return {"error": "prediction non lisible dans le regime DEUX FACES en %d tours"
+            return {"error": "prediction non lisible dans le regime DEUX FACES en %d tours "
+                             "(la garde EN PORTEE de #437-r1-r1-r3 n'a jamais ete satisfaite)"
                              % max_turns, "trace": trace}
         pb = None
         try:
