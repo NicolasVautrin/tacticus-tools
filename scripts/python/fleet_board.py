@@ -29,8 +29,12 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import subprocess
-import webbrowser
+import time
+# `webbrowser` est importe PARESSEUSEMENT (dans `main`) : il tire une chaine de modules qui
+# pesait ~0,2 s a l'import, pour un service rendu au seul `--open`. Ce module est desormais
+# importe par `loop_status`, dont le budget total est celui d'un hook de fin de tour.
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -153,9 +157,59 @@ def est_vif(last_ts) -> tuple[bool, float]:
     return silence < SILENCE_MORT_MIN, silence
 
 
-def collect(include_done: bool) -> list[dict]:
+def transcripts(racine: Path, only_alive: bool) -> list[Path]:
+    """Transcripts d'agents. En `only_alive`, PRE-FILTRES par mtime. Preuve, pas heuristique.
+
+    `last_ts` (dernier horodatage INTERNE d'un transcript) est ecrit AU MOMENT ou la
+    ligne part sur disque, donc `last_ts <= mtime`. Si `now - mtime >= SILENCE_MORT_MIN`,
+    alors `silence = now - last_ts >= now - mtime >= SILENCE_MORT_MIN` : `est_vif`
+    rendrait False de toute facon. Ecarter le fichier ne peut donc PAS changer l'etat
+    « vif » d'un seul agent.
+
+    C'est ce qui rend `only_alive` utilisable dans un hook de fin de tour : 870
+    transcripts pour 1,23 Go relus a chaque appel (54,8 s mesurees le 2026-08-04)
+    contre 5 fichiers et 0,4 s.
+
+    `os.scandir` plutot que `Path.glob` + `stat()` : sous Windows le mtime vient de
+    l'ENUMERATION du repertoire, donc `DirEntry.stat()` ne fait aucun aller-retour --
+    le pre-filtre devient a peu pres gratuit.
+    """
+    limite = time.time() - SILENCE_MORT_MIN * 60.0
+    out: list[Path] = []
+    try:
+        sessions = list(os.scandir(racine))
+    except OSError:
+        return out
+    for s in sessions:
+        if not s.is_dir():
+            continue
+        try:
+            entrees = list(os.scandir(Path(s.path) / "subagents"))
+        except OSError:
+            continue
+        for e in entrees:
+            if not (e.name.startswith("agent-") and e.name.endswith(".jsonl")):
+                continue
+            if only_alive:
+                try:
+                    if e.stat().st_mtime < limite:
+                        continue
+                except OSError:
+                    pass                   # illisible : on ne l'ecarte pas, on le scanne
+            out.append(Path(e.path))
+    return sorted(out)
+
+
+def collect(include_done: bool, only_alive: bool = False) -> list[dict]:
+    """Lignes de la flotte. `only_alive` ne rend QUE les « vif », et vite.
+
+    Le mode complet lit TOUS les transcripts (c'est ce qu'exige l'etat « attente » :
+    un agent en pause n'ecrit plus, seul son worktree le distingue d'un agent fini).
+    `only_alive` renonce a cet etat -- il repond a « qui TRAVAILLE maintenant », et
+    rien d'autre -- ce qui autorise le pre-filtre prouve ci-dessus.
+    """
     rows = []
-    for p in sorted(project_dir().glob("*/subagents/agent-*.jsonl")):
+    for p in transcripts(project_dir(), only_alive):
         aid = p.stem.replace("agent-", "")
         meta_p = p.with_name("agent-%s.meta.json" % aid)
         meta = json.loads(meta_p.read_text(encoding="utf-8")) if meta_p.exists() else {}
@@ -182,6 +236,12 @@ def collect(include_done: bool) -> list[dict]:
         # board les montre -- et elles ont failli etre supprimees comme des worktrees perimes.
         state = "vif" if alive else ("attente" if has_wt else "fini")
         if state == "fini" and not include_done:
+            continue
+        # `only_alive` ne PROMET que les vifs : un « attente » survivant au pre-filtre
+        # (worktree present ET transcript ecrit il y a moins de 15 min mais worktree
+        # disparu entre-temps) serait rendu de facon NON REPRODUCTIBLE selon l'heure.
+        # On le retire, pour que le mode rapide ait un contrat exact.
+        if only_alive and state != "vif":
             continue
         mins = ((s["last_ts"] - s["first_ts"]).total_seconds() / 60.0
                 if s["first_ts"] and s["last_ts"] else 0.0)
@@ -551,6 +611,7 @@ def main() -> None:
     uri = out.resolve().as_uri()
     print("\n%d agents (%d en vol) -> (%s)" % (len(rows), alive, uri))
     if a.open:
+        import webbrowser
         webbrowser.open(uri)
 
 
