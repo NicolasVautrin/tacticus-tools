@@ -180,3 +180,140 @@ def test_le_perimetre_reel_est_NON_VIDE(monkeypatch):
     # Anti-vacuite : sans cela, tous les tests ci-dessus passeraient sur un perimetre effondre.
     reel = P.candidate_files()
     assert len(reel) > 50, "perimetre reel effondre (%d) -- les gardes ne prouveraient rien" % len(reel)
+
+
+# ------------------------------------------------------------------------------------------------
+# #464-r2 -- l'empreinte ne doit RIEN a l'etat du `__pycache__` de la machine qui la mesure.
+#
+# Mesure du 2026-08-04, MEME arbre MEME probe : `_globales` valait 552 sur un worktree froid
+# (0 `__pycache__`) contre 3 sur un arbre chaud, et les 3 lectures NON-`.py` etaient les MEMES des
+# deux cotes. Sans bytecode, l'import ouvre la SOURCE, et le hook d'audit `open` la compte comme
+# lecture GLOBALE -- une information sur la MACHINE, jamais sur le depot.
+#
+# RIEN N'EST FILTRE : la CAUSE est traitee (prechauffage), et un GARDE DE REGIME verifie qu'elle
+# l'a bien ete. Les gardes ci-dessous tiennent ce contrat -- et surtout la BORNE : aucune lecture
+# n'est retiree, donc la selection ne peut pas devenir permissive.
+# ------------------------------------------------------------------------------------------------
+
+MODULE = "scripts/python/engine/foo.py"           # dans le domaine
+HORS_DOMAINE = "dump_boards.py"                   # `.py` A LA RACINE : le graphe ne le resout pas
+
+
+def test_le_prechauffage_vise_un_prefixe_HORS_scripts_python():
+    """#455 : la banque enumere `scripts/python` en parallele -- le bytecode ne doit pas y naitre."""
+    prefixe = str(P._pycache_prefix()).replace("\\", "/")
+    pydir = str(P.repo_root() / "scripts" / "python").replace("\\", "/")
+    assert not prefixe.startswith(pydir), \
+        "le bytecode de la mesure irait dans l'arbre de production : %s" % prefixe
+    assert "/logs/" in prefixe, "le prefixe doit vivre sous `logs/` (gitignore) : %s" % prefixe
+
+
+def test_le_garde_de_regime_reconnait_les_modules_du_domaine():
+    """`_est_module_du_domaine` decide du REFUS d'ecrire : aucune heuristique d'extension."""
+    domaine = {MODULE: "engine.foo"}
+    assert P._est_module_du_domaine(MODULE, domaine)
+    for reste in (HORS_DOMAINE, "scripts/python/engine/bar.py", "data/seed-bc.json",
+                  "docs/rl/note.md", "frida/hooks/x.ts", "scripts/python/pytest.ini"):
+        assert not P._est_module_du_domaine(reste, domaine), \
+            "%s n'est PAS dans le domaine -- il ne peut pas declencher le garde de regime" % reste
+
+
+def test_AUCUNE_lecture_globale_n_est_retiree_a_la_lecture(empreinte):
+    """LA BORNE de #464-r2 : la correction ne rend pas la selection permissive.
+
+    Un module du domaine LAISSE dans une empreinte ancienne doit encore mordre par son repertoire
+    -- c'est le sens SUR. Le regime est garanti a l'ecriture, jamais en effacant a la lecture."""
+    empreinte(globales=[MODULE], par_test={}, changes=["scripts/python/engine/table.json"],
+              mods=[MODULE])
+    retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
+    assert retenus == PERIMETRE, "une empreinte ancienne doit SUR-selectionner, jamais sous-selectionner"
+    assert "GLOBALE" in raison
+
+
+def test_un_py_HORS_domaine_en_globale_rejoue_TOUJOURS_TOUT(empreinte):
+    empreinte(globales=[HORS_DOMAINE], par_test={}, changes=[HORS_DOMAINE], mods=[MODULE])
+    retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
+    assert retenus == PERIMETRE, "un `.py` hors du domaine du graphe n'est couvert par RIEN"
+    assert "GLOBALE" in raison
+
+
+# ------------------------------------------------------------------------------------------------
+# #464-r2 -- le trou du graphe qu'il a fallu fermer pour que la preuve de couverture soit VRAIE.
+# Aucun test n'IMPORTE son `conftest.py` : la cloture arriere s'arretait donc sur lui, et sur tout
+# ce qu'il importe. Mesure sur `origin/master` : changer n'importe lequel des 4 `conftest.py` ne
+# retenait que 2 fichiers de test sur 132.
+# ------------------------------------------------------------------------------------------------
+
+def test_un_conftest_MODIFIE_retient_les_tests_de_son_sous_arbre():
+    mods = {"scripts/python/tests/conftest.py": "tests.conftest",
+            "scripts/python/tests/engine/conftest.py": "tests.engine.conftest",
+            "scripts/python/tests/test_a.py": "tests.test_a",
+            "scripts/python/tests/engine/test_b.py": "tests.engine.test_b"}
+    aretes = P._conftest_edges(mods)
+    assert aretes["scripts/python/tests/conftest.py"] == {
+        "scripts/python/tests/test_a.py", "scripts/python/tests/engine/test_b.py"}, \
+        "un conftest sert TOUT son sous-arbre, pas seulement son repertoire"
+    assert aretes["scripts/python/tests/engine/conftest.py"] == {
+        "scripts/python/tests/engine/test_b.py"}, \
+        "un conftest profond ne sert PAS les tests de son parent"
+
+
+def test_le_conftest_REEL_du_depot_retient_massivement(monkeypatch):
+    """Sur l'arbre REEL : le conftest qui porte les fixtures `autouse` doit rejouer la suite."""
+    perimetre = P.candidate_files()
+    conftest = "scripts/python/tests/conftest.py"
+    assert (P.repo_root() / conftest).exists(), "conftest de reference absent -- garde vacueuse"
+
+    monkeypatch.setattr(P, "_footprints",
+                        lambda: {"_commit": "M", "_globales": [], "par_test": {}})
+    monkeypatch.setattr(P, "_changed", lambda ref: [] if ref == "M" else [conftest])
+    retenus, _ = P.impacted_files(perimetre, "REF")
+    # AVANT #464-r2 : 2 fichiers sur 132. Le seuil vise la CLASSE de defaut, pas un chiffre exact.
+    assert len(retenus) > len(perimetre) // 2, \
+        ("changer %s ne retient que %d/%d fichiers : la semantique pytest n'est pas dans le graphe"
+         % (conftest, len(retenus), len(perimetre)))
+
+
+def test_un_module_importe_par_un_CONFTEST_retient_les_tests(monkeypatch):
+    """La transitivite : le trou frappait aussi tout ce que le conftest importe (ex. le garde #455)."""
+    perimetre = P.candidate_files()
+    cible = "scripts/python/green_skip_guard.py"
+    assert (P.repo_root() / cible).exists(), "cible de reference absente -- garde vacueuse"
+
+    monkeypatch.setattr(P, "_footprints",
+                        lambda: {"_commit": "M", "_globales": [], "par_test": {}})
+    monkeypatch.setattr(P, "_changed", lambda ref: [] if ref == "M" else [cible])
+    retenus, _ = P.impacted_files(perimetre, "REF")
+    assert len(retenus) > len(perimetre) // 2, \
+        ("changer %s ne retient que %d/%d fichiers -- la chaine module -> conftest -> tests est "
+         "coupee" % (cible, len(retenus), len(perimetre)))
+
+
+# ------------------------------------------------------------------------------------------------
+# CONTRE-EPREUVE #464-r2, sur l'empreinte VERSIONNEE REELLE : une dependance HORS-`.py` doit
+# TOUJOURS selectionner son test. C'est le trou qu'une empreinte videe ouvrait (#464 :
+# `rel not in par_test` lu comme << aucune dependance >>, donc test SAUTE, faux vert versionne).
+# ------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("racine", ["data", "docs", "frida"])
+def test_une_donnee_hors_py_qui_change_selectionne_TOUJOURS_son_test(racine, monkeypatch):
+    emp = P._footprints()
+    assert emp.get("par_test"), "empreinte versionnee absente ou vide -- contre-epreuve vacueuse"
+
+    # Un test REEL de l'empreinte dont une dependance mesuree vit sous cette racine.
+    cas = [(t, d) for t, dirs in emp["par_test"].items() for d in dirs
+           if d.split("/")[0] == racine]
+    assert cas, "aucun test de l'empreinte ne depend de `%s/` -- contre-epreuve vacueuse" % racine
+    test, dossier = sorted(cas)[0]
+
+    # On fait changer un fichier NEUF de ce repertoire : la granularite REPERTOIRE est ce qui
+    # empeche un fichier jamais lu de passer entre les mailles.
+    change = dossier + "/fichier_neuf_de_contre_epreuve.bin"
+    monkeypatch.setattr(P, "_footprints", lambda: emp)
+    monkeypatch.setattr(P, "_changed", lambda ref: [] if ref == emp["_commit"] else [change])
+    monkeypatch.setattr(P, "_import_graph", lambda m: ({}, set()))   # graphe NEUTRALISE
+
+    retenus, raison = P.impacted_files([test], "REF")
+    assert retenus == [test], \
+        ("%s depend de `%s/` mais un changement dans `%s` ne le selectionne pas (%s)"
+         % (test, dossier, change, raison))

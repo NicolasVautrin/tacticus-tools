@@ -1,16 +1,11 @@
 {
- "_commit": "e08357873e135a3fd2f68aca600353051c61e96d",
+ "_commit": "57bb2a7c8a2d751ad9d0462e7fa3bd14165e6b5b",
  "_globales": [
   "data/seed-bc.json",
   "data/symbols/CURRENT",
-  "scripts/python/engine/entities/effects/loki/damage_reduction.py",
-  "scripts/python/engine/runner/abilities/behaviours/effects.py",
-  "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
-  "scripts/python/engine/runner/operations/triggers/loki/neuroparasite.py",
-  "scripts/python/pytest.ini",
-  "scripts/python/tests/engine/runner/test_effect_trigger_channels.py",
-  "scripts/python/tests/engine/test_462_r4b_r1_r1_r1_neuroparasite_pose_offline.py"
+  "scripts/python/pytest.ini"
  ],
+ "_regime": "bytecode PRECHAUFFE avant la mesure -- aucune lecture GLOBALE ne provient d'un import (garde de regime #464-r2)",
  "par_test": {
   "tests/engine/runner/test_353r1_ramming_speed_charge_tile_offline.py": [
    "data",
@@ -20,7 +15,6 @@
    "scripts/python/engine/runner/abilities/behaviours"
   ],
   "tests/engine/runner/test_421_effect_active_gate_offline.py": [
-   "scripts/python",
    "scripts/python/engine/runner/operations/triggers",
    "scripts/python/engine/runner/operations/triggers/loki"
   ],
@@ -250,8 +244,6 @@
   ],
   "tests/test_326_dsl_join_offline.py": [
    "data/symbols",
-   "data/symbols/gqfc5mff6c/frida",
-   "data/symbols/gqfc5mff6c/ghidra",
    "data/symbols/rnca9r7q6c/frida",
    "data/symbols/rnca9r7q6c/ghidra",
    "scripts/python/tests"
@@ -406,6 +398,43 @@
   "tests/test_457_r6_banque_sans_doublon_offline.py": [
    "scripts"
   ],
+  "tests/test_457_r8_selection_par_diff_offline.py": [
+   "scripts",
+   "scripts/python",
+   "scripts/python/engine",
+   "scripts/python/engine/ai",
+   "scripts/python/engine/dsl",
+   "scripts/python/engine/entities",
+   "scripts/python/engine/entities/abilities",
+   "scripts/python/engine/entities/effects",
+   "scripts/python/engine/entities/effects/loki",
+   "scripts/python/engine/entities/pathfinding",
+   "scripts/python/engine/entities/selectors",
+   "scripts/python/engine/entities/traits",
+   "scripts/python/engine/playbook",
+   "scripts/python/engine/playbook/noncomparable",
+   "scripts/python/engine/playbook/prediction",
+   "scripts/python/engine/runner",
+   "scripts/python/engine/runner/abilities",
+   "scripts/python/engine/runner/abilities/behaviours",
+   "scripts/python/engine/runner/abilities/loki",
+   "scripts/python/engine/runner/operations",
+   "scripts/python/engine/runner/operations/damage_ops",
+   "scripts/python/engine/runner/operations/triggers",
+   "scripts/python/engine/runner/operations/triggers/dispatch",
+   "scripts/python/engine/runner/operations/triggers/loki",
+   "scripts/python/engine/services",
+   "scripts/python/engine/utilities",
+   "scripts/python/tests",
+   "scripts/python/tests/engine",
+   "scripts/python/tests/engine/entities",
+   "scripts/python/tests/engine/entities/pathfinding",
+   "scripts/python/tests/engine/runner",
+   "scripts/python/tools"
+  ],
+  "tests/test_457_r9_refus_d_ecrire_offline.py": [
+   "scripts/python"
+  ],
   "tests/test_462r6_counterproof_marker_offline.py": [
    "scripts/python",
    "scripts/python/engine",
@@ -438,6 +467,42 @@
    "scripts/python/tests/engine/entities/pathfinding",
    "scripts/python/tests/engine/runner",
    "scripts/python/tools"
+  ],
+  "tests/test_464_sibling_script_offline.py": [
+   "scripts/python",
+   "scripts/python/engine",
+   "scripts/python/engine/ai",
+   "scripts/python/engine/dsl",
+   "scripts/python/engine/entities",
+   "scripts/python/engine/entities/abilities",
+   "scripts/python/engine/entities/effects",
+   "scripts/python/engine/entities/effects/loki",
+   "scripts/python/engine/entities/pathfinding",
+   "scripts/python/engine/entities/selectors",
+   "scripts/python/engine/entities/traits",
+   "scripts/python/engine/playbook",
+   "scripts/python/engine/playbook/noncomparable",
+   "scripts/python/engine/playbook/prediction",
+   "scripts/python/engine/runner",
+   "scripts/python/engine/runner/abilities",
+   "scripts/python/engine/runner/abilities/behaviours",
+   "scripts/python/engine/runner/abilities/loki",
+   "scripts/python/engine/runner/operations",
+   "scripts/python/engine/runner/operations/damage_ops",
+   "scripts/python/engine/runner/operations/triggers",
+   "scripts/python/engine/runner/operations/triggers/dispatch",
+   "scripts/python/engine/runner/operations/triggers/loki",
+   "scripts/python/engine/services",
+   "scripts/python/engine/utilities",
+   "scripts/python/tests",
+   "scripts/python/tests/engine",
+   "scripts/python/tests/engine/entities",
+   "scripts/python/tests/engine/entities/pathfinding",
+   "scripts/python/tests/engine/runner",
+   "scripts/python/tools"
+  ],
+  "tests/test_465_ledger_validite_offline.py": [
+   "scripts"
   ],
   "tests/test_additional_hits_variant_signatures_offline.py": [
    "scripts/python",
@@ -515,11 +580,9 @@
   ],
   "tests/test_enum_ordinal_ratchet_offline.py": [
    ".claude/workflows",
-   "app/build/reports/tests/test/js",
    "data/symbols",
    "data/symbols/gqfc5mff6c/frida",
    "data/symbols/rnca9r7q6c/frida",
-   "frida",
    "frida/hooks",
    "frida/hooks/ai-toolkit",
    "frida/hooks/data",
@@ -545,7 +608,6 @@
    "hooks-legacy/autoplay",
    "hooks-legacy/battle",
    "lib",
-   "scratch",
    "scripts/frida",
    "scripts/node",
    "scripts/python",
@@ -578,11 +640,7 @@
    "scripts/python/tests/engine/entities",
    "scripts/python/tests/engine/entities/pathfinding",
    "scripts/python/tests/engine/runner",
-   "scripts/python/tools",
-   "tools/Il2CppDumper_net6",
-   "tools/Il2CppDumper_v39/Il2CppDumper",
-   "tools/Il2CppDumper_v39/Il2CppDumper/Il2CppBinaryNinja",
-   "tools/Il2CppDumper_v39/Il2CppDumper/bin/Release/net8.0"
+   "scripts/python/tools"
   ],
   "tests/test_step_ordinal_ratchet_offline.py": [
    "data/symbols",
@@ -620,11 +678,7 @@
    "scripts/python/tests/engine/entities",
    "scripts/python/tests/engine/entities/pathfinding",
    "scripts/python/tests/engine/runner",
-   "scripts/python/tools",
-   "tools/Il2CppDumper_net6",
-   "tools/Il2CppDumper_v39/Il2CppDumper",
-   "tools/Il2CppDumper_v39/Il2CppDumper/Il2CppBinaryNinja",
-   "tools/Il2CppDumper_v39/Il2CppDumper/bin/Release/net8.0"
+   "scripts/python/tools"
   ],
   "tests/test_stream_events_offline.py": [
    "data/symbols",

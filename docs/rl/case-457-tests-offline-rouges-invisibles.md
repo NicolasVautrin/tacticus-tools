@@ -749,14 +749,149 @@ désormais réellement : 22 passed + 1 skipped → **23 passed**.
 - **`#463-r2`** — **la marge de 1,35 n'a pas été re-dérivée.** Elle est héritée de #457-r6 et
   n'était contrainte par aucune mesure ici ; le test la porte désormais en constante nommée
   (`MARGE_EQUILIBRE`), ce qui la rend au moins visible et mutable.
-- **`#464-r2` — l'EMPREINTE dépend de l'état du bytecode, et l'écart est d'un facteur 60.**
-  Trouvé en régénérant : `_globales` passe de **9** (empreinte livrée, mesurée sur un arbre chaud) à
-  **543** sur ce worktree — dont **540 `.py`**. La cause est mécanique : les imports passent par
-  `__pycache__`, donc le hook d'audit ne les voit **pas** ; sur un arbre sans bytecode, Python ouvre
-  les **sources**, qui deviennent des lectures « globales ». Conséquence : une empreinte mesurée à
-  froid fait retomber `--since` sur « changement dans une lecture GLOBALE → TOUT rejoué » pour
-  presque tout diff Python, **annulant le bénéfice de la sélection**. Ce n'est **pas** un faux vert
-  (l'axe import est couvert indépendamment par le graphe statique — le code le dit déjà), c'est une
-  perte de mur silencieuse. **`--measure` doit donc être joué sur un arbre CHAUD**, et l'empreinte
-  régénérée ici a été **écartée** pour cette raison. Non corrigé : filtrer naïvement les `.py` des
-  globales retirerait un vrai signal (un conftest qui lit un `.py` comme **donnée** à la collecte).
+- ~~**`#464-r2`**~~ — **LIVRÉ**, cf. **§11**. Le facteur est confirmé (552 contre 3 sur le MÊME
+  arbre), mais la conséquence annoncée — « `--since` retombe sur TOUT rejoué pour presque tout diff
+  Python » — est **RÉFUTÉE par mesure**, et la piste « filtrer les `.py` » a été **essayée puis
+  écartée** au profit d'un traitement de la CAUSE.
+
+## 11. `#464-r2` — l'empreinte mesurait le `__pycache__` de la machine, pas le dépôt
+
+### La mesure, re-dérivée — et ce qu'elle réfute
+
+MÊME arbre (`0f0c036e`), MÊME probe, deux régimes :
+
+| régime | `_globales` écrites | dont `.py` | dont NON-`.py` | `par_test` |
+| --- | --- | --- | --- | --- |
+| worktree FROID (0 `__pycache__`) | **552** | 549 | 3 | 52 |
+| arbre CHAUD | **3** | 0 | 3 | 47 |
+
+Les 3 NON-`.py` sont **les mêmes des deux côtés** — `data/seed-bc.json`, `data/symbols/CURRENT`,
+`scripts/python/pytest.ini`. Le noyau utile était donc stable ; **tout l'écart était du bytecode**.
+Sans `.pyc`, `import` ouvre la SOURCE, et le hook `sys.addaudithook("open")` la compte comme lecture
+du dépôt.
+
+⚠ **Ce que la mesure RÉFUTE.** L'énoncé du résidu annonçait que `--since` retombait sur
+« TOUT rejoué » pour presque tout diff Python. **Faux, et le mécanisme le dit** : `impacted_files`
+construit `hors_py = [c for c in changes if c not in mods]` — un module de `scripts/python` **n'est
+JAMAIS** confronté à `_globales`. Un `.py` du domaine placé en globale n'a donc **aucun** effet
+quand lui-même change ; son seul effet résiduel passait par `dirs_glob` (un fichier NON-`.py` du
+même répertoire). Mesuré sur **40 commits réels** de `origin/master` :
+
+| | fichiers-tests joués (40 commits) | commits en TOUT-rejeu |
+| --- | --- | --- |
+| empreinte CHAUDE | 197 | **0** |
+| empreinte FROIDE | 207 | **0** |
+
+Soit **+5 %**, pas un facteur 60 — et **10 commits sur 40** où les deux empreintes divergent. Le
+défaut est réel (une empreinte VERSIONNÉE ne doit rien à la machine qui la mesure) mais son coût
+était d'un ordre de grandeur en dessous de l'annonce. ⚠ L'empreinte de `origin/master` portait **9**
+globales au moment de l'analyse, pas 561 : le régime armé était le CHAUD.
+
+⚠ **Piège de simulation, à ne pas reproduire** : rejouer ces diffs contre un arbre ANTÉRIEUR aux
+commits produit **22 TOUT-rejeu sur 40** — un artefact, pas une mesure. Les `.py` de ces commits
+n'existent pas encore dans le checkout, donc ils manquent à `mods`, tombent dans `hors_py` et
+percutent `dirs_glob` (`scripts/python`, présent à cause de `pytest.ini`). Simuler une sélection
+par diff exige des commits que l'arbre CONTIENT.
+
+### Le premier remède, essayé puis ÉCARTÉ
+
+Filtrer les `.py` du domaine hors de `_globales` (motif : « déjà couverts par le graphe d'imports »)
+**ferme `_globales` mais pas la reproductibilité** : la même cause frappe `par_test`, où un import
+**lazy** exécuté pendant un test attribue au test une source `.py`. Mesuré : 47 entrées à chaud
+contre 52 à froid, et les 7 écarts portent tous des répertoires de CODE
+(`scripts/python/engine/runner/operations`, …).
+
+Et là, le filtre **ne peut pas** être étendu : `par_test` contient **420 couples
+(test, répertoire-de-code) même à chaud**, parce que ce dépôt est plein de tests-**BALAYAGE** qui
+OUVRENT le code source pour l'analyser. Ces lectures ne sont couvertes par **aucun** import, donc par
+aucune preuve — les retirer serait exactement le faux vert de #464.
+
+### Le remède retenu : traiter la CAUSE
+
+`--measure` **préchauffe le bytecode** (`compileall`) avant d'installer le hook, avec
+`sys.pycache_prefix` pointé sur `logs/ratchets/457-pycache` — **hors `scripts/python`** (#455 : la
+banque énumère cet arbre en parallèle) et gitignoré. Rien n'est retiré : une lecture applicative de
+`.py` reste un `open` bien réel, vu et attribué.
+
+Mesuré sur un échantillon de 5 fichiers, un process frais par case :
+
+| | lectures brutes | `par_test` |
+| --- | --- | --- |
+| froid, SANS préchauffage | **355** | répertoires de code parasites sur 5 tests |
+| froid, AVEC préchauffage | **2** | `data`, `frida/hooks/data`, `scripts/python` — les VRAIES |
+| chaud, AVEC préchauffage | **2** | **identique au froid** |
+
+Les deux lectures qui subsistent sont `data/seed-bc.json` et `scripts/python/pytest.ini` : des
+lectures applicatives, aucune source `.py`.
+
+**Garde de RÉGIME** plutôt que filtre : si des modules du domaine restent en lecture globale, c'est
+que le bytecode n'était pas à jour (`PYTHONDONTWRITEBYTECODE`, FS en lecture seule…) — le probe
+**REFUSE alors d'écrire l'empreinte**, la NOMME, et garde les poids (eux, valides). Une empreinte
+mesurée dans un régime non maîtrisé décrit la machine ; la versionner propagerait le défaut. C'est
+la doctrine de `_ecrire_mesure`, appliquée à une deuxième cause.
+
+### Le garde a mordu DEUX FOIS sur le préchauffage lui-même — c'est la meilleure contre-épreuve
+
+Il n'est pas décoratif : il a trouvé **deux** défauts de son propre remède, chacun invisible à
+l'échantillon et révélé par le passage à l'échelle.
+
+**Morsure 1 — `rc=99`, REFUS sur 548 modules.** `compileall.compile_dir(..., workers=0)` compile
+dans des **SOUS-PROCESS**, et une affectation à `sys.pycache_prefix` ne vit que dans l'interpréteur
+courant : **elle ne traverse pas le fork**. Résultat : **1691** `.pyc` déposés dans
+`scripts/python/**/__pycache__` (violation #455, exactement ce que le préfixe devait empêcher)
+contre 1030 dans le préfixe. Correctif : `PYTHONPYCACHEPREFIX` posée **en plus** (elle, héritée par
+les workers), et un témoin DIRECT qui compte les `.pyc` apparus sous `scripts/python`. Après :
+**1751** dans le préfixe, **0** dans l'arbre.
+
+**Morsure 2 — `rc=99`, REFUS sur 136 modules**, et le compte *nomme* la cause : **132** fichiers du
+périmètre + les **3** `conftest.py` + 1. **Pytest RÉÉCRIT les assertions**, et son chargeur REJETTE
+un `.pyc` qui ne porte pas sa marque — il relit donc la SOURCE. `compileall` ne peut structurellement
+pas fabriquer ce bytecode-là. Ces lectures dépendent de la présence du cache **PYTEST**, donc de
+l'état de la machine : c'est #464-r2 déplacé d'un cran, pas un bruit inévitable.
+
+Second étage : une passe `--collect-only` **dans un SOUS-PROCESS**. Le sous-process est le point —
+collecter dans le process courant laisserait les modules de test dans `sys.modules`, si bien que le
+vrai run **ne ré-exécuterait pas leur code de niveau module** et PERDRAIT les lectures globales
+légitimes d'un test-BALAYAGE qui ouvre `data/symbols/**` à l'import. Le cache se partage par le
+disque ; l'état du process, non.
+
+Après les deux étages, sur l'échantillon, **froid et chaud** : `modules_globaux` = **0**, lectures
+brutes = **2**, et `par_test` identique mot pour mot — `data` et `frida/hooks/data` conservés.
+
+### Le trou du graphe qu'il a fallu fermer — et qui était un faux vert ACTUEL
+
+La preuve « couvert par le graphe » devait être VRAIE. Elle ne l'était pas : **aucun test n'IMPORTE
+son `conftest.py`**, donc la clôture arrière s'arrêtait sur lui — et sur tout ce qu'il importe.
+
+Mesuré sur `origin/master` : changer **n'importe lequel des 4** `conftest.py` ne retenait que
+**2 fichiers de test sur 132**, alors que `scripts/python/tests/conftest.py` porte
+`green_skip_guard` (le garde de #455), `pytest_runtest_makereport` et **trois fixtures `autouse`**.
+`_conftest_edges` pose la sémantique pytest que l'AST ne peut pas voir : un `conftest.py` est une
+dépendance de tout fichier de test de son **sous-arbre**.
+
+⚠ Ce trou est **indépendant** du régime chaud/froid — un `conftest.py` est dans `mods`, donc il n'a
+jamais été confronté à `_globales`. Il était ouvert dans les deux régimes.
+
+**Son coût, assumé et chiffré.** Bilan sur 40 commits RÉELS que l'arbre contient, périmètre 132
+fichiers — AVANT = empreinte d'`origin/master` + graphe sans arêtes conftest, APRÈS = empreinte
+régénérée + arêtes :
+
+| | fichiers-tests joués | médiane du périmètre | commits en TOUT-rejeu |
+| --- | --- | --- | --- |
+| AVANT | 197 | 4 % | **0** |
+| APRÈS | **555** | 11 % | **0** |
+
+×2,8, entièrement imputable aux arêtes conftest : les commits qui touchent un `conftest` ou un
+module qu'il importe rejouent désormais ~57-63 fichiers au lieu de 2-15. La sélection reste très
+loin du rejeu total (médiane 11 % du périmètre), et l'empreinte propre — 3 globales au lieu de 9
+dont 6 `.py` — en compense une partie.
+
+### Contre-épreuves
+
+- **La mutation MORD** : préchauffage retiré ⇒ 355 lectures brutes au lieu de 2, et `par_test`
+  regagne ses répertoires de code. Sur une contre-épreuve, VERT est le résultat suspect.
+- **Une dépendance HORS-`.py` reste TOUJOURS sélectionnée** — le trou qu'une empreinte vidée
+  ouvrait. Vérifié sur l'empreinte VERSIONNÉE réelle, pour `data/`, `docs/` et `frida/`, avec le
+  **graphe neutralisé** pour que seule l'empreinte puisse sélectionner.
+- **La borne du domaine** : un `.py` HORS `scripts/python` (`dump_boards.py`) reste une lecture
+  globale, et un non-`.py` posé DANS `scripts/python` aussi (`pytest.ini` en est l'exemplaire réel).
