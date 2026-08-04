@@ -824,6 +824,22 @@ que le bytecode n'était pas à jour (`PYTHONDONTWRITEBYTECODE`, FS en lecture s
 mesurée dans un régime non maîtrisé décrit la machine ; la versionner propagerait le défaut. C'est
 la doctrine de `_ecrire_mesure`, appliquée à une deuxième cause.
 
+### Le garde a mordu sur le préchauffage LUI-MÊME — et c'est la meilleure contre-épreuve
+
+Première mesure complète avec le préchauffage : **`rc=99`, REFUS sur 548 modules**. Cause,
+mesurée : `compileall.compile_dir(..., workers=0)` compile dans des **SOUS-PROCESS**, et une
+affectation à `sys.pycache_prefix` ne vit que dans l'interpréteur courant — **elle ne traverse pas
+le fork**. Résultat : **1691** `.pyc` déposés dans `scripts/python/**/__pycache__` (violation #455,
+exactement ce que le préfixe devait empêcher) contre 1030 dans le préfixe, et les imports de pytest
+retombant sur les sources.
+
+L'échantillon de 5 fichiers n'avait rien vu : ses quelques modules étaient couverts par le préfixe.
+**C'est le passage à l'échelle qui a révélé le défaut, et c'est le garde qui l'a nommé** — pas une
+relecture. Correctif : `PYTHONPYCACHEPREFIX` posée **en plus** (elle, héritée par les workers), et
+un témoin DIRECT qui compte les `.pyc` apparus sous `scripts/python` pour nommer la cause tout de
+suite au lieu de la laisser lire 20 min plus tard. Après : **1751** `.pyc` dans le préfixe, **0**
+dans l'arbre.
+
 ### Le trou du graphe qu'il a fallu fermer — et qui était un faux vert ACTUEL
 
 La preuve « couvert par le graphe » devait être VRAIE. Elle ne l'était pas : **aucun test n'IMPORTE
