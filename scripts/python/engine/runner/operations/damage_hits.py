@@ -92,7 +92,9 @@ class _DamageHitsMixin:
                   prevent_overkill: bool = False,
                   force_crit: bool = False, hit_index0: int = 0,
                   crit_allowed0: bool = True,
-                  hit_interceptor=None, failed_block0=None) -> dict:
+                  hit_interceptor=None, failed_block0=None,
+                  hp_current: Optional[int] = None,
+                  hp_floor: Optional[int] = None) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -244,6 +246,13 @@ class _DamageHitsMixin:
         ExecuteHits` a une boucle PLATE (aucun `|=` sur les options, aucun recalcul) -> gate
         `is_attack_damage_op`.
 
+        `hp_current` / `hp_floor` (defaut None, #462-r4e-o) = PV COURANTS de la cible a l'entree de
+        la serie, et son plancher `minimal_health` (`Nullable<int>` @`FillUpStatComponent+0x1c`).
+        Ils n'existent QUE pour composer `per_hit`, qui n'est pas le degat demande mais le
+        montant que le natif ECRIT dans le tag `Amount` de l'event `UnitDamaged` (cf.
+        `_amount_applied`). `None` = pas de PV captes -> aucune borne (comportement d'avant, strict).
+        AUCUN autre etage n'en depend : `total`, `per_hit_health`, `rolls` restent le DEMANDE.
+
         Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
         did_crit = did_block = did_evade = False
@@ -277,6 +286,40 @@ class _DamageHitsMixin:
         # `SetupHitGroup` depuis `OngoingAttack+0x40` et eteint en fin de coup par la boucle
         # d'`AttackDamageOperation$$ExecuteHits` des qu'un coup ne crite pas (cf. docstring).
         _crit_allowed = [bool(crit_allowed0) if is_attack_damage_op else True]
+        # #462-r4e-o : PV RESTANTS, decroissants COUP PAR COUP. Le natif applique un coup a la fois
+        # (`DamageAppliedResult` porte un `hitIndex` @+0x14, `IdunBattle.Core.Services.
+        # DamageAppliedResult$$.ctor`), donc la borne de `_amount_applied` se resserre a chaque coup.
+        _hp_left = [None if hp_current is None else max(0, int(hp_current))]
+
+        def _amount_applied(dmg: Damage) -> int:
+            """Le tag `Amount` (TagKey 225) de l'event `UnitDamaged` de CE coup.
+
+            `IdunBattle.Core.Services.StreamHelper$$GetDamageTags` l'ecrit depuis le champ @+0 de la
+            valeur de retour d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`, un accumulateur
+            memset a 0 en tete d'`Execute` et alimente par EXACTEMENT DEUX termes, tous deux des
+            retraits REELLEMENT appliques -- jamais le degat demande :
+
+                amount  = FillUpStatComponent.Reduce(healthComp, dar.healthDamage, ignoreMinimum:false)
+                amount += ApplyDamageOperation.ReduceShield(unit, dar.shieldDamage)
+
+            et `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` BORNE :
+            `Min(Max(0, damage), Current)`, puis, si le `Nullable<int>` `Minimum` @+0x1c a une valeur,
+            `Min(Current - Min(Current, Minimum.Value), .)` (le HP-floor Hypersensory) ; le surplus
+            part dans le compteur @+0x24, PAS dans le retour. C'est le meme accumulateur que le natif
+            grave ensuite dans `ActorStatisticsComponent+0x68`/`+0x6c` (`last_hit_damage_taken`).
+
+            La part ARMURE-POOL n'y entre PAS : `DamageAppliedResult$$.ctor` recoit `armorDamage` et
+            ne le STOCKE PAS (aucun champ), et `DamageAppliedResult$$get_Damage` rend `+0x8 + +0x4`
+            = bouclier + sante. Sans PV captes (`hp_current is None`) on garde `GetTotal()`, faute de
+            quoi une borne serait inventee sur une cible dont on ne connait pas les PV."""
+            if _hp_left[0] is None:
+                return dmg.get_total()
+            applied = min(max(0, int(dmg.health)), _hp_left[0])      # Min(Max(0, dmg), Current)
+            if hp_floor is not None:
+                floor = min(_hp_left[0], int(hp_floor))              # Min(Current, Minimum.Value)
+                applied = min(_hp_left[0] - floor, applied)
+            _hp_left[0] -= applied                                   # Current -= applied
+            return applied + int(dmg.shield)                         # + ReduceShield (deja borne)
 
         def _roll_crit(idx: int) -> bool:
             """Le crit d'UN coup, gate compris -- foyer UNIQUE des deux branches de `_one_hit`.
@@ -362,7 +405,7 @@ class _DamageHitsMixin:
             failed_block.update(dmg.failed_block_ids or [])
             shield = max(0, shield - dmg.shield)
             armor_pool = max(0, armor_pool - dmg.armor)
-            per_hit.append(dmg.get_total())
+            per_hit.append(_amount_applied(dmg))  # `Amount` de l'event = retraits REELS (borne PV)
             per_hit_health.append(dmg.health)     # part PV SEULE du coup (hors bouclier/armure-pool)
             total += dmg.health
             shield_dmg += dmg.shield

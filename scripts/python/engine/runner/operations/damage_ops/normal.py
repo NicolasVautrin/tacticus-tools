@@ -432,6 +432,11 @@ class _Normal:
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, _profile, is_special=1),
                                             limits_hp=int(thc.hp or 0),
+                                            # #462-r4e-o : PV COURANTS + plancher, pour que `per_hit`
+                                            # porte le tag `Amount` de l'event (retraits REELS) et non
+                                            # le degat demande. `hp` None -> None (aucune borne).
+                                            hp_current=(None if thc.hp is None else int(thc.hp)),
+                                            hp_floor=thc.minimal_health,
                                             # #195 : `HasFlag(defender, 0x13)` — le 5e argument
                                             # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
                                             # lit lui-meme sur son parametre `defender`.

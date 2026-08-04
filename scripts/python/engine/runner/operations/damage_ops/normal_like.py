@@ -177,6 +177,10 @@ class _NormalLike:
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, damage_profile, is_special=2),
                                             limits_hp=int(thc.hp or 0),
+                                            # #462-r4e-o : PV COURANTS + plancher -> `per_hit` = le tag
+                                            # `Amount` de l'event (retraits REELS), pas le demande.
+                                            hp_current=(None if thc.hp is None else int(thc.hp)),
+                                            hp_floor=thc.minimal_health,
                                             # #195 : `HasFlag(defender, 0x13)` — le 5e argument
                                             # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
                                             # lit lui-meme sur son parametre `defender`.
