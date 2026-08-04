@@ -21,8 +21,10 @@ lu comme un rouge de gisement.
 
 ## 2. Le recensement re-dérivé — trois chiffres de #561 corrigés
 
-Balayage AST de `git ls-files scripts/python` (**1 091** fichiers hors `tests/`, **1 681**
-avec).
+Balayage AST de `git ls-files scripts/python`. Périmètre mesuré **sur l'arbre rebasé** :
+**1 099** fichiers hors `tests/`, **1 693** avec. (Il valait 1 091 / 1 681 au début de ce
+travail — trois PR ont été mergées entre-temps. Les chiffres ci-dessous se **re-dérivent**,
+ils ne se citent pas.)
 
 ### 2.1 L'axe qui a mordu — écriture versionnée : **AUCUN cas ouvert**
 
