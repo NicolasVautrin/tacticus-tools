@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785832135,
+ "_ecrit_le": 1785835017,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -2972,6 +2972,20 @@
    "messages": [],
    "passed": 38,
    "sec": 73.3,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/test_437_overwatch_consumes_armour_live.py": {
+   "_at": 1785835017,
+   "_blob": "93bc604b9ab658afe7e3a1836635b4d5c07daeb7",
+   "_commit": "58800d602a8d9f4c7783c6d464b5f6884f595765",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a02a4ae69ab106f7d",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 4,
+   "sec": 52.6,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
