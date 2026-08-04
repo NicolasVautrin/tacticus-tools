@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785858516,
+ "_ecrit_le": 1785866139,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -766,14 +766,15 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_damage_catalog_live.py": {
-   "_at": 1785782102,
-   "_blob": "006c9daeda4a5073ad9e733b0b64604c615c25ce",
-   "_commit": "f8762a719151955e3e4f2c38811cae7fffe79eff",
+   "_at": 1785866139,
+   "_blob": "8264f2afa110bb9bb54d15de86001a63072318f8",
+   "_commit": "a6f91574fb216ce352aefecae86987faa4b21696",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a40118857e3d2cde0",
    "error": 0,
    "failed": 0,
    "messages": [],
    "passed": 5,
-   "sec": 88.3,
+   "sec": 43.3,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
@@ -1828,6 +1829,20 @@
    "failed": 0,
    "passed": 7,
    "sec": 61.9,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/runner/test_overkill_amount_live.py": {
+   "_at": 1785866139,
+   "_blob": "06cd03c3a26cb315aa51c22aeb22622a513dd721",
+   "_commit": "a6f91574fb216ce352aefecae86987faa4b21696",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-a40118857e3d2cde0",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 3,
+   "sec": 34.7,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0

@@ -33,14 +33,13 @@ Ce que le catalogue COUVRE / ce qu'il PERD, mesuré (80 unités au profil vanill
     DE COUVERTURE SÉPARÉ : replay des events du cast du summoner, comme le fait
     `probe_291_summon_activation.py` — pas `replay_normal_attack`.
 
-CE QUE CE FICHIER NE MESURE PAS, et qui est MESURÉ ailleurs comme écart réel — le **régime
-OVERKILL** (`#462-r4e-o`). Le replay tourne sur UN couple (board, seed) ; sur les couples où la
-cible MEURT pendant la salve, le natif borne `Amount` aux PV restants et le port rend le dégât
-BRUT. L'état est identique des deux côtés (`hp_after` 0 = 0) : ce n'est pas un trou de calcul,
-c'est un écart de RAPPORT per-hit, non porté. Mesuré le 2026-08-03 sur `astraBullgryn` vs
-`eldarFarseer` (MC1_67, seeds 31337 et 4242 : `live` somme à 7530 = les PV de la cible, `off` à
-8291 / 8140). `_diag_overkill` le nomme DANS le message d'échec — sans quoi ce rouge se lirait
-comme un trou du moteur de dégât (la confusion nommée par #462-r6).
+CE QUE CE FICHIER NE MESURE PAS — le **régime OVERKILL** (le replay tourne sur UN couple
+(board, seed), où la cible survit). Il est porté et gardé AILLEURS depuis `#462-r4e-o` : le natif
+n'écrit pas le dégât demandé dans le tag `Amount` mais la somme des retraits RÉELS, bornés aux PV
+restants par `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce`
+(`test_overkill_amount_live.py`, `probe_462_r4e_o_overkill_amount.py`,
+`docs/rl/case-462-r4e-o-amount-borne-aux-pv.md`). `_diag_overkill` reste ici avec le sens INVERSE :
+s'il s'arme, c'est cette borne qui a régressé — pas un trou du moteur de dégât (#462-r6).
 
 Échelle : par défaut on teste un ÉCHANTILLON (cap `DAMAGE_CATALOG_N`, défaut 4) du catalogue
 confrontable ; `DAMAGE_CATALOG_UNITS="a,b,c"` force une liste (dérogation explicite : la gate ne
@@ -171,21 +170,23 @@ def _live_pool(rank=RANK):
 def _diag_overkill(r):
     """Distingue le REGIME OVERKILL d'un vrai trou de calcul, dans le message d'echec.
 
-    Mesure du 2026-08-03 (`astraBullgryn` vs `eldarFarseer`, MC1_67 seeds 31337 et 4242) : quand la
-    cible MEURT pendant la salve, l'ETAT est identique des deux cotes (`hp_after` = 0 = 0) et seul
-    le RAPPORT per-hit diverge -- le natif BORNE `Amount` aux PV restants (`live=[1975, 1573, 2339,
-    1643]`, somme 7530 = les PV de la cible), le port rend le degat BRUT (`off=[..., 2404]`, somme
-    8291). Sans cette ligne, ce rouge se lit comme un trou du moteur de degat, exactement la
-    confusion que #462-r6 nomme. Ecart NON PORTE : residu `#462-r4e-o`."""
+    La borne est PORTEE depuis #462-r4e-o : le natif n'ecrit pas le degat demande dans le tag
+    `Amount` mais la somme des retraits REELS (`FillUpStatComponent$$Reduce` +
+    `ApplyDamageOperation$$ReduceShield`, lus depuis le champ @+0 du retour d'
+    `ApplyDamageOperation$$Execute`). Ce diagnostic reste, avec le sens INVERSE : s'il s'arme
+    desormais, ce n'est plus un ecart connu, c'est la BORNE qui a REGRESSE -- et le message doit
+    envoyer vers ses gardes plutot que laisser lire un trou du moteur de degat (#462-r6)."""
     if r.get("live_after") != 0 or r.get("off_after") != 0:
         return ""
     if sum(r["off_ph"]) <= sum(r["live_ph"]):
         return ""
-    return (" || REGIME OVERKILL, PAS un trou de calcul : la cible meurt pendant la salve, l'ETAT "
-            f"est identique (hp_after 0 = 0) et seules les sommes rapportees different "
+    return (" || REGIME OVERKILL : la cible meurt pendant la salve, l'ETAT est identique "
+            f"(hp_after 0 = 0) et seules les sommes rapportees different "
             f"(live={sum(r['live_ph'])} = PV de la cible, off={sum(r['off_ph'])}). Le natif borne "
-            "`Amount` aux PV restants, le port rend le degat brut -- residu #462-r4e-o "
-            "(docs/rl/case-462-tests-live-rouges-invisibles.md).")
+            "`Amount` aux PV restants -- BORNE PORTEE par #462-r4e-o, donc ceci est une REGRESSION "
+            "de `damage_amount_applied` (damage_hits.py), PAS un trou du moteur de degat. Gardes : "
+            "`test_overkill_amount_live.py`, `probe_462_r4e_o_overkill_amount.py` ; RE : "
+            "docs/rl/case-462-r4e-o-amount-borne-aux-pv.md.")
 
 
 @pytest.mark.skipif(not _UNITS, reason="unit_map indisponible / aucune unite vanilla melee-multihit")

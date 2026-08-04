@@ -124,7 +124,10 @@ def test_execute_additional_hits_CHAINE_l_etat_de_groupe_en_groupe():
                 "failed_block": out}
 
     class _Thc:
+        """`HealthComponent` minimal. `minimal_health` (le `Nullable<int>` @`FillUpStatComponent+0x1c`)
+        en fait partie : `execute_additional_hits` le threade en `hp_floor` depuis #462-r4e-o."""
         hp = 1000
+        minimal_health = None
 
     class _State:
         """`State` minimal : `execute_additional_hits` n'y touche que par `unit_prevents_overkill`
