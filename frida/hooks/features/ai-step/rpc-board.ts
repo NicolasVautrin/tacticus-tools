@@ -3,8 +3,10 @@
  *  Scinde de rpc-view.ts (2026-07-11, >2300 l. — seuil ~1000 l.) ; l'API RPC est
  *  INCHANGEE (memes noms ctx.rpc.*), agregee par registerView (rpc-view.ts). */
 import {
-    class_get_name, class_get_namespace, findClass, findClassAnywhere, findMethod,
+    class_get_fields, class_get_name, class_get_namespace, field_get_name, field_get_offset,
+    field_get_type, findClass, findClassAnywhere, findMethod,
     findMethodByParamClasses, findMethodByParamCount, getFieldOffset, readIl2cppString, s,
+    type_get_class_or_element_class,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
@@ -29,7 +31,8 @@ import {
     extractTiles, extractTilePtrs,
     entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getOnlyTargetsMi, getTilesMi,
     getUnitMainTile,
-    invokeBool, isAliveMi, isCtrlByCurMi, isIrrelevantObjMi, isTargetableMi, LIST_SIZE,
+    invokeBool, isAliveMi, isCtrlByCurMi, isIrrelevantObjMi, isTargetableMi,
+    LIST_ITEMS, LIST_SIZE,
     moveUnitMsgClass, movementQueryOff,
     mowAbilityTypes, readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
     unitExtClass,
@@ -60,6 +63,157 @@ function resolveGetPath(pathfinders: NativePointer): typeof getPathMi {
     try { getPathMi = findMethodByParamCount(pathfinders.readPointer(), "GetPath", 5); }
     catch { getPathMi = null; }
     return getPathMi;
+}
+
+// ─── #448-r1-r1-r1-r1-r2 — le `ConnectivityComponent` BRUT ──────────────────────────────────────
+//
+// POURQUOI IL FAUT UN SECOND CANAL, ET PAS UNE CORRECTION DU PREMIER.
+// Le champ `neighbours` publié ci-dessous passe par `BattleQuery$$GetAdjacentTiles` ->
+// `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`, dont la porte
+// `|srcElev - Elevation| < 2` est INCONDITIONNELLE. Elle ampute 18 arêtes dirigées sur `MC1_67`.
+//
+// Cette porte est JUSTE pour les consommateurs dont le natif est `IterateAdjacentTiles` — les
+// sélecteurs `AdjacentTiles` du DSL (`Board.neighbours_native`), et `engine/services/ability_range.py`
+// (#558), qui l'applique lui-même sans jamais lire `board.neighbours_*`. Elle est FAUSSE pour
+// `IdunBattle.Entities.Pathfinding.BasePathfinder$$AddNeighbours`, dont le décompilé énumère la
+// `List<int>` du `ConnectivityComponent` et ne teste AUCUNE élévation.
+//
+// ⇒ Toucher au champ existant CASSERAIT la première famille pour réparer la seconde. On AJOUTE
+// donc `connectivity`, et `neighbours` reste bit-pour-bit ce qu'il était.
+//
+// LE NATIF, relu verbatim sur `rnca9r7q6c` (2026-08-04).
+// `IdunBattle.Operations.InitializeConnectivityOperation$$Execute` construit la liste, une tuile à
+// la fois, remis en C# :
+//     foreach (edge in Enum.GetValues(typeof(TileEdge))) {
+//         if (!TileComponent.HasEdge(srcComp, edge))                     continue;
+//         (r, c) = (PositionComponent.RowAt(pos, edge), ColumnAt(pos, edge));
+//         if (!BoardComponent.IsPositionInside(board, c, r))             continue;
+//         nid = board.Grid[c, r];   if (nid == 0)                        continue;
+//         if (!TileComponent.HasEdge(GetComponent<TileComponent>(nid),
+//                                    (edgeCount / 2 + i) % edgeCount))   continue;   // arête OPPOSÉE
+//         list.Add(nid);
+//     }
+//     GetComponent<ConnectivityComponent>(tile).<liste> = list;
+// Le critère est donc purement TOPOLOGIQUE (arêtes des deux côtés + présence sur le plateau) :
+// AUCUNE élévation n'y entre. C'est la confirmation par la CONSTRUCTION de ce que la mesure de
+// `#448-r1-r1-r1-r1` avait établi par la conséquence (2 tuiles parcourues sur un vol qui exige une
+// arête de Δélévation 2).
+//
+// `ConnectivityComponent` (0x20 boxé, donc 0x10 utile) porte DEUX champs, confirmés par trois
+// lectures indépendantes :
+//   * `+0x10` : `List<int>` d'entity ids de tuiles voisines — itérée par
+//     `BasePathfinder.u003CAddNeighboursu003Ed__19$$MoveNext`, testée par
+//     `ConnectivityComponent$$IsNeighbour` (`List.Contains`), reconstruite par
+//     `ConnectivityComponent$$Copy` ;
+//   * `+0x18` : `int` = l'entity id de la tuile de TÉLÉPORT jumelle, `0` = aucune. Écrit par
+//     `InitializeConnectivityOperation$$ConnectTeleportTiles` (les deux tuiles se pointent
+//     mutuellement) et lu par les quatre surcharges de
+//     `IdunBattle.Entities.TileExtensions$$IsTeleportationTile`.
+// Le publier ferme d'un coup DEUX résidus nommés qui citaient la même absence de canal :
+// `AddTeleportationTiles` (base_pathfinder.py) et `IsTeleportationTile` (§10 de la case-doc de
+// `#448-r1-r1-r1-r1`, le second critère de rétention d'un waypoint de `FlyPathfinder$$FindPath`).
+//
+// Les deux offsets sont RÉSOLUS PAR NOM DE CHAMP au runtime (`class_get_fields`), avec repli sur
+// les littéraux ci-dessus ET publication du layout observé (`connectivityLayout`) : un capteur ne
+// doit pas faire passer une lecture d'offset supposé pour une mesure.
+const CONNECTIVITY_LIST_FALLBACK = 0x10;
+const CONNECTIVITY_TELEPORT_FALLBACK = 0x18;
+
+interface ConnectivityLayout {
+    resolved: boolean;
+    listOffset: number;
+    teleportOffset: number;
+    fields: Array<{ name: string; offset: number; type: string }>;
+    note: string;
+}
+
+/** Résout les deux offsets du `ConnectivityComponent` en énumérant SES champs déclarés (pas ceux
+ *  de `IdunBattle.Core.BaseComponent`, son parent). Choix par TYPE, jamais par nom deviné :
+ *  l'unique champ `List` porte le voisinage, l'unique `Int32` la jumelle de téléport. */
+function resolveConnectivityLayout(klass: NativePointer): ConnectivityLayout {
+    const fields: Array<{ name: string; offset: number; type: string }> = [];
+    try {
+        const it = Memory.alloc(Process.pointerSize);
+        it.writePointer(ptr(0));
+        for (;;) {
+            const f = class_get_fields(klass, it) as NativePointer;
+            if (f.isNull()) break;
+            let type = "?";
+            try {
+                const tc = type_get_class_or_element_class(
+                    field_get_type(f) as NativePointer) as NativePointer;
+                if (!tc.isNull()) type = s(class_get_name(tc) as NativePointer);
+            } catch { /* laisse "?" */ }
+            fields.push({
+                name: s(field_get_name(f) as NativePointer),
+                offset: field_get_offset(f) as number, type,
+            });
+        }
+    } catch { /* énumération best effort */ }
+    const lists = fields.filter((f) => f.type.indexOf("List") === 0);
+    const ints = fields.filter((f) => f.type === "Int32");
+    const resolved = lists.length === 1 && ints.length === 1;
+    return {
+        resolved,
+        listOffset: resolved ? lists[0].offset : CONNECTIVITY_LIST_FALLBACK,
+        teleportOffset: resolved ? ints[0].offset : CONNECTIVITY_TELEPORT_FALLBACK,
+        fields,
+        note: resolved
+            ? "offsets resolus par champ (1 List + 1 Int32)"
+            : "REPLI sur les litteraux du decompile — " + lists.length + " List / "
+              + ints.length + " Int32 declares ; confronter `fields`",
+    };
+}
+
+const connectivityComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "ConnectivityComponent");
+let connectivityLayout: ConnectivityLayout | null = null;
+function getConnectivityLayout(): ConnectivityLayout | null {
+    if (!connectivityComponentClass) return null;
+    if (!connectivityLayout) {
+        connectivityLayout = resolveConnectivityLayout(connectivityComponentClass);
+    }
+    return connectivityLayout;
+}
+
+/** Le `ConnectivityComponent` d'UNE entité tuile, tel quel.
+ *  Tri-état assumé : `null` = le composant n'est pas porté par cette entité (ou la classe n'est pas
+ *  résolue) — à ne PAS confondre avec `[]`, qui est une liste réellement vide. Les confondre est
+ *  exactement la faute que `#381-r3` a déjà payée sur le champ `neighbours`. */
+function readConnectivity(entityPtr: NativePointer):
+{ neighbours: number[]; teleportTwinTileId: number; rawSize: number } | null {
+    const lay = getConnectivityLayout();
+    if (!lay || !connectivityComponentClass) return null;
+    let out: { neighbours: number[]; teleportTwinTileId: number; rawSize: number } | null = null;
+    forEachComponent(entityPtr, (comp, klass) => {
+        if (out !== null) return;
+        if (!klass.equals(connectivityComponentClass)) return;
+        const neighbours: number[] = [];
+        let teleportTwinTileId = 0;
+        // `rawSize` = le `_size` NATIF, publié même quand on refuse de le déréférencer. Sans lui,
+        // une taille aberrante (offset faux, mémoire recyclée) rendrait `[]` — c'est-à-dire
+        // « composant présent, aucune arête », qui se lit comme une MESURE. Le compteur
+        // `connectivityOversize` la fait remonter au niveau réponse.
+        let rawSize = -1;
+        try {
+            const list = comp.add(lay.listOffset).readPointer();
+            if (!list.isNull()) {
+                const items = list.add(LIST_ITEMS).readPointer();
+                rawSize = list.add(LIST_SIZE).readS32();
+                // Borne : une tuile hex a 6 voisins ; 64 laisse toute la marge d'un board
+                // exotique tout en refusant une taille manifestement fausse.
+                if (!items.isNull() && rawSize > 0 && rawSize <= 64) {
+                    for (let i = 0; i < rawSize; i++) {
+                        neighbours.push(items.add(ARRAY_FIRST + i * 4).readS32());
+                    }
+                }
+            }
+        } catch { /* liste illisible -> [] ; le composant EXISTE, on ne rend pas null */ }
+        try { teleportTwinTileId = comp.add(lay.teleportOffset).readS32(); }
+        catch { /* laisse 0 */ }
+        out = { neighbours, teleportTwinTileId, rawSize };
+    });
+    return out;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -444,10 +598,31 @@ export function registerViewBoard(ctx: Ctx): void {
         const bTrue = Memory.alloc(1); bTrue.writeU8(1);
         const bFalse = Memory.alloc(1); bFalse.writeU8(0);
         let adjCalls = 0; let adjFails = 0; let walkFails = 0;
+        // #448-r1-r1-r1-r1-r2 — compteurs du canal BRUT, pour que son absence se DISE au lieu de
+        // se lire comme « le natif n'a aucune arête » : `connMissing` = tuiles sans composant.
+        let connFound = 0; let connMissing = 0; let connEdges = 0; let connTeleports = 0;
+        let connOversize = 0;
         const tiles = projTiles.map((t) => {
             const e = ptrById.get(t.id);
             const neighbours: number[] = [];
             let walkable: boolean | null = null;
+            // Tri-état STRICT : `null` = pas de `ConnectivityComponent` sur cette entité (ou classe
+            // non résolue) ; `[]` = composant présent, liste vide. Cf. `#381-r3`.
+            let connectivity: number[] | null = null;
+            let teleportTwinTileId: number | null = null;
+            if (e && !e.isNull()) {
+                const conn = readConnectivity(e);
+                if (conn) {
+                    connectivity = conn.neighbours;
+                    teleportTwinTileId = conn.teleportTwinTileId;
+                    connFound++;
+                    connEdges += conn.neighbours.length;
+                    if (conn.teleportTwinTileId !== 0) connTeleports++;
+                    // `_size` natif hors bornes = liste NON déréférencée : `connectivity` vaut
+                    // `[]` sans être une mesure. On le COMPTE plutôt que de le taire.
+                    if (conn.rawSize > 64 || conn.rawSize < 0) connOversize++;
+                } else { connMissing++; }
+            }
             if (e && !e.isNull()) {
                 try {
                     // #148 : (param3=requireEmptyOrSteppable=0, param4=requireWalkable=0,
@@ -480,6 +655,12 @@ export function registerViewBoard(ctx: Ctx): void {
                 // `!IsInFogOfWar && !IsWall`. Degradation PERMISSIVE sur la seule TRAVERSEE
                 // (l'ARRIVEE restait gardee par `walkable`, qui inclut le volet fog).
                 isWall: t.isWall, isInFog: t.isInFog ?? false, walkable, neighbours,
+                // #448-r1-r1-r1-r1-r2 — le `ConnectivityComponent` BRUT, sans la porte
+                // d'élévation que `neighbours` (via `TileQuery$$IterateAdjacentTiles`) applique.
+                // C'est la source de `BasePathfinder$$AddNeighbours` ; `neighbours` reste la
+                // source des sélecteurs `AdjacentTiles`. Les deux coexistent PAR FIDÉLITÉ —
+                // chacun mirroir du natif de SON consommateur (cf. le bloc en tête de module).
+                connectivity, teleportTwinTileId,
                 occupantUnitId: occByTile.get(t.id) ?? null,
             };
         });
@@ -539,6 +720,19 @@ export function registerViewBoard(ctx: Ctx): void {
             occupiedTiles: occByTile.size,
             adjCalls, adjFails, walkFails, tiles,
             mowPositions,
+            // #448-r1-r1-r1-r1-r2 — le canal BRUT se DÉCRIT lui-même. Sans ce bloc, un
+            // `connectivity: null` partout serait indiscernable d'un plateau sans arêtes ;
+            // avec lui, `connectivityClassResolved: false` le dit. `connectivityEdges` vs la
+            // somme des `neighbours` donne, en UNE mesure, l'amputation exacte du champ hérité
+            // (attendu : +18 arêtes dirigées sur `MC1_67`, la mesure de `#448-r1-r1-r1-r1` §9).
+            connectivityClassResolved: !!connectivityComponentClass,
+            connectivityLayout: getConnectivityLayout(),
+            connectivityTiles: connFound, connectivityMissing: connMissing,
+            connectivityEdges: connEdges, connectivityTeleportTiles: connTeleports,
+            // > 0 ⇒ des `_size` hors bornes : les `connectivity: []` de ces tuiles ne sont PAS
+            // des mesures. Non nul ⇒ relire `connectivityLayout` avant toute exploitation.
+            connectivityOversize: connOversize,
+            neighbourEdges: tiles.reduce((n, t) => n + t.neighbours.length, 0),
         };
     });
 

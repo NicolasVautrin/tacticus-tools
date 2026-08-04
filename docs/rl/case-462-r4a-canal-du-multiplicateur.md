@@ -131,8 +131,8 @@ MULTIPLICATEUR, la seconde seule une régression de la chaîne.
   le `Nullable<DamageBonus>` rendu par le slot `0x1a` d'un effet, champ par champ, à l'exécution — le
   RPC `readDamagePredictionResult` (`frida/hooks/game/damage-prediction.ts`) ne l'expose pas ; il
   faudrait un capteur sur `IdunBattle.Entities.Effects.DamageModifierAbilityEffect$$
-  CreateEffectDamageBonusForAttack` (retour, 0x58 octets). Fenêtre de reinject requise — **NON
-  CONFRONTÉ**.
+  CreateEffectDamageBonusForAttack` (retour, 0x58 octets). **Le capteur est ÉCRIT (#466, §8
+  ci-dessous) ; la fenêtre reste à prendre — NON CONFRONTÉ.**
 * **`attackModifiers` est un `Nullable` MIS À ZÉRO dans `CalculateAbilityDamage`** (lu : les 0x40
   octets sont écrasés juste avant l'appel), alors que `PredictAttackRaw` construit ses DEUX `Nullable`
   (`Nullable<>..ctor` × 2, aux deux call-sites). Les deux appelants du même foyer ne traversent donc
@@ -166,3 +166,104 @@ MULTIPLICATEUR, la seconde seule une régression de la chaîne.
   `.../tests/engine/test_446_r2_inter_face_rounding_live.py` — leur diagnostic lisait la face
   défenseur dans la seule `%-list` et rendait, depuis le fix, une chaîne AMPUTÉE du `x1.50` d'une
   tuile Thorns (faux signal). Ils lisent maintenant les deux canaux.
+
+## 8. `#462-r4a-r1` — le capteur, écrit (#466), NON CONFRONTÉ
+
+**Aucune ligne de cette section n'est une mesure live** : rien n'a tiré, faute de fenêtre. Ce qui
+suit est de la RE (décompilé) plus le code du capteur.
+
+### 8.1 Ce que le décompilé tranche déjà — la lecture (a) est CORROBORÉE
+
+`IdunBattle.Core.Services.DamageModifiers$$Add(this, damageBonus, modifier)` — la surcharge
+2-ARGUMENTS, celle des effets — relue verbatim sur `rnca9r7q6c` le 2026-08-04 :
+
+```csharp
+if (modifier.HasValue)            Add(this, modifier.Value);      // -> Multiplier@0x30 *= v
+if (damageBonus.@0x28.HasValue)   this.@0x10 += Fix64(v);         // ADDITIF
+if (damageBonus.@0x30.HasValue)   this.@0x10 -= Fix64(v);         // SOUSTRACTIF
+if (damageBonus.@0x48.HasValue) {                                 // POURCENTAGE + CAP
+    entry = { One + PctMultiplier(@0x48.Value), Fix64(@0x50.Value) };
+    this.@0x18.Add(entry);                                        // -> LISTE CAPÉE
+}
+if (touched) this.@0x38.Add(damageBonus);                         // traçabilité
+```
+
+Le `Multiplier@0x30` n'est touché **que** par l'argument `modifier` (le troisième), jamais par un
+champ du `damageBonus` ; un **pourcentage** porté par le `damageBonus` part dans la **liste capée
+`@0x18`**. C'est exactement la lecture (a), et elle explique la mesure de §2 sans arrondi
+intercalé. La lecture (b) — « Ghidra confond deux corps » — n'a plus de motif : les deux
+surcharges se distinguent par leur **compte d'arguments** (`Add(damageBonus, modifier)` vs
+`Add(modifier)`), et la 1-argument est un `Multiplier *= modifier` sec.
+
+Le rédigé de §6 disait « quand `damageBonus@0x20` a une valeur » ; la relecture montre que le test
+porte sur le **paramètre `modifier`**, pas sur `@0x20`. L'apparente contradiction du résidu vient
+de là.
+
+### 8.2 CE QUE ÇA NE SUFFIT PAS À CONCLURE — et pourquoi le capteur reste nécessaire
+
+Le **même `DamageBonus` peut alimenter les DEUX canaux selon l'APPELANT**. Dans
+`IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`, un champ de
+pourcentage est converti par
+`IdunBattle.Core.Services.BaseCalculations$$GetFloatMultiplierFromPercentage` puis passé **comme
+troisième argument** (`modifier`) — donc vers `Multiplier@0x30`, l'étage arrondi. Savoir « ce que
+la fabrique produit » ne dit donc RIEN sans savoir « où l'appelant le verse ». C'est le nœud, et
+aucune lecture statique ne le referme : il faut voir les deux **sur le même événement**.
+
+⚠ Deuxième raison, structurelle : `CreateEffectDamageBonusForAttack` couvre **107 corps** dans
+`frida/methods.tsv` (un par effet concret) et rend un `System.Nullable<IdunBattle.Entities.Effects
+.EffectBonus>` — pas un `DamageBonus`. Le symbole nommé par le résidu est le **forwarder** de la
+classe de base ; un effet qui surcharge ne passe pas par lui. Un capteur posé là **seul** peut donc
+ne jamais tirer sur l'effet mesuré.
+
+### 8.3 Ce qui est livré — `frida/hooks/features/effect-bonus-trace.ts`
+
+Trois ancrages, tous résolus RUNTIME (aucune RVA en dur) :
+
+| # | cible | ce qu'elle apporte |
+|---|---|---|
+| 1 | `DamageModifierAbilityEffect$$CreateEffectDamageBonusForAttack` | la FABRIQUE nommée par le résidu : les 0x58 octets du `Nullable<EffectBonus>`, la classe CONCRÈTE de l'effet, et quels slots sont occupés |
+| 2 | `DamageCalculations$$Calculate{Attacker,Defender}ModifiersForPrediction` (toutes surcharges) | **ÉTIQUETTENT la face** — c'est la réponse directe au résidu. Pile de faces : les deux s'imbriquent, et un `onLeave` qui viderait la pile effacerait la face englobante. Hors fenêtre ⇒ `face: null`, jamais une face devinée |
+| 3 | `DamageModifiers$$Add`, **les deux** surcharges | le CANAL D'ATTERRISSAGE : accumulateur lu AVANT et APRÈS (`additive@0x10`, count de la liste capée `@0x18`, `Multiplier@0x30`, `@0x38`). Le canal se **lit**, il ne se déduit pas. Voit TOUS les effets, quel que soit leur corps concret — c'est ce qui couvre le trou de §8.2 |
+
+**Trois niveaux de publication, par ordre de fiabilité** : `rawHex` (les octets — aucune
+interprétation ne peut les fausser), `fields` (le layout NOMMÉ lu au runtime, l'arbitre), `guess`
+(l'interprétation best-effort, étiquetée HYPOTHÈSE). Conséquence opérationnelle : **une
+interprétation fausse se corrige côté Python, sans seconde fenêtre.** Les slots d'`EffectBonus`
+sont déduits de l'ABI des fabriques statiques (`ForAddition` écrit `@0x10`, `ForPercentIncrease`
+`@0x08`, `ForSubtraction` `@0x18`, `ForOverride` `@0x28`, chacune zérotant les autres) — c'est
+une hypothèse, et le capteur le dit. Les `Nullable<int>` sont publiés dans **les deux ordres de
+champ** (`has_value`-first et `value`-first) : ce dépôt documente les deux, et ce capteur ne
+tranche pas à l'aveugle.
+
+**Discipline** : `DamageModifiers$$Add` est sur le chemin de dégât. Le `register` n'arme RIEN ;
+armement on-demand par `effectBonusTraceOn`, sous **budget d'événements** (défaut 4000) qui éteint
+la capture toute seule — un capteur oublié ne pèse pas sur une session partagée.
+RPC : `effectBonusTrace{On,Off,Clear,Dump,Layout}`.
+
+### 8.4 PLAN DE MESURE — ce que la fenêtre doit jouer, et ce que chaque résultat tranche
+
+Prérequis : reinject + `warmupGameSingletons({force:true})`. Montage = **celui de §2**, déjà écrit
+et reproductible : `probe_462_r4a_terrifying_rounding.py --two-faces` (élévation `x1.50` côté
+ATTAQUANT + effet `Terrifying` `x0.70` côté DÉFENSEUR, unités DÉPLACÉES vers un couple adjacent à
+dénivelé, PV forcés à 90 000). C'est le seul régime où les deux faces sont non neutres, donc le
+seul qui sépare les canaux.
+
+Séquence : `effectBonusTraceLayout` → `effectBonusTraceOn {budget: 2000}` → jouer le montage →
+`effectBonusTraceDump {runnerId}` → `effectBonusTraceOff`.
+
+| # | mesure | résultat attendu | ce qu'un ÉCART trancherait |
+|---|---|---|---|
+| 0 | `effectBonusTraceLayout` : `EffectBonus`, `DamageBonus`, `DamageModifiers` | offsets nommés == `assumedOffsets` | tout écart invalide `guess` et les champs interprétés des mesures 1-5 — **le corriger côté Python AVANT de lire quoi que ce soit d'autre** ; les `rawHex`, eux, restent exploitables |
+| 1 | `adds` : chaque `Add` porte-t-il une `face` non nulle ? | oui pour ceux de la prédiction | `face: null` en masse ⇒ le chemin emprunté n'est pas `Calculate*ModifiersForPrediction` (combat plutôt que prédiction) : **c'est une information, pas une panne** — ré-ancrer sur le chemin combat |
+| 2 | **l'`Add` qui porte le `x0.70` de `Terrifying`** : `pct` HasValue ? `cappedAfter == cappedBefore + 1` ? `multAfter == multBefore` ? | **oui / oui / oui** | c'est LE cran. Il confirme la lecture (a) **au runtime** : un pourcentage d'effet va dans la liste capée et NE touche PAS `Multiplier`. Si au contraire `multAfter != multBefore`, l'effet passe par le canal MULTIPLICATEUR et **le fix de §3 est faux** — la mesure de §2 serait alors expliquée autrement, à re-ventiler par étage |
+| 3 | la `face` de cet `Add` | `"defender"` | `"attacker"` ⇒ l'attribution de face du port est inversée sur ce chemin ; `null` ⇒ cf. 1 |
+| 4 | l'`Add` du `x1.50` d'élévation | `face: "attacker"`, même canal (liste capée) | canal MULTIPLICATEUR ⇒ l'élévation est un stat-mod déguisé, ce que §2 cran 3 avait attribué au canal et non à la face — **à re-trancher** |
+| 5 | `overload: 1` (`Add(modifier)`) : apparaît-il, et sur quelle face ? | présent sur le montage `T` (tuile Thorns), `multAfter != multBefore` | absent partout ⇒ le canal `Multiplier` n'est alimenté par AUCUN chemin porté, et le résidu « face ATTAQUANT des stat-mods NON CONFRONTÉE » (§6) reste entier |
+| 6 | `factory` : l'événement de fabrique tire-t-il pour `Terrifying` ? | **peut-être pas** — cf. §8.2 | s'il ne tire pas, ce n'est PAS un échec : l'ancrage 3 a déjà tranché. Le noter comme « effet à corps propre », et lire `effectBonusTraceLayout.damageModifierAbilityEffectChain` pour savoir quels effets passent par le forwarder |
+
+**Ce qui restera NON COUVERT même après la fenêtre** : la face ATTAQUANT des modifications de stat
+(gate `apply_stat_mod_debuff=False`, #49 — aucun producteur ne l'alimente, donc l'étage 3 à
+multiplicateur non neutre reste non confronté sauf à ouvrir le gate), la liste capée exercée avec
+un `cap` réel (`#446-r2-r1` : aucun `EffectBonus` porté ne pose de `cap`, donc `Clamp` n'est jamais
+exercé — la mesure 2 lira le `cap` natif et dira s'il est seulement non nul), et
+`IndividualHitDamage@0x80`, toujours non exposé par `readDamagePredictionResult`.
