@@ -710,6 +710,21 @@ lance pas la mesure (et un agent en worktree frais ne peut pas la lancer utileme
 meurent avec son worktree). Le remède 2 seul laisse le mur se dégrader **en silence** — d'où
 l'impression, à chaque shard, du compte de fichiers sans poids et de la commande qui les mesure.
 
+### Le chiffre, mesuré des deux côtés
+
+Mesure du 2026-08-04 sur ce worktree, poids régénérés puis régime reproduit :
+
+| geste | mur | portée |
+| --- | --- | --- |
+| `--measure` (rejeu complet) | **951,1 s** — 129 fichiers, 1491 tests, `rc=0` | poids **et** empreinte |
+| `--measure-missing`, **cas nominal** (1 fichier offline neuf : `test_457_r9`, ajouté par cette PR) | **2,7 s** | poids seuls, 130 conservés |
+
+**Taxe divisée par ~350** sur le cas nominal. Le régime #463 a été reproduit **sur les poids
+réels** en retirant 5 mesures (dont les deux plus lourdes) : ancien critère **ratio 1,938 →
+ROUGE** (charges `[61, 56, 54, 43, 40, 40, 135, 184]`), nouveau critère **1,000 → vert**, 124 pesés
+/ 6 sans poids. Et la garde, qui **SKIPPAIT** faute de poids dans un worktree frais, s'exécute
+désormais réellement : 22 passed + 1 skipped → **23 passed**.
+
 ### Contre-épreuves
 
 - **La garde MORD toujours** (`test_le_critere_d_equilibre_REJETTE_une_partition_desequilibree`),
@@ -734,3 +749,14 @@ l'impression, à chaque shard, du compte de fichiers sans poids et de la command
 - **`#463-r2`** — **la marge de 1,35 n'a pas été re-dérivée.** Elle est héritée de #457-r6 et
   n'était contrainte par aucune mesure ici ; le test la porte désormais en constante nommée
   (`MARGE_EQUILIBRE`), ce qui la rend au moins visible et mutable.
+- **`#464-r2` — l'EMPREINTE dépend de l'état du bytecode, et l'écart est d'un facteur 60.**
+  Trouvé en régénérant : `_globales` passe de **9** (empreinte livrée, mesurée sur un arbre chaud) à
+  **543** sur ce worktree — dont **540 `.py`**. La cause est mécanique : les imports passent par
+  `__pycache__`, donc le hook d'audit ne les voit **pas** ; sur un arbre sans bytecode, Python ouvre
+  les **sources**, qui deviennent des lectures « globales ». Conséquence : une empreinte mesurée à
+  froid fait retomber `--since` sur « changement dans une lecture GLOBALE → TOUT rejoué » pour
+  presque tout diff Python, **annulant le bénéfice de la sélection**. Ce n'est **pas** un faux vert
+  (l'axe import est couvert indépendamment par le graphe statique — le code le dit déjà), c'est une
+  perte de mur silencieuse. **`--measure` doit donc être joué sur un arbre CHAUD**, et l'empreinte
+  régénérée ici a été **écartée** pour cette raison. Non corrigé : filtrer naïvement les `.py` des
+  globales retirerait un vrai signal (un conftest qui lit un `.py` comme **donnée** à la collecte).

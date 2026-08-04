@@ -77,6 +77,19 @@ def test_le_garde_de_cwd_ACCEPTE_scripts_python(monkeypatch):
     assert P._exiger_cwd() == "", "le probe doit accepter son propre repertoire"
 
 
+@pytest.mark.parametrize("forme", ["minuscules", "separateurs"])
+def test_le_garde_de_cwd_ACCEPTE_les_ECRITURES_EQUIVALENTES(monkeypatch, forme):
+    """Le mode de defaillance le plus couteux : un garde trop STRICT.
+
+    S'il comparait des CHAINES au lieu de chemins resolus, la banque entiere (8 shards) rendrait 99
+    des que l'appelant ecrit le chemin autrement -- et un `Set-Location` PowerShell, un `cd` shell
+    ou un chemin herite d'une variable ne garantissent ni la casse ni le separateur sous Windows.
+    Le refus doit porter sur le REPERTOIRE, pas sur son orthographe."""
+    chemin = str(PYDIR).lower() if forme == "minuscules" else str(PYDIR).replace("\\", "/")
+    monkeypatch.chdir(chemin)
+    assert P._exiger_cwd() == "", "garde trop strict : %r rejete" % chemin
+
+
 def test_le_garde_de_cwd_REFUSE_ailleurs(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     refus = P._exiger_cwd()
