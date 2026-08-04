@@ -584,7 +584,37 @@ def _pycache_prefix():
     return repo_root() / "logs" / "ratchets" / "457-pycache"
 
 
-def _prechauffer_bytecode() -> tuple:
+def _prechauffer_cache_pytest(perimetre: list, prefixe: str) -> int:
+    """Fait fabriquer a PYTEST son propre bytecode, dans un SOUS-PROCESS. Rend le rc.
+
+    `compileall` ne suffit PAS, et la mesure l'a tranche : pytest REECRIT les assertions des
+    fichiers de test et des `conftest.py`, et son chargeur REJETTE un `.pyc` qui ne porte pas sa
+    marque -- il relit donc la SOURCE. Mesure du 2026-08-04, prechauffage `compileall` seul :
+    REFUS du garde de regime sur **136** modules, soit exactement les **132** fichiers du perimetre
+    + les **3** `conftest.py` + 1.
+
+    Ces lectures-la ne sont pas du bruit inevitable : elles dependent de la presence du cache
+    PYTEST, donc de l'etat de la machine -- exactement le defaut de #464-r2, deplace d'un cran.
+    Une passe `--collect-only` les fabrique une bonne fois.
+
+    SOUS-PROCESS, et c'est le point : collecter dans le process courant laisserait les modules de
+    test dans `sys.modules`, si bien que le vrai run ne re-executerait PAS leur code de niveau
+    module -- on PERDRAIT les lectures globales legitimes d'un test-BALAYAGE qui ouvre
+    `data/symbols/**` a l'import. Le cache se partage par le disque ; l'etat du process, non.
+    """
+    import os
+    import subprocess as _sp
+
+    env = dict(os.environ)
+    env["PYTHONPYCACHEPREFIX"] = prefixe
+    r = _sp.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
+                 *perimetre],
+                cwd=str(_PYDIR), env=env, capture_output=True, text=True,
+                encoding="utf-8", errors="replace")
+    return int(r.returncode)
+
+
+def _prechauffer_bytecode(perimetre=None) -> tuple:
     """Compile `scripts/python/**` AVANT de poser le hook. Rend `(prefixe, secondes)`.
 
     LA CAUSE de #464-r2, traitee a sa racine. Sans bytecode a jour, `import` ouvre la SOURCE `.py`
@@ -623,6 +653,12 @@ def _prechauffer_bytecode() -> tuple:
     except Exception as exc:                                   # pragma: no cover - best effort
         print("[457] prechauffage bytecode INTERROMPU (%s) -- le garde de regime tranchera"
               % type(exc).__name__)
+    if perimetre:
+        # Le SECOND etage, indispensable : le bytecode que PYTEST fabrique pour lui-meme.
+        rc = _prechauffer_cache_pytest(perimetre, prefixe)
+        if rc != 0:
+            print("[457] prechauffage du cache pytest : rc=%d (collecte non nominale) -- le garde "
+                  "de regime tranchera" % rc)
     fuite = _pyc_dans_l_arbre() - avant
     if fuite > 0:
         # Le DIRE tout de suite : sans cela, la cause ne se lit qu'a la fin, apres ~20 min.
@@ -662,7 +698,7 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
     # AVANT le hook : le bytecode a jour, sinon `import` ouvre les SOURCES et l'empreinte mesure le
     # `__pycache__` de la machine (#464-r2). Inutile en incremental -- il n'ecrit pas d'empreinte.
     if not seulement_manquants:
-        ou, secs = _prechauffer_bytecode()
+        ou, secs = _prechauffer_bytecode(joues)
         print("[457] bytecode prechauffe en %.1f s -> %s (hors scripts/python, cf. #455)"
               % (secs, ou))
     # L'empreinte pose un audit hook GLOBAL et IRREVERSIBLE sur `open` : on ne l'installe que
