@@ -40,9 +40,9 @@ pas sur sa presence :
   une colonne << Point d'entree >>, dans une ligne de continuation de puce, dans une case-doc qui
   renvoie a une autre, dans un message de commit.
 
-MESURE DE SEPARATION (etape 0b, rejouee a chaque run) : sur `docs/rl/**`, les occurrences `#<n>`
-se comptent par MILLIERS et moins de 8 % sont des definitions. Un critere par simple presence
-rougirait sur la quasi-totalite du depot.
+MESURE DE SEPARATION (etape 0b, rejouee a chaque run) : sur `docs/rl/**`, 6546 occurrences `#<n>`
+pour 831 DEFINITIONS -- 12,7 %. Un critere par simple presence rougirait sur la quasi-totalite du
+depot. (Chiffres a RE-DERIVER via `--report`, jamais a citer : ils bougent a chaque tranche.)
 
 CE QUE LA CONFRONTATION AU DEPOT A CHANGE (mesures du 2026-08-04)
 -----------------------------------------------------------------
