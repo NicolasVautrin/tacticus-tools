@@ -25,6 +25,7 @@ from .common import (
 )
 from .savior_protocols import SaviorProtocolsPlaybook
 from . import loki_custom  # noqa: F401  (#27) enregistre les overrides CalculateCustomUtility par-ability
+from . import normal_attack_kill_gate  # noqa: F401  (#419-r1-tr14-r5-r2-r1-r1-r1) gate !WillNormalAttackKill x17
 from . import resurrection_orb  # noqa: F401  (#289) 1009 -> route non-attaque (register_nonattack)
 from . import plagueburst_mortar  # noqa: F401  (#302) 1169 -> route non-attaque, domaine TUILE
 from . import daemonic_ordnance  # noqa: F401  (#302 tranche 3) 1148 -> meme route, domaine TUILE

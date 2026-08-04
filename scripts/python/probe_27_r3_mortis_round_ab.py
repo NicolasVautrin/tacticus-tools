@@ -67,6 +67,16 @@ TARGET_VIS = "blackTerminator"     # DEPLACABLE (aucun de Immovable/Hulking/BigT
 # unites du pool sont dans ce cas (adeptMorvenn, astraBullgryn, blackObliterator,
 # custoVexilusPraetor, orksKillaKan, orksWarboss, tauCrisis, tyranTyrantGuard).
 IMMOVABLE_VIS = "tauCrisis"
+# PV du CONTROLE, releves separement de `HP_TARGET` depuis #419-r1-tr14-r5-r2-r1-r1-r1.
+# POURQUOI : `MortisRoundPlaybook$$ShouldExecute` (le corps que la table attribue a
+# `IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$ShouldExecute`, partage par 14 classes) refuse
+# le cast quand `BasePlaybook$$WillNormalAttackKill` est VRAI. A `HP_TARGET`, l'attaque normale du
+# caster tue `tauCrisis` a coup sur -- le gate refuse donc 1004 sur elle, et le bras `bigtarget` ne
+# peut plus separer ses DEUX causes de retomber sur 69 (custom 0 par `IsDisplaceable`, ou gate).
+# La mutation `no_displaceable` y devenait INVISIBLE, et c'est ce que le cran de mutation a
+# attrape. Relever les PV du seul CONTROLE desarme le gate sans toucher a l'axe etudie (le trait
+# `BigTarget`, qui gouverne le custom) ni au calibrage de `TARGET_VIS`.
+HP_IMMOVABLE = 12000
 
 GEOMS = {
     "a": {"caster": "0,1", "target": "0,3", "push": "0,4", "custom": 20},
@@ -113,6 +123,10 @@ def _units(rid: int) -> dict:
 def build(hp_target: int) -> tuple[int, dict]:
     _run(["build", "--seed", str(SEED), "--board", BOARD,
           "--hp-target", str(hp_target),
+          # `--hp-target` force TOUT le camp adverse ; `--unit-stat` re-releve le seul CONTROLE
+          # (cf. `HP_IMMOVABLE`). L'ORDRE compte : `--unit-stat` patche le BC NORMALISE, donc apres.
+          "--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (IMMOVABLE_VIS, HP_IMMOVABLE,
+                                                              HP_IMMOVABLE),
           "--p-units", "%s,%s" % (CASTER_VIS, ALLY_VIS),
           "--a-units", "%s,%s" % (TARGET_VIS, IMMOVABLE_VIS),
           "--state-file", str(STATE)])
