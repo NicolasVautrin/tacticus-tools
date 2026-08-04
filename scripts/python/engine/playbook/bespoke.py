@@ -131,7 +131,13 @@ class MomentShacklePlaybook:
         for T in ctx.reach_nc:   # origine d'abord -> keep-first au tie (#76)
             adj_enemies = sum(1 for e in ctx.epos if bq.is_adjacent(T, e, ctx.elev_by_pos))
             util = self_heal_u + adj_enemies * w
-            if util < self.MIN_UTILITY:
+            # `IdunBattle.AI.Playbook.Loki.MomentShacklePlaybook$$ShouldExecute`, lu verbatim :
+            #     return Fix64.op_GreaterThan(attackHealUtility, <premier static de la classe>);
+            # Comparaison STRICTE, donc une utilite EGALE au seuil est REFUSEE. Le port ecrivait
+            # `util < MIN_UTILITY: continue`, c.-a-d. `util >= 1` accepte -- une borne INCLUSIVE la
+            # ou le natif est exclusif (#419-r1-tr14-r5-r2-r1-r1-r1-r2). Le seuil lui-meme est
+            # inchange : `Fix64(1)`, ecrit par `...MomentShacklePlaybook$$.cctor`.
+            if not util > self.MIN_UTILITY:
                 continue
             if best is None or util > best[1]:   # strict >
                 best = (T, util)

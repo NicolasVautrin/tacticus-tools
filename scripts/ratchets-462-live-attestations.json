@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785844967,
+ "_ecrit_le": 1785850378,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -2849,6 +2849,20 @@
    "messages": [],
    "passed": 7,
    "sec": 250.3,
+   "skipped": 0,
+   "verdict": "VERT",
+   "xfailed": 0
+  },
+  "tests/engine/test_419r1tr14r5r2r1r1r1r2_static_threshold_gate_live.py": {
+   "_at": 1785850378,
+   "_blob": "9a433243510abaa6b7388f278fba4f98021a123d",
+   "_commit": "ac2f5fc7f04199af37f892497bf875d0247ce835",
+   "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-af797e37f63c5f36a",
+   "error": 0,
+   "failed": 0,
+   "messages": [],
+   "passed": 15,
+   "sec": 60.6,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0
