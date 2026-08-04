@@ -2,7 +2,7 @@ import {
     class_get_fields, class_get_name,
     field_get_name, field_get_type,
     findClass, findClassAnywhere, findCtorByParamCount,
-    findMethod, findMethodByParamCount, getFieldOffset, s,
+    findMethod, findMethodByParamCount, getFieldOffset, methodParamClassName, s,
     type_get_class_or_element_class,
 } from "../../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../../il2cpp/invoke.js";
@@ -156,6 +156,53 @@ export const abStateOff = componentsActiveAbilityClass
     ? getFieldOffset(componentsActiveAbilityClass, "_abilityState") : -1;
 export const abOverrideStateOff = componentsActiveAbilityClass
     ? getFieldOffset(componentsActiveAbilityClass, "OverrideAbilityState") : -1;
+// #433-r4-r2-r1-r1-c-r1 — le TOUR DE DERNIÈRE UTILISATION, seul champ de la marche (f) de
+// `IdunBattle.Core.Services.AttackQuery$$GetInvalidCasterReason` qu'AUCUN canal ne publiait.
+// Le foyer natif est `IdunBattle.Core.Services.AttackQuery$$IsAlreadyUsedThisTurn(this,
+// activeAbilityType, activeAbility)`, lu verbatim sur `rnca9r7q6c` :
+//
+//   if (this.<+0x10> != 0)                             -> false        // court-circuit
+//   if (StaticBattleRules.ActiveAbility.IsRegularAbilityType(type))   -> false
+//   if (!activeAbility.<Nullable @+0x20>.HasValue)     -> false
+//   turnsEnded = TurnComponent.GetAmountOfTurnsEnded(StateExtensions.GetMatchTurn(this.<+0x20>), 0)
+//   return hasValue && (value == turnsEnded)
+//
+// ⚠ Le sens de la 2ᵉ marche : le natif rend `false` quand le type EST une attaque régulière
+// (`if ((char)IsRegularAbilityType(...) == '\0')` garde le corps) — une attaque normale n'est
+// donc jamais « déjà utilisée ce tour ». Lu, pas déduit du nom.
+//
+// Le champ `@+0x20` est `UnresetedLastTurnUsed` — nom MESURÉ au runtime (métadonnées IL2CPP,
+// `classFields("IdunBattle.Entities.Components", "ActiveAbility")` sur `rnca9r7q6c`), pas
+// inféré : son voisin `LastTurnUsed` @+0x18 est un AUTRE `Nullable<int>` du même composant, et
+// choisir à l'oeil entre les deux aurait été un coup de dé. Les deux sont donc publiés, pour
+// que la fenêtre puisse CONFRONTER lequel le natif lit plutôt que me croire sur parole.
+//
+// Résolution par NOM et AUCUN repli littéral (contraste voulu avec `fieldOffsetOr`) : un nom
+// absent au prochain build doit rendre « pas mesuré », jamais la lecture d'un offset devenu
+// celui d'un autre champ. Le layout observé est publié par `abilityStateLayout()`.
+export const abLastTurnUsedOff = componentsActiveAbilityClass
+    ? getFieldOffset(componentsActiveAbilityClass, "LastTurnUsed") : -1;
+export const abUnresetedLastTurnUsedOff = componentsActiveAbilityClass
+    ? getFieldOffset(componentsActiveAbilityClass, "UnresetedLastTurnUsed") : -1;
+
+/** `Nullable<int>` d'IL2CPP lu en TRI-ÉTAT : `{ value, hasValue }` où `hasValue === null`
+ *  signifie **PAS MESURÉ** (offset non résolu ou lecture en faute) — distinct de
+ *  `hasValue === false`, qui est une MESURE (le Nullable est vide).
+ *
+ *  Disposition `{ int value @+0 ; bool hasValue @+4 }` — LUE, pas supposée : sur
+ *  `IdunBattle.Entities.Components.ActiveAbility` les champs voisins l'encadrent
+ *  (`RemainingCooldownTurns` @0x2c suivi de `IsInitialCooldown` @0x34 = 8 octets pour le
+ *  Nullable), et `AttackQuery$$IsAlreadyUsedThisTurn` copie les 8 octets de `+0x20` d'un bloc
+ *  puis compare la moitié BASSE au compteur de tours. */
+function readNullableInt(base: NativePointer, off: number): {
+    value: number | null; hasValue: boolean | null;
+} {
+    if (off < 0) return { value: null, hasValue: null };
+    try {
+        const has = base.add(off + 4).readU8() !== 0;
+        return { value: has ? base.add(off).readS32() : null, hasValue: has };
+    } catch { return { value: null, hasValue: null }; }
+}
 
 /** Lit l'état castable d'un objet components.ActiveAbility (élément de GetActives).
  *  `cooldown`=null si Nullable sans valeur (= prêt). Tous champs best-effort. */
@@ -163,11 +210,17 @@ export function readAbilityState(ab: NativePointer): {
     usable?: boolean; cooldown?: number | null; disabled?: boolean;
     ammoCost?: number | null; hasAmmo?: boolean;
     level?: number; multiplier?: number;
+    lastTurnUsed?: number | null; lastTurnUsedHasValue?: boolean | null;
+    unresetedLastTurnUsed?: number | null;
+    unresetedLastTurnUsedHasValue?: boolean | null;
 } {
     const st: {
         usable?: boolean; cooldown?: number | null; disabled?: boolean;
         ammoCost?: number | null; hasAmmo?: boolean;
         level?: number; multiplier?: number;
+        lastTurnUsed?: number | null; lastTurnUsedHasValue?: boolean | null;
+        unresetedLastTurnUsed?: number | null;
+        unresetedLastTurnUsedHasValue?: boolean | null;
     } = {};
     try {
         if (abCanUseOff >= 0) st.usable = ab.add(abCanUseOff).readU8() !== 0;
@@ -181,6 +234,16 @@ export function readAbilityState(ab: NativePointer): {
             st.ammoCost = has ? ab.add(abAmmoCostOff).readS32() : null;
         }
         if (abHasAmmoOff >= 0) st.hasAmmo = ab.add(abHasAmmoOff).readU8() !== 0;
+        // #433-r4-r2-r1-r1-c-r1 — les DEUX `Nullable<int>` de tour, en tri-état. On publie la
+        // valeur BRUTE et son `hasValue`, jamais un booléen pré-calculé : la comparaison au
+        // compteur de tours (`turnsEnded`, publié au niveau réponse) appartient au moteur, qui
+        // doit pouvoir la refaire à l'identique du natif.
+        const lastTurn = readNullableInt(ab, abLastTurnUsedOff);
+        st.lastTurnUsed = lastTurn.value;
+        st.lastTurnUsedHasValue = lastTurn.hasValue;
+        const unreseted = readNullableInt(ab, abUnresetedLastTurnUsedOff);
+        st.unresetedLastTurnUsed = unreseted.value;
+        st.unresetedLastTurnUsedHasValue = unreseted.hasValue;
         // niveau/mult PER-ABILITY (#100) — mirror get_AbilityState @180f8fc40 (Override prime).
         let stOff = -1;
         if (abOverrideStateOff >= 0 && ab.add(abOverrideStateOff + 0xc).readU8() !== 0) {
@@ -193,6 +256,92 @@ export function readAbilityState(ab: NativePointer): {
     } catch { /* */ }
     return st;
 }
+
+/** La DISPOSITION observée de `IdunBattle.Entities.Components.ActiveAbility` — ce que
+ *  `readAbilityState` a réellement résolu, publié tel quel.
+ *
+ *  Pourquoi un capteur publie son propre layout (#279, #448-r1-r1-r1-r1) : un offset résolu par
+ *  nom est juste ou ABSENT, jamais approximatif — mais le lecteur, lui, ne peut pas distinguer
+ *  « champ lu à 0x20 » de « champ non trouvé, valeur nulle » sans qu'on le lui dise. Les
+ *  littéraux `decompiled*` sont ceux LUS dans
+ *  `IdunBattle.Core.Services.AttackQuery$$IsAlreadyUsedThisTurn` (`+0x20`) et dans la
+ *  disposition mesurée du build `rnca9r7q6c` : ils ne sont JAMAIS utilisés pour lire, seulement
+ *  pour qu'un désaccord saute aux yeux. */
+export function abilityStateLayout(): Record<string, unknown> {
+    return {
+        classResolved: !!componentsActiveAbilityClass,
+        canStillBeUsed: abCanUseOff, remainingCooldownTurns: abCooldownOff,
+        isDisabled: abDisabledOff, ammoCost: abAmmoCostOff, hasEnoughAmmo: abHasAmmoOff,
+        abilityName: abilityNameOff, abilityState: abStateOff,
+        overrideAbilityState: abOverrideStateOff,
+        lastTurnUsed: abLastTurnUsedOff,
+        unresetedLastTurnUsed: abUnresetedLastTurnUsedOff,
+        decompiledUnresetedLastTurnUsed: 0x20,   // lu dans `AttackQuery$$IsAlreadyUsedThisTurn`
+        decompiledLastTurnUsed: 0x18,            // voisin, disposition mesurée `rnca9r7q6c`
+    };
+}
+
+// --- Compteur de tours ÉCOULÉS — l'autre moitié de `IsAlreadyUsedThisTurn` (#433-r4-r2-r1-r1-c-r1)
+//
+// `IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEnded(this, turnsToAdd)` =
+// `Sum(this.<Dictionary @+0x40>.Values) + turnsToAdd`. C'est CE compteur — et pas le `turn`
+// déjà publié, qui est `GetAmountOfTurnsStartedByCurrentPlayer` (cf. `game/match-state.ts`) —
+// que le natif compare à `ActiveAbility.UnresetedLastTurnUsed`. Publier le champ SANS lui
+// laisserait la question indécidable côté moteur : les deux grandeurs ne coïncident pas.
+//
+// On INVOQUE la méthode nommée plutôt que de refaire la somme : la sémantique reste celle du
+// natif même si le dictionnaire change de forme.
+export const turnComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "TurnComponent");
+export const getAmountOfTurnsEndedMi = turnComponentClass
+    ? findMethodByParamCount(turnComponentClass, "GetAmountOfTurnsEnded", 1) : null;
+
+/** Le `TurnComponent` du state — mirror de `IdunBattle.Entities.StateExtensions$$GetMatchTurn`,
+ *  qui est un `GetFirstWithComponent<TurnComponent>` : PREMIÈRE entité qui porte ce composant,
+ *  quel que soit son `EntityType` (on ne présuppose donc pas l'entité `Match`). */
+export function findTurnComponent(statePtr: NativePointer): NativePointer | null {
+    if (!turnComponentClass) return null;
+    let found = ptr(0);          // sentinelle plutôt que `null` — même idiome que getAbilityComponent
+    try {
+        forEachEntity(statePtr, (e) => {
+            if (!found.isNull()) return;
+            forEachComponent(e, (comp, klass) => {
+                if (found.isNull() && klass.equals(turnComponentClass!)) found = comp;
+            });
+        });
+    } catch { /* walk partiel */ }
+    return found.isNull() ? null : found;
+}
+
+/** `TurnComponent.GetAmountOfTurnsEnded(0)` sur le state, ou `null` = PAS MESURÉ (classe ou
+ *  méthode non résolue, aucune entité porteuse, invoke en faute). Jamais `0` par défaut : `0`
+ *  est une valeur LÉGITIME du domaine (premier tour), et la confondre avec une panne de lecture
+ *  ferait répondre « cette ability a été utilisée ce tour » à toute ability dont le Nullable
+ *  vaut 0. Même discipline qu'`invokeInt`. */
+export function readTurnsEnded(statePtr: NativePointer): number | null {
+    if (!getAmountOfTurnsEndedMi) return null;
+    const tc = findTurnComponent(statePtr);
+    if (tc === null) return null;
+    // 8 octets à ZÉRO : couvre `int turnsToAdd` (les 4 premiers) comme un éventuel
+    // `Nullable<int>` (HasValue=0 → GetValueOrDefault=0). Le type réel du paramètre est
+    // publié tel quel par `turnsEndedLayout()` — on ne le devine pas, on le montre.
+    const arg = Memory.alloc(8); arg.writeU64(0);
+    try {
+        const r = invokeMethod(getAmountOfTurnsEndedMi.info, tc, [arg]);
+        return r.isNull() ? null : r.add(0x10).readS32();
+    } catch { return null; }
+}
+
+/** Ce que le capteur a résolu pour le compteur de tours — même rôle qu'`abilityStateLayout`. */
+export function turnsEndedLayout(): Record<string, unknown> {
+    return {
+        classResolved: !!turnComponentClass,
+        methodResolved: !!getAmountOfTurnsEndedMi,
+        paramClass: getAmountOfTurnsEndedMi
+            ? methodParamClassName(getAmountOfTurnsEndedMi.info, 0) : null,
+    };
+}
+
 // EntityExtensions.GetMainTile(entity, state) → la tile courante de l'unité
 // (GetMovableTilesFor exclut la tile d'origine ; on l'ajoute au set candidat
 // pour que « rester sur place et attaquer » soit rankée).
@@ -1215,6 +1364,13 @@ export interface AbilityInfo {
     // niveau/mult PER-ABILITY (AbilityState @0x4c, capteur #100) — indexent les variables
     // config (maxDmg/nrOfHits/…) de CETTE ability, ≠ canal global unitConfig.
     level?: number; multiplier?: number;
+    // #433-r4-r2-r1-r1-c-r1 — tour de dernière utilisation, en TRI-ÉTAT :
+    // `<x>HasValue === null` = PAS MESURÉ (offset non résolu), `false` = mesuré et vide,
+    // `true` = mesuré avec valeur. `unresetedLastTurnUsed` est celui que lit
+    // `AttackQuery$$IsAlreadyUsedThisTurn` ; `lastTurnUsed` est son voisin, publié pour que
+    // la confrontation soit possible sans seconde fenêtre.
+    lastTurnUsed?: number | null; lastTurnUsedHasValue?: boolean | null;
+    unresetedLastTurnUsed?: number | null; unresetedLastTurnUsedHasValue?: boolean | null;
 }
 export function unitAbilityTypes(
     unit: NativePointer, includeActives: boolean,
