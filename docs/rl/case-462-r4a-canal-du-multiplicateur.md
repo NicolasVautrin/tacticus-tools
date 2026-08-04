@@ -131,8 +131,11 @@ MULTIPLICATEUR, la seconde seule une régression de la chaîne.
   le `Nullable<DamageBonus>` rendu par le slot `0x1a` d'un effet, champ par champ, à l'exécution — le
   RPC `readDamagePredictionResult` (`frida/hooks/game/damage-prediction.ts`) ne l'expose pas ; il
   faudrait un capteur sur `IdunBattle.Entities.Effects.DamageModifierAbilityEffect$$
-  CreateEffectDamageBonusForAttack` (retour, 0x58 octets). **Le capteur est ÉCRIT (#466, §8
-  ci-dessous) ; la fenêtre reste à prendre — NON CONFRONTÉ.**
+  CreateEffectDamageBonusForAttack` (retour, 0x58 octets). **CONFRONTÉ le 2026-08-04 (§8.5) : la
+  lecture (a) est RÉFUTÉE pour ce chemin** — le `damageBonus` d'un effet ne porte aucun
+  pourcentage ; le multiplicateur arrive par le 3ᵉ argument `modifier` et atterrit dans
+  `Multiplier@0x30`. Le fix de §3 reste juste EN VALEUR, mais par équivalence algébrique en
+  régime sans `cap` (résidu `#462-r4a-r1-r1`).
 * **`attackModifiers` est un `Nullable` MIS À ZÉRO dans `CalculateAbilityDamage`** (lu : les 0x40
   octets sont écrasés juste avant l'appel), alors que `PredictAttackRaw` construit ses DEUX `Nullable`
   (`Nullable<>..ctor` × 2, aux deux call-sites). Les deux appelants du même foyer ne traversent donc
@@ -167,10 +170,10 @@ MULTIPLICATEUR, la seconde seule une régression de la chaîne.
   défenseur dans la seule `%-list` et rendait, depuis le fix, une chaîne AMPUTÉE du `x1.50` d'une
   tuile Thorns (faux signal). Ils lisent maintenant les deux canaux.
 
-## 8. `#462-r4a-r1` — le capteur, écrit (#466), NON CONFRONTÉ
+## 8. `#462-r4a-r1` — le capteur, écrit (#466), **CONFRONTÉ le 2026-08-04** (§8.5)
 
-**Aucune ligne de cette section n'est une mesure live** : rien n'a tiré, faute de fenêtre. Ce qui
-suit est de la RE (décompilé) plus le code du capteur.
+Les §8.1-8.4 sont la RE et le plan d'**avant** la fenêtre, **conservés tels quels** : c'est ce qui
+rend lisible ce que la mesure a réfuté. La mesure et ses conséquences sont en **§8.5**.
 
 ### 8.1 Ce que le décompilé tranche déjà — la lecture (a) est CORROBORÉE
 
@@ -267,3 +270,104 @@ multiplicateur non neutre reste non confronté sauf à ouvrir le gate), la liste
 un `cap` réel (`#446-r2-r1` : aucun `EffectBonus` porté ne pose de `cap`, donc `Clamp` n'est jamais
 exercé — la mesure 2 lira le `cap` natif et dira s'il est seulement non nul), et
 `IndividualHitDamage@0x80`, toujours non exposé par `readDamagePredictionResult`.
+
+### 8.5 LA MESURE — jouée le 2026-08-04, session 3, build `rnca9r7q6c`
+
+`probe_462r4ar1_effect_bonus_channel_live.py --wide`, montage `--two-faces` de §2 (natif
+**761 / 1141**, port idem). **Le canal TRANSPORTE : 693 `Add` captés.** Et il **réfute le cran
+central**.
+
+| # | attendu (§8.4) | obtenu | ce que l'écart tranche |
+|---|---|---|---|
+| 0 | offsets nommés == `assumedOffsets` | **concordance EXACTE des 8 constantes**, une fois l'en-tête de boxing retiré | cf. « le faux écart de 0x10 » ci-dessous |
+| 1 | face non nulle sur les `Add` de la prédiction | **693/693 portent une face**, 0 `null` — mais **100 % `attacker`, 0 `defender`** | **INDÉCIDABLE** — cf. ci-dessous |
+| **2** | `pct` HasValue **oui** / `cappedAfter == cappedBefore+1` **oui** / `multAfter == multBefore` **oui** | **non / non / non** : `pct` jamais renseigné, la liste capée **ne grossit sur AUCUN des 693**, le `Multiplier` bouge sur **276** | **RÉFUTÉ.** Les pourcentages de ce montage passent par le canal MULTIPLICATEUR |
+| 3 | face de cet `Add` == `"defender"` | `"attacker"` | même indétermination que 1 |
+| 4 | `x1.50` d'élévation : `attacker`, **même canal** que l'effet | `attacker`, **même canal** — et **même accumulateur** | « même canal » **confirmé**, mais c'est le MULTIPLICATEUR, pas la liste capée |
+| 5 | `overload: 1` présent **sur le montage `T`** (tuile Thorns) | **138 événements, SANS aucune tuile Thorns** | le résidu « le canal `Multiplier` n'est alimenté par AUCUN chemin porté » est **fermé par la négative** |
+| 6 | la fabrique « peut-être ne tire pas » | **0 événement** | **exactement le trou nommé d'avance** (§8.2) : le symbole est le forwarder de la base, l'effet a un corps propre |
+
+**Ce que la mesure montre, en une ligne** : sur un **même accumulateur**, la surcharge
+1-argument applique `x0.6999999999534339` (`Terrifying`) **puis** `x1.5` (élévation) —
+`1 -> 0.6999999999534339 -> 1.0499999998137355`. Les deux faces alimentent **UN SEUL**
+`Multiplier@0x30`, donc **UN SEUL** étage `CalculateBaseDamageWithModifiers`, donc **UN SEUL**
+`Round`. C'est `fusionne_1_round`, et c'est exactement ce que le natif rend (761 / 1141 contre
+762 / 1142 pour tout ordre à deux arrondis).
+
+**Le fix de §3 rend les bonnes valeurs par le mauvais chemin.** Le port range les %-effets dans
+`pct_list`/`pct_list_defender` (composés sans arrondi, puis un `Round`) ; le natif les range dans
+`Multiplier` (composés sans arrondi entre eux, puis un `Round`). **Algébriquement identiques
+tant qu'aucun `cap` n'entre en jeu** — et `#446-r2-r1` établit qu'aucun `EffectBonus` porté n'en
+pose. La mesure le confirme **côté natif** : `pct`/`cap` du `DamageBonus` ne sont renseignés sur
+**aucun** des 693 événements, la liste capée reste à `0`. C'est donc un **accord en régime
+dégénéré** : les deux modèles ne se sépareront que le jour où un `cap` réel apparaîtra, ou qu'un
+producteur versera dans la liste capée. **Résidu `#462-r4a-r1-r1`** — le port n'est pas faux sur
+le corpus mesuré, il est *juste pour une autre raison que celle écrite*, et §6/§8.1 doivent se
+lire ainsi : la lecture (a) (« un pourcentage d'effet part dans la liste capée `@0x18` ») est
+**réfutée pour ce chemin**. Le `damageBonus` n'y porte pas de pourcentage du tout — le
+multiplicateur arrive par le **3ᵉ argument** `modifier`, et la surcharge 2 **délègue** alors à la
+surcharge 1 (`if (modifier.HasValue) Add(this, modifier.Value)`), ce que la trace montre par
+l'imbrication des `seq` (l'appel interne sort avant l'englobant).
+
+**Preuve que la lecture est JUSTE, et non plausible** : `multAfter == multBefore x modifierValue`
+sur **138/138** événements de la surcharge 1. Une valeur lue au mauvais offset ne satisferait pas
+cette identité.
+
+**Preuve que le régime n'est PAS dégénéré** : **4 accumulateurs distincts** portent **deux**
+multiplicateurs de valeurs différentes (`0.7` et `1.5`) composés l'un après l'autre. Le produit
+(`1.05`) diffère de chacun des facteurs, donc la mesure sépare « un seul terme » de « deux termes
+composés » — et sépare la composition sans arrondi de la composition avec. Un montage à une seule
+face aurait rendu le même `PASS` sans rien établir.
+
+**Le faux écart de `0x10` (cran 0), et pourquoi il valait d'être publié.** `field_get_offset`
+rend l'offset dans la représentation **BOXÉE** ; les constantes du capteur sont ceux de la struct
+**NUE**, celle qu'un `ValueType` passé par pointeur présente aux `Add`. Lues côte à côte, les
+deux séries semblent toutes décalées. Elles concordent **exactement** à `-0x10` près :
+
+| struct | champ déclaré (boxé) | nu | constante | |
+|---|---|---|---|---|
+| `DamageModifiers` | `Addition@0x20` | `0x10` | `DM_ADDITIVE` | OK |
+| | `CappedModifiers@0x28` | `0x18` | `DM_CAPPED_LIST` | OK |
+| | `Multiplier@0x40` | `0x30` | `DM_MULTIPLIER` | OK |
+| | `DamageBonusesForInfo@0x48` | `0x38` | `DM_BONUS_LIST` | OK |
+| `DamageBonus` | `Addition@0x38` | `0x28` | `DB_FLAT_PLUS` | OK |
+| | `Subtraction@0x40` | `0x30` | `DB_FLAT_MINUS` | OK |
+| | `CapModifier@0x58` | `0x48` | `DB_PCT` | OK (son vrai nom est `CapModifier`) |
+| | `Cap@0x60` | `0x50` | `DB_CAP` | OK |
+
+Et les **quatre slots d'`EffectBonus`** que §8.3 étiquetait HYPOTHÈSE sont **confirmés** par les
+noms déclarés : `Multiplicator@0x08`, `Addition@0x10`, `Subtraction@0x18`, `Override@0x28` (nus).
+`DAMAGE_BONUS_BYTES = 0x58` est la taille nue exacte (`Cap@0x50` + 8). Le capteur annote
+désormais les deux référentiels (`nakedFields`, `isValueType`) — **non déployé**.
+
+**Ce que la mesure ne peut PAS trancher, et pourquoi (cran 1/3).** `0 defender` sur 693 admet
+deux lectures incompatibles : *(a)* la fenêtre défenseur n'est pas traversée sur ce chemin,
+*(b)* son hook n'a pas été posé. Rien de ce que le capteur publiait ne les sépare. Le décompilé
+ne referme pas non plus : `CalculateDefenderModifiersForPrediction` **existe en 2 surcharges**
+(la 2-paramètres appelle la 3-paramètres) et **appelle bien `DamageModifiers$$Add`**, mais ses
+deux corps n'ont **aucun appelant `CALL` direct** — que des références DATA, donc appel indirect
+par `MethodInfo` — et `CalculateAttackerModifiersForPrediction` est dans **exactement le même
+cas**. L'asymétrie observée n'est donc explicable ni par l'arité ni par les xrefs. **NON
+CONFRONTÉ**, et le capteur est corrigé pour que la prochaine fenêtre tranche : `facesPosed`
+(quelles surcharges ont reçu un `attach`, avec arité et pointeur) et `faceEnters` (combien de fois
+chaque fenêtre est franchie, **indépendamment de tout `Add`**). **Résidu `#462-r4a-r1-r2`.**
+
+**Un fait de portée générale, mesuré au passage** : `aiPlaybookPredict` **ne traverse pas**
+`DamageModifiers$$Add` — `adds` vaut **657 avant** l'appel et **657 après**. Les 693 événements
+viennent des `applyAction move` du placement (657) et de l'**attaque réelle** jouée en fin de
+montage (36). C'est pour cela que la première passe, armée autour du seul `aiPlaybookPredict`,
+a rendu **0 événement** : une fenêtre de capture correctement ancrée sur le point de mesure du
+montage hôte, et pourtant **muette**. Le montage de §2 compare une prédiction native à un replay
+offline ; il ne fait **jamais** jouer le chemin de dégât natif. Toute confrontation ultérieure de
+ce capteur doit donc jouer une **action réelle** (`--wide`), sans quoi elle conclura à tort que le
+canal est mort. **Résidu `#462-r4a-r1-r3`** : par où `aiPlaybookPredict` calcule-t-il ses bornes,
+si ce n'est par `DamageModifiers$$Add` ? Non instruit ici.
+
+**Le layout du `Nullable<int>` est tranché** : sur les 6 événements qui bougent `Addition`,
+`flatPlus` lu `has_value`-first rend `898` et `addAfter` vaut `898` ; l'ordre `value`-first
+rendrait `130`. ⇒ **`has_value` en tête, valeur à `+4`**. Le capteur publiait les deux ordres
+sans trancher ; c'est la mesure qui le fait.
+⚠ En revanche `modifierHasValue` valait **`51`** sur 30 événements : l'octet `@+8` du
+`Nullable<Fix64>` **n'est pas** son `has_value` sur ce build. Corrigé en tri-état (hors `{0,1}`
+⇒ `-1` = « pas mesuré ») plutôt que publié sous un nom qui promet un booléen. Sans effet sur les
+conclusions : la question se tranche par la délégation à la surcharge 1.
