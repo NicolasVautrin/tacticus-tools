@@ -217,9 +217,10 @@ substrats partagent. L'ancre utile est un voisin **géométrique et non connexe*
 
 ## 9. Ce qui n'est PAS couvert
 
-* **`EmpyricAmbush` n'est pas confronté au natif.** Son seuil est franchissable (22-24 couples
-  mesurés), mais l'ability n'est pas portée : aucune mesure de son buff n'a été jouée. Le porteur
-  `eldarLhykhis` est au pool — c'est confrontable, ça n'a pas été fait.
+* ~~**`EmpyricAmbush` n'est pas confronté au natif.**~~ **FERMÉ** par `#589-r1-r1` (l'effet et son
+  gate, seuil confronté à `movement = 4`) puis `#589-r1-r1-r2` (le PRODUIT avec le compteur
+  rebranché, sur `C1_74` et `C3_14`). ⚠ La phrase « le porteur `eldarLhykhis` est au pool » était
+  **FAUSSE** : elle est hors catalogue et s'injecte (`catalog_inject --missing`).
 * **`MastersOfManoeuvre`** : porteur `darkaStormSpeeder` (MoW, voie `mythic`). Saturé par la borne,
   donc sans enjeu pour #589 — mais non confronté.
 * **Le sujet des sélecteurs 4 et 5** (`DSLSelectors+0x48` = Caster, `+0x40` = sujet du `On(0x4)`)

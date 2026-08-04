@@ -127,13 +127,15 @@ quatre tests LIVE de Saga **passent** — c'était donc bien cette tranche, pas 
   lit `TilesMovedThisTurn` — hors périmètre de cette tranche, mais non portés.
 * **Le régime `Walk` n'est pas joué**, et c'est délibéré : mesuré INERTE pour #589 (0 basculement
   sur 3906 couples × 2 boards), il ne discrimine rien sur l'axe qui nous occupe.
-* **Un seul board (`MC1_67`) et un seul seed (777)** pour la confrontation du seuil. Le seuil ne
-  dépend pas de la géométrie — c'est le COMPTEUR qui en dépend, et lui a été généralisé sur deux
-  boards par `case-589-r1`. Mais aucune mesure de CE cas n'a été rejouée sur un board à `Bridge`,
-  donc le couple « compteur rebranché × seuil franchi » n'est pas confronté **de bout en bout**.
+* ~~**Un seul board (`MC1_67`) et un seul seed (777)** pour la confrontation du seuil.~~ **FERMÉ
+  par `#589-r1-r1-r2`** (`case-589-r1-r1-r2-produit-canal-seuil.md`) : le couple « compteur
+  rebranché × seuil franchi » est confronté de bout en bout sur `C1_74` et `C3_14`, 3 trajets où
+  `n_G < 4 <= n_C`, 3 accords. Le bras GÉOMÉTRIE (l'état d'avant #589) y **change la décision** et
+  vaut exactement `NOCHANNEL`.
 * **`AmuletOfTheVoidwyrm_CritDamageReduction`** (`ForSubtraction(get_OwnerIsTarget, …)`, sur la
-  CIBLE) reste NON PORTÉ. L'élargissement du balayage le rend désormais **atteignable** ; il ne le
-  porte pas. C'est l'axe RÉDUCTION du canal crit-dégât, gisement séparé.
+  CIBLE) reste NON PORTÉ — résidu **`#589-r1-r1-r2-r1`**. L'élargissement du balayage le rend
+  désormais **atteignable** ; il ne le porte pas. C'est l'axe RÉDUCTION du canal crit-dégât,
+  gisement séparé.
 * **Les effets de TUILE** restent hors de l'univers du balayage, comme sur l'axe COUPS.
 * **La face PRÉDICTION** n'est pas touchée : `services/damage_prediction.py` n'appelle pas
   `crit_chance_bonus_from_effects` (gap préexistant du canal, `case-366-r1` §6.4), donc le
