@@ -1,5 +1,5 @@
 {
- "_ecrit_le": 1785809621,
+ "_ecrit_le": 1785811011,
  "fichiers": {
   "tests/engine/entities/pathfinding/test_block_entering_tiles_live.py": {
    "_at": 1785768831,
@@ -119,15 +119,15 @@
    "xfailed": 0
   },
   "tests/engine/runner/test_462_r4b_r1_r1_r1_r1_bond_removal_live.py": {
-   "_at": 1785809621,
-   "_blob": "26a45f4208429f9c489bf30235d34fc6c156e9d3",
-   "_commit": "df93ed18427d062902e0625d154223d75d92dc29",
+   "_at": 1785811011,
+   "_blob": "05d97a05f0448d791a3b475b1c8c8773012e3aef",
+   "_commit": "efd5c177b21a6dae2a4be99d5c2688ff63c709e1",
    "_root": "C:/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-afe0c4c4939872db0",
    "error": 0,
    "failed": 0,
    "messages": [],
    "passed": 4,
-   "sec": 64.5,
+   "sec": 29.5,
    "skipped": 0,
    "verdict": "VERT",
    "xfailed": 0

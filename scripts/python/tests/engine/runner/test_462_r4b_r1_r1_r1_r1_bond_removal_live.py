@@ -28,6 +28,14 @@ Un port qui ignorerait le virtuel echoue forcement sur A ou sur B.
 CE QUI N'EST PAS COUVERT ICI : les triggers (b) `<+0x728> get_Range` et (c) `<+0x738>
 get_Adjacent`. Ils ne sont pas portes -- aucun porteur confrontable, cf. `bond_removal.py` §4.
 
+⚠ NE PAS JOUER EN PARALLELE DE `test_366_r1_tunneling_horror_live.py`. Le bras B delegue son
+montage a `probe_366_r1_tunneling_horror`, dont le state-file et le seed BC greffe sont des
+LITTERAUX de module (`STATE`, `SEED_BC`) : deux passes concurrentes ecrivent le meme chemin et se
+detruisent mutuellement. MESURE du 2026-08-04 -- les deux fichiers en parallele rendent
+`1 failed` ici et `5 errors` la-bas ; joues EN SERIE, `4 passed` et `5 passed`. C'est le piege du
+`CLAUDE.md` (« deux probes lances ENSEMBLE qui portent le meme litteral de state-file se marchent
+dessus »), et il ne se lit PAS comme une regression du port.
+
 ASCII only. Dispose SES runners (jamais ceux des autres).
 """
 from __future__ import annotations
