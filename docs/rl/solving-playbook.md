@@ -725,3 +725,58 @@ hypothese a un desync crit-rng per-hit. Deux etages MELANGES dans une seule mesu
   avant de postuler un roll fantome ; 1 comptage refute/confirme plus vite que tout fit.
 - **Ratio compose (x, +flat)** : varier `--hp-target` en 3 points dont un NON-rond (30001) pour
   epingler a la fois la base (maxHealth), le pourcentage ET le mode d'arrondi (Ceiling).
+
+---
+
+## #419-r1-tr14-r5-r2-r1-r2-r1-r1 (2026-08-04) -- Un port DESARME un gate parce qu'une donnee manque, alors que la branche en cause ne LIT PAS cette donnee
+
+**Symptome-type** : natif et port rendent le MEME verdict (refuse/accepte) mais **nomment une regle
+differente**. L'accord sur le verdict masque un desaccord sur la CAUSE. En amont, le port porte un
+`return None` global (« je ne sais pas decider ») declenche par l'absence d'UNE donnee -- ici
+`unit_weapon_range` non observable pour les 81 unites sans arme du gameconfig.
+
+**Ce que ce patron a de traitre** : le `return None` est ecrit comme une degradation PRUDENTE, il est
+meme documente comme telle -- alors qu'il est PERMISSIF, donc exactement le trou qu'un entrainement
+irait exploiter. Et il ne casse AUCUN test, puisqu'il ne fait que ne rien faire.
+
+**Methode qui l'a craque** :
+
+1. **Enoncer la question binaire AVANT de mesurer** : « la donnee manquante est-elle LUE par la
+   branche qu'on desarme ? » -- et dire ce qui ferait conclure l'inverse. Ici : une ecriture du
+   drapeau derivee de la valeur, ou une lecture de la valeur dans la branche du drapeau.
+2. **Lire les ECRITURES du drapeau dans le producteur, une par une.** `TargetingQuery$$GetRange` :
+   `onlyAdjacent` est pose AVANT toute resolution d'arme, puis seulement FORCE a vrai par deux
+   conditions qui ne lisent pas la valeur non plus. **Zero dependance** -> le desarmement est faux.
+3. **Lire l'ORDRE des tests dans le CONSOMMATEUR.** `GetInvalidTargetReason` teste
+   `range._4_1_ OnlyAdjacent` en PREMIER, et `(int)range` n'apparait que dans l'autre branche. Le
+   desarmement doit donc descendre A L'ETAGE QUI LIT LA DONNEE, jamais rester en amont.
+4. **Ne PAS generaliser aux etages voisins sans les relire** -- c'est le piege symetrique, et il
+   etait arme ici : `TargetingQuery$$GetTilesInRange` consomme le MEME retour mais teste
+   `(int)range < 0` puis `== 0` AVANT `OnlyAdjacent`. Son `None` sur donnee manquante est donc
+   CORRECT, et « corriger par symetrie » l'aurait casse. **Deux consommateurs d'une meme valeur
+   peuvent lire ses champs dans un ORDRE different : la question se repose a chaque appelant.**
+   Un cran de test interdit desormais l'alignement.
+5. **Chiffrer le rayon AVANT/APRES par balayage** (catalogue x jeux d'options), avec trois compteurs
+   distincts : gagnes, PERDUS, et **inchanges sur le regime ou la donnee EST observable** (ce
+   dernier est le garde-fou anti-debordement -- 58 867 couples ici, 0 bouge).
+6. **Separer le MAJORANT du REEL** : le produit cartesien apparie chaque jeu d'options a toute
+   unite. Le rayon reel (porteur x SES abilities) valait 57, pas 1 620.
+
+**Le piege du montage, et comment en sortir** : sur le porteur naturel, une AUTRE regle rattrapait
+deja le verdict en aval (`TargetMatchesDynamicRule`, bit `0x2` du masque) -- donc le montage evident
+ne prouvait que la CAUSE. **GREFFER une variante SANS ce bit** (ici `PoundThemToDust` ->
+attaque normale `1126`, masque `0x4000`) transforme la mesure : la baseline y ACCEPTE (`0x0`) ce que
+le natif REFUSE. **Heuristique : quand un gate corrige est masque par un gate aval, chercher dans le
+registre natif une variante qui n'ARME PAS ce gate aval, et greffer celle-la.**
+
+**Le piege du garde-fou** : le probe de chiffrage raisonnait sur un MODELE du port. Sous mutation
+(`return None` remis), il restait VERT -- inventaire deguise en garde. Le cran
+`accord_modele_code` APPELLE la vraie fonction sur un `State` synthetique minimal (une unite,
+une tuile, un owner) et confronte 4 000+ couples : la contre-epreuve passe alors de 1 rouge a 2.
+**Un chiffrage qui ne rappelle pas le code ne garde rien.**
+
+**Outil reutilisable** : `probe_419r1tr14r5r2r1r2r1r1_range_only_adjacent.py` (balayage + accord
+modele/code + cran anti-symetrie) et `probe_419r1tr14r5r2r1r2r1r1_only_adjacent_live.py` (deux bras,
+dont un GREFFE pour demasquer le gate aval). Baseline exacte a moindre frais : substituer l'attribut
+de MODULE (`T.get_range`) par un wrapper qui reproduit l'ancien contrat -- en capturant la vraie
+fonction A L'IMPORT, sans quoi le wrapper s'appelle lui-meme.

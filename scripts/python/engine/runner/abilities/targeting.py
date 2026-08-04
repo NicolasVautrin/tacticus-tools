@@ -320,10 +320,11 @@ class TargetingRange:
     `override_range_func` = « le ctor natif POSE un delegue a `TargetingRange+0x10` ». On ne modelise
     QUE sa PRESENCE, jamais sa valeur : `TargetingQuery$$GetRange` l'invoque et ECRASE la portee
     calculee juste avant (`if (*(param_4 + 0x18) != 0) v = OverrideRangeFunc(caster);`), donc une
-    ability qui le pose n'a AUCUNE portee derivable de ses autres champs. `get_range` rend alors
-    `None` -> aucun gate de portee, la degradation permissive de tout ce module. C'est different de
-    `range = None` (= `TargetingRange` pas encore RE-lu) : ici le `TargetingRange` EST lu, c'est la
-    VALEUR que le delegue produit qui n'est pas resolue.
+    ability qui le pose n'a AUCUNE portee derivable de ses autres champs. `get_range` rend alors un
+    `Range` a `value = None` -> aucun gate de DISTANCE (le gate d'adjacence, lui, tient : le delegue
+    n'ecrit pas `onlyAdjacent`). C'est different de `range = None` (= `TargetingRange` pas encore
+    RE-lu) : ici le `TargetingRange` EST lu, c'est la VALEUR que le delegue produit qui n'est pas
+    resolue.
 
     Unique porteur du registre : 1040 `SpawnPoxwalkers`, dont le
     `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$.ctor` construit un
@@ -383,10 +384,30 @@ def custom_range_func() -> TargetingRange:
 @dataclass(frozen=True)
 class Range:
     """`IdunBattle.Core.Services.TargetingQuery.Range` — la valeur de retour de
-    `TargetingQuery$$GetRange`, 8 octets : `{ int Value @+0x00 ; bool OnlyAdjacent @+0x04 }`.
-    (Le filtre statique lit le champ `@+0x04` pour choisir entre `AreEntitiesAdjacent` et la
-    comparaison de distance — c'est ce qui fixe l'ordre des deux champs.)"""
-    value: int = 0
+    `TargetingQuery$$GetRange`, 8 octets :
+
+        +0x00  int  Value
+        +0x04  bool OnlyAdjacent
+        +0x05  bool UseWholeBoard          <- NON modelise ici, cf. plus bas
+
+    Le filtre statique lit le champ `@+0x04` pour choisir entre `AreEntitiesAdjacent` et la
+    comparaison de distance — c'est ce qui fixe l'ordre des deux premiers. LU aux octets :
+    `GetInvalidTargetReason` teste `range._4_1_` puis, dans l'autre branche seulement, `(int)range`.
+
+    Le TROISIEME champ est etabli par `TargetingQuery$$GetTilesInRange`, qui teste les trois
+    separement (`(int)range < 0`, `range._5_1_`, `range._4_1_`), et recoupe par le litteral
+    `0x10000000001` que `GetRange` rend sous `UseWholeBoard` (= `{1, false, true}`). Le port ne le
+    modelise PAS : `get_range` court-circuite `use_whole_board` en amont, et le seul consommateur
+    porte (`GetInvalidTargetReason`) gate sur `options.Range.UseWholeBoard`, pas sur ce champ.
+    Residu `#419-r1-tr14-r5-r2-r1-r2-r1-r1-r1`.
+
+    **`value = None` = la portee NUMERIQUE n'est pas observable, `only_adjacent` l'est quand meme**
+    (#419-r1-tr14-r5-r2-r1-r2-r1-r1). Les deux champs sont INDEPENDANTS dans le natif : `onlyAdjacent`
+    y est calcule AVANT toute resolution d'arme et n'est ensuite que FORCE a vrai par deux conditions
+    (`HasEffect(0x529 ForcedInMelee)`, `IsTrue(ForceMeleeTarget) && ShouldApplyRangedInMelee`) qui ne
+    lisent pas davantage la valeur. Un tri-etat sur `value` seule est donc le mirror exact — et non un
+    `None` global, qui abandonnait AUSSI la branche d'adjacence, laquelle ne lit jamais `Value`."""
+    value: Optional[int] = 0
     only_adjacent: bool = False
 
 
@@ -1466,13 +1487,19 @@ def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Op
     donc `Math.Min` neutre. Idem pour la garde `!<cap>.HasValue` du court-circuit `UseWholeBoard`,
     toujours vraie.)
 
-    Rend **None quand le port ne sait pas decider** — `TargetingRange` non RE-lu, caster sans tuile,
-    portee d'arme non observable (cf. `unit_weapon_range`), ou `UseWholeBoard` (le filtre statique ne
-    teste alors RIEN). Dans tous ces cas l'appelant NE POSE AUCUN REFUS : c'est la seule degradation
-    admissible ici, un `Range` devine refuserait des casts LEGAUX.
+    Rend **None quand rien n'est decidable** — `TargetingRange` non RE-lu, caster sans tuile, ou
+    `UseWholeBoard` (le filtre statique ne teste alors RIEN : son court-circuit natif porte sur
+    `options.Range.UseWholeBoard`, pas sur le `Range` rendu, et il vit DANS la branche
+    `!OnlyAdjacent`). Rend un `Range` a **`value = None`** quand seule la portee NUMERIQUE echappe au
+    port — portee d'arme non observable (cf. `unit_weapon_range`) ou `OverrideRangeFunc` non resolu.
+    Dans les deux cas l'appelant ne pose aucun refus DE DISTANCE, mais il garde le gate d'adjacence,
+    qui ne lit pas la valeur (#419-r1-tr14-r5-r2-r1-r2-r1-r1).
 
-    L'ORDRE compte et il est respecte : la valeur d'abord (arme -> override -> config), les deux
-    CLAMPS de melee ensuite. Un clamp applique avant l'override serait ecrase par lui."""
+    L'ORDRE compte et il est respecte : la valeur d'abord (arme -> override -> config), le delegue
+    ensuite, les deux CLAMPS de melee en dernier. Un clamp applique avant l'override serait ecrase
+    par lui. Et **tout chemin qui clampe force `only_adjacent`** (les deux `Math.Min(1, v)` du
+    decompile sont dans le MEME bloc que `onlyAdjacent = true`) : la valeur clampee n'est donc jamais
+    lue par le consommateur, ce qui rend le clamp d'un `None` sans consequence."""
     from ..components import StatsComponent
     rng = options.range
     if rng is None:
@@ -1482,6 +1509,9 @@ def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Op
     if rng.use_whole_board:
         return None                                   # le filtre saute le test de portee
 
+    # `onlyAdjacent = RangedBoolExtensions.IsTrue(options.Range.OnlyAdjacent, caster);` -- position
+    # NATIVE exacte : AVANT toute resolution d'arme, et il n'en depend jamais. C'est ce qui autorise
+    # le tri-etat ci-dessous.
     only_adjacent = ranged_bool_is_true(rng.only_adjacent, state, caster_id)
 
     if rng.override_range is not None:
@@ -1491,22 +1521,21 @@ def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Op
         sc = e.get_component(StatsComponent) if e is not None else None
         value = unit_weapon_range(_visual_id(state, caster_id),
                                   sc.ctx if sc is not None else None)
-        if value is None:
-            return None                               # portee d'arme NON OBSERVABLE -> pas de gate
+        # `value is None` -> portee d'arme NON OBSERVABLE. On NE SORT PAS : seule la branche DISTANCE
+        # en depend, `only_adjacent` reste exact.
 
-    # `if (options.Range.OverrideRangeFunc != null) v = OverrideRangeFunc(caster);` -- position
-    # NATIVE exacte : le delegue ECRASE tout ce qui precede (arme, override, config) et precede les
-    # deux clamps de melee. Le port ne resout pas le delegue -> il ne connait PAS `v`, donc il ne
-    # peut decider ni la comparaison de distance ni (via `min(1, v)`) les clamps : aucun gate.
+    # `if (options.Range.OverrideRangeFunc != null) v = OverrideRangeFunc(caster);` -- le delegue
+    # ECRASE tout ce qui precede (arme, override, config) et precede les deux clamps de melee. Le port
+    # ne le resout pas : la VALEUR devient inconnue, `only_adjacent` non.
     if rng.override_range_func:
-        return None
+        value = None
 
     if _has_forced_in_melee(state, caster_id):
-        value = min(1, value)
+        value = None if value is None else min(1, value)
         only_adjacent = True
     if ranged_bool_is_true(options.force_melee_target, state, caster_id):
         if should_apply_ranged_in_melee(state, caster_id):
-            value = min(1, value)
+            value = None if value is None else min(1, value)
             only_adjacent = True
     return Range(value=value, only_adjacent=only_adjacent)
 
@@ -1560,6 +1589,13 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
     Cible sans position (tuile non modelisee, entite absente) -> 0 : on ne sait pas mesurer, donc on
     n'invente pas de refus.
 
+    #419-r1-tr14-r5-r2-r1-r2-r1-r1 : le desarmement pour cause de PORTEE NON OBSERVABLE vit ICI, dans
+    la seule branche qui lit la valeur. Il vivait dans `get_range` (un `return None` global), ce qui
+    abandonnait AUSSI la branche `only_adjacent` -- alors que ni elle ni le calcul natif d'
+    `onlyAdjacent` ne lisent la portee. Gisement : les unites SANS ARME du gameconfig, pour qui
+    `unit_weapon_range` rend `None` ET `only_adjacent` vaut vrai (l'attaque normale porte
+    `RANGE_ADJACENT_IF_MELEE_CASTER`, et `IsRanged` est faux faute d'arme a `Range`).
+
     #R30 : les DEUX branches raisonnent desormais sur les EMPREINTES completes (`GetTiles`), pas sur
     la seule main tile — c'est litteralement ce que font les deux fonctions natives citees
     (`AreEntitiesAdjacent` prend deux LISTES de tuiles, `GetDistance` prend deux LISTES et rend le
@@ -1601,6 +1637,12 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
             return 0                                  # adjacence NATIVE non calculable -> pas de gate
         ok = are_entities_adjacent(board, src_feet, dst_feet)
         return 0 if ok else int(TR.TargetIsInRange)
+    if rr.value is None:
+        # SEULE la branche DISTANCE a besoin de la valeur : `only_adjacent` a deja ete tranche
+        # ci-dessus, exactement comme le natif (`if (range._4_1_ == 0) { ...(int)range... }`).
+        # #419-r1-tr14-r5-r2-r1-r2-r1-r1 : c'est ici, et NON dans `get_range`, que l'indisponibilite
+        # de la portee numerique doit desarmer -- l'y remonter desarmait aussi l'adjacence.
+        return 0
     d = get_distance(src_feet, dst_feet)               # MIN sur toutes les paires de pieds
     if options.has(TR.TargetIsAtRange):
         return 0 if d == rr.value else int(TR.TargetIsAtRange)
