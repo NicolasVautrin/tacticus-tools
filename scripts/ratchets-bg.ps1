@@ -31,6 +31,10 @@
     Transmis tel quel a `ratchets.ps1` (accepte le prefixe : `-Only probe_283` prend ses 6 etapes).
     Utile pour bisecter un cliquet fautif : `git bisect run pwsh -File scripts/ratchets-bg.ps1 -Only probe_313`.
 
+.PARAMETER PrioriteNormale
+    Ne PAS abaisser la priorite des process de la banque. Pour un diagnostic (reproduire l'ancien
+    comportement), jamais pour un run ordinaire -- cf. la note sur la priorite dans .NOTES.
+
 .EXAMPLE
     pwsh -File scripts/ratchets-bg.ps1
     pwsh -File scripts/ratchets-bg.ps1 -Commit 50f0404a -Only probe_313
@@ -40,13 +44,31 @@
     recursive forcee SUIT le point de reparse et vide la CIBLE -- 67 modules deja detruits par cette
     voie le 2026-07-31). Le worktree vit dans le tmpdir SYSTEME, jamais sous le depot : un cliquet
     ni un test n'ecrit dans `scripts/python/`, que la banque enumere en parallele (#455).
+
+    PRIORITE BASSE (#469). Ce script tourne EN FOND, pendant que des agents travaillent : sa
+    latence n'interesse personne, la leur si. Il abaisse donc sa classe de priorite Win32, dont
+    HERITENT le `pwsh` de `ratchets.ps1` et les 44 process Python qu'il lance.
+
+    Ce n'est PAS un reglage de parallelisme, et le distinguer est tout le sujet de #469. Mesure du
+    2026-08-04, banque complete, commit fixe, un temoin d'agent joue en boucle pendant :
+
+      * `-ThrottleLimit 6` au lieu de 16 : mur 497 -> 564 s (+13,5 %) ET temoin 24,94 -> 26,32 s.
+        Retirer des creneaux a la banque n'en rend a PERSONNE -- le travail total ne change pas.
+        Les deux chiffres, le visible et l'invisible, se degradent ensemble. Piste ABANDONNEE.
+      * priorite BASSE a throttle constant : temoin 45,60 -> 36,62 s (-19,7 %), mur 1171 -> 1073 s
+        (-8,4 %, dans le bruit -- ce qui est etabli, c'est qu'il ne se degrade PAS). Surcout par
+        agent 1499 -> 891 s (-41 %) ; temps total a 4 agents -35 %.
+
+    La priorite ne retire aucun creneau : elle change QUI passe devant quand il y a file. Le debit
+    agrege est preserve, seul l'ordre de service change. Detail : `docs/rl/case-469-mur-de-la-banque.md`.
 #>
 [CmdletBinding()]
 param(
     [string]   $Commit = 'HEAD',
     [switch]   $KeepWorktree,
     [string[]] $Only,
-    [string]   $Since
+    [string]   $Since,
+    [switch]   $PrioriteNormale
 )
 
 $ErrorActionPreference = 'Stop'
@@ -137,7 +159,27 @@ if ($fluxVerrou) {
 $lignes = [System.Collections.Generic.List[string]]::new()
 function Note([string] $s) { $lignes.Add($s); Write-Host $s }
 
+# --- PRIORITE BASSE (#469) -------------------------------------------------------------------
+# Posee AVANT tout lancement : la classe de priorite est HERITEE a la creation du process, donc
+# la poser apres coup ne toucherait pas les enfants deja partis. Elle s'applique a ce script, au
+# `pwsh` de `ratchets.ps1` et aux 44 python -- une seule ecriture couvre tout l'arbre.
+#
+# Degradation SUE et DITE : si l'OS refuse (droits, politique), on continue en priorite normale
+# et on l'ECRIT dans le verdict. Un run a priorite normale reste JUSTE, seulement plus couteux
+# pour la flotte -- ce n'est pas une raison d'echouer le montage.
+$prioriteEffective = 'normale (demandee)'
+if (-not $PrioriteNormale) {
+    try {
+        [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass =
+            [System.Diagnostics.ProcessPriorityClass]::BelowNormal
+        $prioriteEffective = 'BASSE'
+    } catch {
+        $prioriteEffective = "normale -- ABAISSEMENT REFUSE ($($_.Exception.Message))"
+    }
+}
+
 Note "[ratchets-bg] commit  $court  $sujet"
+Note "[ratchets-bg] priorite $prioriteEffective  (heritee par ratchets.ps1 et ses cliquets)"
 Note ("[ratchets-bg] worktree {0}  ({1})" -f $wt, $(if ($jetable) { 'JETABLE -- le persistant est pris' } else { 'persistant' }))
 
 # Ce script juge un COMMIT, jamais le working tree -- c'est precisement ce qui garde
