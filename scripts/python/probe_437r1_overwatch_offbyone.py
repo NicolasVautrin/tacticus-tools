@@ -574,20 +574,28 @@ def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want
         brd = Board(bg["tiles"], adjacency="native_sym")
         dv = P._view(rpc, rid, inactive=True)
         ids = {v: int(P._by_vis(dv, v)["id"]) for v in [P.CARRIER, P.SPECTATOR, P.OVERWATCHER]}
+        myplayer = (P._by_vis(dv, P.CARRIER) or {}).get("owner")
         pr = None
         for _t in range(max_turns):
             dv = P._view(rpc, rid, inactive=True)
             ow_effs = [e.get("name") for e in ((P._unit(dv, ids[P.OVERWATCHER]) or {}).get("effects")
                                                or [])]
             pres, act = P._armour_state(dv, ids[P.CARRIER])
-            ow_u = P._unit(dv, ids[P.OVERWATCHER])
-            src = brd.id_at(int(ow_u["pos"]["col"]), int(ow_u["pos"]["row"]))
-            d_from_ow = P._bfs(brd, src)
-            car_u = P._unit(dv, ids[P.CARRIER])
-            car_t = brd.id_at(int(car_u["pos"]["col"]), int(car_u["pos"]["row"]))
-            d_car = d_from_ow.get(car_t)
+            ow_u, car_u = P._unit(dv, ids[P.OVERWATCHER]), P._unit(dv, ids[P.CARRIER])
+            d_car = None
+            if (ow_u or {}).get("pos") and (car_u or {}).get("pos"):
+                src = brd.id_at(int(ow_u["pos"]["col"]), int(ow_u["pos"]["row"]))
+                car_t = brd.id_at(int(car_u["pos"]["col"]), int(car_u["pos"]["row"]))
+                d_car = P._bfs(brd, src).get(car_t)
             trace.append({"t": _t, "d_car": d_car, "ow_effs": ow_effs,
-                          "armour": [pres, act]})
+                          "armour": [pres, act], "cur": dv.get("currentPlayer"),
+                          "ow_pos": (ow_u or {}).get("pos"),
+                          "car_pos": (car_u or {}).get("pos"),
+                          "car_alive": (car_u or {}).get("alive"),
+                          "ow_alive": (ow_u or {}).get("alive")})
+            if d_car is None:                    # une des deux unites n'a plus de tuile
+                return {"error": "unite sans position (morte ou retiree) au tour %d" % _t,
+                        "trace": trace}
             if ("HeavyWeapon_ExtraDmg" in ow_effs) and pres and act is True:
                 pr = rpc("aiPredict", {"runnerId": rid, "unitId": ids[P.OVERWATCHER],
                                        "targetId": ids[P.CARRIER], "fresh": True}, 90)
@@ -595,10 +603,16 @@ def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want
                     break
                 pr = None
             cur = dv.get("currentPlayer")
-            acted = False
+            if myplayer is not None and cur != myplayer:
+                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                continue
             # 1) l'overwatch est ARME -> le SPECTATEUR va le declencher a la place du porteur.
-            if P.OVERWATCH_EFFECT in [e.get("effectType") for e in
-                                      ((P._unit(dv, ids[P.OVERWATCHER]) or {}).get("effects") or [])]:
+            def _armed(view):
+                return P.OVERWATCH_EFFECT in [
+                    e.get("effectType") for e in
+                    ((P._unit(view, ids[P.OVERWATCHER]) or {}).get("effects") or [])]
+
+            if _armed(dv):
                 reach = P._mover_reach(dv, ids[P.SPECTATOR])
                 to_tile, _d = P._pick_move_tile(brd, dv, ids[P.SPECTATOR], ids[P.OVERWATCHER], reach)
                 if to_tile is not None:
@@ -607,15 +621,11 @@ def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want
                         rpc("applyAction", {"runnerId": rid, "action": {
                             "kind": "move", "unitId": ids[P.SPECTATOR],
                             "to": {"col": int(col), "row": int(row)}}}, 120)
-                        acted = True
                     except Exception:
-                        acted = False
-            # 2) puis le PORTEUR se rapproche d'un cran (l'overwatch vient d'etre consomme).
+                        pass
+            # 2) puis le PORTEUR se rapproche (l'overwatch vient d'etre consomme, ou hors de portee).
             dv2 = P._view(rpc, rid, inactive=True)
-            still_armed = P.OVERWATCH_EFFECT in [
-                e.get("effectType") for e in
-                ((P._unit(dv2, ids[P.OVERWATCHER]) or {}).get("effects") or [])]
-            if not still_armed:
+            if not _armed(dv2) or (d_car or 0) > want_dist + 3:
                 reach = P._mover_reach(dv2, ids[P.CARRIER])
                 to_tile = _pick_tile_at_distance(brd, dv2, ids[P.CARRIER], ids[P.OVERWATCHER],
                                                  reach, want_dist)
@@ -625,17 +635,9 @@ def predict_two_faces(seed=P.SEED, board=P.BOARD, dmg_target=None, rank=17, want
                         rpc("applyAction", {"runnerId": rid, "action": {
                             "kind": "move", "unitId": ids[P.CARRIER],
                             "to": {"col": int(col), "row": int(row)}}}, 120)
-                        acted = True
                     except Exception:
-                        acted = False
-            if not acted:
-                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
-                if P._view(rpc, rid).get("currentPlayer") == cur:
-                    rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
-            else:
-                rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
-                if P._view(rpc, rid).get("currentPlayer") == cur:
-                    rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+                        pass
+            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
         if pr is None:
             return {"error": "prediction non lisible dans le regime DEUX FACES en %d tours"
                              % max_turns, "trace": trace}
@@ -737,6 +739,66 @@ def face_models(stage: dict) -> dict:
         out["chaine_unique_" + name] = chain(p, [att + deff])
         out["deux_appels_" + name] = chain(p, [att, deff])
     return out
+
+
+# ------------------------------------------------- CANAL des deux faces (#437-r1-r1)
+
+
+def channel(seed=P.SEED, board=P.BOARD, dmg_target=None, budget=4000) -> dict:
+    """Arme le capteur `effect-bonus-trace` (#466) SUR LE MONTAGE DE #437-r1 et rend, pour chaque
+    `IdunBattle.Core.Services.DamageModifiers$$Add`, la FACE et le CANAL d'atterrissage.
+
+    C'est la mesure qui DISSOUT la « contradiction » entre #437-r1 et le cran DEUX FACES de
+    #462-r4a : les deux regimes passent par le MEME canal (`Multiplier@0x30`), et ce qui les
+    separe est le nombre d'accumulateurs -- donc le nombre de `CalculateBaseDamageWithModifiers`,
+    donc le nombre de `Fix64.Round`.
+
+    Le capteur doit etre present dans le bundle injecte (RPC `effectBonusTrace*`). Absent ->
+    l'erreur est RENDUE, jamais silencieuse.
+    """
+    from collections import defaultdict
+    cap: dict = {}
+    orig_mk = _mkrpc
+    base = orig_mk()
+
+    def wrapper(method, body, timeout=60):
+        if method == "disposeRunner" and not cap.get("done"):
+            cap["dump"] = base("effectBonusTraceDump",
+                               {"runnerId": (body or {}).get("runnerId")}, 180)
+            base("effectBonusTraceOff", {}, 60)
+            cap["done"] = True
+        return base(method, body, timeout)
+
+    g = globals()
+    cap["on"] = base("effectBonusTraceOn", {"budget": int(budget)}, 60)
+    if not (cap["on"] or {}).get("ok"):
+        return {"error": "capteur effect-bonus-trace absent ou non arme : %s"
+                         % json.dumps(cap["on"])[:300]}
+    base("effectBonusTraceClear", {}, 60)
+    g["_mkrpc"] = lambda: wrapper
+    try:
+        blob = capture(seed=seed, board=board, dmg_target=dmg_target,
+                       out=ROOT / "logs" / "probe_437r1_capture_chan.json")
+    finally:
+        g["_mkrpc"] = orig_mk
+        if not cap.get("done"):
+            base("effectBonusTraceOff", {}, 60)
+    if "error" in blob:
+        return {"error": "montage KO : %s" % blob["error"]}
+    adds = ((cap.get("dump") or {}).get("adds")) or []
+    o1 = [e for e in adds if e.get("overload") == 1]
+    compose = [e for e in o1 if abs(float(e.get("multBefore") or 0) - 1.0) > 1e-12]
+    faces = defaultdict(set)
+    for e in o1:
+        faces[e.get("face")].add(round(float(e.get("multAfter") or 0), 6))
+    return {"native_delta": blob["native"]["hp_delta"], "adds": len(adds), "add_overload1": len(o1),
+            "capped_grew": sum(1 for e in adds
+                               if (e.get("cappedAfter") or 0) > (e.get("cappedBefore") or 0)),
+            "composent": len(compose),
+            "coherent": sum(1 for e in o1
+                            if abs(float(e["multBefore"]) * float(e["modifierValue"])
+                                   - float(e["multAfter"])) < 1e-9),
+            "faces": {k: sorted(v) for k, v in faces.items()}}
 
 
 # --------------------------------------------------------------------------- elevation en COMBAT
@@ -917,6 +979,10 @@ def main() -> int:
                     help="regime ELEVATION (att, positionnel) + EFFET (def), mesure AU COMBAT")
     ap.add_argument("--bounds", action="store_true",
                     help="oracle des BORNES natives (l'overwatcher marche vers le porteur)")
+    ap.add_argument("--predict-2faces", action="store_true",
+                    help="PREDICTION native dans le regime DEUX FACES (attaquant IMMOBILE)")
+    ap.add_argument("--channel", action="store_true",
+                    help="capteur effect-bonus-trace arme sur le montage #437-r1 : face + canal")
     ap.add_argument("--dmg-target", default=None,
                     help="force le stat Damage de l'overwatcher (deplace la fraction)")
     ap.add_argument("--replay", action="store_true")
@@ -940,6 +1006,36 @@ def main() -> int:
         sols = [(lo, hi) for lo in range(lo0 - 4, lo0 + 5) for hi in range(hi0 - 4, hi0 + 5)
                 if hi > lo and lo + (r % (hi - lo + 1)) == nat]
         print("[437r1] INVERSION : bornes natives possibles = %s" % sols)
+        print("[437r1] ecrit : %s" % out)
+        return 0
+    if a.channel:
+        r = channel(dmg_target=a.dmg_target)
+        if "error" in r:
+            print("[437r1] ERREUR channel : %s" % r["error"])
+            return 2
+        print("[437r1] CANAL natif=%s adds=%d overload1=%d"
+              % (r["native_delta"], r["adds"], r["add_overload1"]))
+        print("[437r1]   liste CAPEE @0x18 grossit sur : %d" % r["capped_grew"])
+        print("[437r1]   Add qui COMPOSENT (multBefore != 1) : %d / %d"
+              % (r["composent"], r["add_overload1"]))
+        print("[437r1]   coherence multAfter == multBefore x modifierValue : %d / %d"
+              % (r["coherent"], r["add_overload1"]))
+        print("[437r1]   faces -> multiplicateurs : %s" % json.dumps(r["faces"]))
+        return 0
+    if a.predict_2faces:
+        b = predict_two_faces(dmg_target=a.dmg_target)
+        if "error" in b:
+            print("[437r1] ERREUR predict-2faces : %s" % b["error"])
+            return 2
+        out = ROOT / "logs" / ("probe_437r1_pred2f_%s.json" % (a.dmg_target or "base"))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(b), encoding="utf-8")
+        pr = (b["aiPredict"] or {}).get("pred") or {}
+        st = stage_inputs(b)
+        print("[437r1] NATIF PREDICTION healthDmg %s / %s (hits=%s)"
+              % (pr.get("healthDmgMin"), pr.get("healthDmgMax"), pr.get("appliedHits")))
+        print("[437r1] entrees d'etage : %s" % json.dumps(st))
+        print("[437r1] modeles         : %s" % json.dumps(face_models(st)))
         print("[437r1] ecrit : %s" % out)
         return 0
     if a.bounds:

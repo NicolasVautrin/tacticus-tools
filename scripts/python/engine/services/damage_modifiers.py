@@ -187,8 +187,17 @@ def apply_capped_modifiers(value, mods: DamageModifiers) -> "_fx.Fix64":
 def apply_pct_entries(value, entries) -> "_fx.Fix64":
     """Le CORPS de `apply_capped_modifiers`, sur une liste d'entrees EXPLICITE. Extrait (#446-r2)
     pour que la face DEFENSEUR fusionnee (`DamageModifiers.pct_list_defender`) traverse EXACTEMENT
-    le meme etage que la face ATTAQUANT, dans un appel SEPARE -- comme le natif, qui appelle
-    `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers` DEUX fois."""
+    le meme etage que la face ATTAQUANT, dans un appel SEPARE.
+
+    ⚠ #437-r1-r1 -- ce que cette fonction mirroire N'EST PAS `ApplyCappedModifiers`. Ce foyer-la
+    arrondit PAR ENTREE et inconditionnellement, donc y decouper une liste en deux appels serait
+    ARITHMETIQUEMENT NEUTRE ; et sa liste `@0x18` n'est alimentee par AUCUN chemin porte (mesure
+    au capteur `effect-bonus-trace` : 0 sur 199 et 0 sur 693, deux montages). Ce qui est mirroire
+    ici est l'accumulateur `Multiplier@0x30` d'UNE face : compose sans arrondi entre ses entrees,
+    puis materialise UNE fois -- exactement `CalculateBaseDamageWithModifiers` (etape 3 ou 4 de
+    `CalculateBaseDamageWithAllModifiers`), dont l'appel est INCONDITIONNEL par `Nullable` non nul.
+    C'est aussi ce qui explique #98 (deux `x1.5` sur la MEME face composes sans arrondi : meme
+    accumulateur, un seul `Round`) sans contredire le decompile."""
     v_raw = _fx.from_number(value)
     if not entries:
         return _fx.Fix64(v_raw)
