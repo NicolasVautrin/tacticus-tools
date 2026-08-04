@@ -16,7 +16,12 @@ else {
     var fromActive = GetCustomNormalAttackTypeFromActive(this, config);
     if (fromActive.HasValue) { type = fromActive.Value; state = activeAbilityState; }
     else if (config.Traits.Contains(0x7e7)) { type = 0x406; state = activeAbilityState; }   // #419-r1-tr14-r5-r2-r1
-    else { ... repli generique ... }
+    else {                                                          // repli generique -- #419-r1-tr14-r5-r2-r2
+        var list = ListExtensions.FilterNewList(comp@+0x20, a => IsRegularAttack(a@+0x44));
+        if (0 < list.Count) return;                                 // la GARDE : rien n'est ajoute
+        type  = this@+0x20;                                         // le generique (param du ctor)
+        state = new AbilityState(new Level(1, 0), config@+0x74);
+    }
 }
 ActiveAbilityComponent.Add(comp, type, state, null);
 
@@ -256,6 +261,72 @@ NORMAL_BOSS_ATTACK: str = "Loki_NormalBossAttack"               # `ActiveAbility
 NORMAL_ATTACK_SUPPRESSING_TRAITS: frozenset = frozenset({"Erratic", "Harmless"})
 
 
+def normal_attack_already_present(active_abilities) -> str | None:
+    """QUATRIEME et dernier etage (#419-r1-tr14-r5-r2-r2) -- la garde du REPLI GENERIQUE de
+    `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`, lue verbatim :
+
+        var list = ListExtensions.FilterNewList(comp@+0x20, <Func statique mis en cache>);
+        if (0 < list.Count) return;              // rien n'est ajoute
+        type = this@+0x20;                       // le generique
+
+    Rend le nom de l'attaque REGULIERE deja montee (donc « la garde MORD, la generique n'est pas
+    posee »), ou `None` (« la collection n'en contient aucune, le repli generique s'applique »).
+
+    ## Le predicat, et les trois lectures qui le composent
+
+    * `UnitFactory.u003Cu003Ec$$u003CAddNormalAttackAbilityu003Eb__10_0` =
+      `a => StaticBattleRules.ActiveAbility.IsRegularAttack(a@+0x44)`, ou `a@+0x44` est
+      l'`ActiveAbilityType` de l'entree (`ActiveAbilityComponent$$Add` l'y ecrit).
+    * `idun.shared.extensions.ListExtensions$$FilterNewList` GARDE ce qui rend vrai -- il copie
+      puis delegue a `FilterInPlace`, dont la boucle DESCENDANTE `RemoveAt` quand le predicat est
+      faux. C'est un `Where`, pas un `RemoveAll` : confondre les deux inverse la garde.
+    * `IsRegularAttack` = `Contains` sur l'`OrderedSet` statique `StaticBattleRules.ActiveAbility`
+      @+0x18 -- exactement `REGULAR_ATTACK_ABILITY_TYPES`, le foyer deja porte pour
+      `AbilityIsNormalAttackTrigger`. On le REUTILISE : en re-deriver une seconde table ici serait
+      un fork. (Les 18 valeurs ont ete re-lues du `.cctor` pour cette tranche : accord exact.)
+
+    ## Pourquoi la DERNIERE, et pas la premiere
+
+    Contraste VOULU avec les deux voies de table, ou « le PREMIER gagnant s'impose ». Ici le natif
+    ne choisit rien : c'est `ActiveAbilityComponent$$Add` qui, pour CHAQUE entree passant
+    `IsRegularAttack`, ecrit `comp@+0x28` (= `NormalAttackType`). La derniere ecriture gagne donc,
+    et l'ordre est celui des ajouts. MESURE (bras `ordre-pas`) : canal
+    `[TemplarInitiateNormalAttack, Boltstorm_NormalAttack]` -> natif `Boltstorm_NormalAttack`.
+
+    ## La BORNE du canal, mesuree et non supposee
+
+    `active_abilities` (`UnitContext.active_abilities`) est un SUR-ENSEMBLE ASSUME : il lit
+    l'`ActiveAbilityComponent` APRES la fabrique, donc il porte AUSSI l'attaque normale qu'elle
+    vient d'y ecrire, et les ajouts de `UnitFactory$$AddDerivedAbilities`. Mesure du 2026-08-04 :
+    bras temoin -> `['FireAndReposition', 'Loki_NormalAttack']`, le generique EST dans le canal.
+
+    C'est precisement ce qui rend cette lecture CORRECTE plutot que genante : au repli, la
+    derniere reguliere du composant EST `NormalAttackType`, que la garde ait mordu (elle vient de
+    `BC.Units[].ActiveAbilities`) ou non (c'est la generique que la fabrique vient de poser). Les
+    deux cas rendent la bonne reponse -- verifie sur les 4 bras.
+    ⚠ RESIDU : si `AddDerivedAbilities` posait une active REGULIERE, elle serait la derniere et
+    fausserait cette lecture. Aucun des 4 bras n'en produit ; ce n'est pas une preuve generale
+    (`#419-r1-tr14-r5-r2-r2-r1`).
+
+    `None` en entree = canal muet -> `None` (aucune deduction). Le repli KIT est SANS effet ici :
+    aucune des 683 entrees `activeAbilities` du gameconfig n'est une attaque reguliere (mesure
+    0/18 -- elles ne sont pas des abilities de catalogue), donc ce chemin est inchange.
+    """
+    if active_abilities is None:
+        return None
+    from engine.entities.active_ability_type import ActiveAbilityType
+    from engine.runner.abilities.attack_type import is_regular_attack
+    found = None
+    for name in active_abilities:
+        try:
+            aid = int(ActiveAbilityType[name])
+        except (KeyError, ValueError):
+            continue              # nom hors enum du build -> non ingerable, non devinable
+        if is_regular_attack(aid):
+            found = name          # la DERNIERE ecrase, comme `comp@+0x28`
+    return found
+
+
 def has_normal_attack(traits) -> bool:
     """« Cette unite recoit-elle une attaque normale a la fabrique ? » -- mirror de la garde
     d'entree de `UnitFactory$$AddNormalAttackAbility` (cf. `NORMAL_ATTACK_SUPPRESSING_TRAITS`).
@@ -319,8 +390,9 @@ def custom_normal_attack(passive_abilities=None, active_abilities=None, visual_i
     l'ability generique de l'unite).
 
     L'ORDRE n'est pas un detail : la voie PASSIVE est consultee la PREMIERE, la voie ACTIVE n'est
-    atteinte que si elle rend `null`, et la branche TRAIT (#419-r1-tr14-r5-r2-r1) seulement si les
-    DEUX ont rendu `null`. C'est mesure, pas suppose -- une unite portant a la fois
+    atteinte que si elle rend `null`, la branche TRAIT (#419-r1-tr14-r5-r2-r1) seulement si les
+    DEUX ont rendu `null`, et la garde du REPLI (#419-r1-tr14-r5-r2-r2) seulement si les TROIS
+    l'ont fait. C'est mesure, pas suppose -- une unite portant a la fois
     `PassiveAbilities = [Boltstorm]` et `ActiveAbilities = [PoundThemToDust]` recoit
     `Boltstorm_NormalAttack` cote natif, alors meme que la cle active EST montee dans son
     `ActiveAbilityComponent` ; et une unite portant `Boss` EN PLUS de l'un des deux recoit toujours
@@ -343,9 +415,20 @@ def custom_normal_attack(passive_abilities=None, active_abilities=None, visual_i
                    else custom_normal_attack_from_actives(_kit_ability_names(visual_id, "active")))
     if from_active is not None:
         return from_active
-    if traits is not None:
-        return custom_normal_attack_from_trait(traits)
-    return custom_normal_attack_from_trait(_kit_trait_names(visual_id))
+    from_trait = (custom_normal_attack_from_trait(traits) if traits is not None
+                  else custom_normal_attack_from_trait(_kit_trait_names(visual_id)))
+    if from_trait is not None:
+        return from_trait
+    # REPLI GENERIQUE -- et sa GARDE (#419-r1-tr14-r5-r2-r2). Le natif ne pose la generique que si
+    # la collection de l'`ActiveAbilityComponent` ne contient AUCUNE attaque reguliere ; sinon il
+    # `return` sans rien ajouter, et l'attaque normale de l'entite reste celle qui s'y trouve deja.
+    # `None` ici = la collection n'en contient aucune -> l'attaque normale est bien la generique.
+    #
+    # Le repli KIT n'est PAS threade sur cette voie, et c'est une lecture, pas un oubli : aucune des
+    # 18 attaques regulieres n'est une ability de catalogue (0/18 au gameconfig, 0/131 dans
+    # `BC.Abilities.ActiveAbilities` du seed), donc `_kit_ability_names(visual_id, "active")` ne
+    # peut structurellement rien rendre ici. Canal muet -> `None`, comportement STRICTEMENT d'avant.
+    return normal_attack_already_present(active_abilities)
 
 
 def _kit_ability_names(visual_id, key: str) -> list:
