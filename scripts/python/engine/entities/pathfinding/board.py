@@ -28,6 +28,15 @@ Sur `C1_74` les deux vues divergent sur 74 arêtes dirigées, et un mode global 
 forcément d'un côté (mesuré : `evenq` sur-atteint la marche de 2 tuiles, `native_sym` sous-atteint
 le vol de 1).
 
+⚠ **TROISIÈME canal depuis #448-r1-r1-r1-r1-r2 : `neighbours_connectivity()`**, le
+`ConnectivityComponent` BRUT (champ `connectivity` du `boardGraph`). Ce n'est pas un
+quatrième « mode » — c'est la MÊME liste stockée que `neighbours_native()`, mais captée
+SANS la porte `|Δelev| < 2` que `TileQuery$$IterateAdjacentTiles` applique au champ
+`neighbours` (18 arêtes dirigées amputées sur `MC1_67`). Les deux coexistent par fidélité :
+`neighbours_native` reste juste pour les sélecteurs `AdjacentTiles` (leur natif porte la
+porte), `neighbours_connectivity` l'est pour `BasePathfinder$$AddNeighbours` (le sien
+ne la porte pas). Aucun pathfinder ne l'a encore rebranché — cf. sa docstring.
+
 ⚠ Les MURS sont une PROPRIÉTÉ de tuile (walkable=False), PAS une arête manquante
 (cf. IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidPathNode qui filtre via IsWalkable). Le
 filtrage d'élévation (|Δ|≤1) et d'occupant se fait dans walk_pathfinder, PAS dans
@@ -117,6 +126,60 @@ class Board:
         if raw is None:                       # champ ABSENT != champ VIDE (cf. docstring)
             return self.neighbours(tid)
         return [t for t in raw if t in self.by_id]
+
+    def neighbours_connectivity(self, tid: int) -> "list[int] | None":
+        """Le `ConnectivityComponent` BRUT de `tid` -- champ `connectivity` du `boardGraph`
+        (#448-r1-r1-r1-r1-r2), en TRI-ETAT.
+
+        `None` = **canal absent** : boardGraph capte par un bundle ANTERIEUR au capteur, ou board
+        construit a la main dans un test unitaire. `[]` = composant present, liste vide. Les
+        confondre est la faute exacte que `#381-r3` a deja payee sur le champ `neighbours` (elle
+        INVENTAIT six voisins la ou le natif n'en a aucun), et un repli silencieux sur
+        `neighbours_native()` la rejouerait -- en pire, puisque c'est precisement le champ AMPUTE
+        qu'on cherche a contourner.
+
+        CE QUE C'EST. La `List<int>` d'entity ids de tuiles que
+        `IdunBattle.Operations.InitializeConnectivityOperation$$Execute` construit une fois par
+        bataille, sur un critere purement TOPOLOGIQUE : arete presente des DEUX cotes
+        (`TileComponent$$HasEdge` sur la tuile et sur l'opposee) et voisin present sur le plateau.
+        **Aucune elevation n'y entre.** C'est la source que
+        `IdunBattle.Entities.Pathfinding.BasePathfinder.u003CAddNeighboursu003Ed__19$$MoveNext`
+        enumere, et que `IdunBattle.Entities.Components.ConnectivityComponent$$IsNeighbour` teste.
+
+        CONTRASTE avec `neighbours_native()`, qui est le MEME concept vu a travers
+        `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` et sa
+        porte `|dElev| < 2` INCONDITIONNELLE -- donc amputee de 18 aretes dirigees sur `MC1_67`.
+        Les deux champs coexistent PAR FIDELITE : `neighbours_native` reste juste pour les
+        selecteurs `AdjacentTiles` du DSL (leur natif PORTE la porte), `neighbours_connectivity`
+        est juste pour le pathfinding (le sien ne la porte pas).
+
+        ⚠ AUCUN pathfinder ne lit encore cette methode. Le rebranchement de
+        `beeline_pathfinder` / `ignore_terrain_pathfinder` / `walk_maps_by_pos` sur ce canal est
+        un changement de SUBSTRAT : il change des resultats observables et doit etre mesure live
+        (cf. le plan de mesure de `docs/rl/case-448-r1-r1-r1-r1-flying-tiles-moved.md` §13). Le
+        livrer avant la fenetre de reinjection serait un port speculatif."""
+        raw = (self.by_id.get(tid) or {}).get("connectivity")
+        if raw is None:                       # canal ABSENT != liste VIDE (cf. docstring)
+            return None
+        return [t for t in raw if t in self.by_id]
+
+    def teleport_twin(self, tid: int) -> "int | None":
+        """La tuile de TELEPORT jumelle de `tid` (`ConnectivityComponent+0x18`), ou `None`.
+
+        `0` cote natif = « pas une tuile de teleport » -- c'est la valeur exacte que testent les
+        quatre surcharges de `IdunBattle.Entities.TileExtensions$$IsTeleportationTile`, et on la
+        rend `None` plutot que `0` pour qu'aucun appelant ne la prenne pour un id de tuile.
+        `None` couvre donc DEUX cas indiscernables ici : pas de teleport, et canal non capte --
+        `neighbours_connectivity(tid) is None` les separe.
+
+        Ferme la source qui manquait a deux residus nommes : `AddTeleportationTiles`
+        (`base_pathfinder.py`) et le second critere de retention d'un waypoint de
+        `IdunBattle.Entities.Pathfinding.FlyPathfinder$$FindPath` (`IsTeleportationTile`)."""
+        v = (self.by_id.get(tid) or {}).get("teleportTwinTileId")
+        if v is None:
+            return None
+        v = int(v)
+        return v if v != 0 else None
 
     def neighbours_geometric(self, tid: int) -> list[int]:
         """Voisins GEOMETRIQUES de `tid` -- la couronne hex even-q recalculee depuis `(col, row)`,
