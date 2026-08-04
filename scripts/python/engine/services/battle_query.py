@@ -319,6 +319,42 @@ def find_melee_weapon(visual_id) -> dict | None:
     return select_max_range_weapon([w for w in weapons if weapon_is_melee(w)])
 
 
+def get_attack_weapon_for_default_normal_attack_from_tiles(visual_id, is_adjacent: bool) -> dict | None:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack(attacker,
+    attackerTiles, **targetTiles**)` -- la surcharge que l'interface `IBattleQuery` expose au slot
+    `0xb0`, et la SEULE que la regle dynamique de l'attaque normale consulte. Corps natif :
+
+        t1 = attackerTiles[0]; t2 = targetTiles[0];              // deux `First()`
+        if (MovementUtil.AreTilesAdjacent(t1, t2))
+             return FindMeleeWeapon(attacker, unitPosition: null, target: null);
+        else return FindRangedWeapon(attacker);
+
+    `AreTilesAdjacent` y est la surcharge **LISTE** (`MovementUtil$$AreTilesAdjacent(IList, IList)`,
+    xref LUE depuis ce corps) : un produit cartesien vrai des qu'UNE paire de tuiles est adjacente --
+    donc l'EMPREINTE complete, exactement le predicat de `BattleQuery$$AreEntitiesAdjacent`, et non
+    la seule tuile principale. C'est pourquoi l'adjacence est calculee par l'appelant et arrive ici
+    en booleen : ce module n'a pas de board.
+
+    ⚠ TROIS SURCHARGES, ET ELLES NE FONT PAS LA MEME CHOSE -- ne pas les confondre, le slot les
+    separe :
+      * `0xae` `(attacker, attackerTiles)` -- chaine de repli melee<->ranged ; c'est celle que
+        `IdunBattle.View.FSM.VisualBattleQuery$$GetAttackWeaponForDefaultNormalAttack` delegue
+        (lecture qui FIXE l'appariement slot<->arite) ;
+      * `0xaf` `(attacker, attackerTiles, **target**)` -- resout `GetNormalAttackType` puis
+        `BattleQuery$$GetAbilityAttackRangeType`, teste `UnitExtensions$$HasFlag(attacker, 0x15)`
+        et `AreEntitiesAdjacent` ; NON PORTEE, aucun consommateur porte ne l'emprunte ;
+      * `0xb0` `(attacker, attackerTiles, **targetTiles**)` -- CELLE-CI.
+    L'appariement `0xaf`/`0xb0` est LU sur les deux surcharges de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$FindAttackWeapon`,
+    qui appellent respectivement le slot `0xaf` (parametre `target`) et le slot `0xb0` (parametre
+    `targetTiles`) -- et c'est le slot `0xb0` que
+    `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason` invoque.
+
+    SUBSTRAT : le kit gameconfig, via `find_melee_weapon` / `find_ranged_weapon` (meme borne, meme
+    citation). `None` = le natif rendrait `null` -- ce que la regle dynamique traduit en REFUS."""
+    return find_melee_weapon(visual_id) if is_adjacent else find_ranged_weapon(visual_id)
+
+
 def weapon_hits(weapon: dict | None) -> int:
     """`WeaponProfile+0x20` = `Hits`, le nombre de coups du profil -- et `null -> 0`, la valeur que
     le natif garde quand `FindMeleeWeapon` ne rend rien (`iVar8` initialise a 0 et laisse tel quel

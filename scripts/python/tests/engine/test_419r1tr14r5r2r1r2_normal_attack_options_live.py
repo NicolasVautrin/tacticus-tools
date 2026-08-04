@@ -24,13 +24,13 @@ CE QUE CE FICHIER GARDE -- cinq choses, aucune redondante :
      DIVERGER du natif sur au moins une ligne. Sans ce cran, un vert de (3) ne prouverait pas que la
      tranche sert a quelque chose : les deux modeles coincident partout ou le `TargetingRange` est le
      meme. Le bras `ctrl` est la reciproque -- il BORNE : le port par-type n'y perd aucune ligne.
-  5. **L'INERTIE DU BIT, DITE ET MESUREE.** `TargetMatchesDynamicRule` (le seul ecart des deux
-     presets) cable `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason`
-     (= `FindAttackWeapon(...) != null ? 0 : 2`), NON PORTE -> le bit ne deplace aujourd'hui aucun
-     verdict. Le cran l'ASSERTE au lieu de laisser croire que les types `0x4000` sont valides par
-     l'observable. Le jour ou la regle est portee (residu `#419-r1-tr14-r5-r2-r1-r2-r1`), ce cran
-     rougit et REDEMANDE une mesure -- c'est le point : sans la table par type, la regle serait alors
-     armee sur cinq types que le natif desarme.
+  5. **LE BIT NE MORD PAS UN CASTER ARME.** `TargetMatchesDynamicRule` (le seul ecart des deux
+     presets) cable `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason`, PORTE depuis
+     #419-r1-tr14-r5-r2-r1-r2-r1. Ce cran gardait auparavant l'INERTIE du bit et annoncait qu'il
+     rougirait le jour du port ; il garde desormais la loi PLUS FORTE que ce port appelle : la regle
+     ne retire AUCUNE cible a un caster qui possede les deux types d'arme (l'echec symetrique,
+     RESTRICTIF, de l'ecart permissif ferme). Son ACTIVITE se mesure sur un caster SANS ARME, dans
+     `probe_419r1tr14r5r2r1r2r1_normal_attack_dynamic_rule.py`.
 
 ⚠ Le montage est OBLIGATOIRE, et c'est une MESURE :
 `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason` commence par
@@ -156,11 +156,24 @@ def test_le_bras_ctrl_est_inchange(mesure):
             f"baseline ({hex(r['old'])}) -- le type 69 EST le generique")
 
 
-def test_le_bit_dynamic_rule_est_inerte(mesure):
-    """(5) `TargetMatchesDynamicRule` ne deplace aucun verdict tant que
-    `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason` n'est pas porte. Ce cran DIT la
-    borne ; il rougira quand la regle sera portee, et c'est voulu."""
+def test_le_bit_dynamic_rule_ne_mord_pas_un_caster_arme(mesure):
+    """(5) NON-REGRESSION : `TargetMatchesDynamicRule` ne retire AUCUNE cible a un caster ARME.
+
+    ⚠ CE CRAN A CHANGE DE SENS avec #419-r1-tr14-r5-r2-r1-r2-r1, et c'est la loi ANNONCEE par sa
+    version precedente (« il rougira quand la regle sera portee, et c'est voulu »). Il assertait
+    alors que le bit etait INERTE, faute de port de
+    `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason`. La regle est desormais PORTEE
+    (`targeting.normal_attack_dynamic_invalid_target_reason`), donc le bit n'est plus inerte en soi.
+
+    Le zero garde ici une loi PLUS FORTE, et non plus faible : le caster du bras `ctrl`
+    (`necroWarden`) porte une arme de MELEE **et** une arme a DISTANCE, donc `FindMeleeWeapon` et
+    `FindRangedWeapon` rendent tous deux non-null quelle que soit l'adjacence -- la regle ne PEUT
+    pas refuser. Une difference ici signifierait que le refus porte DEBORDE sur un caster arme,
+    c.-a-d. l'echec symetrique (restrictif) de l'ecart permissif que la tranche ferme.
+
+    L'ACTIVITE de la regle, elle, se mesure la ou elle mord (caster SANS ARME) :
+    `probe_419r1tr14r5r2r1r2r1_normal_attack_dynamic_rule.py` et son test jumeau."""
     assert mesure["bit_diff"] == 0, (
-        f"{mesure['bit_diff']} ligne(s) differencient 69 et 1030 alors que seul le bit "
-        "TargetMatchesDynamicRule les separe : la regle dynamique semble portee -> re-mesurer, "
-        "la table par type devient alors OBSERVABLE sur cinq types de plus")
+        f"{mesure['bit_diff']} ligne(s) differencient 69 et 1030 sur un caster ARME alors que seul "
+        "le bit TargetMatchesDynamicRule les separe : la regle dynamique ne peut pas refuser un "
+        "caster qui a les DEUX types d'arme -> le refus porte deborde")

@@ -225,11 +225,20 @@ def run(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
             raise MontageError("bras `%s` non montable -> rien n'est mesure" % arm)
         res[arm] = got
 
-    # ------------------------------------------------------------------- ETAGE 2 : le bit, INERTE
+    # ------------------------------------------- ETAGE 2 : le bit sur un caster ARME -> sans effet
     # Contre-epreuve OFFLINE sur l'etat du bras `ctrl` : `1030` et `69` ne different QUE par
-    # `TargetMatchesDynamicRule`. Si le port rend la meme chose pour les deux sur toutes les cibles,
-    # c'est que le bit est INERTE -- ce que la RE annonce (regle dynamique non portee) et ce qu'il
-    # faut DIRE plutot que compter ces types comme une victoire.
+    # `TargetMatchesDynamicRule`.
+    #
+    # ⚠ CE QUE CE ZERO SIGNIFIE A CHANGE avec #419-r1-tr14-r5-r2-r1-r2-r1, et le confondre serait
+    # une regression silencieuse. La regle dynamique EST desormais portee
+    # (`targeting.normal_attack_dynamic_invalid_target_reason`) : le bit n'est plus inerte EN SOI.
+    # S'il ne deplace aucun verdict ICI, c'est pour une raison MESURABLE et bien plus interessante --
+    # le caster du bras `ctrl` est `necroWarden`, qui porte une arme de MELEE **et** une arme a
+    # DISTANCE, donc `FindMeleeWeapon` et `FindRangedWeapon` rendent tous deux non-null, quelle que
+    # soit l'adjacence de la cible. La regle ne peut alors PAS refuser.
+    # Ce zero garde donc la NON-REGRESSION : la regle portee ne retire AUCUNE cible a un caster arme.
+    # Son activite, elle, se mesure la ou elle mord -- caster SANS ARME :
+    # `probe_419r1tr14r5r2r1r2r1_normal_attack_dynamic_rule.py`.
     st = res["ctrl"]["state"]
     cid = res["ctrl"]["caster"]
     p69, p1030 = _NormalAttackTargeting(OPTS[69]), _NormalAttackTargeting(OPTS[1030])
@@ -239,9 +248,10 @@ def run(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
     print("\n=== ETAGE 2 -- le bit `TargetMatchesDynamicRule` (69 contre 1030), offline")
     print("  lignes ou le port DIFFERE entre 69 et 1030 : %d / %d"
           % (res["bit_diff"], len(res["ctrl"]["rows"])))
-    print("  -> %s" % ("INERTE, conforme a la RE (la regle dynamique n'est pas portee, residu "
-                       "#419-r1-tr14-r5-r2-r1-r2-r1)" if res["bit_diff"] == 0
-                       else "NON INERTE -- la RE dit le contraire, a re-examiner"))
+    print("  -> %s" % ("SANS EFFET sur un caster ARME (necroWarden a melee ET distance) : la regle "
+                       "portee ne lui retire aucune cible" if res["bit_diff"] == 0
+                       else "le bit deplace un verdict sur un caster ARME -- la regle dynamique ne "
+                            "devrait PAS pouvoir refuser ici, a re-examiner"))
     return res
 
 
