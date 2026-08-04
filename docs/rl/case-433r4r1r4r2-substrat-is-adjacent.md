@@ -141,11 +141,12 @@ pathfinding, playbooks touchés). Un seul rouge, **de MONTAGE** : le spy de
 
 ## 5. Résidus NOMMÉS
 
-* **`#433-r4-r1-r4-r2-r1` — quatre foyers voisins partagent le vice et ne sont PAS branchés** :
-  `battle_query.in_arc` / `count_enemies_in_arc` (ring-1 via `is_adjacent`),
-  `battle_query.is_charging` (via `are_entities_adjacent`) et `battle_query.newly_adjacent_ids`
-  (mirror de `MoveUnitOperation$$UpdateCharging`, `hexgeo.distance == 1` nu). Chacun a ses propres
-  appelants, donc son propre rayon ; aucun n'est dans le périmètre nommé de ce résidu.
+* ~~**`#433-r4-r1-r4-r2-r1` — quatre foyers voisins partagent le vice**~~ — **FERMÉ (2026-08-05)**,
+  et l'énoncé était faux : ils ne partagent PAS le vice, ils mirrorent **trois natifs distincts**.
+  `is_charging` et `newly_adjacent_ids` (+ son jumeau ECS `update_charging`) sont **branchés** ;
+  `in_arc` / `count_enemies_in_arc` sont **géométriques par lecture** (`GetTilesAtDistance` =
+  `PositionComponent$$Distance` sur un disque cube) et y portaient une porte d'élévation **en
+  trop**. Détail : `case-433r4r1r4r2r1-foyers-voisins-adjacence.md`.
 * **`#433-r4-r1-r4-r2-r2` — `playbook/noncomparable/heroic_fusillade.py` appelle `count_adjacent`
   SANS élévation ni voisinage** (`bq.count_adjacent(tpos, others)`). Hors gisement du cliquet par
   construction (il garde le COUPLE) : c'est une dégradation antérieure, à trancher sur son propre
