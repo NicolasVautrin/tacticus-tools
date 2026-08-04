@@ -159,7 +159,24 @@ class Sources:
         return p.returncode, (p.stdout or "")
 
     def git(self, *args: str) -> tuple[int, str]:
-        return self._run(["git", "-C", str(self.repo), *args])
+        """`--no-optional-locks` est pose au FOYER, jamais au site d'appel (#474).
+
+        Ce lecteur vise l'ARBRE PRINCIPAL, depuis le hook `Stop`, sous un budget de 3 s --
+        et `subprocess.run(timeout=)` TUE par `TerminateProcess` au depassement. Or
+        `git status` tient `.git/index.lock` a **0 octet pendant ~toute sa duree** (1,2 s
+        sur cet arbre) : un git tue dans cette fenetre laisse un lock ORPHELIN que plus
+        aucun process ne tient, et c'est le `git merge` SUIVANT de l'arbre principal qui
+        meurt dessus. On supprime la FENETRE, on ne court pas apres le residu.
+
+        Mesure sur depot jetable (#474) : kill pendant la fenetre = **15/15** residus sans
+        l'option, **0/15** avec, et la sortie de `status --porcelain` est IDENTIQUE.
+
+        Au foyer parce qu'un `src.git("status", ...)` ajoute demain serait couvert d'office
+        -- meme raison que le foyer `_git` de `probe_457`. Sans effet sur les commandes qui
+        ne prennent pas de lock optionnel (mesure : seuls `status` et `describe --dirty`
+        en prennent un ; `diff`, `ls-files`, `rev-parse`, `worktree list` n'en prennent pas).
+        """
+        return self._run(["git", "-C", str(self.repo), "--no-optional-locks", *args])
 
     # Emplacements d'installation connus de `gh` sous Windows, essayes APRES le PATH.
     _GH_CONNUS = (

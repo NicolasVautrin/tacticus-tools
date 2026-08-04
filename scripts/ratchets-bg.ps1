@@ -144,7 +144,12 @@ Note ("[ratchets-bg] worktree {0}  ({1})" -f $wt, $(if ($jetable) { 'JETABLE -- 
 # l'attribution a 1 PR quand l'arbre principal est deja passe a la suivante. Corollaire qu'il
 # faut DIRE, parce qu'on s'y fait prendre : un correctif non commite est INVISIBLE ici, et le
 # verdict porte alors sur du code anterieur.
-$sale = @(git -C $repo status --porcelain --untracked-files=no)
+# `--no-optional-locks` (#474) : ce `git status` vise l'ARBRE PRINCIPAL depuis un script fait
+# pour tourner en ARRIERE-PLAN, donc tuable par le harnais a tout instant. Or `git status`
+# tient `.git/index.lock` a 0 OCTET pendant ~toute sa duree (1,2 s sur cet arbre) -- un git tue
+# dans cette fenetre laisse un lock ORPHELIN, et c'est le `git merge` SUIVANT qui meurt dessus.
+# L'option supprime la fenetre au lieu de courir apres le residu. Sortie strictement IDENTIQUE.
+$sale = @(git -C $repo --no-optional-locks status --porcelain --untracked-files=no)
 if ($sale.Count -gt 0) {
     Note "[ratchets-bg] ATTENTION : $($sale.Count) fichier(s) suivis MODIFIES et NON COMMITES dans"
     Note "[ratchets-bg] l'arbre principal. Ils ne sont PAS dans ce verdict -- il juge $court."

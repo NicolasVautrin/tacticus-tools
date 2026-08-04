@@ -222,11 +222,18 @@ la profondeur 1 n'est pas mesuré. Ne pas lire cet inventaire comme exhaustif.
 
 ## 6. Ce qui n'est PAS fait
 
-- **La CAUSE du `128` n'est pas tranchée, et aucune parade n'est codée dessus** (**résidu
-  #471-r2**). L'hypothèse « contention git » — les worktrees partagent `.git/`, la banque tournait
-  pendant un `git merge --no-ff` dans l'arbre principal — est **plausible et non établie**. La
-  trancher demanderait de rejouer une passe **avec** et **sans** opération git concurrente. Le
-  défaut fermé ici est le **tri-état**, qui vaut quelle que soit la cause.
+- **La CAUSE du `128` n'est toujours pas tranchée** (**résidu #471-r2**, repris par #474 puis
+  rouvert en `#474-r1`). L'hypothèse « contention git » est désormais **RÉFUTÉE par mesure**, et
+  le lien avec le `.git/index.lock` orphelin de #474 est **RÉFUTÉ** : `git ls-files` ne prend pas
+  ce lock et rend **rc=0** en sa présence ; 340 invocations concurrentes lecteurs/écrivains
+  (avec **et** sans `git worktree add/remove` en parallèle) n'ont produit **aucun** rc≠0 ; un
+  `git worktree add` tué rend **0/8**. Deux chemins seulement mènent à un `128` mesuré —
+  **gitdir du worktree disparu** (`fatal: not a git repository`) et **index corrompu**
+  (`error: bad signature`) — et le message de l'occurrence n'a pas été conservé (le `check=True`
+  d'origine). Depuis #471, `_git` **rapporte stderr** : la prochaine occurrence portera son
+  diagnostic, et `probe_474_git_lock_forensics.py --veille` capture l'état au moment du fait.
+  Détail des mesures : `docs/rl/case-474-index-lock-orphelin.md` §5. Le défaut fermé ici reste
+  le **tri-état**, qui vaut quelle que soit la cause.
 - **Aucun rejeu automatique.** « Un rejeu qui passe ne prouve rien » : la conduite à tenir est
   imprimée dans le bloc `INDISPONIBLE` (rejouer *cette* entrée seule ; si elle passe, le dire dans
   la PR, ne pas la taire), pas exécutée en silence.
