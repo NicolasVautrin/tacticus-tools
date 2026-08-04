@@ -114,14 +114,21 @@ n'est JAMAIS confronte a `_globales`. Son seul effet residuel passait par `dirs_
 NON-`.py` du meme REPERTOIRE forcait le rejeu total. Un diff purement Python ne declenchait donc
 jamais << TOUT rejoue >> par cette voie.
 
-La correction ne SUPPRIME pas une garde, elle en DEPLACE la charge de la preuve : une lecture
-globale n'est retiree que si elle est **PROUVEE couverte par le graphe d'imports statique**, et
-l'unique motif admis est << `rel` est un module `.py` VERSIONNE du domaine du graphe >>
-(`_modules_du_graphe`, foyer UNIQUE partage par l'ecriture et par la lecture). Tout le reste --
-`.py` hors `scripts/python`, `.py` non versionne, n'importe quel non-`.py` -- reste GLOBAL.
+**RIEN N'EST FILTRE** -- la CAUSE est traitee. `--measure` PRECHAUFFE le bytecode
+(`_prechauffer_bytecode`) avant d'installer le hook, et un GARDE DE REGIME refuse d'ecrire
+l'empreinte si un module du domaine est quand meme lu en global (signe que le prechauffage n'a pas
+pris). Mesure sur echantillon : **355** lectures brutes sans prechauffage, **2** avec, et
+froid == chaud.
 
-Et parce que cette preuve devait etre VRAIE et non postulee, elle a exige de fermer un trou du
-graphe : cf. `_conftest_edges`.
+⚠ **La piste << filtrer les `.py` des globales >> a ete essayee, puis ECARTEE par mesure.** Elle
+ferme `_globales` mais pas `par_test`, ou un import LAZY execute pendant un test attribue au test
+une source `.py` (45 entrees a chaud contre 52 a froid). Et la, le filtre ne PEUT pas etre etendu :
+`par_test` porte **420** couples (test, repertoire-de-code) meme a chaud, parce que ce depot est
+plein de tests-BALAYAGE qui OUVRENT le code source pour l'analyser. Ces lectures ne sont couvertes
+par aucun import, donc par aucune preuve -- les retirer serait le faux vert de #464.
+
+Fermer la cause a tout de meme exige de fermer un trou du graphe, decouvert en cherchant la preuve
+de couverture : cf. `_conftest_edges`.
 
 MESURE INCREMENTALE (#463)
 --------------------------
@@ -467,6 +474,7 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(poids, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
+    empreinte_refusee = False
     if empreinte is not None:
         # Empreinte MESUREE -- VERSIONNEE, avec le commit qui l'horodate (cf. `_footprints_path`).
         # Sans `_commit`, la selection ne peut pas mesurer son age et refuse de s'appliquer.
@@ -487,35 +495,47 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
             # chaque fichier ne rendrait AUCUNE precision, et pesait 961 Ko versionnes.
             return sorted({c.rsplit("/", 1)[0] for c in chemins if _versionnable(c) and "/" in c})
 
-        # #464-r2 : les modules du domaine sont RETIRES des globales -- leur lecture atteste un
-        # IMPORT, et le graphe propage deja les changements de son domaine. Sans ce filtre,
-        # l'empreinte VERSIONNEE valait 552 globales sur un arbre froid contre 9 sur un arbre
-        # chaud : le fichier decrivait l'etat du `__pycache__` de la machine, pas le depot.
+        # GARDE DE REGIME (#464-r2). Un module du domaine lu GLOBALEMENT signe un bytecode qui
+        # n'etait pas a jour : `import` a ouvert la SOURCE. L'empreinte decrirait alors le
+        # `__pycache__` de la machine (mesure : 552 globales a froid contre 3 a chaud) -- et elle
+        # est VERSIONNEE, donc le defaut serait propage. On REFUSE de l'ecrire.
         modules = _modules_du_graphe()
         brutes = [g for g in empreinte.globales if _versionnable(g)]
-        couvertes = [g for g in brutes if _couverte_par_le_graphe(g, modules)]
+        modules_globaux = sorted(g for g in brutes if _est_module_du_domaine(g, modules))
+        if modules_globaux and not _echappatoire_regime():
+            print("[457] REFUS D'ECRIRE L'EMPREINTE : %d module(s) du domaine lu(s) en GLOBAL, "
+                  "donc le bytecode n'etait pas a jour au moment de la mesure."
+                  % len(modules_globaux))
+            for rel in modules_globaux[:5]:
+                print("        %s" % rel)
+            print("[457] Une empreinte mesuree dans ce regime decrit le __pycache__ de la machine,")
+            print("[457] pas le depot -- et elle est VERSIONNEE. Les POIDS, eux, sont ecrits.")
+            print("[457] Causes usuelles : PYTHONDONTWRITEBYTECODE=1, `logs/` non ecrivable, ou un")
+            print("[457] module non compilable. Remede : relancer `--measure` (le prechauffage a")
+            print("[457] deja tourne). Echappatoire CONSCIENTE si la lecture est APPLICATIVE")
+            print("[457] (un conftest qui lit un .py comme DONNEE) : %s=1" % _ENV_ECHAPPATOIRE)
+            empreinte_refusee = True
+        else:
+            emp_path = _footprints_path()
+            emp = {
+                "_commit": (tete.stdout or "").strip() or None,
+                "_regime": REGIME_MESURE,
+                "_globales": sorted(brutes),
+                "par_test": {rel: d for rel, d in
+                             ((r, _dossiers(v)) for r, v in sorted(empreinte.par_test.items()))
+                             if d},
+            }
+            emp_path.write_text(json.dumps(emp, indent=1, sort_keys=True) + "\n",
+                                encoding="utf-8")
 
-        emp_path = _footprints_path()
-        emp = {
-            "_commit": (tete.stdout or "").strip() or None,
-            "_domaine_couvert": DOMAINE_COUVERT,
-            "_globales": sorted(g for g in brutes if not _couverte_par_le_graphe(g, modules)),
-            "par_test": {rel: d for rel, d in
-                         ((r, _dossiers(v)) for r, v in sorted(empreinte.par_test.items())) if d},
-        }
-        emp_path.write_text(json.dumps(emp, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-
-        hors_py = sorted({r for r in emp["_globales"] if not r.endswith(".py")})
-        hors_py_test = sorted({r for v in empreinte.par_test.values() for r in v
-                               if not r.endswith(".py")})
-        print("[457] empreinte -> %s : %d fichier(s) de test, %d lecture(s) GLOBALE(s) retenue(s) "
-              "(non attribuables -> impactent TOUT), dont %d hors .py ; %d fichier(s) hors .py lus "
-              "pendant les tests"
-              % (emp_path, len(emp["par_test"]), len(emp["_globales"]), len(hors_py),
-                 len(hors_py_test)))
-        print("[457] %d lecture(s) globale(s) NON retenue(s) : modules du domaine, deja couverts "
-              "par le graphe d'imports (ce compte varie avec l'etat du __pycache__ -- c'est "
-              "PRECISEMENT ce que le filtre neutralise, cf. #464-r2)" % len(couvertes))
+            hors_py = sorted({r for r in emp["_globales"] if not r.endswith(".py")})
+            hors_py_test = sorted({r for v in empreinte.par_test.values() for r in v
+                                   if not r.endswith(".py")})
+            print("[457] empreinte -> %s : %d fichier(s) de test, %d lecture(s) GLOBALE(s) "
+                  "(non attribuables -> impactent TOUT), dont %d hors .py ; %d fichier(s) hors .py "
+                  "lus pendant les tests"
+                  % (emp_path, len(emp["par_test"]), len(emp["_globales"]), len(hors_py),
+                     len(hors_py_test)))
     else:
         print("[457] empreinte NON REECRITE (mesure incrementale) : `_commit` horodate l'empreinte")
         print("[457] ENTIERE -- la rafraichir apres n'avoir joue que %d fichier(s) pretendrait une"
@@ -536,6 +556,13 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
         print("[457] pytest rc=%d -- poids ecrits (les fichiers ONT ete joues), mais l'arbre est "
               "ROUGE" % rc)
         return 1
+    if empreinte_refusee:
+        # Le GISEMENT est vert, mais le LIVRABLE << empreinte >> n'a pas ete produit. Ne pas rendre
+        # 0 : un `--measure` qui n'ecrit pas l'empreinte et se tait passerait pour une maintenance
+        # faite. `EX_NON_MESURE` est deja la convention << ce run n'a pas produit sa mesure >>.
+        print("[457] rc=%d -- l'arbre est VERT, mais l'EMPREINTE n'a pas ete produite (cf. ci-dessus)"
+              % EX_NON_MESURE)
+        return EX_NON_MESURE
     return 0
 
 
@@ -631,10 +658,10 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
 #: ce qu'aucun import ne revele -- un test qui lit `data/symbols/...`, `docs/...` ou
 #: `frida/hooks/*.ts`.
 #:
-#: Le hook d'audit, lui, voit ce que la MACHINE fait faire a l'import : des `.pyc` quand le cache
-#: est chaud, les SOURCES `.py` quand il est froid. Ni l'un ni l'autre n'est une information sur le
-#: DEPOT, et les deux sont deja couverts par le graphe -- d'ou le filtre `_couverte_par_le_graphe`
-#: (#464-r2), applique a l'ecriture ET a la lecture depuis le MEME foyer.
+#: Le hook d'audit, lui, voyait AUSSI ce que la MACHINE fait faire a l'import : des `.pyc` quand le
+#: cache est chaud, les SOURCES `.py` quand il est froid. Ni l'un ni l'autre n'est une information
+#: sur le DEPOT -- d'ou le prechauffage et son garde de regime (#464-r2), qui suppriment la cause
+#: au lieu de filtrer la trace.
 #:
 #: TOUT CE QUI N'EST PAS PROUVE IMPACTE. Un test sans empreinte, un module illisible, un import
 #: dynamique, une empreinte absente : impacte. La selection ne peut que RETIRER des tests dont on
@@ -647,11 +674,21 @@ def _module_name(rel: str) -> str:
     return nom[:-len(".__init__")] if nom.endswith(".__init__") else nom
 
 
-#: Description STABLE du domaine, ecrite dans l'empreinte : le fichier versionne DIT lui-meme
-#: quelle classe de lecture il a cesse de compter, au lieu de la faire disparaitre en silence.
-#: Stable = identique a froid et a chaud, donc aucun bruit de diff (#464-r2).
-DOMAINE_COUVERT = ("modules .py VERSIONNES de scripts/python -- retires des lectures GLOBALES "
-                   "car couverts par le graphe d'imports statique (#464-r2)")
+#: Ce que l'empreinte ATTESTE d'elle-meme, en clair dans le fichier versionne : elle a ete mesuree
+#: bytecode a jour, donc aucune de ses lectures ne vient de la compilation d'un import. Chaine
+#: CONSTANTE -- identique a froid et a chaud, donc aucun bruit de diff (#464-r2).
+REGIME_MESURE = ("bytecode PRECHAUFFE avant la mesure -- aucune lecture GLOBALE ne provient d'un "
+                 "import (garde de regime #464-r2)")
+
+#: Echappatoire CONSCIENTE au garde de regime, sur le patron de `TACTICUS_ALLOW_GREEN_SKIP` (#455).
+#: A n'employer que si la lecture globale d'un module est APPLICATIVE (un `conftest.py` qui ouvre
+#: un `.py` comme DONNEE) -- pas pour faire taire un prechauffage en echec.
+_ENV_ECHAPPATOIRE = "TACTICUS_457_ACCEPTE_PY_GLOBAUX"
+
+
+def _echappatoire_regime() -> bool:
+    import os
+    return bool(os.environ.get(_ENV_ECHAPPATOIRE))
 
 
 def _modules_du_graphe(racine=None) -> dict:
@@ -671,17 +708,20 @@ def _modules_du_graphe(racine=None) -> dict:
             for l in r.stdout.splitlines() if l.strip().endswith(".py")}
 
 
-def _couverte_par_le_graphe(rel: str, modules) -> bool:
-    """`True` si la lecture GLOBALE de `rel` est DEJA couverte par le graphe d'imports statique.
+def _est_module_du_domaine(rel: str, modules) -> bool:
+    """`True` si `rel` est un module du domaine du graphe (`_modules_du_graphe`).
 
-    UNIQUE motif admis : `rel` est un module du domaine (`_modules_du_graphe`). Pas de test sur
-    l'extension, pas de liste ecrite a la main, aucune heuristique de bruit -- la regle du fichier
-    est << tout ce qui n'est pas PROUVE impacte >>, et le seul theoreme disponible ici est
-    << le graphe propage les changements de SON domaine >>.
+    Sert au GARDE DE REGIME, PAS a filtrer (#464-r2). La nuance est le coeur de l'arbitrage :
 
-    Ce qui reste GLOBAL, et c'est voulu : un `.py` hors `scripts/python` (le graphe ne le resout
-    pas), un `.py` non versionne (absent de `git ls-files`, donc absent du domaine), et bien sur
-    tout non-`.py` -- `data/...`, `docs/...`, `frida/hooks/*.ts`, `pytest.ini`.
+    Un module du domaine lu PENDANT un import est couvert par le graphe -- mais le hook d'audit ne
+    sait pas dire d'ou vient un `open`. Ce depot est plein de tests-BALAYAGE qui OUVRENT le code
+    source pour l'analyser, et un `conftest.py` pourrait faire de meme A LA COLLECTE : cette
+    lecture-la n'est couverte par AUCUN import, donc par aucune preuve. Retirer les modules des
+    globales << parce qu'ils sont bruyants >> retirerait donc, un jour, un vrai signal -- exactement
+    le faux vert de #464.
+
+    D'ou le choix : on ne FILTRE pas, on traite la CAUSE (`_prechauffer_bytecode`) et on VERIFIE
+    qu'elle a bien ete traitee. En regime nominal ce predicat ne designe plus rien.
     """
     return rel in modules
 
@@ -841,11 +881,14 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
 
     # Les GLOBALES ne sont attribuables a personne -> tout changement les touchant impacte TOUT.
     # `.pyc` exclus : bytecode non versionne, jamais dans un diff.
-    # Modules du domaine exclus AUSSI (#464-r2), avec le MEME foyer qu'a l'ecriture : le filtre est
-    # applique aux DEUX bouts pour qu'une empreinte mesuree AVANT ce correctif -- qui contient
-    # encore ses centaines de `.py` -- ne coute pas le mur qu'il supprime.
-    globales = {g for g in emp.get("_globales", ())
-                if not g.endswith(".pyc") and not _couverte_par_le_graphe(g, mods)}
+    #
+    # ⚠ AUCUN autre retrait ici (#464-r2). Filtrer les modules du domaine a la LECTURE a ete
+    # essaye puis ECARTE : rien ne distingue, dans une empreinte deja ecrite, la lecture d'IMPORT
+    # (couverte par le graphe) de la lecture APPLICATIVE d'un `.py` par un conftest-balayage (qui
+    # n'est couverte par rien). Le regime est garanti a l'ECRITURE, ou l'information existe encore.
+    # Une empreinte ANCIENNE, mesuree avant ce correctif, garde donc ses `.py` : elle SUR-selectionne
+    # -- le sens sur, et elle se regenere.
+    globales = {g for g in emp.get("_globales", ()) if not g.endswith(".pyc")}
     dirs_glob = {g.rsplit("/", 1)[0] for g in globales if "/" in g}
     hors_py = [c for c in changes if c not in mods]
     for c in hors_py:

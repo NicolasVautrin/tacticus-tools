@@ -186,82 +186,55 @@ def test_le_perimetre_reel_est_NON_VIDE(monkeypatch):
 # #464-r2 -- l'empreinte ne doit RIEN a l'etat du `__pycache__` de la machine qui la mesure.
 #
 # Mesure du 2026-08-04, MEME arbre MEME probe : `_globales` valait 552 sur un worktree froid
-# (0 `__pycache__`) contre 9 sur un arbre chaud, et les 3 lectures NON-`.py` etaient les MEMES des
+# (0 `__pycache__`) contre 3 sur un arbre chaud, et les 3 lectures NON-`.py` etaient les MEMES des
 # deux cotes. Sans bytecode, l'import ouvre la SOURCE, et le hook d'audit `open` la compte comme
 # lecture GLOBALE -- une information sur la MACHINE, jamais sur le depot.
 #
-# La correction ne SUPPRIME pas une garde : elle exige une PREUVE. Une lecture n'est retiree que si
-# elle est couverte par le graphe d'imports statique, et l'unique motif admis est
-# << module `.py` VERSIONNE du domaine >>. Les gardes ci-dessous tiennent les deux bords : ce que
-# le filtre a le droit de retirer, et surtout tout ce qu'il ne doit PAS toucher.
+# RIEN N'EST FILTRE : la CAUSE est traitee (prechauffage), et un GARDE DE REGIME verifie qu'elle
+# l'a bien ete. Les gardes ci-dessous tiennent ce contrat -- et surtout la BORNE : aucune lecture
+# n'est retiree, donc la selection ne peut pas devenir permissive.
 # ------------------------------------------------------------------------------------------------
 
 MODULE = "scripts/python/engine/foo.py"           # dans le domaine
 HORS_DOMAINE = "dump_boards.py"                   # `.py` A LA RACINE : le graphe ne le resout pas
 
 
-def test_un_module_du_domaine_en_globale_ne_change_RIEN_a_la_selection(empreinte):
-    """L'invariant de COUVERTURE, celui qui autorise le retrait -- verifie, pas postule.
+def test_le_prechauffage_vise_un_prefixe_HORS_scripts_python():
+    """#455 : la banque enumere `scripts/python` en parallele -- le bytecode ne doit pas y naitre."""
+    prefixe = str(P._pycache_prefix()).replace("\\", "/")
+    pydir = str(P.repo_root() / "scripts" / "python").replace("\\", "/")
+    assert not prefixe.startswith(pydir), \
+        "le bytecode de la mesure irait dans l'arbre de production : %s" % prefixe
+    assert "/logs/" in prefixe, "le prefixe doit vivre sous `logs/` (gitignore) : %s" % prefixe
 
-    Un module du domaine ne peut PAS entrer dans `hors_py` (`impacted_files` en retire tout ce qui
-    est dans `mods`), donc le porter en globale n'ajoute aucune selection quand LUI change."""
-    empreinte(globales=[MODULE], par_test={}, changes=[MODULE], mods=[MODULE])
-    avec, _ = P.impacted_files(PERIMETRE, "HEAD~1")
-    empreinte(globales=[], par_test={}, changes=[MODULE], mods=[MODULE])
-    sans, _ = P.impacted_files(PERIMETRE, "HEAD~1")
-    assert avec == sans, ("la globale d'un module du domaine doit etre SANS EFFET -- si elle en a "
-                          "un, le retirer PERD de la couverture au lieu de retirer du bruit")
+
+def test_le_garde_de_regime_reconnait_les_modules_du_domaine():
+    """`_est_module_du_domaine` decide du REFUS d'ecrire : aucune heuristique d'extension."""
+    domaine = {MODULE: "engine.foo"}
+    assert P._est_module_du_domaine(MODULE, domaine)
+    for reste in (HORS_DOMAINE, "scripts/python/engine/bar.py", "data/seed-bc.json",
+                  "docs/rl/note.md", "frida/hooks/x.ts", "scripts/python/pytest.ini"):
+        assert not P._est_module_du_domaine(reste, domaine), \
+            "%s n'est PAS dans le domaine -- il ne peut pas declencher le garde de regime" % reste
+
+
+def test_AUCUNE_lecture_globale_n_est_retiree_a_la_lecture(empreinte):
+    """LA BORNE de #464-r2 : la correction ne rend pas la selection permissive.
+
+    Un module du domaine LAISSE dans une empreinte ancienne doit encore mordre par son repertoire
+    -- c'est le sens SUR. Le regime est garanti a l'ecriture, jamais en effacant a la lecture."""
+    empreinte(globales=[MODULE], par_test={}, changes=["scripts/python/engine/table.json"],
+              mods=[MODULE])
+    retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
+    assert retenus == PERIMETRE, "une empreinte ancienne doit SUR-selectionner, jamais sous-selectionner"
+    assert "GLOBALE" in raison
 
 
 def test_un_py_HORS_domaine_en_globale_rejoue_TOUJOURS_TOUT(empreinte):
-    """La BORNE du filtre : il ne retire que ce qu'il prouve, jamais << tout ce qui finit en .py >>."""
     empreinte(globales=[HORS_DOMAINE], par_test={}, changes=[HORS_DOMAINE], mods=[MODULE])
     retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
     assert retenus == PERIMETRE, "un `.py` hors du domaine du graphe n'est couvert par RIEN"
     assert "GLOBALE" in raison
-
-
-def test_le_filtre_de_couverture_ne_retient_QUE_le_domaine():
-    """`_couverte_par_le_graphe` est le foyer du retrait : aucune heuristique d'extension."""
-    domaine = {MODULE: "engine.foo"}
-    assert P._couverte_par_le_graphe(MODULE, domaine)
-    for reste in (HORS_DOMAINE, "scripts/python/engine/bar.py", "data/seed-bc.json",
-                  "docs/rl/note.md", "frida/hooks/x.ts", "scripts/python/pytest.ini"):
-        assert not P._couverte_par_le_graphe(reste, domaine), \
-            "%s n'est PAS dans le domaine -- il doit rester une lecture globale" % reste
-
-
-def test_l_empreinte_est_INDEPENDANTE_de_l_etat_du_pycache():
-    """LA propriete de #464-r2, sur le critere qui compte : `_globales` ecrite.
-
-    On rejoue le FILTRE (fonction pure des chemins) sur les deux jeux de lectures brutes que les
-    deux regimes produisent -- FROID = l'import ouvre les sources de TOUT le domaine, CHAUD = il
-    n'ouvre que les rares modules dont le `.pyc` a vieilli. La difference entre les deux regimes
-    etant par construction contenue dans le domaine, `_globales` doit etre IDENTIQUE."""
-    domaine = P._modules_du_graphe()
-    assert len(domaine) > 500, "domaine effondre (%d) -- la garde ne prouverait rien" % len(domaine)
-
-    noyau = ["data/seed-bc.json", "data/symbols/CURRENT", "scripts/python/pytest.ini"]
-    modules = sorted(domaine)
-    brutes_froid = set(noyau) | set(modules)                 # tout le domaine ouvert en source
-    brutes_chaud = set(noyau) | set(modules[:6])             # quelques `.pyc` perimes seulement
-
-    def filtre(brutes):
-        return sorted(g for g in brutes if not P._couverte_par_le_graphe(g, domaine))
-
-    assert filtre(brutes_froid) == filtre(brutes_chaud) == sorted(noyau), \
-        "l'empreinte doit rendre le MEME `_globales` a froid et a chaud"
-
-
-def test_les_lectures_hors_py_survivent_au_filtre_meme_dans_le_domaine():
-    """CONTRE-EPREUVE : un non-`.py` POSE DANS `scripts/python` reste global.
-
-    C'est le cas le plus proche du bord -- meme repertoire que les modules retires. `pytest.ini`
-    en est l'exemplaire reel (mesure : present dans les DEUX regimes)."""
-    domaine = P._modules_du_graphe()
-    for donnee in ("scripts/python/pytest.ini", "scripts/python/tests/fixture.json"):
-        assert not P._couverte_par_le_graphe(donnee, domaine), \
-            "%s n'est pas un module -- le graphe ne dit RIEN de lui" % donnee
 
 
 # ------------------------------------------------------------------------------------------------

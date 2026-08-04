@@ -205,6 +205,72 @@ def test_les_deux_modes_de_mesure_s_EXCLUENT():
     assert P.main(["--measure", "--measure-missing"]) == 2
 
 
+# ------------------------------------------------------- #464-r2 : LE GARDE DE REGIME (bytecode)
+#
+# Un module du domaine lu en GLOBAL signe un bytecode perime : `import` a ouvert la SOURCE, et le
+# hook d'audit l'a comptee comme une lecture du depot. Mesure du 2026-08-04, MEME arbre MEME probe :
+# 552 globales a froid contre 3 a chaud. L'empreinte est VERSIONNEE -- l'ecrire dans ce regime
+# propagerait l'etat du `__pycache__` d'une machine.
+
+def _domaine(monkeypatch, *modules):
+    monkeypatch.setattr(P, "_modules_du_graphe",
+                        lambda racine=None: {m: m for m in modules})
+
+
+def test_un_module_du_domaine_en_GLOBAL_bloque_l_empreinte(sorties, monkeypatch):
+    poids, emp = sorties
+    _domaine(monkeypatch, "scripts/python/engine/foo.py")
+    horloge = _Horloge(sec={"tests/a_offline.py": 1.0}, n={"tests/a_offline.py": 2})
+    empreinte = _Empreinte(globales=["data/seed-bc.json", "scripts/python/engine/foo.py"],
+                           par_test={"tests/a_offline.py": {"data/symbols/x.tsv"}})
+
+    got = P._ecrire_mesure(PERIMETRE, PERIMETRE, horloge, empreinte, 0, 3.0, {})
+    assert got == P.EX_NON_MESURE, "un `--measure` qui n'ecrit pas l'empreinte ne rend pas 0"
+    assert not emp.exists(), "l'empreinte NE DOIT PAS etre ecrite dans un regime non maitrise"
+    assert poids.exists(), "les POIDS restent valides : les fichiers ONT bien ete joues"
+
+
+def test_une_lecture_hors_domaine_ne_bloque_PAS(sorties, monkeypatch):
+    """CONTRE-EPREUVE : sans elle, un garde SYSTEMATIQUE passerait le test ci-dessus et le probe
+    ne produirait plus jamais d'empreinte, sous un vert."""
+    _, emp = sorties
+    _domaine(monkeypatch, "scripts/python/engine/foo.py")
+    horloge = _Horloge(sec={"tests/a_offline.py": 1.0}, n={"tests/a_offline.py": 2})
+    empreinte = _Empreinte(globales=["data/seed-bc.json", "scripts/python/pytest.ini",
+                                     "dump_boards.py"],
+                           par_test={"tests/a_offline.py": {"data/symbols/x.tsv"}})
+
+    assert P._ecrire_mesure(PERIMETRE, PERIMETRE, horloge, empreinte, 0, 3.0, {}) == 0
+    import json
+    lu = json.loads(emp.read_text(encoding="utf-8"))
+    assert lu["_globales"] == ["data/seed-bc.json", "dump_boards.py",
+                               "scripts/python/pytest.ini"], \
+        "AUCUNE lecture n'est retiree -- le garde bloque ou laisse passer, il ne filtre pas"
+    assert lu["_regime"], "l'empreinte doit ATTESTER le regime sous lequel elle a ete mesuree"
+
+
+def test_l_echappatoire_est_CONSCIENTE_et_nommee(sorties, monkeypatch):
+    _, emp = sorties
+    _domaine(monkeypatch, "scripts/python/engine/foo.py")
+    monkeypatch.setenv(P._ENV_ECHAPPATOIRE, "1")
+    horloge = _Horloge(sec={"tests/a_offline.py": 1.0}, n={"tests/a_offline.py": 2})
+    empreinte = _Empreinte(globales=["scripts/python/engine/foo.py"],
+                           par_test={"tests/a_offline.py": {"data/symbols/x.tsv"}})
+
+    assert P._ecrire_mesure(PERIMETRE, PERIMETRE, horloge, empreinte, 0, 3.0, {}) == 0
+    import json
+    assert json.loads(emp.read_text(encoding="utf-8"))["_globales"] == \
+        ["scripts/python/engine/foo.py"], "l'echappatoire laisse la lecture TELLE QUELLE"
+
+
+def test_un_arbre_ROUGE_prime_sur_le_refus_d_empreinte(sorties, monkeypatch):
+    """`rc=1` est l'information la plus actionnable : elle ne doit pas etre masquee par le 99."""
+    _domaine(monkeypatch, "scripts/python/engine/foo.py")
+    horloge = _Horloge(sec={"tests/a_offline.py": 1.0}, n={"tests/a_offline.py": 2})
+    empreinte = _Empreinte(globales=["scripts/python/engine/foo.py"], par_test={})
+    assert P._ecrire_mesure(PERIMETRE, PERIMETRE, horloge, empreinte, 1, 3.0, {}) == 1
+
+
 # --------------------------------------------------------------- LE FOYER UNIQUE D'ECRITURE
 
 def _fonctions_qui_ecrivent(source: str) -> set:
