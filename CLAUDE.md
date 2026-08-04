@@ -348,6 +348,30 @@ git add scripts/ratchets-462-live-attestations.json
 - Détail des arbitrages, contre-épreuves et résidus : `docs/rl/case-430-banque-de-cliquets.md`,
   `docs/rl/case-439-cliquet-peut-rougir.md`.
 
+### L'état de la BOUCLE — `loop_status.py`, déclenché tout seul (#465)
+
+```powershell
+python scripts/python/loop_status.py          # flotte / livraison / harnais / banque
+```
+
+Ces 37 cliquets gardent le **CODE**. Celui-ci garde la **BOUCLE** : agents en vol vs plafond,
+commits non poussés, worktrees d'agents nettoyables, PR ouvertes, session Frida, drain,
+**`liveRunners`** (le budget partagé des 4-en-parallèle, que personne ne peut deviner), et le
+verdict `ratchets-bg` non lu.
+
+- **Il se déclenche seul** : hook `Stop` du projet (`.claude/settings.json` →
+  `scripts/hooks/loop-status.ps1`). Une checklist qu'il faut PENSER à lancer est oubliable —
+  mesuré le 2026-08-04, un tour terminé à **1 agent sur 5** avec 30 commits non poussés et
+  4 worktrees livrés, sans que rien ne le signale.
+- **Il se TAIT** quand il n'y a rien à faire, et le critère de silence est **dérivé** : hors
+  campagne (0 agent, 0 worktree, 0 PR, 0 commit d'avance), silence total.
+- **Tri-état obligatoire** sur tout ce qui vient du host ou de `gh` : `null` = **PAS mesuré**,
+  jamais rendu comme un zéro (même règle que `host_inputs.py`). Un `liveRunners` rabattu sur 0
+  fait lancer 4 tests sur un budget inconnu — faute déjà commise.
+- ⚠ **Le chiffre du plafond (5) est le SEUL qui ne soit pas une mesure** : c'est un paramètre
+  d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#465-r1`.
+- Le cliquet qui garde SA fidélité est dans la banque. Détail : `docs/rl/case-465-etat-de-boucle.md`.
+
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida
