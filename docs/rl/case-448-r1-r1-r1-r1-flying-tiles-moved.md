@@ -587,3 +587,32 @@ faux. ⚠ La mutation « géométrie partout » laisse la marche VERTE : le test
   (§14.3). Le compteur est corrigé ; que le dégât suive n'a pas été confronté.
 * Les **287 boards à `Bridge`** sont un estimateur du gisement, pas une mesure : seul `C1_74` a
   été confronté au natif.
+
+### 14.9 Ce qui resservira — changer un SUBSTRAT partagé
+
+Quatre points de méthode, tous payés par une mesure de cette tranche :
+
+1. **Le no-op se DÉDUIT du prédicat, il ne se constate pas.** Chaque consommateur d'un substrat
+   applique son propre filtre APRÈS lui. Si ce filtre refuse exactement ce que le nouveau substrat
+   ajoute, le rebranchement est inerte *sur tout board* — pas seulement sur ceux qu'on mesure.
+   Classer les consommateurs par la FORCE de leur prédicat avant de mesurer quoi que ce soit :
+   ici, celui qui MORD est le seul dont le prédicat est le corps trivial `return true`.
+2. **Chercher les consommateurs par le NOM NATIF, jamais par le nom du module.** Le 7e site
+   (`are_tiles_adjacent`) n'est pas un pathfinder ; il lit le même substrat par
+   `ConnectivityComponent$$IsNeighbour`. Un grep sur `neighbours` l'aurait manqué — il appelait
+   `board.neighbours()`, l'accesseur mode-dépendant.
+3. **Le critère de discrimination se dérive du MUTANT, et son ORDRE compte.** Deux mutants d'un
+   substrat à N vues ont des gisements DISJOINTS (`G \ C` vit sur `C1_74`, `C \ N` sur `MC1_67`) :
+   discriminer sur `len({v1..vN}) > 1`, pas sur le couple qui intéresse la thèse. Et trier les
+   candidats par le seul écart maximal noie le cas utile dès qu'un autre écart est plus gros —
+   mesuré, 22 tours sur `C1_74` sans un seul verdict tranchant.
+4. **Chercher le porteur dont la chaîne native DÉGÉNÈRE.** `ATeleportPathfinder$$FindPath` rend
+   `[from, to]`, donc pour lui `tilesMovedThisTurn` **EST** la longueur beeline : le substrat
+   devient lisible tel quel, sans étage intermédiaire. C'est ce porteur-là le cas discriminant,
+   pas le porteur « normal ».
+
+Et une garde : **une garde de PÉRIMÈTRE (« X n'est pas encore fait ») meurt avec la tâche, et
+souvent elle ne gardait déjà rien** — celle de `-r2` observait la MARCHE, sur qui le rebranchement
+est un no-op, donc elle serait restée verte après. La remplacer par une garde des DEUX faces, et
+vérifier que chaque cran mord sous SON mutant. ⚠ Un test qui compare deux MONTAGES est
+structurellement aveugle à une mutation qui frappe les deux côtés.
