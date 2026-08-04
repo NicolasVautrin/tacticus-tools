@@ -321,3 +321,156 @@ def test_le_ledger_du_depot_est_lisible_et_chaque_entree_porte_une_raison():
     for cle, raison in att.items():
         assert "|" in cle, cle
         assert raison.strip(), cle
+
+
+# ==========================================================================================
+#  `--suggere` (#468-r4) -- le critere s'INVERSE : ici l'UNION, mentions comprises
+# ==========================================================================================
+
+def _depot_git(lignes_backlog, case_docs=(), messages=()):
+    """Depot jetable AVEC historique -- `--suggere` refuse de mesurer sans lui."""
+    racine = _depot_jetable(lignes_backlog, case_docs)
+    (racine / "scripts" / "python").mkdir(parents=True, exist_ok=True)
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "PATH": __import__("os").environ.get("PATH", "")}
+    def git(*a):
+        subprocess.run(["git", "-C", str(racine)] + list(a), check=True,
+                       capture_output=True, env=env)
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "-m", "socle")
+    for m in messages:
+        (racine / "docs" / "rl" / "backlog.md").write_text(
+            (racine / "docs" / "rl" / "backlog.md").read_text(encoding="utf-8") + "\n",
+            encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", m)
+    return racine
+
+
+def _suggere(racine, *args):
+    out = subprocess.run([sys.executable, str(PROBE), "--racine", str(racine), "--suggere"]
+                         + [a for a in args],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         cwd=str(PYDIR))
+    return out.returncode, out.stdout + out.stderr
+
+
+def test_suggere_ne_rend_RIEN_quand_le_corpus_est_AMPUTE():
+    """Le point de conception : une mesure incomplete ne rend JAMAIS de numero.
+
+    Suggerer sur un corpus ampute fabrique exactement la collision qu'on pretend eviter --
+    c'est la lecon des 13 racines qui ne vivent que dans les messages de commit. Sans depot
+    git, l'historique est illisible : INDISPONIBLE (99), et AUCUN numero imprime."""
+    racine = _depot_jetable(BASE_SAINE, [])          # PAS de `git init`
+    try:
+        rc, txt = _suggere(racine)
+        assert rc == 99, "un corpus ampute doit rendre 99, pas %d :\n%s" % (rc, txt)
+        assert "LIBRE" not in txt, "un numero a ete suggere sur un corpus ampute :\n%s" % txt
+        assert "INDISPONIBLE" in txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def _numero_propose(txt):
+    return txt.split("LIBRE : #")[1].splitlines()[0].strip()
+
+
+#: La borne de `BASE_SAINE` : `902` est la plus grande racine DEFINIE que son backlog connait
+#: (barree ou non -- la borne mesure l'espace employe, pas ce qui reste ouvert). La suggestion
+#: demarre donc a `903`, et c'est CE numero que les deux tests suivants doivent voir ecarte.
+#: Sans cette contrainte ils ne DISCRIMINENT pas : viser `#901`, deja defini dans `BASE_SAINE`,
+#: les rendait verts meme apres mutation du probe -- mesure a la contre-epreuve.
+PREMIER_AU_DESSUS = "903"
+
+
+def test_suggere_evite_un_numero_SEULEMENT_MENTIONNE():
+    """Le critere s'inverse : une MENTION suffit a reserver, alors qu'elle ne DEFINIT rien.
+
+    C'est litteralement l'occurrence `#448-r1-r1-r2` -- le rapport employait le numero alors
+    qu'aucun artefact ne le portait. Un `--suggere` qui ne regarderait que les DEFINITIONS
+    (le critere des etapes 1 et 2) le rendrait comme libre."""
+    lignes = BASE_SAINE + ["", "Un renvoi en PROSE vers #%s, qui ne definit rien." % PREMIER_AU_DESSUS]
+    racine = _depot_git(lignes)
+    try:
+        rc, txt = _suggere(racine)
+        assert rc == 0, txt
+        assert _numero_propose(txt) != PREMIER_AU_DESSUS, \
+            "un numero seulement MENTIONNE a ete propose :\n%s" % txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_suggere_evite_un_numero_qui_n_existe_QUE_dans_un_MESSAGE_DE_COMMIT():
+    """MESURE (2026-08-04) : 13 racines pures < 500 -- #28, #269, #297, #300, #307 -- ne
+    vivent QUE la. Le corpus documentaire les donne pour des trous LIBRES ; `git log --grep`
+    prouve le contraire, et c'est une voie de tracabilite de plein droit."""
+    racine = _depot_git(BASE_SAINE,
+                        messages=("fix(#%s): un dossier dont il ne reste que ceci"
+                                  % PREMIER_AU_DESSUS,))
+    try:
+        rc, txt = _suggere(racine)
+        assert rc == 0, txt
+        assert _numero_propose(txt) != PREMIER_AU_DESSUS, \
+            "un numero vivant SEULEMENT dans l'historique a ete propose :\n%s" % txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_suggere_ne_RECYCLE_pas_un_trou_sous_la_borne():
+    """La suggestion est MONOTONE. Un trou peut etre reserve par une PR EN VOL, que l'arbre
+    ne voit pas -- le recycler rouvrirait la collision par l'autre bout. Ils sont LISTES."""
+    lignes = [_ligne("900", "socle"), _ligne("910", "sommet")]
+    racine = _depot_git(lignes)
+    try:
+        rc, txt = _suggere(racine)
+        assert rc == 0, txt
+        propose = int(txt.split("LIBRE : #")[1].splitlines()[0].strip())
+        assert propose > 910, "un trou SOUS la borne a ete propose (%d) :\n%s" % (propose, txt)
+        assert "trou(s) libre(s) SOUS la borne" in txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_la_borne_ECARTE_les_id_d_ability_portes_par_un_nom_de_case_doc():
+    """`case-1014-*`, `case-1203-*`, `case-1547-*` portent des id d'ability ou d'effet, pas des
+    numeros de tache. Sans le filtre << connue du backlog >>, la borne saute a 1547 et la
+    suggestion devient absurde."""
+    lignes = [_ligne("900", "socle"), _ligne("910", "sommet")]
+    racine = _depot_git(lignes, case_docs=["case-1502-rites-of-morkai.md"])
+    try:
+        rc, txt = _suggere(racine)
+        assert rc == 0, txt
+        propose = int(txt.split("LIBRE : #")[1].splitlines()[0].strip())
+        assert propose < 1000, \
+            "l'id d'ability 1502 a ete pris pour une tache (propose %d) :\n%s" % (propose, txt)
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_suggere_un_RESIDU_sous_un_parent_donne():
+    """Le second mode : le plus petit `r<k>` libre sous un parent -- ce que reclamait #468-r5."""
+    lignes = [_ligne("900", "socle"), _ligne("900-r1", "premier"), _ligne("900-r2", "second")]
+    racine = _depot_git(lignes)
+    try:
+        rc, txt = _suggere(racine, "900")
+        assert rc == 0, txt
+        assert "LIBRE : #900-r3" in txt, txt
+        assert "pris sous #900 : r1, r2" in txt, txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_sur_le_depot_REEL_le_numero_suggere_n_apparait_NULLE_PART():
+    """Garde sur l'arbre vivant : le numero rendu doit etre absent de l'UNION -- docs/rl,
+    scripts/python, noms de fichiers ET messages de commit."""
+    pris = p468.employes()
+    borne = p468.borne_des_taches()
+    assert borne > 0, "la borne des taches est nulle : le backlog reel ne definit plus rien"
+    n = borne + 1
+    while str(n) in pris:
+        n += 1
+    assert str(n) not in pris
+    assert n > borne, "la suggestion doit rester au-dessus de la borne (monotonie)"
+    # Et la borne ne doit pas avoir ete contaminee par un id d'ability.
+    assert borne < 1000, "la borne (%d) a absorbe un identifiant qui n'est pas une tache" % borne
