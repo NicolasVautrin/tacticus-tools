@@ -256,12 +256,31 @@ def test_in_arc_est_GEOMETRIQUE_PUR():
 
 def test_in_arc_na_PLUS_de_porte_delevation():
     """Mesure live case-49x : ennemi adjacent a `|dElev| = 2`, le natif GENERE une action. La
-    porte etait un fork de port contre `eligible_targets_count`, qui ne l'a jamais eue."""
+    porte etait un fork de port contre `eligible_targets_count`, qui ne l'a jamais eue.
+
+    Le cran est DISCRIMINANT parce qu'il reconstruit l'ANCIEN predicat sur le meme couple : la
+    porte y mordait (FAUX), le port livre accorde (VRAI), et le natif accorde."""
     haut, bas = (2, 2), (2, 3)
+    bd = _board(elev={bas: 2})                       # |dElev| = 2 : la porte mordrait
+    elev = bd.elev_by_pos()
     assert hexgeo.distance(haut, bas) == 1
-    assert bq.in_arc(haut, bas) is True
-    assert bq.eligible_targets_count(haut, [bas]) == 1        # le jumeau, inchange
-    assert bq.count_enemies_in_arc(haut, [bas]) == 1          # d'accord avec lui
+    ancien = bq.is_adjacent(haut, bas, elev, None) or hexgeo.distance(haut, bas) == 2
+    assert ancien is False, "l'ancien predicat n'excluait pas : le cran ne discrimine rien"
+    assert bq.in_arc(haut, bas) is True                        # le port LIVRE, comme le natif
+    assert bq.eligible_targets_count(haut, [bas], elev) == 1   # le jumeau, inchange
+    assert bq.count_enemies_in_arc(haut, [bas]) == 1           # d'accord avec lui
+
+
+def test_in_arc_nACCEPTE_PLUS_le_canal_delevation():
+    """Un parametre accepte mais NON LU se refait passer un jour pour un canal actif : le retirer
+    est ce qui rend l'absence de porte VERIFIABLE, et non seulement documentee."""
+    import pytest as _pt
+    with _pt.raises(TypeError):
+        bq.in_arc(A, TEMOIN, {A: 0, TEMOIN: 9})       # 3e argument : plus de signature pour lui
+    with _pt.raises(TypeError):
+        bq.count_enemies_in_arc(A, [TEMOIN], {A: 0})
+    with _pt.raises(TypeError):
+        bq.enemies_in_arc(A, [], {A: 0})
 
 
 def test_in_arc_garde_ring2_et_sarrete_la():
