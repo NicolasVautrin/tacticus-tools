@@ -371,6 +371,14 @@ $Ratchets = @(
     @{ Id = 'probe_439'; Argv = @('probe_439_cliquet_peut_rougir.py')
        Seul = 'un cliquet de CETTE banque incapable de rendre un code non nul -- il occupe la place d un garde-fou et s imprime comme << rien a signaler >> (3 occurrences, TOUTES trouvees a l oeil : probe_181 #430, probe_326 #435, et l audit manuel de #430 qui a rate la seconde)'
        Doc  = 'docs/rl/case-439-cliquet-peut-rougir.md' }
+
+    # Le cliquet du `.git/` PARTAGE. Il ne garde ni le moteur ni la banque : il garde le DEPOT
+    # comme ressource commune a l'arbre principal, aux worktrees d'agents et a ratchets-bg.
+    # Sa faute ne produit AUCUN rouge chez son auteur -- elle frappe le geste SUIVANT de
+    # quelqu'un d'autre, minutes plus tard, sous la forme d'un `fatal: Unable to write index`.
+    @{ Id = 'probe_474'; Argv = @('probe_474_optional_locks.py')
+       Seul = 'un `git status` de LECTURE qui prend `.git/index.lock` de l ARBRE PRINCIPAL depuis un contexte TUABLE (script de fond, sous-process a budget). MESURE #474 : `git status` tient son lock a 0 OCTET pendant ~toute sa duree (5/5 ; 1,2 s sur cet arbre) et un git TerminateProcess-e dans cette fenetre ne nettoie rien -- 20/20 residus sur le binaire reel. Le residu est LIBRE et de 0 octet, donc indiscernable a l oeil d un lock vivant, et c est la commande SUIVANTE qui meurt dessus (3 fusions/commits interrompus en 80 min le 2026-08-04, plus 2 locks orphelins de 16 h encore presents a l instruction). Aucun autre cliquet ne regarde le `.git` partage : 434 garde le PERIMETRE de lecture, 455 les ECRITURES sous scripts/python -- aucun ne voit une ressource commune laissee verrouillee. Deux etages parce que le texte ne suffit pas : STATIQUE par AST (jamais par grep -- ce depot porte ~25 mentions de `git status` en COMMENTAIRE) et COMPORTEMENTAL sur `loop_status.Sources.git`, ou l option est posee a cote de `*args` et ou aucun littera ne nomme `status` -- l AST y est structurellement aveugle. Perimetre DERIVE de `git ls-files scripts`, sous-commandes bornees a ce qui est MESURE preneur de lock (status 3/3, describe --dirty 1/3 ; diff, ls-files, stash list, rev-parse, worktree list, for-each-ref, rev-list : 0/3) -- elargir au-dela du mesure serait la faute meme que 474 combat. Contre-epreuve : 29 epreuves, dont le retrait de l option du FOYER, que seul l etage comportemental voit'
+       Doc  = 'docs/rl/case-474-index-lock-orphelin.md' }
 )
 
 # ==========================================================================================
