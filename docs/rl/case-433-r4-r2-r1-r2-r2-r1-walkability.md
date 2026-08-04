@@ -93,11 +93,13 @@ sont tous des `C6_*`, où l'équipe 2 n'est **pas déployée** (mesuré : 0 unit
 
 ## 5. Ce qui n'est PAS couvert
 
-* **32 abilities du pool spawnable n'ont pas leur masque RE-lu** (`TARGETING_RANGE_BY_ABILITY` ne
-  porte que le volet PORTÉE) : leur terme garde le statu quo permissif. Résidu
-  **`#433-r4-r2-r1-r2-r2-r1-r1`**. Le terme de l'**attaque normale** est lui toujours gaté
-  (`NORMAL_ATTACK_TARGETING_OPTIONS.rules = 0x4002`), et sur les **106** masques lus **un seul**
-  porte le bit 43 : `1116 RadBombardment`.
+* ~~**32 abilities du pool spawnable n'ont pas leur masque RE-lu**~~ — **FERMÉ** le 2026-08-04 par
+  `#433-r4-r2-r1-r2-r2-r1-r1` (`case-433-r4-r2-r1-r2-r2-r1-r1-masques-du-pool.md`) : les 32 sont
+  lues, `TARGETING_RANGE_BY_ABILITY` est **supprimée** (elle forkait la portée de son propre
+  masque), et **aucune** des 32 ne porte le bit 43 — le taux de base passe de 1/106 à **1/138**,
+  seul `1116 RadBombardment` le portant. Le terme de l'**attaque normale** reste gaté
+  (`NORMAL_ATTACK_TARGETING_OPTIONS.rules = 0x4002`). Confronté live sur une ability **du pool** —
+  la présente tranche ne l'avait fait que sur une ability **greffée**.
 * **Le fog est CACHÉ par rid**, comme `walkable`/`isWall`. Mesuré **stable** (32 tuiles inchangées
   après deux `endturn` sur `C6_02`) ; un mode qui le révélerait en cours de bataille rendrait le
   cache faux.

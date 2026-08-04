@@ -218,12 +218,12 @@ exactement la tuile occupée par le caster.
 * **`#433-r4-r2-r1-r1-a-r1` (la tuile OCCUPÉE)** — inchangé, toujours chiffré à **1/40**, et c'est
   désormais le SEUL écart qui subsiste sur `1168`/`1200`/`1213`. Il se rattache à
   `#433-r4-r2-r1-r1-b` (même canal manquant : l'occupation par tuile).
-* **`#433-r4-r2-r1-r2-r1` — le masque n'est lu que pour les abilities du REGISTRE.**
-  `TARGETING_RANGE_BY_ABILITY` ne porte que le volet portée ; sans masque, `obscuring_type_for`
-  rend `NONE` et le port ne retire rien. L'écart ne peut qu'ÉLARGIR, même arbitrage que
-  `GATE_NOT_READ`. **Ce qu'il faudrait** : lire le `rules` des 32 entrées, ability par ability —
-  ~15 seulement portent au-delà de `d = 1` et sont donc concernées (à `d = 1` le prédicat est
-  structurellement muet).
+* ~~**`#433-r4-r2-r1-r2-r1` — le masque n'est lu que pour les abilities du REGISTRE.**~~ **FERMÉ**
+  le 2026-08-04 par `case-433-r4-r2-r1-r2-r2-r1-r1-masques-du-pool.md` : les 32 `rules` sont lus
+  ability par ability et `TARGETING_RANGE_BY_ABILITY` est **supprimée** (elle forkait la portée de
+  son propre masque). **4** des 32 portent un bit `AllowObscuredTargetBy*` — `1048`, `1177`, `1204`
+  (élévation) et `1087` (élévation **et** murs). Les autres laissent donc le prédicat regarder les
+  deux géométries, ce que le port applique désormais.
 * ~~**`#433-r4-r2-r1-r2-r2` — les gardes « ami » ne sont pas alimentées.**~~ **FERMÉ** —
   `case-433-r4-r2-r1-r2-r2-gardes-ami.md`. Deux corrections à ce qui est écrit plus haut :
   la donnée **n'était pas manquante** (`observeBattle.units[].teamId` + `col`/`row` la publie déjà,
