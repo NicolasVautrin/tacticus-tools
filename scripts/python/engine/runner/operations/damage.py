@@ -1084,11 +1084,18 @@ class DamageHandler:
             # « ce que la prediction annonce » et « ce que le moteur fait » divergeraient.
             # #419-r1-tr14-r5-r2 : la SECONDE voie de la cascade, threadee ici aussi -- les deux
             # faces doivent decider de la MEME cascade, pas chacune d'une moitie.
+            # #419-r1-tr14-r5-r2-r1 : la TROISIEME branche de la meme cascade
+            # (`Traits.Contains(0x7e7 Boss)`), threadee ici aussi -- une face qui ne connaitrait
+            # qu'une PARTIE de la cascade est exactement ce que les deux tranches precedentes ont
+            # ferme. Substrat d'ENTITE : `entity_trait_names` sur le `UnitContext`.
+            from ...entities.traits.unit_trait import entity_trait_names
             _asc = _ae.get_component(StatsComponent)
-            _apas = getattr(getattr(_asc, "ctx", None), "passive_abilities", None)
-            _aact = getattr(getattr(_asc, "ctx", None), "active_abilities", None)
+            _actx = getattr(_asc, "ctx", None)
+            _apas = getattr(_actx, "passive_abilities", None)
+            _aact = getattr(_actx, "active_abilities", None)
+            _atra = entity_trait_names(_actx, _uc.visual_id)
             if is_mv71_normal_attacker(_uc.visual_id, passive_abilities=_apas,
-                                       active_abilities=_aact):
+                                       active_abilities=_aact, traits=_atra):
                 res = MV71SniperDroneSquadAttackAbility().execute_behaviour(
                     self.state, msg.attacker_id, msg.target_id) or {}
                 self.last = res.get("attack")
