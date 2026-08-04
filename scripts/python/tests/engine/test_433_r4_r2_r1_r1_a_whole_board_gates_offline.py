@@ -65,8 +65,11 @@ def test_no_whole_board_gate_is_left_unread():
     whole = {int(a) for a, c in ABILITY_CLASSES.items()
              if getattr(getattr(c, "TARGETING_OPTIONS", None), "range", None) is not None
              and getattr(getattr(c, "TARGETING_OPTIONS", None).range, "use_whole_board", False)}
-    whole |= {int(a) for a, r in ar.TARGETING_RANGE_BY_ABILITY.items()
-              if getattr(r, "use_whole_board", False)}
+    # 2e source du volet PORTEE depuis `#433-r4-r2-r1-r2-r2-r1-r1` (`TARGETING_RANGE_BY_ABILITY`
+    # SUPPRIMEE : elle forkait le masque de sa propre portee).
+    from engine.runner.abilities.targeting import TARGETING_OPTIONS_UNPORTED
+    whole |= {int(a) for a, o in TARGETING_OPTIONS_UNPORTED.items()
+              if getattr(o.range, "use_whole_board", False)}
     unread = sorted(a for a in whole if ar.dynamic_target_gate_of(a) == ar.GATE_NOT_READ)
     assert unread == [], "gates whole-board encore NON LUS : %r" % (unread,)
 
@@ -119,10 +122,18 @@ def test_the_short_circuit_reads_both_bits_and_not_one():
 
 
 def test_an_unread_mask_never_shrinks():
-    """`TARGETING_RANGE_BY_ABILITY` ne porte QUE le volet portee : sans masque lu, le port ne
-    retire rien. L'ecart ne peut qu'ELARGIR -- meme arbitrage que `GATE_NOT_READ`."""
-    assert 1177 not in ABILITY_CLASSES, "hors registre : son masque n'est pas lu"
-    assert ar.target_tiles_zone_is_empty(1177) is False
+    """Sans masque lu, le port ne retire rien : l'ecart ne peut qu'ELARGIR -- meme arbitrage que
+    `GATE_NOT_READ`.
+
+    ⚠ Le TEMOIN a change avec `#433-r4-r2-r1-r2-r2-r1-r1` : `1177 LightOfSanguinius` etait « hors
+    registre donc masque non lu », il est desormais LU (`0x102004032`, `TargetIsEnemy` -> le
+    court-circuit ne s'applique toujours pas, mais pour une raison MESUREE et non par defaut). Le
+    temoin est maintenant `1053 DevoutPush`, portee par un NPC seul et hors des deux sources."""
+    from engine.runner.abilities.targeting import targeting_options_for
+    assert targeting_options_for(1053) is None, "temoin PERIME : le masque de 1053 a ete lu"
+    assert ar.target_tiles_zone_is_empty(1053) is False
+    assert targeting_options_for(1177) is not None, "1177 doit desormais porter son masque"
+    assert ar.target_tiles_zone_is_empty(1177) is False       # LU, et il porte `TargetIsEnemy`
     assert ar.target_tiles_zone_is_empty(999999) is False
     assert ar.target_tiles_zone_is_empty(None) is False
 

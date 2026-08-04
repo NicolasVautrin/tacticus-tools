@@ -34,7 +34,7 @@ CE QUE CE PROBE MESURE (offline, sans runner)
     partout), et `{onlyAdjacent = False, overrideRange = 0}` doit rendre 0 (statu quo `RANGE_SELF`).
 
   Etape `sweep` -- la POPULATION, pour dire si l'ecart est atteignable aujourd'hui : chaque ability
-    dont le `TargetingRange` est RE-lu (registre `ABILITY_CLASSES` + `TARGETING_RANGE_BY_ABILITY`)
+    dont le `TargetingRange` est RE-lu (registre `ABILITY_CLASSES` + `TARGETING_OPTIONS_UNPORTED`)
     x chaque unite du catalogue gameconfig. On ventile les couples par (portee resolue, gate
     d'adjacence) et on compte ceux que l'ordre corrige DEPLACE.
 
@@ -55,6 +55,7 @@ sys.path.insert(0, str(PYDIR))
 import gameconfig as GC                                                   # noqa: E402
 
 from engine.services import ability_range as AR                           # noqa: E402
+import engine.runner.abilities.targeting as T                             # noqa: E402
 from engine.runner.abilities.targeting import (                           # noqa: E402
     RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingRange)
 
@@ -75,18 +76,23 @@ def _catalogue() -> list:
 
 
 class _Synth:
-    """Pose un `TargetingRange` SYNTHETIQUE dans `TARGETING_RANGE_BY_ABILITY` le temps d'un cran.
-    Restauration GARANTIE (la table est un attribut de module, partage)."""
+    """Pose un `TargetingRange` SYNTHETIQUE dans la 2e source d'options le temps d'un cran.
+    Restauration GARANTIE (la table est un attribut de module, partage).
+
+    ⚠ La table VISEE a change avec `#433-r4-r2-r1-r2-r2-r1-r1` : le volet PORTEE ne vit plus dans
+    `ability_range.TARGETING_RANGE_BY_ABILITY` (supprimee -- elle forkait le masque de sa propre
+    portee) mais dans `targeting.TARGETING_OPTIONS_UNPORTED`, avec les trois autres champs du meme
+    ctor. Le cran mesure la MEME chose : la cascade de `GetTilesInRange` sur un `TargetingRange`."""
 
     def __init__(self, rng):
         self._rng = rng
 
     def __enter__(self):
-        AR.TARGETING_RANGE_BY_ABILITY[_SYNTH_ID] = self._rng
+        T.TARGETING_OPTIONS_UNPORTED[_SYNTH_ID] = T.TargetingOptions(range=self._rng)
         return self
 
     def __exit__(self, *exc):
-        AR.TARGETING_RANGE_BY_ABILITY.pop(_SYNTH_ID, None)
+        T.TARGETING_OPTIONS_UNPORTED.pop(_SYNTH_ID, None)
         return False
 
 
@@ -143,7 +149,7 @@ def _ability_ids() -> list:
     from engine.runner.abilities.handler import ABILITY_CLASSES
     ids = {int(a) for a, c in ABILITY_CLASSES.items()
            if getattr(getattr(c, "TARGETING_OPTIONS", None), "range", None) is not None}
-    ids |= {int(a) for a in AR.TARGETING_RANGE_BY_ABILITY}
+    ids |= {int(a) for a, o in T.TARGETING_OPTIONS_UNPORTED.items() if o.range is not None}
     return sorted(ids)
 
 

@@ -18,7 +18,10 @@ Ce que chaque garde protege :
   * `IdunShared.Battle.WeaponProfile$$get_IsMelee` : une arme de portee 1 est MELEE, donc HORS du
     set de `FindRangedWeapon` -- c'est ce qui fait retomber le `threshold` sur son `?? 1` ;
   * la NON-DUPLICATION du substrat : une ability presente dans les DEUX sources (registre du runner
-    et table locale) aurait deux verites possibles.
+    et `TARGETING_OPTIONS_UNPORTED`) aurait deux verites possibles ;
+  * la PRESENCE du masque `rules` pour les abilities actives du pool hors registre
+    (`#433-r4-r2-r1-r2-r2-r1-r1`) -- sans lui les etages walkability et ligne de vue sont desarmes,
+    et le bit 43 `AllowUnwalkableTargetTile` qu'aucune ne porte.
 
 Les valeurs de reach citees ici sont celles MESUREES live (`probe_433_r4_r2_r1_ability_range.py
 --step kit`, sweep de 40 positions par kit) -- cf. `docs/rl/case-433-r4-r2-r1-r2-portees.md`.
@@ -34,7 +37,7 @@ from engine.runner.abilities.targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF
                                                RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
                                                RANGED_BOOL_FALSE,
                                                RANGED_BOOL_IF_NOT_RANGED_CASTER, RANGED_BOOL_TRUE,
-                                               TargetingRange)
+                                               TARGETING_OPTIONS_UNPORTED, TargetingRange)
 from engine.services import ability_range as ar
 
 RANGED = "tauMarksman"          # arme Range=3 + SeekerMissileFrequencyLock (constants.range = 5)
@@ -72,14 +75,14 @@ def test_override_range_wins_over_config():
     porte les DEUX (aucune ability du lot ne le fait -- la garde protege l'ordre, pas un cas)."""
     both = TargetingRange(use_range_from_config=True, override_range=2)
     assert ar._config_range(1069) == 5, "montage : l'ability doit bien porter constants.range = 5"
-    monkey = dict(ar.TARGETING_RANGE_BY_ABILITY)
+    import dataclasses
+    prev = TARGETING_OPTIONS_UNPORTED[1069]
     try:
-        ar.TARGETING_RANGE_BY_ABILITY[1069] = both
+        TARGETING_OPTIONS_UNPORTED[1069] = dataclasses.replace(prev, range=both)
         ar._REACH_CACHE.clear()
         assert ar.ability_range_value(1069, RANGED) == 2
     finally:
-        ar.TARGETING_RANGE_BY_ABILITY.clear()
-        ar.TARGETING_RANGE_BY_ABILITY.update(monkey)
+        TARGETING_OPTIONS_UNPORTED[1069] = prev
         ar._REACH_CACHE.clear()
 
 
@@ -152,15 +155,93 @@ def test_the_two_branches_are_not_the_same_quantity():
 # --------------------------------------------------------------- 4. hygiene du substrat
 
 def test_no_ability_has_two_contradictory_sources():
-    """Une ability presente a la fois dans `ABILITY_CLASSES` (avec un `TargetingRange`) et dans la
-    table locale aurait DEUX verites ; `targeting_range_of` en choisirait une en silence."""
+    """Une ability presente a la fois dans `ABILITY_CLASSES` (avec un `TargetingRange`) et dans
+    `TARGETING_OPTIONS_UNPORTED` aurait DEUX verites ; `targeting_range_of` en choisirait une en
+    silence. Depuis `#433-r4-r2-r1-r2-r2-r1-r1` la table locale de ce module n'existe plus (elle
+    forkait le masque de sa propre portee) : la disjonction se garde a la SOURCE."""
     dupes = []
-    for aid in ar.TARGETING_RANGE_BY_ABILITY:
+    for aid in TARGETING_OPTIONS_UNPORTED:
         cls = ABILITY_CLASSES.get(aid)
         opts = getattr(cls, "TARGETING_OPTIONS", None) if cls is not None else None
-        if getattr(opts, "range", None) is not None:
+        if opts is not None:
             dupes.append(aid)
-    assert dupes == [], "abilities a deux sources de portee : %r" % (dupes,)
+    assert dupes == [], "abilities a deux sources d'options : %r" % (dupes,)
+
+
+#: Les 32 abilities ACTIVES du pool spawnable hors `ABILITY_CLASSES` (#433-r4-r2-r1-r2-r2-r1-r1).
+#: DERIVEE, pas choisie : `rl_duel build --list-pool` (rank courant, 97 unites regulieres) croise
+#: avec `gameconfig.activeAbilities`, moins le registre COMBAT. La liste est FIGEE ici parce que
+#: `--list-pool` exige la session host (normalisation live) et qu'un test offline ne peut pas la
+#: rejouer ; le test qui suit, lui, DERIVE son perimetre du seed BC versionne.
+POOL_ABILITIES_WITHOUT_COMBAT_CLASS = [
+    1005, 1019, 1027, 1038, 1039, 1048, 1049, 1050, 1057, 1061, 1063, 1064, 1068, 1069, 1087,
+    1088, 1101, 1106, 1121, 1129, 1132, 1141, 1152, 1164, 1165, 1175, 1177, 1183, 1191, 1195,
+    1197, 1204,
+]
+
+
+def test_the_thirty_two_pool_abilities_carry_a_read_mask():
+    """`#433-r4-r2-r1-r2-r2-r1-r1` : les abilities ACTIVES du pool spawnable hors registre portent
+    desormais leur masque `rules`, pas seulement leur portee. Sans lui, `tile_removed_by_walkability`
+    et `target_is_obscured` sont DESARMES (convention permissive) et leur terme attribue des tuiles
+    que le natif retire."""
+    manquants = [a for a in POOL_ABILITIES_WITHOUT_COMBAT_CLASS
+                 if TARGETING_OPTIONS_UNPORTED.get(a) is None]
+    assert manquants == [], "masque non lu : %r" % (manquants,)
+    intrus = [a for a in POOL_ABILITIES_WITHOUT_COMBAT_CLASS if a in ABILITY_CLASSES]
+    assert intrus == [], "entrees a DEUX sources : %r" % (intrus,)
+    sans_portee = [a for a in POOL_ABILITIES_WITHOUT_COMBAT_CLASS
+                   if ar.targeting_range_of(a) is None]
+    assert sans_portee == [], "portee perdue a la migration : %r" % (sans_portee,)
+
+
+def test_a_read_range_is_never_a_range_without_its_mask():
+    """LA garde du de-fork. Le module portait `TARGETING_RANGE_BY_ABILITY` -- le volet PORTEE SEUL --
+    pendant que le masque restait non lu : deux sources pour une MEME struct native de 0x40 octets,
+    et c'est ce qui laissait la walkability et la ligne de vue desarmees. Rouvrir une table de portee
+    separee ferait rougir ce test.
+
+    Le perimetre se DERIVE du seed BC VERSIONNE (`data/seed-bc.json`) -- un SUR-ENSEMBLE du pool
+    spawnable (168 `VisualId` contre 97 unites), donc une exigence plus stricte que le lot traite."""
+    import json
+    from pathlib import Path
+    import gameconfig as GC
+    from engine.entities.active_ability_type import ActiveAbilityType
+    seed = Path(__file__).resolve().parents[4] / "data" / "seed-bc.json"
+    bc = json.loads(seed.read_text(encoding="utf-8"))
+    actives = set()
+    for vid in {u.get("VisualId") for u in (bc.get("Units") or []) if u.get("VisualId")}:
+        for name in ((GC.unit(vid) or {}).get("activeAbilities") or []):
+            try:
+                actives.add(int(ActiveAbilityType[name]))
+            except KeyError:
+                continue
+    assert len(actives) > 100, "montage : le seed BC doit exposer un kit substantiel"
+    orphelines = [a for a in sorted(actives)
+                  if ar.targeting_range_of(a) is not None and ar._options_of(a) is None]
+    assert orphelines == [], "portee lue sans masque (fork rouvert) : %r" % (orphelines,)
+
+
+def test_the_six_friendly_only_abilities_contribute_no_tile():
+    """Le court-circuit `TargetIsFriendly && !TargetIsEnemy` de
+    `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetTiles` -- le TROISIEME etage que la
+    lecture des 32 masques debloque. `target_tiles_zone_is_empty` ne lisait QUE `ABILITY_CLASSES`,
+    donc rendait `False` pour toutes les 32 : leur zone etait versee a
+    `AttackQuery$$GetAllTilesInAbilityRange` alors que le natif n'en verse AUCUNE tuile."""
+    attendues = [1005, 1038, 1039, 1049, 1061, 1175]
+    vides = [a for a in POOL_ABILITIES_WITHOUT_COMBAT_CLASS if ar.target_tiles_zone_is_empty(a)]
+    assert vides == attendues, "court-circuit : %r" % (vides,)
+    for aid in attendues:
+        assert ar.ability_range_value(aid, MELEE) is None
+
+
+def test_bit_43_is_carried_by_none_of_the_pool_abilities():
+    """Le bit 43 `AllowUnwalkableTargetTile` DESARME le `RemoveAll` de
+    `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange`. Aucune des 32 ne le porte -- donc le
+    terme de walkability MORD pour toutes. Un futur masque qui le porterait doit faire ROUGIR ce
+    test, pas passer inapercu."""
+    porteurs = [aid for aid, o in TARGETING_OPTIONS_UNPORTED.items() if o.rules & (1 << 43)]
+    assert porteurs == [], "bit 43 inattendu : %r" % (porteurs,)
 
 
 def test_registry_ranges_are_reachable_through_the_same_accessor():

@@ -34,13 +34,13 @@ overrideRange@+0x08`, `overrideRangeFunc@+0x10`) :
 -- exactement les cinq que `engine.runner.abilities.targeting` nomme deja. Ce module les REUTILISE,
 il n'en redefinit aucun.
 
-LE SUBSTRAT SE LIT EN DEUX SOURCES, dans cet ordre :
-  * `ABILITY_CLASSES` (registre du runner) quand l'ability y est -- son `TARGETING_OPTIONS.range`
-    a ete lu au decompile par la tranche qui l'a portee. **102 entrees, 102 avec un
-    `TargetingRange`** (re-derive du code, pas herite) ;
-  * `TARGETING_RANGE_BY_ABILITY` ci-dessous, pour les abilities HORS registre : le volet PORTEE
-    SEUL, lu au decompile. C'est une lecture PARTIELLE assumee -- poser ces abilities dans
-    `ABILITY_CLASSES` exigerait de porter leur COMPORTEMENT, ce que cette tranche ne fait pas.
+LE SUBSTRAT A UN FOYER UNIQUE : `engine.runner.abilities.targeting.targeting_options_for`, qui
+consulte `ABILITY_CLASSES[aid].TARGETING_OPTIONS` puis `TARGETING_OPTIONS_UNPORTED`. Ce module n'a
+plus de table a lui (#433-r4-r2-r1-r2-r2-r1-r1) : il portait `TARGETING_RANGE_BY_ABILITY`, le volet
+PORTEE SEUL des 32 abilities actives du pool hors registre, pendant que leur masque `rules` restait
+non lu -- deux sources pour une meme struct native de 0x40 octets, donc un FORK. Les 32 sont
+desormais dans `TARGETING_OPTIONS_UNPORTED` avec leurs QUATRE champs (`rules`, `isSelfCasting`,
+`range`, `forceMeleeTarget`), qui sortent tous du MEME appel de ctor.
 """
 from __future__ import annotations
 
@@ -49,72 +49,32 @@ import hexgeo
 
 from . import ability_caster_gates as acg
 from . import movement_query as MQ
-from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS, RANGE_ADJACENT,
-                                          RANGE_ADJACENT_IF_MELEE_CASTER,
-                                          RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
-                                          RANGED_BOOL_FALSE, RANGED_BOOL_IF_NOT_RANGED_CASTER,
+from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS, RANGED_BOOL_FALSE,
                                           RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE,
-                                          TargetingRange, custom_range_func, unit_weapon_range)
-
-# ------------------------------------------------------------------------------------------------
-# Le volet PORTEE des abilities HORS `ABILITY_CLASSES`, lu ability par ability au decompile.
-#
-# PERIMETRE DE CE LOT : les 32 abilities ACTIVES du pool spawnable (`rl_duel build --list-pool`,
-# rank courant) qui n'etaient pas au registre -- c'est exactement l'ensemble des portees que
-# `IsTileInRangeOfAnyAbility` peut avoir a lire sur un ennemi confrontable. Chaque entree cite le
-# ctor LU et la voie (preset `TargetingOptions+0x<n>` ou `TargetingRange` statique direct).
-# ------------------------------------------------------------------------------------------------
-TARGETING_RANGE_BY_ABILITY: dict[int, TargetingRange] = {
-    # --- ctor « flags directs », `&range` = un `TargetingRange` statique ---
-    1005: RANGE_ADJACENT,        # AdaptiveStrategyAbility$$.ctor          -- TR statics+0x30
-    1019: RANGE_ADJACENT_IF_MELEE_CASTER,  # StormOfWrathAbility$$.ctor    -- TR statics+0x00
-    1038: custom_range_func(),   # FoulInfusionAbility$$.ctor              -- CustomRange(GetRange)
-    1039: RANGE_ADJACENT,        # RitesOfRestorationAbility$$.ctor        -- TR statics+0x30
-    1049: RANGE_FROM_CONFIG,     # CrusadeOfWrathAbility$$.ctor            -- TR statics+0x18
-    1057: RANGE_ADJACENT,        # GrotTankAbility$$.ctor                  -- TR statics+0x30
-    1061: RANGE_FROM_CONFIG,     # UnbreakableDutyAbility$$.ctor           -- TR statics+0x18
-    1087: RANGE_WHOLE_BOARD,     # ExemplarOfTheKauyonAbility$$.ctor       -- TR statics+0x48
-    1121: RANGE_ADJACENT,        # ItItchesAbility$$.ctor                  -- TR statics+0x30
-    1141: RANGE_ADJACENT,        # OverwhelmingWrathAbility$$.ctor         -- TR statics+0x30
-    1152: RANGE_ADJACENT,        # UnstoppableMomentumReworkedAbility$$.ctor -- TR statics+0x30
-    1164: RANGE_FROM_CONFIG,     # MindControlAbility$$.ctor               -- TR statics+0x18
-    1175: RANGE_ADJACENT,        # BloodChaliceAbility$$.ctor              -- TR statics+0x30
-    1197: RANGE_ADJACENT,        # ExcruciatingFrequenciesAbility$$.ctor   -- TR statics+0x30
-    # --- preset : recopie des 0x40 octets d'un statique de `TargetingOptions` ---
-    1027: RANGE_FROM_CONFIG,     # PsychicMaelstromAbility$$.ctor          -- preset +0x180
-    1048: RANGE_FROM_CONFIG,     # FragstormGrenadeLauncherAbility$$.ctor  -- preset +0x180
-    1050: RANGE_ADJACENT,        # HolyDuelAbility$$.ctor                  -- preset +0x40
-    1063: RANGE_ADJACENT_IF_MELEE_CASTER,  # FireAndRepositionAbility$$.ctor -- preset +0x00
-    1064: RANGE_ADJACENT,        # SwoopingHawkAbility$$.ctor -> DiveAttackAbilityBase$$.ctor, preset +0x40
-    1068: RANGE_ADJACENT,        # SilentDeathAbility$$.ctor               -- preset +0x40
-    1069: RANGE_FROM_CONFIG,     # SeekerMissileFrequencyLockAbility$$.ctor -- preset +0x180
-    1088: RANGE_FROM_CONFIG,     # HellfyreMissileRackAbility$$.ctor       -- preset +0x140
-    1101: RANGE_FROM_CONFIG,     # AttemptedPossessionAbility$$.ctor       -- preset +0x180
-    1106: RANGE_SELF,            # WarHowlAbility$$.ctor                   -- preset +0x280
-    1129: RANGE_ADJACENT,        # BloodyFuryAbility$$.ctor                -- preset +0x40
-    1132: RANGE_ADJACENT,        # KillMaimBurnAbility$$.ctor              -- preset +0x40
-    1165: RANGE_ADJACENT,        # MightFromBelowAbility$$.ctor            -- preset +0x40
-    1177: RANGE_WHOLE_BOARD,     # LightOfSanguiniusAbility$$.ctor         -- preset +0x240
-    1183: RANGE_ADJACENT,        # VexillaMagnificaAbility$$.ctor          -- preset +0x40
-    1191: RANGE_ADJACENT,        # MartialInspirationAbility$$.ctor        -- preset +0x40
-    1195: RANGE_ADJACENT,        # TalonsOfTheEmperorAbility$$.ctor        -- preset +0x40
-    1204: RANGE_WHOLE_BOARD,     # LeadingTheChargeAbility$$.ctor          -- preset +0x240
-}
+                                          TargetingRange, unit_weapon_range)
 
 
-def targeting_range_of(ability_id) -> TargetingRange | None:
-    """Le `TargetingRange` d'une ability : registre du runner d'abord, table locale ensuite.
+def _options_of(ability_id):
+    """Les `TargetingOptions` RE-LUES de l'ability, par le foyer UNIQUE
+    `engine.runner.abilities.targeting.targeting_options_for` (registre COMBAT, puis
+    `TARGETING_OPTIONS_UNPORTED`). `None` = masque NON LU.
 
-    `None` = **non RE-lu** (et non « pas de portee ») -- l'appelant ne pose alors AUCUN terme."""
+    Import PARESSEUX : `targeting_options_for` tire `handler`, qui importe les modules d'abilities,
+    qui importent ce paquet -- le cycle `services <-> runner` se casse ici et nulle part ailleurs."""
     try:
         aid = int(ability_id)
     except (TypeError, ValueError):
         return None
-    from ..runner.abilities.handler import ABILITY_CLASSES     # lazy : cycle services <-> runner
-    cls = ABILITY_CLASSES.get(aid)
-    opts = getattr(cls, "TARGETING_OPTIONS", None) if cls is not None else None
-    rng = getattr(opts, "range", None) if opts is not None else None
-    return rng if rng is not None else TARGETING_RANGE_BY_ABILITY.get(aid)
+    from ..runner.abilities.targeting import targeting_options_for
+    return targeting_options_for(aid)
+
+
+def targeting_range_of(ability_id) -> TargetingRange | None:
+    """Le `TargetingRange` d'une ability -- le champ `range` de ses `TargetingOptions`.
+
+    `None` = **non RE-lu** (et non « pas de portee ») -- l'appelant ne pose alors AUCUN terme."""
+    opts = _options_of(ability_id)
+    return getattr(opts, "range", None) if opts is not None else None
 
 
 def _has_ranged_weapon(visual_id) -> bool:
@@ -303,16 +263,15 @@ _TARGET_IS_ENEMY = 1 << 0xE
 def target_tiles_zone_is_empty(ability_id) -> bool:
     """Le court-circuit `TargetIsFriendly && !TargetIsEnemy` de `GetPossibleTargetTiles`.
 
-    `False` aussi quand le masque n'est PAS LU (ability hors `ABILITY_CLASSES`) : le port ne
-    retire alors rien -- meme arbitrage que `GATE_NOT_READ`, l'ecart ne peut qu'ELARGIR.
-    `TARGETING_RANGE_BY_ABILITY` ne porte QUE le volet portee, pas le masque."""
-    try:
-        aid = int(ability_id)
-    except (TypeError, ValueError):
-        return False
-    from ..runner.abilities.handler import ABILITY_CLASSES     # lazy : cycle services <-> runner
-    cls = ABILITY_CLASSES.get(aid)
-    opts = getattr(cls, "TARGETING_OPTIONS", None) if cls is not None else None
+    `False` aussi quand le masque n'est PAS LU : le port ne retire alors rien -- meme arbitrage que
+    `GATE_NOT_READ`, l'ecart ne peut qu'ELARGIR.
+
+    ⚠ Cette fonction lisait le SEUL `ABILITY_CLASSES`, donc rendait `False` pour les 32 abilities du
+    pool hors registre alors meme que leur volet PORTEE etait lu (#433-r4-r2-r1-r2-r2-r1-r1). Elle
+    passe par `_options_of`, le foyer unique : **6** d'entre elles portent le court-circuit
+    (1005, 1038, 1039, 1049, 1061, 1175) et ne contribuent donc AUCUNE tuile a
+    `AttackQuery$$GetAllTilesInAbilityRange`."""
+    opts = _options_of(ability_id)
     rules = getattr(opts, "rules", None) if opts is not None else None
     if rules is None:
         return False
@@ -652,8 +611,7 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
         return False
     if hexgeo.distance(tuple(unit_pos), tuple(tile)) > base:
         return False
-    from ..runner.abilities.targeting import targeting_options_for
-    opts = targeting_options_for(ability_id)
+    opts = _options_of(ability_id)
     if _unwalkable(getattr(opts, "rules", None), tile, walkable_by_pos, is_in_fog_by_pos):
         return False                               # `GetTilesInRange` -- NON MARCHABLE
     if _obscured(board, unit_pos, tile, getattr(opts, "rules", None), visual_id,
