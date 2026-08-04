@@ -193,9 +193,21 @@ def _units(dv) -> dict:
     return out
 
 
-def _pos(u):
-    c, r = u.get("col"), u.get("row")
-    return None if c is None or r is None else (int(c), int(r))
+def _pos_by_squad(ob) -> dict:
+    """Les positions, indexees par `squadId` -- c'est-a-dire par la MEME cle que
+    `decisionView.units[].id` et que `toActivate`.
+
+    ⚠ `decisionView` ne porte PAS `col`/`row` (mesure : ses deux unites rendent `col: None`), et
+    `observeBattle` est indexe par `entityId` (78) et non par `squadId` (77). Melanger les deux
+    lirait la position d'une AUTRE unite -- c'est le meme piege que `_alive_map` de
+    `probe_448_r1_r1_full_throttle.py`, dans l'autre sens."""
+    out = {}
+    for u in (ob.get("units") or []):
+        sq, c, r = u.get("squadId"), u.get("col"), u.get("row")
+        if sq is None or c is None or r is None:
+            continue
+        out[int(sq)] = (int(c), int(r))
+    return out
 
 
 def _dist(a, b) -> int:
@@ -217,9 +229,15 @@ def _legal_moves(rpc, sid, rid, uid: int) -> set:
 
 
 def run_live(board: str, seed: int, foes: list, rounds: int, want: int) -> dict:
-    """Un runner, `rounds` tours. A chaque tour : rapprocher Tjark d'AU PLUS UN PAS de marche (le
-    gate reste FAUX -- `count = 2 < 3` -- donc ce repositionnement ne peut pas le tuer), puis, des
-    que la distance a une cible vaut `want`, caster `GrapnelLauncher` et classer le vol."""
+    """Un runner, `rounds` tours.
+
+    LA GEOMETRIE EST PILOTEE PAR LA CIBLE, PAS PAR TJARK. C'est la seule facon de forcer la
+    configuration sans polluer la mesure : tout pas de Tjark emet lui aussi un `On(0x24)` avec
+    `movementSteps = path.Count`, donc un repositionnement de 2 pas suffirait a le tuer AVANT le
+    cast (`count = 3 >= 3`) et se lirait comme une mort du vol. La cible, elle, ne porte pas le
+    passif greffe -- on la deplace de son mouvement PLEIN, sans aucun effet de bord.
+    Tjark n'ajuste que d'UN pas (`count = 2 < 3` -> gate FAUX, inoffensif) et seulement s'il le
+    faut."""
     from engine.runner.snapshot import load_state
     from engine.runner.operations.movement import _num_tiles_moved
     from engine.entities.pathfinding.board import Board
@@ -231,82 +249,103 @@ def run_live(board: str, seed: int, foes: list, rounds: int, want: int) -> dict:
     bg = rpc(sid, "boardGraph", {"runnerId": rid}, 90)
     brd = Board(bg["tiles"], adjacency="native_sym")
     casts = []
+
+    def endturn():
+        rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 120)
+
     try:
         for turn in range(rounds):
             dv = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1,
                                            "allAbilities": True}, 150)
-            uu = _units(dv)
+            ob = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
+            uu, pos = _units(dv), _pos_by_squad(ob)
             me = next((u for u in uu.values() if u.get("visualId") == GRAFT), None)
-            if me is None or not me.get("alive"):
+            if me is None or not me.get("alive") or pos.get(int(me["id"])) is None:
                 print("     t%d : Tjark absent/mort -> fin" % turn)
                 break
-            to_act = [int(x) for x in (dv.get("toActivate") or [])]
-            if int(me["id"]) not in to_act:
-                rpc(sid, "applyAction", {"runnerId": rid,
-                                         "action": {"kind": "endturn"}}, 120)
-                continue
-            mypos = _pos(me)
+            mid, mypos = int(me["id"]), pos[int(me["id"])]
             foes_alive = [u for u in uu.values()
-                          if u.get("alive") and u.get("id") != me["id"]
-                          and u.get("team") != me.get("team")]
+                          if u.get("alive") and int(u["id"]) != mid
+                          and u.get("team") != me.get("team")
+                          and pos.get(int(u["id"])) is not None]
             if not foes_alive:
                 print("     t%d : plus d'ennemi vivant -> fin" % turn)
                 break
-            tgt = min(foes_alive, key=lambda u: _dist(mypos, _pos(u)))
-            d = _dist(mypos, _pos(tgt))
-            if d != want:
-                # Se rapprocher/s'eloigner d'UN pas de marche exactement.
-                ob = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
-                snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 90)
-                ast = rpc(sid, "unitAbilityStates", {"runnerId": rid}, 90)
-                st = load_state(dv, ob, snap, board=brd, ability_states=ast)
-                legal = _legal_moves(rpc, sid, rid, int(me["id"]))
-                cands = [p for p in sorted(legal)
-                         if _num_tiles_moved(st, int(me["id"]), mypos, p) == 1]
-                cands.sort(key=lambda p: abs(_dist(p, _pos(tgt)) - want))
-                if not cands:
-                    print("     t%d : aucun pas de 1 (d=%d, cible u%s) -> endturn"
-                          % (turn, d, tgt["id"]))
-                else:
-                    dst = cands[0]
-                    rpc(sid, "applyAction", {"runnerId": rid, "action": {
-                        "kind": "move", "unitId": int(me["id"]),
-                        "to": {"col": dst[0], "row": dst[1]}}}, 120)
-                    print("     t%d : approche %s -> %s (d %d -> %d)"
-                          % (turn, mypos, dst, d, _dist(dst, _pos(tgt))))
-                rpc(sid, "applyAction", {"runnerId": rid,
-                                         "action": {"kind": "endturn"}}, 120)
-                continue
+            tgt = min(foes_alive, key=lambda u: _dist(mypos, pos[int(u["id"])]))
+            tid = int(tgt["id"])
+            d = _dist(mypos, pos[tid])
+            to_act = [int(x) for x in (dv.get("toActivate") or [])]
 
-            # --- LE CAST ---------------------------------------------------------------------
-            ob = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
             snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 90)
             ast = rpc(sid, "unitAbilityStates", {"runnerId": rid}, 90)
             st = load_state(dv, ob, snap, board=brd, ability_states=ast)
+
+            # --- TOUR ADVERSE : la CIBLE se place a la distance voulue (mouvement PLEIN) -------
+            if tid in to_act and mid not in to_act:
+                legal = _legal_moves(rpc, sid, rid, tid)
+                cands = sorted(legal, key=lambda p: (abs(_dist(p, mypos) - want),
+                                                     _num_tiles_moved(st, tid, pos[tid], p)))
+                if cands and _dist(cands[0], mypos) != d:
+                    dst = cands[0]
+                    rpc(sid, "applyAction", {"runnerId": rid, "action": {
+                        "kind": "move", "unitId": tid,
+                        "to": {"col": dst[0], "row": dst[1]}}}, 120)
+                    print("     t%d : cible u%s %s -> %s (d %d -> %d)"
+                          % (turn, tid, pos[tid], dst, d, _dist(dst, mypos)))
+                else:
+                    print("     t%d : cible u%s deja placee (d=%d)" % (turn, tid, d))
+                endturn()
+                continue
+            if mid not in to_act:
+                endturn()
+                continue
+
+            # --- TOUR DE TJARK ----------------------------------------------------------------
+            if d > want:
+                # Un SEUL pas (count = 2 < 3 -> le gate ne peut pas mordre).
+                legal = _legal_moves(rpc, sid, rid, mid)
+                cands = [p for p in sorted(legal)
+                         if _num_tiles_moved(st, mid, mypos, p) == 1]
+                cands.sort(key=lambda p: abs(_dist(p, pos[tid]) - want))
+                if cands:
+                    dst = cands[0]
+                    rpc(sid, "applyAction", {"runnerId": rid, "action": {
+                        "kind": "move", "unitId": mid,
+                        "to": {"col": dst[0], "row": dst[1]}}}, 120)
+                    print("     t%d : Tjark %s -> %s (d %d -> %d)"
+                          % (turn, mypos, dst, d, _dist(dst, pos[tid])))
+                else:
+                    print("     t%d : aucun pas de 1 pour Tjark (d=%d)" % (turn, d))
+                endturn()
+                continue
+            if d < want:
+                print("     t%d : d=%d < want=%d, on laisse la cible s'ecarter" % (turn, d, want))
+                endturn()
+                continue
+
+            # --- LE CAST -----------------------------------------------------------------------
             before = mypos
             res = rpc(sid, "applyAction", {"runnerId": rid, "action": {
-                "kind": "ability", "casterId": int(me["id"]), "targetId": int(tgt["id"]),
+                "kind": "ability", "casterId": mid, "targetId": tid,
                 "abilityType": GRAPNEL}}, 150)
             a0 = (res.get("actions") or [{}])[0] if isinstance(res, dict) else {}
             if not (res.get("ok") and a0.get("ok")):
-                print("     t%d : cast REFUSE (%s) -> endturn" % (turn, str(res)[:160]))
-                rpc(sid, "applyAction", {"runnerId": rid,
-                                         "action": {"kind": "endturn"}}, 120)
+                print("     t%d : cast REFUSE (%s) -> endturn" % (turn, str(res)[:200]))
+                endturn()
                 continue
             dv2 = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1,
                                             "allAbilities": True}, 150)
-            uu2 = _units(dv2)
-            me2 = uu2.get(int(me["id"]))
+            ob2 = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
+            me2 = _units(dv2).get(mid)
             dead = (me2 is None) or (not me2.get("alive"))
-            after = _pos(me2) if me2 is not None else None
-            if after is None or before is None or after == before:
-                print("     t%d : PAS DE VOL (avant=%s apres=%s dead=%s) -- non mesure"
+            after = _pos_by_squad(ob2).get(mid)
+            if after is None or after == before:
+                print("     t%d : PAS DE VOL (avant=%s apres=%s dead=%s) -- NON MESURE"
                       % (turn, before, after, dead))
-                rpc(sid, "applyAction", {"runnerId": rid,
-                                         "action": {"kind": "endturn"}}, 120)
+                endturn()
                 continue
             dd = _dist(before, after)
-            count = _num_tiles_moved(st, int(me["id"]), before, after) + 1
+            count = _num_tiles_moved(st, mid, before, after) + 1
             arm = ("A" if (dd >= THRESHOLD and count >= THRESHOLD)
                    else "B" if count >= THRESHOLD else "C")
             casts.append({"turn": turn, "before": list(before), "after": list(after),
@@ -315,8 +354,7 @@ def run_live(board: str, seed: int, foes: list, rounds: int, want: int) -> dict:
                   % (turn, before, after, dd, count, arm, "MORT" if dead else "vivant"))
             if dead:
                 break
-            rpc(sid, "applyAction", {"runnerId": rid,
-                                     "action": {"kind": "endturn"}}, 120)
+            endturn()
     finally:
         try:
             rpc(sid, "disposeRunner", {"runnerId": rid}, 60)
@@ -325,8 +363,52 @@ def run_live(board: str, seed: int, foes: list, rounds: int, want: int) -> dict:
     return {"board": board, "seed": seed, "want": want, "casts": casts}
 
 
+def _verdict(tot: dict) -> int:
+    """Le verdict, sur l'AGREGAT. Un run isole ne porte que quelques vols : c'est l'union des runs
+    qui donne au bras B sa force (`0.7 ** n`)."""
+    b, aa = tot.get("B"), tot.get("A")
+    print("\n== VERDICT")
+    if not b:
+        print("   bras B (DISCRIMINANT) NON MESURE -> rien de tranche")
+        return 1
+    if not aa or aa["morts"] == 0:
+        print("   bras A (controle positif) sans mort -> le montage n'a PAS ete prouve mordant ;")
+        print("   un 0 mort en B ne prouverait alors rien (montage possiblement inerte).")
+        return 1
+    if b["morts"] == 0:
+        print("   bras A tue (%d/%d) ET bras B ne tue JAMAIS (0/%d, P = %.5f) ->"
+              % (aa["morts"], aa["n"], b["n"], 0.7 ** b["n"]))
+        print("   SECOND BRAS CONFIRME : le natif lit la DISTANCE, pas path.Count.")
+        return 0
+    print("   bras B tue (%d/%d) -> le natif lit path.Count : SECOND BRAS REFUTE"
+          % (b["morts"], b["n"]))
+    return 1
+
+
+def _tally(casts: list) -> dict:
+    tot = {}
+    for c in casts:
+        t = tot.setdefault(c["arm"], {"n": 0, "morts": 0})
+        t["n"] += 1
+        t["morts"] += 1 if c["dead"] else 0
+    return tot
+
+
+def _print_tally(tot: dict, n: int) -> None:
+    print("\n== BILAN (vols mesures : %d)" % n)
+    for k in ("A", "B", "C"):
+        t = tot.get(k)
+        if t:
+            print("   bras %s : %d essai(s), %d mort(s)   P(0 mort | gate vrai) = %.5f"
+                  % (k, t["n"], t["morts"], 0.7 ** t["n"]))
+        else:
+            print("   bras %s : 0 essai -- NON MESURE" % k)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--report", default=None,
+                    help="glob de fichiers --out a AGREGER (aucun runner monte)")
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--mutate-no-second-arm", action="store_true")
     ap.add_argument("--board", default="MC1_67")
@@ -336,6 +418,17 @@ def main() -> int:
     ap.add_argument("--want", type=int, default=2, help="distance hex Tjark<->cible au cast")
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
+
+    if a.report:
+        import glob
+        casts = []
+        for f in sorted(glob.glob(a.report)):
+            d = json.loads(pathlib.Path(f).read_text(encoding="utf-8"))
+            casts.extend(d.get("casts") or [])
+            print("   + %s (%d vol(s))" % (pathlib.Path(f).name, len(d.get("casts") or [])))
+        tot = _tally(casts)
+        _print_tally(tot, len(casts))
+        return _verdict(tot)
 
     bad = etape0(a.mutate_no_second_arm)
     print("   -> etape 0 : %d anomalie(s)" % bad)
@@ -351,41 +444,12 @@ def main() -> int:
     for s in [int(x) for x in a.seeds.split(",") if x.strip()]:
         r = run_live(a.board, s, [x for x in a.foes.split(",") if x], a.rounds, a.want)
         allc.extend(r["casts"])
-    tot = {}
-    for c in allc:
-        k = c["arm"]
-        t = tot.setdefault(k, {"n": 0, "morts": 0})
-        t["n"] += 1
-        t["morts"] += 1 if c["dead"] else 0
-    print("\n== BILAN (vols mesures : %d)" % len(allc))
-    for k in ("A", "B", "C"):
-        t = tot.get(k)
-        if t:
-            print("   bras %s : %d essai(s), %d mort(s)   P(0 mort | gate vrai) = %.4f"
-                  % (k, t["n"], t["morts"], 0.7 ** t["n"]))
-        else:
-            print("   bras %s : 0 essai -- NON MESURE" % k)
+    tot = _tally(allc)
+    _print_tally(tot, len(allc))
     if a.out:
         pathlib.Path(a.out).write_text(json.dumps({"casts": allc, "tot": tot}, indent=1),
                                        encoding="utf-8")
-    b = tot.get("B")
-    aa = tot.get("A")
-    print("\n== VERDICT")
-    if not b:
-        print("   bras B (DISCRIMINANT) NON MESURE -> rien de tranche")
-        return 1
-    if not aa or aa["morts"] == 0:
-        print("   bras A (controle positif) sans mort -> le montage n'a PAS ete prouve mordant ;")
-        print("   un 0 mort en B ne prouverait alors rien (montage possiblement inerte).")
-        return 1
-    if b["morts"] == 0:
-        print("   bras A tue (%d/%d) ET bras B ne tue JAMAIS (0/%d) ->"
-              % (aa["morts"], aa["n"], b["n"]))
-        print("   SECOND BRAS CONFIRME : le natif lit la DISTANCE, pas path.Count.")
-        return 0
-    print("   bras B tue (%d/%d) -> le natif lit path.Count : SECOND BRAS REFUTE" %
-          (b["morts"], b["n"]))
-    return 1
+    return _verdict(tot)
 
 
 if __name__ == "__main__":
