@@ -291,18 +291,31 @@ def cast_live(h, rec):
 def replay(h, rec, mutate=None):
     """Rejeu OFFLINE du MEME cast, RNG neutralise par le dump pris juste avant.
 
-    MUTATION `NOPORT` : 1232 retiree d'`ABILITY_CLASSES` -- c'est le registre du handler qui
-    materialise l'ability, donc le retrait fait retomber `visit_ActiveAbilityMessage` sur
-    `ported: False` (behaviour no-op complet). C'est la vue « d'avant ce port ».
-    Restauree en `finally`."""
+    DEUX MUTATIONS, et elles ne disent pas la meme chose :
+
+      * `NOPORT` -- 1232 retiree d'`ABILITY_CLASSES` : le registre du handler est ce qui materialise
+        l'ability, donc le retrait fait retomber `visit_ActiveAbilityMessage` sur `ported: False`
+        (behaviour no-op COMPLET). C'est la vue « d'avant ce port » : ni vol, ni degat, ni marque.
+      * `NORANDOM` -- le noeud `Randomize` remplace par l'IDENTITE dans l'arbre. Il repond a la
+        seule question que `NOPORT` ne peut pas poser : **cet etage mord-il ?** Si la tuile
+        d'atterrissage ne bougeait pas sans lui, l'accord sur le landing ne prouverait rien du
+        tirage (regime degenere : utilites toutes distinctes, ou pool de 1). Le natif tire
+        `len(pool)` fois DANS `FlyUnit`, donc la mutation decale aussi le flux des degats -- ce
+        qu'on lit ici est le LANDING.
+
+    Restaurees en `finally`."""
+    from engine.runner.abilities import aeldari as _aeldari
     from engine.runner.abilities.handler import ABILITY_CLASSES
     from engine.runner.components import PositionComponent
     from engine.runner.messages import ActiveAbilityMessage
     from engine.runner.runner import Runner
     saved = ABILITY_CLASSES.get(ABILITY_TYPE)
+    saved_rand = _aeldari.Randomize
     try:
         if mutate == "NOPORT":
             ABILITY_CLASSES.pop(ABILITY_TYPE, None)
+        elif mutate == "NORANDOM":
+            _aeldari.Randomize = lambda src: src            # l'etage de tirage COURT-CIRCUITE
         st = h.offline_state(rec)
         runner = Runner(st).install_default_handlers(20)
         runner.apply(ActiveAbilityMessage(caster_id=rec["caster"], target_id=rec["target"],
@@ -320,6 +333,7 @@ def replay(h, rec, mutate=None):
     finally:
         if saved is not None:
             ABILITY_CLASSES[ABILITY_TYPE] = saved
+        _aeldari.Randomize = saved_rand
 
 
 def face_decision(h, rec):
@@ -419,6 +433,7 @@ def run(a, rpc, Board, Harness, seed_bc) -> int:
             return rc | 2
         off = replay(h, rec)
         mut = replay(h, rec, mutate="NOPORT")
+        nrd = replay(h, rec, mutate="NORANDOM")
 
         k = len(live["hits"])
         accord_landing = live["landing"] == off["landing"]
@@ -426,6 +441,8 @@ def run(a, rpc, Board, Harness, seed_bc) -> int:
         accord_mark = bool(live["marked"]) == bool(off["marked"])
         # La MUTATION doit mordre sur les TROIS observables : sans elle l'accord ne prouve rien.
         mord = (mut["landing"] != off["landing"] and not mut["hits"] and not mut["marked"])
+        # Et l'etage de TIRAGE doit mordre a son tour, sinon le landing ne prouve rien de lui.
+        mord_rng = (nrd["landing"] != off["landing"] or nrd["hits"] != off["hits"])
 
         print("[EXECUTER] LIVE     landing=%s marked=%s hits=%s"
               % (live["landing"], live["marked"], live["hits"]))
@@ -433,11 +450,16 @@ def run(a, rpc, Board, Harness, seed_bc) -> int:
               % (off["landing"], off["marked"], off["hits"], off["ported"]))
         print("           NOPORT   landing=%s marked=%s hits=%s -> mord=%s"
               % (mut["landing"], mut["marked"], mut["hits"], mord))
+        print("           NORANDOM landing=%s hits=%s -> mord=%s"
+              % (nrd["landing"], nrd["hits"], mord_rng))
         print("           accord : landing=%s hits=%s mark=%s"
               % (accord_landing, accord_hits, accord_mark))
         if not (accord_landing and accord_hits and accord_mark):
             rc |= 1
         if not mord:
+            rc |= 1
+        if not mord_rng:
+            print("           /!\\ NORANDOM n'a rien change : cet etage n'est PAS exerce ici")
             rc |= 1
         return rc
     finally:
