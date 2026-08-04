@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **98**
-- **NO-OP silencieux** (a porter) : **77**
-- Ventilation NO-OP : **DAMAGE**=47, **EFFECT/BUFF**=19, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **100**
+- **NO-OP silencieux** (a porter) : **75**
+- Ventilation NO-OP : **DAMAGE**=46, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (77)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (75)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -50,7 +50,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1225 | StrikeFromTheShadows | DAMAGE(Bolter) | 2 | LN |
 | 1173 | ArcScourge | DAMAGE(Particle) | 1 | N |
 | 1176 | BlightGrenades | DAMAGE(Toxic) | 1 | N |
-| 1232 | EmpyricAmbush | DAMAGE(Eviscerate) | 1 | L |
 | 1198 | EuphoricStrikes | DAMAGE(Power) | 1 | L |
 | 1197 | ExcruciatingFrequencies | DAMAGE(Blast) | 1 | L |
 | 1170 | ExplosivePresents | DAMAGE(Blast) | 1 | N |
@@ -85,7 +84,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 | 1185 | ForwardObservers | EFFECT/BUFF | 2 | NS |
 | 1228 | SternguardFocus | EFFECT/BUFF | 2 | LN |
-| 1186 | WallOfMirrors | EFFECT/BUFF | 2 | NS |
 | 1133 | WarConstruct | EFFECT/BUFF | 2 | N |
 | 1032 | Catalyst | EFFECT/BUFF | 1 | N |
 | 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
@@ -104,7 +102,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (98)
+## PORTED (registry) (100)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -165,6 +163,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1207 | AncestralFortune | DAMAGE(Plasma) | 1 | L |
 | 1221 | AugmentedAssault | DAMAGE(Eviscerate) | 1 | L |
 | 1199 | DoomSiren | DAMAGE(DirectDamage) | 1 | L |
+| 1232 | EmpyricAmbush | DAMAGE(Eviscerate) | 1 | L |
 | 1097 | Foehammer | DAMAGE(Power) | 1 | L |
 | 1090 | GrapnelLauncher | DAMAGE(Physical) | 1 | L |
 | 1206 | GravitonRifle | DAMAGE(Physical) | 1 | L |
@@ -182,6 +181,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1003 | DeathFromAbove | EFFECT/BUFF | 4 | LN |
 | 1011 | TunnelingHorror | EFFECT/BUFF | 4 | NS |
 | 1140 | ExemplarOfHate | EFFECT/BUFF | 3 | LN |
+| 1186 | WallOfMirrors | EFFECT/BUFF | 2 | NS |
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1082 | InspiredToGreatness | HEAL | 5 | LN |

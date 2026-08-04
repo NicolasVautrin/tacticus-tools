@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **46** ; kits avec du travail : **81**
-- Volume total : **101** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **100** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **43** abilities non portees (11 mythiques, 32 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -32,12 +32,12 @@
 | faction | kits | items |
 |---|---:|---:|
 | EmperorsChildren | 5 | 8 |
-| Aeldari | 4 | 6 |
 | BlackTemplars | 5 | 6 |
 | BloodAngels | 5 | 6 |
 | Necrons | 5 | 6 |
 | ThousandSons | 4 | 6 |
 | WorldEaters | 5 | 6 |
+| Aeldari | 4 | 5 |
 | AstraMilitarum | 4 | 5 |
 | Custodes | 4 | 5 |
 | DarkAngels | 4 | 5 |
@@ -71,13 +71,13 @@
 | admecManipulus | 1 | DefendTheDivineWork(1117) [CD] OK | GalvanicField | - |
 | admecRuststalker | 1 | CordClaw(1122) [CD] OK | OptimizedGait | - |
 
-### Aeldari — 4 kits, 6 items
+### Aeldari — 4 kits, 5 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | eldarAutarch | 1 | Loki_SwoopingHawk(1064) [--] NO-OP DAMAGE(Piercing) | - | - |
 | eldarJainZar | 2 | SilentDeath(1068) [--] NO-OP DAMAGE(Piercing) | TerrorsLament | - |
-| eldarLhykhis | 2 | EmpyricAmbush(1232) [--] NO-OP DAMAGE(Eviscerate) | WhisperingWeb | - |
+| eldarLhykhis | 1 | EmpyricAmbush(1232) [C-] OK | WhisperingWeb | - |
 | eldarRanger | 1 | FireAndReposition(1063) [--] NO-OP EFFECT/BUFF | - | - |
 
 ### AstraMilitarum — 4 kits, 5 items

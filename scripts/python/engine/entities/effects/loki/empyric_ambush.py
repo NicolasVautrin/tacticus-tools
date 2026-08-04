@@ -40,8 +40,9 @@ est `Direct(1)`, relu dans `IdunBattleLogic.Entities.DSLFormulas$$.ctor` (qui pr
 Direct(0)`, `+0x20 = Direct(1)`, `+0x28 = Direct(2)`, `+0x30 = Direct(100)`, `+0x38 = Direct(-1)`).
 => **l'effet dure UN tour**, ce n'est pas un permanent.
 
-⚠ `EmpyricAmbushAbility` (1232) n'est PAS portee : ce module porte l'EFFET et son gate, pas la
-pose. Cf. la section « ce qui n'est pas couvert » de `docs/rl/case-589-r1-r1-empyric-ambush.md`.
+La POSE est portee depuis #589-r1-r1-r1 (`runner/abilities/aeldari.py::EmpyricAmbushAbility`,
+arbre DSL) : ce module-ci porte l'EFFET et son gate, l'autre porte le cast qui le depose.
+Cf. `docs/rl/case-589-r1-r1-r1-pose-empyric-ambush.md`.
 
 ## LES DEUX CANAUX — meme trigger, deux variables
 
