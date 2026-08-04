@@ -31,9 +31,17 @@ CE QUE CE FICHIER GARDE -- cinq choses, aucune redondante :
      a la main : il lit `UnitContext.active_abilities` / `.passive_abilities` / `.traits` tels que
      `scene.build_predictor` les seede. Le cran confronte donc la CHAINE ENTIERE au champ que la
      fabrique ecrit.
-  5. **LA CONTRE-EPREUVE MORD, ET SEULEMENT LA.** Garde coupee (= le port d'avant -r2-r2), la seule
-     ligne qui bouge est `preuve`. L'inertie des trois autres est la RECIPROQUE : un port qui
-     deborderait les ferait bouger.
+  5. **LE FOYER PORTE EST JUSTE, ET L'ECART RESIDUEL EST BORNE.** `normal_attack_already_present`
+     s'accorde au natif sur les quatre bras -- donc ce qui reste ouvert est un probleme de CANAL,
+     pas de RE. Et l'ecart de port subsistant est fige a la seule ligne `preuve` : le cliquet
+     rougit s'il s'elargit comme s'il se ferme.
+
+⚠ **La garde est PORTEE mais NON BRANCHEE dans `custom_normal_attack`, et c'est un arbitrage
+MESURE** : elle exige `config.ActiveAbilities` (l'etat AVANT la fabrique), le canal ne donne que
+l'etat APRES. Branchee dessus, elle repondrait juste meme voie amont coupee -- elle rend alors
+INERTE la contre-epreuve de la voie ACTIVE (#565), mesure -- et elle n'apporterait rien en
+production (**0 des 175 unites du seed** n'a d'attaque reguliere dans `BC.Units[].ActiveAbilities`).
+Residu `#419-r1-tr14-r5-r2-r2-r1`.
 
 ⚠ **Le canal est un SUR-ENSEMBLE, et c'est MESURE ici** (`test_le_canal_est_un_sur_ensemble`) :
 `UnitContext.active_abilities` lit l'`ActiveAbilityComponent` APRES la fabrique, donc il porte
@@ -100,10 +108,6 @@ def test_la_garde_empeche_le_repli_generique(guard_rows):
         f"PassiveAbilities=[] et aucun trait `Boss` : les trois voies rendent `null`, la fabrique "
         f"atteint le repli, y trouve une reguliere deja montee et REND SANS RIEN AJOUTER. Le natif "
         f"rend {r['native']!r}.")
-    assert r["port"] == P.REGULAR_GRAFT, (
-        f"le port rend {r['port']!r} au lieu de {P.REGULAR_GRAFT!r} : c'est exactement l'ecart "
-        f"PERMISSIF que cette tranche ferme -- le port posait une attaque normale generique la ou "
-        f"le natif s'abstient.")
 
 
 def test_les_temoins_recoivent_bien_la_generique(guard_rows):
@@ -160,15 +164,34 @@ def test_le_canal_actives_est_un_sur_ensemble(guard_rows):
             f"repose : `ActiveAbilityComponent$$Add` reecrit `comp@+0x28` a chaque reguliere.")
 
 
-def test_la_contre_epreuve_mord_sur_la_preuve_et_seulement_la(guard_rows):
-    """(5) Garde coupee = le port d'avant -r2-r2. Doit MORDRE sur `preuve` et rester INERTE
-    ailleurs -- l'inertie borne le fix."""
+def test_le_foyer_porte_s_accorde_au_natif_sur_les_quatre_bras(guard_rows):
+    """(5) Le foyer EST juste -- mesure, alors meme qu'il n'est pas branche.
+
+    `normal_attack_already_present` est un mirror de la garde, mais `custom_normal_attack` ne
+    l'appelle pas (cf. sa docstring : le substrat exact, `config.ActiveAbilities`, n'est pas
+    disponible). Ce cran etablit qu'il rend la BONNE valeur sur les quatre bras -- c'est ce qui
+    rend le residu `-r2-r2-r1` purement un probleme de CANAL, pas de RE."""
+    bad = [(r["role"], r["foyer"], r["native"]) for r in guard_rows if r["foyer"] != r["native"]]
+    assert not bad, (
+        f"le foyer de la garde diverge du `NormalAttackType` natif sur {bad} -- format (role, "
+        f"foyer, natif). Il lit pourtant le canal MESURE : l'ecart accuse la RE de la garde "
+        f"elle-meme, pas le canal.")
+
+
+def test_l_ecart_de_port_residuel_est_celui_documente(guard_rows):
+    """(6) CLIQUET DE RESIDU (`#419-r1-tr14-r5-r2-r2-r1`).
+
+    La garde n'etant pas branchee, le port repond encore `Loki_NormalAttack` sur `preuve` -- et
+    SEULEMENT la. Ce cran fige cet ecart CONNU : il rougit s'il s'AGGRAVE (une autre ligne se met
+    a diverger) comme s'il se FERME (la garde a ete branchee, et alors c'est cette case-doc et ce
+    fichier qu'il faut mettre a jour, pas le test qu'il faut faire taire)."""
+    gaps = sorted(r["role"] for r in guard_rows if r["port_gap"])
+    assert gaps == ["preuve"], (
+        f"l'ecart de port residuel porte sur {gaps}, attendu exactement ['preuve']. S'il s'est "
+        f"FERME, la garde a ete branchee : mettre a jour "
+        f"`docs/rl/case-419-r1-tr14-r5-r2-r2-garde-filternewlist.md` et ce cran. S'il s'est "
+        f"ELARGI, le port a regresse sur une ligne que la garde ne concerne pas.")
     p = _row(guard_rows, "preuve")
-    assert p["cut_bites"] is True, (
-        "garde coupee, `preuve` doit retomber sur le generique : s'il ne bouge pas, ce n'est PAS "
-        "la garde qui produit le vert du cran (1), et le montage ou le canal est a re-examiner.")
-    debords = [r["role"] for r in guard_rows if r["cut_bites"] and r["role"] != "preuve"]
-    assert not debords, (
-        f"la contre-epreuve MORD aussi sur {debords}, alors que ces lignes ne passent pas par la "
-        f"garde : le port DEBORDE -- il laisse la garde decider la ou le repli generique doit "
-        f"s'appliquer, ou la ou une voie de rang superieur gagne.")
+    assert p["port"] == P.GENERIC, (
+        f"sur `preuve`, le port repond {p['port']!r} ; l'ecart documente est qu'il repond "
+        f"{P.GENERIC!r} (le repli generique s'applique faute de garde branchee).")

@@ -293,24 +293,33 @@ def normal_attack_already_present(active_abilities) -> str | None:
     et l'ordre est celui des ajouts. MESURE (bras `ordre-pas`) : canal
     `[TemplarInitiateNormalAttack, Boltstorm_NormalAttack]` -> natif `Boltstorm_NormalAttack`.
 
-    ## La BORNE du canal, mesuree et non supposee
+    ## ⚠ PORTE, VERIFIE, et DELIBEREMENT NON BRANCHE dans `custom_normal_attack`
 
-    `active_abilities` (`UnitContext.active_abilities`) est un SUR-ENSEMBLE ASSUME : il lit
-    l'`ActiveAbilityComponent` APRES la fabrique, donc il porte AUSSI l'attaque normale qu'elle
-    vient d'y ecrire, et les ajouts de `UnitFactory$$AddDerivedAbilities`. Mesure du 2026-08-04 :
-    bras temoin -> `['FireAndReposition', 'Loki_NormalAttack']`, le generique EST dans le canal.
+    Ce foyer est un mirror exact de la garde, et le natif qu'il decrit est CONFIRME live (4/4,
+    `probe_419r1tr14r5r2r2_filter_new_list`). Il n'est pourtant PAS appele par la cascade, et c'est
+    un ARBITRAGE MESURE, pas un oubli :
 
-    C'est precisement ce qui rend cette lecture CORRECTE plutot que genante : au repli, la
-    derniere reguliere du composant EST `NormalAttackType`, que la garde ait mordu (elle vient de
-    `BC.Units[].ActiveAbilities`) ou non (c'est la generique que la fabrique vient de poser). Les
-    deux cas rendent la bonne reponse -- verifie sur les 4 bras.
-    ⚠ RESIDU : si `AddDerivedAbilities` posait une active REGULIERE, elle serait la derniere et
-    fausserait cette lecture. Aucun des 4 bras n'en produit ; ce n'est pas une preuve generale
-    (`#419-r1-tr14-r5-r2-r2-r1`).
+    * **Le substrat exact n'est pas disponible.** Le natif teste la collection AVANT que la
+      generique n'y soit ajoutee, c.-a-d. `config.ActiveAbilities` (= `BC.Units[].ActiveAbilities`).
+      Le seul canal du port, `UnitContext.active_abilities`, lit l'`ActiveAbilityComponent` APRES
+      la fabrique : il porte donc AUSSI l'attaque normale qu'elle vient d'ecrire. MESURE du
+      2026-08-04, bras temoin -> `['FireAndReposition', 'Loki_NormalAttack']`.
+    * **Le brancher sur ce canal COURT-CIRCUITE les trois voies amont.** Puisque le canal contient
+      deja le resultat, la « derniere reguliere » y est toujours `NormalAttackType` -- donc la
+      garde repondrait juste MEME voie passive/active/trait coupee. Mesure : branche, il rend
+      INERTE la contre-epreuve de la voie ACTIVE (#565), qui cesse alors de pouvoir falsifier quoi
+      que ce soit. C'est un accord en regime degenere, pas une fidelite gagnee.
+    * **Et il n'apporterait RIEN en production.** La garde ne mord que si une attaque REGULIERE
+      figure dans `BC.Units[].ActiveAbilities` : mesure **0 sur les 175 unites du seed**, et aucune
+      des 18 n'est attribuee par les 5 voies du gameconfig (ce ne sont pas des abilities de
+      catalogue). Le seul regime qui l'exerce est un montage ECRIT.
 
-    `None` en entree = canal muet -> `None` (aucune deduction). Le repli KIT est SANS effet ici :
-    aucune des 683 entrees `activeAbilities` du gameconfig n'est une attaque reguliere (mesure
-    0/18 -- elles ne sont pas des abilities de catalogue), donc ce chemin est inchange.
+    Echange refuse, donc : fermer un ecart INATTEIGNABLE en production au prix d'affaiblir la
+    garde d'un ecart ATTEIGNABLE. Ce qu'il faut pour le brancher est un canal qui expose
+    `UnitConfiguration.ActiveAbilities` (l'etat PRE-fabrique) -- residu `#419-r1-tr14-r5-r2-r2-r1`,
+    avec son montage et son ecart chiffres dans la case-doc.
+
+    `None` en entree = canal muet -> `None` (aucune deduction).
     """
     if active_abilities is None:
         return None
@@ -415,20 +424,13 @@ def custom_normal_attack(passive_abilities=None, active_abilities=None, visual_i
                    else custom_normal_attack_from_actives(_kit_ability_names(visual_id, "active")))
     if from_active is not None:
         return from_active
-    from_trait = (custom_normal_attack_from_trait(traits) if traits is not None
-                  else custom_normal_attack_from_trait(_kit_trait_names(visual_id)))
-    if from_trait is not None:
-        return from_trait
-    # REPLI GENERIQUE -- et sa GARDE (#419-r1-tr14-r5-r2-r2). Le natif ne pose la generique que si
-    # la collection de l'`ActiveAbilityComponent` ne contient AUCUNE attaque reguliere ; sinon il
-    # `return` sans rien ajouter, et l'attaque normale de l'entite reste celle qui s'y trouve deja.
-    # `None` ici = la collection n'en contient aucune -> l'attaque normale est bien la generique.
-    #
-    # Le repli KIT n'est PAS threade sur cette voie, et c'est une lecture, pas un oubli : aucune des
-    # 18 attaques regulieres n'est une ability de catalogue (0/18 au gameconfig, 0/131 dans
-    # `BC.Abilities.ActiveAbilities` du seed), donc `_kit_ability_names(visual_id, "active")` ne
-    # peut structurellement rien rendre ici. Canal muet -> `None`, comportement STRICTEMENT d'avant.
-    return normal_attack_already_present(active_abilities)
+    # REPLI GENERIQUE. Sa GARDE (`normal_attack_already_present`, #419-r1-tr14-r5-r2-r2) est PORTEE
+    # mais DELIBEREMENT NON BRANCHEE ICI : elle exige `config.ActiveAbilities` (l'etat AVANT la
+    # fabrique), et le seul canal disponible porte l'etat APRES. Le detail de l'arbitrage, mesure,
+    # est dans la docstring de `normal_attack_already_present` et dans la case-doc.
+    if traits is not None:
+        return custom_normal_attack_from_trait(traits)
+    return custom_normal_attack_from_trait(_kit_trait_names(visual_id))
 
 
 def _kit_ability_names(visual_id, key: str) -> list:

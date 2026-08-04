@@ -58,13 +58,22 @@ AUCUNE des 18 n'a d'entree `units.abilities` au gameconfig (mesure : 0/18) ni da
 une ability de catalogue, le natif la resout PAR TYPE. On ecrit donc l'id directement dans
 `BC.Units[].ActiveAbilities`, ce qui est exactement ce que la fabrique consomme.
 
-## CE QUE LE VOLET `canal` TRANCHE
+## CE QUE LE CANAL TRANCHE -- et pourquoi la garde reste NON BRANCHEE
 
 `UnitContext.active_abilities` est documente comme un SUR-ENSEMBLE ASSUME (cf.
 `snapshot.active_ability_names_by_unit`) : il lit l'`ActiveAbilityComponent` APRES la fabrique,
-donc il porterait AUSSI l'attaque normale qu'elle vient d'y ecrire. Si c'est exact, la garde n'est
-PAS portable sur ce canal -- un predicat `IsRegularAttack` y trouverait toujours quelque chose et
-le repli generique ne s'appliquerait JAMAIS. Le volet le MESURE au lieu de le supposer.
+donc il porterait AUSSI l'attaque normale qu'elle vient d'y ecrire. MESURE ici, et CONFIRME (bras
+temoin -> `['FireAndReposition', 'Loki_NormalAttack']`).
+
+Consequence, mesuree elle aussi : brancher la garde sur ce canal la ferait repondre juste MEME
+voie passive/active/trait coupee -- le canal contient deja le resultat. Elle rend alors INERTE la
+contre-epreuve de la voie ACTIVE (#565). Et elle n'apporterait rien en production : **0 des 175
+unites du seed** n'a d'attaque reguliere dans `BC.Units[].ActiveAbilities`, seul un montage ECRIT
+l'exerce. Le foyer est donc porte et MESURE ici (colonne `foyer`, qui doit s'accorder au natif sur
+les 4 bras), mais pas appele par la cascade -- residu `#419-r1-tr14-r5-r2-r2-r1`.
+
+L'ECART DE PORT qui subsiste est CHIFFRE par ce probe (colonne `port` contre `attendu`) : c'est la
+ligne `preuve`, et elle seule.
 
 Usage :
     python scripts/python/probe_419r1tr14r5r2r2_filter_new_list.py --state-file <ABSOLU>.json
@@ -74,7 +83,6 @@ ASCII only.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import os
 import sys
@@ -91,6 +99,7 @@ from engine.entities.active_ability_type import ActiveAbilityType  # noqa: E402
 from engine.entities.traits.unit_trait import entity_trait_names   # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType   # noqa: E402
 from engine.playbook import scene as _scene                        # noqa: E402
+from engine.services.custom_normal_attack import normal_attack_already_present  # noqa: E402
 from engine.runner.abilities.attack_type import REGULAR_ATTACK_ABILITY_TYPES  # noqa: E402
 
 MontageError = P14.MontageError
@@ -142,23 +151,6 @@ def _seed_bc(out: str, patches: dict) -> str:
     return out
 
 
-@contextlib.contextmanager
-def guard_cut():
-    """COUPE la garde du port -- `normal_attack_already_present` rendue muette, c.-a-d.
-    STRICTEMENT le port d'avant -r2-r2 (le repli generique s'appliquait toujours). On neutralise le
-    FOYER, jamais le code livre.
-
-    Sans cette contre-epreuve, un vert du volet ne prouverait pas que c'est la garde qui le
-    produit."""
-    from engine.services import custom_normal_attack as CNA
-    saved = CNA.normal_attack_already_present
-    CNA.normal_attack_already_present = lambda _actives: None
-    try:
-        yield
-    finally:
-        CNA.normal_attack_already_present = saved
-
-
 def _ctx(predictor, uid):
     return (predictor.get("ctx_by_id") or {}).get(uid)
 
@@ -202,30 +194,32 @@ def run(rpc, build, verbose: bool = True) -> list:
         nat = got.get(vis)
         uid = id_by_vis.get(vis)
         port = _port_normal_attack(predictor, uid) if uid is not None else None
-        with guard_cut():
-            cut = _port_normal_attack(predictor, uid) if uid is not None else None
         seen = _measured_actives(predictor, uid) if uid is not None else []
         seen_reg = [n for n in seen
                     if int(ActiveAbilityType[n]) in REGULAR_ATTACK_ABILITY_TYPES]
+        # Ce que le FOYER de la garde repond sur le canal -- il n'est PAS branche dans la cascade
+        # (cf. sa docstring), on le mesure pour etablir qu'il est JUSTE et pret a l'etre.
+        foyer = normal_attack_already_present(seen) if uid is not None else None
         # `None` cote port == `Loki_NormalAttack` cote natif (aucune substitution).
-        port_as_native, cut_as_native = port or GENERIC, cut or GENERIC
+        port_as_native = port or GENERIC
         rows.append({"unit": vis, "role": role, "actives": act, "passives": pas,
                      "expected": expected,
                      "native": None if nat is None else nat[1],
                      "native_id": None if nat is None else nat[0],
-                     "port": port_as_native, "port_cut": cut_as_native,
+                     "port": port_as_native, "foyer": foyer,
                      "canal_actives": seen, "canal_regulars": seen_reg,
-                     "ok": (nat is not None and nat[1] == expected
-                            and port_as_native == expected),
-                     "cut_bites": cut_as_native != expected})
+                     "ok": nat is not None and nat[1] == expected,
+                     "port_gap": port_as_native != expected})
     if verbose:
         for r in rows:
             print(f"  [{r['role']:<14}] {r['unit']:<16} natif={str(r['native']):<30} "
                   f"attendu={r['expected']:<30} port={r['port']:<30} "
-                  f"{'OK' if r['ok'] else 'MISMATCH'}")
+                  f"{'OK' if r['ok'] else 'MISMATCH'}"
+                  f"{'   <-- ECART DE PORT (residu -r2-r2-r1)' if r['port_gap'] else ''}")
+        print("  -- foyer `normal_attack_already_present` (porte, NON branche) --")
         for r in rows:
-            print(f"     contre-epreuve garde-coupee [{r['role']:<14}] -> {r['port_cut']:<30} "
-                  f"{'MORD' if r['cut_bites'] else 'inerte'}")
+            print(f"     [{r['role']:<14}] foyer={str(r['foyer']):<30} natif={str(r['native']):<30}"
+                  f" {'accord' if r['foyer'] == r['native'] else 'DESACCORD'}")
         print("  -- canal `UnitContext.active_abilities` (sur-ensemble ?) --")
         for r in rows:
             print(f"     [{r['role']:<14}] {r['unit']:<16} actives={r['canal_actives']} "
@@ -264,12 +258,14 @@ def main() -> int:
         print("== garde FilterNewList : 4 unites, 1 build ==")
         rows = run(rpc, build)
         bad = [r for r in rows if not r["ok"]]
-        print(f"   -> {len(rows) - len(bad)}/{len(rows)} conformes (natif ET port)")
+        print(f"   -> NATIF : {len(rows) - len(bad)}/{len(rows)} conformes a l'attendu")
         rc |= 1 if bad else 0
-        wrong = [r["role"] for r in rows if r["cut_bites"] != (r["role"] == "preuve")]
-        print(f"   -> contre-epreuve : "
-              f"{'conforme' if not wrong else 'INATTENDUE sur ' + str(wrong)}")
-        rc |= 1 if wrong else 0
+        des = [r["role"] for r in rows if r["foyer"] != r["native"]]
+        print(f"   -> FOYER (non branche) : "
+              f"{'accord sur les ' + str(len(rows)) if not des else 'DESACCORD sur ' + str(des)}")
+        rc |= 1 if des else 0
+        gaps = [r["role"] for r in rows if r["port_gap"]]
+        print(f"   -> ECART DE PORT (residu -r2-r2-r1) sur : {gaps or 'aucun'}")
     finally:
         for rid in rids:
             try:
