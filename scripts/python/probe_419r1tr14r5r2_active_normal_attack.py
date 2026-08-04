@@ -78,6 +78,7 @@ ASCII only.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -178,27 +179,79 @@ def _mow_normal_abilities(rpc, rid: int) -> dict:
 
 # --------------------------------------------------------------------------- volet ACTIVE
 
+@contextlib.contextmanager
+def active_way_cut():
+    """COUPE la voie ACTIVE du port -- table VIDE, c.-a-d. STRICTEMENT le port d'avant -r2. On mute
+    la TABLE, jamais le code livre.
+
+    C'est la contre-epreuve : sans elle, un vert du volet ne prouverait pas que la voie active EST
+    ce qui le produit. Elle doit MORDRE sur le bras `preuve` et rester INERTE sur les trois autres
+    (la reciproque : un port qui deborderait ferait bouger la borne aussi)."""
+    from engine.services import custom_normal_attack as CNA
+    saved = CNA.CUSTOM_NORMAL_ATTACK_BY_ACTIVE
+    CNA.CUSTOM_NORMAL_ATTACK_BY_ACTIVE = {}
+    try:
+        yield
+    finally:
+        CNA.CUSTOM_NORMAL_ATTACK_BY_ACTIVE = saved
+
+
+def _port_normal_attack(predictor, uid):
+    """Ce que le FOYER du port repond pour cette entite, sur les canaux de PRODUCTION
+    (`UnitContext.passive_abilities` / `.active_abilities`, seedes par `scene.build_predictor` via
+    `_seed_measured_passives` / `_seed_measured_actives`). `None` = aucune substitution, ce qui
+    correspond au `69 Loki_NormalAttack` du natif."""
+    from engine.services.custom_normal_attack import custom_normal_attack
+    c = (predictor.get("ctx_by_id") or {}).get(uid)
+    return custom_normal_attack(passive_abilities=getattr(c, "passive_abilities", None),
+                                active_abilities=getattr(c, "active_abilities", None),
+                                visual_id=(predictor.get("vis_by_id") or {}).get(uid))
+
+
 def run_active(rpc, build, verbose: bool = True) -> list:
+    """Le natif ET le port, sur le MEME runner et les MEMES quatre bras.
+
+    Le port n'est pas interroge sur une liste fabriquee a la main : il lit les canaux de production
+    (`build_predictor` -> `_seed_measured_passives` / `_seed_measured_actives`), donc ce volet
+    confronte la CHAINE ENTIERE -- capteur, parsing, seed, foyer -- au champ que la fabrique ecrit."""
     logs = os.environ.get("A35_LOGS") or _HERE
     patches = {vis: {"passives": pas, "actives": act} for vis, pas, act, _e, _r in ARMS}
     seed_bc = _seed_bc(os.path.join(logs, "tr14r5r2_active_seedbc.json"), patches)
     rid = build(SEED_ACTIVE, ["--board", BOARD, "--p-units", ",".join(ARMS_P),
                               "--a-units", ",".join(ARMS_A), "--seed-bc", seed_bc])
     got = PT.normal_attack_by_unit(rpc, rid)
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 4}, 300)
+    id_by_vis = {u.get("visualId"): u.get("id") for u in (dv.get("units") or ())}
+    predictor = _scene.build_predictor(rpc, rid)
+    if predictor is None:
+        raise MontageError("canal MUET : build_predictor a rendu None (combatSnapshot KO)")
     rows = []
     for vis, pas, act, expected, role in ARMS:
         if vis not in got:
             raise MontageError(f"montage NON INSTALLE : {vis} absent du board")
         nat = got.get(vis)
+        uid = id_by_vis.get(vis)
+        port = _port_normal_attack(predictor, uid) if uid is not None else None
+        with active_way_cut():
+            cut = _port_normal_attack(predictor, uid) if uid is not None else None
+        # `None` cote port == `Loki_NormalAttack` cote natif (aucune substitution).
+        port_as_native = port or GENERIC
+        cut_as_native = cut or GENERIC
         rows.append({"unit": vis, "role": role, "passives": pas, "actives": act,
                      "expected": expected, "native": None if nat is None else nat[1],
                      "native_id": None if nat is None else nat[0],
-                     "ok": (nat is not None and nat[1] == expected)})
+                     "port": port_as_native, "port_cut": cut_as_native,
+                     "ok": (nat is not None and nat[1] == expected and port_as_native == expected),
+                     "cut_bites": cut_as_native != expected})
     if verbose:
         for r in rows:
             print(f"  [{r['role']:<9}] {r['unit']:<16} passifs={str(r['passives']):<13} "
                   f"actives={str(r['actives']):<19} natif={str(r['native']):<26} "
-                  f"attendu={r['expected']:<26} {'OK' if r['ok'] else 'MISMATCH'}")
+                  f"port={r['port']:<26} attendu={r['expected']:<26} "
+                  f"{'OK' if r['ok'] else 'MISMATCH'}")
+        for r in rows:
+            print(f"     contre-epreuve voie-active-coupee [{r['role']:<9}] -> {r['port_cut']:<26} "
+                  f"{'MORD' if r['cut_bites'] else 'inerte'}")
     return rows
 
 
@@ -370,6 +423,13 @@ def main() -> int:
             bad = [r for r in rows if not r["ok"]]
             print(f"   -> {len(rows) - len(bad)}/{len(rows)} conformes")
             rc |= 1 if bad else 0
+            # La contre-epreuve doit MORDRE sur `preuve` et rester INERTE ailleurs. Un vert
+            # partout dirait que la voie active ne produit rien ; un rouge partout, qu'elle
+            # deborde.
+            want = {r["role"]: (r["role"] == "preuve") for r in rows}
+            wrong = [r["role"] for r in rows if r["cut_bites"] != want[r["role"]]]
+            print(f"   -> contre-epreuve : {'conforme' if not wrong else 'INATTENDUE sur ' + str(wrong)}")
+            rc |= 1 if wrong else 0
         if args.volet in ("all", "canal"):
             print("== volet CANAL (unitAbilityStates.actives = SUR-ENSEMBLE de config.ActiveAbilities) ==")
             rows = run_canal(rpc, build)

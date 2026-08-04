@@ -714,8 +714,20 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
     - **pas d'appel `pathDistToEnemies`** — ce champ ne sert qu'au `MovementActionGenerator`, que
       `DefaultMachineTactic$$.ctor` n'ajoute PAS (et `<CalculateMovementForUnit>d__8$$MoveNext` rend
       une liste vide, toujours). `pathdist_by_pos = {}`.
-    - **`normal_ids = set()`** — les 8 MoW du pool ont `weapons=[]` en gameconfig : aucune attaque
-      normale, donc aucune entrée `kind == "normal"`.
+    - **`normal_ids = set()`** — une MACHINE n'a JAMAIS d'attaque normale, et c'est structurel :
+      `IdunBattle.Entities.Factories.MachineFactory$$Build` n'appelle **jamais**
+      `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` (il appelle
+      `UnitFactory$$InitBaseComponent`, `MachineFactory$$AddConfiguredAbilities` et
+      `UnitFactory$$AddDerivedAbilities`, et c'est tout). Mécanique : `AddNormalAttackAbility` n'a
+      qu'UN SEUL xref de code, `UnitFactory$$Build`. Aucune configuration ne peut donc en donner une
+      à une Machine.
+      ⚠ La raison écrite ici jusqu'à #419-r1-tr14-r5-r2 était « les 8 MoW du pool ont `weapons=[]`
+      en gameconfig » — une dérivation du KIT, c.-à-d. exactement le critère que #551 a réfuté sur
+      la voie passive. Elle donnait la bonne valeur pour la mauvaise raison, et se serait lue comme
+      périmée le jour où une MoW recevrait une arme au catalogue. CONFRONTÉ, contre-bras compris :
+      écrire `BC.Units[<MoW>].ActiveAbilities = [PoundThemToDust]` — la clé de la voie active du
+      dispatch — ne lui donne toujours AUCUNE ability `kind == "normal"`
+      (`probe_419r1tr14r5r2_active_normal_attack.py --volet mow`).
 
     Le reste (observeBattle / tileMeta / boardGraph / Scene) est la MÊME couture que `build` : ce sont
     des lectures d'ENVIRONNEMENT, indépendantes du caster."""
