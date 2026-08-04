@@ -257,9 +257,299 @@ def step_declared(sid):
     return 0
 
 
+# ------------------------------------------------------------------------------------------------
+# --step gatelive : le gate `NOT AmountIsZero(BondedEntity)` mord-il, OUI ou NON ?
+#
+# LA QUESTION, ET POURQUOI ELLE PRECEDE TOUT PORTAGE.
+# Les trois triggers partagent le conjoint `NOT AmountIsZero(BondedEntityFromEffect(Effect))`.
+# `IdunBattleLogic.Entities.DSLTriggers$$AmountIsZero(selector)` construit
+# `NOT AmountIsGreaterAbilityTrigger(selector, <DSLFormulas+0x20>)`, et
+# `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger` rend
+# `minAmount < amount`. Or `DSLFormulas+0x20` est `Direct(1)`, PAS `Direct(0)` :
+#   * `IdunBattleLogic.Entities.DSLFormulas$$.ctor` ecrit `+0x18 <- Direct(0)`, `+0x20 <- Direct(1)`,
+#     `+0x28 <- Direct(2)`, `+0x30 <- Direct(100)`, `+0x38 <- Direct(-1)` ;
+#   * `IdunBattleLogic.Entities.DSLTriggers$$AmountIsGreaterThanZero`, lui, lit `+0x18` -- le nom
+#     colle donc a `minAmount = 0`, et `AmountIsZero` lit un AUTRE slot ;
+#   * `IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$GetIncreaseLevelBehaviour` passe
+#     exactement `+0x20` comme INCREMENT, et #556 a mesure LIVE niveau 1 -> 2. `+0x20` vaut 1.
+# Donc `AmountIsZero(x) == (count(x) <= 1)` -- pas `== 0`. Et `BondedEntityFromEffect` est un
+# `TargetSelector` SINGULIER (`IdunBattle.Entities.Selectors.SelectBondedEntityFromEffectSelector$$
+# Select` rend `[]` ou `[entite]`), donc `count <= 1` est TOUJOURS vrai et `NOT AmountIsZero`
+# TOUJOURS FAUX -- ce qui rendrait les trois triggers structurellement morts.
+#
+# C'est une lecture, pas un verdict : on la CONFRONTE. Le porteur choisi est `TauntedEffect`
+# (`get_Range = Nullable<int>(1)`, `get_RemoveOnBondedEntityDeath = true` -> triggers (a) ET (b)),
+# pose par `CrushingClaws` (1105) du HERO `tyranTyrantGuard`, deja monte par
+# `probe_436_taunt_targeting.py`. Le bras (b) est le SEUL discriminant propre : aucun autre
+# mecanisme du jeu ne retire un taunt sur un DEPLACEMENT.
+#
+# CRITERE, ENONCE AVANT LA MESURE :
+#   H0 (le gate mord)         -> apres avoir eloigne le taunte a d >= 2 du tauntant, l'effet 27
+#                                (et ses enfants) DISPARAIT de la vue.
+#   H1 (le gate est mort)     -> les effets RESTENT.
+# CONTROLE OBLIGATOIRE, dans le meme run : un deplacement qui GARDE d == 1 emet le meme
+# `On(0x1d = UnitPositionChanged_2)` mais laisse `IsInRange` vrai. S'il retirait deja l'effet, la
+# mesure ne dirait rien du terme de PORTEE -- elle ne mesurerait que « bouger retire le taunt ».
+# ------------------------------------------------------------------------------------------------
+CRUSHING = 1105                      # `CrushingClaws`, RANGE_ADJACENT, HERO `tyranTyrantGuard`
+THIRD_UNIT = "ultraCalgar"           # unite TIERCE du controle -- aucun lien avec le bond
+TAUNT_FAMILY = (25, 26, 27, 1237)    # 27 COMPOSITE -> enfants 25 / 26 / 1237
+
+
+def _taunt_effects(dv, uid):
+    out = []
+    for u in (dv.get("units") or []):
+        if int(u.get("id") or -1) == int(uid):
+            for e in (u.get("effects") or []):
+                et = e.get("effectType")
+                if et is not None and int(et) in TAUNT_FAMILY:
+                    out.append(int(et))
+    return sorted(out)
+
+
+def step_gatelive(sid, seed="777", board="MC1_67"):
+    import hexgeo
+    import probe_247_splash_targeting as P247
+    import probe_436_taunt_targeting as P436
+
+    rid, _state = P436._build(sid, seed, board, P436.P_UNITS, P436.A_UNITS_DEFAUT)
+    print("[build] runner=%d board=%s seed=%s" % (rid, board, seed))
+    try:
+        for _ in range(P247.WARMUP_ENDTURNS):
+            P247._act(sid, rid, {"kind": "endturn"}, 60)
+        tauntee = P436._make_adjacent(sid, rid, "tyranTyrantGuard")
+        if tauntee is None:
+            print("[FAIL] pas de contact -- montage KO, AUCUN verdict")
+            return 2
+        P247._give_turn_to(sid, rid, "tyranTyrantGuard")
+        dv = P247._dv(sid, rid)
+        guard = P247._by_vis(dv, "tyranTyrantGuard")
+        cid = int(guard["id"])
+        r = P247._act(sid, rid, {"kind": "ability", "casterId": cid,
+                                 "abilityType": CRUSHING, "targetId": tauntee}, 120)
+        mutated = ((r or {}).get("actions") or [{}])[0].get("mutated")
+        dv = P247._dv(sid, rid)
+        eff0 = _taunt_effects(dv, tauntee)
+        d0 = hexgeo.distance(P247._pos(P247._by_vis(dv, "tyranTyrantGuard")),
+                             P247._pos(next(u for u in dv["units"] if int(u["id"]) == tauntee)))
+        print("[cast] CrushingClaws u%d -> u%d  mutated=%s  effets=%s  d=%d"
+              % (cid, tauntee, mutated, eff0, d0))
+        if not eff0:
+            print("[FAIL] le taunt n'est pas pose -- AUCUN verdict (montage, pas mecanique)")
+            return 2
+
+        def _snap(tag):
+            d = P247._dv(sid, rid)
+            g = P247._by_vis(d, "tyranTyrantGuard")
+            t = next((u for u in d["units"] if int(u["id"]) == tauntee), None)
+            dist = (hexgeo.distance(P247._pos(g), P247._pos(t))
+                    if (g is not None and t is not None) else None)
+            ef = _taunt_effects(d, tauntee)
+            print("  [%-22s] d=%-4s effets=%s" % (tag, dist, ef))
+            return dist, ef
+
+        _snap("post-cast")
+        P247._act(sid, rid, {"kind": "endturn"}, 60)
+        d_a, ef_a = _snap("apres endturn")
+        if not ef_a:
+            print("[FAIL] le taunt est deja tombe a l'endturn (duree) -- le bras PORTEE est "
+                  "inobservable sur ce montage. AUCUN verdict sur le gate.")
+            return 2
+
+        # CONTROLE 1 -- DUREE PURE : un `endturn` de plus, personne ne bouge.
+        P247._act(sid, rid, {"kind": "endturn"}, 60)
+        d_t2, ef_t2 = _snap("CTRL duree +1 tour")
+        if not ef_t2:
+            print("[FAIL] duree epuisee sans qu'aucune unite ne bouge -- rien d'attribuable au "
+                  "trigger. AUCUN verdict.")
+            return 2
+
+        # CONTROLE 2 -- EVENT GLOBAL : un AUTRE ennemi bouge. `On(0x1d)` est publie, mais ni
+        # l'`Owner` (le taunte) ni le `BondedEntity` (le tauntant) n'ont change de tuile, donc
+        # `IsInRange` reste vrai. Si le taunt tombait ICI, la mesure ne dirait rien du terme de
+        # PORTEE : elle ne mesurerait que « un mouvement quelconque retire le taunt ».
+        d = P247._dv(sid, rid)
+        tu = next(u for u in d["units"] if int(u["id"]) == tauntee)
+        other = next((u for u in d["units"]
+                      if u.get("alive") and u.get("owner") == tu.get("owner")
+                      and int(u["id"]) != tauntee), None)
+        if other is not None:
+            P247._step_toward(sid, rid, int(other["id"]), P247._pos(tu), 5)
+            d_o, ef_o = _snap("CTRL autre unite bouge")
+        else:
+            d_o, ef_o = None, ef_t2
+            print("  [CTRL autre unite bouge] aucun allie du taunte -- controle NON JOUE")
+
+        # CONTROLE 3 -- ACTION DU TAUNTE : il bouge en RESTANT a d == 1. Meme event, `IsInRange`
+        # toujours vrai. Ce controle-la separe « le taunte a agi » de « la portee est rompue ».
+        before = P247._pos(next(u for u in P247._dv(sid, rid)["units"] if int(u["id"]) == tauntee))
+        P247._step_toward(sid, rid, tauntee, P247._pos(P247._by_vis(P247._dv(sid, rid),
+                                                                    "tyranTyrantGuard")), 1)
+        after = P247._pos(next(u for u in P247._dv(sid, rid)["units"] if int(u["id"]) == tauntee))
+        d_c, ef_c = _snap("CTRL taunte bouge d=1")
+        print("  (tuile du taunte : %s -> %s, change=%s)" % (before, after, before != after))
+
+        # LE BRAS -- LA PORTEE : eloigner a d >= 2.
+        for _ in range(6):
+            g = P247._by_vis(P247._dv(sid, rid), "tyranTyrantGuard")
+            if g is None:
+                break
+            if not P247._step_toward(sid, rid, tauntee, P247._pos(g), 4):
+                P247._act(sid, rid, {"kind": "endturn"}, 60)
+            d_now, _ = _snap("eloignement")
+            if d_now is not None and d_now >= 2:
+                break
+        d_b, ef_b = _snap("APRES eloignement")
+
+        print("")
+        print("VENTILATION : cast=%s  endturn=%s  duree+1=%s  autre-bouge=%s  taunte-d1=%s  "
+              "d>=2=%s" % (bool(eff0), bool(ef_a), bool(ef_t2), bool(ef_o), bool(ef_c),
+                           bool(ef_b)))
+        if ef_c and d_b is not None and d_b >= 2 and not ef_b:
+            print("VERDICT H0 : le gate MORD, et le terme de PORTEE est ISOLE (d=1 garde, "
+                  "d=%d retire)." % d_b)
+            return 0
+        if ef_c and ef_b:
+            print("VERDICT H1 : le gate NE MORD PAS -- taunt encore present a d=%s." % d_b)
+            return 0
+        if ef_o and not ef_c:
+            print("VERDICT PARTIEL : le retrait est declenche par l'ACTION DU TAUNTE, pas par la "
+                  "rupture de portee. Le gate `NOT AmountIsZero` MORD donc (quelque chose retire), "
+                  "mais le terme `IsInRange` n'est PAS isole par ce montage.")
+            return 3
+        print("VERDICT INDETERMINE -- voir la ventilation ci-dessus.")
+        return 2
+    finally:
+        _r(sid, "disposeRunner", {"runnerId": rid}, 60)
+
+
+# ------------------------------------------------------------------------------------------------
+# --step killlive : le trigger (a), sur le porteur du cas -- `NeuroparasiteEffect`
+#
+# POURQUOI CE PORTEUR PLUTOT QUE LE TAUNT. Mesure du 2026-08-04 (`--step gatelive`) : le taunt de
+# `CrushingClaws` est pose avec `TurnsFromRounds(1)` et TOMBE au deuxieme `endturn` SANS QUE
+# PERSONNE NE BOUGE -- sa duree epuise le montage avant que le terme de PORTEE soit exercable.
+# `NeuroparasiteEffect` est l'oppose exact : `AddBondEffect` y passe des options VIDES, donc
+# `DefaultAmountOfRounds(0x4c2)` absente, donc effet PERMANENT (`remaining = 0`, atteste par #556).
+# Et `--step declared` lui donne `get_RemoveOnBondedEntityDeath = true`, `get_Range = none`,
+# `get_Adjacent = false` : le trigger (a) est le SEUL construit sur cette classe, donc tout retrait
+# observe lui est attribuable.
+#
+# CRITERE, ENONCE AVANT LA MESURE. Le parasite est pose sur la victime, `bonded` = le Neurothrope.
+# On TUE le Neurothrope (le BONDE, pas le porteur).
+#   H0 (le gate mord) -> l'effet 1218 DISPARAIT de la victime.
+#   H1 (le gate est mort, cf. la lecture `AmountIsZero == count <= 1` ci-dessus) -> il RESTE.
+# CONTROLE : on tue d'abord une unite TIERCE. Le trigger porte `IsEntityWithIdTarget(BondedEntity)`,
+# donc une mort qui n'est pas celle du bonde ne doit RIEN retirer. Sans ce controle, un retrait
+# observe pourrait n'etre qu'un nettoyage generique declenche par n'importe quelle mort.
+# ------------------------------------------------------------------------------------------------
+def step_killlive(sid):
+    import probe_112_darkangels as PR
+    import probe_462_r4b_r1_r1_defender_additive_carriers as P0
+    import probe_462_r4b_r1_r1_r1_neuroparasite_pose as P1
+
+    # UN SEUL ennemi (montage EPROUVE de #556 : `anchor`/`occupied` sont derives du layout adverse,
+    # et deux ennemis de MEME `visualId` s'ecrasent dans ce dict -> ancrage faux, mesure du
+    # 2026-08-04 : « le Neurothrope ne peut pas frapper la victime en PSYCHIQUE »). L'unite TIERCE
+    # du controle est donc dans NOTRE camp -- elle n'a rien a voir avec le bond et c'est justement
+    # ce qu'on veut : sa mort ne doit RIEN retirer.
+    p_units = [P0.NEURO_CARRIER, THIRD_UNIT]
+    a_units = [P0.NEURO_VICTIM]
+    layout = P0._enemy_layout(sid, p_units, a_units)
+    if P0.NEURO_VICTIM not in layout:
+        print("[FAIL] victime absente du layout adverse : %s" % sorted(layout))
+        return 2
+    # Le Neurothrope doit etre TUABLE (c'est tout l'objet du bras) ; la victime doit survivre et
+    # frapper fort. Aucun de ces champs n'entre dans ce qu'on mesure (presence/absence de 1218).
+    patch = {P0.NEURO_CARRIER: {"Health": 1000, "RemainingHealth": 1000},
+             THIRD_UNIT: {"Health": 1000, "RemainingHealth": 1000},
+             P0.NEURO_VICTIM: {"Health": 300000, "RemainingHealth": 300000, "Damage": 400000}}
+    rid = P0._build(sid, p_units, a_units, armor=P0.ARMOR_FLAT, unit_patch=patch,
+                    anchor=layout[P0.NEURO_VICTIM], occupied=list(layout.values()))
+    try:
+        dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        bv = PR.units_by_visual(dv)
+        if P0.NEURO_CARRIER not in bv or P0.NEURO_VICTIM not in bv:
+            print("[FAIL] roster incomplet : %s" % sorted(bv))
+            return 2
+        neuro = bv[P0.NEURO_CARRIER]["id"]
+        tgt = int(bv[P0.NEURO_VICTIM]["id"])
+        third = int(bv[THIRD_UNIT]["id"]) if THIRD_UNIT in bv else None
+        normal_id = P0._normal_attack_id(dv, neuro)
+        pos = PR.positions(dv)
+        ok, dv = P0._move_within(sid, rid, dv, neuro, pos[tgt], P0.NEURO_RANGE, min_dist=2)
+        if not ok or tgt not in PR.legal_from_here(sid, rid, neuro, normal_id):
+            print("[FAIL] geometrie : le Neurothrope ne peut pas frapper la victime en PSYCHIQUE")
+            return 2
+        r = PR.act(sid, rid, {"kind": "ability", "casterId": neuro, "targetId": tgt,
+                              "abilityType": normal_id})
+        dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        present, level = P1._live_parasite(dv, tgt)
+        print("[pose] attaque psychique u%d -> u%d : ok=%s  parasite=%s level=%s"
+              % (neuro, tgt, r.get("ok"), present, level))
+        if not present:
+            print("[FAIL] parasite NON pose -- montage KO, AUCUN verdict")
+            return 2
+
+        def _kill(victim_id, tag):
+            """Frappe `victim_id` avec la VICTIME parasitee jusqu'a sa mort (`applyAction` ne
+            verifie pas la propriete du `unitId`, cf. runner.md §4). Rend (mort?, parasite?)."""
+            for _ in range(10):
+                d = PR.rpc(sid, "decisionView",
+                           {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+                v = next((u for u in (d.get("units") or []) if int(u["id"]) == victim_id), None)
+                if v is None or not v.get("alive"):
+                    break
+                aid = P0._normal_attack_id(d, tgt)
+                p = PR.positions(d)
+                if victim_id not in PR.legal_from_here(sid, rid, tgt, aid):
+                    P0._move_within(sid, rid, d, tgt, p[victim_id], 1, min_dist=1)
+                    if victim_id not in PR.legal_from_here(sid, rid, tgt, aid):
+                        PR.act(sid, rid, {"kind": "endturn"})
+                        continue
+                PR.act(sid, rid, {"kind": "ability", "casterId": tgt, "targetId": victim_id,
+                                  "abilityType": aid})
+                PR.act(sid, rid, {"kind": "endturn"})
+            d = PR.rpc(sid, "decisionView",
+                       {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+            v = next((u for u in (d.get("units") or []) if int(u["id"]) == victim_id), None)
+            dead = (v is None) or (not v.get("alive"))
+            pres, lvl = P1._live_parasite(d, tgt)
+            print("  [%-22s] u%d mort=%s   parasite sur u%d = %s (level %s)"
+                  % (tag, victim_id, dead, tgt, pres, lvl))
+            return dead, pres
+
+        if third is None:
+            print("  [CTRL mort TIERCE] %s absent du roster -- controle NON JOUE" % THIRD_UNIT)
+            dead3, pres3 = False, True
+        else:
+            dead3, pres3 = _kill(third, "CTRL mort TIERCE")
+        deadN, presN = _kill(neuro, "mort du BONDE")
+
+        print("")
+        if not deadN:
+            print("VERDICT : NON CONFRONTE -- le Neurothrope n'a pas pu etre tue.")
+            return 2
+        if dead3 and not pres3:
+            print("VERDICT INDETERMINE : le parasite est deja tombe a la mort d'une unite TIERCE. "
+                  "Le retrait n'est pas attribuable a `IsEntityWithIdTarget(BondedEntity)`.")
+            return 2
+        if not presN:
+            print("VERDICT H0 : le gate MORD. La mort d'une TIERCE laisse le parasite (%s), celle "
+                  "du BONDE le retire. Le trigger (a) d'`ABondEffect` est VIVANT." % pres3)
+            return 0
+        print("VERDICT H1 : le gate NE MORD PAS -- parasite encore present apres la mort du bonde.")
+        return 0
+    finally:
+        PR.dispose(sid, rid)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", default="declared", choices=["vtable", "declared", "all"])
+    ap.add_argument("--step", default="declared",
+                    choices=["vtable", "declared", "gatelive", "killlive", "all"])
+    ap.add_argument("--seed", default="777")
+    ap.add_argument("--board", default="MC1_67")
     a = ap.parse_args()
     sid = _resolve_session()
     rc = 0
@@ -268,6 +558,12 @@ def main():
         print("")
     if a.step in ("declared", "all"):
         rc |= step_declared(sid)
+        print("")
+    if a.step in ("gatelive", "all"):
+        rc |= step_gatelive(sid, a.seed, a.board)
+        print("")
+    if a.step in ("killlive", "all"):
+        rc |= step_killlive(sid)
     return rc
 
 
