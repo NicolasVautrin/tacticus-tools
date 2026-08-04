@@ -1,11 +1,18 @@
 """#437-r1 -- les CELLULES NATIVES du tir d'overwatch, verrouillees OFFLINE.
 
-Le natif appelle `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers` DEUX FOIS
-dans `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` -- une fois
-sur `attackModifiers`, une fois sur `defenseModifiers` -- et cette fonction porte un
-`FixMath.NET.Fix64$$Round(., AwayFromZero)` PAR ENTREE. La face DEFENSEUR part donc d'une valeur
-DEJA MATERIALISEE. Le port COMBAT fusionnait les deux faces dans UNE chaine, donc UN seul arrondi :
-`-1` sur la borne des que le produit de la face attaquant tombait sur un demi-entier.
+LA LOI, telle que #437-r1-r1 l'a etablie (decompile + capteur) : le nombre de
+`FixMath.NET.Fix64$$Round` est le NOMBRE D'ACCUMULATEURS `Multiplier@0x30` NON NULS -- les etapes
+3 et 4 de `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`
+(`CalculateBaseDamageWithModifiers`), chacune INCONDITIONNELLE des que son `Nullable` a une valeur.
+Ce que le port appelle `pct_list` / `pct_list_defender` EST ce `Multiplier@0x30`, une face chacun ;
+`separate_face_lists=True` restitue donc « UN `Round` PAR FACE », qui est la loi.
+
+⚠ Ce n'est PAS « deux appels a `ApplyCappedModifiers` » : ce foyer-la arrondit PAR ENTREE et
+inconditionnellement, donc y decouper une liste en deux appels serait ARITHMETIQUEMENT NEUTRE ; et
+sa liste `@0x18` n'est alimentee par AUCUN chemin porte (capteur `effect-bonus-trace` : 0 sur 199
+sur CE montage, 0 sur 693 sur celui de #462-r4a). Le port COMBAT fusionnait les deux faces dans UNE
+chaine, donc UN seul arrondi : `-1` sur la borne des que le produit de la face attaquant tombait
+sur un demi-entier.
 
 LES CELLULES, ET COMMENT ELLES ONT ETE OBTENUES. Ce ne sont pas des soustractions : les bornes
 natives sont INVERSEES depuis l'alea BRUT du tirage. `IdunBattle.Utils.PRNG.
@@ -114,8 +121,12 @@ def test_les_vecteurs_combat_posent_le_drapeau():
     -> le probe rend 1553 contre 1245 natif, et ce fichier restait 10 passed.
 
     Les quatre vecteurs retombent sur le MEME `IdunBattle.Operations.AttackDamageOperation$$
-    ExecuteHit`, donc sur les MEMES deux appels `ApplyCappedModifiers`. La PREDICTION, elle, ne doit
-    PAS le poser (cf. residu `#437-r1-r1`) : c'est verifie en negatif.
+    ExecuteHit`. La PREDICTION, elle, ne doit PAS le poser -- non pas parce que le vecteur
+    changerait la loi (#437-r1-r1 l'a REFUTE : les deux gardes sont mesurees sur le vecteur COMBAT
+    et rendent l'inverse l'une de l'autre), mais parce que le port range `Terrifying_ExtraDefense`
+    en face DEFENSEUR la ou le natif le verse en face ATTAQUANT. Tant que cette ATTRIBUTION DE FACE
+    n'est pas corrigee, `False` est ce qui garde 761/1141. Verifie en negatif ci-dessous ; la mesure
+    qui l'a tranche est dans `docs/rl/case-437-r1-r1-canal-et-face.md` (residu `#437-r1-r1-r1`).
     ⚠ La lecture est **TOKEN-AWARE** (`ast`), jamais un `in` sur le texte : la premiere version
     cherchait la sous-chaine `separate_face_lists=True` dans le source, et le COMMENTAIRE qui
     documente le drapeau la contenait -- la mutation ne mordait pas et le cran restait vert."""
@@ -159,10 +170,70 @@ def test_les_vecteurs_combat_posent_le_drapeau():
             % (mod.__name__, got))
 
     assert not any(v is True for v in _flags(dp)), (
-        "la PREDICTION pose desormais le drapeau : elle deplacerait le cran DEUX FACES de #462-r4a "
-        "(elevation x1.50 ATT + Terrifying x0.70 DEF -> natif 761/1141), qui mesure une CHAINE "
-        "UNIQUE. C'est le residu #437-r1-r1 -- s'il a ete tranche, mettre CE cran a jour AVEC la "
-        "mesure qui l'a tranche, jamais l'inverse.")
+        "la PREDICTION pose desormais le drapeau : avec l'attribution de face ACTUELLE du port "
+        "(Terrifying en face DEFENSEUR), elle deplacerait le cran DEUX FACES de #462-r4a "
+        "(elevation x1.50 ATT + Terrifying x0.70 DEF -> natif 761/1141) vers 762/1142. Le poser "
+        "n'est legitime QU'APRES avoir corrige l'attribution de face (residu #437-r1-r1-r1) -- "
+        "et le cran `test_garde_A_sous_les_faces_MESUREES` ci-dessous montre qu'alors les deux "
+        "gardes tombent juste ENSEMBLE, drapeau arme.")
+
+
+def test_garde_A_sous_les_faces_MESUREES():
+    """LA DISSOLUTION DE LA « CONTRADICTION », encodee.
+
+    Le capteur `effect-bonus-trace` lit, sur le montage de la garde A (#462-r4a `--two-faces`), UN
+    SEUL accumulateur qui COMPOSE : `1 -> 0.6999999999534339 -> 1.0499999998137355`, les DEUX bonus
+    etant etiquetes `face=attacker` par le natif (`Terrifying_ExtraDefense` compris). Sous cette
+    attribution, la garde A tombe juste AVEC le drapeau arme -- donc elle ne contredit PAS la
+    garde B, qui exige deux `Round` parce que le capteur y lit DEUX accumulateurs distincts
+    (`face=attacker x1.25` et `face=defender x0.25`, chacun repartant de `1`, 41/41).
+
+    Ce cran est ce qui interdit de re-justifier `separate_face_lists=False` par le VECTEUR."""
+    m = DamageModifiers()
+    m.pct_list.extend([(1.5, None), (0.7, None)])          # les DEUX sur la face ATTAQUANTE
+    for base, attendu in ((725, 761), (1087, 1141)):
+        got = int(apply_pierce_and_modifiers(base, 100, 0, m, attacker_additive_pre=True,
+                                             separate_face_lists=True))
+        assert got == attendu, ("garde A, faces MESUREES (les deux en face attaquante), base %d : "
+                                "%d != %d natif -- avec le drapeau ARME" % (base, got, attendu))
+
+    # CONTRE-EPREUVE : sous l'attribution du PORT (une face chacun), le drapeau arme DEPLACE la
+    # garde A -- c'est exactement ce qui a fait croire a une contradiction.
+    m2 = DamageModifiers()
+    m2.pct_list.append((1.5, None))
+    m2.pct_list_defender.append((0.7, None))
+    got2 = tuple(int(apply_pierce_and_modifiers(b, 100, 0, m2, attacker_additive_pre=True,
+                                                separate_face_lists=True))
+                 for b in (725, 1087))
+    assert got2 == (762, 1142), ("l'attribution de face du PORT devait rendre 762/1142 avec le "
+                                 "drapeau arme (c'est le motif du `False` en prediction), obtenu %s"
+                                 % (got2,))
+
+
+def test_un_round_par_face_est_la_loi():
+    """La loi native ne se lit pas sur le NOMBRE D'APPELS mais sur le NOMBRE DE FACES non vides.
+    Deux entrees sur UNE face se composent sans arrondi entre elles (#98) ; une entree sur CHAQUE
+    face en prend un chacune. Le port doit donc rendre la MEME chose pour `[a, b] / []` que pour
+    `[a*b] / []`, et une chose DIFFERENTE pour `[a] / [b]` des que `a` produit un demi-entier."""
+    def _val(att, deff, base):
+        m = DamageModifiers()
+        m.pct_list.extend((v, None) for v in att)
+        m.pct_list_defender.extend((v, None) for v in deff)
+        return int(apply_pierce_and_modifiers(base, PIERCE, ARMOR, m, attacker_additive_pre=True,
+                                              separate_face_lists=True))
+
+    for base in (3614, 3630, 5422, 5446):
+        assert _val((1.25, 0.25), (), base) == _val((1.25 * 0.25,), (), base), (
+            "base %d : deux entrees sur la MEME face doivent se composer SANS arrondi entre elles"
+            % base)
+    # DISCRIMINANTES : `base x 1.25` tombe sur un demi-entier, donc la face gouverne.
+    for base in (3614, 3630, 5422):
+        assert _val((1.25,), (0.25,), base) == _val((1.25, 0.25), (), base) + 1, (
+            "base %d : une entree PAR FACE doit prendre un `Round` chacune (donc +1 ici) -- sinon "
+            "la face ne gouverne plus rien et les cellules de #437-r1 retombent" % base)
+    # TEMOIN NON DISCRIMINANT, garde volontairement : `5446 x 1.25 = 6807.5` arrondit vers le haut
+    # ET la chaine unique atteint la meme cellule. Un accord n'est donc PAS une preuve de modele.
+    assert _val((1.25,), (0.25,), 5446) == _val((1.25, 0.25), (), 5446) == 1702
 
 
 def test_no_op_quand_une_face_est_vide():

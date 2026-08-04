@@ -366,6 +366,15 @@ CONFRONTÉ**, et le capteur est corrigé pour que la prochaine fenêtre tranche 
 (quelles surcharges ont reçu un `attach`, avec arité et pointeur) et `faceEnters` (combien de fois
 chaque fenêtre est franchie, **indépendamment de tout `Add`**). **Résidu `#462-r4a-r1-r2`.**
 
+> ✅ **`#462-r4a-r1-r2` FERMÉ le 2026-08-04, sans seconde fenêtre** (#437-r1-r1). Le même capteur,
+> **même bundle**, armé sur le montage de #437-r1 (`probe_437r1_overwatch_offbyone.py --channel`)
+> rend **20 événements `face: "defender"`** (`TerminatorArmour_ReduceDmg`, `x0.25`) à côté de ses
+> `face: "attacker"`. Le hook défenseur **est** posé et il **tire** : le `0 defender` ci-dessus
+> n'est donc pas une panne de capteur, c'est **une mesure** — sur le montage à deux faces, le natif
+> verse `Terrifying_ExtraDefense` dans l'accumulateur **ATTAQUANT**. C'est ce qui explique le
+> `1 -> 0.6999999999534339 -> 1.0499999998137355` sur un seul accumulateur, et donc le `Round`
+> unique. Détail et conséquences : `docs/rl/case-437-r1-r1-canal-et-face.md`.
+
 **Un fait de portée générale, mesuré au passage** : `aiPlaybookPredict` **ne traverse pas**
 `DamageModifiers$$Add` — `adds` vaut **657 avant** l'appel et **657 après**. Les 693 événements
 viennent des `applyAction move` du placement (657) et de l'**attaque réelle** jouée en fin de

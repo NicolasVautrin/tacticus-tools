@@ -97,7 +97,20 @@ Le drapeau est pose par les **quatre vecteurs COMBAT**, qui retombent tous sur l
 la valeur INCHANGEE, sans `Round`. Tous les regimes a UNE face deja mesures sont donc conserves
 par construction, et un cran le verifie (`test_no_op_quand_une_face_est_vide`).
 
-## 5. Ce qui n'est PAS tranche -- residu `#437-r1-r1`, NOMME
+## 5. Ce qui n'etait PAS tranche -- residu `#437-r1-r1`, **TRANCHE le 2026-08-04**
+
+> **VERDICT (detail : `docs/rl/case-437-r1-r1-canal-et-face.md`)** : il n'y avait **pas de
+> contradiction**. Les deux gardes mesurent le MEME etage natif -- l'accumulateur
+> `Multiplier@0x30` et son `CalculateBaseDamageWithModifiers` -- et ce qui les separe est le
+> **nombre d'accumulateurs non nuls**, donc le nombre de `Round`. La lecture **(b) (le VECTEUR)
+> est REFUTEE** : les deux mesures sont prises sur le vecteur COMBAT (`aiPlaybookPredict` ne
+> traverse pas `DamageModifiers$$Add`) et rendent l'inverse l'une de l'autre. La lecture **(a)
+> (nature de la source attaquante) l'est aussi** : l'elevation est presente dans les DEUX
+> montages. Ce qui varie est **l'ATTRIBUTION DE FACE** que le natif donne a chaque bonus --
+> mesuree au capteur : `TerminatorArmour_ReduceDmg` -> `defender`, `Terrifying_ExtraDefense` ->
+> **`attacker`**, la ou le port le range en face defenseur. Le texte ci-dessous est celui
+> d'AVANT, conserve pour rendre lisible ce que la mesure a deplace.
+
 
 Le cran DEUX FACES de #462-r4a (`probe_462_r4a_terrifying_rounding.py --two-faces`) mesure le
 **meme couple de faces non neutres** et conclut l'INVERSE : elevation `x1.50` cote ATTAQUANT +
