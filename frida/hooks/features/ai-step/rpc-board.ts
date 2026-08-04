@@ -121,6 +121,10 @@ const CONNECTIVITY_TELEPORT_FALLBACK = 0x18;
 
 interface ConnectivityLayout {
     resolved: boolean;
+    /** LEQUEL des trois chemins a servi. Un `resolved: true` ne dit pas COMMENT — et la
+     *  différence compte : `"fallback"` signifie que la protection contre un changement de
+     *  layout n'a pas joué, même si les offsets se trouvent être bons. */
+    source: "name" | "type" | "fallback";
     listOffset: number;
     teleportOffset: number;
     fields: Array<{ name: string; offset: number; type: string }>;
@@ -128,8 +132,27 @@ interface ConnectivityLayout {
 }
 
 /** Résout les deux offsets du `ConnectivityComponent` en énumérant SES champs déclarés (pas ceux
- *  de `IdunBattle.Core.BaseComponent`, son parent). Choix par TYPE, jamais par nom deviné :
- *  l'unique champ `List` porte le voisinage, l'unique `Int32` la jumelle de téléport. */
+ *  de `IdunBattle.Core.BaseComponent`, son parent).
+ *
+ *  ⚠ MESURÉ le 2026-08-04 (`probe_448r1r1r1r1r2_connectivity_channel_live.py`, build `rnca9r7q6c`,
+ *  trois boards) : le choix par TYPE seul **ne résolvait jamais** — le runtime déclare
+ *
+ *      ComponentId    @0x00  type=ComponentId
+ *      NeighbourIds   @0x10  type=List`1
+ *      TeleportTileId @0x18  type=BEntityId       <-- PAS `Int32`
+ *
+ *  donc `ints.length === 1` était faux (0 `Int32` déclarés) et la fonction retombait
+ *  systématiquement sur les littéraux. Le repli tombait sur les BONS offsets — les mesures de la
+ *  fenêtre restent valides, et c'est précisément parce que le layout observé était publié qu'on
+ *  a pu le confronter — mais la résolution runtime, seule protection contre un changement de
+ *  layout au prochain build, était INERTE. C'est le défaut que le capteur existait pour éviter.
+ *
+ *  On résout donc par NOM DÉCLARÉ d'abord (ce que le commentaire d'en-tête annonçait déjà), avec
+ *  le choix par type en second et le littéral en dernier ; `source` publie lequel a servi, pour
+ *  qu'aucun lecteur ne prenne un repli pour une résolution. Le type de la jumelle accepte
+ *  `Int32` **ou** `BEntityId` : c'est un `struct` d'un seul `int` (écrit tel quel par
+ *  `IdunBattle.Operations.InitializeConnectivityOperation$$ConnectTeleportTiles`, qui pose
+ *  `*(comp + 0x18) = <entity id>`), donc `readS32` reste la lecture juste. */
 function resolveConnectivityLayout(klass: NativePointer): ConnectivityLayout {
     const fields: Array<{ name: string; offset: number; type: string }> = [];
     try {
@@ -150,18 +173,38 @@ function resolveConnectivityLayout(klass: NativePointer): ConnectivityLayout {
             });
         }
     } catch { /* énumération best effort */ }
+    // 1) par NOM déclaré — le plus spécifique, et ce que le runtime nomme lui-même.
+    const byName = (n: string) => fields.filter((f) => f.name === n);
+    const nList = byName("NeighbourIds");
+    const nTel = byName("TeleportTileId");
+    if (nList.length === 1 && nTel.length === 1) {
+        return {
+            resolved: true, source: "name",
+            listOffset: nList[0].offset, teleportOffset: nTel[0].offset, fields,
+            note: "offsets resolus par NOM declare (NeighbourIds / TeleportTileId)",
+        };
+    }
+    // 2) par TYPE — repli si les champs ont été renommés. `BEntityId` est le type effectif de la
+    //    jumelle sur `rnca9r7q6c` ; `Int32` reste accepté au cas où le wrapper disparaîtrait.
     const lists = fields.filter((f) => f.type.indexOf("List") === 0);
-    const ints = fields.filter((f) => f.type === "Int32");
-    const resolved = lists.length === 1 && ints.length === 1;
+    const ints = fields.filter((f) => f.type === "Int32" || f.type === "BEntityId");
+    if (lists.length === 1 && ints.length === 1) {
+        return {
+            resolved: true, source: "type",
+            listOffset: lists[0].offset, teleportOffset: ints[0].offset, fields,
+            note: "offsets resolus par TYPE (1 List + 1 Int32/BEntityId) — noms declares"
+                + " introuvables, layout a reconfronter",
+        };
+    }
+    // 3) littéraux du décompilé — jamais présenté comme une résolution.
     return {
-        resolved,
-        listOffset: resolved ? lists[0].offset : CONNECTIVITY_LIST_FALLBACK,
-        teleportOffset: resolved ? ints[0].offset : CONNECTIVITY_TELEPORT_FALLBACK,
+        resolved: false, source: "fallback",
+        listOffset: CONNECTIVITY_LIST_FALLBACK,
+        teleportOffset: CONNECTIVITY_TELEPORT_FALLBACK,
         fields,
-        note: resolved
-            ? "offsets resolus par champ (1 List + 1 Int32)"
-            : "REPLI sur les litteraux du decompile — " + lists.length + " List / "
-              + ints.length + " Int32 declares ; confronter `fields`",
+        note: "REPLI sur les litteraux du decompile — " + nList.length + "/" + nTel.length
+            + " par nom, " + lists.length + " List / " + ints.length
+            + " Int32|BEntityId par type ; confronter `fields`",
     };
 }
 

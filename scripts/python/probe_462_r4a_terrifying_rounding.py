@@ -202,11 +202,16 @@ def _instrument():
     orig_ap = N.apply_pierce_and_modifiers
     orig_am = N.apply_all_modifiers
 
+    # ⚠ Les DEUX enveloppes prennent `**kw` et le REPASSENT tel quel. Sans ca, tout parametre
+    # ajoute a la fonction enveloppee casse le probe avec un `TypeError` -- mesure du 2026-08-04 :
+    # `separate_face_lists` (#437-r1) l'a fait tomber, alors que le signal a observer n'avait pas
+    # bouge. Une enveloppe d'observation ne doit jamais figer la signature de sa cible : elle
+    # observe ce qu'elle sait lire et laisse passer le reste.
     def wrap_ap(value, pierce_pct=100, armor=0, mods=None, hit_mult=1,
-                attacker_additive_pre=False):
-        out = orig_ap(value, pierce_pct, armor, mods, hit_mult, attacker_additive_pre)
+                attacker_additive_pre=False, **kw):
+        out = orig_ap(value, pierce_pct, armor, mods, hit_mult, attacker_additive_pre, **kw)
         trace.append({"stage": "pierce+attacker", "in": value, "pierce": pierce_pct,
-                      "armor": armor,
+                      "armor": armor, "kw": dict(kw),
                       "mods_pct": list(getattr(mods, "pct_list", []) or []),
                       "mods_add": getattr(mods, "additive", 0),
                       "mods_pierce": getattr(mods, "extra_pierce", 0),
@@ -217,9 +222,9 @@ def _instrument():
                       "out_raw": _fx.from_number(out)})
         return out
 
-    def wrap_am(value, mods, round_materialize=False):
-        out = orig_am(value, mods, round_materialize)
-        trace.append({"stage": "defender", "in_raw": _fx.from_number(value),
+    def wrap_am(value, mods, round_materialize=False, **kw):
+        out = orig_am(value, mods, round_materialize, **kw)
+        trace.append({"stage": "defender", "in_raw": _fx.from_number(value), "kw": dict(kw),
                       "def_pct": list(getattr(mods, "pct_list", []) or []),
                       "def_mult": float(getattr(mods, "multiplicative", 1.0) or 1.0),
                       "def_add": getattr(mods, "additive", 0),

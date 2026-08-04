@@ -258,16 +258,26 @@ verts dans la passe de 101.
   STRICT). Inerte sur la branche VOL (coût uniforme ⇒ tous les chemins minimaux ont la même
   longueur), il redevient actif dès qu'un pathfinder à coût non uniforme passe par
   `base_pathfinder` — c'est-à-dire si la branche MARCHE y était un jour rebranchée.
-* **`#448-r1-r1-r1-r1-r2`** — le **substrat de la beeline** (§9) : la géométrie est un
-  sur-ensemble du `ConnectivityComponent`, et les deux divergent sur les `Bridge`. Fermer
-  demande que le capteur publie le `ConnectivityComponent` BRUT, sans la porte d'élévation —
-  c'est-à-dire une modification de `frida/hooks/*`, donc une fenêtre de réinjection.
-  **Le capteur est ÉCRIT (#466, §13 ci-dessous) ; la fenêtre reste à prendre.**
+* **`#448-r1-r1-r1-r1-r2`** — le **substrat de la beeline** (§9). **FERMÉ le 2026-08-04 par la
+  mesure (§13.5)** : la géométrie est bien un sur-ensemble strict du `ConnectivityComponent`, et
+  les deux divergent sur les `Bridge` — **16** arêtes dirigées sur `C1_74`, pas 4. Deux résidus
+  NAISSENT de là :
+  * **`#448-r1-r1-r1-r1-r2-r1`** — le **rebranchement** de `beeline_pathfinder` /
+    `ignore_terrain_pathfinder` / `walk_maps_by_pos` sur `neighbours_connectivity` n'est **pas
+    fait**. Il est désormais *nécessaire* (sur `C1_74` la beeline géométrique coupe par un
+    `Bridge` là où le natif fait le tour) et c'est un changement de SUBSTRAT : il doit être joué
+    avec `probe_448_r1_r1_r1_r1_flying_tiles_moved.py --only FD --turns 3`, qui doit rendre
+    **0 désaccord** comme aujourd'hui sur ce corpus.
+  * **`#448-r1-r1-r1-r1-r2-r2`** — `ConnectivityComponent+0x18` (la jumelle de téléport) reste
+    **NON CONFRONTÉ EN VALEUR** : le champ est localisé par deux sources indépendantes, mais
+    **aucun des 779 boards du pool** ne porte de tuile de téléport (critère natif : l'ability
+    déclenchée `0x3c`, pas un `TileId`). Cf. §13.5.
 
-## 13. Le capteur du canal BRUT — écrit (#466), NON CONFRONTÉ
+## 13. Le capteur du canal BRUT — écrit (#466), **CONFRONTÉ le 2026-08-04** (§13.5)
 
-Le résidu `-r2` était bloqué sur un capteur, pas sur une question ouverte. Il est écrit.
-**Aucune ligne de cette section n'est une mesure** : rien n'a tiré, faute de fenêtre.
+Le résidu `-r2` était bloqué sur un capteur, pas sur une question ouverte. Il est écrit, déployé,
+et **mesuré** : la mesure et ses verdicts sont en **§13.5**. Les §13.1-13.4 sont la RE et le plan
+d'avant-fenêtre, conservés tels quels — c'est ce qui rend l'écart du cran 6 lisible.
 
 ### 13.1 Ce que le décompilé ajoute à §9 — la preuve par la CONSTRUCTION
 
@@ -368,3 +378,71 @@ pathfinder : ne pas « corriger » le pathfinder pour rattraper.
 ⚠ **Ce qui reste NON COUVERT même après la fenêtre** : `AddShadewalkerTiles` (effet `0x3a`, aucune
 source publiée), le fog dans l'arête de vol, et le départage à coût égal de
 `GenerateBreadthFirstTree` (`#448-r1-r1-r1-r1-r1`, inerte sur la branche vol).
+
+### 13.5 LA MESURE — jouée le 2026-08-04, session 3, build `rnca9r7q6c`
+
+`probe_448r1r1r1r1r2_connectivity_channel_live.py`, trois boards. **Le canal TRANSPORTE.**
+
+| # | attendu | obtenu | verdict |
+|---|---|---|---|
+| 1 | `connectivityClassResolved: true` | `true` (3/3 boards) | **OK** |
+| 2 | `layout.resolved: true`, `List`@`0x10` + `Int32`@`0x18` | `resolved: **false**` — repli littéral, mais champs **déclarés** `NeighbourIds@0x10` (`List\`1`) et `TeleportTileId@0x18` (**`BEntityId`**) | **ÉCART — défaut du capteur**, cf. ci-dessous |
+| 3 | `connectivityMissing: 0` | `0`, `connectivityTiles = 63/63`, `oversize = 0` (3/3) | **OK** |
+| 4 | `connectivityEdges - neighbourEdges == +18` sur `MC1_67` | **`+18`** (316 vs 298), ventilé `C\N = 18`, `N\C = 0` | **OK, exact** |
+| 5 | les 18 en écart = des marches `2 ↔ 4` | **0** arête avec `|Δelev| < 2` | **OK** |
+| 6 | `C1_74` : **4** arêtes `Bridge` dans la géométrie et pas dans le canal | **16** arêtes dirigées, **toutes** incidentes aux deux `Bridge` | **CONFIRMÉ, et le compte de §9 était sous-estimé** |
+| 7 | `connectivityTeleportTiles == 2` sur un board à téléporteur | `0` sur les 3 — **aucun board du pool n'en porte** | **NON CONFRONTÉ, cause nommée** |
+
+**Le cran 2 est un vrai défaut, et il n'est PAS celui qu'on croit.** Les offsets employés sont
+**justes** — les noms déclarés par le runtime les confirment, et le décompilé aussi
+(`InitializeConnectivityOperation$$Execute` écrit la liste à `+0x10`, `ConnectTeleportTiles`
+écrit `*(comp + 0x18) = <entity id>` sur les **deux** tuiles). Ce qui était cassé, c'est la
+**résolution runtime** : le filtre par type cherchait un `Int32`, le champ est un `BEntityId`,
+donc `resolved` était **toujours** faux et le repli littéral **toujours** emprunté. La seule
+protection contre un changement de layout au prochain build était donc inerte — précisément ce
+que le capteur existait pour éviter. Corrigé (résolution par **nom déclaré** d'abord, type en
+second, littéral en dernier, `source` publié) ; **non déployé**, ne prend effet qu'à la prochaine
+fenêtre. Que les mesures 3-7 restent valides tient à un fait, pas à une chance : le capteur
+**publiait le layout observé**, ce qui a permis de le confronter.
+
+**Le cran 6 REDRESSE §9, et c'est le résultat le plus utile de la fenêtre.** §9 comptait « 4
+arêtes sur 74 » ; la mesure en trouve **16**. L'écart n'est pas une erreur de §9 : c'est ce que
+la troisième vue rend visible. Avec deux vues seulement (`G` et `N`), les 12 arêtes de
+`|Δelev| >= 2` incidentes à un `Bridge` sont **indiscernables** de celles qu'ampute la porte
+d'élévation ; seules restaient visibles les 4 de `|Δelev| < 2`, inexplicables autrement. Le canal
+brut sépare les deux causes :
+
+```
+G \ N = 74   (la géométrie hex contre GetAdjacentTiles)
+      = C \ N (58, la porte |delev| < 2)  +  G \ C (16, le refus de TileComponent$$HasEdge)
+```
+
+L'identité `G\N == C\N + G\C` est **vérifiée sur les trois boards** (18 = 18+0 ; 74 = 58+16 ;
+0 = 0+0) — elle rougirait si une troisième cause s'était glissée dans une des vues.
+
+Et la mesure dit *pourquoi* : chaque `Bridge` a **6 voisins géométriques et 2 arêtes de
+connectivité**, ses deux voisins dans l'axe du pont (`(1,5) -> (1,4),(1,6)` ; `(5,5) ->
+(5,4),(5,6)`). C'est `TileComponent$$HasEdge`, pur et sans élévation — confirmé *a contrario*
+par les deux sens : des arêtes de `Δélévation 1` **absentes** du canal (donc pas la porte), et
+des arêtes de `Δélévation 2` **présentes** ailleurs (`MC1_67`). ⇒ le résidu « dans l'autre
+sens » est **confirmé**, et le rebranchement de `beeline_pathfinder` sur `neighbours_connectivity`
+devient **nécessaire**, pas seulement propre : sur `C1_74`, la beeline géométrique coupe par un
+`Bridge` là où le natif fait le tour. **Rebranchement NON FAIT ici** — c'est un changement de
+substrat, il exige son propre re-jeu de `probe_448_r1_r1_r1_r1 --only FD`.
+
+**`C6_25` est un TÉMOIN DÉGÉNÉRÉ, et il vaut d'être gardé** : les trois vues y coïncident
+(316/316/316, tous écarts nuls). Un capteur mesuré sur ce seul board aurait rendu un accord
+parfait **sans rien prouver**. C'est la raison d'être du cran « au moins un board rend un écart
+non nul » dans le probe.
+
+**Cran 7 — pourquoi il ne pouvait pas être joué.** `InitializeConnectivityOperation$$Execute`
+n'ajoute une tuile à sa liste de téléport que si
+`TriggeredAbilityComponent$$TryGetAbility(tileComp, 0x3c)` répond vrai — critère confirmé par
+`idun.Game.Board.TileView$$IsTeleportTile`, qui teste `Contains(0x3c)` sur la même liste. Une
+tuile de téléport n'est donc **pas** un `TileId` de terrain : le balayage des **779** dumps rend
+**11** `TileId` distincts (`Grass`, `Block`, `Swamp`, `DryBush`, `Water`, `Bridge`, `Trench`,
+`BrokenIce`, `FirstAid`, `HulkWall`, `HulkDoor`) et **aucun** téléporteur ; les 15 boards à
+`Doors` portent des `HulkDoor`, ce qui est autre chose. Le champ, lui, est **localisé par deux
+sources indépendantes** (nom déclaré au runtime, écriture directe au décompilé) ; ce qui reste
+non mesuré est une **valeur non nulle**, faute de porteur dans le pool. À rouvrir si un board à
+téléporteur entre au pool.
