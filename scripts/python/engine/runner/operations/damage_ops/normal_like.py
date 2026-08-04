@@ -143,11 +143,16 @@ class _NormalLike:
             # BILAN : 60 coups, live == arrondi 60/60, live == troncature 12/60.
             # STRICTEMENT NO-OP hors regime discriminant (valeur deja entiere -> Round == identite).
             mm = get_base_damage_fix64(eff_base, spread_pct=spread_pct)
+            # `separate_face_lists=True` (#437-r1) : MEME `ExecuteHit` natif que le vecteur d'arme,
+            # donc MEMES deux appels `ApplyCappedModifiers`. NO-OP tant qu'une des deux faces n'a
+            # pas d'entree de `%-list`.
             lo = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.min + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True),
+                mm.min + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True,
+                separate_face_lists=True),
                 def_mods, round_materialize=True)
             hi = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.max + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True),
+                mm.max + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True,
+                separate_face_lists=True),
                 def_mods, round_materialize=True)
             return HitDamage(lo, hi)
 
