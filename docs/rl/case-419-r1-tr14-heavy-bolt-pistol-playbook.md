@@ -235,12 +235,25 @@ Le montant, le profil et le nombre de coups, eux, coïncident entre les deux fac
 
 ## 7. Résidus NOMMÉS
 
-* **`#419-r1-tr14-r1` — les porteurs RÉELS ne sont pas confrontés.** La greffe ne couvre ni les
-  stats, ni les traits, ni l'arme du summon/npc `Initiate`. Elle est légitime pour ce terme (le corps
-  ne lit du caster que son identité, sa position et le niveau de son passif), mais l'`Initiate`
-  lui-même n'a jamais été en bataille. Débloqueur nommé, déjà porté par `case-92` §5bis : donner à
-  `buildNormalizedBC` un chemin de stats explicite pour summons/npc. **Partagé** avec
-  `#419-r1-tr12-r2` et `#419-r1-tr13-r2`.
+* ~~**`#419-r1-tr14-r1`**~~ — **FERMÉ pour le porteur NPC, BORNÉ pour le SUMMON**
+  (`docs/rl/case-419-r1-tr14-r1-porteurs-reels.md`). `templNpc1Initiate:33` est amené en bataille
+  par `--explicit-stats` (#419-r1-tr12-r2) et confronté **aux quatre crans** : le terme y vaut
+  **exactement `+2.989402`**, comme sur la greffe — et c'est **décomposé**, pas constaté (les deux
+  porteurs partagent le couple `(level 50, multiplier 180)`, donc `dmg = 1496`). La greffe est donc
+  confirmée légitime *par mesure*. Trois choses en sortent : l'entrée
+  `1083 → 1046 TemplarInitiateNormalAttack` est confrontée sur son porteur **naturel** (elle ne
+  l'était que par greffe sur `astraBullgryn`) ; `profile_weapon` devient **algébriquement inerte**
+  sur ce porteur (`Chain` et `Bolter` partagent `PiercingRatio = 20` — sur cet axe la greffe était
+  un MEILLEUR discriminant), d'où une 7ᵉ contre-épreuve `profile_foreign` ; et le régime « tuile
+  hors de portée » ouvre `#419-r1-tr14-r1-r1`.
+  Le SUMMON `templInitiate` **arrive** en bataille (stats `summon-spawn`, `dmg = 831`) mais son
+  terme n'y est pas appariable — **quatre causes mesurées**, dont le bras qui se rompt (cible à
+  7945 PV contre 8518). Démontré par le probe, pas affirmé.
+* **`#419-r1-tr14-r1-r1` — le port ne gate pas l'attaque normale sur la PORTÉE de l'arme.** Mesuré
+  à l'étage PRÉDICTION sur le porteur réel (arme `Chain`, mêlée) : depuis une tuile à 2 hex, le
+  natif rend `0..0` en 1 coup et le port `732..1098` en 2 ; à la tuile adjacente, accord exact.
+  Hors du terme de la tranche (le passif prédit son propre montant) et hors du chemin du générateur
+  d'action, qui n'énumère que les cibles à portée. Gardé dans le sens mesuré.
 * **`#419-r1-tr14-r2` — l'ancrage de la PRÉDICTION sur `case.CasterPosition` est LU mais NON
   EXERCÉ.** Le terme natif vaut `+2.989402` **à l'identique** depuis la tuile au contact et depuis
   celle à 2 hex : aucun canal positionnel n'est actif sur ce montage. Trois causes, toutes mesurées —
