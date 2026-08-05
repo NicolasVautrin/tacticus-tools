@@ -169,6 +169,7 @@ def measure(sid, rid, bc_damage: dict, cfg: dict) -> dict:
     from engine.runner.messages import AttackUnitMessage
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.components import HealthComponent
+    from engine.entities.pathfinding.board import Board
 
     dv, att, tgt, norm = _pick(sid, rid, cfg)
     out = {"att": att["id"], "tgt": tgt["id"], "ability": norm["id"],
@@ -194,7 +195,19 @@ def measure(sid, rid, bc_damage: dict, cfg: dict) -> dict:
         out["combat_skip"] = "combatSnapshot/dumpRng indisponible"
         return out
 
-    st = load_state(dv, ob, snap, damage_config=bc_damage)
+    # `board=` est OBLIGATOIRE : sans lui les feuilles POSITIONNELLES du port
+    # (`apply_elevation_bonus`, trench, ranged-in-melee) sont des NO-OP silencieux, et le probe
+    # mesurerait son propre montage au lieu du littéral. Mesuré le 2026-08-05 : sans le board, le
+    # port rendait la MEME valeur (5160) sur les trois bras, y compris celui où le natif
+    # n'applique aucun bonus -- un faux "le port ignore le champ" qui accusait le bon coupable
+    # pour la mauvaise raison. Même correctif que #63 dans `tests/.../_combat_replay.py`.
+    bg = rpc(sid, "boardGraph", {"runnerId": rid}, 60)
+    if not isinstance(bg, dict) or not bg.get("tiles"):
+        out["combat_skip"] = "boardGraph indisponible -- les feuilles positionnelles seraient no-op"
+        return out
+    board = Board(bg["tiles"], adjacency="native_sym")
+
+    st = load_state(dv, ob, snap, board=board, damage_config=bc_damage)
     te = st.get_entity(tgt["id"])
     hc = te.get_component(HealthComponent) if te is not None else None
     if hc is None or hc.hp is None:
