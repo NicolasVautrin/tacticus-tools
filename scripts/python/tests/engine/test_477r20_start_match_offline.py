@@ -195,6 +195,36 @@ def test_chaque_mutation_rougit(mutation):
     assert rap.divergences, "la mutation `%s` ne produit aucune divergence" % mutation
 
 
+def test_une_mutation_INCONNUE_ne_mord_PAS():
+    """LE GARDE DU GARDE DU GARDE. `a_morde=True` ne vaut que si le levier de mutation est
+    REELLEMENT cable : si `emettre` retombait sur une branche par defaut differente du port sain,
+    toutes les mutations « mordraient » sans rien mesurer. Un nom inconnu doit rendre EXACTEMENT
+    le texte sain -- c'est ce qui prouve que les dix `a_morde` viennent bien de leur branche."""
+    sain, n = P.emettre()
+    inconnue, m = P.emettre(mutation="cette-mutation-n-existe-pas")
+    assert inconnue == sain and m == n
+
+
+def test_une_mutation_d_ancrage_INCONNUE_ne_mord_PAS():
+    seq, flux = _seq_et_flux(SETUP, PLACE, DEBUT_REEL, APRES)
+    assert P.ancrage(seq, flux, mutation="inconnue") == P.ancrage(seq, flux)
+    assert P.muter_flux(flux, "inconnue") == flux
+
+
+def test_les_dix_mutations_sont_TOUTES_cablees():
+    """Le pendant positif : chaque nom declare doit changer quelque chose. Une mutation declaree
+    mais non cablee passerait le test precedent ET serait comptee dans le rapport du probe."""
+    sain, _ = P.emettre()
+    for nom in P.MUTATIONS_TEXTE:
+        mute, _ = P.emettre(mutation=nom)
+        assert mute != sain, "mutation de texte `%s` NON CABLEE" % nom
+    seq, flux = _seq_et_flux(SETUP, PLACE, DEBUT_REEL, APRES)
+    sain_a = P.ancrage(seq, flux)
+    for nom in P.MUTATIONS_ANCRAGE:
+        assert P.ancrage(seq, flux, mutation=nom) != sain_a, "mutation d'ancrage `%s` NON CABLEE" % nom
+    assert len(P.MUTATIONS_TEXTE) + len(P.MUTATIONS_ANCRAGE) == 10
+
+
 def test_la_mutation_tags_est_bien_celle_qui_manquerait_le_plus():
     """Un tag invente sur l'`Action=StartMatch` est la faute la plus facile a commettre (toutes
     les autres actions du flux en portent). Elle doit rougir en VALEUR, pas passer."""
