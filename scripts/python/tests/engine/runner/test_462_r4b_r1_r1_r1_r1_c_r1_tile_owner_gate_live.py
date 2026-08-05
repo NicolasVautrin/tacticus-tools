@@ -288,3 +288,22 @@ def test_aucun_effect_type_de_tuile_du_registre_n_a_de_classe_nue_live(etat_avec
     assert not croise, (
         "un effect_type porte par une TUILE est servi par une classe NUE : %s -- le trou n'est "
         "plus latent, ce porteur doit etre confronte" % croise)
+
+
+def test_les_ids_de_tuile_et_d_unite_sont_disjoints_live(etat_avec_tuile_en_feu):
+    """MESURE de l'invariant que `TileEffectTrigger` AFFIRME (<< boardGraph t.id = entity id,
+    disjoint des ids d'unite >>) et dont personne ne verifiait la tenue.
+
+    Il n'est PAS load-bearing pour le correctif -- `_owner_is_tile_entity` n'est consulte que
+    lorsque `state.get_entity` n'a rien rendu, donc l'entite l'emporte toujours. Mais un
+    chevauchement dirait que le modele d'ids du port a change, et c'est le genre de glissement
+    qu'on veut apprendre par un rouge plutot que par un comportement."""
+    st = etat_avec_tuile_en_feu["state"]
+    ids_unites = {int(i) for i in st.entities}
+    ids_tuiles = {int(i) for i in (st.board.by_id if st.board is not None else {})}
+    assert ids_unites and ids_tuiles, "montage non installe (entites ou tuiles absentes)"
+    chevauchement = sorted(ids_unites & ids_tuiles)
+    print("\n[ids] %d entites, %d tuiles, chevauchement=%s"
+          % (len(ids_unites), len(ids_tuiles), chevauchement))
+    assert not chevauchement, \
+        "des ids sont a la fois unite ET tuile : %s" % chevauchement[:10]

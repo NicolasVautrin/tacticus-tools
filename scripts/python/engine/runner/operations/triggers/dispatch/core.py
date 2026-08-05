@@ -202,16 +202,23 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
         # Un tile-effect écoute souvent PLUSIEURS events (`event_ids`) ; sinon `event_id` unique.
         if entry.event_id != ev.event_id and ev.event_id not in getattr(entry, "event_ids", ()):
             continue
-        if (getattr(entry, "owner_is_tile", False) or getattr(entry, "owner_is_global", False)
-                or _owner_is_tile_entity(state, entry.owner_id)):
+        if getattr(entry, "owner_is_tile", False) or getattr(entry, "owner_is_global", False):
             pass                                           # owner = TUILE ou AUCUN : pas de gate alive
         else:
             owner = state.get_entity(entry.owner_id)
             if owner is None:
-                continue
-            uc = owner.get_component(UnitComponent)        # CanGet*Trigger : owner unit vivant
-            if uc is not None and not uc.alive and not getattr(entry, "fire_on_death", False):
-                continue                                   # sauf ability fire-on-death (ex. FinalJustice)
+                # `IdunBattle.Entities.EntityExtensions$$IsUnit(owner)` FAUX : le porteur n'est pas
+                # une unite, donc le natif ne lui applique AUCUN gate (#462-r4b-r1-r1-r1-r1-c-r1).
+                # Cote port, ce cas est une entite-TUILE -- reconnue par le board, PAS par un
+                # attribut de la classe du trigger, qui ne peut pas decrire l'instance qu'elle sert.
+                # L'ENTITE L'EMPORTE : ce test n'est atteint que si `get_entity` n'a rien rendu,
+                # donc un id qui serait a la fois unite et tuile reste gate comme une unite.
+                if not _owner_is_tile_entity(state, entry.owner_id):
+                    continue                               # ni unite ni tuile : rien a evaluer
+            else:
+                uc = owner.get_component(UnitComponent)    # CanGet*Trigger : owner unit vivant
+                if uc is not None and not uc.alive and not getattr(entry, "fire_on_death", False):
+                    continue                               # sauf ability fire-on-death (ex. FinalJustice)
         if not entry.matches(state, ev):
             continue
         # #140 : CAP phase-triggers (mirror IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger : GetTimesTriggeredThisPhase
