@@ -77,6 +77,11 @@ RE_AFFECT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)(?:\[0\])?\s*=\s*(0x[0-9a-fA-
 #: Le dictionnaire de tags est un `Dictionary<TagKey,int>` : son `Add` gshared se reconnait au
 #: `MethodInfo*` passe en DERNIER argument. Ce DAT est DERIVE d'une fabrique temoin, pas ecrit.
 RE_DICT_ADD = re.compile(r"Dictionary[A-Za-z0-9_]*u003E__(?:Add|set_Item)\s*\(")
+#: Les trois formes de ligne du flux, pour la contre-epreuve (le paquet `engine.streams` porte
+#: les memes : on ne les importe pas, ce probe doit rester lisible SANS lui).
+RE_L_GROUP = re.compile(r"^ *Group=([^ ]*) ")
+RE_L_ACTION = re.compile(r"^ *Action=([^ ]*) ")
+RE_L_TAG = re.compile(r"^ *Tag=([^:]*):")
 
 
 def immediat(expr: str):
@@ -453,6 +458,39 @@ def propager_un_cran(gh: Ghidra, variables: list) -> list:
     return trouves
 
 
+def contre_epreuve_live(GroupType, StepType, TagKey, groupes, actions, tags) -> None:
+    """LE controle du balayage statique : tout ce que le flux EMET doit y avoir ete atteint.
+
+    Sans lui, le statique se juge lui-meme. Mesure : il a trouve DEUX trous reels --
+    `AddOrUpdateShield` / `RemoveShield` (deuxieme forme d'appel d'interface) et 23 `TagKey`
+    (surcharges non decompilees). Un ecart NON NUL nomme la lacune ; il ne la cache pas.
+    """
+    flux = sorted((REPO / "logs").glob("477r18-flux-*.txt"))
+    print("\n[8] CONTRE-EPREUVE -- ce que le flux LIVE emet, le statique l'a-t-il atteint ?")
+    if not flux:
+        print("    PAS MESURE : aucun flux sous logs/477r18-flux-*.txt "
+              "(lancer --flux-live d'abord). Ce n'est PAS un zero.")
+        return
+    obs = {"GroupType": set(), "StepType": set(), "TagKey": set()}
+    for f in flux:
+        for ligne in f.read_text(encoding="utf-8").split("\n"):
+            for cle, rx in (("GroupType", RE_L_GROUP), ("StepType", RE_L_ACTION),
+                            ("TagKey", RE_L_TAG)):
+                m = rx.match(ligne)
+                if m:
+                    obs[cle].add(m.group(1))
+                    break
+    print("    corpus : %s" % ", ".join(f.name for f in flux))
+    for lib, cls, vus in (("GroupType", GroupType, groupes), ("StepType", StepType, actions),
+                          ("TagKey", TagKey, tags)):
+        ordinaux = {int(x) for x in cls}
+        atteints = {cls(v).name for v in vus if v in ordinaux}
+        manquants = sorted(obs[lib] - atteints)
+        print("    %-9s emis %3d ; atteint %3d ; EMIS MAIS NON ATTEINT %d %s"
+              % (lib, len(obs[lib]), len(atteints), len(manquants),
+                 ": " + ", ".join(manquants) if manquants else ""))
+
+
 def volet_flux_live(board: str, tours: int) -> int:
     """Ce que le natif EMET REELLEMENT, ventile par GROUPE RACINE.
 
@@ -786,6 +824,7 @@ def main() -> int:
                 print("        " + "  ".join("%-28s" % m for m in morts[i:i + 4]))
 
     croiser_avec_le_port(producteurs)
+    contre_epreuve_live(GroupType, StepType, TagKey, groupes_vus, actions_vues, tags_vus)
 
     if a.json:
         p = REPO / "logs" / a.json
