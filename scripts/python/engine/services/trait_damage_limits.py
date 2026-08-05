@@ -270,7 +270,7 @@ def is_overkill(target_initial_health: int, health_damage: int, is_critical: int
 def unit_is_overkill(current_health: int, damage: int, *,
                      can_be_overkilled: bool = True, denied_damage: int = 0,
                      prevent_overkill: bool = False, is_critical: bool = False,
-                     is_force_overkill: bool = False, allow_overkill: int = 1,
+                     is_force_overkill: bool = False, allow_overkill: int | None = None,
                      target_minimum_health: int | None = None) -> bool:
     """`IdunBattle.Core.Services.DamagePrediction$$IsOverkill` — **surcharge d'INSTANCE**
     `(this, IEntity target, int hitDamage, int deniedDamage, bool isCritical, bool isForceOverkill,
@@ -373,19 +373,43 @@ def unit_is_overkill(current_health: int, damage: int, *,
                             is_critical=1 if is_critical else 0,
                             is_force_overkill=1 if is_force_overkill else 0,
                             is_prevent_overkill=1 if prevent_overkill else 0,
-                            allow_overkill=allow_overkill,
+                            allow_overkill=(_allow_overkill() if allow_overkill is None
+                                            else allow_overkill),
                             overkill_dmg_pct_of_health=_overkill_threshold_pct(),
                             target_minimum_health=target_minimum_health))
 
 
-def _overkill_threshold_pct() -> int:
-    """Seuil % de la porte overkill du chemin PREDICTION. Le natif le lit dans le composant DI
-    `DamagePrediction+0x10 @0x34` (config asset-driven, PAS un litteral binaire ; VERDICT RE : borne live
-    (33,101]). On le source de gameconfig `overkillDmgPctOfHealth` (=100) : MEME global que le `is_overkill`
-    death-riposte (FinalJustice/TheBetrayer, meme fn native IdunBattle.Core.Services.DamagePrediction$$IsOverkill), et == la borne live => HYPOTHESE
-    forte config-DI == overkillDmgPctOfHealth (les deux valent 100). Derivable offline, pas de hardcode."""
-    import gameconfig as GC
-    return int(GC.global_value("overkillDmgPctOfHealth") or 100)
+def _overkill_threshold_pct(state=None) -> int:
+    """Seuil % de la porte overkill. Le natif le lit dans `DamagePrediction+0x10 @+0x34`, et le NOM
+    du champ est LU, pas suppose : la surcharge statique
+    `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` recoit cet octet-la sous le nom de
+    parametre `overkillDmgPctOfHealth`, et les deux surcharges d'instance le lui passent depuis
+    `configuration+0x34` = `BC.Damage.OverkillDmgPctOfHealth`.
+
+    #449-r2-r4-r4 -- CORRECTION DE SOURCE. Ce seuil etait lu dans `gameconfig.globalValues
+    ["overkillDmgPctOfHealth"]`, c'est-a-dire une AUTRE TABLE que celle que lit le natif. Les deux
+    valent 100, donc l'accord etait parfait -- et ne prouvait rien : c'est un accord en REGIME
+    DEGENERE, qui se serait tu le jour ou une BC porte une autre valeur. La source est desormais
+    `BC.Damage`, via le foyer, avec le meme ordre que partout (explicite > BC de la bataille >
+    defaut DERIVE de la seed).
+    ⚠ Cette correction n'est pas MESURABLE aujourd'hui, precisement parce que les deux tables
+    coincident : elle est justifiee par le decompile, pas par un ecart observe."""
+    from .damage_config import resolve_damage_field
+    return int(resolve_damage_field("overkill_dmg_pct_of_health", state=state))
+
+
+def _allow_overkill(state=None) -> int:
+    """`BC.Damage.AllowOverkill` (`+0x30`) -- le GATE GLOBAL de `IsOverkill` (a faux, la fonction
+    rend toujours `false`). Meme lecture nominative que le seuil ci-dessus : c'est le parametre
+    `allowOverkill` de la surcharge statique.
+
+    #449-r2-r4-r4 -- il etait ecrit `1` en dur a quatre endroits. Le natif, lui, le LIT : un `1`
+    du port etait une invention, meme si `Idun.Source.IdunBattle.View.BattleConfigBuilder$$CreateBattleConfig`
+    ecrit bien `1` en dur dans les BC qu'IL construit -- ce chemin-la n'est pas le seul par lequel
+    une BC arrive (les runners partent d'une seed sur disque, dont la section `Damage` est
+    modifiable)."""
+    from .damage_config import resolve_damage_field
+    return 1 if resolve_damage_field("allow_overkill", state=state) else 0
 
 
 def compute_prediction_overkill(cur_hp: int, max_hp: int, dmg_min: int, *,
@@ -415,7 +439,7 @@ def compute_prediction_overkill(cur_hp: int, max_hp: int, dmg_min: int, *,
     return bool(is_overkill(target_initial_health=max_hp, health_damage=accum,
                             is_critical=1 if is_crit else 0,
                             is_force_overkill=1 if is_forced_overkill else 0,
-                            is_prevent_overkill=1 if suppress else 0, allow_overkill=1,
+                            is_prevent_overkill=1 if suppress else 0, allow_overkill=_allow_overkill(),
                             overkill_dmg_pct_of_health=_overkill_threshold_pct(),
                             target_minimum_health=minimum_health))
 

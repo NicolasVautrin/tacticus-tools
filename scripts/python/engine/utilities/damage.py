@@ -140,7 +140,8 @@ def will_be_overkill(pred) -> bool:
     compte les predictions `WillBeOverkill` (playbook/loki_custom.py)."""
     if not pred:
         return False
-    from ..services.trait_damage_limits import is_overkill, _overkill_threshold_pct
+    from ..services.trait_damage_limits import (is_overkill, _overkill_threshold_pct,
+                                            _allow_overkill)
     hp = pred.get("hpBefore") or 0
     if hp <= 0:
         return False
@@ -159,7 +160,7 @@ def will_be_overkill(pred) -> bool:
     allow = 1 if pred.get("forceOverkill") else 0
     return bool(is_overkill(hp, will_min, is_critical=0, is_force_overkill=allow,
                             is_prevent_overkill=1 if pred.get("preventOverkill") else 0,
-                            allow_overkill=1,
+                            allow_overkill=_allow_overkill(),
                             overkill_dmg_pct_of_health=_overkill_threshold_pct()))
 
 
@@ -168,7 +169,8 @@ def might_be_overkill(pred) -> bool:
     (`IsOverkill` sur le degat sante BRUT MAX @0x28, SANS block)."""
     if not pred:
         return False
-    from ..services.trait_damage_limits import is_overkill, _overkill_threshold_pct
+    from ..services.trait_damage_limits import (is_overkill, _overkill_threshold_pct,
+                                            _allow_overkill)
     hp = pred.get("hpBefore") or 0
     if hp <= 0:
         return False
@@ -208,7 +210,7 @@ def might_be_overkill(pred) -> bool:
     return bool(is_overkill(hp, raw_max, is_critical=1 if pred.get("mightCrit") else 0,
                             is_force_overkill=allow,
                             is_prevent_overkill=1 if pred.get("preventOverkill") else 0,
-                            allow_overkill=1,
+                            allow_overkill=_allow_overkill(),
                             overkill_dmg_pct_of_health=_overkill_threshold_pct()))
 
 
