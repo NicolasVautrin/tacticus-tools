@@ -27,10 +27,16 @@ CE QU'IL ETABLIT
    deploiement (`...$$IsPredefinedUnitDisabledByModifiers` teste exactement
    `m.Id == "hp" && m.Amount > 99`). C'est le seul effet BINAIRE de la famille.
 
-CE QU'IL NE MESURE PAS : la formule exacte de `fixedArmor` et `critDmg`. Ces deux-la
-lisent un champ du COMPOSANT (`+0x48`) que `combatSnapshot` n'expose pas, donc l'ecart
-observe est reel mais ne se recalcule pas depuis la valeur affichee. Le probe exige
-qu'ils BOUGENT, pas qu'ils atteignent une valeur predite.
+4. La NATURE de ce qui est pose : un vrai `StatModifier`, visible de `statModSources`,
+   et pas un scalaire ecrase. C'est tout l'interet du levier face a `--unit-stat`.
+   Bras temoin obligatoire la aussi : sans lui, un mod present ne dirait pas s'il vient
+   du modifier ou d'une autre source (couverture, effet, trait).
+
+CE QU'IL NE MESURE PAS : la valeur de base que le natif lit pour `fixedArmor`. Ce n'est
+PAS celle rendue par `combatSnapshot` (mesure : 3806 affiche, 2609 lu par le natif --
+l'affichage inclut d'autres contributions). Le probe exige donc de `fixedArmor` un ECART
+et un `StatModifier` NEGATIF, jamais une valeur predite : la fitter serait exactement la
+faute « ajuster un scalaire ».
 """
 from __future__ import annotations
 
@@ -63,7 +69,7 @@ MODIFIERS = [
     ("orksNob", "hits", 1, "extraHits", "abs"),
     ("orksBigMek", "blockChance", 10, "blockChance", "abs"),
     ("orksBigMek", "critChance", 10, "critChance", "abs"),
-    ("orksRuntherd", "critDmg", 100, "critDamage", "moves"),
+    ("orksRuntherd", "critDmg", 100, "critDamage", "pct"),
 ]
 HP_UNIT, HP_AMOUNT = "orksKillaKan", 111
 
@@ -93,6 +99,28 @@ def _snapshot(sid: int, state_file: Path) -> dict[str, dict]:
         if name:
             out[name] = u.get("stats") or {}
     return out
+
+
+def _stat_mods(sid: int, state_file: Path, visual_id: str) -> dict[str, dict]:
+    """Modificateurs de stat POSES sur une unite, par nom de stat (RPC statModSources).
+
+    C'est le discriminant de NATURE : `--unit-stat` ecrase un scalaire du template et ne
+    laisse AUCUNE trace ici ; `BC.UnitModifiers` passe par une Operation qui pose de
+    vrais `StatModifier`."""
+    st = json.loads(state_file.read_text(encoding="utf-8"))
+    rid = st["runnerId"]
+    obs = (_rpc(sid, "observeBattle", [{"runnerId": rid}], timeout=30)
+           .get("result") or {})
+    eid = next((int(u["entityId"]) for u in (obs.get("units") or [])
+                if str(u["visualId"]) == visual_id), None)
+    if eid is None:
+        return {}
+    res = (_rpc(sid, "statModSources", [{"runnerId": rid, "entityId": eid}], timeout=30)
+           .get("result") or {})
+    for u in (res.get("units") or []):
+        if int(u.get("entityId") or -1) in (eid, eid - 1):
+            return u.get("mods") or {}
+    return {}
 
 
 def _dispose(state_file: Path) -> None:
@@ -194,11 +222,72 @@ def etape2_unit_modifiers(sid: int, board: str) -> list[str]:
     return fails
 
 
+def etape3_vrai_stat_modifier(sid: int, board: str) -> list[str]:
+    """`--unit-modifier` pose-t-il un VRAI StatModifier, la ou `--unit-stat` n'en pose
+    aucun ? Deux bras sur la MEME unite, avec en prime la consequence de COMBAT
+    (l'attaque de `ultraTitus` place au contact) -- une stat qui bouge sans changer un
+    resultat observable ne prouverait pas grand-chose."""
+    fails: list[str] = []
+    common = ["build", "--seed", "777", "--board", board,
+              "--p-units", "ultraTitus", "--a-units", "orksWarboss",
+              # Contact force : sans ce placement, `ultraTitus` (melee) ne peut pas
+              # frapper au tour 1 depuis son spawn -- la geometrie de spawn n'est pas
+              # une fatalite, on DEPLACE.
+              "--place", "ultraTitus:6,7"]
+    out: dict[str, tuple[dict, int]] = {}
+    for tag, extra in (("temoin", []),
+                       ("modifie", ["--unit-modifier", "orksWarboss:fixedArmor:90"])):
+        st = OUT / f"probe477_state_natur_{tag}.json"
+        rc, log = _run([*common, *extra, "--state-file", str(st)])
+        if rc != 0:
+            _dispose(st)
+            return [f"etape3: build {tag} rc={rc}\n{log[-800:]}"]
+        mods = _stat_mods(sid, st, "orksWarboss")
+        before = _snapshot(sid, st).get("orksWarboss", {}).get("health")
+        _run(["act", "ability", "--caster", "79", "--target", "77",
+              "--ability", "1154", "--state-file", str(st)])
+        after = _snapshot(sid, st).get("orksWarboss", {}).get("health")
+        # `health` = MaxHealth : le degat se lit sur les PV restants d'observeBattle.
+        stx = json.loads(st.read_text(encoding="utf-8"))
+        obs = (_rpc(sid, "observeBattle", [{"runnerId": stx["runnerId"]}], timeout=30)
+               .get("result") or {})
+        hp = next((int(u["hp"]) for u in (obs.get("units") or [])
+                   if str(u["visualId"]) == "orksWarboss"), -1)
+        hpmax = next((int(u["hpMax"]) for u in (obs.get("units") or [])
+                      if str(u["visualId"]) == "orksWarboss"), -1)
+        dealt = hpmax - hp
+        out[tag] = (mods, dealt)
+        fa = mods.get("fixedArmor")
+        print(f"[etape3] {tag:8s} statModSources.fixedArmor="
+              f"{json.dumps(fa) if fa else 'AUCUN':60s} degats infliges={dealt} "
+              f"(base/apres = {before}/{after})")
+        _dispose(st)
+
+    if out["temoin"][0].get("fixedArmor") is not None:
+        fails.append("etape3: le TEMOIN porte deja un mod fixedArmor -- le montage ne "
+                     "peut rien attribuer au modifier")
+    fa = out["modifie"][0].get("fixedArmor")
+    if fa is None:
+        fails.append("etape3: --unit-modifier n'a pose AUCUN StatModifier fixedArmor "
+                     "-- ce serait un scalaire, pas le levier natif")
+    elif int(fa.get("total") or 0) >= 0:
+        fails.append(f"etape3: StatModifier fixedArmor total={fa.get('total')} "
+                     f"-- attendu NEGATIF (reduction)")
+    if out["modifie"][1] <= out["temoin"][1]:
+        fails.append(f"etape3: degats modifie={out['modifie'][1]} <= "
+                     f"temoin={out['temoin'][1]} -- l'armure reduite doit faire MONTER "
+                     f"le degat, sinon le levier ne change aucun resultat observable")
+    if not fails:
+        print(f"[etape3] VERDICT: vrai StatModifier (absent du temoin), et le degat "
+              f"passe de {out['temoin'][1]} a {out['modifie'][1]}.")
+    return fails
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", type=int, default=4)
     ap.add_argument("--board", default="MC1_67")
-    ap.add_argument("--only", choices=["1", "2"], default=None)
+    ap.add_argument("--only", choices=["1", "2", "3"], default=None)
     a = ap.parse_args(argv)
     OUT.mkdir(parents=True, exist_ok=True)
 
@@ -207,6 +296,8 @@ def main(argv: list[str]) -> int:
         fails += etape1_starting_actions(a.session, a.board)
     if a.only in (None, "2"):
         fails += etape2_unit_modifiers(a.session, a.board)
+    if a.only in (None, "3"):
+        fails += etape3_vrai_stat_modifier(a.session, a.board)
 
     print()
     if fails:

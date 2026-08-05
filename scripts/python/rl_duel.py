@@ -413,12 +413,17 @@ def _verify_placements(sid: int, rid: int, wanted: list[dict]) -> list[str]:
 # POURCENTAGE passe par `IdunBattle.Operations.SetupGameOperation$$CalculatePercentage`
 # (Fix64, arrondi puis `Ceiling`) et la valeur finale vaut `base - pourcentage(base)` ;
 # ABSOLU vaut `StatComponent.CurrentValue - Amount`. Mesures (board MC1_67, rank 17) :
-# `dmg` 10 sur `orksNob` attack 2411 -> 2169 (= 2411 - ceil(241,1)) ; `movement` 1 sur
-# `orksRuntherd` 3 -> 2 ; `blockChance` 10 sur base 50 -> 40 ; `critChance` 10 sur base
-# 50 -> 40. ⚠ Pour `fixedArmor` et `critDmg` la base lue par le natif est un champ du
-# COMPOSANT (`+0x48`), pas la valeur rendue par `combatSnapshot` : l'ecart observe est
-# reel mais ne se recalcule pas depuis la valeur affichee (mesure : `fixedArmor` 50 sur
-# 3003 affiche -> 2100 ; `critDmg` 100 sur 300 affiche -> 0).
+# `dmg` 10 sur attack 2609 -> 2348 ; `movement` 1 sur 4 -> 3 ; `hits` 1 sur 0 -> -1 ;
+# `blockChance` 10 sur 50 -> 40 ; `critChance` 10 sur 50 -> 40 ; `critDmg` 100 sur
+# 300 -> 0.
+# ⚠ SEUL `fixedArmor` a une base NATIVE differente de la valeur affichee : le natif lit
+# un champ du COMPOSANT (`+0x48`) que `combatSnapshot` n'expose pas. Mesure : affiche
+# 3806, base native 2609 -- `statModSources` rend le `StatModifier` pose, `total = -2349`
+# pour `Amount = 90`, soit exactement `-ceil(2609 x 90%)`. Ne PAS predire cette valeur
+# depuis l'affichage.
+# Ce que le levier apporte face a `--unit-stat`, MESURE : sur la meme unite, le temoin
+# n'a AUCUN mod `fixedArmor` dans `statModSources`, le bras `--unit-modifier` en a un --
+# c'est un vrai `StatModifier` pose par une Operation, pas un scalaire ecrase.
 UNIT_MODIFIER_STATS: dict[str, str] = {
     "dmg": "attack",
     "fixedArmor": "fixedArmor",

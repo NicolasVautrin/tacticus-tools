@@ -230,10 +230,24 @@ ABSOLU vaut `StatComponent.CurrentValue − Amount`. **Tout autre `Id` tombe dan
 `ApplyModifiers` et n'applique RIEN** — c'est le mode de panne principal, d'où le refus au parse
 contre la liste fermée.
 
-⚠ Pour `fixedArmor` et `critDmg`, la base lue par le natif est un champ du **composant** (`+0x48`),
-que `combatSnapshot` n'expose pas : l'écart est réel mais ne se recalcule pas depuis la valeur
-affichée. Le probe exige d'eux un **écart**, pas une valeur prédite — le fitter serait exactement la
-faute « ajuster un scalaire ».
+⚠ **Seul `fixedArmor` a une base native différente de la valeur affichée** : le natif lit un champ du
+**composant** (`+0x48`) que `combatSnapshot` n'expose pas. Mesuré : affiché **3806**, base native
+**2609** — le `StatModifier` posé vaut `total = −2349` pour `Amount = 90`, soit exactement
+`−ceil(2609 × 90 %)`, et `residual = 0` (donc rien d'autre n'y contribue). Le probe exige de lui un
+**écart** et un mod **négatif**, jamais une valeur prédite depuis l'affichage — la prédire serait
+exactement la faute « ajuster un scalaire ».
+
+**C'est un vrai `StatModifier`, et c'est mesuré par différence** — le point qui sépare ce levier de
+`--unit-stat` (qui écrase un scalaire du template et ne laisse aucune trace) :
+
+| bras (même unité, même seed, même board) | `statModSources.fixedArmor` | dégât infligé par `ultraTitus` |
+|---|---|---|
+| témoin | **aucun** | **1 963** |
+| `--unit-modifier orksWarboss:fixedArmor:90` | `total −2349`, `bySource[0].source = 77` | **8 882** |
+
+Le second montage combine les deux leviers : `--place ultraTitus:6,7` amène le mêlée au contact au
+tour 1 (la géométrie de spawn ne le permettait pas), `--unit-modifier` retire l'armure. C'est
+l'étape 3 de `probe_477_bc_montage_leviers.py`.
 
 **Effet BINAIRE, seul attendu calculable sans témoin** :
 `SetupGameOperation$$IsPredefinedUnitDisabledByModifiers` teste littéralement
