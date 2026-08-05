@@ -134,6 +134,11 @@ ou `null`. Le `.cctor` y écrit **DEUX** entrées, et rien d'autre :
 | `PowerUp_ReinforcementShield` | `EnvReinforcementShield` |
 | `Ambush` | `EnvAmbushResurrect` |
 
+⚠ **Deux, et pas une de plus** : le `.cctor` fait 980 lignes décompilées et peuple **19** champs
+statiques, mais il les écrit dans une séquence d'offsets **strictement croissante**
+(`+0x0, +0x8, +0x10, … +0x90`), chacun **une seule fois**. `+0x38` n'a donc **qu'un seul site
+d'écriture**, et il porte ces deux `Dictionary.Add`.
+
 ⚠ Nuance lue, sans effet ici : `TExtensions$$ToList<T>` **teste une garde sur la valeur** avant
 son unique `List.Add` et rend `null` si elle échoue. La sémantique exacte de cette garde
 (`FUN_1801f53a0`, helper IL2CPP non nommé) n'est **pas** établie — HYPOTHÈSE : « valeur ≠
