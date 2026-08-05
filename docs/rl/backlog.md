@@ -607,6 +607,16 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   (**JAMAIS MESURÉS** — catégorie **syntaxique**, à ne pas lire comme triée), 43 `TYPE_CHECKING`,
   22 `placement` (mesurés hissables en FIN de fichier, mais chaque arête rendrait le graphe déclaré
   cyclique).
+  Résidu : **#270-r4-r2-r2-r2** — **l'empreinte RAPPORTE un nom disparu, elle n'ÉCHOUE PAS dessus**.
+  Mesuré à la relecture de #694 : un hissage cassé (import **supprimé** au lieu d'être déplacé,
+  `services/movement_query.py` → `is_like_flying`) ne fait rougir **NI** la garde offline (6 passed)
+  **NI** `probe_270r4r2_empreinte_valeurs` (rc 0), pour deux raisons distinctes — la garde vérifie
+  que les modules **s'importent**, pas qu'ils **tournent**, et un nom absent ne mord qu'à l'**appel** ;
+  l'empreinte **voit** la disparition (197 116 → 197 115, et elle l'imprime) mais son `rc` ne dépend
+  **que** des divergences de VALEUR (`return 1` sur `val` seul). C'est un filet qui exige un lecteur
+  humain, ce qu'une garde ne doit jamais exiger. ⚠ Ne met pas en cause #694 : sur l'arbre livré,
+  `NOMS disparus = 0`, re-mesuré. Fermer = faire échouer sur un nom disparu, avec échappatoire
+  explicite pour les suppressions VOULUES (sinon toute suppression légitime rougira).
   Texte d'origine, conservé pour la mesure qu'il porte :
   Ouvert par
   `case-270r4-trois-roles-jamais-tries.md` §9, **mesuré** (3 imports posés puis vus échouer, arbre
