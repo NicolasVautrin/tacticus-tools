@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **46** ; kits avec du travail : **81**
-- Volume total : **100** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **99** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -45,8 +45,8 @@
 | Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
 | Tau | 4 | 5 |
-| AdeptusAstartes | 2 | 4 |
 | Orks | 3 | 4 |
+| AdeptusAstartes | 2 | 3 |
 | AdeptusMechanicus | 3 | 3 |
 | BlackLegion | 3 | 3 |
 | Genestealers | 3 | 3 |
@@ -56,11 +56,11 @@
 
 ## Par faction (kits avec du travail)
 
-### AdeptusAstartes — 2 kits, 4 items
+### AdeptusAstartes — 2 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| astarCyrus | 2 | StrikeFromTheShadows(1225) [--] NO-OP DAMAGE(Bolter) | HaywireMine | - |
+| astarCyrus | 1 | StrikeFromTheShadows(1225) [--] NO-OP DAMAGE(Bolter) | - | - |
 | astarLysander | 2 | TitanhammerSquad(1231) [--] NO-OP HEAL | IconOfObstinacy | - |
 
 ### AdeptusMechanicus — 3 kits, 3 items

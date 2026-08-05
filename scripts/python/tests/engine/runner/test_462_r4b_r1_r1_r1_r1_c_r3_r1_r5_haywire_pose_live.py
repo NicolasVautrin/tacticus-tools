@@ -190,7 +190,7 @@ def sequence(env_pose, rpc):
     Runner(st2).install_default_handlers().apply(FinishUnitTurnMessage(unit_id=int(cid)))
     neuves = (sorted(set(_mines(_vue(rpc, rid))) - set(nat_avant2)),
               sorted(set(_mines_offline(st2)) - set(avant2)))
-    return {"depart": depart, "dest": dest,
+    return {"depart": depart, "dest": dest, "st": st, "cyrus": int(cid),
             "apres_move": apres_move, "apres_finish": apres_finish, "neuves_sans_move": neuves}
 
 
@@ -220,6 +220,33 @@ def test_pose_adjacente_quand_l_unite_n_a_pas_bouge(sequence):
     nat, port = sequence["neuves_sans_move"]
     assert len(nat) == 1, "le NATIF n'a pas pose exactement une mine : %s" % (nat,)
     assert port == nat, "port != natif sur la pose adjacente : %s vs %s" % (port, nat)
+
+
+def test_la_mine_posee_herite_de_l_ability_state_du_summoner(sequence):
+    """`SpawnUnitOptions$$WithStatsFromConfig(config, abilityState, 0, 0)` : l'unite posee monte SES
+    propres abilities sous l'`AbilityState` du summoner. Ground truth live sur ce montage :
+    `ChangeAbility UnitStats_TriggeredAbility_Id=1542 Level=50 VariableMultiplierPercentage=180`.
+
+    Ce bras garde le mode de panne #174 TRANSPOSE AUX SUMMONS (deja mesure a un facteur ~55 en
+    `-c-r3-r1-r1`) : sans la propagation, la passive `HaywireMineSteppable` de la mine lirait
+    `minDmg[0] = 50` au lieu de `minDmg[49] x 180 %`. C'est donc la POSE qui doit deboucher sur
+    l'explosion deja validee -- une mine posee au mauvais niveau exploserait pour rien."""
+    from engine.runner.components import StatsComponent
+    st, cid = sequence["st"], sequence["cyrus"]
+    ce = st.get_entity(cid)
+    cctx = ce.get_component(StatsComponent).ctx
+    mines = [e for e in st.entities.values()
+             if (e.get_component(UnitComponent) or UnitComponent(visual_id="")).visual_id
+             and MINE_FRAGMENT in (e.get_component(UnitComponent).visual_id or "")]
+    assert mines, "aucune mine POSEE PAR LE PORT -- le bras ne mesure rien"
+    for e in mines:
+        mctx = e.get_component(StatsComponent).ctx
+        assert int(getattr(mctx, "passive_ability_level", 0) or 0) == \
+            int(getattr(cctx, "passive_ability_level", 0) or 0), \
+            "la mine ne porte pas le NIVEAU de passif du summoner (mode #174)"
+        assert int(getattr(mctx, "ability_variables_multiplier", 0) or 0) == \
+            int(getattr(cctx, "ability_variables_multiplier", 0) or 0), \
+            "la mine ne porte pas le MULTIPLICATEUR du summoner (mode #174)"
 
 
 def test_chaine_pose_ecrasement_explosion_repose(live_session, rpc, build_runner,
