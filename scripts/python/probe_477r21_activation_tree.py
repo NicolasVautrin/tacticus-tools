@@ -476,7 +476,7 @@ def effect_refresh_comparables(portes: List[dict], hors: List[dict]) -> dict:
         DONNEES FOURNIES. C'est ce que la tranche apporte ;
       * AUTONOMES : occurrences qu'un port produirait SANS entree copiee du flux. Il faudrait
         pour cela la SELECTION (quels effets, quel ordre -- `#477-r21-r2`) et l'ALLOCATION ECS
-        des identifiants d'effet (`#477-r21-r1`). Aucun des deux n'est porte.
+        des identifiants d'effet (`#477-r21-r3`). Aucun des deux n'est porte.
 
     #477-r19 avait annonce `System_StartMatch` comme debloqueur (42 / 147) et #477-r20 l'a
     REFUTE par la mesure (0 / 42). Le second chiffre ci-dessous est la meme grandeur, et il est
@@ -622,7 +622,7 @@ def imprimer(res: dict) -> None:
           "%d hors perimetre" % (GroupType.Effect_Refresh.name, eff["reproduits"],
                                  eff["hors_perimetre"]))
     print("      AUTONOMES (sans aucune entree copiee du flux) : %d -- il y faudrait la "
-          "SELECTION (`#477-r21-r2`) et l'ALLOCATION ECS des ids (`#477-r21-r1`)."
+          "SELECTION (`#477-r21-r2`) et l'ALLOCATION ECS des ids (`#477-r21-r3`)."
           % eff["autonomes"])
     print("  VOCABULAIRE du natif PORTE : %d GroupType, %d StepType, %d TagKey -- %s"
           % (len(res["voc_porte"]["GroupType"]), len(res["voc_porte"]["StepType"]),
@@ -726,8 +726,9 @@ def main() -> int:
               "l'EGALITE BRUTE, donnees fournies."
               % ("/".join(str(len(r["partition"]["portes"])) for r in resultats),
                  GroupType.Ability_Power.name, GroupType.Effect_Refresh.name))
-        print("  NON COUVERT : la SELECTION (`#477-r21-r2`) et l'ALLOCATION ECS des ids "
-              "(`#477-r21-r1`). `%s` AUTONOMES : %s -- mesure, pas deduite."
+        print("  NON COUVERT : les formes `ChangeStats` / `ChangeAbility` du bloc "
+              "(`#477-r21-r1`), la SELECTION (`#477-r21-r2`) et l'ALLOCATION ECS des ids "
+              "(`#477-r21-r3`). `%s` AUTONOMES : %s -- mesure, pas deduite."
               % (GroupType.Effect_Refresh.name,
                  "/".join(str(r["effect_refresh"]["autonomes"]) for r in resultats)))
     return rc

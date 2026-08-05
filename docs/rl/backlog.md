@@ -2644,28 +2644,69 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   aucun `PhaseType` ne nomme un revive. Il ne reste qu'a REECRIRE les deux commentaires.
   cf. `docs/rl/case-477r19-ancrage-process-removals.md` sec. 5 et 6, et
   `docs/rl/case-477r20-start-match.md` sec. 4 et 6.
+  ⚠ **LE CHEMIN COMPLET EST PORTE DEPUIS #477-r21, ET IL NE SUFFIT TOUJOURS PAS.** Les
+  `Ability_Power` / `Effect_Refresh` du bloc 1 de `System_StartMatch` sont reproduits a
+  l'EGALITE BRUTE (363/447, 392/491, 131/131 lignes ; 34/36/12 `Effect_Refresh`) -- mais
+  **0 AUTONOME**, mesure, parce que les VALEURS qu'ils portent viennent encore de l'oracle
+  (ids d'entite d'effet, selection, ordre). cf. `docs/rl/case-477r21-arbre-activation.md` sec. 5.
 
-- **#477-r21 : le CONTENU de `System_StartMatch` -- 474 / 518 lignes, et c'est ce qui bloque
-  vraiment `Effect_Refresh`.** `[opus]`
-  L'enveloppe est portee et confrontee (#477-r20 : 4 scenarios, egalite BRUTE 3/3, ancrage 4/4,
-  10 contre-epreuves), mais elle ne porte que **2 lignes sur 477**. Le contenu se ventile en TROIS
-  blocs, tous LUS dans `IdunBattle.Operations.StartMatchOperation$$Execute` :
-  (1) l'arbre `Ability_Power` / `Effect_Refresh` des DEUX appels
-  `EvaluateAbilities(GetMatchEntity(state), null, null, EventTriggerType.MatchInit /*25*/, null)`
-  puis `MatchStart /*26*/` -- 29/30 `Ability_Power`, 402/446 lignes ;
-  (2) `Action=PrepareTurn` + `Group=StartTurn` COMPLET, de
-  `ContinueTurnPhase(TurnStage.Start /*3*/, false, true)` -- meme slot et memes arguments que la
-  lambda de `Visit(StartTurnMessage)` ;
-  (3) le groupe `RarityCapTransform` (`StepType.PlayerInitialRarity`, tag `TagKey.Rarity`), emis
-  seulement si le joueur porte une rarete initiale -- JAMAIS exerce par nos montages.
-  CE QUE LE PORTER EXIGE, mesure : la face stream de `TriggerTriggeredAbilityOperation`, celle de
-  `IdunBattle.Operations.RefreshEffectsOperation$$GenerateEventGroup`, et l'ALLOCATION ECS des
-  entites d'effet (`Tag=Effect_Id`, 86/94 occurrences, valeurs 69..113) -- dont #477-r16 n'a porte
-  que le versant unites/tuiles.
-  RETOURNEMENT : un montage ou le contenu deviendrait VIDE. Mesure : il se reduit d'un facteur 3,7
-  avec un roster 2v2 (518 -> 139 lignes) mais NE S'ANNULE PAS -- le regime « groupe vide » qui
-  faisait la valeur du cran `System_ProcessRemovals` n'existe pas ici.
-  cf. `docs/rl/case-477r20-start-match.md` sec. 3, 4 et 5.
+- **#477-r21-r1 : les formes `ChangeStats` / `ChangeAbility` du bloc 1 de `System_StartMatch`.**
+  `[opus]`
+  84 lignes (`C1_02`) / 99 (`MC1_67`) / **0** (roster 2v2 crafte), soit 4 sous-arbres par board
+  ecartes EN ENTIER (jamais amputes ligne a ligne) parce qu'ils portent une forme que
+  `engine/streams/refresh_effects.py` ne produit pas. Trois motifs, nommes et comptes : deux
+  `ChangeStats` de `UnitStats_Movement_Modification*`, un de `UnitStats_FixedArmor_Modification*`,
+  et un `ChangeAbility` + `UnitStats_RemoveActiveAbility` (`TwistedScience`). Elles sortent
+  d'`Effect.ApplyModification` et de la transformation d'ability, pas de `RefreshEffectsOperation`.
+  RETOURNEMENT **DEJA MESURE** : sur le roster 2v2 ce residu vaut **0 ligne** -- c'est une
+  propriete du ROSTER, pas une limite du port.
+  cf. `docs/rl/case-477r21-arbre-activation.md` sec. 3.
+
+- **#477-r21-r2 : la SELECTION et l'ORDRE de l'arbre d'activation.** `[opus]`
+  Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.
+  C'est `AOperation.AbilityAndEffectCache.<slot 3>(trigger)` parcouru par
+  `IdunBattle.Operations.EvaluateTriggerOperation$$ExecuteInternal`, plus les gardes de
+  `IdunBattle.Operations.RefreshEffectsOperation` (`ShouldBeActive`, `GetTargetsToAdd`,
+  `GetTargetsToRemove`, `UpdateEffectTargets`) et les DEUX d'`EvaluateAbilityTrigger`
+  (`TriggeredAbilityComponent$$GetTimesTriggeredThisPhase(order) >= 0x33`, et le slot 2 de
+  l'ability). ⚠ **CE N'EST PAS UNE FACE STREAM** : contrairement aux quatre crans #477-r18..r21,
+  ce residu vit dans l'ETAT ECS -- le decouper comme un port d'emission serait une erreur de
+  cadrage. C'est le plus gros des trois residus de #477-r21.
+  cf. `docs/rl/case-477r21-arbre-activation.md` sec. 1 et 5.
+
+- **#477-r21-r3 : l'ALLOCATION ECS des entites d'EFFET.** `[opus]`
+  33 identifiants distincts sur `C1_02`, 35 sur `MC1_67`, 12 sur le roster 2v2 (valeurs 69..113
+  sur le flux temoin). `#477-r16` n'a porte que le versant unites / tuiles. C'est le verrou qui
+  rend un `Effect_Refresh` non AUTONOME **meme quand tout son chemin est emis** : le `Entity=` du
+  groupe et les `Tag=Effect_Id` de ses quatre formes d'action en dependent tous.
+  cf. `docs/rl/case-477r21-arbre-activation.md` sec. 4 et 5.
+
+- **#477-r22 : le BLOC 2 de `System_StartMatch` -- `Action=PrepareTurn` + le `Group=StartTurn`
+  COMPLET.** `[opus]`
+  27 lignes sur les deux boards par defaut, 8 sur le roster 2v2 : c'est la QUEUE que la decoupe
+  de #477-r21 isole (entre la premiere `Action=PrepareTurn` de profondeur 1 et le `Finish_Group`
+  racine), et la somme est deja confrontee a chaque run. Elle sort du DERNIER appel de
+  `IdunBattle.Operations.StartMatchOperation$$Execute` --
+  `processor.<slot 0x16>(TurnStage.Start /*3*/, false, true)`, c'est-a-dire `ContinueTurnPhase`,
+  MEME slot et MEMES trois arguments que la lambda `<Visit>b__20_0` de `Visit(StartTurnMessage)`.
+  ⚠ L'INTERET DEPASSE `System_StartMatch` : le meme slot produit tous les `Group=StartTurn` du
+  deroule, et #477-r19-r2 en compte **26** hors de ce groupe. Le bloc 2 est donc le seul des trois
+  dont le port se REUTILISE ailleurs.
+  Ce qu'il contient, LU sur le flux temoin : `Action=StartTurn` + `Tag=Match_PreviousPlayerId`,
+  puis des `Group=Effect_Refresh` (2 sur `C1_02`) que #477-r21 sait deja emettre, et un
+  `Group=Ability_Power` a `Action=Info` / `Tag=Custom_Data`.
+  cf. `docs/rl/case-477r20-start-match.md` sec. 1, et
+  `docs/rl/case-477r21-arbre-activation.md` sec. 7.
+
+- **#477-r23 : le groupe `RarityCapTransform`, LU mais JAMAIS exerce.** `[opus]`
+  `StepType.PlayerInitialRarity` (`0x3d`) dans un `Group=RarityCapTransform` (`0x2e`), emis par
+  `IdunBattle.Operations.StartMatchOperation$$Execute` **seulement** si le joueur humain porte une
+  rarete initiale (`Nullable.HasValue && Value > 0`). Son unique tag est la cle `0xd4`, que
+  `TagKey` NOMME `Rarity` -- le nom recoupe la lecture du fragment.
+  ⚠ **ABSENT DES CINQ FLUX TEMOINS** (aucun joueur du seed ne porte de rarete initiale non nulle) :
+  le porter sans montage serait speculatif. Le RETOURNEMENT est donc le prealable -- trouver ou
+  fabriquer un seed BC ou `GetPlayerOfType(state, 0)` rend un joueur a rarete initiale positive.
+  cf. `docs/rl/case-477r20-start-match.md` sec. 1 et 5.
 
 - **#477-r18-suite : les crans suivants du DEROULE, dans l'ordre chiffre par l'inventaire.** `[opus]`
   `User_PlaceUnit` est LIVRE (#477-r18-r5), `System_ProcessRemovals` aussi (#477-r19), et
