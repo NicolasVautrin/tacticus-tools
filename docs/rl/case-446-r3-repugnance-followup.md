@@ -34,14 +34,21 @@ trois dérivés porte **exactement 2 xrefs DATA** (table de méthodes + vtable),
 **dédupliqué** partagé par plusieurs classes — le faux négatif que le `CLAUDE.md` met en garde de tirer
 d'une absence de symbole ne s'applique pas ici, et c'est mesuré, pas supposé.
 
-### L'asymétrie qui piège : fold d'EXÉCUTION sans fold de PRÉDICTION
+### L'asymétrie qui piège : CLEAVE d'EXÉCUTION sans attribution de PRÉDICTION
 
 `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour` (la face COMBAT) existe pour **QUATRE**
 abilities : `Boltstorm`, `RighteousRepugnance`, **`Fealty`** et **`TalonOfHorus`**. Mais
 `$$GetAdditionalDamagePrediction` n'existe **que pour les deux premières**, et ni `Fealty` ni
-`TalonOfHorus` ne portent de `$$PredictAttack`. Ces deux-là foldent donc **en combat et pas en
-décision** — quirk natif. Les inscrire au registre par analogie serait un fork de port ; le bloc de
-registre le dit désormais en toutes lettres.
+`TalonOfHorus` ne portent de `$$PredictAttack`. Les inscrire au registre par analogie serait un fork
+de port ; le bloc de registre le dit désormais en toutes lettres.
+
+⚠ **Ce que cette asymétrie est vraiment** — établi et CONFRONTÉ LIVE par `#446-r3b`
+(`case-446-r3b-fealty-talon-asymetrie.md`) : l'unique consommateur de
+`$$GetAdditionalDamageBehaviour` est `$$GetAdditionalTargetsAttackBehavior`, dont la cible est une
+cible **ADDITIONNELLE** — jamais la cible primaire. La face COMBAT est donc un **CLEAVE**, pour les
+QUATRE. Ce que les deux premières font EN PLUS, c'est **attribuer** un paquet à la cible PRIMAIRE en
+prédiction (l'approximation que ce registre mirrore). Le cleave lui-même n'est porté nulle part côté
+COMBAT — résidu `#478`.
 
 ## 2. Le piège de la tranche, et comment il est désamorcé
 
@@ -160,11 +167,13 @@ lui aussi (deux sources indépendantes ; Ghazghkull n'est pas au catalogue). Le 
 * **`#446-r3a` — le mold klaw (`ProperKilly`) reste NON CONFRONTÉ.** Correction posée sur lecture du
   décompilé ; zéro porteur dans ce build, donc inatteignable par toute mesure. À rejouer au prochain
   build qui introduirait Ghazghkull au catalogue.
-* **`#446-r3b` — `Fealty` (1512) et `TalonOfHorus` (1205) foldent en COMBAT sans folder en
-  DÉCISION.** L'asymétrie est lue au décompilé (`GetAdditionalDamageBehaviour` sans
-  `GetAdditionalDamagePrediction` ni `PredictAttack`) mais **non confrontée live** : personne n'a
-  vérifié que la face COMBAT de ces deux-là est portée, ni que la face DÉCISION reste bien sans fold
-  sur un porteur réel. C'est un mirror à garder, pas un trou à combler.
+* ~~**`#446-r3b`**~~ — **CONFRONTÉ LIVE, mirror ATTESTÉ (2026-08-05)** :
+  `case-446-r3b-fealty-talon-asymetrie.md`. La face DÉCISION de `Fealty` (1512) et `TalonOfHorus`
+  (1484) s'accorde **exactement** au natif, et le discriminant mord (greffer le fold « par
+  cohérence » déplace le port de `+2700/+4050/+3 coups` et `+1953/+2931/+3`). La face COMBAT native
+  inflige bien le dégât additionnel (**3104** / **3632** PV sur la cible adjacente au caster et à la
+  cible) — mais c'est un **CLEAVE**, pas un fold, et il n'est porté pour AUCUNE des quatre
+  (résidu **`#478`**).
 * **Le playbook TRIGGERED `RighteousRepugnance` (`TriggeredAbilityType` **1107**) n'est toujours pas
   porté** — il est l'un des 13 résidus ATTACK de `#419-r1`, et **cette tranche ne le touche pas**.
   Conséquence directe : `pairUtility` sur `adeptMorvenn` porte encore l'écart de ce terme, et c'est

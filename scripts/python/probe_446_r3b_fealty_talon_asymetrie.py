@@ -162,22 +162,53 @@ def find_layout(elev: dict, playable: set) -> dict | None:
 
 # --------------------------------------------------------------------------- build
 
-def build(state_file: str, board: str, seed: str, lay: dict, extra: list[str]) -> int:
-    grafts = [f"{v}:PassiveAbilities=[{pid}],Health={HP},RemainingHealth={HP}"
-              if graft else f"{v}:Health={HP},RemainingHealth={HP}"
-              for (v, _n, pid, _aid, _f, graft) in CARRIERS]
-    grafts += [f"{v}:Health={HP},RemainingHealth={HP}" for v in (TARGET, ADDT)]
+def write_seed_bc(out_path: str) -> str:
+    """Le seed BC du montage : la GREFFE des deux passifs, par le foyer `catalog_inject`.
+
+    ⚠ `--unit-stat "X:PassiveAbilities=[<id>]"` NE SUFFIT PAS, et le croire coute une mesure : il
+    n'ecrit QUE `BC.Units[].PassiveAbilities`. Or `Fealty` et `TalonOfHorus` sont **absentes de
+    `BC.Abilities.PassiveAbilities`** du seed (leurs porteurs de catalogue sont un npc et la voie
+    ITEM, donc `refresh_ability_configs` ne les derive pas non plus -- MESURE, pas supposition).
+    La face DECISION s'en moque (`PredictAttack` ne lit aucune config), mais la face COMBAT lit
+    `AbilityConfiguration$$GetVariableForLevel(0xc/0xd)` dans
+    `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour` : config nulle -> exception managee ->
+    « system error » au cast, MEME verrou que #226/#237. MESURE du premier passage de ce probe :
+    l'attaque PRIMAIRE passe (2493 PV retires) puis le cleave FAUTE -- ce qui prouve au passage que
+    le natif entre bien dans la branche cleave en melee, mais rend la mesure inexploitable.
+    `graft_passive_ability` fait les DEUX ecritures."""
+    import catalog_inject
+    import probe_380_seed_bc_patch_survival as P380
+    specs = [f"{v}:{n}" for (v, n, _p, _a, _f, graft) in CARRIERS if graft]
+    p, reports = catalog_inject.write_grafted_seed_bc(out_path, specs)
+    for r in reports:
+        if not r.get("unitsPatched"):
+            raise MontageError(f"greffe NON INSTALLEE : {r}")
+    P380.assert_survives(str(p))
+    return str(p)
+
+
+def build_args(lay: dict, bc_path: str, board: str = BOARD) -> list[str]:
+    """Les arguments `rl_duel build` du montage -- FOYER UNIQUE, partage par le probe et par la
+    garde jumelle (elle passe par la fixture `build_runner`, qui gere son propre state-file)."""
+    hp = [f"{v}:Health={HP},RemainingHealth={HP}"
+          for v in [c[0] for c in CARRIERS] + [TARGET, ADDT]]
     places = []
     for v, _n, _p, _a, _f, _g in CARRIERS:
         c, r = lay["C"][v]
         places += ["--place", f"{v}:{c},{r}"]
     for v, tile in ((TARGET, lay["T"]), (ADDT, lay["A"])):
         places += ["--a-place", f"{v}:{tile[0]},{tile[1]}"]
-    argv = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
-            "--state-file", state_file,
+    return ["--board", board, "--seed-bc", bc_path,
             "--p-units", ",".join(v for v, *_ in CARRIERS),
             "--a-units", f"{TARGET},{ADDT}",
-            *places, "--unit-stat", ";".join(grafts), *extra]
+            *places, "--unit-stat", ";".join(hp)]
+
+
+def build(state_file: str, board: str, seed: str, lay: dict, extra: list[str]) -> int:
+    bc_path = os.path.splitext(state_file)[0] + ".seedbc.json"
+    write_seed_bc(bc_path)
+    argv = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--state-file", state_file,
+            *build_args(lay, bc_path, board), *extra]
     p = subprocess.run(argv, cwd=_HERE, capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if p.returncode != 0:
@@ -363,13 +394,22 @@ def verdict_decision(rows: dict) -> list[str]:
 # --------------------------------------------------------------------------- volet COMBAT
 
 def _hp(rpc, rid) -> dict:
+    """PV par `visualId`. ⚠ La cle est le VISUALID, pas l'id : `observeBattle` indexe par
+    `entityId` (78, 84, 86...) tandis que `decisionView` rend le `squadId` (77, 83, 85...) --
+    croiser les deux directement rend un dict de deltas NULS qui se lit comme « rien n'a bouge ».
+    Mesure du premier passage : l'attaque avait bien retire 2493 et 3104 PV, sur `u84`/`u86`, alors
+    que les cibles etaient nommees `u83`/`u85`. Les visualIds du montage sont UNIQUES (verifie)."""
     ob = rpc("observeBattle", {"runnerId": rid}, 60) or {}
-    out = {}
+    out, seen = {}, set()
     for u in (ob.get("units") or []):
-        i = u.get("id") if u.get("id") is not None else u.get("unitId")
-        h = u.get("health") if u.get("health") is not None else u.get("hp")
-        if i is not None and h is not None:
-            out[int(i)] = int(h)
+        v, h = u.get("visualId"), u.get("hp")
+        if v is None or h is None:
+            continue
+        if v in seen:
+            raise MontageError(f"visualId {v} en double dans observeBattle -- la cle de PV ne "
+                               f"discrimine plus les unites")
+        seen.add(v)
+        out[v] = int(h)
     if not out:
         raise MontageError(f"observeBattle ne rend aucun PV lisible : {str(ob)[:200]}")
     return out
@@ -382,18 +422,20 @@ def measure_combat(rpc, st: dict, vis: str) -> dict:
     inflige bien le degat du cleave -- ce que le port, lui, ne modelise NULLE PART (son unique
     vecteur d'attaque normale est `damage_ops._Normal.execute(attacker, target)`, MONO-cible)."""
     c = st["cases"][vis]
-    tgt, add = st["uid"][TARGET], st["uid"][ADDT]
     before = _hp(rpc, st["rid"])
     res = rpc("applyAction", {"runnerId": st["rid"], "captureEvents": True,
                               "action": {"kind": "ability", "casterId": c["uid"],
-                                         "targetId": tgt, "abilityType": c["ab"]}}, 120) or {}
-    if res.get("ok") is False or res.get("error"):
-        raise MontageError(f"cast live REFUSE pour {vis} : {str(res)[:300]}")
+                                         "targetId": st["uid"][TARGET],
+                                         "abilityType": c["ab"]}}, 120) or {}
+    acts = (res.get("actions") or [{}])[0]
+    if res.get("ok") is False or acts.get("ok") is False or acts.get("error"):
+        raise MontageError(f"cast live REFUSE pour {vis} : {str(res)[:400]}")
     after = _hp(rpc, st["rid"])
-    dmg = {i: before.get(i, 0) - after.get(i, 0) for i in before if before.get(i, 0) != after.get(i, 0)}
-    return {"vis": vis, "ability": c["ab"], "primaire": before.get(tgt, 0) - after.get(tgt, 0),
-            "additionnelle": before.get(add, 0) - after.get(add, 0),
-            "tous_deltas": dmg, "uid_primaire": tgt, "uid_additionnelle": add}
+    dmg = {v: before[v] - after.get(v, 0) for v in before if before[v] != after.get(v, 0)}
+    return {"vis": vis, "ability": c["ab"],
+            "primaire": before.get(TARGET, 0) - after.get(TARGET, 0),
+            "additionnelle": before.get(ADDT, 0) - after.get(ADDT, 0),
+            "tous_deltas": dmg}
 
 
 def port_cleave_sites() -> list[str]:
@@ -402,9 +444,14 @@ def port_cleave_sites() -> list[str]:
     recensement le voit."""
     import re
     root = os.path.join(_HERE, "engine", "runner")
-    pat = re.compile(r"GetAdditionalTargets|GetAdditionalTargetsAttackBehavior"
-                     r"|GetAdditionalDamageBehaviour|Execute(Fealty|TalonOfHorus"
-                     r"|RighteousRepugnance|Boltstorm)")
+    # Perimetre : les symboles du CLEAVE **de cette famille** uniquement. `GetAdditionalTargets`
+    # NU est un nom partage par d'autres abilities (`MalleusRocketLauncher`,
+    # `HarbingerOfDestruction`) deja portees -- le qualifier evite un faux positif.
+    fam = "(Fealty|TalonOfHorus|RighteousRepugnance|Boltstorm)"
+    pat = re.compile(fam + r"\w*(Ability)?\$\$(GetAdditionalTargets"
+                     r"|GetAdditionalTargetsAttackBehavior|GetAdditionalDamageBehaviour)"
+                     r"|\$\$Execute" + fam
+                     + r"|execute_(fealty|talon_of_horus|righteous_repugnance|boltstorm)_cleave")
     hits = []
     for base, _d, files in os.walk(root):
         for f in files:
@@ -474,9 +521,13 @@ def main() -> int:
         for v in CLEAVERS:
             m = measure_combat(rpc, st, v)
             print(f"  [{v:<13} ability {m['ability']}] PV perdus : "
-                  f"cible PRIMAIRE u{m['uid_primaire']} = {m['primaire']} | "
-                  f"cible ADDITIONNELLE u{m['uid_additionnelle']} = {m['additionnelle']}")
+                  f"cible PRIMAIRE {TARGET} = {m['primaire']} | "
+                  f"cible ADDITIONNELLE {ADDT} = {m['additionnelle']}")
             print(f"      tous les deltas de PV = {m['tous_deltas']}")
+            if m["additionnelle"] <= 0:
+                print(f"  [ECHEC] {v} : la cible ADDITIONNELLE ne perd AUCUN PV -- le cleave natif "
+                      f"n'a pas eu lieu, la face COMBAT n'est PAS mesuree")
+                rc |= 2
     print(f"  (runner {rid} -- pense a le disposer)")
     return rc
 

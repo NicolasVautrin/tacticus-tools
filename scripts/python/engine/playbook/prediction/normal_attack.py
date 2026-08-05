@@ -51,12 +51,26 @@ from engine.services.custom_normal_attack import substitutes_normal_attack
 #    Prediction IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$GetKlawAttack1HitPrediction`. Ghazghkull — ZERO porteur dans ce
 #    build (`unit_map find --ability ProperKilly` = 0 sur les 5 voies, ET balayage direct de tous les
 #    `all_unit_ids()` du gameconfig = 0) : registre INERTE, mold NON CONFRONTABLE.
-# ⚠ FOLD D'EXECUTION SANS FOLD DE PREDICTION — asymetrie NATIVE a ne PAS « corriger » :
+# ⚠ CLEAVE D'EXECUTION SANS ATTRIBUTION DE PREDICTION — asymetrie NATIVE a ne PAS « corriger »
+#    (#446-r3b, CONFRONTE LIVE : `docs/rl/case-446-r3b-fealty-talon-asymetrie.md`) :
 #    `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour` existe pour QUATRE abilities
 #    (`Boltstorm`, `RighteousRepugnance`, `Fealty`, `TalonOfHorus`), mais
 #    `$$GetAdditionalDamagePrediction` n'existe que pour les DEUX premieres, et ni `Fealty` ni
-#    `TalonOfHorus` ne portent de `$$PredictAttack`. Elles foldent donc en COMBAT et PAS en
-#    DECISION. Les inscrire au registre par analogie serait un fork de port.
+#    `TalonOfHorus` ne portent de `$$PredictAttack`.
+#    ⚠ CE QUE CETTE ASYMETRIE EST VRAIMENT — l'image du « fold en combat » est FAUSSE, et elle
+#    egare : l'UNIQUE consommateur de `$$GetAdditionalDamageBehaviour` est
+#    `<X>_NormalAttackAbility$$GetAdditionalTargetsAttackBehavior`, dont la cible est une cible
+#    **ADDITIONNELLE** (`Execute<X>` -> `IdunBattleLogic.Entities.DSLBehaviors$$Foreach` sur
+#    `<X>Ability$$GetAdditionalTargets`), jamais la cible PRIMAIRE. La face COMBAT est donc un
+#    **CLEAVE**, pour LES QUATRE. Ce que les deux premieres font EN PLUS, c'est ATTRIBUER un paquet
+#    de degat additionnel a la cible PRIMAIRE en PREDICTION — l'approximation que ce registre
+#    mirrore. Le texte i2 le dit aussi : `RighteousRepugnance` porte la clause « **to the target**
+#    and to all enemy units adjacent to both [...] », `TalonOfHorus` ne la porte PAS.
+#    Inscrire `Fealty`/`TalonOfHorus` ici par analogie serait un fork de port : MESURE, la greffe
+#    ajoute `+2700/+4050/+3 coups` a `Fealty` et `+1953/+2931/+3` a `TalonOfHorus`, et le cliquet
+#    `tests/engine/test_446_r3b_fealty_talon_live.py` ROUGIT.
+#    ⚠ Le CLEAVE lui-meme n'est porte NULLE PART cote COMBAT (0 site dans `engine/runner/**`) —
+#    residu `#478`, ecart mesure 3104 / 3632 PV.
 # Cle de dispatch = le PASSIF de l'ENTITE (`UnitConfiguration.PassiveAbilities`, lu par
 # `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromPassive` ; l'instance
 # native lit SA config = celle du passif). Le KIT gameconfig n'en est plus que le REPLI quand le
