@@ -504,8 +504,11 @@ export interface ReadEffectsOpts {
      *  non-posé ou posé-inactif ? C'est ce qui a forcé #127 à replier le gate
      *  d'activation de l'overwatch dans le `matches` du tir, faute de pouvoir
      *  distinguer les deux. Avec `includeInactive`, la distinction est LUE, et
-     *  le repli peut se déplier à son vrai étage. Les effets RETIRÉS (`Removed`)
-     *  restent filtrés dans les deux cas — ils ne sont plus là, point. */
+     *  le repli peut se déplier à son vrai étage.
+     *
+     *  Les effets RETIRÉS (`Removed`) restent filtrés dans les deux cas, et ce
+     *  filtre-là est REDONDANT — pas un choix : il est INATTEIGNABLE. Mesuré au
+     *  décompilé (#425-r3, build `rnca9r7q6c`), cf. `readEffectsByUnit` ci-dessous. */
     includeInactive?: boolean;
 }
 
@@ -529,6 +532,22 @@ export function readEffectsByUnit(
             // Drop effects owned but NOT applying (inactive / removed) — e.g. an
             // aura whose target is currently out of range. Default-keep on a
             // read failure (active=true) so we never silently hide a real effect.
+            //
+            // ⚠ Ce `removed` est REDONDANT ICI, et c'est MESURÉ (#425-r3) — la
+            // condition ne peut pas être vraie pour un `eid` venu de
+            // `ActiveEffectIds`. `IdunBattle.Operations.RemoveEffectOperation$$Execute`
+            // fait `List.Remove` sur `EffectsOwnedComponent.ActiveEffectIds` de
+            // l'entité `EffectComponent.OwnerId` (+0x14) AVANT de poser
+            // `EffectComponent.Removed` (+0x5f), dans le MÊME bloc conditionnel :
+            // au moment où `Removed` vaut 1, l'id a déjà quitté la liste. Et
+            // l'appariement est exact — `…AddEffectOperation$$AddNewEffect` écrit
+            // `OwnerId` puis fait `List.Add` sur CETTE MÊME entité.
+            // Ce foyer est le SEUL écrivain de `Removed` : scan des 44,6 Mo de code
+            // du build (`probe_425r3_removed_writers.py`) — 40 sites d'écriture d'un
+            // octet à +0x5f dans 21 fonctions, une seule touchant un `EffectComponent`.
+            // ⚠ NE PAS en déduire que tout filtre `removed` est superflu : celui de
+            // `readRoundCapClock` est LOAD-BEARING (il itère les entités, pas une
+            // liste possédée). Cf. sa note.
             if (info && info.removed) continue;
             if (info && !info.active && !includeInactive) continue;
             effs.push(toInfo(eid, info));
@@ -559,6 +578,9 @@ export function readEffectsByTile(
         const effs: EffectInfo[] = [];
         for (const eid of ids) {
             const info = byId.get(eid);
+            // `removed` REDONDANT ici pour la même raison que dans `readEffectsByUnit`
+            // (même structure lue : `EffectsOwnedComponent.ActiveEffectIds`, que
+            // `IdunBattle.Entities.Blueprints$$Tile` attache à TOUTE tuile). #425-r3.
             if (info && info.removed) continue;
             if (info && !info.active && !includeInactive) continue;
             effs.push(toInfo(eid, info));
@@ -589,7 +611,18 @@ export interface RoundCapClock {
 /** Scan every Effect entity (Type=3) for the round-cap bombardment telegraph and
  * report the SOONEST RemainingTurns. Owner-agnostic (the board effect is not in
  * any unit's owned list) — the only reliable in-view round-cap clock. Returns
- * null when no round-cap effect is active. */
+ * null when no round-cap effect is active.
+ *
+ * ⚠ Le `info.removed` du filtre ci-dessous est LOAD-BEARING — contrairement à ses
+ * homonymes de `readEffectsByUnit` / `readEffectsByTile`, qui sont redondants
+ * (#425-r3). La différence est STRUCTURELLE, pas de style : cette fonction itère
+ * les ENTITÉS (`forEachEntity`), pas une `ActiveEffectIds`. Or
+ * `IdunBattle.Operations.RemoveEffectOperation$$Execute` retire l'id de la liste
+ * possédée mais NE DÉTRUIT PAS l'entité — mesuré live (`probe_425r3_removed_witness.py`,
+ * `MC1_67`/777) : 6 effets ont quitté une liste possédée en restant des entités
+ * VIVANTES, et 10 à 16 entités Effect orphelines coexistent à chaque relevé.
+ * Un `EnvEndBombardment` retiré serait donc encore vu ici. Retirer ce filtre
+ * ferait lire une horloge périmée. */
 export function readRoundCapClock(statePtr: NativePointer): RoundCapClock | null {
     let name: string | null = null;
     let effectType = -1;

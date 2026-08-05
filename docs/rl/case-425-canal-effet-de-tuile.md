@@ -98,10 +98,15 @@ côtés). Corrigé, et figé par un test.
   entre les deux appels est **VIDE** — le gisement est nul sur ce régime, donc non mordant *ici*.
   Fermer = un montage portant un effet de tuile dont l'`ActiveCondition` est fausse tout en restant
   dans la liste possédée (candidat : la zone NON MARCHABLE de `1148 DaemonicOrdnance`, #368).
-* **`#425-r2` — `readEffectsByTile` jette `removed` inconditionnellement**, y compris sous
-  `includeInactive`. Redondant avec le natif *si* `RemoveEffectOperation` retire toujours l'id de
-  la liste possédée — **non vérifié au décompilé**. Si un effet pouvait rester dans la liste avec
-  `Removed = true`, le port le perdrait alors que le natif le compterait (même mécanique que r1).
+* ~~**`#425-r2` — `readEffectsByTile` jette `removed` inconditionnellement**~~ — **FERMÉ
+  (2026-08-05, `#425-r3`)**. Le natif retire **toujours** : `RemoveEffectOperation$$Execute` fait
+  `List.Remove` sur `EffectsOwnedComponent.ActiveEffectIds` de l'entité `OwnerId` **avant** de
+  poser `Removed`, dans le **même bloc** — la condition du filtre est donc **inatteignable** pour
+  un id venu de cette liste, et il ne peut rien perdre. Seul écrivain de `Removed` sur le build
+  (scan des 44,6 Mo de code : 40 sites à +0x5f, 21 fonctions, **1** sur un `EffectComponent`).
+  ⚠ **Ne pas généraliser** : le filtre `removed` de `readRoundCapClock` est **LOAD-BEARING** —
+  il itère les entités, pas une liste possédée, et le natif **ne détruit pas** l'entité retirée.
+  Détail : `case-425-r3-filtre-removed-redondant.md`.
 * Les résidus **#448-r1 §6** (les deux abilities restent NON PORTÉES : vecteur `On(0x28)`,
   `PerformAIMovementBehaviour$$Execute`, `OverrideMovementTargetOperation$$Execute`,
   `FullThrottle` 1134) sont **inchangés** — #425 ne portait rien, il tranchait un canal.
