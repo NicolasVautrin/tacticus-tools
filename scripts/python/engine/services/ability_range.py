@@ -49,9 +49,11 @@ import hexgeo
 
 from . import ability_caster_gates as acg
 from . import movement_query as MQ
-from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS, RANGED_BOOL_FALSE,
-                                          RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE,
-                                          TargetingRange, unit_weapon_range)
+from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS,
+                                          NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE,
+                                          RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER,
+                                          RANGED_BOOL_TRUE, TargetingRange, unit_weapon_range)
+from ..runner.abilities.targeting_rule import TargetingRule as TR
 
 
 def _options_of(ability_id):
@@ -363,23 +365,185 @@ def tiles_in_range_reach(ability_id, visual_id) -> int | None:
     ⚠ Ce `None` sur portee NON OBSERVABLE est CORRECT ici et ne doit PAS etre aligne sur le tri-etat
     de `get_range` : la valeur est lue AVANT `OnlyAdjacent`, donc sans elle on ne sait pas quelle
     branche prendre. Un cran de test l'interdit (#419-r1-tr14-r5-r2-r1-r2-r1-r1 §3)."""
-    rng = targeting_range_of(ability_id)
+    terms = _range_terms(targeting_range_of(ability_id), ability_id, visual_id)
+    if terms is None:
+        return None
+    value, only_adjacent, use_whole_board = terms
+    if use_whole_board:
+        return WHOLE_BOARD_REACH
+    if value is None:
+        return None
+    if int(value) == 0:
+        return 0                                      # `(int)range == 0` -> `casterTiles`, AVANT `OnlyAdjacent`
+    return 1 if only_adjacent else int(value)
+
+
+def _range_terms(rng, ability_id, visual_id):
+    """Les TROIS termes que `TargetingQuery$$GetRange` rend, dans l'ordre natif de leur resolution :
+    `((int)range, Range.OnlyAdjacent, Range.UseWholeBoard)`.
+
+    FOYER UNIQUE de la resolution de la portee : `tiles_in_range_reach` (le RAYON) et
+    `tiles_in_range_zone_contains` (l'ENSEMBLE) le partagent, sinon ils seraient deux sources pour
+    la meme lecture -- exactement le fork que `#433-r4-r2-r1-r2-r2-r1-r1` a supprime entre la table
+    de portee et les masques.
+
+    `None` (le triplet entier) = `TargetingRange` non RE-lu ou `OverrideRangeFunc` pose. Un `value`
+    a `None` DANS le triplet = portee non observable, mais les deux autres termes valent.
+
+    `UseWholeBoard` court-circuite : `GetRange` rend `{ Range = 1, OnlyAdjacent = false,
+    UseWholeBoard = true }` sans evaluer ni `only_adjacent` ni la portee d'arme."""
     if rng is None or rng.override_range_func:
         return None
     if rng.use_whole_board:
-        return WHOLE_BOARD_REACH
+        return (1, False, True)
     ov = rng.override_range
     if ov is None and rng.use_range_from_config:
         ov = _config_range(ability_id)
-        if ov is None:
-            return None
-    if ov is None:
+    if ov is None and not rng.use_range_from_config:
         ov = unit_weapon_range(visual_id, None)       # `stats` absent -> ExtraRange = 0 (cf. mirror)
-        if ov is None:
-            return None                               # `!HasAnyWeapon` -> `GetStat(Range)`, non observable
-    if int(ov) == 0:
-        return 0                                      # `(int)range == 0` -> `casterTiles`, AVANT `OnlyAdjacent`
-    return 1 if _ranged_bool_is_true(rng.only_adjacent, visual_id) else int(ov)
+    only_adjacent = _ranged_bool_is_true(rng.only_adjacent, visual_id)
+    return (None if ov is None else int(ov), only_adjacent, False)
+
+
+# ------------------------------------------------------------------------------------------------
+# L'ENSEMBLE de `GetTilesInRange`, la ou `tiles_in_range_reach` n'en rend que le RAYON
+# (#433-r4-r2-r1-r2-r2-r1-r1-r1)
+#
+# Un rayon ne peut pas dire si la tuile du CASTER est dans la zone : `d <= reach` inclut toujours
+# `d = 0`. Le natif, lui, la traite branche par branche -- et c'est le PARAMETRE de la branche, pas
+# une regle globale, qui decide. Cascade relue a l'octet sur
+# `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange`, avec le SLOT `IBattleQuery` de chaque
+# branche generatrice et sa signature :
+#
+#   (int)range < 0            -> `OrderedSet` VIDE
+#   range.UseWholeBoard       -> <slot 0x69> `GetAllTiles()`                      -- INCLUT tout
+#   (int)range == 0           -> `rules >> 0xf & 1` ? `new OrderedSet(casterTiles)` : VIDE
+#   range.OnlyAdjacent        -> <slot 0x51> `BattleQuery$$GetAdjacentTiles(casterTiles,
+#                                  onlyEmptyOrSteppable: false, onlyWalkableTiles: !bit43,
+#                                  allowTemporary: true)`                         -- EXCLUT toujours
+#   rules & TargetIsAtRange   -> <slot 0x64> `BattleQuery$$GetTilesAtDistance(casterTiles,
+#                                  (int)range, onlyEmptyOrSteppable: false)`      -- ANNEAU `d == v`
+#   sinon                     -> <slot 0x67> `BattleQuery$$GetSurroundingTiles(casterTiles,
+#                                  (int)range, onlyEmptyOrSteppable: false, onlyWalkable: !bit43,
+#                                  onlyMovable: false, includeCenter: `rules >> 0xf & 1`)`
+#
+# Les slots sont attribues par la SIGNATURE de leur surcharge (6 parametres nommes
+# `center/distance/onlyEmptyOrSteppable/onlyWalkable/onlyMovable/includeCenter` pour `0x67`, 3 pour
+# `0x64`, 4 pour `0x51`), pas par un comptage a l'oeil. `includeCenter` est le SEUL parametre qui
+# rende la tuile source : `BattleQuery.u003CIterateSurroundingTilesu003Ed__117$$MoveNext` delegue a
+# `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`, dont le
+# triple balayage en coordonnees CUBE (`x+y+z == 0`, chaque axe dans `[c-d, c+d]` = le disque hex)
+# ne garde une tuile que si `includeCenter || tile != center` ; et la surcharge LISTE
+# (`BattleQuery$$GetSurroundingTiles`, celle que prend `casterTiles`) RE-filtre en plus le resultat
+# par `ListExtensions$$FilterInPlace` sur la liste des centres quand `includeCenter` est faux.
+#
+# ⚠ ET LA CASCADE N'EST PAS LE DERNIER MOT. `TargetingQuery$$GetPossibleTargetsForOptions` --
+# l'appelant que `GetPossibleTargetTiles` emprunte -- RE-AJOUTE `casterTiles` juste apres, par DEUX
+# fois et avant les trois `RemoveAll` :
+#
+#     tiles = GetTilesInRange(...)
+#     if (rules >> 0xf & 1)        tiles.<IOrderedSet slot 0>(casterTiles)   // CasterIsPossibleTarget
+#     if (rules & 0x200000000000000) tiles.<IOrderedSet slot 0>(casterTiles) // TargetIsCasterOrEnemy
+#
+# Le slot 0 est un AJOUT, et c'est une LECTURE, pas une deduction de nom :
+# `IdunBattle.Core.Services.MovementQuery$$GetMovablePositionsFor` l'invoque sur le meme couple
+# (interface, receveur) avec `EntityExtensions$$IterateTiles(unit)` -- le movable set d'une unite
+# CONTIENT sa tuile courante, donc le slot ne peut pas etre un retrait. Le slot 1 de la meme
+# interface est `RemoveAll(Predicate<T>)`, celui du filtre de walkability.
+#
+# CONSEQUENCE, et c'est la reponse a « la regle n'est pas uniforme » : elle l'est au niveau du
+# CONSOMMATEUR. La tuile du caster est dans la zone ssi `UseWholeBoard`, ou `CasterIsPossibleTarget`,
+# ou `TargetIsCasterOrEnemy` -- les branches `(int)range == 0` et `GetSurroundingTiles` lisent le
+# MEME bit 15 que le premier ajout, elles n'en sont pas des exceptions. `OnlyAdjacent` et
+# `TargetIsAtRange`, eux, ne rendent JAMAIS la source d'eux-memes : seul l'ajout aval l'y remet.
+#
+# PORTEE DE CE MIRROR, mesuree sur les 140 masques lus : `CasterIsPossibleTarget` = 17 porteurs,
+# `TargetIsCasterOrEnemy` = 2 (19 en tout), et **AUCUN** des 18 profils d'attaque normale. Le bit
+# `TargetIsAtRange` a **0** porteur : sa branche est un mirror STRUCTUREL, NON CONFRONTE -- si elle
+# se met a mordre, c'est qu'une ability neuve a ouvert le regime, et il faut alors la confronter.
+#
+# ⚠ REGIME COUVERT : `casterTiles` est le SINGLETON `{GetMainTile(unit)}` (cf.
+# `is_tile_in_range_of_any_ability`). Pour un caster MULTI-TUILES, `GetAdjacentTiles` versrait les
+# tuiles du caster adjacentes entre elles -- hors regime, et deja couvert par le `feet_count > 1`
+# qui rend `True` inconditionnellement en amont.
+# ------------------------------------------------------------------------------------------------
+
+
+def _bit(rules, bit) -> bool:
+    """`(rules >> n & 1) != 0` -- `False` quand le masque n'est PAS LU, meme convention permissive
+    que le reste du module."""
+    return rules is not None and bool(int(rules) & int(bit))
+
+
+def _zone_contains_distance(rules, value, only_adjacent: bool, use_whole_board: bool,
+                            distance) -> bool | None:
+    """La zone de `GetTilesInRange` PUIS les deux `AddRange(casterTiles)` de
+    `GetPossibleTargetsForOptions`, evaluees a la DISTANCE `distance` d'un caster SINGLETON.
+
+    `value` = `(int)range`, la valeur rendue par `TargetingQuery$$GetRange` (jamais le rayon
+    EFFECTIF : `OnlyAdjacent` est un champ separe, cf. `Range`). `None` = portee non decidable ->
+    la fonction rend `None`, sauf si l'ajout aval mord (le caster est ajoute quelle que soit la
+    portee)."""
+    d = int(distance)
+    if use_whole_board:
+        in_range = True                                   # <slot 0x69> `GetAllTiles()`
+    elif value is None:
+        in_range = None                                   # portee non decidable
+    elif int(value) < 0:
+        in_range = False                                  # `OrderedSet` VIDE
+    elif int(value) == 0:
+        in_range = d == 0 and _bit(rules, TR.CasterIsPossibleTarget)
+    elif only_adjacent:
+        in_range = d == 1                                 # <slot 0x51>, EXCLUT `casterTiles`
+    elif _bit(rules, TR.TargetIsAtRange):
+        in_range = d == int(value)                        # <slot 0x64>, ANNEAU
+    else:                                                 # <slot 0x67>, `includeCenter` = bit 15
+        in_range = d <= int(value) and (d != 0
+                                        or _bit(rules, TR.CasterIsPossibleTarget))
+    if d == 0 and (_bit(rules, TR.CasterIsPossibleTarget)
+                   or _bit(rules, TR.TargetIsCasterOrEnemy)):
+        return True                                       # les deux ajouts, APRES `GetTilesInRange`
+    return in_range
+
+
+def tiles_in_range_zone_contains(ability_id, visual_id, distance) -> bool | None:
+    """`GetTilesInRange(ability).Contains(tile)` pour une tuile a `distance` du caster -- le pendant
+    ENSEMBLISTE de `tiles_in_range_reach`, qui n'en rend que le rayon.
+
+    Meme cascade, meme ordre, meme resolution de la portee (c'est `tiles_in_range_reach` qui la
+    porte) : la valeur `(int)range` est re-derivee ici par le MEME chemin, et les deux fonctions
+    restent d'accord par construction -- `tiles_in_range_reach` est la borne SUPERIEURE de cet
+    ensemble, jamais une seconde source.
+
+    `None` = « le port ne sait pas decider », exactement les trois cas de `tiles_in_range_reach`."""
+    terms = _range_terms(targeting_range_of(ability_id), ability_id, visual_id)
+    if terms is None:
+        return None
+    opts = _options_of(ability_id)
+    return _zone_contains_distance(getattr(opts, "rules", None) if opts is not None else None,
+                                   terms[0], terms[1], terms[2], distance)
+
+
+def normal_attack_zone_contains(normal_attack_id, visual_id, distance) -> bool | None:
+    """La meme zone, pour le terme `includeNormalAttack: true` de
+    `AttackQuery$$GetAllTilesInAbilityRange`.
+
+    Les options sont celles de SON type (`NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE`, defaut = le
+    generique `69`) -- masque ET portee : le profil `69` porte `RANGE_ADJACENT_IF_MELEE_CASTER`
+    (`onlyAdjacent = IfNotRangedCaster`, valeur = `unit_weapon_range`), mais tous ne le partagent
+    pas (`1146` porte `RANGE_ADJACENT`, dont l'`overrideRange = 1` GAGNE sur l'arme). C'est
+    `_range_terms` qui tranche, comme pour une ability.
+
+    AUCUN des 18 masques lus ne porte `CasterIsPossibleTarget` ni `TargetIsCasterOrEnemy` : la
+    tuile du caster est donc exclue quel que soit le profil -- `d == 1` pour un caster de melee,
+    `1 <= d <= portee d'arme` pour un caster a distance."""
+    opts = (NORMAL_ATTACK_TARGETING_OPTIONS if normal_attack_id is None
+            else NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE.get(int(normal_attack_id),
+                                                             NORMAL_ATTACK_TARGETING_OPTIONS))
+    terms = _range_terms(opts.range, None, visual_id)
+    if terms is None:
+        return None
+    return _zone_contains_distance(opts.rules, terms[0], terms[1], terms[2], distance)
 
 
 def ability_range_value(ability_id, visual_id) -> int | None:
@@ -603,13 +767,18 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
 
     L'ORDRE natif est `GetTilesInRange` (rayon PUIS walkability), `b__0`, `b__1`, `b__2` : les
     derniers sont des `RemoveAll`, donc COMMUTATIFS -- l'ordre du port n'est pas observable, seule
-    leur conjonction l'est. Le retrait des non marchables est le seul a etre EN AMONT."""
+    leur conjonction l'est. Le retrait des non marchables est le seul a etre EN AMONT.
+
+    ⚠ L'etage `GetTilesInRange` est teste par `tiles_in_range_zone_contains`, pas par une
+    comparaison `d <= rayon` : un rayon ne sait pas dire si la tuile du CASTER en fait partie, et
+    la reponse depend de la branche prise (#433-r4-r2-r1-r2-r2-r1-r1-r1)."""
     if target_tiles_zone_is_empty(ability_id):
         return False                               # zone VIDE avant meme `GetRange`
     base = tiles_in_range_reach(ability_id, visual_id)
     if base is None:
         return False
-    if hexgeo.distance(tuple(unit_pos), tuple(tile)) > base:
+    if not tiles_in_range_zone_contains(ability_id, visual_id,
+                                        hexgeo.distance(tuple(unit_pos), tuple(tile))):
         return False
     opts = _options_of(ability_id)
     if _unwalkable(getattr(opts, "rules", None), tile, walkable_by_pos, is_in_fog_by_pos):
@@ -722,8 +891,10 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     # le MEME `GetPossibleTargetsForOptions` : le predicat de LIGNE DE VUE s'y applique, avec le
     # masque `NORMAL_ATTACK_TARGETING_OPTIONS` (0x4002), qui ne porte AUCUN `AllowObscuredTarget*`.
     if normal_attack_id is None or not _gated_out(normal_attack_id, ability_state):
-        weapon = unit_weapon_range(visual_id, None)
-        if weapon is not None and d <= int(weapon):
+        # La zone de l'attaque normale, branche par branche (#433-r4-r2-r1-r2-r2-r1-r1-r1) : son
+        # masque ne porte NI `CasterIsPossibleTarget` NI `TargetIsCasterOrEnemy`, donc `d = 0` en
+        # est EXCLU -- ce que `d <= portee d'arme` attribuait a tort.
+        if normal_attack_zone_contains(normal_attack_id, visual_id, d):
             # `NORMAL_ATTACK_TARGETING_OPTIONS.rules` (0x4002) ne porte PAS `AllowUnwalkableTargetTile` :
             # le terme de l'attaque normale est donc TOUJOURS gate par la walkability, quel que soit
             # le kit -- contrairement aux abilities dont le masque n'est pas RE-lu.
