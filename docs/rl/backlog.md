@@ -762,14 +762,34 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   (tri-état `payload` / `None` = AUTO / `False` = refus explicite), servi par un transport ambiant
   que `conftest.live_session` lie pour toute la suite live, avec **un seul RPC par bataille** (cache
   par runner — condition de déterminisme du rejeu, pas optimisation).
-- **`#287-r1` — `UnitFlag.NoActionAvailable` (4) n'est posé par AUCUNE voie du port.** Le natif le
-  pose en queue de cast (`IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation`, jamais
-  portée). MESURÉ par `probe_287_facade_combat.py` (`combatSnapshot.units[].unitFlags` avant/après
-  un cast) : le caster gagne `[1, 2, 3, 4]` côté natif, `[1, 2, 3]` côté port. Résidu **TRANSVERSE**
-  au turn-flow (il vaut pour toute ability, pas seulement 1100) ; le test #287 l'ENCADRE au lieu de
-  le taire (l'écart de flags doit valoir EXACTEMENT `{4}`, sinon rouge). À promouvoir si un
-  consommateur du flag entre au port (`VerifyUnitTurnEnded` ré-ouvre l'activation quand l'unité
-  regagne des options). Cf. `case-287-sorcerous-facade-combat.md` §7.
+- ~~**`#287-r1` — `UnitFlag.NoActionAvailable` (4) n'est posé par AUCUNE voie du port.**~~ —
+  **PORTÉ + CONFRONTÉ LIVE (2026-08-05)**, `case-287-r1-no-action-available.md`. Foyer unique
+  `MarkUnitAsNoActionAvailableOperation` (mirror 1:1, `reverse`), branché en DERNIÈRE instruction de
+  `FinishUnitTurnOperation.execute` comme le natif. L'écart de flags tombe à l'ENSEMBLE VIDE et le
+  test #287 passe de « vaut exactement `{4}` » à une ÉGALITÉ bilatérale, avec deux régimes témoins
+  (une égalité entre deux ensembles vides passerait trivialement). Les **cinq** porteurs du slot
+  0x76 sont recensés par SCAN BINAIRE (`probe_287r1_no_action_available.py`) — `list_xrefs` ne voit
+  pas les appels d'interface et l'index littéral de `search_code` rend **0** sur une chaîne qu'une
+  fonction contient littéralement. L'objection qui retenait cette pose depuis deux tranches (« le
+  flag survit au turn-start et FIGE l'unité ») est **MESURÉE et ne mord pas** : son seul lecteur
+  offline (`has_action_left`) n'est atteint que via `execute_group`, dont tous les call-sites natifs
+  passent `resetTurnFlags = 1`. Contre-épreuve : pose retirée -> LIVE rouge
+  (`live=[1, 2, 3, 4] port=[1, 2, 3]`) + 6/8 offline. Résidu : `#287-r1-r1`.
+- **`#287-r1-r1` — le RETRAIT du flag 4 est porté mais n'a AUCUN appelant offline.**
+  `MarkUnitAsNoActionAvailableOperation.execute(reverse=True)` = le slot 0x77
+  (`MarkUnitAsActionAvailable`). Son unique déclencheur natif est
+  `IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded`, dont le point
+  d'appel vit dans la couche handler/view :
+  `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished` et
+  `$$VerifyAndRefreshUnitTurnFinished` (slot 0x22, lu dans
+  `Taunted_RefreshUnitTurnFinishedEffect$$RevertInternal`) n'ont **aucun appelant CODE** au
+  décompilé. Le brancher exigerait d'INVENTER un ancrage. Conséquence portée : le flag survit au
+  turn-start (`RemoveTurnFlags(includeNoAction=0)`) — sans lecteur effectif offline aujourd'hui
+  (mesuré, cf. `case-287-r1` §5), mais c'est un écart avec le natif dès qu'un consommateur entre.
+  Le corps de `VerifyUnitTurnEnded` dépend de `HasTilesToMoveTo` (slot `IMovementQuery`
+  `GetMovableTilesFor`) et `HasActionAvailable` (`GetPossibleUnitTiles` +
+  `CanAttackAnyUnitFromAnyTileWithAnyAbility`), tous deux déjà portés — le blocage est le POINT
+  D'APPEL, pas le corps.
 - **`#287-r2` — les branches `dead_caster` / `dead_target` de `SwitchPositionOperation` sont PORTÉES
   mais NON CONFRONTÉES.** `IdunBattle.Operations.DisplaceUnitOperation$$SwitchPosition` traite les
   deux moitiés INDÉPENDAMMENT (une unité morte ne bouge pas, l'autre va quand même sur sa tuile) —
