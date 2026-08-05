@@ -42,6 +42,7 @@ from __future__ import annotations
 from ...dsl.base import DslContext, Const
 from ..formulas import Sum, Half, RandomAmount
 from ..effects.magnitude import ability_var
+from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 
 
 # ─── #350-r3b : quel PLAYBOOK lit quelle forme — table LUE par `triggered_prediction_damage` ───────
@@ -86,8 +87,8 @@ class BaseTriggeredAbility:
     `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel`, porte par `ability_var`."""
 
     # Index natifs des variables lues par les deux constructeurs (litteraux du decompile).
-    VAR_MIN_DMG = 0xc     # `minDmg`
-    VAR_MAX_DMG = 0xd     # `maxDmg`
+    VAR_MIN_DMG = AbilityVariableType.minDmg     # `minDmg`
+    VAR_MAX_DMG = AbilityVariableType.maxDmg     # `maxDmg`
 
     def __init__(self, ability_id: str, level: int | None = None, multiplier_pct: int = 100):
         self.ability_id = ability_id

@@ -174,6 +174,28 @@ REGISTRE: list[Mirror] = [
     # LUE dans `enums.tsv` : `IdunBattle.Operations`, pas `IdunBattle.Entities.Enum`.
     Mirror("DamageReason", "engine/entities/damage_reason.py",
            "IdunBattle.Operations.DamageReason"),
+    # #270-r1-r1-r3 : QUATRE mirrors NEUFS, inscrits DANS LE COMMIT QUI LES CREE. Chacun est le
+    # type DECLARE d'un parametre natif, LU dans `frida/methods.tsv` -- jamais deduit du nom
+    # court, qui a deja apparie faux deux fois (`Corner`, `Edge`) :
+    #   UnitFlag            <- `IdunBattle.Entities.UnitExtensions.HasFlag(flag : ...)`
+    #   EntityType          <- `IdunBattle.Core.Entity..ctor(type : ...)`
+    #   AbilityConstantType <- `AbilityConfiguration.GetNumberConstant(constantType : ...)`
+    #   AbilityVariableType <- `AbilityConfiguration.GetVariableForLevel(variableType : ...)`
+    # Les deux derniers partagent 141 ordinaux et nomment autre chose a valeur egale (22 =
+    # `range` / `blockDmg_2`) : c'est l'ACCESSEUR appele au site qui tranche, pas l'ordinal.
+    Mirror("UnitFlag", "engine/entities/unit_flag.py",
+           "IdunBattle.Entities.Enum.UnitFlag"),
+    Mirror("EntityType", "engine/entities/entity_type.py",
+           "IdunBattle.Entities.Enum.EntityType"),
+    # ⚠ Les deux vivent sous `engine/entities/`, PAS sous `engine/entities/abilities/` : y importer
+    # quoi que ce soit execute l'`__init__.py` du sous-paquet, qui tire `active_ability` ->
+    # `services.damage_prediction` -> `ImportError` sur module partiellement initialise. CYCLE
+    # MESURE (meme forme que celui de `services/static_battle_rules.py`, #270-r1-r1). Un mirror
+    # d'enum est une FEUILLE : le placer dans un paquet a `__init__` lourd le rend inimportable.
+    Mirror("AbilityConstantType", "engine/entities/ability_constant_type.py",
+           "IdunBattle.Configuration.AbilityConstantType"),
+    Mirror("AbilityVariableType", "engine/entities/ability_variable_type.py",
+           "IdunBattle.Configuration.AbilityVariableType"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune

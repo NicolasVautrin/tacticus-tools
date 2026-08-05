@@ -112,6 +112,7 @@ import hexgeo
 from ..entities.active_ability_type import ActiveAbilityType
 from ..runner.abilities.attack_type import is_regular_attack
 from ..runner.abilities.targeting_rule import TargetingRule as TR
+from ..entities.traits.unit_trait import UnitTrait   # #270-r1-r1-r3
 
 # ------------------------------------------------------------------------------------------------
 # `IdunBattle.Configuration.AbilityConfiguration$$TryGetNumberConstant` sur le substrat gameconfig.
@@ -440,7 +441,7 @@ DYNAMIC_CASTER_GATE_BY_ABILITY: dict[int, str] = {
 
 #: `IdunBattle.Entities.Enum.UnitTrait.Steppable` = 0x1b -- le trait que `GetSpawnTileSelector`
 #: EXCLUT des ennemis (`UnitsWithoutTrait(Enemies(AllUnits), 0x1b)`).
-UNIT_TRAIT_STEPPABLE = 0x1B
+UNIT_TRAIT_STEPPABLE = UnitTrait.Steppable
 
 
 def dynamic_caster_gate_of(ability_id) -> str:

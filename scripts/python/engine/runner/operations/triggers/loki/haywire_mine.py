@@ -101,6 +101,7 @@ from ....state import State
 from ..base import (TriggeredAbility, TriggerEvent, triggered_ability_state,
                     _unit_trait_names)
 from .reactivate_overwatch import has_death_reason
+from .....utilities.utility_type import UtilityType   # #270-r1-r1-r3
 
 ABILITY_ID = "HaywireMineSteppable"
 
@@ -305,7 +306,7 @@ HAYWIRE_MINE_ID = int(TriggeredAbilityType.HaywireMine)          # 0x5fb = 1531
 UNIT_TO_SPAWN_KEY = "unitToSpawn"
 #: `SortTilesByUtilityForSummon(tiles, 7, Owner)` -- le litteral `7` du call-site
 #: (`UtilityDefinition(7)`, le composite `Tile` deja porte par `engine/utilities/tile.py`).
-SUMMON_UTILITY_TYPE = 7
+SUMMON_UTILITY_TYPE = UtilityType.Tile
 #: `TriggerAbilityDelayed(Owner, 0x5fb, 3)` -- le 4e argument est un `UnitSelectionType`, PAS un
 #: delai (`TriggerAbilityDelayedBehaviour$$.ctor(state, entity, triggeredAbilityType,
 #: unitSelectionType)`). Le port ne modelise pas ce filtre : son selecteur est `Owner`, deja resolu.

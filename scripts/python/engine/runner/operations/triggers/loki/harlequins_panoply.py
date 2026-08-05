@@ -149,6 +149,7 @@ from ....abilities.behaviours import (AddEffect, MoveUnit, RemoveEffect, Trigger
                                       entities_from_state)
 from ....state import State
 from ..base import EffectTrigger, TriggerEvent, TriggeredAbility, _unit_trait_names
+from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
 HARLEQUINS_PANOPLY_IGNORE_HITS = int(EffectType.HarlequinsPanoply_IgnoreHits)   # 0x4cb = 1227
 _ON_BLOCKED = int(EventTriggerType.UnitBlocked)          # 0x3c = 60
@@ -156,7 +157,7 @@ _ON_PRE_ATTACK_HIT = int(EventTriggerType.PreAttackHit)  # 6
 _ON_ATTACK = int(EventTriggerType.Attack)                # 9
 # `IdunBattle.Entities.Enum.TriggeredAbilityType.HarlequinsPanoply` = 0x4a3, l'`AbilityOrEffect` que
 # `BaseTriggeredAbility$$Execute` pose dans `CurrentAbility` avant d'exécuter le behaviour.
-HARLEQUINS_PANOPLY_ABILITY = 1187
+HARLEQUINS_PANOPLY_ABILITY = TriggeredAbilityType.HarlequinsPanoply
 
 
 def _has_ignore_hits(state: State, unit_id: int) -> bool:

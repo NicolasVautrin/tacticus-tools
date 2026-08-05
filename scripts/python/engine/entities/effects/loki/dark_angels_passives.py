@@ -38,18 +38,20 @@ from ....services.effect_bonus import EffectBonus, for_addition
 from ..aura_selectors import is_targetable as _is_targetable, surrounding_friends
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ....entities.effect_type import EffectType   # #270-r1-r1-r3
+from ....entities.stats import StatType   # #270-r1-r1-r3
 
 _LION_HELM = "LionHelm"                    # TriggeredAbilityType 0x48b = 1163 (darkaAzrael)
 _FEARED_INTERROGATOR = "FearedInterrogator"  # TriggeredAbilityType 0x4d3 = 1235 (darkaAsmodai)
 
 # EffectTypes cites par les gates natifs de ce module.
-EFFECT_LION_HELM_EXTRA_DMG = 1193           # 0x4a9
-EFFECT_LION_HELM_EXTRA_BLOCK_DAMAGE = 1214  # 0x4be
-EFFECT_LION_HELM_EXTRA_BLOCK_CHANCE = 1232  # 0x4d0
-EFFECT_FEARED_INTERROGATOR_OWNER = 1294     # 0x50e
-EFFECT_FEARED_INTERROGATOR_TARGET = 1295    # 0x50f
-EFFECT_STUNNED = 1162                       # 0x48a
-EFFECT_PINNED = 1065                        # 0x429 -- « Suppressed » de l'i2
+EFFECT_LION_HELM_EXTRA_DMG = EffectType.LionHelm_ExtraDmg           # 0x4a9
+EFFECT_LION_HELM_EXTRA_BLOCK_DAMAGE = EffectType.LionHelm_ExtraBlockDamage  # 0x4be
+EFFECT_LION_HELM_EXTRA_BLOCK_CHANCE = EffectType.LionHelm_ExtraBlockChance  # 0x4d0
+EFFECT_FEARED_INTERROGATOR_OWNER = EffectType.FearedInterrogator_Owner     # 0x50e
+EFFECT_FEARED_INTERROGATOR_TARGET = EffectType.FearedInterrogator_Target    # 0x50f
+EFFECT_STUNNED = EffectType.Stunned                       # 0x48a
+EFFECT_PINNED = EffectType.Pinned                        # 0x429 -- « Suppressed » de l'i2
 
 # `IdunBattle.Entities.Enum.UnitFaction` 10 = DarkAngels (argument litteral du `UnitsFromFaction` des
 # deux selecteurs) ; cote gameconfig la meme faction est le champ `FactionId` = "DarkAngels".
@@ -231,7 +233,7 @@ class LionHelmExtraBlockDamageEffect(_LionHelmAuraStatModEffect):
     i2 : « Friendly units within 2 hexes block an additional 582 Damage when they Block ... »"""
 
     _VAR = "blockDmg"
-    _STAT = 8                     # StatType.BlockDamage
+    _STAT = StatType.BLOCK_DAMAGE                     # StatType.BlockDamage
     _DARK_ANGELS_ONLY = False
 
 
@@ -251,7 +253,7 @@ class LionHelmExtraBlockChanceEffect(_LionHelmAuraStatModEffect):
     i2 : « Other friendly Dark Angels within 2 hexes also have their Block chance increased by +20% »"""
 
     _VAR = "blockChance"
-    _STAT = 7                     # StatType.BlockChance
+    _STAT = StatType.BLOCK_CHANCE                     # StatType.BlockChance
     _DARK_ANGELS_ONLY = True
 
 

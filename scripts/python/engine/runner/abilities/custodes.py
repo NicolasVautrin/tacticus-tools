@@ -55,13 +55,15 @@ from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import RANGE_SELF, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AddDynamicStatModifierEffect, AddEffect, Heal)
+from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
+from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
 
 MOMENT_SHACKLE_ID = "MomentShackle"
-VAR_MS_HP_TO_HEAL = 0x20          # GetVariableForLevel(0x20) -> AbilityVariableType 32 = hpToHeal
-CONST_MS_NR_OF_ROUNDS = 0x45      # GetNumberConstant(0x45)   -> AbilityConstantType 69 = nrOfRounds
+VAR_MS_HP_TO_HEAL = AbilityVariableType.hpToHeal          # GetVariableForLevel(0x20) -> AbilityVariableType 32 = hpToHeal
+CONST_MS_NR_OF_ROUNDS = AbilityConstantType.nrOfRounds      # GetNumberConstant(0x45)   -> AbilityConstantType 69 = nrOfRounds
 MS_EXTRA_BLOCK_CHANCE = int(EffectType.MomentShackle_ExtraBlockChance)   # 0x56f = 1391
 MS_EXTRA_BLOCK_DAMAGE = int(EffectType.MomentShackle_ExtraBlockDamage)   # 0x570 = 1392
 MS_ATTACK_MARKER = int(EffectType.MomentShackle_Attack)                  # 0x571 = 1393

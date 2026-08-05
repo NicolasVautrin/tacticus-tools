@@ -275,22 +275,25 @@ from typing import TYPE_CHECKING, Optional
 
 from .targeting_rule import TargetingRule as TR
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.effect_type import EffectType   # #270-r1-r1-r3
+from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
+from ...entities.traits.unit_trait import UnitTrait   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
 
 
 # `UnitFlag` 0x11 : `IdunBattle.Entities.UnitExtensions$$IsTargetable` = `!HasFlag(unit, 0x11)`.
-UNIT_FLAG_NOT_TARGETABLE = 0x11
+UNIT_FLAG_NOT_TARGETABLE = UnitFlag.Untargetable
 
 # `IdunBattle.Entities.EffectType.FriendlyFire` = 0x67 : lu par
 # `IdunBattle.Core.Services.TargetingQuery$$UnitsCanAttackEachOther` — un porteur peut attaquer ses
 # AMIS (et seulement eux).
-EFFECT_FRIENDLY_FIRE = 0x67
+EFFECT_FRIENDLY_FIRE = EffectType.FriendlyFire
 
 # `IdunBattle.Entities.Enum.EffectType.ForcedInMelee` = 0x529 : lu par
 # `IdunBattle.Core.Services.TargetingQuery$$GetRange` — le porteur ne porte plus qu'a 1 (adjacence).
-EFFECT_FORCED_IN_MELEE = 0x529
+EFFECT_FORCED_IN_MELEE = EffectType.ForcedInMelee
 
 # `IdunBattle.Core.Services.RangedBool` (enum, dump VERBATIM) — un booleen a DEUX valeurs constantes
 # et deux valeurs CALCULEES sur le caster ; resolu par
@@ -302,8 +305,8 @@ RANGED_BOOL_IF_NOT_RANGED_CASTER = 3
 
 # `IdunBattle.Entities.Enum.UnitTrait.Ranged` = 0xb ; `.Steppable` = 0x1b — lus respectivement par
 # `IdunBattle.Entities.UnitExtensions$$IsRanged` et `IdunBattle.Entities.TileExtensions$$HasSteppableUnit`.
-UNIT_TRAIT_RANGED = 0xb
-UNIT_TRAIT_STEPPABLE = 0x1b
+UNIT_TRAIT_RANGED = UnitTrait.Ranged
+UNIT_TRAIT_STEPPABLE = UnitTrait.Steppable
 
 # `IdunBattle.Configuration.AbilityConstantType.range` = 0x16 — la constante que
 # `IdunBattle.Entities.Abilities.AActiveAbility$$SetConfigValuesInTargetingOptions` recopie dans

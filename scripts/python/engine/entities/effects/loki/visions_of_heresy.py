@@ -100,6 +100,7 @@ from collections.abc import Mapping
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ....entities.stats import StatType   # #270-r1-r1-r3
 
 _ABILITY_ID = "VisionsOfHeresy"          # TriggeredAbilityType 0x4f0 = 1264 (passif, bloodDeathCompany)
 
@@ -144,11 +145,11 @@ class VisionsOfHeresyExtraPierceMeleeEffect(VisionsOfHeresyExtraPierceEffect):
     """`VisionsOfHeresy_ExtraPierceMelee` (0x541 = 1345) — `statType = 0x15 = 21`."""
 
     def get_stat_modification_stat(self) -> "int | None":
-        return 21                                    # StatType.EXTRA_PIERCE_MELEE
+        return StatType.EXTRA_PIERCE_MELEE                                    # StatType.EXTRA_PIERCE_MELEE
 
 
 class VisionsOfHeresyExtraPierceRangedEffect(VisionsOfHeresyExtraPierceEffect):
     """`VisionsOfHeresy_ExtraPierceRanged` (0x542 = 1346) — `statType = 0x16 = 22`."""
 
     def get_stat_modification_stat(self) -> "int | None":
-        return 22                                    # StatType.EXTRA_PIERCE_RANGED
+        return StatType.EXTRA_PIERCE_RANGED                                    # StatType.EXTRA_PIERCE_RANGED

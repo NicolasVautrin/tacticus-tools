@@ -8,8 +8,9 @@ from engine.entities.triggered_ability_type import triggered_ability_ids
 from ._base import (NCContext, NonComparablePlaybook, _unit_cfg,
                     _get_num_attack_targets_in_position, _sweep_origin_first,
                     _turns_started_gate)
+from ...entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
-_FURY_OF_THE_ANCIENTS = 1247   # 0x4df — HasTriggeredAbility(caster, 0x4df)
+_FURY_OF_THE_ANCIENTS = TriggeredAbilityType.FuryOfTheAncients   # 0x4df — HasTriggeredAbility(caster, 0x4df)
 _RANGE = 2                     # gameconfig `range:2` (« a hex within movement range 2 »)
 
 

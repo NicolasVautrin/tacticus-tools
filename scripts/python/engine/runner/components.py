@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Dict, Hashable, Iterator, List, Optional
 
 from .state import Component
 from ..entities.effect_type import EffectType   # #270-r1-r1 : `_TELEPORT_MOVE_EFFECTS`
+from ..entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..entities import UnitContext
@@ -769,28 +770,28 @@ class UnitFlagsComponent(Component):
       • `TURN_FINISHED_FORCED (27 = 0x1b)` : posé par FinishUnitTurnOperation quand `forced` (hors enum du
         dump — ajout post-dump ; nom descriptif, structure lue IdunBattle.Operations.FinishUnitTurnOperation$$Execute/IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags)."""
     __slots__ = ("flags",)
-    MOVED = 0                   # UnitFlag.Moved (posé par IdunBattle.Entities.UnitExtensions$$SetMovedFlag)
-    ARRIVED_AT_FINAL_TILE = 1   # UnitFlag.ArrivedAtFinalTile
-    ACTIVE_ABILITY_USED = 2     # UnitFlag.ActiveAbilityUsed
-    TURN_FINISHED = 3           # UnitFlag.TurnFinished
-    NO_ACTION_AVAILABLE = 4     # UnitFlag.NoActionAvailable
-    DEAD = 6                    # UnitFlag.Dead (`enums.tsv` : `6=Dead`) — la PREMIERE branche de
+    MOVED = UnitFlag.Moved                   # UnitFlag.Moved (posé par IdunBattle.Entities.UnitExtensions$$SetMovedFlag)
+    ARRIVED_AT_FINAL_TILE = UnitFlag.ArrivedAtFinalTile   # UnitFlag.ArrivedAtFinalTile
+    ACTIVE_ABILITY_USED = UnitFlag.ActiveAbilityUsed     # UnitFlag.ActiveAbilityUsed
+    TURN_FINISHED = UnitFlag.TurnFinished           # UnitFlag.TurnFinished
+    NO_ACTION_AVAILABLE = UnitFlag.NoActionAvailable     # UnitFlag.NoActionAvailable
+    DEAD = UnitFlag.Dead        # UnitFlag.Dead (`enums.tsv` : `6=Dead`) — la PREMIERE branche de
                                 # `IdunBattle.Entities.UnitExtensions$$IsAlive`
                                 # (`UnitFlagsComponent$$Has(flags, 6)` -> faux immediat), lue AVANT
                                 # l'appartenance au pool et AVANT les PV. Cf. `unit_extensions_is_alive`.
-    FLED = 9                    # UnitFlag.Fled — « a fui » ce tour
-    OVERKILLED = 8              # UnitFlag.Overkilled — pose par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
+    FLED = UnitFlag.Fled                    # UnitFlag.Fled — « a fui » ce tour
+    OVERKILLED = UnitFlag.Overkilled              # UnitFlag.Overkilled — pose par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
                                 # +0x17d5 (`if (result.didOverkill) UnitFlagsComponent.Add(target, 8)` — le
                                 # `mov edx,8` precede immediatement le call, lu au desassemblage) ; RETIRE par
                                 # `IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0` (Remove(8)).
                                 # Lu par `IdunBattleLogic.Entities.DSLFactory$$HasFlag(unit, 8)` — volet
                                 # OVERKILL de `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$ExecuteBehaviour`.
-    TELEPORTED = 12             # UnitFlag.Teleported
-    AMBUSH_CONSUMED = 14        # flag 0xe (UnitPostAbility) — G3 : Ambush ré-suscité UNE fois ; posé par
+    TELEPORTED = UnitFlag.Teleported             # UnitFlag.Teleported
+    AMBUSH_CONSUMED = UnitFlag.Resurrected        # flag 0xe (UnitPostAbility) — G3 : Ambush ré-suscité UNE fois ; posé par
                                 # `ResurrectUnitOperation` (Add 0xe), testé `Not(HasFlag 0xe)` par les 2 triggers
                                 # Ambush → résurrection one-shot. PERMANENT : survit à `remove_turn_flags` (pas un
                                 # flag de tour), donc re-mourir ne re-déclenche PAS une 2e résurrection.
-    PREVENT_OVERKILL = 19       # flag 0x13 (`UnitFlag.PreventOverkill`, enums.tsv) — pose par
+    PREVENT_OVERKILL = UnitFlag.PreventOverkill       # flag 0x13 (`UnitFlag.PreventOverkill`, enums.tsv) — pose par
                                 # `IdunBattle.Entities.Effects.Loki.FuelledByFury_BlockOverkillEffect$$
                                 # ApplyInternal` (`UnitFlagsComponent.Add(u, 0x13)`) et retire par son
                                 # `$$RevertInternal`. Lu par la surcharge d'INSTANCE de
@@ -799,7 +800,7 @@ class UnitFlagsComponent(Component):
                                 # i2 « the first time each turn that Titus is defeated he cannot be
                                 # Overkilled »). Offline il est DERIVE de l'effet porteur — cf.
                                 # `unit_prevents_overkill`.
-    REMOVED = 26                # flag 0x1a (`UnitFlag.Removed`, enums.tsv) — l'unite a ete RETIREE du
+    REMOVED = UnitFlag.Removed                # flag 0x1a (`UnitFlag.Removed`, enums.tsv) — l'unite a ete RETIREE du
                                 # plateau (despawn, PAS une mort : ni PV touches ni flag `Dead`).
                                 # Pose par `IdunBattle.Operations.RemoveUnitOperation$$Execute` juste
                                 # AVANT sa publication d'`On(0x25 = UnitRemoved)`, et relu en TETE de
@@ -808,7 +809,7 @@ class UnitFlagsComponent(Component):
                                 # RETIRE par `IdunBattle.Operations.ResurrectUnitOperation$$Execute`
                                 # (`Remove(6)/Remove(0xf)/Remove(8)/**Remove(0x1a)**/Remove(9)`).
                                 # Cf. `runner/operations/remove_unit.py`.
-    TURN_FINISHED_FORCED = 27   # flag 0x1b (FinishUnitTurnOperation forced=True ; hors enum dump)
+    TURN_FINISHED_FORCED = UnitFlag.TurnTerminated   # flag 0x1b (FinishUnitTurnOperation forced=True ; hors enum dump)
 
     def __init__(self, flags=None):
         self.flags = set(int(f) for f in flags) if flags else set()
@@ -1793,7 +1794,7 @@ def unit_is_overkilled(entity) -> bool:
     return bool(fl is not None and fl.has(UnitFlagsComponent.OVERKILLED))
 
 
-PREVENT_OVERKILL_EFFECT = 1354      # `EffectType.FuelledByFury_BlockOverkill` (0x54a)
+PREVENT_OVERKILL_EFFECT = EffectType.FuelledByFury_BlockOverkill      # `EffectType.FuelledByFury_BlockOverkill` (0x54a)
 
 
 def effects_prevent_overkill(active_effects) -> bool:

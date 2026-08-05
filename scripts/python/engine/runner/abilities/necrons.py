@@ -51,6 +51,7 @@ from .behaviours import (entities_from_state, AddBondEffect, AddEffect, AttackWi
                          ChainLeftOverHitsAttackDamage, RemoveAllForcedAttackTargets,
                          RemoveUnitFromItsTiles, Spawn)
 from .loki import _pick_randomly_n
+from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -230,7 +231,7 @@ class HarbingerOfDestructionAbility(ActiveAbility):
 # Indices de config (`AbilityConfiguration.Get*`) lus au decompile de
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$ExecuteBehaviour` :
 RESURRECTION_ORB_CONST_UNIT_ID = 0x00     # GetStringConstant(0)  -> "unitId"     = necroSmnWarrior
-RESURRECTION_ORB_CONST_MAX_SUMMONS = 0x3c  # GetNumberConstant(0x3c) -> "maxSummons" (== behaviours.py)
+RESURRECTION_ORB_CONST_MAX_SUMMONS = AbilityConstantType.maxSummons  # GetNumberConstant(0x3c) -> "maxSummons" (== behaviours.py)
 RESURRECTION_ORB_CONFIG_ID = "ResurrectionOrb"
 
 
@@ -440,8 +441,8 @@ class ResurrectionOrbAbility(ActiveAbility):
 #
 # Indices de config lus au decompile de
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.ChronometronAbility$$ExecuteBehaviour` :
-CHRONOMETRON_CONST_RANGE = 0x16          # GetNumberConstant(0x16)  -> "range"      = 2
-CHRONOMETRON_CONST_NR_OF_ROUNDS = 0x45   # GetNumberConstant(0x45)  -> "nrOfRounds" = 1 (== SquigMine)
+CHRONOMETRON_CONST_RANGE = AbilityConstantType.range          # GetNumberConstant(0x16)  -> "range"      = 2
+CHRONOMETRON_CONST_NR_OF_ROUNDS = AbilityConstantType.nrOfRounds   # GetNumberConstant(0x45)  -> "nrOfRounds" = 1 (== SquigMine)
 CHRONOMETRON_TRAIT_SUMMON = int(UnitTrait.Summon)   # 2 — `HasTrait(It@0x180, 2)` du If natif
 
 
@@ -585,8 +586,8 @@ class ChronometronAbility(ActiveAbility):
 
 # ============ MultiThreatEliminator (Imospekh `necroDestroyer`, actif 1006) — #116 ============
 #
-MTE_CONST_RANGE = 0x16        # GetNumberConstant(0x16) -> "range"    = 2
-MTE_CONST_EXTRA_HIT = 0x2b    # GetNumberConstant(0x2b) -> "extraHit" = 1  (== ConfigConst 43, formulas.py)
+MTE_CONST_RANGE = AbilityConstantType.range        # GetNumberConstant(0x16) -> "range"    = 2
+MTE_CONST_EXTRA_HIT = AbilityConstantType.extraHit    # GetNumberConstant(0x2b) -> "extraHit" = 1  (== ConfigConst 43, formulas.py)
 # `nrOfHits` N'EST PAS dans la config de 1006 : le nombre de coups est un CHAMP STATIQUE de la classe
 # native, pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.MultiThreatEliminatorAbility$$.cctor`
 # (`**(class+0xb8) = 6`) et lu par `$$ExecuteBehaviour` (`Direct(<static>)`). Deja etabli cote DECISION

@@ -197,6 +197,7 @@ from .....entities.triggers import (AmountIsGreaterThanZero, HasFaction, HasTrai
 from ....components import OwnerComponent, StatsComponent, persistent_data_list
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
+from .....entities.unit_faction import UnitFaction   # #270-r1-r1-r3
 
 ABILITY_ID = "MyWillBeDoneOverlord"
 # `AbilityOrEffect(this.Id)` = `BaseTriggeredAbility+0x10` (`get_Count` mislabel de ghidra =
@@ -212,7 +213,7 @@ EXTRA_DAMAGE_EFFECT_NAME = "MyWillBeDoneOverlord_ExtraDamage"
 
 MECHANICAL = int(UnitTrait.Mechanical)                                         # 0x05
 HERO = int(UnitTrait.Hero)                                                     # 0x10
-NECRONS = 7                                                                    # `UnitFaction.Necrons`
+NECRONS = UnitFaction.Necrons                                                                    # `UnitFaction.Necrons`
 
 MAX_DMG_KEY = "maxDmg"        # `AbilityVariableType` 0x0d
 DMG_PCT_KEY = "dmgPct"        # `AbilityVariableType` 0x4a

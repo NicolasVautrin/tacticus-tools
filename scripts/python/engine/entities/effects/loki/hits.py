@@ -645,7 +645,7 @@ class AnvilShieldAdditionalBlockEffect(BaseEffect):
     (`On(UnitBlocked=0x3c)`) est `ApplyIce`/`ApplyStun` (cf. triggers/loki/anvil_shield.py)."""
 
     def get_stat_modification_stat(self) -> int | None:
-        return 8                                     # StatType.BLOCK_DAMAGE
+        return StatType.BLOCK_DAMAGE                                     # StatType.BLOCK_DAMAGE
 
     def get_stat_modification_amount(self) -> int | None:
         lvl = (self.active_ability_level if self.active_ability_level is not None
@@ -711,7 +711,7 @@ class AnvilShieldBlockChanceBelowHealthCapEffect(BaseEffect):
         return int(cap) >= (100.0 * float(hp) / float(mx))
 
     def get_stat_modification_stat(self) -> int | None:
-        return 7                                     # StatType.BLOCK_CHANCE
+        return StatType.BLOCK_CHANCE                                     # StatType.BLOCK_CHANCE
 
     def get_stat_modification_amount(self) -> int | None:
         return ability_var("AnvilShield", "blockChance", _anvil_shield_level(self),
@@ -747,7 +747,7 @@ class AnvilShieldFrozenAttackerAdvantageEffect(BaseEffect):
     l'applique, la feuille `RemoveEffect` le reverte via `reverted_stats()`."""
 
     def get_stat_modification_stat(self) -> int | None:
-        return 7                                     # StatType.BLOCK_CHANCE
+        return StatType.BLOCK_CHANCE                                     # StatType.BLOCK_CHANCE
 
     def get_stat_modification_amount(self) -> int | None:
         return ability_var("AnvilShield", "blockChance", _anvil_shield_level(self),
@@ -1706,7 +1706,7 @@ class DefenderOfTheGreaterGoodExtraHitsEffect(BaseEffect):
 
     _IS_DRONE = False
     _TAU_FACTION = "Tau"           # UnitFaction.Tau=9 (`UnitsFromFaction(..., 9)`)
-    _SOURCE_EFFECT_TYPE = 1183     # 0x49f -- l'effet NON-drone vise par `EntitiesIsNotTargetOfEffect`
+    _SOURCE_EFFECT_TYPE = EffectType.DefenderOfTheGreaterGood_ExtraHits     # 0x49f -- l'effet NON-drone vise par `EntitiesIsNotTargetOfEffect`
 
     # ------------------------------------------------------------------ selecteur (geometrie)
 
@@ -1843,7 +1843,7 @@ class Swarm_HitReductionEffect(BaseEffect):
         self._bound_amount = -min(n - 1, missing)
 
     def get_stat_modification_stat(self) -> "int | None":
-        return 17 if self._bound_amount else None    # StatType.EXTRA_HITS
+        return StatType.EXTRA_HITS if self._bound_amount else None    # StatType.EXTRA_HITS
 
     def get_stat_modification_amount(self) -> "int | None":
         return self._bound_amount
@@ -1960,7 +1960,7 @@ class VoltagheistFieldExtraHitEffect(BaseEffect):
 #: `(ability_or_effect, data_key)` (cf. `runner/components.py::PersistentDataComponent`), d'ou ce
 #: helper partage entre le LECTEUR (`LegendaryCommanderExtraHitsEffect`) et l'ECRIVAIN
 #: (`runner/operations/triggers/loki/legendary_commander.py`) -- un seul foyer, jamais deux formes.
-LEGENDARY_COMMANDER_EXTRA_HITS = 1395            # 0x573 `EffectType.LegendaryCommander_ExtraHits`
+LEGENDARY_COMMANDER_EXTRA_HITS = EffectType.LegendaryCommander_ExtraHits            # 0x573 `EffectType.LegendaryCommander_ExtraHits`
 
 
 def legendary_commander_marked_key(marked_unit_id: int) -> tuple:

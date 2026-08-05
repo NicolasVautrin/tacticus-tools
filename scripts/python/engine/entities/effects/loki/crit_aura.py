@@ -34,6 +34,8 @@ from __future__ import annotations
 from ..aura_selectors import surrounding_friends
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ....entities.effect_type import EffectType   # #270-r1-r1-r3
+from ....entities.stats import StatType   # #270-r1-r1-r3
 
 _PATH_OF_COMMAND = "PathOfCommand"    # TriggeredAbilityType 0x458 = 1112 (eldarAutarch « Aethana »)
 
@@ -43,10 +45,10 @@ _PATH_OF_COMMAND = "PathOfCommand"    # TriggeredAbilityType 0x458 = 1112 (eldar
 #     de VALEUR entre deux enums DISTINCTS : c'est bien 1112 que le `ConfigVar` ci-dessous passe en
 #     `abilityType`, et 1112 que `AddDynamicStatModifierEffectToOwner` passe en `effectType` pour
 #     l'AUTRE effet du meme behaviour -- ne pas confondre les deux roles).
-EFFECT_PATH_OF_COMMAND_EXTRA_CRIT = 1107   # 0x453
-EFFECT_PATH_OF_COMMAND_EXTRA_DMG = 1112    # 0x458
+EFFECT_PATH_OF_COMMAND_EXTRA_CRIT = EffectType.PathOfCommand_ExtraCrit   # 0x453
+EFFECT_PATH_OF_COMMAND_EXTRA_DMG = EffectType.PathOfCommand_ExtraDmg    # 0x458
 
-_STAT_CRIT_CHANCE = 9                      # `IdunBattle.Entities.Enum.StatType` 9 = CritChance
+_STAT_CRIT_CHANCE = StatType.CRIT_CHANCE                      # `IdunBattle.Entities.Enum.StatType` 9 = CritChance
 
 
 def _path_of_command_range() -> int:

@@ -28,12 +28,13 @@ from .behaviours import entities_from_state, AttackWithAttackDamage, AddStaticSt
 from .loki import _pick_randomly_n
 from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
+from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
 
 DOOM_SIREN_EXTRA_HIT = int(EffectType.DoomSiren_ExtraHit)   # 0x597 = 1431
-UNIT_FLAG_OVERKILLED = 8                                    # `IdunBattle.Entities.Enum.UnitFlag.Overkilled`
+UNIT_FLAG_OVERKILLED = UnitFlag.Overkilled                                    # `IdunBattle.Entities.Enum.UnitFlag.Overkilled`
 
 
 def doom_siren_pool_selector():

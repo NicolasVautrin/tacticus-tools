@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ....entities.stats import StatType   # #270-r1-r1-r3
 
 _ABILITY_ID = "RealityUnbound"
 
@@ -68,7 +69,7 @@ class RealityUnboundRangeEffect(BaseEffect):
     (=1), constante -> non scalee."""
 
     def get_stat_modification_stat(self) -> int | None:
-        return 24                                    # StatType.EXTRA_RANGE (0x18)
+        return StatType.EXTRA_RANGE                                    # StatType.EXTRA_RANGE (0x18)
 
     def get_stat_modification_amount(self) -> int | None:
         return ability_var(_ABILITY_ID, "extraRange", is_constant=True)
@@ -98,7 +99,7 @@ class RealityUnboundExtraMaxDamageEffect(BaseEffect):
     stacks_stat_mod_on_add = True
 
     def get_stat_modification_stat(self) -> int | None:
-        return 25                                    # StatType.EXTRA_MAX_DAMAGE (0x19)
+        return StatType.EXTRA_MAX_DAMAGE                                    # StatType.EXTRA_MAX_DAMAGE (0x19)
 
     def get_stat_modification_amount(self) -> int | None:
         return ability_var(_ABILITY_ID, "extraMaxDmg", self.ability_level,

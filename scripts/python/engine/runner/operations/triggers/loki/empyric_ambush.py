@@ -127,6 +127,7 @@ from ....components import (OwnerComponent, PositionComponent, UnitComponent,
                             UnitFlagsComponent)
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
+from .....entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 
 #: Cle du registre `ACTIVE_ABILITY_TRIGGERS` = le NOM gameconfig de l'ability ACTIVE porteuse
 #: (`units.activeAbilities`), ici `ActiveAbilityType 0x4d0 = 1232`.
@@ -136,7 +137,7 @@ EMPYRIC_AMBUSH_RESET = int(TriggeredAbilityType.EmpyricAmbush_Reset)      # 0x61
 #: `IdunBattle.Entities.Enum.UnitFlag` 21 = `ForceRangedAttack` (enums.tsv, verbatim) -- le seul flag
 #: lu par la branche `Normal` de `BattleQuery$$IsMeleeAttack`. Pas de constante dans
 #: `UnitFlagsComponent` : le litteral est cite ici avec son nom d'enum.
-_FORCE_RANGED_ATTACK = 21
+_FORCE_RANGED_ATTACK = UnitFlag.ForceRangedAttack
 
 
 class AttackRangeType:

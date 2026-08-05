@@ -31,6 +31,7 @@ from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RA
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon,
                          Repair)
+from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -470,7 +471,7 @@ class RadBombardmentAbility(ActiveAbility):
 # `AttackQuery$$EntityCanBeRepaired`), attaque quand meme. Le decompile fait foi.
 
 DEFEND_THE_DIVINE_WORK_ID = "DefendTheDivineWork"
-VAR_DTDW_HP_TO_REPAIR = 0x24     # GetVariableForLevel(0x24) -> `AbilityVariableType` 36 = hpToRepair
+VAR_DTDW_HP_TO_REPAIR = AbilityVariableType.hpToRepair     # GetVariableForLevel(0x24) -> `AbilityVariableType` 36 = hpToRepair
 
 
 def defend_the_divine_work_adjacent_friends():

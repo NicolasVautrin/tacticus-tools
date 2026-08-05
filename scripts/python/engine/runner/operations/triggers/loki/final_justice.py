@@ -15,6 +15,7 @@ from .....services.damage_prediction import get_attack_prediction
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _adjacent_enemies
+from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
 # Les poids d'utilité (BC `Utilities`) et le tri lui-même vivent désormais dans le port PARTAGÉ du
 # sélecteur natif — `operations/damage_utility.py` (`SortUnitsByDamageUtilitySelector$$Select`) : FinalJustice
@@ -123,7 +124,7 @@ class FinalJusticeAbility(TriggeredAbility):
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateTrigger`
     # (i2 : « the first time each turn he defeats an enemy **with an attack triggered by Final
     # Vengeance** »). Cf. `dispatch/core.py` (foyer d'ecriture) et `triggers/base.py`.
-    TRIGGERED_ABILITY_ID = 1024
+    TRIGGERED_ABILITY_ID = TriggeredAbilityType.FinalJustice
     fire_on_death = True
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:

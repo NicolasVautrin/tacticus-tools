@@ -25,6 +25,7 @@ from __future__ import annotations
 from ..entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
 from ..entities.pathfinding.tile_blocking import TILE_MOVEMENT_BLOCKING_EFFECT_TYPES
 from ..services.static_battle_rules import not_blocking_movement_of_traits
+from ..entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
 
 _CACHE_KEY = "_modified_exoarmour_path_nodes"     # memo par-DECISION (le `tile_leaf_ctx` est unique
@@ -157,7 +158,7 @@ class ModifiedExoarmourPlaybook:
     strictement avec la distance parcourue et pousse le porteur a s'eloigner.
     """
 
-    ABILITY_ID = 1529                                    # 0x5f9 -- litteral du `..ctor`
+    ABILITY_ID = TriggeredAbilityType.ModifiedExoarmour                                    # 0x5f9 -- litteral du `..ctor`
     WEIGHT_KEY = "ModifiedExoarmour_LikesMovingPerTile"  # BC (gameconfig vivant) = 5
 
     def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:

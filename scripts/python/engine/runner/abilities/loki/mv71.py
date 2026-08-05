@@ -147,9 +147,9 @@ def _wt():
 
 # Catégorie BC de l'utilité 0x37 (⚠ deux sous-clés portent le TYPO NATIF « DDrone » — copie exacte).
 _W_CAT = "MV71SniperDroneSquad_ClosestToParent"
-STRUCTURAL_ANALYSER = 0x477       # 1143 (triggered) — bonus InRangeOfStructuralAnalyser
-DEFENDER_OF_THE_GREATER_GOOD = 0x483   # 1155 (triggered) — bonus InRangeOfDefenderOfTheGreaterGood
-SAVIOR_PROTOCOLS = 0x460          # 1120 (triggered) — gate CanBeProtector (= T'au ET PAS 1120)
+STRUCTURAL_ANALYSER = TriggeredAbilityType.StructuralAnalyser       # 1143 (triggered) — bonus InRangeOfStructuralAnalyser
+DEFENDER_OF_THE_GREATER_GOOD = TriggeredAbilityType.DefenderOfTheGreaterGood   # 1155 (triggered) — bonus InRangeOfDefenderOfTheGreaterGood
+SAVIOR_PROTOCOLS = TriggeredAbilityType.SaviorProtocols          # 1120 (triggered) — gate CanBeProtector (= T'au ET PAS 1120)
 
 
 def _adjacent_occupants(state: "State", board, tid: int):

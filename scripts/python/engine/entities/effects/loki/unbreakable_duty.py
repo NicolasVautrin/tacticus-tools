@@ -45,6 +45,7 @@ from __future__ import annotations
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ....entities.stats import StatType   # #270-r1-r1-r3
 
 _ABILITY_ID = "UnbreakableDuty"
 
@@ -60,7 +61,7 @@ class UnbreakableDutyHealthEffect(BaseEffect):
     """`UnbreakableDuty_Health` (0x4e3 = 1251) — +`extraHp` sur HEALTH, PERMANENT (turns = NULL)."""
 
     def get_stat_modification_stat(self) -> int | None:
-        return 5                                     # StatType.HEALTH
+        return StatType.HEALTH                                     # StatType.HEALTH
 
     def get_stat_modification_amount(self) -> int | None:
         return ability_var(_ABILITY_ID, "extraHp", _active_level(self),
