@@ -108,13 +108,20 @@ class AiDecisionContext:
     #     feuilles DespoiledGround(28, 0x5c4), Contaminated(25, 0x4dc), MoltenForm(23, 5/10)
     # --- `MachineOfWarPosition` du joueur COURANT (predicat `IsPositionMachineForCurrentPlayer`) ---
     # Consomme par les arbres dont la GEOMETRIE depend du cote du plateau : 1148 DaemonicOrdnance
-    # (face DECISION, cette tranche), 1142 MacroPlasmaIncinerator et DevastatingRefrain (face
-    # COMBAT). Deux canaux, dans l'ordre de fidelite -- cf. `machine_of_war_position`.
+    # (face DECISION), 1142 MacroPlasmaIncinerator et DevastatingRefrain (face COMBAT).
+    # TROIS canaux, dans l'ordre de fidelite -- cf. `machine_of_war_position`.
+    mow_position_by_player: Any = None
+    #     {playerId: `MachineOfWarPosition`} <- `boardGraph.mowPositions` (#311), c.-a-d.
+    #     `IdunBattle.Core.Services.BattleQuery$$GetPositionMachineForPlayer(player)` INVOQUE sur le
+    #     runner, joueur par joueur. C'est la valeur EFFECTIVE que compare le predicat -- le natif
+    #     lui-meme, pas une reconstitution. TRI-ETAT : `None` = pas mesure (canal absent : chemin
+    #     OFFLINE, ou methode irresolue cote hooks), `{}` = mesure et aucun joueur.
     spawn_groups: Any = None
-    #     `SpawnPointGroups` du SpawnPointSet ACTIF de la BC du runner (`BattleQuery+0x78`), la
-    #     SOURCE NATIVE. `None` = non lu (aucun RPC ne l'expose par runner : residu #302, point
-    #     d'ancrage `SpawnPointGroupConfiguration+0x14` a remonter depuis `boardGraph`). Un appelant
-    #     qui monte le runner (probe/test/collecte) la connait et la passe a `build(...)`.
+    #     `SpawnPointGroups` du SpawnPointSet ACTIF de la BC du runner (`BattleQuery+0x78`).
+    #     MIRROR de la cascade native (`machine_of_war_position_for_player`), donc un cran EN DESSOUS
+    #     du canal ci-dessus : il DEVINE `playerNr = 0` la ou le natif le LIT de
+    #     `StateExtensions$$GetTeam(state)` (`local_res10 >> 0x20` au decompile). Reste indispensable
+    #     au chemin OFFLINE (`build_from_state`), qui n'a aucun RPC. `None` = non lu.
     mow_slot_by_player: dict = field(default_factory=dict)
     #     {playerId: `MachineComponent.Position @0x78`} <- `decisionView.mows[].owner`/`.slot`.
     #     REPLI, exact quand il repond : le slot ou la MoW du joueur A ETE deployee EST la
@@ -138,17 +145,22 @@ class AiDecisionContext:
 
         Cascade, de la source NATIVE au repli, puis a l'ignorance ASSUMEE :
 
-        1. `spawn_groups` lus -> mirror EXACT (`GroupForPlayer` + le fallback natif quand le groupe
-           manque REELLEMENT dans la config) ;
+        0. `mow_position_by_player` -- le natif INVOQUE (`boardGraph.mowPositions`, #311). Rien a
+           reconstituer : c'est la valeur que le predicat compare, repli natif compris ;
+        1. sinon `spawn_groups` lus -> mirror de la cascade (`GroupForPlayer` + le fallback natif
+           quand le groupe manque REELLEMENT dans la config). Seule voie du chemin OFFLINE ;
         2. sinon, le slot de la MoW du joueur courant (`decisionView.mows`) : le slot ou elle a ete
-           deployee EST la `MachineOfWarPosition` de son groupe ;
+           deployee EST la `MachineOfWarPosition` de son groupe. ATTENTION -- ce repli est
+           structurellement MUET la ou le natif diverge du fallback : un groupe qui declare
+           `MachineOfWarPosition = 0` (502 des 675 boards) ne deploie AUCUNE MoW, donc
+           `decisionView.mows` y est VIDE (mesure #302 tranche 5, board `C1_01`) ;
         3. sinon `None` = **non mesure**. Le port ne devine PAS : sur les 675 boards du depot, 502
            declarent `MachineOfWarPosition = 0` et 173 declarent (2, 1) -- appliquer le fallback
            natif a l'aveugle serait faux sur ~74 % des plateaux (cf.
-           `engine.services.machine_of_war_position`). Le predicat rend alors False, ce qui est
-           l'etat ANTERIEUR a cette tranche, et le residu est nomme."""
+           `engine.services.machine_of_war_position`). Le predicat rend alors False."""
         return _machine_of_war_position(self.spawn_groups, self.current_player_team,
-                                        self.mow_slot_by_player, self.cur)
+                                        self.mow_slot_by_player, self.cur,
+                                        self.mow_position_by_player)
 
     def ability_targets(self, unit_id: int, ability_id: int) -> dict:
         """Lazy `abilityTargets` (union des cibles/tuiles légales) — `GetEligibleTargetsSelectable`.
@@ -286,7 +298,7 @@ class AiDecisionContext:
             unit_id, {"active": 0, "passive": 0, "multiplier": 100})
 
 
-_BOARD_GRAPH_CACHE: dict = {}      # {rid: tiles list} — boardGraph brut, 1 fetch/rid (partagé)
+_BOARD_GRAPH_CACHE: dict = {}      # {rid: réponse boardGraph BRUTE} — 1 fetch/rid (partagé)
 _BOARD_TILE_IDS_CACHE: dict = {}   # {rid: {(col,row): tileEntityId}} — board statique, dérivé
 _BOARD_NEIGH_CACHE: dict = {}      # {rid: {(col,row): [voisins ordre natif]}} — dérivé
 _BOARD_WALKABLE_CACHE: dict = {}   # {rid: {(col,row): walkable}} — board statique, dérivé (#116)
@@ -300,15 +312,46 @@ _TRIGGERED_KITS_ALL_CACHE: dict = {}   # {rid: {unitId: [TriggeredAbilityType]}}
 #                                        unitId, 1 fetch/rid (#241 : `_adjacent_units` est reevalue par tuile)
 
 
+def _board_graph(rpc: Callable[..., dict], rid: int) -> dict:
+    """Réponse BRUTE de `boardGraph` (board STATIQUE -> cachée par rid ; 1 fetch partagé par tous
+    les dérivés `_board_*`).
+
+    #302 tranche 5 — c'est la RÉPONSE qui est cachée, plus ses seules `tiles`. Le champ
+    `mowPositions` (#311) voyageait déjà dans cet objet et était jeté à la ligne suivante : le
+    brancher ne coûte donc AUCUN RPC supplémentaire."""
+    r = _BOARD_GRAPH_CACHE.get(rid)
+    if r is None:
+        r = rpc("boardGraph", {"runnerId": rid}, 60) or {}
+        _BOARD_GRAPH_CACHE[rid] = r
+    return r
+
+
 def _board_graph_tiles(rpc: Callable[..., dict], rid: int) -> list:
     """Liste brute des tuiles `boardGraph` (board STATIQUE -> caché par rid ; 1 fetch partagé entre
     `_board_tile_ids` et `_board_neighbours`)."""
-    t = _BOARD_GRAPH_CACHE.get(rid)
-    if t is None:
-        bg = rpc("boardGraph", {"runnerId": rid}, 60) or {}
-        t = bg.get("tiles") or []
-        _BOARD_GRAPH_CACHE[rid] = t
-    return t
+    return _board_graph(rpc, rid).get("tiles") or []
+
+
+def _board_mow_positions(rpc: Callable[..., dict], rid: int):
+    """`{playerId: MachineOfWarPosition}` — `boardGraph.mowPositions` (#311), c.-à-d.
+    `IdunBattle.Core.Services.BattleQuery$$GetPositionMachineForPlayer(player)` INVOQUÉ joueur par
+    joueur sur le runner. C'est la valeur EFFECTIVE que compare
+    `IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger`.
+
+    TRI-ÉTAT préservé depuis le hook, qui le porte déjà (`mowPositions: null` = méthode irrésolue) :
+    `None` = **pas mesuré**, `{}` = mesuré et aucun joueur. Les confondre ferait passer un capteur
+    MORT pour un plateau sans joueurs. Une entrée dont le `machineOfWarPosition` est `null` (le hook
+    a capturé une erreur d'invocation) est ÉCARTÉE — jamais rabattue sur `0`, qui est une valeur
+    LÉGITIME (`MachineOfWarPosition.None_`) portée par 502 des 675 boards."""
+    mp = _board_graph(rpc, rid).get("mowPositions")
+    if not isinstance(mp, list):
+        return None
+    out = {}
+    for e in mp:
+        pid, pos = (e or {}).get("playerId"), (e or {}).get("machineOfWarPosition")
+        if pid is not None and pos is not None:
+            out[pid] = int(pos)
+    return out
 
 
 def _board_tile_ids(rpc: Callable[..., dict], rid: int) -> dict:
@@ -501,13 +544,24 @@ def _mow_slot_by_player(dv: dict) -> dict:
             if m.get("owner") is not None and m.get("slot") is not None}
 
 
-def _machine_of_war_position(spawn_groups, current_player_team, mow_slot_by_player, cur):
+def _machine_of_war_position(spawn_groups, current_player_team, mow_slot_by_player, cur,
+                             mow_position_by_player=None):
     """La cascade de `AiDecisionContext.machine_of_war_position`, en fonction MODULE.
 
     Elle vit ici (et non seulement en methode) parce que la `Scene` la porte desormais aussi : la
     face PREDICTION (`make_damage_predictions`) ne recoit que la `Scene`, jamais l'
     `AiDecisionContext`, et l'arbre de zone de 1148 lit ce canal. Un seul foyer -> les deux
-    consommateurs ne peuvent pas diverger."""
+    consommateurs ne peuvent pas diverger.
+
+    #302 tranche 5 -- le NATIF INVOQUE passe DEVANT le mirror. `mow_position_by_player` est le
+    retour de `GetPositionMachineForPlayer(player)` lui-meme ; `spawn_groups` n'en est qu'une
+    transcription, qui DEVINE en plus `playerNr = 0`. Un `cur` absent de la table mesuree ne
+    court-circuite PAS la suite de la cascade : la table peut etre non vide et ne pas porter le
+    joueur courant (elle n'enumere que les entites `EntityType.Player` du runner)."""
+    if mow_position_by_player:
+        pos = mow_position_by_player.get(cur)
+        if pos is not None:
+            return pos
     if spawn_groups is not None and current_player_team is not None:
         return machine_of_war_position_for_player(spawn_groups, int(current_player_team))
     return (mow_slot_by_player or {}).get(cur)
@@ -627,6 +681,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
 
     mow_slot_by_player = _mow_slot_by_player(dv)
     current_player_team = _current_player_team(dv)
+    mow_position_by_player = _board_mow_positions(rpc, rid)   # #302-5 — gratuit (boardGraph déjà fetché)
 
     # Scene objet = predictor + sctx consolidés (+ élévation + effets de tuile FRAIS du pas — la glace
     # LordOfTempests s'accumule en bataille) — consommée par engine.playbook.prediction.
@@ -635,7 +690,8 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     scene = (Scene.from_predictor_sctx(
         predictor, sctx, elev_by_pos, tile_effects_by_pos=effects_by_pos,
         machine_of_war_position=_machine_of_war_position(spawn_groups, current_player_team,
-                                                         mow_slot_by_player, cur))
+                                                         mow_slot_by_player, cur,
+                                                         mow_position_by_player))
              if (predictor is not None and sctx is not None) else None)
 
     # #236 — `UtilityMovementCase` de la feuille MinDist(16), face LIVE (cf. `_mindist_case`).
@@ -657,6 +713,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         is_territory_by_pos=is_territory_by_pos,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
         mow_slot_by_player=mow_slot_by_player, current_player_team=current_player_team,
+        mow_position_by_player=mow_position_by_player,
         spawn_groups=spawn_groups, debug=debug)
 
 
@@ -836,10 +893,12 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
     mow_slot_by_player = _mow_slot_by_player(dv)
     current_player_team = _current_player_team(dv)
+    mow_position_by_player = _board_mow_positions(rpc, rid)   # #302-5 — gratuit (boardGraph déjà fetché)
     scene = (Scene.from_predictor_sctx(
         predictor, sctx, elev_by_pos, tile_effects_by_pos=effects_by_pos,
         machine_of_war_position=_machine_of_war_position(spawn_groups, current_player_team,
-                                                         mow_slot_by_player, cur))
+                                                         mow_slot_by_player, cur,
+                                                         mow_position_by_player))
              if (predictor is not None and sctx is not None) else None)
 
     return AiDecisionContext(
@@ -858,4 +917,5 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
         mow_slot_by_player=mow_slot_by_player,
         current_player_team=current_player_team,
+        mow_position_by_player=mow_position_by_player,
         spawn_groups=spawn_groups, debug=debug)
