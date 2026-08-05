@@ -284,6 +284,32 @@ MUTATIONS = ("entite_prepare", "entite_start_turn", "valeur_previous", "prepare_
              "depart_prepare")
 
 
+def applicable(nom: str, obs: TurnObs) -> bool:
+    """LE DOMAINE DE DEFINITION D'UNE MUTATION, derive des DONNEES du couple.
+
+    ⚠ IL EXISTE DEUX INERTIES, ET LES CONFONDRE REND LE GARDE INUTILISABLE. Mesure du
+    2026-08-06, sur un roster 1v1 crafte : `ordre_action` (deplacer le contenu AVANT l'action)
+    n'a mordu sur AUCUN des 6 couples -- non parce qu'elle serait morte, mais parce qu'AUCUN
+    couple de ce regime n'a de contenu PORTE a deplacer (tout y est hors perimetre ou vide).
+
+      * INERTE PAR CONSTRUCTION -- la mutation est applicable et ne change rien : elle ne
+        mesure rien, quel que soit son verdict. C'est ROUGE ;
+      * INERTE PAR ABSENCE DE DONNEE -- le corpus n'a aucun couple ou elle soit applicable :
+        c'est une ATTENTION, du meme ordre que « derivation qu'aucune donnee n'exerce ».
+
+    Le domaine est CALCULE ici, jamais declare a la main dans le verdict : c'est ce qui empeche
+    d'excuser apres coup une mutation qui vient de ne pas mordre."""
+    if nom == "ordre_action":
+        # elle deplace `corps`, et `corps` est `None` quand aucun sous-arbre n'est PORTE
+        return bool(obs.portes)
+    if nom == "prepare_permute":
+        # permuter deux valeurs EGALES ne change rien
+        par_nom = dict(obs.prepare.tags)
+        return (par_nom[TagKey.Match_CurrentPlayerId.name]
+                != par_nom[TagKey.Match_PreviousPlayerId.name])
+    return True
+
+
 def _start_turn_mute(events: StreamDispatcher, obs: TurnObs, previous: int,
                      corps: Optional[Callable[[], None]], mutation: str) -> None:
     """LES CONTRE-EPREUVES STRUCTURELLES -- celles qui ne se font pas en muant une DONNEE.
@@ -444,6 +470,23 @@ def derivations(couples: List[TurnObs]) -> dict:
             "d4_groupes_vides": d4_vides, "d4_groupes_pleins": d4_pleins}
 
 
+def effect_refresh_recoltes(couples: List[TurnObs]) -> dict:
+    """CE QUE LA TRANCHE DEBLOQUE POUR `Effect_Refresh`, mesure -- le fil de #477-r19-r2.
+
+    ⚠ LE « 26 » DE #477-r19-r2 COMPTE DES `Effect_Refresh`, PAS DES `Group=StartTurn`. Sa
+    ventilation dit « 147 occurrences reparties sur 9 groupes racines, dont `StartTurn` 26 » : ce
+    sont les `Effect_Refresh` dont la RACINE est un `StartTurn`. Les `Group=StartTurn`, eux, sont
+    beaucoup moins nombreux (5 sur le meme flux). Confondre les deux surestime la recolte d'un
+    facteur 5 -- et c'est exactement le genre de citation qu'on ne re-derive pas assez.
+
+    Les deux chiffres ne disent pas la meme chose, comme au cran precedent : REPRODUITS a
+    l'egalite brute donnees fournies, et AUTONOMES sans aucune entree copiee (toujours 0 --
+    `#477-r21-r2` et `#477-r21-r3` restent ouverts)."""
+    portes = [p for c in couples for p in c.portes]
+    hors = [h for c in couples for h in c.hors]
+    return R21.effect_refresh_comparables(portes, hors)
+
+
 def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
              etiquette: str) -> dict:
     state = OUT / ("state-477r22-%s.json" % etiquette)
@@ -503,18 +546,37 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
 
     der = derivations(couples)
 
+    # LES CONTRE-EPREUVES SE JOUENT SUR **CHAQUE** COUPLE, PAS SUR UN SEUL -- et c'est une mesure
+    # qui l'a impose. La premiere version ne mutait que le couple du bloc 2 ; sur le roster
+    # crafte ce couple a un contenu VIDE, et `ordre_action` (deplacer le contenu avant l'action)
+    # n'y change RIEN : elle rendait `a_morde=False`, donc un verdict sans objet. Le critere est
+    # donc double, et il distingue les deux echecs : une mutation doit MORDRE sur au moins un
+    # couple, et ROUGIR partout ou elle mord. L'inertie par couple est PUBLIEE, jamais tue.
     ce = []
+    for nom in MUTATIONS:
+        mordus, muets, rouges, hors_domaine = 0, 0, 0, 0
+        for obs in couples:
+            if not applicable(nom, obs):
+                hors_domaine += 1
+                continue
+            depart = DEPART_IMBRIQUE if obs.prof == 1 else DEPART_RACINE
+            sain = emettre(obs, depart)
+            try:
+                texte = emettre(obs, depart, mutation=nom)
+            except (MesureImpossible, ValueError):
+                texte = sain
+            if texte == sain:
+                muets += 1
+                continue
+            mordus += 1
+            r = CONF.comparer(natif_porte(obs), texte)
+            if r.nouvelles or r.connues:
+                rouges += 1
+        ce.append((nom, mordus, muets, rouges, hors_domaine))
+
     obs0 = dedans[0]
     attendu0 = natif_porte(obs0)
     sain = emettre(obs0, DEPART_IMBRIQUE)
-    for nom in MUTATIONS:
-        try:
-            texte = emettre(obs0, DEPART_IMBRIQUE, mutation=nom)
-        except (MesureImpossible, ValueError):
-            texte = sain
-        a_morde = texte != sain
-        r = CONF.comparer(attendu0, texte)
-        ce.append((nom, a_morde, len(r.nouvelles) + len(r.connues)))
 
     # le rapport de conformite du BLOC 2 lui-meme, avec ses bornes (c)
     rap_bloc2 = CONF.comparer(attendu0, sain, entrees_du_natif=(
@@ -544,6 +606,7 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
             "lignes_flux": flux.count("\n"), "decoupe": dec, "couples": couples,
             "dedans": dedans, "dehors": dehors, "resultats": resultats,
             "derivations": der, "contre_epreuve": ce, "rapport": rap_bloc2,
+            "effect_refresh": effect_refresh_recoltes(couples),
             "voc_porte": R19.vocabulaire(attendu0)}
 
 
@@ -597,16 +660,28 @@ def imprimer(res: dict) -> None:
             if not r["rapport"].conforme:
                 print("          ROUGE couple #%d (racine=%s) : %d divergence(s)"
                       % (r["index"], r["obs"].racine, len(r["rapport"].divergences)))
+    eff = res["effect_refresh"]
+    print("      `%s` DANS LES COUPLES : %d REPRODUIT(s) a l'egalite brute (donnees fournies), "
+          "%d hors perimetre ; AUTONOMES : %d"
+          % (GroupType.Effect_Refresh.name, eff["reproduits"], eff["hors_perimetre"],
+             eff["autonomes"]))
     print("  VOCABULAIRE du natif PORTE : %d GroupType, %d StepType, %d TagKey -- %s"
           % (len(res["voc_porte"]["GroupType"]), len(res["voc_porte"]["StepType"]),
              len(res["voc_porte"]["TagKey"]), ",".join(sorted(res["voc_porte"]["StepType"]))))
-    print("  CONTRE-EPREUVE (%d mutations, chacune doit MORDRE puis rougir) :" % len(MUTATIONS))
-    for nom, a_morde, divs in res["contre_epreuve"]:
-        print("      %-22s a_morde=%-5s divergences=%-4d %s"
-              % (nom, a_morde, divs, "OK" if (a_morde and divs) else "ROUGE"))
-        if not a_morde:
-            print("          ! la mutation n'a PAS change ce qu'elle mute -- elle ne mesure "
-                  "rien, quel que soit son verdict.")
+    print("  CONTRE-EPREUVE (%d mutations x %d couple(s) ; sur son DOMAINE, chacune doit MORDRE "
+          "puis ROUGIR) :" % (len(MUTATIONS), len(res["couples"])))
+    for nom, mordus, muets, rouges, hors_domaine in res["contre_epreuve"]:
+        etat = ("HORS DOMAINE" if mordus + muets == 0
+                else "OK" if (muets == 0 and rouges == mordus) else "ROUGE")
+        print("      %-22s domaine=%-2d mord=%-2d INERTE=%-2d rougit=%d/%-2d %s"
+              % (nom, mordus + muets, mordus, muets, rouges, mordus, etat))
+        if muets:
+            print("          ! INERTE PAR CONSTRUCTION sur %d couple(s) de son domaine -- une "
+                  "mutation qui ne change pas ce qu'elle mute ne mesure rien, quel que soit son "
+                  "verdict." % muets)
+        if hors_domaine:
+            print("          (hors domaine sur %d couple(s) : la faute qu'elle teste n'y est pas "
+                  "exprimable -- publie, jamais tu)" % hors_domaine)
     for ligne in CONF.rapport(res["rapport"]):
         print("  " + ligne)
 
@@ -684,12 +759,29 @@ def main() -> int:
               "cette tranche, n'aurait alors rien a mesurer."
               % (GroupType.StartTurn.name, ",".join(sans_hors)))
         rc = 1
-    ce_ko = [(r["etiquette"], nom) for r in resultats
-             for nom, a_morde, divs in r["contre_epreuve"] if not (a_morde and divs)]
-    if ce_ko:
-        print("  ROUGE : %d mutation(s) NE ROUGISSENT PAS -- le vert du scenario sain ne prouve "
-              "alors rien : %s" % (len(ce_ko), ", ".join("%s/%s" % (b, n) for b, n in ce_ko)))
+    ce_muettes = [(r["etiquette"], nom) for r in resultats
+                  for nom, mordus, muets, _rouges, _hd in r["contre_epreuve"]
+                  if muets > 0]
+    if ce_muettes:
+        print("  ROUGE : %d mutation(s) INERTES PAR CONSTRUCTION (applicables et sans effet) -- "
+              "elles ne mesurent rien, quel que soit leur verdict : %s"
+              % (len(ce_muettes), ", ".join("%s/%s" % (b, n) for b, n in ce_muettes)))
         rc = 1
+    ce_ko = [(r["etiquette"], nom) for r in resultats
+             for nom, mordus, _muets, rouges, _hd in r["contre_epreuve"]
+             if mordus > 0 and rouges != mordus]
+    if ce_ko:
+        print("  ROUGE : %d mutation(s) ONT MORDU SANS ROUGIR -- le vert du scenario sain ne "
+              "prouve alors rien : %s" % (len(ce_ko), ", ".join("%s/%s" % (b, n)
+                                                                for b, n in ce_ko)))
+        rc = 1
+    ce_vides = [(r["etiquette"], nom) for r in resultats
+                for nom, mordus, muets, _rouges, _hd in r["contre_epreuve"]
+                if mordus + muets == 0]
+    if ce_vides:
+        print("  ATTENTION : %d mutation(s) HORS DOMAINE sur tout un scenario -- la faute "
+              "qu'elles testent n'y est pas exprimable, leur silence ne dit donc rien : %s"
+              % (len(ce_vides), ", ".join("%s/%s" % (b, n) for b, n in ce_vides)))
     inertes = [(r["etiquette"], cle) for r in resultats for cle in
                ("d2_current_different_de_previous", "d4_groupes_pleins")
                if r["derivations"][cle] == 0]

@@ -405,7 +405,11 @@ def visit_start_battle_message(events: StreamDispatcher, match_entity_id: int,
       2. `Action=PrepareTurn` et le `Group=StartTurn` COMPLET, qui sortent du dernier appel de
          l'operation -- `processor.<slot 0x16>(TurnStage.Start /*3*/, false, true)`, c'est-a-dire
          `ContinueTurnPhase` (meme slot, memes trois arguments, que la lambda `<Visit>b__20_0` de
-         `Visit(StartTurnMessage)`) ;
+         `Visit(StartTurnMessage)`). **Sa face STREAM est portee depuis #477-r22** :
+         `engine/streams/turn_phase.py` (`prepare_turn`, `start_turn`, et la boucle
+         `continue_turn_phase` qui derive la sequence des `TurnStage`). Ce bloc-la est le SEUL
+         des trois qui se reutilise hors de ce groupe -- le `Group=StartTurn` n'a qu'un
+         producteur dans le binaire, donc TOUTES les occurrences du flux en relevent ;
       3. le groupe `RarityCapTransform` (`StepType.PlayerInitialRarity`), emis seulement quand le
          joueur humain porte une rarete initiale (`Nullable.HasValue && Value > 0`) -- ABSENT du
          flux temoin. Son unique tag est la cle `0xd4`, que `TagKey` NOMME `Rarity` : le nom

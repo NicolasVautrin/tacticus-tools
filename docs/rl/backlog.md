@@ -2648,6 +2648,12 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   l'EGALITE BRUTE (363/447, 392/491, 131/131 lignes ; 34/36/12 `Effect_Refresh`) -- mais
   **0 AUTONOME**, mesure, parce que les VALEURS qu'ils portent viennent encore de l'oracle
   (ids d'entite d'effet, selection, ordre). cf. `docs/rl/case-477r21-arbre-activation.md` sec. 5.
+  ⚠ **LA VENTILATION CI-DESSUS COMPTE DES `Effect_Refresh`, PAS DES GROUPES -- et le confondre
+  surestime d'un facteur 5.** Le « `StartTurn` 26 » designe les 26 `Effect_Refresh` dont la RACINE
+  est un `StartTurn` ; les `Group=StartTurn` eux-memes sont **5** sur le meme flux. #477-r22 a
+  porte ce groupe et rend desormais **28** de ces `Effect_Refresh` reproduits sur `C1_02`, **26**
+  sur `MC1_67`, **8** sur le roster 2v2 -- toujours **0 AUTONOME**.
+  cf. `docs/rl/case-477r22-bloc2-tour.md` sec. 3.
   ⚠ LA CORRECTION D'ATTRIBUTION QUI ETAIT ANNONCEE ICI EST LIVREE PAR **#477-r24** (elle avait ete
   dispatchee sous l'etiquette `#477-r19-r2`, deja prise par CE residu). Elle allait plus loin que
   « reecrire deux commentaires » : `ReviveUnit` n'a AUCUNE phase -- son unique site d'invocation
@@ -2717,22 +2723,31 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   groupe et les `Tag=Effect_Id` de ses quatre formes d'action en dependent tous.
   cf. `docs/rl/case-477r21-arbre-activation.md` sec. 4 et 5.
 
-- **#477-r22 : le BLOC 2 de `System_StartMatch` -- `Action=PrepareTurn` + le `Group=StartTurn`
-  COMPLET.** `[opus]`
-  27 lignes sur les deux boards par defaut, 8 sur le roster 2v2 : c'est la QUEUE que la decoupe
-  de #477-r21 isole (entre la premiere `Action=PrepareTurn` de profondeur 1 et le `Finish_Group`
-  racine), et la somme est deja confrontee a chaque run. Elle sort du DERNIER appel de
-  `IdunBattle.Operations.StartMatchOperation$$Execute` --
-  `processor.<slot 0x16>(TurnStage.Start /*3*/, false, true)`, c'est-a-dire `ContinueTurnPhase`,
-  MEME slot et MEMES trois arguments que la lambda `<Visit>b__20_0` de `Visit(StartTurnMessage)`.
-  ⚠ L'INTERET DEPASSE `System_StartMatch` : le meme slot produit tous les `Group=StartTurn` du
-  deroule, et #477-r19-r2 en compte **26** hors de ce groupe. Le bloc 2 est donc le seul des trois
-  dont le port se REUTILISE ailleurs.
-  Ce qu'il contient, LU sur le flux temoin : `Action=StartTurn` + `Tag=Match_PreviousPlayerId`,
-  puis des `Group=Effect_Refresh` (2 sur `C1_02`) que #477-r21 sait deja emettre, et un
-  `Group=Ability_Power` a `Action=Info` / `Tag=Custom_Data`.
-  cf. `docs/rl/case-477r20-start-match.md` sec. 1, et
-  `docs/rl/case-477r21-arbre-activation.md` sec. 7.
+- **#477-r22-r1 : le CONTENU du `Group=StartTurn` hors des formes portees.** `[opus]`
+  DEUX motifs, comptes sur tout le flux : les `Action=ChangeStats` + `Tag=UnitStats_ActionsAvailable`
+  emises par le **slot `0x21`** de `Core.Services.IOperationProcessor` juste avant le `FinishGroup`
+  (13 occurrences sur `C1_02`, 13 sur `MC1_67`, 0 sur le roster 2v2), et les `Group=Ability_Power` a
+  `Action=Info` / `Tag=Custom_Data` (3). Les premieres sortent d'un slot **NON IDENTIFIE** -- l'ordre
+  des slots d'une interface IL2CPP ne se lit nulle part hors du metadata (mesure : **0** methode
+  declaree par `Core.Services.IOperationProcessor` dans les 121 502 lignes de `frida/methods.tsv`) ;
+  les secondes d'un `Ability_Power` que #477-r21 sait ouvrir mais dont le corps `Info` n'est porte
+  par rien.
+  RETOURNEMENT **DEJA MESURE** : sur le roster 2v2 ce residu vaut **0 ligne** dans le bloc 2, et le
+  groupe `System_StartMatch` y est alors INTEGRALEMENT porte (142 / 142).
+  cf. `docs/rl/case-477r22-bloc2-tour.md` sec. 6.
+
+- **#477-r22-r2 : les gardes d'ETAT de `ContinueTurnPhaseOperation$$HandleNextTurn`.** `[opus]`
+  TROIS, toutes LUES : le match deja termine (`match.<+0x24> == 2`), la decision de drafting en
+  attente au stage `Draft`
+  (`turn.<+0x10> == TurnStage.Draft && DraftingComponent.get_IsPendingDraftingDecision(...)`, qui
+  rend `false` sans rien emettre quand `forceEndTurn` est faux), et les quatre conditions de la
+  branche `nextTurnStage == TurnStage.Prepare`. Le port execute CHAQUE stage traverse : sur un
+  montage avec drafting en attente le natif s'arreterait avant `Start` et le port emettrait un
+  `Group=StartTurn` de trop.
+  ⚠ **CE N'EST PAS UNE FACE STREAM** : comme `#477-r21-r2`, ce residu vit dans l'ETAT ECS -- le
+  decouper comme un port d'emission serait une erreur de cadrage. Le PREALABLE est un montage qui
+  arme une decision de drafting, qu'aucun de nos cinq scenarios n'atteint.
+  cf. `docs/rl/case-477r22-bloc2-tour.md` sec. 1 et 6.
 
 - **#477-r23 : le groupe `RarityCapTransform`, LU mais JAMAIS exerce.** `[opus]`
   `StepType.PlayerInitialRarity` (`0x3d`) dans un `Group=RarityCapTransform` (`0x2e`), emis par
