@@ -189,7 +189,7 @@ aucun est pire que l'ordinal, qui au moins ne ment pas. Détail :
 
 ⚠ **Et la conversion n'est PAS mécanique** : elle vaut ce que vaut le miroir Python. `ActiveAbilityType`
 (#270) **et** `TriggeredAbilityType` (#313, puis #270-c) sont réparés et **sous cliquet**
-(`probe_313`, 13 mirrors en bijection, 0 dette) ; les générateurs des tables **SQL** restent **cassés**
+(`probe_313`, 14 mirrors en bijection, 0 dette) ; les générateurs des tables **SQL** restent **cassés**
 (#270-b, arrimés à un `dump.cs` supprimé). Convertir depuis un miroir périmé écrirait des noms
 FAUX — pire que l'ordinal, qui au moins ne ment pas. **Vérifier la fraîcheur de la table avant
 de nommer quoi que ce soit** — la ligne que tu lis a elle-même annoncé « 107 ids morts » **quatre

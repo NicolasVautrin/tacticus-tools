@@ -173,7 +173,18 @@ vérifiée par `git status`) :
 `runner/targeting_options_sources`, `runner/targeting_rule_inventory`, `270d_catalog_traits_enum`,
 `366_effects_registry_partition`.
 
-**Cliquets rejoués, tous verts** : `probe_313` (13 mirrors, 0 dette), `probe_181` (104 abilities,
+**Le rebase a rapporté une prise, et elle n'est pas de cette tranche.** Rebasée sur `origin/master`
+(20 commits d'écart, 0 conflit), la batterie a été **entièrement re-jouée** — 247 tests, les 7
+mutations, l'empreinte. Un seul rouge, et il **préexistait sur `origin/master`** :
+`engine/entities/damage_reason.py` (mirror natif d'`IdunBattle.Operations.DamageReason`, livré par
+`c06a112f`, PR #651) était entré sous `engine/` **sans passer au registre de `probe_313`**, qui
+rougissait donc sur `master`. C'est le gisement même que son étape 1 existe pour fermer, et sa
+**troisième** réouverture par notre propre cadence après `PathfinderType` (#381-r5) et
+`KillUnitStep` (#389-r2). Inscrit ici — 2 lignes, clé LUE dans `enums.tsv` (`IdunBattle.Operations`,
+pas `IdunBattle.Entities.Enum`) — parce que cette tranche modifie ce cliquet et ne peut pas le
+livrer rouge. Registre : **14** mirrors sous garde, 0 dette.
+
+**Cliquets rejoués, tous verts** : `probe_313` (14 mirrors, 0 dette), `probe_181` (104 abilities,
 0 masque manquant), `probe_120` (étape 0 : littéral de ctor manquant — aucun), `probe_443r1c`
 (5 267 indices littéraux, 0 périmé), `probe_274`, `probe_283` (`exec` / `prose` / `tables`),
 `probe_365`, `probe_462r5`.
