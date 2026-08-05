@@ -114,21 +114,33 @@ def _free_at(board, center, radius, occupied):
 
 
 def _port_replay(snap, board, uid, jouer):
-    """Rejoue OFFLINE sur le MEME etat et rend `(flags du port, bilan VerifyUnitsTurnFinished)`."""
+    """Rejoue OFFLINE sur le MEME etat et rend `(flags du port, bilan VerifyUnitsTurnFinished)`.
+
+    Le bilan porte AUSSI le COUT : `ms_apply` (le message complet, voie comprise) et `ms_verify`
+    (la voie seule, re-jouee sur l'etat DEJA mute -- donc idempotente : elle ne change rien, elle
+    ne fait que remesurer). C'est le chiffre a regarder si l'on soupconne cette voie de peser sur
+    les runs, puisqu'elle balaye les unites du joueur courant a CHAQUE message."""
+    import time
     from engine.runner.components import UnitFlagsComponent
     from engine.runner.runner import Runner
+    from engine.runner.operations.turnflow import verify_units_turn_finished
     st = load_state(snap["dv"], snap["ob"], snap["snap"], board=board)
     if isinstance(snap["rng"], dict) and snap["rng"].get("mt"):
         st.rng = _seed_rng(snap["rng"])
     runner = Runner(st).install_default_handlers(20)
+    t0 = time.perf_counter()
     jouer(runner, st)
+    t1 = time.perf_counter()
+    verify_units_turn_finished(st)
+    t2 = time.perf_counter()
     e = st.get_entity(uid)
     fc = e.get_component(UnitFlagsComponent) if e is not None else None
     bilan = runner.last_verify_turn_finished or {}
     return (sorted(fc.flags) if fc is not None else []),  {
         "marked": bilan.get("marked"), "unmarked": bilan.get("unmarked"),
         "undetermined": bilan.get("undetermined"), "machines_skipped": bilan.get("machines_skipped"),
-        "units": len(bilan.get("units") or [])}
+        "units": len(bilan.get("units") or []),
+        "ms_apply": round((t1 - t0) * 1000.0, 1), "ms_verify": round((t2 - t1) * 1000.0, 1)}
 
 
 def _snapshot(rid):
@@ -138,10 +150,13 @@ def _snapshot(rid):
 
 
 def run(keep: bool = False, seed: int = SEED, board_name: str = BOARD,
-        state_name: str = "rs_287r1r1_verify.json") -> dict:
+        state_name: str = "rs_287r1r1_verify.json", p_units: str = P_UNITS,
+        a_units: str = A_UNITS, walker: str = WALKER_VID) -> dict:
+    global WALKER_VID
+    WALKER_VID = walker
     state = LOGS / state_name
     _run(["build", "--seed", str(seed), "--board", board_name, "--rank", "17",
-          "--p-units", P_UNITS, "--a-units", A_UNITS, "--state-file", str(state)])
+          "--p-units", p_units, "--a-units", a_units, "--state-file", str(state)])
     if not state.exists():
         return {"error": "build KO (state-file absent)"}
     rid = int(json.loads(state.read_text(encoding="utf-8"))["runnerId"])
@@ -213,9 +228,14 @@ def main() -> int:
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--state-file", default="rs_287r1r1_verify.json")
+    ap.add_argument("--p-units", default=P_UNITS)
+    ap.add_argument("--a-units", default=A_UNITS)
+    ap.add_argument("--walker", default=WALKER_VID,
+                    help="visualId de l'unite qui bouge puis se fait marquer/re-ouvrir")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
-    r = run(keep=a.keep, seed=a.seed, board_name=a.board, state_name=a.state_file)
+    r = run(keep=a.keep, seed=a.seed, board_name=a.board, state_name=a.state_file,
+            p_units=a.p_units, a_units=a.a_units, walker=a.walker)
     print(json.dumps(r, indent=1, sort_keys=True))
     if r.get("error"):
         print("[287r1r1] PAS MESURE : %s" % r["error"])
