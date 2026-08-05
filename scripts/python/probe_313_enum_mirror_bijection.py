@@ -222,6 +222,13 @@ REGISTRE: list[Mirror] = [
     # `TagKey.MachinePosition` (#477-r15) ; les trois constantes en DERIVENT desormais.
     Mirror("MachineOfWarPosition", "engine/services/machine_of_war_position.py",
            "IdunBattle.Configuration.MachineOfWarPosition"),
+    # #270-r4 : le mirror NEUF de la tranche, inscrit DANS LE COMMIT QUI LE CREE (cinquieme fois
+    # que ce gisement s'ouvre par notre propre cadence -- `PathfinderType`, `KillUnitStep`,
+    # `DamageReason`, `Edge`, puis les quatre de #270-r1-r1-r3). Cle LUE dans `frida/methods.tsv`
+    # comme type DECLARE du dernier parametre de `DSLTriggers.HasEffect` -- c'est le seul canal
+    # qui tranche, l'ordinal `6` etant un membre valide de dizaines d'autres enums du build.
+    Mirror("EffectTargetType", "engine/entities/effect_target_type.py",
+           "IdunBattle.Entities.Enum.EffectTargetType"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune
