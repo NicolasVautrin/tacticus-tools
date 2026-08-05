@@ -86,13 +86,16 @@ class _Visiteur(ast.NodeVisitor):
     # -- visite ---------------------------------------------------------------
     def _enregistrer(self, cibles: list[str], ligne: int, cause: str) -> None:
         differe = self._profondeur_fn > 0 or self._profondeur_tc > 0
-        for c in cibles:
-            if not c.startswith(PAQUET):
-                continue
-            if differe:
-                self.differe.append((c, ligne, cause))
-            else:
-                self.module_level.add(c)
+        garde = [c for c in cibles if c.startswith(PAQUET)]
+        if not garde:
+            return
+        if differe:
+            # UNE entree par INSTRUCTION (pas par cible) : `from .x import a, b` emet plusieurs
+            # candidats de resolution mais reste UN import. Compter les cibles gonflerait le
+            # chiffre avant/apres et le rendrait incomparable.
+            self.differe.append((garde, ligne, cause))
+        else:
+            self.module_level.update(garde)
 
     def visit_Import(self, noeud: ast.Import) -> None:
         cibles = [a.name for a in noeud.names]
@@ -169,11 +172,11 @@ def construire(racine_paquet: Path) -> tuple[dict[str, set[str]], dict[str, set[
             if reel and reel != mod:
                 ml[mod].add(reel)
                 tous[mod].add(reel)
-        for cible, ligne, cause in v.differe:
-            reel = _reduire(cible, connus)
-            differes[mod].append((cible, reel, ligne, cause))
-            if reel and reel != mod:
-                tous[mod].add(reel)
+        for cibles, ligne, cause in v.differe:
+            reels = [r for r in (_reduire(c, connus) for c in cibles) if r and r != mod]
+            differes[mod].append((cibles[0], sorted(set(reels)), ligne, cause))
+            for r in reels:
+                tous[mod].add(r)
 
     for m in connus:
         ml.setdefault(m, set())
@@ -304,12 +307,14 @@ def main() -> int:
     for v in differes.values():
         for _, _, _, cause in v:
             par_cause[cause] += 1
-    print("[270-r4-r2] etape 3 -- imports differes vers %s/ dans %s/ : %d "
-          "(%s)" % (PAQUET, PAQUET, n_diff,
-                    ", ".join("%s=%d" % (k or "?", n) for k, n in sorted(par_cause.items()))))
+    print("[270-r4-r2] etape 3 -- INSTRUCTIONS d'import differees vers %s/ dans %s/ : %d "
+          "(%s) reparties sur %d fichier(s)"
+          % (PAQUET, PAQUET, n_diff,
+             ", ".join("%s=%d" % (k or "?", n) for k, n in sorted(par_cause.items())),
+             sum(1 for v in differes.values() if v)))
     if args.differes:
         for mod in sorted(differes):
-            for cible, reel, ligne, cause in sorted(differes[mod], key=lambda t: t[2]):
+            for cible, reels, ligne, cause in sorted(differes[mod], key=lambda t: t[2]):
                 print("   %s:%d  -> %s  [%s]" % (mod, ligne, cible, cause))
 
     if cyc_ml:

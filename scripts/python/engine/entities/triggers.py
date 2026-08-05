@@ -23,6 +23,11 @@ from .unit_faction import UNIT_FACTION_NAMES        # noqa: F401 (re-export)
 # #270-r4 : le `sourceFlags` des deux triggers d'effet. Type DECLARE du dernier parametre de
 # `IdunBattleLogic.Entities.DSLTriggers.HasEffect`, LU dans `frida/methods.tsv`.
 from .effect_target_type import EffectTargetType
+# #270-r4-r2 : les DEUX lectures de `UnitTrait` etaient DIFFEREES, avec pour motif ecrit une
+# « garde anti-circulaire ». MESURE : la garde etait VIDE -- le hissage passe depuis 8 ordres
+# d'entree distincts (`probe_270r4r2_import_en_premier.py`), et il passait DEJA avant la coupe
+# des deux SCC. Un differe dont la cause a disparu (ou n'a jamais existe) est du camouflage.
+from .traits.unit_trait import UnitTrait
 
 
 class TriggerAnd(AbilityTrigger):
@@ -389,7 +394,6 @@ def is_object_or_steppable(unit: AbilityTrigger) -> AbilityTrigger:
     `Subject()` selon le champ cite par le call-site. Sur un selecteur qui resout PLUSIEURS unites, la
     semantique any-vs-all est celle du noeud `HasTrait` (cf. sa docstring) — sans effet sur les
     call-sites portes, qui visent tous une unite unique."""
-    from .traits.unit_trait import UnitTrait     # lazy (meme garde anti-circulaire qu'`IsRepairable`)
     return TriggerOr(HasTrait(unit, int(UnitTrait.Steppable)),      # 0x1b
                      HasTrait(unit, int(UnitTrait.Object)))         # 0x0d
 
@@ -1023,7 +1027,6 @@ class IsRepairable(AbilityTrigger):
         self.unit = unit
 
     def should_trigger(self, ctx):
-        from .traits.unit_trait import UnitTrait
         ht = ctx.has_trait
         if ht is None:
             return False
