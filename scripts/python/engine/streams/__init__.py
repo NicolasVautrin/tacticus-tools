@@ -1,4 +1,4 @@
-"""`engine.streams` -- l'EMETTEUR du flux de replay natif (tranches A + B du #477-r15).
+"""`engine.streams` -- l'EMETTEUR du flux de replay natif (tranches A + B + D du #477-r15).
 
 Le jeu produit, pendant une bataille, un flux texte **deterministe au caractere pres**
 (#477-r11 : 3 rejeux, 2 boards, 2 sessions Frida, zero divergence -- la barre de comparaison
@@ -23,7 +23,9 @@ d'operation l'importent -- mais l'emission passe desormais par `StreamDispatcher
 
 CE QU'IL NE FAIT PAS. Il ne fabrique aucun identifiant d'entite ECS : l'ordre d'allocation natif
 (tuiles, puis unites par pas de 2, puis effets) n'est pas retro-ingenierie -- c'est `#477-r16`.
-Tout emetteur recoit donc ses ids, il ne les invente pas.
+Tout emetteur recoit donc ses ids, il ne les invente pas. Meme regle pour les STATS et les ETATS
+D'ABILITY de la tranche D (`unit_extensions`) : le port les recoit resolus, il ne simule aucun
+composant ECS.
 """
 from __future__ import annotations
 
@@ -33,8 +35,13 @@ from .group_type import GroupType
 from .step_type import StepType
 from .stream_cache import StreamCache
 from .tag_key import TagKey
+from .unit_extensions import (ActiveAbilityState, TriggeredAbilityState, UnitFullState,
+                              get_full_state_update_tags,
+                              get_full_state_update_tags_for_active,
+                              get_full_state_update_tags_for_triggered)
 
 __all__ = [
+    "ActiveAbilityState",
     "BEntityId",
     "GroupType",
     "NO_ENTITY",
@@ -42,5 +49,10 @@ __all__ = [
     "StreamCache",
     "StreamDispatcher",
     "TagKey",
+    "TriggeredAbilityState",
+    "UnitFullState",
     "format_enum_value",
+    "get_full_state_update_tags",
+    "get_full_state_update_tags_for_active",
+    "get_full_state_update_tags_for_triggered",
 ]
