@@ -177,6 +177,21 @@ bundle chargé est antérieur à la fenêtre : il le **nomme** au lieu de retomb
 - **`UnitStats_TriggeredAbility_{AmmoCost,EnoughAmmo}`** — inchangé : `AmmoCost` est nul sur toute
   unité régulière ; les munitions ne mordent que sur les Machines of War, hors de ce groupe.
 
+## 7bis. Le rayon de souffle de `COMBAT_STAT_IDS`, et pourquoi il ne se voit pas avant la fenêtre
+
+`COMBAT_STAT_IDS` n'est pas seulement la table de `combatSnapshot` : elle est publiée sous
+`statTypes`, et `engine/entities/stats.py::seed_unit_stats` **itère cette table** pour seeder un
+`StatComponent` par entrée. Ajouter `range` ajoute donc un composant `StatType.RANGE` (initial `0`)
+à chaque `UnitContext` reconstruit d'une capture live.
+
+Mesuré, pas supposé : `_stat_min(2)` rend `0`, `STAT_CLAMP_MAX.get(2)` rend `None` (aucune levée) ;
+et **aucun code d'`engine/` ne lit `StatType.RANGE`** — les seuls lecteurs de la famille visent
+`StatType.EXTRA_RANGE` (24), qui était déjà dans la table. Le composant ajouté est donc **inerte**.
+
+⚠ **Mais cet effet n'apparaît qu'APRÈS le rechargement du bundle** : tant que le RPC ne publie pas
+`range`, `stats.get("range")` est `None` et `seed_unit_stats` fait `continue`. Aucun test joué avant
+la fenêtre ne peut donc l'exercer — d'où le test de garde par dépendance en §8.
+
 ## 8. Ce qu'il faut jouer dans la fenêtre
 
 ```powershell
@@ -202,6 +217,12 @@ python scripts/python/probe_477r15a_stream_conformance.py --boards MC1_67 `
 python scripts/python/probe_477r15r5_membres_discrimine.py --tours 12
 #    rc=0 DISCRIMINE / rc=3 NON DISCRIMINE (avec temoins) / rc=2 capteur absent
 
-# 5. garde offline (rejouable a tout moment)
+# 5. NON-REGRESSION par dependance : `COMBAT_STAT_IDS` alimente AUSSI `seed_unit_stats`, donc
+#    l'ajout de `range` fait apparaitre un StatComponent de plus dans tout `UnitContext`
+#    reconstruit d'une capture live. Inerte a la lecture (aucun lecteur de `StatType.RANGE`),
+#    mais INEXERCABLE avant le rechargement du bundle -- c'est ici qu'on le voit.
+python -m pytest tests/engine/test_damage_roll_live.py tests/engine/test_runner_attack_live.py -q
+
+# 6. garde offline (rejouable a tout moment, aucune session requise)
 python -m pytest tests/engine/test_477r15_stream_emitter_offline.py -q     # 46 passed
 ```
