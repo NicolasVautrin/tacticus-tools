@@ -105,8 +105,12 @@ ROOT = PYDIR.parents[1]
 TAUNTER = "tyranTyrantGuard"      # porteur de `CrushingClaws` (1105) -- pose le bond 27
 PUSHER = "ultraEliminatorSgt"     # porteur de `MortisRound` (1004) -- `PushUnit(Caster(), Target())`
 VICTIM = "blackPossession"        # le taunte : gros sac a PV, patchable
+HOLY_DUELIST = "templChampion"    # porteur de `HolyDuel` (1050) -- pose le bond 1091, AU POOL
+FRIENDLY_FIRE = "astraBullgryn"   # porteur de `FragBomb` (1017) -- splash qui touche les ALLIES
 CRUSHING_CLAWS = 1105
 MORTIS_ROUND = 1004
+HOLY_DUEL = 1050
+FRAG_BOMB = 1017
 
 # `EffectType` de la famille `Taunted` (le composite et ses trois sous-effets).
 TAUNTED = 27                      # 0x1b `Taunted_OnlySpecificTargets` -- LE bond
@@ -342,12 +346,15 @@ def _open_tile(board):
     raise RuntimeError("aucune tuile jouable a 6 voisins jouables sur %s" % PR.BOARD)
 
 
-def build_montage(sid, mode="eloigne", hp=400000):
+def build_montage(sid, mode="eloigne", hp=400000, taunter=TAUNTER, pusher=PUSHER,
+                  taunter_hp=None):
     """Monte le runner du bras `mode` et rend le contexte {sid, rid, taunter, pusher, victim, ...}.
 
-    Le taunte est patche a `hp` PV : `CrushingClaws` (2 coups Piercing) PUIS `MortisRound`
-    (HeavyRound) le frappent, et un taunte MORT ferait tomber le bond par le trigger (a) -- ce qui
-    rendrait la mesure de (b) inattribuable."""
+    Le taunte est patche a `hp` PV : le cast du taunteur PUIS `MortisRound` (HeavyRound) le
+    frappent, et un taunte MORT ferait tomber le bond par le trigger (a) -- ce qui rendrait la
+    mesure de (b) inattribuable.
+    `taunter_hp` (bras MORT DU TAUNTEUR) patche le TAUNTEUR : c'est le seul parametre qui change
+    entre les deux bras de ce montage-la."""
     seed = R._load_seed_bc()
     board_dump = R._load_board_dump(PR.BOARD)
     template, _pool, _mow = R._normalize_and_extract_pool(sid, seed, PR.RANK,
@@ -356,16 +363,19 @@ def build_montage(sid, mode="eloigne", hp=400000):
     vpos = _open_tile(board)
     tpos, epos = _pick_geometry(board, vpos, {vpos}, mode)
     patch = {VICTIM: {"Health": hp, "RemainingHealth": hp}}
-    rid, bc = _build(sid, [TAUNTER, PUSHER], [tpos, epos], [VICTIM], [vpos], unit_patch=patch)
+    if taunter_hp is not None:
+        patch[taunter] = {"Health": taunter_hp, "RemainingHealth": taunter_hp}
+    rid, bc = _build(sid, [taunter, pusher], [tpos, epos], [VICTIM], [vpos], unit_patch=patch)
     dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     bv = PR.units_by_visual(dv)
-    for need in (TAUNTER, PUSHER, VICTIM):
+    for need in (taunter, pusher, VICTIM):
         if need not in bv:
             PR.dispose(sid, rid)
             raise RuntimeError("roster incomplet : %s" % sorted(bv))
     ctx = {"sid": sid, "rid": rid, "mode": mode,
-           "taunter": int(bv[TAUNTER]["id"]), "pusher": int(bv[PUSHER]["id"]),
+           "taunter": int(bv[taunter]["id"]), "pusher": int(bv[pusher]["id"]),
            "victim": int(bv[VICTIM]["id"]),
+           "taunter_vid": taunter, "pusher_vid": pusher,
            "tpos": tpos, "epos": epos, "vpos": vpos, "dest": _opposite(vpos, epos)}
     pos = PR.positions(dv)
     ctx["placed"] = {"taunter": pos[ctx["taunter"]], "pusher": pos[ctx["pusher"]],
@@ -383,15 +393,16 @@ def taunt_present(dv, uid):
     return [t for t in effects_of(dv, uid) if t[0] in TAUNTED_FAMILY]
 
 
-def cast_taunt(ctx):
-    """`CrushingClaws` (1105) : le taunteur pose le bond 27 sur le taunte adjacent."""
+def cast_taunt(ctx, ability=CRUSHING_CLAWS):
+    """Le taunteur pose son bond sur le taunte adjacent (`CrushingClaws` 1105 -> effet 27 ;
+    `HolyDuel` 1050 -> effet 1091)."""
     sid, rid = ctx["sid"], ctx["rid"]
-    legal = PR.legal_from_here(sid, rid, ctx["taunter"], CRUSHING_CLAWS)
+    legal = PR.legal_from_here(sid, rid, ctx["taunter"], ability)
     if ctx["victim"] not in legal:
-        raise RuntimeError("1105 : la victime n'est pas ciblable d'ici (legal=%s)" % legal)
-    res = PR.cast(sid, rid, ctx["taunter"], ctx["victim"], CRUSHING_CLAWS)
+        raise RuntimeError("%d : la victime n'est pas ciblable d'ici (legal=%s)" % (ability, legal))
+    res = PR.cast(sid, rid, ctx["taunter"], ctx["victim"], ability)
     if not res.get("ok"):
-        raise RuntimeError("cast 1105 refuse : %s" % res)
+        raise RuntimeError("cast %d refuse : %s" % (ability, res))
     return res
 
 
@@ -408,7 +419,15 @@ def cast_push(ctx):
 
 
 def run_bras(sid, mode):
-    """Un bras complet, cote NATIF. Rend le dict de mesure."""
+    """Un bras complet, LES DEUX FACES, sur UN SEUL runner.
+
+    L'ordre est load-bearing : l'etat offline est capture APRES le taunt et AVANT le push, donc les
+    deux faces partent du MEME etat et le push natif ne peut pas polluer la mesure du port."""
+    import probe_462_r4b_r1_terminator_commanded_attack as R1
+    from engine.runner.events import EventBus
+    from engine.runner.operations.displace import DisplaceUnitOperation
+    from engine.runner.components import PositionComponent
+
     ctx = build_montage(sid, mode=mode)
     try:
         print("[%s] placement : taunteur %s  pousseur %s  victime %s  (dest attendue %s)"
@@ -423,6 +442,9 @@ def run_bras(sid, mode):
         print("[%s] apres 1105 : taunt=%s  dist(taunte,taunteur)=%d" % (mode, t_before, d_before))
         if not t_before:
             raise RuntimeError("montage : le bond 27 n'est pas pose")
+        board, dv2, ob, cs = R1._snapshot(sid, ctx["rid"])
+        st = R1._seeded_state(sid, ctx["rid"], board, dv2, ob, cs)
+        # --- face NATIVE ---
         cast_push(ctx)
         dv = PR.rpc(sid, "decisionView", {"runnerId": ctx["rid"], "maxRank": 1,
                                           "allAbilities": True}, 90)
@@ -431,139 +453,239 @@ def run_bras(sid, mode):
         t_after = taunt_present(dv, ctx["victim"])
         d_after = hexgeo.distance(pos[ctx["victim"]], pos[ctx["taunter"]])
         moved = pos[ctx["victim"]] != ctx["placed"]["victim"]
-        print("[%s] apres 1004 : pousse=%s (%s -> %s)  dist=%d  taunt=%s  hp=%s"
+        print("[%s/NATIF] pousse=%s (%s -> %s)  dist=%d  taunt=%s  hp=%s"
               % (mode, moved, ctx["placed"]["victim"], pos[ctx["victim"]], d_after, t_after,
                  hp.get(ctx["victim"])))
-        return {"mode": mode, "moved": moved, "d_before": d_before, "d_after": d_after,
-                "taunt_before": t_before, "taunt_after": t_after,
-                "alive": not (hp.get(ctx["victim"]) or (None, True))[1],
-                "ctx": ctx}
     finally:
         PR.dispose(sid, ctx["rid"])
 
+    # --- face PORT, sur l'etat capture avant le push ---
+    def _pos(uid):
+        e = st.get_entity(int(uid))
+        pc = e.get_component(PositionComponent) if e is not None else None
+        return None if pc is None else (pc.col, pc.row)
+
+    v, t = ctx["victim"], ctx["taunter"]
+    p_before = _port_family(st, v)
+    p_d_before = hexgeo.distance(_pos(v), _pos(t))
+    inst = [e for e in st.effects.by_unit.get(int(v), [])
+            if not e.consumed and int(e.effect_type) == TAUNTED]
+    bonded = int(getattr(inst[0], "bonded", -1)) if inst else None
+    res = DisplaceUnitOperation(int(ctx["pusher"]), int(v)).execute(st, EventBus())
+    p_after = _port_family(st, v)
+    p_d_after = hexgeo.distance(_pos(v), _pos(t))
+    forced = _port_forced_targets(st, v)
+    print("[%s/PORT] bond(27)->%s  push=%s  dist %d -> %d  taunt %s -> %s  forcedTargets=%s"
+          % (mode, bonded, res.get("moved"), p_d_before, p_d_after, p_before, p_after, forced))
+    return {"mode": mode, "moved": moved, "d_before": d_before, "d_after": d_after,
+            "taunt_before": t_before, "taunt_after": t_after,
+            "alive": not (hp.get(ctx["victim"]) or (None, True))[1],
+            "port_moved": bool(res.get("moved")), "port_bonded": bonded,
+            "port_d_before": p_d_before, "port_d_after": p_d_after,
+            "port_before": p_before, "port_after": p_after, "port_forced": forced,
+            "state": st, "ctx": ctx}
+
+
+def _port_family(st, uid):
+    eff = getattr(st, "effects", None)
+    if eff is None:
+        return []
+    return sorted(int(e.effect_type) for e in eff.by_unit.get(int(uid), [])
+                  if not e.consumed and int(e.effect_type) in TAUNTED_FAMILY)
+
+
+def _port_forced_targets(st, uid):
+    """La liste `ForcedAttackTargetsComponent` cote port -- elle doit se VIDER avec le bond
+    (`TauntedEffect$$RevertInternal` : `comp+0x50 = new List()`)."""
+    from engine.runner.components import ForcedAttackTargetsComponent
+    e = st.get_entity(int(uid))
+    c = e.get_component(ForcedAttackTargetsComponent) if e is not None else None
+    return None if c is None else list(c.get())
+
 
 def step_rangelive(sid):
-    """Les DEUX bras, cote NATIF. Le bras PROCHE est le controle."""
+    """Les DEUX bras, LES DEUX FACES. Le bras PROCHE est le CONTROLE : meme geste, une tuile de
+    difference -- si le taunt y tombait aussi, la mesure ne dirait rien sur la PORTEE."""
     out = {}
     for mode in ("eloigne", "proche"):
         out[mode] = run_bras(sid, mode)
         print("")
     e, p = out["eloigne"], out["proche"]
     print("=" * 96)
-    print("VERDICT (b) `get_Range` -- NATIF")
-    print("  bras ELOIGNE : pousse=%s dist %d -> %d, taunt %s -> %s"
-          % (e["moved"], e["d_before"], e["d_after"],
-             [t[0] for t in e["taunt_before"]], [t[0] for t in e["taunt_after"]]))
-    print("  bras PROCHE  : pousse=%s dist %d -> %d, taunt %s -> %s"
-          % (p["moved"], p["d_before"], p["d_after"],
-             [t[0] for t in p["taunt_before"]], [t[0] for t in p["taunt_after"]]))
-    if not (e["moved"] and p["moved"]):
-        print("  INCONCLUSIF : un des deux push n'a pas eu lieu.")
-        return 1
-    if e["taunt_after"] or not p["taunt_after"]:
-        print("  INCONCLUSIF ou REFUTE : attendu = tombe ELOIGNE, survit PROCHE.")
-        return 1
-    print("  => le natif RETIRE le bond quand la distance depasse le rayon, et LE GARDE sinon.")
-    return 0
-
-
-# ================================================================================================
-# --step portrange : la MEME question, cote PORT
-#
-# On capture l'etat APRES le taunt (donc AVANT le push), puis on rejoue le push OFFLINE par
-# `DisplaceUnitOperation` -- la meme Operation que le natif emet. C'est la mesure honnete : elle
-# exerce a la fois le trigger (b) et le VECTEUR qui doit le reveiller (`On(0x1d)` apres un push).
-# ================================================================================================
-def port_bras(sid, mode):
-    """Un bras complet, cote PORT. Rend `{d_before, d_after, taunt_before, taunt_after, moved}`."""
-    import probe_462_r4b_r1_terminator_commanded_attack as R1
-    from engine.runner.events import EventBus
-    from engine.runner.operations.displace import DisplaceUnitOperation
-    from engine.runner.components import PositionComponent
-
-    ctx = build_montage(sid, mode=mode)
-    try:
-        cast_taunt(ctx)
-        board, dv, ob, cs = R1._snapshot(sid, ctx["rid"])
-        st = R1._seeded_state(sid, ctx["rid"], board, dv, ob, cs)
-    finally:
-        PR.dispose(sid, ctx["rid"])
-
-    def _pos(uid):
-        e = st.get_entity(int(uid))
-        pc = e.get_component(PositionComponent) if e is not None else None
-        return None if pc is None else (pc.col, pc.row)
-
-    def _fam(uid):
-        eff = getattr(st, "effects", None)
-        if eff is None:
-            return []
-        return sorted(int(e.effect_type) for e in eff.by_unit.get(int(uid), [])
-                      if not e.consumed and int(e.effect_type) in TAUNTED_FAMILY)
-
-    v, t, p = ctx["victim"], ctx["taunter"], ctx["pusher"]
-    before, d_before = _fam(v), hexgeo.distance(_pos(v), _pos(t))
-    inst = [e for e in st.effects.by_unit.get(int(v), [])
-            if not e.consumed and int(e.effect_type) == TAUNTED]
-    bonded = int(getattr(inst[0], "bonded", -1)) if inst else None
-    res = DisplaceUnitOperation(int(p), int(v)).execute(st, EventBus())
-    after, d_after = _fam(v), hexgeo.distance(_pos(v), _pos(t))
-    print("[%s/PORT] bond(27) -> %s (taunteur %s)  push=%s  dist %d -> %d  taunt %s -> %s"
-          % (mode, bonded, t, res.get("moved"), d_before, d_after, before, after))
-    return {"mode": mode, "moved": bool(res.get("moved")), "bonded": bonded,
-            "d_before": d_before, "d_after": d_after,
-            "taunt_before": before, "taunt_after": after}
-
-
-def step_portrange(sid):
-    out = {m: port_bras(sid, m) for m in ("eloigne", "proche")}
-    e, p = out["eloigne"], out["proche"]
-    print("")
-    print("=" * 96)
-    print("VERDICT (b) `get_Range` -- PORT")
+    print("VERDICT (b) `get_Range`")
     for m in ("eloigne", "proche"):
         r = out[m]
-        print("  bras %-8s : pousse=%s dist %d -> %d, taunt %s -> %s"
-              % (m, r["moved"], r["d_before"], r["d_after"], r["taunt_before"], r["taunt_after"]))
-    if not (e["moved"] and p["moved"]):
-        print("  INCONCLUSIF : un des deux push n'a pas eu lieu cote port.")
+        print("  bras %-8s NATIF : pousse=%s dist %d -> %d, taunt %s -> %s"
+              % (m, r["moved"], r["d_before"], r["d_after"],
+                 [t[0] for t in r["taunt_before"]], [t[0] for t in r["taunt_after"]]))
+        print("  bras %-8s PORT  : pousse=%s dist %d -> %d, taunt %s -> %s"
+              % (m, r["port_moved"], r["port_d_before"], r["port_d_after"],
+                 r["port_before"], r["port_after"]))
+    if not (e["moved"] and p["moved"] and e["port_moved"] and p["port_moved"]):
+        print("  INCONCLUSIF : un des push n'a pas eu lieu.")
         return 1
-    if e["taunt_after"]:
-        print("  ECART : le port GARDE le bond alors que le natif le retire (dist %d > 1)."
-              % e["d_after"])
+    if e["taunt_after"] or not p["taunt_after"]:
+        print("  INCONCLUSIF ou REFUTE (NATIF) : attendu = tombe ELOIGNE, survit PROCHE.")
         return 1
-    if not p["taunt_after"]:
-        print("  ECART : le port retire le bond alors que la distance est encore de 1.")
+    if e["port_after"] or not p["port_after"]:
+        print("  ECART (PORT) : eloigne=%s proche=%s" % (e["port_after"], p["port_after"]))
         return 1
-    print("  => le port suit le natif sur les DEUX bras.")
+    print("  => natif ET port : le bond tombe quand la distance depasse le rayon, et tient sinon.")
     return 0
 
 
 # ================================================================================================
 # --step holyduel : (c) `get_Adjacent` -- recensement des porteurs de `HolyDuel_Taunt` (1091)
 # ================================================================================================
-def step_holyduel(sid):
-    """Qui pose 1091, et le port le pose-t-il ? Gate de confrontabilite, les cinq voies."""
-    import unit_map
-    print("(c) `get_Adjacent` -- porteur unique : `HolyDuel_TauntEffect` (EffectType 1091)")
-    print("")
+def holyduel_bras(sid, mode):
+    """MEME montage que (b), taunteur = `templChampion` et cast = `HolyDuel` (1050).
+
+    `HolyDuelAbility$$ExecuteBehaviour` pose `AddBondEffect(0x443 = 1091, source = Caster@0x48,
+    targets = Target@0x60, bondedEntity = Caster@0x48, options VIDES)` puis `UseActiveAbility`
+    (l'attaque normale du caster sur la cible)."""
+    ctx = build_montage(sid, mode=mode, taunter=HOLY_DUELIST)
     try:
-        res = unit_map.find(ability=1050)
-    except Exception as exc:
-        res = None
-        print("unit_map.find(ability=1050) indisponible : %s" % exc)
-    if res is not None:
-        print("porteurs de l'ability 1050 `HolyDuel` : %s" % (res,))
+        cast_taunt(ctx, ability=HOLY_DUEL)
+        dv = PR.rpc(sid, "decisionView", {"runnerId": ctx["rid"], "maxRank": 1,
+                                          "allAbilities": True}, 90)
+        pos = PR.positions(dv)
+        before = [t for t in effects_of(dv, ctx["victim"]) if t[0] == HOLY_DUEL_TAUNT]
+        d_before = hexgeo.distance(pos[ctx["victim"]], pos[ctx["taunter"]])
+        print("[%s/HD] apres 1050 : 1091=%s  dist=%d" % (mode, before, d_before))
+        if not before:
+            raise RuntimeError("montage : le bond 1091 n'est pas pose (effets=%s)"
+                               % (effects_of(dv, ctx["victim"]),))
+        cast_push(ctx)
+        dv = PR.rpc(sid, "decisionView", {"runnerId": ctx["rid"], "maxRank": 1,
+                                          "allAbilities": True}, 90)
+        pos = PR.positions(dv)
+        hp = PR.hp_of(sid, ctx["rid"])
+        after = [t for t in effects_of(dv, ctx["victim"]) if t[0] == HOLY_DUEL_TAUNT]
+        d_after = hexgeo.distance(pos[ctx["victim"]], pos[ctx["taunter"]])
+        moved = pos[ctx["victim"]] != ctx["placed"]["victim"]
+        print("[%s/HD] apres 1004 : pousse=%s dist=%d  1091=%s  hp=%s"
+              % (mode, moved, d_after, after, hp.get(ctx["victim"])))
+        return {"mode": mode, "moved": moved, "d_before": d_before, "d_after": d_after,
+                "before": before, "after": after}
+    finally:
+        PR.dispose(sid, ctx["rid"])
+
+
+def step_holyduel(sid):
+    """(c) `get_Adjacent` : la face NATIVE, deux bras geometriques -- et la gate de portage."""
     from engine.runner.abilities.handler import ABILITY_CLASSES
+    print("(c) `get_Adjacent` -- porteur unique : `HolyDuel_TauntEffect` (EffectType 1091)")
+    print("porteurs de l'ability `HolyDuel` (unit_map) : 5 npc `templBossChampion*` + "
+          "`templChampion` -- ce dernier EST au pool rank %d." % PR.RANK)
+    print("1050 dans `ABILITY_CLASSES` (face COMBAT du port) : %s" % (HOLY_DUEL in ABILITY_CLASSES))
     print("")
-    print("1050 dans `ABILITY_CLASSES` (face COMBAT du port) : %s" % (1050 in ABILITY_CLASSES))
+    out = {m: holyduel_bras(sid, m) for m in ("eloigne", "proche")}
+    e, p = out["eloigne"], out["proche"]
+    print("")
+    print("=" * 96)
+    print("VERDICT (c) `get_Adjacent` -- NATIF")
+    for m in ("eloigne", "proche"):
+        r = out[m]
+        print("  bras %-8s : pousse=%s dist %d -> %d, 1091 %s -> %s"
+              % (m, r["moved"], r["d_before"], r["d_after"],
+                 [t[0] for t in r["before"]], [t[0] for t in r["after"]]))
+    if not (e["moved"] and p["moved"]):
+        print("  INCONCLUSIF : un des deux push n'a pas eu lieu.")
+        return 1
+    if e["after"] or not p["after"]:
+        print("  INCONCLUSIF ou REFUTE : attendu = tombe hors adjacence, survit adjacent.")
+        return 1
+    print("  => le natif RETIRE le bond des que l'adjacence est perdue, et LE GARDE sinon.")
+    print("  PORT : rien a porter -- 1050 n'est pas dans `ABILITY_CLASSES`, donc 1091 n'est")
+    print("         JAMAIS pose offline. Un trigger (c) serait vacuement vrai.")
+    return 0
+
+
+# ================================================================================================
+# --step deathlive : le trigger (a) sur l'effet 27, effet de BORD de l'entree de table
+#
+# `TauntedEffect$$get_RemoveOnBondedEntityDeath` vaut `true` (`--step declared`), donc entrer 27
+# dans `BOND_REMOVAL_GATES` inscrit AUSSI (a). On ne livre pas un cablage non confronte : ce pas le
+# confronte, par le SEUL vecteur qui tue le TAUNTEUR sans consommer de tour -- le friendly-fire de
+# `FragBomb` (1017), dont le splash `AdjacentUnits(Target) - Caster` inclut les ALLIES.
+# Les deux bras ne different QUE par les PV du taunteur.
+# ================================================================================================
+def death_bras(sid, taunter_hp):
+    import probe_462_r4b_r1_terminator_commanded_attack as R1
+
+    ctx = build_montage(sid, mode="proche", taunter=TAUNTER, pusher=FRIENDLY_FIRE,
+                        taunter_hp=taunter_hp)
+    try:
+        cast_taunt(ctx)
+        dv = PR.rpc(sid, "decisionView", {"runnerId": ctx["rid"], "maxRank": 1,
+                                          "allAbilities": True}, 90)
+        before = taunt_present(dv, ctx["victim"])
+        if not before:
+            raise RuntimeError("montage : le bond 27 n'est pas pose")
+        # Etat capture AVANT la frag : la face PORT de (a) le rejoue par ses DEUX vecteurs.
+        board, dv2, ob, cs = R1._snapshot(sid, ctx["rid"])
+        st_tierce = R1._seeded_state(sid, ctx["rid"], board, dv2, ob, cs)
+        st_bonde = R1._seeded_state(sid, ctx["rid"], board, dv2, ob, cs)
+        # `FragBomb` est TILE-TARGET (`TargetIsTile`, cf. `abilities/targeting.py`) : on vise la
+        # TUILE du taunte, et le splash `AdjacentUnits(Target) - Caster` ramasse le taunteur, qui
+        # lui est adjacent. C'est le friendly-fire -- explicitement porte, allies INCLUS.
+        vcol, vrow = ctx["placed"]["victim"]
+        res = PR.act(sid, ctx["rid"], {"kind": "ability", "casterId": ctx["pusher"],
+                                       "abilityType": FRAG_BOMB,
+                                       "to": {"col": int(vcol), "row": int(vrow)}})
+        if not res.get("ok"):
+            raise RuntimeError("cast 1017 refuse : %s" % res)
+        dv = PR.rpc(sid, "decisionView", {"runnerId": ctx["rid"], "maxRank": 1,
+                                          "allAbilities": True}, 90)
+        hp = PR.hp_of(sid, ctx["rid"])
+        after = taunt_present(dv, ctx["victim"])
+        dead = bool((hp.get(ctx["taunter"]) or (None, False))[1])
+        print("[death hp=%s] taunteur mort=%s  taunt %s -> %s"
+              % (taunter_hp, dead, [t[0] for t in before], [t[0] for t in after]))
+    finally:
+        PR.dispose(sid, ctx["rid"])
+    # --- face PORT, sur l'etat capture avant la frag : `On(2 = PreUnitDeath_2)` par ses deux
+    # vecteurs. La TIERCE (le Bullgryn) est le CONTROLE du conjoint `IsEntityWithIdTarget`.
+    from engine.runner.operations.triggers.dispatch import pre_unit_death_2_triggers
+    # signature : `(state, dying_id, killer_id)` -- le PREMIER est celui qui MEURT, c'est-a-dire le
+    # `target_id` de l'event que lit `IsEntityWithIdTarget`.
+    pre_unit_death_2_triggers(st_tierce, ctx["pusher"], ctx["victim"])
+    port_tierce = _port_family(st_tierce, ctx["victim"])
+    pre_unit_death_2_triggers(st_bonde, ctx["taunter"], ctx["victim"])
+    port_bonde = _port_family(st_bonde, ctx["victim"])
+    print("[death hp=%s/PORT] mort TIERCE -> %s ; mort du BONDE -> %s"
+          % (taunter_hp, port_tierce, port_bonde))
+    return {"taunter_hp": taunter_hp, "dead": dead, "before": before, "after": after,
+            "port_tierce": port_tierce, "port_bonde": port_bonde, "ctx": ctx}
+
+
+def step_deathlive(sid):
+    tue = death_bras(sid, 1)          # le splash friendly-fire suffit a le tuer
+    vit = death_bras(sid, 400000)     # meme geste, taunteur increvable = CONTROLE
+    print("")
+    print("=" * 96)
+    print("VERDICT (a) sur l'effet 27")
+    print("  NATIF taunteur MORT   : %s" % [t[0] for t in tue["after"]])
+    print("  NATIF taunteur VIVANT : %s" % [t[0] for t in vit["after"]])
+    print("  PORT  mort TIERCE     : %s" % vit["port_tierce"])
+    print("  PORT  mort du BONDE   : %s" % vit["port_bonde"])
+    if not tue["dead"] or vit["dead"]:
+        print("  INCONCLUSIF : le montage n'a pas separe les deux cas.")
+        return 1
+    if tue["after"] or not vit["after"]:
+        print("  INCONCLUSIF ou REFUTE (NATIF) : attendu = tombe si le taunteur meurt, reste sinon.")
+        return 1
+    if vit["port_bonde"] or not vit["port_tierce"]:
+        print("  ECART (PORT) : tierce=%s bonde=%s" % (vit["port_tierce"], vit["port_bonde"]))
+        return 1
+    print("  => `get_RemoveOnBondedEntityDeath = true` est CONFRONTE sur 27, natif ET port.")
     return 0
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="declared",
-                    choices=["declared", "attrib", "rangelive", "portrange", "holyduel", "all"])
+                    choices=["declared", "attrib", "rangelive", "holyduel", "deathlive", "all"])
     args = ap.parse_args()
     sid = _resolve_session()
     rc = 0
@@ -574,10 +696,10 @@ def main():
             rc |= step_attrib(sid)
         if args.step in ("rangelive", "all"):
             rc |= step_rangelive(sid)
-        if args.step in ("portrange", "all"):
-            rc |= step_portrange(sid)
         if args.step in ("holyduel", "all"):
             rc |= step_holyduel(sid)
+        if args.step in ("deathlive", "all"):
+            rc |= step_deathlive(sid)
     finally:
         for rid in list(PR._rids):
             PR.dispose(sid, rid)
