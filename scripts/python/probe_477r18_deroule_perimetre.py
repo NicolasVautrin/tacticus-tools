@@ -453,12 +453,54 @@ def volet_flux_live(board: str, tours: int) -> int:
                 e["actions"].add(ma.group("sym"))
             elif mt:
                 e["tags"].add(mt.group("sym"))
-    print("    %-26s %5s %7s  %s" % ("GROUPE RACINE", "occ", "lignes", "vocabulaire (G/S/T)"))
+    # « NOUVEAU » = ce que le groupe ajoute au vocabulaire DEJA exerce par le deploiement. C'est
+    # ce chiffre-la qui hierarchise les tranches : le nombre de lignes seul classerait en tete un
+    # groupe entierement compose de motifs deja portes.
+    base = agg.get("System_GameSetup") or {"groupes": set(), "actions": set(), "tags": set()}
+    print("    %-26s %4s %7s  %-13s %s"
+          % ("GROUPE RACINE", "occ", "lignes", "vocab G/S/T", "NOUVEAU vs deploiement"))
     for sym, e in sorted(agg.items(), key=lambda kv: -kv[1]["lignes"]):
-        print("    %-26s %5d %7d  %d / %d / %d"
-              % (sym, e["n"], e["lignes"], len(e["groupes"]), len(e["actions"]), len(e["tags"])))
+        print("    %-26s %4d %7d  %-13s +%d / +%d / +%d"
+              % (sym, e["n"], e["lignes"],
+                 "%d / %d / %d" % (len(e["groupes"]), len(e["actions"]), len(e["tags"])),
+                 len(e["groupes"] - base["groupes"]), len(e["actions"] - base["actions"]),
+                 len(e["tags"] - base["tags"])))
     print("    lignes HORS de tout groupe racine (Action= a profondeur 0) : %d" % hors)
+    print("    sequence des groupes racines : %d, dont %d distincts"
+          % (len(racines), len(agg)))
     return 0
+
+
+def croiser_avec_le_port(producteurs: list) -> None:
+    """Chaque producteur natif est-il CITE dans `engine/` ? -- le classement demande.
+
+    Un symbole cite verbatim dans le port veut dire que la mecanique est mirroree ; une classe
+    citee sans la methode veut dire que la classe est portee mais pas ce point d'emission. Ce
+    n'est PAS une preuve de fidelite -- c'est ce qui distingue « quelques heures » d'un chantier.
+    """
+    racine = REPO / "scripts" / "python" / "engine"
+    pat = re.compile(r"\b(IdunBattle[A-Za-z.]*\.[A-Za-z0-9_]+)\$\$([A-Za-z0-9_|]+)")
+    cites, classes = {}, {}
+    for p in racine.rglob("*.py"):
+        t = p.read_text(encoding="utf-8", errors="replace")
+        for m in pat.finditer(t):
+            plein = m.group(1) + "$$" + m.group(2)
+            cites.setdefault(plein, set()).add(p.name)
+            classes.setdefault(m.group(1).rsplit(".", 1)[-1], set()).add(p.name)
+    exact = [p for p in producteurs if p in cites]
+    par_classe = [p for p in producteurs if p not in cites
+                  and p.split("$$")[0].rsplit(".", 1)[-1] in classes]
+    absents = [p for p in producteurs if p not in cites
+               and p.split("$$")[0].rsplit(".", 1)[-1] not in classes]
+    print("\n[7] CROISEMENT AVEC LE PORT -- %d producteur(s) natif(s)" % len(producteurs))
+    print("    symbole EXACT cite dans engine/ : %d" % len(exact))
+    print("    CLASSE citee, autre methode     : %d" % len(par_classe))
+    print("    AUCUNE trace dans engine/       : %d" % len(absents))
+    familles = {}
+    for p in absents:
+        familles.setdefault(p.split("$$")[0].rsplit(".", 1)[0], []).append(p)
+    for fam, lst in sorted(familles.items(), key=lambda kv: -len(kv[1])):
+        print("      %-56s %d" % (fam, len(lst)))
 
 
 def main() -> int:
@@ -655,6 +697,8 @@ def main() -> int:
         if lib != "TagKey":
             for i in range(0, len(morts), 4):
                 print("        " + "  ".join("%-28s" % m for m in morts[i:i + 4]))
+
+    croiser_avec_le_port(producteurs)
 
     if a.json:
         p = REPO / "logs" / a.json
