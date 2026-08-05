@@ -89,19 +89,16 @@ class MarkUnitAsNoActionAvailableOperation:
     l'ability), et les trois `VerifyUnitsTurnFinishedOperation$${Execute, VerifyUnitTurnEnded,
     VerifyMachineTurnEnded}`.
 
-    LE RETRAIT (`reverse = true`) EST PORTE MAIS N'A AUCUN APPELANT dans le moteur offline, et
-    c'est un ETAT, pas un oubli. Son unique declencheur natif est `VerifyUnitTurnEnded`, et son
-    POINT D'ANCRAGE EST LU : `IdunBattle.Messages.InputMessageProcessor$$RunPhase` invoque le slot
-    `IOperationProcessor` 0x21 = `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished`
-    (AUCUN argument — c'est ce qui l'identifie parmi ses voisins `0x22` a un argument et `0x23` a
-    deux) **deux fois** apres chaque message, en phase NON interne. Ce qui bloque le port n'est
-    donc pas l'ancrage mais le CORPS : `VerifyUnitTurnEnded` appelle `HasTilesToMoveTo` =
-    `MovementQuery$$GetMovableTilesFor`, que le moteur offline ne CALCULE pas (il le RECOIT du RPC
-    `aiMovableTiles`). Consequence MESUREE (`probe_287r1_flags_transverse.py`, bras
-    `apres_deplacement`) : apres un simple deplacement, le natif pose le flag 4 et le port non —
-    ecart RESTRICTIF (le port ne pose que par `FinishUnitTurn`, donc son jeu de flags est un
-    SOUS-ENSEMBLE de celui du natif, jamais permissif) et borne a ce seul flag.
-    Residu `#287-r1-r1`."""
+    LE RETRAIT (`reverse = true`) A SON APPELANT DEPUIS #287-r1-r1 :
+    `VerifyUnitsTurnFinishedOperation.verify_unit_turn_ended` (plus bas dans ce module), branchee
+    dans `Runner.apply` a l'ancrage LU — `IdunBattle.Messages.InputMessageProcessor$$RunPhase`
+    invoque le slot `IOperationProcessor` 0x21 = `Core.Services.OperationProcessor$$
+    VerifyUnitsTurnFinished` (AUCUN argument — c'est ce qui l'identifie parmi ses voisins `0x22` a
+    un argument et `0x23` a deux) en phase NON interne. C'est la SEULE voie native de retrait, et
+    elle est load-bearing : `RemoveTurnFlags(includeNoAction: 0)` CONSERVE le flag au changement de
+    tour, donc sans elle une unite marquee une fois le resterait pour toujours.
+    Mesure (`probe_287r1r1_verify_turn_ended.py`) : POSE `live=[0,1,4]`/`port=[0,1,4]`, RETRAIT
+    `live=[]`/`port=[]`."""
     __slots__ = ()
 
     @staticmethod

@@ -821,27 +821,24 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   offline (`has_action_left`) n'est atteint que via `execute_group`, dont tous les call-sites natifs
   passent `resetTurnFlags = 1`. Contre-épreuve : pose retirée -> LIVE rouge
   (`live=[1, 2, 3, 4] port=[1, 2, 3]`) + 6/8 offline. Résidu : `#287-r1-r1`.
-- **`#287-r1-r1` — `VerifyUnitTurnEnded` : la SECONDE voie d'ecriture du flag 4, non portee.**
-  `MarkUnitAsNoActionAvailableOperation.execute(reverse=...)` est le foyer ; ce qui manque est son
-  arbitre, `IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded`, qui POSE
-  le flag (slot 0x76) quand l'unite n'a plus ni tuile ni action, et le RETIRE (slot 0x77) quand
-  elle en regagne. **MESURE** (`probe_287r1_flags_transverse.py`, bras `apres_deplacement`,
-  `C1_74`/34117) : apres un simple deplacement, le natif pose `[Moved, ArrivedAtFinalTile,
-  NoActionAvailable]` — **sans** `TurnFinished`, donc ce n'est pas `FinishUnitTurn` — la ou le port
-  s'arrete a `[Moved, ArrivedAtFinalTile]`.
-  ⚠ **L'ANCRAGE EST LU, contrairement a ce que cette fiche a d'abord ecrit** :
-  `IdunBattle.Messages.InputMessageProcessor$$RunPhase` invoque le slot `IOperationProcessor` 0x21
-  = `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished` (**aucun** argument — c'est ce qui
-  l'identifie parmi ses voisins `0x22` a un argument et `0x23` a deux) **deux fois** apres chaque
-  message, en phase NON interne. Le blocage est le **CORPS** : `HasTilesToMoveTo` =
-  `MovementQuery$$GetMovableTilesFor`, que le moteur offline ne CALCULE pas — il le RECOIT du RPC
-  `aiMovableTiles` (`engine/services/movement_query.py` prend `movable_tiles` en ENTREE).
-  `HasActionAvailable`, lui, a ses deux etages deja portes.
-  Degradation actuelle : **RESTRICTIVE, jamais permissive** — le port ne pose que par
-  `FinishUnitTurn`, donc son jeu de flags est un SOUS-ENSEMBLE de celui du natif. Le probe le
-  BORNE (l'ecart doit valoir exactement `{NoActionAvailable}` et ne jamais s'inverser).
-  Non chiffre : l'amplitude (combien d'unites, a quels moments) — un seul couple (board, unite)
-  est mesure.
+- ~~**`#287-r1-r1` — `VerifyUnitTurnEnded` : la SECONDE voie d'ecriture du flag 4, non portee.**~~ —
+  **PORTÉ + CONFRONTÉ LIVE (2026-08-05)**, `case-287-r1-r1-verify-turn-ended.md`.
+  `VerifyUnitsTurnFinishedOperation` est portée (`runner/operations/turnflow.py`) et branchée dans
+  `Runner.apply` à l'ancrage LU (slot `IOperationProcessor` 0x21 de `RunPhase`). Les DEUX faces
+  ferment : POSE `live=[0,1,4]` / `port=[0,1,4]`, et RETRAIT `live=[]` / `port=[]`.
+  ⚠ **Le blocage annoncé était FAUX** : cette fiche affirmait que `HasTilesToMoveTo` =
+  `MovementQuery$$GetMovableTilesFor` « que le moteur offline ne CALCULE pas ». Il le calcule —
+  `engine/services/movement_query.get_movable_tiles_for` est un pathfinder offline complet depuis
+  `#381-r4`. Aucun doublon n'a été écrit : la voie délègue à ce foyer via
+  `state_bridge._move_tiles`.
+  Le vrai obstacle était `HasActionAvailable` -> `AttackQuery$$HasValidTargets`, résolu en
+  réutilisant la cascade de ciblage déjà portée (`get_invalid_target_reason`) — exact parce que les
+  DEUX prédicats partagent le même `GetMovableTilesFor` : quand `HasTilesToMoveTo` est faux (le
+  seul régime où le OU natif consulte le second), la liste de positions se réduit à la tuile
+  courante, la seule que le port sache juger.
+  `HasActionAvailable` reste TRI-ÉTAT (`None` = indéterminé -> ABSTENTION, ni pose ni retrait) ;
+  **0 abstention** mesurée sur les régimes joués. Contre-épreuve : voie désarmée -> les deux probes
+  rouges sur les deux faces (`manquants=[4]` puis `en_trop=[4]`).
 - **`#287-r2` — les branches `dead_caster` / `dead_target` de `SwitchPositionOperation` sont PORTÉES
   mais NON CONFRONTÉES.** `IdunBattle.Operations.DisplaceUnitOperation$$SwitchPosition` traite les
   deux moitiés INDÉPENDAMMENT (une unité morte ne bouge pas, l'autre va quand même sur sa tuile) —
