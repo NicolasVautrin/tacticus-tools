@@ -75,10 +75,13 @@ CE QUE LE PORT MATERIALISE, ET CE QU'IL NE MATERIALISE PAS
 * Les `skip*` RECALCULES ne sont consommes QUE par la branche cible-morte (dans la branche vivante,
   c'est le `ExecuteInternal` re-entrant qui recalcule les siens). Cette branche est STRUCTURELLEMENT
   inatteignable offline (cf. `execute_for_replaced_target`) -> aucun code mort ecrit ici.
-* `IdunBattle.Operations.ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility` reste NON PORTE
-  (deja acte dans `abilities/targeting.py`) : son gate est `!ability.CanContinueOnDeadTarget()`, un
-  bit de `TargetingOptions` (`AActiveAbility$$CanContinueOnDeadTarget` = bit 38 de options+0x28) qui
-  n'a ete RE-lu pour AUCUNE ability -> un defaut « refuse » casserait les abilities de resurrection.
+* `IdunBattle.Operations.ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility` est PORTE depuis
+  #429-r1 (`is_dead_unit_and_not_allowed_by_ability` ci-dessous, cable en tete du visiteur). Il etait
+  acte NON PORTE parce que son gate `!ability.CanContinueOnDeadTarget()` lit un bit de
+  `TargetingOptions` « RE-lu pour AUCUNE ability » -- l'inventaire de ses overrides est desormais
+  releve par deux sources independantes, et le bit est le 38 du masque de CONTINUE
+  (`_targetingOptionsForContinue` a +0xb0, donc +0xd8), PAS du masque principal a +0x70 : c'est
+  pourquoi aucun `TARGETING_OPTIONS` du registre ne pouvait le porter.
 
 RESIDU NOMME -- ESPACE D'IDS PARTAGE TUILE/ENTITE
 -------------------------------------------------
@@ -156,6 +159,48 @@ def get_unit(state: State, tile) -> Optional[int]:
         if p is not None and p.col == col and p.row == row:
             return int(uid)
     return None
+
+
+def is_dead_unit_and_not_allowed_by_ability(state: State, ability_class,
+                                            target_id: Optional[int]) -> bool:
+    """`IdunBattle.Operations.ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility` — MIRROR 1:1
+    du decompile (build courant) :
+
+        ability = AbilitiesDatabase.Get(abilityType);
+        if (!EntityExtensions.IsUnit(target))            return false;
+        if (UnitExtensions.IsAlive(target, state))       return false;
+        return !ability.CanContinueOnDeadTarget();       // slot 0x11 de `IActiveAbility`, resultat ^ 1
+
+    C'est le PREMIER gate d'`ActiveAbilityOperation$$ExecuteInternal`, avant `IsInvalidTarget` : un
+    cast sur une unite MORTE est un no-op complet (ni behaviour, ni flags, ni vecteur d'operation).
+
+    #429-r1 -- POURQUOI IL EST PORTE MAINTENANT. Il etait acte NON PORTE ici meme et dans
+    `abilities/targeting.py`, pour une raison NOMMEE : « l'inventaire des overrides [du slot 0x11]
+    n'a pas ete releve », et un defaut « refuse » risquait de casser les abilities de resurrection.
+    L'inventaire EST releve, par deux sources independantes :
+      * dump Il2CppDumper (toutes les methodes de toutes les classes, sans deduplication de corps) :
+        `CanContinueOnDeadTarget` n'a QU'UNE implementation, `AActiveAbility` -- aucun override ;
+      * scan d'instructions du binaire (`probe_429r1_bit_readers_scan.py`) : un SEUL site pose le bit
+        38 `AllowDeadTarget` que ce slot lit --
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$GetTargetingOptionsForContinue`.
+    Le natif refuse donc pour TOUTE ability sauf `GreatFrostAxe` (1089), et le defaut « refuse » du
+    port n'est pas une devinette mais la mesure. Une resurrection portee (`ReviveEffect` /
+    `ReviveUnitOperation`, #66) n'est pas atteinte : elle ne passe pas par un `ActiveAbilityMessage`
+    dont la CIBLE est le mort (`FoehammerAbility$$GetDeadHeroes` selectionne les cadavres DANS
+    l'arbre, pas via `target_id`).
+
+    `ability_class` = la classe du registre (`ABILITY_CLASSES[abilityType]`), ou `None` pour une
+    ability NON PORTEE. `None` -> `can_continue_on_dead_target()` = False, ce qui est le comportement
+    NATIF de toutes les abilities sauf une : le gate s'applique donc aussi aux non-portees, comme le
+    vecteur d'operation et les flags de tour (#120/#139)."""
+    if not is_unit(state, target_id):
+        return False
+    e = state.get_entity(int(target_id))
+    if e is not None and unit_is_alive(e):
+        return False
+    if ability_class is None:
+        return True
+    return not ability_class.can_continue_on_dead_target()
 
 
 def resolve_replaced_target(state: State, target_id: Optional[int],

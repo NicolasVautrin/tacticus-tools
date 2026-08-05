@@ -556,6 +556,16 @@ class EntropyCannonsAbility(ActiveAbility):
     TARGETING_OPTIONS = TargetingOptions(
         rules=(TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowNullCasterTile),
         self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+    # `IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetTargetingOptionsForContinue`
+    # (#429-r1) -- l'un des DEUX seuls overrides du binaire. Forme FLAGS DIRECTS, meme `TargetingRange`
+    # statique `+0x48` que le masque principal :
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &range, forceMeleeTarget=1, 0x40004000, 0, 0)
+    # Soit le masque principal MOINS `TargetMatchesDynamicRule` (0x2) : au CONTINUE, la regle
+    # dynamique de l'ability n'est plus consultee. N'arme PAS `AllowDeadTarget`
+    # -> `can_continue_on_dead_target()` = False (mesure, pas defaut).
+    TARGETING_OPTIONS_FOR_CONTINUE = TargetingOptions(
+        rules=(TR.TargetIsEnemy | TR.AllowNullCasterTile),
+        self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

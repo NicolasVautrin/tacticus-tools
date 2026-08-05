@@ -212,15 +212,43 @@ def test_ported_by_designe_une_fonction_qui_existe_dans_le_port():
 
 def test_ported_by_reserve_aux_regles_qui_ne_sont_jamais_un_code_de_refus():
     """`ported_by` est une DEROGATION au critere ordinaire (`int(TR.<X>)` rendu), et elle n'est
-    legitime que la ou le NATIF lui-meme ne rend jamais le code de la regle : le court-circuit
-    `AddCaster` et les trois POINTS D'EXTENSION. L'ouvrir a une regle qui rend bel et bien son
-    code permettrait de declarer « portee » une regle que le port ne rend nulle part."""
+    legitime que la ou le NATIF lui-meme ne rend jamais le code de la regle.
+
+    DEUX volets, et le second n'est PAS une entree de plus dans la liste :
+      * une liste NOMINATIVE, pour les quatre regles de CIBLAGE concernees -- le court-circuit
+        `AddCaster` et les trois POINTS D'EXTENSION. Elle reste saisie parce que rien dans leur
+        `kind` (GATE_*) ne les distingue des regles qui rendent bien leur code ;
+      * le kind `GATE_OPERATION` (#429-r1), qui est STRUCTURELLEMENT dans le champ de la derogation :
+        sa definition meme est « regle lue hors ciblage, dont le natif ABANDONNE l'operation au lieu
+        de rendre un `IBrokenTargetingRule` ». Une telle regle ne peut, par construction, jamais etre
+        un code de refus rendu -- l'ouvrir nominativement aurait fait grossir la liste a chaque
+        membre du meme genre.
+    L'ouvrir a une regle qui rend bel et bien son code permettrait de declarer « portee » une regle
+    que le port ne rend nulle part."""
     autorisees = {"AddCaster", "AddCasterIfMatchesDynamicRule",
                   "TargetMatchesDynamicRule", "CasterMatchesDynamicRule"}
-    declarees = {n for n, r in RULE_ROLE.items() if r.ported_by}
+    declarees = {n for n, r in RULE_ROLE.items()
+                 if r.ported_by and r.kind != "GATE_OPERATION"}
     assert declarees <= autorisees, (
         "ported_by pose sur une regle qui EST un code de refus natif : %s"
         % ", ".join(sorted(declarees - autorisees)))
+
+
+def test_contre_epreuve_ported_by_hors_allowlist(monkeypatch):
+    """La derogation `ported_by` MORD-elle encore ? On la pose sur une regle de CIBLAGE ordinaire
+    (`TargetIsEnemy`, un vrai code de refus natif) -- l'assertion doit rougir. Sans cette morsure,
+    l'ouverture faite pour `GATE_OPERATION` ci-dessus pourrait avoir vide la garde de son sens."""
+    from dataclasses import replace as _replace
+    import engine.runner.abilities.targeting_rule_inventory as INV
+    mute = dict(RULE_ROLE)
+    mute["TargetIsEnemy"] = _replace(RULE_ROLE["TargetIsEnemy"],
+                                     ported_by=("get_invalid_target_reason", "TargetIsEnemy"))
+    monkeypatch.setattr(INV, "RULE_ROLE", mute)
+    monkeypatch.setitem(globals(), "RULE_ROLE", mute)
+    assert RULE_ROLE["TargetIsEnemy"].ported_by, "la mutation n'a pas mordu"
+    assert RULE_ROLE["TargetIsEnemy"].kind != "GATE_OPERATION", "la mutation n'a pas mordu"
+    with pytest.raises(AssertionError, match="EST un code de refus natif"):
+        test_ported_by_reserve_aux_regles_qui_ne_sont_jamais_un_code_de_refus()
 
 
 def test_contre_epreuve_ported_by_sans_le_jeton(monkeypatch):

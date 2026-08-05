@@ -159,6 +159,19 @@ class GreatFrostAxeAbility(ActiveAbility):
     TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
                                          range=RANGE_ADJACENT,
                                          force_melee_target=RANGED_BOOL_FALSE)
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$GetTargetingOptionsForContinue`
+    # (#429-r1) -- forme « PRESET + flags additionnels » :
+    #     TargetingOptions..ctor(&opts, &<TargetingOptions statics>+0x40, 0x4000000000)
+    # et ce ctor-la est un `Rules |= additionalRules` sur une copie du template (decompile verbatim).
+    # Meme preset que `TARGETING_OPTIONS` ci-dessus, plus le bit 38 `AllowDeadTarget`.
+    #
+    # C'est le SEUL site de tout `GameAssembly.dll` qui pose ce bit (scan d'instructions du build
+    # courant, `probe_429r1_bit_readers_scan.py`) : `GreatFrostAxe` est donc l'unique ability dont
+    # `AActiveAbility$$CanContinueOnDeadTarget` rende `true`, et la seule qui echappe au gate
+    # `ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility`.
+    TARGETING_OPTIONS_FOR_CONTINUE = TargetingOptions(
+        rules=(TR.TargetIsEnemy | TR.AllowDeadTarget),
+        range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

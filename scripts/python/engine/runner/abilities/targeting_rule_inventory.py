@@ -54,6 +54,12 @@ READERS = {
     "OBSCURED_RULE": "IdunBattle.Core.Services.ObscuredTerrainBrokenTargetingRule$$get_Type",
     "ABILITY": "IdunBattle.Entities.Abilities.AActiveAbility$$GetInvalidCasterReason",
     "ATTACK_QUERY": "IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason",
+    # --- #429-r1 : les deux lecteurs qui vivent HORS du ciblage -------------------------------
+    # C'est la raison de fond pour laquelle les huit ci-dessus ne pouvaient pas les trouver : ni
+    # l'un ni l'autre n'appartient a une cascade de refus de cible ou de caster.
+    "CONTINUE_ON_DEAD": "IdunBattle.Entities.Abilities.AActiveAbility$$CanContinueOnDeadTarget",
+    "DYNAMIC_RULE": ("IdunBattleLogic.Entities.Abilities.Active.Loki.AnnihilatorBeamAbility$$"
+                     "GetDynamicInvalidTargetReason"),
 }
 
 # --- Les CATEGORIES ------------------------------------------------------------------------
@@ -64,10 +70,15 @@ READERS = {
 # PERMISSION      DESARME une regle -- n'en est pas une ; la porter comme regle inventerait un refus
 # REASON          CODE DE RAISON seulement : aucune cascade ne teste ce bit dans un masque
 # DECLARATIVE     lu par un getter de domaine, consomme par l'enumeration des cibles
-# READER_UNKNOWN  aucun lecteur localise dans les huit fonctions relues -- RESIDU NOMME, pas une
-#                 preuve de mort (l'absence dans un balayage ne prouve rien : cf. CLAUDE.md)
+# GATE_OPERATION  regle de refus lue HORS ciblage, par un gate d'OPERATION (#429-r1). Distincte des
+#                 GATE_* ci-dessus a deux titres : elle ne rend jamais d'`IBrokenTargetingRule` (le
+#                 natif abandonne l'operation, il ne « donne pas de raison »), et son masque n'est
+#                 pas forcement le masque principal de l'ability -- d'ou `armed_by`.
+# READER_UNKNOWN  aucun lecteur localise -- RESIDU NOMME, pas une preuve de mort (l'absence dans un
+#                 balayage ne prouve rien : cf. CLAUDE.md). PLUS AUCUNE entree depuis #429-r1 ; la
+#                 categorie RESTE, c'est la case honnete du prochain membre non localise.
 KINDS = ("GATE_TARGET", "GATE_CASTER", "GATE_ADD_CASTER", "PERMISSION", "REASON",
-         "DECLARATIVE", "READER_UNKNOWN")
+         "DECLARATIVE", "GATE_OPERATION", "READER_UNKNOWN")
 
 # `armed_by = None` : la regle est armee par SON PROPRE bit (le cas ordinaire).
 # `armed_by = "<expression>"` : elle est armee par AUTRE CHOSE, et alors compter « les porteurs
@@ -321,17 +332,32 @@ RULE_ROLE = {
         "sans tuile. Aucune cascade de refus ne le lit -- c'est un elargisseur d'ENUMERATION."),
 
     # ---------------------------------------------------------------------------------------
-    # RESIDUS -- lecteur NON LOCALISE dans les huit fonctions relues
+    # LUS HORS DU CIBLAGE -- c'est pourquoi les huit lecteurs relus par #429 ne les voyaient pas
     # ---------------------------------------------------------------------------------------
     "AbilityIsNotDisabledByConfigModification": Role(
-        "READER_UNKNOWN", None, SELF,
-        "Aucun test de ce bit dans les huit lecteurs relus. Le terme i2 existe "
-        "(`IdunLocalization.Tooltips$$BattleHUD_Tooltip_AbilityDisabledByConfigModification_"
-        "Description`), donc la raison est PRESENTEE quelque part : lecteur a localiser, "
-        "probablement cote disponibilite d'ability. RESIDU NOMME, pas une preuve de mort."),
+        "REASON", READERS["DYNAMIC_RULE"], SELF,
+        "#429-r1 : CODE DE RAISON PRODUIT par une regle DYNAMIQUE d'ability, jamais un bit teste. "
+        "`AnnihilatorBeamAbility$$GetDynamicInvalidTargetReason` rend ce membre quand "
+        "`AbilityConfiguration.GetNumberConstant(0x11) <= 0` (la meme constante que "
+        "`StaticBattleRules.ActiveAbility$$IsDisabled` teste en premier) -- c'est-a-dire quand une "
+        "MODIFICATION DE CONFIG a mis l'ability a zero. Contexte i2 : "
+        "`UI/GuildBossSupportingBattle_Modification_Ability_AnnihilatorBeam_nrOfTargets_*` "
+        "(« {ABILITY_NAME} targets {N} fewer hexes ») ; le terme d'infobulle "
+        "`Tooltips$$BattleHUD_Tooltip_AbilityDisabledByConfigModification_Description` est ce qui "
+        "PRESENTE ce code. Il remonte par le point d'extension `TargetMatchesDynamicRule` (bit 1), "
+        "qui rend le code de la delegue TEL QUEL. Un SEUL producteur dans tout le binaire (scan "
+        "d'instructions, `probe_429r1_bit_readers_scan.py`), et son ability (1071) n'est pas portee."),
     "AllowDeadTarget": Role(
-        "READER_UNKNOWN", None, SELF,
-        "Aucun test de ce bit dans les huit lecteurs relus. Le refus « cible morte » passe par "
-        "`ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility`, qui lit le slot 0x11 de "
-        "l'entree de base d'ability -- PAS ce bit. RESIDU NOMME."),
+        "GATE_OPERATION", READERS["CONTINUE_ON_DEAD"], "`TargetingOptionsForContinue` (+0xb0), PAS "
+        "le masque principal (+0x70)",
+        "#429-r1 : LU, mais hors ciblage -- d'ou l'echec des huit lecteurs relus. "
+        "`AActiveAbility$$CanContinueOnDeadTarget` (slot 17 d'`IActiveAbility`) rend "
+        "`_targetingOptionsForContinue.Rules >> 0x26 & 1`, et "
+        "`ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility` en fait le gate CIBLE-MORTE, en "
+        "TETE d'`ExecuteInternal`. Le masque lu est celui du CONTINUE "
+        "(`GetTargetingOptionsForContinue() ?? targetingOptions`) : aucun `TARGETING_OPTIONS` du "
+        "registre ne peut donc porter ce bit, et compter ses porteurs sur le masque principal rend "
+        "un ZERO DE METHODE. Un seul porteur dans tout le binaire : "
+        "`GreatFrostAxeAbility$$GetTargetingOptionsForContinue` (1089).",
+        ported_by=("can_continue_on_dead_target", "AllowDeadTarget")),
 }
