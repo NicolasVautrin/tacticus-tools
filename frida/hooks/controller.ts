@@ -188,9 +188,6 @@ export function wireRpc(ctx: Ctx): void {
         searchAllClasses(query);
         return { ok: true };
     };
-    ctx.rpc.searchMethods = (query: string) => {
-        return { ok: false, msg: "Not implemented yet" };
-    };
     ctx.rpc.debugFlagsType = () => {
         debugFlagsType();
         return { ok: true };
@@ -263,10 +260,6 @@ export function wireRpc(ctx: Ctx): void {
     ctx.rpc.dumpUnitEntity = () => {
         dumpUnitEntityFields();
         dumpUnitEntityFieldsV2();
-        return { ok: true };
-    };
-    ctx.rpc.dumpStatComp = () => {
-        dumpStatComponentFields();
         return { ok: true };
     };
     ctx.rpc.dumpStatTypes = () => {

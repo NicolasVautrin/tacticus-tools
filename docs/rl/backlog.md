@@ -654,13 +654,13 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `probe_480r6_code_mort.py --etage 2` rend `[B] = 0`, ou chaque survivant porte sa raison
   écrite. `case-480r6-scratch-industrialise-et-code-mort.md` §4a.
 
-- **`#480-r8` — 155 RPC sans appelant sur 321 (48 %).** Croisé sur trois langages (host TS /
-  front JS / Python), en rendant DEUX comptes : large (le nom entre quotes) et strict (le nom dans
-  une forme d'appel RPC) — aucun des deux ne conclut seul. ⚠ **Axe de tri, pas verdict** :
-  l'essentiel sont les enveloppes des sondes de `hooks/probes/`, appelées à la main ; leur absence
-  d'appelant est leur nature. `features/sim.ts` (3 RPC) est déjà nommé par `#480` R6.
-  *Retournement* : chaque RPC listé est soit appelé, soit retiré, soit justifié.
-  `case-480r6…` §4b.
+- **`#480-r10` — le cliquet #480-r8 ne mord que dans UN sens.** Il exige qu'un RPC déclaré soit
+  NOMMÉ quelque part ; rien n'interdit à `rpc-api.md` de citer un RPC **disparu** du code. Mesure
+  tentée : 198 identifiants camelCase en backticks, **32** non déclarés — mais ce sont des noms de
+  **champs** (`args`, `targets`, `null`), donc le critère **ne discrimine pas** et ne permet pas de
+  conclure « 0 périmé ». *Retournement* : un critère de **position** (nom en forme de RPC —
+  `**\`nom(…)\`**`, `"method": "nom"`) rend un compte assumé, et un nom cité comme RPC sans
+  déclaration rougit. `case-480r8…` § Résidus.
 
 - **`#480-r9` — `frida/tools/` n'est couvert par AUCUN `tsconfig`.** `tsconfig.hooks.json`
   inclut `hooks/**`, `tsconfig.host.json` inclut `host/**` : le harnais

@@ -3,12 +3,21 @@
 RPC exposés par l'agent injecté (`frida/hooks/`), appelés par le host Node et
 les scripts `scripts/python/`.
 
-**Synchronisé avec le code le 2026-07-02.** Surface réelle = 257 handlers
-(`grep -rhoE "ctx\.rpc\.[A-Za-z0-9_]+" frida/hooks`). Ce fichier documente
-individuellement les RPC du **workflow actif** (consommés par `rl_duel.py`,
-`predict_validate.py`, `pathfind_validate.py`, `rl_probe_step.py`,
-`rl_collect_batch.py`, `engine_validate.py`, tests) et regroupe le reste par
-**famille de diagnostic**. La source fait foi.
+**Surface re-dérivée le 2026-08-05 : 320 handlers** — le chiffre ne se cite pas, il se
+re-dérive (`python scripts/python/probe_480r8_rpc_ventilation.py`, étape 1). Cette ligne a
+annoncé **257** pendant un mois pour une surface qui en portait **321** : un catalogue périmé
+fait conclure « ce RPC n'existe pas » sur un RPC vivant.
+
+Ce fichier documente individuellement les RPC du **workflow actif** (consommés par `rl_duel.py`,
+`predict_validate.py`, `pathfind_validate.py`, `rl_probe_step.py`, `rl_collect_batch.py`,
+`engine_validate.py`, tests) et **nomme** le reste par famille de diagnostic (§ Familles).
+La source fait foi.
+
+⚠ **Un RPC qui n'est écrit NULLE PART est inutilisable, pas « disponible »** : pour invoquer
+`{"method": "<nom>"}` il faut connaître le nom. #480-r8 a mesuré que **154 des 320** n'ont aucun
+appelant statique, dont **83** qu'aucun code, aucune doc et aucun message de commit ne
+mentionnait — ils étaient hors d'atteinte de fait. C'est pourquoi les familles ci-dessous sont
+NOMMÉES et non plus résumées par un patron (`dump*`) : un patron ne rend aucun nom découvrable.
 
 ## Mécanisme
 
@@ -204,11 +213,54 @@ pas restart le host en plein battle.
 Outils de RE / observabilité — aucun hook live ne les APPELLE, mais leur code est
 **dans le bundle injecté**, pas à côté.
 
-- **`dump*`/`check*`/`find*`/`search*`/`test*`/`inspect*`/`map*`** (~90,
-  `controller.ts` → `hooks/probes/*`) : introspection IL2CPP one-shot (offsets,
-  méthodes, enums, stats, weapons, progression). `hooks/probes/` est VERSIONNÉ et
-  **66 de ses modules sortent dans `dist/hooks.js`** : ce sont des entrées de build,
-  pas des brouillons à côté du build. (Il s'appelait `hooks/scratch/` jusqu'à #480-r6.)
+- **Introspection IL2CPP one-shot** (offsets, méthodes, enums, stats, weapons, progression).
+  `hooks/probes/` est VERSIONNÉ et **66 de ses modules sortent dans `dist/hooks.js`** : ce sont
+  des entrées de build, pas des brouillons à côté du build. (Il s'appelait `hooks/scratch/`
+  jusqu'à #480-r6.)
+  ⚠ **Leur sortie ne revient PAS dans la réponse RPC** : ces handlers rendent `{ ok: true }` et
+  écrivent par `console.log`. Frida en fait un message que `sessions.ts` publie et journalise
+  (`onMessage` → `publish` + `appendLog`) — on lit donc le résultat dans le **log de session**,
+  pas dans le retour de l'appel.
+
+  Liste NOMMÉE, re-dérivable (`probe_480r8_rpc_ventilation.py --catalogue`) :
+
+  - **`controller.ts`** (57) : `checkInvoker`, `checkKlass`, `checkMethod`, `checkMethodParams`,
+    `checkParent`, `checkStatsFields`, `debugFlagsType`, `dumpAbility`, `dumpAbilityProperly`,
+    `dumpAbilityState`, `dumpAttackDefense`, `dumpComps`, `dumpCritBlock`, `dumpDamageProfile`,
+    `dumpDpProperly`, `dumpExtraDmg`, `dumpFlags`, `dumpMethod`, `dumpMethods`, `dumpParams`,
+    `dumpPathfinder`, `dumpProgAnywhere`, `dumpProgExt`, `dumpReturn`, `dumpRunnerFields`,
+    `dumpStatComp`, `dumpStatTypes`, `dumpStats`, `dumpStatsFormula`, `dumpStatsFormulaFields`,
+    `dumpUnitEntity`, `dumpUnitEntityCore`, `dumpUnitProgData`, `dumpUnitProgDataNested`,
+    `dumpUnitProgFields`, `dumpUnitProgMethods`, `dumpUnitProgression`, `dumpUniverse`,
+    `dumpValueOverride`, `dumpWeaponClass`, `dumpWeaponProfile`, `dumpWeapons`,
+    `dumpWeaponsTypes`, `dumpWpTypes`, `findAction`, `findGlobals`, `findPathfinderOff`,
+    `findProgInstances`, `inspectInstance`, `inspectPtr`, `introspectFlags`, `listComps`,
+    `mapRanks`, `searchClass`, `searchClasses`, `testSafeInvoke`, `testStatic`
+  - **`features/unit-visual-resolve.ts`** (5) : `fullAssemblyScan`,
+    `listUniverseInstanceFields`, `listUniverseRefs`, `tryGlobalsCapture`, `tryStaticCapture`
+  - **`probes/*`** (6) : `dumpIdunNavInfo`, `dumpNavMethods`, `inspectCgms`, `testScene`,
+    `testUnityFind`, `tryToCampaign`
+  - **`features/compare.ts`** : `compareBuilt` — **`features/dump-composed.ts`** :
+    `dumpComposedUtilityStatus`
+
+- **Traces on-demand, armées à la main** — le `register` n'arme RIEN (cf. `controller.ts`) ;
+  ces RPC sont les commandes d'armement/lecture, sans appelant statique par construction :
+  - **`features/effect-immunity-observe.ts`** (4) : `effectImmunityObserveEnable`,
+    `effectImmunityObserveDisable`, `effectImmunityObserveReset`, `effectImmunityObserveStatus`
+  - **`features/move-options.ts`** (4) : `armMoveOptionsTrace`, `disarmMoveOptionsTrace`,
+    `moveOptionsTraceReset`, `moveOptionsTraceStatus`
+  - **`features/board-trace.ts`** (3) : `boardTraceStart`, `boardTraceStatus`, `boardTraceStop`
+  - **`features/trigger-trace.ts`** (2) : `triggerTraceInstall`, `triggerTraceSetEnabled`
+
+- **Lecteurs de trace — moitiés de paire** : leur jumeau d'armement est câblé, eux se lisent à
+  la main après coup. Sans appelant statique **par construction**, donc nommés ici :
+  - **`features/scorer-damage-trace.ts`** (6) : `scorerAttModDump`, `scorerBaseOverrideDump`,
+    `scorerModifyDump`, `scorerPredBaseDump`, `scorerScenarioTraceDump`, `scorerStatModsDump`
+  - **`features/movement-trace.ts`** (2) : `dumpMovementTrace`, `movementTraceInstallStatus`
+    — ⚠ le module est **désactivé** dans `controller.ts` (`void movementTrace`, hors de la liste
+    des `register`) : ces deux RPC ne sont **pas exposés** par la session tant qu'il est commenté.
+  - **`features/hit-trace.ts`** (2) : `hitTraceDisarm`, `hitTraceSetEnabled`
+  - **`features/ai-trace.ts`** : `aiTraceGetProjections`
 - **`aiTrace*`** (`ai-trace.ts` + `ai-trace/`) : capture playbook/prédictions/
   utilités → JSONL (`data/ai-traces/`). `aiTraceEnable(level)`/`aiTraceStatus()`
   pilotés par les scripts RL.
