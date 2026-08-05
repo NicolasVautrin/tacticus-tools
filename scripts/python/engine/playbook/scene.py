@@ -69,6 +69,17 @@ class Scene:
     # a CHAQUE tour demarre) → capture combatSnapshot, refresh par-pas via `refresh_shields`.
     # Defaut {} → uid absent = non capte (l'accesseur rend None, le gate ne mord pas a l'aveugle).
     turns_started_by_id: dict = field(default_factory=dict)
+    # TurnsFinished PER-UNITE (#27-r8) : {uid: turnsFinished} — le compteur `UnitComponent + 0x5c`,
+    # incremente par `IdunBattle.Operations.EndTurnOperation$$Execute` et relu par
+    # `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished`. Il indexe le gate slot-4
+    # `...InstrumentsOfVengeancePlaybook$$GetUseProbability` (Zero a 0, Half a 1, One sinon).
+    # ⚠ Ce n'est PAS `turnsStarted` (stat 12) et ce n'est PAS un `StatType` : une unite APPARUE
+    # PENDANT le tour de son proprietaire (tout summon) rate le bump de `StartTurn` mais prend celui
+    # d'`EndTurn`, donc `turns_finished == turns_started + 1` ensuite (meme mesure que
+    # `runner/snapshot.py` §N11). DYNAMIQUE (incremente a chaque tour termine) -> capture
+    # `combatSnapshot.units[].turnsFinished`, refresh par-pas via `refresh_shields`.
+    # Defaut {} -> uid absent = NON CAPTE (l'accesseur rend None, le gate ne mord pas a l'aveugle).
+    turns_finished_by_id: dict = field(default_factory=dict)
     # Stat ATTACK COURANT PER-UNITE (#45-s18) : {uid: GetStat(Attack, Current)} — la lecture EXACTE des
     # noeuds DSL `StatAmount(Self, Attack, Current)` (ex. splash Psyker `IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$GetAttackDamage`).
     # DYNAMIQUE : les ValueModifications vont et viennent (aura RitesOfBattle +1298 par ADJACENCE a
@@ -270,7 +281,7 @@ class Scene:
         moved_by_id, teleported_by_id, active_ability_used_by_id = {}, {}, {}
         tiles_moved_by_id, parent_by_id = {}, {}
         from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
-        turns_started_by_id = {}
+        turns_started_by_id, turns_finished_by_id = {}, {}
         units: list = []
         for eid, e in state.entities.items():
             uc = e.get_component(UnitComponent)
@@ -333,6 +344,13 @@ class Scene:
             # `Moved` (#266). L'entite est INSCRITE meme quand elle n'a pas de parent : c'est une
             # mesure PLEINE (cf. `Scene.parent_measured`), pas une absence.
             parent_by_id[eid] = getattr(uc, "parent_id", None)
+            # #27-r8 : `UnitComponent + 0x5c` LU de l'ECS. Le champ y est TENU par
+            # `runner/turnflow.py::_bump_turns_finished` (mirror d'`EndTurnOperation$$Execute`, voie
+            # offline) ET seede depuis le live par `snapshot.py` (#N11) -- meme forme que #266
+            # (flag `Moved`) et #378 (`parent_id`) : la face DECISION LIT ce que la face COMBAT
+            # TIENT, jamais une seconde derivation. L'entite est INSCRITE meme a 0 : c'est une
+            # mesure PLEINE (le composant existe des que l'unite existe), pas une absence.
+            turns_finished_by_id[eid] = int(getattr(uc, "turns_finished", 0) or 0)
             vis_by_id[eid] = vis
             if hc is not None:
                 hp_by_id[eid] = hc.hp
@@ -369,7 +387,8 @@ class Scene:
             units=units, hp_by_id=hp_by_id, pos_by_id=pos_by_id, team_by_id=team_by_id,
             eff_state=getattr(state, "effects", None), hpmax_by_id=hpmax_by_id,
             elev_by_pos=elev_by_pos, board=board, defstat_by_id=defstat_by_id,
-            turns_started_by_id=turns_started_by_id, charged_by_id=charged_by_id,
+            turns_started_by_id=turns_started_by_id,
+            turns_finished_by_id=turns_finished_by_id, charged_by_id=charged_by_id,
             prevent_overkill_by_id=prevent_overkill_by_id,
             moved_by_id=moved_by_id, teleported_by_id=teleported_by_id,
             active_ability_used_by_id=active_ability_used_by_id,
@@ -402,6 +421,7 @@ class Scene:
             actorstats_by_id=predictor.get("actorstats_by_id") or {},
             defstat_by_id=predictor.get("defstat_by_id") or {},
             turns_started_by_id=predictor.get("turns_started_by_id") or {},
+            turns_finished_by_id=predictor.get("turns_finished_by_id") or {},
             attack_cur_by_id=predictor.get("attack_cur_by_id") or {},
             extra_hits_cur_by_id=predictor.get("extra_hits_cur_by_id") or {},
             # O5 : flags d'unité LUS (`combatSnapshot.unitFlags`). Table vide = hook antérieur à
@@ -655,6 +675,18 @@ class Scene:
         `ShouldEvaluate(unit) = GetStat(unit,12) > 1` (#46, corps foldé IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate). None si non
         capturé (uid absent des tables) → l'appelant ne gate pas à l'aveugle."""
         v = (self.turns_started_by_id or {}).get(uid)
+        return None if v is None else int(v)
+
+    def turns_finished(self, uid) -> int | None:
+        """`IdunBattle.Entities.UnitExtensions$$GetTurnsFinished(unit)` (`UnitComponent + 0x5c`) — nb
+        de tours que CETTE unite a TERMINES cette bataille (incr. `EndTurnOperation$$Execute`).
+        Indexe le gate slot-4 `...InstrumentsOfVengeancePlaybook$$GetUseProbability` (#27-r8).
+
+        None si non capture (uid absent des tables) -> l'appelant ne gate PAS a l'aveugle. C'est la
+        meme convention que `turns_started` : un canal muet doit se DIRE muet, jamais se rabattre
+        sur 0 -- ici un `0` invente rendrait `Fix64.Zero`, donc un REFUS de l'ability que le natif
+        n'a pas prononce (degradation RESTRICTIVE silencieuse)."""
+        v = (self.turns_finished_by_id or {}).get(uid)
         return None if v is None else int(v)
 
 
@@ -990,6 +1022,14 @@ def build_predictor(rpc, rid):
                 u["entityId"]: int((u.get("stats") or {}).get("turnsStarted") or 0)
                 for u in (snap.get("units") or [])
                 if (u.get("stats") or {}).get("turnsStarted") is not None},
+            # #27-r8 : TurnsFinished (`UnitComponent + 0x5c`) — gate slot-4 de 1215. Le champ est
+            # au NIVEAU DE L'UNITE (pas sous `stats` : ce n'est pas un `StatType`, cf. §N11), publie
+            # par `frida/hooks/features/ai-step/rpc-snapshot.ts` via `getTurnsFinishedMi`. DYNAMIQUE
+            # (incremente a chaque fin de tour) -> re-capture par-pas dans `refresh_shields`.
+            "turns_finished_by_id": {
+                u["entityId"]: int(u.get("turnsFinished") or 0)
+                for u in (snap.get("units") or [])
+                if u.get("turnsFinished") is not None},
             # #378 : lien enfant -> summoner (`ChildComponent.ParentId`). STATIQUE par unite (pose
             # au spawn, jamais reecrit) mais la POPULATION ne l'est pas -> re-capture par-pas via
             # `refresh_shields`, sinon un summon apparu apres le pas 0 resterait sans parent.
@@ -1185,6 +1225,13 @@ def refresh_shields(predictor, rpc, rid):
         u["entityId"]: int((u.get("stats") or {}).get("turnsStarted") or 0)
         for u in (snap.get("units") or [])
         if (u.get("stats") or {}).get("turnsStarted") is not None}
+    # #27-r8 : re-capture TurnsFinished (`UnitComponent + 0x5c`, incremente a chaque tour TERMINE).
+    # C'est le canal du gate slot-4 de 1215, et il est aussi volatil que TurnsStarted : le cold du
+    # build vaut 0 pour toute la bataille, donc un gate cale dessus refuserait 1215 A JAMAIS.
+    predictor["turns_finished_by_id"] = {
+        u["entityId"]: int(u.get("turnsFinished") or 0)
+        for u in (snap.get("units") or [])
+        if u.get("turnsFinished") is not None}
     # #378 : re-capture du lien enfant -> summoner. La VALEUR est figee au spawn, mais la
     # POPULATION croit en cours de bataille -- un cold pris au pas 0 ignorerait tout summon apparu
     # depuis, c'est-a-dire precisement le cas d'usage (le drone `tauSmnDroneCommandLink` du jumeau
