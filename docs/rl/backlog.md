@@ -2548,6 +2548,26 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `docs/rl/case-477r15r4r5r6-trois-grandeurs-copiees.md`.
   Cliquet jouable SANS session : `python scripts/python/probe_477r15r4_capteurs_offline.py`.
 
+- **#477-r18-r5-r1 : les regimes de `Group=AddUnit` que `rl_duel build` n'atteint pas.** `[opus]`
+  L'enveloppe `User_PlaceUnit` est portee et confrontee (13 groupes, 4 scenarios, egalite BRUTE),
+  mais son CONTENU n'est exerce que sur un regime : une tuile par unite (le ctor a 4 arguments
+  d'`AddUnitMessage` ne porte qu'une coordonnee), pas de parent, pas de boss, `MaxMembers ==
+  InitAliveMembers`. Restent donc non exerces `Unit_Foot_Tile_Id_2..7`, `Unit_IsSummoned`,
+  `Unit_Parent_Id != 0`, `UnitStats_IsBoss:1` -- et la branche `RunPhase` de
+  `InputMessageProcessor$$Visit(AddUnitMessage)` (prise quand `AddUnitMessage+0x40` est vrai),
+  dont on a LU qu'elle appelle la meme fonction locale, sans l'avoir mesuree.
+  RETOURNEMENT : un montage qui pose une unite multi-tuiles ou multi-membres par
+  `AddUnitMessage`, plus un flux ou `+0x40` est vrai -- et l'enveloppe reste inchangee.
+  cf. `docs/rl/case-477r18r5-user-place-unit.md` sec. 4.
+
+- **#477-r18-suite : les crans suivants du DEROULE, dans l'ordre chiffre par l'inventaire.** `[opus]`
+  `User_PlaceUnit` est LIVRE (#477-r18-r5). Le tableau de `case-477r18` sec. 3 donne la suite,
+  et le critere de chacun se derive de la meme forme : `System_ProcessRemovals` (groupe VIDE,
+  +1 `GroupType`, prouve l'ancrage temporel sans aucune donnee), puis `Effect_Refresh` (motif
+  TRANSVERSAL, imbrique dans presque tous les groupes racines, +1/+2/+1), puis `User_EndTurn`
+  (+2/+2/+2), qui l'englobe. L'ancrage se pose dans `engine/streams/input_messages.py`, ouvert
+  par cette tranche. cf. `docs/rl/case-477r18-perimetre-du-deroule.md` sec. 3 et 6.
+
 - **#477-r17 : `visualId` (le NOM du kit) reste sans porteur dans le flux.** `[opus]`
   Sans consequence pour le DIFF (comparer deux flux ne demande pas le kit), determinant pour le
   DIAGNOSTIC : un rapport de divergence nommerait « l'entite 83 » sans dire que c'est le **second**
