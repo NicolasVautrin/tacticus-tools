@@ -325,7 +325,7 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
     return texte, len(retenus)
 
 
-def _filtrer_acyclique(par_module: dict, refus: dict) -> dict:
+def _filtrer_acyclique(par_module: dict, refus: dict, ancetres: bool = True) -> dict:
     """Retire les sites dont l'arete hissee refermerait un cycle NIVEAU MODULE.
 
     Le tri mesure une instruction A LA FOIS ; l'ENSEMBLE peut refermer une boucle qu'aucun
@@ -352,7 +352,7 @@ def _filtrer_acyclique(par_module: dict, refus: dict) -> dict:
         -> [parent] `engine.entities` -> ... -> `entities.triggers` -> `battle_query`).
         """
         out = set(g.get(x, ()))
-        if "." in x:
+        if ancetres and "." in x:
             out.add(x.rsplit(".", 1)[0])
         return out
 
@@ -397,6 +397,9 @@ def main() -> int:
     ap.add_argument("--categorie", default="hissable")
     ap.add_argument("--ecrire", action="store_true")
     ap.add_argument("--simuler", action="store_true")
+    ap.add_argument("--sans-ancetres", action="store_true",
+                    help="CONTRE-EPREUVE : retire l'arete `module -> paquet parent` du filtre. "
+                         "Le lot obtenu DOIT casser l'import (mesure : 405/409 modules).")
     args = ap.parse_args()
 
     d = json.loads(Path(args.tri).read_text(encoding="utf-8"))
@@ -419,7 +422,7 @@ def main() -> int:
         return 2
 
     refus: dict[str, list] = defaultdict(list)
-    par_module = _filtrer_acyclique(par_module, refus)
+    par_module = _filtrer_acyclique(par_module, refus, ancetres=not args.sans_ancetres)
     ecrits = 0
     hisses = 0
     for module in sorted(par_module):

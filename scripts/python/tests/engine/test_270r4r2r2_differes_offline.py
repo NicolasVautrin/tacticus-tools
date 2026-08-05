@@ -15,7 +15,15 @@ DEUX CRITERES, ET ILS NE SE VALENT PAS -- c'est le point de ce fichier :
     la pour attraper une REPRISE DE MASSE, pas un site isole -- et l'etage 1, lui, mord sur un
     seul site.
 
-Les CYCLES (0 SCC module-level, et chaque module importable EN PREMIER) restent gardes par
+  * etage 5, IMPORT REEL sur TOUT `engine/`. Il ne duplique PAS le cliquet #270-r4-r2 : celui-ci
+    ne balaye que `services`/`playbook`/`entities`/`dsl`, quand cette tranche a hisse 98 fichiers
+    sous `engine/runner`, hors de sa portee. Et il est INDISPENSABLE -- CONTRE-EPREUVE mesuree :
+    en retirant du filtre l'arete `module -> paquet parent`
+    (`migrate_270r4r2r2_hisser_differes.py --sans-ancetres`), le lot obtenu laisse le graphe
+    declare a **0 SCC** et casse pourtant l'import de **405 des 409** modules. Un cliquet qui ne
+    regarde que le graphe serait reste VERT sur cette regression-la.
+
+Le graphe module-level (0 SCC) et sa contre-epreuve restent gardes par
 `test_270r4r2_cycles_imports_offline.py` : on ne duplique pas, on s'appuie dessus.
 
 100 % OFFLINE : aucun runner, aucune session Frida.
@@ -31,6 +39,7 @@ PYDIR = Path(__file__).resolve().parents[2]
 if str(PYDIR) not in sys.path:
     sys.path.insert(0, str(PYDIR))
 
+import probe_270r4r2_import_en_premier as IP    # noqa: E402
 import probe_270r4r2r2_tri_differes as TR       # noqa: E402
 
 # Plafonds MESURES a la livraison de #270-r4-r2-r2 : 971 -> 347 instructions differees, dont
@@ -121,6 +130,28 @@ def test_etage3_seuil_le_compte_ne_remonte_pas(sites):
     assert len(inconditionnels) <= PLAFOND_INCONDITIONNELS, (
         "les differes INCONDITIONNELS remontent : %d pour un plafond de %d"
         % (len(inconditionnels), PLAFOND_INCONDITIONNELS))
+
+
+def test_etage5_tout_engine_s_importe_en_premier():
+    """MESURE MATERIELLE, sur les 409 modules -- ce que le graphe ne peut PAS donner.
+
+    CONTRE-EPREUVE (mesuree) : un lot de hissages filtre SANS l'arete `module -> paquet
+    parent` laisse le graphe declare a 0 SCC et casse 405 des 409 imports. C'est cet etage,
+    et lui seul, qui rougit dans ce regime.
+    """
+    mods = IP._modules_sous(("engine",))
+    assert len(mods) >= 300, "portee derisoire : %d module(s)" % len(mods)
+    echecs = []
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for mod, rc, err in ex.map(IP._essayer, mods):
+            if rc != 0:
+                echecs.append("  %s\n     %s" % (mod, err))
+    assert not echecs, "\n".join(
+        ["%d/%d module(s) d'engine/ ne s'importent pas EN PREMIER." % (len(echecs), len(mods)),
+         "Un import HISSE a referme une boucle. Le graphe des sources declarees ne la voit "
+         "pas forcement : Python execute les `__init__.py` ANCETRES quoi qu'on ecrive."]
+        + echecs[:30])
 
 
 def test_etage4_partition_exhaustive(sites):
