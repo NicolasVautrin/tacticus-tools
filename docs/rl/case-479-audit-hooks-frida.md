@@ -85,7 +85,7 @@ jamais de l'observé — l'observé n'est qu'un plancher (#477-r13 ; mon flux : 
 | `decisionView` | 2 707 | **NÉCESSAIRE** | face DÉCISION — **absente du flux par construction** |
 | `combatSnapshot` | 1 198 | **NÉCESSAIRE** | `Defense`, `EvasionChance` : **0 TagKey** ; les 7 `Extra*` n'existent qu'en `_Modification*` (le delta, jamais la valeur courante) |
 | `boardGraph` | 1 364 | **NÉCESSAIRE** | topologie franchissable : **0 TagKey** (cf. §3a) |
-| `observeBattle` | 975 | **NÉCESSAIRE** | `visualId`/`squadId`/`rank` sans porteur — **le flux ne nomme jamais l'unité** (#477-r11 §5b) |
+| `observeBattle` | 975 | **NÉCESSAIRE** | `visualId` (nom du kit) et `rank` sans porteur. ⚠ **PAS `squadId`** : #477-r15 §4 l'a réfuté — il est porté par le `Entity=` de **chaque ligne**, donc absent des `Tag=` mais bien présent (cf. §3b) |
 | `dumpRng` | 677 | **NÉCESSAIRE (aujourd'hui)** | le flux dit *« a crité : non »*, jamais le tirage. Le canal PRNG existe mais son lecteur **n'est pas déployé** (§5) |
 | `tileMeta` | 334 | **NÉCESSAIRE** | `elevation`/`isWall`/`isTemporary` : **0 TagKey** (§3a) |
 | `aiPlaybookPredict`, `pairUtility`, `abilityTargets`, `aiMovableTiles` | 275 / 374 / 490 / 637 | **NÉCESSAIRE** | face DÉCISION |
@@ -103,9 +103,13 @@ instruments de *diagnostic* (répondre « pourquoi ça diverge ») au lieu d'ins
 #477-r11 §5 publie les omissions vis-à-vis de `StatType` (5a) et d'`observeBattle` (5b). **Rien
 n'était écrit sur la face TUILE.** Mesuré des deux côtés :
 
-- **dérivation** : sur les 244 `TagKey`, la recherche `Elevation|Wall|Height|Temporary` rend
-  **uniquement** `Tile_IsTerritory` (plus deux tags de score) — donc **aucun porteur** pour
-  `elevation`, `isWall`, `isTemporary` ;
+- **dérivation, sur les QUATRE positions de la grammaire** (leçon du §3b — un porteur peut vivre
+  hors des `Tag=`) : sur les 244 `TagKey`, `Elevation|Wall|Height|Temporary` rend **uniquement**
+  `Tile_IsTerritory` (plus deux tags de score) ; sur les 62 `StepType`, les seuls membres liés au
+  terrain sont `AddTile`, `AttackTile`, `RemoveUnitFromTiles`, `TerritoryCapture`,
+  `TerritoryScoreModifierChange`, `HideDoorActivationTile` ; sur les 104 `GroupType`, `TileDamage`,
+  `VolatileRockets`, `TerritoryCapture`. **Aucun** ne porte le relief, les murs ou le caractère
+  temporaire — et l'`Entity=` d'un `AddTile` est l'**id de la tuile**, pas son relief ;
 - **observation** sur le flux réel (123 022 car., 2 931 lignes) : chaque `Action=AddTile` porte
   exactement **trois** tags — `Tile_Column`, `Tile_Row`, `Tile_IsTerritory`.
 
@@ -113,6 +117,23 @@ n'était écrit sur la face TUILE.** Mesuré des deux côtés :
 temporaires**. `tileMeta` / `boardGraph` sont donc nécessaires, et cette omission doit rejoindre la
 liste publiée du §5 — sans quoi elle deviendrait une **projection implicite**, exactement ce que
 #477-r11 met en garde de ne pas laisser s'installer.
+
+### 3b. Note de rebase — la liste d'omissions de #477-r11 a bougé pendant cet audit
+
+Cette tranche a été rebasée sur 27 commits, dont **#477-r15**, qui **réfute** un point que la
+première version de cette fiche reprenait : *« le flux ne nomme jamais l'unité »*. Mesuré là-bas sur
+un roster à **kit dupliqué** et deux boards de tailles différentes : `squadId` **a** un porteur —
+le `Entity=` que porte **chaque ligne**. Il n'est pas absent, il n'est simplement **pas un `Tag=`**,
+et un recenseur qui ne cherche un porteur que parmi les `Tag=` le manque.
+
+⇒ Deux conséquences pour cet audit, et **aucune** n'annule le §3a :
+- le verdict `observeBattle` **NÉCESSAIRE** tient, mais sur `visualId` et `rank` seulement ;
+- la leçon se **généralise à ma propre mesure** : j'ai cherché les porteurs de `elevation` / `isWall`
+  / `isTemporary` parmi les 244 `TagKey`. C'est le bon espace **pour ces trois champs-là** — je l'ai
+  recoupé sur le flux réel, où chaque `Action=AddTile` porte exactement trois tags et où `Entity=`
+  est l'**id de tuile**, pas son relief. Mais la règle à retenir est celle de #477-r15 : **un porteur
+  peut vivre hors des `Tag=`**, et le recensement doit balayer les quatre positions de la grammaire
+  (`Group=`, `Action=`, `Entity=`, `Tag=`), jamais la seule dernière.
 
 ---
 
@@ -248,7 +269,7 @@ one-shot appelées à la main — leur absence d'appelant est leur nature, pas l
 
 | # | action | valeur |
 |---|---|---|
-| **R1** | **Porter l'ÉMISSION du flux côté Python** (`StreamCache`/`StreamDispatcher`). C'est le seul verrou entre l'état actuel et des tests de conformité par égalité brute. La question à trancher d'abord est **combien de la couche est déjà portée** (arbre matérialisé, mig 014), pas s'il faut la porter. | **la plus haute** — tout le reste en dépend |
+| **R1** | **Porter l'ÉMISSION du flux côté Python.** ⚠ **Question tranchée pendant cette tranche par #477-r15** : **rien n'est porté** — la mig 014 est un *consommateur*, et le bus d'événements est un **stub mort** (0 appel). Ce n'est donc pas « remplir une table » mais **construire la couche**, chiffrée là-bas en 5 tranches (A : mirror des enums + writer ; B : socle d'émission ; **C : ordre d'allocation des entités ECS — le point dur** ; D : 10 `StreamHelper$$Get*Tags` ; E : cliquet). Ne pas re-poser la question ici. | **la plus haute** — tout le reste en dépend |
 | **R2** | **Publier l'omission TOPOLOGIE** (§3a) dans la liste du §5 de `case-477r11`, et l'ajouter à la table d'appariement du probe, qui rougit sur un champ non apparié. Sans ça, un futur comparateur la traite en silence comme « comparée ». | haute — évite une projection implicite |
 | **R4** | Faire **peser `manquants`** dans le verdict de `probe_252` (§7). Zéro faux positif attendu. | moyenne — verrouille un acquis |
 | **R5** | Corriger la **qualification périmée** « `hooks/scratch/` gitignoré » dans `case-477` et `case-475`, et décider du sort des **142 erreurs tsc** d'un répertoire versionné et bundlé. | moyenne — le périmètre d'audit est faux tant qu'elle traîne |
