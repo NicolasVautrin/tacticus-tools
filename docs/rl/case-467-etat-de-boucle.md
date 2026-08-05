@@ -187,6 +187,16 @@ Le hook global qui joue un son n'est **pas touché** : les deux fusionnent.
   dérive : c'est un arbitrage entre « servir une PR déjà relue » et « ne rien dire ». Elle est
   gardée par `probe_467` (un cache plus vieux retombe en PAS MESURE), donc elle ne peut pas
   disparaître en silence — mais sa *valeur* reste un choix.
+- **`#467-r6-r1` — le détecteur de CAMPAGNE rabat encore un « pas mesuré » sur `0`.**
+  `campagne = bool(en_vol or wts or prs or avance)` traite chaque mesure absente comme un zéro.
+  Portée **bornée et vérifiée** : ce booléen ne commande qu'**un seul** signal, `slots` — les huit
+  autres sont émis sans lui. Conséquence résiduelle : `gh` muet + cache hors borne + zéro agent,
+  zéro worktree, zéro commit d'avance ⇒ une PR ouverte oubliée ne déclenche pas « slots libres »,
+  et l'ignorance de l'axe PR reste en *contexte*, qui ne parle jamais seul. Le rendre bavard
+  ferait parler l'outil à chaque tour d'un dépôt au repos dès que le réseau tousse — soit
+  l'échange d'un silence contre un désarmement. Arbitrage d'orchestration, pas défaut de mesure :
+  laissé ouvert, nommé, et **rien n'est fabriqué au-delà de ce booléen** (les chiffres, eux,
+  restent en tri-état).
 - **`#467-r4-a` — le volet LIVE ne juge que ce que le host EXPOSE.** `probe_467r4_contrat_host`
   confronte la forme réelle quand le host répond, mais un champ présent et **faux** (un
   `liveRunners` qui compterait le registre host au lieu du registre hooks) passerait : le cliquet
@@ -221,15 +231,118 @@ diagnostiquer la mauvaise cause*.
    plancher `max(self.timeout, 12.0)` retiré auparavant : un paramètre distinct se règle dans les
    deux sens. Le mur reste tenu par les **20 s** du hook côté Claude Code et par le cache de 300 s.
    Mesuré après : **0/8** tours aveugles, même gisement, même hôte.
-2. **Chaque panne porte son nom** (`gh: delai depasse (10 s)`, `gh introuvable`, `gh: rc=4`).
-3. **Repli sur le cache périmé**, borné à 30 min et **ASYMÉTRIQUE** : retenu *seulement* s'il porte
+2. **Repli sur le cache périmé**, borné à 30 min et **ASYMÉTRIQUE** : retenu *seulement* s'il porte
    une PR ouverte. Un cache disant « 0 PR » ne prouve rien quand `gh` est muet — une PR ouverte
    depuis y serait absente, et l'outil se tairait en ayant l'air d'avoir mesuré. **Le repli peut
    SIGNALER, jamais RASSURER** ; aucun chemin ne fabrique un zéro. Les PR *mergées* sont écartées
    sous repli : proposer un nettoyage de worktree sur un instantané périmé, c'est proposer de
    supprimer le travail d'un agent.
-4. **Résolution de `gh` par chemin absolu** (`TACTICUS_GH_EXE`, PATH, emplacements connus). Cause
+3. **Résolution de `gh` par chemin absolu** (`TACTICUS_GH_EXE`, PATH, emplacements connus). Cause
    **éliminable à coût nul**, mais ce n'était pas la cause constatée — et c'est dit.
+
+**La ligne PR n'est plus aveugle, et c'est re-mesuré** (2026-08-05, même poste) : `gh pr list
+--state all --limit 120` répond `rc=0` en **1,56 / 1,63 / 1,57 / 2,03 / 1,86 s**, et l'outil rend
+`PR ouvertes : 0` — un **zéro mesuré**, pas un `?`. Le correctif de budget tient.
+
+### Ce que le rc ne peut PAS dire — la mesure qui dicte la forme du correctif
+
+Nommer la panne « par une table de codes » est la solution qui vient à l'esprit, et **la mesure la
+réfute**. Sur l'exe installé (`gh 2.88.1`, 2026-08-05) :
+
+| régime | rc | ce que `gh` écrit sur **stderr** |
+|---|---|---|
+| non authentifié | **4** | `To get started with GitHub CLI, please run: gh auth login` |
+| token invalide | **1** | `HTTP 401: Bad credentials (https://api.github.com/graphql)` |
+| dépôt inconnu | **1** | `GraphQL: Could not resolve to a Repository ...` |
+| commande inconnue | **1** | — |
+
+**`rc=1` couvre à lui seul trois causes distinctes.** Une table `1 -> "erreur"` aurait donc rendu un
+*mot* à la place d'une *cause* — le même aveuglement qu'un `rc=127` partagé, un cran plus haut.
+Le seul texte qui les sépare est le **stderr de `gh`**, et ce lecteur le **jetait**
+(`return p.returncode, p.stdout`). `Sources.gh` rend désormais `(rc, stdout, stderr)`, et
+`_cause_gh` compose deux apports **indépendants** : l'étiquette du rc **quand elle existe**
+(`4` = non authentifié — mesuré, pas recopié d'une doc) et la première ligne du stderr.
+
+Confronté **en réel**, sans rien substituer (`GH_CONFIG_DIR` vierge, `GH_TOKEN` invalide,
+`--timeout-gh 0.05`, `TACTICUS_GH_EXE` mort) :
+
+```
+PR ouvertes : ? (gh: non authentifie (gh auth login) [rc=4] -- To get started with GitHub CLI...)
+PR ouvertes : ? (gh: rc=1 -- HTTP 401: Bad credentials (https://api.github.com/graphql))
+PR ouvertes : ? (gh: delai depasse (0.05 s))
+PR ouvertes : ? (gh introuvable : TACTICUS_GH_EXE=C:\gh-qui-nexiste-pas.exe n'existe pas)
+PR ouvertes : 0                                          <- témoin, `gh` nominal
+```
+
+Cinq causes, cinq textes distincts, **plus le témoin** — sans lequel « ça affiche toujours `?` »
+passerait les quatre premières.
+
+### Trois zéros et un mensonge, trouvés en re-confrontant
+
+- **`json.loads(out or "[]")` fabriquait un zéro SANS PANNE.** Une réponse vide ou tronquée avec
+  `rc=0` devenait une liste vide, donc `PR ouvertes : 0` **rendu comme une mesure**. C'est le zéro
+  interdit par la porte la plus discrète : il n'a même pas besoin d'un échec pour apparaître.
+  `_prs_du_json` ventile vide / illisible / non-liste, chacun avec son nom.
+- **`gh introuvable (PATH + emplacements connus)` MENTAIT** quand `TACTICUS_GH_EXE` pointe sur un
+  chemin mort : le PATH n'a alors jamais été consulté. Accuser le mauvais coupable est précisément
+  la faute de ce cas — l'échappatoire dit désormais que c'est *elle* qui est morte.
+- **Le budget n'était réglable QUE par un drapeau que personne ne passe.** Le wrapper
+  `scripts/hooks/loop-status.ps1` invoque `loop_status.py --hook`, rien d'autre : sur le seul
+  chemin qui compte, le budget redevenait une constante à éditer. `_budget` ajoute l'ENV
+  (`TACTICUS_LOOP_GH_TIMEOUT`, `TACTICUS_LOOP_TIMEOUT`) — même patron que `TACTICUS_DISPATCH_CAP`,
+  pour la même raison. Une surcharge illisible retombe sur le défaut : un garde-fou de fin de tour
+  ne casse pas un tour pour une faute de frappe.
+- **La troncature à 80 caractères amputait le nom qu'on venait d'ajouter** (portée à 140 : au plus
+  42 d'étiquette + 4 + 90 de tête de stderr).
+
+### Le MÊME vice sur l'autre capteur, et le silence qu'il produisait
+
+`RC_MUET = 127` couvrait *aussi* les deux pannes de **git** (délai dépassé, erreur système) — et
+c'est git qui court sous le budget **serré** du hook (3 s ; `git status` a déjà été mesuré à
+**4,29 s** sous charge). Le rc reste le **signal** (comparable : `== 0`, `== 1`, `== RC_MUET`), mais
+la **cause** part désormais en parallèle dans `_pannes`, d'où `cause_git` la ressort pour l'humain.
+
+Et nommer la panne ne servait à rien tant que personne ne la lisait : un `git status` en échec
+rendait `push`, `sale` et `nettoyage` muets **d'un bloc**, sans un mot — la signature exacte
+« capteur mort = rien à signaler ». La flotte avait ce garde (`flotte-inconnue`), la livraison
+non ; elle l'a (`livraison-inconnue`).
+
+**Le critère n'est pas le capteur, c'est ce qu'il PORTE**, et c'est pour cela que `gh` n'y entre
+pas : l'axe git porte trois **signaux** (des gestes à poser), `gh` ne porte que du **contexte** (la
+ligne PR), dont l'ignorance s'affiche déjà à côté des chiffres et n'appelle aucun geste. Alarmer à
+chaque tour sur une panne réseau ferait désarmer le hook — soit le même silence, par une autre
+porte.
+
+### Contre-épreuve : 11 mutations, 11 rouges
+
+Chaque mutation est injectée dans `loop_status.py`, **sa morsure est vérifiée avant le verdict**
+(le motif doit apparaître exactement une fois), et le fichier est restauré au sha256 près. Cette
+vérification n'est pas décorative : au premier passage, **5 mutations sur 9 n'ont pas mordu** — les
+motifs multi-lignes étaient en `\n` face à un fichier en **CRLF (1 370 / 0)**. Sans elle, cinq
+« non détectées » auraient accusé les gardes au lieu du harnais.
+
+| mutation | rc de `probe_467` |
+|---|---|
+| `gh()` re-jette son stderr | 2 |
+| aucun rc n'est nommé (table vide) | 1 |
+| les trois pannes de `gh` reviennent à UNE sentinelle | 1 |
+| `rc=0` à sortie vide redevient une liste vide | 1 |
+| `_prs_du_json` rend TOUJOURS pas-mesuré (glissement inverse) | 4 |
+| l'échappatoire morte accuse de nouveau le PATH | 1 |
+| le budget ignore l'ENV | 1 |
+| `cause_git` rend toujours le rc (sentinelle partagée) | 2 |
+| un axe LIVRAISON mort redevient silencieux | 1 |
+| l'axe LIVRAISON hurle toujours (glissement inverse) | 3 |
+| `_run` nomme TOUT « délai dépassé » (glissement inverse) | 1 |
+
+Les trois paires symétriques sont gardées des **deux** côtés : ni « ça fabrique un zéro », ni « ça
+rend tout non-mesuré » ; ni « ça se tait », ni « ça hurle » ; ni « ça sur-nomme », ni « ça ne nomme
+plus ».
+
+**`probe_467r4_contrat_host` ne voit rien de tout ceci, et c'est correct** : il garde le contrat du
+host, que ce lot ne touche pas. Le gisement appartient entièrement à `probe_467`.
+
+### La piste « git pur » est RÉFUTÉE par la mesure
 
 ### La piste « git pur » est RÉFUTÉE par la mesure
 

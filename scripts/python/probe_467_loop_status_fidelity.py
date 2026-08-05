@@ -109,10 +109,11 @@ class FauxSources(LS.Sources):
             return 0, "0\n"
         raise AssertionError("git non scripte : %r" % (args,))
 
-    def gh(self, *args: str) -> tuple[int, str]:
+    def gh(self, *args: str) -> tuple[int, str, str]:
+        # 3-uplet : `gh` rend AUSSI son stderr, seul texte qui nomme ses pannes (#467-r6).
         if self._gh_ko:
             raise RuntimeError(self._gh_ko)
-        return 0, json.dumps(self._prs or [])
+        return 0, json.dumps(self._prs or []), ""
 
     def http_json(self, chemin: str) -> dict:
         if self._http_ko:
@@ -523,7 +524,7 @@ class GhMuet(LS.Sources):
         super().__init__(repo=repo, avec_host=False, ttl_cache=0.0)
         self._cause = cause
 
-    def gh(self, *args: str) -> tuple[int, str]:
+    def gh(self, *args: str) -> tuple[int, str, str]:
         raise RuntimeError(self._cause)
 
     def git(self, *args: str) -> tuple[int, str]:
@@ -586,7 +587,7 @@ def etape_7_gh_muet() -> None:
         #    servirait TOUJOURS le cache.
         _pose_cache(tmp, ouverte, 480.0)
         s_ok = GhMuet(tmp, "x")
-        s_ok.gh = lambda *a: (0, json.dumps(ouverte))            # type: ignore[assignment]
+        s_ok.gh = lambda *a: (0, json.dumps(ouverte), "")        # type: ignore[assignment]
         lv_ok = LS.mesurer_livraison(s_ok)
         verifie(lv_ok["pr_ouvertes"].mesuree and not lv_ok.get("gh_repli"),
                 "gh qui REPOND -> mesure fraiche, aucune mention de repli")
@@ -613,8 +614,8 @@ def etape_7_gh_muet() -> None:
         return _f
 
     class _Fini:
-        def __init__(self, rc):
-            self.returncode, self.stdout = rc, ""
+        def __init__(self, rc, out="", err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
 
     try:
         src_reel = LS.Sources(repo=LS.REPO, timeout_gh=7.0)
@@ -636,17 +637,56 @@ def etape_7_gh_muet() -> None:
                 msg = str(e)
             verifie(attendu in msg and "rc=127" not in msg, "%s (%r)" % (quoi, msg))
 
-        # Un rc NON NUL de `gh` (non authentifie, depot inconnu) doit remonter SON code.
-        # Le repo est un tmpdir VIERGE, et ce n'est pas un detail : sur un vrai checkout,
-        # `logs/loop-status-gh.json` existe, le repli s'enclenche et l'epreuve devient verte
-        # sans rien avoir juge -- constate en jouant la contre-epreuve.
+        # Un rc NON NUL de `gh` doit remonter SON code ET SON NOM. Le repo est un tmpdir
+        # VIERGE, et ce n'est pas un detail : sur un vrai checkout, `logs/loop-status-gh.json`
+        # existe, le repli s'enclenche et l'epreuve devient verte sans rien avoir juge --
+        # constate en jouant la contre-epreuve.
+        #
+        # LES TROIS CAS SONT MESURES sur l'exe installe (gh 2.88.1, 2026-08-05), pas supposes,
+        # et c'est la mesure qui dicte la forme du garde : `rc=1` couvre A LUI SEUL le token
+        # invalide, le depot inconnu et l'erreur d'usage. Le rc ne peut donc PAS nommer la
+        # panne -- seul le stderr le fait, et c'est lui que le lecteur jetait.
         vierge = Path(tempfile.mkdtemp(prefix="probe467-rc-"))
+        cas_rc = [
+            (4, "To get started with GitHub CLI, please run:  gh auth login",
+             ("non authentifie", "rc=4"),
+             "un `gh` NON AUTHENTIFIE se nomme (rc=4 mesure), pas un code nu"),
+            (1, "HTTP 401: Bad credentials (https://api.github.com/graphql)",
+             ("rc=1", "Bad credentials"),
+             "un TOKEN INVALIDE porte le diagnostic de `gh` (rc=1, indiscernable sans stderr)"),
+            (1, "GraphQL: Could not resolve to a Repository with the name 'x/y'.",
+             ("rc=1", "Could not resolve"),
+             "un DEPOT INCONNU se distingue du token invalide -- meme rc=1, stderr different"),
+        ]
         try:
-            LS.subprocess.run = lambda *a, **k: _Fini(4)      # type: ignore[assignment]
+            for rc, err, attendus, quoi in cas_rc:
+                LS.subprocess.run = (                        # type: ignore[assignment]
+                    lambda *a, _rc=rc, _e=err, **k: _Fini(_rc, "", _e))
+                m, _, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
+                msg = m.erreur or ""
+                verifie(not m.mesuree and all(x in msg for x in attendus)
+                        and "rc=127" not in msg, "%s (%r)" % (quoi, msg))
+
+            # rc=0 A SORTIE VIDE : le zero le plus facile a fabriquer, et il n'a besoin
+            # d'AUCUNE panne. `json.loads(out or "[]")` en faisait une liste vide, donc un
+            # << PR ouvertes : 0 >> RENDU COMME UNE MESURE.
+            LS.subprocess.run = lambda *a, **k: _Fini(0, "", "")   # type: ignore[assignment]
             m, _, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
-            verifie(not m.mesuree and "rc=4" in (m.erreur or ""),
-                    "un rc non nul de `gh` remonte SON code, pas la sentinelle 127 (%r)"
-                    % m.erreur)
+            verifie(not m.mesuree and "VIDE" in (m.erreur or ""),
+                    "rc=0 + sortie VIDE -> PAS MESURE, jamais << 0 PR >> (%r)" % m.erreur)
+
+            LS.subprocess.run = (                                  # type: ignore[assignment]
+                lambda *a, **k: _Fini(0, "{ tronque", ""))
+            m, _, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
+            verifie(not m.mesuree and "ILLISIBLE" in (m.erreur or ""),
+                    "rc=0 + sortie TRONQUEE -> PAS MESURE (%r)" % m.erreur)
+
+            # CONTRE-EPREUVE des quatre precedentes : une VRAIE liste vide reste une MESURE a
+            # zero. Sans elle, un lecteur qui rendrait TOUJOURS PAS MESURE les passerait toutes.
+            LS.subprocess.run = lambda *a, **k: _Fini(0, "[]", "")  # type: ignore[assignment]
+            m, _, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
+            verifie(m.mesuree and m.valeur == [],
+                    "contre-epreuve : `[]` rendu par `gh` reste un ZERO MESURE")
         finally:
             shutil.rmtree(vierge, ignore_errors=True)
     finally:
@@ -689,11 +729,101 @@ def etape_7_gh_muet() -> None:
         os.environ["TACTICUS_GH_EXE"] = str(Path(tempfile.gettempdir()) / "gh-qui-nexiste-pas.exe")
         verifie(LS.Sources(repo=LS.REPO).exe_gh() is None,
                 "TACTICUS_GH_EXE inexistant -> gh introuvable (pas de repli muet sur le PATH)")
+        # ... et l'ABSENCE aussi a deux causes. Annoncer << PATH + emplacements connus >> quand
+        # une echappatoire explicite pointe sur un chemin mort accuse le mauvais coupable : le
+        # PATH n'a jamais ete consulte. C'est la faute de #467-r6 en miniature.
+        try:
+            LS.Sources(repo=LS.REPO).gh("pr", "list")
+            msg = "(aucune levee)"
+        except RuntimeError as e:
+            msg = str(e)
+        verifie("TACTICUS_GH_EXE" in msg,
+                "gh introuvable VIA l'echappatoire le DIT, au lieu d'accuser le PATH (%r)" % msg)
     finally:
         if vrai is None:
             os.environ.pop("TACTICUS_GH_EXE", None)
         else:
             os.environ["TACTICUS_GH_EXE"] = vrai
+
+    # -- LE BUDGET EST UN PARAMETRE, jusque dans le hook. Le wrapper `loop-status.ps1` ne passe
+    #    QUE `--hook` : sans variable d'environnement, un budget ne se regle qu'en EDITANT le
+    #    fichier -- c'est-a-dire qu'il redevient une constante magique, ce que #467-r6 reproche.
+    vus2: dict = {}
+
+    class Espion2(LS.Sources):
+        def __init__(self, **kw):
+            vus2.update(kw)
+            super().__init__(**kw)
+
+    anciens = {c: os.environ.get(c) for c in ("TACTICUS_LOOP_GH_TIMEOUT", "TACTICUS_LOOP_TIMEOUT")}
+    LS.Sources = Espion2                                         # type: ignore[misc]
+    vrai_stdin2 = sys.stdin
+    sys.stdin = io.StringIO("")
+    try:
+        os.environ["TACTICUS_LOOP_GH_TIMEOUT"] = "17.5"
+        os.environ["TACTICUS_LOOP_TIMEOUT"] = "6.25"
+        LS.main(["--hook", "--repo", str(LS.REPO), "--no-gh", "--no-host"])
+        verifie(vus2.get("timeout_gh") == 17.5 and vus2.get("timeout") == 6.25,
+                "les deux budgets se surchargent par l'ENV (gh=%s, general=%s)"
+                % (vus2.get("timeout_gh"), vus2.get("timeout")))
+        # Une surcharge ILLISIBLE ne casse pas le tour : elle retombe sur le defaut mesure.
+        vus2.clear()
+        os.environ["TACTICUS_LOOP_GH_TIMEOUT"] = "pas-un-nombre"
+        LS.main(["--hook", "--repo", str(LS.REPO), "--no-gh", "--no-host"])
+        verifie(vus2.get("timeout_gh") == 10.0,
+                "une surcharge illisible retombe sur le defaut (%s)" % vus2.get("timeout_gh"))
+    finally:
+        sys.stdin = vrai_stdin2
+        LS.Sources = vrai_sources                                # type: ignore[misc]
+        for c, v in anciens.items():
+            if v is None:
+                os.environ.pop(c, None)
+            else:
+                os.environ[c] = v
+
+    # -- L'AUTRE CAPTEUR : git. `RC_MUET` y couvre encore le delai depasse ET l'erreur systeme,
+    #    et c'est LUI qui court sous le budget serre du hook (3 s ; `git status` a deja ete
+    #    mesure a 4,29 s sous charge). Rendre `rc=127` pour les deux, c'est le vice de #467-r6
+    #    sur l'autre capteur. Exerce sur le VRAI `Sources._run`, jamais sur `git()` substitue.
+    cas_git = [
+        (_leve(LS.subprocess.TimeoutExpired("git", 3.0)), "delai depasse",
+         "un `git status` qui DEPASSE SON BUDGET le dit (le poste le plus expose du hook)"),
+        (_leve(OSError("git absent")), "OSError",
+         "une panne systeme de git porte son type, pas la sentinelle 127"),
+    ]
+    try:
+        for faux_run, attendu, quoi in cas_git:
+            LS.subprocess.run = faux_run                         # type: ignore[assignment]
+            s_git = LS.Sources(repo=LS.REPO, avec_gh=False, avec_host=False, ttl_cache=0.0)
+            lv = LS.mesurer_livraison(s_git)
+            msg = lv["branche"].erreur or ""
+            verifie(not lv["branche"].mesuree and attendu in msg and "rc=127" not in msg,
+                    "%s (%r)" % (quoi, msg))
+        # CONTRE-EPREUVE : un rc REEL de git reste rendu comme un rc. Sans elle, un lecteur qui
+        # nommerait TOUT << delai depasse >> passerait les deux epreuves ci-dessus.
+        LS.subprocess.run = lambda *a, **k: _Fini(3)             # type: ignore[assignment]
+        s_git = LS.Sources(repo=LS.REPO, avec_gh=False, avec_host=False, ttl_cache=0.0)
+        lv = LS.mesurer_livraison(s_git)
+        verifie((lv["branche"].erreur or "") == "rc=3",
+                "contre-epreuve : un rc REEL de git reste `rc=<n>` (%r)" % lv["branche"].erreur)
+    finally:
+        LS.subprocess.run = vrai_run                             # type: ignore[assignment]
+
+    # -- ET LA PANNE DOIT SE LIRE. Nommer la cause ne sert a rien si l'axe entier devient muet :
+    #    un `git status` en echec emportait `push`, `sale` et `nettoyage` D'UN BLOC, sans un
+    #    mot, exactement la signature << capteur mort = rien a signaler >>.
+    s_ko = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", rows=[], dossier=None)
+    s_ko.git = lambda *a: (LS.Sources.RC_MUET, "")               # type: ignore[assignment]
+    cles = {x.cle for x in LS.signaux(LS.etat(s_ko, 5, {}))[0]}
+    verifie("livraison-inconnue" in cles,
+            "un axe LIVRAISON non mesure est SIGNALE, pas avale en silence (%s)" % sorted(cles))
+    # CONTRE-EPREUVE : sur un axe qui REPOND, ce signal n'existe pas -- sinon il hurlerait a
+    # chaque tour et se ferait desarmer, ce qui reviendrait au meme silence.
+    s_ok2 = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", rows=[], dossier=None)
+    cles_ok = {x.cle for x in LS.signaux(LS.etat(s_ok2, 5, {}))[0]}
+    verifie("livraison-inconnue" not in cles_ok,
+            "contre-epreuve : aucun signal de ce type quand la livraison est MESUREE (%s)"
+            % sorted(cles_ok))
 
 
 def _age_gh_de(lv: dict) -> str:
