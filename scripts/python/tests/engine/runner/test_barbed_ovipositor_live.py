@@ -35,6 +35,13 @@ chiffre quand la condition est vraie et ne se trahit QUE quand elle est fausse.
      le Ripper tombe sur une tuile hex-adjacente LIBRE, jamais sur la tuile du mort.
   8. PAS de cap de summons : trois kills qualifiants -> trois Rippers (aucun `maxSummons` dans l'arbre
      natif, et `gameconfig.BarbedOvipositor.variables` n'en porte pas).
+  9. REGIME CADAVRE (#462-r4b-r1-r1-r1-r1-b-r1-r1-r3) : une victime deja MORTE au chargement n'a
+     AUCUN `StatsComponent` (`combatSnapshot.units` n'inclut pas les morts) -- les conjoints de
+     trait, qui lisaient `ctx.traits` BRUT, y rendaient `set()` et etaient AVEUGLES. Les huit
+     autres cas se jouent tous dans le regime NOMINAL et ne pouvaient donc pas le voir.
+
+⚠ Les cas 3 et 6 gardent la RECOPIE tant qu'elle existe : depuis #462-...-r3 les conjoints passent
+par les noeuds DSL du foyer `entities/triggers.py`, et c'est le cas 9 qui garde CE changement.
 
 MONTAGE : fixture NOMMEE `barbed_scene` (fabrique de scenes, reutilisable et parametree) au-dessus du
 runner module-scope `barbed_runner` -- UN seul slot du cap pour tous les cas offline. Positions DRIVE'es
@@ -634,6 +641,62 @@ def test_barbed_ovipositor_falls_back_to_adjacent_tile(barbed_scene):
     assert tile != sc.victim_tile, "le Ripper est sur une tuile NON walkable (CanAddUnit inerte)"
     assert tile in set(sc.board.neighbours(sc.victim_tile)), \
         f"le Ripper n'est pas sur une tuile ADJACENTE au mort (tile={tile})"
+
+
+def test_barbed_ovipositor_corpse_substrate_live(live_session, rpc, build_runner):
+    """#462-r4b-r1-r1-r1-r1-b-r1-r1-r3 -- LE REGIME QUE LES SEPT AUTRES BRAS NE TOUCHENT PAS :
+    une victime deja MORTE au chargement.
+
+    Les deux conjoints de trait (`NOT IsObjectOrSteppable(sel@+0x60)`,
+    `NOT HasTrait(sel@+0x60, 5)`) lisaient `StatsComponent.ctx.traits` BRUT, avec le repli `set()`.
+    Or `combatSnapshot.units` **n'inclut pas les morts**, et `snapshot._load_stats_and_effects` ne
+    pose de `StatsComponent` que pour ses lignes : un cadavre charge n'en a AUCUN, donc les deux
+    gates rendaient `set()` -- AVEUGLES. Le natif, lui, lit
+    `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`, dont la mort ne vide aucune
+    collection.
+
+    LE MONTAGE (partage avec `probe_..._r3`, aucun fork -- ce test l'IMPORTE) : le Parasite est
+    place AU CONTACT d'un `necroWarden` a 1 PV (`--place`/`--a-place`), il l'acheve par son attaque
+    NORMALE, **puis l'etat est RECHARGE**. Le cadavre y est alors sans `StatsComponent` : le regime
+    discriminant, obtenu sur un etat LIVE et non fabrique. Un SECOND ennemi est laisse loin --
+    sans lui le kill termine la bataille et `decisionView` rend une liste VIDE.
+
+    Le trigger est ensuite emis sur ce cadavre (voie native `ResurrectUnitOperation$$Execute`, qui
+    cible une unite DEFEATED et ne pose aucun `StatsComponent`). Contre-epreuve : la lecture BRUTE
+    rejouee doit FIRE -- sinon le bras ne mesure pas le changement."""
+    import probe_462_r4b_r1_r1_r1_r1_b_r1_r1_r3_barbed_object_or_steppable as P
+
+    rid = build_runner("777", extra=list(P.BUILD_EXTRA), board=P.BOARD)["rid"]
+    m = P.mesurer_cadavre_live(rpc, rid)
+    print(f"[barbed corpse] {m}")
+
+    # --- non-vacuite du montage, AVANT tout verdict.
+    assert m.get("tue"), (
+        f"le Parasite n'a pas TUE le {P.MECH} depuis sa position -- montage KO, rien n'est mesure "
+        f"(decisionView ids={m.get('dv_ids')})")
+    assert m.get("stats") is False, (
+        f"le cadavre PORTE un `StatsComponent` (stats={m.get('stats')}) : le regime discriminant "
+        f"n'est PAS atteint sur cet etat live. Si `load_state` en pose desormais un a tout le "
+        f"monde, c'est une BONNE nouvelle a instruire -- ce test doit alors etre re-ecrit, pas "
+        f"assoupli. combatSnapshot ids={m.get('snap_ids')}")
+    assert m.get("consultations"), (
+        "MUTATION INERTE : les noeuds substitues de la contre-epreuve n'ont pas ete consultes "
+        "-- un conjoint anterieur court-circuite, et la comparaison qui suit ne prouve rien.")
+
+    # --- la divergence de substrat, LUE sur l'etat live.
+    assert m.get("brut") == [], (
+        f"la lecture BRUTE rend {m.get('brut')} sur ce cadavre -- la mesure de ce residu est "
+        f"perimee.")
+    assert "Mechanical" in (m.get("foyer") or ()), (
+        f"le substrat FOYER ne porte pas `Mechanical` sur un {P.MECH} : {m.get('foyer')}")
+
+    # --- le verdict, et la preuve que le changement CHANGE quelque chose.
+    assert m.get("port") is False and m.get("rippers") == 0, (
+        f"le port FIRE sur un mort `Mechanical` (fire={m.get('port')}, "
+        f"rippers={m.get('rippers')}) : le gate est toujours aveugle sur un cadavre.")
+    assert m.get("avant") is True, (
+        "la lecture BRUTE rejouee NE fire PAS sur ce cadavre : elle ne reconstitue donc pas le "
+        "port d'avant le fix, et ce test ne mesure aucun changement.")
 
 
 def test_barbed_ovipositor_has_no_summon_cap(barbed_scene):

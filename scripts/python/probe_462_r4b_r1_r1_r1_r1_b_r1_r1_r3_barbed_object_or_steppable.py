@@ -435,6 +435,13 @@ def step_guard() -> int:
 # ================================================================================================
 SURVIVOR = "astraBullgryn"        # 2e ennemi, laisse au placement natif (loin)
 
+# Les args `rl_duel build` du montage -- PARTAGES avec la garde pytest (qui les passe a la fixture
+# `build_runner`), pour qu'aucune des deux voies ne puisse deriver de l'autre.
+BUILD_EXTRA = ["--roster", "1", "--p-units", PARASITE,
+               "--a-units", "%s,%s" % (MECH, SURVIVOR),
+               "--place", "%s:1,0" % PARASITE, "--a-place", "%s:2,0" % MECH,
+               "--hp-target", "1"]
+
 
 def _build_runner(state_file: Path) -> int:
     """`rl_duel build` : le Parasite en (1,0), le `necroWarden` a 1 PV en (2,0) -- ADJACENTS
@@ -444,9 +451,7 @@ def _build_runner(state_file: Path) -> int:
     `decisionView` rend une liste d'unites VIDE -- l'etat d'apres n'existe alors plus, et le bras
     ne mesure rien (mesure : `decisionView ids=[]`). Il est laisse au placement natif, donc loin."""
     argv = [sys.executable, "rl_duel.py", "build", "--seed", "777", "--board", BOARD,
-            "--roster", "1", "--p-units", PARASITE, "--a-units", "%s,%s" % (MECH, SURVIVOR),
-            "--place", "%s:1,0" % PARASITE, "--a-place", "%s:2,0" % MECH,
-            "--hp-target", "1", "--state-file", str(state_file)]
+            *BUILD_EXTRA, "--state-file", str(state_file)]
     p = subprocess.run(argv, cwd=str(PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if not state_file.exists():
@@ -454,13 +459,125 @@ def _build_runner(state_file: Path) -> int:
     return int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"])
 
 
-def step_live() -> int:
-    import rl_collect_batch as R
+def mesurer_cadavre_live(rpc, rid: int) -> dict:
+    """LE MONTAGE, partage par ce probe et par sa GARDE pytest (aucun fork : le test
+    `test_barbed_ovipositor_live.py::test_..._corpse_substrate_live` appelle CETTE fonction et
+    porte ses propres assertions).
+
+    `rpc(method, body, timeout)` -> resultat deballe ; `rid` = un runner deja construit par
+    `_build_runner` (ou par la fixture `build_runner`) avec le MEME montage : le Parasite au
+    contact d'un `necroWarden` a 1 PV, plus un second ennemi LOIN (sans lui, le kill termine la
+    bataille et `decisionView` rend une liste VIDE).
+
+    Rend les FAITS, jamais un verdict :
+      `tue`            -- le natif a-t-il tue la victime (non-vacuite du montage) ;
+      `stats`          -- le cadavre porte-t-il un `StatsComponent` (False = regime atteint) ;
+      `brut` / `foyer` -- les deux substrats de traits, LUS sur cet etat ;
+      `port` / `avant` -- le trigger fire-t-il, avec le port courant / avec la lecture BRUTE
+                          rejouee (le port d'AVANT le fix) ;
+      `consultations`  -- combien de fois les noeuds substitues ont ete consultes (0 = la
+                          contre-epreuve ne mesure RIEN).
+    """
     from engine.entities.pathfinding.board import Board
     from engine.runner.components import StatsComponent, UnitComponent, HealthComponent
     from engine.runner.snapshot import load_state
     from engine.runner.operations.triggers.dispatch import unit_death_triggers
     from engine.runner.operations.triggers.loki import barbed_ovipositor as B
+
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    par = next((u for u in (dv.get("units") or []) if u.get("visualId") == PARASITE), None)
+    vic = next((u for u in (dv.get("units") or []) if u.get("visualId") == MECH), None)
+    if par is None or vic is None:
+        raise RuntimeError("roster inattendu : %s"
+                           % sorted({u.get("visualId") for u in (dv.get("units") or [])}))
+    plan = None
+    for p in (dv.get("attackPlans") or []):
+        if p.get("unitId") != par["id"]:
+            continue
+        for ev in (p.get("evals") or []):
+            if ev.get("targetId") == vic["id"]:
+                plan = (ev.get("targetId"), ev.get("abilityId"))
+                break
+    if plan is None:
+        raise RuntimeError("aucun plan d'attaque du Parasite vers %s DEPUIS SA POSITION -- le "
+                           "montage au contact n'a pas pris (positions %r)"
+                           % (MECH, [(u.get("visualId"), u.get("pos"))
+                                     for u in (dv.get("units") or [])]))
+    res = rpc("applyAction", {"runnerId": rid, "action": {
+        "kind": "ability", "casterId": par["id"], "targetId": plan[0],
+        "abilityType": plan[1]}, "captureEvents": True}, 120)
+    if not (isinstance(res, dict) and res.get("ok")):
+        raise RuntimeError("attaque KO: %s" % (str(res)[:200],))
+
+    # ---- L'ETAT D'APRES, RECHARGE : c'est LA que le regime CADAVRE apparait.
+    dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
+    cs2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    out: dict = {
+        "runner": rid,
+        "dv_ids": sorted(u.get("id") for u in (dv2.get("units") or [])),
+        "snap_ids": sorted(x for x in {u.get("entityId") for u in (cs2.get("units") or [])}
+                           if x is not None),
+    }
+    dead = [u for u in (dv2.get("units") or [])
+            if u.get("visualId") == MECH and not u.get("alive")]
+    out["tue"] = bool(dead)
+    if not dead:
+        return out
+    vid = dead[0]["id"]
+    out["cadavre"] = vid
+    st = load_state(dv2, ob2, cs2, board=Board(bg["tiles"], adjacency="evenq"))
+    ent = st.get_entity(vid)
+    if ent is None:
+        out["stats"] = None                       # tri-etat : PAS mesure, jamais un faux zero
+        return out
+    out["stats"] = ent.get_component(StatsComponent) is not None
+    out["brut"] = sorted(_raw_traits(st, vid))
+    out["foyer"] = sorted(_dsl_traits(st, par["id"], vid))
+
+    # ---- On RESSUSCITE le cadavre et on le refait tuer par le Parasite. C'est la voie native
+    #      `ResurrectUnitOperation$$Execute` (cible DEFEATED) : elle ne pose AUCUN
+    #      `StatsComponent`, donc le regime CADAVRE survit a la resurrection.
+    uc = ent.get_component(UnitComponent)
+    hc = ent.get_component(HealthComponent)
+    uc.alive = True
+    if hc is not None:
+        hc.hp = max(1, hc.hp_max or 1)
+    uc.alive = False                              # ... puis il meurt a nouveau, tue par le Parasite
+    if hc is not None:
+        hc.hp = 0
+
+    def _rippers(state):
+        return {e for e, x in state.entities.items()
+                if (c := x.get_component(UnitComponent)) is not None
+                and c.alive and c.visual_id == RIPPER_KEY}
+
+    before = _rippers(st)
+    fired = [r for r in unit_death_triggers(st, vid, killer_id=par["id"])
+             if isinstance(r, dict) and r.get("ability") == "BarbedOvipositor"]
+    out["port"] = bool(fired)
+    out["rippers"] = len(_rippers(st) - before)
+
+    # CONTRE-EPREUVE : la lecture BRUTE rejouee (le port d'AVANT le fix), sur un etat NEUF.
+    st2 = load_state(dv2, ob2, cs2, board=Board(bg["tiles"], adjacency="evenq"))
+    st2.get_entity(vid).get_component(UnitComponent).alive = False
+    oos = _Compteur(lambda ctx: bool(_raw_traits(st2, vid) & {"Steppable", "Object"}))
+    mech = _Compteur(lambda ctx: "Mechanical" in _raw_traits(st2, vid))
+    saved = (B._IS_OBJECT_OR_STEPPABLE, B._HAS_TRAIT_MECHANICAL)
+    B._IS_OBJECT_OR_STEPPABLE, B._HAS_TRAIT_MECHANICAL = oos, mech
+    try:
+        rec = [r for r in unit_death_triggers(st2, vid, killer_id=par["id"])
+               if isinstance(r, dict) and r.get("ability") == "BarbedOvipositor"]
+    finally:
+        B._IS_OBJECT_OR_STEPPABLE, B._HAS_TRAIT_MECHANICAL = saved
+    out["avant"] = bool(rec)
+    out["consultations"] = oos.calls + mech.calls
+    return out
+
+
+def step_live() -> int:
+    import rl_collect_batch as R
 
     sid = R._resolve_session()
     w = R._rpc(sid, "warmupGameSingletons", [{}], timeout=180)
@@ -478,128 +595,7 @@ def step_live() -> int:
         try:
             rid = _build_runner(sf)
             print("runner %s (board %s, %s au contact de %s a 1 PV)" % (rid, BOARD, PARASITE, MECH))
-
-            dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
-            par = next((u for u in (dv.get("units") or []) if u.get("visualId") == PARASITE), None)
-            vic = next((u for u in (dv.get("units") or []) if u.get("visualId") == MECH), None)
-            if par is None or vic is None:
-                raise RuntimeError("roster inattendu : %s"
-                                   % sorted({u.get("visualId") for u in (dv.get("units") or [])}))
-            plan = None
-            for p in (dv.get("attackPlans") or []):
-                if p.get("unitId") != par["id"]:
-                    continue
-                for ev in (p.get("evals") or []):
-                    if ev.get("targetId") == vic["id"]:
-                        plan = (ev.get("targetId"), ev.get("abilityId"))
-                        break
-            if plan is None:
-                raise RuntimeError("aucun plan d'attaque du Parasite vers %s DEPUIS SA POSITION -- "
-                                   "le montage au contact n'a pas pris (positions %r)"
-                                   % (MECH, [(u.get("visualId"), u.get("pos"))
-                                             for u in (dv.get("units") or [])]))
-            res = rpc("applyAction", {"runnerId": rid, "action": {
-                "kind": "ability", "casterId": par["id"], "targetId": plan[0],
-                "abilityType": plan[1]}, "captureEvents": True}, 120)
-            if not (isinstance(res, dict) and res.get("ok")):
-                raise RuntimeError("attaque KO: %s" % (str(res)[:200],))
-
-            # ---- L'ETAT D'APRES, RECHARGE : c'est LA que le regime CADAVRE apparait.
-            dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
-            ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
-            cs2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
-            bg = rpc("boardGraph", {"runnerId": rid}, 60)
-            st = load_state(dv2, ob2, cs2, board=Board(bg["tiles"], adjacency="evenq"))
-
-            snap_ids = {u.get("entityId") for u in (cs2.get("units") or [])}
-            dead = [u for u in (dv2.get("units") or [])
-                    if u.get("visualId") == MECH and not u.get("alive")]
-            print("  decisionView ids=%s | combatSnapshot ids=%s"
-                  % (sorted(u.get("id") for u in (dv2.get("units") or [])),
-                     sorted(x for x in snap_ids if x is not None)))
-            rc = 0
-            if not dead:
-                print("ROUGE (VACUITE) : le Parasite n'a pas TUE le %s -- rien n'est mesure." % MECH)
-                return 1
-            vid = dead[0]["id"]
-            ent = st.get_entity(vid)
-            if ent is None:
-                print("ROUGE : le cadavre %s n'est pas dans l'etat charge." % vid)
-                return 1
-            has_stats = ent.get_component(StatsComponent) is not None
-            brut = _raw_traits(st, vid)
-            foyer = _dsl_traits(st, par["id"], vid)
-            print("  cadavre eid=%s (%s) : StatsComponent=%s" % (vid, MECH, has_stats))
-            print("      substrat BRUT  (avant le fix) = %s" % (sorted(brut) or "[]"))
-            print("      substrat FOYER (apres le fix) = %s" % sorted(foyer))
-            if has_stats:
-                print("ROUGE (VACUITE) : le cadavre PORTE un `StatsComponent` -- le regime")
-                print("  discriminant n'est PAS atteint sur cet etat, le bras ne mesure rien.")
-                return 1
-            if brut:
-                print("ROUGE : le substrat BRUT n'est pas vide sur ce cadavre -- mesure perimee.")
-                rc = 1
-            if "Mechanical" not in foyer:
-                print("ROUGE : le substrat FOYER ne porte pas `Mechanical` sur un %s." % MECH)
-                rc = 1
-
-            # ---- On RESSUSCITE le cadavre et on le refait tuer par le Parasite. C'est la voie
-            #      native `ResurrectUnitOperation$$Execute` (cible DEFEATED) : elle ne pose AUCUN
-            #      `StatsComponent`, donc le regime survit a la resurrection.
-            uc = ent.get_component(UnitComponent)
-            uc.alive = True
-            hc = ent.get_component(HealthComponent)
-            if hc is not None:
-                hc.hp = max(1, hc.hp_max or 1)
-            uc.alive = False                       # il meurt a nouveau, tue par le Parasite
-            if hc is not None:
-                hc.hp = 0
-            before = {e for e, x in st.entities.items()
-                      if (c := x.get_component(UnitComponent)) is not None
-                      and c.alive and c.visual_id == RIPPER_KEY}
-            out = unit_death_triggers(st, vid, killer_id=par["id"])
-            fired = [r for r in out if isinstance(r, dict)
-                     and r.get("ability") == "BarbedOvipositor"]
-            after = {e for e, x in st.entities.items()
-                     if (c := x.get_component(UnitComponent)) is not None
-                     and c.alive and c.visual_id == RIPPER_KEY}
-            port_ok = bool(fired)
-            print("  PORT courant  : fire=%s  Rippers poses=%d" % (port_ok, len(after - before)))
-
-            # CONTRE-EPREUVE : la lecture BRUTE rejouee (le port d'AVANT le fix).
-            st2 = load_state(dv2, ob2, cs2, board=Board(bg["tiles"], adjacency="evenq"))
-            e2 = st2.get_entity(vid)
-            e2.get_component(UnitComponent).alive = False
-            oos = _Compteur(lambda ctx: bool(_raw_traits(st2, vid) & {"Steppable", "Object"}))
-            mech = _Compteur(lambda ctx: "Mechanical" in _raw_traits(st2, vid))
-            saved = (B._IS_OBJECT_OR_STEPPABLE, B._HAS_TRAIT_MECHANICAL)
-            B._IS_OBJECT_OR_STEPPABLE, B._HAS_TRAIT_MECHANICAL = oos, mech
-            try:
-                out2 = unit_death_triggers(st2, vid, killer_id=par["id"])
-            finally:
-                B._IS_OBJECT_OR_STEPPABLE, B._HAS_TRAIT_MECHANICAL = saved
-            rec_fired = [r for r in out2 if isinstance(r, dict)
-                         and r.get("ability") == "BarbedOvipositor"]
-            print("  PORT d'AVANT  : fire=%s (%d consultation(s) des noeuds substitues)"
-                  % (bool(rec_fired), oos.calls + mech.calls))
-
-            if oos.calls + mech.calls == 0:
-                print("ROUGE (MUTATION INERTE) : les noeuds substitues n'ont pas ete consultes --")
-                print("  un conjoint anterieur court-circuite, la contre-epreuve ne mesure RIEN.")
-                rc = 1
-            elif not rec_fired:
-                print("ROUGE : la lecture BRUTE rejouee NE fire pas sur ce cadavre -- elle ne")
-                print("  reconstitue donc pas l'etat d'avant, et l'ecart n'est pas mesure.")
-                rc = 1
-            if port_ok:
-                print("ROUGE : le port courant FIRE sur un mort `Mechanical` -- le gate est")
-                print("  toujours aveugle.")
-                rc = 1
-            print("")
-            print("VERDICT : %s" % ("ROUGE" if rc else
-                                    "VERT -- sur un CADAVRE LIVE, le port d'AVANT posait un Ripper "
-                                    "fantome, le port courant REFUSE"))
-            return rc
+            m = mesurer_cadavre_live(rpc, rid)
         except Exception as e:                                            # noqa: BLE001
             print("  REFUS DE MONTAGE %s: %s" % (type(e).__name__, e))
             print("  (NON CONFRONTE -- ce n'est ni un verdict natif ni un verdict de port)")
@@ -610,6 +606,43 @@ def step_live() -> int:
                     R._rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=20)
                 except Exception:                                          # noqa: BLE001
                     pass
+    print("  decisionView ids=%s | combatSnapshot ids=%s" % (m["dv_ids"], m["snap_ids"]))
+    rc = 0
+    if not m.get("tue"):
+        print("ROUGE (VACUITE) : le Parasite n'a pas TUE le %s -- rien n'est mesure." % MECH)
+        return 1
+    print("  cadavre eid=%s (%s) : StatsComponent=%s" % (m["cadavre"], MECH, m.get("stats")))
+    print("      substrat BRUT  (avant le fix) = %s" % (m.get("brut") or "[]"))
+    print("      substrat FOYER (apres le fix) = %s" % (m.get("foyer"),))
+    if m.get("stats") is not False:
+        print("ROUGE (VACUITE) : le cadavre PORTE un `StatsComponent` (ou n'est pas dans l'etat)")
+        print("  -- le regime discriminant n'est PAS atteint, le bras ne mesure rien.")
+        return 1
+    if m.get("brut"):
+        print("ROUGE : le substrat BRUT n'est pas vide sur ce cadavre -- mesure perimee.")
+        rc = 1
+    if "Mechanical" not in (m.get("foyer") or ()):
+        print("ROUGE : le substrat FOYER ne porte pas `Mechanical` sur un %s." % MECH)
+        rc = 1
+    print("  PORT courant  : fire=%s  Rippers poses=%d" % (m.get("port"), m.get("rippers", 0)))
+    print("  PORT d'AVANT  : fire=%s (%d consultation(s) des noeuds substitues)"
+          % (m.get("avant"), m.get("consultations", 0)))
+    if not m.get("consultations"):
+        print("ROUGE (MUTATION INERTE) : les noeuds substitues n'ont pas ete consultes --")
+        print("  un conjoint anterieur court-circuite, la contre-epreuve ne mesure RIEN.")
+        rc = 1
+    elif not m.get("avant"):
+        print("ROUGE : la lecture BRUTE rejouee NE fire pas sur ce cadavre -- elle ne reconstitue")
+        print("  donc pas l'etat d'avant, et l'ecart n'est pas mesure.")
+        rc = 1
+    if m.get("port"):
+        print("ROUGE : le port courant FIRE sur un mort `Mechanical` -- le gate est aveugle.")
+        rc = 1
+    print("")
+    print("VERDICT : %s" % ("ROUGE" if rc else
+                            "VERT -- sur un CADAVRE LIVE, le port d'AVANT posait un Ripper "
+                            "fantome, le port courant REFUSE"))
+    return rc
 
 
 def main():
