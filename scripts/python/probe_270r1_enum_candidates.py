@@ -1,4 +1,4 @@
-"""#270-d -- ENUMERE les litteraux entiers en position EXECUTABLE sous `engine/`.
+"""#270-r1 -- ENUMERE les litteraux entiers en position EXECUTABLE sous `engine/`.
 
 CE PROBE NE REND AUCUN VERDICT, ET C'EST SA RAISON D'ETRE.
 
@@ -25,10 +25,10 @@ UN FICHIER QUI NE PARSE PAS EST LISTE, JAMAIS COMPTE ZERO (tri-etat : `null` != 
 couverture complete.
 
 Usage :
-    python probe_270d_enum_candidates.py                     # resume par role + par fichier
-    python probe_270d_enum_candidates.py --lister             # TSV, une ligne par candidat
-    python probe_270d_enum_candidates.py --lister --only engine/runner/abilities/targeting.py
-    python probe_270d_enum_candidates.py --lots 12            # propose un decoupage equilibre
+    python probe_270r1_enum_candidates.py                     # resume par role + par fichier
+    python probe_270r1_enum_candidates.py --lister             # TSV, une ligne par candidat
+    python probe_270r1_enum_candidates.py --lister --only engine/runner/abilities/targeting.py
+    python probe_270r1_enum_candidates.py --lots 12            # propose un decoupage equilibre
 
 Sortie ASCII stricte (console Windows cp1252).
 """
@@ -274,7 +274,7 @@ def _lots(par_fichier: list[tuple[str, int]], n: int) -> list[list[tuple[str, in
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="#270-d : enumere, n'arbitre pas")
+    ap = argparse.ArgumentParser(description="#270-r1 : enumere, n'arbitre pas")
     ap.add_argument("--racine", default=str(RACINE_DEFAUT))
     ap.add_argument("--only", nargs="*", help="restreint a ces chemins (sous-chaine suffit)")
     ap.add_argument("--lister", action="store_true", help="TSV, une ligne par candidat")
@@ -287,7 +287,7 @@ def main() -> int:
 
     racine = Path(a.racine)
     if not racine.is_dir():
-        print("[270-d] RACINE INTROUVABLE : %s" % racine)
+        print("[270-r1] RACINE INTROUVABLE : %s" % racine)
         return 2
 
     candidats, illisibles, parses = recenser(racine, a.only)
@@ -323,7 +323,7 @@ def main() -> int:
             (nommes if props else muets).append((c, props))
 
         print()
-        print("[270-d] CROISEMENT -- source des noms : table du BUILD (`enums.tsv`), pas le miroir")
+        print("[270-r1] CROISEMENT -- source des noms : table du BUILD (`enums.tsv`), pas le miroir")
         print("   miroirs Python trouves : %d ; apparies au natif : %d"
               % (len(miroirs), len(appariement)))
         print("   candidats avec un membre PROPOSABLE : %d" % len(nommes))
@@ -363,7 +363,7 @@ def main() -> int:
 
         # --- COUVERTURE DE DICT : le signal fort, INDEPENDANT des imports -------------------
         print()
-        print("[270-d] COUVERTURE DE DICT -- un dict dont TOUTES les cles sont membres d'un enum")
+        print("[270-r1] COUVERTURE DE DICT -- un dict dont TOUTES les cles sont membres d'un enum")
         print("        EST clee par cet enum, quoi que le fichier importe.")
         dicts = _dicts_entiers(racine)
         total_cles, attribuees, lignes = 0, 0, []
@@ -398,11 +398,11 @@ def main() -> int:
             print("%s\t%d\t%s\t%d\t%s" % (c["fichier"], c["ligne"], c["role"], c["valeur"], c["source"]))
         print()
 
-    print("[270-d] fichiers parses : %d ; ILLISIBLES : %d" % (parses, len(illisibles)))
+    print("[270-r1] fichiers parses : %d ; ILLISIBLES : %d" % (parses, len(illisibles)))
     for nom, err in illisibles:
         print("   ILLISIBLE (pas un zero) : %s  [%s]" % (nom, err))
 
-    print("[270-d] candidats retenus : %d (structurels %s ; %d ecartes comme DEFINITIONS d'enum)"
+    print("[270-r1] candidats retenus : %d (structurels %s ; %d ecartes comme DEFINITIONS d'enum)"
           % (len(retenus), "INCLUS" if a.structurels else "exclus, |n| <= %d" % SEUIL_STRUCTUREL,
              len(definitions)))
     roles = Counter(c["role"] for c in retenus)
@@ -411,20 +411,20 @@ def main() -> int:
             print("   %6d  %s" % (roles[r], r))
 
     par_fichier = Counter(c["fichier"] for c in retenus)
-    print("[270-d] fichiers porteurs : %d" % len(par_fichier))
+    print("[270-r1] fichiers porteurs : %d" % len(par_fichier))
     for nom, n in par_fichier.most_common(10):
         print("   %5d  %s" % (n, nom))
 
     if a.lots:
         print()
-        print("[270-d] decoupage en %d lots (equilibre par CHARGE, pas par nombre de fichiers) :" % a.lots)
+        print("[270-r1] decoupage en %d lots (equilibre par CHARGE, pas par nombre de fichiers) :" % a.lots)
         for i, lot in enumerate(_lots(list(par_fichier.items()), a.lots), 1):
             total = sum(p for _, p in lot)
             print("  lot %2d : %4d candidats, %2d fichier(s)" % (i, total, len(lot)))
             for nom, p in lot:
                 print("            %4d  %s" % (p, nom))
 
-    print("[270-d] VERDICT: N/A -- ce probe ENUMERE, il n'arbitre pas.")
+    print("[270-r1] VERDICT: N/A -- ce probe ENUMERE, il n'arbitre pas.")
     return 0
 
 

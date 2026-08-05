@@ -167,7 +167,7 @@ pas, **l'ajouter fait partie de la tranche**.
 exécutable à littéral brut, mais **284 clés entières nues sur 15 fichiers** (`attack_type.py` 105,
 `targeting.py` 62, `ability_range.py` 33…), presque toutes des `ability_id` que
 `IdunBattle.Entities.Enum.ActiveAbilityType` nomme. La convention y était « id brut + commentaire
-nommant la classe native » — lisible, mais muette au changement de build. Résidu `#270-d`.
+nommant la classe native » — lisible, mais muette au changement de build. Résidu `#270-r1`.
 
 ⚠ **Et la conversion n'est PAS mécanique** : elle vaut ce que vaut le miroir Python. Celui
 d'`ActiveAbilityType` est réparé (#270, source `enums.tsv`) ; `TriggeredAbilityType` porte encore
