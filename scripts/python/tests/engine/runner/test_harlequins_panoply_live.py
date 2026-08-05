@@ -168,16 +168,23 @@ def test_graft_is_mounted(rpc, build_runner, grafted_bc):
 # ---------------------------------------------------------------- 2. le DISCARD
 def test_further_hits_of_the_attack_are_discarded(rpc, build_runner, grafted_bc):
     """L'observable central : un coup bloque -> 1227 pose -> TOUS les coups suivants de la MEME
-    attaque a 0 degat, et le compte de coups reste celui de l'arme (`ExecuteHits` fait `i++` sur un
-    coup discarde : l'index avance, seul le degat disparait)."""
+    attaque sont JETES, et le compte de coups reste celui de l'arme (`ExecuteHits` fait `i++` sur un
+    coup discarde : l'index avance, seul le degat disparait).
+
+    ⚠ #462-r4e-o-r1-r1 -- ce test assertionnait `all(h == 0 for h in per_hit[1:])`, qui est
+    VACUEUSEMENT VRAI depuis que `per_hit` ne porte plus que les events EMIS (un coup discarde sort
+    d'`ExecuteHit` AVANT la sub-op 0x42, donc avant `ApplyDamage`, donc sans `UnitDamaged`). La
+    propriete est desormais portee par la CARDINALITE : 1 event pour N coups executes."""
     rid = build_runner("31337", extra=_extra(grafted_bc))["rid"]
     st, att, dfd = _state(rpc, rid)
     _make_adjacent(st, att, dfd)
     r = _attack(st, att, dfd)
     per_hit = list(r["per_hit"])
-    assert len(per_hit) >= 2, "montage : il faut une arme MULTI-COUPS (%r)" % (per_hit,)
+    hits_exec = int(r.get("hits") or r.get("hits_executed") or 0)
+    assert hits_exec >= 2, "montage : il faut une arme MULTI-COUPS (%r coups)" % (hits_exec,)
+    assert len(per_hit) == 1, (
+        "un coup discarde a laisse un event : per_hit=%r pour %d coups" % (per_hit, hits_exec))
     assert per_hit[0] > 0, per_hit                       # le coup qui BLOQUE porte quand meme
-    assert all(h == 0 for h in per_hit[1:]), per_hit     # tous les suivants sont JETES
     assert r["total"] == per_hit[0], (r["total"], per_hit)
 
 
@@ -194,6 +201,8 @@ def test_without_the_passive_every_hit_lands(rpc, build_runner, grafted_bc):
     icept = make_hit_interceptor(st, att, dfd)
     assert icept is not None and icept._discard is None           # la mutation a mordu (2/2)
     r = _attack(st, att, dfd)
+    # `all()` sur une liste VIDE est vrai : on assertionne d'abord la CARDINALITE (#462-r4e-o-r1-r1).
+    assert len(r["per_hit"]) == int(r["hits"]), (r["per_hit"], r["hits"])
     assert all(h > 0 for h in r["per_hit"]), r["per_hit"]
     assert not _has_marker(st, dfd)
 
@@ -211,7 +220,9 @@ def test_only_the_first_block_of_the_turn_arms_it(rpc, build_runner, grafted_bc)
     assert uc.blocks_made_this_turn == 0
     assert uc.blocks_made_this_battle == 0
     r1 = _attack(st, att, dfd)
-    assert all(h == 0 for h in r1["per_hit"][1:]), r1["per_hit"]
+    # #462-r4e-o-r1-r1 : CARDINALITE (un coup discarde n'emet AUCUN event), pas « les suivants a 0 »
+    # -- qui serait vacueusement vrai sur une liste d'une seule entree.
+    assert len(r1["per_hit"]) == 1, (r1["per_hit"], r1.get("hits"))
     assert uc.blocks_made_this_turn >= 1                          # RegisterBlockMade a tourne
     # `RegisterBlockMade` pousse les DEUX compteurs -- `+0x8c` ET `+0x88` (#393-r1). Le battle
     # counter n'a AUCUN lecteur porte ; cette garde est ce qui le tient au mirror du `+=` double.
@@ -219,6 +230,7 @@ def test_only_the_first_block_of_the_turn_arms_it(rpc, build_runner, grafted_bc)
         "battle=%d turn=%d" % (uc.blocks_made_this_battle, uc.blocks_made_this_turn))
     n_battle = uc.blocks_made_this_battle
     r2 = _attack(st, att, dfd)                                    # MEME tour -> passif desarme
+    assert len(r2["per_hit"]) == int(r2["hits"]), (r2["per_hit"], r2["hits"])
     assert all(h > 0 for h in r2["per_hit"]), r2["per_hit"]
     # turn-start du proprietaire du greffon -> ResetBlocksMadeThisTurn -> le passif se re-arme
     StartTurnOperation.execute(st, st.get_entity(dfd).get_component(OwnerComponent).player)
@@ -228,7 +240,7 @@ def test_only_the_first_block_of_the_turn_arms_it(rpc, build_runner, grafted_bc)
         "le reset de tour a rogne le compteur de BATAILLE : %d < %d"
         % (uc.blocks_made_this_battle, n_battle))
     r3 = _attack(st, att, dfd)
-    assert all(h == 0 for h in r3["per_hit"][1:]), r3["per_hit"]
+    assert len(r3["per_hit"]) == 1, (r3["per_hit"], r3.get("hits"))   # re-arme -> discard a nouveau
 
 
 # ---------------------------------------------------------------- 4bis. le gate `NOT HasTrait(Object)`
@@ -244,6 +256,7 @@ def test_object_attacker_does_not_arm_it(rpc, build_runner, grafted_bc):
     actx.traits = list(actx.traits or []) + ["Object"]
     assert "Object" in actx.traits                       # la mutation a mordu
     r = _attack(st, att, dfd)
+    assert len(r["per_hit"]) == int(r["hits"]), (r["per_hit"], r["hits"])
     assert all(h > 0 for h in r["per_hit"]), r["per_hit"]
     assert not _has_marker(st, dfd)
 
@@ -279,7 +292,7 @@ def test_block_only_queues_the_move_it_does_not_move(rpc, build_runner, grafted_
     before = _pos(st, dfd)
     assert st.pending_triggered_abilities == []
     r = _attack(st, att, dfd)
-    assert all(h == 0 for h in r["per_hit"][1:]), r["per_hit"]        # le passif a bien mordu
+    assert len(r["per_hit"]) == 1, (r["per_hit"], r.get("hits"))      # le passif a bien mordu
     assert _pos(st, dfd) == before, "le porteur a bouge PENDANT l'attaque -- collapse inline"
     q = list(st.pending_triggered_abilities)
     assert len(q) == 1, q
