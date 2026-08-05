@@ -1549,6 +1549,27 @@ def can_be_overkilled(entity) -> bool:
     return not has_trait(traits, UnitTrait.Steppable)
 
 
+def unit_is_overkilled(entity) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$HasFlag(target, 8 = UnitFlag.Overkilled)` -- la GARDE
+    D'ENTREE du SITE (A) d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` :
+
+        cVar15 = UnitExtensions__HasFlag(target, 8);
+        if (cVar15 != '\\0') { RecordHitStatistics ; AddLeftoverHit(.., 1) ; return; }
+
+    Un coup porte sur une cible DEJA marquee overkillee n'applique RIEN et **n'emet aucun
+    evenement** -- ni `On(0x39)`, ni `On(0xf)`, ni `On(0x10)`, ni le `UnitDamaged` porteur du tag
+    `Amount`. Le flag est pose par le MEME `Execute`, au coup ou `didOverkill` devient vrai
+    (`IdunBattle.Entities.Components.UnitFlagsComponent$$Add(flags, 8)` sous
+    `dar.didOverkill && UnitExtensions.CanBeOverkilled(target)`), et RETIRE par
+    `IdunBattle.Operations.ReviveUnitOperation$$Execute`.
+
+    Lecture PURE (aucune mutation) : le port pose le flag, lui, dans `_fire_death_if_killed`."""
+    if entity is None:
+        return False
+    fl = entity.get_component(UnitFlagsComponent)
+    return bool(fl is not None and fl.has(UnitFlagsComponent.OVERKILLED))
+
+
 PREVENT_OVERKILL_EFFECT = 1354      # `EffectType.FuelledByFury_BlockOverkill` (0x54a)
 
 
