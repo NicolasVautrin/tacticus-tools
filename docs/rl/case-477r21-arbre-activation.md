@@ -208,6 +208,9 @@ ne mord pas sur le cas nominal.
 - **L'ALLOCATION ECS** des identifiants d'effet → **#477-r21-r3**.
 - **La queue du groupe** (27 lignes : `Action=PrepareTurn` + le `Group=StartTurn` complet de
   `ContinueTurnPhase`) — bloc 2 de #477-r20, hors de cette tranche.
+  **PORTÉE depuis #477-r22** (`docs/rl/case-477r22-bloc2-tour.md`) : 23 des 27 lignes sur les deux
+  boards par défaut, **8 / 8** sur le roster 2v2 — où `System_StartMatch` devient alors
+  **intégralement** porté, 142 / 142.
 - **`Effect_State_Level` / `Effect_State_VariableMultiplierPercentage`** : **LUS** (le décompilé
   teste `HasValue` une fois puis émet les deux tags), **jamais confrontés** — aucune occurrence
   sur les trois flux. Le port les rend exprimables plutôt que de les taire.
