@@ -99,7 +99,10 @@
 // Le cout d'ARMER, lui, est cote runner (retention du texte + un objet par tirage
 // PRNG pour toute la bataille), d'ou le defaut a `false`.
 
-import { findClass, findMethod, getFieldOffset } from "../il2cpp/helpers.js";
+import {
+    class_get_element_class, class_is_valuetype, findClass, findMethod,
+    getFieldOffset, readMsgIdentity,
+} from "../il2cpp/helpers.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { getRunner, listRunners } from "../game/runner-registry.js";
 import { getReplayMi, runnerOff } from "../game/runner.js";
@@ -297,9 +300,257 @@ export function replayOutputStreamStatus(): Record<string, unknown> {
     };
 }
 
+// ── #477-r11 : la DECOUPE et le CANAL PRNG, lisibles ────────────────────────
+//
+// `replayOutputStream` rend le flux CONCATENE et un COMPTE d'evenements PRNG.
+// Deux questions restaient donc structurellement hors de portee, et les deux
+// comptent pour decider si un comparateur est constructible :
+//
+//   * QUEL message a produit QUEL pas. Mesure #477-r11 : sur deux boards, les
+//     tours du joueur 12 produisent du TEXTE mais AUCUN pas -- conforme au
+//     filtre de `IdunBattleLogic.Replay.ReplayRecorder$$Listen`. Cette mesure
+//     a du passer par un DELTA de `stepCount` entre deux tours, faute de
+//     pouvoir lire les pas. Avec `replaySteps`, elle se lit directement, et
+//     `ReplayStep.InputMessage` NOMME le message.
+//   * CE QUE CONTIENT un evenement PRNG. `IdunBattle.Utils.PRNG.RngEvent` porte
+//     `Event` / `Output` / `StackTrace` / `Index` (dispositions mesurees en
+//     live par le RPC `classFields`) -- c'est le second canal du validateur
+//     natif (`Runner.RngEventComparer$$DoRngEventsDiffer`), et un compte n'en
+//     dit rien.
+//
+// STRIDE : `RngEvent` est un `System.ValueType` (taille PUBLIEE 48 = BOXEE),
+// donc INLINE dans le tableau du `List<T>`. Le stride n'est pas suppose : il
+// vient de `il2cpp_class_get_element_class` + `il2cpp_class_get_instance_size`,
+// et si l'un des deux manque le lecteur REFUSE au lieu de rendre du garbage
+// plausible. `ReplayStep`, lui, est un `System.Object` => tableau de POINTEURS.
+
+const replayStepClass = findClass(
+    "BattleLogicAssembly.dll", "IdunBattleLogic.Replay", "ReplayStep");
+const stepOff = replayStepClass ? {
+    index: getFieldOffset(replayStepClass, "Index"),
+    turn: getFieldOffset(replayStepClass, "Turn"),
+    inputMessage: getFieldOffset(replayStepClass, "InputMessage"),
+    outputStream: getFieldOffset(replayStepClass, "OutputStream"),
+    rngEvents: getFieldOffset(replayStepClass, "RngEvents"),
+} : null;
+
+const rngEventClass = findClass(
+    "BattleLogicAssembly.dll", "IdunBattle.Utils.PRNG", "RngEvent");
+/** Offsets rendus par `il2cpp_field_get_offset` pour un ValueType : BOXES
+ *  (header 0x10 compris). On les garde tels quels et on lit l'element a
+ *  `base - 0x10 + offset`, exactement comme le fait un boxage. */
+const rngOff = rngEventClass ? {
+    event: getFieldOffset(rngEventClass, "Event"),
+    output: getFieldOffset(rngEventClass, "Output"),
+    stackTrace: getFieldOffset(rngEventClass, "StackTrace"),
+    index: getFieldOffset(rngEventClass, "Index"),
+} : null;
+
+const replayRecordedPlayersOff = replayClass
+    ? getFieldOffset(replayClass, "RecordedPlayerIds") : -1;
+
+const _class_get_instance_size = (() => {
+    const m = Process.findModuleByName("GameAssembly.dll");
+    const p = m ? m.findExportByName("il2cpp_class_get_instance_size") : null;
+    return p ? new NativeFunction(p, "uint32", ["pointer"]) : null;
+})();
+
+/** `List<T>` IL2CPP : `_items` @0x10, `_size` @0x18 ; payload du tableau @0x20. */
+function listInfo(list: NativePointer): { items: NativePointer; size: number } {
+    return { items: list.add(0x10).readPointer(), size: list.add(0x18).readS32() };
+}
+
+function readStr(p: NativePointer, max = 4096): string | null {
+    if (p.isNull()) return null;
+    const n = p.add(0x10).readS32();
+    if (n < 0) return null;
+    return p.add(0x14).readUtf16String(Math.min(n, max));
+}
+
+export interface ReplayStepRow {
+    index: number | null;
+    turn: number | null;
+    /** Type du message d'entree qui a CREE ce pas -- la reponse a « le
+     *  decoupage suit-il un seul joueur ? » se lit ici, sans deltas. */
+    messageNs: string | null;
+    messageCls: string | null;
+    outputStreamLength: number;
+    rngEventCount: number | null;
+}
+
+export function replaySteps(
+    args?: { runnerId?: number; maxSteps?: number },
+): Record<string, unknown> {
+    const runnerId = args?.runnerId ?? -1;
+    const maxSteps = args?.maxSteps ?? 2000;
+    if (!replayClass || !stepOff || stepOff.outputStream < 0) {
+        return { ok: false, runnerId, steps: null,
+                 err: "ReplayStep layout not resolved" };
+    }
+    if (!getReplayMi || getReplayMi.ptr.isNull()) {
+        return { ok: false, runnerId, steps: null,
+                 err: "ReplayRecorder.GetReplay not resolved" };
+    }
+    const entry = getRunner(runnerId);
+    const recorder = entry.runner.add(runnerOff.replayRecorder).readPointer();
+    if (recorder.isNull()) {
+        return { ok: false, runnerId, steps: null, err: "runner has no ReplayRecorder" };
+    }
+    const armed: boolean = recorderPlayersOff >= 0
+        ? !recorder.add(recorderPlayersOff).readPointer().isNull()
+        : entry.recordReplay === true;
+    const replay = invokeMethod(getReplayMi.info, recorder, null);
+    if (replay.isNull()) {
+        return { ok: false, runnerId, steps: null, err: "GetReplay returned null" };
+    }
+
+    // `Replay.RecordedPlayerIds` : la liste que `SetupReplayRecorder` a
+    // calculee. La RENDRE evite de la deduire du seed BC -- c'est elle qui
+    // determine quels messages deviennent des pas.
+    let recordedPlayerIds: number[] | null = null;
+    if (replayRecordedPlayersOff >= 0) {
+        try {
+            const l = replay.add(replayRecordedPlayersOff).readPointer();
+            if (!l.isNull()) {
+                const { items, size } = listInfo(l);
+                recordedPlayerIds = [];
+                for (let i = 0; i < size && i < 64; i++) {
+                    recordedPlayerIds.push(items.add(0x20 + i * 4).readS32());
+                }
+            }
+        } catch { /* diagnostic seulement */ }
+    }
+
+    const steps: ReplayStepRow[] = [];
+    if (replayMessagesOff >= 0) {
+        const msgs = replay.add(replayMessagesOff).readPointer();
+        if (!msgs.isNull()) {
+            const { items, size } = listInfo(msgs);
+            for (let i = 0; i < size && i < maxSteps; i++) {
+                // ReplayStep est une CLASSE => tableau de pointeurs.
+                const st = items.add(0x20 + i * Process.pointerSize).readPointer();
+                if (st.isNull()) continue;
+                let msgNs: string | null = null, msgCls: string | null = null;
+                try {
+                    const im = stepOff.inputMessage >= 0
+                        ? st.add(stepOff.inputMessage).readPointer() : NULL;
+                    if (!im.isNull()) {
+                        const id = readMsgIdentity(im);
+                        msgNs = id.ns; msgCls = id.cls;
+                    }
+                } catch { /* laisse null */ }
+                let osLen = 0;
+                try {
+                    const os = st.add(stepOff.outputStream).readPointer();
+                    if (!os.isNull()) osLen = os.add(0x10).readS32();
+                } catch { /* laisse 0 */ }
+                let rngN: number | null = null;
+                try {
+                    if (stepOff.rngEvents >= 0) {
+                        const l = st.add(stepOff.rngEvents).readPointer();
+                        if (!l.isNull()) rngN = l.add(0x18).readS32();
+                    }
+                } catch { /* laisse null */ }
+                steps.push({
+                    index: stepOff.index >= 0 ? st.add(stepOff.index).readS32() : null,
+                    turn: stepOff.turn >= 0 ? st.add(stepOff.turn).readS32() : null,
+                    messageNs: msgNs, messageCls: msgCls,
+                    outputStreamLength: osLen, rngEventCount: rngN,
+                });
+            }
+        }
+    }
+    return {
+        ok: true, runnerId, recorderArmed: armed, recordedPlayerIds,
+        stepCount: steps.length, steps, err: null,
+    };
+}
+
+export function replayRngEvents(
+    args?: { runnerId?: number; max?: number; includeStackTrace?: boolean },
+): Record<string, unknown> {
+    const runnerId = args?.runnerId ?? -1;
+    const max = args?.max ?? 500;
+    const withStack = args?.includeStackTrace === true;
+    if (!replayClass || !getWholeRngEventsMi || getWholeRngEventsMi.ptr.isNull()) {
+        return { ok: false, runnerId, events: null,
+                 err: "Replay.GetWholeBattleRngEvents not resolved" };
+    }
+    if (!rngEventClass || !rngOff || rngOff.event < 0) {
+        return { ok: false, runnerId, events: null,
+                 err: "RngEvent layout not resolved" };
+    }
+    if (!getReplayMi || getReplayMi.ptr.isNull()) {
+        return { ok: false, runnerId, events: null,
+                 err: "ReplayRecorder.GetReplay not resolved" };
+    }
+    const entry = getRunner(runnerId);
+    const recorder = entry.runner.add(runnerOff.replayRecorder).readPointer();
+    if (recorder.isNull()) {
+        return { ok: false, runnerId, events: null, err: "runner has no ReplayRecorder" };
+    }
+    const replay = invokeMethod(getReplayMi.info, recorder, null);
+    if (replay.isNull()) {
+        return { ok: false, runnerId, events: null, err: "GetReplay returned null" };
+    }
+    const list = invokeMethod(getWholeRngEventsMi.info, replay, null);
+    if (list.isNull()) {
+        return { ok: true, runnerId, count: 0, events: [], err: null };
+    }
+    const { items, size } = listInfo(list);
+
+    // STRIDE mesure, jamais suppose : un `8` en dur rendrait du garbage
+    // plausible sur un tableau de ValueType (cf. helpers.class_get_element_class).
+    let stride = -1;
+    try {
+        const arrClass = items.readPointer();
+        const elem = class_get_element_class
+            ? (class_get_element_class(arrClass) as NativePointer) : NULL;
+        if (!elem.isNull() && _class_get_instance_size && class_is_valuetype
+            && class_is_valuetype(elem) !== 0) {
+            // instance_size est BOXEE : le stride deboxe retranche le header.
+            stride = (_class_get_instance_size(elem) as number) - 0x10;
+        }
+    } catch { /* stride reste -1 */ }
+    if (stride <= 0) {
+        return {
+            ok: false, runnerId, count: size, events: null,
+            err: "stride de RngEvent[] non mesurable (element_class ou "
+                + "instance_size indisponible) — lecture REFUSEE plutot que devinee",
+        };
+    }
+
+    const events: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < size && i < max; i++) {
+        // Element INLINE : sa base deboxee est `items + 0x20 + i*stride`, et les
+        // offsets de champ sont BOXES => on retranche 0x10.
+        const base = items.add(0x20 + i * stride).sub(0x10);
+        try {
+            events.push({
+                i,
+                index: rngOff.index >= 0 ? base.add(rngOff.index).readS32() : null,
+                event: readStr(base.add(rngOff.event).readPointer()),
+                output: readStr(base.add(rngOff.output).readPointer()),
+                ...(withStack && rngOff.stackTrace >= 0
+                    ? { stackTrace: readStr(
+                        base.add(rngOff.stackTrace).readPointer(), 2048) }
+                    : {}),
+            });
+        } catch (e) {
+            events.push({ i, err: String(e) });
+        }
+    }
+    return { ok: true, runnerId, count: size, stride, events, err: null };
+}
+
 export function register(ctx: Ctx): void {
     // Aucun Interceptor pose : ce module est purement a la demande.
     ctx.rpc.replayOutputStream = (a?: { runnerId?: number; maxChars?: number }) =>
         replayOutputStream(a);
     ctx.rpc.replayOutputStreamStatus = () => replayOutputStreamStatus();
+    ctx.rpc.replaySteps = (a?: { runnerId?: number; maxSteps?: number }) =>
+        replaySteps(a);
+    ctx.rpc.replayRngEvents = (a?: {
+        runnerId?: number; max?: number; includeStackTrace?: boolean;
+    }) => replayRngEvents(a);
 }
