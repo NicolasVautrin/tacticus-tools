@@ -297,16 +297,26 @@ On(55 = UnitDefeated)    ret 0x180e7731c   <- profondeur 9
 On(54 = PostUnitKill)    ret 0x180e7749c   <- profondeur 9
 ```
 
-Il n'y a **aucun `else`**. Sont donc AUSSI sous la garde : `RegisterDefeatedUnit`,
+Sont donc AUSSI sous la garde : `RegisterDefeatedUnit`,
 `UnitFlagsComponent.Remove(0xf)` / `Add(6)`, `KillUnitOperation.RemoveEffects`. ⇒ **si un consommateur
 d'`On(1)` (ReviveEffect, PhoenixGem, …) pose une `ReviveData`, la mort est ANNULEE** : pas de death-nova
 (`On(2)`), pas de decoy Ambush (`On(55)`), pas de bookkeeping de mort.
 
-Le drain natif est la 2e phase de `InputMessageProcessor.VerifyDeaths @180ebb0a0` :
-`RunPhase(0xc)` = les kills (lambda `<VerifyDeaths>b__0 @180ecb870` → `KillUnit`, slots 0x60/0x61) puis
-`RunPhase(0xd)` = les revives (→ `OperationProcessor.ReviveUnit @180e0b510` → `ReviveUnitOperation`).
-Le port COLLAPSE garde + drain dans `kill_unit_revive_gate` (`operations/revive.py`), appelee par
-`AttackDamageOperation._fire_death_if_killed` juste apres `On(1)` — c'est l'ordre observable natif.
+⚠ **CE PARAGRAPHE DISAIT « `RunPhase(0xd)` = les revives ». C'EST FAUX, ET CORRIGE (#477-r24).**
+`IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` lance bien deux phases —
+`RunPhase(PhaseType.ProcessDeaths /*0xc*/)` = les kills (lambda `<VerifyDeaths>b__0` →
+`Core.Services.OperationProcessor$$KillUnit` / `$$DestroyMachine`), puis
+`RunPhase(PhaseType.ProcessRemovals /*0xd*/)` = **les RETRAITS** (lambda
+`IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass50_0$$u003CVerifyRemovedUnitsu003Eb__0`,
+corps inline d'`IdunBattle.Messages.InputMessageProcessor$$VerifyRemovedUnits`). Aucun membre
+d'`IdunBattle.Core.PhaseType` ne nomme un revive (`engine/streams/phase_type.py`).
+
+**Le revive n'a AUCUNE phase** : `Core.Services.OperationProcessor$$ReviveUnit(killed)` n'a aucune
+xref CODE, et son unique site d'invocation est la **branche `else`** de la garde ci-dessus, dans
+`IdunBattle.Operations.KillUnitOperation$$Execute` même. Garde et application sont donc dans la
+MÊME fonction native : `kill_unit_revive_gate` (`operations/revive.py`), appelée par
+`AttackDamageOperation._fire_death_if_killed` juste après `On(1)`, ne « collapse » rien — elle
+mirror cette structure. Détail : `docs/rl/case-477r24-le-revive-na-pas-de-phase.md`.
 
 ### 7.3 Validation du volet C
 

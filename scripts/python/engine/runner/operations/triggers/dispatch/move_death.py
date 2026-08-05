@@ -364,7 +364,7 @@ def pending_death_added_triggers(state: State, dying_id: int,
         -> **publie `On(3)`** {a = killer, b = killer, c = dying}
 
     La file remplie par `AddDeath` n'est drainee que plus tard, par
-    `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (`RunPhase(0xc)` -> `KillUnit` ->
+    `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (`RunPhase(PhaseType.ProcessDeaths /*0xc*/)` -> `KillUnit` ->
     `IdunBattle.Operations.KillUnitOperation$$Execute`, qui emet `On(1)`) : **`On(3)` precede donc
     STRICTEMENT `On(1)`** pour une meme mort. Le port respecte cet ordre en appelant ce vecteur en tete
     de `damage.py::_fire_death_if_killed`.

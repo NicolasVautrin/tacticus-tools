@@ -10,7 +10,7 @@ d'OPERATION `IdunBattle.Operations.ActiveAbilityOperation$$IsDeadUnitAndNotAllow
         caster = state.GetEntity(message.CasterId@0x10)
         target = state.GetEntity(message.TargetId@0x14)
         if (!UnitExtensions.IsAliveAndNotFled(caster) || !IsAliveAndNotFled(target)) return;
-        RunPhase(6, () => { OpenGroup(0xc User_UseAbility); OperationProcessor.ActiveAbility(...) })
+        RunPhase(PhaseType.ActiveAbility /*6*/, () => { OpenGroup(0xc User_UseAbility); OperationProcessor.ActiveAbility(...) })
 
 Ce gate NE LIT NI l'ability NI ses `TargetingOptions` : aucune derogation possible, donc 1089 y
 tombe comme les 103 autres.

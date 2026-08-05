@@ -5,8 +5,8 @@
 `IdunBattle.Messages.InputMessageProcessor$$RunPhase(type, action, isInternalPhase, isManualTurnEnd)`
 encadre l'execution d'UN message. Chaque `InputMessageProcessor$$Visit` (un par type de message
 d'entree) l'appelle avec `isInternalPhase = 0` -- verifie sur le `Visit` d'AddUnit,
-`RunPhase(this, 0x4, action, 0, 0)` -- alors que la cascade interne
-`$$ProcessPendingTriggeredAbilities` l'appelle avec `RunPhase(this, 0xf, action, 1, 0)`.
+`RunPhase(this, PhaseType.AddUnit /*0x4*/, action, 0, 0)` -- alors que la cascade interne
+`$$ProcessPendingTriggeredAbilities` l'appelle avec `RunPhase(this, PhaseType.ProcessPendingTriggeredAbilities /*0xf*/, action, 1, 0)`.
 **Une phase = un message TOP-LEVEL**, pas une triggered-ability.
 
 Dans sa branche `isInternalPhase == false`, `$$RunPhase` appelle par slot

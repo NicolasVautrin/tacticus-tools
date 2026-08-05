@@ -6,7 +6,7 @@ CE QUE LE DECOMPILE DIT, ET COMMENT IL A ETE MESURE (build `rnca9r7q6c`)
    **2 appels** dans tout le binaire, tous deux dans
    `IdunBattle.Messages.InputMessageProcessor$$Visit(ActiveAbilityMessage)`. Aucune des 36 autres
    surcharges de `Visit` ne le teste ; `Visit(MoveUnitMessage)`, lue au decompile, n'a AUCUN gate
-   de liveness (elle resout l'unite, construit la liste de tuiles, entre en `RunPhase(5)`).
+   de liveness (elle resout l'unite, construit la liste de tuiles, entre en `RunPhase(PhaseType.MoveUnit /*5*/)`).
 
 2. **QUEL BOUT** -- les deux appels sont le CASTER (`+0x112`) puis la CIBLE (`+0x125`), dans un
    `||` : le premier faux suffit.
@@ -61,7 +61,7 @@ PORTES_DU_GATE = ("visit_ActiveAbilityMessage", "visit_AttackUnitMessage")
 # contributeur ne le remonte plus) : ces visiteurs-la EXISTENT et ne doivent PAS porter le gate.
 # `visit_MoveUnitMessage` n'est pas choisi au hasard -- c'est celui dont le pendant natif,
 # `IdunBattle.Messages.InputMessageProcessor$$Visit(MoveUnitMessage)`, a ete LU au decompile :
-# aucun gate de liveness, il resout l'unite et entre en `RunPhase(5)`.
+# aucun gate de liveness, il resout l'unite et entre en `RunPhase(PhaseType.MoveUnit /*5*/)`.
 VISITEURS_SANS_GATE = ("visit_MoveUnitMessage", "visit_EndTurnMessage",
                        "visit_FinishUnitTurnMessage")
 

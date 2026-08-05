@@ -23,12 +23,20 @@ IdunBattle.Operations.RecordKillOperation$$Execute            <- ENQUEUE
     publie On(PendingDeathAdded = 3)
 
 IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths       <- DRAIN
-    RunPhase(0xc) -> lambda <VerifyDeaths>b__0
+    RunPhase(PhaseType.ProcessDeaths /*0xc*/) -> lambda <VerifyDeaths>b__0
                   -> Core.Services.OperationProcessor$$KillUnit
                   -> IdunBattle.Operations.KillUnitOperation$$Execute
-                         On(1) -> garde revive -> On(2) -> On(0) -> On(55) -> On(54)
-    RunPhase(0xd) -> IdunBattle.Operations.ReviveUnitOperation$$Execute
+                         On(1) -> garde `pendingRevive.HasValue`
+                                  |- false -> On(2) -> On(0) -> On(55) -> On(54)
+                                  `- true  -> Core.Services.OperationProcessor$$ReviveUnit
+                                              -> IdunBattle.Operations.ReviveUnitOperation$$Execute
+    RunPhase(PhaseType.ProcessRemovals /*0xd*/) -> lambda <VerifyRemovedUnits>b__0   # les RETRAITS
 ```
+
+⚠ **CE SCHEMA DISAIT « `RunPhase(PhaseType.ProcessRemovals /*0xd*/)` -> `ReviveUnitOperation` ». C'EST FAUX, ET CORRIGE <!-- [phase-attribution:refute] -->
+(#477-r24).** Le revive n'a AUCUNE phase : il est appelé dans la branche `else` de la garde, DANS
+`IdunBattle.Operations.KillUnitOperation$$Execute`. Détail :
+`docs/rl/case-477r24-le-revive-na-pas-de-phase.md`.
 
 Le port appelait `AttackDamageOperation._fire_death_if_killed` à **chaque** `AttackDamage`, et cette
 fonction faisait TOUT : enregistrement **et** application. Or

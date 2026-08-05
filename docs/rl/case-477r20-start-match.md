@@ -227,12 +227,16 @@ le vrai coût, et il est nommé au résidu `#477-r21` : la face stream de
 
 ## 6. Une correction d'attribution, confirmée mais NON APPLIQUÉE
 
-`engine/runner/operations/revive.py` et `damage.py` décrivent `RunPhase(0xd)` comme la phase de
-`ReviveUnit`. `case-477r19` § 6 l'avait réfuté par la signature de la lambda ; cette tranche le
+`engine/runner/operations/revive.py` et `damage.py` décrivaient `RunPhase(PhaseType.ProcessRemovals /*0xd*/)` comme la phase de `ReviveUnit`. <!-- [phase-attribution:refute] -->
+`case-477r19` § 6 l'avait réfuté par la signature de la lambda ; cette tranche le
 confirme par le **nom** : `frida/enums.tsv` donne `IdunBattle.Core.PhaseType` `13=ProcessRemovals`,
 et `11=SkipToNextWave`, `12=ProcessDeaths`, `14=ProcessDamageEvents`. Aucun `PhaseType` ne nomme un
 revive. La correction reste **hors périmètre** de cette tranche (ces fichiers portent la mécanique
-ECS, pas la face stream) ; elle est portée par `#477-r19-r2`.
+ECS, pas la face stream).
+
+→ **APPLIQUÉE depuis, par `#477-r24`** (dispatché sous l'étiquette `#477-r19-r2`, numéro déjà pris
+par le résidu `Effect_Refresh`). Résultat plus fort que prévu : `ReviveUnit` n'a **aucune** phase.
+cf. `docs/rl/case-477r24-le-revive-na-pas-de-phase.md`.
 
 ## Résidus
 

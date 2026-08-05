@@ -57,8 +57,8 @@ L'emetteur est `IdunBattle.Operations.EndPhaseOperation$$Execute` (publie `0x3a`
 `IdunBattle.Messages.InputMessageProcessor$$RunPhase` dans sa branche `isInternalPhase == false`. Or
 `$$RunPhase` EST le corps d'un `applyAction` : les `InputMessageProcessor$$Visit` (un par type de
 message d'entree) l'appellent avec `isInternalPhase = 0` (verifie sur le `Visit` d'AddUnit :
-`RunPhase(this, 0x4, action, 0, 0)`), tandis que la cascade interne
-`$$ProcessPendingTriggeredAbilities` l'appelle avec `RunPhase(this, 0xf, action, 1, 0)`. **Une phase =
+`RunPhase(this, PhaseType.AddUnit /*0x4*/, action, 0, 0)`), tandis que la cascade interne
+`$$ProcessPendingTriggeredAbilities` l'appelle avec `RunPhase(this, PhaseType.ProcessPendingTriggeredAbilities /*0xf*/, action, 1, 0)`. **Une phase =
 un message top-level**, et sa cloture emet `PhaseEnd`. C'est exactement la fenetre mesuree.
 
 ## Consequence pour le port

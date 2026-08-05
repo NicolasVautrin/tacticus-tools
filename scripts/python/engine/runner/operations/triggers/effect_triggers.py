@@ -205,7 +205,7 @@ class OverwatchAutoAttack(EffectTrigger):
         # TARGET-VALIDITY = leg de re-validation du PUMP FIFO (#201). Le mover (cible de l'overwatch)
         # doit etre VIVANT. Natif : les pending triggered-abilities after-move (les 2 overwatch) sont
         # draines UN PAR UN par `IdunBattle.Messages.InputMessageProcessor$$ProcessPendingTriggeredAbilities` (snapshot+Clear de la file
-        # #5) ; chaque item = un `IdunBattle.Messages.InputMessageProcessor$$RunPhase(0xf)` qui appelle `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` juste
+        # #5) ; chaque item = un `IdunBattle.Messages.InputMessageProcessor$$RunPhase(PhaseType.ProcessPendingTriggeredAbilities /*0xf*/)` qui appelle `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` juste
         # apres son callback, AVANT l'item suivant. Donc si le 1er overwatch TUE le mover, VerifyDeaths le
         # retire et le 2e overwatch ne trouve plus de cible : `IdunBattle.Entities.Effects.Loki.Overwatch_AutoAttackEffect$$GetAttackBehaviour` =
         # `UseActiveAbility(NormalAttack)` sur une unite morte = fizzle (les selecteurs DSL de cible operent
