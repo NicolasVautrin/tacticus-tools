@@ -22,22 +22,25 @@ DECOMPOSITION PAR ETAGE (jamais un scalaire fitte). Pour chaque bras :
                   sortent de `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64` :
                       min = CalculateMinDamage(base) = base - Round(base * pct/100)
                       max = CalculateMaxDamage(base) + extraMax
-                  L'IDENTIFICATION de l'etage est VERIFIEE, pas supposee : on exige
-                  `min + max` CONSTANT a travers les bras (meme base, meme extraMax) ET
-                  `max - min == 2 * Round(base * pct/100) + extraMax` avec le pct DE LA BC.
-                  Si ces deux identites ne tiennent pas, le probe REFUSE de conclure.
+                  L'IDENTIFICATION de l'etage est VERIFIEE, pas supposee : on exige que le
+                  CENTRE `(min+max)/2` soit le MEME dans tous les bras (a l'arrondi de borne
+                  pres : chaque borne est materialisee independamment) ET que la demi-amplitude
+                  vaille `centre * pct/100` avec le pct DE LA BC. Si ces identites ne tiennent
+                  pas, le probe REFUSE de conclure. Le centre n'est PAS suppose egal a la stat
+                  Attack : `aiPredict` publie du degat DEJA reduit -- ce qu'on identifie ici est
+                  le RAPPORT amplitude/centre, qui est exactement le champ cherche.
 
   etage PORT    : le pct que le port utiliserait pour CETTE bataille, obtenu par le CANAL REEL
                   (`load_state(damage_config=<section Damage du bras>)` -> `State` ->
-                  `Runner.install_default_handlers()` -> `DamageHandler.spread_pct`), et le
-                  MUTANT `#449-r2-r4` (le port d'AVANT : 20 en dur) pour chiffrer l'ecart.
+                  `Runner.install_default_handlers()` -> `DamageHandler.spread_pct`).
 
-  face COMBAT   : l'attaque est APPLIQUEE, encadree par `dumpRng`. Le degat inflige est
-                  reproduit depuis l'etat MT en rejouant `Next(min, max+1)` -- une fois avec les
-                  bornes de la BC, une fois avec les bornes a 20. Le PRNG est le MEME dans les
-                  deux modeles (meme etat de depart) : ce qui change est la BORNE, pas la
-                  sequence. On EXIGE que les deux modeles different (sinon regime DEGENERE, et
-                  l'accord ne prouverait rien).
+  face COMBAT   : REPLAY-DIFF complet (meme montage que
+                  `tests/engine/runner/test_runner_attack_live.py`) -- le runner PYTHON rejoue
+                  l'attaque depuis son ECS avec `state.rng` cale sur le MT live (`dumpRng`),
+                  DEUX FOIS : une avec le pct LU de la BC, une avec le MUTANT `#449-r2-r4`
+                  (20 en dur, le port d'AVANT). Le PRNG est le MEME dans les deux bras : ce qui
+                  change est la BORNE, pas la sequence. On EXIGE que les deux modeles DIFFERENT
+                  (sinon regime DEGENERE, et l'accord ne prouverait rien).
 
 Usage :
     python probe_449r2r4_spread_from_bc.py [--pct 60] [--seed 777] [--keep]
@@ -131,15 +134,13 @@ def dispose(state_file: Path, rid: int):
 
 
 # ------------------------------------------------------------------ mesure d'un bras
-def measure(sid, rid, bc_damage: dict) -> dict:
-    """Bornes NATIVES du coup + pct que le PORT utiliserait, pour CE bras."""
+def _pick(sid, rid):
+    """(decisionView, attaquant, cible, ability normale) du montage -- deterministe."""
     dv = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 3, "allAbilities": True}, 120)
     cur = dv.get("currentPlayer")
-    units = {u["id"]: u for u in (dv.get("units") or [])}
-    att = next((u for u in units.values()
-                if u.get("visualId") == ATT_VIS and u.get("alive")), None)
-    tgt = next((u for u in units.values()
-                if u.get("visualId") == TGT_VIS and u.get("alive")), None)
+    units = list((dv.get("units") or []))
+    att = next((u for u in units if u.get("visualId") == ATT_VIS and u.get("alive")), None)
+    tgt = next((u for u in units if u.get("visualId") == TGT_VIS and u.get("alive")), None)
     if att is None or tgt is None:
         raise RuntimeError("montage KO: attaquant/cible absents (%s/%s)" % (ATT_VIS, TGT_VIS))
     if att.get("owner") != cur:
@@ -148,66 +149,91 @@ def measure(sid, rid, bc_damage: dict) -> dict:
     norm = next((a for a in (att.get("abilities") or []) if a.get("kind") == "normal"), None)
     if norm is None:
         raise RuntimeError("aucune ability `normal` sur %s" % ATT_VIS)
+    return dv, att, tgt, norm
 
+
+def measure(sid, rid, bc_damage: dict) -> dict:
+    """Bornes NATIVES du coup + pct que le PORT utiliserait + REPLAY-DIFF des deux modeles."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.runner import Runner
+    from engine.runner.messages import AttackUnitMessage
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.components import HealthComponent
+
+    dv, att, tgt, norm = _pick(sid, rid)
     ap = rpc(sid, "aiPredict", {"runnerId": rid, "unitId": att["id"], "targetId": tgt["id"],
                                 "abilityType": norm["id"]}, 90)
     if not _ok(ap) or not ap.get("pred"):
         raise RuntimeError("aiPredict KO: %s" % (str(ap)[:200],))
     pred = ap["pred"]
+    out = {"att": att["id"], "tgt": tgt["id"], "ability": norm["id"],
+           "min": int(pred.get("healthDmgMin") or 0), "max": int(pred.get("healthDmgMax") or 0),
+           "hits": int(pred.get("appliedHits") or 0),
+           "might_crit": bool(pred.get("mightCrit")),
+           "shield": int(pred.get("shieldBefore") or 0),
+           "bc_pct": bc_damage.get("DamageSpreadPercentage"),
+           "bc_ignore": bool(bc_damage.get("IgnoreDamageSpread") or False)}
+
+    ob = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
+    ob = ob if isinstance(ob, dict) else {}
+    snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 60)
+    snap = snap if _ok(snap) else None
 
     # Le pct que le PORT utiliserait pour CETTE bataille, par le CANAL REEL (pas une relecture
     # du JSON) : BC -> load_state -> State -> Runner -> DamageHandler.
-    from engine.runner.snapshot import load_state
-    from engine.runner.runner import Runner
-    ob = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
-    st = load_state(dv, ob if isinstance(ob, dict) else {}, damage_config=bc_damage)
-    port_pct = Runner(st).install_default_handlers().damage_handler.spread_pct
+    st_probe = load_state(dv, ob, snap, damage_config=bc_damage)
+    out["port_pct"] = int(Runner(st_probe).install_default_handlers().damage_handler.spread_pct)
 
-    return {"att": att["id"], "tgt": tgt["id"], "ability": norm["id"],
-            "min": int(pred.get("healthDmgMin") or 0), "max": int(pred.get("healthDmgMax") or 0),
-            "hits": int(pred.get("appliedHits") or 0),
-            "might_crit": bool(pred.get("mightCrit")),
-            "shield": int(pred.get("shieldBefore") or 0),
-            "hp_before": int(pred.get("hpBefore") or 0),
-            "port_pct": int(port_pct),
-            "bc_pct": bc_damage.get("DamageSpreadPercentage"),
-            "bc_ignore": bool(bc_damage.get("IgnoreDamageSpread") or False)}
-
-
-def apply_attack(sid, rid, m: dict) -> dict:
-    """Applique l'attaque, encadree par `dumpRng` -> etat MT avant + degat reellement inflige."""
+    # --- REPLAY-DIFF : deux runners offline partant du MEME etat MT, un par MODELE -------------
     s1 = rpc(sid, "dumpRng", {"runnerId": rid}, 40)
-    if not _ok(s1):
-        return {"skip": "dumpRng indispo: %s" % (str(s1)[:160],)}
+    if snap is None or not _ok(s1):
+        out["combat_skip"] = "combatSnapshot/dumpRng indisponible"
+        return out
+
+    def _off(spread_arg):
+        st = load_state(dv, ob, snap, damage_config=bc_damage)
+        te = st.get_entity(tgt["id"])
+        hc = te.get_component(HealthComponent) if te is not None else None
+        if hc is None or hc.hp is None:
+            return None, None
+        hp0 = int(hc.hp)                    # AVANT l'apply -- `hc.hp` est MUTE par le pipeline
+        rng = IntBasedMersenneTwister()
+        rng.mt = list(s1["mt"])
+        rng.mti = s1["mti"]
+        st.rng = rng
+        r = Runner(st).install_default_handlers(spread_arg)
+        r.apply(AttackUnitMessage(att["id"], tgt["id"]))
+        last = r.damage_handler.last
+        return (None if last is None else int(last["total"])), hp0
+
+    off_bc, hp_before = _off(None)          # le port CORRIGE : pct LU de la BC
+    off_20, _ = _off(20)                    # le MUTANT #449-r2-r4 : 20 en dur
     res = rpc(sid, "applyAction", {"runnerId": rid, "action": {
-        "kind": "ability", "casterId": m["att"], "targetId": m["tgt"],
-        "abilityType": m["ability"]}}, 60)
-    if not _ok(res):
-        return {"skip": "applyAction KO: %s" % (str(res)[:160],)}
-    ar = (res.get("actions") or [{}])[0]
-    if not ar.get("ok"):
-        return {"skip": "cast refuse (portee ?): %s" % (str(ar)[:160],)}
+        "kind": "ability", "casterId": att["id"], "targetId": tgt["id"],
+        "abilityType": norm["id"]}}, 60)
+    if not _ok(res) or not (res.get("actions") or [{}])[0].get("ok"):
+        out["combat_skip"] = "cast refuse: %s" % (str(res)[:160],)
+        return out
     hp_after = next((u.get("hp") for u in (res.get("units") or [])
-                     if u.get("squadId") == m["tgt"]), None)
-    if hp_after is None:
-        return {"skip": "hp de la cible absent du retour applyAction"}
-    return {"mt": s1["mt"], "mti": s1["mti"], "actual": m["hp_before"] - int(hp_after)}
-
-
-def roll_from(mt_state, mti, lo, hi) -> int:
-    """Rejoue `Next(lo, hi+1)` depuis l'etat MT donne (mirror `RandomlyResolveMinMaxDamage`)."""
-    from engine.runner.prng import IntBasedMersenneTwister
-    mt = IntBasedMersenneTwister()
-    mt.mt = list(mt_state)
-    mt.mti = mti
-    return lo + mt.next_internal(0, hi - lo + 1)
+                     if u.get("squadId") == tgt["id"]), None)
+    if hp_after is None or hp_before is None:
+        out["combat_skip"] = "hp de la cible indisponible"
+        return out
+    out.update({"live_dmg": int(hp_before) - int(hp_after), "off_bc": off_bc, "off_20": off_20})
+    return out
 
 
 # ------------------------------------------------------------------ verdicts
-def expected_spread(base: int, pct: int) -> int:
-    """`IdunBattle.Core.Services.DamageCalculations$$CalculateDamageSpread` -- arithmetique Fix64."""
-    from engine.services.damage_calculations import calculate_damage_spread
-    return calculate_damage_spread(base, pct)
+def _effective_pct(r: dict) -> int:
+    """Le pct que le NATIF doit appliquer pour ce bras, LU de la BC ecrite.
+
+    Champ ABSENT -> 0 : `IdunBattle.Configuration.DamageConfiguration$$.ctor` n'initialise QUE le
+    `Dictionary` `+0x40` (DamageProfiles), donc un champ absent du JSON reste a la valeur par
+    defaut de son type C#. `IgnoreDamageSpread` -> 0 : second aiguillage vers la branche plate de
+    `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` (`configuration+0x31`)."""
+    if r["bc_ignore"] or r["bc_pct"] is None:
+        return 0
+    return int(r["bc_pct"])
 
 
 def main() -> int:
@@ -220,7 +246,6 @@ def main() -> int:
 
     sid = _resolve_session()
     rows = []
-    combat = {}
     for name, mut in arms(a.pct):
         bcp = LOGS / ("bc_449r2r4_%s.json" % name)
         section = write_bc(bcp, mut)
@@ -233,66 +258,61 @@ def main() -> int:
             print("[%s] runner=%d BC.pct=%r ignore=%s -> natif [%d, %d] hits=%d | port_pct=%d"
                   % (name, rid, m["bc_pct"], m["bc_ignore"], m["min"], m["max"], m["hits"],
                      m["port_pct"]))
-            if name in ("bc20", "bc%d" % a.pct):
-                combat[name] = apply_attack(sid, rid, m)
-                print("     face COMBAT: %s" % (combat[name].get("skip")
-                                                or ("degat inflige = %d" % combat[name]["actual"])))
+            print("     face COMBAT: %s"
+                  % (m.get("combat_skip")
+                     or ("live=%d  port(BC)=%s  port(mutant 20 en dur)=%s"
+                         % (m["live_dmg"], m["off_bc"], m["off_20"]))))
         finally:
             if not a.keep:
                 dispose(sf, rid)
 
-    print("=== ETAGE 1 -- IDENTIFICATION (le probe refuse de conclure si ca ne tient pas) ===")
-    sums = {r["arm"]: r["min"] + r["max"] for r in rows}
-    print("  min+max par bras : %s" % (sums,))
-    base_ref = None
-    if len(set(sums.values())) == 1:
-        base_ref = list(sums.values())[0] // 2
-        print("  CONSTANT -> meme base de degat dans tous les bras ; base = (min+max)/2 = %d"
-              % base_ref)
-    else:
-        print("  NON CONSTANT -> la base a bouge entre les bras : l'ecart de bornes n'est PAS")
-        print("  imputable au seul spread. VERDICT INDETERMINE.")
-        return 2
-
-    print("=== ETAGE 2 -- le natif SUIT-IL le champ de la BC ? ===")
     verdict = 0
+    print("=== ETAGE 1 -- IDENTIFICATION (le probe refuse de conclure si ca ne tient pas) ===")
+    centres = {r["arm"]: (r["min"] + r["max"]) / 2.0 for r in rows}
+    print("  centre (min+max)/2 par bras : %s" % ({k: round(v, 1) for k, v in centres.items()},))
+    lo, hi = min(centres.values()), max(centres.values())
+    if hi - lo > 2.0:
+        print("  NON CONSTANT (ecart %.1f > 2) -> la base a bouge entre les bras : l'ecart de"
+              % (hi - lo,))
+        print("  bornes n'est PAS imputable au seul spread. VERDICT INDETERMINE.")
+        return 2
+    centre = (lo + hi) / 2.0
+    print("  CONSTANT a +-1 de materialisation de borne -> meme base ; centre = %.1f" % centre)
+
+    print("=== ETAGE 2 -- le NATIF suit-il le champ de la BC ? ===")
     for r in rows:
-        pct_bc = 0 if (r["bc_ignore"] or r["bc_pct"] is None) else int(r["bc_pct"])
-        att = expected_spread(base_ref, pct_bc)
-        obs = (r["max"] - r["min"]) // 2
-        tag = "OK" if obs == att else "ECART"
-        print("  %-8s BC.pct=%-4s ignore=%-5s -> demi-amplitude natif=%-6d attendu(BC)=%-6d %s"
+        pct_bc = _effective_pct(r)
+        att = centre * pct_bc / 100.0
+        obs = (r["max"] - r["min"]) / 2.0
+        ok = abs(obs - att) <= 1.5          # <=1 par borne materialisee independamment
+        tag = "OK" if ok else "ECART"
+        print("  %-8s BC.pct=%-5s ignore=%-5s -> demi-amplitude natif=%-8.1f attendu(BC)=%-8.1f %s"
               % (r["arm"], r["bc_pct"], r["bc_ignore"], obs, att, tag))
-        if obs != att:
+        if not ok:
             verdict = 1
 
-    print("=== ETAGE 3 -- le PORT suit-il, et de combien le litteral 20 se trompait-il ? ===")
+    print("=== ETAGE 3 -- le PORT lit-il le meme champ ? ===")
     for r in rows:
-        pct_bc = 0 if (r["bc_ignore"] or r["bc_pct"] is None) else int(r["bc_pct"])
-        mut20 = expected_spread(base_ref, 20)
-        att = expected_spread(base_ref, pct_bc)
-        print("  %-8s port_pct=%-4d (attendu %-4d) | demi-amplitude portee=%-6d "
-              "mutant `20 en dur`=%-6d ecart=%d"
-              % (r["arm"], r["port_pct"], pct_bc, expected_spread(base_ref, r["port_pct"]),
-                 mut20, abs(mut20 - att)))
+        pct_bc = _effective_pct(r)
+        tag = "OK" if r["port_pct"] == pct_bc else "ECART"
+        print("  %-8s port_pct=%-4d attendu=%-4d %s   (mutant `20 en dur` : %d)"
+              % (r["arm"], r["port_pct"], pct_bc, tag, 20))
         if r["port_pct"] != pct_bc:
             verdict = 1
 
-    print("=== ETAGE 4 -- face COMBAT (degat REELLEMENT inflige, PRNG rejoue) ===")
-    for name, c in combat.items():
-        if c.get("skip"):
-            print("  %-8s NON CONFRONTE : %s" % (name, c["skip"]))
+    print("=== ETAGE 4 -- face COMBAT (replay-diff, PRNG cale sur le MT live) ===")
+    for r in rows:
+        if r.get("combat_skip"):
+            print("  %-8s NON CONFRONTE : %s" % (r["arm"], r["combat_skip"]))
             continue
-        r = next(x for x in rows if x["arm"] == name)
-        pct_bc = 0 if (r["bc_ignore"] or r["bc_pct"] is None) else int(r["bc_pct"])
-        d_bc, d20 = expected_spread(base_ref, pct_bc), expected_spread(base_ref, 20)
-        roll_bc = roll_from(c["mt"], c["mti"], base_ref - d_bc, base_ref + d_bc)
-        roll_20 = roll_from(c["mt"], c["mti"], base_ref - d20, base_ref + d20)
-        deg = " [REGIME DEGENERE -- les deux modeles coincident, l'accord ne prouve rien]" \
-            if roll_bc == roll_20 else ""
-        print("  %-8s inflige=%-7d | modele BC=%-7d | modele `20 en dur`=%-7d ecart=%d%s"
-              % (name, c["actual"], roll_bc, roll_20, abs(roll_bc - roll_20), deg))
-        if c["actual"] != roll_bc:
+        live, obc, o20 = r["live_dmg"], r["off_bc"], r["off_20"]
+        deg = ""
+        if obc == o20:
+            deg = "  [REGIME DEGENERE -- les deux modeles coincident, l'accord ne prouve rien]"
+        print("  %-8s live=%-8d port(BC)=%-8s port(mutant)=%-8s ecart_modeles=%s%s"
+              % (r["arm"], live, obc, o20,
+                 ("?" if obc is None or o20 is None else abs(obc - o20)), deg))
+        if obc != live:
             verdict = 1
 
     print("=== VERDICT === %s" % ("VERT" if verdict == 0 else "ROUGE"))
