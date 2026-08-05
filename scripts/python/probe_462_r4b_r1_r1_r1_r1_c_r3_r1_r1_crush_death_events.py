@@ -75,12 +75,13 @@ def _mk_unit(st, visual, col, row, team, player=None, traits=None, hp=100, alive
     return int(e.id)
 
 
-def _mk_crush(mover_traits=None, mover_passives=None, decoy_team=1, mover_team=1):
+def _mk_crush(mover_traits=None, mover_passives=None, decoy_team=1, mover_team=1,
+              mover_visual="mover"):
     """Un mover et un `Steppable` CO-LOCALISES : appeler `_kill_steppable_units` ecrase le second."""
     from engine.entities.effects_state import EffectsState
     st = State()
     st.effects = EffectsState()
-    mover = _mk_unit(st, "mover", 1, 1, mover_team, traits=mover_traits,
+    mover = _mk_unit(st, mover_visual, 1, 1, mover_team, traits=mover_traits,
                      passives=mover_passives, hp=1000)
     decoy = _mk_unit(st, "genesSmnDecoy", 1, 1, decoy_team,
                      traits=[UnitTrait.Steppable.name, UnitTrait.Decoy.name], hp=1)
@@ -156,14 +157,19 @@ def step_emission(mutate: str | None = None) -> int:
 # --------------------------------------------------------------------------- consommateurs
 
 def _fire_actofaith(crush: bool):
-    """MOVER porteur du trait `ActOfFaith` (et Imperial) : son accumulation ecoute `On(1)` et teste
+    """MOVER porteur du trait `ActOfFaith` : son accumulation ecoute `On(1)` et teste
     `AreFriends(killer|dying, owner) & HasTrait(Imperial)`. Le TUEUR d'un crush est le mover
-    lui-meme -> le trigger fire des que l'evenement part."""
+    lui-meme -> le trigger fire des que l'evenement part.
+
+    ⚠ Le `HasTrait(26 = Imperial)` du natif se lit cote port sur la FACTION gameconfig
+    (`act_of_faith._faction_id` / `IMPERIAL_FACTIONS`), pas sur la liste de traits : le montage
+    doit donc porter un `visualId` REEL de faction imperiale, pas un nom synthetique."""
     from engine.entities.stats import StatType
     from engine.runner.operations import movement as MV
-    st, mover, _decoy = _mk_crush(mover_traits=[UnitTrait.ActOfFaith.name, "Imperial"])
+    st, mover, _decoy = _mk_crush(mover_traits=[UnitTrait.ActOfFaith.name],
+                                  mover_visual="ultraTitus")
     sc = st.get_entity(mover).get_component(StatsComponent)
-    sc.ctx.stats[int(StatType.CRIT_DAMAGE)] = 150      # `NOT(owner crit_damage == 0)`
+    sc.ctx.stats.set_stat_override(int(StatType.CRIT_DAMAGE), 150)   # `NOT(crit_damage == 0)`
     vus = []
     from engine.runner.operations.triggers.loki import act_of_faith as AOF
     orig = AOF.ActOfFaithAccumulateAbility.execute_behaviour
