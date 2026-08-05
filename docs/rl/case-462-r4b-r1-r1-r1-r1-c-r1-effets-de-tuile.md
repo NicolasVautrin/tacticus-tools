@@ -323,7 +323,9 @@ voulu, ils fixaient le comportement d'avant : `test_un_owner_introuvable_passe_d
 surplus `alive` ; il garde désormais que la levée **ne déborde pas** sur l'autre face). Le contrôle du
 probe `-c-r1 --step gate` est inversé pour la même raison.
 
-**Non-régression : 226 verts** — `test_462_r4b_r1_r1_r1_r1_c_r1_tile_owner_gate_live` + `bond_removal_live` (11),
+**Non-régression : 208 verts sur 26 fichiers** (24 live + 2 offline), plus **70** re-joués APRÈS le
+rebase sur `origin/master` (#629 mergée entre-temps) et le cliquet offline complet `probe_457`
+(**2024 tests**) — `test_462_r4b_r1_r1_r1_r1_c_r1_tile_owner_gate_live` + `bond_removal_live` (11),
 `death_queue_ordering_live` (22), les trois `overwatch_*` (18), `tile_effect_dynamics_live` +
 `load_state_inactive_effects_live` (15), `rites_of_morkai_revive_live` (13),
 `haze_of_corruption_transfer_live` + `haze_bonded_chain_live` (27), `rad_saturation_live` +
