@@ -706,10 +706,19 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    Pas pour `node_modules`, pas pour `frida/hooks/scratch`, pas pour `data/` — pour rien.
    **Pourquoi** : sous Windows, une suppression récursive forcée (`git worktree remove --force`,
    `Remove-Item -Recurse`) **SUIT le point de reparse et vide la CIBLE**. Mesuré le 2026-07-31 :
-   `frida/hooks/scratch` (67 modules, gitignorés, jamais versionnés, aucune copie ailleurs) a été
-   détruit dans l'arbre principal par cette voie, et `frida/node_modules` amputé. Le bundle est
-   devenu inconstructible. Un agent qui a « nettoyé sa junction avant de rendre la main » ne prouve
-   rien : la destruction a lieu au `worktree remove`, après son départ.
+   `frida/hooks/scratch` a été détruit dans l'arbre principal par cette voie, et `frida/node_modules`
+   amputé. Le bundle est devenu inconstructible. Un agent qui a « nettoyé sa junction avant de rendre
+   la main » ne prouve rien : la destruction a lieu au `worktree remove`, après son départ.
+
+   ⚠ **Ce qui rend une destruction IRRÉVERSIBLE, c'est le NON-VERSIONNEMENT — pas la junction.**
+   `frida/hooks/scratch` était alors gitignoré : re-mesuré le 2026-08-05, l'arbre git juste avant
+   `774df416` portait **0** entrée sous ce chemin (témoin : 2 733 entrées au total), donc **rien
+   n'était récupérable depuis git** — un seul module a pu revenir, reconstruit depuis le bundle
+   compilé. **`frida/hooks/scratch` est VERSIONNÉ depuis** (#365, `774df416`) : **73 fichiers**,
+   dont **66 dans le bundle**. Le danger d'aujourd'hui porte donc ailleurs — sur `frida/node_modules` (qui se
+   réinstalle) et sur tout fichier laissé **non suivi**, que rien ne protège. La règle qui protège
+   est en amont de l'interdiction : **une entrée de build se versionne**, et le cliquet
+   `probe_480r1_entrees_de_build.py` interdit qu'on la redécrive comme jetable.
    **Si un build te manque une dépendance** : `npm ci` dans TON worktree (`package-lock.json` est
    versionné, ~10 s) — jamais un lien vers l'arbre du voisin. Si une **source** te manque, c'est
    qu'elle est gitignorée à tort : dis-le, ne la contourne pas. Le cliquet

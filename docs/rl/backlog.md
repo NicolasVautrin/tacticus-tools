@@ -601,13 +601,6 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   ce qui a bougé, c'est qu'il ne reste plus **que** lui. Second volet, mineur : les PR au-delà des
   **200** plus récentes ne sont pas lues (mesuré **0 changement** à 670, chiffre à re-dériver — la
   sortie le dit). Détail : `case-468-r11-monotonie-des-deux-modes-et-corps-des-pr.md` §5.
-- **`#480-r1` — `frida/hooks/scratch/` : 69 fichiers VERSIONNÉS et BUNDLÉS, qualifiés « gitignoré ».**
-  Il ne l'est plus depuis #365 (2026-07-31) — le `.gitignore` le dit ENTRÉE DE BUILD, et
-  `controller.ts` en fait **67 imports statiques**. Les **142** erreurs `tsc` qu'il porte (sur 146 au
-  total) sont donc écartées de tout décompte par une propriété git périmée, répétée par `case-477`
-  (§8, §10.5) et `case-475` (§7). Trancher : soit elles rentrent dans le contrat de typage, soit
-  l'exclusion est **écrite et motivée**. *Retournement* : le compte `tsc` est stable et assumé, et
-  plus aucune case-doc ne les dit gitignorés. `case-480-audit-hooks-frida.md` §1a.
 - **`#480-r2` — `probe_252` ne pèse qu'un SENS de la bijection.** Son verdict est
   `faux or absents` (table -> enum) ; `manquants` (enum -> table) est calculé, **affiché, et ignoré**.
   Les 6 tables étant aujourd'hui en bijection exacte, le faire peser ne produirait **aucun faux
@@ -619,10 +612,16 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   deux mesures distinctes, et seule la seconde vaut pour un appelant. Remède : endpoint host rendant
   `Object.keys(script.exports)`. *Retournement* : l'absence d'un RPC se distingue d'une erreur
   d'exécution sans lire le bundle. `case-480` §5.
-- **`#480-r4` — `npm run build:hooks` échoue (`ENOENT`) sur un worktree frais** tant que
-  `frida/dist/` n'existe pas. Bénin, mais contredit « un worktree frais est RUNNABLE par son seul
-  checkout » pour la voie bundle. *Retournement* : `npm ci` puis `npm run build:hooks` rc 0 sans
-  `mkdir` manuel. `case-480` §10.
+- **`#480-r5` — deux restes du chantier `hooks/scratch/`.** (a) Les **142** erreurs `tsc` (sur 146)
+  d'un répertoire **versionné et bundlé** ne sont pas tranchées : les faire entrer au contrat de
+  typage, ou **écrire et motiver** l'exclusion — `#480-r1` a corrigé la qualification qui les
+  écartait, pas leur sort. (b) La **voie DIRECTE** de build
+  (`node node_modules/frida-compile/dist/cli.js`, documentée dans `tacticus-orchestration` §147)
+  échoue toujours si `frida/dist/` n'existe pas : elle court-circuite le script npm. Le remède qui
+  couvrirait toutes les voies — versionner un marqueur sous `frida/dist/` — contredit la lettre de
+  « Ne jamais commit `frida/dist/` » et demande un arbitrage. *Retournement* : le compte `tsc` est
+  stable et assumé, et un checkout frais produit le bundle par **n'importe laquelle** des voies
+  documentées. `case-480r1-scratch-versionne-et-bundle.md` §4, §7.
 
 - **`#462-r4a-r1` — le décompilé route en APPARENCE les deux canaux vers `Multiplier@0x30`.**
   `IdunBattle.Core.Services.DamageModifiers$$Add` surcharge 2-ARGUMENTS (celle des EFFETS) appelle

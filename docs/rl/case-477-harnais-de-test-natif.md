@@ -372,7 +372,7 @@ grande chaîne (`length` en `+0x10`, chars UTF-16 en `+0x14`) et rapporte `outpu
 un booléen `truncated`.
 
 **Vérifié** : `npx tsc -p tsconfig.hooks.json --noEmit` → **0 erreur imputable** (146 erreurs
-préexistantes, dont 142 dans `hooks/scratch/`, gitignoré) ; `npm run build:hooks` → **exit 0**,
+préexistantes, dont 142 dans `hooks/scratch/`, versionné et bundlé) ; `npm run build:hooks` → **exit 0**,
 bundle 1 135 960 o, symbole présent.
 
 ⛔ **NON CONFRONTÉ — nécessite une fenêtre de reinject.** Un agent ne réinjecte pas. Le code est
@@ -535,7 +535,7 @@ Toutes les marches d'offsets de la RE ci-dessus sont vérifiées **par nom** :
   même seed, même board, mêmes rosters ; rc 3 = bundle antérieur au correctif).
 
 ⛔ **NON CONFRONTÉ — fenêtre de reinject.** Vérifié : `npx tsc -p tsconfig.hooks.json --noEmit`
-→ 146 erreurs, **toutes préexistantes** (142 dans `hooks/scratch/`, gitignoré), aucune sur les
+→ 146 erreurs, **toutes préexistantes** (142 dans `hooks/scratch/`, versionné et bundlé), aucune sur les
 4 fichiers touchés ; `npm run build:hooks` → exit 0.
 
 ### 10.6 Ce que l'armement donnera — et ce qu'il ne donnera PAS

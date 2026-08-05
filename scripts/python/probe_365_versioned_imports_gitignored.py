@@ -1,9 +1,11 @@
 """Probe #365 -- un fichier VERSIONNE ne doit pas importer statiquement un chemin GITIGNORE.
 
-LA FAUTE QUE CE CLIQUET REND VISIBLE (mesuree le 2026-07-31)
------------------------------------------------------------
+LA FAUTE QUE CE CLIQUET REND VISIBLE (mesuree le 2026-07-31, CORRIGEE depuis)
+-----------------------------------------------------------------------------
 `frida/hooks/controller.ts` est SUIVI PAR GIT et importe **67** modules `./scratch/*.js` que
-`.gitignore` exclut (`frida/hooks/scratch/`). Trois consequences, toutes constatees le meme jour :
+`.gitignore` excluait ALORS. `frida/hooks/scratch/` est VERSIONNE depuis (meme commit que ce
+probe, `774df416`) ; l'etat decrit ici est celui de la faute, pas celui du depot.
+Trois consequences, toutes constatees le meme jour :
 
   1. **Le depot n'est pas auto-constructible.** Un clone frais ne compile pas : `frida-compile`
      rend 67 `TS-1 Cannot find module './scratch/*.js'`.
