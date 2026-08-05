@@ -91,10 +91,17 @@ l'appelle avec `target`), `0x23` en a **deux** (`FinishUnitTurn(unit, isTerminat
 par `spawn.py` et `FinishUnitTurnBehaviour$$Execute`). Les trois fonctions « fin de tour d'unite »
 sont adjacentes dans l'interface.
 
-⇒ Ce qui bloque le port de `VerifyUnitTurnEnded` n'est donc **pas** l'ancrage, mais le **CORPS** :
-`HasTilesToMoveTo` = `<IMovementQuery slot 3>` = `MovementQuery$$GetMovableTilesFor`, que le moteur
-offline ne CALCULE pas — il le RECOIT du RPC `aiMovableTiles` (`engine/services/movement_query.py`
-prend `movable_tiles` en ENTREE). C'est la vraie forme du residu `#287-r1-r1`.
+⇒ Ce qui bloque le port de `VerifyUnitTurnEnded` n'est donc **pas** l'ancrage, mais le **CORPS**.
+
+⚠ **CE PARAGRAPHE A ETE ECRIT FAUX, et #287-r1-r1 l'a corrige.** Il disait : « `HasTilesToMoveTo` =
+`<IMovementQuery slot 3>` = `MovementQuery$$GetMovableTilesFor`, que le moteur offline ne CALCULE
+pas — il le RECOIT du RPC `aiMovableTiles` ». **Deux erreurs** : le slot 3 est
+`MovementQuery$$HasAnyMovablePositionsFor` (le mode ANY, pas le mode FILL), et le port CALCULE bien
+ce pathfinding (`engine/services/movement_query.get_movable_tiles_for`, complet depuis `#381-r4`).
+Ce qui prend `movable_tiles` en ENTREE, c'est `get_movable_positions_for` — l'etage d'EMPREINTE
+au-dessus. Le vrai obstacle etait l'AUTRE predicat, `HasActionAvailable` ->
+`AttackQuery$$HasValidTargets`. Residu **FERME** :
+`docs/rl/case-287-r1-r1-verify-turn-ended.md`.
 
 ## 3. QUI LIT le flag, et qu'en fait-il — la ventilation, pas la liste
 
@@ -212,8 +219,11 @@ de `FinishUnitTurnOperation.execute` ->
 Arbre restaure, verts re-joues.
 
 **NON COUVERT** :
-1. le RETRAIT et la POSE par `VerifyUnitTurnEnded` -> residu `#287-r1-r1`, **chiffre** ci-dessus.
-   Le blocage n'est PAS l'ancrage (lu, §2) mais `HasTilesToMoveTo`, non derivable offline ;
+1. ~~le RETRAIT et la POSE par `VerifyUnitTurnEnded`~~ -> **FERME par `#287-r1-r1`**
+   (`case-287-r1-r1-verify-turn-ended.md`). L'operation est portee et branchee a l'ancrage lu ;
+   le bras `apres_deplacement` est passe de l'ecart `{4}` a l'EGALITE bilaterale, et le RETRAIT est
+   confronte a part (`probe_287r1r1_verify_turn_ended.py`). Le « blocage `HasTilesToMoveTo`, non
+   derivable offline » ecrit ici etait **faux** (cf. §2) ;
 2. la pose PRECOCE d'`ActiveAbilityOperation$$ExecuteInternal` n'est pas mirroree a sa place exacte
    (equivalente sur l'observable final, cf. §2) ;
 3. les trois generiques DSL qui pourraient lire le flag 4 par configuration ne sont pas balayes ;

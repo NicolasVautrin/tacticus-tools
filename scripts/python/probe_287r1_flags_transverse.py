@@ -27,10 +27,16 @@ fois** apres chaque message, en phase NON interne. Une unite qui vient de bouger
 `ArrivedAtFinalTile`, donc `MovementQuery$$FindAnyOrAllMoveableTiles` rend `false` d'entree ; si
 elle n'a en plus aucune cible, `VerifyUnitTurnEnded` conclut « plus d'options » et pose le flag.
 
-Le 2e bras MESURE donc l'ECART, il ne l'attend plus a zero. Deux exigences le gardent :
-l'ecart doit valoir EXACTEMENT `{NoActionAvailable}` (tout autre flag = un vrai bug), et il doit
-etre RESTRICTIF (le port n'a jamais un flag que le natif n'a pas) -- le port ne pose que par
-`FinishUnitTurn`, donc il est un SOUS-ENSEMBLE du natif, jamais permissif. Residu `#287-r1-r1`.
+Le 2e bras a donc MESURE l'ecart au lieu de l'attendre a zero, et l'a encadre : il valait
+EXACTEMENT `{NoActionAvailable}`, et il etait RESTRICTIF. C'etait le residu `#287-r1-r1`.
+
+⚠ CE RESIDU EST FERME (#287-r1-r1) : `IdunBattle.Operations.VerifyUnitsTurnFinishedOperation` est
+portee (`runner/operations/turnflow.py`) et branchee dans `Runner.apply` a l'ancrage LU (slot
+`IOperationProcessor` 0x21 de `RunPhase`). Le 2e bras exige DESORMAIS l'EGALITE D'ENSEMBLES,
+BILATERALE, sous deux regimes temoins : le natif doit poser `NoActionAvailable` (sinon le bras ne
+mesure rien) et ne PAS poser `TurnFinished` (sinon il mesurerait `FinishUnitTurn`, pas
+`VerifyUnitTurnEnded`). Mesure du 2026-08-05 sur `C1_74`/34117/`ultraCalgar` : `live=[0, 1, 4]`,
+`port=[0, 1, 4]`.
 
 ⚠ L'ATTAQUE NORMALE N'EST PAS un `kind` d'`applyAction` : c'est une ABILITY dont le type est
 PER-UNIT (`ActiveAbilityComponent.NormalAttackType@0x28`, jamais le 17 de la FAMILLE). L'id est LU
@@ -259,30 +265,39 @@ def main() -> int:
               % (a2["live_added"], a2["port_added"], sorted(manque), sorted(trop)))
         ok = False
 
-    # --- BRAS `apres_deplacement` : l'ECART EST ATTENDU, mais BORNE. --------------------------
-    # Il vaut le residu #287-r1-r1 (`VerifyUnitTurnEnded`, non porte) et RIEN d'autre ; et il est
-    # RESTRICTIF -- le port ne pose que par `FinishUnitTurn`, donc jamais de flag en trop.
+    # --- BRAS `apres_deplacement` : L'ECART A ETE FERME PAR #287-r1-r1 -> EGALITE EXIGEE. -----
+    # Ce bras a change de sens DEUX fois, et chaque fois parce que la mesure l'a impose :
+    #   1. ecrit avec l'attente « aucun flag 4 » -- REFUTEE, le natif le pose bien (via
+    #      `VerifyUnitTurnEnded`, PAS via `FinishUnitTurn` : `TurnFinished` reste absent) ;
+    #   2. re-ecrit pour ENCADRER le residu #287-r1-r1 (ecart == exactement `{NoActionAvailable}`,
+    #      et RESTRICTIF) ;
+    #   3. desormais : `VerifyUnitsTurnFinishedOperation` EST portee et branchee dans `Runner.apply`
+    #      -> le port pose le meme flag, par la meme voie. L'exigence est l'EGALITE D'ENSEMBLES,
+    #      BILATERALE (ni manquant, ni en trop). Un ecart `{4}` qui reviendrait signifierait que la
+    #      voie a cesse de mordre -- c'est exactement ce que la contre-epreuve provoque.
+    # REGIME TEMOIN (sans lui, une egalite entre deux ensembles trop pauvres passerait pour un
+    # succes) : le natif DOIT poser `NoActionAvailable` sur ce bras, et il ne doit PAS poser
+    # `TurnFinished` -- c'est ce couple qui prouve que la voie mesuree est bien `VerifyUnitTurnEnded`
+    # et non `FinishUnitTurn`.
+    TF = int(UnitFlag.TurnFinished)
     m = r["apres_deplacement"]
     manque_m = set(m["live_added"] or []) - set(m["port_added"] or [])
     trop_m = set(m["port_added"] or []) - set(m["live_added"] or [])
-    if trop_m:
-        print("[287r1-t] ECHEC bras `apres_deplacement` : le PORT pose des flags que le natif ne "
-              "pose PAS (en_trop=%s) -- la degradation cesserait d'etre restrictive"
-              % sorted(trop_m))
+    if NA not in (m["live_added"] or []):
+        print("[287r1-t] REGIME TEMOIN casse : le NATIF ne pose pas le flag %d apres un simple "
+              "deplacement (live=%s) -- le bras ne mesure PAS `VerifyUnitTurnEnded`"
+              % (NA, m["live_added"]))
         ok = False
-    if manque_m and manque_m != {NA}:
-        print("[287r1-t] ECHEC bras `apres_deplacement` : ecart AUTRE que le residu #287-r1-r1 "
-              "(live=%s port=%s manquants=%s)" % (m["live_added"], m["port_added"],
-                                                  sorted(manque_m)))
+    if TF in (m["live_added"] or []):
+        print("[287r1-t] REGIME TEMOIN casse : le natif pose AUSSI `TurnFinished` (%d) -- ce bras "
+              "mesurerait alors `FinishUnitTurn`, pas `VerifyUnitTurnEnded` (live=%s)"
+              % (TF, m["live_added"]))
         ok = False
-    if manque_m == {NA}:
-        print("[287r1-t] RESIDU #287-r1-r1 MESURE : apres un simple deplacement, le natif pose "
-              "%d (via `VerifyUnitTurnEnded`, slot 0x21 de `RunPhase`) et le port non "
-              "(live=%s port=%s). Ecart RESTRICTIF, borne a ce seul flag."
-              % (NA, m["live_added"], m["port_added"]))
-    elif not manque_m:
-        print("[287r1-t] NB : aucun ecart sur `apres_deplacement` -- l'unite gardait des options, "
-              "`VerifyUnitTurnEnded` n'a donc pas pose le flag (live=%s)" % m["live_added"])
+    if manque_m or trop_m:
+        print("[287r1-t] ECHEC bras `apres_deplacement` : live=%s port=%s (manquants=%s "
+              "en_trop=%s). `manquants=[%d]` = la voie `VerifyUnitTurnEnded` ne mord plus."
+              % (m["live_added"], m["port_added"], sorted(manque_m), sorted(trop_m), NA))
+        ok = False
 
     print("[287r1-t] board=%s seed=%s normal=%s : deplacement live=%s port=%s | attaque live=%s "
           "port=%s" % (r["board"], r["seed"], r.get("normal_ability"), m["live_added"],

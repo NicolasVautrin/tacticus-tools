@@ -782,8 +782,11 @@ class UnitFlagsComponent(Component):
             $$Execute` et `IdunBattle.Operations.ResurrectUnitOperation$$SendStreamEvents`, qui le
             publient sous `TagKey.UnitStats_ActionsAvailable` (`HasFlag(u, 4) ^ 1`) ; plus 11
             sites `View.FSM` via `HasActionLeft` (sélection à la souris).
-        La POSE est portée depuis #287-r1 (queue de `FinishUnitTurnOperation`) ; le RETRAIT n'a
-        aucun appelant offline (résidu `#287-r1-r1`).
+        La POSE est portée depuis #287-r1 (queue de `FinishUnitTurnOperation`) ; le RETRAIT l'est
+        depuis #287-r1-r1 — `VerifyUnitsTurnFinishedOperation` (`operations/turnflow.py`), branchée
+        dans `Runner.apply` comme `RunPhase` invoque le slot 0x21. C'est la SEULE voie native de
+        retrait, et elle est load-bearing : `RemoveTurnFlags(includeNoAction: 0)` CONSERVE ce flag
+        au changement de tour.
       • `FLED (9)` : « a fui » (FleeOperation ; re-testé NOT HasFlag(self,9) par BattleFatigue).
       • `TURN_FINISHED_FORCED (27 = 0x1b)` : posé par FinishUnitTurnOperation quand `forced` (hors enum du
         dump — ajout post-dump ; nom descriptif, structure lue IdunBattle.Operations.FinishUnitTurnOperation$$Execute/IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags)."""
