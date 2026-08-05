@@ -188,8 +188,14 @@ Nommé, et rendu exécutable par `SCALAIRES_ASSUMES` :
 
 ## 10. Validation adversariale — 20 mutants, 20 détectés
 
-`scratchpad/r3_mutants.py` (18) + `r3_mutants2.py` (2) : chaque mutation est appliquée sur l'arbre
-réel, le test joué, puis `git checkout` restaure.
+`scripts/python/probe_270r1r1r3_mutants.py` — **commité**, parce qu'une garde verte ne prouve rien
+si le harnais qui l'a validée meurt avec un scratchpad. Chaque mutation est appliquée sur l'arbre
+réel, le test joué, puis `git checkout` restaure ; le probe **refuse de démarrer** si
+`scripts/python` porte des modifications non commitées (il les détruirait).
+
+Il distingue **trois** issues, et c'est le point : `ROUGE` (garde mordante), `VERT` (mutation
+appliquée, garde muette) et `MOTIF ABSENT` (mutation jamais appliquée) — les confondre fait accuser
+la mauvaise pièce.
 
 Renumérotage d'un membre utilisé (×2) · retour à l'ordinal nu (×2) · confusion des deux index ·
 membre supprimé · membre renommé · mirror retiré du registre · mirror mis en dette · clé de
@@ -209,7 +215,8 @@ ne se voit qu'en allant lire *pourquoi* :
 
 Refaits pour mordre réellement (mutation dans le code ; déplacement de fichier + réécriture des 10
 imports), les deux sont **détectés**. Un mutant vert oblige à trancher entre « garde trouée » et
-« mutant inopérant » — et la réponse n'est pas devinable, elle se lit.
+« mutant inopérant » — et la réponse n'est pas devinable, elle se lit. Les deux corrections sont
+**dans le probe commité**, y compris le mutant M20 qui déplace physiquement le fichier.
 
 ## 11. Ce qui a été rejoué
 
