@@ -1,8 +1,10 @@
 # #448-r3 — le pas de mouvement est ATOMIQUE : on n'observe un marqueur transitoire que de l'INTÉRIEUR
 
 **Statut** : RÉSOLU pour les trois fichiers de garde de la famille `ATeleportingEffect`
-(`1036`, `1241`, `1574`). Un quatrième fichier (`r2b`, `1140`) reste rouge **pour une autre
-cause**, documentée en §6 et ouverte en `#448-r3-r1`.
+(`1036`, `1241`, `1574`). Le quatrième (`r2b`, `1140`) l'est depuis **`#448-r3-r1`** : la cause
+était un **étage entré depuis** (`9fc0deca` a porté `StormboyzStrike_MissAbility` et
+`_FallbackAbility`), doublée d'un probe qui **ne mesurait rien en CLI** faute de transport RPC
+ambiant. Détail : **`docs/rl/case-448-r3-r1-etage-entre-depuis.md`**.
 
 ## 1. Le symptôme, et pourquoi il accusait le mauvais coupable
 
@@ -123,7 +125,16 @@ coûteux des deux, et c'est celui que le découpage avait installé en silence.
 | idem, sur le test **d'origine** | (démonstration du vert-qui-ment) | **VERT** — la garde n'exerçait rien |
 | `probe_448_r3 --mutate` | détecte | détecte — `[E-MOVING] [1035]` |
 
-## 6. Résidu — `r2b` / `1140 StormboyzStrike_TeleportingIn` reste ROUGE, autre cause
+## 6. Résidu — `r2b` / `1140 StormboyzStrike_TeleportingIn` (FERMÉ par `#448-r3-r1`)
+
+> **Ce qui suit est le CONSTAT de cette tranche-ci ; la cause a été trouvée depuis.** Elle n'est
+> ni le découpage (bien éliminé ci-dessous) ni les deux pistes qui suivent : `9fc0deca` (#448-r1,
+> **2026-08-03**) a porté `...StormboyzStrike_MissAbility` (qui retire `1140` au `On(0x1f)`) et
+> `..._FallbackAbility` (qui repose l'unité au `On(0x28)`), que la garde — écrite le **2026-08-01** —
+> déclare NON PORTÉES. Le port avait rejoint le natif ; les trois assertions décrivaient l'état
+> d'avant. S'y ajoutait un probe **vert-qui-ment en CLI** (transport ambiant non lié ⇒ la greffe
+> n'était pas montée côté port). **`docs/rl/case-448-r3-r1-etage-entre-depuis.md`**.
+
 
 `test_448_r2b_stormboyz_teleporting_in_live.py` rend **3 failed / 6 passed**, et c'est
 **préexistant** : re-mesuré avec le probe remis à l'état `628f08cc`, **mêmes 3 échecs, mêmes

@@ -3,6 +3,11 @@
 Tranche 2/4 de la famille `IdunBattle.Entities.Effects.Loki.ATeleportingEffect`
 (inventaire : `case-448-r2-ateleporting-effect-family.md`). Build `rnca9r7q6c`.
 
+> **Les §2 à §4 ont été RÉVISÉS par `#448-r3-r1` (2026-08-05).** Ils décrivaient un port où
+> `…StormboyzStrike_MissAbility` et `…_FallbackAbility` n'étaient pas encore portées, et les gardes
+> l'exigeaient. Ce qui a changé, ce qui reste, et pourquoi le probe ne le montrait pas en ligne de
+> commande : **`docs/rl/case-448-r3-r1-etage-entre-depuis.md`**.
+
 Les quatre `Triggered()` de la base ne sont pas relus ici — ils l'ont été par la tranche 1, et le
 port les réutilise **tels quels**. Ce document ne traite que ce qui est **propre à 1140**, et c'est
 exactement ce qui aurait pu être obtenu par symétrie et faux : le `Nullable` vide de
@@ -84,17 +89,21 @@ et la branche prise dépend du seul `GetMovingEffectType`. La garde
 fausse » de « la condition est vraie mais le behaviour est `Nothing()` » — seule la seconde est le
 natif.
 
-**Deux tiers non portés changent QUEL étage agit côté natif** — et ne pas le dire aurait fait lire
-un désaccord de port là où il n'y en a pas. Les deux sont des résidus nommés de
-`case-448-r1-stormboyz-fallback-miss.md` :
+**Deux tiers du même kit décident QUEL étage agit** — et ne pas le dire aurait fait lire un
+désaccord de port là où il n'y en a pas. Ils sont **PORTÉS depuis `9fc0deca` (#448-r1,
+2026-08-03)**, donc les deux côtés empruntent désormais le même étage :
 
 * `…StormboyzStrike_MissAbility` — `On(0x1f PreUnitMove) & OwnerIsActor & HasEffect(Owner, 0x474)`
   → `… & RemoveEffect(Caster, 0x474) & …`, le `RemoveEffect` étant **hors** du `If`, donc
-  INCONDITIONNEL. Côté natif c'est donc **elle** qui retire 1140, au pré-move ; T1 n'a plus rien à
-  retirer. Côté port (Miss absente) c'est T1. **Même état final, étage différent.**
+  INCONDITIONNEL. C'est **elle** qui retire 1140, au pré-move ; T1 n'a plus rien à retirer.
 * `…StormboyzStrike_FallbackAbility` — `On(0x28 UnitFinishedTurn) & OwnerIsActor &
   HasEffect(Owner, 0x474)` → `MoveUnitBehaviour(…)` qui REPOSE l'unité. Après quoi `HasTile(Owner)`
   devient vrai et **T3 retire**. C'est la lecture de `case-448-r1` §5, et cette tranche la joue.
+
+> ⚠ **Ce paragraphe a été écrit alors que les deux étaient NON PORTÉES, et les gardes de cette
+> tranche exigeaient du port qu'il s'en écarte.** Elles ont rougi trois jours durant en accusant le
+> port. Réparé par **`#448-r3-r1`** — `docs/rl/case-448-r3-r1-etage-entre-depuis.md`, qui refond le
+> §3 ci-dessous.
 
 ---
 
@@ -110,23 +119,27 @@ déjà validé 3/3 par #366-r1. Deux montages : `orksNob`/`MC1_67`/777 (base pat
 | **E1** | état de départ natif | `pos = null`, empreinte vide, vivant, `1140 remaining = 2` |
 | **E1b** | les autres effets du porteur sous 1140 | `orksNob` : `[1516 BeastSlayer_ExtraDmg, 1517 BeastSlayer_ExtraBlock]` **déjà posés** |
 | **T2-VIDE** | `abilityTargets.fromHere` du porteur hors plateau | `[]` des deux côtés |
-| **E-MOVING** | l'état PENDANT le pas, côté port | `[1140, …]` — **aucun** `*_Moving` ; après le vecteur after-move, `1140` parti |
-| **CONFRONT-MOVE** | `pos`/`feet`/`alive`/**liste entière** des effets/`untargetable` | égalité terme à terme |
-| **CONFRONT-MOVE** | la CASCADE d'events native (20 puis 15 events) | `Effect_Refresh «StormboyzStrike_TeleportingIn»` et **AUCUNE** ligne `*_Moving` |
-| **FINISH-a** | le port, `FinishUnitTurnOperation` sur le porteur hors plateau | **1140 CONSERVÉ**, unité toujours hors plateau |
-| **FINISH-b** | le natif, même geste | reposé en `(1,3)` / `(0,4)`, **1140 retiré**, ciblable |
-| **FINISH-c** | le port, étage du Fallback INJECTÉ + `On(0x28)` ré-émis | **égalité terme à terme** avec FINISH-b |
+| **E-PORTED** | les classes de `StormboyzStrike` montées côté port | les **trois** (`Teleport`, `Fallback`, `Miss`) |
+| **E-PREMOVE** | l'état de part et d'autre du vecteur `On(0x1f)`, côté port | `1140` **là** avant, **parti** après ; le Miss a rendu son résultat |
+| **E-MOVING** | l'état à l'entrée du vecteur after-move, côté port | **aucun** `*_Moving`, et `1140` déjà parti |
+| **CONFRONT-MOVE** | `pos`/`feet`/`alive`/**liste entière** des effets/`untargetable` | égalité terme à terme, **position comprise** (PRNG aligné) |
+| **CONFRONT-MOVE** | la CASCADE d'events native (20 puis 15 events) | retrait de `1140` **avant** le `ChangePosition` (`[5,6]`<`9`, `[4,5]`<`8`) ; **AUCUNE** ligne `*_Moving` |
+| **T3-GATE** | le bras FAUX du gate, Fallback retiré du registre | `matches()` = `False` ; `1140` survit, unité hors plateau |
+| **T3-POSITIF** | le bras VRAI, unité posée et aucun mouvement | `1140` retiré par T3 |
+| **FINISH-a/b/c** | port et natif sur le `finish` nominal | reposé en `(1,3)` / `(0,4)`, **1140 retiré**, ciblable — **égalité terme à terme** |
 
 Le **témoin positif** du scan de cascade est la tranche 1 : sur `eldarAutarch`, le MÊME scan remonte
 deux `Effect_Refresh «TeleportStrike_Moving»` encadrant le `ChangePosition`. Une cascade vide ne
 prouverait rien — le probe exige donc `cascadeCount > 0`.
 
-⚠ **Le `_MissAbility` mord et n'est pas escamoté.** Sur `MC1_67`/777 le natif atterrit en `(2,4)`
-alors que `(3,4)` était demandé. Ce n'est pas un désaccord : c'est
-`OverrideUnitMovementTarget(Owner, PickRandomly(CanAddUnit(AdjacentTiles(<dest>)), 1))`. Le probe
-n'écarte donc PAS le terme position — il l'évalue **sous la forme native** : la déviation doit être
-à **distance 1** de la destination demandée, et toute autre valeur est comptée comme un désaccord de
-port. Sur `C3_26`/31337 le Miss ne mord pas et la position est comparée à l'identique.
+⚠ **Le `_MissAbility` mord, et le PORT le suit hex pour hex.** Sur `MC1_67`/777 les deux côtés
+atterrissent en `(2,4)` alors que `(3,4)` était demandé —
+`OverrideUnitMovementTarget(Owner, PickRandomly(CanAddUnit(AdjacentTiles(<dest>)), 1))`. Sur
+`C3_26`/31337 le Miss ne dévie pas et les deux côtés vont en `(4,0)`. Le terme position est donc
+comparé **à l'identique**, et c'est l'**alignement PRNG** (`dumpRng` → `state.rng`, même recette que
+`test_448_r1_stormboyz_port_live.py`) qui le permet. Le seuil « distance 0 ou 1 » que cette fiche
+prescrivait avant `#448-r3-r1` acceptait, lui, un vrai désaccord de port du moment qu'il restait
+adjacent.
 
 ⚠ **Un canal ment sur l'unité hors plateau, et il faut RECONSTITUER l'entrée.** Une unité sans tuile
 sort d'`observeBattle` et arrive dans `decisionView` avec `visualId = pos = hp = owner = team = null`
@@ -139,13 +152,18 @@ correctif de port.
 
 ### Contre-épreuves
 
-    python scripts/python/probe_448_r2b_stormboyz_teleporting_in.py --mutate           # 5 rouges
-    python scripts/python/probe_448_r2b_stormboyz_teleporting_in.py --mutate-hastile   # 1 rouge ciblé
+    python scripts/python/probe_448_r2b_stormboyz_teleporting_in.py --mutate           # 1 rouge (T3-POSITIF)
+    python scripts/python/probe_448_r2b_stormboyz_teleporting_in.py --mutate-hastile   # 2 rouges (T3-GATE)
+    python scripts/python/probe_448_r2b_stormboyz_teleporting_in.py --mutate-nograft   # 12 rouges (E-PORTED)
 
-`--mutate` VIDE `EFFECT_TRIGGERS[1140]` (= le port d'avant cette tranche) : le porteur garde 1140
-après le pas, reste non-ciblable, et FINISH-c diverge. `--mutate-hastile` neutralise le gate de T3 :
-le port retire alors 1140 d'une unité hors plateau — exactement la dégradation PERMISSIVE que la
-tranche ferme.
+`--mutate` VIDE `EFFECT_TRIGGERS[1140]` ; `--mutate-hastile` neutralise le gate `HasTile` de T3 ;
+`--mutate-nograft` délie le transport RPC ambiant, donc la greffe n'est plus montée côté port.
+
+⚠ **`--mutate` ne mordait plus, et c'est un enseignement, pas un détail.** Une fois le Miss et le
+Fallback portés, les **quatre** `Triggered()` propres de `1140` sont devenus observationnellement
+INERTES sur le geste nominal — le kit qui les entoure les masque tous. Le bras **T3-POSITIF**
+(unité posée, aucun mouvement dans le vecteur, Fallback retiré) est ce qui rend la main à T3 et
+restaure la contre-épreuve. Ventilation trigger par trigger : `case-448-r3-r1` §5.
 
 Côté OFFLINE, **six** mutations adversariales, toutes tuées par
 `tests/engine/runner/test_448_r2b_stormboyz_teleporting_in_offline.py` : `MOVING_EFFECT_TYPE = 1036`,
@@ -161,12 +179,13 @@ greffé sur 1140, `OwnerIsActor` neutralisé.
   Le trigger est porté parce qu'il est dans l'`ArraySet` natif de la classe de base — pas parce
   qu'un geste l'exerce. Le seul chemin qui l'atteindrait est un cast *après* que le Fallback ait
   reposé l'unité, mais T3 a déjà retiré l'effet à ce moment-là.
-* **`…StormboyzStrike_MissAbility` et `…StormboyzStrike_FallbackAbility` restent NON PORTÉES** —
-  résidus de `case-448-r1` §6, avec leurs quatre pièces natives manquantes
-  (`PerformAIMovementBehaviour`, `OverrideMovementTargetOperation`, `TriggeredAbilityType.FullThrottle`).
-  Conséquences côté port, dites plutôt que masquées : le pas ne dévie jamais (0 % au lieu de 20 %),
-  aucune tuile n'est marquée `1179 _AlreadyUsedTile`, et une unité qui finit son tour hors plateau
-  **y reste**.
+* ~~**`…StormboyzStrike_MissAbility` et `…StormboyzStrike_FallbackAbility` restent NON PORTÉES**~~ —
+  **PÉRIMÉ** : `9fc0deca` (#448-r1, 2026-08-03) les a portées toutes les deux, avec leurs pièces
+  natives (`OverrideMovementTargetOperation`, `TRIGGERED_ABILITY_BEHAVIOURS[1134]` pour
+  `FullThrottle` ; le `PerformAIMovementBehaviour` annoncé **n'existait pas** — c'est un `If`, ctor
+  dédupliqué mal lu). Le pas dévie donc bien 20 % du temps, la tuile `1179 _AlreadyUsedTile` est
+  marquée, et une unité qui finit son tour hors plateau est **reposée**. Seul
+  `FullThrottle$$CreateTrigger` (le passif autonome) reste non porté — `case-448-r1` §6.3.
 * **Aucune couche impérative derrière le retrait.** 1140 ne porte pas `_TeleportStrikeLandingMixin`,
   et c'est une lecture : le régime « passives DÉFÉRÉES » de 1035 tient à ce que l'effet est là
   *avant* l'initialisation des abilities du porteur, alors que pour 1140 c'est
