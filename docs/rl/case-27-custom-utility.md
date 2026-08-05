@@ -3693,11 +3693,19 @@ Montage inchange (`probe_27_r6_instruments_of_vengeance.py`, board **MC1_67**, s
 mesure desormais un ACCORD -- et parce qu'un accord seul ne prouverait rien, il vaut TROIS
 assertions :
 
-| cran | mesure (runner 90, 2026-08-05) | pourquoi il existe |
+| cran | mesure (2026-08-05) | pourquoi il existe |
 |---|---|---|
 | substrat | `Scene.turns_finished(caster) = 0`, `gate = False` | un canal MUET rendrait le gate permissif : l'accord serait celui d'un regime DEGENERE |
 | accord | natif `['MoveUnitMessage']` ; moteur `on = (None, None)`, `to = (3,2)` | ni l'un ni l'autre ne propose 1215 |
 | contre-epreuve | gate NEUTRALISE -> moteur `(1215, 83, None)` | attribue l'accord AU GATE, et pas a autre chose |
+
+⚠ **Ces trois valeurs ont ete mesurees DEUX FOIS, sur DEUX sessions Frida distinctes**, et la
+seconde n'est pas une precaution de forme : le jeu a ete relance en cours de tranche et une premiere
+serie de runners est passee dans la fenetre ou le drain etait retombe **avant** que le warmup ne
+soit joue. Un runner monte sur session NON WARMEE rend `started: true` et ne prouve rien. La serie
+retenue ici est integralement celle d'apres warmup ; elle reproduit la premiere **a l'identique**
+(memes tuiles, memes triplets), et le seul artefact de la fenetre a ete un `rc = 2` transitoire de
+`probe_477r15a_stream_conformance.py`, revenu a `rc = 0` sans qu'aucune ligne de code ne bouge.
 
 Les cinq autres bras (A/B/C/F/D, mesures a `turnsFinished == 2`) restent **inchanges et verts** : le
 gate ne mord pas dans la fenetre deterministe, donc le port de la formule n'est pas touche.
@@ -3706,12 +3714,18 @@ gate ne mord pas dans la fenetre deterministe, donc le port de la formule n'est 
 `return True` dans `loki_custom.py` rend `test_slot4_gate_truth_table_offline` **ROUGE**
 (`assert True is False`) ; restauration verifiee par `git checkout` + re-jeu **VERT**.
 
-**Non-regression re-jouee** (tous verts, 2026-08-05) : `test_instruments_of_vengeance_decision_live`
-**16** (14 + 2 gardes offline neuves), et les six autres membres de la route non-attaque --
+**Non-regression re-jouee APRES rebase sur `origin/master` ET apres warmup** (tous verts,
+2026-08-05, **70 tests**) : `test_instruments_of_vengeance_decision_live` **16** (14 + 2 gardes
+offline neuves), et les six autres membres de la route non-attaque --
 `test_chronometron_decision_live` 7, `test_martial_exemplar_decision_live` 9,
 `test_lions_wrath_decision_live` 11, `test_plagueburst_mortar_decision_live` 10,
 `test_forward_observers_decision_live` 6, `test_sorcerous_facade_decision_live` 8 -- plus
-`test_playbook_live` 3. `probe_477r15a_stream_conformance.py` reste **rc 0** (204/204 et 316/316).
+`test_playbook_live` 3. `probe_477r15a_stream_conformance.py` **rc 0** (204/204 et 316/316) et
+`probe_468_collision_numeros.py` **PASS**.
+
+Le re-jeu post-rebase n'etait pas une formalite : la PR fusionnee entre-temps touchait
+`scripts/python/catalog_inject.py` et `scripts/python/rl_duel.py`, c'est-a-dire exactement les deux
+outils dont depend la GREFFE qui rend 1215 confrontable.
 
 ### 6. Ce qui n'est PAS couvert, et pourquoi
 
