@@ -149,7 +149,15 @@ Non régressé (re-joué) : `test_429r1_dead_target_gate_live` (6), `test_overwa
 
 ## 7. Résidus nommés
 
-* **`#429-r1-r1-r1` — l'attaque d'ABILITY déclenchée n'est gatée que par le visiteur.** Symétrique
+* **`#429-r1-r1-r1` — TRAITÉ (2026-08-05), `case-429r1r1r1-tri-call-sites-ability.md`.** Le tri est
+  fait : **9 sites**, **1 seul gaté** (le repli générique de `summon_ai`, seul à émuler un cast
+  d'ability active). Deux points de cette puce étaient inexacts : les sites ne sont pas « hors
+  `visit_ActiveAbilityMessage` » — le visiteur n'appelle **jamais** ce foyer ; et aucun site n'est
+  un trigger relançant `UseActiveAbility` (cette feuille route vers `execute`, déjà gaté). Le
+  critère retenu est une **mesure d'xrefs** : `IsDeadUnitAndNotAllowedByAbility` n'a que deux
+  appelants code, tous deux dans `ActiveAbilityOperation`. Énoncé d'origine conservé ci-dessous.
+
+  Symétrique
   exact de cette tranche sur l'autre famille : `AttackDamageOperation.execute_ability_attack` a
   **~9 call-sites hors** `visit_ActiveAbilityMessage` (`splash`, `genestealer`, `destroyer_hive`,
   `hailstrike`, `haze_of_corruption`, `summon_ai`, trois dans `behaviours/combat.py`). **Ils ne se
