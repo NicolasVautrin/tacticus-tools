@@ -56,7 +56,7 @@ import hexgeo
 import probe_27_custom_utility_inventory as INV
 from engine.entities.pathfinding.board import Board
 from engine.entities.unit_flag import UnitFlag
-from engine.runner.messages import MoveUnitMessage
+from engine.runner.messages import EndTurnMessage, MoveUnitMessage
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.snapshot import load_state
 
@@ -175,41 +175,33 @@ def run(keep: bool = False, seed: int = SEED, board_name: str = BOARD,
                               "flags_pre": flags_pre.get(wid), "bilan_port": bilan_t1,
                               "to": [int(step[0]), int(step[1])]}
 
-        # ---------- TEMPS 2 : les tours tournent -> le flag doit SURVIVRE a `RemoveTurnFlags` ---
-        for _ in range(8):
-            _rpc("applyAction", [{"runnerId": rid, "action": {"kind": "endturn"}}], 40000)
-            if _dview(rid).get("currentPlayer") == my_player:
-                break
+        # ---------- TEMPS 2 : le tour PASSE a l'adversaire -> le flag doit SURVIVRE -------------
+        # `RemoveTurnFlags` ne s'applique qu'au joueur ENTRANT : le walker n'est pas touche, et le
+        # balayage 0x21 porte sur le joueur COURANT (l'adversaire). Le flag DOIT donc etre encore la.
+        _rpc("applyAction", [{"runnerId": rid, "action": {"kind": "endturn"}}], 40000)
         flags_t2, _ = _flags_by_id(rid)
         out["temps2_survie"] = {"live": flags_t2.get(wid),
                                 "player_courant": _dview(rid).get("currentPlayer"),
                                 "player_walker": my_player}
 
-        # ---------- TEMPS 3 : un message quelconque -> le natif doit RETIRER le flag -----------
-        # Le message est joue par une AUTRE unite : c'est `RunPhase` (slot 0x21) qui re-ouvre le
-        # walker, pas une action qui lui serait propre. C'est le point du bras.
-        dv3 = _dview(rid)
-        U3 = _units(dv3)
-        autre = next((u for u in U3.values()
-                      if u.get("owner") == my_player and u.get("id") != wid), None)
-        if autre is None:
-            return dict(out, error="aucune AUTRE unite du meme joueur pour porter le message")
+        # ---------- TEMPS 3 : le tour REVIENT -> le natif doit RETIRER le flag ------------------
+        # C'est CE message (`EndTurnMessage` de l'adversaire) qui porte tout : il enchaine
+        # `ChangeTurn` + `StartTurn` -- donc `RemoveTurnFlags(includeNoAction: 0)` sur le walker,
+        # qui retire `Moved`/`ArrivedAtFinalTile` et CONSERVE `NoActionAvailable` -- puis, dans la
+        # MEME `RunPhase`, le slot 0x21 balaye le joueur devenu courant (celui du walker) :
+        # `Has(NoActionAvailable) && HasTilesToMoveTo` -> slot 0x77, RETRAIT.
+        # C'est la mesure du 2026-08-05 qui a impose ce montage : le premier jet placait le retrait
+        # sur un message ULTERIEUR, et le temoin « le flag survit » a ete REFUTE (`live=[]`) -- le
+        # natif avait deja re-ouvert l'unite dans la sequence d'endturn.
         snap3 = _snapshot(rid)
-        occ3 = {_pos(u) for u in U3.values()}
-        step3 = _free_at(board, _pos(autre), 1, occ3)
-        if step3 is None:
-            return dict(out, error="aucune tuile libre adjacente pour le pas de l'autre unite")
-        aid = autre["id"]
-        _rpc("applyAction", [{"runnerId": rid, "action": {
-            "kind": "move", "unitId": aid, "to": {"col": int(step3[0]), "row": int(step3[1])}}}],
-            40000)
+        _rpc("applyAction", [{"runnerId": rid, "action": {"kind": "endturn"}}], 40000)
         flags_t3, _ = _flags_by_id(rid)
-        port_t3, bilan_t3 = _port_replay(
-            snap3, board, wid,
-            lambda r, st: r.apply(MoveUnitMessage(unit_id=aid, to=(int(step3[0]), int(step3[1])))))
+        port_t3, bilan_t3 = _port_replay(snap3, board, wid,
+                                         lambda r, st: r.apply(EndTurnMessage()))
         out["temps3_retrait"] = {"live": flags_t3.get(wid), "port": port_t3,
                                  "flags_avant": flags_t2.get(wid), "bilan_port": bilan_t3,
-                                 "porteur_du_message": autre.get("visualId")}
+                                 "player_courant": _dview(rid).get("currentPlayer"),
+                                 "porteur_du_message": "EndTurnMessage (adversaire)"}
         return out
     finally:
         if not keep:
@@ -243,10 +235,11 @@ def main() -> int:
         print("[287r1r1] ECHEC temps 1 (POSE) : live=%s port=%s" % (t1["live"], t1["port"]))
         ok = False
 
-    # --- TEMPS 2 : le flag SURVIT au changement de tour. C'est ce qui rend le retrait necessaire.
-    if t2["player_courant"] != t2["player_walker"]:
-        print("[287r1r1] PAS MESURE (temps 2) : le tour n'est pas revenu au joueur du walker "
-              "(courant=%s attendu=%s)" % (t2["player_courant"], t2["player_walker"]))
+    # --- TEMPS 2 : le flag SURVIT tant que le tour n'est pas revenu. -------------------------
+    if t2["player_courant"] == t2["player_walker"]:
+        print("[287r1r1] PAS MESURE (temps 2) : le tour n'a PAS change de joueur (courant=%s) -- "
+              "le montage suppose un adversaire actif entre les deux endturns"
+              % t2["player_courant"])
         ok = False
     elif NA not in (t2["live"] or []):
         print("[287r1r1] REGIME TEMOIN casse (temps 2) : %d n'a PAS survecu au changement de tour "
@@ -255,6 +248,10 @@ def main() -> int:
         ok = False
 
     # --- TEMPS 3 : RETRAIT. Temoin (le natif retire) + egalite bilaterale. --------------------
+    if t3["player_courant"] != t2["player_walker"]:
+        print("[287r1r1] PAS MESURE (temps 3) : le tour n'est pas revenu au joueur du walker "
+              "(courant=%s attendu=%s)" % (t3["player_courant"], t2["player_walker"]))
+        ok = False
     if NA in (t3["live"] or []):
         print("[287r1r1] REGIME TEMOIN casse (temps 3) : le natif n'a PAS retire %d (live=%s) -- "
               "l'unite n'avait donc pas regagne d'options ; le bras ne mesure pas le retrait"
