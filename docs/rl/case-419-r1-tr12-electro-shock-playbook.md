@@ -189,10 +189,17 @@ cela qu'un vert de contre-épreuve doit toujours être suspecté.
   `UnitConfiguration.PassiveAbilities` — que le `replace=True` du montage venait justement de vider.
   Re-mesuré après le fix : **0.000000 aux quatre crans**. Même cause que `#419-r1-tr13-r1` et
   `#419-r1-tr14-r5`, fermés en même temps.
-* **`#419-r1-tr12-r2` — les porteurs RÉELS ne sont pas confrontés.** La greffe ne couvre ni les stats,
-  ni les traits, ni les armes du summon/npc. Elle est légitime pour ce terme (le corps ne lit que le
-  camp), mais l'`Electropriest` lui-même n'a jamais été en bataille. Débloqueur nommé, déjà porté par
-  `case-92` §5bis : donner à `buildNormalizedBC` un chemin de stats explicite pour summons/npc.
+* **`#419-r1-tr12-r2` — le DÉBLOQUEUR est LIVRÉ ; le montage reste à jouer.**
+  `buildNormalizedBC` a désormais un chemin de stats explicite npc/summon (`explicitStats`), mirror
+  de `IdunMetaLogic.UserProgress.UnitProgression$$GetNpcStats` / `$$GetSummonStats` — confronté au
+  témoin que **le jeu** a écrit (4 npc du seed BC, 56 champs, **0 divergence**) et à une mesure live
+  antérieure (#202c). Le verrou est reproduit LIVE côté désarmé
+  (`skipped.reason = 'v2 patch: system error'`, hp = 0). Le porteur confrontable est le **NPC**
+  `admecNpc3Electropriest` : même kit que le summon (mêmes passifs, même arme 3 hits `Particle`,
+  même `Movement` 3), et lui a une table de stats — alors que les 65 entrées summon du catalogue
+  portent `Health = 0`, écrit par le jeu. **Reste** : la fenêtre de reinject (le champ vit dans
+  `frida/hooks/**`), puis rejouer les quatre crans de §5 sur `admecNpc3Electropriest:33`.
+  Détail : `docs/rl/case-419-r1-tr12-r2-stats-npc-summon.md`.
 * **`#419-r1-tr12-r3` — la face COMBAT n'est pas portée.**
   `ElectroShock_NormalAttackAbility$$GetCustomNormalAttackBehaviour` (`If(IsMeleeAttack,
   AttackWithAttackDamage(…, PickRandomly(…, 1, …), PercentageOf(StatAmount, Direct(0x3b))))`) n'a
