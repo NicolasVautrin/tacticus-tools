@@ -226,19 +226,30 @@ def test_le_site_disparu_a_bien_transmis_sa_garantie(cle):
         "les cinq events pour un kill QUI N'A PAS EU LIEU." % (fich, fn))
 
 
-@pytest.mark.parametrize("vivant,avec_stats,attendu", [(True, True, 1), (False, False, 0)],
-                         ids=["steppable-VIVANT", "cadavre-AU-CHARGEMENT"])
+@pytest.mark.parametrize("vivant,avec_stats,attendu", [
+    (True, True, 1),        # le regime NOMINAL : un Steppable vivant sous le mover
+    (False, False, 0),      # CADAVRE-AU-CHARGEMENT : ecarte par le SUBSTRAT (pas de ctx)
+    (False, True, 0),       # CADAVRE DU RUN       : ecarte par le GATE `uc.alive`, et LUI SEUL
+], ids=["steppable-VIVANT", "cadavre-AU-CHARGEMENT", "cadavre-DU-RUN"])
 def test_le_crush_refuse_le_cadavre_au_chargement(vivant, avec_stats, attendu, monkeypatch):
     """LA GARANTIE, exercee sur le CHEMIN REEL (`_kill_steppable_units`) plutot que sur la
     re-identification par co-localisation qui la portait avant #462-r4b-r1-r1-r1-r1-c-r3-r1-r4.
 
-    Meme decoy, meme co-localisation, meme tuile : seul change << etait-il vivant a l'entree du
-    move >>. Un cadavre-au-chargement peut parfaitement etre sous le mover (un mort ne bloque pas
-    l'occupation) et le natif ne le tue PAS -- il n'est deja plus la pour `KillSteppableUnits`.
+    Meme decoy, meme co-localisation, meme tuile : seul change son ETAT a l'entree du move. Un mort
+    peut parfaitement etre sous le mover (un mort ne bloque pas l'occupation) et le natif ne le tue
+    PAS -- `KillSteppableUnits` ne boucle que sur les VIVANTS.
+
+    ⚠ LE 3e REGIME EXISTE PARCE QUE LES DEUX PREMIERS NE DISCRIMINENT PAS LE GATE QU'ILS PRETENDENT
+    GARDER. Mesure (matrice de mutants de la tranche) : retirer `not uc.alive` de
+    `_kill_steppable_units` laisse les deux premiers bras VERTS -- le cadavre-au-chargement est
+    ecarte plus bas, par le substrat de traits VIDE (`sc is None` -> `has_trait([], Steppable)`
+    faux). DEUX gates protegent, et le test n'en isolait aucun. Le cadavre DU RUN, lui, a son ctx
+    et ses traits `Steppable` : seul `uc.alive` peut le refuser. C'est aussi le regime REEL du
+    2e pas d'un chemin -- un steppable crushe au pas N est encore sur sa tuile au pas N+1.
 
     `post_unit_kill_triggers` est SUBSTITUE dans le PACKAGE `triggers` (c'est de la que
     `_kill_unit_operation` le resout, par import tardif) : on mesure la SELECTION, pas ce que les
-    triggers aval produisent -- ils rendraient `[]` dans les deux regimes et le test ne
+    triggers aval produisent -- ils rendraient `[]` dans les trois regimes et le test ne
     discriminerait rien (accord en regime degenere)."""
     from engine.runner.operations import triggers as TRG
     from engine.runner.operations.movement import _kill_steppable_units
@@ -251,11 +262,14 @@ def test_le_crush_refuse_le_cadavre_au_chargement(vivant, avec_stats, attendu, m
     monkeypatch.setattr(TRG, "post_unit_kill_triggers", _faux)
     st = P.etat_crush("genesSmnDecoy", avec_stats=avec_stats, vivant=vivant)
     tues = _kill_steppable_units(st, (3, 3), mover_id=1)
+    regime = ("steppable vivant" if vivant else
+              ("cadavre au chargement" if not avec_stats else "cadavre DU RUN"))
     assert len(tues) == attendu and len(vus) == attendu, (
         "regime %s : %d crushe(s) / %d `On(PostUnitKill)`, attendu %d. Un event de mort emis pour "
-        "un cadavre-au-chargement est un kill QUI N'A PAS EU LIEU ; l'absence d'event pour un "
-        "steppable VIVANT sous le mover est un crush MANQUE."
-        % ("steppable vivant" if vivant else "cadavre au chargement", len(tues), len(vus), attendu))
+        "un MORT est un kill QUI N'A PAS EU LIEU (et, sur le cadavre DU RUN, la preuve que le gate "
+        "`uc.alive` de `_kill_steppable_units` a saute) ; l'absence d'event pour un steppable "
+        "VIVANT sous le mover est un crush MANQUE."
+        % (regime, len(tues), len(vus), attendu))
     if attendu:
         assert vus == [(1, 2)], (
             "`On(PostUnitKill)` doit porter {actor = le TUEUR (le mover), target = le crushe} -- "

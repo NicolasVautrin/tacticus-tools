@@ -434,10 +434,16 @@ def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: in
     **KillSteppableUnits** → `EvaluateAfterMoveTriggers` (d'où le decoy déjà mort quand
     DecoysAndMisdirection lit `GetValidDeadDecoys`, G2).
 
-    ⚠ Le gate `not uc.alive` ci-dessous est ce qui tient, PAR CONSTRUCTION, la garantie que
-    `post_unit_kill_triggers_for_move` tenait par CO-LOCALISATION avant #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 :
-    un cadavre-au-chargement co-localisé avec le mover (un mort ne bloque pas l'occupation) n'est
-    jamais crushé, donc n'émet aucun des cinq events -- `On(0x35 = PostUnitKill)` compris."""
+    ⚠ La garantie que `post_unit_kill_triggers_for_move` tenait par CO-LOCALISATION avant
+    #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 -- « ne jamais émettre les events de mort pour un mort que le
+    natif n'a pas tué » -- est tenue ici PAR CONSTRUCTION, et par DEUX gates DISTINCTS, mesurés
+    séparément (une matrice de mutants les avait d'abord confondus) :
+      * `not uc.alive` ci-dessous écarte le cadavre DU RUN (il a son ctx et ses traits `Steppable`,
+        donc rien d'autre ne le refuserait) -- c'est le régime du 2e pas d'un chemin, où un
+        steppable crushé au pas N est encore sur sa tuile au pas N+1 ;
+      * l'absence de `StatsComponent` écarte le cadavre AU CHARGEMENT plus bas, par un substrat de
+        traits VIDE (`has_trait([], Steppable)` faux) -- le gate `uc.alive` ne le voit même pas.
+    Les deux sont exercés par `test_ctx_traits_substrat_ventilation_offline.py`, un régime chacun."""
     from ...entities.traits import UnitTrait, has_trait
     killed: list = []
     for uid, e in list(state.entities.items()):
