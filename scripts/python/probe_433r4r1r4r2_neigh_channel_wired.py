@@ -88,6 +88,15 @@ DEUX ETAPES, et la seconde existe parce que la premiere ne peut pas voir son gis
   sortie (l'etat courant y entre, l'etat apres est celui d'avant), et un test qui parle du canal
   sous une forme non reconnue vaut credit (les deux branches sont dites « hors canal »).
 
+* **ETAPE 5 -- la SUSPENSION d'un natif lu est-elle encore justifiee ?**
+  (#433-r4-r1-r4-r2-r1-r1-r1). `NATIFS_LISTE_STOCKEE` est une liste LITTERALE, et la mesure a
+  REFUTE les deux derivations candidates (cf. le commentaire de la liste : 28 tokens rendus,
+  3 vrais, 25 faux). Ce qu'on peut deriver, en revanche, c'est qu'une liste partielle ne le reste
+  pas en SILENCE. Un natif LU comme substrat stocke mais dont l'armement rougirait sur un vice
+  OUVERT hors perimetre entre au registre SUSPENDU, avec son numero de residu ; cette etape
+  l'arme POUR DE FAUX a chaque passe et rougit si plus personne n'en souffre -- la suspension est
+  alors PERIMEE, et c'est elle le vice. Critere INVERSE des quatre autres, et derive du contenu.
+
 VERDICT : 0 = vert. Non nul = des mirrors non branches (listes). 99 = INDISPONIBLE (#471).
 `--inventaire` imprime, SANS peser sur le verdict, les fonctions qui melangent une geometrie nue et
 un acces au canal HORS mirror declare : le gisement que le critere « docstring » ne couvre pas.
@@ -113,9 +122,44 @@ FOYER = "engine.battle_query"
 # ETAPE 2 -- les natifs dont le substrat d'ENUMERATION est la liste stockee du
 # `ConnectivityComponent` (`+0x10`). Citer l'un d'eux, c'est declarer mirrorer ce substrat.
 # Echappement `u003C`/`u003E` conserve tel quel (convention `CLAUDE.md`).
+#
+# ⚠ CETTE LISTE EST LITTERALE, ET CE N'EST PAS UN OUBLI -- c'est REFUTE par la mesure
+# (#433-r4-r1-r4-r2-r1-r1-r1, cf. la case-doc SS7). La propriete « substrat = liste stockee » est une
+# propriete du CORPS natif ; le depot ne versionne AUCUN artefact qui la porte (`data/symbols/`
+# n'a que des tables adresse<->nom, `sources_win/` est gitignore, et faire dependre un cliquet de
+# ghidra-mcp le rendrait INDISPONIBLE en permanence). Les deux derivations candidates ont ete
+# mesurees et rejetees : par le NOM (un marqueur `Adjacent|Neighbour|Melee|Charging`) et par
+# FERMETURE sur les docstrings du port -- **28 tokens rendus, 3 vrais, 25 faux** (des enums
+# `TargetIsNotAdjacent`, des `UtilityType` `AdjacentTauFriend`, des triggers `IsMeleeAttack`, et
+# jusqu'aux VARIABLES LOCALES du decompile cite en pseudo-code : `isAdjacent`, `onlyAdjacent`).
+# Un cliquet a 89 % de bruit se fait desactiver, et l'allowlist qui le sauverait SERAIT cette
+# liste-ci. Ce qui est derive, c'est donc l'OBLIGATION de ne pas laisser la liste partielle en
+# SILENCE : cf. `NATIFS_LISTE_STOCKEE_SUSPENDUS` et l'etape 5.
 NATIFS_LISTE_STOCKEE = ("IterateAdjacentTiles", "GetAdjacentUnits", "GetAdjacentTiles",
                         "GetAdjacentEnemies", "GetAdjacentFriends", "AreTilesAdjacent",
-                        "IsNeighbour", "UpdateCharging")
+                        "IsNeighbour", "UpdateCharging",
+                        # LUS le 2026-08-05 (#433-r4-r1-r4-r2-r1-r1-r1) :
+                        #   `BattleQuery$$AreEntitiesAdjacent` -- les TROIS surcharges
+                        #     ((IList,IList) / (IList,IEntity) / (IEntity,IEntity)) appellent
+                        #     `MovementUtil$$AreTilesAdjacent`, donc `ConnectivityComponent$$IsNeighbour` ;
+                        #   `BattleQuery$$AreUnitsInMelee(caster, target)` -- corps ENTIER =
+                        #     `return AreEntitiesAdjacent(caster, target)`, alias pur ;
+                        #   `BattleQuery$$GetFreeAdjacentTiles(from)` -- `GetAdjacentTiles(from, 1, 1)`
+                        #     suivi d'un `ListExtensions$$FilterInPlace`.
+                        "AreEntitiesAdjacent", "AreUnitsInMelee", "GetFreeAdjacentTiles")
+
+# Natifs LUS au decompile comme substrat stocke, mais dont l'ARMEMENT est SUSPENDU : les faire
+# entrer ci-dessus ferait rougir la banque sur un vice OUVERT, hors du perimetre qui les a lus --
+# meme sequencement que #614 s'est impose pour `orks.py`. La valeur est le residu qui porte la dette.
+# C'est l'etape 5 qui empeche cette suspension de devenir un oubli : elle RE-MESURE a chaque passe
+# que la suspension est encore justifiee.
+NATIFS_LISTE_STOCKEE_SUSPENDUS = {
+    # `DSLSelectors$$AdjacentTiles` -> `AdjacentTilesSelector$$Select` = slot 0x50 d'`IBattleQuery`
+    # (`GetAdjacentTiles(tile, 0, 1, 1)`) moins `SelectTiles(origin)` ;
+    # `DSLSelectors$$AdjacentUnits(origin, unique, selType)` = `Units(AdjacentTiles(origin)) - origin`.
+    "AdjacentTiles": "#433-r4-r1-r4-r2-r1-r1-r1-r1",
+    "AdjacentUnits": "#433-r4-r1-r4-r2-r1-r1-r1-r1",
+}
 # Formes d'ACCES au canal reconnues : parametre, ou derivation nommee depuis un board.
 ACCES_CANAL = ("neigh_by_pos", "neigh_map", "adjacent_neigh_by_pos", "neighbours_native",
                "neighbours_connectivity", "connectivity_neighbours")
@@ -608,6 +652,35 @@ def etape4(arbres) -> tuple[list, int]:
     return manquants, total
 
 
+def etape5(arbres) -> tuple[list, int]:
+    """Rend `(suspensions PERIMEES, total des natifs suspendus)`.
+
+    Le critere est INVERSE de celui des autres etapes, et c'est tout son objet : un natif du
+    registre SUSPENDU n'a le droit d'y rester que TANT QU'IL Y A UN VICE. On l'arme pour de faux,
+    le temps de la mesure ; s'il ne fait plus rougir personne, la suspension n'a plus de raison et
+    c'est ELLE qui devient le vice -- une liste partielle qui se perpetue en silence est exactement
+    le mode de defaillance que #433-r4-r1-r4-r2-r1-r1-r1 a paye (`AreEntitiesAdjacent` absent
+    pendant que `orks.py` le citait).
+
+    La justification se RE-MESURE donc a chaque passe, elle ne se DECLARE pas -- c'est la seule
+    partie de ce cliquet qui soit derivee du contenu plutot qu'ecrite a la main.
+
+    Registre VIDE = rien a garder ici (tout est arme), pas un perimetre casse : aucune garde de
+    perimetre n'est posee dessus, contrairement aux etapes 1 et 3."""
+    global NATIFS_LISTE_STOCKEE
+    manquants = []
+    base = NATIFS_LISTE_STOCKEE
+    for nat, residu in sorted(NATIFS_LISTE_STOCKEE_SUSPENDUS.items()):
+        try:
+            NATIFS_LISTE_STOCKEE = base + (nat,)
+            n = len(etape2(arbres)[0]) + len(etape4(arbres)[0])
+        finally:
+            NATIFS_LISTE_STOCKEE = base
+        if not n:
+            manquants.append((nat, residu))
+    return manquants, len(NATIFS_LISTE_STOCKEE_SUSPENDUS)
+
+
 def inventaire(arbres) -> list:
     """HORS VERDICT -- les fonctions qui melangent une geometrie nue et un acces au canal SANS
     declarer de natif a liste stockee.
@@ -649,6 +722,7 @@ def main() -> int:
     m2, t2 = etape2(arbres)
     m3, t3 = etape3(arbres)
     m4, t4 = etape4(arbres)
+    m5, t5 = etape5(arbres)
     print("== #433-r4-r1-r4-r2 -- substrat de voisinage natif")
     print("-- etape 1 : invariant de COUPLE sur les call-sites (imports RESOLUS)")
     print("   call-sites gates par l'elevation : %d" % t1)
@@ -671,6 +745,12 @@ def main() -> int:
     for (rel, ln, name) in m4:
         print("      %s:%d  %s -- canal disponible sur ce chemin, geometrie decide quand meme"
               % (rel, ln, name))
+    print("-- etape 5 : la SUSPENSION d'un natif lu est-elle encore justifiee ?"
+          " (#433-r4-r1-r4-r2-r1-r1-r1)")
+    print("   natifs a l'armement suspendu : %d" % t5)
+    print("   dont la suspension est PERIMEE : %d (attendu 0)" % len(m5))
+    for (nat, residu) in m5:
+        print("      %s -- l'armer ne fait plus rougir personne (%s) : ARME-LE" % (nat, residu))
     if "--inventaire" in sys.argv:
         inv = inventaire(arbres)
         print("-- inventaire HORS VERDICT : geometrie nue + canal, natif NON declare")
@@ -683,7 +763,7 @@ def main() -> int:
         print("ECART: un perimetre est VIDE (etape 1 : %d, etape 3 : %d)"
               " -- le cliquet ne garde rien (perimetre casse ?)" % (t1, t3))
         return 1
-    n = len(m1) + len(m2) + len(m3) + len(m4)
+    n = len(m1) + len(m2) + len(m3) + len(m4) + len(m5)
     print("VERDICT: %s" % ("PASS" if not n else "FAIL (%d)" % n))
     return 0 if not n else 1
 
