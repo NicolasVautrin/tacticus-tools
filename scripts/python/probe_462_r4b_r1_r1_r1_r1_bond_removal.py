@@ -553,6 +553,208 @@ def _is_targetable(sid, rid, dv, entity_id):
 
 
 # ------------------------------------------------------------------------------------------------
+# --step valkyrielive : le SEUL des trois qui soit confrontable, et il l'est dans le SENS RARE
+#
+# `ValkyrieStrikeEffect` est la seule des trois classes du perimetre dont
+# `IsExecutedIfOwnerDies` vaut VRAI, donc la seule dont `get_RemoveOnBondedEntityDeath` vaut FAUX :
+# le natif ne construit AUCUN trigger (a) pour elle, et l'effet 1022 doit SURVIVRE a la mort de son
+# bonde. C'est aussi la seule dont le bonde est une UNITE (`astraSmnVoxcaster`, le caster) et non une
+# MoW -- donc la seule dont la mort soit atteignable.
+#
+# POURQUOI CE BRAS COMPTE PLUS QU'IL N'EN A L'AIR. Un port qui n'inscrit RIEN passe trivialement un
+# bras << l'effet survit >>. Ce bras ne prouve donc pas le port : il prouve le NATIF, et c'est ce qui
+# manquait. La valeur `true` de `IsExecutedIfOwnerDies` est lue sur un corps TRIVIAL DEDUPLIQUE
+# (`0x1802b4590`, dont le proprietaire ghidra est `UnityEngine.U2D.IK.Solver2D$$DoValidate` -- un nom
+# qui ne dit RIEN de l'appelant) ; la confronter au comportement observe est le seul moyen de
+# verifier que la table `TRIVIAL` du probe dit vrai, et donc que les 19 AUTRES lignes -- lues par la
+# meme table -- ne sont pas une illusion.
+#
+# CRITERE, ENONCE AVANT LA MESURE :
+#   H0 (la lecture est juste, `RemoveOnBondedEntityDeath = FALSE`) -> apres la mort du BONDE, 1022
+#      est ENCORE la.
+#   H1 (la lecture est fausse) -> 1022 a disparu, et alors la table `TRIVIAL` est a refaire.
+# CONTROLE : on releve 1022 AVANT la mise a mort. S'il n'y est pas, le bras ne mesure rien
+# (montage), et le pas doit le DIRE plutot que de lire une absence comme une survie ratee -- c'est
+# exactement le piege << vacuously vrai >> releve au §5 de la fiche.
+# ------------------------------------------------------------------------------------------------
+# LE MONTAGE, ET POURQUOI IL N'EST PAS CELUI DE `probe_245`. Mesure du 2026-08-05 avec le montage
+# de `probe_245` tel quel (Vox a 5000 PV) : le Vox-caster SURVIT a dix tours de frappes, et pendant
+# ce temps l'effet 1022 DISPARAIT TOUT SEUL -- consomme par l'AUTRE trigger de la sous-famille,
+# `Triggered( On(0x15) & IsTurnOf(<0x758>()), TriggerAbility(...) & RemoveEffect(Effect) )`, qui est
+# la frappe aerienne differee elle-meme. Un bras qui laisse passer un tour ne mesure donc RIEN du
+# gate (a) : il mesure le second foyer de retrait. D'ou les deux exigences du montage --
+#   * le bonde doit tomber en UNE frappe (PV bas + degat eleve), et
+#   * AUCUN `endturn` entre le cast et la mise a mort.
+# C'est la difference entre << adapter les rosters a l'objectif >> et << subir la geometrie >>.
+VALKYRIE_EFFECT = 1022
+VOX_HEALTH_KILLABLE = 60          # le bonde doit tomber en UNE frappe, avant tout changement de tour
+ENEMY_DAMAGE = 40000              # idem -- aucun de ces deux champs n'entre dans ce qu'on mesure
+
+
+def _build_valkyrie_killable(sid):
+    """Runner du bras : Vox-caster spawne cote joueur, PV bas, ennemis a fort degat.
+
+    Copie ASSUMEE du `_build` de `probe_245` (meme voie `initAndStart` + catalogue) : ce probe-ci a
+    besoin de DEUX patchs de plus (PV du bonde, degat de l'ennemi) que 245 n'a aucune raison de
+    porter -- son objet a lui est le masque de ciblage, pas la mise a mort."""
+    import copy
+    import json
+    import catalog_inject as CI
+    import probe_245_valkyrie_targeting as P245
+    import rl_duel as RD
+
+    state_file = ROOT / "logs" / ("_probe462c-valkyrie-%d.json" % os.getpid())
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    bc0, _added, _ab, _m = CI.augment(RD._load_seed_bc(None), [P245.VOXCASTER, P245.ENEMY],
+                                      rank=P245.RANK)
+    dump = RD._load_board_dump(P245.BOARD)
+    template, _pool, _pmow = RD._normalize_and_extract_pool(sid, bc0, P245.RANK, board_dump=dump)
+    bc = copy.deepcopy(template)
+    vox = next((u for u in bc["Units"] if u.get("Id") == P245.VOXCASTER), None)
+    if vox is None:
+        raise RuntimeError("%s absent du catalogue BC.Units" % P245.VOXCASTER)
+    vox["Health"] = VOX_HEALTH_KILLABLE
+    vox["RemainingHealth"] = VOX_HEALTH_KILLABLE
+    vox["Traits"] = list(P245.VOX_TRAITS)          # `Summon` retire : il rend l'unite AUTOMATIQUE
+    foe = next((u for u in bc["Units"] if u.get("Id") == P245.ENEMY), None)
+    if foe is not None:
+        foe["Damage"] = ENEMY_DAMAGE
+    RD._patch_predefined_units(bc, [P245.ENEMY, P245.ENEMY])
+    # ⚠ ON DEPLACE LE BONDE, on ne subit pas la geometrie. Spawne au point JOUEUR habituel, le
+    # Vox-caster est hors de portee des deux ennemis, et les rapprocher coute des `endturn` -- que
+    # ce bras s'interdit (ils consommeraient l'effet par l'autre trigger). On le spawne donc sur un
+    # point du groupe ADVERSE, en gardant `playerId = HUMAN` : il reste NOTRE unite (donc c'est bien
+    # SON cast), mais il nait au contact de ses futurs bourreaux. Le dernier point du groupe est
+    # choisi parce que les deux `PredefinedUnits` consomment les premiers.
+    spawns = RD._spawn_points_by_twpi(bc)
+    foe_pts = [pts for twpi, pts in sorted(spawns.items()) if twpi != 0 and pts]
+    pts = foe_pts[0] if foe_pts else (spawns.get(0) or [])
+    if not pts:
+        raise RuntimeError("aucun spawn point exploitable sur %s" % P245.BOARD)
+    col, row = pts[-1]
+    pu = [{"unitId": P245.VOXCASTER, "playerId": RD.PLAYER_ID_HUMAN,
+           "col": int(col), "row": int(row)}]
+    resp = _rpc(sid, "initAndStart",
+                [{"configJson": json.dumps(bc), "seed": P245.SEED, "playerUnits": pu,
+                  "owner": str(state_file.resolve())}], timeout=120)
+    rid = ((resp or {}).get("result") or {}).get("runnerId")
+    if rid is None:
+        raise RuntimeError("initAndStart KO: %s" % json.dumps(resp)[:400])
+    state_file.write_text(json.dumps({"runnerId": int(rid)}), encoding="utf-8")
+    return int(rid)
+
+
+def _effects_everywhere(sid, rid, effect_type):
+    """Ou l'effet `effect_type` se trouve-t-il : sur des UNITES, sur des TUILES, ou nulle part ?
+
+    Les deux canaux sont lus, parce que `AddBondEffect` itere un selecteur d'ENTITES et que ses
+    cibles peuvent etre des tuiles (`MalleusRocketLauncherAbility`) comme des unites. Ne lire que
+    `decisionView.units` ferait passer un effet de TUILE pour absent."""
+    dv = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+    tm = _r(sid, "tileMeta", {"runnerId": rid}, 90) or {}
+    units = [int(u["id"]) for u in (dv.get("units") or [])
+             if any(int(e.get("effectType") or -1) == effect_type for e in (u.get("effects") or []))]
+    mows = [int(m["casterId"]) for m in (dv.get("mows") or [])
+            if any(int(e.get("effectType") or -1) == effect_type for e in (m.get("effects") or []))]
+    tiles = [(t.get("col"), t.get("row")) for t in (tm.get("tiles") or [])
+             if any(int(e.get("effectType") or -1) == effect_type for e in (t.get("effects") or []))]
+    return {"units": units, "mows": mows, "tiles": tiles,
+            "total": len(units) + len(mows) + len(tiles)}
+
+
+def _kill_no_endturn(sid, rid, victim_id, victim_owner, tries=6):
+    """Tue `victim_id` avec les unites adverses, SANS aucun `endturn`.
+
+    Le `endturn` est proscrit ici, et ce n'est pas un detail de confort : il fait passer le tour,
+    donc declencher `On(0x15)`, donc consommer l'effet par l'AUTRE trigger de la sous-famille. Un
+    bras qui en joue un mesure le mauvais foyer de retrait (mesure du 2026-08-05)."""
+    import probe_112_darkangels as PR
+
+    for _ in range(tries):
+        d = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+        v = next((u for u in (d.get("units") or []) if int(u["id"]) == int(victim_id)), None)
+        if v is None or not v.get("alive"):
+            return True
+        fired = False
+        for u in (d.get("units") or []):
+            if not u.get("alive") or u.get("owner") == victim_owner:
+                continue
+            aid = next((a.get("id") for a in (u.get("abilities") or [])
+                        if a.get("kind") != "passive"), None)
+            if aid is None:
+                continue
+            if int(victim_id) not in PR.legal_from_here(sid, rid, int(u["id"]), aid):
+                continue
+            PR.act(sid, rid, {"kind": "ability", "casterId": int(u["id"]),
+                              "targetId": int(victim_id), "abilityType": aid})
+            fired = True
+        if not fired:
+            break
+    d = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+    v = next((u for u in (d.get("units") or []) if int(u["id"]) == int(victim_id)), None)
+    return (v is None) or (not v.get("alive"))
+
+
+def step_valkyrielive(sid):
+    import probe_245_valkyrie_targeting as P245
+    import probe_112_darkangels as PR
+
+    rid = _build_valkyrie_killable(sid)
+    print("[build] runner=%d board=%s seed=%s (Vox a %d PV, ennemi a %d de degat)"
+          % (rid, P245.BOARD, P245.SEED, VOX_HEALTH_KILLABLE, ENEMY_DAMAGE))
+    try:
+        dv, vox = P245._to_my_turn(sid, rid)
+        if vox is None:
+            print("[FAIL] voxcaster absent -- montage KO, AUCUN verdict")
+            return 2
+        cid = int(vox["id"])
+        at = _r(sid, "abilityTargets",
+                {"runnerId": rid, "unitId": cid, "abilityType": P245.VALKYRIE_STRIKE}, 120) or {}
+        row = next((x for x in (at.get("units") or []) if x.get("unitId") == cid), None)
+        tgts = ((row.get("abilities") or [{}])[0].get("targets") or []) if row else []
+        if not tgts:
+            print("[FAIL] aucune cible legale pour ValkyrieStrike -- AUCUN verdict")
+            return 2
+        pick = next((t for t in tgts if t.get("kind") == "unit"), tgts[0])
+        act = {"kind": "ability", "casterId": cid, "abilityType": P245.VALKYRIE_STRIKE}
+        if pick.get("kind") == "unit":
+            act["targetId"] = pick["targetId"]
+        else:
+            act["to"] = {"col": pick["tile"]["col"], "row": pick["tile"]["row"]}
+        r = _r(sid, "applyAction", {"runnerId": rid, "action": act}, 150) or {}
+        a0 = (r.get("actions") or [{}])[0]
+        before = _effects_everywhere(sid, rid, VALKYRIE_EFFECT)
+        print("[cast] pick=%s ok=%s mut=%s -> effet 1022 : %s"
+              % (pick, a0.get("ok"), a0.get("mutated"), before))
+        if before["total"] == 0:
+            print("[FAIL] 1022 n'est POSE nulle part -- le bras ne mesure RIEN (montage).")
+            return 2
+
+        # Mise a mort du BONDE = le caster (`caster@0x160` en 4e ET 6e position du natif).
+        # `applyAction` ne verifie pas la propriete du `unitId` (runner.md §4), donc on pilote
+        # l'adversaire pour frapper notre propre Vox-caster -- SANS `endturn`, sinon la frappe
+        # aerienne differee consomme l'effet et on ne mesure plus le gate (a).
+        dead = _kill_no_endturn(sid, rid, cid, vox.get("owner"))
+        after = _effects_everywhere(sid, rid, VALKYRIE_EFFECT)
+        print("[apres] bonde mort=%s -> effet 1022 : %s" % (dead, after))
+        print("")
+        if not dead:
+            print("VERDICT : NON CONFRONTE -- le Vox-caster n'a pas pu etre tue.")
+            return 2
+        if after["total"] > 0:
+            print("VERDICT H0 : 1022 SURVIT a la mort de son bonde. La lecture")
+            print("  `IsExecutedIfOwnerDies = true` -> `get_RemoveOnBondedEntityDeath = FALSE`")
+            print("  est CONFIRMEE, et avec elle la table `TRIVIAL` par laquelle les 19 autres")
+            print("  lignes sont lues. Le port, qui n'inscrit aucun trigger pour 1022, est")
+            print("  CONFORME sur ce point.")
+            return 0
+        print("VERDICT H1 : 1022 a DISPARU a la mort du bonde -- la lecture du gate est REFUTEE.")
+        return 1
+    finally:
+        PR.dispose(sid, rid)
+
+
+# ------------------------------------------------------------------------------------------------
 # --step gatelive : le gate `NOT AmountIsZero(BondedEntity)` mord-il, OUI ou NON ?
 #
 # LA QUESTION, ET POURQUOI ELLE PRECEDE TOUT PORTAGE.
@@ -854,8 +1056,8 @@ def step_killlive(sid):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="declared",
-                    choices=["vtable", "declared", "pending", "pendingporteurs", "gatelive",
-                             "killlive", "all"])
+                    choices=["vtable", "declared", "pending", "pendingporteurs", "valkyrielive",
+                             "gatelive", "killlive", "all"])
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default="MC1_67")
     a = ap.parse_args()
@@ -873,6 +1075,9 @@ def main():
         print("")
     if a.step in ("pendingporteurs", "all"):
         rc |= step_pendingporteurs(sid)
+        print("")
+    if a.step in ("valkyrielive", "all"):
+        rc |= step_valkyrielive(sid)
         print("")
     if a.step in ("gatelive", "all"):
         rc |= step_gatelive(sid, a.seed, a.board)
