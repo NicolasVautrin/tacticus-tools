@@ -237,18 +237,16 @@ if _owner_gate_applies(entry):          # face ABILITY -> CanGetAbilityTrigger
 
 ### 7.4 Résidus ouverts par cette levée
 
-* **`#462-r4b-r1-r1-r1-r1-c-r3-r1`** — `_kill_steppable_units` (`operations/movement.py`) pose
-  `alive=False` + `hp=0` **sans retirer les effets**, alors que le natif passe par
-  `KillUnitOperation$$Execute` avec `KillUnitOperationOptions$$ForSteppable` (`+0x00 = 2`,
-  `+0x44 = 0x0101`) et que **les trois `RemoveEffects` sont appelés** (§7.2). Un `Steppable` écrasé
-  est donc, côté port et lui seul, un porteur MORT à effets intacts — **de façon persistante**. C'est
-  le **seul** régime où la levée pourrait faire firer un trigger que le natif n'a plus. Il est
-  **vide** aujourd'hui — **27** kits `Steppable` mesurés (npc + summons, dont **20 `Immune`** ; les 7
-  autres sont trois objets de butin, deux mines Haywire et deux decoys), **aucun** ne porte d'ability
-  adossée à un `effect_type` du registre — et le bras
-  `test_aucun_porteur_steppable_ne_porte_un_effect_type_du_registre` garde ce vide.
-  Fermer le résidu = mirrorer la séquence de mort complète pour ce chemin, ce qui déborde largement
-  (le natif y publie aussi `On(1)`/`On(2)`/`On(0)`/`On(0x36)`/`On(0x35)`, que le port ne publie pas).
+* ~~**`#462-r4b-r1-r1-r1-r1-c-r3-r1`**~~ — **RÉSOLU (2026-08-05)**, cf.
+  **`case-462-r4b-r1-r1-r1-r1-c-r3-r1-crush-steppable.md`**. Le RETRAIT est porté
+  (`movement.py::_kill_steppable_remove_effects`, les trois `RemoveEffects` + la garde HEAL, via le
+  foyer `remove_effects.py` de #389-r2), donc ce régime — le seul où la levée pouvait faire firer un
+  trigger que le natif n'a plus — est fermé **du bon côté** : l'effet n'existe plus. Chiffres du
+  résidu **confirmés par re-mesure** (27 kits `Steppable`, 20 `Immune`, **0** inscrit à un registre
+  d'ability-trigger porté). L'ÉMISSION des cinq événements, elle, **n'est pas** portée : blast
+  radius **mesuré à 27 classes** du registre, dont plusieurs portées par le MOVER (donc atteignables
+  dès le premier decoy écrasé) — résidu `#462-r4b-r1-r1-r1-r1-c-r3-r1-r1`, gardé par
+  `test_les_quatre_evenements_de_mort_restent_non_emis`.
 * **`#462-r4b-r1-r1-r1-r1-c-r3-r2`** — la face ABILITY **garde** le refus d'un porteur
   **introuvable**, alors que `IsUnit(null)` est faux et que le natif ne gaterait rien. Divergence
   **assumée** : le régime est inatteignable par construction

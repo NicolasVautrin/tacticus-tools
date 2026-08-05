@@ -7,7 +7,10 @@ le mover = sa position finale).
 
 G1 (gen-stealer) : `IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` PORTÉ ici (`_kill_steppable_units`),
 INLINE dans l'ordre natif (avant `EvaluateAfterMoveTriggers`) — un occupant Steppable
-(decoy/spore-mine) de la tuile d'arrivée est crushé (kill propre, sans death-trigger).
+(decoy/spore-mine) de la tuile d'arrivée est crushé : `alive=False`, `hp=0`, et ses effets RETIRÉS
+par les trois `IdunBattle.Operations.KillUnitOperation$$RemoveEffects`
+(`_kill_steppable_remove_effects`, #462-r4b-r1-r1-r1-r1-c-r3-r1). Les quatre autres événements de
+mort que le natif publie pour ce crush restent NON émis — résidu nommé dans cette fonction.
 
 INCRÉMENT 1b (à venir, validé vs la vérité-terrain probe = Maugan Ra 1174 sur le
 mover) : `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers → cascade OVERWATCH
@@ -338,16 +341,89 @@ class OverrideMovementTargetOperation:
         return {"unit": int(unit_id), "target": main, "tiles": [tuple(p) for p in pos]}
 
 
+def _kill_steppable_remove_effects(state: State, dead_id: int) -> list:
+    """Les TROIS `IdunBattle.Operations.KillUnitOperation$$RemoveEffects(killed, step)` de la
+    sequence de mort d'un `Steppable` ECRASE (#462-r4b-r1-r1-r1-r1-c-r3-r1).
+
+    LE CRUSH PASSE PAR LE MEME `KillUnitOperation$$Execute` QUE TOUTE AUTRE MORT. Les quatre
+    `*$$KillSteppableUnits` natifs construisent tous, INLINE, le meme `KillUnitOperationOptions` que
+    `IdunBattle.Operations.KillUnitOperationOptions$$ForSteppable` (`+0x00 = 2` =
+    `DamageReason.Steppable`, `+0x44 = 0x0101` donc `+0x44 = +0x45 = 1`, `+0x46 = 0`) puis appellent
+    le slot `KillUnit` de l'`IOperationProcessor` -- sauf
+    `IdunBattle.Operations.AddUnitOperation$$KillSteppableUnits`, qui passe par un autre slot avec un
+    `IdunBattle.Core.Services.DamageAppliedResult` portant le meme `DamageReason` 2, donc par le
+    pipeline de mort COMPLET (enqueue -> drain -> le meme `KillUnitOperation$$Execute`).
+
+    ET AUCUN DES TROIS RETRAITS N'EST GATE PAR `options` -- verifie au decompile du build
+    `rnca9r7q6c`, les QUATRE seuls tests sur `options` de `KillUnitOperation$$Execute` etant :
+    `+0x45` (court-circuite le predicat `IsSteppable(killed)` qui decide du flag `0xd`), `+0x44`
+    (`RecordDeathReason` + l'emission analytics), `+0x46` (le flag `Overkilled`). Les trois
+    `RemoveEffects` ne sont sous aucun d'eux ; ils sont sous la seule GARDE REVIVE
+    (`if (!unitComponent.PendingRevive@+0xa8 .HasValue)`), qu'un `Steppable` ne peut pas armer
+    (aucun consommateur de `On(PreUnitDeath)` ne pose de revive sur lui -- cf. le RESIDU ci-dessous,
+    le port n'emet meme pas cet evenement).
+
+    SEQUENCE MIRROREE (offsets = adresses de RETOUR relatives a `KillUnitOperation$$Execute`, memes
+    reperes que `damage.py::_kill_unit_operation` qui porte la MEME sous-sequence pour la mort par
+    DEGAT) :
+
+        +0x9be  RemoveEffects(killed, KillUnitStep.PreUnitRemove = 0)
+        +0xd9c  RemoveEffects(killed, KillUnitStep.AfterUnitRemove = 1)
+        +0xf35  GARDE HEAL : if (health.hp > 0) RETURN     (pas de step 2)
+        +0xf59  RemoveEffects(killed, KillUnitStep.AfterDeathTrigger = 2)
+
+    La garde HEAL est portee telle quelle bien qu'elle soit INERTE sur ce chemin : le crush vient de
+    poser `hp = 0` et le port n'emet, entre les deux, aucun des evenements de mort qui pourraient
+    soigner. La porter coute une lecture et garde le mirror lisible ; l'omettre creerait un ecart
+    silencieux le jour ou l'emission sera portee.
+
+    POURQUOI CE TROU MORDAIT. `collect_effect_triggers` (`triggers/dispatch/core.py`) itere
+    `state.effects.by_unit` et, depuis `#462-r4b-r1-r1-r1-r1-c-r3`, la face EFFET
+    d'`evaluate_trigger_operation` n'applique PLUS aucun gate d'owner -- mirror de
+    `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetEffectTrigger`, qui n'en a aucun. Un
+    `Steppable` ecrase gardait donc ses effets INDEFINIMENT tout en etant mort : c'etait le SEUL
+    regime du port ou un effet-trigger pouvait firer alors que le natif l'avait deja retire. Le
+    retrait ferme ce regime a sa source, du bon cote (l'effet n'existe plus), plutot que par un gate
+    que le natif n'a pas.
+
+    RESIDU NON FERME ICI, et c'est deliberé : le natif publie AUSSI, pour un `Steppable` ecrase,
+    `On(1 = PreUnitDeath)`, `On(2 = PreUnitDeath_2)`, `On(0 = UnitDeath)`, `On(0x36 = UnitDefeated)`
+    et `On(0x35 = PostUnitKill)`, ainsi que `RecordDeathReason(..., DamageReason.Steppable = 2)`.
+    Le port n'en emet qu'UN, `On(0x35)`, et seulement sur le chemin MOVE
+    (`triggers/dispatch/move_death.py::post_unit_kill_triggers_for_move`). Emettre les quatre autres
+    changerait le comportement de familles entieres (death-nova sur `On(2)`, Ambush et
+    `CosmicHorror_OnKillAbility` sur `On(0x36)`, ActOfFaith / `HazeCorruption_BonusHitAbility` /
+    les revives sur `On(1)`), ce qui n'est pas confrontable dans cette tranche.
+    Renvoie la liste des `effect_type` retires, par step (trace)."""
+    from .damage import _kill_unit_remove_effects
+    from .remove_effects import KillUnitStep
+    out = [{"step": int(KillUnitStep.PreUnitRemove),
+            "removed": _kill_unit_remove_effects(state, dead_id, KillUnitStep.PreUnitRemove)},
+           {"step": int(KillUnitStep.AfterUnitRemove),
+            "removed": _kill_unit_remove_effects(state, dead_id, KillUnitStep.AfterUnitRemove)}]
+    # GARDE HEAL @`KillUnitOperation$$Execute+0xf35` : le natif RELIT le `HealthComponent` du mort
+    # (dont il a mis les PV a 0 en tete d'operation) et RETOURNE si `hp > 0`.
+    e = state.get_entity(int(dead_id))
+    hc = e.get_component(HealthComponent) if e is not None else None
+    if hc is not None and hc.hp is not None and int(hc.hp) > 0:
+        return out
+    out.append({"step": int(KillUnitStep.AfterDeathTrigger),
+                "removed": _kill_unit_remove_effects(state, dead_id, KillUnitStep.AfterDeathTrigger)})
+    return out
+
+
 def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: int) -> list:
     """`MoveUnitOperation$$IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` — étape INLINE du move pipeline (avant
     `EvaluateAfterMoveTriggers`). Quand une unité MOVE sur `dest_tile`, tout occupant `Steppable`
-    (`IdunBattle.Entities.UnitExtensions$$IsSteppable` = `HasTrait(0x1b=27)`) VIVANT y est détruit par un kill **propre**
-    (`KillUnitOperationOptions$$IdunBattle.Operations.KillUnitOperationOptions$$ForSteppable`, type=2 flags 0x0101) : `alive=False` (hp 0) SANS
+    (`IdunBattle.Entities.UnitExtensions$$IsSteppable` = `HasTrait(0x1b=27)`) VIVANT y est détruit par un kill
+    (`KillUnitOperationOptions$$IdunBattle.Operations.KillUnitOperationOptions$$ForSteppable`, type=2 flags 0x0101) : `alive=False` (hp 0),
+    ses effets RETIRÉS (`_kill_steppable_remove_effects`, les trois `RemoveEffects` natifs), mais SANS
     passer par `after_death_triggers`/`On(1)` — un decoy/spore-mine crushé ne déclenche donc PAS les
-    death-triggers de combat (ex. l'Ambush du decoy — cf. G3). `mover_id` est exclu (une unité ne se crushe
-    pas elle-même). Renvoie les ids crushés. Ordre natif : `AddMoveEvent` → **KillSteppableUnits** →
-    `EvaluateAfterMoveTriggers` (d'où le decoy déjà mort quand DecoysAndMisdirection lit `GetValidDeadDecoys`,
-    G2)."""
+    death-triggers de combat côté port (ex. l'Ambush du decoy — cf. G3). ⚠ Le NATIF, lui, les émet :
+    c'est un RÉSIDU nommé, cf. `_kill_steppable_remove_effects`. `mover_id` est exclu (une unité ne se
+    crushe pas elle-même). Renvoie les ids crushés. Ordre natif : `AddMoveEvent` →
+    **KillSteppableUnits** → `EvaluateAfterMoveTriggers` (d'où le decoy déjà mort quand
+    DecoysAndMisdirection lit `GetValidDeadDecoys`, G2)."""
     from ...entities.traits import UnitTrait, has_trait
     killed: list = []
     for uid, e in list(state.entities.items()):
@@ -363,10 +439,15 @@ def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: in
         traits = getattr(sc.ctx, "traits", None) if sc is not None else None
         if not has_trait(traits or [], UnitTrait.Steppable):
             continue
-        uc.alive = False                              # kill PROPRE (ForSteppable) : PAS de after_death_triggers
+        uc.alive = False                              # kill ForSteppable : PAS de after_death_triggers
         hc = e.get_component(HealthComponent)
         if hc is not None:
             hc.hp = 0
+        # `KillUnitOperation$$Execute` retire les effets du mort par TROIS appels a
+        # `$$RemoveEffects(killed, step)`, aucun gate d'`options` sur leur chemin. Le natif boucle
+        # sur les Steppable et joue `KillUnit` ENTIEREMENT pour chacun : le retrait du crushe N
+        # precede donc le crush du N+1, ce que reproduit cet appel dans la boucle.
+        _kill_steppable_remove_effects(state, uid)
         killed.append(uid)
     return killed
 
