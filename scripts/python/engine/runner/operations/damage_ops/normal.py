@@ -68,6 +68,29 @@ class _Normal:
         adjacent) perdrait le bonus de perçage que le natif accorde. Défaut False = tous les autres
         appelants (attaque normale ordinaire)."""
         from ..damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
+        # --- #429-r1-r1 GATE CIBLE-MORTE, PREMIER gate d'`IdunBattle.Operations.
+        # ActiveAbilityOperation$$ExecuteInternal` (mirror ; #429-r1 l'avait pose sur la seule voie
+        # d'ABILITY). L'attaque normale native EST une active ability (#139) : elle traverse le MEME
+        # `ExecuteInternal`, donc le MEME gate. Il est ICI, au rang de l'OPERATION, et pas au rang du
+        # message `AttackUnitMessage` (qui n'existe PAS en natif) parce que le natif n'a qu'UN site
+        # d'execution : `Core.Services.OperationProcessor$$ActiveAbility` est le SEUL appelant CODE
+        # d'`ActiveAbilityOperation$$Execute` (hors la re-entree `ExecuteForReplacedTarget`), et
+        # `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute` -- la feuille DSL par
+        # laquelle passent TOUTES les attaques normales DECLENCHEES (overwatch, riposte, drone
+        # commande, summon) -- l'appelle exactement comme un cast commande. Poser le gate au rang du
+        # message n'aurait ferme qu'une des ~12 portes du port ; ce foyer les ferme toutes, comme le
+        # natif.
+        # `ability_class=None` = le comportement natif de TOUTE attaque normale : `CanContinueOnDeadTarget`
+        # (slot 0x11) n'a qu'UNE implementation (`AActiveAbility`), qui lit le bit 38 `AllowDeadTarget`
+        # du masque de CONTINUE, et un SEUL site du binaire le pose --
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$GetTargetingOptionsForContinue`,
+        # qui n'est pas une attaque normale (scan d'instructions : `probe_429r1_bit_readers_scan.py`).
+        # AUCUNE derogation cote CIBLE, contrairement a l'axe CASTER : le decompile du gate ne lit
+        # AUCUN champ d'`AbilityOptions` (pas d'equivalent du `options@+0x4a` que `UseActiveAbility`
+        # force a 1) -- d'ou l'absence de parametre `allow_dead_target`.
+        from ..active_ability import is_dead_unit_and_not_allowed_by_ability   # lazy : cycle
+        if is_dead_unit_and_not_allowed_by_ability(state, None, target_id):
+            return None
         if state.rng is None:
             raise ValueError("state.rng non calé (seed depuis dumpRng avant un replay-diff)")
         # #449-r2-r4 : `spread_pct=None` = LU de `BattleConfiguration.Damage.DamageSpreadPercentage`
