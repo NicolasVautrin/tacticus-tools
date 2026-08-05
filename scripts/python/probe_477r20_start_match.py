@@ -108,11 +108,9 @@ def decouper(texte_groupe: str) -> dict:
     ma = CONF.RE_ACTION.match(premiere)
     porte = (ma is not None and profondeur(premiere) == 1
              and ma.group("sym") == StepType.StartMatch.name)
-    tags_action = [l for l in lignes[2:] if CONF.RE_TAG.match(l) and profondeur(l) == 2
-                   and l is lignes[2]]
-    # Les `Tag=` de l'action sont ecrits a profondeur 2 IMMEDIATEMENT apres elle : il suffit de
-    # regarder la ligne suivante (`StreamCache$$Action` ecrit ses tags d'un bloc).
-    tags_action = []
+    # Les `Tag=` d'une action sont ecrits a profondeur 2 IMMEDIATEMENT apres elle
+    # (`StreamCache$$Action` les ecrit d'un bloc) : on avance tant qu'on en voit.
+    tags_action: list = []
     k = 2
     while k < len(lignes) - 1 and CONF.RE_TAG.match(lignes[k]) and profondeur(lignes[k]) == 2:
         tags_action.append(lignes[k])
