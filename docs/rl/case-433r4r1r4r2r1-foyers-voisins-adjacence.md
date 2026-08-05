@@ -215,12 +215,8 @@ bouge (résidu #433-r4-r1-r4-r2-r4, mesuré en parallèle) ; (d) les 775 boards 
     (`board.neighbours_native(ttile)`, l. 519) et le foyer branché existe
     (`services.battle_query.are_entities_adjacent`, `runner.abilities.targeting`). NON CORRIGÉ ici,
     par mandat.
-  * **NON TRANCHÉS** — `playbook/noncomparable/aberrant_hypermorph.py:50` et
-    `master_of_the_tutelaries.py:73`, tous deux `hexgeo.distance(T, ST) != 1` pour « spawn adjacent à
-    la position T », le canal branché deux lignes plus bas. `AberrantHypermorphPlaybook$$EvaluateNonComparable`
-    (relu) ne filtre **pas** par distance : il énumère `GetEligibleTargetsSelectable`, donc la
-    contrainte d'adjacence vient du **sélecteur DSL** de l'ability. Trancher demande de lire ce
-    sélecteur — s'il passe par `AdjacentTiles`, c'est le même vice.
+  * ~~**NON TRANCHÉS**~~ — `aberrant_hypermorph.py` et `master_of_the_tutelaries.py` : **TRANCHÉS
+    OUI, branchés** (#616, §7). Le sélecteur EST le même vice.
 
   Élargir `NATIFS_LISTE_STOCKEE` **armerait le cliquet sur ce rouge**, donc l'ordre est : corriger
   d'abord, élargir ensuite. C'est aussi le voisin de `#433-r4-r1-r4-r2-r2`, resté ouvert pour la même
@@ -234,10 +230,74 @@ bouge (résidu #433-r4-r1-r4-r2-r4, mesuré en parallèle) ; (d) les 775 boards 
   de l'étape 1 (qui garde le COUPLE) et de l'étape 2 (il ne cite pas de natif à liste stockée dans
   la fonction concernée). À trancher sur son propre décompilé.
 
-## 7. Reproduction
+## 7. Les deux sélecteurs de spawn NC — **BRANCHÉS** (#616)
+
+Les deux sites que `#433-r4-r1-r4-r2-r1-r1-r1` avait laissés NON TRANCHÉS le sont : **OUI**, ils
+faisaient de la géométrie là où le natif lit la liste stockée. Le playbook n'était pas le bon
+endroit où chercher — **le sélecteur**, lui, se lit jusqu'au bout :
+
+    <X>Playbook$$EvaluateNonComparable                     (aucun filtre de distance — #614 avait raison)
+      -> BasePlaybook$$GetEligibleTargetsSelectable(caster, MainTile(casterPosition))
+         -> IBattleQuery slot 0x42 = BattleQuery$$GetValidTargets(unit, UnitPosition(T), abilityType)
+            -> TargetingQuery$$GetValidTargets
+               -> TargetingQuery$$GetRange -> octet +4 POSÉ
+               -> TargetingQuery$$GetPossibleTargetsForOptions   (bit 6 `TargetIsTile` -> branche TUILES)
+                  -> TargetingQuery$$GetTilesInRange
+                     -> slot 0x51 = BattleQuery$$GetAdjacentTiles -> IterateAdjacentTiles
+
+**Le discriminant est `onlyAdjacent`, et il est LU, pas déduit.** `TargetingOptions$$.ctor` place le
+`TargetingRange` à `options+8` ; `GetRange` y applique `RangedBoolExtensions$$IsTrue`, dont la valeur
+`0` **vaut VRAI**. Or les deux `<X>Ability$$.ctor` (lus **séparément**) recopient le `TargetingRange`
+statique **`+0x30`**, que `TargetingRange$$.cctor` écrit à `{ onlyAdjacent = 0, overrideRange =
+Nullable(1) }`. `GetTilesInRange` teste cet octet **avant** tout le reste : posé → `GetAdjacentTiles`.
+
+C'est le contre-pied exact d'`in_arc` : la branche géométrique existe bien
+(`GetSurroundingTiles`, slot 0x67 → `TileQuery.<IterateSurroundingTiles>d__6$$MoveNext`, triple
+boucle `x/y/z` sous `x+y+z == 0`), mais c'est celle du range **numérique** — `onlyAdjacent` la
+court-circuite. **Deux abilities, même famille, verdicts opposés à `in_arc`** : la règle « ne pas
+brancher par symétrie » vaut aussi dans l'autre sens, celui du refus par ressemblance.
+
+Le port ne peut pas rejouer le sélecteur par position (l'RPC `abilityTargets` rend l'**union** sur
+toutes les tuiles de move) : il RE-PROJETTE cette union sur T. Cette re-projection **est**
+`is_adjacent(T, ST)` — l'ancien `hexgeo.distance == 1` n'en portait **aucun** des deux étages.
+
+**Solde** (`probe_433r4r1r4r2r1r1r1_solde_selecteur_spawn.py`, 3 structures) :
+
+| board | paires FERMÉES | OUVERTES | positions T changées | dont VIDÉES |
+|---|---|---|---|---|
+| `C1_74` (2 Bridge) | 74 | 0 | 34/63 | 2 |
+| `C3_14` (15 Bridge) | 116 | 0 | 44/63 | 0 |
+| `MC1_67` (témoin) | 18 | 0 | 11/63 | 0 |
+| **total** | **208** | **0** | **89/189** | **2** |
+
+Les 208 **reproduisent exactement** le total de `newly_adjacent_ids` (§3) — même prédicat, mesuré
+par un chemin indépendant. Le grain neuf est celui des **sites** : 89 positions candidates sur 189
+voient leur ensemble de tuiles de spawn changer, et 2 le perdent entièrement.
+
+**La garde VOIT le changement, et par deux compteurs** : étape 1, call-sites gatés **76 → 78** ;
+`--inventaire`, **3 → 1** (il ne reste qu'`orks.py`). Elle ne peut structurellement pas coter un site
+qui n'a plus de `distance ∼ 1` — d'où la **docstring** posée sur les deux `generate_candidates`, qui
+cite `GetAdjacentTiles` : une régression y ramènerait la géométrie, et l'étape 4 mordrait. Vérifié
+dans les deux sens par la contre-épreuve.
+
+**Contre-épreuve : 6 mutations, 6 mordantes, 6 conformes**, arbre restauré bit-exact. Deux d'entre
+elles ne rougissaient **pas** au premier jet — et la cause est un piège de montage qui vaut d'être
+nommé : l'élévation posée sur la **tuile de spawn** isolait celle-ci de son propre ennemi, donc
+l'utilité tombait à 0 et le playbook rendait `[]` **pour une raison qui n'était pas la porte**. Posée
+sur **T**, l'utilité reste atteignable et seul le filtre peut expliquer le refus.
+
+**NON couvert, nommé** : (a) la confrontation LIVE du choix de tuile face au natif sur une arête
+`Bridge` — le solde est mesuré sur le prédicat et les sites, pas sur une décision observée ; (b) le
+résidu d'ORDRE pour `T != origine` (l'union n'a l'ordre d'aucune position) est inchangé, le
+branchement ne le touche pas ; (c) l'occupation, qui dépend de T (le caster libère son origine en s'y
+déplaçant), reste évaluée au board d'origine — écart préexistant, hors de ce branchement.
+
+## 8. Reproduction
 
     python -m pytest tests/engine/test_433r4r1r4r2r1_foyers_voisins_offline.py
     python -m pytest tests/engine/test_433r4r1r4r2r1r1_derivation_morte_offline.py
+    python -m pytest tests/engine/test_433r4r1r4r2r1r1r1_selecteur_spawn_offline.py
     python -m pytest tests/engine/runner/test_433r4r1r4r2r1_update_charging_bridge_live.py
     python probe_433r4r1r4r2r1_solde_par_foyer.py [--board C3_14]
+    python probe_433r4r1r4r2r1r1r1_solde_selecteur_spawn.py [--board C3_14]
     python probe_433r4r1r4r2_neigh_channel_wired.py [--inventaire]
