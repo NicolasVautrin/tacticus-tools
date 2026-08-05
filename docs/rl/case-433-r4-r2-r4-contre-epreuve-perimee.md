@@ -108,11 +108,11 @@ invariante — d'où la valeur absolue dans l'assertion.
 
 ## 6. Résidus
 
-* **`#433-r4-r2-r4-r1`** — *aucun garde ne relie un canal partagé aux ORACLES qui le supposent
-  exclusif*. Le cliquet de `489bb349` vérifie que les call-sites de production lisent le canal ;
-  il ne voit pas les probes/tests qui **coupent** un canal pour fabriquer une contre-épreuve. Point
-  d'ancrage : recenser les `dataclasses.replace(ctx, <canal>=None)` des probes et tests, et
-  confronter chacun à la liste des canaux que son foyer consulte.
+* ~~**`#433-r4-r2-r4-r1`**~~ — **FERMÉ le 2026-08-05**, `case-433-r4-r2-r4-r1-canal-exclusif.md`.
+  Gisement mesuré : **25 sites** de contre-épreuve à deux bras, **9 foyers**, **67 appels sur
+  2 800** dans le régime du piège — et **0 autre contre-épreuve muette**. Le garde est
+  `counterproof.assert_channel_counterproof*`, qui NOMME le canal concurrent au lieu de laisser le
+  rouge accuser le port ; les trois contre-épreuves ci-dessus y passent désormais.
 * Le volet ZONE de `#433-r4-r2-r1` reste **nommé** (une divergence LoS peut exister sur un autre
   relief) mais **n'est pas observable** sur les 4 montages mesurés ici. Le test ne lui réserve plus
   de marge : une divergence y serait un fait à expliquer, plus un résidu admis.
