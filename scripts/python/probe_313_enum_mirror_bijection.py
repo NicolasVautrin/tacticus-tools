@@ -213,6 +213,10 @@ REGISTRE: list[Mirror] = [
     # decimal. Sa cle vit dans `IdunBattle.Core`, pas dans `IdunBattle.Streams`.
     Mirror("BEntityId", "engine/streams/entity_id.py",
            "IdunBattle.Core.BEntityId"),
+    # `SpawnSource` : le parametre `source` de `StreamHelper$$GetAddUnitTags`, recopie tel quel
+    # dans `TagKey.Unit_SpawnSource`. Entre au registre avec son mirror (#477-r15 tranche B).
+    Mirror("SpawnSource", "engine/entities/spawn_source.py",
+           "IdunBattle.Entities.Enum.SpawnSource"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune
