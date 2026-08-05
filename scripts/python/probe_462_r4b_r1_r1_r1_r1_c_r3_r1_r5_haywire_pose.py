@@ -253,6 +253,177 @@ def step_live(board: str, seed: str, units: str) -> int:
             pass
 
 
+def _capture(rpc, rid):
+    """Tout ce qu'il faut pour rejouer le pas OFFLINE."""
+    return {"bg": rpc("boardGraph", {"runnerId": rid}, 60),
+            "dv": rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120),
+            "ob": rpc("observeBattle", {"runnerId": rid}, 60),
+            "snap": rpc("combatSnapshot", {"runnerId": rid}, 60),
+            "tm": rpc("tileMeta", {"runnerId": rid}, 60),
+            "ab": rpc("unitAbilityStates", {"runnerId": rid}, 60)}
+
+
+def _state(cap, seed=777):
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.snapshot import load_state
+    board = Board(cap["bg"]["tiles"], adjacency="evenq")
+    st = load_state(cap["dv"], cap["ob"], cap["snap"], board=board, tiles=cap["tm"],
+                    ability_states=cap.get("ab"))
+    st.rng = IntBasedMersenneTwister(seed)
+    return st
+
+
+def _mines_offline(st):
+    """`{(col,row): entityId}` des mines VIVANTES d'un `State` du port."""
+    from engine.runner.components import PositionComponent, UnitComponent
+    out = {}
+    for uid, e in st.entities.items():
+        uc = e.get_component(UnitComponent)
+        pc = e.get_component(PositionComponent)
+        if uc is None or pc is None or not uc.alive:
+            continue
+        if MINE_FRAGMENT in (uc.visual_id or ""):
+            out[(pc.col, pc.row)] = uid
+    return out
+
+
+def _diagnostic(st, cid: int) -> None:
+    """Ventilation ETAGE PAR ETAGE quand le port ne pose pas : inscription au registre, position
+    precedente memorisee, puis evaluation du selecteur de tuiles. On n'ajuste JAMAIS un scalaire --
+    on cherche le PREMIER etage ou le port cesse de mirrorer."""
+    from engine.runner.components import (PositionComponent, StatsComponent,
+                                          UnitFlagsComponent, persistent_data)
+    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
+    from engine.runner.operations.triggers.loki.haywire_mine import (haywire_mine_tiles,
+                                                                     HAYWIRE_MINE_ID,
+                                                                     POSE_DATA_KEY)
+    e = st.get_entity(cid)
+    fl = e.get_component(UnitFlagsComponent) if e is not None else None
+    print("   [diag] flags=%s persist=%s"
+          % (sorted(fl.flags) if fl is not None else None,
+             persistent_data(e, (HAYWIRE_MINE_ID, POSE_DATA_KEY))))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    pc = e.get_component(PositionComponent) if e is not None else None
+    print("   [diag] visual=%s passives=%s" %
+          (getattr(ctx, "visual_id", None), getattr(ctx, "passive_abilities", None)))
+    print("   [diag] passive_level=%s mult=%s" %
+          (getattr(ctx, "passive_ability_level", None),
+           getattr(ctx, "ability_variables_multiplier", None)))
+    print("   [diag] pos=%s previous=%s" %
+          ((pc.col, pc.row) if pc else None, getattr(pc, "previous", None) if pc else None))
+    mine = [type(a).__name__ for a in collect_triggered_abilities(st) if a.owner_id == cid]
+    print("   [diag] triggers inscrits sur cyrus = %s" % mine)
+    ent = entities_from_state(st, cid, cid, actor_id=cid)
+    print("   [diag] selecteur de tuiles -> %s" % (haywire_mine_tiles().evaluate(ent),))
+    # Le VECTEUR lui-meme, appele a la main sur un etat FRAIS : separe << le trigger ne matche pas >>
+    # de << le behaviour ne pose rien >>.
+    from engine.runner.operations.triggers.dispatch.turn import (
+        unit_finished_turn_normally_triggers)
+    print("   [diag] vecteur On(41) -> %s" % (unit_finished_turn_normally_triggers(st, cid),))
+
+
+def step_port(board: str, seed: str, units: str) -> int:
+    """CONFRONTATION natif vs port sur la POSE elle-meme, MEME etat, MEMES gestes.
+
+    Le port rejoue, sur l'etat CAPTURE avant l'action, le MEME `MoveUnitMessage` puis le MEME
+    `FinishUnitTurnMessage` que le natif vient de jouer -- et on compare les tuiles de pose."""
+    from engine.runner.messages import FinishUnitTurnMessage, MoveUnitMessage
+    from engine.runner.runner import Runner
+    R = _host()
+    sid = R._resolve_session()
+    rpc = _mk_rpc(R, sid)
+    rid, state_f = _build(board, seed, units)
+    print("runner=%d board=%s seed=%s  [CONFRONTATION natif vs port]" % (rid, board, seed))
+    rc = 0
+    try:
+        dv = _vue(rpc, rid)
+        cyrus = _by_vis(dv, SUMMONER)
+        if cyrus is None:
+            print("KO: %s absent" % SUMMONER)
+            return 2
+        cid, avant = _uid(cyrus), _pos(cyrus)
+        reach = {t for t in _movable(rpc, rid, cid) if hexgeo.distance(t, avant) == 1}
+        if not reach:
+            print("KO: aucun pas legal")
+            return 2
+        dest = sorted(reach)[0]
+
+        # --- BRAS 1 : le DEPLACEMENT ------------------------------------------------------
+        cap = _capture(rpc, rid)
+        st = _state(cap, int(seed))
+        _act(rpc, rid, {"kind": "move", "unitId": cid, "to": {"col": dest[0], "row": dest[1]}})
+        nat = sorted(_mines(_vue(rpc, rid)))
+        r = Runner(st).install_default_handlers()
+        r.apply(MoveUnitMessage(int(cid), (int(dest[0]), int(dest[1]))))
+        port = sorted(_mines_offline(st))
+        ok1 = (nat == port)
+        print("1. move %s -> %s | natif=%s | port=%s | %s"
+              % (avant, dest, nat, port, "ACCORD" if ok1 else "DESACCORD"))
+        if not ok1:
+            _diagnostic(st, int(cid))
+        rc = rc if ok1 else 1
+
+        # --- BRAS 2 : la FIN D'ACTIVATION du MEME tour (aucune pose attendue) --------------
+        # CHAINE sur l'etat du bras 1, JAMAIS sur un rechargement. La raison est un ECART DE
+        # HARNAIS mesure et nomme : `PositionComponent+0x88` (la position precedente) n'est publiee
+        # par AUCUN RPC, donc un `load_state` pris APRES le deplacement repart avec `previous`
+        # VIDE -- le port prend alors la branche ADJACENTE au lieu de la branche `PreviousTile`, et
+        # pose une 2e mine la ou le natif n'en pose aucune. Chainer, c'est ce que fait toute
+        # simulation offline reelle (elle part d'un etat et JOUE) ; recharger a mi-tour ne l'est pas.
+        _act(rpc, rid, {"kind": "finish", "unitId": cid})
+        nat2 = sorted(_mines(_vue(rpc, rid)))
+        r.apply(FinishUnitTurnMessage(unit_id=int(cid)))
+        port2 = sorted(_mines_offline(st))
+        ok2 = (nat2 == port2)
+        print("2. finish (tour AVEC move, CHAINE) | natif=%s | port=%s | %s"
+              % (nat2, port2, "ACCORD" if ok2 else "DESACCORD"))
+        rc = rc if ok2 else 1
+
+        # --- BRAS 3 : un tour SANS deplacement -> pose ADJACENTE ---------------------------
+        _act(rpc, rid, {"kind": "endturn"}, 90)
+        _act(rpc, rid, {"kind": "endturn"}, 90)
+        cap3 = _capture(rpc, rid)
+        st3 = _state(cap3, int(seed))
+        avant3 = sorted(_mines_offline(st3))
+        _act(rpc, rid, {"kind": "finish", "unitId": cid})
+        nat3 = sorted(_mines(_vue(rpc, rid)))
+        r3 = Runner(st3).install_default_handlers()
+        r3.apply(FinishUnitTurnMessage(unit_id=int(cid)))
+        port3 = sorted(_mines_offline(st3))
+        neuf_n = sorted(set(nat3) - set(avant3))
+        neuf_p = sorted(set(port3) - set(avant3))
+        ok3 = (neuf_n == neuf_p)
+        print("3. finish (tour SANS move) | neuve natif=%s | neuve port=%s | %s"
+              % (neuf_n, neuf_p, "ACCORD" if ok3 else "DESACCORD"))
+        if not ok3:
+            _diagnostic(_state(cap3, int(seed)), int(cid))     # etat AVANT le finish porte
+            from engine.runner.operations.turnflow import FinishUnitTurnOperation
+            st3b = _state(cap3, int(seed))
+            res = FinishUnitTurnOperation.execute(st3b, int(cid), forced=False)
+            print("   [diag] FinishUnitTurnOperation -> %s" % json.dumps(res, default=str)[:600])
+            print("   [diag] mines apres = %s" % sorted(_mines_offline(st3b)))
+            from engine.runner.components import PositionComponent as _PC, UnitComponent as _UC
+            mid = ((res.get("finished_normally_triggers") or [{}])[0].get("mines") or [None])[0]
+            me = st3b.get_entity(mid) if mid is not None else None
+            muc = me.get_component(_UC) if me is not None else None
+            mpc = me.get_component(_PC) if me is not None else None
+            print("   [diag] mine posee id=%s visual=%s alive=%s pos=%s ; entites=%d"
+                  % (mid, getattr(muc, "visual_id", None), getattr(muc, "alive", None),
+                     ((mpc.col, mpc.row) if mpc else None), len(st3b.entities)))
+        rc = rc if ok3 else 1
+        print("VERDICT: %s" % ("ACCORD sur les 3 bras" if rc == 0 else "DESACCORD -- cf. ci-dessus"))
+        return rc
+    finally:
+        rpc("disposeRunner", {"runnerId": rid}, 20)
+        try:
+            state_f.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def step_discriminant(board: str, seed: str, units: str) -> int:
     """LE BRAS QUI DISCRIMINE l'ordre `On(0x28)` / `On(0x29)`.
 
@@ -340,7 +511,7 @@ def step_discriminant(board: str, seed: str, units: str) -> int:
 
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--step", default="live", choices=["live", "discriminant"])
+    ap.add_argument("--step", default="live", choices=["live", "discriminant", "port"])
     ap.add_argument("--board", default=DEFAULT_BOARD)
     ap.add_argument("--seed", default="777")
     ap.add_argument("--units", default="ultraTitus,orksNob",
@@ -352,6 +523,8 @@ def main(argv) -> int:
         # `finish` rendait une cascade VIDE et le verdict etait donc sans objet.
         u = a.units if len(a.units.split(",")) >= 3 else (a.units + ",necroWarden")
         return step_discriminant(a.board, a.seed, u)
+    if a.step == "port":
+        return step_port(a.board, a.seed, a.units)
     return step_live(a.board, a.seed, a.units)
 
 

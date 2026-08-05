@@ -39,7 +39,8 @@ from ...entities.effect_type import EffectType
 
 
 def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
-                         caster_level: Optional[int], caster_mult: int, key_suffix: str = ""):
+                         caster_level: Optional[int], caster_mult: int, key_suffix: str = "",
+                         passive_level: Optional[int] = None):
     """`UnitContext` d'un summon, résolu 100% offline depuis gameconfig :
       - stats de combat = `ability_var(summon_ability, summon*, caster_level, caster_mult)` ;
       - arme/traits/profil = gameconfig de l'unité summon (`visual_id`).
@@ -90,10 +91,19 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
     # n'avaient que 5 tuiles d'action (l'anneau a 1 hex) et finissaient a dist <= 1 du caster, la ou
     # le natif les envoie a dist 3.
     stats.ensure_seeded(StatType.MOVEMENT, int(gu.get("Movement") or 0))
+    # `passive_ability_level` : le niveau sous lequel l'unite POSEE monte ses PROPRES passives --
+    # c'est-a-dire l'`AbilityState` que `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$
+    # WithStatsFromConfig(config, abilityState, 0, 0)` recoit du summoner. Il n'est renseigne que
+    # quand l'appelant le CONNAIT (la feuille `Spawn` avec son `ability_state`) : `None` laisse le
+    # defaut d'`UnitContext`, donc le comportement anterieur strictement inchange pour les six
+    # call-sites historiques. Sans lui, une passive de summon per-niveau lit l'index 0 (mode de
+    # panne #174, mesure a un facteur ~55 sur la mine Haywire).
+    kw = {} if passive_level is None else {"passive_ability_level": int(passive_level)}
     return UnitContext(
         entity_id=entity_id, visual_id=visual_id,
         active_ability_level=int(caster_level or 0),   # niveau du caster -> propage aux self-summons (PileIn 2e gen)
         ability_variables_multiplier=caster_mult,
+        **kw,
         traits=list(gu.get("traits") or []),
         range=int(w.get("Range") or 0) if w else 0,
         faction=gu.get("FactionId"),
@@ -475,7 +485,8 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
                        level, mult: int, team, player, ai_controlled: bool = True,
                        key_suffix: str = "", parent_id: Optional[int] = None,
                        feet_tiles: Optional[list] = None,
-                       finish_turn_on_spawn: bool = True) -> Optional[int]:
+                       finish_turn_on_spawn: bool = True,
+                       passive_level: Optional[int] = None) -> Optional[int]:
     """Spawn UNE unité `visual_id` sur `tile` (id de tuile), stats `WithStatsFromConfig(summon_ability)` =
     `ability_var(summon_ability, summon*[key_suffix], level, mult)`, owner = team+player, `active_ability_level
     = level` (propagé → lève le GAP PileIn 2e-gen). Renvoie l'entity id (None si `tile` None). Partagé par
@@ -510,7 +521,8 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=ai_controlled,
                                   parent_id=parent_id))
     e.add_component(OwnerComponent(team=team, player=player))
-    ctx = build_summon_context(e.id, visual_id, summon_ability, level, mult, key_suffix=key_suffix)
+    ctx = build_summon_context(e.id, visual_id, summon_ability, level, mult, key_suffix=key_suffix,
+                               passive_level=passive_level)
     e.add_component(StatsComponent(ctx=ctx))
     e.add_component(HealthComponent(hp=ctx.health, hp_max=ctx.health))
     _seed_trait_owner_effects(state, e.id, ctx.traits, mult)

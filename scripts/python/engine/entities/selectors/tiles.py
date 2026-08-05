@@ -171,6 +171,52 @@ class AdjacentTiles(TargetsSelector):
         return out
 
 
+class PreviousTile(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$PreviousTile(unit)` ->
+    `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select` -- MIRROR du decompile :
+
+        entity = this.<+0x18 unitSelector>.SelectSingle(entities)     # null -> throw (cf. ci-dessous)
+        comp   = entity.GetComponent<PositionComponent>()
+        nul    = comp.<+0x88>                                          # Nullable<UnitPositionId>
+        return nul.HasValue ? UnitPositionIdExtensions.ToTileList(nul.Value, this.<+0x10 state>)
+                            : new List<TileEntity>()
+
+    Le `Nullable` est ecrit par `IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition`
+    (foyer porte : `runner/components.py::save_previous_position`), donc il vaut l'EMPREINTE QUITTEE
+    au dernier deplacement -- **pas** la tuile courante, et **pas** une valeur per-tour (`+0x98`,
+    l'autre slot que le meme `SavePreviousPosition` ecrit, est celui que lit
+    `IdunBattle.Entities.EntityExtensions$$GetPreviousPositionThisTurn` ; il n'a aucun consommateur
+    porte -- residu nomme sur `PositionComponent`).
+
+    DOMAINE : ids de TUILE (comme `AdjacentTiles`/`CanAddUnit`), pour etre consommable par
+    `CanAddUnit`/`Count`. Le natif rend des `TileEntity` ; la conversion coordonnees -> id passe par
+    le board, donc `board` absent -> `[]`.
+
+    DEGRADATION : `ctx.previous_tiles` absent (contexte hors runner) -> `[]`. Le natif, lui, LEVE sur
+    selecteur vide ; le port refuse en silence, comme partout ailleurs dans cette couche.
+
+    CONSOMMATEUR PORTE : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HaywireMineAbility$$
+    CreateBehaviour` (`AmountIsGreaterThanZero(PreviousTile(Owner))` en garde, puis
+    `CanAddUnit(PreviousTile(Owner))` comme tuile de pose)."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        fn = getattr(ctx, "previous_tiles", None)
+        if board is None or fn is None:
+            return []
+        u = resolve_unit(self.unit, ctx)
+        if not u:
+            return []
+        out: list = []
+        for col, row in (fn(u) or ()):
+            tid = board.id_at(col, row)
+            if tid is not None:
+                out.append(tid)
+        return out
+
+
 class TileUnique(TargetsSelector):
     """`DSLFactory.Unique(source)` sur le domaine TILE (LINQ Distinct sur ids de tuile, 1re
     apparition preservee). Homologue tile de `Unique` (qui dedup par id d'ENTITE, KO sur des ints)."""
@@ -239,7 +285,39 @@ class CanAddUnit(TargetsSelector):
     On lit donc l'EMPREINTE (`unit["feet"]`, mirror `EntityExtensions$$GetTiles`), pas la seule
     `PositionComponent`. Strictement equivalent pour une unite mono-tuile (`feet == [pos]`) ; sans
     ca, un Galatian pose au sol par `DutyEternal` ne bloquait que sa MAIN TILE et le port acceptait
-    de spawner sur ses deux autres pieds."""
+    de spawner sur ses deux autres pieds.
+
+    OCCUPATION : le CONTENU DE LA TUILE, PAS les PV de son occupant
+    (#462-r4b-r1-r1-r1-r1-c-r3-r1-r5). La chaine native, LUE de bout en bout :
+
+        IdunBattle.Entities.Selectors.CanAddUnitTileSelector$$Select
+            allowSteppable = !<trigger @+0x28>.ShouldTrigger(entities, 0x20)
+            garde les tuiles t telles que TileExtensions.CanAddUnitFromAbility(t, state, parent,
+                                                                              allowSteppable)
+        IdunBattle.Entities.TileExtensions$$CanAddUnitFromAbility
+            = IsFreeTile(t, state, allowSteppable, allowTemporaryTile: 0, allowAnyUnit: 0)
+              && !IsTileReservedForOtherUnit(t, parent) && !IsTilePendingDrafting(t, state, 0)
+        IdunBattle.Entities.TileExtensions$$IsFreeTile   (branche `allowAnyUnit == 0`)
+            libre = allowSteppable ? (content.IsEmpty() || GetUnit(t).HasTrait(0x1b = Steppable))
+                                   : content.IsEmpty()
+
+    **Aucun etage ne lit les PV.** Le port filtrait `alive ET hp > 0` (`_is_alive`) : une unite a
+    **0 PV** -- ce qu'est une mine Haywire PAR CONSTRUCTION (`HaywireMine` n'a pas de variable
+    `summonHp`, donc `UnitStats_MaxHealth = 0`, mesure live) -- ne bloquait donc RIEN, et le port
+    posait une seconde mine SUR la premiere. Le critere est desormais `alive` seul, c'est-a-dire
+    « l'unite est SUR le plateau » : c'est deja le modele des DEUX jumeaux imperatifs de ce noeud
+    (`operations/spawn.py::_occupied_tiles` et `::_free_tiles_adjacent`), qui ne lisent que
+    `UnitComponent.alive` -- le noeud DSL etait le seul a diverger.
+    ⚠ Les MORTS restent exclus, et c'est fidele : `KillUnitOperation` -> `RemoveUnitFromTiles` vide
+    le `TileContentComponent`, donc un cadavre n'occupe plus rien cote natif non plus.
+
+    RESIDUS NOMMES : (a) `allowSteppable` n'est pas modelise PAR CALL-SITE -- le port implemente la
+    branche `allowSteppable == 0` (tout occupant bloque). C'est celle du call-site de
+    `HaywireMineAbility`, et c'est MESURE, pas suppose : au tour ou la mine occupe deja
+    `PreviousTile`, le natif ne repose RIEN (`Count(tiles) == 0` -> `TriggerAbilityDelayed`), alors
+    qu'avec `allowSteppable == 1` la tuile aurait ete rendue libre par le bras
+    `GetUnit(t).HasTrait(Steppable)`. (b) `IsTileReservedForOtherUnit` et `IsTilePendingDrafting`
+    n'ont pas d'equivalent porte (ni reservation, ni drafting)."""
     def __init__(self, source: TargetsSelector):
         self.source = source
 
@@ -249,7 +327,9 @@ class CanAddUnit(TargetsSelector):
             return []
         occ = set()
         for u in ctx.units:
-            if not _is_alive(u):
+            # `TileContentComponent.IsEmpty` -- l'occupation est celle de la TUILE, PAS la vitalite
+            # de son occupant : cf. le bloc « OCCUPATION : le CONTENU DE LA TUILE » de la docstring.
+            if not u.get("alive", True):
                 continue
             for f in _feet(u):                            # `GetTiles` (repli main tile documente)
                 t = board.id_at(f[0], f[1])

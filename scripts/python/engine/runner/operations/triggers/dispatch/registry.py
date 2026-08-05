@@ -166,7 +166,12 @@ from ..loki.neuroparasite import (NeuroparasiteAddBondEffectAbility,     # #462-
                                   NeuroparasiteIncreaseLevelOnPsychicHit,
                                   NeuroparasiteIncreaseLevelOnPinned,
                                   NEUROPARASITE_EFFECT)
-from ..loki.haywire_mine import HaywireMineSteppableAbility             # #462-...-c-r3-r1-r3
+from ..loki.haywire_mine import (HaywireMineSteppableAbility,          # #462-...-c-r3-r1-r3
+                                 HaywireMineCustomAbility,             # #462-...-c-r3-r1-r5
+                                 HaywireMinePlaceOnMoveAbility,
+                                 HaywireMinePlaceOnTurnEndAbility,
+                                 HaywireMineResetAbility,
+                                 HAYWIRE_MINE_ID)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -424,6 +429,25 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # que le crush publie `On(1)` avec sa raison (mesure live : Amount=1403 profil Blast).
     # Cf. loki/haywire_mine.py.
     "HaywireMineSteppable": [HaywireMineSteppableAbility],
+    # HaywireMine (passif `astarCyrus` << Haywire Mine >>, `TriggeredAbilityType` 0x5fb = 1531,
+    # #462-r4b-r1-r1-r1-r1-c-r3-r1-r5) = la POSE de la mine que l'entree ci-dessus fait exploser.
+    # TROIS entrees pour DEUX classes natives de MEME id (le patron `DawnBlade_Heal`/`_Init`) :
+    #   * `HaywireMineAbility$$CreateTrigger` est un `op_BitwiseOr` -> ses DEUX disjonctions sont
+    #     des entrees SEPAREES ici (meme patron qu'ActOfFaith / MyWillBeDoneOverlord) :
+    #       - `On(4 = UnitAfterMove) & OwnerIsActor & TriggeringAbilityIsNone` -> pose sur la tuile
+    #         QUITTEE (`PreviousTile`) ;
+    #       - `On(0x29 = UnitFinishedTurnNormally) & OwnerIsActor & AmountIsZero(GetPersistentData)`
+    #         -> pose de fin d'activation (tuile adjacente de meilleure utilite si l'unite n'a pas
+    #         bouge) ;
+    #   * `HaywireMine_ResetAbility` (`On(0x28 = UnitFinishedTurn) & OwnerIsActor` ->
+    #     `ClearPersistentData`) RE-ARME le gate d'un tour a l'autre. Elle n'a PAS d'entree propre
+    #     dans `TriggeredAbilityType` : c'est la 2e classe du meme id, d'ou l'inscription sous le
+    #     MEME nom de kit.
+    # L'ordre `On(0x28)` PUIS `On(0x29)` de `FinishUnitTurnOperation$$Execute` est ce qui rend le
+    # gate persistant toujours ouvert a la fin d'une activation normale -- mesure live, cf.
+    # `docs/rl/case-462-r4b-r1-r1-r1-r1-c-r3-r1-r5-pose-mine-haywire.md`. Cf. loki/haywire_mine.py.
+    "HaywireMine": [HaywireMinePlaceOnMoveAbility, HaywireMinePlaceOnTurnEndAbility,
+                    HaywireMineResetAbility],
     # Neuroparasite (passif `tyranNeurothrope` << Neurothrope >> + 6 npc, #462-r4b-r1-r1-r1) = la POSE
     # du parasite : `On(9 = Attack) & OwnerIsCaster & !HasEffect(Target, 0x4c2) & IsUnit(Target) &
     # CurrentAttackDamageProfilesContain(0xd = Psychic) & !(OwnerIsActor & OwnerIsTarget)` ->
@@ -620,6 +644,14 @@ CUSTOM_TRIGGERED_ABILITIES: dict[int, list[type[TriggeredAbility]]] = {
     # = le deplacement d'UN hex vers l'attaquant, arme par le `TriggerAbilityDelayed(Owner, 1187, 3)`
     # de la branche `On(0x3c = UnitBlocked)` de la MEME ability. cf. loki/harlequins_panoply.py.
     HARLEQUINS_PANOPLY_ABILITY: [HarlequinsPanoplyCustomAbility],
+    # 1531 HaywireMine : `if (triggerType == 0x20 = Custom) return Spawn & AddPersistentData;` --
+    # la branche NUE, SANS le `If(Count(tiles) > 0, ..., TriggerAbilityDelayed)` qui l'enveloppe sur
+    # les deux vecteurs reels. Elle est armee par le `TriggerAbilityDelayed(Owner, 0x5fb, 3)` de
+    # cette MEME ability, c'est-a-dire quand le selecteur de tuiles rend VIDE (typiquement : la
+    # tuile precedente est occupee par la mine que le deplacement vient d'y poser). Le
+    # re-declenchement re-evalue le selecteur a l'etat COURANT ; si la tuile est toujours prise, le
+    # `Spawn` est un no-op et seul l'`AddPersistentData` mord. Cf. loki/haywire_mine.py.
+    HAYWIRE_MINE_ID: [HaywireMineCustomAbility],
 }
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------

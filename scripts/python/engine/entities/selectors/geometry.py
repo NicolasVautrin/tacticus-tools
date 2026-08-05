@@ -594,6 +594,38 @@ class Nothing(TargetsSelector):
         return []
 
 
+class SelectIf(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$If(abilityTrigger, selectorTrue, selectorFalse)` --
+    le `If` du domaine SELECTEUR, TROISIEME homonyme du DSL et classe NATIVE distincte des deux
+    autres :
+      * `DSLBehaviors$$If(cond, then, else)`  -> `entities/behaviours.py::If`   (kind E) ;
+      * `DSLFormulas$$If(cond, a, b)`         -> `entities/formulas.py::If`     (kind V) ;
+      * CELUI-CI                              -> un SELECTEUR (kind S).
+    Les trois coexistent au meme call-site (`HaywireMineAbility$$CreateBehaviour` en utilise deux),
+    d'ou le nom distinct cote port.
+
+    ⚠ Le `.ctor` alloue par la factory porte dans Ghidra le nom
+    `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$.ctor` : c'est un corps DEDUPLIQUE
+    (meme signature `(state, trigger, sel, sel)`), pas l'identite de la classe -- on cite donc la
+    FACTORY, qui est nommee sans ambiguite.
+
+    Semantique : evalue le predicat, puis DELEGUE a l'une des deux branches (l'autre n'est pas
+    evaluee -- le `Select` natif n'appelle qu'un seul sous-selecteur). `selectorFalse` absent au
+    call-site -> `[]` (branche vide), jamais la source.
+
+    CONSOMMATEUR PORTE : le selecteur de tuiles de `HaywireMineAbility$$CreateBehaviour`
+    (`If(<a une tuile precedente ET a bouge>, CanAddUnit(PreviousTile), <meilleure adjacente>)`)."""
+    def __init__(self, cond, selector_true: TargetsSelector,
+                 selector_false: TargetsSelector = None):
+        self.cond = cond
+        self.selector_true, self.selector_false = selector_true, selector_false
+
+    def select(self, ctx):
+        if self.cond.evaluate(ctx):
+            return self.selector_true.evaluate(ctx)
+        return [] if self.selector_false is None else self.selector_false.evaluate(ctx)
+
+
 class Null(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Null` : entité/valeur NULLE (retourne `None`). Même classe qu'`Entity` avec
     arg null ; distinct de `Nothing` (ensemble vide)."""

@@ -11,8 +11,8 @@ amenant son summoner) et `astarNpc1HaywireMine` (npc). Le summoner est `astarCyr
 hors seed BC -> `catalog_inject`), dont le passif `HaywireMine` (1531) pose la mine sur sa tuile
 PRECEDENTE a chaque deplacement (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.
 HaywireMineAbility$$CreateTrigger` = `(On(4 = UnitAfterMove) & OwnerIsActor & TriggeringAbilityIsNone)
-| (On(0x29) & OwnerIsActor & AmountIsZero(GetPersistentData(...)))`). CE passif-la n'est PAS porte
-(residu nomme en fin de module) : la mine arrive dans l'etat offline par la CAPTURE live.
+| (On(0x29) & OwnerIsActor & AmountIsZero(GetPersistentData(...)))`). CE passif-la EST porte depuis
+`#462-r4b-r1-r1-r1-r1-c-r3-r1-r5` (seconde moitie du module).
 
 --------------------------------------------------------------------------------------------------
 ARTEFACTS NATIFS (decompile ghidra, build `rnca9r7q6c` -- decompile = verite)
@@ -70,12 +70,12 @@ HasDeathReason, HasTrait, IsAlive, AreEnemies -- meme choix que `cosmic_horror.p
 est un ARBRE DSL (`If` / `op_add` / `AttackWithAbilityDamage`), donc le degat passe par
 `AbilityDamageOperation` avec ses etages (percage, armure, mods defenseur, block, bouclier, caps).
 
-RESIDUS NOMMES :
-  * `HaywireMineAbility` (1531, la POSE de la mine par Cyrus) n'est pas portee -- elle exige
-    `Spawn` + `GetPersistentData`/`AddPersistentData` + `TriggerAbilityDelayed`, hors perimetre de
-    cette tranche. Consequence : le port ne CREE jamais de mine ; il ne sait que la faire exploser
-    quand la capture live en pose une.
-  * `HaywireMine_ResetAbility` (le re-armement) idem.
+LA POSE, elle, est portee depuis `#462-r4b-r1-r1-r1-r1-c-r3-r1-r5` -- cf. la seconde moitie de ce
+module (`HaywireMinePlaceOnMoveAbility` / `HaywireMinePlaceOnTurnEndAbility` /
+`HaywireMineResetAbility` / `HaywireMineCustomAbility`) et
+`docs/rl/case-462-r4b-r1-r1-r1-r1-c-r3-r1-r5-pose-mine-haywire.md`.
+
+RESIDU NOMME :
   * l'argument `selectionType = 1` (`UnitSelectionType.OnlyAlive`) du 8e slot d'
     `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` n'a pas d'equivalent dans la
     feuille portee : il est REDONDANT ici avec le `IsAlive(Actor)` du trigger, qui vient d'etre
@@ -88,7 +88,7 @@ from typing import Optional
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
-from .....entities.behaviours import If, op_add
+from .....entities.behaviours import If, op_add, op_and
 from .....entities.damage_reason import DamageReason
 from .....entities.formulas import RandomAmount
 from .....entities.selectors import Actor, Owner
@@ -243,3 +243,248 @@ class HaywireMineSteppableAbility(TriggeredAbility):
                 "profile": cfg["profile"], "hits": hits,
                 "mechanical": has_trait(_unit_trait_names(state, int(actor)), MECHANICAL_TRAIT),
                 "total": sum(int(h.get("total") or 0) for h in hits)}
+
+
+# =====================================================================================================
+# LA POSE (#462-r4b-r1-r1-r1-r1-c-r3-r1-r5) -- `HaywireMineAbility` (1531) + `HaywireMine_ResetAbility`
+# =====================================================================================================
+#
+# `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HaywireMineAbility$$CreateTrigger`, noeud par
+# noeud (`DSLFactory+0x78` = DSLBehaviors, `+0x80` = DSLFormulas, `+0x88` = DSLTriggers,
+# `+0x90` = DSLSelectors ; `DSLSelectors+0x30` = `Owner`) :
+#
+#     ( On(4 = UnitAfterMove, ownerNeedsToBeAlive = 1) & get_OwnerIsActor & TriggeringAbilityIsNone )
+#   | ( On(0x29 = UnitFinishedTurnNormally, ownerNeedsToBeAlive = 1) & get_OwnerIsActor
+#       & AmountIsZero( GetPersistentData(AbilityOrEffect(self), Owner, <cle statique>) ) )
+#
+# `...$$CreateBehaviour(abilityState, triggerType)` :
+#
+#     tiles = Cache( If( AmountIsGreaterThanZero(PreviousTile(Owner)) & HasFlag(Owner, 0 = Moved),
+#                        CanAddUnit(PreviousTile(Owner)),
+#                        First(SortTilesByUtilityForSummon(
+#                                  Randomize(CanAddUnit(AdjacentTiles(Owner))), 7, Owner), 1) ),
+#                    1 )
+#     pose  = Spawn(Owner, tiles, GetStringConstant(8 = unitToSpawn),
+#                   SpawnUnitOptions.WithStatsFromConfig(config, abilityState, 0, 0))
+#             & AddPersistentData(AbilityOrEffect(self), Owner, <cle statique>, DSLFormulas+0x20)
+#
+#     if (triggerType == 0x20 = Custom) return pose;                       # le re-declenchement differe
+#     return If( AmountIsGreaterThanZero(Count(tiles)),
+#                pose,
+#                TriggerAbilityDelayed(Owner, 0x5fb = 1531, 3) );
+#
+# `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HaywireMine_ResetAbility` :
+#     CreateTrigger   : On(0x28 = UnitFinishedTurn, ownerNeedsToBeAlive = 1) & get_OwnerIsActor
+#     CreateBehaviour : triggerType == 0x20 (Custom) -> Nothing()
+#                       sinon                        -> ClearPersistentData(AbilityOrEffect(self),
+#                                                                           Owner, <cle statique>)
+#
+# L'ORDRE COMPTE, ET IL EST MESURE. `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` publie
+# `On(0x28)` PUIS, si `!isTerminated`, `On(0x29)` -- donc le `Clear` du Reset tombe AVANT la lecture
+# `AmountIsZero` de la 2e disjonction, qui est par consequent TOUJOURS vraie a la fin d'une
+# activation normale. Ce n'est pas une deduction : le bras discriminant de
+# `probe_462_r4b_r1_r1_r1_r1_c_r3_r1_r5_haywire_pose.py --step discriminant` LIBERE la tuile
+# precedente (un ecraseur ennemi a PV bas meurt dessus) et le natif y REPOSE une mine au `finish` --
+# deux mines dans le meme tour. Sans liberation, la sequence observee est :
+#   tour AVEC deplacement : 1 mine sur `PreviousTile` a l'`On(4)`, RIEN au `finish` (les tuiles sont
+#                           vides -> la branche `else` part sur `TriggerAbilityDelayed`, dont le
+#                           re-declenchement `Custom` ne trouve pas plus de tuile) ;
+#   tour SANS deplacement : RIEN au move, 1 mine ADJACENTE au `finish` (`HasFlag(Moved)` a ete purge
+#                           par le `RemoveTurnFlags(new_activation=1)` du turn-start -> branche
+#                           `else` du selecteur de tuiles).
+#
+# La CLE de donnee persistante est un litteral de chaine (`DAT_1833596e8`), le MEME dans les trois
+# corps (pose / lecture / clear) -- non lisible statiquement (slot de metadata IL2CPP resolu au
+# runtime). Le port lui donne un nom PROPRE : seule compte son UNICITE au sein du sac, et les trois
+# sites du port la partagent par cette constante.
+
+HAYWIRE_MINE_ABILITY = "HaywireMine"
+HAYWIRE_MINE_ID = int(TriggeredAbilityType.HaywireMine)          # 0x5fb = 1531
+#: `GetStringConstant(config, 8)` -- `AbilityConstantType.unitToSpawn` (l'enum du build ; `0` serait
+#: `unitId`, que cette ability ne porte PAS -- le confondre rend un spawn silencieusement absent).
+UNIT_TO_SPAWN_KEY = "unitToSpawn"
+#: `SortTilesByUtilityForSummon(tiles, 7, Owner)` -- le litteral `7` du call-site
+#: (`UtilityDefinition(7)`, le composite `Tile` deja porte par `engine/utilities/tile.py`).
+SUMMON_UTILITY_TYPE = 7
+#: `TriggerAbilityDelayed(Owner, 0x5fb, 3)` -- le 4e argument est un `UnitSelectionType`, PAS un
+#: delai (`TriggerAbilityDelayedBehaviour$$.ctor(state, entity, triggeredAbilityType,
+#: unitSelectionType)`). Le port ne modelise pas ce filtre : son selecteur est `Owner`, deja resolu.
+DELAYED_UNIT_SELECTION_TYPE = 3
+#: La `dataKey` de `AddPersistentData`/`GetPersistentData`/`ClearPersistentData` (cf. le bloc
+#: ci-dessus : litteral natif non lisible offline ; c'est son UNICITE qui est load-bearing).
+POSE_DATA_KEY = "HaywireMine.posedThisTurn"
+
+
+def haywire_mine_tiles(owner_sel=None):
+    """Le SELECTEUR DE TUILES de `HaywireMineAbility$$CreateBehaviour`, arbre DSL 1:1 :
+
+        Cache( If( AmountIsGreaterThanZero(PreviousTile(Owner)) & HasFlag(Owner, Moved),
+                   CanAddUnit(PreviousTile(Owner)),
+                   First(SortTilesByUtilityForSummon(Randomize(CanAddUnit(AdjacentTiles(Owner))),
+                                                     7, Owner), 1) ),
+               1 )
+
+    Trois traits LUS qui ne se devinent pas :
+      * la garde est une CONJONCTION -- « il existe une tuile precedente » ET « l'unite a bouge ce
+        tour ». Le second membre est ce qui bascule sur la branche ADJACENTE au tour ou l'unite ne
+        s'est pas deplacee (le flag `UnitFlag.Moved` est purge au turn-start) ;
+      * `PreviousTile` apparait DEUX FOIS -- dans la garde (via `AmountIsGreaterThanZero`, donc
+        AVANT `CanAddUnit`) et dans la branche `then` (via `CanAddUnit`, donc APRES). La garde ne
+        teste donc PAS la libre-occupation : une tuile precedente OCCUPEE passe la garde et rend un
+        ensemble VIDE, ce qui fait tomber le behaviour sur `TriggerAbilityDelayed` ;
+      * `Randomize` est un MELANGE COMPLET (`PickRandomAmountSelector` a `amount = 0x7fffffff`),
+        pas un tri : il CONSOMME `len(pool)` tirages avant le tri d'utilite, qui est stable.
+
+    Le `Cache` est load-bearing : le MEME noeud alimente le `Spawn` **et** le `Count(tiles)` du
+    `If` du behaviour. Sans memoisation, le `Count` re-evaluerait `CanAddUnit` APRES la pose, la
+    tuile serait occupee, et le `If` prendrait la branche `TriggerAbilityDelayed` alors que le
+    spawn vient d'avoir lieu."""
+    from .....entities.selectors import (AdjacentTiles, Cache, CanAddUnit, First, PreviousTile,
+                                         Randomize, SelectIf, SortTilesByUtility)
+    from .....entities.formulas import Count as CountF
+    from .....entities.triggers import AmountIsGreaterThanZero, HasUnitFlag, TriggerAnd
+    from ....components import UnitFlagsComponent
+    owner = owner_sel if owner_sel is not None else Owner()
+    prev = PreviousTile(owner)
+    garde = TriggerAnd(AmountIsGreaterThanZero(CountF(prev)),   # `AmountIsGreaterThanZero(PreviousTile)`
+                       HasUnitFlag(owner, UnitFlagsComponent.MOVED))   # `HasFlag(Owner, 0 = Moved)`
+    # `First(<tri>, amount = 1, ignoreForcedTargets = 0)` -- le 3e argument natif est un AMOUNT
+    # (`DSLSelectors$$First(entities, amount, ignoreForcedTargets)`, la surcharge int enveloppant
+    # `amount` dans une formule constante avant de deleguer). A `amount == 1` il rend l'element de
+    # TETE, ce que le noeud porte (index 0) rend aussi -- les deux lectures coincident ICI, et
+    # seulement ici.
+    adjacentes = First(SortTilesByUtility(Randomize(CanAddUnit(AdjacentTiles(owner))),
+                                          utility_type=SUMMON_UTILITY_TYPE, parent_sel=owner))
+    return Cache(SelectIf(garde, CanAddUnit(prev), adjacentes))
+
+
+class _HaywireMinePlaceBase(TriggeredAbility):
+    """Le CORPS COMMUN des trois entrees de pose -- il n'existe qu'UNE
+    `HaywireMineAbility$$CreateBehaviour` cote natif, donc UN seul behaviour porte. Les sous-classes
+    ne different que par leur `CreateTrigger` (les deux disjonctions) et par la branche du
+    `triggerType` (`Custom` saute le `If` de repli)."""
+    event_id = -1
+    TRIGGERED_ABILITY_ID = HAYWIRE_MINE_ID
+    #: `triggerType == 0x20` : la branche qui rend `pose` NU, sans le `If`/`TriggerAbilityDelayed`.
+    is_custom_branch = False
+
+    def _ability_state(self, state: State):
+        """L'`AbilityState` sous lequel `HaywireMine` est montee sur l'owner -- c'est ce que le natif
+        passe a `WithStatsFromConfig(config, abilityState, 0, 0)`, donc ce que la mine posee portera
+        pour SA propre passive `HaywireMineSteppable`."""
+        return triggered_ability_state(state, int(self.owner_id), HAYWIRE_MINE_ABILITY)
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        from .....entities.formulas import Count as CountF
+        from .....entities.triggers import AmountIsGreaterThanZero
+        from ....abilities.behaviours import (AddPersistentData, Spawn, TriggerAbilityDelayed)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        # `AbilityEntities` du vecteur : l'owner est a la fois caster, target et actor
+        # (`get_OwnerIsActor` du trigger, et le ctor natif de `On(4)`/`On(0x29)` pose `unit` aux
+        # trois slots -- cf. `dispatch/turn.py` et `dispatch/move_death.py`).
+        entities = entities_from_state(state, int(self.owner_id), int(self.owner_id),
+                                       actor_id=int(self.owner_id))
+        tiles = haywire_mine_tiles()                       # le `Cache` PARTAGE (cf. sa docstring)
+        pose = op_and(
+            Spawn(tiles, HAYWIRE_MINE_ABILITY, unit_id_constant=UNIT_TO_SPAWN_KEY,
+                  ability_state=self._ability_state(state)),
+            AddPersistentData(HAYWIRE_MINE_ID, Owner(), POSE_DATA_KEY, Const(1)))
+        if self.is_custom_branch:
+            arbre = pose                                   # `if (triggerType == 0x20) return pose;`
+        else:
+            arbre = If(AmountIsGreaterThanZero(CountF(tiles)), pose,
+                       TriggerAbilityDelayed(Owner(), HAYWIRE_MINE_ID))
+        arbre.execute(entities, ectx)
+        poses = [p for n, p in ectx.emitted if n == "SpawnUnit"]
+        return {"ability": HAYWIRE_MINE_ABILITY, "owner": int(self.owner_id),
+                "mines": [p.get("unit") for p in poses],
+                "tuiles": [p.get("tile") for p in poses],
+                "differe": bool(not poses and not self.is_custom_branch)}
+
+
+class HaywireMinePlaceOnMoveAbility(_HaywireMinePlaceBase):
+    """1re disjonction : `On(4 = UnitAfterMove) & get_OwnerIsActor & TriggeringAbilityIsNone`.
+
+    `TriggeringAbilityIsNone` (`IdunBattleLogic.Entities.DSLTriggers$$TriggeringAbilityIsNone`) porte
+    sur le champ `AbilityEntities+0x98`, ecrit par l'operation qui a DECLENCHE le mouvement : un move
+    joue par une feuille DSL (`MoveUnit` d'une autre ability, un `Displace`, un teleport) le
+    renseigne, un deplacement JOUE PAR LE JOUEUR ne le renseigne pas. La mine n'est donc semee que
+    sur un deplacement PROPRE de l'unite."""
+    event_id = int(EventTriggerType.UnitAfterMove)             # `On(4)`
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        actor = ev.actor_id if ev.actor_id is not None else ev.target_id
+        if actor is None or int(actor) != int(self.owner_id):   # `get_OwnerIsActor`
+            return False
+        return ev.triggering_ability is None                    # `TriggeringAbilityIsNone`
+
+
+class HaywireMinePlaceOnTurnEndAbility(_HaywireMinePlaceBase):
+    """2e disjonction : `On(0x29 = UnitFinishedTurnNormally) & get_OwnerIsActor
+    & AmountIsZero(GetPersistentData(AbilityOrEffect(self), Owner, <cle>))`.
+
+    Le gate persistant est ce qui empeche une SECONDE mine le tour ou l'unite a deja seme au
+    deplacement -- sauf que `HaywireMine_ResetAbility` vide le sac sur `On(0x28)`, publie JUSTE
+    AVANT par le meme `FinishUnitTurnOperation$$Execute`. Le gate est donc, en pratique, TOUJOURS
+    ouvert ici : ce qui borne la pose a une par tour n'est pas lui, c'est le fait que la tuile
+    precedente soit deja occupee par la mine du deplacement (mesure live, cf. le bloc en tete)."""
+    event_id = int(EventTriggerType.UnitFinishedTurnNormally)   # `On(0x29)`
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        actor = ev.actor_id if ev.actor_id is not None else ev.target_id
+        if actor is None or int(actor) != int(self.owner_id):   # `get_OwnerIsActor`
+            return False
+        from ....components import persistent_data
+        e = state.get_entity(int(self.owner_id))
+        v = persistent_data(e, (HAYWIRE_MINE_ID, POSE_DATA_KEY))
+        return (0 if v is None else int(v)) == 0                # `AmountIsZero(GetPersistentData)`
+
+
+class HaywireMineCustomAbility(_HaywireMinePlaceBase):
+    """La branche `triggerType == 0x20 = Custom` -- atteinte UNIQUEMENT par le drain de
+    `state.pending_triggered_abilities` (`dispatch/pending.py`), c'est-a-dire par le
+    `TriggerAbilityDelayed(Owner, 1531, 3)` que le behaviour enfile quand `Count(tiles) == 0`.
+
+    Elle n'a AUCUN `CreateTrigger` (le natif la selectionne par le `triggerType` passe a
+    `TriggerTriggeredAbilityOperation$$TriggerAbility`), donc `matches` ne doit jamais etre
+    consulte : cette classe n'entre pas dans `ABILITY_TRIGGERS`, seulement dans
+    `CUSTOM_TRIGGERED_ABILITIES`."""
+    is_custom_branch = True
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        return False        # jamais atteinte par le bus d'evenements (cf. docstring)
+
+
+class HaywireMineResetAbility(TriggeredAbility):
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.HaywireMine_ResetAbility` -- MEME
+    `TriggeredAbilityType` (1531) que la pose, DEUXIEME classe native du meme id (le patron
+    `DawnBlade_Heal` / `DawnBlade_Init`, deja rencontre en #317).
+
+        CreateTrigger   : On(0x28 = UnitFinishedTurn) & get_OwnerIsActor
+        CreateBehaviour : triggerType == 0x20 -> Nothing()
+                          sinon               -> ClearPersistentData(AbilityOrEffect(self), Owner,
+                                                                     <cle>)
+
+    Elle RE-ARME la pose de fin de tour d'un tour a l'autre. La preuve qu'elle est bien MONTEE est
+    live : au tour 2, l'unite qui n'a pas bouge pose une mine a son `finish`, ce qui exige que la
+    donnee posee au tour 1 ait ete effacee entre-temps -- et c'est le seul effaceur du binaire pour
+    cette cle. (`HaywireMine_Reset` n'a PAS d'entree propre dans `TriggeredAbilityType`, d'ou
+    l'inscription sous le meme nom de kit que la pose.)
+
+    La branche `Nothing()` du `Custom` n'a pas de porteur : le `TriggerAbilityDelayed` du binaire ne
+    vise que `0x5fb`, et le drain n'appelle QUE les classes de `CUSTOM_TRIGGERED_ABILITIES` -- y
+    inscrire un no-op serait du bruit. RESIDU NOMME."""
+    event_id = int(EventTriggerType.UnitFinishedTurn)           # `On(0x28)`
+    TRIGGERED_ABILITY_ID = HAYWIRE_MINE_ID
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        actor = ev.actor_id if ev.actor_id is not None else ev.target_id
+        return actor is not None and int(actor) == int(self.owner_id)    # `get_OwnerIsActor`
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        from ....abilities.behaviours import ClearPersistentData
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, int(self.owner_id), int(self.owner_id),
+                                       actor_id=int(self.owner_id))
+        ClearPersistentData(HAYWIRE_MINE_ID, Owner(), POSE_DATA_KEY).execute(entities, ectx)
+        return {"ability": "HaywireMine_Reset", "owner": int(self.owner_id)}

@@ -70,17 +70,39 @@ class Spawn(AbilityBehaviour):
     `AddFoot` PAR tuile -> **UNE unite a N pieds**. C'est le SEUL producteur d'empreinte multi-hex
     du binaire, et son seul consommateur dans `gqfc5mff6c` est `DutyEternalAbility$$
     ExecuteBehaviour` (`*(opts + 0x60) = 1`). `False` (defaut) = branche par defaut, strictement
-    inchangee pour les call-sites anterieurs."""
+    inchangee pour les call-sites anterieurs.
+
+    `unit_id_constant` = la CLE de constante que le call-site natif passe a
+    `IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant`, LUE au decompile et jamais
+    devinee. `IdunBattle.Configuration.AbilityConstantType` en compte plusieurs pour cet usage :
+    `0 = unitId` (ScarabHive / GetEmRuntz / SupremeCommander -- defaut historique) et
+    `8 = unitToSpawn` (`HaywireMineAbility$$CreateBehaviour` : `GetStringConstant(config, 8)`).
+    Recopier `unitId` sur un call-site qui lit `unitToSpawn` rend `None` -> spawn SILENCIEUSEMENT
+    absent : c'est un mode de panne sans erreur, d'ou le parametre explicite.
+
+    `ability_state` = le couple `(level, multiplier)` de l'`AbilityState` que le natif passe a
+    `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig(config, abilityState,
+    0, 0)`, et sous lequel l'unite posee monte SES PROPRES abilities. Sur un summon spawne par un
+    PASSIF (la mine Haywire), c'est le niveau/multiplicateur du PASSIF du summoner -- ground truth
+    live : `ChangeAbility UnitStats_TriggeredAbility_Id=1542 Level=50
+    VariableMultiplierPercentage=180` sur la mine posee par `astarCyrus`. Sans lui, la passive de
+    la mine lirait ses variables a l'index 0 (le mode de panne #174, mesure a un facteur ~55 sur ce
+    meme porteur en #462-...-c-r3-r1-r1). `None` (defaut) = comportement anterieur strictement
+    inchange (le niveau vient de l'`active_ability_level` du caster)."""
     __slots__ = ("tile_selector", "summon_ability", "pick_n", "on_appearance",
-                 "spawn_as_single_unit")
+                 "spawn_as_single_unit", "unit_id_constant", "ability_state")
 
     def __init__(self, tile_selector: TargetsSelector, summon_ability: str, pick_n: int | None = None,
                  on_appearance: AbilityBehaviour | None = None,
-                 spawn_as_single_unit: bool = False):
+                 spawn_as_single_unit: bool = False,
+                 unit_id_constant: str = "unitId",
+                 ability_state: tuple | None = None):
         self.tile_selector, self.summon_ability = tile_selector, summon_ability
         self.pick_n = pick_n
         self.on_appearance = on_appearance
         self.spawn_as_single_unit = bool(spawn_as_single_unit)   # `SpawnUnitOptions+0x60`
+        self.unit_id_constant = str(unit_id_constant)            # `GetStringConstant(config, <n>)`
+        self.ability_state = ability_state                       # 2e arg de `WithStatsFromConfig`
 
     def execute(self, entities, ectx):
         import gameconfig as GC
@@ -95,7 +117,12 @@ class Spawn(AbilityBehaviour):
         cctx = sc.ctx if sc is not None else None
         level = getattr(cctx, "active_ability_level", None)
         mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
-        vid = ((GC.ability(self.summon_ability) or {}).get("constants") or {}).get("unitId")
+        if self.ability_state is not None:            # `WithStatsFromConfig(config, abilityState)`
+            lvl_as, mult_as = self.ability_state
+            level = lvl_as if lvl_as is not None else level
+            mult = int(mult_as or 100)
+        vid = ((GC.ability(self.summon_ability) or {}).get("constants") or {}) \
+            .get(self.unit_id_constant)
         tiles = self.tile_selector.evaluate(entities) or []
         if self.pick_n is not None:                       # fold `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(tiles, n)
             from ..loki.splash import _pick_randomly_n
@@ -113,6 +140,10 @@ class Spawn(AbilityBehaviour):
                                      oc.player if oc is not None else None,
                                      parent_id=caster_id,     # `Unit_Parent_Id` (mirror live)
                                      feet_tiles=feet,
+                                     # `WithStatsFromConfig(config, abilityState)` : l'unite posee
+                                     # monte SES passives sous l'`AbilityState` du summoner.
+                                     passive_level=(None if self.ability_state is None
+                                                    else self.ability_state[0]),
                                      # #291 : l'ORDRE natif de `TriggerSpawnedUnitBehaviours` est
                                      # on-appearance D'ABORD, `FinishUnitTurn(spawned, true)` ENSUITE
                                      # -> quand cette feuille porte un on-appearance, elle appelle le

@@ -41,7 +41,7 @@ from .units import (  # noqa: F401
 from .tiles import (  # noqa: F401
     Caster, AllUnits, AllTiles, Children, Parent, LastUnitAttackedBy, AdjacentTiles, TileUnique,
     CanAddUnit, TileIntersect, MovableTilesInRange, tiles_unit_can_move_to_charge_target,
-    FilterTilesIfCanAttackTargetTileFrom, SortTilesByUtility,
+    FilterTilesIfCanAttackTargetTileFrom, SortTilesByUtility, PreviousTile,
 )
 
 from .accessors import (  # noqa: F401
@@ -55,7 +55,7 @@ from .geometry import (  # noqa: F401
     TilesOnSameElevation,
     EntitiesWithoutEffects, EntitiesWithAnyEffect, PickFirstN, PickRandomly, Randomize, Otherwise,
     TilesBehindInLine,
-    FilterContinuous, UnitsWithVisualId, UnitsWithId, Cache, Entity, Nothing, Null,
+    FilterContinuous, UnitsWithVisualId, UnitsWithId, Cache, Entity, Nothing, Null, SelectIf,
     EffectSource, EffectFromOwner, EffectsFromUnitSource, OwnerOfEffect,
 )
 
@@ -87,6 +87,8 @@ __all__ = [
     "TilesOnSameElevation",
     "EntitiesWithoutEffects", "EntitiesWithAnyEffect", "PickFirstN", "Otherwise",
     "TilesBehindInLine", "FilterContinuous", "UnitsWithVisualId", "UnitsWithId", "Cache",
-    "Entity", "Nothing", "Null", "EffectSource", "EffectFromOwner", "EffectsFromUnitSource",
+    "Entity", "Nothing", "Null", "SelectIf", "EffectSource", "EffectFromOwner",
+    "EffectsFromUnitSource",
     "OwnerOfEffect", "get_spawn_tile_selector", "adjacent_units",
+    "SortTilesByUtility", "PreviousTile",
 ]

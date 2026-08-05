@@ -498,6 +498,21 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         uid = (unit or {}).get("id")
         return _pdl(state.get_entity(int(uid)) if uid is not None else None, key)
 
+    def _persistent_data(unit, key):
+        """`ctx.persistent_data` -- le pendant SCALAIRE de `_persistent_data_list`, sur le MEME
+        `Dictionary` @+0x10 et la MEME cle composite. `None` = cle absente (la formule
+        `GetPersistentData` le rend en 0, comme l'`out` par defaut du natif)."""
+        from ...components import persistent_data as _pd
+        uid = (unit or {}).get("id")
+        return _pd(state.get_entity(int(uid)) if uid is not None else None, key)
+
+    def _previous_tiles(unit):
+        """`ctx.previous_tiles` -- `PositionComponent+0x88` deplie en coordonnees, ce que rend
+        `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select`. `[]` = `Nullable` VIDE."""
+        from ...components import previous_tiles as _pt
+        uid = (unit or {}).get("id")
+        return _pt(state.get_entity(int(uid)) if uid is not None else None)
+
     # `ctx.entity_by_id` (`IBattleState.GetEntity(id)`, slot 0x29) : la resolution id -> unite que
     # fait `EntitiesFromPersistentDataListSelector$$Select`. On la sert depuis `units` (deja
     # materialise ci-dessus), donc dans la MEME representation que tous les autres selecteurs.
@@ -518,6 +533,8 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       charged_units=_charged_units,
                       valid_normal_attack_targets=_valid_normal_attack_targets,
                       persistent_data_list=_persistent_data_list,
+                      persistent_data=_persistent_data,
+                      previous_tiles=_previous_tiles,
                       entity_by_id=_entity_by_id,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_unit_flag=_has_unit_flag,

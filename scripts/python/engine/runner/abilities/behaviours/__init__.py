@@ -43,7 +43,8 @@ call-sites `from ..behaviours import X` restent inchanges) :
 - `ability_state` : `ResetActiveAbility` (`ResetActiveAbilityBehaviour` -> `ResetActiveAbilityOperation`).
 - `ai_control`: `PerformAIAction` (`PerformAIActionBehaviour` IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute -> `ComputerActionOperation`).
 - `persistent_data` : `AddToPersistentDataList`, `ClearAllPersistentData` (variante LISTE du sac
-  `PersistentDataComponent`, #354).
+  `PersistentDataComponent`, #354) et `AddPersistentData`, `ClearPersistentData` (variante
+  SCALAIRE, meme sac, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5).
 """
 from __future__ import annotations
 
@@ -74,7 +75,8 @@ from .lifecycle import (KillDeadUnits, Kill, RemoveUnit, RemoveMachine, RemoveUn
                         TriggerAbilityDelayed, TRIGGERED_ABILITY_BEHAVIOURS,
                         TRIGGERED_ABILITY_DELAYED_BEHAVIOURS)
 from .grants import AddTrait, AddTriggeredAbility, first_triggered_ability_of
-from .persistent_data import AddToPersistentDataList, ClearAllPersistentData
+from .persistent_data import (AddPersistentData, AddToPersistentDataList,
+                              ClearAllPersistentData, ClearPersistentData)
 
 __all__ = [
     "entities_from_state", "LiveUnit",
@@ -85,6 +87,7 @@ __all__ = [
     "RemoveEffect", "ActivateEffect", "SetOnFire", "CreateShield", "ChangeEffectTurns",
     "ResetTurn", "FinishTurn", "ResetActiveAbility",
     "AddToPersistentDataList", "ClearAllPersistentData",
+    "AddPersistentData", "ClearPersistentData",
     "AddStaticStatModifierEffect", "AddDynamicStatModifierEffect", "AddStatOverrideEffect",
     "add_or_update_static_stat_modifier_effect",
     "Heal", "Repair", "ChangeStat", "SetHealth", "SubtractHealthPercent", "is_mechanical",
