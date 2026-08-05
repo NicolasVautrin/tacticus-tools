@@ -1,21 +1,20 @@
 """Probe #467-r4 -- `loop_status` contre du git REEL, sur la scene du 2026-08-04.
 
-POURQUOI IL EXISTE, ET POURQUOI IL N'EST PAS DANS LA BANQUE
------------------------------------------------------------
-`probe_467` (celui de la banque) SUBSTITUE la facade `Sources` : il garde le COMPORTEMENT de
-`loop_status` -- le tri-etat, le silence, les signaux -- mais pas le CONTRAT des commandes qu'il
-lit. Si `git status --porcelain=v2` changeait de format, ou `worktree list --porcelain` de
-disposition, il resterait VERT. C'est le residu `#467-r4`, et ce script est ce qui le couvre.
+POURQUOI IL EXISTE
+------------------
+`probe_467` SUBSTITUE la facade `Sources` : il garde le COMPORTEMENT de `loop_status` -- le
+tri-etat, le silence, les signaux -- mais pas le CONTRAT des commandes qu'il lit. Si
+`git status --porcelain=v2` changeait de format, ou `worktree list --porcelain` de disposition,
+il resterait VERT. C'est le residu `#467-r4`, et ce script est ce qui le couvre.
 
-Il n'entre pas dans la banque parce qu'il CONSTRUIT un depot git (clone, branches, worktrees,
-merges) : quelques dizaines de secondes, et un cout qui depend de la machine. La banque est un
-lot parallele a ~300 s de mur ou chaque entree doit etre deterministe et bon marche.
+Il est SEPARE parce qu'il CONSTRUIT un depot git (clone, branches, worktrees, merges) :
+quelques dizaines de secondes, et un cout qui depend de la machine -- la ou une garde jouee
+souvent doit rester deterministe et bon marche.
 
-CE QU'IL A TROUVE, des sa premiere execution : `Sources.dossier_verdicts()` passait par
-`host_inputs.resolve`, qui part de SA propre racine et non de l'arbre qu'on demande de juger.
-Un `--repo` explicite lisait donc les verdicts d'un AUTRE arbre -- le depot jetable portait un
-verdict ROUGE, l'outil rapportait le verdict VERT du worktree de l'agent. Aucune substitution
-n'aurait pu le montrer : le bug est precisement dans la resolution d'un chemin REEL.
+CE QU'UNE SUBSTITUTION NE PEUT PAS VOIR, et qui justifie le cout : la resolution d'un chemin
+REEL. La premiere execution avait ainsi trouve un lecteur qui partait de SA propre racine au
+lieu de l'arbre qu'on lui demandait de juger -- un `--repo` explicite lisait donc un AUTRE
+arbre. Aucun scenario ecrit n'aurait pu le montrer.
 
 LA SEULE CHOSE SUBSTITUEE ICI est la FLOTTE : elle se lit dans `~/.claude/projects`, c'est une
 propriete de la MACHINE et non du depot, donc elle rendrait la scene irreproductible.
@@ -61,7 +60,7 @@ class SourcesSansFlotte(LS.Sources):
 
 
 def monter(tmp: Path) -> Path:
-    """La scene du 2026-08-04 : commits non pousses, worktrees livres, verdict rouge."""
+    """La scene du 2026-08-04 : commits non pousses, arbre sale, worktrees livres."""
     distant, local = tmp / "distant.git", tmp / "local"
     git(tmp, "init", "--bare", "-q", str(distant))
     git(tmp, "clone", "-q", str(distant), str(local))
@@ -98,12 +97,6 @@ def monter(tmp: Path) -> Path:
     (local / "hs_err_pid42.log").write_text("x", encoding="utf-8")  # non suivi CONNU
     (local / "surprise.tmp").write_text("x", encoding="utf-8")     # non suivi INCONNU
 
-    vd = local / "logs" / "ratchets-bg"
-    vd.mkdir(parents=True)
-    sha = git(local, "rev-parse", "HEAD").strip()
-    (vd / "zzzzzzzz-20260804-000000.txt").write_text(
-        "commit  : %s\nsujet   : x\nquand   : y\nmur     : 1,0 s\nrc      : 2  (ROUGE (2))\n"
-        % sha, encoding="utf-8")
     return local
 
 
@@ -113,11 +106,11 @@ def main() -> int:
     try:
         local = monter(tmp)
         src = SourcesSansFlotte(repo=local, avec_gh=False, avec_host=False, ttl_cache=0)
-        e = LS.etat(src, 5, {})
+        e = LS.etat(src, 5)
         lv = e["livraison"]
         print("\n--- ce que la chaine git REELLE rend ---")
         print(LS.rendu_complet(e, *LS.signaux(e)))
-        print("--- verdicts ---")
+        print("--- epreuves ---")
 
         verifie(lv["branche"].valeur == "master",
                 "branche lue depuis `# branch.head` (%s)" % lv["branche"].valeur)
@@ -137,13 +130,9 @@ def main() -> int:
                 % [w["branche"] for w in lv["nettoyables"].valeur])
         verifie(not e["harnais"]["live_runners"].mesuree,
                 "host coupe -> liveRunners PAS MESURE (et surtout pas 0)")
-        v = e["banque"]["verdict"].valeur
-        verifie(v["rc"] == 2 and v["livre"] is False,
-                "verdict ROUGE de CE depot lu, commit non livre (rc=%s livre=%s)"
-                % (v["rc"], v["livre"]))
 
         cles = {s.cle for s in LS.signaux(e)[0]}
-        for k in ("slots", "push", "sale", "nettoyage", "banque"):
+        for k in ("slots", "push", "sale", "nettoyage"):
             verifie(k in cles, "signal `%s` emis sur la scene reelle (%s)" % (k, sorted(cles)))
 
         # CONTRE-EPREUVE : le meme depot, une fois tout regle -> SILENCE. Sans elle, un outil
@@ -155,10 +144,8 @@ def main() -> int:
         for n in ("1", "2"):
             git(local, "worktree", "remove", "--force",
                 str(local / ".claude" / "worktrees" / ("agent-" + n)))
-        for f in (local / "logs" / "ratchets-bg").glob("*.txt"):
-            f.unlink()
         e2 = LS.etat(SourcesSansFlotte(repo=local, avec_gh=False, avec_host=False, ttl_cache=0),
-                     5, {})
+                     5)
         sig2, ctx2 = LS.signaux(e2)
         if sig2:
             print(LS.rendu_complet(e2, sig2, ctx2))

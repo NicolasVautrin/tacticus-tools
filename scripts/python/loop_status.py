@@ -4,9 +4,9 @@
     python scripts/python/loop_status.py --json     # meme etat, machine
     python scripts/python/loop_status.py --hook     # lit le JSON du hook Stop sur stdin
 
-POURQUOI CE FICHIER EXISTE (#467). Le depot porte 37 cliquets qui gardent le CODE et AUCUN qui
-garde la BOUCLE. L'angle mort est structurel : une erreur de code produit un ROUGE, une erreur de
-boucle ne produit RIEN -- un slot d'agent vide n'echoue pas, il COUTE. Mesure du 2026-08-04 : un
+POURQUOI CE FICHIER EXISTE (#467). Le depot est plein de gardes qui surveillent le CODE, et rien
+ne surveille la BOUCLE. L'angle mort est structurel : une erreur de code produit un ROUGE, une
+erreur de boucle ne produit RIEN -- un slot d'agent vide n'echoue pas, il COUTE. Le 2026-08-04 : un
 tour termine a 1 agent sur un plafond de 5 apres que quatre solveurs avaient rendu, avec 30 commits
 d'avance non pousses et 4 worktrees livres non nettoyes. Rien ne l'a signale.
 
@@ -30,26 +30,6 @@ etait le BUDGET. Toutes les pannes retombaient sur la meme sentinelle `rc=127`. 
 desormais distinctes A LA LECTURE, des deux cotes : `gh` (introuvable / delai depasse / erreur
 systeme / non authentifie -- cf. `_cause_gh`) et git (`cause_git`). Et la sentinelle `RC_MUET`
 subsiste comme SIGNAL comparable, jamais comme cause.
-
-MEME REGLE SUR L'AXE DU TEMPS -- A QUOI un verdict de banque s'applique (#472). Un chiffre juste
-sur un commit qui n'est plus la pointe est un chiffre FAUX sur la pointe. MESURE le 2026-08-04,
-trois tours consecutifs : le hook a repete `verdict de banque afb3e209 rc=1 [ROUGE (1)]` alors que
-`HEAD` valait successivement `4b62a914` puis `c94efb11`, aucun verdict n'existant pour ceux-la --
-et le rouge d'`afb3e209` etait DEJA corrige par un commit plus recent que lui. Re-mesure a la
-reprise du dossier : dernier verdict `6979f712`, pointe `5efc6a69`, **48 commits d'ecart**, rendus
-comme l'etat courant. Trois tours d'alarme sur un fait perime -- et le jour ou la pointe sera
-VRAIMENT rouge, cette ligne aura EXACTEMENT la meme apparence.
-
-La ventilation est donc a TROIS etats, comme partout ailleurs ici :
-
-    JUGEE      -- un verdict porte SUR la pointe : il est rendu tel quel, vert ou rouge ;
-    EN COURS   -- aucun verdict pour la pointe, mais un run VIVANT la juge (fait, cf. `_runs_vivants`) ;
-    NON JUGEE  -- aucun verdict pour la pointe, et rien n'indique qu'un run la juge.
-
-et, orthogonale, la FRAICHEUR du verdict retenu (`pointe` / `ancetre` / `hors-lignee` /
-`inconnue`). Un verdict PERIME reste AFFICHE -- c'est une information utile (« la banque a juge,
-mais pas ceci ») -- il change seulement d'ACCUSE : il passe des SIGNAUX au CONTEXTE. Il n'est
-rabattu ni sur un vert ni sur un rouge.
 
 LA SEULE VALEUR ASSUMEE est le PLAFOND de dispatch : c'est un PARAMETRE d'orchestration, pas une
 mesure. Il porte sa source en commentaire et s'ecrase par `--max-agents` / TACTICUS_DISPATCH_CAP.
@@ -96,9 +76,6 @@ UNTRACKED_CONNUS = (
     "logs/",                     # sorties de run
 )
 
-_VERDICTS_REL = "logs/ratchets-bg"
-
-
 # ------------------------------------------------------------------ tri-etat
 @dataclass(frozen=True)
 class Mesure:
@@ -128,9 +105,9 @@ def _ko(source: str, erreur: str) -> Mesure:
 class Sources:
     """Toutes les entrees, derriere une facade INJECTABLE.
 
-    Le cliquet de fidelite (`probe_467`) substitue cette classe pour jouer des etats que la
-    machine ne presente pas a la demande -- host eteint, `gh` absent, verdict rouge. Sans cette
-    couture, garder le tri-etat exigerait d'eteindre le host, ce qu'aucun cliquet ne peut faire.
+    La garde de fidelite (`probe_467`) substitue cette classe pour jouer des etats que la
+    machine ne presente pas a la demande -- host eteint, `gh` absent, git muet. Sans cette
+    couture, garder le tri-etat exigerait d'eteindre le host, ce qu'aucune garde ne peut faire.
     """
 
     # Le REPLI ne sert la derniere mesure que si elle est plus jeune que ceci. Au-dela,
@@ -200,7 +177,7 @@ class Sources:
         if panne is not None:
             return panne
         # Reste le cas ou le rc VAUT la sentinelle sans qu'aucune cause n'ait ete enregistree :
-        # une source SUBSTITUEE (les cliquets), ou -- theoriquement -- un vrai `git` sortant en
+        # une source SUBSTITUEE (les probes), ou -- theoriquement -- un vrai `git` sortant en
         # 127. On ne rend alors surtout pas `rc=127` tout nu, qui se lirait comme un verdict de
         # git : on dit l'absence de reponse ET l'absence de cause.
         return ("n'a pas repondu (rc=%d, cause non enregistree)" % rc
@@ -282,8 +259,8 @@ class Sources:
 
         POURQUOI (#467-r6), et c'est MESURE le 2026-08-04, pas suppose. Sous le
         `powershell.exe -NoProfile` qui execute le hook, `gh pr list` seul met **2,90 s**
-        pour un budget de **3,00 s** ; dans le tour COMPLET, ou il court avec `git status`,
-        la flotte et la banque, **5 tours sur 8** depassaient -- exactement la ligne PR
+        pour un budget de **3,00 s** ; dans le tour COMPLET, ou il court avec `git status`
+        et la flotte, **5 tours sur 8** depassaient -- exactement la ligne PR
         aveugle rapportee. Au repos, 20 tirages : mediane 1,60 s, max 1,99 s, **0** au-dessus
         de 3 s. C'est donc bien la CONCURRENCE qui fait franchir la borne, et un budget
         propre est le correctif de la cause.
@@ -374,39 +351,6 @@ class Sources:
     def flotte(self) -> list[dict]:
         """Agents qui TRAVAILLENT. `only_alive` : cf. la preuve dans `fleet_board`."""
         return fleet_board.collect(include_done=False, only_alive=True)
-
-    # -- verdicts de banque
-    def dossier_verdicts(self) -> Path | None:
-        """`logs/ratchets-bg` -- l'arbre JUGE d'abord, `host_inputs` en repli. None = PAS MESURE.
-
-        L'ordre compte, et il a ete pris a l'envers : `host_inputs.resolve` part de SA propre
-        racine (`parents[2]` de son fichier), pas de l'arbre qu'on nous a demande de juger. Un
-        `--repo` explicite lisait donc les verdicts d'un AUTRE arbre -- trouve en rejouant la
-        scene sur un depot jetable, ou l'outil rapportait un verdict VERT etranger alors que le
-        depot juge en portait un ROUGE.
-
-        Le repli garde son sens : ce repertoire est GITIGNORE, donc vide par construction dans
-        un worktree d'agent, et un `glob` y rendrait zero sans lever. `host_inputs` remonte a
-        l'arbre principal (ou le `ratchets-bg` tourne) et rend None quand aucun candidat
-        n'existe -- ce qui se lit « je n'ai pas regarde », pas « aucune banque n'a tourne ».
-        """
-        local = self.repo / "logs" / "ratchets-bg"
-        if local.is_dir():
-            return local
-        return host_inputs.resolve(_VERDICTS_REL).path
-
-    def dossier_runs(self) -> Path | None:
-        """`logs/ratchets-bg/runs` -- les VERROUS de run. None = PAS MESURE.
-
-        Volontairement ADOSSE au dossier des verdicts, et pas au tmpdir systeme ou vit le
-        worktree de `ratchets-bg`. Deux raisons, et la premiere suffit : `Path` cote Python et
-        `[System.IO.Path]::GetTempPath()` cote .NET ne lisent pas les memes variables dans le
-        meme ordre (`TMP` avant `TEMP` pour l'un, l'inverse pour l'autre) -- un desaccord y
-        serait SILENCIEUX, exactement la panne qu'on ferme. Ici la localisation est deja
-        resolue, par le meme chemin que les verdicts, avec le meme repli `host_inputs`.
-        """
-        d = self.dossier_verdicts()
-        return None if d is None else (d / "runs")
 
     def maintenant(self) -> float:
         return time.time()
@@ -699,263 +643,24 @@ def mesurer_harnais(src: Sources) -> dict:
     return d
 
 
-# ------------------------------------------------------------------ BANQUE
-def _lire_verdict(p: Path) -> tuple[str, int | None, str]:
-    """(sha, rc, etiquette) d'un verdict `ratchets-bg`. DEUX voies, et il en faut deux.
-
-    Voie 1, l'en-tete `rc      : <n>  (<etat>)`. Voie 2, la ligne de bilan du corps,
-    `[ratchets-bg] <etat> -- commit <court>, <n> s`.
-
-    La voie 2 n'est pas une ceinture de securite theorique : les verdicts ecrits AVANT le
-    correctif de precedence de `ratchets-bg.ps1` (2026-08-04) n'ont PAS de ligne `rc` du tout --
-    leur en-tete entier tient sur une ligne. Les lire par la seule voie 1 rendait « rc inconnu »
-    sur les 3 verdicts presents, c'est-a-dire un capteur muet sur son unique gisement.
-    """
-    sha, rc, etiq = "", None, "?"
-    try:
-        texte = p.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return sha, rc, etiq
-    # `lstrip` du BOM : PowerShell 5.1 ecrit `utf8` AVEC BOM (PS7 sans). Un BOM devant `commit`
-    # ferait echouer le `startswith` et rendrait le sha VIDE -- donc « fraicheur inconnue » a vie.
-    lignes = texte.lstrip("﻿").splitlines()
-    for ln in lignes[:8]:
-        if ln.startswith("commit") and ":" in ln:
-            mot = ln.split(":", 1)[1].split()
-            if mot:
-                sha = mot[0]
-        elif ln.startswith("rc") and ":" in ln:
-            reste = ln.split(":", 1)[1].strip()
-            try:
-                rc = int(reste.split()[0])
-            except (ValueError, IndexError):
-                rc = None
-            if "(" in reste:
-                # UN SEUL `)` retire, pas `rstrip(")")` : l'etiquette d'un ROUGE porte ses
-                # PROPRES parentheses (`rc      : 2  (ROUGE (2))`), et un rstrip gourmand les
-                # mangeait toutes -- la ligne rendue etait `rc=2 [ROUGE (2]`, desequilibree
-                # exactement sur le seul regime ou elle compte.
-                etiq = reste.split("(", 1)[1].strip()
-                etiq = etiq[:-1] if etiq.endswith(")") else etiq
-    if rc is None:
-        for ln in reversed(lignes):
-            if ln.startswith("[ratchets-bg] ") and " -- commit " in ln:
-                etiq = ln[len("[ratchets-bg] "):].split(" -- commit ")[0].strip()
-                # Meme table que `ratchets-bg.ps1` : VERTE=0, USAGE=64, MONTAGE=99, sinon
-                # le nombre de cliquets rouges, que l'etiquette porte entre parentheses.
-                rc = (0 if etiq.startswith("VERTE")
-                      else 64 if etiq.startswith("USAGE")
-                      else 99 if etiq.startswith("MONTAGE")
-                      else int(etiq.split("(")[1].rstrip(")")) if "(" in etiq else None)
-                break
-    return sha, rc, etiq
-
-
-def _sha_entete(p: Path) -> str:
-    """Le commit JUGE, lu dans les premiers octets. Balayage bon marche.
-
-    `_lire_verdict` lit le fichier ENTIER (il lui faut le corps pour la voie 2 du rc) ; ici on
-    ne cherche que le sha, qui est toujours en tete -- y compris dans la forme d'en-tete CASSEE
-    (tout sur une ligne), ou `commit  : <sha> sujet   : ...` commence pareil. 512 octets pour
-    50 utiles : la marge est la pour ne pas dependre de la mise en forme.
-    """
-    try:
-        with p.open("rb") as f:
-            tete = f.read(512).decode("utf-8", "replace")
-    except OSError:
-        return ""
-    for ln in tete.lstrip("﻿").splitlines():
-        if ln.startswith("commit") and ":" in ln:
-            mot = ln.split(":", 1)[1].split()
-            if mot:
-                return mot[0]
-    return ""
-
-
-def _meme_commit(a: str, b: str) -> bool:
-    """Deux sha designent-ils le meme commit ? Tolerant aux formes abregees (>= 7)."""
-    if not a or not b or min(len(a), len(b)) < 7:
-        return False
-    n = min(len(a), len(b))
-    return a[:n].lower() == b[:n].lower()
-
-
-def _fraicheur(src: Sources, sha: str, pointe: str) -> str:
-    """`pointe` | `ancetre` | `hors-lignee` | `inconnue` -- A QUOI ce verdict s'applique.
-
-    `inconnue` couvre DEUX ignorances qu'on ne fabrique pas : la pointe non mesuree, et un
-    `merge-base` qui ne repond pas (git muet) ou qui ne connait pas le commit (`rc=128`, verdict
-    d'un arbre etranger). Aucune ne se rabat sur `pointe` -- ce serait exactement le glissement
-    que #472 ferme : rendre pour l'etat COURANT ce qui n'a pas ete confronte a la pointe.
-    """
-    if not sha or not pointe:
-        return "inconnue"
-    if _meme_commit(sha, pointe):
-        return "pointe"
-    code, _ = src.git("merge-base", "--is-ancestor", sha, "HEAD")
-    if code == 0:
-        return "ancetre"
-    return "hors-lignee" if code == 1 else "inconnue"
-
-
-def _verrou_tenu(p: Path) -> bool:
-    """Ce verrou est-il TENU par un processus VIVANT ? Un FAIT de l'OS, pas une heuristique.
-
-    `ratchets-bg.ps1` ouvre son verrou en partage LECTURE SEULE (`FileShare.Read`) et garde le
-    handle pendant tout le run : tant qu'il vit, aucun autre processus ne peut ouvrir le fichier
-    en ECRITURE. Le tester ainsi ne suppose rien -- ni PID (recyclable), ni age (une banque lente
-    est un run lent, pas un run mort), ni bonne foi du producteur.
-
-    Le pendant est ce qui rend le mecanisme honnete dans l'autre sens : un run TUE (kill, reboot,
-    fenetre fermee) laisse son fichier, mais l'OS libere toujours le handle -- le verrou devient
-    ouvrable, donc un RESIDU, et il ne peut plus fabriquer un « EN COURS » perpetuel. C'est le
-    defaut de conception qu'un simple fichier-temoin aurait introduit.
-
-    Le test est WINDOWS (partage de fichiers). Ailleurs il rend `False` sur un verrou pourtant
-    tenu : `EN COURS` se degrade alors en `NON JUGEE`, qui reste VRAI (la pointe n'est
-    effectivement pas jugee) -- on perd le raffinement, jamais la justesse. `ratchets-bg.ps1`
-    etant du PowerShell, il n'y a de toute facon pas de verrou a lire hors Windows.
-    """
-    try:
-        with p.open("r+b"):
-            return False                    # ouvrable en ECRITURE => plus personne ne le tient
-    except PermissionError:
-        return True                         # ERROR_SHARING_VIOLATION : un run le tient
-    except OSError:
-        return False
-
-
-def _lire_verrou(p: Path) -> dict:
-    """`{commit, pid, debut, repo}` d'un verrou de run. Champs absents = chaine vide."""
-    d = {"commit": "", "pid": "", "debut": "", "repo": ""}
-    try:
-        texte = p.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return d
-    for ln in texte.lstrip("﻿").splitlines():
-        cle, _, val = ln.partition(":")
-        cle = cle.strip().lower()
-        if cle in d:
-            d[cle] = val.strip()
-    return d
-
-
-def _runs_vivants(dossier: Path) -> tuple[list[dict], int]:
-    """(runs VIVANTS, nombre de residus). Le repertoire peut ne pas exister : 0 verrou pose."""
-    vivants, residus = [], 0
-    try:
-        fichiers = sorted(dossier.glob("*.lock"))
-    except OSError:
-        return vivants, residus
-    for p in fichiers:
-        if _verrou_tenu(p):
-            info = _lire_verrou(p)
-            info["fichier"] = str(p)
-            vivants.append(info)
-        else:
-            residus += 1
-    return vivants, residus
-
-
-def _etat_pointe(fraicheur: str, m_pointe: Mesure, m_runs: Mesure, pointe: str) -> Mesure:
-    """`JUGEE` | `EN COURS` | `NON JUGEE`, ou PAS MESURE. La table, en UN seul endroit.
-
-    `NON JUGEE` n'affirme PAS « personne ne tourne » -- il dit « aucun verdict ne porte sur la
-    pointe », ce qui est vrai dans tous les cas. `EN COURS` est ce meme etat PLUS une raison
-    connue de patienter, et cette raison est un fait. Aucun chemin n'invente le cas rassurant.
-    """
-    if fraicheur == "pointe":
-        return _ok("JUGEE", "sha du verdict == git rev-parse HEAD")
-    if not m_pointe.mesuree:
-        return _ko("git rev-parse HEAD", m_pointe.erreur or "pointe inconnue")
-    if not m_runs.mesuree:
-        return _ko("logs/ratchets-bg/runs", m_runs.erreur or "verrous non lus")
-    if any(_meme_commit(r.get("commit", ""), pointe) for r in m_runs.valeur):
-        return _ok("EN COURS", "verrou de run TENU sur la pointe")
-    return _ok("NON JUGEE", "aucun verdict ni run pour la pointe")
-
-
-def mesurer_banque(src: Sources, journal: dict) -> dict:
-    rc_p, out_p = src.git("rev-parse", "HEAD")
-    pointe = out_p.strip().splitlines()[0].strip() if (rc_p == 0 and out_p.strip()) else ""
-    m_pointe = (_ok(pointe, "git rev-parse HEAD") if pointe
-                else _ko("git rev-parse HEAD",
-                         src.cause_git(rc_p, "rev-parse") if rc_p != 0 else "sortie vide"))
-
-    dossier = src.dossier_verdicts()
-    d_runs = src.dossier_runs()
-    if d_runs is None:
-        m_runs: Mesure = _ko("logs/ratchets-bg/runs", "repertoire introuvable (gitignore)")
-        residus = 0
-    else:
-        vivants, residus = _runs_vivants(d_runs)
-        m_runs = _ok(vivants, "logs/ratchets-bg/runs (verrous TENUS)")
-
-    if dossier is None:
-        return {"verdict": _ko("logs/ratchets-bg", "repertoire introuvable (gitignore)"),
-                "pointe": m_pointe, "runs": m_runs, "residus": residus,
-                "etat": _etat_pointe("inconnue", m_pointe, m_runs, pointe)}
-    fichiers = sorted(dossier.glob("*.txt"), key=lambda p: p.stat().st_mtime)
-    if not fichiers:
-        return {"verdict": _ok(None, "logs/ratchets-bg (vide)"),
-                "pointe": m_pointe, "runs": m_runs, "residus": residus,
-                "etat": _etat_pointe("aucun", m_pointe, m_runs, pointe)}
-
-    # Le verdict RETENU est celui de la POINTE s'il en existe un -- pas le dernier ecrit. Les
-    # deux different des qu'un run juge autre chose que la pointe (bisect, `-Commit <ancien>`,
-    # PR d'un agent) : prendre le dernier par mtime rendrait alors un verdict etranger pour
-    # l'etat courant. A defaut, le plus recent, et il portera sa FRAICHEUR.
-    retenu = None
-    if pointe:
-        for p in reversed(fichiers):
-            if _meme_commit(_sha_entete(p), pointe):
-                retenu = p
-                break
-    choisi = retenu if retenu is not None else fichiers[-1]
-
-    sha, rc, etiq = _lire_verdict(choisi)
-    livre = None
-    if sha:
-        code, _ = src.git("merge-base", "--is-ancestor", sha, "origin/master")
-        # `RC_MUET` = git n'a pas repondu. `livre` reste None -- et le signal « vert non encore
-        # livre » teste `is False`, donc un echec de mesure ne fabrique aucun faux signal.
-        livre = None if code == src.RC_MUET else (code == 0)
-    fraicheur = "pointe" if retenu is not None else _fraicheur(src, sha, pointe)
-    v = {
-        "fichier": str(choisi), "commit": sha[:8], "rc": rc, "etat": etiq,
-        "age_min": (src.maintenant() - choisi.stat().st_mtime) / 60.0,
-        "livre": livre,
-        "deja_signale": journal.get("verdict_vu") == choisi.name,
-        "fraicheur": fraicheur,
-        "pointe": pointe[:8],
-    }
-    return {"verdict": _ok(v, "logs/ratchets-bg (%s)"
-                           % ("verdict de la pointe" if retenu is not None else "dernier ecrit")),
-            "pointe": m_pointe, "runs": m_runs, "residus": residus,
-            "etat": _etat_pointe(fraicheur, m_pointe, m_runs, pointe)}
-
-
 # ------------------------------------------------------------------ etat complet
-def etat(src: Sources, plafond: int, journal: dict | None = None) -> dict:
+def etat(src: Sources, plafond: int) -> dict:
     """Toutes les mesures, en parallele. Aucune ne peut faire echouer les autres."""
-    journal = journal or {}
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=3) as ex:
         f_flotte = ex.submit(mesurer_flotte, src, plafond)
         f_livr = ex.submit(mesurer_livraison, src)
         f_harnais = ex.submit(mesurer_harnais, src)
-        f_banque = ex.submit(mesurer_banque, src, journal)
-        flotte, livr = f_flotte.result(), f_livr.result()
-        harnais, banque = f_harnais.result(), f_banque.result()
+        flotte, livr, harnais = f_flotte.result(), f_livr.result(), f_harnais.result()
 
-    # JONCTION, apres coup pour que les quatre mesures restent independantes : un agent qui
+    # JONCTION, apres coup pour que les trois mesures restent independantes : un agent qui
     # TRAVAILLE garde son worktree meme si sa branche est deja mergee (il peut encore
     # committer). Le proposer au nettoyage, c'est proposer de le tuer.
     if livr["nettoyables"].mesuree and flotte["chemins"]:
         garde = [w for w in livr["nettoyables"].valeur
                  if str(Path(w["chemin"]).resolve()).lower() not in flotte["chemins"]]
         livr["nettoyables"] = _ok(garde, livr["nettoyables"].source + " - agents en vol")
-    return {"flotte": flotte, "livraison": livr, "harnais": harnais, "banque": banque,
+    return {"flotte": flotte, "livraison": livr, "harnais": harnais,
             "repo": str(src.repo)}
 
 
@@ -964,42 +669,6 @@ def etat(src: Sources, plafond: int, journal: dict | None = None) -> dict:
 class Signal:
     cle: str
     ligne: str
-
-
-_FRAICHEUR_TXT = {
-    "ancetre": "PERIME (juge %s, la pointe est %s)",
-    "hors-lignee": "PERIME (juge %s, HORS de la lignee de la pointe %s)",
-    "inconnue": "fraicheur INCONNUE (juge %s, pointe %s)",
-}
-
-
-def _txt_fraicheur(v: dict) -> str:
-    return _FRAICHEUR_TXT.get(v["fraicheur"], "juge %s, pointe %s") % (
-        v["commit"] or "?", v["pointe"] or "?")
-
-
-def _ctx_banque(bq: dict, v: dict | None) -> str:
-    """La ligne de CONTEXTE quand la pointe n'est pas jugee. Elle AFFICHE, elle n'alarme pas.
-
-    C'est la borne anti-glissement de #472 : un verdict perime ne devient pas silencieux -- on
-    continue de dire qu'il existe, ce qu'il vaut et SUR QUOI il porte. Ce qui change est
-    l'ACCUSE : il quitte les signaux (« l'etat courant est ROUGE ») pour le contexte (« la
-    banque a juge, mais pas ceci »).
-    """
-    etatm = bq.get("etat")
-    pointe8 = bq["pointe"].valeur[:8] if bq["pointe"].mesuree else "?"
-    if etatm is None:
-        quoi = "?"
-    elif not etatm.mesuree:
-        quoi = "etat NON MESURE (%s)" % etatm.erreur
-    else:
-        quoi = etatm.valeur
-    if v is None:
-        detail = "" if bq["verdict"].mesuree else " ; %s" % bq["verdict"].txt()
-    else:
-        detail = " ; dernier verdict rc=%s [%s] %s, il y a %.0f min" % (
-            v["rc"], v["etat"], _txt_fraicheur(v), v["age_min"])
-    return "banque : pointe %s %s%s" % (pointe8, quoi, detail)
 
 
 def signaux(e: dict) -> tuple[list[Signal], list[str]]:
@@ -1011,7 +680,7 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
     """
     sig: list[Signal] = []
     ctx: list[str] = []
-    fl, lv, ha, bq = e["flotte"], e["livraison"], e["harnais"], e["banque"]
+    fl, lv, ha = e["flotte"], e["livraison"], e["harnais"]
 
     # -- La campagne est-elle EN COURS ? Derive, jamais declare. Hors campagne, des slots vides
     #    sont l'etat NORMAL d'un depot au repos : les signaler serait du bruit a chaque tour.
@@ -1063,39 +732,6 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
     elif not lv["pr_ouvertes"].mesuree:
         ctx.append("PR : %s" % lv["pr_ouvertes"].txt())
 
-    # LE VERDICT DE BANQUE -- et A QUOI il s'applique (#472).
-    #
-    # Un verdict n'accuse l'etat COURANT que s'il porte SUR LA POINTE. Les regimes :
-    #   rc is None    -> le fichier existe mais son rc est ILLISIBLE : un capteur muet, jamais
-    #                    « rien a signaler ». Il accuse l'OUTIL D'ECRITURE, pas le commit juge --
-    #                    donc il est signale QUELLE QUE SOIT la fraicheur (c'est le bug d'en-tete
-    #                    trouve le 2026-08-04 sur les 3 verdicts presents) ;
-    #   sur la pointe, rc != 0  -> un VERDICT defavorable : signale a CHAQUE tour, il ne
-    #                    s'acquitte pas, il se CORRIGE ;
-    #   sur la pointe, rc == 0  -> signale UNE FOIS, et seulement s'il porte sur du travail PAS
-    #                    ENCORE dans origin/master. Un vert deja livre n'appelle aucun geste ;
-    #   PERIME        -> AUCUN signal. Il reste AFFICHE en contexte -- utile a savoir, jamais a
-    #                    alarmer -- et n'est rabattu ni sur un vert ni sur un rouge.
-    bqv = bq["verdict"]
-    v = bqv.valeur if (bqv.mesuree and isinstance(bqv.valeur, dict)) else None
-    sur_pointe = v is not None and v["fraicheur"] == "pointe"
-    if v is not None and v["rc"] is None:
-        sig.append(Signal("banque-illisible",
-                          "verdict de banque %s ILLISIBLE (pas de rc) -- %s"
-                          % (v["commit"] or "?", Path(v["fichier"]).name)))
-    elif sur_pointe and v["rc"] != 0:
-        # `%s` entre crochets : l'etiquette de `ratchets-bg` porte deja ses propres
-        # parentheses (`ROUGE (2)`), et l'imbriquer rendait une ligne desequilibree.
-        sig.append(Signal("banque", "verdict de banque %s rc=%s [%s] SUR LA POINTE, il y a "
-                                    "%.0f min" % (v["commit"], v["rc"], v["etat"], v["age_min"])))
-    elif sur_pointe and v["livre"] is False and not v["deja_signale"]:
-        sig.append(Signal("banque", "verdict de banque %s VERTE (il y a %.0f min) -- son "
-                                    "commit n'est PAS ENCORE dans origin/master"
-                                    % (v["commit"], v["age_min"])))
-
-    if not sur_pointe:
-        ctx.append(_ctx_banque(bq, v))
-
     if ha["drain"].mesuree and ha["drain"].valeur:
         sig.append(Signal("drain", "mode DRAIN ARME -- la creation de runner est refusee"))
     if not ha["session"].mesuree:
@@ -1112,37 +748,6 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
                                        "candidats orphelins" % lr.valeur))
     ctx.append("liveRunners %s (budget partage des 4-en-parallele)" % lr.txt())
     return sig, ctx
-
-
-# ------------------------------------------------------------------ journal
-def _chemin_journal(src: Sources) -> Path | None:
-    d = src.dossier_verdicts()
-    return (d.parent / "loop-status-seen.json") if d is not None else None
-
-
-def lire_journal(src: Sources) -> dict:
-    p = _chemin_journal(src)
-    if p is None or not p.exists():
-        return {}
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
-def ecrire_journal(src: Sources, e: dict) -> None:
-    """Acquitte le dernier verdict VERT. Un ROUGE ne s'acquitte pas : il se CORRIGE."""
-    p = _chemin_journal(src)
-    v = e["banque"]["verdict"]
-    if p is None or not v.mesuree or not isinstance(v.valeur, dict):
-        return
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"verdict_vu": Path(v.valeur["fichier"]).name,
-                                 "quand": time.strftime("%Y-%m-%dT%H:%M:%S")}),
-                     encoding="utf-8")
-    except OSError:
-        pass
 
 
 # ------------------------------------------------------------------ rendu
@@ -1164,7 +769,7 @@ def _age_gh(lv: dict) -> str:
 
 
 def rendu_complet(e: dict, sig: list[Signal], ctx: list[str]) -> str:
-    fl, lv, ha, bq = e["flotte"], e["livraison"], e["harnais"], e["banque"]
+    fl, lv, ha = e["flotte"], e["livraison"], e["harnais"]
     L = ["[boucle] %s  (%s)" % (e["repo"], lv["branche"].txt())]
     L.append("")
     L.append("FLOTTE     en vol %s / %d -> %s libre(s)"
@@ -1202,25 +807,6 @@ def rendu_complet(e: dict, sig: list[Signal], ctx: list[str]) -> str:
                 ("ARME" if ha["drain"].valeur else "off") if ha["drain"].mesuree
                 else ha["drain"].txt(),
                 ha["live_runners"].txt()))
-    # La POINTE d'abord, et TOUJOURS : c'est elle que la ligne pretend decrire. Un verdict sans
-    # son commit de reference est ce qui a fait lire trois tours de suite un rouge deja corrige.
-    L.append("BANQUE     pointe %s : %s" % (bq["pointe"].txt("%.8s"), bq["etat"].txt()))
-    if bq["verdict"].mesuree and isinstance(bq["verdict"].valeur, dict):
-        v = bq["verdict"].valeur
-        L.append("           verdict %s rc=%s (%s) il y a %.0f min ; fraicheur=%s ; livre=%s ; "
-                 "deja signale=%s" % (v["commit"], v["rc"], v["etat"], v["age_min"],
-                                      v["fraicheur"], v["livre"], v["deja_signale"]))
-    else:
-        L.append("           verdict %s" % bq["verdict"].txt())
-    if bq.get("runs") is not None:
-        L.append("           runs vivants : %s%s"
-                 % (len(bq["runs"].valeur) if bq["runs"].mesuree else bq["runs"].txt(),
-                    " ; %d verrou(s) RESIDUEL(S)" % bq["residus"] if bq.get("residus") else ""))
-        if bq["runs"].mesuree:
-            for r in bq["runs"].valeur:
-                L.append("             . %s (pid %s, depuis %s)"
-                         % ((r.get("commit") or "?")[:8], r.get("pid") or "?",
-                            r.get("debut") or "?"))
     L.append("")
     if sig:
         L.append("A FAIRE :")
@@ -1300,8 +886,6 @@ def main(argv: list[str] | None = None) -> int:
                          "sinon ; env TACTICUS_LOOP_GH_TIMEOUT)")
     ap.add_argument("--ttl-cache", type=float, default=None,
                     help="duree de vie du cache GitHub, en secondes (0 = pas de cache)")
-    ap.add_argument("--ack", action="store_true",
-                    help="acquitte le dernier verdict de banque (implicite sous --hook)")
     a = ap.parse_args(argv)
 
     if a.hook and os.environ.get("TACTICUS_LOOP_STATUS_HOOK", "1") == "0":
@@ -1353,24 +937,19 @@ def main(argv: list[str] | None = None) -> int:
         # Un hook de fin de tour ne casse JAMAIS le tour. Toute panne imprevue se rabat sur le
         # silence : c'est un garde-fou, pas un maillon du chemin critique.
         try:
-            journal = lire_journal(src)
-            e = etat(src, plafond, journal)
+            e = etat(src, plafond)
             sig, ctx = signaux(e)
             if not sig:
                 return 0
-            ecrire_journal(src, e)
             print(json.dumps({"decision": "block",
                               "reason": _sortie_ascii(rendu_hook(sig, ctx))}))
         except Exception:                                    # noqa: BLE001
             return 0
         return 0
 
-    journal = lire_journal(src)
-    e = etat(src, plafond, journal)
+    e = etat(src, plafond)
     sig, ctx = signaux(e)
 
-    if a.ack:
-        ecrire_journal(src, e)
     if a.json:
         def _plat(m):
             return ({"valeur": m.valeur, "source": m.source, "erreur": m.erreur}

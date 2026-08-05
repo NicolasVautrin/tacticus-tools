@@ -22,18 +22,18 @@ Trois facons, MESUREES, dont cet outil peut mourir sans bruit :
      garde-fou mort ; un hook qui parle a chaque tour d'un depot au repos se fait desarmer par
      son proprietaire en une journee. Les deux directions se gardent.
 
-CE QUE CE CLIQUET EST SEUL A VOIR : il n'existe aucun autre chemin vers ces trois-la. `probe_273`
-garde les entrees GITIGNOREES lues depuis la racine, pas les sorties d'un outil ; `probe_457` ne
-joue que `scripts/python/tests`, ou `loop_status` n'a aucun test ; et la banque entiere garde du
-CODE, dont la degradation produit un rouge -- alors que celle-ci ne produit rien.
+CE QUE CETTE GARDE EST SEULE A VOIR : il n'existe aucun autre chemin vers ces trois-la.
+`probe_273` garde les entrees GITIGNOREES lues depuis la racine, pas les sorties d'un outil ;
+`probe_457` ne joue que `scripts/python/tests`, ou `loop_status` n'a aucun test. Tout le reste du
+depot garde du CODE, dont la degradation produit un rouge -- alors que celle-ci ne produit rien.
 
 COMMENT IL S'Y PREND. Toutes les entrees de `loop_status` passent par la facade `Sources`, qui est
-SUBSTITUEE ici. Sans cette couture, garder le tri-etat exigerait d'eteindre le host, ce qu'aucun
-cliquet ne peut faire -- et un cliquet qui depend de l'etat de la machine n'est pas un cliquet.
+SUBSTITUEE ici. Sans cette couture, garder le tri-etat exigerait d'eteindre le host, ce qu'aucune
+garde ne peut faire -- et une garde qui depend de l'etat de la machine n'en est pas une.
 Aucun appel reel a git, `gh` ou au host : ce probe est 100 % offline et deterministe.
 
-Il ECRIT dans un tmpdir SYSTEME (`mkdtemp()` sans `dir=`), jamais sous `scripts/python/` que la
-banque enumere en parallele (#455).
+Il ECRIT dans un tmpdir SYSTEME (`mkdtemp()` sans `dir=`), jamais sous `scripts/python/`, que
+d'autres passes peuvent enumerer en parallele (#455).
 
 Sortie ASCII stricte (cp1252). Code de sortie = nombre d'epreuves fautives.
 """
@@ -70,24 +70,15 @@ def verifie(cond: bool, quoi: str) -> None:
 class FauxSources(LS.Sources):
     """Repond aux memes questions que `Sources`, depuis un scenario ecrit."""
 
-    #: Codes de `git merge-base --is-ancestor <sha> HEAD` par relation VOULUE. `128` = le commit
-    #: est INCONNU du depot (verdict d'un arbre etranger) -- il ne se rabat pas sur << pas
-    #: ancetre >>, il se rend << inconnue >>.
-    _RC_RELATION = {"ancetre": 0, "hors-lignee": 1, "inconnue": 128}
-
     def __init__(self, *, status_v2: str = "", worktrees: str = "", mergees: str = "",
-                 ancetre: bool = True, prs: list | None = None, gh_ko: str | None = None,
+                 prs: list | None = None, gh_ko: str | None = None,
                  http: dict | None = None, http_ko: str | None = None,
-                 rows: list | None = None, dossier: Path | None = None,
-                 pointe: str | None = "0" * 40, relation: str = "ancetre") -> None:
+                 rows: list | None = None) -> None:
         super().__init__(repo=Path("/faux"), ttl_cache=0.0)
         self._status_v2, self._worktrees, self._mergees = status_v2, worktrees, mergees
-        self._ancetre, self._prs, self._gh_ko = ancetre, prs, gh_ko
+        self._prs, self._gh_ko = prs, gh_ko
         self._http, self._http_ko = http or {}, http_ko
-        self._rows, self._dossier = rows or [], dossier
-        # `pointe is None` = `git rev-parse HEAD` MUET : l'etat de la pointe devient PAS MESURE,
-        # et surtout pas << JUGEE >>.
-        self._pointe, self._relation = pointe, relation
+        self._rows = rows or []
 
     def git(self, *args: str) -> tuple[int, str]:
         if args[:1] == ("status",):
@@ -96,15 +87,6 @@ class FauxSources(LS.Sources):
             return 0, self._worktrees
         if args[:2] == ("for-each-ref", "--merged"):
             return 0, self._mergees
-        if args[:2] == ("merge-base", "--is-ancestor"):
-            # DEUX questions distinctes passent par la meme commande, et les confondre effacerait
-            # tout le sujet : `... origin/master` = << deja livre ? >>, `... HEAD` = << a quoi ce
-            # verdict s'applique ? >>. On les discrimine sur la CIBLE.
-            if args[-1] == "HEAD":
-                return self._RC_RELATION[self._relation], ""
-            return (0 if self._ancetre else 1), ""
-        if args[:1] == ("rev-parse",):
-            return (self.RC_MUET, "") if self._pointe is None else (0, self._pointe + "\n")
         if args[:1] == ("rev-list",):
             return 0, "0\n"
         raise AssertionError("git non scripte : %r" % (args,))
@@ -122,9 +104,6 @@ class FauxSources(LS.Sources):
 
     def flotte(self) -> list[dict]:
         return self._rows
-
-    def dossier_verdicts(self) -> Path | None:
-        return self._dossier
 
     def lire_cache_gh(self):
         return None
@@ -155,22 +134,6 @@ def _wt_porcelain(entrees: list[tuple[str, str]]) -> str:
                        for c, b in entrees) + "\n"
 
 
-def _verdict(dossier: Path, nom: str, *, sha: str, rc: int | None,
-             etat: str, entete_cassee: bool = False) -> Path:
-    p = dossier / nom
-    if entete_cassee:
-        # La forme REELLE des verdicts ecrits avant le correctif de precedence PowerShell du
-        # 2026-08-04 : tout l'en-tete sur une ligne, et AUCUNE ligne `rc`.
-        corps = ["commit  : %s sujet   : x quand   : y mur     : 1,0 s" % sha, "",
-                 "[ratchets] BANQUE VERTE -- 37 cliquet(s), mur 1,0 s.",
-                 "[ratchets-bg] %s -- commit %s, 1,0 s" % (etat, sha[:8])]
-    else:
-        corps = ["commit  : %s" % sha, "sujet   : x", "quand   : y", "mur     : 1,0 s",
-                 "rc      : %s  (%s)" % (rc, etat), ""]
-    p.write_text("\n".join(corps), encoding="utf-8")
-    return p
-
-
 # =====================================================================================
 #  1. TRI-ETAT -- un zero ne remplace JAMAIS un << pas mesure >>
 # =====================================================================================
@@ -178,9 +141,9 @@ def etape_1_tri_etat() -> None:
     print("\n[1] TRI-ETAT : host eteint, `gh` hors ligne")
     src = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="",
                       gh_ko="gh absent du PATH", http_ko="connexion refusee",
-                      rows=[], dossier=None)
-    e = LS.etat(src, 5, {})
-    ha, lv, bq = e["harnais"], e["livraison"], e["banque"]
+                      rows=[])
+    e = LS.etat(src, 5)
+    ha, lv = e["harnais"], e["livraison"]
 
     for cle in ("session", "drain", "live_runners"):
         m = ha[cle]
@@ -188,8 +151,6 @@ def etape_1_tri_etat() -> None:
                 "harnais.%s = PAS MESURE (et pas un zero)" % cle)
     verifie(not lv["pr_ouvertes"].mesuree,
             "livraison.pr_ouvertes = PAS MESURE quand `gh` ne repond pas")
-    verifie(not bq["verdict"].mesuree,
-            "banque.verdict = PAS MESURE quand logs/ratchets-bg est introuvable")
 
     # Le RENDU doit porter l'ignorance, pas la maquiller. C'est la moitie qui compte : une
     # mesure `None` correctement calculee mais imprimee `0` se lit comme un zero.
@@ -206,8 +167,8 @@ def etape_1_tri_etat() -> None:
                                                    "tacticus": {"running": True}},
                              "/api/admin/drain": {"enabled": False, "liveRunners": 0,
                                                   "liveRunnersSource": "hooks"}},
-                       rows=[], dossier=None)
-    e2 = LS.etat(src2, 5, {})
+                       rows=[])
+    e2 = LS.etat(src2, 5)
     s2, c2 = LS.signaux(e2)
     t2 = LS.rendu_complet(e2, s2, c2)
     verifie(e2["harnais"]["live_runners"].mesuree and e2["harnais"]["live_runners"].valeur == 0,
@@ -292,25 +253,24 @@ def etape_3_silence() -> None:
     print("\n[3] SILENCE : depot au repos, chaine deja relancee, autre projet")
     tmp = Path(tempfile.mkdtemp(prefix="probe467-"))
     try:
-        _verdict(tmp, "aaaaaaaa-1.txt", sha="a" * 40, rc=0, etat="VERTE")
         repos = FauxSources(
-            status_v2=_statut_v2(avance=0), worktrees="", mergees="", ancetre=True, prs=[],
+            status_v2=_statut_v2(avance=0), worktrees="", mergees="", prs=[],
             http={"/api/admin/status": {"session": {"id": 1, "status": "running", "pid": 9},
                                         "tacticus": {"running": True}},
                   "/api/admin/drain": {"enabled": False, "liveRunners": 0,
                                        "liveRunnersSource": "hooks"}},
-            rows=[], dossier=tmp, pointe="a" * 40)
-        sig, _ = LS.signaux(LS.etat(repos, 5, {}))
+            rows=[])
+        sig, _ = LS.signaux(LS.etat(repos, 5))
         verifie(sig == [], "depot au REPOS (0 agent, 0 worktree, 0 PR, 0 commit) -> AUCUN signal")
 
         # Le meme etat, mais la campagne est en cours : les slots libres doivent se voir.
         actif = FauxSources(
             status_v2=_statut_v2(avance=0),
             worktrees=_wt_porcelain([(r"C:/r/.claude/worktrees/agent-1", "worktree-agent-1")]),
-            mergees="", ancetre=True, prs=[],
+            mergees="", prs=[],
             http=repos._http, rows=[_agent("un", r"C:/r/.claude/worktrees/agent-1")],
-            dossier=tmp, pointe="a" * 40)
-        cles = {s.cle for s in LS.signaux(LS.etat(actif, 5, {}))[0]}
+            )
+        cles = {s.cle for s in LS.signaux(LS.etat(actif, 5))[0]}
         verifie("slots" in cles,
                 "campagne EN COURS + 1/5 en vol -> les 4 slots libres se voient (%s)" % sorted(cles))
     finally:
@@ -357,15 +317,13 @@ def etape_4_parole() -> None:
                              (r"C:/r/.claude/worktrees/agent-2", "worktree-agent-2")])
 
         # -- la scene du 2026-08-04 : 1 agent sur 5, 30 commits d'avance, worktrees livres
-        _verdict(tmp, "bbbbbbbb-1.txt", sha="b" * 40, rc=2, etat="ROUGE (2)")
         s = FauxSources(status_v2=_statut_v2(avance=30, suivis=("engine/x.py",)),
                         worktrees=wts, mergees="worktree-agent-1\nworktree-agent-2\n",
-                        ancetre=True, prs=[], http=base_http,
-                        rows=[_agent("solo", r"C:/r/.claude/worktrees/agent-9")], dossier=tmp,
-                        pointe="b" * 40)
-        e = LS.etat(s, 5, {})
+                        prs=[], http=base_http,
+                        rows=[_agent("solo", r"C:/r/.claude/worktrees/agent-9")])
+        e = LS.etat(s, 5)
         cles = {x.cle for x in LS.signaux(e)[0]}
-        for attendu in ("slots", "push", "sale", "nettoyage", "banque"):
+        for attendu in ("slots", "push", "sale", "nettoyage"):
             verifie(attendu in cles, "signal `%s` emis (%s)" % (attendu, sorted(cles)))
         verifie(len(e["livraison"]["nettoyables"].valeur) == 2,
                 "les 2 worktrees d'agents livres sont proposes au nettoyage")
@@ -373,9 +331,8 @@ def etape_4_parole() -> None:
         # -- un agent EN VOL sur une branche deja mergee n'est JAMAIS propose au nettoyage
         s2 = FauxSources(status_v2=_statut_v2(), worktrees=wts,
                          mergees="worktree-agent-1\nworktree-agent-2\n", prs=[], http=base_http,
-                         rows=[_agent("occupe", r"C:/r/.claude/worktrees/agent-1")], dossier=tmp,
-                         pointe="b" * 40)
-        nett = LS.etat(s2, 5, {})["livraison"]["nettoyables"].valeur
+                         rows=[_agent("occupe", r"C:/r/.claude/worktrees/agent-1")])
+        nett = LS.etat(s2, 5)["livraison"]["nettoyables"].valeur
         verifie([w["branche"] for w in nett] == ["worktree-agent-2"],
                 "le worktree d'un agent EN VOL est retire des nettoyables (%s)"
                 % [w["branche"] for w in nett])
@@ -386,8 +343,8 @@ def etape_4_parole() -> None:
                                                      "tacticus": {"running": False}},
                                "/api/admin/drain": {"enabled": True, "liveRunners": 0,
                                                     "liveRunnersSource": "hooks"}},
-                         rows=[], dossier=tmp, pointe="b" * 40)
-        cles3 = {x.cle for x in LS.signaux(LS.etat(s3, 5, {}))[0]}
+                         rows=[])
+        cles3 = {x.cle for x in LS.signaux(LS.etat(s3, 5))[0]}
         verifie("drain" in cles3, "mode DRAIN arme -> signal")
         verifie("session" in cles3, "aucune session Frida -> signal")
 
@@ -397,92 +354,9 @@ def etape_4_parole() -> None:
                                                      "tacticus": {"running": True}},
                                "/api/admin/drain": {"enabled": False, "liveRunners": 3,
                                                     "liveRunnersSource": "hooks"}},
-                         rows=[], dossier=tmp, pointe="b" * 40)
-        verifie("orphelins" in {x.cle for x in LS.signaux(LS.etat(s4, 5, {}))[0]},
+                         rows=[])
+        verifie("orphelins" in {x.cle for x in LS.signaux(LS.etat(s4, 5))[0]},
                 "3 runners vivants et 0 agent en vol -> signal orphelins")
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-# =====================================================================================
-#  5. LE VERDICT DE BANQUE SE LIT SOUS SES DEUX FORMES
-# =====================================================================================
-def etape_5_verdict() -> None:
-    print("\n[5] VERDICT de banque : en-tete normal ET en-tete cassee (gisement mesure)")
-    tmp = Path(tempfile.mkdtemp(prefix="probe467-"))
-    try:
-        p = _verdict(tmp, "cccccccc-1.txt", sha="c" * 40, rc=0, etat="VERTE")
-        sha, rc, etiq = LS._lire_verdict(p)
-        verifie((sha, rc) == ("c" * 40, 0) and etiq == "VERTE",
-                "en-tete normale : commit + rc + etiquette lus (%s, %s)" % (rc, etiq))
-
-        p2 = _verdict(tmp, "dddddddd-1.txt", sha="d" * 40, rc=None, etat="VERTE",
-                      entete_cassee=True)
-        sha2, rc2, etiq2 = LS._lire_verdict(p2)
-        verifie(rc2 == 0 and sha2 == "d" * 40,
-                "en-tete CASSEE (sans ligne rc) : le rc se retrouve dans le corps (rc=%s)" % rc2)
-
-        # L'etiquette d'un ROUGE porte ses PROPRES parentheses -- un `rstrip(')')` gourmand les
-        # mangeait toutes et rendait `rc=2 [ROUGE (2]`, desequilibre sur le seul regime qui compte.
-        p2b = _verdict(tmp, "dd2-1.txt", sha="2" * 40, rc=2, etat="ROUGE (2)")
-        _, rc2b, etiq2b = LS._lire_verdict(p2b)
-        verifie((rc2b, etiq2b) == (2, "ROUGE (2)"),
-                "etiquette d'un ROUGE lue ENTIERE, parentheses imbriquees comprises (%r)" % etiq2b)
-
-        # Un verdict dont le rc reste introuvable est un CAPTEUR MUET, pas un vert.
-        p3 = tmp / "eeeeeeee-1.txt"
-        p3.write_text("commit  : %s\nsujet   : x\n" % ("e" * 40), encoding="utf-8")
-        _, rc3, _ = LS._lire_verdict(p3)
-        verifie(rc3 is None, "verdict sans aucun rc lisible -> None (jamais 0)")
-
-        src = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", prs=[],
-                          http={"/api/admin/status": {"session": {"id": 1, "status": "running"},
-                                                      "tacticus": {"running": True}},
-                                "/api/admin/drain": {"enabled": False, "liveRunners": 0,
-                                                     "liveRunnersSource": "hooks"}},
-                          rows=[], dossier=tmp, pointe="e" * 40)
-        cles = {x.cle for x in LS.signaux(LS.etat(src, 5, {}))[0]}
-        verifie("banque-illisible" in cles,
-                "un verdict au rc illisible est SIGNALE, pas avale (%s)" % sorted(cles))
-        # ... et il l'est QUELLE QUE SOIT la fraicheur : un rc illisible accuse l'OUTIL
-        # D'ECRITURE du verdict, pas le commit juge. Le rendre silencieux sur un verdict perime
-        # rouvrirait le trou d'en-tete de #467 des que la pointe avance (c'est-a-dire toujours).
-        src_vieux = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", prs=[],
-                                http=src._http, rows=[], dossier=tmp, pointe="9" * 40,
-                                relation="ancetre")
-        verifie("banque-illisible" in {x.cle for x in LS.signaux(LS.etat(src_vieux, 5, {}))[0]},
-                "un rc illisible reste signale meme sur un verdict PERIME (il accuse l'outil)")
-
-        # Un vert DEJA livre (son commit est dans origin/master) n'appelle aucun geste.
-        for f in tmp.glob("*.txt"):
-            f.unlink()
-        _verdict(tmp, "ffffffff-1.txt", sha="f" * 40, rc=0, etat="VERTE")
-        src_livre = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", prs=[],
-                                ancetre=True, http=src._http, rows=[], dossier=tmp,
-                                pointe="f" * 40)
-        verifie(LS.signaux(LS.etat(src_livre, 5, {}))[0] == [],
-                "verdict VERT deja dans origin/master -> silence")
-        src_non_livre = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", prs=[],
-                                    ancetre=False, http=src._http, rows=[], dossier=tmp,
-                                    pointe="f" * 40)
-        verifie("banque" in {x.cle for x in LS.signaux(LS.etat(src_non_livre, 5, {}))[0]},
-                "verdict VERT dont le commit n'est PAS dans origin/master -> signale une fois")
-
-        # L'ARBRE JUGE d'abord. `host_inputs.resolve` part de SA racine, pas de celle qu'on
-        # demande : pris dans cet ordre, un `--repo` explicite lisait les verdicts d'un AUTRE
-        # arbre -- et rapportait donc un vert etranger sur un depot qui portait un rouge.
-        faux_repo = Path(tempfile.mkdtemp(prefix="probe467-repo-"))
-        try:
-            (faux_repo / "logs" / "ratchets-bg").mkdir(parents=True)
-            reel = LS.Sources(repo=faux_repo, avec_gh=False, avec_host=False)
-            verifie(reel.dossier_verdicts() == faux_repo / "logs" / "ratchets-bg",
-                    "dossier_verdicts respecte `--repo` quand l'arbre juge a bien le repertoire")
-            vide = LS.Sources(repo=faux_repo / "sans-logs", avec_gh=False, avec_host=False)
-            d = vide.dossier_verdicts()
-            verifie(d is None or d != faux_repo / "logs" / "ratchets-bg",
-                    "sans repertoire local, le repli host_inputs prend le relais (ou None)")
-        finally:
-            shutil.rmtree(faux_repo, ignore_errors=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -497,13 +371,13 @@ def etape_6_plafond() -> None:
                                                   "tacticus": {"running": True}},
                             "/api/admin/drain": {"enabled": False, "liveRunners": 0,
                                                  "liveRunnersSource": "hooks"}},
-                      rows=[_agent("a"), _agent("b")], dossier=None)
+                      rows=[_agent("a"), _agent("b")])
     for plafond, attendu in ((5, 3), (2, 0), (8, 6)):
-        fl = LS.etat(src, plafond, {})["flotte"]
+        fl = LS.etat(src, plafond)["flotte"]
         verifie(fl["en_vol"].valeur == 2 and fl["libres"].valeur == attendu,
                 "plafond %d -> %d libre(s) pour 2 en vol" % (plafond, attendu))
     # Le nombre EN VOL ne peut pas etre une saisie : il vient de la flotte.
-    fl = LS.etat(FauxSources(status_v2=_statut_v2(), rows=[], dossier=None), 5, {})["flotte"]
+    fl = LS.etat(FauxSources(status_v2=_statut_v2(), rows=[]), 5)["flotte"]
     verifie(fl["en_vol"].valeur == 0 and fl["libres"].valeur == 5,
             "flotte vide -> 0 en vol, 5 libres")
 
@@ -551,7 +425,7 @@ def etape_7_gh_muet() -> None:
         s = GhMuet(tmp, "gh: delai depasse (10 s)")
         lv = LS.mesurer_livraison(s)
         verifie(not lv["pr_ouvertes"].mesuree, "gh muet sans cache -> PAS MESURE")
-        txt = LS.rendu_complet(LS.etat(s, 5, {}), *LS.signaux(LS.etat(s, 5, {})))
+        txt = LS.rendu_complet(LS.etat(s, 5), *LS.signaux(LS.etat(s, 5)))
         verifie("PR ouvertes : 0" not in txt, "gh muet sans cache -> jamais `PR ouvertes : 0`")
         verifie("delai depasse" in txt,
                 "la CAUSE est nommee dans le rendu, pas reduite a un `rc=127`")
@@ -812,15 +686,15 @@ def etape_7_gh_muet() -> None:
     # -- ET LA PANNE DOIT SE LIRE. Nommer la cause ne sert a rien si l'axe entier devient muet :
     #    un `git status` en echec emportait `push`, `sale` et `nettoyage` D'UN BLOC, sans un
     #    mot, exactement la signature << capteur mort = rien a signaler >>.
-    s_ko = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", rows=[], dossier=None)
+    s_ko = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", rows=[])
     s_ko.git = lambda *a: (LS.Sources.RC_MUET, "")               # type: ignore[assignment]
-    cles = {x.cle for x in LS.signaux(LS.etat(s_ko, 5, {}))[0]}
+    cles = {x.cle for x in LS.signaux(LS.etat(s_ko, 5))[0]}
     verifie("livraison-inconnue" in cles,
             "un axe LIVRAISON non mesure est SIGNALE, pas avale en silence (%s)" % sorted(cles))
     # CONTRE-EPREUVE : sur un axe qui REPOND, ce signal n'existe pas -- sinon il hurlerait a
     # chaque tour et se ferait desarmer, ce qui reviendrait au meme silence.
-    s_ok2 = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", rows=[], dossier=None)
-    cles_ok = {x.cle for x in LS.signaux(LS.etat(s_ok2, 5, {}))[0]}
+    s_ok2 = FauxSources(status_v2=_statut_v2(), worktrees="", mergees="", rows=[])
+    cles_ok = {x.cle for x in LS.signaux(LS.etat(s_ok2, 5))[0]}
     verifie("livraison-inconnue" not in cles_ok,
             "contre-epreuve : aucun signal de ce type quand la livraison est MESUREE (%s)"
             % sorted(cles_ok))
@@ -831,176 +705,12 @@ def _age_gh_de(lv: dict) -> str:
 
 
 # =====================================================================================
-#  8. A QUOI le verdict s'applique -- TROIS etats, jamais deux (#472)
+#  Point d'entree
 # =====================================================================================
-def _verrou_ouvert(p: Path, sha: str):
-    """Ouvre `p` EXACTEMENT comme `ratchets-bg.ps1` : partage LECTURE SEULE, handle garde.
-
-    ctypes plutot que `open()` : la stdlib Python n'expose pas le mode de PARTAGE Windows, et
-    c'est precisement lui que `_verrou_tenu` interroge. Substituer `_verrou_tenu` reviendrait a
-    substituer le code qu'on pretend juger -- le vice ferme a l'etape 7 pour `Sources.gh`, a
-    l'echelle d'une methode. Ici le verrou est REEL, et sa lecture traverse le vrai chemin.
-    """
-    import ctypes
-    k = ctypes.windll.kernel32
-    k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32,
-                              ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
-    k.CreateFileW.restype = ctypes.c_void_p
-    #                              GENERIC_WRITE  FILE_SHARE_READ    CREATE_ALWAYS  NORMAL
-    h = k.CreateFileW(str(p), 0x40000000, 0x00000001, None, 2, 0x80, None)
-    if h is None or h == ctypes.c_void_p(-1).value:
-        raise OSError("CreateFileW a echoue sur %s" % p)
-    data = ("commit : %s\npid    : %d\ndebut  : 20260804-000000\nrepo   : x\n"
-            % (sha, os.getpid())).encode("utf-8")
-    k.WriteFile.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32,
-                            ctypes.c_void_p, ctypes.c_void_p]
-    k.WriteFile(h, data, len(data), ctypes.byref(ctypes.c_ulong(0)), None)
-    k.FlushFileBuffers.argtypes = [ctypes.c_void_p]
-    k.FlushFileBuffers(h)
-    return h
-
-
-def _verrou_ferme(h) -> None:
-    import ctypes
-    ctypes.windll.kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-    ctypes.windll.kernel32.CloseHandle(h)
-
-
-def _bq(dossier: Path, pointe, relation="ancetre") -> dict:
-    return LS.mesurer_banque(
-        FauxSources(status_v2=_statut_v2(), dossier=dossier, pointe=pointe, relation=relation),
-        {})
-
-
-def _etat_de(bq: dict) -> str:
-    return bq["etat"].valeur if bq["etat"].mesuree else "?%s" % bq["etat"].erreur
-
-
-def etape_8_fraicheur() -> None:
-    print("\n[8] A QUOI le verdict s'applique : JUGEE / EN COURS / NON JUGEE (#472)")
-    tmp = Path(tempfile.mkdtemp(prefix="probe467-fr-"))          # tmpdir SYSTEME (#455)
-    runs = tmp / "runs"
-    runs.mkdir()
-    http = {"/api/admin/status": {"session": {"id": 1, "status": "running"},
-                                  "tacticus": {"running": True}},
-            "/api/admin/drain": {"enabled": False, "liveRunners": 0,
-                                 "liveRunnersSource": "hooks"}}
-    try:
-        # -- (a) le verdict porte SUR LA POINTE : rendu tel quel, et un ROUGE ALARME.
-        _verdict(tmp, "aaaa-1.txt", sha="a" * 40, rc=2, etat="ROUGE (2)")
-        bq = _bq(tmp, "a" * 40)
-        verifie(_etat_de(bq) == "JUGEE" and bq["verdict"].valeur["fraicheur"] == "pointe",
-                "verdict SUR LA POINTE -> JUGEE (%s / %s)"
-                % (_etat_de(bq), bq["verdict"].valeur["fraicheur"]))
-        s_p = FauxSources(status_v2=_statut_v2(), http=http, dossier=tmp, pointe="a" * 40)
-        sig_p, ctx_p = LS.signaux(LS.etat(s_p, 5, {}))
-        verifie("banque" in {x.cle for x in sig_p},
-                "rouge SUR LA POINTE -> signal `banque` (l'etat courant EST rouge)")
-
-        # -- (b) LA MEME SCENE, un seul changement : la pointe a avance. C'est la MUTATION qui
-        #    doit MORDRE -- meme verdict, meme rc, meme dossier ; seul `A QUOI` change.
-        #    C'etait le defaut MESURE : `afb3e209 rc=1 [ROUGE (1)]` repete trois tours alors que
-        #    HEAD valait 4b62a914 puis c94efb11, pour un rouge deja corrige.
-        bq_v = _bq(tmp, "9" * 40, relation="ancetre")
-        verifie(_etat_de(bq_v) == "NON JUGEE" and bq_v["verdict"].valeur["fraicheur"] == "ancetre",
-                "verdict sur un ANCETRE -> NON JUGEE + fraicheur=ancetre (%s / %s)"
-                % (_etat_de(bq_v), bq_v["verdict"].valeur["fraicheur"]))
-        s_v = FauxSources(status_v2=_statut_v2(), http=http, dossier=tmp, pointe="9" * 40,
-                          relation="ancetre")
-        e_v = LS.etat(s_v, 5, {})
-        sig_v, ctx_v = LS.signaux(e_v)
-        verifie("banque" not in {x.cle for x in sig_v},
-                "verdict PERIME -> AUCUN signal `banque` (%s)" % sorted(x.cle for x in sig_v))
-        # LA BORNE ANTI-GLISSEMENT : perime n'est pas silencieux. Il reste AFFICHE, avec les deux
-        # commits, en contexte ET dans le rendu complet -- il change d'ACCUSE, pas d'existence.
-        joint = " | ".join(ctx_v)
-        verifie("PERIME (juge aaaaaaaa, la pointe est 99999999)" in joint,
-                "le perime est AFFICHE en contexte, avec les DEUX commits (%r)" % joint)
-        verifie("rc=2" in joint and "ROUGE (2)" in joint,
-                "le perime garde sa valeur (ni rabattu sur vert, ni sur rouge) (%r)" % joint)
-        rendu = LS.rendu_complet(e_v, sig_v, ctx_v)
-        verifie("fraicheur=ancetre" in rendu and "pointe 99999999 : NON JUGEE" in rendu,
-                "le rendu complet nomme la POINTE et la FRAICHEUR")
-
-        # -- (c) HORS LIGNEE (verdict d'une branche d'agent) : perime aussi, cause differente.
-        bq_h = _bq(tmp, "9" * 40, relation="hors-lignee")
-        verifie(bq_h["verdict"].valeur["fraicheur"] == "hors-lignee",
-                "verdict hors lignee -> fraicheur=hors-lignee (%s)"
-                % bq_h["verdict"].valeur["fraicheur"])
-
-        # -- (d) POINTE NON MESUREE (git muet) : surtout PAS rabattu sur JUGEE. C'est la faute
-        #    symetrique -- fabriquer le cas rassurant faute d'avoir pu regarder.
-        bq_m = _bq(tmp, None)
-        verifie(not bq_m["etat"].mesuree and bq_m["verdict"].valeur["fraicheur"] == "inconnue",
-                "pointe non mesuree -> etat PAS MESURE, fraicheur=inconnue (%s / %s)"
-                % (_etat_de(bq_m), bq_m["verdict"].valeur["fraicheur"]))
-        s_m = FauxSources(status_v2=_statut_v2(), http=http, dossier=tmp, pointe=None)
-        verifie("banque" not in {x.cle for x in LS.signaux(LS.etat(s_m, 5, {}))[0]},
-                "pointe non mesuree -> le rouge n'est PAS rendu comme l'etat courant")
-
-        # -- (e) LE VERDICT RETENU est celui de la POINTE, pas le dernier ECRIT. Sinon un run sur
-        #    un ancien commit (bisect, `-Commit`) masquerait le verdict de la pointe.
-        time.sleep(0.02)
-        _verdict(tmp, "bbbb-2.txt", sha="b" * 40, rc=0, etat="VERTE")     # plus RECENT
-        bq_r = _bq(tmp, "a" * 40)
-        verifie(bq_r["verdict"].valeur["commit"] == "a" * 8 and _etat_de(bq_r) == "JUGEE",
-                "le verdict de la POINTE prime sur le dernier ecrit (%s)"
-                % bq_r["verdict"].valeur["commit"])
-        bq_r2 = _bq(tmp, "9" * 40)
-        verifie(bq_r2["verdict"].valeur["commit"] == "b" * 8,
-                "contre-epreuve : sans verdict pour la pointe, c'est le DERNIER ecrit qui est "
-                "rendu, marque perime (%s)" % bq_r2["verdict"].valeur["commit"])
-
-        # -- (f) AUCUN VERDICT pour la pointe : EN COURS vs NON JUGEE se tranche sur un FAIT,
-        #    le verrou de run TENU -- pas sur un age, pas sur un PID.
-        for f in tmp.glob("*.txt"):
-            f.unlink()
-        verifie(_etat_de(_bq(tmp, "c" * 40)) == "NON JUGEE",
-                "aucun verdict, aucun verrou -> NON JUGEE")
-
-        if sys.platform == "win32":
-            p_lock = runs / "cccccccc-1.lock"
-            h = _verrou_ouvert(p_lock, "c" * 40)
-            try:
-                # La MUTATION doit MORDRE : sans cette verification, un verrou mal pose rendrait
-                # << NON JUGEE >> et l'epreuve suivante passerait pour la mauvaise raison.
-                verifie(LS._verrou_tenu(p_lock),
-                        "le verrou pose est REELLEMENT tenu (sinon l'epreuve suivante ne prouve rien)")
-                bq_c = _bq(tmp, "c" * 40)
-                verifie(_etat_de(bq_c) == "EN COURS" and len(bq_c["runs"].valeur) == 1,
-                        "verrou TENU sur la pointe -> EN COURS (%s)" % _etat_de(bq_c))
-                # Un run qui juge AUTRE CHOSE ne rend pas ma pointe jugee.
-                verifie(_etat_de(_bq(tmp, "d" * 40)) == "NON JUGEE",
-                        "verrou tenu sur un AUTRE commit -> NON JUGEE (le run ne juge pas ma pointe)")
-            finally:
-                _verrou_ferme(h)
-            # -- (g) RESIDU : le fichier est TOUJOURS la, le processus est mort. Un simple
-            #    fichier-temoin dirait << EN COURS >> a vie ; le handle, lui, est libere par l'OS.
-            verifie(p_lock.exists() and not LS._verrou_tenu(p_lock),
-                    "apres liberation, le verrou existe encore mais n'est plus tenu (RESIDU)")
-            bq_res = _bq(tmp, "c" * 40)
-            verifie(_etat_de(bq_res) == "NON JUGEE" and bq_res["runs"].valeur == []
-                    and bq_res["residus"] == 1,
-                    "un verrou RESIDUEL ne fabrique pas un EN COURS (%s, residus=%s)"
-                    % (_etat_de(bq_res), bq_res["residus"]))
-        else:
-            print("  NOTE  verrou non exerce : hors Windows, `ratchets-bg.ps1` ne tourne pas")
-
-        # -- (h) le repertoire des verrous INTROUVABLE : ni EN COURS ni NON JUGEE -- PAS MESURE.
-        bq_x = LS.mesurer_banque(
-            FauxSources(status_v2=_statut_v2(), dossier=None, pointe="c" * 40), {})
-        verifie(not bq_x["runs"].mesuree and not bq_x["etat"].mesuree,
-                "dossier des verdicts introuvable -> runs ET etat PAS MESURES (%s)"
-                % _etat_de(bq_x))
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
 def main() -> int:
     print("probe_467 -- fidelite de loop_status (100 % offline, sources substituees)")
     for etape in (etape_1_tri_etat, etape_2_raccourci_flotte, etape_3_silence,
-                  etape_4_parole, etape_5_verdict, etape_6_plafond, etape_7_gh_muet,
-                  etape_8_fraicheur):
+                  etape_4_parole, etape_6_plafond, etape_7_gh_muet):
         etape()
     print("")
     if ECHECS:
