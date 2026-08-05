@@ -66,10 +66,13 @@ FABRIQUES_TAGS = (
     "IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags",
 )
 
-RE_APPEL = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\(")
+RE_APPEL = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 RE_IMM = re.compile(r"^(0x[0-9a-fA-F]+|\d+)$")
-RE_AFFECT = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)(?:\[0\])?\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*;")
-RE_DICT_ADD = re.compile(r"Dictionaryu003C.*?u003E__Add\(")
+#: `local_28[0] = 0xd5;` -- Ghidra ecrit la cle du tag dans une locale juste avant l'`Add`.
+RE_AFFECT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)(?:\[0\])?\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*;")
+#: Le dictionnaire de tags est un `Dictionary<TagKey,int>` : son `Add` gshared se reconnait au
+#: `MethodInfo*` passe en DERNIER argument. Ce DAT est DERIVE d'une fabrique temoin, pas ecrit.
+RE_DICT_ADD = re.compile(r"Dictionary[A-Za-z0-9_]*u003E__(?:Add|set_Item)\s*\(")
 
 
 def _args_equilibres(txt: str, i: int) -> tuple[list[str], int]:
@@ -125,8 +128,12 @@ class Ghidra:
         if self.hors_ligne:
             return []
         res = self._client().call("list_xrefs", {"binary_name": BINARY, "name_or_address": cible})
-        out = (res or {}).get("result") or []
-        xs = out[0].get("cross_references") or [] if out else []
+        # `ghidra-mcp` rend soit {"result":[{...}]} (cible multiple) soit l'objet nu (cible unique).
+        if isinstance(res, dict) and isinstance(res.get("result"), list):
+            out = res["result"]
+            xs = (out[0].get("cross_references") or []) if out else []
+        else:
+            xs = (res or {}).get("cross_references") or []
         f.write_text(json.dumps(xs), encoding="utf-8")
         return xs
 
@@ -143,8 +150,11 @@ class Ghidra:
                                        "timeout_sec": 60})
         except (GhidraDown, RuntimeError):
             return None
-        rs = (res or {}).get("result") or []
-        code = (rs[0].get("code") if rs else None) or ""
+        if isinstance(res, dict) and isinstance(res.get("result"), list):
+            rs = res["result"]
+            code = (rs[0].get("code") if rs else None) or ""
+        else:
+            code = (res or {}).get("code") or ""
         f.write_text(code if code else "\0ABSENT", encoding="utf-8")
         return code or None
 
@@ -219,20 +229,102 @@ def scanner_producteur(code: str, dat: str):
     return groupes, actions, finish, variables
 
 
-def scanner_tags(code: str) -> set:
-    """TagKey ecrits : `var = <imm>;` puis `Dictionary<TagKey,int>.Add(dict,&var,...)`."""
-    derniere = {}
+def _sites_add(code: str):
+    """Tous les `Dictionary<...>.Add(dict, cle, valeur, <MethodInfo*>)` du corps, avec position.
+
+    L'appel est SOUVENT coupe en deux lignes par Ghidra : on balaye le TEXTE, jamais les lignes.
+    """
+    for m in RE_DICT_ADD.finditer(code):
+        args, _ = _args_equilibres(code, m.end() - 1)
+        if len(args) >= 3:
+            yield m.start(), args
+
+
+def dat_dictionnaire_de_tags(codes) -> set:
+    """Le(s) `MethodInfo*` de `Dictionary<TagKey,int>.Add`, DERIVE des fabriques de tags.
+
+    Une fabrique `StreamHelper$$Get*Tags` ne construit qu'un dictionnaire de tags : le DAT de son
+    `Add` identifie donc l'instanciation gshared voulue. Sans ce filtre, tout `Dictionary.Add` du
+    binaire compterait pour un tag -- c'est ce qui rendrait un compte FAUX, pas un zero.
+    """
+    dats = set()
+    for code in codes:
+        for _pos, args in _sites_add(code):
+            if args[-1].startswith("DAT_"):
+                dats.add(args[-1])
+    return dats
+
+
+def scanner_tags(code: str, dats_tag: set) -> set:
+    """TagKey ecrits : `var = <imm>;` puis `Dictionary<TagKey,int>.Add(dict, var, valeur, DAT)`."""
+    affect = [(m.start(), m.group(1), int(m.group(2), 0)) for m in RE_AFFECT.finditer(code)]
     trouves = set()
-    for ligne in code.splitlines():
-        m = RE_AFFECT.match(ligne)
-        if m:
-            derniere[m.group(1)] = int(m.group(2), 0)
-        for mm in RE_DICT_ADD.finditer(ligne):
-            args, _ = _args_equilibres(ligne, mm.end() - 1)
-            if len(args) >= 2 and args[1].startswith("&"):
-                v = derniere.get(args[1][1:].split("[")[0])
-                if v is not None:
-                    trouves.add(v)
+    for pos, args in _sites_add(code):
+        if dats_tag and args[-1] not in dats_tag:
+            continue
+        cle = args[1].lstrip("&").split("[")[0].strip()
+        val = None
+        for p, nom, v in affect:
+            if p < pos and nom == cle:
+                val = v
+        if val is not None:
+            trouves.add(val)
+    return trouves
+
+
+def parametres(code: str) -> list:
+    """Noms des parametres, lus sur la declaration en tete du pseudo-C."""
+    i = code.find("{")
+    tete = code[:i] if i > 0 else code
+    j = tete.find("(")
+    if j < 0:
+        return []
+    args, _ = _args_equilibres(tete, j)
+    out = []
+    for a in args:
+        t = a.replace("*", " ").split()
+        out.append(t[-1] if t else "")
+    return out
+
+
+def nom_ghidra_en_c(symbole: str) -> str:
+    """`A.B.C$$M` -> `A_B_C__M`, la forme que Ghidra ecrit dans le pseudo-C des appelants."""
+    return symbole.replace("$$", "__").replace(".", "_")
+
+
+def propager_un_cran(gh: Ghidra, variables: list) -> list:
+    """Un GroupType/StepType porte par un PARAMETRE se lit chez les APPELANTS -- un cran, pas plus.
+
+    Borne volontaire : au-dela d'un cran, la valeur peut venir d'un champ ecrit ailleurs, et une
+    chaine de deductions non lues serait une HYPOTHESE, pas une mesure. Ce qui reste ouvert est
+    imprime.
+    """
+    trouves = []
+    for nom, kind, expr in variables:
+        code = gh.decompile(nom)
+        if code is None:
+            continue
+        params = parametres(code)
+        idx = next((i for i, p in enumerate(params) if p and p in expr), None)
+        if idx is None:
+            trouves.append((nom, kind, expr, None, []))
+            continue
+        cible = nom_ghidra_en_c(nom)
+        vals, appelants = set(), set()
+        for x in gh.xrefs(nom):
+            src = x.get("function_name")
+            if not src or x.get("type") == "DATA":
+                continue
+            ccode = gh.decompile(src)
+            if ccode is None:
+                continue
+            for fn, args, _pos in appels(ccode):
+                if fn != cible or idx >= len(args):
+                    continue
+                appelants.add(src)
+                if RE_IMM.match(args[idx] or ""):
+                    vals.add(int(args[idx], 0))
+        trouves.append((nom, kind, expr, idx, sorted(vals), sorted(appelants)))
     return trouves
 
 
@@ -265,7 +357,9 @@ def main() -> int:
         print("    temoin %-64s slots %s" % (n.split("$$")[0].split(".")[-1] + "$$"
                                              + n.split("$$")[1], slots))
 
-    xs = gh.xrefs(dat)
+    # `list_xrefs` s'interroge par ADRESSE : `DAT_<hex>` est le nom d'affichage d'une donnee sans
+    # symbole, il ne resout pas. L'adresse est RE-DERIVEE du nom, jamais recopiee.
+    xs = gh.xrefs(dat[len("DAT_"):])
     producteurs = sorted({x["function_name"] for x in xs if x.get("function_name")})
     sans_nom = sum(1 for x in xs if not x.get("function_name"))
     print("\n[2] PRODUCTEURS -- xrefs du Il2CppClass* de l'interface")
@@ -281,6 +375,18 @@ def main() -> int:
     print("    dans les xrefs du DAT mais PAS dans get_Events : %d"
           % len(set(producteurs) - set(canal2)))
 
+    # Fabriques de tags : elles n'appellent pas le flux, mais ce sont elles qui ECRIVENT les
+    # TagKey. Elles servent AUSSI a deriver le `MethodInfo*` du `Dictionary<TagKey,int>.Add`.
+    fabriques = []
+    for prefixe in FABRIQUES_TAGS:
+        for s in gh.symboles(re.escape(prefixe)):
+            fabriques.append(s["name"])
+    fabriques = sorted(set(fabriques))
+    codes_fabriques = {n: gh.decompile(n) for n in fabriques}
+    dats_tag = dat_dictionnaire_de_tags([c for c in codes_fabriques.values() if c])
+    print("\n[2bis] DICTIONNAIRE DE TAGS -- MethodInfo* derive de %d fabrique(s) : %s"
+          % (len(fabriques), ", ".join(sorted(dats_tag)) or "AUCUN (le compte de tags sera NUL)"))
+
     carte = {}
     groupes_vus, actions_vues, tags_vus = {}, {}, {}
     variables = []
@@ -291,7 +397,7 @@ def main() -> int:
             illisibles.append(nom)
             continue
         g, ac, fi, va = scanner_producteur(code, dat)
-        tg = scanner_tags(code)
+        tg = scanner_tags(code, dats_tag)
         carte[nom] = {"groupes": sorted(set(g)), "actions": sorted(set(ac)),
                       "finish": len(fi), "variables": va, "tags": sorted(tg)}
         for v in set(g):
@@ -302,19 +408,11 @@ def main() -> int:
             tags_vus.setdefault(v, []).append(nom)
         for kind, expr in va:
             variables.append((nom, kind, expr))
-
-    # Fabriques de tags : elles n'appellent pas le flux, mais ecrivent les TagKey.
-    fabriques = []
-    for prefixe in FABRIQUES_TAGS:
-        for s in gh.symboles(re.escape(prefixe)):
-            fabriques.append(s["name"])
-    fabriques = sorted(set(fabriques))
-    for nom in fabriques:
-        code = gh.decompile(nom)
+    for nom, code in codes_fabriques.items():
         if code is None:
             illisibles.append(nom)
             continue
-        for v in scanner_tags(code):
+        for v in scanner_tags(code, dats_tag):
             tags_vus.setdefault(v, []).append(nom)
 
     print("\n[3] VOCABULAIRE VIVANT -- litteraux lus aux call-sites")
@@ -329,17 +427,40 @@ def main() -> int:
         morts = [m for m in cls if int(m) not in vus]
         print("              %d membres SANS aucun litteral trouve (voir ci-dessous)" % len(morts))
 
-    print("\n[4] CE QUE CETTE MESURE NE VOIT PAS")
-    print("    arguments NON litteraux (portes par une variable) : %d site(s), %d fonction(s)"
-          % (len(variables), len({v[0] for v in variables})))
-    for nom, kind, expr in variables[:20]:
-        print("      %-70s %-11s <- %s" % (nom, kind, expr))
-    if len(variables) > 20:
-        print("      ... %d de plus" % (len(variables) - 20))
+    print("\n[4] ARGUMENTS PORTES PAR UNE VARIABLE -- propagation d'UN cran chez les appelants")
+    prop = propager_un_cran(gh, variables)
+    for t in prop:
+        nom, kind, expr = t[0], t[1], t[2]
+        idx = t[3]
+        if idx is None:
+            print("    %-64s %-11s <- %s  [NON PROPAGEABLE : pas un parametre]"
+                  % (nom.split("$$")[-1], kind, expr))
+            continue
+        vals, appelants = t[4], t[5]
+        cls = GroupType if kind == "StartGroup" else StepType
+        print("    %-64s %-11s param #%d : %d litteral(aux) chez %d appelant(s)"
+              % (nom.split("$$")[-1], kind, idx, len(vals), len(appelants)))
+        for v in vals:
+            print("        %s" % nom_enum(cls, v))
+            (groupes_vus if kind == "StartGroup" else actions_vues).setdefault(v, []).append(
+                nom + " (via appelants)")
+
+    print("\n[5] CE QUE CETTE MESURE NE VOIT PAS")
     print("    fonctions productrices NON decompilables : %d" % len(illisibles))
     for n in illisibles[:10]:
         print("      %s" % n)
     print("    fabriques de tags balayees : %d" % len(fabriques))
+
+    print("\n[6] APRES PROPAGATION -- le vocabulaire encore SANS aucun producteur lu")
+    for lib, cls, vus in (("GroupType", GroupType, groupes_vus),
+                          ("StepType", StepType, actions_vues),
+                          ("TagKey", TagKey, tags_vus)):
+        morts = [m.name for m in cls if int(m) not in vus]
+        print("    %-9s : %3d / %3d atteints ; %d sans producteur lu"
+              % (lib, len(cls) - len(morts), len(list(cls)), len(morts)))
+        if lib != "TagKey":
+            for i in range(0, len(morts), 4):
+                print("        " + "  ".join("%-28s" % m for m in morts[i:i + 4]))
 
     if a.json:
         p = REPO / "logs" / a.json
