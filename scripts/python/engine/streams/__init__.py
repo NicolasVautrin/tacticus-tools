@@ -32,6 +32,7 @@ from __future__ import annotations
 from .dispatcher import StreamDispatcher
 from .entity_id import BEntityId, NO_ENTITY, format_enum_value
 from .group_type import GroupType
+from .input_messages import visit_add_unit_message
 from .step_type import StepType
 from .stream_cache import StreamCache
 from .tag_key import TagKey
@@ -55,4 +56,5 @@ __all__ = [
     "get_full_state_update_tags",
     "get_full_state_update_tags_for_active",
     "get_full_state_update_tags_for_triggered",
+    "visit_add_unit_message",
 ]
