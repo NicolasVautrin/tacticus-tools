@@ -170,7 +170,19 @@ fenêtre, et lui seul. Procédure **exécutée et validée le 2026-07-31**, 4 ag
 6. **Lever le drain**, puis **reprendre les agents par `SendMessage`** (contexte intact),
    en leur donnant l'état du harnais (session, warmup, drain levé, hash de build).
 
-⚠ Le drain vit **en mémoire du host** : un restart le remet à `false` de lui-même.
+⚠ Le drain vit **en mémoire du host** : un restart le remet à `false` de lui-même — et ce
+n'est pas une commodité, c'est **le trou par lequel la fenêtre fuit**. Mesuré le 2026-08-05 :
+entre le boot du host (l'auto-restore RÉINJECTE mais **ne warme pas**) et le warmup manuel, la
+création de runners était rouverte **sur une session FROIDE**, et 3 `initAndStart` d'un agent y
+sont passés — `started: true`, donc invisibles. Procédure : **ré-armer le drain dès que le host
+répond**, avant tout, et ne le lever **qu'après un warmup vert**.
+⚠ Depuis **#285-r1** ce cran n'est plus à votre discipline : `frida/host/warm-gate.ts` **warme la
+session à la demande** au premier RPC de création (file unique, un seul coup par session), et ne
+refuse que si le warmup lui-même échoue — avec un marqueur `warmup required` **distinct** de celui
+du drain, parce qu'une session froide ne se réchauffe pas en patientant. État publié dans
+`/api/admin/status` (`session.warmed`, `warmGate`). Gardes : `frida/host/warm-gate.probe.ts`
+(hors Frida) et `scripts/python/probe_285r1_warm_gate.py` (câblage, **rc 2 = NON MESURÉ** sur un
+host antérieur).
 ⚠ **Vérifier le hash de build après toute relance du jeu** : installé ==
 `data/symbols/CURRENT` == `python scripts/python/ghidra_symbols.py build`. Une relance peut
 être une mise à jour déguisée, et l'analyse offline deviendrait fausse en silence.

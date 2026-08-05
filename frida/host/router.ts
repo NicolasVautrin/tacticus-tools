@@ -36,6 +36,7 @@ import {
     getDrainState, setDrain, resetDrainCounters, isDrainRefusal,
     listCreationMethods,
 } from "./drain.js";
+import { getWarmState, isWarmed } from "./warm-gate.js";
 import {
     findTacticusCandidates, injectBundle, TacticusCandidate,
 } from "./admin.js";
@@ -314,7 +315,14 @@ export function buildRouter(defaultLogDir: string): Router {
                     status: session.status,
                     startedAt: session.startedAt,
                     errorMessage: session.errorMessage,
+                    // #285-r1 : une session peut etre `running` et FROIDE. Les
+                    // deux etats ne se deduisent pas l'un de l'autre, et c'est
+                    // exactement leur confusion qui a laisse monter 3 runners
+                    // sur une session non warmee. Publie ICI, a cote du statut,
+                    // pour qu'aucun lecteur n'ait a aller le chercher ailleurs.
+                    warmed: isWarmed(session.id),
                 } : null,
+                warmGate: getWarmState(),
                 version: metaVersion,
             });
         } catch (e) {
