@@ -197,7 +197,14 @@ bouge (résidu #433-r4-r1-r4-r2-r4, mesuré en parallèle) ; (d) les 775 boards 
   ne **tombe** simplement jamais dans la géométrie. Prouvé dans les deux sens par
   `test_e4_bloc_canal_qui_ne_termine_plus`, où le `return` retiré est la seule différence.
 
-* **`#433-r4-r1-r4-r2-r1-r1-r1` — le critère « docstring » a un gisement qu'il ne voit pas, et il y
+* ~~**`#433-r4-r1-r4-r2-r1-r1-r1`**~~ **FERMÉ le 2026-08-05** —
+  `case-433r4r1r4r2r1r1r1-substrat-adjacence-rammingspeed.md`. `orks.py` passe par le foyer partagé,
+  la liste est élargie aux trois natifs lus, et les **trois** axes (arête, élévation, empreintes)
+  sont confrontés live. Le test qui figeait le constat a été réécrit dans le sens inverse (il exige
+  désormais que la fonction ne compare **plus aucune** distance à 1). Restent au registre SUSPENDU
+  `AdjacentTiles`/`AdjacentUnits` → `#433-r4-r1-r4-r2-r1-r1-r1-r1`. Le texte ci-dessous est conservé
+  parce qu'il porte la RE d'origine :
+  **le critère « docstring » a un gisement qu'il ne voit pas, et il y
   a un VICE dedans.** Les étapes 2 et 4 n'entrent que sur `NATIFS_LISTE_STOCKEE`, une liste
   **littérale de 8 noms**. `AreEntitiesAdjacent` n'y est pas, alors que la chaîne est LUE
   (`BattleQuery$$AreEntitiesAdjacent` → `MovementUtil$$AreTilesAdjacent` →
