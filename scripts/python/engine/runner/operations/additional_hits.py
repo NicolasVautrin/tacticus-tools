@@ -19,6 +19,7 @@ from ..components import (StatsComponent, PositionComponent, UnitComponent,
 from ..damage_model import target_trait_names
 from ..state import State
 from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
+from ...services.damage_config import resolve_spread_pct
 from ...services.damage_modifiers import apply_all_modifiers
 from ...entities.effects import additional_hit_groups, aura_additional_hits_from_allies
 
@@ -163,7 +164,7 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
 
 def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt, thc,
                             groups: list, mods, def_mods, armor: int, hit_mult: int,
-                            block_sources, shc, spread_pct: int = 20,
+                            block_sources, shc, spread_pct: "Optional[int]" = None,
                             extra_pierce: int = 0, bonus_hit_chance: "Optional[int]" = None,
                             hit_index0: int = 0, crit_allowed0: bool = True,
                             attack_profile: "Optional[str]" = None,
@@ -284,6 +285,9 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     damage <-> additional_hits ; `damage` est charge au moment de l'appel en bataille)."""
     if not groups or thc is None or int(thc.hp or 0) <= 0:
         return None
+    # #449-r2-r4 : `spread_pct=None` = LU de `BattleConfiguration.Damage.DamageSpreadPercentage`
+    # (le `state` porte la BC de CETTE bataille). Le defaut etait `20` en dur.
+    spread_pct = resolve_spread_pct(spread_pct, state)
     import gameconfig as GC
     from .damage import AttackDamageOperation, HitDamage
     from ...entities.damage_trait import DamageTrait

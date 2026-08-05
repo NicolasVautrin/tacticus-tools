@@ -11,6 +11,7 @@ de CE module -- patcher `damage_ops.normal_like.<nom>`, jamais le `__init__` du 
 from __future__ import annotations
 
 from ....services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
+from ....services.damage_config import resolve_spread_pct
 from ....services.damage_modifiers import apply_all_modifiers
 from ...state import State
 from ...components import (StatsComponent, HealthComponent, UnitComponent,
@@ -28,7 +29,8 @@ class _NormalLike:
 
     @staticmethod
     def execute_normal_like(state: State, attacker_id: int, target_id: int, base: int,
-                            profile_pierce: int, hits: int = 1, spread_pct: int = 20,
+                            profile_pierce: int, hits: int = 1,
+                            spread_pct: Optional[int] = None,
                             damage_profile: Optional[str] = None,
                             is_melee: Optional[bool] = None,
                             ability_type: Optional[int] = None,
@@ -39,8 +41,10 @@ class _NormalLike:
         **reduce-then-roll** (bornes pré-réduites puis tirage, post_roll=None), comme l'attaque normale
         (≠ ability RandomAmount), avec base + perçage de profil DONNÉS. Mute les PV de la cible.
         `spread_pct` = variance d'arme (DamageSpreadPercentage) : **0 pour un montant `StatAmount`**
-        (mono-valeur, AUCUNE variance — confirmé live, splash Psyker = base exact) ; 20 seulement si le
-        node porte de vraies bornes min/max d'arme. Renvoie le dict résultat (per_hit/total/...) ou None.
+        (mono-valeur, AUCUNE variance — confirmé live, splash Psyker = base exact) ; `None` (défaut)
+        = la variance d'arme LUE dans `BattleConfiguration.Damage.DamageSpreadPercentage`
+        (#449-r2-r4 ; le défaut portait `20` en dur). Aucun call-site ne prend ce défaut aujourd'hui
+        — les deux régimes sont écrits explicitement. Renvoie le dict résultat (per_hit/total/...) ou None.
 
         `is_attack_damage_op` = LA FAMILLE DE FACTORY NATIVE du coup (cf. `_run_hits`) — threadé par la
         feuille DSL depuis son `native_factory`. Il ne pilote ICI qu'une seule chose : l'ORDRE bouclier ×
@@ -52,6 +56,8 @@ class _NormalLike:
         from ..damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
         if state.rng is None:
             return None
+        # #449-r2-r4 : `None` = LU de la BC de cette bataille (foyer `damage_config`).
+        spread_pct = resolve_spread_pct(spread_pct, state)
         att = state.get_entity(attacker_id)
         tgt = state.get_entity(target_id)
         sc = att.get_component(StatsComponent) if att is not None else None

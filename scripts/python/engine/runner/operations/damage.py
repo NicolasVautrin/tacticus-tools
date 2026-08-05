@@ -65,7 +65,10 @@ brut et réduit). `delta = Round(base × DamageSpreadPercentage/100)` (cf.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from ...services.damage_combat import could_crit, BlockSource
+from ...services.damage_config import resolve_spread_pct
 from ...entities.damage_trait import DamageTrait
 from ...entities.damage_profile_type import DamageProfileType
 from ...entities.stats import StatType
@@ -1184,12 +1187,18 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
 
 class DamageHandler:
     """Visiteur des messages d'attaque (mirror du handler natif lançant AttackDamageOperation).
-    `spread_pct` = `BattleConfiguration.Damage.DamageSpreadPercentage` (défaut 20)."""
+
+    `spread_pct` = `BattleConfiguration.Damage.DamageSpreadPercentage`, LU de la BC de cette
+    bataille quand il vaut `None` (foyer `engine.services.damage_config.resolve_spread_pct`,
+    #449-r2-r4). Le natif ne le connaît que par la configuration :
+    `IdunBattle.Core.Services.DamageCalculations$$get_DamageSpreadPercentageFix64` lit
+    `configuration+0x20`, où `configuration` est `BattleConfiguration.Damage` posé par
+    `IdunBattle.Core.Services.DamageCalculations$$Init`."""
     __slots__ = ("state", "spread_pct", "last", "after_hit")
 
-    def __init__(self, state: State, spread_pct: int = 20):
+    def __init__(self, state: State, spread_pct: Optional[int] = None):
         self.state = state
-        self.spread_pct = spread_pct
+        self.spread_pct = resolve_spread_pct(spread_pct, state)
         self.last: Optional[dict] = None       # résultat du dernier coup (diagnostic/test)
         self.after_hit: list = []              # extra-attaques after-hit (traits) du dernier coup
 

@@ -96,7 +96,8 @@ class State:
                  "trigger_ability_type",
                  "pending_deaths", "draining_deaths", "ability_states_seed",
                  "pending_triggered_abilities", "draining_pending_abilities",
-                 "enable_obscuring_terrain")
+                 "enable_obscuring_terrain",
+                 "damage_spread_percentage", "ignore_damage_spread")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -118,6 +119,17 @@ class State:
         # `tests/engine/runner/test_obscured_targeting_live.py` la RE-LIT pour rougir si elle change.
         # `load_state(targeting_config=...)` permet a un appelant qui connait SA BC de la poser.
         self.enable_obscuring_terrain: bool = True
+        # `BattleConfiguration.Damage` -- les DEUX champs de la VARIANCE de degat (#449-r2-r4).
+        # Natif : `IdunBattle.Runner.IdunRunner$$Initialize` passe `BattleConfiguration.Damage` a
+        # `IdunBattle.Core.Services.DamageCalculations$$Init` (range en `DamageCalculations+0x18`),
+        # d'ou `$$get_DamageSpreadPercentageFix64` lit `configuration+0x20` et
+        # `IdunBattle.Core.Services.DamagePrediction$$get_IgnoreDamageSpread` lit `configuration+0x31`.
+        # C'est donc un etat de la BATAILLE, pas une constante -- et le port le codait en dur a 20.
+        # `None` = canal non fourni (aucun `load_state(damage_config=...)`) -> le foyer
+        # `engine.services.damage_config.resolve_spread_pct` retombe sur le defaut DERIVE de
+        # `data/seed-bc.json`. AUCUN chemin ne fabrique un 20 en dur.
+        self.damage_spread_percentage: Optional[int] = None
+        self.ignore_damage_spread: bool = False
         self.turn_counts: dict[int, int] = {}
         # #101 : le fait "a bouge ce tour" N'EST PLUS un set d'etat ici — il vit ou le natif le met, dans
         # le `UnitFlagsComponent` de l'unite (`UnitFlag.Moved=0`), pose par `set_moved_flag`

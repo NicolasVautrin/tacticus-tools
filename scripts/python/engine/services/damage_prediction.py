@@ -339,7 +339,7 @@ def calculate_damage_prediction_scenario(
     return out
 
 
-def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
+def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: 'int | None' = None,
                           is_max_out: bool = False) -> MinMaxDamage:
     """DamagePrediction.GetBaseDamageFix64 (IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64) — la MinMax de base AVANT armure (local_938).
     RE (playbook-engine.md §16) :
@@ -544,7 +544,7 @@ def predict_attack_raw(
         prev: "BlockScenario", initial_damage: int, profile_type: int = 0,
         armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
         mods: DamageModifiers | None = None, hit_mult: int = 1,
-        reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
+        reduction_min: int = 0, reduction_max: int = 0, spread_pct: 'int | None' = None,
         target_current_health: int = 0, target_shield: int = 0,
         target_limits: dict | None = None,
         predefined: MinMaxDamage | None = None, might_crit: bool = False,
@@ -745,7 +745,7 @@ def get_multi_hit_attack_prediction(
         target_current_health: int, initial_damage: int | None = None, hits: int = 1,
         profile_type: int = 0, armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
         mods: DamageModifiers | None = None, hit_mult: int = 1,
-        reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
+        reduction_min: int = 0, reduction_max: int = 0, spread_pct: 'int | None' = None,
         target_shield: int = 0, might_crit: bool = False,
         target_limits: dict | None = None,
         target_prevents_overkill: bool = False,
@@ -835,7 +835,7 @@ def get_attack_prediction(
         target_current_health: int, initial_damage: int, hits: int, profile_type: int,
         armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
         mods: DamageModifiers | None = None, hit_mult: int = 1,
-        reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
+        reduction_min: int = 0, reduction_max: int = 0, spread_pct: 'int | None' = None,
         might_crit: bool = False, target_shield: int = 0, target_limits: dict | None = None,
         target_prevents_overkill: bool = False,
         shield_raw: MinMaxDamage | None = None,

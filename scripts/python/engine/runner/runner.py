@@ -32,9 +32,15 @@ class Runner:
         self.post_handlers: List[object] = []
         self.recorder: List[Message] = []         # @0xb8 — journal des messages
 
-    def install_default_handlers(self, spread_pct: int = 20) -> "Runner":
+    def install_default_handlers(self, spread_pct: Optional[int] = None) -> "Runner":
         """Installe les handlers portés (tranche par tranche) : mouvement + dégât + abilities actives.
-        `spread_pct` = BattleConfiguration.Damage.DamageSpreadPercentage (défaut 20)."""
+
+        `spread_pct` = `BattleConfiguration.Damage.DamageSpreadPercentage`. `None` (le cas normal)
+        = LU de la BC de cette bataille, via `State.damage_spread_percentage` que
+        `load_state(damage_config=...)` a posé ; à défaut, le défaut DÉRIVÉ de la seed versionnée.
+        Le foyer est `engine.services.damage_config.resolve_spread_pct` — aucun `20` en dur ici
+        (c'était le résidu `#449-r2-r4` : le natif le lit dans la BC, cf.
+        `IdunBattle.Core.Services.DamageCalculations$$get_DamageSpreadPercentageFix64`)."""
         from .operations.movement import MovementHandler
         from .operations.damage import DamageHandler
         from .operations.turnflow import TurnFlowHandler
