@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from pathlib import Path
 
 import pytest
 
@@ -60,7 +59,6 @@ from engine.runner.snapshot import load_state
 
 import probe_462_r4b_r1_r1_r1_r1_c_r3_r1_r1_crush_death_events as PR
 
-ROOT = Path(__file__).resolve().parents[4]
 BOARD = "MC1_67"
 SUMMONER = "astarCyrus"                 # HERO `lineup` HORS seed BC -> catalog_inject
 MINE_VIS_FRAGMENT = "HaywireMine"       # le summon prend le visualId npc `astarNpc1HaywireMine`
@@ -205,15 +203,18 @@ def _state(cap, seed=777):
 
 
 @pytest.fixture(scope="module")
-def env_mine(live_session, rpc, build_runner):
+def env_mine(live_session, rpc, build_runner, tmp_path_factory):
     """Un runner ou une MINE REELLE existe, avec un ennemi MECANIQUE a portee d'elle.
 
     ⚠ Aucun `pytest.skip` : un montage qui ne s'installe pas ECHOUE (#268). La mine est posee par le
     passif `HaywireMine` d'`astarCyrus` (`On(4 = UnitAfterMove) & OwnerIsActor` -> `Spawn` sur sa
     tuile PRECEDENTE) -- le port ne pose PAS de mine (residu nomme), c'est le NATIF qui la pose."""
     import catalog_inject
-    bc = ROOT / "logs" / "seedbc" / ("cyrus-%s.json" % uuid.uuid4().hex[:8])
-    bc.parent.mkdir(parents=True, exist_ok=True)
+    # Le seed BC augmente est un JETABLE de CE run : `tmp_path_factory`, jamais un chemin construit
+    # sous la racine (`data/` est REFUSE par `catalog_inject --out`, et un chemin `logs/` fabrique
+    # ici ferait rougir `probe_273` -- une entree gitignoree lue depuis la racine hors
+    # `host_inputs`).
+    bc = tmp_path_factory.mktemp("seedbc") / ("cyrus-%s.json" % uuid.uuid4().hex[:8])
     catalog_inject.write_augmented_seed_bc(str(bc), [SUMMONER])
     built = build_runner("777", extra=[
         "--seed-bc", str(bc), "--board", BOARD, "--rank", "17", "--no-ai",
