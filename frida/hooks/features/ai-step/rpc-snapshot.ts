@@ -28,14 +28,14 @@ import { abilityName } from "../../data/ability-names.js";
 import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
 import { Ctx } from "../../controller.js";
 import {
-    ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
+    ActionResult, ActionSpec, abilityStateLayout, activeAbilityMsgClass, applyOneAction,
     attackQueryOff, battleInServicesOff, dpqInServicesOff, entityServicesClass,
     extractTiles, extractTilePtrs,
     entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getTurnsFinishedMi,
     getUnitMainTile,
     invokeBool, invokeInt, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
-    mowAbilityTypes, readTileCoord, readTurnsEnded, resolveDpq, servicesOff, summarize,
-    turnsEndedLayout, unitAbilityTypes,
+    mowAbilityTypes, readAbilityState, readTileCoord, readTurnsEnded, resolveDpq, servicesOff,
+    summarize, turnsEndedLayout, unitAbilityTypes,
     unitExtClass,
 } from "./internals.js";
 import { applyAiMsgMi } from "../../game/ai-control.js";
@@ -68,6 +68,26 @@ const COMBAT_STAT_IDS: Record<string, number> = {
     // Movement/Range de RealityUnbound, livre sans mesure faute de canal.
     extraRange: 24,
     extraMaxDamage: 25, extraPierce: 26,
+    // #477-r15-r4 — `StatType.Range` (2). Le trou était du MÊME genre que celui d'`extraRange`
+    // ci-dessus, mais sur un stat que le jeu ÉCRIT dans son flux de replay : la surcharge
+    // `IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags(unit)` émet
+    // `Tag=UnitStats_Range` (31) depuis `StatComponent$$get_CurrentValue` du composant que le
+    // `case 2` d'`IdunBattle.Entities.UnitExtensions$$GetStatComponent` associe à `StatType.Range`
+    // — appariement PROUVÉ par identité de pointeur de classe entre les deux décompilés, pas
+    // déduit du nom. Aucun RPC ne le publiait, donc l'émetteur de flux posait `0` EN DUR.
+    //
+    // ⚠ CE QUE `GetStat(unit, Range, StatPart.Current)` REND EXACTEMENT, et pourquoi c'est le
+    // mirror 1:1 de la lecture native : le `case 2` de la jumptable d'`UnitExtensions$$GetStat`
+    // charge le MÊME pointeur de classe, puis appelle
+    // `IdunBattle.Entities.Components.StatComponent$$GetStatPart`, dont les `case 0` (Current) ET
+    // `case 2` (Maximum) rendent tous deux `get_CurrentValue(this)`. Ce n'est donc pas une
+    // approximation du tag : c'est le même appel.
+    //
+    // ⚠ `GetStat` exige `entity.Type == EntityType.Unit` pour ce `StatType` (la 2ᵉ liste du switch,
+    // celle qui n'accepte PAS `EntityType.Machine`) : sur une Machine of War il rend un pointeur
+    // nul, que `getStatP` publie en `null` = PAS MESURÉ. Le tri-état est ce qui rend ce cas
+    // lisible plutôt que rabattu sur un `0` qui se lirait comme une mesure.
+    range: 2,
 };
 
 // --- UnitFlag PAR UNITÉ (O5) — mirror de `IdunBattle.Entities.UnitExtensions$$HasFlag` ---
@@ -680,6 +700,24 @@ export function registerViewSnapshot(ctx: Ctx): void {
             // mid-bataille (TwistedScience +2992 sur u87, 777 s15 — utilité native 2.8836
             // reconstruite exacte avec 14036). DYNAMIQUE -> refresh par pas côté Python.
             const healthMax = wants("stats") ? getStatP(e, "health", partBufMax) : null;
+            // #477-r15-r5 — le MAXIMUM des membres, la grandeur que `stats.numberOfMembers` ne
+            // discrimine PAS. Les deux tags du flux de replay lisent le MÊME composant par deux
+            // accesseurs DIFFÉRENTS de `IdunBattle.Entities.Components.FillUpStatComponent` :
+            //
+            //   Tag=UnitStats_InitAliveMembers (4)  <- champ BRUT `RemainingValue(+0x18)`
+            //   Tag=UnitStats_MaxMembers      (17)  <- `FillUpStatComponent$$get_CurrentMaximumValue()`
+            //
+            // et `FillUpStatComponent$$GetStatPart` rend EXACTEMENT l'un ou l'autre selon le
+            // `StatPart` : `case 0` (Current) -> `*(int*)(this+0x18)`, `case 2` (Maximum) ->
+            // `get_CurrentMaximumValue()`. Publier le second est donc le mirror 1:1 du second tag,
+            // au même titre que `healthMax` l'est pour `UnitStats_MaxHealth`.
+            //
+            // ⚠ AU DÉPLOIEMENT LES DEUX COÏNCIDENT (aucun membre mort, aucune modification), et
+            // c'est précisément pourquoi le canal manquant ne se voyait pas : un accord dans ce
+            // régime ne prouve rien. Ils divergent dès qu'un membre meurt (`RemainingValue` baisse,
+            // le maximum non) ou qu'une modification de stat porte sur `+0x28`.
+            const numberOfMembersMax = wants("stats")
+                ? getStatP(e, "numberOfMembers", partBufMax) : null;
             // AbilityState PER-ABILITY (#100) : {level, multiplier} de chaque entrée ActiveAbility
             // (_abilityState @0x4c, Override @0x58 prime — cf. internals.readAbilityState). C'est le
             // couple que le natif passe au playbook (5e arg MakeDamagePredictions) et qui indexe les
@@ -699,7 +737,7 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 // irresolue), a distinguer de `0` = a fini zero tour.
                 turnsFinished: wants("turnsFinished")
                     ? invokeInt(getTurnsFinishedMi, [e]) : null,
-                stats, statDelta, healthMax,
+                stats, statDelta, healthMax, numberOfMembersMax,
                 // O5 : `UnitFlagsComponent` de l'unité, projeté en ids `UnitFlag` posés. Sans lui,
                 // la face DÉCISION offline n'avait AUCUN accès live aux flags (`PreventOverkill`
                 // =19, `Moved` =0, `Untargetable` =17, `DisableTriggers` =18…) et devait les
@@ -895,7 +933,12 @@ export function registerViewSnapshot(ctx: Ctx): void {
      *  Résolution du state combat d'un effet triggered-sourced (`UnitExtensions.GetAbilityState
      *  @180eced70` : mapping statique triggered→active `GetActiveAbilityUsedForConfig @1815808e0`
      *  PUIS `ActiveAbility.get_AbilityState @180f8fc40` = override ?? _abilityState).
-     *  Read-only, one-shot. body: { runnerId?, unitId? } */
+     *  Read-only, one-shot. body: { runnerId?, unitId? }
+     *
+     *  #477-r15-r6 : chaque entrée d'`actives[]` porte désormais `state` = `readAbilityState` de
+     *  CETTE instance (usable / cooldown / disabled / ammoCost / hasAmmo / level / multiplier /
+     *  lastTurnUsed…). C'est le SEUL canal qui couvre l'entrée d'ATTAQUE NORMALE, que
+     *  `ActiveAbilityComponent$$GetActives` — donc `decisionView` — filtre. */
     ctx.rpc.unitAbilityStates = (
         body?: { runnerId?: number; unitId?: number },
     ): Promise<unknown> => queueOnMainThread(() => {
@@ -967,6 +1010,30 @@ export function registerViewSnapshot(ctx: Ctx): void {
                                     mult: inst.add(AA.state + 4).readS32(),
                                     counter: inst.add(AA.state + 8).readS32(),
                                     overrideRaw: ov,
+                                    // #477-r15-r6 — l'ÉTAT CASTABLE de CETTE instance, lu ici
+                                    // plutôt qu'apparié depuis `decisionView`.
+                                    //
+                                    // POURQUOI CE CANAL-CI ET PAS L'AUTRE. `decisionView` énumère
+                                    // par `ActiveAbilityComponent$$GetActives`, qui FILTRE : la
+                                    // seule entrée d'attaque normale en sort par
+                                    // `AbilityComponent.NormalAttackType`, SANS objet
+                                    // `ActiveAbility` derrière, donc sans `usable`/`cooldown`/
+                                    // `disabled`. Les trois tags correspondants du flux de replay
+                                    // étaient donc posés à l'état neuf, non mesurés. La boucle
+                                    // ci-dessus, elle, itère `Abilities@0x20` ÉLÉMENT PAR ÉLÉMENT
+                                    // — la MÊME collection, dans le MÊME ordre, qu'itère
+                                    // `IdunBattle.Operations.AddUnitOperation$$Execute` : ce que
+                                    // `readAbilityState` en tire couvre TOUTES les entrées,
+                                    // attaque normale comprise, et n'a aucun appariement à faire.
+                                    //
+                                    // SOUS-OBJET, pas un spread : `state.level` / `state.multiplier`
+                                    // sont `ActiveAbility$$get_AbilityState()` (l'OVERRIDE prime),
+                                    // c'est-à-dire ce que le natif écrit dans les tags 24/25 ;
+                                    // `level` / `mult` / `counter` ci-dessus restent le champ BRUT
+                                    // `_abilityState`. Les deux se valent tant qu'aucun override
+                                    // n'existe (`overrideRaw` le publie), et les fusionner sous un
+                                    // même nom rendrait indiscernables deux lectures distinctes.
+                                    state: readAbilityState(inst),
                                 });
                             }
                         }
@@ -1023,6 +1090,12 @@ export function registerViewSnapshot(ctx: Ctx): void {
             // #419-r1-tr14-r5-r2-r2-r1 — ce que le capteur a RÉSOLU, et combien d'entités
             // n'ont pas de configuration jointe (attendu > 0 dès qu'il y a des invoqués).
             configLayout: { ...cfg.layout, unmatchedEntities: cfgUnmatched },
+            // #477-r15-r6 — la disposition que `actives[].state` a réellement résolue. Un offset
+            // résolu par NOM est juste ou ABSENT (`-1`), jamais approximatif ; mais le lecteur ne
+            // peut pas distinguer « champ lu » de « champ non trouvé, clé absente » sans qu'on le
+            // lui dise. C'est la même raison qu'ailleurs dans ce fichier, et c'est ce qui permet à
+            // un consommateur de LEVER au lieu de retomber sur une valeur par défaut.
+            abilityStateLayout: abilityStateLayout(),
         };
     });
 
