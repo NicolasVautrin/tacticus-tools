@@ -75,12 +75,14 @@ nom réenregistré par un module câblé plus tard écrase (ex. `battleStatus` e
   - **RL** : `rl/` (bridge, tensorizer — observation tensorisée).
   - **diag bas niveau** : `crash-trap.ts`, `init-trace.ts`, `introspect.ts`,
     `status.ts`.
-- `hooks/scratch/` — modules d'introspection RE (dump offsets/méthodes/enums/formules).
-  **Le nom dit « brouillon », la mesure dit « production »** : le répertoire est VERSIONNÉ
-  (73 fichiers) et `controller.ts` en importe statiquement 67, donc **66 sortent dans
-  `dist/hooks.js`** — l'écart d'un module est un import mort, éliminé par le tree-shaking
-  d'esbuild. Leur SORTIE ne sert qu'à la lecture humaine ; leur CODE, lui, est livré dans
-  le script injecté et engage donc la stabilité de la session.
+- `hooks/probes/` — sondes d'introspection RE (dump offsets/méthodes/enums/formules).
+  Le répertoire est VERSIONNÉ (67 fichiers) et `controller.ts` en importe statiquement 67,
+  donc **66 sortent dans `dist/hooks.js`** — l'écart d'un module est un import mort, éliminé
+  par le tree-shaking d'esbuild. Leur SORTIE ne sert qu'à la lecture humaine ; leur CODE, lui,
+  est livré dans le script injecté et engage donc la stabilité de la session. Il s'appelait
+  `hooks/scratch/` jusqu'à #480-r6 : **un nom qui déclare un répertoire jetable le fait écarter
+  des périmètres d'audit**, et celui-ci l'a été pendant quatre jours (142 erreurs `tsc`
+  classées hors sujet). `hooks/probes/README.md` dit ce qu'est une sonde.
 - `hooks/ai-toolkit/` — helpers partagés du toolkit décision : `hex.ts`
   (géométrie hex), `coroutine.ts` (pump MoveNext), `unit-action.ts`,
   `stack-capture.ts` (backtrace ciblé), `fix64.ts` (arithmétique Fix64).

@@ -51,6 +51,9 @@ MODULE_PATH_RE = re.compile(r"""(?:^//\s*|["'])((?:hooks|il2cpp|node_modules)[\w
 #   rendait `ref=0 neuf=0` sur un bundle qui porte 325 affectations, et concluait VERT sur un
 #   contrat VIDE -- un invariant qui ne mesure rien ne peut pas rougir. D'ou le garde ci-dessous.
 RPC_DECL_RE = re.compile(r"""(?<![\w$])rpc\.([A-Za-z_$][\w$]*)\s*=(?!=)""")
+# En-tete `frida-compile` : `<taille> /hooks/main.js` sur sa propre ligne. La taille suit la
+# longueur des chemins, pas le code -- cf. `normalise`.
+MANIFEST_SIZE_RE = re.compile(r"(?m)^\d+ (/[\w/.\-]+\.js)$")
 # Un bundle de production expose forcement des dizaines de methodes. En dessous, c'est le
 # CAPTEUR qui est casse, pas le contrat qui est vide -- et il doit le dire, pas verdir.
 PLANCHER_RPC = 50
@@ -71,14 +74,23 @@ def rpc_exposes(txt: str) -> set[str]:
 
 
 def normalise(txt: str) -> str:
-    """Chaque chemin de module -> son nom de BASE.
+    """Chaque chemin de module -> son nom de BASE, et la taille du manifeste -> un jeton.
 
     Un `git mv` change le REPERTOIRE, jamais le nom de fichier : normaliser par le nom de base
     neutralise exactement la difference que le deplacement introduit, et RIEN d'autre. Un
     module renomme, disparu, reordonne ou dont une instruction change reste visible.
+
+    La deuxieme normalisation vise l'en-tete de `frida-compile`, un manifeste d'assets de la
+    forme `<pack>\\n<taille> /hooks/main.js\\n<sep>` : la taille y est une CONSEQUENCE
+    mecanique de la longueur des chemins. Mesure du 2026-08-05, `scratch/` -> `probes/` :
+    1 149 437 -> 1 149 371 octets, soit **exactement 66** de moins pour 66 modules dont le
+    repertoire perd un caractere. La neutraliser ne masque rien : la taille est REDONDANTE
+    avec le corps, donc tout vrai changement d'instruction fait toujours rougir N3 (verifie
+    par `--casser corps`, qui reste rouge).
     """
-    return MODULE_PATH_RE.sub(lambda m: m.group(0).replace(m.group(1), m.group(1).rsplit("/", 1)[-1]),
-                              txt)
+    out = MODULE_PATH_RE.sub(
+        lambda m: m.group(0).replace(m.group(1), m.group(1).rsplit("/", 1)[-1]), txt)
+    return MANIFEST_SIZE_RE.sub(r"<TAILLE> \1", out)
 
 
 def sha(s: str) -> str:

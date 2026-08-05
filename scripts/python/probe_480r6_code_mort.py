@@ -55,6 +55,14 @@ FRIDA = ROOT / "frida"
 # Derivees, jamais ecrites en dur : `-o`/`--outfile` nomme la SORTIE, l'argument qui precede
 # nomme l'ENTREE ; `tsconfig.include` nomme les racines du typecheck.
 ENTRY_RE = re.compile(r"(?:frida-compile|esbuild)\s+(\S+\.ts)")
+# Un HARNAIS lancable n'est atteignable depuis aucun bundle -- il EST une entree. Le critere
+# n'est pas une liste de noms : le fichier DECLARE son propre lancement dans son en-tete
+# (`npx tsx <son propre chemin>`), donc il est reconnu par auto-designation. Mesure du
+# 2026-08-05 : `frida/tools/probe-279-layout-by-name.ts` etait classe « non atteignable » par
+# le seul scan de fermeture, alors qu'il execute le code de PRODUCTION de
+# `hooks/game/damage-prediction.ts` sous mutations adversariales -- le supprimer aurait detruit
+# la seule garde de #279/#372 qui tourne hors du process de jeu.
+AUTO_ENTREE_RE = re.compile(r"(?:npx\s+)?tsx\s+(\S+\.ts)")
 
 STATIC_RE = re.compile(r"""(?:^|[\s;}])(?:from|import)\s+['"]([^'"]+)['"]""", re.M)
 DYN_RE = re.compile(r"""\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
@@ -199,6 +207,21 @@ def entrees_declarees() -> tuple[list[Path], list[str]]:
         if (FRIDA / cfg).is_file() and idx.is_file() and idx not in ent:
             ent.append(idx)
             notes.append("%s (include host/**) -> entree executable %s" % (cfg, rel(idx)))
+    # Entrees AUTO-DECLAREES : un harnais qui cite son propre lancement dans son en-tete.
+    for rf in _git("ls-files", "frida"):
+        if not rf.endswith(".ts"):
+            continue
+        p = ROOT / rf
+        if not p.is_file():
+            continue
+        try:
+            tete = p.read_text(encoding="utf-8", errors="replace")[:4000]
+        except OSError:
+            continue
+        base = Path(rf).name
+        if any(Path(c).name == base for c in AUTO_ENTREE_RE.findall(tete)) and p not in ent:
+            ent.append(p)
+            notes.append("AUTO-DECLAREE (son en-tete cite `tsx %s`) -> %s" % (base, rf))
     return ent, notes
 
 

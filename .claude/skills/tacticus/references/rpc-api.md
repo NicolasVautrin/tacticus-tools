@@ -205,10 +205,10 @@ Outils de RE / observabilité — aucun hook live ne les APPELLE, mais leur code
 **dans le bundle injecté**, pas à côté.
 
 - **`dump*`/`check*`/`find*`/`search*`/`test*`/`inspect*`/`map*`** (~90,
-  `controller.ts` → `hooks/scratch/*`) : introspection IL2CPP one-shot (offsets,
-  méthodes, enums, stats, weapons, progression). `hooks/scratch/` est VERSIONNÉ et
+  `controller.ts` → `hooks/probes/*`) : introspection IL2CPP one-shot (offsets,
+  méthodes, enums, stats, weapons, progression). `hooks/probes/` est VERSIONNÉ et
   **66 de ses modules sortent dans `dist/hooks.js`** : ce sont des entrées de build,
-  pas des brouillons à côté du build.
+  pas des brouillons à côté du build. (Il s'appelait `hooks/scratch/` jusqu'à #480-r6.)
 - **`aiTrace*`** (`ai-trace.ts` + `ai-trace/`) : capture playbook/prédictions/
   utilités → JSONL (`data/ai-traces/`). `aiTraceEnable(level)`/`aiTraceStatus()`
   pilotés par les scripts RL.

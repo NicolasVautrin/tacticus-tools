@@ -72,9 +72,14 @@ HOST_DEFAUT = "http://127.0.0.1:8765"
 UNTRACKED_CONNUS = (
     ".agent-alive",              # marqueur de vie d'un worktree d'agent (jamais versionne)
     "hs_err_pid",                # crash dumps JVM (ghidra headless)
-    "frida/hooks/scratch/",      # modules de travail hors bundle
     "logs/",                     # sorties de run
 )
+# ⚠ `frida/hooks/scratch/` FIGURAIT ici, decrit « modules de travail hors bundle » -- doublement
+#   faux depuis #365 : le repertoire est VERSIONNE, et 66 de ses modules sont DANS le bundle.
+#   L'entree ecartait donc silencieusement du rapport « arbre sale » exactement ce que la
+#   doctrine demande de surveiller (« un fichier laisse non suivi n'est protege par RIEN » --
+#   deux y ont deja survecu vides). Retiree par #480-r6, qui renomme le repertoire en
+#   `frida/hooks/probes/`. Retirer une exclusion rend le rapport plus BAVARD, jamais moins.
 
 # ------------------------------------------------------------------ tri-etat
 @dataclass(frozen=True)
