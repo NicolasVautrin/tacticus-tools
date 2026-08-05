@@ -279,6 +279,18 @@ class AbilityHandler:
             return
         klass = ABILITY_CLASSES.get(int(msg.ability_type))
         ability = klass() if klass is not None else None
+        # #429-r1 GATE CIBLE-MORTE -- mirror d'`ActiveAbilityOperation$$ExecuteInternal` :
+        #     if (IsDeadUnitAndNotAllowedByAbility(abilityType, target)) return 0;
+        # Le natif le place AVANT `IsInvalidTarget` (ordre relu au decompile, cf. l'en-tete de ce
+        # module), donc ici. Son gate est le slot 0x11 `CanContinueOnDeadTarget`, qui lit le bit 38
+        # `AllowDeadTarget` du masque de CONTINUE -- `False` pour toutes les abilities du binaire
+        # sauf `GreatFrostAxe` (1089). Detail et mesure : `operations/active_ability.py`.
+        from ..operations.active_ability import is_dead_unit_and_not_allowed_by_ability
+        if is_dead_unit_and_not_allowed_by_ability(self.state, klass, msg.target_id):
+            self.last = {"ability_type": msg.ability_type, "ported": ability is not None,
+                         "caster": msg.caster_id, "target": msg.target_id,
+                         "dead_target_not_allowed": True}
+            return
         # #115 GATE DE CIBLE (mirror `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
         # `if (IsInvalidTarget(caster, casterTiles, target)) return 0;`). Le natif sort ICI, en amont
         # du 1er `AActiveAbility.Execute` de la behaviour, d'`AddFlagsAfterAbilityExecution` ET du

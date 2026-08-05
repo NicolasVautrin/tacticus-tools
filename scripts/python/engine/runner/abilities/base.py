@@ -346,6 +346,70 @@ class ActiveAbility:
     # (cf. la docstring de `TargetingOptions`).
     TARGETING_OPTIONS = None
 
+    # --- MASQUE DE *CONTINUE* (#429-r1) -----------------------------------------------------------
+    #
+    # `AActiveAbility` porte DEUX masques, pas un : `_targetingOptions` (+0x70, celui ci-dessus) et
+    # `_targetingOptionsForContinue` (+0xb0). Le second est pose par
+    # `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` :
+    #
+    #     n = this.GetTargetingOptionsForContinue();          // virtuel, vtable +0x458
+    #     _targetingOptionsForContinue = n.HasValue ? n.Value : targetingOptions;
+    #
+    # `None` ici = « pas d'override » -> la BASE
+    # `IdunBattle.Entities.Abilities.AActiveAbility$$GetTargetingOptionsForContinue`, qui derive du
+    # masque principal : `new TargetingOptions(_targetingOptions)`, puis `ForceMeleeTarget =
+    # RangedBool.False` et `Rules |= AllowIgnoreForcedAttackTarget` (1 << 40). Cette base n'ajoute
+    # JAMAIS `AllowDeadTarget` -- d'ou le defaut `False` de `can_continue_on_dead_target`.
+    TARGETING_OPTIONS_FOR_CONTINUE = None
+
+    @classmethod
+    def targeting_options_for_continue(cls):
+        """`AActiveAbility._targetingOptionsForContinue` — mirror du `.ctor` + de la base virtuelle.
+
+        Rend `None` quand ni l'override ni le masque principal n'ont ete RE-lus (« pas mesure »,
+        jamais un masque invente)."""
+        override = cls.TARGETING_OPTIONS_FOR_CONTINUE
+        if override is not None:
+            return override
+        base = cls.TARGETING_OPTIONS
+        if base is None:
+            return None
+        from dataclasses import replace                        # noqa: PLC0415
+        from .targeting import RANGED_BOOL_FALSE               # noqa: PLC0415
+        from .targeting_rule import TargetingRule as TR        # noqa: PLC0415
+        # Le `int(TR.<X>)` est HORS du `return` deliberement : le critere de derivation de
+        # `probe_429_targeting_rule_inventory.rules_returned_by_port` lit tout `int(TR.<X>)` place
+        # dans un `return` comme un CODE DE REFUS rendu. Ici c'est une CONSTRUCTION DE MASQUE
+        # (`Rules |= AllowIgnoreForcedAttackTarget` du natif), pas un refus -- l'ecrire dans le
+        # `return` faisait rougir `test_le_port_ne_rend_jamais_une_permission_qui_ne_soit_pas_un_
+        # refus_natif` sur une PERMISSION que le port ne rend nulle part.
+        rules = int(base.rules) | int(TR.AllowIgnoreForcedAttackTarget)
+        return replace(base, force_melee_target=RANGED_BOOL_FALSE, rules=rules)
+
+    @classmethod
+    def can_continue_on_dead_target(cls) -> bool:
+        """`IdunBattle.Entities.Abilities.AActiveAbility$$CanContinueOnDeadTarget` (slot 17 de
+        `IActiveAbility`) — LE LECTEUR du bit 38 `AllowDeadTarget`, decompile verbatim :
+
+            SetConfigValuesInTargetingOptions(ref _targetingOptionsForContinue);   // ne touche que Range
+            return (_targetingOptionsForContinue.Rules >> 0x26) & 1;
+
+        Le bit est donc lu sur le masque de CONTINUE (+0xb0+0x28 = +0xd8), jamais sur le masque
+        principal : c'est pourquoi aucun `TARGETING_OPTIONS` du registre ne le porte, et pourquoi la
+        tranche #429 ne l'a trouve dans aucune cascade de ciblage.
+
+        `False` par defaut n'est PAS un refus devine : le scan d'instructions du binaire du build
+        courant (`probe_429r1_bit_readers_scan.py`) ne trouve qu'UN SEUL site qui pose ce bit dans
+        tout `GameAssembly.dll` --
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$GetTargetingOptionsForContinue`.
+        Le natif rend donc `false` pour toutes les autres abilities."""
+        from .targeting_rule import TargetingRule as TR        # noqa: PLC0415
+        opts = cls.targeting_options_for_continue()
+        if opts is None:
+            return False
+        bit = int(TR.AllowDeadTarget)                          # hors `return` : cf. ci-dessus
+        return bool(int(opts.rules) & bit)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:  # pragma: no cover
         raise NotImplementedError(

@@ -256,11 +256,17 @@ par un chemin INDIRECT que le port n'a pas : `GetCasterNotAddedReason` finit sur
 
 HORS PERIMETRE (autres rejets d'`ExecuteInternal`, meme observable a 2 evenements, non decomposes) :
 `IdunBattle.Operations.ActiveAbilityOperation$$IsValidCaster`,
-`IdunBattle.Entities.UnitExtensions$$IsAbilityBlocked`, cooldown, mode atomique, et
+`IdunBattle.Entities.UnitExtensions$$IsAbilityBlocked`, cooldown, mode atomique.
+
 `IdunBattle.Operations.ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility` (cible = unite
-MORTE et l'ability ne l'autorise pas — son gate est le virtuel slot 0x11 de l'ability, dont
-l'inventaire des overrides n'a pas ete releve : le porter avec un defaut « refuse » casserait les
-abilities de resurrection).
+MORTE et l'ability ne l'autorise pas) N'EST PLUS hors perimetre : PORTE par #429-r1 dans
+`runner/operations/active_ability.py`, cable en tete du visiteur (`abilities/handler.py`), au rang
+natif -- AVANT ce filtre-ci. Son gate est le virtuel slot 0x11 `CanContinueOnDeadTarget`, dont
+l'inventaire des overrides a ete releve (aucun) et dont le bit lu -- 38 `AllowDeadTarget` -- n'a
+qu'UN porteur dans tout le binaire (`GreatFrostAxeAbility$$GetTargetingOptionsForContinue`). La
+crainte « un defaut refuse casserait les abilities de resurrection » est levee par cette mesure : le
+NATIF refuse pour toutes les autres, et les resurrections portees ne prennent pas un cadavre en
+`target_id`.
 """
 from __future__ import annotations
 
