@@ -59,7 +59,9 @@ User_EndTurn -> EndTurn -> Action=PrepareTurn (HORS groupe) -> StartTurn
 
 `C1_02`, seed 777, 2 tours d'IA : **2 777** lignes, **116 459** octets, reproductible à l'octet.
 Le déploiement déjà porté en représente **423** (15,2 %). « NOUVEAU » = ce que le groupe ajoute
-au vocabulaire **déjà exercé par le déploiement**.
+au vocabulaire **déjà exercé par le déploiement**. **Deux boards** — un seul ne prouverait rien :
+sur `MC1_67` (63 tuiles), le déploiement passe à **535** lignes sur **2 931**, mais
+`User_PlaceUnit` reste à **281** lignes et **+1 / +0 / +0**.
 
 | groupe racine | occ | lignes | NOUVEAU G/S/T | mécanique portée ? |
 |---|---:|---:|---|---|
