@@ -36,14 +36,22 @@ splittees par l'EVENEMENT. RE (decompile ghidra, build gqfc5mff6c) :
 ## Volet 2 -- `CosmicHorror_OnMoveAbility` (le Patermine marche sur un decoy ami)
 
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateTrigger` =
-        On(0x35=PostUnitKill=53) & get_OwnerIsActor
+        On(0x35=PostUnitKill=53, ignoreOverkill=1) & get_OwnerIsActor
           & AreFriends(caster@0x148, target@0x178)
           & HasTrait(target@0x178, 0x41d=1053=Decoy)
     L'evenement n'est PAS un evenement de mouvement malgre le nom de la classe : marcher sur un
     decoy = le CRUSHER (`IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` ->
     `IdunBattle.Operations.KillUnitOperation$$Execute` avec `KillUnitOperationOptions$$ForSteppable`),
     et `KillUnitOperation$$Execute` termine sa sequence par `On(0x35=PostUnitKill)` {actor=le tueur =
-    le mover, target=le crushe}. `OwnerIsActor` => c'est bien le PATERMINE qui doit avoir marche dessus.
+    le mover, target=le crushe}. `OwnerIsActor` => c'est bien le PATERMINE qui doit avoir tue.
+
+    ⚠ ET C'EST TOUT : le trigger ne porte AUCUNE gate de mouvement, aucun `NOT HasTrait(Steppable)`,
+    aucun `TriggeringAbilityIsNone` -- relu nœud par nœud sur `rnca9r7q6c`. Le CRUSH n'est donc que
+    la voie la plus FREQUENTE, pas la condition : le Patermine se soigne des qu'il est le TUEUR d'un
+    allie `Decoy`, y compris par DEGAT (une AoE qui eclabousse son propre decoy) ou par le crush
+    d'un `revive`/`resurrect`/`spiritual_leader`. Le port ne couvrait que le crush-par-move jusqu'a
+    #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 ; `damage.py::_kill_unit_operation` publie desormais l'event
+    pour toutes les voies, a son rang natif.
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateBehaviour` (feuille UNIQUE) =
         Heal( caster@0x148, caster@0x148, ConfigVar(0x1d=29=hp, config) )       -> 2910 @L65
     == i2 : « When the Patermine moves onto a decoy, it heals itself for 2910 Health. »
@@ -70,21 +78,18 @@ sont collapses ici, comme le fait deja `triggers/genestealer.py` pour la meme fa
 DISPATCH :
   - volet 1 -> vecteur EXISTANT `unit_defeated_triggers` (`On(0x36 = UnitDefeated)`, emis par `damage.py` apres
     `after_death_triggers`) : aucun cablage neuf ;
-  - volet 2 -> vecteur NEUF `post_unit_kill_triggers` (`On(0x35 = PostUnitKill)`) ajoute a `dispatch.py` et emis en
-    tete d'`after_move_triggers` pour les steppables que le move vient d'ecraser (le port crushe
-    INLINE dans `movement.py::_kill_steppable_units` -- cf. RESIDUS).
+  - volet 2 -> vecteur `post_unit_kill_triggers` (`On(0x35 = PostUnitKill)`), emis par le FOYER
+    `damage.py::_kill_unit_operation` a son rang natif (@`KillUnitOperation$$Execute+0x10ac`), donc
+    pour TOUTES les voies de mort. Il l'etait auparavant en tete d'`after_move_triggers`, pour le
+    seul crush-par-move et APRES `UpdateCharging`/`SetMovedFlag` -- double ecart d'ORDRE et de
+    COUVERTURE, ferme par #462-r4b-r1-r1-r1-r1-c-r3-r1-r4.
 
 RESIDUS (honnetes) :
-  - le port n'emet `On(0x35 = PostUnitKill)` QUE pour le crush-par-MOVE ; les 4 autres events de la sequence de mort
-    d'un steppable (On(1)/On(2)/On(0)/On(0x36 = UnitDefeated)) restent non emis pour ce chemin, et `On(0x35 = PostUnitKill)` reste
-    non emis pour les morts par DEGAT et pour le crush par `ResurrectUnitOperation`. Aucun
-    consommateur porte ne les lit aujourd'hui ; a rouvrir si un port futur en depend.
-    ⚠ « kill propre SANS events » etait la formule d'avant #462-r4b-r1-r1-r1-r1-c-r3-r1, et elle
-    n'est plus exacte : le crush joue desormais les TROIS
-    `IdunBattle.Operations.KillUnitOperation$$RemoveEffects` du mort, qui publient
-    `On(0x3f = PreEffectRemoved)` / `On(0x40 = EffectRemoved)` par instance retiree. Ce sont les
-    events du RETRAIT D'EFFET, pas ceux de la MORT -- les cinq de la sequence de mort restent bien
-    non emis (a l'exception de `On(0x35)` ci-dessus).
+  - le blast radius de ce volet est desormais celui de TOUTE mort ou le Patermine est le tueur.
+    Le cas le plus visible, et il est NATIF : un decoy ALLIE tue par une AoE du Patermine le
+    soigne aussi -- le trigger ne distingue pas la voie. Cote port, la mort par degat n'a pas
+    d'AoE friendly-fire au catalogue du Patermine (`Eviscerate`, 5 coups melee) ; les voies
+    reellement ouvertes sont les QUATRE crushs (`move`, `revive`, `resurrect`, `spiritual_leader`).
   - `variables.extraDmg` de `CosmicHorror` n'est lue par AUCUN des deux `CreateBehaviour` decompiles
     (ni par un 3e symbole `CosmicHorror*` -- la recherche par nom n'en rend que 2 + le playbook + les
     visuals). Non portee, non inventee.
@@ -116,8 +121,11 @@ FATIGUE_TRAIT = UnitTrait.BattleFatigue            # 1015 -> derive la triggered
 PINNED = int(EffectType.Pinned)                    # 0x429 = 1065 (UI « Suppressed »)
 SURROUND_RADIUS = 1                                # SurroundingTiles(target@0x178, 0, 1) = anneau adjacent
 
-_ON_KILL = int(EventTriggerType.UnitDefeated)      # 0x37 = 55 — volet 1
-_ON_CRUSH = int(EventTriggerType.PostUnitKill)     # 0x36 = 54 — volet 2
+_ON_KILL = int(EventTriggerType.UnitDefeated)      # 0x36 = 54 — volet 1
+_ON_CRUSH = int(EventTriggerType.PostUnitKill)     # 0x35 = 53 — volet 2
+# (Les deux commentaires portaient `0x37 = 55` / `0x36 = 54`, hex FAUX pour les valeurs justes que
+# les membres d'enum rendent — meme glissement d'un cran que celui corrige en #301 dans
+# `pre_unit_death_2_triggers`. Les LITTERAUX, eux, n'ont jamais ete ecrits : le port lit l'enum.)
 
 
 # ----- selecteurs S collapses (AreEnemies/AreFriends, tuile de pose, victimes de l'anneau) -----

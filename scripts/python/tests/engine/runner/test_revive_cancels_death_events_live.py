@@ -1,12 +1,23 @@
 """case-89 volet C -- **la GARDE de `IdunBattle.Operations.KillUnitOperation$$Execute`** : un REVIVE pose pendant
-`On(PreUnitDeath = 1)` COURT-CIRCUITE tout le reste de la mort (`On(2)`, `On(0)`, `On(54 = UnitDefeated)`, `On(53 = PostUnitKill)`).
+`On(PreUnitDeath = 1)` COURT-CIRCUITE `On(2)`, `On(0)` et `On(54 = UnitDefeated)` -- mais **PAS**
+`On(53 = PostUnitKill)`, qui est publie hors de la garde.
 
 RE (decompile = verite) :
-  * `IdunBattle.Operations.KillUnitOperation$$Execute` emet `On(1)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc PUIS teste
-    `pcVar21 = thunk_FUN_1801f3000(unitComponent + 0xa8, <hasValue de Nullable<...>>) ;
-     if (*pcVar21 == '\\0') { ... }` @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e. Les quatre autres dispatchs -- `On(2)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x97a,
-    `On(0)` @IdunBattle.Operations.KillUnitOperation$$Execute+0xdf9, `On(0x37=55)` @IdunBattle.Operations.KillUnitOperation$$Execute+0xeac, `On(0x36=54)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x102c -- sont TOUS a
-    l'interieur de ce bloc (profondeur d'accolades 9 vs 7 pour `On(1)`), sans `else`.
+  * `IdunBattle.Operations.KillUnitOperation$$Execute` emet `On(1)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x7cc PUIS teste
+    `pcVar26 = thunk_FUN_1801f5f80(unitComponent + 0xa8, <hasValue de Nullable<...>>) ;
+     if (*pcVar26 == '\\0') { ... }` @IdunBattle.Operations.KillUnitOperation$$Execute+0x81c. `On(2)` @+0x979,
+    `On(0)` @+0xe49 et `On(0x36 = 54 UnitDefeated)` @+0xefc sont a l'interieur de ce bloc.
+
+  * ⚠ CORRECTION #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 -- cette docstring affirmait << les QUATRE autres
+    dispatchs sont TOUS a l'interieur de ce bloc, sans `else` >>, et se fondait sur la PROFONDEUR
+    d'accolades. Elle est FAUSSE sur deux points, re-mesures a la PILE d'accolades sur `rnca9r7q6c` :
+    l'`else` EXISTE (`matchState.<slot 0x63>(killed)` @+0xfcc = l'application du revive), et
+    `On(0x35 = 53 PostUnitKill)` @+0x10ac est APRES le `if/else` -- il part donc dans les DEUX
+    branches. La profondeur ne discrimine pas (les quatre valent 9) ; la pile, si : `On(0x35)` porte
+    `if (dispatcher != null)` la ou les trois autres portent `if (!PendingRevive.HasValue)`.
+    Les libelles `0x37=55` / `0x36=54` etaient eux aussi decales d'un cran (les valeurs justes sont
+    `0x36=54 UnitDefeated` et `0x35=53 PostUnitKill`) -- meme glissement que celui corrige en #301.
+    Ce que ce fichier MESURE (la nova qui ne part pas) est INCHANGE : `On(2)` reste bien coupe.
   * Le champ teste est le MEME que celui qu'ECRIT `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute`
     (`*(lVar20 + 0xa8..0xe8) = ReviveData`) et que LIT+PURGE `IdunBattle.Operations.ReviveUnitOperation$$Execute`
     (garde @IdunBattle.Operations.ReviveUnitOperation$$Execute+0x2ba, purge @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+) -> c'est le `Nullable<ReviveData>` « revive en attente ».

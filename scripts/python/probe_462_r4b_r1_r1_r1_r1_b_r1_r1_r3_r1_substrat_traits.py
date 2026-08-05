@@ -195,8 +195,12 @@ VENTILATION = {
         ("INERTE-AMONT", "`if ctx is None: continue` juste au-dessus"),
     ("runner/operations/triggers/loki/cosmic_horror.py", "_traits_of", "getattr(sc.ctx)", "R"):
         ("INERTE-AMONT", "3 appels : victime d'un `UnitDefeated` (morte PENDANT le run), ennemi "
-                         "vivant, et le crushe d'un `On(PostUnitKill)` -- qui ne sort que de "
-                         "`post_unit_kill_triggers_for_move`, deja gate"),
+                         "vivant, et le crushe d'un `On(PostUnitKill)`. Le motif de ce 3e appel a "
+                         "CHANGE en #462-...-c-r3-r1-r4 et s'est RENFORCE : l'event ne sort plus "
+                         "d'une re-identification par co-localisation, mais du foyer "
+                         "`damage.py::_kill_unit_operation` -- dont les TROIS appelants "
+                         "(drain de `pending_deaths`, `_kill_steppable_units` gate `uc.alive`, "
+                         "`KillUnitBehaviour` gate `uc.alive`) ne peuvent porter qu'un mort DU RUN"),
     ("runner/operations/triggers/genestealer.py", "_eligible_for_resurrect", "getattr(sc.ctx)", "R"):
         ("INERTE-AVAL", "sujet MORT et lecture ATTEINTE, mais le gate suivant "
                         "(`turn_defeated is None`) refuse tout cadavre-au-chargement : convertir "
@@ -321,8 +325,19 @@ VENTILATION = {
 CONVERTIS = {
     ("runner/operations/triggers/genestealer.py", "_valid_dead_decoys"):
         "`Filter(AllDeadUnits, ...)` : le sujet EST un mort",
+}
+
+# Le SECOND site converti par cette tranche -- `move_death.py::post_unit_kill_triggers_for_move` --
+# n'existe PLUS depuis #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 : `On(0x35 = PostUnitKill)` est publie par
+# `damage.py::_kill_unit_operation`, a son rang natif, donc plus aucune re-identification du crushe
+# par co-localisation n'a lieu. La garantie que sa conversion protegeait -- << ne jamais rendre ses
+# traits a un cadavre-au-chargement, que le conjoint natif `IsKilledThisTurn` REFUSE >> -- n'est
+# pas perdue : elle remonte d'un cran et devient STRUCTURELLE (le gate `uc.alive` de
+# `_kill_steppable_units` : un cadavre n'est jamais crushe, donc n'entre jamais dans le foyer).
+# Elle reste EXERCEE, sur le chemin reel, par `--step disparu` et par le test homonyme.
+DISPARUS = {
     ("runner/operations/triggers/dispatch/move_death.py", "post_unit_kill_triggers_for_move"):
-        "le crushe est MORT par construction",
+        ("#462-r4b-r1-r1-r1-r1-c-r3-r1-r4", "movement.py", "_kill_steppable_units"),
 }
 
 VERDICTS_ATTEIGNABLES = ("ATTEIGNABLE",)
@@ -555,11 +570,14 @@ def step_loi() -> int:
 # ================================================================================================
 # --step contre : la contre-epreuve DIRIGEE des deux sites ATTEIGNABLES
 # ================================================================================================
-def etat_crush(vis_mort: str, avec_stats: bool):
-    """Mover (eid 1) et une unite MORTE co-localisee (eid 2) de visualId `vis_mort`.
+def etat_crush(vis_mort: str, avec_stats: bool, vivant: bool = False):
+    """Mover (eid 1) et une unite co-localisee (eid 2) de visualId `vis_mort`.
 
     `avec_stats=False` reproduit le CADAVRE AU CHARGEMENT (absent de `combatSnapshot`) ;
-    `True` reproduit le crush SURVENU PENDANT LE RUN (l'entite garde son ctx)."""
+    `True` reproduit le crush SURVENU PENDANT LE RUN (l'entite garde son ctx).
+
+    `vivant=True` monte l'eid 2 VIVANTE : c'est l'ENTREE du crush, pas son resultat -- le regime
+    qu'il faut pour exercer `_kill_steppable_units` lui-meme (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4)."""
     import gameconfig as GC
     from engine.runner.state import State, Entity
     from engine.runner.components import (UnitComponent, OwnerComponent, PositionComponent,
@@ -582,8 +600,30 @@ def etat_crush(vis_mort: str, avec_stats: bool):
         st.entities[uid] = e
 
     _add(1, "astraBullgryn", 1, True, True)             # le mover, toujours charge
-    _add(2, vis_mort, 1, False, avec_stats)             # le mort co-localise (meme team : G2 friends)
+    _add(2, vis_mort, 1, vivant, avec_stats)            # le co-localise (meme team : G2 friends)
     return st
+
+
+def etat_disparus() -> list:
+    """Pour chaque site DISPARU : (cle, absent_du_module, porteur_present, porteur_gate).
+
+    * `absent_du_module` : la fonction supprimee n'est PAS revenue (si elle revenait sans que le
+      foyer soit revu, le chemin MOVE emettrait `On(0x35)` DEUX fois) ;
+    * `porteur_present`  : la fonction qui porte desormais la garantie existe bien ;
+    * `porteur_gate`     : elle porte un test sur `uc.alive` -- c'est LUI qui empeche un
+      cadavre-au-chargement d'entrer dans le foyer de mort."""
+    out = []
+    for cle, (_tranche, fich_porteur, fn_porteur) in sorted(DISPARUS.items()):
+        absent = _fonction_ast(*cle) is None
+        porteur = _fonction_ast(fich_porteur if fich_porteur.startswith("runner/")
+                                else "runner/operations/" + fich_porteur, fn_porteur)
+        gate = False
+        if porteur is not None:
+            gate = any(isinstance(n, ast.Attribute) and n.attr == "alive"
+                       and isinstance(n.value, ast.Name) and n.value.id == "uc"
+                       for n in ast.walk(porteur))
+        out.append((cle, absent, porteur is not None, gate))
+    return out
 
 
 def step_contre() -> int:
@@ -615,13 +655,34 @@ def step_contre() -> int:
     return 0
 
 
+def step_disparu() -> int:
+    """Les sites SUPPRIMES : la garantie a-t-elle bien un porteur, et son gate est-il la ?"""
+    print("SITES DISPARUS -- ou est passee la garantie qu'ils portaient")
+    print("")
+    rc = 0
+    for cle, absent, porteur, gate in etat_disparus():
+        tranche, fich, fn = DISPARUS[cle]
+        print("  %s::%s   (%s)" % (cle[0], cle[1], tranche))
+        print("      supprime (non revenu)      : %s" % ("OUI" if absent else "NON  <-- ROUGE"))
+        print("      porteur %s::%s" % (fich, fn))
+        print("        present                  : %s" % ("OUI" if porteur else "NON  <-- ROUGE"))
+        print("        porte le gate `uc.alive` : %s" % ("OUI" if gate else "NON  <-- ROUGE"))
+        if not (absent and porteur and gate):
+            rc = 1
+    print("")
+    print("Un `NON` sur la 1re ligne = le site est REVENU : le chemin MOVE emettrait")
+    print("`On(0x35 = PostUnitKill)` DEUX fois (foyer + re-identification). Un `NON` sur les deux")
+    print("autres = la garantie n'a plus de porteur, et un cadavre-au-chargement peut entrer.")
+    return rc
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", required=True,
-                    choices=("inventaire", "ventilation", "loi", "contre"))
+                    choices=("inventaire", "ventilation", "loi", "contre", "disparu"))
     a = ap.parse_args()
     return {"inventaire": step_inventaire, "ventilation": step_ventilation,
-            "loi": step_loi, "contre": step_contre}[a.step]()
+            "loi": step_loi, "contre": step_contre, "disparu": step_disparu}[a.step]()
 
 
 if __name__ == "__main__":

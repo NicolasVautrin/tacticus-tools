@@ -48,9 +48,12 @@ EVENTS_MORT = (EventTriggerType.PreUnitDeath, EventTriggerType.PreUnitDeath_2,
                EventTriggerType.UnitDeath, EventTriggerType.UnitDefeated,
                EventTriggerType.PostUnitKill)
 
-# Le SEUL des cinq que le port emette aujourd'hui, et seulement sur le chemin MOVE
-# (`triggers/dispatch/move_death.py::post_unit_kill_triggers_for_move`).
-EVENT_DEJA_EMIS = EventTriggerType.PostUnitKill
+# Le port emet desormais les CINQ, depuis le foyer `damage.py::_kill_unit_operation`
+# (#462-r4b-r1-r1-r1-r1-c-r3-r1-r1 pour les quatre premiers, `-r4` pour `On(0x35)`). Cette
+# constante valait `PostUnitKill` -- le seul que le port emettait alors, et seulement sur le
+# chemin MOVE. Elle est mise a `None` plutot que supprimee : les compteurs ci-dessous en derivent
+# leur libelle, et `None` les fait basculer sur << les cinq >> sans branche morte.
+EVENT_DEJA_EMIS = None
 
 
 def _nom_event(e: int) -> str:
@@ -167,15 +170,17 @@ def step_blast() -> int:
     print("[blast] classes du registre ecoutant l'un des cinq evenements de mort : %d" % len(cons))
     for eid in sorted({e for e, _c, _s, _f in cons}):
         lot = [x for x in cons if x[0] == eid]
-        deja = " (DEJA emis par le port, chemin MOVE)" if eid == int(EVENT_DEJA_EMIS) else ""
+        deja = ("" if EVENT_DEJA_EMIS is None or eid != int(EVENT_DEJA_EMIS)
+                else " (DEJA emis par le port, chemin MOVE)")
         print("  On(%-3d %-16s) : %d classe(s)%s" % (eid, _nom_event(eid), len(lot), deja))
         for _e, nom, src, face in lot:
             print("      %-6s %-46s %s" % (face, nom, src))
-    a_porter = [x for x in cons if x[0] != int(EVENT_DEJA_EMIS)]
-    print("[blast] classes concernees par les QUATRE evenements NON emis : %d" % len(a_porter))
-    print("[blast] => emettre changerait le comportement de ces %d classes des qu'un porteur"
+    a_porter = [x for x in cons
+                if EVENT_DEJA_EMIS is None or x[0] != int(EVENT_DEJA_EMIS)]
+    print("[blast] classes que la sequence de mort PORTEE peut desormais reveiller : %d"
           % len(a_porter))
-    print("[blast]    est sur le plateau. NON PORTE dans cette tranche : non confrontable ici.")
+    print("[blast] => les CINQ evenements partent du foyer `damage.py::_kill_unit_operation`,")
+    print("[blast]    donc ces %d classes voient un crush comme n'importe quelle mort." % len(a_porter))
     return 0
 
 

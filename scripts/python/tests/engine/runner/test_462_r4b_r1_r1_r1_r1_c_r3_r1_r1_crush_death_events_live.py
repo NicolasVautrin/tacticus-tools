@@ -406,8 +406,13 @@ def test_le_crush_publie_les_quatre_evenements_de_mort():
     """`-r1` : `On(1)`, `On(2)`, `On(0)` et `On(0x36)` partent au crush.
 
     C'est l'INVERSE du bras `test_les_quatre_evenements_de_mort_restent_non_emis` de la tranche
-    precedente, qui gardait le residu. `On(0x35 = PostUnitKill)` reste hors de la sequence de mort
-    (publie par `after_move_triggers` sur le chemin MOVE) : ecart PREALABLE, nomme, non touche."""
+    precedente, qui gardait le residu.
+
+    ⚠ CE BRAS S'EST RETOURNE UNE SECONDE FOIS (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4). Il annoncait
+    `On(0x35 = PostUnitKill)` << hors de la sequence de mort, publie par `after_move_triggers` >> :
+    c'etait l'ecart d'ORDRE que la fiche nommait, et il est ferme. Le foyer publie desormais les
+    CINQ, ici meme -- donc ce montage SYNTHETIQUE (appel direct de `_kill_steppable_units`, sans
+    pipeline de move) les voit tous les cinq, alors qu'il n'en voyait que quatre."""
     from engine.entities.effects import EffectFactory
     from engine.runner.operations import movement as MV
     from engine.runner.operations.triggers.dispatch import registry as REG
@@ -423,10 +428,11 @@ def test_le_crush_publie_les_quatre_evenements_de_mort():
     finally:
         REG.EFFECT_TRIGGERS.pop(et, None)
     assert tues == [decoy], "le crush n'a pas eu lieu (montage) : %s" % (tues,)
-    attendus = sorted(e for e in PR.EVENTS_MORT if e != PR.EVENT_HORS_SEQUENCE)
+    attendus = sorted(PR.EVENTS_MORT)
     assert vus == attendus, (
-        "la sequence de mort du crush publie %s ; attendu %s (les quatre evenements de "
-        "`KillUnitOperation$$Execute` hors `On(0x35)`)" % (vus, attendus))
+        "la sequence de mort du crush publie %s ; attendu %s (les CINQ evenements de "
+        "`KillUnitOperation$$Execute`, `On(0x35 = PostUnitKill)` compris depuis "
+        "#462-r4b-r1-r1-r1-r1-c-r3-r1-r4)" % (vus, attendus))
 
 
 def test_le_crush_reveille_les_consommateurs_portes_par_le_mover():
