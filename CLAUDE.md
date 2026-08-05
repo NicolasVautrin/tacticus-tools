@@ -268,66 +268,6 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   hors `python_files`). Deux volets : hook `pytest_collectreport` à chaque passe, et un balayage
   statique à périmètre dérivé dans le cliquet (le runtime ne voit que ce qu'une passe joue).
 
-## Les défauts qui ne crient pas
-
-Classes de défaut **mesurées ici**. Aucune n'émet d'erreur ni de crash — c'est ce qui les rend
-chères, et pourquoi il faut les reconnaître à l'œil. Détail et contre-épreuves : `docs/rl/case-*.md`.
-
-**Port ⇄ natif**
-
-- La face d'un effet est le **slot virtuel de SORTIE**, jamais le porteur.
-- Un call-site d'adjacence se branche **entier** — la porte d'élévation ET l'énumération. À moitié,
-  le prédicat devient plus permissif que le natif.
-- Ne jamais SUPPOSER l'absence de variance d'arme : lire le byte, et lire sa **valeur par défaut**,
-  qui est ce qui décide.
-- Un effet-trigger lit `EffectComponent.IsActive` si et seulement si son rail natif l'exige.
-- Un mirror de `HasEffect` doit porter le substrat que son littéral `onlyActive` annonce — l'écart
-  ne se voit que sur un effet **présent-mais-INACTIF**.
-- Un consommateur qui capte lui-même son `decisionView` repart sur le canal **NU**, qui droppe les
-  inertes : le port rend FAUX là où le natif rend VRAI.
-- Un mirror `IntEnum` reste en bijection avec `enums.tsv` — le piège est la **renumérotation**,
-  pas l'absence.
-- Un effet condition-gated **inerte à la capture** n'est pas dans le canal : le port n'a rien à
-  rallumer.
-
-**Ce qui périme au changement de build**
-
-- Un ordinal en dur désigne un AUTRE membre après la MAJ — y compris derrière un alias ou une clé
-  de dict, et dans les citations de décompilé en commentaire : elles s'invalident **sans qu'une
-  ligne change**, donc aucun déclencheur sur diff ne les voit.
-- Un hash de build en dur court-circuite `data/symbols/CURRENT`.
-- Une adresse en dur qui ancre un hook : `Interceptor.attach` **RÉUSSIT** sur du code arbitraire.
-  Ça ne se voit qu'à un capteur qui ne fire jamais.
-
-**Lire — et DIRE quand on n'a pas pu**
-
-- Un lecteur rend `null` quand il n'a pas mesuré, **jamais `0`**.
-- Un fichier versionné n'importe pas une cible gitignorée ou absente.
-- Un `from X import Y` dans un **corps de fonction** échappe à `--collect-only` : la collecte est
-  verte et le test meurt au setup.
-- Un script frère lancé par chemin RELATIF dans un `subprocess` **sans `cwd=`** n'est jamais
-  exécuté hors de `scripts/python`.
-- Une fixture qui patche dans le seed BC ce que le port lit dans `gameconfig` arme une
-  désynchronisation.
-- Le foyer POSITION a **cinq** portes ; n'en balayer qu'une laisse passer les deux tiers.
-
-**Tests qui ne confrontent rien**
-
-- `passed == 0 and skipped > 0`, ou zéro test collecté : rc 0, aucune assertion, et la passe compte
-  un succès.
-- Le **vert vacueux** : un test qui passe avec zéro assertion utile parce que son anneau était vide.
-- Un rouge n'accuse l'arbre que s'il a été **mesuré sur cet arbre**.
-- Un répertoire collecté DEUX fois : les fixtures de son conftest disparaissent, et le nodeid est
-  identique — invisible à toute inspection par chaîne.
-
-**Balayer**
-
-- Exclure `.claude/worktrees` par le chemin **RELATIF** au dépôt. Par segment sur l'absolu, le
-  filtre s'auto-exclut depuis un worktree et rend **0 fichier, verdict vert**.
-- Ne pas prendre `.git/index.lock` en LECTURE depuis un contexte tuable — le résidu est libre, de
-  0 octet, et c'est la commande SUIVANTE qui meurt dessus.
-- Ne pas écrire dans `scripts/python/` pendant un balayage : un voisin énumère le même arbre.
-
 ## Tu OUVRES un résidu ⇒ tu DEMANDES son numéro, tu ne le choisis pas (#468)
 
 ```powershell
