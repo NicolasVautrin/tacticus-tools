@@ -49,7 +49,24 @@ CE QUE LA SONDE FAIT
            et quel membre MORT le gameconfig nommerait encore (aucun ne doit l'etre, sinon le
            retirer casserait la conversion).
 
-Sortie 0 = tous les mirrors SOUS GARDE sont bijectifs et toutes les references resolvent ; 1 sinon.
+  Etape 5  CONSOMMATEURS (#270-c) : le cran EN DESSOUS du mirror. Ce que le moteur lit, ce sont
+           les DICTS indexes par nom/ordinal (`ABILITY_TRIGGERS`, `EFFECT_CLASSES`, ...). Une cle
+           dont le nom a disparu du build ne LEVE pas -- `.get(cle, ())` rend `()`, et le passif
+           n'est JAMAIS inscrit : meme degradation muette que le sens MANQUANT, un cran plus bas.
+           #318 ne gardait ce cran que pour `EFFECT_CLASSES`. Trois verdicts, dont un NOMME sa
+           cause : `EGAREE` = la cle n'est pas dans l'enum de sa voie mais existe dans un AUTRE
+           enum natif -- signature du mauvais appariement, et non d'une faute de frappe.
+  Etape 6  HOMONYMES (`--homonymes`) : INVENTAIRE, jamais une garde -- un homonyme est un fait du
+           BUILD, pas une derive du port. Deux axes de cout inegal : un NOM partage a ordinal
+           DIFFERENT rend un ordinal FAUX si on le lit du mauvais mirror (c'est ce que l'etape 5
+           garde) ; un ORDINAL partage sous des noms DIFFERENTS rend une cle ENTIERE NON
+           VERIFIABLE -- mesure sur `rnca9r7q6c` : `TriggeredAbilityType` partage 233 ordinaux
+           avec `ActiveAbilityType`, dont **231 nomment autre chose**, et 458 avec `EffectType`,
+           dont **454**. C'est la justification chiffree de « un entier qui DESIGNE passe par un
+           enum » : le nom discrimine, l'ordinal non.
+
+Sortie 0 = tous les mirrors SOUS GARDE sont bijectifs, toutes les references resolvent et toutes
+les cles des dicts consommateurs sont nommables ; 1 sinon.
 ASCII only (console Windows cp1252).
 """
 from __future__ import annotations
@@ -413,9 +430,228 @@ def etape_porteurs(build: str) -> int:
     return rouge
 
 
+# ------------------------------------- etape 5 : les DICTS CONSOMMATEURS indexes par la cle
+
+class Consommateur:
+    """Un dict du PORT dont les CLES designent des membres d'un enum natif.
+
+    `par` -- "nom" : la cle est le nom du membre (str) ; "valeur" : son ordinal (int).
+
+    L'appariement `cls` est LU dans le code du consommateur (commentaire d'en-tete du registre ET
+    site de consommation), jamais deduit du fait qu'une cle "resout". C'est necessaire, et la
+    mesure le dit : `TriggeredAbilityType` et `EffectType` partagent 458 ordinaux sur 476, dont
+    454 nomment AUTRE CHOSE -- une cle ENTIERE qui resout ne prouve donc a peu pres rien.
+    """
+
+    def __init__(self, nom, mod, attr, cls, par="nom", raison=""):
+        self.nom, self.mod, self.attr = nom, mod, attr
+        self.cls, self.par, self.raison = cls, par, raison
+
+
+#: Les dicts que le moteur CONSOMME par cle, et l'enum qui nomme cette cle.
+#:
+#: POURQUOI CETTE ETAPE (le pendant #270-c de l'etape 4). Un mirror bijectif ne suffit pas : ce que
+#: le moteur lit reellement, ce sont ces dicts. Une cle dont le nom a disparu du build ne LEVE pas
+#: -- `ABILITY_TRIGGERS.get(pa, ())` rend simplement `()`, et le passif n'est JAMAIS inscrit. C'est
+#: la meme degradation muette que le sens MANQUANT du mirror, un cran plus bas, et
+#: `test_le_registre_EFFECT_CLASSES_resout_entierement_dans_le_mirror` (#318) ne la gardait que
+#: pour `EFFECT_CLASSES`.
+#:
+#: Les six registres de `triggers.dispatch` couvrent les cinq CHEMINS DE REGISTRATION que
+#: `collect_triggered_abilities` (`dispatch/core.py`) parcourt : trait, `passiveAbilities`,
+#: `activeAbilities` (derivees), `relicAbilities` + `TertiaryAbility`, et l'effet.
+CONSOMMATEURS: list[Consommateur] = [
+    # `dispatch/core.py` : `for pa in passives: ABILITY_TRIGGERS.get(pa, ())`, ou `passives` vient
+    # du canal mesure `UnitContext.passive_abilities` ou, a defaut, de `gameconfig.passiveAbilities`.
+    Consommateur("ABILITY_TRIGGERS", "engine.runner.operations.triggers.dispatch.registry",
+                 "ABILITY_TRIGGERS", "TriggeredAbilityType",
+                 raison="voie passiveAbilities -- 210 des 211 noms du gameconfig sont des "
+                        "TriggeredAbilityType (l'exception est ShroudPsalm, cf. --homonymes)"),
+    # Meme fichier : `for aa in gu['activeAbilities']: ACTIVE_ABILITY_TRIGGERS.get(aa, ())` --
+    # mirror de `StaticBattleRules.ActiveAbility$$GetDerivedTriggeredAbilities`.
+    Consommateur("ACTIVE_ABILITY_TRIGGERS", "engine.runner.operations.triggers.dispatch.registry",
+                 "ACTIVE_ABILITY_TRIGGERS", "ActiveAbilityType",
+                 raison="voie activeAbilities -- la CLE est l'active, la VALEUR la derivee"),
+    # La cle est une relique, mais l'enum reste `TriggeredAbilityType` : le natif la monte par
+    # `TriggeredAbilityComponent$$TryAdd(id, tertiaryAbilityState, 3)` (branche TERTIAIRE
+    # d'`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`), et le registre le dit
+    # deja de son cote (`DawnBlade` = `TriggeredAbilityType` 0x5dd = 1501). MESURE : les 25 noms de
+    # `relicAbilities` du gameconfig sont 25/25 dans `TriggeredAbilityType`, 0/25 dans `ActiveAbilityType`.
+    Consommateur("RELIC_ABILITY_TRIGGERS", "engine.runner.operations.triggers.dispatch.registry",
+                 "RELIC_ABILITY_TRIGGERS", "TriggeredAbilityType",
+                 raison="voies relicAbilities + UnitConfiguration.TertiaryAbility"),
+    Consommateur("TRAIT_TRIGGERS", "engine.runner.operations.triggers.dispatch.registry",
+                 "TRAIT_TRIGGERS", "UnitTrait", raison="voie traits"),
+    Consommateur("EFFECT_CLASSES", "engine.entities.effects.factory", "EFFECT_CLASSES",
+                 "EffectType", raison="EffectFactory, consomme PAR NOM (#318)"),
+    # --- indexes par VALEUR. La garde y est BEAUCOUP plus faible, et c'est dit plutot que maquille :
+    # cf. `--homonymes`, section ORDINAUX.
+    Consommateur("CUSTOM_TRIGGERED_ABILITIES", "engine.runner.operations.triggers.dispatch.registry",
+                 "CUSTOM_TRIGGERED_ABILITIES", "TriggeredAbilityType", par="valeur",
+                 raison="drain de state.pending_triggered_abilities (noeud TriggerAbilityDelayed)"),
+    Consommateur("EFFECT_TRIGGERS", "engine.runner.operations.triggers.dispatch.registry",
+                 "EFFECT_TRIGGERS", "EffectType", par="valeur",
+                 raison="effectType -> effet-trigger(s)"),
+]
+
+
+PAR_CONSO = {c.nom: c for c in CONSOMMATEURS}
+
+
+def table_consommateur(c: Consommateur) -> dict:
+    """Le dict lui-meme. Import PARESSEUX : charger `triggers.dispatch.registry` entraine tout le
+    moteur, et les etapes 1 a 3 doivent rester lisibles sans lui."""
+    import importlib
+    return getattr(importlib.import_module(c.mod), c.attr)
+
+
+def cles_cassees(build: str, c: Consommateur,
+                 table: dict | None = None) -> tuple[list, list, list]:
+    """(introuvables, mortes, egarees) pour UN consommateur.
+
+    `table` -- les cles a examiner, au lieu du dict reel. C'est ce qui permet a un test de nourrir
+    le detecteur de cles TRUQUEES et de verifier qu'il MORD, sans quoi une etape verte sur un
+    depot sain ne prouverait rien (meme patron que `references_cassees(build, refs=None)`).
+
+    introuvables : la cle n'est ni dans le mirror ni dans le build -- l'entree est morte, en
+                   silence (`.get(cle, ())` rend `()` : le passif n'est jamais inscrit).
+    mortes       : elle est dans le mirror mais plus dans le BUILD -- meme effet, et le mirror
+                   ment en plus.
+    egarees      : (cle PAR NOM seulement) elle n'est pas dans l'enum de sa voie, mais elle EXISTE
+                   dans un autre enum natif. C'est la signature du MAUVAIS ENUM, et le seul des
+                   trois qui NOMME sa cause -- l'appariement du registre est a relire.
+    """
+    m = PAR_CLS[c.cls]
+    port = membres_mirror(m.rel, m.cls)
+    jeu = enum_natif(build, m.cle)
+    cles = list(table_consommateur(c) if table is None else table)
+    if c.par == "valeur":
+        return ([(k, []) for k in cles if k not in port and k not in jeu],
+                [k for k in cles if k in port and k not in jeu], [])
+    noms_port = {n for ns in port.values() for n in ns}
+    noms_jeu = {n for ns in jeu.values() for n in ns}
+    introuvables, mortes, egarees = [], [], []
+    autres = None
+    for k in cles:
+        if _echappe(k) in noms_jeu:
+            continue
+        if _echappe(k) in noms_port:
+            mortes.append(k)
+            continue
+        if autres is None:
+            autres = tous_les_enums(build)
+        ou = sorted(cle.split(".")[-1] for cle, s in autres.items()
+                    if cle != m.cle and _echappe(k) in s)
+        (egarees if ou else introuvables).append((k, ou))
+    return introuvables, mortes, egarees
+
+
+def tous_les_enums(build: str) -> dict[str, set[str]]:
+    """{cle de enums.tsv: {noms de membres}} -- TOUS les enums natifs du build.
+
+    Sert a NOMMER la cause d'une cle qui ne resout pas dans l'enum de sa voie : dire « absente »
+    envoie chercher une faute de frappe ; dire « ce nom est un `EffectType` » designe le vrai
+    defaut, qui est l'appariement."""
+    out: dict[str, set[str]] = {}
+    for ligne in (build_dir(build) / "frida"/"enums.tsv").open(encoding="utf-8"):
+        if ligne.startswith("#!"):
+            continue
+        cle, _, reste = ligne.rstrip("\n").partition("\t")
+        if not reste:
+            continue
+        noms = {n for _, _, n in (p.partition("=") for p in reste.split(",")) if n}
+        if noms:
+            out[cle] = noms
+    return out
+
+
+def homonymes(build: str, cle: str) -> tuple[list, list]:
+    """(nom_partage_ordinal_DIFFERENT, ordinaux_partages_nom_DIFFERENT) pour UN enum natif.
+
+    LES DEUX AXES DE LA CONFUSION INTER-ENUMS, et ils n'ont pas le meme cout :
+
+      * un NOM present dans deux enums a des ordinaux DIFFERENTS -> lire le nom depuis le mauvais
+        mirror rend un ordinal FAUX. C'est ce que l'etape 5 garde (`egarees`).
+      * un ORDINAL present dans deux enums sous des noms DIFFERENTS -> une cle ENTIERE resout des
+        deux cotes et ne prouve RIEN. C'est la raison mesurable de la regle « un entier qui DESIGNE
+        passe par un enum » : le nom discrimine, l'ordinal non.
+    """
+    tous = tous_les_enums(build)
+    ref = enum_natif(build, cle)
+    par_nom: dict[str, set[int]] = {}
+    for v, ns in ref.items():
+        for n in ns:
+            par_nom.setdefault(n, set()).add(v)
+    noms_diff, ord_diff = [], []
+    for autre, _ in tous.items():
+        if autre == cle:
+            continue
+        d = enum_natif(build, autre)
+        idx: dict[str, set[int]] = {}
+        for v, ns in d.items():
+            for n in ns:
+                idx.setdefault(n, set()).add(v)
+        for n, vs in idx.items():
+            if n in par_nom and vs != par_nom[n]:
+                noms_diff.append((n, autre, sorted(par_nom[n]), sorted(vs)))
+        comm = [v for v in set(ref) & set(d) if not (ref[v] & d[v])]
+        if comm:
+            ord_diff.append((autre, len(set(ref) & set(d)), len(comm)))
+    return noms_diff, sorted(ord_diff, key=lambda x: -x[2])
+
+
+def etape_consommateurs(build: str) -> int:
+    print("ETAPE 5 -- DICTS CONSOMMATEURS (les cles que le moteur lit REELLEMENT)")
+    rouge = 0
+    for c in CONSOMMATEURS:
+        try:
+            n = len(table_consommateur(c))
+        except Exception as exc:                                   # noqa: BLE001
+            print("  ROUGE  %-28s import impossible : %s" % (c.nom, exc))
+            rouge += 1
+            continue
+        introuvables, mortes, egarees = cles_cassees(build, c)
+        etat = "OK"if not (introuvables or mortes or egarees) else"ROUGE"
+        print("  %-6s %-28s %3d cles par %-7s -> %-22s INTROUVABLES=%d MORTES=%d EGAREES=%d"
+              % (etat, c.nom, n, c.par, c.cls, len(introuvables), len(mortes), len(egarees)))
+        for k, ou in egarees:
+            print("           EGAREE      %-34s ce nom vit dans : %s" % (k, ", ".join(ou[:5])))
+        for k, _ in introuvables:
+            print("           INTROUVABLE %-34s dans AUCUN enum du build" % (k,))
+        for k in mortes:
+            print("           MORTE       %-34s le build ne la connait plus" % (k,))
+        rouge += len(introuvables) + len(mortes) + len(egarees)
+    print("")
+    return rouge
+
+
+def etape_homonymes(build: str) -> None:
+    """INVENTAIRE, pas garde -- un homonyme est un FAIT du build, pas une derive du port.
+
+    Il est imprime parce que c'est lui qui explique les `egarees` de l'etape 5, et parce que le
+    chiffre de la section ORDINAUX est ce qui justifie de convertir une cle entiere en membre
+    d'enum."""
+    for cls in ("TriggeredAbilityType", "ActiveAbilityType"):
+        m = PAR_CLS[cls]
+        noms_diff, ord_diff = homonymes(build, m.cle)
+        print("ETAPE 6 -- HOMONYMES de %s" % cls)
+        print("  NOMS partages avec un autre enum a ordinal DIFFERENT : %d paire(s)"
+              % len(noms_diff))
+        for n, autre, a, b in sorted(noms_diff)[:20]:
+            print("    %-42s ici=%-10s %s=%s" % (n, a, autre.split(".")[-1], b))
+        if len(noms_diff) > 20:
+            print("    ... %d de plus" % (len(noms_diff) - 20))
+        print("  ORDINAUX partages, NOM different (une cle entiere n'y prouve rien) :")
+        for autre, comm, diff in ord_diff[:6]:
+            print("    %-46s %4d partages, %4d nomment AUTRE CHOSE"
+                  % (autre.split(".")[-1], comm, diff))
+        print("")
+
+
 # ------------------------------------------------------------------------------ la sortie
 
-def rapport(verbose: bool, porteurs: bool = False) -> int:
+def rapport(verbose: bool, porteurs: bool = False, consommateurs: bool = True,
+            homo: bool = False) -> int:
     build = current_build()
     print("build : %s" % build)
     print("")
@@ -488,6 +724,14 @@ def rapport(verbose: bool, porteurs: bool = False) -> int:
     if porteurs:
         rouge += etape_porteurs(build)
 
+    # ---- Etape 5 : dicts consommateurs (par defaut : elle importe le moteur, ~1 s)
+    if consommateurs:
+        rouge += etape_consommateurs(build)
+
+    # ---- Etape 6 : homonymes (inventaire pur, jamais bloquant)
+    if homo:
+        etape_homonymes(build)
+
     if rouge:
         print("%d ecart(s) BLOQUANT(s) -- voir ci-dessus" % rouge)
     else:
@@ -505,8 +749,12 @@ def main() -> int:
                     help="detailler manquants/morts/renumerotes de TOUS les mirrors")
     ap.add_argument("--porteurs", action="store_true",
                     help="etape 4 : confronter le mirror au gameconfig (file de portage)")
+    ap.add_argument("--sans-consommateurs", action="store_true",
+                    help="sauter l'etape 5 (elle importe le moteur)")
+    ap.add_argument("--homonymes", action="store_true",
+                    help="etape 6 : inventorier les homonymes inter-enums (jamais bloquant)")
     a = ap.parse_args()
-    return rapport(a.verbose, a.porteurs)
+    return rapport(a.verbose, a.porteurs, not a.sans_consommateurs, a.homonymes)
 
 
 if __name__ == "__main__":
