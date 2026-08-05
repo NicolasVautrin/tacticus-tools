@@ -558,6 +558,29 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#479-r1` — `frida/hooks/scratch/` : 69 fichiers VERSIONNÉS et BUNDLÉS, qualifiés « gitignoré ».**
+  Il ne l'est plus depuis #365 (2026-07-31) — le `.gitignore` le dit ENTRÉE DE BUILD, et
+  `controller.ts` en fait **67 imports statiques**. Les **142** erreurs `tsc` qu'il porte (sur 146 au
+  total) sont donc écartées de tout décompte par une propriété git périmée, répétée par `case-477`
+  (§8, §10.5) et `case-475` (§7). Trancher : soit elles rentrent dans le contrat de typage, soit
+  l'exclusion est **écrite et motivée**. *Retournement* : le compte `tsc` est stable et assumé, et
+  plus aucune case-doc ne les dit gitignorés. `case-479-audit-hooks-frida.md` §1a.
+- **`#479-r2` — `probe_252` ne pèse qu'un SENS de la bijection.** Son verdict est
+  `faux or absents` (table -> enum) ; `manquants` (enum -> table) est calculé, **affiché, et ignoré**.
+  Les 6 tables étant aujourd'hui en bijection exacte, le faire peser ne produirait **aucun faux
+  positif** — mais un build qui AJOUTE des membres laisserait le cliquet vert sur des tables
+  incomplètes. *Retournement* : un membre d'enum absent des tables fait rougir. `case-479` §7.
+- **`#479-r3` — rien ne mesure QUELS RPC la session Frida expose réellement.** Un RPC écrit mais non
+  déployé rend un `HTTP 500` **indiscernable** d'une erreur d'exécution (mesuré sur `replaySteps` /
+  `replayRngEvents`, session 7). « Dans le bundle reconstruit » et « dans la session injectée » sont
+  deux mesures distinctes, et seule la seconde vaut pour un appelant. Remède : endpoint host rendant
+  `Object.keys(script.exports)`. *Retournement* : l'absence d'un RPC se distingue d'une erreur
+  d'exécution sans lire le bundle. `case-479` §5.
+- **`#479-r4` — `npm run build:hooks` échoue (`ENOENT`) sur un worktree frais** tant que
+  `frida/dist/` n'existe pas. Bénin, mais contredit « un worktree frais est RUNNABLE par son seul
+  checkout » pour la voie bundle. *Retournement* : `npm ci` puis `npm run build:hooks` rc 0 sans
+  `mkdir` manuel. `case-479` §10.
+
 - **`#462-r4a-r1` — le décompilé route en APPARENCE les deux canaux vers `Multiplier@0x30`.**
   `IdunBattle.Core.Services.DamageModifiers$$Add` surcharge 2-ARGUMENTS (celle des EFFETS) appelle
   `Add(this, modifier.Value)` dès que `damageBonus@0x20` a une valeur — et cette surcharge écrit

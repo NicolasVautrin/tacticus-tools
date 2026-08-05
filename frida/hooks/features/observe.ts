@@ -175,6 +175,20 @@ function observeBattle(opts?: { runnerId?: number }): BattleObservation {
     // on the board (pos set) and being played (pos/hp change across turns).
     obs.mows = (proj.mows ?? []) as unknown[];
 
+    // #479 — TRI-ETAT : « aucune entite » n'est PAS « bataille vide », c'est « PAS MESURE ».
+    // Mesure du 2026-08-05 (session 7) : appele SANS `runnerId` alors qu'aucune bataille n'est
+    // chargee, ce RPC rendait `ok:true`, `counts` tout a zero, `units: []` et AUCUNE `err` --
+    // `obs.ok = true` etait pose inconditionnellement des que `statePtr` est non nul. Un
+    // consommateur qui verifie pourtant `ok` lisait donc « la bataille existe et elle est vide ».
+    // Discriminant mesure, meme session : runner porteur d'une bataille = 158 entites / 63 tuiles ;
+    // live sans bataille = 0 / 0. Une `MatchState` reelle porte toujours ses tuiles, donc
+    // `total === 0` ne peut designer qu'un etat non mesurable -- le seul cas ou ce durcissement
+    // mord, et il ne change rien pour un appel portant un `runnerId` de runner monte.
+    if (obs.counts.total === 0) {
+        obs.err = "matchState carries no entity — no battle loaded (not an empty battle)";
+        return obs;
+    }
+
     obs.ok = true;
     return obs;
 }
