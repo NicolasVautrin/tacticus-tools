@@ -62,9 +62,13 @@ STATE = LOGS / "rs_adj_433r4r1r4r2r1r1r1.json"
 RAMMING_SPEED = 1059
 GRAFT = "orksKillaKan"
 P_UNITS = "orksKillaKan,astraBullgryn"
-# Une MoW cote ADVERSE porte l'axe C : `GetTiles` rend son EMPREINTE complete, pas sa main tile.
 A_UNITS = "necroWarden,ultraTitus"
-A_MOW = "necroCanoptekTombStalker"
+# La MoW ADVERSE ne porte PAS l'axe C par elle-meme (elle a un `MachineComponent`, pas de pieds) :
+# elle le porte par son SUMMON. `DutyEternal` (1158) fait naitre `ultraSmnDreadnought` (Galatian),
+# la SEULE unite a 3 pieds confrontable de ce build -- le seul autre producteur du noeud
+# `DSLFactory$$ThreeTileUnitSpawnShape`, `AetherStride` (1208, `thousDaemonPrince`), est hors seed
+# BC et non porte. `ultraDreadnought` est dans les 8 MoW spawnables (`build --list-pool`).
+A_MOW = "ultraDreadnought"
 SEED = 43341
 # `C1_74` et `C3_14` portent des `Bridge` (aretes stockees manquantes) ET des paliers d'elevation.
 BOARD_DEFAUT = "C1_74"
@@ -102,16 +106,23 @@ def build(board: str, a_mow: str = A_MOW) -> int:
     return _runner_id()
 
 
-def ensure_my_turn(rid: int) -> None:
-    """Le seed peut ouvrir sur le tour ADVERSE. Sans le controle, `GetMovableTilesFor` rend un set
-    VIDE et le zero serait un zero de HARNAIS, pas une mesure."""
-    for _ in range(4):
+def ensure_my_turn(rid: int) -> bool:
+    """Rend la main quand LE CASTER est activable. Sans lui, `GetMovableTilesFor` rend un set VIDE
+    et le zero serait un zero de HARNAIS, pas une mesure.
+
+    ⚠ Le critere N'EST PAS `ctrl` : ce champ dit « controle par le joueur COURANT », donc il est
+    VRAI pour les unites ADVERSES pendant leur tour -- une garde `toActivate & ctrl` se declare
+    satisfaite au mauvais moment (faute mesuree ici meme). On vise l'id du CASTER, nommement.
+
+    On passe le tour par `applyAction endturn`, PAS par `aiturn` : l'IA deplacerait les unites et
+    detruirait la geometrie qu'on vient de monter."""
+    for _ in range(6):
         dv = _dv(rid)
-        act = set(dv.get("toActivate") or [])
-        mine = {u.get("id") for u in (dv.get("units") or []) if u.get("ctrl")}
-        if act & mine:
-            return
-        _run(["aiturn", "--state-file", str(STATE), "--runner", str(rid)])
+        cid = _caster_id(dv)
+        if cid is not None and cid in set(dv.get("toActivate") or []):
+            return True
+        L._rpc("applyAction", [{"runnerId": rid, "action": {"kind": "endturn"}}])
+    return False
 
 
 def _caster_id(dv: dict):
@@ -263,6 +274,112 @@ def choisir_poste(bg: dict, movable) -> tuple:
     return None if best is None else (best[1], best[2], best[3], best[4])
 
 
+# ------------------------------------------------------------------ axe C : l'EMPREINTE (Galatian)
+
+def _ammo_graft_seed_bc(out_path: Path, ammo: int = 9) -> None:
+    """Seed BC portant LES DEUX patches : la greffe de `RammingSpeed` sur `orksKillaKan` ET les
+    munitions de MoW. Le seed partage part a `MachineOfWarAmmo = 0`, donc AUCUNE MoW ne caste --
+    sans ce second patch `DutyEternal` (1158, cout 3) ne part jamais et l'axe C reste vide."""
+    build_grafted_seed_bc(out_path)
+    bc = json.loads(out_path.read_text(encoding="utf-8"))
+    for _pid, p in ((bc.get("Player") or {}).get("Players") or {}).items():
+        if isinstance(p, dict) and p.get("PlayerType") != 2:          # Environment exclu
+            p["MachineOfWarAmmo"] = ammo
+    out_path.write_text(json.dumps(bc), encoding="utf-8")
+
+
+def _occupants(rid: int) -> set:
+    g = L._rpc("boardGraph", [{"runnerId": rid}])
+    return {(t["col"], t["row"]) for t in (g.get("tiles") or [])
+            if t.get("occupantUnitId") is not None}
+
+
+def faire_naitre_galatian(rid: int, caster_pos) -> bool:
+    """Fait caster `DutyEternal` (1158) a la MoW ADVERSE -> `ultraSmnDreadnought` (Galatian), la
+    SEULE unite a 3 pieds confrontable de ce build (l'autre producteur de
+    `DSLFactory$$ThreeTileUnitSpawnShape`, `AetherStride` 1208, est hors seed BC et non porte).
+
+    L'ancre est choisie pour que l'empreinte tombe PRES du caster : sans ca les tuiles
+    discriminantes -- adjacentes a un pied SECONDAIRE et a distance >= 2 du pied 0 -- sortent du
+    set de move et le montage ne mesure rien.
+
+    DEUX refus SILENCIEUX a eviter (`applyAction` rend alors `ok:true, mutated:false`) : le
+    cooldown initial (2 tours) et le fait que ce doit etre le TOUR DU PROPRIETAIRE de la MoW."""
+    import hexgeo
+    from engine.entities.pathfinding.board import Board
+    from engine.services import spawn_tile_shape as STS
+
+    dv = _dv(rid)
+    cid = _caster_id(dv)
+    deja = [uid for uid, f in _pieds(rid).items() if len(f) > 1 and uid != cid]
+    if deja:
+        print("[axeC] empreinte multi-hex DEJA presente (u%s) -- pas de nouveau cast" % deja[0])
+        return True
+    mows = [m for m in (dv.get("mows") or []) if m.get("visualId") == A_MOW]
+    if not mows:
+        print("[axeC] %s absente de decisionView.mows -- pas de MoW, axe C NON couvert" % A_MOW)
+        return False
+    mow, owner = mows[0], mows[0].get("owner")
+    bg = L._rpc("boardGraph", [{"runnerId": rid}])
+    board = Board(bg.get("tiles") or [], adjacency="native_sym")
+    occ = _occupants(rid)
+    best = None
+    for t in (bg.get("tiles") or []):
+        A = (t["col"], t["row"])
+        aire = STS.get_area(board, occ, A)
+        if len(aire) != 3:
+            continue
+        d0 = hexgeo.distance(caster_pos, aire[0])
+        # Les tuiles DISCRIMINANTES : adjacentes (hex) a un pied SECONDAIRE, mais a >= 2 du pied 0.
+        disc = [q for f in aire[1:] for q in hexgeo.neighbors(*f)
+                if hexgeo.distance(q, aire[0]) >= 2 and q not in occ
+                and board.id_at(*q) is not None and board.walkable(board.id_at(*q))]
+        if not disc:
+            continue
+        if best is None or (len(set(disc)), -d0) > (len(set(best[2])), -best[3]):
+            best = (A, aire, disc, d0)
+    if best is None:
+        print("[axeC] aucune ancre a aire valide ET discriminante sur ce board")
+        return False
+    A, aire, disc, d0 = best
+    print("[axeC] ancre=%s aire=%s (dist caster->pied0 = %d) tuiles discriminantes=%d"
+          % (A, aire, d0, len(set(disc))))
+    for _ in range(12):
+        v = _dv(rid)
+        m = next((x for x in (v.get("mows") or []) if x.get("visualId") == A_MOW), None)
+        ab = next((a for a in ((m or {}).get("abilities") or []) if a.get("id") == 1158), None)
+        if ab is None:
+            print("[axeC] 1158 absente des abilities de la MoW")
+            return False
+        pret = ab.get("usable") and ab.get("hasAmmo", True) and not (ab.get("cooldown") or 0)
+        if pret and (owner is None or v.get("currentPlayer") == owner):
+            break
+        L._rpc("applyAction", [{"runnerId": rid, "action": {"kind": "endturn"}}])
+    else:
+        print("[axeC] 1158 jamais castable -- axe C NON couvert")
+        return False
+    tid = board.id_at(A[0], A[1])
+    L._rpc("applyAction", [{"runnerId": rid, "action": {
+        "kind": "ability", "casterId": mow.get("casterId"), "abilityType": 1158,
+        "targetId": tid}}])
+    pieds = _pieds(rid)
+    ok = any(len(f) == 3 for f in pieds.values())
+    print("[axeC] apres cast : empreintes multi-pieds = %s"
+          % {k: v for k, v in pieds.items() if len(v) > 1})
+    return ok
+
+
+def _pieds(rid: int) -> dict:
+    """`{squadId: [(col,row) par pied, ordonne par entityId]}` -- l'empreinte NATIVE."""
+    out = {}
+    for u in (L._rpc("observeBattle", [{"runnerId": rid}]).get("units") or []):
+        if u.get("col") is None or u.get("isDead"):
+            continue
+        out.setdefault(u.get("squadId"), []).append((u.get("entityId") or 0,
+                                                     (u["col"], u["row"])))
+    return {k: [p for _e, p in sorted(v)] for k, v in out.items()}
+
+
 def poster(rid: int, unit_id: int, P) -> bool:
     """`applyAction move` NE VERIFIE PAS la propriete de `unitId` (runner.md sec.4) : on poste donc
     la CIBLE sans depenser le mouvement du caster. Un move refuse ne leve rien -> on RELIT."""
@@ -351,11 +468,66 @@ def ventiler(rid: int) -> int:
     return 0
 
 
+def ventiler_empreintes(rid: int) -> int:
+    """AXE C -- la cible est MULTI-HEX. Le montage n'a plus besoin d'une paire de tuiles : c'est
+    l'EMPREINTE qui discrimine, et dans l'AUTRE SENS des axes A/B (le bras d'avant INVENTAIT un
+    refus la ou le natif tient l'unite pour adjacente par un pied secondaire)."""
+    import hexgeo
+
+    dv = _dv(rid)
+    caster_id = _caster_id(dv)
+    if caster_id is None:
+        print("VERDICT: 2 -- caster absent, rien mesure")
+        return 2
+    pieds = _pieds(rid)
+    multi = [(uid, f) for uid, f in pieds.items() if len(f) > 1 and uid != caster_id]
+    if not multi:
+        print("VERDICT: 2 -- aucune cible MULTI-HEX vivante, axe C NON couvert")
+        return 2
+    tuiles = _movable(rid, caster_id)
+    if not tuiles:
+        print("VERDICT: 2 -- set de move VIDE, rien mesure")
+        return 2
+    ob = L._rpc("observeBattle", [{"runnerId": rid}])
+    snap = L._rpc("combatSnapshot", [{"runnerId": rid}])
+    bg = L._rpc("boardGraph", [{"runnerId": rid}])
+    n_desaccord = n_disc = 0
+    for (tid, feet) in multi:
+        nat_cur, nat = natif_valides(rid, caster_id, tid)
+        nat &= set(tuiles)
+        apres = _port_valides(dv, ob, snap, bg, caster_id, tid, tuiles, bras_avant=False)
+        avant = _port_valides(dv, ob, snap, bg, caster_id, tid, tuiles, bras_avant=True)
+        d_apres, d_avant = nat ^ apres, nat ^ avant
+        n_desaccord += len(d_apres)
+        n_disc += len(d_avant)
+        print("  cible MULTI-HEX u%-4s pieds=%s  natif=%d port_APRES=%d port_AVANT=%d"
+              " | desaccord APRES=%d AVANT=%d  currentValid=%s"
+              % (tid, feet, len(nat), len(apres), len(avant), len(d_apres), len(d_avant), nat_cur))
+        for t in sorted(d_apres)[:6]:
+            print("      DESACCORD %s : natif=%s port=%s" % (t, t in nat, t in apres))
+        for t in sorted(d_avant)[:6]:
+            print("      (avant) %s : natif=%s port_AVANT=%s -- d(pied0)=%d d(empreinte)=%d"
+                  % (t, t in nat, t in avant, hexgeo.distance(t, feet[0]),
+                     min(hexgeo.distance(t, f) for f in feet)))
+    print("-- Q1 desaccords natif/port APRES le correctif : %d (attendu 0)" % n_desaccord)
+    print("-- Q2 tuiles ou le bras d'AVANT divergeait      : %d (0 = montage DEGENERE)" % n_disc)
+    if n_desaccord:
+        print("VERDICT: 1 -- le port ne suit pas le natif sur l'empreinte")
+        return 1
+    if not n_disc:
+        print("VERDICT: 2 -- MONTAGE DEGENERE (aucune tuile n'atteint un pied SECONDAIRE seul)")
+        return 2
+    print("VERDICT: 0 -- accord total sur un montage DISCRIMINANT (axe EMPREINTES)")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", action="store_true")
     ap.add_argument("--board", default=BOARD_DEFAUT)
     ap.add_argument("--no-mow", action="store_true", help="monte SANS MoW adverse (axe C absent)")
+    ap.add_argument("--axe-c", action="store_true",
+                    help="axe EMPREINTES : fait naitre le Galatian (3 pieds) et confronte dessus")
     ap.add_argument("--dispose", action="store_true")
     a = ap.parse_args()
     if a.dispose:
@@ -364,10 +536,39 @@ def main() -> int:
             print("[dispose] runner du state-file")
         return 0
     if a.build or not STATE.exists():
-        rid = build(a.board, a_mow="" if a.no_mow else A_MOW)
+        if a.axe_c:
+            LOGS.mkdir(parents=True, exist_ok=True)
+            _ammo_graft_seed_bc(SEED_BC)
+            print("[graft+ammo] %s" % SEED_BC.name)
+            STATE.unlink(missing_ok=True)
+            _run(["build", "--seed", str(SEED), "--board", a.board, "--rank", "17",
+                  "--seed-bc", str(SEED_BC), "--p-units", P_UNITS, "--a-units", A_UNITS,
+                  "--a-mow", A_MOW, "--no-ai", "--state-file", str(STATE)])
+            if not STATE.exists():
+                raise SystemExit("build KO (board=%s) -- rien mesure" % a.board)
+            rid = _runner_id()
+        else:
+            rid = build(a.board, a_mow="" if a.no_mow else A_MOW)
     else:
         rid = _runner_id()
-    ensure_my_turn(rid)
+    if a.axe_c:
+        dv = _dv(rid)
+        cid = _caster_id(dv)
+        cpos = next(((u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
+                     if u.get("id") == cid and u.get("pos")), None)
+        if cpos is None:
+            print("VERDICT: 2 -- caster sans position, rien mesure")
+            return 2
+        if not faire_naitre_galatian(rid, cpos):
+            print("VERDICT: 2 -- Galatian non ne, axe C NON CONFRONTE")
+            return 2
+        if not ensure_my_turn(rid):
+            print("VERDICT: 2 -- le caster n'a jamais repris la main, rien mesure")
+            return 2
+        return ventiler_empreintes(rid)
+    if not ensure_my_turn(rid):
+        print("VERDICT: 2 -- le caster n'a jamais repris la main, rien mesure")
+        return 2
     return ventiler(rid)
 
 
