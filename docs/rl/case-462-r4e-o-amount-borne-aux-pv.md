@@ -200,6 +200,92 @@ morte » y rendrait 3 entrées : il est réfuté par la mesure.
 (le SITE (A) ouvert) redonne **exactement** `off=[2000, 0, 0, 0]` — le verdict du probe s'inverse et
 exige alors la divergence. Le même foyer est muté dans le test **offline**.
 
+## 5bis. `#462-r4e-o-r1-r1` — le coup **DISCARDÉ** (**PORTÉ**, 2026-08-05)
+
+Même vice que §5, **autre porte, autre étage** : un coup jeté par `HarlequinsPanoply` appendait
+encore une entrée `per_hit` à 0. Le natif n'en émet **aucune**.
+
+### 5bis.1 La chaîne, lue de bout en bout (`rnca9r7q6c`)
+
+`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, après `On(6)`/`On(7)`, relit le
+`Nullable<AttackHit>` de `OngoingAttack+0x98` :
+
+```
+pcVar18 = <Nullable.HasValue>(attack + 0x98);
+if (*pcVar18 != '\0') {                       // HasValue
+    Nullable.get_Value(attack + 0x98, &hit);
+    if (hit.discard != 0) { return this; }    // `this` = OperationResult MEMSET A 0
+    ...
+}
+```
+
+Ce `return` **précède la sub-op 0x42**, et c'est ce qui tranche :
+
+```
+0x42 = IdunBattle.Operations.DealDamageOperation$$Execute
+     -> slot 0x43 = IdunBattle.Core.Services.OperationProcessor$$ApplyDamage
+     -> IdunBattle.Operations.ApplyDamageOperation$$Execute   (unique appelant de CODE)
+     -> event UnitDamaged + tag `Amount` (StreamHelper$$GetDamageTags, TagKey 225)
+```
+
+⇒ **pas de 0x42, pas de 0x43, pas d'event.** Le SITE (A) de §5 gate à l'entrée d'`ApplyDamage`
+(donc **en aval** de la résolution) ; celui-ci sort **en amont** — le coup ne se résout même pas.
+
+**La face ABILITY a le MÊME gate** (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` :
+`if (local_448[8] != '\0') { memset(this, 0, 0x30); goto <sortie>; }`, qui saute lui aussi le
+dispatch `0x42` **et** `EvaluateAfterHitTriggers`). Le port ne distingue pas les deux familles sur
+cette branche : c'est fidèle.
+
+⚠ **Le TRANSFERT (#411) est le contre-modèle** — il relit le MÊME champ au MÊME instant, mais sur
+`!HasValue` : le natif **ne sort pas**, pose `damage = 0` et poursuit jusqu'à la 0x42 ⇒ l'event
+**existe**, à `Amount` 0. « Supprimer les entrées à 0 » serait donc une règle FAUSSE. La docstring
+de `test_411r1_transfer_port_offline.py::test_le_transfert_est_teste_AVANT_le_discard` énonçait
+déjà cette distinction (« aucune entrée dans `per_hit` » contre « y laisse un 0 ») sans que le port
+l'applique.
+
+### 5bis.2 Port
+
+`discarded_hit_emits()` — fonction de **module** (donc point de mutation, comme `overkill_hit_emits`
+et `damage_amount_applied`), lue par `_discarded` dans `_run_hits`. `crits` / `rolls` /
+`per_hit_health` restent **full-length** : ils comptent les coups EXÉCUTÉS, et
+`hits_executed = len(per_hit_health)` en dépend. Aucune troncature après coup — le refus de §5 tient.
+
+### 5bis.3 Mesures
+
+Montage : **greffe** de `HarlequinsPanoply` (`catalog_inject.write_grafted_seed_bc`) — ses deux
+porteurs sont `eldarSmnHarlequin` (summon) et `eldarNpc3Harlequin` (npc), et le seul artefact qui
+summone le premier est `EnvFactionSummons:Aeldari`, une ability d'**environnement** : aucun summoner.
+`--block-target 100,300` rend le block déterministe au coup 0. **Deux bras** identiques au bit près.
+
+| régime | témoin (sans greffe) | greffé |
+|---|---|---|
+| `necroDestroyer` 6 coups, MC1_67/31337 | `[212, 146, 325, 291, 201, 320]` | **`[212]`** |
+| `tauAunShi` 5 coups, C3_01/777 | `[1111, 824, 866, 1127, 865]` | **`[1111]`** |
+
+`live == off` bit-exact sur les quatre cellules, PV finaux identiques.
+
+**Contre-épreuve** (`--mutate cardinalite-discard`, le foyer ouvert) : `off` redevient
+`[212, 0, 0, 0, 0, 0]` / `[1111, 0, 0, 0, 0]` contre `live=[212]` / `[1111]` — **même somme, même
+`hp_after`**. C'est exactement pourquoi aucun test d'état ne le voyait.
+
+**Le probe a trouvé un faux négatif de HARNAIS avant de mesurer quoi que ce soit** : sans
+`snapshot.bind_live_rpc`, `load_state` n'a aucun transport pour tirer `unitAbilityStates`,
+`UnitContext.passive_abilities` reste `None`, la détection retombe sur le kit gameconfig et **la
+greffe est invisible au port** (`off` rendait ses 6 coups). Le probe porte désormais une garde de
+montage qui vérifie, par le canal MESURÉ, que le bras greffé publie `1187` et que le témoin ne le
+publie pas.
+
+### 5bis.4 Gardes
+
+* `tests/engine/test_462_r4e_o_r1_r1_discard_cardinality_offline.py` (8 tests) — cardinalité,
+  séparation events/coups, position non-suffixe, contre-modèle transfert, régime mixte,
+  non-régression, consommation RNG, et la contre-épreuve du foyer muté. Sous mutation globale :
+  **3 rouges** (les 4 verts sont les contrôles, qui n'assertionnent pas la cardinalité de `per_hit`).
+* `probe_462_r4e_o_r1_r1_discard_amount.py` — confrontation live, `--mutate cardinalite-discard`.
+* ⚠ `test_harlequins_panoply_live.py` assertionnait `all(h == 0 for h in per_hit[1:])`, devenu
+  **vacueusement vrai** sur une liste d'une entrée : les cinq assertions concernées sont passées en
+  **cardinalité** (`len(per_hit) == 1`, `len(per_hit) == hits`).
+
 ## 6. Non couvert, nommé
 
 * le terme `+ ReduceShield` de la formule n'a **pas** été exercé sur une cible à **bouclier non nul**
@@ -214,8 +300,16 @@ exige alors la divergence. Le même foyer est muté dans le test **offline**.
   #67/#178). Elle rend le port **moins** enclin à poser le flag sur un groupe additionnel ;
 * `total` inclut encore le demandé des coups **supprimés** (le natif n'appelle pas `Reduce` pour eux).
   Inerte sur l'état — la cible est morte, `thc.reduce` borne — et `over_reduce` est reposé exactement ;
-* résidus ouverts : **`#462-r4e-o-r1-r1`** (un coup **DISCARDÉ** appendait encore une entrée `per_hit`
-  à 0 : natif `ExecuteHit` sort *avant* `ApplyDamageOperation`, donc **aucun** event — non confronté,
-  il faut un porteur `HarlequinsPanoply`) et **`#462-r4e-o-r2`** (`+0x24` **jamais** remis à zéro : une
-  unité **ressuscitée** entre dans l'attaque suivante avec un compteur non nul et peut poser
-  `Overkilled` dès son premier coup — non confronté, il faut revive + seconde attaque).
+* **le `AddLeftoverHit` d'un coup DISCARDÉ sur un cadavre** (`#462-r4e-o-r1-r1-r1`) : `per_hit_health`
+  reste full-length et y porte `0`, donc `record_left_over_damages` pousse la **base nominale** pour ce
+  coup dès que la cible est déjà morte à l'entrée du groupe — le natif, lui, sort d'`ExecuteHit` avant
+  d'atteindre `ApplyDamageOperation`, donc ne pousse **rien**. Inerte tant que la cible est vivante
+  (`applied == 0`, aucune branche). Régime **structurellement inatteignable aujourd'hui** : le marqueur
+  1227 exige que le porteur BLOQUE (donc vive) et meurt à la clôture de l'attaque qui l'a posé. Nommé,
+  **non porté** — un correctif qu'aucune mesure ne peut invalider serait du code mort armé ;
+* **la face ABILITY du discard** est lue au décompilé (même gate, même saut de la 0x42) et couverte
+  offline, mais **non confrontée live** : aucun montage n'amène une ability multi-coups sur un porteur
+  `HarlequinsPanoply` ;
+* résidu ouvert : **`#462-r4e-o-r2`** (`+0x24` **jamais** remis à zéro : une unité **ressuscitée**
+  entre dans l'attaque suivante avec un compteur non nul et peut poser `Overkilled` dès son premier
+  coup — non confronté, il faut revive + seconde attaque).
