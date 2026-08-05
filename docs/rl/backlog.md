@@ -576,16 +576,31 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   **+2,64 s** dont **24 de bruit pur** (`#dispatcher`, `#selectors`… des noms de modules).
   Contre-épreuve : **5 mutations, 5 rouges**, la cinquième ayant d'abord rendu **VERT** et fait
   corriger le **code** (deux chemins d'illisibilité, un seul gardé).
-- **`#468-r11` — N3 reste ouvert, et le capteur `gh` (parade (c)) n'est pas construit.** Ce qui est
-  livré NOMME l'angle mort ; il ne le ferme pas. Deux `--suggere` lancés **au même instant** depuis
-  deux worktrees rendent toujours le même numéro — aucune lecture de l'arbre ne peut les départager,
-  puisque ni l'un ni l'autre n'a rien écrit. Restent, non construites : **(b)** un registre de
-  réservation versionné (**sérialise** l'allocation : commit + push par numéro) ; **(c)** `gh pr
-  list`, qui couvrirait les PR en vol **dont le worktree est déjà supprimé** — le seul gisement que
-  N1+N2 ne voient pas — mais dont `#467-r6` a mesuré les **trois pannes distinctes sous un même
-  `rc`**, donc utilisable en **tri-état seulement** et jamais en repli rassurant. *Condition de
-  retournement* : un numéro pris par une PR ouverte dont la branche est locale-absente est écarté,
-  et une panne de `gh` se lit `NON MESUREE` et non `0`.
+- ~~**`#468-r11` — N3 reste ouvert, et le capteur `gh` (parade (c)) n'est pas construit**~~ —
+  **LIVRÉ (2026-08-05)**, `case-468-r11-monotonie-des-deux-modes-et-corps-des-pr.md`. **Deux**
+  défauts fermés dans la même passe. (1) L'allocateur refusait un trou pour une **racine** et en
+  **proposait un** pour un **résidu** : contradiction avec son propre docstring, pas un arbitrage.
+  Les résidus au-delà du trou **étaient VUS** (mesuré dans `employes()` : `#477-r15/-r16/-r17`
+  portés par 2 case-docs, 3 probes, 1 test, `git log`, une ref non fusionnée et 5 worktrees) — le
+  défaut était la **restitution**, qui n'imprimait que le préfixe **contigu**. Gisement : **11
+  parents sur 218**. (2) La parade **(c) `gh`** est **construite**, et le chiffre la justifie là où
+  il avait refusé les deux extensions de `#468-r10` : **2 numéros rendus changent** (`--suggere 479`
+  r2 → r3, `--suggere 449-r2-r5` r4 → r5). Le gisement propre est **le corps d'une PR, qui n'entre
+  jamais dans l'arbre** — `git grep` et `git log --all` rendent **0** sur `479-r2`, que la PR #663
+  ouvre explicitement. `GH_LIMITE_PR = 200` : à 670 PR, **0 changement de plus** pour ×1,9 le coût.
+  Tri-état strict (panne nommée par son **stderr**, jamais rabattue sur `[]`, aucun cache) ; `gh`
+  ne lève **pas** `Indisponible` — capteur d'appoint, même arbitrage que `git worktree list`.
+  Contre-épreuve : **9 mutations, 9 rouges**, dont **deux** ont d'abord rendu VERT et fait corriger
+  le code **et un chiffre faux** (le bruit du nom de branche avait été mesuré dans une forme que le
+  code n'emploie pas).
+- **`#468-r12` — N3 reste IRRÉDUCTIBLE : il ne reste plus que la parade (b).** Deux `--suggere`
+  lancés **au même instant** rendent toujours le même numéro — `gh` couvre les PR **écrites**, pas
+  les numéros **alloués et pas encore écrits**. La seule parade restante est un **registre de
+  réservation versionné**, qui **sérialise** l'allocation (commit + push par numéro) : c'est
+  exactement ce que `case-468` §9.1 avait écarté sur le coût de merge. L'arbitrage n'a pas bougé ;
+  ce qui a bougé, c'est qu'il ne reste plus **que** lui. Second volet, mineur : les PR au-delà des
+  **200** plus récentes ne sont pas lues (mesuré **0 changement** à 670, chiffre à re-dériver — la
+  sortie le dit). Détail : `case-468-r11-monotonie-des-deux-modes-et-corps-des-pr.md` §5.
 - **`#480-r1` — `frida/hooks/scratch/` : 69 fichiers VERSIONNÉS et BUNDLÉS, qualifiés « gitignoré ».**
   Il ne l'est plus depuis #365 (2026-07-31) — le `.gitignore` le dit ENTRÉE DE BUILD, et
   `controller.ts` en fait **67 imports statiques**. Les **142** erreurs `tsc` qu'il porte (sur 146 au

@@ -377,6 +377,29 @@ réservation, et se lit dans la section `PORTEE DE LA MESURE`, imprimée **incon
 Détail, parades chiffrées et les cinq mutations :
 **`docs/rl/case-468-r10-angle-mort-des-agents-en-vol.md`**.
 
+### 9.3 La MONOTONIE ne valait que d'un côté, et le corps des PR n'était pas lu (`#468-r11`, fermé)
+
+Deux défauts de la même passe, tous deux dans `--suggere`.
+
+**L'asymétrie racine / résidu était une contradiction interne**, pas un arbitrage : le docstring de
+`suggerer` affirmait la monotonie pour la fonction entière, et seule la branche racine
+l'appliquait. La branche résidu s'arrêtait au **premier trou** et le proposait —
+`--suggere 477` rendait `#477-r14` quand `-r15`, `-r16` et `-r17` existent. **Les résidus au-delà
+du trou étaient VUS** (mesuré dans `employes()`, pas déduit de la sortie : 2 case-docs, 3 probes,
+1 test, `git log`, une ref non fusionnée, 5 worktrees) — c'est la **restitution** qui n'imprimait
+que le préfixe contigu. **11 parents sur 218** étaient dans ce cas. Les deux modes partent
+désormais du plus grand pris + 1, et les trous sont listés.
+
+**Le corps d'une PR n'entre JAMAIS dans l'arbre** — le squash-merge ne le recopie pas dans le
+message de commit. `git grep -E "479-?r2"` et `git log --all --grep "479-r2"` rendent **0**, et
+pourtant la PR #663 y ouvre `#479-r2` : `--suggere 479` le rendait comme libre. La parade **(c)**
+de `#468-r10` est donc construite, et le **même protocole** qui avait refusé ses deux extensions
+(0 changement de numéro) la **retient** : **2 changements** sur l'arbre vivant. `GH_LIMITE_PR = 200`
+— à 670 PR, **0 changement de plus** pour ×1,9 le coût. Le capteur ne lève **pas** `Indisponible`
+(appoint, comme `git worktree list`) mais sa panne est **nommée par son stderr**, jamais rabattue
+sur `[]`, et sans aucun cache. Détail, chiffres et les 9 mutations :
+**`docs/rl/case-468-r11-monotonie-des-deux-modes-et-corps-des-pr.md`**.
+
 ⚠ **Sous flotte chargée, `git grep` passe de 0,6 s à 20-40 s** (3 mesures dans chaque régime, à
 10 worktrees actifs) : de la **contention git** pure — `.git/` est partagé — et non un effet de
 `--untracked`, sans lequel c'est même plus lent. `--suggere` n'est pas dans la banque et le chemin
@@ -407,6 +430,10 @@ trancher la cause du `128`.
 * ~~**`#468-r4`**~~ — **FERMÉ** par `--suggere` (§9).
 * ~~**`#468-r10`**~~ — **FERMÉ** (§9.2) : `--suggere` lit les refs hors `HEAD` et les autres
   worktrees, et **nomme** l'angle mort qui reste. Ouvre `#468-r11` (parade `gh`, non construite).
+* ~~**`#468-r11`**~~ — **FERMÉ** (§9.3) : la monotonie vaut des **deux** côtés, et le **corps des
+  PR** est lu (parade (c) construite, 2 numéros rendus changent). Ouvre **`#468-r12`** — N3 reste
+  irréductible, il ne reste plus que la parade **(b)**, le registre de réservation versionné, que
+  §9.1 avait écarté sur son coût de merge. Cet arbitrage-là n'a pas bougé.
 * **`#468-r7` — la puce de résidu d'une case-doc n'est PAS une position de définition.**
   `case-467` §Résidus ouvre `#472-r1`, `-r2`, `-r3` en puces de premier niveau, et le critère ne
   lit les puces que dans `backlog.md` : ces trois-là sont invisibles à l'étape 1 tant qu'ils ne

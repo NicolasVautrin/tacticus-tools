@@ -643,6 +643,226 @@ def test_un_worktree_ILLISIBLE_est_NOMME_et_non_compte_pour_vide(capsys):
     assert "ILLISIBLE (non mesure, pas vide)" in txt and absent.name in txt, txt
 
 
+# ==========================================================================================
+#  #468-r11 -- LA MONOTONIE VAUT DANS LES DEUX MODES
+# ==========================================================================================
+#
+# Le mode RACINE refusait de recycler un trou ; le mode RESIDU s'arretait au PREMIER trou et le
+# PROPOSAIT, en n'imprimant comme << pris >> que le prefixe contigu. MESURE sur le depot reel :
+# `--suggere 477` rendait `#477-r14` alors que `r15`, `r16` et `r17` existent -- et le corpus
+# les VOYAIT (verifie dans `employes()`, pas deduit de la sortie). 11 parents sur 218 etaient
+# dans ce cas.
+
+def test_le_mode_RESIDU_ne_RECYCLE_pas_un_trou_lui_non_plus():
+    """Le motif ecrit pour les racines s'applique MOT POUR MOT a un residu : `#900-r2` peut
+    avoir ete alloue par un agent qui n'a encore rien ecrit, ou porte par une PR ouverte dont
+    le worktree est deja supprime. Le bras NON MUTE (`r1`+`r2` -> `r3`) est garde par
+    `test_suggere_un_RESIDU_sous_un_parent_donne`."""
+    lignes = [_ligne("900", "socle"), _ligne("900-r1", "premier"),
+              _ligne("900-r3", "TROISIEME -- le r2 est un trou")]
+    racine = _depot_git(lignes)
+    try:
+        rc, txt = _suggere(racine, "900")
+        assert rc == 0, txt
+        assert "LIBRE : #900-r2" not in txt, (
+            "un TROU a ete propose en mode residu, alors que le mode racine le refuse :\n%s" % txt)
+        assert "LIBRE : #900-r4" in txt, txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_le_mode_RESIDU_LISTE_ce_qui_est_pris_AU_DELA_du_trou():
+    """Un compte FILTRE doit dire ce qu'il filtre (#468-r10). L'ancienne sortie annoncait
+    << pris sous #900 : r1 >> et s'arretait la : un lecteur ne pouvait pas juger, alors que
+    `r3` etait dans le corpus. Ici les DEUX faces sont exigees -- ce qui est pris au-dela, et
+    le trou lui-meme, nomme comme NON propose."""
+    lignes = [_ligne("900", "socle"), _ligne("900-r1", "premier"), _ligne("900-r3", "troisieme")]
+    racine = _depot_git(lignes)
+    try:
+        rc, txt = _suggere(racine, "900")
+        assert rc == 0, txt
+        ligne_pris = [l for l in txt.splitlines() if "pris sous #900" in l]
+        assert ligne_pris, txt
+        assert "r3" in ligne_pris[0], (
+            "`r3` est PRIS et n'est pas dit : la restitution filtre sans le dire :\n%s"
+            % ligne_pris[0])
+        trous = [l for l in txt.splitlines() if "trou(s) libre(s) SOUS" in l]
+        assert trous and "r2" in trous[0], (
+            "le trou r2 n'est pas LISTE comme non propose :\n%s" % txt)
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_la_liste_des_trous_ne_MENT_pas_sur_ce_qu_elle_tronque():
+    """Meme regle que `en_vol` : ne pas annoncer N et n'en montrer que 12 sans le dire."""
+    assert p468._lister_trous([], str) == "(aucun)"
+    assert p468._lister_trous(list(range(1, 8)), str) == "1, 2, 3, 4, 5, 6, 7"
+    long = p468._lister_trous(list(range(1, 31)), lambda i: "r%d" % i)
+    assert long.endswith("... (18 de plus)"), long
+
+
+# ==========================================================================================
+#  #468-r11 -- LA QUATRIEME SOURCE HORS-ARBRE : LE CORPS DES PULL REQUESTS
+# ==========================================================================================
+#
+# Le corps d'une PR n'est PAS dans l'arbre : le squash-merge ne l'y recopie pas. MESURE sur le
+# depot reel -- `git grep "479-?r2"` = 0, `git log --all --grep 479-r2` = 0, et pourtant la PR
+# #663 ouvre `#479-r2` dans son corps. `--suggere 479` le rendait comme libre.
+
+class _GhFactice:
+    """Substitut de `subprocess.run` pour `gh` -- rend ce qu'on lui dit, sans reseau."""
+
+    def __init__(self, rc=0, stdout="[]", stderr="", boum=None):
+        self.rc, self.stdout, self.stderr, self.boum = rc, stdout, stderr, boum
+        self.argv = None
+
+    def __call__(self, argv, **kw):
+        self.argv = argv
+        if self.boum is not None:
+            raise self.boum
+        return subprocess.CompletedProcess(argv, self.rc, self.stdout, self.stderr)
+
+
+def test_un_numero_ouvert_SEULEMENT_dans_le_CORPS_d_une_PR_n_est_pas_propose(monkeypatch,
+                                                                            capsys):
+    """LA condition de retournement de #468-r11 (parade (c) de #468-r10).
+
+    Le bras NON MUTE (aucune PR) doit proposer le numero de reference -- sinon le bras rouge ne
+    prouverait rien."""
+    racine = _depot_git(BASE_SAINE)
+    try:
+        p468.viser(racine)
+        # Bras NON MUTE : `gh` rend une liste vide -- une mesure, pas une panne.
+        monkeypatch.setattr(p468, "_pull_requests", lambda: ([], None))
+        p468.suggerer("")
+        assert _numero_propose(capsys.readouterr().out) == PREMIER_AU_DESSUS
+
+        # Bras MUTE : une PR OUVRE ce numero dans son corps, et nulle part ailleurs.
+        monkeypatch.setattr(p468, "_pull_requests", lambda: (
+            [{"number": 999, "title": "un titre sans numero",
+              "body": "son verdict ne pese pas `manquants` => #%s." % PREMIER_AU_DESSUS}], None))
+        p468.suggerer("")
+        txt = capsys.readouterr().out
+        assert _numero_propose(txt) != PREMIER_AU_DESSUS, (
+            "un numero ouvert dans le CORPS d'une PR a ete propose :\n%s" % txt)
+    finally:
+        p468.viser(REPO)
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_le_mode_RESIDU_ecarte_lui_aussi_un_numero_venu_d_une_PR(monkeypatch, capsys):
+    """Generalisation, et elle n'est pas decorative : le cas REEL mesure etait `--suggere 479`,
+    un RESIDU -- un correctif qui ne cablerait la source que dans le mode racine laisserait
+    passer exactement la collision qui a ouvert ce dossier."""
+    racine = _depot_git([_ligne("900", "socle"), _ligne("900-r1", "premier")])
+    try:
+        p468.viser(racine)
+        monkeypatch.setattr(p468, "_pull_requests", lambda: ([], None))
+        p468.suggerer("900")
+        assert "LIBRE : #900-r2" in capsys.readouterr().out
+
+        monkeypatch.setattr(p468, "_pull_requests", lambda: (
+            [{"number": 999, "title": "#900-r2 : deja ouvert par cette PR", "body": ""}], None))
+        p468.suggerer("900")
+        txt = capsys.readouterr().out
+        assert "LIBRE : #900-r2" not in txt, (
+            "un residu ouvert par une PR a ete propose :\n%s" % txt)
+        assert "LIBRE : #900-r3" in txt, txt
+    finally:
+        p468.viser(REPO)
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_gh_ne_lit_PAS_le_nom_de_branche_et_c_est_une_MESURE():
+    """Sur 40 PR, le nom de branche lu par `couper_nom` -- la voie que le probe emploie deja
+    pour les NOMS de fichiers -- rend `worktree` et `agent` : **0** signal, du bruit pur. Meme
+    famille que le `--name-only` refuse en #468-r10 section 3.
+
+    ⚠ L'ASSERTION EST UNE EGALITE, et c'est ce qui a manque au premier jet : un `not [k for k
+    in ids if 'worktree' in k]` restait VERT sur la mutation, parce que `RE_TOKEN_LARGE` exige
+    un `#` et ne tire donc RIEN d'un nom de branche. Le mutant ne mordait pas -- il accusait
+    l'assertion, et la mesure qui la justifiait (elle prefixait un `#` que le code n'ecrit
+    jamais). L'egalite, elle, rougit sur TOUTE forme de lecture du nom de branche."""
+    prs = [{"number": 1, "title": "#900-r7 un vrai residu", "body": "et #901 en prose",
+            "headRefName": "worktree-agent-a5af8da60c785fce4"},
+           {"number": 2, "title": "un titre sans numero", "body": "",
+            "headRefName": "agent-477r16r1"}]
+    ids = p468._identifiants_des_pr(prs)
+    assert set(ids) == {"900r7", "901"}, (
+        "le nom de branche a ete lu (ou un identifiant a ete perdu) : %s" % sorted(ids))
+    assert all(src == {p468.SRC_PR} for src in ids.values())
+
+
+@pytest.mark.parametrize("nom,factice,attendu", [
+    ("binaire absent", _GhFactice(boum=FileNotFoundError()), "introuvable"),
+    ("delai depasse", _GhFactice(boum=subprocess.TimeoutExpired("gh", 30)), "n'a pas repondu"),
+    ("erreur systeme", _GhFactice(boum=OSError("acces refuse")), "injouable"),
+    ("token invalide (rc=1)", _GhFactice(rc=1, stdout="", stderr="HTTP 401: Bad credentials"),
+     "Bad credentials"),
+    ("non authentifie (rc=4)", _GhFactice(rc=4, stdout="", stderr="gh auth login required"),
+     "auth login"),
+    ("rc=0 mais sortie illisible", _GhFactice(rc=0, stdout="{ pas du json"), "illisible"),
+    ("rc=0 mais sortie inattendue", _GhFactice(rc=0, stdout='{"a": 1}'), "inattendue"),
+])
+def test_une_panne_de_gh_est_NOMMEE_et_ne_fabrique_JAMAIS_un_zero(monkeypatch, nom, factice,
+                                                                 attendu):
+    """Deux exigences, et la seconde est celle qui compte.
+
+    (1) La panne porte son NOM -- un `rc` ne nomme rien : sur `gh 2.88.1`, `rc=1` couvre a lui
+        seul le token invalide, le depot inconnu et l'erreur d'usage (#467-r6). C'est le STDERR
+        qui separe, donc c'est lui qu'on remonte.
+    (2) AUCUNE de ces pannes ne rend une liste VIDE. Un `[]` se lirait << aucune PR ne porte ce
+        numero >>, c'est-a-dire le zero fabrique que tout ce dossier existe pour supprimer."""
+    monkeypatch.setattr(subprocess, "run", factice)
+    prs, raison = p468._pull_requests()
+    assert prs is None, "%s : une panne a rendu une LISTE (%r), donc un zero fabrique" % (nom, prs)
+    assert raison and attendu in raison, "%s : la panne n'est pas NOMMEE -> %r" % (nom, raison)
+
+
+def test_gh_qui_REUSSIT_a_vide_est_une_MESURE_et_non_une_panne(monkeypatch):
+    """La frontiere symetrique : un depot sans aucune PR rend legitimement `[]`.
+
+    Contrairement a `git worktree list` (ou une sortie vide NE PEUT PAS etre vraie), il n'existe
+    ici aucun discriminant derive : `rc == 0` + JSON valide est le seul disponible, et on le dit
+    plutot que d'inventer une regle."""
+    monkeypatch.setattr(subprocess, "run", _GhFactice(rc=0, stdout="[]"))
+    prs, raison = p468._pull_requests()
+    assert prs == [] and raison is None
+
+
+def test_la_PORTEE_distingue_PR_NON_MESUREES_de_PR_LUES(capsys):
+    """Tri-etat imprime : `null` n'est pas `0`, et la panne est en clair dans la sortie."""
+    p468._imprimer_portee({}, [], [], None, "`gh` rc=1 -- HTTP 401: Bad credentials")
+    muet = capsys.readouterr().out
+    assert "PR GitHub : NON MESUREES" in muet, muet
+    assert "Bad credentials" in muet, "la panne n'est pas NOMMEE au lecteur :\n%s" % muet
+    assert "0 PR" not in muet and "0 pull" not in muet.lower(), (
+        "un capteur muet a ete rendu comme un ZERO :\n%s" % muet)
+
+    p468._imprimer_portee({}, [], [], [{"number": 1}], None)
+    lu = capsys.readouterr().out
+    assert "PR GitHub : 1 lue(s)" in lu and "plus ANCIENNES ne sont PAS lues" in lu, lu
+
+
+def test_gh_MUET_ne_fait_PAS_echouer_suggere(monkeypatch, capsys):
+    """Capteur d'APPOINT, meme arbitrage que `git worktree list` : sans lui `--suggere` retombe
+    sur les quatre autres sources -- degrade, pas faux. Le faire lever rendrait l'outil
+    inutilisable hors ligne, donc ferait revenir au geste qu'il supprime (choisir au vol)."""
+    racine = _depot_git(BASE_SAINE)
+    try:
+        p468.viser(racine)
+        monkeypatch.setattr(p468, "_pull_requests",
+                            lambda: (None, "`gh` introuvable sur le PATH"))
+        rc = p468.suggerer("")
+        txt = capsys.readouterr().out
+        assert rc == 0, txt
+        assert _numero_propose(txt) == PREMIER_AU_DESSUS, txt
+        assert "PR GitHub : NON MESUREES -- `gh` introuvable sur le PATH" in txt, txt
+    finally:
+        p468.viser(REPO)
+        shutil.rmtree(racine, ignore_errors=True)
+
+
 def test_sur_le_depot_REEL_le_numero_suggere_n_apparait_NULLE_PART():
     """Garde sur l'arbre vivant : le numero rendu doit etre absent de l'UNION -- docs/rl,
     scripts/python, noms de fichiers ET messages de commit."""
