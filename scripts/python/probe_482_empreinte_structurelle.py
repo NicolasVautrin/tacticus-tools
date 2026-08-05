@@ -245,6 +245,9 @@ def etage5_symetrie(pe_path):
     import urllib.request
 
     build = (REPO / "data" / "symbols" / "CURRENT").read_text(encoding="utf-8").strip()
+    if not pe_path:
+        print("   NON MESURE : aucun GameAssembly.dll installe n'a pu etre resolu\n")
+        return None
     pe = Path(pe_path)
     if not pe.exists():
         print("   NON MESURE : %s absent\n" % pe)
@@ -324,12 +327,40 @@ def etage5_symetrie(pe_path):
     return ok
 
 
+def _defaut_empreinte() -> str:
+    """L'ARCHIVE VERSIONNEE du build courant d'abord, `logs/` seulement en repli (#482-r3).
+
+    Le defaut visait `logs/fingerprints/<build>.tsv` -- un chemin GITIGNORE qui MEURT avec le
+    worktree qui l'a ecrit. Mesure : l'etage 4 se declarait NON MESURE dans tout checkout
+    frais, y compris l'arbre principal, parce que les empreintes de #482 avaient disparu avec
+    le worktree de leur auteur. Un etage structurellement non mesurable ne garde rien.
+    """
+    try:
+        import build_fingerprint_archive as A
+        from symbols_layout import current_build
+        p = A.archive_path(current_build())
+        if p.is_file():
+            return str(p)
+        return str(REPO / "logs" / "fingerprints" / ("%s.tsv" % current_build()))
+    except Exception:                                            # noqa: BLE001
+        return str(REPO / "logs" / "fingerprints" / "empreinte.tsv")
+
+
+def _defaut_pe() -> str:
+    """Le binaire INSTALLE, jamais un hash de build en dur : celui-ci se perime a la premiere
+    mise a jour et fait rendre `NON MESURE` sur une installation pourtant presente."""
+    try:
+        from il2cpp_provenance import installed_dll
+        return str(installed_dll())
+    except Exception:                                            # noqa: BLE001
+        return ""
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--sans-mcp", action="store_true", help="sauter l'etage 5")
-    ap.add_argument("--empreinte", default=str(REPO / "logs" / "fingerprints" / "rnca9r7q6c.tsv"))
-    ap.add_argument("--pe", default=r"C:\Users\nicolasv\AppData\Local\tacticus\games"
-                                    r"\rnca9r7q6c\GameAssembly.dll")
+    ap.add_argument("--empreinte", default=_defaut_empreinte())
+    ap.add_argument("--pe", default=_defaut_pe())
     args = ap.parse_args(argv)
 
     print("=" * 78)

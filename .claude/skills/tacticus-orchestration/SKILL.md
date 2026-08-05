@@ -331,7 +331,27 @@ data/symbols/<HASH>/
   BUILD                          le hash, en clair
   frida/{methods,classes,enums}.tsv    produit par preprocess_il2cpp_dump.py
   ghidra/functions.tsv                 EXTRAIT de Ghidra par ghidra_symbols.py dump
+  fingerprints/functions.tsv           EMPREINTE STRUCTURELLE (#482) -- a produire TOUT DE SUITE
 ```
+
+> ### ⛔ AVANT TOUT LE RESTE : l'empreinte du build COURANT s'archive PENDANT qu'il est là
+>
+> ```powershell
+> python scripts/python/build_fingerprint_archive.py      # ou en est chaque build
+> python scripts/python/fingerprint_functions.py archiver # le build courant, ~70 s
+> git add data/symbols/<HASH>/fingerprints/functions.tsv
+> ```
+>
+> **Ce geste ne se déclenche PAS au changement de build — il arriverait trop tard.** Le
+> lanceur efface `games/<ANCIEN>/` **avant** que la divergence installé ↔ `CURRENT` soit
+> détectable : mesuré, `gqfc5mff6c` était encore dans `data/symbols/` quand son
+> `GameAssembly.dll` n'existait déjà plus. Un dispositif branché sur la divergence n'archive
+> rien. On archive donc le **présent**, pour qu'il survive à sa propre sortie.
+>
+> **L'axe 6 de `symbols_sync.py` le réclame tout seul** (hook `SessionStart`) et s'éteint dès
+> que c'est fait. Rattrapage d'un build déjà disparu, tant que son projet Ghidra vit :
+> `fingerprint_functions.py archiver --build <HASH> --depuis-ghidra`.
+> Détail : `docs/rl/case-482-r3-archiver-avant-la-disparition.md`.
 
 | famille | produit par | consommé par | son diff dit |
 |---|---|---|---|

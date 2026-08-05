@@ -72,9 +72,20 @@ Un build ARCHIVE n'existe plus que comme projet Ghidra -> ses octets sont extrai
 ghidra-mcp). Les deux alimentent la MEME normalisation : un ecart mesure ne peut donc pas
 venir d'une difference de chaine d'extraction.
 
+ARCHIVER, C'EST LA MOITIE DU DISPOSITIF (#482-r3)
+-------------------------------------------------
+Les octets d'un build DISPARAISSENT : le lanceur efface `games/<HASH>/` a chaque mise a jour.
+`empreinte` calcule ; `archiver` RANGE le resultat sous `data/symbols/<build>/fingerprints/`,
+ou il est VERSIONNE et survit a tout. Le capteur qui dit ou en est chaque build --  et par
+quelle voie une archive manquante est encore recuperable -- vit dans
+`build_fingerprint_archive.py` ; il est branche sur la garde `symbols_sync.py`, elle-meme
+declenchee par le hook `SessionStart`.
+
 USAGE
     python fingerprint_functions.py empreinte --build rnca9r7q6c --pe <chemin GameAssembly.dll>
     python fingerprint_functions.py empreinte --build gqfc5mff6c --blocs logs/ghidra-dump/gqfc5mff6c
+    python fingerprint_functions.py archiver                       # le build courant, depuis son PE
+    python fingerprint_functions.py archiver --build gqfc5mff6c --depuis-ghidra
     python fingerprint_functions.py diff --avant logs/fingerprints/gqfc5mff6c.tsv \\
                                           --apres logs/fingerprints/rnca9r7q6c.tsv
 """
@@ -204,10 +215,30 @@ def charger_depuis_blocs(dossier: Path) -> ImageCode:
         raise SystemExit("ERREUR: %s introuvable (lancer GhidraDumpCodeBytes.java)" % meta)
     base = IMAGE_BASE
     img_meta = dossier / "image.meta"
+    langue = ""
     if img_meta.exists():
         for ligne in img_meta.read_text(encoding="utf-8").splitlines():
             if ligne.startswith("imageBase\t"):
                 base = int(ligne.split("\t", 1)[1].strip(), 16)
+            elif ligne.startswith("language\t"):
+                langue = ligne.split("\t", 1)[1].strip()
+    # GARDE D'ARCHITECTURE (#482-r3). `empreinter_build` desassemble en x86-64 EN DUR
+    # (`Cs(CS_ARCH_X86, CS_MODE_64)`). Sur un binaire d'une autre architecture, capstone ne
+    # leve PAS : il rend des instructions plausibles et FAUSSES, donc une empreinte
+    # silencieusement fausse -- exactement le mode de panne qu'une empreinte est censee
+    # eliminer. Le cas n'est pas theorique : le projet `ghidra_tacticus` porte un
+    # `libil2cpp.so` ANDROID (382 405 fonctions, VA a 7 chiffres, 0 symbole en `$$`), et il
+    # etait cite comme <<extractible par la meme voie>>.
+    # Une langue ABSENTE ne bloque pas : les premiers dumps n'ecrivaient pas le champ, et
+    # refuser dessus rejetterait un artefact valable. C'est le REFUS SUR PREUVE, jamais sur
+    # silence -- meme discipline que le tri-etat du capteur.
+    if langue and not langue.startswith("x86:LE:64"):
+        raise SystemExit(
+            "ERREUR: %s decrit un binaire '%s', pas du x86-64.\n"
+            "  L'empreinte structurelle desassemble en x86-64 EN DUR : sur une autre\n"
+            "  architecture capstone ne leve pas, il rend des instructions FAUSSES et\n"
+            "  l'empreinte serait silencieusement fausse. Ce build est hors du pipeline."
+            % (img_meta, langue))
     segments = []
     for ligne in meta.read_text(encoding="utf-8").splitlines():
         if ligne.startswith("#") or not ligne.strip():
@@ -474,12 +505,19 @@ COLONNES = ["va", "sym", "taille", "n_ins", "h_local", "h_body", "h_mnem", "h_ca
             "h_imm", "flags"]
 
 
-def ecrire_tsv(chemin: Path, build: str, image: ImageCode, resultats):
+def ecrire_tsv(chemin: Path, build: str, image: ImageCode, resultats, sha256: str = ""):
+    """`sha256` = celui du binaire d'origine. Il VOYAGE DANS l'artefact, comme la provenance
+    des tables Frida : un fichier range sous le mauvais build se detecte alors par son
+    CONTENU et non par son emplacement. Cote PE il est mesure par `sha256_of` ; cote build
+    archive il vient du champ `executableSHA256` qu'ecrit Ghidra dans `image.meta` -- deux
+    chaines independantes de celle qui estampille `frida/methods.tsv`, ce qui rend leur
+    accord verifiable (`build_fingerprint_archive._sha_attendu`)."""
     chemin.parent.mkdir(parents=True, exist_ok=True)
     with open(chemin, "w", encoding="utf-8", newline="\n") as f:
-        f.write("#!empreinte-structurelle\tbuild=%s\torigine=%s\tfonctions=%d\tgenere=%s\n"
+        f.write("#!empreinte-structurelle\tbuild=%s\torigine=%s\tfonctions=%d\tgenere=%s"
+                "\tsha256=%s\n"
                 % (build, image.origine, len(resultats),
-                   time.strftime("%Y-%m-%dT%H:%M:%S")))
+                   time.strftime("%Y-%m-%dT%H:%M:%S"), sha256))
         f.write("#" + "\t".join(COLONNES) + "\n")
         for r in resultats:
             f.write("%x\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n" % (
@@ -572,6 +610,33 @@ def classifier(a, b):
     return "IDENTIQUE", ""
 
 
+def sha256_du_fichier(p: Path) -> str:
+    h = hashlib.sha256()
+    with p.open("rb") as fh:
+        for bloc in iter(lambda: fh.read(1 << 20), b""):
+            h.update(bloc)
+    return h.hexdigest()
+
+
+def sha256_de_source(pe: str | None, blocs: str | None) -> str:
+    """sha256 du binaire d'ORIGINE, quelle que soit la voie d'extraction.
+
+    Voie PE     : mesure directe du fichier.
+    Voie blocs  : `image.meta:executableSHA256`, ecrit par Ghidra a l'import -- la SEULE
+                  trace de provenance qui survive a la disparition du `.dll`.
+    Rend "" si aucune des deux ne repond ; c'est a l'appelant de decider s'il refuse.
+    """
+    if pe:
+        return sha256_du_fichier(Path(pe))
+    if blocs:
+        meta = Path(blocs) / "image.meta"
+        if meta.exists():
+            for ligne in meta.read_text(encoding="utf-8").splitlines():
+                if ligne.startswith("executableSHA256\t"):
+                    return ligne.split("\t", 1)[1].strip()
+    return ""
+
+
 def cmd_empreinte(args):
     build = args.build
     if args.pe:
@@ -588,7 +653,7 @@ def cmd_empreinte(args):
     resultats = empreinter_build(build, image, entrees, par_va)
 
     sortie = Path(args.out) if args.out else (LOGS_DIR / ("%s.tsv" % build))
-    ecrire_tsv(sortie, build, image, resultats)
+    ecrire_tsv(sortie, build, image, resultats, sha256=sha256_de_source(args.pe, args.blocs))
     print("[sortie] %s" % sortie)
 
     # -- pouvoir DISCRIMINANT, mesure et non postule : combien de fonctions distinctes
@@ -699,6 +764,141 @@ def cmd_diff(args):
         print("\n-- %d PLUS GROS CHANGEMENTS (par delta d'instructions) --" % args.top)
         for s, a, b, d in sorted(changes, key=lambda t: -abs(t[1]["n_ins"] - t[2]["n_ins"]))[:args.top]:
             print("  %+5d ins  %-70s %s" % (b["n_ins"] - a["n_ins"], s[:70], d))
+    return 0
+
+
+# ===========================================================================
+# 4bis. ARCHIVER -- ranger l'empreinte la ou elle survit a la disparition du binaire
+# ===========================================================================
+def _analyze_headless() -> Path | None:
+    """`analyzeHeadless.bat`, ou None. `GHIDRA_INSTALL_DIR` prime ; sinon on cherche par GLOB
+    sous `~` -- surtout pas un numero de version en dur, qui se perimerait a la prochaine
+    mise a jour de Ghidra et ferait rendre <<introuvable>> pour une installation presente."""
+    import os
+    racine = os.environ.get("GHIDRA_INSTALL_DIR")
+    candidats = [Path(racine)] if racine else sorted(Path.home().glob("ghidra_*_PUBLIC"),
+                                                     reverse=True)
+    for c in candidats:
+        bat = c / "support" / "analyzeHeadless.bat"
+        if bat.is_file():
+            return bat
+    return None
+
+
+def _dumper_blocs_ghidra(build: str, dest: Path) -> Path:
+    """Extrait les octets d'un build ARCHIVE depuis son projet Ghidra, en `-readOnly`.
+
+    `-readOnly` + `-noanalysis` : on ne modifie JAMAIS un projet archive, et le verrou d'un
+    projet est propre a CE projet -- lancer ceci pendant que ghidra-mcp sert un AUTRE build
+    ne les met pas en concurrence (c'est ce qui a rendu la confrontation de #482 possible).
+
+    Toute impossibilite est NOMMEE et fait lever : un dump silencieusement vide produirait
+    une empreinte fausse, ce qui est pire que pas d'empreinte.
+    """
+    import subprocess
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import build_fingerprint_archive as A
+
+    projet = A.projet_ghidra(build)
+    if projet is None:
+        if not A.projets_mesurables():
+            raise SystemExit(
+                "REFUS: la racine des projets Ghidra (%s) est illisible -- recuperabilite\n"
+                "  NON MESUREE. On ne conclut pas 'perdu' d'un capteur muet."
+                % A.racine_projets_ghidra())
+        raise SystemExit(
+            "REFUS: aucun projet Ghidra 'ghidra_%s' sous %s.\n"
+            "  Le binaire a disparu et le projet aussi : les corps de ce build ne sont plus\n"
+            "  nulle part. L'empreinte n'est PAS recuperable." % (build, A.racine_projets_ghidra()))
+
+    bat = _analyze_headless()
+    if bat is None:
+        raise SystemExit(
+            "REFUS: analyzeHeadless introuvable (ni GHIDRA_INSTALL_DIR, ni ~/ghidra_*_PUBLIC).\n"
+            "  Poser GHIDRA_INSTALL_DIR, ou produire les blocs a la main puis relancer avec\n"
+            "  --blocs <dossier> :\n"
+            "    analyzeHeadless <projet> gameassembly -process GameAssembly.dll -noanalysis\n"
+            "      -readOnly -scriptPath scripts/ghidra -postScript GhidraDumpCodeBytes.java <out>")
+
+    dest.mkdir(parents=True, exist_ok=True)
+    cmd = [str(bat), str(projet), "gameassembly",
+           "-process", "GameAssembly.dll", "-noanalysis", "-readOnly",
+           "-scriptPath", str(REPO / "scripts" / "ghidra"),
+           "-postScript", "GhidraDumpCodeBytes.java", str(dest)]
+    print("[ghidra] %s (readOnly) -> %s" % (projet.name, dest))
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    if not (dest / "blocks.meta").is_file():
+        queue = (r.stdout or "")[-1500:] + (r.stderr or "")[-1500:]
+        raise SystemExit("REFUS: le dump Ghidra n'a produit aucun blocks.meta (rc=%d).\n%s"
+                         % (r.returncode, queue))
+    return dest
+
+
+def cmd_archiver(args):
+    """Calcule l'empreinte d'un build et la RANGE sous `data/symbols/<build>/fingerprints/`.
+
+    LA SOURCE SE CHOISIT TOUTE SEULE, et l'ordre porte le sens : le PE d'abord (le moins
+    cher, et c'est le regime du build COURANT -- celui qu'il faut archiver AVANT qu'il ne
+    devienne sortant), le projet Ghidra ensuite (le rattrapage d'un build deja disparu).
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import build_fingerprint_archive as A
+    from symbols_layout import current_build
+
+    build = args.build or current_build()
+    cible = A.archive_path(build)
+    if cible.is_file() and not args.force:
+        raise SystemExit(
+            "REFUS: %s existe deja.\n"
+            "  Une archive d'empreinte est une ENTREE, pas une sortie de run : on ne la\n"
+            "  recalcule pas par habitude. --force pour l'ecraser volontairement."
+            % cible.relative_to(REPO).as_posix())
+
+    pe = blocs = None
+    if args.blocs:
+        blocs = args.blocs
+    elif args.depuis_ghidra:
+        blocs = str(_dumper_blocs_ghidra(build, REPO / "logs" / "ghidra-dump" / build))
+    else:
+        from il2cpp_provenance import GAMES_DIR
+        cand = GAMES_DIR / build / "GameAssembly.dll"
+        if cand.is_file():
+            pe = str(cand)
+        else:
+            etat = A.etat_archive(build)
+            raise SystemExit(
+                "REFUS: pas de GameAssembly.dll pour '%s' sous %s.\n"
+                "  etat mesure : %s -- %s\n"
+                "  Voie de rattrapage : --depuis-ghidra (ou --blocs <dossier>)."
+                % (build, GAMES_DIR, etat.etat, etat.detail))
+
+    image = charger_depuis_pe(Path(pe)) if pe else charger_depuis_blocs(Path(blocs))
+    print("[image] %s" % build)
+    print(image.resume())
+
+    sha = sha256_de_source(pe, blocs)
+    if not sha:
+        raise SystemExit(
+            "REFUS: sha256 du binaire d'origine introuvable -- l'archive serait de\n"
+            "  PROVENANCE INCONNUE, donc invalidable. Voie PE : le fichier lui-meme ;\n"
+            "  voie blocs : le champ executableSHA256 de image.meta (re-dumper avec\n"
+            "  GhidraDumpCodeBytes.java a jour).")
+
+    entrees, par_va = charger_functions_tsv(build)
+    print("[symboles] %d entrees dans functions.tsv" % len(entrees))
+    resultats = empreinter_build(build, image, entrees, par_va)
+    ecrire_tsv(cible, build, image, resultats, sha256=sha)
+
+    etat = A.etat_archive(build)
+    print("[archive] %s" % cible.relative_to(REPO).as_posix())
+    print("[verdict] %s -- %s" % (etat.etat, etat.detail))
+    if etat.etat != A.ARCHIVEE:
+        print("ECHEC: l'archive vient d'etre ecrite et le capteur la refuse deja.")
+        return 1
+    print("[git]     git add %s" % cible.relative_to(REPO).as_posix())
+    print("          Une archive non COMMITEE n'est protegee par RIEN : `git clean` et un")
+    print("          `worktree remove --force` l'effacent sans trace.")
     return 0
 
 
@@ -916,6 +1116,15 @@ def main(argv=None):
     e.add_argument("--functions", help="functions.tsv explicite (defaut: data/symbols/<build>/...)")
     e.add_argument("--out", help="TSV de sortie (defaut: logs/fingerprints/<build>.tsv)")
     e.set_defaults(fn=cmd_empreinte)
+
+    a = sub.add_parser("archiver",
+                       help="calcule l'empreinte et la RANGE sous data/symbols/<build>/fingerprints/")
+    a.add_argument("--build", help="defaut : le build courant (data/symbols/CURRENT)")
+    a.add_argument("--depuis-ghidra", action="store_true",
+                   help="build deja disparu : extraire ses octets de son projet Ghidra")
+    a.add_argument("--blocs", help="reutiliser un dump de blocs deja produit")
+    a.add_argument("--force", action="store_true", help="ecraser une archive existante")
+    a.set_defaults(fn=cmd_archiver)
 
     d = sub.add_parser("diff", help="compare deux empreintes")
     d.add_argument("--avant", required=True)

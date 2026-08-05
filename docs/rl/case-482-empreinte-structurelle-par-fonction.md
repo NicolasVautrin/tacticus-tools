@@ -100,7 +100,13 @@ rnca9r7q6c :  if (*(void **)((longlong)this + 0x2f8) != 0)
 **Le binaire d'un build archivé existe encore** : le `.dll` est effacé par la mise à jour, mais
 `ghidra-projects/ghidra_<hash>/` le conserve. `analyzeHeadless` l'ouvre **indépendamment du
 serveur ghidra-mcp** (projets distincts, locks distincts) — c'est ce qui rend la confrontation
-inter-builds possible. Deux autres projets existent (`kqkbjqfb6c`, `tacticus`).
+inter-builds possible.
+
+> ⚠ **Deux autres projets existent, et ils ne sont PAS équivalents** (mesuré par #482-r3) :
+> `kqkbjqfb6c` est bien un build Windows symbolisé en `$$` (145 486 fonctions, 121 933 en `$$`)
+> — **désormais archivé** ; `tacticus` est un `libil2cpp.so` **ANDROID** (`AARCH64:LE:64:v8A`,
+> 382 405 fonctions, **0 en `$$`**), hors du pipeline. La phrase ci-dessus les mettait sur le
+> même plan.
 
 ```powershell
 python fingerprint_functions.py empreinte --build rnca9r7q6c --pe <GameAssembly.dll>
@@ -110,7 +116,20 @@ python fingerprint_functions.py diff --avant logs/fingerprints/gqfc5mff6c.tsv \
 python fingerprint_functions.py impact --diff <tsv>        # ce qui touche nos ports
 ```
 
-Coût : **~135 s par build** (154 176 fonctions). Sorties dans `logs/` — **jamais** `data/`.
+Coût : **~70 à 85 s par build** (154 176 fonctions ; les 135 s annoncées ici ont été re-mesurées
+trois fois par #482-r3, sur trois builds). Les sorties de TRAVAIL vont dans `logs/`.
+
+> ⚠ **L'ARCHIVE, elle, va dans `data/`** — et cette fiche disait l'inverse (« jamais `data/` »).
+> Une empreinte de build est une **ENTRÉE** : produite une fois, jamais re-dérivable après la
+> disparition du binaire, relue pendant des mois. Mesure qui a tranché : les empreintes calculées
+> par cette tranche-ci ont **disparu avec le worktree** de leur auteur, et `logs/fingerprints/`
+> était **absent de l'arbre principal** quelques heures plus tard.
+>
+> ```powershell
+> python scripts/python/fingerprint_functions.py archiver   # -> data/symbols/<build>/fingerprints/
+> ```
+>
+> Détail : `docs/rl/case-482-r3-archiver-avant-la-disparition.md`.
 
 ## 5. La garde — `probe_482`, 5 étages, `a_mordu` séparé du verdict
 
@@ -133,6 +152,13 @@ connu ; il rougit seulement si la limite s'agrandit.
   de symboles de données par build ; `functions.tsv` ne contient que des fonctions.
 - **`#482-r2`** — les **1 160** changements à corps partagé ne sont pas départageables par le nom.
   Un appariement par **empreinte** (et non par nom) les trancherait.
-- **`#482-r3`** — l'outil n'est **pas encore branché** sur la procédure de migration de build
-  (skill `tacticus-orchestration`), où il a sa place à côté de `symbols_sync.py`.
+- ~~**`#482-r3`**~~ — **FERMÉ** : l'outil est branché sur `symbols_sync.py` (axe 6, hook
+  `SessionStart`), les trois builds Windows sont archivés sous `data/symbols/<b>/fingerprints/`.
+  Le renversement qui a fait la tranche : le déclencheur n'est **pas** la divergence de build
+  (elle arrive après la disparition du binaire) mais « le build **COURANT** a-t-il déjà son
+  empreinte ? ». Fiche : `docs/rl/case-482-r3-archiver-avant-la-disparition.md`.
 - **`#482-r4`** — `FUN_*` (≈15 %) et symboles ambigus (≈4 %) restent hors appariement.
+- **`#482-r5`** — `data/symbols/kqkbjqfb6c/` est **partiel** (pas de tables `frida/` : le build
+  n'existe plus), donc son sha256 n'est croisé par aucune seconde source. Le capteur le dit
+  (`sha256 NON CROISE`) ; reste à décider si un répertoire partiel doit porter une marque.
+- **`#482-r6`** — `ghidra_tacticus` (Android) est conservé sans que rien ne dise à quoi il sert.
