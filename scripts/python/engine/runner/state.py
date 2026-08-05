@@ -264,7 +264,7 @@ class State:
         # Execute` n'applique PAS la mort : il pose `UnitFlag.PendingDeath (0xf)`, appelle
         # `IdunBattle.Core.MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger,
         # AttackRangeType)` -- qui ENQUEUE -- puis publie `On(PendingDeathAdded = 3)`. La file n'est
-        # DRAINEE que par `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (`RunPhase(0xc)` ->
+        # DRAINEE que par `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (`RunPhase(PhaseType.ProcessDeaths /*0xc*/)` ->
         # lambda `<VerifyDeaths>b__0` -> `Core.Services.OperationProcessor$$KillUnit` ->
         # `IdunBattle.Operations.KillUnitOperation$$Execute`), UNE mort a la fois, tant que la file
         # n'est pas vide. Cote port, les deux foyers sont
@@ -311,7 +311,7 @@ class State:
         self.pending_triggered_abilities: list = []
         # Re-entrance du drain, meme forme que `draining_deaths` : le natif SNAPSHOTE la file dans une
         # `List<T>` puis `Queue.Clear()` AVANT d'iterer, et chaque item tourne dans un
-        # `RunPhase(0xf, ..., isInternalPhase: 1)` qui RE-DRAINE la file. Le traitement est donc par
+        # `RunPhase(PhaseType.ProcessPendingTriggeredAbilities /*0xf*/, ..., isInternalPhase: 1)` qui RE-DRAINE la file. Le traitement est donc par
         # VAGUES (une ability enfilee pendant le drain part a la vague suivante), pas en FIFO plat.
         self.draining_pending_abilities: bool = False
         # #363 -- TRACE du canal du seed TERTIAIRE (`snapshot._auto_ability_states`), pose par

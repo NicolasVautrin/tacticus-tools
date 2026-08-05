@@ -229,6 +229,15 @@ REGISTRE: list[Mirror] = [
     # qui tranche, l'ordinal `6` etant un membre valide de dizaines d'autres enums du build.
     Mirror("EffectTargetType", "engine/entities/effect_target_type.py",
            "IdunBattle.Entities.Enum.EffectTargetType"),
+    # #477-r24 : le mirror NEUF de la tranche, inscrit DANS LE COMMIT QUI LE CREE. Il n'existe
+    # que parce que l'ordinal NU s'etait fait attribuer trois fois de suite au mauvais artefact :
+    # `RunPhase(0xd)` -- jamais `RunPhase(PhaseType.ProcessRemovals /*0xd*/)` -- a ete lu comme
+    # un `GroupType` a trois crans du deroule #477, puis comme la
+    # phase de `Core.Services.OperationProcessor$$ReviveUnit` par `revive.py`/`damage.py`. Cle LUE
+    # dans `enums.tsv` -- le namespace est `IdunBattle.Core`, pas `IdunBattle.Streams`, alors meme
+    # que le mirror vit sous `engine/streams/` (comme `BEntityId`, meme namespace natif).
+    Mirror("PhaseType", "engine/streams/phase_type.py",
+           "IdunBattle.Core.PhaseType"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune

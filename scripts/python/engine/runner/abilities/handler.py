@@ -264,7 +264,7 @@ class AbilityHandler:
                 AddBattleReporterDataForRejectedActiveAbilityMessage(...);   // INLINE ; ne loggue
                 return;                                                       // QUE le caster mort
             }
-            RunPhase(6, () => {                       // <- rien de tout ceci n'est atteint
+            RunPhase(PhaseType.ActiveAbility /*6*/, () => {                       // <- rien de tout ceci n'est atteint
                 streamHelper.OpenGroup(0xc User_UseAbility, casterId, abilityType, targetId);
                 operationProcessor.ActiveAbility(caster, target, abilityType, options);
                 streamHelper.CloseGroup();

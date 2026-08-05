@@ -380,7 +380,6 @@ class RadBombardmentAbility(ActiveAbility):
         # la MainTile partout ou il l'utilise en domaine tuile (meme convention que PlagueburstMortar).
         aim = int(target_id) if int(target_id) in board.by_id else None
         if aim is None:
-            from ..components import PositionComponent
             te = state.get_entity(target_id)
             tpc = te.get_component(PositionComponent) if te is not None else None
             aim = board.id_at(tpc.col, tpc.row) if tpc is not None else None

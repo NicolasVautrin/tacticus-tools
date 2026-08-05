@@ -130,9 +130,10 @@ def _place(env, st, ally_uid, dist):
 
 def _kill(env, st, ally_uid, overkill=False):
     """Mirror de la sequence de `IdunBattle.Operations.KillUnitOperation$$Execute` : `On(1)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc PUIS la
-    GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e (`kill_unit_revive_gate`) qui draine la `ReviveData` posee par la feuille
-    `Revive` (phase `RunPhase(0xd)` de `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths`). Sans la garde, la feuille ne fait que
-    POSER : rien ne serait applique (RE case-89 volet C)."""
+    GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e (`kill_unit_revive_gate`) dont la branche `else` consomme la
+    `ReviveData` posee par la feuille `Revive` -- DANS `KillUnitOperation$$Execute`, PAS dans une
+    phase (#477-r24 : `RunPhase(PhaseType.ProcessRemovals /*0xd*/)` draine les RETRAITS).
+    Sans la garde, la feuille ne fait que POSER : rien ne serait applique (RE case-89 volet C)."""
     _hc(st, ally_uid).hp = 0
     _uc(st, ally_uid).alive = False
     out = after_death_triggers(st, dying_id=ally_uid, killer_id=env["ids"]["dr"], overkill=overkill)

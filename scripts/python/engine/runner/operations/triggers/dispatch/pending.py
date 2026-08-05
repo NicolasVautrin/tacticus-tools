@@ -18,7 +18,7 @@ Chaine LUE de bout en bout sur `rnca9r7q6c` :
         if q.Count > 0:
             items = new List<T>(q) ; q.Clear()     # SNAPSHOT puis CLEAR, avant toute execution
             foreach it in items:
-                RunPhase(0xf, <b__0(it)>, isInternalPhase: 1, 0)
+                RunPhase(PhaseType.ProcessPendingTriggeredAbilities /*0xf*/, <b__0(it)>, isInternalPhase: 1, 0)
 
     IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass51_0$$u003CProcessPendingTriggeredAbilitiesu003Eb__0
         entity = state.<slot 0x29>(it.entityId)
@@ -156,7 +156,7 @@ def process_pending_triggered_abilities(state: State) -> list[dict]:
 
     SNAPSHOT + CLEAR avant d'iterer, exactement comme le natif (`new List<T>(q)` puis
     `q.Clear()`) : une ability enfilee PENDANT le drain n'est pas vue par CETTE vague. Le natif
-    la rattrape parce que chaque item tourne dans un `RunPhase(0xf, ..., isInternalPhase: 1)`
+    la rattrape parce que chaque item tourne dans un `RunPhase(PhaseType.ProcessPendingTriggeredAbilities /*0xf*/, ..., isInternalPhase: 1)`
     qui RE-DRAINE la file en fin de course ; le port reproduit ce rattrapage par la boucle
     `while` ci-dessous (memes vagues, meme ordre).
 

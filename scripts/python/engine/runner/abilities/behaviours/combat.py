@@ -245,7 +245,6 @@ class AttackWithAttackDamage(AbilityBehaviour):
         for tu in targets:
             tgt = tu.get("id")
             if self.amount is not None:                    # degat-node Direct(StatAmount/PercentageOf) (Psyker/Fire)
-                from ..base import profile_pierce
                 base = int(self.amount.evaluate(entities))  # Fix64 mirror (entities.get_stat -> StatAmount)
                 ce = state.get_entity(caster)
                 csc = ce.get_component(StatsComponent) if ce is not None else None

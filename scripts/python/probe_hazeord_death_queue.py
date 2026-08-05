@@ -10,9 +10,14 @@ ARTEFACTS NATIFS (decompile, build `gqfc5mff6c`) :
         -> IdunBattle.Core.MatchState$$AddDeath          # ENQUEUE (la file `MatchState+...`)
         -> On(PendingDeathAdded = 3)
     IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths
-        RunPhase(0xc) -> <VerifyDeaths>b__0 -> Core.Services.OperationProcessor$$KillUnit
+        RunPhase(PhaseType.ProcessDeaths /*0xc*/) -> <VerifyDeaths>b__0
+                      -> Core.Services.OperationProcessor$$KillUnit
                       -> IdunBattle.Operations.KillUnitOperation$$Execute   # DRAINE
-        RunPhase(0xd) -> IdunBattle.Operations.ReviveUnitOperation$$Execute
+                         `-> branche `else` de la garde `pendingRevive.HasValue` :
+                             Core.Services.OperationProcessor$$ReviveUnit
+                             -> IdunBattle.Operations.ReviveUnitOperation$$Execute
+        RunPhase(PhaseType.ProcessRemovals /*0xd*/) -> <VerifyRemovedUnits>b__0   # les RETRAITS,
+                      PAS le revive (#477-r24 ; cf. `engine/streams/phase_type.py`)
 
 Le port COLLAPSE l'enqueue et le drain dans `AttackDamageOperation._fire_death_if_killed`, appelee a
 CHAQUE `AttackDamage`. Les N `AttackDamage` d'un `Attack(...)` UNIQUE (ici les N reports de

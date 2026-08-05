@@ -305,9 +305,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         ⇒ **un REVIVE posé pendant `On(PreUnitDeath)` COURT-CIRCUITE `On(PreUnitDeath_2)`, `On(UnitDeath)`, `On(UnitDefeated)`, `On(PostUnitKill)`**, ainsi
         que `RegisterDefeatedUnit`, `Remove(flag 0xf)` / `Add(flag 6)` et `RemoveEffects`. Vérifié à la
         profondeur d'accolades du décompilé : `On(PreUnitDeath)` est au niveau 7, les quatre autres au niveau 9,
-        et il n'y a AUCUN `else`. Le port applique donc la garde ci-dessous (`kill_unit_revive_gate`),
-        qui draine aussi le revive — mirror de la phase `RunPhase(0xd)` de `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths`,
-        qui suit la phase de kill `RunPhase(0xc)`."""
+        et AUCUN de ces cinq vecteurs n'a de contrepartie dans la branche `else`.
+
+        ⚠ **IL Y A BIEN UN `else`, ET C'EST LUI QUI APPLIQUE LE REVIVE (#477-r24).** La branche
+        `pendingRevive.HasValue == true` appelle `Core.Services.OperationProcessor$$ReviveUnit(killed)`
+        -- DANS `IdunBattle.Operations.KillUnitOperation$$Execute` MEME, pas dans une phase ; les deux branches
+        purgent ensuite les 9 qwords `+0xa8 .. +0xe8`. Le port applique donc la garde ci-dessous
+        (`kill_unit_revive_gate`), qui applique aussi le revive : c'est le mirror de cette branche
+        `else`, PAS d'un drain de phase. **`RunPhase(PhaseType.ProcessRemovals /*0xd*/)` d'
+        `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` draine les RETRAITS** (lambda
+        `<VerifyRemovedUnits>b__0`), et aucun `IdunBattle.Core.PhaseType` ne nomme un revive --
+        cf. `engine/streams/phase_type.py` et l'entete de `revive.py`."""
         if hp_before is None or hp_before <= 0 or hp_after != 0:
             return None
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
@@ -400,7 +408,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     @staticmethod
     def _verify_deaths(state: State) -> list:
         """`IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` -- le DRAIN de la file remplie par
-        `MatchState.AddDeath` : `RunPhase(0xc)` -> lambda `IdunBattle.Messages.InputMessageProcessor.
+        `MatchState.AddDeath` : `RunPhase(PhaseType.ProcessDeaths /*0xc*/)` -> lambda `IdunBattle.Messages.InputMessageProcessor.
         u003Cu003Ec__DisplayClass49_0$$u003CVerifyDeathsu003Eb__0` -> `Core.Services.
         OperationProcessor$$KillUnit` -> `IdunBattle.Operations.KillUnitOperation$$Execute`, **une mort
         a la fois, tant que la file n'est pas vide**.
@@ -1260,7 +1268,7 @@ class DamageHandler:
         **2 appels dans tout le binaire**, tous deux dans `Visit(ActiveAbilityMessage)` -- le CASTER
         puis la CIBLE. Aucune autre surcharge de `Visit` ne le teste : `Visit(MoveUnitMessage)`, lu
         au decompile, n'a AUCUN gate de liveness (il resout l'unite, construit la liste de tuiles et
-        entre en `RunPhase(5)`). Le gate porte donc sur UN SEUL message, sur SES DEUX bouts.
+        entre en `RunPhase(PhaseType.MoveUnit /*5*/)`). Le gate porte donc sur UN SEUL message, sur SES DEUX bouts.
 
         CE QUI SEPARE CE GATE DE CEUX D'EN DESSOUS : sur la MORT ils CONVERGENT (le gate #70
         refuse deja l'attaquant mort, `is_dead_unit_and_not_allowed_by_ability(None, ...)` deja tout
@@ -1336,7 +1344,6 @@ class DamageHandler:
             # (`Traits.Contains(0x7e7 Boss)`), threadee ici aussi -- une face qui ne connaitrait
             # qu'une PARTIE de la cascade est exactement ce que les deux tranches precedentes ont
             # ferme. Substrat d'ENTITE : `entity_trait_names` sur le `UnitContext`.
-            from ...entities.traits.unit_trait import entity_trait_names
             _asc = _ae.get_component(StatsComponent)
             _actx = getattr(_asc, "ctx", None)
             _apas = getattr(_actx, "passive_abilities", None)

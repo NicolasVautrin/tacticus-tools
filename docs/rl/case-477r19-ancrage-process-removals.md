@@ -157,15 +157,20 @@ déjà. Le mur est l'**enveloppe racine**, pas le vocabulaire.
 
 ## 6. Une lecture du port qu'il faut corriger — hors périmètre de cette tranche
 
-`engine/runner/operations/revive.py` (§ DRAIN) et `damage.py` (~l. 303) décrivent
-`RunPhase(0xd)` comme la phase qui appelle `Core.Services.OperationProcessor$$ReviveUnit`.
+`engine/runner/operations/revive.py` (§ DRAIN) et `damage.py` (~l. 303) décrivaient
+`RunPhase(PhaseType.ProcessRemovals /*0xd*/)` comme la phase qui appelle `Core.Services.OperationProcessor$$ReviveUnit`. <!-- [phase-attribution:refute] -->
 **La lambda de la phase `0xd` est `<VerifyRemovedUnits>b__0`**, et elle appelle le slot
 `RemoveUnit(unit, removeEffects, keepActive)` — trois arguments, contre **un seul** pour
 `ReviveUnit(killed)`. La phase `0xd` est celle des **retraits**.
 
 Non corrigé ici : ces fichiers portent la mécanique ECS du revive, pas la face stream, et leur
-comportement n'est pas en cause — seule l'attribution du numéro de phase l'est. → `#477-r19-r2`
-en porte la mention ; à trancher par qui touchera ce foyer.
+comportement n'est pas en cause — seule l'attribution du numéro de phase l'est.
+
+→ **CORRIGÉ depuis, par `#477-r24`** (dispatché sous l'étiquette `#477-r19-r2`, numéro déjà pris
+par le résidu `Effect_Refresh` ci-dessous). La correction va plus loin que le renommage :
+`ReviveUnit` n'a **aucune** phase — son unique site d'invocation est la branche `else` de la garde
+`pendingRevive.HasValue`, dans `IdunBattle.Operations.KillUnitOperation$$Execute`.
+cf. `docs/rl/case-477r24-le-revive-na-pas-de-phase.md`.
 
 ## Résidus
 

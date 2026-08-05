@@ -11,8 +11,12 @@ Deux artefacts natifs, l'un ENQUEUE, l'autre DRAINE :
         -> IdunBattle.Core.MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger, range)
         -> On(PendingDeathAdded = 3)
     IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths
-        RunPhase(0xc) -> IdunBattle.Operations.KillUnitOperation$$Execute   # On(1)/(2)/(0)/(55)
-        RunPhase(0xd) -> IdunBattle.Operations.ReviveUnitOperation$$Execute
+        RunPhase(PhaseType.ProcessDeaths /*0xc*/) -> IdunBattle.Operations.KillUnitOperation$$Execute   # On(1)/(2)/(0)/(55)
+                         `-> branche `else` de la garde `pendingRevive.HasValue` :
+                             Core.Services.OperationProcessor$$ReviveUnit
+                             -> IdunBattle.Operations.ReviveUnitOperation$$Execute
+        RunPhase(PhaseType.ProcessRemovals /*0xd*/) -> <VerifyRemovedUnits>b__0   # les RETRAITS,
+                      PAS le revive (#477-r24 ; cf. `engine/streams/phase_type.py`)
 
 Le port collapsait les deux dans `AttackDamageOperation._fire_death_if_killed`, appelee a CHAQUE
 `AttackDamage` : les N feuilles d'un `IdunBattle.Entities.Behaviours.AttackBehaviour` UNIQUE

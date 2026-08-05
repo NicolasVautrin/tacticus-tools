@@ -1249,7 +1249,6 @@ class BigTargetAdjacentEffect(BaseEffect):
         op, tp = c.get("owner_pos"), c.get("t_pos")
         if not op or not tp:
             return None
-        import hexgeo                       # ring-1 HEX (parité validée vs boardGraph)
         if hexgeo.distance(op, tp) != 1:
             return None
         return for_addition(True, -1)       # Direct(-1) IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack
@@ -1309,7 +1308,6 @@ class AstartesBannerExtraHitEffect(BaseEffect):
         op, ap = c.get("owner_pos"), c.get("att_pos")
         if not op or not ap:
             return None
-        import hexgeo
         rng = ability_var("AstartesBanner", "range", is_constant=True)   # ConfigConst 0x16 (=2)
         if hexgeo.distance(op, ap) > int(rng if rng else 2):             # SurroundingFriends(range)
             return None

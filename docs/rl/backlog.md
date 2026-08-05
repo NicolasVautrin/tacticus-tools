@@ -2643,19 +2643,48 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   meme les 5 enfants directs ont un CONTENU (`ActivateEffect` / `ReceiveEffect` + `Effect_Id`, des
   ids d'entite ECS d'effet) qui n'est pas produit. La racine est NECESSAIRE, pas SUFFISANTE.
   Le vrai cout est nomme et chiffre au residu **#477-r21**.
-  PORTE AUSSI une correction d'attribution : `revive.py` et `damage.py` decrivent `RunPhase(0xd)`
-  comme la phase de `ReviveUnit` ; la lambda de `0xd` est `<VerifyRemovedUnits>b__0` et appelle
-  `RemoveUnit(unit, removeEffects, keepActive)` (3 arguments, contre 1 pour `ReviveUnit(killed)`).
-  ⚠ CONFIRME PAR LE NOM (#477-r20) : `data/symbols/<build>/frida/enums.tsv` donne
-  `IdunBattle.Core.PhaseType` `12=ProcessDeaths, 13=ProcessRemovals, 14=ProcessDamageEvents` --
-  aucun `PhaseType` ne nomme un revive. Il ne reste qu'a REECRIRE les deux commentaires.
-  cf. `docs/rl/case-477r19-ancrage-process-removals.md` sec. 5 et 6, et
-  `docs/rl/case-477r20-start-match.md` sec. 4 et 6.
   ⚠ **LE CHEMIN COMPLET EST PORTE DEPUIS #477-r21, ET IL NE SUFFIT TOUJOURS PAS.** Les
   `Ability_Power` / `Effect_Refresh` du bloc 1 de `System_StartMatch` sont reproduits a
   l'EGALITE BRUTE (363/447, 392/491, 131/131 lignes ; 34/36/12 `Effect_Refresh`) -- mais
   **0 AUTONOME**, mesure, parce que les VALEURS qu'ils portent viennent encore de l'oracle
   (ids d'entite d'effet, selection, ordre). cf. `docs/rl/case-477r21-arbre-activation.md` sec. 5.
+  ⚠ LA CORRECTION D'ATTRIBUTION QUI ETAIT ANNONCEE ICI EST LIVREE PAR **#477-r24** (elle avait ete
+  dispatchee sous l'etiquette `#477-r19-r2`, deja prise par CE residu). Elle allait plus loin que
+  « reecrire deux commentaires » : `ReviveUnit` n'a AUCUNE phase -- son unique site d'invocation
+  est la branche `else` de la garde `pendingRevive.HasValue`, dans
+  `IdunBattle.Operations.KillUnitOperation$$Execute` meme. Mirror `PhaseType`, 24 ordinaux de phase
+  nommes, cliquet `probe_477r24_phase_attribution.py`.
+  cf. `docs/rl/case-477r24-le-revive-na-pas-de-phase.md`.
+
+- **#477-r24-r1 : le mapping slot d'interface -> methode de `Core.Services.IOperationProcessor`
+  n'est pas derivable, il est reconstruit par recoupement -- et DEUX lectures se contredisent.**
+  `[opus]`
+  Les methodes d'une INTERFACE n'ont aucun corps, donc aucune ligne dans `frida/methods.tsv`
+  (indexee par adresse) : l'ordre des slots ne se lit nulle part hors metadata. #477-r24 a mesure
+  un decalage slot->classe **local** de 12 dans la zone 96-99, sur TROIS ancrages concordants
+  (`HealBehaviour$$Execute` slot 0x57 -> `HealUnit`, 6 args ; `<VerifyDeaths>b__0` slot 0x60 ->
+  `KillUnit`, 3 args ; slot 0x61 -> `DestroyMachine`, 2 args), et de **0** a la position 38
+  (`AddTraitBehaviour$$Execute` slot 0x26 -> `AddTrait`, 3 args). `case-477r20` affirme de son cote
+  `ContinueTurnPhase` au slot 0x16 pour la position 26 et `VerifyAutomaticTurnEnd` au slot 0x20
+  pour la position 134 : **incompatible** avec les trois ancrages ci-dessus. Une des deux lectures
+  est fausse, et rien ne dit laquelle.
+  CE QU'IL FAUDRAIT : dumper `Il2CppClass.interfaceOffsets` + la table de methodes de l'interface
+  (une passe Frida), ou balayer tous les call-sites par ARITE pour reconstruire l'ordre.
+  RETOURNEMENT : un dump qui rend l'ordre des slots -- les deux lectures deviennent verifiables
+  d'un `diff`. Aucune conclusion de #477-r24 n'en depend (le slot 99 = `ReviveUnit` est verrouille
+  par l'arite de ses voisins immediats : 110 = `RecordKill` 3 args, 112 = `ResurrectUnit` 6 args).
+  cf. `docs/rl/case-477r24-le-revive-na-pas-de-phase.md` sec. 3 et Residus.
+
+- **#477-r24-r2 : l'attribution du slot `0x55` de `<VerifyRemovedUnits>b__0` n'est pas reproduite.**
+  `[opus]`
+  `case-477r19` sec. 4 le lit comme `RemoveUnit(unit, removeEffects, keepActive)`. Avec le decalage
+  de 12 mesure par #477-r24, le slot 85 tomberait sur la position 97 (`RotateUnit`), qui n'a aucun
+  sens dans une phase de RETRAITS -- le decalage y est donc plus petit, sans que #477-r24 ait pu le
+  fixer. `DRAIN_MESURE[ProcessRemovals] = {RemoveUnit}` du cliquet reprend la lecture de #477-r19
+  telle quelle : si elle est fausse, le cliquet garde une table fausse (mais il ne rougirait a tort
+  que sur un site citant la VRAIE operation).
+  Meme dependance et meme parade que **#477-r24-r1**.
+  cf. `docs/rl/case-477r24-le-revive-na-pas-de-phase.md` sec. Residus.
 
 - **#477-r21-r1 : les formes `ChangeStats` / `ChangeAbility` du bloc 1 de `System_StartMatch`.**
   `[opus]`

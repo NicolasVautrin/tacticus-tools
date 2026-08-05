@@ -18,14 +18,32 @@ La feuille DSL `Revive` NE MUTE RIEN. Le sous-systeme est en DEUX TEMPS, articul
                la mort est DANS ce bloc (verifie a la profondeur d'accolades : `On(PreUnitDeath)` @depth 7,
                `On(PreUnitDeath_2)`/`On(UnitDeath)`/`On(UnitDefeated)`/`On(PostUnitKill)` @depth 9). Un revive POSE pendant `On(PreUnitDeath)`
                **ANNULE la mort** -- cf. `damage.py::_fire_death_if_killed`.
-  3. DRAIN     `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` lance DEUX phases : `RunPhase(0xc)`
-               (les kills, lambda `<VerifyDeaths>b__0 IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass49_0$$u003CVerifyDeathsu003Eb__0` -> `KillUnit` slots 0x60/0x61) PUIS
-               `RunPhase(0xd)` sur la 2e liste de requete -> `Core.Services.OperationProcessor$$ReviveUnit`
-               -> `IdunBattle.Operations.ReviveUnitOperation$$Execute` (ICI) qui LIT la `ReviveData`, applique, et
-               REMET LES 9 QWORDS A 0 @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+.
+  3. APPLICATION `IdunBattle.Operations.KillUnitOperation$$Execute`, DANS LA MEME FONCTION que la garde du cran 2 :
+               la branche `else` de ce `if (!pendingRevive.HasValue)` appelle
+               `Core.Services.OperationProcessor$$ReviveUnit(killed)` -> `IdunBattle.Operations.ReviveUnitOperation$$Execute`
+               (ICI) qui LIT la `ReviveData`, applique, et REMET LES 9 QWORDS A 0
+               @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+.
 
-Le port COLLAPSE 2+3 au meme endroit (`kill_unit_revive_gate`, appelee par `_fire_death_if_killed`
-juste apres `On(PreUnitDeath)`) : c'est l'ordre observable natif (la phase 0xd suit la phase 0xc).
+Le port met donc 2 et 3 au meme endroit (`kill_unit_revive_gate`, appelee par `_fire_death_if_killed`
+juste apres `On(PreUnitDeath)`) parce que LE NATIF LES Y MET : ce n'est pas un collapse, c'est la
+structure lue.
+
+⚠ **LE REVIVE N'A AUCUNE PHASE, ET C'EST UN RESULTAT MESURE** (#477-r24). Trois tranches ont
+ecrit ici que le cran 3 etait le drain de `RunPhase(PhaseType.ProcessRemovals /*0xd*/)`
+d'`IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths`.
+C'est faux, et trois voies INDEPENDANTES le disent :
+  * `data/symbols/<CURRENT>/frida/enums.tsv` NOMME l'enum -- `IdunBattle.Core.PhaseType` =
+    `0=StartBattle, ..., 12=ProcessDeaths, 13=ProcessRemovals`. **Aucun membre ne nomme un revive**
+    (mirror : `engine/streams/phase_type.py`) ;
+  * la lambda passee a `RunPhase(PhaseType.ProcessRemovals /*0xd*/)` est
+    `IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass50_0$$u003CVerifyRemovedUnitsu003Eb__0`,
+    qui vide la file des RETRAITS -- `VerifyDeaths` en inline le corps d'`IdunBattle.Messages.InputMessageProcessor$$VerifyRemovedUnits` ;
+  * `Core.Services.OperationProcessor$$ReviveUnit(killed)` n'a AUCUNE xref CODE dans le binaire
+    (ses deux seules xrefs sont des entrees DATA de tables de methodes) : son unique site
+    d'invocation est la branche `else` du cran 3 ci-dessus.
+⇒ le revive s'execute SYNCHRONIQUEMENT dans le kill, donc dans la phase de l'action qui a PROVOQUE
+ce kill -- `PhaseType.ProcessDeaths` quand le kill vient du drain de `VerifyDeaths`, mais tout
+aussi bien `PhaseType.Damage` ou `PhaseType.ActiveAbility` quand `KillUnit` est appele en ligne.
 
 --------------------------------------------------------------------------------------------------
 `IdunBattle.Operations.ReviveUnitOperation$$Execute` (mutateur ECS IMPERATIF, mirror ci-dessous)
@@ -275,8 +293,11 @@ class ReviveUnitOperation:
 
 
 def kill_unit_revive_gate(state: State, unit_id: int) -> Optional[dict]:
-    """**GARDE de `KillUnitOperation.Execute` @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e** + DRAIN de la phase `RunPhase(0xd)` de
-    `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths`, fondus (le port collapse le pump FIFO natif, cf. `dispatch.py`).
+    """**GARDE de `KillUnitOperation.Execute` @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e**, et son
+    unique consequence : l'appel a `Core.Services.OperationProcessor$$ReviveUnit(killed)` dans la
+    branche `else` de cette meme garde. LES DEUX SONT DANS LA MEME FONCTION NATIVE -- il n'y a rien
+    a fondre ici, et surtout AUCUNE PHASE (#477-r24 : `RunPhase(PhaseType.ProcessRemovals /*0xd*/)`
+    draine les RETRAITS, cf. l'entete du module).
 
     A appeler JUSTE APRES `On(PreUnitDeath = 1)` et AVANT `On(PreUnitDeath_2 = 2)` :
       * renvoie `None`  -> `pendingRevive.HasValue == false` : la garde PASSE, la mort CONTINUE
@@ -288,7 +309,8 @@ def kill_unit_revive_gate(state: State, unit_id: int) -> Optional[dict]:
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None or uc.pending_revive is None:
         return None                                     # garde franchie -> la mort suit son cours
-    return ReviveUnitOperation.execute(state, unit_id)   # phase 0xd : le revive est applique
+    # branche `else` de la garde : `processor.ReviveUnit(killed)`, DANS `KillUnitOperation$$Execute`.
+    return ReviveUnitOperation.execute(state, unit_id)
 
 
 def reset_revive_gates(state: State) -> None:

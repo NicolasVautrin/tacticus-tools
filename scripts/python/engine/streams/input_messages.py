@@ -182,7 +182,7 @@ def verify_removed_units(events: StreamDispatcher, match_entity_id: int,
         if (state.<HasRunningPhase-like>() && phases > 1) return;
         if (deaths != null) {
             if (deaths.Count > 0) {
-                RunPhase(PhaseType.<0xc>, <VerifyDeaths>b__0, isInternalPhase: true, false);
+                RunPhase(PhaseType.ProcessDeaths /*0xc*/, <VerifyDeaths>b__0, isInternalPhase: true, false);
                 processor.<slot 0x8e>();
             }
             if (phases > 1) return;
@@ -190,7 +190,7 @@ def verify_removed_units(events: StreamDispatcher, match_entity_id: int,
             var queue = state.<les acteurs retires>;             // `MatchState$$AddRemovedActor`
             if (queue != null) {
                 if (queue.Count < 1) return;
-                RunPhase(PhaseType.<0xd>, <VerifyRemovedUnits>b__0, isInternalPhase: true, false);
+                RunPhase(PhaseType.ProcessRemovals /*0xd*/, <VerifyRemovedUnits>b__0, isInternalPhase: true, false);
             }
         }
 

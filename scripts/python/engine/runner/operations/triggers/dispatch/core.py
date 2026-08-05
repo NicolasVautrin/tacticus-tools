@@ -159,7 +159,7 @@ def _owner_gate_applies(entry) -> bool:
 
 def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
     """Mirror COLLAPSÉ du PUMP FIFO natif (#201) — `IdunBattle.Operations.EvaluateTriggerOperation$$ExecuteInternal`
-    (dispatch) + `IdunBattle.Messages.InputMessageProcessor$$ProcessPendingTriggeredAbilities` (drain) + `IdunBattle.Messages.InputMessageProcessor$$RunPhase(0xf)`
+    (dispatch) + `IdunBattle.Messages.InputMessageProcessor$$ProcessPendingTriggeredAbilities` (drain) + `IdunBattle.Messages.InputMessageProcessor$$RunPhase(PhaseType.ProcessPendingTriggeredAbilities /*0xf*/)`
     (item) + `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (retrait-des-morts entre items), fondus en UNE boucle.
 
     Structure native (RE) :
@@ -167,7 +167,7 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
          CET event) → `EvaluateAbilityOrEffectTrigger` par entrée → **ENFILE** un pending triggered-ability
          (file #5) — il n'EXÉCUTE PAS inline.
       2. `ProcessPendingTriggeredAbilities` : **SNAPSHOT** la file #5 dans une List + **`Queue.Clear`**, puis
-         `foreach` item → `RunPhase(0xf, item)`. Chaque `RunPhase` = callback (le behaviour de l'item) PUIS
+         `foreach` item → `RunPhase(PhaseType.ProcessPendingTriggeredAbilities /*0xf*/, item)`. Chaque `RunPhase` = callback (le behaviour de l'item) PUIS
          `VerifyDeaths` PUIS `ProcessDamageEvents` PUIS `ProcessPendingTriggeredAbilities` (cascade imbriquée).
          => les morts causées par l'item N sont RETIRÉES avant l'item N+1.
 
@@ -175,7 +175,7 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
       - `registry` = liste MATÉRIALISÉE une fois = le SNAPSHOT (mirror du snapshot+Clear : les effets/traits
         ajoutés PENDANT le drain n'entrent pas dans CE registre).
       - la boucle draine le snapshot en ordre FIFO ; le **re-appel de `matches` par item** (contre l'état
-        COURANT) = la re-validation de cible du `RunPhase(0xf)` (un item tué par un item antérieur ne matche
+        COURANT) = la re-validation de cible du `RunPhase(PhaseType.ProcessPendingTriggeredAbilities /*0xf*/)` (un item tué par un item antérieur ne matche
         plus — cf. la leg target-validity `OverwatchAutoAttack.matches`, alive du mover).
       - les morts sont appliquées **INLINE** par `_fire_death_if_killed` (alive=False + `after_death_triggers`
         LIFO) DANS `execute_behaviour` = le `VerifyDeaths`-entre-items (la victime est morte avant l'entrée
