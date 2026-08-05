@@ -150,7 +150,7 @@ def assert_sample_confrontable(realise: bool, *, mutation: str, doit_casser: str
 # --------------------------------------------------------------------------------------------
 # La docstring de ce module dit -- et c'est vrai -- qu'on ne peut PAS deriver du code qu'une
 # assertion est un contre-controle. Il existe pourtant une FORME ou on le peut, et c'est celle qui
-# a coute #433-r4-r2-r4 : « je neutralise le canal X, le foyer doit alors changer d'avis ». La
+# a coute #433-r4-r2-r4 : "je neutralise le canal X, le foyer doit alors changer d'avis". La
 # neutralisation est explicite (`replace(ctx, X=None)`, `f(..., X=None)`), le foyer est nomme, et
 # ses AUTRES canaux se derivent de sa signature. Ce helper ne devine donc rien : il MESURE.
 #
@@ -190,12 +190,16 @@ def assert_channel_counterproof(evaluer, canal: str, autres, *, sujet: str = "le
 
     L'entre-deux (`seul == base` mais `tous != base`) est EXACTEMENT le piege de `#433-r4-r2-r4` :
     un ou plusieurs AUTRES canaux portent la meme exclusion. On les rejoue UN PAR UN pour NOMMER
-    celui qui suffit -- « ta contre-epreuve suppose que X porte seul l'exclusion, Y la porte
-    aussi » ne s'obtient d'aucune autre facon, et c'est la phrase qui aurait epargne trois merges.
+    celui qui suffit -- "ta contre-epreuve suppose que X porte seul l'exclusion, Y la porte aussi"
+    ne s'obtient d'aucune autre facon, et c'est la phrase qui aurait epargne trois merges.
 
     `autres` = les canaux CONCURRENTS candidats, DERIVES par la facade (signature du foyer, ou
     champs du contexte) -- jamais une liste ecrite a la main : `is_adjacent` a gagne `neigh_by_pos`
-    sans que rien ne le signale, et c'est precisement ce qu'une liste manuelle rate."""
+    sans que rien ne le signale, et c'est precisement ce qu'une liste manuelle rate.
+
+    COUT : le foyer est rejoue `2 + len(autres)` fois au pire (une fois de plus par concurrent
+    quand la contre-epreuve est morte). Sur un foyer LIVE cher, appeler ce helper une fois par
+    contre-epreuve, jamais dans une boucle de balayage."""
     autres = [c for c in autres if c != canal]
     base = evaluer(frozenset())
     seul = evaluer(frozenset([canal]))
