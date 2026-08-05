@@ -42,6 +42,7 @@ Sortie ASCII. Aucun ecrit hors `logs/`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -80,7 +81,16 @@ RE_IMM = re.compile(r"^(0x[0-9a-fA-F]+|\d+)$")
 #: **0** litteral -- un zero produit par le parseur, pas par le binaire.
 RE_CAST = re.compile(r"^\s*(?:\((?:void|u?longlong|u?int\w*|undefined\d*)\s*\**\)\s*)+")
 #: `local_28[0] = 0xd5;` -- Ghidra ecrit la cle du tag dans une locale juste avant l'`Add`.
-RE_AFFECT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)(?:\[0\])?\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*;")
+#: TROISIEME forme, trouvee par un flux temoin CRAFTE : quand la variable est plus LARGE que la
+#: valeur (typiquement un PARAMETRE reutilise), Ghidra ecrit une affectation de CHAMP --
+#: `removeEffects._0_4_ = 7;` dans `IdunBattle.Operations.RepairUnitOperation$$Execute`. Sans le
+#: suffixe dans la capture, le nom lu etait `_0_4_` et ne pouvait plus s'apparier a la cle
+#: `&removeEffects` de l'`Add` : le tag sortait « sans producteur ».
+RE_AFFECT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\._\d+_\d+_)?)(?:\[0\])?"
+                       r"\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*;")
+#: SEUL l'offset 0 designe la meme adresse que `&var` : `cfg._4_4_` est un AUTRE champ de la
+#: struct, et le normaliser sur `cfg` ferait ecrire une cle FAUSSE (pire qu'une cle manquante).
+RE_CHAMP0 = re.compile(r"\._0_\d+_$")
 #: Le dictionnaire de tags est un `Dictionary<TagKey,int>` : son `Add` gshared se reconnait au
 #: `MethodInfo*` passe en DERNIER argument. Ce DAT est DERIVE d'une fabrique temoin, pas ecrit.
 RE_DICT_ADD = re.compile(r"Dictionary[A-Za-z0-9_]*u003E__(?:Add|set_Item)\s*\(")
@@ -338,14 +348,25 @@ def dat_dictionnaire_de_tags(codes) -> set:
     return dats
 
 
+def racine_variable(expr: str) -> str:
+    """Le NOM de la variable derriere `&x`, `x[0]` ou `x._0_4_` -- les trois formes de Ghidra.
+
+    Normalise les DEUX cotes de l'appariement (l'affectation et l'argument CLE de l'`Add`), sans
+    quoi une meme variable porte deux noms differents selon le site et le tag est perdu.
+    """
+    e = expr.strip().lstrip("&").split("[")[0].strip()
+    return RE_CHAMP0.sub("", e)
+
+
 def scanner_tags(code: str, dats_tag: set) -> set:
     """TagKey ecrits : `var = <imm>;` puis `Dictionary<TagKey,int>.Add(dict, var, valeur, DAT)`."""
-    affect = [(m.start(), m.group(1), int(m.group(2), 0)) for m in RE_AFFECT.finditer(code)]
+    affect = [(m.start(), racine_variable(m.group(1)), int(m.group(2), 0))
+              for m in RE_AFFECT.finditer(code)]
     trouves = set()
     for pos, args in _sites_add(code):
         if dats_tag and args[-1] not in dats_tag:
             continue
-        cle = args[1].lstrip("&").split("[")[0].strip()
+        cle = racine_variable(args[1])
         val = None
         for p, nom, v in affect:
             if p < pos and nom == cle:
@@ -624,7 +645,7 @@ def contre_epreuve_live(GroupType, StepType, TagKey, groupes, actions, tags) -> 
                  ": " + ", ".join(manquants) if manquants else ""))
 
 
-def volet_flux_live(board: str, tours: int) -> int:
+def volet_flux_live(board: str, tours: int, p_units=None, a_units=None) -> int:
     """Ce que le natif EMET REELLEMENT, ventile par GROUPE RACINE.
 
     Le canal statique dit ce qui est EMISSIBLE ; il ne dit pas ce qu'une bataille produit. Un
@@ -650,12 +671,23 @@ def volet_flux_live(board: str, tours: int) -> int:
                               cwd=str(ici), capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=t)
 
+    # Le ROSTER se pilote : le corpus temoin de l'etape [8] ne vaut que ce que la bataille
+    # EXERCE, et deux equipes tirees par defaut ne castent qu'une poignee d'abilities. Un
+    # roster choisi (boucliers, invocations, transformations) est ce qui fait apparaitre des
+    # `TagKey` qu'aucun board ne ferait sortir tout seul.
+    roster = []
+    if p_units:
+        roster += ["--p-units", p_units]
+    if a_units:
+        roster += ["--a-units", a_units]
     try:
-        p = rl("build", "--seed", "777", "--board", board, "--record-replay", "--no-ai")
+        p = rl("build", "--seed", "777", "--board", board, "--record-replay", "--no-ai", *roster)
         if not etat.is_file():
             print("MESURE IMPOSSIBLE (build) : %s" % (p.stderr or p.stdout)[-400:])
             return 3
-        print("    runner %s monte sur %s" % (json.loads(etat.read_text())["runnerId"], board))
+        print("    runner %s monte sur %s%s"
+              % (json.loads(etat.read_text())["runnerId"], board,
+                 (" ; roster " + " ".join(roster)) if roster else ""))
         for i in range(tours):
             q = rl("aiturn", t=600)
             if q.returncode != 0:
@@ -677,7 +709,12 @@ def volet_flux_live(board: str, tours: int) -> int:
         print("    MESURE IMPOSSIBLE : `replayOutputStream` rend un flux VIDE")
         return 3
     lignes = flux.split("\n")
-    brut = REPO / "logs" / ("477r18-flux-%s.txt" % board)
+    # Le nom du fichier porte le roster : deux flux du MEME board avec des equipes differentes
+    # sont deux TEMOINS, pas un ecrasement. L'empreinte est un sha STABLE, jamais `hash()` --
+    # qui est randomise par processus et rendrait le nom du temoin non reproductible.
+    empreinte = hashlib.sha1(" ".join(roster).encode()).hexdigest()[:6] if roster else ""
+    brut = REPO / "logs" / ("477r18-flux-%s%s.txt"
+                            % (board, ("-" + empreinte) if empreinte else ""))
     brut.write_text(flux, encoding="utf-8")
     print("    flux natif : %d lignes, %d octets -> %s" % (len(lignes), len(flux), brut))
 
@@ -768,13 +805,17 @@ def main() -> int:
                     help="volet LIVE : ventile un vrai flux natif par groupe racine")
     ap.add_argument("--board", default="C1_02")
     ap.add_argument("--tours", type=int, default=2)
+    ap.add_argument("--p-units", default=None,
+                    help="volet LIVE : roster JOUEUR passe tel quel a `rl_duel build`")
+    ap.add_argument("--a-units", default=None,
+                    help="volet LIVE : roster ADVERSE passe tel quel a `rl_duel build`")
     a = ap.parse_args()
 
     if a.flux_live:
         print("=" * 78)
         print("#477-r18 -- POIDS MESURE de chaque GROUPE RACINE dans un flux natif")
         print("=" * 78)
-        return volet_flux_live(a.board, a.tours)
+        return volet_flux_live(a.board, a.tours, a.p_units, a.a_units)
 
     gh = Ghidra(a.hors_ligne)
     GroupType, StepType, TagKey = charger_mirrors()

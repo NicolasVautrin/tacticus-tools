@@ -81,6 +81,31 @@ INFORM_WEAPON = """
   }
 """
 
+#: VERBATIM de `IdunBattle.Operations.RepairUnitOperation$$Execute`. Quand la variable est plus
+#: LARGE que la valeur -- ici un PARAMETRE reutilise par Ghidra -- la cle s'ecrit en AFFECTATION
+#: DE CHAMP, `removeEffects._0_4_ = 7;`. Trouve par un flux temoin CRAFTE (board C1_74, roster
+#: choisi), pas par les deux flux d'origine : `UnitStats_RemovedNegativeUnitEffects` n'est emis
+#: que par un `Action=RepairInfo`.
+REPAIR = """
+                  source._0_4_ = *(undefined4 *)(lVar12 + 0x18);
+                  removeEffects._0_4_ = 5;
+                  System_Collections_Generic_Dictionaryu003C__Il2CppFullySharedGenericType____Il2CppFullySharedGenericTypeu003E__Add
+                            (lVar9,&removeEffects,&source,DAT_183345050);
+                  removeEffects._0_4_ = 7;
+                  source._0_4_ = iVar15;
+                  System_Collections_Generic_Dictionaryu003C__Il2CppFullySharedGenericType____Il2CppFullySharedGenericTypeu003E__Add
+                            (lVar9,&removeEffects,&source,DAT_183345050);
+"""
+
+#: Temoin de NON-CONFUSION : `_4_4_` designe un AUTRE champ de la meme struct. Le normaliser sur
+#: la racine ferait lire `9` comme cle -- une cle FAUSSE, pire qu'une cle manquante.
+CHAMP_AUTRE = """
+    cfg._0_4_ = 5;
+    cfg._4_4_ = 9;
+    System_Collections_Generic_Dictionaryu003C__Il2CppFullySharedGenericTypeu003E__Add
+              (lVar9,&cfg,&val,DAT_183345050);
+"""
+
 DAT_TAGS = {"DAT_183345050"}
 #: Nombre de parametres `IdunBattle.Streams.TagKey` du ctor de config -- LU dans
 #: `frida/methods.tsv`, jamais compte a la main : `ModStatTransformConfig..ctor` en declare
@@ -149,6 +174,28 @@ def test_etage5_le_canal4_lit_les_trois_tags_du_noeud_dsl():
                    int(TagKey.Attack_Weapon_Use_Special)}, sorted(vus)
 
 
+def test_etage5bis_l_affectation_de_champ_est_appariee():
+    """`removeEffects._0_4_ = 7;` doit s'apparier a la cle `&removeEffects` de l'`Add`."""
+    vus = P.scanner_tags(REPAIR, DAT_TAGS)
+    assert vus == {int(TagKey.UnitStats_RemainingHealth),
+                   int(TagKey.UnitStats_RemovedNegativeUnitEffects)}, sorted(vus)
+
+
+def test_etage5ter_un_autre_champ_n_est_pas_la_racine():
+    """CONTRE-EPREUVE : seul l'offset 0 partage l'adresse de `&var`.
+
+    Si `_4_4_` etait normalise comme `_0_4_`, la DERNIERE ecriture gagnerait et la cle lue serait
+    `9` au lieu de `5` -- une cle FAUSSE. Le test verifie la VALEUR, pas seulement le non-vide.
+    """
+    vus = P.scanner_tags(CHAMP_AUTRE, DAT_TAGS)
+    assert vus == {5}, "lu %s : un champ d'offset non nul a ete confondu avec la racine" % sorted(
+        vus)
+    assert P.racine_variable("cfg._0_4_") == "cfg"
+    assert P.racine_variable("cfg._4_4_") == "cfg._4_4_"
+    assert P.racine_variable("&removeEffects") == "removeEffects"
+    assert P.racine_variable("local_28[0]") == "local_28"
+
+
 def test_etage6_le_parseur_n_invente_pas():
     """CONTRE-EPREUVE du lecteur : sans slot de struct en 3e argument, il rend VIDE.
 
@@ -178,3 +225,7 @@ def test_etage7_les_ordinaux_ecrits_ici_sont_ceux_du_build():
     assert (int(TagKey.Attack_Weapon_IsMelee), int(TagKey.Attack_Weapon_DamageProfile),
             int(TagKey.Attack_Weapon_Use_Special)) == (0x92, 0x93, 0x94)
     assert int(TagKey.Custom_Data) == 0xCC
+    assert int(TagKey.Custom_Tile_Id) == 0xC1
+    assert int(TagKey.UnitStats_RemovedNegativeUnitEffects) == 7
+    assert (int(TagKey.UnitStats_Attack_Override), int(TagKey.UnitStats_Attack_Override_Entity),
+            int(TagKey.UnitStats_Attack_Override_IsModifiable)) == (0x27, 0x28, 0x29)

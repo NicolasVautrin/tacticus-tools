@@ -40,12 +40,12 @@ L'émetteur natif est `IdunBattle.Streams.IStreamListener` (slots **0/1/2** =
 |---|---:|---:|
 | `GroupType` | **86 / 104** | 18 |
 | `StepType` | **59 / 62** | 3 (`None_`, `ExtraAttackDamage`, `LootInfo`) |
-| `TagKey` | **202 / 244** | 42 |
+| `TagKey` | **203 / 244** | 41 |
 
 ⚠ **ÉCRIRE un tag et ÉMETTRE dans le flux sont deux gestes distincts** — c'est ce que le canal 1
 ne pouvait pas voir, et le canal 4 le corrige. Le canal 3 sur `TagKey` est **FILTRÉ** (un porteur
 ne compte que s'il émet ou écrit), sinon la **VUE** compterait pour un producteur ; il écarte
-**18** symboles, tous **nommés** en sortie. Contrôle : sur les **83** tags émis par le corpus
+**18** symboles, tous **nommés** en sortie. Contrôle : sur les **90** tags émis par le corpus
 témoin, **0** n'est couvert par un seul lecteur de vue ou de test.
 
 **Les `GroupType` que le canal 1 ne voit pas ne sont pas morts — ils sont DÉCLARATIFS.** Ils ne
@@ -79,12 +79,16 @@ variable (propagés d'**un** cran, pas plus), les porteurs sans symbole Ghidra.
 
 ## 1bis. La contre-épreuve — le statique ne se juge pas lui-même
 
-Tout ce que le flux natif **émet** doit avoir été **atteint** par le balayage. Sur les deux flux
-témoins : `GroupType` **0** manquant, `StepType` **0**, `TagKey` **0**. C'est ce contrôle qui a
-trouvé les pièges 1 et 3 ci-dessus, puis les **9** `TagKey` du résidu `#477-r18-r4` — fermé par
-les canaux 4 et 5 et par l'extension du canal 3 (mesure des deux côtés, même cache et même
-corpus : `TagKey` atteint **131 → 202**, émis-non-atteints **9 → 0**). Détail :
-`docs/rl/case-477r18r4-tagkey-sans-producteur.md`.
+Tout ce que le flux natif **émet** doit avoir été **atteint** par le balayage. Sur les **trois**
+flux témoins : `GroupType` **0** manquant, `StepType` **0**, `TagKey` **0**. C'est ce contrôle qui
+a trouvé les pièges 1 et 3 ci-dessus, puis le résidu `#477-r18-r4` — fermé par les canaux 4 et 5,
+l'extension du canal 3 et une troisième forme d'écriture de clé (mesure des deux côtés, même cache
+et même corpus : `TagKey` atteint **131 → 203**, émis-non-atteints **14 → 0**).
+
+⚠ **LE CORPUS TÉMOIN EST LE PLAFOND DE CE CONTRÔLE.** Le résidu annonçait **9** ; un **troisième**
+flux à ROSTER CHOISI (`--p-units` / `--a-units`, board `C1_74`) en a montré **14** — deux batailles
+tirées par défaut ne castent qu'une poignée d'abilities. Un flux se CRAFTE, il ne se subit pas.
+Détail : `docs/rl/case-477r18r4-tagkey-sans-producteur.md`.
 
 ## 2. La structure : un groupe RACINE = un message d'entrée
 
@@ -225,9 +229,11 @@ puis `User_EndTurn` (+2/+2/+2), qui l'englobe.
   immédiat dans le code machine (pas dans le pseudo-C), et pour les quatre génériques
   (`Ability_Attack`, `Attack`, `DarkDragon`, `AnvilShieldBlock`) établir s'ils passent par un champ
   écrit ailleurs qu'à un call-site.
-- ~~**#477-r18-r4**~~ — **FERMÉ**. Les 9 `TagKey` avaient **trois** causes distinctes, aucune
-  commune : un tag s'ÉCRIT sans s'ÉMETTRE (`DSLBehaviors$$InformWeapon`, canal 4) ; un tag peut
-  être un ARGUMENT de nœud DSL (`DSLBehaviors$$Inform`, canal 3 étendu) ; un tag peut n'exister
-  que dans une TABLE STATIQUE dont le ctor de config est inliné
-  (`TransformUnitOperation$$.cctor`, canal 5). Détail :
+- ~~**#477-r18-r4**~~ — **FERMÉ**. Les `TagKey` (9 annoncés, **14** une fois le corpus élargi)
+  avaient **quatre** causes distinctes, aucune commune : un tag s'ÉCRIT sans s'ÉMETTRE
+  (`DSLBehaviors$$InformWeapon`, canal 4) ; un tag peut être un ARGUMENT de nœud DSL
+  (`DSLBehaviors$$Inform`, canal 3 étendu et filtré) ; un tag peut n'exister que dans une TABLE
+  STATIQUE dont le ctor de config est inliné (`TransformUnitOperation$$.cctor`, canal 5) ; et le
+  NOM d'une variable Ghidra change avec la LARGEUR de l'écriture (`removeEffects._0_4_ = 7;` dans
+  `RepairUnitOperation$$Execute` — producteur pourtant déjà balayé). Détail :
   `docs/rl/case-477r18r4-tagkey-sans-producteur.md`.
