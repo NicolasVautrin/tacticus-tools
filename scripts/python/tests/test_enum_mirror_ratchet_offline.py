@@ -364,3 +364,115 @@ def test_les_huit_membres_de_313_sont_la_ET_convertibles_depuis_le_gameconfig():
     # la conversion nom -> id doit donc reellement alimenter `triggered_ability_ids`.
     from engine.entities.triggered_ability_type import triggered_ability_ids
     assert int(T.MyWillBeDoneOverlord) in triggered_ability_ids("necroOverlord")
+
+
+# ------------------- 6. les DICTS CONSOMMATEURS : le cran EN DESSOUS du mirror (#270-c)
+
+def test_toute_cle_des_dicts_consommateurs_est_nommable_par_le_build():
+    """LE test #270-c. Un mirror bijectif ne dit rien de ce que le moteur LIT.
+
+    `dispatch/core.py` fait `ABILITY_TRIGGERS.get(pa, ())` : une cle dont le nom a disparu du build
+    ne leve pas -- elle rend `()`, et le passif n'est JAMAIS inscrit. C'est mot pour mot la
+    degradation du sens MANQUANT (« il ne casse rien, il RETIRE en silence »), un cran plus bas.
+    #318 avait ferme ce cran pour `EFFECT_CLASSES` seulement ; les six registres de
+    `triggers.dispatch` -- les cinq chemins de registration de `collect_triggered_abilities` --
+    n'etaient gardes par personne."""
+    build = P.current_build()
+    ecarts = []
+    for c in P.CONSOMMATEURS:
+        introuvables, mortes, egarees = P.cles_cassees(build, c)
+        if introuvables or mortes or egarees:
+            ecarts.append(
+                "  %s (par %s) -> %s : INTROUVABLES=%s MORTES=%s EGAREES=%s"
+                % (c.nom, c.par, c.cls, [k for k, _ in introuvables], mortes,
+                   [(k, ou) for k, ou in egarees]))
+    assert not ecarts, (
+        "cle(s) qu'aucun membre du build %s ne nomme :\n%s\n"
+        "  INTROUVABLE = dans AUCUN enum du build -> l'entree est morte, en silence.\n"
+        "  MORTE       = dans le mirror mais plus dans le build -> regenerer le mirror.\n"
+        "  EGAREE      = le nom vit dans un AUTRE enum : c'est l'APPARIEMENT du registre qui est\n"
+        "                faux, pas la cle. Relire la voie de consommation dans `dispatch/core.py`."
+        % (build, "\n".join(ecarts)))
+
+
+def test_le_registre_des_consommateurs_designe_des_dicts_qui_existent():
+    """Le symetrique : une entree qui ne s'importe plus rendrait la garde MUETTE sur ce dict.
+
+    Meme mode de defaillance que `test_le_registre_ne_designe_aucun_mirror_disparu` -- un registre
+    qui pointe dans le vide ne casse rien et ne garde plus rien."""
+    manquants = []
+    for c in P.CONSOMMATEURS:
+        try:
+            t = P.table_consommateur(c)
+        except Exception as exc:                                   # noqa: BLE001
+            manquants.append((c.nom, c.mod, repr(exc)))
+            continue
+        if not isinstance(t, dict) or not t:
+            manquants.append((c.nom, c.mod, "vide ou pas un dict"))
+    assert not manquants, ("consommateur(s) introuvable(s) ou vide(s) : %s" % manquants)
+
+
+def test_le_detecteur_de_cles_MORD_sur_les_trois_formes():
+    """Un cliquet vert sur un depot sain ne prouve rien : on lui soumet les trois derives.
+
+    La forme EGAREE est celle qui compte, et elle est REELLEMENT arrivee pendant #270-c : apparier
+    `RELIC_ABILITY_TRIGGERS` a `ActiveAbilityType` (une relique, donc « active » de reflexe) fait
+    sortir `DawnBlade`, qui est un `TriggeredAbilityType` (1501) -- le natif la monte par
+    `TriggeredAbilityComponent$$TryAdd(id, tertiaryAbilityState, 3)`. Le detecteur NOMME l'enum ou
+    le nom vit vraiment, ce qui designe l'appariement plutot qu'une faute de frappe."""
+    build = P.current_build()
+    c = P.PAR_CONSO["ABILITY_TRIGGERS"]
+
+    # (a) INTROUVABLE : un nom dans aucun enum du build.
+    introuvables, mortes, egarees = P.cles_cassees(build, c, {"ZzNomQuiNExistePas": []})
+    assert [k for k, _ in introuvables] == ["ZzNomQuiNExistePas"] and not mortes and not egarees
+
+    # (b) EGAREE : `HawkEye_ExtraRange` est un membre d'`EffectType` de l'ANCIEN moteur Idun --
+    # absent du build, donc introuvable ici. On prend un nom VIVANT d'un autre enum : `Psyker` est
+    # un `UnitTrait`, jamais un `TriggeredAbilityType`.
+    _, _, egarees = P.cles_cassees(build, c, {"Psyker": []})
+    assert [k for k, _ in egarees] == ["Psyker"], egarees
+    assert "UnitTrait" in egarees[0][1], egarees[0][1]
+
+    # (c) MORTE : dans le mirror, plus dans le build. Aucun membre du mirror n'est dans ce cas
+    # (c'est ce que garde l'etape 2), donc on verifie que la BRANCHE existe en truquant l'enum du
+    # build -- sinon ce troisieme sens ne serait jamais exerce.
+    vrai = P.enum_natif
+    try:
+        P.enum_natif = lambda b, cle: {v: ns for v, ns in vrai(b, cle).items()
+                                       if "Narthecium" not in ns}
+        _, mortes, _ = P.cles_cassees(build, c, {"Narthecium": []})
+    finally:
+        P.enum_natif = vrai
+    assert mortes == ["Narthecium"], mortes
+
+
+def test_une_cle_JUSTE_ne_declenche_rien():
+    """Anti-faux-positif : sans lui, un detecteur qui crie toujours serait desarme."""
+    build = P.current_build()
+    c = P.PAR_CONSO["ABILITY_TRIGGERS"]
+    assert P.cles_cassees(build, c, {"Narthecium": [], "FabricatorClawArray": []}) == ([], [], [])
+
+
+def test_les_homonymes_sont_un_INVENTAIRE_et_le_nom_discrimine_la_ou_l_ordinal_non():
+    """#270-c : la mesure qui DEBLOQUE #270-r1, exprimee en INVARIANTS et non en chiffres figes.
+
+    Deux axes, cout inegal. Le NOM discrimine : sur le gameconfig du build, l'intersection nom-a-nom
+    entre les voies `passiveAbilities` et `activeAbilities` est VIDE -- une cle nommee se convertit
+    donc sans ambiguite (`audit_passive_ability_coverage` le mesure de son cote, independamment).
+    L'ORDINAL, lui, ne discrimine pas : `TriggeredAbilityType` partage la majorite de ses ordinaux
+    avec `ActiveAbilityType` ET `EffectType`, et la quasi-totalite de ces partages nomment AUTRE
+    CHOSE. C'est la justification chiffree de « un entier qui DESIGNE passe par un enum ».
+
+    Les seuils sont volontairement laches (`> 0.9`) : le fait garde est le RAPPORT, pas le compte,
+    qui bouge a chaque build."""
+    build = P.current_build()
+    _, ord_diff = P.homonymes(build, P.PAR_CLS["TriggeredAbilityType"].cle)
+    par_enum = {autre.split(".")[-1]: (comm, diff) for autre, comm, diff in ord_diff}
+    for autre in ("EffectType", "ActiveAbilityType"):
+        comm, diff = par_enum[autre]
+        assert comm > 100, "%s : seulement %d ordinaux partages" % (autre, comm)
+        assert diff / comm > 0.9, (
+            "%s : %d/%d ordinaux partages nomment autre chose -- si ce rapport tombe, une cle\n"
+            "  ENTIERE deviendrait discriminante et cette doctrine serait a revoir."
+            % (autre, diff, comm))
