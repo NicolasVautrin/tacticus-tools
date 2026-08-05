@@ -407,12 +407,13 @@ def volet_flux_live(board: str, tours: int) -> int:
                       % (i + 1, q.returncode, (q.stderr or "")[-160:]))
                 break
         body = json.dumps({"method": "replayOutputStream",
-                           "args": [{"runnerId": json.loads(etat.read_text())["runnerId"]}],
+                           "args": [{"runnerId": json.loads(etat.read_text())["runnerId"],
+                                     "maxChars": 8000000}],
                            "timeout": 60000}).encode()
         req = urllib.request.Request("%s/api/scripts/%d/rpc" % (hote, session), data=body,
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=120) as r:
-            flux = ((json.loads(r.read().decode()).get("result") or {}).get("stream") or "")
+            flux = ((json.loads(r.read().decode()).get("result") or {}).get("outputStream") or "")
     finally:
         rl("dispose", t=180)
 
