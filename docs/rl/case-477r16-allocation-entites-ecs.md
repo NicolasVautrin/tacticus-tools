@@ -5,16 +5,25 @@
 
 ## Verdict en une ligne
 
-**MÉCANIQUE, et sans aucun terme libre depuis `#477-r16-r1`.** L'ordre et le nombre d'allocations
-se reproduisent depuis la `BattleConfiguration` **plus deux tables statiques du binaire**, toutes
-deux désormais lues et mirrorées. Prédiction posée **avant** mesure, vérifiée **10 critères sur
-10**, sur **trois** boards de tailles distinctes (35 / 63 / 70 tuiles) **et trois BC** dont deux
-fabriqués pour faire varier le dernier terme. Un émetteur de flux est constructible.
+**MÉCANIQUE, sans aucun terme libre et sans branche non exercée sur l'axe déduplication.** L'ordre
+et le nombre d'allocations se reproduisent depuis la `BattleConfiguration` **plus deux tables
+statiques du binaire**, toutes deux lues et mirrorées. Prédiction posée **avant** mesure, vérifiée
+**12 critères sur 12**, sur **trois** boards de tailles distinctes (35 / 63 / 70 tuiles) et
+**huit** BC, dont sept fabriqués pour faire varier un terme à la fois. Un émetteur de flux est
+constructible.
 
-⚠ **Le scalaire `derived` était le point faible, et il a été attaqué comme tel** : mesuré par
-DIFFÉRENCE, il absorbait silencieusement toute allocation manquée avant les tuiles — exactement
-le mode de panne qui avait déjà produit ici « trois accords parfaits, modèle faux » (cf. Pièges).
-Il est maintenant **prédit** (§3ter), et le contre-test le fait **bouger dans les deux sens**.
+⚠ **Les deux points faibles ont été attaqués comme tels, et par la même méthode : sortir du
+régime où le modèle ne peut pas se tromper.**
+
+- Le scalaire `derived`, mesuré par DIFFÉRENCE, absorbait silencieusement toute allocation
+  manquée avant les tuiles. Il est **prédit** depuis `#477-r16-r1` (§3ter), et le contre-test le
+  fait **bouger dans les deux sens**.
+- La **branche de déduplication** d'`IncludeEnvironmentAbility` ne s'exerçait sur aucun montage :
+  `BC.EnvironmentAbilities` était vide partout, et **trois modèles de `E` incompatibles** y
+  rendaient la même valeur. Elle est **confrontée** depuis `#477-r16-r1-r1` (§3bis), les deux
+  concurrents sont **réfutés par les chiffres**, et un **témoin positif** prouve que la
+  désérialisation mord — sans lui, un élément ignoré en silence aurait rendu tous les montages
+  dédupliqués verts pour rien.
 
 ## 1. Qui alloue
 
@@ -90,21 +99,23 @@ n'ont pas tous le même statut — **trois sont CONDITIONNELS** (cf. § suivant)
 |---|---:|---|---|
 | `BC.EnvironmentAbilities` + `…Enhancements` (2 `AddRange`) | 0 | la BC | inconditionnel |
 | `GetDerivedEnvironmentAbilities(passif)` | **1** | table **statique** `+0x38` (2 entrées) | inconditionnel |
-| `EnvDespoiledGroundTileDamage`, `EnvFireTileDamage` | 2 | constantes en dur | **dédupliqué** |
+| `EnvDespoiledGroundTileDamage`, `EnvFireTileDamage` | 2 | constantes en dur | **dédupliqué** (confronté) |
 | `StaticBattleRules.DamageTrait$$GetDamageTraitAbilities` | 3 | table **statique** (`.cctor`, 3 entrées) | inconditionnel |
-| `EnvCapturePointShield` si `GameMode == SyncPVP` | 0 | idem | **dédupliqué** |
+| `EnvCapturePointShield` si `GameMode == SyncPVP` | 0 | idem | **dédupliqué** (non exercé, `#477-r16-r1-r1-r1`) |
 
 Deux tables statiques du binaire entrent donc dans un offset qu'on croirait dérivable du BC.
 **Un émetteur doit les mirrorer.**
 
-### 3bis. `IncludeEnvironmentAbility` DÉDUPLIQUE — la somme n'est pas une somme (#477-r16-r1)
+### 3bis. `IncludeEnvironmentAbility` DÉDUPLIQUE — la somme n'est pas une somme (#477-r16-r1-r1, CONFRONTÉ)
 
 `IdunBattle.Operations.SetupGameOperation$$IncludeEnvironmentAbility` n'est **pas** un `Add` :
-elle construit un prédicat sur l'id (`<>c__DisplayClass18_0$$<IncludeEnvironmentAbility>b__0`
-compare `cfg.Id` au type capturé), appelle
-`idun.shared.extensions.ListExtensions$$Contains<T>` et **retourne sans rien ajouter** si la
-liste porte déjà cette ability. Les **deux boucles** (derived, damage traits) font au contraire
-un `List.Add` **direct** et ne dédupliquent rien. L'ordre de construction est donc :
+elle construit un prédicat sur l'id, appelle `idun.shared.extensions.ListExtensions$$Contains<T>`
+et **retourne sans rien ajouter** si la liste porte déjà cette ability. Le prédicat
+(`SetupGameOperation.<>c__DisplayClass18_0$$<IncludeEnvironmentAbility>b__0`) se réduit à
+`return *(int*)(cfg + 0x10) == this.<+0x10>` — c'est-à-dire **`ConfigId.AbilityType`**, et lui
+seul : ni `VariantId`, ni `Level`, ni `PlayerId` n'entrent dans la comparaison. Les **deux
+boucles** (derived, damage traits) font au contraire un `List.Add` **direct** et ne dédupliquent
+rien. L'ordre de construction est donc :
 
 ```
 list.AddRange(BC.EnvironmentAbilities.EnvironmentAbilities)              # AddRange
@@ -116,9 +127,88 @@ foreach x in GetDamageTraitAbilities(): list.Add(x)                      # Add D
 if SyncPVP: IncludeEnvironmentAbility(EnvCapturePointShield)             # DEDUP
 ```
 
-La formule « `|BC| + 2 + 3 + derived + syncpvp` » de la première version reste juste **ici**
-uniquement parce que les deux listes du BC sont **VIDES** sur le seed. Elle est fausse dès qu'un
-BC porte l'une des trois. Résidu `#477-r16-r1-r1`.
+**Trois modèles de `E` rendent la même valeur quand `BC.EnvironmentAbilities` est vide** — c'est
+tout le problème, et la raison pour laquelle « ça tombe juste » ne prouvait rien : le modèle
+**DÉDUP** (celui-ci), le modèle **SOMME NAIVE** (`|BC| + derived + 2 + 3 + syncpvp`, la formule
+de la première version) et le modèle **TOUT-DÉDUPLIQUÉ** (les cinq termes dédupliquent) valent
+tous `6` sur le seed. Cinq montages les séparent, chacun ne changeant qu'une chose, prédictions
+imprimées **avant** la mesure (board `C1_02`, session 8) :
+
+| `BC.EnvironmentAbilities.EnvironmentAbilities` | DÉDUP | NAIF | TOUT-DÉDUP | **mesuré** |
+|---|---:|---:|---:|---:|
+| *(vide — le seed, témoin)* | 6 | 6 | 6 | **6** |
+| `[EnvReinforcementShield]` — **témoin positif** | 7 | 7 | 7 | **7** |
+| `[EnvFireTileDamage]` | **6** | 7 | 6 | **6** |
+| `[EnvFireTileDamage, EnvFireTileDamage]` | **7** | 8 | 6 | **7** |
+| `[EnvFireTileDamage, EnvDespoiledGroundTileDamage]` | **6** | 8 | 6 | **6** |
+| `[EnvReinforcementShield]` + passif `PowerUp_ReinforcementShield` | **8** | 8 | 7 | **8** |
+
+`E` est mesuré comme l'intervalle entre le dernier joueur et la première tuile —
+`AddEnvironmentAbilityOperation$$Execute` alloue sans émettre aucune action dans le flux.
+**SOMME NAIVE réfutée** sur trois montages, **TOUT-DÉDUPLIQUÉ** sur deux. Trois faits en
+découlent, chacun mesuré :
+
+1. **`IncludeEnvironmentAbility` voit ce que les `AddRange` ont posé** — `EnvFireTileDamage` déjà
+   dans le BC n'est pas ajouté une seconde fois. C'est aussi la seule dépendance d'**ORDRE**
+   observable ici : des `Include` joués **avant** les `AddRange` auraient rendu `7`.
+2. **`List.AddRange` ne déduplique rien** — deux fois la même ability entrent toutes les deux, et
+   seul l'`Include` correspondant s'abstient (`7`, pas `8` ni `6`).
+3. **La boucle `derived` ne déduplique rien non plus** — elle re-pose `EnvReinforcementShield`
+   alors qu'il est déjà dans la liste (`8`, ce qu'aucun modèle dédupliquant ne peut rendre).
+
+⚠ **Le témoin positif n'est pas décoratif : c'est le cran anti-dégénéré.** Trois des cinq
+montages prédisent « `E` ne bouge pas » — exactement ce qu'aurait rendu un élément **ignoré à la
+désérialisation**. Sans un montage qui fait bouger `E`, leur immobilité se serait lue comme une
+confirmation de la déduplication alors qu'elle n'aurait prouvé que l'inertie du harnais. Le probe
+**refuse de conclure** si le témoin positif ne monte pas de 1.
+
+### 3quater. La forme sérialisée d'un élément — LUE, puis confrontée
+
+`buildNormalizedBC` ne touche que `Board`, `SpawnPointSetIndex` et `Units[]` : le bloc
+`EnvironmentAbilities` du seed BC traverse **intact** jusqu'à
+`JsonConvert.DeserializeObject(json, BattleConfiguration)`. La forme attendue est donc celle de
+Newtonsoft pour `IdunBattle.Configuration.EnvironmentAbilityConfiguration`, dont la disposition
+est **mesurée** (RPC `classFields`, `rnca9r7q6c`) — les getters d'auto-propriété sont des corps
+triviaux **dédupliqués** par IL2CPP, donc absents de `frida/methods.tsv` :
+
+| off | champ | type |
+|---|---|---|
+| `+0x10` | `ConfigId` | `IdunShared.TriggeredAbilityConfigId` (`AbilityType` `+0x00`, `VariantId` `+0x08`) |
+| `+0x20` | `Level` | `Idun.Shared.Level` |
+| `+0x24` | `PlayerId` | `Nullable<int>` |
+
+`EnhancementsEnvironmentAbilityConfiguration` en hérite et ajoute `Targets` `+0x30`,
+`Stack` `+0x38`.
+
+⚠ **`ConfigId` n'est PAS un objet JSON.** `IdunShared.TriggeredAbilityConfigId` porte
+`TriggeredAbilityConfigIdJsonConverter : Idun.Shared.Serialization.StringJsonConverter<T>` :
+il se sérialise en **chaîne**. Écriture (`$$ToConfigId`) : `Enum.ToString(AbilityType)`, puis
+`+ ":" + VariantId` si le variant est non vide. Lecture (`$$CreateFromString`) : chaîne vide →
+`{0, null}` ; chaîne avec séparateur → `Split`, `[0]` parsé par
+`Enum.TryParse<TriggeredAbilityType>`, `[1]` = `VariantId` ; sinon la chaîne entière est parsée.
+Un `TryParse` en échec **ne fait pas échouer le montage** : il rend `AbilityType = 0`, et
+l'entité est allouée quand même.
+
+Le séparateur est **lu**, pas deviné : le `DAT_*` que `$$ToConfigId` passe à `String.Concat` est
+un littéral IL2CPP, que la table livrée par #477-r15-r1 résout en `":"`
+(`string_literals.charger().by_va(<slot cité par ToConfigId>)`, index 3113 sur `rnca9r7q6c`).
+Corroboré par le gameconfig, où 66 ids d'ability portent cette forme
+(`EnvFactionSummons:AdeptusMechanicus`).
+
+D'où le montage minimal, confronté :
+
+```json
+{"ConfigId": "EnvFireTileDamage", "Level": 1, "PlayerId": null}
+```
+
+`Level >= 1` : `0` est la valeur « verrouillé » que `Idun.Shared.Level$$ToZeroBasedIndex` refuse
+(`InvalidOperationException`), verrou déjà payé en #237. `PlayerId` null → `Execute` retombe sur
+`StateExtensions$$GetPlayer(state, 2)`.
+
+`AddEnvironmentAbilityOperation$$Execute` teste le **type** de la config
+(`EnhancementsEnvironmentAbilityConfiguration` ⇒ `Blueprints$$EnhancementEnvironmentAbility`,
+sinon `Blueprints$$EnvironmentAbility`) : deux branches **exclusives**, **un** `NextId` dans
+chacune. Le compte est donc `1` par config, quelle que soit la liste d'origine.
 
 ### 3ter. `derived` est LU, plus mesuré par différence (#477-r16-r1, FERMÉ)
 
@@ -139,10 +229,24 @@ statiques, mais il les écrit dans une séquence d'offsets **strictement croissa
 (`+0x0, +0x8, +0x10, … +0x90`), chacun **une seule fois**. `+0x38` n'a donc **qu'un seul site
 d'écriture**, et il porte ces deux `Dictionary.Add`.
 
-⚠ Nuance lue, sans effet ici : `TExtensions$$ToList<T>` **teste une garde sur la valeur** avant
-son unique `List.Add` et rend `null` si elle échoue. La sémantique exacte de cette garde
-(`FUN_1801f53a0`, helper IL2CPP non nommé) n'est **pas** établie — HYPOTHÈSE : « valeur ≠
-défaut ». Sans effet sur ce compte : les deux valeurs de la table sont non nulles.
+⚠ **La garde de `TExtensions$$ToList<T>` est le `x != null` générique d'IL2CPP — pas « valeur ≠
+défaut », et sur un enum elle est TOUJOURS vraie.** `ToList<T>` teste `FUN_1801f53a0(klass, &v)`
+avant son unique `List.Add` et rend `null` si le test échoue. Le helper n'est pas nommé, mais
+chacune de ses trois marches se lit par un **export nommé** du même binaire :
+
+```c
+if (-1 < *(int*)(klass + 0x28))            return *(void**)v != NULL;  // il2cpp_class_is_valuetype
+if (klass->[0x60] != 0 && (klass->[0x135] & 8))  return *(char*)v;     // il2cpp_class_is_inflated
+return true;                                                           // valuetype simple
+```
+
+`il2cpp_class_is_valuetype(k)` **est** `*(uint*)(k+0x28) >> 31` ; `il2cpp_class_is_inflated(k)`
+**est** `*(void**)(k+0x60) != 0` ; et le bit `& 8` de `+0x135` est `nullabletype`, encadré par
+`il2cpp_class_is_enum` (bit 2) et `il2cpp_class_is_generic` (bit 4) — la marche lit alors le
+premier octet du `Nullable<T>`, c'est-à-dire `hasValue`. Pour `T = TriggeredAbilityType` (enum,
+value type, non inflaté), **la garde rend `true` inconditionnellement**, y compris pour la valeur
+`0`. Le **seul** chemin qui rend `null` est donc le `TryGetValue` négatif — la table `+0x38`
+détermine entièrement le résultat.
 
 La boucle appelante n'en lit que les **clés**, et le dictionnaire itéré est
 **`BC.Abilities.PassiveAbilities`** (`BC+0x90` = `AbilitiesConfiguration` par son `.ctor`,
@@ -195,23 +299,38 @@ en pratique il rend l'ordre d'insertion tant qu'aucun `Remove` n'a eu lieu, et l
 viennent de la désérialisation du BC. Cela n'affecte que **l'ordre interne** du bloc env abilities,
 jamais leur nombre ni les blocs suivants — donc jamais les ids des tuiles ni des unités.
 
-## Mesure — 10/10, trois tailles de board et trois BC
+## Mesure — 12/12, trois tailles de board et huit BC
 
 ```
 python scripts/python/probe_477r16_allocation_entites_ecs.py \
-    --session <sid> --mow adeptExorcist --contre-derived
+    --session <sid> --mow adeptExorcist --contre-derived --contre-dedup
+python scripts/python/probe_477r16_allocation_entites_ecs.py --auto-test-gardes   # OFFLINE
+python -m pytest tests/engine/test_477r16r1r1_dedup_env_abilities_offline.py      # OFFLINE
 ```
 
 joueurs `3..2+P` / nb tuiles == `Width*Height` / tuiles contiguës / 2 plateformes MoW juste après /
 première unité == 1ʳᵉ tuile + T + 2 / pas == 2 / aucun trou dans `3..max` / `derived` invariant /
 `derived` mesuré == `derived` **lu** / tout pas expliqué par `1 + pieds + intercalées` /
-`derived` **fait varier expres** suit la prédiction.
+`derived` **fait varier expres** suit la prédiction / **la branche de déduplication exercée sépare
+les trois modèles** / **la dépendance d'ordre `derived → Include` est déclarée inobservable, et
+rougit si elle cesse de l'être**.
 
 Le probe **refuse de conclure** sous trois tailles distinctes — deux points valident n'importe
 quelle droite, et `MC1_67`/`C1_70` font tous deux 63 tuiles (piège payé en #477-r15). Il refuse
-**aussi** de conclure si une mutation de contre-épreuve n'a pas mordu.
+**aussi** de conclure si une mutation de contre-épreuve n'a pas mordu, et si le **témoin positif**
+du volet déduplication n'a pas fait bouger `E`.
 
-## Quatre pièges payés ici même
+⚠ **Chaque cran doit avoir été VU rouge — `--auto-test-gardes` l'exige.** Les verdicts sont des
+fonctions **pures** (`verdicts_etages`, `verdict_contre_derived`, `verdict_dedup`) que ce mode
+exerce sur une mesure **fabriquée conforme**, puis **mutée** une chose à la fois : une tuile de
+moins, un trou dans les ids, une seule plateforme, un pas de 3, la table `+0x38` fausse de +1,
+toutes les tuiles décalées de 1… Chaque mutation doit faire tomber le cran nommé. Un cran qui
+reste vert est **inerte** et fait échouer le probe — c'est le mode de panne mesuré en #430, où
+`probe_181` rendait `0` inconditionnellement. Mesuré : **10 mutations d'étage, 9 cas de
+contre-épreuve, 0 inerte**. Le test offline, lui, a été vu rouge en désarmant la déduplication
+dans `deriver_regle` (2 tests sur 8 tombent, dont le principal).
+
+## Cinq pièges payés ici même
 
 1. **Un accord parfait peut venir de deux erreurs qui s'annulent.** La première version prédisait
    `3 + P + E + T` avec un `E` trop grand de 2 et **sans** les plateformes MoW : la prédiction sur
@@ -229,19 +348,33 @@ quelle droite, et `MC1_67`/`C1_70` font tous deux 63 tuiles (piège payé en #47
    accident, parce que les listes du BC sont vides sur ce seed. Le nom de la fonction ne le
    disait pas ; seul son corps le dit. Corollaire général : **lire le corps de chaque « helper
    d'ajout » avant de compter ses appels.**
+5. **Un montage qui prédit « rien ne bouge » ne prouve rien SANS un montage qui bouge.** Trois des
+   cinq montages de déduplication prédisent une valeur **inchangée** — indistinguable, en l'état,
+   d'un élément que la désérialisation aurait ignoré. La forme sérialisée n'était d'ailleurs pas
+   celle qu'on croyait : l'ancien extracteur lisait un champ `Id` qui **n'existe pas** (c'est
+   `ConfigId`, et c'est une **chaîne**). Sans le témoin positif, le volet entier serait passé au
+   vert en mesurant l'inertie du harnais. **Toute contre-épreuve dont la prédiction est un
+   non-changement exige un témoin de changement dans la même passe.**
 
 ## Résidus
 
 - ~~**#477-r16-r1**~~ — **FERMÉ** (§3ter) : la table est lue (2 entrées), `derived` est prédit et
   confronté, et le contre-test le fait varier dans les deux sens.
-- **#477-r16-r1-r1** — la branche **DÉDUPLICATION** d'`IncludeEnvironmentAbility` (§3bis) est lue
-  mais **NON CONFRONTÉE** : sur tous les montages disponibles, `BC.EnvironmentAbilities` est
-  **vide**, donc les trois termes conditionnels valent invariablement 1/1/0 — régime dégénéré sur
-  cet axe. Il faudrait un BC portant déjà `EnvDespoiledGroundTileDamage` ou `EnvFireTileDamage`
-  dans `BC.EnvironmentAbilities.EnvironmentAbilities`. Conséquence directe : la **forme
-  sérialisée** d'un élément de ces listes n'a jamais été observée —
-  `probe.ids_env_abilities_du_bc` lève plutôt que de deviner, mais son extracteur d'id est donc
-  lui-même non validé.
+- ~~**#477-r16-r1-r1**~~ — **FERMÉ** (§3bis, §3quater) : la branche **DÉDUPLICATION** est exercée
+  sur cinq montages, les deux modèles concurrents sont réfutés par les chiffres, la **forme
+  sérialisée** d'un élément est lue puis confrontée, et la garde de `TExtensions$$ToList` est
+  **lue** (l'hypothèse « valeur ≠ défaut » est réfutée : c'est `x != null`, toujours vrai sur un
+  enum).
+- **#477-r16-r1-r1-r1** — **deux branches conditionnelles restent NON EXERCÉES**, et elles sont
+  du même type que celle que cette tranche vient de fermer :
+  **(a)** la seconde liste, `BC.EnvironmentAbilities.EnhancementsEnvironmentAbilities` — le
+  `AddRange` est le même, mais `AddEnvironmentAbilityOperation$$Execute` y prend l'**autre**
+  branche (`Blueprints$$EnhancementEnvironmentAbility`), et un
+  `EnhancementsEnvironmentAbilityConfiguration` porte deux champs de plus (`Targets`, `Stack`)
+  dont la forme sérialisée n'a jamais été observée ;
+  **(b)** `EnvCapturePointShield` en `GameMode == SyncPVP` — le terme vaut `0` sur **tous** les
+  montages joués (le seed est `Campaign`), donc la troisième déduplication n'a jamais été
+  exercée. Montage à écrire : un BC en `SyncPVP` portant déjà `EnvCapturePointShield`.
 - **#477-r16-r2** — la **boucle sur les pieds** est lue au décompilé mais **non confrontée** : aucun
   porteur multi-tuiles n'est atteignable par les montages testés (les unités prédéfinies sont
   mono-tuile par construction, une MoW n'a aucun pied). Le porteur est le **BOSS**

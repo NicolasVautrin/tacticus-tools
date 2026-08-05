@@ -227,27 +227,86 @@ def lire_seed_bc(path=None) -> dict:
         raise MesureImpossible("seed BC illisible via _load_seed_bc (%s) : %s" % (f, e)) from e
 
 
-def ids_env_abilities_du_bc(bc: dict) -> tuple[list, list]:
+# --------------------------------------------------- forme SERIALISEE d'un element (#477-r16-r1-r1)
+#
+# Un element de `BC.EnvironmentAbilities.{EnvironmentAbilities,EnhancementsEnvironmentAbilities}`
+# est un `IdunBattle.Configuration.EnvironmentAbilityConfiguration`. Sa disposition est MESUREE
+# (RPC `classFields`, build `rnca9r7q6c`), pas supposee -- les getters d'auto-propriete sont des
+# corps triviaux DEDUPLIQUES par IL2CPP, donc absents de `frida/methods.tsv` :
+#
+#     boxedSize 48 / fieldsSize 32, 3 champs d'instance
+#       ConfigId : IdunShared.TriggeredAbilityConfigId  @+0x10   (struct 16 o)
+#       Level    : Idun.Shared.Level                    @+0x20
+#       PlayerId : System.Nullable`1                    @+0x24
+#     TriggeredAbilityConfigId : AbilityType @+0x00 (TriggeredAbilityType), VariantId @+0x08 (String)
+#     EnhancementsEnvironmentAbilityConfiguration herite des 3 et ajoute Targets @+0x30, Stack @+0x38
+#
+# Ces offsets sont exactement ceux que le natif ECRIT dans
+# `SetupGameOperation$$GetEnvironmentAbilities` (`cfg+0x10..0x1f` = les 16 octets du ConfigId) et
+# que LIT le predicat de deduplication
+# `SetupGameOperation.u003Cu003Ec__DisplayClass18_0$$u003CIncludeEnvironmentAbilityu003Eb__0`
+# (`return *(int*)(c + 0x10) == this.<+0x10>` -- corps trivial, publie par la table sous le nom
+# d'un homonyme : `CenterSpace.Free.MersenneTwister$$get_Count`). La deduplication porte donc sur
+# le SEUL `ConfigId.AbilityType` : ni `VariantId`, ni `Level`, ni `PlayerId` n'y entrent.
+#
+# ⚠ `ConfigId` n'est PAS un objet JSON : `IdunShared.TriggeredAbilityConfigId` porte
+# `TriggeredAbilityConfigIdJsonConverter : Idun.Shared.Serialization.StringJsonConverter<T>`,
+# donc il se serialise en CHAINE. Ecriture (`$$ToConfigId`) : `Enum.ToString(AbilityType)`, puis
+# `+ <separateur> + VariantId` si le variant est non vide. Lecture (`$$CreateFromString`) :
+# chaine vide -> `{0, null}` ; chaine avec separateur -> `Split`, `[0]` parse par
+# `System.Enum.TryParse<TriggeredAbilityType>`, `[1]` = VariantId ; sinon la chaine entiere est
+# parsee. Un `TryParse` en echec rend `AbilityType = 0` -- le natif n'echoue PAS, il alloue quand
+# meme une entite.
+CONFIG_ID_SEPARATEUR = ":"      # LU, pas devine : le `DAT_*` que `$$ToConfigId` passe a
+                                # `String.Concat` est un LITTERAL IL2CPP, et la table livree par
+                                # #477-r15-r1 le resout -- `string_literals.charger().by_va(<le
+                                # slot cite par ToConfigId>)` rend `':'` (index 3113 sur
+                                # `rnca9r7q6c`). Corrobore par le gameconfig, ou 66 ids d'ability
+                                # portent cette forme (`PowerUp_HeroSpawn:Uthar`,
+                                # `EnvFactionSummons:AdeptusMechanicus`, ...). Sans effet sur les
+                                # montages d'ici, qui n'ont pas de VariantId.
+
+
+def config_id_depuis_json(brut) -> tuple[int | None, str | None]:
+    """Mirror de `IdunShared.TriggeredAbilityConfigId$$CreateFromString` -- rend `(id, inconnu)`.
+
+    `id` = l'AbilityType effectif (0 quand le natif ne parse pas), `inconnu` = le nom rendu
+    illisible, pour que l'appelant le DISE au lieu de le taire. Une forme qui n'est pas une
+    chaine n'est PAS traitee ici : le converter natif n'en lit pas d'autre.
+    """
+    if brut is None or brut == "":
+        return 0, None                                   # CollectionExtensions.IsNullOrEmpty
+    nom = brut.split(CONFIG_ID_SEPARATEUR, 1)[0]
+    if nom in TAT.__members__:
+        return int(TAT[nom]), None
+    return 0, brut                                       # Enum.TryParse en echec -> 0
+
+
+def ids_env_abilities_du_bc(bc: dict) -> tuple[list, list, list]:
     """Les ids deja presents dans les DEUX listes `AddRange`-ees, et ce qu'on n'a pas su lire.
 
     Ils decident si les trois termes qui passent par `IncludeEnvironmentAbility` (deduplique)
-    comptent ou non. Rend `(ids_lus, elements_non_lus)` -- on ne fabrique JAMAIS un zero : un
-    element dont on ne sait pas extraire l'id est REMONTE, pas ignore.
+    comptent ou non. Rend `(ids_lus, elements_OPAQUES, noms_INCONNUS)` -- on ne fabrique JAMAIS
+    un zero silencieux : un element dont la FORME n'est pas celle du converter natif est REMONTE
+    (`opaques`, l'appelant leve), et un nom que `Enum.TryParse` refuserait est COMPTE comme le
+    natif le compte (id 0, l'entite est allouee quand meme) mais NOMME (`inconnus`).
     """
     env = bc.get("EnvironmentAbilities") or {}
-    lus, opaques = [], []
+    lus, opaques, inconnus = [], [], []
     for cle in ("EnvironmentAbilities", "EnhancementsEnvironmentAbilities"):
         for item in (env.get(cle) or []):
-            brut = item.get("Id") if isinstance(item, dict) else None
-            if isinstance(brut, dict):                      # TriggeredAbilityConfigId serialise
-                brut = brut.get("Type", brut.get("AbilityType"))
-            if isinstance(brut, str) and brut in TAT.__members__:
-                lus.append(TAT[brut])
-            elif isinstance(brut, int):
-                lus.append(brut)
-            else:
+            if not isinstance(item, dict) or "ConfigId" not in item:
                 opaques.append(item)
-    return lus, opaques
+                continue
+            brut = item["ConfigId"]
+            if brut is not None and not isinstance(brut, str):
+                opaques.append(item)                     # forme que le converter natif ne lit pas
+                continue
+            ident, inconnu = config_id_depuis_json(brut)
+            lus.append(ident)
+            if inconnu is not None:
+                inconnus.append(inconnu)
+    return lus, opaques, inconnus
 
 
 def taille_board(board_id: str) -> tuple[int, int]:
@@ -268,7 +327,7 @@ def deriver_regle(seed_bc_path=None) -> dict:
     joueurs = (bc.get("Player") or {}).get("Players") or {}
     p = len(joueurs)
 
-    deja, opaques = ids_env_abilities_du_bc(bc)
+    deja, opaques, inconnus = ids_env_abilities_du_bc(bc)
     e_bc = len(deja) + len(opaques)
     if opaques:
         raise MesureImpossible(
@@ -308,6 +367,8 @@ def deriver_regle(seed_bc_path=None) -> dict:
         "cles_joueurs": sorted(joueurs, key=lambda k: int(k)) if joueurs else [],
         "seed_bc": str(seed_bc_path) if seed_bc_path else "data/seed-bc.json",
         "E_bc": e_bc,
+        "E_bc_ids": [int(x) for x in deja],
+        "E_bc_noms_inconnus": inconnus,
         "E_derived": derived,
         "E_derived_cles": touches,
         "E_en_dur": e_en_dur,
@@ -315,6 +376,7 @@ def deriver_regle(seed_bc_path=None) -> dict:
         "E_syncpvp": e_syncpvp,
         "E_lu": e_lu,
         "game_mode": mode_nom,
+        "game_mode_est_syncpvp": est_syncpvp,
         # premier id de tuile = 3 + P + E  (cf. en-tete : match=1, compteur a 2 apres
         # InitializeMatch, donc le premier NextId rend 3). E est ENTIEREMENT lu : plus aucun
         # terme n'est laisse a la mesure, donc plus rien ne peut absorber une erreur voisine.
@@ -629,6 +691,408 @@ def contre_epreuve_derived(session: int, board: str, temoin: dict) -> list[dict]
     return lignes
 
 
+# --------------------------------- contre-epreuve DEDUPLICATION (#477-r16-r1-r1)
+#
+# TROIS modeles concurrents de `E`, tous compatibles avec le seed intact (ou les deux listes du
+# BC sont VIDES) -- c'est exactement le regime degenere que ce volet existe pour quitter :
+#
+#   DEDUP (le LU)  : AddRange x2 sans dedup, boucle `derived` en `List.Add` DIRECT,
+#                    3 `IncludeEnvironmentAbility` qui DEDUPLIQUENT, boucle damage traits directe.
+#   NAIF           : tout est un ajout -- E = |BC| + derived + 2 + 3 + syncpvp (la formule de la
+#                    premiere version de #477-r16).
+#   TOUT-DEDUP     : les cinq termes dedupliquent -- E = |ids DISTINCTS|.
+#
+# Les cinq montages ci-dessous les separent. `addrange-double` a lui seul rend trois valeurs
+# distinctes (7 / 8 / 6 sur le seed courant) ; `temoin-positif` est le cran ANTI-DEGENERE : sans
+# lui, une deserialisation qui n'aurait PAS mordu rendrait le meme E que le temoin sur TOUS les
+# montages dedupliques, et ce zero se lirait comme une confirmation de la dedup.
+
+
+def e_modele_naif(r: dict) -> int:
+    """`E` selon le modele SOMME NAIVE : aucun terme n'est conditionnel."""
+    return (r["E_bc"] + r["E_derived"] + len(ENV_ABILITIES_EN_DUR) + r["E_damage_traits"]
+            + (1 if r["game_mode_est_syncpvp"] else 0))
+
+
+def e_modele_tout_dedup(r: dict) -> int:
+    """`E` selon le modele TOUT-DEDUP : les cinq termes dedupliqueraient -> ids DISTINCTS."""
+    ids = set(r["E_bc_ids"])
+    ids |= {int(DERIVED_ENVIRONMENT_ABILITIES[k]) for k in DERIVED_ENVIRONMENT_ABILITIES
+            if k.name in r["E_derived_cles"]}
+    ids |= {int(x) for x in ENV_ABILITIES_EN_DUR}
+    ids |= {int(x) for x in DAMAGE_TRAIT_ABILITIES}
+    if r["game_mode_est_syncpvp"]:
+        ids.add(int(ENV_ABILITY_SYNCPVP))
+    return len(ids)
+
+
+def _element_env(ability: "TAT", level: int = 1) -> dict:
+    """Un element de `BC.EnvironmentAbilities.EnvironmentAbilities`, a la forme LUE.
+
+    `ConfigId` est une CHAINE (converter `StringJsonConverter<TriggeredAbilityConfigId>`), et
+    `Level >= 1` : `0` est la valeur « verrouille » que
+    `Idun.Shared.Level$$ToZeroBasedIndex` REFUSE (`InvalidOperationException`), verrou deja paye
+    en #237. `PlayerId` reste `null` -- `AddEnvironmentAbilityOperation$$Execute` retombe alors
+    sur `StateExtensions$$GetPlayer(state, 2)`.
+    """
+    return {"ConfigId": ability.name, "Level": level, "PlayerId": None}
+
+
+def variantes_dedup() -> list[dict]:
+    """Les cinq seeds BC qui font sortir du regime degenere sur l'axe DEDUPLICATION."""
+    reinf = DERIVED_ENVIRONMENT_ABILITIES[TAT.PowerUp_ReinforcementShield]   # NON deduplique
+    fire, despoiled = ENV_ABILITIES_EN_DUR                                   # dedupliques
+
+    def poser(bc, elements):
+        env = bc.setdefault("EnvironmentAbilities", {})
+        env["EnvironmentAbilities"] = list(elements)
+        env.setdefault("EnhancementsEnvironmentAbilities", [])
+
+    specs = [
+        ("temoin-positif", [_element_env(reinf)], None,
+         "TEMOIN : une env ability qu'aucun `IncludeEnvironmentAbility` ne porte -- E doit "
+         "monter de 1. C'est ce montage qui prouve que la deserialisation MORD ; sans lui, "
+         "un element ignore en silence rendrait les montages dedupliques VERTS pour rien."),
+        ("dedup-fire", [_element_env(fire)], None,
+         "LA BRANCHE : `EnvFireTileDamage` est deja dans la liste quand "
+         "`IncludeEnvironmentAbility` l'atteint -- elle retourne SANS AJOUT, donc E ne bouge PAS."),
+        ("addrange-double", [_element_env(fire), _element_env(fire)], None,
+         "`List.AddRange` ne deduplique RIEN : deux fois la meme ability entrent toutes les "
+         "deux, et seul l'`Include` correspondant s'abstient -> E monte de 1, pas de 2."),
+        ("dedup-les-deux", [_element_env(fire), _element_env(despoiled)], None,
+         "Les DEUX ajouts en dur dedupliques d'un coup -> E ne bouge pas, alors que la somme "
+         "naive en compterait deux de plus."),
+        ("derived-doublon", [_element_env(reinf)], TAT.PowerUp_ReinforcementShield.name,
+         "La boucle `derived` fait un `List.Add` DIRECT : la meme ability entre une 2e fois "
+         "alors qu'elle est deja dans la liste -> E monte de 2, ce qu'un modele « tout "
+         "deduplique » ne peut pas rendre."),
+    ]
+
+    out = []
+    for nom, elements, passif, pourquoi in specs:
+        cfg = None
+        if passif is not None:
+            try:
+                import catalog_inject
+                cfg = catalog_inject.synthesize_ability(passif)
+            except Exception as e:
+                out.append({"cle": nom, "path": None, "pourquoi": pourquoi,
+                            "empeche": "passif %s non synthetisable : %s" % (passif, e)})
+                continue
+
+        def muter(bc, _el=elements, _p=passif, _c=cfg):
+            poser(bc, _el)
+            if _p is not None:
+                bc.setdefault("Abilities", {}).setdefault("PassiveAbilities", {})[_p] = _c
+
+        out.append({"cle": nom, "path": _ecrire_variante("dedup-" + nom, muter),
+                    "pourquoi": pourquoi, "empeche": None})
+    return out
+
+
+def contre_epreuve_dedup(session: int, board: str, temoin: dict) -> list[dict]:
+    """Monte un runner par montage et confronte `E` MESURE aux TROIS modeles.
+
+    `E` mesure = (1er id de tuile) - 3 - P : le bloc des env abilities est exactement l'intervalle
+    entre le dernier joueur et la premiere tuile (`AddEnvironmentAbilityOperation$$Execute` alloue
+    mais n'emet AUCUNE action dans le flux). Le montage `temoin-positif` doit faire monter `E` de
+    1 -- s'il ne le fait pas, la deserialisation n'a PAS mordu et le probe REFUSE de conclure sur
+    les autres, au lieu de lire leur immobilite comme une confirmation de la deduplication.
+    """
+    w, h = taille_board(board)
+
+    # TOUTES les predictions AVANT le premier runner -- c'est la discipline qui a fait la valeur
+    # des deux tranches precedentes : on n'ajuste rien sur la serie observee, et on le PROUVE en
+    # imprimant les trois modeles avant d'avoir la moindre mesure.
+    plan = []
+    for v in variantes_dedup():
+        if v["path"] is None:
+            plan.append((v, None, None))
+            continue
+        r = deriver_regle(v["path"])
+        plan.append((v, r, {"dedup": r["E_lu"], "naif": e_modele_naif(r),
+                            "tout_dedup": e_modele_tout_dedup(r)}))
+    print("      PREDICTIONS (E temoin = %d, 1re tuile temoin = %d) -- imprimees AVANT mesure :"
+          % (temoin["E_lu"], temoin["premier_id_tuile_prevu"]))
+    for v, r, prevu in plan:
+        if prevu is None:
+            print("        %-17s PAS MESURABLE : %s" % (v["cle"], v["empeche"]))
+            continue
+        print("        %-17s |BC|=%d derived=%d -> E dedup=%d / naif=%d / tout-dedup=%d "
+              "(1re tuile %d)"
+              % (v["cle"], r["E_bc"], r["E_derived"], prevu["dedup"], prevu["naif"],
+                 prevu["tout_dedup"], r["premier_id_tuile_prevu"]))
+        print("          %s" % v["pourquoi"])
+
+    lignes = []
+    for v, r, prevu in plan:
+        if prevu is None:
+            lignes.append(dict(v, statut="PAS MESURE", pourquoi=v["empeche"]))
+            continue
+        tmp = Path(tempfile.gettempdir()) / ("r16r1r1-%s.json" % v["cle"])
+        try:
+            rid = build_runner(board, tmp, seed_bc=v["path"])
+        except MesureImpossible as e:
+            lignes.append(dict(v, statut="PAS MESURE", prevu=prevu, pourquoi=str(e)))
+            continue
+        try:
+            flux = rpc(session, "replayOutputStream", {"runnerId": rid}).get("outputStream") or ""
+            seq = sequence_du_flux(flux)
+            tuiles, joueurs = seq["AddTile"], seq["AddPlayer"]
+            e_mesure = (tuiles[0] - 3 - len(joueurs)) if (tuiles and joueurs) else None
+            lignes.append(dict(v, statut="MESURE", runner=rid, prevu=prevu,
+                               E_bc=r["E_bc"], E_derived=r["E_derived"],
+                               premier_id_tuile=tuiles[0] if tuiles else None,
+                               nb_joueurs=len(joueurs), E_mesure=e_mesure,
+                               nb_tuiles=len(tuiles), T_attendu=w * h,
+                               concorde=(e_mesure == prevu["dedup"]),
+                               noms_inconnus=r["E_bc_noms_inconnus"]))
+        finally:
+            try:
+                rpc(session, "disposeRunner", {"runnerId": rid}, timeout=45)
+            except MesureImpossible:
+                pass
+    return lignes
+
+
+def verdict_dedup(lignes: list[dict], e_temoin: int) -> dict:
+    """Le verdict du volet DEDUP : morsure prouvee, modele DEDUP retenu, concurrents REFUTES."""
+    par_cle = {x["cle"]: x for x in lignes}
+    tp = par_cle.get("temoin-positif")
+    mesurees = [x for x in lignes if x["statut"] == "MESURE"]
+    mordu = bool(tp and tp["statut"] == "MESURE" and tp["E_mesure"] == e_temoin + 1)
+    concordent = bool(mesurees) and all(x["concorde"] for x in mesurees)
+    # Un modele n'est REFUTE que par un montage ou sa prediction DIFFERE de celle du modele lu :
+    # ailleurs, son accord ne prouve rien (regime degenere sur cet axe).
+    refute = {}
+    for nom in ("naif", "tout_dedup"):
+        discriminants = [x for x in mesurees if x["prevu"][nom] != x["prevu"]["dedup"]]
+        refute[nom] = bool(discriminants) and all(x["E_mesure"] != x["prevu"][nom]
+                                                  for x in discriminants)
+        refute[nom + "_discriminants"] = [x["cle"] for x in discriminants]
+    return {"mordu": mordu, "concordent": concordent, "n_mesurees": len(mesurees),
+            "refute": refute,
+            "ok": mordu and concordent and refute["naif"] and refute["tout_dedup"]}
+
+
+# ------------------------------ dependance d'ORDRE derived -> Include (#477-r16-r1-r1)
+
+def ordre_derived_avant_include() -> dict:
+    """`IncludeEnvironmentAbility` s'execute APRES la boucle `derived` -- observable ou non ?
+
+    Lu dans `SetupGameOperation$$GetEnvironmentAbilities` : les deux `AddRange`, PUIS la boucle
+    sur `BC.Abilities.PassiveAbilities`, PUIS `IncludeEnvironmentAbility(0x5cb)` et `(0x18)`,
+    PUIS les damage traits, PUIS le `SyncPVP`. Un emetteur qui inverserait les deux premiers
+    blocs et les `Include` divergerait -- mais SEULEMENT si un id peut venir des deux cotes.
+
+    Ce cran est STRUCTUREL : il rend l'intersection {valeurs de la table `+0x38`} INTER {les 3
+    ids dedupliques}. VIDE sur ce build -> l'ordre `derived -> Include` est INOBSERVABLE, et le
+    probe le DIT au lieu de pretendre l'avoir confronte. NON VIDE au prochain build -> l'ordre
+    devient observable et ce cran ROUGIT, ce qui est le signal d'ecrire le montage.
+
+    L'autre dependance d'ordre, `AddRange -> Include`, est elle PARFAITEMENT observable, et
+    c'est le montage `dedup-fire` qui la confronte : si les `Include` passaient AVANT les
+    `AddRange`, la deduplication ne verrait pas l'element du BC et `E` monterait de 1.
+    """
+    valeurs = {int(v) for v in DERIVED_ENVIRONMENT_ABILITIES.values()}
+    dedupliques = {int(x) for x in ENV_ABILITIES_EN_DUR} | {int(ENV_ABILITY_SYNCPVP)}
+    inter = sorted(valeurs & dedupliques)
+    return {
+        "valeurs_derived": sorted(TAT(v).name for v in valeurs),
+        "ids_dedupliques": sorted(TAT(v).name for v in dedupliques),
+        "intersection": [TAT(v).name for v in inter],
+        "observable": bool(inter),
+    }
+
+
+# ----------------------------------- les VERDICTS, en fonctions PURES (#477-r16-r1-r1)
+#
+# Extraits de `main()` pour une raison precise : un garde-fou qu'on n'a JAMAIS vu rouge n'est pas
+# un garde-fou. `--auto-test-gardes` les exerce sur des mesures FABRIQUEES, conformes d'abord
+# (tout doit etre vert) puis MUTEES une par une (le cran vise doit rougir, et lui seul suffit a
+# faire tomber le verdict). Sans cette extraction, un cran devenu inerte -- un `all()` sur une
+# liste vide, une cle renommee, une comparaison qui ne compare plus rien -- resterait vert pour
+# toujours. C'est le mode de panne mesure en #430 : `probe_181` rendait `0` inconditionnellement.
+
+def verdicts_etages(r: dict, analyses: list[dict]) -> dict:
+    """Les crans 1 a 8bis, un par ETAGE. `analyses` VIDE => tout NON (jamais un vert vide)."""
+    if not analyses:
+        return {k: False for k in
+                ("1_joueurs", "2_nb_tuiles", "3_tuiles_contigues", "4_plateformes",
+                 "5_premiere_unite", "6_pas_de_2", "7_couverture", "8_derived_invariant",
+                 "8bis_derived_lu")} | {"deriveds": set()}
+    deriveds = {x["derived_mesure"] for x in analyses}
+    return {
+        "1_joueurs": all(x["joueurs_concordent"] for x in analyses),
+        "2_nb_tuiles": all(x["T_concorde"] for x in analyses),
+        "3_tuiles_contigues": all(x["tuiles_contigues"] for x in analyses),
+        "4_plateformes": all(x["plateformes_concordent"] and x["plateformes_apres_tuiles"]
+                             for x in analyses),
+        "5_premiere_unite": all(x["unite_concorde"] for x in analyses),
+        "6_pas_de_2": all(bool(x["pas_tous_a_2"]) for x in analyses),
+        "7_couverture": all(x["union_contigue_depuis_3"] for x in analyses),
+        "8_derived_invariant": len(deriveds) == 1,
+        "8bis_derived_lu": all(x["derived_concorde"] for x in analyses),
+        "deriveds": deriveds,
+    }
+
+
+def verdict_contre_derived(lignes: list[dict]) -> dict:
+    """Le cran 10 : la mutation doit avoir MORDU, et l'offset doit SUIVRE. Vide => NON."""
+    joue = [x for x in lignes if x["statut"] == "MESURE"]
+    degenere = [x for x in lignes if x["statut"] == "DEGENERE"]
+    return {"joue": len(joue), "degenere": len(degenere),
+            "ok": bool(joue) and not degenere and all(x["concorde"] for x in joue)}
+
+
+# ------------------------------- auto-test des GARDES : chaque cran DOIT etre vu rouge
+
+def _mesure_conforme(r: dict, board: str, w: int, h: int, nb_unites: int = 3) -> dict:
+    """Fabrique la mesure qu'un board de `w*h` rendrait SI la regle lue etait exacte.
+
+    Sert UNIQUEMENT a `--auto-test-gardes` : c'est le point de depart vert dont on derive les
+    mutations. Il est construit depuis `r` (la regle) et jamais depuis une mesure observee --
+    ajuster ce fabricant sur une serie reelle ferait passer les gardes pour discriminants alors
+    qu'ils ne le seraient plus.
+    """
+    t = w * h
+    t0 = r["premier_id_tuile_prevu"]
+    tuiles = list(range(t0, t0 + t))
+    plateformes = [tuiles[-1] + 1, tuiles[-1] + 2]
+    u0 = plateformes[-1] + 1
+    unites = [u0 + 2 * k for k in range(nb_unites)]              # 1 unite + 1 UnitFoot
+    return {"board": board, "runner": -1, "W": w, "H": h, "T_attendu": t,
+            "tuiles": tuiles, "unites": unites,
+            "joueurs": list(range(3, 3 + r["P"])), "plateformes": plateformes,
+            "actions_distinctes": sorted(ACTIONS_ALLOUANTES)}
+
+
+def auto_test_gardes() -> tuple[bool, list[str]]:
+    """Chaque cran est-il capable de rougir ? Rend `(ok, lignes de rapport)`.
+
+    100 % OFFLINE -- aucun runner. La mesure de reference est FABRIQUEE conforme, puis mutee :
+    chaque mutation ne touche qu'UNE chose et doit faire tomber le cran nomme. Une mutation qui
+    laisse tout vert signale un cran INERTE, ce qui est le seul resultat qui compte ici.
+    """
+    rap = []
+    r = deriver_regle()
+    ref = [_mesure_conforme(r, "SYNTH_%d" % (w * h), w, h) for w, h in ((5, 7), (7, 9), (7, 10))]
+    base = verdicts_etages(r, [analyser(m, r) for m in ref])
+    crans = [k for k in base if k != "deriveds"]
+    if not all(base[k] for k in crans):
+        rap.append("  FABRICANT INVALIDE : la mesure conforme ne rend pas tout vert -> %s"
+                   % {k: base[k] for k in crans if not base[k]})
+        return False, rap
+
+    def mute_mesures(f):
+        ms = [json.loads(json.dumps(m)) for m in ref]
+        f(ms)
+        return verdicts_etages(r, [analyser(m, r) for m in ms])
+
+    def mute_regle(f):
+        r2 = dict(r)
+        f(r2)
+        return verdicts_etages(r2, [analyser(m, r2) for m in ref])
+
+    def _decale_tuiles(ms):
+        for m in ms:
+            m["tuiles"] = [x + 1 for x in m["tuiles"]]
+
+    def _mange_une_tuile(ms):
+        ms[0]["tuiles"] = ms[0]["tuiles"][:-1]
+
+    def _troue_les_tuiles(ms):
+        ms[0]["tuiles"] = ms[0]["tuiles"][:5] + [x + 3 for x in ms[0]["tuiles"][5:]]
+
+    def _une_plateforme(ms):
+        ms[0]["plateformes"] = ms[0]["plateformes"][:1]
+
+    def _decale_unites(ms):
+        ms[0]["unites"] = [x + 1 for x in ms[0]["unites"]]
+
+    def _pas_de_3(ms):
+        ms[0]["unites"] = [ms[0]["unites"][0], ms[0]["unites"][0] + 3]
+
+    def _joueur_en_trop(ms):
+        ms[0]["joueurs"] = ms[0]["joueurs"] + [ms[0]["joueurs"][-1] + 1]
+
+    def _derived_lu_faux(r2):
+        r2["E_derived"] = r["E_derived"] + 1
+        r2["premier_id_tuile_prevu"] = r["premier_id_tuile_prevu"] + 1
+        r2["premier_id_tuile_sans_derived"] = r["premier_id_tuile_sans_derived"]
+
+    def _un_seul_board_devie(ms):
+        ms[0]["tuiles"] = [x + 1 for x in ms[0]["tuiles"]]
+        ms[0]["plateformes"] = [x + 1 for x in ms[0]["plateformes"]]
+        ms[0]["unites"] = [x + 1 for x in ms[0]["unites"]]
+
+    mutations = [
+        ("1_joueurs", "un joueur de plus dans le flux", mute_mesures, _joueur_en_trop),
+        ("2_nb_tuiles", "une tuile de moins", mute_mesures, _mange_une_tuile),
+        ("3_tuiles_contigues", "un trou dans les ids de tuiles", mute_mesures, _troue_les_tuiles),
+        ("4_plateformes", "une seule plateforme MoW", mute_mesures, _une_plateforme),
+        ("5_premiere_unite", "1re unite decalee de 1", mute_mesures, _decale_unites),
+        ("6_pas_de_2", "un pas de 3 entre deux unites", mute_mesures, _pas_de_3),
+        ("7_couverture", "trou de couverture (tuiles decalees)", mute_mesures, _troue_les_tuiles),
+        ("8_derived_invariant", "un seul board devie -> derived non invariant",
+         mute_mesures, _un_seul_board_devie),
+        ("8bis_derived_lu", "la table statique `+0x38` rendrait un `derived` de +1",
+         mute_regle, _derived_lu_faux),
+        ("8bis_derived_lu", "toutes les tuiles decalees de 1 (allocation non recensee)",
+         mute_mesures, _decale_tuiles),
+    ]
+    ok = True
+    for cran, quoi, applique, f in mutations:
+        v = applique(f)
+        rouge = not v[cran]
+        rap.append("  %-22s %-52s -> %s" % (cran, quoi, "ROUGIT" if rouge else "INERTE (!)"))
+        if not rouge:
+            ok = False
+
+    # Cran 10 -- sur des lignes fabriquees : les trois modes de panne doivent tomber.
+    cas10 = [
+        ("aucune variante jouee", [], False),
+        ("variante DEGENERE", [{"statut": "DEGENERE"}], False),
+        ("variante mesuree qui NE CONCORDE PAS",
+         [{"statut": "MESURE", "concorde": False}], False),
+        ("variante mesuree qui concorde", [{"statut": "MESURE", "concorde": True}], True),
+    ]
+    for quoi, lignes, attendu in cas10:
+        got = verdict_contre_derived(lignes)["ok"]
+        rap.append("  %-22s %-52s -> %s" % ("10_contre_derived", quoi,
+                                            "OK" if got == attendu else "INERTE (!)"))
+        if got != attendu:
+            ok = False
+
+    # Cran 11 -- meme traitement pour le volet DEDUP.
+    def _l(cle, e, prevu):
+        return {"cle": cle, "statut": "MESURE", "E_mesure": e, "prevu": prevu,
+                "concorde": e == prevu["dedup"]}
+
+    p_temoin = {"dedup": 7, "naif": 7, "tout_dedup": 7}
+    p_fire = {"dedup": 6, "naif": 7, "tout_dedup": 6}
+    p_double = {"dedup": 7, "naif": 8, "tout_dedup": 6}
+    cas11 = [
+        ("rien de mesure", [], 6, False),
+        ("le TEMOIN POSITIF n'a pas bouge (deserialisation muette)",
+         [_l("temoin-positif", 6, p_temoin), _l("dedup-fire", 6, p_fire)], 6, False),
+        ("temoin OK mais un montage discorde",
+         [_l("temoin-positif", 7, p_temoin), _l("dedup-fire", 7, p_fire)], 6, False),
+        ("temoin OK, dedup OK, mais AUCUN montage ne separe TOUT-DEDUP",
+         [_l("temoin-positif", 7, p_temoin), _l("dedup-fire", 6, p_fire)], 6, False),
+        ("temoin OK + les deux concurrents separes et refutes",
+         [_l("temoin-positif", 7, p_temoin), _l("dedup-fire", 6, p_fire),
+          _l("addrange-double", 7, p_double)], 6, True),
+    ]
+    for quoi, lignes, e_temoin, attendu in cas11:
+        got = verdict_dedup(lignes, e_temoin)["ok"]
+        rap.append("  %-22s %-52s -> %s" % ("11_contre_dedup", quoi,
+                                            "OK" if got == attendu else "INERTE (!)"))
+        if got != attendu:
+            ok = False
+    return ok, rap
+
+
 # ---------------------------------------------------------------------------- sortie
 
 def main() -> int:
@@ -646,6 +1110,16 @@ def main() -> int:
                          "retiree/ajoutee de BC.Abilities.PassiveAbilities, et verifie que "
                          "l'offset des tuiles se decale de -1/+1. S'il ne bouge PAS, la lecture "
                          "de GetDerivedEnvironmentAbilities est REFUTEE.")
+    ap.add_argument("--contre-dedup", action="store_true",
+                    help="contre-epreuve #477-r16-r1-r1 : monte un runner par montage qui met des "
+                         "env abilities DANS `BC.EnvironmentAbilities` (vide sur le seed), et "
+                         "separe les trois modeles de E -- DEDUP (le lu), SOMME NAIVE, "
+                         "TOUT-DEDUPLIQUE. Inclut le TEMOIN POSITIF qui prouve que la "
+                         "deserialisation a mordu.")
+    ap.add_argument("--auto-test-gardes", action="store_true",
+                    help="OFFLINE, aucun runner : verifie que CHAQUE cran de verdict est capable "
+                         "de rougir, en mutant une mesure fabriquee conforme. Un cran qui reste "
+                         "vert sous sa mutation est INERTE et fait echouer le probe.")
     a = ap.parse_args()
 
     print("=" * 78)
@@ -657,6 +1131,22 @@ def main() -> int:
     except MesureImpossible as e:
         print("VERDICT : PAS MESURE -- %s" % e)
         return 2
+
+    if a.auto_test_gardes:
+        print("\n[AUTO-TEST DES GARDES] un garde-fou jamais vu rouge n'en est pas un.")
+        try:
+            ok_g, rapport = auto_test_gardes()
+        except MesureImpossible as e:
+            print("  PAS MESURE -- %s" % e)
+            return 2
+        for ligne in rapport:
+            print(ligne)
+        print("  => %s" % ("tous les crans MORDENT." if ok_g
+                           else "AU MOINS UN CRAN EST INERTE -- il ne garde rien."))
+        if a.session is None:
+            return 0 if ok_g else 1
+        if not ok_g:
+            return 1
 
     print("\n[OFFLINE] la regle, re-derivee des entrees versionnees (build %s)" % r["build"])
     print("  MatchComponent$$.ctor pose le compteur a 1 ; InitializeMatchOperation$$Execute")
@@ -752,35 +1242,26 @@ def main() -> int:
               % (an["env_implicites"], len(m["unites"]), an["union_contigue_depuis_3"],
                  "" if an["union_contigue_depuis_3"] else "  trous=%s" % an["trous"]))
 
-    tout_T = all(x["T_concorde"] for x in analyses)
-    tout_contigu = all(x["tuiles_contigues"] for x in analyses)
-    tout_joueurs = all(x["joueurs_concordent"] for x in analyses)
-    tout_mow = all(x["plateformes_concordent"] and x["plateformes_apres_tuiles"] for x in analyses)
-    tout_unite = all(x["unite_concorde"] for x in analyses)
-    tout_pas2 = all(x["pas_tous_a_2"] for x in analyses)
-    tout_couvert = all(x["union_contigue_depuis_3"] for x in analyses)
-    deriveds = {x["derived_mesure"] for x in analyses}
+    v = verdicts_etages(r, analyses)
 
     print("\n" + "-" * 78)
     print("VERDICT")
-    print("  1. ids des joueurs == 3..2+P (SortedDictionary) ............... %s" % ("OUI" if tout_joueurs else "NON"))
-    print("  2. nb de tuiles emises == Width*Height ........................ %s" % ("OUI" if tout_T else "NON"))
-    print("  3. ids de tuiles CONTIGUS ..................................... %s" % ("OUI" if tout_contigu else "NON"))
-    print("  4. 2 plateformes MoW, juste apres les tuiles .................. %s" % ("OUI" if tout_mow else "NON"))
-    print("  5. premier id d'unite == 1re tuile + T + 2 .................... %s" % ("OUI" if tout_unite else "NON"))
-    print("  6. pas entre unites mono-tuile == 2 (unite + UnitFoot) ........ %s" % ("OUI" if tout_pas2 else "NON"))
-    print("  7. aucun TROU dans 3..max (env + pieds reconstitues) .......... %s" % ("OUI" if tout_couvert else "NON"))
+    print("  1. ids des joueurs == 3..2+P (SortedDictionary) ............... %s" % ("OUI" if v["1_joueurs"] else "NON"))
+    print("  2. nb de tuiles emises == Width*Height ........................ %s" % ("OUI" if v["2_nb_tuiles"] else "NON"))
+    print("  3. ids de tuiles CONTIGUS ..................................... %s" % ("OUI" if v["3_tuiles_contigues"] else "NON"))
+    print("  4. 2 plateformes MoW, juste apres les tuiles .................. %s" % ("OUI" if v["4_plateformes"] else "NON"))
+    print("  5. premier id d'unite == 1re tuile + T + 2 .................... %s" % ("OUI" if v["5_premiere_unite"] else "NON"))
+    print("  6. pas entre unites mono-tuile == 2 (unite + UnitFoot) ........ %s" % ("OUI" if v["6_pas_de_2"] else "NON"))
+    print("  7. aucun TROU dans 3..max (env + pieds reconstitues) .......... %s" % ("OUI" if v["7_couverture"] else "NON"))
     print("  8. terme `derived` INVARIANT par board (%s) ................. %s"
-          % (sorted(deriveds), "OUI" if len(deriveds) == 1 else "NON"))
-    tout_derived = all(x["derived_concorde"] for x in analyses)
+          % (sorted(v["deriveds"]), "OUI" if v["8_derived_invariant"] else "NON"))
     print("  8bis. `derived` MESURE == `derived` LU dans la table statique (%d) ... %s"
-          % (r["E_derived"], "OUI" if tout_derived else "NON"))
-    if not tout_derived:
+          % (r["E_derived"], "OUI" if v["8bis_derived_lu"] else "NON"))
+    if not v["8bis_derived_lu"]:
         print("     -> ECART : la table `+0x38` de StaticBattleRules.TriggeredAbility a bouge,")
         print("        OU une allocation non recensee precede les tuiles. C'est exactement ce")
         print("        qu'un terme mesure par DIFFERENCE aurait absorbe en silence.")
-    ok = (tout_joueurs and tout_T and tout_contigu and tout_mow and tout_unite
-          and tout_pas2 and tout_couvert and len(deriveds) == 1 and tout_derived)
+    ok = all(v[k] for k in v if k != "deriveds")
 
     if a.mow:
         print("\n  9. pas d'unite avec une MACHINE OF WAR intercalee (--mow %s)" % a.mow)
@@ -817,34 +1298,88 @@ def main() -> int:
         print("      varier : les trois boards partagent le MEME seed BC, donc le meme `derived`.")
         print("      On le change a la source et on verifie que l'offset SUIT.")
         lignes = contre_epreuve_derived(a.session, boards[0], r)
-        joue = 0
         for x in lignes:
             if x["statut"] != "MESURE":
                 print("      %-28s %-7s %s : %s"
                       % (x["cle"], x["sens"], x["statut"], x.get("pourquoi") or ""))
-                if x["statut"] == "DEGENERE":
-                    ok = False
                 continue
-            joue += 1
             print("      %-28s %-7s derived %d -> %d ; 1re tuile mesuree=%s (attendu %s) %s"
                   % (x["cle"], x["sens"], r["E_derived"], x["derived_prevu"],
                      x["premier_id_tuile"], x["attendu"], "OK" if x["concorde"] else "ECART"))
             if x["nb_tuiles"] != x["T_attendu"]:
                 print("        (!) %d tuiles emises pour %d attendues -- le montage a change autre"
                       " chose que `derived`." % (x["nb_tuiles"], x["T_attendu"]))
-            if not x["concorde"]:
-                ok = False
-                if x["premier_id_tuile"] == r["premier_id_tuile_prevu"]:
-                    print("        => L'OFFSET N'A PAS BOUGE : la lecture de")
-                    print("           StaticBattleRules.TriggeredAbility$$GetDerivedEnvironmentAbilities")
-                    print("           est REFUTEE. Le `1` du seed venait d'ailleurs.")
-        if joue == 0:
-            print("      => AUCUNE variante jouee : contre-epreuve NON CONFRONTEE.")
-            ok = False
+            if not x["concorde"] and x["premier_id_tuile"] == r["premier_id_tuile_prevu"]:
+                print("        => L'OFFSET N'A PAS BOUGE : la lecture de")
+                print("           StaticBattleRules.TriggeredAbility$$GetDerivedEnvironmentAbilities")
+                print("           est REFUTEE. Le `1` du seed venait d'ailleurs.")
+        v10 = verdict_contre_derived(lignes)
+        if not v10["ok"]:
+            print("      => contre-epreuve NON CONCLUANTE (%d jouee(s), %d degeneree(s))."
+                  % (v10["joue"], v10["degenere"]))
+        ok = ok and v10["ok"]
     else:
         print("\n  10. `derived` fait varier expres ............................. NON JOUEE")
         print("      Rejouer avec --contre-derived : sans elle, `derived` n'est verifie que sur")
         print("      un seul BC, ou il ne peut pas varier -- le regime est DEGENERE.")
+
+    if a.contre_dedup:
+        print("\n  11. la branche DEDUPLICATION d'`IncludeEnvironmentAbility` (#477-r16-r1-r1)"
+              " -- board %s" % boards[0])
+        print("      Sur le seed, `BC.EnvironmentAbilities` est VIDE : les trois termes qui")
+        print("      passent par cette fonction valent invariablement 1/1/0 et la formule")
+        print("      ADDITIVE tient par accident. On met des env abilities DANS le BC pour que")
+        print("      la branche s'exerce, et on confronte les TROIS modeles concurrents.")
+        lignes = contre_epreuve_dedup(a.session, boards[0], r)
+        print("      %-17s %6s   %-26s %s" % ("montage", "|BC|", "E prevu  dedup/naif/tout",
+                                              "E mesure"))
+        for x in lignes:
+            if x["statut"] != "MESURE":
+                print("      %-17s %s : %s" % (x["cle"], x["statut"], x.get("pourquoi") or ""))
+                continue
+            print("      %-17s %6d   %6d / %4d / %4d      %s  %s"
+                  % (x["cle"], x["E_bc"], x["prevu"]["dedup"], x["prevu"]["naif"],
+                     x["prevu"]["tout_dedup"], x["E_mesure"],
+                     "OK" if x["concorde"] else "ECART"))
+            if x["nb_tuiles"] != x["T_attendu"]:
+                print("        (!) %d tuiles emises pour %d attendues -- le montage a change autre"
+                      " chose que la liste d'env abilities." % (x["nb_tuiles"], x["T_attendu"]))
+            if x["noms_inconnus"]:
+                print("        (!) noms d'ability que `Enum.TryParse` refuserait (le natif les"
+                      " compte quand meme, id 0) : %s" % x["noms_inconnus"])
+        v11 = verdict_dedup(lignes, r["E_lu"])
+        print("      -> la deserialisation a MORDU (temoin positif = E temoin + 1) ... %s"
+              % ("OUI" if v11["mordu"] else "NON"))
+        if not v11["mordu"]:
+            print("         REFUS DE CONCLURE : sans morsure, un element ignore en silence")
+            print("         rendrait TOUS les montages dedupliques verts pour rien -- c'est le")
+            print("         regime degenere que ce volet existe pour quitter.")
+        print("      -> modele SOMME NAIVE     refute (sur %s) ... %s"
+              % (v11["refute"]["naif_discriminants"] or "AUCUN montage discriminant",
+                 "OUI" if v11["refute"]["naif"] else "NON"))
+        print("      -> modele TOUT-DEDUPLIQUE refute (sur %s) ... %s"
+              % (v11["refute"]["tout_dedup_discriminants"] or "AUCUN montage discriminant",
+                 "OUI" if v11["refute"]["tout_dedup"] else "NON"))
+        ok = ok and v11["ok"]
+    else:
+        print("\n  11. branche DEDUPLICATION exercee ............................ NON JOUEE")
+        print("      Rejouer avec --contre-dedup : sans elle, `BC.EnvironmentAbilities` reste")
+        print("      VIDE et les trois termes conditionnels ne peuvent pas se distinguer d'un")
+        print("      ajout inconditionnel -- regime DEGENERE sur l'axe deduplication.")
+
+    o = ordre_derived_avant_include()
+    print("\n  12. dependance d'ORDRE `derived` -> `IncludeEnvironmentAbility`")
+    print("      valeurs de la table `+0x38` ... %s" % o["valeurs_derived"])
+    print("      ids DEDUPLIQUES en dur ........ %s" % o["ids_dedupliques"])
+    if o["observable"]:
+        print("      INTERSECTION NON VIDE (%s) : l'ordre est desormais OBSERVABLE -- un montage")
+        print("      qui le confronte doit etre ecrit, la lecture ne suffit plus." % o["intersection"])
+        ok = False
+    else:
+        print("      intersection VIDE -> l'ordre `derived` -> `Include` est INOBSERVABLE sur ce")
+        print("      build : aucun id ne peut venir des deux cotes. La dependance d'ordre qui,")
+        print("      elle, EST observable est `AddRange` -> `Include`, et c'est le montage")
+        print("      `dedup-fire` du cran 11 qui la confronte (Include avant AddRange => +1).")
 
     print("\n  => L'ordre d'allocation est %s"
           % ("MECANIQUE : un emetteur peut le reproduire ENTIEREMENT depuis la BC plus les\n"

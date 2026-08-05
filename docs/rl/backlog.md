@@ -2381,14 +2381,18 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   MoW, summons, ability a variable) et garder l'etape 1 du probe a **0 ligne non parsee**.
   cf. `docs/rl/case-477r11-format-du-flux-de-replay.md` sec. 2.
 
-- **#477-r16-r1 : la table `GetDerivedEnvironmentAbilities` n'est pas lue.** `[opus]`
-  L'offset d'allocation des entites ECS est MECANIQUE (#477-r16), a UN terme pres : le nombre
-  d'env abilities **derivees** des passifs du BC. Il vaut **1** sur le seed courant (mesure,
-  invariant par board), mais son contenu vit dans le `.cctor` de
-  `StaticBattleRules.TriggeredAbility` et **depend des passifs du BC** -- un autre seed decalerait
-  TOUTES les lignes du flux. RETOURNEMENT : mirrorer ce dictionnaire, et le probe #477-r16 rend
-  alors `derived` DERIVE au lieu de MESURE.
-  cf. `docs/rl/case-477r16-allocation-entites-ecs.md` sec. 3.
+- **#477-r16-r1-r1-r1 : deux branches conditionnelles de `E` restent NON EXERCEES.** `[opus]`
+  La deduplication d'`IncludeEnvironmentAbility` est confrontee (#477-r16-r1-r1), mais sur DEUX
+  chemins seulement des trois. Restent : **(a)** la seconde liste
+  `BC.EnvironmentAbilities.EnhancementsEnvironmentAbilities` -- meme `AddRange`, mais
+  `AddEnvironmentAbilityOperation$$Execute` y prend l'AUTRE branche
+  (`Blueprints$$EnhancementEnvironmentAbility`) et le type porte deux champs de plus
+  (`Targets`, `Stack`) dont la forme serialisee n'a jamais ete observee ; **(b)**
+  `EnvCapturePointShield` en `GameMode == SyncPVP` -- le terme vaut `0` sur TOUS les montages
+  joues (le seed est `Campaign`), donc cette 3e deduplication n'a jamais mordu. RETOURNEMENT :
+  un BC `SyncPVP` portant deja `EnvCapturePointShield`, et un montage `Enhancements` avec temoin
+  positif (`probe_477r16 --contre-dedup` en donne le patron).
+  cf. `docs/rl/case-477r16-allocation-entites-ecs.md` sec. 3bis et 3quater.
 
 - **#477-r16-r2 : la BOUCLE sur les pieds n'est pas confrontee.** `[opus]`
   `AddUnitOperation$$Execute` alloue `1 + 1 par tuile occupee` -- LU au decompile, jamais observe
