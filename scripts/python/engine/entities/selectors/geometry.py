@@ -11,6 +11,7 @@ import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
 from ...hex_corner import Corner      # `IdunBattleLogic.Utils.Hex.Corner` (#270-r1 volet 2)
+from ...hex_edge import Edge          # `IdunBattle.Utils.Hex.Edge` (#270-r1-r1)
 from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
                          _effect_field, resolve_unit)
 from ._shared import _entity_pos, _tile_positions
@@ -28,6 +29,10 @@ from ._shared import _entity_pos, _tile_positions
 #     0 = S     1 = SE    2 = NE    3 = N     4 = NW    5 = SW
 # CONFIRME LIVE (#90) : `DevastatingRefrain` bombarde `Target + dirs {3,1,5}` -> cast sur (2,3) a
 # marque (2,2)=N, (3,4)=SE, (1,4)=SW.
+# ⚠ #270-r1-r1 -- ce tuple RESTE en litteraux, et c'est un RESULTAT, pas un oubli : ses elements
+# sont les DELTAS cubiques (-1/0/+1), qui ne designent aucun enum. C'est son INDEX qui est un
+# `Edge` (le parametre `direction` d'`AxialCoordinate$$NeighbourAt`, cf. `neighbour_at` ci-dessous).
+# Ecrire `Edge` sur les deltas serait FAUX, et plus faux que l'ordinal, qui lui ne ment pas.
 _CUBE_DIRECTIONS = ((0, 1), (1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1))
 
 
@@ -48,12 +53,20 @@ def neighbour_at(col: int, row: int, direction: int) -> tuple:
 # CLE = `IdunBattleLogic.Utils.Hex.Corner`, le type DECLARE du parametre `direction` de
 # `GetTilesInTriangleShape` (#270-r1 volet 2) ; le noeud DSL amont nomme d'ailleurs son argument
 # `cornerDirection`. Chaque couple encadre bien son coin : NorthWest = (North_West, North), etc.
-# ⚠ Les VALEURS restent des ordinaux d'`IdunBattle.Utils.Hex.Edge` (le type du parametre
-# d'`AxialCoordinate$$NeighbourAt`) : role ELEMENT DE CONTENEUR, hors du perimetre des CLES --
-# residu `#270-r1-r1`.
-_TRIANGLE_SHAPE_DIRECTIONS = {Corner.NorthWest: (5, 0), Corner.NorthEast: (0, 1),
-                              Corner.West: (5, 4), Corner.East: (1, 2),
-                              Corner.SouthWest: (4, 3), Corner.SouthEast: (3, 2)}
+# VALEURS = `IdunBattle.Utils.Hex.Edge`, le type DECLARE du parametre `direction`
+# d'`AxialCoordinate$$NeighbourAt` (LU dans `frida/methods.tsv`) -- c'est exactement la fonction que
+# `neighbour_at` ci-dessus mirroir, et a qui ces valeurs sont passees. Converti par #270-r1-r1.
+# ⚠ Le NOM designe, il ne decrit pas l'ECRAN : dans le repere odd-q de `hexgeo`, `Edge.North` pointe
+# vers le BAS de la grille du port (cf. la docstring d'`engine/hex_edge.py`). Chaque couple encadre
+# bien son coin -- NorthWest = (North_West, North), etc.
+_TRIANGLE_SHAPE_DIRECTIONS = {
+    Corner.NorthWest: (Edge.North_West, Edge.North),        # (5, 0)
+    Corner.NorthEast: (Edge.North, Edge.North_East),        # (0, 1)
+    Corner.West:      (Edge.North_West, Edge.South_West),   # (5, 4)
+    Corner.East:      (Edge.North_East, Edge.South_East),   # (1, 2)
+    Corner.SouthWest: (Edge.South_West, Edge.South),        # (4, 3)
+    Corner.SouthEast: (Edge.South, Edge.South_East),        # (3, 2)
+}
 
 
 class TilesInTriangleShape(TargetsSelector):

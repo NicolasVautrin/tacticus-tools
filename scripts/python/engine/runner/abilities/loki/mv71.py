@@ -69,6 +69,7 @@ from ...operations.spawn import _spawn_config_grot, _occupied_tiles
 from ...operations.remove_unit import RemoveUnitOperation
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effect_type import EffectType
+from ....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1
 from ....services.battle_query import are_tiles_adjacent
 from ....services.custom_normal_attack import substitutes_normal_attack
 
@@ -219,7 +220,13 @@ def _tile7_utility(pos, elev, elev_minmax, eff_names, adj, caster_team, unit_id:
         if _team != caster_team:
             continue
         for ab in (triggered_ability_ids(vis) or ()):
-            if ab in (1102, 1155, 1120):
+            # #270-r1-r1 : les trois ids sont des `TriggeredAbilityType` -- ce sont EXACTEMENT les
+            # trois que les feuilles 21/22/23 du composite Tile lisent dans `ability_friend_counts`
+            # (`utilities/tile.py` : KustomForceFieldUtility 1102, DefenderOfTheGreaterGood 1155,
+            # SaviorProtocols 1120). Le nom est donc deja au site, cote consommateur.
+            if ab in (TriggeredAbilityType.KustomForceField,             # 1102
+                      TriggeredAbilityType.DefenderOfTheGreaterGood,     # 1155
+                      TriggeredAbilityType.SaviorProtocols):             # 1120
                 counts[ab] = counts.get(ab, 0) + 1
     if counts:
         meta["ability_friend_counts"] = counts

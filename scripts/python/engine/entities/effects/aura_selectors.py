@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import List
 
+from ..effect_type import EffectType   # #270-r1-r1 : `UNTARGETABLE_EFFECT_TYPES`
+
 #: Les `EffectType` dont la classe native derive d'`IdunBattle.Entities.Effects.Common.UntargetableEffect`
 #: ET dont le port a CONFRONTE la tranche -- FOYER UNIQUE de la non-ciblabilite cote port
 #: (`engine.ai.state_bridge._is_untargetable` le re-exporte).
@@ -37,7 +39,10 @@ from typing import List
 #:     rayon de souffle a mesurer -> #448-r2b-r1.
 #: On n'inscrit que ce qui est porte ET confronte SUR CE CANAL : un ajout speculatif retirerait des
 #: cibles a l'IA sans mesure, et c'est une degradation SILENCIEUSE.
-UNTARGETABLE_EFFECT_TYPES = (1035, 1140)
+# #270-r1-r1 : membres nommes -- le commentaire ci-dessus nomme deja les quatre derivees, dont ces
+# deux INSCRITES ; confronte a `frida/enums.tsv`, le nom matche 2/2 `EffectType`.
+UNTARGETABLE_EFFECT_TYPES = (EffectType.TeleportStrike_TeleportingIn,     # 1035
+                             EffectType.StormboyzStrike_TeleportingIn)   # 1140
 
 
 def hex_distance(a, b) -> "int | None":

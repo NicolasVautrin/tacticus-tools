@@ -178,7 +178,10 @@ class StatComponent:
             return self.get_current_value()
         if p == 3:
             return self.initial
-        if p in (5, 9):
+        # #270-r1-r1 : le tuple porte des `StatPart` (mirror STRICT, verbatim du build) --
+        # `5 = Modification`, `9 = MultiplierModification`. Les comparaisons scalaires voisines
+        # (`p == 3`, `p == 7`) relevent du role COMPARAISON, hors de ce lot.
+        if p in (StatPart.MODIFICATION, StatPart.MULTIPLIER_MODIFICATION):
             if source is not None:
                 return self.modification.get_modification_from_entity(source)
             return self.modification.total
@@ -255,7 +258,8 @@ class FillUpStatComponent:
             return self.maximum                     # champ base +0x10 (#60 : ex-mapping modTotal erroné)
         if p == 4:
             return self.maximum - self.current
-        if p in (5, 9):
+        # #270-r1-r1 : meme tuple de `StatPart` que `StatComponent.get_stat_part`.
+        if p in (StatPart.MODIFICATION, StatPart.MULTIPLIER_MODIFICATION):
             if source is not None:
                 return self.modification.get_modification_from_entity(source)
             return self.modification.total
@@ -382,19 +386,37 @@ class UnitStats:
 # ModifyUnit* setup), remplacer cette contribution par la contribution calculée.
 CAPTURED_SOURCE = "captured"
 
+# ─── #270-r1-r1 / #270-r3 : ces trois tables DÉSIGNENT des `StatType`, elles ne comptent pas ──────
+#
+# DÉCISION EXPLICITE SUR `StatType`, parce qu'elle n'est pas neutre. Son mirror est inscrit
+# `strict=False` au registre de `probe_313` : le port RECONVENTIONNE les noms (`CRIT_CHANCE` pour
+# `CriticalChance`, UPPER_CASE partout), donc `StatType.CRIT_CHANCE` nomme le PORT, pas le build.
+# On convertit QUAND MÊME, et voici pourquoi ce n'est pas un contournement de la règle :
+#   * ce que la règle vise est la PÉREMPTION SILENCIEUSE d'un ordinal. `strict=False` relâche les
+#     NOMS, jamais les VALEURS : `probe_313` confronte les 27 valeurs de `StatType` au build à
+#     chaque passe. Écrire le membre fait donc re-dériver l'ordinal d'une table SOUS CLIQUET ;
+#     laisser `7` ne protège de rien du tout ;
+#   * l'écart de nom est DÉCLARÉ (docstring du mirror + `raison=` du registre), pas silencieux.
+# L'alternative — renommer les membres du port en verbatim du jeu, la voie retenue pour
+# `KillUnitStep` (#427) — a un rayon de souffle MESURÉ : 553 références `StatType.<MEMBRE>` dans
+# 169 fichiers Python suivis. Hors périmètre de cette tranche -> résidu #270-r1-r1-r2.
+
 # StatTypes « fill-up » (résolus par FillUpStatComponent côté natif).
-_FILLUP_STATS = frozenset({4, 5})
+_FILLUP_STATS = frozenset({StatType.ARMOR,      # 4
+                           StatType.HEALTH})    # 5
 
 # Plafonds par-stat (virtuel GetMaxValue) : les pourcentages BlockChance/CritChance sont clampés à 100
 # par `IdunBattle.Entities.Components.StatComponent$$GetClampedValue` (le reste = pas de plafond). Sert au clamp de `get_current_value`.
-STAT_CLAMP_MAX = {7: 100, 9: 100}      # BlockChance / CritChance
+# ⚠ Les CLÉS désignent (`StatType`), les VALEURS comptent (100 = un pourcentage, un vrai scalaire).
+STAT_CLAMP_MAX = {StatType.BLOCK_CHANCE: 100,   # 7
+                  StatType.CRIT_CHANCE: 100}    # 9
 
 # Planchers par-stat (virtuel GetMinValue) : le port seedait TOUT à min 0, mais EXTRA_HITS(17) est
 # NÉGATIF live — preuve #60 (probe_60_swarm) : scarab 3 membres morts → GetStat(17, Current) natif
 # = −3 (stat-mod Swarm_HitReduction IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour). Le `Max(0)` natif vit à la FIN de la formule hits
 # (`IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits` : Math.Max(hits, 0)), PAS dans le clamp du stat. None = pas de
 # plancher ; les stats absentes gardent le min 0 historique (aucun contre-exemple mesuré).
-STAT_CLAMP_MIN = {17: None}            # ExtraHits — négatif (Swarm_HitReduction, #60)
+STAT_CLAMP_MIN = {StatType.EXTRA_HITS: None}   # 17 — négatif (Swarm_HitReduction, #60)
 
 
 def _stat_min(idx: int) -> "Optional[int]":

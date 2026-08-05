@@ -19,7 +19,11 @@ from fractions import Fraction
 from ..unit_context import UnitContext
 from ..stats import StatType
 # Cles de `_PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE` (#270-r1 volet 2) : des ids d'abilities ACTIVES.
+# Depuis #270-r1-r1, c'est AUSSI le type des ELEMENTS des cinq registres de moyenne min/max.
 from ..active_ability_type import ActiveAbilityType
+# `_PREDICTION_FORMULA_ON_TRIGGERED_ABILITY` porte les DEUX enums : sa cle est un
+# `ActiveAbilityType`, sa valeur un `TriggeredAbilityType` -- c'est le sujet meme de la table.
+from ..triggered_ability_type import TriggeredAbilityType
 # `UnitsWithTrait(..., 2 = Summon)` du sélecteur de `HadesAutocannons` — l'id natif vient de l'enum,
 # jamais d'un littéral (cf. `entities/traits/unit_trait.py`).
 from ..traits.unit_trait import UnitTrait as _UnitTrait
@@ -72,25 +76,33 @@ from ..damage_profile_type import PROFILE_NAME_BY_INDEX as _PROFILE_BY_INDEX  # 
 # elle est NON LUE. Cf. docs/rl/case-344 et docs/rl/case-350.
 
 # (a1) corps DÉDUPLIQUÉ `<X>Ability$$GetDamageAmountMain` -> `AActiveAbility$$MinMaxDamageAverage`.
+#
+# ⚠ #270-r1-r1 : les cinq registres ci-dessous portaient leurs 55 ids en ORDINAUX NUS, avec le nom
+# en commentaire de fin de ligne. Le rôle « élément de conteneur » n'était visité par AUCUN des cinq
+# rôles du recenseur, donc ce gisement se lisait `0`. Le discriminant est le NOM déjà cité au site :
+# confronté à `data/symbols/<build>/frida/enums.tsv`, il matche 55/55 `ActiveAbilityType`, tandis que
+# `TriggeredAbilityType` et `EffectType` nomment systématiquement autre chose au même ordinal
+# (1173 = `MasterOfTheTutelaries_Summon` / `Markerlight_Visual`, par exemple). L'ordinal, lui, ne
+# tranche rien. Il reste en commentaire de fin de ligne : il ne désigne plus, il documente.
 _A_VIA_GET_DAMAGE_AMOUNT_MAIN = frozenset({
-    1173,   # ArcScourge             (`ArcScourgePlaybook$$EvaluateNonComparable`)
-    1014,   # ArmoriumCherub
-    1026,   # BasiliskBarrage        (`BasiliskBarragePlaybook$$GenerateAttackPredictionsForShells`)
-    1041,   # BrazierOfHolyFire
-    1022,   # BringerOfDespair
-    1105,   # CrushingClaws
-    1066,   # Executioner            (`ExecutionerPlaybook$$GeneratePredictions`)
-    1042,   # FlailSwing             -- MESURÉ LIVE (bras (a) du probe #344)
-    1017,   # FragBomb
-    1008,   # HarbingerOfDestruction
-    1067,   # HarvesterOfSouls
-    1004,   # MortisRound
-    1006,   # MultiThreatEliminator
-    1035,   # PlagueWind
-    1027,   # PsychicMaelstrom
-    1062,   # SanctorumMissile
-    1065,   # ScythingTalons
-    1056,   # StranglethornCannon
+    ActiveAbilityType.ArcScourge,              # 1173  (`ArcScourgePlaybook$$EvaluateNonComparable`)
+    ActiveAbilityType.ArmoriumCherub,          # 1014
+    ActiveAbilityType.BasiliskBarrage,         # 1026  (`BasiliskBarragePlaybook$$GenerateAttackPredictionsForShells`)
+    ActiveAbilityType.BrazierOfHolyFire,       # 1041
+    ActiveAbilityType.BringerOfDespair,        # 1022
+    ActiveAbilityType.CrushingClaws,           # 1105
+    ActiveAbilityType.Executioner,             # 1066  (`ExecutionerPlaybook$$GeneratePredictions`)
+    ActiveAbilityType.FlailSwing,              # 1042  -- MESURÉ LIVE (bras (a) du probe #344)
+    ActiveAbilityType.FragBomb,                # 1017
+    ActiveAbilityType.HarbingerOfDestruction,  # 1008
+    ActiveAbilityType.HarvesterOfSouls,        # 1067
+    ActiveAbilityType.MortisRound,             # 1004
+    ActiveAbilityType.MultiThreatEliminator,   # 1006
+    ActiveAbilityType.PlagueWind,              # 1035
+    ActiveAbilityType.PsychicMaelstrom,        # 1027
+    ActiveAbilityType.SanctorumMissile,        # 1062
+    ActiveAbilityType.ScythingTalons,          # 1065
+    ActiveAbilityType.StranglethornCannon,     # 1056
 })
 
 # (a2) corps DÉDUPLIQUÉ `<X>Ability$$GetDamage(state, isPrediction)` — étiqueté
@@ -100,34 +112,34 @@ _A_VIA_GET_DAMAGE_AMOUNT_MAIN = frozenset({
 # donc EXACTEMENT la même arithmétique que (a1). Le nom du corps ne prédit rien : c'est le littéral
 # du call-site qui tranche.
 _A_VIA_STAFF_OF_STARS_GET_DAMAGE = frozenset({
-    1207,   # AncestralFortune       (`AncestralFortunePlaybook$$MakeDamagePredictions`)
-    1078,   # Fragstorm
-    1147,   # HadesAutocannons
-    1132,   # KillMaimBurn           (`KillMaimBurnPlaybook$$EvaluateNonComparable`)
-    1204,   # LeadingTheCharge
-    1177,   # LightOfSanguinius
-    1111,   # LivingBatteringRam     (`LivingBatteringRamPlaybook$$EvaluateNonComparable`)
-    1074,   # ScytheOfDust
-    1069,   # SeekerMissileFrequencyLock
-    1073,   # StaffOfStars           (DEUX call-sites : cible principale + volet secondaire)
+    ActiveAbilityType.AncestralFortune,             # 1207  (`AncestralFortunePlaybook$$MakeDamagePredictions`)
+    ActiveAbilityType.Fragstorm,                    # 1078
+    ActiveAbilityType.HadesAutocannons,             # 1147
+    ActiveAbilityType.KillMaimBurn,                 # 1132  (`KillMaimBurnPlaybook$$EvaluateNonComparable`)
+    ActiveAbilityType.LeadingTheCharge,             # 1204
+    ActiveAbilityType.LightOfSanguinius,            # 1177
+    ActiveAbilityType.LivingBatteringRam,           # 1111  (`LivingBatteringRamPlaybook$$EvaluateNonComparable`)
+    ActiveAbilityType.ScytheOfDust,                 # 1074
+    ActiveAbilityType.SeekerMissileFrequencyLock,   # 1069
+    ActiveAbilityType.StaffOfStars,                 # 1073  (DEUX call-sites : cible principale + volet secondaire)
 })
 
 # (a3) corps PROPRE de l'ability (non dédupliqué, donc nommé par ghidra), qui aboutit à la même
 # moyenne demi-vers-le-pair. Pour les quatre premiers le call-site du playbook pose `isPrediction = 1`.
 _A_VIA_OWN_ABILITY_BODY = frozenset({
-    1157,   # BladeOfMagnus     `BladeOfMagnusAbility$$GetDamage` = Sum(MinMaxDamage(true), If(HasEffect(5), Direct(extraDmg), 0))
-    1148,   # DaemonicOrdnance  `DaemonicOrdnanceAbility$$GetDamage` -> MinMaxDamage(true)  (4e arg `mov r9b, 1`)
-    1093,   # MortarionsPlagueWind  `MortarionsPlagueWindAbility$$GetDamage1` -> MinMaxDamageAverage
-    1137,   # MurderousSwing    `MurderousSwingAbility$$GetCorrectDamage` -> MinMaxDamageAverage sur les DEUX branches du If
-    1095,   # ReapingScythe     `ReapingScytheAbility$$GetDamage` : `isPrediction != 0` -> MinMaxDamageAverage
-    1104,   # SpiritLeech       `SpiritLeechAbility$$GetAttackDamage` -> MinMaxDamage(true) (les deux branches du ConditionalAmount)
+    ActiveAbilityType.BladeOfMagnus,          # 1157  `BladeOfMagnusAbility$$GetDamage` = Sum(MinMaxDamage(true), If(HasEffect(5), Direct(extraDmg), 0))
+    ActiveAbilityType.DaemonicOrdnance,       # 1148  `DaemonicOrdnanceAbility$$GetDamage` -> MinMaxDamage(true)  (4e arg `mov r9b, 1`)
+    ActiveAbilityType.MortarionsPlagueWind,   # 1093  `MortarionsPlagueWindAbility$$GetDamage1` -> MinMaxDamageAverage
+    ActiveAbilityType.MurderousSwing,         # 1137  `MurderousSwingAbility$$GetCorrectDamage` -> MinMaxDamageAverage sur les DEUX branches du If
+    ActiveAbilityType.ReapingScythe,          # 1095  `ReapingScytheAbility$$GetDamage` : `isPrediction != 0` -> MinMaxDamageAverage
+    ActiveAbilityType.SpiritLeech,            # 1104  `SpiritLeechAbility$$GetAttackDamage` -> MinMaxDamage(true) (les deux branches du ConditionalAmount)
 })
 
 # (a4) le playbook n'appelle AUCUNE méthode d'ability : il INLINE la moyenne. Même primitive finale
 # (`DivideAmount$$Calculate` -> `AAmountFormula$$RoundFix64Result(., 0)`), donc même arrondi.
 _A_INLINE_IN_PLAYBOOK = frozenset({
-    1044,   # IncendiaryShells  `IncendiaryShellsAbility$$GetDamageRange(random = 0)` = Divide(Sum(Get(mn), Get(mx)), Get(2), 0)
-    1100,   # SorcerousFacade   `SorcerousFacadePlaybook$$MakeDamagePredictions` = Half(Sum(Get(mn), Get(mx)), 0)
+    ActiveAbilityType.IncendiaryShells,   # 1044  `IncendiaryShellsAbility$$GetDamageRange(random = 0)` = Divide(Sum(Get(mn), Get(mx)), Get(2), 0)
+    ActiveAbilityType.SorcerousFacade,    # 1100  `SorcerousFacadePlaybook$$MakeDamagePredictions` = Half(Sum(Get(mn), Get(mx)), 0)
 })
 
 _PREDICTION_MINMAX_AVERAGE = (_A_VIA_GET_DAMAGE_AMOUNT_MAIN | _A_VIA_STAFF_OF_STARS_GET_DAMAGE
@@ -137,26 +149,26 @@ _PREDICTION_MINMAX_AVERAGE = (_A_VIA_GET_DAMAGE_AMOUNT_MAIN | _A_VIA_STAFF_OF_ST
 # avec le défaut, donc rien à brancher ; on la NOMME pour distinguer « lu et confirmé (b) » de
 # « non lu, retombé sur le défaut ». Consommée par les gardes de #344.
 _PREDICTION_MINMAX_RANDOM_READ = frozenset({
-    1176,   # BlightGrenades
-    1171,   # DakkaDakkaDakka
-    1199,   # DoomSiren
-    1168,   # EntropyCannons
-    1197,   # ExcruciatingFrequencies
-    1169,   # PlagueburstMortar
-    1170,   # ExplosivePresents
-    1036,   # FrenziedFiring         (DEUX call-sites : cible d'origine + volet AoE)
-    1227,   # HeavyWarpFlamer
-    1020,   # HeraldOfTheApocalypse
-    1196,   # LashOfTorment
-    1222,   # MassDriverAccelerator
-    1165,   # MightFromBelow
-    1150,   # PlasmaCannon           -- MESURÉ LIVE (bras (b) du probe #344)
-    1225,   # StrikeFromTheShadows
-    1103,   # Supercharge
-    1154,   # TacticalPrecision
-    1202,   # VigilanceEternal       (`VigilanceEternalPlaybook$$EvaluateNonComparable`)
+    ActiveAbilityType.BlightGrenades,           # 1176
+    ActiveAbilityType.DakkaDakkaDakka,          # 1171
+    ActiveAbilityType.DoomSiren,                # 1199
+    ActiveAbilityType.EntropyCannons,           # 1168
+    ActiveAbilityType.ExcruciatingFrequencies,  # 1197
+    ActiveAbilityType.PlagueburstMortar,        # 1169
+    ActiveAbilityType.ExplosivePresents,        # 1170
+    ActiveAbilityType.FrenziedFiring,           # 1036  (DEUX call-sites : cible d'origine + volet AoE)
+    ActiveAbilityType.HeavyWarpFlamer,          # 1227
+    ActiveAbilityType.HeraldOfTheApocalypse,    # 1020
+    ActiveAbilityType.LashOfTorment,            # 1196
+    ActiveAbilityType.MassDriverAccelerator,    # 1222
+    ActiveAbilityType.MightFromBelow,           # 1165
+    ActiveAbilityType.PlasmaCannon,             # 1150  -- MESURÉ LIVE (bras (b) du probe #344)
+    ActiveAbilityType.StrikeFromTheShadows,     # 1225
+    ActiveAbilityType.Supercharge,              # 1103
+    ActiveAbilityType.TacticalPrecision,        # 1154
+    ActiveAbilityType.VigilanceEternal,         # 1202  (`VigilanceEternalPlaybook$$EvaluateNonComparable`)
     # #350 -- corps PROPRE de l'ability, `isPrediction` CODÉ EN DUR À FAUX (pas un paramètre) :
-    1230,   # SavageEchoes      `SavageEchoesAbility$$GetDamage` = Sum(MinMaxDamage(this, state, 0), Multiply(...))
+    ActiveAbilityType.SavageEchoes,             # 1230  `SavageEchoesAbility$$GetDamage` = Sum(MinMaxDamage(this, state, 0), Multiply(...))
 })
 
 
@@ -225,14 +237,20 @@ _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE = {
 # Table PUREMENT DOCUMENTAIRE — aucun code ne branche dessus ; la garde offline de #350 vérifie
 # qu'elle est DISJOINTE des trois tables ci-dessus (une entrée qui y apparaîtrait aussi serait une
 # qualification d'enum fausse, exactement l'erreur que cette table existe pour empêcher).
+# ⚠ CE SITE EST LE CAS D'ÉCOLE des DEUX enums au même endroit (#270-r3 pour la clé, #270-r1-r1 pour
+# la valeur) : la CLÉ est un `ActiveAbilityType` (1160 = `HeavyRailRifle`) et la VALEUR un
+# `TriggeredAbilityType` (1260 = `HeavyRailRifle_Attack`, ordinal ABSENT d'`ActiveAbilityType`).
+# C'est exactement ce que cette table existe pour dire, et l'ordinal ne le disait pas.
 _PREDICTION_FORMULA_ON_TRIGGERED_ABILITY = {
     # ActiveAbilityType : (playbook natif, TriggeredAbilityType RÉELLEMENT évalué, chaîne lue)
-    1160: ("HeavyRailRiflePlaybook$$EvaluateNonComparable",
-           1260,        # 0x4ec — littéral passé à `Playbook<T>$$GetAbility<T>`, et valeur rendue par
-                        # `HeavyRailRifle_PendingAttackEffect$$GetTriggeredAbilityType`
-           "MassiveScythingTalonsAbility$$GetDamage -> BaseTriggeredAbility$$MinMaxDamage "
-           "= RandomAmount(cfg@0x20[0xc], cfg@0x20[0xd]), pris au slot 4 d'IAmountFormula "
-           "(= AAmountFormula$$CalculateAverage, TRONCATURE) -> forme (b)"),
+    ActiveAbilityType.HeavyRailRifle:  # 1160
+        ("HeavyRailRiflePlaybook$$EvaluateNonComparable",
+         TriggeredAbilityType.HeavyRailRifle_Attack,
+                      # 1260 = 0x4ec — littéral passé à `Playbook<T>$$GetAbility<T>`, et valeur rendue
+                      # par `HeavyRailRifle_PendingAttackEffect$$GetTriggeredAbilityType`
+         "MassiveScythingTalonsAbility$$GetDamage -> BaseTriggeredAbility$$MinMaxDamage "
+         "= RandomAmount(cfg@0x20[0xc], cfg@0x20[0xd]), pris au slot 4 d'IAmountFormula "
+         "(= AAmountFormula$$CalculateAverage, TRONCATURE) -> forme (b)"),
 }
 
 

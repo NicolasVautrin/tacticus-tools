@@ -29,6 +29,7 @@ from ...entities.triggers import (Not, AreEnemies, HasFaction, HasTrait, HasUnit
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.stats import StatType
+from ...hex_edge import Edge   # `IdunBattle.Utils.Hex.Edge` -- directions de `GetShape` (#270-r1-r1)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from ...utilities.tile import first_tile_by_utility
@@ -614,8 +615,14 @@ DEVASTATING_REFRAIN_TARGET = int(EffectType.DevastatingRefrain_Target)   # 0x57a
 DEVASTATING_REFRAIN_ATTACK = int(EffectType.DevastatingRefrain_Attack)   # 0x57b = 1403
 # `.IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$.ctor` : DEUX `List<int>` de directions hex pre-construites, stockees `this+0xf0` /
 # `this+0xf8` — lues telles quelles (aucune deduction) :
-SHAPE_DIRECTIONS_MACHINE = (3, 1, 5)       # this+0xf0 : Add(3) Add(1) Add(5)   -> {N, SE, SW}
-SHAPE_DIRECTIONS_OTHER = (0, 2, 4)         # this+0xf8 : Add(0) Add(2) Add(4)   -> {S, NE, NW}
+# #270-r1-r1 : ces directions sont passees a `TileFromVector` = `AxialCoordinate$$NeighbourAt`, dont
+# le parametre `direction` est DECLARE `IdunBattle.Utils.Hex.Edge` (lu dans `frida/methods.tsv`).
+# ⚠ Les libelles {N, SE, SW} decrivent l'ECRAN du port (repere odd-q de `hexgeo`, axe des lignes
+# inverse, mesure live #90) ; le membre, lui, designe l'ordinal du build. Les deux coexistent.
+SHAPE_DIRECTIONS_MACHINE = (Edge.South, Edge.North_East, Edge.North_West)
+#                            ^3          ^1               ^5     this+0xf0 : Add(3) Add(1) Add(5) -> ecran {N, SE, SW}
+SHAPE_DIRECTIONS_OTHER = (Edge.North, Edge.South_East, Edge.South_West)
+#                          ^0          ^2               ^4     this+0xf8 : Add(0) Add(2) Add(4) -> ecran {S, NE, NW}
 MACHINE_POSITION_BOTTOM = 2                # litteral de `IsPositionMachineForCurrentPlayer(2)`
 
 

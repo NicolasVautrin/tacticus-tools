@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 # Utilites d'IA (classes natives IdunBattle.AI.Utilities, cf. engine/utilities/). Les fonctions
 # heal_utility/repair_utility/added_effect_utility/utility_value ci-dessous sont des WRAPPERS MINCES
 # vers ces instances (meme pli que damage_composite -> DAMAGE_UTILITY) : le CORPS vit dans la classe.
+from .entities.active_ability_type import ActiveAbilityType   # #270-r1-r1
 from .utilities.heal import HEAL_UTILITY
 from .utilities.repair import REPAIR_UTILITY
 from .utilities.effect import ADDED_EFFECT_UTILITY, EFFECT_UTILITY_PREFIX  # noqa: F401 (re-export)
@@ -253,7 +254,8 @@ def heal_amount_weapon(attack_stat: int, weapon_highest_hits: int = 1) -> int:
 # also healed for {hpToHeal} Health"), PAS l'action. Mesure live (probe_27_1212_healingbalms) :
 # `pairUtility` natif = 37.67811609432101 = min(2512x3, missing)/(20000+1)x100 -> branche ARME ;
 # la branche `hpToHeal` (4986 -> 24.9288) est REFUTEE.
-CONFIG_HEAL_ABILITY_IDS = frozenset({8})    # MassHeal — seul porteur de `MassHealAbility$$HealAmount`
+# #270-r1-r1 : membre nomme (`MassHeal` etait deja au site).
+CONFIG_HEAL_ABILITY_IDS = frozenset({ActiveAbilityType.MassHeal})   # 8 — seul porteur de `MassHealAbility$$HealAmount`
 # Non-regression MESUREE (re-derivee du code, pas heritee) : les 4 seuls `ActiveAbilityType` dont le nom
 # contient "Heal" sont 8 / 18 / 1167 / 1212, et seul 1212 changeait de branche.
 #   18 (`Heal`) et 1167 (`Heal_TwistedScience`) : leur cle derivee n'a PAS de `hpToHeal` -> ils

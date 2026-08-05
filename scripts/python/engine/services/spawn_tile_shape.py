@@ -26,13 +26,23 @@ from __future__ import annotations
 from typing import List, Optional, Sequence, Tuple
 
 from ..battle_query import get_tiles_in_triangle_shape
+from ..hex_corner import Corner   # type DECLARE du parametre `direction` (#270-r1-r1)
 
 Pos = Tuple[int, int]
 
 # `ThreeUnitSpawnTileShapeSelector$$GetArea` : la liste de directions ESSAYEES, dans cet ordre
 # exact (litteral du decompile : Add(1), Add(0), Add(5), Add(4), Add(3), Add(2)). La PREMIERE
 # direction dont l'aire passe `CorrectArea` gagne ; aucune -> liste VIDE.
-DIRECTION_ORDER: Tuple[int, ...] = (1, 0, 5, 4, 3, 2)
+# #270-r1-r1 : `Corner`, pas `Edge` -- ces directions sont passees a `get_tiles_in_triangle_shape`,
+# mirror de `BattleQuery$$GetTilesInTriangleShape`, dont le parametre `direction` est DECLARE
+# `IdunBattleLogic.Utils.Hex.Corner` (lu dans `frida/methods.tsv`). L'ORDRE est celui du decompile
+# et il est OBSERVABLE (premiere aire valide gagne) -> le tuple reste un tuple.
+DIRECTION_ORDER: Tuple[Corner, ...] = (Corner.NorthEast,   # 1
+                                       Corner.NorthWest,   # 0
+                                       Corner.SouthEast,   # 5
+                                       Corner.SouthWest,   # 4
+                                       Corner.East,        # 3
+                                       Corner.West)        # 2
 
 
 def correct_relationship_in_area(board, area: Sequence[Pos], tile: Pos) -> bool:

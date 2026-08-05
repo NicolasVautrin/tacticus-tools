@@ -16,6 +16,10 @@ from ....services.damage_combat import BlockSource
 from ....services.static_battle_rules import TILE_STATUS_EFFECT_NAMES
 from ..base import BaseEffect, is_charging_attack, owner_is_caster
 from ..magnitude import ability_var, global_value, trait_var
+# #270-r1-r1 : les cles composites `LET_THE_GALAXY_BURN_PERSISTENT_KEY` / `SWARM_HIT_REDUCTION_SOURCE`
+# portent des membres d'enum, et le meme ordinal 1482 nomme AUTRE CHOSE dans l'autre.
+from ...effect_type import EffectType
+from ...triggered_ability_type import TriggeredAbilityType
 
 
 class SquigHoundAdditionalHitsEffect(BaseEffect):
@@ -751,8 +755,9 @@ class AnvilShieldFrozenAttackerAdvantageEffect(BaseEffect):
 
     def applied_stat_mods(self, stats_ctx) -> "list":
         """DATA du `ChangeStat` (part 5) pose a l'application : BLOCK_CHANCE += blockChance[level]."""
+        from ...stats import StatType
         amt = self.get_stat_modification_amount()
-        return [(7, int(amt))] if amt else []
+        return [(StatType.BLOCK_CHANCE, int(amt))] if amt else []   # 7 (#270-r1-r1)
 
     def reverted_stats(self) -> "list":
         from ...stats import StatType
@@ -1090,7 +1095,11 @@ class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
 # `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`. Le tuple = la cle composite native
 # (AbilityOrEffect, nom de la donnee) ; PARTAGEE entre le poseur (runner/.../let_the_galaxy_burn.py),
 # le nettoyeur (Reset) et ce lecteur -> une seule source de verite.
-LET_THE_GALAXY_BURN_PERSISTENT_KEY = (1482, "LetTheGalaxyBurn")
+# #270-r1-r1 : `TriggeredAbilityType`, PAS `EffectType` -- le meme ordinal 1482 nomme
+# `PrioritisedEfficiency_ExtraMovement` en `EffectType`. Le discriminant est le symbole natif deja
+# cite ci-dessus (`LetTheGalaxyBurnAbility$$.cctor`, une ability TRIGGERED).
+LET_THE_GALAXY_BURN_PERSISTENT_KEY = (TriggeredAbilityType.LetTheGalaxyBurn,   # 0x5ca = 1482
+                                      "LetTheGalaxyBurn")
 
 
 class LetTheGalaxyBurnEffect(BaseEffect):
@@ -1794,7 +1803,9 @@ class DefenderOfTheGreaterGoodExtraHitsDroneEffect(DefenderOfTheGreaterGoodExtra
 # (`UnitContext.from_snapshot`) et le refresh runner (`runner/abilities/loki/swarm.py`) : même clé =
 # `IdunBattle.Entities.Components.ValueModification$$Modify` REMPLACE la contribution (sémantique AddOrUpdate native),
 # jamais de double-compte. Forme = le tuple stable par défaut de `stat_modifications_by_source`.
-SWARM_HIT_REDUCTION_SOURCE = ("statmod", 1021, None, "Swarm_HitReduction")
+# #270-r1-r1 : `EffectType` -- la 4e composante du tuple porte litteralement le nom du membre.
+SWARM_HIT_REDUCTION_SOURCE = ("statmod", EffectType.Swarm_HitReduction, None,   # 1021
+                              "Swarm_HitReduction")
 
 
 class Swarm_HitReductionEffect(BaseEffect):

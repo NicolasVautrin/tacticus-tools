@@ -32,6 +32,10 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 import hexgeo
 
 from ..entities.effect_type import EffectType
+# Les VALEURS de `SPECIAL_MOVEMENT_PATHFINDER_TYPES` sont des `PathfinderType` (#270-r1-r1).
+# Sens de l'import : `pathfinders` ne remonte vers ce module que par un import LOCAL (dans
+# `movable_positions_for_unit`), donc aucun cycle a l'import.
+from ..entities.pathfinding.pathfinders import PathfinderType
 
 Pos = Tuple[int, int]
 
@@ -320,15 +324,25 @@ def get_movable_positions_from_tiles(board, tiles: Sequence[Pos],
 #:
 #: L'ordre des quatre tests est CELUI DU DECOMPILE et il est observable : une unite qui porterait
 #: deux de ces effets prendrait le pathfinder du PREMIER de cette liste.
-SPECIAL_MOVEMENT_EFFECT_TYPES = (0x40b, 0x474, 0x4d6, 0x625)
+#: #270-r1-r1 : membres nommes. L'ORDRE est celui du decompile et il est OBSERVABLE (cf. ci-dessus)
+#: -- le tuple reste donc un tuple, jamais un set.
+SPECIAL_MOVEMENT_EFFECT_TYPES = (EffectType.TeleportStrike_TeleportingIn,        # 0x40b = 1035
+                                 EffectType.StormboyzStrike_TeleportingIn,      # 0x474 = 1140
+                                 EffectType.FearOfTheUnseen_TeleportingIn,      # 0x4d6 = 1238
+                                 EffectType.TitanhammerSquad_TeleportingIn)     # 0x625 = 1573
 
 #: `<effet> -> (type WALK, type FLY)` -- les huit valeurs que la branche MOUVEMENT SPECIAL rend,
-#: dans l'ordre des tests. Les types sont ceux de `entities.pathfinding.pathfinders.PathfinderType`.
+#: dans l'ordre des tests. Les VALEURS sont des `PathfinderType` (#270-r1-r1) : le commentaire les
+#: nommait deja, l'ordinal ne les designait pas. Mirror sous cliquet (`probe_313`, 14 valeurs).
 SPECIAL_MOVEMENT_PATHFINDER_TYPES = {
-    EffectType.TeleportStrike_TeleportingIn: (6, 7),     # 1035 = 0x40b -> TeleportStrikeWalk / Fly
-    EffectType.StormboyzStrike_TeleportingIn: (8, 9),    # 1140 = 0x474 -> StormboyzStrikeWalk / Fly
-    EffectType.FearOfTheUnseen_TeleportingIn: (10, 11),  # 1238 = 0x4d6 -> FearOfTheUnseenWalk / Fly
-    EffectType.TitanhammerSquad_TeleportingIn: (12, 13),  # 1573 = 0x625 -> TitanHammerSquadWalk / Fly
+    EffectType.TeleportStrike_TeleportingIn:      # 1035 = 0x40b
+        (PathfinderType.TeleportStrikeWalk, PathfinderType.TeleportStrikeFly),       # 6, 7
+    EffectType.StormboyzStrike_TeleportingIn:     # 1140 = 0x474
+        (PathfinderType.StormboyzStrikeWalk, PathfinderType.StormboyzStrikeFly),     # 8, 9
+    EffectType.FearOfTheUnseen_TeleportingIn:     # 1238 = 0x4d6
+        (PathfinderType.FearOfTheUnseenWalk, PathfinderType.FearOfTheUnseenFly),     # 10, 11
+    EffectType.TitanhammerSquad_TeleportingIn:    # 1573 = 0x625
+        (PathfinderType.TitanHammerSquadWalk, PathfinderType.TitanHammerSquadFly),   # 12, 13
 }
 
 

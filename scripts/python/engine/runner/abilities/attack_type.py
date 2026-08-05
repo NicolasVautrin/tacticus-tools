@@ -78,25 +78,27 @@ class AbilityAttackType:
 # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$.cctor` --
 # l'`OrderedSet<ActiveAbilityType>` range dans le champ statique +0x18, le SEUL lu par
 # `...ActiveAbility$$IsRegularAttack` (`Contains`). Transcription VERBATIM de l'ordre du cctor.
+# #270-r1-r1 : membres nommes. L'ORDRE du cctor est conserve (il est transcrit VERBATIM ci-dessus)
+# et l'ordinal reste en commentaire de fin de ligne -- il documente, il ne designe plus.
 REGULAR_ATTACK_ABILITY_TYPES = frozenset({
-    0x011,   # 17   NormalAttack
-    0x045,   # 69   Loki_NormalAttack
-    0x406,   # 1030 Loki_NormalBossAttack
-    0x416,   # 1046 TemplarInitiateNormalAttack
-    0x434,   # 1076 MV71SniperDroneSquadAttack
-    0x43e,   # 1086 ProperKilly_NormalAttack
-    0x45a,   # 1114 BlisteringAssault_NormalAttack
-    0x460,   # 1120 FeederTendrils_NormalAttack
-    0x468,   # 1128 Boltstorm_NormalAttack
-    0x463,   # 1123 OptimizedGait_NormalAttack
-    0x466,   # 1126 RogalDorn_NormalAttack
-    0x47a,   # 1146 FloatingDeath_NormalAttack
-    0x48a,   # 1162 AncientFury_NormalAttack
-    0x472,   # 1138 Wraithcannon_NormalAttack
-    0x49a,   # 1178 ElectroShock_NormalAttack
-    0x49e,   # 1182 RighteousRepugnance_NormalAttack
-    0x4b5,   # 1205 TalonOfHorus_NormalAttack
-    0x4c4,   # 1220 Fealty_NormalAttack
+    ActiveAbilityType.NormalAttack,                       # 0x011 = 17
+    ActiveAbilityType.Loki_NormalAttack,                  # 0x045 = 69
+    ActiveAbilityType.Loki_NormalBossAttack,              # 0x406 = 1030
+    ActiveAbilityType.TemplarInitiateNormalAttack,        # 0x416 = 1046
+    ActiveAbilityType.MV71SniperDroneSquadAttack,         # 0x434 = 1076
+    ActiveAbilityType.ProperKilly_NormalAttack,           # 0x43e = 1086
+    ActiveAbilityType.BlisteringAssault_NormalAttack,     # 0x45a = 1114
+    ActiveAbilityType.FeederTendrils_NormalAttack,        # 0x460 = 1120
+    ActiveAbilityType.Boltstorm_NormalAttack,             # 0x468 = 1128
+    ActiveAbilityType.OptimizedGait_NormalAttack,         # 0x463 = 1123
+    ActiveAbilityType.RogalDorn_NormalAttack,             # 0x466 = 1126
+    ActiveAbilityType.FloatingDeath_NormalAttack,         # 0x47a = 1146
+    ActiveAbilityType.AncientFury_NormalAttack,           # 0x48a = 1162
+    ActiveAbilityType.Wraithcannon_NormalAttack,          # 0x472 = 1138
+    ActiveAbilityType.ElectroShock_NormalAttack,          # 0x49a = 1178
+    ActiveAbilityType.RighteousRepugnance_NormalAttack,   # 0x49e = 1182
+    ActiveAbilityType.TalonOfHorus_NormalAttack,          # 0x4b5 = 1205
+    ActiveAbilityType.Fealty_NormalAttack,                # 0x4c4 = 1220
 })
 
 # `AbilityOrEffect(0x3f5)` du `DirectAbilitySelector` de la 2e branche d'`IsNormalAttack` -- le
@@ -392,11 +394,11 @@ def is_regular_attack(ability_type: Optional[int]) -> bool:
 # decompile (`... != 0x12 && ... != 0x48f && ... != 0x4bc && ... != 0x1c && ... != 0x45f`) : ce sont les
 # abilities-OUTILS de soin/reparation que le moteur declenche pour le compte d'une AUTRE ability.
 NOT_ACTIVE_ABILITY_TYPES = frozenset({
-    0x012,   # 18   Heal
-    0x01c,   # 28   Repair
-    0x45f,   # 1119 Repair_GalvanicField
-    0x48f,   # 1167 Heal_TwistedScience
-    0x4bc,   # 1212 HealingBalms_Heal
+    ActiveAbilityType.Heal,                   # 0x012 = 18
+    ActiveAbilityType.Repair,                 # 0x01c = 28
+    ActiveAbilityType.Repair_GalvanicField,   # 0x45f = 1119
+    ActiveAbilityType.Heal_TwistedScience,    # 0x48f = 1167
+    ActiveAbilityType.HealingBalms_Heal,      # 0x4bc = 1212
 })
 
 
