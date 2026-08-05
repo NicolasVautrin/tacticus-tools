@@ -291,16 +291,36 @@ def displace_triggers(state: State, pusher_id: int, pushed_id: int) -> list[dict
     exactement comme si elle y avait marché, résidu O3) ; `UnitDisplaced` a pour consommateur
     `RadSaturationAbility` (branche 2 `OwnerIsTarget` -> le Skitarii Vanguard POUSSÉ contamine sa tuile
     d'atterrissage ; le pushed a déjà bougé via `MoveUnitOperation` donc `Tiles(Caster())` = sa tuile
-    POST-push). Sibling `On(0x1d)` = NON dispatché ici (flaggé) : DecoysAndMisdirection G2-sur-push =
-    concern séparé (non validé). No-op si aucun trigger ne matche. Appelé par
-    `DisplaceUnitOperation.execute` (displace.py) après un push réussi."""
+    POST-push). No-op si aucun trigger ne matche. Appelé par
+    `DisplaceUnitOperation.execute` (displace.py) après un push réussi.
+
+    `On(0x1d)` — TROISIÈME et dernier des events du natif, dispatché depuis #462-r4b-r1-r1-r1-r1-b.
+    Il était jusque-là omis (« concern séparé, non validé »), et cette omission était MESURABLE :
+    le trigger (b) d'`ABondEffect` (`BondRemoveOnRangeExceeded`) n'écoute QUE cet event, donc un
+    taunt POUSSÉ hors de portée survivait offline alors que le natif le retire (mesuré : natif
+    `[25,26,27,1237] -> []`, port inchangé). Le vecteur et le trigger sont livrés ensemble : l'un
+    sans l'autre ne mord pas."""
     from ..tiles import light_cover_on_enter     # `On(0x24)` — tile-ability, hors registre d'effets
     out = light_cover_on_enter(state, pushed_id)
     # dispatch GENERIQUE du meme `On(0x24)` (retrait n°3 de `GhostEffect`, #213) : une unite POUSSEE
     # sur la tuile d'un ghost le fait disparaitre exactement comme si elle y avait marche.
     out += unit_position_changed_1_triggers(state, pushed_id)
     ev = TriggerEvent(EventTriggerType.UnitDisplaced, pusher_id, pushed_id, ranged=False, profile=None)
-    return out + evaluate_trigger_operation(state, ev)
+    out += evaluate_trigger_operation(state, ev)
+    # `On(0x1d = UnitPositionChanged_2)` — le natif le publie APRÈS `On(0x23)`, avec le MÊME
+    # `AbilityEntities` {actor = caster = pusher, target = pushed} (lu :
+    # `DisplaceUnitOperation$$EventAndAbilitiesAndEffects` passe `caster, caster, target` aux TROIS
+    # appels, seul l'`eventId` change — 0x24, puis 0x23, puis 0x1d).
+    # ⚠ `unit_position_changed_2_triggers` construit {actor = target = l'unité}, ce qui est le
+    # contrat de l'émetteur `MoveUnitOperation` ; ici l'ACTEUR natif est le POUSSEUR. Aucun
+    # consommateur porté de `On(0x1d)` ne lit l'acteur (`BondRemoveOnRangeExceeded` lit le porteur de
+    # l'effet et son bondé, `DecoysAndMisdirection_BuffFriends` lit `AreEnemies(owner, actor)`), mais
+    # on pose l'événement à la MAIN plutôt que de réutiliser le helper : la paire actor/target est
+    # une donnée du natif, pas un détail de plomberie.
+    out += evaluate_trigger_operation(
+        state, TriggerEvent(EventTriggerType.UnitPositionChanged_2, pusher_id, pushed_id,
+                            ranged=False, profile=None))
+    return out
 
 
 def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
