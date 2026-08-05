@@ -272,6 +272,45 @@ def scanner_tags(code: str, dats_tag: set) -> set:
     return trouves
 
 
+def methodes_typees(build: str, enum_natif: str) -> list:
+    """Toute methode dont la SIGNATURE declare un parametre du type `enum_natif`.
+
+    Canal 3, et le plus large : le vocabulaire n'est pas seulement pousse par les call-sites du
+    flux. Un noeud DSL (`DSLBehaviors$$AtomicGroup(groupType, ...)`) porte un `GroupType` que
+    l'ability lui passe en LITTERAL -- invisible de toute lecture des appels a `IStreamListener`.
+    Le TYPE DECLARE est LU dans `frida/methods.tsv`, jamais deduit d'un ordinal.
+    """
+    p = REPO / "data" / "symbols" / build / "frida" / "methods.tsv"
+    out = []
+    with p.open(encoding="utf-8", errors="replace") as f:
+        f.readline()
+        for ligne in f:
+            c = ligne.rstrip("\n").split("\t")
+            if len(c) < 6 or enum_natif not in c[5]:
+                continue
+            params = [a.split(":", 1) for a in c[5].split(",") if ":" in a]
+            idx = [i for i, (_n, t) in enumerate(params) if t == enum_natif]
+            if idx:
+                out.append({"rva": c[0], "nom": c[1], "params": [n for n, _t in params],
+                            "index": idx})
+    return out
+
+
+def table_ghidra(build: str) -> dict:
+    """RVA (hex, sans base) -> symbole Ghidra, depuis la table VERSIONNEE du build."""
+    p = REPO / "data" / "symbols" / build / "ghidra" / "functions.tsv"
+    t = {}
+    with p.open(encoding="utf-8", errors="replace") as f:
+        for ligne in f:
+            c = ligne.rstrip("\n").split("\t")
+            if len(c) >= 2:
+                try:
+                    t["%x" % (int(c[0], 16) - 0x180000000)] = c[1]
+                except ValueError:
+                    pass
+    return t
+
+
 def parametres(code: str) -> list:
     """Noms des parametres, lus sur la declaration en tete du pseudo-C."""
     i = code.find("{")
@@ -342,11 +381,11 @@ def main() -> int:
     print("#477-r18 -- PERIMETRE DU DEROULE DE BATAILLE (derive du natif)")
     print("=" * 78)
 
+    build_courant = (REPO / "data" / "symbols" / "CURRENT").read_text(encoding="utf-8").strip()
     if not a.hors_ligne:
         b = gh.build()
-        cur = (REPO / "data" / "symbols" / "CURRENT").read_text(encoding="utf-8").strip()
-        print("build charge par ghidra-mcp : %s ; data/symbols/CURRENT : %s" % (b, cur))
-        if b != cur:
+        print("build charge par ghidra-mcp : %s ; data/symbols/CURRENT : %s" % (b, build_courant))
+        if b != build_courant:
             print("REFUS : build charge != build des tables versionnees.")
             return 2
 
@@ -444,6 +483,50 @@ def main() -> int:
             print("        %s" % nom_enum(cls, v))
             (groupes_vus if kind == "StartGroup" else actions_vues).setdefault(v, []).append(
                 nom + " (via appelants)")
+
+    print("\n[4bis] CANAL 3 -- methodes dont la SIGNATURE porte l'enum (type LU dans methods.tsv)")
+    tg = table_ghidra(build_courant)
+    porteurs_sans_litteral = []
+    for lib, cls, vus, natif in (("GroupType", GroupType, groupes_vus,
+                                  "IdunBattle.Streams.GroupType"),
+                                 ("StepType", StepType, actions_vues,
+                                  "IdunBattle.Streams.StepType")):
+        ms = methodes_typees(build_courant, natif)
+        avant = len([m for m in cls if int(m) in vus])
+        sites, lus = 0, 0
+        for m in ms:
+            sym = tg.get(m["rva"])
+            if not sym:
+                porteurs_sans_litteral.append((lib, m["nom"], "SANS SYMBOLE GHIDRA"))
+                continue
+            cible = nom_ghidra_en_c(sym)
+            appelants = [x.get("function_name") for x in gh.xrefs(sym)
+                         if x.get("function_name") and x.get("type") != "DATA"]
+            if not appelants:
+                porteurs_sans_litteral.append((lib, sym, "0 appelant nomme"))
+            for src in sorted(set(appelants)):
+                code = gh.decompile(src)
+                if code is None:
+                    continue
+                for fn, args, _pos in appels(code):
+                    if fn != cible:
+                        continue
+                    sites += 1
+                    # `this` implicite : le call-site porte un argument de plus que la signature.
+                    decal = len(args) - len(m["params"])
+                    for i in m["index"]:
+                        j = i + decal
+                        if 0 <= j < len(args) and RE_IMM.match(args[j] or ""):
+                            lus += 1
+                            vus.setdefault(int(args[j], 0), []).append(sym + " <- " + src)
+        apres = len([m2 for m2 in cls if int(m2) in vus])
+        print("    %-9s : %d methode(s) porteuse(s), %d site(s) d'appel, %d litteral(aux) lus"
+              % (lib, len(ms), sites, lus))
+        print("              couverture %d -> %d / %d" % (avant, apres, len(list(cls))))
+    for lib, nom, cause in porteurs_sans_litteral[:12]:
+        print("      NON LU  %-9s %-58s %s" % (lib, nom, cause))
+    if len(porteurs_sans_litteral) > 12:
+        print("      ... %d porteur(s) non lu(s) de plus" % (len(porteurs_sans_litteral) - 12))
 
     print("\n[5] CE QUE CETTE MESURE NE VOIT PAS")
     print("    fonctions productrices NON decompilables : %d" % len(illisibles))
