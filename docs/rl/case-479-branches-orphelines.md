@@ -104,6 +104,11 @@ restaure. Fenêtre : les objets devenus injoignables survivent au moins `gc.prun
 dans `master` ; 7 des 15 autres ont une copie distante identique) et, pour les **8** dont le SHA
 local n'existe nulle part ailleurs, un tag local `archive/<nom>` posé avant suppression.
 
+La suppression **re-mesure à l'instant**, branche par branche, et refuse sur trois motifs :
+protégée par un worktree, **SHA changé depuis le manifeste** (un agent aurait repris la branche),
+statut d'ancêtre perdu. Mesure : **177 supprimées, 0 refusée**, puis contrôle a posteriori —
+aucune branche du manifeste ne subsiste, les 6 branches à worktree et la gardée sont intactes.
+
 ## 6. Ce qui n'est PAS couvert
 
 - **Les branches distantes.** `git ls-remote --heads origin "worktree-agent-*"` en rend **284**,

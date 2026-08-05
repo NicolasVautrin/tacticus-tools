@@ -380,7 +380,9 @@ def rendu(e: dict, lister_anc: bool, lister_non: bool) -> str:
     L.append("[479] branches '%s' vs %s" % (e["motif"], e["ref"]))
     L.append("  ref                : %s" % e["ref_sha"].txt())
     L.append("  branches du motif  : %s" % _n(e["toutes"]))
-    L.append("  a worktree (gardees): %s" % _n(e["a_worktree"]))
+    # Ce compte n'est PAS filtre par le motif : c'est l'ensemble PROTEGE, et le montrer en
+    # entier est le point -- une protection masquee par un filtre serait une protection perdue.
+    L.append("  protegees (tous motifs): %s" % _n(e["a_worktree"]))
     L.append("  ORPHELINES         : %s" % _n(e["orphelines"]))
     L.append("    ancetres de la ref (contenu DANS la ref, supprimables) : %s"
              % _n(e["ancetres"]))
