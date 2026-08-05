@@ -172,10 +172,16 @@ def add_unit(events: StreamDispatcher, unit: UnitSetup,
 
     L'entite de toutes ces lignes est l'UNITE, jamais l'ability."""
     if use_group:
-        # `sourceId` : le decompile passe ici un handle de litteral de chaine, NON RESOLUBLE
-        # statiquement (les chaines .NET vivent dans `global-metadata.dat`). Ce n'est PAS le
-        # litteral 0 de `SetupGameOperation$$Execute`. Le flux reel tranche : `Source=` est VIDE
-        # -- donc chaine vide ou null, indiscernables apres `String.Format`.
+        # `sourceId` : le handle de chaine que `AddUnitOperation$$Execute` passe ici est LU
+        # depuis `#477-r15-r1` (`data/symbols/<build>/metadata/string_literals.tsv`), et il vaut
+        # la chaine VIDE -- pas `null`. Les deux rendent le meme texte apres `String.Format` ;
+        # c'est la lecture qui tranche, plus le flux. Le port passe `None`, ce qui produit le
+        # meme `Source=` vide : la distinction n'est pas observable dans le flux.
+        # ⚠ Et `Source=` NON VIDE n'est PAS un litteral : `#477-r15-r1` mesure 8 sources non
+        # vides sur un deroule reel, 8/8 des membres d'enum rendus par `Enum.ToString()`
+        # (1/8 seulement est aussi un litteral). Ce qui manque pour les emettre n'est donc pas
+        # une table de chaines -- c'est de savoir QUEL enum et QUEL ordinal chaque producteur
+        # passe a `StartGroup`, `BigTarget` ayant a lui seul deux porteurs.
         events.start_group(GroupType.AddUnit, unit.entity_id, None, None)
     foot_count = (len(unit.foot_tile_ids) if unit.foot_count is None
                   else int(unit.foot_count))

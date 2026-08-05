@@ -228,5 +228,10 @@ vide ».
   `!HasFlag(NoActionAvailable)`) ; rien de tout cela n'est joué par un scénario de déploiement.
 - **Aucun scénario destiné à élargir la couverture du vocabulaire** (`#477-r13` intact) : le
   déploiement exerce désormais **6 `StepType` sur 62** et **36 `TagKey` sur 244**.
+- **Aucune émission de `Source=` non vide** — et `#477-r15-r1`, mergé pendant cette tranche,
+  **réoriente** ce qui manque : ce n'est pas une table de chaînes (elle existe, et `Source=` n'est
+  pas un handle de littéral mais un `Enum.ToString()`), c'est **quel enum et quel ordinal** chaque
+  producteur passe à `StartGroup`. Le commentaire de `game_setup.add_unit` qui affirmait l'inverse
+  a été corrigé dans le même commit.
 - **Aucune modification du bundle Frida** : les deux capteurs qui fermeraient `r4` et `r6` sont
   **nommés** ci-dessus mais pas écrits — ils exigeraient une fenêtre de reinject.
