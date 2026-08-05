@@ -213,15 +213,47 @@ def _apply_active_ability(state: State, uid: int, target: Optional[int], ability
     (CrushingClaws splash 1105, ScarabHive spawn 1007, ThunderousAssault 1043 — sa behaviour propre
     prime) ; sinon (2) attaque active SANS port dédié -> chemin GÉNÉRIQUE déjà porté
     `execute_ability_attack` (mirror `AttackWithAttackDamage`), config résolue par `ability_attack_params` ;
-    sinon (3) no-op (ability non-attaque non portée -> DÉCISION produite, EXÉCUTION offline manquante)."""
-    from ..abilities.handler import AbilityHandler
+    sinon (3) no-op (ability non-attaque non portée -> DÉCISION produite, EXÉCUTION offline manquante).
+
+    #429-r1-r1-r1 GATE CIBLE-MORTE sur la voie (2). Ce repli EMULE un cast d'ability ACTIVE : il
+    remplace, pour une ability sans port dédié, ce que le natif fait en traversant
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`. Or ce site natif est le SEUL
+    d'où une ability active s'exécute -- mesuré par XREFS sur ce build :
+    `ActiveAbilityOperation$$Execute` n'a que DEUX appelants CODE
+    (`Core.Services.OperationProcessor$$ActiveAbility` et la ré-entrée
+    `ActiveAbilityOperation$$ExecuteForReplacedTarget`), et `ExecuteInternal` un SEUL (`$$Execute`).
+    Un summon qui joue une ability y passe donc exactement comme un cast commandé, et y rencontre
+    `IsDeadUnitAndNotAllowedByAbility` en PREMIER gate.
+    C'est ce qui SEPARE cette voie des ~9 autres call-sites d'`execute_ability_attack` : eux
+    mirrorent un noeud DSL d'attaque (`AttackWithAttackDamage`/`AttackWithAbilityDamage`/
+    `ChainLeftOverHitsAttackDamage`/`AttackDamage`), INTERNE a une behaviour, dont l'étage natif
+    (`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` ->
+    `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget` ->
+    `Core.Services.OperationProcessor$$AttackDamage` -> `IdunBattle.Operations.AttackDamageOperation$$Execute`)
+    ne re-gate RIEN -- `IsDeadUnitAndNotAllowedByAbility` n'a AUCUN appelant sur ce trajet (mesure
+    d'xrefs : ses deux seuls appelants sont `ExecuteInternal` et `ExecuteForReplacedTarget`). Gater
+    le foyer `execute_ability_attack` serait donc un FORK du natif, et casserait notamment
+    `HazeCorruption_BonusHitAbility`, dont le trigger est `IsDead(Target@0x178)` : le natif frappe
+    BEL ET BIEN le cadavre, pour que le coup déborde en `LeftOverDamage`.
+    La voie (1) est déjà gatée en amont par #429-r1 (dans `visit_ActiveAbilityMessage`) et la voie
+    attaque-normale de `apply_ai_action` par #429-r1-r1 (tête d'`AttackDamageOperation.execute`) ;
+    cette pose ferme la TROISIEME et dernière porte de ce module.
+    `ability_class` = `ABILITY_CLASSES.get(ability)` : la branche n'est atteinte que lorsqu'il vaut
+    `None` (sinon la voie (1) a déjà rendu), et `None` -> refuse, ce qui est le comportement natif de
+    TOUTE ability sauf `GreatFrostAxe` (1089) -- seule à poser le bit 38 `AllowDeadTarget` du masque
+    de CONTINUE. On le relit quand même du registre plutôt que de câbler `None` en dur, pour que la
+    dérogation reste portée si l'ordre des voies change."""
+    from ..abilities.handler import AbilityHandler, ABILITY_CLASSES
     from ..messages import ActiveAbilityMessage
     from ..abilities.base import ability_attack_params
     from .damage import AttackDamageOperation
+    from .active_ability import is_dead_unit_and_not_allowed_by_ability
     h = AbilityHandler(state)
     h.visit_ActiveAbilityMessage(ActiveAbilityMessage(uid, target, ability))
     if h.last and h.last.get("ported"):
         return {"ability": ability, "target": target, "routed": "handler", "diag": h.last}
+    if is_dead_unit_and_not_allowed_by_ability(state, ABILITY_CLASSES.get(int(ability)), target):
+        return {"ability": ability, "target": target, "routed": "dead_target_not_allowed"}
     if target is not None and _is_active_attack_ability(ability):
         from engine.ai.state_bridge import _resolve_ability
         _name, cfg = _resolve_ability(ability)
