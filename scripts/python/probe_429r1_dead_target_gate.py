@@ -44,7 +44,10 @@ from sibling_script import sibling_script  # noqa: E402
 
 HOST = "http://127.0.0.1:8765"
 P_UNITS = "spaceWulfen,ultraInceptorSgt"     # spaceWulfen = GreatFrostAxe (1089), l'unique porteur
-A_UNITS = "tyranWingedPrime"
+# DEUX ennemis, et ce n'est pas cosmetique : avec un seul, le tuer TERMINE la bataille et
+# `decisionView`/`observeBattle` cessent de publier les unites -- le cadavre devient invisible et
+# la mesure ne mesure plus rien (mesure faite : `port_cible_presente = False`, tout a None).
+A_UNITS = "tyranWingedPrime,tauDarkstrider"
 
 
 def sid() -> int:
@@ -160,40 +163,159 @@ def volet_trou(state_file: str, seed: str, board: str) -> int:
     return 0
 
 
-def volet_live(state_file: str, seed: str, board: str) -> int:
-    """CONFRONTATION : on TUE la cible (hp=1 au build), puis on caste dessus. Natif vs port."""
+def _ids(dv):
+    return {u.get("visualId"): u.get("id") for u in (dv.get("units") or [])}
+
+
+def _normal_id(dv, uid):
+    for u in (dv.get("units") or []):
+        if u.get("id") == uid:
+            for ab in (u.get("abilities") or []):
+                if ab.get("kind") == "normal":
+                    return ab.get("id")
+    return None
+
+
+def scenario_live(state_file: str, seed: str, board: str, verbose: bool = True,
+                  ability: int = 1003) -> dict:
+    """MONTAGE ECRIT (positions FORCEES, pas subies) : `spaceWulfen` (2,2), `ultraInceptorSgt`
+    (3,2), `tyranWingedPrime` (2,3) a 1 PV. `spaceWulfen` TUE la cible, puis `ultraInceptorSgt`
+    caste sur le CADAVRE. On mesure des deux cotes.
+
+    `ability` = ce que le survivant caste sur le cadavre. `1003 DeathFromAbove` est le cas
+    DISCRIMINANT : le volet `trou` le classe parmi les abilities que `is_invalid_target` ACCEPTAIT
+    sur une cible morte, donc le port l'executait. `1089 GreatFrostAxe` (l'unique porteur du bit 38)
+    n'est pas jouable ici -- c'est `spaceWulfen` qui tue et il a consomme son action.
+
+    Renvoie un dict de mesures ; `why` non vide = montage NON INSTALLE (jamais un skip vert)."""
     from engine.runner.snapshot import load_state
     from engine.runner.runner import Runner
     from engine.runner.messages import ActiveAbilityMessage
-    from engine.runner.components import HealthComponent, OwnerComponent, UnitComponent
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.entities.pathfinding.board import Board
 
-    st_json = build(state_file, seed, board)
+    out = subprocess.run([sys.executable, sibling_script("rl_duel.py"), "build",
+                          "--seed", seed, "--board", board, "--state-file", state_file,
+                          "--p-units", P_UNITS, "--a-units", A_UNITS, "--hp-target", "1",
+                          "--place", "spaceWulfen:2,2", "--place", "ultraInceptorSgt:1,3",
+                          "--a-place", "tyranWingedPrime:2,3",
+                          "--a-place", "tauDarkstrider:6,6"],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        return {"why": "BUILD rc=%d : %s" % (out.returncode, (out.stderr or out.stdout)[-500:])}
+    import json
+    st_json = json.loads(Path(state_file).read_text(encoding="utf-8"))
     s, rid = sid(), int(st_json["runnerId"])
-
-    def etat():
+    res = {"rid": rid}
+    try:
         dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-        ob = rpc(s, "observeBattle", {"runnerId": rid}, 40)
+        ids = _ids(dv)
+        wulfen, sgt, prime = ids.get("spaceWulfen"), ids.get("ultraInceptorSgt"), \
+            ids.get("tyranWingedPrime")
+        if None in (wulfen, sgt, prime):
+            return {"why": "roster incomplet : %s" % sorted(ids)}
+        nid = _normal_id(dv, wulfen)
+        if nid is None:
+            return {"why": "attaque normale de spaceWulfen introuvable"}
+        # --- 1. TUER la cible (attaque normale de spaceWulfen, apres deplacement au contact) ----
+        rpc(s, "applyAction", {"runnerId": rid, "action": {
+            "kind": "move", "unitId": wulfen, "to": {"col": 3, "row": 3}}}, 40)
+        rpc(s, "applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": wulfen, "targetId": prime, "abilityType": nid}}, 40)
+        ob0 = rpc(s, "observeBattle", {"runnerId": rid}, 40)
+        dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        cible = next((u for u in (dv.get("units") or []) if u.get("id") == prime), {})
+        res["cible_dv_alive"] = cible.get("alive")
+        res["cible_dv_hp"] = cible.get("hp")
+        res["cible_ob_dead"] = next((u.get("isDead") for u in (ob0.get("units") or [])
+                                     if u.get("id") == prime), None)
+        if cible.get("alive") or res["cible_ob_dead"] is False:
+            return {"why": "la cible n'est pas morte -- montage non installe", **res}
+        # --- 2. CAST sur le CADAVRE : mesure NATIVE ------------------------------------------
         snap = rpc(s, "combatSnapshot", {"runnerId": rid}, 40)
-        return dv, ob, snap
+        bg = rpc(s, "boardGraph", {"runnerId": rid}, 60)
+        st = load_state(dv, ob0, snap)
+        if isinstance(bg, dict) and "tiles" in bg:
+            st.board = Board(bg["tiles"], adjacency="native_sym")
+        s0 = rpc(s, "dumpRng", {"runnerId": rid}, 30)
+        r = rpc(s, "applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": sgt, "targetId": prime, "abilityType": ability}}, 40)
+        s1 = rpc(s, "dumpRng", {"runnerId": rid}, 30)
+        res["live_ok"] = bool(isinstance(r, dict) and r.get("ok"))
+        res["live_action_consumed"] = (r or {}).get("actionConsumed")
+        if isinstance(s0, dict) and isinstance(s1, dict):
+            a, b = s0.get("mti"), s1.get("mti")
+            res["live_draws"] = (b - a + (624 if b < a else 0)) if None not in (a, b) else None
+        dv2 = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        res["live_sgt_has_action"] = next(
+            (u.get("hasAction") for u in (dv2.get("units") or []) if u.get("id") == sgt), None)
+        # --- 3. l'ETAT PORTE de la cible morte, puis le MEME cast cote PORT --------------------
+        from engine.runner.components import PositionComponent, UnitComponent as _UC
+        from engine.runner.abilities.targeting import is_invalid_target
+        from engine.runner.abilities.handler import ABILITY_CLASSES
+        from engine.runner.operations.active_ability import is_dead_unit_and_not_allowed_by_ability
+        ce = st.get_entity(prime)
+        res["port_cible_presente"] = ce is not None
+        res["port_cible_alive"] = None if ce is None else getattr(
+            ce.get_component(_UC), "alive", None)
+        res["port_cible_pos"] = None if ce is None else (
+            None if ce.get_component(PositionComponent) is None else
+            (ce.get_component(PositionComponent).col, ce.get_component(PositionComponent).row))
+        klass = ABILITY_CLASSES.get(int(ability))
+        res["port_gate_refuse"] = is_dead_unit_and_not_allowed_by_ability(st, klass, prime)
+        res["port_is_invalid_target_seul"] = (
+            None if klass is None else int(is_invalid_target(st, sgt, prime, klass()) or 0))
+        if isinstance(s0, dict) and s0.get("mt"):
+            rng = IntBasedMersenneTwister()
+            rng.mt = list(s0["mt"])
+            rng.mti = s0["mti"]
+            st.rng = rng
+        mti0 = getattr(st.rng, "mti", None)
+        runner = Runner(st).install_default_handlers(20)
+        runner.apply(ActiveAbilityMessage(sgt, prime, int(ability)))
+        res["port_last"] = runner.ability_handler.last
+        res["port_draws"] = (None if mti0 is None else
+                             (st.rng.mti - mti0 + (624 if st.rng.mti < mti0 else 0)))
+        # --- 4. CONTRE-EPREUVE : le MEME cast avec le gate NEUTRALISE ------------------------
+        # Un vert de l'etape 3 ne prouve rien tant qu'on n'a pas montre que SANS le gate le port
+        # EXECUTAIT. On re-monte l'etat depuis les memes captures et on debranche le gate.
+        st2 = load_state(dv, ob0, snap)
+        if isinstance(bg, dict) and "tiles" in bg:
+            st2.board = Board(bg["tiles"], adjacency="native_sym")
+        if isinstance(s0, dict) and s0.get("mt"):
+            rng2 = IntBasedMersenneTwister()
+            rng2.mt = list(s0["mt"])
+            rng2.mti = s0["mti"]
+            st2.rng = rng2
+        mti1 = getattr(st2.rng, "mti", None)
+        import engine.runner.operations.active_ability as OA        # noqa: PLC0415
+        garde = OA.is_dead_unit_and_not_allowed_by_ability
+        OA.is_dead_unit_and_not_allowed_by_ability = lambda *_a, **_k: False
+        try:
+            r2 = Runner(st2).install_default_handlers(20)
+            r2.apply(ActiveAbilityMessage(sgt, prime, int(ability)))
+            res["port_sans_gate_last"] = r2.ability_handler.last
+            res["port_sans_gate_draws"] = (None if mti1 is None else
+                                           (st2.rng.mti - mti1 + (624 if st2.rng.mti < mti1 else 0)))
+        finally:
+            OA.is_dead_unit_and_not_allowed_by_ability = garde
+        res["why"] = ""
+    finally:
+        try:
+            rpc(s, "disposeRunner", {"runnerId": rid}, 30)
+        except Exception:                                          # noqa: BLE001
+            pass
+    if verbose:
+        for k in sorted(res):
+            print("  %-26s %s" % (k, res[k]))
+    return res
 
-    dv, ob, snap = etat()
-    st = load_state(dv, ob, snap)
-    equipes = {}
-    for uid, e in st.entities.items():
-        oc = e.get_component(OwnerComponent)
-        if e.get_component(UnitComponent) is not None and oc is not None:
-            equipes.setdefault(oc.team, []).append(int(uid))
-    (_ta, ua), (_tb, ub) = sorted(equipes.items())[:2]
-    print("mes unites : %s ; ennemies : %s" % (ua, ub))
-    for u in (dv.get("units") or []):
-        print("  u%-4s %-22s owner=%s hp=%s alive=%s pos=%s"
-              % (u.get("id"), u.get("visualId"), u.get("owner"), u.get("hp"),
-                 u.get("alive"), u.get("pos")))
-    print("")
-    print("Le montage complet (tuer puis caster) se pilote a la main via rl_duel act ; ce volet")
-    print("imprime l'etat de depart et les ids, pour que le test live cible les bonnes unites.")
-    _ = (Runner, ActiveAbilityMessage, HealthComponent)
-    rpc(s, "disposeRunner", {"runnerId": rid}, 30)
+
+def volet_live(state_file: str, seed: str, board: str) -> int:
+    r = scenario_live(state_file, seed, board)
+    if r.get("why"):
+        print("MONTAGE NON INSTALLE : %s" % r["why"])
+        return 2
     return 0
 
 
