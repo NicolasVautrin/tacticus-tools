@@ -136,6 +136,37 @@ def test_discard_et_transfert_dans_la_MEME_serie():
     assert r["per_hit"].count(0) == 1, r["per_hit"]
 
 
+# ------------------------------------------------------- 2bis. les DEUX portes dans la MEME serie
+
+def test_les_deux_portes_se_composent_sans_se_marcher_dessus():
+    """`discarded_hit_emits` (etape 5 d'`ExecuteHit`, EN AMONT de la resolution) et
+    `overkill_hit_emits` (le SITE (A) d'`ApplyDamageOperation$$Execute`, EN AVAL) gatent au MEME
+    endroit du port -- l'entree de `per_hit`. Ce test verifie qu'elles ne se comptent pas deux fois
+    et que le compte de coups EXECUTES reste juste dans une serie ou les deux mordent.
+
+    ⚠ Elles ne peuvent JAMAIS mordre sur le MEME coup, et c'est structurel des deux cotes : le
+    natif sort d'`ExecuteHit` avant d'atteindre `ApplyDamageOperation`, donc un coup discarde
+    n'arrive jamais au SITE (A) -- le port fait pareil (`_discarded` retourne AVANT
+    `_one_hit_tail`). Le regime teste ici est donc « portes sur des coups DIFFERENTS ».
+
+    Regime : PV bas (`hp_current`) pour que le flag `Overkilled` tombe en cours de serie, et le
+    coup 1 discarde. Ce que l'on assertionne est une INEGALITE STRUCTURELLE, pas un scalaire fitte :
+    `len(per_hit) < hits_executed == 6`, et aucune entree fantome."""
+    rng = IntBasedMersenneTwister(777)
+    r = AttackDamageOperation._run_hits(rng, HitDamage(100, 200), HitDamage(100, 200), 0, False,
+                                        6, None, hit_interceptor=_FakeInterceptor(discard_at=(1,)),
+                                        hp_current=120)
+    assert r["hits_executed"] == 6, r["hits_executed"]
+    assert r["overkilled"] is True, "regime NON discriminant : le flag n'a pas ete pose"
+    assert len(r["per_hit"]) < 6, r["per_hit"]
+    # Le coup 1 (discarde) n'a laisse AUCUNE trace, et la cible n'a rien encaisse de lui.
+    assert r["per_hit_health"][1] == 0, r["per_hit_health"]
+    # `overkill_suppressed` ne compte QUE les coups gates par le SITE (A) -- jamais le discarde.
+    assert r["overkill_suppressed"] + len(r["per_hit"]) + 1 == 6, (
+        "double comptage entre les deux portes : suppressed=%s per_hit=%s"
+        % (r["overkill_suppressed"], r["per_hit"]))
+
+
 # ------------------------------------------------------- 3. non-regression : sans discard, RIEN ne bouge
 
 def test_sans_discard_le_chemin_est_STRICTEMENT_inchange():
