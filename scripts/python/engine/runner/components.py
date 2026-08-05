@@ -1890,11 +1890,21 @@ def adjacent_friendly_summons_and_decoys_count(state, unit_id: int) -> Optional[
     L'ARBRE est celui de la classe d'effet (`entities/effects/loki/amulet_of_the_voidwyrm.py::
     adjacent_friendly_summons_and_decoys_selector`, doctrine #149 : l'artefact natif est un
     SELECTEUR) ; ce qu'on fait ICI, c'est lui donner son `AbilityEntities` -- `entities_from_state(
-    state, unit_id)` pose `caster = owner = le porteur`, `board = state.board` et `has_trait`, donc
-    `AdjacentFriends` passe par `_within(order='adjacent')` = `board.neighbours_native`, la liste
-    d'adjacence STOCKEE que `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` enumere
-    (relu : il appelle le slot `IterateAdjacentTiles` de l'`IBattleQuery`, le MEME substrat que
-    `battle_query.is_adjacent`) -- PAS la couronne `hexgeo.distance == 1`.
+    state, unit_id)` pose `caster = owner = le porteur`, `board = state.board` et `has_trait`.
+
+    ⚠ SUBSTRAT D'ADJACENCE, **MESURE** et non suppose (#589-r1-r1-r2-r1). Le foyer DSL partage
+    (`dsl/base.py::_within`, `order='adjacent'`) filtre l'ENSEMBLE par `hexgeo.distance <= radius`
+    et ne se sert de `board.neighbours_native` que pour l'ORDRE d'enumeration. C'est le
+    comportement du NATIF sur ce chemin : sur `C3_14`, porteur en `(5,4)` et compagnon en `(5,3)`
+    -- meme elevation 4, arete absente de `boardGraph.neighbours` ET de `connectivity`, DANS LES
+    DEUX SENS -- le natif ACTIVE l'effet et retranche `critDmgReduction x 1`. Le probe de cette
+    tranche avait ecrit sa garde a l'envers et la mesure l'a retourne. C'est le meme fait que
+    `runner/operations/triggers/base.py::_adjacent_damageable_enemies` avait deja mesure sur
+    l'AUTRE consommateur du meme sous-arbre (`Units(AdjacentTiles(...))` du splash de FragBomb),
+    ici recoupe par un canal INDEPENDANT (l'activite d'un effet).
+    ⇒ `AdjacentTilesSelector` (le chemin DSL) et `BattleQuery$$IterateAdjacentTiles` (celui
+    d'`IsCharging` / des comptages `GetAdjacent*`, mirror `battle_query.is_adjacent`) NE LISENT PAS
+    le meme substrat, et le port suit chacun a sa place.
 
     `None` si le porteur n'a ni equipe ni tuile (cle alors ABSENTE du `unit_state` => la
     `CreateActiveCondition` degrade en VRAI, et le canal crit ne contribue RIEN) -- jamais un 0
