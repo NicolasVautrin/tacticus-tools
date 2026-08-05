@@ -370,6 +370,308 @@ def synthesize(unit_id: str, rank: int = 17, ability_level: int = 50,
     return e
 
 
+# ═══ CHEMIN DE STATS EXPLICITE -- NPC et SUMMON (#419-r1-tr12-r2) ═════════════════════════════════
+#
+# LE VERROU (case-92 §5bis). `buildNormalizedBC` calcule les 8 stats de combat par UN SEUL chemin :
+# `IStatsFormula.StatsUsingProgressionIndexFor`, la formule des HEROS. Une unite sans table de
+# progression de heros y LEVE, et le RPC la range dans `skipped` (« v2 patch: system error ») :
+# elle n'entre jamais au pool de `--p-units`. C'est ce qui rendait tout porteur npc-only ou
+# summon-only inconfrontable autrement que par GREFFE de son ability sur un heros du pool.
+#
+# LE NATIF A DEUX AUTRES CHEMINS, NOMMES, ET ILS NE SE RESSEMBLENT PAS :
+#
+#   NPC    `IdunMetaLogic.UserProgress.UnitProgression$$GetNpcStats(unitId, level)`
+#          -> `$$GetTieredUnitConfig(unitId, kind=1)`
+#          -> `idun.meta.extensions.UnitConfigExtensions$$GetStatsForLevel(config, level)`
+#          -> `UnitStats.Init(stats, row)`.
+#          La table est DANS LE GAMECONFIG (`units.npc[id].stats[]`) : 491/491 npc en portent une.
+#          `GetStatsForLevel` = `stats[min(ToZeroBasedIndex(level), Count-1)]` -- clamp HAUT
+#          seulement ; `idun.Idun.Source.Shared.UnitLevelExtensions$$ToZeroBasedIndex` LEVE sur
+#          `level <= 0`. Le `level` est le suffixe `:<n>` de l'unitId
+#          (`idun.shared.UnitNamingConventions$$GetLevelFromUnitId` : split ':', `Int32.TryParse`
+#          de la 2e part, DEFAUT 1 -- pas 0, pas le dernier palier).
+#
+#   SUMMON `IdunMetaLogic.UserProgress.UnitProgression$$GetSummonStats(constantType, abilityConfig)`
+#          Les stats ne sont PAS dans le catalogue de l'unite (les 65 entrees summon du gameconfig
+#          n'ont AUCUN `stats[]`) : elles sont les VARIABLES `summon*` de l'ABILITY qui invoque,
+#          au niveau de cette ability. Le natif lit, par `GetVariableForLevel` :
+#              Health <- summonHp(41)          Damage <- summonDmg(42)
+#              FixedArmor <- summonArmor(43)   CritChance <- summonCritChance(84)
+#              BlockDmg <- summonBlockDmg(85)  BlockChance <- summonBlockChance(86)
+#              CritDamage <- summonCritDmg(87)
+#          en regime PRIMARY (`constantType` == `unitId`(0) ou `unitToSpawn`(8)), et les variantes
+#          `_2` (67/68/69/88/89/90/91) sinon. Chaque variable NON NULLE ECRASE le champ ; une
+#          variable a 0/absente laisse la valeur issue de la config de l'unite -- qui est 0 pour
+#          un summon. Le second overload choisit le `constantType` : kind 0 essaie `unitToSpawn`
+#          PUIS `unitId` ; kind 1 essaie `unitId_2`.
+#
+# ⚠ CE QUE LE CATALOGUE PORTE VRAIMENT POUR UN SUMMON, ET C'EST MESURE : le jeu ecrit
+#   `Health=0` dans `BC.Units[]` pour **65 des 65** summons du seed BC capture. Donc poser des
+#   stats non nulles sur une entree summon N'EST PAS un mirror du catalogue -- c'est un MONTAGE
+#   de harnais qui reproduit l'etat POST-SPAWN (`SpawnUnitBehaviour$$GetStatsToOverride` pose ces
+#   memes valeurs en `StatModifier` sur l'unite deja construite). Les deux voies sont donc
+#   SEPAREES ici, et `explicit_stats` le DIT dans son champ `source`.
+
+# Les 8 stats de combat de `UnitConfiguration`, dans l'ordre du layout `UnitStats` meta
+# (`IdunMetaLogic.UserProgress.Model.UnitStats$$Init` : +0x00 Health, +0x04 Damage, +0x0c Armor,
+# +0x10 FixedArmor, +0x1c CritDamage, +0x20 CritChance, +0x24 BlockDamage, +0x28 BlockChance).
+COMBAT_STAT_FIELDS = (
+    "Health", "Damage", "Armor", "FixedArmor",
+    "CritChance", "CritDamage", "BlockChance", "BlockDamage",
+)
+
+# `AbilityVariableType` -> champ `UnitConfiguration`, regime PRIMARY puis `_2`. Ordinaux LUS dans
+# `data/symbols/<build>/frida/enums.tsv` ; les noms sont la source, l'ordinal n'est ecrit ici que
+# pour rendre le decompile relisible.
+SUMMON_STAT_VARS = (
+    ("Health",       "summonHp",           "summonHp_2"),          # 41 / 67
+    ("Damage",       "summonDmg",          "summonDmg_2"),         # 42 / 68
+    ("FixedArmor",   "summonArmor",        "summonArmor_2"),       # 43 / 69
+    ("CritChance",   "summonCritChance",   "summonCritChance_2"),  # 84 / 88
+    ("BlockDamage",  "summonBlockDmg",     "summonBlockDmg_2"),    # 85 / 89
+    ("BlockChance",  "summonBlockChance",  "summonBlockChance_2"), # 86 / 90
+    ("CritDamage",   "summonCritDmg",      "summonCritDmg_2"),     # 87 / 91
+)
+
+# `AbilityConstantType` qui peuvent porter l'unitId d'un summon, et le regime que le natif en
+# deduit. `GetSummonStats(kind, cfg)` : kind 0 -> `unitToSpawn`(8) puis `unitId`(0) ; kind 1 ->
+# `unitId_2`(4). Le regime PRIMARY est `constantType in (0, 8)` -- lu tel quel au decompile.
+SUMMON_ID_CONSTANTS = (("unitToSpawn", 8, True), ("unitId", 0, True), ("unitId_2", 4, False))
+
+
+def unit_level_from_id(unit_id: str) -> int:
+    """Mirror de `idun.shared.UnitNamingConventions$$GetLevelFromUnitId`.
+
+    `split(':')` ; s'il y a au moins 2 parts, `Int32.TryParse` de la 2e -- et sur ECHEC de parse
+    comme en l'absence de suffixe, le natif rend **1**, jamais 0 (0 ferait lever
+    `ToZeroBasedIndex`) et jamais le dernier palier.
+    """
+    parts = str(unit_id).split(":")
+    if len(parts) > 1:
+        try:
+            return int(parts[1])
+        except ValueError:
+            return 1
+    return 1
+
+
+def _to_zero_based_index(level: int) -> int:
+    """Mirror de `idun.Idun.Source.Shared.UnitLevelExtensions$$ToZeroBasedIndex` : `level - 1`,
+    et `InvalidOperationException` sur `level <= 0`. On LEVE aussi -- un clamp bas silencieux
+    rendrait le palier 1 la ou le natif refuse."""
+    if level <= 0:
+        raise ValueError(
+            f"unit level {level} <= 0 : ToZeroBasedIndex leve (InvalidOperationException)")
+    return level - 1
+
+
+def npc_stats_row(unit_id: str, level: int | None = None) -> dict:
+    """Ligne `units.npc[id].stats[]` que le natif servirait -- mirror de
+    `idun.meta.extensions.UnitConfigExtensions$$GetStatsForLevel(config, unitLevel)`.
+
+    `idx = Math.Min(ToZeroBasedIndex(level), stats.Count - 1)` : clamp HAUT uniquement.
+    """
+    pure = str(unit_id).split(":")[0]
+    gc = G.unit(pure)
+    if gc is None:
+        raise KeyError(f"{pure!r} absent du gameconfig")
+    rows = gc.get("stats") or []
+    if not rows:
+        raise KeyError(f"{pure!r} n'a pas de table `stats[]` (les 65 summons sont dans ce cas)")
+    lvl = unit_level_from_id(unit_id) if level is None else int(level)
+    return rows[min(_to_zero_based_index(lvl), len(rows) - 1)]
+
+
+def npc_progression_multiplier_pct(progression_index: int) -> int:
+    """`AbilityVariablesMultiplierPercentage` d'un npc -- mirror EXACT de
+    `IdunMetaLogic.UserProgress.UnitConfigUtil$$GetAbilityVariablesMultiplierPercentageForProgressionIndex` :
+    la fonction INDEXE `unitsConfig+0x80` (= `units.heroProgressionSteps`) par le progression index
+    et rend le champ +0x24 (`abilityStatMultiplierPct`).
+
+    A la difference d'`ability_multiplier_pct` (qui doit DEVINER le palier d'un heros non possede
+    en cherchant le premier `maxRank >= rank`), le progression index d'un npc est CONNU : il est
+    ecrit dans sa ligne `stats[]`. Mesure sur le seed BC : `necroNpc3Deathmark:7` porte
+    ProgressionIndex 4 et `AbilityVariablesMultiplierPercentage` 120 = `steps[4]`.
+    """
+    steps = G._cfg()["units"]["heroProgressionSteps"]
+    idx = max(0, min(int(progression_index), len(steps) - 1))
+    return steps[idx]["abilityStatMultiplierPct"]
+
+
+def npc_stats(unit_id: str, level: int | None = None) -> dict:
+    """Les 8 stats de combat d'un npc + ses champs de progression, mirror de
+    `IdunMetaLogic.UserProgress.UnitProgression$$GetNpcStats`.
+
+    Les champs de progression sont ceux que
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration` recopie dans l'entree :
+    `Rank` <- row.Rank, `StarLevel` <- row.StarLevel, `Level` <- row.AbilityLevel.
+
+    ⚠ `ActiveAbilityLevel` / `PassiveAbilityLevel` NE viennent PAS directement de la ligne.
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$SetupAbilities` les prend des slots `0x1c` /
+    `0x1d` d'`IUnitModel` (`GetPrimaryAbility()` / `GetSecondaryAbility()`, champ `+0x08` = le
+    niveau) et les ecrit en `UnitConfiguration+0xb8` / `+0xbc`. Sans ability de cette hierarchie il
+    n'y a aucun niveau a lire, et le champ reste au DEFAUT 1.
+    MESURE (les 4 npc du seed BC) : `necroNpc1Warrior:7` est le SEUL sans `activeAbilities` et le
+    SEUL a porter `ActiveAbilityLevel = 1` ; les 3 autres portent `AbilityLevel` (17). La branche
+    VIDE de `PassiveAbilityLevel` n'est PAS confrontee (les 4 npc ont un passif) : elle est ecrite
+    par symetrie et reste sans consequence -- une liste d'abilities vide ne donne rien a niveler a
+    `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`.
+    """
+    pure = str(unit_id).split(":")[0]
+    gc = G.unit(pure) or {}
+    row = npc_stats_row(unit_id, level)
+    out = {f: int(row.get(f) or 0) for f in COMBAT_STAT_FIELDS}
+    ab = int(row.get("AbilityLevel") or 1)
+    out.update({
+        "Rank": int(row.get("Rank") or 0),
+        "StarLevel": int(row.get("StarLevel") or 0),
+        "Level": ab,
+        "ActiveAbilityLevel": ab if (gc.get("activeAbilities") or []) else 1,
+        "PassiveAbilityLevel": ab if (gc.get("passiveAbilities") or []) else 1,
+        "AbilityVariablesMultiplierPercentage":
+            npc_progression_multiplier_pct(row.get("ProgressionIndex") or 0),
+    })
+    return out
+
+
+def summon_declaring_abilities(unit_id: str) -> list[tuple[str, str, bool]]:
+    """(abilityName, constantKey, isPrimary) de toutes les abilities dont une constante d'id
+    designe `unit_id`.
+
+    ⚠ CE BALAYAGE N'EST PAS UN MIRROR : le natif ne cherche jamais l'ability, il la RECOIT
+    (`GetSummonStats(constantType, abilityConfig)`). C'est le harnais qui doit la retrouver, et
+    c'est exactement le recours 2 de `case-92` §5bis (« SUMMON SANS invocateur -- verifie par
+    balayage »). Ce qui EST un mirror, c'est le regime primary/`_2` deduit du `constantType`.
+    """
+    pure = str(unit_id).split(":")[0]
+    out = []
+    for name, a in (G._cfg()["units"]["abilities"] or {}).items():
+        consts = a.get("constants") or {}
+        for key, _ordinal, primary in SUMMON_ID_CONSTANTS:
+            if str(consts.get(key, "")).split(":")[0] == pure:
+                out.append((name, key, primary))
+    return out
+
+
+def summon_stats(unit_id: str, ability_name: str | None = None,
+                 ability_level: int = 50, multiplier_pct: int | None = None) -> dict:
+    """Les 8 stats de combat qu'un summon recoit A SON SPAWN -- mirror de
+    `IdunMetaLogic.UserProgress.UnitProgression$$GetSummonStats`.
+
+    Une variable `summon*` NULLE ou ABSENTE laisse le champ a sa valeur de config (0 pour un
+    summon) : c'est le `if (var != 0) champ = var` du decompile, pas un defaut invente.
+
+    `multiplier_pct` s'applique aux SEULES variables listees en `variablesAffectedByRarityBonus`
+    (`VariablesAffectedByUnitRarityMultiplier` cote BC) -- meme regle que
+    `engine.entities.effects.magnitude.ability_var`. Defaut : le multiplicateur du porteur, inconnu
+    ici, donc 100 (pas de scaling) tant que l'appelant n'en fournit pas.
+    """
+    cands = summon_declaring_abilities(unit_id)
+    if ability_name is None:
+        if not cands:
+            raise KeyError(
+                f"aucune ability du gameconfig ne declare {unit_id!r} "
+                f"(constantes {[c[0] for c in SUMMON_ID_CONSTANTS]})")
+        ability_name, _key, primary = cands[0]
+    else:
+        match = [c for c in cands if c[0] == ability_name]
+        if not match:
+            raise KeyError(f"{ability_name!r} ne declare pas {unit_id!r}")
+        primary = match[0][2]
+    a = G.ability(ability_name)
+    if a is None:
+        raise KeyError(f"ability {ability_name!r} absente du gameconfig")
+    variables = a.get("variables") or {}
+    scaled = set(a.get("variablesAffectedByRarityBonus") or [])
+    mult = 100 if multiplier_pct is None else int(multiplier_pct)
+    out = {f: 0 for f in COMBAT_STAT_FIELDS}
+    for field, key_primary, key_secondary in SUMMON_STAT_VARS:
+        key = key_primary if primary else key_secondary
+        arr = variables.get(key)
+        if not arr:
+            continue                                    # variable absente -> champ inchange
+        idx = max(0, min(_to_zero_based_index(max(1, int(ability_level))), len(arr) - 1))
+        base = int(arr[idx])
+        if base == 0:
+            continue                                    # `if (var != 0)` du decompile
+        out[field] = round(base * mult / 100) if (mult != 100 and key in scaled) else base
+    out["_ability"] = ability_name
+    out["_primary"] = primary
+    return out
+
+
+def explicit_stats(unit_id: str, level: int | None = None,
+                   ability_name: str | None = None, ability_level: int = 50,
+                   multiplier_pct: int | None = None) -> dict:
+    """Patch de champs `UnitConfiguration` a poser pour un porteur que la formule HEROS refuse.
+
+    Rend `{"source": "npc"|"summon-spawn", "fields": {...}}`. Le `source` n'est pas cosmetique :
+      * `npc`          = mirror du CATALOGUE (ce que le jeu ECRIT dans `BC.Units[]`) ;
+      * `summon-spawn` = MONTAGE, il reproduit l'etat POST-SPAWN. Le jeu, lui, ecrit 0 (65/65).
+    """
+    pure = str(unit_id).split(":")[0]
+    gc = G.unit(pure)
+    if gc is None:
+        raise KeyError(f"{pure!r} absent du gameconfig")
+    if gc.get("stats"):
+        return {"source": "npc", "fields": npc_stats(unit_id, level)}
+    st = summon_stats(unit_id, ability_name, ability_level, multiplier_pct)
+    ability = st.pop("_ability")
+    st.pop("_primary")
+    st["ActiveAbilityLevel"] = ability_level
+    st["PassiveAbilityLevel"] = ability_level
+    return {"source": "summon-spawn", "fields": st, "ability": ability}
+
+
+# Champs que le TEMOIN npc confronte : les 8 stats de combat + les champs de progression que
+# `BattleConfigBuilder$$GetUnitConfiguration` derive de la meme ligne `stats[]`.
+NPC_WITNESS_FIELDS = COMBAT_STAT_FIELDS + (
+    "Rank", "StarLevel", "Level", "ActiveAbilityLevel", "PassiveAbilityLevel",
+    "AbilityVariablesMultiplierPercentage",
+)
+
+
+def npc_entries_of(bc: dict) -> list[dict]:
+    """Entrees de `BC.Units[]` dont l'id PUR est un `units.npc` du gameconfig."""
+    npc = G._cfg()["units"]["npc"]
+    return [u for u in (bc.get("Units") or [])
+            if str(u.get("Id", "")).split(":")[0] in npc]
+
+
+def npc_witness_diff(bc: dict) -> tuple[list[tuple[str, dict]], int]:
+    """TEMOIN NON DEGENERE du chemin npc : confronte `npc_stats` aux entrees npc que LE JEU a
+    ecrites dans le seed BC capture.
+
+    Ce n'est pas un accord entre deux lectures de la meme table : le cote gauche est calcule
+    depuis `units.npc[id].stats[]` du gameconfig VIVANT, le cote droit est ce que
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration` a produit en bataille
+    reelle et que la capture a fige. Rend `([(unitId, {champ: (attendu, capture)})], n_divergences)`.
+    """
+    rows, div = [], 0
+    for u in npc_entries_of(bc):
+        got = npc_stats(u["Id"])
+        bad = {f: (got.get(f), u.get(f)) for f in NPC_WITNESS_FIELDS if got.get(f) != u.get(f)}
+        rows.append((u["Id"], bad))
+        div += len(bad)
+    return rows, div
+
+
+def apply_explicit_stats(bc: dict, unit_id: str, **kw) -> dict:
+    """Ecrit le patch d'`explicit_stats` dans l'entree `BC.Units[]` de `unit_id`. Rend le rapport.
+
+    `RemainingHealth` suit `Health` (meme regle que `json-build.ts`, qui la reinitialise pour que
+    l'unite spawne a PV pleins).
+    """
+    rep = explicit_stats(unit_id, **kw)
+    for u in bc.get("Units") or []:
+        if u.get("Id") == unit_id:
+            u.update(rep["fields"])
+            if "RemainingHealth" in u:
+                u["RemainingHealth"] = rep["fields"].get("Health")
+            return rep
+    raise KeyError(f"{unit_id!r} absent de BC.Units -- l'injecter d'abord (augment/synthesize)")
+
+
 # --------------------------------------------------------- 2e catalogue : BC.Abilities
 
 def synthesize_ability(name: str) -> dict:
@@ -1434,9 +1736,31 @@ def main(argv: list[str]) -> int:
                     help="ventile les TROIS etats de la gate relique sur le seed BC")
     ap.add_argument("--list-relics", action="store_true",
                     help="liste les reliques du gameconfig (ability, paliers, porteurs)")
+    ap.add_argument("--explicit-stats", default=None, metavar="UNITID",
+                    help="chemin de stats EXPLICITE d'un porteur npc/summon (#419-r1-tr12-r2) : "
+                         "mirror de UnitProgression$$GetNpcStats / $$GetSummonStats")
+    ap.add_argument("--explicit-stats-witness", action="store_true",
+                    help="confronte le mirror NPC aux entrees npc du seed BC (ecrites PAR LE JEU)")
     a = ap.parse_args(argv)
 
     seed = _load_seed(a.seed_bc)
+
+    if a.explicit_stats:
+        rep = explicit_stats(a.explicit_stats, ability_level=a.ability_level)
+        print(json.dumps(rep, indent=2, sort_keys=True))
+        return 0
+
+    if a.explicit_stats_witness:
+        rows, div = npc_witness_diff(seed)
+        for uid, bad in rows:
+            print(("OK   " if not bad else "DIFF ") + uid
+                  + ("" if not bad else "  " + json.dumps(bad, sort_keys=True)))
+        print(f"[witness] npc du seed BC = {len(rows)}  divergences = {div}")
+        if not rows:
+            # Un temoin VIDE passerait pour un vert : c'est le regime degenere, on le refuse.
+            print("[witness] AUCUN npc dans ce seed BC -- rien n'a ete confronte", file=sys.stderr)
+            return 2
+        return 0 if div == 0 else 1
 
     if a.list_relics:
         items = relic_items()

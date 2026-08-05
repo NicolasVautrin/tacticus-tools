@@ -32,6 +32,43 @@ export interface NormalizeBcArgs {
     unitsFilter?: string[];
     // Per-unit item specs. Key = unitId. If absent, that unit uses empty list.
     itemSpecs?: Record<string, Array<{ configId: string; level?: number | null }>>;
+    /** EXPLICIT stats path — NPC and SUMMON carriers (#419-r1-tr12-r2).
+     *
+     *  WHY IT EXISTS. Everything below goes through ONE formula,
+     *  `IStatsFormula.StatsUsingProgressionIndexFor`, which is the HERO
+     *  progression formula. A unit that has no hero progression table
+     *  throws inside it, lands in `skipped` ("v2 patch: system error")
+     *  and therefore never reaches the `--p-units` pool. That is what
+     *  made every npc-only / summon-only carrier unconfrontable except
+     *  by GRAFTING its ability onto a pool hero — a graft that covers
+     *  neither the stats, nor the traits, nor the weapons of the real
+     *  carrier (case-92 §5bis).
+     *
+     *  The game itself has two OTHER named paths for those carriers:
+     *    - npc    `IdunMetaLogic.UserProgress.UnitProgression$$GetNpcStats`
+     *             -> `idun.meta.extensions.UnitConfigExtensions$$GetStatsForLevel`,
+     *             reading `units.npc[id].stats[]` from the game config;
+     *    - summon `IdunMetaLogic.UserProgress.UnitProgression$$GetSummonStats`,
+     *             reading the `summon*` variables of the summoning ability.
+     *  Both are mirrored offline in `scripts/python/catalog_inject.py`
+     *  (`npc_stats` / `summon_stats`) and CONFRONTED there against the
+     *  seed BC the game itself produced. So the value written here is
+     *  computed by the caller, and this RPC only has to HONOUR it
+     *  instead of overwriting or skipping it.
+     *
+     *  Key = unitId (exact `BC.Units[].Id`, suffix included). Value =
+     *  the `UnitConfiguration` fields to write verbatim — the caller
+     *  supplies the progression fields too (`Rank`, `StarLevel`,
+     *  `Level`, `Active/PassiveAbilityLevel`, …) because for an npc they
+     *  come from its own `stats[]` row, NOT from `targetRank` &co. None
+     *  of the `target*` arguments is applied to these units: forcing a
+     *  hero's rank 17 onto an npc whose row says rank 6 would silently
+     *  contradict the very table we just read.
+     *
+     *  Unknown unitIds are reported in `explicitUnmatched` rather than
+     *  ignored: a typo would otherwise degrade into "the formula ran",
+     *  i.e. exactly the failure mode this path exists to remove. */
+    explicitStats?: Record<string, Record<string, number | null>>;
 }
 
 export interface NormalizeBcResult {
@@ -44,13 +81,23 @@ export interface NormalizeBcResult {
      *  GameModeSource.SupportsMachinesOfWar. Some modes reject MoW. */
     mow: string[];
     skipped: Array<{ unitId: string; reason: string }>;
+    /** Subset of `normalized` whose stats came from `args.explicitStats`
+     *  (npc / summon carriers) instead of the hero formula. Callers use
+     *  it to assert WHICH path produced a unit's stats — the two regimes
+     *  must never be confused for one another. */
+    explicit: string[];
+    /** Keys of `args.explicitStats` that matched no `BC.Units[].Id`.
+     *  Non-empty means the caller asked for a unit that is not in the
+     *  catalogue (inject it first) or misspelled its id. */
+    explicitUnmatched: string[];
     swappedBoard: string | null;
     err?: string;
 }
 
 export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
     const result: NormalizeBcResult = {
-        ok: false, normalized: [], mow: [], skipped: [], swappedBoard: null,
+        ok: false, normalized: [], mow: [], skipped: [],
+        explicit: [], explicitUnmatched: [], swappedBoard: null,
     };
 
     const unitProg = getUnitProgressionPtr();
@@ -157,6 +204,31 @@ export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
             }
         }
 
+        // EXPLICIT stats path (#419-r1-tr12-r2) — taken BEFORE the hero
+        // formula, because for these carriers the formula does not merely
+        // return a wrong number, it THROWS. The caller already computed
+        // the values by mirroring the game's own npc/summon paths, so all
+        // that is left here is to write them and count the unit as
+        // normalized. Deliberately no `target*` patching: an npc's rank,
+        // star level and ability level are dictated by the `stats[]` row
+        // it was read from. The MoW flag is still honoured above — a MoW
+        // routed through this path must keep spawning via
+        // BC.PredefinedMachines, and silently demoting it to a regular
+        // unit would fail at spawn time, not here.
+        const explicitFields = args.explicitStats?.[unitId];
+        if (explicitFields) {
+            for (const k of Object.keys(explicitFields)) {
+                u[k] = explicitFields[k];
+            }
+            if ("RemainingHealth" in u && typeof u.Health === "number") {
+                u.RemainingHealth = u.Health;
+            }
+            result.normalized.push(unitId);
+            result.explicit.push(unitId);
+            if (isMow) result.mow.push(unitId);
+            continue;
+        }
+
         try {
             const idStr = createManagedString(unitId);
 
@@ -218,6 +290,18 @@ export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
             if (isMow) mowSkipped.push({ unitId, reason });
         }
     }
+    // An explicit-stats key that matched nothing is REPORTED, never
+    // swallowed. Swallowing it would degrade back into "the hero formula
+    // ran for that unit" — the exact silent failure this path removes.
+    // Note it is computed against the WHOLE catalogue, not the filtered
+    // pass, so `unitsFilter` cannot turn a real entry into a false alarm.
+    if (args.explicitStats) {
+        const known = new Set(units.map((x) => x.Id as string));
+        for (const k of Object.keys(args.explicitStats)) {
+            if (!known.has(k)) result.explicitUnmatched.push(k);
+        }
+    }
+
     try {
         emit({
             evt: "normalize_bc_mow_diag",

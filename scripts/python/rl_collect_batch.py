@@ -1177,6 +1177,7 @@ def _load_board_pool(kind: str, roster_size: int,
 def _normalize_and_extract_pool(
     sid: int, base_bc: dict, target_rank: int,
     board_dump: dict | None = None,
+    explicit_stats: dict | None = None,
 ) -> tuple[dict, list[str], list[str]]:
     """Calls buildNormalizedBC. Returns
     (template_bc_normalized, pool_regular, pool_mow).
@@ -1191,6 +1192,18 @@ def _normalize_and_extract_pool(
     dump's BoardConfiguration and SpawnPointSetIndex is set to the
     dump's paired sps. The buildNormalizedBC RPC supports `boardJson` +
     `spawnPointSetIndex` natively.
+
+    `explicit_stats` (#419-r1-tr12-r2) = `{unitId: {champ: valeur}}`, le
+    CHEMIN DE STATS EXPLICITE des porteurs npc / summon, que la formule
+    heros `StatsUsingProgressionIndexFor` fait LEVER (ils n'ont pas de
+    table de progression de heros) -- ils partaient donc en `skipped` et
+    n'atteignaient jamais le pool. Les valeurs se calculent par
+    `catalog_inject.explicit_stats`, mirror des chemins natifs
+    `UnitProgression$$GetNpcStats` / `$$GetSummonStats`. Une cle qui ne
+    matche aucune entree du catalogue remonte en `explicitUnmatched` et
+    fait LEVER ici : sans ce refus, un id mal orthographie retomberait en
+    silence sur la formule heros -- exactement la panne que ce chemin
+    supprime.
     """
     base_json = json.dumps(base_bc)
     args: dict = {
@@ -1211,9 +1224,25 @@ def _normalize_and_extract_pool(
         sps = board_dump.get("spawnPointsSet")
         if isinstance(sps, int):
             args["spawnPointSetIndex"] = sps
+    if explicit_stats:
+        args["explicitStats"] = explicit_stats
     out = _rpc(sid, "buildNormalizedBC", [args], timeout=60).get("result") or {}
     if not out.get("ok"):
         raise RuntimeError(f"buildNormalizedBC failed: {out.get('err', '?')}")
+    unmatched = out.get("explicitUnmatched") or []
+    if unmatched:
+        raise RuntimeError(
+            f"buildNormalizedBC: explicitStats sans entree au catalogue: {unmatched} "
+            f"-- injecter l'unite d'abord (catalog_inject.augment / --seed-bc)")
+    if explicit_stats and not (out.get("explicit") or []):
+        # Le RPC a repondu SANS le champ `explicit` : c'est une session dont le
+        # bundle est ANTERIEUR a #419-r1-tr12-r2. Les stats explicites ont ete
+        # ignorees et la formule heros a tourne -- donc des stats FAUSSES (ou un
+        # `skipped`) qui se liraient comme un resultat. On refuse.
+        raise RuntimeError(
+            "buildNormalizedBC n'a honore AUCUNE stat explicite (champ `explicit` vide) "
+            "-- le bundle de hooks injecte est anterieur au chemin de stats explicite "
+            "(#419-r1-tr12-r2). Rebuild + reinject requis.")
     template = json.loads(out["configJson"])
     normalized = set(out.get("normalized") or [])
     mow_set = set(out.get("mow") or [])

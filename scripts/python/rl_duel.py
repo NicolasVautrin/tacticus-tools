@@ -559,9 +559,41 @@ def cmd_build(sid: int, a) -> int:
         except ValueError as e:
             print(f"[error] --equip-relic: {e}", file=sys.stderr)
             return 2
+    # --explicit-stats (#419-r1-tr12-r2) : porteurs NPC / SUMMON. La formule heros
+    # `IStatsFormula.StatsUsingProgressionIndexFor` LEVE sur eux (pas de table de progression de
+    # heros) -> `skipped`, jamais au pool. On injecte l'entree si elle manque, puis on calcule les
+    # stats par le chemin natif de leur propre categorie (`catalog_inject.explicit_stats`, mirror de
+    # `UnitProgression$$GetNpcStats` / `$$GetSummonStats`) et on les passe au RPC, qui les ECRIT au
+    # lieu d'appeler la formule.
+    explicit_specs = list(getattr(a, "explicit_stats", None) or [])
+    explicit_patch: dict = {}
+    if explicit_specs:
+        missing = [u for u in explicit_specs
+                   if u not in {x.get("Id") for x in (seed_bc.get("Units") or [])}]
+        if missing:
+            try:
+                seed_bc = catalog_inject.augment(seed_bc, missing, rank=a.rank)
+            except KeyError as e:
+                print(f"[error] --explicit-stats: {e}", file=sys.stderr)
+                return 2
+        for uid in explicit_specs:
+            try:
+                rep = catalog_inject.explicit_stats(uid)
+            except (KeyError, ValueError) as e:
+                print(f"[error] --explicit-stats {uid}: {e}", file=sys.stderr)
+                return 2
+            explicit_patch[uid] = rep["fields"]
+            src = rep["source"]
+            extra = f" via {rep['ability']}" if rep.get("ability") else ""
+            print(f"[explicit-stats] {uid} <- {src}{extra} : "
+                  f"hp={rep['fields'].get('Health')} dmg={rep['fields'].get('Damage')} "
+                  f"fixedArmor={rep['fields'].get('FixedArmor')}"
+                  + ("   [MONTAGE: le jeu ecrit 0 au catalogue pour un summon,"
+                     " ces valeurs sont celles du SPAWN]" if src == "summon-spawn" else ""))
     # --board fixe : swap au moment de la normalisation (buildNormalizedBC boardJson+spawnPointSetIndex).
     template_bc, pool, pool_mow = _normalize_and_extract_pool(
-        sid, seed_bc, a.rank, board_dump=fixed_board_dump)
+        sid, seed_bc, a.rank, board_dump=fixed_board_dump,
+        explicit_stats=explicit_patch or None)
     for uid, ability, lvl in relic_specs:
         try:
             rep = catalog_inject.equip_relic(
@@ -2583,6 +2615,18 @@ def main(argv: list[str]) -> int:
                          "valeur unique sur tout un camp : indispensable des que la mesure porte sur "
                          "un ECART entre deux unites du meme cote (ex. deux Health -> deux niveaux "
                          "d'utilite de soin). Pas de virgule dans une valeur.")
+    ap.add_argument("--explicit-stats", action="append", default=None, metavar="UNITID",
+                    help="build: amene un porteur NPC ou SUMMON avec SES PROPRES stats, traits et "
+                         "armes (#419-r1-tr12-r2), repetable. La formule heros "
+                         "IStatsFormula.StatsUsingProgressionIndexFor LEVE sur ces unites (aucune "
+                         "table de progression de heros) : elles finissaient en `skipped`, hors "
+                         "pool, et leurs mecaniques n'etaient confrontables que par GREFFE de "
+                         "l'ability sur un heros. Les stats sont calculees par le chemin natif de "
+                         "leur categorie -- npc: UnitProgression$$GetNpcStats (table "
+                         "units.npc[id].stats[], palier = suffixe ':<n>' de l'id, DEFAUT 1) ; "
+                         "summon: UnitProgression$$GetSummonStats (variables summon* de l'ability "
+                         "invocatrice). L'entree de catalogue est injectee si elle manque. "
+                         "Ex. --explicit-stats admecNpc3Electropriest:33")
     ap.add_argument("--equip-relic", action="append", default=None,
                     help="build: EQUIPE une relique — 'unitId:AbilityName[:level]', repetable. "
                          "Pose BC.Units[].TertiaryAbility + TertiaryAbilityLevel (>=1 OBLIGATOIRE : "
