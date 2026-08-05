@@ -44,6 +44,12 @@ DECOMPOSITION PAR ETAGE (jamais un scalaire fitte). Pour chaque bras :
 
 Usage :
     python probe_449r2r4_spread_from_bc.py [--pct 60] [--seed 777] [--keep]
+    python probe_449r2r4_spread_from_bc.py --pct 90 --seed 31337 --tag g90
+    python probe_449r2r4_spread_from_bc.py --pct 5  --seed 123   --tag g5
+
+Le montage est ENTIEREMENT parametre (`--board`, `--p-units`/`--a-units`, `--att`/`--tgt`,
+`--att-tile`/`--tgt-tile`) : la generalisation se fait en le CHANGEANT, jamais en re-jouant le
+meme point. `--tag` isole les fichiers `logs/` de deux runs concurrents.
 
 ASCII only (console cp1252).
 """
@@ -62,9 +68,11 @@ ROOT = PYDIR.parents[1]
 LOGS = ROOT / "logs"
 SEED_BC = ROOT / "data" / "seed-bc.json"
 
+# Montage PAR DEFAUT. Tuiles PILOTEES (on DEPLACE, on ne subit pas la geometrie de spawn) :
+# (2,5) et (2,6) sont voisins ET marchables sur MC1_67 (repris de probe_216_savage_prediction).
+# Tout est surchargeable en ligne de commande -- la generalisation se fait en CHANGEANT board,
+# unites, tuiles et pct, pas en re-jouant le meme point.
 BOARD = "MC1_67"
-# Montage adjacent PILOTE (on DEPLACE, on ne subit pas la geometrie de spawn) : (2,5) et (2,6)
-# sont voisins ET marchables sur MC1_67 (montage repris de probe_216_savage_prediction).
 ATT_TILE, TGT_TILE = "2,5", "2,6"
 P_UNITS = "ultraCalgar,ultraApothecary"
 A_UNITS = "tauCrisis,blackTerminator"
@@ -164,7 +172,14 @@ def measure(sid, rid, bc_damage: dict) -> dict:
     ap = rpc(sid, "aiPredict", {"runnerId": rid, "unitId": att["id"], "targetId": tgt["id"],
                                 "abilityType": norm["id"]}, 90)
     if not _ok(ap) or not ap.get("pred"):
-        raise RuntimeError("aiPredict KO: %s" % (str(ap)[:200],))
+        # `ok` SANS `pred` = le natif n'a rendu aucune prediction pour ce couple (typiquement
+        # hors portee apres placement, ou `dictNull`). Ce n'est pas une panne du probe : c'est
+        # un montage a corriger -- DEPLACER les unites, pas subir la geometrie.
+        raise RuntimeError(
+            "aiPredict n'a rendu AUCUNE prediction pour %s(%s) -> %s(%s) : montage a corriger "
+            "(portee ? placement ?). ok=%s dictNull=%s pred=%s"
+            % (ATT_VIS, att["id"], TGT_VIS, tgt["id"], ap.get("ok"), ap.get("dictNull"),
+               ap.get("pred")))
     pred = ap["pred"]
     out = {"att": att["id"], "tgt": tgt["id"], "ability": norm["id"],
            "min": int(pred.get("healthDmgMin") or 0), "max": int(pred.get("healthDmgMax") or 0),
@@ -241,15 +256,29 @@ def main() -> int:
     ap.add_argument("--pct", type=int, default=60,
                     help="valeur DISCRIMINANTE ecrite dans BC.Damage.DamageSpreadPercentage")
     ap.add_argument("--seed", type=int, default=777)
+    ap.add_argument("--board", default=BOARD)
+    ap.add_argument("--p-units", dest="p_units", default=P_UNITS)
+    ap.add_argument("--a-units", dest="a_units", default=A_UNITS)
+    ap.add_argument("--att", default=ATT_VIS, help="visualId de l'attaquant (dans --p-units)")
+    ap.add_argument("--tgt", default=TGT_VIS, help="visualId de la cible (dans --a-units)")
+    ap.add_argument("--att-tile", dest="att_tile", default=ATT_TILE)
+    ap.add_argument("--tgt-tile", dest="tgt_tile", default=TGT_TILE)
+    ap.add_argument("--tag", default="", help="suffixe des fichiers logs/ (runs concurrents)")
     ap.add_argument("--keep", action="store_true", help="ne pas disposer les runners")
     a = ap.parse_args()
+
+    # Le montage est un PARAMETRE, pas une constante : la generalisation se fait en changeant
+    # board/unites/tuiles/pct, jamais en re-jouant le meme point.
+    globals().update(BOARD=a.board, P_UNITS=a.p_units, A_UNITS=a.a_units,
+                     ATT_VIS=a.att, TGT_VIS=a.tgt, ATT_TILE=a.att_tile, TGT_TILE=a.tgt_tile)
+    suffix = ("_" + a.tag) if a.tag else ""
 
     sid = _resolve_session()
     rows = []
     for name, mut in arms(a.pct):
-        bcp = LOGS / ("bc_449r2r4_%s.json" % name)
+        bcp = LOGS / ("bc_449r2r4_%s%s.json" % (name, suffix))
         section = write_bc(bcp, mut)
-        sf = LOGS / ("rs_449r2r4_%s.json" % name)
+        sf = LOGS / ("rs_449r2r4_%s%s.json" % (name, suffix))
         rid = build(sf, a.seed, bcp)
         try:
             m = measure(sid, rid, section)

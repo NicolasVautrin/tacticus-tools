@@ -164,6 +164,32 @@ deux modèles coïncident. Ils coïncident sur le bras `bc20` — normal, c'est 
 **diffèrent de 1614 / 954 / 954** sur les trois autres. Le PRNG est le même dans les deux modèles
 (même état MT de départ) : ce qui change est la BORNE, pas la séquence.
 
+### Généralisation — trois régimes, trois seeds, 12 confrontations
+
+Le montage est **entièrement paramétré** (`--board`, `--p-units`/`--a-units`, `--att`/`--tgt`,
+`--att-tile`/`--tgt-tile`, `--pct`, `--seed`) : on généralise en le CHANGEANT, pas en rejouant le
+même point.
+
+| run | pct | seed | natif = port corrigé | port `20` en dur | écart |
+|---|---|---|---|---|---|
+| nominal | 60 | 777 | 7774 | 9388 | 1614 |
+| haut | 90 | 31337 | 11921 | 9424 | 2497 |
+| **bas** | **5** | 123 | 8151 | 8653 | **502** |
+| — | absent | (les 3) | 8434 | 9388 / 9424 / 8653 | 954 / 990 / 219 |
+| — | ignore | (les 3) | 8434 | 9388 / 9424 / 8653 | 954 / 990 / 219 |
+
+**12 confrontations, 12 exactes** pour le port corrigé ; le mutant se trompe dans les 9 bras non
+triviaux. L'étage natif suit à chaque fois : demi-amplitude 1686/1686,7 · 5061/5060,1 ·
+7590/7590,6 · 423/421,7 · 0/0. Le régime `pct = 5` est le plus proche de la dégénérescence et
+sépare encore de **502** points — la relation est linéaire, pas un point ajusté.
+
+⚠ **Un axe de généralisation N'A PAS abouti** : le couple alternatif
+(`astraBullgryn` → `blackTerminator`, board `C1_74` puis `MC1_67`) rend `aiPredict` **`ok` sans
+`pred`** — aucune prédiction native pour ce couple après placement. C'est un défaut de MONTAGE
+(portée/placement), pas un résultat ; le probe le dit maintenant en clair au lieu de vomir la
+réponse brute. **Non refait** : les trois régimes de pct portent déjà la démonstration, et changer
+le pct change la grandeur mesurée là où changer d'attaquant ne change que la base.
+
 **Tests rejoués** (ciblés ; 4 en parallèle) :
 
 | fichier | résultat |
