@@ -368,12 +368,112 @@ def propager_un_cran(gh: Ghidra, variables: list) -> list:
     return trouves
 
 
+def volet_flux_live(board: str, tours: int) -> int:
+    """Ce que le natif EMET REELLEMENT, ventile par GROUPE RACINE.
+
+    Le canal statique dit ce qui est EMISSIBLE ; il ne dit pas ce qu'une bataille produit. Un
+    inventaire qui hierarchiserait les tranches sans ce poids classerait par nombre de membres
+    d'enum -- c'est-a-dire par le vocabulaire des abilities, alors que le squelette du tour tient
+    en quelques groupes. Monte UN runner, joue `tours` tours d'IA, dispose dans le `finally`.
+    """
+    import subprocess
+    import urllib.request
+
+    sys.path.insert(0, str(REPO / "scripts" / "python"))
+    from engine.streams import conformance as CONF  # noqa: E402
+
+    hote = "http://127.0.0.1:8765"
+    with urllib.request.urlopen("%s/api/admin/status" % hote, timeout=10) as r:
+        session = int((json.loads(r.read().decode())["session"])["id"])
+    etat = REPO / "logs" / "477r18-flux-live.json"
+    etat.parent.mkdir(parents=True, exist_ok=True)
+    ici = REPO / "scripts" / "python"
+
+    def rl(*args, t=900):
+        return subprocess.run([sys.executable, "rl_duel.py", *args, "--state-file", str(etat)],
+                              cwd=str(ici), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=t)
+
+    try:
+        p = rl("build", "--seed", "777", "--board", board, "--record-replay", "--no-ai")
+        if not etat.is_file():
+            print("MESURE IMPOSSIBLE (build) : %s" % (p.stderr or p.stdout)[-400:])
+            return 3
+        print("    runner %s monte sur %s" % (json.loads(etat.read_text())["runnerId"], board))
+        for i in range(tours):
+            q = rl("aiturn", t=600)
+            if q.returncode != 0:
+                print("    tour %d : aiturn rc=%d -- ARRET (%s)"
+                      % (i + 1, q.returncode, (q.stderr or "")[-160:]))
+                break
+        body = json.dumps({"method": "replayOutputStream",
+                           "args": [{"runnerId": json.loads(etat.read_text())["runnerId"]}],
+                           "timeout": 60000}).encode()
+        req = urllib.request.Request("%s/api/scripts/%d/rpc" % (hote, session), data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            flux = ((json.loads(r.read().decode()).get("result") or {}).get("stream") or "")
+    finally:
+        rl("dispose", t=180)
+
+    if not flux:
+        print("    MESURE IMPOSSIBLE : `replayOutputStream` rend un flux VIDE")
+        return 3
+    lignes = flux.split("\n")
+    print("    flux natif : %d lignes, %d octets" % (len(lignes), len(flux)))
+
+    racines, pile, courant, debut = [], 0, None, 0
+    for i, s in enumerate(lignes):
+        m = CONF.RE_GROUP.match(s)
+        if m:
+            if pile == 0:
+                courant, debut = m.group("sym"), i
+            pile += 1
+        elif CONF.RE_FINISH.match(s):
+            pile -= 1
+            if pile == 0 and courant is not None:
+                racines.append((courant, i - debut + 1, lignes[debut:i + 1]))
+                courant = None
+
+    hors = len(lignes) - sum(n for _s, n, _l in racines)
+    agg = {}
+    for sym, n, corps in racines:
+        e = agg.setdefault(sym, {"n": 0, "lignes": 0, "groupes": set(), "actions": set(),
+                                 "tags": set()})
+        e["n"] += 1
+        e["lignes"] += n
+        for s in corps:
+            mg, ma, mt = (CONF.RE_GROUP.match(s), CONF.RE_ACTION.match(s), CONF.RE_TAG.match(s))
+            if mg:
+                e["groupes"].add(mg.group("sym"))
+            elif ma:
+                e["actions"].add(ma.group("sym"))
+            elif mt:
+                e["tags"].add(mt.group("sym"))
+    print("    %-26s %5s %7s  %s" % ("GROUPE RACINE", "occ", "lignes", "vocabulaire (G/S/T)"))
+    for sym, e in sorted(agg.items(), key=lambda kv: -kv[1]["lignes"]):
+        print("    %-26s %5d %7d  %d / %d / %d"
+              % (sym, e["n"], e["lignes"], len(e["groupes"]), len(e["actions"]), len(e["tags"])))
+    print("    lignes HORS de tout groupe racine (Action= a profondeur 0) : %d" % hors)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--hors-ligne", action="store_true",
                     help="n'interroge pas ghidra-mcp : n'exploite que le cache logs/")
     ap.add_argument("--json", type=str, default=None, help="ecrit la carte brute (sous logs/)")
+    ap.add_argument("--flux-live", action="store_true",
+                    help="volet LIVE : ventile un vrai flux natif par groupe racine")
+    ap.add_argument("--board", default="C1_02")
+    ap.add_argument("--tours", type=int, default=2)
     a = ap.parse_args()
+
+    if a.flux_live:
+        print("=" * 78)
+        print("#477-r18 -- POIDS MESURE de chaque GROUPE RACINE dans un flux natif")
+        print("=" * 78)
+        return volet_flux_live(a.board, a.tours)
 
     gh = Ghidra(a.hors_ligne)
     GroupType, StepType, TagKey = charger_mirrors()
