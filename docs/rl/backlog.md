@@ -2379,15 +2379,23 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   MoW, summons, ability a variable) et garder l'etape 1 du probe a **0 ligne non parsee**.
   cf. `docs/rl/case-477r11-format-du-flux-de-replay.md` sec. 2.
 
-- **#477-r16 : l'ORDRE D'ALLOCATION DES ENTITES ECS n'est pas RE'd.** `[opus]`
-  C'est ce qui decide si un diff de flux ENTIER est atteignable : l'`Entity=` du flux est un
-  **compteur d'allocation global**, donc un port qui emet doit reproduire l'ordre ET le nombre de
-  creations d'entites, **tuiles comprises** -- une de plus ou de moins et TOUTES les lignes
-  divergent. Mesure (#477-r15) : 35 tuiles -> unites a **49, 51, 53, 55, 57** ; 63 tuiles ->
-  **77, 79, 81, 83, 85** (decalage exact de 28, pas de 2 entre unites, effets alloues ensuite).
-  La **regle** reste inconnue. RETOURNEMENT : lire la factory d'entites native, puis PREDIRE les
-  ids d'un montage (roster + board choisis) AVANT de les mesurer.
-  cf. `docs/rl/case-477r15-couverture-emetteur-de-flux.md` sec. 4.
+- **#477-r16-r1 : la table `GetDerivedEnvironmentAbilities` n'est pas lue.** `[opus]`
+  L'offset d'allocation des entites ECS est MECANIQUE (#477-r16), a UN terme pres : le nombre
+  d'env abilities **derivees** des passifs du BC. Il vaut **1** sur le seed courant (mesure,
+  invariant par board), mais son contenu vit dans le `.cctor` de
+  `StaticBattleRules.TriggeredAbility` et **depend des passifs du BC** -- un autre seed decalerait
+  TOUTES les lignes du flux. RETOURNEMENT : mirrorer ce dictionnaire, et le probe #477-r16 rend
+  alors `derived` DERIVE au lieu de MESURE.
+  cf. `docs/rl/case-477r16-allocation-entites-ecs.md` sec. 3.
+
+- **#477-r16-r2 : la BOUCLE sur les pieds n'est pas confrontee.** `[opus]`
+  `AddUnitOperation$$Execute` alloue `1 + 1 par tuile occupee` -- LU au decompile, jamais observe
+  a plus d'un pied : les unites predefinies sont mono-tuile par construction
+  (`AddPredefinedUnits` passe `ToList(<un tileId>)`) et une Machine of War n'a AUCUN pied. Tant
+  que ce n'est pas confronte, le « pas de 2 » reste compatible avec une lecture fausse
+  (« deux entites par unite »). RETOURNEMENT : monter un **BOSS** (`AddBossUnit` /
+  `GetBossPlatform`) et verifier que son pas vaut `1 + nb de pieds`.
+  cf. `docs/rl/case-477r16-allocation-entites-ecs.md` sec. 2.
 
 - **#477-r17 : `visualId` (le NOM du kit) reste sans porteur dans le flux.** `[opus]`
   Sans consequence pour le DIFF (comparer deux flux ne demande pas le kit), determinant pour le

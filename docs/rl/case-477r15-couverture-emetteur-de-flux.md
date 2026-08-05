@@ -155,11 +155,13 @@ Forme proposée : un registre versionné `<GroupType|StepType|TagKey> -> cause`,
 
 ## Résidus
 
-- **#477-r16** — **L'ORDRE D'ALLOCATION DES ENTITÉS ECS n'est pas RE'd.** C'est la tranche C, et
-  c'est ce qui décide si un diff de flux entier est atteignable. Mesuré ici : pas de 2 entre unités,
-  décalage exact du nombre de tuiles, unités après les tuiles, effets après les unités (97/98) — mais
-  la **règle** est inconnue. **Condition de retournement exécutable** : lire la factory d'entités
-  native, puis vérifier qu'un montage à roster et board choisis PRÉDIT les ids avant de les mesurer.
+- ~~**#477-r16** — l'ORDRE D'ALLOCATION DES ENTITÉS ECS n'est pas RE'd.~~ **TRANCHÉ** :
+  `docs/rl/case-477r16-allocation-entites-ecs.md`. Allocateur unique
+  (`MatchComponent$$NextId`, pré-incrément), 9 sites d'appel exhaustifs, ordre fixé par
+  `SetupGameOperation$$Execute`. Verdict **MÉCANIQUE** — la prédiction posée avant mesure tient
+  9 critères sur 9, sur trois tailles de board. Le pas de 2 est **1 + nb de pieds**, pas « deux
+  entités par unité ». Deux tables **statiques** du binaire entrent dans l'offset (résidu
+  `#477-r16-r1`), et la boucle sur les pieds reste non confrontée (`#477-r16-r2`).
 - **#477-r17** — **`visualId` (le nom du kit) reste sans porteur, et c'est sans conséquence pour le
   DIFF mais pas pour le DIAGNOSTIC.** Comparer deux flux ne demande pas le kit ; comprendre *quelle
   unité* diverge, si. La table entité → kit s'obtient d'`observeBattle` côté natif — le port devra
