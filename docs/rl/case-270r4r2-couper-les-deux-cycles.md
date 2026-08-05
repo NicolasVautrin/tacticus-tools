@@ -15,9 +15,12 @@ Cliquet : `tests/engine/test_270r4r2_cycles_imports_offline.py`.
 
 Les deux SCC avaient la **même forme** : un `__init__.py` qui ré-exporte ses enfants, et des
 enfants qui ré-importent **à travers le paquet** (`from . import fix64`, `from . import
-prediction`). La coupe porte sur les **enfants**, jamais sur les ré-exportations : les **166**
-fichiers qui lisent un attribut d'`engine.playbook` et les **65** d'`engine.services` ne bougent
-pas d'une ligne.
+prediction`). La coupe porte sur les **enfants**, jamais sur les ré-exportations.
+
+**Invariant, mesuré et non espéré** : **224** fichiers hors de ces deux paquets lisent un attribut
+d'`engine.playbook` ou d'`engine.services` ; **0** d'entre eux n'a changé **un seul import**
+(comparaison AST des lignes d'import contre la base de rebase, pas comparaison de fichiers — un
+test peut changer ses assertions sans que l'API d'import bouge).
 
 ## 2. La forme de la coupe
 
@@ -93,7 +96,27 @@ sont les imports hissés (et les ~116 membres d'un enum hissé, résumés par cl
 dirimant : les 5 collections converties de `static_battle_rules` **n'apparaissent pas** dans les
 noms — leur valeur est identique, `frozenset({58, 5, …}) == frozenset({EffectType.Darkness, …})`.
 
-## 7. Le coût d'import n'est pas un motif pour différer
+## 7. Ce qui a été rejoué
+
+**Offline** : 125 passed sur le lot ciblé (dont `test_287r1r1_verify_turn_ended_offline` et
+`test_287r1_no_action_available_offline`, les deux gardes de `turnflow.py`), 8 passed sur
+`test_270r1r1_container_enum_offline` (étage 4 réécrit), 4 passed sur le cliquet neuf.
+
+**Live** : 31 passed — `test_daemonic_ordnance_decision_live` (18),
+`test_plagueburst_mortar_prediction_live` (9), `test_noblocking_prediction_live` (2, il exerce
+`not_blocking_movement_of_traits`, la fonction dont les tuples ont été convertis),
+`test_damage_roll_live` (2, la chaîne `services/damage_*`).
+
+**Contre-épreuve du cliquet** : réintroduire un seul `from . import fix64` dans
+`min_max_damage.py` le fait rougir avec `SCC de 4`. Sans cette mutation, un `_cycles` cassé
+rendrait `[]` pour toujours.
+
+**Non couvert** : les **386** tests impactés (fermeture module-level) n'ont pas été joués — 4
+fichiers live l'ont été, choisis sur les chemins réellement modifiés. Le filet réel n'est pas le
+volume de tests mais l'empreinte du §6, qui porte sur **tout** `engine/` et qui, elle, est
+exhaustive.
+
+## 8. Le coût d'import n'est pas un motif pour différer
 
 Mesuré sur `turnflow.py` (18 mesures par variante, `.pyc` chauds) : hisser ses 3 derniers différés
 porte le chargement de **276 à 341** modules `engine`. C'est payé **une fois** par processus,
