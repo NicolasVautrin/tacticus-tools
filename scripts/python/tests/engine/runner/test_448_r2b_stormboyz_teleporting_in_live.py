@@ -219,6 +219,30 @@ def test_the_hastile_gate_of_T3_still_holds_on_its_false_arm(stormboyz_teleporti
             "lecture du gate ne tient plus : %r" % (_tag(c), g))
 
 
+def test_T3_still_removes_1140_when_it_is_the_only_stage_that_can(stormboyz_teleporting_cases):
+    """Le bras VRAI du gate -- et le SEUL regime ou T3 decide encore SEUL.
+
+    ⚠ MESURE #448-r3-r1, et c'est la raison d'etre de ce test : sur le geste NOMINAL, les quatre
+    `Triggered()` propres de 1140 sont devenus OBSERVATIONNELLEMENT INERTES, masques par le kit qui
+    les entoure -- T1 parce que le Miss a deja retire l'effet au `On(0x1f)` ; T2 parce qu'aucun cast
+    n'est legal hors plateau ; T3 parce que le `MoveUnitBehaviour` du Fallback re-emet `On(0x1f)`,
+    donc le Miss retire la AUSSI ; T4 parce que sa branche est `Nothing()`. Vider
+    `EFFECT_TRIGGERS[1140]` laissait alors le probe ENTIEREMENT VERT : une contre-epreuve PERIMEE
+    PAR UN CANAL REDONDANT, exactement le vice que ce fichier vient de corriger ailleurs.
+
+    Le regime qui rend la main a T3 : l'unite POSEE (`HasTile` vrai) et AUCUN mouvement dans le
+    vecteur, donc pas de `On(0x1f)` et pas de Miss. La tuile est celle que le NATIF a choisie -- la
+    sortie OBSERVEE du Fallback, pas une position inventee."""
+    for c in stormboyz_teleporting_cases:
+        p = c.get("finishT3Positive")
+        assert p is not None, (
+            "%s le bras T3-POSITIF n'a pas ete joue -- le natif n'a pas repose l'unite, donc il n'y "
+            "avait pas de tuile OBSERVEE ou la poser" % _tag(c))
+        assert not [r for r in p["effects"] if r[0] == TELEPORTING_IN], (
+            "%s l'unite est POSEE et aucun mouvement n'a eu lieu, mais 1140 SURVIT -- T3 n'a pas "
+            "retire : %r" % (_tag(c), p))
+
+
 def test_the_native_lands_the_carrier_through_the_fallback(stormboyz_teleporting_cases):
     """Le volet NATIF de la question #4. Sur le `finish`, le natif repose l'unite ET retire 1140 :
     c'est `...StormboyzStrike_FallbackAbility` (`On(0x28) & HasEffect(Owner, 0x474)` ->

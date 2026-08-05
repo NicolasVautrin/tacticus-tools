@@ -42,6 +42,12 @@ CE QUE LE PROBE MESURE (montage = GREFFE du passif, `case-92` §5bis, deja outil
                registre le temps du volet : le vecteur `On(0x28)` est alors joue sur une unite qui
                reste HORS PLATEAU, et 1140 doit SURVIVRE. Volet PORT-SEUL, et c'est dit : le natif
                ne peut pas produire ce regime, le Fallback y est toujours la.
+  T3-POSITIF   le bras VRAI du meme gate, et le SEUL regime ou T3 decide encore SEUL : l'unite
+               POSEE (la ou le NATIF l'a posee) et AUCUN mouvement dans le vecteur, donc pas de
+               `On(0x1f)` et pas de Miss -> T3 doit retirer. Sans ce bras, vider
+               `EFFECT_TRIGGERS[1140]` laisse le probe ENTIEREMENT VERT (mesure #448-r3-r1) : les
+               quatre `Triggered()` propres de 1140 sont OBSERVATIONNELLEMENT INERTES sur le geste
+               nominal, masques par le kit qui les entoure.
   E1b          OBSERVATION (montage `replace=False`, le porteur GARDE ses passifs) : le porteur
                sous 1140 a-t-il DEJA ses owner-effects passifs cote natif ? Si oui, le regime
                « passives DEFERREES » de 1035 n'existe PAS pour 1140 -> pas de
@@ -69,7 +75,9 @@ elle, lie l'ambiant (`tests/conftest.py::live_session`), d'ou l'ecart CLI/pytest
 desormais le transport lui-meme.
 
 CONTRE-EPREUVES (VERT est le resultat SUSPECT) :
-    --mutate           VIDE `EFFECT_TRIGGERS[1140]` (= le port d'avant cette tranche)
+    --mutate           VIDE `EFFECT_TRIGGERS[1140]` (= le port d'avant cette tranche) -- ne mord
+                       QUE par `T3-POSITIF` : sur le geste nominal les quatre triggers propres sont
+                       masques par le kit (cf. ce volet)
     --mutate-hastile   NEUTRALISE le gate `HasTile` de T3 (rend `True`) -- mord sur T3-GATE
     --mutate-nograft   DELIE le transport ambiant (= le probe d'avant #448-r3-r1) : la greffe
                        n'est plus montee cote port, et le volet E-PORTED doit rougir
@@ -87,6 +95,7 @@ import argparse
 import json
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
@@ -393,20 +402,22 @@ def t3_matches_off_board(state, uid: int) -> bool:
     return bool(T3(int(uid)).matches(state, ev))
 
 
-def play_finish_without_fallback(state, uid: int) -> dict:
-    """Le vecteur `On(0x28 = UnitFinishedTurn)` joue SANS `...StormboyzStrike_FallbackAbility`.
+@contextmanager
+def without_fallback():
+    """Retire `...StormboyzStrike_FallbackAbility` du registre le temps du bloc.
 
     Le registre `ABILITY_TRIGGERS["StormboyzStrike"]` est un etat de MODULE, donc GLOBAL au
     processus : il est restaure en sortie, sans quoi la mutation survivrait au montage suivant (la
     meme faute que #448-r3 a mesuree sur `EFFECT_TRIGGERS`).
 
-    Ce que ce retrait ISOLE : le Fallback est la seule chose qui redonne une tuile au porteur
-    pendant ce vecteur. Sans lui, `HasTile(Owner)` reste FAUX pour T3 -- et c'est le SEUL regime du
-    build qui exerce ce bras (1035, 1238 et 1573 laissent leur porteur SUR le plateau)."""
+    CE QUE CE RETRAIT ISOLE. Le Fallback est la seule chose qui redonne une tuile au porteur pendant
+    le vecteur `On(0x28)` -- et son `MoveUnitBehaviour` re-emet `On(0x1f)`, donc il fait AUSSI firer
+    `...StormboyzStrike_MissAbility`, qui retire 1140 par un canal REDONDANT avec T3. Sans lui, les
+    deux bras du gate `HasTile(Owner)` redeviennent observables : FAUX si l'unite est hors plateau,
+    VRAI si on l'y a posee."""
     from engine.runner.operations.triggers.dispatch import registry as REG
     from engine.runner.operations.triggers.loki.stormboyz_strike import (
         StormboyzStrikeFallbackAbility as FB)
-    from engine.runner.operations.turnflow import FinishUnitTurnOperation
     saved = list(REG.ABILITY_TRIGGERS.get("StormboyzStrike") or ())
     kept = [c for c in saved if c is not FB]
     if len(kept) == len(saved):
@@ -414,9 +425,16 @@ def play_finish_without_fallback(state, uid: int) -> dict:
                          "volet n'isolerait rien")
     REG.ABILITY_TRIGGERS["StormboyzStrike"] = kept
     try:
-        FinishUnitTurnOperation.execute(state, int(uid))
+        yield
     finally:
         REG.ABILITY_TRIGGERS["StormboyzStrike"] = saved
+
+
+def play_finish_without_fallback(state, uid: int) -> dict:
+    """Le vecteur `On(0x28 = UnitFinishedTurn)` joue SANS le Fallback, sur l'unite HORS PLATEAU."""
+    from engine.runner.operations.turnflow import FinishUnitTurnOperation
+    with without_fallback():
+        FinishUnitTurnOperation.execute(state, int(uid))
     return terms(state, int(uid))
 
 
@@ -713,6 +731,35 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         # (c) LES DEUX ETATS, TERME A TERME. Le PRNG etant aligne, la tuile d'atterrissage est
         #     deterministe des deux cotes -- deviation du `_MissAbility` comprise.
         cmp_terms("FINISH-c", p_a, n_fin, fails)
+
+        # -------- T3-POSITIF : le bras VRAI du gate, et le SEUL regime ou T3 decide encore SEUL.
+        # POURQUOI CE BRAS EXISTE (#448-r3-r1) : sur le geste NOMINAL, les quatre `Triggered()`
+        # propres de 1140 sont devenus OBSERVATIONNELLEMENT INERTES, masques par le kit qui les
+        # entoure -- T1 parce que `...StormboyzStrike_MissAbility` a deja retire l'effet au
+        # `On(0x1f)` ; T2 parce qu'aucun cast n'est legal hors plateau ; T3 parce que le
+        # `MoveUnitBehaviour` du Fallback re-emet `On(0x1f)`, donc le Miss retire la AUSSI ; T4
+        # parce que sa branche est `Nothing()`. MESURE : vider `EFFECT_TRIGGERS[1140]` laissait le
+        # probe ENTIEREMENT VERT -- une contre-epreuve PERIMEE PAR UN CANAL REDONDANT.
+        # Le regime qui rend la main a T3 : l'unite POSEE (le `HasTile` vrai) et AUCUN mouvement
+        # dans le vecteur, donc pas de `On(0x1f)` et pas de Miss. On reprend l'etat de T3-GATE (ou
+        # l'unite est restee hors plateau avec son 1140) et on la pose la ou le NATIF l'a posee --
+        # la sortie OBSERVEE du Fallback, pas une position inventee.
+        if n_fin["pos"] is not None:
+            from engine.runner.components import set_unit_feet
+            set_unit_feet(st_gate, int(uid), [tuple(n_fin["pos"])])
+            # SANS le Fallback ici AUSSI, et c'est LOAD-BEARING : son `MoveUnitBehaviour` re-emet
+            # `On(0x1f)`, donc le Miss retirerait 1140 par un canal REDONDANT et le bras ne
+            # mesurerait plus T3. Mesure : avec le Fallback, la contre-epreuve `--mutate` restait
+            # VERTE et l'unite finissait meme sur une AUTRE tuile que celle qu'on venait de poser.
+            with without_fallback():
+                unit_finished_turn_triggers(st_gate, int(uid))
+            p_pos = terms(st_gate, uid)
+            print("  [T3-POSITIF] port, unite POSEE puis On(0x%x) re-emis = %s"
+                  % (int(EventTriggerType.UnitFinishedTurn), json.dumps(p_pos)))
+            out["finishT3Positive"] = p_pos
+            if any(r[0] == TELEPORTING_IN for r in p_pos["effects"]):
+                fails.append("T3-POSITIF : l'unite est POSEE (`HasTile` vrai) et aucun mouvement "
+                             "n'a eu lieu, mais 1140 SURVIT -- T3 n'a pas retire")
     finally:
         rpc(sid, "disposeRunner", {"runnerId": rid}, 45)
         sf.unlink(missing_ok=True)
