@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+import engine.playbook.prediction as prediction   # sous-paquet FRERE, pas `from . import` (#270-r4-r2)
 from ..weights import Weights
 from ..utilities import damage_composite
 from ..utilities.tile import tile_composite
@@ -111,7 +112,6 @@ def will_normal_attack_kill(ctx, target, caster_tile) -> bool:
     scene = getattr(ctx, "scene", None)
     if scene is None:
         return False
-    from . import prediction
     ev = prediction.make_normal_attack_predictions(scene, ctx.uid, target, caster_tile)
     if ev is None:
         return False

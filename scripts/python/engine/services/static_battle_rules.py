@@ -13,7 +13,7 @@ Constantes statiques du jeu (LUES au cctor natif, VA citées) :
 """
 from __future__ import annotations
 
-from . import fix64 as _fx
+import engine.services.fix64 as _fx   # module FRERE, pas `from . import` (#270-r4-r2)
 
 # ─── #270-r1-r1 : POURQUOI CE FICHIER GARDE SES ORDINAUX, ET COMMENT IL EST QUAND MEME GARDE ─────
 #

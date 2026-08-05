@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import fix64
+import engine.services.fix64 as fix64   # module FRERE, pas `from . import` (#270-r4-r2)
 
 
 def min_max_avg(dmg_min: int, dmg_max: int) -> int:

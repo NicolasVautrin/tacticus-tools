@@ -59,7 +59,7 @@ from ..entities.formulas import Count
 from ..entities.selectors.accessors import FixedTileIds
 from ..runner.abilities.deathguard import (PLAGUEBURST_MORTAR_ID, plagueburst_adjacent_enemies,
                                            plagueburst_main_damage_target)
-from . import prediction
+import engine.playbook.prediction as prediction   # sous-paquet FRERE, pas `from . import` (#270-r4-r2)
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
 from .probable_damage_event import ProbableDamageEvent
 from .tile_targets import dsl_context_for_tile_target

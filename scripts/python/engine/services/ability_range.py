@@ -47,8 +47,9 @@ from __future__ import annotations
 import gameconfig as GC
 import hexgeo
 
-from . import ability_caster_gates as acg
-from . import movement_query as MQ
+import engine.services.ability_caster_gates as acg   # modules FRERES, pas `from . import` (#270-r4-r2)
+import engine.services.movement_query as MQ
+import engine.services.targeting_query as TQ
 from ..entities.active_ability_type import ActiveAbilityType
 from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS,
                                           NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE,
@@ -766,7 +767,6 @@ def _obscured(board, unit_pos, tile, rules, visual_id,
     `caster_team` / `team_by_pos` alimentent les DEUX gardes « ami » (#433-r4-r2-r1-r2-r2) --
     foyer unique `targeting_query.friend_gates_for_tile_target`, qui porte la lecture. Les deux
     absents, on retombe sur `(False, False)`, le statu quo d'avant la tranche."""
-    from . import targeting_query as TQ
     t = (int(tile[0]), int(tile[1]))
     occupant = (team_by_pos or {}).get(t)
     is_friend, has_friendly = TQ.friend_gates_for_tile_target(caster_team, occupant)
@@ -784,7 +784,6 @@ def _unwalkable(rules, tile, walkable_by_pos, is_in_fog_by_pos) -> bool:
     `AllowUnwalkableTargetTile`, la lambda `TargetingQuery.<>c$$<GetTilesInRange>b__36_0` et les
     DEUX volets de `TileExtensions$$IsWalkable`). Les deux cartes absentes -> aucun retrait, statu
     quo d'avant la tranche."""
-    from . import targeting_query as TQ
     t = (int(tile[0]), int(tile[1]))
     return TQ.tile_removed_by_walkability(
         rules,

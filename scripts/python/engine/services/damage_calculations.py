@@ -1,7 +1,7 @@
 """Port FIDÈLE de `IdunBattle.Core.Services.DamageCalculations` (gqfc5mff6c)."""
 from __future__ import annotations
 
-from . import fix64 as _fx
+import engine.services.fix64 as _fx   # module FRERE, pas `from . import` (#270-r4-r2)
 from .damage_config import resolve_spread_pct
 from .min_max_damage import MinMaxDamage
 

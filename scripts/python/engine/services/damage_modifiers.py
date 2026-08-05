@@ -34,7 +34,7 @@ from __future__ import annotations
 import json as _json
 from dataclasses import dataclass, field
 
-from . import fix64 as _fx
+import engine.services.fix64 as _fx   # module FRERE, pas `from . import` (#270-r4-r2)
 from .effect_bonus import EffectBonus
 from .. import weights as _weights
 
