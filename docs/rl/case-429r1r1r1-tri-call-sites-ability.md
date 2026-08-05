@@ -179,7 +179,10 @@ Non régressé (re-joué, **54 tests**) : `test_429r1_dead_target_gate_live` (6)
   aux clés par défaut rend `(0, 0)` et le repli inflige **0** — silencieusement. Combien
   d'abilities parmi les 56 sont dans ce cas n'est **pas mesuré** ici. Ce n'est pas un défaut du
   gate, mais du repli lui-même.
-* **`#429-r1-r3`** (ouvert par la tranche grand-parente, **inchangé**) : `GreatFrostAxe` (1089).
+* ~~**`#429-r1-r3`** (ouvert par la tranche grand-parente) : `GreatFrostAxe` (1089).~~ **LIVRÉ le
+  2026-08-05** — `case-429r1r3-gate-message-cible-morte.md`. Le tri de CETTE fiche est **intact** :
+  le gate trouvé vit au rang du MESSAGE, pas au rang de l'opération, donc aucun des 9 sites n'a
+  changé de verdict et le cliquet reste vert.
 
 ## 9. Re-dériver
 
