@@ -49,10 +49,27 @@ des plateaux. Le port ne devine pas : il lit les groupes quand on les lui donne,
 """
 from __future__ import annotations
 
-# `MachineOfWarPosition` (enum natif) : 0 = None, 1 = Top, 2 = Bottom.
-MOW_POSITION_NONE = 0
-MOW_POSITION_TOP = 1
-MOW_POSITION_BOTTOM = 2
+from enum import IntEnum
+
+
+class MachineOfWarPosition(IntEnum):
+    """`IdunBattle.Configuration.MachineOfWarPosition` -- VERBATIM du build (3 valeurs).
+
+    Re-derivable : `data/symbols/<CURRENT>/frida/enums.tsv`. Le mirror est entre au registre
+    `probe_313` avec #477-r15, quand `TagKey.MachinePosition` a eu besoin de le NOMMER : le
+    fichier portait jusque-la trois constantes libres, donc un entier qui DESIGNE sans enum.
+    """
+
+    None_ = 0
+    Top = 1
+    Bottom = 2
+
+
+# Les trois noms historiques, conserves : ils sont lus ailleurs dans le moteur. Ils DERIVENT
+# desormais du mirror -- aucune valeur ne peut plus diverger de la table.
+MOW_POSITION_NONE = int(MachineOfWarPosition.None_)
+MOW_POSITION_TOP = int(MachineOfWarPosition.Top)
+MOW_POSITION_BOTTOM = int(MachineOfWarPosition.Bottom)
 
 
 def team_with_player_index(team_index: int, player_nr: int = 0) -> int:

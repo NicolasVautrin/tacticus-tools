@@ -196,6 +196,32 @@ REGISTRE: list[Mirror] = [
            "IdunBattle.Configuration.AbilityConstantType"),
     Mirror("AbilityVariableType", "engine/entities/ability_variable_type.py",
            "IdunBattle.Configuration.AbilityVariableType"),
+    # #477-r15 tranche A -- le vocabulaire du FLUX DE REPLAY. Les trois enums entrent au registre
+    # DANS LE COMMIT QUI LEUR DONNE UN MIRROR, parce que ce gisement s'est deja rouvert QUATRE fois
+    # par notre propre cadence (`PathfinderType`, `KillUnitStep`, `DamageReason`, `Edge`). Leur cle
+    # est LUE dans `enums.tsv` : le namespace est `IdunBattle.Streams`, pas `IdunBattle.Entities.Enum`.
+    # Ils sont le PERIMETRE d'un comparateur de flux : un membre qui glisse rendrait un flux emis
+    # faux SANS erreur -- le nom ecrit apres `Group=` / `Action=` / `Tag=` EST le membre.
+    Mirror("GroupType", "engine/streams/group_type.py",
+           "IdunBattle.Streams.GroupType"),
+    Mirror("StepType", "engine/streams/step_type.py",
+           "IdunBattle.Streams.StepType"),
+    Mirror("TagKey", "engine/streams/tag_key.py",
+           "IdunBattle.Streams.TagKey"),
+    # `BEntityId` : un seul membre (`0=NO_ENTITY`), et c'est justement pour ce membre-la qu'il
+    # existe -- c'est lui qui fait ecrire `Entity=NO_ENTITY` la ou toute autre valeur s'ecrit en
+    # decimal. Sa cle vit dans `IdunBattle.Core`, pas dans `IdunBattle.Streams`.
+    Mirror("BEntityId", "engine/streams/entity_id.py",
+           "IdunBattle.Core.BEntityId"),
+    # `SpawnSource` : le parametre `source` de `StreamHelper$$GetAddUnitTags`, recopie tel quel
+    # dans `TagKey.Unit_SpawnSource`. Entre au registre avec son mirror (#477-r15 tranche B).
+    Mirror("SpawnSource", "engine/entities/spawn_source.py",
+           "IdunBattle.Entities.Enum.SpawnSource"),
+    # `MachineOfWarPosition` : le fichier portait TROIS CONSTANTES LIBRES (`MOW_POSITION_*`)
+    # depuis #93 -- un entier qui DESIGNE sans enum. Il a fallu le nommer pour emettre
+    # `TagKey.MachinePosition` (#477-r15) ; les trois constantes en DERIVENT desormais.
+    Mirror("MachineOfWarPosition", "engine/services/machine_of_war_position.py",
+           "IdunBattle.Configuration.MachineOfWarPosition"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune

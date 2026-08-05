@@ -2398,6 +2398,34 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `GetBossPlatform`) et verifier que son pas vaut `1 + nb de pieds`.
   cf. `docs/rl/case-477r16-allocation-entites-ecs.md` sec. 2.
 
+- **#477-r15-r1 : aucune table de STRING LITERALS IL2CPP dans `data/symbols/<build>/`.** `[opus]`
+  Le `sourceId` que `IdunBattle.Operations.AddUnitOperation$$Execute` passe a `StartGroup` est un
+  handle de litteral, NON resoluble statiquement : les chaines .NET vivent dans
+  `global-metadata.dat`, pas dans le PE. Le flux reel montre `Source=` **vide**, donc chaine vide ou
+  `null` -- indiscernables apres `String.Format`. Le meme mur bloque tout `Source=` **non vide**
+  (`AvalancheOfMuscle_ExtraDamage`, `BlockEnteringUnits`, ...), c'est-a-dire la quasi-totalite du
+  deroule de bataille. RETOURNEMENT : ajouter au pipeline de dump un TSV `index -> valeur` extrait
+  de `global-metadata.dat`, puis verifier qu'il rend `""` pour ce handle et le nom symbolique
+  attendu pour un `Ability_Power`.
+  cf. `docs/rl/case-477r15-tranches-abe-emetteur-de-flux.md` resid. r1.
+
+- **#477-r15-r2 : `BattleQuery$$get_UseGroupForAddUnit` jamais confronte a FAUX.** `[opus]`
+  `StartGroup` ET `FinishGroup` du groupe `AddUnit` sont tous deux sous ce drapeau (lu a
+  `config+0xe0`) : s'il est faux, les trois `Action` sortent SANS groupe englobant. Le port
+  l'expose en parametre, mais sa valeur par defaut (`True`) est **OBSERVEE**, pas lue, et le champ
+  de `BattleConfiguration` qui l'alimente n'est pas identifie. RETOURNEMENT : nommer ce champ,
+  monter un runner ou il est faux, verifier que le flux natif emet bien les trois `Action` sans
+  `Group=AddUnit` -- et que le port le suit.
+  cf. `docs/rl/case-477r15-tranches-abe-emetteur-de-flux.md` resid. r2.
+
+- **#477-r15-r3 : `Tile_IsTerritory` est emis a 0 EN DUR.** `[opus]`
+  Le natif le lit a `config+0x22` d'une configuration de tuile ; le board dump versionne n'expose
+  aucun champ correspondant. Sur `C1_02` et `MC1_67` il vaut 0 partout, donc la constante passe --
+  mais elle passerait aussi si elle etait fausse. RETOURNEMENT : trouver un board (mode territoire /
+  `TerritoryCapture`) ou le flux natif porte `Tag=Tile_IsTerritory:1`, verifier que
+  `probe_477r15a_stream_conformance.py` rougit en `VALEUR Tag=Tile_IsTerritory`, puis deriver le
+  champ. cf. `docs/rl/case-477r15-tranches-abe-emetteur-de-flux.md` resid. r3.
+
 - **#477-r17 : `visualId` (le NOM du kit) reste sans porteur dans le flux.** `[opus]`
   Sans consequence pour le DIFF (comparer deux flux ne demande pas le kit), determinant pour le
   DIAGNOSTIC : un rapport de divergence nommerait « l'entite 83 » sans dire que c'est le **second**
