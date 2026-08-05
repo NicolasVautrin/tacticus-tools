@@ -103,26 +103,32 @@ C'est la preuve que `AreTilesAdjacent` — porte d'élévation comprise — est 
 
 ## 4. Le couple divergence → convergence, sur le port
 
-`--step couple`, même board, `--unit-stat tauCrisis:Movement=2` : le sweep est **confiné à
-`d <= 3`** de l'ennemi. Pourquoi confiner — c'est le point qui rend l'oracle interprétable : les
-deux approximations de branche du port (§5) sont exactes tant que `d <= portée`, et la mesure §3
-montre que le natif ne verse rien avant `d > 3` non plus. Hors de ce domaine, un désaccord serait
-imputable à ces approximations, pas au terme corrigé.
+`--step couple`, même board, `--unit-stat tauCrisis:Movement=4` : le sweep **atteint `d = 4..5`**,
+c'est-à-dire la zone `3 < d <= 5` où les deux branches DIFFÈRENT (branche A muette — zone d'ability
+de portée 5 ; branche B `+50` dès `d > 3`, portée de l'ARME). C'est cela qui rend l'oracle
+interprétable : hors de cette zone, les deux branches rendent la même chose et un accord ne
+prouverait rien.
 
-`O = (1,2)` élévation 2, ennemi sur `(1,3)` élévation 4, **15** positions balayées, `d_max = 3`.
+`O = (1,2)` élévation 2, ennemi sur `(1,3)` élévation 4, **34** positions balayées, `d_max = 5`.
 
 | | `adj_origin` | positions où port ≠ natif | action émise |
 |---|---|---|---|
-| port **AVEC** le canal (livré) | `∅` | **0 / 15** | aucune |
-| port **canal NEUTRALISÉ** (`elev_by_pos = None`) | `{(1,3)}` | **9 / 15** | cast 1077, `to=(0,1)`, util **30** |
-| natif (`ncEvaluate`, sweep) | — | référence | max du sweep = **−10** |
+| port **LIVRÉ** | `∅` | **0 / 34** | cast 1077, `to=(5,2)`, util **10** |
+| port **d'AVANT `#433-r4-r2`** (adjacence hex nue) | `{(1,3)}` | **6 / 34** | cast 1077, `to=(3,0)`, util **10** |
+| natif (`ncEvaluate`, sweep) | — | référence | max du sweep = **10**, atteint en `(5,2)` |
 
-La troisième lecture est ce qui empêche l'accord d'être tautologique : sans elle, un port
-d'accord avec le natif ne prouverait pas que la porte mord. Et l'utilité **30** que le port émettait
-sans le canal n'est atteinte **nulle part** par le natif sur ce sweep.
+La troisième lecture est ce qui empêche l'accord d'être tautologique : sans elle, un port d'accord
+avec le natif ne prouverait pas que le foyer mord. Et le discriminant est la **position choisie** —
+le port livré prend la tuile où le natif atteint son maximum, celui d'avant prend une tuile que le
+natif évalue **`-40`**.
 
-⚠ « le port n'émet plus » n'est **pas** « le natif n'émet pas » : le Bucket de ce playbook n'a pas
-de `min` (résidu `#433-r4-r2-r3`). L'assertion porte sur l'utilité **émise**, qui se compare.
+⚠ « le port émet » n'est **pas** « le natif caste » : le Bucket de ce playbook n'a pas de `min`
+(résidu `#433-r4-r2-r3`). L'assertion porte sur l'utilité **émise**, qui se compare.
+
+⚠ La contre-épreuve n'est plus une neutralisation de canal. `elev_by_pos = None` a cessé de mordre
+le 2026-08-04 (`489bb349`) sans qu'aucun port ne régresse — deux canaux portent la même exclusion —
+et le tableau ci-dessus contenait, jusqu'à `#433-r4-r2-r4`, les chiffres d'un montage plus ancien.
+Détail et bisect : **`case-433-r4-r2-r4-contre-epreuve-perimee.md`**.
 
 ## 5. Les huit slots, RE-DÉRIVÉS au runtime
 
@@ -174,8 +180,11 @@ validation.
     mesuré sur `tauMarksman` (arme de portée 3) vient de son ability `SeekerMissileFrequencyLock`
     (`RANGE_FROM_CONFIG`, `constants.range = 5`) ;
   * la tuile exclue « à `d = 5` » est en fait à `d = 4`, et l'exclusion est portée par le **relief**
-    (1/34 sur montage à relief, **0/40** sur montage plat du même kit) — c'est le résidu
-    `#433-r4-r2-r1-r2`, LoS/élévation.
+    — c'est le résidu `#433-r4-r2-r1-r2`, LoS/élévation, **porté depuis** (canal `is_wall_by_pos` +
+    lecture d'élévation). ⚠ Le « 1/34 » qui figurait ici comme divergence résiduelle du port était
+    un **artefact de mesure** : la confrontation appelait `utility_at` sans les canaux que
+    `generate_candidates` lui passe. Canaux réellement passés, **4 montages / 2 boards : 147
+    positions, 0 divergence** (`#433-r4-r2-r4`).
   L'avertissement ci-dessous reste la raison pour laquelle les deux ont été traités dans la même
   tranche.
   ⚠ `threshold` (branche B) et l'ancienne approximation de la branche A (`portée d'arme max`) sont
