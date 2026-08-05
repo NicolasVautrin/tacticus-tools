@@ -136,12 +136,13 @@ deux bras (et de leur ASYMETRIE de resolution de selecteur) : docstring de
 * RIEN de la famille : les QUATRE derivees sont desormais portees -- `1035` (#448-r2, bas de ce
   module), `1140` (#448-r2b), `1238` (#448-r2c) et `1573` (#448-r2d, SEULE a surcharger le vslot
   0x748) ;
-* les DEUX abilities triggered qui ENTOURENT 1140 -- `StormboyzStrike_MissAbility` (retire 1140 au
-  `On(0x1f)`, 20 % de deviation de destination, `TriggerAbility(FullThrottle)`) et
+* RIEN des DEUX abilities triggered qui ENTOURENT 1140 : `StormboyzStrike_MissAbility` (retire 1140
+  au `On(0x1f)`, 20 % de deviation de destination, `TriggerAbility(FullThrottle)`) et
   `StormboyzStrike_FallbackAbility` (repose l'unite hors plateau au `On(0x28)`, pose
-  `1179 _AlreadyUsedTile`) : residus NOMMES de `docs/rl/case-448-r1-stormboyz-fallback-miss.md`.
-  Elles ne changent pas la lecture des triggers PROPRES de 1140 ; elles changent QUEL etage retire
-  l'effet cote natif, et c'est dit sur chaque classe ;
+  `1179 _AlreadyUsedTile`) sont PORTEES depuis #448-r1
+  (`triggers/loki/stormboyz_strike.py`). ⚠ Elles ne changent pas la lecture des triggers PROPRES de
+  1140, mais elles les rendent OBSERVATIONNELLEMENT INERTES sur le geste nominal (mesure
+  #448-r3-r1) -- c'est dit sur chaque classe. Seul `FullThrottle$$CreateTrigger` reste non porte ;
 * `1231 TitanhammerSquad` (l'ACTIVE qui POSE 1571/1572/1573 et soigne) : son
   `IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility$$ExecuteBehaviour` est un
   `op_BitwiseAnd` de QUATRE behaviours, hors tranche. **Consequence NOMMEE** : cote port, PERSONNE
@@ -543,11 +544,14 @@ class FearOfTheUnseenMovingRemoveOnAfterMove(TeleportMovingRemoveOnAfterMove):
 # ses owner-effects passifs).
 class StormboyzStrikeTeleportingInRemoveOnAfterMove(ATeleportingRemoveOnAfterMove):
     """T1 pour 1140. ⚠ REGIME : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
-    StormboyzStrike_MissAbility` (NON PORTEE, residu de `case-448-r1`) ecoute le MEME pas en amont
-    (`On(0x1f = PreUnitMove)`) et fait `RemoveEffect(Caster, 0x474)` INCONDITIONNELLEMENT -- donc
-    cote NATIF c'est ELLE qui retire 1140 des le pre-move, et T1 n'a plus rien a retirer. Cote PORT
-    (Miss absente) c'est T1 qui retire. Les deux cotes rendent le MEME etat apres le pas -- c'est ce
-    que CONFRONT-MOVE mesure -- mais l'etage differe, et il est NOMME ici plutot que tu."""
+    StormboyzStrike_MissAbility` (PORTEE depuis #448-r1) ecoute le MEME pas en amont
+    (`On(0x1f = PreUnitMove)`) et fait `RemoveEffect(Caster, 0x474)` INCONDITIONNELLEMENT (le
+    `RemoveEffect` est HORS du `If(Maybe(chance))`) -- c'est donc ELLE qui retire 1140 des le
+    pre-move, DES DEUX COTES, et T1 n'a plus rien a retirer quand le vecteur `On(0x04)` s'ouvre.
+
+    ⚠ T1 EST DONC OBSERVATIONNELLEMENT INERTE SUR CE REGIME, et c'est mesure : vider
+    `EFFECT_TRIGGERS[1140]` laissait la garde live ENTIEREMENT VERTE (#448-r3-r1). Il reste porte
+    parce qu'il est dans l'`ArraySet` natif de la base -- pas parce qu'un geste l'exerce."""
     effect_type = STORMBOYZ_STRIKE_TELEPORTING_IN
 
 
@@ -564,14 +568,23 @@ class StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn(ATeleportingRemoveOnU
     """T3 pour 1140 -- LE contre-bras vivant du gate `HasTile(Owner)`, qu'aucune autre tranche de la
     famille ne peut exercer : 1140 est le SEUL des quatre dont le poseur retire l'unite du plateau.
 
-    Sous 1140 `HasTile(Owner)` est donc FAUX et T3 NE FIRE PAS -- l'effet SURVIT a la fin du tour de
-    son porteur. Ce qui le fait finalement mordre, cote natif, est un TIERS : `IdunBattleLogic.
-    Abilities.Triggered.Loki.StormboyzStrike_FallbackAbility` (NON PORTEE, residu de `case-448-r1`),
-    qui ecoute le MEME `On(0x28)` sous `HasEffect(Owner, 0x474)` et REPOSE l'unite par un
-    `MoveUnitBehaviour` -- apres quoi `HasTile` devient vrai et T3 retire. Le port, sans le Fallback,
-    laisse donc l'unite hors plateau AVEC 1140 : c'est la reponse CORRECTE de T3 a l'etat qu'on lui
-    donne, et la divergence live est imputable au seul etage manquant (confrontation par ETAGES,
-    volets CONFRONT-FINISH et T3-APRES-FALLBACK du probe)."""
+    Sous 1140 `HasTile(Owner)` est FAUX et T3 NE FIRE PAS. Ce qui le fait finalement mordre est un
+    TIERS : `IdunBattleLogic.Abilities.Triggered.Loki.StormboyzStrike_FallbackAbility` (PORTEE
+    depuis #448-r1), qui ecoute le MEME `On(0x28)` sous `HasEffect(Owner, 0x474)` et REPOSE l'unite
+    par un `MoveUnitBehaviour` -- apres quoi `HasTile` devient vrai et T3 retire.
+
+    L'ORDRE vient du dispatch : `evaluate_trigger_operation` concatene `collect_triggered_abilities`
+    PUIS `collect_effect_triggers`, donc le Fallback (ABILITY) est evalue AVANT T3 (EFFET) et le
+    gate est deja VRAI quand T3 passe. ⚠ Il decide QUI retire, pas SI l'effet part : le
+    `MoveUnitBehaviour` du Fallback re-emet `On(0x1f)`, donc le `_MissAbility` retirerait 1140 de
+    toute facon. L'etat final est le meme dans les deux ordres -- ne pas lire cet enchainement
+    comme une garde de l'observable.
+
+    ⚠ ET LE BRAS FAUX N'EST PLUS ATTEIGNABLE PAR UN GESTE : le Fallback repose toujours l'unite
+    avant que T3 soit evalue, et son `MoveUnitBehaviour` re-emet `On(0x1f)`, donc le `_MissAbility`
+    retire 1140 par un canal REDONDANT. Les deux bras du gate restent gardes par les volets
+    T3-GATE et T3-POSITIF de `probe_448_r2b_stormboyz_teleporting_in.py`, qui RETIRENT le Fallback
+    du registre pour l'isoler (#448-r3-r1)."""
     effect_type = STORMBOYZ_STRIKE_TELEPORTING_IN
 
 

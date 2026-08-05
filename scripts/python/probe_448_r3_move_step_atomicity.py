@@ -147,33 +147,55 @@ def live_effects(st, uid) -> list:
 # --------------------------------------------------------------------------- la mesure
 
 def play_step_instrumented(st, uid: int, dest) -> dict:
-    """Joue le pas UNE SEULE FOIS (comme `MoveUnitOperation$$Execute`) et capte l'etat
-    INTERMEDIAIRE par INSTRUMENTATION du vecteur after-move.
+    """Joue le pas UNE SEULE FOIS (comme `MoveUnitOperation$$Execute`) et capte les DEUX etats
+    INTERMEDIAIRES par INSTRUMENTATION des DEUX vecteurs que l'Operation publie.
 
-    C'est le SEUL point d'observation qui subsiste depuis que le vecteur est replie dans
-    l'Operation : a l'entree d'`after_move_triggers`, `On(0x1f = PreUnitMove)` a deja pose 1036 et
-    aucun `On(0x04 = UnitAfterMove)` n'a encore retire quoi que ce soit. Le spy DELEGUE au vrai
-    vecteur -- il observe, il ne remplace pas : l'etat final reste celui du pas nominal.
+    Ce sont les SEULS points d'observation qui subsistent depuis que les deux vecteurs sont replies
+    dans l'Operation. Ils bornent la fenetre de vie d'un marqueur transitoire :
 
-    `movement.py` importe `after_move_triggers` DANS le corps d'`execute` (`from .triggers import
-    after_move_triggers`), donc l'attribut est resolu A L'APPEL : patcher le module le capte."""
+      `pre`   -- a l'entree d'`On(0x1f = PreUnitMove)` : l'unite est ENCORE sur sa tuile de depart,
+                 rien n'a bouge. `effects` y est l'etat AVANT le vecteur, `out` ce que le vecteur a
+                 RENDU (un resultat par trigger qui a joue) -- c'est le seul canal qui ATTRIBUE une
+                 mutation a l'etage `On(0x1f)` plutot qu'a un autre. Sans lui, une assertion
+                 NEGATIVE (<< tel effet n'est plus la >>) passerait aussi sur un port qui n'a rien
+                 monte du tout (#448-r3-r1).
+      `calls` -- a l'entree d'`On(0x04 = UnitAfterMove)` : `On(0x1f)` a deja tout joue et aucun
+                 `On(0x04)` n'a encore retire quoi que ce soit.
+
+    Les deux spies DELEGUENT au vrai vecteur -- ils observent, ils ne remplacent pas : l'etat final
+    reste celui du pas nominal.
+
+    `movement.py` importe les deux vecteurs DANS le corps d'`execute` (`from .triggers import
+    pre_move_triggers` / `after_move_triggers`), donc l'attribut est resolu A L'APPEL : patcher le
+    module les capte."""
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
     import engine.runner.operations.triggers as TRG
 
     seen: list = []
-    real = TRG.after_move_triggers
+    pre: list = []
+    real_after = TRG.after_move_triggers
+    real_pre = TRG.pre_move_triggers
 
-    def spy(state, unit_id, *a, **kw):
+    def spy_after(state, unit_id, *a, **kw):
         seen.append({"unit": int(unit_id), "effects": live_effects(state, int(uid))})
-        return real(state, unit_id, *a, **kw)
+        return real_after(state, unit_id, *a, **kw)
 
-    TRG.after_move_triggers = spy
+    def spy_pre(state, unit_id, *a, **kw):
+        before = live_effects(state, int(uid))
+        out = real_pre(state, unit_id, *a, **kw)
+        pre.append({"unit": int(unit_id), "effects": before, "out": list(out or []),
+                    "after": live_effects(state, int(uid))})
+        return out
+
+    TRG.after_move_triggers = spy_after
+    TRG.pre_move_triggers = spy_pre
     try:
         MoveUnitOperation(int(uid), tuple(dest)).execute(st, EventBus())
     finally:
-        TRG.after_move_triggers = real
-    return {"calls": seen, "end": live_effects(st, int(uid))}
+        TRG.after_move_triggers = real_after
+        TRG.pre_move_triggers = real_pre
+    return {"calls": seen, "pre": pre, "end": live_effects(st, int(uid))}
 
 
 def cascade_effect_spans(evs) -> dict:

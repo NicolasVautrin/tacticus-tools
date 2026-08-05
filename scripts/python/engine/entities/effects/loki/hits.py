@@ -20,6 +20,10 @@ from ..magnitude import ability_var, global_value, trait_var
 # portent des membres d'enum, et le meme ordinal 1482 nomme AUTRE CHOSE dans l'autre.
 from ...effect_type import EffectType
 from ...triggered_ability_type import TriggeredAbilityType
+# Meme cause que dans `status.py` : `630fb33e` (#270-r1-r1-r3) a converti des litteraux en
+# `StatType.<MEMBRE>` dans quatre `get_stat_modification_stat` qui n'avaient aucun import local ->
+# `NameError` au chargement d'etat. Import module-level (#448-r3-r1).
+from ...stats import StatType
 
 
 class SquigHoundAdditionalHitsEffect(BaseEffect):
