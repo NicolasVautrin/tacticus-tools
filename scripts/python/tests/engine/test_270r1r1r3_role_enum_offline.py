@@ -289,6 +289,10 @@ SITES = {
         "EffectType.FuelledByFury_BlockOverkill": 1,
         "UnitFlag.ActiveAbilityUsed": 1,
         "UnitFlag.ArrivedAtFinalTile": 1,
+        # `Dead` est arrive par le REBASE : `master` a ajoute `DEAD = 6` pendant la tranche, et
+        # cette classe est nommee en entier -- le laisser en ordinal nu aurait rouvert le gisement
+        # dans le fichier meme qui le ferme.
+        "UnitFlag.Dead": 1,
         "UnitFlag.Fled": 1,
         "UnitFlag.Moved": 1,
         "UnitFlag.NoActionAvailable": 1,
@@ -436,6 +440,7 @@ ORDINAUX = {
     "UnitFlag.ActiveAbilityUsed": 2,
     "UnitFlag.ArrivedAtFinalTile": 1,
     "UnitFlag.CanHealFullHealthUnits": 23,
+    "UnitFlag.Dead": 6,
     "UnitFlag.CanRepairFullHealthUnits": 24,
     "UnitFlag.Fled": 9,
     "UnitFlag.ForceRangedAttack": 21,
@@ -482,10 +487,15 @@ def test_etage1b_la_table_couvre_bien_la_tranche_livree():
     """Anti-degenerescence de l'etage 1 : une table videe le rendrait VERT sur rien.
 
     Les trois comptes sont ceux de la tranche livree. Ils ne se re-derivent pas ici -- c'est
-    justement ce qui en fait un temoin, et pas un miroir de l'etat courant."""
+    justement ce qui en fait un temoin, et pas un miroir de l'etat courant.
+
+    141 et non 140 : le 141e est `UnitFlag.Dead`, arrive AU REBASE. `master` a ajoute `DEAD = 6` a
+    `UnitFlagsComponent` pendant la tranche ; le laisser en ordinal nu aurait rouvert le gisement
+    dans le fichier meme qui le ferme. Un conflit de rebase tranche par l'auteur, pas par le
+    mergeur -- et celui-ci a AJOUTE une conversion, il n'en a pas repris une."""
     total = sum(sum(m.values()) for m in SITES.values())
-    assert total == 140, "la tranche a converti 140 litteraux, la table en declare %d" % total
-    assert len(ORDINAUX) == 101, "101 membres distincts attendus, %d declares" % len(ORDINAUX)
+    assert total == 141, "la tranche a converti 141 litteraux, la table en declare %d" % total
+    assert len(ORDINAUX) == 102, "102 membres distincts attendus, %d declares" % len(ORDINAUX)
     assert len(SITES) == 50, "50 fichiers attendus, %d declares" % len(SITES)
 
 
