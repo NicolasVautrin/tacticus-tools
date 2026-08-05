@@ -10,6 +10,7 @@ from dataclasses import replace
 import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
+from ...hex_corner import Corner      # `IdunBattleLogic.Utils.Hex.Corner` (#270-r1 volet 2)
 from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
                          _effect_field, resolve_unit)
 from ._shared import _entity_pos, _tile_positions
@@ -40,11 +41,19 @@ def neighbour_at(col: int, row: int, direction: int) -> tuple:
     return hexgeo.from_cube(x + dx, z + dz)
 
 
-# `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape` : par index de COIN (0..5), le COUPLE de directions
+# `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape` : par COIN, le COUPLE de directions
 # hex des deux voisines ajoutees a la tuile-centre, dans l'ordre d'insertion du natif (lVar5 puis lVar6).
 # Lu case par case sur les DEUX branches de parite du decompile (colonne paire / impaire), qui donnent
 # le MEME couple de directions — la parite ne change que l'ecriture en offset.
-_TRIANGLE_SHAPE_DIRECTIONS = {0: (5, 0), 1: (0, 1), 2: (5, 4), 3: (1, 2), 4: (4, 3), 5: (3, 2)}
+# CLE = `IdunBattleLogic.Utils.Hex.Corner`, le type DECLARE du parametre `direction` de
+# `GetTilesInTriangleShape` (#270-r1 volet 2) ; le noeud DSL amont nomme d'ailleurs son argument
+# `cornerDirection`. Chaque couple encadre bien son coin : NorthWest = (North_West, North), etc.
+# ⚠ Les VALEURS restent des ordinaux d'`IdunBattle.Utils.Hex.Edge` (le type du parametre
+# d'`AxialCoordinate$$NeighbourAt`) : role ELEMENT DE CONTENEUR, hors du perimetre des CLES --
+# residu `#270-r1-r1`.
+_TRIANGLE_SHAPE_DIRECTIONS = {Corner.NorthWest: (5, 0), Corner.NorthEast: (0, 1),
+                              Corner.West: (5, 4), Corner.East: (1, 2),
+                              Corner.SouthWest: (4, 3), Corner.SouthEast: (3, 2)}
 
 
 class TilesInTriangleShape(TargetsSelector):

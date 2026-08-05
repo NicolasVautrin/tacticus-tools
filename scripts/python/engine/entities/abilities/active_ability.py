@@ -18,6 +18,8 @@ from fractions import Fraction
 
 from ..unit_context import UnitContext
 from ..stats import StatType
+# Cles de `_PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE` (#270-r1 volet 2) : des ids d'abilities ACTIVES.
+from ..active_ability_type import ActiveAbilityType
 # `UnitsWithTrait(..., 2 = Summon)` du sélecteur de `HadesAutocannons` — l'id natif vient de l'enum,
 # jamais d'un littéral (cf. `entities/traits/unit_trait.py`).
 from ..traits.unit_trait import UnitTrait as _UnitTrait
@@ -168,19 +170,26 @@ _PREDICTION_MINMAX_RANDOM_READ = frozenset({
 # restent des résidus chiffrés. Aucun code ne branche sur cette table : elle est LUE par la garde
 # offline de #350, qui vérifie sa disjonction d'avec les deux registres de moyenne.
 _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE = {
-    # id  : (symbole natif porteur de la formule, ce que le natif prend réellement, corrigé ?)
-    1080: ("HellfireShellsPlaybook$$MakeDamagePredictions", "Direct(minDmg) SEUL", True),
-    1089: ("GreatFrostAxePlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
-    1051: ("StikkbombPlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
-    1191: ("MartialInspirationPlaybook.u003CMakeDamagePredictionsu003Ed__2$$MoveNext",
-           "round(minDmg * buff), hits = 1", True),
-    1098: ("PlasmaGrenadePlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
+    # ActiveAbilityType : (symbole natif porteur de la formule, ce que le natif prend réellement,
+    #                      corrigé ?) — l'ordinal reste en fin de ligne, il ne désigne plus.
+    ActiveAbilityType.HellfireShells:      # 1080
+        ("HellfireShellsPlaybook$$MakeDamagePredictions", "Direct(minDmg) SEUL", True),
+    ActiveAbilityType.GreatFrostAxe:       # 1089
+        ("GreatFrostAxePlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
+    ActiveAbilityType.Stikkbomb:           # 1051
+        ("StikkbombPlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
+    ActiveAbilityType.MartialInspiration:  # 1191
+        ("MartialInspirationPlaybook.u003CMakeDamagePredictionsu003Ed__2$$MoveNext",
+         "round(minDmg * buff), hits = 1", True),
+    ActiveAbilityType.PlasmaGrenade:       # 1098
+        ("PlasmaGrenadePlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
     # #352 : la lecture « maxDmg SEUL » de #350 etait INCOMPLETE. Le playbook n'appelle pas
     # `GenerateMultiHitAttackPredictions` : il appelle la surcharge « amount » de
     # `IBattleQuery.GetAttackPrediction` avec `nrOfHits x maxDmg` en UN coup (la surcharge pose
     # `hits: 1` en dur). Ce n'est donc ni la bonne grandeur NI la bonne structure.
-    1048: ("FragstormGrenadeLauncherPlaybook$$MakeDamagePredictions",
-           "nrOfHits x maxDmg (var 0xd) en UN coup -- hits=1 pose par la surcharge appelee", True),
+    ActiveAbilityType.FragstormGrenadeLauncher:  # 1048
+        ("FragstormGrenadeLauncherPlaybook$$MakeDamagePredictions",
+         "nrOfHits x maxDmg (var 0xd) en UN coup -- hits=1 pose par la surcharge appelee", True),
     # #353 — RECTIFICATION de la ligne posee par #350. Elle nommait `ExplodesAbility$$GetDamage`
     # (`PercentageOf(StatAmount(Health), ...)`) comme LA formule de 1059 : lecture PARTIELLE, prise
     # sur les xrefs de ce corps. `RammingSpeedPlaybook$$MakeDamagePredictions` emet QUATRE batchs,
@@ -197,9 +206,10 @@ _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE = {
     # `selfPreds.Any(p => p.WillBeKill)`, non observable : `get_WillBeKill` lit
     # `CannotBeGuaranteedKilled@+0x89` et `BlockScenarios[0]+0x0c`, ni l'un ni l'autre expose par
     # `aiPlaybookPredict` -- volet (b) de `#353-r1`, cf. `docs/rl/case-353-ramming-speed-prediction.md`.
-    1059: ("RammingSpeedPlaybook$$MakeDamagePredictions",
-           "Get(minDmg) SEUL + hits const 0x2f ; batch SELF (hits 0x32) ; batch EXPLOSION conditionnel",
-           True),
+    ActiveAbilityType.RammingSpeed:  # 1059
+        ("RammingSpeedPlaybook$$MakeDamagePredictions",
+         "Get(minDmg) SEUL + hits const 0x2f ; batch SELF (hits 0x32) ; batch EXPLOSION conditionnel",
+         True),
 }
 
 

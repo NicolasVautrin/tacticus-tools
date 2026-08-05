@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hexgeo
 
+from .hex_corner import Corner
+
 # --- `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape(tile, direction)` -----------
 # Rend `new List<>(new HashSet{tile, t1, t2})` = l'ancre PUIS les deux tuiles de la direction
 # demandee (ordre d'INSERTION du HashSet, conserve par le ctor de List). Le natif lit (col,row)
@@ -20,20 +22,20 @@ import hexgeo
 # self-test du module de tests) -> l'aire est toujours un TRIANGLE de 3 tuiles mutuellement
 # voisines, ce qu'exige `MovementQuery$$IsValidUnitFeetList(3, ...)`.
 _TRIANGLE_EVEN_COL = {
-    0: ((-1, +1), (0, +1)),
-    1: ((0, +1), (+1, +1)),
-    2: ((-1, +1), (-1, 0)),
-    3: ((+1, +1), (+1, 0)),
-    4: ((-1, 0), (0, -1)),
-    5: ((0, -1), (+1, 0)),
+    Corner.NorthWest: ((-1, +1), (0, +1)),  # 0
+    Corner.NorthEast: ((0, +1), (+1, +1)),  # 1
+    Corner.West: ((-1, +1), (-1, 0)),  # 2
+    Corner.East: ((+1, +1), (+1, 0)),  # 3
+    Corner.SouthWest: ((-1, 0), (0, -1)),  # 4
+    Corner.SouthEast: ((0, -1), (+1, 0)),  # 5
 }
 _TRIANGLE_ODD_COL = {
-    0: ((-1, 0), (0, +1)),
-    1: ((+1, 0), (0, +1)),
-    2: ((-1, 0), (-1, -1)),
-    3: ((+1, -1), (+1, 0)),
-    4: ((-1, -1), (0, -1)),
-    5: ((+1, -1), (0, -1)),
+    Corner.NorthWest: ((-1, 0), (0, +1)),  # 0
+    Corner.NorthEast: ((+1, 0), (0, +1)),  # 1
+    Corner.West: ((-1, 0), (-1, -1)),  # 2
+    Corner.East: ((+1, -1), (+1, 0)),  # 3
+    Corner.SouthWest: ((-1, -1), (0, -1)),  # 4
+    Corner.SouthEast: ((+1, -1), (0, -1)),  # 5
 }
 
 

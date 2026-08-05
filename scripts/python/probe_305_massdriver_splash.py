@@ -72,8 +72,12 @@ import sys
 
 import probe_27_3_live as L
 import probe_27_r1_massdriver_custom as MDA
+from engine.entities.active_ability_type import ActiveAbilityType
 
-MDA_AB = 1222
+#: MEMBRE (#270-r1 volet 2), et LOAD-BEARING : ce probe ECRIT cette cle dans
+#: `_MAKE_DMG_INPUT_OVERRIDES` pour poser sa contre-epreuve, puis la restaure. Toute ecriture sur
+#: ces tables porte un membre -- une affectation sur cle ABSENTE creerait sinon une cle non typee.
+MDA_AB = ActiveAbilityType.MassDriverAccelerator  # 1222
 DEFAULT_DAMAGE = 1000
 DEFAULT_ARMOR = 3000
 

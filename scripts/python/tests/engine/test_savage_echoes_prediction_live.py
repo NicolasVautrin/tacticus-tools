@@ -49,7 +49,14 @@ ROOT = PYDIR.parents[1]                                     # racine repo
 SEED_BC = ROOT / "logs" / "bc_savage_pred.json"
 CASTER_VIS, TARGET_VIS = "bloodTerminator", "tauCrisis"
 ALLY_VIS, FOE_VIS = "ultraCalgar", "blackTerminator"
-ABILITY = 1230
+sys.path.insert(0, str(PYDIR))
+from engine.entities.active_ability_type import ActiveAbilityType  # noqa: E402
+#: MEMBRE, pas l'ordinal (#270-r1 volet 2) -- et ici c'est LOAD-BEARING, pas cosmetique : ce
+#: fichier fait `pop(ABILITY)` puis REINSERE la cle dans `_MAKE_DMG_INPUT_OVERRIDES`. Un `pop` +
+#: reinsertion REMPLACE la cle (contrairement a une affectation sur cle existante, qui la
+#: conserve) -- avec un ordinal nu, le dict ressortirait de ce test avec une cle non typee, et le
+#: cliquet de `test_270r1_volet2_dict_keys_enum_offline` rougirait selon l'ORDRE des tests.
+ABILITY = ActiveAbilityType.SavageEchoes  # 1230
 
 
 def _seed_bc() -> Path | None:

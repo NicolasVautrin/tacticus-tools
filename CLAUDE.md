@@ -163,21 +163,33 @@ ADRESSES à celui des VALEURS.
 `engine/entities/active_ability_type.py` (260, importé par **145** fichiers). Si le tien n'y est
 pas, **l'ajouter fait partie de la tranche**.
 
-⚠ **L'axe BITS est tenu ; l'axe CLÉS l'est pour ce que le build attribue SANS AMBIGUÏTÉ** — **0**
-test de bit exécutable à littéral brut, et les **169** clés des **5** dicts à enum unique sont
-converties (#270-r1, 2026-08-05 ; value-preserving vérifié par empreinte des deux versions).
-**Restent ouverts** : les **128** clés de **10** dicts que le build n'attribue pas à un enum unique
-— il faut LIRE chaque site, et **`#270-c` passe d'abord** pour les 56 qui hésitent
-`Active`/`Triggered` ; et **161** littéraux en position **ÉLÉMENT DE CONTENEUR** (31 tuples/listes/
-sets, 16 fichiers), que les cinq rôles du probe ne visitent pas (`#270-r1-r1`).
+⚠ **L'axe BITS est tenu ; l'axe CLÉS DE DICT l'est ENTIÈREMENT** — **0** test de bit exécutable à
+littéral brut, et **297** clés converties : les **169** des **5** dicts à enum unique (#270-r1
+volet 1) puis les **128** des **10** dicts que le build n'attribuait pas seul (#270-r1 volet 2,
+2026-08-05). Value-preserving **vérifié** dans les deux cas par empreinte des deux versions.
+**Restent ouverts** : **161** littéraux en position **ÉLÉMENT DE CONTENEUR** (31 tuples/listes/sets,
+16 fichiers), que les cinq rôles du probe ne visitent pas (`#270-r1-r1`) ; et **8 clés / 5 dicts**
+sous le **seuil `≥ 3 clés`** de la couverture de dict du probe (`#270-r3`).
 
-⚠ **Ce gisement a été SOUS-COMPTÉ ici même** : « 284 clés » ne voyait que les dicts, et un probe qui
-n'énumère pas un rôle rend un zéro rassurant sur ce rôle. Re-dériver
-(`probe_270r1_enum_candidates.py --croiser`), jamais citer ce paragraphe.
+⚠ **Ce gisement a été SOUS-COMPTÉ ici même, DEUX FOIS, et par la même cause** : « 284 clés » ne
+voyait que les dicts (rôle manquant), et le `0` que le probe rend depuis le volet 2 ne voit que les
+dicts d'**au moins 3 clés** (seuil). Un recenseur qui n'énumère pas un rôle — ou qui filtre par
+cardinalité — rend un zéro **rassurant** sur ce qu'il ne regarde pas. Re-dériver
+(`probe_270r1_enum_candidates.py --croiser` **et** `--lister`), jamais citer ce paragraphe.
+
+⚠ **La VOIE ne dit pas l'enum, et l'ORDINAL non plus — seul le NOM ou le TYPE DÉCLARÉ tranchent.**
+Mesuré sur les 128 clés du volet 2 : les 110 ids d'ability sont attribués par le **symbole natif
+déjà cité au site** (110/110 concordants), jamais par leur ordinal, que `TriggeredAbilityType`
+partage à 458 exemplaires avec `EffectType` et 233 avec `ActiveAbilityType`. Et les 18 clés
+« petits entiers » qu'on croyait scalaires sont un `IdunBattleLogic.Utils.Hex.Corner` — **type LU
+dans `frida/methods.tsv`**, pas déduit. Quand ni le nom ni une signature ne tranchent, écrire « hors
+règle, c'est un scalaire » est un résultat valable ; forcer un nom sur un entier qui n'en désigne
+aucun est pire que l'ordinal, qui au moins ne ment pas. Détail :
+`docs/rl/case-270r1-volet2-cles-ambigues.md`.
 
 ⚠ **Et la conversion n'est PAS mécanique** : elle vaut ce que vaut le miroir Python. `ActiveAbilityType`
 (#270) **et** `TriggeredAbilityType` (#313, puis #270-c) sont réparés et **sous cliquet**
-(`probe_313`, 12 mirrors en bijection, 0 dette) ; les générateurs des tables **SQL** restent **cassés**
+(`probe_313`, 14 mirrors en bijection, 0 dette) ; les générateurs des tables **SQL** restent **cassés**
 (#270-b, arrimés à un `dump.cs` supprimé). Convertir depuis un miroir périmé écrirait des noms
 FAUX — pire que l'ordinal, qui au moins ne ment pas. **Vérifier la fraîcheur de la table avant
 de nommer quoi que ce soit** — la ligne que tu lis a elle-même annoncé « 107 ids morts » **quatre

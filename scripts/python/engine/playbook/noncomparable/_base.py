@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 import gameconfig as _gc
 
+from ...entities.active_ability_type import ActiveAbilityType
+
 
 # ---------------------------------------------------------------------------------------------
 # TIERS `get_Priority` NATIFS (`IdunBattle.Entities.Abilities.AbilityPriority` :
@@ -42,31 +44,31 @@ import gameconfig as _gc
 # get_Priority » (#115), corrigee par #170.
 NATIVE_PRIORITY: dict[int, int] = {
     # 1000 = First
-    1070: 1000,   # BreathOfSilencePlaybook
-    1085: 1000,   # EreWeGoPlaybook
-    1109: 1000,   # DeathScreamPlaybook
-    1127: 1000,   # ArmouredMight_MovePlaybook
-    1155: 1000,   # TzeentchsFirestormPlaybook
-    1173: 1000,   # ArcScourgePlaybook
-    1192: 1000,   # NovaBoostPlaybook            (PORTE)
-    1200: 1000,   # SquigLaunchasPlaybook
-    1213: 1000,   # DeathOnTheWindPlaybook
+    ActiveAbilityType.BreathOfSilence: 1000,   # 1070 BreathOfSilencePlaybook
+    ActiveAbilityType.EreWeGo: 1000,   # 1085 EreWeGoPlaybook
+    ActiveAbilityType.DeathScream: 1000,   # 1109 DeathScreamPlaybook
+    ActiveAbilityType.ArmouredMight_Move: 1000,   # 1127 ArmouredMight_MovePlaybook
+    ActiveAbilityType.TzeentchsFirestorm: 1000,   # 1155 TzeentchsFirestormPlaybook
+    ActiveAbilityType.ArcScourge: 1000,   # 1173 ArcScourgePlaybook
+    ActiveAbilityType.NovaBoost: 1000,   # 1192 NovaBoostPlaybook            (PORTE)
+    ActiveAbilityType.SquigLaunchas: 1000,   # 1200 SquigLaunchasPlaybook
+    ActiveAbilityType.DeathOnTheWind: 1000,   # 1213 DeathOnTheWindPlaybook
     # 100 = Early
-    1032: 100,    # CatalystPlaybook
-    1125: 100,    # GunnersKillOnSightPlaybook
-    1174: 100,    # SolarAtomizerPlaybook
-    1187: 100,    # ThriceBlessedConflagrationPlaybook   (PORTE)
+    ActiveAbilityType.Catalyst: 100,    # 1032 CatalystPlaybook
+    ActiveAbilityType.GunnersKillOnSight: 100,    # 1125 GunnersKillOnSightPlaybook
+    ActiveAbilityType.SolarAtomizer: 100,    # 1174 SolarAtomizerPlaybook
+    ActiveAbilityType.ThriceBlessedConflagration: 100,    # 1187 ThriceBlessedConflagrationPlaybook   (PORTE)
     # -100 = Late
-    1159: -100,   # MacroPlasmaIncineratorPlaybook
-    1201: -100,   # SquigMinePlaybook
-    1209: -100,   # InfernalCannonPlaybook
+    ActiveAbilityType.MacroPlasmaIncinerator: -100,   # 1159 MacroPlasmaIncineratorPlaybook
+    ActiveAbilityType.SquigMine: -100,   # 1201 SquigMinePlaybook
+    ActiveAbilityType.InfernalCannon: -100,   # 1209 InfernalCannonPlaybook
     # -1000 = Last
-    1072: -1000,  # MyWillBeDonePlaybook
-    1084: -1000,  # DaGreatWaaaghPlaybook
-    1111: -1000,  # LivingBatteringRamPlaybook
-    1172: -1000,  # InvocationOfMachineVengeancePlaybook
-    1194: -1000,  # NovaShieldPlaybook           (PORTE)
-    1223: -1000,  # ReanimationBeamPlaybook
+    ActiveAbilityType.MyWillBeDone: -1000,  # 1072 MyWillBeDonePlaybook
+    ActiveAbilityType.DaGreatWaaagh: -1000,  # 1084 DaGreatWaaaghPlaybook
+    ActiveAbilityType.LivingBatteringRam: -1000,  # 1111 LivingBatteringRamPlaybook
+    ActiveAbilityType.InvocationOfMachineVengeance: -1000,  # 1172 InvocationOfMachineVengeancePlaybook
+    ActiveAbilityType.NovaShield: -1000,  # 1194 NovaShieldPlaybook           (PORTE)
+    ActiveAbilityType.ReanimationBeam: -1000,  # 1223 ReanimationBeamPlaybook
 }
 
 

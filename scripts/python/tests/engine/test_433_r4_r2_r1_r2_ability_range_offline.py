@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import pytest
 
+from engine.entities.active_ability_type import ActiveAbilityType
 from engine.playbook.noncomparable.early_warning_override import _ranged_weapon_threshold
 from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.abilities.targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER,
@@ -76,13 +77,18 @@ def test_override_range_wins_over_config():
     both = TargetingRange(use_range_from_config=True, override_range=2)
     assert ar._config_range(1069) == 5, "montage : l'ability doit bien porter constants.range = 5"
     import dataclasses
-    prev = TARGETING_OPTIONS_UNPORTED[1069]
+    # MEMBRE et non `1069` (#270-r1 volet 2) : toute ECRITURE sur cette table porte un membre.
+    # Ici l'ordinal serait sans danger (CPython conserve la cle sur une affectation a une cle
+    # DEJA presente), mais la regle est uniforme -- l'exception n'est pas decidable statiquement,
+    # et une affectation a une cle ABSENTE creerait une cle non typee.
+    cle = ActiveAbilityType.SeekerMissileFrequencyLock  # 1069
+    prev = TARGETING_OPTIONS_UNPORTED[cle]
     try:
-        TARGETING_OPTIONS_UNPORTED[1069] = dataclasses.replace(prev, range=both)
+        TARGETING_OPTIONS_UNPORTED[cle] = dataclasses.replace(prev, range=both)
         ar._REACH_CACHE.clear()
         assert ar.ability_range_value(1069, RANGED) == 2
     finally:
-        TARGETING_OPTIONS_UNPORTED[1069] = prev
+        TARGETING_OPTIONS_UNPORTED[cle] = prev
         ar._REACH_CACHE.clear()
 
 

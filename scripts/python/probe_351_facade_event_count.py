@@ -82,7 +82,12 @@ sys.path.insert(0, str(PYDIR))
 
 from rl_collect_batch import _resolve_session, _rpc                          # noqa: E402
 
-FACADE = 1100
+from engine.entities.active_ability_type import ActiveAbilityType             # noqa: E402
+
+#: MEMBRE (#270-r1 volet 2), et LOAD-BEARING : ce probe `pop` puis REINSERE cette cle dans
+#: `_PLAYBOOK_PROFILE_OVERRIDE` -- un `pop` + reinsertion REMPLACE la cle, donc un ordinal nu
+#: laisserait le dict avec une cle non typee.
+FACADE = ActiveAbilityType.SorcerousFacade  # 1100
 FACADE_NAME = "SorcerousFacade"
 BOARD = "MC1_67"
 CENTER = (3, 4)

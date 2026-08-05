@@ -326,14 +326,19 @@ def _offline(scene, cid, tid, ability, ability_name, here, with_override: bool):
     """Prediction OFFLINE. `with_override = False` = contrefactuel « avant #352 » : l'entree du
     registre `_MAKE_DMG_INPUT_OVERRIDES` est RETIREE, donc la base retombe sur le chemin generique
     (moyenne min/max) et les coups sur `GetDefaultAttackHits`."""
+    from engine.entities.active_ability_type import ActiveAbilityType
     from engine.playbook.prediction import abilities as PA
-    saved = PA._MAKE_DMG_INPUT_OVERRIDES.pop(int(ability), None) if not with_override else None
+    # La cle est REINSEREE en MEMBRE (#270-r1 volet 2) : un `pop` + reinsertion REMPLACE la cle
+    # (une affectation sur cle existante, elle, la conserve), donc un `int(...)` laisserait le
+    # registre avec une cle non typee apres restauration.
+    cle = ActiveAbilityType(int(ability))
+    saved = PA._MAKE_DMG_INPUT_OVERRIDES.pop(cle, None) if not with_override else None
     try:
         evs = PA.make_damage_predictions(scene, int(cid), int(tid), int(ability), ability_name,
                                          attack_pos=here)
     finally:
         if saved is not None:
-            PA._MAKE_DMG_INPUT_OVERRIDES[int(ability)] = saved
+            PA._MAKE_DMG_INPUT_OVERRIDES[cle] = saved
     main = next((e for e in evs if e.target == int(tid)), evs[0] if evs else None)
     if main is None:
         return None, 0
