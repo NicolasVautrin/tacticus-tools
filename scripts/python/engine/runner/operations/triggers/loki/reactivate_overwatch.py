@@ -128,6 +128,7 @@ from ....abilities.base import turns_until_unit_owner_turn
 from ....abilities.behaviours import (ActivateEffect, AddStaticStatModifierEffect, RemoveEffect,
                                       entities_from_state)
 from .....entities.behaviours import op_and
+from .....entities.damage_reason import DamageReason
 from .....entities.effect_type import EffectType
 from .....entities.selectors import Caster
 from .....entities.stats import StatType
@@ -141,7 +142,10 @@ EWO_HIT_REDUCTION = int(EffectType.EarlyWarningOverride_HitReduction)           
 OVERWATCH_AUTO_ATTACK = int(EffectType.Overwatch_AutoAttack)                          # 0x3f1 = 1009
 CYCLIC_ION_BLASTER_HITS = int(EffectType.CyclicIonBlaster_AdditionalHits)             # 0x47c = 1148
 EARLY_WARNING_OVERRIDE_ABILITY = "EarlyWarningOverride"     # config source (ctor `..(this, 0x435)`)
-DAMAGE_REASON_ABILITY = 0                                   # `IdunBattle.Operations.DamageReason.Ability`
+# `IdunBattle.Operations.DamageReason.Ability` -- membre NOMME, plus l'ordinal nu (regle ENUM du
+# CLAUDE.md). Le crush d'un `Steppable` grave `DamageReason.Steppable` : ce gate le REFUSE, et c'est
+# le comportement natif (`LegitDeathReasons` ne cite que des morts par ABILITY).
+DAMAGE_REASON_ABILITY = int(DamageReason.Ability)
 
 
 def _hit_reduction_value(ability_id: str = EARLY_WARNING_OVERRIDE_ABILITY) -> int:

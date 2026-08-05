@@ -15,22 +15,21 @@ POURQUOI CA MORDAIT. La tranche `-c-r3` a leve les DEUX gates d'owner de la face
 `Steppable` ecrase etait alors le SEUL regime du port ou un effet-trigger pouvait firer alors que le
 natif l'avait deja retire -- et de facon PERSISTANTE, puisque rien ne retirait jamais ces effets.
 
-CE QUI N'EST **PAS** PORTE, ET QUI EST GARDE ICI COMME TEL. Le natif publie AUSSI, pour ce crush,
-`On(1 = PreUnitDeath)`, `On(2 = PreUnitDeath_2)`, `On(0 = UnitDeath)`, `On(0x36 = UnitDefeated)` et
-`On(0x35 = PostUnitKill)`. Le port n'emet que le dernier, et seulement sur le chemin MOVE. Le rayon
-de souffle de l'emission est MESURE (`probe_462_r4b_r1_r1_r1_r1_c_r3_r1_crush_steppable --step
-blast`) : **27 classes** du registre ecoutent les quatre evenements non emis, dont
-`HazeCorruption_BonusHitAbility`, `ActOfFaith`, `TheBetrayer` et
-`EarlyWarningOverride_ReactivateOverwatch`, toutes portees par le MOVER -- donc atteignables des le
-premier decoy ecrase. Non confrontable dans cette tranche ; `test_les_quatre_evenements_de_mort_
-restent_non_emis` garde cet etat.
+⚠ DEUX BRAS DE CE FICHIER ONT CHANGE DE SENS AVEC `-r1`/`-r3`, ET C'EST LE SIGNAL QU'ILS DEVAIENT
+DONNER. Ils gardaient le RESIDU de la tranche precedente -- « le port ne publie qu'`On(0x35)` » et
+« AUCUN kit `Steppable` n'est inscrit a un registre » -- en annoncant qu'ils rougiraient le jour ou
+l'emission serait portee / ou un porteur naturel apparaitrait. Les deux sont arrives ENSEMBLE :
+`_kill_steppable_kill_unit` joue desormais `IdunBattle.Operations.KillUnitOperation$$Execute` en
+entier, et `HaywireMineSteppable` est inscrite. Les bras gardent maintenant l'etat INVERSE (les cinq
+evenements sont publies ; les deux mines Haywire sont les SEULS kits `Steppable` inscrits), et la
+confrontation de ce nouveau comportement vit dans
+`test_462_r4b_r1_r1_r1_r1_c_r3_r1_r1_crush_death_events_live.py` (natif vs port sur une mine REELLE).
 
-⚠ LE REGIME DU RETRAIT EST **VIDE** COTE KIT, et le dire fait partie du livrable : les **27** kits
-`Steppable` (dont **20** `Immune`) n'ont AUCUNE entree dans les quatre registres d'ability-trigger
-du port. Aucune garde de comportement observable sur un porteur NATUREL n'est donc possible. Ce
-fichier garde a la place (a) la STRUCTURE (le port appelle-t-il les trois retraits, dans l'ordre ?),
-(b) des montages SYNTHETIQUES explicitement etiquetes comme tels, et (c) l'ENONCE du vide, qui
-rougira le jour ou un porteur naturel apparaitra.
+⚠ LE REGIME DU RETRAIT RESTE QUASI-VIDE COTE KIT : les **27** kits `Steppable` (dont **20**
+`Immune`) n'ont que l'entree `HaywireMineSteppable`. Aucune garde de comportement du RETRAIT sur un
+porteur naturel n'est donc possible. Ce fichier garde a la place (a) la STRUCTURE (le port
+appelle-t-il les trois retraits, dans l'ordre ?), (b) des montages SYNTHETIQUES explicitement
+etiquetes comme tels, et (c) l'INVENTAIRE des porteurs inscrits, qui rougit a tout mouvement.
 
 ASCII only.
 """
@@ -46,7 +45,7 @@ from engine.runner.components import (HealthComponent, OwnerComponent, PositionC
                                       StatsComponent, UnitComponent)
 from engine.runner.messages import MoveUnitMessage
 from engine.runner.operations import movement as MV
-from engine.runner.operations.movement import _kill_steppable_remove_effects, _kill_steppable_units
+from engine.runner.operations.movement import _kill_steppable_kill_unit, _kill_steppable_units
 from engine.runner.operations.remove_effects import KillUnitStep
 from engine.runner.operations.spawn import spawn_decoy
 from engine.runner.operations.triggers.base import EffectTrigger, TriggerEvent
@@ -70,8 +69,9 @@ BUILD = ["--p-units", "necroSpyder,orksKillaKan,adeptMorvenn",
 EVENTS_MORT = (int(EventTriggerType.PreUnitDeath), int(EventTriggerType.PreUnitDeath_2),
                int(EventTriggerType.UnitDeath), int(EventTriggerType.UnitDefeated),
                int(EventTriggerType.PostUnitKill))
-# Le SEUL que le port emette pour un crush, et seulement sur le chemin MOVE.
-EVENT_DEJA_EMIS = int(EventTriggerType.PostUnitKill)
+# Le SEUL qui ne vienne PAS de la sequence de mort : `after_move_triggers` le publie APRES, sur le
+# chemin MOVE (ecart d'ORDRE et de COUVERTURE prealable -- cf. `_kill_steppable_kill_unit`).
+EVENT_HORS_SEQUENCE = int(EventTriggerType.PostUnitKill)
 
 
 def _ok(r):
@@ -191,21 +191,31 @@ def test_le_crush_appelle_les_trois_RemoveEffects_dans_l_ordre(monkeypatch):
         "les trois RemoveEffects ne sont pas joues dans l'ordre natif : %s" % (vus,)
 
 
+def _steps_retires(trace) -> list[int]:
+    """Les `KillUnitStep` joues, lus dans la trace de `_kill_unit_operation` (entrees
+    `kill_remove_effects`)."""
+    return [int(x["kill_remove_effects"]["step"]) for x in (trace or [])
+            if isinstance(x, dict) and "kill_remove_effects" in x]
+
+
 def test_la_garde_HEAL_saute_le_troisieme_retrait():
     """GARDE @`KillUnitOperation$$Execute+0xf35` : `if (health.hp > 0) RETURN`.
 
-    ⚠ MONTAGE SYNTHETIQUE ASSUME -- ce regime est INATTEIGNABLE sur le chemin du crush (le port
-    vient de poser `hp = 0` et n'emet, entre les deux, aucun des evenements de mort qui pourraient
-    soigner). On appelle donc `_kill_steppable_remove_effects` DIRECTEMENT sur une unite a PV > 0.
-    La garde est portee pour que l'ecart ne devienne pas silencieux le jour ou l'emission le sera."""
-    st, _mover, decoy = PR._make_state_crush([])
+    ⚠ MONTAGE SYNTHETIQUE ASSUME -- ce regime EXIGE qu'un consommateur des evenements de mort
+    SOIGNE le mourant entre le 2e et le 3e retrait. On appelle donc `_kill_steppable_kill_unit`
+    DIRECTEMENT sur une unite a PV > 0.
+    ⚠ DEPUIS `-r1` LA GARDE N'EST PLUS INERTE SUR CE CHEMIN : le crush publie desormais `On(1)`,
+    `On(2)`, `On(0)` et `On(0x36)`, donc un `Heal`/`Revive` declenche par l'un d'eux peut vraiment
+    ramener les PV au-dessus de zero avant le 3e `RemoveEffects`. C'est exactement ce que la
+    tranche precedente avait anticipe en la portant << bien qu'inatteignable >>."""
+    st, mover, decoy = PR._make_state_crush([])
     st.get_entity(decoy).get_component(HealthComponent).hp = 5      # << soigne >> avant le step 2
-    steps = [int(x["step"]) for x in _kill_steppable_remove_effects(st, decoy)]
+    steps = _steps_retires(_kill_steppable_kill_unit(st, decoy, mover))
     assert steps == [int(KillUnitStep.PreUnitRemove), int(KillUnitStep.AfterUnitRemove)], \
         "la garde HEAL n'a pas coupe le 3e retrait : %s" % (steps,)
-    st2, _m2, d2 = PR._make_state_crush([])
+    st2, m2, d2 = PR._make_state_crush([])
     st2.get_entity(d2).get_component(HealthComponent).hp = 0
-    steps2 = [int(x["step"]) for x in _kill_steppable_remove_effects(st2, d2)]
+    steps2 = _steps_retires(_kill_steppable_kill_unit(st2, d2, m2))
     assert len(steps2) == 3, "a PV 0 les TROIS retraits doivent tourner : %s" % (steps2,)
 
 
@@ -294,16 +304,19 @@ def test_le_regime_c_r3_est_ferme_le_trigger_d_effet_ne_fire_plus(env_live):
         "l'effet du decoy ECRASE fire encore (%d passage(s)) : le retrait n'a pas mordu" % apres
 
 
-def test_les_quatre_evenements_de_mort_restent_non_emis(env_live):
-    """GARDE DU RESIDU -- ce que cette tranche ne porte PAS, et qui doit le rester tant qu'on ne
-    l'a pas confronte.
+def test_les_cinq_evenements_de_mort_sont_emis_au_crush(env_live):
+    """CE BRAS A CHANGE DE SENS AVEC `-r1`, et c'est le signal qu'il etait cense donner.
 
-    Une sonde portee par le MOVER (donc VIVANT, hors de tout gate) ecoute les CINQ evenements de
-    `KillUnitOperation$$Execute`. Apres un crush par move, le port ne doit en publier qu'UN,
-    `On(0x35 = PostUnitKill)` (`triggers/dispatch/move_death.py::post_unit_kill_triggers_for_move`).
+    Il gardait le RESIDU (« le port ne publie qu'`On(0x35)` ») ; l'emission est desormais portee
+    (`movement.py::_kill_steppable_kill_unit` -> `damage.py::_kill_unit_operation`), donc il garde
+    maintenant l'INVERSE : sur le chemin MOVE, un crush publie les CINQ evenements de
+    `KillUnitOperation$$Execute` -- les quatre de la sequence de mort, plus `On(0x35 = PostUnitKill)`
+    que `after_move_triggers` publie ensuite (ecart d'ORDRE prealable, toujours nomme).
 
-    Ce bras rougira le jour ou quelqu'un portera l'emission -- ce qui est le SIGNAL voulu :
-    27 classes du registre en dependent (`--step blast`), il faut alors les confronter."""
+    Une sonde portee par le MOVER (donc VIVANT, hors de tout gate) les ecoute tous les cinq. Le
+    blast radius de cette emission est confronte par
+    `test_462_r4b_r1_r1_r1_r1_c_r3_r1_r1_crush_death_events_live.py` (mine Haywire natif vs port,
+    plus deux consommateurs portes par le MOVER avec leur temoin)."""
     et = _effect_type_libre()
     REG.EFFECT_TRIGGERS[et] = [_SondeEvents]
     try:
@@ -319,20 +332,23 @@ def test_les_quatre_evenements_de_mort_restent_non_emis(env_live):
         REG.EFFECT_TRIGGERS.pop(et, None)
 
     assert st.get_entity(decoy).get_component(UnitComponent).alive is False, "le decoy n'a pas ete crushe"
-    assert vus == [EVENT_DEJA_EMIS], (
-        "le crush publie %s ; attendu [%d = PostUnitKill] SEUL -- si un evenement de mort vient "
-        "d'etre porte, il faut confronter les 27 classes du blast radius" % (vus, EVENT_DEJA_EMIS))
+    assert vus == sorted(EVENTS_MORT), (
+        "le crush publie %s ; attendus les CINQ evenements %s -- si l'un manque, la sequence de "
+        "mort du crush a ete rabotee" % (vus, sorted(EVENTS_MORT)))
 
 
 # --------------------------------------------------------------------------- (c) L'ENONCE DU VIDE
 
-def test_aucun_kit_steppable_n_est_inscrit_a_un_registre_d_ability_trigger():
-    """L'ENONCE du regime VIDE, garde tel quel : les kits `Steppable` n'ont AUCUNE entree dans les
-    quatre registres d'ability-trigger du port.
+def test_les_seuls_kits_steppable_inscrits_sont_les_mines_haywire():
+    """CE BRAS AUSSI A CHANGE DE SENS, et c'est ce qu'il annoncait.
 
-    C'est ce qui rend impossible une garde de comportement sur un porteur NATUREL -- et c'est ce
-    qui borne le blast radius de l'emission a la voie << owner = le MOVER ou un tiers >>. Ce bras
-    rougira le jour ou un porteur naturel apparaitra : signal, pas regression.
+    Il enoncait le regime VIDE (« AUCUN kit `Steppable` n'est inscrit a un registre »), en disant
+    qu'il rougirait « le jour ou un porteur naturel apparaitra : signal, pas regression ». Ce jour
+    est arrive : `-r3` inscrit `HaywireMineSteppable`, portee par les DEUX mines du gameconfig
+    (`astarSmnHaywireMine`, summon d'`astarCyrus` -- et `astarNpc1HaywireMine`, npc).
+
+    Il garde donc maintenant l'inventaire EXACT : ces deux-la, et personne d'autre. Un troisieme
+    porteur qui apparaitrait le ferait rougir -- meme signal, meme raison.
 
     ⚠ Il ne dit RIEN des EFFETS qu'un `Steppable` peut RECEVOIR de l'exterieur (DoT de tuile, aura,
     bond) : ceux-la ne sont pas dans le kit, et ce sont eux que les trois retraits emportent."""
@@ -348,7 +364,8 @@ def test_aucun_kit_steppable_n_est_inscrit_a_un_registre_d_ability_trigger():
                              ("relic", REG.RELIC_ABILITY_TRIGGERS)):
                 if reg.get(a):
                     inscrits.append((k["id"], "%s:%s" % (nom, a)))
-    assert inscrits == [], (
-        "un kit Steppable est desormais inscrit a un registre d'ability-trigger : %s -- un porteur "
-        "NATUREL est apparu, l'emission des evenements de mort du crush devient confrontable"
-        % (inscrits,))
+    attendus = [("astarNpc1HaywireMine", "passive:HaywireMineSteppable"),
+                ("astarSmnHaywireMine", "passive:HaywireMineSteppable")]
+    assert sorted(inscrits) == attendus, (
+        "les kits Steppable inscrits a un registre d'ability-trigger sont %s ; attendus %s -- un "
+        "porteur NATUREL de plus (ou de moins) : re-confronter le regime" % (sorted(inscrits), attendus))

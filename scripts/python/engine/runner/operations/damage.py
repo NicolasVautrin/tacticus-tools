@@ -71,6 +71,7 @@ from ...services.damage_combat import could_crit, BlockSource
 from ...services.damage_config import resolve_spread_pct
 from ...entities.damage_trait import DamageTrait
 from ...entities.damage_profile_type import DamageProfileType
+from ...entities.damage_reason import DamageReason
 from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
@@ -148,7 +149,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
 
     @staticmethod
     def _record_death_reason(state: State, dying_id: int, killer_id: Optional[int],
-                             source_ability) -> None:
+                             source_ability,
+                             damage_reason: int = int(DamageReason.Ability)) -> None:
         """`IdunBattle.Operations.KillUnitOperation$$RecordDeathReason(killer, killed,
         killedUnitComponent, deathReason)` : ecrit le `Nullable<DamageSource>` @`UnitComponent+0x108`
         de la victime. Appelee par `KillUnitOperation$$Execute` **AVANT** l'emission d'`On(PreUnitDeath
@@ -159,10 +161,21 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         killer + `DamageReason` ; l'`AbilityOrEffect` vient de la `DamageSource` du coup letal,
         construite par `A*DamageOperation$$ExecuteHit` via `GetDamageSourceAbility` et transportee
         dans le `DamageAppliedResult`). Le port n'a pas ce transport : il FUSIONNE les deux au moment
-        du kill, avec l'`AbilityOrEffect` deja resolue par `_damage_source_ability`. `DamageReason` =
-        `Ability` (0) -- les deux autres valeurs de l'enum (`Knockback` 1 / `Steppable` 2) sont les
-        morts NON-DEGAT, qui ne passent pas par ce pipeline (le crush d'un steppable est traite par
-        `movement.py::_kill_steppable_units`, hors `_fire_death_if_killed`)."""
+        du kill, avec l'`AbilityOrEffect` deja resolue par `_damage_source_ability`.
+
+        `damage_reason` = le 5e argument natif, LU par `KillUnitOperation$$Execute` dans
+        `options+0x00` (`KillUnitOperationOptions`) et pousse tel quel :
+
+            uVar18   = *(options + 0x40)                       # les 8 octets +0x40..+0x47
+            cStack_304 = (char)(uVar18 >> 0x20)                # = options+0x44
+            if (cStack_304 != '\\0')
+                RecordDeathReason(this, killer, killed, uc, *(undefined4 *)options)   # = options+0x00
+
+        Il vaut donc `DamageReason.Ability` (0) pour toute mort par DEGAT (`ForDefault` met la struct
+        entiere a zero) et **`DamageReason.Steppable` (2)** pour le CRUSH d'un `Steppable`
+        (`ForSteppable` : `+0x00 = 2`, `+0x44 = +0x45 = 1`, `+0x46 = 0`) -- ce que
+        `movement.py::_kill_steppable_units` passe desormais (#462-r4b-r1-r1-r1-r1-c-r3-r1-r2).
+        `DamageReason.Knockback` (1) n'a aucun call-site porte."""
         uc = tgt_uc = None
         e = state.get_entity(int(dying_id))
         if e is not None:
@@ -170,7 +183,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         uc = tgt_uc
         if uc is None:
             return
-        uc.death_source = (None if killer_id is None else int(killer_id), 0,
+        uc.death_source = (None if killer_id is None else int(killer_id), int(damage_reason),
                            None if source_ability is None else int(source_ability))
 
     @staticmethod

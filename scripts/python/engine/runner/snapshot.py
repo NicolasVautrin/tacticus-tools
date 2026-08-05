@@ -1372,16 +1372,70 @@ def _load_passive_abilities(state: State, ability_states: dict) -> int:
     hierarchie 2 recoit `[]` -- une mesure, pas une absence de mesure : c'est le cas legitime d'une
     unite sans passif, et il doit se distinguer de « canal muet ».
 
-    Le PARSING vit dans `passive_ability_names_by_unit` (foyer partage avec la face DECISION)."""
+    Le PARSING vit dans `passive_ability_names_by_unit` (foyer partage avec la face DECISION).
+
+    ⚠ IL SEEDE AUSSI L'`AbilityState` DES PASSIFS, ET **SEULEMENT QUAND LE TROU EXISTE**
+    (#462-r4b-r1-r1-r1-r1-c-r3-r1-r3). Une unite INVOQUEE n'a **aucune** `UnitConfiguration` cote
+    natif (`SpawnUnitOperation` la fabrique par `SpawnUnitOptions$$WithStatsFromConfig`, pas depuis
+    un `UnitConfiguration`), donc le capteur `combatSnapshot.unitConfig` rend litteralement
+    `{"error": "config null"}` pour elle -- MESURE sur `astarSmnHaywireMine` -- et
+    `_load_unit_stats` laisse `passive_ability_level` a son defaut `0` / le multiplicateur a `100`.
+    Toute variable per-niveau d'un passif de SUMMON etait alors lue a l'INDEX 0 (= niveau 1) :
+    mesure sur `HaywireMineSteppable`, `minDmg[0] = 50` au lieu de `minDmg[49] x 180 % = 4986`,
+    soit un facteur ~55 -- exactement le mode de panne de #174 sur les Machines of War.
+    Le canal qui, LUI, porte l'information est `unitAbilityStates` : l'`AbilityState` est dumpe
+    PAR INSTANCE d'ability montee (`level` @+0x20, `mult` @+0x24), et c'est d'ailleurs celui que
+    `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` consomme reellement --
+    le `passive_ability_level` par UNITE du port est un collapse, exact tant que l'unite a une
+    config, faux des qu'elle n'en a pas.
+    GARDE : on n'ecrit QUE si `passive_ability_level` est absent/0, donc jamais par-dessus une
+    valeur mesuree ; sur une unite configuree les deux canaux coincident (verifie : `necroWarden`
+    -> `unitConfig.passiveAbilityLevel = 50` / `mult = 180` et l'`AbilityState` de hierarchie 2
+    porte `level = 50` / `mult = 180`)."""
     seeded = 0
+    states = passive_ability_state_by_unit(ability_states)
     for uid, names in passive_ability_names_by_unit(ability_states).items():
         ent = state.get_entity(uid)
         sc = ent.get_component(StatsComponent) if ent is not None else None
         if sc is None or getattr(sc, "ctx", None) is None:
             continue
         sc.ctx.passive_abilities = names
+        st = states.get(uid)
+        if st is not None and not getattr(sc.ctx, "passive_ability_level", None):
+            lvl, mult = st
+            sc.ctx.passive_ability_level = int(lvl)
+            if mult is not None:
+                sc.ctx.ability_variables_multiplier = int(mult)
         seeded += 1
     return seeded
+
+
+def passive_ability_state_by_unit(ability_states: dict) -> dict:
+    """`{entityId: (level, mult|None)}` de l'`AbilityState` des entrees de HIERARCHIE 2 du
+    `TriggeredAbilityComponent` (payload `unitAbilityStates`).
+
+    `UnitFactory$$Build` fabrique UN SEUL `passiveAbilityState` par unite et le passe a TOUS les
+    `TryAdd(..., 2)` : les entrees d'une meme unite portent donc necessairement le meme couple, et
+    on retient la premiere lisible. `level < 1` est REFUSE, meme invariant que
+    `_load_tertiary_abilities` (`Idun.Shared.Level$$ToZeroBasedIndex` LEVE sur `<= 0`) : un `0` veut
+    dire << pas de niveau publie >>, pas << niveau zero >>. Une unite sans entree de hierarchie 2
+    n'a pas de cle -- tri-etat, comme les autres parsings de ce canal."""
+    out: dict = {}
+    for su in ((ability_states or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None or uid in out:
+            continue
+        for t in (su.get("triggered") or []):
+            raw = t.get("raw") or []
+            if len(raw) <= 10 or raw[10] != PASSIVE_HIERARCHY:
+                continue
+            lvl = t.get("level")
+            if lvl is None or int(lvl) < 1:
+                continue
+            mult = t.get("mult")
+            out[uid] = (int(lvl), None if mult is None else int(mult))
+            break
+    return out
 
 
 def triggered_ability_ids_by_unit(ability_states: dict) -> dict:

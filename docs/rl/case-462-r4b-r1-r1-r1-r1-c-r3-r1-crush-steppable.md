@@ -193,27 +193,26 @@ verra rougir, ce qui est exactement le signal voulu (27 classes à confronter, �
 `tile_effect_dynamics_live` (5), `462_..._bond_removal_live` (4),
 `589r1r1r1r1_empyric_ambush_reset_live` (5), `kill_unit_trigger_channels` (12).
 
-## 9. Résidus ouverts
+## 9. Résidus — les trois sont FERMÉS
 
-* **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r1`** — **l'ÉMISSION des cinq événements de mort du crush**.
-  Le natif publie `On(1)`, `On(2)`, `On(0)`, `On(0x36)`, `On(0x35)` pour un `Steppable` écrasé ; le
-  port n'émet que le dernier, et seulement sur le chemin MOVE. Blast radius **mesuré : 27 classes**
-  (§7), dont plusieurs portées par le MOVER, donc atteignables immédiatement. Le porter exige de
-  confronter chacune — hors du périmètre de cette tranche. Gardé en l'état par
-  `test_les_quatre_evenements_de_mort_restent_non_emis`.
-* **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r2`** — **`RecordDeathReason(..., DamageReason.Steppable = 2)`
-  n'est pas porté pour le crush**. `+0x44` vaut 1 sous `ForSteppable`, donc le natif écrit bien
-  `UnitComponent+0x108` avec le tueur et la raison **2** ; `damage.py::_record_death_reason` n'est
-  appelé que depuis `_fire_death_if_killed`, jamais depuis le crush. Aucun consommateur porté ne lit
-  `death_source` avec `reason == 2` (le seul lecteur natif connu est `HaywireMineSteppableAbility`,
-  résidu `-r3`), donc le régime est vide — mais il le cessera dès que `-r1` ou `-r3` sera porté, et
-  `-r1` sans `-r2` publierait `On(1)` avec un `death_source` **manquant**.
-* **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r3`** — **`HaywireMineSteppable` n'est portée par aucun registre**.
-  Son `CreateTrigger` est lu (§3) et son porteur `astarSmnHaywireMine` est un **SUMMON**, donc
-  confrontable en spawnant son summoner (gate SUMMON du CLAUDE.md) — le second porteur,
-  `astarNpc1HaywireMine`, est npc. Elle dépend de `-r1` (elle écoute `On(1)`) **et** de `-r2` (elle
-  teste `HasDeathReason(..., 2)`) : les trois résidus forment une seule tranche naturelle, et c'est
-  elle qui rendrait l'émission confrontable sur un porteur **réel**.
+`-r1` (émission), `-r2` (`RecordDeathReason(..., DamageReason.Steppable)`) et `-r3`
+(`HaywireMineSteppable`) ont été portés **ensemble**, parce qu'ils ne se confrontent que l'un par
+l'autre : la raison sans l'événement n'est lue par personne, l'événement sans la raison publie un
+`death_source` manquant, et l'ability de la mine est le **seul consommateur natif** du couple — donc
+la seule confrontation live possible sur un porteur réel.
+
+Détail, mesures live (natif vs port) et nouveaux résidus :
+**`docs/rl/case-462-r4b-r1-r1-r1-r1-c-r3-r1-r1-emission-crush.md`**.
+
+⚠ Deux bras de garde de ce fichier ont **changé de sens** à cette occasion, ce qu'ils annonçaient :
+`test_les_quatre_evenements_de_mort_restent_non_emis` est devenu
+`test_les_cinq_evenements_de_mort_sont_emis_au_crush`, et
+`test_aucun_kit_steppable_n_est_inscrit_a_un_registre_d_ability_trigger` est devenu
+`test_les_seuls_kits_steppable_inscrits_sont_les_mines_haywire`. Le régime « 0 kit `Steppable`
+inscrit » de §6 vaut donc pour l'état d'AVANT `-r3` : il en compte **2** aujourd'hui.
+
+⚠ `_kill_steppable_remove_effects` (§4) n'existe plus : la sous-séquence est un sous-ensemble de
+`_kill_unit_operation`, que `_kill_steppable_kill_unit` appelle désormais **en entier**.
 
 ## 10. Non couvert, et nommé
 

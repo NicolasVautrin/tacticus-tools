@@ -166,6 +166,7 @@ from ..loki.neuroparasite import (NeuroparasiteAddBondEffectAbility,     # #462-
                                   NeuroparasiteIncreaseLevelOnPsychicHit,
                                   NeuroparasiteIncreaseLevelOnPinned,
                                   NEUROPARASITE_EFFECT)
+from ..loki.haywire_mine import HaywireMineSteppableAbility             # #462-...-c-r3-r1-r3
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -413,6 +414,16 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/cosmic_horror.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnKillAbility$$CreateTrigger /
     # ...$$CreateBehaviour / IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateTrigger).
     "CosmicHorror": [CosmicHorrorOnKillAbility, CosmicHorrorOnMoveAbility],
+    # HaywireMineSteppable (passif du SUMMON `astarSmnHaywireMine` d'`astarCyrus`, et du npc
+    # `astarNpc1HaywireMine`) = la MINE QUI EXPLOSE quand on marche dessus, #462-...-c-r3-r1-r3 :
+    # `OnPreDeath(ignoreOverkill=1) & OwnerIsTarget & HasDeathReason(Owner, DamageReason.Steppable)
+    # & NOT HasTrait(Actor, Steppable) & IsAlive(Actor) & AreEnemies(Owner, Actor)` ->
+    # `If(HasTrait(Actor, Mechanical), atk1 + atk2, atk1)`, `atk*` =
+    # `AttackWithAbilityDamage(Owner, Actor, RandomAmount(minDmg, maxDmg), <profil>, <coups>)`.
+    # C'est le SEUL consommateur du canal `HasDeathReason(..., Steppable)`, donc la preuve directe
+    # que le crush publie `On(1)` avec sa raison (mesure live : Amount=1403 profil Blast).
+    # Cf. loki/haywire_mine.py.
+    "HaywireMineSteppable": [HaywireMineSteppableAbility],
     # Neuroparasite (passif `tyranNeurothrope` << Neurothrope >> + 6 npc, #462-r4b-r1-r1-r1) = la POSE
     # du parasite : `On(9 = Attack) & OwnerIsCaster & !HasEffect(Target, 0x4c2) & IsUnit(Target) &
     # CurrentAttackDamageProfilesContain(0xd = Psychic) & !(OwnerIsActor & OwnerIsTarget)` ->
