@@ -268,6 +268,87 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   hors `python_files`). Deux volets : hook `pytest_collectreport` à chaque passe, et un balayage
   statique à périmètre dérivé dans le cliquet (le runtime ne voit que ce qu'une passe joue).
 
+## Les DÉFAUTS qui ne crient pas — la liste, sans la machinerie
+
+Chaque ligne est une classe de défaut **mesurée dans ce dépôt**, avec sa signature. Aucune n'émet
+d'erreur ni de crash : c'est ce qui les rend chères. Le probe qui la mesure reste lançable à la
+demande — `python scripts/python/<probe>.py` — mais **aucun n'est une formalité de livraison**.
+
+**Port ↔ natif**
+
+- Une contribution de dégât rangée dans l'accumulateur que le natif ne donne PAS à cette classe :
+  la face est le **slot virtuel de SORTIE**, jamais le porteur. (`probe_437r1r1r1`)
+- Un call-site d'adjacence branché **à moitié** — la porte d'élévation sans l'énumération, quand le
+  natif porte les DEUX étages. Dégradation permissive, donc exploitable par un entraînement.
+  (`probe_433r4r1r4r2`)
+- Supposer l'**absence** de variance d'arme sans avoir lu le byte qui la porte — et ne pas lire la
+  valeur PAR DÉFAUT de chaque porte, qui est ce qui décide. Invisible au grep. (`probe_449r2`)
+- Un effet-trigger qui ne lit pas `EffectComponent.IsActive` alors que son rail natif l'exige, ou
+  l'inverse ; et une classe entrée au registre sans entrer au rail. (`probe_229`, `probe_421`)
+- Un mirror de `EntityExtensions$$HasEffect` dont le substrat contredit le littéral `onlyActive`
+  qu'il cite — visible **seulement** sur un effet PRÉSENT-mais-INACTIF, régime qu'aucun montage
+  naïf n'atteint. (`probe_443r2`)
+- Un consommateur de production qui capte son `decisionView` et repart sur le canal **NU**, qui
+  DROPPE les effets inertes : le port rend FAUX là où le natif rend VRAI. (`probe_443r2b1`)
+- Un mirror `IntEnum` qui n'est plus en bijection avec `enums.tsv` — manquant, mort, ou
+  **RENUMÉROTÉ**. (`probe_313`)
+- Un effet condition-gated **INERTE à la capture** : le canal le droppe, donc le port n'a rien à
+  rallumer quand la simulation le fait entrer dans sa condition.
+  (`probe_366_camo_seed_inventory.py`)
+
+**Littéraux qui périment au changement de build**
+
+- Un ordinal figé en dur qui désigne un AUTRE membre depuis la MAJ — y compris derrière un ALIAS
+  (`step = ev.get("step")` puis `step == 13`) ou une clé de dict, et dans les citations de
+  décompilé en commentaire : **220 invalidées sans qu'une seule ligne change**, donc invisibles à
+  tout déclencheur sur diff. (`probe_283`, `probe_274`, `probe_443r1c`)
+- Un hash de build en dur qui RÉSOUT un artefact du jeu, hors du foyer `build_pin`. (`probe_431`)
+- Une adresse du binaire en dur qui ANCRE un hook : `Interceptor.attach` **RÉUSSIT** sur du code
+  arbitraire, donc ça ne se voit ni à l'erreur ni au crash — seulement à un capteur qui ne fire
+  jamais. (`probe_475`)
+
+**Lire — et DIRE quand on n'a pas pu**
+
+- Un lecteur qui rend `0` au lieu de dire qu'il ne voit pas ; et un chemin `data/<x>` construit qui
+  ne désigne pas une entrée VERSIONNÉE. (`probe_273`, sa propre fidélité : `probe_319`)
+- Un fichier versionné qui importe statiquement une cible **gitignorée ou absente** — le dépôt
+  cesse d'être auto-constructible, et c'est ce qui pousse à fabriquer des junctions destructrices.
+  (`probe_365`)
+- Un `from X import Y` où `Y` n'existe plus, **dans un corps de fonction** : `--collect-only` rend
+  417/417 rc 0 pendant que 10 tests meurent au setup. (`probe_462r5`)
+- Un script frère invoqué par chemin RELATIF dans un `subprocess` **sans `cwd=`** : hors de
+  `scripts/python`, il n'est JAMAIS lancé (rc 2), et la moitié des appelants ne lisaient pas ce rc.
+  (`probe_464`)
+- Une fixture qui patche dans le seed BC une variable que le port lit depuis `gameconfig` :
+  désynchronisation **ARMÉE**, inerte aujourd'hui, fausse demain.
+  (`probe_366_r1_bcpatch_port_blindspot.py`)
+- Les **CINQ** portes du foyer POSITION pour « unité vivante sans position » — n'en balayer qu'une
+  laisse passer les deux tiers des lecteurs. (`probe_366r1_position_readers_census.py`)
+
+**Tests qui ne confrontent rien**
+
+- Un fichier dont le bilan est `passed == 0 and skipped > 0`, **ou dont tous les tests ont
+  disparu** : rc 0, aucune assertion évaluée, et la passe le compte comme un succès. Le
+  discriminant du second cas est la **COLLECTE**, pas la sélection. (`probe_455`)
+- Un test offline **ROUGE en permanence** sur `master` ; et le **VERT VACUEUX** — un test qui passe
+  avec zéro assertion utile parce que son anneau était vide. (`probe_457`)
+- Un `*_live.py` livré ROUGE. ⚠ Un rouge n'accuse l'arbre que s'il a été mesuré sur CET arbre.
+  (`probe_462`)
+- Un répertoire collecté **DEUX fois** par pytest : les fixtures de son conftest disparaissent pour
+  le 3ᵉ argument, et le nodeid est IDENTIQUE — invisible à toute inspection par chaîne.
+  (`probe_391`)
+
+**Balayer sans s'auto-saboter**
+
+- Un balayage qui part de la racine sans exclure `.claude/worktrees` : il lit — et RAPPORTE — le
+  code en cours des autres agents. Le filtre porte sur le chemin **RELATIF** ; par segment sur
+  l'absolu il s'auto-exclut depuis un worktree et rend **0 fichier, verdict vert**. (`probe_440`)
+- Un `git status` de LECTURE qui prend `.git/index.lock` de l'arbre principal depuis un contexte
+  **tuable** : le résidu est LIBRE et de 0 octet, donc indiscernable à l'œil d'un lock vivant, et
+  c'est la commande SUIVANTE qui meurt dessus. (`probe_474`)
+- Ne JAMAIS écrire dans `scripts/python/` pendant un balayage — un voisin énumère le même arbre au
+  même instant. Travailler dans un tmpdir système (`mkdtemp()` **sans** `dir=`).
+
 ## Tu OUVRES un résidu ⇒ tu DEMANDES son numéro, tu ne le choisis pas (#468)
 
 ```powershell
