@@ -1281,6 +1281,49 @@ class DamageHandler:
                 return
         self.last = AttackDamageOperation.execute(
             self.state, msg.attacker_id, msg.target_id, self.spread_pct)
+        # --- #478 les DEUX volets de `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour`. Les
+        # quatre attaques normales CONCRETES `Boltstorm`/`RighteousRepugnance`/`Fealty`/
+        # `TalonOfHorus` frappent des cibles ADDITIONNELLES (le CLEAVE) ; les DEUX PREMIERES
+        # ajoutent en plus un paquet sur la cible PRIMAIRE (`$$GetCustomNormalAttackBehaviour`,
+        # vslot 0x4a8 lu par `ExecuteNormalAttack`) :
+        #     Execute<X> = InformWeapon
+        #                + ExecuteNormalAttack        -> coups d'ARME + le FOLD primaire, meme 0x3d
+        #                + ExecuteAtomic(Foreach(GetAdditionalTargets, Attack), 0x2a)   -> le CLEAVE
+        #                + ExecuteTriggerAbilities
+        # Le rang est celui du natif -- APRES l'attaque primaire (donc apres son `FinishAttack`/
+        # `On(9)`, emis dans l'operation) et AVANT `ExecuteTriggerAbilities` (`On(0x26)`), que le
+        # port joue juste en dessous via `after_hit_normal_attack`. Detail des deux gates (l'ARME
+        # pour le cleave, la POSITION pour le fold) : `abilities/loki/additional_targets.py`.
+        # `self.last is None` couvre le `weapon == null` natif (`Execute<X>` n'est pas atteint) ET
+        # les gates amont ; `ranged` est la nature de l'arme REELLEMENT choisie par
+        # `ALoki_NormalAttackAbility$$FindAttackWeapon`, c'est-a-dire l'entree exacte de la gate
+        # `IsMelee` -- on ne la re-derive pas d'une adjacence.
+        # ⚠ Ce site est le JUMEAU de celui de MV71 ci-dessus : comme lui, il ne couvre que la voie
+        # MESSAGE, pas les ~11 portes qui appellent `AttackDamageOperation.execute` directement
+        # (overwatch, `UseActiveAbility`, summon AI...). Residu `#478-r3`, jumeau non nomme de celui
+        # de MV71 : le natif n'a qu'un site parce que l'ability EST le corps de l'attaque normale.
+        if self.last is not None and _uc is not None:
+            from ..abilities.loki.additional_targets import (cleave_for, selected_weapon_range,
+                                                             execute_additional_targets_attacks)
+            _cl = cleave_for(_apas, active_abilities=_aact, visual_id=_uc.visual_id,
+                             traits=_atra, config_active_abilities=_acfg)
+            if _cl is not None:
+                _wr = None
+                if _cl.needs_weapon_range:
+                    # `Direct(attackWeapon.Range.Value)` : la portee de l'ARME CHOISIE par
+                    # `ALoki_NormalAttackAbility$$FindAttackWeapon`. On la relit par le MEME service
+                    # et avec le MEME argument `dist` que la selection d'arme de l'attaque primaire
+                    # (`damage_ops/normal.py` : `are_tiles_adjacent -> 1 sinon 2`), pour qu'il n'y
+                    # ait qu'UNE selection d'arme par cast, comme au natif.
+                    _wr = selected_weapon_range(self.state, msg.attacker_id,
+                                                self.last.get("target", msg.target_id), _actx)
+                _adds = execute_additional_targets_attacks(
+                    self.state, msg.attacker_id, self.last.get("target", msg.target_id),
+                    _cl, is_melee=not bool(self.last.get("ranged")), weapon_range=_wr)
+                if _adds.get("primary_fold"):
+                    self.last["primary_fold"] = _adds["primary_fold"]
+                if _adds.get("additional_targets"):
+                    self.last["additional_targets"] = _adds["additional_targets"]
         # VECTEUR AFTER-HIT : dispatcher GÉNÉRIQUE de triggers (mirror `EvaluateAfterHitTriggers` →
         # `EvaluateTriggerOperation`). Itère le registre des triggers (traits/effets) ; chaque entrée
         # scope elle-même via sa condition (ex. Psyker OwnerIsActor). No-op si aucun trigger ne matche.
