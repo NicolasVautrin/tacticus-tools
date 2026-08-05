@@ -81,6 +81,10 @@ POSER_MULT = 180
 _EVENTS_MORT = (int(EventTriggerType.PendingDeathAdded), int(EventTriggerType.PreUnitDeath),
                 int(EventTriggerType.PreUnitDeath_2), int(EventTriggerType.UnitDeath),
                 int(EventTriggerType.UnitDefeated))
+# L'evenement des sondes qui n'en ecoutent qu'UN. Sa VALEUR est INDIFFERENTE (ce qui est mesure est
+# le gate d'owner), mais elle doit designer un MEMBRE nomme : le cliquet #283 refuse un ordinal en
+# dur en contexte enum MEME quand il est juste.
+EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)
 
 
 def _ok(r):
@@ -298,14 +302,14 @@ def test_un_porteur_introuvable_atteint_matches_sur_la_face_effet():
             {"name": "SondeEffect", "effectType": int(et), "remaining": 0}, 100, None, None))
         _Sonde.vus = []
         _Sonde.event_ids = ()
-        _Sonde.event_id = 2
+        _Sonde.event_id = EVENT_SONDE
         sauf_gate = CORE._owner_gate_applies
         REG.EFFECT_TRIGGERS[et] = [_Sonde]
         try:
             if forcer_le_gate:
                 CORE._owner_gate_applies = lambda entry: True
             CORE.evaluate_trigger_operation(
-                st, TriggerEvent(2, orphelin, orphelin, ranged=False, profile=None))
+                st, TriggerEvent(EVENT_SONDE, orphelin, orphelin, ranged=False, profile=None))
         finally:
             CORE._owner_gate_applies = sauf_gate
             REG.EFFECT_TRIGGERS.pop(et, None)
@@ -324,7 +328,7 @@ def test_un_porteur_introuvable_atteint_matches_sur_la_face_effet():
 class _SondeAbility(TriggeredAbility):
     """Ability-trigger NU inscrit par la voie REELLE du registre (`TRAIT_TRIGGERS` -> un trait porte
     par une unite). Il note son passage et ne mute rien."""
-    event_id = 2
+    event_id = EVENT_SONDE
     fire_on_death = False
     vus: list = []
 
@@ -370,7 +374,7 @@ def test_le_gate_alive_de_la_face_ABILITY_mord_toujours(env_live):
         REG.TRAIT_TRIGGERS[_TRAIT_SONDE] = [_SondeAbility]      # dict MUTE in-place, jamais rebinde
         try:
             CORE.evaluate_trigger_operation(
-                st, TriggerEvent(2, uid, uid, ranged=False, profile=None))
+                st, TriggerEvent(EVENT_SONDE, uid, uid, ranged=False, profile=None))
         finally:
             REG.TRAIT_TRIGGERS.pop(_TRAIT_SONDE, None)
             _SondeAbility.fire_on_death = False

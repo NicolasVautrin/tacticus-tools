@@ -62,6 +62,10 @@ from engine.runner.operations.triggers.loki import (FIRE_TILE,             # noq
 from engine.dsl.event_trigger_type import EventTriggerType                 # noqa: E402
 
 TICK_ENV = int(EventTriggerType.TurnStart_EnvironmentEffects)   # `On(0x14)` -- le vecteur du DoT
+# L'evenement de la sonde. Sa VALEUR est INDIFFERENTE (ce qui est mesure est le gate d'owner), mais
+# elle doit designer un MEMBRE nomme : le cliquet #283 refuse un ordinal en dur en contexte enum
+# MEME quand il est juste.
+EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)
 _TUILE_SYNTH = 900001
 
 
@@ -72,7 +76,7 @@ class _SondeTrigger(EffectTrigger):
 
     Il ne mute rien : `matches` enregistre le passage puis rend `False`. C'est le capteur du gate --
     si `evaluate_trigger_operation` l'ecarte AVANT `matches`, la liste reste vide."""
-    event_id = 2
+    event_id = EVENT_SONDE
     vus: list = []
 
     def matches(self, state, ev) -> bool:
@@ -115,7 +119,7 @@ def _passages_sonde(et: int, avec_board: bool) -> list:
     try:
         REG.EFFECT_TRIGGERS[et] = [_SondeTrigger]      # le dict EST celui que lit `collect_*`
         CORE.evaluate_trigger_operation(
-            st, TriggerEvent(2, _TUILE_SYNTH, _TUILE_SYNTH, ranged=False, profile=None))
+            st, TriggerEvent(EVENT_SONDE, _TUILE_SYNTH, _TUILE_SYNTH, ranged=False, profile=None))
     finally:
         if sauf is None:
             REG.EFFECT_TRIGGERS.pop(et, None)
@@ -203,7 +207,7 @@ def test_le_gate_d_owner_reste_entier_sur_la_face_ABILITY():
             if forcer_le_gate:
                 CORE._owner_gate_applies = lambda entry: True
             CORE.evaluate_trigger_operation(
-                st, TriggerEvent(2, uid, uid, ranged=False, profile=None))
+                st, TriggerEvent(EVENT_SONDE, uid, uid, ranged=False, profile=None))
         finally:
             CORE._owner_gate_applies = sauf_gate
             if sauf is None:

@@ -37,6 +37,12 @@ from engine.runner.operations.triggers.dispatch import registry as REG   # noqa:
 from engine.runner.operations.triggers.dispatch import core as CORE      # noqa: E402
 
 
+# L'evenement sur lequel la sonde ecoute quand un seul suffit. Sa VALEUR est INDIFFERENTE -- ce qui
+# est mesure est le gate d'owner, pas l'evenement -- mais elle doit designer un MEMBRE nomme (cliquet
+# #283 : un ordinal en dur en contexte enum est refuse MEME quand il est juste).
+EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)
+
+
 def _nom_event(e: int) -> str:
     try:
         return EventTriggerType(int(e)).name
@@ -209,10 +215,10 @@ def step_gate() -> int:
     for libelle, vivant in (("porteur VIVANT", True), ("porteur MORT", False)):
         st, uid = _state_unite_avec_effet(et, vivant=vivant)
         _Sonde.vus = []
-        _sonde_inscrite(et, (2,))
+        _sonde_inscrite(et, (EVENT_SONDE,))
         try:
             CORE.evaluate_trigger_operation(
-                st, TriggerEvent(2, uid, uid, ranged=False, profile=None))
+                st, TriggerEvent(EVENT_SONDE, uid, uid, ranged=False, profile=None))
         finally:
             _sonde_retiree(et)
         resultats.append((libelle, len(_Sonde.vus)))
@@ -225,10 +231,10 @@ def step_gate() -> int:
     st.effects.add_effect(orphelin, EffectFactory.create(
         {"name": "SondeEffect", "effectType": int(et), "remaining": 0}, 100, None, None))
     _Sonde.vus = []
-    _sonde_inscrite(et, (2,))
+    _sonde_inscrite(et, (EVENT_SONDE,))
     try:
         CORE.evaluate_trigger_operation(
-            st, TriggerEvent(2, orphelin, orphelin, ranged=False, profile=None))
+            st, TriggerEvent(EVENT_SONDE, orphelin, orphelin, ranged=False, profile=None))
     finally:
         _sonde_retiree(et)
     resultats.append(("porteur INTROUVABLE (ni entite ni tuile)", len(_Sonde.vus)))

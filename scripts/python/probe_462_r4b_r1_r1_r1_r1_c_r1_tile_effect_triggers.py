@@ -24,11 +24,18 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
 from engine.runner.state import State                                    # noqa: E402
 from engine.runner.operations.triggers.base import (EffectTrigger,       # noqa: E402
                                                     TileEffectTrigger, TriggerEvent)
 from engine.runner.operations.triggers.dispatch import registry as REG   # noqa: E402
 from engine.runner.operations.triggers.dispatch import core as CORE      # noqa: E402
+
+# L'evenement sur lequel la sonde ecoute. Sa VALEUR est INDIFFERENTE -- ce qui est mesure est le
+# gate d'owner, pas l'evenement -- mais elle doit designer un MEMBRE nomme : un ordinal en dur en
+# contexte enum est exactement ce que le cliquet #283 refuse, y compris quand il est juste
+# (`TURN_END = 23` etait exact sur deux builds, et c'est ce qui l'a rendu invisible).
+EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)
 
 
 def _classes_par_effet():
@@ -114,7 +121,7 @@ class _SondeTrigger(EffectTrigger):
 
     Il ne modifie rien : son `matches` enregistre le passage et rend False. C'est le capteur du
     gate d'owner -- si `evaluate_trigger_operation` l'ecarte AVANT `matches`, le compteur reste a 0."""
-    event_id = 2
+    event_id = EVENT_SONDE
     vus: list = []
 
     def matches(self, state, ev) -> bool:
@@ -131,7 +138,8 @@ def _mesure_gate(et: int, avec_board: bool) -> list:
     _SondeTrigger.vus = []
     try:
         REG.EFFECT_TRIGGERS[et] = [_SondeTrigger]                 # MUTATION du dict partage
-        CORE.evaluate_trigger_operation(st, TriggerEvent(2, tid, tid, ranged=False, profile=None))
+        CORE.evaluate_trigger_operation(
+            st, TriggerEvent(EVENT_SONDE, tid, tid, ranged=False, profile=None))
     finally:
         if sauf is None:
             REG.EFFECT_TRIGGERS.pop(et, None)

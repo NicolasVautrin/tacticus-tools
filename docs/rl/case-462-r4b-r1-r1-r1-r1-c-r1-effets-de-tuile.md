@@ -203,11 +203,15 @@ le premier `RemoveEffects(PreUnitRemove)` a tourné et `collect_effect_triggers`
 C'est la seule fenêtre où le gate `alive` mordait, et il y jetait **3 évaluations sur 3**.
 
 **(3) Quels `effect_type` changent réellement ?** — **AUCUN, aujourd'hui**, et c'est la réponse
-utile. Croisement dérivé du registre (`--step registre`) : sur les 54 classes NUES, les seules qui
-écoutent un événement de la fenêtre ont pour owner le **TUEUR**
+utile. Croisement dérivé du registre (`--step registre`, **re-dérivé après le rebase sur #629**, qui
+a fait passer `EFFECT_TRIGGERS` de 31/69 à **32 `effect_type` / 71 classes** — 15 Tile, **56** nues,
+**27** `effect_type` à classes exclusivement nues, **52** classes nues sans `fire_on_death`) : sur
+les 56 classes NUES, les seules qui écoutent un événement de la fenêtre ont pour owner le **TUEUR**
 (`EarlyWarningOverrideReactivateOverwatch`, `On(1)`), le **REVIVEUR** (`ReanimationBeamReviveTrigger`,
 `On(1)`) ou le **porteur du bond** (`BondRemoveOnBondedEntityDeath`, `On(2)`/`On(0x25)`) — toutes
-VIVANTES. Les **deux** classes dont l'owner EST le mourant, `PhoenixGemReviveAbility` (1451) et
+VIVANTES. Les deux classes entrées par #629 ne changent pas ce verdict : `BondRemoveOnRangeExceeded`
+écoute `On(29 = UnitPositionChanged_2)`, hors fenêtre, et `BondRemoveOnBondedEntityDeath` sur
+l'`effect_type` 27 a le même owner (le porteur du bond). Les **deux** classes dont l'owner EST le mourant, `PhoenixGemReviveAbility` (1451) et
 `RitesOfMorkaiReviveTrigger` (1502), déclarent `fire_on_death` : l'échappatoire ad hoc qui compensait
 exactement ce surplus. **La corrélation `fire_on_death == (owner est le mourant)` tient sur tout le
 lot.** La levée rend donc cet attribut **INERTE sur la face EFFET** — elle retire une béquille, elle
@@ -284,6 +288,14 @@ face EFFET et **pas** sur la face ABILITY ; la face ABILITY gate **toujours** un
 **seul** `fire_on_death` l'en dispense ; les trois mesures de gisement (0 clé orpheline sur 10 ;
 **2 unités mortes réelles, 17 effets non consommés, 0 sur un mort** ; 27 kits `Steppable`, 0 adossé
 au registre) ; l'inventaire des 4 `fire_on_death`.
+
+⚠ **Un rouge PRÉEXISTANT trouvé au rebase, et corrigé ici** : `tests/test_enum_ordinal_ratchet_offline.py`
+(cliquet #283) échouait **déjà sur `origin/master`** sur les littéraux `2` en contexte
+`EventTriggerType` des fichiers de `-c-r1` (5 sites, merges par la PR #625) — un ordinal en dur en
+contexte enum, refusé même quand il est juste. Les 11 sites de la famille (5 hérités + 6 de cette
+tranche) passent par une constante nommée `EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)` ;
+le cliquet rend **18 verts**. Sa valeur est indifférente — ce qui est mesuré est le gate, pas
+l'événement — mais elle doit désigner un MEMBRE.
 
 ### 7.6 Matrice de mutants — et ce qu'elle a trouvé de MANQUANT
 
