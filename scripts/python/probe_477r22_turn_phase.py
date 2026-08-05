@@ -11,6 +11,13 @@ CE QU'IL MESURE, ET CE QU'IL COPIE
 appel de `IdunBattle.Operations.StartMatchOperation$$Execute`,
 `processor.<slot 0x16>(TurnStage.Start, false, true)` c'est-a-dire `ContinueTurnPhase`.
 
+⚠ LE NUMERO DE SLOT EST UN REPERE DE CALL-SITE, PAS UNE ATTRIBUTION ETABLIE. `#477-r24-r1` a
+mesure sur `Core.Services.IOperationProcessor` un decalage slot->classe local de 12, INCOMPATIBLE
+avec la lecture de `case-477r20` reprise ici ; une des deux est fausse et rien ne dit laquelle.
+Ce probe n'en depend pas : il identifie les deux operations par leur EMISSION (seuls producteurs
+de `StepType.PrepareTurn` et de `GroupType.StartTurn` dans le binaire), et c'est le FLUX qui
+tranche -- 29 / 29 couples a l'egalite brute.
+
 ⚠ CE BLOC-LA SE RECOLTE HORS DE SON GROUPE, ET C'EST LA MESURE QUI COMPTE. Le `Group=StartTurn`
 n'a qu'UN producteur dans le binaire (`IdunBattle.Operations.StartTurnOperation$$Execute`), et la
 lambda `InputMessageProcessor$$u003CVisitu003Eb__20_0` de `Visit(StartTurnMessage)` atteint

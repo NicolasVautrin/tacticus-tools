@@ -249,7 +249,6 @@ REGISTRE: list[Mirror] = [
     # seul le NOM les separe.
     Mirror("TurnStage", "engine/entities/turn_stage.py",
            "IdunBattle.Entities.Enum.TurnStage"),
->>>>>>> edbd7713 (feat(#477-r22): porter le BLOC 2 de System_StartMatch -- PrepareTurn + StartTurn)
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune

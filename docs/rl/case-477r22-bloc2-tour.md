@@ -38,6 +38,20 @@ IdunBattle.Operations.StartMatchOperation$$Execute
 `ContinueTurnPhase(Start)` depuis `Change` traverse donc **Prepare, Draft, Start** — et c'est ce
 qui met `Action=PrepareTurn` juste avant `Group=StartTurn`, sans rien entre les deux.
 
+⚠ **Les numéros de slot ci-dessus sont des REPÈRES DE CALL-SITE, pas une attribution établie — et
+ce port n'en dépend pas.** `#477-r24-r1` a mesuré sur `Core.Services.IOperationProcessor` un
+décalage slot→classe **local de 12** (trois ancrages concordants dans la zone 96-99),
+**incompatible** avec la lecture de `case-477r20` que cette tranche reprend (`ContinueTurnPhase` au
+slot `0x16` pour la position 26). Une des deux lectures est fausse et **rien ne dit laquelle** :
+une interface IL2CPP n'a aucun corps, donc **0** ligne dans `frida/methods.tsv`, et l'ordre des
+slots ne se lit nulle part hors du metadata.
+Ce qui est établi, et qui suffit : les deux opérations sont identifiées **par leur émission** —
+`PrepareTurnOperation$$Execute` est le **seul** producteur de `StepType.PrepareTurn` du binaire,
+`StartTurnOperation$$Execute` le **seul** de `GroupType.StartTurn` — et le flux les montre
+exactement là où le `switch` les prédit (**29 / 29** couples à l'égalité brute). Si `#477-r24-r1`
+tranche un jour, ce sont les **commentaires de slot** qu'il faudra corriger, pas le code ni les
+mesures.
+
 ### Les deux émissions, lues verbatim
 
 ```

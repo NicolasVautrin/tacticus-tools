@@ -45,6 +45,21 @@ LA CHAINE, lue de bout en bout
           default: return;                                // rien
         }
 
+⚠ L'ATTRIBUTION SLOT -> METHODE CI-DESSUS EST CONTESTEE, ET CE PORT N'EN DEPEND PAS.
+`#477-r24-r1` a mesure sur `Core.Services.IOperationProcessor` un decalage slot->classe **local**
+de 12 (trois ancrages concordants dans la zone 96-99), **incompatible** avec la lecture de
+`case-477r20` que ce module reprend (`ContinueTurnPhase` au slot `0x16` pour la position 26). Une
+des deux lectures est fausse et rien ne dit laquelle : les methodes d'une INTERFACE n'ont aucun
+corps, donc aucune ligne dans `frida/methods.tsv`, et l'ordre des slots ne se lit nulle part hors
+du metadata. Les numeros de slot ci-dessous sont donc cites comme REPERES DE CALL-SITE, jamais
+comme une attribution etablie.
+CE QUI, LUI, EST ETABLI, ET QUI SUFFIT A CE PORT : les DEUX operations sont identifiees par leur
+EMISSION, pas par un mapping de slot -- `PrepareTurnOperation$$Execute` est le seul producteur de
+`StepType.PrepareTurn` du binaire, `StartTurnOperation$$Execute` le seul de `GroupType.StartTurn`,
+et le flux les montre exactement la ou le `switch` les predit (29 / 29 couples a l'egalite brute,
+#477-r22). Si `#477-r24-r1` tranche un jour contre `case-477r20`, ce sont les COMMENTAIRES de slot
+qu'il faudra corriger, pas le code.
+
 ⚠ LES DEUX CHAMPS `+0x10` / `+0x14` SONT LUS PAR LEUR OFFSET, PAS PAR LEUR NOM -- et c'est
 obligatoire. Leurs deux setters sont des corps TRIVIAUX (`mov [rcx+off], edx ; ret`) qu'IL2CPP
 DEDUPLIQUE : Ghidra les nomme `VoxelBusters.CoreLibrary.NativePlugins.DateComponents$$set_Year`
@@ -214,6 +229,11 @@ def start_turn(events: StreamDispatcher, match_entity_id: int, previous_player_i
 #: `Core.Services.IOperationProcessor` dans les 121 502 lignes de la table. L'attribution des
 #: quatre premieres est donc etablie par RECOUPEMENT (arite + nom de l'implementation +
 #: emission observee), et la cinquieme (`0x19`) est laissee NON IDENTIFIEE plutot que devinee.
+#: ⚠ ET LE MAPPING GLOBAL EST OUVERTEMENT CONTESTE (`#477-r24-r1`, cf. docstring du module) : les
+#: numeros en commentaire de fin de ligne sont des REPERES DE CALL-SITE. Ce qui identifie chaque
+#: operation ici est son EMISSION -- seul producteur de `StepType.PrepareTurn` d'un cote, seul
+#: producteur de `GroupType.StartTurn` de l'autre -- et cette identification-la, le flux la
+#: confirme.
 OPERATION_PAR_STAGE: Dict[TurnStage, str] = {
     TurnStage.Change: "IdunBattle.Operations.ChangeTurnOperation$$Execute",       # slot 0x17
     TurnStage.Prepare: "IdunBattle.Operations.PrepareTurnOperation$$Execute",     # slot 0x18
