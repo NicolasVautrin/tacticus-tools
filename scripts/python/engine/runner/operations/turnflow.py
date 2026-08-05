@@ -51,7 +51,8 @@ from typing import Optional
 
 from ..state import State
 from ..components import (OwnerComponent, UnitComponent, ShieldComponent, StatsComponent,
-                          UnitFlagsComponent, PositionComponent, reset_tiles_moved_this_turn)
+                          UnitFlagsComponent, PositionComponent, reset_tiles_moved_this_turn,
+                          is_machine_of_war, ActiveAbilitiesComponent)
 from ...entities.stats import StatType
 from .triggers import (start_turn_triggers, turn_start_other_triggers, tile_tick_triggers,
                        first_aid_heal)
@@ -600,7 +601,6 @@ def _can_move(state: State, unit_id: int) -> Optional[bool]:
     Rend `False` (certain), `True` (aux trois etages lus), ou `None` si l'entite n'est pas lisible.
     """
     from ...entities.traits.unit_trait import UnitTrait, has_trait
-    from ..components import is_machine_of_war
     e = state.get_entity(int(unit_id))
     if e is None:
         return False                      # `unit == null` -> false
@@ -735,7 +735,6 @@ def has_action_available(state: State, unit_id: int,
     stop-set), et la liste native se reduit a la seule `GetMainTile`. Le garde ci-dessous rend le
     raisonnement EXECUTABLE plutot que verbal : si le set n'est pas vide, un `False` ne serait pas
     certain (le natif jugerait depuis d'autres tuiles) -> `None`."""
-    from ..components import ActiveAbilitiesComponent
     from ..abilities.targeting import valid_normal_attack_targets, normal_attack_type_for
     from .repair import _is_boss
     e = state.get_entity(int(unit_id))
@@ -934,7 +933,6 @@ class VerifyUnitsTurnFinishedOperation:
 
         `turn.<+0x24> != 1` (la bataille doit etre en cours) n'a pas de substrat offline : un `State`
         de runner est par construction une bataille en cours."""
-        from ..components import is_machine_of_war
         cur = state.current_player_id
         results: list[dict] = []
         marked = unmarked = undetermined = machines = 0
