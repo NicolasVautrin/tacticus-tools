@@ -3111,9 +3111,14 @@ def caster_is_possible_target(state: "State", caster_id: int, ability) -> bool:
     `TargetIsAtRange` ne rendent JAMAIS la source d'eux-memes.)
 
     UN SEUL FOYER : la cascade est portee par `engine.services.ability_range`, et cette fonction lui
-    DELEGUE (`tiles_in_range_zone_contains(..., distance=0)`) au lieu d'en ecrire un second corps.
-    Le repli n'existe que pour une ability dont `ABILITY_ID` est absent (masque transporte nu, cf.
-    `_BareOptionsAbility`) : la delegation a besoin de l'id pour retrouver le `TargetingRange`.
+    DELEGUE (`zone_contains_for_options(..., distance=0)`) au lieu d'en ecrire un second corps.
+
+    ⚠ LA DELEGATION PASSE LE MASQUE, PAS SEULEMENT L'ID -- et c'est un DEFAUT MESURE, pas un detail
+    de style : `tiles_in_range_zone_contains(ability_id, ...)` RECHARGE le masque du registre depuis
+    l'id, donc un masque MUTE par l'appelant (contre-epreuve qui desarme le bit 15, override
+    runtime) etait silencieusement ignore -- la contre-epreuve rendait alors un VERT qui n'exercait
+    rien. L'`ability_id` n'est passe que pour resoudre le `TargetingRange` (`UseRangeFromConfig` lit
+    la config de l'ability) ; `None` est admis et laisse `_range_terms` decider.
 
     `False` quand le masque n'est pas RE-lu (`TARGETING_OPTIONS is None`) -- meme convention
     permissive que le reste du module : on n'invente ni un ajout ni un refus."""
@@ -3125,10 +3130,9 @@ def caster_is_possible_target(state: "State", caster_id: int, ability) -> bool:
     if options.has(TR.CasterIsPossibleTarget) or options.has(TR.TargetIsCasterOrEnemy):
         return True
     aid = getattr(ability, "ABILITY_ID", None)
-    if aid is None:
-        return False
-    from engine.services.ability_range import tiles_in_range_zone_contains
-    return bool(tiles_in_range_zone_contains(int(aid), _visual_id(state, caster_id), 0))
+    from engine.services.ability_range import zone_contains_for_options
+    return bool(zone_contains_for_options(options, None if aid is None else int(aid),
+                                          _visual_id(state, caster_id), 0))
 
 
 def caster_is_valid_target(state: "State", caster_id: int, ability,
