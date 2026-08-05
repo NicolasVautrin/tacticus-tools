@@ -44,8 +44,33 @@ predicat VRAI, donc `MachineOfWarPosition(joueur courant) == 2`. La BC du runner
 Le fallback natif n'est PAS un defaut raisonnable : balayage des 675 boards du depot (le dump que
 `_load_board_dump` retiendrait, sur son `spawnPointsSet` paire) -- **502 declarent (0, 0)** et
 **173 declarent (2, 1)**. Appliquer le fallback sans avoir lu le groupe serait donc faux sur ~74 %
-des plateaux. Le port ne devine pas : il lit les groupes quand on les lui donne, et rend `None`
+des plateaux.
+
+⚠ Ce « 502 » compte les ids qui portent `(0, 0)` **EXCLUSIVEMENT**. Re-mesure #302-5 : `data/boards`
+porte **779 fichiers** pour **675 ids**, **552** ids portent `(0, 0)` dans au moins un pool, **173**
+portent `(2, 1)`, et **50 ids portent les DEUX selon le pool** (`552 + 173 - 50 = 675`). Pour ces 50,
+`--board <id>` ne suffit pas a fixer la valeur : le `--board-pool` la change. Les trois comptes sont
+re-derivables par `probe_302_5_mow_position_channel.py --boards` -- ne pas citer cette ligne. Le port ne devine pas : il lit les groupes quand on les lui donne, et rend `None`
 (= inconnu) sinon (cf. `engine.ai.context.AiDecisionContext.machine_of_war_position`).
+
+CE MIRROR N'EST PLUS LE PREMIER CANAL (#302 tranche 5)
+------------------------------------------------------
+`boardGraph.mowPositions` (#311) publie le retour de `GetPositionMachineForPlayer(player)`
+**INVOQUE** par joueur sur le runner. `AiDecisionContext` le lit en priorite, et c'est plus fidele
+que ce module sur un point PRECIS : le natif tire `playerNr` du `Nullable` rendu par
+`StateExtensions$$GetTeam(state)` (`local_res10 >> 0x20` au decompile), la ou `team_with_player_index`
+le **defaut a 0**. Ce mirror reste la SEULE voie du chemin OFFLINE (`build_from_state`, sans RPC),
+et le TEMOIN qui permet de confronter le canal.
+
+Concordance MESUREE (2026-08-06, build `rnca9r7q6c`) : **6/6** valeurs identiques au natif sur deux
+boards, dont le regime DISCRIMINANT. Elle tranche aussi le residu de #311 (« on ne peut pas
+distinguer "lit la declaration" de "le repli a tire" ») : sur `C1_01`, qui declare (0, 0), le natif
+rend **0/0** quand le repli seul rendrait **2/1** -> `GetPositionMachineForPlayer` **LIT la
+declaration du groupe**.
+
+Corollaire mesure, qui explique pourquoi le repli `decisionView.mows` ne pouvait pas suffire : un
+groupe declarant `MachineOfWarPosition.None_` ne deploie **aucune** MoW, donc `mows` est **vide**
+exactement sur les plateaux ou le natif diverge du fallback.
 """
 from __future__ import annotations
 

@@ -186,8 +186,13 @@ reçoit que la `Scene` — c'est la raison d'être du champ.
 ⚠ **Piège d'OUTILLAGE, et il a coûté une passe de mesure** : `probe_344._ctx` n'appelle pas
 `AICTX.build(..., spawn_groups=…)`. Sans les groupes, la cascade retombe sur le slot d'une MoW
 **déployée** (`decisionView.mows`) — et un montage GREFFÉ n'en a aucune → `None` → `dir = 4`. Le
-probe lit donc les `SpawnPointGroups` dans le state-file du build (`_ctx_with_groups`), résidu
-d'outillage déjà nommé par `case-302` (aucun RPC ne les expose par runner).
+probe lit donc les `SpawnPointGroups` dans le state-file du build (`_ctx_with_groups`).
+
+> ⚠ **RECTIFICATIF (#302 tranche 5)** : cette ligne ajoutait « aucun RPC ne les expose par runner »,
+> et c'est **FAUX** — `boardGraph.mowPositions` publie depuis `#311` le retour de
+> `IdunBattle.Core.Services.BattleQuery$$GetPositionMachineForPlayer(player)` **invoqué**.
+> `AICTX.build` le lit désormais seul : le montage explicite reste valide (et sert de TÉMOIN), mais
+> ce n'est plus une nécessité.
 
 Mesures (`probe_350r3_mow_caster.py --step 6|7`), natif / port AVANT / port APRÈS. Montage :
 1148 greffée sur `deathBlightbringer`, deux ennemis d'armures **pilotées** (0 et 500) et niveau 50 —
