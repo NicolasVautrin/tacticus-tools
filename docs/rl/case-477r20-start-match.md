@@ -109,9 +109,11 @@ natif**, pas du port.
 
 **Les deux scénarios de généralisation portent la preuve, chacun sur un axe** :
 
-- le **régime long** (4 tours) double le flux (2 776 → 4 502 lignes, 40 → 70 groupes racines) et
-  ne change **rien** au groupe ni aux quatre prédictions — A3 et A4 restent vraies alors que le
-  flux compte désormais **6** `StartTurn` racines et **7** `PrepareTurn` de profondeur 0 après lui ;
+- le **régime long** (4 tours) fait passer le flux de **2 776 à 4 502 lignes** et de **40 à 70**
+  groupes racines, et ne change **rien** au groupe (477 / 474, aux mêmes numéros de ligne 1153 et
+  1157 pour A4 et A3) ni aux quatre prédictions. C'est ce qui compte pour A3/A4 : elles portent sur
+  la **première** occurrence du flux entier, donc plus le flux s'allonge après le groupe, plus
+  elles auraient d'occasions de tomber ;
 - le **roster crafté** (`adeptHospitaller,astraBullgryn` vs `blackTerminator,worldJakhal`) fait
   varier le **contenu d'un facteur 3,7** (521 → 142 lignes, 44 → 12 `Effect_Refresh`, 30 → 13
   `Ability_Power`) — et l'enveloppe est **caractère pour caractère la même**. C'est ce qui montre
