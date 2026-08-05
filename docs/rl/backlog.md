@@ -2286,28 +2286,36 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `probe_319` (`_CASES`, 8 mutations manuelles qui ne se dérivent pas des étapes de `probe_273`) ;
   `probe_273` (`_OUTPUT_ROOTS` non gardée) ; `probe_366camo` (`POSE_VECTOR` sans garde de fraîcheur).
 
-- **#477-r1 : le contenu REEL de l'output stream natif n'a jamais ete observe.** `[opus]`
-  **CAUSE TROUVEE, remede livre, NON CONFRONTE -- il ne reste qu'a JOUER le probe dans une
-  fenetre de reinject.** L'affirmation << deja disponible sur nos runners, `IdunRunner.Initialize`
-  appelle toujours `SetupReplayRecorder` >> etait **FAUSSE** : l'appel est sous garde sur
-  `IdunRunnerOptions.RecordReplay` (que le ctor natif met a `true`), et `buildRunner` ecrivait `0`
-  a cet offset pour TOUS nos runners. Mesure du 2026-08-04 : flux `0 / 0 pas / 0 evenement PRNG`
-  avec les quatre `true` de `replayOutputStreamStatus()` -- ces `true` mesuraient la resolution de
-  symboles, pas l'armement. Correctif livre (`buildRunner({recordReplay})`, `initAndStart`,
-  `rl_duel build --record-replay`, `recorderArmed` mesure sur `ReplayRecorder._playerIndicesToRecord`).
-  A jouer des la fenetre : `python scripts/python/probe_477r1_replay_output_stream.py --session <sid>
-  --board C1_70` (temoin desarme / bras arme ; rc 3 = bundle antererieur au correctif). La
-  GRANULARITE du texte reste non etablie -- squelette du format derive en sec. 10.7, gabarits
-  `String.Format` toujours illisibles offline. cf. `docs/rl/case-477-harnais-de-test-natif.md` sec. 10.
-
 - **#477-r10 : nommer le type de message qui CONTOURNE le filtre par joueur de
   `ReplayRecorder$$Listen`.** `[opus]` Le filtre ecarte tout message dont le `playerIndex` courant
   n'est pas dans `playerIndicesToRecord` (= `[11]` chez nous), SAUF pour un type dont le nom n'est
   pas resolu (cache de classe IL2CPP, aucun `new` nomme sur le chemin ; co-utilise par
   `ReplayMessageDto$$.ctor` et `IdunBattleLogic.Synchronous.SynchronousRunner$$Listen`/`Block`/
-  `ExecuteGameAction`). Sans lui, on ne predit pas si un message joue pendant le tour du joueur `12`
-  cree un `ReplayStep`. L'etape 3 de `probe_477r1_replay_output_stream.py` le MESURE.
+  `ExecuteGameAction`).
+  ⚠ **Reduit par la mesure #477-r11** : `CheatRunAIMessage` n'en fait PAS partie -- joue pendant le
+  tour du joueur 12, il produit des milliers de caracteres de flux et **aucun pas** (mesure sur
+  deux boards, `case-477r11` sec. 7). Reste a nommer le type qui, lui, contourne : `replaySteps`
+  (livre, non confronte -- #477-r12) rend `ReplayStep.InputMessage` NOMME et repondra d'un coup.
   cf. `docs/rl/case-477-harnais-de-test-natif.md` sec. 10.6 / 10.8.
+
+- **#477-r12 : confronter `replaySteps` / `replayRngEvents`, livres et jamais executes.** `[opus]`
+  `frida/hooks/features/replay-output-stream.ts` -- donc **fenetre de reinject**. Ils donnent les
+  deux choses que #477-r11 n'a pu qu'approcher : le **contenu** d'un evenement PRNG
+  (`IdunBattle.Utils.PRNG.RngEvent` porte `Event`/`Output`/`StackTrace`/`Index` -- disposition
+  mesuree en live ; le RPC actuel ne rend que le compte), et la **decoupe en pas nommee par son
+  message** (mesuree jusqu'ici par delta de `stepCount`). RETOURNEMENT : sur un runner arme,
+  `replaySteps` rend un `messageCls` non nul par pas et `recordedPlayerIds == [11]`.
+  cf. `docs/rl/case-477r11-format-du-flux-de-replay.md` sec. 8.
+
+- **#477-r13 : la couverture observee du vocabulaire de stream est un PLANCHER.** `[opus]`
+  Sur deux batailles : **16 / 104** `IdunBattle.Streams.GroupType`, **21 / 62** `StepType`,
+  **83 / 244** `TagKey`. La grammaire tient a **0 ligne hors des 4 formes** sur 2 573 -- mais rien
+  ne dit que les 88 types de groupe jamais vus la respectent, notamment `Ability_AtomicGroup`,
+  `DamageChain`, `System_UnitDrafting`, `TerritoryCapture` et les ~50 groupes nommes par ability.
+  `AbilityVariableAmount` (TagKey 189), que `Runner.Cheats.AbilityVariableAmountCheat` reconnait,
+  n'a ete observe dans AUCUN scenario. RETOURNEMENT : balayer des scenarios cibles (`--equip-relic`,
+  MoW, summons, ability a variable) et garder l'etape 1 du probe a **0 ligne non parsee**.
+  cf. `docs/rl/case-477r11-format-du-flux-de-replay.md` sec. 2.
 
 - **#477-r9 : `BattleConfiguration.StartingActions` (@0xc0) est IGNORE par la deserialisation.** `[opus]`
   MESURE avec temoin (`probe_477_bc_montage_leviers.py` etape 1) : un scalaire pose sur

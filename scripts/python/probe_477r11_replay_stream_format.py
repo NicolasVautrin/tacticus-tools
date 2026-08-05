@@ -118,6 +118,49 @@ OBSERVE_FIELD_CARRIER: dict[str, str | None] = {
     "rank": None,
 }
 
+# APPARIEMENT EXPLICITE `IdunBattle.Entities.Enum.StatType` -> `TagKey` porteur.
+# ECRIT lui aussi, et pour la meme raison : un critere par sous-chaine de nom
+# rendait 8 stats « sans porteur » dont SIX etaient fausses -- `CriticalChance`
+# est porte par `UnitStats_CritChance` (abrege), `PassiveAbilityLevel` par
+# `UnitStats_TriggeredAbility_Level` (Passive == Triggered dans ce jeu). Un
+# recenseur qui apparie par le NOM se trompe des que le natif abrege ou renomme.
+# `None` = aucun porteur. "MODIF_SEULE" = le flux ne porte QUE la modification
+# appliquee, jamais la valeur courante -- un comparateur ne peut donc pas
+# verifier la stat elle-meme.
+MODIF_SEULE = "MODIF_SEULE"
+STAT_TYPE_CARRIER: dict[str, str | None] = {
+    "Attack": "UnitStats_Attack",
+    "Movement": "UnitStats_Movement",
+    "Range": "UnitStats_Range",
+    "Defense": None,
+    "Armor": "UnitStats_RemainingArmor / UnitStats_MaxArmor",
+    "Health": "UnitStats_RemainingHealth / UnitStats_MaxHealth",
+    "Shield": "Shields_InitialAmount / Shields_RemainingAmount",
+    "BlockChance": "UnitStats_BlockChance",
+    "BlockDamage": "UnitStats_BlockDamage",
+    "CriticalChance": "UnitStats_CritChance",
+    "CriticalDamage": "UnitStats_CritDamage",
+    "UNUSED_1": "(membre inutilise)",
+    "TurnsStarted": "Match_AmountOfTurnsStartedByCurrentPlayer (par JOUEUR, "
+                    "pas par unite)",
+    "PassiveAbilityLevel": "UnitStats_TriggeredAbility_Level",
+    "PassiveAbilityVariableMultiplierPercentage":
+        "UnitStats_TriggeredAbility_VariableMultiplierPercentage",
+    "EvasionChance": None,
+    "FixedArmor": "UnitStats_FixedArmor",
+    "ExtraHits": MODIF_SEULE,
+    "ActiveAbilityLevel": "UnitStats_ActiveAbility_Level",
+    "ActiveAbilityVariableMultiplierPercentage":
+        "UnitStats_ActiveAbility_VariableMultiplierPercentage",
+    "NumberOfMembers": "UnitStats_NumberOfMembers",
+    "ExtraPierceMelee": MODIF_SEULE,
+    "ExtraPierceRanged": MODIF_SEULE,
+    "ExtraHitsMelee": MODIF_SEULE,
+    "ExtraRange": MODIF_SEULE,
+    "ExtraMaxDamage": MODIF_SEULE,
+    "ExtraPierce": MODIF_SEULE,
+}
+
 # --- GRAMMAIRE, derivee du producteur -------------------------------------
 # `StreamCache.StartGroup` -> une ligne de groupe ; `.Action` -> une ligne
 # d'action a depth+1 puis un `Tag=` par entree du SortedDictionary a depth+2 ;
@@ -518,15 +561,37 @@ def main() -> int:
                                ", ".join(sorted(inconnus))[:200]))
     print("  (les NON OBSERVES sont ecrits dans le rapport ci-dessous)")
 
-    # (a) STATS SANS PORTEUR -- derive, pas juge a l'oeil : pour chaque membre
-    #     de `StatType`, existe-t-il un `TagKey` qui le nomme ?
+    # (a) STATS SANS PORTEUR -- par table EXPLICITE, jamais par nom.
     stat_enum = load_enum(build, "IdunBattle.Entities.Enum.StatType")
     tag_names = set(tag_enum.values())
     tag_blob = " ".join(tag_names)
-    stats_sans_porteur = [s for s in sorted(set(stat_enum.values()))
-                          if s not in ("UNUSED_1",) and s not in tag_blob]
-    print("  StatType natif : %d membres ; SANS aucun TagKey qui les nomme : %s"
-          % (len(stat_enum), ", ".join(stats_sans_porteur) or "(aucun)"))
+    stats = sorted(set(stat_enum.values()))
+    stats_inconnues = [s for s in stats if s not in STAT_TYPE_CARRIER]
+    stats_sans_porteur = [s for s in stats
+                          if s in STAT_TYPE_CARRIER
+                          and STAT_TYPE_CARRIER[s] is None]
+    stats_modif_seule = [s for s in stats
+                         if STAT_TYPE_CARRIER.get(s) == MODIF_SEULE]
+    print("  StatType natif : %d membres." % len(stat_enum))
+    print("    AUCUN porteur dans le flux : %s"
+          % (", ".join(stats_sans_porteur) or "(aucune)"))
+    print("    MODIFICATION seule (valeur courante JAMAIS rapportee) : %s"
+          % (", ".join(stats_modif_seule) or "(aucune)"))
+    if stats_inconnues:
+        # Meme cliquet que pour `observeBattle` : une stat neuve doit forcer
+        # une decision d'appariement, jamais passer pour « comparee ».
+        rc = 1
+        verdicts.append("COUVERTURE: %d membre(s) de StatType ABSENT(S) de la "
+                        "table d'appariement : %s -- completer "
+                        "STAT_TYPE_CARRIER." % (len(stats_inconnues),
+                                                ", ".join(stats_inconnues)))
+    verdicts.append(
+        "COUVERTURE (stats): sur les %d membres de `StatType`, %d n'ont AUCUN "
+        "porteur dans le flux (%s) et %d ne sont portees QUE par leur "
+        "modification (%s) -- leur valeur courante n'est jamais rapportee."
+        % (len(stat_enum), len(stats_sans_porteur),
+           ", ".join(stats_sans_porteur) or "-", len(stats_modif_seule),
+           ", ".join(stats_modif_seule) or "-"))
 
     cov = OUT / ("replay-stream-couverture-%s.txt" % stamp)
     with cov.open("w", encoding="utf-8") as fh:
@@ -543,9 +608,16 @@ def main() -> int:
             for k, v in names:
                 fh.write("  %-4d %-4s %s\n" % (k, "OBS" if v in obs else "-", v))
             fh.write("\n")
-        fh.write("== StatType (%d) sans TagKey porteur ==\n" % len(stat_enum))
-        for s in stats_sans_porteur:
-            fh.write("  %s\n" % s)
+        fh.write("== StatType (%d) -> porteur dans le flux ==\n" % len(stat_enum))
+        for s in stats:
+            p = STAT_TYPE_CARRIER.get(s, "<<NON APPARIE>>")
+            fh.write("  %-45s %s\n"
+                     % (s, p if p else "AUCUN PORTEUR DANS LE FLUX"))
+        fh.write("\n== observeBattle -> porteur dans le flux ==\n")
+        for k in sorted(OBSERVE_FIELD_CARRIER):
+            p = OBSERVE_FIELD_CARRIER[k]
+            fh.write("  %-12s %s\n"
+                     % (k, p if p else "AUCUN PORTEUR DANS LE FLUX"))
     print("  inventaire complet ecrit dans %s" % cov)
 
     # --- Etape 3 : DETERMINISME -------------------------------------------

@@ -575,11 +575,17 @@ FinishGroup()  -> depth-- ; Log(<littéral FIN>) ; flush si depth == 0
 Log(msg, extraTab) -> (depth + extraTab) tabulations + msg, ajouté à _sb ET diffusé ligne à ligne
 ```
 
-⇒ **texte indenté par tabulations, arbre de groupes, un tag par ligne, ordre de tags
-déterministe**. Les **gabarits** (`String.Format`) et le littéral de tabulation sont des
-**littéraux IL2CPP** : illisibles de Ghidra (`include_strings` rend `[]`), et le parsing de
-`global-metadata.dat` v39 reste non résolu (§7). **Le format exact reste donc à LIRE sur un flux
-réel** — c'est l'étape 4 du probe.
+⇒ **texte indenté, arbre de groupes, un tag par ligne, ordre de tags déterministe**. Les
+**gabarits** (`String.Format`) sont des **littéraux IL2CPP** : illisibles de Ghidra
+(`include_strings` rend `[]`), et le parsing de `global-metadata.dat` v39 reste non résolu (§7).
+
+> ⚠ **LU depuis, et une déduction de ce squelette était FAUSSE** (#477-r11, 2026-08-05) :
+> l'indentation est de **QUATRE ESPACES** par niveau, pas des tabulations — ce paragraphe disait
+> « tabulations » parce que le littéral n'était pas lisible. Le séparateur de ligne est **LF**.
+> Et `Action=` existe **à profondeur 0**, hors de tout groupe (`PrepareTurn`, `ChangeStats`,
+> `FinishMatch`) : `StreamCache.Action` n'exige aucun groupe ouvert.
+> **Grammaire complète, vocabulaire, déterminisme, canal PRNG et découpage** :
+> `docs/rl/case-477r11-format-du-flux-de-replay.md`.
 
 ### 10.8 Ce que je n'ai pas tranché
 
@@ -593,15 +599,25 @@ réel** — c'est l'étape 4 du probe.
 
 ## Résidus
 
-- **#477-r1** — **CAUSE TROUVÉE, remède livré, NON CONFRONTÉ** (§10). Le flux était vide parce que
-  `buildRunner` écrivait `IdunRunnerOptions.RecordReplay = 0` : `SetupReplayRecorder` n'a jamais
-  tourné sur aucun de nos runners. Reste à jouer, **dans une fenêtre de reinject** :
-  `python scripts/python/probe_477r1_replay_output_stream.py --session <sid> --board C1_70`.
-  Tant que le flux n'est pas lu, sa **granularité** reste une hypothèse étayée, pas un fait.
+- ~~**#477-r1**~~ — **RÉSOLU (2026-08-05)**. La cause était bien celle du §10 (`buildRunner`
+  écrivait `IdunRunnerOptions.RecordReplay = 0`), le correctif est déployé, et le flux a été **LU** :
+  `probe_477r1_replay_output_stream.py --session <sid> --board C1_70` rend **rc 0**, 23 020
+  caractères, 4 pas, témoin désarmé vide et nommé. La **granularité** n'est plus une hypothèse —
+  elle est mesurée, et le §10.6 est **confirmé**. Format complet :
+  `docs/rl/case-477r11-format-du-flux-de-replay.md`.
 - **#477-r10** — Nommer le type de message qui **contourne** le filtre par joueur de
   `ReplayRecorder$$Listen` (§10.8). Cache de classe IL2CPP sans `new` nommé sur le chemin ;
   co-utilisé par `ReplayMessageDto$$.ctor` et `SynchronousRunner$$Listen`/`Block`/`ExecuteGameAction`.
-  Sans lui, on ne prédit pas si un message joué pendant le tour du joueur `12` crée un pas.
+  ⚠ **RÉDUIT par la mesure #477-r11** : `CheatRunAIMessage` n'en fait PAS partie — joué pendant le
+  tour du joueur 12 il produit des milliers de caractères de flux et **aucun pas**, sur deux boards.
+  Le RPC `replaySteps` (livré, #477-r12) rend `ReplayStep.InputMessage` **nommé** et répondra d'un coup.
+- **#477-r11** — **RÉSOLU** : grammaire, vocabulaire dérivé, déterminisme (identique au caractère
+  près, avec contre-épreuve), canal PRNG et découpage.
+  `docs/rl/case-477r11-format-du-flux-de-replay.md`.
+- **#477-r12** — **Confronter `replaySteps` / `replayRngEvents`** (livrés, jamais exécutés ; fenêtre
+  de reinject). Ils donnent le CONTENU des événements PRNG et la découpe **nommée par son message**.
+- **#477-r13** — La **couverture observée** du vocabulaire de stream est un plancher (16/104 groupes,
+  21/62 actions, 83/244 tags sur deux batailles).
 - **#477-r2** — Lire les ~12 `Runner.Cheats.*::get_OutputStreamTextPattern` pour dériver le format
   des lignes **offline**, sans dépendre de la fenêtre. ⚠ **Ré-essayé et re-échoué** : le getter
   construit un `Nullable<LinePattern>` dont le texte vient d'un **slot de littéral IL2CPP**
