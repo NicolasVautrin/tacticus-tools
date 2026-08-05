@@ -6,6 +6,7 @@
   "scripts": {
     "build:hooks": "node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && frida-compile hooks/main.ts -o dist/hooks.js",
     "build:host": "tsc -p tsconfig.host.json",
+    "typecheck:tools": "tsc -p tsconfig.tools.json",
     "build": "npm run build:hooks && npm run build:host",
     "dev": "tsx host/index.ts",
     "watch:hooks": "node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && frida-compile hooks/main.ts -o dist/hooks.js -w"
