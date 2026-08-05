@@ -28,9 +28,16 @@ l'oracle. Chaque grandeur comparee vient donc d'ailleurs :
                                        qu'il EST le `Entity=` du flux (5/5 unites, 2 boards) ;
   proprietaire / position d'unite   <- `observeBattle` (playerId, col, row) ;
   stats de `ChangeStats`            <- `combatSnapshot` (`GetStat` par `StatType`, `unitFlags`,
-                                       `traits`) et `observeBattle` (hp/hpMax, armor/armorMax,
-                                       champs bruts `RemainingValue@0x18` / `MaximumValue@0x14`
-                                       du `FillUpStatComponent`) ;
+                                       `traits`) et `observeBattle` (hp / armor, les champs
+                                       BRUTS `RemainingValue@0x18` du `FillUpStatComponent`, que
+                                       les tags 2 et 3 lisent tels quels) ;
+  `UnitStats_Max{Health,Armor}`     <- `combatSnapshot.healthMax` / `.armorMax` (#477-r15-r7) =
+                                       `GetStat(.., StatPart.Maximum)`, dont
+                                       `FillUpStatComponent$$GetStatPart` case 2 EST
+                                       `get_CurrentMaximumValue()`. AVANT cette tranche, les deux
+                                       venaient d'`observeBattle.hpMax` / `.armorMax`, le champ
+                                       brut `MaximumValue@0x14` -- une TROISIEME lecture, egale
+                                       aux tags par construction au deploiement seulement ;
   `UnitStats_Range`                 <- `combatSnapshot.stats.range` (#477-r15-r4) =
                                        `GetStat(unit, StatType.Range, StatPart.Current)`, dont
                                        `StatComponent$$GetStatPart` case 0 EST
@@ -240,15 +247,18 @@ def _stat(u_cs: dict, nom: str) -> int:
     return int(stats[nom])
 
 
-def _champ_unite(u_cs: dict, nom: str) -> int:
+def _champ_unite(u_cs: dict, nom: str, capteur: str) -> int:
     """Un champ de NIVEAU UNITE de `combatSnapshot` (hors du dict `stats`), en tri-etat.
 
     `null` = PAS MESURE (le capteur n'a pas resolu), jamais rabattu sur une valeur : c'est
-    exactement le regime ou le port se remettrait a copier l'oracle sans le dire."""
+    exactement le regime ou le port se remettrait a copier l'oracle sans le dire.
+
+    `capteur` NOMME la tranche qui a pose ce champ : sans lui, un bundle trop ancien rendait le
+    meme message pour trois capteurs differents, et le lecteur ne savait pas lequel manquait."""
     if u_cs.get(nom) is None:
         raise MesureImpossible(
-            "combatSnapshot ne publie pas `%s` de l'unite %s -- capteur #477-r15-r5 absent "
-            "(bundle anterieur a la fenetre de reinject ?)" % (nom, u_cs.get("entityId")))
+            "combatSnapshot ne publie pas `%s` de l'unite %s -- capteur %s absent "
+            "(bundle anterieur a la fenetre de reinject ?)" % (nom, u_cs.get("entityId"), capteur))
     return int(u_cs[nom])
 
 
@@ -268,28 +278,47 @@ def etat_complet(u_cs: dict, u_obs: dict, u_ua: dict) -> UnitFullState:
         `get_CurrentMaximumValue()`. Son `case 0` (Current) est le champ BRUT
         `RemainingValue(+0x18)`, c'est-a-dire l'autre tag : les deux ont enfin chacun le sien.
 
-    ⚠ AU DEPLOIEMENT LES DEUX MEMBRES COINCIDENT (aucun membre mort, aucune modification), donc
-    l'egalite du flux ne DISCRIMINE toujours pas les deux tags. Ce que le changement ferme, c'est
-    la COPIE ; la discrimination, elle, demande de sortir du regime -- c'est ce que mesure
-    `probe_477r15r5_membres_discrimine.py`, et le present probe l'affiche a chaque run."""
+    #477-r15-r7 -- LES DEUX DERNIERES GRANDEURS COPIEES SONT LUES A LEUR TOUR. Les trois tags de
+    maximum ont desormais chacun SON canal, et les trois sont le meme mirror :
+
+      * `UnitStats_MaxHealth` <- `healthMax` = `GetStat(unit, StatType.Health, StatPart.Maximum)`.
+        Ce capteur existait depuis #45b' ; le port lisait pourtant `observeBattle.hpMax`, le champ
+        BRUT `MaximumValue(+0x14)`. Aucun capteur neuf n'a ete necessaire -- seulement cesser de
+        copier.
+      * `UnitStats_MaxArmor` <- `armorMax` = `GetStat(unit, StatType.Armor, StatPart.Maximum)`
+        (capteur #477-r15-r7). `IdunBattle.Entities.UnitExtensions$$GetStatComponent` n'a AUCUN
+        `case 4` -- pas plus que pour la sante (`case 5`) ou les membres (`case 0x14`) : les trois
+        « fill-up » en sont absents. Mais `IdunBattle.Entities.UnitExtensions$$GetStat` ne passe
+        PAS par lui : il porte sa propre jumptable, dont l'entree `case 4` charge le MEME
+        `Il2CppClass*` et le MEME `MethodInfo*` de `GetComponent<T>` que la ligne du tag, puis
+        appelle `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`.
+
+    ⚠ AU DEPLOIEMENT LES TROIS COUPLES COINCIDENT (aucun membre mort, aucune modification, aucun
+    override), donc l'egalite du flux ne DISCRIMINE toujours pas ces tags. Ce que le changement
+    ferme, c'est la COPIE ; la discrimination, elle, demande de sortir du regime -- c'est ce que
+    mesurent `probe_477r15r5_membres_discrimine.py` (membres) et
+    `probe_477r15r7_max_discrimine.py` (sante + armure), et le present probe l'affiche a chaque
+    run."""
     flags = u_cs.get("unitFlags")
     traits = u_cs.get("traits")
     if flags is None or traits is None:
         raise MesureImpossible("combatSnapshot rend `unitFlags`/`traits` a null (PAS MESURE) "
                                "sur l'unite %s" % u_cs.get("entityId"))
-    for cle in ("hp", "hpMax", "armor", "armorMax"):
+    # `hpMax` / `armorMax` d'`observeBattle` ne sont PLUS lus (#477-r15-r7) : les exiger ici
+    # laisserait croire qu'ils alimentent encore le substrat.
+    for cle in ("hp", "armor"):
         if u_obs.get(cle) is None:
             raise MesureImpossible("observeBattle ne publie pas `%s`" % cle)
     triggered_types = {int(t["raw"][0]) for t in (u_ua.get("triggered") or [])
                        if t.get("raw")}
     return UnitFullState(
         entity_type=int(EntityType.Unit),
-        # `MaximumValue@0x14` brut. `get_CurrentMaximumValue()` y ajoute la modification
-        # (`+0x28`) et l'override (`+0x38`) : identiques au deploiement, ou les deux sont nuls.
-        # (Non couvert par cette tranche -- le pendant `healthMax` du capteur existe, mais le
-        # changer sort du perimetre de #477-r15-r4/r5/r6 ; c'est dit en borne (c).)
-        max_health=int(u_obs["hpMax"]), max_armor=int(u_obs["armorMax"]),
-        max_members=_champ_unite(u_cs, "numberOfMembersMax"),      # StatPart.Maximum -- MESURE
+        # `get_CurrentMaximumValue()` des composants de SANTE et d'ARMURE -- l'appel exact des
+        # tags 9 et 13, plus le champ brut `MaximumValue@0x14` d'`observeBattle`.
+        max_health=_champ_unite(u_cs, "healthMax", "#45b'"),        # StatPart.Maximum -- MESURE
+        max_armor=_champ_unite(u_cs, "armorMax", "#477-r15-r7"),    # StatPart.Maximum -- MESURE
+        max_members=_champ_unite(u_cs, "numberOfMembersMax",
+                                 "#477-r15-r5"),                    # StatPart.Maximum -- MESURE
         fixed_armor=_stat(u_cs, "fixedArmor"),
         # `RemainingValue@0x18` brut, lu par le projecteur (`game/match-state.ts`).
         init_remaining_health=int(u_obs["hp"]), init_remaining_armor=int(u_obs["armor"]),
@@ -494,6 +523,13 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
     actives_recoupees = 0
     membres_degeneres = 0        # unites ou courant == maximum (le regime qui ne discrimine pas)
     membres_total = 0
+    # #477-r15-r7 -- MEME TEMOIN, sur les deux maximums qui viennent d'etre mesures. Il est
+    # GRATUIT (les deux lectures sont deja en main) et il est ce qui empeche de lire l'egalite du
+    # flux comme une preuve : tant que `StatPart.Maximum` egale le champ brut `MaximumValue@0x14`
+    # sur TOUTES les unites, le corpus ne peut pas separer les deux canaux, et le dire est un
+    # resultat -- pas un aveu.
+    max_sante_degeneres = 0
+    max_armure_degeneres = 0
     for u in sorted(adverses, key=lambda x: int(x["squadId"])):
         xy = (int(u["col"]), int(u["row"]))
         sid = int(u["squadId"])
@@ -514,6 +550,12 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
         membres_total += 1
         if etat.max_members == etat.init_alive_members:
             membres_degeneres += 1
+        # `observeBattle.hpMax` / `armorMax` = champ BRUT `MaximumValue@0x14` -- la valeur que le
+        # port COPIAIT. On la lit encore ICI, uniquement pour dire si le corpus les separe.
+        if u.get("hpMax") is not None and int(u["hpMax"]) == etat.max_health:
+            max_sante_degeneres += 1
+        if u.get("armorMax") is not None and int(u["armorMax"]) == etat.max_armor:
+            max_armure_degeneres += 1
         units.append(UnitSetup(entity_id=sid,
                                owner_id=int(u["playerId"]),
                                foot_tile_ids=[entite_de_tuile[xy]],
@@ -529,21 +571,21 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
     rap = CONF.comparer(setup_natif, setup_port, entrees_du_natif=(
         "Tag=Tile_IsTerritory -- aucun porteur dans le board dump, emis a 0 en dur "
         "(#477-r15-r3)",
-        # ⚠ LA BORNE A RETRECI DE TROIS ENTREES, ET CHACUNE A UN REMPLACANT NOMME. Une borne qui
-        # maigrit sans que rien ne soit mesure serait un mensonge : `range` vient de
+        # ⚠ LA BORNE A RETRECI DE QUATRE ENTREES AU TOTAL, ET CHACUNE A UN REMPLACANT NOMME. Une
+        # borne qui maigrit sans que rien ne soit mesure serait un mensonge : `range` vient de
         # `stats.range` (`GetStat(.., StatType.Range, StatPart.Current)`), `MaxMembers` de
-        # `numberOfMembersMax` (`StatPart.Maximum`), et les trois tags d'etat de l'attaque
-        # normale de `unitAbilityStates.actives[].state` (`readAbilityState` sur l'instance).
-        # Les trois canaux sont cites dans l'entete de ce fichier et dans `etat_complet` /
-        # `abilities_unite`, avec le symbole natif dont ils sont le mirror.
-        "Tag=UnitStats_{MaxHealth,MaxArmor} -- lus au champ BRUT `MaximumValue@0x14` "
-        "(`observeBattle.hpMax`/`armorMax`) la ou le natif appelle "
-        "`FillUpStatComponent$$get_CurrentMaximumValue()`. Les deux coincident au deploiement "
-        "PAR CONSTRUCTION (modification `+0x28` et override `+0x38` nuls), pas par chance. Le "
-        "capteur `combatSnapshot.healthMax` (`StatPart.Maximum`) existe DEJA pour la sante et "
-        "fermerait la moitie de cette entree ; l'armure n'a aucun canal (son composant n'est "
-        "atteignable ni par `GetStatComponent` ni par `GetStat`). Hors perimetre de "
-        "#477-r15-r4/r5/r6 -- non traite, donc DECLARE",
+        # `numberOfMembersMax` (`StatPart.Maximum`), les trois tags d'etat de l'attaque normale de
+        # `unitAbilityStates.actives[].state` (`readAbilityState` sur l'instance), et --
+        # #477-r15-r7 -- `MaxHealth` de `combatSnapshot.healthMax` (capteur qui existait deja) et
+        # `MaxArmor` de `combatSnapshot.armorMax` (capteur neuf). Tous ces canaux sont cites dans
+        # l'entete de ce fichier et dans `etat_complet` / `abilities_unite`, avec le symbole natif
+        # dont ils sont le mirror.
+        #
+        # ⚠ CE QUI RESTE, ET POURQUOI. Apres #477-r15-r7 il ne subsiste AUCUNE grandeur du groupe
+        # `System_GameSetup` prise du flux natif : les deux entrees ci-dessous ne sont pas des
+        # copies, ce sont des tags que le corpus n'EMET pas (territoire) ou qu'aucune unite du
+        # regime ne PORTE (munitions). Les nommer separement est ce qui empeche de lire le
+        # retrecissement de la borne comme une couverture qu'elle n'a pas.
         "Tag=UnitStats_TriggeredAbility_{AmmoCost,EnoughAmmo} -- NON CONFRONTES : `AmmoCost` est "
         "null sur toute unite reguliere (les munitions ne mordent que sur les Machines of War, "
         "qui passent par `AddMachineOperation`, hors de ce groupe)",
@@ -554,6 +596,8 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
             "ecarts_dv": ecarts_dv, "non_recoupees": non_recoupees,
             "actives_recoupees": actives_recoupees,
             "membres_degeneres": membres_degeneres, "membres_total": membres_total,
+            "max_sante_degeneres": max_sante_degeneres,
+            "max_armure_degeneres": max_armure_degeneres,
             "derived": derived, "base_tuile": base_tuile, "base_natif": base_natif,
             # Recoupement GRATUIT : l'id d'unite derive de la regle vs celui du canal
             # INDEPENDANT `observeBattle.squadId`. Deux sources, un seul chiffre.
@@ -630,6 +674,15 @@ def main() -> int:
               "canaux sont distincts, le regime ne les separe pas). Discrimination :"
               " probe_477r15r5_membres_discrimine.py"
               % (res["membres_degeneres"], res["membres_total"]))
+        # --- #477-r15-r7 : MEME REGIME, sur les deux maximums. `StatPart.Maximum` (mesure) vs le
+        # champ brut `MaximumValue@0x14` (ce que le port copiait) : tant qu'ils sont EGAUX sur
+        # toutes les unites, l'egalite du flux ne peut pas les separer.
+        print("  REGIME MAXIMUMS (#477-r15-r7) : sante %d/%d, armure %d/%d unite(s) ou "
+              "`StatPart.Maximum` == `MaximumValue@0x14` (observeBattle) -- sur celles-la, "
+              "mesurer ou copier donne LE MEME chiffre. Discrimination :"
+              " probe_477r15r7_max_discrimine.py"
+              % (res["max_sante_degeneres"], res["membres_total"],
+                 res["max_armure_degeneres"], res["membres_total"]))
         if not res["montage_coherent"]:
             # ASCII PUR, sans `.replace` de rattrapage : la console Windows est en cp1252, et
             # cette ligne ne s'imprime QUE quand le montage est incoherent -- c'est-a-dire
