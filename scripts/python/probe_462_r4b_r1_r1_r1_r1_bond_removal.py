@@ -80,6 +80,7 @@ Usage (ASCII only, depuis scripts/python) :
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -462,6 +463,96 @@ def step_pending(sid):
 
 
 # ------------------------------------------------------------------------------------------------
+# --step pendingporteurs : les TROIS effets `APendingAttackEffect` que le port POSE sont-ils
+# CONFRONTABLES sur le gate (a) ?
+#
+# Repondre a << quelle valeur >> ne suffit pas : le trigger (a) se declenche sur la MORT ou le
+# RETRAIT du BONDE. Il faut donc etablir QUI est le bonde de chacun, et si cette entite peut mourir.
+# Le pas le MESURE plutot que de le supposer, parce que les trois n'ont pas le meme bonde :
+#
+#   1308 `MalleusRocketLauncher`     -- `AddBondEffect(..., targets=TUILE, bond=owner@0x148)`
+#                                       (`MalleusRocketLauncherAbility$$ExecuteBehaviour`)
+#   1402 `DevastatingRefrain_Target` -- idem (`DevastatingRefrainAbility$$ExecuteBehaviour`)
+#        -> pour les DEUX, l'owner est une MACHINE OF WAR : le bonde est une entite de type
+#           `Machine`, pas une `Unit`.
+#   1022 `ValkyrieStrike_Effect`     -- `AddBondEffect(..., caster@0x160 en 4e ET 6e position)`
+#                                       (`ValkyrieStrikeAbility$$ExecuteBehaviour`), owner = une
+#                                       UNITE (`astraSmnVoxcaster`).
+#
+# CE QUE LE PAS RAPPORTE, sans le deduire : pour chaque porteur, l'entite bondee telle que le RPC
+# l'expose (`pos`, `hp`, `alive`), et si elle figure dans les cibles legales d'une attaque. Une
+# entite sans tuile n'est frappable par AUCUNE attaque -- c'est ce qui decide si l'ecart de port
+# est OBSERVABLE ou seulement sur le papier, et le pas doit le DIRE plutot que le conclure.
+# ------------------------------------------------------------------------------------------------
+PENDING_POSERS = (
+    # (visualId, abilityType, effectType, role du porteur)
+    ("astraOrdnanceBattery", 1142, 1308, "mow"),
+    ("adeptExorcist", 1188, 1402, "mow"),
+)
+
+
+def step_pendingporteurs(sid, board="C1_02", seed=4242):
+    import probe_90b_mow_effects as P90
+
+    rc = 0
+    for mow, ability, effect_type, role in PENDING_POSERS:
+        state_file = ROOT / "logs" / ("_probe462c-%s-%d.json" % (mow, os.getpid()))
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        rid = P90.build(mow, board, str(state_file), seed=seed)
+        if rid is None:
+            print("[%s] build KO -- NON CONFRONTE (montage), aucun verdict" % mow)
+            rc |= 2
+            continue
+        try:
+            dv = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+            m = next((x for x in (dv.get("mows") or []) if x.get("visualId") == mow), None)
+            if m is None:
+                print("[%s] absent de decisionView.mows -- NON CONFRONTE" % mow)
+                rc |= 2
+                continue
+            bonded = int(m["casterId"])
+            print("[%s] ability=%d effet=%d ; BONDE = l'owner = casterId %d"
+                  % (mow, ability, effect_type, bonded))
+            print("   entite bondee : pos=%s hp=%s/%s alive=%s (type Machine, pas Unit)"
+                  % (m.get("pos"), m.get("hp"), m.get("maxHp"), m.get("alive")))
+            # Le bonde figure-t-il parmi les cibles LEGALES d'une attaque, cote adverse ?
+            frappable = _is_targetable(sid, rid, dv, bonded)
+            print("   cible legale d'une attaque ? %s" % frappable)
+            if frappable is False and m.get("pos") is None:
+                print("   => le BONDE n'a PAS de tuile et n'est cible d'AUCUNE attaque : sa mort")
+                print("      n'est pas atteignable par le jeu. Le trigger (a) est CONSTRUIT cote")
+                print("      natif mais INATTEIGNABLE. NON CONFRONTABLE -- ne rien porter serait")
+                print("      indistinguable du natif, et le porter serait invalidable.")
+            elif frappable:
+                print("   => le BONDE est frappable : le bras de mise a mort est jouable.")
+                rc |= 3          # 3 = confrontable, mais le bras n'est pas joue par CE pas
+        finally:
+            _r(sid, "disposeRunner", {"runnerId": rid}, 60)
+    return rc
+
+
+def _is_targetable(sid, rid, dv, entity_id):
+    """`entity_id` figure-t-il dans les cibles LEGALES d'une des unites du plateau ?
+
+    Rend `None` si aucune unite n'a pu etre interrogee -- une mesure vide n'est pas un << non >>."""
+    interroge = 0
+    for u in (dv.get("units") or []):
+        if not u.get("alive"):
+            continue
+        uid = int(u["id"])
+        at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid}, 90) or {}
+        row = next((x for x in (at.get("units") or []) if x.get("unitId") == uid), None)
+        if row is None:
+            continue
+        interroge += 1
+        for a in (row.get("abilities") or []):
+            for t in (a.get("targets") or []):
+                if t.get("kind") == "unit" and int(t.get("targetId") or -1) == int(entity_id):
+                    return True
+    return False if interroge else None
+
+
+# ------------------------------------------------------------------------------------------------
 # --step gatelive : le gate `NOT AmountIsZero(BondedEntity)` mord-il, OUI ou NON ?
 #
 # LA QUESTION, ET POURQUOI ELLE PRECEDE TOUT PORTAGE.
@@ -763,7 +854,8 @@ def step_killlive(sid):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="declared",
-                    choices=["vtable", "declared", "pending", "gatelive", "killlive", "all"])
+                    choices=["vtable", "declared", "pending", "pendingporteurs", "gatelive",
+                             "killlive", "all"])
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default="MC1_67")
     a = ap.parse_args()
@@ -778,6 +870,9 @@ def main():
         print("")
     if a.step in ("pending", "all"):
         rc |= step_pending(sid)
+        print("")
+    if a.step in ("pendingporteurs", "all"):
+        rc |= step_pendingporteurs(sid)
         print("")
     if a.step in ("gatelive", "all"):
         rc |= step_gatelive(sid, a.seed, a.board)
