@@ -100,7 +100,7 @@ résolue ⇒ aucun refus.
 **Sur la MORT, il ne change rien — et c'est MESURÉ, pas supposé** : sur un cadavre, neutraliser le
 seul gate de message laisse le gate d'OPÉRATION (#429-r1) refuser. C'est précisément pourquoi le
 trou a pu vivre sans casser un test. Il faut débrancher **les deux** pour que le port frappe :
-**10 375 dégâts** sur le cadavre, flags de tour posés.
+**10 577 dégâts** sur le cadavre, flags de tour posés.
 
 ## 5. Ce que le régime FLED a révélé — le canal de seed était aveugle
 
