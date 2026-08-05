@@ -69,6 +69,16 @@ lire au présent — et rien, dans le `CLAUDE.md`, ne disait qu'elle avait cess�
 | `docs/rl/case-477r11-format-du-flux-de-replay.md` | 249 | « dans `hooks/scratch/` gitignoré » |
 | `scripts/python/probe_365_versioned_imports_gitignored.py` | 6 | « `.gitignore` exclut » (au présent) |
 
+Dans les six cas, la propriété correcte est la même : **`frida/hooks/scratch/` est versionné, et
+66 de ses modules sont bundlés**.
+
+⚠ **Ce tableau a fait rougir le cliquet — et c'est le comportement voulu.** Une ligne qui *cite*
+une qualification fausse est, caractère pour caractère, indiscernable d'une ligne qui la *commet* :
+aucun critère textuel ne peut les séparer sans devenir devinatoire. C'est précisément pourquoi le
+mécanisme de réhabilitation existe, et la phrase ci-dessus est ce qu'il attend — une affirmation
+proche qui **nomme** le répertoire. Le recensement reste lisible, et un futur rédacteur qui recopie
+ce tableau ailleurs sans l'accompagner de sa correction sera rattrapé.
+
 **Deux mentions qu'il ne faut PAS corriger**, et le cliquet les laisse passer :
 `tacticus-orchestration/SKILL.md:709` raconte l'incident *puis* écrit (L716) que le répertoire est
 versionné depuis ; `.gitignore:64-77` porte le correctif lui-même. Le récit d'un état passé est
