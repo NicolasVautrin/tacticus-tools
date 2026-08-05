@@ -466,6 +466,7 @@ def step_discriminant(board: str, seed: str, units: str) -> int:
             print("KO: aucun pas legal pour cyrus")
             return 2
         dest = sorted(reach)[0]
+        cap0 = _capture(rpc, rid)          # AVANT tout geste : l'etat dont le port repart
         _act(rpc, rid, {"kind": "move", "unitId": cid, "to": {"col": dest[0], "row": dest[1]}})
         m1 = _mines(_vue(rpc, rid))
         print("1. cyrus %s -> %s ; mines=%s" % (avant, dest, sorted(m1)))
@@ -500,7 +501,27 @@ def step_discriminant(board: str, seed: str, units: str) -> int:
             "On(0x29) FIRE apres le Clear d'On(0x28) -- mine reposee sur PreviousTile"
             if avant in neuves else
             "AUCUNE pose : soit la donnee survit a On(0x28), soit le selecteur reste vide"))
-        return 0
+
+        # --- LE MEME SCENARIO, REJOUE PAR LE PORT (chaine, un seul etat) -------------------
+        # C'est le SECOND cas discriminant : il exerce la branche `then` du selecteur de tuiles
+        # (`CanAddUnit(PreviousTile)`) que les trois bras de `--step port` ne reveillent jamais,
+        # ET la chaine COMPLETE pose -> ecrasement -> explosion -> repose.
+        from engine.runner.messages import FinishUnitTurnMessage, MoveUnitMessage
+        from engine.runner.runner import Runner
+        st = _state(cap0, int(seed))
+        rp = Runner(st).install_default_handlers()
+        rp.apply(MoveUnitMessage(int(cid), (int(dest[0]), int(dest[1]))))
+        p1 = sorted(_mines_offline(st))
+        rp.apply(MoveUnitMessage(int(aid), (int(avant[0]), int(avant[1]))))
+        p2 = sorted(_mines_offline(st))
+        rp.apply(FinishUnitTurnMessage(unit_id=int(cid)))
+        p3 = sorted(_mines_offline(st))
+        nat_seq = [sorted(m1), sorted(m3), sorted(m4)]
+        port_seq = [p1, p2, p3]
+        ok = (nat_seq == port_seq)
+        print("PORT : sequence natif=%s | port=%s | %s"
+              % (nat_seq, port_seq, "ACCORD" if ok else "DESACCORD"))
+        return 0 if ok else 1
     finally:
         rpc("disposeRunner", {"runnerId": rid}, 20)
         try:
