@@ -224,9 +224,45 @@ def nom_enum(cls, v: int) -> str:
         return "<INCONNU:%d>" % v
 
 
+def _sites_indirects(code: str, dat: str):
+    """DEUXIEME forme d'appel d'interface : la resolution est SORTIE de l'appel.
+
+        puVar6 = FUN_1801e7040(this, <DAT interface>, <slot>);
+        (*(code *)*puVar6)(this, 0x37, entity, tags, ...);
+
+    Ghidra emet cette forme quand il a inline la recherche de slot. Mesure : sans elle,
+    `AddOrUpdateShield` et `RemoveShield` -- tous deux OBSERVES dans le flux live -- sortaient
+    « sans producteur lu ». Rend (slot, [args de l'appel indirect]).
+    """
+    for m in re.finditer(r"=\s*\(?[^;\n=]*?\)?\s*(?:\(undefined8 \*\))?\s*"
+                         r"\w+\s*\(\s*[^,()]+,\s*" + re.escape(dat) + r"\s*,\s*(\d+)\s*\)", code):
+        slot = int(m.group(1), 0)
+        j = code.find("(*(code *)*", m.end())
+        if j < 0 or j - m.end() > 400:
+            continue
+        k = code.find(")(", j)
+        if k < 0:
+            continue
+        args, _ = _args_equilibres(code, k + 1)
+        yield slot, args
+
+
 def scanner_producteur(code: str, dat: str):
     """Rend (sites_groupes, sites_actions, sites_finish, variables) pour un corps."""
     groupes, actions, finish, variables = [], [], [], []
+    for slot, args in _sites_indirects(code, dat):
+        # L'appel indirect porte `this` en tete, puis les arguments de la methode.
+        brut = args[1] if len(args) >= 2 else ""
+        if slot == SLOT_FINISH_GROUP:
+            finish.append(True)
+            continue
+        if slot not in (SLOT_START_GROUP, SLOT_ACTION):
+            continue
+        v = immediat(brut)
+        if v is None:
+            variables.append(("StartGroup" if slot == SLOT_START_GROUP else "Action", brut))
+        else:
+            (groupes if slot == SLOT_START_GROUP else actions).append(v)
     for _nom, args, _pos in appels(code):
         slot = immediat(args[0]) if len(args) >= 3 else None
         if slot is None or args[1] != dat:
