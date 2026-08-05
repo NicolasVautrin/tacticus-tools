@@ -26,14 +26,18 @@ F. **`abilityTargets(1215)` SURVIT au deplacement du caster** : c'est la contre-
    `0x8004` (static-copy du preset `<TargetingOptions statics>+0x280`, SANS le `| 0x10` que 1216
    ajoute). Si ce bit etait pose a tort, la cible tomberait a 0 apres le move, comme pour 1216.
 
+G. **Le gate slot-4 est PORTE (#27-r8), et l'accord qu'il produit est ATTRIBUE.**
+   `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate(unit)` = `BasePlaybook.ShouldEvaluate(unit)
+   && HasMinimumRemainingTurns(unit, 2)`, et `...$$GetUseProbability` rend `Fix64.Zero` a
+   `GetTurnsFinished == 0`. `test_turns_finished_zero_gate_agrees_with_the_native` garde les trois
+   crans : substrat MESURE (un canal muet rendrait le gate permissif et l'accord degenere), accord
+   natif/moteur, et CONTRE-EPREUVE « gate neutralise » qui redonne 1215.
+
 CE QUI N'EST PAS GARDE, ET POURQUOI (dit plutot que masque) :
-* le gate `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate` n'est PAS porte. Son volet
-  `GetUseProbability(turnsFinished == 1) = Fix64.Half` est un TIRAGE (meme statut que
-  `...PlasmaGrenadePlaybook$$GetUseProbability`) ; son volet `== 0` est DETERMINISTE et le port ne
-  peut pas le mirrorer -- `turnsFinished` (`UnitComponent + 0x5c`) est absent de `decisionView`.
-  L'ECART est MESURE ici (`test_turns_finished_zero_gate_is_a_named_gap`), pas suppose : au tour du
-  build le natif ne propose PAS 1215 et le moteur SI. Le reste du fichier mesure dans la fenetre
-  DETERMINISTE `turnsFinished >= 2`, ou le gate rend `true` des deux cotes ;
+* le volet `GetUseProbability(turnsFinished == 1) = Fix64.Half` du meme gate est un TIRAGE (meme
+  statut que `...PlasmaGrenadePlaybook$$GetUseProbability`, 1/3) : il reste PERMISSIF cote port,
+  et ce fichier ne le mesure pas -- il travaille a `turnsFinished == 0` (bras E) puis dans la
+  fenetre DETERMINISTE `turnsFinished >= 2`, ou le gate rend `true` des deux cotes ;
 * `HasMinimumRemainingTurns(unit, 2)` rend `true` des que la limite de tours du match est ABSENTE --
   le regime du runner. Le defaut permissif de la route y est EXACT ; aucun canal offline n'expose
   cette limite (residu nomme) ;
@@ -182,12 +186,20 @@ def test_caster_has_not_moved_is_absent_from_the_mask(rows):
         "le natif ne propose plus 1215 apres le deplacement du caster : %r" % (d["native_after"],))
 
 
-def test_turns_finished_zero_gate_is_a_named_gap(rows):
-    """Le gate `GetUseProbability` -- MESURE de l'ECART, pas de son absence.
+def test_turns_finished_zero_gate_agrees_with_the_native(rows):
+    """G -- le gate slot-4 `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate` (#27-r8).
 
-    Au tour du build (`turnsFinished == 0`) le natif ne propose PAS 1215 ; le moteur SI. Ce test
-    FIGE l'ecart : s'il tombe, c'est que le gate a ete porte (bonne nouvelle) ou que la fenetre a
-    bouge -- dans les deux cas la case-doc doit etre relue."""
+    Ce test GARDAIT l'ECART (`test_turns_finished_zero_gate_is_a_named_gap`) : le natif ne
+    proposait pas 1215 a `turnsFinished == 0`, le moteur SI. Le gate est PORTE, donc il garde
+    desormais l'ACCORD -- et il le fait en TROIS crans, parce qu'un accord seul ne prouverait rien
+    ici (les deux cotes pourraient s'accorder pour une raison etrangere au gate) :
+
+      1. le SUBSTRAT est MESURE : `Scene.turns_finished(caster) == 0` ET `should_evaluate_unit`
+         rend `False`. Sans ce cran, un canal muet rendrait le gate permissif (convention
+         `None -> True`) et l'accord serait celui d'un REGIME DEGENERE ;
+      2. natif et moteur s'accordent a ne PAS proposer 1215 ;
+      3. CONTRE-EPREUVE : le MEME etat, `should_evaluate_unit` neutralise a `True`, redonne 1215.
+         C'est ce cran qui attribue l'accord (2) au gate plutot qu'a autre chose."""
     assert rows["turns_before"] == 0, (
         "turnsFinished(caster) = %r au build, attendu 0" % (rows["turns_before"],))
     assert rows["turns_after"] >= AB.MIN_TURNS_FINISHED, (
@@ -196,9 +208,19 @@ def test_turns_finished_zero_gate_is_a_named_gap(rows):
     assert rows["E_turns0"]["native"][0] != INSTRUMENTS, (
         "le natif propose 1215 a turnsFinished == 0 (%r) -- `GetUseProbability` ne rend donc plus "
         "`Fix64.Zero`, toute la lecture du gate est a refaire" % (rows["E_turns0"]["native"],))
-    assert rows["E_turns0"]["engine"]["on"][0] == INSTRUMENTS, (
-        "le moteur ne propose PAS 1215 a turnsFinished == 0 (%r) : l'ecart nomme dans la case-doc "
-        "n'existe plus, il faut la corriger" % (rows["E_turns0"]["engine"]["on"],))
+    e = rows["E_turns0"]["engine"]
+    assert e["gate_turns_finished"] == 0 and e["gate"] is False, (
+        "substrat NON MESURE : Scene.turns_finished(caster) = %r, gate = %r. Le canal "
+        "`combatSnapshot.turnsFinished` -> `Scene.turns_finished_by_id` est muet, donc "
+        "`should_evaluate_unit` est permissif par convention et les deux assertions suivantes ne "
+        "mesurent RIEN" % (e["gate_turns_finished"], e["gate"]))
+    assert e["on"][0] != INSTRUMENTS, (
+        "le moteur propose 1215 a turnsFinished == 0 (%r) alors que le natif ne le fait pas : le "
+        "gate slot-4 ne mord plus" % (e["on"],))
+    assert e["nogate"][0] == INSTRUMENTS, (
+        "gate NEUTRALISE, le moteur propose %r au lieu de 1215 : la contre-epreuve ne mord pas, "
+        "donc l'accord ci-dessus n'est PAS imputable au gate -- ce test ne garde plus rien"
+        % (e["nogate"],))
 
 
 # --- OFFLINE : le mirror de la formule, sur les regimes que le live n'atteint pas ----------------
@@ -245,6 +267,56 @@ def test_elevation_gate_applies_to_adjacency_only():
         "le second slot")
     edge = {(0, 0): 2, (1, 0): 3}                      # |dElev| = 1 < 2 -> adjacent
     assert pb.calculate_custom_utility(_ctx([(1, 0)], edge), (0, 0), 1, INSTRUMENTS) == 20000.0
+
+
+def test_slot4_gate_truth_table_offline():
+    """G (offline) -- les CINQ regimes de `should_evaluate_unit`, dont trois que le live n'atteint pas.
+
+    Le bras E ne mesure QU'UN point (`t == 0`). Cette table fige les autres, et surtout les deux
+    conventions qui ne se voient dans aucune mesure : `t is None` (canal muet) et `scene is None`
+    rendent `True` -- ne PAS gater a l'aveugle. Un repli sur `0` y signifierait `Fix64.Zero`, donc
+    un refus que le natif n'a pas prononce.
+
+    Les valeurs viennent de `...InstrumentsOfVengeancePlaybook$$GetUseProbability` :
+    `Zero` a `GetTurnsFinished == 0`, `Half` a `== 1`, `One` sinon ; puis
+    `BasePlaybook$$ShouldEvaluate` : `p >= 1 -> true`, `p <= 0 -> false`, sinon TIRAGE (rendu
+    PERMISSIF ici, faute de PRNG offline -- c'est le regime `t == 1`)."""
+    from engine.playbook.scene import Scene
+
+    def scene(tf):
+        return Scene(ctx_by_id={}, armor_by_id={}, shield_by_id={}, mult_by_id={}, ablvl_by_id={},
+                     vis_by_id={}, units=[], hp_by_id={}, pos_by_id={}, team_by_id={},
+                     eff_state=None, turns_finished_by_id=tf)
+
+    pb = _pb()
+    cases = [({7: 0}, False, "t == 0 -> Fix64.Zero -> p <= 0 -> False"),
+             ({7: 1}, True, "t == 1 -> Fix64.Half -> TIRAGE, laisse PERMISSIF (declare)"),
+             ({7: 2}, True, "t == 2 -> Fix64.One -> p >= 1 -> True"),
+             ({7: 9}, True, "t >= 2 -> Fix64.One -> True"),
+             ({}, True, "uid hors table -> canal MUET -> permissif, jamais un 0 invente")]
+    for tf, expected, why in cases:
+        ctx = types.SimpleNamespace(scene=scene(tf), uid=7)
+        assert pb.should_evaluate_unit(ctx, INSTRUMENTS) is expected, why
+    ctx = types.SimpleNamespace(scene=None, uid=7)
+    assert pb.should_evaluate_unit(ctx, INSTRUMENTS) is True, "scene absente -> permissif"
+
+
+def test_slot4_gate_default_is_the_native_body():
+    """G -- le DEFAUT de la route est `True`, et ce n'est pas une convention permissive de notre cote.
+
+    Les deux surcharges de `IdunBattle.AI.Playbook.BasePlaybook$$GetUseProbability` rendent
+    `Fix64.op_Implicit(1)`, donc `BasePlaybook$$ShouldEvaluate` prend la branche `p >= 1 -> true` :
+    un playbook qui n'override pas le slot 4 est TOUJOURS evalue. Si ce defaut devenait `False`,
+    tous les membres de la route non-attaque disparaitraient en silence."""
+    from engine.playbook.nonattack import NonAttackComparablePlaybook, NONATTACK_PLAYBOOKS
+    ctx = types.SimpleNamespace(scene=None, uid=1)
+    assert NonAttackComparablePlaybook.should_evaluate_unit(
+        NonAttackComparablePlaybook(), ctx, 0) is True
+    others = [aid for aid, pb in NONATTACK_PLAYBOOKS.items()
+              if aid != INSTRUMENTS
+              and type(pb).should_evaluate_unit is not NonAttackComparablePlaybook.should_evaluate_unit]
+    assert others == [], (
+        "des membres de la route overrident le slot 4 sans etre gardes ici : %r" % (others,))
 
 
 def test_registry_wiring():

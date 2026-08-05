@@ -55,8 +55,18 @@ RESERVE DE MESURE, TRAITEE DANS LE MONTAGE
 sinon TIRAGE`. L'ability est donc INDISPONIBLE au tour du build et TIREE A 1/2 au suivant : seule la
 fenetre `GetTurnsFinished >= 2` est deterministe. Le probe y entre par QUATRE `act endturn`
 (l'IA ne joue pas : la geometrie du montage est preservee) et VERIFIE `turnsFinished == 2` au
-`combatSnapshot` avant de mesurer. Le bras E mesure l'ECART a `turnsFinished == 0` -- le gate n'est
-PAS porte (`turnsFinished` est absent de `decisionView`), et c'est dit plutot que masque.
+`combatSnapshot` avant de mesurer.
+
+⚠ **Le bras E a CHANGE DE NATURE (#27-r8)** : il mesurait un ECART NOMME (le natif ne propose pas
+1215 a `turnsFinished == 0`, le moteur si), il mesure desormais un ACCORD -- le gate slot-4 est
+PORTE (`loki_custom.InstrumentsOfVengeancePlaybook.should_evaluate_unit`). Le verrou annonce
+(<< `turnsFinished` absent de `decisionView` -> capteur a ecrire -> fenetre de reinject >>) etait
+FAUX : la `Scene` de decision prend ces tables dans **`combatSnapshot`**, qui publie le champ
+depuis #N11. Le bras vaut donc TROIS assertions, et les deux dernieres existent parce qu'un accord
+seul ne prouverait rien : (1) le SUBSTRAT est mesure (`Scene.turns_finished(caster) == 0`, gate
+`False`) -- sinon le canal serait muet et le gate permissif ; (2) natif et moteur s'accordent a ne
+PAS proposer 1215 ; (3) **contre-epreuve** : le meme etat, gate neutralise, redonne 1215 -- si elle
+ne mord pas, l'accord (2) vient d'ailleurs.
 
 MONTAGE (board MC1_67, seed 909, rank 17)
 -----------------------------------------
@@ -69,7 +79,8 @@ LE CASTER N'EST DEPLACE QU'AU BRAS D (le dernier) : ce sont les ENNEMIS qu'on bo
 de tuiles -- qui EST le levier de mesure ici -- disparait.
 
 BRAS (caster en (1,0), 13 tuiles de move ; elevations (1,2)=2, (1,3)=4, (2,3)=4)
-  E : turnsFinished = 0            -> le natif ne propose PAS 1215 (gate `GetUseProbability`)
+  E : turnsFinished = 0            -> ni le natif ni le moteur ne proposent 1215 (gate slot-4
+      porte, #27-r8), et la contre-epreuve « gate neutralise » redonne 1215
   A : tous les ennemis a distance >= 3 de toute tuile -> custom CONSTANT = 20100 -> le natif reste
       sur son origine (aucun `MoveUnitMessage`)
   B : un ennemi en (2,0), ADJACENT a l'origine        -> l'origine perd son `+100` -> le natif
@@ -296,10 +307,25 @@ def _engine(rid: int, cid: int) -> dict:
         noroute = EV.engine_decide(sid, rid, dv, mov_by_unit, cid, wt, predictor)
     finally:
         NA.NONATTACK_PLAYBOOKS.update(saved)
+    # #27-r8 : la CONTRE-EPREUVE du gate slot-4. `nogate` neutralise
+    # `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate` (retour True inconditionnel) : c'est
+    # EXACTEMENT le moteur d'AVANT le port. Au bras E (`turnsFinished == 0`) les deux decisions
+    # doivent DIFFERER -- sinon le gate ne mord pas, et un accord natif/moteur ne prouverait rien.
+    orig_gate = type(pb).should_evaluate_unit
+    type(pb).should_evaluate_unit = lambda self, c, aid: True
+    try:
+        nogate = EV.engine_decide(sid, rid, dv, mov_by_unit, cid, wt, predictor)
+    finally:
+        type(pb).should_evaluate_unit = orig_gate
     return {"on": (on.get("ability"), on.get("target")), "to": on.get("to"),
             "zero": (zero.get("ability"), zero.get("target"), zero.get("to")),
             "wrong": (wrong.get("ability"), wrong.get("target"), wrong.get("to")),
             "noroute": (noroute.get("ability"), noroute.get("target"), noroute.get("to")),
+            "nogate": (nogate.get("ability"), nogate.get("target"), nogate.get("to")),
+            # Le SUBSTRAT du gate, lu la ou le playbook le lit (jamais re-derive) : si ce canal est
+            # muet, `should_evaluate_unit` est permissif et le bras E ne mesure RIEN.
+            "gate_turns_finished": ctx.scene.turns_finished(cid) if ctx.scene is not None else None,
+            "gate": pb.should_evaluate_unit(ctx, INSTRUMENTS),
             "targets": targets, "origin": ctx.origin, "per_tile": per_tile,
             "custom_origin": pb.calculate_custom_utility(ctx, ctx.origin, cid, INSTRUMENTS)}
 
@@ -399,10 +425,30 @@ def main() -> int:
     gate_seen = e0["native"][0] != INSTRUMENTS
     print("  [E turnsFinished=0] natif=%s (attendu : PAS de 1215)  %s"
           % (e0["msgs"], "OK" if gate_seen else "MISMATCH"))
-    if engine:
-        print("        moteur : on=%s to=%s  -> ECART NOMME (gate `GetUseProbability` non porte)"
-              % (e0["engine"]["on"], e0["engine"]["to"]))
     ok &= gate_seen
+    if engine:
+        # #27-r8 : le gate slot-4 est PORTE -- le bras E est desormais un ACCORD, plus un ecart.
+        ge = e0["engine"]
+        # (1) le SUBSTRAT est-il mesure ? Un canal muet rendrait le gate permissif, et l'accord
+        #     ci-dessous serait un accord de REGIME DEGENERE (les deux bras identiques par
+        #     construction). On exige donc un temoin NON NUL avant de lire quoi que ce soit.
+        substrate = (ge.get("gate_turns_finished") == 0 and ge.get("gate") is False)
+        print("        substrat  : Scene.turns_finished(caster)=%r  gate=%r  %s"
+              % (ge.get("gate_turns_finished"), ge.get("gate"),
+                 "OK" if substrate else "NON MESURE -- le bras E ne prouve rien"))
+        ok &= substrate
+        # (2) l'accord lui-meme.
+        agree = ge["on"][0] != INSTRUMENTS
+        print("        moteur    : on=%s to=%s  %s"
+              % (ge["on"], ge["to"], "OK (accord)" if agree else "MISMATCH -- 1215 propose"))
+        ok &= agree
+        # (3) la contre-epreuve : SANS le gate, le moteur proposait bien 1215. Si elle ne mord pas,
+        #     l'accord (2) vient d'ailleurs et ce bras ne mesure PAS le gate.
+        bites = ge["nogate"][0] == INSTRUMENTS
+        print("        sans gate : %s  %s"
+              % (ge["nogate"], "OK (le gate MORD)" if bites
+                 else "NE MORD PAS -- l'accord ci-dessus n'est PAS du au gate"))
+        ok &= bites
 
     pu = rows.get("pair_utility") or {}
     print("  [predictions] pairUtility(1215, SELF) = %r  playbookClass=%r"
