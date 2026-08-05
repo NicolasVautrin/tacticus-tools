@@ -14,7 +14,7 @@ from ....services.damage_prediction import get_base_damage_fix64, apply_pierce_a
 from ....services.damage_modifiers import apply_all_modifiers
 from ...state import State
 from ...components import (StatsComponent, HealthComponent, UnitComponent,
-                           unit_prevents_overkill)
+                           unit_prevents_overkill, can_be_overkilled, unit_is_overkilled)
 from ...damage_model import (attacker_modifiers, defender_modifiers, apply_elevation_bonus,
                              apply_trench_reduction, ice_crit_damage_addition,
                              defender_fixed_armor)
@@ -181,6 +181,11 @@ class _NormalLike:
                                             # `Amount` de l'event (retraits REELS), pas le demande.
                                             hp_current=(None if thc.hp is None else int(thc.hp)),
                                             hp_floor=thc.minimal_health,
+                                            # #462-r4e-o-r1 : SITE (A) — `HasFlag(target, 8)` relu
+                                            # PAR COUP + son gate `CanBeOverkilled`.
+                                            overkilled0=unit_is_overkilled(tgt),
+                                            can_be_overkilled=can_be_overkilled(tgt),
+                                            over_reduce0=int(thc.over_reduce or 0),
                                             # #195 : `HasFlag(defender, 0x13)` — le 5e argument
                                             # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
                                             # lit lui-meme sur son parametre `defender`.

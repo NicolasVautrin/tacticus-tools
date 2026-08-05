@@ -15,7 +15,7 @@ from ...services.damage_calculations import spread_to_min_max
 from ...services.damage_combat import calculate_damage_operation, Damage, roll_critical
 from ...services.damage_modifiers import capped_reduction_flat
 from ...services.trait_damage_limits import (apply_trait_damage_limits_to_damage,
-                                             compute_prediction_overkill)
+                                             compute_prediction_overkill, unit_is_overkill)
 from ..prng import IntBasedMersenneTwister
 
 
@@ -117,6 +117,99 @@ def damage_amount_applied(health: int, shield: int, hp_left: int,
     return applied + int(shield), hp_left - applied            # + ReduceShield (deja borne)
 
 
+def overkill_hit_emits(overkilled: bool) -> bool:
+    """SITE (A) d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`, lu A L'ENTREE de CHAQUE
+    coup -- il PRECEDE toute emission :
+
+        cVar15 = IdunBattle_Entities_UnitExtensions__HasFlag(target, 8);   // UnitFlag.Overkilled
+        if (cVar15 != '\\0') {
+          ApplyDamageOperation__RecordHitStatistics(...);
+          ApplyDamageOperation__AddLeftoverHit(..., 1, 0);
+          return param_1;                       // <- TOUT LE RESTE EST SAUTE
+        }
+
+    Le `return` precede `On(0x39 = PreDamageTaken)`, la mutation de PV
+    (`FillUpStatComponent$$Reduce`), `On(0xf = DamageTaken)`, l'ecriture `lastHitDamageTaken` et
+    `On(0x10 = DamageDealt)` -- ET l'evenement `UnitDamaged` qui porte le tag `Amount`
+    (`IdunBattle.Core.Services.StreamHelper$$GetDamageTags`). Un coup gate ici ne produit donc
+    AUCUNE entree de `per_hit`, alors qu'il reste un coup EXECUTE (index avance, tirages
+    consommes : le gate est dans `ApplyDamageOperation`, en AVAL du resolve d'`ExecuteHit`).
+
+    Fonction de MODULE, et pas une expression inline, pour la meme raison que `crit_gate_open` et
+    `damage_amount_applied` : c'est le point de MUTATION des contre-epreuves. La faire rendre
+    `True` inconditionnellement restaure exactement le port d'AVANT #462-r4e-o-r1 (un event par
+    coup restant, `off=[2000, 0, 0, 0]` la ou le natif rend `[2000, 0]`)."""
+    return not overkilled
+
+
+def overkill_flag_posted_by_hit(health_damage: int, denied_before: int,
+                                hp_start: int, hp_left_before: int, *,
+                                over_reduce_before: int = 0,
+                                can_be_overkilled: bool = True, is_critical: bool = False,
+                                is_force_overkill: bool = False,
+                                prevent_overkill: bool = False,
+                                hp_floor: Optional[int] = None) -> bool:
+    """`IdunBattle.Entities.Components.UnitFlagsComponent$$Add(flags, 8 = Overkilled)` de
+    `ApplyDamageOperation$$Execute` : le flag est pose PAR CE COUP-CI ssi
+    `dar.didOverkill && UnitExtensions.CanBeOverkilled(target)` -- et `didOverkill` est le retour de
+    la surcharge d'INSTANCE d'`IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, inlinee par
+    `...$$CalculateDamageOperation`, RELUE VERBATIM au build `rnca9r7q6c` :
+
+        if (!CanBeOverkilled(target)) return false;
+        accum = hitDamage + deniedDamage;
+        currentHealth = UnitExtensions.GetStat(target, Health = 5);        // PV COURANTS
+        if (targetHealthBeforeAttack.HasValue) {
+            accum        += (targetHealthBeforeAttack.Value - currentHealth) + unitComponent@+0x24;
+            currentHealth = targetHealthBeforeAttack.Value;
+        }
+        return IsOverkill(currentHealth, accum, isCritical, isForceOverkill,
+                          HasFlag(target, 0x13), cfg@+0x30, cfg@+0x34, minimumHealth);
+
+    ⚠ LE TERME QUI RE-AGREGE LES COUPS PRECEDENTS EST `targetHealthBeforeAttack - GetStat(Health)`,
+    c'est-a-dire les PV **REELLEMENT RETIRES**, PAS la somme des degats DEMANDES. Les deux
+    coincident tant que la cible encaisse tout ; ils divergent des qu'un coup est ECRETE (cible
+    morte, plancher `Minimum`). D'ou `hp_left_before` = les PV restants A L'ENTREE de ce coup
+    (le `_hp_left` de `_run_hits`, deja borne par `damage_amount_applied`).
+
+    ⚠⚠ ET `unitComponent@+0x24` N'EST PAS UN RESIDU INERTE : le composant que `IsOverkill` va
+    chercher (`GetComponent(target, <meme id que le HealthComponent d'ApplyDamageOperation>)`) est
+    le `FillUpStatComponent` des PV, et son `+0x24` est l'accumulateur de SUR-REDUCTION que
+    `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` alimente en queue
+    (`this[0x24] += Math.Max(0, damage - applied)`) -- nom confirme par
+    `...$$ResetOverReduce` (`this+0x24 = 0`, AUCUN xref de code). Il vaut donc le degat DEJA GASPILLE
+    sur cette cible. C'est `over_reduce_before` (lu AVANT le `Reduce` de ce coup-ci, puisque
+    `didOverkill` est calcule en amont, dans `CalculateDamageOperation`).
+
+    MESURE qui l'etablit (MC1_67/31337, `--hp-target 4000`, rolls `[3583, 3181, 3947, 4012]`) :
+    natif `[3583, 417, 0]`, donc flag pose au coup 3. Sans le terme : `3947 + 4000 = 7947 < 8000`
+    -> flag au coup 4 -> `[3583, 417, 0, 0]` (ce que le port rendait). Avec :
+    `3947 + 4000 + (3181 - 417) = 10711 >= 8000` -> flag au coup 3, bit-exact.
+
+    C'est CE calcul-la qui explique la cardinalite mesuree `live=[2000, 0]` : sur un coup letal qui
+    ne DOUBLE pas les PV, `didOverkill` est FAUX au coup letal (accum = degat du coup seul) et ne
+    devient VRAI qu'au coup SUIVANT. Le flag est donc pose au 2e coup, et seuls les coups 3+ sont
+    gates par le SITE (A).
+
+    IDENTITE REMARQUABLE, et elle VALIDE retrospectivement `AttackDamageOperation._did_overkill` :
+    `+0x24` accumule `d - applied` et le terme de PV accumule `applied`, donc leur SOMME sur les
+    coups precedents vaut `sum(d)` -- l'accum natif EST le degat DEMANDE cumule de l'attaque. Le
+    port n'a donc pas deux modeles concurrents. Les deux formes se separent sur trois axes, tous
+    hors d'une serie : un `+0x24` HERITE d'une attaque anterieure (le compteur n'est jamais remis a
+    zero ; il faut un revive pour le voir), un SOIN entre deux coups, et le plancher `Minimum` (qui
+    coupe l'accumulation... et l'overkill avec). On mirrore la forme NATIVE, pas l'identite."""
+    if hp_start is None or hp_left_before is None:
+        return False
+    accum = (int(health_damage) + (int(hp_start) - int(hp_left_before))
+             + int(over_reduce_before or 0))
+    return unit_is_overkill(int(hp_start), accum,
+                            can_be_overkilled=can_be_overkilled,
+                            denied_damage=int(denied_before or 0),
+                            prevent_overkill=prevent_overkill,
+                            is_critical=bool(is_critical),
+                            is_force_overkill=bool(is_force_overkill),
+                            target_minimum_health=hp_floor)
+
+
 class _DamageHitsMixin:
     """Mixin PAR COUP de `AttackDamageOperation` : la boucle `_run_hits` (attaque normale ET
     ability). Sans etat (staticmethod) ; herite tel quel -> `AttackDamageOperation._run_hits`."""
@@ -134,7 +227,10 @@ class _DamageHitsMixin:
                   crit_allowed0: bool = True,
                   hit_interceptor=None, failed_block0=None,
                   hp_current: Optional[int] = None,
-                  hp_floor: Optional[int] = None) -> dict:
+                  hp_floor: Optional[int] = None,
+                  overkilled0: bool = False,
+                  can_be_overkilled: bool = True,
+                  over_reduce0: int = 0) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -293,6 +389,17 @@ class _DamageHitsMixin:
         `_amount_applied`). `None` = pas de PV captes -> aucune borne (comportement d'avant, strict).
         AUCUN autre etage n'en depend : `total`, `per_hit_health`, `rolls` restent le DEMANDE.
 
+        `overkilled0` / `can_be_overkilled` / `over_reduce0` (defaut False/True/0, #462-r4e-o-r1) =
+        l'etat du flag `UnitFlag.Overkilled` de la CIBLE a l'entree de la serie
+        (`UnitExtensions.HasFlag(target, 8)`), son gate `UnitExtensions.CanBeOverkilled`, et
+        l'accumulateur de sur-reduction `FillUpStatComponent+0x24` (cf.
+        `overkill_flag_posted_by_hit`). Threades comme `crit_allowed0`/`failed_block0` :
+        ce sont des etats de la CIBLE/ATTAQUE que le natif relit a chaque coup, et qui traversent
+        les sous-operations (phase d'arme -> groupes de coups additionnels). Le flag ferme le SITE (A)
+        (`overkill_hit_emits`) : les coups qui suivent sa pose n'ont PLUS d'entree dans `per_hit`.
+        => **`len(per_hit)` n'est plus le nombre de coups EXECUTES** : c'est le nombre d'events
+        `UnitDamaged` emis, comme le live. Le compte de coups est `hits_executed`.
+
         Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
         did_crit = did_block = did_evade = False
@@ -330,13 +437,29 @@ class _DamageHitsMixin:
         # (`DamageAppliedResult` porte un `hitIndex` @+0x14, `IdunBattle.Core.Services.
         # DamageAppliedResult$$.ctor`), donc la borne de `_amount_applied` se resserre a chaque coup.
         _hp_left = [None if hp_current is None else max(0, int(hp_current))]
+        # #462-r4e-o-r1 : `UnitFlag.Overkilled` de la CIBLE, relu PAR COUP par le SITE (A). Il est
+        # POSE ici (etat de serie) et non sur le composant : le port ne pose le vrai flag qu'au
+        # chokepoint de mort (`_fire_death_if_killed`), APRES la serie -- or le natif le pose au
+        # milieu, et c'est precisement ce qui coupe l'emission des coups suivants.
+        _overkilled = [bool(overkilled0)]
+        _ovk_at = [None]            # index (0-based dans CETTE serie) du coup qui a pose le flag
+        _suppressed = [0]           # coups gates par le SITE (A) : executes, mais AUCUN event emis
+        # `FillUpStatComponent+0x24` -- l'accumulateur de SUR-REDUCTION, seme par l'etat du
+        # composant a l'entree de la serie (il traverse coups, sous-operations et attaques : son
+        # seul remetteur a zero, `ResetOverReduce`, n'a AUCUN xref de code). Suivi ICI parce que
+        # `IsOverkill` le lit PAR COUP, la ou `HealthComponent.reduce` ne l'ecrit qu'au chokepoint.
+        _over_reduce = [int(over_reduce0 or 0)]
 
         def _amount_applied(dmg: Damage) -> int:
-            """Le tag `Amount` de CE coup + deplacement des PV restants (cf. `damage_amount_applied`)."""
+            """Le tag `Amount` de CE coup + deplacement des PV restants (cf. `damage_amount_applied`)
+            + la queue de `Reduce` (`this[0x24] += Max(0, damage - applied)`, sautee sous plancher)."""
             if _hp_left[0] is None:
                 return dmg.get_total()
+            before = _hp_left[0]
             amount, _hp_left[0] = damage_amount_applied(
                 dmg.health, dmg.shield, _hp_left[0], hp_floor)
+            if not (hp_floor is not None and int(hp_floor) > 0):
+                _over_reduce[0] += max(0, int(dmg.health) - (before - _hp_left[0]))
             return amount
 
         def _roll_crit(idx: int) -> bool:
@@ -423,8 +546,34 @@ class _DamageHitsMixin:
             failed_block.update(dmg.failed_block_ids or [])
             shield = max(0, shield - dmg.shield)
             armor_pool = max(0, armor_pool - dmg.armor)
-            per_hit.append(_amount_applied(dmg))  # `Amount` de l'event = retraits REELS (borne PV)
+            # #462-r4e-o-r1 -- SITE (A) d'`ApplyDamageOperation$$Execute`, evalue PAR COUP (le natif
+            # appelle `Execute` une fois par coup). Etat lu A L'ENTREE du coup : le flag pose PAR ce
+            # coup-ci ne le gate pas lui-meme (le `UnitFlagsComponent.Add(8)` precede l'emission dans
+            # le MEME `Execute`), il gate les SUIVANTS.
+            if overkill_hit_emits(_overkilled[0]):
+                _hp_entry = _hp_left[0]           # PV restants AVANT ce coup (arg d'`IsOverkill`)
+                _or_entry = _over_reduce[0]       # `+0x24` AVANT le `Reduce` de ce coup
+                per_hit.append(_amount_applied(dmg))  # `Amount` de l'event = retraits REELS (borne PV)
+                # `UnitFlagsComponent$$Add(flags, 8)` : `dar.didOverkill && CanBeOverkilled(target)`.
+                if not _overkilled[0] and overkill_flag_posted_by_hit(
+                        dmg.health, denied_before[-1] if denied_before else 0,
+                        hp_current, _hp_entry, over_reduce_before=_or_entry,
+                        can_be_overkilled=can_be_overkilled, is_critical=crit,
+                        is_force_overkill=force_overkill, prevent_overkill=prevent_overkill,
+                        hp_floor=hp_floor):
+                    _overkilled[0] = True
+                    _ovk_at[0] = len(per_hit_health)      # index de CE coup dans la serie
+            else:
+                # Le natif RETOURNE avant `Reduce` : ni PV mutes, ni event. Il fait quand meme
+                # `RecordHitStatistics` + `AddLeftoverHit(..., 1)` -- ce dernier est porte par
+                # `record_left_over_damages`, qui lit `per_hit_health` (INCHANGE ci-dessous).
+                _suppressed[0] += 1
             per_hit_health.append(dmg.health)     # part PV SEULE du coup (hors bouclier/armure-pool)
+            # `total` reste le DEMANDE de TOUS les coups (comme `per_hit_health` / `rolls`). Le natif
+            # n'applique rien pour un coup gate, mais le port ne mute les PV qu'au chokepoint de
+            # groupe (`thc.reduce(total)`), qui BORNE deja aux PV restants -- et le flag n'est jamais
+            # pose sans que la cible soit morte (il exige `accum >= 2 x PV de depart`). L'ecart est
+            # donc structurellement INERTE sur l'etat ; il ne l'etait PAS sur le RAPPORT (`per_hit`).
             total += dmg.health
             shield_dmg += dmg.shield
             armor_dmg += dmg.armor
@@ -678,6 +827,19 @@ class _DamageHitsMixin:
                 "crits": crits, "rolls": rolls, "per_hit": per_hit,
                 "per_hit_health": per_hit_health, "denied_before": denied_before,
                 "bonus_hits": base_bonus,
+                # #462-r4e-o-r1 -- le compte de coups EXECUTES (un par tour de `ExecuteHits`, coups
+                # bonus GetStuckIn compris). Distinct de `len(per_hit)` des qu'un coup est gate par
+                # le SITE (A) : celui-la s'execute mais n'emet rien.
+                "hits_executed": len(per_hit_health),
+                "overkill_suppressed": _suppressed[0],
+                # Verdict `didOverkill` de la SERIE, au sens natif : vrai des qu'UN coup a pose
+                # `UnitFlag.Overkilled`. `None` = non calculable ici (aucun PV capte, `hp_current`
+                # absent) -> l'appelant retombe sur `AttackDamageOperation._did_overkill`.
+                "overkilled": (None if hp_current is None else bool(_overkilled[0])),
+                "overkill_at_hit": _ovk_at[0],
+                # `FillUpStatComponent+0x24` en SORTIE de serie (mirror ; l'ECRITURE sur le
+                # composant reste `HealthComponent.reduce`, foyer natif de `Reduce`).
+                "over_reduce": _over_reduce[0],
                 # case-209 : `param_5[0x98]` du message d'`IdunBattle.Operations.
                 # ApplyDamageOperation$$Execute` = la BASE nominale du coup, ce que poussent les
                 # call-sites (A)/(B) d'`AddLeftoverHit` quand le coup tombe sur un cadavre. MESUREE

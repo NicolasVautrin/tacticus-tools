@@ -142,9 +142,19 @@ class _Rng:
 
 class _Thc:
     """`HealthComponent` minimal. `minimal_health` (le `Nullable<int>` @`FillUpStatComponent+0x1c`)
-    en fait partie : `execute_additional_hits` le threade en `hp_floor` depuis #462-r4e-o."""
+    en fait partie : `execute_additional_hits` le threade en `hp_floor` depuis #462-r4e-o ; et
+    `over_reduce` (@+0x24, l'accumulateur de sur-reduction) depuis #462-r4e-o-r1."""
     hp = 1000
     minimal_health = None
+    over_reduce = 0
+
+
+class _Tgt:
+    """Entite CIBLE minimale : `execute_additional_hits` l'interroge par `get_component`
+    (`UnitFlagsComponent` pour `unit_is_overkilled`, `StatsComponent` pour `can_be_overkilled`)."""
+    @staticmethod
+    def get_component(_c):
+        return None
 
 
 def _run_one(impl, hit_interceptor, failed_block0=None):
@@ -163,7 +173,12 @@ def _run_one(impl, hit_interceptor, failed_block0=None):
         return {"total": 0, "per_hit": [], "per_hit_health": [], "rolls": [], "crits": [],
                 "shield_dmg": 0, "armor_dmg": 0, "did_crit": False, "did_block": False,
                 "did_evade": False, "next_hit_index": 0, "death": False,
-                "crit_allowed": True, "failed_block": set(kw.get("failed_block0") or ())}
+                "crit_allowed": True, "failed_block": set(kw.get("failed_block0") or ()),
+                # #462-r4e-o-r1 : `hits_executed` (le compte de coups, DISTINCT de `len(per_hit)`
+                # depuis le port du SITE (A)), `overkilled`, `overkill_at_hit`,
+                # `overkill_suppressed`, `over_reduce`.
+                "hits_executed": 0, "overkilled": None, "overkill_at_hit": None,
+                "overkill_suppressed": 0, "over_reduce": 0}
 
     orig_dp = GC.damage_profile
     GC.damage_profile = lambda _p: {}        # hermetique : aucun profil n'est mesure ici
@@ -174,7 +189,7 @@ def _run_one(impl, hit_interceptor, failed_block0=None):
                       _target_limits=staticmethod(lambda *a, **k: None),
                       _deplete_shield=staticmethod(lambda *a, **k: None),
                       _apply_damage_pipeline=staticmethod(lambda *a, **k: False)):
-            impl(_Rng.__new__(type("S", (), {"rng": _Rng()})), 1, 2, object(), _Thc(),
+            impl(_Rng.__new__(type("S", (), {"rng": _Rng()})), 1, 2, _Tgt(), _Thc(),
                  [{"profile": "Physical", "count": 1, "min": 10, "max": 10}],
                  None, None, 0, 100, None, None,
                  hit_interceptor=hit_interceptor, failed_block0=failed_block0)

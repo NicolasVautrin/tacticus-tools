@@ -18,16 +18,21 @@ TROIS regimes, choisis pour DISCRIMINER (un seul coup letal ne separe pas
                                     sur un cadavre (`Amount` 0). C'est le regime QUI TRANCHE.
   * `survivant` -- MC1_67 / 31337 + `--hp-target` eleve : la cible SURVIT -> la borne est INACTIVE
                                     et `per_hit` doit rester le degat brut (temoin de non-regression).
-  * `multi_cadavre` -- MC1_67 / 31337 + `--hp-target 2000` : la cible tombe DES LE 1er coup. Ce
-                                    regime n'est PAS un garde de la borne : il expose le residu
-                                    #462-r4e-o-r1 (CARDINALITE des events), cf. `_verdict_r1`.
+  * `multi_cadavre` -- MC1_67 / 31337 + `--hp-target 2000` : la cible tombe DES LE 1er coup, et
+                                    DEUX coups au moins tombent derriere elle. Ce regime ne garde
+                                    pas la borne mais la CARDINALITE (#462-r4e-o-r1) : le natif
+                                    n'emet QU'UN event a `Amount` 0 apres le coup letal, et RIEN
+                                    ensuite. Cf. `_verdict_r1`.
 
 `--mutate brut` remplace `damage_amount_applied` par le port d'AVANT #462-r4e-o (degat brut
 rapporte) : `letal` et `cadavre` DOIVENT alors diverger, `survivant` non.
+`--mutate cardinalite` ouvre le SITE (A) (`overkill_hit_emits` toujours VRAI) = le port d'AVANT
+#462-r4e-o-r1 : `multi_cadavre` DOIT alors diverger (un event par coup restant), les trois autres
+regimes non (aucun d'eux ne pose le flag `Overkilled`).
 
 Usage :
-    python scripts/python/probe_462_r4e_o_overkill_amount.py [--mutate brut] [--only <regime>]
-    ... [--attacker <visualId>]
+    python scripts/python/probe_462_r4e_o_overkill_amount.py [--mutate brut|cardinalite]
+    ... [--only <regime>] [--attacker <visualId>]
 
 ASCII only. Dispose ses runners.
 """
@@ -62,11 +67,16 @@ REGIMES = {
     "cadavre":   ("C3_01",  "777",   [],                      True),
     "survivant": ("MC1_67", "31337", ["--hp-target", "999999"], False),
     # PV ecrases : la cible tombe DES LE PREMIER coup -> plusieurs coups derriere elle.
-    # Regime qui EXPOSE le residu #462-r4e-o-r1 (CARDINALITE des events, cf. `_verdict_r1`).
+    # Regime qui garde la CARDINALITE des events (#462-r4e-o-r1, cf. `_verdict_r1`).
     "multi_cadavre": ("MC1_67", "31337", ["--hp-target", "2000"], True),
+    # #462-r4e-o-r1, CONTRE-MODELE : la cible meurt au 2e coup et DEUX coups tombent sur le
+    # cadavre, mais le cumul n'atteint jamais `2 x PV` -> `UnitFlag.Overkilled` n'est JAMAIS pose
+    # et le natif emet les QUATRE events. Un modele « on coupe des que la cible est morte »
+    # rendrait ici 2 entrees : ce regime le REFUTE, la ou `multi_cadavre` seul ne le pourrait pas.
+    "cadavre_sans_flag": ("MC1_67", "31337", ["--hp-target", "4000"], True),
 }
 
-# Regime dont le verdict porte sur le RESIDU (#462-r4e-o-r1), pas sur la borne.
+# Regime dont le verdict porte sur la CARDINALITE (#462-r4e-o-r1), pas sur la borne.
 RESIDU_R1 = "multi_cadavre"
 
 
@@ -113,6 +123,12 @@ def _mutate_brut():
         int(health) + int(shield), hp_left)
 
 
+def _mutate_cardinalite():
+    """Contre-epreuve : OUVRE le SITE (A) (`overkill_hit_emits` toujours VRAI) = le port d'AVANT
+    #462-r4e-o-r1, ou chaque coup restant emettait son propre event a `Amount` 0."""
+    DH.overkill_hit_emits = lambda overkilled: True
+
+
 def _run(name: str, attacker: str) -> dict:
     board, seed, extra, expects_clamp = REGIMES[name]
     r = replay_normal_attack(_rpc, _build_factory(board), attacker, target=TARGET,
@@ -132,40 +148,48 @@ def _run(name: str, attacker: str) -> dict:
             "live_after": r["live_after"], "off_after": r["off_after"]}
 
 
-def _verdict_r1(r: dict) -> tuple:
-    """Verdict du regime qui expose le RESIDU #462-r4e-o-r1 -- CARDINALITE des events.
+def _verdict_r1(r: dict, mutate=None) -> tuple:
+    """Verdict du regime qui garde la CARDINALITE des events (#462-r4e-o-r1).
 
     MESURE (2 attaquants, meme motif) : quand la cible tombe des le 1er coup, le natif emet le coup
-    letal PUIS UN SEUL event a `Amount` 0, et RIEN pour les coups suivants ; le port en emet un par
-    coup restant. Foyer natif : le SITE (A) d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`
-    -- `if (UnitExtensions.HasFlag(target, 8 = Overkilled)) { RecordHitStatistics ;
-    AddLeftoverHit(.., 1) ; return; }` -- qui PRECEDE toute emission, le flag etant pose par
-    `IdunBattle.Entities.Components.UnitFlagsComponent$$Add(comp, 8)` sous
-    `dar.didOverkill && UnitExtensions.CanBeOverkilled(target)`. Le port n'evalue cette garde qu'a
-    l'ENTREE DU GROUPE (`_apply_damage_pipeline`) : residu de GRANULARITE deja nomme dans
-    `damage.py`. L'ETAT reste identique (memes PV, meme somme) -- c'est un ecart de RAPPORT.
+    letal PUIS UN SEUL event a `Amount` 0, et RIEN pour les coups suivants. Foyer natif : le
+    SITE (A) d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` --
+    `if (UnitExtensions.HasFlag(target, 8 = Overkilled)) { RecordHitStatistics ;
+    AddLeftoverHit(.., 1) ; return; }` -- qui PRECEDE toute emission, le flag etant pose par le MEME
+    `Execute` (`IdunBattle.Entities.Components.UnitFlagsComponent$$Add(comp, 8)` sous
+    `dar.didOverkill && UnitExtensions.CanBeOverkilled(target)`), donc APRES l'emission de son
+    propre coup : d'ou le decalage d'UN coup (`[2000, 0]`, jamais `[2000]`).
 
-    Ce verdict garde la FORME de l'ecart, pas son absence : `live` doit etre un PREFIXE de `off`, le
-    reste de `off` doit etre nul, et les sommes egales. Si l'ecart change de nature (valeurs
-    differentes, sommes differentes), le probe ROUGIT -- et il rougira aussi le jour ou le residu
-    sera porte, ce qui est le signal voulu."""
+    PORTE (#462-r4e-o-r1) : `overkill_hit_emits` + `overkill_flag_posted_by_hit`, evalues PAR COUP
+    dans `_run_hits`. Le verdict exige donc desormais l'IDENTITE `live == off`.
+
+    Sous `--mutate cardinalite` (le SITE (A) ouvert = le port d'avant), le verdict s'INVERSE : il
+    exige la DIVERGENCE, et que `live` soit un prefixe de `off` a reste nul et somme egale -- la
+    forme EXACTE de l'ancien ecart. Un vert la-dessous voudrait dire que la mutation n'a pas mordu."""
     live, off = r["live"], r["off"]
+    forme_ancienne = (len(off) > len(live) and off[:len(live)] == live
+                      and all(x == 0 for x in off[len(live):])
+                      and sum(off) == sum(live) and r["off_after"] == r["live_after"])
+    if mutate == "cardinalite":
+        if live == off:
+            return False, ("IDENTIQUE sous mutation -- le SITE (A) n'a PAS mordu (foyer "
+                           "`overkill_hit_emits` non substitue ?)")
+        if forme_ancienne:
+            return True, (f"DIVERGE (attendu sous mutation) : live={live} off={off} "
+                          "-- exactement l'ancien ecart de cardinalite")
+        return False, (f"DIVERGENCE INATTENDUE sous mutation : live={live} off={off}")
     if live == off:
-        return False, ("IDENTIQUE -- le residu #462-r4e-o-r1 a disparu (porte ?) : "
-                       "mettre a jour ce verdict")
-    forme = (len(off) >= len(live) and off[:len(live)] == live
-             and all(x == 0 for x in off[len(live):])
-             and sum(off) == sum(live) and r["off_after"] == r["live_after"])
-    if forme:
-        return True, (f"RESIDU #462-r4e-o-r1 (cardinalite) : live={live} off={off} "
-                      "-- meme etat, meme somme, N entrees nulles en trop")
+        return True, f"OK (cardinalite portee) : live=off={live}"
+    if forme_ancienne:
+        return False, (f"REGRESSION #462-r4e-o-r1 : live={live} off={off} -- meme etat, meme "
+                       "somme, N entrees nulles en trop (le SITE (A) ne gate plus)")
     return False, (f"ECART DE NATURE INATTENDUE : live={live} off={off} "
                    f"(sommes {sum(live)}/{sum(off)}, hp_after {r['live_after']}/{r['off_after']})")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mutate", choices=["brut"], default=None)
+    ap.add_argument("--mutate", choices=["brut", "cardinalite"], default=None)
     ap.add_argument("--only", choices=sorted(REGIMES), default=None)
     ap.add_argument("--attacker", default=ATTACKER,
                     help="autre profil d'arme du catalogue confrontable (ex. tauAunShi = 5 coups)")
@@ -173,6 +197,10 @@ def main() -> int:
     if a.mutate == "brut":
         _mutate_brut()
         print("MUTATION: damage_amount_applied -> degat BRUT (port d'avant #462-r4e-o)")
+    elif a.mutate == "cardinalite":
+        _mutate_cardinalite()
+        print("MUTATION: overkill_hit_emits -> toujours VRAI (SITE (A) ouvert, "
+              "port d'avant #462-r4e-o-r1)")
 
     w = _unwrap(R._rpc(_SID, "warmupGameSingletons", [{}], timeout=180))
     print("warmup ok=", isinstance(w, dict) and w.get("ok"))
@@ -192,8 +220,10 @@ def main() -> int:
     for r in out:
         if not r.get("ok"):
             continue
-        if r["name"] == RESIDU_R1:
-            ok_r1, verdict = _verdict_r1(r)
+        # `--mutate brut` desarme AUSSI la borne du regime de cardinalite (les PV restants ne
+        # bougent plus) -> il retombe sur le verdict generique « doit diverger sous mutation ».
+        if r["name"] == RESIDU_R1 and a.mutate != "brut":
+            ok_r1, verdict = _verdict_r1(r, mutate=a.mutate)
             bad += 0 if ok_r1 else 1
         elif a.mutate == "brut" and r["expects_clamp"]:
             verdict = ("DIVERGE (attendu sous mutation)" if not r["exact"]

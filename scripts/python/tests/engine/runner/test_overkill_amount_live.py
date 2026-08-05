@@ -21,14 +21,25 @@ CE QUE CE FICHIER GARDE, et pourquoi CES regimes -- un seul coup letal ne separe
                                    sans borne per-coup le port rendait `[.., 2289, 2203]` la ou le
                                    natif ecrit `[.., 979, 0]` ;
   * `survivant` (MC1_67 / 31337, `--hp-target` eleve) : la cible SURVIT, la borne est INACTIVE et
-                                   `per_hit` reste le degat brut -- temoin de non-regression.
+                                   `per_hit` reste le degat brut -- temoin de non-regression ;
+  * `multi_cadavre` (MC1_67 / 31337, `--hp-target 2000`) : la cible tombe DES LE 1er coup et DEUX
+                                   coups au moins tombent derriere elle. Ce regime ne garde pas la
+                                   borne mais la CARDINALITE (#462-r4e-o-r1) : le SITE (A) d'
+                                   `IdunBattle.Operations.ApplyDamageOperation$$Execute`
+                                   (`if (UnitExtensions.HasFlag(target, 8 = Overkilled)) { ... ;
+                                   return; }`) PRECEDE toute emission, donc les coups qui suivent la
+                                   pose du flag n'emettent RIEN. Le port en emettait un par coup :
+                                   `[2000, 0, 0, 0]` la ou le natif rend `[2000, 0]`.
 
 Chaque test ASSERTE d'abord que son regime est bien celui qu'il croit mesurer (mort / coup a 0 /
-survie), pour qu'un montage devenu degenere rougisse au lieu de passer pour une preuve.
+survie / au moins deux coups apres la mort), pour qu'un montage devenu degenere rougisse au lieu de
+passer pour une preuve.
 
-Contre-epreuve (probe, hors pytest) :
+Contre-epreuves (probe, hors pytest) :
 `python scripts/python/probe_462_r4e_o_overkill_amount.py --mutate brut` restaure le port d'avant
-et fait diverger `letal` et `cadavre`, jamais `survivant`.
+#462-r4e-o et fait diverger `letal` et `cadavre`, jamais `survivant` ;
+`... --mutate cardinalite --only multi_cadavre` ouvre le SITE (A) (port d'avant #462-r4e-o-r1) et
+fait re-apparaitre EXACTEMENT `[2000, 0, 0, 0]`.
 """
 from __future__ import annotations
 
@@ -90,3 +101,28 @@ def test_amount_inchange_quand_la_cible_survit(live_session, rpc, build_runner):
     assert sum(r["live_ph"]) < r["hp_before"], "la salve depasse les PV -- temoin invalide"
     assert r["exact"], (f"degat offline != live HORS overkill -- per_hit off={r['off_ph']} "
                         f"live={r['live_ph']}")
+
+
+def test_cardinalite_deux_coups_apres_la_mort_ne_donnent_QU_UN_event(
+        live_session, rpc, build_runner):
+    """#462-r4e-o-r1 -- le SITE (A) COUPE l'emission. La cible tombe au 1er coup ; le natif emet le
+    coup letal, PUIS un seul event a `Amount` 0 (le coup qui POSE `UnitFlag.Overkilled` emet encore,
+    la pose precede l'emission dans le MEME `Execute`), et RIEN pour les coups suivants.
+
+    Le montage est ASSERTE : il faut une arme d'au moins 3 coups et une mort des le 1er, sinon le
+    regime ne discrimine plus « le coup letal coupe tout » de « le coup d'APRES coupe »."""
+    r = _replay(build_runner, rpc, "MC1_67", "31337", ["--hp-target", "2000"])
+    assert r["live_after"] == 0, "la cible survit : ce regime ne mesure aucune cardinalite"
+    assert (r["hits"] or 0) >= 3, (
+        f"montage degenere : {r['hits']} coups -- il en faut >= 3 pour qu'AU MOINS DEUX tombent "
+        "apres la mort (avec un seul, la coupure est invisible)")
+    assert len(r["live_ph"]) < (r["hits"] or 0), (
+        f"le natif emet {len(r['live_ph'])} events pour {r['hits']} coups : aucun coup n'est gate, "
+        "le flag `Overkilled` n'a pas ete pose -- montage a revoir")
+    assert r["live_ph"][-1] == 0 and sum(r["live_ph"]) == r["hp_before"], (
+        f"forme inattendue du live {r['live_ph']} (PV {r['hp_before']})")
+    assert r["off_ph"] == r["live_ph"], (
+        f"CARDINALITE : off={r['off_ph']} live={r['live_ph']} -- meme somme "
+        f"({sum(r['off_ph'])}/{sum(r['live_ph'])}) et meme etat "
+        f"({r['off_after']}/{r['live_after']}), mais {len(r['off_ph']) - len(r['live_ph'])} "
+        "event(s) en trop : le SITE (A) ne gate plus")

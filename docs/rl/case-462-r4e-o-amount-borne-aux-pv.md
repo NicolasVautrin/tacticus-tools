@@ -81,39 +81,141 @@ Généralisation : `tauAunShi` (5 coups) bit-exact sur les trois régimes.
 **Contre-épreuve** (`--mutate brut`) : `letal` et `cadavre` divergent et **retrouvent exactement**
 les valeurs d'avant ; `survivant` reste identique — pas de sur-ajustement.
 
-## 5. Résidu `#462-r4e-o-r1` — CARDINALITÉ des events (NON porté)
+## 5. `#462-r4e-o-r1` — CARDINALITÉ des events (**PORTÉ**, 2026-08-05)
 
 Quand **au moins deux** coups tombent après la mort (régime `multi_cadavre` : `--hp-target 2000`), le
-natif émet le coup létal **puis un seul** event à `Amount` 0, et **rien** ensuite ; le port en émet un
-par coup restant :
+natif émet le coup létal **puis un seul** event à `Amount` 0, et **rien** ensuite ; le port en émettait
+un par coup restant :
 
 ```
-live=[2000, 0]     off=[2000, 0, 0, 0]        # meme etat, meme somme
+live=[2000, 0]     off=[2000, 0, 0, 0]        # meme etat, meme somme -> aucun test d'ETAT ne le voyait
 ```
 
-Même motif sur `astraBullgryn` (4 coups) et `tauAunShi` (5 coups). Foyer natif : le **SITE (A)**
-d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` —
-`if (UnitExtensions.HasFlag(target, 8 = Overkilled)) { RecordHitStatistics ; AddLeftoverHit(…, 1) ; return; }`
-— qui **précède** toute émission ; le flag est posé par
-`IdunBattle.Entities.Components.UnitFlagsComponent$$Add(comp, 8)` sous
-`dar.didOverkill && UnitExtensions.CanBeOverkilled(target)`. Le port n'évalue cette garde qu'à
-l'**entrée du groupe** (`_apply_damage_pipeline`) : résidu de **granularité** déjà nommé dans
-`damage.py`.
+### 5.1 Le SITE (A) est per-COUP, et le flag est posé UN COUP TROP TÔT pour couper le coup courant
 
-**Ouvert** : pourquoi le flag n'est posé qu'au coup *suivant* le coup létal. Candidat lu mais non
-tranché — `Execute` **efface** `dar[+0xf]` (`didOverkill`) sous une condition qui dépend des
-**membres** du squad (`if (uVar28 != 0) dar[+0xf] = 0`, où `uVar28` dérive du compte de membres tués).
+`IdunBattle.Operations.ApplyDamageOperation$$Execute` est appelé **une fois par coup**. Sa tête est le
+SITE (A), qui **précède** toute émission (`On(0x39)`, `Reduce`, `On(0xf)`, `lastHitDamageTaken`,
+`On(0x10)`, et le `UnitDamaged` porteur du tag `Amount`) :
 
-Le probe **garde la forme** de l'écart (`live` préfixe de `off`, reste nul, sommes égales) : il rougit
-si l'écart change de nature, et aussi le jour où le résidu sera porté.
+```
+cVar15 = UnitExtensions__HasFlag(target, 8);          // UnitFlag.Overkilled
+if (cVar15 != '\0') { RecordHitStatistics ; AddLeftoverHit(.., 1, 0) ; return; }
+```
+
+Le flag est posé par **le même** `Execute` (`UnitFlagsComponent$$Add(flags, 8)` sous
+`dar.didOverkill && UnitExtensions.CanBeOverkilled(target)`), **après** le calcul et **avant**
+l'émission — donc le coup qui pose le flag **émet encore**. D'où `[2000, 0]` et jamais `[2000]`.
+
+### 5.2 La question ouverte : TRANCHÉE, et la piste héritée est RÉFUTÉE
+
+> *« pourquoi le flag n'est posé qu'au coup suivant le létal ? `Execute` efface `dar[+0xf]` sous une
+> condition dérivée du compte de membres tués »*
+
+**Il n'y a aucune règle « au coup suivant » : c'est une conséquence ARITHMÉTIQUE.** `didOverkill` est
+le retour de la surcharge d'**instance** d'`IdunBattle.Core.Services.DamagePrediction$$IsOverkill`,
+relue verbatim :
+
+```
+if (!CanBeOverkilled(target)) return false;
+accum = hitDamage + deniedDamage;
+currentHealth = UnitExtensions.GetStat(target, Health = 5);
+if (targetHealthBeforeAttack.HasValue) {
+    accum        += (targetHealthBeforeAttack.Value - currentHealth) + healthComponent@+0x24;
+    currentHealth = targetHealthBeforeAttack.Value;
+}
+return IsOverkill(currentHealth, accum, isCritical, isForceOverkill, HasFlag(target, 0x13), …);
+```
+
+Un coup létal qui ne **double** pas les PV rend faux (`accum` = son seul dégât) ; le coup **suivant**
+ajoute les PV entiers déjà retirés et franchit le seuil. Le décalage d'un coup **tombe tout seul**.
+
+**La piste `dar[+0xf] = 0` est réfutée** : la variable `local_768` que la fiche précédente lisait
+comme « compte de membres tués » est **réutilisée par Ghidra pour deux valeurs sans rapport** dans la
+même fonction. L'effacement réel est
+`if (local_758._4_4_ == 0) uVar28 = local_7d0 & 0xff; if (uVar28 != 0) dar[+0xf] = 0;` — c.-à-d.
+« le dégât santé FINAL est nul **et** un consommateur d'`On(0x39 = PreDamageTaken)` l'a **réduit** »
+(`local_7d0` est posé par la comparaison du `PendingDamage` @`HealthComponent+0x64` **avant/après** le
+dispatch d'`On(0x39)`). C'est une garde d'**interception de dégât**, pas un compteur de membres, et
+elle est inerte dans tous les régimes mesurés.
+
+### 5.3 Le terme qui manquait : `healthComponent@+0x24`
+
+Le premier port du prédicat ne sommait que `hitDamage + (hp_départ − hp_courant)`. **Une mesure l'a
+réfuté** — MC1_67/31337 `--hp-target 4000`, rolls `[3583, 3181, 3947, 4012]` :
+
+| | coup 3 | verdict | events |
+|---|---|---|---|
+| sans `+0x24` | `3947 + 4000 = 7947 < 8000` | flag au coup **4** | `[3583, 417, 0, 0]` |
+| natif | — | flag au coup **3** | `[3583, 417, 0]` |
+| avec `+0x24` | `3947 + 4000 + (3181−417) = 10711` | flag au coup **3** | `[3583, 417, 0]` |
+
+Le composant que `IsOverkill` va chercher est **le même** que le `HealthComponent` d'`ApplyDamageOperation`
+(identique `GetComponent(target, …)`), et `+0x24` est l'accumulateur de **sur-réduction** que
+`IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` alimente en queue
+(`this[0x24] += Math.Max(0, damage − applied)`), **sauté** quand le plancher `Minimum` est posé et `> 0`.
+Le nom vient du natif : `…$$ResetOverReduce` (`this+0x24 = 0`) — qui **n'a aucun xref de code**, donc
+le compteur n'est **jamais** remis à zéro.
+
+⚠ **Cela réfute le « RÉSIDU NOMMÉ » d'`unit_is_overkill`** (« hypothèse, non mesurée : accumulateur du
+dégât refusé par le plancher de PV ; nul tant qu'aucun plancher n'est actif »). Il est non nul **dès
+qu'un coup est écrêté**, et il est load-bearing.
+
+**Identité remarquable** : `(hp_départ − hp_courant)` = dégât **appliqué** des coups précédents,
+`+0x24` = dégât **gaspillé** ⇒ leur somme est le dégât **DEMANDÉ cumulé**. C'est exactement ce que
+re-joue `AttackDamageOperation._did_overkill` : le port n'a jamais eu deux modèles concurrents. Les
+deux formes ne se séparent que sur un `+0x24` **hérité** (revive) et sur un **soin** intercalé.
+
+### 5.4 Port
+
+* `overkill_hit_emits(overkilled)` — le SITE (A), **fonction de module** = point de mutation ;
+* `overkill_flag_posted_by_hit(...)` — le prédicat de pose, forme native (les trois termes) ;
+* `_run_hits` tient `_overkilled` / `_over_reduce` **par coup** ; `overkilled0` / `can_be_overkilled` /
+  `over_reduce0` sont threadés aux **4** call-sites (mêmes patrons que `crit_allowed0`/`failed_block0`) ;
+* `per_hit` devient la liste des events **émis** ⇒ **`len(per_hit)` n'est plus le compte de coups** :
+  c'est `hits_executed` (seul lecteur corrigé : `additional_hits.py`). `per_hit_health`, `rolls`,
+  `crits`, `denied_before`, `total` restent **full-length** et le **demandé** ;
+* `HealthComponent.over_reduce` (mirror `+0x24`), alimenté par `HealthComponent.reduce` et **reposé
+  exactement** par `_apply_damage_pipeline` quand la décomposition existe ;
+* `_did_overkill` consomme le verdict de `_run_hits` quand il existe (**foyer unique**), et garde son
+  re-jeu comme repli (DoT, knockback, groupes additionnels).
+
+### 5.5 Mesures
+
+`live == off` **bit-exact sur 5 régimes × 2 attaquants** (`astraBullgryn` 4 coups, `tauAunShi` 5), et
+la **position de la coupure varie** (aucun régime ne la fixe) :
+
+| régime | `astraBullgryn` | coupure | `tauAunShi` | coupure |
+|---|---|---|---|---|
+| `letal` MC1_67/31337 | `[1975, 1573, 2339, 1643]` | — | `[978, 743, 980, 685, 779]` | — |
+| `cadavre` C3_01/777 | `[2764, 3787, 979, 0]` | — | `[1411, 1338, 1124, 1468, 1166]` | — |
+| `survivant` | `[3583, 3181, 3947, 4012]` | — | `[2436, 1773, 1905, 1984, 2036]` | — |
+| `multi_cadavre` (hp 2000) | `[2000, 0]` | après coup **2** | `[2000, 0]` | après coup **2** |
+| `cadavre_sans_flag` (hp 4000) | `[3583, 417, 0]` | après coup **3** | `[2436, 1564, 0, 0]` | après coup **4** |
+
+`cadavre` est le **contre-modèle** : la cible meurt au coup 3 et un 4ᵉ tombe sur le cadavre, mais le
+cumul n'atteint jamais `2 × PV` ⇒ **aucune** suppression. Un modèle « on coupe dès que la cible est
+morte » y rendrait 3 entrées : il est réfuté par la mesure.
+
+**Contre-épreuve** : `probe_462_r4e_o_overkill_amount.py --mutate cardinalite --only multi_cadavre`
+(le SITE (A) ouvert) redonne **exactement** `off=[2000, 0, 0, 0]` — le verdict du probe s'inverse et
+exige alors la divergence. Le même foyer est muté dans le test **offline**.
 
 ## 6. Non couvert, nommé
 
 * le terme `+ ReduceShield` de la formule n'a **pas** été exercé sur une cible à **bouclier non nul**
-  (les trois régimes ont `shield = 0`) — la borne santé, elle, l'est ;
+  (tous les régimes ont `shield = 0`) — la borne santé, elle, l'est ;
 * le plancher `Minimum` (HP-floor Hypersensory) n'est **pas** confronté live (aucun régime ne le pose) ;
-  il est porté à l'identique du natif et couvert par `HealthComponent.reduce`, déjà en place ;
-* la borne sur le chemin **ABILITY** et **coups additionnels** est câblée (mêmes call-sites) mais
-  confrontée seulement en **non-régression** (`test_damage_ability_live`,
-  `test_additional_hits_amount_bounds_live`), pas dans un régime overkill dédié ;
-* le résidu `#462-r4e-o-r1` ci-dessus.
+  il est porté à l'identique du natif et couvert par `HealthComponent.reduce`, déjà en place. Il gate
+  **aussi** l'accumulation de `+0x24` (branche `if (0 < minimum) goto …`), porté, non confronté ;
+* la borne et la cardinalité sur le chemin **ABILITY** et **coups additionnels** sont câblées (mêmes
+  call-sites) mais confrontées seulement en **non-régression**, pas dans un régime overkill dédié ;
+* **`targetHealthBeforeAttack` d'un groupe de coups ADDITIONNELS** : le port passe les PV au début du
+  **GROUPE**, le natif ceux du début de l'**ATTAQUE** (même approximation que `limits_hp`, pré-existante
+  #67/#178). Elle rend le port **moins** enclin à poser le flag sur un groupe additionnel ;
+* `total` inclut encore le demandé des coups **supprimés** (le natif n'appelle pas `Reduce` pour eux).
+  Inerte sur l'état — la cible est morte, `thc.reduce` borne — et `over_reduce` est reposé exactement ;
+* résidus ouverts : **`#462-r4e-o-r1-r1`** (un coup **DISCARDÉ** appendait encore une entrée `per_hit`
+  à 0 : natif `ExecuteHit` sort *avant* `ApplyDamageOperation`, donc **aucun** event — non confronté,
+  il faut un porteur `HarlequinsPanoply`) et **`#462-r4e-o-r2`** (`+0x24` **jamais** remis à zéro : une
+  unité **ressuscitée** entre dans l'attaque suivante avec un compteur non nul et peut poser
+  `Overkilled` dès son premier coup — non confronté, il faut revive + seconde attaque).
