@@ -1,5 +1,10 @@
 # #480-r1 / #480-r4 — `frida/hooks/scratch/` est du code de production, et le build ne savait pas écrire
 
+> **Renommage (#480-r6, 2026-08-05)** : ce répertoire s'appelle désormais **`frida/hooks/probes/`**
+> et compte **67** fichiers — 6 morts en ont été retirés. Toute mention de `hooks/scratch/`
+> ci-dessous désigne l'état antérieur au renommage ; le fond (versionné, 66 modules bundlés) est
+> inchangé. Détail : `case-480r6-scratch-industrialise-et-code-mort.md`.
+
 **Deux résidus, une seule classe de faute — mais deux causes distinctes, et c'est le résultat.**
 Probe : `scripts/python/probe_480r1_entrees_de_build.py`. Tranche offline : aucun runner, aucun RPC,
 aucune session Frida touchée.
