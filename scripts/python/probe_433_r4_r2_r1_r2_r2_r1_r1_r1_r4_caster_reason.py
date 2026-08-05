@@ -65,6 +65,7 @@ import uuid
 from pathlib import Path
 
 import gameconfig as GC                                                  # noqa: E402
+import hexgeo                                                            # noqa: E402
 from engine.entities.active_ability_type import ActiveAbilityType        # noqa: E402
 from engine.runner.abilities import targeting as TGT                     # noqa: E402
 from engine.runner.abilities.handler import ABILITY_CLASSES              # noqa: E402
@@ -349,7 +350,53 @@ def _port_zone(move_tiles, all_tiles, visual, elev, walk, wall, fog, caster_pos,
 # VOLET 1 -- LA ZONE (1045, deux regimes)
 # ------------------------------------------------------------------------------------------------
 
-def live(sid, board=None, fillers=3, tours=8) -> dict:
+def _pas_vers_ennemi(sid, rid, uid, pos, ennemis, move):
+    """UN pas du caster vers l'ennemi le plus proche. Rend la destination, ou `None`."""
+    cand = [t for t in move if tuple(t) != tuple(pos)]
+    if not cand or not ennemis:
+        return None
+    dest = min(cand, key=lambda t: (min(hexgeo.distance(tuple(t), e) for e in ennemis), tuple(t)))
+    rep = _r(sid, "applyAction", {"runnerId": rid, "action": {
+        "kind": "move", "unitId": uid, "to": {"col": dest[0], "row": dest[1]}}}, 60)
+    return {"to": list(dest), "ok": rep.get("ok"), "err": rep.get("error")}
+
+
+def _rapproche(sid, rid, cible_d, budget) -> dict:
+    """APPROCHE SILENCIEUSE -- rapproche le caster sans rien mesurer, jusqu'a `cible_d`.
+
+    MESURE qui l'impose : sur `MC1_67`, `endturn` seul ne fait PAS avancer l'adversaire (les deux
+    `necroWarden` restent a (6,7)/(6,8) sur 10 tours) et le caster part a **d = 10**. Le gate ne
+    s'ouvre qu'a `d <= 2` (il faut une tuile LIBRE adjacente au caster ET adjacente a un ennemi),
+    donc sans cette phase le regime PASSE n'est jamais atteint -- pas parce qu'il n'existe pas, mais
+    parce que la GEOMETRIE DE SPAWN l'eloigne. On DEPLACE, on n'accuse pas la geometrie."""
+    trace = []
+    for _ in range(int(budget)):
+        units = _obs(sid, rid)
+        me = next((u for u in units if u.get("visualId") == CASTER_VISUAL), None)
+        if me is None:
+            return {"pas": trace, "arret": "caster absent"}
+        pos = (me["col"], me["row"])
+        ennemis = [(u["col"], u["row"]) for u in units if u.get("teamId") != me.get("teamId")]
+        d = min([hexgeo.distance(pos, e) for e in ennemis] or [-1])
+        if d >= 0 and d <= int(cible_d):
+            return {"pas": trace, "arret": "d=%d" % d, "pos": list(pos)}
+        move = (_threat(sid, rid).get(me["squadId"]) or ([], set()))[0]
+        step = _pas_vers_ennemi(sid, rid, me["squadId"], pos, ennemis, move)
+        trace.append({"d": d, "pos": list(pos), "step": step})
+        _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+    return {"pas": trace, "arret": "budget epuise"}
+
+
+def live(sid, board=None, fillers=3, tours=8, approche=True, approche_d=4,
+         approche_budget=40) -> dict:
+    """`approche` -- le caster AVANCE d'une tuile vers l'ennemi le plus proche a chaque tour.
+
+    C'est ce qui produit le regime PASSE : le gate ne s'ouvre que lorsqu'une tuile LIBRE adjacente
+    au Runtherd est AUSSI adjacente a un ennemi, et attendre que l'IA adverse vienne ne le donne pas
+    (MESURE : 8 tours d'`endturn` seul sur `MC1_67`, les deux `necroWarden` adverses restent hors de
+    portee, MORD=4 PASSE=0). Bouger le caster est licite ici : le masque de `1045` est `0x8004`, il
+    ne porte PAS `CasterHasNotMoved` -- le deplacement n'arme donc aucune autre regle de la
+    cascade."""
     rid, err = _build(board or BOARD,
                       ",".join([CASTER_VISUAL] + [FILLER] * int(fillers)),
                       "%s,%s" % (FILLER, FILLER))
@@ -359,6 +406,8 @@ def live(sid, board=None, fillers=3, tours=8) -> dict:
         out = {"board": board or BOARD, "runner": rid, "tours": []}
         elev, walk, wall, fog = _board_maps(sid, rid)
         allp = sorted(elev)
+        if approche:
+            out["approche_silencieuse"] = _rapproche(sid, rid, approche_d, approche_budget)
         for it in range(int(tours)):
             units = _obs(sid, rid)
             me = next((u for u in units if u.get("visualId") == CASTER_VISUAL), None)
@@ -366,6 +415,8 @@ def live(sid, board=None, fillers=3, tours=8) -> dict:
                 out["tours"].append({"iter": it, "error": "caster absent"})
                 break
             uid, pos = me["squadId"], (me["col"], me["row"])
+            ennemis = [(u["col"], u["row"]) for u in units
+                       if u.get("teamId") != me.get("teamId")]
             moved, _ = _moved_map(sid, rid)
             sub = _substrate(me, units, walk, elev, moved)
             th = _threat(sid, rid)
@@ -383,6 +434,8 @@ def live(sid, board=None, fillers=3, tours=8) -> dict:
                 "gate_port_nom": acg.caster_gate_reason(GETEMRUNTZ, st.get(GETEMRUNTZ), sub),
                 "mutation_mord": _mordu(sub),
                 "n_natif": len(natif),
+                "ennemis": sorted(ennemis),
+                "d_min_ennemi": min([hexgeo.distance(pos, e) for e in ennemis] or [-1]),
             }
             if move:
                 apres = _port_zone(move, allp, CASTER_VISUAL, elev, walk, wall, fog, pos,
@@ -403,9 +456,16 @@ def live(sid, board=None, fillers=3, tours=8) -> dict:
                     "n_avant": len(avant), "n_apres": len(apres),
                     "fp_avant": sorted(avant - natif), "fn_avant": sorted(natif - avant),
                     "fp_apres": sorted(apres - natif), "fn_apres": sorted(natif - apres),
+                    # ATTRIBUTION -- l'ecart residuel du terme d'ATTAQUE NORMALE, MESURE et non
+                    # suppose : il preexiste a cette tranche (LoS/elevation/walkability du modele
+                    # de zone) et n'est pas imputable au 4e gate. Le verdict le compte a part.
+                    "fp_normale": sorted(normale - natif), "fn_normale": sorted(natif - normale),
+                    "retire_par_le_gate": sorted(avant - apres),
                     "source_dans_natif": sorted(t for t in move if t in natif),
                 })
             out["tours"].append(ligne)
+            if approche and move:
+                ligne["approche"] = _pas_vers_ennemi(sid, rid, uid, pos, ennemis, move)
             _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
         return out
     finally:
@@ -415,11 +475,18 @@ def live(sid, board=None, fillers=3, tours=8) -> dict:
 def _verdict_live(res) -> int:
     """DEUX regimes exiges, et le port EXACT dans les deux. Un seul regime ne prouverait rien :
     « mord » seul ne dit pas que la branche INCLUSION est juste, « passe » seul ne dit pas que le
-    gate existe."""
-    mord = passe = 0
-    faux = []
+    gate existe.
+
+    L'ecart de ZONE est VENTILE, pas agrege : `fp_normale` est le residu du terme d'ATTAQUE NORMALE
+    (LoS/elevation/walkability), PREEXISTANT et hors de cette tranche ; ce qui est imputable au 4e
+    gate est `fp_apres \\ fp_normale` (faux positif que le gate aurait du retirer et n'a pas retire)
+    et tout `fn_apres` (tuile du natif que le gate a retiree A TORT). Confondre les deux ferait
+    accuser cette tranche d'un ecart qu'elle n'a pas cree -- ou l'absoudre d'un qu'elle a cree."""
+    mord = passe = efficace = 0
+    faux, residu = [], 0
     for d in (res.get("tours") or []):
-        if d.get("error") or d.get("n_move") != 1 or "n_apres" not in d:
+        # `n_move == 0` = aucune position candidate : le natif ne verse rien de comparable.
+        if d.get("error") or not d.get("n_move") or "n_apres" not in d:
             continue
         nat = d.get("natif_reason")
         if nat is None:
@@ -427,8 +494,19 @@ def _verdict_live(res) -> int:
             continue
         if int(nat) != int(d.get("port_reason") or 0):
             faux.append(("etage", d["iter"], hex(int(nat)), d.get("port_reason")))
-        if d["fp_apres"] or d["fn_apres"]:
-            faux.append(("zone", d["iter"], d["fp_apres"], d["fn_apres"]))
+        fp_impute = [t for t in d["fp_apres"] if t not in (d.get("fp_normale") or [])]
+        residu += len(d["fp_apres"]) - len(fp_impute)
+        if fp_impute or d["fn_apres"]:
+            faux.append(("zone", d["iter"], fp_impute, d["fn_apres"]))
+        # Le gate a-t-il CHANGE la zone, et n'a-t-il retire QUE des faux positifs ? Sans au moins
+        # une occurrence, il serait decoratif SUR LA ZONE dans la fenetre mesuree.
+        retire = d.get("retire_par_le_gate") or []
+        if retire:
+            efficace += 1
+            garde = [t for t in retire if t in (d.get("fp_avant") or [])]
+            if len(garde) != len(retire):
+                faux.append(("gate-retire-du-vrai", d["iter"],
+                             [t for t in retire if t not in garde]))
         if int(nat):
             mord += 1
         else:
@@ -436,11 +514,17 @@ def _verdict_live(res) -> int:
             if not d["source_dans_natif"]:
                 faux.append(("inclusion", d["iter"], "gate PASSE mais le natif "
                              "ne verse pas la tuile source"))
-    print("regimes en singleton : MORD=%d  PASSE=%d" % (mord, passe))
+    print("regimes mesures : MORD=%d  PASSE=%d   tours ou le gate CHANGE la zone : %d"
+          "   (residu ZONE preexistant, non impute : %d tuiles)"
+          % (mord, passe, efficace, residu))
     for f in faux:
         print("  DESACCORD %s" % (f,))
     if not mord or not passe:
         print("VERDICT live: INCOMPLET -- il faut les DEUX regimes (augmenter --tours)")
+        return 1
+    if not efficace:
+        print("VERDICT live: INCOMPLET -- le gate n'a change AUCUNE zone dans la fenetre "
+              "(partir du spawn : --approche-d 10)")
         return 1
     if faux:
         print("VERDICT live: ECART")
@@ -649,6 +733,11 @@ def main() -> int:
     ap.add_argument("--board", default=None)
     ap.add_argument("--fillers", type=int, default=3)
     ap.add_argument("--tours", type=int, default=8)
+    ap.add_argument("--sans-approche", action="store_true",
+                    help="ne fait PAS avancer le caster (regime MORD seul -- cf. `live`)")
+    ap.add_argument("--approche-d", type=int, default=4,
+                    help="distance a laquelle l'approche SILENCIEUSE s'arrete")
+    ap.add_argument("--approche-budget", type=int, default=40)
     ap.add_argument("--p-units", default="orksWarboss,bloodDante,astraOrdnance,bloodIntercessor")
     ap.add_argument("--a-units", default="orksNob,templSwordBrother,bloodMephiston")
     args = ap.parse_args()
@@ -669,7 +758,9 @@ def main() -> int:
     if args.step in ("all", "live", "cascade", "moved"):
         sid = _resolve_session()
     if args.step in ("all", "live"):
-        res = live(sid, args.board, args.fillers, args.tours)
+        res = live(sid, args.board, args.fillers, args.tours,
+                   approche=not args.sans_approche, approche_d=args.approche_d,
+                   approche_budget=args.approche_budget)
         print(json.dumps(res, indent=2, sort_keys=True, default=str))
         rc = max(rc, 1 if res.get("error") else _verdict_live(res))
     if args.step in ("all", "cascade"):
