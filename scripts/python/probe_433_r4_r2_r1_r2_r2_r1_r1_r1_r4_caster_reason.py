@@ -9,8 +9,8 @@ annulait `1045 GetEmRuntz` sur `orksRuntherd`, et le porter rend-il la branche I
 
 CE QUE LE DECOMPILE DIT. La cascade CASTER, onze regles, est transcrite verbatim dans
 `engine/services/ability_caster_gates.py` (section GATE 4). Sur les 148 masques RE-lus, un seul
-porteur du POOL arme une de ces regles d'une facon derivable : `1045`, masque `0x8004`
-(`CasterMatchesDynamicRule | CasterIsPossibleTarget`), dont la regle-delegue
+porteur du POOL arme une de ces regles d'une facon derivable SANS canal supplementaire : `1045`,
+masque `0x8004` (`CasterMatchesDynamicRule | CasterIsPossibleTarget`), dont la regle-delegue
 `IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$GetDynamicInvalidCasterReason`
 rend **2** quand `GetSpawnTileSelector` est VIDE -- « aucune tuile libre adjacente au Runtherd ET
 adjacente a un ennemi ».
@@ -18,19 +18,38 @@ adjacente a un ennemi ».
 ⚠ ETAT COURANT, PAS ETAT INTERROGE. `GetAllTilesInAbilityRange(unit, possiblePositions, true)`
 balaie des positions CANDIDATES et passe chacune en `casterTiles`, mais le selecteur de spawn part
 de `AdjacentTiles(Caster())` et `IdunBattle.Entities.Selectors.CasterSelector$$Select` rend
-l'ENTITE caster (`entities+0x08`), dont `SelectTiles` prend le `GetMainTile`. Le verdict du gate est
-donc CONSTANT sur tout le balayage. D'ou `caster_pos` cote port.
+l'ENTITE caster (`entities+0x08`) -- LU : son corps ne touche QUE ce slot -- dont `SelectTiles`
+prend le `GetMainTile`. Le verdict du gate est donc CONSTANT sur tout le balayage. D'ou `caster_pos`
+cote port, et d'ou le fait que l'oracle `abilityReason` (qui pose `casterTile =
+getUnitMainTile(caster)`) soit exactement le bon juge.
 
-CE QUE CE PROBE MESURE, en DEUX regimes du MEME montage -- c'est le couple qui prouve, pas l'un des
-deux :
-  * regime MORD  : `casterReason != 0` -> le natif ne verse RIEN pour `1045`, la zone se reduit a
-    l'attaque normale. Le port SANS le 4e gate y ajoute la tuile source (1 FP) ;
-  * regime PASSE : `casterReason == 0` -> le natif VERSE la tuile source (branche INCLUSION), et le
-    port doit la verser AUSSI. C'est la mesure que `#...-r1-r1-r1-r1` attendait : sans le gate, on
-    ne pouvait pas distinguer « le port a tort » de « le port a raison mais le gate l'annule ».
+TROIS VOLETS DE MESURE, et ils ne se remplacent pas :
 
-Le regime PASSE s'obtient en laissant l'IA adverse APPROCHER (des `endturn` successifs) : des qu'un
-ennemi est adjacent a la tuile libre voisine du Runtherd, le selecteur de spawn devient non vide.
+  * `--step live` -- **la ZONE**, sur `1045`/`orksRuntherd`, en DEUX regimes du MEME montage :
+      - regime MORD  : `casterReason != 0` -> le natif ne verse RIEN pour `1045`, la zone se reduit
+        a l'attaque normale. Le port SANS le 4e gate y ajoute la tuile source (faux positif) ;
+      - regime PASSE : `casterReason == 0` -> le natif VERSE la tuile source (branche INCLUSION), et
+        le port doit la verser AUSSI. C'est la mesure que `#...-r1-r1-r1-r1` attendait : sans le
+        gate, on ne pouvait pas distinguer « le port a tort » de « le port a raison mais le gate
+        l'annule ».
+      Le regime PASSE s'obtient en laissant l'IA adverse APPROCHER (des `endturn` successifs) : des
+      qu'un ennemi est adjacent a une tuile libre voisine du Runtherd, le selecteur devient non vide.
+
+  * `--step cascade` -- **L'ETAGE**, en LARGEUR. Pour CHAQUE unite vivante et CHAQUE ability de son
+    kit dont le masque est RE-lu, on confronte le port a l'oracle `abilityReason.casterReason`
+    (= `AttackQuery$$GetInvalidCasterReason`, marches a..g). Contrat de fidelite, celui de
+    `probe_115` :
+        natif == 0  =>  port == 0            STRICT (le port n'invente JAMAIS un refus)
+        natif != 0  =>  port == natif, ou 0  (ecart PERMISSIF, compte et nomme)
+    C'est le seul volet qui exerce les regles a gisement non nul AUTRES que la delegue.
+
+  * `--step moved` -- **LA 2e REGLE, avec sa CONTRE-EPREUVE**. `CasterHasNotMoved` (bit 4, 13
+    porteurs) ne mord que sur un `has_moved` MESURE, et le module le declarait non publie cote
+    DECISION. Il l'est : `combatSnapshot.units[].unitFlags` contient `UnitFlag.Moved` (= **0**, lu a
+    `enums.tsv`), et c'est exactement ce que `IdunBattle.Entities.UnitExtensions$$DidMove` teste
+    (`GetComponent<UnitFlagsComponent>(unit).Has(0)` apres un `Type == Unit`). Le volet DEPLACE le
+    porteur, montre que le natif REFUSE la ou le port refuse, puis RETIRE le bit du masque du port
+    et montre qu'il ACCEPTE -- sans quoi un gate vert ne prouverait rien.
 
 Le TEST qui garde le port est `tests/engine/test_433_r4_r2_r1_r2_r2_r1_r1_r1_r4_caster_reason_*.py`.
 ASCII only.
@@ -38,6 +57,7 @@ ASCII only.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import subprocess
 import sys
@@ -45,7 +65,8 @@ import uuid
 from pathlib import Path
 
 import gameconfig as GC                                                  # noqa: E402
-import hexgeo                                                            # noqa: E402
+from engine.entities.active_ability_type import ActiveAbilityType        # noqa: E402
+from engine.runner.abilities import targeting as TGT                     # noqa: E402
 from engine.runner.abilities.handler import ABILITY_CLASSES              # noqa: E402
 from engine.runner.abilities.targeting import (TARGETING_OPTIONS_UNPORTED,  # noqa: E402
                                                targeting_options_for)
@@ -58,7 +79,7 @@ PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 SEED = "777"
 
-#: Le porteur confrontable du gate : `orksRuntherd` / `1045 GetEmRuntz`, masque `0x8004`.
+#: Le porteur confrontable de la regle-delegue : `orksRuntherd` / `1045 GetEmRuntz`, masque `0x8004`.
 CASTER_VISUAL = "orksRuntherd"
 GETEMRUNTZ = 1045
 
@@ -67,6 +88,17 @@ GETEMRUNTZ = 1045
 BOARD = "MC1_67"
 FILLER = "necroWarden"
 MEASURE_RANGE = 1
+
+#: Le porteur de `CasterHasNotMoved` du volet `moved` : `bloodDante` / `1177 LightOfSanguinius`,
+#: masque `0x102004032` (bit 4 pose). Choisi parce qu'il est au POOL et que son ability n'est pas
+#: consommee par le simple fait de bouger.
+MOVED_VISUAL = "bloodDante"
+MOVED_ABILITY = 1177
+
+#: `UnitFlag.Moved`, LU dans `data/symbols/<build>/frida/enums.tsv` -- et re-confronte au runtime par
+#: `combatSnapshot.unitFlagTypes["Moved"]`, qui est la source AUTORITAIRE (le probe REFUSE si les
+#: deux divergent : une renumerotation au prochain build ne doit pas passer en silence).
+UNIT_FLAG_MOVED = 0
 
 #: Les onze regles de la cascade CASTER, dans l'ORDRE NATIF de
 #: `TargetingQuery$$GetInvalidCasterReason` -- l'inventaire les compte par ce nom.
@@ -108,10 +140,10 @@ def inventaire() -> dict:
 
 
 # ------------------------------------------------------------------------------------------------
-# LE VOLET LIVE
+# LE VOLET LIVE -- plomberie
 # ------------------------------------------------------------------------------------------------
 
-def _r(sid, m, b, t=90):
+def _r(sid, m, b, t=120):
     return (_rpc(sid, m, [b], timeout=t).get("result") or {})
 
 
@@ -138,6 +170,10 @@ def _dispose(sid, rid):
 
 
 def _obs(sid, rid):
+    """Les unites VIVANTES et POSEES. La cle d'acteur est `squadId` -- c'est elle que
+    `decisionView.units[].id`, `aiMovableTiles.units[].unitId`, `combatSnapshot.units[].entityId`
+    et `abilityReason.casterId` partagent (MESURE : `entityId` d'`observeBattle` en differe de 1 et
+    `abilityReason` rend `casterReason: null` si on le lui passe)."""
     o = _r(sid, "observeBattle", {"runnerId": rid}, 120)
     return [u for u in (o.get("units") or [])
             if not u.get("isDead") and u.get("col") is not None]
@@ -162,15 +198,70 @@ def _board_maps(sid, rid):
             {pos[t["id"]]: bool(t.get("isInFog")) for t in tiles})
 
 
-def _dv_state(sid, rid, visual):
-    """L'etat par ability (`decisionView`, `allAbilities: true`) -- le canal des TROIS PREMIERS
-    gates. Les alimenter est ce qui rend le 4e ISOLABLE : si l'ecart persiste alors qu'ils sont
-    nourris, il ne vient pas d'eux."""
+def _dv_rows(sid, rid):
+    """`{squadId: ligne decisionView}` (`allAbilities: true`) -- le canal des TROIS PREMIERS gates.
+    Les alimenter est ce qui rend le 4e ISOLABLE : si l'ecart persiste alors qu'ils sont nourris, il
+    ne vient pas d'eux."""
     dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 1}, 180)
-    row = next((u for u in (dv.get("units") or []) if u.get("visualId") == visual), None)
-    if row is None:
-        return None, None
-    return acg.ability_state_map(row), acg.normal_attack_id(row)
+    return {u.get("id"): u for u in (dv.get("units") or []) if u.get("id") is not None}
+
+
+def _moved_map(sid, rid):
+    """`{squadId: has_moved}` depuis `combatSnapshot.units[].unitFlags` -- le mirror EXACT de
+    `IdunBattle.Entities.UnitExtensions$$DidMove` (`UnitFlagsComponent.Has(UnitFlag.Moved)`).
+
+    `None` en valeur = flags NON mesures pour cette unite (tri-etat). Rend aussi l'id de l'enum tel
+    que le jeu le publie, pour REFUSER une renumerotation silencieuse."""
+    cs = _r(sid, "combatSnapshot", {"runnerId": rid, "debugOnly": ["unitFlags"]}, 180)
+    mid = (cs.get("unitFlagTypes") or {}).get("Moved")
+    out = {}
+    for u in (cs.get("units") or []):
+        f = u.get("unitFlags")
+        out[u.get("entityId")] = None if f is None else (mid in f)
+    return out, mid
+
+
+def _substrate(row, units, walk, elev, moved=None):
+    """Le `CasterSubstrate` d'une unite d'`observeBattle`, alimente par tout ce qui EST publie."""
+    return acg.CasterSubstrate(
+        pos=(row["col"], row["row"]), has_tile=True, team=row.get("teamId"),
+        has_moved=None if moved is None else moved.get(row.get("squadId")),
+        team_by_pos={(u["col"], u["row"]): u.get("teamId") for u in units},
+        walkable_by_pos=walk, elev_by_pos=elev, neigh_by_pos=None)
+
+
+def _hex_to_int(h):
+    """`casterReason.hex` -> entier. `None` = l'oracle n'a pas resolu la methode (pas « valide »)."""
+    if not h:
+        return None
+    try:
+        return int(str(h), 16)
+    except ValueError:
+        return None
+
+
+def _caster_reason(sid, rid, uid, aid):
+    """`casterReason` de l'oracle `abilityReason` = `AttackQuery$$GetInvalidCasterReason(caster,
+    getUnitMainTile(caster), ability)` -- la cascade COMPLETE (marches a..g), en NOMS de
+    `TargetingRule`. C'est le seul canal qui dise QUELLE regle mord."""
+    rep = _r(sid, "abilityReason",
+             {"runnerId": rid, "casterId": uid, "abilityType": int(aid)}, 90)
+    cr = (rep or {}).get("casterReason")
+    return (None if cr is None else _hex_to_int(cr.get("hex")),
+            None if cr is None else (cr.get("reasons") or []))
+
+
+def _port_caster_reason(aid, ability_state, sub):
+    """La restriction PORTEE de `AttackQuery$$GetInvalidCasterReason`, sur le substrat DECISION.
+
+    DEUX marches sur sept sont derivables : (d) `ActiveAbility.CanCurrentlyBeUsed` -> le litteral
+    **1** que le natif rend par `GenericBrokenTargetingRule(1)`, et (g) la cascade des onze regles,
+    portee par `invalid_caster_reason`. Les cinq autres (unite nulle, multi-tuiles sans le trait
+    0x418, composant/entree absents, `AbilityName == 0`, `IsAlreadyUsedThisTurn`) ne sont pas
+    derivables ici -> le port ne refuse pas, ecart PERMISSIF."""
+    if acg.can_currently_be_used(ability_state) is False:
+        return 1
+    return int(acg.invalid_caster_reason(aid, sub) or 0)
 
 
 class _SansGate4:
@@ -189,6 +280,34 @@ class _SansGate4:
 
     def __exit__(self, *_exc):
         acg.invalid_caster_reason = self._f
+        AR._REACH_CACHE.clear()
+        return False
+
+
+class _SansRegle:
+    """Le contre-factuel de la CONTRE-EPREUVE : la meme cascade, moins UN bit du masque.
+
+    Retirer le bit est plus fidele que court-circuiter la fonction : on demande « et si le natif ne
+    l'armait pas ? », donc le reste de la cascade continue de s'appliquer. La substitution porte sur
+    `engine.runner.abilities.targeting.targeting_options_for`, que `invalid_caster_reason` importe
+    a CHAQUE appel (import tardif) -- muter le module est donc effectif."""
+
+    def __init__(self, bit):
+        self.bit = int(bit)
+
+    def __enter__(self):
+        self._f = TGT.targeting_options_for
+        bit, orig = self.bit, self._f
+
+        def sans(aid):
+            o = orig(aid)
+            return None if o is None else dataclasses.replace(o, rules=int(o.rules) & ~bit)
+        TGT.targeting_options_for = sans
+        AR._REACH_CACHE.clear()
+        return self
+
+    def __exit__(self, *_exc):
+        TGT.targeting_options_for = self._f
         AR._REACH_CACHE.clear()
         return False
 
@@ -226,14 +345,9 @@ def _port_zone(move_tiles, all_tiles, visual, elev, walk, wall, fog, caster_pos,
     return out
 
 
-def _caster_reason(sid, rid, uid):
-    """`casterReason` de l'oracle `abilityReason` -- la raison CASTER structuree du natif, en NOMS
-    de `TargetingRule`. C'est le seul canal qui dise QUELLE regle mord ; l'ensemble de tuiles, lui,
-    ne dit que « rien versé »."""
-    rep = _r(sid, "abilityReason",
-             {"runnerId": rid, "casterId": uid, "abilityType": GETEMRUNTZ, "targetId": uid}, 90)
-    return (rep or {}).get("casterReason")
-
+# ------------------------------------------------------------------------------------------------
+# VOLET 1 -- LA ZONE (1045, deux regimes)
+# ------------------------------------------------------------------------------------------------
 
 def live(sid, board=None, fillers=3, tours=8) -> dict:
     rid, err = _build(board or BOARD,
@@ -251,35 +365,38 @@ def live(sid, board=None, fillers=3, tours=8) -> dict:
             if me is None:
                 out["tours"].append({"iter": it, "error": "caster absent"})
                 break
-            uid, pos = me["id"], (me["col"], me["row"])
-            team_by_pos = {(u["col"], u["row"]): u.get("owner") for u in units}
-            my_team = me.get("owner")
+            uid, pos = me["squadId"], (me["col"], me["row"])
+            moved, _ = _moved_map(sid, rid)
+            sub = _substrate(me, units, walk, elev, moved)
             th = _threat(sid, rid)
             move, natif = th.get(uid) or ([], set())
             natif &= set(allp)
-            st, na_id = _dv_state(sid, rid, CASTER_VISUAL)
-            sub = acg.CasterSubstrate(pos=pos, has_tile=True, team=my_team,
-                                      team_by_pos=team_by_pos, walkable_by_pos=walk,
-                                      elev_by_pos=elev, neigh_by_pos=None)
+            rows = _dv_rows(sid, rid)
+            st = acg.ability_state_map(rows.get(uid))
+            na_id = acg.normal_attack_id(rows.get(uid))
+            nat, noms = _caster_reason(sid, rid, uid, GETEMRUNTZ)
             ligne = {
                 "iter": it, "pos": list(pos), "n_move": len(move), "move": sorted(move),
-                "casterReason_natif": _caster_reason(sid, rid, uid),
+                "natif_reason": nat, "natif_noms": noms,
+                "port_reason": _port_caster_reason(GETEMRUNTZ, st.get(GETEMRUNTZ), sub),
                 "gate_port": acg.invalid_caster_reason(GETEMRUNTZ, sub),
-                "gate_port_nom": acg.caster_gate_reason(GETEMRUNTZ, (st or {}).get(GETEMRUNTZ),
-                                                        sub),
+                "gate_port_nom": acg.caster_gate_reason(GETEMRUNTZ, st.get(GETEMRUNTZ), sub),
                 "mutation_mord": _mordu(sub),
                 "n_natif": len(natif),
             }
             if move:
                 apres = _port_zone(move, allp, CASTER_VISUAL, elev, walk, wall, fog, pos,
-                                   caster_team=my_team, team_by_pos=team_by_pos,
+                                   caster_team=me.get("teamId"),
+                                   team_by_pos=sub.team_by_pos,
                                    ability_state=st, normal_attack_id=na_id)
                 with _SansGate4():
                     avant = _port_zone(move, allp, CASTER_VISUAL, elev, walk, wall, fog, pos,
-                                       caster_team=my_team, team_by_pos=team_by_pos,
+                                       caster_team=me.get("teamId"),
+                                       team_by_pos=sub.team_by_pos,
                                        ability_state=st, normal_attack_id=na_id)
                 normale = _port_zone(move, allp, CASTER_VISUAL, elev, walk, wall, fog, pos,
-                                     caster_team=my_team, team_by_pos=team_by_pos,
+                                     caster_team=me.get("teamId"),
+                                     team_by_pos=sub.team_by_pos,
                                      ability_ids=[], ability_state=st, normal_attack_id=na_id)
                 ligne.update({
                     "n_normale_seule": len(normale),
@@ -295,7 +412,7 @@ def live(sid, board=None, fillers=3, tours=8) -> dict:
         _dispose(sid, rid)
 
 
-def _verdict(res) -> int:
+def _verdict_live(res) -> int:
     """DEUX regimes exiges, et le port EXACT dans les deux. Un seul regime ne prouverait rien :
     « mord » seul ne dit pas que la branche INCLUSION est juste, « passe » seul ne dit pas que le
     gate existe."""
@@ -304,14 +421,15 @@ def _verdict(res) -> int:
     for d in (res.get("tours") or []):
         if d.get("error") or d.get("n_move") != 1 or "n_apres" not in d:
             continue
-        hexnat = ((d.get("casterReason_natif") or {}).get("hex"))
-        nat_invalide = bool(hexnat) and str(hexnat) not in ("0", "0x0")
-        port_invalide = bool(d.get("gate_port"))
-        if nat_invalide != port_invalide:
-            faux.append(("etage", d["iter"], hexnat, d.get("gate_port")))
+        nat = d.get("natif_reason")
+        if nat is None:
+            faux.append(("oracle", d["iter"], "casterReason non resolu"))
+            continue
+        if int(nat) != int(d.get("port_reason") or 0):
+            faux.append(("etage", d["iter"], hex(int(nat)), d.get("port_reason")))
         if d["fp_apres"] or d["fn_apres"]:
             faux.append(("zone", d["iter"], d["fp_apres"], d["fn_apres"]))
-        if nat_invalide:
+        if int(nat):
             mord += 1
         else:
             passe += 1
@@ -322,22 +440,219 @@ def _verdict(res) -> int:
     for f in faux:
         print("  DESACCORD %s" % (f,))
     if not mord or not passe:
-        print("VERDICT: INCOMPLET -- il faut les DEUX regimes (augmenter --tours)")
+        print("VERDICT live: INCOMPLET -- il faut les DEUX regimes (augmenter --tours)")
         return 1
     if faux:
-        print("VERDICT: ECART")
+        print("VERDICT live: ECART")
         return 1
-    print("VERDICT: EXACT dans les deux regimes")
+    print("VERDICT live: EXACT dans les deux regimes")
     return 0
 
 
+# ------------------------------------------------------------------------------------------------
+# VOLET 2 -- L'ETAGE, EN LARGEUR (toutes les unites x toutes leurs abilities)
+# ------------------------------------------------------------------------------------------------
+
+def _kit_ability_ids(visual):
+    lus = set(ability_ids())
+    out = []
+    for a in (GC.unit_abilities(visual or "").get("active") or []):
+        if a.get("id") is not None and int(a["id"]) in lus:
+            out.append(int(a["id"]))
+    return sorted(set(out))
+
+
+def cascade(sid, board, rosters, tours=3) -> dict:
+    """Confronte `_port_caster_reason` a `abilityReason.casterReason` sur TOUTES les paires
+    (unite, ability a masque RE-lu) d'un runner, a chaque tour."""
+    out = {"board": board, "rosters": rosters, "paires": [], "runner": None}
+    p_units, a_units = rosters
+    rid, err = _build(board, p_units, a_units)
+    if rid is None:
+        out["error"] = "build KO -- %s" % err
+        return out
+    out["runner"] = rid
+    try:
+        elev, walk, _wall, _fog = _board_maps(sid, rid)
+        for it in range(int(tours)):
+            units = _obs(sid, rid)
+            moved, mid = _moved_map(sid, rid)
+            if mid is not None and int(mid) != UNIT_FLAG_MOVED:
+                out["error"] = ("UnitFlag.Moved renumerote : enums.tsv=%d live=%s"
+                                % (UNIT_FLAG_MOVED, mid))
+                return out
+            rows = _dv_rows(sid, rid)
+            for u in units:
+                uid, vis = u.get("squadId"), u.get("visualId")
+                sub = _substrate(u, units, walk, elev, moved)
+                st = acg.ability_state_map(rows.get(uid))
+                for aid in _kit_ability_ids(vis):
+                    nat, noms = _caster_reason(sid, rid, uid, aid)
+                    out["paires"].append({
+                        "iter": it, "unit": vis, "uid": uid, "ability": aid,
+                        "rules": "0x%x" % int(getattr(targeting_options_for(aid), "rules", 0) or 0),
+                        "natif": nat, "natif_noms": noms,
+                        "port": _port_caster_reason(aid, st.get(aid), sub),
+                        "moved": sub.has_moved,
+                    })
+            _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+        return out
+    finally:
+        _dispose(sid, rid)
+
+
+def _verdict_cascade(res) -> int:
+    """Contrat de `probe_115` : le port n'invente JAMAIS un refus ; quand il en pose un, il pose le
+    MEME que le natif ; sinon c'est un ecart PERMISSIF, compte et nomme."""
+    if res.get("error"):
+        print("VERDICT cascade: %s" % res["error"])
+        return 1
+    inv, exact, permissif = [], 0, {}
+    n = 0
+    for d in (res.get("paires") or []):
+        nat, port = d.get("natif"), int(d.get("port") or 0)
+        if nat is None:
+            continue
+        n += 1
+        nat = int(nat)
+        if nat == 0:
+            if port != 0:
+                inv.append(d)
+            else:
+                exact += 1
+        elif port == nat:
+            exact += 1
+        elif port == 0:
+            k = ",".join(d.get("natif_noms") or []) or hex(nat)
+            permissif[k] = permissif.get(k, 0) + 1
+        else:
+            inv.append(d)
+    print("paires confrontees : %d   accord EXACT : %d   ecart PERMISSIF : %d"
+          % (n, exact, sum(permissif.values())))
+    for k, v in sorted(permissif.items(), key=lambda kv: -kv[1]):
+        print("   permissif %-40s x%d" % (k, v))
+    for d in inv[:20]:
+        print("   REFUS INVENTE/FAUX %s" % ({k: d[k] for k in
+                                             ("unit", "ability", "natif", "natif_noms", "port")},))
+    if inv:
+        print("VERDICT cascade: ECART -- %d refus inventes ou faux" % len(inv))
+        return 1
+    if not n:
+        print("VERDICT cascade: INCOMPLET -- aucune paire confrontee")
+        return 1
+    print("VERDICT cascade: aucun refus invente, aucun refus FAUX")
+    return 0
+
+
+# ------------------------------------------------------------------------------------------------
+# VOLET 3 -- LA 2e REGLE : `CasterHasNotMoved`, avec sa CONTRE-EPREUVE
+# ------------------------------------------------------------------------------------------------
+
+def moved(sid, board=None) -> dict:
+    board = board or BOARD
+    rid, err = _build(board, "%s,%s" % (MOVED_VISUAL, FILLER), "%s,%s" % (FILLER, FILLER))
+    if rid is None:
+        return {"error": "build KO -- %s" % err}
+    try:
+        out = {"board": board, "runner": rid, "ability": MOVED_ABILITY,
+               "rules": "0x%x" % int(getattr(targeting_options_for(MOVED_ABILITY),
+                                             "rules", 0) or 0), "phases": []}
+        elev, walk, _w, _f = _board_maps(sid, rid)
+
+        def mesure(tag):
+            units = _obs(sid, rid)
+            me = next((u for u in units if u.get("visualId") == MOVED_VISUAL), None)
+            if me is None:
+                return {"phase": tag, "error": "caster absent"}, None, None
+            uid = me["squadId"]
+            mv, mid = _moved_map(sid, rid)
+            sub = _substrate(me, units, walk, elev, mv)
+            st = acg.ability_state_map(_dv_rows(sid, rid).get(uid))
+            nat, noms = _caster_reason(sid, rid, uid, MOVED_ABILITY)
+            with _SansRegle(TR.CasterHasNotMoved):
+                sans = int(acg.invalid_caster_reason(MOVED_ABILITY, sub) or 0)
+            return ({"phase": tag, "pos": [me["col"], me["row"]], "uid": uid,
+                     "flag_moved_id": mid, "has_moved": sub.has_moved,
+                     "natif": nat, "natif_noms": noms,
+                     "port": _port_caster_reason(MOVED_ABILITY, st.get(MOVED_ABILITY), sub),
+                     "port_sans_la_regle": sans}, me, uid)
+
+        ligne, me, uid = mesure("avant")
+        out["phases"].append(ligne)
+        if me is None:
+            return out
+        # DEPLACER -- c'est le geste qui arme la regle. `aiMovableTiles` sans `threat` rend les
+        # tuiles LEGALES ; on en prend une DIFFERENTE de la courante.
+        for _ in range(4):
+            th = _threat(sid, rid)
+            tiles = [t for t in (th.get(uid) or ([], set()))[0]
+                     if tuple(t) != (me["col"], me["row"])]
+            if tiles:
+                dest = sorted(tiles)[0]
+                rep = _r(sid, "applyAction", {"runnerId": rid, "action": {
+                    "kind": "move", "unitId": uid, "to": {"col": dest[0], "row": dest[1]}}}, 60)
+                out["move"] = {"to": list(dest), "ok": rep.get("ok"), "err": rep.get("error")}
+                break
+            _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+        ligne, _me2, _u2 = mesure("apres")
+        out["phases"].append(ligne)
+        return out
+    finally:
+        _dispose(sid, rid)
+
+
+def _verdict_moved(res) -> int:
+    if res.get("error"):
+        print("VERDICT moved: %s" % res["error"])
+        return 1
+    ph = {d.get("phase"): d for d in (res.get("phases") or [])}
+    av, ap = ph.get("avant"), ph.get("apres")
+    if not av or not ap or av.get("error") or ap.get("error"):
+        print("VERDICT moved: INCOMPLET -- phases manquantes")
+        return 1
+    for d in (av, ap):
+        print("  %-6s pos=%s has_moved=%s natif=%s %s port=%s port_sans_la_regle=%s"
+              % (d["phase"], d["pos"], d["has_moved"],
+                 None if d["natif"] is None else hex(int(d["natif"])),
+                 d["natif_noms"], d["port"], d["port_sans_la_regle"]))
+    bit = int(TR.CasterHasNotMoved)
+    ok = True
+    if ap.get("has_moved") is not True:
+        print("  MONTAGE KO : le caster n'a pas bouge (has_moved=%s)" % ap.get("has_moved"))
+        ok = False
+    if ap.get("natif") is None or int(ap["natif"]) != bit:
+        print("  le NATIF ne refuse pas sur CasterHasNotMoved apres le move (natif=%s)"
+              % ap.get("natif"))
+        ok = False
+    if int(ap.get("port") or 0) != bit:
+        print("  le PORT ne refuse pas la ou le natif refuse (port=%s)" % ap.get("port"))
+        ok = False
+    if int(ap.get("port_sans_la_regle") or 0) != 0:
+        print("  CONTRE-EPREUVE MUETTE : le port refuse encore sans la regle (%s)"
+              % ap.get("port_sans_la_regle"))
+        ok = False
+    if int(av.get("natif") or 0) != int(av.get("port") or 0):
+        print("  desaccord AVANT le move : natif=%s port=%s"
+              % (av.get("natif"), av.get("port")))
+        ok = False
+    print("VERDICT moved: %s" % ("le natif REFUSE, le port REFUSE, et sans la regle il ACCEPTE"
+                                 if ok else "ECART"))
+    return 0 if ok else 1
+
+
+# ------------------------------------------------------------------------------------------------
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--step", default="all", choices=("all", "inventaire", "live"))
+    ap.add_argument("--step", default="all",
+                    choices=("all", "inventaire", "live", "cascade", "moved"))
     ap.add_argument("--board", default=None)
     ap.add_argument("--fillers", type=int, default=3)
     ap.add_argument("--tours", type=int, default=8)
+    ap.add_argument("--p-units", default="orksWarboss,bloodDante,astraOrdnance,bloodIntercessor")
+    ap.add_argument("--a-units", default="orksNob,templSwordBrother,bloodMephiston")
     args = ap.parse_args()
+    rc = 0
     if args.step in ("all", "inventaire"):
         inv = inventaire()
         print("abilities aux masques RE-lus : %d" % inv["abilities"])
@@ -349,25 +664,23 @@ def main() -> int:
         print("la table couvre exactement les porteurs : %s"
               % inv["table_couvre_les_porteurs"])
         if not inv["table_couvre_les_porteurs"]:
-            return 1
-    if args.step in ("all", "live"):
+            rc = 1
+    sid = None
+    if args.step in ("all", "live", "cascade", "moved"):
         sid = _resolve_session()
+    if args.step in ("all", "live"):
         res = live(sid, args.board, args.fillers, args.tours)
         print(json.dumps(res, indent=2, sort_keys=True, default=str))
-        if res.get("error"):
-            return 1
-        for d in (res.get("tours") or []):
-            if d.get("error"):
-                print("iter %d ERREUR %s" % (d["iter"], d["error"]))
-                continue
-            print("iter %d pos=%s n_move=%d casterReason=%s gate_port=%s (mutation mord: %s) "
-                  "natif=%s avant=%s apres=%s"
-                  % (d["iter"], d["pos"], d["n_move"],
-                     (d.get("casterReason_natif") or {}).get("hex"),
-                     d.get("gate_port"), d.get("mutation_mord"), d.get("n_natif"),
-                     d.get("n_avant"), d.get("n_apres")))
-        return _verdict(res)
-    return 0
+        rc = max(rc, 1 if res.get("error") else _verdict_live(res))
+    if args.step in ("all", "cascade"):
+        res = cascade(sid, args.board or BOARD, (args.p_units, args.a_units))
+        print(json.dumps(res, indent=2, sort_keys=True, default=str))
+        rc = max(rc, _verdict_cascade(res))
+    if args.step in ("all", "moved"):
+        res = moved(sid, args.board)
+        print(json.dumps(res, indent=2, sort_keys=True, default=str))
+        rc = max(rc, _verdict_moved(res))
+    return rc
 
 
 if __name__ == "__main__":
