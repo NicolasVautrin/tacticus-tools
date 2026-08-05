@@ -607,18 +607,27 @@ def build(since: str, strict: bool = False, use_cache: bool = True,
     known = agents_on_disk(pdir)
     by_msg = merge_msg_agents(known)
 
-    joined = via_msg = agree = clash = 0
+    joined = via_msg = agree = 0
+    clashes = []
     for pr in prs:
         m = metas.get(pr["branch"])
         cited = by_msg.get(pr["merge_sha"]) if pr["merge_sha"] else None
         if m and cited:
-            # Confrontation des deux voies. `clash` doit rester a 0 : un desaccord signifierait
-            # qu'une des deux attribue la PR au mauvais agent, et il faudrait trancher avant de
-            # facturer quoi que ce soit. Mesure du 2026-08-01 : 247 accords, 0 desaccord.
+            # Confrontation des deux voies. Un desaccord est RARE et doit etre NOMME, pas
+            # compte : un « 1 desaccord » anonyme oblige a re-ecrire a la main la sonde qui
+            # dit LAQUELLE -- fait le 2026-08-05, et la cause etait instructive.
+            #
+            # CE QU'UN DESACCORD SIGNIFIE, mesure : la voie MESSAGE se fait piéger quand le
+            # corps du merge CITE un `agent-<id>` comme SUJET au lieu de l'avoir pour auteur.
+            # Cas reel, PR #659 (menage de branches) : le message cite la branche gardee
+            # `worktree-agent-a884d253a85a3b0c5`, et `AGENT_RX` y voit l'auteur. La voie
+            # BRANCHE, elle, disait juste -- c'est elle qui prime, donc l'ATTRIBUTION reste
+            # correcte ; seul le compteur s'en emeut. Un desaccord n'est donc PAS
+            # automatiquement une erreur d'attribution : c'est un appel a regarder.
             if m["id"] == cited:
                 agree += 1
             else:
-                clash += 1
+                clashes.append((pr["num"], m["id"], m["name"], cited))
         # La BRANCHE prime : voie la plus couvrante. Le message la RELAIE quand le meta manque.
         pr["agent_id"] = m["id"] if m else (cited or "")
         pr["agent"] = m["name"] if m else (("agent %s" % cited[:8]) if cited else "")
@@ -666,7 +675,7 @@ def build(since: str, strict: bool = False, use_cache: bool = True,
             ctx_per_line=(ctx / add) if add else 0))
     return dict(days=rows, prs=prs, joined=joined, net=git_net, since=since, strict=strict,
                 agents=tok_agent, project_dir=str(pdir), n_pr_commits=len(owner),
-                via_msg=via_msg, agree=agree, clash=clash,
+                via_msg=via_msg, agree=agree, clash=len(clashes), clashes=clashes,
                 pr_rows=pr_rows,
                 cache=dict(tokens=cache.get("stat_tokens", {}),
                            merges=cache.get("stat_merges", {}),
@@ -713,6 +722,11 @@ def console(data: dict) -> None:
              data["via_msg"]))
     print("  confrontation des deux voies : %d accords, %d desaccords%s"
           % (data["agree"], data["clash"], "" if not data["clash"] else "  <-- A TRANCHER"))
+    for num, bid, bname, cited in data.get("clashes", []):
+        # L'attribution RETENUE est celle de la branche ; on la nomme pour qu'un lecteur
+        # puisse trancher sans re-outiller.
+        print("     PR #%s : branche -> %s (%s) | message -> %s  [retenu : branche]"
+              % (num, bid[:12], bname[:44], cited[:12]))
     tot_c = tot["commits"] + tot["direct_commits"]
     print("commits       : %d par PR (%.0f%%), %d pousses directement sur master"
           % (tot["commits"], 100 * tot["commits"] / max(1, tot_c), tot["direct_commits"]))
