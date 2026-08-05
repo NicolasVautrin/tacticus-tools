@@ -36,7 +36,7 @@ comparaison doit se faire par POSITION, jamais par id.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
 from ..entities.spawn_source import SpawnSource
 from ..services.machine_of_war_position import MachineOfWarPosition
@@ -45,6 +45,10 @@ from .group_type import GroupType
 from .step_type import StepType
 from .stream_helper import get_add_unit_tags
 from .tag_key import TagKey
+from .unit_extensions import (ActiveAbilityState, TriggeredAbilityState, UnitFullState,
+                              get_full_state_update_tags,
+                              get_full_state_update_tags_for_active,
+                              get_full_state_update_tags_for_triggered)
 
 #: L'entite du MATCH, argument en dur de `StartGroup` dans `SetupGameOperation$$Execute`.
 MATCH_ENTITY_ID = 1
@@ -85,6 +89,18 @@ class UnitSetup:
     """`feet.Count` du natif. `None` => `len(foot_tile_ids)`. Les deux collections sont
     DISTINCTES dans la signature native (`feet` et `unitFeetTileIds`) : le port ne deduit pas
     l'une de l'autre par defaut, il rend la distinction exprimable."""
+    full_state: Optional[UnitFullState] = None
+    """Le substrat d'`Action=ChangeStats`. `None` = L'APPELANT NE FOURNIT PAS L'ETAT, donc rien
+    n'est emis -- le port n'invente aucune stat. Ce n'est PAS le natif, qui emet toujours la
+    ligne : c'est le seul degre de liberte du mirror, et il est visible ici plutot que dilue
+    dans seize valeurs par defaut. Le comparateur classe alors la ligne absente en divergence,
+    jamais en « egal »."""
+    active_abilities: Sequence[ActiveAbilityState] = ()
+    """`ActiveAbilityComponent.Abilities(+0x20)`, DANS SON ORDRE -- une `Action=ChangeAbility`
+    chacune. L'ordre est celui de la collection native, pas un tri du port."""
+    triggered_abilities: Sequence[Tuple[int, TriggeredAbilityState]] = ()
+    """`TriggeredAbilityComponent.Abilities(+0x18)`, DANS SON ORDRE : `(TriggeredAbilityType,
+    etat)`. Emises APRES toutes les actives."""
 
 
 def add_player(events: StreamDispatcher, player: PlayerSetup) -> None:
@@ -147,17 +163,25 @@ def add_unit(events: StreamDispatcher, unit: UnitSetup,
     config le desarme -- d'ou ce parametre, plutot qu'une structure en dur. La valeur `True` par
     defaut est celle OBSERVEE sur nos runners, pas une lecture du decompile.
 
-    ⚠ COUVERTURE PARTIELLE, ET C'EST PUBLIE. Le groupe natif contient AUSSI un
-    `Action=ChangeStats` (16 tags) puis un `Action=ChangeAbility` par ability -- actives d'abord,
-    declenchees ensuite. Leurs tags viennent des trois surcharges de
-    `IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags`, qui n'est PAS un
-    `StreamHelper$$Get*Tags` : c'est la tranche D, et le comparateur classe ces lignes en
-    divergence CONNUE, jamais en « egal »."""
+    LE GROUPE PORTE TROIS FORMES D'ACTION, dans cet ordre (lu verbatim dans le decompile,
+    et identique dans `AddMachineOperation$$Execute` / `ResurrectUnitOperation$$SendStreamEvents`) :
+
+        Action=AddUnit        tags de `StreamHelper$$GetAddUnitTags`
+        Action=ChangeStats    tags de `UnitExtensions$$GetFullStateUpdateTags(unit)`
+        Action=ChangeAbility  une par ACTIVE, puis une par DECLENCHEE
+
+    L'entite de toutes ces lignes est l'UNITE, jamais l'ability."""
     if use_group:
-        # `sourceId` : le decompile passe ici un handle de litteral de chaine, NON RESOLUBLE
-        # statiquement (les chaines .NET vivent dans `global-metadata.dat`). Ce n'est PAS le
-        # litteral 0 de `SetupGameOperation$$Execute`. Le flux reel tranche : `Source=` est VIDE
-        # -- donc chaine vide ou null, indiscernables apres `String.Format`.
+        # `sourceId` : le handle de chaine que `AddUnitOperation$$Execute` passe ici est LU
+        # depuis `#477-r15-r1` (`data/symbols/<build>/metadata/string_literals.tsv`), et il vaut
+        # la chaine VIDE -- pas `null`. Les deux rendent le meme texte apres `String.Format` ;
+        # c'est la lecture qui tranche, plus le flux. Le port passe `None`, ce qui produit le
+        # meme `Source=` vide : la distinction n'est pas observable dans le flux.
+        # ⚠ Et `Source=` NON VIDE n'est PAS un litteral : `#477-r15-r1` mesure 8 sources non
+        # vides sur un deroule reel, 8/8 des membres d'enum rendus par `Enum.ToString()`
+        # (1/8 seulement est aussi un litteral). Ce qui manque pour les emettre n'est donc pas
+        # une table de chaines -- c'est de savoir QUEL enum et QUEL ordinal chaque producteur
+        # passe a `StartGroup`, `BigTarget` ayant a lui seul deux porteurs.
         events.start_group(GroupType.AddUnit, unit.entity_id, None, None)
     foot_count = (len(unit.foot_tile_ids) if unit.foot_count is None
                   else int(unit.foot_count))
@@ -168,6 +192,15 @@ def add_unit(events: StreamDispatcher, unit: UnitSetup,
                                     is_boss=unit.is_boss,
                                     foot_count=foot_count,
                                     unit_feet_tile_ids=unit.foot_tile_ids))
+    if unit.full_state is not None:
+        events.action(StepType.ChangeStats, unit.entity_id,
+                      get_full_state_update_tags(unit.full_state))
+    for active in unit.active_abilities:
+        events.action(StepType.ChangeAbility, unit.entity_id,
+                      get_full_state_update_tags_for_active(active))
+    for triggered_ability, state in unit.triggered_abilities:
+        events.action(StepType.ChangeAbility, unit.entity_id,
+                      get_full_state_update_tags_for_triggered(triggered_ability, state))
     if use_group:
         events.finish_group()
 

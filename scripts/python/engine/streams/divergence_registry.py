@@ -37,20 +37,16 @@ LES DEUX EXIGENCES, chacune tiree d'une faute deja mesuree dans ce depot :
 from __future__ import annotations
 
 #: `cle -> cause NOMMEE`. Une cause doit dire POURQUOI, pas re-decrire la cle.
-KNOWN_DIVERGENCES: dict[str, str] = {
-    # --- Tranche D : les tags d'ETAT COMPLET d'une unite.
-    # Le producteur est NOMME, et ce n'est PAS celui qu'annoncait `case-477r15` : les trois
-    # surcharges de `IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags`, et non un
-    # `IdunBattle.Core.Services.StreamHelper$$Get*Tags`. Le portage est donc possible ; ce qui
-    # manque au port, ce sont les ENTREES (stats resolues, etats d'ability), pas la RE.
-    "MANQUANT Action=ChangeStats":
-        "les 16 tags de stats initiales viennent de "
-        "`IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags(unit)` (garde d'entree : "
-        "`EntityType.Unit`, sinon dictionnaire VIDE). Non porte -- tranche D. Le port ne les "
-        "invente pas.",
-    "MANQUANT Action=ChangeAbility":
-        "une ligne par ability montee, ACTIVES d'abord puis DECLENCHEES : surcharges "
-        "`GetFullStateUpdateTags(activeAbility)` (6 tags, +2 conditionnels si l'ability a un "
-        "cout en munitions) et `GetFullStateUpdateTags(component, triggeredAbility)` (3 tags). "
-        "Non porte -- tranche D.",
-}
+#:
+#: ⚠ IL EST VIDE, ET C'EST UNE MESURE, PAS UN OUBLI. Ses deux seules entrees
+#: (`MANQUANT Action=ChangeStats` et `MANQUANT Action=ChangeAbility`, 43 lignes du deploiement)
+#: ont ete FERMEES par la tranche D : `engine/streams/unit_extensions.py` porte les trois
+#: surcharges d'`IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags` et
+#: `game_setup.add_unit` les emet. Les laisser ici les aurait fait rougir comme PERIMEES -- c'est
+#: exactement ce que la purge existe pour obtenir.
+#:
+#: ⚠ UN REGISTRE VIDE NE VEUT PAS DIRE « TOUT EST COMPARE ». Ce que le comparateur ne compare pas
+#: vit dans les TROIS BORNES imprimees par `conformance.rapport` -- membres d'enum non exerces,
+#: omissions structurelles du flux, grandeurs prises d'un canal qui ne les discrimine pas. NON
+#: COMPARE != EGAL, et c'est la borne (c) qui le dit, jamais ce dictionnaire.
+KNOWN_DIVERGENCES: dict[str, str] = {}

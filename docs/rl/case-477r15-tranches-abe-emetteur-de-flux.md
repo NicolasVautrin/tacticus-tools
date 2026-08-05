@@ -11,6 +11,11 @@ caractère** : **161 / 204** lignes égales sur `C1_02`, **273 / 316** sur `MC1_
 NOUVELLE** des deux côtés. Tout ce qui manque est une ligne `ChangeStats` / `ChangeAbility` dont le
 producteur natif est maintenant **nommé** — et ce n'est pas celui qu'annonçait la fiche parente.
 
+> ⚠ **Ces deux fractions sont celles de CETTE tranche, et elles sont PÉRIMÉES depuis.** La
+> **tranche D** a fermé les 43 divergences restantes : `204 / 204` et `316 / 316`, registre de
+> divergences **VIDE**. Détail : `docs/rl/case-477r15d-tags-etat-complet-unite.md`. Les sections
+> ci-dessous décrivent l'état À LA FIN DES TRANCHES A + B + E — les re-dériver, pas les citer.
+
 ## 1. La grammaire : ce que le décompilé donne, et ce qu'il ne donne pas
 
 `IdunBattle.BattleStream.Loggers.StreamCache` est le writer. Sa disposition et ses quatre méthodes
@@ -196,6 +201,13 @@ partagées avec `AddMachineOperation$$Execute`, `ReAddMachineOperation$$Execute`
 est **faite** (tables complètes des 16 + 8 + 3 tags, avec leurs conditions) : ce qui manque au port,
 ce sont les **entrées**, pas la rétro-ingénierie.
 
+⚠ **Cette RE a été RE-VÉRIFIÉE au décompilé avant d'être portée, et elle était incomplète sur trois
+points** que la tranche D a dû établir : la garde d'entrée rend un dictionnaire vide (donc une
+`Action=ChangeStats` **sans aucun tag**, pas « pas de ligne ») ; `RemainingCooldownTurns` passe par
+`GetValueOrDefault`, donc son tag est **toujours** émis ; et le dernier tag de la première surcharge
+lit **trois** porteurs, dont deux enums qui partagent le nom `FinalJustice` à des ordinaux
+différents. Tables complètes : `case-477r15d-tags-etat-complet-unite.md` § 2.
+
 Deux pièges qu'un port écrit depuis le seul flux observé raterait :
 
 - `UnitStats_TriggeredAbility_AmmoCost` (29) et `_EnoughAmmo` (30) sont **conditionnels** (abilities
@@ -210,7 +222,10 @@ Deux pièges qu'un port écrit depuis le seul flux observé raterait :
   ids. Les porter dans `engine/streams/` — un `MatchComponent$$NextId` mirroré, avec son `+= 1`
   pré-incrémenté, son `ReturnLastId` et le fait que l'échec d'`AddUnitOperation` **brûle** l'id — est
   une tranche à part entière, et elle reste bloquée par `#477-r16-r1` pour son offset initial.
-- **Aucun `ChangeStats` / `ChangeAbility` émis** — tranche D.
+- ~~**Aucun `ChangeStats` / `ChangeAbility` émis** — tranche D.~~ **FAIT** (tranche D,
+  `case-477r15d-tags-etat-complet-unite.md`) : les trois surcharges sont portées dans
+  `engine/streams/unit_extensions.py`, le registre de divergences est vide, et la borne (c) est
+  passée de 2 à 6 entrées — c'est le prix, PUBLIÉ, de ce que les canaux ECS ne discriminent pas.
 - **`replaySteps` / `replayRngEvents` non exploités.** Ils sont vivants depuis la session 8, mais
   l'oracle de cette tranche est le **texte brut** de `GetWholeBattleOutputStream` : la barre reste
   l'égalité brute, et ces deux canaux ne l'auraient ni renforcée ni remplacée. Ils vaudront pour la
