@@ -143,6 +143,8 @@ from .....entities.selectors import Caster, Target
 from ....abilities.behaviours import entities_from_state
 from ..base import TriggeredAbility, TileEffectTrigger, TriggerEvent, _unit_trait_names
 from ..revive_effect import Revive, can_be_revived
+from ....components import StatsComponent
+from ...effects import AddEffectOperation
 
 # --- les DEUX litteraux d'effectType passes au ctor de `GhostReviveAbility` ---------------------
 TIME_FLUX_GHOST_EFFECT = int(EffectType.TimeFlux_Revive)              # 0x4a2 = 1186
@@ -258,7 +260,6 @@ def _remove_ghost(state: State, tile_id: int, effect_type: int) -> bool:
 def _passive_scaling(state: State, owner_id: int) -> tuple:
     """`(passive_ability_level, ability_variables_multiplier)` du porteur -- `TimeFlux` comme
     `EchoesFromTheWarp` sont des PASSIFS (meme resolution que `time_flux.py::_passive_scaling`)."""
-    from ....components import StatsComponent
     e = state.get_entity(owner_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None)
@@ -322,7 +323,6 @@ class GhostReviveAbility(TriggeredAbility):
         # `GetVariableForLevel(config, 'hp')` du behaviour de l'effet (branche TimeFlux uniquement --
         # la branche `StatAmount` d'EchoesFromTheWarp ne lit AUCUNE variable de config, et le
         # gameconfig d'`EchoesFromTheWarp` porte d'ailleurs `variables: {}`).
-        from ...effects import AddEffectOperation
         lvl, mult = _passive_scaling(state, self.owner_id)
         eff = AddEffectOperation.execute(state, source=int(self.owner_id), target=int(tile),
                                          effect_type=self.GHOST_EFFECT_TYPE, name=self.EFFECT_NAME,

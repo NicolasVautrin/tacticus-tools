@@ -48,6 +48,7 @@ import gameconfig as GC
 
 from engine import battle_query as bq
 from ..entities.triggered_ability_type import TriggeredAbilityType
+from ..ai.state_bridge import _board_topology_maps
 
 # Nom config de l'ability 1248 (l'enum membre == la cle gameconfig).
 _ABILITY_NAME = TriggeredAbilityType.AggressiveOnslaught.name   # "AggressiveOnslaught"
@@ -77,7 +78,6 @@ class AggressiveOnslaughtPlaybook:
         board = getattr(scene, "board", None)
         if board is None or target_pos is None:
             return 0
-        from ..ai.state_bridge import _board_topology_maps   # lazy : evite tout cycle d'import
         _tid, neigh_by_pos, walkable_by_pos, _terr, _wall = _board_topology_maps(board)
         # occupied = positions de TOUTES les unites VIVANTES (CanAddUnit = tuile vide sur l'ECS live).
         occupied = {(u["pos"]["col"], u["pos"]["row"]) for u in (scene.units or [])

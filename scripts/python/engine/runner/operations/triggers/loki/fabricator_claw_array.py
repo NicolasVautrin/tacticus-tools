@@ -109,6 +109,7 @@ from ....components import StatsComponent
 from ....state import State
 from ....abilities.behaviours import Repair, entities_from_state
 from ..base import TriggeredAbility, TriggerEvent
+from .....entities.effects.magnitude import ability_var
 
 ABILITY_ID = "FabricatorClawArray"
 HP_TO_REPAIR_KEY = "hpToRepair"        # `AbilityVariableType` 0x24 = 36 (cle gameconfig, cf. magnitude.py)
@@ -176,7 +177,6 @@ def hp_to_repair(state: State, owner_id: int) -> int:
 
     0 si l'unite, son contexte ou la variable manquent -> la feuille `Repair` est alors un no-op
     (`amount > 0` est sa garde)."""
-    from .....entities.effects.magnitude import ability_var
     e = state.get_entity(owner_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None

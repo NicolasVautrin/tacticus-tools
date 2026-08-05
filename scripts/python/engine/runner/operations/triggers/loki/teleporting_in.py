@@ -175,6 +175,7 @@ from ....abilities.targeting import are_tiles_adjacent
 from ....components import get_unit_feet
 from ....state import State
 from ..base import EffectTrigger, TriggerEvent
+from ...spawn import initialize_deferred_actor_abilities
 
 TELEPORT_STRIKE_TELEPORTING_IN = int(EffectType.TeleportStrike_TeleportingIn)   # 0x40b = 1035
 TELEPORT_STRIKE_MOVING = int(EffectType.TeleportStrike_Moving)                 # 0x40c = 1036
@@ -358,7 +359,6 @@ class _TeleportStrikeLandingMixin:
     change (les trois triggers natifs, au lieu d'une boucle bespoke d'`EndTurnOperation`)."""
 
     def _after_remove(self, state: State) -> list:
-        from ...spawn import initialize_deferred_actor_abilities
         return initialize_deferred_actor_abilities(state, int(self.owner_id))
 
 

@@ -100,6 +100,11 @@ from .....entities.effect_type import EffectType
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _hex_dist
 from .....entities.unit_flag import UnitFlag   # #270-r1-r1-r3
+from ....abilities.loki.splash import _pick_randomly_n
+from ...movement import _kill_steppable_units
+from ...spawn import _free_tiles_adjacent, _sort_tiles_by_utility_for_summon, _first
+from ...spawn import _spawn_config_grot
+from ...spawn import spawn_decoy, _spawn_config_grot
 
 ABILITY_ID = "SpiritualLeader"
 DECOY_UNIT_KEY = "unitId_2"                        # AbilityConstantType 4  (GetStringConstant(config, 4))
@@ -176,7 +181,6 @@ def _decoy_spawn_tile(state: State, owner_id: int):
     d'enumeration natif `boardGraph.neighbours`), puis `_sort_tiles_by_utility_for_summon`
     (= tri DESCENDANT par l'utilite composite `Tile(7)`, `OrderBy` LINQ donc STABLE -- ex aequo
     departages par l'ordre SOURCE), puis `_first`. ZERO tirage RNG sur ce chemin."""
-    from ...spawn import _free_tiles_adjacent, _sort_tiles_by_utility_for_summon, _first
     tiles = _free_tiles_adjacent(state, owner_id, set(), native_order=True)
     return _first(_sort_tiles_by_utility_for_summon(state, tiles, owner_id))
 
@@ -202,8 +206,6 @@ class SpiritualLeaderAbility(TriggeredAbility):
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         import gameconfig as GC
-        from ...spawn import spawn_decoy, _spawn_config_grot
-        from ....abilities.loki.splash import _pick_randomly_n
         consts = (GC.ability(ABILITY_ID) or {}).get("constants") or {}
         out: dict = {"passive": ABILITY_ID, "owner": self.owner_id,
                      "decoy": None, "decoy_tile": None, "summon": None, "summon_on_decoy": None}
@@ -241,8 +243,6 @@ class SpiritualLeaderAbility(TriggeredAbility):
         `ai_controlled=False` : le Neophyte porte Ambush+BattleFatigue, PAS le trait `Summon` -- il
         est joue au tour de sa team, pas auto-joue au turn-start (meme choix que CultDemagogue).
         `AddUnitOperation$$KillSteppableUnits` ecrase ensuite le decoy sous la nouvelle unite."""
-        from ...spawn import _spawn_config_grot
-        from ...movement import _kill_steppable_units
         board = state.board
         decoy = state.get_entity(decoy_id)
         owner = state.get_entity(self.owner_id)

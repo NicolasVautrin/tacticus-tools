@@ -50,6 +50,13 @@ from ..state import State
 from ..components import EffectsOwnedComponent, StatsComponent
 from ...entities.effect_type import EffectType
 from ...entities.effects import BaseEffect, EffectFactory, SAME_TURNS
+from ...entities.effects import effect_stat_mod_key
+from ...entities.stats import StatType
+from ..components import ForcedAttackTargetsComponent
+from .stat_ops import apply_change_stat
+from .stat_ops import apply_stat_override
+from .stat_ops import remove_stat_override
+from .stat_ops import revert_change_stat
 
 # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsUpdatable` : la fonction
 # parcourt les GROUPES d'effets de la table statique et, si le type n'appartient a aucun groupe, sort sur
@@ -103,7 +110,6 @@ def entity_is_immune_to_effect(state: State, target: int, effect_type: int,
     Consommateurs : `AddEffectOperation.execute` (gate de pose) et le vecteur tile-effect
     `ContaminatedTileEffect`. Cible sans `StatsComponent` (tuile) → `[]` traits → jamais immune (mirror
     `UnitExtensions.HasTrait` qui passe par `GetBaseUnitComponent`, null ⇒ faux)."""
-    from ...entities.effects import EffectFactory
     from .triggers.base import _unit_trait_names
     return EffectFactory.effect_def(int(effect_type), name).entity_is_immune_to_effect(
         _unit_trait_names(state, int(target)))
@@ -305,7 +311,6 @@ class AddEffectOperation:
         mods = eff.applied_stat_mods(sc.ctx) or []
         if not mods:
             return
-        from .stat_ops import apply_change_stat
         # source unique par instance : indexée par le nb de stacks du même type DÉJÀ actifs (hors `eff`
         # lui-même, déjà ajouté à la liste) → une clé distincte par stack pour un revert par-source exact.
         stack_n = sum(1 for e in state.effects.by_unit.get(int(target), [])
@@ -334,7 +339,6 @@ class AddEffectOperation:
         pus = getattr(psc.ctx, "stats", None) if psc is not None else None
         if pus is None:
             return
-        from .stat_ops import apply_stat_override
         applied = []
         for st in stats:
             val = pus.get_stat(int(st), 0)                 # GetStat(parent, stat, CURRENT) — snapshot
@@ -355,8 +359,6 @@ class AddEffectOperation:
         `GetStat(unit, ACTIVE_ABILITY_LEVEL)` — et mémorise la valeur précédente dans
         `overridden_prev`. Le `ResetStat` (part 8) doit donc la RESTAURER symétriquement, sinon le
         retrait de `InspiredToGreatness_OverrideLevel` (1180) laisserait le niveau plafonné à vie."""
-        from .stat_ops import remove_stat_override
-        from ...entities.stats import StatType
         stats = getattr(eff, "stat_override_stats", None) or []
         for st in stats:
             remove_stat_override(state, target, int(st))
@@ -401,7 +403,6 @@ class AddEffectOperation:
         ent = state.get_entity(int(target))
         if ent is None:
             return
-        from ..components import ForcedAttackTargetsComponent
         comp = ent.get_component(ForcedAttackTargetsComponent)
         if comp is None:
             comp = ForcedAttackTargetsComponent()
@@ -526,8 +527,6 @@ def revert_stat_mods_of_removed_effects(state: State) -> list:
     out: list = []
     if state.effects is None:
         return out
-    from ...entities.effects import effect_stat_mod_key
-    from .stat_ops import revert_change_stat
     for uid, effs in state.effects.by_unit.items():
         for e in effs:
             if not (e.consumed or e.expired):

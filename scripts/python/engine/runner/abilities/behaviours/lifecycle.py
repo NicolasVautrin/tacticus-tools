@@ -12,6 +12,13 @@ from __future__ import annotations
 from ....dsl.base import TargetsSelector, _units_of, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import UnitComponent, MachineComponent, is_machine_of_war
+from ....entities.triggered_ability_type import entity_triggered_ability_ids
+from ...components import ForcedAttackTargetsComponent
+from ...components import HealthComponent, UnitFlagsComponent
+from ...components import StatsComponent
+from ...operations.damage import AttackDamageOperation
+from ...operations.remove_unit import RemoveUnitOperation
+from ...operations.remove_unit_from_tiles import RemoveUnitFromTilesOperation
 
 
 class KillDeadUnits(AbilityBehaviour):
@@ -83,7 +90,6 @@ class RemoveUnit(AbilityBehaviour):
         state = ectx.state
         if state is None:
             return OperationResult.ok()
-        from ...operations.remove_unit import RemoveUnitOperation
         for u in sorted((x for x in _units_of(self.units_sel, entities)
                          if isinstance(x, dict) and x.get("id") is not None),
                         key=lambda x: x["id"]):              # ordre de lecture = id
@@ -198,7 +204,6 @@ class RemoveUnitFromItsTiles(AbilityBehaviour):
         state = ectx.state
         if state is None:
             return OperationResult.ok()
-        from ...operations.remove_unit_from_tiles import RemoveUnitFromTilesOperation
         for u in sorted((x for x in _units_of(self.units_sel, entities)
                          if isinstance(x, dict) and x.get("id") is not None),
                         key=lambda x: x["id"]):
@@ -244,7 +249,6 @@ class RemoveAllForcedAttackTargets(AbilityBehaviour):
         self.attacker_sel = attacker_sel
 
     def execute(self, entities, ectx):
-        from ...components import ForcedAttackTargetsComponent
         state = ectx.state
         att = resolve_unit(self.attacker_sel, entities)      # `SelectSingle` natif
         aid = att.get("id") if att else None
@@ -292,8 +296,6 @@ def _unit_has_triggered_ability(state, unit_id, ability_type: int) -> bool:
     Substrat : `entity_triggered_ability_ids` (l'`AbilitiesComponent` mesure via `unitAbilityStates`,
     repli kit gameconfig quand le canal n'a pas parle) -- le MEME que lit la feuille d'utilite
     `TriggeredAbilities(2)`, jamais un second recensement."""
-    from ....entities.triggered_ability_type import entity_triggered_ability_ids
-    from ...components import StatsComponent
     if state is None or unit_id is None:
         return False
     e = state.get_entity(int(unit_id))
@@ -353,8 +355,6 @@ class Kill(AbilityBehaviour):
         self.units_sel = units_sel
 
     def execute(self, entities, ectx):
-        from ...operations.damage import AttackDamageOperation
-        from ...components import HealthComponent, UnitFlagsComponent
         state = ectx.state
         if state is None:
             return OperationResult.ok()

@@ -8,6 +8,21 @@ from __future__ import annotations
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ..base import convert_rounds_to_turns
+from ....dsl.base import Const
+from ....entities.behaviours import Foreach, If as IfBehaviour
+from ....entities.behaviours import If as IfBehaviour, op_and
+from ....entities.formulas import CurrentStatModifierAmount
+from ....entities.selectors import Subject
+from ....entities.triggers import HasEffect
+from ....entities.triggers import Not, AmountIsEqual
+from ...components import ShieldComponent
+from ...components import StatsComponent
+from ...components import unit_state_for_effects
+from ...operations.effects import AddEffectOperation
+from ...operations.effects import ChangeEffectTurnsOperation
+from ...operations.remove_effects import remove_effect_instance
+from ...operations.spawn import _materialize_owner_effect
+from ...operations.stat_ops import apply_change_stat
 
 
 def _resolve_duration(state, duration_rounds, duration_turns):
@@ -34,7 +49,6 @@ def _source_scaling(state, source_id):
     de SA SOURCE (`GetAbilityState(effect)`), donc contre le niveau d'ability + le multiplier de rarete
     de l'unite qui l'a pose. Rend `(multiplier_pct, ability_level, active_ability_level)` ; (None, None,
     None) si l'unite n'a pas de `StatsComponent` (l'effet retombe alors sur les defauts historiques)."""
-    from ...components import StatsComponent
     e = state.get_entity(source_id) if (state is not None and source_id is not None) else None
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None) if sc is not None else None
@@ -100,7 +114,6 @@ class AddBondEffect(AbilityBehaviour):
         self.scale_from_source = bool(scale_from_source)
 
     def execute(self, entities, ectx):
-        from ...operations.effects import AddEffectOperation
         state = ectx.state
         su = resolve_unit(self.source_ref, entities)
         src = su.get("id") if su else None
@@ -193,7 +206,6 @@ def _placed_effect_is_active(state, target_id, eff) -> bool:
     materialise, donc rien n'applique."""
     if eff is None or state is None or target_id is None:
         return False
-    from ...components import unit_state_for_effects
     return bool(eff.active) and bool(eff.is_active(unit_state_for_effects(state, int(target_id))))
 
 
@@ -262,7 +274,6 @@ class AddEffect(AbilityBehaviour):
         self.source_from_target = bool(source_from_target)
 
     def execute(self, entities, ectx):
-        from ...operations.effects import AddEffectOperation
         state = ectx.state
         if self.source_ref is not None:                       # noeud SOURCE natif explicite (param_4)
             # Domaine MIXTE : le natif stocke une ENTITE dans `EffectComponent.SourceUnit @+0x10` --
@@ -371,9 +382,6 @@ def add_effect_or_increase_level(effect_type: int, name: str, target_sel: Target
     `duration_rounds=0` = la duree ZERO du natif (l'options-struct ne porte pas de `TurnsFromRounds`) ->
     `remaining=0` = PERMANENT cote port (`EffectFactory.create` mappe rem<=0 -> None), conforme au live
     (`TerrifyingCrescendo` rem=0, buff cumulatif sur la bataille)."""
-    from ....entities.behaviours import Foreach, If as IfBehaviour
-    from ....entities.selectors import Subject
-    from ....entities.triggers import HasEffect
     return Foreach(target_sel, lambda _sub: IfBehaviour(
         HasEffect(Subject(), int(effect_type)),
         IncreaseEffectLevel(effect_type, Subject(), amount, max_level),
@@ -417,7 +425,6 @@ class RemoveEffect(AbilityBehaviour):
         # `RemoveEffects` de la sequence de mort (`KillUnitOperation`), qui appelle le MEME slot
         # natif 0x11 de `Core.Services.OperationProcessor`. Frontiere #149 : le noeud DSL ici,
         # l'Operation imperative la-bas. Comportement de cette feuille INCHANGE.
-        from ...operations.remove_effects import remove_effect_instance   # lazy : cycle behaviours<->ops
         state = ectx.state
         if state is None or state.effects is None:
             return OperationResult.ok()
@@ -478,8 +485,6 @@ class ActivateEffect(AbilityBehaviour):
         self.owner_sel, self.effect_type, self.name = owner_sel, int(effect_type), name
 
     def execute(self, entities, ectx):
-        from ...components import StatsComponent
-        from ...operations.spawn import _materialize_owner_effect
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -542,7 +547,6 @@ class ChangeEffectTurns(AbilityBehaviour):
         self.turns_rounds = turns_rounds
 
     def execute(self, entities, ectx):
-        from ...operations.effects import ChangeEffectTurnsOperation
         state = ectx.state
         if state is None or state.effects is None:
             return OperationResult.ok()
@@ -601,8 +605,6 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
         self.duration_rounds, self.duration_turns = duration_rounds, duration_turns
 
     def execute(self, entities, ectx):
-        from ...operations.effects import AddEffectOperation
-        from ...operations.stat_ops import apply_change_stat
         state = ectx.state
         src = (entities.caster or {}).get("id")
         if state is None or state.effects is None:
@@ -670,7 +672,6 @@ class AddDynamicStatModifierEffect(AbilityBehaviour):
         self.duration_rounds, self.duration_turns = duration_rounds, duration_turns
 
     def execute(self, entities, ectx):
-        from ...operations.effects import AddEffectOperation
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -719,10 +720,6 @@ def add_or_update_static_stat_modifier_effect(unit_sel: TargetsSelector, effect_
 
     Port : `CurrentStatModifierAmountFormula` est modelise par `_current_stat_modifier_amount` (lit la
     contribution `stat_mod_source` de l'instance d'effet portee ; 0 si absente)."""
-    from ....entities.behaviours import If as IfBehaviour, op_and
-    from ....entities.triggers import Not, AmountIsEqual
-    from ....entities.formulas import CurrentStatModifierAmount
-    from ....dsl.base import Const
     amt_node = amount if hasattr(amount, "evaluate") else Const(int(amount))
     cond = Not(AmountIsEqual(amt_node, CurrentStatModifierAmount(unit_sel, effect_type, stat_type)))
     body = op_and(RemoveEffect(effect_type, unit_sel),
@@ -745,7 +742,6 @@ class SetOnFire(AbilityBehaviour):
         self.effect_type, self.name = int(effect_type), name
 
     def execute(self, entities, ectx):
-        from ...operations.effects import AddEffectOperation
         state = ectx.state
         tile = entities.subject                          # tuile COURANTE (id) posee par le Foreach tile-domain
         src = (entities.caster or {}).get("id")
@@ -789,7 +785,6 @@ class CreateShield(AbilityBehaviour):
         self.source = source
 
     def execute(self, entities, ectx):
-        from ...components import ShieldComponent
         state = ectx.state
         if state is None:
             return OperationResult.ok()

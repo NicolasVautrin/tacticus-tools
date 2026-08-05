@@ -65,6 +65,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..components import HealthComponent, StatsComponent
+from ...predict import calculate_repair_modifier_for_prediction
+from ...predict import repair_amount as _repair_amount
+from ...services.trait_damage_limits import get_group_unit_heal_limit
+from ..components import unit_state_for_effects
 
 if TYPE_CHECKING:
     from ..state import State
@@ -79,7 +83,6 @@ def _group_unit_members(state: "State", unit_id: int) -> int:
     gameconfig / de la capture, cf. `entities/unit_context.py` et `operations/spawn.py`) -- MEME
     source que le `n` que le trigger `LivingMetal` lisait avant #310. Defaut 1 = unite simple, donc
     branche `int.MaxValue` = pas de cap, exactement comme le natif sur un heros."""
-    from ..components import StatsComponent
     e = state.get_entity(int(unit_id)) if unit_id is not None else None
     sc = e.get_component(StatsComponent) if e is not None else None
     if sc is None or getattr(sc, "ctx", None) is None:
@@ -128,10 +131,8 @@ def _repair_modifier(state: "State", target_id: int) -> tuple:
     Detail et re-derivation : `docs/rl/case-317-repair-callers-inventory.md` par. 1.
 
     Rend `(mod_add, mod_mul)`. Aucun effet contributeur -> `(0, 1.0)` = no-op EXACT (`Empty`)."""
-    from ...predict import calculate_repair_modifier_for_prediction
     if state.effects is None or target_id is None:
         return 0, 1.0
-    from ..components import unit_state_for_effects
     try:
         effs = state.effects.active_effects(int(target_id),
                                             unit_state_for_effects(state, int(target_id)))
@@ -192,8 +193,6 @@ def predict_repair(state: "State", caster_id, target_id: int, amount: int,
       3. cap BOSS `GetStat(Health, Initial) - current`, gate `IsBoss(target)` ;
       4. `MaxFillUp` = `Min(amount, CurrentMaximumValue - current)`."""
     from ..abilities.targeting import is_actor
-    from ...predict import repair_amount as _repair_amount
-    from ...services.trait_damage_limits import get_group_unit_heal_limit
     e = state.get_entity(int(target_id))
     hc = e.get_component(HealthComponent) if e is not None else None
     if hc is None or hc.hp is None or hc.hp_max is None:

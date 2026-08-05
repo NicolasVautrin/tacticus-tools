@@ -152,6 +152,7 @@ from ..base import EffectTrigger, TriggerEvent, TriggeredAbility, _unit_trait_na
 from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 # #270-r4 : 	ag de DSLBehaviors.Inform, type DECLARE lu dans rida/methods.tsv.
 from .....streams.tag_key import TagKey
+from ....components import StatsComponent
 
 HARLEQUINS_PANOPLY_IGNORE_HITS = int(EffectType.HarlequinsPanoply_IgnoreHits)   # 0x4cb = 1227
 _ON_BLOCKED = int(EventTriggerType.UnitBlocked)          # 0x3c = 60
@@ -567,7 +568,6 @@ def make_hit_interceptor(state: State, attacker_id: Optional[int],
     graft_passive_ability`) visible ici, exactement comme pour le bus."""
     if state is None or defender_id is None:
         return None
-    from ....components import StatsComponent
     import gameconfig as GC
     e = state.get_entity(int(defender_id))
     sc = e.get_component(StatsComponent) if e is not None else None

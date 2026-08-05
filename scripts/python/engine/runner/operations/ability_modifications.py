@@ -25,6 +25,7 @@ from typing import Optional
 
 from ..components import ActiveAbilityModificationsComponent
 from ..state import State
+from ..abilities.behaviours import entities_from_state
 
 
 class AddUnitActiveAbilityModificationOperation:
@@ -54,7 +55,6 @@ def _modification_targets(state: State, holder_id: int, eff) -> list:
     sel = eff.ability_modifications_target_selector()
     if sel is None:
         return [int(holder_id)]
-    from ..abilities.behaviours import entities_from_state       # lazy : cycle operations<->abilities
     ctx = entities_from_state(state, int(holder_id))
     got = sel.evaluate(ctx)
     if got is None:

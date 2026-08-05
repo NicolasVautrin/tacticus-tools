@@ -46,6 +46,16 @@ from .behaviours import (AddEffect, AddStatOverrideEffect, AttackWithAttackDamag
 from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
                         RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
+from ...dsl.base import _round_fix64
+from ...entities.effects import hits_bonus_from_effects
+from ...entities.effects.magnitude import ability_var
+from ...services.damage_prediction import get_attack_prediction
+from ..components import (HealthComponent, OwnerComponent, PositionComponent, ShieldComponent,
+                              StatsComponent, UnitComponent)
+from ..components import PositionComponent
+from ..components import StatsComponent
+from ..damage_model import attacker_modifiers, select_weapon_pierce
+from .base import convert_rounds_to_turns
 
 if TYPE_CHECKING:
     from ..state import State
@@ -101,7 +111,6 @@ def _resolve_target_tile(state, target_id):
     (DarkTalonStrike/DeathOnTheWind : `abilityTargets` live rend `kind=tile`) ; on tolere aussi une
     entite-UNITE (robustesse harnais) en retombant sur sa MainTile — c'est ce que fait le natif partout
     via `EntityExtensions.GetMainTile`. None si non resolvable."""
-    from ..components import PositionComponent
     board = state.board
     if target_id is None or board is None:
         return None
@@ -564,7 +573,6 @@ class DeathOnTheWindAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from ...entities.effects.magnitude import ability_var
         # `target@0x178` = une entite-TUILE (`abilityTargets` live : `kind=tile` -- la tuile de l'ennemi
         # DEJA attaque ce tour). On accepte aussi une entite-UNITE (robustesse harnais) via sa MainTile.
         tile_id = _resolve_target_tile(state, target_id)
@@ -664,8 +672,6 @@ class HailstrikeAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from ...entities.effects.magnitude import ability_var
-        from .base import convert_rounds_to_turns
         if target_id is None or state.get_entity(target_id) is None:
             return None
         rounds = int(ability_var(self.ABILITY_ID, "nrOfRounds", is_constant=True) or 0)
@@ -822,8 +828,6 @@ def _exemplar_capped_attack_vars(state: "State", caster_id: int) -> tuple:
 
     VALIDE LIVE (#112) : Asmodai lvl50 mult180 -> cap = maxDmg = 5983, pct = dmgPct = 100 ;
     `UnitStats_Attack_Override` mesure = 2008 = min(5983, round(Attack_CURRENT 2008 x 100 / 100))."""
-    from ..components import StatsComponent
-    from ...entities.effects.magnitude import ability_var
     e = state.get_entity(caster_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     lvl = getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
@@ -946,11 +950,6 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
     `sort_attackers_by_damage_prediction_key`. Le residu restant est donc le seul `block_raw_min`.)
 
     Rend la liste ORDONNEE (le `First(...,1)` est applique par l'appelant)."""
-    from ..components import (HealthComponent, OwnerComponent, PositionComponent, ShieldComponent,
-                              StatsComponent, UnitComponent)
-    from ..damage_model import attacker_modifiers, select_weapon_pierce
-    from ...entities.effects import hits_bonus_from_effects
-    from ...services.damage_prediction import get_attack_prediction
     from ...ai.action_generators import _faction
     import gameconfig as GC
     ce = state.get_entity(caster_id)
@@ -1016,7 +1015,6 @@ def _pct_of(value: int, pct: int) -> int:
     collapse `SortAttackersByDamagePrediction`. L'arbre, lui, porte le VRAI noeud
     `percentage_of_attack_capped_at_max` (evalue a l'execution sur l'attaquant lie au slot sujet)."""
     from fractions import Fraction
-    from ...dsl.base import _round_fix64
     return _round_fix64(Fraction(int(value) * int(pct), 100), 0) if pct else 0
 
 

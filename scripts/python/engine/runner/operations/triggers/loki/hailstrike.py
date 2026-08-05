@@ -65,6 +65,9 @@ from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....state import State
 from ....components import OwnerComponent, StatsComponent, UnitComponent
 from ..base import TriggeredAbility, TriggerEvent
+from .....entities.effects.magnitude import ability_var
+from ....abilities.base import profile_pierce, ability_pierce_effect_bonus
+from ...damage import AttackDamageOperation
 
 HAILSTRIKE_ABILITY = "Hailstrike"                            # ActiveAbilityType 0x4be = 1214 (config)
 HAILSTRIKE_EFFECT = int(EffectType.Hailstrike)               # 0x5e5 = 1509 — le buff porte par l'ALLIE
@@ -142,9 +145,6 @@ class HailstrikeAttackAbility(TriggeredAbility):
         Le `If(!IsDefeated)` est RE-EVALUE ici (et pas seulement dans `matches`) : cote natif les deux
         gates sont sur des passes distinctes (trigger, puis reveil differe) et la cible peut mourir
         entre-temps -- ex. un AUTRE trigger `On(9)` de la meme attaque l'acheve."""
-        from ...damage import AttackDamageOperation
-        from ....abilities.base import profile_pierce, ability_pierce_effect_bonus
-        from .....entities.effects.magnitude import ability_var
         if state.rng is None:                                # l'attaque consomme le RNG (1 tirage/coup)
             return None
         tgt = ev.target_id

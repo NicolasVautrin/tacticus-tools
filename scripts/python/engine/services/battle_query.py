@@ -21,6 +21,9 @@ import hexgeo
 
 from ..entities.pathfinding.board import connectivity_neighbours
 from .static_battle_rules import get_piercing_ratio
+from .. import battle_query as _bq
+from ..entities.damage_trait import DamageTrait
+from ..entities.traits.unit_trait import UnitTrait
 
 
 def are_tiles_adjacent(a_pos, t_pos, board=None):
@@ -165,7 +168,6 @@ def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=
         return False
     if force_ranged_attack:                 # `HasFlag(caster, 0x15)` -> pas de melee
         return False
-    from .. import battle_query as _bq      # lazy : anti-cycle (le module playbook importe celui-ci)
     # `neigh_by_pos` = la liste STOCKEE (#433-r4-r1-r4-r2). Le substrat de `MovementUtil$$AreTilesAdjacent`
     # est le `ConnectivityComponent` BRUT (`IsNeighbour`) et non le champ `neighbours` gate ; lire
     # le second est NEANMOINS exact ici, parce que la porte est un terme SEPARE du meme predicat :
@@ -247,8 +249,6 @@ def select_weapon_pierce(ctx, is_adjacent, dist=None, effect_bonus: int = 0):
     # #71 : base pierce = GetPiercingRatio(profile, attackerTraits) = prof_ratio + 50 SI le profil porte
     # DamageTrait.LasCannon(3) ET l'attaquant UnitTrait.HeavyWeapon(1001)|Emplacement(1016). Les traits
     # gameconfig sont des NOMS de chaîne (DamageProfile.Traits / unit.traits) -> checks name-based.
-    from ..entities.damage_trait import DamageTrait
-    from ..entities.traits.unit_trait import UnitTrait
     profile_has_lascannon = DamageTrait.LasCannon.name in (dp.get("Traits") or ())
     att_traits = getattr(ctx, "traits", None) or ()
     attacker_hw_emp = (UnitTrait.HeavyWeapon.name in att_traits

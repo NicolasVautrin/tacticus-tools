@@ -246,6 +246,11 @@ from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..services.battle_query import is_melee_attack as _is_melee_attack
 from ..services.damage_prediction import get_attack_prediction
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
+from .prediction import (prediction_has_moved, prediction_has_teleported,
+                                 _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
+                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
+from .prediction import make_normal_attack_predictions
+from .prediction._shared import _prediction_is_charging, defender_prediction_block_amount
 
 # Cle gameconfig de l'ability : le membre d'enum EST le nom de config. Le passer par
 # `GC.ability_name(1103)` rendrait `"Supercharge"` (index `ActiveAbilityType`) -- cf. en-tete.
@@ -358,10 +363,6 @@ class LightImUpPlaybook:
         actx = scene.ctx(att_id)
         if actx is None or amount is None or int(amount) <= 0 or int(hits) <= 0:
             return None
-        from .prediction import (prediction_has_moved, prediction_has_teleported,
-                                 _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
-        from .prediction._shared import _prediction_is_charging, defender_prediction_block_amount
         prof = GC.damage_profile(profile_name) or {}
         dir_pierce = actx.extra_pierce_melee if is_melee else actx.extra_pierce_ranged
         pierce = max(0, min(100, int(prof.get("PiercingRatio") or 0)
@@ -524,7 +525,6 @@ class LightImUpPlaybook:
         amount = self._average_damage(sc, attacker_uid)
         if hits <= 0 or not amount:
             return 0.0
-        from .prediction import make_normal_attack_predictions
         # `pred1` = slot 0x22 `GetNormalAttackPrediction(caster, target, casterPosition)`.
         ev1 = make_normal_attack_predictions(sc, attacker_uid, case_tgt_id, attack_tile)
         pred1 = getattr(ev1, "prediction", None) if ev1 is not None else None

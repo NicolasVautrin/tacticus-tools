@@ -47,6 +47,11 @@ from typing import Optional
 
 from ..state import State
 from ..components import UnitComponent, HealthComponent
+from ..components import PositionComponent, record_tiles_moved
+from ..components import UnitFlagsComponent
+from .movement import _kill_steppable_units
+from .triggers import unit_position_changed_1_triggers, unit_position_changed_2_triggers
+from .triggers import unit_revived_triggers
 
 # `Revive(..., healType, sourceId, ?, priority, ?)` -- priorite par defaut des consommateurs
 # (`IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour` et `FuelledByFury_ReviveAbility.CreateBehaviour
@@ -159,7 +164,6 @@ def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
     e = state.get_entity(unit_id)
     if e is None:
         return None
-    from ..components import PositionComponent, record_tiles_moved
     to = (int(pos[0]), int(pos[1]))
     pc = e.get_component(PositionComponent)
     # `mainTile = GetMainTile(unit, state)` -- LU EN TETE, avant toute ecriture de position.
@@ -171,7 +175,6 @@ def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
     # `KillSteppableUnits(unit, newTiles)` -- MEME operation que celle du move (helper partage, pas
     # une 2e implementation) : un decoy/spore-mine sur la tuile d'arrivee est ecrase par un kill
     # PROPRE (aucun death-trigger).
-    from .movement import _kill_steppable_units
     _kill_steppable_units(state, to, unit_id)
     # #347 -- `if (mainTile != null) { if (revivePosition.Value.MainTile != null) {
     #     RecordTilesMoved(unit, battleQuery.GetDistance(mainTile, revivePosition.Value.MainTile),
@@ -185,7 +188,6 @@ def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
         record_tiles_moved(state, unit_id, get_distance([main_tile_before], [to]))
     # `On(0x24 = UnitPositionChanged_1)` puis `On(0x1d = UnitPositionChanged_2)`, {actor = target =
     # l'unite ressuscitee} (`AbilityEntities.ctor(unit, unit, unit, …)` lu au decompile).
-    from .triggers import unit_position_changed_1_triggers, unit_position_changed_2_triggers
     unit_position_changed_1_triggers(state, unit_id)
     unit_position_changed_2_triggers(state, unit_id)
     return to
@@ -247,7 +249,6 @@ class ReviveUnitOperation:
         src = data.get("source")
         if src is not None:
             uc.revived_by_abilities.add(int(src))
-        from ..components import UnitFlagsComponent
         fl = e.get_component(UnitFlagsComponent)
         if fl is not None:
             fl.remove(UnitFlagsComponent.OVERKILLED)
@@ -265,7 +266,6 @@ class ReviveUnitOperation:
         # `On(UnitRevived = 0x2d = 45)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 -- emis AVANT la purge du champ (ordre natif lu).
         # Consommateurs portes : `PhoenixGem_CanReviveEffect` (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : retrait du marqueur 1451 sous
         # `CurrentAbilityIs(PhoenixGem)`), et tout futur `On(0x2d = UnitRevived)`.
-        from .triggers import unit_revived_triggers
         fired = unit_revived_triggers(state, unit_id, current_ability=data.get("source"))
         # purge des 9 qwords @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ : la `ReviveData` est consommee.
         uc.pending_revive = None

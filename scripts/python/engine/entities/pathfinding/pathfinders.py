@@ -39,6 +39,8 @@ from enum import IntEnum
 from typing import Callable, Optional
 
 from . import teleport_pathfinder as _tp
+from . import beeline_pathfinder as _bl
+from .walk_pathfinder import get_movable_positions as _walk
 
 
 class PathfinderType(IntEnum):
@@ -171,7 +173,6 @@ def find_reachable_tiles(board, pathfinder_type: int, start_id: int, depth: int,
     `ignore_terrain_pathfinder`) -> ils retombent ici sur la base marche, comme le port l'a
     toujours fait, et sont hors perimetre de ce foyer."""
     from .fly_pathfinder import get_movable_positions as _fly
-    from .walk_pathfinder import get_movable_positions as _walk
     t = int(pathfinder_type)
     base = base_type_of(t)
     if base == int(PathfinderType.Fly):
@@ -208,7 +209,6 @@ def find_path(board, pathfinder_type: int, from_id, to_id,
     Les appelants du port ne demandent donc jamais le chemin de marche a ce foyer-ci ; celui qui
     le ferait doit lire cette ligne plutot que d'interpreter le `None` comme la branche degeneree
     du natif. Les types 1/4/5 ne sont atteignables par aucun `GetPathfinderTypeForUnit`."""
-    from . import beeline_pathfinder as _bl
     from . import fly_pathfinder as _fly
     t = int(pathfinder_type)
     if is_teleport_type(t):

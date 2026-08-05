@@ -55,6 +55,7 @@ import engine.playbook.prediction as prediction
 from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
 from engine.utilities.tile import triggered_abilities_attack_utility
 from engine.playbook.base import tile_utility
+from engine.playbook.static_threshold_gate import STATIC_UTILITY_THRESHOLD
 
 _ABILITY_ID = ActiveAbilityType.ExcruciatingFrequencies
 _ABILITY_NAME = "ExcruciatingFrequencies"
@@ -120,7 +121,6 @@ def _score(ctx, P: tuple, line_enemies: list):
     # `Fix64.op_GreaterThan(attackHealUtility, <premier static de la classe>)`. Ce static vaut
     # `Fix64(10)` -- `ComparablePlaybook<T>$$.cctor` l'y ecrit, et 1197 ne declare aucun `.cctor`
     # propre (#419-r1-tr14-r5-r2-r1-r1-r1-r2-r4). Le port lisait `util > 0`.
-    from engine.playbook.static_threshold_gate import STATIC_UTILITY_THRESHOLD
     if not u > STATIC_UTILITY_THRESHOLD:
         return None
     return u, u + tile_utility(ctx, P)

@@ -36,6 +36,7 @@ from ..base import BaseEffect
 from ..magnitude import ability_var
 from ....entities.effect_type import EffectType   # #270-r1-r1-r3
 from ....entities.stats import StatType   # #270-r1-r1-r3
+from ...stats import StatPart
 
 _PATH_OF_COMMAND = "PathOfCommand"    # TriggeredAbilityType 0x458 = 1112 (eldarAutarch « Aethana »)
 
@@ -141,7 +142,6 @@ class PathOfCommandExtraCritEffect(BaseEffect):
         (le natif passe l'ENTITE-EFFET, dont la cle est l'homologue offline)."""
         from ....runner.components import StatsComponent
         from ....runner.operations.aura_stat_mods import aura_stat_mod_key
-        from ...stats import StatPart
         key = aura_stat_mod_key(owner_id, self)
         out: list = []
         for uid in surrounding_friends(state, owner_id, _path_of_command_range()):

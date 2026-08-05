@@ -43,6 +43,11 @@ from .behaviours import (AddEffect, AttackWithAttackDamage, KillDeadUnits, MoveU
                          Spawn, UseActiveAbility, entities_from_state)
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
+from ...dsl.base import _is_alive
+from ...entities.effects.magnitude import ability_var
+from ...entities.stats import StatPart
+from ..components import unit_has_moved
+from .behaviours import SubtractHealthPercent
 
 if TYPE_CHECKING:
     from ..state import State
@@ -526,7 +531,6 @@ class RammingSpeedAbility(ActiveAbility):
         Caster/cible non resolvables -> 0 (permissif, jamais de refus invente)."""
         if target_id is None:
             return 0
-        from ..components import unit_has_moved
         cp = self._rs_pos(state, caster_id)
         tp = self._rs_pos(state, target_id)
         if cp is None or tp is None:
@@ -994,7 +998,6 @@ class SquigMineAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from ...entities.effects.magnitude import ability_var
         from .loki.splash import _pick_randomly_n
         board = state.board
         tile_id = target_id if (board is not None and target_id in board.by_id) else None
@@ -1183,7 +1186,6 @@ class DakkaDakkaDakkaAbility(ActiveAbility):
                                          force_melee_target=RANGED_BOOL_TRUE)
 
     def _params(self, state: "State", caster_id: int) -> tuple:
-        from ...entities.effects.magnitude import ability_var
         n_hits = int(ability_var(DDD_ID, "nrOfHits", is_constant=True) or 1)
         extra_hits = int(ability_var(DDD_ID, "extraHits", is_constant=True) or 0)
         max_hits = int(ability_var(DDD_ID, "maxNrOfHits", is_constant=True) or n_hits)
@@ -1196,9 +1198,6 @@ class DakkaDakkaDakkaAbility(ActiveAbility):
             return None
         from .loki.splash import _pick_randomly_n
         from .behaviours.combat import ChainLeftOverHitsAttackDamage
-        from .behaviours import SubtractHealthPercent
-        from ...entities.stats import StatPart
-        from ...dsl.base import _is_alive
 
         n_hits, extra_hits, max_hits, range_2 = self._params(state, caster_id)
         # `TimesRepaired(caster@0x160)` : compteur runtime non capte offline -> 0 (cf. `dakka_num_hits`).

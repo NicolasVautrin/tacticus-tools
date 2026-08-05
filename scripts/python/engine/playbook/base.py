@@ -23,6 +23,10 @@ import engine.playbook.prediction as prediction   # sous-paquet FRERE, pas `from
 from ..weights import Weights
 from ..utilities import damage_composite
 from ..utilities.tile import tile_composite
+from ..utilities.tile import (terrain_tile_effects, tile_leaf_ctx,   # lazy : évite tout cycle
+                                  apply_tile_attributes)
+from ..utilities.tile import triggered_abilities_attack_utility
+from ..utilities.wireweave_net import wireweave_net_first_attack_utility
 
 
 class _NoActionUtility:
@@ -125,8 +129,6 @@ def tile_utility(ctx, pos) -> float:
     TriggeredAbilities(2) incluse : natif (3,4)=25=30elev-25effets+20trig vs (4,3)=40=30+10trig).
     Meta et leaf_ctx MIRROIR de `engine.move` (élévation min/max BOARD, effets dynamiques + covers
     terrain, kit passif + fpos via `tile_leaf_ctx`). Sur carte plate ≈ 0. Bonus additif."""
-    from ..utilities.tile import (terrain_tile_effects, tile_leaf_ctx,   # lazy : évite tout cycle
-                                  apply_tile_attributes)
     meta: dict = {}
     e = ctx.elev_by_pos.get(pos)
     if e is not None:
@@ -272,7 +274,6 @@ class ComparablePlaybook(BasePlaybook):
         où `MakeDamagePredictions` rend une liste vide, pas une route où le terme n'existe pas."""
         from .probable_damage_event import (calculate_utility_from_damage_event,
                                             calculate_utility_from_effect_event)
-        from ..utilities.tile import triggered_abilities_attack_utility
         u = 0.0
         bk = []
         for ev in (events or []):
@@ -307,7 +308,6 @@ class ComparablePlaybook(BasePlaybook):
         dans `u_full` et pas dans `u`. Identiquement **0** partout où la cible ne porte pas de filet
         `1111` ARMÉ, donc dans toute bataille sans `eldarRanger`. RE : `engine/utilities/wireweave_net.py`
         (⚠ le conjoint d'adjacence natif est DÉGÉNÉRÉ — il compare la tuile du caster à elle-même)."""
-        from ..utilities.wireweave_net import wireweave_net_first_attack_utility
         events = self.make_damage_predictions(ctx, caster_tile, target, ability_id)  # list[ProbableDamageEvent]
         if not events:
             return None

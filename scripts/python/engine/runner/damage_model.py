@@ -40,6 +40,22 @@ from ..entities.effects import (
 )
 from ..entities.traits.combat import GetStuckInTrait, min_distance
 from ..entities.effects.magnitude import trait_var
+from ..battle_query import is_charging as _bq_is_charging
+from ..entities.effect_type import EffectType
+from ..entities.effects.loki.dark_angels_passives import grand_alliance_of
+from ..entities.effects.magnitude import bc_effect_config
+from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
+from ..entities.traits.unit_trait import UnitTrait
+from ..services.damage_config import resolve_damage_field
+from ..services.damage_modifiers import (add_modifier, calculate_elevation_bonus_modifier,
+                                             ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION)
+from ..services.damage_modifiers import (add_modifier, calculate_trench_reduction,
+                                             _TRENCH_IGNORED_PROFILES)
+from ..services.damage_modifiers import add_modifier
+from ..services.static_battle_rules import is_tile_status_effect
+from ..utilities.tile import terrain_tile_effects
+from .components import PersistentDataComponent
+from .components import charged_unit_ids
 
 _BIG_HP = 1 << 30          # santé cible « infinie » → scenario sans overkill/cap
 
@@ -226,7 +242,6 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
             carriers.append((uid, (pc.col, pc.row), oc.team, effs))
     if not carriers:
         return
-    from ..services.damage_modifiers import add_modifier
     is_melee = (not is_ranged) if is_ranged is not None else None
     att_gu = _unit_gameconfig(state, att_id) or {}
     ctx = {"att_id": att_id, "att_pos": (apc.col, apc.row), "att_team": aoc.team,
@@ -321,7 +336,6 @@ def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
     ctid = board.id_at(pos[0], pos[1])
     if ctid is None:
         return None
-    from ..utilities.tile import terrain_tile_effects            # lazy : évite cycle runner<->utilities
     tfx: dict = {}
     for tid in (ctid, *board.neighbours(ctid)):
         p = board.coord(tid)
@@ -356,7 +370,6 @@ def tile_status_effects_by_pos(state: State, positions) -> Optional[dict]:
     `load_state` ne seedait pas les effets de tuile, la liste offline ne contenait que ce que le
     runner avait pose lui-meme (Fire/Ice, tous des status) et l'absence de filtre etait INVISIBLE ;
     depuis le seed (#102) elle porte la VRAIE liste native, donc le filtre devient OBLIGATOIRE."""
-    from ..services.static_battle_rules import is_tile_status_effect
     board = getattr(state, "board", None)
     if board is None or state.effects is None:
         return None
@@ -390,9 +403,6 @@ def battle_query_is_charging(state: State, caster_id: int, target_id: int) -> bo
     posent au call-site : `state.board` absent -> repli geometrique nomme d'`is_adjacent`, le
     comportement d'avant. La face PREDICTION (`_shared._prediction_is_charging`) derive les MEMES
     canaux de sa `Scene` -- une seule des deux branchee ferait diverger un natif unique."""
-    from ..battle_query import is_charging as _bq_is_charging
-    from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
-    from .components import charged_unit_ids
 
     def _pos(uid):
         e = state.get_entity(uid)
@@ -684,9 +694,6 @@ def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) 
     board = state.board          # toujours present (__slots__) ; None tant que le boardGraph n'est pas cale
     if board is None:
         return
-    from .components import PositionComponent
-    from ..services.damage_modifiers import (add_modifier, calculate_elevation_bonus_modifier,
-                                             ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION)
     ea, et = state.get_entity(attacker_id), state.get_entity(target_id)
     pa = ea.get_component(PositionComponent) if ea is not None else None
     pt = et.get_component(PositionComponent) if et is not None else None
@@ -709,7 +716,6 @@ def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) 
     # l'import. `ELEVATION_BONUS_PCT` restait juste tant que la BC valait la seed et devenait faux
     # sinon -- mesure : a `ElevationBonus` ABSENT le natif inflige 5160 la ou le port en calculait
     # 8797 (+70,5 %), et a 100 le natif monte a 10520 quand le port restait a 8797.
-    from ..services.damage_config import resolve_damage_field
     eb = calculate_elevation_bonus_modifier(
         a_elev, t_elev, resolve_damage_field("elevation_bonus", state=state),
         attacker_or_target_has_no_elev_effect=no_elev)
@@ -729,11 +735,6 @@ def apply_trench_reduction(state: State, mods, attacker_id: int, target_id: int,
     board = state.board          # toujours present (__slots__) ; None tant que le boardGraph n'est pas cale
     if board is None:
         return
-    from .components import PositionComponent
-    from ..services.damage_modifiers import (add_modifier, calculate_trench_reduction,
-                                             _TRENCH_IGNORED_PROFILES)
-    from ..services.damage_config import resolve_damage_field
-    from ..entities.traits.unit_trait import UnitTrait
     ea, et = state.get_entity(attacker_id), state.get_entity(target_id)
     pa = ea.get_component(PositionComponent) if ea is not None else None
     pt = et.get_component(PositionComponent) if et is not None else None
@@ -792,8 +793,6 @@ def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx
         return 0
     # AreEqual(occupant tuile-Ice, target) == « la cible occupe une tuile a effet Ice ACTIF »
     # (meme lecture tile-effects que LordOfTempests/_positional_att_ctx : state.effects.by_unit[tile_id]).
-    from ..entities.effect_type import EffectType
-    from ..entities.traits.unit_trait import UnitTrait
     if not any((getattr(x, "effect_type", None) == int(EffectType.Ice) and not x.consumed)
                for x in state.effects.by_unit.get(int(tid), [])):
         return 0
@@ -802,7 +801,6 @@ def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx
     cd = int(ctx.stat(StatType.CRIT_DAMAGE) or 0)          # StatAmount(attacker, 10) = GetStat(10)
     if cd <= 0:
         return 0
-    from ..entities.effects.magnitude import bc_effect_config
     pct = bc_effect_config("IceCritDmgBonusPct", 25) or 0   # EffectConfig(5)
     return (cd * pct) // 100                                # PercentageOf -> Fix64 -> floor int (+175 mesure)
 
@@ -817,7 +815,6 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     cible (LightCover/Parry). Identité = **entity_id**, team = **OwnerComponent.team** (instance-safe). PAS
     de `faction_of`/visual_id : le comptage par faction de GetStuckIn est retiré, aucun consommateur ne le
     lit — et `visual_id` ne distinguerait pas 2 instances du même type en miroir (danger connu)."""
-    from .components import PositionComponent, OwnerComponent, UnitComponent
     pos_by_id: dict = {}
     team_by_id: dict = {}
     # #372 — substrat d'ENTITÉ du canal AURA de COUPS : `UnitTurnsStarted` = `GetStat(., 0xc)` et
@@ -858,7 +855,6 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     # Gates CIBLE du canal COUPS, memes deux entrees que le canal DEGAT (`attacker_modifiers`) :
     # `HasEffect(Target, <EffectType>, Both)` re-evalue (marqueurs non materialises) + grande-alliance
     # de la cible (`HasTrait(Target, 0x7ea = Chaos)` de `FearedInterrogator_Owner.CreateEffectHitsBonusForAttack`).
-    from ..entities.effects.loki.dark_angels_passives import grand_alliance_of
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": team_by_id.get(tgt_id), "is_melee": is_melee,
              "pos_by_id": pos_by_id, "team_by_id": team_by_id,
@@ -921,7 +917,6 @@ def _persistent_data_list_reader(state: State):
     Mirror de l'acces natif `entity.GetComponent<PersistentDataComponent>().TryGetPersistDataList(
     GetPersistentDataId(abilityOrEffect), key)` (`IsInPersistentDataListTrigger$$ShouldTrigger`).
     Composant/entite absents -> `()`, exactement le `?? new List<T>()` du natif."""
-    from .components import PersistentDataComponent
 
     def _read(unit_id, key):
         if unit_id is None:

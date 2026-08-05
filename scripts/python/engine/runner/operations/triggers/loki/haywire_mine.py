@@ -102,6 +102,16 @@ from ..base import (TriggeredAbility, TriggerEvent, triggered_ability_state,
                     _unit_trait_names)
 from .reactivate_overwatch import has_death_reason
 from .....utilities.utility_type import UtilityType   # #270-r1-r1-r3
+from .....entities.effects.magnitude import ability_var
+from .....entities.formulas import Count as CountF
+from .....entities.selectors import (AdjacentTiles, Cache, CanAddUnit, First, PreviousTile,
+                                         Randomize, SelectIf, SortTilesByUtility)
+from .....entities.triggers import AmountIsGreaterThanZero
+from .....entities.triggers import AmountIsGreaterThanZero, HasUnitFlag, TriggerAnd
+from ....abilities.behaviours import (AddPersistentData, Spawn, TriggerAbilityDelayed)
+from ....abilities.behaviours import ClearPersistentData
+from ....components import UnitFlagsComponent
+from ....components import persistent_data
 
 ABILITY_ID = "HaywireMineSteppable"
 
@@ -129,7 +139,6 @@ def _config(state: State, owner_id: int) -> Optional[dict]:
     `$$GetStringConstant`). `None` si l'unite / son contexte / la config manquent -- l'appelant
     n'execute alors AUCUN arbre (le natif, lui, LEVE ; le port refuse en silence, residu du foyer
     `ability_var`)."""
-    from .....entities.effects.magnitude import ability_var
     e = state.get_entity(int(owner_id))
     sc = e.get_component(StatsComponent) if e is not None else None
     if sc is None or getattr(sc, "ctx", None) is None:
@@ -340,11 +349,6 @@ def haywire_mine_tiles(owner_sel=None):
     `If` du behaviour. Sans memoisation, le `Count` re-evaluerait `CanAddUnit` APRES la pose, la
     tuile serait occupee, et le `If` prendrait la branche `TriggerAbilityDelayed` alors que le
     spawn vient d'avoir lieu."""
-    from .....entities.selectors import (AdjacentTiles, Cache, CanAddUnit, First, PreviousTile,
-                                         Randomize, SelectIf, SortTilesByUtility)
-    from .....entities.formulas import Count as CountF
-    from .....entities.triggers import AmountIsGreaterThanZero, HasUnitFlag, TriggerAnd
-    from ....components import UnitFlagsComponent
     owner = owner_sel if owner_sel is not None else Owner()
     prev = PreviousTile(owner)
     garde = TriggerAnd(AmountIsGreaterThanZero(CountF(prev)),   # `AmountIsGreaterThanZero(PreviousTile)`
@@ -376,9 +380,6 @@ class _HaywireMinePlaceBase(TriggeredAbility):
         return triggered_ability_state(state, int(self.owner_id), HAYWIRE_MINE_ABILITY)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from .....entities.formulas import Count as CountF
-        from .....entities.triggers import AmountIsGreaterThanZero
-        from ....abilities.behaviours import (AddPersistentData, Spawn, TriggerAbilityDelayed)
         ectx = ExecutionContext(state=state, rng=state.rng)
         # `AbilityEntities` du vecteur : l'owner est a la fois caster, target et actor
         # (`get_OwnerIsActor` du trigger, et le ctor natif de `On(4)`/`On(0x29)` pose `unit` aux
@@ -435,7 +436,6 @@ class HaywireMinePlaceOnTurnEndAbility(_HaywireMinePlaceBase):
         actor = ev.actor_id if ev.actor_id is not None else ev.target_id
         if actor is None or int(actor) != int(self.owner_id):   # `get_OwnerIsActor`
             return False
-        from ....components import persistent_data
         e = state.get_entity(int(self.owner_id))
         v = persistent_data(e, (HAYWIRE_MINE_ID, POSE_DATA_KEY))
         return (0 if v is None else int(v)) == 0                # `AmountIsZero(GetPersistentData)`
@@ -483,7 +483,6 @@ class HaywireMineResetAbility(TriggeredAbility):
         return actor is not None and int(actor) == int(self.owner_id)    # `get_OwnerIsActor`
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ....abilities.behaviours import ClearPersistentData
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, int(self.owner_id), int(self.owner_id),
                                        actor_id=int(self.owner_id))

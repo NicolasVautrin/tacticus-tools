@@ -46,6 +46,11 @@ from ..state import State
 from ..components import (UnitComponent, OwnerComponent, PositionComponent, UnitFlagsComponent,
                           StatsComponent, unit_is_dead)
 from ...entities.active_ability_type import ActiveAbilityType
+from ..events import EventBus
+from ..messages import ActiveAbilityMessage
+from .active_ability import is_dead_unit_and_not_allowed_by_ability
+from .damage import AttackDamageOperation
+from .movement import MoveUnitOperation
 
 NORMAL_ATTACK_ID = int(ActiveAbilityType.NormalAttack)   # 17 — id synthetique du bridge (cf. state_bridge) #158
 
@@ -161,9 +166,6 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
       2. attaque normale (ability == 17) -> `AttackDamageOperation.execute` + vecteur after-hit (mirror
          exact du handler `visit_AttackUnitMessage`) ; ability ACTIVE -> handler (SLICE 2 ; 4 abilities portees).
     Re-check `alive` apres le move (l'overwatch peut tuer le summon avant qu'il n'attaque)."""
-    from ..events import EventBus
-    from .movement import MoveUnitOperation
-    from .damage import AttackDamageOperation
     from .triggers import after_hit_normal_attack
 
     e = state.get_entity(uid)
@@ -244,10 +246,7 @@ def _apply_active_ability(state: State, uid: int, target: Optional[int], ability
     de CONTINUE. On le relit quand même du registre plutôt que de câbler `None` en dur, pour que la
     dérogation reste portée si l'ordre des voies change."""
     from ..abilities.handler import AbilityHandler, ABILITY_CLASSES
-    from ..messages import ActiveAbilityMessage
     from ..abilities.base import ability_attack_params
-    from .damage import AttackDamageOperation
-    from .active_ability import is_dead_unit_and_not_allowed_by_ability
     h = AbilityHandler(state)
     h.visit_ActiveAbilityMessage(ActiveAbilityMessage(uid, target, ability))
     if h.last and h.last.get("ported"):

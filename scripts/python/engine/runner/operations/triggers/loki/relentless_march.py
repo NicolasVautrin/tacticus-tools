@@ -174,6 +174,7 @@ from ....components import OwnerComponent, StatsComponent
 from ....state import State
 from ....abilities.behaviours import AddEffect, Repair, entities_from_state
 from ..base import TriggeredAbility, TriggerEvent
+from .....entities.effects.magnitude import ability_var
 
 ABILITY_ID = "RelentlessMarch"
 # `AddEffect(effectType = 0x3f3, ...)` -- `EffectType`, PAS `TriggeredAbilityType`.
@@ -241,7 +242,6 @@ def hp_to_repair(state: State, owner_id: int) -> int:
     `passive_ability_level` (meme lecture que `FabricatorClawArray`, l'autre `hpToRepair` de passif).
     0 si l'unite / son contexte / la variable manquent -> la feuille `Repair` est alors un no-op
     (`amount > 0` est sa garde)."""
-    from .....entities.effects.magnitude import ability_var
     e = state.get_entity(owner_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None

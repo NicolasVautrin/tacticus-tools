@@ -27,6 +27,13 @@ from ....entities.formulas import TotalAttacksMade, UnitTurnsStarted
 from ....entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
 from ..behaviours import (Spawn, SpawnSummon, SpawnReplica, PerformAIAttack, AddBondEffect,
                           AddEffect, entities_from_state)
+from ...components import UnitComponent as _UC, PositionComponent as _PC
+from ...events import EventBus
+from ...messages import MoveUnitMessage
+from ...operations.movement import MovementHandler
+from ...operations.spawn import _spawn_config_grot
+from ...operations.summon_ai import (ai_control_execute_ability_action_for,
+                                         NORMAL_ATTACK_ID)
 
 if TYPE_CHECKING:
     from ...state import State
@@ -262,9 +269,6 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     tiennent que la comptabilite des ATTAQUES (`_attacks_made`, `_last_attacked`, `attacks[]`), et un
     move n'en est pas une. La cle `moved` du diag porte le deplacement quand l'attaque a bien eu lieu."""
     from ...operations.triggers.base import _in_attack_range
-    from ...operations.summon_ai import (ai_control_execute_ability_action_for,
-                                         NORMAL_ATTACK_ID)
-    from ...components import UnitComponent as _UC, PositionComponent as _PC
     # `abilityId = getAbilityType(actor)` (`behaviour+0x68`) = `UnitExtensions$$GetNormalAttackType`.
     # `aiControl.ExecuteAbilityActionFor(actor, abilityId, {allowOnlyMove, skipAtomic, true,
     #                                    Nullable<int> moveAmount, customUtility})` -- slot 0x37.
@@ -321,9 +325,6 @@ def _apply_move_message(state: "State", unit_id: int, to, origin) -> Optional[tu
     Rend la tuile atteinte, ou `None` si aucun deplacement n'a eu lieu."""
     if to is None or origin is None or tuple(to) == tuple(origin):
         return None
-    from ...events import EventBus
-    from ...messages import MoveUnitMessage
-    from ...operations.movement import MovementHandler
     MovementHandler(state, EventBus()).visit_MoveUnitMessage(MoveUnitMessage(unit_id, tuple(to)))
     return tuple(to)
 
@@ -651,7 +652,6 @@ class SpawnTutelaryHorror(AbilityBehaviour):
         self.tile_id = tile_id
 
     def execute(self, entities, ectx):
-        from ...operations.spawn import _spawn_config_grot
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
         if state is None or caster_id is None or self.tile_id is None:
@@ -779,7 +779,6 @@ class SpawnAberrant(AbilityBehaviour):
         self.tile_id = tile_id
 
     def execute(self, entities, ectx):
-        from ...operations.spawn import _spawn_config_grot
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
         if state is None or caster_id is None or self.tile_id is None:

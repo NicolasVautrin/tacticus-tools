@@ -94,6 +94,7 @@ from ....dsl.base import _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult, ExecutionContext
 from ....dsl.event_trigger_type import EventTriggerType
 from .base import TriggeredAbility, EffectTrigger, TriggerEvent
+from ....entities.selectors import _tile_positions
 
 PERMADEATH = int(UnitTrait.PermaDeath)                     # 0x41a=1050 (NOT HasTrait -> CanBeRevived)
 AFFECTED_BY_HEAL = int(UnitTrait.AffectedByHealAndRepair)  # 0x421=1057 (IsAffectedByHealType)
@@ -152,7 +153,6 @@ class Revive(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         from ..revive import post_pending_revive
-        from ....entities.selectors import _tile_positions
         state = ectx.state
         if state is None:
             return OperationResult.ok()

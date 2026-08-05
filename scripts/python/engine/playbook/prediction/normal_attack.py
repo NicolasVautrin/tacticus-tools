@@ -14,6 +14,9 @@ from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defend
 from engine.dsl.base import calculate_average
 from engine.entities.traits.unit_trait import entity_trait_names
 from engine.services.custom_normal_attack import substitutes_normal_attack
+from engine.runner.abilities.loki.mv71 import pick_tile_scene
+from engine.services.battle_query import get_attack_weapon_for_default_normal_attack
+from engine.services.damage_modifiers import DamageModifiers
 
 
 # ── #57c-C : overrides `<Boss>_NormalAttackAbility.PredictAttack` (attaque normale + follow-up) ──
@@ -403,7 +406,6 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
     t_pos = scene.pos(tgt_id)
     if unit_id is None or t_pos is None:
         return None
-    from engine.runner.abilities.loki.mv71 import pick_tile_scene
     tile_pos = pick_tile_scene(scene, att_id, tgt_id, unit_id, max_summons,
                                parent_pos=attack_pos or scene.pos(att_id))
     if tile_pos is None:
@@ -419,7 +421,6 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
     attack_base, carriers, att_grand, att_faction, _ap = _display_attack_base(
         scene, att_id, attack_pos, is_melee=False)
     # arme du drone par distance tuile->cible (mirror config d'attaque @0x18 du unit-config drone).
-    from engine.services.battle_query import get_attack_weapon_for_default_normal_attack
     _adj = are_tiles_adjacent(tile_pos, t_pos, scene.board)
     _d = hexgeo.distance(tile_pos, t_pos)
     w, w_ranged = get_attack_weapon_for_default_normal_attack(unit_id, _adj, dist=_d)
@@ -427,7 +428,6 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
     _dpw = GC.damage_profile(prof_name) or {}
     dir_pierce = ctx.extra_pierce_ranged if w_ranged else ctx.extra_pierce_melee
     pierce = max(0, min(100, int(_dpw.get("PiercingRatio") or 0) + ctx.extra_pierce + dir_pierce))
-    from engine.services.damage_modifiers import DamageModifiers
     mods = DamageModifiers()                             # widget attaquant ZEROE (cf. docstring)
     # POSITIONNELS + DEFENSEUR (service-side, arbitre live) : attack_pos = LA TUILE DU DRONE
     # (elevation drone->cible), defenseur incl. Markerlight (faction caster = T'au, threadee #61bis).

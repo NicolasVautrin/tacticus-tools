@@ -13,6 +13,12 @@ import hexgeo
 from .. import battle_query as _bq
 from ..dsl.base import (AAmountFormula, TargetsSelector, Const, _round_fix64, _effect_field,
                         _default_get_stat, resolve_unit, _units_of, _pos, _feet)
+from ..services.movement_query import get_distance
+from .active_ability_type import ActiveAbilityType
+from .effects.aura import aura_trait, aura_current_range, aura_next_turn_range
+from .effects.magnitude import ability_var
+from .selectors import _tile_positions
+from .stats import StatType
 
 
 class Sum(AAmountFormula):
@@ -204,7 +210,6 @@ def percentage_of_attack_capped_at_max(unit_sel: TargetsSelector, cap, pct,
     et `...$$GetOverrideAttackDamageAmount`) : difference LUE au decompile, jamais uniformisee.
     `cap`/`pct` = noeuds VALEUR (`ConfigVar(0xd=maxDmg)` / `ConfigVar(0x4a=dmgPct)` sur les call-sites
     portes) ou scalaires (collapse V quand la config est resolue imperativement)."""
-    from .stats import StatType
     cap_n = cap if hasattr(cap, "evaluate") else Const(int(cap))
     pct_n = pct if hasattr(pct, "evaluate") else Const(int(pct))
     return Min(cap_n, PercentageOf(pct_n, StatAmount(unit_sel, int(StatType.ATTACK), int(stat_part)),
@@ -299,7 +304,6 @@ class AngleBetweenLines(AAmountFormula):
         self.a1, self.b1, self.a2, self.b2 = a1, b1, a2, b2
 
     def calculate(self, ctx):
-        from .selectors import _tile_positions
         board = getattr(ctx, "board", None)
         if board is None:
             return 0
@@ -389,7 +393,6 @@ class RoundsStarted(AAmountFormula):
         self.selector = selector
 
     def calculate(self, ctx):
-        from .stats import StatType
         gs = ctx.get_stat or _default_get_stat
         return sum(int(gs(u, int(StatType.TURNS_STARTED), 0, None) or 0)
                    for u in _units_of(self.selector, ctx))
@@ -492,7 +495,6 @@ class UnitTurnsStarted(AAmountFormula):
         self.unit = unit
 
     def calculate(self, ctx):
-        from .stats import StatType
         u = resolve_unit(self.unit, ctx)
         if u is None:
             return 0
@@ -609,7 +611,6 @@ class UnitNormalAttackType(AAmountFormula):
         if vis is None:
             return None
         import gameconfig as GC
-        from .active_ability_type import ActiveAbilityType
         names = []
         for _slot, v in (GC.unit_abilities(vis) or {}).items():
             if isinstance(v, str):
@@ -643,7 +644,6 @@ class ConfigVarForEntity(AAmountFormula):
         if u is None:
             return 0
         lvl = ctx.get_ability_level(u, self.slot) if ctx.get_ability_level is not None else None
-        from .effects.magnitude import ability_var
         return int(ability_var(self.ability_name, self.var_key, lvl) or 0)
 
 
@@ -709,7 +709,6 @@ class MinDistance(AAmountFormula):
         self.a, self.b = a, b
 
     def calculate(self, ctx):
-        from ..services.movement_query import get_distance    # lazy : garde anti-circulaire
         # `SelectTiles` = liste PLATE des tuiles de toutes les entites selectionnees.
         ta = [f for u in _units_of(self.a, ctx) if isinstance(u, dict) for f in _feet(u)]
         tb = [f for u in _units_of(self.b, ctx) if isinstance(u, dict) for f in _feet(u)]
@@ -742,8 +741,6 @@ class AuraEffectRange(AAmountFormula):
         self.unit, self.effect_type, self.is_next_turn = unit, int(effect_type), bool(is_next_turn)
 
     def calculate(self, ctx):
-        from .effects.aura import aura_trait, aura_current_range, aura_next_turn_range
-        from .stats import StatType
         u = resolve_unit(self.unit, ctx)
         if u is None:
             return 0                                       # `unit == null` -> 0

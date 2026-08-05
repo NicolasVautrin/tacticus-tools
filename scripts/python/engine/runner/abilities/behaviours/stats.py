@@ -10,6 +10,15 @@ from ....dsl.base import TargetsSelector, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ....entities.traits.unit_trait import UnitTrait
 from ...components import HealthComponent, StatsComponent
+from ....dsl.base import _round_fix64
+from ....entities.effects.magnitude import ability_var
+from ....entities.stats import StatType
+from ....entities.stats import StatType, StatPart
+from ...operations.effects import AddEffectOperation
+from ...operations.heal import HealUnitOperation
+from ...operations.repair import RepairUnitOperation
+from ...operations.stat_ops import apply_change_stat, revert_change_stat
+from ...operations.stat_ops import apply_stat_override
 
 
 class RefreshDynamicStatModifierValue(AbilityBehaviour):
@@ -95,7 +104,6 @@ class Heal(AbilityBehaviour):
         self.targets_sel, self.amount_fn, self.guard = targets_sel, amount_fn, guard
 
     def execute(self, entities, ectx):
-        from ...operations.heal import HealUnitOperation
         state = ectx.state
         # `amount_fn` = FOLD du noeud montant natif : CALLABLE (montant derive, ex. le `SetCache
         # (PercentageOf(LastAttackDamageMade))` du lifesteal SpiritLeech) ou SCALAIRE deja resolu
@@ -186,7 +194,6 @@ class Repair(AbilityBehaviour):
         self.scope, self.remove_effects = int(scope), bool(remove_effects)
 
     def execute(self, entities, ectx):
-        from ...operations.repair import RepairUnitOperation
         state = ectx.state
         amount = int(self.amount_fn(entities, ectx) if callable(self.amount_fn) else self.amount_fn)
         repairs: list = []
@@ -233,7 +240,6 @@ class ChangeStat(AbilityBehaviour):
         self.source, self.amount = source, amount
 
     def execute(self, entities, ectx):
-        from ...operations.stat_ops import apply_change_stat, revert_change_stat
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -290,9 +296,6 @@ class SubtractHealthPercent(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         from fractions import Fraction
-        from ....entities.effects.magnitude import ability_var
-        from ....entities.stats import StatType, StatPart
-        from ....dsl.base import _round_fix64
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -371,10 +374,6 @@ class AddStatOverrideEffect(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         from dataclasses import replace
-        from ....entities.stats import StatType
-        from ...components import StatsComponent
-        from ...operations.effects import AddEffectOperation
-        from ...operations.stat_ops import apply_stat_override
         from .effects import _resolve_duration
         state = ectx.state
         if state is None or state.effects is None:
@@ -450,8 +449,6 @@ class SetHealth(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         from fractions import Fraction
-        from ....entities.effects.magnitude import ability_var
-        from ....dsl.base import _round_fix64
         state = ectx.state
         if state is None:
             return OperationResult.ok()

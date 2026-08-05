@@ -32,6 +32,8 @@ from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon,
                          Repair)
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
+from ..components import PositionComponent
+from .targeting import units_are_enemies, valid_normal_attack_targets
 
 if TYPE_CHECKING:
     from ..state import State
@@ -346,7 +348,6 @@ class RadBombardmentAbility(ActiveAbility):
 
         N'est consulte que sous le bit `TargetMatchesDynamicRule` (0x2), qui EST pose (cf.
         `TARGETING_OPTIONS`). Les codes rendus sont des `TargetingRule` bruts, comme dans le natif."""
-        from ..components import PositionComponent
         board = state.board
         if board is None or target_id is None:
             return 0                       # pas de plateau -> aucun refus INVENTE (degradation permissive)
@@ -595,7 +596,6 @@ class DefendTheDivineWorkAbility(ActiveAbility):
 
         N'est consulte que sous le bit `TargetMatchesDynamicRule` (0x2), qui EST pose."""
         from .attack_query import entity_can_be_repaired, is_affected_by_heal_type
-        from .targeting import units_are_enemies, valid_normal_attack_targets
         if target_id is None:
             return 0                # `target == null` : GetUnitPosition/IsEnemy faux -> branche B, 0
         tid, cid = int(target_id), int(caster_id)

@@ -59,6 +59,9 @@ from ..entities.effects import calculate_attacker_modifiers_for_prediction
 from ..services.battle_query import select_weapon_pierce
 from ..services.damage_prediction import get_attack_prediction
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
+from .prediction import (_add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
+                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
+from .prediction import prediction_has_moved, prediction_has_teleported
 
 # Effets de suppression du splash (`IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$IsPsykerAttackSuppressed`)
 # = `IsEffectTarget(Caster@DSLSelectors+0x48, 1191) op_BitwiseOr IsEffectTarget(Target@+0x60, 1533)`.
@@ -92,7 +95,6 @@ class PsykerPlaybook:
         actx = scene.ctx(att_id)
         pierce = max(0, min(100, int(prof.get("PiercingRatio") or 0)
                             + actx.extra_pierce + actx.extra_pierce_ranged))
-        from .prediction import prediction_has_moved, prediction_has_teleported
         _hm = prediction_has_moved(scene, att_id, attack_pos)
         _tctx = scene.ctx(tgt_id)
         _tar = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
@@ -112,8 +114,6 @@ class PsykerPlaybook:
                      "damage_profile": "Psychic",
                      "t_pos": scene.pos(tgt_id),
                      "tgt_team": scene.team(tgt_id)})
-        from .prediction import (_add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
         _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, False, attack_pos,
                                           scene.pos(tgt_id), damage_profile="Psychic",
                                           is_normal_attack=True)

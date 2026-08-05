@@ -7,6 +7,12 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
+from ...operations.displace import DisplaceUnitOperation
+from ...operations.displace import PullUnitOneTileOperation
+from ...operations.displace import SwitchPositionOperation
+from ...operations.displace import _occupied
+from ...operations.movement import MoveUnitOperation
+from ...operations.movement import OverrideMovementTargetOperation
 
 # `MoveUnitOptions+0x10` d'une feuille DSL de mouvement A OPTIONS NULLES (#448-r1-r1-r2-r1).
 # LU au decompile d'`IdunBattle.Entities.Behaviours.MoveUnitBehaviour$$Execute` : il empaquette les
@@ -53,7 +59,6 @@ class PushUnit(AbilityBehaviour):
         self.pushed_sel = pushed_sel
 
     def execute(self, entities, ectx):
-        from ...operations.displace import DisplaceUnitOperation
         state = ectx.state
         pusher = resolve_unit(self.pusher_sel, entities)     # First(+0x58) = le caster
         if state is None or pusher is None:
@@ -106,7 +111,6 @@ class PullUnitOneTile(AbilityBehaviour):
         self.elevation_knockback = elevation_knockback
 
     def execute(self, entities, ectx):
-        from ...operations.displace import PullUnitOneTileOperation
         state = ectx.state
         puller = resolve_unit(self.puller_sel, entities)
         if state is None or puller is None:
@@ -167,8 +171,6 @@ class FlyUnit(AbilityBehaviour):
         self.dest_tile_sel = dest_tile_sel
 
     def execute(self, entities, ectx):
-        from ...operations.movement import MoveUnitOperation
-        from ...operations.displace import _occupied      # occupation LIVE, exclut sujet + morts
         state = ectx.state
         subject = resolve_unit(self.subject_sel, entities)
         board = getattr(state, "board", None)
@@ -233,7 +235,6 @@ class SwitchPosition(AbilityBehaviour):
         self.unit2_sel = unit2_sel
 
     def execute(self, entities, ectx):
-        from ...operations.displace import SwitchPositionOperation
         state = ectx.state
         u1 = resolve_unit(self.unit1_sel, entities)
         u2 = resolve_unit(self.unit2_sel, entities)
@@ -284,8 +285,6 @@ class MoveUnit(AbilityBehaviour):
         self.dest_tile_sel = dest_tile_sel
 
     def execute(self, entities, ectx):
-        from ...operations.movement import MoveUnitOperation
-        from ...operations.displace import _occupied      # occupation LIVE (post-mutation), exclut sujet + morts
         state = ectx.state
         subject = resolve_unit(self.subject_sel, entities)
         board = getattr(state, "board", None)
@@ -369,7 +368,6 @@ class OverrideUnitMovementTarget(AbilityBehaviour):
         self.new_tile_sel = new_tile_sel
 
     def execute(self, entities, ectx):
-        from ...operations.movement import OverrideMovementTargetOperation
         state = ectx.state
         unit = resolve_unit(self.unit_sel, entities)          # `Select(entities, 7)` = 1 entite
         if state is None or unit is None:

@@ -39,6 +39,7 @@ from ....entities.selectors import Caster
 from ....entities.stats import StatPart, StatType
 from ....entities.effects.loki.hits import SWARM_HIT_REDUCTION_SOURCE
 from ...components import HealthComponent, StatsComponent, UnitComponent
+from ..behaviours import entities_from_state
 
 
 def swarm_hit_reduction_formula() -> Negative:
@@ -68,7 +69,6 @@ def refresh_swarm_hit_reduction(state, unit_id: int) -> None:
     us = getattr(ctx, "stats", None)
     if us is None:
         return
-    from ..behaviours import entities_from_state
     entities = entities_from_state(state, caster_id=int(unit_id))
     amount = int(swarm_hit_reduction_formula().evaluate(entities))
     # AddOrUpdate : Reverse+Apply sous LA cle partagee (Modify(*,0) natif = no-op → revert explicite).

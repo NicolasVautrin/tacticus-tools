@@ -97,6 +97,9 @@ from enum import IntEnum
 from typing import Optional
 
 from ..state import State
+from ...entities.effects import effect_stat_mod_key
+from .effects import unregister_name, AddEffectOperation
+from .stat_ops import revert_change_stat
 
 
 class KillUnitStep(IntEnum):
@@ -136,10 +139,7 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
       4. `RemoveSubEffects` -- retrait RECURSIF des enfants (cf. `_remove_sub_effects`) ;
       5. `On(EffectRemoved = 0x40)` APRES tout ce qui precede.
     """
-    from ...entities.effects import effect_stat_mod_key
-    from .stat_ops import revert_change_stat
     from .ability_modifications import revert_ability_modifications
-    from .effects import unregister_name, AddEffectOperation
     from .triggers import pre_effect_removed_triggers, effect_removed_triggers
 
     if eff is None or eff.consumed:

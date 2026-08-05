@@ -36,6 +36,16 @@ from ..entities.effect_type import EffectType
 # Sens de l'import : `pathfinders` ne remonte vers ce module que par un import LOCAL (dans
 # `movable_positions_for_unit`), donc aucun cycle a l'import.
 from ..entities.pathfinding.pathfinders import PathfinderType
+from ..entities.pathfinding import beeline_pathfinder as _beeline
+from ..entities.pathfinding.fly_pathfinder import is_like_flying
+from ..entities.pathfinding.pathfinders import movable_positions_for_unit
+from ..entities.pathfinding.tile_blocking import make_can_continue
+from ..entities.traits.unit_trait import UnitTrait, has_trait
+from ..runner.components import OwnerComponent
+from ..runner.components import OwnerComponent, PositionComponent, UnitComponent
+from ..runner.components import StatsComponent
+from ..runner.components import get_feet_count, get_unit_feet, StatsComponent
+from ..runner.components import get_unit_feet
 
 Pos = Tuple[int, int]
 
@@ -103,7 +113,6 @@ def get_entity_distance(state, entity_a, entity_b) -> int:
         return GetDistance(EntityExtensions.GetTiles(a, state), EntityExtensions.GetTiles(b, state));
 
     `GetTiles` = l'empreinte COMPLETE (cf. `components.get_unit_feet`)."""
-    from ..runner.components import get_unit_feet
     if entity_a is None or entity_b is None:
         return INT_MAX
     return get_distance(get_unit_feet(state, entity_a), get_unit_feet(state, entity_b))
@@ -372,7 +381,6 @@ def get_pathfinder_type_for_unit(has_effect, traits, ignore_special_movement: bo
     canal : `state.effects.has_effect` cote runner, `ctx.has_effect` cote DSL) ; `None` = pas de
     canal -> aucun effet special, la branche finale. `traits` = les NOMS de trait (gameconfig),
     lus par `UnitExtensions$$IsLikeFlying`."""
-    from ..entities.pathfinding.fly_pathfinder import is_like_flying
     fly = 1 if is_like_flying(traits) else 0
     if not ignore_special_movement and has_effect is not None:
         for et in SPECIAL_MOVEMENT_EFFECT_TYPES:
@@ -418,8 +426,6 @@ def synapse_tiles_for(state, board, moving_team) -> set | None:
     eff = getattr(state, "effects", None) if state is not None else None
     if eff is None or board is None:
         return None
-    from ..entities.effect_type import EffectType
-    from ..runner.components import OwnerComponent, PositionComponent, UnitComponent
     want = int(EffectType.Synapse_Effect)
     out = set()
     for eid, e in (getattr(state, "entities", None) or {}).items():
@@ -448,8 +454,6 @@ def titanhammer_target_tiles_for(state, board, moving_team) -> set | None:
     eff = getattr(state, "effects", None) if state is not None else None
     if eff is None or board is None:
         return None
-    from ..entities.effect_type import EffectType
-    from ..runner.components import OwnerComponent
     want = int(EffectType.TitanhammerSquad_TargetTile)
     out = set()
     for tid in board.by_id:
@@ -499,9 +503,6 @@ def get_movable_tiles_for(board, state, unit_id: int, from_tile: int, override_r
     `UnitFlagsComponent$$Has(unitFlags, 1)` (#381, aucun substrat), `IsTileReserved` /
     `IsTilePendingDrafting` / `IsTemporary`, le trait `Steppable` d'`IsFreeTile`, et l'occupation
     par EMPREINTE (les appelants passent une occupation par MAIN TILE, comme `_move_tiles`)."""
-    from ..entities.pathfinding.pathfinders import movable_positions_for_unit
-    from ..entities.pathfinding.tile_blocking import make_can_continue
-    from ..runner.components import StatsComponent
     e = state.get_entity(int(unit_id)) if state is not None else None
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None)
@@ -536,8 +537,6 @@ def get_movable_positions_for(board, state, unit_id: int, movable_tiles: Iterabl
     ExecuteBehaviour` -- qui en cree un. Les traits sont lus a la SOURCE UNIQUE du port
     (`StatsComponent.ctx.traits`, cf. `entities/traits/unit_trait.py`) ; une entite sans
     `StatsComponent` n'est pas gatee (meme convention permissive qu'ailleurs)."""
-    from ..runner.components import get_feet_count, get_unit_feet, StatsComponent
-    from ..entities.traits.unit_trait import UnitTrait, has_trait
     e = state.get_entity(int(unit_id)) if state is not None else None
     sc = e.get_component(StatsComponent) if e is not None else None
     if sc is not None and has_trait(getattr(sc.ctx, "traits", None), UnitTrait.Stationary):
@@ -902,7 +901,6 @@ def get_connected_path_to(board, from_id, to_id, path) -> List[int]:
     src, dst = int(from_id), int(to_id)
     if path is None:
         return [src, dst]
-    from ..entities.pathfinding import beeline_pathfinder as _beeline
     q = list(int(t) for t in path)
     if not q:
         return []

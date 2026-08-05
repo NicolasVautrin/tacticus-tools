@@ -52,6 +52,12 @@ from .behaviours import (entities_from_state, AddBondEffect, AddEffect, AttackWi
                          RemoveUnitFromItsTiles, Spawn)
 from .loki import _pick_randomly_n
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
+from ...entities.formulas import Difference, If as IfAmount
+from ...entities.selectors import AllDeadUnits, Filter, Subject
+from ...entities.triggers import AmountIsGreaterThanZero
+from ...entities.triggers import TriggerAnd, is_mechanical
+from ...entities.triggers import is_mechanical
+from ..components import StatsComponent
 
 if TYPE_CHECKING:
     from ..state import State
@@ -185,7 +191,6 @@ class HarbingerOfDestructionAbility(ActiveAbility):
         `nrOfUnits`[level] et `GetNumberConstant(config, 0x16)` = `range`). N NON scale rarete (`nrOfUnits`
         hors `variablesAffectedByRarityBonus`). Cle config `nrOfUnits ` (espace final = quirk gameconfig)
         avec fallback sans espace. Defauts surs si absent (N>=1, range>=1)."""
-        from ..components import StatsComponent
         e = state.get_entity(caster_id)
         sc = e.get_component(StatsComponent) if e is not None else None
         level = getattr(sc.ctx, "active_ability_level", 0) if sc is not None else 0
@@ -267,8 +272,6 @@ def resurrection_orb_possible_resurrect_targets():
     L'ensemble alimente DEUX consommateurs (xrefs relues) : `$$GetResurrectBehaviour` (la resurrection
     proprement dite, cote COMBAT) et `$$GetNumSummonsFormula` (cote DECISION). Un seul artefact natif,
     un seul port."""
-    from ...entities.selectors import AllDeadUnits, Filter, Subject
-    from ...entities.triggers import TriggerAnd, is_mechanical
     return Filter(Friends(AllDeadUnits(), Caster()),
                   TriggerAnd(HasTrait(Subject(), int(UnitTrait.Hero)), is_mechanical(Subject())))
 
@@ -310,8 +313,6 @@ def resurrection_orb_max_summons_formula():
          `resurrection_orb_max_summons_const`).
 
     ⚠ NOMS D'ENUM QUALIFIES : `0xc` est un **StatType** (TURNS_STARTED), pas un EffectType."""
-    from ...entities.selectors import AllDeadUnits, Filter, Subject
-    from ...entities.triggers import is_mechanical
     return Min(Sum(Count(Filter(Friends(AllDeadUnits(), Caster()), is_mechanical(Subject()))),
                    StatAmount(Caster(), int(StatType.TURNS_STARTED))),
                Const(resurrection_orb_max_summons_const()))
@@ -336,8 +337,6 @@ def resurrection_orb_num_summons_formula():
     `IdunBattle.AI.Playbook.Loki.ResurrectionOrbPlaybook$$CalculateCustomUtility`. `ExecuteBehaviour`,
     lui, cape par `GetMaxSummonsFormula` DIRECTEMENT (`First(tiles, GetMaxSummonsFormula(), 0)`) — les
     deux faces n'utilisent donc PAS le meme compte, et c'est le natif qui le veut."""
-    from ...entities.formulas import Difference, If as IfAmount
-    from ...entities.triggers import AmountIsGreaterThanZero
     tiles = resurrection_orb_possible_spawn_or_resurrect_tiles()
     amount = IfAmount(AmountIsGreaterThanZero(Count(resurrection_orb_possible_resurrect_targets())),
                       Difference(Count(tiles), Const(1)),

@@ -55,6 +55,8 @@ from ...dsl.event_trigger_type import EventTriggerType
 from ...entities.effect_type import EffectType
 from ...entities.selectors import Caster, Target
 from ...entities.triggers import IsAdjacent, is_object_or_steppable
+from ...entities.pathfinding.walk_pathfinder import get_movable_positions
+from .remove_unit import RemoveUnitOperation
 
 IGNORE_BATTLE_FATIGUE = int(EffectType.IgnoreBattleFatigue)  # 1079 (immunite ; posee p.ex. par SquigHound 1078) #158
 # 3e argument d'`DSLTriggers$$IsAdjacent` = `UnitSelectionType`, PAS un rayon (cf. en-tete du module).
@@ -100,7 +102,6 @@ class FleeOperation:
         # ORDRE NATIF : le retrait du plateau PRECEDE la pose du flag 9. Il pose `Removed` (0x1a),
         # sort l'unite de l'occupation (le collapse porte du pool `AliveUnits`) et publie
         # `On(0x25 = UnitRemoved)`. `remove_effects=False` = le `removeEffects: 0` du call-site.
-        from .remove_unit import RemoveUnitOperation
         retrait = RemoveUnitOperation.execute(state, int(unit_id), remove_effects=False)
         fl = e.get_component(UnitFlagsComponent)
         if fl is None:
@@ -130,7 +131,6 @@ class FleeOperation:
         pc = e.get_component(PositionComponent)
         if oc is None or pc is None:
             return None
-        from ...entities.pathfinding.walk_pathfinder import get_movable_positions
         occ: dict = {}
         enemies: list = []
         for eid, o in state.entities.items():

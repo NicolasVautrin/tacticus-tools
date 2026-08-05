@@ -82,6 +82,12 @@ from ...entities.effects import (crit_chance_bonus_from_effects, crit_damage_bon
                                  defender_effect_block_sources)
 from .damage_hits import HitDamage, _DamageHitsMixin
 from .damage_ops import _DamageOpsMixin
+from ...entities.effects import board_effect_carriers
+from ...entities.traits.unit_trait import entity_trait_names
+from ..components import (OwnerComponent, StatsComponent, UnitComponent,
+                                  adjacent_friendly_summons_and_decoys_count)
+from ..components import UnitComponent, unit_state_for_effects
+from ..components import is_alive_and_not_fled
 
 
 def _kill_unit_remove_effects(state: State, dead_id: int, step: int) -> list:
@@ -1029,9 +1035,6 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             TERTIAIRE pour une relique EQUIPEE, etat PASSIF pour un kit npc. Sans lui, une relique
             de niveau 3 lirait le niveau des PASSIFS du porteur (50 en runner normalise), donc le
             dernier palier -- un ecart SILENCIEUX de magnitude."""
-        from ...entities.traits.unit_trait import entity_trait_names
-        from ..components import (OwnerComponent, StatsComponent, UnitComponent,
-                                  adjacent_friendly_summons_and_decoys_count)
         from ..damage_model import _unit_gameconfig
         from .triggers.base import triggered_ability_state
         team_by_id: dict = {}
@@ -1067,8 +1070,6 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         construction d'une attaque), attaquant et cible en TETE, dedup par `owner_id`.
 
         ⚠ NON COUVERT, comme sur l'axe COUPS : les effets portes par une TUILE."""
-        from ..components import UnitComponent, unit_state_for_effects
-        from ...entities.effects import board_effect_carriers
         others: list = []
         target_effects: list = []
         for uid, e in state.entities.items():
@@ -1108,7 +1109,6 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         bataille ; ce lecteur capait donc son degat a `HP-1` et le rendait IMPOSSIBLE A TUER
         offline, alors que le natif le tue. `nrOfMembers` reste gameconfig : ce n'est pas un trait
         (c'est `GroupUnitComponent`, autre canal, hors #264)."""
-        from ...entities.traits.unit_trait import entity_trait_names
         tuc = tgt.get_component(UnitComponent) if tgt is not None else None
         if tuc is None or thc is None or not thc.hp_max:
             return None
@@ -1276,7 +1276,6 @@ class DamageHandler:
 
         CONVENTION PERMISSIVE, identique a `visit_ActiveAbilityMessage` : entite non resolue (id
         `None`, ou absente de l'etat) -> aucun refus."""
-        from ..components import is_alive_and_not_fled
         for eid in (msg.attacker_id, msg.target_id):
             if eid is None:
                 continue

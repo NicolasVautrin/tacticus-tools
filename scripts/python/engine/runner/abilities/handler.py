@@ -89,6 +89,13 @@ from .astramilitarum import (SupremeCommanderAbility, SendInTheNextWaveAbility,
                              MalleusRocketLauncherAbility, ForwardSpotterAbility,
                              FragBombAbility, BasiliskBarrageAbility)
 from .emperorschildren import DoomSirenAbility
+from ..components import is_alive_and_not_fled
+from ..components import unit_is_dead, MachineComponent
+from ..messages import ActiveAbilityMessage
+from ..operations.active_ability import (execute_for_replaced_target, get_tiles,
+                                                 resolve_replaced_target)
+from ..operations.active_ability import is_dead_unit_and_not_allowed_by_ability
+from .base import sets_end_turn_flags_for, sets_active_ability_used_flag_for
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -284,7 +291,6 @@ class AbilityHandler:
         `target_id is None` (le port modelise ainsi « pas de cible », le natif n'a que des ids) et
         entite absente de l'etat -> aucun refus. On ne gate que sur une entite RESOLUE dont
         `is_alive_and_not_fled` rend faux."""
-        from ..components import is_alive_and_not_fled
         for role, eid in (("caster", msg.caster_id), ("target", msg.target_id)):
             if eid is None:
                 continue
@@ -310,7 +316,6 @@ class AbilityHandler:
         # execution : aucune behaviour, aucun degat, AUCUN flag de tour (le natif retourne 0 en amont du
         # `AddFlagsAfterAbilityExecution`). MEME gate que l'attaque normale (#139, cf. damage.py). Inerte pour
         # tout caster vivant (les casts legitimes partent d'unites vivantes) -> zero regression. cf. case-70.
-        from ..components import unit_is_dead, MachineComponent
         caster = self.state.get_entity(int(msg.caster_id))
         if unit_is_dead(caster):
             self.last = {"ability_type": msg.ability_type, "ported": None,
@@ -343,7 +348,6 @@ class AbilityHandler:
         # module), donc ici. Son gate est le slot 0x11 `CanContinueOnDeadTarget`, qui lit le bit 38
         # `AllowDeadTarget` du masque de CONTINUE -- `False` pour toutes les abilities du binaire
         # sauf `GreatFrostAxe` (1089). Detail et mesure : `operations/active_ability.py`.
-        from ..operations.active_ability import is_dead_unit_and_not_allowed_by_ability
         if is_dead_unit_and_not_allowed_by_ability(self.state, klass, msg.target_id):
             self.last = {"ability_type": msg.ability_type, "ported": ability is not None,
                          "caster": msg.caster_id, "target": msg.target_id,
@@ -367,8 +371,6 @@ class AbilityHandler:
         # GetAbilityEntities` fige `AbilityEntities@+0x38 = EntityExtensions.GetTiles(finalTarget)`
         # AVANT le `On(0x2a = PreUnitAbility)`. C'est ce fige-la que la re-resolution ci-dessous confronte a
         # l'occupation REELLE d'apres la cascade. Pris ICI, au rang natif (juste apres les gates).
-        from ..operations.active_ability import (execute_for_replaced_target, get_tiles,
-                                                 resolve_replaced_target)
         _target_tiles = get_tiles(self.state, msg.target_id)
         # #120 `On(PreUnitAbility=0x2a)` — le vecteur d'OPERATION, emis pour TOUTE ability qui passe
         # les gates, portee ou non (il ne depend pas de la behaviour : cf. le meme raisonnement que
@@ -441,7 +443,6 @@ class AbilityHandler:
         inerte en pratique (`resolve_replaced_target` ne rend qu'un occupant VIVANT, cf.
         `operations/active_ability.get_unit`), mais un gate pose au mauvais rang est un fork, et
         c'est exactement ce que #120 avait ferme sur ce meme etage."""
-        from ..messages import ActiveAbilityMessage
         caster, ability_type = int(msg.caster_id), int(msg.ability_type)
         self.last = {"ability_type": ability_type, "ported": ability is not None,
                      "caster": caster, "target": msg.target_id,
@@ -505,7 +506,6 @@ class AbilityHandler:
         derived) ne sont pas transportes par notre ActiveAbilityMessage offline -> defaut false (aucun skip
         force par le caller), fidele au cast top-level."""
         from ..operations.turnflow import add_flags_after_ability_execution
-        from .base import sets_end_turn_flags_for, sets_active_ability_used_flag_for
         caster = int(msg.caster_id)
         if ability is not None:
             sets_end = ability.sets_end_turn_flags(self.state, caster)

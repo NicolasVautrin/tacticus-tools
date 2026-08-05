@@ -54,6 +54,10 @@ from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1
 # #270-r4 : direction de BattleQuery.GetTilesInTriangleShape, type DECLARE lu dans
 # rida/methods.tsv (IdunBattleLogic.Utils.Hex.Corner, pas l'un des cinq homonymes Unity).
 from ...hex_corner import Corner
+from ...entities.effects.magnitude import ability_var
+from ...entities.selectors import SurroundingUnits, TargetTile, Tiles, Units, UnitsWithTrait
+from ...entities.traits.unit_trait import UnitTrait
+from ..components import StatsComponent
 
 if TYPE_CHECKING:
     from ..state import State
@@ -275,8 +279,6 @@ def hades_autocannons_get_all_targets(range_: int):
     les autres multi-cibles valides bit-exact) et NE porte PAS les noeuds de tri — HYPOTHESE explicite
     (la cle +0x158 n'est pas relue ici) : discriminable live avec >= 2 summons dont l'ordre de `row`
     contredit l'ordre d'`id`."""
-    from ...entities.selectors import SurroundingUnits, TargetTile, Tiles, Units, UnitsWithTrait
-    from ...entities.traits.unit_trait import UnitTrait
     ring = SurroundingUnits(TargetTile(), Const(int(range_)), include_center=True)   # includeCenter=1
     summons = UnitsWithTrait(Friends(ring, reference=Target()), int(UnitTrait.Summon))
     return Units(Tiles(summons))     # aller-retour unites -> Tiles(sel) -> Units(...) du natif (mirror)
@@ -313,9 +315,6 @@ def hades_autocannons_tree(range_: int, crit_amount: int, caster_id: int):
       (`stats={Health:0,Damage:0,FixedArmor:0}`). Le buff est neanmoins porte 1:1 : des que la
       CritChance devient > 0 (i2 : `DaemonicOrdnance` +20 %/usage), le +extraCritDmg s'applique par
       coup CRITIQUE."""
-    from ...entities.behaviours import op_add
-    from ...entities.stats import StatType
-    from .behaviours import ChangeStat
     src = (f"{HADES_AUTOCANNONS_ID}_CritDamage", caster_id)            # source PARTAGEE add<->revert
     crit_add = ChangeStat(Caster(), int(StatType.CRIT_DAMAGE), "add", src, amount=int(crit_amount))
     attack = AttackWithAttackDamage(hades_autocannons_get_all_targets(range_), HADES_AUTOCANNONS_ID,
@@ -377,8 +376,6 @@ class HadesAutocannonsAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from ...entities.effects.magnitude import ability_var
-        from ..components import StatsComponent
         if target_id is None:
             return None
         sc = state.get_entity(caster_id).get_component(StatsComponent) if state.get_entity(caster_id) else None
@@ -627,8 +624,6 @@ class DaemonicOrdnanceAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from ...entities.effects.magnitude import ability_var
-        from ..components import StatsComponent
         if target_id is None:
             return None
         ce = state.get_entity(caster_id)
@@ -791,7 +786,6 @@ class FrenziedFiringAbilityCombat(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from ...entities.effects.magnitude import ability_var
         if target_id is None:
             return None
         # `Get(GetHits)` = `GetNumberConstant(0x2f)` et `ConfigConst(0x48)` : constantes de config resolues
@@ -813,7 +807,6 @@ class FrenziedFiringAbilityCombat(ActiveAbility):
 def _ability_state(state: "State", caster_id: int):
     """(niveau d'ability ACTIVE, multiplicateur de rarete %) du caster -- l'`AbilityStateReference` natif
     contre lequel `GetVariableForLevel`/`ConfigVar` resolvent (== HadesAutocannons/DaemonicOrdnance)."""
-    from ..components import StatsComponent
     e = state.get_entity(caster_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     cctx = sc.ctx if sc is not None else None
@@ -938,7 +931,6 @@ class DrachnyenAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from ...entities.effects.magnitude import ability_var
         if target_id is None or state.get_entity(caster_id) is None:
             return None
         level, mult = _ability_state(state, caster_id)

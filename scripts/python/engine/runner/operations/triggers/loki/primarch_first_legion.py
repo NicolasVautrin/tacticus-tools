@@ -149,6 +149,20 @@ from .....entities.effect_type import EffectType
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.unit_faction import UnitFaction
 from ....components import OwnerComponent, StatsComponent, UnitComponent
+from .....entities.behaviours import If as BIf, Seq
+from .....entities.formulas import EntityId
+from .....entities.formulas import If as FIf
+from .....entities.selectors.accessors import Owner
+from .....entities.selectors.accessors import Owner, Subject
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.geometry import Cache, PickRandomly
+from .....entities.selectors.units import (AdjacentFriends, EntitiesFromPersistentDataList,
+                                               First, SortByFormula, UnitsFromFaction)
+from .....entities.triggers import Contains
+from .....entities.triggers import IsAlive
+from ....abilities.behaviours import AddEffect, AddToPersistentDataList
+from ....abilities.behaviours import entities_from_state
+from ...damage import AttackDamageOperation
 
 # `TriggeredAbilityType.PrimarchOfTheFirstLegion` = 0x5e7 ; l'effet pose vaut `EffectType` 0x5f3.
 PRIMARCH_OF_THE_FIRST_LEGION = int(TriggeredAbilityType.PrimarchOfTheFirstLegion)      # 1511
@@ -210,12 +224,6 @@ def primarch_transfer_target_selector():
     (`OrderedSet` alimente par la requete de voisinage du `BattleQuery`, ordre d'insertion
     preserve), que `Units`/`Friends`/`UnitsFromFaction` ne retrient PAS -- c'est le `order="adjacent"`
     de `_within` (R28-1). Il DECIDE qui est pioche : `Randomize` tire un INDEX dans cette liste."""
-    from .....entities.formulas import If as FIf
-    from .....entities.selectors.accessors import Owner, Subject
-    from .....entities.selectors.geometry import Cache, PickRandomly
-    from .....entities.selectors.units import (AdjacentFriends, EntitiesFromPersistentDataList,
-                                               First, SortByFormula, UnitsFromFaction)
-    from .....entities.triggers import Contains
 
     it = Subject()                       # `It@DSLSelectors+0x68` = l'element courant du tri
     pool = UnitsFromFaction(AdjacentFriends(Owner(), reference=Owner()), DARK_ANGELS)
@@ -247,11 +255,6 @@ def primarch_reward_tree(target, rounds: int):
     appelle, 4 arguments -- passe litteralement **`0`** en parametre `source` du
     `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$.ctor` (la surcharge 5-args, elle, en pose
     un explicite). Selecteur source nul => la source EST la cible."""
-    from .....entities.behaviours import If as BIf, Seq
-    from .....entities.formulas import EntityId
-    from .....entities.selectors.accessors import Owner
-    from .....entities.triggers import IsAlive
-    from ....abilities.behaviours import AddEffect, AddToPersistentDataList
 
     reward = Seq(AddEffect(PRIMARCH_EXTRA_DAMAGE, "PrimarchOfTheFirstLegion_ExtraDamage", target,
                            duration_rounds=int(rounds), source_from_target=True),
@@ -313,7 +316,6 @@ class PrimarchTransfer:
         Le `caster` natif (l'attaquant) n'est lu par AUCUN noeud de l'arbre porte -- il ne sert
         qu'au `TransferHit(Caster, …)`, qui est la feuille imperative et recoit `attacker_id`
         en argument. L'ecart est donc INERTE, et il est nomme ici plutot que masque."""
-        from ....abilities.behaviours import entities_from_state
         return entities_from_state(self.state, int(self.defender_id), int(self.defender_id))
 
     def transfer(self, hit_index: int) -> bool:
@@ -334,7 +336,6 @@ class PrimarchTransfer:
         if not picked:
             return False
         ally = int(picked[0]["id"])
-        from ...damage import AttackDamageOperation      # lazy : cycle operations <-> triggers
         res = AttackDamageOperation.execute(
             self.state, int(self.attacker_id), ally,
             # `opts[+0x28]` + `Nullable<int> hits` vide -> le coup transfere vaut 1 coup.
@@ -362,8 +363,6 @@ class PrimarchTransfer:
         donc de RE-TIRER les N tirages du `Randomize`. Le natif obtient la meme economie par son
         `Cache` (meme `AbilityEntities`, donc meme cle) ; ici la memoisation est explicite parce
         que le port re-monte le contexte."""
-        from .....entities.selectors.accessors import Target
-        from ....abilities.behaviours import entities_from_state
         entities = entities_from_state(self.state, int(self.defender_id), int(ally))
         ectx = ExecutionContext(state=self.state, rng=self.state.rng)
         primarch_reward_tree(Target(), _n_rounds(self.state, self.defender_id)).execute(entities, ectx)

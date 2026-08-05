@@ -35,6 +35,12 @@ from typing import TYPE_CHECKING, Optional
 
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
+from ..components import HealthComponent
+from ..components import UnitFlagsComponent
+from ..operations.triggers.revive_effect import is_affected_by_heal_type as _impl
+from .targeting import _is_machine
+from .targeting import _resolves_to_unit
+from .targeting import _unit_traits
 
 if TYPE_CHECKING:
     from ..state import State
@@ -56,7 +62,6 @@ def _has_trait(state: "State", unit_id, trait: int) -> bool:
     source que `targeting._unit_traits` (dont ce helper est l'adaptateur par VALEUR d'enum) : depuis
     #264 la MESURE live (`combatSnapshot.units[].traits`) quand elle existe, sinon kit gameconfig +
     grande-alliance + traits accordes en bataille."""
-    from .targeting import _unit_traits
     try:
         name = UnitTrait(int(trait)).name
     except ValueError:                                        # pragma: no cover - enum incomplete
@@ -74,7 +79,6 @@ def is_affected_by_heal_type(state: "State", unit_id, heal_type: int) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType` -- DELEGUE au mirror deja porte
     (`operations/triggers/revive_effect.py`, case-89 volet B1), pour qu'il n'existe qu'UNE lecture de
     ce predicat dans le moteur."""
-    from ..operations.triggers.revive_effect import is_affected_by_heal_type as _impl
     return bool(_impl(_trait_resolver(state), {"id": unit_id}, int(heal_type)))
 
 
@@ -93,8 +97,6 @@ def is_damaged_unit(state: "State", entity_id) -> bool:
     `UnitTrait.Boss` en amont, cf. `InspiredToGreatnessAbility.get_dynamic_invalid_target_reason`).
 
     Une MACHINE OF WAR n'est pas une unite pour le natif (`EntityExtensions.IsUnit`) -> False."""
-    from .targeting import _resolves_to_unit
-    from ..components import HealthComponent
     if entity_id is None or not _resolves_to_unit(state, entity_id):
         return False
     e = state.get_entity(int(entity_id))
@@ -112,8 +114,6 @@ def health_is_readable(state: "State", entity_id) -> bool:
     lire ses PV » (verdict INCONNU). Un appelant qui REFUSE sur la conjonction de plusieurs
     disjuncts faux doit distinguer les deux, sinon il fabrique un refus la ou le natif, lui, a lu
     une vraie valeur. Meme role que le `None` d'`entity_can_have_active_ability_reset`."""
-    from .targeting import _resolves_to_unit
-    from ..components import HealthComponent
     if entity_id is None or not _resolves_to_unit(state, entity_id):
         return False
     e = state.get_entity(int(entity_id))
@@ -179,8 +179,6 @@ def entity_can_be_healed(state: "State", caster_id, target_id, scope: int = 0,
     Le premier test est bien `IsMachine` (une MoW n'est jamais soignable par ce chemin), pas
     `IsMechanical` : ce sont deux predicats DIFFERENTS, et le second n'intervient qu'au travers
     d'`IsAffectedByHealType`."""
-    from .targeting import _is_machine
-    from ..components import UnitFlagsComponent
     if target_id is None or _is_machine(state, target_id):
         return False
     eligible = is_damaged_unit(state, target_id)
@@ -224,8 +222,6 @@ def entity_can_be_repaired(state: "State", caster_id, target_id, scope: int = 0,
     `StatPart.Missing` de `StatType.Armor` n'est pas dans le catalogue de `combatSnapshot` -> non
     porte, rendu 0 (le disjunct ne peut donc qu'etre RATE : degradation restrictive du meme ordre
     que `has_negative_unit_effect`, et NOMMEE au meme titre)."""
-    from .targeting import _is_machine
-    from ..components import UnitFlagsComponent
     if target_id is None or _is_machine(state, target_id):
         return False
     eligible = is_damaged_unit(state, target_id)

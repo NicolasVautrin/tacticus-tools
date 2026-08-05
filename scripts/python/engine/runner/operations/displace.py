@@ -57,6 +57,12 @@ from .movement import MoveUnitOperation
 from ...battle_query import get_distance
 from ...entities.pathfinding.board import EVENQ_EVEN, EVENQ_ODD
 from ...entities.traits.unit_trait import UnitTrait, has_any_trait
+from ...battle_query import get_minimum_tiles_180_front
+from ...services.damage_combat import calculate_damage_operation
+from ...services.damage_config import resolve_damage_field
+from ..components import HealthComponent, StatsComponent
+from ..components import unit_is_dead
+from .damage import AttackDamageOperation
 
 # Distance du push, en tuiles = 1. CONSTANTE SOURCEE (cas #68 : RE decompile + confirme live), PAS une
 # hypothese. TRANCHE 1-vs-2 :
@@ -153,9 +159,6 @@ def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: in
       (`calculate_damage_operation` sans block/evasion), mort routee par le chokepoint
       `_apply_damage_pipeline(is_attack=False)` (un knockback n'est PAS une attaque).
     Renvoie {unit, amount, shield, health} ou None (gate ferme / montant nul)."""
-    from .damage import AttackDamageOperation
-    from ...services.damage_combat import calculate_damage_operation
-    from ..components import HealthComponent, StatsComponent
     e = state.get_entity(unit_id)
     if e is None:
         return None
@@ -174,7 +177,6 @@ def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: in
     # `IdunBattle.Core.Services.DamageCalculations$$get_KnockbackPercentageFix64`), plus code en
     # dur. La signature native n'a AUCUN parametre de pourcentage : il n'existe donc cote jeu
     # aucune constante 20 a recopier, et un litteral ici etait par construction une invention.
-    from ...services.damage_config import resolve_damage_field
     pct = resolve_damage_field("knockback_percentage", state=state)
     amount = -(-int(thc.hp_max) * pct // 100)                 # ceil (Fix64.Ceiling, entiers exacts)
     if amount <= 0:
@@ -319,7 +321,6 @@ class PullUnitOneTileOperation(Operation):
         self.record_tiles = bool(record_tiles)
 
     def execute(self, state: State, bus: EventBus) -> dict:
-        from ...battle_query import get_minimum_tiles_180_front
         board = getattr(state, "board", None)
         pulled = state.get_entity(self.pulled_id)
         puller = state.get_entity(self.puller_id)
@@ -457,7 +458,6 @@ class SwitchPositionOperation(Operation):
         self.record_tiles = bool(record_tiles)
 
     def execute(self, state: State, bus: EventBus) -> dict:
-        from ..components import unit_is_dead
         caster = state.get_entity(self.caster_id)
         target = state.get_entity(self.target_id)
         if caster is None or target is None:

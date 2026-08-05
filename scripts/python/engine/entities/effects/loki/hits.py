@@ -722,7 +722,6 @@ class AnvilShieldBlockChanceBelowHealthCapEffect(BaseEffect):
                            multiplier_pct=self.ability_variables_multiplier)
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.BLOCK_CHANCE]
 
 
@@ -759,12 +758,10 @@ class AnvilShieldFrozenAttackerAdvantageEffect(BaseEffect):
 
     def applied_stat_mods(self, stats_ctx) -> "list":
         """DATA du `ChangeStat` (part 5) pose a l'application : BLOCK_CHANCE += blockChance[level]."""
-        from ...stats import StatType
         amt = self.get_stat_modification_amount()
         return [(StatType.BLOCK_CHANCE, int(amt))] if amt else []   # 7 (#270-r1-r1)
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.BLOCK_CHANCE]
 
 

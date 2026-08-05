@@ -198,6 +198,11 @@ from ....entities.selectors import (AdjacentEnemies, AdjacentFriends, AdjacentUn
                                     CasterTile, Enemies, Owner, Sub, Subject, SurroundingEnemies,
                                     Target, TargetTile, Unobscured)
 from ..behaviours import AttackWithAttackDamage, entities_from_state
+from ....services.battle_query import are_tiles_adjacent
+from ....services.custom_normal_attack import substitutes_normal_attack
+from ...components import PositionComponent
+from ...damage_model import select_weapon
+from ..attack_type import NORMAL_ATTACK_KIND
 
 if TYPE_CHECKING:
     from ...state import State
@@ -364,7 +369,6 @@ def cleave_for(passive_abilities, active_abilities=None, visual_id=None, traits=
     `passive in passives`, est ce qui garantit que le cleave part exactement quand l'attaque normale
     CONCRETE est montee : une unite qui porte `Fealty` DERRIERE un autre passif substituant recoit
     l'attaque normale de l'AUTRE, et ne doit donc pas cleaver."""
-    from ....services.custom_normal_attack import substitutes_normal_attack
     for name, entry in NORMAL_ATTACK_CLEAVES.items():
         if substitutes_normal_attack(name, passive_abilities=passive_abilities,
                                      visual_id=visual_id, active_abilities=active_abilities,
@@ -436,7 +440,6 @@ def cleave_tree(entry: "_Cleave", is_melee: bool, weapon_range: Optional[int] = 
 def _normal_attack_kind() -> int:
     """`AbilityOrEffect(0x3f5)` -- import PARESSEUX, meme raison de cycle que
     `operations/damage_ops/_channel.py`."""
-    from ..attack_type import NORMAL_ATTACK_KIND
     return NORMAL_ATTACK_KIND
 
 
@@ -453,9 +456,6 @@ def selected_weapon_range(state: "State", caster_id: int, target_id: Optional[in
 
     `None` si la position d'un des deux manque ou si aucune arme n'est resolue (le natif serait
     sorti sur `weapon == null` bien avant)."""
-    from ...components import PositionComponent
-    from ...damage_model import select_weapon
-    from ....services.battle_query import are_tiles_adjacent
     if target_id is None or ctx is None:
         return None
     ae = state.get_entity(int(caster_id))
@@ -479,8 +479,6 @@ def is_melee_position(state: "State", caster_id: int, target_id: Optional[int]) 
 
     Position d'un des deux inconnue -> `False` : le natif deref sans garde, on ne mirroir pas une
     levee et l'absence de position ne peut pas valoir « au contact »."""
-    from ...components import PositionComponent
-    from ....services.battle_query import are_tiles_adjacent
     if target_id is None:
         return False
     ae = state.get_entity(int(caster_id))

@@ -13,6 +13,9 @@ from .....entities.effects.magnitude import ability_var
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _unit_tile, _hex_dist, _faction_id
+from .....entities.effects.loki.dark_angels_passives import _is_targetable
+from .....entities.effects.loki.dark_angels_passives import grand_alliance_of
+from ....abilities.base import convert_rounds_to_turns
 
 ARCANESHIELD_ID = "ArcaneShield"
 ARCANESHIELD_RANGE = 2          # DEFAUT de `ArcaneShield.constants.range` (= 2 dans le gameconfig lu).
@@ -70,7 +73,6 @@ def _arcaneshield_candidates(state: State, owner_id: int) -> list[tuple[int, int
     departages au HASARD cote natif. Le port collapse ce melange en ordre d'id CROISSANT (meme choix,
     et meme motif, que `genestealer.py`) : le tri ne departage pas comme le natif sur ex aequo, mais
     aucun tirage parasite n'est injecte dans le flux PRNG partage."""
-    from .....entities.effects.loki.dark_angels_passives import _is_targetable
     board = state.board
     owner = state.get_entity(owner_id)
     if board is None or owner is None:
@@ -137,7 +139,6 @@ def _arcaneshield_score(state: State, owner_id: int, cand_id: int, dist: int, rn
     "Xenos"->1006, "Chaos"->2026), injecte dans la `BattleConfiguration` par la couche meta. Un
     `has_trait(ctx.traits, 2026)` naif serait TOUJOURS faux et la branche serait morte -> on passe par
     `grand_alliance_of` (le maillon deja porte, utilise par les passifs Dark Angels)."""
-    from .....entities.effects.loki.dark_angels_passives import grand_alliance_of
     own_fac = _faction_id(state, owner_id)
     fac = _faction_id(state, cand_id)
     score = ARCANESHIELD_DISTANCE_WEIGHT * int(dist)                       # $$Distance
@@ -193,7 +194,6 @@ def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
     # #98 : le 4e arg natif est `TurnsFromRounds(1)` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateBehaviour) -> la duree du
     # BOUCLIER passe elle aussi par `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`. Le decay est
     # `IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields` (1 par EndTurn) = MEME cadence que le tick d'effets.
-    from ....abilities.base import convert_rounds_to_turns
     dur = convert_rounds_to_turns(state, 1)
     CreateShield(Target(), amount, duration=dur, source=ARCANESHIELD_ID).execute(  # TurnsFromRounds(1)
         entities_from_state(state, owner_id, target), ectx)

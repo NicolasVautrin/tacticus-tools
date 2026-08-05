@@ -172,6 +172,7 @@ from .behaviours import entities_from_state, AddEffect, AttackWithAttackDamage, 
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
+from ...entities.effects.magnitude import ability_var
 
 if TYPE_CHECKING:
     from ..state import State
@@ -291,7 +292,6 @@ def _harvester_hits(state: "State", caster_id: int) -> int:
     Donc : A BOUGE -> nrOfHits ; PAS BOUGE -> nrOfHits + extraHit (i2 « +1 extra hit if hasn't moved »). MIROIR
     1:1 de la face prediction (`active_ability.HarvesterOfSoulsAbility.GetHits`). `nrOfHits`/`extraHit` lus via
     `ability_var(is_constant=True)` = `GetNumberConstant` (config 1067 : nrOfHits=2, extraHit=1)."""
-    from ...entities.effects.magnitude import ability_var
     n = int(ability_var("HarvesterOfSouls", "nrOfHits", is_constant=True) or 1)
     extra = int(ability_var("HarvesterOfSouls", "extraHit", is_constant=True) or 0)
     # #101 : LECTEUR PARTAGE du flag natif (meme `HasFlag(unit, Moved)` que le gate no-move
@@ -359,7 +359,6 @@ class HarvesterOfSoulsAbility(ActiveAbility):
         if target_id is None:
             return None
         n_hits = _harvester_hits(state, caster_id)                  # GetHits = If(HasFlag(Moved), nrOfHits, +extraHit)
-        from ...entities.effects.magnitude import ability_var
         range_r = int(ability_var("HarvesterOfSouls", "range", is_constant=True) or 3)   # GetNumberConstant(0x16)
         ectx = ExecutionContext(state=state, rng=state.rng)
         harvester_of_souls_tree(n_hits, range_r).execute(

@@ -128,6 +128,7 @@ from ....components import (OwnerComponent, PositionComponent, UnitComponent,
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
 from .....entities.unit_flag import UnitFlag   # #270-r1-r1-r3
+from .....entities.active_ability_type import ActiveAbilityType
 
 #: Cle du registre `ACTIVE_ABILITY_TRIGGERS` = le NOM gameconfig de l'ability ACTIVE porteuse
 #: (`units.activeAbilities`), ici `ActiveAbilityType 0x4d0 = 1232`.
@@ -187,7 +188,6 @@ def _ability_attack_range_type(ability_or_effect: Optional[int]) -> int:
     if ability_or_effect is None:
         return AttackRangeType.NoRange
     import gameconfig as _GC
-    from .....entities.active_ability_type import ActiveAbilityType
     try:
         name = ActiveAbilityType(int(ability_or_effect)).name
     except ValueError:

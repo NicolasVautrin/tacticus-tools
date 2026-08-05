@@ -30,6 +30,7 @@ from ....entities.traits import target_hit_multiplier
 from ..additional_hits import collect_additional_hit_groups, execute_additional_hits
 from ..damage_hits import HitDamage
 from ._channel import _normal_attack_kind
+from ...components import unit_is_dead
 
 
 class _Normal:
@@ -180,7 +181,6 @@ class _Normal:
         # `allow_dead_caster=True` n'est donc PAS une derogation de confort : c'est le mirror du flag,
         # pose par le SEUL appelant qui le pose cote natif (`UseActiveAbility`). Toutes les autres
         # voies (attaque normale d'un message, overwatch, re-entrees) gardent le gate.
-        from ...components import unit_is_dead                  # lazy : coherent avec les autres gates
         if not allow_dead_caster and unit_is_dead(state.get_entity(attacker_id)):
             return None
         # #120bis RE-RESOLUTION DE CIBLE — mirror du bloc qui suit IMMEDIATEMENT le `0x2b` dans

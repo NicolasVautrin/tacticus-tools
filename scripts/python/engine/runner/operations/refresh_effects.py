@@ -84,6 +84,7 @@ from ..components import (StatsComponent, enemy_psykers_alive as _enemy_psykers_
                           unit_state_for_effects)
 from ...entities.effects import (effect_stat_mod_key, effect_stat_modifications,
                                  effect_stat_overrides)
+from ...entities.effects.base import BaseEffect
 
 # `_enemy_psykers_alive` / `_unit_state` : le CORPS vit dans `runner/components.py` (`enemy_psykers_alive`
 # / `unit_state_for_effects`) depuis #208 — foyer UNIQUE du contexte d'évaluation des
@@ -112,7 +113,6 @@ def _active_condition_is_ported(effect) -> bool:
 
     Resolution par MRO (`type(e).is_active`), donc une surcharge posee sur une base intermediaire
     compte aussi."""
-    from ...entities.effects.base import BaseEffect
     return type(effect).is_active is not BaseEffect.is_active
 
 

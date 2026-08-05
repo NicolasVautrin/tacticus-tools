@@ -33,6 +33,9 @@ CONTAMINATED_UNIT = int(EffectType.Contaminated_Unit)   # 1245 — sous-effet -X
 # defaut 30 = miroir de la valeur BC connue, comme `_DMG_CFG.get('TrenchReductionPercentage', -50)` en prediction).
 import json as _json_cfg
 from .... import weights as _weights_cfg
+from ...abilities.base import convert_rounds_to_turns
+from ..effects import AddEffectOperation
+from ..effects import entity_is_immune_to_effect
 _EFF_CFG: dict = (_json_cfg.loads(_weights_cfg.DEFAULT_BC.read_text(encoding="utf-8")).get("Effect", {})
                   if _weights_cfg.DEFAULT_BC.exists() else {})
 CONTAMINATED_ARMOR_REDUCTION_PCT: int = int(_EFF_CFG.get("ContaminatedArmorReductionPct", 30))
@@ -58,7 +61,6 @@ def _is_immune_to_contaminated(state: State, unit_id: int) -> bool:
     `IdunBattle.Core.Services.BattleQuery$$IsUnitImmuneTo`), la même que consulte le gate de
     `IdunBattle.Operations.AddEffectOperation$$Execute`. La 3e branche (`base` = `HasTrait(Immune) &&
     CanBeImmuneTo`) est désormais portée elle aussi."""
-    from ..effects import entity_is_immune_to_effect
     return entity_is_immune_to_effect(state, unit_id, CONTAMINATED_TILE,
                                       name=EffectType.Contaminated.name)
 
@@ -384,8 +386,6 @@ class ContaminatedTileEffect(TileEffectTrigger):
             armor = int(tsc.ctx.stat(StatType.FIXED_ARMOR))
             if armor > 0:
                 val = -round(armor * CONTAMINATED_ARMOR_REDUCTION_PCT / 100)
-        from ..effects import AddEffectOperation            # lazy : évite le cycle triggers<->effects
-        from ...abilities.base import convert_rounds_to_turns
         # #98 : `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$AddEffectBehavior` = `AddDynamicStatModifierEffect(sel,
         # 0x4dd, 0x10, **TurnsFromRounds(1)**)` -> la duree passe par `BattleQuery.ConvertRoundsToTurns`
         # IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns (le port envoyait 1 TOUR en dur, soit la moitie dans un duel a 2 joueurs).

@@ -76,6 +76,10 @@ from ...entities.stats import StatPart, StatType
 from ...entities.triggers import HasEffect
 from ...dsl.base import Const, DslContext
 from ..probable_damage_event import ProbableDamageEvent
+from ...runner.abilities.orks import (RAMMING_SPEED_TILE_UTILITY,
+                                          ramming_speed_charge_tiles_selector)
+from ...utilities.tile import SceneTileState, first_tile_by_utility, scene_tile_leaf_ctx
+from .abilities import generate_multi_hit_attack_prediction
 
 # `AddEffect(0x44a, ...)` de `RammingSpeedAbility$$ExecuteBehaviour` = le SEUL poseur de cet effet.
 RAMMING_SPEED_EXTRA_EXPLODE = int(EffectType.RammingSpeed_ExtraExplode)     # 0x44a = 1098
@@ -204,9 +208,6 @@ def tile_to_move_to(scene, caster_id: int, target_id: int, attack_pos=None, move
 
     Rend une `(col, row)`, ou `None` si l'intersection est vide (le natif ne designe alors rien et
     les deux batchs sont VIDES -- pas d'erreur, pas d'event)."""
-    from ...runner.abilities.orks import (RAMMING_SPEED_TILE_UTILITY,
-                                          ramming_speed_charge_tiles_selector)
-    from ...utilities.tile import SceneTileState, first_tile_by_utility, scene_tile_leaf_ctx
     board = getattr(scene, "board", None)
     dctx = dsl_context(scene, caster_id, target_id, attack_pos)
     if board is None or dctx is None or dctx.target is None:
@@ -255,7 +256,6 @@ def explosion_events(scene, caster_id: int, target_id, ability_id: int, ability_
 
     Une cible dont la prediction est `None` (non-attaque) n'emet pas d'event -- meme regle que
     `make_damage_predictions._event`."""
-    from .abilities import generate_multi_hit_attack_prediction
     amount = explosion_amount(scene, caster_id, target_id, attack_pos)
     if not amount:
         return []

@@ -41,6 +41,9 @@ from ...dsl.base import _round_fix64, calculate_average
 from ..damage_profile_type import PROFILE_NAME_BY_INDEX as _PROFILE_BY_INDEX  # re-exporte (prediction.py l'importe d'ici)
 # #270-r4 : direction de BattleQuery.GetTilesInTriangleShape (...Utils.Hex.Corner).
 from ...hex_corner import Corner
+from ...services.damage_prediction import get_attack_piercing_damage_ratio
+from ..damage_trait import DamageTrait
+from ..traits.unit_trait import UnitTrait
 
 
 # ─── #344 : la PRÉDICTION d'ability moyenne `minDmg/maxDmg` par DEUX chaînes natives distinctes ───
@@ -446,9 +449,6 @@ class NormalAttackAbility(AActiveAbility):
         `battle_query.select_weapon_pierce`, qui applique DÉJÀ le bonus #71). Rendu fidèle (plus de
         `profile_has_lascannon=False` codé en dur) pour ne pas ré-introduire le gap si un chemin le recâble."""
         import gameconfig as GC
-        from ...services.damage_prediction import get_attack_piercing_damage_ratio
-        from ..damage_trait import DamageTrait
-        from ..traits.unit_trait import UnitTrait
         dir_pierce = (self.caster.extra_pierce_ranged if self.caster.normal_ranged
                       else self.caster.extra_pierce_melee)
         prof = GC.damage_profile(self.caster.normal_profile) or {}

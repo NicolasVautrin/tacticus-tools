@@ -152,6 +152,12 @@ from ....abilities.behaviours import AddEffect, entities_from_state
 from ....components import OwnerComponent, StatsComponent, UnitComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
+from .....entities.effects.magnitude import ability_var
+from .....entities.formulas import Get
+from ....abilities.behaviours import AttackWithAttackDamage
+from ....abilities.deathguard import contagions_of_nurgle_range_for_turns
+from ....abilities.deathguard import cursed_plague_bell_damage_profile
+from ....abilities.deathguard import is_in_contagions_of_nurgle_range
 
 ABILITY_ID = "CursedPlagueBell"
 EXTRA_MOVE = int(EffectType.CursedPlagueBell_ExtraMove)          # 0x431 = 1073
@@ -206,7 +212,6 @@ class ContagionsOfNurgleRange(AAmountFormula):
         self.effect_type = int(effect_type)
 
     def calculate(self, ctx):
-        from ....abilities.deathguard import contagions_of_nurgle_range_for_turns
         if self.is_next_turn:                       # `GetNextTurnRange` (Sum(TurnsStarted, 1)) -- residu
             raise NotImplementedError(
                 "ContagionsOfNurgleRange(is_next_turn=True) : branche DangerZone non portee "
@@ -367,7 +372,6 @@ def cursed_plague_bell_attack_hits() -> int:
     """`AbilityConfiguration.GetNumberConstant(cfg, 0x2f = nrOfHits)` -- le 5e argument
     (`hits:System.Int32`) de l'overload d'`AttackWithAttackDamage` retenu. Constante d'ability, donc
     NON scalee par la rarete."""
-    from .....entities.effects.magnitude import ability_var
     return int(ability_var(ABILITY_ID, CONST_NR_OF_HITS, is_constant=True) or 1)
 
 
@@ -383,7 +387,6 @@ def cursed_plague_bell_attack_damage(state: State, owner_id: int) -> int:
     `dmg` est dans `variablesAffectedByRarityBonus` -> le scaling `AbilityVariablesMultiplier`
     s'applique (mirror `ability_var`). Passif -> `passive_ability_level` (repli `active_ability_level`,
     meme regle qu'`ability_attack_params(level_slot="passive")`)."""
-    from .....entities.effects.magnitude import ability_var
     e = state.get_entity(owner_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None
@@ -406,9 +409,6 @@ def cursed_plague_bell_attack_tree(amount: int):
     (et non `AttackWithAbilityDamage`) -- classification par le call-site, pas au juge.
     `amount_spread_pct=0` : le `Nullable<AttackDamageBehaviourOptions>` natif est passe VIDE.
     Import paresseux (cycle triggers <-> abilities.behaviours, == martial_superiority)."""
-    from ....abilities.behaviours import AttackWithAttackDamage
-    from ....abilities.deathguard import cursed_plague_bell_damage_profile
-    from .....entities.formulas import Get
     return AttackWithAttackDamage(Actor(), ABILITY_ID, cursed_plague_bell_damage_profile(),
                                   is_melee=False, amount=Get(int(amount)),
                                   hits=cursed_plague_bell_attack_hits(),
@@ -501,7 +501,6 @@ class CursedPlagueBellAttackAbility(TriggeredAbility):
         # DEDUPLIQUE et ne designe pas la classe).
         # `entities_from_state(state, owner, actor_id=actor)` pose Caster == Owner
         # (regle des triggered) et l'acteur de l'evenement dans le slot `Actor`.
-        from ....abilities.deathguard import is_in_contagions_of_nurgle_range
         ctx = entities_from_state(state, self.owner_id, None, int(actor))
         return bool(is_in_contagions_of_nurgle_range().should_trigger(ctx))
 

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from .. import dsl
 from ..entities.traits.unit_trait import entity_trait_names, has_trait
+from .. import battle_query as _bq
+from ..entities.stats import StatType as _ST
 
 
 def dsl_context_for_tile_target(ctx):
@@ -74,11 +76,9 @@ def dsl_context_for_tile_target(ctx):
         v = scene.turns_started(uid) if uid is not None else None
         if v is not None:
             return int(v)
-        from ..entities.stats import StatType as _ST
         return int(_get_stat(u, int(_ST.TURNS_STARTED), 0, None) or 0)
 
     def _is_in_team_aura(u, effect_type, team_reference) -> bool:
-        from .. import battle_query as _bq
         team = (team_reference or {}).get("team")
         if team is None:
             return False                       # `GetCurrentTeamId(ref)` indisponible -> pas d'aura

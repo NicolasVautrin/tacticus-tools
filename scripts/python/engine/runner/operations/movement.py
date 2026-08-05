@@ -26,6 +26,16 @@ from ..events import EventBus
 from ..components import (PositionComponent, UnitComponent, StatsComponent, HealthComponent,
                           OwnerComponent, set_moved_flag, update_charging, record_tiles_moved)
 from .base import Operation
+from ...entities.damage_reason import DamageReason
+from ...entities.pathfinding import pathfinders as _pf
+from ...entities.pathfinding.fly_pathfinder import is_like_flying
+from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
+from ...entities.traits import UnitTrait, has_trait
+from ...services.movement_query import (get_connected_path_to, get_num_tiles_moved,
+                                            get_pathfinder_type_for_unit, unit_has_effect_fn)
+from .aura_stat_mods import refresh_aura_stat_modifiers
+from .damage import AttackDamageOperation
+from .refresh_effects import refresh_stat_modifier_effects
 
 
 def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
@@ -97,9 +107,6 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     board = getattr(state, "board", None)
     if board is None:
         return 0
-    from ...entities.pathfinding import pathfinders as _pf
-    from ...services.movement_query import (get_connected_path_to, get_num_tiles_moved,
-                                            get_pathfinder_type_for_unit, unit_has_effect_fn)
     me0 = state.get_entity(int(mover_id))
     sc0 = me0.get_component(StatsComponent) if me0 is not None else None
     traits0 = getattr(sc0.ctx, "traits", None) if sc0 is not None else None
@@ -114,11 +121,9 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
             return 0                              # hors board : aucune tuile a compter
         path = _pf.find_path(board, ptype, src, dst)
         return get_num_tiles_moved(get_connected_path_to(board, src, dst, path))
-    from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
     neigh, walk, elev = board.walk_maps_by_pos()
     # `WalkPathfinder$$UnitIsBlockedByEnemyUnit` : occupant ENNEMI VIVANT non `Steppable` (un ami ne
     # bloque pas le passage ; `HasTrait(occ, 0x1b = Steppable)` court-circuite le blocage).
-    from ...entities.traits import UnitTrait, has_trait
     me = state.get_entity(mover_id)
     moc = me.get_component(OwnerComponent) if me is not None else None
     team = moc.team if moc is not None else None
@@ -186,8 +191,6 @@ def _is_like_flying(traits, pathfinder_type_override) -> bool:
 
     `traits` = ceux du mover (bras 1) ; `pathfinder_type_override` = `None` quand le `Nullable` est
     VIDE (le cas de tous les call-sites a options nulles)."""
-    from ...entities.pathfinding.fly_pathfinder import is_like_flying
-    from ...entities.pathfinding import pathfinders as _pf
     if is_like_flying(traits or []):                       # BRAS 1 : Flying (0x4) / Burrow (0x13)
         return True
     if pathfinder_type_override is None:                   # `!ov.HasValue`
@@ -398,8 +401,6 @@ def _kill_steppable_kill_unit(state: State, dead_id: int, killer_id) -> list:
     spiritual_leader) comme pour la mort par degat.
 
     Renvoie la trace de `_kill_unit_operation` (liste de dicts : vecteurs joues + retraits par step)."""
-    from .damage import AttackDamageOperation
-    from ...entities.damage_reason import DamageReason
     # `+0x44 != 0` -> `RecordDeathReason(this, killer, killed, uc, options+0x00)`. Le natif l'appelle
     # DANS `Execute`, AVANT `On(PreUnitDeath)` -- c'est la seule raison pour laquelle
     # `HasDeathReasonTrigger` peut matcher sur ce vecteur (`HaywireMineSteppableAbility` teste
@@ -444,7 +445,6 @@ def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: in
       * l'absence de `StatsComponent` écarte le cadavre AU CHARGEMENT plus bas, par un substrat de
         traits VIDE (`has_trait([], Steppable)` faux) -- le gate `uc.alive` ne le voit même pas.
     Les deux sont exercés par `test_ctx_traits_substrat_ventilation_offline.py`, un régime chacun."""
-    from ...entities.traits import UnitTrait, has_trait
     killed: list = []
     for uid, e in list(state.entities.items()):
         if uid == mover_id:
@@ -724,7 +724,6 @@ class MoveUnitOperation(Operation):
         # LionHelm) : l'allie eloigne PERD ses +797 blockDamage, il les RETROUVE en revenant.
         # No-op strict sans porteur d'aura stat-mod (le mover ET les cibles du porteur sont re-evalues,
         # d'ou l'appel non scope : bouger le PORTEUR change l'ensemble de ses cibles).
-        from .aura_stat_mods import refresh_aura_stat_modifiers
         refresh_aura_stat_modifiers(state)
         # `RefreshEffectTrigger.UnitPositionChanged` (= 7, dump d'enums du build : 0=Forced
         # 1=Simulation 2=Custom 3=UnitStateChanged 4=EffectsChanged 5=UnitsChanged 6=TurnChanged
@@ -741,7 +740,6 @@ class MoveUnitOperation(Operation):
         # Non-scope (pas de `unit_id`) POUR LA MEME RAISON que la ligne precedente : bouger le
         # PORTEUR d'aura change la condition des AUTRES unites, pas la sienne. Idempotent partout
         # ailleurs (`Modify` = replace par-source, cf. `refresh_effects.py`).
-        from .refresh_effects import refresh_stat_modifier_effects
         refresh_stat_modifier_effects(state)
         # `EvaluateAfterMoveTriggers(unit, position, previousPosition, movementSteps, isInterimStep,
         # triggeringAbilityOrEffect)` -- RANG NATIF EXACT, lu au decompile d'`IdunBattle.Operations.
@@ -799,7 +797,6 @@ def refresh_effects_after_move_triggers(state: State) -> list:
     partout ou rien n'a change entre les deux -- y compris aux sites qui n'ont PAS de vecteur
     after-move (`DisplaceUnitOperation`, `TheQuickening`, genestealer), qu'on laisse donc
     inchanges."""
-    from .refresh_effects import refresh_stat_modifier_effects
     return refresh_stat_modifier_effects(state)
 
 

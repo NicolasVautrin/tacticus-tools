@@ -16,13 +16,14 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _adjacent_enemies
 from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
+from ...damage_utility import damage_utility_weights
+from ...damage_utility import first_by_damage_utility
 
 # Les poids d'utilité (BC `Utilities`) et le tri lui-même vivent désormais dans le port PARTAGÉ du
 # sélecteur natif — `operations/damage_utility.py` (`SortUnitsByDamageUtilitySelector$$Select`) : FinalJustice
 # et AncestralFortune (#113) branchent le MÊME étage de tri, seul le nœud de dégât diffère.
 def _damage_utility_weights():
     """Alias historique (call-sites/tests existants) — cf. `damage_utility.damage_utility_weights`."""
-    from ...damage_utility import damage_utility_weights
     return damage_utility_weights()
 
 
@@ -82,7 +83,6 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
     dmin, dmax = rng_pred
     # `First(SortUnitsByDamageUtility(…), 1)` — étage de tri PARTAGÉ (port du sélecteur natif) : argmax du
     # composite Damage(34), tie-break `id` croissant. Bit-identique à l'ancien corps inline (mêmes champs).
-    from ...damage_utility import first_by_damage_utility
     return first_by_damage_utility(state, cands, dmin, dmax)
 
 

@@ -43,6 +43,9 @@ from engine.services.attack_hits_formula import attack_hits_with_modifiers
 from engine.playbook.probable_damage_event import ProbableDamageEvent
 
 import json as _json
+from ...runner.components import _TELEPORT_MOVE_EFFECTS
+from engine.entities.effects import defender_effect_block_sources
+from engine.entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
 _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
     if _weights.DEFAULT_BC.exists() else {}
 # Feuilles positionnelles de IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction (PAS des effets) :
@@ -296,7 +299,6 @@ def _walk_path_counts_from(scene, att_id) -> dict:
     hit = getattr(scene, "_scene_cache", None)
     if hit is not None and _TMT_CACHE in hit and att_id in hit[_TMT_CACHE]:
         return hit[_TMT_CACHE][att_id]
-    from engine.entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
     sp = scene.pos(att_id)
     board = scene.board
     counts: dict = {}
@@ -390,7 +392,6 @@ def prediction_has_teleported(scene, att_id, attack_pos) -> bool:
     effets de teleport. NON VALIDE LIVE (aucun porteur connu cumule `HeavyWeapon` et
     `TeleportStrike`/`FearOfTheUnseen`) -- mirror du decompile, comme la branche COMBAT (case-101
     SS 5.4)."""
-    from ...runner.components import _TELEPORT_MOVE_EFFECTS
     if scene.has_teleported(att_id):
         return True
     sim_move = attack_pos is not None and attack_pos != scene.pos(att_id)
@@ -712,7 +713,6 @@ def defender_prediction_block_amount(scene, tgt_id, damage_profile: str | None =
     tctx = scene.ctx(tgt_id)
     if tctx is not None and int(tctx.block_chance or 0) > 0:
         amt += int(tctx.block_damage or 0)
-    from engine.entities.effects import defender_effect_block_sources
     for bs in defender_effect_block_sources(scene.effects(tgt_id), scene.armor(tgt_id),
                                             defender_attack=scene.attack_current(tgt_id)):
         amt += int(bs.amount or 0)

@@ -28,6 +28,14 @@ from .effect_target_type import EffectTargetType
 # d'entree distincts (`probe_270r4r2_import_en_premier.py`), et il passait DEJA avant la coupe
 # des deux SCC. Un differe dont la cause a disparu (ou n'a jamais existe) est du camouflage.
 from .traits.unit_trait import UnitTrait
+from ..battle_query import is_target_tile_obscured
+from ..services.battle_query import are_entities_adjacent
+from ..services.movement_query import get_min_distance
+from .formulas import AuraEffectRange, MinDistance
+from .formulas import Count
+from .selectors import MechanicalUnits
+from .selectors._shared import _entity_pos
+from .selectors.tiles import CanAddUnit
 
 
 class TriggerAnd(AbilityTrigger):
@@ -296,7 +304,6 @@ class IsCanAddUnit(AbilityTrigger):
         self.selector = selector
 
     def should_trigger(self, ctx):
-        from .selectors.tiles import CanAddUnit
         return len(CanAddUnit(self.selector).evaluate(ctx) or []) >= 1
 
 
@@ -360,8 +367,6 @@ def is_mechanical(unit: TargetsSelector, selection_type: int = 0) -> AbilityTrig
     le selecteur-sujet partage). Consommateurs portes :
     `IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$GetPossibleResurrectTargets`
     (`HasTrait(It, 0x10 = Hero) & IsMechanical(It)`) et `$$GetMaxSummonsFormula` (`IsMechanical` seul)."""
-    from .formulas import Count
-    from .selectors import MechanicalUnits
     return AmountIsEqualOrGreater(Count(MechanicalUnits(unit, selection_type)), Const(1))
 
 
@@ -851,7 +856,6 @@ class IsInUnitAura(AbilityTrigger):
     mais `AuraEffectRangeFormula` est generique sur `IAuraEffect`)."""
     def __init__(self, target: TargetsSelector, effect_type: int, unit: TargetsSelector,
                  is_next_turn: bool = False):
-        from .formulas import AuraEffectRange, MinDistance
         self.target, self.unit, self.effect_type = target, unit, int(effect_type)
         self.range_formula = AuraEffectRange(unit, int(effect_type), is_next_turn=is_next_turn)
         self.distance_formula = MinDistance(target, unit)
@@ -976,8 +980,6 @@ class IsObscured(AbilityTrigger):
         self.from_sel, self.target_sel = from_sel, target_sel
 
     def should_trigger(self, ctx):
-        from ..battle_query import is_target_tile_obscured
-        from .selectors._shared import _entity_pos
         board = getattr(ctx, "board", None)
         bc = getattr(board, "by_coord", None) if board is not None else None
         elev = ({k: t.get("elevation", 0) for k, t in bc.items()} if bc else None)
@@ -1165,7 +1167,6 @@ class IsAdjacent(AbilityTrigger):
         self.a, self.b, self.selection_type = a, b, selection_type
 
     def should_trigger(self, ctx):
-        from ..services.battle_query import are_entities_adjacent   # lazy : garde anti-circulaire
         ua = _units_of(self.a, ctx)
         ub = _units_of(self.b, ctx)
         if not ua or not ub:                          # `!A.Any() || !B.Any()` -> false
@@ -1221,7 +1222,6 @@ class IsCharging(AbilityTrigger):
         self.a, self.b = a, b
 
     def should_trigger(self, ctx):
-        from ..services.battle_query import are_entities_adjacent   # lazy : garde anti-circulaire
         us_a = [u for u in _units_of(self.a, ctx) if isinstance(u, dict)]
         us_b = [u for u in _units_of(self.b, ctx) if isinstance(u, dict)]
         acc = getattr(ctx, "charged_units", None)
@@ -1267,7 +1267,6 @@ class IsInRange(AbilityTrigger):
         self.a, self.b, self.rng = a, b, rng
 
     def should_trigger(self, ctx):
-        from ..services.movement_query import get_min_distance   # lazy : garde anti-circulaire
         r = self.rng.evaluate(ctx)
         ta = [f for u in _units_of(self.a, ctx) for f in _feet(u)]   # `SelectTiles` = liste PLATE
         tb = [f for u in _units_of(self.b, ctx) for f in _feet(u)]

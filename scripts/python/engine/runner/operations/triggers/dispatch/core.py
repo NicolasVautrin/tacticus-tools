@@ -16,6 +16,7 @@ from ....components import StatsComponent, UnitComponent, TriggeredAbilityCompon
 from ..base import TriggerEvent, TriggeredAbility, EffectTrigger, PHASE_TRIGGER_CAP
 from .registry import (TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS,
                        RELIC_ABILITY_TRIGGERS, EFFECT_TRIGGERS)
+from .registry import GLOBAL_TRIGGERS
 
 
 def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
@@ -103,7 +104,6 @@ def collect_global_triggers() -> list[TriggeredAbility]:
     RESIDU DOCUMENTE : le SITE natif de cette inscription unique n'est pas RE'd
     (`IdunBattleLogic.Core.Services.Caches.AbilityAndEffectCache$$AddEntity` n'ajoute que les
     abilities PORTEES par l'entité) ; c'est la cardinalité observée qui fonde ce registre."""
-    from .registry import GLOBAL_TRIGGERS
     return [cls(None) for cls in GLOBAL_TRIGGERS]
 
 

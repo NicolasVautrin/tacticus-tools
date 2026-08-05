@@ -110,6 +110,8 @@ from typing import Optional
 from ....components import OwnerComponent, PositionComponent, StatsComponent, UnitComponent
 from ....state import State
 from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
+from ...damage import AttackDamageOperation
+from ..base import _is_adjacent_units
 
 DRAW_FIRE = TriggeredAbilityType.DrawFire
 PRIMARCH_OF_THE_FIRST_LEGION = TriggeredAbilityType.PrimarchOfTheFirstLegion
@@ -151,7 +153,6 @@ def find_transfer_carrier(state: State, attacker_id: Optional[int],
     Rendre `None` = pas de transfert (le coup suit son chemin ordinaire)."""
     if state is None or attacker_id is None or defender_id is None:
         return None
-    from ..base import _is_adjacent_units          # lazy : cycle triggers <-> loki
     d = state.get_entity(int(defender_id))
     a = state.get_entity(int(attacker_id))
     doc = d.get_component(OwnerComponent) if d is not None else None
@@ -204,7 +205,6 @@ class DrawFireTransfer:
         carrier = find_transfer_carrier(self.state, self.attacker_id, self.defender_id)
         if carrier is None:
             return False
-        from ...damage import AttackDamageOperation      # lazy : cycle operations <-> triggers
         res = AttackDamageOperation.execute(
             self.state, int(self.attacker_id), int(carrier),
             # `opts[+0x28]` + `Nullable<int> hits` vide -> le coup transfere vaut 1 coup, sans

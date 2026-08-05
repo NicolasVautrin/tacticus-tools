@@ -117,6 +117,7 @@ from ....state import State
 from ....abilities.behaviours import Repair, entities_from_state
 from ..base import (TriggeredAbility, TriggerEvent, triggered_ability_state,
                     _is_ranged_position)
+from .....entities.effects.magnitude import ability_var
 
 ABILITY_ID = "DawnBlade"
 HP_TO_HEAL_KEY = "hpToHeal"      # `AbilityVariableType` 0x20 = 32 -- le NOM dit heal, l'artefact repare
@@ -148,7 +149,6 @@ def hp_to_heal(state: State, owner_id: int) -> int:
     `multiplier_pct` ne s'applique pas (`ability_var` gate l'application sur cette liste) ; on le
     passe quand meme, parce que c'est le natif qui decide -- pas nous. 0 si l'unite / son contexte /
     la variable manquent -> la feuille `Repair` est alors un no-op (`amount > 0` est sa garde)."""
-    from .....entities.effects.magnitude import ability_var
     e = state.get_entity(owner_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     if sc is None or getattr(sc, "ctx", None) is None:

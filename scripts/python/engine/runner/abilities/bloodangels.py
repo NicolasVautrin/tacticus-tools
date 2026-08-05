@@ -42,6 +42,7 @@ from .base import ActiveAbility
 from .targeting import RANGE_ADJACENT, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from .behaviours import entities_from_state, AttackWithAttackDamage, AddEffect, Heal, MoveUnit
+from ...utilities.tile import first_tile_by_utility
 
 if TYPE_CHECKING:
     from ..state import State
@@ -321,7 +322,6 @@ def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
     de `Board.neighbours_native` : ordre etabli case-130 SS5 / #117 / FragBomb). C'est lui qui donne le
     tie-break quand les utilites sont EGALES (carte plate). Renvoie (col,row) ou None (aucune tuile ->
     `MoveUnitBehaviour` no-op, garde `local_308 == 0`)."""
-    from ...utilities.tile import first_tile_by_utility
     board = state.board
     cpos = _how_pos_of(state, caster_id)
     tpos = _how_pos_of(state, target_id)

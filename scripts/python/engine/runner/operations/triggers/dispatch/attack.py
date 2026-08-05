@@ -20,6 +20,7 @@ from .core import evaluate_trigger_operation
 # ABILITY -- le natif n'a qu'UN emetteur (`ActiveAbilityOperation.ExecuteInternal`), et l'attaque
 # normale EST une active ability.
 from .ability import unit_post_ability_triggers
+from ...spawn import SpawnUnitOperation
 
 
 def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> list[dict]:
@@ -29,7 +30,6 @@ def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> 
     au niveau du caster -> le grot porte `active_ability_level` = **lève le GAP PileIn**). No-op si l'attaquant
     n'a pas SquigHound. Le `PerformAIAttack` on-appearance = FLAGGÉ non porté (secondaire)."""
     import gameconfig as GC
-    from ...spawn import SpawnUnitOperation
     e = state.get_entity(attacker_id)
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None or "SquigHound" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):

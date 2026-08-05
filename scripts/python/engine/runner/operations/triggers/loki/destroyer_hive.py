@@ -63,6 +63,8 @@ from .....entities.effects.magnitude import ability_var
 from ....state import State
 from ....components import OwnerComponent, StatsComponent
 from ..base import TriggeredAbility, TriggerEvent, _adjacent_enemies
+from ....abilities.base import profile_pierce
+from ...damage import AttackDamageOperation
 
 ABILITY_ID = "DestroyerHive"
 DAMAGE_PROFILE = "DirectDamage"          # constants.damageProfile ; profil PiercingRatio 100 (pierce-100)
@@ -106,8 +108,6 @@ class DestroyerHiveAbility(TriggeredAbility):
         return len(_adjacent_enemies(state, self.owner_id)) > 0
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ...damage import AttackDamageOperation
-        from ....abilities.base import profile_pierce
         cands = _adjacent_enemies(state, self.owner_id)        # Damageable(Enemies(AdjacentUnits(caster, 1)))
         target = _pick_target(state, cands)                    # PickRandomly(., 1) -- consomme 1 tirage
         if target is None:

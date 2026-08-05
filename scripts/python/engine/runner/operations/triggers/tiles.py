@@ -11,6 +11,11 @@ from ...components import (PositionComponent, UnitComponent, OwnerComponent, Sta
                           HealthComponent)
 from ....entities.traits import UnitTrait, has_trait, has_any_trait
 from .loki import FIRE_TILE
+from ....entities.effect_type import EffectType
+from ....entities.effects.loki.hits import LIGHT_COVER_TILE_ID
+from ....entities.stats import StatType, CAPTURED_SOURCE
+from ..effects import AddEffectOperation
+from ..heal import HealUnitOperation
 
 # Propagation DryBush->DryBush (RE #127, `DryBushFireSpreadAbility`IdunBattleLogic.Entities.Abilities.Tiles.DryBushFireSpreadAbility$$CreateBehaviour/IdunBattleLogic.Entities.Abilities.Tiles.DryBushFireSpreadAbility$$CreateTrigger). La proba est le
 # `GetNumberConstant(config,0x25)` du tile-ability = globalValue `dryBushFireSpreadProbability` (=10, PAS hardcodé).
@@ -53,7 +58,6 @@ def dry_bush_fire_spread(state: State) -> list[dict]:
                and state.effects.has_effect(tid, effect_type=FIRE_TILE)]
     if not burning:
         return []
-    from ..effects import AddEffectOperation                # lazy : évite le cycle triggers<->effects
     out: list[dict] = []
     for tid in burning:
         for nid in state.board.neighbours(tid):            # AdjacentTiles(self) = voisins hex du board (géométrie)
@@ -100,7 +104,6 @@ def first_aid_heal(state: State, player_id: int) -> list[dict]:
     healpct = int(GC.global_value(FIRSTAID_RECOVERY_KEY) or 0)   # 35 : GetNumberConstant(FirstAidHeal, 0x13)
     if healpct <= 0:
         return []
-    from ..heal import HealUnitOperation                         # lazy : primitive de soin runner (#94)
     out: list[dict] = []
     for (col, row) in coords:
         # occupant VIVANT de la tuile appartenant au player courant (`IsTurnOf(units-on-tile)`).
@@ -184,7 +187,6 @@ def apply_tile_defense_on_move(state: State, unit_id: int,
     board = state.board
     if board is None:
         return None
-    from ....entities.stats import StatType, CAPTURED_SOURCE
     from_terr = board.terrain_at(from_pos[0], from_pos[1]) if from_pos is not None else None
     to_terr = board.terrain_at(to_pos[0], to_pos[1])
     delta = tile_defense_mod(to_terr) - tile_defense_mod(from_terr)
@@ -249,8 +251,6 @@ def light_cover_on_enter(state: State, mover_id: int) -> list[dict]:
     compute-time. No-op si pas de board / hors tuile de cover / mover mort / trait exclu / effet deja
     present (`EntitiesWithoutEffects(0x3f5)`, redondant avec le gate deja-present d'`AddEffectOperation`
     mais mirrore explicitement)."""
-    from ....entities.effects.loki.hits import LIGHT_COVER_TILE_ID   # tile-def hote de l'ability
-    from ....entities.effect_type import EffectType
     board = state.board
     if board is None or state.effects is None:
         return []
@@ -271,7 +271,6 @@ def light_cover_on_enter(state: State, mover_id: int) -> list[dict]:
     if state.effects.has_effect(mover_id, effect_type=et):         # `EntitiesWithoutEffects(0x3f5)`
         return []
     tile_id = board.id_at(pc.col, pc.row)
-    from ..effects import AddEffectOperation                       # lazy : evite le cycle triggers<->effects
     eff = AddEffectOperation.execute(state, source=tile_id, target=mover_id,
                                      effect_type=et, name="LightCover")
     if eff is None:

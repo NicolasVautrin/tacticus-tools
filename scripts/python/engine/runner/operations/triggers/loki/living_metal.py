@@ -80,6 +80,7 @@ from .....dsl.event_trigger_type import EventTriggerType
 from ....state import State
 from ....components import HealthComponent, OwnerComponent
 from ..base import TriggeredAbility, TriggerEvent
+from ...repair import RepairUnitOperation
 
 LIVING_METAL_TRAIT = "LivingMetal"
 LIVING_METAL_HP_VAR = "livingMetalHp"      # trait var gameconfig (=10, %) -> `GetNumberConstant(0x12)`
@@ -142,7 +143,6 @@ class LivingMetalRepairAbility(TriggeredAbility):
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         # #149 : la FEUILLE (ce behaviour) calcule le montant declaratif et APPELLE l'Operation
         # imperative ; elle ne re-ecrit aucun de ses etages. Frontiere = le `.Execute` de la feuille.
-        from ...repair import RepairUnitOperation        # lazy : `IdunBattle.Operations.RepairUnitOperation$$Execute`
         e = state.get_entity(self.owner_id)
         hc = e.get_component(HealthComponent) if e is not None else None
         if hc is None or hc.hp_max is None:

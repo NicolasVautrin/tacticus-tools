@@ -110,6 +110,9 @@ from ....state import State
 from ....components import OwnerComponent, UnitComponent
 from ....abilities.attack_type import ability_is_direct_target_attack
 from ..base import TriggeredAbility, TriggerEvent, _is_adjacent_units
+from .....dsl.effects import ExecutionContext
+from ....abilities.behaviours import AttackWithAttackDamage
+from ....abilities.behaviours import entities_from_state
 
 MARTIAL_SUPERIORITY = "MartialSuperiority"
 _ON_PRE_UNIT_ABILITY = int(EventTriggerType.PreUnitAbility)     # On(0x2b = 43, 1)
@@ -125,7 +128,6 @@ def martial_superiority_tree():
     `native_factory="attack"` (defaut, la factory native est bien `AttackWithAttackDamage`).
     `multi=False` = collapse MONO-CIBLE (le slot `Actor` ne porte qu'UNE entite).
     Import paresseux (evite le cycle triggers <-> abilities.behaviours, == martial_apotheosis)."""
-    from ....abilities.behaviours import AttackWithAttackDamage
     return AttackWithAttackDamage(Actor(), MARTIAL_SUPERIORITY, _PROFILE,
                                   is_melee=True, level_slot="passive")
 
@@ -180,8 +182,6 @@ class MartialSuperiorityRiposteAbility(TriggeredAbility):
         return not (auc is not None and not auc.alive)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ....abilities.behaviours import entities_from_state
-        from .....dsl.effects import ExecutionContext
         # `caster` = Owner@0x148 (triggered : Owner == Caster) ; `actor_id` = Actor@0x158, le slot
         # que le selecteur de cibles du behaviour natif lit litteralement.
         entities = entities_from_state(state, self.owner_id, actor_id=int(ev.actor_id))

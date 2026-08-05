@@ -13,6 +13,26 @@ from dataclasses import dataclass, field
 
 import gameconfig as GC
 from engine.entities import UnitContext, EffectsState
+from ..entities.effect_targets import is_effect_target as _iet
+from ..entities.effect_type import EffectType
+from ..entities.effects.factory import (EffectFactory, EFFECT_CLASSES,
+                                            ABILITY_INIT_OWNER_EFFECTS)
+from ..runner.components import (StatsComponent, OwnerComponent, PositionComponent,
+                                         HealthComponent, UnitComponent, ShieldComponent,
+                                         EffectsOwnedComponent, is_machine_of_war,
+                                         unit_prevents_overkill, unit_has_moved,
+                                         unit_has_teleported, unit_has_used_active_ability,
+                                         unit_tiles_moved_this_turn)
+from ..runner.components import effects_prevent_overkill
+from ..runner.snapshot import active_ability_names_by_unit
+from ..runner.snapshot import active_only_rows
+from ..runner.snapshot import config_active_ability_names_by_unit
+from ..runner.snapshot import passive_ability_names_by_unit
+from ..runner.snapshot import triggered_ability_ids_by_unit
+from engine.entities.pathfinding.board import Board
+from engine.entities.stats import StatComponent, ValueModification
+from engine.entities.stats import StatType as _ST
+from engine.entities.traits.unit_trait import trait_names_from_ids
 
 
 @dataclass
@@ -220,7 +240,6 @@ class Scene:
             return bool(v)
         if self.eff_state is None:
             return False
-        from ..runner.components import effects_prevent_overkill
         return effects_prevent_overkill(self.effects(uid))
 
     def has_moved(self, uid) -> bool | None:
@@ -269,18 +288,11 @@ class Scene:
         deviennent inutiles (le spine de décision ne lit QUE `ctx.scene`). Armure/bouclier = valeurs LIVE des
         composants (plus fidèle que le cold `refresh_shields` par-pas). Inclut les corpses (comme dv.units) ;
         les tables per-unité ne couvrent que les entités à `StatsComponent`."""
-        from ..runner.components import (StatsComponent, OwnerComponent, PositionComponent,
-                                         HealthComponent, UnitComponent, ShieldComponent,
-                                         EffectsOwnedComponent, is_machine_of_war,
-                                         unit_prevents_overkill, unit_has_moved,
-                                         unit_has_teleported, unit_has_used_active_ability,
-                                         unit_tiles_moved_this_turn)
         ctx_by_id, armor_by_id, shield_by_id, mult_by_id, ablvl_by_id, vis_by_id = {}, {}, {}, {}, {}, {}
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
         defstat_by_id, charged_by_id, prevent_overkill_by_id = {}, {}, {}
         moved_by_id, teleported_by_id, active_ability_used_by_id = {}, {}, {}
         tiles_moved_by_id, parent_by_id = {}, {}
-        from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
         turns_started_by_id, turns_finished_by_id = {}, {}
         units: list = []
         for eid, e in state.entities.items():
@@ -554,7 +566,6 @@ class Scene:
         `camo_cloak_cover` dégrade en VRAI, jamais en FAUX."""
         if self.eff_state is None:
             return
-        from ..entities.effect_type import EffectType
         out["has_effect_light_cover"] = bool(
             self.eff_state.has_effect(uid, int(EffectType.LightCover)))
         me, team = self.pos_by_id.get(uid), self.team_by_id.get(uid)
@@ -580,7 +591,6 @@ class Scene:
         Même foyer que la face COMBAT (`runner.components.is_effect_target`) : un nœud natif, deux
         substrats — l'ECS côté runner, les tables de `Scene` ici. `None` = géométrie non portée pour
         ce type, ou substrat manquant ⇒ l'appelant dégrade explicitement."""
-        from ..entities.effect_targets import is_effect_target as _iet
         if self.eff_state is None or self.pos_by_id.get(uid) is None \
                 or self.team_by_id.get(uid) is None:
             return None
@@ -666,7 +676,6 @@ class Scene:
         if v is not None:
             return int(v)
         c = self.ctx_by_id.get(uid)
-        from engine.entities.stats import StatType as _ST
         return int(c.stat(_ST.EXTRA_HITS)) if c is not None else None
 
     def turns_started(self, uid) -> int | None:
@@ -782,7 +791,6 @@ def _seed_measured_passives(ctx_by_id, ability_states) -> int:
 
     TRI-ETAT : canal muet (RPC absent/KO) -> rien n'est pose, `passive_abilities` reste `None` et le
     predicat retombe sur le kit, STRICTEMENT comme avant."""
-    from ..runner.snapshot import passive_ability_names_by_unit   # lazy : playbook <- runner
     seeded = 0
     for uid, names in passive_ability_names_by_unit(ability_states).items():
         c = ctx_by_id.get(uid)
@@ -814,7 +822,6 @@ def _seed_measured_actives(ctx_by_id, ability_states) -> int:
 
     TRI-ETAT : canal muet -> rien n'est pose, `active_abilities` reste `None`, la voie active du
     predicat retombe sur le kit, STRICTEMENT comme avant."""
-    from ..runner.snapshot import active_ability_names_by_unit   # lazy : playbook <- runner
     seeded = 0
     for uid, names in active_ability_names_by_unit(ability_states).items():
         c = ctx_by_id.get(uid)
@@ -844,7 +851,6 @@ def _seed_measured_config_actives(ctx_by_id, ability_states) -> int:
 
     TRI-ETAT : cle absente = canal muet -> rien n'est pose et la garde ne gate pas ; valeur `None`
     = mesure « pas joint » ; liste (fut-elle vide) = mesure."""
-    from ..runner.snapshot import config_active_ability_names_by_unit   # lazy : playbook <- runner
     seeded = 0
     for uid, names in config_active_ability_names_by_unit(ability_states).items():
         c = ctx_by_id.get(uid)
@@ -880,7 +886,6 @@ def _seed_measured_triggered(ctx_by_id, ability_states) -> int:
 
     TRI-ETAT : canal muet -> rien n'est pose, `triggered_abilities` reste `None` et les foyers
     retombent sur le kit, STRICTEMENT comme avant."""
-    from ..runner.snapshot import triggered_ability_ids_by_unit   # lazy : playbook <- runner
     seeded = 0
     for uid, ids in triggered_ability_ids_by_unit(ability_states).items():
         c = ctx_by_id.get(uid)
@@ -925,7 +930,6 @@ def _seed_measured_traits(ctx_by_id, snap) -> int:
     mesuré** (hook antérieur à `0231573`) -> on ne TOUCHE PAS `ctx.traits`, donc reconstruction
     strictement antérieure ; une LISTE, `[]` comprise = mesure, on écrit. Confondre les deux ferait
     passer un capteur MORT pour une unité sans aucun trait. Rend le nombre de ctx seedés."""
-    from engine.entities.traits.unit_trait import trait_names_from_ids
     n = 0
     for u in (snap.get("units") or []):
         eid = u.get("entityId")
@@ -1077,7 +1081,6 @@ def build_board(rpc, rid):
     (IdunBattle.Core.Services.DamageCalculations$$CalculateTrenchReduction, sous-branche IsTrench(attackerTile)+IsNeighbourOf) + adjacence
     (select_weapon melee/ranged) + elevation. None si `boardGraph` KO -> gates positionnels no-op (etat
     anterieur, pas de crash)."""
-    from engine.entities.pathfinding.board import Board
     try:
         bg = rpc("boardGraph", {"runnerId": rid}, 60)
     except Exception:
@@ -1155,7 +1158,6 @@ def _defense_stats_from_snapshot(units) -> dict:
     (1±vᵢ/100)) ; le capteur statDelta ne donne que le total → exact à 1 source (le cas tuile
     Thorns/SpiderWeb/DryBush), approximation si ≥2 sources defense simultanées (rare — un
     `statModSources` par unité donnerait le per-source au prix d'un scan entités par pas)."""
-    from engine.entities.stats import StatComponent, ValueModification
     out = {}
     for u in (units or []):
         stats = u.get("stats") or {}
@@ -1325,9 +1327,6 @@ def _seed_condition_gated_owner_effects(eff_state, units, predictor) -> None:
 
     Idempotent : `has_effect` skippe ce que le canal a déjà publié (l'unité a bougé -> l'effet est
     actif -> capté -> aucune 2e instance)."""
-    from ..entities.effect_type import EffectType
-    from ..entities.effects.factory import (EffectFactory, EFFECT_CLASSES,
-                                            ABILITY_INIT_OWNER_EFFECTS)
     seedable = [(n, k) for names in ABILITY_INIT_OWNER_EFFECTS.values() for n in names
                 for k in (EFFECT_CLASSES.get(n),)
                 if k is not None and getattr(k, "active_condition_ported", False)
@@ -1413,7 +1412,6 @@ def step_context(predictor, dv):
     consulter. Ils restent donc INDÉPENDANTS DU CANAL — même discipline que `snapshot._effect_names`
     sur la face COMBAT. Sur un `dv` du canal nu la projection est l'IDENTITÉ (aux lignes près, qui
     ne sont même pas copiées)."""
-    from ..runner.snapshot import active_only_rows      # lazy : playbook <- runner (cf. l.191)
     units = dv.get("units") or []
     mows = dv.get("mows") or []
     eff_state = EffectsState.seed(

@@ -66,6 +66,7 @@ from engine.entities.effects.magnitude import ability_var   # maxDmg/dmgPct Galv
 from engine.services.min_max_damage import min_max_avg  # `MinMaxDamage$$Avg` (#333) — lifesteal SpiritLeech (#339)
 from engine.dsl.base import _round_fix64   # `AAmountFormula$$RoundFix64Result` — PercentageOf(roundUp=1)
 from engine.ai.bucket import Action, Bucket
+from engine.services.trait_damage_limits import get_group_unit_heal_limit
 
 
 # RepairPlaybook GENERIQUE IdunBattle.AI.Playbook.Common.RepairPlaybook$$.ctor — identifiee par ID (PAS `"Repair" in name` : R2 ce substring
@@ -120,7 +121,6 @@ def _group_heal_limit(visual_id, hp_max: int, hp_cur: int) -> int | None:
     """`IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` pour une cible identifiée par son visualId : None pour un
     héros (nrOfMembers<2 -> int.MaxValue natif = pas de cap ; on omet le min). nrOfMembers de BASE =
     gameconfig (GroupUnitComponent+0x10), hpMax = HealthComponent max (observeBattle.hpMax)."""
-    from engine.services.trait_damage_limits import get_group_unit_heal_limit
     if not visual_id:
         return None
     try:
