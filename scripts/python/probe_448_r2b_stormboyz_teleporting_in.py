@@ -25,39 +25,61 @@ CE QUE LE PROBE MESURE (montage = GREFFE du passif, `case-92` §5bis, deja outil
                empreinte vide) avec `1140` a `remaining = 2`.
   T2-VIDE      `abilityTargets` du porteur sous 1140 : `fromHere` VIDE des deux cotes -> T2 n'est
                pas exercable par un geste. Le dire est la mesure.
-  CONFRONT-MOVE  T1 + la branche `Nothing()` de T4. Meme etat de depart, meme pas rejoue OFFLINE
-               (voie complete `Runner.apply(MoveUnitMessage)`) puis LIVE ; etats finaux compares
-               TERME A TERME. La cascade d'events NATIVE est scannee : AUCUN groupe `*_Moving` ne
-               doit y apparaitre -- c'est la preuve LIVE de la branche `Nothing()`.
-               ⚠ ETAGE MANQUANT, NOMME : `...StormboyzStrike_MissAbility` (non portee, residu de
-               `case-448-r1`) ecoute le MEME `On(0x1f)` et fait `RemoveEffect(Caster, 0x474)`
-               INCONDITIONNELLEMENT -- cote natif c'est ELLE qui retire 1140, cote port c'est T1.
-               Meme etat final, etage different, et le probe le DIT. Elle porte aussi 20 % de
-               deviation de destination : le probe compare la destination obtenue et signale le
-               MISS au lieu de le lire comme un desaccord de port.
-  CONFRONT-FINISH  T3, PAR ETAGES -- c'est le coeur de la tranche.
-               (a) port : `FinishUnitTurnOperation` sur le porteur HORS PLATEAU -> `HasTile` FAUX
-                   -> 1140 SURVIT, l'unite reste hors plateau ;
-               (b) natif : `applyAction finish` -> `...StormboyzStrike_FallbackAbility` (non
-                   portee, MEME `On(0x28)`) REPOSE l'unite, puis T3 retire ;
-               (c) le probe INJECTE la sortie de l'etage (b) dans l'etat du port (l'unite est
-                   posee sur la tuile que le NATIF a choisie) et re-emet `On(0x28)` -> T3 doit
-                   alors retirer, et les etats doivent coincider TERME A TERME.
-               La divergence de (a) est donc IMPUTEE a un etage nomme, pas laissee en « desaccord ».
+  CONFRONT-MOVE  T1, T4 et l'ETAGE QUI RETIRE 1140. Meme etat de depart, meme pas rejoue OFFLINE
+               (voie complete `MoveUnitOperation.execute`, PRNG aligne sur le natif) puis LIVE ;
+               etats finaux compares TERME A TERME. La cascade d'events NATIVE est scannee : AUCUN
+               groupe `*_Moving` ne doit y apparaitre -- c'est la preuve LIVE de la branche
+               `Nothing()`.
+  CONFRONT-FINISH  T3, PAR ETAGES -- c'est le coeur de la tranche. PRNG aligne.
+               (a) port : `FinishUnitTurnOperation` sur le porteur HORS PLATEAU -> le Fallback
+                   REPOSE l'unite, puis T3 (`HasTile` devenu VRAI) retire 1140 ;
+               (b) natif : `applyAction finish` -> le MEME enchainement ;
+               (c) les deux etats sont compares TERME A TERME (le PRNG aligne rend la tuile
+                   d'atterrissage DETERMINISTE des deux cotes, deviation du Miss comprise).
+  T3-GATE      le bras FAUX du gate `HasTile(Owner)`, EXERCE -- et il ne l'est plus par un geste
+               depuis que le Fallback est porte (c'est lui qui repose l'unite AVANT que T3 soit
+               evalue). On le rend mesurable en RETIRANT `StormboyzStrike_FallbackAbility` du
+               registre le temps du volet : le vecteur `On(0x28)` est alors joue sur une unite qui
+               reste HORS PLATEAU, et 1140 doit SURVIVRE. Volet PORT-SEUL, et c'est dit : le natif
+               ne peut pas produire ce regime, le Fallback y est toujours la.
   E1b          OBSERVATION (montage `replace=False`, le porteur GARDE ses passifs) : le porteur
                sous 1140 a-t-il DEJA ses owner-effects passifs cote natif ? Si oui, le regime
                « passives DEFERREES » de 1035 n'existe PAS pour 1140 -> pas de
                `_TeleportStrikeLandingMixin` sur cette tranche.
 
+⚠ CE QUI A CHANGE DEPUIS LA REDACTION DE 2026-08-01 (#448-r3-r1). Ce probe decrivait
+`...StormboyzStrike_MissAbility` et `...StormboyzStrike_FallbackAbility` comme NON PORTEES et
+assertionnait le port SANS elles. `9fc0deca` (#448-r1, 2026-08-03) les a PORTEES toutes les deux :
+
+  * le Miss ecoute `On(0x1f = PreUnitMove)` et fait `RemoveEffect(Caster, 0x474)` **HORS du `If`**
+    -> 1140 part AVANT le vecteur `On(0x04)`, donc T1 n'a plus rien a retirer ;
+  * le Fallback ecoute `On(0x28 = UnitFinishedTurn)` et REPOSE l'unite (`MoveUnitBehaviour`)
+    -> quand T3 est evalue (les abilities passent avant les effets dans
+    `dispatch/core.py::evaluate_trigger_operation`), `HasTile(Owner)` est deja VRAI et T3 retire.
+
+Les trois assertions qui rougissaient decrivaient donc le port d'AVANT. Le natif, lui, n'a pas
+bouge : c'est exactement ce que ce probe ecrivait deja de LUI.
+
+⚠ ET LE PROBE LUI-MEME NE MESURAIT RIEN EN CLI. `UnitContext.passive_abilities` n'est seede que si
+le TRANSPORT RPC AMBIANT est lie (`snapshot.bind_live_rpc`, #363) ; sans lui,
+`collect_triggered_abilities` retombe sur `gameconfig.unit(<greffon>).passiveAbilities`, qui ne
+porte evidemment PAS l'ability GREFFEE -- aucune des trois classes de `StormboyzStrike` n'etait
+montee cote port, et le probe rendait VERT en comparant un port AMPUTE au natif. La suite pytest,
+elle, lie l'ambiant (`tests/conftest.py::live_session`), d'ou l'ecart CLI/pytest. Le probe lie
+desormais le transport lui-meme.
+
 CONTRE-EPREUVES (VERT est le resultat SUSPECT) :
     --mutate           VIDE `EFFECT_TRIGGERS[1140]` (= le port d'avant cette tranche)
-    --mutate-hastile   NEUTRALISE le gate `HasTile` de T3 (rend `True`)
+    --mutate-hastile   NEUTRALISE le gate `HasTile` de T3 (rend `True`) -- mord sur T3-GATE
+    --mutate-nograft   DELIE le transport ambiant (= le probe d'avant #448-r3-r1) : la greffe
+                       n'est plus montee cote port, et le volet E-PORTED doit rougir
 
 ASCII only. Usage (depuis scripts/python) :
     python probe_448_r2b_stormboyz_teleporting_in.py
     python probe_448_r2b_stormboyz_teleporting_in.py --offline
     python probe_448_r2b_stormboyz_teleporting_in.py --mutate
     python probe_448_r2b_stormboyz_teleporting_in.py --mutate-hastile
+    python probe_448_r2b_stormboyz_teleporting_in.py --mutate-nograft
 """
 from __future__ import annotations
 
@@ -91,6 +113,47 @@ PLAN = [("MC1_67", 777, "orksNob", ["ultraTitus"]),
 def rpc(sid, m, args, t=120):
     r = _rpc(sid, m, [args], timeout=t)
     return (r.get("result") if isinstance(r, dict) and "result" in r else r) or {}
+
+
+def bind_ambient(sid):
+    """LIE LE TRANSPORT RPC AMBIANT (`snapshot.bind_live_rpc`, #363) pour la duree du probe.
+
+    SANS LUI CE PROBE NE MESURE RIEN, et c'est mesure (#448-r3-r1) : `load_state` ne seede
+    `UnitContext.passive_abilities` (canal `unitAbilityStates`) que si un transport est lie ; a
+    defaut, `dispatch/core.py::collect_triggered_abilities` retombe sur
+    `gameconfig.unit(<greffon>).passiveAbilities` -- qui ne porte PAS l'ability GREFFEE. Les TROIS
+    classes de `StormboyzStrike` ne sont alors pas montees cote port, et le probe compare un port
+    AMPUTE au natif : VERT sans rien exercer. La suite pytest lie l'ambiant par
+    `tests/conftest.py::live_session`, d'ou l'ecart CLI/pytest qui a masque trois assertions
+    perimees.
+
+    Signature attendue par le foyer : `rpc(method, body=None, timeout=...)` -> resultat DEBALLE."""
+    from engine.runner.snapshot import bind_live_rpc
+
+    def _ambient(method: str, body=None, timeout: float = 60):
+        return rpc(sid, method, body if body is not None else {}, timeout)
+    return bind_live_rpc(_ambient)
+
+
+def align_rng(sid, rid, st) -> dict:
+    """Pose sur l'etat OFFLINE le flux Mersenne Twister que le natif s'apprete a consommer
+    (`dumpRng`), exactement comme `tests/.../test_448_r1_stormboyz_port_live.py`.
+
+    POURQUOI C'EST OBLIGATOIRE ICI. `...StormboyzStrike_MissAbility` tire `Maybe(chance = 20)` a
+    CHAQUE mouvement du porteur sous 1140, et devie alors la destination d'un hex
+    (`PickRandomly(CanAddUnit(AdjacentTiles(<dest>)), 1)`, un tirage de plus). Sans alignement, une
+    tuile d'arrivee differente est INDISCERNABLE d'un desaccord de port -- et c'est exactement le
+    seuil mou (<< distance 0 ou 1 >>) que ce probe portait avant #448-r3-r1. Avec alignement, la
+    position est DETERMINISTE des deux cotes et se compare a l'identique."""
+    from engine.runner.prng import IntBasedMersenneTwister
+    mt = rpc(sid, "dumpRng", {"runnerId": rid}, 30) or {}
+    if not mt.get("mt"):
+        raise SystemExit("MONTAGE : `dumpRng` indisponible -- sans alignement PRNG la deviation du "
+                         "`_MissAbility` rendrait toute comparaison de position ininterpretable")
+    rng = IntBasedMersenneTwister()
+    rng.mt, rng.mti = list(mt["mt"]), int(mt["mti"])
+    st.rng = rng
+    return mt
 
 
 def build(seed: int, board: str, graft: str, foes, seed_bc: str, state_file: Path) -> int:
@@ -298,13 +361,77 @@ def cascade(sid, rid, action, t=180):
     return r, evs, lines
 
 
+def ported_stormboyz_classes(state, uid: int) -> list:
+    """Les classes de triggered-ability que le PORT a REELLEMENT montees sur le porteur.
+
+    C'est l'ANTI-TAUTOLOGIE du probe (#448-r3-r1) : toutes les assertions ci-dessous sont des
+    NEGATIFS (<< 1140 n'est plus la >>, << aucun `*_Moving` >>) et un port qui n'aurait monte AUCUNE
+    des trois classes de `StormboyzStrike` les rendrait TOUTES vertes. On exige donc d'abord que le
+    registre ait mordu, en le lisant sur l'etat CHARGE et non sur le gameconfig."""
+    from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
+    from engine.entities.triggered_ability_type import TriggeredAbilityType
+    want = int(TriggeredAbilityType.StormboyzStrike)
+    return sorted({type(t).__name__ for t in collect_triggered_abilities(state)
+                   if int(getattr(t, "owner_id", -1) or -1) == int(uid)
+                   and getattr(t, "TRIGGERED_ABILITY_ID", None) == want})
+
+
+def t3_matches_off_board(state, uid: int) -> bool:
+    """`matches()` de T3 (`StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn`) sur l'etat HORS
+    PLATEAU -- l'ETAGE SEUL, sans passer par un vecteur.
+
+    C'est la lecture la plus directe du gate `IdunBattleLogic.Entities.DSLTriggers$$HasTile(Owner)`
+    du 3e `Triggered()` d'`ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal` : l'unite sous
+    1140 n'occupe aucune tuile (`...StormboyzStrike_TeleportAbility$$CreateBehaviour` a appele
+    `RemoveUnitFromItsTiles`), donc le conjoint est FAUX et le trigger ne doit PAS matcher."""
+    from engine.runner.operations.triggers.base import TriggerEvent
+    from engine.runner.operations.triggers.loki.teleporting_in import (
+        StormboyzStrikeTeleportingInRemoveOnUnitFinishedTurn as T3)
+    from engine.dsl.event_trigger_type import EventTriggerType
+    ev = TriggerEvent(EventTriggerType.UnitFinishedTurn, int(uid), int(uid),
+                      ranged=False, profile=None)
+    return bool(T3(int(uid)).matches(state, ev))
+
+
+def play_finish_without_fallback(state, uid: int) -> dict:
+    """Le vecteur `On(0x28 = UnitFinishedTurn)` joue SANS `...StormboyzStrike_FallbackAbility`.
+
+    Le registre `ABILITY_TRIGGERS["StormboyzStrike"]` est un etat de MODULE, donc GLOBAL au
+    processus : il est restaure en sortie, sans quoi la mutation survivrait au montage suivant (la
+    meme faute que #448-r3 a mesuree sur `EFFECT_TRIGGERS`).
+
+    Ce que ce retrait ISOLE : le Fallback est la seule chose qui redonne une tuile au porteur
+    pendant ce vecteur. Sans lui, `HasTile(Owner)` reste FAUX pour T3 -- et c'est le SEUL regime du
+    build qui exerce ce bras (1035, 1238 et 1573 laissent leur porteur SUR le plateau)."""
+    from engine.runner.operations.triggers.dispatch import registry as REG
+    from engine.runner.operations.triggers.loki.stormboyz_strike import (
+        StormboyzStrikeFallbackAbility as FB)
+    from engine.runner.operations.turnflow import FinishUnitTurnOperation
+    saved = list(REG.ABILITY_TRIGGERS.get("StormboyzStrike") or ())
+    kept = [c for c in saved if c is not FB]
+    if len(kept) == len(saved):
+        raise SystemExit("T3-GATE : `StormboyzStrikeFallbackAbility` absente du registre -- le "
+                         "volet n'isolerait rien")
+    REG.ABILITY_TRIGGERS["StormboyzStrike"] = kept
+    try:
+        FinishUnitTurnOperation.execute(state, int(uid))
+    finally:
+        REG.ABILITY_TRIGGERS["StormboyzStrike"] = saved
+    return terms(state, int(uid))
+
+
+#: Ce que la GREFFE monte, cote port. Le builder natif
+#: `AbilitiesDatabase.u003Cu003Ec$$u003CInitializeTriggeredAbilitiesu003Eb__28_134` construit une
+#: `List` de TROIS instances pour le seul `TriggeredAbilityType.StormboyzStrike` (0x475) -- greffer
+#: le passif les monte donc toutes les trois d'un coup (case-448-r1 §1).
+STORMBOYZ_PORTED = ["StormboyzStrikeFallbackAbility", "StormboyzStrikeMissAbility",
+                    "StormboyzStrikeTeleportAbility"]
+
+
 def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -> dict:
     from engine.dsl.event_trigger_type import EventTriggerType
-    from engine.runner.components import set_unit_feet
-    from engine.runner.messages import MoveUnitMessage
     from engine.runner.operations.triggers.dispatch.turn import unit_finished_turn_triggers
     from engine.runner.operations.turnflow import FinishUnitTurnOperation
-    from engine.runner.runner import Runner
     from engine.runner.snapshot import clear_ability_states_cache
 
     tag = "%s_%s" % (graft, board_id)
@@ -365,7 +492,16 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
             fails.append("T2-VIDE : le natif propose %d cible(s) a une unite hors plateau -- la "
                          "lecture << T2 non exercable >> tombe, il faut confronter T2" % len(here))
 
-        # -------- CONFRONT-MOVE : T1 + la branche Nothing() de T4
+        # -------- E-PORTED : le registre a-t-il MORDU ? (anti-tautologie, cf. la fabrique)
+        ported = ported_stormboyz_classes(st, uid)
+        print("  [E-PORTED] classes StormboyzStrike montees cote PORT = %r" % (ported,))
+        out["ported"] = ported
+        if ported != STORMBOYZ_PORTED:
+            fails.append("E-PORTED : le port n'a monte que %r au lieu de %r -- les assertions "
+                         "NEGATIVES qui suivent passeraient sans rien exercer (transport ambiant "
+                         "non lie ? cf. `bind_ambient`)" % (ported, STORMBOYZ_PORTED))
+
+        # -------- CONFRONT-MOVE : T4 (branche Nothing()) et l'ETAGE qui retire 1140
         legal = native_movable(sid, rid, uid)
         if not legal:
             raise SystemExit("MONTAGE : `aiMovableTiles` VIDE pour le porteur hors plateau")
@@ -373,37 +509,59 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         print("  [CONFRONT-MOVE] pool natif=%d tuiles, destination choisie=%r" % (len(legal), dest))
         out["poolSize"], out["dest"] = len(legal), tuple(dest)
 
-        # (a) PORT -- le pas joue UNE SEULE FOIS, l'etat intermediaire capte PAR INSTRUMENTATION.
+        # (a) PORT -- le pas joue UNE SEULE FOIS, les DEUX etats intermediaires captes PAR
+        #     INSTRUMENTATION (foyer #448-r3). PRNG aligne : le `Maybe(20)` du Miss et son
+        #     `PickRandomly` doivent tomber comme au natif, sinon la position n'est pas comparable.
         #     ⚠ #448-r3 : le decoupage d'avant (`Operation` puis vecteur) ne montrait plus rien --
         #     `9767a8e4` a replie le vecteur DANS l'Operation, donc `mid` etait pris APRES un pas
         #     deja complet. Le controle NEGATIF ci-dessous (aucun `*_Moving` pose, branche
         #     `Nothing()` de T4) en devenait INERTE : il aurait passe meme si T4 posait.
         import probe_448_r3_move_step_atomicity as R3
-        st_split, _b = offline_state(capture(sid, rid))
-        repair_owner(st_split, uid, team, player)
-        r_step = R3.play_step_instrumented(st_split, int(uid), dest)
+        st_port, _b2 = offline_state(capture(sid, rid))
+        repair_owner(st_port, uid, team, player)
+        align_rng(sid, rid, st_port)
+        r_step = R3.play_step_instrumented(st_port, int(uid), dest)
         if len(r_step["calls"]) != 1:
             fails.append("E-MOVING : le vecteur after-move a ete joue %d fois pour UN pas "
                          "(attendu 1)" % len(r_step["calls"]))
+        if len(r_step["pre"]) != 1:
+            fails.append("E-PREMOVE : le vecteur pre-move a ete joue %d fois pour UN pas "
+                         "(attendu 1 -- la relance apres deviation porte `skipPreMoveTriggers`)"
+                         % len(r_step["pre"]))
+        pre = r_step["pre"][0] if r_step["pre"] else {"effects": [], "after": [], "out": []}
         mid = r_step["calls"][0]["effects"] if r_step["calls"] else []
         end = r_step["end"]
-        print("  [E-MOVING] port : PENDANT le pas=%r  APRES le pas=%r" % (mid, end))
+        miss = [o for o in (pre.get("out") or []) if isinstance(o, dict) and o.get("class") == "Miss"]
+        print("  [E-PREMOVE] port : AVANT On(0x1f)=%r  APRES On(0x1f)=%r  Miss=%r"
+              % (pre["effects"], pre["after"], miss))
+        print("  [E-MOVING] port : a l'entree du vecteur after-move=%r  APRES le pas=%r"
+              % (mid, end))
         out["moveMid"], out["moveEnd"] = mid, end
-        if TELEPORTING_IN not in mid:
-            fails.append("E-MOVING : 1140 deja retire PENDANT le pas -- T1 fire trop tot")
-        if any(e not in (TELEPORTING_IN,) for e in mid if e in (1036, 1241, 1574)):
+        out["premoveBefore"], out["premoveAfter"] = pre["effects"], pre["after"]
+        out["missResult"] = miss[0] if miss else None
+        # L'ETAGE, pas seulement l'etat final : 1140 est LA a l'entree d'`On(0x1f)` et PARTI a sa
+        # sortie -- c'est `...StormboyzStrike_MissAbility` (`RemoveEffect(Caster, 0x474)`, HORS du
+        # `If`) qui le retire, et T1 n'a plus rien a retirer au vecteur `On(0x04)`.
+        if TELEPORTING_IN not in pre["effects"]:
+            fails.append("E-PREMOVE : 1140 absent AVANT le vecteur `On(0x1f)` -- le montage ne pose "
+                         "pas l'etat de depart, rien n'est mesure")
+        if TELEPORTING_IN in pre["after"]:
+            fails.append("E-PREMOVE : 1140 SURVIT au vecteur `On(0x1f)` -- le `RemoveEffect(Caster, "
+                         "0x474)` de `...StormboyzStrike_MissAbility` n'a pas joue")
+        if not miss:
+            fails.append("E-PREMOVE : `...StormboyzStrike_MissAbility` n'a rien RENDU sur `On(0x1f)` "
+                         "-- le retrait de 1140 n'est attribuable a aucun etage")
+        if TELEPORTING_IN in mid:
+            fails.append("E-MOVING : 1140 encore la a l'entree du vecteur after-move -- il aurait "
+                         "du partir au `On(0x1f)`")
+        if [e for e in mid if e in (1036, 1241, 1574)]:
             fails.append("E-MOVING : un `*_Moving` a ete pose PENDANT le pas (%r) -- la branche "
                          "`Nothing()` de T4 n'est pas prise" % (mid,))
         if TELEPORTING_IN in end:
-            fails.append("E-MOVING : 1140 SURVIT au pas cote port -- T1 n'a pas retire")
-
-        # (b) PORT -- le pas COMPLET par la voie `Runner.apply`
-        st_port, _b2 = offline_state(capture(sid, rid))
-        repair_owner(st_port, uid, team, player)
-        Runner(st_port).install_default_handlers(20).apply(MoveUnitMessage(int(uid), tuple(dest)))
+            fails.append("E-MOVING : 1140 SURVIT au pas cote port")
         p_move = terms(st_port, uid)
 
-        # (c) NATIF -- le MEME pas, et sa cascade
+        # (b) NATIF -- le MEME pas, et sa cascade
         act, evs, lines = cascade(sid, rid, {"kind": "move", "unitId": int(uid),
                                              "to": {"col": int(dest[0]), "row": int(dest[1])}})
         st_nat, _b3 = offline_state(capture(sid, rid))
@@ -411,6 +569,22 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         n_move = terms(st_nat, uid)
         print("  [CONFRONT-MOVE] port  = %s" % json.dumps(p_move))
         print("  [CONFRONT-MOVE] natif = %s" % json.dumps(n_move))
+        # (c) LE TEMOIN NATIF D'ETAGE : le retrait de 1140 precede-t-il le `ChangePosition` ? C'est
+        # la signature d'un retrait au `On(0x1f = PreUnitMove)` (le Miss) et non au `On(0x04)` (T1).
+        spans = R3.cascade_effect_spans(evs)
+        cp = R3.cascade_change_position(evs)
+        span = spans.get("StormboyzStrike_TeleportingIn")
+        out["nativeRemoveIdx"] = (None if not (span and span["rem"]) else min(span["rem"]))
+        out["nativeChangePosIdx"] = cp
+        print("  [CONFRONT-MOVE] cascade natif : retrait de 1140 aux index %r, ChangePosition a %r"
+              % ((span or {}).get("rem"), cp))
+        if not (span and span["rem"]):
+            fails.append("CONFRONT-MOVE : la cascade NATIVE ne porte AUCUN retrait de 1140 -- "
+                         "l'etage natif n'est pas identifie")
+        elif cp is not None and min(span["rem"]) > cp:
+            fails.append("CONFRONT-MOVE : le natif retire 1140 APRES le ChangePosition (rem=%r, "
+                         "cp=%d) -- ce serait T1 (`On(0x04)`) et non le `_MissAbility` (`On(0x1f)`)"
+                         % (span["rem"], cp))
         # LA PREUVE LIVE de la branche `Nothing()` : la cascade du pas NATIF ne doit porter AUCUN
         # groupe `Effect_Refresh <<*_Moving>>`. Le TEMOIN POSITIF est la tranche 1 (mesure #448-r2,
         # `eldarAutarch`) : le MEME scan y remonte deux `<<TeleportStrike_Moving>>` encadrant le
@@ -436,28 +610,20 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         if not out["moveMutated"]:
             fails.append("CONFRONT-MOVE : le move live n'a RIEN mute (H55, no-op silencieux) -- "
                          "montage, pas mesure : %r" % (act,))
-        if n_move["pos"] != tuple(dest):
-            # `...StormboyzStrike_MissAbility` (NON PORTEE, residu case-448-r1) : 20 % de chance de
-            # `OverrideUnitMovementTarget(Owner, PickRandomly(CanAddUnit(AdjacentTiles(<dest>)),1))`.
-            # On ne SAUTE pas le terme POSITION -- on l'evalue sous la forme NATIVE : une deviation
-            # doit etre ADJACENTE a la destination demandee. Autre chose = pas le Miss.
-            import hexgeo
-            d = (None if n_move["pos"] is None
-                 else hexgeo.distance(tuple(n_move["pos"]), tuple(dest)))
-            out["missDistance"] = d
-            print("  [CONFRONT-MOVE] /!\\ natif en %r au lieu de %r (distance=%r) -- signature du "
-                  "`_MissAbility` (20 %%, NON PORTE). Les autres termes restent compares."
-                  % (n_move["pos"], tuple(dest), d))
-            if d != 1:
-                fails.append("CONFRONT-MOVE : le natif a atterri en %r, a distance %r de la "
-                             "destination %r -- ce n'est PAS la signature du `_MissAbility` "
-                             "(AdjacentTiles), c'est un desaccord de port"
-                             % (n_move["pos"], d, tuple(dest)))
-            cmp_terms("CONFRONT-MOVE", p_move, n_move, fails, keys=("alive", "effects",
-                                                                    "untargetable"))
-        else:
-            out["missDistance"] = 0
-            cmp_terms("CONFRONT-MOVE", p_move, n_move, fails)
+        # LE TERME POSITION SE COMPARE A L'IDENTIQUE, ET C'EST L'ALIGNEMENT PRNG QUI LE PERMET.
+        # `...StormboyzStrike_MissAbility` (PORTEE depuis #448-r1) tire `Maybe(chance = 20)` et, si
+        # le hex est rate, `PickRandomly(CanAddUnit(AdjacentTiles(<dest>)), 1)`. Les deux cotes
+        # partant du MEME etat MT, la deviation tombe des DEUX cotes ou d'AUCUN -- le seuil mou
+        # << distance 0 ou 1 >> que ce probe portait avant #448-r3-r1 acceptait, lui, un vrai
+        # desaccord de port du moment qu'il restait adjacent.
+        import hexgeo
+        d = (None if n_move["pos"] is None
+             else hexgeo.distance(tuple(n_move["pos"]), tuple(dest)))
+        out["missDistance"] = d
+        if d:
+            print("  [CONFRONT-MOVE] le natif a ete DEVIE de %r hex (signature `_MissAbility`) -- "
+                  "le port, aligne sur le meme flux MT, doit l'avoir ete pareil" % (d,))
+        cmp_terms("CONFRONT-MOVE", p_move, n_move, fails)
         if any(r[0] == TELEPORTING_IN for r in n_move["effects"]):
             fails.append("CONFRONT-MOVE : le NATIF garde 1140 apres le pas -- la mesure ne "
                          "discrimine RIEN")
@@ -479,24 +645,58 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         if before["pos"] is not None:
             raise SystemExit("MONTAGE : le porteur n'est pas hors plateau (finish)")
 
-        # (a) PORT -- l'etage T3 SEUL, sur l'etat que le natif produit vraiment
+        # -------- T3-GATE : le bras FAUX du gate `HasTile(Owner)`, EXERCE.
+        # Il ne l'est PLUS par un geste depuis que `...StormboyzStrike_FallbackAbility` est portee
+        # (#448-r1) : elle ecoute le MEME `On(0x28)`, elle est une ABILITY donc elle passe AVANT les
+        # effets dans `dispatch/core.py::evaluate_trigger_operation`, et son `MoveUnitBehaviour`
+        # repose l'unite -- si bien que T3 voit toujours `HasTile` VRAI. On rend donc le bras faux
+        # mesurable en RETIRANT le Fallback du registre le temps de ce volet.
+        # VOLET PORT-SEUL, et c'est dit : le natif ne peut pas produire ce regime (le Fallback y est
+        # toujours la). C'est une garde de NON-REGRESSION du gate, pas une confrontation.
+        # DEUX lectures, pas une : (i) `matches()` de T3 sur l'etat hors plateau doit rendre FAUX --
+        # l'etage SEUL, sans vecteur ; (ii) le vecteur `On(0x28)` prive de Fallback doit laisser
+        # 1140 EN PLACE et l'unite HORS PLATEAU.
         if mutate_hastile:
             from engine.runner.operations.triggers.loki import teleporting_in as TI
             TI.ATeleportingRemoveOnUnitFinishedTurn._event_gate = (
                 lambda self, state, ev: True)                # NEUTRALISE le gate HasTile
+        st_gate, _bg = offline_state(capture(sid, rid))
+        repair_owner(st_gate, uid, team, player)
+        gate_ok = t3_matches_off_board(st_gate, int(uid))
+        print("  [T3-GATE] T3.matches() sur le porteur HORS PLATEAU = %r (attendu False)" % gate_ok)
+        out["t3MatchesOffBoard"] = gate_ok
+        if gate_ok:
+            fails.append("T3-GATE : `matches()` de T3 rend VRAI sur une unite HORS PLATEAU -- le "
+                         "gate `HasTile(Owner)` est perdu (degradation PERMISSIVE)")
+        g_after = play_finish_without_fallback(st_gate, int(uid))
+        print("  [T3-GATE] vecteur On(0x%x) SANS le Fallback = %s"
+              % (int(EventTriggerType.UnitFinishedTurn), json.dumps(g_after)))
+        out["finishNoFallback"] = g_after
+        if not any(r[0] == TELEPORTING_IN for r in g_after["effects"]):
+            fails.append("T3-GATE : sans le Fallback, le port RETIRE quand meme 1140 sur une unite "
+                         "HORS PLATEAU -- le gate `HasTile(Owner)` de T3 est perdu")
+        if g_after["pos"] is not None:
+            fails.append("T3-GATE : sans le Fallback, l'unite a ete REPOSEE -- un autre etage que "
+                         "celui qu'on croit lui rend une tuile, la lecture du gate ne tient plus")
+
+        # (a) PORT -- le vecteur `On(0x28)` NOMINAL : Fallback (repose) PUIS T3 (retire).
+        #     PRNG aligne : le Fallback declenche un `MoveUnit`, donc `On(0x1f)`, donc le Miss et ses
+        #     tirages -- sans alignement la tuile d'atterrissage n'est pas comparable.
         st_port, _b = offline_state(capture(sid, rid))
         repair_owner(st_port, uid, team, player)
+        align_rng(sid, rid, st_port)
         FinishUnitTurnOperation.execute(st_port, int(uid))
         p_a = terms(st_port, uid)
-        print("  [FINISH-a] port (T3 seul, hors plateau) = %s" % json.dumps(p_a))
+        print("  [FINISH-a] port (Fallback puis T3) = %s" % json.dumps(p_a))
         out["finishBefore"], out["finishPortA"] = before, p_a
-        if not any(r[0] == TELEPORTING_IN for r in p_a["effects"]):
-            fails.append("FINISH-a : le port a RETIRE 1140 sur une unite HORS PLATEAU -- le gate "
-                         "`HasTile(Owner)` de T3 est perdu (degradation PERMISSIVE)")
-        if p_a["pos"] is not None:
-            fails.append("FINISH-a : le port a repose l'unite -- il n'a pourtant PAS le Fallback")
+        if any(r[0] == TELEPORTING_IN for r in p_a["effects"]):
+            fails.append("FINISH-a : le port GARDE 1140 apres le finish -- soit le Fallback n'a pas "
+                         "repose l'unite, soit T3 n'a pas retire derriere lui")
+        if p_a["pos"] is None:
+            fails.append("FINISH-a : le port a LAISSE l'unite hors plateau -- le `MoveUnitBehaviour` "
+                         "de `...StormboyzStrike_FallbackAbility` n'a pas joue")
 
-        # (b) NATIF -- le meme geste ; le Fallback (NON PORTE) repose l'unite, puis T3 retire
+        # (b) NATIF -- le meme geste : Fallback puis T3, exactement de meme.
         _act, _evs, _lines = cascade(sid, rid, {"kind": "finish", "unitId": int(uid)})
         st_nat, _b2 = offline_state(capture(sid, rid))
         repair_owner(st_nat, uid, team, player)
@@ -505,24 +705,14 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         out["finishNative"] = n_fin
         if n_fin["pos"] is None:
             fails.append("FINISH-b : le natif a LAISSE l'unite hors plateau -- le Fallback n'a pas "
-                         "fire, l'etage (c) n'a pas de sortie a injecter")
+                         "fire, le volet ne confronte rien")
         if any(r[0] == TELEPORTING_IN for r in n_fin["effects"]):
             fails.append("FINISH-b : le natif GARDE 1140 apres le finish -- la lecture de T3 "
                          "(HasTile redevenu vrai) tombe")
-        print("  [FINISH-b] ecart (a) vs (b) IMPUTE a `StormboyzStrike_FallbackAbility`, NON "
-              "PORTEE (MEME `On(0x28)`, residu nomme -- case-448-r1 6)")
 
-        # (c) l'ETAGE MANQUANT INJECTE : on continue l'etat du port en posant l'unite exactement ou
-        #     le NATIF l'a posee (= la sortie observee du Fallback), puis on RE-EMET `On(0x28)`.
-        #     `HasTile(Owner)` devient vrai -> T3 doit retirer, et les deux etats doivent coincider.
-        if n_fin["pos"] is not None:
-            set_unit_feet(st_port, int(uid), [tuple(n_fin["pos"])])
-            unit_finished_turn_triggers(st_port, int(uid))
-            p_c = terms(st_port, uid)
-            print("  [FINISH-c] port apres injection du Fallback + On(0x%x) = %s"
-                  % (int(EventTriggerType.UnitFinishedTurn), json.dumps(p_c)))
-            out["finishPortC"] = p_c
-            cmp_terms("FINISH-c", p_c, n_fin, fails)
+        # (c) LES DEUX ETATS, TERME A TERME. Le PRNG etant aligne, la tuile d'atterrissage est
+        #     deterministe des deux cotes -- deviation du `_MissAbility` comprise.
+        cmp_terms("FINISH-c", p_a, n_fin, fails)
     finally:
         rpc(sid, "disposeRunner", {"runnerId": rid}, 45)
         sf.unlink(missing_ok=True)
@@ -536,9 +726,18 @@ TEST_PLAN = list(PLAN)
 
 def run(board_id: str, seed: int, graft: str, foes) -> dict:
     """UN montage complet, runners disposes en sortie. Porte d'entree des tests -- ils ne
-    re-derivent RIEN, le montage est la source unique. `out["fails"]` porte les desaccords."""
+    re-derivent RIEN, le montage est la source unique. `out["fails"]` porte les desaccords.
+
+    Le transport ambiant est deja lie par `tests/conftest.py::live_session` quand on vient de
+    pytest ; `bind_ambient` est idempotent (il rend le precedent et on le restaure), donc l'appeler
+    ici ne change rien pour la suite et rend le probe autonome hors harnais."""
+    from engine.runner.snapshot import bind_live_rpc
     sid = _resolve_session()
-    return run_montage(sid, board_id, int(seed), graft, list(foes), [])
+    prev = bind_ambient(sid)
+    try:
+        return run_montage(sid, board_id, int(seed), graft, list(foes), [])
+    finally:
+        bind_live_rpc(prev)
 
 
 def main() -> int:
@@ -546,6 +745,9 @@ def main() -> int:
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--mutate", action="store_true")
     ap.add_argument("--mutate-hastile", action="store_true")
+    ap.add_argument("--mutate-nograft", action="store_true",
+                    help="ne LIE PAS le transport ambiant (= le probe d'avant #448-r3-r1) : la "
+                         "greffe n'est plus montee cote port, E-PORTED DOIT rougir")
     ap.add_argument("--board", default=None)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--graft", default=None)
@@ -570,14 +772,26 @@ def main() -> int:
     plan = list(PLAN)
     if a.board or a.graft or a.seed:
         plan = [(a.board or "MC1_67", a.seed or 777, a.graft or "orksNob", ["ultraTitus"])]
-    if a.mutate or a.mutate_hastile:
+    if a.mutate or a.mutate_hastile or a.mutate_nograft:
         plan = plan[:1]
     sid = _resolve_session()
-    for board_id, seed, graft, foes in plan:
-        run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=a.mutate_hastile)
+    # LE TRANSPORT AMBIANT EST CE QUI FAIT MONTER LA GREFFE COTE PORT (cf. `bind_ambient`). Sans
+    # lui le probe compare un port AMPUTE au natif et rend VERT -- c'est le regime que
+    # `--mutate-nograft` reproduit VOLONTAIREMENT pour montrer qu'`E-PORTED` le voit.
+    from engine.runner.snapshot import bind_live_rpc
+    prev = None if a.mutate_nograft else bind_ambient(sid)
+    if a.mutate_nograft:
+        print("[MUTATE] transport ambiant NON LIE (= le probe d'AVANT #448-r3-r1) -- DOIT rougir")
+    try:
+        for board_id, seed, graft, foes in plan:
+            run_montage(sid, board_id, seed, graft, foes, fails,
+                        mutate_hastile=a.mutate_hastile)
+    finally:
+        if not a.mutate_nograft:
+            bind_live_rpc(prev)
 
     print()
-    mutated = a.mutate or a.mutate_hastile
+    mutated = a.mutate or a.mutate_hastile or a.mutate_nograft
     if fails:
         print("=== %d ECHEC(S) ===" % len(fails))
         for f in fails:
