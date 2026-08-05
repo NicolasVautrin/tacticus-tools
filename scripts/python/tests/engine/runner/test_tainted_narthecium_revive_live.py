@@ -101,7 +101,12 @@ def _fresh(env, seed=None):
 
 
 def _place(env, st, ally_uid, dist):
-    """dr au centre (>=3 voisins), allie a distance hex `dist`. Renvoie True si place."""
+    """dr au centre (>=3 voisins), allie a DISTANCE HEX `dist`. Renvoie True si place.
+
+    ⚠ La cible est la distance HEX, pas le nombre de PAS de graphe (les deux divergent des qu'un
+    obstacle force un detour) : un BFS arrete au 2e pas peut atterrir a distance hex 1, ce qui
+    rendrait le bras `dist=2` VACU."""
+    import hexgeo
     board = env["board"]
     center = None
     for uid, e in st.entities.items():
@@ -114,19 +119,9 @@ def _place(env, st, ally_uid, dist):
     if center is None:
         return False
     _pc(st, env["ids"]["dr"]).col, _pc(st, env["ids"]["dr"]).row = center
-    ctile = board.id_at(*center)
-    if dist == 1:
-        dst = next((board.coord(n) for n in board.neighbours(ctile) if board.walkable(n)), None)
-    else:
-        from collections import deque
-        seen = {ctile: 0}; q = deque([ctile]); dst = None
-        while q:
-            x = q.popleft()
-            if seen[x] == dist and board.walkable(x):
-                dst = board.coord(x); break
-            for n in board.neighbours(x):
-                if n not in seen:
-                    seen[n] = seen[x] + 1; q.append(n)
+    dst = next((c for c in sorted(board.by_coord)
+                if hexgeo.distance(center, c) == dist
+                and board.walkable(board.id_at(*c))), None)
     if dst is None:
         return False
     _pc(st, ally_uid).col, _pc(st, ally_uid).row = dst
@@ -220,19 +215,27 @@ def test_chaos_only(rev_env):
     assert not _uc(st, env["ids"]["xenos"]).alive, "allie Xenos revive (filtre Chaos non respecte)"
 
 
-def test_adjacency_range_2(rev_env):
-    """IsAdjacent(self,target,2) : un allie Chaos a distance hex 3 -> PAS de revive."""
+@pytest.mark.parametrize("dist", [2, 3])
+def test_adjacency_is_strict(rev_env, dist):
+    """`IsAdjacent(self, target, 2)` : le `2` est un `UnitSelectionType`, PAS un rayon
+    (#462-r4b-r1-r1-r1-r1-b-r1) -- l'ADJACENCE EST STRICTE, un allie Chaos a distance 2 n'est
+    DEJA plus revive.
+
+    ⚠ Le bras `dist=2` est LE discriminant, et c'est celui qui manquait : l'ancien test ne jouait
+    que `dist=3`, ou `distance <= 2` et `adjacence stricte` rendent la MEME reponse -- regime
+    DEGENERE. Controle `dist=1` : `test_revive_base_hp_and_position`."""
     import hexgeo
     env = rev_env
     st = _fresh(env, _seed_bool(env["chance"], True))
-    if not _place(env, st, env["ids"]["chaos"], 3):
-        pytest.skip("pas de tuile a dist 3")
+    if not _place(env, st, env["ids"]["chaos"], dist):
+        pytest.skip("pas de tuile a dist %d" % dist)
     pdr = (_pc(st, env["ids"]["dr"]).col, _pc(st, env["ids"]["dr"]).row)
     pch = (_pc(st, env["ids"]["chaos"]).col, _pc(st, env["ids"]["chaos"]).row)
-    if hexgeo.distance(pdr, pch) <= 2:
-        pytest.skip("placement a dist<=2 (board coin)")
+    assert hexgeo.distance(pdr, pch) == dist, "placement a dist %d (attendu %d)" % (
+        hexgeo.distance(pdr, pch), dist)
     _kill(env, st, env["ids"]["chaos"])
-    assert not _uc(st, env["ids"]["chaos"]).alive, "allie a dist>2 revive (adjacence non respectee)"
+    assert not _uc(st, env["ids"]["chaos"]).alive, \
+        "allie a dist %d revive : le `2` d'IsAdjacent a ete relu comme un rayon" % dist
 
 
 def test_can_be_revived_mechanical(rev_env):
