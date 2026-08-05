@@ -35,12 +35,17 @@ ne sait **rien en produire**.
 | **transport d'événements** | **STUB MORT** | `EventBus` : 3 méthodes définies, **0 appel** ; `BattleEvent` : **0 sous-classe**. Instancié **6 fois** — uniquement pour remplir le paramètre `execute(state, bus)` |
 | **structure de groupes** (open/close, profondeur) | **absente à l'émission** | existe en **lecture** (`decode_lines` suit une pile ; le SQL 014 la matérialise) |
 | **formatage texte** (les 4 formes) | **absent** | aucun writer |
-| **résultats d'opération** | **dicts ad hoc** | **97** `execute()` répartis sur **11** formes de retour, dont **72 sans annotation** ; 7 `dict`, 6 `Optional[dict]`, 1 `list[dict]`… Aucune forme commune d'où dériver un flux |
+| **résultats d'opération** | **dicts ad hoc** | **99** `execute()` répartis sur **11** formes de retour, dont **74 sans annotation** ; 7 `dict`, 6 `Optional[dict]`, 1 `list[dict]`… Aucune forme commune d'où dériver un flux |
 
 Le point le plus trompeur est le bus : il **paraît** exister — il est importé dans 25 modules
 d'opération, instancié, passé partout. Mais `EventBus()` y est un **objet jetable** que la signature
 exige ; rien ne s'y abonne et rien n'y publie. Une lecture par `grep` conclurait « couche présente » ;
 la visite AST dit **0 appel**.
+
+⚠ **Ces chiffres se re-dérivent, ils ne se citent pas** — et le rebase de cette PR l'a démontré sur
+sa propre mesure : `execute()` est passé de **97 à 99** (non annotés 72 → 74) entre le commit de
+lancement et `origin/master`, sans que rien ne touche à la couche stream. C'est précisément pourquoi
+la tranche livre un **probe** et pas un tableau figé.
 
 ## 3. La couverture face à la grammaire réelle
 
