@@ -42,6 +42,37 @@ LE CHIFFRAGE (`--step census`, re-derive du gameconfig a chaque run)
     un ecart lu sur 28 porteurs dont AUCUN n'arrive en bataille par la voie standard est un mirror
     de fidelite, pas un bug mesure -- et ca se DIT, ca ne se maquille pas en correction.
 
+LA CONFRONTATION NATIVE (`--step live`) -- ET POURQUOI LE RECENSEMENT SEUL SE TROMPE
+-----------------------------------------------------------------------------------
+Le recensement dit : 0 porteur `Object` dans `data/seed-bc.json`, tous npc, donc hors
+`rl_duel build --list-pool`. On pourrait en conclure << regime inatteignable, fix cosmetique >>.
+**C'est faux, et c'est mesure.** Un `LootObj_*` s'amene en bataille par un montage ECRIT :
+
+  1. `catalog_inject.write_augmented_seed_bc` l'ajoute au bloc `Units` du seed ;
+  2. on lui force des stats (`Health`) -- `buildNormalizedBC` ne le NORMALISE pas (il n'a pas de
+     progression, d'ou son absence du pool), mais il GARDE son entree dans le template, donc ce
+     sont ces valeurs-la qui arrivent en bataille ;
+  3. on le pose a la TUILE voulue via `initAndStart.playerUnits` avec `playerId = PLAYER_ID_AI`
+     (la voie `--a-place` de `rl_duel`, #477-r5), ce qui contourne le refus de pool.
+
+MESURE (build rnca9r7q6c, board MC1_67, seed de `probe_112`) : le crate arrive **team 2, vivant**,
+face a un Abraxas team 1 -- donc `AreEnemies(porteur, crate)` est VRAI -- et `abilityTargets` le
+rend **cible LEGALE de l'attaque normale d'Abraxas** (`(abilityId 69, targetId <crate>)`). Les deux
+preconditions que le recensement ne pouvait pas trancher sont donc SATISFAITES.
+
+Deux bras APPARIES (meme roster, meme tuile de cast, meme seed ; seule change l'unite au contact
+du Pink Horror invoque par 1096, dont l'attaque d'apparition est Psychic) :
+
+  | bras   | cible du Horror                 | attaque eue lieu | Screamers |
+  |--------|---------------------------------|------------------|-----------|
+  | crate  | `LootObj_Crate_Imp` (Object 13) | OUI 5000 -> 2705 | **0**     |
+  | warden | `necroWarden` (vraie unite)     | OUI 8536 -> 8026 | **1**     |
+
+=> le natif REFUSE le Screamer sur une cible `Object`. Et sur ce MEME etat live, le port d'AVANT
+le fix (recopie `{Steppable, Decoy}` rejouee) rendait `matches(crate) = True` : il aurait spawne un
+Screamer que le natif ne produit pas. **Ce n'est donc pas un fix cosmetique : c'est un bug
+CONFRONTE.**
+
 LE CLIQUET (`--step guard`)
 ---------------------------
 Aucun runner : etat synthetique minimal (deux unites d'equipes OPPOSEES, un marqueur 1197 ACTIF sur
@@ -66,6 +97,7 @@ USAGE
     python probe_462_r4b_r1_r1_r1_r1_b_r1_r1_r1_mot_object_or_steppable.py --step census
     python probe_462_r4b_r1_r1_r1_r1_b_r1_r1_r1_mot_object_or_steppable.py --step guard
     python probe_462_r4b_r1_r1_r1_r1_b_r1_r1_r1_mot_object_or_steppable.py --step offline   # les trois
+    python probe_462_r4b_r1_r1_r1_r1_b_r1_r1_r1_mot_object_or_steppable.py --step live      # 2 runners
 
 ASCII only (cp1252).
 """
@@ -261,13 +293,15 @@ def step_census() -> int:
         return 0
     print("  => AUCUN porteur `Object` dans le seed BC, et les %d du catalogue sont TOUS `npc`"
           % len(ajoute))
-    print("     (donc hors `rl_duel build --list-pool`). Le volet ajoute est donc NON CONFRONTABLE")
-    print("     par la voie standard : ce fix est un MIRROR DE FIDELITE value-preserving sur tout")
-    print("     ce qui est atteignable aujourd'hui, PAS une correction de bug mesuree.")
-    print("     Ce que la mesure ne tranche PAS : si un `LootObj_*` pose sur une team ADVERSE")
-    print("     existe dans une VRAIE bataille (campagne), le conjoint mord -- `AreEnemies` compare")
-    print("     `GetCurrentPlayer(x).<+0x20>.<+0x24>` (0 sans joueur), et le site qui donne son")
-    print("     `OwnerComponent` a un `LootObj_*` n'a pas ete localise dans le binaire.")
+    print("     (donc hors `rl_duel build --list-pool`).")
+    print("")
+    print("  /!\\ CE RECENSEMENT NE CONCLUT PAS << inatteignable >> -- s'y arreter serait la faute.")
+    print("     `--step live` AMENE un `LootObj_*` en bataille par un montage ECRIT (augmentation")
+    print("     du seed + stats forcees + pose a la tuile via `playerUnits`/PLAYER_ID_AI, la voie")
+    print("     `--a-place` #477-r5, qui contourne le refus de pool). MESURE : le crate arrive")
+    print("     team ADVERSE et vivant (donc `AreEnemies` VRAI), `abilityTargets` le rend cible")
+    print("     LEGALE de l'attaque normale d'Abraxas, et le natif produit 0 Screamer la ou une")
+    print("     vraie unite en produit 1. L'ecart est donc CONFRONTE, pas seulement lu.")
     return 0
 
 
@@ -429,9 +463,235 @@ def step_guard() -> int:
     return rc
 
 
+# ================================================================================================
+# --step live : LA CONFRONTATION NATIVE. Montage ECRIT (le crate n'est dans AUCUN pool).
+# ================================================================================================
+LOOT = "LootObj_Crate_Imp"          # trait `Object` (13), SANS `Steppable` -- le volet ajoute
+WARDEN = "necroWarden"              # vraie unite, bras de CONTROLE
+ABRAXAS = "thousInfernalMaster"     # porteur de 1096 -- HERO present dans `--list-pool`
+BOARD = "MC1_67"
+HORROR, SCREAMER = "thousNpc1PinkHorror", "thousNpc2Screamer"
+ABILITY_MOT = 1096                  # `MasterOfTheTutelaries` (active) -- pose le marqueur 1197
+# Geometrie FIGEE du montage : Abraxas au centre, l'unite VISEE au contact d'une tuile legale de
+# 1096, l'autre ennemi EXILE au coin oppose (sinon le Horror peut le choisir et le bras ne
+# discrimine plus rien).
+ABX_POS, NEAR_POS, FAR_POS = (4, 7), (6, 8), (0, 0)
+# Le crate n'a AUCUNE stat au catalogue (`health` nul) : sans ce forcage il arrive mort.
+LOOT_STATS = {"Health": 5000, "RemainingHealth": 5000, "Armor": 0, "FixedArmor": 0,
+              "Movement": 0, "Range": 1, "Rarity": 5, "Rank": 17, "Level": 50, "StarLevel": 5}
+
+
+def _seed_avec_crate(tmpdir):
+    """Copie du seed BC augmentee du `LootObj_*`, stats forcees. Le seed PARTAGE n'est pas
+    touche, et rien n'est ecrit sous `data/` (invariant 3)."""
+    import catalog_inject as CI
+    p, added, _cfg = CI.write_augmented_seed_bc(Path(tmpdir) / "seed_loot.json", [LOOT])
+    seed = json.loads(Path(p).read_text(encoding="utf-8"))
+    n = 0
+    for u in seed.get("Units") or []:
+        if u.get("Id") == LOOT:
+            u.update(LOOT_STATS)
+            n += 1
+    if n != 1 or LOOT not in added:
+        raise RuntimeError("le bloc Unit du crate n'a pas ete ecrit (%d entree(s), added=%r)"
+                           % (n, added))
+    return seed
+
+
+def jouer_bras(sid, bras: str) -> dict:
+    """Joue UN bras et rend ses mesures. `bras` = 'crate' | 'warden' : quelle unite est AU
+    CONTACT du Pink Horror invoque par 1096 -- donc la cible de son attaque Psychic d'apparition.
+
+    Rend un dict avec, entre autres : `d_screamer` (le nombre que le natif a produit),
+    `hp_avant`/`hp_apres` de la cible (qui PROUVE que l'attaque a eu lieu -- un zero obtenu sans
+    attaque ne prouverait rien), `traits_vus` (ce que le substrat du port lit sur la cible),
+    `port` / `port_recopie` (le verdict de `matches` sur l'ETAT LIVE, avec et sans la recopie
+    infidele). Le runner est TOUJOURS dispose."""
+    import copy
+    import tempfile
+    import hexgeo
+    import probe_112_darkangels as PR
+    import rl_collect_batch as R
+
+    near = LOOT if bras == "crate" else WARDEN
+    far = WARDEN if bras == "crate" else LOOT
+    with tempfile.TemporaryDirectory() as td:
+        seed = _seed_avec_crate(td)
+    board_dump = R._load_board_dump(BOARD)
+    template, pool, _mow = R._normalize_and_extract_pool(sid, seed, PR.RANK,
+                                                         board_dump=board_dump)
+    if ABRAXAS not in pool:
+        raise RuntimeError("%s hors pool rank %s -- montage impossible" % (ABRAXAS, PR.RANK))
+    bc = copy.deepcopy(template)
+    for u in bc.get("Units") or []:
+        if u.get("Id") == LOOT:
+            u.update({"Health": LOOT_STATS["Health"],
+                      "RemainingHealth": LOOT_STATS["RemainingHealth"]})
+    # Tout est pose A LA MAIN : `PredefinedUnits` vide, les deux ennemis passent par
+    # `playerUnits` avec `playerId = PLAYER_ID_AI` (la voie `--a-place`, #477-r5). C'est ce qui
+    # contourne le refus de pool, que le crate ne peut pas passer (il n'a pas de progression).
+    R._patch_predefined_units(bc, [])
+    pu = [{"unitId": ABRAXAS, "playerId": R.PLAYER_ID_HUMAN,
+           "col": ABX_POS[0], "row": ABX_POS[1]},
+          {"unitId": near, "playerId": R.PLAYER_ID_AI, "col": NEAR_POS[0], "row": NEAR_POS[1]},
+          {"unitId": far, "playerId": R.PLAYER_ID_AI, "col": FAR_POS[0], "row": FAR_POS[1]}]
+    resp = R._rpc(sid, "initAndStart",
+                  [{"configJson": json.dumps(bc), "seed": PR.SEED, "playerUnits": pu}],
+                  timeout=60)
+    rid = (resp.get("result") or {}).get("runnerId")
+    if rid is None:
+        raise RuntimeError("initAndStart KO: %s" % (resp.get("error") or resp))
+    PR._rids.append(rid)
+    try:
+        def _snap():
+            dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 90)
+            vis, hp = {}, {}
+            for u in (dv.get("units") or []):
+                v = u.get("visualId")
+                vis[v] = vis.get(v, 0) + 1
+                hp.setdefault(v, []).append(u.get("hp"))
+            return dv, vis, hp
+
+        dv0, vis0, hp0 = _snap()
+        abxs = [u for u in (dv0.get("units") or []) if u.get("visualId") == ABRAXAS]
+        if not abxs:
+            raise RuntimeError("Abraxas absent du decisionView : %s" % sorted(vis0))
+        abx = abxs[0]
+        ob = PR.rpc(sid, "observeBattle", {"runnerId": rid}, 40)
+        obpos = {u.get("visualId"): (u.get("col"), u.get("row")) for u in (ob.get("units") or [])}
+        at = PR.rpc(sid, "abilityTargets",
+                    {"runnerId": rid, "unitId": abx["id"], "abilityType": ABILITY_MOT}, 90)
+        tiles = []
+        for u in (at.get("units") or []):
+            for a in (u.get("abilities") or []):
+                if int(a.get("abilityId") or -1) == ABILITY_MOT:
+                    tiles = [t["tile"] for t in (a.get("fromHere") or [])
+                             if t.get("kind") == "tile" and t.get("tile")]
+        np_, fp = obpos.get(near), obpos.get(far)
+        if np_ is None or np_[0] is None or fp is None or fp[0] is None:
+            raise RuntimeError("positions introuvables : %r" % (obpos,))
+        cand = [t for t in tiles
+                if hexgeo.distance((t["col"], t["row"]), np_) == 1
+                and hexgeo.distance((t["col"], t["row"]), fp) > 1]
+        if not cand:
+            raise RuntimeError(
+                "aucune tuile de 1096 n'est adjacente a %s SANS l'etre a %s (%d tuiles legales, "
+                "positions %r) -- le board ne porte pas ce montage" % (near, far, len(tiles), obpos))
+        res = PR.act(sid, rid, {"kind": "ability", "casterId": abx["id"],
+                                "abilityType": ABILITY_MOT,
+                                "to": {"col": cand[0]["col"], "row": cand[0]["row"]}})
+        if not res.get("ok"):
+            raise RuntimeError("cast 1096 KO: %s" % (str(res)[:200],))
+        dv1, vis1, hp1 = _snap()
+
+        # Le verdict du PORT sur l'ETAT LIVE (marqueur 1197 pose offline sur Abraxas -- aucun
+        # canal ne le publie, cf. `test_master_tutelaries_active_gate_live.py`).
+        from engine.entities.pathfinding.board import Board
+        from engine.runner.snapshot import load_state
+        from engine.runner.operations.effects import AddEffectOperation
+        from engine.runner.operations.triggers.base import TriggerEvent
+        from engine.runner.operations.triggers.loki import master_of_the_tutelaries as M
+        from engine.runner.abilities.behaviours import entities_from_state
+        from engine.dsl.event_trigger_type import EventTriggerType
+        bg = PR.rpc(sid, "boardGraph", {"runnerId": rid}, 60)
+        cs = PR.rpc(sid, "combatSnapshot", {"runnerId": rid}, 60)
+        st = load_state(dv1, ob, cs, board=Board(bg["tiles"], adjacency="native_sym"))
+        cible = [u for u in (dv1.get("units") or []) if u.get("visualId") == near][0]
+        AddEffectOperation.execute(st, source=abx["id"], target=abx["id"],
+                                   effect_type=MASTER_EFFECT, name="MasterOfTheTutelaries")
+        trig = M.MasterOfTheTutelariesSummonAbility(abx["id"])
+        ev = TriggerEvent(int(EventTriggerType.Attack), abx["id"], cible["id"],
+                          ranged=False, profile=None, profiles={PSYCHIC})
+        port = bool(trig.matches(st, ev))
+        rec_sub = _Compteur(lambda c: bool(set((c.target or {}).get("_traits") or ())
+                                           & set(RECOPIE_TRAITS)))
+        saved = M._IS_OBJECT_OR_STEPPABLE
+        M._IS_OBJECT_OR_STEPPABLE = rec_sub
+        try:
+            port_recopie = bool(trig.matches(st, ev))
+        finally:
+            M._IS_OBJECT_OR_STEPPABLE = saved
+        traits_vus = sorted((entities_from_state(st, abx["id"], cible["id"]).target
+                             or {}).get("_traits") or ())
+        return {
+            "bras": bras, "runner": rid, "cible": near, "tuile": cand[0],
+            "d_horror": vis1.get(HORROR, 0) - vis0.get(HORROR, 0),
+            "d_screamer": vis1.get(SCREAMER, 0) - vis0.get(SCREAMER, 0),
+            "hp_avant": (hp0.get(near) or [None])[0],
+            "hp_apres": (hp1.get(near) or [None])[0],
+            "team_cible": cible.get("team"), "team_abraxas": abx.get("team"),
+            "traits_vus": traits_vus,
+            "port": port, "port_recopie": port_recopie,
+            "recopie_consultee": rec_sub.calls,
+        }
+    finally:
+        PR.dispose(sid, rid)
+
+
+def step_live() -> int:
+    import rl_collect_batch as R
+    sid = R._resolve_session()
+    w = R._rpc(sid, "warmupGameSingletons", [{}], timeout=180)
+    print("session %s | warmup %s" % (sid, str(w)[:120]))
+    print("")
+    out = {}
+    for bras in ("crate", "warden"):
+        try:
+            out[bras] = jouer_bras(sid, bras)
+        except Exception as e:                                        # noqa: BLE001
+            print("  bras %-7s REFUS DE MONTAGE %s: %s" % (bras, type(e).__name__, e))
+            print("  (NON CONFRONTE -- ce n'est ni un verdict natif ni un verdict de port)")
+            return 1
+        r = out[bras]
+        print("  bras %-7s cible=%-20s traits=%-18s team %s vs %s | dHorror=%d dScreamer=%d"
+              % (bras, r["cible"], ",".join(r["traits_vus"]), r["team_abraxas"], r["team_cible"],
+                 r["d_horror"], r["d_screamer"]))
+        print("      hp cible %s -> %s (attaque %s) | PORT=%s  PORT-recopie=%s (%d appel(s))"
+              % (r["hp_avant"], r["hp_apres"],
+                 "OUI" if (r["hp_apres"] is not None and r["hp_avant"] is not None
+                           and r["hp_apres"] < r["hp_avant"]) else "NON",
+                 r["port"], r["port_recopie"], r["recopie_consultee"]))
+    print("")
+    rc = 0
+    c, wd = out["crate"], out["warden"]
+    # PREMISSE : dans les DEUX bras le Horror apparait et ATTAQUE. Un 0 Screamer sans attaque ne
+    # prouverait rien -- c'est la garde de non-vacuite du bras `crate`.
+    for r in (c, wd):
+        if r["d_horror"] < 1:
+            print("ROUGE (VACUITE) : bras %s -- aucun Pink Horror invoque." % r["bras"])
+            rc = 1
+        if r["hp_apres"] is None or r["hp_avant"] is None or r["hp_apres"] >= r["hp_avant"]:
+            print("ROUGE (VACUITE) : bras %s -- la cible n'a PAS ete attaquee (%s -> %s)."
+                  % (r["bras"], r["hp_avant"], r["hp_apres"]))
+            rc = 1
+    if wd["d_screamer"] < 1:
+        print("ROUGE : bras warden -- 0 Screamer sur une VRAIE unite ; la chaine 1173 n'est pas")
+        print("  armee, donc le 0 du bras crate ne mesure rien.")
+        rc = 1
+    if c["d_screamer"] != 0:
+        print("ROUGE : bras crate -- le natif a produit %d Screamer(s) sur une cible `Object`."
+              % c["d_screamer"])
+        rc = 1
+    if c["port"] is not False or wd["port"] is not True:
+        print("ROUGE : le PORT desaccorde avec le natif (crate=%s attendu False, warden=%s "
+              "attendu True)." % (c["port"], wd["port"]))
+        rc = 1
+    if c["recopie_consultee"] == 0:
+        print("ROUGE (MUTATION INERTE) : la recopie substituee n'a pas ete consultee.")
+        rc = 1
+    elif c["port_recopie"] is not True:
+        print("ROUGE : la recopie `{Steppable, Decoy}` rejouee rend %s sur le crate -- elle ne")
+        print("  reconstitue pas le port d'AVANT, donc l'ecart n'est pas mesure.")
+        rc = 1
+    print("VERDICT : %s" % ("ROUGE" if rc else
+                            "VERT -- natif 0 vs 1 Screamer ; le port SUIT, la recopie NON"))
+    return rc
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", default="offline", choices=["re", "census", "guard", "offline"])
+    ap.add_argument("--step", default="offline",
+                    choices=["re", "census", "guard", "offline", "live"])
     args = ap.parse_args()
     rc = 0
     if args.step in ("re", "offline"):
@@ -442,6 +702,8 @@ def main():
         print("")
     if args.step in ("guard", "offline"):
         rc |= step_guard()
+    if args.step == "live":
+        rc |= step_live()
     return rc
 
 
