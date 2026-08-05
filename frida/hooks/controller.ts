@@ -40,6 +40,11 @@ import * as initTrace from "./features/init-trace.js";
 import * as moveOptions from "./features/move-options.js";
 import * as winnerCapture from "./features/winner-capture.js";
 import * as messageTrace from "./features/message-trace.js";
+// replay-output-stream = capteur PUREMENT a la demande (#477) : le register n'arme
+// AUCUN hook (zero Interceptor). Il expose la trace textuelle canonique du natif
+// (`Replay.GetWholeBattleOutputStream`), celle-la meme que `Runner.ReplayValidator`
+// compare caractere par caractere.
+import * as replayOutputStream from "./features/replay-output-stream.js";
 import * as aiStep from "./features/ai-step/index.js";
 // modifier-observe = diagnostic PERMANENT on-demand (decompo par etage prediction+combat — l'outil
 // doctrine « divergence de degat = decomposition, jamais fit », promu au build standard par #98).
@@ -406,6 +411,8 @@ export function wireRpc(ctx: Ctx): void {
      // effectImmunityObserve = diag on-demand (#151) : le register n'arme RIEN,
      // et sa sonde `traitProbe` touche un chemin CHAUD (`UnitExtensions$$HasTrait`).
      effectImmunityObserve,
+     // replayOutputStream = capteur on-demand (#477), n'arme rien au register.
+     replayOutputStream,
      gcProbe, hitTrace, renderBudget]
         .forEach((f) => f.register(ctx));
 }
