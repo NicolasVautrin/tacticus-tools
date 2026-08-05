@@ -166,7 +166,32 @@ pas, **l'ajouter fait partie de la tranche**.
 ⚠ **Les axes BITS, CLÉS DE DICT et ÉLÉMENT DE CONTENEUR sont tenus** — **0** test de bit exécutable
 à littéral brut ; **305** clés de dict converties (169 + 128 + 8) ; **160** éléments de conteneur
 (#270-r1-r1, 2026-08-05), soit `element de conteneur` **201 → 41** et `cle de dict` **8 → 0**.
-Value-preserving **vérifié** à chaque fois par empreinte des deux versions.
+Puis **140** littéraux des **rôles DÉRIVÉS** (#270-r1-r1-r3) : `affectation` **166 → 44**,
+`valeur de retour` **18 → 6**, candidats **746 → 610**. Value-preserving **vérifié** à chaque fois
+par empreinte des deux versions.
+
+⚠ **Là où il n'y a PAS de groupe, il n'y a PAS de couverture — le discriminant redevient le SITE.**
+Les volets « clé de dict » et « élément de conteneur » s'appuyaient sur la **couverture du groupe**
+(tous les entiers d'un dict/tuple dans le même enum ⇒ le groupe est clé par cet enum). Les rôles
+dérivés sont des positions **isolées** (`_STAT = 8`, `return 7`, un argument, un indice) : aucun
+voisin ne les contraint. Le tri se fait **site par site**, par le **NOM déjà écrit** ou le **TYPE
+DÉCLARÉ** lu dans `frida/methods.tsv` — et « hors règle, c'est un scalaire » reste un résultat.
+
+⚠ **UN MIRROR D'ENUM EST UNE FEUILLE — son EMPLACEMENT est fonctionnel, pas cosmétique.** Ranger
+`AbilityConstantType`/`AbilityVariableType` sous `engine/entities/abilities/` a été **essayé** et
+les rend **inimportables** : y toucher exécute l'`__init__.py` du paquet, qui tire `active_ability`
+→ `services.damage_prediction` → `ImportError` sur module partiellement initialisé. Ils vivent donc
+sous `engine/entities/`, comme `effect_type.py`. Cycle **mesuré**, même forme que celui de
+`services/static_battle_rules.py` — et gardé par un étage qui se **retourne** si le cycle disparaît.
+
+⚠ **Une confusion d'enums peut être SILENCIEUSE EN ORDINAL, et c'est ce qui rend le NOM obligatoire.**
+Mesuré (#270-r1-r1-r3) : les **19/19** ordinaux `AbilityConstantType` utilisés par le port sont
+**aussi** des membres valides d'`AbilityVariableType` (**10/10** dans l'autre sens) — confondre
+`GetNumberConstant` et `GetVariableForLevel` n'aurait levé **aucune erreur**, juste lu la mauvaise
+clé du gameconfig. Mais **28/29 nomment autre chose** (`22` = `range` / `blockDmg_2`). Le nom est le
+seul canal où la faute est visible. Corollaire de contrôle : un test « les ordinaux communs nomment
+autre chose » a d'abord rendu un ensemble **VIDE** (les deux jeux d'ordinaux sont disjoints) — un
+test vide serait passé pour vert ; **assertionner son propre non-vide** est ce qui l'a sauvé.
 
 ⚠ **UN RECENSEUR NE PEUT PAS RENDRE ZÉRO SUR CE QU'IL NE VISITE PAS — et une LISTE BLANCHE de rôles
 ne peut pas montrer le rôle qu'elle a oublié.** Ce gisement a été sous-compté **trois fois de
@@ -176,21 +201,33 @@ apparaître **deux positions de plus** que personne n'avait comptées (`return 7
 probe **n'énumère plus des rôles** : il visite **tous** les `ast.Constant` entiers et **dérive** le
 rôle du nœud parent, une position inconnue sortant sous `autre (<Noeud>)` ; la somme des rôles est
 imprimée comme partition exhaustive. Effet mesuré : **285 → 912** candidats, soit **3,2×**. Tout
-compte filtré **dit ce qu'il filtre** (`ECARTES PAR CE SEUIL : …`). Reste ouvert `#270-r1-r1-r3`
-(les rôles neufs : 165 affectations, 18 retours, 22 valeurs de dict, 8 indices…). Re-dériver
-(`probe_270r1_enum_candidates.py --croiser`), **jamais citer ce paragraphe**.
+compte filtré **dit ce qu'il filtre** (`ECARTES PAR CE SEUIL : …`). Effet mesuré : **285 → 912**
+candidats, soit **3,2×**. Restent ouverts les rôles que le tri site-par-site n'a pas tranchés
+(`argument d'appel`, `comparaison`, `expression` — majoritairement des timeouts RPC et des
+pourcentages). Re-dériver (`probe_270r1_enum_candidates.py --croiser`), **jamais citer ce
+paragraphe**.
 
 ⚠ **Une conversion de masse se vérifie par EMPREINTE — et l'empreinte doit hacher la VALEUR, pas la
 REPRÉSENTATION.** Mesuré (#270-r1-r1) : une empreinte sur `repr(v)` a rendu **3 divergences, toutes
 fausses** — `repr(6)` ≠ `repr(<PathfinderType.TeleportStrikeWalk: 6>)` alors qu'un `IntEnum` **est**
 un `int`. Canonicaliser par `int(x)`, **récursivement** dans les conteneurs. Le contrôle qui rougit
 sur son propre artefact fait renoncer à des conversions justes.
+⚠ **Et l'arbre TÉMOIN doit voir les mêmes ENTRÉES que l'arbre mesuré** : re-mesuré
+(#270-r1-r1-r3), un `git archive HEAD scripts/python` sans `data/` a rendu **3 divergences, encore
+toutes fausses** — les caches *lazy* alimentés par le gameconfig restaient vides d'un seul côté.
+Extraire l'arbre **complet** les dissout. **La portée de l'empreinte se prend LARGE** (tout
+attribut de module ET de classe du paquet) : une liste de structures choisies ne peut pas montrer
+la valeur qu'elle a oubliée — le vice même que le recenseur a dû corriger.
 
 ⚠ **Un mirror NEUF entre au registre de `probe_313` DANS LE MÊME COMMIT**, apparié par son nom
 **PLEIN** : le build porte `UnityEngine.RectTransform.Edge` en plus d'`IdunBattle.Utils.Hex.Edge`,
 et cinq `Corner` Unity/SimpleUI. Ce gisement s'est rouvert **quatre** fois par notre propre cadence
 (`PathfinderType` #381-r5, `KillUnitStep` #389-r2, `DamageReason` #651 — qui rendait `master` rouge —
-`Edge` #270-r1-r1, inscrit à temps).
+`Edge` #270-r1-r1, inscrit à temps ; puis les **quatre** de #270-r1-r1-r3, inscrits de même).
+⚠ **Le registre ne suffit pas — il faut aussi FIGER l'ordinal ÉCRIT AU SITE.** `probe_313` compare
+le *mirror* au *build* : il redevient **VERT** dès qu'on régénère le mirror après un renumérotage,
+alors que la valeur écrite au site, elle, a changé. Le cran manquant est un test qui garde
+l'ordinal **mesuré à la conversion** (`test_270r1r1r3_role_enum_offline.py`, étage 1).
 
 ⚠ **La VOIE ne dit pas l'enum, et l'ORDINAL non plus — seul le NOM ou le TYPE DÉCLARÉ tranchent.**
 Mesuré sur les 128 clés du volet 2 : les 110 ids d'ability sont attribués par le **symbole natif
