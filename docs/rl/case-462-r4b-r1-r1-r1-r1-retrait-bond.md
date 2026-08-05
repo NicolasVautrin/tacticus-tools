@@ -446,3 +446,75 @@ Non-régression : **49 verts** offline (`436r1_bond_channel`, `366_r1_tunneling_
   TRIGGER) et la question n'a **pas** été tranchée : elle est hors du périmètre de ce résidu, et
   aucune mesure n'a été faite dessus ici. Si le 3ᵉ argument y est aussi un `selectionType`, les
   deux revives natifs exigent l'**adjacence stricte** et le port est permissif d'un hex.
+
+## 9. `#462-r4b-r1-r1-r1-r1-b-r2` — le rail de `BondRemoveOnRangeExceeded`
+
+§8 a fait entrer `BondRemoveOnRangeExceeded` dans `EFFECT_TRIGGERS` **sans** poser sa ligne dans
+`probe_229_effect_triggers_active.RAIL`. Le cliquet de couverture #421
+(`test_421_effect_active_gate_offline::test_the_probe_rail_covers_the_whole_registry`, et son
+jumeau `probe_421_rail_covers_registry.py`) exige la couverture EXHAUSTIVE : il était **ROUGE sur
+`master`**, en nommant la classe.
+
+### 9.1 Le verdict de RE — le rail est ARRAYSET, et c'est MESURÉ
+
+Une ligne de `RAIL` encode deux choses : le **kind** du rail (donc si le port a le droit de lire
+`EffectComponent.IsActive @+0x5c`) et le **symbole natif** qui le porte. Trois lectures
+indépendantes le tranchent, sur le build `rnca9r7q6c`.
+
+**(1) Les trois `Triggered()` alimentent le MÊME `ArraySet`, dans le MÊME corps.**
+`IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal` clôt chacune de ses
+trois branches par `ArraySet<T>.Add(this, <trigger>, <token>)` sur le **même receveur** `this` —
+sites internes localisés aux octets (motif `mov rcx,rbp ; call`) :
+
+| branche | gate | site du `Add` |
+|---|---|---|
+| (a) `get_RemoveOnBondedEntityDeath` | `<klass+0x748>` à `+0x67` | `+0x214` |
+| **(b) `get_Range`** | `<klass+0x728>` — `HasValue` à `+0x222`, `get_Value` à `+0x2c9` ; `On(0x1d)` à `+0x3b7` | **`+0x436`** |
+| (c) `get_Adjacent` | `<klass+0x738>` à `+0x444` ; `On(0x1d)` à `+0x53d` | `+0x5b0` |
+
+`ABondEffect` ne déclare **aucun** `CreateTargetTrigger` : le rail TARGETS ne lui est pas ouvert.
+
+**(2) Cet `ArraySet` est exactement celui du rail ARRAYSET.**
+`IdunBattle.Entities.Effects.BaseEffect$$CreateHandleTriggerAbilities` récupère la valeur du virtuel
+`<+0x588>` (= `CreateHandleTriggerAbilitiesInternal`), y **greffe** au besoin
+`<+0x5a8> CreateRemoveEffectTrigger` par un `Add` supplémentaire, puis la publie dans le champ
+`Nullable` de l'effet. C'est le même `ArraySet` que celui où atterrit déjà (a).
+
+**(3) L'évaluateur de ce rail ne peut PAS lire le flag — pas « ne le lit pas », ne le *peut* pas.**
+`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTrigger` appelle les deux évaluateurs
+avec des paramètres **différents** :
+
+* `EvaluateEffectTriggerTargets(this, trigger, effect, **effectComponent**, effectAction, …)` —
+  reçoit le composant, et c'est lui qui teste `+0x5c` deux fois ;
+* `EvaluateEffectTriggerEffectAbilities(this, trigger, onlyNonAtomic, owner, effect, effectAction,
+  createAbilityEntities, abilityState)` — **ne reçoit pas `effectComponent` du tout**. Aucun accès à
+  `+0x5c` n'existe dans son corps, et il n'en a pas le moyen.
+
+⇒ rail **ARRAYSET**, symbole
+`IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal` — la même ligne que
+son frère (a), et pour la même raison lue, pas déduite de la parenté. Le seul gate de (b) reste le
+`Nullable<int> get_Range`, qui décide de sa **construction** et vit dans `BOND_REMOVAL_GATES`.
+
+Corroboration au passage : `IdunBattle.Entities.Effects.TauntedEffect$$get_Range` existe comme
+symbole nommé et rend `Nullable<int>(1)` (`local_res18[0] = 1` avant le ctor) — la valeur `range = 1`
+de la ligne `EffectType 27`, jusqu'ici établie par le seul `--step declared`, a donc une **seconde
+source indépendante**.
+
+### 9.2 Le cliquet mord ENCORE — trois mutations, trois rouges
+
+Le kind d'une ligne de `RAIL` n'est **pas** falsifiable par le cliquet : `ARRAYSET` est précisément
+la valeur qui le rend vert. C'est la RE de §9.1 qui porte le verdict, et rien d'autre. Ce que la
+contre-épreuve établit, c'est que la garde discrimine encore — mutation appliquée sur copie de
+sauvegarde, **delta d'octets vérifié avant de lire pytest** (un `replace` qui ne matche pas est un
+no-op silencieux, et le dépôt est en CRLF sur disque) :
+
+| mutation | test | verdict |
+|---|---|---|
+| ligne `RAIL` de `BondRemoveOnRangeExceeded` retirée (−136 o) | `…::test_the_probe_rail_covers_the_whole_registry` | **ROUGE**, nomme la classe |
+| son kind basculé `ARRAYSET` → `TARGETS` (−1 o) | `…::test_no_targets_rail_trigger_is_left_without_its_gate` | **ROUGE** — « gate `IsActive` manquant sur le rail TARGETS » |
+| `matches` se met à lire `inst.active` (+55 o) | idem | **ROUGE** — « infidélité symétrique » |
+
+Arbre restauré, cliquet vert. `EXPECTED_GAPS` est **vide** — il ne peut donc plus citer de nom mort ;
+les trois entrées d'`ARRAYSET_READS_BY_TREE` désignent toutes une classe inscrite (vérifié par
+`probe_421`, qui rend `0` sur ses quatre compteurs). Couverture après ce résidu : **69 classes
+inscrites, 69 entrées `RAIL`**.

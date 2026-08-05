@@ -111,6 +111,30 @@ RAIL: dict[str, tuple[str, str]] = {
     # get_RemoveOnBondedEntityDeath`, porte par la table `BOND_REMOVAL_GATES`.
     "BondRemoveOnBondedEntityDeath":
         (ARRAYSET, "IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #462-r4b-r1-r1-r1-r1-b-r2 -- le RETRAIT (b) `get_Range`, entre au registre par #462-r4b-r1-r1-r1-r1-b
+    # sans son rail. MEME rail et MEME symbole que (a), et ce n'est PAS une deduction par parente :
+    # le decompile de `ABondEffect$$CreateHandleTriggerAbilitiesInternal` (build `rnca9r7q6c`) porte
+    # les TROIS `Triggered()` dans UN SEUL corps, chacun clos par le MEME
+    # `ArraySet<T>.Add(this, <trigger>, <token>)` sur le MEME receveur `this` -- sites internes
+    # mesures aux octets (`ghidra read_bytes` sur le corps, motifs `mov rcx,rbp ; call`) :
+    #
+    #     (a) gate `<klass+0x748> get_RemoveOnBondedEntityDeath` a +0x67   -> Add a +0x214
+    #     (b) gate `<klass+0x728> get_Range` (HasValue a +0x222, get_Value a +0x2c9),
+    #         `On(0x1d)` a +0x3b7                                          -> Add a +0x436
+    #     (c) gate `<klass+0x738> get_Adjacent` a +0x444, `On(0x1d)` a +0x53d -> Add a +0x5b0
+    #
+    # Le receveur de ces trois `Add` est l'`ArraySet` que `BaseEffect$$CreateHandleTriggerAbilities`
+    # recupere du virtuel `<+0x588>` puis publie dans le champ `Nullable` de l'effet -- le MEME
+    # ArraySet que celui ou il greffe `<+0x5a8> CreateRemoveEffectTrigger`. C'est cet ArraySet
+    # qu'enumere `EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities`, ou aucun acces a
+    # `+0x5c` n'existe (relu ici in extenso). Rail ARRAYSET => AUCUN gate `IsActive` natif => le port
+    # ne doit PAS lire le flag.
+    #
+    # ⚠ (b) N'EST PAS un `CreateTargetTrigger` : `ABondEffect` n'en declare aucun. Le seul gate de
+    # (b) est le `Nullable<int> get_Range`, qui decide de sa CONSTRUCTION -- porte par la table
+    # `BOND_REMOVAL_GATES` (champ `range`), exactement comme `<klass+0x748>` porte celui de (a).
+    "BondRemoveOnRangeExceeded":
+        (ARRAYSET, "IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal"),
     "EarlyWarningOverrideReactivateOverwatch":
         (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
     "EarlyWarningOverrideHitReductionPurge":

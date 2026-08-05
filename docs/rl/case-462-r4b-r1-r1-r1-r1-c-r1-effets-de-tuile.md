@@ -303,10 +303,12 @@ tests**), tous deux venus des tranches PRÉCÉDENTES de cette même famille :
    — `BondRemoveOnRangeExceeded`, la classe entrée au registre par la PR **#629**, n'est pas déclarée
    dans `probe_229_effect_triggers_active.RAIL`. **NON CORRIGÉ ICI** : une entrée de `RAIL` encode un
    verdict de RE (`kind` + symbole natif du rail) que cette tranche n'a pas rendu, et le fabriquer
-   serait exactement ce que le cliquet existe pour empêcher. Résidu `#462-r4b-r1-r1-r1-r1-b-r2`. La
-   dérivation probable — à confirmer par son auteur : même rail `ARRAYSET` et même symbole
-   `IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal` que son frère
-   `BondRemoveOnBondedEntityDeath`, le trigger (b) sortant du même `ArraySet`.
+   serait exactement ce que le cliquet existe pour empêcher. Résidu `#462-r4b-r1-r1-r1-r1-b-r2`,
+   **depuis RÉSOLU** (`case-462-r4b-r1-r1-r1-r1-retrait-bond.md` §9) : la dérivation probable est
+   **confirmée par lecture** — rail `ARRAYSET`, symbole
+   `IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal`, les trois
+   `Triggered()` alimentant le même `ArraySet` dans le même corps (`Add` à `+0x214` / `+0x436` /
+   `+0x5b0`).
 
 ### 7.6 Matrice de mutants — et ce qu'elle a trouvé de MANQUANT
 
