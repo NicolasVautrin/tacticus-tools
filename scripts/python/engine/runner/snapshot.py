@@ -391,7 +391,9 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     payload, source = _auto_ability_states(ability_states, decision, observe, snapshot)
     # #448-r3-r1-r1 : un montage qui a GREFFE ne peut PAS se contenter d'un canal muet -- il
     # mesurerait un port ampute et rendrait VERT. Le choke point REFUSE au lieu de se degrader.
-    _refuse_if_grafted(source, snapshot)
+    # Le refus vise CET ETAT (les greffes dont le porteur y est), pas le PROCESSUS : cf.
+    # `_grafts_concerning`, ou la mesure qui l'impose est ecrite.
+    _refuse_if_grafted(source, snapshot, decision)
     if payload is not None:
         seeded = _load_tertiary_abilities(state, payload)
         # MEME payload, MEME composant, hierarchie 2 : les passiveAbilities REELLEMENT montees
@@ -1156,14 +1158,49 @@ def _declared_grafts() -> list:
         return []
 
 
-def _refuse_if_grafted(source: str, snapshot) -> None:
-    """LEVE si le processus a greffe et que le canal est muet par accident.
+def _grafts_concerning(decision: dict, grafts: list) -> tuple:
+    """Les greffes du processus qui concernent CET etat-ci. Rend `(concernees, indecidable)`.
+
+    ⚠ POURQUOI LE REFUS NE PEUT PAS ETRE GLOBAL AU PROCESSUS -- mesure du 2026-08-05. Le registre
+    de `catalog_inject` est un etat de PROCESSUS : une passe pytest sur un fichier greffeur le
+    laisse plein (**3 entrees** apres `test_366_r1_stormboyz_strike_live.py`), et TOUT `load_state`
+    ulterieur a canal muet levait -- y compris sur un etat qui n'a rien a voir avec la greffe. Ce
+    n'est pas theorique : c'est exactement ce qui a fait rougir deux tests de cette tranche meme,
+    et le regime coupable n'etait meme pas `no-transport` mais `unavailable:` (le transport ETAIT
+    lie, le runner visé n'existait plus).
+
+    Le critere exact serait « une unite de cet etat porte une greffe invisible du gameconfig » --
+    circulaire, puisqu'il faudrait le canal pour le savoir. Le critere RETENU est le porteur :
+    l'`unitId` de la greffe apparait-il parmi les `visualId` de l'etat ? Le suffixe d'instance
+    (`orksNob:2`) est retire des deux cotes.
+
+    TRI-ETAT, et le troisieme etat est CONSERVATEUR. Une unite SANS TUILE arrive dans
+    `decisionView` avec `visualId = null` (mesure #366-r1, citee par `probe_366_r1.carrier_id`) :
+    on ne peut alors NI confirmer NI exclure qu'elle porte la greffe -- on leve, en le disant."""
+    vis = set()
+    indecidable = False
+    for u in (decision.get("units") or []):
+        v = u.get("visualId")
+        if v is None:
+            indecidable = True
+        else:
+            vis.add(str(v).split(":")[0])
+    concernees = [g for g in grafts if str(g.get("unitId", "")).split(":")[0] in vis]
+    return (concernees, indecidable and bool(grafts))
+
+
+def _refuse_if_grafted(source: str, snapshot, decision: dict) -> None:
+    """LEVE si une greffe de ce processus concerne CET etat et que le canal est muet par accident.
 
     POURQUOI UN REFUS ET PAS UN AVERTISSEMENT. La degradation que ceci ferme ne RATE pas, elle
     MENT : sans canal, `collect_triggered_abilities` retombe sur `gameconfig.unit(<greffon>)`,
     aucune classe greffee n'est montee, et toute assertion NEGATIVE du montage (« l'effet n'est
     plus la ») passe A VIDE, EN VERT. Mesure (#448-r3-r1) : le meme probe rendait 0 echec en CLI
     et 3 sous pytest, le seul ecart etant le transport ambiant.
+
+    PORTEE -- cf. `_grafts_concerning` : le refus vise l'ETAT, pas le PROCESSUS. Un registre
+    global fait lever des `load_state` legitimes qui n'ont aucun rapport avec la greffe, et c'est
+    MESURE, pas redoute.
 
     TROIS SORTIES, toutes explicites -- aucune ne consiste a se taire :
       * lier le transport ambiant (`snapshot.bind_live_rpc(rpc)`), ce que fait `tests/conftest.py` ;
@@ -1177,15 +1214,24 @@ def _refuse_if_grafted(source: str, snapshot) -> None:
     grafts = _declared_grafts()
     if not grafts:
         return
-    apercu = ", ".join("%s %s <- %s" % (g["kind"], g["unitId"], g["what"]) for g in grafts[:4])
+    concernees, indecidable = _grafts_concerning(decision, grafts)
+    if not concernees and not indecidable:
+        return
+    montrees = concernees or grafts
+    apercu = ", ".join("%s %s <- %s" % (g["kind"], g["unitId"], g["what"]) for g in montrees[:4])
     raise GraftedStateWithoutChannel(
-        "load_state : ce processus a declare %d greffe(s) (%s%s) et le canal `unitAbilityStates` "
-        "est MUET (source=%r). Le port serait AMPUTE -- les classes greffees ne seraient pas "
-        "montees et les assertions negatives passeraient a vide, en vert (#448-r3-r1-r1). "
+        "load_state : %s (%s%s) et le canal `unitAbilityStates` est MUET (source=%r). Le port "
+        "serait AMPUTE -- les classes greffees ne seraient pas montees et les assertions negatives "
+        "passeraient a vide, en vert (#448-r3-r1-r1). "
         "Sorties : `snapshot.bind_live_rpc(rpc)` ; ou `load_state(..., ability_states=<payload>)` ; "
         "ou `ability_states=False` / `catalog_inject.clear_declared_grafts()` si l'etat charge n'a "
         "deliberement pas de greffe."
-        % (len(grafts), apercu, " ..." if len(grafts) > 4 else "", source))
+        % ("cet etat porte %d greffe(s) declaree(s) par ce processus" % len(concernees)
+           if concernees else
+           "cet etat porte une unite SANS `visualId` (hors plateau) et ce processus a declare "
+           "%d greffe(s) -- indecidable, on refuse plutot que de mesurer un port peut-etre ampute"
+           % len(grafts),
+           apercu, " ..." if len(montrees) > 4 else "", source))
 
 
 TERTIARY_HIERARCHY = 3

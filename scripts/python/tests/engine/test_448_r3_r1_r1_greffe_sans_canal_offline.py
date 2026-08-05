@@ -77,23 +77,53 @@ def test_le_recenseur_discrimine():
 
 # ──────────────────────── etage 3 : le CHOKE POINT refuse au lieu de se degrader
 
-def _payloads():
-    """Le plus petit triplet que `load_state` accepte, avec un label de runner LISIBLE (sans lui le
-    canal sortirait en `no-runner-label`, un autre regime)."""
-    return ({"units": [], "runner": "build#99"}, {"counts": {"player": 3}, "units": []},
+GREFFON = "tauCrisis"
+
+
+def _payloads(avec_greffon: bool = True, visual_id_nul: bool = False):
+    """Le plus petit triplet que `load_state` accepte, avec un label de runner LISIBLE.
+
+    `avec_greffon` : l'etat porte-t-il l'unite sur laquelle les tests greffent ? C'est ce qui
+    decide si le refus doit mordre (cf. `snapshot._grafts_concerning`)."""
+    if visual_id_nul:
+        units = [{"id": 1, "visualId": None, "alive": True}]
+    elif avec_greffon:
+        units = [{"id": 1, "visualId": GREFFON, "alive": True}]
+    else:
+        units = [{"id": 1, "visualId": "necroWarden", "alive": True}]
+    return ({"units": units, "runner": "build#99"}, {"counts": {"player": 3}, "units": []},
             {"units": []})
 
 
 @pytest.fixture(autouse=True)
-def _registre_propre():
-    """Le registre est un etat de PROCESSUS : on le laisse comme on l'a trouve."""
+def _regime_maitrise():
+    """LE TEST CONTROLE SON REGIME -- registre de greffes ET transport ambiant.
+
+    ⚠ CE QUI L'IMPOSE, MESURE LE 2026-08-05. Deux tests de ce fichier assertionnaient
+    `source == "no-transport"` sans delier le transport. Joues SEULS : verts. Joues APRES un
+    fichier live (`tests/conftest.py::live_session` lie l'ambiant, etat GLOBAL de processus) :
+    **2 failed** -- `_auto_ability_states` ne s'arretait plus a `no-transport` mais allait jusqu'a
+    `unavailable:runner 99 not found`. Un vert qui depend de l'ISOLEMENT ne tient pas en compagnie,
+    et c'est exactement la famille de faute que cette tranche ferme.
+
+    Corollaire : delier rend le regime `no-transport` INDEPENDANT de la session Frida (numero,
+    bundle, runners vivants). Aucun test de ce fichier ne touche le reseau.
+
+    Le registre est lui aussi un etat de PROCESSUS -- on le laisse comme on l'a trouve."""
     import catalog_inject as CI
+    import engine.runner.snapshot as S
     avant = CI.declared_grafts()
     CI.clear_declared_grafts()
-    yield
-    CI.clear_declared_grafts()
-    for g in avant:
-        CI.declare_graft(g["kind"], g["unitId"], g["what"])
+    prev_rpc = S.unbind_live_rpc()
+    S.clear_ability_states_cache("build#99")
+    try:
+        yield
+    finally:
+        S.clear_ability_states_cache("build#99")
+        S.bind_live_rpc(prev_rpc)
+        CI.clear_declared_grafts()
+        for g in avant:
+            CI.declare_graft(g["kind"], g["unitId"], g["what"])
 
 
 def test_sans_greffe_le_canal_muet_ne_leve_pas():
@@ -111,12 +141,52 @@ def test_avec_greffe_le_canal_muet_LEVE():
     import catalog_inject as CI
     from engine.runner.snapshot import load_state, GraftedStateWithoutChannel
     dv, ob, snap = _payloads()
-    CI.declare_graft("passive", "tauCrisis", "Cleave")
+    CI.declare_graft("passive", GREFFON, "Cleave")
     with pytest.raises(GraftedStateWithoutChannel) as e:
         load_state(dv, ob, snap)
     msg = str(e.value)
-    assert "tauCrisis" in msg and "Cleave" in msg, "le refus doit NOMMER la greffe : %r" % msg
+    assert GREFFON in msg and "Cleave" in msg, "le refus doit NOMMER la greffe : %r" % msg
     assert "no-transport" in msg, "le refus doit NOMMER le regime muet : %r" % msg
+
+
+def test_une_greffe_qui_ne_concerne_PAS_cet_etat_ne_leve_pas():
+    """LA PORTEE DU REFUS -- l'ETAT, pas le PROCESSUS.
+
+    MESURE QUI L'IMPOSE (2026-08-05) : une passe pytest sur `test_366_r1_stormboyz_strike_live.py`
+    laisse **3 greffes** au registre, et un `load_state` a canal muet dans le meme processus levait
+    ensuite -- sur un etat qui n'a aucun rapport. Le porteur greffe n'est pas dans cet etat-ci :
+    rien a amputer, donc rien a refuser."""
+    import catalog_inject as CI
+    from engine.runner.snapshot import load_state
+    dv, ob, snap = _payloads(avec_greffon=False)
+    CI.declare_graft("passive", GREFFON, "Cleave")
+    st = load_state(dv, ob, snap)
+    assert st.ability_states_seed["source"] == "no-transport"
+
+
+def test_un_visualId_NUL_rend_le_refus_CONSERVATEUR():
+    """TROISIEME ETAT. Une unite SANS TUILE arrive dans `decisionView` avec `visualId = null`
+    (mesure #366-r1) : on ne peut NI confirmer NI exclure qu'elle porte la greffe. On leve, et le
+    message DIT que c'est indecidable -- jamais un silence."""
+    import catalog_inject as CI
+    from engine.runner.snapshot import load_state, GraftedStateWithoutChannel
+    dv, ob, snap = _payloads(visual_id_nul=True)
+    CI.declare_graft("passive", GREFFON, "Cleave")
+    with pytest.raises(GraftedStateWithoutChannel) as e:
+        load_state(dv, ob, snap)
+    assert "indecidable" in str(e.value), "le refus conservateur doit se NOMMER : %r" % str(e.value)
+
+
+def test_le_suffixe_d_instance_ne_masque_pas_le_porteur():
+    """`BC.Units[].Id` porte un suffixe d'instance (`orksNob:2`) que `visualId` n'a pas. Le
+    rapprochement retire le suffixe DES DEUX COTES -- sinon le refus serait muet sur tout montage
+    multi-instances, c.-a-d. exactement ceux qui greffent plusieurs copies du greffon."""
+    import catalog_inject as CI
+    from engine.runner.snapshot import load_state, GraftedStateWithoutChannel
+    dv, ob, snap = _payloads()
+    CI.declare_graft("passive", "%s:2" % GREFFON, "Cleave")
+    with pytest.raises(GraftedStateWithoutChannel):
+        load_state(dv, ob, snap)
 
 
 def test_le_refus_EXPLICITE_reste_possible():
@@ -125,7 +195,7 @@ def test_le_refus_EXPLICITE_reste_possible():
     import catalog_inject as CI
     from engine.runner.snapshot import load_state
     dv, ob, snap = _payloads()
-    CI.declare_graft("relic", "tauCrisis", "AmuletOfTheVoidwyrm")
+    CI.declare_graft("relic", GREFFON, "AmuletOfTheVoidwyrm")
     st = load_state(dv, ob, snap, ability_states=False)
     assert st.ability_states_seed["source"] == "refused"
 
@@ -137,7 +207,7 @@ def test_sans_combatSnapshot_le_refus_ne_mord_pas():
     import catalog_inject as CI
     from engine.runner.snapshot import load_state
     dv, ob, _ = _payloads()
-    CI.declare_graft("active", "necroWarden", "TunnelingHorror")
+    CI.declare_graft("active", GREFFON, "TunnelingHorror")   # le GREFFON est dans cet etat
     st = load_state(dv, ob, None)
     assert st.ability_states_seed["source"] == "no-snapshot"
 
@@ -147,7 +217,7 @@ def test_le_canal_ALIMENTE_ne_leve_pas():
     import catalog_inject as CI
     from engine.runner.snapshot import load_state
     dv, ob, snap = _payloads()
-    CI.declare_graft("passive", "tauCrisis", "Cleave")
+    CI.declare_graft("passive", GREFFON, "Cleave")
     st = load_state(dv, ob, snap, ability_states={"units": []})
     assert st.ability_states_seed["source"] == "given"
 
@@ -158,7 +228,7 @@ def test_le_transport_AMBIANT_suffit():
     import catalog_inject as CI
     import engine.runner.snapshot as S
     dv, ob, snap = _payloads()
-    CI.declare_graft("passive", "tauCrisis", "Cleave")
+    CI.declare_graft("passive", GREFFON, "Cleave")
     S.clear_ability_states_cache("build#99")
     prev = S.bind_live_rpc(lambda method, body=None, timeout=60: {"units": []})
     try:
@@ -176,7 +246,7 @@ def test_le_capteur_EN_PANNE_leve_aussi():
     import engine.runner.snapshot as S
     from engine.runner.snapshot import GraftedStateWithoutChannel
     dv, ob, snap = _payloads()
-    CI.declare_graft("passive", "tauCrisis", "Cleave")
+    CI.declare_graft("passive", GREFFON, "Cleave")
     S.clear_ability_states_cache("build#99")
     prev = S.bind_live_rpc(lambda method, body=None, timeout=60: {"error": "runner dispose"})
     try:
