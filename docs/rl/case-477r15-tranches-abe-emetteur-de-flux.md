@@ -109,12 +109,37 @@ Le rapport imprime, à chaque run :
 - **(b)** les **12** omissions structurelles du flux — `Defense`, `EvasionChance`, les 7 stats
   `Extra*` (modification seule), `visualId`, `rank`, le tirage PRNG brut. Aucun diff de flux ne les
   tranchera, quoi qu'on porte ;
-- **(c)** les **5** grandeurs que le port a **reçues du flux natif** : ids d'entité des joueurs, de
-  la première tuile, des deux plateformes, `Tile_IsTerritory` (aucun porteur dans le board dump,
-  émis à 0 en dur), et l'entité du groupe racine. Comparer une valeur copiée de l'oracle ne mesure
-  rien — elles sont nommées et exclues du verdict.
+- **(c)** les grandeurs que le port a **reçues du flux natif**. Comparer une valeur copiée de
+  l'oracle ne mesure rien — elles sont nommées et exclues du verdict. Elles étaient **5** ; le merge
+  de `#477-r16` en cours de tranche les a ramenées à **2** (voir ci-dessous).
 
 **Non comparé ≠ égal.**
+
+### L'hypothèse « les ids d'entité sont des ENTRÉES » est RELEVÉE
+
+Cette tranche a commencé avec une hypothèse explicite : le port ne calcule aucun id d'entité, il les
+reçoit, et ils sont donc **exclus du verdict**. Ce qu'elle interdisait : conclure quoi que ce soit de
+l'égalité des `Entity=` — donc de la moitié des caractères de chaque ligne.
+
+`#477-r16` (mergé le 2026-08-05) a rendu la règle **mécanique**, et le probe la consomme :
+`deriver_regle()` rend `3 + P + E` depuis les entrées versionnées, et le probe en dérive les ids des
+joueurs, des tuiles, des **deux plateformes** et de la **première unité**. Mesure, sur les deux
+boards :
+
+| board | 1ʳᵉ tuile | plateformes | 1ʳᵉ unité (dérivée) | 1ʳᵉ unité (`observeBattle.squadId`) |
+|---|---:|---|---:|---:|
+| C1_02 (35 tuiles) | 12 | 47, 48 | **49** | **49** |
+| MC1_67 (63 tuiles) | 12 | 75, 76 | **77** | **77** |
+
+Les ids ne sont donc plus fournis : ils sont **calculés puis confrontés**, et le probe **rougit** si
+la règle dérivée ne recoupe ni le flux natif (plateformes) ni `observeBattle` (première unité). Que
+les 161 / 273 lignes restent égales prouve d'ailleurs qu'ils sont justes — un seul id faux aurait
+décalé tout le reste.
+
+**Il reste UN terme non dérivé, et on ne le fige pas** : `GetDerivedEnvironmentAbilities` vaut 1 sur
+tous les boards mesurés, mais il est obtenu **par différence** — il absorberait donc silencieusement
+toute autre allocation manquée avant les tuiles. Le probe le calcule, le PUBLIE en borne (c) et le
+rattache à `#477-r16-r1`. La borne (c) est donc réduite à ce terme et à `Tile_IsTerritory`.
 
 ## 4. Ce qui rend la mesure honnête : des canaux INDÉPENDANTS
 
@@ -124,8 +149,17 @@ vient donc d'ailleurs :
 | grandeur | canal |
 |---|---|
 | colonne / ligne de chaque tuile, **et leur ordre** | le **board dump** `data/boards/<kind>/<id>.json`, parcouru `Tiles[c].Tile[r]` |
-| id d'entité de chaque unité | `observeBattle.units[].squadId` — dont #477-r15 a mesuré qu'il **est** le `Entity=` du flux |
+| `Player_Id` de chaque joueur, **et leur ordre** | `BC.Player.Players`, trié par clé (le natif itère un `SortedDictionary`) |
+| ids d'entité (joueurs, tuiles, plateformes, unités) | **calculés** par `#477-r16` — cf. ci-dessus |
+| id d'entité de chaque unité (recoupement) | `observeBattle.units[].squadId` — dont #477-r15 a mesuré qu'il **est** le `Entity=` du flux |
 | propriétaire, position d'unité | `observeBattle` |
+
+⚠ **Un désaccord de NOMMAGE, sans désaccord de fait** : `case-477r16` §3 écrit le parcours des
+tuiles `for row in 0..Width-1 { for col in 0..Height-1 }`, alors que le port parcourt le dump
+`Tiles[c].Tile[r]` — soit, en termes de tags émis, colonne fixe et ligne variant
+(`Tile_Column:0 Tile_Row:0`, puis `0/1`, … puis `1/0`). Les deux descriptions désignent le **même**
+balayage : les indices du dump ne portent pas les mêmes noms que ceux du décompilé. Ce qui tranche
+est la mesure — **98 lignes `AddTile` égales** sur les deux boards.
 
 **L'ordre des tuiles est la mesure la plus forte du lot** : le parcours colonne-par-colonne du board
 dump reproduit exactement l'ordre de `SetupGameOperation$$AddTiles`. S'il avait différé, les 35 (ou
@@ -171,8 +205,11 @@ Deux pièges qu'un port écrit depuis le seul flux observé raterait :
 
 ## 7. Ce que je n'ai PAS fait
 
-- **Aucune tranche C** : l'ordre d'allocation des entités ECS n'est pas RE'd (`#477-r16`, dispatché
-  en parallèle). Le port ne calcule aucun id d'entité — il les reçoit, et le comparateur le publie.
+- **Aucune tranche C écrite dans `engine/`** : la règle d'allocation est **RE'd** (`#477-r16`, mergé
+  pendant cette tranche) et le **probe** la consomme, mais l'émetteur lui-même reçoit toujours ses
+  ids. Les porter dans `engine/streams/` — un `MatchComponent$$NextId` mirroré, avec son `+= 1`
+  pré-incrémenté, son `ReturnLastId` et le fait que l'échec d'`AddUnitOperation` **brûle** l'id — est
+  une tranche à part entière, et elle reste bloquée par `#477-r16-r1` pour son offset initial.
 - **Aucun `ChangeStats` / `ChangeAbility` émis** — tranche D.
 - **`replaySteps` / `replayRngEvents` non exploités.** Ils sont vivants depuis la session 8, mais
   l'oracle de cette tranche est le **texte brut** de `GetWholeBattleOutputStream` : la barre reste
