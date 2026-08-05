@@ -187,13 +187,12 @@ Ici elle avait raison sur un point et tort sur l'autre, **dans le même fichier*
   **live** `NOT IsObjectOrSteppable(target@0x178)` avec un `genesSmnDecoy` Steppable en bras négatif.
   Le fichier offline ci-dessus garde **le conjoint sur `BattleFatigueAbility`**, que rien ne couvrait.
 
-  ⚠ **RECTIFIÉ (2026-08-05)** : cette puce affirmait que `barbed_ovipositor` « passe par le foyer »,
-  donc que ce test live gardait le foyer. **C'est faux** — le module a conservé sa recopie manuelle
-  `_OBJECT_OR_STEPPABLE = (UnitTrait.Steppable.name, UnitTrait.Object.name)`, fidèle sur les
-  littéraux mais recopie quand même. Ce test live garde donc **la recopie**, pas le foyer. Résidu
-  `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3` — et la migration n'y est **pas** cosmétique : le trigger est
-  `On(UnitDeath)`, donc la cible est un CADAVRE, et c'est exactement le cas où le substrat de traits
-  du contexte DSL (`entity_trait_names`, repli gameconfig, #226) diffère de `ctx.traits` brut.
+  ⚠ **RECTIFIÉ DEUX FOIS.** (2026-08-05, matin) cette puce affirmait que `barbed_ovipositor`
+  « passe par le foyer » — c'était **faux**, le module avait gardé sa recopie manuelle. (2026-08-05,
+  `#462-…-r3`) **c'est redevenu vrai** : le module passe désormais par le foyer, comme ses deux
+  frères. Ce que le bras `genesSmnDecoy` de ce fichier live garde reste le **conjoint**, dans le
+  régime NOMINAL ; le régime CADAVRE — le seul que la migration change — est gardé par
+  `test_barbed_ovipositor_corpse_substrate_live` du même fichier.
 
   | bras | verdict | contre-épreuve (conjoint 5 neutralisé) |
   |---|---|---|
@@ -237,12 +236,15 @@ Ici elle avait raison sur un point et tort sur l'autre, **dans le même fichier*
   `case-462-r4b-r1-r1-r1-r1-b-r1-r1-r1-mot-object-or-steppable.md`. MoT passe par le foyer ; la
   question ouverte est **répondue OUI** et l'écart **confronté live** (0 vs 1 Screamer sur deux bras
   appariés). Résidu neuf : `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3`.
-* **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3`** — `barbed_ovipositor.py` est la **dernière recopie manuelle**
-  du foyer. Fidèle sur les littéraux, donc sans écart de verdict *aujourd'hui* — mais son trigger est
-  `On(UnitDeath)`, donc sa cible est un CADAVRE, et c'est précisément le cas où le substrat de traits
-  diffère (`entity_trait_names` retombe sur le gameconfig quand le `StatsComponent` manque, #226 ;
-  `ctx.traits` brut rend un set VIDE). La migration change donc potentiellement un verdict sur un
-  chemin live-confrontable (`test_barbed_ovipositor_live.py`) et exige ses propres bras.
+* ~~**`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3`**~~ — **LIVRÉ (2026-08-05)**,
+  `case-462-r4b-r1-r1-r1-r1-b-r1-r1-r3-barbed-substrat-traits.md`. **Les trois recopies sont
+  résorbées** : `BattleFatigue`, `MasterOfTheTutelaries` et `BarbedOvipositor` passent tous par le
+  foyer. ⚠ La formulation ci-dessus était **à moitié fausse** : une victime qui meurt *pendant* le
+  run garde son `StatsComponent`, donc les deux substrats y coïncident — la divergence est indexée
+  par « morte **avant la capture** » (aucun `StatsComponent`, `combatSnapshot.units` n'incluant pas
+  les morts). Migration **value-preserving mesurée** sur le nominal, **correctrice** sur le cadavre,
+  **confrontée live**. Résidu neuf : `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1` (le patron de la lecture
+  brute, ~54 sites à trier).
 * **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r2`** — les **5 call-sites natifs non portés** d'`IsObjectOrSteppable`
   (§3). Chacun est un gate manquant du même genre, sur une ability différente ; `--step re` les
   réimprime avec leur état, donc l'inventaire se re-dérive au lieu de se citer.
