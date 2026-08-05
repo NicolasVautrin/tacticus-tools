@@ -82,9 +82,11 @@ INFORM_WEAPON = """
 """
 
 DAT_TAGS = {"DAT_183345050"}
-#: `ModStatTransformConfig..ctor` declare HUIT parametres `IdunBattle.Streams.TagKey` -- lu dans
-#: `frida/methods.tsv`, jamais compte a la main. C'est ce nombre qui donne la portee de slots.
-N_CLES = 8
+#: Nombre de parametres `IdunBattle.Streams.TagKey` du ctor de config -- LU dans
+#: `frida/methods.tsv`, jamais compte a la main : `ModStatTransformConfig..ctor` en declare
+#: SEPT, `FillStatTransformConfig..ctor` en declare HUIT. C'est ce nombre qui donne la portee
+#: de slots, `ceil(n/2)` -- donc QUATRE dans les deux cas, et les deux lisent la meme table.
+N_CLES = 7
 
 
 def test_etage1_les_six_cles_de_la_table_statique():

@@ -32,13 +32,21 @@ L'émetteur natif est `IdunBattle.Streams.IStreamListener` (slots **0/1/2** =
 |---|---|
 | **1** — xrefs du `Il2CppClass*` de `IStreamListener` | **386** sites, **133** fonctions productrices |
 | **2** — xrefs de `IdunBattle.Core.AOperation$$get_Events` (indépendant) | **77** fonctions, **toutes** incluses dans le canal 1 ; 56 en plus côté canal 1 |
-| **3** — méthodes dont la **signature** déclare le type (lu dans `frida/methods.tsv`) | **32** porteuses de `GroupType` / **20** de `StepType`, **879** sites, **818** littéraux lus |
+| **3** — méthodes dont la **signature** déclare le type (lu dans `frida/methods.tsv`) | **32** porteuses de `GroupType` / **20** de `StepType` / **32** de `TagKey`, **918** sites, **845** littéraux lus |
+| **4** — xrefs du `MethodInfo*` de `Dictionary<TagKey,int>.Add` | **108** écrivains de tags, dont **23** que le canal 1 ne voit pas ; **+7** `TagKey` exclusifs |
+| **5** — tables STATIQUES de clés (`.cctor` de la classe d'un ctor de config INLINÉ) | **1** table, **15** entrées, **62** valeurs, **62/62** dans l'enum ; **+54** `TagKey` |
 
 | enum | atteint par un producteur LU | sans aucun producteur |
 |---|---:|---:|
 | `GroupType` | **86 / 104** | 18 |
 | `StepType` | **59 / 62** | 3 (`None_`, `ExtraAttackDamage`, `LootInfo`) |
-| `TagKey` | **131 / 244** | 113 |
+| `TagKey` | **202 / 244** | 42 |
+
+⚠ **ÉCRIRE un tag et ÉMETTRE dans le flux sont deux gestes distincts** — c'est ce que le canal 1
+ne pouvait pas voir, et le canal 4 le corrige. Le canal 3 sur `TagKey` est **FILTRÉ** (un porteur
+ne compte que s'il émet ou écrit), sinon la **VUE** compterait pour un producteur ; il écarte
+**18** symboles, tous **nommés** en sortie. Contrôle : sur les **83** tags émis par le corpus
+témoin, **0** n'est couvert par un seul lecteur de vue ou de test.
 
 **Les `GroupType` que le canal 1 ne voit pas ne sont pas morts — ils sont DÉCLARATIFS.** Ils ne
 passent par aucun call-site du flux : une ability les pousse au nœud DSL
@@ -72,10 +80,11 @@ variable (propagés d'**un** cran, pas plus), les porteurs sans symbole Ghidra.
 ## 1bis. La contre-épreuve — le statique ne se juge pas lui-même
 
 Tout ce que le flux natif **émet** doit avoir été **atteint** par le balayage. Sur les deux flux
-témoins : `GroupType` **0** manquant, `StepType` **0**, `TagKey` **9** — les tags de
-**modification** de stat (`UnitStats_*_Modification[_Change|_Entity]`), `Attack_Weapon_IsMelee`,
-`Attack_Weapon_DamageProfile`, `Custom_Data`. C'est ce contrôle qui a trouvé les pièges 1 et 3
-ci-dessus ; les 9 restants sont le résidu `#477-r18-r4`.
+témoins : `GroupType` **0** manquant, `StepType` **0**, `TagKey` **0**. C'est ce contrôle qui a
+trouvé les pièges 1 et 3 ci-dessus, puis les **9** `TagKey` du résidu `#477-r18-r4` — fermé par
+les canaux 4 et 5 et par l'extension du canal 3 (mesure des deux côtés, même cache et même
+corpus : `TagKey` atteint **131 → 202**, émis-non-atteints **9 → 0**). Détail :
+`docs/rl/case-477r18r4-tagkey-sans-producteur.md`.
 
 ## 2. La structure : un groupe RACINE = un message d'entrée
 
@@ -216,9 +225,9 @@ puis `User_EndTurn` (+2/+2/+2), qui l'englobe.
   immédiat dans le code machine (pas dans le pseudo-C), et pour les quatre génériques
   (`Ability_Attack`, `Attack`, `DarkDragon`, `AnvilShieldBlock`) établir s'ils passent par un champ
   écrit ailleurs qu'à un call-site.
-- **#477-r18-r4** — **9 `TagKey` ÉMIS par le flux mais non atteints par le balayage** : les tags de
-  modification de stat (`UnitStats_{FixedArmor,Movement}_Modification[_Change|_Entity]`),
-  `Attack_Weapon_IsMelee`, `Attack_Weapon_DamageProfile`, `Custom_Data`. Leur producteur n'est ni
-  dans les 133, ni dans les 11 fabriques balayées. Condition de retournement : partir du flux
-  (`Action=` qui les porte), remonter à l'opération, et vérifier que l'étape [8] du probe retombe
-  à zéro.
+- ~~**#477-r18-r4**~~ — **FERMÉ**. Les 9 `TagKey` avaient **trois** causes distinctes, aucune
+  commune : un tag s'ÉCRIT sans s'ÉMETTRE (`DSLBehaviors$$InformWeapon`, canal 4) ; un tag peut
+  être un ARGUMENT de nœud DSL (`DSLBehaviors$$Inform`, canal 3 étendu) ; un tag peut n'exister
+  que dans une TABLE STATIQUE dont le ctor de config est inliné
+  (`TransformUnitOperation$$.cctor`, canal 5). Détail :
+  `docs/rl/case-477r18r4-tagkey-sans-producteur.md`.

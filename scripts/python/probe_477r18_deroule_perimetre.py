@@ -990,7 +990,8 @@ def main() -> int:
         hors_enum_c5 += sorted(vals - connues)
         for v in connues:
             tags_vus.setdefault(v, []).append(cctor or sym)
-        court = sym.split("$$")[0].rsplit(".", 1)[-1] + "$$" + sym.split("$$")[1]
+        bouts = sym.split("$$")
+        court = (bouts[0].rsplit(".", 1)[-1] + "$$" + bouts[1]) if len(bouts) > 1 else sym
         print("    %-62s %d cles" % (court, n_cles))
         print("      table lue dans %-52s %s ; %d valeur(s), %d dans TagKey"
               % (cctor or "<AUCUNE>", cause, len(vals), len(connues)))

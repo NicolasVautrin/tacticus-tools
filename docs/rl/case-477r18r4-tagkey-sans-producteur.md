@@ -59,15 +59,42 @@ La chaîne complète, lue : `TransformUnitOperation$$Execute` → `AddModificati
 Le **`0` est exclu** : `TransformUnitOperation$$AddTagIfImplemented` commence par `if (key != 0)`
 — un champ nul n'écrit aucun tag, c'est la sentinelle « non implémenté ».
 
+## 2bis. La contre-épreuve, chiffrée des deux côtés
+
+Même cache de décompilation, même corpus de deux flux témoins (`C1_02` 2 777 lignes, `MC1_67`
+2 931 lignes — qui émettent **exactement le même** vocabulaire : 19 `GroupType`, 26 `StepType`,
+83 `TagKey`) :
+
+| | `TagKey` atteint | étape [8] émis-non-atteints | `GroupType` / `StepType` |
+|---|---:|---|---|
+| avant (`778c2ea5`) | **131 / 244** | **9** — les neuf nommés | 0 / 0 |
+| après | **202 / 244** | **0** | 0 / 0 |
+
+Attribution par canal, telle que le probe l'imprime : canal 4 **131 → 138** (+7 exclusifs, dont
+`Attack_Weapon_IsMelee`, `_DamageProfile`, `_Use_Special`) ; canal 3 étendu **138 → 148** (+10,
+dont `Custom_Data`) ; canal 5 **148 → 202** (+54, dont les six `_Modification*`).
+« Sans producteur lu » : **113 → 42**.
+
+⚠ **Le canal 4 ne fabrique pas de couverture** : sur les 83 tags émis, **0** n'est couvert par un
+seul lecteur de vue ou de test — chacun a au moins un producteur côté moteur. Et le canal 5
+s'auto-contrôle : ses **62** valeurs lues sont **62/62** dans l'enum `TagKey`, alors qu'un parseur
+qui déraperait produirait des entiers arbitraires.
+
 ## 3. Ce qui reste NON LU, et pourquoi ce n'est pas un silence
 
-Le probe imprime, à chaque run, les porteurs écartés par le filtre du canal 3 et ceux sans
-littéral lisible. Deux positions y restent ouvertes et sont **nommées** :
-`IdunBattleLogic.Entities.DSLBehaviors$$InformList` et
-`IdunBattle.Entities.Behaviours.InformListBehaviour$$.ctor` / `$$GetTagKey` — porteurs
-côté émetteur que le filtre écarte parce qu'eux-mêmes n'émettent ni n'écrivent (c'est
-`InformListBehaviour$$Execute` qui écrit). Aucun tag du corpus témoin n'en dépend ; la condition
-de retournement est qu'un `Custom_Tile_Id_*` apparaisse comme émis-non-atteint à l'étape [8].
+Le probe imprime, à chaque run, les **18** porteurs écartés par le filtre du canal 3 et les
+porteurs sans littéral lisible. Trois positions restent ouvertes **côté émetteur** et sont
+**nommées** en sortie : `IdunBattleLogic.Entities.DSLBehaviors$$InformList` et
+`IdunBattle.Entities.Behaviours.InformListBehaviour$$.ctor` / `$$GetTagKey` — le filtre les
+écarte parce qu'eux-mêmes n'émettent ni n'écrivent (c'est `InformListBehaviour$$Execute` qui
+écrit). Le filtre ne peut donc que **SOUS-compter** ; aucun tag du corpus témoin n'en dépend.
+Condition de retournement : qu'un `Custom_Tile_Id_*` apparaisse comme émis-non-atteint à
+l'étape [8] — élargir alors le critère au niveau de la CLASSE (une classe qui contient un
+émetteur ou un écrivain), au prix d'une fuite côté vue (`StreamMessages`).
+
+Restent **42** `TagKey` sans aucun producteur lu (contre 113 avant) : ce sont, comme les 18
+`GroupType` de la fiche parente, des **candidats** dead code — **pas** une preuve de mort, et
+aucun n'est émis par le corpus témoin.
 
 ## 4. Le garde
 
