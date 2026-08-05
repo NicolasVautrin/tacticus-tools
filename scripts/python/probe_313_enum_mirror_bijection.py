@@ -217,6 +217,11 @@ REGISTRE: list[Mirror] = [
     # dans `TagKey.Unit_SpawnSource`. Entre au registre avec son mirror (#477-r15 tranche B).
     Mirror("SpawnSource", "engine/entities/spawn_source.py",
            "IdunBattle.Entities.Enum.SpawnSource"),
+    # `MachineOfWarPosition` : le fichier portait TROIS CONSTANTES LIBRES (`MOW_POSITION_*`)
+    # depuis #93 -- un entier qui DESIGNE sans enum. Il a fallu le nommer pour emettre
+    # `TagKey.MachinePosition` (#477-r15) ; les trois constantes en DERIVENT desormais.
+    Mirror("MachineOfWarPosition", "engine/services/machine_of_war_position.py",
+           "IdunBattle.Configuration.MachineOfWarPosition"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune

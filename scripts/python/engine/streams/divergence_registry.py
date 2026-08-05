@@ -38,19 +38,19 @@ from __future__ import annotations
 
 #: `cle -> cause NOMMEE`. Une cause doit dire POURQUOI, pas re-decrire la cle.
 KNOWN_DIVERGENCES: dict[str, str] = {
-    # --- Tranche D : les helpers de tags du DEROULE, non portes (cf. `stream_helper`).
+    # --- Tranche D : les tags d'ETAT COMPLET d'une unite.
+    # Le producteur est NOMME, et ce n'est PAS celui qu'annoncait `case-477r15` : les trois
+    # surcharges de `IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags`, et non un
+    # `IdunBattle.Core.Services.StreamHelper$$Get*Tags`. Le portage est donc possible ; ce qui
+    # manque au port, ce sont les ENTREES (stats resolues, etats d'ability), pas la RE.
     "MANQUANT Action=ChangeStats":
-        "les stats initiales d'une unite ne sont pas emises : leur producteur natif n'est pas "
-        "porte (tranche D de case-477r15). Le port ne connait pas non plus l'ordre d'emission "
-        "de ces 16 tags -- il ne les invente donc pas.",
+        "les 16 tags de stats initiales viennent de "
+        "`IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags(unit)` (garde d'entree : "
+        "`EntityType.Unit`, sinon dictionnaire VIDE). Non porte -- tranche D. Le port ne les "
+        "invente pas.",
     "MANQUANT Action=ChangeAbility":
-        "une ligne par ability montee sur l'unite ; meme cause que ChangeStats -- producteur "
-        "natif non porte (tranche D).",
-    # --- Hors du perimetre `System_GameSetup` : ce que la seule tranche A+B+E n'emet pas.
-    "MANQUANT Action=AddMachinePlatform":
-        "les plateformes de Machine of War sont posees par "
-        "`IdunBattle.Operations.AddMachineOfWarPlatformOperation$$Execute`, hors du perimetre "
-        "AddPlayer/AddTile/AddUnit de cette tranche.",
-    "MANQUANT Action=AddMachine":
-        "meme cause que AddMachinePlatform : la Machine of War elle-meme n'est pas emise.",
+        "une ligne par ability montee, ACTIVES d'abord puis DECLENCHEES : surcharges "
+        "`GetFullStateUpdateTags(activeAbility)` (6 tags, +2 conditionnels si l'ability a un "
+        "cout en munitions) et `GetFullStateUpdateTags(component, triggeredAbility)` (3 tags). "
+        "Non porte -- tranche D.",
 }

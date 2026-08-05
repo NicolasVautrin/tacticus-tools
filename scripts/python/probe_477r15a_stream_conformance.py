@@ -174,6 +174,16 @@ def table_joueurs(flux_setup: str) -> list[tuple[int, int]]:
     return out
 
 
+def entites_plateformes(flux_setup: str) -> list[int]:
+    """Les ids d'entite des `Action=AddMachinePlatform`. ENTREE PRISE DU NATIF, meme statut que
+    `table_joueurs` : les POSITIONS (2 puis 1) sont en dur dans le decompile et donc EMISES par
+    le port, mais les ids d'entite ne sont pas predictibles tant que `#477-r16` n'a pas RE'd
+    l'ordre d'allocation."""
+    return [int(m.group("entity")) for m in
+            (CONF.RE_ACTION.match(l) for l in flux_setup.split("\n"))
+            if m and m.group("sym") == "AddMachinePlatform"]
+
+
 def premiere_tuile(flux_setup: str) -> int:
     """L'id d'entite de la PREMIERE tuile. Meme statut que `table_joueurs` : entree du natif."""
     for ligne in flux_setup.split("\n"):
@@ -236,9 +246,15 @@ def scenario(session: int, board: str) -> dict:
     # (col, row) -> entite de tuile, table CONSTRUITE par le port a partir de son propre ordre.
     entite_de_tuile = {xy: base_tuile + i for i, xy in enumerate(coords)}
 
+    # ⚠ `observeBattle.units[].playerId` porte deja l'ENTITE du joueur, pas son `PlayerId` de
+    # configuration -- MESURE ici (il vaut 3/4, pas 11/12), et c'est exactement le premier des
+    # trois pieges de lecture de #477-r11, transpose du flux vers le RPC d'etat. Il alimente
+    # donc `Unit_Owner_Id` DIRECTEMENT, sans passer par la table des joueurs.
+    entites_joueurs = [ent for ent, _ in joueurs]
     # Les unites du deploiement sont celles de l'equipe ADVERSE (hypothese de MONTAGE, verifiee
-    # plus bas contre le nombre d'`Action=AddUnit` du groupe natif).
-    mien = min((int(u["playerId"]) for u in obs if u.get("playerId") is not None), default=None)
+    # plus bas contre le nombre d'`Action=AddUnit` du groupe natif). Le joueur humain est le
+    # PREMIER `AddPlayer` du flux.
+    mien = entites_joueurs[0] if entites_joueurs else None
     adverses = [u for u in obs if int(u.get("playerId", -1)) != mien]
     attendus = len(re.findall(r"^ *Action=AddUnit ", setup_natif, re.M))
 
@@ -246,16 +262,20 @@ def scenario(session: int, board: str) -> dict:
     for u in sorted(adverses, key=lambda x: int(x["squadId"])):
         xy = (int(u["col"]), int(u["row"]))
         units.append(UnitSetup(entity_id=int(u["squadId"]),
-                               owner_id=entite_de_player[int(u["playerId"])],
+                               owner_id=int(u["playerId"]),
                                foot_tile_ids=[entite_de_tuile[xy]]))
+    plateformes = entites_plateformes(setup_natif)
     setup_port = emettre(GameSetup(
         players=[PlayerSetup(ent, pid) for ent, pid in joueurs],
         tiles=[TileSetup(entite_de_tuile[xy], xy[0], xy[1]) for xy in coords],
+        platform_entity_ids=plateformes,
         units=units))
 
     rap = CONF.comparer(setup_natif, setup_port, entrees_du_natif=(
         "id d'entite de chaque JOUEUR (%d) -- #477-r16 non RE'd" % len(joueurs),
         "id d'entite de la PREMIERE tuile (%d) -- #477-r16 non RE'd" % base_tuile,
+        "id d'entite des PLATEFORMES de MoW (%d) -- #477-r16 non RE'd ; les POSITIONS, elles, "
+        "sont emises par le port (litteraux du decompile)" % len(plateformes),
         "Tag=Tile_IsTerritory -- aucun porteur dans le board dump, emis a 0 en dur",
         "id d'entite du groupe racine (MATCH_ENTITY_ID=1) -- litteral lu au decompile",
     ))

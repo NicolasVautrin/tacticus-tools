@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
 from ..entities.spawn_source import SpawnSource
+from ..services.machine_of_war_position import MachineOfWarPosition
 from .dispatcher import StreamDispatcher
 from .group_type import GroupType
 from .step_type import StepType
@@ -114,16 +115,50 @@ def add_tile(events: StreamDispatcher, tile: TileSetup) -> None:
     })
 
 
-def add_unit(events: StreamDispatcher, unit: UnitSetup) -> None:
-    """Face stream de l'ajout d'une unite : un GROUPE `AddUnit` dont la premiere action est
-    `Action=AddUnit`, tags fabriques par `StreamHelper$$GetAddUnitTags`.
+#: Les DEUX plateformes de Machine of War que `SetupGameOperation$$AddMachinePlatform` pose,
+#: dans CET ordre : le helper (inline dans `SetupGameOperation$$Execute`) appelle deux fois
+#: `AddMachineOfWarPlatform` avec `position = 2` PUIS `position = 1`. Les deux valeurs sont EN
+#: DUR dans le decompile -- elles ne dependent ni du board ni du roster.
+PLATFORM_POSITIONS = (MachineOfWarPosition.Bottom, MachineOfWarPosition.Top)
 
-    ⚠ COUVERTURE PARTIELLE, ET C'EST PUBLIE. Dans le flux natif, ce groupe contient AUSSI un
-    `Action=ChangeStats` (16 tags de stats initiales) puis un `Action=ChangeAbility` par ability
-    montee. Ces deux emissions viennent d'ailleurs que de la face stream d'`AddUnitOperation` et
-    ne sont PAS portees ici. Le comparateur les classe en divergence CONNUE (registre
-    `divergence_registry`), jamais en « egal »."""
-    events.start_group(GroupType.AddUnit, unit.entity_id, None, None)
+
+def add_machine_platform(events: StreamDispatcher, entity_id: int, position: int) -> None:
+    """Face stream d'`IdunBattle.Operations.AddMachineOfWarPlatformOperation$$Execute`.
+
+        tags.Add(0xd1 /*MachinePosition*/, position);
+        Events.Action(0x2b /*AddMachinePlatform*/, platform+0x10, tags);
+
+    Aucun `StartGroup` / `FinishGroup` : l'operation emet une `Action` NUE, dans le groupe
+    ouvert par son appelant -- ici `System_GameSetup`."""
+    events.action(StepType.AddMachinePlatform, entity_id,
+                  {TagKey.MachinePosition: int(position)})
+
+
+def add_unit(events: StreamDispatcher, unit: UnitSetup,
+             use_group: bool = True) -> None:
+    """Face stream d'`IdunBattle.Operations.AddUnitOperation$$Execute` : un GROUPE `AddUnit`
+    dont la premiere action est `Action=AddUnit`, tags fabriques par
+    `IdunBattle.Core.Services.StreamHelper$$GetAddUnitTags`.
+
+    ⚠ LE GROUPE EST CONDITIONNEL, ET CE N'EST PAS UN DETAIL. `StartGroup` ET `FinishGroup` sont
+    tous deux enveloppes dans le meme test `IdunBattle.Core.Services.BattleQuery$$get_UseGroupForAddUnit`
+    (un drapeau de la configuration de bataille). Si le drapeau est faux, les trois `Action` sont
+    emis SANS groupe englobant. Un port qui ouvrirait toujours le groupe divergerait des que la
+    config le desarme -- d'ou ce parametre, plutot qu'une structure en dur. La valeur `True` par
+    defaut est celle OBSERVEE sur nos runners, pas une lecture du decompile.
+
+    ⚠ COUVERTURE PARTIELLE, ET C'EST PUBLIE. Le groupe natif contient AUSSI un
+    `Action=ChangeStats` (16 tags) puis un `Action=ChangeAbility` par ability -- actives d'abord,
+    declenchees ensuite. Leurs tags viennent des trois surcharges de
+    `IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags`, qui n'est PAS un
+    `StreamHelper$$Get*Tags` : c'est la tranche D, et le comparateur classe ces lignes en
+    divergence CONNUE, jamais en « egal »."""
+    if use_group:
+        # `sourceId` : le decompile passe ici un handle de litteral de chaine, NON RESOLUBLE
+        # statiquement (les chaines .NET vivent dans `global-metadata.dat`). Ce n'est PAS le
+        # litteral 0 de `SetupGameOperation$$Execute`. Le flux reel tranche : `Source=` est VIDE
+        # -- donc chaine vide ou null, indiscernables apres `String.Format`.
+        events.start_group(GroupType.AddUnit, unit.entity_id, None, None)
     foot_count = (len(unit.foot_tile_ids) if unit.foot_count is None
                   else int(unit.foot_count))
     events.action(StepType.AddUnit, unit.entity_id,
@@ -133,7 +168,8 @@ def add_unit(events: StreamDispatcher, unit: UnitSetup) -> None:
                                     is_boss=unit.is_boss,
                                     foot_count=foot_count,
                                     unit_feet_tile_ids=unit.foot_tile_ids))
-    events.finish_group()
+    if use_group:
+        events.finish_group()
 
 
 @dataclass
@@ -143,10 +179,21 @@ class GameSetup:
     players: Sequence[PlayerSetup] = field(default_factory=tuple)
     tiles: Sequence[TileSetup] = field(default_factory=tuple)
     units: Sequence[UnitSetup] = field(default_factory=tuple)
+    platform_entity_ids: Sequence[int] = field(default_factory=tuple)
+    """Ids d'entite des DEUX plateformes de MoW, dans l'ordre de `PLATFORM_POSITIONS`. Vide =
+    ne pas emettre (le port ne SAIT pas encore predire ces ids -- `#477-r16`)."""
+    use_group_for_add_unit: bool = True
+    """`IdunBattle.Core.Services.BattleQuery$$get_UseGroupForAddUnit` -- cf. `add_unit`."""
 
 
 def emit_game_setup(events: StreamDispatcher, setup: GameSetup) -> None:
     """Face stream d'`IdunBattle.Operations.SetupGameOperation$$Execute`.
+
+    L'ORDRE est celui du decompile : `AddPlayers`, puis `AddTiles`, puis (via `AddMachinePlatform`
+    inline) les deux plateformes, puis `AddPredefinedUnits`. La POSITION des plateformes entre
+    `AddTiles` et `AddPredefinedUnits` est en revanche MESUREE sur le flux reel : le decompile
+    montre plusieurs helpers entre les deux (`SetupRoom`, `RevealHumanPlayerRoom`) et n'ordonne
+    pas l'inline de facon lisible.
 
     Le `FinishGroup` final ramene la pile a zero, donc `StreamCache$$SendRootGroupIfFinished`
     flushe le groupe racine a ses listeners : c'est la que le texte devient comparable."""
@@ -155,6 +202,8 @@ def emit_game_setup(events: StreamDispatcher, setup: GameSetup) -> None:
         add_player(events, player)
     for tile in setup.tiles:
         add_tile(events, tile)
+    for entity_id, position in zip(setup.platform_entity_ids, PLATFORM_POSITIONS):
+        add_machine_platform(events, entity_id, position)
     for unit in setup.units:
-        add_unit(events, unit)
+        add_unit(events, unit, use_group=setup.use_group_for_add_unit)
     events.finish_group()

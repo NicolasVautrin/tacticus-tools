@@ -86,6 +86,7 @@ class Ligne:
     forme: str          # "Group" | "Action" | "Tag" | "Finish_Group" | "HORS_FORME" | "VIDE"
     symbole: str        # membre d'enum, ou "" pour Finish_Group / hors-forme
     profondeur: int
+    parent: str = ""    # `cle_symbole` de l'`Action=` qui PORTE ce tag ("" si aucune)
 
     @property
     def cle_symbole(self) -> str:
@@ -100,14 +101,39 @@ class Ligne:
 class Divergence:
     forme: str          # MANQUANT | EN_TROP | VALEUR
     cle: str            # "<forme> <cle_symbole>"
-    cause: Optional[str]        # non-None <=> inscrite au registre
+    cause: Optional[str]        # non-None <=> inscrite au registre, ou HERITEE du porteur
     natif: Optional[str] = None
     port: Optional[str] = None
     numero_natif: Optional[int] = None
+    heritee_de: str = ""        # la cle du PORTEUR, quand la cause est heritee
 
     @property
     def connue(self) -> bool:
         return self.cause is not None
+
+
+def _cause(cle: str, forme: str, ligne: Optional[Ligne]) -> tuple[Optional[str], str]:
+    """La cause d'une divergence, et de QUI elle est heritee ("" si directe).
+
+    PROPAGATION BORNEE, ET C'EST LE POINT DELICAT. Une `Action=` absente entraine
+    MECANIQUEMENT l'absence de tous ses `Tag=` : les compter comme autant de divergences
+    NOUVELLES ferait rougir 36 fois pour une seule cause, et le registre devrait alors
+    inscrire chaque tag -- c'est-a-dire grossir jusqu'a tout couvrir, exactement ce que la
+    purge existe pour empecher.
+
+    La propagation est donc STRUCTURELLE et A UN SEUL CRAN : un `Tag=` herite de son PORTEUR
+    (`Ligne.parent`, l'`Action=` un niveau au-dessus) uniquement si ce porteur est LUI-MEME
+    inscrit au registre sous la MEME forme. Un `Tag=` manquant sous une action que le port
+    EMET reste NOUVEAU -- c'est le cas qui compte, et il n'est pas relache."""
+    direct = KNOWN_DIVERGENCES.get(cle)
+    if direct is not None:
+        return direct, ""
+    if ligne is not None and ligne.forme == "Tag" and ligne.parent:
+        cle_parent = "%s %s" % (forme, ligne.parent)
+        herite = KNOWN_DIVERGENCES.get(cle_parent)
+        if herite is not None:
+            return herite, cle_parent
+    return None, ""
 
 
 @dataclass
@@ -154,10 +180,26 @@ def parse_ligne(numero: int, texte: str) -> Ligne:
 
 
 def parse_flux(texte: str) -> List[Ligne]:
-    """Decoupe sur LF. Le separateur n'est PAS normalise : un CRLF laisserait un `\\r` en fin
-    de ligne, la ligne deviendrait HORS_FORME, et le probe le dirait -- c'est voulu (mesurer
-    le separateur sur un fichier reecrit est le piege de #477-r11)."""
-    return [parse_ligne(i, ln) for i, ln in enumerate(texte.split("\n"))]
+    """Decoupe sur LF, et RATTACHE chaque `Tag=` a l'`Action=` qui le porte.
+
+    Le separateur n'est PAS normalise : un CRLF laisserait un `\\r` en fin de ligne, la ligne
+    deviendrait HORS_FORME, et le probe le dirait -- c'est voulu (mesurer le separateur sur un
+    fichier reecrit est le piege de #477-r11).
+
+    Le rattachement est STRUCTUREL, pas heuristique : `StreamCache$$Action` ecrit ses tags a
+    `depth + 1`, donc le porteur d'un tag est la derniere `Action=` vue exactement un niveau
+    au-dessus. Il sert a la propagation de cause (cf. `comparer`)."""
+    lignes: List[Ligne] = []
+    derniere_action: dict[int, str] = {}
+    for i, ln in enumerate(texte.split("\n")):
+        l = parse_ligne(i, ln)
+        if l.forme == "Action":
+            derniere_action[l.profondeur] = l.cle_symbole
+        elif l.forme == "Tag":
+            l = Ligne(l.numero, l.texte, l.forme, l.symbole, l.profondeur,
+                      derniere_action.get(l.profondeur - 1, ""))
+        lignes.append(l)
+    return lignes
 
 
 def _sans_vides(lignes: Iterable[Ligne]) -> List[Ligne]:
@@ -190,25 +232,28 @@ def comparer(flux_natif: str, flux_port: str,
                 a, b = natif[i1 + k], port[j1 + k]
                 forme = VALEUR if a.cle_symbole == b.cle_symbole else MANQUANT
                 cle = "%s %s" % (forme, a.cle_symbole)
+                cause, herite = _cause(cle, forme, a)
                 rap.divergences.append(Divergence(
-                    forme, cle, KNOWN_DIVERGENCES.get(cle),
-                    natif=a.texte, port=b.texte, numero_natif=a.numero))
-                rap.cles_exercees.add(cle)
+                    forme, cle, cause, natif=a.texte, port=b.texte,
+                    numero_natif=a.numero, heritee_de=herite))
+                rap.cles_exercees.add(cle if not herite else herite)
             i1, j1 = i1 + commun, j1 + commun
             tag = "delete" if i2 > i1 else "insert"
         if tag == "delete" or i2 > i1:
             for a in natif[i1:i2]:
                 cle = "%s %s" % (MANQUANT, a.cle_symbole)
+                cause, herite = _cause(cle, MANQUANT, a)
                 rap.divergences.append(Divergence(
-                    MANQUANT, cle, KNOWN_DIVERGENCES.get(cle),
-                    natif=a.texte, numero_natif=a.numero))
-                rap.cles_exercees.add(cle)
+                    MANQUANT, cle, cause, natif=a.texte,
+                    numero_natif=a.numero, heritee_de=herite))
+                rap.cles_exercees.add(cle if not herite else herite)
         if tag == "insert" or j2 > j1:
             for b in port[j1:j2]:
                 cle = "%s %s" % (EN_TROP, b.cle_symbole)
+                cause, herite = _cause(cle, EN_TROP, b)
                 rap.divergences.append(Divergence(
-                    EN_TROP, cle, KNOWN_DIVERGENCES.get(cle), port=b.texte))
-                rap.cles_exercees.add(cle)
+                    EN_TROP, cle, cause, port=b.texte, heritee_de=herite))
+                rap.cles_exercees.add(cle if not herite else herite)
 
     rap.non_exerces = perimetre_non_exerce(natif + port)
     return rap
@@ -254,11 +299,16 @@ def rapport(rap: Rapport, perimees: Sequence[str] = (), lignes_max: int = 12) ->
                    % len(rap.hors_forme))
         for l in rap.hors_forme[:lignes_max]:
             out.append("    L%d [%s]" % (l.numero, l.texte))
-    vues_connues: dict[str, int] = {}
+    directes: dict[str, int] = {}
+    heritees: dict[str, int] = {}
     for d in rap.connues:
-        vues_connues[d.cle] = vues_connues.get(d.cle, 0) + 1
-    for cle in sorted(vues_connues):
-        out.append("  CONNUE x%-4d %s" % (vues_connues[cle], cle))
+        if d.heritee_de:
+            heritees[d.heritee_de] = heritees.get(d.heritee_de, 0) + 1
+        else:
+            directes[d.cle] = directes.get(d.cle, 0) + 1
+    for cle in sorted(set(directes) | set(heritees)):
+        out.append("  CONNUE x%-4d %s   (+%d tag(s) herite(s))"
+                   % (directes.get(cle, 0), cle, heritees.get(cle, 0)))
         out.append("               cause : %s" % KNOWN_DIVERGENCES[cle])
     for d in rap.nouvelles[:lignes_max]:
         out.append("  NOUVELLE  %s" % d.cle)
