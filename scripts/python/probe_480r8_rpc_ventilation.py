@@ -66,6 +66,7 @@ from probe_480r6_code_mort import (  # noqa: E402
     closure,
     entrees_declarees,
     rel,
+    resolve_import,
 )
 
 # Extensions qui portent du code EXECUTABLE (par opposition a la doc `.md`).
@@ -212,6 +213,87 @@ def index_commits() -> tuple[dict[str, set[str]], int]:
     return idx, n
 
 
+COMMENTAIRE_BLOC_RE = re.compile(r"/\*.*?\*/", re.S)
+COMMENTAIRE_LIGNE_RE = re.compile(r"//[^\n]*")
+IMPORT_NS_RE = re.compile(r"""import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+['"]([^'"]+)['"]""")
+IMPORT_NOMME_RE = re.compile(
+    r"""import\s*\{([^}]*)\}\s*from\s+['"](\./[^'"]+)['"]""")
+
+
+def modules_non_enregistres(decl: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Modules qui DECLARENT des RPC mais dont le `register` n'est jamais appele.
+
+    C'est le residu `#480-r3` vu par le bout STATIQUE : un RPC ecrit mais jamais enregistre
+    n'est PAS expose par la session, et un appelant recoit un `HTTP 500` indiscernable d'une
+    erreur d'execution. `frida/hooks/main.ts` a un foyer d'enregistrement UNIQUE (`wireRpc` de
+    `controller.ts`, verifie : aucun `Object.assign(rpc, ...)` ni `rpc[nom] =` ailleurs), donc
+    il suffit de confronter ce que `controller.ts` IMPORTE a ce qu'il APPELLE reellement --
+    commentaires retires, sans quoi un `/* movementTrace, */` compte comme un appel.
+    """
+    ctrl = ROOT / "frida" / "hooks" / "controller.ts"
+    if not ctrl.is_file():
+        return {}
+    brut = ctrl.read_text(encoding="utf-8", errors="replace")
+    code = COMMENTAIRE_LIGNE_RE.sub("", COMMENTAIRE_BLOC_RE.sub("", brut))
+
+    # alias de module -> chemin resolu ; et fonctions `registerX` importees nommement.
+    alias: dict[str, str] = {}
+    for ident, spec in IMPORT_NS_RE.findall(brut):
+        alias[ident] = spec
+    nommes: dict[str, str] = {}
+    for grp, spec in IMPORT_NOMME_RE.findall(brut):
+        for item in grp.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            m = re.match(r"([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)", item)
+            nom = m.group(2) if m else item.split()[0]
+            if nom.startswith("register"):
+                nommes[nom] = spec
+
+    # Ce qui est REELLEMENT appele, dans le code sans commentaires.
+    appeles: set[str] = set()
+    for ident in alias:
+        if re.search(r"(?<![\w$])%s\s*\.\s*register\s*\(" % re.escape(ident), code):
+            appeles.add(ident)
+    # Forme collective : `[a, b, c]\n    .forEach((f) => f.register(ctx))`.
+    # ⚠ NE PAS ecrire `\.forEach\s*\([^)]*register` : la classe negative bute sur la
+    # parenthese de `(f)` et le motif ne matche JAMAIS. Mesure du 2026-08-05 -- cette
+    # version rendait 48 modules « non enregistres » dont `warmup-singletons` et `launch`,
+    # c'est-a-dire `warmupGameSingletons`/`playTurn`/`initRunner`, qui tournent tous les
+    # jours. Un faux positif massif, rattrape parce que le resultat contredisait un fait
+    # connu -- pas parce que le probe s'en est apercu.
+    for bloc in re.findall(r"\[([^\]]*)\]\s*\.\s*forEach\s*\(.{0,80}?register", code, re.S):
+        for ident in IDENT_RE.findall(bloc):
+            if ident in alias:
+                appeles.add(ident)
+    for nom in nommes:
+        if re.search(r"(?<![\w$])%s\s*\(" % re.escape(nom), code):
+            appeles.add(nom)
+
+    # chemin d'un module -> alias, pour rattacher un fichier declarant a son enregistrement.
+    def _resout(spec: str) -> str | None:
+        p = resolve_import(ctrl, spec)
+        return rel(p) if p is not None else None
+
+    enregistre_par_chemin: dict[str, bool] = {}
+    for ident, spec in list(alias.items()):
+        ch = _resout(spec)
+        if ch:
+            enregistre_par_chemin[ch] = enregistre_par_chemin.get(ch, False) or ident in appeles
+    for nom, spec in nommes.items():
+        ch = _resout(spec)
+        if ch:
+            enregistre_par_chemin[ch] = enregistre_par_chemin.get(ch, False) or nom in appeles
+
+    orphelins: dict[str, list[str]] = {}
+    for n, fichiers in decl.items():
+        for f in fichiers:
+            if enregistre_par_chemin.get(f) is False:
+                orphelins.setdefault(f, []).append(n)
+    return orphelins
+
+
 def archeologie(noms: list[str]) -> dict[str, list[str]]:
     """Pour chaque nom : les commits ou il a vecu dans du code VIVANT hors de son declarant.
 
@@ -243,6 +325,9 @@ def main() -> int:
                     help="rc != 0 si un RPC n'a AUCUN canal de joignabilite")
     ap.add_argument("--temoins", type=int, default=3,
                     help="nombre de temoins affiches par RPC (defaut 3)")
+    ap.add_argument("--catalogue", action="store_true",
+                    help="imprimer, en markdown, les RPC sans AUCUN canal groupes par module "
+                         "declarant -- le bloc a coller dans `rpc-api.md`")
     ap.add_argument("--archeologie", action="store_true",
                     help="pour chaque candidat mort, chercher s'il a DEJA eu un appelant "
                          "(git log -S, ~12 s/terme, parallelise)")
@@ -381,11 +466,44 @@ def main() -> int:
                         suite = " (+%d)" % (len(d[n]) - len(ech)) if len(d[n]) > len(ech) else ""
                         print("            %-4s %s%s" % (lib.split()[0], ", ".join(ech), suite))
 
+    # ⚠ LE CLIQUET NE PORTE PAS SUR C5 -- mesure du 2026-08-05, contre-epreuve par mutation :
+    # un `ctx.rpc.zzMutationCliquet480r8` ajoute dans `status.ts` (aucun appelant, aucune doc,
+    # aucun commit) laissait le cliquet VERT, parce que ses FRERES ont C1. C5 est donc une
+    # echappatoire : tout RPC ajoute dans un fichier deja cable passerait automatiquement, et
+    # la garde cesserait de mordre exactement sur le gisement qu'elle vise -- notre propre
+    # cadence d'ajout. C5 reste un canal de TRI (il explique qu'un RPC sans appelant direct est
+    # la commande annexe d'un module vivant), jamais une preuve de joignabilite.
+    # Les canaux NOMINATIFS sont ceux ou le NOM LUI-MEME est ecrit hors de son declarant.
+    # C0 (archive `hooks-legacy/`) en est exclu : le CLAUDE.md pose que rien de vivant n'en
+    # depend, donc un nom qui n'existe QUE la n'est pas joignable -- il est archive.
+    nominatifs = [n for n in noms if c1[n] or c2[n] or c3[n] or c4[n]]
+    non_joignables = sorted(n for n in noms if n not in set(nominatifs))
     morts = sorted(classes.get("AUCUN CANAL", []))
     print()
     print("[480r8] ETAPE 5 -- CANDIDATS MORTS (aucun des canaux) : %d" % len(morts))
+    print("        NON JOIGNABLES (aucun canal NOMINATIF C1/C2/C3/C4 -- C5 exclu, il ne")
+    print("        mentionne pas le nom ; C0 exclu, l'archive ne prouve aucune vie) : %d"
+          % len(non_joignables))
+    for n in non_joignables:
+        if n not in morts:
+            print("  NON-JOIGNABLE rpc.%-28s declare dans %s  [C5 seul]"
+                  % (n, ", ".join(sorted(set(decl[n])))))
     for n in morts:
         print("  MORT?  rpc.%-34s declare dans %s" % (n, ", ".join(sorted(set(decl[n])))))
+
+    if a.catalogue and morts:
+        par_module: dict[str, list[str]] = {}
+        for n in morts:
+            par_module.setdefault(decl[n][0], []).append(n)
+        print()
+        print("[480r8] CATALOGUE (markdown) -- a coller dans `rpc-api.md`")
+        print("-" * 78)
+        for mod in sorted(par_module, key=lambda m: (-len(par_module[m]), m)):
+            court = mod[len("frida/hooks/"):] if mod.startswith("frida/hooks/") else mod
+            print("- **`%s`** (%d) : %s"
+                  % (court, len(par_module[mod]),
+                     ", ".join("`%s`" % n for n in sorted(par_module[mod]))))
+        print("-" * 78)
 
     if a.archeologie and morts:
         print()
@@ -412,22 +530,50 @@ def main() -> int:
         print("  FRAGILE rpc.%-33s commits %s"
               % (n, ", ".join(sorted(c4[n])[:a.temoins])))
 
+    orphelins = modules_non_enregistres(decl)
+    n_orph = sum(len(v) for v in orphelins.values())
+    print()
+    print("[480r8] ETAPE 7 -- DECLARES MAIS JAMAIS ENREGISTRES (croise le residu #480-r3)")
+    print("        Un module importe par `controller.ts` mais absent de ses appels `register`")
+    print("        ne publie AUCUN de ses RPC : la session ne les expose pas, et l'appelant")
+    print("        recoit un `HTTP 500` indiscernable d'une erreur d'execution.")
+    print("        modules concernes : %d  |  RPC non exposes : %d" % (len(orphelins), n_orph))
+    # TEMOIN AUTO-VERIFIANT, derive -- pas une liste de noms : un RPC que le HOST appelle est
+    # forcement expose, sinon le harnais serait casse en permanence. S'il en apparait un ici,
+    # c'est le CAPTEUR qui ment, et il doit le dire au lieu de publier son resultat. Cette
+    # garde existe parce que la 1re version de cette etape a rendu 216 RPC « non exposes »,
+    # dont `warmupGameSingletons` et `playTurn`.
+    faux = sorted(n for v in orphelins.values() for n in v
+                  if any(groupe_de(f) == "host" for f in c1[n]))
+    if faux:
+        print("  ROUGE  CAPTEUR CASSE : %d RPC classes « non exposes » sont pourtant appeles"
+              % len(faux))
+        print("         par le HOST (donc necessairement exposes) : %s"
+              % ", ".join(faux[:10]))
+        return 2
+    for f in sorted(orphelins):
+        print("  NON-EXPOSE  %s : %s" % (f, ", ".join(sorted(orphelins[f]))))
+
     print()
     print("[480r8] NON VU par ce probe : un RPC invoque a la main et jamais ecrit nulle part")
     print("        (indiscernable d'un mort par toute mesure statique) ; ce que la session")
     print("        injectee expose vraiment (residu #480-r3) ; un appelant hors du depot.")
 
     if a.cliquet:
-        if morts:
+        if non_joignables:
             print()
-            print("[480r8] CLIQUET ROUGE : %d RPC sans AUCUN canal de joignabilite." % len(morts))
-            print("        Un RPC expose doit etre joignable -- appele, documente, ou frere")
-            print("        d'un RPC cable. Le rendre vert : le cabler, l'ecrire dans une doc")
-            print("        du depot (c'est ce que « outil de diagnostic » veut dire), ou le")
-            print("        retirer. Le critere est DERIVE : il mord au 156e comme au 1er.")
+            print("[480r8] CLIQUET ROUGE : %d RPC dont le NOM n'est ecrit nulle part hors de"
+                  % len(non_joignables))
+            print("        son fichier declarant. Un RPC expose doit etre JOIGNABLE : pour")
+            print("        invoquer {\"method\": \"<nom>\"} il faut connaitre le nom, donc")
+            print("        l'avoir lu quelque part. Le rendre vert : le cabler (C1/C2), ou")
+            print("        l'ecrire dans une doc du depot -- c'est ce que « declarer outil de")
+            print("        diagnostic » veut dire (`--catalogue` produit le bloc a coller dans")
+            print("        `rpc-api.md`). Le critere est DERIVE du corpus, pas une liste de")
+            print("        noms : il mord au 156e comme au 1er.")
             return 1
         print()
-        print("[480r8] CLIQUET VERT : les %d RPC declares portent tous au moins un canal."
+        print("[480r8] CLIQUET VERT : les %d RPC declares portent tous un canal NOMINATIF."
               % len(noms))
     return 0
 
