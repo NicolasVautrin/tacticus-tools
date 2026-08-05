@@ -191,11 +191,11 @@ from typing import Optional, TYPE_CHECKING
 
 import gameconfig as GC
 
-from ....dsl.base import Const
+from ....dsl.base import Const, TargetsSelector
 from ....dsl.effects import ExecutionContext
 from ....entities.behaviours import AtomicGroup, Foreach
 from ....entities.selectors import (AdjacentEnemies, AdjacentFriends, AdjacentUnits, And, Caster,
-                                    CasterTile, Enemies, Owner, Sub, Subject, SurroundingEnemies,
+                                    CasterTile, Enemies, Sub, Subject, SurroundingEnemies,
                                     Target, TargetTile, Unobscured)
 from ..behaviours import AttackWithAttackDamage, entities_from_state
 
@@ -247,6 +247,30 @@ def righteous_repugnance_additional_targets():
     return And(AdjacentEnemies(Caster(), Const(1)), AdjacentUnits(Target(), Const(1)))
 
 
+class OwnerSlot(TargetsSelector):
+    """`<DSLSelectors+0x30>` = **Owner**, LITTERALEMENT -- sans le repli sur le caster.
+
+    Le noeud partage `entities/selectors/accessors.py::Owner` rend `ctx.owner or ctx.caster`, et ce
+    repli est documente comme EXACT pour une TRIGGERED-ability (`Owner == Caster == le porteur`,
+    `BaseTriggeredAbility$$Execute`). Il ne l'est PAS ici : `Boltstorm_NormalAttackAbility` est une
+    ability ACTIVE, et l'`AbilityEntities` que le port construit pour une attaque normale
+    (`entities_from_state`) ne renseigne PAS `owner`.
+
+    MESURE qui l'impose (`probe_478 --regime boltstorm`, `templAggressor` a distance 2 de la cible,
+    DEUX ennemis adjacents a la cible, dans la portee et non obscurcis -- donc les trois gates du
+    selecteur satisfaites) : le natif ne frappe **AUCUNE** cible additionnelle, la ou le MEME
+    montage fait cleaver `Fealty` et `TalonOfHorus` (qui, eux, ancrent sur `Caster@0x48`). Avec le
+    repli, le port en frappait DEUX -- une regression de `+2380 PV` qu'aucun test n'aurait vue.
+
+    ⚠ Ce noeud DIT ce qu'il ne sait pas : il mirroir le slot, il n'explique pas pourquoi le natif le
+    laisse vide sur cette voie. Le volet CLEAVE de `Boltstorm` reste donc **NON CONFRONTE**
+    (residu `#478-r4`) : il est cable, mais son selecteur ne rend rien tant que `owner` n'est pas
+    threade, exactement comme le natif observe. Le jour ou une voie d'appel renseignera `owner`,
+    il partira -- et il faudra le re-confronter AVANT de s'en rejouir."""
+    def select(self, ctx):
+        return getattr(ctx, "owner", None)
+
+
 def boltstorm_additional_targets(weapon_range: int):
     """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BoltstormAbility$$GetAdditionalTargets(dsl, range)`
     -- MIRROR 1:1 :
@@ -261,10 +285,17 @@ def boltstorm_additional_targets(weapon_range: int):
     primaire, le combat ne la re-frappe pas.
 
     `SurroundingEnemies` est ici la surcharge 4-args : `Owner@0x30` sert de centre ET de reference
-    d'equipe. `Owner()` retombe sur `ctx.caster` quand le slot n'est pas threade, ce qui est le cas
-    d'une ability ACTIVE castee sur son propre porteur."""
-    return And(SurroundingEnemies(Owner(), Const(int(weapon_range)), reference=Owner()),
-               Unobscured(Owner(), Enemies(AdjacentUnits(Target(), Const(1)))))
+    d'equipe. L'ancre est `OwnerSlot()` -- le slot LITTERAL, **sans** le repli sur le caster du
+    noeud partage `Owner()` : cf. sa docstring, c'est une mesure qui l'impose, pas un scrupule.
+
+    ⚠ L'ORDRE DES ARGUMENTS DU PORT EST L'INVERSE DE CELUI DU NATIF : `DSLFactory$$Unobscured(from,
+    source)` mais `Unobscured(source, from_ref=...)` cote port. Ecrit dans l'ordre natif, le noeud
+    rend le CASTER au lieu des cibles -- mesure : `Unobscured(Owner(), Enemies(...))` rendait
+    `['templAggressor']`, donc une intersection VIDE, donc « zero cible additionnelle ». Et cet
+    accord-la avec le natif (qui rend zero pour une AUTRE raison dans ce montage) ne prouvait
+    RIEN : c'est le regime degenere par excellence."""
+    return And(SurroundingEnemies(OwnerSlot(), Const(int(weapon_range)), reference=OwnerSlot()),
+               Unobscured(Enemies(AdjacentUnits(Target(), Const(1))), OwnerSlot()))
 
 
 # ---------------------------------------------------------------- la table de dispatch

@@ -87,6 +87,9 @@ CARRIERS = (
     ("adeptMorvenn", "RighteousRepugnance",
      int(TriggeredAbilityType.RighteousRepugnance),
      int(ActiveAbilityType.RighteousRepugnance_NormalAttack), False),
+    # `templAggressor` << Burchard >> porte `Boltstorm` NATURELLEMENT (porteur confirme par #446-r1).
+    ("templAggressor", "Boltstorm",
+     int(TriggeredAbilityType.Boltstorm), int(ActiveAbilityType.Boltstorm_NormalAttack), False),
 )
 
 #: Les unites ADDITIONNELLES disponibles (ennemies du caster, alliees de la cible primaire). Les
@@ -156,7 +159,62 @@ def _order_ring(ring, elev):
     return cyc if bq.is_adjacent(cyc[-1], cyc[0], elev) else None
 
 
-LAYOUTS = {"one": layout_one, "two": layout_two}
+def layout_boltstorm(elev, playable):
+    """Le regime RANGED -- `Boltstorm`, dont les DEUX gates sont INVERSEES (cleave sur
+    `IsMelee == 0`, fold primaire sur `IsRangedPosition`).
+
+    `templAggressor` porte `Boltstorm` NATURELLEMENT (aucune greffe). Il est place a distance hex
+    **2** de la cible : assez loin pour que `FindAttackWeapon` choisisse l'arme a DISTANCE (la gate
+    du cleave) et que `IsMeleePosition` soit FAUX (la gate du fold primaire, donc `IsRangedPosition`
+    VRAI), assez pres pour que les cibles additionnelles restent dans la portee de l'arme.
+
+    Deux cibles additionnelles : les deux voisins communs de `T` et d'une tuile de reference, tous
+    deux a distance <= portee du caster. Le cardinal EFFECTIF est re-verifie par `stage` contre la
+    geometrie NATIVE -- ce constructeur ne fait que proposer."""
+    rng = weapon_range_of("templAggressor")           # `Boltstorm` : Bolter, portee 2
+    cells = sorted(playable)
+    ctr = (sum(c for c, _ in cells) / len(cells), sum(r for _, r in cells) / len(cells))
+    for t in sorted(cells, key=lambda q: (q[0] - ctr[0]) ** 2 + (q[1] - ctr[1]) ** 2):
+        ring = [q for q in hexgeo.neighbors(t[0], t[1])
+                if q in playable and bq.is_adjacent(t, q, elev)]
+        if len(ring) < 3:
+            continue
+        # la tuile du caster : a distance hex 2 de `T` (donc NON adjacente -> arme A DISTANCE et
+        # `IsRangedPosition` vrai), et d'ou les deux cibles additionnelles sont DANS LA PORTEE et
+        # NON OBSCURCIES -- les trois gates du selecteur de `Boltstorm`.
+        far = [q for q in cells
+               if hexgeo.distance(q, t) == 2 and not bq.is_adjacent(q, t, elev)]
+        for c in far:
+            adds = [q for q in ring
+                    if q != c and hexgeo.distance(q, c) <= rng
+                    and not bq.is_target_tile_obscured(c, q, elev)]
+            if len(adds) < 2:
+                continue
+            # `want` = 0 : cf. `_expected_cardinal` -- l'ancre `Owner@0x30`. Ce regime exerce donc
+            # la gate RANGED du **FOLD PRIMAIRE** (`IsRangedPosition`), pas le cleave.
+            return {"T": t, "A": adds[:2], "C": {"templAggressor": c},
+                    "want": {"templAggressor": 0}}
+    return None
+
+
+def layout_rr(elev, playable):
+    """Le regime qui exerce le CLEAVE de `RighteousRepugnance` -- l'autre surcharge de selecteur
+    (ancre = l'UNITE, pas une tuile), et le seul porteur qui ait AUSSI un fold primaire.
+
+    Meme geometrie que `one`, porteurs PERMUTES : `adeptMorvenn` prend une tuile ADJACENTE a `A`
+    (cardinal 1 **et** fold primaire), `ultraTitus` la tuile eloignee (cardinal 0). C'est le montage
+    qui a montre que l'ORDRE des deux volets compte : le port, quand il ne jouait que le cleave,
+    appliquait a `A` les rolls `502, 506, 557` que le natif applique a la cible PRIMAIRE."""
+    lay = layout_one(elev, playable)
+    if lay is None:
+        return None
+    C = dict(lay["C"])
+    C["adeptMorvenn"], C["ultraTitus"] = C["ultraTitus"], C["adeptMorvenn"]
+    return {"T": lay["T"], "A": lay["A"], "C": C,
+            "want": {"adeptMorvenn": 1, "blackAbaddon": 1, "ultraTitus": 0}}
+
+
+LAYOUTS = {"one": layout_one, "two": layout_two, "rr": layout_rr, "boltstorm": layout_boltstorm}
 
 
 # --------------------------------------------------------------------------- build
@@ -189,6 +247,51 @@ def build(state_file: str, board: str, seed: str, lay: dict) -> int:
         raise MontageError(f"rl_duel build a echoue (rc={p.returncode}) : "
                            f"{(p.stderr or p.stdout or '')[-900:]}")
     return int(json.load(open(state_file, encoding="utf-8"))["runnerId"])
+
+
+# --------------------------------------------------------------------------- oracle geometrique
+
+def _CLEAVE_ENTRY(passive: str):
+    from engine.runner.abilities.loki.additional_targets import NORMAL_ATTACK_CLEAVES
+    return NORMAL_ATTACK_CLEAVES[passive]
+
+
+def weapon_range_of(vis: str) -> int:
+    """Portee de l'arme A DISTANCE du kit -- l'argument `Direct(attackWeapon.Range)` du selecteur de
+    `Boltstorm`. Lu du gameconfig (le montage place le caster a distance, donc `FindAttackWeapon`
+    choisit bien cette arme-la). `0` pour les porteurs melee, ou l'oracle ne l'utilise pas."""
+    import gameconfig as GC
+    ws = (GC.unit(vis) or {}).get("weapons") or []
+    # une arme SANS cle `Range` est l'arme de MELEE (`WeaponProfile.Range` = `Nullable<int>` vide,
+    # cf. `IdunBattle.Entities.Formulas.AttackWeaponRangeFormula$$Calculate` : `IsMelee ? 1 : Range`)
+    rs = [int(w["Range"]) for w in ws if w.get("Range")]
+    return max(rs) if rs else 0
+
+
+def _expected_cardinal(passive: str, cpos, tpos, apos: list, elev, wrange: int) -> int:
+    """L'ORACLE du cardinal, ECRIT A LA MAIN depuis les quatre `<X>Ability$$GetAdditionalTargets`
+    LUS -- il ne partage AUCUNE ligne avec le port qu'il juge, sinon il ne jugerait rien.
+
+    Les quatre arbres, developpes en geometrie (toutes les unites de `apos` sont ENNEMIES du caster
+    et ALLIEES de la cible, par construction du montage) :
+
+      * `Fealty`      : adjacent(a, caster) ET adjacent(a, cible)                   [ - cible ]
+      * `TalonOfHorus`: adjacent(a, caster) ET adjacent(a, cible)
+      * `RighteousRepugnance` : idem (l'autre surcharge, meme geometrie sur des unites MONO-hex)
+      * `Boltstorm`   : **ZERO**, et ce n'est pas une paresse -- son arbre ancre sur `Owner@0x30`
+        (`SurroundingEnemies(Owner, range)` ET `Unobscured(Owner, ...)`), un slot que
+        l'`AbilityEntities` d'une ATTAQUE NORMALE ne renseigne pas. MESURE : dans un montage ou les
+        trois gates geometriques sont satisfaites (deux ennemis adjacents a la cible, a portee, non
+        obscurcis), le natif ne frappe AUCUNE cible additionnelle -- la ou le MEME montage fait
+        cleaver `Fealty`/`TalonOfHorus`, qui ancrent sur `Caster@0x48`. Residu `#478-r4`.
+        L'oracle rend donc `0` **par la RE**, pas par constat : si un jour le natif se met a
+        frapper, c'est CE zero qui rougira, et il faudra reprendre l'ancre.
+    """
+    if passive == "Boltstorm":
+        _ = (cpos, tpos, apos, elev, wrange)     # gates geometriques SANS OBJET tant que Owner nul
+        return 0
+    return sum(1 for a in apos
+               if bq.is_adjacent(a, tpos, elev) and bq.is_adjacent(a, cpos, elev))
 
 
 # --------------------------------------------------------------------------- montage
@@ -227,19 +330,24 @@ def stage(rpc, rid: int, lay: dict, elev: dict) -> dict:
         raise MontageError(f"montage NON INSTALLE : placement {bad} (obtenu, voulu)")
 
     tp = pos[uid[TARGET]]
-    # (a) LE REGIME MELEE, porteur par porteur -- sans lui la gate `IsMelee` n'est pas exercee et
-    #     le natif prend la voie SANS cleave.
+    passive_of = {v: p for v, p, _t, _a, _g in CARRIERS}
+    # (a) LE REGIME D'ARME voulu, porteur par porteur. La gate du cleave est
+    #     `attackWeapon.IsMelee`, et elle est INVERSEE pour `Boltstorm` : exiger « adjacent » pour
+    #     tous ferait mesurer `Boltstorm` dans la branche ou il ne cleave PAS.
     for v in lay["C"]:
-        if not bq.is_adjacent(pos[uid[v]], tp, elev):
-            raise MontageError(f"regime MELEE NON INSTALLE : {v} {pos[uid[v]]} n'est PAS adjacent "
-                               f"NATIF a la cible {tp}")
-    # (b) LE CARDINAL VOULU, calcule sur la GEOMETRIE NATIVE et non suppose : c'est ce chiffre-la
-    #     que le natif ET le port devront rendre, et c'est lui qui separe les deux regimes.
-    got = {}
-    for v in lay["C"]:
-        got[v] = sum(1 for a in addts
-                     if bq.is_adjacent(pos[uid[a]], tp, elev)
-                     and bq.is_adjacent(pos[uid[a]], pos[uid[v]], elev))
+        adj = bq.is_adjacent(pos[uid[v]], tp, elev)
+        want_melee = _CLEAVE_ENTRY(passive_of[v]).cleaves_when_melee
+        if bool(adj) != want_melee:
+            raise MontageError(
+                f"regime d'ARME NON INSTALLE : {v} {pos[uid[v]]} est "
+                f"{'adjacent' if adj else 'a distance'} de la cible {tp}, or son cleave part sur "
+                f"{'IsMelee' if want_melee else '!IsMelee'} -- la gate n'est pas exercee")
+    # (b) LE CARDINAL VOULU, calcule sur la GEOMETRIE NATIVE par un ORACLE ECRIT A LA MAIN depuis
+    #     la RE (`_expected_cardinal`), jamais depuis le port qu'on teste. C'est ce chiffre-la que
+    #     le natif ET le port devront rendre, et c'est lui qui separe les regimes.
+    got = {v: _expected_cardinal(passive_of[v], pos[uid[v]], tp,
+                                 [pos[uid[a]] for a in addts], elev, weapon_range_of(v))
+           for v in lay["C"]}
     if got != lay["want"]:
         raise MontageError(f"regime NON INSTALLE : cardinaux geometriques {got}, voulus "
                            f"{lay['want']} -- le second cas discriminant n'existe pas")
