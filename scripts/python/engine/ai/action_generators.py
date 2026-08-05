@@ -45,6 +45,7 @@ import hexgeo
 import gameconfig as gc
 from engine import move
 from engine import battle_query as bq          # is_adjacent (élévation-gaté) — cibles heal SpiritLeech (#84)
+from engine.entities.active_ability_type import ActiveAbilityType   # #270-r1-r1
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.base import NO_ACTION   # sentinelle `BaseUtility` -> Nullable VIDE (#27-4g)
@@ -74,7 +75,8 @@ from engine.ai.bucket import Action, Bucket
 # (`Repair_GalvanicFieldPlaybook IdunBattle.AI.Playbook.Loki.Repair_GalvanicFieldPlaybook$$.ctor` : magnitude % Attack-CIBLE + terme CustomUtility) ->
 # route dediee `_repair_galvanic_candidates` (#85), PAS ce set generique. (1224 = NonComparable-repair,
 # exclu ; 82/84 = IDs inexistants dans l'enum, retires -- validateur.)
-_COMPARABLE_REPAIR_IDS: "frozenset[int]" = frozenset({28})
+# #270-r1-r1 : membre nomme (`Repair(28)` est deja ecrit dans la prose ci-dessus).
+_COMPARABLE_REPAIR_IDS: "frozenset[int]" = frozenset({ActiveAbilityType.Repair})   # 28
 _GALVANIC_REPAIR_ID = 1119   # Repair_GalvanicField (bespoke Comparable, admecManipulus/Loki) — #85
 _SPIRITLEECH_ID = 1104       # SpiritLeech (tyranNeurothrope/Loki) — attaque psychique per-ennemi + lifesteal (#84)
 _SPIRITLEECH_HEAL_FACTION = "Tyranids"   # IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealTargets : faction 0xc (self + amis Tyranids adjacents)

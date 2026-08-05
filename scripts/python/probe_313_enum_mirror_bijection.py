@@ -160,6 +160,12 @@ REGISTRE: list[Mirror] = [
     # dans `frida/methods.tsv`. La cle est LUE la, pas deduite du nom court -- il existe CINQ autres
     # enums nommes `Corner` dans le build (Unity/SimpleUI), tous a 3 ou 4 valeurs.
     Mirror("Corner", "engine/hex_corner.py", "IdunBattleLogic.Utils.Hex.Corner"),
+    # `Edge` (#270-r1-r1) -- meme forme, meme piege : le type DECLARE du parametre `direction`
+    # d'`IdunBattle.Utils.Hex.AxialCoordinate$$NeighbourAt`, LU dans `frida/methods.tsv`. Le nom
+    # court aurait apparie `UnityEngine.RectTransform.Edge` (4 valeurs). Il entre au registre DANS
+    # LE COMMIT QUI LUI DONNE UN MIRROR : ce gisement s'est rouvert TROIS fois par notre propre
+    # cadence (`PathfinderType` #381-r5, `KillUnitStep` #389-r2, `DamageReason` #651).
+    Mirror("Edge", "engine/hex_edge.py", "IdunBattle.Utils.Hex.Edge"),
     # ROUGE de `origin/master`, PAS de la tranche qui l'inscrit (#270-r1 volet 2, au rebase) :
     # `DamageReason` est entre sous `engine/` par `c06a112f` (PR #651) sans passer au registre, et
     # ce cliquet rougissait donc sur `origin/master`. C'est exactement le gisement que l'etape 1

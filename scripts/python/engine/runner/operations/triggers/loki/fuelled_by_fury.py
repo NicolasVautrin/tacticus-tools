@@ -185,6 +185,7 @@ from ....components import OwnerComponent, StatsComponent
 from ....abilities.attack_type import is_normal_attack
 from ....abilities.behaviours import add_effect_or_increase_level, entities_from_state
 from .....entities.selectors import Caster
+from .....entities.active_ability_type import ActiveAbilityType   # #270-r1-r1
 from .....entities.effect_type import EffectType
 from .....entities.traits.unit_trait import UnitTrait
 from .....dsl.base import Const
@@ -219,8 +220,8 @@ FUELLED_BY_FURY_PRIORITY = 0
 # `...ActiveAbility$$ShouldAbilityOnlyBeCountedOncePerBattleAbility` (`Contains`). Transcription
 # VERBATIM (DEUX entrees, dans l'ordre du cctor).
 ABILITY_COUNTED_ONCE_PER_BATTLE = frozenset({
-    0x45e,   # 1118 DoctrinaImperatives
-    0x4a5,   # 1189 CalibaniteGreatsword
+    ActiveAbilityType.DoctrinaImperatives,     # 0x45e = 1118
+    ActiveAbilityType.CalibaniteGreatsword,    # 0x4a5 = 1189
 })
 
 # `minAmount` du `AmountIsGreaterAbilityTrigger` de `IdunBattleLogic.Entities.DSLTriggers$$

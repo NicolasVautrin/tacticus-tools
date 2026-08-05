@@ -327,12 +327,18 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
 # (`hpToHeal`/`hpToRepair`, cf. `_has_heal_magnitude`) ne peut pas les capter -> gate par ID = l'enum
 # d'ability natif `ActiveAbilityType` (une distinction REELLE du jeu, doctrine gate-justifie). Tous les
 # autres heals/repairs (dont la config PORTE `hpToHeal`/`hpToRepair`) passent par le chemin generique.
-HEAL_ABILITY_IDS = frozenset({8, 18, 1167, 1212})    # MassHeal / Heal / Heal_TwistedScience / HealingBalms_Heal
+# #270-r1-r1 : membres nommes -- le NOM etait deja au site, l'ordinal ne designait rien (`8` vaut
+# aussi `UnitTrait.Drunk`, et c'est bien `ActiveAbilityType` que la prose ci-dessus nomme).
+HEAL_ABILITY_IDS = frozenset({ActiveAbilityType.MassHeal,              # 8
+                              ActiveAbilityType.Heal,                  # 18
+                              ActiveAbilityType.Heal_TwistedScience,   # 1167
+                              ActiveAbilityType.HealingBalms_Heal})    # 1212
 # 82 `MechRepair` et 84 `BattleTinkererRepair` RETIRES (#270) : le build `rnca9r7q6c` ne porte plus
 # ces membres d'`ActiveAbilityType` (confirme par `dumpEnum` au runtime, par `classes.tsv` -- aucune
 # classe `<Nom>Ability` -- et par le gameconfig, qui ne configure aucune ability de ces noms). Ils
 # etaient INERTES : le jeu ne peut pas les emettre. Garde : `probe_270_active_ability_type_drift.py`.
-REPAIR_ABILITY_IDS = frozenset({28, 1119})           # Repair / Repair_GalvanicField
+REPAIR_ABILITY_IDS = frozenset({ActiveAbilityType.Repair,                  # 28
+                                ActiveAbilityType.Repair_GalvanicField})   # 1119
 
 
 def _resolve_ability(ability_id: int):

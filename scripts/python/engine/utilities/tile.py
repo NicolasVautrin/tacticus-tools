@@ -628,7 +628,10 @@ class MasterOfTheTutelaries_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
     UTILITY_TYPE = int(UtilityType.MasterOfTheTutelaries_MoveTowardsTarget)  # 63
     _CAT = "MasterOfTheTutelaries_MoveTowardsTarget"
     _ABILITY_ID = int(ActiveAbilityType.MasterOfTheTutelaries)  # 1096 (#158 : nom classe matche Active, PAS EffectType.KustomForceField/Triggered.SoulHunger)
-    _TRAIT_GATE = {2026, 1019}
+    # #270-r1-r1 : le champ s'appelle `_TRAIT_GATE` et la docstring dit « Gate trait » -- ce sont
+    # des `UnitTrait` (2026 = Chaos, 1019 = Daemon), pas des ids d'ability.
+    _TRAIT_GATE = {UnitTrait.Chaos,      # 2026
+                   UnitTrait.Daemon}     # 1019
 
 
 class TriggeredAbilitiesUtility(BaseUtility):

@@ -921,8 +921,11 @@ def _hades_autocannons_target_gate(scene, caster_id: int, target_id: int) -> boo
 # une cible que le selecteur ne retient pas n'a AUCUN event. Sans ce gate, le port emet un event
 # generique par cible demandee -- une sur-prediction muette. Registre distinct de
 # `_MAKE_DMG_INPUT_OVERRIDES` (qui, lui, ne change QUE les entrees d'un event deja acquis).
-_MAKE_DMG_TARGET_GATE = {1148: _daemonic_ordnance_target_gate,
-                         1147: _hades_autocannons_target_gate}
+# #270-r3 : ce dict etait le SEUL du fichier reste en ordinaux nus -- il a DEUX cles, et la
+# couverture de dict du recenseur filtrait a `>= 3`. Le nom est au site, dans celui de chaque
+# handler (`_daemonic_ordnance_...`, `_hades_autocannons_...`) : 2/2 `ActiveAbilityType`.
+_MAKE_DMG_TARGET_GATE = {ActiveAbilityType.DaemonicOrdnance: _daemonic_ordnance_target_gate,   # 1148
+                         ActiveAbilityType.HadesAutocannons: _hades_autocannons_target_gate}   # 1147
 
 
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch

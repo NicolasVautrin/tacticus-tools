@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Dict, Hashable, Iterator, List, Optional
 
 from .state import Component
+from ..entities.effect_type import EffectType   # #270-r1-r1 : `_TELEPORT_MOVE_EFFECTS`
 
 if TYPE_CHECKING:
     from ..entities import UnitContext
@@ -1349,7 +1350,12 @@ def unit_is_alive(entity) -> bool:
 # Effets dont la presence (owner OU target) fait qu'un move est un TELEPORT (cf. `set_moved_flag`) :
 # TeleportStrike_TeleportingIn(0x40b=1035)/TeleportStrike_Moving(0x40c=1036) et
 # FearOfTheUnseen_TeleportingIn(0x4d6=1238)/FearOfTheUnseen_Moving(0x4d9=1241).
-_TELEPORT_MOVE_EFFECTS = (0x40c, 0x40b, 0x4d9, 0x4d6)
+# #270-r1-r1 : membres nommes -- les quatre noms etaient deja au site. L'ORDRE est celui des
+# disjonctions du decompile (`IsTeleporting`), donc le tuple reste un tuple.
+_TELEPORT_MOVE_EFFECTS = (EffectType.TeleportStrike_Moving,           # 0x40c = 1036
+                          EffectType.TeleportStrike_TeleportingIn,    # 0x40b = 1035
+                          EffectType.FearOfTheUnseen_Moving,          # 0x4d9 = 1241
+                          EffectType.FearOfTheUnseen_TeleportingIn)   # 0x4d6 = 1238
 
 
 def is_teleporting(state, unit_id: int) -> bool:

@@ -12,6 +12,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
 from ..base import BaseEffect, SubEffectSpec, SAME_TURNS, is_melee_attack
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 from ...traits import UnitTrait, has_any_trait, has_trait
+from ...effect_type import EffectType   # #270-r3 : cles de `ContagionsOfNurgle...CTOR_ARGS`
 
 
 class HypersensoryMinimalHealthEffect(BaseEffect):
@@ -150,9 +151,17 @@ class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
     # ctor : `effectType -> (cle de constante `+0x488`, min `+0x48c`, max `+0x490`)`. La cle de
     # constante n'est PAS relue ici (la magnitude est materialisee en delta plat par le poseur, qui
     # lit la variable de trait correspondante) ; la FENETRE, elle, est la `CreateActiveCondition`.
+    # #270-r3 : les CLES sont des `EffectType` -- le nom de la constante de chaque entree
+    # (`contagionsOfNurgleArmor...`) et le nom de la classe portent le meme designateur, et
+    # `frida/enums.tsv` le confirme (1071/1072 = `ContagionsOfNurgle_ArmorReduction1`/`2`, la ou
+    # `TriggeredAbilityType` nomme `CursedPlagueBell`/`CursedOfTheWalkingPox`).
+    # Les VALEURS, elles, restent des scalaires : une constante gameconfig et une FENETRE
+    # (min, max), dont `0x7FFFFFFF` est la borne « pas de maximum ».
     CTOR_ARGS = {
-        0x42F: ("contagionsOfNurgleArmorOneAura", 1, 1),
-        0x430: ("contagionsOfNurgleArmorTwoOrMoreAuras", 2, 0x7FFFFFFF),
+        EffectType.ContagionsOfNurgle_ArmorReduction1:    # 0x42F = 1071
+            ("contagionsOfNurgleArmorOneAura", 1, 1),
+        EffectType.ContagionsOfNurgle_ArmorReduction2:    # 0x430 = 1072
+            ("contagionsOfNurgleArmorTwoOrMoreAuras", 2, 0x7FFFFFFF),
     }
 
     def aura_amount_window(self) -> "tuple | None":

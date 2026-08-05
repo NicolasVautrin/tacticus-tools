@@ -40,6 +40,7 @@ from __future__ import annotations
 from ...services.static_battle_rules import (BLOCK_ENTERING_UNITS_EFFECT_TYPE,
                                              not_blocking_movement_of_traits)
 from ..traits.unit_trait import has_any_trait
+from ..effect_type import EffectType   # #270-r1-r1 : les elements du set ci-dessous sont des EffectType
 
 
 # --- QUELS effets de tuile s'enregistrent comme BLOQUEURS -----------------------------------------
@@ -67,7 +68,15 @@ from ..traits.unit_trait import has_any_trait
 # MESURÉ (`probe_pathfinding_overreach`, EMC2_02/4242) : les trois tuiles `Fire` du décor sont des
 # CULS-DE-SAC natifs exactement comme les Swamp — 6 tuiles sur-atteintes par le port tant que seul
 # l'EffectType 0 était reconnu.
-TILE_MOVEMENT_BLOCKING_EFFECT_TYPES: frozenset = frozenset({0x00, 0x05, 0x11, 0x3a, 0x5e})
+# #270-r1-r1 : membres nommes -- le discriminant est le ctor natif deja cite ligne par ligne
+# ci-dessus (`FireEffect$$.ctor`, `IceEffect$$.ctor`, ...), qui matche 5/5 `EffectType`.
+TILE_MOVEMENT_BLOCKING_EFFECT_TYPES: frozenset = frozenset({
+    EffectType.BlockEnteringUnits,          # 0x00
+    EffectType.Fire,                        # 0x05
+    EffectType.Ice,                         # 0x11
+    EffectType.Darkness,                    # 0x3a = 58
+    EffectType.LandMine_BlockTileMovement,  # 0x5e = 94
+})
 
 
 def tile_blocks_entering(effects_state, tile_id: int, mover_traits=None) -> bool:

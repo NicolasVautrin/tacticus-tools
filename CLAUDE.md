@@ -163,19 +163,34 @@ ADRESSES à celui des VALEURS.
 `engine/entities/active_ability_type.py` (260, importé par **145** fichiers). Si le tien n'y est
 pas, **l'ajouter fait partie de la tranche**.
 
-⚠ **L'axe BITS est tenu ; l'axe CLÉS DE DICT l'est ENTIÈREMENT** — **0** test de bit exécutable à
-littéral brut, et **297** clés converties : les **169** des **5** dicts à enum unique (#270-r1
-volet 1) puis les **128** des **10** dicts que le build n'attribuait pas seul (#270-r1 volet 2,
-2026-08-05). Value-preserving **vérifié** dans les deux cas par empreinte des deux versions.
-**Restent ouverts** : **161** littéraux en position **ÉLÉMENT DE CONTENEUR** (31 tuples/listes/sets,
-16 fichiers), que les cinq rôles du probe ne visitent pas (`#270-r1-r1`) ; et **8 clés / 5 dicts**
-sous le **seuil `≥ 3 clés`** de la couverture de dict du probe (`#270-r3`).
+⚠ **Les axes BITS, CLÉS DE DICT et ÉLÉMENT DE CONTENEUR sont tenus** — **0** test de bit exécutable
+à littéral brut ; **305** clés de dict converties (169 + 128 + 8) ; **160** éléments de conteneur
+(#270-r1-r1, 2026-08-05), soit `element de conteneur` **201 → 41** et `cle de dict` **8 → 0**.
+Value-preserving **vérifié** à chaque fois par empreinte des deux versions.
 
-⚠ **Ce gisement a été SOUS-COMPTÉ ici même, DEUX FOIS, et par la même cause** : « 284 clés » ne
-voyait que les dicts (rôle manquant), et le `0` que le probe rend depuis le volet 2 ne voit que les
-dicts d'**au moins 3 clés** (seuil). Un recenseur qui n'énumère pas un rôle — ou qui filtre par
-cardinalité — rend un zéro **rassurant** sur ce qu'il ne regarde pas. Re-dériver
-(`probe_270r1_enum_candidates.py --croiser` **et** `--lister`), jamais citer ce paragraphe.
+⚠ **UN RECENSEUR NE PEUT PAS RENDRE ZÉRO SUR CE QU'IL NE VISITE PAS — et une LISTE BLANCHE de rôles
+ne peut pas montrer le rôle qu'elle a oublié.** Ce gisement a été sous-compté **trois fois de
+suite**, toujours par la même cause : « 284 clés » ne voyait que les dicts ; le `0` d'après le volet
+2 ne voyait que les dicts d'au moins 3 clés (**seuil**) ; et l'ajout du rôle conteneur a fait
+apparaître **deux positions de plus** que personne n'avait comptées (`return 7`, `X = 1119`). Le
+probe **n'énumère plus des rôles** : il visite **tous** les `ast.Constant` entiers et **dérive** le
+rôle du nœud parent, une position inconnue sortant sous `autre (<Noeud>)` ; la somme des rôles est
+imprimée comme partition exhaustive. Effet mesuré : **285 → 912** candidats, soit **3,2×**. Tout
+compte filtré **dit ce qu'il filtre** (`ECARTES PAR CE SEUIL : …`). Reste ouvert `#270-r1-r1-r3`
+(les rôles neufs : 165 affectations, 18 retours, 22 valeurs de dict, 8 indices…). Re-dériver
+(`probe_270r1_enum_candidates.py --croiser`), **jamais citer ce paragraphe**.
+
+⚠ **Une conversion de masse se vérifie par EMPREINTE — et l'empreinte doit hacher la VALEUR, pas la
+REPRÉSENTATION.** Mesuré (#270-r1-r1) : une empreinte sur `repr(v)` a rendu **3 divergences, toutes
+fausses** — `repr(6)` ≠ `repr(<PathfinderType.TeleportStrikeWalk: 6>)` alors qu'un `IntEnum` **est**
+un `int`. Canonicaliser par `int(x)`, **récursivement** dans les conteneurs. Le contrôle qui rougit
+sur son propre artefact fait renoncer à des conversions justes.
+
+⚠ **Un mirror NEUF entre au registre de `probe_313` DANS LE MÊME COMMIT**, apparié par son nom
+**PLEIN** : le build porte `UnityEngine.RectTransform.Edge` en plus d'`IdunBattle.Utils.Hex.Edge`,
+et cinq `Corner` Unity/SimpleUI. Ce gisement s'est rouvert **quatre** fois par notre propre cadence
+(`PathfinderType` #381-r5, `KillUnitStep` #389-r2, `DamageReason` #651 — qui rendait `master` rouge —
+`Edge` #270-r1-r1, inscrit à temps).
 
 ⚠ **La VOIE ne dit pas l'enum, et l'ORDINAL non plus — seul le NOM ou le TYPE DÉCLARÉ tranchent.**
 Mesuré sur les 128 clés du volet 2 : les 110 ids d'ability sont attribués par le **symbole natif

@@ -15,6 +15,23 @@ from __future__ import annotations
 
 from . import fix64 as _fx
 
+# ─── #270-r1-r1 : POURQUOI CE FICHIER GARDE SES ORDINAUX, ET COMMENT IL EST QUAND MEME GARDE ─────
+#
+# Les trois collections ci-dessous DESIGNENT bien des membres d'enum (`EffectType` pour le set,
+# `UnitTrait` pour les deux tuples). La conversion a ete TENTEE puis ANNULEE : `engine/services/`
+# est la couche que `engine/entities/` et `engine/runner/` importent tous deux, donc un
+# `from ..entities.effect_type import EffectType` ici initialise le paquet `engine.entities`, qui
+# tire `effects/loki/hits.py`, qui ré-importe `services.static_battle_rules` -> `ImportError` sur
+# `TILE_STATUS_EFFECT_NAMES` (module partiellement initialise). CYCLE MESURE, pas redoute.
+#
+# Ce que la regle vise -- qu'un ordinal ne se perime pas EN SILENCE -- est obtenu autrement, et le
+# cran est le meme : `tests/engine/test_270r1r1_container_enum_offline.py` confronte CES valeurs aux
+# membres d'enum correspondants (le test, lui, peut importer les deux couches). Un renumerotage du
+# build fait donc rougir, exactement comme si le membre etait ecrit ici.
+# Condition de RETOURNEMENT de ce compromis : le jour ou `engine/entities/__init__.py` n'importe
+# plus l'arbre des effets, l'import redevient possible -- le meme test le detecte (il TENTE
+# l'import et rougit s'il REUSSIT, cf. son etape « cycle encore present »). Residu : #270-r1-r1-r1.
+
 # Bonus de perçage LasCannon — static_field[0] de `StaticBattleRules.DamageTrait` écrit à 0x32 par sa cctor
 # idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.DamageTrait$$.cctor (`**(int **)(cls + 0xb8) = 0x32`), lu par `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetPiercingRatio`. VALEUR NATIVE = 50.
 W_LASCANNON_PIERCE_BONUS = 50
@@ -40,6 +57,7 @@ W_LASCANNON_PIERCE_BONUS = 50
 # seed elle porte la VRAIE liste native, donc le filtre est OBLIGATOIRE.
 TILE_STATUS_EFFECT_TYPES: frozenset = frozenset({0x3a, 0x05, 0x11, 0x4dc, 0x5c4})
 #                                                ^Darkness ^Fire ^Ice ^Contaminated ^DespoiledGround
+# (ordinaux : cf. l'encadre #270-r1-r1 en tete de module -- cycle d'import, garde deportee au test)
 
 # MEMES membres, par NOM : le canal PREDICTION (`tileMeta.tiles[].effects[].name` ->
 # `Scene.tile_effects_by_pos`) ne transporte que des noms, pas des EffectType.
@@ -63,6 +81,10 @@ def is_tile_status_effect(effect_type) -> bool:
 # tuile ne compte comme raison de blocage que si l'unite qui se deplace n'a AUCUN de ces traits
 # (predicat `Enumerable.Any(exemptTraits, t => HasTrait(unit, t))`).
 BLOCK_ENTERING_UNITS_EFFECT_TYPE = 0            # `BlockEnteringUnitsTileEffect` (Swamp, BrokenIce...)
+# ⚠ Les elements sont des `EffectType` (le set) et des `UnitTrait` (les deux tuples) -- DEUX enums
+# differents a deux lignes d'ecart, et l'ordinal ne les distingue pas : `0` vaut
+# `EffectType.BlockEnteringUnits` d'un cote et `UnitTrait.Mounted` de l'autre. Ordinaux conserves
+# (cycle d'import, cf. l'encadre en tete de module) ; garde deportee au test #270-r1-r1.
 _MOVEMENT_BLOCKING_EFFECT_TYPES: frozenset = frozenset({0x00, 0x05, 0x11})
 _MOVEMENT_EXEMPT_TRAIT_IDS: tuple = (0, 0x405, 0x412)       # Mounted / Vehicle / Unstoppable
 _DARKNESS_EXEMPT_TRAIT_IDS: tuple = (0x1d,)                 # NightVision

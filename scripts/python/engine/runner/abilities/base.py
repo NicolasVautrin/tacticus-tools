@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+# Les deux registres d'override de flags sont indexes par `ActiveAbilityType` (#270-r1-r1).
+from ...entities.active_ability_type import ActiveAbilityType
+
 if TYPE_CHECKING:
     from ..state import State
 
@@ -264,14 +267,43 @@ def turns_until_unit_owner_turn(state: "State", unit_id: int) -> int:
 # 1210 ExemplarOfTheMontka=Farsight.
 
 # Classes overridant `SetsEndTurnFlags` (l'ability NE termine PAS le tour) — 14 classes.
+# #270-r1-r1 : membres nommes plutot qu'ordinaux nus. Le discriminant est le NOM que la prose
+# ci-dessus donne deja a chaque id (`1014 ArmoriumCherub=Vindicta` ...) : confronte a
+# `frida/enums.tsv`, il matche 14/14 `ActiveAbilityType` (les memes ordinaux nomment autre chose
+# en `TriggeredAbilityType` -- 1014 = `RitesOfBattle` -- et en `EffectType`).
 NO_END_TURN_ABILITY_TYPES = frozenset({
-    1014, 1063, 1081, 1106, 1118, 1121, 1127, 1131, 1139, 1173, 1189, 1198, 1202, 1210,
+    ActiveAbilityType.ArmoriumCherub,        # 1014
+    ActiveAbilityType.FireAndReposition,     # 1063
+    ActiveAbilityType.FightingRetreat,       # 1081
+    ActiveAbilityType.WarHowl,               # 1106
+    ActiveAbilityType.DoctrinaImperatives,   # 1118
+    ActiveAbilityType.ItItches,              # 1121
+    ActiveAbilityType.ArmouredMight_Move,    # 1127
+    ActiveAbilityType.JakhalStimms,          # 1131
+    ActiveAbilityType.SentinelDirectives,    # 1139
+    ActiveAbilityType.ArcScourge,            # 1173
+    ActiveAbilityType.CalibaniteGreatsword,  # 1189
+    ActiveAbilityType.EuphoricStrikes,       # 1198
+    ActiveAbilityType.VigilanceEternal,      # 1202
+    ActiveAbilityType.ExemplarOfTheMontka,   # 1210
 })
 
 # Classes overridant `SetsActiveAbilityUsedFlag` (pas de flag ActiveAbilityUsed=2) — 13 classes
 # (PAS 1063 FireAndReposition ni 1121 ItItches ; + 1077 EarlyWarningOverride qui n'override QUE celui-ci).
 NO_ABILITY_USED_FLAG_ABILITY_TYPES = frozenset({
-    1014, 1077, 1081, 1106, 1118, 1127, 1131, 1139, 1173, 1189, 1198, 1202, 1210,
+    ActiveAbilityType.ArmoriumCherub,         # 1014
+    ActiveAbilityType.EarlyWarningOverride,   # 1077
+    ActiveAbilityType.FightingRetreat,        # 1081
+    ActiveAbilityType.WarHowl,                # 1106
+    ActiveAbilityType.DoctrinaImperatives,    # 1118
+    ActiveAbilityType.ArmouredMight_Move,     # 1127
+    ActiveAbilityType.JakhalStimms,           # 1131
+    ActiveAbilityType.SentinelDirectives,     # 1139
+    ActiveAbilityType.ArcScourge,             # 1173
+    ActiveAbilityType.CalibaniteGreatsword,   # 1189
+    ActiveAbilityType.EuphoricStrikes,        # 1198
+    ActiveAbilityType.VigilanceEternal,       # 1202
+    ActiveAbilityType.ExemplarOfTheMontka,    # 1210
 })
 
 # Ability 1081 FightingRetreat (Darkstrider) = SEUL override CONDITIONNEL lu dans le build courant :
