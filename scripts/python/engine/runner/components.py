@@ -1716,6 +1716,37 @@ def unit_is_dead(entity) -> bool:
     return True
 
 
+def is_alive_and_not_fled(entity) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsAliveAndNotFled(unit)` — MIRROR 1:1 du decompile,
+    et ce n'est PAS la negation d'`unit_is_dead` :
+
+        if (unit == null)                                   return false;
+        if (unit.TryGetComponent<HealthComponent>(out hc))  // slot d'iface, `TryGet`
+            if (HealthComponent.IsDead(hc))                 return false;
+        return !UnitExtensions.HasFlag(unit, 9 UnitFlag.Fled);
+
+    TROIS ecarts avec `unit_is_dead`, tous LUS :
+      * l'entite NULLE rend **false** ici (« pas vivante »), alors qu'`unit_is_dead(None)` rend
+        false aussi (« pas morte ») -- les deux predicats ne sont pas complementaires ;
+      * une unite **FLED** rend **false** ici (elle n'est ni vivante ni sur le plateau), alors
+        qu'`unit_is_dead` l'exclut EXPRESSEMENT de la mort (`IsDead` = `!IsAlive && !Fled`) ;
+      * l'entite SANS `HealthComponent` (une TUILE, une entite d'environnement) rend **true** :
+        le natif SAUTE le test de mort quand `TryGetComponent` echoue, et ne juge plus que le
+        flag. C'est ce qui laisse passer les abilities TILE-TARGET -- MESURE (#429-r1-r3) : un
+        cast de `GreatFrostAxe` sur la TUILE d'un cadavre ouvre bien le groupe de stream
+        `User_UseAbility` (2 evenements), la ou le meme cast sur le CADAVRE n'en produit aucun.
+
+    LECTEUR : `IdunBattle.Messages.InputMessageProcessor$$Visit(ActiveAbilityMessage)`, qui le
+    teste sur le CASTER puis sur la CIBLE avant toute operation (cf.
+    `abilities/handler.py::visit_ActiveAbilityMessage`)."""
+    if entity is None:
+        return False
+    if not unit_is_alive(entity):
+        return False
+    fl = entity.get_component(UnitFlagsComponent)
+    return not (fl is not None and fl.has(UnitFlagsComponent.FLED))
+
+
 # ── Contexte d'évaluation des `CreateActiveCondition` (#208) ──────────────────────────────────────
 # `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` évalue l'arbre mémoïsé de l'effet
 # (`BaseEffect$$CreateActiveConditionAndCache`, champ `+0x90`) contre un CONTEXTE de 0x130 octets,

@@ -153,13 +153,15 @@ résultat. Le test garde ce préalable explicitement (`test_le_montage_pose_bien
 * **Board** : `C1_74` — montage **NON INSTALLÉ** (la cible survit à 1 PV), et le scénario le dit
   (`why` non vide → `pytest.fail`, jamais un vert). `C3_01` refuse le placement `(6,6)`. Un seul
   board est donc confronté ; c'est un non-couvert, pas un accord.
-* ⚠ **Une divergence RÉSIDUELLE, mesurée sur ce même cas 1089** (résidu `#429-r1-r3`) : le natif
-  refuse quand même (0 tirage, action non consommée) alors que le port **exécute** (la glace se
-  pose). Le refus natif vient donc du gate **suivant**, où une règle que le port ne porte pas encore
-  refuse un cadavre — vraisemblablement la PORTÉE (le natif retire l'unité morte du board ; le port
-  lui garde son `PositionComponent`). **Ce n'est pas une régression de cette tranche** :
-  `port_sans_gate_last` est *identique* à `port_last` pour 1089, la divergence lui préexiste. Bilan :
-  **43 divergences avant, 1 après**.
+* ⚠ **Une divergence RÉSIDUELLE, mesurée sur ce même cas 1089** — **RÉSOLUE le 2026-08-05 par
+  `#429-r1-r3`**, et la piste écrite ici était **FAUSSE**. Ce n'est pas la PORTÉE : le natif ne
+  retire pas le cadavre du board (il garde son `UnitFootComponent.TileId`, mesuré), et
+  `abilityReason` rend `NoBrokenTargetingRule`. Le refus vient d'un gate d'un **rang plus haut**,
+  `IdunBattle.Messages.InputMessageProcessor$$Visit(ActiveAbilityMessage)` →
+  `IdunBattle.Entities.UnitExtensions$$IsAliveAndNotFled`, qui ne lit pas l'ability et ne déroge
+  donc pour personne. Le gate d'opération de cette fiche est **inchangé et toujours armé** ; il est
+  simplement précédé. Détail : `case-429r1r3-gate-message-cible-morte.md`. Bilan de cette tranche :
+  **43 divergences avant, 1 après** ; **0 après `#429-r1-r3`** (oracle joué : 104/104).
 
 **Ce que le live ne peut PAS discriminer, et il faut le dire** : `IsDeadUnitAndNotAllowedByAbility`
 et `IsInvalidTarget` sortent tous deux avant `On(0x2a)`, avant tout dégât et avant les flags de tour.
@@ -211,14 +213,12 @@ victoire coupe les vues (cf. §5).
   `AttackUnitMessage`, les attaques déclenchées appellent `AttackDamageOperation.execute`
   directement. Le foyer est donc l'OPÉRATION. Mesuré : natif 0 tirage / port pré-fix **6 tirages,
   6049 dégâts sur un cadavre, action consommée** / post-fix 0.
-* **`#429-r1-r3` — la dernière divergence du gate cible-morte : `GreatFrostAxe` (1089).** Le porteur
-  du bit 38 échappe correctement au gate #429-r1, puis le natif le refuse par le gate SUIVANT que le
-  port ne reproduit pas : `is_invalid_target` rend `0` sur un cadavre positionné. Piste première : la
-  PORTÉE — `TargetingQuery$$GetTiles(target)` est vide côté natif pour une unité morte (retirée du
-  board), alors que le port garde le `PositionComponent` du cadavre (`get_tiles` rend `[]`, mais le
-  volet portée de `targeting.py` ne passe pas par lui). Fermer cette ligne rend le port exact sur
-  **104/104**. Mesure : `probe_429r1_dead_target_gate.scenario_live(..., ability=1089,
-  killer="ultraInceptorSgt", caster="spaceWulfen")`.
+* ~~**`#429-r1-r3` — la dernière divergence du gate cible-morte : `GreatFrostAxe` (1089).**~~
+  **LIVRÉ le 2026-08-05** — `case-429r1r3-gate-message-cible-morte.md`. La piste « c'est la PORTÉE »
+  écrite ici est **RÉFUTÉE** par deux mesures. Le refus natif vient d'un **second** gate cible-morte,
+  au rang du MESSAGE (`InputMessageProcessor$$Visit` → `UnitExtensions$$IsAliveAndNotFled`), qui ne
+  lit pas l'ability — donc sans dérogation. Oracle joué pour de vrai : **104/104** refusées, et
+  **103/104** avec ce gate débranché (unique rescapée : 1089, ce qui l'attribue).
 * **`#429-r1-r2` — quatre formes d'instruction hors de portée du scanner**, à dire chaque fois qu'on
   l'invoque : constante lue depuis `.rdata` (`and rax, qword ptr [rip+X]`), `bt` à opérande mémoire,
   test compilé en deux moitiés 32 bits (`test dword ptr [x+4], imm32` — le bit 34 y est le bit 2 du
