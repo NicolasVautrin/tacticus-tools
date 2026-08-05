@@ -452,6 +452,13 @@ def replay(rpc, st: dict, vis: str) -> dict:
         raise MontageError(f"dumpRng indisponible : {str(s0)[:200]}")
     state.rng = _seed_rng(s0)
 
+    # Le BUNDLE d'etat PRE-CAST. Il rend les contre-epreuves GRATUITES : le port peut etre rejoue
+    # autant de fois qu'on veut sur ce meme etat (meme MT), avec une mutation differente a chaque
+    # fois, sans re-monter un runner ni re-jouer le cast LIVE (qui, lui, n'a lieu qu'UNE fois --
+    # il consomme le tour et mute l'etat).
+    bundle = {"dv": dv, "ob": ob, "snap": snap, "bg": bg, "ast": ast, "rng": s0,
+              "cid": cid, "tid": tid, "uid": dict(st["uid"])}
+
     before = _hp_by_id(dv)
     off_before = {i: (state.get_entity(i).get_component(HealthComponent).hp
                       if state.get_entity(i) is not None
@@ -484,7 +491,7 @@ def replay(rpc, st: dict, vis: str) -> dict:
     by_vis = {v: k for k, v in st["uid"].items()}
     nh = _native_hits(a0)
     off_fold = rr.get("primary_fold") or None
-    return {"vis": vis, "ability": st["ab"][vis], "caster": cid, "target": tid,
+    return {"vis": vis, "ability": st["ab"][vis], "caster": cid, "target": tid, "bundle": bundle,
             "want_cardinal": st["want"][vis],
             "want_primary_fold": st["fold"][vis],
             "nat": {by_vis.get(i, i): d for i, d in nat.items()},
@@ -509,6 +516,37 @@ def replay(rpc, st: dict, vis: str) -> dict:
             "off_cleave_events": [(by_vis.get(e.get("target"), e.get("target")),
                                    (e.get("attack") or {}).get("per_hit"))
                                   for e in (rr.get("additional_targets") or [])]}
+
+
+def port_only(bundle: dict) -> dict:
+    """Rejoue l'attaque normale OFFLINE sur le bundle d'etat PRE-CAST, et rend
+    `{"primaire": <PV>, "addts": {visualId: <PV>}, "arme": [...], "fold": [...]}`.
+
+    Sert aux CONTRE-EPREUVES : on mute le port (registre vide, fold greffe par analogie, ordre des
+    deux volets inverse...) puis on rappelle cette fonction. Aucun runner, aucun cast live -- donc
+    une contre-epreuve coute ZERO montage, et rien n'empeche d'en jouer quatre."""
+    board = Board(bundle["bg"]["tiles"], adjacency="native_sym")
+    state = load_state(bundle["dv"], bundle["ob"], bundle["snap"], board=board,
+                       ability_states=bundle["ast"])
+    state.rng = _seed_rng(bundle["rng"])
+    before = {i: (state.get_entity(i).get_component(HealthComponent).hp
+                  if state.get_entity(i) is not None
+                  and state.get_entity(i).get_component(HealthComponent) is not None else None)
+              for i in _hp_by_id(bundle["dv"])}
+    runner = Runner(state).install_default_handlers(20)
+    runner.apply(AttackUnitMessage(bundle["cid"], bundle["tid"]))
+    rr = runner.damage_handler.last or {}
+    after = {i: (state.get_entity(i).get_component(HealthComponent).hp
+                 if state.get_entity(i) is not None
+                 and state.get_entity(i).get_component(HealthComponent) is not None else None)
+             for i in before}
+    by_vis = {v: k for k, v in bundle["uid"].items()}
+    d = {i: int(before[i]) - int(after[i]) for i in before
+         if before.get(i) is not None and after.get(i) is not None and before[i] != after[i]}
+    return {"primaire": d.get(bundle["tid"], 0),
+            "addts": {by_vis.get(i, i): v for i, v in d.items() if i != bundle["tid"]},
+            "arme": list(rr.get("per_hit") or []),
+            "fold": list(((rr.get("primary_fold") or {}).get("attack") or {}).get("per_hit") or [])}
 
 
 def verdict(rows: list) -> list:
