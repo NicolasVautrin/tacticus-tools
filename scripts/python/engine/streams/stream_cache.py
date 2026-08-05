@@ -40,12 +40,25 @@ LES QUATRE METHODES, telles que le decompile les ecrit :
       foreach (l in _listeners) l.<slot 0>(text);
       _stream.Clear(); _depth = 0;                     <- c'est `Clear()`, inline
 
-LES CINQ LITTERAUX SONT MESURES, PAS LUS -- et c'est declare ici parce que c'est le seul
-endroit du mirror qui ne vient pas du decompile. Les chaines .NET vivent dans les metadonnees
-IL2CPP (`global-metadata.dat`), pas dans le PE : Ghidra ne rend que des `DAT_*`. La RE offline
-(`case-477` § 10.7) en avait deduit « tabulations » -- c'est FAUX, ce sont QUATRE ESPACES. Les
-valeurs ci-dessous viennent du texte reel rendu par le RPC `replayOutputStream` (#477-r11, puis
-re-mesure ici sur C1_02 : 11 645 octets, 0 CR, 0 TAB, 319 LF).
+LES CINQ LITTERAUX SONT DESORMAIS **LUS**, PLUS DEDUITS DU FLUX (#477-r15-r1).
+
+Ils l'ont longtemps ete : les chaines .NET vivent dans `global-metadata.dat`, pas dans le PE,
+donc Ghidra ne rend au site d'utilisation qu'un `DAT_<slot>`. C'etait le seul endroit du mirror
+qui ne venait pas du decompile -- la RE offline (`case-477` § 10.7) en avait meme deduit
+« tabulations », ce qui etait FAUX.
+
+`data/symbols/<build>/metadata/string_literals.tsv` resout ces slots. Chaque littéral est
+attribue a sa methode par un scan des references RIP-relatives du PE, INDEPENDANT de Ghidra :
+
+    StreamCache$$Log / $$AddToBatchedLog / $$Action  ->  INDENT        (4 espaces)
+    StreamCache$$StartGroup                         ->  FMT_GROUP
+    StreamCache$$Action                             ->  FMT_ACTION, FMT_TAG
+    StreamCache$$FinishGroup                        ->  FINISH_GROUP
+
+Les valeurs LUES sont identiques CARACTERE PAR CARACTERE a celles qui avaient ete mesurees sur
+le flux (#477-r11, puis C1_02 : 11 645 octets, 0 CR, 0 TAB, 319 LF) -- 5/5. Les deux canaux sont
+independants, donc leur accord est une vraie confirmation, et le cliquet
+`test_477r15r1_string_literals_offline.py` le tient a chaque build.
 
 ⚠ L'ORDRE DES TAGS EST CELUI DES ORDINAUX, PAS L'ALPHABETIQUE : le `SortedDictionary<TagKey,int>`
 trie sur la VALEUR de l'enum. Mesure de controle sur le meme flux : 66 blocs d'action, **0** hors
