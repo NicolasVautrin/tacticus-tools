@@ -2283,14 +2283,27 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `probe_273` (`_OUTPUT_ROOTS` non gardée) ; `probe_366camo` (`POSE_VECTOR` sans garde de fraîcheur).
 
 - **#477-r1 : le contenu REEL de l'output stream natif n'a jamais ete observe.** `[opus]`
-  `Runner.ReplayValidator` compare `Replay.GetWholeBattleOutputStream` caractere par caractere : les
-  devs du jeu tiennent ce flux pour la signature complete d'une bataille. Il est DEJA disponible sur
-  nos runners (`IdunRunner.Initialize` appelle toujours `SetupReplayRecorder`), et le capteur est
-  livre (`frida/hooks/features/replay-output-stream.ts`, RPC `replayOutputStream`). Il n'a JAMAIS
-  ete execute -- il attend une fenetre de reinject. Toute la valeur de la piste depend de la
-  granularite reelle du texte, qui n'est PAS etablie. Premiere mesure : `replayOutputStreamStatus()`
-  puis `replayOutputStream({runnerId})` sur un runner `rl_duel build`, et LIRE le texte.
-  cf. `docs/rl/case-477-harnais-de-test-natif.md`.
+  **CAUSE TROUVEE, remede livre, NON CONFRONTE -- il ne reste qu'a JOUER le probe dans une
+  fenetre de reinject.** L'affirmation << deja disponible sur nos runners, `IdunRunner.Initialize`
+  appelle toujours `SetupReplayRecorder` >> etait **FAUSSE** : l'appel est sous garde sur
+  `IdunRunnerOptions.RecordReplay` (que le ctor natif met a `true`), et `buildRunner` ecrivait `0`
+  a cet offset pour TOUS nos runners. Mesure du 2026-08-04 : flux `0 / 0 pas / 0 evenement PRNG`
+  avec les quatre `true` de `replayOutputStreamStatus()` -- ces `true` mesuraient la resolution de
+  symboles, pas l'armement. Correctif livre (`buildRunner({recordReplay})`, `initAndStart`,
+  `rl_duel build --record-replay`, `recorderArmed` mesure sur `ReplayRecorder._playerIndicesToRecord`).
+  A jouer des la fenetre : `python scripts/python/probe_477r1_replay_output_stream.py --session <sid>
+  --board C1_70` (temoin desarme / bras arme ; rc 3 = bundle antererieur au correctif). La
+  GRANULARITE du texte reste non etablie -- squelette du format derive en sec. 10.7, gabarits
+  `String.Format` toujours illisibles offline. cf. `docs/rl/case-477-harnais-de-test-natif.md` sec. 10.
+
+- **#477-r10 : nommer le type de message qui CONTOURNE le filtre par joueur de
+  `ReplayRecorder$$Listen`.** `[opus]` Le filtre ecarte tout message dont le `playerIndex` courant
+  n'est pas dans `playerIndicesToRecord` (= `[11]` chez nous), SAUF pour un type dont le nom n'est
+  pas resolu (cache de classe IL2CPP, aucun `new` nomme sur le chemin ; co-utilise par
+  `ReplayMessageDto$$.ctor` et `IdunBattleLogic.Synchronous.SynchronousRunner$$Listen`/`Block`/
+  `ExecuteGameAction`). Sans lui, on ne predit pas si un message joue pendant le tour du joueur `12`
+  cree un `ReplayStep`. L'etape 3 de `probe_477r1_replay_output_stream.py` le MESURE.
+  cf. `docs/rl/case-477-harnais-de-test-natif.md` sec. 10.6 / 10.8.
 
 - **#477-r9 : `BattleConfiguration.StartingActions` (@0xc0) est IGNORE par la deserialisation.** `[opus]`
   MESURE avec temoin (`probe_477_bc_montage_leviers.py` etape 1) : un scalaire pose sur
