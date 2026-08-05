@@ -23,6 +23,15 @@ degat et avant `AddFlagsAfterAbilityExecution`. Leur observable depuis le runner
 IDENTIQUE. Le live confirme « le natif no-oppe », pas « c'est CE gate-la » -- ce dernier point est
 etabli au decompile, et c'est le volet `trou` qui montre que le port en avait besoin.
 
+⚠ #429-r1-r3 -- IL Y A UN GATE CIBLE-MORTE DE PLUS, ET IL EST **AU-DESSUS** DE CELUI-CI.
+`IdunBattle.Messages.InputMessageProcessor$$Visit(ActiveAbilityMessage)` teste
+`IdunBattle.Entities.UnitExtensions$$IsAliveAndNotFled` sur le caster puis sur la cible AVANT
+`RunPhase`, donc avant toute operation -- et sans lire l'ability, donc SANS derogation. Sur la voie
+MESSAGE (celle de ce probe), c'est donc LUI qui mord en premier : `port_last` sort desormais par
+`not_alive_and_not_fled`, pas par `dead_target_not_allowed`. Le gate d'OPERATION reste arme et
+mesure : les bras `port_sans_message_gate_*` le montrent en le laissant SEUL. Detail :
+`docs/rl/case-429r1r3-gate-message-cible-morte.md`.
+
 USAGE (ASCII only)
 ------------------
     python scripts/python/probe_429r1_dead_target_gate.py --volet bit
@@ -268,35 +277,51 @@ def scenario_live(state_file: str, seed: str, board: str, verbose: bool = True,
             rng.mt = list(s0["mt"])
             rng.mti = s0["mti"]
             st.rng = rng
-        mti0 = getattr(st.rng, "mti", None)
-        runner = Runner(st).install_default_handlers(20)
-        runner.apply(ActiveAbilityMessage(sgt, prime, int(ability)))
-        res["port_last"] = runner.ability_handler.last
-        res["port_draws"] = (None if mti0 is None else
-                             (st.rng.mti - mti0 + (624 if st.rng.mti < mti0 else 0)))
-        # --- 4. CONTRE-EPREUVE : le MEME cast avec le gate NEUTRALISE ------------------------
-        # Un vert de l'etape 3 ne prouve rien tant qu'on n'a pas montre que SANS le gate le port
-        # EXECUTAIT. On re-monte l'etat depuis les memes captures et on debranche le gate.
-        st2 = load_state(dv, ob0, snap)
-        if isinstance(bg, dict) and "tiles" in bg:
-            st2.board = Board(bg["tiles"], adjacency="native_sym")
-        if isinstance(s0, dict) and s0.get("mt"):
-            rng2 = IntBasedMersenneTwister()
-            rng2.mt = list(s0["mt"])
-            rng2.mti = s0["mti"]
-            st2.rng = rng2
-        mti1 = getattr(st2.rng, "mti", None)
+
+        def _monter():
+            """Re-monte l'etat depuis les MEMES captures (chaque bras part du meme point)."""
+            s2 = load_state(dv, ob0, snap)
+            if isinstance(bg, dict) and "tiles" in bg:
+                s2.board = Board(bg["tiles"], adjacency="native_sym")
+            if isinstance(s0, dict) and s0.get("mt"):
+                r2 = IntBasedMersenneTwister()
+                r2.mt = list(s0["mt"])
+                r2.mti = s0["mti"]
+                s2.rng = r2
+            return s2
+
+        def _caster(s2):
+            m0 = getattr(s2.rng, "mti", None)
+            run = Runner(s2).install_default_handlers(20)
+            run.apply(ActiveAbilityMessage(sgt, prime, int(ability)))
+            d = (None if m0 is None else (s2.rng.mti - m0 + (624 if s2.rng.mti < m0 else 0)))
+            return run.ability_handler.last, d
+
+        res["port_last"], res["port_draws"] = _caster(st)
+        # --- 4. DECOMPOSITION PAR ETAGE -- il y a DEUX gates cible-morte, a deux RANGS ---------
+        # #429-r1-r3 : le natif en a deux, et sur la voie MESSAGE c'est celui du MESSAGE qui mord
+        # en PREMIER (`InputMessageProcessor$$Visit` -> `UnitExtensions$$IsAliveAndNotFled`), avant
+        # meme `ActiveAbilityOperation$$ExecuteInternal`. Neutraliser le seul gate d'OPERATION ne
+        # ferait donc plus rien executer : il faut les DEBRANCHER UN A UN pour montrer que chacun
+        # est arme.
+        #   bras A -- gate de MESSAGE seul neutralise -> c'est le gate d'OPERATION qui refuse
+        #             (`dead_target_not_allowed`)... SAUF pour le porteur du bit 38, qui en DEROGE
+        #             et execute : c'est la que le bit 38 devient OBSERVABLE ;
+        #   bras B -- les DEUX neutralises          -> le port EXECUTE (la morsure).
+        import engine.runner.components as C                        # noqa: PLC0415
         import engine.runner.operations.active_ability as OA        # noqa: PLC0415
-        garde = OA.is_dead_unit_and_not_allowed_by_ability
-        OA.is_dead_unit_and_not_allowed_by_ability = lambda *_a, **_k: False
+        garde_msg, garde_op = C.is_alive_and_not_fled, OA.is_dead_unit_and_not_allowed_by_ability
+        C.is_alive_and_not_fled = lambda *_a, **_k: True
         try:
-            r2 = Runner(st2).install_default_handlers(20)
-            r2.apply(ActiveAbilityMessage(sgt, prime, int(ability)))
-            res["port_sans_gate_last"] = r2.ability_handler.last
-            res["port_sans_gate_draws"] = (None if mti1 is None else
-                                           (st2.rng.mti - mti1 + (624 if st2.rng.mti < mti1 else 0)))
+            res["port_sans_message_gate_last"], res["port_sans_message_gate_draws"] = \
+                _caster(_monter())
+            OA.is_dead_unit_and_not_allowed_by_ability = lambda *_a, **_k: False
+            try:
+                res["port_sans_gate_last"], res["port_sans_gate_draws"] = _caster(_monter())
+            finally:
+                OA.is_dead_unit_and_not_allowed_by_ability = garde_op
         finally:
-            OA.is_dead_unit_and_not_allowed_by_ability = garde
+            C.is_alive_and_not_fled = garde_msg
         res["why"] = ""
     finally:
         try:

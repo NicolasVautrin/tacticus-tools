@@ -23,6 +23,14 @@ CHIFFRES MESURES (build rnca9r7q6c, seed 777) :
 Le nouveau gate n'est donc PAS redondant avec `IsInvalidTarget` : sur un etat reel, ce dernier
 laissait passer 43 des 104 abilities du registre sur une cible morte (`--volet trou`).
 
+⚠ #429-r1-r3 -- DEPUIS, UN GATE DE PLUS A ETE LU, ET IL EST AU-DESSUS DE CELUI-CI :
+`IdunBattle.Messages.InputMessageProcessor$$Visit(ActiveAbilityMessage)` teste
+`IdunBattle.Entities.UnitExtensions$$IsAliveAndNotFled` sur le caster puis la cible AVANT toute
+operation, sans lire l'ability -- donc sans derogation. Sur la voie MESSAGE, `port_last` sort
+desormais par `not_alive_and_not_fled`. Le gate d'OPERATION garde ci-dessous n'a pas bouge : il est
+mesure en le laissant SEUL (bras `port_sans_message_gate_*`), et c'est ce bras qui rend la
+derogation du bit 38 OBSERVABLE au lieu d'assertee sur un predicat.
+
 LIVE-agreement, ASCII only. Cf. docs/rl/case-429r1-lecteurs-bits-ciblage.md.
 """
 from __future__ import annotations
@@ -65,31 +73,52 @@ def test_le_natif_no_oppe_le_cast_sur_cadavre(scenario):
         "consommerait")
 
 
-def test_le_port_refuse_par_CE_gate_et_pas_par_un_autre(scenario):
-    """PORT : le refus vient bien du gate CIBLE-MORTE, et il n'est pas redondant -- `is_invalid_target`
-    SEUL rendait 0 (il acceptait) sur ce meme etat."""
+def test_le_port_refuse_par_un_gate_CIBLE_MORTE_et_pas_par_un_autre(scenario):
+    """PORT : le refus vient bien d'un gate CIBLE-MORTE, et il n'est pas redondant --
+    `is_invalid_target` SEUL rendait 0 (il acceptait) sur ce meme etat.
+
+    ⚠ #429-r1-r3 : sur la voie MESSAGE, c'est le gate du MESSAGE
+    (`InputMessageProcessor$$Visit` -> `UnitExtensions$$IsAliveAndNotFled`) qui mord en PREMIER, le
+    gate d'OPERATION etant un cran plus bas. `port_gate_refuse` reste la mesure du SECOND (predicat
+    pur, evalue hors du chemin) -- et le test suivant le laisse SEUL pour montrer qu'il est arme."""
     assert scenario["port_is_invalid_target_seul"] == 0, (
         "le montage n'est plus DISCRIMINANT : `is_invalid_target` refuse deja (code %s), donc ce "
         "test ne prouverait plus rien du gate cible-morte"
         % scenario["port_is_invalid_target_seul"])
-    assert scenario["port_gate_refuse"] is True
-    assert (scenario["port_last"] or {}).get("dead_target_not_allowed") is True, (
-        "le port doit sortir par le gate cible-morte, obtenu %s" % scenario["port_last"])
+    assert scenario["port_gate_refuse"] is True, (
+        "le gate d'OPERATION doit rester ARME pour cette ability (predicat pur)")
+    assert (scenario["port_last"] or {}).get("not_alive_and_not_fled") == "target", (
+        "le port doit sortir par le gate de MESSAGE sur la cible, obtenu %s"
+        % scenario["port_last"])
     assert scenario["port_draws"] == 0, (
         "port : 0 tirage attendu, obtenu %s" % scenario["port_draws"])
     assert scenario["port_draws"] == scenario["live_draws"], "port et natif doivent s'accorder"
 
 
-def test_contre_epreuve_sans_le_gate_le_port_executait(scenario):
-    """LA MORSURE. Gate neutralise, le meme cast s'EXECUTE : tirages RNG > 0 et une behaviour
-    complete. Sans cette mesure, le vert du test precedent pourrait venir d'un montage inerte."""
+def test_le_gate_d_OPERATION_refuse_quand_on_le_laisse_SEUL(scenario):
+    """DECOMPOSITION PAR ETAGE (#429-r1-r3). Gate de MESSAGE neutralise, c'est le gate d'OPERATION
+    qui prend le refus -- et il rend bien `dead_target_not_allowed`, sans consommer de RNG. C'est
+    ce bras qui garde le port de #429-r1 maintenant qu'un gate plus haut le precede."""
+    seul = scenario["port_sans_message_gate_last"] or {}
+    assert seul.get("dead_target_not_allowed") is True, (
+        "gate de message debranche : c'est au gate d'OPERATION de refuser, obtenu %s" % seul)
+    assert scenario["port_sans_message_gate_draws"] == 0, (
+        "le gate d'operation sort AVANT tout tirage, obtenu %s"
+        % scenario["port_sans_message_gate_draws"])
+
+
+def test_contre_epreuve_sans_AUCUN_gate_le_port_executait(scenario):
+    """LA MORSURE. Les DEUX gates neutralises, le meme cast s'EXECUTE : tirages RNG > 0 et une
+    behaviour complete. Sans cette mesure, les verts precedents pourraient venir d'un montage
+    inerte."""
     assert scenario["port_sans_gate_draws"] and scenario["port_sans_gate_draws"] > 0, (
-        "la mutation n'a pas mordu : sans le gate le port doit consommer du RNG, obtenu %s"
+        "la mutation n'a pas mordu : sans les gates le port doit consommer du RNG, obtenu %s"
         % scenario["port_sans_gate_draws"])
     sans = scenario["port_sans_gate_last"] or {}
-    assert sans.get("dead_target_not_allowed") is None, "gate cense etre neutralise"
+    assert sans.get("dead_target_not_allowed") is None, "gates censes etre neutralises"
+    assert sans.get("not_alive_and_not_fled") is None, "gates censes etre neutralises"
     assert sans.get("attacks") or sans.get("dsl"), (
-        "sans le gate, la behaviour doit s'executer sur le cadavre -- obtenu %s" % sans)
+        "sans les gates, la behaviour doit s'executer sur le cadavre -- obtenu %s" % sans)
 
 
 @pytest.fixture(scope="module")
@@ -105,24 +134,32 @@ def scenario_porteur(live_session, tmp_path_factory):
     return r
 
 
-def test_le_gate_laisse_passer_le_porteur_du_bit_38(scenario_porteur):
-    """Le gate est un MIRROR, pas un refus generalise : `GreatFrostAxe` (1089) arme `AllowDeadTarget`
-    dans son masque de CONTINUE, donc `CanContinueOnDeadTarget()` rend vrai et
+def test_le_gate_d_OPERATION_laisse_passer_le_porteur_du_bit_38(scenario_porteur):
+    """Le gate d'OPERATION est un MIRROR, pas un refus generalise : `GreatFrostAxe` (1089) arme
+    `AllowDeadTarget` dans son masque de CONTINUE, donc `CanContinueOnDeadTarget()` rend vrai et
     `IsDeadUnitAndNotAllowedByAbility` rend FAUX. Sans cette assertion, un gate qui refuserait TOUT
-    passerait les quatre tests precedents.
+    passerait les tests precedents.
 
-    ⚠ NON COUVERT, et mesure ici -- residu `#429-r1-r3` : sur ce meme cas le NATIF refuse quand meme
-    (0 tirage, action non consommee) alors que le port EXECUTE (la glace se pose). Le refus natif
-    vient donc du gate SUIVANT, `IsInvalidTarget`, ou une regle que le port ne porte pas encore
-    refuse un cadavre -- vraisemblablement la PORTEE (le natif retire l'unite morte du board ; le
-    port lui garde son `PositionComponent`). Ce n'est PAS une regression de #429-r1 : la mesure
-    `port_sans_gate_last` est IDENTIQUE a `port_last` ici, la divergence lui preexiste. Elle n'est
-    pas assertee pour ne pas FIGER un bug ; elle est nommee au backlog."""
+    ⚠ #429-r1-r3 -- LA DEROGATION EST DESORMAIS OBSERVABLE, et pas seulement assertee sur un
+    predicat : gate de MESSAGE debranche, 1089 EXECUTE sa behaviour sur le cadavre (la glace se
+    pose) la ou 1003 sortait par `dead_target_not_allowed`. C'est le MEME bras, deux abilities, deux
+    verdicts -- le bit 38 est ce qui les separe.
+
+    ⚠ Ce que le port fait EN VRAI pour 1089 sur la voie MESSAGE est un refus par le gate du MESSAGE
+    (cf. `test_429r1r3_dead_target_message_gate_live.py`) : le residu `#429-r1-r3` que cette
+    docstring nommait -- « le natif refuse, le port pose la glace » -- est RESOLU, et sa cause
+    n'etait pas la portee mais un gate d'un RANG PLUS HAUT."""
     assert scenario_porteur["port_gate_refuse"] is False, (
-        "le porteur du bit 38 ne doit PAS etre refuse par le gate cible-morte")
+        "le porteur du bit 38 ne doit PAS etre refuse par le gate cible-morte d'OPERATION")
     assert (scenario_porteur["port_last"] or {}).get("dead_target_not_allowed") is None, (
-        "1089 ne doit pas sortir par le gate cible-morte, obtenu %s" % scenario_porteur["port_last"])
+        "1089 ne doit pas sortir par le gate d'operation, obtenu %s" % scenario_porteur["port_last"])
     assert scenario_porteur["port_cible_alive"] is False, "la cible doit bien etre MORTE"
+    seul = scenario_porteur["port_sans_message_gate_last"] or {}
+    assert seul.get("dead_target_not_allowed") is None, (
+        "gate de message debranche, 1089 ne doit PAS etre refuse par le gate d'operation")
+    assert seul.get("dsl") or seul.get("attacks"), (
+        "gate de message debranche, 1089 doit EXECUTER sa behaviour sur le cadavre -- obtenu %s"
+        % seul)
 
 
 def test_seul_le_porteur_du_bit_38_echappe_au_gate():
