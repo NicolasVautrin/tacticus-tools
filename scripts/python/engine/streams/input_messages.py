@@ -287,7 +287,8 @@ def visit_start_battle_message(events: StreamDispatcher, match_entity_id: int,
 
         this.<+0x28> = <le composant de match>;      // memorise pour la garde de `RunPhase`
         var action = new Action(this, <Visit>b__18_0);
-        RunPhase(PhaseType.<0>, action, isInternalPhase: true, isManualTurnEnd: false);
+        RunPhase(PhaseType.StartBattle /*0*/, action, isInternalPhase: true,
+                 isManualTurnEnd: false);
 
     -- et c'est la LAMBDA D'INSTANCE `InputMessageProcessor$$u003CVisitu003Eb__18_0` qui emet, en
     exactement trois choses :
@@ -309,7 +310,11 @@ def visit_start_battle_message(events: StreamDispatcher, match_entity_id: int,
 
     ⚠ LE `0` DE `RunPhase` EST UN `IdunBattle.Core.PhaseType`, PAS UN `GroupType` -- meme piege
     qu'aux crans 1 et 2 (`case-477r18r5` § 1, `case-477r19` § 1), ou c'etaient un `4` puis un
-    `0xd`. Le `GroupType` est le `4` que la LAMBDA passe a `StartGroup`.
+    `0xd`. Le `GroupType` est le `4` que la LAMBDA passe a `StartGroup`. Le NOM tranche, et il
+    est lisible : `data/symbols/<build>/frida/enums.tsv` donne `IdunBattle.Core.PhaseType` =
+    `0=StartBattle, ..., 4=AddUnit, ..., 12=ProcessDeaths, 13=ProcessRemovals`. Les trois crans
+    concordent donc, et cette lecture CONFIRME au passage `case-477r19` § 6 : la phase `0xd` est
+    bien celle des RETRAITS, pas celle du revive.
 
     ⚠ `isInternalPhase: true` EST LU, et il a une consequence VISIBLE : le bloc
     `if (isInternalPhase == 0)` d'`InputMessageProcessor$$RunPhase` -- celui qui appelle
@@ -338,14 +343,20 @@ def visit_start_battle_message(events: StreamDispatcher, match_entity_id: int,
 
       1. l'ARBRE D'ACTIVATION des effets permanents -- `Group=Ability_Power` et
          `Group=Effect_Refresh` imbriques, avec leurs `Action=ActivateEffect` / `ReceiveEffect` /
-         `ChangeStats` / `LoseEffect`. Il sort des deux appels au slot `0x51` de
-         `IOperationProcessor` (les deux `EvaluateAbilities` de fin d'operation) ;
+         `ChangeStats` / `LoseEffect`. Il sort de DEUX appels au meme slot `0x51` de
+         `IOperationProcessor`, a cinq arguments, dont le decompile donne les litteraux :
+         `EvaluateAbilities(GetMatchEntity(state), null, null, EventTriggerType.MatchInit /*0x19*/,
+         null)` puis le meme avec `EventTriggerType.MatchStart /*0x1a*/`. Les deux ordinaux sont
+         NOMMES par `engine/dsl/event_trigger_type.py` (`MatchInit = 25`, `MatchStart = 26`) --
+         c'est ce qui identifie le bloc, pas sa forme dans le flux ;
       2. `Action=PrepareTurn` et le `Group=StartTurn` COMPLET, qui sortent du dernier appel de
-         l'operation -- `processor.<slot 0x16>(TurnStage.<3>, false, true)`, c'est-a-dire
+         l'operation -- `processor.<slot 0x16>(TurnStage.Start /*3*/, false, true)`, c'est-a-dire
          `ContinueTurnPhase` (meme slot, memes trois arguments, que la lambda `<Visit>b__20_0` de
          `Visit(StartTurnMessage)`) ;
       3. le groupe `RarityCapTransform` (`StepType.PlayerInitialRarity`), emis seulement quand le
-         joueur porte une rarete initiale -- ABSENT du flux temoin.
+         joueur humain porte une rarete initiale (`Nullable.HasValue && Value > 0`) -- ABSENT du
+         flux temoin. Son unique tag est la cle `0xd4`, que `TagKey` NOMME `Rarity` : le nom
+         recoupe la lecture du fragment.
 
     `corps` rend ce trou EXPRIMABLE plutot que silencieux : un appelant qui saurait produire l'un
     de ces blocs le passe ici, et l'enveloppe reste inchangee. `None` = le port n'emet que ce

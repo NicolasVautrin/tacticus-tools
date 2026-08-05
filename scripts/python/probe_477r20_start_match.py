@@ -265,6 +265,37 @@ def emettre(match_entity_id: int = MATCH_ENTITY_ID, mutation: str = "") -> tuple
 MUTATIONS_TEXTE = ("enveloppe", "entite", "source", "action", "tags", "steptype", "grouptype")
 MUTATIONS_ANCRAGE = ("position", "premier_startturn", "premier_prepareturn")
 
+#: Ce qu'une mutation d'ancrage INSERE dans le flux. Elles operent sur le FLUX, jamais sur le
+#: verdict : inverser un booleen prouverait seulement que le verdict depend de ce booleen, pas
+#: que son CALCUL est juste. Chacune est construite pour ne faire rougir QU'UNE prediction --
+#: un bloc `StartTurn` insere a la RACINE ferait aussi tomber (A2), donc il est insere IMBRIQUE
+#: dans le `System_GameSetup`, que (A2) admet.
+BLOC_STARTTURN_IMBRIQUE = ("    Group=StartTurn Entity=1 Source= InitialTarget=\n"
+                           "        Action=StartTurn Entity=1\n"
+                           "    Finish_Group")
+LIGNE_PREPARETURN_PROFONDEUR_0 = "Action=PrepareTurn Entity=1"
+
+
+def muter_flux(flux: str, mutation: str) -> str:
+    """Insere dans le FLUX ce que la mutation d'ancrage doit faire voir. Rend le flux inchange
+    pour les mutations qui ne portent pas sur lui."""
+    if mutation not in ("premier_startturn", "premier_prepareturn"):
+        return flux
+    lignes = flux.split("\n")
+    for i, l in enumerate(lignes):
+        m = CONF.RE_GROUP.match(l)
+        if m and profondeur(l) == 0 and m.group("sym") == GroupType.System_GameSetup.name:
+            insert = (BLOC_STARTTURN_IMBRIQUE.split("\n")
+                      if mutation == "premier_startturn"
+                      else [LIGNE_PREPARETURN_PROFONDEUR_0])
+            if mutation == "premier_prepareturn":
+                # a profondeur 0, DEVANT le groupe : `StreamCache$$Action` n'exige aucun groupe
+                # ouvert (#477-r18 § 2), donc c'est une ligne de flux VALIDE -- et c'est
+                # exactement ce que (A4) doit refuser AVANT la cible.
+                return "\n".join(lignes[:i] + insert + lignes[i:])
+            return "\n".join(lignes[:i + 1] + insert + lignes[i + 1:])
+    return flux
+
 
 def ancrage(sequence: list, flux: str, mutation: str = "") -> dict:
     """LES QUATRE PREDICTIONS, toutes derivees -- et deux d'entre elles DISCRIMINANTES.
@@ -279,7 +310,13 @@ def ancrage(sequence: list, flux: str, mutation: str = "") -> dict:
          `Visit(StartTurnMessage)`. Toutes les occurrences SUIVANTES sont racines : le contraste
          est ce qui rend cette prediction discriminante ;
     (A4) le PREMIER `Action=PrepareTurn` du flux entier est a profondeur 1 DANS ce groupe, alors
-         que les suivantes sont a profondeur 0 hors de tout groupe (mesure #477-r18 § 2)."""
+         que les suivantes sont a profondeur 0 hors de tout groupe (mesure #477-r18 § 2).
+
+    ⚠ LES MUTATIONS D'ANCRAGE OPERENT SUR LE FLUX (`muter_flux`), PAS SUR LE VERDICT. Inverser
+    un booleen prouverait seulement que le verdict depend de ce booleen -- jamais que son CALCUL
+    est juste. Une premiere version de ce probe faisait exactement cela ; elle rendait dix `OK`
+    sans avoir rien mesure de (A3) ni de (A4)."""
+    flux = muter_flux(flux, mutation)
     indices = [k for k, (sym, _t, _e) in enumerate(sequence) if sym == CIBLE.name]
     if mutation == "position":
         indices = [i + 1 for i in indices]
@@ -312,10 +349,6 @@ def ancrage(sequence: list, flux: str, mutation: str = "") -> dict:
     dedans = lambda i: any(a < i < b for a, b in bornes)
     a3 = (i_st is not None and dedans(i_st) and p_st is not None and p_st >= 1)
     a4 = (i_pt is not None and dedans(i_pt) and p_pt is not None and p_pt >= 1)
-    if mutation == "premier_startturn":
-        a3 = not a3
-    if mutation == "premier_prepareturn":
-        a4 = not a4
     return {"indices": indices, "unique": len(indices) == 1,
             "avant": sorted(avant), "avant_ok": avant <= set(RACINES_AVANT),
             "premier_startturn": (i_st, p_st), "a3": a3,
@@ -397,7 +430,12 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str) -
     for nom in MUTATIONS_ANCRAGE:
         a_m = ancrage(sequence, flux, mutation=nom)
         a_morde = a_m != anc
-        ce.append((nom, "ancrage", a_morde, 0 if a_m["ok"] else 1))
+        # QUELLE prediction est tombee : une mutation qui rougit pour la mauvaise raison ne
+        # mesure pas ce qu'elle pretend. Les deux mutations de FLUX sont construites pour n'en
+        # faire tomber qu'UNE (cf. `muter_flux`), et le rapport le montre.
+        tombees = [c for c in ("unique", "avant_ok", "a3", "a4") if anc[c] and not a_m[c]]
+        ce.append((nom, "ancrage:%s" % (",".join(tombees) or "-"), a_morde,
+                   0 if a_m["ok"] else 1))
 
     for nom, contenu in (("natif-ampute", dec["texte_ampute"]), ("port", texte_port),
                          ("natif-groupe", cibles[0])):
