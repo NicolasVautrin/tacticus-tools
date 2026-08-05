@@ -220,6 +220,18 @@ class ReviveUnitOperation:
             if hc.hp_max is not None:
                 set_hp = min(set_hp, int(hc.hp_max))     # Min(amount, maxHP)
             hc.hp = set_hp
+            # ⚠ QUIRK NATIF, NE PAS « CORRIGER » (#462-r4e-o-r2) : le revive ne purge PAS
+            # l'accumulateur de sur-reduction `FillUpStatComponent+0x24` (`HealthComponent.over_reduce`).
+            # `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` n'appelle NI
+            # `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` NI `$$Initialize` -- les deux
+            # SEULS ecrivains du zero (`$$ResetOverReduce` existe mais n'a aucun xref de code) : il pose
+            # les PV par un slot de l'`OperationProcessor` qui applique des modificateurs de stat, dont
+            # les deux autres call-sites sont `IdunBattle.Operations.SetupGameOperation$$ApplyModifiers`
+            # et `IdunBattle.Operations.TransformActorToConfigIdOperation$$UpdateStats`.
+            # CONSEQUENCE MIRROREE : une unite REVIVEE entre dans l'attaque suivante avec l'accumulateur
+            # de sa vie precedente, et `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`
+            # (surcharge d'instance) peut donc lui poser `UnitFlag.Overkilled` des le PREMIER coup recu,
+            # a pleine vie. Le RESURRECT, lui, purge (il passe par `FillUp`, cf. `resurrect.py`).
         # flags IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE.
         # Le port modelise l'etat de vie via `uc.alive` (les flags ECS 0xf/0x14 = internes non suivis) ;
         # `Remove(8)` est PORTE depuis que `UnitFlag.Overkilled` est materialise (pose par le pipeline de
