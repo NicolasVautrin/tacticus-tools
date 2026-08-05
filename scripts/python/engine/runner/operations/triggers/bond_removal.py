@@ -102,17 +102,33 @@ serait fausse (`EffectType.Taunted_OnlySpecificTargets` est servi par `TauntedEf
 
 RESIDUS NOMMES, explicitement HORS table (aucun trigger pose pour eux -- statu quo) :
 
-  * **Les 20 derivees d'`IdunBattle.Entities.Effects.APendingAttackEffect`** (dont
-    `MalleusRocketLauncherEffect` 1308, `ValkyrieStrikeEffect` 1022 et `DevastatingRefrainEffect`
-    1402, tous trois POSES par le port). Elles heritent toutes de
+  * **Les 20 derivees d'`IdunBattle.Entities.Effects.APendingAttackEffect`** : RESOLUES
+    (#462-r4b-r1-r1-r1-r1-c). Elles heritent toutes de
     `IdunBattle.Entities.Effects.APendingAttackEffect$$get_RemoveOnBondedEntityDeath`, dont le corps
-    est `NOT <klass+0x778>()` : un QUATRIEME virtuel, non resolu. `--step vtable` ne peut pas le
-    lire -- aucune de ces classes n'a sa vtable materialisee, meme avec un runner vivant, et leur
-    slot `+0x778` rend NULL. NON RESOLU, donc NON PORTE.
+    est `NOT <klass+0x778>()`. Ce QUATRIEME virtuel est NOMME `IsExecutedIfOwnerDies`, mesure par
+    `--step pending` (voie `class_get_methods`, qui n'exige aucune initialisation) et recoupe sur
+    vtable materialisee, controle d'alignement passe. Les 20 le DECLARENT en propre : **17 a `false`**
+    (donc `get_RemoveOnBondedEntityDeath` VRAI) et **3 a `true`** -- `AnnihilatorBeam`,
+    `TargetingProtocols` et `ValkyrieStrike`, donc gate (a) FAUX.
+    La sous-famille herite par ailleurs `get_Range` = `Nullable` VIDE et `get_Adjacent` = `false`
+    d'`APendingAttackEffect`, qui les surcharge : **ni (b) ni (c) sur aucune des 20**.
+    Des trois que le port POSE, seul `ValkyrieStrike_Effect` (1022) entre dans la table ci-dessous.
+    Les deux autres restent HORS table, et pas par prudence -- par mesure :
+      - `MalleusRocketLauncher` (1308) et `DevastatingRefrain_Target` (1402) ont pour `bondedEntity`
+        l'owner du cast, c'est-a-dire une MACHINE OF WAR. `--step pendingporteurs` mesure que cette
+        entite est de type `Machine`, `pos=None`, absente de `decisionView.units` et cible legale
+        d'AUCUNE attaque : sa mort n'est pas atteignable. Le trigger (a) est CONSTRUIT cote natif et
+        INATTEIGNABLE -- l'inscrire serait du code que rien ne peut invalider.
+      - S'y ajoutent deux raisons structurelles, chacune suffisante : ces effets vivent sur des
+        TUILES alors que `collect_effect_triggers` itere `effects.by_unit` (le meme piege
+        << vacuously vrai >> qu'au §5 de la fiche, sur 1113) ; et leurs call-sites ne passent pas
+        `bonded_ref`, donc `BaseEffect.bonded` reste `None` et `matches` rendrait `False`.
     ⚠ Ces effets ne sont pas pour autant sans retrait : `APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal`
     ajoute son PROPRE `Triggered( On(0x15) & IsTurnOf(<0x758>()), TriggerAbility(...) &
     RemoveEffect(Effect) )` -- le retrait au declenchement de l'attaque differee, qui est un AUTRE
-    foyer que celui-ci.
+    foyer que celui-ci. Ce foyer-la est le RETRAIT EFFECTIF de ces trois effets, et il MORD :
+    mesure du 2026-08-05, un seul `endturn` apres le cast fait disparaitre 1022 de sa tuile SANS
+    qu'aucun bonde ne soit mort. C'est ce qui rend le gate (a) doublement sans consequence ici.
   * **`Taunted_BlockMovement` (25) et `Taunted_CantUseAbility` (26)**, enfants du composite 27 : la
     classe native qui les sert n'est pas etablie (le ctor `IdunBattle.Entities.Effects.TauntedEffect$$.ctor`
     ne porte pas d'`EffectType` -- il vient de la lambda d'`IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects`,
@@ -155,8 +171,9 @@ from .base import EffectTrigger, TriggerEvent
 
 
 class BondRemovalGates(NamedTuple):
-    """Les trois virtuels de la classe d'effet NATIVE, tels que
-    `probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step declared` les a rendus.
+    """Les virtuels de la classe d'effet NATIVE, tels que
+    `probe_462_r4b_r1_r1_r1_r1_bond_removal.py` les a rendus (`--step declared` pour les trois
+    premiers, `--step pending` pour le quatrieme).
 
     `native` = le nom de la classe native, VERBATIM : c'est lui qui rend la ligne re-verifiable
     d'un rejeu du probe, et c'est la seule chose qui relie une valeur a sa mesure."""
@@ -164,6 +181,14 @@ class BondRemovalGates(NamedTuple):
     remove_on_bonded_entity_death: bool     # `<klass+0x748> get_RemoveOnBondedEntityDeath`
     range: Optional[int]                    # `<klass+0x728> get_Range` -- None = `Nullable` VIDE
     adjacent: bool                          # `<klass+0x738> get_Adjacent`
+    # `<klass+0x778> IsExecutedIfOwnerDies` -- N'EXISTE QUE sous
+    # `IdunBattle.Entities.Effects.APendingAttackEffect`, qui redefinit
+    # `get_RemoveOnBondedEntityDeath` en `NOT <klass+0x778>()` au lieu de rendre une constante.
+    # `None` = la classe n'est PAS de cette sous-famille (le gate (a) y est une constante directe).
+    # Quand il est renseigne, `remove_on_bonded_entity_death` DOIT en etre la negation --
+    # `assert_pending_gate_consistency()` le verifie, pour qu'une des deux valeurs ne puisse pas
+    # deriver sans l'autre.
+    is_executed_if_owner_dies: Optional[bool] = None
 
 
 BOND_REMOVAL_GATES: dict[int, BondRemovalGates] = {
@@ -184,7 +209,39 @@ BOND_REMOVAL_GATES: dict[int, BondRemovalGates] = {
     # `HazeOfCorruption_DamageTransferEffect$$.ctor` n'ecrit PAS -> `Nullable` vide et `false`.
     int(EffectType.HazeOfCorruption_DamageTransfer): BondRemovalGates(
         "IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect", True, None, False),
+    # Pose par `ValkyrieStrikeAbility$$ExecuteBehaviour` (`caster@0x160` en 4e ET 6e position, donc
+    # `bondedEntity` = le caster). SOUS-FAMILLE `APendingAttackEffect` : le gate (a) n'y est pas une
+    # constante, c'est `NOT <klass+0x778> IsExecutedIfOwnerDies` -- et ce virtuel vaut VRAI ici, donc
+    # `get_RemoveOnBondedEntityDeath` est FAUX et le natif ne construit AUCUN trigger (a). L'entree
+    # est dans la table pour DOCUMENTER ce non-retrait ; `bond_removal_registry_entries` n'en tire
+    # aucun trigger, exactement comme pour `TunnelingHorror_PendingSummon`.
+    # ⚠ C'est la SEULE ligne du fichier confrontee dans le sens << l'effet SURVIT >>
+    # (`--step valkyrielive` : bonde mort, 1022 encore present). Elle vaut donc aussi contre-epreuve
+    # de la table `TRIVIAL` du probe, par laquelle toutes les autres valeurs sont lues.
+    # `get_Range`/`get_Adjacent` sont HERITES d'`APendingAttackEffect`, qui les surcharge en
+    # `Nullable` vide et `false` pour ses 20 derivees : ni (b) ni (c) sur toute la sous-famille.
+    int(EffectType.ValkyrieStrike_Effect): BondRemovalGates(
+        "IdunBattle.Entities.Effects.Loki.ValkyrieStrikeEffect", False, None, False,
+        is_executed_if_owner_dies=True),
 }
+
+
+def assert_pending_gate_consistency() -> None:
+    """`remove_on_bonded_entity_death == NOT is_executed_if_owner_dies` sur la sous-famille.
+
+    Mirror executable de `APendingAttackEffect$$get_RemoveOnBondedEntityDeath`, dont le corps EST
+    cette negation. Sans ce garde, les deux champs pourraient deriver l'un de l'autre au fil des
+    editions et la table mentirait sans que rien ne rougisse -- ils sont redondants EXPRES, et
+    c'est la redondance qui les garde."""
+    for et, g in BOND_REMOVAL_GATES.items():
+        if g.is_executed_if_owner_dies is None:
+            continue
+        attendu = not g.is_executed_if_owner_dies
+        if g.remove_on_bonded_entity_death != attendu:
+            raise AssertionError(
+                "effect_type %d (%s) : get_RemoveOnBondedEntityDeath=%s mais "
+                "NOT IsExecutedIfOwnerDies=%s"
+                % (et, g.native, g.remove_on_bonded_entity_death, attendu))
 
 _ON_PRE_UNIT_DEATH_2 = int(EventTriggerType.PreUnitDeath_2)      # `On(2)`
 _ON_UNIT_REMOVED = int(EventTriggerType.UnitRemoved)             # `On(0x25)`

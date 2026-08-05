@@ -174,16 +174,8 @@ Non-régression (39 verts) : `test_462_r4b_r1_r1_r1_neuroparasite_pose_live` (7)
   `TurnsFromRounds(1)` et tombe au **deuxième `endturn` sans que personne ne bouge**. Le premier jet
   du bras, qui déplaçait le taunté, mesurait en réalité la fin de son propre tour. Porter (b)/(c)
   serait du code que rien ne peut invalider.
-* **Les 20 dérivées d'`IdunBattle.Entities.Effects.APendingAttackEffect` — NON RÉSOLUES**, dont
-  `MalleusRocketLauncherEffect` (1308), `ValkyrieStrikeEffect` (1022) et `DevastatingRefrainEffect`
-  (1402), tous trois POSÉS par le port. Elles héritent toutes de
-  `APendingAttackEffect$$get_RemoveOnBondedEntityDeath`, dont le corps est `NOT <klass+0x778>()` :
-  un **quatrième** virtuel, dont aucune vtable n'est matérialisée (slot NULL même runner vivant) et
-  dont le nom n'est déductible d'aucune table. Elles ne sont pas sans retrait pour autant :
-  `APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal` ajoute son propre
-  `Triggered( On(0x15) & IsTurnOf(<0x758>()), TriggerAbility(...) & RemoveEffect(Effect) )`.
-  Pour trancher : matérialiser la vtable d'une dérivée en posant l'effet en bataille, puis
-  `--step vtable --extra`.
+* **Les 20 dérivées d'`IdunBattle.Entities.Effects.APendingAttackEffect` — RÉSOLUES par
+  `#462-r4b-r1-r1-r1-r1-c`.** Voir §7.
 * **`Taunted_BlockMovement` (25) et `Taunted_CantUseAbility` (26)** : la classe native qui les sert
   n'est pas établie. `IdunBattle.Entities.Effects.TauntedEffect$$.ctor` ne porte pas d'`EffectType`
   — il vient de la lambda d'`IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects`, non lue.
@@ -191,3 +183,101 @@ Non-régression (39 verts) : `test_462_r4b_r1_r1_r1_neuroparasite_pose_live` (7)
   est servi par `TauntedEffect`, `EffectType.ValkyrieStrike_Effect` par `ValkyrieStrikeEffect` — la
   correspondance nom↔classe est irrégulière.
 * Résidu `#462-r4b-r1-r1-r1-r1-r1` : le littéral `<DSLFormulas+0x20>` vs la sémantique mesurée (§3).
+
+## 7. `#462-r4b-r1-r1-r1-r1-c` — le quatrième virtuel : `IsExecutedIfOwnerDies`
+
+`APendingAttackEffect$$get_RemoveOnBondedEntityDeath` ne rend pas une constante — son corps est
+`NOT <klass+0x778>()`. Ce virtuel est **`IsExecutedIfOwnerDies`**, et la sous-famille en tire son
+gate (a). Le nom n'est déductible d'**aucune** table : `IsExecutedIfOwnerDies` n'apparaît dans aucun
+symbole ghidra, parce que les 20 corps sont des `return 0`/`return 1` **dédupliqués**.
+
+### 7.1 Pourquoi la passe précédente s'est arrêtée — un balayage DÉSALIGNÉ
+
+Le §6 disait « slot NULL même runner vivant ». C'était un **artefact de mesure** : le pas balayait
+`0x750..0x790` **par pas de 0x10**, alors que les slots sont alignés sur `...8`
+(`0x728/0x738/0x748/0x758/0x768/0x778`). Il tombait à côté de **chacun**, et ses cases vides se
+lisaient comme une absence de matérialisation. Un balayage aligné montre l'inverse : la vtable de
+`SeekerMissileFrequencyLockTargetEffect` était **déjà** matérialisée dans la session, et le nom se
+lisait sans rien monter.
+
+⇒ **Sur un balayage de slots, l'alignement du `start` fait partie de la mesure.** Une plage vide
+n'est une absence que si l'on a d'abord prouvé que la plage tombe sur les slots. Le pas porte
+désormais ce **contrôle d'alignement** : `+0x758` et `+0x768` doivent rendre
+`GetAttackingUnitSelector` et `GetTriggeredAbilityType`, que `methods.tsv` nomme indépendamment ;
+désalignement ⇒ `rc 2`, aucune valeur rendue.
+
+Second piège, corrigé dans le même pas : le critère de matérialisation est le **`MethodInfo*`**
+(donc le nom), **pas** le pointeur de code. Une classe non initialisée porte le stub de remplissage
+paresseux à une adresse bien réelle avec un `MethodInfo*` nul — prendre l'adresse pour critère fait
+passer la base abstraite pour lisible, et son slot vide pour un désalignement.
+
+### 7.2 La mesure — deux voies concordantes, `--step pending`
+
+`class_get_methods` (ne dépend d'aucune initialisation, couvre les 20) et la **vtable** (ne répond
+que pour les classes matérialisées, mais seule à établir le lien slot ↔ nom). Les deux **concordent**
+sur chaque classe matérialisée, en adresse **et** en nom.
+
+Les 20 dérivées **déclarent toutes** `IsExecutedIfOwnerDies` en propre : **17 à `false`** (donc
+`get_RemoveOnBondedEntityDeath` **VRAI**) et **3 à `true`** — `AnnihilatorBeam_PendingAttackEffect`,
+`TargetingProtocols_PendingAttackEffect`, `ValkyrieStrikeEffect`.
+
+`APendingAttackEffect` **surcharge par ailleurs** `get_Range` (`Nullable` vide) et `get_Adjacent`
+(`false`) : **ni (b) ni (c) sur aucune des 20**.
+
+### 7.3 L'attribution `EffectType` ↔ classe native, établie par MESURE
+
+La ressemblance de nom ne prouve rien (§6). L'attribution est ici mesurée par **bascule de vtable** :
+poser l'effet en bataille initialise sa classe, et **elle seule** passe de non matérialisée à
+matérialisée. Les 19 autres restent NULL à chaque pas — c'est le contrôle.
+
+| `EffectType` | ability / porteur | classe native (MESURÉE) | `IsExecutedIfOwnerDies` | `RemoveOnBondedEntityDeath` |
+|---|---|---|---|---|
+| 1308 `MalleusRocketLauncher` | 1142, `astraOrdnanceBattery` (MoW) | `MalleusRocketLauncherEffect` | **false** | **TRUE** |
+| 1402 `DevastatingRefrain_Target` | 1188, `adeptExorcist` (MoW) | `DevastatingRefrainEffect` | **false** | **TRUE** |
+| 1022 `ValkyrieStrike_Effect` | 1018, `astraSmnVoxcaster` (summon) | `ValkyrieStrikeEffect` | **true** | **FALSE** |
+
+### 7.4 Verdict sur le port
+
+* **1022 — CONFORME, et CONFRONTÉ.** Le natif ne construit **aucun** trigger (a) ; le port n'en
+  inscrit aucun. C'est le seul des trois dont le bondé (le caster) soit une **unité tuable**, donc le
+  seul confrontable — et il l'est dans le **sens rare** : `--step valkyrielive` mesure bondé mort,
+  **1022 encore présent**. Ce bras vaut aussi **contre-épreuve de la table `TRIVIAL`** du probe, par
+  laquelle les 19 autres valeurs sont lues. L'entrée est **dans** `BOND_REMOVAL_GATES` (à `False`),
+  pour documenter le non-retrait : le câblage se dérive, donc **aucun trigger inscrit**.
+* **1308 et 1402 — le trigger (a) est CONSTRUIT côté natif, et NON CONFRONTABLE.** Leur
+  `bondedEntity` est l'`owner` du cast, c'est-à-dire une **Machine of War**. Mesure
+  (`--step pendingporteurs`) : entité de type `Machine`, `pos = None`, `hp = None`, absente de
+  `decisionView.units`, cible légale d'**aucune** attaque. **Sa mort n'est pas atteignable.**
+  Deux raisons structurelles s'y ajoutent, chacune suffisante : ces effets vivent sur des **TUILES**
+  alors que `collect_effect_triggers` itère `effects.by_unit` (le piège « vacuously vrai » du §5,
+  re-mesuré) ; et leurs call-sites ne passent pas `bonded_ref`, donc `BaseEffect.bonded` reste `None`
+  et `matches` rendrait `False`. Les inscrire produirait du code **triplement inerte**, invalidable —
+  ce que la doctrine proscrit. Ils restent **hors table**, par mesure et non par prudence.
+
+⚠ **Ces trois effets ne sont pas sans retrait, et l'autre foyer MORD.**
+`APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal` ajoute
+`Triggered( On(0x15) & IsTurnOf(<0x758>()), TriggerAbility(...) & RemoveEffect(Effect) )` — la
+frappe différée, qui s'auto-consomme. Mesuré : **un seul `endturn` après le cast fait disparaître
+1022 de sa tuile sans qu'aucun bondé ne soit mort.** C'est ce qui a d'abord fait échouer le bras, et
+c'est ce qui rend le gate (a) doublement sans conséquence pour cette sous-famille. Le bras s'interdit
+donc tout `endturn`, et **déplace le bondé** (spawné sur un point du groupe adverse, `playerId`
+inchangé) plutôt que de subir la géométrie.
+
+### 7.5 Gardes et résidu
+
+`assert_pending_gate_consistency()` tient `remove_on_bonded_entity_death == NOT
+is_executed_if_owner_dies` — les deux champs sont redondants **exprès**, et c'est la redondance qui
+les garde. Contre-épreuve jouée : le garde mord. Tests offline **6 → 9 verts** ; non-régression
+**12 verts** (`bond_removal_live` 4, `neuroparasite_pose_live` 7, `valkyrie_strike_migration_live` 1).
+
+**Résidu `#462-r4b-r1-r1-r1-r1-c-r1`** — `collect_effect_triggers` est **structurellement aveugle
+aux effets de TUILE** : il n'itère que `state.effects.by_unit`. Aucun trigger d'effet ne peut donc
+mordre sur un effet posé sur une tuile, quel que soit son gate. C'est la troisième fois que ce trou
+est rencontré (1113 au §5, 1308 et 1402 ici) et il n'a jamais été traité : à chaque fois il est
+**masqué** par une autre raison de non-portage, ce qui le rend invisible. Le jour où un effet de
+tuile à gate armé ET bondé atteignable arrive, il mordra en silence. Périmètre à mesurer avant de
+porter : combien d'effets le port pose-t-il sur des tuiles, et lesquels ont un trigger enregistré.
+
+**Non couvert, et nommé** : les **17 autres dérivées** à `RemoveOnBondedEntityDeath = TRUE`. Leur
+valeur est mesurée, mais leurs abilities ne sont pas portées dans `engine/` — donc ni porteur
+recensé, ni confrontation. Ce n'est pas un trou du port : c'est du kit non porté.

@@ -48,14 +48,39 @@ de LIRE LE SLOT sur la classe, au runtime, et de comparer son POINTEUR a celui d
         `0x1802b45a0` = `return 0`  -> bool FALSE
         `0x1802b45b0` = `return 0`  -> `Nullable<int>` VIDE (pas de portee)
 
+LE QUATRIEME VIRTUEL, `<klass+0x778>` (residu ferme par #462-r4b-r1-r1-r1-r1-c).
+`IdunBattle.Entities.Effects.APendingAttackEffect$$get_RemoveOnBondedEntityDeath` ne rend pas une
+constante : son corps est `NOT <klass+0x778>()`. Les 20 derivees d'`APendingAttackEffect` heritent
+donc leur gate (a) d'un QUATRIEME virtuel, propre a cette sous-famille. Il est NOMME
+`IsExecutedIfOwnerDies` -- mesure, pas deduction, et par DEUX voies concordantes :
+
+  * `--step pending`, voie `class_get_methods` : les 20 derivees le DECLARENT toutes en propre
+    (`depth 0`), corps `0x1802b4590` (= `return 1`, VRAI) ou `0x1802b45a0` (= `return 0`, FAUX) ;
+  * `--step vtable` : sur une classe dont la vtable EST materialisee, le slot `+0x778` rend le meme
+    couple (adresse, nom). Les slots voisins servent de CONTROLE de l'alignement --
+    `+0x758 = GetAttackingUnitSelector`, `+0x768 = GetTriggeredAbilityType`, tous deux confirmes
+    par `data/symbols/<build>/frida/methods.tsv`, qui les nomme pour les classes dont le corps
+    n'est PAS dedupliqué.
+
+⚠ POURQUOI LA PASSE PRECEDENTE A CONCLU << slot NULL, non resolvable >>. Les slots de cette vtable
+sont a `0x728 / 0x738 / 0x748 / 0x758 / 0x768 / 0x778` -- alignes sur `...8`, PAS sur `...0`. Le
+premier jet de ce pas balayait `0x750..0x790` par pas de 0x10, soit `0x750, 0x760, 0x770, 0x780` :
+DECALE DE 8, donc a cote de CHAQUE slot. Il rendait des cases vides, ce qui s'est lu comme << aucune
+vtable n'est materialisee >>. Un balayage aligne montre l'inverse : la vtable de
+`SeekerMissileFrequencyLockTargetEffect` etait deja materialisee dans la session, et le nom se lisait
+sans rien monter. LECON : sur un balayage de slots, l'alignement du `start` fait partie de la mesure
+-- une plage vide n'est une absence QUE si l'on a d'abord prouve que la plage tombe sur les slots.
+
 Usage (ASCII only, depuis scripts/python) :
   python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step vtable
   python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step declared
+  python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step pending
   python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step all
 """
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -67,12 +92,22 @@ PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 
 BOND_BASE = "IdunBattle.Entities.Effects.ABondEffect"
+PENDING_BASE = "IdunBattle.Entities.Effects.APendingAttackEffect"
 
 # Les TROIS slots gates, dans l'ordre ou `CreateHandleTriggerAbilitiesInternal` les consulte.
 SLOT_RANGE = 0x728          # (b) `Nullable<int>` -- portee au-dela de laquelle le bond tombe
 SLOT_ADJACENT = 0x738       # (c) bool -- le bond exige l'ADJACENCE
 SLOT_ON_DEATH = 0x748       # (a) bool -- le bond tombe a la mort/au retrait du bonde
 SLOTS = (SLOT_RANGE, SLOT_ADJACENT, SLOT_ON_DEATH)
+
+# Les TROIS virtuels que `APendingAttackEffect` AJOUTE aux precedents. Les deux premiers sont
+# recoupes par `methods.tsv` (qui les nomme pour les classes au corps non dedupliqué) et servent de
+# CONTROLE D'ALIGNEMENT du balayage ; le troisieme est le gate cherche.
+SLOT_ATTACKING_SELECTOR = 0x758     # `GetAttackingUnitSelector` : ITargetsSelector
+SLOT_TRIGGERED_ABILITY = 0x768      # `GetTriggeredAbilityType` : TriggeredAbilityType
+SLOT_EXECUTED_IF_OWNER_DIES = 0x778  # `IsExecutedIfOwnerDies` : bool -- gate (a) de la sous-famille
+PENDING_SLOTS = (SLOT_RANGE, SLOT_ADJACENT, SLOT_ON_DEATH,
+                 SLOT_ATTACKING_SELECTOR, SLOT_TRIGGERED_ABILITY, SLOT_EXECUTED_IF_OWNER_DIES)
 
 
 def _r(sid, m, b, t=60):
@@ -93,8 +128,8 @@ def _parents():
     return out
 
 
-def bond_effect_classes():
-    """Toutes les classes dont la chaine de parents atteint `ABondEffect` (elle exclue)."""
+def derived_classes(base):
+    """Toutes les classes dont la chaine de parents atteint `base` (elle exclue)."""
     parents = _parents()
     out = []
     for name in parents:
@@ -102,10 +137,18 @@ def bond_effect_classes():
         while cur and seen < 12:
             cur = parents.get(cur)
             seen += 1
-            if cur == BOND_BASE:
+            if cur == base:
                 out.append(name)
                 break
     return sorted(out)
+
+
+def bond_effect_classes():
+    return derived_classes(BOND_BASE)
+
+
+def pending_attack_classes():
+    return derived_classes(PENDING_BASE)
 
 
 def _split(full):
@@ -194,10 +237,14 @@ def _step_vtable_inner(sid, extra=()):
         for full, err in unresolved:
             print("    %-72s %s" % (full, err))
     for full in extra:
+        # ⚠ ALIGNEMENT : les slots sont a `...8` (0x728/0x738/.../0x778), pas a `...0`. Un balayage
+        # depuis 0x750 tomberait A COTE de chacun et rendrait des cases vides -- ce qui s'etait lu
+        # comme << aucune vtable materialisee >>, et a laisse le residu ouvert une passe entiere.
         ns, cls = _split(full)
-        res = _r(sid, "resolveVtableSlot", {"ns": ns, "cls": cls, "start": 0x750, "end": 0x790}, 30)
+        res = _r(sid, "resolveVtableSlot", {"ns": ns, "cls": cls,
+                                            "start": SLOT_RANGE, "end": 0x788}, 30)
         print("")
-        print("SLOTS 0x750..0x790 de %s (les virtuels d'`APendingAttackEffect`)" % full)
+        print("SLOTS 0x728..0x788 de %s (les virtuels d'`APendingAttackEffect`)" % full)
         for sl in (res.get("slots") or []):
             print("    %-8s %-14s %s" % (sl.get("off"), sl.get("ghidraVA") or "(vide)",
                                          sl.get("method")))
@@ -285,6 +332,426 @@ def step_declared(sid):
         for full, m, err in errs[:8]:
             print("    %-60s %-30s %s" % (full, m, err))
     return 0
+
+
+# ------------------------------------------------------------------------------------------------
+# --step pending : le QUATRIEME virtuel `<klass+0x778> IsExecutedIfOwnerDies`
+#
+# LA QUESTION. `IdunBattle.Entities.Effects.APendingAttackEffect$$get_RemoveOnBondedEntityDeath` ne
+# rend PAS une constante : son corps est `NOT <klass+0x778>()`. Les 20 derivees d'
+# `APendingAttackEffect` heritent donc leur gate (a) d'un virtuel de plus, que `--step declared` ne
+# regardait pas (il n'interrogeait que `get_Range` / `get_Adjacent` /
+# `get_RemoveOnBondedEntityDeath`, et pour ces classes le troisieme rendait l'entree HERITEE de la
+# base -- une adresse de code REEL, pas un corps trivial, donc illisible comme booleen).
+#
+# LES DEUX VOIES, ET POURQUOI ON JOUE LES DEUX.
+#   * `class_get_methods` (colonne DECLARE) ne depend d'AUCUNE initialisation de classe : c'est la
+#     seule qui couvre les 20, y compris celles qu'aucune bataille n'a instanciees.
+#   * la VTABLE (colonne SLOT) ne repond que pour les classes materialisees, mais elle est la SEULE
+#     a etablir le lien slot <-> nom : c'est elle qui NOMME `<klass+0x778>`. Sans elle, la colonne
+#     DECLARE serait une valeur sans adresse d'appel.
+# Les deux doivent CONCORDER sur toute classe materialisee ; le pas le verifie et le DIT.
+#
+# CONTROLE D'ALIGNEMENT, joue dans le meme balayage. `+0x758` et `+0x768` doivent rendre
+# `GetAttackingUnitSelector` et `GetTriggeredAbilityType` -- deux noms que
+# `data/symbols/<build>/frida/methods.tsv` porte independamment. S'ils ne tombent pas, le balayage
+# est decale et AUCUNE valeur du pas ne vaut (c'est exactement la faute qui a laisse ce residu
+# ouvert : un balayage `0x750..0x790` par pas de 0x10 rate les six slots).
+# ------------------------------------------------------------------------------------------------
+IS_EXECUTED_IF_OWNER_DIES = "IsExecutedIfOwnerDies"
+
+# Ce que `methods.tsv` nomme independamment pour les deux slots de controle.
+ALIGNMENT_CONTROL = {SLOT_ATTACKING_SELECTOR: "GetAttackingUnitSelector",
+                     SLOT_TRIGGERED_ABILITY: "GetTriggeredAbilityType",
+                     SLOT_EXECUTED_IF_OWNER_DIES: IS_EXECUTED_IF_OWNER_DIES}
+
+
+def _pending_slot_row(sid, full):
+    """`{off: (ghidraVA, nom)}` pour les six slots, balayes ALIGNES sur `...8`."""
+    ns, cls = _split(full)
+    res = _r(sid, "resolveVtableSlot",
+             {"ns": ns, "cls": cls, "start": SLOT_RANGE, "end": SLOT_EXECUTED_IF_OWNER_DIES}, 30)
+    if not res.get("ok"):
+        return None
+    out = {}
+    for sl in (res.get("slots") or []):
+        try:
+            off = int(str(sl.get("off")), 16)
+        except (TypeError, ValueError):
+            continue
+        out[off] = (sl.get("ghidraVA") or None, sl.get("method"))
+    return out
+
+
+def step_pending(sid):
+    names = [PENDING_BASE] + pending_attack_classes()
+    print("`<klass+0x778>` -- le QUATRIEME virtuel des derivees d'`APendingAttackEffect`")
+    print("Corps triviaux resolus par ADRESSE : %s" % TRIVIAL)
+    print("")
+    hdr = ("%-48s | %-26s | %-26s | %s"
+           % ("classe", "DECLARE IsExecutedIfOwnerDies", "SLOT +0x778 (vtable)",
+              "=> get_RemoveOnBondedEntityDeath"))
+    print(hdr)
+    print("-" * len(hdr))
+    verdicts, mismatches, misaligned, materialised = {}, [], [], []
+    for full in names:
+        short = full.rsplit(".", 1)[-1]
+        got, err = _declared(sid, full, IS_EXECUTED_IF_OWNER_DIES)
+        decl_va, decl = None, "ERR:" + str(err)[:20] if err else "ABSENT"
+        if got:
+            own = [(d, k, va) for d, k, va in got if d == 0]
+            if own:
+                decl_va = own[0][2]
+                decl = TRIVIAL.get(decl_va) or ("?" + str(decl_va))
+        row = _pending_slot_row(sid, full)
+        slot_va, slot = None, "(non materialisee)"
+        if row:
+            slot_va, slot_name = row.get(SLOT_EXECUTED_IF_OWNER_DIES, (None, None))
+            # ⚠ Le critere de MATERIALISATION est le `MethodInfo*` (donc le NOM), pas le pointeur de
+            # code : une classe non initialisee porte le stub de remplissage paresseux
+            # (`Unity.Burst.Unsafe$$AsRef`) a une adresse bien reelle, avec un `MethodInfo*` NUL.
+            # Prendre l'adresse pour critere ferait passer la BASE ABSTRAITE -- qui n'est jamais
+            # instanciee -- pour une classe lisible, et son slot vide pour un desalignement.
+            if slot_name is None:
+                slot_va = None
+            if slot_va is not None:
+                materialised.append(short)
+                slot = "%s=%s" % (slot_name, TRIVIAL.get(slot_va) or ("?" + str(slot_va)))
+                for off, expect in ALIGNMENT_CONTROL.items():
+                    nm = (row.get(off) or (None, None))[1]
+                    if nm != expect:
+                        misaligned.append((short, hex(off), expect, nm))
+                if decl_va is not None and slot_va != decl_va:
+                    mismatches.append((short, decl_va, slot_va))
+        # `get_RemoveOnBondedEntityDeath` = NOT `IsExecutedIfOwnerDies`.
+        if decl in ("true", "false"):
+            verdicts[short] = (decl == "false")
+            verdict = "TRUE (le bond tombe)" if decl == "false" else "FALSE (le bond SURVIT)"
+        else:
+            verdict = "NON RESOLU"
+        print("%-48s | %-26s | %-26s | %s" % (short, decl, slot, verdict))
+
+    print("")
+    print("CONTROLE D'ALIGNEMENT : %d classe(s) materialisee(s) -- %s"
+          % (len(materialised), ", ".join(materialised) or "aucune"))
+    if misaligned:
+        print("  ECHEC : le balayage ne tombe PAS sur les slots attendus -- AUCUNE valeur ne vaut.")
+        for short, off, expect, nm in misaligned:
+            print("    %-40s %s attendu=%s lu=%s" % (short, off, expect, nm))
+        return 2
+    if not materialised:
+        print("  AUCUNE classe materialisee : le lien slot <-> nom n'est pas etabli par CE run.")
+        print("  La colonne DECLARE reste valable (elle ne depend d'aucune initialisation), mais")
+        print("  rien ici ne prouve qu'elle repond au slot `+0x778`. NE PAS conclure seul.")
+        return 3
+    print("  OK : `+0x758`/`+0x768`/`+0x778` rendent bien "
+          "`GetAttackingUnitSelector`/`GetTriggeredAbilityType`/`%s`." % IS_EXECUTED_IF_OWNER_DIES)
+    if mismatches:
+        print("")
+        print("DESACCORD declare/vtable : %d -- le pas NE CONCLUT PAS." % len(mismatches))
+        for short, dv, sv in mismatches:
+            print("    %-40s declare=%s slot=%s" % (short, dv, sv))
+        return 2
+    print("  Les deux voies CONCORDENT sur chaque classe materialisee.")
+    print("")
+    armes = sorted(k for k, v in verdicts.items() if v)
+    print("get_RemoveOnBondedEntityDeath VRAI (trigger (a) CONSTRUIT) : %d / %d"
+          % (len(armes), len(verdicts)))
+    print("FAUX (aucun trigger (a)) : %s"
+          % ", ".join(sorted(k for k, v in verdicts.items() if not v)))
+    return 0
+
+
+# ------------------------------------------------------------------------------------------------
+# --step pendingporteurs : les TROIS effets `APendingAttackEffect` que le port POSE sont-ils
+# CONFRONTABLES sur le gate (a) ?
+#
+# Repondre a << quelle valeur >> ne suffit pas : le trigger (a) se declenche sur la MORT ou le
+# RETRAIT du BONDE. Il faut donc etablir QUI est le bonde de chacun, et si cette entite peut mourir.
+# Le pas le MESURE plutot que de le supposer, parce que les trois n'ont pas le meme bonde :
+#
+#   1308 `MalleusRocketLauncher`     -- `AddBondEffect(..., targets=TUILE, bond=owner@0x148)`
+#                                       (`MalleusRocketLauncherAbility$$ExecuteBehaviour`)
+#   1402 `DevastatingRefrain_Target` -- idem (`DevastatingRefrainAbility$$ExecuteBehaviour`)
+#        -> pour les DEUX, l'owner est une MACHINE OF WAR : le bonde est une entite de type
+#           `Machine`, pas une `Unit`.
+#   1022 `ValkyrieStrike_Effect`     -- `AddBondEffect(..., caster@0x160 en 4e ET 6e position)`
+#                                       (`ValkyrieStrikeAbility$$ExecuteBehaviour`), owner = une
+#                                       UNITE (`astraSmnVoxcaster`).
+#
+# CE QUE LE PAS RAPPORTE, sans le deduire : pour chaque porteur, l'entite bondee telle que le RPC
+# l'expose (`pos`, `hp`, `alive`), et si elle figure dans les cibles legales d'une attaque. Une
+# entite sans tuile n'est frappable par AUCUNE attaque -- c'est ce qui decide si l'ecart de port
+# est OBSERVABLE ou seulement sur le papier, et le pas doit le DIRE plutot que le conclure.
+# ------------------------------------------------------------------------------------------------
+PENDING_POSERS = (
+    # (visualId, abilityType, effectType, role du porteur)
+    ("astraOrdnanceBattery", 1142, 1308, "mow"),
+    ("adeptExorcist", 1188, 1402, "mow"),
+)
+
+
+def step_pendingporteurs(sid, board="C1_02", seed=4242):
+    import probe_90b_mow_effects as P90
+
+    rc = 0
+    for mow, ability, effect_type, role in PENDING_POSERS:
+        state_file = ROOT / "logs" / ("_probe462c-%s-%d.json" % (mow, os.getpid()))
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        rid = P90.build(mow, board, str(state_file), seed=seed)
+        if rid is None:
+            print("[%s] build KO -- NON CONFRONTE (montage), aucun verdict" % mow)
+            rc |= 2
+            continue
+        try:
+            dv = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+            m = next((x for x in (dv.get("mows") or []) if x.get("visualId") == mow), None)
+            if m is None:
+                print("[%s] absent de decisionView.mows -- NON CONFRONTE" % mow)
+                rc |= 2
+                continue
+            bonded = int(m["casterId"])
+            print("[%s] ability=%d effet=%d ; BONDE = l'owner = casterId %d"
+                  % (mow, ability, effect_type, bonded))
+            print("   entite bondee : pos=%s hp=%s/%s alive=%s (type Machine, pas Unit)"
+                  % (m.get("pos"), m.get("hp"), m.get("maxHp"), m.get("alive")))
+            # Le bonde figure-t-il parmi les cibles LEGALES d'une attaque, cote adverse ?
+            frappable = _is_targetable(sid, rid, dv, bonded)
+            print("   cible legale d'une attaque ? %s" % frappable)
+            if frappable is False and m.get("pos") is None:
+                print("   => le BONDE n'a PAS de tuile et n'est cible d'AUCUNE attaque : sa mort")
+                print("      n'est pas atteignable par le jeu. Le trigger (a) est CONSTRUIT cote")
+                print("      natif mais INATTEIGNABLE. NON CONFRONTABLE -- ne rien porter serait")
+                print("      indistinguable du natif, et le porter serait invalidable.")
+            elif frappable:
+                print("   => le BONDE est frappable : le bras de mise a mort est jouable.")
+                rc |= 3          # 3 = confrontable, mais le bras n'est pas joue par CE pas
+        finally:
+            _r(sid, "disposeRunner", {"runnerId": rid}, 60)
+    return rc
+
+
+def _is_targetable(sid, rid, dv, entity_id):
+    """`entity_id` figure-t-il dans les cibles LEGALES d'une des unites du plateau ?
+
+    Rend `None` si aucune unite n'a pu etre interrogee -- une mesure vide n'est pas un << non >>."""
+    interroge = 0
+    for u in (dv.get("units") or []):
+        if not u.get("alive"):
+            continue
+        uid = int(u["id"])
+        at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid}, 90) or {}
+        row = next((x for x in (at.get("units") or []) if x.get("unitId") == uid), None)
+        if row is None:
+            continue
+        interroge += 1
+        for a in (row.get("abilities") or []):
+            for t in (a.get("targets") or []):
+                if t.get("kind") == "unit" and int(t.get("targetId") or -1) == int(entity_id):
+                    return True
+    return False if interroge else None
+
+
+# ------------------------------------------------------------------------------------------------
+# --step valkyrielive : le SEUL des trois qui soit confrontable, et il l'est dans le SENS RARE
+#
+# `ValkyrieStrikeEffect` est la seule des trois classes du perimetre dont
+# `IsExecutedIfOwnerDies` vaut VRAI, donc la seule dont `get_RemoveOnBondedEntityDeath` vaut FAUX :
+# le natif ne construit AUCUN trigger (a) pour elle, et l'effet 1022 doit SURVIVRE a la mort de son
+# bonde. C'est aussi la seule dont le bonde est une UNITE (`astraSmnVoxcaster`, le caster) et non une
+# MoW -- donc la seule dont la mort soit atteignable.
+#
+# POURQUOI CE BRAS COMPTE PLUS QU'IL N'EN A L'AIR. Un port qui n'inscrit RIEN passe trivialement un
+# bras << l'effet survit >>. Ce bras ne prouve donc pas le port : il prouve le NATIF, et c'est ce qui
+# manquait. La valeur `true` de `IsExecutedIfOwnerDies` est lue sur un corps TRIVIAL DEDUPLIQUE
+# (`0x1802b4590`, dont le proprietaire ghidra est `UnityEngine.U2D.IK.Solver2D$$DoValidate` -- un nom
+# qui ne dit RIEN de l'appelant) ; la confronter au comportement observe est le seul moyen de
+# verifier que la table `TRIVIAL` du probe dit vrai, et donc que les 19 AUTRES lignes -- lues par la
+# meme table -- ne sont pas une illusion.
+#
+# CRITERE, ENONCE AVANT LA MESURE :
+#   H0 (la lecture est juste, `RemoveOnBondedEntityDeath = FALSE`) -> apres la mort du BONDE, 1022
+#      est ENCORE la.
+#   H1 (la lecture est fausse) -> 1022 a disparu, et alors la table `TRIVIAL` est a refaire.
+# CONTROLE : on releve 1022 AVANT la mise a mort. S'il n'y est pas, le bras ne mesure rien
+# (montage), et le pas doit le DIRE plutot que de lire une absence comme une survie ratee -- c'est
+# exactement le piege << vacuously vrai >> releve au §5 de la fiche.
+# ------------------------------------------------------------------------------------------------
+# LE MONTAGE, ET POURQUOI IL N'EST PAS CELUI DE `probe_245`. Mesure du 2026-08-05 avec le montage
+# de `probe_245` tel quel (Vox a 5000 PV) : le Vox-caster SURVIT a dix tours de frappes, et pendant
+# ce temps l'effet 1022 DISPARAIT TOUT SEUL -- consomme par l'AUTRE trigger de la sous-famille,
+# `Triggered( On(0x15) & IsTurnOf(<0x758>()), TriggerAbility(...) & RemoveEffect(Effect) )`, qui est
+# la frappe aerienne differee elle-meme. Un bras qui laisse passer un tour ne mesure donc RIEN du
+# gate (a) : il mesure le second foyer de retrait. D'ou les deux exigences du montage --
+#   * le bonde doit tomber en UNE frappe (PV bas + degat eleve), et
+#   * AUCUN `endturn` entre le cast et la mise a mort.
+# C'est la difference entre << adapter les rosters a l'objectif >> et << subir la geometrie >>.
+VALKYRIE_EFFECT = 1022
+VOX_HEALTH_KILLABLE = 60          # le bonde doit tomber en UNE frappe, avant tout changement de tour
+ENEMY_DAMAGE = 40000              # idem -- aucun de ces deux champs n'entre dans ce qu'on mesure
+
+
+def _build_valkyrie_killable(sid):
+    """Runner du bras : Vox-caster spawne cote joueur, PV bas, ennemis a fort degat.
+
+    Copie ASSUMEE du `_build` de `probe_245` (meme voie `initAndStart` + catalogue) : ce probe-ci a
+    besoin de DEUX patchs de plus (PV du bonde, degat de l'ennemi) que 245 n'a aucune raison de
+    porter -- son objet a lui est le masque de ciblage, pas la mise a mort."""
+    import copy
+    import json
+    import catalog_inject as CI
+    import probe_245_valkyrie_targeting as P245
+    import rl_duel as RD
+
+    state_file = ROOT / "logs" / ("_probe462c-valkyrie-%d.json" % os.getpid())
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    bc0, _added, _ab, _m = CI.augment(RD._load_seed_bc(None), [P245.VOXCASTER, P245.ENEMY],
+                                      rank=P245.RANK)
+    dump = RD._load_board_dump(P245.BOARD)
+    template, _pool, _pmow = RD._normalize_and_extract_pool(sid, bc0, P245.RANK, board_dump=dump)
+    bc = copy.deepcopy(template)
+    vox = next((u for u in bc["Units"] if u.get("Id") == P245.VOXCASTER), None)
+    if vox is None:
+        raise RuntimeError("%s absent du catalogue BC.Units" % P245.VOXCASTER)
+    vox["Health"] = VOX_HEALTH_KILLABLE
+    vox["RemainingHealth"] = VOX_HEALTH_KILLABLE
+    vox["Traits"] = list(P245.VOX_TRAITS)          # `Summon` retire : il rend l'unite AUTOMATIQUE
+    foe = next((u for u in bc["Units"] if u.get("Id") == P245.ENEMY), None)
+    if foe is not None:
+        foe["Damage"] = ENEMY_DAMAGE
+    RD._patch_predefined_units(bc, [P245.ENEMY, P245.ENEMY])
+    # ⚠ ON DEPLACE LE BONDE, on ne subit pas la geometrie. Spawne au point JOUEUR habituel, le
+    # Vox-caster est hors de portee des deux ennemis, et les rapprocher coute des `endturn` -- que
+    # ce bras s'interdit (ils consommeraient l'effet par l'autre trigger). On le spawne donc sur un
+    # point du groupe ADVERSE, en gardant `playerId = HUMAN` : il reste NOTRE unite (donc c'est bien
+    # SON cast), mais il nait au contact de ses futurs bourreaux. Le dernier point du groupe est
+    # choisi parce que les deux `PredefinedUnits` consomment les premiers.
+    spawns = RD._spawn_points_by_twpi(bc)
+    foe_pts = [pts for twpi, pts in sorted(spawns.items()) if twpi != 0 and pts]
+    pts = foe_pts[0] if foe_pts else (spawns.get(0) or [])
+    if not pts:
+        raise RuntimeError("aucun spawn point exploitable sur %s" % P245.BOARD)
+    col, row = pts[-1]
+    pu = [{"unitId": P245.VOXCASTER, "playerId": RD.PLAYER_ID_HUMAN,
+           "col": int(col), "row": int(row)}]
+    resp = _rpc(sid, "initAndStart",
+                [{"configJson": json.dumps(bc), "seed": P245.SEED, "playerUnits": pu,
+                  "owner": str(state_file.resolve())}], timeout=120)
+    rid = ((resp or {}).get("result") or {}).get("runnerId")
+    if rid is None:
+        raise RuntimeError("initAndStart KO: %s" % json.dumps(resp)[:400])
+    state_file.write_text(json.dumps({"runnerId": int(rid)}), encoding="utf-8")
+    return int(rid)
+
+
+def _effects_everywhere(sid, rid, effect_type):
+    """Ou l'effet `effect_type` se trouve-t-il : sur des UNITES, sur des TUILES, ou nulle part ?
+
+    Les deux canaux sont lus, parce que `AddBondEffect` itere un selecteur d'ENTITES et que ses
+    cibles peuvent etre des tuiles (`MalleusRocketLauncherAbility`) comme des unites. Ne lire que
+    `decisionView.units` ferait passer un effet de TUILE pour absent."""
+    dv = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+    tm = _r(sid, "tileMeta", {"runnerId": rid}, 90) or {}
+    units = [int(u["id"]) for u in (dv.get("units") or [])
+             if any(int(e.get("effectType") or -1) == effect_type for e in (u.get("effects") or []))]
+    mows = [int(m["casterId"]) for m in (dv.get("mows") or [])
+            if any(int(e.get("effectType") or -1) == effect_type for e in (m.get("effects") or []))]
+    tiles = [(t.get("col"), t.get("row")) for t in (tm.get("tiles") or [])
+             if any(int(e.get("effectType") or -1) == effect_type for e in (t.get("effects") or []))]
+    return {"units": units, "mows": mows, "tiles": tiles,
+            "total": len(units) + len(mows) + len(tiles)}
+
+
+def _kill_no_endturn(sid, rid, victim_id, victim_owner, tries=6):
+    """Tue `victim_id` avec les unites adverses, SANS aucun `endturn`.
+
+    Le `endturn` est proscrit ici, et ce n'est pas un detail de confort : il fait passer le tour,
+    donc declencher `On(0x15)`, donc consommer l'effet par l'AUTRE trigger de la sous-famille. Un
+    bras qui en joue un mesure le mauvais foyer de retrait (mesure du 2026-08-05)."""
+    import probe_112_darkangels as PR
+
+    for _ in range(tries):
+        d = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+        v = next((u for u in (d.get("units") or []) if int(u["id"]) == int(victim_id)), None)
+        if v is None or not v.get("alive"):
+            return True
+        fired = False
+        for u in (d.get("units") or []):
+            if not u.get("alive") or u.get("owner") == victim_owner:
+                continue
+            aid = next((a.get("id") for a in (u.get("abilities") or [])
+                        if a.get("kind") != "passive"), None)
+            if aid is None:
+                continue
+            if int(victim_id) not in PR.legal_from_here(sid, rid, int(u["id"]), aid):
+                continue
+            PR.act(sid, rid, {"kind": "ability", "casterId": int(u["id"]),
+                              "targetId": int(victim_id), "abilityType": aid})
+            fired = True
+        if not fired:
+            break
+    d = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+    v = next((u for u in (d.get("units") or []) if int(u["id"]) == int(victim_id)), None)
+    return (v is None) or (not v.get("alive"))
+
+
+def step_valkyrielive(sid):
+    import probe_245_valkyrie_targeting as P245
+    import probe_112_darkangels as PR
+
+    rid = _build_valkyrie_killable(sid)
+    print("[build] runner=%d board=%s seed=%s (Vox a %d PV, ennemi a %d de degat)"
+          % (rid, P245.BOARD, P245.SEED, VOX_HEALTH_KILLABLE, ENEMY_DAMAGE))
+    try:
+        dv, vox = P245._to_my_turn(sid, rid)
+        if vox is None:
+            print("[FAIL] voxcaster absent -- montage KO, AUCUN verdict")
+            return 2
+        cid = int(vox["id"])
+        at = _r(sid, "abilityTargets",
+                {"runnerId": rid, "unitId": cid, "abilityType": P245.VALKYRIE_STRIKE}, 120) or {}
+        row = next((x for x in (at.get("units") or []) if x.get("unitId") == cid), None)
+        tgts = ((row.get("abilities") or [{}])[0].get("targets") or []) if row else []
+        if not tgts:
+            print("[FAIL] aucune cible legale pour ValkyrieStrike -- AUCUN verdict")
+            return 2
+        pick = next((t for t in tgts if t.get("kind") == "unit"), tgts[0])
+        act = {"kind": "ability", "casterId": cid, "abilityType": P245.VALKYRIE_STRIKE}
+        if pick.get("kind") == "unit":
+            act["targetId"] = pick["targetId"]
+        else:
+            act["to"] = {"col": pick["tile"]["col"], "row": pick["tile"]["row"]}
+        r = _r(sid, "applyAction", {"runnerId": rid, "action": act}, 150) or {}
+        a0 = (r.get("actions") or [{}])[0]
+        before = _effects_everywhere(sid, rid, VALKYRIE_EFFECT)
+        print("[cast] pick=%s ok=%s mut=%s -> effet 1022 : %s"
+              % (pick, a0.get("ok"), a0.get("mutated"), before))
+        if before["total"] == 0:
+            print("[FAIL] 1022 n'est POSE nulle part -- le bras ne mesure RIEN (montage).")
+            return 2
+
+        # Mise a mort du BONDE = le caster (`caster@0x160` en 4e ET 6e position du natif).
+        # `applyAction` ne verifie pas la propriete du `unitId` (runner.md §4), donc on pilote
+        # l'adversaire pour frapper notre propre Vox-caster -- SANS `endturn`, sinon la frappe
+        # aerienne differee consomme l'effet et on ne mesure plus le gate (a).
+        dead = _kill_no_endturn(sid, rid, cid, vox.get("owner"))
+        after = _effects_everywhere(sid, rid, VALKYRIE_EFFECT)
+        print("[apres] bonde mort=%s -> effet 1022 : %s" % (dead, after))
+        print("")
+        if not dead:
+            print("VERDICT : NON CONFRONTE -- le Vox-caster n'a pas pu etre tue.")
+            return 2
+        if after["total"] > 0:
+            print("VERDICT H0 : 1022 SURVIT a la mort de son bonde. La lecture")
+            print("  `IsExecutedIfOwnerDies = true` -> `get_RemoveOnBondedEntityDeath = FALSE`")
+            print("  est CONFIRMEE, et avec elle la table `TRIVIAL` par laquelle les 19 autres")
+            print("  lignes sont lues. Le port, qui n'inscrit aucun trigger pour 1022, est")
+            print("  CONFORME sur ce point.")
+            return 0
+        print("VERDICT H1 : 1022 a DISPARU a la mort du bonde -- la lecture du gate est REFUTEE.")
+        return 1
+    finally:
+        PR.dispose(sid, rid)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -589,7 +1056,8 @@ def step_killlive(sid):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="declared",
-                    choices=["vtable", "declared", "gatelive", "killlive", "all"])
+                    choices=["vtable", "declared", "pending", "pendingporteurs", "valkyrielive",
+                             "gatelive", "killlive", "all"])
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default="MC1_67")
     a = ap.parse_args()
@@ -601,6 +1069,15 @@ def main():
         print("")
     if a.step in ("declared", "all"):
         rc |= step_declared(sid)
+        print("")
+    if a.step in ("pending", "all"):
+        rc |= step_pending(sid)
+        print("")
+    if a.step in ("pendingporteurs", "all"):
+        rc |= step_pendingporteurs(sid)
+        print("")
+    if a.step in ("valkyrielive", "all"):
+        rc |= step_valkyrielive(sid)
         print("")
     if a.step in ("gatelive", "all"):
         rc |= step_gatelive(sid, a.seed, a.board)
