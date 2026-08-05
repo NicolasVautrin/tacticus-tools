@@ -70,7 +70,7 @@ from ....components import UnitComponent, OwnerComponent
 from ..base import EffectTrigger, TriggerEvent
 
 MASTER_EFFECT = int(EffectType.MasterOfTheTutelaries)        # 1197 (0x4ad) — effet armeur
-_PSYCHIC = DamageProfileType(13).name                        # "Psychic" — profil du gate (0xd)
+_PSYCHIC = DamageProfileType.Psychic.name                        # "Psychic" — profil du gate (0xd)
 # 4e conjoint : `NOT IsObjectOrSteppable(target@0x178 = sel@+0x60)`. Foyer partage
 # `entities/triggers.py` (mirror de `IdunBattleLogic.Entities.DSLTriggers$$IsObjectOrSteppable`,
 # HUIT call-sites natifs) — surtout pas une n-ieme recopie du couple de traits.

@@ -334,7 +334,8 @@ class CapturePointTileUtility(BaseUtility):
         if not (meta or {}).get("is_territory"):
             return 0.0
         flag = (bool((ctx or {}).get("is_spawning"))          # `case.unit == null && case.parent != null`
-                or _has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13))
+                or _has(ctx, "unit_traits", int(UnitTrait.Summon))      # HasTrait(unit, 2)
+                or _has(ctx, "unit_traits", int(UnitTrait.Object)))     # HasTrait(unit, 13)
         key = "summons_dislike_capture_points" if flag else "heroes_on_capture_points"
         return wt.sub("CapturePoint", key)
 
@@ -350,7 +351,8 @@ class PowerUpTileUtility(BaseUtility):
         if not (meta or {}).get("occupant_is_powerup"):
             return 0.0
         if not (bool((ctx or {}).get("is_spawning"))
-                or _has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13)):
+                or _has(ctx, "unit_traits", int(UnitTrait.Summon))       # HasTrait(unit, 2)
+                or _has(ctx, "unit_traits", int(UnitTrait.Object))):     # HasTrait(unit, 13)
             return 0.0
         return wt.sub("PowerUp", "summons_dislike_tiles_with_powerups")
 
@@ -361,7 +363,7 @@ class ContaminatedUtility(BaseUtility):
     UTILITY_TYPE = int(UtilityType.Contaminated)  # 26
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        if 1244 not in _eff_ids(meta, "tile_effect_type_ids"):
+        if int(EffectType.Contaminated) not in _eff_ids(meta, "tile_effect_type_ids"):   # 0x4dc
             return 0.0
         if (ctx or {}).get("contaminated_excluded"):
             return 0.0
@@ -375,13 +377,13 @@ class MoltenForm_TilesUtility(BaseUtility):
     UTILITY_TYPE = int(UtilityType.MoltenForm)  # 24
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        if not _has(ctx, "unit_triggered_abilities", 1221):
+        if not _has(ctx, "unit_triggered_abilities", int(TriggeredAbilityType.MoltenForm)):  # 0x4c5
             return 0.0
         ids = _eff_ids(meta, "tile_effect_type_ids")
         u = 0.0
-        if 5 in ids:
+        if int(EffectType.Fire) in ids:                    # tile-effect 5 (ResistFireTiles)
             u += wt.sub("MoltenForm", "MoltenForm_ResistFireTiles")
-        if 10 in ids:
+        if int(EffectType.FirstAidHeal) in ids:            # tile-effect 10 (AvoidHealingTiles)
             u += wt.sub("MoltenForm", "MoltenForm_AvoidHealingTiles")
         return u
 
@@ -397,7 +399,8 @@ class TilePendingBlockableSummonUtility(BaseUtility):
         we = wt.sub("TilePendingBlockableSummon", "EnemySummon")
         wf = wt.sub("TilePendingBlockableSummon", "FriendlySummon")
         return float(sum((we if e.get("owner_is_enemy") else wf)
-                         for e in ps if e.get("type_id") == 1094))
+                         for e in ps
+                         if e.get("type_id") == int(EffectType.CallRipperSwarms_PendingSummon)))
 
 
 class EnvEndBombardmentUtility(BaseUtility):
@@ -408,9 +411,9 @@ class EnvEndBombardmentUtility(BaseUtility):
     def evaluate(self, tile, meta, ctx, wt) -> float:
         ids = _eff_ids(meta, "effect_target_ids")
         w = wt.sub("EnvEndBombardment", "EnvEndBombardment_TileToAvoid")
-        if 1359 in ids:
+        if int(EffectType.EnvEndBombardment_Incoming) in ids:      # 0x54f
             return w
-        if 1360 in ids:
+        if int(EffectType.EnvEndBombardment) in ids:               # 0x550
             return w * 2
         return 0.0
 
@@ -426,11 +429,12 @@ class DespoiledGroundUtility(BaseUtility):
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if (ctx or {}).get("is_spawning"):            # `if (case.unit == null) yield break;`
             return 0.0
-        if 1476 not in _eff_ids(meta, "tile_effect_type_ids"):
+        if int(EffectType.DespoiledGround) not in _eff_ids(meta, "tile_effect_type_ids"):  # 0x5c4
             return 0.0
-        if _has(ctx, "unit_traits", 2026):
+        if _has(ctx, "unit_traits", int(UnitTrait.Chaos)):                        # 2026
             return wt.sub("DespoiledGround", "ChaosAffectedUnit")
-        if _has(ctx, "unit_traits", 26) or _has(ctx, "unit_traits", 1006):
+        if _has(ctx, "unit_traits", int(UnitTrait.Imperial)) \
+                or _has(ctx, "unit_traits", int(UnitTrait.Xenos)):                # 26 / 1006
             return wt.sub("DespoiledGround", "ImperialAndXenosAffectedUnit")
         return 0.0
 
@@ -451,7 +455,8 @@ class SummonDislikeDoorOpeningUtility(BaseUtility):
         if not (door.get("linked") and door.get("closed")):
             return 0.0
         affected = (bool((ctx or {}).get("is_spawning"))          # `case.parent != null`
-                    or bool((ctx or {}).get("unit_is_ai")) or _has(ctx, "unit_traits", 2))
+                    or bool((ctx or {}).get("unit_is_ai"))
+                    or _has(ctx, "unit_traits", int(UnitTrait.Summon)))   # HasTrait(unit, 2)
         if not affected:
             return 0.0
         return wt.sub("SummonDislikeDoorOpening", "Dislike")
@@ -469,7 +474,7 @@ class HeroDoorOpeningUtility(BaseUtility):
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if (ctx or {}).get("is_spawning"):            # `case.unit == null`
             return 0.0
-        if not _has(ctx, "unit_traits", 16):
+        if not _has(ctx, "unit_traits", int(UnitTrait.Hero)):     # HasTrait(case.unit, 0x10)
             return 0.0
         if (ctx or {}).get("player_door_mode", 0) == 0:
             door = (meta or {}).get("door") or {}
@@ -510,7 +515,7 @@ class AttractMechanicalsUtility(BaseUtility):
     UTILITY_TYPE = int(UtilityType.DoctrinaImperatives_AttractMechanicals)  # 58
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        if not _has(ctx, "unit_traits", 5):
+        if not _has(ctx, "unit_traits", int(UnitTrait.Mechanical)):    # trait 5
             return 0.0
         if not (meta or {}).get("attract_mechanicals_neighbor"):
             return 0.0
@@ -564,7 +569,8 @@ class KustomForceFieldUtility(BaseUtility):
     UTILITY_TYPE = int(UtilityType.KustomForceField)  # 21
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        return _ability_count(meta, 1102) * wt.sub("KustomForceField", "AdjacentFriendly")
+        return (_ability_count(meta, int(TriggeredAbilityType.KustomForceField))
+                * wt.sub("KustomForceField", "AdjacentFriendly"))
 
 
 class DefenderOfTheGreaterGoodUtility(BaseUtility):
@@ -576,7 +582,8 @@ class DefenderOfTheGreaterGoodUtility(BaseUtility):
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not (ctx or {}).get("unit_has_ranged_weapon"):
             return 0.0
-        return _ability_count(meta, 1155) * wt.sub("DefenderOfTheGreaterGood", "PerUnitWithAbilityInRange")
+        return (_ability_count(meta, int(TriggeredAbilityType.DefenderOfTheGreaterGood))
+                * wt.sub("DefenderOfTheGreaterGood", "PerUnitWithAbilityInRange"))
 
 
 class SaviorProtocolsUtility(BaseUtility):
@@ -586,9 +593,11 @@ class SaviorProtocolsUtility(BaseUtility):
     UTILITY_TYPE = int(UtilityType.SaviorProtocols)  # 23
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        if (ctx or {}).get("unit_faction") != 9 or _has(ctx, "unit_triggered_abilities", 1120):
+        if (ctx or {}).get("unit_faction") != int(UnitFaction.Tau) \
+                or _has(ctx, "unit_triggered_abilities", int(TriggeredAbilityType.SaviorProtocols)):
             return 0.0
-        return _ability_count(meta, 1120) * wt.sub("SaviorProtocols", "PerUnitWithAbilityInRange")
+        return (_ability_count(meta, int(TriggeredAbilityType.SaviorProtocols))
+                * wt.sub("SaviorProtocols", "PerUnitWithAbilityInRange"))
 
 
 class MoveTowardsUnitUtility(BaseUtility):

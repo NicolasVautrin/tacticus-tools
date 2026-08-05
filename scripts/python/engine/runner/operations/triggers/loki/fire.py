@@ -27,6 +27,8 @@ from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TileEffectTrigger, TriggeredAbility, TriggerEvent, _unit_trait_names
+# #270-r4 : 	ag de DSLBehaviors.Inform, type DECLARE lu dans rida/methods.tsv.
+from .....streams.tag_key import TagKey
 
 # --- Fire (tile-effect DoT, EnvFireTileAbility, Active.Loki) ---------------------------------------
 FIRE_TILE = int(EffectType.Fire)  # 5 — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour).
@@ -241,7 +243,7 @@ def fire_of_absolution_tree(ignite_chance: int, fire_effect_type: int):
                                    nrOfHits = GetNumberConstant(0x2f)=3) ),                     # [2] splash
             Maybe( SetOnFire, AdjacentTiles(target), chance = GetNumberConstant(0x2a)=30 ) )    # [3] ignite
     Port (`op_and`/`Foreach`/`Maybe`) :
-      [1] `Inform(0xb3)` = message natif (notif listeners) -> NO-OP dans le runner (pas de bus de messages ;
+      [1] `Inform(int(TagKey.Target_Id))` = message natif (notif listeners) -> NO-OP dans le runner (pas de bus de messages ;
           l'ancien port ne le modelisait pas et etait live-valide). Present pour le MIRROR STRUCTUREL.
       [2] splash = `AttackWithAttackDamage(Alive(Sub(Sub(AdjacentUnits(TargetTile()),Caster()),Target())),
           "FireOfAbsolution","Flame", ranged, min_key=max_key="dmg", multi=True)`. `Direct(dmg)` = min==max
@@ -268,7 +270,7 @@ def fire_of_absolution_tree(ignite_chance: int, fire_effect_type: int):
         "FireOfAbsolution", "Flame", is_melee=False, min_key="dmg", max_key="dmg", multi=True)
     # ignite : Maybe(SetOnFire, AdjacentTiles(target), 30) -> Foreach-Maybe (1 next_bool/tuile, ordre board).
     ignite = Foreach(AdjacentTiles(tgt), Maybe(ignite_chance, SetOnFire(fire_effect_type, "Fire")))
-    return op_and(op_and(Inform(0xb3), splash), ignite)
+    return op_and(op_and(Inform(int(TagKey.Target_Id)), splash), ignite)
 
 
 def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: int,
@@ -307,7 +309,7 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     if uc is None or "FireOfAbsolution" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):
         return []
     # behaviour = arbre DSL `fire_of_absolution_tree()` (mirror 1:1 de IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour) :
-    # Inform(0xb3) & splash(AttackWithAttackDamage multi, Direct(dmg)) & Foreach(AdjacentTiles, Maybe(30,
+    # Inform(int(TagKey.Target_Id)) & splash(AttackWithAttackDamage multi, Direct(dmg)) & Foreach(AdjacentTiles, Maybe(30,
     # SetOnFire)). Les feuilles emettent les MEMES Operations que l'ancien corps imperatif hybride
     # (`execute_ability_attack` par cible splash + `AddEffectOperation` sur les tuiles ignitees) -> meme
     # mutation, meme ordre (splash PUIS ignite), meme `state.rng` = bit-exact BY CONSTRUCTION. Le gate ci-dessus

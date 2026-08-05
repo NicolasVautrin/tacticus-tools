@@ -34,7 +34,7 @@ class NovaBoostPlaybook(NonComparablePlaybook):
       vide -> le natif n'émet rien) est modélisé ci-dessous."""
     ABILITY_ID = int(ActiveAbilityType.NovaBoost)  # 1192
     MIN_UTILITY = 1.0
-    PRIORITY = native_priority(1192)   # 1000 = AbilityPriority.First (surcharge mesuree, #170)
+    PRIORITY = native_priority(int(ActiveAbilityType.NovaBoost))   # 1000 = AbilityPriority.First (surcharge mesuree, #170)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if not self._has_eligible_target(ctx):

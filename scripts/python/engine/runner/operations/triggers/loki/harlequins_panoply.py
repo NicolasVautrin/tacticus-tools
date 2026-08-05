@@ -120,7 +120,7 @@ Seul le trigger de RETRAIT, qui est bien per-attaque (`On(9)` = clôture), passe
 ## Résidus NOMMÉS (non portés)
 
 * `HarlequinsPanoplyAbility$$CreateBehaviour` branche `Custom` = le **déplacement de 1 hex vers
-  l'attaquant** (`MoveUnit` + `Inform(0xb6)`), armé par `TriggerAbilityDelayed(..., unitSelectionType
+  l'attaquant** (`MoveUnit` + `Inform(int(TagKey.Attacker_Id))`), armé par `TriggerAbilityDelayed(..., unitSelectionType
   = 3)`. Le port ne modélise pas la file différée du natif (slot `IOperationProcessor` 6) et exécuter
   le mouvement inline, au milieu de la résolution d'une attaque, ferait entrer les vecteurs
   `On(PreUnitMove)` / `On(UnitAfterMove)` (overwatch) dans un ordre qui n'est PAS celui du natif.
@@ -150,6 +150,8 @@ from ....abilities.behaviours import (AddEffect, MoveUnit, RemoveEffect, Trigger
 from ....state import State
 from ..base import EffectTrigger, TriggerEvent, TriggeredAbility, _unit_trait_names
 from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
+# #270-r4 : 	ag de DSLBehaviors.Inform, type DECLARE lu dans rida/methods.tsv.
+from .....streams.tag_key import TagKey
 
 HARLEQUINS_PANOPLY_IGNORE_HITS = int(EffectType.HarlequinsPanoply_IgnoreHits)   # 0x4cb = 1227
 _ON_BLOCKED = int(EventTriggerType.UnitBlocked)          # 0x3c = 60
@@ -360,7 +362,7 @@ class HarlequinsPanoplyCustomAbility(TriggeredAbility):
         pc = e.get_component(PositionComponent) if e is not None else None
         before = (pc.col, pc.row) if pc is not None else None
         Seq(
-            Inform(0xb6),
+            Inform(int(TagKey.Attacker_Id)),
             If(Not(IsAdjacent(Caster(), Actor())),
                MoveUnit(Caster(),
                         First(SortByDistance(

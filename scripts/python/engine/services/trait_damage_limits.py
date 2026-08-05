@@ -40,6 +40,8 @@ from __future__ import annotations
 
 import math
 
+from ..entities.stats import StatPart
+
 # Ability/trait ids (hex natifs). #157 : TRAIT_RESILIENT=1009 / TRAIT_IMPERVIOUS=28 (morts) retirés — la logique
 # gate par bool name-based (target_has_resilient/impervious) ; ids dans `entities.traits.UnitTrait` (#146).
 # #156 : le member-cap gate par le bool `profile_has_hits_multiple_members` (= `DamageTrait.HitsMultipleMembers`,
@@ -138,7 +140,7 @@ def group_unit_stat_part(part: int, member_total_hp: int, member_count: int,
     remaining = get_group_unit_remaining_member_count(int(member_total_hp), n, int(current_hp))
     if p == 0:
         return remaining
-    if p == 4:
+    if p == StatPart.MISSING:                     # 4 -> membres MORTS
         return n - remaining
     if p == 1:
         return round(max(0.0, remaining / n) * 100)

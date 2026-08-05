@@ -59,7 +59,7 @@ class NovaShieldPlaybook(NonComparablePlaybook):
     R2 : `DislikeStartingTilesUtility` no-op (poids BC non confirmé, arene-inagreable)."""
     ABILITY_ID = int(ActiveAbilityType.NovaShield)  # 1194
     MIN_UTILITY = 1.0
-    PRIORITY = native_priority(1194)   # -1000 = AbilityPriority.Last (surcharge mesuree, #170)
+    PRIORITY = native_priority(int(ActiveAbilityType.NovaShield))   # -1000 = AbilityPriority.Last (surcharge mesuree, #170)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         from_here, union = eligible_target_tiles(ctx, self.ABILITY_ID)

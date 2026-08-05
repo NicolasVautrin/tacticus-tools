@@ -14,6 +14,11 @@ from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive
                          _effect_field, resolve_unit, _tile_enum_rank, _occupants_by_tile,
                          _origin_tiles, _main_tile)
 from ._shared import _entity_pos, _tile_positions
+# #270-r4 : les deux litteraux de ce module DESIGNENT, et leur enum est LU au decompile --
+# `UnitsWithTrait(source, 0x10)` (le parametre `trait` de `DSLFactory$$UnitsWithTrait`) et
+# `has_unit_flag(u, 0xe)` (le parametre `flag` d'`UnitExtensions$$HasFlag`).
+from ..traits.unit_trait import UnitTrait
+from ..unit_flag import UnitFlag
 
 
 class SurroundingUnits(TargetsSelector):
@@ -525,7 +530,7 @@ def hero_units(source: TargetsSelector) -> TargetsSelector:
     (fonction de composition), pas une classe inventee — `0x10` = `UnitTrait.Hero` (16). Consommateur porte :
     `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$GetNonCharacterFriendsSelector`
     (`Friends(...) op_Subtraction HeroUnits(...)` = les amis NON-Character)."""
-    return UnitsWithTrait(source, 0x10)
+    return UnitsWithTrait(source, int(UnitTrait.Hero))          # 0x10
 
 
 class AllDeadUnits(TargetsSelector):
@@ -595,7 +600,7 @@ class AllDeadOrResurrectedUnits(TargetsSelector):
         for u in ctx.units:
             if u.get("id") in seen:
                 continue
-            if hf(u, 0xe):                                        # UnitFlag 0xe = ressuscite
+            if hf(u, int(UnitFlag.Resurrected)):                   # UnitFlag 0xe = ressuscite
                 out.append(u)
                 seen.add(u.get("id"))
         return out

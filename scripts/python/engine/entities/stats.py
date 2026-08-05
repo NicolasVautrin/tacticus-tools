@@ -179,15 +179,16 @@ class StatComponent:
         if p == 3:
             return self.initial
         # #270-r1-r1 : le tuple porte des `StatPart` (mirror STRICT, verbatim du build) --
-        # `5 = Modification`, `9 = MultiplierModification`. Les comparaisons scalaires voisines
-        # (`p == 3`, `p == 7`) relevent du role COMPARAISON, hors de ce lot.
+        # `5 = Modification`, `9 = MultiplierModification`. #270-r4 : les deux comparaisons
+        # voisines (role COMPARAISON) sont nommees de meme -- `p` EST un `StatPart`, le nom
+        # du parametre le dit et les branches deja nommees le confirment.
         if p in (StatPart.MODIFICATION, StatPart.MULTIPLIER_MODIFICATION):
             if source is not None:
                 return self.modification.get_modification_from_entity(source)
             return self.modification.total
-        if p == 7:
+        if p == StatPart.OVERRIDE:                 # 7
             return int(self.override.override or 0)
-        if p == 4:
+        if p == StatPart.MISSING:                  # 4 -- pas de « manquant » sur un stat simple
             return 0
         raise ValueError(f"StatPart {p} non implemente (StatComponent)")
 
@@ -256,14 +257,14 @@ class FillUpStatComponent:
             return self.maximum                     # get_CurrentMaximumValue (base + mod clampé)
         if p == 3:
             return self.maximum                     # champ base +0x10 (#60 : ex-mapping modTotal erroné)
-        if p == 4:
+        if p == StatPart.MISSING:                  # 4
             return self.maximum - self.current
         # #270-r1-r1 : meme tuple de `StatPart` que `StatComponent.get_stat_part`.
         if p in (StatPart.MODIFICATION, StatPart.MULTIPLIER_MODIFICATION):
             if source is not None:
                 return self.modification.get_modification_from_entity(source)
             return self.modification.total
-        if p == 7:
+        if p == StatPart.OVERRIDE:                 # 7
             return int(self.override.override or 0)
         raise ValueError(f"StatPart {p} non implemente (FillUpStatComponent)")
 

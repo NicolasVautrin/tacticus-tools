@@ -64,6 +64,10 @@ from .behaviours import (entities_from_state, AddEffect, Heal, healable_heal_typ
                          AttackWithAttackDamage, PushUnit, Spawn, RemoveMachine, AddTrait,
                          AddTriggeredAbility, first_triggered_ability_of)
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
+# #270-r4 : 	ag de DSLBehaviors.Inform, type DECLARE lu dans rida/methods.tsv.
+from ...streams.tag_key import TagKey
+# #270-r4 : direction de BattleQuery.GetTilesInTriangleShape (...Utils.Hex.Corner).
+from ...hex_corner import Corner
 
 if TYPE_CHECKING:
     from ..state import State
@@ -461,8 +465,9 @@ def macro_plasma_incinerator_tree(target_tile_id: int, duration_turns: int):
     non-Environment) x 1` = **2** dans nos runners (MESURE : `remaining = 2` live sur les deux effets)
     -> passee en `duration_turns` (deja convertie par la classe d'ability via `convert_rounds_to_turns`)."""
     tgt = FixedTileIds([target_tile_id])
+    # #270-r4 : direction de GetTilesInTriangleShape est DECLARE ...Utils.Hex.Corner.
     direction = FormulaIf(IsPositionMachineForCurrentPlayer(MACHINE_POSITION_BOTTOM),
-                          Const(1), Const(4))
+                          Const(int(Corner.NorthEast)), Const(int(Corner.SouthWest)))
     tiles = Walkable(TilesOnSameElevation(tgt, TilesInTriangleShape(tgt, direction), 1))
     return op_and(
         AddEffect(MACRO_PLASMA_TILE, EffectType.MacroPlasmaIncinerator_Tile.name, tiles,
@@ -724,7 +729,7 @@ def tactical_precision_tree(crit_amount: int, caster_id: int):
         min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2", multi=True,
         ability_type=int(ActiveAbilityType.TacticalPrecision))
     branch_charge = op_and(op_and(crit_add, attack_charge), crit_revert)
-    return AtomicGroup(op_and(Inform(0xc0),
+    return AtomicGroup(op_and(Inform(int(TagKey.Is_Charging)),
                               IfBehaviour(charging, branch_charge, attack_no_charge)))
 
 

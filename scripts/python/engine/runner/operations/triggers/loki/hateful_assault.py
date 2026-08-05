@@ -113,7 +113,7 @@ HATEFUL_ASSAULT = int(TriggeredAbilityType.HatefulAssault)           # 0x40e = 1
 ALREADY_ATTACKED = int(EffectType.HatefulAssault_AlreadyAttacked)    # 0x497 = 1175
 # `Nullable(DamageProfileType.Power = 0xe)` -- le 4e argument d'`AttackWithAttackDamage`. Relu au
 # decompile, PAS deduit du nom de l'ability (l'i2 « Power Damage » n'est qu'une confirmation).
-DAMAGE_PROFILE = DamageProfileType(14).name                          # "Power"
+DAMAGE_PROFILE = DamageProfileType.Power.name                          # "Power"
 
 
 def hateful_assault_tree(mover_id: int):

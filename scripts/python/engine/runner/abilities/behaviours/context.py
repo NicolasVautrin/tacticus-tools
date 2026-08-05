@@ -205,7 +205,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         # IdunBattle.Entities.UnitExtensions$$GetStat+0x859 : GroupUnitComponent fill-up {+0x10=nrOfMembers, +0x18=restants}, PAS un
         # StatComponent — `IdunBattle.Entities.UnitExtensions$$GetStatComponent` n'a pas de case 0x14). Offline : parts derivees
         # de l'etat PV via `group_unit_stat_part` (lu par `SwarmAbility` StatAmount(Self,20,3/4)).
-        from ....entities.stats import StatType as _ST
+        from ....entities.stats import StatPart as _SP, StatType as _ST
         # HEALTH = l'AUTRE stat « fill-up » du natif (comme NUMBER_OF_MEMBERS ci-dessous) :
         # `IdunBattle.Entities.UnitExtensions$$GetStat` route la PV sur un `FillUpStatComponent`
         # (+0x10 = maximum courant, +0x18 = valeur courante) et delegue a
@@ -225,7 +225,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                     return mx
                 if p == 0:
                     return cur
-                if p == 4:
+                if p == _SP.MISSING:                # 4
                     return max(0, mx - cur)
                 if p == 1:
                     return round(max(0.0, cur / mx) * 100) if mx else 0

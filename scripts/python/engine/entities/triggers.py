@@ -20,6 +20,9 @@ from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, Const, 
 # dans la fenetre d'arret du jeu. Le changement est value-preserving par construction (memes 8
 # valeurs, meme lecture `UNIT_FACTION_NAMES[value]`) -- a re-jouer tel quel apres migration de build.
 from .unit_faction import UNIT_FACTION_NAMES        # noqa: F401 (re-export)
+# #270-r4 : le `sourceFlags` des deux triggers d'effet. Type DECLARE du dernier parametre de
+# `IdunBattleLogic.Entities.DSLTriggers.HasEffect`, LU dans `frida/methods.tsv`.
+from .effect_target_type import EffectTargetType
 
 
 class TriggerAnd(AbilityTrigger):
@@ -527,7 +530,7 @@ class HasEffect(AbilityTrigger):
         self.active_only = bool(active_only)
 
     def should_trigger(self, ctx):
-        he = ctx.has_effect or (lambda u, et, sf=6, ml=0, ao=True: False)
+        he = ctx.has_effect or (lambda u, et, sf=EffectTargetType.Both, ml=0, ao=True: False)
         the = getattr(ctx, "tile_has_effect", None)
         # Meme normalisation que `_units_of` (dict -> [dict], None -> [], liste telle quelle),
         # ETENDUE au domaine TUILE : l'iteration de #90 la subsume, on y injecte `active_only`.
@@ -535,7 +538,8 @@ class HasEffect(AbilityTrigger):
         items = [] if raw is None else ([raw] if isinstance(raw, (dict, int, tuple)) else list(raw))
         for it in items:
             if isinstance(it, dict):
-                if he(it, self.effect_type, 6, self.min_level, self.active_only):
+                if he(it, self.effect_type, int(EffectTargetType.Both),   # sourceFlags 6 = 2|4
+                      self.min_level, self.active_only):
                     return True
             elif isinstance(it, int) and not isinstance(it, bool):
                 if the is not None and the(int(it), int(self.effect_type)):
@@ -550,9 +554,10 @@ class HasAnyEffect(AbilityTrigger):
         self.unit, self.effect_types = unit, effect_types
 
     def should_trigger(self, ctx):
-        he = ctx.has_effect or (lambda u, et, sf=6, ml=0: False)
+        he = ctx.has_effect or (lambda u, et, sf=EffectTargetType.Both, ml=0: False)
         us = _units_of(self.unit, ctx)
-        return any(he(u, et, 6, 0) for u in us for et in self.effect_types)
+        return any(he(u, et, int(EffectTargetType.Both), 0)      # sourceFlags 6 = 2|4
+                   for u in us for et in self.effect_types)
 
 
 class HasFaction(AbilityTrigger):
@@ -1081,10 +1086,21 @@ class IsRangedAttack(AbilityTrigger):
 
 class IsNormalAttack(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` → `IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` : l'ability courante == ActiveAbilityType
-    normal (0x3f5 = 1013, `op_Implicit` lu). `ctx.attack_ability_type == 1013` (nouveau slot ; défaut
-    None → False). ⚠ le "OR ..." résiduel + la valeur 1013-vs-id-concret = à confirmer à l'agreement."""
+    normal (0x3f5 = 1013, `op_Implicit` lu). `ctx.attack_ability_type == NORMAL_ATTACK_KIND`
+    (nouveau slot ; défaut None → False). ⚠ le "OR ..." résiduel + la valeur 1013-vs-id-concret =
+    à confirmer à l'agreement.
+
+    #270-r4 -- POURQUOI `NORMAL_ATTACK_KIND` ET NON `ActiveAbilityType.PrecisionShot_Attack`.
+    L'ordinal 1013 est bien un membre valide d'`ActiveAbilityType` (`PrecisionShot_Attack`), et
+    l'y attribuer aurait ete SILENCIEUSEMENT faux : le decompile nomme ce littéral
+    `AbilityOrEffect 0x3f5`, argument du `DirectAbilitySelector` de la 2e branche
+    d'`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` -- un marqueur de KIND, pas l'ability
+    de PrecisionShot. Le build ne publie aucun enum `AbilityOrEffect` ; le foyer nomme du depot est
+    `runner/abilities/attack_type.NORMAL_ATTACK_KIND` (= `lord_of_tempests.SMITE_KIND`). Import
+    LOCAL : `entities/` ne doit pas dependre de `runner/` au chargement."""
     def should_trigger(self, ctx):
-        return ctx.attack_ability_type == 1013
+        from ..runner.abilities.attack_type import NORMAL_ATTACK_KIND
+        return ctx.attack_ability_type == NORMAL_ATTACK_KIND
 
 
 class IsAdjacent(AbilityTrigger):
