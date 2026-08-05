@@ -2223,3 +2223,27 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   et n'apparaît dans aucun des trois fichiers) ; `probe_366bcp` (`PATCH_CALLS` non gardée) ;
   `probe_319` (`_CASES`, 8 mutations manuelles qui ne se dérivent pas des étapes de `probe_273`) ;
   `probe_273` (`_OUTPUT_ROOTS` non gardée) ; `probe_366camo` (`POSE_VECTOR` sans garde de fraîcheur).
+
+- **#477-r1 : le contenu REEL de l'output stream natif n'a jamais ete observe.** `[opus]`
+  `Runner.ReplayValidator` compare `Replay.GetWholeBattleOutputStream` caractere par caractere : les
+  devs du jeu tiennent ce flux pour la signature complete d'une bataille. Il est DEJA disponible sur
+  nos runners (`IdunRunner.Initialize` appelle toujours `SetupReplayRecorder`), et le capteur est
+  livre (`frida/hooks/features/replay-output-stream.ts`, RPC `replayOutputStream`). Il n'a JAMAIS
+  ete execute -- il attend une fenetre de reinject. Toute la valeur de la piste depend de la
+  granularite reelle du texte, qui n'est PAS etablie. Premiere mesure : `replayOutputStreamStatus()`
+  puis `replayOutputStream({runnerId})` sur un runner `rl_duel build`, et LIRE le texte.
+  cf. `docs/rl/case-477-harnais-de-test-natif.md`.
+
+- **#477-r5 : placer une unite sur une tuile exacte via `BattleConfiguration+0xc0`.** `[opus]`
+  Les « starting messages » (`List<IInputMessage>`) sont consommes par
+  `IdunBattle.Operations.SetupGameOperation$$ExecuteStartingMessages` : un `AddUnitMessage` y fait
+  naitre l'unite par le pipeline d'operations complet, a une position choisie, sans dependre du
+  `SpawnPointSetConfiguration` ni du deployment HUD. Repond au besoin recurrent « deplacer les unites
+  pour forcer la configuration ». Prerequis : le champ est ABSENT du seed BC JSON -- verifier qu'il
+  survit a `buildNormalizedBC` avant de compter dessus.
+
+- **#477-r6 : `UnitModifiers` (`BattleConfiguration+0x50`), le pendant PROPRE de `--unit-stat`.** `[opus]`
+  Consomme par `SetupGameOperation$$ApplyModifiers`, qui dispatche vers `ModifyUnitAttack` /
+  `ModifyUnitHp` / `ModifyUnitFixedArmor` / ... -- lesquels produisent de vrais
+  `IdunBattleLogic.Battle.StatModifier`, donc visibles de `statModSources`. Notre patch actuel ecrit
+  un scalaire brut. Le seed courant l'a a `{}`.

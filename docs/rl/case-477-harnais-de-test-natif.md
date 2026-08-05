@@ -91,7 +91,85 @@ comme atteignabilité.
 
 ---
 
-## 2. L'absence de machinerie d'assertion — confirmée, et sur quatre classes
+## 2. L'API de montage — deux étages, dont UN SEUL est le chemin de prod
+
+### 2a. Étage CONFIG — fidèle, et c'est déjà notre étage
+
+`SetupBattleConfig`, `AddPredefinedUnits`, `GetAddUnitMessageForPredefinedUnit`,
+`GetPlaceholderConfigForSummon`, `AddMissingStatsToUnitConfig`, `AddAbilityConfiguration`,
+`AddOrUpdateAbilityConfiguration`, `AddUtilities`, `MakeWeaponProfile`, `GetDamageProfile`
+écrivent un `IdunBattle.Configuration.BattleConfiguration` **en mémoire, avant que la bataille
+existe**.
+
+`AbilityAnimationTest$$SetupBattleConfig` part de `idun.Tests.Helpers.SampleBattle$$Get`, mute des
+champs du BC, puis appelle une fonction de **prod** :
+`Idun.Source.IdunBattle.View.BattleConfigBuilder$$AddDamageProfiles`. Ensuite
+`AbilityAnimationTest$$MainViewInitializationSetup` construit un
+`IdunBattle.ViewLogic.BattleSource.TestSceneBattleModeSource`, qui implémente **`IGameModeSource`** —
+la même interface que `CampaignGameModeSource` / `PvpGameModeSource`.
+
+⇒ **le harnais ne fabrique pas une bataille parallèle : il se substitue au fournisseur de BC, et tout
+le pipeline aval est celui de prod.**
+
+**Aucun appel direct à `IdunBattle.Entities.Factories.UnitFactory`** depuis le harnais : le chaînage
+vers la fabrique se fait en aval, par le conduit de prod.
+
+Réponse à la question posée : ces méthodes entrent **au même étage que nous**. Nous patchons
+`BattleConfiguration.Units[]`, le harnais écrit `bc+0x80` — même objet, même moment (avant
+`IdunRunner.Initialize`). **Il n'y a rien de plus fidèle à gagner là** ; le harnais fait même *moins*
+que nous (il re-clampe Health ≥ 50 / Damage ≥ 5 à la main).
+
+### 2b. Étage ENTITÉ — à NE PAS copier
+
+`SetUnitStat` / `SetUnitArmor` / `SetUnitAttack` / `SetUnitMaxHealth` / `SetUnitHealth`,
+`AddTraitToUnit`, `RemoveTraitFromUnit` écrivent **directement dans les composants ECS d'une entité
+vivante**, en court-circuitant les `Operation` : `ArmorComponent+0x18`, `AttackComponent+0x48`,
+composant santé `+0x10`/`+0x18`, `Add/Remove` sur la collection de traits en `+0x40`.
+
+Là où la prod passe par `IdunBattle.Operations.SetupGameOperation$$ModifyUnitAttack` /
+`ModifyUnitHp` / `ModifyUnitFixedArmor` … — qui **retournent de vrais
+`IdunBattleLogic.Battle.StatModifier`** — le harnais écrit le scalaire brut.
+
+**Preuve qu'aucun event n'est émis** : `SetUnitArmor`, `SetUnitAttack` et `SetUnitHealth` doivent
+**rafraîchir la vue à la main** (`IdunBattle.View.Game.IdunGameViews$$GetUnitView` puis
+`idun.Game.Board.AUnitView$$UpdateStats`). Si le stream émettait, ce rattrapage serait inutile.
+(`SetUnitMaxHealth` ne le fait même pas — divergence assumée dans le natif.)
+
+⚠ Reproduire ces mutateurs côté moteur créerait exactement la divergence silencieuse qu'on chasse :
+stat écrite **sans `StatModifier`**, donc invisible de `statModSources`, et **sans event de stream**.
+`SetUnitStat` ne couvre d'ailleurs que 2 `StatType` (0 → attack, 5 → health) et **lève** sur tout
+autre.
+
+### 2c. Deux leviers que nous n'exploitons PAS, et qui sont plus fidèles
+
+1. **`BattleConfiguration+0xc0` — les « starting messages » (`List<IInputMessage>`).**
+   `AddPredefinedUnits` n'applique pas ses `AddUnitMessage` : il les **empile dans ce champ**,
+   consommé au setup par `IdunBattle.Operations.SetupGameOperation$$ExecuteStartingMessages` →
+   `Core.Services.IOperationProcessor`. Poser un `AddUnitMessage(unitId, playerId, column, row)` fait
+   donc naître l'unité **par le pipeline d'opérations complet, à une position exacte choisie**, sans
+   dépendre du `SpawnPointSetConfiguration` ni du deployment HUD — depuis un BC patché sur disque.
+   C'est une réponse directe au besoin « placer une unité précise sur une tuile précise ».
+   ⚠ Le champ est **absent du seed BC JSON** : vérifier qu'il survit à notre chaîne de
+   sérialisation/normalisation avant de compter dessus.
+   ⚠ Le nom `GetAddUnitMessageForPredefinedUnit` dit vrai sur le **TYPE**, faux sur le **MOMENT** :
+   ce n'est pas envoyé à une bataille en cours.
+
+2. **`BattleConfiguration+0x50` — `UnitModifiers`.** Le point d'entrée **natif** de modification de
+   stats avant match : `SetupGameOperation$$ApplyModifiers` dispatche vers les `ModifyUnit*` qui
+   produisent de vrais `StatModifier` (avec `CalculatePercentage` pour les modifs en %). C'est le
+   pendant PROPRE de `SetUnitStat`, et il vit dans le BC — donc dans notre voie de patch. Le seed
+   courant l'a à `{}`.
+
+⚠ **Indéterminé nommé** : le lien `<Visit>g__AddUnit|0` → `AddUnitOperation$$Execute` →
+`UnitFactory$$Build` n'est **pas lu** (`UnitFactory$$Build` n'a aucune xref d'appel — invoqué par
+vtable). Ce qui est prouvé : `Build` appelle `AddConfiguredAbilities`, et le harnais utilise les
+**mêmes classes de message que la prod** (`IdunMainView$$AddUnitsFromPlaceholdersAndRunnerStartMatch`
+construit littéralement les mêmes). Seule différence mesurée : la prod pose `AddUnitMessage+0x28 = 5`,
+le harnais `1` — champ non lu par `InputMessageProcessor$$Visit`, sémantique non tranchée.
+
+---
+
+## 3. L'absence de machinerie d'assertion — confirmée, et sur quatre classes
 
 Le brief demandait si `TestVisualBattleQuery`, `TestBattleStatisticQuery`, `TestVisualQuery`,
 `AutomatedTestSuite`/`AutomatedTest`/`AutomatedTestStep` portent des valeurs attendues.
@@ -113,7 +191,7 @@ NUnit qui n'entre pas dans un player build. **Résultat négatif, net.**
 
 ---
 
-## 3. L'ORACLE — trouvé, mais ailleurs : `Runner.ReplayValidator`
+## 4. L'ORACLE — trouvé, mais ailleurs : `Runner.ReplayValidator`
 
 Le chemin y mène depuis les xrefs de `ReplaySerializer$$DeserializeReplay`.
 
@@ -153,7 +231,7 @@ qu'est la valeur.
 
 ---
 
-## 4. Ce qui est réellement actionnable : l'output stream
+## 5. Ce qui est réellement actionnable : l'output stream
 
 ### Ce que contient le flux
 
@@ -205,7 +283,7 @@ piste dépend de sa granularité réelle, qui n'est PAS établie ici.
 
 ---
 
-## 5. Réfutation d'une prémisse du brief
+## 6. Réfutation d'une prémisse du brief
 
 > « Le `MoveNext` de chaque coroutine `<RunAbilityTestInternal>d__N` est absent des DEUX tables. »
 
@@ -218,7 +296,23 @@ est bien la **fabrique de coroutine**, pas le corps — le corps est dans le `Mo
 
 ---
 
-## 6. Ce que je n'ai PAS regardé
+## 7. Une tentative qui a ÉCHOUÉ — à ne pas refaire à l'identique
+
+Pour dériver le format des lignes du flux **sans** attendre la fenêtre, j'ai essayé de lire les
+littéraux de `Runner.Cheats.*::get_OutputStreamTextPattern`.
+
+- **Par Ghidra** : impossible. Ces getters chargent leur chaîne depuis un **slot de cache de string
+  literal** résolu au runtime ; `include_strings` rend `[]`. Le décompilé ne montre que le slot.
+- **Par `global-metadata.dat`** : parsing tenté avec le layout d'en-tête `stringLiteralOffset` /
+  `stringLiteralDataOffset` documenté pour v29+. **Il ne tient pas** sur ce build —
+  `metadata version = 39`, et sur 15 186 entrées déclarées seulement **396** se décodent en UTF-8
+  valide, les « résultats » étant des blobs qui se chevauchent (donc index/longueur faux). Le layout
+  de l'en-tête a changé et je ne l'ai pas re-dérivé.
+
+⇒ Le format des lignes reste **non établi**. C'est le résidu `#477-r2`, et il faut commencer par
+re-dériver le header v39 (ou passer par un dumper qui le connaît), pas par re-tenter ce parsing.
+
+## 8. Ce que je n'ai PAS regardé
 
 - **Le contenu réel d'un output stream.** Établi par RE (producteur + consommateurs), jamais
   observé. C'est le trou principal, et il est bloqué sur la fenêtre de reinject.
@@ -236,7 +330,7 @@ est bien la **fabrique de coroutine**, pas le corps — le corps est dans le `Mo
   façon : `Runner.AutomaticBattleRunner` est une classe `System.Object` ordinaire (48 o), donc
   instanciable par appel IL2CPP direct sans passer par l'UI.
 
-## 7. Ce qui existait déjà et que je n'ai pas redécouvert
+## 9. Ce qui existait déjà et que je n'ai pas redécouvert
 
 `docs/ai/game-architecture.md` et `docs/ai/ai-engine-audit.md` décrivent **déjà**
 `AutomaticBattleRunner` et la recette pour l'instancier (« voler `_logger` et `_timeSource` du runner
@@ -254,3 +348,16 @@ armée** ; ainsi que tout le mécanisme `ReplayValidator` / output stream / RNG 
   ability, écrite par les devs.
 - **#477-r4** — Armer `validate: true` sur un `AutomaticBattleRunner` instancié par nos soins, et
   voir si `ValidationResult.IsValid` détecte une divergence sur une bataille montée par nous.
+- **#477-r5** — **Levier de montage** : exploiter `BattleConfiguration+0xc0` (starting messages) pour
+  placer une unité sur une tuile exacte via le pipeline d'opérations, au lieu de subir la géométrie
+  de spawn. Prérequis : vérifier que le champ survit à `buildNormalizedBC` et à notre chaîne de
+  sérialisation (il est **absent du seed BC JSON**).
+- **#477-r6** — **Levier de stats** : utiliser `BattleConfiguration+0x50` (`UnitModifiers`,
+  consommé par `SetupGameOperation$$ApplyModifiers`) — le pendant PROPRE de `--unit-stat`, qui
+  produit de vrais `StatModifier` visibles de `statModSources`, au lieu d'un scalaire patché.
+- **#477-r7** — Trancher `<Visit>g__AddUnit|0` → `AddUnitOperation$$Execute` →
+  `UnitFactory$$Build` (invoqué par vtable, aucune xref d'appel).
+- **#477-r8** — **Outillage** : une table `fields.tsv` (`classe` → `offset` → `nom de champ`) dans
+  `data/symbols/<build>/frida/` supprimerait la triangulation d'offsets qui a coûté le plus de temps
+  ici, et trancherait à elle seule plusieurs indéterminés ci-dessus. À considérer si le pipeline de
+  dump peut l'émettre.
