@@ -1,10 +1,22 @@
 <#
 .SYNOPSIS
     LA BANQUE DE CLIQUETS de tacticus-tools -- source UNIQUE, versionnee et EXECUTABLE.
+    ⛔ N'EST PLUS UNE OBLIGATION AVANT PR depuis le 2026-08-05 (commit d82ec527). NE LA JOUE PAS
+    par reflexe : elle reste lancable A LA DEMANDE (`-Only <id>`, `-List`), et c'est tout.
 
 .DESCRIPTION
-    Un CLIQUET est un garde-fou offline, deterministe, a rejouer AVANT d'ouvrir une PR. Il
-    n'atteste pas une tranche : il atteste que l'ARBRE n'a pas re-creuse un trou deja bouche.
+    Un CLIQUET est un garde-fou offline et deterministe : il n'atteste pas une tranche, il atteste
+    que l'ARBRE n'a pas re-creuse un trou deja bouche.
+
+    POURQUOI ELLE N'EST PLUS OBLIGATOIRE, mesure a l'appui (2026-08-05, sur les 67 runs de
+    `logs/ratchets-bg`) : 2 437 lignes de cliquet, 5 non nulles -- 0,21 %. Deux de ces cinq sont des
+    FAUX ROUGES documentes (#471 montage, #473 runner concurrent) et trois de plus ont ete
+    rapportes le meme jour par des agents (`git add -A` a 120 s sous parallelisme 16, host
+    injoignable), tous verts au rejeu seul. Les 32 cliquets de GISEMENT n'ont pas tire une seule
+    fois ; seuls `probe_457` / `probe_462` tirent, et ce sont des lanceurs de suite de tests --
+    `probe_457` pesant 67 % du cout, pour ~891 s par agent et par PR.
+    Les prises citees plus bas restent VRAIES, mais ce sont des prises de FONDATION (trouvees en
+    ECRIVANT le cliquet), pas de GARDE. Elles justifient de l'avoir ecrit, pas de le rejouer.
 
     POURQUOI CE FICHIER EXISTE (#430). La liste des cliquets n'existait nulle part comme objet :
     elle vivait en PROSE dans `CLAUDE.md`, dans un `runpar.ps1` NON VERSIONNE du scratchpad de
