@@ -2714,14 +2714,26 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   l'ability). ⚠ **CE N'EST PAS UNE FACE STREAM** : contrairement aux quatre crans #477-r18..r21,
   ce residu vit dans l'ETAT ECS -- le decouper comme un port d'emission serait une erreur de
   cadrage. C'est le plus gros des trois residus de #477-r21.
-  cf. `docs/rl/case-477r21-arbre-activation.md` sec. 1 et 5.
+  ⚠ **IL A GROSSI DE #477-r21-r3, ET C'EST UNE MESURE** : il porte desormais aussi la **SEQUENCE
+  DE CREATION** des entites d'effet -- l'ordre des appels a `AddEffectOperation$$Execute`, **y
+  compris ceux qui n'ecrivent AUCUNE ligne** (2 / 4 / 5 par scenario, type `Effect` confirme par
+  introspection ECS). L'allocateur, lui, est porte et SUFFISANT (63/63, 67/67, 22/22) : rendre
+  cette sequence rend du meme coup TOUS les identifiants d'effet. La condition d'allocation est
+  lue et nommee -- quatre sorties anticipees d'`Execute`, dont
+  `AddEffectOperation$$UpdateExistingEffect`, gardee par `StaticBattleRules.Effect$$IsUpdatable`.
+  cf. `docs/rl/case-477r21-arbre-activation.md` sec. 1 et 5, et
+  `docs/rl/case-477r21r3-allocation-entites-effet.md` sec. 4.
 
-- **#477-r21-r3 : l'ALLOCATION ECS des entites d'EFFET.** `[opus]`
-  33 identifiants distincts sur `C1_02`, 35 sur `MC1_67`, 12 sur le roster 2v2 (valeurs 69..113
-  sur le flux temoin). `#477-r16` n'a porte que le versant unites / tuiles. C'est le verrou qui
-  rend un `Effect_Refresh` non AUTONOME **meme quand tout son chemin est emis** : le `Entity=` du
-  groupe et les `Tag=Effect_Id` de ses quatre formes d'action en dependent tous.
-  cf. `docs/rl/case-477r21-arbre-activation.md` sec. 4 et 5.
+- ~~**#477-r21-r3 : l'ALLOCATION ECS des entites d'EFFET.**~~ **LIVRE** -- la REGLE est portee
+  (`engine/streams/entity_allocator.py`, mirror de `MatchComponent$$NextId` et de ses neuf sites)
+  et confrontee sur 3 scenarios : deploiement **50 / 78 / 72** identifiants derives EXACTS, ancre
+  du deroule **59 / 87 / 81** EXACTE, et **63/63, 67/67, 22/22** allocations du deroule reproduites
+  une fois la sequence de creation donnee. **Le verrou n'etait donc pas la regle** : le flux
+  n'ordonne que les APPARITIONS (4 / 3 / 0 inversions) et **TAIT des creations entieres** (2 / 4 / 5
+  entites, toutes de type `Effect` par introspection ECS). Alimente par le seul ordre du flux,
+  l'allocateur ne rend juste que **7 / 7 / 4** identifiants sur 61 / 63 / 17. Ce qui manque est la
+  SEQUENCE DE CREATION -- **c'est #477-r21-r2**, pas un residu de plus.
+  cf. `docs/rl/case-477r21r3-allocation-entites-effet.md`.
 
 - **#477-r22-r1 : le CONTENU du `Group=StartTurn` hors des formes portees.** `[opus]`
   DEUX motifs, comptes sur tout le flux : les `Action=ChangeStats` + `Tag=UnitStats_ActionsAvailable`

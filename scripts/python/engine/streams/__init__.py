@@ -21,11 +21,14 @@ MORT : 3 methodes definies, 0 appel, 0 sous-classe d'evenement, instancie six fo
 le parametre `execute(state, bus)` (mesure #477-r15). Il n'est PAS supprime ici -- 25 modules
 d'operation l'importent -- mais l'emission passe desormais par `StreamDispatcher`.
 
-CE QU'IL NE FAIT PAS. Il ne fabrique aucun identifiant d'entite ECS : l'ordre d'allocation natif
-(tuiles, puis unites par pas de 2, puis effets) n'est pas retro-ingenierie -- c'est `#477-r16`.
-Tout emetteur recoit donc ses ids, il ne les invente pas. Meme regle pour les STATS et les ETATS
-D'ABILITY de la tranche D (`unit_extensions`) : le port les recoit resolus, il ne simule aucun
-composant ECS.
+CE QU'IL NE FAIT PAS. Il ne simule aucun composant ECS : les STATS et les ETATS D'ABILITY de la
+tranche D (`unit_extensions`) sont recus resolus.
+
+LES IDENTIFIANTS D'ENTITE, EUX, SE DERIVENT (`entity_allocator`, `#477-r21-r3`) -- ce module
+n'est PAS dans cette liste. `MatchComponent$$NextId` est porte, ainsi que la sequence de
+`SetupGameOperation$$Execute` : `game_setup.assign_entity_ids` produit tous les ids du
+deploiement et rend le compteur pour le deroule. Ce qui reste hors de portee n'est plus la
+REGLE mais la SEQUENCE des creations d'effet -- `#477-r21-r2`.
 """
 from __future__ import annotations
 
