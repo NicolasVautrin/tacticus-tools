@@ -49,10 +49,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_inputs                                          # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 PKG = ROOT / "frida" / "package.json"
 ENTRY = ROOT / "frida" / "hooks" / "main.ts"
-BUNDLE = ROOT / "frida" / "dist" / "hooks.js"
+
+#: Le bundle est GITIGNORE et construit par worktree : depuis le worktree d'un agent, il n'existe
+#: pas, et le lire a la racine rendrait « ABSENT » alors que l'arbre principal en porte un. C'est
+#: `host_inputs` qui resout ce cas -- et `probe_273` etape 0c l'EXIGE (rouge sinon). Tri-etat
+#: preserve : `resolve()` rend un `path is None` quand rien n'existe, jamais un zero fabrique.
+BUNDLE_REL = "frida/dist/hooks.js"
 
 # --- etape 1 : sortie nommee sur la ligne de commande -------------------------------------------
 OUT_RE = re.compile(r"(?:-o|--outfile)[=\s]+(\S+)")
@@ -279,15 +287,18 @@ def etape3_temoin() -> None:
         print("[480] ETAPE 3 -- TEMOIN : entree absente -- NON MESURE")
         return
     atteints = closure(ENTRY)
-    if not BUNDLE.is_file():
-        print("[480] ETAPE 3 -- TEMOIN : %d fichiers atteignables ; bundle %s ABSENT -- "
-              "compare NON MESURE (lancer `npm run build:hooks`)" % (len(atteints), rel(BUNDLE)))
+    res = host_inputs.resolve(BUNDLE_REL)
+    if res.path is None:
+        print("[480] ETAPE 3 -- TEMOIN : %d fichiers atteignables ; bundle %s ABSENT des %d "
+              "emplacement(s) cherche(s) -- compare NON MESURE (construire le bundle)"
+              % (len(atteints), BUNDLE_REL, len(res.candidates)))
         return
-    txt = BUNDLE.read_text(encoding="utf-8", errors="replace")
+    bundle = res.path
+    txt = bundle.read_text(encoding="utf-8", errors="replace")
     marques = set(re.findall(r"//\s*((?:hooks|il2cpp)[\w/.-]*\.ts)", txt))
     print("[480] ETAPE 3 -- TEMOIN : %d fichiers atteignables depuis main.ts ; "
-          "%d modules marques dans le bundle (%d o)"
-          % (len(atteints), len(marques), BUNDLE.stat().st_size))
+          "%d modules marques dans le bundle (%d o, lu dans %s)"
+          % (len(atteints), len(marques), bundle.stat().st_size, res.origin))
     print("        (l'ecart normal vient du tree-shaking esbuild : un module dont AUCUN symbole")
     print("         importe n'est appele ne sort pas dans le bundle.)")
 
