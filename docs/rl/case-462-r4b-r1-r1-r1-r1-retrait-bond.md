@@ -157,10 +157,16 @@ Contre-épreuves, toutes MORDANTES, arbre restauré :
 | C3 — conjoint `IsEntityWithIdTarget` retiré | **1** (le bras « mort TIERCE ») |
 
 ⚠ **C2b a d'abord été VERT**, et c'est ce qui a corrigé le test : le rejeu de
-`unit_removed_triggers` sur 1113 est **vacuously vrai** — l'effet vit sur une TUILE et
-`collect_effect_triggers` itère `effects.by_unit`. Un compteur d'instances avant/après s'y lisait
-comme une mesure sans en être une. Le bras B assertionne désormais l'**absence au registre**, qui
-rougit ; le rejeu reste joué comme non-régression, et le test le DIT.
+`unit_removed_triggers` sur 1113 est **vacuously vrai** — l'effet vit sur une TUILE, et aucun
+effet-trigger de tuile n'atteignait alors son `matches`. Un compteur d'instances avant/après s'y
+lisait comme une mesure sans en être une. Le bras B assertionne désormais l'**absence au registre**,
+qui rougit ; le rejeu reste joué comme non-régression, et le test le DIT.
+⚠⚠ **L'ATTRIBUTION écrite ici — « `collect_effect_triggers` itère `effects.by_unit` » — est FAUSSE,
+et `#462-r4b-r1-r1-r1-r1-c-r1` l'a mesurée.** `by_unit` est clée par id d'**ENTITÉ**, tuiles
+comprises : le collecteur instancie bien le trigger. C'était le **gate d'owner** de
+`evaluate_trigger_operation` qui le jetait, parce que son critère était l'attribut de CLASSE
+`owner_is_tile`. Le constat de vacuité reste juste ; sa cause était un étage plus bas.
+Corrigé depuis : `case-462-r4b-r1-r1-r1-r1-c-r1-effets-de-tuile.md`.
 
 Non-régression (39 verts) : `test_462_r4b_r1_r1_r1_neuroparasite_pose_live` (7),
 `test_366_r1_tunneling_horror_live` (5), `test_haze_of_corruption_transfer_live` (9),
@@ -248,11 +254,14 @@ matérialisée. Les 19 autres restent NULL à chaque pas — c'est le contrôle.
   `bondedEntity` est l'`owner` du cast, c'est-à-dire une **Machine of War**. Mesure
   (`--step pendingporteurs`) : entité de type `Machine`, `pos = None`, `hp = None`, absente de
   `decisionView.units`, cible légale d'**aucune** attaque. **Sa mort n'est pas atteignable.**
-  Deux raisons structurelles s'y ajoutent, chacune suffisante : ces effets vivent sur des **TUILES**
-  alors que `collect_effect_triggers` itère `effects.by_unit` (le piège « vacuously vrai » du §5,
-  re-mesuré) ; et leurs call-sites ne passent pas `bonded_ref`, donc `BaseEffect.bonded` reste `None`
-  et `matches` rendrait `False`. Les inscrire produirait du code **triplement inerte**, invalidable —
-  ce que la doctrine proscrit. Ils restent **hors table**, par mesure et non par prudence.
+  Une raison structurelle s'y ajoute, suffisante à elle seule : leurs call-sites ne passent pas
+  `bonded_ref`, donc `BaseEffect.bonded` reste `None` et `matches` rendrait `False`. Les inscrire
+  produirait du code **doublement inerte**, invalidable — ce que la doctrine proscrit. Ils restent
+  **hors table**, par mesure et non par prudence.
+  ⚠ **Une TROISIÈME raison était invoquée ici — « ces effets vivent sur des TUILES alors que
+  `collect_effect_triggers` itère `effects.by_unit` » — et elle est LEVÉE** (`#462-r4b-r1-r1-r1-r1-c-r1`).
+  Le collecteur voyait déjà les tuiles ; c'était le gate d'owner du dispatch, corrigé depuis. Le
+  verdict NON CONFRONTABLE ne change pas : il tenait déjà sur chacune des deux autres raisons.
 
 ⚠ **Ces trois effets ne sont pas sans retrait, et l'autre foyer MORD.**
 `APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal` ajoute
@@ -270,13 +279,18 @@ is_executed_if_owner_dies` — les deux champs sont redondants **exprès**, et c
 les garde. Contre-épreuve jouée : le garde mord. Tests offline **6 → 9 verts** ; non-régression
 **12 verts** (`bond_removal_live` 4, `neuroparasite_pose_live` 7, `valkyrie_strike_migration_live` 1).
 
-**Résidu `#462-r4b-r1-r1-r1-r1-c-r1`** — `collect_effect_triggers` est **structurellement aveugle
-aux effets de TUILE** : il n'itère que `state.effects.by_unit`. Aucun trigger d'effet ne peut donc
-mordre sur un effet posé sur une tuile, quel que soit son gate. C'est la troisième fois que ce trou
-est rencontré (1113 au §5, 1308 et 1402 ici) et il n'a jamais été traité : à chaque fois il est
-**masqué** par une autre raison de non-portage, ce qui le rend invisible. Le jour où un effet de
-tuile à gate armé ET bondé atteignable arrive, il mordra en silence. Périmètre à mesurer avant de
-porter : combien d'effets le port pose-t-il sur des tuiles, et lesquels ont un trigger enregistré.
+**Résidu `#462-r4b-r1-r1-r1-r1-c-r1` — RÉSOLU (2026-08-05),
+`case-462-r4b-r1-r1-r1-r1-c-r1-effets-de-tuile.md`.** Le trou existait, mais **pas où on l'accusait** :
+`collect_effect_triggers` VOIT les effets de tuile (`by_unit` est clée par id d'ENTITÉ) ; c'était le
+**gate d'owner** de `evaluate_trigger_operation` qui les jetait, son critère étant l'attribut de
+CLASSE `owner_is_tile` là où la nature du porteur est une propriété de l'INSTANCE. Côté natif, le
+seul discriminant est `IdunBattle.Entities.EntityExtensions$$IsUnit` — et sur la face EFFET il n'y a
+**aucun** gate du tout (`CanGetEffectTrigger` s'ouvre sur un corps dédupliqué `return 1`). Le port
+mirrore désormais `IsUnit` par la négative. **Le trou est LATENT et ça se mesure** : aucun
+`effect_type` porté par une tuile n'est servi par une classe nue (mesuré live et sur le registre),
+ce qui est exactement ce qui l'a masqué trois fois. Résidu ouvert en aval :
+**`#462-r4b-r1-r1-r1-r1-c-r3`** (les deux gates d'owner que le port garde encore sur la face EFFET,
+et que le natif n'a pas).
 
 **Non couvert, et nommé** : les **17 autres dérivées** à `RemoveOnBondedEntityDeath = TRUE`. Leur
 valeur est mesurée, mais leurs abilities ne sont pas portées dans `engine/` — donc ni porteur

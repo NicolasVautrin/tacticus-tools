@@ -119,10 +119,13 @@ RESIDUS NOMMES, explicitement HORS table (aucun trigger pose pour eux -- statu q
         entite est de type `Machine`, `pos=None`, absente de `decisionView.units` et cible legale
         d'AUCUNE attaque : sa mort n'est pas atteignable. Le trigger (a) est CONSTRUIT cote natif et
         INATTEIGNABLE -- l'inscrire serait du code que rien ne peut invalider.
-      - S'y ajoutent deux raisons structurelles, chacune suffisante : ces effets vivent sur des
-        TUILES alors que `collect_effect_triggers` itere `effects.by_unit` (le meme piege
-        << vacuously vrai >> qu'au §5 de la fiche, sur 1113) ; et leurs call-sites ne passent pas
-        `bonded_ref`, donc `BaseEffect.bonded` reste `None` et `matches` rendrait `False`.
+      - S'y ajoute une raison structurelle, suffisante a elle seule : leurs call-sites ne passent
+        pas `bonded_ref`, donc `BaseEffect.bonded` reste `None` et `matches` rendrait `False`.
+        ⚠ Une TROISIEME raison etait invoquee ici -- << ces effets vivent sur des TUILES alors que
+        `collect_effect_triggers` itere `effects.by_unit` >> -- et elle est LEVEE
+        (#462-r4b-r1-r1-r1-r1-c-r1) : `by_unit` est clee par id d'ENTITE, donc le collecteur voyait
+        deja les tuiles ; c'etait le gate d'owner du dispatch, corrige depuis. Le verdict NON
+        CONFRONTABLE tenait deja sur chacune des deux autres raisons.
     ⚠ Ces effets ne sont pas pour autant sans retrait : `APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal`
     ajoute son PROPRE `Triggered( On(0x15) & IsTurnOf(<0x758>()), TriggerAbility(...) &
     RemoveEffect(Effect) )` -- le retrait au declenchement de l'attaque differee, qui est un AUTRE
