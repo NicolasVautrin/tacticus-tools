@@ -246,7 +246,7 @@ plateau ; un diff **sur le flux entier** ne perd rien.
 boxée, `reference_symbol_table_versioned`).
 
 Vérifié : `npx tsc -p tsconfig.hooks.json --noEmit` → 146 erreurs, **toutes préexistantes** (142
-dans `hooks/scratch/` gitignoré, 4 dans `debug-rpcs.ts` / `tensorizer.ts`), **aucune** sur ce
+dans `hooks/scratch/` versionné et bundlé, 4 dans `debug-rpcs.ts` / `tensorizer.ts`), **aucune** sur ce
 fichier ; `npm run build:hooks` → exit 0, bundle 1 145 132 o, les deux symboles présents.
 
 ## 9. Verdict : le comparateur est CONSTRUCTIBLE — et sur quel périmètre

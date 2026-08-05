@@ -201,11 +201,14 @@ pas restart le host en plein battle.
 
 ## Familles de diagnostic (rôle + source ; auto-armées au `register`)
 
-Outils de RE / observabilité — jamais une dépendance d'un hook live.
+Outils de RE / observabilité — aucun hook live ne les APPELLE, mais leur code est
+**dans le bundle injecté**, pas à côté.
 
 - **`dump*`/`check*`/`find*`/`search*`/`test*`/`inspect*`/`map*`** (~90,
   `controller.ts` → `hooks/scratch/*`) : introspection IL2CPP one-shot (offsets,
-  méthodes, enums, stats, weapons, progression).
+  méthodes, enums, stats, weapons, progression). `hooks/scratch/` est VERSIONNÉ et
+  **66 de ses modules sortent dans `dist/hooks.js`** : ce sont des entrées de build,
+  pas des brouillons à côté du build.
 - **`aiTrace*`** (`ai-trace.ts` + `ai-trace/`) : capture playbook/prédictions/
   utilités → JSONL (`data/ai-traces/`). `aiTraceEnable(level)`/`aiTraceStatus()`
   pilotés par les scripts RL.
