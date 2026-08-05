@@ -30,9 +30,15 @@ est donc, **site par site** :
 | `valeur par défaut` | 20 | 19 |
 | mirrors sous garde `probe_313` | 15 | **19** |
 
-**140 littéraux convertis** (136 au recensement + 4 sous le seuil structurel `|n| <= 3` —
-`UnitFlagsComponent.MOVED/ARRIVED_AT_FINAL_TILE/ACTIVE_ABILITY_USED/TURN_FINISHED`, convertis pour
-que la classe entière soit nommée). 101 membres distincts, 50 fichiers.
+**141 littéraux convertis** (136 au recensement + 5 sous le seuil structurel `|n| <= 3` —
+`UnitFlagsComponent.MOVED/ARRIVED_AT_FINAL_TILE/ACTIVE_ABILITY_USED/TURN_FINISHED`, plus `DEAD`,
+convertis pour que la classe entière soit nommée). 102 membres distincts, 50 fichiers.
+
+⚠ **Le 141ᵉ est arrivé AU REBASE**, et c'est le seul conflit de la tranche : `master` a ajouté
+`DEAD = 6` à `UnitFlagsComponent` pendant le travail. Tranché par l'auteur — la classe est nommée
+en entier, donc le laisser en ordinal nu aurait rouvert le gisement *dans le fichier même qui le
+ferme*. Le conflit a donc **ajouté** une conversion, il n'en a repris aucune ; la table de garde
+suit (140 → 141), sans quoi cette conversion-là n'aurait été gardée par rien.
 
 ## 3. Quatre mirrors NEUFS — le type est LU, jamais déduit d'un nom court
 
@@ -101,8 +107,8 @@ distincts. Canonicalisation par **`int(x)`, récursive** dans listes/tuples/sets
 n'est jamais rabattu sur son `int`.
 
 ```
-AVANT = 9515   APRES = 9850
-DISPARUES = 0   COMMUNES = 9515   DIVERGENTES = 0
+AVANT = 9516   APRES = 9851            (re-calcule APRES rebase, contre origin/master)
+DISPARUES = 0   COMMUNES = 9516   DIVERGENTES = 0
 NOUVELLES = 335  (= 158 AbilityVariableType + 141 AbilityConstantType + 27 UnitFlag + 9 EntityType)
 ```
 
@@ -220,8 +226,11 @@ imports), les deux sont **détectés**. Un mutant vert oblige à trancher entre 
 
 ## 11. Ce qui a été rejoué
 
+**Tout ci-dessous a été rejoué APRÈS le rebase** (14 commits d'écart avec `origin/master`) :
+
 - `probe_313` (19 mirrors sous garde, bijection, 0 dette) · `probe_181` (104 abilities, 0 masque
   manquant) · `probe_365` · `probe_468` (PASS) · `probe_273 --only-scan` — tous **verts** ;
+- `probe_270r1r1r3_mutants.py` — **20/20 mutants détectés**, PASS ;
 - **752 tests offline** (`tests/engine/*offline*.py`, 54 fichiers) — **752 passed** ;
 - import de **393 modules** `engine/` — **0 KO** ;
 - la garde de la tranche — **12 passed**.
