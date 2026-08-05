@@ -163,11 +163,17 @@ ADRESSES à celui des VALEURS.
 `engine/entities/active_ability_type.py` (260, importé par **145** fichiers). Si le tien n'y est
 pas, **l'ajouter fait partie de la tranche**.
 
-⚠ **L'axe BITS est tenu, l'axe CLÉS ne l'est PAS** — mesure du 2026-08-05 : **0** test de bit
-exécutable à littéral brut, mais **284 clés entières nues sur 15 fichiers** (`attack_type.py` 105,
-`targeting.py` 62, `ability_range.py` 33…), presque toutes des `ability_id` que
-`IdunBattle.Entities.Enum.ActiveAbilityType` nomme. La convention y était « id brut + commentaire
-nommant la classe native » — lisible, mais muette au changement de build. Résidu `#270-r1`.
+⚠ **L'axe BITS est tenu ; l'axe CLÉS l'est pour ce que le build attribue SANS AMBIGUÏTÉ** — **0**
+test de bit exécutable à littéral brut, et les **169** clés des **5** dicts à enum unique sont
+converties (#270-r1, 2026-08-05 ; value-preserving vérifié par empreinte des deux versions).
+**Restent ouverts** : les **128** clés de **10** dicts que le build n'attribue pas à un enum unique
+— il faut LIRE chaque site, et **`#270-c` passe d'abord** pour les 56 qui hésitent
+`Active`/`Triggered` ; et **161** littéraux en position **ÉLÉMENT DE CONTENEUR** (31 tuples/listes/
+sets, 16 fichiers), que les cinq rôles du probe ne visitent pas (`#270-r1-r1`).
+
+⚠ **Ce gisement a été SOUS-COMPTÉ ici même** : « 284 clés » ne voyait que les dicts, et un probe qui
+n'énumère pas un rôle rend un zéro rassurant sur ce rôle. Re-dériver
+(`probe_270r1_enum_candidates.py --croiser`), jamais citer ce paragraphe.
 
 ⚠ **Et la conversion n'est PAS mécanique** : elle vaut ce que vaut le miroir Python. Celui
 d'`ActiveAbilityType` est réparé (#270, source `enums.tsv`) ; `TriggeredAbilityType` porte encore
