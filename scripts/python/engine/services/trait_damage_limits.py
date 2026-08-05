@@ -288,8 +288,8 @@ def unit_is_overkill(current_health: int, damage: int, *,
         hitDamage += deniedDamage;
         currentHealth = UnitExtensions.GetStat(target, Health = 5);
         if (targetHealthBeforeAttack.HasValue) {                        // TOUJOURS pose sur la voie attaque
-            hitDamage  += (targetHealthBeforeAttack.Value - currentHealth)   // degat des coups precedents
-                        + unitComponent@+0x24;                          // cf. RESIDU ci-dessous
+            hitDamage  += (targetHealthBeforeAttack.Value - currentHealth)   // degat APPLIQUE des coups precedents
+                        + healthComponent@+0x24;                        // degat GASPILLE (cf. plus bas)
             currentHealth = targetHealthBeforeAttack.Value;             // base pct = PV AU DEBUT DE L'ATTAQUE
         }
         isPreventOverkill = UnitExtensions.HasFlag(target, 0x13);       // UnitFlag.PreventOverkill = 19
@@ -298,13 +298,18 @@ def unit_is_overkill(current_health: int, damage: int, *,
 
     **COLLAPSE PER-COUP -> PER-ATTAQUE, et pourquoi il est EXACT.** Le natif appelle cette surcharge a
     CHAQUE coup, mais avec `targetHealthBeforeAttack` = les PV au DEBUT DE L'ATTAQUE : le terme
-    `(initialHealth - currentHealth)` re-agrege le degat des coups precedents, donc l'argument compare a
+    `(initialHealth - currentHealth) + @+0x24` re-agrege le degat des coups precedents -- **applique
+    PLUS gaspille**, donc le DEMANDE cumule (cf. l'identite ci-dessous) --, donc l'argument compare a
     `initialHealth` est le CUMUL de l'attaque. Le port n'a qu'un chokepoint par attaque
     (`AttackDamageOperation._apply_damage_pipeline`) : lui passer `current_health = hp au debut de
     l'attaque` et `damage = cumul` reproduit donc EXACTEMENT l'appel du coup considere. Le seul ecart
     restant est que le natif evalue la condition COUP PAR COUP (et pose le flag des qu'UN coup rend
     vrai) : c'est pour ca que `AttackDamageOperation._did_overkill` re-joue la sequence des coups au
     lieu d'un appel unique -- `isCritical` et `deniedDamage`, eux, VARIENT d'un coup a l'autre.
+    ⚠ #462-r4e-o-r1 : ce collapse ne suffit PAS pour la CARDINALITE des events. Le flag `Overkilled`
+    coupe l'emission des coups SUIVANTS (SITE (A)), donc il faut le poser AU BON COUP, dans la boucle
+    -- c'est `damage_hits.overkill_flag_posted_by_hit`, qui mirrore la forme NATIVE (les trois
+    termes separes) plutot que l'identite, et dont ce chokepoint-ci consomme desormais le verdict.
 
     `allow_overkill` / seuil = les deux moities de la config DI (`DamagePrediction+0x10`, bool @+0x30 /
     int @+0x34) : `allow_overkill` = 1 en bataille reelle (VERDICT RE), seuil = le MEME global
@@ -341,10 +346,24 @@ def unit_is_overkill(current_health: int, damage: int, *,
         plancher de PV actif empeche `HealthComponent.reduce` d'amener les PV a 0, donc la sequence de
         mort n'est jamais atteinte tant qu'il tient. Il compte en revanche sur la face PREDICTION.
 
-    RESIDU NOMME restant : `unitComponent@+0x24` (l'int qui suit immediatement `MinimalHealth@+0x1c`
-    dans le MEME composant) s'ajoute au total d'overkill. HYPOTHESE (structure, non mesuree) :
-    accumulateur du degat refuse par le plancher de PV. Nul tant qu'aucun plancher n'est actif, donc
-    sans effet sur les scenarios mesures ; a plomber avec un porteur Hypersensory (Judh)."""
+    ⚠ **`@+0x24` N'EST PLUS UN RESIDU — il est NOMME, MESURE et LOAD-BEARING (#462-r4e-o-r1).**
+    L'ancienne redaction en faisait une hypothese (« accumulateur du degat refuse par le PLANCHER de
+    PV, nul tant qu'aucun plancher n'est actif ») : **c'est faux dans les deux moities**. Le composant
+    que `IsOverkill` va chercher est le `HealthComponent` lui-meme (meme `GetComponent(target, ...)`
+    qu'`ApplyDamageOperation$$Execute`), et `+0x24` est l'accumulateur de SUR-REDUCTION alimente en
+    queue d'`IdunBattle.Entities.Components.FillUpStatComponent$$Reduce`
+    (`this[0x24] += Math.Max(0, damage - applied)`) -- donc non nul des qu'un coup est ECRETE, avec ou
+    sans plancher. Son nom vient du natif : `...$$ResetOverReduce` (`this+0x24 = 0`), **sans aucun
+    xref de code** -> le compteur n'est JAMAIS remis a zero. Le plancher, lui, fait l'inverse de ce
+    qu'affirmait l'hypothese : quand `Minimum > 0`, `Reduce` **SAUTE** l'accumulation.
+
+    Cote port il vit sur `HealthComponent.over_reduce` et arrive ici par `denied_damage` /
+    l'appelant. Ce que ce terme change, MESURE (MC1_67/31337, `--hp-target 4000`) : sans lui le flag
+    `UnitFlag.Overkilled` tombe UN COUP TROP TARD et le port emet un event `Amount` de trop.
+
+    IDENTITE : `(targetHealthBeforeAttack - currentHealth)` = degat APPLIQUE des coups precedents,
+    `+0x24` = degat GASPILLE -> leur somme est le degat DEMANDE cumule. C'est ce qui rend le collapse
+    ci-dessus exact, y compris apres la mort de la cible."""
     if current_health is None or damage is None:
         return False                      # garde de port : le natif n'a jamais de degat/PV nul
     if not can_be_overkilled:
