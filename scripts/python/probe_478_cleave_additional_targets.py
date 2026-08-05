@@ -168,33 +168,55 @@ def layout_boltstorm(elev, playable):
     du cleave) et que `IsMeleePosition` soit FAUX (la gate du fold primaire, donc `IsRangedPosition`
     VRAI), assez pres pour que les cibles additionnelles restent dans la portee de l'arme.
 
-    Deux cibles additionnelles : les deux voisins communs de `T` et d'une tuile de reference, tous
-    deux a distance <= portee du caster. Le cardinal EFFECTIF est re-verifie par `stage` contre la
-    geometrie NATIVE -- ce constructeur ne fait que proposer."""
+    ## LE REGIME EST DISCRIMINANT SUR LA **PORTEE**, et c'est voulu (#478-r4)
+
+    Trois unites additionnelles, TOUTES adjacentes a la cible primaire -- donc toutes retenues par
+    le volet `Unobscured(Owner, Enemies(Caster, AdjacentUnits(Target)))`. Ce qui les separe est le
+    SECOND volet, `SurroundingEnemies(Owner, range)` :
+
+        A1, A2  a distance hex **1** du caster  -> DANS la portee 2   -> frappees
+        A3      a distance hex **3** du caster  -> HORS la portee 2   -> PAS frappee
+
+    C'est ce que l'arbre de `Boltstorm` a de PROPRE : `Fealty`/`TalonOfHorus` ancrent leur premier
+    volet sur `AdjacentEnemies(Caster, CasterTile)` (rayon 1 fige), lui sur un rayon LU DE L'ARME.
+    Un montage ou les trois adds seraient a portee ne distinguerait pas les deux arbres.
+
+    `A1`/`A2` a distance **1** n'est pas non plus du confort : a cette distance l'obscurcissement
+    est structurellement nul (aucune tuile intermediaire), donc l'accord natif/port sur le cardinal
+    ne peut pas venir d'un `is_target_tile_obscured` partage entre l'oracle et le port.
+
+    Le cardinal EFFECTIF est re-verifie par `stage` contre la geometrie NATIVE -- ce constructeur
+    ne fait que proposer."""
     rng = weapon_range_of("templAggressor")           # `Boltstorm` : Bolter, portee 2
     cells = sorted(playable)
     ctr = (sum(c for c, _ in cells) / len(cells), sum(r for _, r in cells) / len(cells))
+    best = None
     for t in sorted(cells, key=lambda q: (q[0] - ctr[0]) ** 2 + (q[1] - ctr[1]) ** 2):
         ring = [q for q in hexgeo.neighbors(t[0], t[1])
                 if q in playable and bq.is_adjacent(t, q, elev)]
         if len(ring) < 3:
             continue
         # la tuile du caster : a distance hex 2 de `T` (donc NON adjacente -> arme A DISTANCE et
-        # `IsRangedPosition` vrai), et d'ou les deux cibles additionnelles sont DANS LA PORTEE et
-        # NON OBSCURCIES -- les trois gates du selecteur de `Boltstorm`.
+        # `IsRangedPosition` vrai).
         far = [q for q in cells
                if hexgeo.distance(q, t) == 2 and not bq.is_adjacent(q, t, elev)]
         for c in far:
-            adds = [q for q in ring
-                    if q != c and hexgeo.distance(q, c) <= rng
-                    and not bq.is_target_tile_obscured(c, q, elev)]
-            if len(adds) < 2:
+            # DANS la portee : voisins de `T` egalement ADJACENTS au caster (distance hex 1).
+            near = [q for q in ring if q != c and bq.is_adjacent(q, c, elev)]
+            # HORS de la portee : voisin de `T` a distance hex > portee de l'arme. C'est le TEMOIN
+            # NEGATIF -- il attend au contact de la cible et ne doit RIEN prendre.
+            out = [q for q in ring if q != c and hexgeo.distance(q, c) > rng]
+            if not near or not out:
                 continue
-            # `want` = 0 : cf. `_expected_cardinal` -- l'ancre `Owner@0x30`. Ce regime exerce donc
-            # la gate RANGED du **FOLD PRIMAIRE** (`IsRangedPosition`), pas le cleave.
-            return {"T": t, "A": adds[:2], "C": {"templAggressor": c},
-                    "want": {"templAggressor": 0}}
-    return None
+            adds = near[:2] + out[:1]
+            cand = {"T": t, "A": adds, "C": {"templAggressor": c},
+                    "want": {"templAggressor": _expected_cardinal(
+                        "Boltstorm", c, t, adds, elev, rng)}}
+            if cand["want"]["templAggressor"] >= 2:
+                return cand                    # le montage le plus riche : 2 dedans, 1 dehors
+            if best is None and cand["want"]["templAggressor"] >= 1:
+                best = cand
+    return best
 
 
 def layout_rr(elev, playable):
@@ -278,18 +300,36 @@ def _expected_cardinal(passive: str, cpos, tpos, apos: list, elev, wrange: int) 
       * `Fealty`      : adjacent(a, caster) ET adjacent(a, cible)                   [ - cible ]
       * `TalonOfHorus`: adjacent(a, caster) ET adjacent(a, cible)
       * `RighteousRepugnance` : idem (l'autre surcharge, meme geometrie sur des unites MONO-hex)
-      * `Boltstorm`   : **ZERO**, et ce n'est pas une paresse -- son arbre ancre sur `Owner@0x30`
-        (`SurroundingEnemies(Owner, range)` ET `Unobscured(Owner, ...)`), un slot que
-        l'`AbilityEntities` d'une ATTAQUE NORMALE ne renseigne pas. MESURE : dans un montage ou les
-        trois gates geometriques sont satisfaites (deux ennemis adjacents a la cible, a portee, non
-        obscurcis), le natif ne frappe AUCUNE cible additionnelle -- la ou le MEME montage fait
-        cleaver `Fealty`/`TalonOfHorus`, qui ancrent sur `Caster@0x48`. Residu `#478-r4`.
-        L'oracle rend donc `0` **par la RE**, pas par constat : si un jour le natif se met a
-        frapper, c'est CE zero qui rougira, et il faudra reprendre l'ancre.
-    """
+      * `Boltstorm`   : dist_hex(a, caster) <= portee de l'ARME  ET  adjacent(a, cible)
+                        ET non obscurci(caster -> a)
+
+    ## POURQUOI `Boltstorm` N'EST PLUS UN ZERO CONSTANT (#478-r4)
+
+    Cet oracle rendait `0` par HYPOTHESE : « son arbre ancre sur `Owner@0x30`, un slot que
+    l'`AbilityEntities` d'une attaque normale ne renseigne pas ». L'hypothese est **REFUTEE par le
+    decompile** -- `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities` ecrit l'entite
+    CASTER dans TROIS slots (`+0x00`, `+0x08`, `+0x18`), et les trois lecteurs les nomment :
+    `ActorSelector$$Select` lit `+0x00`, `CasterSelector$$Select` lit `+0x08`,
+    `OwnerSelector$$Select` lit `+0x18`. Sur une ability ACTIVE (et l'attaque normale en est une)
+    `Owner == Caster == Actor`, donc les deux volets du selecteur ancrent sur le caster.
+
+    Le developpement geometrique, terme a terme (`AdjacentUnits(origin) = Units(AdjacentTiles(
+    origin)) - origin`, `SurroundingEnemies(u, r) = Enemies(u, Units(SurroundingTiles(u, r) -
+    Tiles(u)))`, `Unobscured(from, source)` = filtre de terrain) :
+
+        SurroundingEnemies(Owner, range) -> ennemi du caster a distance hex <= range, caster exclu
+        Unobscured(Owner, Enemies(Caster, AdjacentUnits(Target)))
+                                         -> ennemi du caster, adjacent a la CIBLE, cible exclue,
+                                            non obscurci depuis la tuile du caster
+
+    La CIBLE PRIMAIRE n'entre jamais dans l'intersection : `AdjacentUnits(Target)` la retire
+    (`op_Subtraction` explicite). C'est la difference avec `$$GetAllTargets`, que la face DECISION
+    porte, et qui la compte."""
     if passive == "Boltstorm":
-        _ = (cpos, tpos, apos, elev, wrange)     # gates geometriques SANS OBJET tant que Owner nul
-        return 0
+        return sum(1 for a in apos
+                   if a != cpos and hexgeo.distance(a, cpos) <= wrange
+                   and bq.is_adjacent(a, tpos, elev)
+                   and not bq.is_target_tile_obscured(cpos, a, elev))
     return sum(1 for a in apos
                if bq.is_adjacent(a, tpos, elev) and bq.is_adjacent(a, cpos, elev))
 
