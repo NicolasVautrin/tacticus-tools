@@ -582,7 +582,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # MESURE (probe_27_r4_martial_exemplar.py) : les deux bits portants sont observables --
     # `abilityTargets(1216)` rend UNE cible, le caster lui-meme (CasterIsPossibleTarget), et tombe a
     # ZERO cible des que le caster a bouge (CasterHasNotMoved).
-    1216: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved
+    ActiveAbilityType.MartialExemplar: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved  # 1216
                                  | TR.CasterMatchesDynamicRule,
                            self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
     # 1217 TheLionsWrath (#27-r4) -- meme configuration que 1216 : face DECISION portee (playbook
@@ -600,7 +600,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   +0x68 (`rules`)             = 0x4000 = TargetIsEnemy, et RIEN d'autre
     # C'est ce masque qui met 1217 sur la route d'ATTAQUE (cibles ENNEMIES), la ou 1216 -- self-cast
     # par `CasterIsPossibleTarget` -- passait par la route non-attaque.
-    1217: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.TheLionsWrath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1217
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1093 MortarionsPlagueWind (#27-r5) -- face DECISION portee (playbook), face COMBAT NON portee.
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.MortarionsPlagueWindAbility$$.ctor` n'appelle
@@ -616,7 +616,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # nom pres. `isSelfCasting` = `<preset>+0x180` = 0 ; `forceMeleeTarget` = `<preset>+0x1a0` = 1
     # = RANGED_BOOL_FALSE (l'enum natif est INVERSE : True=0, False=1) ; `range` = le bloc
     # `<preset>+0x188..0x19f`, recopie de `TargetingRange statics+0x18` = RANGE_FROM_CONFIG.
-    1093: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetMatchesDynamicRule,
+    ActiveAbilityType.MortarionsPlagueWind: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetMatchesDynamicRule,  # 1093
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
     # 1215 InstrumentsOfVengeance (#27-r6) -- meme statut que 1216 : face DECISION portee (playbook),
     # face COMBAT NON portee (`...InstrumentsOfVengeanceAbility$$ExecuteBehaviour` est un arbre DSL
@@ -639,7 +639,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # MESURE (probe_27_r6_instruments_of_vengeance.py) : `abilityTargets(1215)` rend UNE cible, le
     # caster lui-meme (CasterIsPossibleTarget), et elle SURVIT au deplacement du caster (absence de
     # CasterHasNotMoved) -- c'est la contre-epreuve qui separe ce masque de celui de 1216.
-    1215: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterMatchesDynamicRule,
+    ActiveAbilityType.InstrumentsOfVengeance: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterMatchesDynamicRule,  # 1215
                            self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
 
     # ============================================================================================
@@ -691,73 +691,73 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # --- surcharge A, FLAGS DIRECTS (14) : le litteral du ctor EST le masque -------------------
     # 1005 AdaptiveStrategy -- `...Active.Loki.AdaptiveStrategyAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x402, 0, 0)`.
-    1005: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly,
+    ActiveAbilityType.AdaptiveStrategy: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly,  # 1005
                            self_cast=True, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1019 StormOfWrath -- `...Active.Loki.StormOfWrathAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x00>, 1, 0x4000, 0, 0)`.
-    1019: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.StormOfWrath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,  # 1019
                            range=RANGE_ADJACENT_IF_MELEE_CASTER,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1038 FoulInfusion -- `...Active.Loki.FoulInfusionAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange$$CustomRange(GetRange)>, 1, 0x482, 0, 0)`. Le `range` est un
     #   DELEGUE (`GetRange$$.ctor` construit juste avant) -> `custom_range_func()`, portee non derivable.
-    1038: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.AddCaster | TR.TargetIsFriendly,
+    ActiveAbilityType.FoulInfusion: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.AddCaster | TR.TargetIsFriendly,  # 1038
                            self_cast=True, range=custom_range_func(),
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1039 RitesOfRestoration -- `...Active.Loki.RitesOfRestorationAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x8508, 0, 0)`.
-    1039: TargetingOptions(rules=TR.AddCasterIfMatchesDynamicRule | TR.TargetIsHealable
+    ActiveAbilityType.RitesOfRestoration: TargetingOptions(rules=TR.AddCasterIfMatchesDynamicRule | TR.TargetIsHealable  # 1039
                                  | TR.TargetIsFriendly | TR.CasterIsPossibleTarget,
                            self_cast=True, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1049 CrusadeOfWrath -- `...Active.Loki.CrusadeOfWrathAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x400, 0, 0)`.
-    1049: TargetingOptions(rules=TR.TargetIsFriendly, self_cast=True, range=RANGE_FROM_CONFIG,
+    ActiveAbilityType.CrusadeOfWrath: TargetingOptions(rules=TR.TargetIsFriendly, self_cast=True, range=RANGE_FROM_CONFIG,  # 1049
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1057 GrotTank -- `...Active.Loki.GrotTankAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x1040, 0, 0)`.
-    1057: TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileIsFree, self_cast=False,
+    ActiveAbilityType.GrotTank: TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileIsFree, self_cast=False,  # 1057
                            range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
     # 1061 UnbreakableDuty -- `...Active.Loki.UnbreakableDutyAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x8400, 0, 0)`.
-    1061: TargetingOptions(rules=TR.TargetIsFriendly | TR.CasterIsPossibleTarget, self_cast=True,
+    ActiveAbilityType.UnbreakableDuty: TargetingOptions(rules=TR.TargetIsFriendly | TR.CasterIsPossibleTarget, self_cast=True,  # 1061
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
     # 1087 ExemplarOfTheKauyon -- `...Active.Loki.ExemplarOfTheKauyonAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x48>, 1, 0x6001042, 0, 0)`. SEULE du lot a porter
     #   les DEUX bits d'obscurcissement.
-    1087: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.TargetTileIsFree
+    ActiveAbilityType.ExemplarOfTheKauyon: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.TargetTileIsFree  # 1087
                                  | TR.AllowObscuredTargetByElevation | TR.AllowObscuredTargetByWalls,
                            self_cast=False, range=RANGE_WHOLE_BOARD,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1121 ItItches -- `...Active.Loki.ItItchesAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 0, 0x80040, 0, 0)`. ⚠ `forceMeleeTarget = 0`
     #   = `RangedBool.True` (l'enum natif est INVERSE) -- l'une des DEUX du lot hors defaut.
-    1121: TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileHasEnemyUnit, self_cast=False,
+    ActiveAbilityType.ItItches: TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileHasEnemyUnit, self_cast=False,  # 1121
                            range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_TRUE),
     # 1141 OverwhelmingWrath -- `...Active.Loki.OverwhelmingWrathAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x4000, 0, 0)`.
-    1141: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=True, range=RANGE_ADJACENT,
+    ActiveAbilityType.OverwhelmingWrath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=True, range=RANGE_ADJACENT,  # 1141
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1152 UnstoppableMomentumReworked -- `...Active.Loki.UnstoppableMomentumReworkedAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x10120040, 0, 0)`.
-    1152: TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileIsFreeOrEnemy | TR.AllowSteppableUnit
+    ActiveAbilityType.UnstoppableMomentumReworked: TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileIsFreeOrEnemy | TR.AllowSteppableUnit  # 1152
                                  | TR.CasterCanMove,
                            self_cast=False, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1164 MindControl -- `...Active.Loki.MindControlAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x18>, 1, 0x4002, 0, 0)`.
-    1164: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.MindControl: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1164
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
     # 1175 BloodChalice -- `...Active.BloodChaliceAbility$$.ctor` (hors namespace `Loki`) :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0xc02, 0, 0)`.
-    1175: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly
+    ActiveAbilityType.BloodChalice: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly  # 1175
                                  | TR.AddCasterIfAtLeastOneTarget,
                            self_cast=True, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1197 ExcruciatingFrequencies -- `...Active.Loki.ExcruciatingFrequenciesAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x20000000042, 0, 0)`.
-    1197: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsTile
+    ActiveAbilityType.ExcruciatingFrequencies: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsTile  # 1197
                                  | TR.AllowUntargetableTarget,
                            self_cast=False, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_FALSE),
@@ -767,31 +767,31 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   preset `+0x180` (rules 0x4002) puis `.ctor(&opts, &preset, 0x2000000)` -> 0x2004002.
     #   Le bit ajoute est `AllowObscuredTargetByElevation` : recopier le seul litteral aurait perdu
     #   `TargetIsEnemy` et `TargetMatchesDynamicRule`.
-    1048: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy
+    ActiveAbilityType.FragstormGrenadeLauncher: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy  # 1048
                                  | TR.AllowObscuredTargetByElevation,
                            self_cast=False, range=RANGE_FROM_CONFIG,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1050 HolyDuel -- `...Active.Loki.HolyDuelAbility$$.ctor` :
     #   preset `+0x40` (rules 0x4000) puis `.ctor(&opts, &preset, 0x200000000)` -> 0x200004000.
-    1050: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject, self_cast=False,
+    ActiveAbilityType.HolyDuel: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject, self_cast=False,  # 1050
                            range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
     # 1101 AttemptedPossession -- `...Active.Loki.AttemptedPossessionAbility$$.ctor` :
     #   preset `+0x180` (rules 0x4002) puis `.ctor(&opts, &preset, 0x200000002)` -> 0x200004002.
     #   Le `0x2` du litteral etait DEJA dans le preset : c'est le OU qui le dit, pas l'oeil.
-    1101: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy
+    ActiveAbilityType.AttemptedPossession: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy  # 1101
                                  | TR.TargetIsNotAnObject,
                            self_cast=False, range=RANGE_FROM_CONFIG,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1106 WarHowl -- `...Active.Loki.WarHowlAbility$$.ctor` :
     #   preset `+0x280` (self 1, rules 0x8004) puis `.ctor(&opts, &preset, 0x10)` -> 0x8014.
     #   MEME couple preset/flags que `1216 MartialExemplar` ci-dessus.
-    1106: TargetingOptions(rules=TR.CasterMatchesDynamicRule | TR.CasterHasNotMoved
+    ActiveAbilityType.WarHowl: TargetingOptions(rules=TR.CasterMatchesDynamicRule | TR.CasterHasNotMoved  # 1106
                                  | TR.CasterIsPossibleTarget,
                            self_cast=True, range=RANGE_SELF,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1183 VexillaMagnifica -- `...Active.Loki.VexillaMagnificaAbility$$.ctor` :
     #   preset `+0x40` (rules 0x4000) puis `.ctor(&opts, &preset, 0x200000000)` -> 0x200004000.
-    1183: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject, self_cast=False,
+    ActiveAbilityType.VexillaMagnifica: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject, self_cast=False,  # 1183
                            range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
 
     # --- surcharge C, PRESET SEUL (1) : copie PURE, aucun flag ajoute -------------------------
@@ -799,57 +799,57 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `.ctor(&opts, &preset)` a DEUX arguments. Le decompile ressemble a un PRESET+FLAGS dont le
     #   litteral aurait disparu -- ce sont les xrefs entrantes de la surcharge C qui tranchent
     #   (meme piege que `1029 Drachnyen`, #336). Masque = celui du preset, tel quel.
-    1129: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.BloodyFury: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1129
                            force_melee_target=RANGED_BOOL_FALSE),
 
     # --- STATIC-COPY (12) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` ------------
     # 1027 PsychicMaelstrom -- `...Active.Loki.PsychicMaelstromAbility$$.ctor`, preset `+0x180`.
-    1027: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.PsychicMaelstrom: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1027
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
     # 1063 FireAndReposition -- `...Active.Loki.FireAndRepositionAbility$$.ctor`, preset `+0x00`.
     #   ⚠ `forceMeleeTarget = 2` = `RangedBool.IfRangedCaster` -- SEULE du lot dans ce regime.
-    1063: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.FireAndReposition: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1063
                            range=RANGE_ADJACENT_IF_MELEE_CASTER,
                            force_melee_target=RANGED_BOOL_IF_RANGED_CASTER),
     # 1064 Loki_SwoopingHawk -- `...Active.Loki.SwoopingHawkAbility$$.ctor` dont le corps ENTIER est
     #   `return DiveAttackAbilityBase$$.ctor(this);` ; c'est la BASE qui recopie le preset `+0x40`.
-    1064: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.Loki_SwoopingHawk: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1064
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1068 SilentDeath -- `...Active.Loki.SilentDeathAbility$$.ctor`, preset `+0x40`.
-    1068: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.SilentDeath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1068
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1069 SeekerMissileFrequencyLock -- `...Active.Loki.SeekerMissileFrequencyLockAbility$$.ctor`,
     #   preset `+0x180`.
-    1069: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.SeekerMissileFrequencyLock: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1069
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
     # 1088 HellfyreMissileRack -- `...Active.Loki.HellfyreMissileRackAbility$$.ctor`, preset `+0x140`.
     #   ⚠ MEME masque que 1027/1069 (0x4002) mais preset DIFFERENT : `forceMeleeTarget = 0`
     #   = `RangedBool.True`. C'est le seul champ qui les separe, et il change le regime de portee.
-    1088: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.HellfyreMissileRack: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1088
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE),
     # 1132 KillMaimBurn -- `...Active.Loki.KillMaimBurnAbility$$.ctor`, preset `+0x40`.
-    1132: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.KillMaimBurn: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1132
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1165 MightFromBelow -- `...Active.Loki.MightFromBelowAbility$$.ctor`, preset `+0x40`.
-    1165: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.MightFromBelow: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1165
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1177 LightOfSanguinius -- `...Active.LightOfSanguiniusAbility$$.ctor` (hors namespace `Loki`),
     #   preset `+0x240`.
-    1177: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.CasterHasNotMoved
+    ActiveAbilityType.LightOfSanguinius: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.CasterHasNotMoved  # 1177
                                  | TR.TargetHasFreeAdjacentTile | TR.TargetIsEnemy
                                  | TR.AllowObscuredTargetByElevation | TR.TargetIsNotAdjacent,
                            self_cast=False, range=RANGE_WHOLE_BOARD,
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1191 MartialInspiration -- `...Active.Loki.MartialInspirationAbility$$.ctor`, preset `+0x40`.
-    1191: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.MartialInspiration: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1191
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1195 TalonsOfTheEmperor -- `...Active.Loki.TalonsOfTheEmperorAbility$$.ctor`, preset `+0x40`.
-    1195: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.TalonsOfTheEmperor: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1195
                            force_melee_target=RANGED_BOOL_FALSE),
     # 1204 LeadingTheCharge -- `...Active.Loki.LeadingTheChargeAbility$$.ctor`, preset `+0x240` --
     #   le MEME que 1177, donc masque IDENTIQUE ; ce qui les separe est leur
     #   `GetDynamicInvalidTargetReason` (cf. `engine.services.ability_range`), pas leurs options.
-    1204: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.CasterHasNotMoved
+    ActiveAbilityType.LeadingTheCharge: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.CasterHasNotMoved  # 1204
                                  | TR.TargetHasFreeAdjacentTile | TR.TargetIsEnemy
                                  | TR.AllowObscuredTargetByElevation | TR.TargetIsNotAdjacent,
                            self_cast=False, range=RANGE_WHOLE_BOARD,
@@ -895,7 +895,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x4010, 0, 0)` -> 0x4010 =
     #   `CasterHasNotMoved` (0x10) | `TargetIsEnemy` (0x4000). `TargetingRange statics+0x30` =
     #   RANGE_ADJACENT (`.cctor` : `+0x30 = 0` -> onlyAdjacent = True, `+0x38 = Nullable(1)`).
-    1010: TargetingOptions(rules=TR.CasterHasNotMoved | TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.StormOfFlensingBlades: TargetingOptions(rules=TR.CasterHasNotMoved | TR.TargetIsEnemy, self_cast=False,  # 1010
                            range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
     # 1144 BioMinefield -- `...Active.Loki.BioMinefieldAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x48>, 1, 0x40004020, 0, 0)` -> 0x40004020 =
@@ -903,7 +903,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   (0x40000000). Ce dernier bit est la SIGNATURE d'une MoW (une machine n'a aucune tuile, cf.
     #   `get_invalid_caster_reason` clause 4a) -- et son porteur `tyranBiovore` EST une MoW du pool.
     #   `statics+0x48` = RANGE_WHOLE_BOARD (`.cctor` : `+0x4c = 0x100` -> useWholeBoard = 1).
-    1144: TargetingOptions(rules=TR.TargetHasFreeAdjacentTile | TR.TargetIsEnemy
+    ActiveAbilityType.BioMinefield: TargetingOptions(rules=TR.TargetHasFreeAdjacentTile | TR.TargetIsEnemy  # 1144
                                  | TR.AllowNullCasterTile,
                            self_cast=False, range=RANGE_WHOLE_BOARD,
                            force_melee_target=RANGED_BOOL_FALSE),
@@ -912,7 +912,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `TargetMatchesDynamicRule` (0x2) | `TargetIsEnemy` (0x4000) | `TargetIsNotAnObject`
     #   (0x200000000). ⚠ `forceMeleeTarget = 0` = `RangedBool.True` -- le SEUL des quatre dans ce
     #   regime. `statics+0x18` = RANGE_FROM_CONFIG (`.cctor` : `+0x1c = 1`).
-    1185: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy
+    ActiveAbilityType.ForwardObservers: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy  # 1185
                                  | TR.TargetIsNotAnObject,
                            self_cast=False, range=RANGE_FROM_CONFIG,
                            force_melee_target=RANGED_BOOL_TRUE),
@@ -938,7 +938,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   Du preset viennent aussi `isSelfCasting = 1` (`+0x280`), `forceMeleeTarget = 1`
     #   (`+0x2a0` = RangedBool.False) et `range` = `<TargetingRange statics+0x60>` = RANGE_SELF
     #   (`.cctor` : `+0x60 = 1`, `+0x68 = Nullable(0)`). AUCUN bit de cible : c'est un self-cast.
-    1015: TargetingOptions(rules=TR.CasterHasNotMoved | TR.CasterMatchesDynamicRule
+    ActiveAbilityType.PrecisionShot: TargetingOptions(rules=TR.CasterHasNotMoved | TR.CasterMatchesDynamicRule  # 1015
                                  | TR.CasterIsPossibleTarget,
                            self_cast=True, range=RANGE_SELF,
                            force_melee_target=RANGED_BOOL_FALSE),
@@ -951,18 +951,18 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `*(statics+0x168)` = 0x4002 ; `+0x160` = `forceMeleeTarget` = **0** = `RangedBool.True` ;
     #   range = `<TargetingRange statics+0x18>` = RANGE_FROM_CONFIG. C'est le preset de 1088
     #   HellfyreMissileRack -- meme masque que 1027/1069 mais `forceMeleeTarget` DIFFERENT.
-    1044: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.IncendiaryShells: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1044
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE),
-    1080: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.HellfireShells: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1080
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE),
     # 1053 DevoutPush  -- `...Active.Loki.DevoutPushAbility$$.ctor`, preset `+0x40`.
     # 1108 KissOfDeath -- `...Active.Loki.KissOfDeathAbility$$.ctor`, preset `+0x40`.
     #   `*(statics+0x68)` = 0x4000 = `TargetIsEnemy` SEUL ; `+0x60` = 1 = `RangedBool.False` ;
     #   range = `<TargetingRange statics+0x30>` = RANGE_ADJACENT. Meme preset que 1064/1068/1132/
     #   1165/1191/1195 -- et que `DiveAttackAbilityBase$$.ctor`.
-    1053: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.DevoutPush: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1053
                            force_melee_target=RANGED_BOOL_FALSE),
-    1108: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.KissOfDeath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1108
                            force_melee_target=RANGED_BOOL_FALSE),
 }
 

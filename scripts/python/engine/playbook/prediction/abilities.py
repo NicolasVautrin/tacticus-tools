@@ -12,6 +12,9 @@ from ._shared import *   # vocabulaire commun (GC, dsl, active_ability_for, Prob
 from ._shared import (_PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
                       _prediction_is_charging, _target_damage_limits, _entity_traits)
 from .normal_attack import make_normal_attack_predictions
+# Les trois registres par-ability de ce module sont clees par `IdunBattle.Entities.Enum.ActiveAbilityType`
+# (#270-r1 volet 2) : ce sont des ids d'abilities ACTIVES, jamais des `TriggeredAbilityType`.
+from ...entities.active_ability_type import ActiveAbilityType
 # `EffectType.Fire` (5) : effet de TUILE lu par le gate de selecteur de 1148 (`_MAKE_DMG_TARGET_GATE`).
 from ...entities.effect_type import EffectType as _EffectType
 # `UnitTrait.Summon` (2) : trait lu par le selecteur de 1147 (`UnitsWithTrait(..., 2)`), cote gate ET
@@ -925,25 +928,32 @@ _MAKE_DMG_TARGET_GATE = {1148: _daemonic_ordnance_target_gate,
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
-_MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs,
-                             1080: _hellfire_shells_inputs, 1089: _great_frost_axe_inputs,
-                             1036: _frenzied_firing_inputs, 1230: _savage_echoes_inputs,
-                             1051: _stikkbomb_inputs,
-                             1098: _plasma_grenade_inputs,
-                             1048: _fragstorm_grenade_launcher_inputs,
-                             1222: _mass_driver_accelerator_inputs,
-                             1059: _ramming_speed_inputs,
-                             1035: _plague_wind_inputs,
-                             1093: _plague_wind_inputs}
+_MAKE_DMG_INPUT_OVERRIDES = {
+    ActiveAbilityType.MartialInspiration: _martial_inspiration_inputs,            # 1191
+    ActiveAbilityType.CrushingClaws: _crushing_claws_inputs,                      # 1105
+    ActiveAbilityType.HellfireShells: _hellfire_shells_inputs,                    # 1080
+    ActiveAbilityType.GreatFrostAxe: _great_frost_axe_inputs,                     # 1089
+    ActiveAbilityType.FrenziedFiring: _frenzied_firing_inputs,                    # 1036
+    ActiveAbilityType.SavageEchoes: _savage_echoes_inputs,                        # 1230
+    ActiveAbilityType.Stikkbomb: _stikkbomb_inputs,                               # 1051
+    ActiveAbilityType.PlasmaGrenade: _plasma_grenade_inputs,                      # 1098
+    ActiveAbilityType.FragstormGrenadeLauncher: _fragstorm_grenade_launcher_inputs,  # 1048
+    ActiveAbilityType.MassDriverAccelerator: _mass_driver_accelerator_inputs,     # 1222
+    ActiveAbilityType.RammingSpeed: _ramming_speed_inputs,                        # 1059
+    ActiveAbilityType.PlagueWind: _plague_wind_inputs,                            # 1035
+    ActiveAbilityType.MortarionsPlagueWind: _plague_wind_inputs,                  # 1093
+}
 
 # Batchs SUPPLEMENTAIRES per-ability (cf. `_ramming_speed_self_events`) : le playbook emet des events
 # sur un selecteur AUTRE que la cible principale et l'AoE de l'ability. Pour 1059 le handler rend les
 # TROIS batchs restants -- le CASTER, puis (sous la gate `WillBeKill`) les deux batchs EXPLOSION --
 # parce qu'ils sortent du MEME `MakeDamagePredictions` et que leur ordre y est significatif. Pour
 # 1035/1093 il rend les vagues 2 et 3, chacune avec SON selecteur et SA base.
-_MAKE_DMG_EXTRA_EVENTS = {1059: _ramming_speed_self_events,
-                          1035: _plague_wind_wave_events,
-                          1093: _plague_wind_wave_events}
+_MAKE_DMG_EXTRA_EVENTS = {
+    ActiveAbilityType.RammingSpeed: _ramming_speed_self_events,      # 1059
+    ActiveAbilityType.PlagueWind: _plague_wind_wave_events,          # 1035
+    ActiveAbilityType.MortarionsPlagueWind: _plague_wind_wave_events,  # 1093
+}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
@@ -959,19 +969,19 @@ _MAKE_DMG_EXTRA_EVENTS = {1059: _ramming_speed_self_events,
 # SEUL gap. La confrontation live a montre que la majorite des candidats null ont un gap PLUS PROFOND (hits/base)
 # que l'override ne touche pas -> NON retenus (taches dediees). Cf. docs/rl/case-165-playbook-param8-profile.md.
 _PLAYBOOK_PROFILE_OVERRIDE = {
-    1020: "None",     # HeraldOfTheApocalypse IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$MakeDamagePredictions (blackHaarken ; null ; Piercing 80) — VALIDE LIVE OK
-    1062: "None",     # SanctorumMissile IdunBattle.AI.Playbook.Loki.SanctorumMissilePlaybook$$MakeDamagePredictions (adeptMorvenn ; null, main+bonus ; Blast 15) — VALIDE LIVE OK
-    1017: "None",     # FragBomb IdunBattle.AI.Playbook.Loki.FragBombPlaybook$$MakeDamagePredictions (astraBullgryn ; null ; Blast 15) — hits config 6 OK, pierce SEUL gap. VALIDE LIVE [6,6] [#168]
-    1006: "None",     # MultiThreatEliminator IdunBattle.AI.Playbook.Loki.MultiThreatEliminatorPlaybook$$MakeDamagePredictions (necroDestroyer ; null ; Gauss 60) — + hits static 6 (subclass). VALIDE LIVE [6,6] [#167]
-    1066: "Psychic",  # Executioner IdunBattle.AI.Playbook.Loki.ExecutionerPlaybook$$GeneratePredictions (eldarFarseer ; Nullable(0xd=13=Psychic, pierce 100)) — hits=RoundsStarted (subclass) [#166]
-    1008: "None",     # HarbingerOfDestruction IdunBattle.AI.Playbook.Loki.HarbingerOfDestructionPlaybook$$MakeDamagePredictions (necroPlasmancer ; nullIdunBattle.AI.Playbook.Loki.HarbingerOfDestructionPlaybook$$MakeDamagePredictions+0x1cc ; ability DirectDamage pierce 100) [#169]
+    ActiveAbilityType.HeraldOfTheApocalypse: "None",     # 1020 IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$MakeDamagePredictions (blackHaarken ; null ; Piercing 80) — VALIDE LIVE OK
+    ActiveAbilityType.SanctorumMissile: "None",     # 1062 IdunBattle.AI.Playbook.Loki.SanctorumMissilePlaybook$$MakeDamagePredictions (adeptMorvenn ; null, main+bonus ; Blast 15) — VALIDE LIVE OK
+    ActiveAbilityType.FragBomb: "None",     # 1017 IdunBattle.AI.Playbook.Loki.FragBombPlaybook$$MakeDamagePredictions (astraBullgryn ; null ; Blast 15) — hits config 6 OK, pierce SEUL gap. VALIDE LIVE [6,6] [#168]
+    ActiveAbilityType.MultiThreatEliminator: "None",     # 1006 IdunBattle.AI.Playbook.Loki.MultiThreatEliminatorPlaybook$$MakeDamagePredictions (necroDestroyer ; null ; Gauss 60) — + hits static 6 (subclass). VALIDE LIVE [6,6] [#167]
+    ActiveAbilityType.Executioner: "Psychic",  # 1066 IdunBattle.AI.Playbook.Loki.ExecutionerPlaybook$$GeneratePredictions (eldarFarseer ; Nullable(0xd=13=Psychic, pierce 100)) — hits=RoundsStarted (subclass) [#166]
+    ActiveAbilityType.HarbingerOfDestruction: "None",     # 1008 IdunBattle.AI.Playbook.Loki.HarbingerOfDestructionPlaybook$$MakeDamagePredictions (necroPlasmancer ; nullIdunBattle.AI.Playbook.Loki.HarbingerOfDestructionPlaybook$$MakeDamagePredictions+0x1cc ; ability DirectDamage pierce 100) [#169]
     #   RE PROUVE pierce-SEUL gap : base=ArcScourge.GetDamage=avgIdunBattle.AI.Playbook.Loki.HarbingerOfDestructionPlaybook$$MakeDamagePredictions+0x13c OK, hits=ArmoriumCherub.GetHits configIdunBattle.AI.Playbook.Loki.HarbingerOfDestructionPlaybook$$MakeDamagePredictions+0x16e OK.
     #   NON confronte live (necroPlasmancer = UNSPAWNABLE_FALLBACK ; autres carriers = NPC necroBoss*). Retenu sur preuve
     #   decompile (structure IDENTIQUE aux 1020/1062 valides live) — le deep-read RE a explicitement exclu tout gap base/hits.
     # --- audit #165 param_8=null : les 5 AUTRES candidats NE sont PAS des overrides pierce (confronte #169) :
     #   1027 PsychicMaelstrom IdunBattle.AI.Playbook.Loki.PsychicMaelstromPlaybook$$MakeDamagePredictions : param_8 = Nullable(BasiliskBarrage.GetDamageProfile) EXPLICITE (PAS null ; l'audit
     #     d'arite confondait param_8=profil et param_9=poids Fix64). Live OK bit-exact [2792,4188] (astraPrimarisPsy). AUCUN override.
-    1100: "None",     # SorcerousFacade IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions (thousTzaangor) ; profil du 2e batch VIDE -> pierce 0/armure pleine [#351]
+    ActiveAbilityType.SorcerousFacade: "None",     # 1100 IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions (thousTzaangor) ; profil du 2e batch VIDE -> pierce 0/armure pleine [#351]
     #   ^ ENTREE POSEE PAR #351, et elle n'est plus inerte. L'ancienne note disait « PAS d'entree
     #   ici, et c'est DELIBERE : `SorcerousFacade` est dans `_PREDICT_VIA_NORMAL_ATTACK`, donc
     #   `_event` court-circuite AVANT de consommer `overrides` ». Ce court-circuit ETAIT le residu
@@ -984,8 +994,8 @@ _PLAYBOOK_PROFILE_OVERRIDE = {
     #   `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(avgFlag)`, c.-a-d. l'avg config
     #   GENERIQUE (== `ab.get_damage()` = 1496 mesure). Les hits sont `GetNumberConstant(0x2f =
     #   nrOfHits)`, eux aussi generiques, et les cibles `DSLSelectors.Get(sel)` = mono-cible.
-    1148: "None",     # DaemonicOrdnance IdunBattle.AI.Playbook.Loki.DaemonicOrdnancePlaybook$$MakeDamagePredictions (blackForgefiend MoW) ; param_8=null -> pierce 0/armure pleine [#172]
-    1147: "None",     # HadesAutocannons IdunBattle.AI.Playbook.Loki.HadesAutocannonsPlaybook$$MakeDamagePredictions (blackForgefiend MoW) ; param_8=null -> pierce 0/armure pleine [#172]
+    ActiveAbilityType.DaemonicOrdnance: "None",     # 1148 IdunBattle.AI.Playbook.Loki.DaemonicOrdnancePlaybook$$MakeDamagePredictions (blackForgefiend MoW) ; param_8=null -> pierce 0/armure pleine [#172]
+    ActiveAbilityType.HadesAutocannons: "None",     # 1147 IdunBattle.AI.Playbook.Loki.HadesAutocannonsPlaybook$$MakeDamagePredictions (blackForgefiend MoW) ; param_8=null -> pierce 0/armure pleine [#172]
     #   ^1148/1147 : RE #172 REFUTE l'ancienne hypothese "gap BASE". base = IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$GetDamage /
     #   IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$GetDamage = IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(avgFlag) = Half(Sum(minDmg 0xc,maxDmg 0xd))
     #   = avg GENERIQUE (== ab.get_damage) ; hits = IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits = nrOfHits GENERIQUE. Seul gap = param_8=null.

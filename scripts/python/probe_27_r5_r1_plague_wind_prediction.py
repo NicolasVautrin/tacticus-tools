@@ -76,8 +76,12 @@ STATE = LOGS / "rs_27r5r1_plague_wind.json"
 BOARD = "MC1_67"
 SEED = 909
 
-PW = int(ActiveAbilityType.PlagueWind)                    # 1035 = 0x40b
-MPW = int(ActiveAbilityType.MortarionsPlagueWind)         # 1093 = 0x445
+# MEMBRES, pas `int(...)` (#270-r1 volet 2), et c'est LOAD-BEARING : ce probe `pop` ces deux cles
+# de `_MAKE_DMG_EXTRA_EVENTS` puis les REINSERE par `update` -- un `pop` + reinsertion REMPLACE la
+# cle (une affectation sur cle existante, elle, la conserve), donc un `int(...)` laisserait le dict
+# avec deux cles non typees.
+PW = ActiveAbilityType.PlagueWind                         # 1035 = 0x40b
+MPW = ActiveAbilityType.MortarionsPlagueWind              # 1093 = 0x445
 
 CASTER_PW = "deathTyphus"          # porteur NATIF de 1035 (pool)
 CASTER_MPW = "deathBlightlord"     # porteur GREFFE de 1093 (pool, meme faction)

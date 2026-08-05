@@ -33,7 +33,12 @@ STATE = LOGS / "rs_216_savage.json"
 BOARD = "MC1_67"
 SEED = 909
 CASTER, TARGET = 81, 77          # bloodTerminator (team 1) / tauCrisis (team 2)
-ABILITY = 1230
+sys.path.insert(0, str(HERE))
+from engine.entities.active_ability_type import ActiveAbilityType  # noqa: E402
+#: MEMBRE (#270-r1 volet 2), et LOAD-BEARING : ce probe `pop` puis REINSERE cette cle dans
+#: `_MAKE_DMG_INPUT_OVERRIDES` -- un `pop` + reinsertion REMPLACE la cle, donc un ordinal nu
+#: laisserait le dict avec une cle non typee.
+ABILITY = ActiveAbilityType.SavageEchoes  # 1230
 # BOUCHONS : un ALLIE du caster (83 ultraCalgar) et un ENNEMI (79 blackTerminator). Les poser sur des
 # tuiles adjacentes au caster fait BAISSER `Count(CanAddUnit(AdjacentTiles(caster)))` -- CanAddUnit ne
 # regarde PAS l'equipe (tuile LIBRE), les deux camps bouchent donc pareil : c'est ce que le montage teste.

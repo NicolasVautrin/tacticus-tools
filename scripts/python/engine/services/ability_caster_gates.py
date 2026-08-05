@@ -109,6 +109,7 @@ from dataclasses import dataclass
 import gameconfig as GC
 import hexgeo
 
+from ..entities.active_ability_type import ActiveAbilityType
 from ..runner.abilities.attack_type import is_regular_attack
 from ..runner.abilities.targeting_rule import TargetingRule as TR
 
@@ -410,31 +411,31 @@ CASTER_GATE_NOT_READ = "not_read"
 #: entree serait du bruit. Les DOUZE porteurs des 148 masques lus y sont, aucun de plus.
 DYNAMIC_CASTER_GATE_BY_ABILITY: dict[int, str] = {
     # --- DERIVABLE ---------------------------------------------------------------------------
-    1045: CASTER_GATE_SPAWN_TILE,   # GetEmRuntzAbility : `GetSpawnTileSelector(caster).Count > 0 ? 0 : 2`
+    ActiveAbilityType.GetEmRuntz: CASTER_GATE_SPAWN_TILE,   # 1045 GetEmRuntzAbility : `GetSpawnTileSelector(caster).Count > 0 ? 0 : 2`
     # --- LU, NON derivable hors etat de bataille ------------------------------------------------
-    1008: CASTER_GATE_NOT_DERIVABLE,  # HarbingerOfDestructionAbility : `GetEnemiesInRange(targetAmount,
+    ActiveAbilityType.HarbingerOfDestruction: CASTER_GATE_NOT_DERIVABLE,  # 1008 HarbingerOfDestructionAbility : `GetEnemiesInRange(targetAmount,
     #     GetNumberConstant(0x16 range), ...)` puis `Count(sel) < 1` -> `0x200`. Lit les ENNEMIS a
     #     portee par un selecteur, et son `targetAmount` sort de la config d'ability.
-    1015: CASTER_GATE_NOT_DERIVABLE,  # PrecisionShotAbility : `HasEffect(caster, 0x3f7)` -> 0, sinon
+    ActiveAbilityType.PrecisionShot: CASTER_GATE_NOT_DERIVABLE,  # 1015 PrecisionShotAbility : `HasEffect(caster, 0x3f7)` -> 0, sinon
     #     **2**. L'ability n'est castable QUE si le caster porte l'effet ; aucun canal DECISION ne
     #     publie les effets -> ne pas refuser (permissif).
-    1023: CASTER_GATE_NOT_DERIVABLE,  # BurrowersAbility : parcourt `casterTiles` et rend 0 des qu'une
+    ActiveAbilityType.Burrowers: CASTER_GATE_NOT_DERIVABLE,  # 1023 BurrowersAbility : parcourt `casterTiles` et rend 0 des qu'une
     #     tuile est `TileExtensions$$IsTemporary`, sinon **4**. C'est l'une des rares regles-delegues
     #     qui lise VRAIMENT `casterTiles` (cf. l'avertissement ci-dessus).
-    1040: CASTER_GATE_NOT_DERIVABLE,  # SpawnPoxwalkersAbility : pour chaque tuile de `casterTiles`,
+    ActiveAbilityType.Poxwalkers: CASTER_GATE_NOT_DERIVABLE,  # 1040 SpawnPoxwalkersAbility : pour chaque tuile de `casterTiles`,
     #     `<IBattleQuery slot 0x68>(tile, ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange(caster),
     #     0, 0)` ; `Count > 0` -> 0, sinon **4**. Portee derivee d'un EFFET.
-    1102: CASTER_GATE_NOT_DERIVABLE,  # DoomboltAbility : `Count(DoomboltAbility$$GetTargets()) < 1`
+    ActiveAbilityType.Doombolt: CASTER_GATE_NOT_DERIVABLE,  # 1102 DoomboltAbility : `Count(DoomboltAbility$$GetTargets()) < 1`
     #     -> `0x8000000` (`TargetIsInRange`).
-    1207: CASTER_GATE_NOT_DERIVABLE,  # AncestralFortuneAbility : `CanAddCritChance` puis
+    ActiveAbilityType.AncestralFortune: CASTER_GATE_NOT_DERIVABLE,  # 1207 AncestralFortuneAbility : `CanAddCritChance` puis
     #     `CanAddBlockChance` (deux selecteurs sur les STATS du caster), puis
     #     `NormalUnits(AdjacentEnemies(...), 3)` ; le dernier `Count > 0` -> 0, sinon **2**.
     # --- BIT POSE, surcharge NON ETABLIE (residu, cf. `CASTER_GATE_NOT_READ`) --------------------
-    1077: CASTER_GATE_NOT_READ,      # EarlyWarningOverride
-    1106: CASTER_GATE_NOT_READ,      # WarHowl
-    1184: CASTER_GATE_NOT_READ,      # MomentShackle
-    1215: CASTER_GATE_NOT_READ,      # InstrumentsOfVengeance
-    1216: CASTER_GATE_NOT_READ,      # MartialExemplar
+    ActiveAbilityType.EarlyWarningOverride: CASTER_GATE_NOT_READ,   # 1077
+    ActiveAbilityType.WarHowl: CASTER_GATE_NOT_READ,                # 1106
+    ActiveAbilityType.MomentShackle: CASTER_GATE_NOT_READ,          # 1184
+    ActiveAbilityType.InstrumentsOfVengeance: CASTER_GATE_NOT_READ,  # 1215
+    ActiveAbilityType.MartialExemplar: CASTER_GATE_NOT_READ,        # 1216
 }
 
 #: `IdunBattle.Entities.Enum.UnitTrait.Steppable` = 0x1b -- le trait que `GetSpawnTileSelector`

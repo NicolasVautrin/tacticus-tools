@@ -154,6 +154,12 @@ REGISTRE: list[Mirror] = [
            "IdunBattle.Entities.Pathfinding.PathfinderType"),
     Mirror("KillUnitStep", "engine/runner/operations/remove_effects.py",
            "IdunBattle.Operations.KillUnitStep"),
+    # #270-r1 volet 2 : les 18 cles des trois tables de TRIANGLE (`battle_query._TRIANGLE_EVEN_COL`
+    # / `_ODD_COL`, `selectors/geometry._TRIANGLE_SHAPE_DIRECTIONS`) designent le parametre
+    # `direction` de `BattleQuery$$GetTilesInTriangleShape`, DECLARE `IdunBattleLogic.Utils.Hex.Corner`
+    # dans `frida/methods.tsv`. La cle est LUE la, pas deduite du nom court -- il existe CINQ autres
+    # enums nommes `Corner` dans le build (Unity/SimpleUI), tous a 3 ou 4 valeurs.
+    Mirror("Corner", "engine/hex_corner.py", "IdunBattleLogic.Utils.Hex.Corner"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune
