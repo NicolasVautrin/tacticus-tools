@@ -13,6 +13,12 @@ from ..base import BaseEffect, SubEffectSpec, SAME_TURNS, is_melee_attack
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 from ...traits import UnitTrait, has_any_trait, has_trait
 from ...effect_type import EffectType   # #270-r3 : cles de `ContagionsOfNurgle...CTOR_ARGS`
+# `StatType` etait importe UNIQUEMENT dans le corps de quelques methodes ; `630fb33e`
+# (#270-r1-r1-r3) a converti des litteraux en `StatType.<MEMBRE>` dans des methodes qui n'ont PAS
+# cet import local -> `NameError` a l'appel. Le lecteur est `get_stat_modification_stat`, appele au
+# CHARGEMENT D'ETAT (`stat_modifications_by_source` <- `UnitContext.from_snapshot` <- `load_state`),
+# donc toute bataille portant l'un de ces effets LEVAIT. Import module-level : foyer unique (#448-r3-r1).
+from ...stats import StatType
 
 
 class HypersensoryMinimalHealthEffect(BaseEffect):

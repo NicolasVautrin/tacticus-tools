@@ -1,8 +1,10 @@
 # #448-r3-r1 — l'étage était entré depuis, et le probe ne pouvait pas le voir
 
 **Statut** : RÉSOLU. `test_448_r2b_stormboyz_teleporting_in_live.py` = **12 passed** (9 avant, dont
-3 rouges). **Aucun fichier d'`engine/` n'est modifié** : le port était juste, la garde décrivait un
-port périmé — et le probe qui aurait dû le montrer ne mesurait rien en CLI.
+3 rouges). Sur le sujet de la tranche, **le port était juste** : la garde décrivait un port périmé,
+et le probe qui aurait dû le montrer ne mesurait rien en ligne de commande. Le seul changement de
+comportement livré est **ailleurs** — un `NameError` que `master` portait depuis le jour même et que
+le re-jeu APRÈS REBASE a fait apparaître (§8).
 
 ## 1. Les trois rouges, et ce qu'ils accusaient
 
@@ -129,7 +131,49 @@ contre-épreuve restait verte sur une tuile qui n'était même plus celle qu'on 
   consomme que l'**alignement**.
 * `FullThrottle$$CreateTrigger` reste non porté (résidu nommé de `case-448-r1` §6.3).
 
-## 8. Résidu ouvert — `#448-r3-r1-r1`
+## 8. Ce que le RE-JEU APRÈS REBASE a trouvé : `master` levait au chargement d'état
+
+Le rebase sur `origin/master` (22 commits d'avance) était propre, et pourtant `test_448_r2_teleporting_in_live.py`
+est passé de **4 passed** à **4 errors** :
+
+```
+engine/entities/effects/loki/status.py:382 in get_stat_modification_stat
+    return StatType.FIXED_ARMOR
+NameError: name 'StatType' is not defined
+```
+
+**Cause, datée** : `630fb33e` (#270-r1-r1-r3, 2026-08-05 16:07) a converti des littéraux en membres
+d'enum — `return 16` → `return StatType.FIXED_ARMOR` — dans **huit** `get_stat_modification_stat`
+de deux modules où `StatType` n'était importé **que dans le corps de quelques autres méthodes**.
+Aucun des huit n'avait l'import.
+
+**Ce que ça coûtait** : le lecteur est `entities/effects/__init__.py::effect_stat_modifications` ←
+`stat_modifications_by_source` ← `UnitContext.from_snapshot` ← `snapshot.load_state`. **Toute
+bataille dont une unité porte l'un de ces effets faisait lever le CHARGEMENT D'ÉTAT** —
+`ContagionsOfNurgle_ArmorReduction`, `Contaminated`, `StandVigil_ExtraArmor`, `ThrillSeekers`, plus
+quatre effets de `hits.py`.
+
+**Correctif** : import module-level dans les deux fichiers (2 lignes). **Garde** :
+`probe_448_r3_r1_noms_non_resolvables.py` + `tests/engine/test_448_r3_r1_noms_non_resolvables_offline.py`
+— un CLIQUET (`manquants == 0`), pas un seuil, parce que #270 rouvre ce gisement à chaque tranche.
+
+### L'instrument lui-même s'est trompé DEUX FOIS, et c'est mesuré
+
+| version du balayage | ce qu'elle rendait | la faute |
+|---|---|---|
+| bindings module par `ast.walk(tree.body)` | **0 site** sur un fichier qui LÈVE | descend dans les corps de méthodes ⇒ un import LOCAL compte comme binding MODULE |
+| fonctions par `ast.walk(tree)` | **85** sites | juge les fonctions IMBRIQUÉES avec la seule portée module, en ignorant les imports de leur parente |
+| sans résolution des `import *` | **75** sites | `from ._shared import *` ⇒ `GC`, `AbilityConfiguration`, `ProbableDamageEvent` invisibles |
+| sans filtre PEP 563 | **22** sites, tous des `Optional` | une annotation sous `from __future__ import annotations` n'est **jamais évaluée** |
+| version livrée | **0** site, **0** fichier indéterminé, sur 406 | — |
+
+Un `import *` non résolu ne rend pas un vert : le fichier est compté **INDÉTERMINÉ** et ses
+fonctions ne sont pas jugées (tri-état, même discipline que `host_inputs.py`).
+
+**Contre-épreuves** : le mutant synthétique (méthode sans import, sœur avec import) est détecté ;
+et **retirer l'import réel de `status.py` remet exactement les 4 sites** — vérifié aux octets.
+
+## 9. Résidu ouvert — `#448-r3-r1-r1`
 
 **Un probe qui GREFFE et ne lie pas le transport ambiant mesure un port amputé, et rend VERT.**
 Recensement du 2026-08-05 sur `scripts/python` : **20** fichiers combinent une greffe/relique
@@ -148,9 +192,12 @@ Ce compte est un **plancher**, pas un inventaire : le critère ne voit que les g
 le fichier lui-même*, et il ne dit rien des probes qui reçoivent un seed BC déjà greffé par un
 appelant. À re-dériver, jamais à citer.
 
-## 9. Reproduction
+## 10. Reproduction
 
 ```
+python scripts/python/probe_448_r3_r1_noms_non_resolvables.py
+python scripts/python/probe_448_r3_r1_noms_non_resolvables.py --mutate
+python -m pytest scripts/python/tests/engine/test_448_r3_r1_noms_non_resolvables_offline.py
 python scripts/python/probe_448_r2b_stormboyz_teleporting_in.py
 python scripts/python/probe_448_r2b_stormboyz_teleporting_in.py --mutate
 python scripts/python/probe_448_r2b_stormboyz_teleporting_in.py --mutate-hastile
